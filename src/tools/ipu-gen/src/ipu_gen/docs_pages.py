@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from pathlib import Path
 
-from ipu_as.inst import Inst
+from ipu_as.inst import render_opcode_doc, render_slot_docs
 from ipu_gen.layout_svg import struct_layout_svg, union_layout_svg
 from ipu_isa.formats import FORMATS
 from ipu_isa.layout import word_bits
@@ -509,7 +509,7 @@ def generate_instruction_docs(output_path: Path, view: Isa | None = None) -> Non
     content.append("\n---\n\n")
 
     for slot in view.layout.layout_order:
-        content.append(Inst._render_instruction_docs(slot.value, view))
+        content.append(render_slot_docs(slot.value, view))
         content.append("\n---\n")
 
     output_path.write_text("\n".join(content))
@@ -581,7 +581,7 @@ def generate_programmer_guide_md(output_path: Path, view: Isa | None = None) -> 
 
     for pseudo in (isa() if view is None else view).pseudos():
         target = pseudo.expands_to
-        lines = Inst.render_opcode_doc(pseudo.mnemonic, pseudo.doc, pseudo.operands)
+        lines = render_opcode_doc(pseudo.mnemonic, pseudo.doc, pseudo.operands)
         lines.append("")
         lines.append(
             f"**Expands to:** `{target.mnemonic}` "

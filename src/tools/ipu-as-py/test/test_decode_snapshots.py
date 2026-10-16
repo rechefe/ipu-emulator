@@ -36,9 +36,9 @@ def test_word_is_186_bits():
     assert decode_snapshots.word_fields()["total_bits"] == 186
 
 
-def test_renaming_a_token_class_changes_word_fields():
-    """Field names follow token class names today, so the snapshot catches a
-    class rename even when the encoding is unchanged."""
+def test_renaming_a_token_class_leaves_the_word_fields():
+    """Field names come from the ISA's word layout, not from token class names
+    (E05-02), so renaming a class changes nothing on the wire."""
     before = decode_snapshots.word_fields()
     # monkeypatch cannot restore __name__ (it is not in the class __dict__).
     # get_fields() is computed once (E05-01), so recompute it around the rename.
@@ -50,5 +50,4 @@ def test_renaming_a_token_class_changes_word_fields():
     finally:
         reg.LrRegField.__name__ = original
         CompoundInst.get_fields.cache_clear()
-    assert after != before
-    assert any("renamed_lr_reg_field" in name for name, _ in after["fields_lsb_first"])
+    assert after == before

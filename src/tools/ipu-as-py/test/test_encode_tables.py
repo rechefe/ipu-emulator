@@ -9,12 +9,13 @@ from pathlib import Path
 import lark
 import pytest
 
-import ipu_as.inst as inst
 import ipu_as.ipu_token as ipu_token
 import ipu_as.utils as utils
-from ipu_as.compound_inst import SLOT_TO_INST, CompoundInst
+from ipu_as.compound_inst import CompoundInst
 from ipu_as.opcodes import Opcode
 from ipu_as.session import AssemblySession
+from ipu_isa.slots import LAYOUT_ORDER, SLOTS
+from ipu_isa.view import isa
 
 # Bazel runs the test from the runfiles root of the main repository.
 ENUM_SNAPSHOT = Path.cwd() / "src/tools/ipu-as-py/test/baselines/enum_descriptors.json"
@@ -36,31 +37,14 @@ def _assemble(source: str) -> tuple[int, ...]:
         return AssemblySession(source).assemble().words
 
 
-INST_CLASSES = sorted(set(SLOT_TO_INST.values()), key=lambda cls: cls.__name__)
-
-
-@pytest.mark.parametrize("inst_class", INST_CLASSES, ids=lambda cls: cls.__name__)
-def test_struct_table_is_one_shared_read_only_object(inst_class) -> None:
-    table = inst_class.struct_by_opcode_table()
-    assert table is inst_class.struct_by_opcode_table()
-    with pytest.raises(TypeError):
-        table["NEW_OPCODE"] = inst.InstructionFormat(operands=())
-    with pytest.raises(TypeError):
-        del table[next(iter(table))]
-
-
 def test_no_table_is_rebuilt_per_instruction() -> None:
     _assemble(PROGRAM)  # warm: every table is built by now
-    struct_before = inst._build_struct_table.cache_info()
     reverse_maps_before = dict(ipu_token._REVERSE_MAPS)
     fields_before = CompoundInst.get_fields()
 
     words = _assemble(PROGRAM * 25)
 
     assert len(words) == 100
-    struct_after = inst._build_struct_table.cache_info()
-    assert struct_after.misses == struct_before.misses, "a slot table was rebuilt"
-    assert struct_after.hits > struct_before.hits
     assert ipu_token._REVERSE_MAPS == reverse_maps_before
     assert all(
         ipu_token._REVERSE_MAPS[cls] is reverse for cls, reverse in reverse_maps_before.items()
@@ -69,11 +53,8 @@ def test_no_table_is_rebuilt_per_instruction() -> None:
 
 
 def test_cached_tables_encode_like_fresh_ones() -> None:
-    """Clearing every cache and assembling again gives the same words."""
+    """Clearing the token caches and assembling again gives the same words."""
     expected = _assemble(PROGRAM)
-    inst._build_struct_table.cache_clear()
-    inst._inst_type_by_opcode.cache_clear()
-    inst._default_token.cache_clear()
     ipu_token._REVERSE_MAPS.clear()
     Opcode._class_by_opcode = None
     assert _assemble(PROGRAM) == expected
@@ -120,14 +101,12 @@ def test_enum_member_encodes_to_its_pinned_value(descriptor, member, value) -> N
 
 
 def test_opcode_lookups_resolve_every_opcode() -> None:
-    for inst_class in INST_CLASSES:
-        for opcode in inst_class.struct_by_opcode_table():
-            if opcode == "NOP":
+    for slot in LAYOUT_ORDER:
+        for instruction in isa().instructions(slot):
+            if instruction.mnemonic == "NOP":
                 continue
-            assert inst.Inst.find_inst_type_by_opcode(opcode.lower()) is inst_class
-            token = lark.Token("OPCODE", opcode)
-            assert Opcode.find_opcode_class(token) is inst_class.opcode_type()
-    # NOP is in every slot; both lookups keep the first slot defined.
-    assert inst.Inst.find_inst_type_by_opcode("nop") is inst.Inst.__subclasses__()[0]
+            token = lark.Token("OPCODE", instruction.mnemonic.lower())
+            assert Opcode.find_opcode_class(token).__name__ == SLOTS[slot].asm_opcode_class
+    # NOP is in every slot; the lookup keeps the first slot defined.
     nop = lark.Token("OPCODE", "NOP")
     assert Opcode.find_opcode_class(nop) is Opcode.__subclasses__()[0]
