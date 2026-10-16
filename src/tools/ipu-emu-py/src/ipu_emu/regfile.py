@@ -28,7 +28,7 @@ import struct
 import warnings
 import weakref
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Protocol
 
 import numpy as np
 
@@ -70,6 +70,21 @@ def _check_scalar(name: str, desc: RegDescriptor) -> None:
 
 #: ``fn(name, start, size)``: register *name* bytes ``[start, start+size)`` may change.
 RegisterObserver = Callable[[str, int, int], None]
+
+
+class RegFileReader(Protocol):
+    """The read-only face of a :class:`RegFile`: what an observer may call on a
+    snapshot (``Cycle.snapshot``). Nothing here writes or forgets provenance."""
+
+    def view(self, name: str) -> memoryview: ...
+
+    def raw_readonly(self, name: str) -> bytes: ...
+
+    def has_constant_ones(self, name: str, start: int, size: int) -> bool: ...
+
+    def get_lr(self, index: int) -> int: ...
+
+    def get_cr(self, index: int) -> int: ...
 
 
 def _remover(owner, fn: Callable) -> Callable[[], None]:
@@ -219,6 +234,11 @@ class RegFile:
         self.mutable(canon)
         self._mutable_exports.add(canon)
         return self._storage[canon]
+
+    def has_mutable_export(self, name: str) -> bool:
+        """Whether register *name*'s whole buffer was handed out by :meth:`raw`,
+        so it may change without any observer being told."""
+        return self._resolve(name) in self._mutable_exports
 
     def raw_readonly(self, name: str) -> bytes:
         """Read storage without handing out a mutable alias or losing provenance."""

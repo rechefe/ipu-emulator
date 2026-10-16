@@ -7,37 +7,35 @@ attn_v_16x60, or any softmax kernel.
 
 Instruction counting: RunStats (ipu_emu/stats.py) tracks cycles and
 mult/acc-active cycles and XMEM accesses, but NOT a dynamic executed-
-instruction count. This counts every non-NOP slot of every executed cycle
-(LR slots aside), as the emulator itself classifies the opcode
-(isa().by_opcode). It wraps the cycle entry points,
-Ipu.execute_vliw_cycle and Ipu.execute_vliw_cycle_skip_break, which both the
-faithful path and prototyping mode's fast path run through -- the fast path
-skips Ipu.dispatch_instruction, so counting there read zero in that mode. The
-counts match the per-dispatch ones: a cycle's break slot counts when the cycle
-starts, its other slots once it continues past the break. No ipu.py edit; the
-methods are wrapped from outside for the duration of one `with` block.
+instruction count. This counts every non-NOP op the cycle issues (LR slots
+aside), the BREAK slot included, as a CycleObserver attached to the state
+(IpuState.add_cycle_observer) for the duration of one `with` block. The cycle
+issues the same non-NOP ops in faithful and prototyping mode (prototyping only
+skips NOP slots), so the counts are identical in both modes. Nothing in Ipu is
+patched.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from typing import Any
 
-from ipu_emu.execute import BreakResult
-from ipu_emu.ipu import Ipu
-from ipu_isa.codec.word import opcode_field
-from ipu_isa.slots import SLOTS, Slot
-from ipu_isa.view import isa
+from ipu_emu.ipu_state import IpuState
+from ipu_emu.issue import IssueFacts
+from ipu_isa.slots import Slot
 
-#: The slots a cycle runs after its break slot (the LR slots are not counted).
-_AFTER_BREAK = tuple(
-    slot for slot, info in SLOTS.items() if info.count == 1 and slot is not Slot.BREAK
-)
+#: The slots counted: every slot but LR.
+_COUNTED = frozenset(slot.value for slot in Slot if slot is not Slot.LR)
 
 
 @dataclass
 class InstrCount:
-    """Dynamic executed non-NOP instruction count, broken down by slot."""
+    """Dynamic executed non-NOP instruction count, broken down by slot.
+
+    A :class:`~ipu_emu.cycle.CycleObserver`: it counts ``issued`` events.
+    """
 
     by_slot: dict = field(default_factory=dict)
 
@@ -45,43 +43,30 @@ class InstrCount:
     def total(self) -> int:
         return sum(self.by_slot.values())
 
-    def add(self, inst: dict | None, slots) -> None:
-        """Count the non-NOP instructions of *inst* in *slots*."""
-        if inst is None:
-            return
-        for slot_type in slots:
-            opcode = inst[opcode_field(Slot(slot_type))]
-            if isa().by_opcode(Slot(slot_type), opcode).mnemonic != "NOP":
-                self.by_slot[slot_type] = self.by_slot.get(slot_type, 0) + 1
+    def begin(self, pc: int) -> None:
+        pass
+
+    def issued(self, facts: IssueFacts) -> None:
+        if facts.slot in _COUNTED and facts.plan.inst_name != "NOP":
+            self.by_slot[facts.slot] = self.by_slot.get(facts.slot, 0) + 1
+
+    def retired(self, facts: IssueFacts, result: Any) -> None:
+        pass
+
+    def end(self) -> None:
+        pass
 
 
 @contextmanager
-def count_instructions():
-    """Context manager: yields an InstrCount that fills in as the emulator runs.
+def count_instructions(state: IpuState) -> Iterator[InstrCount]:
+    """Context manager: yields an InstrCount that fills in as *state* runs.
 
-    Wraps Ipu.execute_vliw_cycle and Ipu.execute_vliw_cycle_skip_break for the
-    duration of the `with` block only; the originals are restored on exit
-    regardless of how the block ends.
+    The count observes every cycle on *state* for the duration of the `with`
+    block only; it is detached on exit regardless of how the block ends.
     """
     counts = InstrCount()
-    cycle, rest_of_cycle = Ipu.execute_vliw_cycle, Ipu.execute_vliw_cycle_skip_break
-
-    def counting_cycle(self):
-        inst = self.state.inst_mem[self.state.program_counter]
-        counts.add(inst, ("break",))
-        result = cycle(self)
-        if result != BreakResult.BREAK:
-            counts.add(inst, _AFTER_BREAK)
-        return result
-
-    def counting_rest_of_cycle(self):
-        counts.add(self.state.inst_mem[self.state.program_counter], _AFTER_BREAK)
-        return rest_of_cycle(self)
-
-    Ipu.execute_vliw_cycle = counting_cycle
-    Ipu.execute_vliw_cycle_skip_break = counting_rest_of_cycle
+    remove = state.add_cycle_observer(counts)
     try:
         yield counts
     finally:
-        Ipu.execute_vliw_cycle = cycle
-        Ipu.execute_vliw_cycle_skip_break = rest_of_cycle
+        remove()

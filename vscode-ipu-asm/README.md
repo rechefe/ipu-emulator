@@ -78,7 +78,10 @@ and fails on any disagreement about a token's boundaries or role. It runs in
 
 The Jinja layer is checked on the raw files: every `{# … #}`, `{% … %}` and
 `{{ … }}` (even in an assembly comment) must carry its Jinja scope and nothing
-else may; the regions are cross-checked against Jinja's own lexer.
+else may. The regions come from `ipu_as.language_service`, which reads them
+with Jinja's own lexer (the same regions `ipu-as check --json --json-version 2
+--jinja` prints), so the test checks the editor against Jinja, not against a
+copy of the editor's algorithm.
 
 Kernels aside, `test/corpus/edge_cases.asm` covers constructs they happen not to
 use (mid-line labels, labels spelled like mnemonics, every numeric base). It

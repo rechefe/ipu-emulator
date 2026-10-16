@@ -16,6 +16,7 @@ from emu_support import assemble_program, make_state, new_state
 from ipu_emu.cycle import Cycle, CycleOutcome, decode_word, schedule_word
 from ipu_emu.emulator import load_program
 from ipu_emu.execute import BreakResult, Ipu
+from ipu_emu.geometry import effective_mult_mask, partition_vector
 from ipu_emu.ipu_state import IpuState
 from ipu_emu.regfile import RegFile
 
@@ -64,7 +65,10 @@ def _observable(state: IpuState) -> tuple:
 
 
 def _cycle(state: IpuState, observer=None) -> Cycle:
-    return Cycle(state, Ipu(state), observer)
+    cycle = Cycle(state, Ipu(state))
+    if observer is not None:
+        cycle.add_observer(observer)
+    return cycle
 
 
 class _Recorder:
@@ -76,6 +80,12 @@ class _Recorder:
 
     def begin(self, pc: int) -> None:
         self.calls.append(("begin", pc))
+
+    def issued(self, facts) -> None:
+        self.calls.append(("issued", facts.slot, facts.plan.inst_name))
+
+    def retired(self, facts, result) -> None:
+        self.calls.append(("retired", facts.slot, facts.plan.inst_name))
 
     def end(self) -> None:
         self.calls.append(("end", self.state.program_counter))
@@ -295,10 +305,86 @@ def test_the_observer_brackets_each_retired_word_and_not_a_break():
     cycle = _cycle(state, recorder)
 
     assert cycle.step() is CycleOutcome.BREAK
-    assert recorder.calls == []
+    assert _brackets(recorder) == []
     cycle.retire()
     cycle.step()
-    assert recorder.calls == [("begin", 0), ("end", 1), ("begin", 1), ("end", 2)]
+    assert _brackets(recorder) == [("begin", 0), ("end", 1), ("begin", 1), ("end", 2)]
+
+
+def _brackets(recorder: _Recorder) -> list[tuple]:
+    return [call for call in recorder.calls if call[0] in ("begin", "end")]
+
+
+def _non_nop(recorder: _Recorder) -> list[tuple]:
+    return [call for call in recorder.calls if call[0] in ("begin", "end") or call[2] != "NOP"]
+
+
+def test_ops_are_issued_and_retired_inside_the_brackets_and_break_before_them():
+    state = make_state("SET LR0 CR8 ; BREAK ;;\nSET LR1 CR8 ;;\nHALT ;;", cr={8: 3})
+    recorder = _Recorder(state)
+    cycle = _cycle(state, recorder)
+
+    assert cycle.step() is CycleOutcome.BREAK
+    assert recorder.calls == [("issued", "break", "BREAK"), ("retired", "break", "BREAK")]
+    recorder.calls.clear()
+    cycle.retire()
+    assert _non_nop(recorder) == [
+        ("begin", 0),
+        ("issued", "lr", "SET"),
+        ("retired", "lr", "SET"),
+        ("end", 1),
+    ]
+
+
+def test_state_observers_run_before_the_cycles_and_detach():
+    state = make_state("SET LR0 CR8 ;;\nSET LR1 CR8 ;;\nHALT ;;", cr={8: 3})
+    order: list[str] = []
+
+    class _Named(_Recorder):
+        def __init__(self, name: str) -> None:
+            super().__init__(state)
+            self.name = name
+
+        def begin(self, pc: int) -> None:
+            order.append(self.name)
+
+    cycle = Cycle(state, Ipu(state))
+    remove_own = cycle.add_observer(_Named("cycle"))
+    remove_state = state.add_cycle_observer(_Named("state"))
+    cycle.step()
+    assert order == ["state", "cycle"]
+    remove_own()
+    remove_state()
+    remove_state()  # harmless
+    cycle.step()
+    assert order == ["state", "cycle"]
+    assert cycle.observers == ()
+
+
+def test_issue_facts_carry_lr_writes_and_the_mult_mask():
+    state = make_state(
+        "SET LR0 CR8 ; ADDBI LRD2 1 ;;\nMULT.EE LR4 CR1 2 LR5 CR15 ;;\nHALT ;;",
+        cr={8: 3},
+        setup=lambda s: s.regfile.set_r_mask(bytes(range(128))),
+    )
+    seen = {}
+
+    class _Facts(_Recorder):
+        def issued(self, facts) -> None:
+            if facts.plan.inst_name != "NOP":
+                seen[facts.plan.inst_name, facts.lr_writes] = facts.mask
+
+    cycle = _cycle(state, _Facts(state))
+    cycle.step()
+    state.regfile.set_lr(5, 1)  # mask_shift +1
+    cycle.step()
+    assert ("SET", (0,)) in seen and seen["SET", (0,)] is None
+    assert ("ADDBI", (2, 3)) in seen
+    mask = seen["MULT.EE", ()]
+    slot = int.from_bytes(bytes(range(32, 48)), "little")
+    partition = state.get_dstructure_for(15).partition
+    assert mask == (slot << 1) & ((1 << 128) - 1) & partition_vector(partition)
+    assert mask == effective_mult_mask(state.regfile, state.get_dstructure_for(15), 2, 1)
 
 
 def test_an_lr_conflict_raises_before_any_lr_write():

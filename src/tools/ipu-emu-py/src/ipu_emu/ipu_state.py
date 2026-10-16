@@ -7,8 +7,10 @@ memory into a single object — the Python equivalent of ``ipu__obj_t``.
 from __future__ import annotations
 
 import struct
+import weakref
+from collections.abc import Callable
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ipu_emu import activations as _activations
 from ipu_emu.inst_mem import InstMem
@@ -27,6 +29,9 @@ from ipu_isa.constants import (
     encode_dstructure,
 )
 from ipu_isa.geometry import INST_MEM_WORDS
+
+if TYPE_CHECKING:
+    from ipu_emu.cycle import CycleObserver
 
 #: Instruction-memory depth, as the emulator names it.
 INST_MEM_SIZE = INST_MEM_WORDS
@@ -87,6 +92,8 @@ class IpuState:
         self.alias_profile = alias_profile
         self.stats.alias_profile = alias_profile
         self._inst_mem = InstMem(INST_MEM_SIZE)
+        #: Observers every cycle on this state calls (add_cycle_observer).
+        self.cycle_observers: tuple[CycleObserver, ...] = ()
         # Set when a debugger quit the last run before the program finished
         # (emulator-only; cleared at the start of every run).
         self.quit_requested: bool = False
@@ -122,6 +129,32 @@ class IpuState:
         self.window_b: float = (
             float(window_b) if window_b is not None else float(_activations.DEFAULT_WINDOW_B)
         )
+
+    # -- observers -----------------------------------------------------------
+
+    def add_cycle_observer(self, observer: CycleObserver) -> Callable[[], None]:
+        """Attach *observer* to every cycle that runs on this state.
+
+        For a caller that never sees the engine (``run_until_complete`` builds
+        its own): any ``Cycle`` on this state calls it, before the cycle's own
+        observers (``Cycle.add_observer``).
+
+        Args:
+            observer: The :class:`~ipu_emu.cycle.CycleObserver` to call.
+
+        Returns:
+            A function that detaches it; calling it twice is harmless.
+        """
+        self.cycle_observers = self.cycle_observers + (observer,)
+        # Weak, so an observer that keeps its remover does not pin the state.
+        ref = weakref.ref(self)
+
+        def remove() -> None:
+            state = ref()
+            if state is not None:
+                state.cycle_observers = tuple(o for o in state.cycle_observers if o is not observer)
+
+        return remove
 
     # -- CR dstructure convenience (CR15 = valid_elements[7:0] | partition[11:8]) --
 

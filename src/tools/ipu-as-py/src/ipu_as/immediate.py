@@ -1,3 +1,5 @@
+import functools
+
 import lark
 
 import ipu_as.ipu_token as ipu_token
@@ -25,6 +27,27 @@ from ipu_isa.reshape_mask import (
     reshape_mask_field_bits,
     reshape_mask_field_max,
 )
+from ipu_isa.slots import LAYOUT_ORDER
+from ipu_isa.view import isa
+
+
+@functools.cache
+def _operand_of(type_name: str) -> str:
+    """``"<MNEMONIC> <operand> operand"``: the instruction(s) and operand of a type, from the ISA.
+
+    Error messages name them this way, so a renamed mnemonic needs no edit here.
+    """
+    uses = sorted(
+        {
+            (instruction.mnemonic, op.name)
+            for slot in LAYOUT_ORDER
+            for instruction in isa().instructions(slot)
+            for op in instruction.operands
+            if op.type.name == type_name
+        }
+    )
+    names = " / ".join(f"{mnemonic} {name}" for mnemonic, name in uses) or type_name
+    return f"{names} operand"
 
 
 class LrModPow2KImmediate(ipu_token.IpuToken):
@@ -50,9 +73,8 @@ class LrModPow2KImmediate(ipu_token.IpuToken):
             self._raise_error(f"Value {self.token.value} is not a valid integer")
         low, high = self.value_range()
         if not (low <= self.int <= high):
-            self._raise_error(
-                f"Value {self.int} out of range [{low}, {high}] for INC.MODP2 k operand"
-            )
+            operand = _operand_of("LrModPow2KImmediate")
+            self._raise_error(f"Value {self.int} out of range [{low}, {high}] for {operand}")
 
     def encode(self) -> int:
         return self.int - LR_MOD_POW2_K_MIN

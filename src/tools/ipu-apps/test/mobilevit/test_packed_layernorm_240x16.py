@@ -145,7 +145,7 @@ def test_packed_layernorm_correctness_and_cost(tmp_path: Path) -> None:
     state.regfile.set_cr(15, ALLONES_MASK_ROW)  # ALLONES_MASK_BASE
     # cr0/cr1 are the hardwired ZERO/ONE constants.
 
-    with count_instructions() as packed_counts:
+    with count_instructions(state) as packed_counts:
         packed_cycles = run_until_complete(state, max_cycles=200_000)
 
     packed_out_raw = state.xmem.read_address(OUTPUT_BASE_ROW * ROW_BYTES, N_PACKED_ROWS * ROW_BYTES)
@@ -185,8 +185,9 @@ def test_packed_layernorm_correctness_and_cost(tmp_path: Path) -> None:
         beta_path=beta_path,
         output_path=out_path,
     )
-    with count_instructions() as unpacked_counts:
-        _, unpacked_cycles = app.run(max_cycles=200_000, state=app.make_state())
+    unpacked_state = app.make_state()
+    with count_instructions(unpacked_state) as unpacked_counts:
+        _, unpacked_cycles = app.run(max_cycles=200_000, state=unpacked_state)
 
     unpacked_out = (
         np.frombuffer(out_path.read_bytes(), dtype=np.float32)

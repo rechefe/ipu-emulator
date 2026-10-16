@@ -21,13 +21,21 @@ import struct
 import warnings
 import weakref
 from collections.abc import Callable, Mapping
-from functools import cache, lru_cache
+from functools import lru_cache
 from typing import Any, NamedTuple
 
 import numpy as np
 
 from ipu_emu.activations import apply_activation
 from ipu_emu.errors import ConfigurationError, DebugOnlyInstructionWarning, EmulatorError
+from ipu_emu.geometry import (
+    cr_scalar as _geometry_cr_scalar,
+)
+from ipu_emu.geometry import (
+    effective_mult_mask,
+    xmem_element_width_bytes,
+    xmem_row_size_bytes,
+)
 from ipu_emu.ipu_math import DType, dtype_one_byte, ipu_add, ipu_mult, ipu_sub
 from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState, WideVectorArithmetic
 from ipu_emu.isa_alias_spec import SCALAR_MULT_OPERANDS, VECTOR_IDENTITY_MULTS, aliases_for
@@ -50,7 +58,6 @@ from ipu_isa.constants import (
     LR_CR_SCALAR_BITS,
     REGISTER_WORD_VALUE_MASK,
     PadMode,
-    Partition,
 )
 from ipu_isa.geometry import LANES
 from ipu_isa.incr_mod_pow2_k import LR_MOD_POW2_K_ENCODED_MAX, LR_MOD_POW2_K_MIN
@@ -93,20 +100,9 @@ R_ACC_SIZE = _reg_sizes["r_acc"]["size_bytes"]
 # XMEM row geometry is shared by instruction execution and debugging. Derive
 # it from the register schema and the active element representation so there
 # is one source of truth for mode-dependent row addressing.
-_NARROW_ELEMENT_WIDTH_BYTES = R_REG_SIZE // LANES
+# ``xmem_element_width_bytes`` and ``xmem_row_size_bytes`` live in
+# ``ipu_emu.geometry`` (shared with the observers) and are re-exported here.
 _WIDE_ELEMENT_WIDTH_BYTES = struct.calcsize("<I")
-
-
-def xmem_element_width_bytes(state: IpuState) -> int:
-    """Return the byte width of one XMEM element in the active mode."""
-    if state.wide_vector_debug:
-        return _WIDE_ELEMENT_WIDTH_BYTES
-    return _NARROW_ELEMENT_WIDTH_BYTES
-
-
-def xmem_row_size_bytes(state: IpuState) -> int:
-    """Return the byte size of one assembly-addressable XMEM row."""
-    return LANES * xmem_element_width_bytes(state)
 
 
 XMEM_ADDRESSABLE_ROWS = XMEM_SIZE_BYTES // (LANES * _WIDE_ELEMENT_WIDTH_BYTES)
@@ -152,12 +148,6 @@ def _pack_lanes_one_by_one(
     """
     for i, v in enumerate(values):
         struct.pack_into(lane_fmt, buf, byte_off + 4 * i, v)
-
-
-def _check_partition(num_partitions) -> None:
-    # Reached mid-run from the MULT mask path: an internal invariant, not a setup error.
-    if not isinstance(num_partitions, Partition):
-        raise EmulatorError(f"partition must be a Partition enum value, got {num_partitions!r}")
 
 
 def _store_row(buf: bytearray | memoryview, lane_fmt: str, values) -> None:
@@ -390,6 +380,7 @@ class SlotPlan(NamedTuple):
     scalar_operand: str | None  # mult slot: scalar multiplicand
     scalar_kind: int  # ...and how it is addressed
     alias_checks: tuple[_AliasCheck, ...]  # empty for almost every plan
+    mask_cr_operand: str | None  # mult slot: the CR whose dstructure the lane mask uses
 
 
 # Which RunStats counter a non-NOP instruction in each slot bumps.
@@ -449,7 +440,13 @@ def _compile_alias_checks(slot_type: str, inst_name: str) -> tuple[_AliasCheck, 
     return tuple(checks)
 
 
-def _build_plan(instruction: Instruction, field_map: dict[str, str]) -> SlotPlan:
+def build_plan(instruction: Instruction, field_map: dict[str, str]) -> SlotPlan:
+    """The :class:`SlotPlan` of one instruction, whose fields sit at *field_map*'s keys.
+
+    Raises:
+        RuntimeError: The spec names a handler ``Ipu`` does not have, or an LR
+            write target that is not an LR or an LRD pair.
+    """
     slot, inst_name = instruction.slot, instruction.mnemonic
     reads = tuple(
         _OperandRead(
@@ -505,7 +502,22 @@ def _build_plan(instruction: Instruction, field_map: dict[str, str]) -> SlotPlan
         scalar_operand=scalar_operand,
         scalar_kind=scalar_kind,
         alias_checks=_compile_alias_checks(slot.value, inst_name),
+        mask_cr_operand=_mask_cr_operand(instruction),
     )
+
+
+def _mask_cr_operand(instruction: Instruction) -> str | None:
+    """The operand naming the CR a MULT's lane mask partitions by, or ``None``.
+
+    A MULT with a ``mask_offset`` operand masks its lanes: it reads the
+    dstructure of ``dstructure_cr_idx`` when it has one, else of ``cr_idx``.
+    """
+    if instruction.slot is not Slot.MULT or instruction.mnemonic == "NOP":
+        return None
+    names = {op.name for op in instruction.operands}
+    if "mask_offset" not in names:
+        return None
+    return "dstructure_cr_idx" if "dstructure_cr_idx" in names else "cr_idx"
 
 
 def _build_slot_plans():
@@ -516,7 +528,7 @@ def _build_slot_plans():
     opcode_fields = {slot_type: opcode_field(slot_type) for slot_type in _SINGLE_INSTANCE_SLOTS}
     plans = {
         slot_type: tuple(
-            _build_plan(instruction, _INSTRUCTION_FIELD_MAP[(slot_type, instruction.mnemonic)])
+            build_plan(instruction, _INSTRUCTION_FIELD_MAP[(slot_type, instruction.mnemonic)])
             for instruction in isa().instructions(Slot(slot_type))
         )
         for slot_type in _SINGLE_INSTANCE_SLOTS
@@ -525,7 +537,7 @@ def _build_slot_plans():
     lr = SLOTS[Slot.LR]
     lr_plans = tuple(
         tuple(
-            _build_plan(
+            build_plan(
                 instruction, _INSTRUCTION_FIELD_MAP[(lr.slot.value, instruction.mnemonic, slot_idx)]
             )
             for instruction in isa().instructions(Slot.LR)
@@ -568,7 +580,7 @@ class Ipu:
         # Prototyping mode's shortcuts, read once: the flag belongs to the run,
         # not to the cycle (see ipu_emu/prototyping.py).
         self._prototyping: bool = state.prototyping
-        self._profile = None
+        bridge = None
         if state.alias_profile is not None:
             from ipu_emu.alias_observer import ExecutionObserver
 
@@ -577,7 +589,7 @@ class Ipu:
                 profile._bridge = ExecutionObserver(profile, state)
             elif profile._bridge.state is not state:
                 raise ConfigurationError("an AliasProfile belongs to a single IpuState")
-            self._profile = profile._bridge
+            bridge = profile._bridge
             state.stats.alias_profile = profile
         # The cycle's register snapshot, which handlers read. The Cycle owns
         # it (bind_snapshot); no handler ever writes to it.
@@ -589,13 +601,17 @@ class Ipu:
         # the cycle module picks for this state (packed when prototyping).
         self.issuer = Issuer(self, resolver_for(state))
         # One VLIW word's sequencing: snapshot, slot order, idle words, the LR
-        # conflict check and the profiler's begin/end hooks. The cycle gets a
+        # conflict check and the observers' hooks. The cycle gets a
         # weak proxy: a strong back-reference would make every engine a
         # reference cycle, keeping its state's XMEM alive until the cyclic
         # garbage collector happens to run.
         # So ``cycle`` works only while this Ipu is alive: hold the Ipu, or
         # build a Cycle of your own (``Cycle(state, ipu)``).
-        self.cycle = Cycle(state, weakref.proxy(self), observer=self._profile)
+        self.cycle = Cycle(state, weakref.proxy(self))
+        if bridge is not None:
+            # The profiler observes this engine's cycles, and reads the snapshot
+            # through this cycle (Cycle.snapshot).
+            self.cycle.add_observer(bridge.observing(self.cycle))
 
     @property
     def snapshot(self) -> RegFile | None:
@@ -633,18 +649,6 @@ class Ipu:
     def _wide_vector_active(self) -> bool:
         return self.state.wide_vector_debug
 
-    def _element_width_bytes(self) -> int:
-        """Bytes per element in the active mode: 1 narrow, 4 wide-vector debug.
-
-        The single primitive the two modes differ by. Every other
-        mode-dependent size (row size, buffer lengths) is derived from this.
-        """
-        return xmem_element_width_bytes(self.state)
-
-    def _row_size_bytes(self) -> int:
-        """Bytes per row (LANES elements) in the active mode: 128 narrow, 512 debug."""
-        return xmem_row_size_bytes(self.state)
-
     def _xmem_row_addr(self, row: int) -> int:
         """Translate an XMEM row number to a byte address in the active mode.
 
@@ -665,9 +669,9 @@ class Ipu:
             raise EmulatorError(
                 f"XMEM row {row} is out of range for narrow mode "
                 f"(rows 0..{NARROW_MAX_ROW - 1}, the first "
-                f"{NARROW_MAX_ROW * self._row_size_bytes() >> 20} MB of XMEM)"
+                f"{NARROW_MAX_ROW * xmem_row_size_bytes(self.state) >> 20} MB of XMEM)"
             )
-        addr = row * self._row_size_bytes()
+        addr = row * xmem_row_size_bytes(self.state)
         if addr >= XMEM_SIZE_BYTES:
             raise EmulatorError(
                 f"XMEM row {row} is out of range: byte address {addr} exceeds "
@@ -684,11 +688,6 @@ class Ipu:
         p = int(a) * int(b)
         p &= 0xFFFFFFFF
         return p - 0x100000000 if p >= 0x80000000 else p
-
-    def _wide_cr_scalar_byte_as_int32(self, cr_idx: int) -> int:
-        """Low byte of CR as signed int32 element (CR itself is not widened)."""
-        b = self.state.regfile.get_cr(cr_idx) & 0xFF
-        return b if b < 128 else b - 256
 
     # -- wide-vector lanes as arrays ----------------------------------------
     #
@@ -759,7 +758,7 @@ class Ipu:
         self._wide_assert_lane_aligned_byte_offset("cyclic_offset", cyclic_byte_off)
         return self._wide_lanes_from(
             self._snapshot_buffer.get_r_cyclic_wide_debug_at(
-                cyclic_byte_off, self._row_size_bytes()
+                cyclic_byte_off, xmem_row_size_bytes(self.state)
             )
         )
 
@@ -774,7 +773,7 @@ class Ipu:
         offset, which silently diverged from the write-side element index
         once r_cyclic's wide-mode ring grew to 2048 B (512 elements x 4 B).
         """
-        return rc_idx * self._element_width_bytes()
+        return rc_idx * xmem_element_width_bytes(self.state)
 
     def _acc_agg_lane_fmt(self) -> str:
         """Struct format for r_acc / agg when wide-vector debug is on."""
@@ -786,46 +785,6 @@ class Ipu:
     # -----------------------------------------------------------------------
     # Helper Methods
     # -----------------------------------------------------------------------
-
-    @staticmethod
-    @cache
-    def _build_partition_vector(num_partitions: int) -> int:
-        """Build the left-shift partition vector (0 at the START of each group).
-
-        Used for positive mask_shift indices (+1, +2, +3).
-        num_partitions must be in VALID_PARTITION_VALUES.
-        num_partitions=0: all-ones — no boundaries, shifts are unconstrained.
-        num_partitions=P: P groups of LANES/P elements; bit 0 of each group is 0.
-        """
-        _check_partition(num_partitions)
-        if num_partitions == 0:
-            return (1 << LANES) - 1
-        step = LANES // num_partitions
-        result = 0
-        for i in range(LANES):
-            if i % step != 0:
-                result |= 1 << i
-        return result
-
-    @staticmethod
-    @cache
-    def _build_inverse_partition_vector(num_partitions: int) -> int:
-        """Build the right-shift partition vector (0 at the END of each group).
-
-        Used for negative mask_shift indices (−1, −2, −3).
-        num_partitions must be in VALID_PARTITION_VALUES.
-        num_partitions=0: all-ones — no boundaries, shifts are unconstrained.
-        num_partitions=P: P groups of LANES/P elements; last bit of each group is 0.
-        """
-        _check_partition(num_partitions)
-        if num_partitions == 0:
-            return (1 << LANES) - 1
-        step = LANES // num_partitions
-        result = 0
-        for i in range(LANES):
-            if i % step != step - 1:
-                result |= 1 << i
-        return result
 
     def _mult_mask_and_shift(self, mask_idx: int, shift: int, cr_idx: int) -> None:
         """Apply sequential shift-and-AND mask generation, then gate mult_res.
@@ -863,7 +822,12 @@ class Ipu:
                 self._count_mult_lanes(_ALL_ONES_MASK_INT, self.state.get_dstructure_for(cr_idx))
                 return
 
-        mask_int, dstructure = self._effective_mult_mask(mask_idx, shift, cr_idx)
+        facts = self.issuer.current
+        if facts is not None and facts.mask is not None:
+            # The mask the issue step read for this op (IssueFacts.mask).
+            mask_int, dstructure = facts.mask, self.state.get_dstructure_for(cr_idx)
+        else:
+            mask_int, dstructure = self._effective_mult_mask(mask_idx, shift, cr_idx)
         self._count_mult_lanes(mask_int, dstructure)
 
         inactive = _inactive_lanes(mask_int)
@@ -887,36 +851,9 @@ class Ipu:
             stats.mult_identity_lane_ops += lanes
 
     def _effective_mult_mask(self, mask_idx: int, shift: int, cr_idx: int):
-        """Shared mask interpretation for execution and alias classification."""
-        # LR registers are LR_CR_SCALAR_BITS wide; sign-extend before clamping
-        if shift >= (1 << (LR_CR_SCALAR_BITS - 1)):
-            shift = shift - (1 << LR_CR_SCALAR_BITS)
-        shift = max(-3, min(3, shift))
-
-        # Extract 128-bit base mask from the selected R_MASK slot
-        mask_bytes = self.state.regfile.get_r_mask()
-        mask_slot = mask_idx % (LANES // 16)  # 8 slots of 128 bits each
-        offset = mask_slot * 16
-        _128_BIT_MASK = (1 << LANES) - 1
-        base_mask = (
-            int.from_bytes(mask_bytes[offset : offset + 16], byteorder="little") & _128_BIT_MASK
-        )
-
+        """The mask :func:`~ipu_emu.geometry.effective_mult_mask` gives, and CR *cr_idx*'s dstructure."""
         dstructure = self.state.get_dstructure_for(cr_idx)
-        num_partitions = dstructure.partition
-
-        # Generate the shifted mask via sequential shift-and-AND
-        mask_int = base_mask
-        if shift < 0:
-            pv = self._build_inverse_partition_vector(num_partitions)
-            for _ in range(-shift):
-                mask_int = (mask_int >> 1) & pv
-        elif shift > 0:
-            pv = self._build_partition_vector(num_partitions)
-            for _ in range(shift):
-                mask_int = (mask_int << 1) & pv & _128_BIT_MASK
-
-        return mask_int, dstructure
+        return effective_mult_mask(self.state.regfile, dstructure, mask_idx, shift), dstructure
 
     def _mult_pad_lane_bytes(self, pad_mode: PadMode) -> bytes:
         """Encode the 4-byte MULT_RES fill value for a masked-out element.
@@ -1005,7 +942,7 @@ class Ipu:
             raise EmulatorError(f"LD.MULT: dest must be 0 (r0) or 1 (r1); got {dest}")
         addr = self._xmem_row_addr(offset + base)
         if self._wide_vector_active():
-            data = self.state.xmem.read_address(addr, self._row_size_bytes())
+            data = self.state.xmem.read_address(addr, xmem_row_size_bytes(self.state))
             self.state.regfile.set_r_wide_debug(dest, data)
             if self.state.xmem.is_constant_ones(addr, data):
                 self.state.regfile.mark_constant_ones("r_wide_debug", dest * len(data), len(data))
@@ -1032,8 +969,8 @@ class Ipu:
                 f"LD.MULT.CYCLIC: index must be one of {R_CYCLIC_VALID_INDICES} "
                 f"(R_CYCLIC slot boundaries); got {index}"
             )
-        byte_idx = index * self._element_width_bytes()
-        data = self.state.xmem.read_address(addr, self._row_size_bytes())
+        byte_idx = index * xmem_element_width_bytes(self.state)
+        data = self.state.xmem.read_address(addr, xmem_row_size_bytes(self.state))
         if self._wide_vector_active():
             self.state.regfile.set_r_cyclic_wide_debug_at(byte_idx, data)
         else:
@@ -1156,7 +1093,7 @@ class Ipu:
             # consuming mult (issue #157: the load lands a cycle later).
             return self._wide_ra_lane(self.state.regfile.get_lr(src) % (2 * LANES))
         cr_idx = src - LR_REG_COUNT
-        cr_scalar = self._wide_cr_scalar_byte_as_int32(cr_idx)
+        cr_scalar = _geometry_cr_scalar(self.state.regfile, cr_idx)
         if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
             return float(cr_scalar)
         return cr_scalar
@@ -1260,7 +1197,7 @@ class Ipu:
         mult_res = self.state.regfile.mutable("mult_res")
 
         if self._wide_vector_active():
-            cr_scalar = self._wide_cr_scalar_byte_as_int32(cr_idx)
+            cr_scalar = _geometry_cr_scalar(self.state.regfile, cr_idx)
             # Ra is the R0 ++ R1 pair read as one 256-lane cyclic window.
             combined = np.concatenate((self._wide_ra_lanes(0), self._wide_ra_lanes(1)))
             window = combined[(ra_idx + _LANE_INDEX) % (2 * LANES)]
@@ -1294,7 +1231,7 @@ class Ipu:
         mult_res = self.state.regfile.mutable("mult_res")
 
         if self._wide_vector_active():
-            cr_scalar = self._wide_cr_scalar_byte_as_int32(cr_idx)
+            cr_scalar = _geometry_cr_scalar(self.state.regfile, cr_idx)
             ra_lane = self._wide_ra_lane(ra_idx % (2 * LANES))
             # The product is one scalar operation, broadcast to every lane.
             if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
@@ -1827,25 +1764,8 @@ class Ipu:
         return BreakResult.CONTINUE
 
     # -----------------------------------------------------------------------
-    # Automatic Dispatch
+    # Issue-time probes (called by ipu_emu.issue)
     # -----------------------------------------------------------------------
-
-    def dispatch_instruction(self, slot_type: str, inst: dict[str, int]) -> Any:
-        """Issue and execute one slot of *inst*, outside a cycle's schedule.
-
-        A delegate kept for callers that dispatch a single slot themselves (the
-        mobilevit measuring fixture, until E04-11 moves it to an observer).
-
-        Args:
-            slot_type: Slot type ("load", "store", "acc_store", "mult", "acc", "cond", "break")
-            inst: Decoded instruction dict (field_name → int value)
-
-        Returns:
-            Return value from handler (BreakResult for break slot, None otherwise)
-        """
-        plan = _SLOT_PLANS[slot_type][inst[_SLOT_OPCODE_FIELDS[slot_type]]]
-        op = IssuedOp(slot_type, plan, {name: inst[key] for name, key in plan.fields})
-        return self.issuer.dispatch(op, inst)
 
     def _mult_vector_is_one(
         self, name: str, kwargs: Mapping[str, Any], encoded: Mapping[str, int]
@@ -1861,7 +1781,7 @@ class Ipu:
             return False
         snap = self._snapshot_buffer
         wide = self._wide_vector_active()
-        size = self._row_size_bytes()
+        size = xmem_row_size_bytes(self.state)
         ring = "r_cyclic_wide_debug" if wide else "r_cyclic"
         start = self._rc_element_to_byte_offset(kwargs["rc_idx"])
         if snap.has_constant_ones(ring, start, size):
@@ -2006,7 +1926,7 @@ _check_execution_order_covers_plans()
 # ``Ipu`` builds its ``Cycle``, and the cycle module reads this module's decode
 # tables (``plans_for``). Each module imports the other last, so either can be
 # imported first (see the end of ``ipu_emu.cycle``).
-from ipu_emu.cycle import Cycle, CycleOutcome, IssuedOp, resolver_for  # noqa: E402
+from ipu_emu.cycle import Cycle, CycleOutcome, resolver_for  # noqa: E402
 
 #: The old name of :class:`CycleOutcome`, kept until E08 migrates the debuggers.
 BreakResult = CycleOutcome
