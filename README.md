@@ -19,7 +19,21 @@ Python Packages
 Quick Start
 -----------
 
+1. Install [Bazelisk](https://github.com/bazelbuild/bazelisk) as `bazel`; see
+   [Setup](docs/content/setup.md) for details.
+2. Run the test suite:
 
+   ```bash
+   bazel test //...
+   ```
+
+3. Run one kernel end to end (assemble, load inputs, emulate, check outputs):
+
+   ```bash
+   bazel run //src/tools/ipu-apps:identity
+   ```
+
+The full documentation is at <https://rechefe.github.io/ipu-emulator/>.
 
 Build (Bazel)
 -------------

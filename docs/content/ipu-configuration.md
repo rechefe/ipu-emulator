@@ -79,13 +79,13 @@ read from that register's `valid_elements` at runtime. The destination slot in
 `R_ACC` is given by an LR register:
 
 ```asm
-AGG.SUM LR0, CR15;;
-AGG.MAX.FIRST LR1, CR15;;
-ACTIVATE.QUANTIZE relu, CR15;;
+AGG.SUM LR0 CR15;;
+AGG.MAX.FIRST LR1 CR15;;
+ACTIVATE.QUANTIZE relu CR15;;
 
-AGG.SUM LR0, CR3;;
-AGG.MAX.FIRST LR1, CR3;;
-ACTIVATE.QUANTIZE relu, CR3;;
+AGG.SUM LR0 CR3;;
+AGG.MAX.FIRST LR1 CR3;;
+ACTIVATE.QUANTIZE relu CR3;;
 ```
 
 The MULT-slot element-masking instructions (`MULT.RC.VV`, `MULT.RC.VE`,
@@ -96,8 +96,8 @@ those two already use `cr_idx` for the scalar multiplier). The named register's
 implicit fallback to `CR15`:
 
 ```asm
-MULT.RC.VV LR2, R0, 0, LR4, CR15;;
-MULT.VE    LR0, CR3, 0, LR2, CR15;;
+MULT.RC.VV LR2 R0 0 LR4 CR15;;
+MULT.VE    LR0 CR3 0 LR2 CR15;;
 ```
 
 ## Padding masked-out MULT_RES elements

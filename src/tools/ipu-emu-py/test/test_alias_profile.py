@@ -6,22 +6,24 @@ import struct
 import weakref
 
 import pytest
-from ipu_as.lark_tree import assemble
 from ipu_emu.alias_profile import AliasDefinition, AliasProfile, DetectorRegistry, Event, Match
 from ipu_emu.alias_detectors import default_registry
 from ipu_emu.emulator import load_program, run_until_complete
 from ipu_emu.errors import DebugOnlyInstructionWarning
-from ipu_emu.execute import decode_instruction_word
 from ipu_emu.ipu_state import IpuState
+
+import emu_support
+from emu_support import ElementFormat, assemble_program, new_state
 
 
 def run(code, *, enabled=True, setup=None, wide=False):
-    state = IpuState(alias_profile=AliasProfile() if enabled else None, wide_vector_debug=wide)
-    if setup:
-        setup(state)
-    load_program(state, [decode_instruction_word(w) for w in assemble(code)])
-    run_until_complete(state)
-    return state
+    """Run *code* with a fresh alias profile attached (unless *enabled* is false)."""
+    return emu_support.run(
+        code,
+        alias_profile=AliasProfile() if enabled else None,
+        setup=setup,
+        fmt=ElementFormat.FP32 if wide else None,
+    )
 
 
 def rows(state, alias):
@@ -56,8 +58,8 @@ def test_registry_extension_needs_no_emulator_changes():
                 yield Match("custom_move", (event,), metrics={"observed": 1})
     registry = default_registry().copy().register(AliasDefinition("custom_move", "Custom"), Custom)
     state = IpuState(alias_profile=AliasProfile(registry))
-    load_program(state, [decode_instruction_word(w) for w in assemble(
-        "MULT.RC.VE LR0 CR1 0 LR0 CR15; ACC.ADD.FIRST;;\nBKPT;;")])
+    load_program(state, assemble_program(
+        "MULT.RC.VE LR0 CR1 0 LR0 CR15; ACC.ADD.FIRST;;\nBKPT;;"))
     run_until_complete(state)
     assert count(state, "custom_move") == 1
     assert "custom_move" not in default_registry().entries
@@ -243,8 +245,8 @@ BKPT;;
 
 def test_register_overwrite_revokes_transfer_provenance():
     from ipu_emu.ipu import Ipu
-    state = IpuState(alias_profile=AliasProfile(), wide_vector_debug=True)
-    load_program(state, [decode_instruction_word(w) for w in assemble(TRANSFER)])
+    state = new_state(alias_profile=AliasProfile(), fmt=ElementFormat.FP32)
+    load_program(state, assemble_program(TRANSFER))
     engine = Ipu(state)
     for _ in range(3):
         engine.execute_vliw_cycle()
@@ -260,7 +262,7 @@ def test_empty_cycles_and_break_resume_count_once():
     engine = Ipu(state)
     engine.execute_vliw_cycle()
     assert state.alias_profile.cycles == 1
-    load_program(state, [decode_instruction_word(w) for w in assemble("BREAK; MULT.RC.VE LR0 CR1 0 LR0 CR15;;")])
+    load_program(state, assemble_program("BREAK; MULT.RC.VE LR0 CR1 0 LR0 CR15;;"))
     state.program_counter = 0
     assert engine.execute_vliw_cycle() == BreakResult.BREAK
     assert state.alias_profile.cycles == 1
@@ -341,11 +343,11 @@ BKPT;;
 @pytest.mark.parametrize('overwrite', ['none', 'memory', 'register'])
 def test_exp_offset_same_bytes_do_not_preserve_overwritten_provenance(overwrite):
     from ipu_emu.ipu import Ipu
-    state = IpuState(alias_profile=AliasProfile(), wide_vector_debug=True)
+    state = new_state(alias_profile=AliasProfile(), fmt=ElementFormat.FP32)
     state.xmem.write_address(0, struct.pack('<f', math.log2(math.e)) * 128)
     state.regfile.set_lr(1, 128)
     state.regfile.set_cr(2, 1)
-    load_program(state, [decode_instruction_word(w) for w in assemble('''
+    load_program(state, assemble_program('''
 LDR_MULT_REG R0 LR0 CR0;;
 MULT.RC.VV LR0 R0 0 LR0 CR15; AGG.MAX.FIRST LR0 CR15;;
 ACTIVATE.QUANTIZE identity CR15; STR_POST_AAQ_REG LR0 CR2;;
@@ -354,7 +356,7 @@ MULT.RC.VV LR0 R0 0 LR0 CR15; ACC.ADD.FIRST;;
 MULT.EE LR1 CR1 0 LR0 CR15; ACC.SUB;;
 ACTIVATE.QUANTIZE exp2 CR15;;
 BKPT;;
-''')])
+'''))
     engine = Ipu(state)
     for _ in range(3):
         engine.execute_vliw_cycle()
@@ -375,11 +377,11 @@ def test_binary_vector_mask_uses_active_dtype(dtype_name):
     dtype = DType[dtype_name]
     state = IpuState(dtype=dtype, alias_profile=AliasProfile())
     state.xmem.write_address(0, bytes([0, dtype_one_byte(dtype)]) * 64)
-    load_program(state, [decode_instruction_word(w) for w in assemble('''
+    load_program(state, assemble_program('''
 LDR_MULT_REG R0 LR0 CR0;;
 MULT.RC.VV LR0 R0 0 LR0 CR15;;
 BKPT;;
-''')])
+'''))
     run_until_complete(state)
     assert count(state, 'A15_SELECT', subtype='vector_mask') == 1
 
@@ -406,11 +408,11 @@ BKPT;;
 def test_indexed_memory_versions_distinguish_overlap(address, expected):
     from ipu_emu.ipu import Ipu
     state = IpuState(alias_profile=AliasProfile())
-    load_program(state, [decode_instruction_word(w) for w in assemble('''
+    load_program(state, assemble_program('''
 LDR_MULT_REG R0 LR0 CR0;;
 LDR_MULT_REG R1 LR0 CR0;;
 BKPT;;
-''')])
+'''))
     engine = Ipu(state)
     engine.execute_vliw_cycle()
     state.xmem.write_address(address, bytes(1))

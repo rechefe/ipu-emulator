@@ -23,14 +23,14 @@ from ipu_emu.debug_cli import (
     state_to_json_dict,
     save_state_json,
     disassemble_current,
+    # TODO(E08): debugger internals (_resolve_register, DebugCLI._result) are
+    # tested white-box until the debuggers move to ipu_debug.
     _resolve_register,
 )
 from ipu_emu.descriptors import REGFILE_SCHEMA
-from ipu_emu.execute import decode_instruction_word
-from ipu_emu.emulator import load_program
 from ipu_emu.xmem import XMEM_SIZE_BYTES
 
-from ipu_as.lark_tree import assemble
+from emu_support import ElementFormat, make_state, new_state
 
 
 # ---------------------------------------------------------------------------
@@ -55,17 +55,6 @@ def _run_cli(state: IpuState, commands: str, level: int = 0) -> tuple[DebugActio
     cli, out = _make_cli(state, commands)
     action = cli.run(level=level)
     return action, out.getvalue()
-
-
-def _make_state_with_program(asm_code: str, *, cr: dict[int, int] | None = None) -> IpuState:
-    encoded = assemble(asm_code)
-    decoded = [decode_instruction_word(w) for w in encoded]
-    state = IpuState()
-    if cr:
-        for idx, val in cr.items():
-            state.regfile.set_cr(idx, val)
-    load_program(state, decoded)
-    return state
 
 
 def test_active_tui_session_does_not_change_legacy_prompt(monkeypatch):
@@ -282,7 +271,7 @@ class TestXmemCommand:
         assert "12 34 ab cd" in output
 
     def test_wide_mode_hex_groups_every_four_bytes(self):
-        state = IpuState(wide_vector_debug=True)
+        state = new_state(fmt=ElementFormat.FP32)
         state.xmem.write_address(0, bytes(range(8)))
 
         _, output = _run_cli(state, "xmem row 0 0 8 hex\ncontinue\n")
@@ -331,7 +320,7 @@ class TestXmemCommand:
         assert expected in output
 
     def test_cell16_displays_32_characters_per_line(self):
-        state = IpuState(wide_vector_debug=True)
+        state = new_state(fmt=ElementFormat.FP32)
         state.xmem.write_address(0, struct.pack("<33H", *range(33)))
 
         _, output = _run_cli(state, "xmem row 0 0 33 cell16\ncontinue\n")
@@ -362,7 +351,7 @@ class TestXmemCommand:
         assert "1.00000024" in output
 
     def test_row_address_uses_512_bytes_in_wide_mode(self):
-        state = IpuState(wide_vector_debug=True)
+        state = new_state(fmt=ElementFormat.FP32)
         state.xmem.write_address(2 * 512, struct.pack("<2I", 1, 0xDEADBEEF))
         _, output = _run_cli(state, "xmem row 1 1 2 u32\ncontinue\n")
         assert "XMEM row 2" in output
@@ -385,7 +374,7 @@ class TestXmemCommand:
         assert "3.5" in output
 
     def test_display_marks_each_xmem_row_boundary(self):
-        state = IpuState(wide_vector_debug=True)
+        state = new_state(fmt=ElementFormat.FP32)
         state.xmem.write_address(508, bytes(range(8)))
 
         _, output = _run_cli(state, "xmem byte 508 0 8 u8\ncontinue\n")
@@ -451,7 +440,7 @@ class TestDebugLevels:
         assert "42" in output
 
     def test_level1_shows_disasm(self):
-        state = _make_state_with_program("SET lr0 cr8;;\nBKPT;;", cr={8: 100})
+        state = make_state("SET lr0 cr8;;\nBKPT;;", cr={8: 100})
         action, output = _run_cli(state, "continue\n", level=1)
         assert "Current Instruction" in output
 
@@ -469,7 +458,7 @@ class TestDebugLevels:
 
 class TestDisassembly:
     def test_disasm_set_lr(self):
-        state = _make_state_with_program("SET lr0 cr8;;\nBKPT;;", cr={8: 100})
+        state = make_state("SET lr0 cr8;;\nBKPT;;", cr={8: 100})
         text = disassemble_current(state)
         tl = text.lower()
         assert "set" in tl
@@ -563,7 +552,7 @@ class TestJsonExport:
         assert (tmp_path / "range with spaces.xmem.bin").read_bytes() == expected
 
     def test_save_selected_row_range_to_binary_sidecar(self, tmp_path):
-        state = IpuState(wide_vector_debug=True)
+        state = new_state(fmt=ElementFormat.FP32)
         state.regfile.set_cr(4, 2)
         state.regfile.set_lr(0, 1)
         expected = bytes((i % 251 for i in range(2 * 512)))

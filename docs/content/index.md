@@ -1,93 +1,18 @@
 # IPU Emulator Documentation
 
-Welcome to the IPU Emulator documentation. This project provides a complete IPU (Intelligence Processing Unit) emulation environment with assembly language support, C-based emulator, and comprehensive tooling.
+[![CI](https://github.com/rechefe/ipu-emulator/actions/workflows/ci.yml/badge.svg)](https://github.com/rechefe/ipu-emulator/actions/workflows/ci.yml)
+[![Documentation](https://github.com/rechefe/ipu-emulator/actions/workflows/docs.yml/badge.svg)](https://github.com/rechefe/ipu-emulator/actions/workflows/docs.yml)
 
-## Overview
+The IPU (Inference Processing Unit) is a 128-lane VLIW vector processor for neural-network inference. This repository defines its instruction set, assembles programs for it, emulates it in Python, and holds the kernels that run on it. Bazel builds and tests everything.
 
-This repository contains:
+| Section | Go here to |
+|---|---|
+| [Getting started](getting-started/index.md) | Install the toolchain, run the tests and run a first kernel. |
+| [How-to](how-to/index.md) | Write, register or debug a kernel, or add an instruction. |
+| [Reference](reference/index.md) | Look up an instruction, an operand type, a command, a kernel or a term. |
+| [Explanation](explanation/index.md) | Understand the architecture, the timing model and the element formats. |
+| [Specs and requirements](requirements/index.md) | Read the hardware block specifications and requirements. |
+| [Open questions](requirements/open-questions.md) | See every open hardware, emulator and ISA question. |
+| [Release log](release-log.md) | See what changed in each merged pull request. |
 
-- **IPU Emulator** - C-based emulator for IPU behavior
-- **IPU Assembly Language** (`ipu-as`) - Python-based assembler with Jinja2 preprocessing
-- **XMEM Support** - External memory emulation
-- **Sample Programs** - Fully connected neural network examples
-- **Build System** - Bazel-based build and test infrastructure
-
-## Quick Links
-
-- [Getting Started guide (PDF)](https://github.com/rechefe/ipu-emulator/releases/download/guide-latest/getting-started.pdf) — rendered from `docs/guide` on every change to master
-- [Assembly Syntax Guide](assembly-syntax.md) — generated (register tokens from `ipu_common`)
-- [Operand types](operand-types.md) — generated reference for `instruction_spec` field types
-- [Instruction Reference](instructions.md) — generated per-opcode pages
-- [Repository on GitHub](https://github.com/rechefe/ipu-emulator)
-
----
-
-## Repository Structure
-
-```
-ipu-c-samples/
-├── src/
-│   ├── apps/               # Sample applications
-│   ├── lib/                # Core libraries (ipu, xmem, emulator, fp, logging)
-│   └── tools/              # IPU assembler and emulator tools
-├── test/                   # Unit tests
-├── docs/                   # MkDocs config, hooks, overrides
-│   └── content/            # Documentation page sources (MkDocs docs_dir)
-├── BUILD.bazel             # Root build configuration
-├── MODULE.bazel            # Bazel module dependencies
-└── README.md               # Project README
-```
-
----
-
-## Getting Started
-
-### Assembly Language
-
-The IPU supports a custom assembly language with powerful preprocessing capabilities. See the [Assembly Syntax Guide](assembly-syntax.md) for:
-
-- [Instruction format](instruction-format.md) — generated bit layout, C header and SystemVerilog package downloads
-- Basic instruction format and syntax
-- Instruction separators (`;` vs `;;`)
-- Register types and immediate values  
-- Labels and control flow
-- Jinja2 preprocessing (variables, loops, macros, conditionals)
-- Complete examples and usage guide
-
-### Building and Testing
-
-**Build everything:**
-
-```bash
-bazel build //...
-```
-
-**Run tests:**
-
-```bash
-bazel test //...
-```
-
-**Generate documentation:**
-
-```bash
-bazel build //docs:build_docs
-```
-
-## Next Steps
-
-- [Building Applications](building-applications.md) - Learn how to build IPU applications
-- [IPU Configuration](ipu-configuration.md) - Configure dtype, CR constants, and dstructure element counts
-- [Assembly Syntax Guide](assembly-syntax.md) — syntax, compounds, Jinja2 (generated)
-- [Operand types](operand-types.md) — type names used in the instruction reference tables
-- [Instruction Reference](instructions.md) — all opcodes (generated)
-
-## Contributing
-
-See [README.md](https://github.com/rechefe/ipu-emulator/blob/main/README.md) for development setup and contribution guidelines.
-
-## Additional Resources
-
-- [Jinja2 Template Documentation](https://jinja.palletsprojects.com/en/3.1.x/templates/)
-- [Bazel Build System](https://bazel.build/)
-- [GitHub Repository](https://github.com/rechefe/ipu-emulator)
+The source is on [GitHub](https://github.com/rechefe/ipu-emulator). [README.md](https://github.com/rechefe/ipu-emulator/blob/master/README.md) has the Quick Start.

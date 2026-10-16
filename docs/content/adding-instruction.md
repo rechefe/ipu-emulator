@@ -6,11 +6,13 @@ This guide shows how to add a new instruction to the IPU assembler and emulator.
 
 The IPU uses a **single source of truth** for all instruction definitions: `INSTRUCTION_SPEC` in `src/tools/ipu-common/src/ipu_common/instruction_spec.py`.
 
-Adding an instruction is a 3-step process:
+Adding an instruction takes three edits, then two checks:
 
 1. **Add to instruction_spec** — define the instruction with operands and documentation (instruction **mnemonic keys** are **upper case**; each operand’s `"name"` is **lower case**)
 2. **Implement execution handler** — write the Python method in the emulator's `Ipu` class  
 3. **Add tests** — verify the instruction works correctly
+4. **Verify integration** — the assembler accepts it and `bazel test //...` passes
+5. **Check the SystemVerilog package** — its widths are wire format
 
 The assembler accepts mnemonics in any case; written examples and the spec use upper case by convention.
 
@@ -40,7 +42,7 @@ INSTRUCTION_SPEC = {
                 summary="Performs a custom operation on two source registers.",
                 syntax="MY_NEW_INSTRUCTION dest src_a src_b",
                 operands=[
-                    "dest: Destination mult-stage register (r0 or r1)",
+                    "dest: Destination mult-stage register (R0 or R1)",
                     "src_a: First source mult-stage register",
                     "src_b: Second source mult-stage register",
                 ],
@@ -48,7 +50,7 @@ INSTRUCTION_SPEC = {
                     "for i in [0, R_REG_SIZE):\n"
                     "    dest[i] = custom_operation(src_a[i], src_b[i])"
                 ),
-                example="MY_NEW_INSTRUCTION r0 r1 r0;;",
+                example="MY_NEW_INSTRUCTION R0 R1 R0;;",
             ),
             "execute_fn": "execute_my_new_instruction",
         },
@@ -62,10 +64,10 @@ INSTRUCTION_SPEC = {
 - **`operands`**: List of operand definitions, each with:
   - `name`: Meaningful name for the operand (used in handler signature)
   - `type`: Operand type — one of:
-    - `"MultStageReg"` — `r0` or `r1` (2-bit encoding in the VLIW word)
-    - `"LrIdx"` — lr0-lr15
-    - `"CrIdx"` — cr0-cr15
-    - `"LcrIdx"` — lr0-lr15 or cr0-cr15
+    - `"MultStageReg"` — `R0` or `R1` (2-bit encoding in the VLIW word)
+    - `"LrIdx"` — `LR0`–`LR15`
+    - `"CrIdx"` — `CR0`–`CR15`
+    - `"LcrIdx"` — `LR0`–`LR15` or `CR0`–`CR15`
     - `"LrModPow2KImmediate"` — exponent **k** for `INCR_MOD_POW2` (semantic **k ∈ [1, 9]**)
     - `"MultMaskOffsetImmediate"` — mult mask slot index **0**–**7**
     - `"BreakImmediate"` — 16-bit break condition
@@ -134,7 +136,7 @@ class Ipu:
   - Parameter order doesn't matter (they're passed as kwargs)
 
 - **Auto-resolved operands** (those with `"read"` field):
-  - Register operands with `"read": "snapshot"` receive `bytearray` values (register contents)
+  - Register operands with `"read": "snapshot"` receive `bytearray` values (register contents) in narrow mode. In wide-vector mode a `MultStageReg` operand receives the register index instead (`0` for `R0`, `1` for `R1`), and the handler reads the wide lanes itself
   - LR/CR operands with `"read"` receive `int` values (32-bit register value)
   - The dispatcher automatically extracts these from the snapshot or live regfile
 
@@ -177,42 +179,31 @@ ipu_add(a: int, b: int, dtype: DType) -> int
 
 ## Step 3: Add Tests
 
-Create tests in `src/tools/ipu-emu-py/test/test_<slot>_instructions.py` (or create a new file if needed):
+Emulator instruction tests live in `src/tools/ipu-emu-py/test/test_execute.py`. Its helpers assemble real source, so a test needs no hand-built instruction word:
+
+- `_run(asm_code, cr=...)` assembles, loads, runs to `BKPT` and returns the final `IpuState`.
+- `_make_state(asm_code, cr=...)` assembles and loads without running, so you can write input data to XMEM first; then call `run_until_complete(state)`.
+
+Add a test next to the tests for the same slot:
 
 ```python
-"""Tests for MULT instruction execution."""
-
-import pytest
-from ipu_emu.ipu_state import IpuState
-from ipu_emu.ipu import Ipu
-
 def test_my_new_instruction():
-    """Test MY_NEW_INSTRUCTION performs custom operation correctly."""
-    state = IpuState()
-    ipu = Ipu(state)
-    
-    # Set up initial register values
-    state.regfile.set_register_bytes("r", 0, bytearray(range(128)))
-    state.regfile.set_register_bytes("r", 1, bytearray([1] * 128))
-    
-    # Create instruction word (see existing tests for encoding examples)
-    inst = {
-        "mult_inst_token_0_mult_inst_opcode": <opcode_value>,
-        "mult_inst_token_1_mult_stage_reg_field": 0,  # dest = r0
-        "mult_inst_token_2_mult_stage_reg_field": 0,  # src_a = r0
-        "mult_inst_token_3_mult_stage_reg_field": 1,  # src_b = r1
-        # ... other fields set to NOP opcodes ...
-    }
-    
-    # Execute instruction
-    state.inst_mem = [inst]
-    state.regfile.set_pc(0)
-    ipu.execute_vliw_cycle()
-    
-    # Verify result
-    result = state.regfile.get_register_bytes("r", 0)
+    """MY_NEW_INSTRUCTION adds R0 and R1 element-wise into R0."""
+    # CR8 = row 32 (byte 0x1000), CR9 = row 33 (byte 0x1080).
+    state = _make_state("""\
+SET LR0 CR8;;
+SET LR1 CR9;;
+LDR_MULT_REG R0 LR0 CR0;;
+LDR_MULT_REG R1 LR1 CR0;;
+MY_NEW_INSTRUCTION R0 R0 R1;;
+BKPT;;
+""", cr={8: 32, 9: 33})
+    state.xmem.write_address(0x1000, bytes(range(128)))
+    state.xmem.write_address(0x1080, bytes([1] * 128))
+    run_until_complete(state)
+
     expected = bytearray((i + 1) & 0xFF for i in range(128))
-    assert result == expected
+    assert state.regfile.get_r(0) == expected
 ```
 
 Run tests:
@@ -226,18 +217,27 @@ bazel test //src/tools/ipu-emu-py:test_execute
 After adding your instruction, verify it works in both assembler and emulator:
 
 ```bash
-# Verify assembler accepts the instruction
-echo "MY_NEW_INSTRUCTION r0 r1 r0;;" | bazel run //src/tools/ipu-as-py:ipu-as -- assemble --format hex -
+# Verify assembler accepts the instruction (check reads stdin with --input -)
+echo "MY_NEW_INSTRUCTION R0 R1 R0;;" | bazel run //src/tools/ipu-as-py:ipu-as -- check --input -
 
 # Run all tests
 bazel test //...
+```
+
+## Step 5: Check the Generated SystemVerilog Package
+
+A downstream RTL repository vendors the generated `ipu_instr_pkg.sv`, so a new instruction changes its wire format. Run the two commands from the [CLAUDE.md "Generated SystemVerilog Package" section](https://github.com/rechefe/ipu-emulator/blob/master/CLAUDE.md#generated-systemverilog-package) and follow its rules for comparing the `localparam` widths against the base commit:
+
+```bash
+bazel test //src/tools/ipu-as-py:test_sv_package_compiles
+bazel build //docs:generate_instruction_format_artifacts
 ```
 
 ## Adding a Pseudo-Instruction
 
 Some assembly mnemonics don't need any new hardware behavior — they're just a
 more convenient way of writing an existing instruction. For example, `BGT
-reg1, reg2, label` is exactly `BLT reg2, reg1, label` with the operands
+reg1 reg2 label` is exactly `BLT reg2 reg1 label` with the operands
 swapped: there's no new opcode, no new emulator behavior, just a friendlier
 name. These are **pseudo-instructions**, declared in
 `PSEUDO_INSTRUCTION_SPEC` (in the same `instruction_spec.py` file as
@@ -272,14 +272,14 @@ PSEUDO_INSTRUCTION_SPEC: dict[str, dict] = {
         "doc": InstructionDoc(
             title="Branch if Greater Than (pseudo)",
             summary="Branch if first register is greater than second.",
-            syntax="BGT reg1, reg2, label",
+            syntax="BGT reg1 reg2 label",
             operands=[
                 "reg1: First register to compare (LR0–LR15 or CR0–CR15)",
                 "reg2: Second register to compare (LR0–LR15 or CR0–CR15)",
                 "label: Branch target label",
             ],
             operation="if (reg1 > reg2) PC = label",
-            example="BGT LR0, LR1, bigger;;",
+            example="BGT LR0 LR1 bigger;;",
         ),
     },
 }
@@ -295,8 +295,8 @@ PSEUDO_INSTRUCTION_SPEC: dict[str, dict] = {
   - `args` — the real instruction's operands, in order. Each entry is
     either one of this pseudo's own operand names (substituted with
     whatever the caller wrote) or a literal register name such as `"CR0"`
-    (useful when a pseudo-instruction hard-codes a register — e.g. `BZ reg,
-    label` expands to `BEQ reg, CR0, label`, assuming `CR0` always holds
+    (useful when a pseudo-instruction hard-codes a register — e.g. `BZ reg
+    label` expands to `BEQ reg CR0 label`, assuming `CR0` always holds
     zero).
 - **`doc`**: an `InstructionDoc`, same as for real instructions — this is
   what generates the pseudo-instruction's entry in the programmer-facing
@@ -326,7 +326,7 @@ its hand-written real-instruction expansion:
 from ipu_as.lark_tree import assemble
 
 def test_bgt_matches_hand_written_blt():
-    assert assemble("BGT lr0 lr1 +1;;") == assemble("BLT lr1 lr0 +1;;")
+    assert assemble("BGT LR0 LR1 +1;;") == assemble("BLT LR1 LR0 +1;;")
 ```
 
 See `src/tools/ipu-as-py/test/test_assemble.py` for more examples, including
@@ -336,8 +336,9 @@ tests for arity disambiguation and misuse errors.
 
 1. **Add to `instruction_spec.py`** — define operands, docs, and `execute_fn`
 2. **Implement `execute_<name>` in `Ipu` class** — write the execution logic
-3. **Add tests** — verify correctness with unit tests
-4. **No opcode management** — opcodes are derived from position automatically
+3. **Add tests** — verify correctness in `test_execute.py`
+4. **Check the SystemVerilog package** — its widths are wire format
+5. **No opcode management** — opcodes are derived from position automatically
 
 The instruction will automatically work in:
 - Assembler (syntax highlighting, parsing, binary encoding)

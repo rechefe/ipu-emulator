@@ -8,6 +8,8 @@ from typing import Any
 
 import pytest
 
+# TODO(E08): debugger internals (CursesDebugView._*, debug_tui._*,
+# _resolve_xmem_request) are tested white-box until the debuggers move to ipu_debug.
 import ipu_emu.debug_tui as debug_tui
 from ipu_emu.debug_cli import XmemRequest, _resolve_xmem_request
 from ipu_emu.debug_tui import (
@@ -27,6 +29,8 @@ from ipu_emu.descriptors import REGFILE_SCHEMA
 from ipu_emu.emulator import DebugAction
 from ipu_emu.ipu import xmem_row_size_bytes
 from ipu_emu.ipu_state import IpuState
+
+from emu_support import ElementFormat, make_state, new_state
 
 
 class FakeScreen:
@@ -544,7 +548,7 @@ class TestTitleFitting:
 class TestSessionPersistence:
     def test_default_tab_is_one_full_active_row(self):
         normal = new_debug_view_session(IpuState())
-        wide_state = IpuState(wide_vector_debug=True)
+        wide_state = new_state(fmt=ElementFormat.FP32)
         wide = new_debug_view_session(wide_state)
 
         assert normal.tabs[0].request.count == xmem_row_size_bytes(IpuState())
@@ -1248,7 +1252,7 @@ class TestPipelineRegisters:
         )
 
     def test_wide_pipeline_hex_groups_every_four_bytes(self):
-        state = IpuState(wide_vector_debug=True)
+        state = new_state(fmt=ElementFormat.FP32)
         state.regfile.raw("r_wide_debug")[:8] = bytes(range(8))
         session = DebugViewSession(initialized=True)
         session.ensure_default_tab(state)
@@ -1324,7 +1328,7 @@ class TestPipelineRegisters:
         assert session.disassembly_tabs[1].fmt == "compact"
 
     def test_wide_r0_uses_wide_storage_and_arithmetic_format(self):
-        state = IpuState(wide_vector_debug=True)
+        state = new_state(fmt=ElementFormat.FP32)
         state.regfile.raw("r")[0] = 0xFF
         state.regfile.raw("r_wide_debug")[:4] = struct.pack("<f", 1.5)
         view, screen, _ = make_view(state, screen=FakeScreen(columns=140))
@@ -2768,12 +2772,7 @@ class TestMouseUsability:
 class TestPipelineStageView:
     @staticmethod
     def program(source):
-        from ipu_as.lark_tree import assemble
-        from ipu_emu.execute import decode_instruction_word
-        from ipu_emu.emulator import load_program
-        state = IpuState()
-        load_program(state, [decode_instruction_word(word) for word in assemble(source)])
-        return state
+        return make_state(source)
 
     def test_stage_decoding_includes_each_metadata_slot(self):
         from ipu_emu.debug_pipeline import stage_operations, SLOT_LABELS
@@ -2951,7 +2950,7 @@ class TestPaneOrder:
 class TestMemoryValueEditing:
     @pytest.mark.parametrize("wide", [False, True])
     def test_pipeline_edit_uses_correct_register_backing_and_preserves_neighbors(self, wide):
-        state = IpuState(wide_vector_debug=wide)
+        state = new_state(fmt=ElementFormat.FP32 if wide else ElementFormat.INT8)
         view, _, session = make_view(state)
         session.focus = "pipeline"
         tab = session.selected_pipeline_tab()
@@ -2960,7 +2959,8 @@ class TestMemoryValueEditing:
         buf = state.regfile.raw(backing)
         buf[:] = b"\x55" * len(buf)
         before = bytes(buf)
-        offset = state.regfile._desc(backing).size_bytes + 4
+        desc = next(d for d in state.regfile.schema if d.name == backing)
+        offset = desc.size_bytes + 4
         view.handle_key("e")
         view.command = "-123"
         view.handle_key("\n")
@@ -3096,9 +3096,8 @@ class TestHelpScrollbar:
 class TestDefaultWorkspace:
     @pytest.mark.parametrize("wide,arithmetic,quantize", [(False, "fp32", False), (True, "fp32", False), (True, "int32", False), (True, "fp32", True)])
     def test_fresh_tabs_cover_all_registers_and_use_storage_formats(self, wide, arithmetic, quantize):
-        from ipu_emu.ipu_state import WideVectorArithmetic
-        state = IpuState(wide_vector_debug=wide, wide_vector_arithmetic=WideVectorArithmetic(arithmetic),
-                         wide_vector_quantize_output=quantize)
+        fmt = ElementFormat(arithmetic) if wide else ElementFormat.INT8
+        state = new_state(fmt=fmt, wide_vector_quantize_output=quantize)
         session = DebugViewSession()
         view, _, _ = make_view(state, session=session)
         assert [tab.register_key for tab in session.pipeline_tabs] == [spec.key for spec in PIPELINE_REGISTERS]

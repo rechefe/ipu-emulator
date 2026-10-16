@@ -25,15 +25,6 @@ from ipu_emu.emulator import (
 )
 
 
-@pytest.fixture(autouse=True)
-def _reset_assembler_labels():
-    """Reset the global label registry between tests."""
-    from ipu_as.label import reset_labels
-    reset_labels()
-    yield
-    reset_labels()
-
-
 # ---------------------------------------------------------------------------
 # Binary I/O unit tests
 # ---------------------------------------------------------------------------

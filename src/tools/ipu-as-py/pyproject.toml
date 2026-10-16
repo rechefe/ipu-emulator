@@ -24,6 +24,8 @@ docs = [
     "mkdocs>=1.6.0",
     "mkdocs-material>=9.5.0",
     "mkdocs-git-revision-date-localized-plugin>=1.4.0",
+    # 1.2.3 depends on properdocs (a MkDocs fork) instead of mkdocs.
+    "mkdocs-redirects>=1.2.1,<1.2.3",
 ]
 
 [project.scripts]

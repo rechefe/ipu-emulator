@@ -48,10 +48,10 @@ dstructure CR register explicitly via a mandatory `cr_idx` operand — there is
 no implicit default:
 
 ```asm
-AGG.SUM LR0, CR15;;
-ACTIVATE.QUANTIZE relu, CR15;;
-AGG.SUM LR0, CR3;;
-ACTIVATE.QUANTIZE relu, CR3;;
+AGG.SUM LR0 CR15;;
+ACTIVATE.QUANTIZE relu CR15;;
+AGG.SUM LR0 CR3;;
+ACTIVATE.QUANTIZE relu CR3;;
 ```
 
 For aggregation (`AGG.SUM`, `AGG.MAX`, etc.) the element count is controlled by the required `cr_idx` operand — it reads `valid_elements` from the named CR register. `CR15` remains a valid choice (it is the dstructure register's conventional home), but it must be written out like any other register.
@@ -67,7 +67,7 @@ The [AaQ stage spec](specs/stage-aaq-str.md) describes how **real hardware** wir
 The **Python emulator** in this repository adds a convenience AAQ-slot instruction **`ACTIVATE.QUANTIZE`** so programs can apply the same thirteen activation shapes to elements read from **`R_ACC`**, writing results into **`POST_AAQ_REG`** (without modifying **`R_ACC`**), without modeling the full `act_cr_idx` path:
 
 ```asm
-ACTIVATE.QUANTIZE relu, CR15;;
+ACTIVATE.QUANTIZE relu CR15;;
 ```
 
 - **Syntax:** `ACTIVATE.QUANTIZE activation_fn, cr_idx`, where *activation_fn* is a **keyword** (`identity`, `relu`, `relu6`, `sigmoid`, `tanh`, `gelu`, `softplus`, `elu`, `exp2`, `reciprocal`, `rsqrt`, `silu`, `window`). The active element count comes from `cr_idx`'s `valid_elements`, the same dstructure field used by the `AGG.*` instructions; `cr_idx` is mandatory (any `CR0`–`CR15`, no implicit default).
@@ -119,7 +119,7 @@ Use a **fresh `IpuState`** (or a new `run_test` call with different α kwargs) w
 
 ## Step 1: Write the Assembly Program
 
-Create your IPU assembly program (e.g., `fully_connected.asm`). The assembly program contains the compute logic that runs on the IPU. See the [Assembly Syntax Guide](assembly-syntax.md) for details on writing IPU assembly code with Jinja2 preprocessing.
+Create your IPU assembly program (e.g., `fully_connected.asm`). The assembly program contains the compute logic that runs on the IPU. See the [Assembly Syntax Guide](assembly-syntax.md) for details on writing IPU assembly code with Jinja2 preprocessing. The `ipu-as` command line has no option to set template variables yet; `--define` is planned in E05-10.
 
 ## Step 2: Define Bazel Build Targets
 
@@ -365,7 +365,7 @@ input_loop:
     ADD                 lr4 lr4 cr3;
     ADD                 lr5 lr5 cr4;
     MULT.RC.VE          lr15 lr5 0 lr15 cr15;
-    ACC.FIRST;;
+    ACC.ADD.FIRST;;
     BNE                 lr5 lr6 element_loop;;
     B                   after_element_loop;;
 
@@ -374,7 +374,7 @@ element_loop:
     ADD                 lr4 lr4 cr3;
     ADD                 lr5 lr5 cr4;
     MULT.RC.VE          lr15 lr5 0 lr15 cr15;
-    ACC;;
+    ACC.ADD;;
     BNE                 lr5 lr6 element_loop;;
 
 after_element_loop:
