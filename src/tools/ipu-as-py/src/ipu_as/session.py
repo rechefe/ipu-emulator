@@ -139,6 +139,7 @@ class AssemblySession:
             the instruction list.
         """
         self.symbols = SymbolTable()
+        self._parsed = None  # the new symbol table belongs to this parse, not a cached one
         try:
             return ASTBuilder(self.symbols).transform(parse_tree(rendered))
         except lark.exceptions.VisitError as error:

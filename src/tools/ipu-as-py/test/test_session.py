@@ -112,3 +112,19 @@ def test_simulation_only_slot_warning_is_recorded_and_raised_on_every_call() -> 
             result = session.assemble(source)
         assert result.warnings == tuple(str(w.message) for w in caught)
         assert any("simulation-only acc_store slot" in w for w in result.warnings)
+
+
+def test_parse_rendered_and_encode_are_the_stages_assemble_runs() -> None:
+    source = "top:\nNOP;;\nB top;;\n"
+    stages = AssemblySession("unused")
+    words = stages.encode(stages.parse_rendered(source))
+    assert words == AssemblySession(source).assemble().words
+    assert dict(stages.symbols.items()) == {"top": 0}
+
+
+def test_parse_rendered_replaces_the_cached_parse() -> None:
+    assembly = AssemblySession("a:\nNOP;;\n")
+    assembly.parse()
+    assembly.parse_rendered("NOP;;\nb:\nNOP;;\n")
+    assert dict(assembly.symbols.items()) == {"b": 1}
+    assert dict(assembly.assemble().symbols) == {"a": 0}  # parse() runs afresh

@@ -97,7 +97,7 @@ def test_position_is_exact_inside_a_loop_body():
 def test_instrumentation_does_not_change_what_the_parser_sees():
     # Markers are appended as `#` comments; adding them must not alter whether a
     # program assembles, only where an error is reported.
-    from ipu_as.diagnostics import _instrument
+    from ipu_as.source_map import instrument as _instrument
 
     source = '{%- set a = "lr0" -%}\n    SET {{a}} cr0;;\n    BKPT;;\n'
     assert check(source) == []
@@ -239,7 +239,7 @@ def test_whitespace_control_fusion_still_yields_an_exact_line():
 
 
 def test_disabling_whitespace_control_leaves_normal_templates_alone():
-    from ipu_as.diagnostics import _disable_whitespace_control
+    from ipu_as.source_map import disable_whitespace_control as _disable_whitespace_control
 
     assert _disable_whitespace_control("{%- set a = 1 -%}") == "{% set a = 1 %}"
     assert _disable_whitespace_control("{#- x -#}") == "{# x #}"
