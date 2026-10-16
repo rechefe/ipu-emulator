@@ -33,10 +33,11 @@ INSTRUCTION_SPEC = {
 
         "MY_NEW_INSTRUCTION": {
             "operands": [
-                {"name": "dest", "type": "MultStageReg"},
-                {"name": "src_a", "type": "MultStageReg", "read": "snapshot"},
-                {"name": "src_b", "type": "MultStageReg", "read": "snapshot"},
+                {"name": "dest", "type": "MultStageReg", "write": True},
+                {"name": "src_a", "type": "MultStageReg", "read": "cycle_start"},
+                {"name": "src_b", "type": "MultStageReg", "read": "cycle_start"},
             ],
+            "implicit_reads": [{"register": "r_mask", "view": "forwarded"}],
             "doc": InstructionDoc(
                 title="My New Operation",
                 summary="Performs a custom operation on two source registers.",
@@ -60,14 +61,22 @@ INSTRUCTION_SPEC = {
 
 The spec is checked strictly when `ipu_isa` is imported (`validate_instruction_spec`):
 
-- An instruction has exactly the keys `operands`, `doc` and `execute_fn`, and an operand has `name`, `type` and optionally `read`. Any other key is an error, so a typo such as `"raed"` fails at import instead of being ignored. The allowed keys are listed in `src/tools/ipu-isa/src/ipu_isa/schema.py`; a new key goes there first.
+- An instruction has the keys `operands`, `doc` and `execute_fn`, and optionally `tag`, `implicit_reads` and `implicit_writes`; an operand has `name`, `type` and optionally `read` or `write`. Any other key is an error, so a typo such as `"raed"` fails at import instead of being ignored. The allowed keys are listed in `src/tools/ipu-isa/src/ipu_isa/schema.py`; a new key goes there first.
 - Operand names are unique within the instruction and match `[a-z][a-z0-9_]*`.
-- `read` is allowed only on register operands (`LrIdx`, `CrIdx`, `LcrIdx`, `MultStageReg`, `LrdIdx`).
+- `read` and `write` are allowed only on register operands (`LrIdx`, `CrIdx`, `LcrIdx`, `MultStageReg`, `LrdIdx`), and not both on one operand.
+- `implicit_reads` / `implicit_writes` entries name a register of `REGISTER_DEFINITIONS`, optionally the operand that selects its index (`via_operand`), and for a read its `view`.
 - Each `doc.operands` line starts with its operand's name, in operand order, and `doc.example` has no comma.
 - Mnemonics are unique within the slot ignoring case, and each slot has exactly one `NOP`.
 - A pseudo-instruction has exactly `operands`, `expands_to` and `doc`, and its `expands_to` has exactly `slot`, `instruction` and `args`. Each argument is one of the pseudo's own operand names or a register valid for the target operand's type (`CR0` for an `LcrIdx`).
 
 A failure raises `SpecError` with the path of the entry, for example `mult.MY_NEW_INSTRUCTION.operands[src_a].read`.
+
+`load_isa` then checks the declared register accesses against the timing contract in `src/tools/ipu-isa/src/ipu_isa/timing.py` (ADR 0002):
+
+- A `forwarded` read is allowed only when every slot that writes the register runs earlier in `SLOT_EXECUTION_ORDER`; a register written by the same slot is read at `cycle_start`.
+- CR reads, and every read in a Control slot (`lr`, `cond`, `break`), are at `cycle_start`.
+- Every `lr`-slot instruction except `NOP` marks the LR it writes with `"write": True` (the emulator's LR write-conflict check reads it).
+- A read whose view differs from `contract_view` must be listed in `KNOWN_DEVIATIONS`, with the E04 issue that fixes it. A new instruction should follow the contract and need no row.
 
 **Key fields:**
 
@@ -82,10 +91,13 @@ A failure raises `SpecError` with the path of the entry, for example `mult.MY_NE
     - `"MultMaskOffsetImmediate"` — mult mask slot index **0**–**7**
     - `"BreakImmediate"` — 16-bit break condition
     - `"Label"` — branch target label
-  - `read` (optional): `"snapshot"` or `"live"` — marks source registers whose values are auto-resolved:
-    - `"snapshot"` — read from the VLIW snapshot (pre-write state, for read-before-write semantics)
-    - `"live"` — read from current register file (sees writes from earlier slots)
+  - `read` (optional): `"cycle_start"` or `"forwarded"` — marks source registers whose values are auto-resolved:
+    - `"cycle_start"` — the value the register held when the instruction word began
+    - `"forwarded"` — the value after the writes of earlier slots of the same word
     - Omit for destination registers or indices passed as raw values
+  - `write` (optional): `True` on the destination register operand; the handler receives its raw index
+
+- **`implicit_reads`** / **`implicit_writes`** (optional): every register the handler reads or writes that is not a `read` / `write` operand, as `{"register": "mult_res", "view": "forwarded"}` (`via_operand` names the operand that selects the register's index, for example `"dest_slot"`; writes have no `view`). The generated [Assembly syntax](assembly-syntax.md#execution-order-and-timing) page lists them for every instruction.
 
 - **`doc`**: `InstructionDoc` with:
   - `title` — Short human-readable name
@@ -125,8 +137,8 @@ class Ipu:
 
         Args:
             dest: Destination register index (raw MultStageRegField value)
-            src_a: Source A register bytes (auto-resolved from snapshot)
-            src_b: Source B register bytes (auto-resolved from snapshot)
+            src_a: Source A register bytes (auto-resolved, cycle start)
+            src_b: Source B register bytes (auto-resolved, cycle start)
         """
         result = bytearray(R_REG_SIZE)
         dtype = self.state.dtype
@@ -148,9 +160,9 @@ class Ipu:
   - Parameter order doesn't matter (they're passed as kwargs)
 
 - **Auto-resolved operands** (those with `"read"` field):
-  - Register operands with `"read": "snapshot"` receive `bytearray` values (register contents) in narrow mode. In wide-vector mode a `MultStageReg` operand receives the register index instead (`0` for `R0`, `1` for `R1`), and the handler reads the wide lanes itself
+  - Register operands with `"read": "cycle_start"` receive `bytearray` values (register contents) in narrow mode. In wide-vector mode a `MultStageReg` operand receives the register index instead (`0` for `R0`, `1` for `R1`), and the handler reads the wide lanes itself
   - LR/CR operands with `"read"` receive `int` values (32-bit register value)
-  - The dispatcher automatically extracts these from the snapshot or live regfile
+  - The dispatcher reads them at cycle start or forwarded, as the `read` value says
 
 - **Raw operands** (no `"read"` field):
   - Destination registers receive the raw index as `int`
@@ -319,7 +331,7 @@ PSEUDO_INSTRUCTION_SPEC: dict[str, dict] = {
 ### Resolution and disambiguation
 
 A pseudo-instruction is matched by **name + operand count**
-(`find_pseudo_instruction`). This means a pseudo-instruction could share a
+(`isa().pseudo(mnemonic, arity)` in `ipu_isa.view`). This means a pseudo-instruction could share a
 name with a real instruction of a *different* arity without ambiguity — the
 assembler picks whichever matches the operand count the caller wrote.
 

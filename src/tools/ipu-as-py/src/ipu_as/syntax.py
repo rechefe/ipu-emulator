@@ -12,8 +12,7 @@ import lark
 import ipu_as.ipu_token as ipu_token
 from ipu_as.errors import OperandError
 from ipu_as.symbols import SymbolTable
-from ipu_isa.instruction_spec import INSTRUCTION_SPEC, PSEUDO_INSTRUCTION_SPEC
-from ipu_isa.view import find_pseudo_instruction
+from ipu_isa.view import isa
 
 IPU_INSTR_ADDR_JUMP = 1
 
@@ -40,17 +39,18 @@ def parse_tree(text: str) -> lark.Tree:
 
 
 def _is_real_instruction_name(name: str) -> bool:
-    lowered = name.lower()
+    upper = name.upper()
     return any(
-        any(real_name.lower() == lowered for real_name in slot_instructions)
-        for slot_instructions in INSTRUCTION_SPEC.values()
+        instruction.mnemonic.upper() == upper
+        for slot in isa().spec_slot_order
+        for instruction in isa().instructions(slot)
     )
 
 
 def _expand_pseudo_instructions(instructions: list[dict]) -> list[dict]:
     """Expand pseudo-instructions into their real-instruction equivalents.
 
-    Matched by (opcode name, operand count) via ``find_pseudo_instruction``,
+    Matched by (opcode name, operand count) via ``isa().pseudo``,
     so a pseudo-instruction can share a name with a real instruction of a
     different arity without ambiguity. Pseudo-instructions never reach
     ``CompoundInst`` — by the time this returns, every instruction is a
@@ -62,15 +62,15 @@ def _expand_pseudo_instructions(instructions: list[dict]) -> list[dict]:
         operands = instr["operands"]
         opcode_name = opcode_token.token.value
 
-        pseudo_def = find_pseudo_instruction(opcode_name, len(operands))
-        if pseudo_def is None:
+        pseudo = isa().pseudo(opcode_name, len(operands))
+        if pseudo is None:
             if not _is_real_instruction_name(opcode_name):
-                for pseudo_name, candidate in PSEUDO_INSTRUCTION_SPEC.items():
-                    if pseudo_name.lower() == opcode_name.lower():
-                        expected_operands = candidate["operands"]
-                        names = ", ".join(op["name"] for op in expected_operands)
+                for candidate in isa().pseudos():
+                    if candidate.mnemonic.lower() == opcode_name.lower():
+                        expected_operands = candidate.operands
+                        names = ", ".join(op.name for op in expected_operands)
                         raise OperandError(
-                            f"Pseudo-instruction '{pseudo_name}' expects "
+                            f"Pseudo-instruction '{candidate.mnemonic}' expects "
                             f"{len(expected_operands)} operand(s) ({names}), "
                             f"got {len(operands)}\n"
                             f"At: {opcode_token.get_location_string()}",
@@ -80,17 +80,14 @@ def _expand_pseudo_instructions(instructions: list[dict]) -> list[dict]:
             expanded.append(instr)
             continue
 
-        expansion = pseudo_def["expands_to"]
-        operand_by_name = dict(
-            zip((op["name"] for op in pseudo_def["operands"]), operands, strict=True)
-        )
+        operand_by_name = dict(zip((op.name for op in pseudo.operands), operands, strict=True))
         # Borrow the position of the pseudo-instruction being expanded. A bare
         # lark.Token() carries no line or column, so any later error about the
         # expansion reported "Line None, Column None" and could not be placed —
         # `B loop;;` expanding to BEQ is invisible to the diagnostics.
         real_opcode = ipu_token.AnnotatedToken(
             token=lark.Token.new_borrow_pos(
-                opcode_token.token.type, expansion["instruction"], opcode_token.token
+                opcode_token.token.type, pseudo.expands_to.mnemonic, opcode_token.token
             ),
             instr_id=opcode_token.instr_id,
             symbols=opcode_token.symbols,
@@ -106,7 +103,7 @@ def _expand_pseudo_instructions(instructions: list[dict]) -> list[dict]:
                     symbols=opcode_token.symbols,
                 ),
             )
-            for arg in expansion["args"]
+            for arg in pseudo.args
         ]
         expanded.append({"opcode": real_opcode, "operands": real_operands})
     return expanded

@@ -7,9 +7,11 @@ from click.testing import CliRunner
 from ipu_as.compound_inst import CompoundInst
 from ipu_as.inst import Inst
 from ipu_as.ipu_token import EnumToken
-from ipu_gen import sv_package
+from ipu_gen import layout_svg, sv_package
 from ipu_gen.cli import cli
-from ipu_isa.layout import SLOT_UNIONS
+from ipu_isa.view import isa
+
+UNIONS = isa().layout.unions
 
 
 def test_build_context_matches_compound_width():
@@ -22,7 +24,7 @@ def test_slot_union_struct_bit_widths():
     for slot in ctx["slots"]:
         field_bits = slot["opcode_width"] + sum(f["bits"] for f in slot["fields"])
         assert field_bits == slot["width"], slot["slot"]
-        su = SLOT_UNIONS[slot["slot"]]
+        su = UNIONS[slot["slot"]]
         assert len(slot["fields"]) == len(su.fields)
 
 
@@ -76,7 +78,7 @@ def test_union_members_padded_to_operand_width():
 def test_union_member_fields_named_after_their_operands():
     ctx = sv_package.build_codegen_context()
     for slot in ctx["slots"]:
-        bindings = SLOT_UNIONS[slot["slot"]].opcode_bindings
+        bindings = UNIONS[slot["slot"]].opcode_bindings
         for inst in slot["instructions"]:
             expected = {f"{op}_{idx}" for idx, op in bindings.get(inst["name"], [])}
             names = {f["name"] for f in inst["layout_fields"] if f["operand"] != "padding"}
@@ -215,3 +217,43 @@ def test_cli_writes_the_package(tmp_path: Path):
     result = CliRunner().invoke(cli, ["sv-package", "--output", str(out)])
     assert result.exit_code == 0, result.output
     assert out.read_text(encoding="utf-8") == sv_package.render_sv_package()
+
+
+def test_cli_writes_the_docs_pages_and_the_union_svg(tmp_path: Path):
+    pages = tmp_path / "pages"
+    assert CliRunner().invoke(cli, ["docs-pages", str(pages)]).exit_code == 0
+    assert sorted(p.name for p in pages.iterdir()) == [
+        "assembly-syntax.md",
+        "instructions.md",
+        "operand-types.md",
+        "programmer-guide.md",
+    ]
+    svg = tmp_path / "union.svg"
+    assert CliRunner().invoke(cli, ["union-layout-svg", str(svg)]).exit_code == 0
+    assert svg.read_text() == layout_svg.union_layout_svg()
+    page = tmp_path / "instruction-format.md"
+    assert CliRunner().invoke(cli, ["instruction-format-md", str(page)]).exit_code == 0
+    assert "## Compound instruction layout" in page.read_text()
+
+
+def test_cli_verify_sv_package_exit_codes(tmp_path: Path):
+    good = tmp_path / "pkg.sv"
+    good.write_text(sv_package.render_sv_package(), encoding="utf-8")
+    assert CliRunner().invoke(cli, ["verify-sv-package", str(good)]).exit_code == 0
+    edited = tmp_path / "edited.sv"
+    edited.write_text(good.read_text(encoding="utf-8") + "// edited\n", encoding="utf-8")
+    assert CliRunner().invoke(cli, ["verify-sv-package", str(edited)]).exit_code == 1
+
+
+def test_cli_vscode_data_needs_a_directory_outside_bazel_run(monkeypatch):
+    monkeypatch.delenv("BUILD_WORKSPACE_DIRECTORY", raising=False)
+    result = CliRunner().invoke(cli, ["vscode-data"])
+    assert result.exit_code == 2
+    assert "BUILD_WORKSPACE_DIRECTORY" in result.output
+
+
+def test_cli_resolves_relative_paths_against_the_callers_directory(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("BUILD_WORKING_DIRECTORY", str(tmp_path))
+    result = CliRunner().invoke(cli, ["union-layout-svg", "out/union.svg"])
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "out" / "union.svg").read_text() == layout_svg.union_layout_svg()

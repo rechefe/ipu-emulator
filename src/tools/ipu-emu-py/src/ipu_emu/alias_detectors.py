@@ -305,6 +305,11 @@ class Segmented:
             self.parts, self.windows, self.origin = [], set(), None
 
 
+# The slots whose address operands an earlier LR update can feed (A12).
+# A set of slots, not an execution order: that is ipu_isa.timing.SLOT_EXECUTION_ORDER.
+_ADDRESS_UPDATE_CONSUMERS = frozenset({"mult", "load"})
+
+
 class Addressing:
     slots = ("cycle",)
 
@@ -323,7 +328,7 @@ class Addressing:
                 if name in ("offset", "base", "index", "rc_idx", "ra_idx", "src")
                 and (reg not in written or name in consumer.facts.get("snapshot_reads", ()))
             }
-            if consumer.slot in ("load", "mult"):
+            if consumer.slot in _ADDRESS_UPDATE_CONSUMERS:
                 for reg in reads:
                     prior = self.updates.get(reg)
                     if prior and prior.cycle < event.cycle:

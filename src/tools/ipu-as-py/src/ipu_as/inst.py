@@ -1,5 +1,5 @@
 import functools
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
 
@@ -19,13 +19,12 @@ import ipu_as.utils as utils
 from ipu_as.errors import OperandError, SlotError, SourceLocation
 from ipu_isa.instruction_spec import (
     COMPOUND_LAYOUT_SLOT_ORDER,
-    INSTRUCTION_SPEC,
     InstructionDoc,
     syntax,
 )
-from ipu_isa.layout import SLOT_UNIONS
 from ipu_isa.operand_types import OPERAND_TYPES, OperandType
-from ipu_isa.slots import SLOTS, Slot
+from ipu_isa.slots import Slot
+from ipu_isa.view import Isa, Operand, isa
 
 
 def _operand_type_md_link(typ: str) -> str:
@@ -128,17 +127,18 @@ check_operand_type_map(OPERAND_TYPE_MAP)
 
 @functools.cache
 def _build_struct_table(slot_type: str) -> Mapping[str, "InstructionFormat"]:
-    """The struct_by_opcode_table of a slot, built once from INSTRUCTION_SPEC.
+    """The struct_by_opcode_table of a slot, built once from the ISA view.
 
-    Resolves string operand type names to actual token classes using
-    OPERAND_TYPE_MAP, and wraps each instruction in an InstructionFormat. The
-    table is shared by every caller, so it is read-only.
+    Resolves each operand's type to its token class using OPERAND_TYPE_MAP, and
+    wraps each instruction in an InstructionFormat. The table is shared by
+    every caller, so it is read-only.
     """
-    slot_spec = INSTRUCTION_SPEC[slot_type]
     result = {}
-    for inst_name, inst_def in slot_spec.items():
-        operand_classes = tuple(OPERAND_TYPE_MAP[op["type"]] for op in inst_def["operands"])
-        result[inst_name] = InstructionFormat(operands=operand_classes, doc=inst_def["doc"])
+    for instruction in isa().instructions(Slot(slot_type)):
+        operand_classes = tuple(OPERAND_TYPE_MAP[op.type.name] for op in instruction.operands)
+        result[instruction.mnemonic] = InstructionFormat(
+            operands=operand_classes, doc=instruction.doc
+        )
     return MappingProxyType(result)
 
 
@@ -226,14 +226,14 @@ class Inst:
     @classmethod
     @functools.cache
     def operand_types(cls) -> tuple[type[ipu_token.IpuToken], ...]:
-        """Canonical token types for each union field (derived from SLOT_UNIONS), built once."""
-        slot_union = SLOT_UNIONS[cls._slot_type_name()]
+        """Canonical token types for each union field (from the slot's union layout), built once."""
+        slot_union = isa().layout.unions[Slot(cls._slot_type_name())]
         return tuple(OPERAND_TYPE_MAP[f.canonical_type] for f in slot_union.fields)
 
     @classmethod
     def _validate_instr_structure(cls) -> None:
         cls._inst_mapping_table = {}
-        cls._slot_union = SLOT_UNIONS[cls._slot_type_name()]
+        cls._slot_union = isa().layout.unions[Slot(cls._slot_type_name())]
         names = cls.opcode_type().enum_array()
         for opcode_idx, (opcode_name, _) in enumerate(cls.struct_by_opcode_table().items()):
             assert opcode_name == names[opcode_idx], (
@@ -379,8 +379,11 @@ class Inst:
         )
 
     @classmethod
-    def _render_instruction_docs(cls, slot: str) -> str:
-        info = SLOTS[Slot(slot)]
+    def _render_instruction_docs(cls, slot: str, view: Isa | None = None) -> str:
+        """The reference section of ``slot``: heading, intro and one entry per
+        documented instruction of ``view`` (default: ``isa()``)."""
+        view = isa() if view is None else view
+        info = view.slots[Slot(slot)]
         heading, intro = info.doc_heading, info.doc_intro
         lines = [f"## {heading}", ""]
         if info.debug_only:
@@ -393,26 +396,36 @@ class Inst:
             lines.append(intro.strip())
             lines.append("")
 
-        for opcode in cls.struct_by_opcode_table():
-            if opcode == "NOP":
+        for instruction in view.instructions(info.slot):
+            if instruction.mnemonic == "NOP":
                 continue  # documented once globally in the Slots section
-            instruction_format = cls._struct_entry(opcode)
-            if instruction_format.doc is None:
+            if instruction.doc is None:
                 continue
-            spec_ops = INSTRUCTION_SPEC[slot][opcode]["operands"]
-            lines.extend(cls._render_opcode_doc(opcode, instruction_format.doc, spec_ops))
+            lines.extend(
+                cls.render_opcode_doc(instruction.mnemonic, instruction.doc, instruction.operands)
+            )
             lines.append("")
 
         return "\n".join(lines).rstrip()
 
     @staticmethod
-    def _render_opcode_doc(
+    def render_opcode_doc(
         opcode: str,
         doc: InstructionDoc,
-        spec_operands: list[dict],
+        spec_operands: Sequence[Operand],
     ) -> list[str]:
+        """Markdown documentation of one opcode or pseudo-instruction.
+
+        Args:
+            opcode: The mnemonic, as written in assembly.
+            doc: Its ``InstructionDoc``.
+            spec_operands: Its operand dicts from the instruction spec, in order.
+
+        Returns:
+            The Markdown lines: heading, syntax, operands, and the doc's prose.
+        """
         lines = [f"### `{opcode}` — {doc.title}", ""]
-        names = [operand["name"] for operand in spec_operands]
+        names = [operand.name for operand in spec_operands]
         lines.append(f"**Syntax:** `{syntax(opcode, names)}`")
         lines.append("")
 
@@ -425,8 +438,8 @@ class Inst:
             lines.append("| Name | Type | Details |")
             lines.append("|------|------|---------|")
             for i, sop in enumerate(spec_operands):
-                name = sop["name"]
-                typ = sop["type"]
+                name = sop.name
+                typ = sop.type.name
                 link = _operand_type_md_link(typ)
                 detail = doc.operands[i] if i < len(doc.operands) else "—"
                 lines.append(f"| `{name}` | {link} | {_md_table_cell(detail)} |")

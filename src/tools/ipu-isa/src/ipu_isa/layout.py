@@ -10,12 +10,9 @@ result does not depend on import order.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from types import MappingProxyType
-
 from ipu_isa.slots import Slot
 from ipu_isa.tags import Tag
-from ipu_isa.union_layout import IsaLayout, SlotUnion
+from ipu_isa.union_layout import IsaLayout
 from ipu_isa.view import isa
 
 
@@ -32,14 +29,3 @@ def slots_with_tag(tag: Tag) -> tuple[Slot, ...]:
 def word_bits(tag: Tag | None = None) -> int:
     """Width of the emulator word (``None``) or of its ``tag`` slots."""
     return isa_layout().word_bits(tag)
-
-
-#: Slot name to its union layout, in the spec's slot order.
-SLOT_UNIONS: Mapping[str, SlotUnion] = MappingProxyType(
-    {slot.value: su for slot, su in isa_layout().unions.items()}
-)
-
-#: Slot name to the canonical operand type of each union field, in field order.
-SLOT_BINARY_LAYOUT: Mapping[str, tuple[str, ...]] = MappingProxyType(
-    {slot: tuple(f.canonical_type for f in su.fields) for slot, su in SLOT_UNIONS.items()}
-)

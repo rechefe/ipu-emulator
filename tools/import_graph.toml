@@ -20,20 +20,25 @@
 #
 # Edges marked "temporary" are today's code, not the target design; the
 # issue named beside each one removes it, and that change deletes the edge.
+#
+# [private] names, per module, the names no other package may use; the check
+# also reads each distribution's test/ directory (its :py_test_sources), so a
+# new package adds that filegroup to the test's data too.
 
 [allowed]
 # The ISA is the root: it depends on no other package (Q31, Q62).
 ipu_isa = []
 
-# Artifact generators. E08 moves the docs, SV and VS Code generators here
-# from ipu_as. The SV package (E08-13) reads ipu_isa only; E08-14 and E08-15
-# add ipu_as here if a generator needs the assembler's parser.
-ipu_gen = ["ipu_isa"]
-
-ipu_as = [
+# Artifact generators (E08-13, E08-14, E08-15). Nothing imports ipu_gen. The
+# SV package and the layout SVGs read ipu_isa only.
+ipu_gen = [
     "ipu_isa",
-    "ipu_gen",  # temporary: compound_inst renders the layout SVG (E08-14 removes it)
+    # The VS Code data reads the parser and the token classes; the instruction
+    # reference renders Inst.description() until E05-02.
+    "ipu_as",
 ]
+
+ipu_as = ["ipu_isa"]
 
 ipu_emu = [
     "ipu_isa",
@@ -81,3 +86,10 @@ ipu_kernels = ["ipu_harness"]
 
 # torch is a test-only dependency: the checker loads the reference lazily (E06-09).
 ipu_harness = ["torch"]
+
+[private]
+# Names a module keeps to its own package: no source or test of another
+# package may import them (or `import *` the module) or read them as an
+# attribute (E03-11). The authoring dicts are
+# read only by ipu_isa's loader; everything else reads the typed view, isa().
+"ipu_isa.instruction_spec" = ["INSTRUCTION_SPEC", "PSEUDO_INSTRUCTION_SPEC"]

@@ -21,18 +21,33 @@ filegroup(
     srcs = glob(["src/**/*.py"]),
 )
 
+# The package's test sources, for //tools:test_import_graph's private-name check.
+filegroup(
+    name = "py_test_sources",
+    srcs = glob(["test/**/*.py"], allow_empty = True),
+)
+
 # Generators that render artifacts from the ISA: the SystemVerilog package
-# (E08-13) and the union layout SVG. E08-14 and E08-15 move the docs and
-# VS Code generators here.
+# (E08-13), the docs pages and layout SVGs (E08-14), and the VS Code language
+# data (E08-15). ipu_as: the VS Code data reads the parser and token classes,
+# and the instruction reference renders Inst.description() until E05-02.
 py_library(
     name = "ipu_gen_lib",
     srcs = glob(["src/ipu_gen/*.py"]),
     data = glob(["src/ipu_gen/templates/*.j2"]),
     imports = ["src"],
-    deps = ["//src/tools/ipu-isa:ipu_isa_lib"] + [requirement(dep) for dep in RUNTIME_DEPS],
+    deps = [
+        "//src/tools/ipu-as-py:ipu_as_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+    ] + [requirement(dep) for dep in RUNTIME_DEPS],
 )
 
 #   bazel run //src/tools/ipu-gen:ipu-gen -- sv-package --output /tmp/ipu_instr_pkg.sv
+#   bazel run //src/tools/ipu-gen:ipu-gen -- docs-pages /tmp/docs
+#   bazel run //src/tools/ipu-gen:ipu-gen -- instruction-format-md /tmp/instruction-format.md
+#   bazel run //src/tools/ipu-gen:ipu-gen -- union-layout-svg /tmp/union_layout.svg
+#   bazel run //src/tools/ipu-gen:ipu-gen -- vscode-data [OUT_DIR]
+#   bazel run //src/tools/ipu-gen:ipu-gen -- verify-sv-package path/to/ipu_instr_pkg.sv
 py_binary(
     name = "ipu-gen",
     srcs = ["src/ipu_gen/cli.py"],
@@ -67,13 +82,60 @@ py_pytest_test(
     ],
 )
 
-#   bazel run //src/tools/ipu-gen:gen_union_layout_svg -- /tmp/union_layout.svg
+# The labels other packages keep (//vscode-ipu-asm:gen_vscode, //docs:verify_sv_package)
+# are aliases to these: ipu-gen with its subcommand fixed. `bazel run` passes args.
 py_binary(
-    name = "gen_union_layout_svg",
-    srcs = ["src/ipu_gen/gen_union_layout_svg.py"],
+    name = "vscode_data",
+    srcs = ["src/ipu_gen/cli.py"],
+    args = ["vscode-data"],
     imports = ["src"],
-    main = "src/ipu_gen/gen_union_layout_svg.py",
+    main = "src/ipu_gen/cli.py",
     deps = [":ipu_gen_lib"],
+)
+
+py_binary(
+    name = "verify_sv_package",
+    srcs = ["src/ipu_gen/cli.py"],
+    args = ["verify-sv-package"],
+    imports = ["src"],
+    main = "src/ipu_gen/cli.py",
+    deps = [":ipu_gen_lib"],
+)
+
+# isa.json (hover and completion data) against the assembler's own parser and
+# token constructors.
+py_pytest_test(
+    name = "test_hover_data",
+    srcs = ["test/test_hover_data.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_gen_lib",
+        "//src/tools/ipu-as-py:ipu_as_lib",
+        requirement("pytest"),
+    ],
+)
+
+# Each generator renders the ISA it is given (E03-11).
+py_pytest_test(
+    name = "test_generators_take_a_view",
+    srcs = ["test/test_generators_take_a_view.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_gen_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_isa_data",
+    srcs = ["test/test_isa_data.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_gen_lib",
+        "//src/tools/ipu-as-py:ipu_as_lib",
+        requirement("lark"),
+        requirement("pytest"),
+    ],
 )
 
 py_pytest_test(

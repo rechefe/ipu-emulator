@@ -1,41 +1,44 @@
-#!/usr/bin/env python3
-"""Generate markdown documentation for IPU assembly (instructions, operand types, syntax page)."""
+"""Generate the MkDocs pages for IPU assembly (E08-14).
+
+The instruction reference, operand types, assembly syntax, programmer's guide
+and instruction-format pages. ``ipu-gen docs-pages OUT_DIR`` and
+``ipu-gen instruction-format-md OUT`` write them.
+"""
 
 from __future__ import annotations
 
-import sys
+from collections.abc import Iterable
 from pathlib import Path
 
-from ipu_isa.instruction_spec import (
-    COMPOUND_LAYOUT_SLOT_ORDER,
-    PSEUDO_INSTRUCTION_SPEC,
-    SLOT_COUNT,
-    SLOT_METADATA,
-    VALID_OPERAND_TYPES,
-)
-from ipu_isa.operand_types import operand_type
+from ipu_as.inst import Inst
+from ipu_gen.layout_svg import struct_layout_svg, union_layout_svg
+from ipu_isa.formats import FORMATS
+from ipu_isa.layout import word_bits
 from ipu_isa.registers import create_assembler_reg_enums
+from ipu_isa.timing import KNOWN_DEVIATIONS, SLOT_EXECUTION_ORDER, RegisterAccess, View
+from ipu_isa.view import Isa, isa
 
 
 def _operand_slug(typ: str) -> str:
     return typ.lower().replace("_", "-")
 
 
-def generate_operand_types_md(output_path: Path) -> None:
+def generate_operand_types_md(output_path: Path, view: Isa | None = None) -> None:
     """Write operand-types.md (linked from the instruction reference)."""
+    view = isa() if view is None else view
     lines: list[str] = [
         "# Operand types",
         "",
-        "This page is **generated** by `ipu_as.gen_docs` from `VALID_OPERAND_TYPES` in "
+        "This page is **generated** by `ipu_gen.docs_pages` from `VALID_OPERAND_TYPES` in "
         "`instruction_spec.py` and the descriptions below. For encodings per instruction, see the "
         "[Instruction reference](instructions.md).",
         "",
     ]
-    for typ in sorted(VALID_OPERAND_TYPES):
+    for typ in sorted(view.operand_types):
         slug = _operand_slug(typ)
         lines.append(f"## `{typ}` {{: #{slug} }}")
         lines.append("")
-        lines.append(operand_type(typ).doc)
+        lines.append(view.operand_types[typ].doc)
         lines.append("")
     output_path.write_text("\n".join(lines))
     print(f"Generated operand types at {output_path}")
@@ -92,7 +95,7 @@ load_inst; mult_inst; acc_inst; aaq_inst; store_inst; acc_store_inst; lr_inst_a;
 
 - Each slot appears a fixed number of times (see `SLOT_COUNT` in `instruction_spec.py`); unused slots are filled with that slot’s **NOP** by the assembler.
 - Slot order in the binary word (MSB → LSB) is defined by the toolchain: `cond`, three `lr` sub-slots, `load`, `mult`, `acc`, `aaq`, `store`, `acc_store`, `break` (see the layout diagram on the [Instruction reference](instructions.md#compound-instruction-layout)).
-- The emulator runs **BREAK** first (may halt), then resolves **LR** sub-instructions, then **LOAD**, **MULT**, **ACC**, **AAQ**, **STORE**, **ACC_STORE**, **COND** in one cycle (see `execute_vliw_cycle` in `ipu.py`). Same-cycle **load** + **store**: load resolves before store.
+- The slots of one word execute in a fixed order, and each register read sees either the value at cycle start or the value forwarded from an earlier slot of the same word: see [Execution order and timing](#execution-order-and-timing).
 - The **acc_store** slot (`STR_ACC_REG`) is **simulation-only** — not implemented in real IPU hardware.
 
 **Example (parallel slots):**
@@ -334,12 +337,99 @@ bazel run //src/tools/ipu-as-py:ipu-as -- assemble --input prog.asm --output pro
 - [Adding instructions](adding-instruction.md)
 - [Building applications](building-applications.md)
 """
-    output_path.write_text(main + masking_section + jinja_tail)
+    output_path.write_text(main + timing_section() + masking_section + jinja_tail)
     print(f"Generated assembly syntax page at {output_path}")
 
 
-def _generate_slots_section() -> str:
-    """Generate the Slots overview section from instruction_spec metadata."""
+def _register(name: str) -> str:
+    return f"`{name.upper()}`"
+
+
+def _access(access: RegisterAccess) -> str:
+    """``LR`` via `dest_slot`, ``MULT_RES``."""
+    text = _register(access.register)
+    return f"{text} via `{access.via_operand}`" if access.via_operand else text
+
+
+def _accesses(accesses: Iterable[RegisterAccess]) -> str:
+    return ", ".join(_access(access) for access in accesses) or "—"
+
+
+def timing_section(view: Isa | None = None) -> str:
+    """The execution order, the timing contract, every instruction's register
+    reads and writes, and the known deviations, from ``ipu_isa.timing`` (E03-14)."""
+    order = " → ".join(f"**{slot.value.upper()}**" for slot in SLOT_EXECUTION_ORDER)
+    lines = [
+        "",
+        "## Execution order and timing",
+        "",
+        "This section is **generated** from `ipu_isa.timing` and the register accesses each "
+        "instruction declares in `instruction_spec.py`.",
+        "",
+        f"The slots of one instruction word execute in this order: {order}. "
+        "**BREAK** is evaluated before any slot writes (it may halt the word); the **LR** "
+        "sub-slots all read before any of them writes.",
+        "",
+        "A register read sees one of two values: the value at **cycle start** (when the word "
+        "began), or the **forwarded** value (after the writes of earlier slots of the same "
+        "word). The timing contract is four rules:",
+        "",
+        "1. The Control stage (**LR**, **COND**) reads LRs at cycle start; every other stage "
+        "reads LRs after the LR writes of the same word.",
+        "2. **MULT** reads `R0`, `R1`, `R_CYCLIC` and `R_MASK` at cycle start.",
+        "3. `MULT_RES` is forwarded to **ACC** (including AGG and RESHAPE); `R_ACC` is forwarded "
+        "to **AAQ**.",
+        "4. LR sub-slots read cycle-start values.",
+        "",
+        "Any other read is forwarded when every slot that writes the register runs earlier in "
+        "the word, and at cycle start otherwise. CRs are never written during a run, so CR "
+        "reads are at cycle start.",
+        "",
+        "### Register reads and writes",
+        "",
+        "`R` is the `R0`/`R1` pair. An operand of type `LcrIdx` reads an LR or a CR.",
+        "",
+        "| Instruction | Slot | Reads at cycle start | Reads forwarded | Writes |",
+        "|-------------|------|----------------------|-----------------|--------|",
+    ]
+    view = isa() if view is None else view
+    for slot in SLOT_EXECUTION_ORDER:
+        for instruction in view.instructions(slot):
+            if instruction.mnemonic == "NOP":
+                continue
+            reads = instruction.reads()
+            cycle_start = [a for a in reads if a.view is View.CYCLE_START]
+            forwarded = [a for a in reads if a.view is View.FORWARDED]
+            lines.append(
+                f"| `{instruction.mnemonic}` | `{slot.value.upper()}` | {_accesses(cycle_start)} "
+                f"| {_accesses(forwarded)} | {_accesses(instruction.writes())} |"
+            )
+    lines += [
+        "",
+        "### Known deviations",
+        "",
+        "Where the emulator differs from the contract today. Each row is removed by the "
+        "issue named in the last column.",
+        "",
+        "| Instruction | Read | Today | Contract | Fixed by |",
+        "|-------------|------|-------|----------|----------|",
+    ]
+    for deviation in KNOWN_DEVIATIONS:
+        access = RegisterAccess(deviation.register, deviation.via_operand)
+        lines.append(
+            f"| `{deviation.mnemonic}` | {_access(access)} | {_view(deviation.today)} "
+            f"| {_view(deviation.contract)} | {deviation.fixed_by} |"
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _view(view: View) -> str:
+    return "cycle start" if view is View.CYCLE_START else "forwarded"
+
+
+def _generate_slots_section(view: Isa) -> str:
+    """Generate the Slots overview section from the slot registry."""
     lines: list[str] = [
         "## Slots\n",
         "A VLIW instruction word encodes one sub-instruction per slot. "
@@ -351,11 +441,9 @@ def _generate_slots_section() -> str:
         "| Slot | Count | Description |",
         "|------|------:|-------------|",
     ]
-    for slot in COMPOUND_LAYOUT_SLOT_ORDER:
-        count = SLOT_COUNT[slot]
-        meta = SLOT_METADATA.get(slot, {})
-        description = meta.get("description", "")
-        lines.append(f"| `{slot.upper()}` | {count} | {description} |")
+    for slot in view.layout.layout_order:
+        info = view.slots[slot]
+        lines.append(f"| `{slot.value.upper()}` | {info.count} | {info.description} |")
     lines += [
         "",
         "### `NOP` — No Operation\n",
@@ -368,10 +456,29 @@ def _generate_slots_section() -> str:
     return "\n".join(lines)
 
 
-def generate_instruction_docs(output_path: Path) -> None:
-    """Generate instruction reference documentation."""
-    from ipu_as.compound_inst import CompoundInst
-    from ipu_as.inst import Inst
+def _generate_formats_section() -> str:
+    """Generate the Element formats table from ``ipu_isa.formats``."""
+    lines: list[str] = [
+        "## Element formats\n",
+        "The element format is selected at run time. It sets the element width, "
+        "and from it the XMEM row width, the register element widths and the "
+        "accumulator type. An XMEM row, R0 and R1 hold 128 elements in every format. "
+        "`EMULATOR` formats exist only in the emulator. A float element is "
+        "1 sign bit, the exponent bits and the stored mantissa bits.\n",
+        "| Format | Tag | Element bits | Exponent bits | Mantissa bits | Row bytes | Accumulator |",
+        "|--------|-----|-------------:|--------------:|--------------:|----------:|-------------|",
+    ]
+    for fmt, info in FORMATS.items():
+        lines.append(
+            f"| `{fmt.name}` | `{info.tag.name}` | {info.element_bits} | {info.exp_bits} | "
+            f"{info.man_bits} | {info.row_bytes} | `{info.accumulator.name}` |"
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def generate_instruction_docs(output_path: Path, view: Isa | None = None) -> None:
+    """Generate instruction reference documentation from ``view`` (default: ``isa()``)."""
 
     content = ["# IPU Assembly Instruction Reference\n"]
     content.append(
@@ -380,7 +487,9 @@ def generate_instruction_docs(output_path: Path) -> None:
         "[operand type reference](operand-types.md).\n"
     )
 
-    content.append(_generate_slots_section())
+    view = isa() if view is None else view
+    content.append(_generate_slots_section(view))
+    content.append(_generate_formats_section())
 
     content.append("## Compound Instruction Layout\n")
     content.append(
@@ -394,13 +503,13 @@ def generate_instruction_docs(output_path: Path) -> None:
         "opcode field sharing comes from.\n"
     )
     content.append("\n### Whole-word bit layout\n")
-    content.append(CompoundInst.generate_struct_layout_svg())
+    content.append(struct_layout_svg(view))
     content.append("\n### Per-slot union layout\n")
-    content.append(CompoundInst.generate_union_layout_svg())
+    content.append(union_layout_svg(view))
     content.append("\n---\n\n")
 
-    for inst_class in Inst.get_all_instruction_classes():
-        content.append(inst_class.description())
+    for slot in view.layout.layout_order:
+        content.append(Inst._render_instruction_docs(slot.value, view))
         content.append("\n---\n")
 
     output_path.write_text("\n".join(content))
@@ -409,11 +518,9 @@ def generate_instruction_docs(output_path: Path) -> None:
 
 def generate_instruction_format_md(output_path: Path) -> None:
     """Generate the instruction-format documentation page (with download links)."""
-    from ipu_as.compound_inst import CompoundInst
-
-    width = CompoundInst.bits()
-    struct_svg = CompoundInst.generate_struct_layout_svg()
-    union_svg = CompoundInst.generate_union_layout_svg()
+    width = word_bits()
+    struct_svg = struct_layout_svg()
+    union_svg = union_layout_svg()
 
     content = f"""# Instruction format
 
@@ -459,9 +566,8 @@ bazel run //src/tools/ipu-gen:ipu-gen -- sv-package --output /tmp/ipu_instr_pkg.
     print(f"Generated instruction format page at {output_path}")
 
 
-def generate_programmer_guide_md(output_path: Path) -> None:
+def generate_programmer_guide_md(output_path: Path, view: Isa | None = None) -> None:
     """Generate the programmer-facing pseudo-instruction/alias reference."""
-    from ipu_as.inst import Inst
 
     content = ["# Programmer's Guide: Pseudo-Instructions\n"]
     content.append(
@@ -473,13 +579,13 @@ def generate_programmer_guide_md(output_path: Path) -> None:
         "`PSEUDO_INSTRUCTION_SPEC` in `instruction_spec.py`.\n"
     )
 
-    for name, pseudo_def in PSEUDO_INSTRUCTION_SPEC.items():
-        expansion = pseudo_def["expands_to"]
-        lines = Inst._render_opcode_doc(name, pseudo_def["doc"], pseudo_def["operands"])
+    for pseudo in (isa() if view is None else view).pseudos():
+        target = pseudo.expands_to
+        lines = Inst.render_opcode_doc(pseudo.mnemonic, pseudo.doc, pseudo.operands)
         lines.append("")
         lines.append(
-            f"**Expands to:** `{expansion['instruction']}` "
-            f"({expansion['slot']} slot), arguments `{', '.join(expansion['args'])}`"
+            f"**Expands to:** `{target.mnemonic}` "
+            f"({target.slot.value} slot), arguments `{', '.join(pseudo.args)}`"
         )
         content.append("\n".join(lines))
         content.append("\n---\n")
@@ -493,31 +599,10 @@ def generate_all_docs(
     operand_types_path: Path,
     assembly_syntax_path: Path,
     programmer_guide_path: Path,
+    view: Isa | None = None,
 ) -> None:
-    """Regenerate all MkDocs pages owned by the assembler toolchain."""
-    generate_operand_types_md(operand_types_path)
+    """Write the instruction, operand-type, assembly-syntax and programmer's guide pages."""
+    generate_operand_types_md(operand_types_path, view)
     generate_assembly_syntax_md(assembly_syntax_path)
-    generate_instruction_docs(instructions_path)
-    generate_programmer_guide_md(programmer_guide_path)
-
-
-if __name__ == "__main__":
-    argv = sys.argv[1:]
-    if len(argv) == 4:
-        generate_all_docs(Path(argv[0]), Path(argv[1]), Path(argv[2]), Path(argv[3]))
-    elif len(argv) == 1:
-        d = Path(argv[0])
-        d.mkdir(parents=True, exist_ok=True)
-        generate_all_docs(
-            d / "instructions.md",
-            d / "operand-types.md",
-            d / "assembly-syntax.md",
-            d / "programmer-guide.md",
-        )
-    else:
-        print(
-            "Usage: gen_docs.py <instructions.md> <operand-types.md> <assembly-syntax.md> <programmer-guide.md>\n"
-            "   or: gen_docs.py <output_directory>/",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    generate_instruction_docs(instructions_path, view)
+    generate_programmer_guide_md(programmer_guide_path, view)

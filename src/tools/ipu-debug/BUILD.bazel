@@ -23,6 +23,12 @@ filegroup(
     srcs = glob(["src/**/*.py"]),
 )
 
+# The package's test sources, for //tools:test_import_graph's private-name check.
+filegroup(
+    name = "py_test_sources",
+    srcs = glob(["test/**/*.py"], allow_empty = True),
+)
+
 # The interactive debugger (line CLI and curses TUI) over the emulator's one
 # debug seam, run_with_debug(..., control=...). The dependency is one way:
 # ipu_emu_lib does not depend on this library (Q62, tools/import_graph.toml).
@@ -71,6 +77,31 @@ py_pytest_test(
     name = "test_tui_shell",
     srcs = ["test/test_tui_shell.py"],
     data = ["pytest.ini"] + glob(["test/golden/tui/*.txt"]),
+    imports = ["src"],
+    deps = [
+        ":ipu_debug_lib",
+        "//src/tools/ipu-emu-py:emu_test_support",
+        requirement("pytest"),
+    ],
+)
+
+# The XMEM pane rendered on its own: no screen, no view (E08-09).
+py_pytest_test(
+    name = "test_tui_xmem_pane",
+    srcs = ["test/test_tui_xmem_pane.py"],
+    data = ["pytest.ini"],
+    imports = ["src"],
+    deps = [
+        ":ipu_debug_lib",
+        requirement("pytest"),
+    ],
+)
+
+# The registers pane rendered on its own: no screen, no view (E08-10).
+py_pytest_test(
+    name = "test_tui_registers_pane",
+    srcs = ["test/test_tui_registers_pane.py"],
+    data = ["pytest.ini"],
     imports = ["src"],
     deps = [
         ":ipu_debug_lib",

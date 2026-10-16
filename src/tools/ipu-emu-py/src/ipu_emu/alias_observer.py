@@ -11,6 +11,16 @@ from ipu_emu.ipu_math import dtype_one_byte
 from ipu_emu.xmem import XMEM_WIDTH_BYTES
 from ipu_isa.activations import ACTIVATION_IDENTITY
 from ipu_isa.geometry import LANES
+from ipu_isa.operand_types import OperandType
+from ipu_isa.registers import REGISTER_DEFINITIONS, lrd_pair
+
+_LR_NAMES = frozenset(REGISTER_DEFINITIONS["lr"]["assembler_values"])
+
+
+def _names_an_lr(operand_type: OperandType, encoded: int) -> bool:
+    """Whether an operand of ``operand_type`` encoded as ``encoded`` names an LR."""
+    members = operand_type.domain.members
+    return 0 <= encoded < len(members) and members[encoded] in _LR_NAMES
 
 
 class ExecutionObserver:
@@ -167,12 +177,12 @@ class ExecutionObserver:
         facts["lr_reads"] = {
             read.name: encoded[read.name]
             for read in plan.reads
-            if read.op_type == "LrIdx" or (read.op_type == "LcrIdx" and encoded[read.name] < 16)
+            if _names_an_lr(read.op_type, encoded[read.name])
         }
         facts["snapshot_reads"] = tuple(read.name for read in plan.reads if read.from_snapshot)
         if slot == "lr" and plan.write_operand:
             facts["lr_writes"] = (
-                ipu._lrd_lr_indices(kwargs[plan.write_operand])
+                lrd_pair(kwargs[plan.write_operand])
                 if plan.write_is_lrd
                 else (kwargs[plan.write_operand],)
             )

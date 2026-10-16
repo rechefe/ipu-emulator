@@ -205,6 +205,21 @@ def get_register_sizes() -> dict[str, dict[str, int | bool]]:
     return result
 
 
+def lrd_pair(n: int) -> tuple[int, int]:
+    """The LR indices behind the n-th entry of the ``LrdIdx`` domain.
+
+    That entry is register LRD{2n} = LR(2n+1):LR(2n): ``lrd0`` is entry 0,
+    ``lrd2`` entry 1, and each is named after its lower register.
+
+    Args:
+        n: The position in the ``LrdIdx`` domain (the encoded operand value).
+
+    Returns:
+        ``(lo, hi)``: the indices of the low and high LR of the pair.
+    """
+    return 2 * n, 2 * n + 1
+
+
 def get_lane_count() -> int:
     """Number of SIMD lanes in the datapath.
 

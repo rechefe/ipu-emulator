@@ -11,7 +11,7 @@ import pytest
 from docs.hooks import history_link
 
 REPO = "https://github.com/rechefe/ipu-emulator"
-GENERATOR = "src/tools/ipu-as-py/src/ipu_as/gen_docs.py"
+GENERATOR = "src/tools/ipu-gen/src/ipu_gen/docs_pages.py"
 
 
 @pytest.fixture

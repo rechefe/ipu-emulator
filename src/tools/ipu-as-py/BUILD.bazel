@@ -27,10 +27,17 @@ py_library(
     ]),
     data = glob(["src/ipu_as/**/*.lark"]),
     imports = ["src"],
-    deps = [
-        "//src/tools/ipu-gen:ipu_gen_lib",
-        "//src/tools/ipu-isa:ipu_isa_lib",
-    ] + [requirement(dep) for dep in RUNTIME_DEPS],
+    deps = ["//src/tools/ipu-isa:ipu_isa_lib"] + [requirement(dep) for dep in RUNTIME_DEPS],
+)
+
+# The parser's tokenization of a corpus, for the editor's agreement test:
+#   bazel run //vscode-ipu-asm:dump_parser_tokens -- <out.json> <file.asm>...
+py_binary(
+    name = "dump_parser_tokens",
+    srcs = ["src/ipu_as/dump_parser_tokens.py"],
+    imports = ["src"],
+    main = "src/ipu_as/dump_parser_tokens.py",
+    deps = [":ipu_as_lib"],
 )
 
 py_binary(
@@ -66,6 +73,12 @@ py_pytest_test(
 filegroup(
     name = "py_sources",
     srcs = glob(["src/**/*.py"]),
+)
+
+# The package's test sources, for //tools:test_import_graph's private-name check.
+filegroup(
+    name = "py_test_sources",
+    srcs = glob(["test/**/*.py"], allow_empty = True),
 )
 
 # Derived operand widths are right whatever is imported first (E03-08).
@@ -263,28 +276,6 @@ py_pytest_test(
     ],
 )
 
-py_pytest_test(
-    name = "test_hover_data",
-    srcs = ["test/test_hover_data.py"],
-    imports = ["src"],
-    deps = [
-        ":ipu_as_lib",
-        requirement("pytest"),
-    ],
-)
-
-# The editor's completion data (isa.json operandTypes, lexical rules) against the
-# assembler's own token constructors.
-py_pytest_test(
-    name = "test_isa_data",
-    srcs = ["test/test_isa_data.py"],
-    imports = ["src"],
-    deps = [
-        ":ipu_as_lib",
-        requirement("pytest"),
-    ],
-)
-
 # Decode snapshots (E02-02): instruction-word field names, the emulator's
 # operand-to-field maps and the enum descriptors, pinned as JSON in
 # test/baselines/. `bazel run :update_decode_snapshots` rewrites them.
@@ -346,7 +337,6 @@ py_library(
     deps = [
         ":ipu_as_lib",
         "//src/tools/ipu-gen:ipu_gen_lib",
-        "//vscode-ipu-asm:gen_vscode_lib",
     ],
 )
 

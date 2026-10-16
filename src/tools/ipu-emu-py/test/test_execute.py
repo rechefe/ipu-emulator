@@ -3385,10 +3385,107 @@ BKPT;;
 class TestDispatchPlans:
     def test_a_missing_handler_is_reported_by_instruction_name(self) -> None:
         # TODO(E04-08): per-word execution plans replace _build_plan.
-        from ipu_emu.ipu import _build_plan
+        import dataclasses
 
-        spec = {"execute_fn": "execute_no_such_handler", "operands": []}
+        from ipu_emu.ipu import _build_plan
+        from ipu_isa.slots import Slot
+        from ipu_isa.view import isa
+
+        fake = dataclasses.replace(
+            isa().instruction(Slot.MULT, "NOP"),
+            mnemonic="FAKE",
+            execute_fn="execute_no_such_handler",
+        )
         with pytest.raises(
             RuntimeError, match=r"mult/FAKE names handler Ipu\.execute_no_such_handler"
         ):
-            _build_plan("mult", "FAKE", spec, {})
+            _build_plan(fake, {})
+
+
+# ============================================================================
+# Declared slot execution order (E04-06)
+# ============================================================================
+
+
+class TestDeclaredSlotOrder:
+    """The cycle loops follow ``ipu_isa.timing.SLOT_EXECUTION_ORDER``."""
+
+    # BREAK stays first (it is evaluated before any write); the rest reversed.
+    @staticmethod
+    def _reordered():
+        from ipu_isa.slots import Slot
+        from ipu_isa.timing import SLOT_EXECUTION_ORDER
+
+        rest = [slot for slot in SLOT_EXECUTION_ORDER if slot is not Slot.BREAK]
+        return (Slot.BREAK, *reversed(rest))
+
+    @pytest.mark.parametrize("skip_break", [False, True])
+    def test_faithful_dispatch_follows_declared_order(self, monkeypatch, skip_break):
+        import ipu_emu.ipu as ipu_mod
+
+        order = self._reordered()
+        monkeypatch.setattr(ipu_mod, "SLOT_EXECUTION_ORDER", order)
+        dispatched: list[str] = []
+        real_dispatch = ipu_mod.Ipu.dispatch_instruction
+        real_lr = ipu_mod.Ipu._dispatch_lr_slots
+
+        def spy_dispatch(self, slot_type, inst):
+            dispatched.append(slot_type)
+            return real_dispatch(self, slot_type, inst)
+
+        def spy_lr(self, inst):
+            dispatched.append("lr")
+            return real_lr(self, inst)
+
+        monkeypatch.setattr(ipu_mod.Ipu, "dispatch_instruction", spy_dispatch)
+        monkeypatch.setattr(ipu_mod.Ipu, "_dispatch_lr_slots", spy_lr)
+
+        state = make_state("SET lr0 cr8;;\nBKPT;;", cr={8: 7}, prototyping=False)
+        engine = ipu_mod.Ipu(state)
+        if skip_break:
+            engine.execute_vliw_cycle_skip_break()
+            expected = [slot.value for slot in order[1:]]
+        else:
+            engine.execute_vliw_cycle()
+            expected = [slot.value for slot in order]
+        assert dispatched == expected
+        assert state.regfile.get_lr(0) == 7
+
+    def test_prototyping_plan_follows_declared_order(self, monkeypatch):
+        import ipu_emu.ipu as ipu_mod
+
+        order = self._reordered()
+        monkeypatch.setattr(ipu_mod, "SLOT_EXECUTION_ORDER", order)
+        # The plan and the fast cycle are driven directly, so this runs in a
+        # build without --define=ipu_proto=1 as well.
+        state = make_state("SET lr0 cr8;;\nBKPT;;", cr={8: 7}, prototyping=False)
+        engine = ipu_mod.Ipu(state)
+        pc = state.program_counter
+        inst = state.inst_mem[pc]
+        _, _, _, slot_work = engine._cycle_plan(pc, inst)
+
+        def slot_of(entry):
+            if entry is ipu_mod._LR_WORK:
+                return "lr"
+            plan = entry[0]
+            return next(
+                slot for slot, plans in ipu_mod._SLOT_PLANS.items() if any(p is plan for p in plans)
+            )
+
+        seen = [slot_of(entry) for entry in slot_work]
+        expected = [slot.value for slot in order if slot.value in seen]
+        assert seen == expected
+        # LR and the always-run COND slot are both present, in declared order.
+        assert {"lr", "cond"} <= set(seen)
+        engine._take_snapshot()
+        engine._execute_cycle_fast(inst, pc, with_break=True)
+        assert state.regfile.get_lr(0) == 7
+
+    def test_order_must_cover_every_planned_slot(self, monkeypatch):
+        import ipu_emu.ipu as ipu_mod
+        from ipu_isa.slots import Slot
+
+        short = tuple(slot for slot in ipu_mod.SLOT_EXECUTION_ORDER if slot is not Slot.AAQ)
+        monkeypatch.setattr(ipu_mod, "SLOT_EXECUTION_ORDER", short)
+        with pytest.raises(ImportError, match="missing \\['aaq'\\]"):
+            ipu_mod._check_execution_order_covers_plans()

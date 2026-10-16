@@ -5,16 +5,19 @@ is the one function that reads them: it checks them against the schema
 (E03-03 rules) and builds frozen records. Every consumer asks :func:`isa` for
 an :class:`Isa` and reads records, not string-keyed dicts.
 
-Later issues add fields to these records as they add keys to the schema:
-implicit reads and writes (E03-14), formats and faults (E03-13, E03-15).
+Later issues add fields to these records as they add keys to the schema.
+The fault list and F-1's reserved encodings (E03-15) are in
+``ipu_isa.faults``, derived from an :class:`Isa`. E03-14 added the register accesses
+(``Operand.write``, ``Instruction.implicit_reads`` / ``implicit_writes``) and
+checks them against the timing contract (``ipu_isa.timing``).
 """
 
 from __future__ import annotations
 
+import copy
 import functools
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from enum import Enum
 from types import MappingProxyType
 from typing import Any
 
@@ -29,20 +32,12 @@ from ipu_isa.instruction_spec import (
 from ipu_isa.operand_types import OPERAND_TYPES, OperandType
 from ipu_isa.slots import LAYOUT_ORDER, SLOTS, Slot, SlotInfo
 from ipu_isa.tags import Tag
+from ipu_isa.timing import OPERAND_REGISTERS, RegisterAccess, View, validate_timing
 from ipu_isa.union_layout import IsaLayout, compute_layout
 
-
-class Read(str, Enum):
-    """When an operand's register is read (the authored ``"read"`` values).
-
-    E03-14 renames the spellings with the timing contract.
-    """
-
-    CYCLE_START = "snapshot"
-    FORWARDED = "live"
-
-    def __str__(self) -> str:
-        return self.value
+#: When an operand's register is read (the authored ``"read"`` values): the
+#: timing contract's :class:`ipu_isa.timing.View`.
+Read = View
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,6 +47,7 @@ class Operand:
     name: str  # becomes the SV field <name>_<column>: wire format
     type: OperandType
     read: Read | None
+    write: bool = False  # the register the instruction writes (E03-14)
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +61,31 @@ class Instruction:
     tag: Tag
     doc: InstructionDoc
     execute_fn: str
+    # Registers read or written that are not read/write operands (E03-14).
+    implicit_reads: tuple[RegisterAccess, ...] = ()
+    implicit_writes: tuple[RegisterAccess, ...] = ()
+
+    def reads(self) -> tuple[RegisterAccess, ...]:
+        """Every register this instruction reads, with its view: the ``read``
+        operands (an ``LcrIdx`` names LR and CR), then :attr:`implicit_reads`."""
+        operand_reads = tuple(
+            RegisterAccess(register, operand.name, operand.read)
+            for operand in self.operands
+            if operand.read is not None
+            for register in OPERAND_REGISTERS[operand.type.name]
+        )
+        return operand_reads + self.implicit_reads
+
+    def writes(self) -> tuple[RegisterAccess, ...]:
+        """Every register this instruction writes: the ``write`` operands, then
+        :attr:`implicit_writes`."""
+        operand_writes = tuple(
+            RegisterAccess(register, operand.name)
+            for operand in self.operands
+            if operand.write
+            for register in OPERAND_REGISTERS[operand.type.name]
+        )
+        return operand_writes + self.implicit_writes
 
     @property
     def syntax(self) -> str:
@@ -103,6 +124,15 @@ class Isa:
     layout: IsaLayout
     _instructions: Mapping[Slot, tuple[Instruction, ...]] = field(repr=False)
     _pseudos: tuple[PseudoInstruction, ...] = field(repr=False)
+
+    @property
+    def spec_slot_order(self) -> tuple[Slot, ...]:
+        """Slots in the order the instruction spec lists them.
+
+        It fixes the order of generated enums (the assembler's opcode classes,
+        the SV package); ``slots`` follows the slot registry instead.
+        """
+        return tuple(self._instructions)
 
     def instructions(self, slot: Slot) -> tuple[Instruction, ...]:
         """The instructions of ``slot``, in opcode order."""
@@ -159,13 +189,25 @@ class Isa:
 
 
 def _operands(
-    entries: list[dict[str, str]], operand_types: Mapping[str, OperandType]
+    entries: list[dict[str, Any]], operand_types: Mapping[str, OperandType]
 ) -> tuple[Operand, ...]:
     return tuple(
         Operand(
             name=entry["name"],
             type=operand_types[entry["type"]],
             read=Read(entry["read"]) if "read" in entry else None,
+            write=bool(entry.get("write", False)),
+        )
+        for entry in entries
+    )
+
+
+def _accesses(entries: list[dict[str, Any]]) -> tuple[RegisterAccess, ...]:
+    return tuple(
+        RegisterAccess(
+            register=entry["register"],
+            via_operand=entry.get("via_operand"),
+            view=View(entry["view"]) if "view" in entry else None,
         )
         for entry in entries
     )
@@ -191,6 +233,7 @@ def load_isa(
     validate_pseudo_instruction_spec(
         dict(pseudo_spec), dict(instruction_spec), slots=slots, operand_types=operand_types
     )
+    validate_timing(instruction_spec, slots)
     layout = compute_layout(instruction_spec, operand_types, slots, layout_order)
 
     instructions: dict[Slot, tuple[Instruction, ...]] = {}
@@ -205,6 +248,8 @@ def load_isa(
                 tag=entry.get("tag", slots[slot].tag),
                 doc=entry["doc"],
                 execute_fn=entry["execute_fn"],
+                implicit_reads=_accesses(entry.get("implicit_reads", [])),
+                implicit_writes=_accesses(entry.get("implicit_writes", [])),
             )
             for opcode, (mnemonic, entry) in enumerate(entries.items())
         )
@@ -234,6 +279,13 @@ def load_isa(
     )
 
 
+def authoring_copies() -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+    """Deep copies of ``(instruction spec, pseudo spec)``, to edit and pass to
+    :func:`load_isa` (tests and E03-24's one-edit check). The originals stay
+    private to ``ipu_isa``."""
+    return copy.deepcopy(INSTRUCTION_SPEC), copy.deepcopy(PSEUDO_INSTRUCTION_SPEC)
+
+
 @functools.cache
 def isa() -> Isa:
     """The repository's ISA.
@@ -242,62 +294,3 @@ def isa() -> Isa:
     needs a different ISA copies them and calls :func:`load_isa`).
     """
     return load_isa(INSTRUCTION_SPEC, PSEUDO_INSTRUCTION_SPEC, SLOTS, OPERAND_TYPES)
-
-
-# ---------------------------------------------------------------------------
-# Lookup helpers with the return shapes of the old dict helpers, over isa(),
-# so callers migrate one at a time (L34). E03-11 deletes them.
-# ---------------------------------------------------------------------------
-
-
-def _operand_dicts(operands: tuple[Operand, ...]) -> list[dict[str, str]]:
-    return [
-        {"name": op.name, "type": op.type.name, **({"read": op.read.value} if op.read else {})}
-        for op in operands
-    ]
-
-
-def _instruction_dict(instruction: Instruction) -> dict[str, Any]:
-    return {
-        "operands": _operand_dicts(instruction.operands),
-        "doc": instruction.doc,
-        "execute_fn": instruction.execute_fn,
-    }
-
-
-def get_opcode_for_instruction(slot_type: str, instruction_name: str) -> int:
-    """Opcode of ``instruction_name`` in ``slot_type`` (case-insensitive)."""
-    return isa().instruction(Slot(slot_type), instruction_name).opcode
-
-
-def get_instruction(slot_type: str, instruction_name: str) -> dict[str, Any]:
-    """``{"operands": [...], "doc": ..., "execute_fn": ...}`` of an instruction."""
-    return _instruction_dict(isa().instruction(Slot(slot_type), instruction_name))
-
-
-def get_instruction_by_opcode(slot_type: str, opcode_index: int) -> tuple[str, dict[str, Any]]:
-    """``(mnemonic, instruction dict)`` of the instruction with ``opcode_index``."""
-    instruction = isa().by_opcode(Slot(slot_type), opcode_index)
-    return instruction.mnemonic, _instruction_dict(instruction)
-
-
-def get_operand_names_and_types(slot_type: str, instruction_name: str) -> list[tuple[str, str]]:
-    """``[(operand name, operand type name), ...]`` of an instruction."""
-    instruction = isa().instruction(Slot(slot_type), instruction_name)
-    return [(op.name, op.type.name) for op in instruction.operands]
-
-
-def find_pseudo_instruction(name: str, arg_count: int) -> dict[str, Any] | None:
-    """The pseudo-instruction dict for ``name`` with ``arg_count`` operands, or None."""
-    pseudo = isa().pseudo(name, arg_count)
-    if pseudo is None:
-        return None
-    return {
-        "operands": _operand_dicts(pseudo.operands),
-        "expands_to": {
-            "slot": pseudo.expands_to.slot.value,
-            "instruction": pseudo.expands_to.mnemonic,
-            "args": list(pseudo.args),
-        },
-        "doc": pseudo.doc,
-    }
