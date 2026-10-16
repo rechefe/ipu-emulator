@@ -28,12 +28,7 @@ their store, so a plain query at an FFN1 shape must refuse and only the
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
 import numpy as np
-
-sys.path.insert(0, str(Path(__file__).parent))
 
 from ipu_apps.kernel_registry import create_harness, resolve
 

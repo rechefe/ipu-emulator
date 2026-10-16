@@ -34,14 +34,11 @@ FP32 wide-vector IpuState since no registered harness describes them.
 
 from __future__ import annotations
 
-import sys
 import tempfile
 from pathlib import Path
 
 import jinja2
 import numpy as np
-
-sys.path.insert(0, str(Path(__file__).parent))
 
 from ipu_as.lark_tree import assemble_to_bin_file
 from ipu_as.label import reset_labels

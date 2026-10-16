@@ -43,12 +43,9 @@ diverges from the reference, before trusting the "clean" test's PASS.
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import numpy as np
-
-sys.path.insert(0, str(Path(__file__).parent))
 
 from ipu_apps.kernels.matmul.matmul_720x240_x128 import app as mm
 from ipu_apps.kernels.reshape.unfold_8x8x240 import app as uf

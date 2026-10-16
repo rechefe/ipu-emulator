@@ -85,7 +85,7 @@ def test_discovery_reports_nothing_skipped():
     assert load().skipped == ()
 
 
-def test_a_broken_family_package_is_reported_not_silently_dropped():
+def test_a_broken_family_package_is_reported_not_silently_dropped(monkeypatch):
     """A family whose __init__ cannot import hides every kernel beneath it, so
     it must appear as skipped -- a coverage hole nobody would otherwise see."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -95,11 +95,10 @@ def test_a_broken_family_package_is_reported_not_silently_dropped():
         (root / "family" / "__init__.py").write_text("import a_dependency_that_is_not_installed\n")
         (root / "family" / "kernel" / "__init__.py").write_text("")
         (root / "family" / "kernel" / "app.py").write_text("")
-        sys.path.insert(0, tmp)
+        monkeypatch.syspath_prepend(tmp)
         try:
             found = discover("broken_family_apps")
         finally:
-            sys.path.remove(tmp)
             for name in [m for m in sys.modules if m.startswith("broken_family_apps")]:
                 del sys.modules[name]
     assert [s.module for s in found.skipped] == ["broken_family_apps.family"]
@@ -378,7 +377,7 @@ def test_adapter_registration_is_additive():
         _ADAPTERS.pop("MadeUpLayer", None)
 
 
-def test_adapter_declared_beside_its_kernel_is_found():
+def test_adapter_declared_beside_its_kernel_is_found(monkeypatch):
     """The documented way to add an adapter must actually work.
 
     Adapters register as an import side effect of the package that declares
@@ -406,12 +405,11 @@ def test_adapter_declared_beside_its_kernel_is_found():
         class ProbeLayer:
             pass
 
-        sys.path.insert(0, tmp)
+        monkeypatch.syspath_prepend(tmp)
         try:
             verdict = lookup_layer(ProbeLayer(), (8, 128), package="adapter_probe_apps")
             assert verdict.app_name == "probe_kernel"
         finally:
-            sys.path.remove(tmp)
             _ADAPTERS.pop("ProbeLayer", None)
             for name in [m for m in sys.modules if m.startswith("adapter_probe_apps")]:
                 del sys.modules[name]
