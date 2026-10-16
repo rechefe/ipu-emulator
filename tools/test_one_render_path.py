@@ -37,6 +37,7 @@ def _ruff_output(tmp_path: Path, relative: str, source: str) -> str:
         "import jinja2\n\njinja2.Template('x').render()\n",
         "from jinja2 import Template\n\nTemplate('x')\n",
         "from jinja2.sandbox import SandboxedEnvironment\n\nSandboxedEnvironment()\n",
+        "import jinja2\n\njinja2.Environment().from_string('x')\n",
     ],
 )
 def test_a_planted_render_fails_the_lint(tmp_path, source):

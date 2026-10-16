@@ -22,6 +22,7 @@ select = ["E4", "E7", "E9", "F", "I", "UP", "B", "C901", "PLR0912", "PLR0913", "
 "jinja2.Template".msg = "render assembly through ipu_as (AssemblySession(text, defines=...))"
 "jinja2.environment.Template".msg = "render assembly through ipu_as (AssemblySession(text, defines=...))"
 "jinja2.sandbox.SandboxedEnvironment".msg = "only ipu_as.template builds the sandbox"
+"jinja2.Environment".msg = "render assembly through ipu_as; only the SV generator builds its own"
 
 [lint.isort]
 # The repository's own packages (src/tools/*/src/<name>). Named explicitly so
@@ -50,6 +51,8 @@ max-args = 6
 [lint.per-file-ignores]
 # The one module that renders assembly templates.
 "src/tools/ipu-as-py/src/ipu_as/template.py" = ["TID251"]
+# The SystemVerilog package generator renders its own (non-assembly) template.
+"src/tools/ipu-gen/src/ipu_gen/sv_package.py" = ["TID251"]
 
 # Baseline: existing offenders, removed as each refactor epic reaches the file.
 # Complexity rules only (C901, PLR0912, PLR0913, PLR0915), one file per line,
