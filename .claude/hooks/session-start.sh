@@ -12,9 +12,9 @@ fi
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 
 # The sandbox egress policy allows github.com but not releases.bazel.build or
-# bcr.bazel.build, so bazelisk, the Bazel binary and the module registry are all
-# pointed at the equivalent GitHub-hosted sources.
-BAZELISK_URL="https://github.com/bazelbuild/bazelisk/releases/download/v1.27.0/bazelisk-linux-amd64"
+# bcr.bazel.build, so the Bazel binary and the module registry are pointed at
+# the equivalent GitHub-hosted sources (bootstrap.sh already fetches bazelisk
+# from GitHub releases).
 export BAZELISK_BASE_URL="https://github.com/bazelbuild/bazel/releases/download"
 
 if [ -w /usr/local/bin ]; then
@@ -24,12 +24,8 @@ else
 fi
 mkdir -p "$BIN_DIR"
 
-# Idempotent: skip the download when a working bazel is already on PATH.
-if ! command -v bazel >/dev/null 2>&1; then
-  echo "Installing bazelisk into $BIN_DIR ..."
-  curl -fsSL -o "$BIN_DIR/bazel" "$BAZELISK_URL"
-  chmod +x "$BIN_DIR/bazel"
-fi
+# Pinned, checksummed bazelisk from the shared bootstrap script (idempotent).
+BIN_DIR="$BIN_DIR" "$PROJECT_DIR/tools/bootstrap.sh"
 export PATH="$BIN_DIR:$PATH"
 
 # bazelisk keys its download cache by base URL, so persist the override in the

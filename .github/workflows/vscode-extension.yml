@@ -54,27 +54,11 @@ jobs:
         with:
           node-version: '20'
 
-      # Mirrors ci.yml's setup, which is the sequence known to build this repo.
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.11'
-
-      # Required before any bazel invocation: tools/python_deps.bzl shells out
-      # to `uv` to compile requirements from pyproject.toml, so without it the
-      # repository fetch fails with execvp(uv): No such file or directory.
-      # Both PATH entries are added because the installer's location has moved
-      # between releases (~/.cargo/bin historically, ~/.local/bin now).
-      - name: Install uv
-        run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
-
-      - name: Install Bazelisk
-        run: |
-          sudo curl -Lo /usr/local/bin/bazel https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64
-          sudo chmod +x /usr/local/bin/bazel
+      # The same pinned bazelisk (and uv) as every other workflow. uv is needed
+      # before any bazel invocation while tools/python_deps.bzl shells out to
+      # `uv pip compile` at fetch time.
+      - name: Install toolchain
+        run: ./tools/bootstrap.sh --with-uv
 
       # Writes syntaxes/ipu-asm.tmLanguage.json and language-configuration.json
       # into the extension directory. Both are build outputs, not committed.

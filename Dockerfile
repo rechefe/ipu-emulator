@@ -3,11 +3,8 @@ FROM ubuntu:22.04
 # Prevent interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install essential build tools and dependencies
+# Base tools. No C/C++ toolchain: the repository builds none.
 RUN apt-get update && apt-get install -y \
-    build-essential \
-    gcc \
-    g++ \
     git \
     curl \
     wget \
@@ -20,13 +17,12 @@ RUN apt-get update && apt-get install -y \
     gnupg \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Bazelisk (manages Bazel versions)
-RUN wget -O /usr/local/bin/bazel https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64 \
-    && chmod +x /usr/local/bin/bazel
-
-# Install uv (fast Python package manager)
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-ENV PATH="/root/.cargo/bin:${PATH}"
+# Pinned bazelisk (and uv, until E01-02) from the shared bootstrap script, the
+# same one CI and the Claude Code SessionStart hook run. Installed system-wide,
+# so the non-root user below needs no installs of its own.
+COPY tools/bootstrap.sh /tmp/bootstrap.sh
+RUN BIN_DIR=/usr/local/bin /tmp/bootstrap.sh --with-uv \
+    && rm /tmp/bootstrap.sh
 
 # Set working directory
 WORKDIR /workspace
@@ -45,10 +41,6 @@ RUN groupadd --gid $USER_GID $USERNAME \
     && rm -rf /var/lib/apt/lists/*
 
 USER $USERNAME
-ENV PATH="/home/$USERNAME/.cargo/bin:${PATH}"
-
-# Re-install uv for the non-root user
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Make shell scripts executable
 COPY --chown=$USERNAME:$USERNAME . /workspace

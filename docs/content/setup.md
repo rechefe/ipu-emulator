@@ -20,39 +20,35 @@ The IPU emulator and assembler require the following tools:
 
 ### Linux / macOS
 
-1. **Install Bazelisk** (manages Bazel versions automatically):
-
-```bash
-# Linux
-wget -O /usr/local/bin/bazel https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64
-chmod +x /usr/local/bin/bazel
-
-# macOS
-brew install bazelisk
-```
-
-2. **Install build essentials**:
+1. **Install base packages**:
 
 ```bash
 # Ubuntu/Debian
 sudo apt-get update
-sudo apt-get install build-essential gcc g++ git curl python3 python3-pip
+sudo apt-get install git curl python3
 
 # macOS (install Xcode Command Line Tools)
 xcode-select --install
 ```
 
-3. **Install uv** (recommended for faster Python package management):
-
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-4. **Clone the repository**:
+2. **Clone the repository**:
 
 ```bash
 git clone https://github.com/rechefe/ipu-emulator.git
 cd ipu-emulator
+```
+
+3. **Install the pinned toolchain** (Linux). `tools/bootstrap.sh` installs
+bazelisk as `bazel`, at the pinned version and checksum that CI, the dev
+container and the Claude Code hook also use; `--with-uv` adds `uv`, which the
+Python dependency fetch needs. It installs into `/usr/local/bin`, or into
+`~/.local/bin` when that is not writable (set `BIN_DIR` to choose).
+
+```bash
+./tools/bootstrap.sh --with-uv
+
+# macOS
+brew install bazelisk uv
 ```
 
 ### Windows (WSL2)
