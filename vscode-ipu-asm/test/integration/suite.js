@@ -369,6 +369,10 @@ async function run() {
   doc = await vscode.workspace.openTextDocument(kernelFile);
   await vscode.window.showTextDocument(doc);
   assert.strictEqual(doc.languageId, 'ipu-asm');
+  // Opening the kernel starts activation, which loads the language data asynchronously before
+  // it registers the editing providers. Without this wait the first completion request raced
+  // it and got VS Code's word-based suggestions instead (words of the open kernel only).
+  await extension().activate();
   await runAll('integration');
 }
 
