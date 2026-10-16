@@ -3,7 +3,7 @@
 Expected values come from hand-written tables for the extension's edge-case
 corpus and small sources, and, over every kernel, from independent readings: the
 grammar's lexer run on one source line alone, the parse tree's roles
-(`dump_parser_tokens.token_roles`), the session's compound list, the ISA's
+(`dump_parser_tokens.token_roles`), the session's instruction words, the ISA's
 mnemonics, and a plain scan for Jinja delimiters.
 """
 
@@ -71,18 +71,20 @@ def _id(path: Path) -> str:
 @functools.cache
 def _analysed(path: Path):
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore")  # simulation-only slot warnings
+        warnings.simplefilter("ignore")  # emulator-only slot warnings
         return analyse(path.read_text(encoding="utf-8"), want=ALL)
 
 
 def _text(source: str, token: Token) -> str:
-    return source.split("\n")[token.line][token.col : token.col + token.length]
+    return source.split("\n")[token.line][token.column : token.column + token.length]
 
 
 def _tokens(source: str, *, line: int | None = None) -> list[tuple]:
     found = analyse(source, want={"tokens"}).tokens or ()
     return [
-        (t.line, t.col, _text(source, t), t.role) for t in found if line is None or t.line == line
+        (t.line, t.column, _text(source, t), t.role)
+        for t in found
+        if line is None or t.line == line
     ]
 
 
@@ -196,6 +198,95 @@ def test_a_loop_body_is_listed_once():
     assert _tokens(source, line=1) == [(1, 0, "HALT", "mnemonic")]
 
 
+def test_a_loop_on_one_line_is_listed_once():
+    source = "{% for i in range(2) %}SET lr0 cr0 ;; {% endfor %}\n"
+    assert _tokens(source) == [
+        (0, 0, "{% for i in range(2) %}", "jinja"),
+        (0, 23, "SET", "mnemonic"),
+        (0, 27, "lr0", "register"),
+        (0, 31, "cr0", "register"),
+        (0, 38, "{% endfor %}", "jinja"),
+    ]
+    assert [w.range for w in analyse(source, want={"words"}).words] == [Range(0, 23, 0, 34)]
+
+
+def test_nested_loops_on_one_line():
+    source = "{% for a in range(2) %}NOP ;; {% for b in range(2) %}HALT ;; {% endfor %}{% endfor %}"
+    assert [t[1:] for t in _tokens(source) if t[3] != "jinja"] == [
+        (23, "NOP", "mnemonic"),
+        (53, "HALT", "mnemonic"),
+    ]
+    assert [w.range for w in analyse(source, want={"words"}).words] == [
+        Range(0, 23, 0, 26),
+        Range(0, 53, 0, 57),
+    ]
+
+
+def test_the_last_line_without_a_newline():
+    assert _tokens("{% set x = 1 %}\nHALT;;", line=1) == [(1, 0, "HALT", "mnemonic")]
+
+
+def test_a_render_without_markers_is_placed_by_its_literal_text():
+    # `-}}` and `-%}` fuse the lines, which a marker would split: the plain render is
+    # checked, `SET lr0 cr0 ;; HALT ;; SET lr1 cr0 ;;`, and placed by its literal text.
+    source = "{%- set x = 1 -%}\nSET lr0 cr0 ;;\n  {{- ' HALT' }} ;;\nSET lr1 cr0 ;;\n"
+    assert _tokens(source) == [
+        (0, 0, "{%- set x = 1 -%}", "jinja"),
+        (1, 0, "SET", "mnemonic"),
+        (1, 4, "lr0", "register"),
+        (1, 8, "cr0", "register"),
+        (2, 2, "{{- ' HALT' }}", "jinja"),
+        (3, 0, "SET", "mnemonic"),
+        (3, 4, "lr1", "register"),
+        (3, 8, "cr0", "register"),
+    ]
+    # HALT has no token in the source and the render no line, so its word is not listed.
+    assert [w.range for w in analyse(source, want={"words"}).words] == [
+        Range(1, 0, 1, 11),
+        Range(3, 0, 3, 11),
+    ]
+
+
+def test_an_expression_that_renders_later_literal_text_takes_no_place():
+    source = (
+        "{%- set r = 'cr0' -%}\nSET lr0 {{ r }} ;;\n  {{- ' SET lr1 cr0' }} ;;\nSET lr1 cr0 ;;\n"
+    )
+    assert [t for t in _tokens(source) if t[3] != "jinja"] == [
+        (1, 0, "SET", "mnemonic"),
+        (1, 4, "lr0", "register"),
+        (3, 0, "SET", "mnemonic"),
+        (3, 4, "lr1", "register"),
+        (3, 8, "cr0", "register"),
+    ]
+
+
+def test_a_render_without_markers_and_with_a_conditional_has_only_jinja_tokens():
+    source = "{%- if true -%}\nSET lr0 cr0 ;;\n  {{- ' HALT' }} ;;\n{%- endif %}\n"
+    assert {role for *_, role in _tokens(source)} == {"jinja"}
+    assert analyse(source, want={"words"}).words == ()
+
+
+def test_crlf_line_ends_are_in_no_token():
+    source = "HALT;; # c\r\n{#- two\r\nlines -#}\r\nSET lr0 cr0;;\r\n{{ lr\r\n"
+    # The unclosed `{{` is a template error, so only the Jinja tokens are listed.
+    assert _tokens(source) == [
+        (1, 0, "{#- two", "jinja"),
+        (2, 0, "lines -#}", "jinja"),
+        (4, 0, "{{ lr", "jinja"),
+    ]
+    regions = analyse(source, want={"jinja"}).jinja
+    assert [source[r.start : r.end] for r in regions] == ["{#- two\r\nlines -#}", "{{ lr\r\n"]
+    assert regions[0].range == Range(1, 0, 2, 9)
+    plain = "HALT;; # c\r\nSET lr0 cr0;;\r\n"
+    assert _tokens(plain) == [
+        (0, 0, "HALT", "mnemonic"),
+        (0, 7, "# c", "comment"),
+        (1, 0, "SET", "mnemonic"),
+        (1, 4, "lr0", "register"),
+        (1, 8, "cr0", "register"),
+    ]
+
+
 def test_an_enum_operand_and_a_text_that_does_not_parse():
     roles = [role for *_, role in _tokens("ACTIVATE.QUANTIZE relu CR15;;\n")]
     assert roles == ["mnemonic", "enum", "register"]
@@ -228,7 +319,7 @@ _ROLE_CLASS = {"label-def": "LABEL", "mnemonic": "MNEMONIC", "comment": "COMMENT
 def test_tokens_of_a_plain_source_agree_with_the_parse_tree(path):
     source = path.read_text(encoding="utf-8")
     got = [
-        (t.line, t.col, _text(source, t), _ROLE_CLASS.get(t.role, "OPERAND"))
+        (t.line, t.column, _text(source, t), _ROLE_CLASS.get(t.role, "OPERAND"))
         for t in _analysed(path).tokens
     ]
     assert got == _parse_tree_roles(source)
@@ -252,15 +343,15 @@ def test_tokens_are_in_the_source(path):
     by_line: dict[int, list[tuple[int, str]]] = {}
     previous = (-1, 0)
     for token in analysis.tokens:
-        assert (token.line, token.col) >= previous, "sorted and disjoint"
-        assert token.col + token.length <= len(lines[token.line])
-        previous = (token.line, token.col + token.length)
+        assert (token.line, token.column) >= previous, "sorted and disjoint"
+        assert token.column + token.length <= len(lines[token.line])
+        previous = (token.line, token.column + token.length)
         text = _text(source, token)
         if token.role == "mnemonic":
             assert text.upper() in _MNEMONICS
         if token.role not in ("jinja", "comment"):
             assert _TOKEN.fullmatch(text)
-            by_line.setdefault(token.line, []).append((token.col, text))
+            by_line.setdefault(token.line, []).append((token.column, text))
     for number, found in by_line.items():
         if number not in jinja_lines:
             alone = [
@@ -314,6 +405,23 @@ def test_two_words_on_a_line_and_a_loop():
     assert _fits(loop) == [(1, ("HALT",), {"cond": 1}, True, None)]
 
 
+def test_a_loop_lists_each_word_once():
+    source = "{% for i in range(3) %}\nSET lr{{ i }} cr0 ;;\n{% endfor %}\n"
+    assert _fits(source) == [(1, ("SET",), {"lr": 1}, True, None)]
+    # A pass that renders a word that does not fit is the one listed.
+    source = "{% for i in range(2) %}\nHALT{{ ' ; HALT' if i else '' }} ;;\n{% endfor %}\n"
+    assert _fits(source) == [
+        (1, ("HALT", "HALT"), {"cond": 2}, False, "Too many instructions of type CondInst (max 1)")
+    ]
+
+
+def test_two_words_from_one_expression_are_two():
+    source = "{{ 'HALT ;; HALT ;;' }}\n"
+    assert [w.range for w in analyse(source, want={"words"}).words] == [Range(0, 0, 0, 23)] * 2
+    loop = "{% for i in range(2) %}\n{{ 'HALT ;; HALT ;;' }}\n{% endfor %}\n"
+    assert [w.range for w in analyse(loop, want={"words"}).words] == [Range(1, 0, 1, 23)] * 2
+
+
 def test_a_source_that_does_not_parse_has_no_words():
     assert analyse("SET lr0 ;; ;;\n", want={"words"}).words == ()
 
@@ -322,8 +430,11 @@ def test_edge_case_words():
     words = analyse(EDGE_CASES.read_text(encoding="utf-8"), want={"words"}).words
     assert all(w.fits for w in words)
     assert [w.range.line for w in words][:4] == [12, 17, 17, 21]
-    assert words[7].mnemonics == ("MULT.RC.VE", "acc.sub")
-    assert dict(words[7].slots) == {"mult": 1, "acc": 1}
+    # `    MULT.RC.VE lr15 lr5 0 lr15 cr15 ;` on line 30, `    acc.sub ;;` on line 31.
+    (mult,) = [w for w in words if w.range.line == 30]
+    assert mult.range == Range(30, 4, 31, 11)
+    assert mult.mnemonics == ("MULT.RC.VE", "acc.sub")
+    assert dict(mult.slots) == {"mult": 1, "acc": 1}
 
 
 @pytest.mark.parametrize("path", CORPUS, ids=_id)
@@ -396,9 +507,9 @@ def test_edge_case_regions():
         ("variable", 57, 8),
         ("comment", 57, 18),
     ]
-    assert regions[0] == JinjaRegion(
-        "variable", Range(56, 6, 56, 17), (), (), regions[0].start, regions[0].start + 11
-    )
+    source = EDGE_CASES.read_text(encoding="utf-8")
+    start = source.index("{{ 1 + 1 }}")
+    assert regions[0] == JinjaRegion("variable", Range(56, 6, 56, 17), (), (), start, start + 11)
 
 
 _OPEN = re.compile(r"\{#|\{%|\{\{")
