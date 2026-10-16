@@ -430,7 +430,7 @@ address.
 
 The active execution mode determines the row size: 128 bytes normally and 512
 bytes in wide-vector mode. Raw byte addressing can inspect the complete 512 MiB
-physical allocation.
+address space; pages that were never written read as zeros.
 
 `COUNT` is measured in bytes for `hex`, `int8`, and `u8`; in 16-bit values for
 `cell16`; and in 32-bit values for `u32` and `f32`. `u8` values use three
@@ -511,7 +511,7 @@ For a row range, the final argument is the number of XMEM rows. For a byte
 range, it is the number of bytes. The JSON file contains the registers plus
 the resolved XMEM byte address, size, addressing mode, and sidecar filename.
 The `.xmem.bin` sidecar contains the unmodified memory bytes. `xmem all` writes
-the complete 512 MiB allocation.
+the complete 512 MiB address space.
 Quote a filename containing spaces when it is followed by `xmem` arguments.
 
 The JSON file contains all register values:

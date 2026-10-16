@@ -187,3 +187,82 @@ class TestXMemObservers:
         xmem.add_observer(lambda *event: events.append(event))
         xmem.clear()
         assert events == [("clear", 0, XMEM_SIZE_BYTES, None)]
+
+
+# ---------------------------------------------------------------------------
+# Paged sparse storage
+# ---------------------------------------------------------------------------
+
+from ipu_emu.xmem import PAGE_BYTES  # noqa: E402
+
+
+class TestXMemPaged:
+    def test_page_holds_whole_rows(self):
+        assert PAGE_BYTES % 512 == 0
+        assert XMEM_SIZE_BYTES % PAGE_BYTES == 0
+
+    def test_untouched_address_reads_zero_without_allocating(self):
+        xmem = XMem()
+        assert xmem.read_address(300 * 1024**2, 512) == bytearray(512)
+        assert xmem[XMEM_SIZE_BYTES - 1] == 0
+        assert list(xmem.touched_pages()) == []
+
+    def test_write_across_page_boundary_reads_back(self):
+        xmem = XMem()
+        data = bytes(range(1, 201))
+        address = 3 * PAGE_BYTES - 100
+        xmem.write_address(address, data)
+        assert xmem.read_address(address, len(data)) == data
+        assert xmem[address:address + len(data)] == data
+        assert [base for base, _ in xmem.touched_pages()] == [2 * PAGE_BYTES, 3 * PAGE_BYTES]
+
+    def test_zero_write_to_absent_page_allocates_nothing(self):
+        xmem = XMem()
+        xmem.write_address(PAGE_BYTES, bytes(1024))
+        assert list(xmem.touched_pages()) == []
+
+    def test_clear_drops_every_page(self):
+        xmem = XMem()
+        for page in range(4):
+            xmem.write_address(page * PAGE_BYTES + 7, b"\x01")
+        xmem.clear()
+        assert list(xmem.touched_pages()) == []
+        assert xmem.read_address(7, 1) == b"\x00"
+
+    def test_eq_treats_absent_and_zero_pages_as_equal(self):
+        a, b = XMem(), XMem()
+        a.write_address(5 * PAGE_BYTES, b"\x01")
+        a.write_address(5 * PAGE_BYTES, b"\x00")  # page allocated, all zero
+        assert len(list(a.touched_pages())) == 1
+        assert a == b and b == a
+        b.write_address(9, b"\x02")
+        assert a != b
+        a.write_address(9, b"\x02")
+        assert a == b
+
+    def test_fill(self):
+        xmem = XMem()
+        xmem.fill(PAGE_BYTES - 2, 4, 0xAB)
+        assert xmem.read_address(PAGE_BYTES - 3, 6) == b"\x00" + b"\xab" * 4 + b"\x00"
+        xmem.fill(0, 2 * PAGE_BYTES)
+        assert list(xmem.touched_pages()) == []
+
+    def test_snapshot_bytes_has_no_observer_event(self):
+        xmem = XMem()
+        xmem.write_address(10, b"xyz")
+        events = []
+        xmem.add_observer(lambda *event: events.append(event))
+        assert xmem.snapshot_bytes(10, 3) == b"xyz"
+        assert events == []
+
+    def test_touched_pages_are_read_only(self):
+        xmem = XMem()
+        xmem.write_address(0, b"\x01")
+        (_, view), = xmem.touched_pages()
+        with pytest.raises(TypeError):
+            view[0] = 2
+
+    def test_full_range_slice_raises(self):
+        xmem = XMem()
+        with pytest.raises(ValueError, match="touched_pages"):
+            xmem[:]

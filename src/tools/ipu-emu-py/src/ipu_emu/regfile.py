@@ -25,6 +25,7 @@ takes an index argument (multi-element) or not (single-element).
 from __future__ import annotations
 
 import struct
+import weakref
 from typing import Any, Callable
 
 import numpy as np
@@ -67,6 +68,19 @@ def _check_scalar(name: str, desc: RegDescriptor) -> None:
 
 #: ``fn(name, start, size)``: register *name* bytes ``[start, start+size)`` may change.
 RegisterObserver = Callable[[str, int, int], None]
+
+
+def _remover(owner, fn: Callable) -> Callable[[], None]:
+    """A function that detaches *fn* from *owner*. It holds *owner* weakly, so
+    an observer that keeps its remover does not form a reference cycle."""
+    ref = weakref.ref(owner)
+
+    def remove() -> None:
+        target = ref()
+        if target is not None:
+            target._observers = _without(target._observers, fn)
+
+    return remove
 
 
 def _without(observers: tuple, fn: Callable) -> tuple:
@@ -134,7 +148,7 @@ class RegFile:
         a function that detaches ``fn``; calling it twice is harmless.
         """
         self._observers = self._observers + (fn,)
-        return lambda: setattr(self, "_observers", _without(self._observers, fn))
+        return _remover(self, fn)
 
     # -- helpers ------------------------------------------------------------
 

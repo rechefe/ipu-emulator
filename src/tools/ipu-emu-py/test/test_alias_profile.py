@@ -469,3 +469,15 @@ def test_xmem_clear_under_profiler_is_constant_size():
     # Blocks the program never wrote after the clear still read as written by
     # the clear, so a row of cleared memory is not mistaken for a constant.
     assert observer.cleared_epoch == observer.memory_epoch > 0
+
+
+def test_profiled_xmem_is_freed_without_the_cycle_collector():
+    """The observer keeps its removers; they must not pin XMEM in a cycle."""
+    state = run("BKPT;;")
+    xmem = weakref.ref(state.xmem)
+    gc.disable()
+    try:
+        del state
+        assert xmem() is None
+    finally:
+        gc.enable()

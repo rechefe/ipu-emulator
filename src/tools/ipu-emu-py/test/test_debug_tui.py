@@ -2429,13 +2429,13 @@ class TestDebuggerImprovements:
         session.tabs = [XmemTab(request)]
         session.focus = "registers"
         reads = []
-        original = state.xmem.read_address
+        original = state.xmem.snapshot_bytes
 
         def read(address, count):
             reads.append((address, count))
             return original(address, count)
 
-        monkeypatch.setattr(state.xmem, "read_address", read)
+        monkeypatch.setattr(state.xmem, "snapshot_bytes", read)
         for _ in range(3):
             view.render()
         assert reads == [(0, 1)]

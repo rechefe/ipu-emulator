@@ -132,6 +132,8 @@ class ExecutionObserver:
                     and all(self.stores.get(block) is first for block in blocks)):
                 origin = first[2]
         if self.current is not None:
+            if data is None:  # a fill: the event carries the range, not the bytes
+                data = self.state.xmem.snapshot_bytes(address, size)
             self.accesses.append((kind, address, bytes(data), origin))
 
     def begin(self, ipu):
