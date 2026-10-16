@@ -55,10 +55,10 @@ class RunResult:
     def passed(self) -> bool: ...
 
 def run_kernel(manifest: KernelManifest, case: Case, fmt: ElementFormat,
-               options: RunOptions = RunOptions(), *, session: AssemblySession | None = None) -> RunResult:
+               options: RunOptions = RunOptions(), *, cache: AssemblyCache | None = None) -> RunResult:
     plan = plan_case(manifest, case.values, fmt)                       # E06-03, once
     inputs = inputs_for(case, plan, overrides=options.inputs)         # E06-08
-    placement = place(plan, {n: stored_rows(t, plan) for n, t in tensors})  # E06-04/05
+    placement = place(plan, {n: stored_rows(t, plan) for n, t in plan.manifest.tensors.items()})  # E06-04/05
     program = assemble(plan, cache)                                    # E06-07 (an AssemblyCache)
     check_cr_reads(plan.manifest, program.rendered)                    # E06-06
     model = reference_model(format=fmt)                               # E04 stable API: reset(format)
