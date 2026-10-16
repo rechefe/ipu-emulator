@@ -12,7 +12,7 @@ from ipu_emu.xmem import XMEM_WIDTH_BYTES
 from ipu_isa.activations import ACTIVATION_IDENTITY
 from ipu_isa.geometry import LANES
 from ipu_isa.operand_types import OperandType
-from ipu_isa.registers import REGISTER_DEFINITIONS
+from ipu_isa.registers import REGISTER_DEFINITIONS, lrd_pair
 
 _LR_NAMES = frozenset(REGISTER_DEFINITIONS["lr"]["assembler_values"])
 
@@ -182,7 +182,7 @@ class ExecutionObserver:
         facts["snapshot_reads"] = tuple(read.name for read in plan.reads if read.from_snapshot)
         if slot == "lr" and plan.write_operand:
             facts["lr_writes"] = (
-                ipu._lrd_lr_indices(kwargs[plan.write_operand])
+                lrd_pair(kwargs[plan.write_operand])
                 if plan.write_is_lrd
                 else (kwargs[plan.write_operand],)
             )

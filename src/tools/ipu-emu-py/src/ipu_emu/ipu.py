@@ -61,6 +61,7 @@ from ipu_isa.registers import (
 )
 from ipu_isa.reshape_mask import RESHAPE_ELEMENT_COUNT, RESHAPE_MASK_LR_OFFSET
 from ipu_isa.slots import SLOTS, Slot
+from ipu_isa.timing import SLOT_EXECUTION_ORDER
 from ipu_isa.union_layout import SlotUnion
 from ipu_isa.view import Instruction, Read, isa
 
@@ -524,6 +525,11 @@ def _build_plan(instruction: Instruction, field_map: dict[str, str]) -> _Plan:
         scalar_kind=scalar_kind,
         alias_checks=_compile_alias_checks(slot.value, inst_name),
     )
+
+
+#: Stands in a prototyping cycle plan's slot list where the LR sub-slots run,
+#: so the fast path follows ``SLOT_EXECUTION_ORDER`` for LR as well.
+_LR_WORK = object()
 
 
 def _build_slot_plans():
@@ -1027,24 +1033,19 @@ class Ipu:
             return self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32
         return self.state.dtype != DType.INT8
 
-    @staticmethod
-    def _lrd_lr_indices(n: int) -> tuple[int, int]:
-        """Real LR register indices (lo, hi) backing LrdIdx pair n (``ipu_isa.registers.lrd_pair``)."""
-        return lrd_pair(n)
-
     def _get_lrd_bytes(self, n: int, regfile: RegFile) -> bytes:
         """Read LRDn's 8 byte elements from a register file (snapshot or live).
 
         Elements 0-3 are LR(2n)'s bytes (little-endian), elements 4-7 are LR(2n+1)'s.
         """
-        lo_idx, hi_idx = self._lrd_lr_indices(n)
+        lo_idx, hi_idx = lrd_pair(n)
         return regfile.get_lr(lo_idx).to_bytes(4, "little") + regfile.get_lr(hi_idx).to_bytes(
             4, "little"
         )
 
     def _set_lrd_bytes(self, n: int, lanes: bytes | bytearray) -> None:
         """Write LRDn's 8 byte elements to the live register file (inverse of ``_get_lrd_bytes``)."""
-        lo_idx, hi_idx = self._lrd_lr_indices(n)
+        lo_idx, hi_idx = lrd_pair(n)
         self.state.regfile.set_lr(lo_idx, int.from_bytes(lanes[0:4], "little"))
         self.state.regfile.set_lr(hi_idx, int.from_bytes(lanes[4:8], "little"))
 
@@ -1226,7 +1227,7 @@ class Ipu:
             if plan.write_operand is not None:
                 raw = kwargs[plan.write_operand]
                 if plan.write_is_lrd:
-                    all_targets.extend(Ipu._lrd_lr_indices(raw))
+                    all_targets.extend(lrd_pair(raw))
                 else:
                     all_targets.append(raw)
             pending.append((plan, kwargs))
@@ -2186,16 +2187,21 @@ class Ipu:
         self._take_snapshot()
         return self.dispatch_instruction(Slot.BREAK, inst)
 
-    # Slot dispatch order for a cycle: load before store, cond last.
-    _SLOT_ORDER = (
-        Slot.LOAD,
-        Slot.MULT,
-        Slot.ACC,
-        Slot.AAQ,
-        Slot.STORE,
-        Slot.ACC_STORE,
-        Slot.COND,
-    )
+    def _dispatch_slots_after_break(self, inst: dict[str, int]) -> None:
+        """Dispatch every slot but BREAK, in ``SLOT_EXECUTION_ORDER``.
+
+        BREAK is evaluated first and separately (before any side effect); LR
+        has several sub-slots, so it goes through ``_dispatch_lr_slots``. The
+        order is read from the module global on every call, so the ISA package
+        is the one place it is declared.
+        """
+        for slot in SLOT_EXECUTION_ORDER:
+            if slot is Slot.BREAK:
+                continue
+            if slot is Slot.LR:
+                self._dispatch_lr_slots(inst)
+            else:
+                self.dispatch_instruction(slot.value, inst)
 
     # Slots whose NOP handler is not a no-op (execute_cond_nop advances the PC).
     _SLOTS_WITH_ACTIVE_NOP = frozenset({Slot.COND})
@@ -2229,7 +2235,7 @@ class Ipu:
             if plan.write_operand is not None:
                 raw = kwargs[plan.write_operand]
                 if plan.write_is_lrd:
-                    targets.extend(Ipu._lrd_lr_indices(raw))
+                    targets.extend(lrd_pair(raw))
                 else:
                     targets.append(raw)
             if plan.inst_name != "NOP":
@@ -2246,8 +2252,16 @@ class Ipu:
         # A skipped NOP may still bump a counter (an idle mult slot is what
         # ``mult_idle_cycles`` counts), so those bumps are collected here and
         # applied without calling the handler.
-        slot_work = []
-        for slot in Ipu._SLOT_ORDER:
+        # LR keeps its place in the declared order: the ``_LR_WORK`` marker
+        # stands where the LR sub-slots (and their conflict check) run.
+        slot_work: list = []
+        for slot_enum in SLOT_EXECUTION_ORDER:
+            if slot_enum is Slot.BREAK:
+                continue
+            if slot_enum is Slot.LR:
+                slot_work.append(_LR_WORK)
+                continue
+            slot = slot_enum.value
             plan = _SLOT_PLANS[slot][inst[_SLOT_OPCODE_FIELDS[slot]]]
             if plan.inst_name != "NOP" or slot in Ipu._SLOTS_WITH_ACTIVE_NOP:
                 slot_work.append((plan, {name: inst[key] for name, key in plan.fields}))
@@ -2301,12 +2315,16 @@ class Ipu:
             if self._run_plan(*break_work, stats) == BreakResult.BREAK:
                 return BreakResult.BREAK
 
-        # Conflict detection runs before any LR write, as in the faithful path.
-        if conflict is not None:
-            raise RuntimeError(conflict)
-        for plan, raw_kwargs in lr_work:
-            self._run_plan(plan, raw_kwargs, stats)
-        for plan, raw_kwargs in slot_work:
+        for entry in slot_work:
+            if entry is _LR_WORK:
+                # Conflict detection runs before any LR write, as in the
+                # faithful path.
+                if conflict is not None:
+                    raise RuntimeError(conflict)
+                for plan, raw_kwargs in lr_work:
+                    self._run_plan(plan, raw_kwargs, stats)
+                continue
+            plan, raw_kwargs = entry
             if raw_kwargs is None:
                 # A skipped NOP that still bumps a counter. Its slot keeps its
                 # place in the order so a later slot's exception truncates the
@@ -2322,8 +2340,8 @@ class Ipu:
         1. Fetch instruction at program counter
         2. Snapshot the register file
         3. Execute BREAK first (before side effects)
-        4. Execute load, MULT, ACC, AAQ, store, acc_store, COND from the snapshot
-           (load before store; same-cycle load+store: load resolves first)
+        4. Execute the remaining slots from the snapshot, in
+           ``ipu_isa.timing.SLOT_EXECUTION_ORDER``
 
         Returns:
             BreakResult.BREAK if break condition occurred, CONTINUE otherwise
@@ -2353,17 +2371,10 @@ class Ipu:
         if result == BreakResult.BREAK:
             return BreakResult.BREAK
 
-        # Execute all other slots using the snapshot
+        # Execute all other slots using the snapshot, in the declared order
         if self._profile:
             self._profile.begin(self)
-        self._dispatch_lr_slots(inst)  # LR has multiple sub-slots
-        self.dispatch_instruction(Slot.LOAD, inst)
-        self.dispatch_instruction(Slot.MULT, inst)
-        self.dispatch_instruction(Slot.ACC, inst)
-        self.dispatch_instruction(Slot.AAQ, inst)
-        self.dispatch_instruction(Slot.STORE, inst)
-        self.dispatch_instruction(Slot.ACC_STORE, inst)
-        self.dispatch_instruction(Slot.COND, inst)
+        self._dispatch_slots_after_break(inst)
 
         if self._profile:
             self._profile.end()
@@ -2395,14 +2406,7 @@ class Ipu:
         # Execute all slots except break
         if self._profile:
             self._profile.begin(self)
-        self._dispatch_lr_slots(inst)
-        self.dispatch_instruction(Slot.LOAD, inst)
-        self.dispatch_instruction(Slot.MULT, inst)
-        self.dispatch_instruction(Slot.ACC, inst)
-        self.dispatch_instruction(Slot.AAQ, inst)
-        self.dispatch_instruction(Slot.STORE, inst)
-        self.dispatch_instruction(Slot.ACC_STORE, inst)
-        self.dispatch_instruction(Slot.COND, inst)
+        self._dispatch_slots_after_break(inst)
 
         if self._profile:
             self._profile.end()
@@ -2411,3 +2415,22 @@ class Ipu:
 # Built here rather than beside the other precomputed tables: a plan holds the
 # handler function itself, so ``Ipu`` has to exist first.
 _SLOT_OPCODE_FIELDS, _SLOT_PLANS, _LR_PLANS, _LR_OPCODE_FIELDS = _build_slot_plans()
+
+
+def _check_execution_order_covers_plans() -> None:
+    """Every slot with plans is in ``SLOT_EXECUTION_ORDER``, and only those.
+
+    The cycle loops iterate the declared order, so a slot missing from it
+    would silently never execute. Raised, not asserted, so ``-O`` keeps it.
+    """
+    planned = {Slot(slot) for slot in _SLOT_PLANS} | {Slot.LR}
+    declared = set(SLOT_EXECUTION_ORDER)
+    if declared != planned:
+        raise ImportError(
+            "ipu_isa.timing.SLOT_EXECUTION_ORDER must name exactly the slots the "
+            f"emulator has plans for; missing {sorted(map(str, planned - declared))}, "
+            f"unknown {sorted(map(str, declared - planned))}"
+        )
+
+
+_check_execution_order_covers_plans()

@@ -4,8 +4,8 @@
 # //src/tools/ipu-gen: ipu_gen/vscode_data.py), so it cannot drift from the
 # language the assembler accepts.
 #
-# Node/npm is deliberately NOT wired into Bazel. Bazel's involvement is the two
-# Python binaries below; the agreement test and the .vsix build both run in
+# Node/npm is deliberately NOT wired into Bazel. Bazel's involvement is the
+# Python targets below (gen_vscode, dump_parser_tokens, check_rewrites); the agreement test and the .vsix build both run in
 # .github/workflows/vscode-extension.yml. Please do not add a JS ruleset here.
 
 load("@rules_python//python:defs.bzl", "py_binary")

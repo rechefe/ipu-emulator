@@ -414,7 +414,16 @@ class Inst:
         doc: InstructionDoc,
         spec_operands: Sequence[Operand],
     ) -> list[str]:
-        """Markdown lines documenting one opcode or pseudo-instruction (used by ipu_gen.docs_pages)."""
+        """Markdown documentation of one opcode or pseudo-instruction.
+
+        Args:
+            opcode: The mnemonic, as written in assembly.
+            doc: Its ``InstructionDoc``.
+            spec_operands: Its operand dicts from the instruction spec, in order.
+
+        Returns:
+            The Markdown lines: heading, syntax, operands, and the doc's prose.
+        """
         lines = [f"### `{opcode}` — {doc.title}", ""]
         names = [operand.name for operand in spec_operands]
         lines.append(f"**Syntax:** `{syntax(opcode, names)}`")

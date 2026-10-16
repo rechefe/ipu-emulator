@@ -47,6 +47,8 @@ Reserved encodings for F-1, from the instruction reference:
 | `ACC` | Three opcodes of the 4-bit field. Values above 2 of `elements_in_row`, `horizontal_stride` and `vertical_stride`. |
 | `AAQ` | Activation function codes with no named function. The instruction reference treats them as `identity`: [OQ-6](open-questions.md). |
 
+The fault list and this table are mirrored as data in `ipu_isa.faults`, which derives the reserved encodings from the ISA. A test (`//src/tools/ipu-isa:test_faults_docs`) checks that both tables state the same as that data.
+
 ## Arithmetic events
 
 Status: **Proposed**. Owner: Yuval Harary.
