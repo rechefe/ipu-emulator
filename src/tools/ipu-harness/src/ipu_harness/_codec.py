@@ -39,9 +39,24 @@ def limits(fmt: ElementFormat) -> tuple[float, float]:
         return float(-half), float(half - 1)
     if fmt is ElementFormat.FP32:
         return -_FP32_MAX, _FP32_MAX
-    decoded = fp8_bytes_to_fp32(bytes(range(256)), DType(info.exp_bits))
-    top = float(np.max(decoded[np.isfinite(decoded)]))
+    top = float(codes(fmt)[-1])
     return -top, top
+
+
+@functools.cache
+def codes(fmt: ElementFormat) -> Array:
+    """Every finite value of an 8-bit float format, ascending: a value's index
+    is its place in code order (for distances in codes).
+
+    Args:
+        fmt: An 8-bit float format.
+
+    Returns:
+        The values, as a float64 array without duplicates (+0 and -0 are one).
+    """
+    decoded = fp8_bytes_to_fp32(bytes(range(256)), DType(FORMATS[fmt].exp_bits))
+    values: Array = np.unique(decoded[np.isfinite(decoded)].astype(np.float64))
+    return values
 
 
 def held(values: Array, fmt: ElementFormat) -> Array:

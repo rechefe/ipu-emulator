@@ -58,8 +58,10 @@ Schema
 ``[golden]`` (optional)
     ``reference`` (``"file.py:fn"``; default ``reference.py:reference`` when the
     kernel has a ``reference.py``) or ``op`` (a shared reference in
-    ``ipu_kernels.reference``), not both; ``tolerance`` (format to tier name;
-    E06-10 checks the names and adds the table form).
+    ``ipu_kernels.reference``), not both; ``tolerance`` (format to a tier name
+    of :data:`ipu_harness.tolerance.TIERS`, or ``{ tier = ..., rtol = ..., atol =
+    ..., ulps = ..., why = "..." }`` overriding a tier's numbers, ``why`` required;
+    a format not listed is compared at ``EXACT``).
 
 Every declared name (parameter, tensor, derived value) is an identifier that
 does not start with ``_`` and is not ``cr``, ``lr`` or a reserved case key.
@@ -86,6 +88,8 @@ from typing import Any, Literal
 from ipu_harness._codec import limits
 from ipu_harness._toml_source import Locator, ManifestError, Reader, decode_error_line, where
 from ipu_harness.expressions import ExpressionError, names_in
+from ipu_harness.tolerance import TIERS
+from ipu_harness.tolerance import Tier as ToleranceTier
 from ipu_isa.formats import FORMATS, ElementFormat
 from ipu_isa.registers import REGISTER_DEFINITIONS
 
@@ -148,6 +152,7 @@ _TENSOR_KEYS: Mapping[Role, tuple[str, ...]] = {
 }
 _CASE_KEYS = ("formats", "inputs", "expected", "generator", "tier")
 _GOLDEN_KEYS = ("reference", "op", "tolerance")
+_TIER_KEYS = ("tier", "rtol", "atol", "ulps", "why")
 #: Names a template or a case reserves (E06-07: cr, lr, format, shapes).
 _RESERVED_NAMES = frozenset({"cr", "lr", "format", "shapes", *_CASE_KEYS})
 
@@ -240,12 +245,14 @@ class GoldenDecl:
     Attributes:
         reference: ``"file.py:fn"`` in the kernel directory.
         op: A shared reference in ``ipu_kernels.reference``.
-        tolerance: Tier name per format (E06-10 checks the names).
+        tolerance: The tier per format it names (E06-10).
     """
 
     reference: str | None = None
     op: str | None = None
-    tolerance: Mapping[ElementFormat, str] = field(default_factory=lambda: MappingProxyType({}))
+    tolerance: Mapping[ElementFormat, ToleranceTier] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
 
 
 @dataclass(frozen=True, eq=False)
@@ -606,6 +613,48 @@ def _case(r: Reader, m: KernelManifest, name: str, raw: object) -> CaseDecl:
     return case
 
 
+def _named_tier(r: Reader, raw: object, path: tuple[str, ...]) -> ToleranceTier:
+    name = r.text(raw, path)
+    if name not in TIERS:
+        raise r.fail(path, f"{where(path)} {name!r} is no tier; tiers: {', '.join(TIERS)}")
+    return TIERS[name]
+
+
+def _tier(r: Reader, raw: object, path: tuple[str, ...]) -> ToleranceTier:
+    """A tier by name, or a table overriding one's numbers with a ``why``."""
+    if not isinstance(raw, dict):
+        return _named_tier(r, raw, path)
+    r.known(raw, _TIER_KEYS, path)
+    if "tier" not in raw or "why" not in raw:
+        raise r.fail(path, f"{where(path)} overrides a tier: it needs 'tier' and a 'why'")
+    base = _named_tier(r, raw["tier"], (*path, "tier"))
+    rtol, atol = (_non_negative(r, raw, key, (int, float), path) for key in ("rtol", "atol"))
+    ulps = _non_negative(r, raw, "ulps", int, path)
+    return ToleranceTier(
+        base.name,
+        base.rtol if rtol is None else float(rtol),
+        base.atol if atol is None else float(atol),
+        base.ulps if ulps is None else int(ulps),
+        r.text(raw["why"], (*path, "why")),
+    )
+
+
+def _non_negative(
+    r: Reader,
+    table: Mapping[str, Any],
+    key: str,
+    kind: type | tuple[type, ...],
+    path: tuple[str, ...],
+) -> float | None:
+    """``table[key]`` when given: a number of ``kind`` that is not negative."""
+    if key not in table:
+        return None
+    value = r.typed(table[key], kind, (*path, key))
+    if value < 0:
+        raise r.fail((*path, key), f"{where((*path, key))} {value} must not be negative")
+    return float(value)
+
+
 def _golden(
     r: Reader, directory: Path, raw: object, formats: tuple[ElementFormat, ...]
 ) -> GoldenDecl:
@@ -619,7 +668,7 @@ def _golden(
     elif "op" not in table and (directory / "reference.py").is_file():
         reference = "reference.py:reference"
     op = r.text(table["op"], ("golden", "op")) if "op" in table else None
-    tolerance: dict[ElementFormat, str] = {}
+    tolerance: dict[ElementFormat, ToleranceTier] = {}
     if "tolerance" in table:
         tiers = r.table(table["tolerance"], ("golden", "tolerance"))
         for fmt, tier in tiers.items():
@@ -627,7 +676,7 @@ def _golden(
             key = r.format(fmt, path)
             if key not in formats:
                 raise r.fail(path, f"tolerance for {fmt}, a format the kernel does not run in")
-            tolerance[key] = r.text(tier, path)
+            tolerance[key] = _tier(r, tier, path)
     return GoldenDecl(reference, op, MappingProxyType(tolerance))
 
 
