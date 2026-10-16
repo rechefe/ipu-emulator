@@ -46,7 +46,7 @@ Tests are split into two tiers by Bazel test size. The named configs in
 
 | Tier | Holds | Command |
 |------|-------|---------|
-| Default | Every test except size `enormous`: what a change must pass before review. CI runs it on every push. | `bazel test //...` (CI: `bazel test --config=ci //...`, which also skips `docs` targets) |
+| Default | Every test except size `enormous`: what a change must pass before review. CI runs it on every pull request and every push to master. | `bazel test //...` (CI: `bazel test --config=ci //...`, which also skips `docs` targets and uses the CI caches) |
 | Heavy | Size `enormous` tests, such as the per-kernel `test_alias_profile_kernels_*` and `test_debug_launch_kernels_*` sweeps. Runs nightly. | `bazel test --config=full //...` |
 
 `manual` targets (for example the `test_full_*` MobileViT stacks) are in
@@ -78,6 +78,14 @@ bazel run //tools:update_requirements_lock                              # keep c
 bazel run //tools:update_requirements_lock -- --upgrade-package numpy   # move one package
 bazel run //tools:update_requirements_lock -- --upgrade                 # move everything
 ```
+
+Each package's `py_library` carries only its runtime packages, the
+`[project].dependencies` of its `pyproject.toml`. They are written once, as
+`RUNTIME_DEPS` in the package's `deps.bzl`. Test and docs packages (the `dev`
+and `docs` extras) go on the test and docs targets that use them, as
+`requirement("pytest")`. Changing a runtime dependency means editing both
+`pyproject.toml` and `deps.bzl`, then refreshing the lock;
+`//tools:deps_consistency_test` fails if either step is missed.
 
 Notes
 -----

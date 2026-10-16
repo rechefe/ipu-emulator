@@ -2,6 +2,8 @@
 
 package(default_visibility = ["//visibility:public"])
 
+exports_files(["requirements_lock.txt"])
+
 # Prototyping mode: `bazel test --define=ipu_proto=1 //...` builds the emulator
 # with its opt-in fast paths on. They are bit-exact but are not a faithful model
 # of the chip (see src/tools/ipu-emu-py/src/ipu_emu/prototyping.py), so the

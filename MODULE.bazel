@@ -16,33 +16,6 @@ python.toolchain(
 )
 use_repo(python, "python_3_10")
 
-# Per-package dependency lists read from pyproject.toml.
-parse_pyproject_deps = use_repo_rule("//tools:pyproject_deps.bzl", "parse_pyproject_deps")
-
-parse_pyproject_deps(
-    name = "ipu_as_pyproject",
-    pyproject_toml = "//src/tools/ipu-as-py:pyproject.toml",
-)
-
-parse_pyproject_deps(
-    name = "ipu_emu_pyproject",
-    pyproject_toml = "//src/tools/ipu-emu-py:pyproject.toml",
-    exclude_deps = [
-        "ipu-as-py",
-        "ipu-common",
-    ],
-)
-
-parse_pyproject_deps(
-    name = "ipu_apps_pyproject",
-    pyproject_toml = "//src/tools/ipu-apps:pyproject.toml",
-    exclude_deps = [
-        "ipu-as-py",
-        "ipu-emu-py",
-        "ipu-common",
-    ],
-)
-
 pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
 pip.parse(
     hub_name = "ipu_as_deps",

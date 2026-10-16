@@ -1,13 +1,20 @@
 load("@ipu_as_deps//:requirements.bzl", "requirement")
-load("@ipu_as_pyproject//:deps.bzl", "get_requirements")
 load("@rules_python//python:defs.bzl", "py_binary", "py_library")
 load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
+load("//tools:runtime_deps.bzl", "runtime_deps_manifest")
+load(":deps.bzl", "RUNTIME_DEPS")
 
 package(default_visibility = ["//visibility:public"])
 
 exports_files([
     "pyproject.toml",
 ])
+
+# RUNTIME_DEPS as JSON, for //tools:deps_consistency_test.
+runtime_deps_manifest(
+    name = "runtime_deps",
+    runtime_deps = RUNTIME_DEPS,
+)
 
 py_library(
     name = "ipu_as_lib",
@@ -21,7 +28,7 @@ py_library(
     imports = ["src"],
     deps = [
         "//src/tools/ipu-common:ipu_common_lib",
-    ] + get_requirements(requirement),
+    ] + [requirement(dep) for dep in RUNTIME_DEPS],
 )
 
 py_binary(
