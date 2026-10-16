@@ -3385,10 +3385,18 @@ BKPT;;
 class TestDispatchPlans:
     def test_a_missing_handler_is_reported_by_instruction_name(self) -> None:
         # TODO(E04-08): per-word execution plans replace _build_plan.
-        from ipu_emu.ipu import _build_plan
+        import dataclasses
 
-        spec = {"execute_fn": "execute_no_such_handler", "operands": []}
+        from ipu_emu.ipu import _build_plan
+        from ipu_isa.slots import Slot
+        from ipu_isa.view import isa
+
+        fake = dataclasses.replace(
+            isa().instruction(Slot.MULT, "NOP"),
+            mnemonic="FAKE",
+            execute_fn="execute_no_such_handler",
+        )
         with pytest.raises(
             RuntimeError, match=r"mult/FAKE names handler Ipu\.execute_no_such_handler"
         ):
-            _build_plan("mult", "FAKE", spec, {})
+            _build_plan(fake, {})

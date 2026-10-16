@@ -32,9 +32,8 @@ from ipu_as.compound_inst import CompoundInst
 # Re-export Ipu class and BreakResult for backward compatibility
 from ipu_emu.ipu import BreakResult, Ipu
 from ipu_emu.ipu_state import IpuState
-from ipu_isa.instruction_spec import SLOT_COUNT
 from ipu_isa.slots import SLOTS
-from ipu_isa.view import get_instruction_by_opcode
+from ipu_isa.view import isa
 
 # ---------------------------------------------------------------------------
 # Instruction word decoder
@@ -97,18 +96,17 @@ def emulator_only_instructions(instructions) -> set[str]:
     decoded words of :func:`load_binary_instructions`, so it does not depend
     on mnemonic spelling.
     """
-    slots = [slot.value for slot, info in SLOTS.items() if info.debug_only]
-    for slot in slots:
-        if SLOT_COUNT[slot] != 1:
+    infos = [info for info in SLOTS.values() if info.debug_only]
+    for info in infos:
+        if info.count != 1:
             raise NotImplementedError(
-                f"emulator-only slot {slot!r} appears {SLOT_COUNT[slot]} times"
+                f"emulator-only slot {info.slot.value!r} appears {info.count} times"
             )
+    fields = [(info.slot, f"{info.field_prefix}_token_0_{info.opcode_enum}") for info in infos]
     found: set[str] = set()
     for inst in instructions:
-        for slot in slots:
-            name, _ = get_instruction_by_opcode(
-                slot, inst[f"{slot}_inst_token_0_{slot}_inst_opcode"]
-            )
+        for slot, field in fields:
+            name = isa().by_opcode(slot, inst[field]).mnemonic
             if name != "NOP":
                 found.add(name)
     return found

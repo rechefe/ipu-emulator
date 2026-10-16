@@ -52,16 +52,16 @@ from ipu_isa.constants import (
 )
 from ipu_isa.geometry import LANES
 from ipu_isa.incr_mod_pow2_k import LR_MOD_POW2_K_ENCODED_MAX, LR_MOD_POW2_K_MIN
-from ipu_isa.instruction_spec import INSTRUCTION_SPEC
-from ipu_isa.layout import SLOT_UNIONS
-from ipu_isa.operand_types import OPERAND_TYPES
+from ipu_isa.operand_types import OPERAND_TYPES, OperandType
 from ipu_isa.registers import (
+    REGISTER_DEFINITIONS,
     get_mult_stage_map,
     get_register_sizes,
 )
 from ipu_isa.reshape_mask import RESHAPE_ELEMENT_COUNT, RESHAPE_MASK_LR_OFFSET
 from ipu_isa.slots import SLOTS, Slot
-from ipu_isa.view import get_opcode_for_instruction
+from ipu_isa.union_layout import SlotUnion
+from ipu_isa.view import Instruction, Read, isa
 
 # ---------------------------------------------------------------------------
 # Constants — derived from the single source of truth in ipu-isa
@@ -234,7 +234,7 @@ _SLOT_FIELD_PREFIX = {
 
 def _build_field_map_for_instruction_union(
     prefix: str,
-    slot_union: object,
+    slot_union: SlotUnion,
     inst_name: str,
 ) -> dict[str, str]:
     """Build operand_name → inst dict field_key mapping using union bindings."""
@@ -251,25 +251,31 @@ def _build_all_instruction_field_maps() -> dict[tuple, dict[str, str]]:
     """Precompute operand → field_key mappings for ALL instructions.
 
     Returns a dict keyed by:
-      (slot_type, inst_name)       — for non-LR slots
-      ("lr", inst_name, slot_idx)  — for LR sub-slots (0 .. SLOT_COUNT["lr"]-1)
+      (slot_type, inst_name)           — for single-instance slots
+      (slot_type, inst_name, slot_idx) — for each instance of a multi-instance
+                                         slot (LR: 0 .. count - 1)
     """
     result: dict[tuple, dict[str, str]] = {}
-
-    for slot_type, prefix in _SLOT_FIELD_PREFIX.items():
-        slot_union = SLOT_UNIONS[slot_type]
-        for inst_name in INSTRUCTION_SPEC[slot_type]:
-            result[(slot_type, inst_name)] = _build_field_map_for_instruction_union(
-                prefix, slot_union, inst_name
+    unions = isa().layout.unions
+    for slot, info in SLOTS.items():
+        if info.count != 1:
+            continue
+        for instruction in isa().instructions(slot):
+            result[(slot.value, instruction.mnemonic)] = _build_field_map_for_instruction_union(
+                info.field_prefix, unions[slot], instruction.mnemonic
             )
 
-    # LR has multiple sub-slots with different field prefixes
-    lr_slot_union = SLOT_UNIONS["lr"]
-    for inst_name in INSTRUCTION_SPEC["lr"]:
-        for slot_idx, prefix in enumerate(SLOTS[Slot.LR].field_prefixes()):
-            result[("lr", inst_name, slot_idx)] = _build_field_map_for_instruction_union(
-                prefix, lr_slot_union, inst_name
-            )
+    # Multi-instance slots (LR) read each instance from its own field prefix.
+    for slot, info in SLOTS.items():
+        if info.count == 1:
+            continue
+        for instruction in isa().instructions(slot):
+            for slot_idx, prefix in enumerate(info.field_prefixes()):
+                result[(slot.value, instruction.mnemonic, slot_idx)] = (
+                    _build_field_map_for_instruction_union(
+                        prefix, unions[slot], instruction.mnemonic
+                    )
+                )
 
     return result
 
@@ -278,20 +284,18 @@ def _build_all_instruction_field_maps() -> dict[tuple, dict[str, str]]:
 _INSTRUCTION_FIELD_MAP = _build_all_instruction_field_maps()
 
 
-def _build_read_operand_types() -> dict[tuple[str, str], dict[str, tuple[str, str]]]:
+def _build_read_operand_types() -> dict[tuple[str, str], dict[str, tuple[OperandType, Read]]]:
     """Precompute which operands need auto-resolution for each instruction.
 
-    Returns dict keyed by (slot_type, inst_name) → {operand_name: (operand_type, source)}
-    for operands with a ``"read"`` field (``"snapshot"`` or ``"live"``) in instruction_spec.
+    Returns dict keyed by (slot_type, inst_name) → {operand_name: (operand_type, read)}
+    for the operands the ISA marks as read (``Read.CYCLE_START`` or ``Read.FORWARDED``).
     """
-    result: dict[tuple[str, str], dict[str, tuple[str, str]]] = {}
-    for slot_type, instructions in INSTRUCTION_SPEC.items():
-        for inst_name, inst_def in instructions.items():
-            read_ops = {
-                op["name"]: (op["type"], op["read"]) for op in inst_def["operands"] if "read" in op
-            }
+    result: dict[tuple[str, str], dict[str, tuple[OperandType, Read]]] = {}
+    for slot in SLOTS:
+        for instruction in isa().instructions(slot):
+            read_ops = {op.name: (op.type, op.read) for op in instruction.operands if op.read}
             if read_ops:
-                result[(slot_type, inst_name)] = read_ops
+                result[(slot.value, instruction.mnemonic)] = read_ops
     return result
 
 
@@ -316,15 +320,42 @@ _READ_LR = 0
 _READ_CR = 1
 _READ_LCR = 2
 _READ_OTHER = 3
+_READ_MULT_STAGE = 4
 
-_READ_CODES = {"LrIdx": _READ_LR, "CrIdx": _READ_CR, "LcrIdx": _READ_LCR}
+# Register bank of each register name the assembler accepts ("lr3" -> "lr").
+_BANK_OF_NAME = {
+    name: bank
+    for bank, definition in REGISTER_DEFINITIONS.items()
+    for name in definition.get("assembler_values", ())
+}
+
+
+def _banks(operand_type: OperandType) -> frozenset[str | None]:
+    """The register banks an operand type's domain names; None for a name that
+    is not a register of one bank (an LRD pair)."""
+    return frozenset(_BANK_OF_NAME.get(name) for name in operand_type.domain.members)
+
+
+# How a read operand resolves, by the banks its type can name.
+_READ_BY_BANKS = {
+    frozenset({"lr"}): _READ_LR,
+    frozenset({"cr"}): _READ_CR,
+    frozenset({"lr", "cr"}): _READ_LCR,
+    frozenset({"r"}): _READ_MULT_STAGE,
+}
+
+# Read code of every operand type, from its domain in the operand-type registry.
+_READ_CODES = {
+    name: _READ_BY_BANKS.get(_banks(operand_type), _READ_OTHER)
+    for name, operand_type in OPERAND_TYPES.items()
+}
 
 
 class _OperandRead(NamedTuple):
     """One operand that dispatch resolves to a register value."""
 
     name: str
-    op_type: str
+    op_type: OperandType
     code: int
     from_snapshot: bool
 
@@ -336,7 +367,7 @@ _SCALAR_NONE = 0
 _SCALAR_LCR = 1  # LcrIdx: an LR selects an Ra element, or a CR supplies the byte
 _SCALAR_CR = 2  # CrIdx: the CR's low byte is the scalar
 
-_SCALAR_KINDS = {"LcrIdx": _SCALAR_LCR, "CrIdx": _SCALAR_CR}
+_SCALAR_KINDS = {_READ_LCR: _SCALAR_LCR, _READ_CR: _SCALAR_CR}  # by read code
 
 
 class _AliasCheck(NamedTuple):
@@ -376,11 +407,11 @@ class _Plan(NamedTuple):
 
 # Which RunStats counter a non-NOP instruction in each slot bumps.
 _SLOT_STAT = {
-    "mult": "mult_active_cycles",
-    "acc": "acc_active_cycles",
-    "load": "xmem_reads",
-    "store": "xmem_writes",
-    "acc_store": "xmem_writes",
+    Slot.MULT: "mult_active_cycles",
+    Slot.ACC: "acc_active_cycles",
+    Slot.LOAD: "xmem_reads",
+    Slot.STORE: "xmem_writes",
+    Slot.ACC_STORE: "xmem_writes",
 }
 
 
@@ -412,7 +443,7 @@ def _compile_alias_checks(slot_type: str, inst_name: str) -> tuple[_AliasCheck, 
                 co_slot = constraint["co_slot"]
                 co_field = _opcode_field(co_slot)
                 co_opcodes = frozenset(
-                    get_opcode_for_instruction(co_slot, name)
+                    isa().instruction(Slot(co_slot), name).opcode
                     for name in constraint["instruction_in"]
                 )
             elif constraint.get("hardware_only"):
@@ -436,53 +467,55 @@ def _compile_alias_checks(slot_type: str, inst_name: str) -> tuple[_AliasCheck, 
     return tuple(checks)
 
 
-def _build_plan(slot_type: str, inst_name: str, spec: dict, field_map: dict) -> _Plan:
+def _build_plan(instruction: Instruction, field_map: dict[str, str]) -> _Plan:
+    slot, inst_name = instruction.slot, instruction.mnemonic
     reads = tuple(
         _OperandRead(
             name=name,
             op_type=op_type,
-            code=_READ_CODES.get(op_type, _READ_OTHER),
-            from_snapshot=(source == "snapshot"),
+            code=_READ_CODES[op_type.name],
+            from_snapshot=(read is Read.CYCLE_START),
         )
-        for name, (op_type, source) in _INSTRUCTION_READ_TYPES.get(
-            (slot_type, inst_name), {}
+        for name, (op_type, read) in _INSTRUCTION_READ_TYPES.get(
+            (slot.value, inst_name), {}
         ).items()
     )
     # The LR slot needs the write target to detect two sub-instructions writing
     # the same register; which operand carries it is fixed per instruction.
     write_operand, write_is_lrd = None, False
-    if slot_type == "lr":
-        for op in spec["operands"]:
-            if op["name"] in ("dest", "reg") and "read" not in op:
-                write_operand, write_is_lrd = op["name"], op["type"] == "LrdIdx"
+    if slot is Slot.LR:
+        for op in instruction.operands:
+            if op.name in ("dest", "reg") and op.read is None:
+                # An LRD pair names no single register bank.
+                write_operand, write_is_lrd = op.name, None in _banks(op.type)
                 break
     try:
-        fn = getattr(Ipu, spec["execute_fn"])
+        fn = getattr(Ipu, instruction.execute_fn)
     except AttributeError:
         raise RuntimeError(
-            f"instruction_spec {slot_type}/{inst_name} names handler "
-            f"Ipu.{spec['execute_fn']}, which does not exist "
+            f"instruction_spec {slot}/{inst_name} names handler "
+            f"Ipu.{instruction.execute_fn}, which does not exist "
             "(see CLAUDE.md, 'Adding an Instruction')"
         ) from None
     scalar_operand, scalar_kind = None, _SCALAR_NONE
-    if slot_type == "mult" and inst_name in SCALAR_MULT_OPERANDS:
+    if slot is Slot.MULT and inst_name in SCALAR_MULT_OPERANDS:
         scalar_operand = SCALAR_MULT_OPERANDS[inst_name]
-        op_type = next(op["type"] for op in spec["operands"] if op["name"] == scalar_operand)
-        scalar_kind = _SCALAR_KINDS[op_type]
+        scalar_type = instruction.operand(scalar_operand).type
+        scalar_kind = _SCALAR_KINDS[_READ_CODES[scalar_type.name]]
     return _Plan(
         inst_name=inst_name,
         fn=fn,
         fields=tuple(field_map.items()),
         reads=reads,
-        stat=("mult_idle_cycles" if slot_type == "mult" else None)
+        stat=("mult_idle_cycles" if slot is Slot.MULT else None)
         if inst_name == "NOP"
-        else _SLOT_STAT.get(slot_type),
+        else _SLOT_STAT.get(slot),
         write_operand=write_operand,
         write_is_lrd=write_is_lrd,
-        is_mult=(slot_type == "mult" and inst_name != "NOP"),
+        is_mult=(slot is Slot.MULT and inst_name != "NOP"),
         scalar_operand=scalar_operand,
         scalar_kind=scalar_kind,
-        alias_checks=_compile_alias_checks(slot_type, inst_name),
+        alias_checks=_compile_alias_checks(slot.value, inst_name),
     )
 
 
@@ -494,23 +527,23 @@ def _build_slot_plans():
     opcode_fields = {slot_type: _opcode_field(slot_type) for slot_type in _SLOT_FIELD_PREFIX}
     plans = {
         slot_type: tuple(
-            _build_plan(slot_type, inst_name, spec, _INSTRUCTION_FIELD_MAP[(slot_type, inst_name)])
-            for inst_name, spec in INSTRUCTION_SPEC[slot_type].items()
+            _build_plan(instruction, _INSTRUCTION_FIELD_MAP[(slot_type, instruction.mnemonic)])
+            for instruction in isa().instructions(Slot(slot_type))
         )
         for slot_type in _SLOT_FIELD_PREFIX
     }
     # LR sub-slots differ only in which fields of the word they read.
+    lr = SLOTS[Slot.LR]
     lr_plans = tuple(
         tuple(
-            _build_plan("lr", inst_name, spec, _INSTRUCTION_FIELD_MAP[("lr", inst_name, slot_idx)])
-            for inst_name, spec in INSTRUCTION_SPEC["lr"].items()
+            _build_plan(
+                instruction, _INSTRUCTION_FIELD_MAP[(lr.slot.value, instruction.mnemonic, slot_idx)]
+            )
+            for instruction in isa().instructions(Slot.LR)
         )
-        for slot_idx, _ in enumerate(SLOTS[Slot.LR].field_prefixes())
+        for slot_idx, _ in enumerate(lr.field_prefixes())
     )
-    lr_opcode_fields = tuple(
-        f"{prefix}_token_0_{SLOTS[Slot.LR].opcode_enum}"
-        for prefix in SLOTS[Slot.LR].field_prefixes()
-    )
+    lr_opcode_fields = tuple(f"{prefix}_token_0_{lr.opcode_enum}" for prefix in lr.field_prefixes())
     return opcode_fields, plans, lr_plans, lr_opcode_fields
 
 
@@ -532,7 +565,7 @@ class Ipu:
     based on instruction_spec metadata — no manual opcode checking needed.
 
     Each execute_* method receives named operand values (matching the operand
-    names in INSTRUCTION_SPEC), not raw instruction dicts. The dispatch layer
+    names in the ISA view), not raw instruction dicts. The dispatch layer
     extracts operand values from the instruction word and passes them as
     keyword arguments.
 
@@ -786,7 +819,9 @@ class Ipu:
     # Helper Methods
     # -----------------------------------------------------------------------
 
-    def _resolve_operand(self, op_type: str, raw_value: int, source: RegFile) -> int | bytearray:
+    def _resolve_operand(
+        self, op_type: OperandType, raw_value: int, source: RegFile
+    ) -> int | bytearray:
         """Resolve a 'read' operand to its register value.
 
         Called by dispatch for operands with a ``"read"`` field in instruction_spec.
@@ -798,20 +833,21 @@ class Ipu:
         - MultStageReg → register bytes via _MULT_STAGE_MAP → bytearray
 
         Args:
-            op_type: Operand type string from instruction_spec.
+            op_type: The operand's type, from the ISA view.
             raw_value: Raw encoded index from the instruction word.
             source: Register file to read from (snapshot or live regfile).
         """
-        if op_type == "LrIdx":
+        code = _READ_CODES[op_type.name]
+        if code == _READ_LR:
             return source.get_lr(raw_value)
-        elif op_type == "CrIdx":
+        elif code == _READ_CR:
             return source.get_cr(raw_value)
-        elif op_type == "LcrIdx":
+        elif code == _READ_LCR:
             if raw_value < LR_REG_COUNT:
                 return source.get_lr(raw_value)
             else:
                 return source.get_cr(raw_value - LR_REG_COUNT)
-        elif op_type == "MultStageReg":
+        elif code == _READ_MULT_STAGE:
             if raw_value > 1:
                 raise EmulatorError(
                     f"Mult-stage operand must encode r0 (0) or r1 (1); got {raw_value}"
@@ -1198,7 +1234,7 @@ class Ipu:
         for plan, kwargs in pending:
             token = (
                 self._profile.start(
-                    self, "lr", plan, kwargs, {name: inst[key] for name, key in plan.fields}
+                    self, Slot.LR, plan, kwargs, {name: inst[key] for name, key in plan.fields}
                 )
                 if self._profile
                 else None
@@ -1967,7 +2003,7 @@ class Ipu:
             self._profile.start(
                 self, slot_type, plan, kwargs, {name: inst[key] for name, key in plan.fields}
             )
-            if self._profile and slot_type != "break"
+            if self._profile and slot_type != Slot.BREAK
             else None
         )
         result = plan.fn(self, **kwargs)
@@ -1995,7 +2031,7 @@ class Ipu:
         if name == "MULT.RC.VV":
             # Narrow ra is already resolved to bytes; recover its encoded index.
             inst = self.state.inst_mem[self.state.program_counter]
-            plan = _SLOT_PLANS["mult"][inst[_SLOT_OPCODE_FIELDS["mult"]]]
+            plan = _SLOT_PLANS[Slot.MULT][inst[_SLOT_OPCODE_FIELDS[Slot.MULT]]]
             index = inst[dict(plan.fields)["ra"]]
             reg, index = ("r_wide_debug", index) if wide else _MULT_STAGE_MAP[index]
             if snap.has_constant_ones(reg, index * size, size):
@@ -2122,7 +2158,7 @@ class Ipu:
                         kwargs[read.name] = struct.unpack_from("<I", buf, cr_idx * 4)[0]
                     else:
                         kwargs[read.name] = source.get_cr(cr_idx)
-            elif read.op_type == "MultStageReg" and self._wide_vector_active():
+            elif code == _READ_MULT_STAGE and self._wide_vector_active():
                 if raw > 1:
                     raise EmulatorError(
                         f"Mult-stage operand must encode r0 (0) or r1 (1); got {raw}"
@@ -2141,13 +2177,21 @@ class Ipu:
         if inst is None:
             return BreakResult.CONTINUE
         self._take_snapshot()
-        return self.dispatch_instruction("break", inst)
+        return self.dispatch_instruction(Slot.BREAK, inst)
 
     # Slot dispatch order for a cycle: load before store, cond last.
-    _SLOT_ORDER = ("load", "mult", "acc", "aaq", "store", "acc_store", "cond")
+    _SLOT_ORDER = (
+        Slot.LOAD,
+        Slot.MULT,
+        Slot.ACC,
+        Slot.AAQ,
+        Slot.STORE,
+        Slot.ACC_STORE,
+        Slot.COND,
+    )
 
     # Slots whose NOP handler is not a no-op (execute_cond_nop advances the PC).
-    _SLOTS_WITH_ACTIVE_NOP = frozenset({"cond"})
+    _SLOTS_WITH_ACTIVE_NOP = frozenset({Slot.COND})
 
     def _cycle_plan(self, pc: int, inst: dict[str, int]) -> tuple:
         """The work this PC's instruction word does, cached (prototyping only).
@@ -2164,7 +2208,7 @@ class Ipu:
             if cached_inst == inst:
                 return cached_plan
 
-        break_plan = _SLOT_PLANS["break"][inst[_SLOT_OPCODE_FIELDS["break"]]]
+        break_plan = _SLOT_PLANS[Slot.BREAK][inst[_SLOT_OPCODE_FIELDS[Slot.BREAK]]]
         if break_plan.inst_name == "NOP":
             break_work = None
         else:
@@ -2298,7 +2342,7 @@ class Ipu:
             return self._execute_cycle_fast(inst, pc, with_break=True)
 
         # Break runs first — may halt before side effects
-        result = self.dispatch_instruction("break", inst)
+        result = self.dispatch_instruction(Slot.BREAK, inst)
         if result == BreakResult.BREAK:
             return BreakResult.BREAK
 
@@ -2306,13 +2350,13 @@ class Ipu:
         if self._profile:
             self._profile.begin(self)
         self._dispatch_lr_slots(inst)  # LR has multiple sub-slots
-        self.dispatch_instruction("load", inst)
-        self.dispatch_instruction("mult", inst)
-        self.dispatch_instruction("acc", inst)
-        self.dispatch_instruction("aaq", inst)
-        self.dispatch_instruction("store", inst)
-        self.dispatch_instruction("acc_store", inst)
-        self.dispatch_instruction("cond", inst)
+        self.dispatch_instruction(Slot.LOAD, inst)
+        self.dispatch_instruction(Slot.MULT, inst)
+        self.dispatch_instruction(Slot.ACC, inst)
+        self.dispatch_instruction(Slot.AAQ, inst)
+        self.dispatch_instruction(Slot.STORE, inst)
+        self.dispatch_instruction(Slot.ACC_STORE, inst)
+        self.dispatch_instruction(Slot.COND, inst)
 
         if self._profile:
             self._profile.end()
@@ -2345,13 +2389,13 @@ class Ipu:
         if self._profile:
             self._profile.begin(self)
         self._dispatch_lr_slots(inst)
-        self.dispatch_instruction("load", inst)
-        self.dispatch_instruction("mult", inst)
-        self.dispatch_instruction("acc", inst)
-        self.dispatch_instruction("aaq", inst)
-        self.dispatch_instruction("store", inst)
-        self.dispatch_instruction("acc_store", inst)
-        self.dispatch_instruction("cond", inst)
+        self.dispatch_instruction(Slot.LOAD, inst)
+        self.dispatch_instruction(Slot.MULT, inst)
+        self.dispatch_instruction(Slot.ACC, inst)
+        self.dispatch_instruction(Slot.AAQ, inst)
+        self.dispatch_instruction(Slot.STORE, inst)
+        self.dispatch_instruction(Slot.ACC_STORE, inst)
+        self.dispatch_instruction(Slot.COND, inst)
 
         if self._profile:
             self._profile.end()
