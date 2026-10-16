@@ -108,19 +108,13 @@ class DebugViewSession:
         assert tab is not None
         return tab
 
-    @property
-    def stages_visible(self) -> bool:
-        return self.disassembly_tab().fmt == "stages"
-
-    @stages_visible.setter
-    def stages_visible(self, visible: bool) -> None:
-        self.disassembly_tab().fmt = "stages" if visible else "compact"
-
     def set_message(self, text: str, *, error: bool = False) -> None:
+        """Show *text* on the status line (one line; empty means ``Ready``)."""
         self.message = text.replace("\n", " ").strip() or "Ready"
         self.message_is_error = error
 
     def ensure_default_tab(self, state: IpuState) -> None:
+        """Give every pane its default tabs if it has none (the first stop's set on the first)."""
         fresh = not self.initialized
         if fresh and not self.xmem.tabs:
             self.xmem.tabs.extend(xmem_pane.default_tabs(state))

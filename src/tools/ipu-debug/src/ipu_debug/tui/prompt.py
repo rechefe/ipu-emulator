@@ -36,11 +36,6 @@ class Prompt:
     def pane(self) -> str | None:
         return self.editor.pane if self.editor is not None else None
 
-    @property
-    def register(self) -> str | None:
-        """The scalar being edited, as ``DebugSession.set_register`` names it."""
-        return self.editor.register if self.editor is not None else None
-
     def open(self, editor: Editor) -> None:
         self.editor = editor
         self.text = editor.text

@@ -2322,12 +2322,12 @@ class TestPipelineStageView:
         mouse(view, rect.y + 4, rect.x + 2, wheel=1)
         assert session.disassembly.stages_scroll > 0
         assert view.handle_key(Key.F8) == DebugAction.STEP
-        assert session.stages_visible
+        assert session.disassembly_tab().fmt == "stages"
         view.render()
         assert "CR / LR" in screen.text() and "XMEM" in screen.text()
         mouse(view, view.rects["registers"].y + 3, view.rects["registers"].x + 2)
         assert session.focus == "registers"
-        assert session.stages_visible
+        assert session.disassembly_tab().fmt == "stages"
 
     def test_disassembly_shows_slot_names_and_explicit_truncation(self):
         state = self.program("SET lr2 cr1;;")
