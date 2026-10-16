@@ -601,7 +601,7 @@ class Language {
       for (const t of this.scan(text).tokens) {
         if (t.templated) continue;
         if (t.role === 'label') {
-          if (/^[0-9]+$/.test(t.name)) locals.add(t.name);
+          if (/^[0-9]+$/.test(t.name)) locals.add(String(Number(t.name))); // `01:` is `1:`, as in the assembler
           else defs.push({ name: t.name, start: t.start, end: t.end });
         } else if (t.role === 'operand' && !/^[+-]/.test(t.text) && !/^[0-9]+[fb]?$/.test(t.text)) {
           const typed = this.operandType(t.mnemonic, t.index);

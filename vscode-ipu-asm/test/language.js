@@ -296,7 +296,7 @@ if (corpusPath) test('the corpus: parser, completion, formatting and Jinja agree
     const audit = (label, text) => {
       const { defs: defined, locals } = lang.labels(text);
       const defs = defined.map((d) => d.name);
-      const local = (ref) => /^[0-9]+[fb]$/.test(ref) && locals.has(ref.slice(0, -1));
+      const local = (ref) => /^[0-9]+[fb]$/.test(ref) && locals.has(String(Number(ref.slice(0, -1))));
       const same = (a, b) => a.toLowerCase() === b.toLowerCase();
       for (const w of lang.scan(text).words) {
         for (const ins of w.instructions) {

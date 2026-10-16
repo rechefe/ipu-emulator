@@ -70,3 +70,13 @@ def test_check_reports_local_label_errors_at_the_reference(source, line, column)
     (found,) = diagnostics.check(source)
     assert (found.stage, found.line, found.column) == ("assemble", line, column)
     assert not found.approximate
+
+
+def test_named_label_shaped_like_a_local_reference_is_rejected() -> None:
+    with pytest.raises(LabelError, match="looks like a local label reference") as info:
+        AssemblySession("NOP;;\n10b:\nB 10b;;\n").assemble()
+    assert info.value.location.line == 2
+
+
+def test_leading_zeros_name_the_same_local_label() -> None:
+    assert _words("01:\nNOP;;\nB 1b;;\n") == _words("1:\nNOP;;\nB 1b;;\n")

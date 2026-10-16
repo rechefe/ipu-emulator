@@ -49,6 +49,13 @@ class SymbolTable:
         if _LOCAL_NAME.fullmatch(name.token.value):
             bisect.insort(self._locals.setdefault(int(name.token.value), []), name.instr_id)
             return
+        if is_local_reference(name.token.value):
+            raise LabelError(
+                f"Label '{name.token.value}' at {SourceLocation.of(name.token)} looks like a "
+                f"local label reference; a named label cannot be digits followed by f or b",
+                location=SourceLocation.of(name.token),
+                token=name.token.value,
+            )
         if name.token.value in self._labels:
             existing = self._labels[name.token.value].token
             raise LabelError(
@@ -90,19 +97,19 @@ class SymbolTable:
         location = SourceLocation.of(ref)
         if not direction:
             raise LabelError(
-                f"Label {ref.value} at {location} is a local label reference without a "
-                f"direction; use {number}f or {number}b",
+                f"Label {ref.value} is a local label reference without a direction; "
+                f"use {number}f or {number}b",
                 location=location,
                 token=ref.value,
             )
         addresses = self._locals.get(number, [])
+        # addresses[:index] are at or before `at`; addresses[index:] are after it.
+        index = bisect.bisect_right(addresses, at)
         if direction == "f":
-            index = bisect.bisect_right(addresses, at)
             if index < len(addresses):
                 return addresses[index]
             where = "after"
         else:
-            index = bisect.bisect_right(addresses, at)
             if index > 0:
                 return addresses[index - 1]
             where = "at or before"
