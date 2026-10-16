@@ -21,13 +21,16 @@ Positions are 0-based, matching LSP and the VS Code API.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, replace
+from pathlib import Path
 
 import jinja2
 import lark
 
 import ipu_as.compound_inst as compound_inst
 import ipu_as.template as template
+from ipu_as.errors import TemplateError
 from ipu_as.lark_tree import ASTBuilder, get_parser
 
 #: Assembly-stage errors embed their position in the message text (see
@@ -75,9 +78,29 @@ def _offset_to_linecol(text: str, offset: int) -> tuple[int, int]:
 #: parser — it changes the text Lark sees only by adding comments.
 _LINE_MARKER = "#@ipu-src-line:"
 _MARKER_RE = re.compile(re.escape(_LINE_MARKER) + r"(\d+)")
+#: The marker in an included template: `#@ipu-src:<template name>:<line>`.
+_INCLUDE_PREFIX = "#@ipu-src:"
+_INCLUDE_MARKER_RE = re.compile(re.escape(_INCLUDE_PREFIX) + r"(?P<name>[^\s:]+):(?P<line>\d+)")
+_ANY_MARKER_RE = re.compile(f"{_MARKER_RE.pattern}|{_INCLUDE_MARKER_RE.pattern}")
+#: The open file's name in template.render, so the transform tells it from an include.
+_MAIN = "<asm>"
 
 
-def _instrument(source: str) -> str | None:
+def _instrument_template(name: str, text: str) -> str:
+    """template.render transform: tag each line of the open file or of an included template."""
+    prefix = _LINE_MARKER if name == _MAIN else f"{_INCLUDE_PREFIX}{name}:"
+    return _instrument(text, prefix) or text
+
+
+def _include_note(rendered: str, offset: int) -> str:
+    """ " (in <template>:<line>)" when the text at `offset` came from an included template."""
+    match = _ANY_MARKER_RE.search(rendered, offset)
+    if match is None or match.group("name") is None:
+        return ""
+    return f" (in {match.group('name')}:{match.group('line')})"
+
+
+def _instrument(source: str, prefix: str = _LINE_MARKER) -> str | None:
     """Tag every template line with its own line number.
 
     Jinja renders a template into different text — loops repeat lines,
@@ -108,7 +131,7 @@ def _instrument(source: str) -> str | None:
                 i += 2
                 continue
             if source[i] == "\n":
-                out.append(f" {_LINE_MARKER}{line}\n")
+                out.append(f" {prefix}{line}\n")
                 line += 1
                 i += 1
                 continue
@@ -269,7 +292,7 @@ def _same_tokens(a: str, b: str) -> bool:
         # and `SET` into `;;SET` without a marker in the way), and whitespace is
         # only ever a separator in this grammar. Comparing `.split()` here threw
         # the markers away for every erroring file — exactly when they matter.
-        return _squeeze(_MARKER_RE.sub("", a)) == _squeeze(b)
+        return _squeeze(_ANY_MARKER_RE.sub("", a)) == _squeeze(b)
 
 
 def _humanize(terminal_names) -> str:
@@ -364,6 +387,8 @@ def _parse_diagnostic(error: lark.exceptions.LarkError, raw: str, rendered: str)
         end_line, end_column = mapped, column + max(len(needle), 1)
 
     message = _with_expected(found, expected)
+    if raw != rendered:
+        message += _include_note(rendered, start)
 
     return Diagnostic(
         line=mapped,
@@ -421,7 +446,9 @@ def _encode_diagnostic(error: ValueError, raw: str, rendered: str) -> Diagnostic
         found = rendered.find(quoted.group(1))
         offset = found if found >= 0 else None
 
+    note = ""
     if offset is not None:
+        note = _include_note(rendered, offset) if raw != rendered else ""
         marked = _source_line_at(rendered, offset)
         if marked is not None:
             # The line comes from the marker. The column cannot: it indexes the
@@ -439,7 +466,7 @@ def _encode_diagnostic(error: ValueError, raw: str, rendered: str) -> Diagnostic
         column=column if exact else 0,
         end_line=mapped,
         end_column=(column + 1) if exact else 0,
-        message=_tidy(message),
+        message=_tidy(message) + note,
         severity="error",
         stage="assemble",
         approximate=not exact,
@@ -473,44 +500,79 @@ def _recover(diagnostic: Diagnostic, text: str) -> Diagnostic:
     )
 
 
-def check(text: str) -> list[Diagnostic]:
-    """Return diagnostics for one assembly source. Empty means it assembles."""
+def _template_failure(wrapped: TemplateError) -> Diagnostic:
+    """The diagnostic for a failed render, from the jinja2 exception it wraps."""
+    error = wrapped.__cause__
+    location = wrapped.location
+    note = ""
+    if location is not None and location.source != _MAIN:
+        note = f" (in {location.source}:{location.line})"
+    if error is None:
+        # A bad define or ipu:params header: the error itself carries the line.
+        line = max(location.line - 1, 0) if location is not None else 0
+        return Diagnostic(
+            line,
+            0,
+            line,
+            0,
+            f"Template error: {wrapped}",
+            "error",
+            "template",
+            approximate=location is None,
+        )
+    if isinstance(error, jinja2.TemplateSyntaxError) and note == "":
+        return _template_diagnostic(error)
+    # Rendering runs arbitrary template expressions, so a failure is not
+    # necessarily a jinja2 TemplateError: `{{ 1 + "a" }}` raises TypeError and
+    # `{% for i in undefined_var %}` raises UndefinedError. Letting either escape
+    # kills the CLI with a traceback and makes the editor report a broken
+    # toolchain instead of a broken template.
+    line = _template_runtime_line(error)
+    message = (
+        f"Template error: {error.message}"
+        if isinstance(error, jinja2.TemplateSyntaxError)
+        else f"Template error: {type(error).__name__}: {error}"
+    )
+    return Diagnostic(
+        line or 0,
+        0,
+        line or 0,
+        0,
+        message + note,
+        "error",
+        "template",
+        approximate=line is None,
+    )
+
+
+def check(text: str, *, search_path: Sequence[Path] = ()) -> list[Diagnostic]:
+    """Return diagnostics for one assembly source. Empty means it assembles.
+
+    `search_path` holds the roots `{% include %}` and `{% import %}` resolve in.
+    An error inside an included template is reported at the open file's
+    include line, and its message names the template and line.
+    """
     rendered = text
     if any(marker in text for marker in _JINJA_MARKERS):
         # Sandboxed like the assembler: the editor checks a file on open, so this must not run a
         # received .asm's payload (see ipu_as/template.py). An escape surfaces as a SecurityError.
         try:
-            rendered = template.render(text)
-        except jinja2.TemplateSyntaxError as error:
-            return [_template_diagnostic(error)]
-        except Exception as error:
-            # Rendering runs arbitrary template expressions, so a failure is not
-            # necessarily a TemplateError: `{{ 1 + "a" }}` raises TypeError and
-            # `{% for i in undefined_var %}` raises UndefinedError. Letting
-            # either escape kills the CLI with a traceback and makes the editor
-            # report a broken toolchain instead of a broken template.
-            line = _template_runtime_line(error)
-            return [
-                Diagnostic(
-                    line or 0,
-                    0,
-                    line or 0,
-                    0,
-                    f"Template error: {type(error).__name__}: {error}",
-                    "error",
-                    "template",
-                    approximate=line is None,
-                )
-            ]
+            rendered = template.render(text, search_path=search_path, source_name=_MAIN)
+        except TemplateError as wrapped:
+            return [_template_failure(wrapped)]
 
         # Render again with origin markers, so a diagnostic can name the source
         # line exactly instead of guessing. Only used if it renders identically
         # modulo the markers; anything else falls back to the plain render.
-        instrumented = _instrument(text)
-        if instrumented is not None:
+        if _instrument(text) is not None:
             try:
-                marked = template.render(instrumented)
-            except jinja2.TemplateError:
+                marked = template.render(
+                    text,
+                    search_path=search_path,
+                    source_name=_MAIN,
+                    transform=_instrument_template,
+                )
+            except TemplateError:
                 marked = None
             if marked is not None and _same_tokens(marked, rendered):
                 rendered = marked

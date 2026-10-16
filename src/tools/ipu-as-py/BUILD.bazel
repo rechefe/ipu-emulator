@@ -62,6 +62,17 @@ py_pytest_test(
     ],
 )
 
+# Template render API: params, defines, rooted loader (E05-09).
+py_pytest_test(
+    name = "test_template",
+    srcs = ["test/test_template.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_as_lib",
+        requirement("pytest"),
+    ],
+)
+
 # GNU numeric local labels (E05-14).
 py_pytest_test(
     name = "test_local_labels",

@@ -16,15 +16,16 @@ from __future__ import annotations
 import collections
 import hashlib
 import warnings
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 from types import MappingProxyType
 
 import lark
 
 import ipu_as.compound_inst as compound_inst
 import ipu_as.template as template
-from ipu_as.errors import AssemblerError, ParseError, SourceLocation, TemplateError
+from ipu_as.errors import AssemblerError, ParseError, SourceLocation
 from ipu_as.symbols import SymbolTable
 from ipu_as.syntax import ASTBuilder, parse_tree
 
@@ -85,27 +86,33 @@ class AssemblySession:
         source: str,
         *,
         defines: Mapping[str, object] | None = None,
+        params: template.ParamSpec | None = None,
+        search_path: Sequence[Path] = (),
         name: str = "<input>",
     ) -> None:
         self.source = source
         self.defines = dict(defines or {})
+        self.params = params
+        self.search_path = tuple(Path(p) for p in search_path)
         self.name = name
         self.symbols = SymbolTable()
         self._rendered: str | None = None
         self._parsed: list[dict] | None = None
 
     def render(self) -> str:
-        """The source with its Jinja layer rendered; rendered at most once. Raises TemplateError."""
+        """The source with its Jinja layer rendered, at most once (`ipu_as.template.render`).
+
+        Raises:
+            TemplateError: a bad define or a jinja failure, located.
+        """
         if self._rendered is None:
-            if self.defines:
-                raise TemplateError("defines not supported yet")
-            if not template.has_markers(self.source):
-                self._rendered = self.source
-            else:
-                try:
-                    self._rendered = template.render(self.source)
-                except Exception as error:
-                    raise TemplateError(str(error)) from error
+            self._rendered = template.render(
+                self.source,
+                defines=self.defines,
+                params=self.params,
+                search_path=self.search_path,
+                source_name=self.name,
+            )
         return self._rendered
 
     def parse(self) -> list[dict]:
@@ -170,30 +177,48 @@ def _lark_location(error: lark.exceptions.LarkError) -> SourceLocation | None:
 #: Results of recent assemblies, so a test suite that assembles the same kernel
 #: many times in one process encodes it once.
 _CACHE_SIZE = 128
-_cache: collections.OrderedDict[tuple[str, tuple], AssemblyResult] = collections.OrderedDict()
+_cache: collections.OrderedDict[tuple, AssemblyResult] = collections.OrderedDict()
 
 
-def _cache_key(source: str, defines: Mapping[str, object] | None) -> tuple[str, tuple]:
+def _cache_key(
+    source: str, defines: Mapping[str, object] | None, params: template.ParamSpec | None
+) -> tuple | None:
+    """The cache key, or None when the inputs cannot be one (an unhashable define value)."""
     digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
-    return digest, tuple(sorted((defines or {}).items()))
+    key = (digest, tuple(sorted((defines or {}).items())), params)
+    try:
+        hash(key)
+    except TypeError:
+        return None
+    return key
 
 
 def assemble(
-    source: str, *, defines: Mapping[str, object] | None = None, name: str = "<input>"
+    source: str,
+    *,
+    defines: Mapping[str, object] | None = None,
+    params: template.ParamSpec | None = None,
+    search_path: Sequence[Path] = (),
+    name: str = "<input>",
 ) -> AssemblyResult:
     """Assemble `source`, reusing the result of an identical recent assembly.
 
     A cached result raises its warnings again, so a caller sees the same
-    warnings whether or not the result came from the cache.
+    warnings whether or not the result came from the cache. A source with a
+    search path is never cached: an included file can change between calls.
     """
-    key = _cache_key(source, defines)
-    cached = _cache.get(key)
+    key = None if search_path else _cache_key(source, defines, params)
+    cached = _cache.get(key) if key is not None else None
     if cached is not None:
         _cache.move_to_end(key)
         cached.reissue_warnings()
         return cached
-    result = AssemblySession(source, defines=defines, name=name)._encode()
+    result = AssemblySession(
+        source, defines=defines, params=params, search_path=search_path, name=name
+    )._encode()
     result.reissue_warnings()
+    if key is None:
+        return result
     _cache[key] = result
     if len(_cache) > _CACHE_SIZE:
         _cache.popitem(last=False)

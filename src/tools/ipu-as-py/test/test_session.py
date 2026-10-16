@@ -37,9 +37,9 @@ def test_a_render_that_yields_braces_is_rendered_once(monkeypatch) -> None:
     calls = []
     real_render = template.render
 
-    def counting_render(text: str) -> str:
+    def counting_render(text: str, **options) -> str:
         calls.append(text)
-        return real_render(text)
+        return real_render(text, **options)
 
     monkeypatch.setattr(template, "render", counting_render)
     source = "{{ '{{' }}\nBKPT;;\n"
@@ -53,7 +53,11 @@ def test_a_render_that_yields_braces_is_rendered_once(monkeypatch) -> None:
 def test_render_runs_once_per_session(monkeypatch) -> None:
     calls = []
     real_render = template.render
-    monkeypatch.setattr(template, "render", lambda text: calls.append(text) or real_render(text))
+    monkeypatch.setattr(
+        template,
+        "render",
+        lambda text, **options: calls.append(text) or real_render(text, **options),
+    )
     assembly = AssemblySession("{% if true %}NOP;;{% endif %}\nBKPT;;\n")
     assembly.render()
     assembly.parse()
@@ -67,9 +71,23 @@ def test_template_failure_is_a_template_error_with_the_jinja_cause() -> None:
     assert isinstance(info.value.__cause__, TypeError)
 
 
-def test_defines_are_not_supported_yet() -> None:
-    with pytest.raises(TemplateError, match="defines not supported yet"):
+def test_defines_need_a_declaration() -> None:
+    with pytest.raises(TemplateError, match="declares no parameters"):
         AssemblySession("BKPT;;\n", defines={"ROWS": 8}).assemble()
+
+
+HEADER = "{#- ipu:params\nrows: int = 1\n-#}\n{% for _ in range(rows) %}NOP;;\n{% endfor %}BKPT;;\n"
+
+
+def test_defines_are_rendered_into_the_source() -> None:
+    assert len(AssemblySession(HEADER, defines={"rows": 3}).assemble().words) == 4
+
+
+def test_cache_gives_a_new_result_when_defines_change() -> None:
+    three = session.assemble(HEADER, defines={"rows": 3})
+    assert session.assemble(HEADER, defines={"rows": 3}) is three
+    assert session.assemble(HEADER, defines={"rows": "3"}) is not three  # another key, same words
+    assert session.assemble(HEADER, defines={"rows": 2}).words != three.words
 
 
 def test_result_text_formats() -> None:
