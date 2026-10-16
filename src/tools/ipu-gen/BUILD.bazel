@@ -74,6 +74,48 @@ py_pytest_test(
     ],
 )
 
+# The labels other packages keep (//vscode-ipu-asm:gen_vscode, //docs:verify_sv_package)
+# are aliases to these: ipu-gen with its subcommand fixed. `bazel run` passes args.
+py_binary(
+    name = "vscode_data",
+    srcs = ["src/ipu_gen/cli.py"],
+    args = ["vscode-data"],
+    imports = ["src"],
+    main = "src/ipu_gen/cli.py",
+    deps = [":ipu_gen_lib"],
+)
+
+py_binary(
+    name = "verify_sv_package",
+    srcs = ["src/ipu_gen/cli.py"],
+    args = ["verify-sv-package"],
+    imports = ["src"],
+    main = "src/ipu_gen/cli.py",
+    deps = [":ipu_gen_lib"],
+)
+
+# isa.json (hover and completion data) against the assembler's own parser and
+# token constructors.
+py_pytest_test(
+    name = "test_hover_data",
+    srcs = ["test/test_hover_data.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_gen_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_isa_data",
+    srcs = ["test/test_isa_data.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_gen_lib",
+        requirement("pytest"),
+    ],
+)
+
 py_pytest_test(
     name = "test_union_layout_svg",
     srcs = ["test/test_union_layout_svg.py"],

@@ -476,7 +476,7 @@ def generate_programmer_guide_md(output_path: Path) -> None:
 
     for name, pseudo_def in PSEUDO_INSTRUCTION_SPEC.items():
         expansion = pseudo_def["expands_to"]
-        lines = Inst._render_opcode_doc(name, pseudo_def["doc"], pseudo_def["operands"])
+        lines = Inst.render_opcode_doc(name, pseudo_def["doc"], pseudo_def["operands"])
         lines.append("")
         lines.append(
             f"**Expands to:** `{expansion['instruction']}` "

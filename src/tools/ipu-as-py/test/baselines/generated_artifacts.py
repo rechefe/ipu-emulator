@@ -17,10 +17,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-import gen_vscode_wrapper
-
-from ipu_as import gen_vscode
-from ipu_gen import docs_pages, layout_svg
+from ipu_gen import docs_pages, layout_svg, vscode_data
 
 #: Where the snapshots live, repo-relative.
 SNAPSHOT_DIR = "src/tools/ipu-as-py/test/baselines/generated"
@@ -46,7 +43,7 @@ def _instruction_format(out: Path) -> None:
 
 
 def _vscode(out: Path) -> None:
-    gen_vscode.generate_all(out, gen_vscode_wrapper.EMULATOR)
+    vscode_data.generate_all(out, vscode_data.REGISTER_FACTS)
 
 
 def _union_layout_svg(out: Path) -> None:
@@ -75,7 +72,7 @@ PRODUCERS = (
         ("instruction-format.md",),
     ),
     Producer(
-        "ipu_as.gen_vscode.generate_all (//vscode-ipu-asm:generate_grammar)",
+        "ipu_gen.vscode_data.generate_all (//vscode-ipu-asm:generate_grammar)",
         _vscode,
         ("syntaxes/ipu-asm.tmLanguage.json", "language-configuration.json", "data/isa.json"),
     ),
