@@ -1,5 +1,5 @@
 load("@ipu_as_deps//:requirements.bzl", "requirement")
-load("@rules_python//python:defs.bzl", "py_binary", "py_library")
+load("@rules_python//python:defs.bzl", "py_library")
 load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
 load("//tools:runtime_deps.bzl", "runtime_deps_manifest")
 load(":deps.bzl", "RUNTIME_DEPS")
@@ -25,24 +25,6 @@ py_library(
     deps = [requirement(dep) for dep in RUNTIME_DEPS],
 )
 
-py_binary(
-    name = "gen_union_layout_svg",
-    srcs = ["src/ipu_isa/gen_union_layout_svg.py"],
-    imports = ["src"],
-    main = "src/ipu_isa/gen_union_layout_svg.py",
-    deps = [":ipu_isa_lib"],
-)
-
-py_pytest_test(
-    name = "test_isa_alias_spec",
-    srcs = ["test/test_isa_alias_spec.py"],
-    imports = ["src"],
-    deps = [
-        ":ipu_isa_lib",
-        requirement("pytest"),
-    ],
-)
-
 py_pytest_test(
     name = "test_union_layout",
     srcs = ["test/test_union_layout.py"],
@@ -53,12 +35,3 @@ py_pytest_test(
     ],
 )
 
-py_pytest_test(
-    name = "test_union_layout_svg",
-    srcs = ["test/test_union_layout_svg.py"],
-    imports = ["src"],
-    deps = [
-        ":ipu_isa_lib",
-        requirement("pytest"),
-    ],
-)

@@ -8,7 +8,7 @@ from ipu_isa.instruction_spec import (
     SLOT_UNIONS,
     is_hardware_slot,
 )
-from ipu_isa.union_layout_svg import render_union_layout_svg
+from ipu_gen.union_layout_svg import render_union_layout_svg
 
 
 INST_SEPARATOR = ";"

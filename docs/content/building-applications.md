@@ -71,7 +71,7 @@ ACTIVATE.QUANTIZE relu, CR15;;
 ```
 
 - **Syntax:** `ACTIVATE.QUANTIZE activation_fn, cr_idx`, where *activation_fn* is a **keyword** (`identity`, `relu`, `relu6`, `sigmoid`, `tanh`, `gelu`, `softplus`, `elu`, `exp2`, `reciprocal`, `rsqrt`, `silu`, `window`). The active element count comes from `cr_idx`'s `valid_elements`, the same dstructure field used by the `AGG.*` instructions; `cr_idx` is mandatory (any `CR0`–`CR15`, no implicit default).
-- **Single source of truth:** keyword order and the pure-Python math live in `src/tools/ipu-isa/src/ipu_isa/activations.py` (`ACTIVATION_FN_NAMES`, `apply_activation`).
+- **Single source of truth:** the keyword order is the ISA's `ActivationFn` operand, in `src/tools/ipu-isa/src/ipu_isa/activations.py` (`ACTIVATION_FN_NAMES`); the pure-Python math is the emulator's, in `src/tools/ipu-emu-py/src/ipu_emu/activations.py` (`apply_activation`).
 
 ### `R_ACC`, `POST_AAQ_REG`, and `STR_POST_AAQ_REG` (staging vs export)
 
@@ -83,7 +83,7 @@ ACTIVATE.QUANTIZE relu, CR15;;
 
 ### Virtual α and window bounds in the emulator (elu, window)
 
-The stock ISA does not expose α, nor the **`window`** bounds. The emulator reads α from each **`IpuState`** (field `elu_alpha`) and the window bounds from `window_a` / `window_b`. If you do not set them, they are initialized from the default floats in `ipu_isa/activations.py` (`DEFAULT_ELU_ALPHA`, `DEFAULT_WINDOW_A`, `DEFAULT_WINDOW_B`).
+The stock ISA does not expose α, nor the **`window`** bounds. The emulator reads α from each **`IpuState`** (field `elu_alpha`) and the window bounds from `window_a` / `window_b`. If you do not set them, they are initialized from the default floats in `ipu_emu/activations.py` (`DEFAULT_ELU_ALPHA`, `DEFAULT_WINDOW_A`, `DEFAULT_WINDOW_B`).
 
 **`window`** is the rectangular indicator `window(x) = 1` for `a <= x < b`, `0` otherwise (half-open, lower bound inclusive). The defaults are provisional placeholders pending calibration: `a = 0.0`, `b = 0.1`. On hardware it belongs to the LUT-backed `activation` group of [the AaQ spec](specs/stage-aaq-str.md), so `a` and `b` are baked into the loaded LUT contents; the emulator keeps them as the state fields below instead.
 

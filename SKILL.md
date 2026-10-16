@@ -16,11 +16,13 @@ Despite the repo name, there is no C code — it is pure Python with a Bazel bui
 
 ```
 src/tools/
-├── ipu-isa/src/ipu_isa/    # Shared definitions (single source of truth)
+├── ipu-isa/src/ipu_isa/          # The ISA as data (single source of truth)
 │   ├── instruction_spec.py       # ALL instruction definitions live here
 │   ├── registers.py              # ALL register definitions live here
 │   ├── acc_stride_enums.py       # Stride control enums
+│   ├── errors.py                 # IpuError, the root of every tooling error
 │   └── types.py                  # RegDtype, RegKind, RegDescriptor
+├── ipu-gen/src/ipu_gen/          # Generators from the ISA (union layout SVG)
 ├── ipu-as-py/src/ipu_as/         # Assembler
 │   ├── compound_inst.py          # VLIW encoding/decoding
 │   ├── inst.py                   # Instruction classes per slot
@@ -33,6 +35,8 @@ src/tools/
 │   ├── regfile.py                # Register file
 │   ├── xmem.py                   # 512 MiB external memory
 │   ├── ipu_math.py               # Typed math (INT8, FP8 E1-E7)
+│   ├── activations.py            # AAQ activation math and its defaults
+│   ├── isa_alias_spec.py         # MAC-alias catalogue for profiling
 │   └── debug_cli.py              # Interactive debugger
 └── ipu-apps/src/ipu_apps/        # Kernels and their harnesses
     ├── kernel_registry/          # Factory: discovery, specs, cases, runner, benchmarks

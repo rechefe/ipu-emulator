@@ -45,7 +45,7 @@ from ipu_isa.acc_stride_enums import (
     get_horizontal_stride_bits,
     get_vertical_stride_bits,
 )
-from ipu_isa.isa_alias_spec import SCALAR_MULT_OPERANDS, VECTOR_IDENTITY_MULTS, aliases_for
+from ipu_emu.isa_alias_spec import SCALAR_MULT_OPERANDS, VECTOR_IDENTITY_MULTS, aliases_for
 from ipu_isa.incr_mod_pow2_k import LR_MOD_POW2_K_ENCODED_MAX, LR_MOD_POW2_K_MIN
 from ipu_isa.reshape_mask import RESHAPE_ELEMENT_COUNT, RESHAPE_MASK_LR_OFFSET
 from ipu_isa.registers import (
@@ -57,8 +57,8 @@ from ipu_isa.activations import (
     ACTIVATION_EXP2,
     ACTIVATION_IDENTITY,
     ACTIVATION_RECIPROCAL,
-    apply_activation,
 )
+from ipu_emu.activations import apply_activation
 
 # ---------------------------------------------------------------------------
 # Constants — derived from the single source of truth in ipu-isa

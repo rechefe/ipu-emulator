@@ -21,7 +21,7 @@ from pathlib import Path
 
 import gen_vscode_wrapper
 from ipu_as import gen_docs, gen_vscode
-from ipu_isa import gen_union_layout_svg
+from ipu_gen import gen_union_layout_svg
 
 #: Where the snapshots live, repo-relative.
 SNAPSHOT_DIR = "src/tools/ipu-as-py/test/baselines/generated"
@@ -84,7 +84,7 @@ PRODUCERS = (
         ("syntaxes/ipu-asm.tmLanguage.json", "language-configuration.json", "data/isa.json"),
     ),
     Producer(
-        "ipu_isa.gen_union_layout_svg.main (//src/tools/ipu-isa:gen_union_layout_svg)",
+        "ipu_gen.gen_union_layout_svg.main (//src/tools/ipu-gen:gen_union_layout_svg)",
         _union_layout_svg,
         ("union_layout.svg",),
     ),

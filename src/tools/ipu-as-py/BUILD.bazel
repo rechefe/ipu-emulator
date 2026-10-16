@@ -27,6 +27,7 @@ py_library(
     ]),
     imports = ["src"],
     deps = [
+        "//src/tools/ipu-gen:ipu_gen_lib",
         "//src/tools/ipu-isa:ipu_isa_lib",
     ] + [requirement(dep) for dep in RUNTIME_DEPS],
 )
@@ -162,7 +163,7 @@ py_library(
     imports = ["test/baselines"],
     deps = [
         ":ipu_as_lib",
-        "//src/tools/ipu-isa:ipu_isa_lib",
+        "//src/tools/ipu-gen:ipu_gen_lib",
         "//vscode-ipu-asm:gen_vscode_lib",
     ],
 )

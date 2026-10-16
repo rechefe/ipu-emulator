@@ -1,7 +1,7 @@
 """Built-in detectors. Additions register here; the profiling engine has no IDs."""
 from __future__ import annotations
 
-from ipu_isa.isa_alias_spec import ISA_ALIAS_SPEC
+from ipu_emu.isa_alias_spec import ISA_ALIAS_SPEC
 from ipu_emu.alias_profile import AliasDefinition, DetectorRegistry, Match
 from ipu_isa.activations import ACTIVATION_EXP2, ACTIVATION_IDENTITY
 

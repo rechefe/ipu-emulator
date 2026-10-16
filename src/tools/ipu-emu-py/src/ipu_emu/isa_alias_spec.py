@@ -75,7 +75,7 @@ overlapping tallies.
 
 from __future__ import annotations
 
-from .instruction_spec import INSTRUCTION_SPEC, SLOT_METADATA
+from ipu_isa.instruction_spec import INSTRUCTION_SPEC, SLOT_METADATA
 
 # Only 1 is implementable today: the emulator tests a multiplicand against the
 # dtype's encoding of 1.0, which is the whole point of the table. Widening this
