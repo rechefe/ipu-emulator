@@ -7,9 +7,9 @@ from pathlib import Path
 
 import numpy as np
 
-from ipu_emu.ipu import LANES
 from ipu_apps.kernel_registry import resolve
 from ipu_apps.kernel_registry.cases import assemble_kernel
+from ipu_emu.ipu import LANES
 
 
 def test_registry_resolve_and_run_across_tile_widths() -> None:

@@ -1,9 +1,11 @@
 """Score gates and soft counts with suppressed padding lanes."""
 
 import numpy as np
-from .app import App
+
+from ipu_apps.kernel_registry.case_support import check_close, prepared_image, random_values
 from ipu_apps.kernel_registry.cases import KernelCase
-from ipu_apps.kernel_registry.case_support import random_values, prepared_image, check_close
+
+from .app import App
 
 
 def prepare(workspace, *, count, threshold, temperature):

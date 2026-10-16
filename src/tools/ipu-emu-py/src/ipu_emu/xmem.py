@@ -13,8 +13,7 @@ not here — this class has no notion of "mode".
 from __future__ import annotations
 
 import weakref
-
-from typing import Callable, Iterator
+from collections.abc import Callable, Iterator
 
 #: ``fn(kind, address, size, data)`` with *kind* one of ``"read"``,
 #: ``"write"`` or ``"clear"``. The event covers exactly the bytes

@@ -4,8 +4,8 @@ from ipu_apps.kernel_registry.memory import (
     MemoryApp,
     MemoryLayout,
     ceildiv,
-    positive_shape,
     memory_spec,
+    positive_shape,
 )
 
 

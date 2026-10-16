@@ -2,18 +2,19 @@
 
 from __future__ import annotations
 
+import re
+from collections.abc import Callable, Mapping
 from contextlib import nullcontext
 from dataclasses import dataclass, field
 from importlib import import_module
 from importlib.resources import files
 from pathlib import Path
-import re
 from tempfile import TemporaryDirectory
-from typing import Any, Callable, Mapping
+from typing import Any
 
+from ipu_apps.kernel_registry.registry import create_harness, kernel_spec
 from ipu_as.lark_tree import assemble_to_bin_file
 from ipu_emu.emulator import DEFAULT_MAX_CYCLES
-from ipu_apps.kernel_registry.registry import create_harness, kernel_spec
 
 
 @dataclass(frozen=True)

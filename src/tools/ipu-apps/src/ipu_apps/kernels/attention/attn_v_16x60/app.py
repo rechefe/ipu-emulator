@@ -36,11 +36,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ipu_emu.emulator import dump_xmem_to_binary
-
-from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernel_registry import ShapeBundle
+from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.attention.app import attention_spec
+from ipu_emu.emulator import dump_xmem_to_binary
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -116,7 +115,7 @@ class AttnV16x60App(IpuApp):
         self.vbase = vbase_row * ROW_BYTES
         self.obase = obase_row * ROW_BYTES
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         # P and V are stored verbatim (already in the kernel's row layout).
         # A None path skips that input's staging (the caller has already
         # placed it in XMEM at this app's base row).
@@ -143,7 +142,7 @@ class AttnV16x60App(IpuApp):
         state.regfile.set_cr(11, N_HEAD)  # head count (4)
         state.regfile.set_cr(13, O_CHAN_ROWS)  # O channel stride (rows)
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         if self.output_path is not None:
             # N_CHAN channels, each ONE whole 512-B FP32 row (16 live lanes).
             dump_xmem_to_binary(

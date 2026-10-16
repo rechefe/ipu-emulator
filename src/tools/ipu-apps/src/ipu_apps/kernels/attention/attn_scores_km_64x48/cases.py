@@ -15,7 +15,7 @@ head is scored (the default exercises a non-zero one).
 import numpy as np
 
 from ipu_apps.kernel_registry.cases import KernelCase, PreparedCase
-from ipu_apps.kernels.attention.attn_scores_km_64x48.app import D, LANES, N, N_HEAD, P
+from ipu_apps.kernels.attention.attn_scores_km_64x48.app import LANES, N_HEAD, D, N, P
 from ipu_apps.kernels.attention.cases import MAX_CYCLES, assert_close, read_fp32, uniform
 
 

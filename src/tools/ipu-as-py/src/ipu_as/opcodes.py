@@ -9,15 +9,11 @@ When you add or reorder instructions in INSTRUCTION_SPEC, opcodes update
 automatically without touching this file.
 """
 
-from typing import Dict, Type
-
-import lark
-
 import ipu_as.ipu_token as ipu_token
 from ipu_isa.instruction_spec import INSTRUCTION_SPEC
 
 
-def create_assembler_opcodes() -> Dict[str, Type]:
+def create_assembler_opcodes() -> dict[str, type]:
     """Create Opcode classes at runtime (no code generation needed).
 
     Returns a dict of dynamically created Opcode subclasses:
@@ -35,7 +31,7 @@ def create_assembler_opcodes() -> Dict[str, Type]:
         """Base class for all opcode types."""
 
         @classmethod
-        def find_opcode_class(cls, opcode_token) -> Type["Opcode"]:
+        def find_opcode_class(cls, opcode_token) -> type["Opcode"]:
             tv = opcode_token.value.lower()
             for subclass in cls.__subclasses__():
                 if any(tv == name.lower() for name in subclass.enum_array()):

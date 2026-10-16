@@ -6,10 +6,9 @@ from __future__ import annotations
 import difflib
 from pathlib import Path
 
-import pytest
-
 import asm_corpus
 import disassembly
+import pytest
 
 # Bazel runs the test from the runfiles root of the main repository.
 ROOT = Path.cwd()

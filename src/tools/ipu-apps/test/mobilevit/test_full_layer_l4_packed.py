@@ -48,19 +48,17 @@ from pathlib import Path
 
 import jinja2
 import numpy as np
-
-from ipu_as.lark_tree import assemble_to_bin_file
-from ipu_as.label import reset_labels
-from ipu_emu.emulator import load_program_from_binary, run_until_complete
-from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
-from ipu_emu.ipu_config import encode_dstructure, Partition
-
 from fixture_kernel_support import kernel_inst
 from fixture_packed_l4_measure import count_instructions
 
-from ipu_apps.kernels.attention.qk_scores_64x48.app import QkScores64x48App
 from ipu_apps.kernels.attention.attn_v_64x48.app import AttnV64x48App
+from ipu_apps.kernels.attention.qk_scores_64x48.app import QkScores64x48App
 from ipu_apps.kernels.softmax.softmax_rows_partial.app import SoftmaxRowsPartialApp
+from ipu_as.label import reset_labels
+from ipu_as.lark_tree import assemble_to_bin_file
+from ipu_emu.emulator import load_program_from_binary, run_until_complete
+from ipu_emu.ipu_config import Partition, encode_dstructure
+from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 
 N_CH = 192
 N_TOK = 64
@@ -669,7 +667,7 @@ def test_full_l4_layer_packed_end_to_end(tmp_path: Path) -> None:
             mask_row=UNPACK_MASK_ROW,
         )
         _accumulate(c, i)
-    print(f"FULL unpack(Q,K,V): 3 calls done")
+    print("FULL unpack(Q,K,V): 3 calls done")
 
     Q_ROW = QKV_UNPACKED_ROW
     K_ROW = QKV_UNPACKED_ROW + N_CH
@@ -804,7 +802,7 @@ def test_full_l4_layer_packed_end_to_end(tmp_path: Path) -> None:
 
     peak_activation_bytes = alloc.high_water_mark * ROW_BYTES
 
-    print(f"=== FULL L4 LAYER PACKED TOTALS ===")
+    print("=== FULL L4 LAYER PACKED TOTALS ===")
     print(f"TOTAL_CYCLES={total_cycles}")
     print(f"TOTAL_INSTRUCTIONS={sum(total_instrs.values())}")
     print(f"TOTAL_INSTRUCTIONS_BY_SLOT={total_instrs}")

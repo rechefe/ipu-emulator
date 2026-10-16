@@ -24,10 +24,9 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ipu_emu.emulator import dump_xmem_to_binary
-
 from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.reshape.app import unfold_spec
+from ipu_emu.emulator import dump_xmem_to_binary
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -69,7 +68,7 @@ ONES_BASE = ONES_BASE_ROW * ROW_BYTES
 # -- XMEM loaders -------------------------------------------------------
 
 
-def _load_input(state: "IpuState", input_path: str | Path) -> None:
+def _load_input(state: IpuState, input_path: str | Path) -> None:
     """Write the 4 channel-major streams directly into XMEM at SRC_BASE.
 
     File layout: (4 streams x 144 channels x 2 token-groups) rows of 128 FP32
@@ -81,7 +80,7 @@ def _load_input(state: "IpuState", input_path: str | Path) -> None:
     state.xmem.write_address(SRC_BASE, bytearray(raw))
 
 
-def _load_ones(state: "IpuState") -> None:
+def _load_ones(state: IpuState) -> None:
     """One XMEM row of FP32 1.0 for R_CYCLIC (the pass-through multiplier)."""
     state.xmem.write_address(ONES_BASE, bytearray(np.ones(LANES, dtype=np.float32).tobytes()))
 
@@ -116,7 +115,7 @@ class Fold32x32x144App(IpuApp):
         super().__init__(**kwargs)
         self.input_path = Path(self.input_path)
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         _load_input(state, self.input_path)
         _load_ones(state)
 
@@ -171,7 +170,7 @@ class Fold32x32x144App(IpuApp):
         state.regfile.set_lr(10, 0)  # channel counter (inner loop); reset every stripe
         state.regfile.set_lr(11, C)  # inner loop limit
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         if self.output_path is not None:
             dump_xmem_to_binary(
                 state,

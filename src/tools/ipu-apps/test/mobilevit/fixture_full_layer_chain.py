@@ -26,10 +26,9 @@ import zlib
 from pathlib import Path
 
 import numpy as np
+from fixture_kernel_support import kernel_inst
 
 from ipu_emu.ipu_state import IpuState
-
-from fixture_kernel_support import kernel_inst
 
 _POISON = np.float32(1e3)
 
@@ -287,7 +286,7 @@ def run_qk_scores_query_major_one_head(
     key_path.write_bytes(k_head.astype(np.float32).tobytes())
     output_path = tmp_path / f"qk1_{tag}_s.bin"
 
-    from ipu_apps.kernels.attention.qk_scores_16x60.app import S_BASE, OUTPUT_ROW_BYTES, N_TG
+    from ipu_apps.kernels.attention.qk_scores_16x60.app import N_TG, S_BASE
 
     app = App(inst_path=inst_bin, query_path=query_path, key_path=key_path, output_path=output_path)
     state = app.make_state()
@@ -332,7 +331,7 @@ def run_attn_v_query_major_all_blocks(
 
     output_path = tmp_path / f"av_{tag}_o.bin"
 
-    from ipu_apps.kernels.attention.attn_v_64x48.app import OBASE, OUTPUT_ROW_BYTES as O_ROW_BYTES
+    from ipu_apps.kernels.attention.attn_v_64x48.app import OBASE
 
     app = App(inst_path=inst_bin, p_path=p_path, v_path=v_path, output_path=output_path)
     state = app.make_state()
@@ -376,7 +375,7 @@ def run_attn_v_query_major_one_stream(
 
     output_path = tmp_path / f"av1_{tag}_o.bin"
 
-    from ipu_apps.kernels.attention.attn_v_16x60.app import OBASE, O_CHAN_BYTES, N_CHAN
+    from ipu_apps.kernels.attention.attn_v_16x60.app import N_CHAN, OBASE
 
     app = App(inst_path=inst_bin, p_path=p_path, v_path=v_path, output_path=output_path)
     state = app.make_state()

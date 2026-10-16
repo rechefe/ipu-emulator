@@ -26,13 +26,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import numpy as np
-
-from ipu_emu.emulator import dump_xmem_to_binary
-
-from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernel_registry import ShapeBundle
+from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.attention.app import attention_spec
+from ipu_emu.emulator import dump_xmem_to_binary
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -84,7 +81,7 @@ class QkScores256x36App(IpuApp):
 
     # -- staging -------------------------------------------------------------
 
-    def _stage_inputs(self, state: "IpuState") -> None:
+    def _stage_inputs(self, state: IpuState) -> None:
         """Write K channel-major and Q query-major into XMEM.
 
         Input files are stored channel-major: element [token t, channel c] at
@@ -108,7 +105,7 @@ class QkScores256x36App(IpuApp):
                 row[c * ELEM_BYTES : (c + 1) * ELEM_BYTES] = q_raw[src : src + ELEM_BYTES]
             state.xmem.write_address(QROW_BASE + i * QROW_STRIDE, row)
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         self._stage_inputs(state)
 
         # Startup skews, in rows. These are lane counts, so they carry no
@@ -138,7 +135,7 @@ class QkScores256x36App(IpuApp):
         state.regfile.set_lr(10, N)  # query-loop limit
         state.regfile.set_lr(12, QROW_STRIDE_ROWS)  # Q-row stride per query (rows)
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         if self.output_path is not None:
             # N queries × N_TG groups × one 128-element row, in query-major group order:
             #   row (i, g) at S_BASE_ROW + i*N_TG + g, in rows.

@@ -24,8 +24,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from ipu_isa import lr_inc_dec_imm
-from ipu_isa import reshape_mask
+from ipu_isa import lr_inc_dec_imm, reshape_mask
 from ipu_isa.operand_types import OPERAND_TYPES
 
 # operand type name -> (module, attribute) written by finalize_derived_operand_bits()

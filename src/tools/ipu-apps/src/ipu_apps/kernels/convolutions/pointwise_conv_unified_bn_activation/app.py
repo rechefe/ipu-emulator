@@ -36,7 +36,7 @@ Constraints:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -102,7 +102,7 @@ class PointwiseConvUnifiedBnActivationApp(IpuApp):
         width: int,
         in_channels: int,
         out_channels: int,
-        bias: Optional[np.ndarray] = None,
+        bias: np.ndarray | None = None,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -224,7 +224,7 @@ class PointwiseConvUnifiedBnActivationApp(IpuApp):
             packed[(oc * P) * CHUNK_ELEMENTS] = self._bias_array[oc]
         return packed.tobytes()
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         input_raw = np.frombuffer(self.input_path.read_bytes(), dtype=np.float32)
         input_chw = input_raw.reshape(self.in_channels, self.height, self.width)
         padded = np.zeros((self.in_channels, self.rows, self.cols), dtype=np.float32)
@@ -284,7 +284,7 @@ class PointwiseConvUnifiedBnActivationApp(IpuApp):
         # identity) writes FP32 into post_aaq_reg with no INT8 clamp.
         state.set_cr_dstructure(valid_elements=128)
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         if self.output_path is not None:
             total_rows = self.row_groups * self.out_channels
             raw = state.xmem.read_address(self.output_base_addr, total_rows * ROW_BYTES)

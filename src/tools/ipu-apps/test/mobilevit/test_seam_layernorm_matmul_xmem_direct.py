@@ -50,11 +50,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+from fixture_kernel_support import run_layernorm_capture_xmem, run_matmul_direct_xmem_handoff
 
 from ipu_apps.kernels.matmul.matmul_192x192_x128 import app as mm4
 from ipu_apps.kernels.normalize.layernorm_64x192 import app as ln4
-
-from fixture_kernel_support import run_layernorm_capture_xmem, run_matmul_direct_xmem_handoff
 
 assert ln4.N_CH == mm4.K and ln4.N_TOK == mm4.N_TOK and ln4.ROW_BYTES == mm4.ROW_BYTES
 

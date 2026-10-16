@@ -18,10 +18,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ipu_emu.emulator import dump_xmem_to_binary
-
 from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.elementwise.app import residual_add_spec
+from ipu_emu.emulator import dump_xmem_to_binary
 
 N_CH = 192  # channels -> one XMEM row each
 N_TOK = 64  # valid tokens per row (lanes 0..63)
@@ -65,7 +64,7 @@ class ResidualAdd64x192App(IpuApp):
         self.input_a_path = Path(self.input_a_path)
         self.input_b_path = Path(self.input_b_path)
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         raw_a = Path(self.input_a_path).read_bytes()
         raw_b = Path(self.input_b_path).read_bytes()
         state.xmem.write_address(A_BASE, bytearray(raw_a))
@@ -86,7 +85,7 @@ class ResidualAdd64x192App(IpuApp):
         # pass-through multiplier that turns the multiplier into an adder.
         state.regfile.set_cr(10, 1)
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         if self.output_path is not None:
             dump_xmem_to_binary(
                 state,

@@ -56,7 +56,7 @@ params=..., bindings=...)``)::
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -166,8 +166,8 @@ class ConvFirstLayerApp(IpuApp):
         self,
         *,
         input_path: str | Path,
-        kernel: Optional[np.ndarray] = None,
-        bias: Optional[np.ndarray] = None,
+        kernel: np.ndarray | None = None,
+        bias: np.ndarray | None = None,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -217,7 +217,7 @@ class ConvFirstLayerApp(IpuApp):
 
     # -- state / setup ------------------------------------------------------
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         # input_path holds the TRUE [in_channels, height, width] float32
         # tensor -- repack to row-interleaved-by-channel on-device layout.
         raw = np.frombuffer(self.input_path.read_bytes(), dtype=np.float32)
@@ -269,7 +269,7 @@ class ConvFirstLayerApp(IpuApp):
         # (the XMEM filter-block ROW stride = 1).
         state.regfile.set_cr(14, 128)
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         if self.output_path is not None:
             total_elements = OUT_ROWS * OUT_ROW_GROUP  # 128 * 2048 = 262144
             raw = state.xmem.read_address(OUTPUT_BASE_ROW * ROW_BYTES, total_elements * 4)

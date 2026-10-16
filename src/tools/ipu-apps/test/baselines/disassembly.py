@@ -16,6 +16,7 @@ import re
 from pathlib import Path
 
 import asm_corpus
+
 from ipu_as.compound_inst import CompoundInst
 
 #: Where the snapshots live, repo-relative.

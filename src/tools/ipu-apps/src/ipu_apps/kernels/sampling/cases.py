@@ -9,8 +9,8 @@ from functools import partial
 
 import numpy as np
 
-from ipu_apps.kernel_registry.cases import KernelCase
 from ipu_apps.kernel_registry.case_support import prepared_image
+from ipu_apps.kernel_registry.cases import KernelCase
 from ipu_apps.kernel_registry.memory import positive_shape
 
 

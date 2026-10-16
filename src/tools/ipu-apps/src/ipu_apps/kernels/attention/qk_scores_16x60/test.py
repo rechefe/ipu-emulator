@@ -5,16 +5,16 @@ import numpy as np
 from ipu_apps.kernel_registry.testing import case_tests
 from ipu_apps.kernels.attention.cases import run_poked
 from ipu_apps.kernels.attention.qk_scores_16x60.app import (
-    D,
     ELEM_BYTES,
     K_BASE,
     K_STRIDE_ROWS,
     LANES,
-    N,
     N_TG,
     OUTPUT_ROW_BYTES,
     ROW_BYTES,
     S_BASE,
+    D,
+    N,
 )
 
 test_case = case_tests(__package__)

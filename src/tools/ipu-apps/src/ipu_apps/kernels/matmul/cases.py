@@ -8,9 +8,8 @@ accumulation order differing from NumPy's.
 
 import numpy as np
 
-from ipu_emu.ipu import LANES
-
 from ipu_apps.kernel_registry.cases import KernelCase, PreparedCase
+from ipu_emu.ipu import LANES
 
 RTOL, ATOL = 1e-4, 1e-3
 

@@ -25,15 +25,15 @@ import pytest
 from ipu_apps.kernel_registry import kernels, resolve
 from ipu_apps.kernel_registry.cases import assemble_kernel
 from ipu_apps.kernels.attention.app import CHAIN_OF, CHAINS
-from ipu_apps.kernels.attention.cases import acc_fold, agg_fold
 from ipu_apps.kernels.attention.attn_scores_km_16x60 import app as km16
-from ipu_apps.kernels.attention.attn_scores_km_256x36 import app as km256
 from ipu_apps.kernels.attention.attn_scores_km_64x48 import app as km64
+from ipu_apps.kernels.attention.attn_scores_km_256x36 import app as km256
 from ipu_apps.kernels.attention.attn_v_16x60 import app as av16
 from ipu_apps.kernels.attention.attn_v_256x36 import app as av256
 from ipu_apps.kernels.attention.attn_v_bcast_36 import app as bc36
 from ipu_apps.kernels.attention.attn_v_bcast_48 import app as bc48
 from ipu_apps.kernels.attention.attn_v_bcast_60 import app as bc60
+from ipu_apps.kernels.attention.cases import acc_fold, agg_fold
 from ipu_apps.kernels.attention.qk_scores_16x60 import app as qk16
 from ipu_apps.kernels.attention.qk_scores_256x36 import app as qk256
 

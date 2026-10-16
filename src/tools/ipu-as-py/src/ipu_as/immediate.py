@@ -1,6 +1,13 @@
 import lark
 
 import ipu_as.ipu_token as ipu_token
+from ipu_isa.acc_stride_enums import (
+    ELEMENTS_IN_ROW_NAMES,
+    HORIZONTAL_STRIDE_NAMES,
+    VERTICAL_STRIDE_NAMES,
+    decodable_horizontal_stride_names,
+    decodable_vertical_stride_names,
+)
 from ipu_isa.incr_mod_pow2_k import (
     LR_MOD_POW2_K_FIELD_BITS,
     LR_MOD_POW2_K_MAX,
@@ -16,17 +23,9 @@ from ipu_isa.mult_mask_offset import (
 )
 from ipu_isa.operand_types import operand_type
 from ipu_isa.reshape_mask import (
-    RESHAPE_ELEMENT_COUNT,
     RESHAPE_MASK_FIELD_BITS,
     RESHAPE_MASK_LR_OFFSET,
     reshape_mask_field_max,
-)
-from ipu_isa.acc_stride_enums import (
-    ELEMENTS_IN_ROW_NAMES,
-    HORIZONTAL_STRIDE_NAMES,
-    VERTICAL_STRIDE_NAMES,
-    decodable_horizontal_stride_names,
-    decodable_vertical_stride_names,
 )
 
 

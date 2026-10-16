@@ -1,8 +1,5 @@
 """Memory geometry shared by the max-pool kernels."""
 
-from ipu_emu.ipu import LANES, R_ACC_SIZE
-from ipu_emu.xmem import XMEM_SIZE_BYTES
-
 from ipu_apps.kernel_registry import OUTPUT, ShapeBundle
 from ipu_apps.kernel_registry.memory import (
     MemoryApp,
@@ -11,6 +8,8 @@ from ipu_apps.kernel_registry.memory import (
     memory_spec,
     positive_shape,
 )
+from ipu_emu.ipu import LANES, R_ACC_SIZE
+from ipu_emu.xmem import XMEM_SIZE_BYTES
 
 
 class WindowPoolApp(MemoryApp):

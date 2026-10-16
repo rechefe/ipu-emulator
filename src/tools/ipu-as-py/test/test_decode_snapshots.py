@@ -6,9 +6,9 @@ from __future__ import annotations
 import difflib
 from pathlib import Path
 
+import decode_snapshots
 import pytest
 
-import decode_snapshots
 from ipu_as import reg
 
 # Bazel runs the test from the runfiles root of the main repository.

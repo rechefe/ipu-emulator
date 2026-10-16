@@ -33,11 +33,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+from fixture_kernel_support import run_layernorm_capture_xmem, run_matmul_direct_xmem_handoff
 
 from ipu_apps.kernels.matmul.matmul_240x240_x128 import app as mm
 from ipu_apps.kernels.normalize.layernorm_16x240 import app as ln
-
-from fixture_kernel_support import run_layernorm_capture_xmem, run_matmul_direct_xmem_handoff
 
 assert ln.N_CH == mm.K == 240
 assert ln.N_TOK == mm.N_TOK == 16

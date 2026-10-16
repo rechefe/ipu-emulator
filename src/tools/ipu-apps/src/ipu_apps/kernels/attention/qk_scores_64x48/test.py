@@ -6,15 +6,15 @@ from ipu_apps.kernel_registry.testing import case_tests
 from ipu_apps.kernels.attention.cases import run_poked
 from ipu_apps.kernels.attention.qk_scores_64x48.app import (
     ACC_STORE_ROWS,
-    D,
     ELEM_BYTES,
     K_BASE,
     LANES,
-    N,
     N_BLOCK,
     N_TG,
     ROW_BYTES,
     S_BASE,
+    D,
+    N,
 )
 
 test_case = case_tests(__package__)

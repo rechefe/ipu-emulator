@@ -1,9 +1,11 @@
 """Pixel shuffle fixtures with exact per-element checks."""
 
 import numpy as np
-from .app import App
+
+from ipu_apps.kernel_registry.case_support import check_close, prepared_image, tile_input
 from ipu_apps.kernel_registry.cases import KernelCase
-from ipu_apps.kernel_registry.case_support import tile_input, prepared_image, check_close
+
+from .app import App
 
 
 def prepare(workspace, *, height, width, upscale_factor):

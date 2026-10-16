@@ -27,8 +27,6 @@ import ipu_apps.kernel_registry.manifest as manifest
 import ipu_apps.kernel_registry.query as query
 import ipu_apps.kernel_registry.registry as registry
 import ipu_apps.kernel_registry.runner as runner
-from ipu_apps.kernel_registry.cases import assemble_kernel, case_options, load_cases, package_kernel
-from ipu_apps.kernel_registry.layers import _ADAPTERS
 from ipu_apps.kernel_registry import (
     KernelSpec,
     ShapeBundle,
@@ -48,6 +46,8 @@ from ipu_apps.kernel_registry import (
     resolve,
     yes,
 )
+from ipu_apps.kernel_registry.cases import assemble_kernel, case_options, load_cases, package_kernel
+from ipu_apps.kernel_registry.layers import _ADAPTERS
 
 
 @contextlib.contextmanager
@@ -496,6 +496,7 @@ def test_every_case_routes_to_a_kernel(tmp_path):
 
 def _benchmark_modules():
     import pkgutil
+
     import ipu_apps.kernels
 
     return [

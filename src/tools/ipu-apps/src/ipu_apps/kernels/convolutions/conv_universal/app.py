@@ -39,11 +39,9 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import numpy as np
-
-from ipu_emu.ipu_config import Partition
 
 from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.convolutions.app import (
@@ -57,6 +55,7 @@ from ipu_apps.kernels.convolutions.app import (
     universal_spec,
     unpack_output_chunked,
 )
+from ipu_emu.ipu_config import Partition
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -150,7 +149,7 @@ class ConvUniversalApp(IpuApp):
         width: int,
         in_channels: int,
         out_channels: int,
-        kernel: Optional[np.ndarray] = None,
+        kernel: np.ndarray | None = None,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -240,7 +239,7 @@ class ConvUniversalApp(IpuApp):
         w_reordered = weights.reshape(self.out_channels, self.in_channels, 9)
         return _pack_conv_weights_fpb28(w_reordered)
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         # input_path holds the TRUE (unpadded) [in_channels, height, width]
         # float32 tensor -- pad + chunk-pack to the on-device layout here.
         input_raw = np.frombuffer(self.input_path.read_bytes(), dtype=np.float32)
@@ -325,7 +324,7 @@ class ConvUniversalApp(IpuApp):
         # +(RING_ADV - 2*cols - 2) with RING_ADV = 384 (= -128 mod 512 + 512).
         state.regfile.set_cr(14, (3 * CHUNK_ELEMENTS - 2 * self.cols - 2) & 0xFFFFFFFF)
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         if self.output_path is not None:
             total_outputs = self.num_chunks * self.out_channels
             raw = state.xmem.read_address(self.output_base_addr, total_outputs * ROW_BYTES)

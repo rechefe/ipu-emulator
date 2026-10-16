@@ -30,7 +30,7 @@ from __future__ import annotations
 from ipu_as.compound_inst import CompoundInst
 
 # Re-export Ipu class and BreakResult for backward compatibility
-from ipu_emu.ipu import Ipu, BreakResult
+from ipu_emu.ipu import BreakResult, Ipu
 from ipu_emu.ipu_state import IpuState
 from ipu_isa.instruction_spec import (
     INSTRUCTION_SPEC,
@@ -38,7 +38,6 @@ from ipu_isa.instruction_spec import (
     get_instruction_by_opcode,
     is_hardware_slot,
 )
-
 
 # ---------------------------------------------------------------------------
 # Instruction word decoder

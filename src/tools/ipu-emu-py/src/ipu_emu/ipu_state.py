@@ -6,16 +6,11 @@ memory into a single object — the Python equivalent of ``ipu__obj_t``.
 
 from __future__ import annotations
 
-from enum import Enum
 import struct
+from enum import Enum
 from typing import Any
 
-from ipu_emu.prototyping import resolve_enabled as _resolve_prototyping
-from ipu_emu.regfile import RegFile
-from ipu_emu.stats import RunStats
-from ipu_emu.xmem import XMem
 from ipu_emu import activations as _activations
-from ipu_emu.ipu_math import DType
 from ipu_emu.ipu_config import (
     CR_DSTRUCTURE_REG_INDEX,
     DEFAULT_DSTRUCTURE,
@@ -25,6 +20,11 @@ from ipu_emu.ipu_config import (
     decode_dstructure,
     encode_dstructure,
 )
+from ipu_emu.ipu_math import DType
+from ipu_emu.prototyping import resolve_enabled as _resolve_prototyping
+from ipu_emu.regfile import RegFile
+from ipu_emu.stats import RunStats
+from ipu_emu.xmem import XMem
 
 # Matches C: #define IPU__INST_MEM_SIZE 1024
 INST_MEM_SIZE = 1024

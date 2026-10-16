@@ -15,7 +15,7 @@ accumulation over the 64 keys, so the golden is a plain float32 running sum
 import numpy as np
 
 from ipu_apps.kernel_registry.cases import KernelCase, PreparedCase
-from ipu_apps.kernels.attention.attn_v_bcast_48.app import D, N_BLOCK, N_CHAN, N_TOK
+from ipu_apps.kernels.attention.attn_v_bcast_48.app import N_BLOCK, N_CHAN, N_TOK, D
 from ipu_apps.kernels.attention.cases import (
     MAX_CYCLES,
     acc_fold,

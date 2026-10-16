@@ -58,6 +58,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+from fixture_kernel_support import POISON, kernel_inst
 
 from ipu_apps.kernels.elementwise.residual_add_16x240 import app as ra5
 from ipu_apps.kernels.elementwise.residual_add_64x192 import app as ra4
@@ -65,9 +66,6 @@ from ipu_apps.kernels.matmul.matmul_192x192_x128 import app as op4
 from ipu_apps.kernels.matmul.matmul_240x240_x128 import app as op5
 from ipu_apps.kernels.matmul.matmul_576x192_x128 import app as qkv4
 from ipu_apps.kernels.normalize.layernorm_64x192 import app as ln4
-
-from fixture_kernel_support import POISON, kernel_inst
-
 
 # ---------------------------------------------------------------------------
 # Seam 1 (was a DEFECT, fixed): matmul_240x240_x128 (L5 OutProj) -> residual_add_16x240

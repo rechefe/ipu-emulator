@@ -2,8 +2,7 @@
 
 import pytest
 
-from ipu_emu.xmem import XMem, align_addr, words_needed_for_bytes, XMEM_SIZE_BYTES
-
+from ipu_emu.xmem import XMEM_SIZE_BYTES, XMem, align_addr, words_needed_for_bytes
 
 # ---------------------------------------------------------------------------
 # align_addr / words_needed_for_bytes helpers

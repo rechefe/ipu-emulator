@@ -1,17 +1,17 @@
 """Debug launch belongs to the shared runner, never individual harnesses."""
 
-from io import StringIO
 import sys
+from io import StringIO
 
 import pytest
 
-from ipu_as.lark_tree import assemble_to_bin_file
+import ipu_emu.debug_launch as launch
+import ipu_emu.debug_tui as tui
 from ipu_apps.kernel_registry.base import IpuApp
+from ipu_as.lark_tree import assemble_to_bin_file
 from ipu_emu.debug_control import DebugControl
 from ipu_emu.emulator import DebugAction, run_test
 from ipu_emu.ipu_state import IpuState
-import ipu_emu.debug_tui as tui
-import ipu_emu.debug_launch as launch
 
 
 class Terminal(StringIO):

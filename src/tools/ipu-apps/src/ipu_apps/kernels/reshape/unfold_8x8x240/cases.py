@@ -6,11 +6,9 @@ the single implementation of this kernel's row-permuting input contract.
 ``garbage_padding`` case proves they never reach the valid output.
 """
 
-import numpy as np
-
 from ipu_apps.kernel_registry.cases import KernelCase, PreparedCase
-from ipu_apps.kernels.reshape.unfold_8x8x240.app import C, H, W, N_TOK, pack_input_rows
 from ipu_apps.kernels.reshape.cases import MAX_CYCLES, check_streams, spatial_tensor
+from ipu_apps.kernels.reshape.unfold_8x8x240.app import N_TOK, C, H, W, pack_input_rows
 
 
 def prepare(workspace, *, seed, pad_value):

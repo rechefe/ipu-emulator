@@ -20,8 +20,8 @@ which, and verdicts surface it.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import Iterable, Mapping
 
 Shape = tuple[int, ...]
 
@@ -71,7 +71,7 @@ class ShapeBundle:
     notes: tuple[str, ...] = ()
 
     @classmethod
-    def of(cls, **shapes: Iterable[int]) -> "ShapeBundle":
+    def of(cls, **shapes: Iterable[int]) -> ShapeBundle:
         """Build a bundle from keyword roles: ``ShapeBundle.of(input=(32, 300))``."""
         return cls({role: _normalise(s) for role, s in shapes.items()})
 
@@ -90,7 +90,7 @@ class ShapeBundle:
         derived: Mapping[str, Iterable[int]] | None = None,
         asserted: Mapping[str, Iterable[int]] | None = None,
         notes: Iterable[str] = (),
-    ) -> "ShapeBundle":
+    ) -> ShapeBundle:
         """Return a copy with extra roles added.
 
         ``derived`` shapes are recorded in :attr:`derived_roles`; ``asserted``

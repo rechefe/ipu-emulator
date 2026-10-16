@@ -6,6 +6,7 @@ import dataclasses
 from collections import Counter
 
 import pytest
+from emu_support import make_state, run
 
 from ipu_emu.emulator import (
     DEFAULT_MAX_CYCLES,
@@ -16,9 +17,6 @@ from ipu_emu.emulator import (
 )
 from ipu_emu.errors import DebugOnlyInstructionWarning, EmulatorError
 from ipu_emu.stats import RunStats
-
-from emu_support import make_state, run
-
 
 # ---------------------------------------------------------------------------
 # RunStats unit tests

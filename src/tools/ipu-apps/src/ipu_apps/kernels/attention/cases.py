@@ -21,9 +21,6 @@ from __future__ import annotations
 
 import numpy as np
 
-from ipu_emu.emulator import run_test
-from ipu_emu.ipu import LANES
-
 from ipu_apps.kernel_registry.cases import (
     KernelCase,
     PreparedCase,
@@ -32,6 +29,8 @@ from ipu_apps.kernel_registry.cases import (
     run_case,
 )
 from ipu_apps.kernel_registry.registry import create_harness
+from ipu_emu.emulator import run_test
+from ipu_emu.ipu import LANES
 
 MAX_CYCLES = 20_000_000
 

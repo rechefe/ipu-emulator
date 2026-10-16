@@ -29,10 +29,9 @@ their store, so a plain query at an FFN1 shape must refuse and only the
 from __future__ import annotations
 
 import numpy as np
+from fixture_kernel_support import kernel_inst
 
 from ipu_apps.kernel_registry import create_harness, resolve
-
-from fixture_kernel_support import kernel_inst
 
 LANES = 128
 
@@ -57,7 +56,7 @@ def _rows(x: np.ndarray) -> np.ndarray:
 
 
 def test_resolved_matmul_computes_the_operation(tmp_path):
-    from ipu_apps.kernels.matmul.matmul_128x128.app import M, K, N
+    from ipu_apps.kernels.matmul.matmul_128x128.app import K, M, N
 
     query = dict(shape_a=(M, K), shape_b_t=(N, K))
     verdict = resolve("matmul", **query)
@@ -85,7 +84,7 @@ def test_resolved_matmul_computes_the_operation(tmp_path):
 
 def test_matmul_silu_shape_routes_only_with_activation():
     """A plain matmul at an FFN1 shape must not reach the silu-fused kernel."""
-    from ipu_apps.kernels.matmul.matmul_384x192_x128.app import M, K, N
+    from ipu_apps.kernels.matmul.matmul_384x192_x128.app import K, M, N
 
     query = dict(shape_a=(M, K), shape_b_t=(N, K))
     refused = resolve("matmul", **query)
@@ -98,7 +97,7 @@ def test_matmul_silu_shape_routes_only_with_activation():
 
 
 def test_resolved_projection_computes_the_operation(tmp_path):
-    from ipu_apps.kernels.projections.proj_qkv_144_p4.app import K, N_OUT, N_TG, N_TOK, N_STREAM
+    from ipu_apps.kernels.projections.proj_qkv_144_p4.app import N_OUT, N_STREAM, N_TG, N_TOK, K
 
     query = dict(k=K, n_out=N_OUT)
     verdict = resolve("projection", **query)
@@ -132,7 +131,7 @@ def test_resolved_projection_computes_the_operation(tmp_path):
 
 def test_projection_silu_shape_routes_only_with_activation():
     """A plain projection at an FFN1 shape must not reach the silu-fused kernel."""
-    from ipu_apps.kernels.projections.proj_ffn1_144_p4.app import K, N_OUT
+    from ipu_apps.kernels.projections.proj_ffn1_144_p4.app import N_OUT, K
 
     refused = resolve("projection", k=K, n_out=N_OUT)
     assert not refused and "silu" in refused.reason, refused.reason
@@ -144,8 +143,8 @@ def test_projection_silu_shape_routes_only_with_activation():
 
 
 def test_resolved_layernorm_computes_the_operation(tmp_path):
-    from ipu_apps.kernels.normalize.layernorm_128x16.app import N_CH, N_TPG
     from ipu_apps.kernels.normalize.cases import reference_layernorm
+    from ipu_apps.kernels.normalize.layernorm_128x16.app import N_CH, N_TPG
 
     query = dict(shape=(N_CH, N_TPG))
     verdict = resolve("layernorm", **query)
@@ -214,7 +213,7 @@ def test_resolved_residual_add_computes_the_operation(tmp_path):
 
 
 def test_resolved_unfold_computes_the_operation(tmp_path):
-    from ipu_apps.kernels.reshape.unfold_16x16x192.app import H, W, C, N_STRIPES
+    from ipu_apps.kernels.reshape.unfold_16x16x192.app import N_STRIPES, C, H, W
 
     query = dict(shape=(H, W, C))
     verdict = resolve("unfold", **query)
@@ -250,7 +249,7 @@ def test_resolved_unfold_computes_the_operation(tmp_path):
 
 
 def test_resolved_qk_scores_computes_the_operation(tmp_path):
-    from ipu_apps.kernels.attention.qk_scores_16x60.app import N, D, N_TG, N_TPG
+    from ipu_apps.kernels.attention.qk_scores_16x60.app import N_TG, N_TPG, D, N
 
     query = dict(n_tok=N, d=D)
     verdict = resolve("qk_scores", **query)
@@ -283,7 +282,7 @@ def test_resolved_qk_scores_computes_the_operation(tmp_path):
 
 
 def test_resolved_attn_scores_km_computes_the_operation(tmp_path):
-    from ipu_apps.kernels.attention.attn_scores_km_16x60.app import N_TOK, D, N_TG, N_TPG, N_HEADS
+    from ipu_apps.kernels.attention.attn_scores_km_16x60.app import N_HEADS, N_TG, N_TOK, N_TPG, D
 
     head = 1
     # `head` is part of the query: the kernel scores one selected head, and
@@ -325,12 +324,12 @@ def test_resolved_attn_scores_km_computes_the_operation(tmp_path):
 
 def test_resolved_attn_v_computes_the_operation(tmp_path):
     from ipu_apps.kernels.attention.attn_v_16x60.app import (
-        N_TOK,
-        D,
-        N_HEAD,
         N_CHAN,
-        PV_STRIDE_ROWS,
+        N_HEAD,
+        N_TOK,
         P_HEAD_STRIDE_ROWS,
+        PV_STRIDE_ROWS,
+        D,
     )
 
     query = dict(n_tok=N_TOK, d=D)
@@ -383,12 +382,12 @@ def test_resolved_attn_v_computes_the_operation(tmp_path):
 
 def test_resolved_attn_v_bcast_computes_the_operation(tmp_path):
     from ipu_apps.kernels.attention.attn_v_bcast_36.app import (
-        N_TOK,
-        D,
-        N_HEAD,
         N_CHAN,
-        PV_STRIDE_ROWS,
+        N_HEAD,
+        N_TOK,
         P_HEAD_STRIDE_ROWS,
+        PV_STRIDE_ROWS,
+        D,
     )
 
     query = dict(d=D)

@@ -15,13 +15,13 @@ width >= 128" long after the real boundary had moved to 65.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from importlib import import_module
-from typing import TYPE_CHECKING, Any, Callable, Literal, Mapping
-
-from ipu_emu.ipu_math import DType
+from typing import TYPE_CHECKING, Any, Literal
 
 from ipu_apps.kernel_registry.shapes import ShapeBundle
+from ipu_emu.ipu_math import DType
 
 if TYPE_CHECKING:
     from ipu_apps.kernel_registry.base import IpuApp

@@ -19,17 +19,16 @@ cycles or stats.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from importlib import import_module
 import os
-from pathlib import Path
 import re
 import sys
-from typing import Mapping, Sequence
-
-from ipu_emu.alias_profile import AliasProfile
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from importlib import import_module
+from pathlib import Path
 
 from ipu_apps.kernel_registry.cases import load_cases, options_label, package_kernel, run_case
+from ipu_emu.alias_profile import AliasProfile
 
 LEGEND = (
     "mult% / acc%: cycles the stage was busy. lanes%: multiplier lanes that "

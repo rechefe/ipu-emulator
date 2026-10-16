@@ -46,11 +46,9 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import numpy as np
-
-from ipu_emu.ipu_config import Partition
 
 from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.convolutions.app import (
@@ -65,6 +63,7 @@ from ipu_apps.kernels.convolutions.app import (
     universal_spec,
     unpack_output_chunked,
 )
+from ipu_emu.ipu_config import Partition
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -164,8 +163,8 @@ class ConvUniversalBnActivationApp(IpuApp):
         width: int,
         in_channels: int,
         out_channels: int,
-        kernel: Optional[np.ndarray] = None,
-        bias: Optional[np.ndarray] = None,
+        kernel: np.ndarray | None = None,
+        bias: np.ndarray | None = None,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -243,7 +242,7 @@ class ConvUniversalBnActivationApp(IpuApp):
         w_reordered = weights.reshape(self.out_channels, self.in_channels, 9)
         return _pack_conv_weights_fpb28(w_reordered, self._bias_array)
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         input_raw = np.frombuffer(self.input_path.read_bytes(), dtype=np.float32)
         input_chw = input_raw.reshape(self.in_channels, self.height, self.width)
         padded = np.zeros((self.in_channels, self.rows, self.cols), dtype=np.float32)
@@ -285,7 +284,7 @@ class ConvUniversalBnActivationApp(IpuApp):
         state.regfile.set_cr(9, 3 * CHUNK_ELEMENTS)
         state.regfile.set_cr(14, (3 * CHUNK_ELEMENTS - 2 * self.cols - 2) & 0xFFFFFFFF)
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         if self.output_path is not None:
             total_outputs = self.num_chunks * self.out_channels
             raw = state.xmem.read_address(self.output_base_addr, total_outputs * ROW_BYTES)

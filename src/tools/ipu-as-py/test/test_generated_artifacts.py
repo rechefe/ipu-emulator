@@ -9,9 +9,8 @@ from __future__ import annotations
 import difflib
 from pathlib import Path
 
-import pytest
-
 import generated_artifacts
+import pytest
 
 # Bazel runs the test from the runfiles root of the main repository.
 SNAPSHOTS = Path.cwd() / generated_artifacts.SNAPSHOT_DIR

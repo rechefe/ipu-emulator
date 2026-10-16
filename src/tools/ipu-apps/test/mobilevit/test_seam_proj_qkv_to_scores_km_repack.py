@@ -32,13 +32,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+from fixture_kernel_support import kernel_inst, poison
 
 from ipu_apps.kernels.attention.attn_scores_km_16x60 import app as km5
 from ipu_apps.kernels.attention.attn_scores_km_64x48 import app as km4
 from ipu_apps.kernels.projections.proj_qkv_192_p4 import app as qkv4
 from ipu_apps.kernels.projections.proj_qkv_240_p4 import app as qkv5
-
-from fixture_kernel_support import kernel_inst, poison
 
 # attn_scores_km_16x60 (unlike attn_scores_km_64x48) processes ONE stream's
 # Q/K per invocation -- its input file is canonical [N_HEADS*D, N_TOK]

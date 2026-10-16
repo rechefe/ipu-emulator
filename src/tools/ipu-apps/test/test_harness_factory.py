@@ -6,8 +6,8 @@ from unittest.mock import Mock
 
 import pytest
 
-from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernel_registry import create_harness, kernel_spec, kernels, resolve
+from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernel_registry.cases import KernelCase, PreparedCase, load_cases, run_case
 from ipu_apps.kernel_registry.runner import main
 from ipu_emu.ipu_state import IpuState
@@ -125,8 +125,8 @@ def test_frontend(capsys):
     ],
 )
 def test_execution_profiles_and_fresh_state(monkeypatch, mode, dtype, quantize, row_bytes):
-    from ipu_apps.kernel_registry import ExecutionConfig, KernelSpec
     import ipu_apps.kernel_registry.registry as registry
+    from ipu_apps.kernel_registry import ExecutionConfig, KernelSpec
     from ipu_emu.ipu import xmem_row_size_bytes
     from ipu_emu.ipu_math import DType
 
@@ -175,6 +175,7 @@ def test_factory_and_direct_constructor_execution_agree(name, tmp_path):
 
 def test_explicit_state_bypasses_execution_selector(monkeypatch):
     from dataclasses import replace
+
     import ipu_apps.kernel_registry.base as base
     import ipu_apps.kernel_registry.registry as registry
 
@@ -218,6 +219,7 @@ def test_unregistered_harness_defaults_and_direct_subclass(monkeypatch, tmp_path
 
 def test_execution_config_is_immutable_and_rejects_bad_modes():
     from dataclasses import FrozenInstanceError
+
     from ipu_apps.kernel_registry import ExecutionConfig
 
     config = ExecutionConfig()
@@ -257,8 +259,9 @@ def test_invalid_case_option_declarations(defaults):
 
 
 def test_frontend_boolean_options_and_collisions(monkeypatch, capsys):
-    import ipu_apps.kernel_registry.runner as runner
     from types import SimpleNamespace
+
+    import ipu_apps.kernel_registry.runner as runner
 
     options = []
     state = SimpleNamespace(stats=SimpleNamespace(format_summary=lambda: ""))
@@ -283,6 +286,7 @@ def test_frontend_boolean_options_and_collisions(monkeypatch, capsys):
 
 def test_missing_case_declaration_is_actionable(monkeypatch, capsys):
     from types import SimpleNamespace
+
     import ipu_apps.kernel_registry.cases as cases
 
     monkeypatch.setattr(cases, "import_module", lambda _: SimpleNamespace())
@@ -376,8 +380,9 @@ if 'pytest' in sys.modules:
 def test_cases_and_assembly_follow_package_not_class_module(tmp_path, monkeypatch):
     from importlib import import_module
     from importlib.resources import files
-    import ipu_apps.kernel_registry.registry as registry
+
     import ipu_apps.kernel_registry.cases as cases
+    import ipu_apps.kernel_registry.registry as registry
 
     package = tmp_path / "split_kernel"
     package.mkdir()
@@ -405,8 +410,8 @@ def test_cases_and_assembly_follow_package_not_class_module(tmp_path, monkeypatc
 
 
 def test_pytest_config_collects_adjacent_suites(tmp_path):
-    from pathlib import Path
     import shutil
+    from pathlib import Path
 
     config = Path(__file__).resolve().parents[1] / "pyproject.toml"
     shutil.copyfile(config, tmp_path / "pyproject.toml")
@@ -427,6 +432,7 @@ def test_pytest_config_collects_adjacent_suites(tmp_path):
 
 def test_frontend_alias_report(tmp_path):
     import json
+
     from ipu_apps.kernel_registry.runner import main
 
     report = tmp_path / "aliases.json"
@@ -439,6 +445,7 @@ def test_frontend_alias_report(tmp_path):
 
 def test_every_assembly_has_a_registered_case():
     from pathlib import Path
+
     from ipu_apps.kernel_registry import kernels
 
     root = Path(__file__).resolve().parents[1] / "src/ipu_apps"

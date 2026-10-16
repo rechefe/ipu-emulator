@@ -2,15 +2,16 @@
 
 import json
 import os
-from pathlib import Path
 import time
+from pathlib import Path
 
 import pytest
+
 from ipu_apps.kernel_registry import kernels, load
 from ipu_apps.kernel_registry.cases import load_cases, run_case
 from ipu_apps.kernel_registry.testing import debug_only_warning, kernel_uses_debug_only_instructions
-from ipu_emu.alias_profile import AliasProfile
 from ipu_emu.alias_detectors import default_registry
+from ipu_emu.alias_profile import AliasProfile
 from ipu_emu.isa_alias_spec import ISA_ALIAS_SPEC
 
 load()

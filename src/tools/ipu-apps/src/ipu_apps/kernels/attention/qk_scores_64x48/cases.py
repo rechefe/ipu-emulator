@@ -11,7 +11,7 @@ import numpy as np
 
 from ipu_apps.kernel_registry.cases import KernelCase, PreparedCase
 from ipu_apps.kernels.attention.cases import MAX_CYCLES, assert_close, read_fp32, uniform
-from ipu_apps.kernels.attention.qk_scores_64x48.app import D, N, N_BLOCK, N_TG, N_TPG
+from ipu_apps.kernels.attention.qk_scores_64x48.app import N_BLOCK, N_TG, N_TPG, D, N
 
 
 def prepare(workspace, *, seed):

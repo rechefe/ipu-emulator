@@ -1,35 +1,29 @@
 """Tests for ipu_emu.regfile and ipu_emu.ipu_state."""
 
-import copy
 import os
 import struct
 import subprocess
 import sys
 
-import numpy as np
 import pytest
+from emu_support import ElementFormat, new_state
 
-from ipu_emu.descriptors import REGFILE_SCHEMA, RegDescriptor, RegDtype, RegKind
+from ipu_emu.descriptors import REGFILE_SCHEMA
 from ipu_emu.errors import (
     EmulatorError,
     RegisterIndexError,
     RegisterKindError,
     RegisterSizeError,
 )
-from ipu_emu.regfile import RegFile
 from ipu_emu.ipu_config import (
     CR_DSTRUCTURE_REG_INDEX,
-    DSTRUCTURE_PARTITION_MASK,
     DSTRUCTURE_VALID_ELEMENTS_MASK,
     PadMode,
-    Partition,
     decode_dstructure,
     encode_dstructure,
 )
 from ipu_emu.ipu_state import IpuState
-
-from emu_support import ElementFormat, new_state
-
+from ipu_emu.regfile import RegFile
 
 # ---------------------------------------------------------------------------
 # RegFile — scalar (LR / CR) access

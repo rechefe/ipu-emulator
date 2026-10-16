@@ -4,7 +4,6 @@ import numpy as np
 
 from ipu_apps.kernel_registry.testing import case_tests
 from ipu_apps.kernels.attention.attn_scores_km_16x60.app import (
-    D,
     ELEM_BYTES,
     LANES,
     N_TG,
@@ -14,6 +13,7 @@ from ipu_apps.kernels.attention.attn_scores_km_16x60.app import (
     QBASE,
     ROW_BYTES,
     SBASE,
+    D,
 )
 from ipu_apps.kernels.attention.cases import run_poked
 

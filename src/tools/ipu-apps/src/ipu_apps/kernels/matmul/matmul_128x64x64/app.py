@@ -81,7 +81,7 @@ WEIGHTS_BASE_ADDR = WEIGHTS_BASE_ROW * ROW_BYTES
 OUTPUT_BASE_ADDR = OUTPUT_BASE_ROW * ROW_BYTES
 
 
-def _load_input_padded(state: "IpuState", input_path: str | Path) -> None:
+def _load_input_padded(state: IpuState, input_path: str | Path) -> None:
     """Stage A with each row zero-padded from K elements out to a whole row."""
     raw = Path(input_path).read_bytes()
     expected = M * K * ELEM_BYTES
@@ -93,7 +93,7 @@ def _load_input_padded(state: "IpuState", input_path: str | Path) -> None:
         state.xmem.write_address(INPUT_BASE_ADDR + m * ROW_BYTES, buf)
 
 
-def _load_and_transpose_weights(state: "IpuState", weights_path: str | Path) -> None:
+def _load_and_transpose_weights(state: IpuState, weights_path: str | Path) -> None:
     """Load W[n][k] from file and write T[k] (column k of W) into XMEM.
 
     File layout: W[n][k] at element n*K + k  (N rows × K cols, output-major).
@@ -127,7 +127,7 @@ class MatMul128x64x64App(IpuApp):
         self.input_path = Path(self.input_path)
         self.weights_path = Path(self.weights_path)
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         _load_input_padded(state, self.input_path)
         _load_and_transpose_weights(state, self.weights_path)
         # CR0 (≡0) and CR1 (≡1) are read-only hardwired constants
@@ -145,7 +145,7 @@ class MatMul128x64x64App(IpuApp):
         state.regfile.set_cr(9, -1)
         state.regfile.set_cr(10, K - 1)
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         """Crop each output row's valid N accumulators out of its LANES-element row."""
         if self.output_path is None:
             return

@@ -44,8 +44,6 @@ from pathlib import Path
 
 import numpy as np
 
-from ipu_emu.ipu import LANES
-
 from ipu_apps.kernel_registry import (
     ExecutionConfig,
     ShapeBundle,
@@ -58,6 +56,7 @@ from ipu_apps.kernel_registry import (
     yes,
 )
 from ipu_apps.kernel_registry.base import IpuApp
+from ipu_emu.ipu import LANES
 
 ROW_BYTES = LANES * 4
 LOG2E = math.log2(math.e)

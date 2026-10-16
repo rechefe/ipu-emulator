@@ -77,11 +77,9 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Dict, List, Tuple, Any
 
 from ipu_isa import schema
 from ipu_isa.operand_types import OPERAND_TYPES, OperandKind
-
 
 # ===========================================================================
 # Exports
@@ -1210,7 +1208,7 @@ def get_opcode_for_instruction(slot_type: str, instruction_name: str) -> int:
     raise KeyError(f"Instruction '{instruction_name}' not found in slot '{slot_type}'")
 
 
-def extract_opcodes() -> Dict[str, List[str]]:
+def extract_opcodes() -> dict[str, list[str]]:
     """Extract all instruction names grouped by slot type (in order).
 
     Returns a dict mapping slot type to list of instruction names, where
@@ -1245,7 +1243,7 @@ def get_instruction(slot_type: str, instruction_name: str) -> dict:
     return INSTRUCTION_SPEC[slot_type][canonical_instruction_name(slot_type, instruction_name)]
 
 
-def get_instruction_by_opcode(slot_type: str, opcode_index: int) -> Tuple[str, dict]:
+def get_instruction_by_opcode(slot_type: str, opcode_index: int) -> tuple[str, dict]:
     """Look up instruction by slot type and opcode (position-based).
 
     Args:
@@ -1263,7 +1261,7 @@ def get_instruction_by_opcode(slot_type: str, opcode_index: int) -> Tuple[str, d
     return instruction_name, instructions[instruction_name]
 
 
-def get_operand_names_and_types(slot_type: str, instruction_name: str) -> List[Tuple[str, str]]:
+def get_operand_names_and_types(slot_type: str, instruction_name: str) -> list[tuple[str, str]]:
     """Get operand names and types for an instruction.
 
     Returns:
@@ -1616,7 +1614,7 @@ validate_instruction_spec(INSTRUCTION_SPEC, SLOT_METADATA)
 validate_pseudo_instruction_spec(PSEUDO_INSTRUCTION_SPEC, INSTRUCTION_SPEC)
 
 # Derive union layout from INSTRUCTION_SPEC (must run after spec is fully defined).
-from ipu_isa.union_layout import compute_slot_layouts, SlotUnion  # noqa: E402
+from ipu_isa.union_layout import SlotUnion, compute_slot_layouts  # noqa: E402
 
 _computed_unions = compute_slot_layouts(INSTRUCTION_SPEC)
 SLOT_UNIONS.update(_computed_unions)

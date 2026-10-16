@@ -61,8 +61,6 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ipu_emu.emulator import dump_xmem_to_binary
-
 from ipu_apps.kernel_registry import (
     OUTPUT,
     WEIGHT,
@@ -74,6 +72,7 @@ from ipu_apps.kernel_registry import (
     yes,
 )
 from ipu_apps.kernel_registry.base import IpuApp
+from ipu_emu.emulator import dump_xmem_to_binary
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -190,7 +189,7 @@ class ProjectionP4App(IpuApp):
         self.input_path = Path(input_path)
         self.weights_path = Path(weights_path)
 
-    def _load_data(self, state: "IpuState") -> None:
+    def _load_data(self, state: IpuState) -> None:
         """Stage every stream's D block, tg-interleaved per channel and padded to whole rows."""
         lo = self.layout
         raw = self.input_path.read_bytes()
@@ -205,7 +204,7 @@ class ProjectionP4App(IpuApp):
         rows[..., : lo.n_tok] = d.transpose(0, 2, 1, 3)  # file (p, tg, k) -> row (p, k, tg)
         state.xmem.write_address(lo.data_base_row * ROW_BYTES, rows.tobytes())
 
-    def _load_weights(self, state: "IpuState") -> None:
+    def _load_weights(self, state: IpuState) -> None:
         """Stage the shared W, padding each output channel's K elements to whole rows."""
         lo = self.layout
         raw = self.weights_path.read_bytes()
@@ -217,7 +216,7 @@ class ProjectionP4App(IpuApp):
         rows[:, : lo.k] = w
         state.xmem.write_address(lo.weights_base_row * ROW_BYTES, rows.tobytes())
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         lo = self.layout
         self._load_data(state)
         self._load_weights(state)
@@ -239,7 +238,7 @@ class ProjectionP4App(IpuApp):
         state.regfile.set_cr(13, lo.output_rows_per_stream)  # OUT_STREAM_STR
         state.regfile.set_cr(14, N_STREAM)  # STREAM_COUNT
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         # Every stream's C block is contiguous and the blocks are back to back,
         # so the output is one run of N_STREAM * N_TG * N_OUT rows.
         if self.output_path is not None:

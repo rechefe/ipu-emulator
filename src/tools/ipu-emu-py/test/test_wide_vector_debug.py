@@ -11,12 +11,11 @@ import struct
 
 import numpy as np
 import pytest
+from emu_support import ElementFormat, assemble_program, make_state, new_state, run
 
 from ipu_emu.emulator import load_program, run_until_complete
-from ipu_emu.ipu import EmulatorError, Ipu, LANES
+from ipu_emu.ipu import LANES, EmulatorError, Ipu
 from ipu_emu.ipu_state import IpuState
-
-from emu_support import ElementFormat, assemble_program, make_state, new_state, run
 
 
 class TestWideVectorFp32:

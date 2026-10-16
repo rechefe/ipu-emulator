@@ -12,10 +12,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ipu_emu.emulator import dump_xmem_to_binary
-
 from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.matmul.app import matmul_spec
+from ipu_emu.emulator import dump_xmem_to_binary
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -64,7 +63,7 @@ WEIGHTS_BASE = WEIGHTS_BASE_ROW * ROW_BYTES
 OUTPUT_BASE = OUTPUT_BASE_ROW * ROW_BYTES
 
 
-def _load_data(state: "IpuState", data_path: str | Path) -> None:
+def _load_data(state: IpuState, data_path: str | Path) -> None:
     """Stage D. Channel-major and already contiguous, so a straight copy works.
 
     File layout: K=288 channels × N_TG tg × N_TOK elements each.
@@ -76,7 +75,7 @@ def _load_data(state: "IpuState", data_path: str | Path) -> None:
     state.xmem.write_address(DATA_BASE, bytearray(raw[:expected]))
 
 
-def _load_weights(state: "IpuState", weights_path: str | Path) -> None:
+def _load_weights(state: IpuState, weights_path: str | Path) -> None:
     """Stage W, padding each output channel's K elements out to whole rows.
 
     File layout: W[j][k] at element j*K + k  (N_OUT rows × K=288 cols).
@@ -107,7 +106,7 @@ class MatMul144x288x128App(IpuApp):
         self.input_path = Path(self.input_path)
         self.weights_path = Path(self.weights_path)
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         _load_data(state, self.input_path)
         _load_weights(state, self.weights_path)
 
@@ -136,7 +135,7 @@ class MatMul144x288x128App(IpuApp):
         state.regfile.set_lr(11, (K % LANES) - 2)  # tail-chunk bound (width 32 → 30)
         state.regfile.set_lr(12, W_STRIDE_ROWS)  # weight stride per j (3 rows)
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         if self.output_path is not None:
             dump_xmem_to_binary(
                 state,

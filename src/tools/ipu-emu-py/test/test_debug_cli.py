@@ -7,31 +7,29 @@ import struct
 from io import StringIO
 
 import pytest
+from emu_support import ElementFormat, make_state, new_state
 
 import ipu_emu.debug_cli as debug_cli_module
-from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
-from ipu_emu.debug_control import DebugControl
 from ipu_emu.debug_cli import (
-    DebugCLI,
-    DebugAction,
     VISIBLE_ALPHABET,
-    debug_prompt,
-    decode_16bit_cell,
-    encode_16bit_cell,
-    format_register,
-    print_all_registers,
-    state_to_json_dict,
-    save_state_json,
-    disassemble_current,
+    DebugAction,
+    DebugCLI,
     # TODO(E08): debugger internals (_resolve_register, DebugCLI._result) are
     # tested white-box until the debuggers move to ipu_debug.
     _resolve_register,
+    debug_prompt,
+    decode_16bit_cell,
+    disassemble_current,
+    encode_16bit_cell,
+    format_register,
+    print_all_registers,
+    save_state_json,
+    state_to_json_dict,
 )
+from ipu_emu.debug_control import DebugControl
 from ipu_emu.descriptors import REGFILE_SCHEMA
+from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
 from ipu_emu.xmem import XMEM_SIZE_BYTES
-
-from emu_support import ElementFormat, make_state, new_state
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -563,7 +561,7 @@ class TestJsonExport:
         state = new_state(fmt=ElementFormat.FP32)
         state.regfile.set_cr(4, 2)
         state.regfile.set_lr(0, 1)
-        expected = bytes((i % 251 for i in range(2 * 512)))
+        expected = bytes(i % 251 for i in range(2 * 512))
         state.xmem.write_address(3 * 512, expected)
         path = tmp_path / "row-state.json"
 

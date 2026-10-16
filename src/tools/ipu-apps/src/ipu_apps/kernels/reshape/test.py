@@ -22,7 +22,6 @@ array. Unlike fold_32x32x144/fold_16x16x192, fold_8x8x240's OUTPUT is naive row-
 
 from __future__ import annotations
 
-import numpy as np
 import pytest
 
 from ipu_apps.kernel_registry import create_harness, kernel_spec

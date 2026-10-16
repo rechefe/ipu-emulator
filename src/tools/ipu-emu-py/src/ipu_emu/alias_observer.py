@@ -6,11 +6,11 @@ import math
 import struct
 import weakref
 
-from ipu_isa.activations import ACTIVATION_IDENTITY
-from ipu_isa.registers import get_lane_count
 from ipu_emu.alias_profile import Event
 from ipu_emu.ipu_math import dtype_one_byte
 from ipu_emu.xmem import XMEM_WIDTH_BYTES
+from ipu_isa.activations import ACTIVATION_IDENTITY
+from ipu_isa.registers import get_lane_count
 
 LANES = get_lane_count()
 
@@ -85,7 +85,7 @@ class ExecutionObserver:
             return None
         if kwargs.get("label") != self.pc + 3:
             return None
-        from ipu_emu.ipu import _SLOT_PLANS, _SLOT_OPCODE_FIELDS, _LR_PLANS, _LR_OPCODE_FIELDS
+        from ipu_emu.ipu import _LR_OPCODE_FIELDS, _LR_PLANS, _SLOT_OPCODE_FIELDS, _SLOT_PLANS
 
         def operations(pc):
             if pc >= len(self.state.inst_mem) or self.state.inst_mem[pc] is None:

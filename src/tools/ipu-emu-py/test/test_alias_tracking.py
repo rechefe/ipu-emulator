@@ -8,14 +8,13 @@ and the counters that separate real MAC work from data routing.
 from __future__ import annotations
 
 import pytest
+from emu_support import ElementFormat, assemble_program, make_state, new_state, run
 
 from ipu_emu.debug_control import DebugControl
 from ipu_emu.emulator import DebugAction, load_program, run_until_complete, run_with_debug
 from ipu_emu.errors import DebugOnlyInstructionWarning
-from ipu_emu.ipu import Ipu, LANES
+from ipu_emu.ipu import LANES, Ipu
 from ipu_emu.ipu_state import IpuState
-
-from emu_support import ElementFormat, assemble_program, make_state, new_state, run
 
 # A declared row narrower than LANES, for the padding cases.
 NARROW_ELEMENTS = 16

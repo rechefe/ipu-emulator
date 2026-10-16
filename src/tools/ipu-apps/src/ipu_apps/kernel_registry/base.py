@@ -53,16 +53,16 @@ class IpuApp:
         for key, value in kwargs.items():
             setattr(self, key, value)
 
-    def make_state(self) -> "IpuState":
+    def make_state(self) -> IpuState:
         """Create fresh state using this harness's registry execution config."""
         from ipu_apps.kernel_registry.registry import create_state
 
         return create_state(self)
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         """Prepare the IPU state before execution. Override this."""
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         """Collect results after execution. Override this."""
 
     def run(
@@ -70,12 +70,12 @@ class IpuApp:
         *,
         max_cycles: int = DEFAULT_MAX_CYCLES,
         debug_callback: DebugCallback | None = None,
-        state: "IpuState | None" = None,
+        state: IpuState | None = None,
         elu_alpha: float | None = None,
         window_a: float | None = None,
         window_b: float | None = None,
         alias_profile=None,
-    ) -> tuple["IpuState", int]:
+    ) -> tuple[IpuState, int]:
         """Run the app end-to-end. Returns ``(state, cycles)``.
 
         Optional ``elu_alpha``, ``window_a`` and ``window_b`` match
@@ -91,9 +91,8 @@ class IpuApp:
         debug_launch = os.environ.get("IPU_DEBUG_TUI") == "1"
         debug_control = None
         if debug_launch:
-            from ipu_emu.debug_launch import make_tui_debug_callback
-
             from ipu_apps.kernel_registry.registry import _harness_spec
+            from ipu_emu.debug_launch import make_tui_debug_callback
 
             spec = _harness_spec(self)
             debug_callback, debug_control = make_tui_debug_callback(

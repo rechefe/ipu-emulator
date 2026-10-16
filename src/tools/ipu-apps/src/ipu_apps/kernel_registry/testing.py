@@ -20,11 +20,11 @@ After its check passes, every case is also compared with its record in the
 kernel's ``baseline.json`` (see :mod:`ipu_apps.kernel_registry.baseline`).
 """
 
+import warnings
 from contextlib import contextmanager
 from functools import cache
 from pathlib import Path
 from tempfile import TemporaryDirectory
-import warnings
 
 import pytest
 

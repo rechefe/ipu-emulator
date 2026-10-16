@@ -17,6 +17,8 @@ import contextlib
 
 import numpy as np
 import pytest
+import timing_probes
+from emu_support import ElementFormat, assemble_program, make_state, new_state, run_both
 
 from ipu_emu.emulator import load_program
 from ipu_emu.errors import DebugOnlyInstructionWarning, RegisterIndexError
@@ -28,11 +30,6 @@ from ipu_emu.prototyping import (
     build_enabled,
     default_enabled,
 )
-
-from emu_support import ElementFormat, assemble_program, make_state, new_state, run_both
-
-import timing_probes
-
 
 _REQUIRES_PROTO_BUILD = pytest.mark.skipif(
     not build_enabled(), reason="requires --define=ipu_proto=1"

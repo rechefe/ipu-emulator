@@ -2,8 +2,8 @@
 
 import numpy as np
 
-from ipu_emu.ipu import LANES
 from ipu_apps.kernel_registry.cases import KernelCase, PreparedCase, check_output_bytes
+from ipu_emu.ipu import LANES
 
 
 def prepare(workspace, *, rows):

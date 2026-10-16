@@ -37,10 +37,9 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ipu_emu.emulator import dump_xmem_to_binary
-
 from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.normalize.app import layernorm_spec
+from ipu_emu.emulator import dump_xmem_to_binary
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -139,7 +138,7 @@ class LayerNorm16x240App(IpuApp):
         self.gamma_path = Path(gamma_path)
         self.beta_path = Path(beta_path)
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         # Data: N_CH rows of LANES FP32 values, one channel per row, tokens in
         # lanes 0..N_TOK-1 and zero padding after. A channel occupies a WHOLE
         # row: rows are never shared, so the row count is N_CH regardless of
@@ -197,7 +196,7 @@ class LayerNorm16x240App(IpuApp):
         # so step 6's sub-loop B bound (112) is built in the ASM from CR1 and
         # CR14 rather than from a CR of its own.
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         """Dump the output, cropping each row to its N_TOK valid tokens."""
         if self.output_path is None:
             return

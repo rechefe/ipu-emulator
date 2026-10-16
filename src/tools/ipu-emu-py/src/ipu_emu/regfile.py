@@ -26,11 +26,12 @@ from __future__ import annotations
 
 import struct
 import weakref
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import numpy as np
 
-from ipu_emu.descriptors import REGFILE_SCHEMA, RegDescriptor, RegDtype, RegKind
+from ipu_emu.descriptors import REGFILE_SCHEMA, RegDescriptor, RegKind
 from ipu_emu.errors import (
     EmulatorError,
     RegisterIndexError,
@@ -43,7 +44,6 @@ from ipu_emu.ipu_config import (
     LR_CR_SCALAR_VALUE_MASK,
     REGISTER_WORD_VALUE_MASK,
 )
-
 
 # -- input validation ------------------------------------------------------
 # Real exceptions, not ``assert``: these checks must hold under ``python -O``.

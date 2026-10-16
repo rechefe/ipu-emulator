@@ -69,24 +69,23 @@ from __future__ import annotations
 import copy
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ipu_as.lark_tree import assemble_to_bin_file
-from ipu_emu.emulator import run_test
-from ipu_emu.ipu_config import Partition
-
 from ipu_apps.kernel_registry.base import IpuApp
-from ipu_apps.kernels.convolutions.depthwise_conv_universal.app import (
-    DepthwiseConvUniversalApp,
-)
 from ipu_apps.kernels.convolutions.app import (
     CHUNK_ELEMENTS,
     kernel_asm,
     render_asm,
     universal_spec,
 )
+from ipu_apps.kernels.convolutions.depthwise_conv_universal.app import (
+    DepthwiseConvUniversalApp,
+)
+from ipu_as.lark_tree import assemble_to_bin_file
+from ipu_emu.emulator import run_test
+from ipu_emu.ipu_config import Partition
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -128,7 +127,7 @@ class DepthwiseConvStride2NarrowApp(IpuApp):
         rows: int,
         cols: int,
         channels: int,
-        kernel: Optional[np.ndarray] = None,
+        kernel: np.ndarray | None = None,
         **kwargs,
     ) -> None:
         # The bound inst_path is kept but not run: stage 1 is assembled from
@@ -198,11 +197,11 @@ class DepthwiseConvStride2NarrowApp(IpuApp):
         self.output_base_addr = self._stage1_app.output_base_addr + stage1_output_elements * 4
         self.output_base_row = self.output_base_addr // ROW_BYTES
 
-    def run(self, *, max_cycles: int = 2_000_000, **kwargs) -> tuple["IpuState", int]:
+    def run(self, *, max_cycles: int = 2_000_000, **kwargs) -> tuple[IpuState, int]:
         with tempfile.TemporaryDirectory(prefix="depthwise_stride2_narrow_") as tmp:
             return self._run(Path(tmp), max_cycles=max_cycles, **kwargs)
 
-    def _run(self, tmp_dir: Path, *, max_cycles: int, **kwargs) -> tuple["IpuState", int]:
+    def _run(self, tmp_dir: Path, *, max_cycles: int, **kwargs) -> tuple[IpuState, int]:
         stage1_bin_path = tmp_dir / "stage1.bin"
         assemble_to_bin_file(kernel_asm("depthwise_conv_universal"), str(stage1_bin_path))
 
@@ -221,7 +220,7 @@ class DepthwiseConvStride2NarrowApp(IpuApp):
         stage2_bin_path = tmp_dir / "stage2.bin"
         assemble_to_bin_file(stage2_src, str(stage2_bin_path))
 
-        def stage2_setup(s: "IpuState") -> None:
+        def stage2_setup(s: IpuState) -> None:
             # Stage 1 left program_counter at its halted sentinel; reset it
             # so run_until_complete's `while not state.is_halted` loop
             # actually executes stage 2's freshly loaded program instead of

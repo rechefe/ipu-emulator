@@ -7,10 +7,11 @@ An observation is a measured motif, not a claim that its cycles can be removed.
 
 from __future__ import annotations
 
-from collections import Counter
-from dataclasses import dataclass, field
 import json
-from typing import Callable, Iterable, Protocol
+from collections import Counter
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass, field
+from typing import Protocol
 
 
 @dataclass(frozen=True)

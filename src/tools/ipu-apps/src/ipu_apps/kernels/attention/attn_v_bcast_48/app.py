@@ -48,8 +48,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernel_registry import ShapeBundle
+from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.attention.app import attention_spec
 
 if TYPE_CHECKING:
@@ -107,7 +107,7 @@ class AttnVBcast48App(IpuApp):
         self.p_path = Path(self.p_path)
         self.v_path = Path(self.v_path)
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         # P and V are staged verbatim (already in the kernel's row layout).
         state.xmem.write_address(PBASE, bytearray(self.p_path.read_bytes()))
         state.xmem.write_address(VBASE, bytearray(self.v_path.read_bytes()))
@@ -130,7 +130,7 @@ class AttnVBcast48App(IpuApp):
         state.regfile.set_lr(0, 0)  # R_CYCLIC index / mask_shift
         state.regfile.set_lr(1, PV_STRIDE_ROWS)  # P key stride (rows)
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         """Crop each channel's valid N_TOK queries out of its whole 512 B row.
 
         Every store wrote a full row (one output channel per row -- rows are

@@ -1,6 +1,5 @@
 """Tests for docs/update_release_log.py (no network access)."""
 
-import socket
 from email.message import Message
 from urllib.error import HTTPError, URLError
 
@@ -22,7 +21,7 @@ def _pr(number, title, merged_at, updated_at=None):
 _NETWORK_ERRORS = [
     URLError("Name or service not known"),
     TimeoutError("timed out"),
-    socket.timeout("read timed out"),
+    TimeoutError("read timed out"),
     HTTPError("https://api.github.com", 403, "rate limited", Message(), None),
     ConnectionResetError("reset by peer"),
 ]

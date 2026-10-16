@@ -49,11 +49,10 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ipu_emu.emulator import dump_xmem_to_binary
-
-from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernel_registry import ShapeBundle
+from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.attention.app import attention_spec
+from ipu_emu.emulator import dump_xmem_to_binary
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -125,7 +124,7 @@ def _read_head(path: Path, head: int) -> np.ndarray:
     return arr[:, head]  # [stream, channel, token]
 
 
-def _load_q_channel_major(state: "IpuState", q_path: Path, head: int) -> None:
+def _load_q_channel_major(state: IpuState, q_path: Path, head: int) -> None:
     """Stage the selected head's Q channel columns, one whole row each.
 
     Row ``p*D + c`` holds ``Q[p, 0:64, c]`` in its leading 64 lanes -- exactly
@@ -139,7 +138,7 @@ def _load_q_channel_major(state: "IpuState", q_path: Path, head: int) -> None:
     state.xmem.write_address(QBASE, bytearray(buf.tobytes()))
 
 
-def _load_k_keymajor(state: "IpuState", k_path: Path, head: int) -> None:
+def _load_k_keymajor(state: IpuState, k_path: Path, head: int) -> None:
     """Rearrange the selected head's K from channel-major into key-major rows.
 
     Row ``p*N + s`` holds ``K[p, s, 0:48]`` contiguously, which is what lets one
@@ -165,7 +164,7 @@ class AttnScoresKM64x48App(IpuApp):
             raise ValueError(f"head must be in [0, {N_HEAD}), got {head}")
         self.head = head
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         _load_q_channel_major(state, self.input_path, self.head)
         _load_k_keymajor(state, self.weights_path, self.head)
 
@@ -193,7 +192,7 @@ class AttnScoresKM64x48App(IpuApp):
         state.regfile.set_lr(13, 0)  # Q stream base offset (rows)
         state.regfile.set_lr(14, 0)  # stream counter p
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         """Emit each key's whole 512 B row uncropped.
 
         Producers emit full rows and only the final consumer crops (see

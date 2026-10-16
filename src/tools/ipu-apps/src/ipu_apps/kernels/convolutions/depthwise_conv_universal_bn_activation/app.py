@@ -57,11 +57,9 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import numpy as np
-
-from ipu_emu.ipu_config import Partition
 
 from ipu_apps.kernel_registry.base import IpuApp
 
@@ -80,6 +78,7 @@ from ipu_apps.kernels.convolutions.app import (
     universal_spec,
     unpack_output_chunked,
 )
+from ipu_emu.ipu_config import Partition
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -164,8 +163,8 @@ class DepthwiseConvUniversalBnActivationApp(IpuApp):
         height: int,
         width: int,
         channels: int,
-        kernel: Optional[np.ndarray] = None,
-        bias: Optional[np.ndarray] = None,
+        kernel: np.ndarray | None = None,
+        bias: np.ndarray | None = None,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -233,7 +232,7 @@ class DepthwiseConvUniversalBnActivationApp(IpuApp):
         w_flat = weights.reshape(self.channels, 9)
         return _pack_depthwise_kernel_bias(w_flat, self._bias_array, self.channels)
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         input_raw = np.frombuffer(self.input_path.read_bytes(), dtype=np.float32)
         input_chw = input_raw.reshape(self.channels, self.height, self.width)
         padded = np.zeros((self.channels, self.rows, self.cols), dtype=np.float32)
@@ -275,7 +274,7 @@ class DepthwiseConvUniversalBnActivationApp(IpuApp):
         state.regfile.set_cr(13, 256)
         state.regfile.set_cr(14, (256 - 2 * self.cols - 2) & 0xFFFFFFFF)
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         if self.output_path is not None:
             total_outputs = self.num_chunks * self.channels
             raw = state.xmem.read_address(self.output_base_addr, total_outputs * ROW_BYTES)

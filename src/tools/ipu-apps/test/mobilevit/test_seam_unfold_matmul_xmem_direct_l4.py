@@ -42,16 +42,15 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-
-from ipu_apps.kernels.matmul.matmul_576x192_x128 import app as mm
-from ipu_apps.kernels.reshape.unfold_16x16x192 import app as uf
-
 from fixture_kernel_support import (
     POISON,
     kernel_inst,
     poison,
     run_matmul_direct_xmem_handoff,
 )
+
+from ipu_apps.kernels.matmul.matmul_576x192_x128 import app as mm
+from ipu_apps.kernels.reshape.unfold_16x16x192 import app as uf
 
 # Structural precondition: unfold's per-stream channel count must equal the
 # matmul's K (unfold's output feeds the matmul's contraction dimension), and

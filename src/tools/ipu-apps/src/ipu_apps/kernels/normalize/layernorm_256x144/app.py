@@ -14,16 +14,14 @@ Usage::
 
 from __future__ import annotations
 
-import struct
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ipu_emu.emulator import dump_xmem_to_binary
-
 from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.normalize.app import layernorm_spec
+from ipu_emu.emulator import dump_xmem_to_binary
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -111,7 +109,7 @@ class LayerNorm256x144App(IpuApp):
         self.gamma_path = Path(gamma_path)
         self.beta_path = Path(beta_path)
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         # Data: N_CH × N_TG rows of N_TPG FP32 values
         # File layout: (ch*N_TG + tg) row order, each row 128 FP32 elements
         state.xmem.write_address(DATA_BASE, bytearray(self.input_path.read_bytes()))
@@ -157,7 +155,7 @@ class LayerNorm256x144App(IpuApp):
         state.regfile.set_cr(13, ROW_STRIDE_ROWS)  # 1 row
         state.regfile.set_cr(14, N_TPG)  # 128
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         if self.output_path is not None:
             dump_xmem_to_binary(
                 state,

@@ -38,8 +38,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernel_registry import ShapeBundle
+from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.attention.app import attention_spec
 
 if TYPE_CHECKING:
@@ -105,7 +105,7 @@ class QkScores64x48App(IpuApp):
 
     # -- staging -------------------------------------------------------------
 
-    def _stage_inputs(self, state: "IpuState") -> None:
+    def _stage_inputs(self, state: IpuState) -> None:
         """Write K channel-major and Q query-major into XMEM.
 
         Input files are channel-major per block: element [block b, token t,
@@ -134,7 +134,7 @@ class QkScores64x48App(IpuApp):
             q_buf[b * N : (b + 1) * N, :D] = q[b].T  # [token, channel]
         state.xmem.write_address(QROW_BASE, bytearray(q_buf.tobytes()))
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         self._stage_inputs(state)
 
         # Only N of the 128 lanes carry real keys; the rest must be excluded
@@ -168,7 +168,7 @@ class QkScores64x48App(IpuApp):
         state.regfile.set_lr(13, 0)  # K block base offset (rows)
         state.regfile.set_lr(14, 0)  # block counter
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         """Crop each score row's valid N keys out of its whole 512 B row.
 
         Every store wrote a full row (one query per row -- rows are never

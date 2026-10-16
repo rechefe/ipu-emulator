@@ -8,11 +8,11 @@ See https://bazel.build/docs/user-manual#running-executables.
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 import os
 import runpy
 import signal
 import sys
+from contextlib import contextmanager
 
 
 @contextmanager

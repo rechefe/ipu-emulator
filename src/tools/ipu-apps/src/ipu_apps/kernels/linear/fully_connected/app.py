@@ -27,12 +27,11 @@ import re
 import struct
 from pathlib import Path
 
-from ipu_emu.ipu_math import DType
-from ipu_emu.ipu_config import LR_CR_SCALAR_VALUE_MASK
-from ipu_emu.emulator import load_binary_to_xmem
-from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
-
 from ipu_apps.kernel_registry.base import IpuApp
+from ipu_emu.emulator import load_binary_to_xmem
+from ipu_emu.ipu_config import LR_CR_SCALAR_VALUE_MASK
+from ipu_emu.ipu_math import DType
+from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 
 # -- Constants (mirror #defines in fully_connected.c) -----------------------
 
@@ -195,7 +194,7 @@ class FullyConnectedApp(IpuApp):
         state.regfile.set_cr(12, 0)
         state.regfile.set_cr(13, WEIGHTS_BASE_ADDR // row_size)
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         if self.output_path is not None:
             # STR_ACC_REG writes each sample 512 B apart (OUTPUT_STRIDE_ROWS
             # rows), but only the first OUTPUT_NEURONS*4 bytes of each are

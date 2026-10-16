@@ -27,11 +27,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ipu_emu.emulator import dump_xmem_to_binary
-
-from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernel_registry import ShapeBundle
+from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.attention.app import attention_spec
+from ipu_emu.emulator import dump_xmem_to_binary
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -86,7 +85,7 @@ class AttnVBcast36App(IpuApp):
         self.p_path = Path(self.p_path)
         self.v_path = Path(self.v_path)
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         # P and V are stored verbatim (already in the kernel's row layout).
         state.xmem.write_address(PBASE, bytearray(self.p_path.read_bytes()))
         state.xmem.write_address(VBASE, bytearray(self.v_path.read_bytes()))
@@ -110,7 +109,7 @@ class AttnVBcast36App(IpuApp):
         state.regfile.set_lr(2, OUT_ROW_ROWS)  # output-row stride (rows)
         state.regfile.set_lr(3, GRP_QUERY_ROWS)  # group query offset (rows)
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         if self.output_path is not None:
             # 144 channels, each 256 elements (two 128-lane FP32 group rows).
             dump_xmem_to_binary(

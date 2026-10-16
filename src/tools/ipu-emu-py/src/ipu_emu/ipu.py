@@ -19,46 +19,46 @@ from __future__ import annotations
 import math
 import struct
 import warnings
+from collections.abc import Callable
 from enum import IntEnum
-from functools import lru_cache
-from typing import Any, Callable, NamedTuple
+from functools import cache, lru_cache
+from typing import Any, NamedTuple
 
 import numpy as np
 
-from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE, WideVectorArithmetic
-from ipu_emu.xmem import XMEM_SIZE_BYTES
+from ipu_emu.activations import apply_activation
+from ipu_emu.errors import DebugOnlyInstructionWarning, EmulatorError
+from ipu_emu.ipu_config import LR_CR_SCALAR_BITS, REGISTER_WORD_VALUE_MASK, PadMode, Partition
+from ipu_emu.ipu_math import DType, dtype_one_byte, ipu_add, ipu_mult, ipu_sub
+from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState, WideVectorArithmetic
+from ipu_emu.isa_alias_spec import SCALAR_MULT_OPERANDS, VECTOR_IDENTITY_MULTS, aliases_for
 from ipu_emu.regfile import RegFile
 from ipu_emu.stats import RunStats
-from ipu_emu.errors import DebugOnlyInstructionWarning, EmulatorError
-from ipu_emu.ipu_math import ipu_mult, ipu_add, ipu_sub, dtype_one_byte, DType
-from ipu_emu.ipu_config import REGISTER_WORD_VALUE_MASK, LR_CR_SCALAR_BITS, PadMode, Partition
-from ipu_isa.instruction_spec import (
-    INSTRUCTION_SPEC,
-    SLOT_BINARY_LAYOUT,
-    SLOT_UNIONS,
-    SLOT_COUNT,
-    get_opcode_for_instruction,
-)
-from ipu_isa.operand_types import OPERAND_TYPES
+from ipu_emu.xmem import XMEM_SIZE_BYTES
 from ipu_isa.acc_stride_enums import (
     get_elements_per_row,
     get_horizontal_stride_bits,
     get_vertical_stride_bits,
-)
-from ipu_emu.isa_alias_spec import SCALAR_MULT_OPERANDS, VECTOR_IDENTITY_MULTS, aliases_for
-from ipu_isa.incr_mod_pow2_k import LR_MOD_POW2_K_ENCODED_MAX, LR_MOD_POW2_K_MIN
-from ipu_isa.reshape_mask import RESHAPE_ELEMENT_COUNT, RESHAPE_MASK_LR_OFFSET
-from ipu_isa.registers import (
-    get_register_sizes,
-    get_lane_count,
-    get_mult_stage_map,
 )
 from ipu_isa.activations import (
     ACTIVATION_EXP2,
     ACTIVATION_IDENTITY,
     ACTIVATION_RECIPROCAL,
 )
-from ipu_emu.activations import apply_activation
+from ipu_isa.incr_mod_pow2_k import LR_MOD_POW2_K_ENCODED_MAX, LR_MOD_POW2_K_MIN
+from ipu_isa.instruction_spec import (
+    INSTRUCTION_SPEC,
+    SLOT_COUNT,
+    SLOT_UNIONS,
+    get_opcode_for_instruction,
+)
+from ipu_isa.operand_types import OPERAND_TYPES
+from ipu_isa.registers import (
+    get_lane_count,
+    get_mult_stage_map,
+    get_register_sizes,
+)
+from ipu_isa.reshape_mask import RESHAPE_ELEMENT_COUNT, RESHAPE_MASK_LR_OFFSET
 
 # ---------------------------------------------------------------------------
 # Constants — derived from the single source of truth in ipu-isa
@@ -807,7 +807,7 @@ class Ipu:
             return raw_value
 
     @staticmethod
-    @lru_cache(maxsize=None)
+    @cache
     def _build_partition_vector(num_partitions: int) -> int:
         """Build the left-shift partition vector (0 at the START of each group).
 
@@ -829,7 +829,7 @@ class Ipu:
         return result
 
     @staticmethod
-    @lru_cache(maxsize=None)
+    @cache
     def _build_inverse_partition_vector(num_partitions: int) -> int:
         """Build the right-shift partition vector (0 at the END of each group).
 

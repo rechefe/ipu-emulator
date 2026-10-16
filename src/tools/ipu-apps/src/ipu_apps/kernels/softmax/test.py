@@ -30,7 +30,6 @@ from ipu_apps.kernels.softmax.softmax_rows.app import SoftmaxRowsApp
 from ipu_apps.kernels.softmax.softmax_rows_long.app import SoftmaxRowsLongApp
 from ipu_apps.kernels.softmax.softmax_rows_partial.app import SoftmaxRowsPartialApp
 
-
 # -- layout contract --------------------------------------------------------
 
 # (id, app class, kernel name, ctor kwargs, (rows, cols), softmax axis).

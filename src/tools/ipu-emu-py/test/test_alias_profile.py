@@ -6,15 +6,15 @@ import math
 import struct
 import weakref
 
+import emu_support
 import pytest
-from ipu_emu.alias_profile import AliasDefinition, AliasProfile, DetectorRegistry, Event, Match
+from emu_support import ElementFormat, assemble_program, new_state
+
 from ipu_emu.alias_detectors import default_registry
+from ipu_emu.alias_profile import AliasDefinition, AliasProfile, DetectorRegistry, Event, Match
 from ipu_emu.emulator import load_program, run_until_complete
 from ipu_emu.errors import DebugOnlyInstructionWarning
 from ipu_emu.ipu_state import IpuState
-
-import emu_support
-from emu_support import ElementFormat, assemble_program, new_state
 
 
 def run(code, *, enabled=True, setup=None, wide=False):
@@ -299,7 +299,7 @@ def test_register_overwrite_revokes_transfer_provenance():
 
 
 def test_empty_cycles_and_break_resume_count_once():
-    from ipu_emu.ipu import Ipu, BreakResult
+    from ipu_emu.ipu import BreakResult, Ipu
 
     state = IpuState(alias_profile=AliasProfile())
     engine = Ipu(state)

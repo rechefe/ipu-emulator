@@ -2,14 +2,13 @@ import warnings
 
 import ipu_as.inst as inst
 import ipu_as.utils as utils
+from ipu_gen.union_layout_svg import render_union_layout_svg
 from ipu_isa.instruction_spec import (
     COMPOUND_LAYOUT_SLOT_ORDER,
     SLOT_COUNT,
     SLOT_UNIONS,
     is_hardware_slot,
 )
-from ipu_gen.union_layout_svg import render_union_layout_svg
-
 
 INST_SEPARATOR = ";"
 

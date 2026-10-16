@@ -61,11 +61,9 @@ from __future__ import annotations
 import math
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import numpy as np
-
-from ipu_as.lark_tree import assemble_to_bin_file
 
 from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.convolutions.app import (
@@ -75,6 +73,7 @@ from ipu_apps.kernels.convolutions.app import (
     render_asm,
     universal_spec,
 )
+from ipu_as.lark_tree import assemble_to_bin_file
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -177,8 +176,8 @@ class ConvUniversalWide384App(IpuApp):
         rows: int,
         in_channels: int,
         out_channels: int,
-        kernel: Optional[np.ndarray] = None,
-        kernel_path: Optional[str | Path] = None,
+        kernel: np.ndarray | None = None,
+        kernel_path: str | Path | None = None,
         **kwargs,
     ) -> None:
         # The bound inst_path is kept but not run: this app renders and
@@ -267,7 +266,7 @@ class ConvUniversalWide384App(IpuApp):
     def _render_asm(self) -> str:
         return render_asm(kernel_asm("conv_universal_wide384"), cpr=self.cpr, rows=self.rows)
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         # input_path holds the TRUE [in_channels, rows, width] float32
         # tensor -- repack to the channel-interleaved-per-row on-device layout.
         raw = np.frombuffer(self.input_path.read_bytes(), dtype=np.float32)
@@ -313,7 +312,7 @@ class ConvUniversalWide384App(IpuApp):
         state.regfile.set_cr(13, self.total_kernel_rows)
         state.regfile.set_cr(14, self.blocks_per_filter)
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         if self.output_path is not None:
             total_outputs = self.rows * self.out_channels * self.cpr
             total_elements = total_outputs * CHUNK_ELEMENTS
@@ -326,7 +325,7 @@ class ConvUniversalWide384App(IpuApp):
             out_chw = np.ascontiguousarray(out.transpose(1, 0, 2))
             Path(self.output_path).write_bytes(out_chw.astype(np.float32).tobytes())
 
-    def run(self, *, max_cycles: int = 5_000_000, **kwargs) -> tuple["IpuState", int]:
+    def run(self, *, max_cycles: int = 5_000_000, **kwargs) -> tuple[IpuState, int]:
         bound = self.inst_path
         with tempfile.TemporaryDirectory(prefix="conv_universal_wide384_") as tmp:
             bin_path = Path(tmp) / "conv_universal_wide384.bin"

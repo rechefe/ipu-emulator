@@ -5,17 +5,17 @@ import pytest
 
 from ipu_apps.kernel_registry.cases import assemble_kernel, load_cases, run_case
 from ipu_apps.kernel_registry.testing import case_tests
+from ipu_apps.kernels.reshape.cases import spatial_tensor, stream_rows
 from ipu_apps.kernels.reshape.unfold_8x8x240.app import (
-    C,
-    H,
-    W,
     LANES,
     N_OUT,
     N_STREAMS,
     N_TOK,
     OUTPUT_ROW_BYTES,
+    C,
+    H,
+    W,
 )
-from ipu_apps.kernels.reshape.cases import spatial_tensor, stream_rows
 
 KERNEL = "unfold_8x8x240"
 

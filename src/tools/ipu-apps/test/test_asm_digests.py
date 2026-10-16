@@ -12,9 +12,8 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-import pytest
-
 import asm_corpus
+import pytest
 
 # Bazel runs the test from the runfiles root of the main repository, where the
 # corpus files and the manifest sit at their repo-relative paths.

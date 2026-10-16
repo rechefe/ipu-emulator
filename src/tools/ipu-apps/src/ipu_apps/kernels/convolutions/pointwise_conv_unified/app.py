@@ -193,7 +193,7 @@ class PointwiseConvUnifiedApp(IpuApp):
                 # elements [ics_in_pass..128) stay zero (padding)
         return packed.tobytes()
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         # input_path holds the TRUE (unpadded) [in_channels, height, width]
         # float32 tensor -- pad + chunk-pack to the on-device layout here,
         # internal to this method (see the class docstring's file-layout
@@ -260,7 +260,7 @@ class PointwiseConvUnifiedApp(IpuApp):
         # from the INT8 quantize path.
         state.set_cr_dstructure(valid_elements=128)
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         if self.output_path is not None:
             total_rows = self.row_groups * self.out_channels
             raw = state.xmem.read_address(self.output_base_addr, total_rows * ROW_BYTES)

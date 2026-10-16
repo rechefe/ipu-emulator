@@ -21,50 +21,65 @@ import os
 from pathlib import Path
 
 import numpy as np
-
-from ipu_apps.kernels.normalize.layernorm_16x240.app import LayerNorm16x240App
-from ipu_apps.kernels.projections.proj_qkv_240_p4.app import (
-    ProjQKV240P4App,
-    K as QKV_K,
-    N_OUT as QKV_N_OUT,
-)
-from ipu_apps.kernels.attention.qk_scores_16x60.app import QkScores16x60App
-from ipu_apps.kernels.attention.attn_scores_km_16x60.app import AttnScoresKM16x60App
-from ipu_apps.kernels.attention.attn_v_16x60.app import AttnV16x60App
-from ipu_apps.kernels.attention.attn_v_bcast_60.app import AttnVBcast60App
-import ipu_apps.kernels.attention.attn_v_bcast_60.app as attn_v_bcast_60_mod
-from ipu_apps.kernels.projections.proj_outproj_240_p4.app import (
-    ProjOutProj240P4App,
-    K as OUTPROJ_K,
-    N_OUT as OUTPROJ_N_OUT,
-)
-from ipu_apps.kernels.elementwise.residual_add_16x240.app import ResidualAdd16x240App
-from ipu_apps.kernels.projections.proj_ffn1_240_p4.app import (
-    ProjFFN1240P4App,
-    K as FFN1_K,
-    N_OUT as FFN1_N_OUT,
-)
-from ipu_apps.kernels.projections.proj_ffn2_240_p4.app import (
-    ProjFFN2240P4App,
-    K as FFN2_K,
-    N_OUT as FFN2_N_OUT,
-)
-
-from fixture_host_softmax_fold_stubs import softmax_query_major, softmax_key_major
 from fixture_full_layer_chain import (
+    _stable_seed,
     app_inst,
+    format_relative_error_stats,
+    real_softmax_key_major,
+    real_softmax_query_major,
+    relative_error_stats,
+    run_attn_scores_km_one_head,
+    run_attn_v_bcast,
+    run_attn_v_query_major_one_stream,
     run_layernorm,
     run_proj_p4,
     run_qk_scores_query_major_one_head,
-    run_attn_v_query_major_one_stream,
-    run_attn_scores_km_one_head,
-    run_attn_v_bcast,
     run_residual_add,
-    relative_error_stats,
-    format_relative_error_stats,
-    real_softmax_query_major,
-    real_softmax_key_major,
-    _stable_seed,
+)
+from fixture_host_softmax_fold_stubs import softmax_key_major, softmax_query_major
+
+import ipu_apps.kernels.attention.attn_v_bcast_60.app as attn_v_bcast_60_mod
+from ipu_apps.kernels.attention.attn_scores_km_16x60.app import AttnScoresKM16x60App
+from ipu_apps.kernels.attention.attn_v_16x60.app import AttnV16x60App
+from ipu_apps.kernels.attention.attn_v_bcast_60.app import AttnVBcast60App
+from ipu_apps.kernels.attention.qk_scores_16x60.app import QkScores16x60App
+from ipu_apps.kernels.elementwise.residual_add_16x240.app import ResidualAdd16x240App
+from ipu_apps.kernels.normalize.layernorm_16x240.app import LayerNorm16x240App
+from ipu_apps.kernels.projections.proj_ffn1_240_p4.app import (
+    N_OUT as FFN1_N_OUT,
+)
+from ipu_apps.kernels.projections.proj_ffn1_240_p4.app import (
+    K as FFN1_K,
+)
+from ipu_apps.kernels.projections.proj_ffn1_240_p4.app import (
+    ProjFFN1240P4App,
+)
+from ipu_apps.kernels.projections.proj_ffn2_240_p4.app import (
+    N_OUT as FFN2_N_OUT,
+)
+from ipu_apps.kernels.projections.proj_ffn2_240_p4.app import (
+    K as FFN2_K,
+)
+from ipu_apps.kernels.projections.proj_ffn2_240_p4.app import (
+    ProjFFN2240P4App,
+)
+from ipu_apps.kernels.projections.proj_outproj_240_p4.app import (
+    N_OUT as OUTPROJ_N_OUT,
+)
+from ipu_apps.kernels.projections.proj_outproj_240_p4.app import (
+    K as OUTPROJ_K,
+)
+from ipu_apps.kernels.projections.proj_outproj_240_p4.app import (
+    ProjOutProj240P4App,
+)
+from ipu_apps.kernels.projections.proj_qkv_240_p4.app import (
+    N_OUT as QKV_N_OUT,
+)
+from ipu_apps.kernels.projections.proj_qkv_240_p4.app import (
+    K as QKV_K,
+)
+from ipu_apps.kernels.projections.proj_qkv_240_p4.app import (
+    ProjQKV240P4App,
 )
 
 # See test_full_layer_l4.py's matching flag for what this does.

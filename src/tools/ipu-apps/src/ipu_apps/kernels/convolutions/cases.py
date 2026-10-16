@@ -17,8 +17,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from ipu_apps.kernel_registry.cases import KernelCase, PreparedCase
 from ipu_apps.kernel_registry.case_support import random_values, tile_input, tiled_case
+from ipu_apps.kernel_registry.cases import KernelCase, PreparedCase
 
 
 def make_cases(app):

@@ -1,5 +1,7 @@
-import lark
 import dataclasses
+
+import lark
+
 import ipu_as.label as label
 import ipu_as.utils as utils
 from ipu_isa.geometry import MAX_PROGRAM_SIZE
@@ -86,10 +88,8 @@ class EnumToken(IpuToken):
         super().__init__(token)
         if self.token.value.lower() not in {n.lower() for n in self.enum_array()}:
             self._raise_error(
-                (
-                    f"Value {self.token.value} not in enum options\n"
-                    f"Available options: {self.enum_array()}"
-                )
+                f"Value {self.token.value} not in enum options\n"
+                f"Available options: {self.enum_array()}"
             )
 
     def __len__(self):

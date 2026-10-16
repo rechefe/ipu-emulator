@@ -57,10 +57,9 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ipu_emu.emulator import dump_xmem_to_binary
-
 from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.reshape.app import unfold_spec
+from ipu_emu.emulator import dump_xmem_to_binary
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -144,7 +143,7 @@ DST_BASE = DST_BASE_ROW * ROW_BYTES
 # -- XMEM loaders -----------------------------------------------------------
 
 
-def _load_input(state: "IpuState", input_path: str | Path) -> None:
+def _load_input(state: IpuState, input_path: str | Path) -> None:
     """Write the packed stripe input directly into XMEM at SRC_BASE.
 
     File layout: C rows of LANES FP32 elements. Row ch holds
@@ -155,7 +154,7 @@ def _load_input(state: "IpuState", input_path: str | Path) -> None:
     state.xmem.write_address(SRC_BASE, bytearray(raw))
 
 
-def _load_ones(state: "IpuState") -> None:
+def _load_ones(state: IpuState) -> None:
     """One XMEM row of FP32 1.0 for R_CYCLIC (the pass-through multiplier)."""
     state.xmem.write_address(ONES_BASE, bytearray(np.ones(LANES, dtype=np.float32).tobytes()))
 
@@ -176,7 +175,7 @@ class Unfold8x8x240App(IpuApp):
         super().__init__(**kwargs)
         self.input_path = Path(self.input_path)
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         _load_input(state, self.input_path)
         _load_ones(state)
         # CR0: the single stripe's source base. SRC_BASE_ROW is 0, which the
@@ -197,7 +196,7 @@ class Unfold8x8x240App(IpuApp):
         state.regfile.set_lr(10, 0)  # channel counter
         state.regfile.set_lr(11, C)  # loop limit
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         """Dump the 4 streams, cropping each row to its N_TOK valid tokens.
 
         Each output row is a whole XMEM row (one channel per row, never shared).

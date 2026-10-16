@@ -25,10 +25,9 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ipu_emu.emulator import dump_xmem_to_binary
-
 from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.normalize.app import layernorm_spec
+from ipu_emu.emulator import dump_xmem_to_binary
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -125,7 +124,7 @@ class LayerNorm64x192App(IpuApp):
         self.gamma_path = Path(gamma_path)
         self.beta_path = Path(beta_path)
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         # Data: N_CH rows of LANES FP32 values (N_TOK valid, rest zero).
         state.xmem.write_address(DATA_BASE, bytearray(self.input_path.read_bytes()))
 
@@ -173,7 +172,7 @@ class LayerNorm64x192App(IpuApp):
         # CR15 holds this kernel's dstructure configuration and is not free,
         # so step 6's sub-loop B bound (64) is built in the ASM by doubling CR1.
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         if self.output_path is not None:
             dump_xmem_to_binary(
                 state,

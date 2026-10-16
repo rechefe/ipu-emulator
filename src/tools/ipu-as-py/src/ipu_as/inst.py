@@ -2,20 +2,21 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 import lark
-import ipu_as.opcodes as opcodes
-import ipu_as.ipu_token as ipu_token
-import ipu_as.reg as reg
+
 import ipu_as.immediate as immediate
+import ipu_as.ipu_token as ipu_token
+import ipu_as.opcodes as opcodes
+import ipu_as.reg as reg
 import ipu_as.utils as utils
-from ipu_isa.operand_types import OPERAND_TYPES, OperandType
 from ipu_isa.instruction_spec import (
-    INSTRUCTION_SPEC,
     COMPOUND_LAYOUT_SLOT_ORDER,
-    InstructionDoc,
+    INSTRUCTION_SPEC,
     SLOT_UNIONS,
+    InstructionDoc,
     is_hardware_slot,
     syntax,
 )
+from ipu_isa.operand_types import OPERAND_TYPES, OperandType
 
 
 def _operand_type_md_link(typ: str) -> str:
@@ -298,7 +299,7 @@ class Inst:
     def get_all_instruction_classes(cls) -> list[type["Inst"]]:
         """Return instruction subclasses in compound-layout slot order."""
         slot_to_class = {subclass._slot_type_name(): subclass for subclass in cls.__subclasses__()}
-        seen: list[type["Inst"]] = []
+        seen: list[type[Inst]] = []
         for slot in COMPOUND_LAYOUT_SLOT_ORDER:
             inst_class = slot_to_class.get(slot)
             if inst_class is None:

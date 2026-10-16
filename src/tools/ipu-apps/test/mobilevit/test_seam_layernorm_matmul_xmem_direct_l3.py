@@ -32,11 +32,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+from fixture_kernel_support import run_layernorm_capture_xmem, run_matmul_direct_xmem_handoff
 
 from ipu_apps.kernels.matmul.matmul_144x144_x128 import app as mm
 from ipu_apps.kernels.normalize.layernorm_256x144 import app as ln
-
-from fixture_kernel_support import run_layernorm_capture_xmem, run_matmul_direct_xmem_handoff
 
 # Structural precondition: both kernels must agree on N_CH==K and N_TG before
 # any byte handoff makes sense.

@@ -31,6 +31,10 @@ import re
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 
+from ipu_as.diagnostics import check
+from ipu_as.inst import OPERAND_TYPE_MAP
+from ipu_as.lark_tree import get_parser
+from ipu_as.reg import LRD_REG_FIELDS, LrdRegField
 from ipu_isa.instruction_spec import (
     COMPOUND_LAYOUT_SLOT_ORDER,
     INSTRUCTION_SPEC,
@@ -42,11 +46,6 @@ from ipu_isa.instruction_spec import (
 from ipu_isa.operand_types import operand_type
 from ipu_isa.registers import REGISTER_DEFINITIONS, create_assembler_reg_enums
 from ipu_isa.types import RegKind
-
-from ipu_as.diagnostics import check
-from ipu_as.inst import OPERAND_TYPE_MAP
-from ipu_as.lark_tree import get_parser
-from ipu_as.reg import LRD_REG_FIELDS, LrdRegField
 
 GENERATED_BY = "//vscode-ipu-asm:gen_vscode from asm_grammar.lark — do not edit by hand"
 

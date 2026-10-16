@@ -12,32 +12,26 @@ import struct
 import subprocess
 import sys
 
-import numpy as np
 import pytest
+from emu_support import ElementFormat, decode_program, make_state, new_state, run
 
-from ipu_emu.execute import decode_instruction_word, BreakResult
+from ipu_as.compound_inst import CompoundInst
+from ipu_as.lark_tree import assemble, parse
+from ipu_emu.activations import apply_activation
+from ipu_emu.debug_control import DebugControl
 from ipu_emu.emulator import (
+    DebugAction,
     load_program,
     run_until_complete,
     run_with_debug,
-    DebugAction,
 )
-from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE
-from ipu_emu.debug_control import DebugControl
-from ipu_emu.ipu_math import DType
-from ipu_emu.ipu_config import encode_dstructure, PadMode
 from ipu_emu.errors import DebugOnlyInstructionWarning
-from ipu_emu.ipu import EmulatorError, NARROW_MAX_ROW
+from ipu_emu.execute import BreakResult, decode_instruction_word
+from ipu_emu.ipu import NARROW_MAX_ROW, EmulatorError
+from ipu_emu.ipu_config import PadMode, encode_dstructure
+from ipu_emu.ipu_math import DType
+from ipu_emu.ipu_state import IpuState
 from ipu_emu.xmem import XMEM_SIZE_BYTES
-
-from ipu_as.lark_tree import assemble, parse
-
-from ipu_as.compound_inst import CompoundInst
-
-from ipu_emu.activations import apply_activation
-
-from emu_support import ElementFormat, decode_program, make_state, new_state, run
-
 
 # ============================================================================
 # Basic Register Operations
@@ -3313,7 +3307,7 @@ class TestNarrowStoreOverflow:
     """
 
     def test_acc_add_overflow_leaves_the_lane_by_lane_state(self) -> None:
-        from ipu_emu.ipu import Ipu, LANES
+        from ipu_emu.ipu import LANES, Ipu
 
         state = make_state("ACC.ADD ;;", fmt=ElementFormat.E4)
         k = 7

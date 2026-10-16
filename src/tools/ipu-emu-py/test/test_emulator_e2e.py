@@ -14,16 +14,15 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from ipu_emu.ipu_state import IpuState
-from ipu_emu.ipu_math import DType, fp32_to_fp8_bytes, fp8_bytes_to_fp32
 from ipu_emu.emulator import (
-    load_binary_to_xmem,
+    DebugAction,
     dump_xmem_to_binary,
+    load_binary_to_xmem,
     load_fp32_as_fp8_to_xmem,
     run_test,
-    DebugAction,
 )
-
+from ipu_emu.ipu_math import DType, fp8_bytes_to_fp32, fp32_to_fp8_bytes
+from ipu_emu.ipu_state import IpuState
 
 # ---------------------------------------------------------------------------
 # Binary I/O unit tests

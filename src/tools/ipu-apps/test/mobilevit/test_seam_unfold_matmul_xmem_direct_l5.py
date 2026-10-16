@@ -46,16 +46,15 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-
-from ipu_apps.kernels.matmul.matmul_720x240_x128 import app as mm
-from ipu_apps.kernels.reshape.unfold_8x8x240 import app as uf
-
 from fixture_kernel_support import (
     POISON,
     kernel_inst,
     poison,
     run_matmul_direct_xmem_handoff,
 )
+
+from ipu_apps.kernels.matmul.matmul_720x240_x128 import app as mm
+from ipu_apps.kernels.reshape.unfold_8x8x240 import app as uf
 
 assert uf.C == uf.N_OUT == mm.K == 240
 assert uf.LANES == mm.LANES == 128

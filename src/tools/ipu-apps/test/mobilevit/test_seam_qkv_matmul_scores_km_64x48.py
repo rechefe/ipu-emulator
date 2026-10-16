@@ -36,11 +36,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+from fixture_kernel_support import POISON, kernel_inst, poison
 
 from ipu_apps.kernels.attention.attn_scores_km_64x48 import app as km
 from ipu_apps.kernels.matmul.matmul_576x192_x128 import app as mm
-
-from fixture_kernel_support import POISON, kernel_inst, poison
 
 N, D, P, N_HEAD, LANES = km.N, km.D, km.P, km.N_HEAD, km.LANES
 

@@ -2,6 +2,7 @@ import json
 import sys
 
 import click
+
 from ipu_as import diagnostics, gen_codegen, lark_tree
 
 

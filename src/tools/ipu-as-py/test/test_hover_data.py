@@ -7,7 +7,6 @@ one). These tests stop a new instruction from shipping an example that does not
 assemble, and stop a comma from reaching either code field.
 """
 
-import json
 import re
 
 import pytest

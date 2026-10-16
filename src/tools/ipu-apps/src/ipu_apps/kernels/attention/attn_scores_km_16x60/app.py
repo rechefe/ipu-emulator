@@ -48,11 +48,10 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ipu_emu.emulator import dump_xmem_to_binary
-
-from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernel_registry import ShapeBundle
+from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.attention.app import attention_spec
+from ipu_emu.emulator import dump_xmem_to_binary
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -97,7 +96,7 @@ K_STRIDE = K_STRIDE_ROWS * ROW_BYTES
 OUTPUT_ROW_BYTES = ROW_BYTES  # R_ACC store payload
 
 
-def _load_q_channel_major(state: "IpuState", q_path: str | Path, head: int) -> None:
+def _load_q_channel_major(state: IpuState, q_path: str | Path, head: int) -> None:
     """Copy head `head`'s D channel columns of Q into XMEM at QBASE, one per row.
 
     Input file is canonical channel-major: Q[t, h*D+c] at element (h*D+c)*N_TOK + t.
@@ -118,7 +117,7 @@ def _load_q_channel_major(state: "IpuState", q_path: str | Path, head: int) -> N
         state.xmem.write_address(QBASE + c * Q_CHAN_ROWS * ROW_BYTES, bytearray(row.tobytes()))
 
 
-def _load_k_keymajor(state: "IpuState", k_path: str | Path, head: int) -> None:
+def _load_k_keymajor(state: IpuState, k_path: str | Path, head: int) -> None:
     """Rearrange head `head`'s K from channel-major into key-major XMEM scratch.
 
     Source K[s, c] at element (head*D + c)*N_TOK + s.  Destination K[s, :]
@@ -153,7 +152,7 @@ class AttnScoresKM16x60App(IpuApp):
             raise ValueError(f"head must be in [0, {N_HEADS}), got {head}")
         self.head = head
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         _load_q_channel_major(state, self.input_path, self.head)
         _load_k_keymajor(state, self.weights_path, self.head)
 
@@ -183,7 +182,7 @@ class AttnScoresKM16x60App(IpuApp):
         state.regfile.set_lr(10, N_TOK)  # key-loop limit
         state.regfile.set_lr(12, K_STRIDE_ROWS)  # key stride into K scratch (rows)
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         if self.output_path is not None:
             # N_TOK keys x N_TG groups, one WHOLE row each (16 live lanes).
             dump_xmem_to_binary(

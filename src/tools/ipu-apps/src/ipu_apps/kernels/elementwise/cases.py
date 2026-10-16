@@ -14,9 +14,8 @@ output is the same rows, cropped to ``valid_lanes`` by the harness when
 
 import numpy as np
 
-from ipu_emu.ipu import LANES
-
 from ipu_apps.kernel_registry.cases import KernelCase, PreparedCase
+from ipu_emu.ipu import LANES
 
 
 def residual_add_cases(

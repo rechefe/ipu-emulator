@@ -47,23 +47,22 @@ from __future__ import annotations
 import copy
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ipu_as.lark_tree import assemble_to_bin_file
-from ipu_emu.emulator import run_test
-from ipu_emu.ipu_config import Partition
-
 from ipu_apps.kernel_registry.base import IpuApp
-from ipu_apps.kernels.convolutions.depthwise_conv_universal.app import (
-    DepthwiseConvUniversalApp,
-)
 from ipu_apps.kernels.convolutions.app import (
     CHUNK_ELEMENTS,
     kernel_asm,
     universal_spec,
 )
+from ipu_apps.kernels.convolutions.depthwise_conv_universal.app import (
+    DepthwiseConvUniversalApp,
+)
+from ipu_as.lark_tree import assemble_to_bin_file
+from ipu_emu.emulator import run_test
+from ipu_emu.ipu_config import Partition
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -89,7 +88,7 @@ class _Stage1FullWidthApp(DepthwiseConvUniversalApp):
         # lands on cols=128.
         super().__init__(width=128, **kwargs)
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         super().setup(state)
         # CR15 dstructure: 128 lanes, ONE group (no packing). The base
         # class's cols_to_partition also maps 128 -> Partition.P0; this makes
@@ -125,7 +124,7 @@ class DepthwiseConvStride2_128App(IpuApp):
         *,
         rows: int,
         channels: int,
-        kernel: Optional[np.ndarray] = None,
+        kernel: np.ndarray | None = None,
         **kwargs,
     ) -> None:
         # inst_path is stage 2 (this kernel's own .asm, assembled); stage 1 is
@@ -180,7 +179,7 @@ class DepthwiseConvStride2_128App(IpuApp):
         self.output_base_addr = self._stage1_app.output_base_addr + stage1_output_elements * 4
         self.output_base_row = self.output_base_addr // ROW_BYTES
 
-    def run(self, *, max_cycles: int = 2_000_000, **kwargs) -> tuple["IpuState", int]:
+    def run(self, *, max_cycles: int = 2_000_000, **kwargs) -> tuple[IpuState, int]:
         with tempfile.TemporaryDirectory(prefix="depthwise_stride2_128_") as tmp:
             stage1_bin_path = Path(tmp) / "stage1.bin"
             assemble_to_bin_file(kernel_asm("depthwise_conv_universal"), str(stage1_bin_path))
@@ -194,7 +193,7 @@ class DepthwiseConvStride2_128App(IpuApp):
             # kernel's stats can cover both stages.
             stage1_stats = copy.copy(state.stats)
 
-        def stage2_setup(s: "IpuState") -> None:
+        def stage2_setup(s: IpuState) -> None:
             # Stage 1 left program_counter at its halted sentinel; reset it
             # so run_until_complete's `while not state.is_halted` loop
             # actually executes stage 2's freshly loaded program instead of

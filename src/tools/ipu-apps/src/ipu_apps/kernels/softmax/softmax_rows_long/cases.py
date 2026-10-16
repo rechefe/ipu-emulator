@@ -2,7 +2,6 @@
 
 from ipu_apps.kernels.softmax.cases import random_case
 
-
 CASES = {
     "default": random_case(
         axis=1,

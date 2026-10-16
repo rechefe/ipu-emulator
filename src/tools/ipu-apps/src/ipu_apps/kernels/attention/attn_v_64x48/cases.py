@@ -14,7 +14,7 @@ the sum to float32 exactly once, on the R_ACC write. ``pad`` fills the unused
 import numpy as np
 
 from ipu_apps.kernel_registry.cases import KernelCase, PreparedCase
-from ipu_apps.kernels.attention.attn_v_64x48.app import D, N_BLOCK, N_CHAN, N_TOK
+from ipu_apps.kernels.attention.attn_v_64x48.app import N_BLOCK, N_CHAN, N_TOK, D
 from ipu_apps.kernels.attention.cases import (
     MAX_CYCLES,
     agg_fold,

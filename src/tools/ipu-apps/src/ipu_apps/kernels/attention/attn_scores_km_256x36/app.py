@@ -29,11 +29,10 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ipu_emu.emulator import dump_xmem_to_binary
-
-from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernel_registry import ShapeBundle
+from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.attention.app import attention_spec
+from ipu_emu.emulator import dump_xmem_to_binary
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -76,7 +75,7 @@ K_STRIDE = K_STRIDE_ROWS * ROW_BYTES
 OUTPUT_ROW_BYTES = 512  # R_ACC store payload
 
 
-def _load_q_channel_major(state: "IpuState", q_path: str | Path, head: int) -> None:
+def _load_q_channel_major(state: IpuState, q_path: str | Path, head: int) -> None:
     """Copy head `head`'s 36 channel columns of Q verbatim into XMEM at QBASE.
 
     Input file is canonical channel-major: Q[t, h*36+c] at element (h*36+c)*256 + t.
@@ -93,7 +92,7 @@ def _load_q_channel_major(state: "IpuState", q_path: str | Path, head: int) -> N
     state.xmem.write_address(QBASE, bytearray(raw[base : base + span]))
 
 
-def _load_k_keymajor(state: "IpuState", k_path: str | Path, head: int) -> None:
+def _load_k_keymajor(state: IpuState, k_path: str | Path, head: int) -> None:
     """Rearrange head `head`'s K from channel-major into key-major XMEM scratch.
 
     Source K[s, c] at element (head*36 + c)*256 + s.  Destination K[s, :]
@@ -128,7 +127,7 @@ class AttnScoresKM256x36App(IpuApp):
             raise ValueError(f"head must be in [0, {N_HEADS}), got {head}")
         self.head = head
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         _load_q_channel_major(state, self.input_path, self.head)
         _load_k_keymajor(state, self.weights_path, self.head)
 
@@ -152,7 +151,7 @@ class AttnScoresKM256x36App(IpuApp):
         state.regfile.set_lr(10, N_TOK)  # key-loop limit
         state.regfile.set_lr(12, K_STRIDE_ROWS)  # key stride into K scratch (rows)
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         if self.output_path is not None:
             dump_xmem_to_binary(
                 state,

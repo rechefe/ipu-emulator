@@ -1,9 +1,11 @@
 """Normalization cases including all-zero columns and partial tiles."""
 
 import numpy as np
-from .app import App
-from ipu_apps.kernel_registry.cases import KernelCase
+
 from ipu_apps.kernel_registry.case_support import random_values, tile_input, tiled_case
+from ipu_apps.kernel_registry.cases import KernelCase
+
+from .app import App
 
 
 def prepare(workspace, *, channels, columns):

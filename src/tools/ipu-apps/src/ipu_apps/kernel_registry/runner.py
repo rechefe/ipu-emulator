@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import argparse
 import os
-from pathlib import Path
 import sys
+from pathlib import Path
 
 from ipu_apps.kernel_registry.cases import case_options, load_cases, run_case
 

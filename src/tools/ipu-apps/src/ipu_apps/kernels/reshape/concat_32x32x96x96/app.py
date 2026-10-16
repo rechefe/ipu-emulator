@@ -21,10 +21,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ipu_emu.emulator import dump_xmem_to_binary
-
 from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.reshape.app import concat_spec
+from ipu_emu.emulator import dump_xmem_to_binary
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -70,7 +69,7 @@ class Concat32x32x96x96App(IpuApp):
         self.input_a_path = Path(self.input_a_path)
         self.input_b_path = Path(self.input_b_path)
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         raw_a = Path(self.input_a_path).read_bytes()
         raw_b = Path(self.input_b_path).read_bytes()
         if len(raw_a) != C_A * ROW_BYTES:
@@ -98,7 +97,7 @@ class Concat32x32x96x96App(IpuApp):
         state.regfile.set_cr(9, C_A)  # C_A_COUNT
         state.regfile.set_cr(10, C_B)  # C_B_COUNT
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         if self.output_path is not None:
             dump_xmem_to_binary(
                 state,

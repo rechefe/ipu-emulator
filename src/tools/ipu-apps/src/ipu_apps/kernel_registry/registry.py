@@ -15,7 +15,8 @@ from __future__ import annotations
 
 import sys
 import threading
-from typing import TYPE_CHECKING, Any, Mapping
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ipu_apps.kernel_registry.base import IpuApp
@@ -43,7 +44,7 @@ def create_harness(
     params: Mapping[str, Any],
     bindings: Mapping[str, Any],
     package: str = "ipu_apps",
-) -> "IpuApp":
+) -> IpuApp:
     """Validate a kernel query and bind its instruction/input/output files.
 
     Parameters follow the same contract as ``resolve``. Bindings are file

@@ -15,21 +15,20 @@ and sets ``state.stats.total_cycles`` even when the run raises.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from enum import Enum, auto
 from pathlib import Path
-from typing import Any, Callable
 
 import numpy as np
 
-from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE
-from ipu_emu.run_control import RunControl
-from ipu_emu.ipu_math import DType, fp32_to_fp8_bytes, fp8_bytes_to_fp32
 from ipu_emu.execute import (
     BreakResult,
     Ipu,
-    decode_instruction_word,
     load_binary_instructions,
 )
+from ipu_emu.ipu_math import DType, fp32_to_fp8_bytes
+from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
+from ipu_emu.run_control import RunControl
 
 
 class DebugAction(Enum):

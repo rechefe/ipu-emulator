@@ -8,10 +8,9 @@ them. The only kernel-specific code is the CR map in ``memory_layout``:
   CR2 = input base row, CR3 = output base row, CR4 = row count.
 """
 
-from ipu_emu.ipu import LANES
-
 from ipu_apps.kernel_registry import OUTPUT, ShapeBundle
 from ipu_apps.kernel_registry.memory import MemoryApp, MemoryLayout, memory_spec
+from ipu_emu.ipu import LANES
 
 
 class IdentityApp(MemoryApp):

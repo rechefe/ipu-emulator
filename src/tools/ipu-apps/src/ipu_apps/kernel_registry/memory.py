@@ -5,15 +5,15 @@ constants, padding and scratch. Layout preparation belongs to cases/callers;
 the harness only validates file size, loads memory, sets CRs and dumps output.
 """
 
-from dataclasses import dataclass
 import inspect
+from dataclasses import dataclass
 from pathlib import Path
 
+from ipu_apps.kernel_registry import ExecutionConfig, folder_spec, kernel_folder, no, yes
+from ipu_apps.kernel_registry.base import IpuApp
 from ipu_emu.emulator import dump_xmem_to_binary, load_binary_to_xmem
 from ipu_emu.ipu import LANES, R_ACC_SIZE
 from ipu_emu.xmem import XMEM_SIZE_BYTES
-from ipu_apps.kernel_registry.base import IpuApp
-from ipu_apps.kernel_registry import ExecutionConfig, folder_spec, kernel_folder, no, yes
 
 
 def positive_shape(shape, rank):

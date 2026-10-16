@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ipu_isa.types import RegDtype, RegKind, RegDescriptor
+from ipu_isa.types import RegDescriptor, RegDtype, RegKind
 
 if TYPE_CHECKING:
     pass

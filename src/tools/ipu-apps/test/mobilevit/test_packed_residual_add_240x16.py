@@ -11,17 +11,15 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-
-from ipu_as.lark_tree import assemble_to_bin_file
-from ipu_as.label import reset_labels
-from ipu_emu.emulator import load_program_from_binary, run_until_complete
-from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
-from ipu_emu.ipu_config import encode_dstructure
-
 from fixture_kernel_support import kernel_inst
 from fixture_packed_l5_measure import count_instructions
 
 from ipu_apps.kernels.elementwise.residual_add_16x240.app import ResidualAdd16x240App
+from ipu_as.label import reset_labels
+from ipu_as.lark_tree import assemble_to_bin_file
+from ipu_emu.emulator import load_program_from_binary, run_until_complete
+from ipu_emu.ipu_config import encode_dstructure
+from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 
 _PACKED_ASM_SRC = Path(__file__).parent / "asm_packed_residual_add_240x16.asm"
 

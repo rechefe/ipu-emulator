@@ -22,8 +22,8 @@ import pytest
 from ipu_emu.ipu_math import (
     DType,
     _float32_to_fp8_scalar,
-    fp32_to_fp8_bytes,
     fp8_bytes_to_fp32,
+    fp32_to_fp8_bytes,
 )
 
 FORMATS = [DType.E1, DType.E2, DType.E3, DType.E4, DType.E5, DType.E6, DType.E7]

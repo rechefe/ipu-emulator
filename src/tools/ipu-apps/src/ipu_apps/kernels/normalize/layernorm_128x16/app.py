@@ -17,10 +17,9 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ipu_emu.emulator import dump_xmem_to_binary
-
 from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.normalize.app import layernorm_spec
+from ipu_emu.emulator import dump_xmem_to_binary
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -106,7 +105,7 @@ class LayerNorm128x16App(IpuApp):
         self.gamma_path = Path(gamma_path)
         self.beta_path = Path(beta_path)
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         # Load input: N_CH rows of N_TPG FP32 values
         raw = self.input_path.read_bytes()
         state.xmem.write_address(DATA_BASE, bytearray(raw))
@@ -142,7 +141,7 @@ class LayerNorm128x16App(IpuApp):
         state.regfile.set_cr(13, ROW_STRIDE_ROWS)  # 1 row
         state.regfile.set_cr(14, N_TPG)
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         if self.output_path is not None:
             dump_xmem_to_binary(
                 state,

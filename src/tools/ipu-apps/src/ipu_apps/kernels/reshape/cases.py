@@ -29,9 +29,8 @@ per row:
 
 import numpy as np
 
-from ipu_emu.ipu import LANES
-
 from ipu_apps.kernel_registry.cases import KernelCase, PreparedCase, check_output_bytes
+from ipu_emu.ipu import LANES
 
 N_STREAMS = 4
 MAX_CYCLES = 20_000_000

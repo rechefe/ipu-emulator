@@ -26,10 +26,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ipu_emu.emulator import dump_xmem_to_binary
-
 from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.matmul.app import matmul_spec
+from ipu_emu.emulator import dump_xmem_to_binary
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -77,7 +76,7 @@ WEIGHTS_BASE_ADDR = WEIGHTS_BASE_ROW * ROW_BYTES
 OUTPUT_BASE_ADDR = OUTPUT_BASE_ROW * ROW_BYTES
 
 
-def _load_input(state: "IpuState", input_path: str | Path) -> None:
+def _load_input(state: IpuState, input_path: str | Path) -> None:
     """Stage A, one XMEM row per matrix row (K == LANES, so no padding)."""
     raw = Path(input_path).read_bytes()
     expected = M * K * ELEM_BYTES
@@ -90,7 +89,7 @@ def _load_input(state: "IpuState", input_path: str | Path) -> None:
         state.xmem.write_address(INPUT_BASE_ADDR + m * ROW_BYTES, buf)
 
 
-def _load_and_transpose_weights(state: "IpuState", weights_path: str | Path) -> None:
+def _load_and_transpose_weights(state: IpuState, weights_path: str | Path) -> None:
     """Load W[n][k] from file and write T[k] (column k of W) into XMEM.
 
     File layout: W[n][k] at element n*K + k  (N rows × K cols, output-major).
@@ -124,7 +123,7 @@ class MatMul128x128App(IpuApp):
         self.input_path = Path(self.input_path)
         self.weights_path = Path(self.weights_path)
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         _load_input(state, self.input_path)
         _load_and_transpose_weights(state, self.weights_path)
         # CR0 (≡0) and CR1 (≡1) are read-only hardwired constants
@@ -142,7 +141,7 @@ class MatMul128x128App(IpuApp):
         state.regfile.set_cr(9, -1)
         state.regfile.set_cr(10, K - 1)
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         if self.output_path is not None:
             dump_xmem_to_binary(
                 state,

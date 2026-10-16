@@ -37,18 +37,18 @@ from ipu_emu.debug_cli import (
     _U32_DECIMAL_WIDTH,
     decode_16bit_cell,
 )
-from ipu_emu.descriptors import REGFILE_SCHEMA
-from ipu_emu.emulator import DebugAction
 from ipu_emu.debug_control import DebugControl
 from ipu_emu.debug_pipeline import (
-    pipeline_occupancy,
     SLOT_LABELS,
     display_operation,
+    pipeline_occupancy,
     semantic_operations,
 )
+from ipu_emu.descriptors import REGFILE_SCHEMA
+from ipu_emu.emulator import DebugAction
 from ipu_emu.errors import EmulatorError
 from ipu_emu.ipu import xmem_row_size_bytes
-from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE
+from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
 
 if TYPE_CHECKING:
     from ipu_emu.debug_cli import ResolvedXmemRequest, XmemRequest
@@ -3341,9 +3341,9 @@ class CursesDebugView:
 
     def _cycle_xmem_format(self, delta: int) -> None:
         from ipu_emu.debug_cli import (
-            XmemRequest,
             _XMEM_FORMAT_ITEM_SIZE_BYTES,
             _XMEM_FORMATS,
+            XmemRequest,
         )
 
         tab = self.session.selected_tab()

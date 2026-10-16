@@ -1,8 +1,9 @@
 """Cases shared by the max-pool kernels."""
 
 import numpy as np
-from ipu_apps.kernel_registry.cases import KernelCase
+
 from ipu_apps.kernel_registry.case_support import random_values, tile_input, tiled_case
+from ipu_apps.kernel_registry.cases import KernelCase
 from ipu_apps.kernels.pooling.app import Stride2PoolApp
 
 

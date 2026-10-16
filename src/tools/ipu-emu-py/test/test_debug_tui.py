@@ -3,22 +3,22 @@
 from __future__ import annotations
 
 import struct
-from io import StringIO
 from typing import Any
 
 import pytest
+from emu_support import ElementFormat, make_state, new_state
 
 # TODO(E08): debugger internals (CursesDebugView._*, debug_tui._*,
 # _resolve_xmem_request) are tested white-box until the debuggers move to ipu_debug.
 import ipu_emu.debug_tui as debug_tui
 from ipu_emu.debug_cli import XmemRequest, _resolve_xmem_request
 from ipu_emu.debug_tui import (
-    CursesDebugView,
-    DebugViewSession,
-    DisassemblyTab,
     MIN_TERMINAL_COLUMNS,
     MIN_TERMINAL_ROWS,
     PIPELINE_REGISTERS,
+    CursesDebugView,
+    DebugViewSession,
+    DisassemblyTab,
     PipelineTab,
     RegisterTab,
     XmemTab,
@@ -29,8 +29,6 @@ from ipu_emu.descriptors import REGFILE_SCHEMA
 from ipu_emu.emulator import DebugAction
 from ipu_emu.ipu import xmem_row_size_bytes
 from ipu_emu.ipu_state import IpuState
-
-from emu_support import ElementFormat, make_state, new_state
 
 
 class FakeScreen:
@@ -2702,7 +2700,7 @@ class TestPipelineStageView:
         return make_state(source)
 
     def test_stage_decoding_includes_each_metadata_slot(self):
-        from ipu_emu.debug_pipeline import stage_operations, SLOT_LABELS
+        from ipu_emu.debug_pipeline import SLOT_LABELS, stage_operations
 
         state = self.program("SET lr2 cr1;;")
         slots = dict(stage_operations(state.inst_mem[0]))

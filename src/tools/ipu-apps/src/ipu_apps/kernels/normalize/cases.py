@@ -19,9 +19,8 @@ variance to 0 rather than to an infinity.
 
 import numpy as np
 
-from ipu_emu.ipu import LANES
-
 from ipu_apps.kernel_registry.cases import KernelCase, PreparedCase
+from ipu_emu.ipu import LANES
 
 
 def reference_layernorm(x, gamma, beta):

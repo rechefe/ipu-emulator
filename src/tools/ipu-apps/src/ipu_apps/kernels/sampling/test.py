@@ -5,9 +5,8 @@ import numpy as np
 import pytest
 
 from ipu_apps.kernel_registry import resolve
-from ipu_apps.kernel_registry.cases import KernelCase, assemble_kernel, load_cases, run_case
 from ipu_apps.kernel_registry.case_support import prepared_image
-from ipu_emu.xmem import XMEM_SIZE_BYTES
+from ipu_apps.kernel_registry.cases import KernelCase, assemble_kernel, load_cases, run_case
 from ipu_apps.kernels.sampling.cases import (
     pack_input,
     precompute_axis_weights,
@@ -15,11 +14,15 @@ from ipu_apps.kernels.sampling.cases import (
     prepare,
     reference_rows,
 )
-from ipu_apps.kernels.sampling.sample_descriptors.app import App, SPEC as DIRECT
+from ipu_apps.kernels.sampling.sample_descriptors.app import SPEC as DIRECT
+from ipu_apps.kernels.sampling.sample_descriptors.app import App
 from ipu_apps.kernels.sampling.sample_descriptors_separable.app import (
-    App as SeparableApp,
     SPEC as SEPARABLE,
 )
+from ipu_apps.kernels.sampling.sample_descriptors_separable.app import (
+    App as SeparableApp,
+)
+from ipu_emu.xmem import XMEM_SIZE_BYTES
 
 SPECS = (DIRECT, SEPARABLE)
 

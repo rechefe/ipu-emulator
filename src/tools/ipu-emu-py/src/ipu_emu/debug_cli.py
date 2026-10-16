@@ -45,15 +45,14 @@ except ImportError:  # pragma: no cover - unavailable on some platforms
     readline = None
 
 # Single source of truth — import register types/schema from ipu_isa
-from ipu_isa.types import RegDescriptor, RegDtype, RegKind
-from ipu_isa.registers import create_regfile_schema
-
-from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE
-from ipu_emu.emulator import DebugAction
 from ipu_emu.debug_control import DebugControl, validate_pc
+from ipu_emu.emulator import DebugAction
 from ipu_emu.errors import EmulatorError
 from ipu_emu.ipu import addressable_rows, xmem_row_size_bytes
+from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
 from ipu_emu.xmem import XMEM_SIZE_BYTES, XMEM_WIDTH_BYTES
+from ipu_isa.registers import create_regfile_schema
+from ipu_isa.types import RegDescriptor, RegDtype
 
 # Re-export so callers only need this module
 __all__ = [

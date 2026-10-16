@@ -9,12 +9,12 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 
+from ipu_gen.union_layout_svg import render_union_layout_svg
 from ipu_isa.instruction_spec import (
     COMPOUND_LAYOUT_SLOT_ORDER,
     SLOT_COUNT,
     SLOT_UNIONS,
 )
-from ipu_gen.union_layout_svg import render_union_layout_svg
 
 
 def _render() -> str:

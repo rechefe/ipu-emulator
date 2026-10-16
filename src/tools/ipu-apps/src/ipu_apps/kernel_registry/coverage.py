@@ -13,8 +13,9 @@ are produced.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
-from typing import Any, Callable, Iterable, Sequence
+from typing import Any
 
 from ipu_apps.kernel_registry.registry import kernels, load, operations, resolve
 
