@@ -23,6 +23,7 @@ from ipu_isa.codec import disasm
 from ipu_isa.codec.slot import OPCODE_SLOT, SLOT_CODECS, WORD_CODEC
 from ipu_isa.codec.slot import EncodeError as CodecError
 from ipu_isa.faults import reserved_operand_codes
+from ipu_isa.schema import SpecError
 from ipu_isa.mnemonics import RESERVED_MNEMONICS
 from ipu_isa.slots import LAYOUT_ORDER, SLOTS, Slot
 from ipu_isa.tags import Tag
@@ -49,13 +50,15 @@ WILDCARD_OPCODES = frozenset({"nop"})
 
 def _check_nop_is_reserved() -> None:
     """NOP is the one mnemonic the assembler knows by name: it must be every
-    slot's NOP and nothing else, and no other mnemonic may be a wildcard."""
+    slot's NOP and nothing else. The ISA already requires one NOP per slot;
+    the assembler also relies on it taking no operands and on no
+    pseudo-instruction being named NOP."""
     for slot in LAYOUT_ORDER:
         nops = [i for i in isa().instructions(slot) if i.mnemonic.lower() in WILDCARD_OPCODES]
         if [i.mnemonic for i in nops] != ["NOP"] or nops[0].operands:
-            raise RuntimeError(f"slot {slot.value} must have exactly one NOP, with no operands")
+            raise SpecError(f"slot {slot.value} must have exactly one NOP, with no operands")
     if any(p.mnemonic.lower() in WILDCARD_OPCODES for p in isa().pseudos()):
-        raise RuntimeError("NOP is reserved; no pseudo-instruction may be named NOP")
+        raise SpecError("NOP is reserved; no pseudo-instruction may be named NOP")
 
 
 _check_nop_is_reserved()

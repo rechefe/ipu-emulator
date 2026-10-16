@@ -160,9 +160,11 @@ def test_every_pseudo_instruction_assembles_to_its_expansion(pseudo):
 @pytest.mark.parametrize("mnemonic", ["LD.MULT.CYCLIC", "BLT.S", "ld.mult.cyclic"])
 def test_a_dotted_mnemonic_is_one_token(mnemonic):
     # Multi-part names (Q45): the grammar's TOKEN takes the dots.
-    instruction = next(
+    found = [
         i for s in LAYOUT_ORDER for i in isa().instructions(s) if i.mnemonic == mnemonic.upper()
-    )
+    ]
+    assert found, f"{mnemonic} is not in the ISA (renamed again?)"
+    (instruction,) = found
     classes = [OPERAND_TYPE_MAP[op.type.name] for op in instruction.operands]
     operands = [_distinct_operand(cls, i) for i, cls in enumerate(classes)]
     (compound,) = AssemblySession(" ".join([mnemonic, *operands]) + ";;").parse()

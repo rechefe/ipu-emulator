@@ -46,7 +46,8 @@ def _operand_of(type_name: str) -> str:
             if op.type.name == type_name
         }
     )
-    return " / ".join(f"{mnemonic} {name}" for mnemonic, name in uses) + " operand"
+    names = " / ".join(f"{mnemonic} {name}" for mnemonic, name in uses) or type_name
+    return f"{names} operand"
 
 
 class LrModPow2KImmediate(ipu_token.IpuToken):
@@ -72,9 +73,8 @@ class LrModPow2KImmediate(ipu_token.IpuToken):
             self._raise_error(f"Value {self.token.value} is not a valid integer")
         low, high = self.value_range()
         if not (low <= self.int <= high):
-            self._raise_error(
-                f"Value {self.int} out of range [{low}, {high}] for {_operand_of('LrModPow2KImmediate')}"
-            )
+            operand = _operand_of("LrModPow2KImmediate")
+            self._raise_error(f"Value {self.int} out of range [{low}, {high}] for {operand}")
 
     def encode(self) -> int:
         return self.int - LR_MOD_POW2_K_MIN
