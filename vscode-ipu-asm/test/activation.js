@@ -59,7 +59,7 @@ test('in Restricted Mode nothing runs, and the status says why; trusting the wor
   const root = checkout(temp, 'repo');
   const ext = fake.install({ trusted: false, folders: [root], settings });
   spawned.length = 0;
-  const api = ext.activate();
+  const api = await ext.activate();
   ext.open(fake.Uri.file(path.join(root, 'k/demo/demo.asm')), 'BKPT;;\n');
   await ext.vscode.commands.executeCommand('ipuAsm.check');
   await ext.vscode.commands.executeCommand('ipuAsm.runKernel', 'demo');
@@ -95,12 +95,12 @@ process.stdout.write('[]');
 }
 
 /** A trusted window on checkouts `names` (in a fresh temporary folder) with the recording checker. */
-function window(...names) {
+async function window(...names) {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'ipu-activation-'));
   const roots = names.map((name) => checkout(temp, name));
   const check = recordingChecker(temp);
   const ext = fake.install({ folders: roots, settings: { ...settings, checkCommand: check.argv } });
-  const api = ext.activate();
+  const api = await ext.activate();
   const kernel = (root) => fake.Uri.file(path.join(root, 'k/demo/demo.asm'));
   const done = () => {
     ext.deactivate();
@@ -110,7 +110,7 @@ function window(...names) {
 }
 
 test('a check that failed is run again for the same text, once the toolchain is back', async () => {
-  const w = window('repo');
+  const w = await window('repo');
   fs.writeFileSync(path.join(w.roots[0], 'broken'), '');
   const doc = w.ext.open(w.kernel(w.roots[0]), 'BKPT;;\n');
   await until(() => w.api.checkerError(), 'the check to fail');
@@ -127,7 +127,7 @@ test('a check that failed is run again for the same text, once the toolchain is 
 });
 
 test('each checkout has its own status: a broken toolchain in one does not show for another', async () => {
-  const w = window('a', 'b');
+  const w = await window('a', 'b');
   const [a, b] = w.roots;
   fs.writeFileSync(path.join(a, 'broken'), '');
   const docA = w.ext.open(w.kernel(a), 'BKPT;;\n');
@@ -146,13 +146,13 @@ test('each checkout has its own status: a broken toolchain in one does not show 
 });
 
 test('an unsaved buffer is checked in the window\'s only checkout, and in none when there are two', async () => {
-  const one = window('repo');
+  const one = await window('repo');
   one.ext.open(new fake.Uri('untitled', 'Untitled-1'), 'BKPT;;\n');
   await until(() => one.check.runs().length, 'the unsaved buffer to be checked');
   assert.deepStrictEqual(one.check.runs(), one.roots);
   one.done();
 
-  const two = window('a', 'b');
+  const two = await window('a', 'b');
   await until(() => two.api.kernels.indexes.size === 2, 'both checkouts');
   two.ext.open(new fake.Uri('untitled', 'Untitled-1'), 'BKPT;;\n');
   two.ext.open(new fake.Uri('vscode-vfs', '/a/k/demo/demo.asm'), 'BKPT;;\n'); // no file on disk
@@ -163,6 +163,37 @@ test('an unsaved buffer is checked in the window\'s only checkout, and in none w
   await until(() => two.check.runs().length, 'the git side to be checked');
   assert.deepStrictEqual(two.check.runs(), [two.roots[1]]);
   two.done();
+});
+
+test('activating, finding the checkout, loading its kernels and the first check touch the disk only asynchronously', async () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'ipu-activation-'));
+  const root = checkout(temp, 'repo');
+  const ext = fake.install({ folders: [root], settings });
+  const doc = { uri: fake.Uri.file(path.join(root, 'k/demo/demo.asm')), languageId: 'ipu-asm', version: 1, isClosed: false, getText: () => 'BKPT;;\n' };
+  ext.vscode.workspace.textDocuments.push(doc);
+  ext.show(doc);
+  // Every synchronous fs call throws, and is noted in case the code swallows it.
+  const calls = [];
+  const real = {};
+  for (const name of Object.keys(fs).filter((n) => n.endsWith('Sync'))) {
+    real[name] = fs[name];
+    fs[name] = (...args) => {
+      calls.push(`${name}(${String(args[0])})`);
+      throw new Error(`fs.${name} during activation`);
+    };
+  }
+  let api;
+  try {
+    api = await ext.activate();
+    await until(() => api.kernels.indexes.get(root) && api.kernels.indexes.get(root).manifest, 'the kernels to load');
+    await until(() => ext.statusItem.text === '$(check) IPU', 'the first check');
+  } finally {
+    Object.assign(fs, real);
+  }
+  assert.deepStrictEqual(calls, []);
+  assert(api.editing === null || api.editing.gapLines, 'the editing help registered, when there is language data');
+  ext.deactivate();
+  fs.rmSync(temp, { recursive: true, force: true });
 });
 
 main((n) => `activation.js: ${n} cases pass.`);

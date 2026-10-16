@@ -136,6 +136,8 @@ function install({ trusted = true, folders = [], settings = {} } = {}) {
   };
   require.cache.vscode = { id: 'vscode', filename: 'vscode', loaded: true, exports: module };
 
+  // Loaded now, so activating it reads no module from disk.
+  const extension = require(path.join(EXTENSION, 'extension.js'));
   const context = { subscriptions: [], workspaceState: { get() {}, async update() {} } };
   return {
     vscode,
@@ -162,7 +164,7 @@ function install({ trusted = true, folders = [], settings = {} } = {}) {
       events.onDidGrantWorkspaceTrust.fire();
     },
     activate() {
-      return require(path.join(EXTENSION, 'extension.js')).activate(context);
+      return extension.activate(context);
     },
     /** Dispose what activation registered, as VS Code does on deactivation. */
     deactivate() {

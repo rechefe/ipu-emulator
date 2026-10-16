@@ -5,9 +5,10 @@
 // and nowhere else. The open folder may be inside one, hold several, or be another
 // project whose .asm is some other assembly, so the checkout is found from the path:
 // the nearest workspace above holding the assembler, or for a folder, those below.
-// Plain node, no `vscode` (see test/project.js).
+// Plain node, no `vscode` (see test/project.js). Asynchronous: it runs on the extension
+// host's one thread, where a synchronous walk would stall every other extension.
 
-const fs = require('fs');
+const fs = require('fs').promises;
 const path = require('path');
 
 const WORKSPACE_FILES = ['MODULE.bazel', 'WORKSPACE.bazel', 'WORKSPACE'];
@@ -17,50 +18,41 @@ const IPU_PACKAGE = path.join('src', 'tools', 'ipu-as-py');
 const SEARCH_DEPTH = 3;
 const SKIP = /^(\.|node_modules$|bazel-)/;
 
-function isDirectory(p) {
-  try {
-    return fs.statSync(p).isDirectory();
-  } catch {
-    return false;
-  }
-}
+const exists = (p) => fs.access(p).then(() => true, () => false);
+const isDirectory = (p) => fs.stat(p).then((s) => s.isDirectory(), () => false);
 
-function isCheckout(dir) {
-  return WORKSPACE_FILES.some((f) => fs.existsSync(path.join(dir, f))) && isDirectory(path.join(dir, IPU_PACKAGE));
+async function isCheckout(dir) {
+  const marked = await Promise.all(WORKSPACE_FILES.map((f) => exists(path.join(dir, f))));
+  return marked.some(Boolean) && isDirectory(path.join(dir, IPU_PACKAGE));
 }
 
 /** The IPU checkout holding `fsPath` (a file or a directory), or null. */
-function checkoutOf(fsPath) {
-  for (let dir = isDirectory(fsPath) ? fsPath : path.dirname(fsPath); ; dir = path.dirname(dir)) {
-    if (isCheckout(dir)) return dir;
+async function checkoutOf(fsPath) {
+  for (let dir = (await isDirectory(fsPath)) ? fsPath : path.dirname(fsPath); ; dir = path.dirname(dir)) {
+    if (await isCheckout(dir)) return dir;
     if (path.dirname(dir) === dir) return null;
   }
 }
 
 /** The IPU checkouts an open folder stands for: the one it is in, or else
  *  those below it (a few levels down, not inside another checkout). */
-function checkoutsFor(folder) {
-  const above = checkoutOf(folder);
+async function checkoutsFor(folder) {
+  const above = await checkoutOf(folder);
   if (above) return [above];
   const found = [];
-  const walk = (dir, depth) => {
-    let entries;
-    try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const entry of entries) {
-      if (SKIP.test(entry.name)) continue;
+  const walk = async (dir, depth) => {
+    const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
+    await Promise.all(entries.map(async (entry) => {
+      if (SKIP.test(entry.name)) return;
       const child = path.join(dir, entry.name);
       // A linked checkout counts, but links are not followed down: they could loop.
       const link = entry.isSymbolicLink();
-      if (!(link ? isDirectory(child) : entry.isDirectory())) continue;
-      if (isCheckout(child)) found.push(child);
-      else if (depth > 1 && !link) walk(child, depth - 1);
-    }
+      if (!(link ? await isDirectory(child) : entry.isDirectory())) return;
+      if (await isCheckout(child)) found.push(child);
+      else if (depth > 1 && !link) await walk(child, depth - 1);
+    }));
   };
-  walk(folder, SEARCH_DEPTH);
+  await walk(folder, SEARCH_DEPTH);
   return found.sort();
 }
 

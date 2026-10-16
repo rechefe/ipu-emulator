@@ -4,7 +4,7 @@
 // read the kernel manifest the workspace itself produces (Bazel's targets joined with
 // the kernel registry's cases), so a new kernel shows up with nothing edited here.
 
-const fs = require('fs');
+const fs = require('fs').promises;
 const path = require('path');
 const vscode = require('vscode');
 
@@ -39,14 +39,19 @@ class KernelIndex {
     /** The Bazel workspace the manifest's paths are relative to. */
     this.workspace = root;
     this.error = null;
+    /** The kernels root (runs.kernelsRoot) of the last manifest that loaded: kept while a
+     *  reload fails, so fixing what broke it still reloads it. */
+    this.kernelsRoot = null;
     this.loading = false;
     this._again = false;
+    this.disposed = false;
     this._changed = new vscode.EventEmitter();
     this.onDidChange = this._changed.event;
   }
 
   /** A refresh requested while one runs is run once after it, so the latest tree wins. */
   async refresh() {
+    if (this.disposed) return;
     if (this.loading) {
       this._again = true;
       return;
@@ -67,9 +72,11 @@ class KernelIndex {
     const before = this.manifest && this._stdout;
     try {
       if (result.code !== 0) throw new Error(tail(result.stderr) || `exit ${result.code}`);
-      this.manifest = JSON.parse(result.stdout);
+      const manifest = JSON.parse(result.stdout);
+      this.workspace = await this.workspaceOf(manifest.workspace);
+      this.manifest = manifest;
       this._stdout = result.stdout;
-      this.workspace = this.workspaceOf(this.manifest.workspace);
+      this.kernelsRoot = runs.kernelsRoot(manifest);
       this.error = null;
     } catch (err) {
       this.manifest = null;
@@ -90,27 +97,29 @@ class KernelIndex {
 
   /** The manifest's workspace under the checkout as opened: Bazel names it by its real
    *  path, VS Code by the path opened, and through a symlink the two differ. */
-  workspaceOf(workspace) {
+  async workspaceOf(workspace) {
     if (!workspace) return this.root;
-    let real = this.root;
-    try {
-      real = fs.realpathSync(this.root);
-    } catch {
-      /* the folder is gone: the manifest's own path is all there is */
-    }
+    // A folder that is gone has only the manifest's own path.
+    const real = await fs.realpath(this.root).catch(() => this.root);
     return path.resolve(this.root, path.relative(real, workspace));
   }
 
-  /** True when `fsPath` could change the manifest: anything under the
-   *  kernels, or any build file of the workspace itself. */
+  /** True when `fsPath` could change the manifest: anything under the kernels (anywhere in the
+   *  workspace before a manifest has said where they are), or any build file of the workspace. */
   affects(fsPath, buildFile = false) {
-    if (buildFile) {
+    if (buildFile || this.kernelsRoot === null) {
       // Not Bazel's own output trees, which hold copies of everything.
       const rel = project.within(this.workspace, fsPath);
       return Boolean(rel) && !rel.split(path.sep)[0].startsWith('bazel-');
     }
-    const root = runs.kernelsRoot(this.manifest);
-    return !root || Boolean(project.within(path.join(this.workspace, root), fsPath));
+    return Boolean(project.within(path.join(this.workspace, this.kernelsRoot), fsPath));
+  }
+
+  /** Stop: a checkout no longer open (its folder removed, or no checkout any more). */
+  dispose() {
+    this.disposed = true;
+    this.manifest = null;
+    this._changed.dispose();
   }
 }
 
@@ -361,189 +370,246 @@ async function query(indexes, output, state) {
 
 // --- Wiring ---
 
-function register(context) {
-  const indexes = new Map();
-  const changed = new vscode.EventEmitter();
-  const tree = {
-    onDidChangeTreeData: changed.event,
-    refresh: () => changed.fire(),
-    getTreeItem: (n) => n.item,
-    getChildren: (n) => (!n ? roots(indexes) : n.children ? n.children() : []),
-    getParent: (n) => n.parent,
-  };
-  const output = vscode.window.createOutputChannel('IPU Query');
-  const view = vscode.window.createTreeView('ipuKernels', { treeDataProvider: tree, showCollapseAll: true });
-  // The sidebar follows the editor: a kernel's .asm selects its row, while the sidebar is open.
-  const follow = () => {
-    const editor = vscode.window.activeTextEditor;
-    const found = view.visible && editor && kernelOfFile(editor.document.uri);
-    if (!found) return;
-    const index = indexes.get(found.folder);
-    const top = indexes.size > 1 ? roots(indexes).find((r) => r.root === index.root).children() : folderNodes(index);
-    const family = top.find((f) => f.kernels && f.kernels.includes(found.kernel));
-    if (family) view.reveal(kernelNode(index, found.kernel, family), { select: true, focus: false }).then(undefined, () => {});
-  };
-  const redraw = () => {
-    tree.refresh();
-    updateEditorContext();
-    caseform.refresh();
-    follow();
-  };
+/** The IPU sidebar and the kernel commands, over one KernelIndex per checkout the open
+ *  folders stand for. */
+class Kernels {
+  constructor(context) {
+    this.context = context;
+    this.indexes = new Map();
+    /** Debounced manifest reloads, by index. */
+    this.timers = new Map();
+    this.changed = new vscode.EventEmitter();
+    this.tree = {
+      onDidChangeTreeData: this.changed.event,
+      refresh: () => this.changed.fire(),
+      getTreeItem: (n) => n.item,
+      getChildren: (n) => (!n ? roots(this.indexes) : n.children ? n.children() : []),
+      getParent: (n) => n.parent,
+    };
+    this.output = vscode.window.createOutputChannel('IPU Query');
+    this.view = vscode.window.createTreeView('ipuKernels', { treeDataProvider: this.tree, showCollapseAll: true });
+    // Title bar buttons show on kernel files (Benchmark where there is one). Each editor group
+    // has its own title bar, so the keys list every such file rather than describe the active
+    // editor. They hold paths, matched against `resourcePath`: `resource` is the Uri as the
+    // window sees it, which in a remote window (WSL, SSH) is vscode-remote://, never file://.
+    this.editorContext = { kernelFiles: [], benchmarkFiles: [] };
+    /** Scans of the open folders, one at a time, so two never add the same checkout. */
+    this.scanning = Promise.resolve();
+    this.rescanTimer = undefined;
+  }
 
-  // One index per checkout the open folders stand for; a folder with none (another
-  // project, or a version predating the Python assembler) gets none: nothing runs for it.
-  const addFolders = () => {
+  /** The sidebar follows the editor: a kernel's .asm selects its row, while the sidebar is open. */
+  follow() {
+    const editor = vscode.window.activeTextEditor;
+    const found = this.view.visible && editor && this.kernelOfFile(editor.document.uri);
+    if (!found) return;
+    const index = this.indexes.get(found.folder);
+    const top = this.indexes.size > 1 ? roots(this.indexes).find((r) => r.root === index.root).children() : folderNodes(index);
+    const family = top.find((f) => f.kernels && f.kernels.includes(found.kernel));
+    if (family) this.view.reveal(kernelNode(index, found.kernel, family), { select: true, focus: false }).then(undefined, () => {});
+  }
+
+  redraw() {
+    this.tree.refresh();
+    this.updateEditorContext();
+    caseform.refresh();
+    this.follow();
+  }
+
+  /** One index per checkout the open folders stand for; a folder with none (another project,
+   *  or a version predating the Python assembler) gets none: nothing runs for it. */
+  async addFolders() {
     for (const folder of vscode.workspace.workspaceFolders || []) {
-      for (const root of project.checkoutsFor(folder.uri.fsPath)) {
-        if (indexes.has(root)) continue;
+      for (const root of await project.checkoutsFor(folder.uri.fsPath)) {
+        if (this.indexes.has(root)) continue;
         const index = new KernelIndex(folder, root);
-        index.siblings = indexes;
-        indexes.set(root, index);
-        index.onDidChange(redraw);
+        index.siblings = this.indexes;
+        this.indexes.set(root, index);
+        this.context.subscriptions.push(index);
+        index.onDidChange(() => this.redraw());
         // Launched after activation returns: starting a process blocks briefly.
         setImmediate(() => index.refresh());
       }
     }
-  };
-  addFolders();
+  }
 
-  // Which checkouts the folders stand for can change: another version can bring in the
-  // assembler or take it away, and folders come and go.
-  const rescan = () => {
-    const before = [...indexes.keys()].join('\n');
-    const open = new Set((vscode.workspace.workspaceFolders || []).map((f) => f.uri.toString()));
-    for (const [root, index] of indexes) {
-      if (!open.has(index.folder.uri.toString()) || !project.isCheckout(root)) {
-        indexes.delete(root);
-        index.manifest = null;
+  /** Which checkouts the folders stand for can change: another version can bring in the
+   *  assembler or take it away, and folders come and go. */
+  rescan() {
+    const scan = async () => {
+      const before = [...this.indexes.keys()].join('\n');
+      const open = new Set((vscode.workspace.workspaceFolders || []).map((f) => f.uri.toString()));
+      for (const [root, index] of this.indexes) {
+        if (open.has(index.folder.uri.toString()) && await project.isCheckout(root)) continue;
+        this.indexes.delete(root);
+        clearTimeout(this.timers.get(index));
+        this.timers.delete(index);
+        index.dispose();
       }
-    }
-    addFolders();
-    if ([...indexes.keys()].join('\n') !== before) redraw();
-  };
-  let rescanTimer;
-  function scheduleRescan() {
-    clearTimeout(rescanTimer);
-    rescanTimer = setTimeout(rescan, REFRESH_DEBOUNCE_MS);
+      await this.addFolders();
+      if ([...this.indexes.keys()].join('\n') !== before) this.redraw();
+    };
+    return (this.scanning = this.scanning.then(scan, scan));
   }
 
-  const timers = new Map();
-  const onFileChange = (buildFile) => (uri) => {
-    const index = indexFor(indexes, uri.fsPath);
-    if (!index || !index.affects(uri.fsPath, buildFile)) return;
-    clearTimeout(timers.get(index));
-    timers.set(index, setTimeout(() => index.refresh(), REFRESH_DEBOUNCE_MS));
-  };
-  const watch = (glob, events, ...handlers) => {
-    const watcher = vscode.workspace.createFileSystemWatcher(glob, ...['Create', 'Change', 'Delete'].map((e) => !events.includes(e)));
-    for (const e of events) for (const handler of handlers) watcher[`onDid${e}`](handler);
-    context.subscriptions.push(watcher);
-  };
-  // What the manifest is made of: a kernel's .asm only by existing (its name is its folder's,
-  // so an edit does not reload); app, cases, benchmark, test.py by content; build files' targets.
-  watch('**/*.asm', ['Create', 'Delete'], onFileChange(false));
-  watch('**/{app.py,cases.py,benchmark.py,test.py}', ['Create', 'Change', 'Delete'], onFileChange(false));
-  watch('**/{BUILD,BUILD.bazel,*.bzl,MODULE.bazel,WORKSPACE,WORKSPACE.bazel}', ['Create', 'Change', 'Delete'], onFileChange(true), scheduleRescan);
-  // The assembler's package coming or going makes or unmakes a checkout. VS Code reports a
-  // new folder tree by its topmost folder only, so any create or delete is a reason to look
-  // again (a few stat calls), as is coming back to the window or to another editor.
-  watch('**/*', ['Create', 'Delete'], scheduleRescan);
-  if (vscode.window.onDidEndTerminalShellExecution) {
-    context.subscriptions.push(vscode.window.onDidEndTerminalShellExecution((e) => busy.delete(e.terminal)));
+  scheduleRescan() {
+    clearTimeout(this.rescanTimer);
+    this.rescanTimer = setTimeout(() => this.rescan(), REFRESH_DEBOUNCE_MS);
   }
 
-  // Commands take a kernel name, a sidebar row ({ kernel, caseName, folder }), the file's
-  // Uri from the title bar, or nothing (from the palette): the kernel in the editor.
-  const kernelOfFile = (uri) => {
-    for (const index of indexes.values()) {
+  /** A handler reloading the manifest of the checkout a changed file can change, debounced. */
+  onFileChange(buildFile) {
+    return (uri) => {
+      const index = indexFor(this.indexes, uri.fsPath);
+      if (!index || !index.affects(uri.fsPath, buildFile)) return;
+      clearTimeout(this.timers.get(index));
+      this.timers.set(index, setTimeout(() => index.refresh(), REFRESH_DEBOUNCE_MS));
+    };
+  }
+
+  watchFiles() {
+    const watch = (glob, events, ...handlers) => {
+      const watcher = vscode.workspace.createFileSystemWatcher(glob, ...['Create', 'Change', 'Delete'].map((e) => !events.includes(e)));
+      for (const e of events) for (const handler of handlers) watcher[`onDid${e}`](handler);
+      this.context.subscriptions.push(watcher);
+    };
+    const rescan = () => this.scheduleRescan();
+    // What the manifest is made of: a kernel's .asm only by existing (its name is its folder's, so
+    // an edit does not reload); the Python under the kernels (the registry's modules) by content;
+    // build files' targets.
+    watch('**/*.asm', ['Create', 'Delete'], this.onFileChange(false));
+    watch('**/*.py', ['Create', 'Change', 'Delete'], this.onFileChange(false));
+    watch('**/{BUILD,BUILD.bazel,*.bzl,MODULE.bazel,WORKSPACE,WORKSPACE.bazel}', ['Create', 'Change', 'Delete'], this.onFileChange(true), rescan);
+    // The assembler's package coming or going makes or unmakes a checkout. VS Code reports a
+    // new folder tree by its topmost folder only, so any create or delete is a reason to look
+    // again (a few stat calls), as is coming back to the window or to another editor.
+    watch('**/*', ['Create', 'Delete'], rescan);
+  }
+
+  /** The kernel whose .asm `uri` is, with its checkout, or undefined. */
+  kernelOfFile(uri) {
+    for (const index of this.indexes.values()) {
       const found = runs.kernelForFile(index.manifest, index.workspace, uri.fsPath);
       if (found) return { kernel: found.name, folder: index.root, entry: found.kernel };
     }
     return undefined;
-  };
-  // Title bar buttons show on kernel files (Benchmark where there is one). Each editor group
-  // has its own title bar, so the keys list every such file rather than describe the active
-  // editor. They hold paths, matched against `resourcePath`: `resource` is the Uri as the
-  // window sees it, which in a remote window (WSL, SSH) is vscode-remote://, never file://.
-  const editorContext = { kernelFiles: [], benchmarkFiles: [] };
-  function updateEditorContext() {
-    const files = [...indexes.values()].flatMap((index) => Object.values(index.manifest ? index.manifest.kernels : {})
+  }
+
+  updateEditorContext() {
+    const files = [...this.indexes.values()].flatMap((index) => Object.values(index.manifest ? index.manifest.kernels : {})
       .map((kernel) => ({ kernel, file: path.resolve(index.workspace, kernel.asm) })));
     const lists = { kernelFiles: files.map((f) => f.file), benchmarkFiles: files.filter((f) => f.kernel.targets.benchmark).map((f) => f.file) };
     // Sent to the window only when they change: a sidebar redraw mostly leaves them as they were.
     for (const [key, list] of Object.entries(lists)) {
-      if (list.join('\n') === editorContext[key].join('\n')) continue;
-      editorContext[key] = list;
+      if (list.join('\n') === this.editorContext[key].join('\n')) continue;
+      this.editorContext[key] = list;
       vscode.commands.executeCommand('setContext', `ipuAsm.${key}`, list);
     }
   }
-  const targetOf = (arg) => {
+
+  /** What a command acts on: a kernel name, a sidebar row ({ kernel, caseName, folder }), the
+   *  file's Uri from the title bar, or nothing (from the palette): the kernel in the editor. */
+  targetOf(arg) {
     const editor = vscode.window.activeTextEditor;
     const target = typeof arg === 'string'
       ? { kernel: arg }
       : arg instanceof vscode.Uri
-        ? kernelOfFile(arg)
-        : (arg && arg.kernel ? arg : editor && kernelOfFile(editor.document.uri));
+        ? this.kernelOfFile(arg)
+        : (arg && arg.kernel ? arg : editor && this.kernelOfFile(editor.document.uri));
     if (!target) vscode.window.showWarningMessage('IPU: open a kernel .asm, or pick a kernel in the IPU sidebar.');
     return target;
-  };
-  const action = (name) => (arg) => {
-    const target = targetOf(arg);
-    return target && runKernel(indexes, name, target.kernel, target.caseName, target.folder);
-  };
-  /** The case form for the kernel `arg` names, on its case (or a new one when `adding`). */
-  const cases = (adding) => (arg) => {
-    const target = targetOf(arg);
-    const index = target && indexOf(indexes, target.kernel, target.folder);
-    return index && caseform.open(index, target.kernel, {
-      caseName: target.caseName, adding,
-      run: (name, kernelName, choice) => runKernel(indexes, name, kernelName, undefined, index.root, choice),
-    });
-  };
-  const commands = {
-    runKernel: action('run'),
-    testKernel: action('test'),
-    debugKernel: action('debug'),
-    benchmarkKernel: action('benchmark'),
-    editCases: cases(false),
-    addCase: cases(true),
-    testFamily: (n) => {
-      const index = n && n.entry ? indexes.get(n.folder) : undefined;
-      if (!index) return undefined;
-      const command = commandOrReport(n.family, () => runs.familyCommand(n.entry, { flags: setting(index.folder, 'bazelFlags', []) }));
-      return command && sendToTerminal(index, n.family, command);
-    },
-    refreshKernels: () => indexes.forEach((index) => index.refresh()),
-    query: () => query(indexes, output, context.workspaceState),
-  };
+  }
 
-  updateEditorContext();
-  caseform.register(context);
-  context.subscriptions.push(
-    output,
-    vscode.window.onDidChangeWindowState((state) => state.focused && scheduleRescan()),
-    vscode.window.onDidChangeActiveTextEditor(() => {
-      scheduleRescan();
-      follow();
-    }),
-    view.onDidChangeVisibility(follow),
-    { dispose: () => clearTimeout(rescanTimer) },
-    view,
-    ...Object.entries(commands).map(([name, run]) => vscode.commands.registerCommand(`ipuAsm.${name}`, run)),
-    vscode.workspace.onDidChangeWorkspaceFolders(rescan),
-    // Out of Restricted Mode: list the kernels it kept from loading.
-    vscode.workspace.onDidGrantWorkspaceTrust(() => indexes.forEach((index) => index.refresh())),
-    vscode.workspace.onDidChangeConfiguration((e) => e.affectsConfiguration('ipuAsm.cases') && redraw()),
-    vscode.window.onDidCloseTerminal((t) => {
-      busy.delete(t);
-      sentAt.delete(t);
-      for (const [key, terminal] of terminals) if (terminal === t) terminals.delete(key);
-    })
-  );
-  // For tests: the live index and tree, and the query without its prompts.
+  /** The command handlers, by name under `ipuAsm.`. */
+  commands() {
+    const { indexes } = this;
+    const action = (name) => (arg) => {
+      const target = this.targetOf(arg);
+      return target && runKernel(indexes, name, target.kernel, target.caseName, target.folder);
+    };
+    /** The case form for the kernel `arg` names, on its case (or a new one when `adding`). */
+    const cases = (adding) => (arg) => {
+      const target = this.targetOf(arg);
+      const index = target && indexOf(indexes, target.kernel, target.folder);
+      return index && caseform.open(index, target.kernel, {
+        caseName: target.caseName, adding,
+        run: (name, kernelName, choice) => runKernel(indexes, name, kernelName, undefined, index.root, choice),
+      });
+    };
+    return {
+      runKernel: action('run'),
+      testKernel: action('test'),
+      debugKernel: action('debug'),
+      benchmarkKernel: action('benchmark'),
+      editCases: cases(false),
+      addCase: cases(true),
+      testFamily: (n) => {
+        const index = n && n.entry ? indexes.get(n.folder) : undefined;
+        if (!index) return undefined;
+        const command = commandOrReport(n.family, () => runs.familyCommand(n.entry, { flags: setting(index.folder, 'bazelFlags', []) }));
+        return command && sendToTerminal(index, n.family, command);
+      },
+      refreshKernels: () => indexes.forEach((index) => index.refresh()),
+      query: () => query(indexes, this.output, this.context.workspaceState),
+    };
+  }
+
+  /** Register everything; resolves once the open folders' checkouts are found. */
+  start() {
+    this.watchFiles();
+    this.updateEditorContext();
+    caseform.register(this.context);
+    this.context.subscriptions.push(
+      this.output,
+      this.view,
+      this.changed,
+      { dispose: () => this.dispose() },
+      ...Object.entries(this.commands()).map(([name, run]) => vscode.commands.registerCommand(`ipuAsm.${name}`, run)),
+      ...this.listeners()
+    );
+    return this.rescan();
+  }
+
+  listeners() {
+    const listeners = [
+      vscode.window.onDidChangeWindowState((state) => state.focused && this.scheduleRescan()),
+      vscode.window.onDidChangeActiveTextEditor(() => {
+        this.scheduleRescan();
+        this.follow();
+      }),
+      this.view.onDidChangeVisibility(() => this.follow()),
+      vscode.workspace.onDidChangeWorkspaceFolders(() => this.rescan()),
+      vscode.workspace.onDidChangeConfiguration((e) => e.affectsConfiguration('ipuAsm.cases') && this.redraw()),
+      // Out of Restricted Mode: list the kernels it kept from loading.
+      vscode.workspace.onDidGrantWorkspaceTrust(() => this.indexes.forEach((index) => index.refresh())),
+      vscode.window.onDidCloseTerminal((t) => {
+        busy.delete(t);
+        sentAt.delete(t);
+        for (const [key, terminal] of terminals) if (terminal === t) terminals.delete(key);
+      }),
+    ];
+    if (vscode.window.onDidEndTerminalShellExecution) {
+      listeners.push(vscode.window.onDidEndTerminalShellExecution((e) => busy.delete(e.terminal)));
+    }
+    return listeners;
+  }
+
+  dispose() {
+    clearTimeout(this.rescanTimer);
+    this.timers.forEach((timer) => clearTimeout(timer));
+  }
+}
+
+/** Register the sidebar and the kernel commands. For tests: the live index and tree, the query
+ *  without its prompts, and `ready`, settled once the open folders' checkouts are found. */
+function register(context) {
+  const kernels = new Kernels(context);
+  const ready = kernels.start();
+  const { indexes, tree, view, editorContext } = kernels;
   return {
-    indexes, tree, view, kernelOfFile, editorContext,
-    runQuery: (op, params) => runQuery([...indexes.values()].find((i) => i.manifest), op, params, output),
+    indexes, tree, view, editorContext, ready,
+    kernelOfFile: (uri) => kernels.kernelOfFile(uri),
+    runQuery: (op, params) => runQuery([...indexes.values()].find((i) => i.manifest), op, params, kernels.output),
   };
 }
 

@@ -90,7 +90,7 @@ must keep assembling; a change that breaks it is a real grammar regression.
 |---|---|
 | `test/checker.js` | which checker runs, when the prebuilt one is stale, and how a process that runs too long is stopped |
 | `test/project.js` | which IPU checkout a file or an open folder belongs to, if any |
-| `test/activation.js` | the extension activated on a stand-in `vscode`: nothing runs in Restricted Mode and trusting the workspace starts it; each checkout's status is its own; a failed check is retried; which checkout an unsaved or non-file document is checked in |
+| `test/activation.js` | the extension activated on a stand-in `vscode`: nothing runs in Restricted Mode and trusting the workspace starts it; each checkout's status is its own; a failed check is retried; which checkout an unsaved or non-file document is checked in; activation touches the disk only asynchronously |
 | `test/language.js <isa.json> [parser-tokens.json]` | completion and navigation logic, and agreement with the parser on the corpus |
 | `test/runs.js [manifest.json]` | the run, test, debug, benchmark and query commands, against the real manifest; a manifest value that is no label or flag is refused |
 | `test/rewrites.js` + `check_rewrites` | renaming each label and Jinja symbol, and formatting, leaves the assembled binary unchanged |
@@ -225,10 +225,11 @@ extension dependency-free — no `vscode-languageclient`, no bundled
 
 By default the extension builds `//src/tools/ipu-as-py:ipu-as` in the background
 when the workspace opens, then runs the resulting binary directly. This avoids
-Bazel's client startup and workspace lock while typing. Before every check it
-compares the binary with the assembler sources; if the binary is missing or the
-sources are newer, that check falls back to `bazel run`, which rebuilds it, and
-later checks use the binary directly again.
+Bazel's client startup and workspace lock while typing. It compares the binary
+with the assembler sources, and compares again only once a file watcher reports
+a source change (or the binary is rebuilt); if the binary is missing or the
+sources are newer, checks fall back to `bazel run`, which rebuilds it, and later
+checks use the binary directly again.
 
 `test/checker.js` covers this selection and freshness rule and runs in
 `.github/workflows/vscode-extension.yml`.
