@@ -37,12 +37,13 @@ from ipu_isa.instruction_spec import (
     PSEUDO_INSTRUCTION_SPEC,
     SLOT_COUNT,
     SLOT_METADATA,
+    syntax,
 )
+from ipu_isa.operand_types import operand_type
 from ipu_isa.registers import REGISTER_DEFINITIONS, create_assembler_reg_enums
 from ipu_isa.types import RegKind
 
 from ipu_as.diagnostics import check
-from ipu_as.gen_docs import OPERAND_TYPE_DETAILS
 from ipu_as.inst import OPERAND_TYPE_MAP
 from ipu_as.lark_tree import get_parser
 from ipu_as.reg import LRD_REG_FIELDS, LrdRegField
@@ -387,33 +388,12 @@ def build_language_configuration() -> dict:
     }
 
 
-#: Fields of InstructionDoc that hold assembly code rather than prose.
-_ASM_SNIPPET_FIELDS = ("syntax", "example")
-
-
-def _normalize_asm_snippet(text: str) -> str:
-    """Rewrite comma-separated operands to the whitespace form that assembles.
-
-    `asm_grammar.lark` has no comma terminal, so `MULT.RC.VE LR0, LR3, 0, LR2,
-    CR15;;` — copied verbatim from that instruction's own `example` — is a lex
-    error. Every InstructionDoc writes operands with commas anyway, following
-    the prose convention in CLAUDE.md rather than the grammar.
-
-    A hover must not teach a syntax that fails to assemble, so the two code
-    fields are normalized to match the grammar; prose keeps its commas. The
-    underlying docs/grammar disagreement is pre-existing; `test_hover_data.py`
-    asserts every shipped example really assembles, so this cannot rot.
-    """
-    return re.sub(r",\s*", " ", text)
-
-
-def _doc_to_dict(doc) -> dict | None:
+def _doc_to_dict(doc, mnemonic: str, operands: list[dict]) -> dict | None:
+    """The hover text of one instruction form, with its derived syntax line."""
     if doc is None:
         return None
     data = asdict(doc) if is_dataclass(doc) else dict(doc)
-    for field in _ASM_SNIPPET_FIELDS:
-        if isinstance(data.get(field), str):
-            data[field] = _normalize_asm_snippet(data[field])
+    data["syntax"] = syntax(mnemonic, [operand["name"] for operand in operands])
     return data
 
 
@@ -433,7 +413,7 @@ def build_hover_data(emulator: dict | None = None) -> dict:
                     "opcode": opcode,
                     "pseudo": False,
                     "operands": [dict(op) for op in entry.get("operands", [])],
-                    "doc": _doc_to_dict(entry.get("doc")),
+                    "doc": _doc_to_dict(entry.get("doc"), mnemonic, entry.get("operands", [])),
                 }
             )
 
@@ -445,7 +425,7 @@ def build_hover_data(emulator: dict | None = None) -> dict:
                 "pseudo": True,
                 "expandsTo": expands_to.get("instruction"),
                 "operands": [dict(op) for op in entry.get("operands", [])],
-                "doc": _doc_to_dict(entry.get("doc")),
+                "doc": _doc_to_dict(entry.get("doc"), mnemonic, entry.get("operands", [])),
             }
         )
 
@@ -471,7 +451,7 @@ def build_hover_data(emulator: dict | None = None) -> dict:
         # What each operand type accepts, from the class that validates it, so
         # completion never offers a value the assembler rejects (test_isa_data.py).
         "operandTypes": {
-            name: {**cls.completion_domain(), "description": OPERAND_TYPE_DETAILS[name]} for name, cls in OPERAND_TYPE_MAP.items()
+            name: {**cls.completion_domain(), "description": operand_type(name).doc} for name, cls in OPERAND_TYPE_MAP.items()
         },
         # Lexical facts: patterns from the grammar's terminals, and case rules
         # measured by probe programs (_case_insensitive), not stated.

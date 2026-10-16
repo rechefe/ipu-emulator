@@ -39,6 +39,7 @@ from ipu_isa.instruction_spec import (
     SLOT_COUNT,
     get_opcode_for_instruction,
 )
+from ipu_isa.operand_types import OPERAND_TYPES
 from ipu_isa.acc_stride_enums import (
     get_elements_per_row,
     get_horizontal_stride_bits,
@@ -206,25 +207,10 @@ def _active_lane_count(mask_int: int, valid_elements: int) -> int:
 # Operand extraction: maps instruction_spec operand names → inst dict field keys
 # ---------------------------------------------------------------------------
 
-# Maps operand type string → field name suffix in the inst dict
-# (derived from assembler token class names via camelCase→snake_case)
+# Maps operand type string → field name suffix in the inst dict (wire format,
+# from the operand-type registry).
 _TYPE_FIELD_SUFFIX = {
-    "MultStageReg": "mult_stage_reg_field",
-    "LrIdx": "lr_reg_field",
-    "CrIdx": "cr_reg_field",
-    "LcrIdx": "lcr_reg_field",
-    "LrdIdx": "lrd_reg_field",
-    "LrIncDecImmediate": "lr_inc_dec_immediate",
-    "AddbiImmediate": "addbi_immediate",
-    "ElementsInRow": "elements_in_row_field",
-    "HorizontalStride": "horizontal_stride_field",
-    "VerticalStride": "vertical_stride_field",
-    "LrModPow2KImmediate": "lr_mod_pow2_k_immediate",
-    "MultMaskOffsetImmediate": "mult_mask_offset_immediate",
-    "ActivationFn": "activation_fn_field",
-    "BreakImmediate": "break_immediate_type",
-    "Label": "label_token",
-    "DstructureCrIdx": "dstructure_cr_reg_field",
+    name: operand_type.field_suffix for name, operand_type in OPERAND_TYPES.items()
 }
 
 # Field prefix for each slot type (matches compound_inst naming)

@@ -140,6 +140,12 @@ def test_doc_operand_names_must_match():
     _rejects(spec, r"lr\.ADD\.doc\.operands: names \['dst', .*\] do not match")
 
 
+def test_example_has_no_comma():
+    spec = _spec()
+    spec["lr"]["ADD"]["doc"].example = "ADD LR0, LR1, LR2;;"
+    _rejects(spec, r"lr\.ADD\.doc\.example: separate operands with spaces")
+
+
 def test_mnemonics_unique_after_upper_case():
     spec = _spec()
     spec["lr"]["Nop"] = spec["lr"]["NOP"]
@@ -176,6 +182,16 @@ def test_pseudo_literal_must_be_a_valid_register():
     _rejects_pseudo(
         pseudo, r"pseudo\.BZ\.expands_to\.args\[reg2\]: literal 'CR16' is neither"
     )
+
+
+def test_pseudo_literal_may_be_any_register_in_the_target_domain():
+    """A register-pair literal is valid for an LrdIdx target (ADDB's dest)."""
+    pseudo = copy.deepcopy(PSEUDO_INSTRUCTION_SPEC)
+    pseudo["B"] = copy.deepcopy(pseudo["B"])
+    pseudo["B"]["operands"] = [{"name": "src", "type": "LcrIdx"}]
+    pseudo["B"]["doc"].operands = ["src: source"]
+    pseudo["B"]["expands_to"] = {"slot": "lr", "instruction": "ADDB", "args": ["LRD0", "src"]}
+    validate_pseudo_instruction_spec(pseudo, INSTRUCTION_SPEC)
 
 
 def test_pseudo_expansion_target_must_exist():

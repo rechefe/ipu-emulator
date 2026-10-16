@@ -14,6 +14,7 @@ from ipu_isa.mult_mask_offset import (
     MULT_MASK_OFFSET_FIELD_BITS,
     MULT_MASK_SLOT_COUNT,
 )
+from ipu_isa.operand_types import operand_type
 from ipu_isa.reshape_mask import (
     RESHAPE_ELEMENT_COUNT,
     RESHAPE_MASK_FIELD_BITS,
@@ -73,7 +74,7 @@ class BreakImmediateType(ipu_token.NumberToken):
     """Immediate value for break.ifeq condition comparison."""
     @classmethod
     def bits(cls) -> int:
-        return 16
+        return operand_type("BreakImmediate").bits
 
 
 class AddbiImmediate(ipu_token.NumberToken):
@@ -82,7 +83,7 @@ class AddbiImmediate(ipu_token.NumberToken):
     """
     @classmethod
     def bits(cls) -> int:
-        return 8
+        return operand_type("AddbiImmediate").bits
 
 
 class MultMaskOffsetImmediate(ipu_token.IpuToken):

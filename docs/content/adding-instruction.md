@@ -18,7 +18,7 @@ The assembler accepts mnemonics in any case; written examples and the spec use u
 
 No manual opcode management needed — opcodes are automatically derived from instruction position.
 
-When you add a **new operand type** string to `INSTRUCTION_SPEC`, also add it to `VALID_OPERAND_TYPES` in the same file and extend `OPERAND_TYPE_DETAILS` in `src/tools/ipu-as-py/src/ipu_as/gen_docs.py` so the generated [Operand types](operand-types.md) page stays complete (`bazel build //docs:generate_mkdocs_md` or `docs/gen_docs_wrapper.py`).
+A **new operand type** needs one entry in the operand-type registry, `src/tools/ipu-isa/src/ipu_isa/operand_types.py` (kind, width, value domain, readability, wire names and documentation), and one token class in the assembler's `OPERAND_TYPE_MAP` (`src/tools/ipu-as-py/src/ipu_as/inst.py`), plus an emulator resolver if it is readable. Everything else (the valid-type set, union widths, decoded field names, SV typedefs, the generated [Operand types](operand-types.md) page) is derived from the registry. A missing registry entry or token class, or a token class whose name, width, value range or members disagree with the registry, fails at import naming the type. Its `field_suffix` and `sv_typedef` are wire format: changing one is a breaking change.
 
 ## Step 1: Add Instruction to `instruction_spec.py`
 
@@ -40,7 +40,6 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="My New Operation",
                 summary="Performs a custom operation on two source registers.",
-                syntax="MY_NEW_INSTRUCTION dest src_a src_b",
                 operands=[
                     "dest: Destination mult-stage register (R0 or R1)",
                     "src_a: First source mult-stage register",
@@ -64,7 +63,7 @@ The spec is checked strictly when `ipu_isa` is imported (`validate_instruction_s
 - An instruction has exactly the keys `operands`, `doc` and `execute_fn`, and an operand has `name`, `type` and optionally `read`. Any other key is an error, so a typo such as `"raed"` fails at import instead of being ignored. The allowed keys are listed in `src/tools/ipu-isa/src/ipu_isa/schema.py`; a new key goes there first.
 - Operand names are unique within the instruction and match `[a-z][a-z0-9_]*`.
 - `read` is allowed only on register operands (`LrIdx`, `CrIdx`, `LcrIdx`, `MultStageReg`, `LrdIdx`).
-- Each `doc.operands` line starts with its operand's name, in operand order.
+- Each `doc.operands` line starts with its operand's name, in operand order, and `doc.example` has no comma.
 - Mnemonics are unique within the slot ignoring case, and each slot has exactly one `NOP`.
 - A pseudo-instruction has exactly `operands`, `expands_to` and `doc`, and its `expands_to` has exactly `slot`, `instruction` and `args`. Each argument is one of the pseudo's own operand names or a register valid for the target operand's type (`CR0` for an `LcrIdx`).
 
@@ -91,10 +90,12 @@ A failure raises `SpecError` with the path of the entry, for example `mult.MY_NE
 - **`doc`**: `InstructionDoc` with:
   - `title` — Short human-readable name
   - `summary` — What the instruction does
-  - `syntax` — Assembly syntax example
-  - `operands` — Description of each operand (type and meaning)
+  - `operands` — Description of each operand (type and meaning), each line starting with the operand's name
   - `operation` — Pseudo-code showing the operation
-  - `example` — Code example
+  - `example` — Code example that assembles: operands separated by spaces, no commas
+
+  There is no syntax line to write: the generated docs and editor hover derive
+  it from the mnemonic and the operand names (`MY_NEW_INSTRUCTION dest src_a src_b`).
 
 - **`execute_fn`**: Name of the Python method in the `Ipu` class that executes this instruction (e.g., `"execute_my_new_instruction"`)
 
@@ -283,7 +284,6 @@ PSEUDO_INSTRUCTION_SPEC: dict[str, dict] = {
         "doc": InstructionDoc(
             title="Branch if Greater Than (pseudo)",
             summary="Branch if first register is greater than second.",
-            syntax="BGT reg1 reg2 label",
             operands=[
                 "reg1: First register to compare (LR0–LR15 or CR0–CR15)",
                 "reg2: Second register to compare (LR0–LR15 or CR0–CR15)",

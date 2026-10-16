@@ -15,31 +15,15 @@ from typing import Any
 import jinja2
 
 from ipu_as import compound_inst, ipu_token, utils
-from ipu_as.inst import OPERAND_TYPE_MAP
 from ipu_isa.instruction_spec import (
     INSTRUCTION_SPEC,
     SLOT_COUNT,
     SLOT_UNIONS,
-    VALID_OPERAND_TYPES,
 )
+from ipu_isa.operand_types import operand_type
 from ipu_isa.union_layout import get_operand_type_bits
 
 _TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
-
-# Operand type string → generated SystemVerilog enum typedef. Every operand type
-# backed by an EnumToken must appear here (enforced by _check_sv_typedef_map).
-_OPERAND_TYPE_TO_SV_TYPEDEF: dict[str, str] = {
-    "MultStageReg": "mult_stage_reg_field_t",
-    "LrIdx": "lr_reg_field_t",
-    "CrIdx": "cr_reg_field_t",
-    "LcrIdx": "lcr_reg_field_t",
-    "LrdIdx": "lrd_reg_field_t",
-    "ElementsInRow": "elements_in_row_field_t",
-    "HorizontalStride": "horizontal_stride_field_t",
-    "VerticalStride": "vertical_stride_field_t",
-    "ActivationFn": "activation_fn_field_t",
-    "DstructureCrIdx": "dstructure_cr_reg_field_t",
-}
 
 # Stamped into the package header; see tools/workspace_status.sh.
 UNKNOWN_SOURCE_COMMIT = "unknown"
@@ -114,7 +98,7 @@ def _sanitize_enum_member(name: str) -> str:
 
 
 def _sv_logic_type(canonical_type: str, bits: int) -> str:
-    typedef_name = _OPERAND_TYPE_TO_SV_TYPEDEF.get(canonical_type)
+    typedef_name = operand_type(canonical_type).sv_typedef
     if typedef_name is not None:
         return typedef_name
     return f"logic [{bits - 1}:0]"
@@ -151,7 +135,7 @@ def _operand_sv_type(
             f"{op_type} reserves {reserved_bits} bits but its union column is "
             f"{column_bits} bits"
         )
-    typedef_name = _OPERAND_TYPE_TO_SV_TYPEDEF.get(op_type)
+    typedef_name = operand_type(op_type).sv_typedef
     if typedef_name is None:
         return f"logic [{reserved_bits - 1}:0]", reserved_bits
     bits = typedef_bits[typedef_name]
@@ -358,27 +342,8 @@ def _enum_descriptors_for_templates() -> list[dict[str, Any]]:
     return result
 
 
-def _check_sv_typedef_map() -> None:
-    """Every enum-backed operand type maps to its own generated typedef."""
-    stale = sorted(set(_OPERAND_TYPE_TO_SV_TYPEDEF) - VALID_OPERAND_TYPES)
-    if stale:
-        raise ValueError(f"_OPERAND_TYPE_TO_SV_TYPEDEF has unknown operand types: {stale}")
-    for op_type in sorted(VALID_OPERAND_TYPES):
-        token_cls = OPERAND_TYPE_MAP[op_type]
-        if not issubclass(token_cls, ipu_token.EnumToken):
-            continue
-        expected = f"{utils.camel_case_to_snake_case(token_cls.__name__)}_t"
-        actual = _OPERAND_TYPE_TO_SV_TYPEDEF.get(op_type)
-        if actual != expected:
-            raise ValueError(
-                f"_OPERAND_TYPE_TO_SV_TYPEDEF[{op_type!r}] must be {expected!r}, "
-                f"got {actual!r}"
-            )
-
-
 def build_codegen_context(source_commit: str = UNKNOWN_SOURCE_COMMIT) -> dict[str, Any]:
     """Build the Jinja render context from live assembler metadata."""
-    _check_sv_typedef_map()
     enum_list = _enum_descriptors_for_templates()
     typedef_bits = {e["sv_type"]: e["width"] for e in enum_list}
     return {

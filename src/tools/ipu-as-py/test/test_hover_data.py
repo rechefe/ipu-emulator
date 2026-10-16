@@ -1,10 +1,10 @@
 """The reference the editor shows on hover must be code that actually assembles.
 
-`InstructionDoc.syntax` and `.example` are written with comma-separated operands
-throughout, following the prose convention in CLAUDE.md -- but `asm_grammar.lark`
-has no comma terminal, so that form is a lex error. The generator normalizes
-those two fields; these tests are what stop that normalization from rotting, and
-what stop a new instruction from shipping an example that does not assemble.
+`asm_grammar.lark` has no comma terminal, so operands are separated by spaces.
+The hover's `syntax` line is derived from the mnemonic and operand names, and
+`InstructionDoc.example` is written without commas (the spec schema rejects
+one). These tests stop a new instruction from shipping an example that does not
+assemble, and stop a comma from reaching either code field.
 """
 
 import json

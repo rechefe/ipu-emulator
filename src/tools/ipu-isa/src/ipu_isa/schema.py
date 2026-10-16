@@ -40,10 +40,6 @@ EXPANSION = Keys(frozenset({"slot", "instruction", "args"}))
 #: Values of an operand's ``read`` key.
 READ_SOURCES = frozenset({"snapshot", "live"})
 
-#: Operand types a ``read`` key is allowed on: the register operands.
-#: E03-05 moves this onto the operand-type registry.
-READABLE_OPERAND_TYPES = frozenset({"LrIdx", "CrIdx", "LcrIdx", "MultStageReg", "LrdIdx"})
-
 
 def check_keys(path: str, entry: object, keys: Keys) -> None:
     """Raise unless ``entry`` is a dict holding every required key and no

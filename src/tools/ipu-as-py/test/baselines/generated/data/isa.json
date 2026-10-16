@@ -313,7 +313,7 @@
             "cr_idx: CR0…CR15 supplying valid_elements (must be given explicitly)"
           ],
           "operation": "Let n = min(CR[cr_idx].valid_elements, 128). dest = LR[dest_slot] % 128. R_ACC[dest] = max(MULT_RES[0..n-1], R_ACC[dest]).",
-          "summary": "Find the maximum of active MULT_RES elements seeded with the current destination slot value (running cross-cycle max). The active element count and partition come from ``cr_idx``'s dstructure configuration (any CR0-CR15; must be named explicitly).",
+          "summary": "Find the maximum of active MULT_RES elements seeded with the current destination slot value (running cross-cycle max). Only the active element count (``valid_elements``) is read from ``cr_idx``'s dstructure configuration (any CR0-CR15; must be named explicitly).",
           "syntax": "AGG.MAX dest_slot cr_idx",
           "title": "Aggregate Max"
         },
@@ -343,7 +343,7 @@
             "cr_idx: CR0…CR15 supplying valid_elements (must be given explicitly)"
           ],
           "operation": "Let n = min(CR[cr_idx].valid_elements, 128). dest = LR[dest_slot] % 128. R_ACC[dest] = max(MULT_RES[0..n-1]); when n = 0 the identity seed (INT32_MIN for integer elements, -inf for float elements) is written.",
-          "summary": "Find the maximum of active MULT_RES elements and write it into R_ACC at the slot given by LR. The current value at the destination slot is NOT used as a seed (clean initialisation). The active element count and partition come from ``cr_idx``'s dstructure configuration (any CR0-CR15; must be named explicitly).",
+          "summary": "Find the maximum of active MULT_RES elements and write it into R_ACC at the slot given by LR. The current value at the destination slot is NOT used as a seed (clean initialisation). Only the active element count (``valid_elements``) is read from ``cr_idx``'s dstructure configuration (any CR0-CR15; must be named explicitly).",
           "syntax": "AGG.MAX.FIRST dest_slot cr_idx",
           "title": "Aggregate Max (First)"
         },
@@ -373,7 +373,7 @@
             "cr_idx: CR0…CR15 supplying valid_elements (must be given explicitly)"
           ],
           "operation": "Let n = min(CR[cr_idx].valid_elements, 128). dest = LR[dest_slot] % 128. R_ACC[dest] = sum(MULT_RES[0..n-1]) + R_ACC[dest].",
-          "summary": "Sum active MULT_RES elements and ADD the result to R_ACC at the slot given by LR (running cross-cycle accumulation). The active element count and partition come from ``cr_idx``'s dstructure configuration (any CR0-CR15; must be named explicitly).",
+          "summary": "Sum active MULT_RES elements and ADD the result to R_ACC at the slot given by LR (running cross-cycle accumulation). Only the active element count (``valid_elements``) is read from ``cr_idx``'s dstructure configuration (any CR0-CR15; must be named explicitly).",
           "syntax": "AGG.SUM dest_slot cr_idx",
           "title": "Aggregate Sum"
         },
@@ -403,7 +403,7 @@
             "cr_idx: CR0…CR15 supplying valid_elements (must be given explicitly)"
           ],
           "operation": "Let n = min(CR[cr_idx].valid_elements, 128). dest = LR[dest_slot] % 128. R_ACC[dest] = sum(MULT_RES[0..n-1]).",
-          "summary": "Sum active MULT_RES elements and write the result into R_ACC at the slot given by LR. The current value at the destination slot is NOT included in the sum (clean initialisation). The active element count and partition come from ``cr_idx``'s dstructure configuration (any CR0-CR15; must be named explicitly).",
+          "summary": "Sum active MULT_RES elements and write the result into R_ACC at the slot given by LR. The current value at the destination slot is NOT included in the sum (clean initialisation). Only the active element count (``valid_elements``) is read from ``cr_idx``'s dstructure configuration (any CR0-CR15; must be named explicitly).",
           "syntax": "AGG.SUM.FIRST dest_slot cr_idx",
           "title": "Aggregate Sum (First)"
         },
@@ -874,9 +874,9 @@
             "step: Signed 32-bit increment from LR0–LR15 or CR0–CR15",
             "k: Immediate in [1, 9]; encoded in 4 bits as (k − 1); mask = (1 << k) - 1"
           ],
-          "operation": "dst <- (dst + step) & ((1 << k) - 1)",
+          "operation": "dest <- (dest + step) & ((1 << k) - 1)",
           "summary": "Add a loop or configuration register into the destination loop register, then mask to k low bits (mod 2^k).",
-          "syntax": "INCR_MOD_POW2 dst step k",
+          "syntax": "INCR_MOD_POW2 dest step k",
           "title": "Increment Loop Register Modulo Power of Two"
         },
         "opcode": 3,
@@ -906,7 +906,7 @@
           "notes": null,
           "operands": [
             "offset: Offset register (LR0–LR15), in XMEM rows.",
-            "base: Base address register (CR0–CR14), in XMEM rows.",
+            "base: Base address register (CR0–CR15), in XMEM rows.",
             "index: Index inside cyclic register (LR0–LR15); must hold 0, 128, 256, or 384 — the four R_CYCLIC slot boundaries, counted in **elements**. Any other value raises an error. All four are valid in **both** modes: R_CYCLIC is a 512-element ring in narrow and wide-vector debug mode alike, and a load always replaces one whole 128-element slot."
           ],
           "operation": "R_CYCLIC[index .. index+127] = Memory[row(offset + base)]   # index ∈ {0, 128, 256, 384}",
@@ -943,11 +943,11 @@
           "notes": null,
           "operands": [
             "offset: Offset register (LR0–LR15), in XMEM rows.",
-            "base: Base address register (CR0–CR14), in XMEM rows."
+            "base: Base address register (CR0–CR15), in XMEM rows."
           ],
           "operation": "R_MASK = Memory[row(offset + base) .. +128B]  # reads only the row's first 128 B, in both modes -- the mask is 1 bit/element and does not scale with element width",
           "summary": "Load mask data from memory.",
-          "syntax": "LDR_MULT_MASK_REG offset base mask_idx",
+          "syntax": "LDR_MULT_MASK_REG offset base",
           "title": "Load Mask Register"
         },
         "opcode": 2,
@@ -1403,7 +1403,7 @@
           "notes": "This instruction lives in the simulation-only **acc_store** slot.",
           "operands": [
             "offset: Offset register (LR0–LR15), in XMEM rows.",
-            "base: Base address register (CR0–CR14), in XMEM rows."
+            "base: Base address register (CR0–CR15), in XMEM rows."
           ],
           "operation": "Memory[row(offset + base)] = R_ACC (512 bytes, both modes -- width does not scale with element width)",
           "summary": "Store **R_ACC** to external memory. **Simulation-only** — not implemented in real IPU hardware.",
@@ -1434,7 +1434,7 @@
           "notes": null,
           "operands": [
             "offset: Offset register (LR0–LR15), in XMEM rows.",
-            "base: Base address register (CR0–CR14), in XMEM rows."
+            "base: Base address register (CR0–CR15), in XMEM rows."
           ],
           "operation": "Memory[row(offset + base)] = POST_AAQ_REG (512 bytes, both modes -- width does not scale with element width); interim staging register",
           "summary": "Write **512 bytes** of **`POST_AAQ_REG`** to external memory. **Interim:** the buffer is **512 bytes** (128×32-bit elements) until quantization export is finalized.",

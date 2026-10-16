@@ -37,8 +37,6 @@ from dataclasses import asdict, dataclass
 from importlib.resources import files
 from pathlib import Path
 
-import numpy as np
-
 import ipu_emu.emulator as emulator
 from ipu_emu.descriptors import REGFILE_SCHEMA
 from ipu_emu.ipu_config import CR_REGISTER_NAME
@@ -59,6 +57,7 @@ BASELINE_FILE = "baseline.json"
 MODE_DEPENDENT_FIELDS: frozenset[str] = frozenset()
 
 _PAGE = 64 * 1024
+_ZERO_PAGE = bytes(_PAGE)
 _REGISTER_COUNT = 16
 
 
@@ -94,12 +93,12 @@ class CaseRecord:
 
 def _xmem_digest(state: IpuState, digest) -> None:
     """Feed every non-zero 64 KiB XMEM page, with its index, into ``digest``."""
-    # XMem has no public buffer view; reading through read_address would copy
-    # all 512 MiB.
-    data = np.frombuffer(state.xmem._data, dtype=np.uint8).reshape(-1, _PAGE)
-    for page in np.flatnonzero(data.any(axis=1)):
-        digest.update(int(page).to_bytes(4, "little"))
-        digest.update(data[page].tobytes())
+    for base, page in state.xmem.touched_pages():
+        if len(page) != _PAGE:
+            raise ValueError(f"XMEM page is {len(page)} bytes; the baselines hash {_PAGE}-byte pages")
+        if page != _ZERO_PAGE:
+            digest.update((base // _PAGE).to_bytes(4, "little"))
+            digest.update(page)
 
 
 def xmem_sha256(state: IpuState) -> str:

@@ -9,6 +9,7 @@ New code uses: from ipu_isa.registers import create_regfile_schema, etc.
 """
 
 import ipu_as.ipu_token as ipu_token
+from ipu_isa.operand_types import operand_type
 from ipu_isa.registers import REGISTER_DEFINITIONS, create_assembler_reg_enums
 
 
@@ -55,7 +56,7 @@ class MultStageRegField(_MultStageBase):
 
     @classmethod
     def bits(cls) -> int:
-        return 2
+        return operand_type("MultStageReg").bits
 
     @classmethod
     def decode(cls, value: int) -> str:
@@ -98,7 +99,7 @@ class LrdRegField(ipu_token.EnumToken):
 
     @classmethod
     def enum_array(cls) -> list[str]:
-        return [f"lrd{2 * i}" for i in range(IPU_LRD_REG_NUM)]
+        return list(operand_type("LrdIdx").domain.members)
 
 
 # For documentation and introspection, also expose the enum arrays
