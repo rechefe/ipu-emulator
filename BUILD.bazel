@@ -5,6 +5,7 @@ load("//tools:lint.bzl", "ruff_test")
 package(default_visibility = ["//visibility:public"])
 
 exports_files([
+    "mypy.ini",
     "requirements_lock.txt",
     "ruff.toml",
 ])
@@ -20,6 +21,7 @@ config_setting(
 
 # Read by the doc tests and the docs build in //docs.
 exports_files([
+    ".github/pull_request_template.md",
     "CLAUDE.md",
     "GLOSSARY.md",
     "README.md",
@@ -27,8 +29,7 @@ exports_files([
 ])
 
 # Ruff over the Python files that belong to no other package (none today; a new
-# directory without a BUILD.bazel lands here). Manual until E01-10; run with
-# `bazel test //tools:lint`.
+# directory without a BUILD.bazel lands here).
 ruff_test(
     name = "ruff",
     srcs = glob(
@@ -41,5 +42,4 @@ ruff_test(
             "playground/**",
         ],
     ),
-    tags = ["manual"],
 )

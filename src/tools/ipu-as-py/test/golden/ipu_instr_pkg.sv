@@ -1,5 +1,5 @@
 // Auto-generated from instruction_spec.py — do not edit.
-// Source: rechefe/ipu-emulator @ unknown
+// Content: sha256:def7d943cb053bf46e97f4ea7417bc278b2a9e8b1c4827f373450eabe3184b9d
 //
 // Opcode/operand enums and per-slot structs/unions are generated from
 // instruction_spec.py (union field layout in SLOT_UNIONS).
@@ -581,7 +581,7 @@ package ipu_instr_pkg;
   localparam int unsigned BREAK_SLOT_T_WIDTH = 22;
 
   // -------------------------------------------------------------------------
-  // Compound VLIW instruction (slots MSB → LSB: cond, lr×N, xmem, mult, acc, aaq, break)
+  // Compound VLIW instruction (slots MSB → LSB: cond, lr×3, load, mult, acc, aaq, store, acc_store, break)
   // -------------------------------------------------------------------------
   typedef struct packed {
     cond_slot_t cond_slot;

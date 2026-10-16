@@ -8,6 +8,7 @@ from ipu_isa.acc_stride_enums import (
     decodable_horizontal_stride_names,
     decodable_vertical_stride_names,
 )
+from ipu_isa.activations import ACTIVATION_FN_NAMES
 from ipu_isa.incr_mod_pow2_k import (
     LR_MOD_POW2_K_FIELD_BITS,
     LR_MOD_POW2_K_MAX,
@@ -198,9 +199,6 @@ class LrOrReshapeMaskImmediate(ipu_token.IpuToken):
         if value >= RESHAPE_MASK_LR_OFFSET:
             return f"lr{value - RESHAPE_MASK_LR_OFFSET}"
         return str(value)
-
-
-from ipu_isa.activations import ACTIVATION_FN_NAMES
 
 
 class ActivationFnField(ipu_token.EnumToken):

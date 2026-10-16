@@ -67,7 +67,7 @@ def _render_slot(
     labels += [(f.canonical_type, f.bits, color) for f in su.fields]
 
     px = x
-    for (label, bits, fill), cw in zip(labels, col_widths):
+    for (label, bits, fill), cw in zip(labels, col_widths, strict=True):
         out.append(
             f'  <rect x="{px}" y="{field_row_y}" width="{cw}" height="{_FIELD_ROW_H}" '
             f'fill="{fill}" stroke="#333" stroke-width="1" rx="3"/>'

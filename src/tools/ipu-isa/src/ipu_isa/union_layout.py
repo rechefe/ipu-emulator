@@ -185,6 +185,7 @@ def compute_slot_layout(
             for op, (t, si) in zip(
                 instructions[opcode_name]["operands"],
                 slot_assignment[opcode_name],
+                strict=False,
             )
         )
         for opcode_name in instructions
@@ -212,12 +213,12 @@ def _pad_slot(su: SlotUnion, target: int | None) -> SlotUnion:
     if deficit <= 0:
         return su
     # Prefer padding the field that carries LrModPow2K (k); the extra bit is unused.
-    for field in su.fields:
+    for slot_field in su.fields:
         if any(
             actual_type == "LrModPow2KImmediate"
-            for _opcode, (_operand_name, actual_type) in field.users.items()
+            for _opcode, (_operand_name, actual_type) in slot_field.users.items()
         ):
-            padded = replace(field, bits=field.bits + deficit)
-            fields = tuple(padded if f is field else f for f in su.fields)
+            padded = replace(slot_field, bits=slot_field.bits + deficit)
+            fields = tuple(padded if f is slot_field else f for f in su.fields)
             return replace(su, fields=fields)
     raise ValueError(f"Cannot pad {su.slot} slot to {target} bits (currently {su.bits})")

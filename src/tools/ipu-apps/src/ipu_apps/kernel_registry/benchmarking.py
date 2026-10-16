@@ -101,10 +101,14 @@ def _observed_aliases(profile: AliasProfile) -> dict[str, tuple[int, int]]:
 def _table(labels: Sequence[str], headers: Sequence[str], cells: Sequence[Sequence[str]]) -> str:
     first = max([26] + [len(label) for label in labels]) + 2
     widths = [max([len(h)] + [len(row[i]) for row in cells]) + 2 for i, h in enumerate(headers)]
-    lines = ["config".ljust(first) + "".join(h.rjust(w) for h, w in zip(headers, widths))]
+    lines = [
+        "config".ljust(first) + "".join(h.rjust(w) for h, w in zip(headers, widths, strict=True))
+    ]
     lines.append("-" * len(lines[0]))
-    for label, row in zip(labels, cells):
-        lines.append(label.ljust(first) + "".join(c.rjust(w) for c, w in zip(row, widths)))
+    for label, row in zip(labels, cells, strict=True):
+        lines.append(
+            label.ljust(first) + "".join(c.rjust(w) for c, w in zip(row, widths, strict=True))
+        )
     return "\n".join(lines)
 
 

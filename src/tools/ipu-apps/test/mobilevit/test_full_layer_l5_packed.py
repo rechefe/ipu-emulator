@@ -434,7 +434,7 @@ def test_stage1_layernorm_qkv_unpack(tmp_path: Path) -> None:
     LN_SCRATCH_ROW = alloc.alloc(1 + N_PACKED_ROWS + 1 + N_PACKED_ROWS + N_PACKED_ROWS + 1 + 1 + 1)
     QKV_MASK_ROW = alloc.alloc(1)
     QKV_N_OUT = 3 * N_CH
-    QKV_WEIGHTS_ROW = alloc.alloc(linear_weight_rows(N_CH, QKV_N_OUT))
+    _QKV_WEIGHTS_ROW = alloc.alloc(linear_weight_rows(N_CH, QKV_N_OUT))
     QKV_OUT_ROW = alloc.alloc(QKV_N_OUT // 8)
     UNPACK_MASK_ROW = alloc.alloc(1)
     UNPACKED_ROW = alloc.alloc(N_CH)
@@ -480,7 +480,6 @@ def test_stage1_layernorm_qkv_unpack(tmp_path: Path) -> None:
     assert qkv_err < 1e-2, f"QKV stage wrong: {qkv_err:.6e}"
 
     # Unpack Q's slice (first N_CH rows of QKV output, packed) -> one-channel-per-row
-    q_packed_rows = 3 * N_CH // 8 // 3  # N_PACKED_ROWS for Q alone
     cycles_up, _ = run_unpack(
         state,
         packed_base_row=QKV_OUT_ROW,
@@ -533,7 +532,7 @@ def test_stage3_outproj_residual_ffn_residual(tmp_path: Path) -> None:
     ATTN_OUT_ROW = alloc.alloc(N_PACKED_ROWS)  # row 0 -- residual1's A
     assert ATTN_OUT_ROW == 0
     OUTPROJ_MASK_ROW = alloc.alloc(1)
-    OUTPROJ_WEIGHTS_ROW = alloc.alloc(linear_weight_rows(N_CH, N_CH))
+    _OUTPROJ_WEIGHTS_ROW = alloc.alloc(linear_weight_rows(N_CH, N_CH))
     OUTPROJ_OUT_ROW = alloc.alloc(N_PACKED_ROWS)  # residual1's B
     RESIDUAL_IN_ROW = alloc.alloc(N_PACKED_ROWS)
     RESID1_OUT_ROW = alloc.alloc(N_PACKED_ROWS)
@@ -541,10 +540,10 @@ def test_stage3_outproj_residual_ffn_residual(tmp_path: Path) -> None:
     LN2_OUT_ROW = alloc.alloc(N_PACKED_ROWS)
     FFN1_MASK_ROW = alloc.alloc(1)
     FFN1_N_OUT = 4 * N_CH
-    FFN1_WEIGHTS_ROW = alloc.alloc(linear_weight_rows(N_CH, FFN1_N_OUT))
+    _FFN1_WEIGHTS_ROW = alloc.alloc(linear_weight_rows(N_CH, FFN1_N_OUT))
     FFN1_OUT_ROW = alloc.alloc(FFN1_N_OUT // 8)
     FFN2_MASK_ROW = alloc.alloc(1)
-    FFN2_WEIGHTS_ROW = alloc.alloc(linear_weight_rows(FFN1_N_OUT, N_CH))
+    _FFN2_WEIGHTS_ROW = alloc.alloc(linear_weight_rows(FFN1_N_OUT, N_CH))
     FFN2_OUT_ROW_TMP = alloc.alloc(N_PACKED_ROWS)  # will be copied to row 0 for residual2's A
 
     state = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
@@ -971,12 +970,12 @@ def test_full_l5_layer_packed_end_to_end(tmp_path: Path) -> None:
     LN1_SCRATCH_ROW = alloc.alloc(1 + N_PACKED_ROWS + 1 + N_PACKED_ROWS + N_PACKED_ROWS + 1 + 1 + 1)
     QKV_MASK_ROW = alloc.alloc(1)
     QKV_N_OUT = 3 * N_CH
-    QKV_WEIGHTS_ROW = alloc.alloc(linear_weight_rows(N_CH, QKV_N_OUT))
+    _QKV_WEIGHTS_ROW = alloc.alloc(linear_weight_rows(N_CH, QKV_N_OUT))
     QKV_OUT_ROW = alloc.alloc(QKV_N_OUT // 8)
     UNPACK_MASK_ROW = alloc.alloc(1)
     QKV_UNPACKED_ROW = alloc.alloc(3 * N_CH)  # Q, K, V each N_CH rows, contiguous
     OUTPROJ_MASK_ROW = alloc.alloc(1)
-    OUTPROJ_WEIGHTS_ROW = alloc.alloc(linear_weight_rows(N_CH, N_CH))
+    _OUTPROJ_WEIGHTS_ROW = alloc.alloc(linear_weight_rows(N_CH, N_CH))
     OUTPROJ_OUT_ROW = alloc.alloc(N_PACKED_ROWS)
     UNPACKED_ATTN_ROW = alloc.alloc(N_CH)
     PACK_MASK_ROW = alloc.alloc(1)
@@ -986,10 +985,10 @@ def test_full_l5_layer_packed_end_to_end(tmp_path: Path) -> None:
     LN2_OUT_ROW = alloc.alloc(N_PACKED_ROWS)
     FFN1_MASK_ROW = alloc.alloc(1)
     FFN1_N_OUT = 4 * N_CH
-    FFN1_WEIGHTS_ROW = alloc.alloc(linear_weight_rows(N_CH, FFN1_N_OUT))
+    _FFN1_WEIGHTS_ROW = alloc.alloc(linear_weight_rows(N_CH, FFN1_N_OUT))
     FFN1_OUT_ROW = alloc.alloc(FFN1_N_OUT // 8)
     FFN2_MASK_ROW = alloc.alloc(1)
-    FFN2_WEIGHTS_ROW = alloc.alloc(linear_weight_rows(FFN1_N_OUT, N_CH))
+    _FFN2_WEIGHTS_ROW = alloc.alloc(linear_weight_rows(FFN1_N_OUT, N_CH))
     FFN2_OUT_ROW = alloc.alloc(N_PACKED_ROWS)
     RESID2_OUT_ROW = alloc.alloc(N_PACKED_ROWS)
 
@@ -1176,10 +1175,6 @@ def test_full_l5_layer_packed_end_to_end(tmp_path: Path) -> None:
     )
     final_err = float(np.max(np.abs(resid2_kernel - final_expected)))
     print(f"FULL residual2 (FINAL OUTPUT): cycles={c} err={final_err:.6e}")
-
-    peak_activation_bytes = (
-        state.xmem.high_water_mark if hasattr(state.xmem, "high_water_mark") else None
-    )
 
     print("=== FULL L5 LAYER PACKED TOTALS ===")
     print(f"TOTAL_CYCLES={total_cycles}")

@@ -12,6 +12,7 @@ bazel run //src/tools/ipu-as-py:ipu-as -- assemble --input "$PWD/prog.asm" --out
 bazel test --config=proto //...                          # prototyping mode (= --define=ipu_proto=1); CI runs both modes
 bazel build --config=docs //docs:build_docs              # docs site, offline (bazel-bin/docs/site.tar)
 bazel test //tools:lint                                  # ruff lint + format check (ruff.toml; manual until E01-10)
+bazel test --test_tag_filters=typecheck //...            # every mypy_test (tools/typecheck.bzl, mypy.ini)
 bazel run //tools:ruff -- check --fix                    # auto-fix lint with the locked ruff
 bazel run //tools:ruff -- format                         # format with the locked ruff
 ```
@@ -50,6 +51,9 @@ tools/sv_localparam_diff.sh <base-ref>                      # diff localparam li
 ## Project Knowledge
 
 [SKILL.md](SKILL.md) is the index: for each task or topic it names the page that covers it.
+
+Read [Code conventions](docs/content/code-conventions.md) before writing or reviewing code. Terms: [GLOSSARY.md](GLOSSARY.md). Decisions: [docs/adr/](docs/adr/).
+Before opening or reviewing a PR, read [Code review](docs/content/code-review.md); the PR template is [.github/pull_request_template.md](.github/pull_request_template.md).
 
 ## Agent skills
 

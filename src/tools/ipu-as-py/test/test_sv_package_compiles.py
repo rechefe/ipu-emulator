@@ -22,7 +22,7 @@ endmodule
 def test_sv_package_compiles():
     compilation = Compilation()
     for text, name in (
-        (gen_codegen.render_template("ipu_instr_pkg.sv.j2"), "ipu_instr_pkg.sv"),
+        (gen_codegen.render_sv_package(), "ipu_instr_pkg.sv"),
         (_ELAB_TOP, "ipu_instr_pkg_elab_top.sv"),
     ):
         compilation.addSyntaxTree(SyntaxTree.fromText(text, name=name))

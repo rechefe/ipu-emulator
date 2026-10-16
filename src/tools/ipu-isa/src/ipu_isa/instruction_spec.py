@@ -1563,54 +1563,59 @@ def validate_pseudo_instruction_spec(pseudo_spec: dict, instruction_spec: dict) 
         _check_doc(path, pseudo_def["doc"], pseudo_def["operands"])
         if pseudo_tag(pseudo_def) is not Tag.ASSEMBLER:
             raise schema.SpecError(f"{path}.tag: a pseudo-instruction is Tag.ASSEMBLER")
+        _check_expansion(path, name, pseudo_def, instruction_spec)
 
-        expansion = pseudo_def["expands_to"]
-        schema.check_keys(f"{path}.expands_to", expansion, schema.EXPANSION)
-        slot, real_instruction, args = (
-            expansion["slot"],
-            expansion["instruction"],
-            expansion["args"],
+
+def _check_expansion(path: str, name: str, pseudo_def: dict, instruction_spec: dict) -> None:
+    """The pseudo's ``expands_to`` names a real instruction and fills each of
+    its operands with a pseudo operand or a valid literal register."""
+    expansion = pseudo_def["expands_to"]
+    schema.check_keys(f"{path}.expands_to", expansion, schema.EXPANSION)
+    slot, real_instruction, args = (
+        expansion["slot"],
+        expansion["instruction"],
+        expansion["args"],
+    )
+    if slot not in instruction_spec:
+        raise schema.SpecError(f"{path}.expands_to.slot: {slot!r} is not a slot")
+    real_def = next(
+        (
+            d
+            for n, d in instruction_spec[slot].items()
+            if n.upper() == str(real_instruction).upper()
+        ),
+        None,
+    )
+    if real_def is None:
+        raise schema.SpecError(
+            f"{path}.expands_to.instruction: {real_instruction!r} is not in slot {slot!r}"
         )
-        if slot not in instruction_spec:
-            raise schema.SpecError(f"{path}.expands_to.slot: {slot!r} is not a slot")
-        real_def = next(
-            (
-                d
-                for n, d in instruction_spec[slot].items()
-                if n.upper() == str(real_instruction).upper()
-            ),
-            None,
+    if instruction_tag(slot, real_def) not in (Tag.HARDWARE, Tag.EMULATOR):
+        raise schema.SpecError(
+            f"{path}.expands_to.instruction: {real_instruction!r} is not a HARDWARE "
+            "or EMULATOR instruction"
         )
-        if real_def is None:
+    targets = real_def["operands"]
+    if not isinstance(args, list) or len(args) != len(targets):
+        raise schema.SpecError(
+            f"{path}.expands_to.args: must be a list of {len(targets)} entries, "
+            f"one per operand of {slot}.{real_instruction}"
+        )
+    own_names = {operand["name"] for operand in pseudo_def["operands"]}
+    for arg, target in zip(args, targets, strict=True):
+        where = f"{path}.expands_to.args[{target['name']}]"
+        if not isinstance(arg, str):
+            raise schema.SpecError(f"{where}: must be a string")
+        if arg in own_names:
+            continue
+        target_type = OPERAND_TYPES[target["type"]]
+        registers = {member.upper() for member in target_type.domain.members}
+        if target_type.kind is not OperandKind.REGISTER or arg.upper() not in registers:
             raise schema.SpecError(
-                f"{path}.expands_to.instruction: {real_instruction!r} is not in slot {slot!r}"
+                f"{where}: literal {arg!r} is neither an operand of {name} nor a "
+                f"register valid for a {target['type']} operand"
             )
-        if instruction_tag(slot, real_def) not in (Tag.HARDWARE, Tag.EMULATOR):
-            raise schema.SpecError(
-                f"{path}.expands_to.instruction: {real_instruction!r} is not a HARDWARE "
-                "or EMULATOR instruction"
-            )
-        targets = real_def["operands"]
-        if not isinstance(args, list) or len(args) != len(targets):
-            raise schema.SpecError(
-                f"{path}.expands_to.args: must be a list of {len(targets)} entries, "
-                f"one per operand of {slot}.{real_instruction}"
-            )
-        own_names = {operand["name"] for operand in pseudo_def["operands"]}
-        for arg, target in zip(args, targets):
-            where = f"{path}.expands_to.args[{target['name']}]"
-            if not isinstance(arg, str):
-                raise schema.SpecError(f"{where}: must be a string")
-            if arg in own_names:
-                continue
-            target_type = OPERAND_TYPES[target["type"]]
-            registers = {member.upper() for member in target_type.domain.members}
-            if target_type.kind is not OperandKind.REGISTER or arg.upper() not in registers:
-                raise schema.SpecError(
-                    f"{where}: literal {arg!r} is neither an operand of {name} nor a "
-                    f"register valid for a {target['type']} operand"
-                )
-            _check_constant_register_literal(where, name, arg, pseudo_def["doc"])
+        _check_constant_register_literal(where, name, arg, pseudo_def["doc"])
 
 
 # Validate on import

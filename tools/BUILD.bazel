@@ -4,6 +4,7 @@ load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
 load("//tools:lint.bzl", "ruff_test")
 
 exports_files([
+    "mypy_runner.py",
     "requirements-tools.in",
     "ruff_runner.py",
 ])
@@ -98,13 +99,13 @@ py_binary(
 )
 
 # Every ruff_test in the repository (tools/lint.bzl), one per package:
-# `bazel test //tools:lint`. Listed explicitly because a test_suite runs manual
-# tests only when it names them; tools/check_lint_coverage.sh checks that this
-# list matches the ruff_test targets. Tagged manual so `//...` does not pull in
-# the manual ruff tests through it before E01-10 enables them.
+# `bazel test //tools:lint`. The ruff tests also run in the default tier
+# (`bazel test //...`) and carry the `lint` tag
+# (`bazel test --test_tag_filters=lint //...`). Listed explicitly;
+# tools/check_lint_coverage.sh checks that this list matches the ruff_test
+# targets.
 test_suite(
     name = "lint",
-    tags = ["manual"],
     tests = [
         "//:ruff",
         "//docs:ruff",
@@ -119,9 +120,8 @@ test_suite(
 )
 
 # Ruff over this package's Python files (tools/lint.bzl). Named ruff_lint, not
-# ruff, because //tools:ruff is the runnable ruff above. Manual until E01-10.
+# ruff, because //tools:ruff is the runnable ruff above.
 ruff_test(
     name = "ruff_lint",
     srcs = glob(["**/*.py"]),
-    tags = ["manual"],
 )

@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 
 import pytest
+
 from ipu_isa.instruction_spec import (
     INSTRUCTION_SPEC,
     PSEUDO_INSTRUCTION_SPEC,

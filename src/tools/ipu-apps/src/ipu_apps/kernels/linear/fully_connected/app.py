@@ -28,6 +28,7 @@ import struct
 from pathlib import Path
 
 from ipu_apps.kernel_registry.base import IpuApp
+from ipu_apps.kernel_registry.spec import ExecutionConfig, folder_spec, no, yes
 from ipu_emu.emulator import load_binary_to_xmem
 from ipu_emu.ipu_math import DType
 from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
@@ -210,7 +211,6 @@ class FullyConnectedApp(IpuApp):
 
 
 # The assembly has fixed dimensions; only storage/arithmetic mode varies.
-from ipu_apps.kernel_registry.spec import ExecutionConfig, folder_spec, no, yes
 
 
 def _supports(**params):

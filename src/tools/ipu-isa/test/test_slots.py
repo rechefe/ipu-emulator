@@ -11,7 +11,7 @@ from ipu_isa.instruction_spec import (
     SLOT_METADATA,
 )
 from ipu_isa.schema import SpecError
-from ipu_isa.slots import LAYOUT_ORDER, SLOTS, Slot, _load, _SPEC
+from ipu_isa.slots import _SPEC, LAYOUT_ORDER, SLOTS, Slot, _load
 
 
 def test_layout_order_covers_every_slot_once():
