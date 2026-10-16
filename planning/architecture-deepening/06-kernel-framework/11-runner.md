@@ -55,15 +55,16 @@ class RunResult:
     def passed(self) -> bool: ...
 
 def run_kernel(manifest: KernelManifest, case: Case, fmt: ElementFormat,
-               options: RunOptions = RunOptions(), *, session: AssemblySession | None = None) -> RunResult:
+               options: RunOptions = RunOptions(), *, cache: AssemblyCache | None = None) -> RunResult:
     plan = plan_case(manifest, case.values, fmt)                       # E06-03, once
     inputs = inputs_for(case, plan, overrides=options.inputs)         # E06-08
-    placement = place(plan, row_counts(plan))                         # E06-04
-    program = assemble(plan, session or default_session())           # E06-07
+    placement = place(plan, {n: stored_rows(t, plan) for n, t in plan.manifest.tensors.items()})  # E06-04/05
+    program = assemble(plan, cache)                                    # E06-07 (an AssemblyCache)
+    check_cr_reads(plan.manifest, program.rendered)                    # E06-06
     model = reference_model(format=fmt)                               # E04 stable API: reset(format)
     model.load_program(program)
     for name, a in inputs.items(): model.write_xmem_rows(placement.region(name).base_row, pack(...))
-    for w in cr_writes(plan, placement): model.set_reg(f"CR{w.cr}", w.value)
+    apply(model, register_writes(plan, placement))                    # E06-06: w.register, w.value
     model.run(max_cycles=...)                                         # to HALT, or fault / limit
     outputs = {o: unpack(...) for o in plan.outputs}
     comparisons = compare_all(case, plan, inputs, outputs)            # E06-09/10
