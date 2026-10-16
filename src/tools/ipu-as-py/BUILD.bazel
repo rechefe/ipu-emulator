@@ -94,3 +94,32 @@ py_pytest_test(
         requirement("pyslang"),
     ],
 )
+
+# Decode snapshots (E02-02): instruction-word field names, the emulator's
+# operand-to-field maps and the enum descriptors, pinned as JSON in
+# test/baselines/. `bazel run :update_decode_snapshots` rewrites them.
+py_library(
+    name = "decode_snapshots",
+    testonly = True,
+    srcs = ["test/baselines/decode_snapshots.py"],
+    imports = ["test/baselines"],
+    deps = [
+        ":ipu_as_lib",
+        "//src/tools/ipu-emu-py:ipu_emu_lib",
+    ],
+)
+
+py_pytest_test(
+    name = "test_decode_snapshots",
+    srcs = ["test/test_decode_snapshots.py"],
+    data = glob(["test/baselines/*.json"]),
+    deps = [":decode_snapshots", requirement("pytest")],
+)
+
+py_binary(
+    name = "update_decode_snapshots",
+    testonly = True,
+    srcs = ["test/baselines/update_decode_snapshots.py"],
+    main = "test/baselines/update_decode_snapshots.py",
+    deps = [":decode_snapshots"],
+)

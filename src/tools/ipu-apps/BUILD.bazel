@@ -174,3 +174,27 @@ py_binary(
     main = "test/baselines/update_asm_digests.py",
     deps = [":asm_corpus"],
 )
+
+# Disassembly snapshots (E02-02): one text file per corpus entry in
+# test/baselines/disassembly/. `bazel run :update_disassembly_snapshots`
+# rewrites them.
+py_library(
+    name = "disassembly_snapshots",
+    srcs = ["test/baselines/disassembly.py"],
+    imports = ["test/baselines"],
+    deps = [":asm_corpus"],
+)
+
+py_pytest_test(
+    name = "test_disassembly_snapshots",
+    srcs = ["test/test_disassembly_snapshots.py"],
+    data = _ASM_CORPUS + glob(["test/baselines/disassembly/**/*.txt"]),
+    deps = [":disassembly_snapshots", requirement("pytest")],
+)
+
+py_binary(
+    name = "update_disassembly_snapshots",
+    srcs = ["test/baselines/update_disassembly_snapshots.py"],
+    main = "test/baselines/update_disassembly_snapshots.py",
+    deps = [":disassembly_snapshots"],
+)
