@@ -1,4 +1,4 @@
-load("@rules_python//python:defs.bzl", "py_binary")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
 load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
 load("@ipu_as_deps//:requirements.bzl", "requirement")
 
@@ -191,4 +191,55 @@ py_binary(
     data = [":build_docs"],
     main = "serve_docs_wrapper.py",
     python_version = "PY3",
+)
+
+# Doc tests: every `asm` block in the hand-written docs assembles, and every
+# documented `ipu-as` command uses only declared options. Default tier.
+py_library(
+    name = "doc_blocks",
+    srcs = [
+        "doc_blocks.py",
+        "doc_files.py",
+    ],
+)
+
+py_pytest_test(
+    name = "doc_blocks_test",
+    size = "small",
+    srcs = ["doc_blocks_test.py"],
+    deps = [
+        ":doc_blocks",
+        requirement("pytest"),
+    ],
+)
+
+_DOC_TEST_DATA = [
+    ":doc_sources",
+    "//:CLAUDE.md",
+    "//:README.md",
+    "//:SKILL.md",
+]
+
+py_pytest_test(
+    name = "test_doc_asm_blocks",
+    size = "small",
+    srcs = ["test_doc_asm_blocks.py"],
+    data = _DOC_TEST_DATA,
+    deps = [
+        ":doc_blocks",
+        "//src/tools/ipu-as-py:ipu_as_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_doc_commands",
+    size = "small",
+    srcs = ["test_doc_commands.py"],
+    data = _DOC_TEST_DATA,
+    deps = [
+        ":doc_blocks",
+        "//src/tools/ipu-as-py:ipu_as_lib",
+        requirement("pytest"),
+    ],
 )
