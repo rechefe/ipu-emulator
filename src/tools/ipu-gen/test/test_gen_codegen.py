@@ -234,3 +234,26 @@ def test_cli_writes_the_docs_pages_and_the_union_svg(tmp_path: Path):
     page = tmp_path / "instruction-format.md"
     assert CliRunner().invoke(cli, ["instruction-format-md", str(page)]).exit_code == 0
     assert "## Compound instruction layout" in page.read_text()
+
+
+def test_cli_verify_sv_package_exit_codes(tmp_path: Path):
+    good = tmp_path / "pkg.sv"
+    good.write_text(sv_package.render_sv_package(), encoding="utf-8")
+    assert CliRunner().invoke(cli, ["verify-sv-package", str(good)]).exit_code == 0
+    edited = tmp_path / "edited.sv"
+    edited.write_text(good.read_text(encoding="utf-8") + "// edited\n", encoding="utf-8")
+    assert CliRunner().invoke(cli, ["verify-sv-package", str(edited)]).exit_code == 1
+
+
+def test_cli_vscode_data_needs_a_directory_outside_bazel_run(monkeypatch):
+    monkeypatch.delenv("BUILD_WORKSPACE_DIRECTORY", raising=False)
+    result = CliRunner().invoke(cli, ["vscode-data"])
+    assert result.exit_code == 2
+    assert "BUILD_WORKSPACE_DIRECTORY" in result.output
+
+
+def test_cli_resolves_relative_paths_against_the_callers_directory(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("BUILD_WORKING_DIRECTORY", str(tmp_path))
+    result = CliRunner().invoke(cli, ["union-layout-svg", "out/union.svg"])
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "out" / "union.svg").read_text() == layout_svg.union_layout_svg()

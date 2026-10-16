@@ -36,8 +36,9 @@ def cli() -> None:
 @click.option("--output", type=click.Path(), required=True, help="Output .sv file path")
 def sv_package(output: str) -> None:
     """Generate the SystemVerilog package for the IPU instruction format."""
-    sv.generate_sv_package(_caller_path(Path(output)))
-    click.echo(f"Wrote SystemVerilog package to {output}")
+    path = _caller_path(Path(output))
+    sv.generate_sv_package(path)
+    click.echo(f"Wrote SystemVerilog package to {path}")
 
 
 @cli.command("docs-pages")
