@@ -67,3 +67,13 @@ py_pytest_test(
         requirement("pytest"),
     ],
 )
+
+py_pytest_test(
+    name = "test_operand_types",
+    srcs = ["test/test_operand_types.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)

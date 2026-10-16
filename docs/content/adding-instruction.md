@@ -18,7 +18,7 @@ The assembler accepts mnemonics in any case; written examples and the spec use u
 
 No manual opcode management needed — opcodes are automatically derived from instruction position.
 
-When you add a **new operand type** string to `INSTRUCTION_SPEC`, also add it to `VALID_OPERAND_TYPES` in the same file and extend `OPERAND_TYPE_DETAILS` in `src/tools/ipu-as-py/src/ipu_as/gen_docs.py` so the generated [Operand types](operand-types.md) page stays complete (`bazel build //docs:generate_mkdocs_md` or `docs/gen_docs_wrapper.py`).
+A **new operand type** needs one entry in the operand-type registry, `src/tools/ipu-isa/src/ipu_isa/operand_types.py` (kind, width, value domain, readability, wire names and documentation), and one token class in the assembler's `OPERAND_TYPE_MAP` (`src/tools/ipu-as-py/src/ipu_as/inst.py`), plus an emulator resolver if it is readable. Everything else (the valid-type set, union widths, decoded field names, SV typedefs, the generated [Operand types](operand-types.md) page) is derived from the registry, and a missing piece fails at import naming the type. Its `field_suffix` and `sv_typedef` are wire format: changing one is a breaking change.
 
 ## Step 1: Add Instruction to `instruction_spec.py`
 

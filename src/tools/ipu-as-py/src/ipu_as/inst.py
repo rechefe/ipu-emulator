@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 import lark
@@ -5,6 +6,7 @@ import ipu_as.opcodes as opcodes
 import ipu_as.ipu_token as ipu_token
 import ipu_as.reg as reg
 import ipu_as.immediate as immediate
+from ipu_isa.operand_types import OPERAND_TYPES, OperandType
 from ipu_isa.instruction_spec import (
     INSTRUCTION_SPEC,
     COMPOUND_LAYOUT_SLOT_ORDER,
@@ -50,6 +52,42 @@ OPERAND_TYPE_MAP: dict[str, type[ipu_token.IpuToken]] = {
     "BreakImmediate": immediate.BreakImmediateType,
     "Label": ipu_token.LabelToken,
 }
+
+
+def check_operand_type_map(
+    type_map: Mapping[str, type[ipu_token.IpuToken]],
+    operand_types: Mapping[str, OperandType] = OPERAND_TYPES,
+) -> None:
+    """The token classes agree with the operand-type registry.
+
+    Every registry type has a token class, the class is the one the registry
+    names, and an enum token's members are the registry domain, in order.
+    Raises ``ValueError`` naming the type.
+    """
+    if set(type_map) != set(operand_types):
+        missing = sorted(set(operand_types) - set(type_map))
+        extra = sorted(set(type_map) - set(operand_types))
+        raise ValueError(
+            f"OPERAND_TYPE_MAP disagrees with the operand-type registry: "
+            f"missing {missing}, not in the registry {extra}"
+        )
+    for name, token_class in type_map.items():
+        record = operand_types[name]
+        if token_class.__name__ != record.token_class:
+            raise ValueError(
+                f"OPERAND_TYPE_MAP[{name!r}] is {token_class.__name__}, but the "
+                f"operand-type registry names {record.token_class}"
+            )
+        if issubclass(token_class, ipu_token.EnumToken):
+            members = tuple(token_class.enum_array())
+            if members != record.domain.members:
+                raise ValueError(
+                    f"{token_class.__name__} members {members} differ from the "
+                    f"operand-type registry domain of {name}: {record.domain.members}"
+                )
+
+
+check_operand_type_map(OPERAND_TYPE_MAP)
 
 
 def _build_struct_table(slot_type: str) -> dict[str, "InstructionFormat"]:

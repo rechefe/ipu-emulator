@@ -2,8 +2,8 @@ import lark
 import dataclasses
 import ipu_as.label as label
 import ipu_as.utils as utils
-
-MAX_PROGRAM_SIZE = 1024
+from ipu_isa.geometry import MAX_PROGRAM_SIZE
+from ipu_isa.operand_types import operand_type
 
 
 @dataclasses.dataclass
@@ -185,8 +185,8 @@ class LabelToken(IpuToken):
         return {"kind": "label", "relative_max": MAX_PROGRAM_SIZE - 1}
 
     @classmethod
-    def bits(self) -> int:
-        return (MAX_PROGRAM_SIZE - 1).bit_length()
+    def bits(cls) -> int:
+        return operand_type("Label").bits
 
     def encode(self) -> int:
         if self.token.value.startswith("+"):

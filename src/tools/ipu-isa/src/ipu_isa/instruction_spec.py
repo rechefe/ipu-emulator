@@ -80,7 +80,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Tuple, Any
 
 from ipu_isa import schema
-from ipu_isa.registers import create_assembler_reg_enums
+from ipu_isa.operand_types import OPERAND_TYPES, OperandKind
 
 
 # ===========================================================================
@@ -1276,27 +1276,8 @@ def get_operand_names_and_types(slot_type: str, instruction_name: str) -> List[T
 # Operand types (single source for validation + documentation generation)
 # ===========================================================================
 
-VALID_OPERAND_TYPES: frozenset[str] = frozenset(
-    {
-        "MultStageReg",
-        "LrIdx",
-        "CrIdx",
-        "LcrIdx",
-        "LrdIdx",
-        "ElementsInRow",
-        "HorizontalStride",
-        "VerticalStride",
-        "LrModPow2KImmediate",
-        "LrIncDecImmediate",
-        "AddbiImmediate",
-        "MultMaskOffsetImmediate",
-        "LrOrReshapeMaskImmediate",
-        "ActivationFn",
-        "BreakImmediate",
-        "Label",
-        "DstructureCrIdx",
-    }
-)
+#: Every operand-type name, from the operand-type registry.
+VALID_OPERAND_TYPES: frozenset[str] = frozenset(OPERAND_TYPES)
 
 
 # ===========================================================================
@@ -1478,15 +1459,10 @@ def find_pseudo_instruction(name: str, arg_count: int) -> dict | None:
 _OPERAND_NAME = re.compile(r"[a-z][a-z0-9_]*")
 _DOC_OPERAND_NAME = re.compile(r"\s*`?([A-Za-z_][A-Za-z0-9_]*)`?\s*:")
 
-#: Register operand types and the assembler register enum their names come
-#: from, for checking a pseudo-instruction's literal arguments. E03-05 moves
-#: this onto the operand-type registry.
-_REGISTER_ENUM_OF_TYPE = {
-    "LrIdx": "LrRegField",
-    "CrIdx": "CrRegField",
-    "LcrIdx": "LcrRegField",
-    "MultStageReg": "MultStageRegField",
-}
+#: Operand types a ``read`` key is allowed on: the readable register types.
+READABLE_OPERAND_TYPES = frozenset(
+    name for name, operand_type in OPERAND_TYPES.items() if operand_type.readable
+)
 
 
 def _check_operands(path: str, operands: object) -> None:
@@ -1512,11 +1488,11 @@ def _check_operands(path: str, operands: object) -> None:
                     f"{where}.read: {operand['read']!r} is not one of "
                     f"{sorted(schema.READ_SOURCES)}"
                 )
-            if operand["type"] not in schema.READABLE_OPERAND_TYPES:
+            if operand["type"] not in READABLE_OPERAND_TYPES:
                 raise schema.SpecError(
                     f"{where}.read: a {operand['type']} operand is not a register, "
                     f"so it cannot be read; 'read' is allowed only on "
-                    f"{sorted(schema.READABLE_OPERAND_TYPES)}"
+                    f"{sorted(READABLE_OPERAND_TYPES)}"
                 )
     schema.check_unique(path, "operand name", (op["name"] for op in operands))
 
@@ -1578,15 +1554,11 @@ def validate_pseudo_instruction_spec(pseudo_spec: dict, instruction_spec: dict) 
     instructions it expands to.
 
     Each ``expands_to.args`` entry is one of the pseudo's own operand names or
-    a literal register name valid for the target operand's type (``CR0`` for an
+    a literal register name in the target operand type's domain (``CR0`` for an
     ``LcrIdx``). Pseudo-instructions carry no ``execute_fn``: they expand at
     assemble time and never reach the emulator. A pure function of its
     arguments; raises :class:`ipu_isa.schema.SpecError`.
     """
-    register_names = {
-        enum_name: {name.upper() for name in names}
-        for enum_name, names in create_assembler_reg_enums().items()
-    }
     for name, pseudo_def in pseudo_spec.items():
         path = f"pseudo.{name}"
         schema.check_keys(path, pseudo_def, schema.PSEUDO_INSTRUCTION)
@@ -1622,8 +1594,9 @@ def validate_pseudo_instruction_spec(pseudo_spec: dict, instruction_spec: dict) 
                 raise schema.SpecError(f"{where}: must be a string")
             if arg in own_names:
                 continue
-            enum_name = _REGISTER_ENUM_OF_TYPE.get(target["type"])
-            if enum_name is None or arg.upper() not in register_names[enum_name]:
+            target_type = OPERAND_TYPES[target["type"]]
+            registers = {member.upper() for member in target_type.domain.members}
+            if target_type.kind is not OperandKind.REGISTER or arg.upper() not in registers:
                 raise schema.SpecError(
                     f"{where}: literal {arg!r} is neither an operand of {name} nor a "
                     f"register valid for a {target['type']} operand"

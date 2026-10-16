@@ -39,11 +39,11 @@ from ipu_isa.instruction_spec import (
     SLOT_METADATA,
     syntax,
 )
+from ipu_isa.operand_types import operand_type
 from ipu_isa.registers import REGISTER_DEFINITIONS, create_assembler_reg_enums
 from ipu_isa.types import RegKind
 
 from ipu_as.diagnostics import check
-from ipu_as.gen_docs import OPERAND_TYPE_DETAILS
 from ipu_as.inst import OPERAND_TYPE_MAP
 from ipu_as.lark_tree import get_parser
 from ipu_as.reg import LRD_REG_FIELDS, LrdRegField
@@ -451,7 +451,7 @@ def build_hover_data(emulator: dict | None = None) -> dict:
         # What each operand type accepts, from the class that validates it, so
         # completion never offers a value the assembler rejects (test_isa_data.py).
         "operandTypes": {
-            name: {**cls.completion_domain(), "description": OPERAND_TYPE_DETAILS[name]} for name, cls in OPERAND_TYPE_MAP.items()
+            name: {**cls.completion_domain(), "description": operand_type(name).doc} for name, cls in OPERAND_TYPE_MAP.items()
         },
         # Lexical facts: patterns from the grammar's terminals, and case rules
         # measured by probe programs (_case_insensitive), not stated.

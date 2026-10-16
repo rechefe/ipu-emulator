@@ -50,6 +50,17 @@ py_pytest_test(
     ],
 )
 
+# OPERAND_TYPE_MAP against the operand-type registry (E03-05).
+py_pytest_test(
+    name = "test_operand_type_map",
+    srcs = ["test/test_operand_type_map.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_as_lib",
+        requirement("pytest"),
+    ],
+)
+
 py_pytest_test(
     name = "test_diagnostics",
     srcs = ["test/test_diagnostics.py"],

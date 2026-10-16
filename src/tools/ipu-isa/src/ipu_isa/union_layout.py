@@ -23,22 +23,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from ipu_isa.acc_stride_enums import (
-    ELEMENTS_IN_ROW_NAMES,
-    HORIZONTAL_STRIDE_NAMES,
-    VERTICAL_STRIDE_NAMES,
-)
-from ipu_isa.activations import ACTIVATION_FN_NAMES
-from ipu_isa.incr_mod_pow2_k import LR_MOD_POW2_K_FIELD_BITS
-from ipu_isa.mult_mask_offset import MULT_MASK_OFFSET_FIELD_BITS
 from ipu_isa import lr_inc_dec_imm
 from ipu_isa import reshape_mask
-from ipu_isa.registers import REGISTER_DEFINITIONS
-
-# Operand types whose bit-width is determined by union packing, not a fixed constant.
-_DERIVED_OPERAND_TYPES: frozenset[str] = frozenset(
-    {"LrIncDecImmediate", "LrOrReshapeMaskImmediate"}
-)
+from ipu_isa.operand_types import OPERAND_TYPES
 
 # operand type name -> (module, attribute) written by finalize_derived_operand_bits()
 # once the union field carrying that type has been packed.
@@ -54,42 +41,14 @@ _SLOT_TARGET_BITS: dict[str, int] = {
 }
 
 
-def _enum_bits(names: tuple) -> int:
-    return (len(names) - 1).bit_length()
-
-
 def get_operand_type_bits() -> dict[str, int]:
-    """Return the bit-width for each operand type string used in instruction_spec."""
-    lr_count: int = REGISTER_DEFINITIONS["lr"]["count"]
-    cr_count: int = REGISTER_DEFINITIONS["cr"]["count"]
+    """Return the bit-width for each operand type string used in instruction_spec.
 
-    return {
-        "MultStageReg": 2,  # MultStageRegField overrides bits() → 2
-        "LrIdx": (lr_count - 1).bit_length(),
-        "CrIdx": (cr_count - 1).bit_length(),
-        "DstructureCrIdx": (cr_count - 1).bit_length(),
-        "LcrIdx": (lr_count + cr_count - 1).bit_length(),
-        # Width 0 at layout time — the shared union field width is set in
-        # finalize_derived_operand_bits() after packing.
-        "LrIncDecImmediate": 0,
-        # LRD0, LRD2, ..., LRD14: register-pair alias over LR (named after the
-        # lower register), one pair per two LR registers.
-        "LrdIdx": ((lr_count // 2) - 1).bit_length(),
-        # ADDBI's immediate is a plain byte — width is intrinsic (8 bits), not
-        # derived from union packing (unlike LrIncDecImmediate).
-        "AddbiImmediate": 8,
-        "LrModPow2KImmediate": LR_MOD_POW2_K_FIELD_BITS,
-        "MultMaskOffsetImmediate": MULT_MASK_OFFSET_FIELD_BITS,
-        # Width 0 at layout time — the shared union field width is set in
-        # finalize_derived_operand_bits() after packing.
-        "LrOrReshapeMaskImmediate": 0,
-        "BreakImmediate": 16,
-        "Label": 10,  # (MAX_PROGRAM_SIZE - 1).bit_length() for size 1024
-        "ElementsInRow": _enum_bits(ELEMENTS_IN_ROW_NAMES),
-        "HorizontalStride": _enum_bits(HORIZONTAL_STRIDE_NAMES),
-        "VerticalStride": _enum_bits(VERTICAL_STRIDE_NAMES),
-        "ActivationFn": _enum_bits(ACTIVATION_FN_NAMES),
-    }
+    Read from the operand-type registry. A width decided by union packing is 0
+    here; ``finalize_derived_operand_bits()`` sets the shared field width after
+    packing.
+    """
+    return {name: operand_type.bits or 0 for name, operand_type in OPERAND_TYPES.items()}
 
 
 @dataclass
