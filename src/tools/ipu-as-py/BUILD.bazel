@@ -75,6 +75,7 @@ py_pytest_test(
         ":ipu_as_lib",
         requirement("jsonschema"),
         requirement("pytest"),
+        requirement("referencing"),
     ],
 )
 

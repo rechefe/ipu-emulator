@@ -10,9 +10,11 @@ TESTS = Path(__file__).parent
 
 
 def test_no_test_inserts_into_sys_path():
+    scanned = sorted(TESTS.rglob("*.py"))
+    assert len(scanned) > 10, "the tests are this target's data"
     offenders = [
         f"{path.relative_to(TESTS)}:{number}"
-        for path in sorted(TESTS.rglob("*.py"))
+        for path in scanned
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
         if "sys.path.insert" in line and path.name != Path(__file__).name
     ]

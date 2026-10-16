@@ -725,6 +725,7 @@ referencing==0.37.0 \
     --hash=sha256:381329a9f99628c9069361716891d34ad94af76e461dcb0335825aecc7692231 \
     --hash=sha256:44aefc3142c5b842538163acb373e24cce6632bd54bdb01b21ad5863489f50d8
     # via
+    #   ipu-as-py (src/tools/ipu-as-py/pyproject.toml)
     #   jsonschema
     #   jsonschema-specifications
 requests==2.34.2 \

@@ -84,10 +84,8 @@ def _print_json_versions(ctx: click.Context, _param: click.Parameter, value: boo
 @click.option(
     "--json-version",
     type=click.IntRange(min(JSON_VERSIONS), max(JSON_VERSIONS)),
-    default=1,
-    show_default=True,
-    help="Which --json layout to print: 1 is a bare array of diagnostics, "
-    '2 is {"schemaVersion": 2, "diagnostics": [...]}.',
+    help="Which --json layout to print: 1 (the default) is a bare array of "
+    'diagnostics, 2 is {"schemaVersion": 2, "diagnostics": [...]}.',
 )
 @click.option(
     "--json-versions",
@@ -97,7 +95,7 @@ def _print_json_versions(ctx: click.Context, _param: click.Parameter, value: boo
     callback=_print_json_versions,
     help="Print the --json versions this assembler supports, as a JSON array, and exit.",
 )
-def check(input: str, as_json: bool, json_version: int):
+def check(input: str, as_json: bool, json_version: int | None):
     """Report errors in an assembly source without producing output.
 
     Unlike `assemble`, this never exits on the first problem and never writes a
@@ -107,6 +105,8 @@ def check(input: str, as_json: bool, json_version: int):
     Reading from stdin matters for the editor: it checks the buffer as typed,
     which is not what is on disk.
     """
+    if json_version is not None and not as_json:
+        raise click.UsageError("--json-version applies to --json output only")
     source = sys.stdin.read() if input == "-" else open(input).read()
 
     try:
@@ -138,7 +138,7 @@ def check(input: str, as_json: bool, json_version: int):
     if as_json:
         # stdout is the protocol here; keep it pure JSON.
         listed = [d.to_dict() for d in found]
-        json.dump(listed if json_version == 1 else {"schemaVersion": 2, "diagnostics": listed}, sys.stdout)
+        json.dump(listed if json_version in (None, 1) else {"schemaVersion": 2, "diagnostics": listed}, sys.stdout)
         sys.stdout.write("\n")
     else:
         for d in found:

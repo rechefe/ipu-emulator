@@ -27,7 +27,9 @@ when there are none.
 - Version 1 is the bare array, and it never changes: a snapshot test
   (`//src/tools/ipu-as-py:test_check_json`) fails on any difference.
 - A new version may only add fields. Nothing a version prints is removed or
-  changes meaning in a later one.
+  changes meaning in a later one. Each version has a schema of its own: a
+  version that adds a field to each diagnostic defines its own diagnostic,
+  since version 1's allows no other fields.
 - A diagnostic's message text is part of the contract: the extension compares
   messages (a rename is refused only for a problem the renamed text adds). A
   change to a message is a contract change.

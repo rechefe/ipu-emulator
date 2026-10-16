@@ -5,7 +5,8 @@ JSON Schema per version). v1, the bare array, must stay byte-identical: the
 snapshot below is its output over the extension's corpus and every source
 test_diagnostics.py checks. A difference fails; if it is intended, it is a
 contract change (see check-json.md), and the new snapshot is written to the
-test's undeclared outputs (bazel-testlogs/.../test.outputs/) to copy over
+test's undeclared outputs
+(bazel-testlogs/src/tools/ipu-as-py/test_check_json/test.outputs/) to copy over
 test/golden/check_json_v1.json.
 """
 
@@ -31,7 +32,8 @@ GOLDEN = HERE / "golden" / "check_json_v1.json"
 
 def _diagnostics_test_sources() -> list[str]:
     """The sources test_diagnostics.py checks: the literal passed to `check(...)`,
-    assigned to `source`, or listed for a `source` parameter."""
+    assigned to `source`, or listed for a `source` parameter (alone, or first of
+    several: `"source,expected_line"`)."""
     tree = ast.parse((HERE / "test_diagnostics.py").read_text(encoding="utf-8"))
     found: list[str] = []
 
@@ -46,9 +48,13 @@ def _diagnostics_test_sources() -> list[str]:
             literal(node.value)
         elif isinstance(node, ast.Call) and getattr(node.func, "attr", None) == "parametrize":
             names, values = node.args[0], node.args[1]
-            if isinstance(names, ast.Constant) and names.value == "source" and isinstance(values, ast.List):
-                for element in values.elts:
-                    literal(element)
+            if not (isinstance(names, ast.Constant) and isinstance(values, ast.List)):
+                continue
+            argnames = [name.strip() for name in names.value.split(",")]
+            if argnames[0] != "source":
+                continue
+            for element in values.elts:
+                literal(element.elts[0] if len(argnames) > 1 and isinstance(element, ast.Tuple) else element)
     return found
 
 
@@ -96,6 +102,17 @@ def test_v1_output_is_unchanged():
     assert actual == expected
 
 
+def test_the_schemas_are_valid_json_schemas():
+    for path in SCHEMAS.glob("check-json-v*.schema.json"):
+        schema = json.loads(path.read_text(encoding="utf-8"))
+        jsonschema.validators.validator_for(schema).check_schema(schema)
+
+
+def test_the_snapshot_covers_every_parametrized_source():
+    # Including those listed with other parameters ("source,expected_line").
+    assert 'BKPT;;\nBKPT;;\n{{ 1 + "a" }}\nBKPT;;\n' in _diagnostics_test_sources()
+
+
 def test_v1_output_matches_its_schema():
     for source in _sources().values():
         _, stdout = _check(source)
@@ -121,6 +138,12 @@ def test_explicit_version_1_is_the_default():
         assert _check(source, "--json-version", "1") == _check(source)
 
 
+def test_a_json_version_without_json_is_a_usage_error():
+    result = CliRunner().invoke(cli, ["check", "--json-version", "2", "--input", "-"], input="BKPT;;\n")
+    assert result.exit_code == 2
+    assert "--json-version" in result.output
+
+
 def test_an_unknown_version_is_a_usage_error():
     result = CliRunner().invoke(cli, ["check", "--json", "--json-version", "3", "--input", "-"], input="BKPT;;\n")
     assert result.exit_code == 2
@@ -134,7 +157,3 @@ def test_supported_versions_are_listed():
     schemas = sorted(int(p.name.split("-v")[1].split(".")[0]) for p in SCHEMAS.glob("check-json-v*.schema.json"))
     assert schemas == [1, 2], "a schema for every version printed"
 
-
-if __name__ == "__main__":
-    # Record the snapshot (from the workspace root): python src/tools/ipu-as-py/test/test_check_json.py
-    GOLDEN.write_text(json.dumps(_snapshot(), indent=2, sort_keys=True) + "\n", encoding="utf-8")

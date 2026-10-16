@@ -39,6 +39,10 @@
     "exit_code": 0,
     "stdout": "[]\n"
   },
+  "test_diagnostics.py: 'BKPT;;\\nBKPT;;\\n{{ 1 + \"a\" }}\\nBKPT;;\\n'": {
+    "exit_code": 1,
+    "stdout": "[{\"line\": 2, \"column\": 0, \"end_line\": 2, \"end_column\": 0, \"message\": \"Template error: TypeError: unsupported operand type(s) for +: 'int' and 'str'\", \"severity\": \"error\", \"stage\": \"template\", \"approximate\": false}]\n"
+  },
   "test_diagnostics.py: 'BKPT;;\\nmac.ee r0;;\\n'": {
     "exit_code": 1,
     "stdout": "[{\"line\": 1, \"column\": 0, \"end_line\": 1, \"end_column\": 1, \"message\": \"Opcode 'mac.ee' not found in any Inst subclass.\", \"severity\": \"error\", \"stage\": \"assemble\", \"approximate\": false}]\n"
@@ -46,6 +50,10 @@
   "test_diagnostics.py: 'BKPT;;\\n{% for x in %}\\n'": {
     "exit_code": 1,
     "stdout": "[{\"line\": 1, \"column\": 0, \"end_line\": 1, \"end_column\": 0, \"message\": \"Template error: Expected an expression, got 'end of statement block'\", \"severity\": \"error\", \"stage\": \"template\", \"approximate\": false}]\n"
+  },
+  "test_diagnostics.py: 'BKPT;;\\n{{ 1 / 0 }}\\n'": {
+    "exit_code": 1,
+    "stdout": "[{\"line\": 1, \"column\": 0, \"end_line\": 1, \"end_column\": 0, \"message\": \"Template error: ZeroDivisionError: division by zero\", \"severity\": \"error\", \"stage\": \"template\", \"approximate\": false}]\n"
   },
   "test_diagnostics.py: 'a:\\n  BKPT;;\\na:\\n  BKPT;;\\n'": {
     "exit_code": 1,
@@ -90,6 +98,10 @@
   "test_diagnostics.py: '{{ (1).missing() }}\\nBKPT;;\\n'": {
     "exit_code": 1,
     "stdout": "[{\"line\": 0, \"column\": 0, \"end_line\": 0, \"end_column\": 0, \"message\": \"Template error: UndefinedError: 'int object' has no attribute 'missing'\", \"severity\": \"error\", \"stage\": \"template\", \"approximate\": false}]\n"
+  },
+  "test_diagnostics.py: '{{ (1).nope() }}\\nBKPT;;\\n'": {
+    "exit_code": 1,
+    "stdout": "[{\"line\": 0, \"column\": 0, \"end_line\": 0, \"end_column\": 0, \"message\": \"Template error: UndefinedError: 'int object' has no attribute 'nope'\", \"severity\": \"error\", \"stage\": \"template\", \"approximate\": false}]\n"
   },
   "test_diagnostics.py: '{{ ({}).__class__.__base__.__subclasses__() }}BKPT;;\\n'": {
     "exit_code": 1,
