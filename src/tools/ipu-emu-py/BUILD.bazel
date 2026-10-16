@@ -183,3 +183,15 @@ py_pytest_test(
         requirement("pytest"),
     ],
 )
+
+py_pytest_test(
+    name = "test_timing_datapath_views",
+    srcs = ["test/test_timing_datapath_views.py"],
+    args = ["-p", "pytest_shard_plugin"],
+    shard_count = 4,
+    imports = ["src"],
+    deps = [
+        ":timing_probes",
+        requirement("pytest"),
+    ],
+)
