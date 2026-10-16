@@ -104,6 +104,15 @@ class Isa:
     _instructions: Mapping[Slot, tuple[Instruction, ...]] = field(repr=False)
     _pseudos: tuple[PseudoInstruction, ...] = field(repr=False)
 
+    @property
+    def spec_slot_order(self) -> tuple[Slot, ...]:
+        """Slots in the order the instruction spec lists them.
+
+        It fixes the order of generated enums (the assembler's opcode classes,
+        the SV package); ``slots`` follows the slot registry instead.
+        """
+        return tuple(self._instructions)
+
     def instructions(self, slot: Slot) -> tuple[Instruction, ...]:
         """The instructions of ``slot``, in opcode order."""
         return self._instructions[slot]
@@ -242,62 +251,3 @@ def isa() -> Isa:
     needs a different ISA copies them and calls :func:`load_isa`).
     """
     return load_isa(INSTRUCTION_SPEC, PSEUDO_INSTRUCTION_SPEC, SLOTS, OPERAND_TYPES)
-
-
-# ---------------------------------------------------------------------------
-# Lookup helpers with the return shapes of the old dict helpers, over isa(),
-# so callers migrate one at a time (L34). E03-11 deletes them.
-# ---------------------------------------------------------------------------
-
-
-def _operand_dicts(operands: tuple[Operand, ...]) -> list[dict[str, str]]:
-    return [
-        {"name": op.name, "type": op.type.name, **({"read": op.read.value} if op.read else {})}
-        for op in operands
-    ]
-
-
-def _instruction_dict(instruction: Instruction) -> dict[str, Any]:
-    return {
-        "operands": _operand_dicts(instruction.operands),
-        "doc": instruction.doc,
-        "execute_fn": instruction.execute_fn,
-    }
-
-
-def get_opcode_for_instruction(slot_type: str, instruction_name: str) -> int:
-    """Opcode of ``instruction_name`` in ``slot_type`` (case-insensitive)."""
-    return isa().instruction(Slot(slot_type), instruction_name).opcode
-
-
-def get_instruction(slot_type: str, instruction_name: str) -> dict[str, Any]:
-    """``{"operands": [...], "doc": ..., "execute_fn": ...}`` of an instruction."""
-    return _instruction_dict(isa().instruction(Slot(slot_type), instruction_name))
-
-
-def get_instruction_by_opcode(slot_type: str, opcode_index: int) -> tuple[str, dict[str, Any]]:
-    """``(mnemonic, instruction dict)`` of the instruction with ``opcode_index``."""
-    instruction = isa().by_opcode(Slot(slot_type), opcode_index)
-    return instruction.mnemonic, _instruction_dict(instruction)
-
-
-def get_operand_names_and_types(slot_type: str, instruction_name: str) -> list[tuple[str, str]]:
-    """``[(operand name, operand type name), ...]`` of an instruction."""
-    instruction = isa().instruction(Slot(slot_type), instruction_name)
-    return [(op.name, op.type.name) for op in instruction.operands]
-
-
-def find_pseudo_instruction(name: str, arg_count: int) -> dict[str, Any] | None:
-    """The pseudo-instruction dict for ``name`` with ``arg_count`` operands, or None."""
-    pseudo = isa().pseudo(name, arg_count)
-    if pseudo is None:
-        return None
-    return {
-        "operands": _operand_dicts(pseudo.operands),
-        "expands_to": {
-            "slot": pseudo.expands_to.slot.value,
-            "instruction": pseudo.expands_to.mnemonic,
-            "args": list(pseudo.args),
-        },
-        "doc": pseudo.doc,
-    }

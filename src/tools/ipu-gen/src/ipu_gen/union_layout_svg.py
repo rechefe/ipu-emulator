@@ -14,6 +14,8 @@ picture matches what an encoded VLIW word looks like in memory.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from ipu_isa.slots import SLOTS
 from ipu_isa.union_layout import SlotUnion
 
@@ -125,7 +127,7 @@ def _render_slot(
 
 
 def render_union_layout_svg(
-    slot_unions: dict[str, SlotUnion],
+    slot_unions: Mapping[str, SlotUnion],
     slot_order: list[str],
     slot_counts: dict[str, int] | None = None,
     width: int = 660,
@@ -135,7 +137,8 @@ def render_union_layout_svg(
     """Render a per-slot union layout diagram and return the SVG source.
 
     Args:
-        slot_unions: ``{slot_name: SlotUnion}`` (``ipu_isa.layout.SLOT_UNIONS``).
+        slot_unions: ``{slot: SlotUnion}`` (``isa().layout.unions``; looked up
+            by slot name).
         slot_order: Slot names in the order they should appear top-to-bottom
             (typically the MSB → LSB order of the compound instruction).
         slot_counts: Optional ``{slot_name: count}`` for slots that appear

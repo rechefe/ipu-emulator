@@ -9,7 +9,9 @@ from ipu_as.inst import Inst
 from ipu_as.ipu_token import EnumToken
 from ipu_gen import sv_package
 from ipu_gen.cli import cli
-from ipu_isa.layout import SLOT_UNIONS
+from ipu_isa.view import isa
+
+UNIONS = isa().layout.unions
 
 
 def test_build_context_matches_compound_width():
@@ -22,7 +24,7 @@ def test_slot_union_struct_bit_widths():
     for slot in ctx["slots"]:
         field_bits = slot["opcode_width"] + sum(f["bits"] for f in slot["fields"])
         assert field_bits == slot["width"], slot["slot"]
-        su = SLOT_UNIONS[slot["slot"]]
+        su = UNIONS[slot["slot"]]
         assert len(slot["fields"]) == len(su.fields)
 
 
@@ -76,7 +78,7 @@ def test_union_members_padded_to_operand_width():
 def test_union_member_fields_named_after_their_operands():
     ctx = sv_package.build_codegen_context()
     for slot in ctx["slots"]:
-        bindings = SLOT_UNIONS[slot["slot"]].opcode_bindings
+        bindings = UNIONS[slot["slot"]].opcode_bindings
         for inst in slot["instructions"]:
             expected = {f"{op}_{idx}" for idx, op in bindings.get(inst["name"], [])}
             names = {f["name"] for f in inst["layout_fields"] if f["operand"] != "padding"}

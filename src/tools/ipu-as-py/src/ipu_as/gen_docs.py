@@ -6,23 +6,17 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from ipu_isa.instruction_spec import (
-    COMPOUND_LAYOUT_SLOT_ORDER,
-    PSEUDO_INSTRUCTION_SPEC,
-    SLOT_COUNT,
-    SLOT_METADATA,
-    VALID_OPERAND_TYPES,
-)
-from ipu_isa.operand_types import operand_type
 from ipu_isa.registers import create_assembler_reg_enums
+from ipu_isa.view import Isa, isa
 
 
 def _operand_slug(typ: str) -> str:
     return typ.lower().replace("_", "-")
 
 
-def generate_operand_types_md(output_path: Path) -> None:
+def generate_operand_types_md(output_path: Path, view: Isa | None = None) -> None:
     """Write operand-types.md (linked from the instruction reference)."""
+    view = view or isa()
     lines: list[str] = [
         "# Operand types",
         "",
@@ -31,11 +25,11 @@ def generate_operand_types_md(output_path: Path) -> None:
         "[Instruction reference](instructions.md).",
         "",
     ]
-    for typ in sorted(VALID_OPERAND_TYPES):
+    for typ in sorted(view.operand_types):
         slug = _operand_slug(typ)
         lines.append(f"## `{typ}` {{: #{slug} }}")
         lines.append("")
-        lines.append(operand_type(typ).doc)
+        lines.append(view.operand_types[typ].doc)
         lines.append("")
     output_path.write_text("\n".join(lines))
     print(f"Generated operand types at {output_path}")
@@ -338,8 +332,8 @@ bazel run //src/tools/ipu-as-py:ipu-as -- assemble --input prog.asm --output pro
     print(f"Generated assembly syntax page at {output_path}")
 
 
-def _generate_slots_section() -> str:
-    """Generate the Slots overview section from instruction_spec metadata."""
+def _generate_slots_section(view: Isa) -> str:
+    """Generate the Slots overview section from the slot registry."""
     lines: list[str] = [
         "## Slots\n",
         "A VLIW instruction word encodes one sub-instruction per slot. "
@@ -351,11 +345,9 @@ def _generate_slots_section() -> str:
         "| Slot | Count | Description |",
         "|------|------:|-------------|",
     ]
-    for slot in COMPOUND_LAYOUT_SLOT_ORDER:
-        count = SLOT_COUNT[slot]
-        meta = SLOT_METADATA.get(slot, {})
-        description = meta.get("description", "")
-        lines.append(f"| `{slot.upper()}` | {count} | {description} |")
+    for slot in view.layout.layout_order:
+        info = view.slots[slot]
+        lines.append(f"| `{slot.value.upper()}` | {info.count} | {info.description} |")
     lines += [
         "",
         "### `NOP` — No Operation\n",
@@ -368,8 +360,12 @@ def _generate_slots_section() -> str:
     return "\n".join(lines)
 
 
-def generate_instruction_docs(output_path: Path) -> None:
-    """Generate instruction reference documentation."""
+def generate_instruction_docs(output_path: Path, view: Isa | None = None) -> None:
+    """Generate instruction reference documentation.
+
+    The slots table reads ``view``; the per-opcode sections and layout diagrams
+    come from the assembler's instruction classes, built from ``isa()``.
+    """
     from ipu_as.compound_inst import CompoundInst
     from ipu_as.inst import Inst
 
@@ -380,7 +376,7 @@ def generate_instruction_docs(output_path: Path) -> None:
         "[operand type reference](operand-types.md).\n"
     )
 
-    content.append(_generate_slots_section())
+    content.append(_generate_slots_section(view or isa()))
 
     content.append("## Compound Instruction Layout\n")
     content.append(
@@ -459,7 +455,7 @@ bazel run //src/tools/ipu-gen:ipu-gen -- sv-package --output /tmp/ipu_instr_pkg.
     print(f"Generated instruction format page at {output_path}")
 
 
-def generate_programmer_guide_md(output_path: Path) -> None:
+def generate_programmer_guide_md(output_path: Path, view: Isa | None = None) -> None:
     """Generate the programmer-facing pseudo-instruction/alias reference."""
     from ipu_as.inst import Inst
 
@@ -473,13 +469,13 @@ def generate_programmer_guide_md(output_path: Path) -> None:
         "`PSEUDO_INSTRUCTION_SPEC` in `instruction_spec.py`.\n"
     )
 
-    for name, pseudo_def in PSEUDO_INSTRUCTION_SPEC.items():
-        expansion = pseudo_def["expands_to"]
-        lines = Inst._render_opcode_doc(name, pseudo_def["doc"], pseudo_def["operands"])
+    for pseudo in (view or isa()).pseudos():
+        target = pseudo.expands_to
+        lines = Inst._render_opcode_doc(pseudo.mnemonic, pseudo.doc, pseudo.operands)
         lines.append("")
         lines.append(
-            f"**Expands to:** `{expansion['instruction']}` "
-            f"({expansion['slot']} slot), arguments `{', '.join(expansion['args'])}`"
+            f"**Expands to:** `{target.mnemonic}` "
+            f"({target.slot.value} slot), arguments `{', '.join(pseudo.args)}`"
         )
         content.append("\n".join(lines))
         content.append("\n---\n")
@@ -493,12 +489,13 @@ def generate_all_docs(
     operand_types_path: Path,
     assembly_syntax_path: Path,
     programmer_guide_path: Path,
+    view: Isa | None = None,
 ) -> None:
     """Regenerate all MkDocs pages owned by the assembler toolchain."""
-    generate_operand_types_md(operand_types_path)
+    generate_operand_types_md(operand_types_path, view)
     generate_assembly_syntax_md(assembly_syntax_path)
-    generate_instruction_docs(instructions_path)
-    generate_programmer_guide_md(programmer_guide_path)
+    generate_instruction_docs(instructions_path, view)
+    generate_programmer_guide_md(programmer_guide_path, view)
 
 
 if __name__ == "__main__":

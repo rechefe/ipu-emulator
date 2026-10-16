@@ -13,11 +13,7 @@ import sys
 from pathlib import Path
 
 from ipu_gen.union_layout_svg import render_union_layout_svg
-from ipu_isa.instruction_spec import (
-    COMPOUND_LAYOUT_SLOT_ORDER,
-    SLOT_COUNT,
-)
-from ipu_isa.layout import SLOT_UNIONS
+from ipu_isa.view import isa
 
 
 def main(argv: list[str]) -> int:
@@ -28,10 +24,11 @@ def main(argv: list[str]) -> int:
         )
         return 2
     out_path = Path(argv[0])
+    view = isa()
     svg = render_union_layout_svg(
-        SLOT_UNIONS,
-        slot_order=COMPOUND_LAYOUT_SLOT_ORDER,
-        slot_counts=dict(SLOT_COUNT),
+        view.layout.unions,
+        slot_order=[slot.value for slot in view.layout.layout_order],
+        slot_counts={slot.value: info.count for slot, info in view.slots.items()},
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(svg)

@@ -81,3 +81,9 @@ ipu_kernels = ["ipu_harness"]
 
 # torch is a test-only dependency: the checker loads the reference lazily (E06-09).
 ipu_harness = ["torch"]
+
+[private]
+# Names a module keeps to its own package: no source in another package may
+# import them or read them as an attribute (E03-11). The authoring dicts are
+# read only by ipu_isa's loader; everything else reads the typed view, isa().
+"ipu_isa.instruction_spec" = ["INSTRUCTION_SPEC", "PSEUDO_INSTRUCTION_SPEC"]

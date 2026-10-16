@@ -7,7 +7,7 @@ import os
 import pytest
 
 from ipu_isa.instruction_spec import INSTRUCTION_SPEC
-from ipu_isa.layout import SLOT_BINARY_LAYOUT, SLOT_UNIONS, isa_layout
+from ipu_isa.layout import isa_layout
 from ipu_isa.operand_types import OPERAND_TYPES
 from ipu_isa.slots import SLOTS, Slot
 from ipu_isa.union_layout import compute_layout
@@ -35,8 +35,6 @@ def test_layout_is_immutable():
     with pytest.raises(AttributeError):
         lr.fields[0].bits = 1  # frozen dataclass: FrozenInstanceError
     assert isinstance(lr.fields, tuple)
-    with pytest.raises(TypeError):
-        SLOT_UNIONS["lr"] = lr
 
 
 def test_derived_operand_widths():
@@ -46,11 +44,11 @@ def test_derived_operand_widths():
     assert set(bits) == set(OPERAND_TYPES)
 
 
-def test_slot_views_agree_with_the_layout():
-    assert set(SLOT_UNIONS) == {slot.value for slot in Slot}
-    for slot, su in SLOT_UNIONS.items():
-        assert SLOT_BINARY_LAYOUT[slot] == tuple(f.canonical_type for f in su.fields)
-        assert isa_layout().slot_width(Slot(slot)) == su.bits
+def test_slot_widths_agree_with_the_unions():
+    unions = isa_layout().unions
+    assert set(unions) == set(Slot)
+    for slot, su in unions.items():
+        assert isa_layout().slot_width(slot) == su.bits
     assert isa_layout().slot_width(Slot.LR) == 20
 
 

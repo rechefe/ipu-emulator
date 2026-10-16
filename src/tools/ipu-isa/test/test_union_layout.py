@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from ipu_isa.instruction_spec import INSTRUCTION_SPEC
-from ipu_isa.layout import SLOT_UNIONS
+from ipu_isa.layout import isa_layout
 from ipu_isa.union_layout import get_operand_type_bits
+
+#: Slot name to its union layout (Slot is a str Enum, so names find it).
+SLOT_UNIONS = {slot.value: su for slot, su in isa_layout().unions.items()}
 
 
 def test_no_co_occurring_operands_share_a_field():

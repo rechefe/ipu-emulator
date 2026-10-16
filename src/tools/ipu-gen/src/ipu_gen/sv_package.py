@@ -1,7 +1,7 @@
 """Generate the SystemVerilog package from the instruction format (E08-13).
 
 Emits the opcode and operand enums, per-slot structs (opcode + operand union)
-and per-instruction ``union packed`` views derived from ``SLOT_UNIONS``. Every
+and per-instruction ``union packed`` views derived from the slot union layouts. Every
 name comes from ISA data (``SlotInfo.opcode_enum``, ``OperandType.sv_typedef``,
 ``sv_struct_base``), never from a Python class name, so a refactor of the
 assembler cannot rename a downstream RTL type. Reads ``ipu_isa`` only.
@@ -17,15 +17,10 @@ from typing import Any
 
 import jinja2
 
-from ipu_isa.instruction_spec import (
-    COMPOUND_LAYOUT_SLOT_ORDER,
-    INSTRUCTION_SPEC,
-    SLOT_COUNT,
-)
-from ipu_isa.layout import SLOT_UNIONS
-from ipu_isa.operand_types import OPERAND_TYPES, operand_type
-from ipu_isa.slots import LAYOUT_ORDER, SLOTS, Slot
-from ipu_isa.union_layout import get_operand_type_bits
+from ipu_isa.operand_types import OPERAND_TYPES, OperandType
+from ipu_isa.slots import Slot
+from ipu_isa.union_layout import SlotUnion
+from ipu_isa.view import Instruction, Isa, isa
 
 _TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 
@@ -122,7 +117,7 @@ def _sanitize_enum_member(name: str) -> str:
 
 
 def _sv_logic_type(canonical_type: str, bits: int) -> str:
-    typedef_name = operand_type(canonical_type).sv_typedef
+    typedef_name = OPERAND_TYPES[canonical_type].sv_typedef
     if typedef_name is not None:
         return typedef_name
     return f"logic [{bits - 1}:0]"
@@ -141,9 +136,8 @@ def _instruction_struct_name(inst_name: str) -> str:
 
 
 def _operand_sv_type(
-    op_type: str,
+    op_type: OperandType,
     column_bits: int,
-    type_bits: dict[str, int],
     typedef_bits: dict[str, int],
 ) -> tuple[str, int]:
     """SV type and width of an operand declared at its own width.
@@ -151,21 +145,22 @@ def _operand_sv_type(
     Raises if the operand does not fit its union column, or if its SV type is
     wider than the bits the assembler reserves for it.
     """
-    # Derived-width immediates (width 0 in get_operand_type_bits) are defined
-    # as filling the union column they were packed into.
-    reserved_bits = type_bits[op_type] or column_bits
+    # Derived-width immediates (no authored width) are defined as filling the
+    # union column they were packed into.
+    reserved_bits = op_type.bits or column_bits
     if reserved_bits > column_bits:
         raise ValueError(
-            f"{op_type} reserves {reserved_bits} bits but its union column is {column_bits} bits"
+            f"{op_type.name} reserves {reserved_bits} bits but its union column is "
+            f"{column_bits} bits"
         )
-    typedef_name = operand_type(op_type).sv_typedef
+    typedef_name = op_type.sv_typedef
     if typedef_name is None:
         return f"logic [{reserved_bits - 1}:0]", reserved_bits
     bits = typedef_bits[typedef_name]
     if bits > reserved_bits:
         raise ValueError(
             f"{typedef_name} is {bits} bits but the assembler reserves only "
-            f"{reserved_bits} bits for {op_type}"
+            f"{reserved_bits} bits for {op_type.name}"
         )
     return typedef_name, bits
 
@@ -185,11 +180,9 @@ def _padding_field(name: str, bits: int) -> dict[str, Any]:
 
 
 def _instruction_layout_fields(
-    slot_union: Any,
+    slot_union: SlotUnion,
     slot_fields: list[dict[str, Any]],
-    inst_name: str,
-    inst_def: dict,
-    type_bits: dict[str, int],
+    instruction: Instruction,
     typedef_bits: dict[str, int],
 ) -> list[dict[str, Any]]:
     """Operand-area struct members for a per-instruction union member (MSB → LSB).
@@ -200,10 +193,7 @@ def _instruction_layout_fields(
     ``padding_<column>``, and operand-less instructions use a single ``padding``
     field for the whole payload.
     """
-    bindings = {
-        field_idx: op_name for field_idx, op_name in slot_union.opcode_bindings.get(inst_name, [])
-    }
-    operand_types = {op["name"]: op["type"] for op in inst_def["operands"]}
+    bindings = dict(slot_union.opcode_bindings.get(instruction.mnemonic, ()))
 
     if not bindings:
         operand_width = sum(f["bits"] for f in slot_fields)
@@ -217,8 +207,8 @@ def _instruction_layout_fields(
             layout.append(_padding_field(_padding_field_name(field_idx), column_bits))
             continue
         op_name = bindings[field_idx]
-        op_type = operand_types[op_name]
-        sv_type, bits = _operand_sv_type(op_type, column_bits, type_bits, typedef_bits)
+        op_type = instruction.operand(op_name).type
+        sv_type, bits = _operand_sv_type(op_type, column_bits, typedef_bits)
         # The assembler LSB-aligns an operand within its column, so the bits it
         # does not use are the column's high bits.
         if bits < column_bits:
@@ -228,7 +218,7 @@ def _instruction_layout_fields(
                 "name": f"{op_name}_{field_idx}",
                 "sv_type": sv_type,
                 "bits": bits,
-                "operand": op_type,
+                "operand": op_type.name,
             }
         )
     return layout
@@ -243,16 +233,15 @@ def _check_member_names(where: str, layout_fields: list[dict[str, Any]]) -> None
         raise ValueError(f"{where}: field names are SystemVerilog keywords: {keywords}")
 
 
-def _slot_union_descriptors(typedef_bits: dict[str, int]) -> list[dict[str, Any]]:
+def _slot_union_descriptors(view: Isa, typedef_bits: dict[str, int]) -> list[dict[str, Any]]:
     """Per-slot union layout structs and per-instruction union members.
 
     *typedef_bits* maps each generated enum typedef name to its bit width.
     """
-    type_bits = get_operand_type_bits()
     slots: list[dict[str, Any]] = []
 
-    for slot_name, slot_union in SLOT_UNIONS.items():
-        info = SLOTS[Slot(slot_name)]
+    for slot in view.spec_slot_order:
+        slot_name, slot_union, info = slot.value, view.layout.unions[slot], view.slots[slot]
         opcode_key, struct_base = info.opcode_enum, info.sv_struct_base
         opcode_enum = f"{opcode_key}_t"
         fields: list[dict[str, Any]] = []
@@ -271,14 +260,10 @@ def _slot_union_descriptors(typedef_bits: dict[str, int]) -> list[dict[str, Any]
         slot_width = slot_union.opcode_bits + operand_width
 
         instructions: list[dict[str, Any]] = []
-        for inst_name, inst_def in INSTRUCTION_SPEC[slot_name].items():
+        for instruction in view.instructions(slot):
+            inst_name = instruction.mnemonic
             layout_fields = _instruction_layout_fields(
-                slot_union,
-                fields,
-                inst_name,
-                inst_def,
-                type_bits,
-                typedef_bits,
+                slot_union, fields, instruction, typedef_bits
             )
             struct_bits = sum(f["bits"] for f in layout_fields)
             if struct_bits != operand_width:
@@ -312,18 +297,19 @@ def _slot_union_descriptors(typedef_bits: dict[str, int]) -> list[dict[str, Any]
     return slots
 
 
-def _compound_members() -> list[dict[str, Any]]:
+def _compound_members(view: Isa) -> list[dict[str, Any]]:
     """Nested compound struct members in MSB → LSB order (matches encode layout)."""
     members: list[dict[str, Any]] = []
     type_counts: dict[Slot, int] = {}
 
-    for slot in (s for s in LAYOUT_ORDER for _ in range(SLOTS[s].count)):
-        struct_base = SLOTS[slot].sv_struct_base
+    order = view.layout.layout_order
+    for slot in (s for s in order for _ in range(view.slots[s].count)):
+        struct_base = view.slots[slot].sv_struct_base
         sv_type = f"{struct_base}_t"
 
         count = type_counts.get(slot, 0)
         type_counts[slot] = count + 1
-        if SLOTS[slot].count > 1:
+        if view.slots[slot].count > 1:
             member_name = f"{struct_base}_{count}"
         else:
             member_name = struct_base
@@ -353,26 +339,29 @@ def _check_operand_enum_order() -> None:
 _check_operand_enum_order()
 
 
-def _typedef_base(name: str) -> str:
-    typedef = OPERAND_TYPES[name].sv_typedef
+def _typedef_base(view: Isa, name: str) -> str:
+    typedef = view.operand_types[name].sv_typedef
     if typedef is None or not typedef.endswith("_t"):
         raise ValueError(f"operand type {name}: sv_typedef {typedef!r} must end in _t")
     return typedef.removesuffix("_t")
 
 
-def enum_descriptors() -> dict[str, list[tuple[int, str]]]:
+def enum_descriptors(view: Isa | None = None) -> dict[str, list[tuple[int, str]]]:
     """Every SV enum in package order: each slot's opcodes, then the operand enums.
 
     Returns:
         ``{name: [(value, MEMBER), ...]}``, where ``name`` is the typedef without
-        ``_t``. Opcodes are in ``INSTRUCTION_SPEC`` order (position = opcode);
-        operand members in their domain's encoding order.
+        ``_t``. Opcodes are in spec order (position = opcode); operand members
+        in their domain's encoding order.
     """
+    view = view or isa()
     enums: dict[str, list[tuple[int, str]]] = {}
-    for slot, instructions in INSTRUCTION_SPEC.items():
-        enums[SLOTS[Slot(slot)].opcode_enum] = _members(instructions)
+    for slot in view.spec_slot_order:
+        enums[view.slots[slot].opcode_enum] = _members(
+            instruction.mnemonic for instruction in view.instructions(slot)
+        )
     for name in OPERAND_ENUM_ORDER:
-        enums[_typedef_base(name)] = _members(OPERAND_TYPES[name].domain.members)
+        enums[_typedef_base(view, name)] = _members(view.operand_types[name].domain.members)
     return enums
 
 
@@ -380,10 +369,10 @@ def _members(names: Iterable[str]) -> list[tuple[int, str]]:
     return [(i, _sanitize_enum_member(name)) for i, name in enumerate(names)]
 
 
-def _enum_descriptors_for_templates() -> list[dict[str, Any]]:
+def _enum_descriptors_for_templates(view: Isa) -> list[dict[str, Any]]:
     """The enums with precomputed bit-width for SV typedefs."""
     result: list[dict[str, Any]] = []
-    for enum_name, members in enum_descriptors().items():
+    for enum_name, members in enum_descriptors(view).items():
         n = len(members)
         width = max(1, (n - 1).bit_length()) if n > 1 else 1
         result.append(
@@ -405,30 +394,31 @@ def _enum_descriptors_for_templates() -> list[dict[str, Any]]:
     return result
 
 
-def _compound_width() -> int:
+def _compound_width(view: Isa) -> int:
     """Bits of the instruction word: each slot's opcode and operand union, per copy."""
-    return sum(SLOTS[slot].count * SLOT_UNIONS[slot.value].bits for slot in LAYOUT_ORDER)
+    return view.layout.word_bits()
 
 
-def _compound_slot_order() -> str:
+def _compound_slot_order(view: Isa) -> str:
     """The compound word's slots, MSB first, as its comment names them: ``lr×3``."""
+    counts = {slot: view.slots[slot].count for slot in view.layout.layout_order}
     return ", ".join(
-        slot if SLOT_COUNT[slot] == 1 else f"{slot}×{SLOT_COUNT[slot]}"
-        for slot in COMPOUND_LAYOUT_SLOT_ORDER
+        slot.value if count == 1 else f"{slot.value}×{count}" for slot, count in counts.items()
     )
 
 
-def build_codegen_context() -> dict[str, Any]:
-    """Build the Jinja render context from the ISA data."""
-    enum_list = _enum_descriptors_for_templates()
+def build_codegen_context(view: Isa | None = None) -> dict[str, Any]:
+    """Build the Jinja render context from the ISA view (default: ``isa()``)."""
+    view = view or isa()
+    enum_list = _enum_descriptors_for_templates(view)
     typedef_bits = {e["sv_type"]: e["width"] for e in enum_list}
     return {
         "enums": {e["name"]: [(m["value"], m["name"]) for m in e["members"]] for e in enum_list},
         "enum_types": enum_list,
-        "slots": _slot_union_descriptors(typedef_bits),
-        "compound_members": _compound_members(),
-        "compound_width": _compound_width(),
-        "compound_slot_order": _compound_slot_order(),
+        "slots": _slot_union_descriptors(view, typedef_bits),
+        "compound_members": _compound_members(view),
+        "compound_width": _compound_width(view),
+        "compound_slot_order": _compound_slot_order(view),
     }
 
 
@@ -462,9 +452,14 @@ def _content_line(body: str) -> str:
     return f"// Content: sha256:{hashlib.sha256(body.encode('utf-8')).hexdigest()}\n"
 
 
-def render_sv_package(context: dict[str, Any] | None = None) -> str:
-    """The SystemVerilog package: its header line, the hash of its body, the body."""
-    body = render_template(SV_PACKAGE_TEMPLATE, context)
+def render_sv_package(context: dict[str, Any] | None = None, view: Isa | None = None) -> str:
+    """The SystemVerilog package: its header line, the hash of its body, the body.
+
+    Rendered from *context* if given, else from *view* (default: ``isa()``).
+    """
+    body = render_template(
+        SV_PACKAGE_TEMPLATE, context if context is not None else build_codegen_context(view)
+    )
     return SV_PACKAGE_HEADER + _content_line(body) + body
 
 
@@ -476,8 +471,8 @@ def verify_sv_package(text: str) -> bool:
     return header + "\n" == SV_PACKAGE_HEADER and content + "\n" == _content_line(body)
 
 
-def generate_sv_package(output_path: str | Path) -> None:
+def generate_sv_package(output_path: str | Path, view: Isa | None = None) -> None:
     """Write the SystemVerilog package (instruction-format structs and enums)."""
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(render_sv_package(), encoding="utf-8")
+    path.write_text(render_sv_package(view=view), encoding="utf-8")
