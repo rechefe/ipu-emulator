@@ -22,6 +22,11 @@ A diagnostic has `line`, `column`, `end_line` and `end_column` (all from 0),
 not be pinned down exactly). The exit code is 1 when there are diagnostics and 0
 when there are none.
 
+Every line and column, in both versions, counts from 0, and a column counts
+code points (Python string indices), not the UTF-16 code units of LSP and the
+VS Code API: the extension converts. They differ only on a line with a
+character outside the Basic Multilingual Plane.
+
 ## Analyses (version 2)
 
 With `--json --json-version 2`, three options each add one more analysis of the
@@ -33,24 +38,43 @@ editor asks of a document version:
 
 | Option | Key | Each entry |
 |---|---|---|
-| `--tokens` | `tokens` | A semantic token: `line`, `col`, `length`, `type` and `role` (`mnemonic`, `register`, `enum`, `number`, `label-def`, `label-ref`, `comment` or `jinja`). |
-| `--words` | `words` | A word's slot fit: `range`, `mnemonics`, `slots` (slot name to count), `fits` and `error` (the assembler's message when it does not fit, else `null`). |
+| `--tokens` | `tokens` | A semantic token: `line`, `column`, `length`, `type` and `role` (`mnemonic`, `register`, `enum`, `number`, `label-def`, `label-ref`, `comment` or `jinja`). |
+| `--words` | `words` | A word's slot fit: `range`, `mnemonics`, `slots` (slot to count), `fits` and `error` (the assembler's message when it does not fit, else `null`). |
 | `--jinja` | `jinja` | A Jinja tag: `kind` (`comment`, `block` or `variable`), `range`, the names it `defines` and `uses`, and its `start` and `end` offsets. |
 
 The options with version 1, or with `--text`, are a usage error (exit code 2).
 `ipu_as.language_service` computes them, from the assembler's own lexer, slot
 assignment and render, and from Jinja's own lexer and parser:
 
-- Tokens are in source positions, on one line each, sorted and disjoint. An
-  assembly token that a `{{ }}` expression produced is not in the source, so it
-  is not listed; the `jinja` token over the expression is. A token a loop
-  renders several times is listed once. Separators (`;`, `;;`, `:`) and
-  whitespace are not listed.
+- Tokens are in source positions, on one line each, sorted and disjoint; the
+  `\r` of a `\r\n` line end is in none. An assembly token that a `{{ }}`
+  expression produced is not in the source, so it is not listed; the `jinja`
+  token over the expression is. A token a loop renders several times is listed
+  once. Separators (`;`, `;;`, `:`) and whitespace are not listed.
+- An assembly token's line comes from the origin markers the checker adds to
+  each source line before rendering. When the markers would change how the
+  render lexes (whitespace control such as `-%}` that joins lines), the plain
+  render is checked instead, which has none. A source of one line needs none
+  (all its tokens are on that line). In a longer one, the plain render's tokens
+  are found by the literal text around them, which is sound only when
+  each stretch of source outside Jinja renders once and in order. So when the
+  source has a block tag other than `set`, `import`, `from`, `include` and
+  `raw` (`for`, `if`, `macro` and the like), or a `\r`, only its `jinja`
+  tokens are listed. A stretch whose text the render holds twice (an expression
+  may print it) is not used, and its tokens are not listed.
+- When the source does not render (a `template` diagnostic), only its `jinja`
+  tokens are listed: there is no rendered text to read assembly tokens from.
 - Each word is fitted on its own, so one that does not fit hides no other. Its
-  `range` runs from its first token in the source to the end of its last. A
-  word that renders the same way in the same place is listed once.
-  `mnemonics` are as written; `slots` counts after pseudo-instructions expand.
-  There are no words when the source does not render or parse.
+  `range` runs from its first token in the source to the end of its last; a
+  word none of whose tokens is in the source (all from `{{ }}`) spans its
+  source lines. A word a loop renders several times is listed once, by its
+  range; when the passes render it differently, the first rendering that does
+  not fit is listed, else the first. Words with no token in the source share
+  their lines' range, so they are told apart by their order on their rendered
+  line: `{{ 'HALT ;; HALT ;;' }}` is two words. `mnemonics` are as written;
+  `slots` counts after pseudo-instructions expand. There are no words when the
+  source does not render or parse; a word with no token in the source is not
+  listed when the render has no markers (above).
 - A Jinja region's `defines` are the names a `set`, `for`, `macro` (and its
   parameters) or `import` binds, and for the `ipu:params` header comment the
   parameters it declares. Its `uses` are the names it reads, Jinja's globals

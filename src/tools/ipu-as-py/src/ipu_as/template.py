@@ -299,6 +299,12 @@ def lex(text: str) -> Iterator[tuple[int, str, str]]:
 
     Lazy, so a caller keeps the tokens before a syntax error.
 
+    Args:
+        text: A template source.
+
+    Returns:
+        An iterator of (1-based line, Jinja token type, value as Jinja reads it).
+
     Raises:
         jinja2.TemplateSyntaxError: while iterating, where the text stops lexing.
     """
@@ -307,6 +313,12 @@ def lex(text: str) -> Iterator[tuple[int, str, str]]:
 
 def parse(text: str) -> jinja2.nodes.Template:
     """Jinja's syntax tree of `text`, without rendering it.
+
+    Args:
+        text: A template source.
+
+    Returns:
+        The template's root node.
 
     Raises:
         jinja2.TemplateSyntaxError: the text is not a template.

@@ -18,7 +18,7 @@ import jinja2.nodes as nodes
 import ipu_as.template as template
 from ipu_as.errors import AssemblerError
 
-__all__ = ["TagSpan", "header_names", "is_params_header", "tag_names", "tag_spans"]
+__all__ = ["TagSpan", "block_keyword", "header_names", "is_params_header", "tag_names", "tag_spans"]
 
 
 @dataclass(frozen=True)
@@ -53,8 +53,9 @@ def tag_spans(text: str) -> tuple[TagSpan, ...]:
 
     The lexer gives no offsets, and its values need not concatenate back to the
     text (whitespace control strips data, a closer carries the whitespace it
-    removes). But each value inside a tag is a literal substring of the text,
-    in order, so each is found by searching forward from the last.
+    removes, each line break is read as a newline). But each value inside a tag is a
+    literal substring of the text, up to its line breaks, in order, so each is
+    found by searching forward from the last.
 
     Args:
         text: An assembly source.
@@ -63,6 +64,10 @@ def tag_spans(text: str) -> tuple[TagSpan, ...]:
         Its tags in order. `{% raw %}` and `{% endraw %}` are block tags,
         the text between them none. An unclosed tag runs to the end of the
         text, and lexing stops at the first error Jinja reports.
+
+    Raises:
+        RuntimeError: a value of Jinja's is not in the text where it must be
+            (a bug here, not a fault of the source).
     """
     spans: list[TagSpan] = []
     opened: TagSpan | None = None
@@ -71,28 +76,59 @@ def tag_spans(text: str) -> tuple[TagSpan, ...]:
         for _, kind, value in template.lex(text):
             if kind in _UNLOCATED:
                 continue
-            at = text.index(value, position)
-            position = at + len(value)
+            at, position = _find(text, value, position)
+            found = text[at:position]
             if kind in _RAW:
-                spans.append(TagSpan("block", at, at + value.rindex("%}") + 2))
+                spans.append(TagSpan("block", at, at + found.rindex("%}") + 2))
             elif kind in _OPENERS:
                 opened = TagSpan(_OPENERS[kind], at, len(text))
             elif kind in _CLOSERS and opened is not None:
                 spans.append(
-                    TagSpan(opened.kind, opened.start, at + value.index(_CLOSERS[kind]) + 2)
+                    TagSpan(opened.kind, opened.start, at + found.index(_CLOSERS[kind]) + 2)
                 )
                 opened = None
-    except (jinja2.TemplateSyntaxError, ValueError):
+    except jinja2.TemplateSyntaxError:
         pass  # the text stops lexing here; what came before stands
     if opened is not None:
         spans.append(opened)
     return tuple(spans)
 
 
+#: A line break as the text may write it; Jinja's lexer reads each as a newline.
+_LINE_BREAK = r"(?:\r\n|\r|\n)"
+
+
+def _find(text: str, value: str, position: int) -> tuple[int, int]:
+    """[start, end) of the first `value` in `text` at or after `position`."""
+    if "\n" not in value:
+        at = text.find(value, position)
+        end = at + len(value)
+    else:
+        pattern = _LINE_BREAK.join(map(re.escape, value.split("\n")))
+        match = re.compile(pattern).search(text, position)
+        at, end = (match.start(), match.end()) if match is not None else (-1, -1)
+    if at < 0:
+        raise RuntimeError(f"Jinja's token {value!r} is not in the source after offset {position}")
+    return at, end
+
+
 #: The keyword of a block tag: `{%- for` -> `for`.
 _KEYWORD = re.compile(r"\{%[-+]?\s*(\w+)")
 #: The start of the `ipu:params` header comment (`ipu_as.template.declared_params`).
 _HEADER = re.compile(r"\{#-?\s*ipu:params[ \t]*\n")
+
+
+def block_keyword(tag: str) -> str | None:
+    """The keyword a `{% %}` tag starts with: `{%- for i in x %}` -> `for`.
+
+    Args:
+        tag: A block tag's text, delimiters included.
+
+    Returns:
+        The keyword, or None when the tag starts with none.
+    """
+    match = _KEYWORD.match(tag)
+    return None if match is None else match.group(1)
 
 
 def _names(tree: nodes.Node) -> tuple[tuple[str, ...], tuple[str, ...]]:
@@ -133,10 +169,10 @@ def tag_names(tag: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
     Returns:
         (defines, uses), each name once, in order.
     """
-    keyword = _KEYWORD.match(tag)
+    keyword = block_keyword(tag)
     candidates = [tag]
     if keyword is not None:
-        end = f"{{% end{keyword.group(1)} %}}"
+        end = f"{{% end{keyword} %}}"
         candidates += [tag + end, "{% if 1 %}" + tag + "{% endif %}"]
     for candidate in candidates:
         try:
@@ -164,5 +200,12 @@ def header_names(text: str) -> tuple[str, ...]:
 
 
 def is_params_header(tag: str) -> bool:
-    """True when a `{# #}` tag is the `ipu:params` header (`ipu_as.template.declared_params`)."""
+    """True when a `{# #}` tag is the `ipu:params` header (`ipu_as.template.declared_params`).
+
+    Args:
+        tag: A comment tag's text, delimiters included.
+
+    Returns:
+        Whether it opens with `ipu:params` on a line of its own.
+    """
     return _HEADER.match(tag) is not None

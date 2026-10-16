@@ -6,8 +6,8 @@ regions with the names they define and use. Each comes from the assembler's
 own machinery, not from a copy of it:
 
 - diagnostics from `ipu_as.diagnostics` (exactly what `check` reports);
-- tokens from the grammar's lexer on the rendered text, mapped back to the
-  source through the origin markers of `ipu_as.source_map`;
+- tokens from the grammar's lexer on the rendered text, placed in the source
+  by `ipu_as.placement` (through the origin markers of `ipu_as.source_map`);
 - word fit from `ipu_as.encode.assign_slots`, run on each word alone, so one
   word that does not fit hides no other;
 - Jinja regions from Jinja's own lexer, and their names from Jinja's parser.
@@ -17,18 +17,19 @@ The source is rendered once, and that render serves every feature.
     result = analyse(text, want=frozenset({"diagnostics", "tokens"}))
     result.tokens[0].role
 
-Positions are 0-based, matching LSP and the VS Code API. `ipu-as check --json
---json-version 2 --tokens --words --jinja` prints an `Analysis` (see
-vscode-ipu-asm/schema/check-json.md).
+Positions are 0-based lines and columns, as in LSP and the VS Code API, but a
+column counts code points (Python string indices), as the version 1
+diagnostics do, not the UTF-16 code units those APIs count: the editor
+converts. `ipu-as check --json --json-version 2 --tokens --words --jinja`
+prints an `Analysis` (see vscode-ipu-asm/schema/check-json.md).
 """
 
 from __future__ import annotations
 
-import bisect
 import functools
 import re
 from collections import Counter
-from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from functools import cached_property
 from pathlib import Path
@@ -41,8 +42,9 @@ from ipu_as.diagnostics import Diagnostic, check_rendered, render_for_diagnosis,
 from ipu_as.encode import WILDCARD_OPCODES, assign_slots
 from ipu_as.errors import AssemblerError, SlotError
 from ipu_as.ipu_token import NUMBER_PATTERN
-from ipu_as.jinja_tags import TagSpan, header_names, is_params_header, tag_names, tag_spans
-from ipu_as.source_map import source_line_at, strip_markers
+from ipu_as.jinja_tags import header_names, is_params_header, tag_names
+from ipu_as.placement import COMMENTS, Piece, Rendering, Source
+from ipu_as.source_map import next_marker_offset
 from ipu_as.symbols import SymbolTable
 from ipu_as.syntax import ASTBuilder, get_parser, parse_tree
 from ipu_isa.codec.slot import OPCODE_SLOT
@@ -57,7 +59,14 @@ FEATURES = ("diagnostics", "tokens", "words", "jinja")
 
 @dataclass(frozen=True)
 class Range:
-    """A span of the source, 0-based; the end is exclusive."""
+    """A span of the source, 0-based; the end is exclusive.
+
+    Attributes:
+        line: The line it starts on.
+        column: Its first column, in code points.
+        end_line: The line it ends on.
+        end_column: The column just past its last character.
+    """
 
     line: int
     column: int
@@ -71,8 +80,8 @@ class Token:
 
     Attributes:
         line: Its line.
-        col: Its first column.
-        length: Its length in characters.
+        column: Its first column, in code points.
+        length: Its length in code points; never past its line's end.
         type: The grammar's terminal (`TOKEN`, `COMMENT_HASH`, `COMMENT_LINE`),
             or the Jinja region's kind (`comment`, `block`, `variable`).
         role: `mnemonic`, `register`, `enum`, `number`, `label-def`,
@@ -80,7 +89,7 @@ class Token:
     """
 
     line: int
-    col: int
+    column: int
     length: int
     type: str
     role: str
@@ -95,7 +104,7 @@ class WordFit:
             last; whole source lines when none of its tokens is in the source
             (all came from `{{ }}` expressions).
         mnemonics: The mnemonics as written, in order.
-        slots: Slot name -> instructions in it (pseudo-instructions expanded).
+        slots: Slot -> instructions in it (pseudo-instructions expanded).
             For a word that does not fit, the slots its instructions ask for.
         fits: True when every instruction gets a slot.
         error: Why it does not fit, as the assembler says it; None if it fits.
@@ -134,7 +143,14 @@ class JinjaRegion:
 
 @dataclass(frozen=True)
 class Analysis:
-    """What `analyse` found; a feature not asked for is None."""
+    """What `analyse` found; a feature not asked for is None.
+
+    Attributes:
+        diagnostics: As `ipu_as.diagnostics.check` reports them.
+        tokens: The semantic tokens, sorted by line and column.
+        words: Each instruction word's slot fit, in render order.
+        jinja: Each Jinja region, in source order.
+    """
 
     diagnostics: tuple[Diagnostic, ...] | None = None
     tokens: tuple[Token, ...] | None = None
@@ -142,7 +158,12 @@ class Analysis:
     jinja: tuple[JinjaRegion, ...] | None = None
 
     def to_dict(self) -> dict[str, list[dict]]:
-        """The features asked for, as JSON-ready lists, keyed by feature name."""
+        """The features asked for, as JSON (`check --json --json-version 2`).
+
+        Returns:
+            Feature name -> its entries as JSON-ready dicts, for each feature
+            asked for, in `FEATURES` order.
+        """
         return {
             name: [_jsonable(item) for item in getattr(self, name)]
             for name in FEATURES
@@ -171,65 +192,10 @@ class _Document:
         self.text = text
         self.inputs = inputs
         self.target = target
-        #: Without Jinja the source is its own render, and positions carry over.
-        self.literal = not template.has_markers(text)
-
-    @cached_property
-    def line_starts(self) -> list[int]:
-        return [0] + [m.end() for m in re.finditer("\n", self.text)]
-
-    def line_end(self, line: int) -> int:
-        """The offset of the end of `line`, before its newline."""
-        starts = self.line_starts
-        return starts[line + 1] - 1 if line + 1 < len(starts) else len(self.text)
-
-    def position(self, offset: int) -> tuple[int, int]:
-        line = bisect.bisect_right(self.line_starts, offset) - 1
-        return line, offset - self.line_starts[line]
+        self.source = Source(text)
 
     def range(self, start: int, end: int) -> Range:
-        return Range(*self.position(start), *self.position(end))
-
-    def pieces(self, start: int, end: int) -> Iterator[tuple[int, int, int]]:
-        """[start, end) split at line ends, as non-empty (line, column, length)."""
-        while start < end:
-            line, column = self.position(start)
-            stop = min(end, self.line_end(line))
-            if stop > start:
-                yield line, column, stop - start
-            start = stop + 1
-
-    @cached_property
-    def spans(self) -> tuple[TagSpan, ...]:
-        return () if self.literal else tag_spans(self.text)
-
-    @cached_property
-    def span_ends(self) -> list[int]:
-        return [span.end for span in self.spans]
-
-    def overlaps(self, start: int, end: int) -> bool:
-        """True when [start, end) touches a Jinja region."""
-        i = bisect.bisect_right(self.span_ends, start)
-        return i < len(self.spans) and self.spans[i].start < end
-
-    def outside_spans(self, start: int, end: int) -> Iterator[tuple[int, int]]:
-        """The parts of [start, end) that are not in a Jinja region."""
-        for span in self.spans[bisect.bisect_right(self.span_ends, start) :]:
-            if span.start >= end:
-                break
-            if span.start > start:
-                yield start, span.start
-            start = max(start, span.end)
-        if start < end:
-            yield start, end
-
-    @cached_property
-    def span_starts(self) -> list[int]:
-        return [span.start for span in self.spans]
-
-    def next_span_start(self, offset: int) -> int:
-        i = bisect.bisect_left(self.span_starts, offset)
-        return self.spans[i].start if i < len(self.spans) else len(self.text)
+        return Range(*self.source.position(start), *self.source.position(end))
 
     @cached_property
     def rendered(self) -> tuple[str, Diagnostic | None]:
@@ -237,17 +203,16 @@ class _Document:
         return render_for_diagnosis(self.text, self.inputs)
 
     @cached_property
-    def placed(self) -> tuple[list[lark.Token], dict[int, list[tuple[int, int, int]]]] | None:
-        """The render's tokens and their places in the source (`_placements`); None if it failed."""
-        rendered, failed = self.rendered
-        return None if failed is not None else _placements(self, rendered)
+    def rendering(self) -> Rendering:
+        return Rendering(self.source, self.rendered[0])
 
-    def source_line(self, rendered: str, token: lark.Token) -> int | None:
-        """The source line a rendered token came from, if the render says."""
-        if self.literal:
-            return token.line - 1 if token.line is not None else None
-        line = source_line_at(rendered, token.start_pos or 0)
-        return line if line is not None and line < len(self.line_starts) else None
+    @cached_property
+    def placed(self) -> tuple[list[lark.Token], dict[int, list[Piece]]] | None:
+        """The render's tokens and their places in the source; None if it failed."""
+        if self.rendered[1] is not None:
+            return None
+        lexed = _lexed(self.rendered[0])
+        return lexed, self.rendering.place(lexed)
 
 
 # --- Diagnostics ---
@@ -263,7 +228,6 @@ def _diagnostics(document: _Document) -> tuple[Diagnostic, ...]:
 # --- Tokens ---
 
 _SEPARATORS = ("_SEMI", "_SEMI2")
-_COMMENTS = ("COMMENT_HASH", "COMMENT_LINE")
 _NUMBER = re.compile(NUMBER_PATTERN)
 _REGISTERS = frozenset(
     member.lower()
@@ -309,7 +273,7 @@ def _roles(tokens: Sequence[lark.Token]) -> list[str | None]:
     parse tree. Unlike the tree, the stream exists for a text that does not parse.
     """
     roles: list[str | None] = [None] * len(tokens)
-    code = [i for i, token in enumerate(tokens) if token.type not in _COMMENTS]
+    code = [i for i, token in enumerate(tokens) if token.type not in COMMENTS]
     instruction: list[int] = []
 
     def close() -> None:
@@ -333,7 +297,7 @@ def _roles(tokens: Sequence[lark.Token]) -> list[str | None]:
             close()
     close()
     for i, token in enumerate(tokens):
-        if token.type in _COMMENTS:
+        if token.type in COMMENTS:
             roles[i] = "comment"
     return roles
 
@@ -350,133 +314,52 @@ def _lexed(rendered: str) -> list[lark.Token]:
     return tokens
 
 
-#: A character that continues a TOKEN.
-_WORD_CHAR = re.compile(r"[A-Za-z0-9_.]")
-
-
-def _joins(left: str, right: str) -> bool:
-    """True when two adjacent characters would lex as one token."""
-    return bool(_WORD_CHAR.match(left) and _WORD_CHAR.match(right)) or left == right == ";"
-
-
-class _Locator:
-    """Places rendered tokens in the source.
-
-    A token's line comes from the origin markers; its column from finding its
-    text on that line, after the last token placed there from the same rendered
-    line. A token that is not literally on its line came from a `{{ }}`
-    expression (or an include), and is not placed: its Jinja region covers it.
-    """
-
-    def __init__(self, document: _Document, rendered: str) -> None:
-        self.document = document
-        self.rendered = rendered
-        self.cursors: dict[int, int] = {}
-        self.rendered_line: int | None = None
-
-    def place(self, token: lark.Token) -> list[tuple[int, int, int]]:
-        """Where `token` is in the source, as (line, column, length) pieces."""
-        if token.line != self.rendered_line:
-            # A new rendered line, perhaps the next pass of a loop over the same source line.
-            self.cursors.clear()
-            self.rendered_line = token.line
-        line = self.document.source_line(self.rendered, token)
-        if line is None:
-            return []
-        if token.type in _COMMENTS:
-            return self._comment(line, strip_markers(str(token)).rstrip())
-        return self._code(line, str(token))
-
-    def _code(self, line: int, value: str) -> list[tuple[int, int, int]]:
-        text, first = self.document.text, self.document.line_starts[line]
-        end = self.document.line_end(line)
-        at = text.find(value, self.cursors.get(line, first), end)
-        while at >= 0 and not self._alone(at, at + len(value)):
-            at = text.find(value, at + 1, end)
-        if at < 0:
-            return []
-        self.cursors[line] = at + len(value)
-        return [(line, at - first, len(value))]
-
-    def _alone(self, start: int, end: int) -> bool:
-        """True when [start, end) is a whole token of the source, outside Jinja."""
-        text = self.document.text
-        before = text[start - 1] if start > 0 else " "
-        after = text[end] if end < len(text) else " "
-        if _joins(before, text[start]) or _joins(text[end - 1], after):
-            return False
-        return not self.document.overlaps(start, end)
-
-    def _comment(self, line: int, value: str) -> list[tuple[int, int, int]]:
-        """A comment runs to the end of its source line, around the Jinja inside it."""
-        if not value:
-            return []  # only an origin marker
-        document, text = self.document, self.document.text
-        end = document.line_end(line)
-        opener = "//" if value.startswith("//") else "#"
-        at = text.find(opener, self.cursors.get(line, document.line_starts[line]), end)
-        while at >= 0:
-            fragment = text[at : min(document.next_span_start(at), end)].rstrip()
-            if not document.overlaps(at, at + 1) and value.startswith(fragment):
-                self.cursors[line] = end
-                stop = at + len(text[at:end].rstrip())
-                return [
-                    piece
-                    for start, finish in document.outside_spans(at, stop)
-                    for piece in document.pieces(start, finish)
-                ]
-            at = text.find(opener, at + 1, end)
-        return []
-
-
-def _placements(document: _Document, rendered: str) -> tuple[list[lark.Token], dict]:
-    """The rendered text's tokens, and where each is in the source, by rendered offset."""
-    lexed = _lexed(rendered)
-    locator = _Locator(document, rendered)
-    return lexed, {token.start_pos: locator.place(token) for token in lexed}
-
-
 def _tokens(document: _Document) -> tuple[Token, ...]:
     """The semantic tokens: the placed assembly tokens and the Jinja regions, line by line."""
     found: dict[tuple[int, int, int], Token] = {}
     if document.placed is not None:
         lexed, placed = document.placed
         for token, role in zip(lexed, _roles(lexed), strict=True):
-            for line, col, length in placed[token.start_pos] if role is not None else ():
+            for line, column, length in placed[token.start_pos] if role is not None else ():
                 # A loop renders a source line many times: keep the first.
-                found.setdefault((line, col, length), Token(line, col, length, token.type, role))
-    for span in document.spans:
-        for line, col, length in document.pieces(span.start, span.end):
-            found.setdefault((line, col, length), Token(line, col, length, span.kind, "jinja"))
-    return tuple(sorted(found.values(), key=lambda token: (token.line, token.col)))
+                found.setdefault(
+                    (line, column, length), Token(line, column, length, token.type, role)
+                )
+    for span in document.source.spans:
+        for line, column, length in document.source.pieces(span.start, span.end):
+            found.setdefault(
+                (line, column, length), Token(line, column, length, span.kind, "jinja")
+            )
+    return tuple(sorted(found.values(), key=lambda token: (token.line, token.column)))
 
 
 # --- Words ---
 
 
-def _word_range(document: _Document, rendered: str, tree: lark.Tree) -> Range | None:
-    """From the word's first placed token to the end of its last one.
+def _word_range(document: _Document, tokens: list[lark.Token]) -> tuple[Range, bool] | None:
+    """(Where the word is, whether a token of it is in the source); None if unknown.
 
-    A word none of whose tokens is in the source (all from `{{ }}`) spans the
-    whole source lines its first and last tokens came from.
+    The range runs from the word's first placed token to the end of its last
+    one. A word none of whose tokens is in the source (all from `{{ }}`) spans
+    the whole source lines its first and last tokens came from.
     """
-    tokens = list(tree.scan_values(lambda value: isinstance(value, lark.Token)))
     _, placed = document.placed or ((), {})
     pieces = [piece for token in tokens for piece in placed.get(token.start_pos, ())]
     if pieces:
-        (line, col, _), (end_line, end_col, length) = pieces[0], pieces[-1]
-        return Range(line, col, end_line, end_col + length)
-    first = document.source_line(rendered, tokens[0])
-    last = document.source_line(rendered, tokens[-1])
+        (line, column, _), (end_line, end_column, length) = pieces[0], pieces[-1]
+        return Range(line, column, end_line, end_column + length), True
+    first = document.rendering.source_line(tokens[0])
+    last = document.rendering.source_line(tokens[-1])
     if first is None or last is None:
         return None
     last = max(first, last)
-    return Range(first, 0, last, document.line_end(last) - document.line_starts[last])
+    source = document.source
+    return Range(first, 0, last, source.line_end(last) - source.line_starts[last]), False
 
 
-def _slots_asked(compound: dict) -> Mapping[str, int]:
+def _slots_asked(built: dict) -> Mapping[str, int]:
     """Slot -> instructions that name it (a `NOP` takes any slot, so it names none)."""
-    names = (instruction["opcode"].token.value for instruction in compound["instructions"])
+    names = (instruction["opcode"].token.value for instruction in built["instructions"])
     return MappingProxyType(
         Counter(
             str(OPCODE_SLOT[name.upper()])
@@ -487,19 +370,19 @@ def _slots_asked(compound: dict) -> Mapping[str, int]:
 
 
 def _fit(word: Range, tree: lark.Tree) -> WordFit:
-    """Slot assignment of one compound instruction, built on its own."""
+    """Slot assignment of one instruction word, built on its own."""
     mnemonics = tuple(str(instruction.children[0]) for instruction in tree.find_data("instruction"))
     try:
         # Its own symbol table: a label defined twice is no slot problem.
-        compound = ASTBuilder(SymbolTable()).transform(tree)
+        built = ASTBuilder(SymbolTable()).transform(tree)
     except lark.exceptions.VisitError as error:
         if not isinstance(error.orig_exc, AssemblerError):
             raise error.orig_exc from error
         return WordFit(word, mnemonics, MappingProxyType({}), False, _message(error.orig_exc))
     try:
-        placed = assign_slots(compound)
+        placed = assign_slots(built)
     except SlotError as error:
-        return WordFit(word, mnemonics, _slots_asked(compound), False, _message(error))
+        return WordFit(word, mnemonics, _slots_asked(built), False, _message(error))
     slots = MappingProxyType(Counter(str(placement.slot) for placement in placed))
     return WordFit(word, mnemonics, slots, True, None)
 
@@ -509,7 +392,17 @@ def _message(error: AssemblerError) -> str:
 
 
 def _words(document: _Document) -> tuple[WordFit, ...]:
-    """The slot fit of each word the source renders to, each placed on its source lines."""
+    """The slot fit of each word in the source, once however often loops render it.
+
+    Two renderings with the same range are one word of the source, rendered
+    twice: a placed token is at one place in the source. Words placed on whole
+    lines (no token in the source) are told apart by their order within the
+    text one origin marker closes, so every word an include or a `{{ }}`
+    prints stays its own (`{{ 'HALT;; HALT;;' }}` is two), while a loop's
+    next pass, closed by a marker occurrence of its own, renders the same ones
+    again. Of the renderings of one word, the first that does not fit is kept,
+    else the first.
+    """
     rendered, failed = document.rendered
     if failed is not None:
         return ()
@@ -518,14 +411,24 @@ def _words(document: _Document) -> tuple[WordFit, ...]:
     except lark.exceptions.LarkError:
         return ()  # the parse diagnostic says why
     found: dict[tuple, WordFit] = {}
-    for compound in tree.iter_subtrees_topdown():
-        if compound.data != "compound_instr_list":
+    on_line: Counter[tuple] = Counter()
+    for subtree in tree.iter_subtrees_topdown():
+        if subtree.data != "compound_instr_list":
             continue
-        word = _word_range(document, rendered, compound)
-        # A loop renders a word many times; the same text in the same place fits the same.
-        key = (word, tuple(map(str, compound.scan_values(lambda v: isinstance(v, lark.Token)))))
-        if word is not None and key not in found:
-            found[key] = _fit(word, compound)
+        tokens = list(subtree.scan_values(lambda value: isinstance(value, lark.Token)))
+        where = _word_range(document, tokens)
+        if where is None:
+            continue
+        word, in_source = where
+        key: tuple = (word,)
+        if not in_source:
+            group = next_marker_offset(rendered, tokens[-1].end_pos)
+            key = (word, on_line[word, group])
+            on_line[word, group] += 1
+        if key not in found or found[key].fits:
+            fit = _fit(word, subtree)
+            if key not in found or not fit.fits:
+                found[key] = fit
     return tuple(found.values())
 
 
@@ -536,7 +439,7 @@ def _jinja(document: _Document) -> tuple[JinjaRegion, ...]:
     """Each Jinja region, with the names it defines and uses."""
     header = header_names(document.text)
     regions = []
-    for span in document.spans:
+    for span in document.source.spans:
         tag = document.text[span.start : span.end]
         if span.kind != "comment":
             defines, uses = tag_names(tag)
