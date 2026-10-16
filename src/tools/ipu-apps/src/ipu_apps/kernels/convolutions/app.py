@@ -60,8 +60,8 @@ from ipu_apps.kernel_registry import (
     register_layer,
     yes,
 )
-from ipu_apps.kernel_registry.cases import assemble_program, program_file
 from ipu_apps.kernel_registry.memory import MemoryApp, MemoryLayout, ceildiv, positive_shape
+from ipu_apps.kernel_registry.programs import assemble_program, program_file
 from ipu_isa.constants import DEFAULT_VALID_ELEMENTS
 
 # -- Memory-layout kernels ----------------------------------------------------

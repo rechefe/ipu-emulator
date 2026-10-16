@@ -73,7 +73,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from ipu_apps.kernel_registry.base import IpuApp
-from ipu_apps.kernel_registry.cases import assemble_program, program_file
+from ipu_apps.kernel_registry.programs import assemble_program, program_file
 from ipu_apps.kernels.convolutions.app import (
     CHUNK_ELEMENTS,
     kernel_source,

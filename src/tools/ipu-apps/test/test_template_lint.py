@@ -19,7 +19,7 @@ import pytest
 ROOT = Path.cwd()
 
 #: A Jinja construct that only makes sense when a name may be undefined.
-_FALLBACK = re.compile(r"\|\s*default\s*\(|\bis\s+(?:not\s+)?(?:un)?defined\b")
+_FALLBACK = re.compile(r"\|\s*(?:default|d)\b|\bis\s+(?:not\s+)?(?:un)?defined\b")
 
 
 def fallbacks(text: str) -> list[int]:
@@ -47,6 +47,8 @@ def test_no_source_falls_back_on_an_undefined_name(path):
     [
         "{%- set n = rows | default(8) -%}",
         "{%- set n = rows|default (8) -%}",
+        "{{ rows | d(8) }}",
+        "{{ rows | default }}",
         "{% if rows is defined %}",
         "{% if rows is not defined %}",
         "{% if rows is undefined %}",
