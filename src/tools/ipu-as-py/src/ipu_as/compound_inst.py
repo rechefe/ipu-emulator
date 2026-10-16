@@ -6,7 +6,6 @@ import ipu_as.utils as utils
 from ipu_as.errors import SlotError
 from ipu_isa.schema import SpecError
 from ipu_isa.slots import LAYOUT_ORDER, SLOTS, Slot
-from ipu_isa.view import isa
 
 INST_SEPARATOR = ";"
 
