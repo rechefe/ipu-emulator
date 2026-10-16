@@ -3324,23 +3324,20 @@ class TestNarrowStoreOverflow:
 
 class TestFirstStoreBitExactness:
     @pytest.mark.parametrize("fmt", [ElementFormat.E4, ElementFormat.FP32])
-    @pytest.mark.parametrize(
-        "handler_name",
-        ["execute_acc_add_first", "execute_acc_max_first"],
-    )
+    @pytest.mark.parametrize("mnemonic", ["ACC.ADD.FIRST", "ACC.MAX.FIRST"])
     def test_signaling_nan_is_quietened_like_parent_lane_store(
         self,
         fmt: ElementFormat,
-        handler_name: str,
+        mnemonic: str,
     ) -> None:
         from ipu_emu.ipu import Ipu
 
-        state = new_state(fmt=fmt)
+        state = make_state(f"{mnemonic} ;;", fmt=fmt)
         signaling_nan = struct.pack("<I", 0x7F800001)
         quiet_nan = struct.pack("<I", 0x7FC00001)
         state.regfile.mutable("mult_res")[:] = signaling_nan * 128
 
-        getattr(Ipu(state), handler_name)()
+        Ipu(state).execute_vliw_cycle()
 
         assert state.regfile.view("r_acc") == quiet_nan * 128
 

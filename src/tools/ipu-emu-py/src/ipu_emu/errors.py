@@ -16,6 +16,16 @@ class EmulatorFault(EmulatorError):
     come with the fault model (E04-19)."""
 
 
+class UndeclaredRead(EmulatorError):
+    """A handler read a register its instruction does not declare.
+
+    Every register a handler reads is a ``read`` operand or one of the
+    instruction's ``implicit_reads`` in ``instruction_spec.py``; the declaration
+    gives the read its view (cycle start or forwarded). Raised by
+    :meth:`ipu_emu.cycle.CycleView.source` (E04-12).
+    """
+
+
 class ConfigurationError(EmulatorError, ValueError):
     """A bad setup: the element format, the program size, prototyping without
     its build flag, or invalid API arguments. Raised at setup time, never
