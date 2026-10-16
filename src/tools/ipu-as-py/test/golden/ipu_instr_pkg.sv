@@ -1,5 +1,5 @@
 // Auto-generated from instruction_spec.py — do not edit.
-// Content: sha256:2b8c37ea3701dd69f0f46efdbcb4176f7fcaf3c430aca84fe758b4b53bbc784b
+// Content: sha256:25ee36b9e6fb68392a907f9ad614db2f6e00f452a267449f8ecee027dac6f970
 //
 // Opcode/operand enums and per-slot structs/unions are generated from
 // instruction_spec.py (union field layout in SLOT_UNIONS).
@@ -19,11 +19,6 @@ package ipu_instr_pkg;
     STORE_INST_OPCODE_ST_AAQ = 1'd0,
     STORE_INST_OPCODE_NOP = 1'd1
   } store_inst_opcode_t;
-
-  typedef enum logic [0:0] {
-    ACC_STORE_INST_OPCODE_ST_ACC = 1'd0,
-    ACC_STORE_INST_OPCODE_NOP = 1'd1
-  } acc_store_inst_opcode_t;
 
   typedef enum logic [3:0] {
     LR_INST_OPCODE_SET = 4'd0,
@@ -76,12 +71,6 @@ package ipu_instr_pkg;
     COND_INST_OPCODE_HALT = 3'd5,
     COND_INST_OPCODE_NOP = 3'd6
   } cond_inst_opcode_t;
-
-  typedef enum logic [1:0] {
-    BREAK_INST_OPCODE_BREAK = 2'd0,
-    BREAK_INST_OPCODE_BREAK_IFEQ = 2'd1,
-    BREAK_INST_OPCODE_NOP = 2'd2
-  } break_inst_opcode_t;
 
   typedef enum logic [0:0] {
     MULT_STAGE_REG_FIELD_R0 = 1'd0,
@@ -282,26 +271,6 @@ package ipu_instr_pkg;
   } store_slot_t;
 
   localparam int unsigned STORE_SLOT_T_WIDTH = 9;
-
-  localparam int unsigned ACC_STORE_SLOT_U_WIDTH = 8;
-
-  // Operand payload only (opcode is in acc_store_slot_t.opcode, shared across members)
-  typedef union packed {
-    struct packed {
-      cr_reg_field_t base_0; // CrIdx
-      lr_reg_field_t offset_1; // LrIdx
-    } st_acc;
-    struct packed {
-      logic [7:0] padding; // padding
-    } nop;
-  } acc_store_slot_u;
-
-  typedef struct packed {
-    acc_store_inst_opcode_t opcode;
-    acc_store_slot_u operands;
-  } acc_store_slot_t;
-
-  localparam int unsigned ACC_STORE_SLOT_T_WIDTH = 9;
 
   localparam int unsigned LR_SLOT_U_WIDTH = 16;
 
@@ -557,31 +526,10 @@ package ipu_instr_pkg;
 
   localparam int unsigned COND_SLOT_T_WIDTH = 23;
 
-  localparam int unsigned BREAK_SLOT_U_WIDTH = 20;
-
-  // Operand payload only (opcode is in break_slot_t.opcode, shared across members)
-  typedef union packed {
-    struct packed {
-      logic [19:0] padding; // padding
-    } break_inst;
-    struct packed {
-      logic [15:0] value_0; // BreakImmediate
-      lr_reg_field_t reg_1; // LrIdx
-    } break_ifeq;
-    struct packed {
-      logic [19:0] padding; // padding
-    } nop;
-  } break_slot_u;
-
-  typedef struct packed {
-    break_inst_opcode_t opcode;
-    break_slot_u operands;
-  } break_slot_t;
-
-  localparam int unsigned BREAK_SLOT_T_WIDTH = 22;
-
   // -------------------------------------------------------------------------
-  // Compound VLIW instruction (slots MSB → LSB: cond, lr×3, load, mult, acc, aaq, store, acc_store, break)
+  // Compound VLIW instruction (slots MSB → LSB: cond, lr×3, load, mult, acc, aaq, store)
+  // This is the hardware word. The emulator word appends the emulator-only
+  // slots (acc_store, break) below bit 0 of it; they are not in this package.
   // -------------------------------------------------------------------------
   typedef struct packed {
     cond_slot_t cond_slot;
@@ -593,10 +541,8 @@ package ipu_instr_pkg;
     acc_slot_t acc_slot;
     aaq_slot_t aaq_slot;
     store_slot_t store_slot;
-    acc_store_slot_t acc_store_slot;
-    break_slot_t break_slot;
   } ipu_compound_inst_t;
 
-  localparam int unsigned IPU_COMPOUND_INST_WIDTH = 186;
+  localparam int unsigned IPU_COMPOUND_INST_WIDTH = 155;
 
 endpackage : ipu_instr_pkg

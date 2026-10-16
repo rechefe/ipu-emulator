@@ -32,7 +32,7 @@ no SV name. `BLT.U`, `BGE.U`, `BGT.U` and `BLE.U` are reserved for unsigned
 branches (`ipu_isa.RESERVED_MNEMONICS`): no spec may define them, and the
 assembler rejects them as "reserved, not implemented".
 
-The `ACC_STORE` slot is emulator-only; E03-22 removes it from the SV package.
+The `ACC_STORE` slot is emulator-only; since E03-22 the SV package leaves it out, so its two names above no longer appear there.
 
 `//src/tools/ipu-as-py:test_sv_rename_table` checks this table against the SV
 golden.
