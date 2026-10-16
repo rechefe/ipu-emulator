@@ -23,7 +23,8 @@ from ipu_isa.view import authoring_copies, isa, load_isa
 CASES = [(slot, i) for slot in Slot for i in isa().instructions(slot)]
 
 
-# F-1's table (ipu_isa.faults) is the independent source of which codes mean nothing.
+# Which codes mean nothing comes from F-1's table (ipu_isa.faults); the hand-written
+# test_reserved_operand_codes_are_rejected pins that table's answers for two types.
 _RESERVED = {
     (slot, operand_type.operand_type): set(operand_type.codes)
     for slot, entry in reserved_encodings(isa()).items()
@@ -113,9 +114,8 @@ def test_nop_is_the_opcode_alone():
 
 def test_unused_opcodes_are_reserved():
     for slot, codec in SLOT_CODECS.items():
-        opcodes = reserved_encodings(isa()).get(slot)
-        reserved = opcodes.opcodes if opcodes else ()
         opcode_bits = isa().layout.unions[slot].opcode_bits
+        reserved = tuple(range(len(isa().instructions(slot)), 1 << opcode_bits))
         for opcode in reserved[:1] + reserved[-1:]:
             with pytest.raises(ReservedEncoding, match=f"opcode {opcode} is reserved"):
                 codec.decode(opcode << (codec.bits - opcode_bits))
