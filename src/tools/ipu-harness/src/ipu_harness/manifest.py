@@ -1,15 +1,16 @@
 """``kernel.toml``: a kernel's whole declaration apart from its program (E06-02).
 
-:func:`load_manifest` is the only reader of ``kernel.toml``. It checks the file
-against the schema below and returns a frozen :class:`KernelManifest`; every
-later stage reads that view, never the TOML. An error names the file, the line
-and the key: ``kernels/elementwise/scale/kernel.toml:14: [abi] binds CR1, a
-hardwired constant``.
+:func:`load_manifest` reads ``kernel.toml``, checks it against the schema below
+and returns a frozen :class:`KernelManifest`; every later stage reads that
+view, never the TOML. (The one other reader is ``ipu-as assemble --abi``, which
+takes only the ``[abi]`` table to assemble a kernel by hand: ``ipu_as`` cannot
+import this package.) An error names the file, the line and the key:
+``kernels/elementwise/scale/kernel.toml:14: [abi] binds CR1, a hardwired constant``.
 
 Schema
 ------
 
-``[kernel]``
+``[kernel]`` (required)
     ``op`` (str, required): the operation, also the shared reference's name.
     ``formats`` (list, required): element formats the kernel runs in, by their
     ``ipu_isa.formats.ElementFormat`` names (``fp32``, ``int8``, ``e1``..``e7``,
@@ -17,58 +18,68 @@ Schema
     ``stages`` (``"file.py:fn"``): a multi-program pipeline (E06-14).
 
 ``[params.<name>]`` (or ``<name> = { ... }`` under ``[params]``)
-    ``type`` (required): ``int``, ``float``, ``bool`` or ``str``. ``min``,
-    ``max``, ``multiple_of`` (int only), ``choices`` (list), ``default``, and
-    ``unit``: ``count`` (default), ``rows`` or ``bytes`` (``bytes`` only for a
-    kernel in :data:`BYTE_UNIT_KERNELS`, L16).
+    ``type`` (required): ``int``, ``float``, ``bool`` or ``str``. ``min`` and
+    ``max`` (int and float), ``multiple_of`` (int, at least 1), ``choices`` (a
+    non-empty list, each in the domain), ``default``, and ``unit``: ``count``
+    (default), ``rows`` or ``bytes`` (``bytes`` only for a kernel in
+    :data:`BYTE_UNIT_KERNELS`, L16). Floats are finite.
 
 ``[inputs.<name>]``, ``[outputs.<name>]``, ``[scratch.<name>]``
-    ``shape`` (list, required): ints, parameter names or simple expressions over
-    them (E06-03). ``row``: pin the region's first XMEM row (Q81). ``pack``
-    (inputs): a named pack transform (E06-05). ``store`` (outputs):
+    ``shape`` (non-empty list, required): positive ints, or expressions over
+    parameter and derived names in E06-03's grammar (``"rows * 4"``,
+    ``"ceil(k / 128)"``). ``row``: pin the region's first XMEM row (Q81).
+    ``pack`` (inputs): a named pack transform (E06-05). ``store`` (outputs):
     ``element`` (default) or ``accumulator``. ``fill`` (scratch): the value the
     region is filled with, default 0. Scratch regions are placed and filled,
-    never compared.
+    never compared. (E06-08 adds an input's ``range``.)
 
 ``[abi]``
     ``<name> = "CR2"`` .. ``"CR15"``, or ``"LR0"`` .. ``"LR15"`` (a preset, E06-06).
-    ``CR0`` and ``CR1`` are hardwired constants and cannot be bound. Every key
-    names a parameter, a tensor or a derived value, and every tensor is bound
-    (its base row must reach the program).
+    ``CR0`` and ``CR1`` are hardwired constants and cannot be bound; a float
+    parameter (an element scalar) binds a CR. Every key names a parameter, a
+    tensor or a derived value, and every tensor is bound (its base row must
+    reach the program).
 
 ``[derived]``
-    ``<name> = "<expression over params>"`` (E06-06).
+    ``<name> = "<expression>"`` over parameters and earlier derived values,
+    in the shape grammar (E06-06).
 
 ``[cases.<name>]``
-    Parameter values: a scalar, or a list (a sweep axis). Reserved keys:
-    ``formats`` (a subset of the kernel's), ``inputs`` and ``expected``
-    (tensor name to a user ``.npy`` file, Q82), ``generator``
+    Parameter values: a scalar, or a non-empty list (a sweep axis). Reserved
+    keys: ``formats`` (a non-empty subset of the kernel's), ``inputs`` and
+    ``expected`` (tensor name to a user file, Q82), ``generator``
     (``"file.py:fn"``), ``tier`` (``default`` or ``nightly``, Q73).
     ``[cases.default]`` is required.
 
-``[golden]``
+``[golden]`` (optional)
     ``reference`` (``"file.py:fn"``; default ``reference.py:reference`` when the
-    kernel has a ``reference.py``), ``op`` (a shared reference in
-    ``ipu_kernels.reference``), ``tolerance`` (format to tier name, E06-10).
+    kernel has a ``reference.py``) or ``op`` (a shared reference in
+    ``ipu_kernels.reference``), not both; ``tolerance`` (format to tier name;
+    E06-10 checks the names and adds the table form).
 
-Every file path (``asm``, ``inputs``, ``expected``, ``reference``,
-``generator``, ``stages``) stays inside the kernel directory: ``..`` and
-absolute paths are refused. An unknown section or key is an error that names
-the closest valid one.
+Every declared name (parameter, tensor, derived value) is an identifier that
+does not start with ``_`` and is not ``cr``, ``lr`` or a reserved case key.
+Every file path stays inside the kernel directory: ``..`` and absolute paths
+are refused (checked lexically). An unknown section or key is an error that
+names the closest valid one.
+
+A family ``registry.toml`` entry (E06-17) loads its template with
+``overrides``: ``name``, ``formats`` (a subset) and ``params`` (fixed values:
+each becomes the parameter's only choice and its value in every case).
 """
 
 from __future__ import annotations
 
-import difflib
+import ast
 import re
 import sys
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Literal, cast
+from typing import Any, Literal
 
-from ipu_isa.errors import IpuError
+from ipu_harness._toml_source import Locator, ManifestError, Reader, decode_error_line, where
 from ipu_isa.formats import ElementFormat
 from ipu_isa.registers import REGISTER_DEFINITIONS
 
@@ -77,10 +88,22 @@ if sys.version_info >= (3, 11):
 else:
     import tomli as tomllib
 
+__all__ = [
+    "BYTE_UNIT_KERNELS",
+    "TOML_NAME",
+    "CaseDecl",
+    "GoldenDecl",
+    "KernelManifest",
+    "ManifestError",
+    "ParamDecl",
+    "TensorDecl",
+    "load_manifest",
+]
+
 TOML_NAME = "kernel.toml"
 
-#: Kernels allowed ``unit = "bytes"`` parameters (L16). E07 lists the legacy
-#: kernels it migrates that still count in bytes; a new kernel counts in rows.
+#: Kernels (``family/name``) allowed ``unit = "bytes"`` parameters (L16). E07
+#: lists the legacy kernels it migrates that still count in bytes.
 BYTE_UNIT_KERNELS: frozenset[str] = frozenset()
 
 ParamType = Literal["int", "float", "bool", "str"]
@@ -116,15 +139,26 @@ _TENSOR_KEYS: Mapping[Role, tuple[str, ...]] = {
 }
 _CASE_KEYS = ("formats", "inputs", "expected", "generator", "tier")
 _GOLDEN_KEYS = ("reference", "op", "tolerance")
-_IDENTIFIER = re.compile(r"[A-Za-z_]\w*")
-
-
-class ManifestError(IpuError, ValueError):
-    """A ``kernel.toml`` that breaks the schema; the message starts ``<file>:<line>:``."""
+_RESERVED_NAMES = frozenset({"cr", "lr", *_CASE_KEYS})
+#: The shape grammar's functions (E06-03), not names to resolve.
+_SHAPE_FUNCTIONS = frozenset({"ceil", "min", "max"})
 
 
 @dataclass(frozen=True)
 class ParamDecl:
+    """A parameter and its domain.
+
+    Attributes:
+        name: Its name in ``[params]``.
+        type: ``int``, ``float``, ``bool`` or ``str``.
+        min: Smallest value (int and float).
+        max: Largest value (int and float).
+        multiple_of: Values are multiples of this (int).
+        choices: The only values allowed, if given.
+        default: The value when a case or query gives none (None: required).
+        unit: What an int counts: ``count``, ``rows`` or ``bytes`` (L16).
+    """
+
     name: str
     type: ParamType
     min: int | float | None = None
@@ -137,330 +171,351 @@ class ParamDecl:
 
 @dataclass(frozen=True)
 class TensorDecl:
+    """An input, output or scratch region.
+
+    Attributes:
+        name: Its name in its section.
+        role: ``input``, ``output`` or ``scratch``.
+        shape: Ints, or expressions over parameter and derived names (E06-03).
+        row: The first XMEM row, if pinned (Q81).
+        pack: The named pack transform of an input (E06-05).
+        store: How an output is stored: ``element`` or ``accumulator``.
+        fill: The value a scratch region is filled with.
+    """
+
     name: str
     role: Role
-    shape: tuple[int | str, ...]  # ints, or param names / simple expressions (E06-03)
-    row: int | None = None  # Q81 pin
-    pack: str | None = None  # inputs: a named transform (E06-05)
-    store: Store = "element"  # outputs
-    fill: int | float = 0  # scratch
+    shape: tuple[int | str, ...]
+    row: int | None = None
+    pack: str | None = None
+    store: Store = "element"
+    fill: int | float = 0
 
 
 @dataclass(frozen=True)
 class CaseDecl:
+    """A case from ``[cases.<name>]``.
+
+    Attributes:
+        name: The case's name.
+        values: Parameter values; a tuple is a sweep axis.
+        formats: The formats it runs in, if it limits them.
+        inputs: User input files, by tensor name (Q82).
+        expected: User expected-output files, by tensor name.
+        generator: ``"file.py:fn"`` that makes inputs instead.
+        tier: ``default`` or ``nightly`` (Q73).
+    """
+
     name: str
-    values: Mapping[str, object]  # scalars or lists (lists are sweep axes)
+    values: Mapping[str, object]
     formats: tuple[ElementFormat, ...] | None = None
     inputs: Mapping[str, Path] = field(default_factory=lambda: MappingProxyType({}))
     expected: Mapping[str, Path] = field(default_factory=lambda: MappingProxyType({}))
-    generator: str | None = None  # "file.py:fn"
-    tier: Tier = "default"  # Q73
+    generator: str | None = None
+    tier: Tier = "default"
 
 
 @dataclass(frozen=True)
 class GoldenDecl:
-    reference: str | None = None  # "file.py:fn"
-    op: str | None = None  # a shared reference in ipu_kernels.reference
+    """How outputs are checked.
+
+    Attributes:
+        reference: ``"file.py:fn"`` in the kernel directory.
+        op: A shared reference in ``ipu_kernels.reference``.
+        tolerance: Tier name per format (E06-10 checks the names).
+    """
+
+    reference: str | None = None
+    op: str | None = None
     tolerance: Mapping[ElementFormat, str] = field(default_factory=lambda: MappingProxyType({}))
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class KernelManifest:
-    name: str  # the folder's name, or the registry.toml entry's (E06-17)
+    """The checked, frozen view of one ``kernel.toml`` (compared and hashed by identity).
+
+    Attributes:
+        name: The folder's name, or the registry entry's (E06-17).
+        directory: The kernel's folder.
+        asm: The program.
+        op: The operation.
+        formats: The element formats it runs in.
+        params: The parameters, by name.
+        tensors: Inputs, outputs and scratch regions, by name.
+        abi: Name to ``"CR2"``..``"CR15"`` or ``"LR0"``..``"LR15"``.
+        derived: Name to expression.
+        cases: The cases, ``default`` among them.
+        golden: How outputs are checked.
+        stages: ``"stages.py:run"`` for a multi-program pipeline (E06-14).
+        fixed: Parameters a registry entry fixed (E06-17), with their values.
+    """
+
+    name: str
     directory: Path
     asm: Path
     op: str
     formats: tuple[ElementFormat, ...]
     params: Mapping[str, ParamDecl]
     tensors: Mapping[str, TensorDecl]
-    abi: Mapping[str, str]  # name -> "CR2".."CR15" or "LR0".."LR15"
+    abi: Mapping[str, str]
     derived: Mapping[str, str]
-    cases: Mapping[str, CaseDecl]  # holds "default"
+    cases: Mapping[str, CaseDecl]
     golden: GoldenDecl
-    stages: str | None = None  # "stages.py:run" (E06-14)
+    stages: str | None = None
+    fixed: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
+
+    @property
+    def byte_units(self) -> bool:
+        """Whether a parameter counts bytes (a legacy kernel, L16)."""
+        return any(p.unit == "bytes" for p in self.params.values())
 
 
-# --- where a key is in the file ---------------------------------------------------------
+# --- names and expressions ---------------------------------------------------------------
 
 
-def _header(line: str) -> tuple[str, ...] | None:
-    m = re.match(r"\s*\[([^\[\]]+)\]\s*(#.*)?$", line)
-    if not m:
-        return None
-    return tuple(part.strip().strip("\"'") for part in m.group(1).split("."))
-
-
-class _Locator:
-    """Line numbers of tables and keys, read from the source text (TOML parsers keep none)."""
-
-    def __init__(self, text: str) -> None:
-        self.lines: dict[tuple[str, ...], int] = {}
-        table: tuple[str, ...] = ()
-        for number, line in enumerate(text.splitlines(), start=1):
-            header = _header(line)
-            if header is not None:
-                table = header
-                self.lines.setdefault(table, number)
-                continue
-            m = re.match(r"\s*([A-Za-z0-9_\-]+|\"[^\"]*\"|'[^']*')\s*=", line)
-            if m:
-                self.lines.setdefault((*table, m.group(1).strip("\"'")), number)
-
-    def line(self, path: tuple[str, ...]) -> int:
-        """The line of ``path``; else of the first key inside it; else of its nearest
-        enclosing key or table; else 1."""
-        if path in self.lines:
-            return self.lines[path]
-        inside = [n for p, n in self.lines.items() if p[: len(path)] == path]
-        if path and inside:
-            return min(inside)
-        for end in range(len(path) - 1, 0, -1):
-            if path[:end] in self.lines:
-                return self.lines[path[:end]]
-        return 1
-
-
-@dataclass
-class _Reader:
-    """Raises :class:`ManifestError` at the line of a key path."""
-
-    toml: Path
-    locator: _Locator
-
-    def fail(self, path: tuple[str, ...], message: str) -> ManifestError:
-        return ManifestError(f"{self.toml}:{self.locator.line(path)}: {message}")
-
-    def table(self, value: object, path: tuple[str, ...], what: str) -> Mapping[str, Any]:
-        if not isinstance(value, dict):
-            raise self.fail(path, f"{what} must be a table")
-        return cast(Mapping[str, Any], value)
-
-    def known(
-        self, table: Mapping[str, Any], valid: Iterable[str], path: tuple[str, ...], what: str
-    ) -> None:
-        valid = tuple(valid)
-        for key in table:
-            if key not in valid:
-                close = difflib.get_close_matches(key, valid, n=1)
-                hint = f"; did you mean {close[0]!r}?" if close else f"; valid: {', '.join(valid)}"
-                raise self.fail((*path, key), f"unknown key {key!r} in {what}{hint}")
-
-    def require(
-        self, table: Mapping[str, Any], key: str, kind: type, path: tuple[str, ...], what: str
-    ) -> Any:
-        if key not in table:
-            raise self.fail(path, f"{what} needs {key!r}")
-        return self.typed(table[key], kind, (*path, key), f"{what} {key}")
-
-    def typed(
-        self, value: object, kind: type | tuple[type, ...], path: tuple[str, ...], what: str
-    ) -> Any:
-        kinds = kind if isinstance(kind, tuple) else (kind,)
-        if not isinstance(value, kinds) or (isinstance(value, bool) and bool not in kinds):
-            names = " or ".join(k.__name__ for k in kinds)
-            raise self.fail(path, f"{what} must be {names}, not {value!r}")
-        return value
-
-    def format(self, value: object, path: tuple[str, ...]) -> ElementFormat:
-        try:
-            return ElementFormat(value)
-        except ValueError:
-            valid = ", ".join(f.value for f in ElementFormat)
-            raise self.fail(path, f"unknown element format {value!r}; valid: {valid}") from None
-
-    def inside(self, directory: Path, value: str, path: tuple[str, ...], what: str) -> Path:
-        file = PurePosixPath(value)
-        if file.is_absolute() or ".." in file.parts or not value:
-            raise self.fail(path, f"{what} {value!r} must be a path inside the kernel directory")
-        return directory / file
-
-    def function(self, directory: Path, value: object, path: tuple[str, ...], what: str) -> str:
-        text = self.typed(value, str, path, what)
-        file, sep, fn = text.partition(":")
-        if not sep or not fn.isidentifier():
-            raise self.fail(path, f"{what} {text!r} must be 'file.py:function'")
-        self.inside(directory, file, path, what)
-        return str(text)
-
-
-# --- the sections --------------------------------------------------------------------------
-
-
-def _param(r: _Reader, name: str, raw: object, kernel: str) -> ParamDecl:
-    path = ("params", name)
-    table = r.table(raw, path, f"[params] {name}")
-    r.known(table, _PARAM_KEYS, path, f"[params] {name}")
-    kind = r.require(table, "type", str, path, f"[params] {name}")
-    if kind not in _PY_TYPES:
+def _check_name(r: Reader, path: tuple[str, ...]) -> None:
+    name = path[-1]
+    if not name.isidentifier() or name.startswith("_") or name in _RESERVED_NAMES:
         raise r.fail(
-            (*path, "type"), f"[params] {name} type {kind!r} must be one of {', '.join(_PY_TYPES)}"
+            path,
+            f"{where(path)}: {name!r} must be an identifier, not start with _, "
+            "and not be cr, lr or a reserved case key",
         )
-    pytypes = _PY_TYPES[kind]
-    bounds = {
-        k: r.typed(table[k], (int, float), (*path, k), f"[params] {name} {k}")
-        for k in ("min", "max")
-        if k in table
-    }
-    multiple_of = None
+
+
+def _expression_names(r: Reader, text: str, path: tuple[str, ...]) -> list[str]:
+    """The names an expression reads (the shape grammar's functions aside)."""
+    try:
+        tree = ast.parse(text, mode="eval")
+    except SyntaxError:
+        raise r.fail(path, f"{where(path)} {text!r} is not an expression") from None
+    calls = {id(n.func) for n in ast.walk(tree) if isinstance(n, ast.Call)}
+    return [
+        n.id
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Name) and not (id(n) in calls and n.id in _SHAPE_FUNCTIONS)
+    ]
+
+
+def _check_expression(r: Reader, text: str, known: Iterable[str], path: tuple[str, ...]) -> None:
+    unknown = sorted(set(_expression_names(r, text, path)) - set(known))
+    if unknown:
+        raise r.fail(path, f"{where(path)} {text!r} names no parameter or derived value: {unknown}")
+
+
+# --- parameters ---------------------------------------------------------------------------
+
+
+def _bounds(
+    r: Reader, table: Mapping[str, Any], kind: str, path: tuple[str, ...]
+) -> dict[str, Any]:
+    bounds = {k: r.typed(table[k], (int, float), (*path, k)) for k in ("min", "max") if k in table}
+    if bounds and kind not in ("int", "float"):
+        raise r.fail(
+            (*path, next(iter(bounds))), f"{where(path)}: min and max need type int or float"
+        )
+    if "min" in bounds and "max" in bounds and bounds["min"] > bounds["max"]:
+        raise r.fail(
+            (*path, "min"), f"{where(path)}: min {bounds['min']} is above max {bounds['max']}"
+        )
     if "multiple_of" in table:
         if kind != "int":
-            raise r.fail((*path, "multiple_of"), f'[params] {name} multiple_of needs type = "int"')
-        multiple_of = r.typed(
-            table["multiple_of"], int, (*path, "multiple_of"), f"[params] {name} multiple_of"
+            raise r.fail((*path, "multiple_of"), f'{where(path)}: multiple_of needs type = "int"')
+        bounds["multiple_of"] = r.typed(table["multiple_of"], int, (*path, "multiple_of"))
+        if bounds["multiple_of"] < 1:
+            raise r.fail((*path, "multiple_of"), f"{where(path)}: multiple_of must be at least 1")
+    return bounds
+
+
+def _param(r: Reader, name: str, raw: object, kernel: str) -> ParamDecl:
+    path = ("params", name)
+    _check_name(r, path)
+    table = r.table(raw, path)
+    r.known(table, _PARAM_KEYS, path)
+    kind = r.require(table, "type", str, path)
+    if kind not in _PY_TYPES:
+        raise r.fail(
+            (*path, "type"), f"{where(path)} type {kind!r} must be one of {', '.join(_PY_TYPES)}"
         )
-    choices = None
-    if "choices" in table:
-        listed = r.typed(table["choices"], list, (*path, "choices"), f"[params] {name} choices")
-        choices = tuple(
-            r.typed(c, pytypes, (*path, "choices"), f"[params] {name} choice") for c in listed
-        )
+    decl = ParamDecl(name, kind, **_bounds(r, table, kind, path))
     unit = table.get("unit", "count")
     if unit not in ("count", "rows", "bytes"):
-        raise r.fail((*path, "unit"), f"[params] {name} unit {unit!r} must be count, rows or bytes")
+        raise r.fail((*path, "unit"), f"{where(path)} unit {unit!r} must be count, rows or bytes")
     if unit == "bytes" and kernel not in BYTE_UNIT_KERNELS:
-        raise r.fail((*path, "unit"), f"[params] {name} counts bytes; a kernel counts rows (L16)")
-    decl = ParamDecl(
-        name, kind, bounds.get("min"), bounds.get("max"), multiple_of, choices, None, unit
-    )
+        raise r.fail((*path, "unit"), f"{where(path)} counts bytes; a kernel counts rows (L16)")
+    decl = replace(decl, unit=unit)
+    if "choices" in table:
+        listed = r.typed(table["choices"], list, (*path, "choices"))
+        if not listed:
+            raise r.fail((*path, "choices"), f"{where(path)} choices must not be empty")
+        decl = replace(decl, choices=tuple(_value(r, decl, c, (*path, "choices")) for c in listed))
     if "default" in table:
         decl = replace(decl, default=_value(r, decl, table["default"], (*path, "default")))
     return decl
 
 
-def _value(r: _Reader, decl: ParamDecl, raw: object, path: tuple[str, ...]) -> object:
-    """``raw`` checked against ``decl``'s type and domain."""
-    value: Any = r.typed(raw, _PY_TYPES[decl.type], path, f"{decl.name}")
+def _value(r: Reader, decl: ParamDecl, raw: object, path: tuple[str, ...]) -> object:
+    """``raw`` checked against ``decl``'s domain; an int for a float parameter becomes a float."""
+    value: Any = r.typed(raw, _PY_TYPES[decl.type], path)
+    if decl.type == "float":
+        value = float(value)
     out_of_range = (decl.min is not None and value < decl.min) or (
         decl.max is not None and value > decl.max
     )
     if out_of_range or (decl.multiple_of and value % decl.multiple_of):
-        raise r.fail(path, f"{decl.name} = {value!r} is outside its domain")
+        raise r.fail(path, f"{where(path)}: {decl.name} = {value!r} is outside its domain")
     if decl.choices is not None and value not in decl.choices:
-        raise r.fail(path, f"{decl.name} = {value!r} is not one of {list(decl.choices)}")
+        raise r.fail(
+            path, f"{where(path)}: {decl.name} = {value!r} is not one of {list(decl.choices)}"
+        )
     return value
 
 
+# --- tensors and the ABI ------------------------------------------------------------------
+
+
 def _shape(
-    r: _Reader, raw: object, path: tuple[str, ...], names: Iterable[str]
+    r: Reader, raw: object, path: tuple[str, ...], names: Iterable[str]
 ) -> tuple[int | str, ...]:
-    dims = r.typed(raw, list, path, "shape")
-    known = set(names)
+    dims = r.typed(raw, list, path)
+    if not dims:
+        raise r.fail(path, f"{where(path)} must have at least one dimension")
     out: list[int | str] = []
     for dim in dims:
-        dim = r.typed(dim, (int, str), path, "a shape dimension")
+        dim = r.typed(dim, (int, str), path)
         if isinstance(dim, str):
-            unknown = [n for n in _IDENTIFIER.findall(dim) if n not in known]
-            if unknown or not dim.strip():
-                raise r.fail(
-                    path, f"shape dimension {dim!r} names no parameter or derived value: {unknown}"
-                )
+            _check_expression(r, dim, names, path)
         elif dim <= 0:
-            raise r.fail(path, f"shape dimension {dim} must be positive")
+            raise r.fail(path, f"{where(path)} dimension {dim} must be positive")
         out.append(dim)
     return tuple(out)
 
 
-def _tensor(r: _Reader, section: str, name: str, raw: object, names: Iterable[str]) -> TensorDecl:
+def _tensor(r: Reader, section: str, name: str, raw: object, names: Iterable[str]) -> TensorDecl:
     role = _ROLES[section]
     path = (section, name)
-    table = r.table(raw, path, f"[{section}.{name}]")
-    r.known(table, _TENSOR_KEYS[role], path, f"[{section}.{name}]")
+    _check_name(r, path)
+    table = r.table(raw, path)
+    r.known(table, _TENSOR_KEYS[role], path)
     if "shape" not in table:
-        raise r.fail(path, f"[{section}.{name}] needs 'shape'")
+        raise r.fail(path, f"{where(path)} needs 'shape'")
     decl = TensorDecl(name, role, _shape(r, table["shape"], (*path, "shape"), names))
     if "row" in table:
-        row = r.typed(table["row"], int, (*path, "row"), "row")
+        row = r.typed(table["row"], int, (*path, "row"))
         if row < 0:
-            raise r.fail((*path, "row"), f"row {row} must not be negative")
+            raise r.fail((*path, "row"), f"{where((*path, 'row'))} {row} must not be negative")
         decl = replace(decl, row=row)
     if "pack" in table:
-        decl = replace(decl, pack=r.typed(table["pack"], str, (*path, "pack"), "pack"))
+        decl = replace(decl, pack=r.text(table["pack"], (*path, "pack")))
     if "store" in table:
-        if table["store"] not in ("element", "accumulator"):
+        store = table["store"]
+        if store not in ("element", "accumulator"):
             raise r.fail(
-                (*path, "store"), f"store {table['store']!r} must be element or accumulator"
+                (*path, "store"),
+                f"{where((*path, 'store'))} {store!r} must be element or accumulator",
             )
-        decl = replace(decl, store=table["store"])
+        decl = replace(decl, store=store)
     if "fill" in table:
-        decl = replace(decl, fill=r.typed(table["fill"], (int, float), (*path, "fill"), "fill"))
+        decl = replace(decl, fill=r.typed(table["fill"], (int, float), (*path, "fill")))
     return decl
 
 
-def _register(r: _Reader, name: str, raw: object) -> str:
-    text = r.typed(raw, str, ("abi", name), f"[abi] {name}").upper()
-    m = re.fullmatch(r"(CR|LR)(\d+)", text)
+def _register(r: Reader, name: str, raw: object) -> str:
+    path = ("abi", name)
+    text = str(r.typed(raw, str, path)).upper()
+    m = re.fullmatch(r"(CR|LR)(0|[1-9][0-9]?)", text, re.ASCII)
     banks = {"CR": REGISTER_DEFINITIONS["cr"]["count"], "LR": REGISTER_DEFINITIONS["lr"]["count"]}
     if not m or int(m.group(2)) >= banks[m.group(1)]:
-        raise r.fail(("abi", name), f"[abi] {name} = {raw!r} is no CR or LR register")
+        raise r.fail(path, f"{where(path)} = {raw!r} is no CR or LR register")
     if m.group(1) == "CR" and int(m.group(2)) < 2:
-        raise r.fail(("abi", name), f"[abi] binds {text}, a hardwired constant")
-    return f"{m.group(1)}{int(m.group(2))}"
+        raise r.fail(path, f"[abi] binds {text}, a hardwired constant")
+    return text
 
 
-def _abi(r: _Reader, raw: object, names: set[str], tensors: Iterable[str]) -> Mapping[str, str]:
-    table = r.table(raw, ("abi",), "[abi]")
+def _abi(
+    r: Reader,
+    raw: object,
+    params: Mapping[str, ParamDecl],
+    names: set[str],
+    tensors: Mapping[str, TensorDecl],
+) -> Mapping[str, str]:
+    table = r.table(raw, ("abi",))
     abi: dict[str, str] = {}
     used: dict[str, str] = {}
     for name, value in table.items():
+        path = ("abi", name)
         if name not in names:
-            raise r.fail(("abi", name), f"[abi] {name} names no parameter, tensor or derived value")
+            raise r.fail(path, f"{where(path)} names no parameter, tensor or derived value")
         register = _register(r, name, value)
         if register in used:
-            raise r.fail(("abi", name), f"[abi] {name} and {used[register]} both bind {register}")
+            raise r.fail(path, f"[abi] {name} and {used[register]} both bind {register}")
+        if register.startswith("LR") and name in params and params[name].type == "float":
+            raise r.fail(
+                path, f"[abi] {name} is an element scalar (a float); it binds a CR, not {register}"
+            )
         used[register] = name
         abi[name] = register
-    for tensor in tensors:
-        if tensor not in abi:
+    for tensor in tensors.values():
+        if tensor.name not in abi:
+            section = next(s for s, role in _ROLES.items() if role == tensor.role)
             raise r.fail(
-                ("abi",),
-                f"[abi] does not bind tensor {tensor!r}; its base row must reach the program",
+                (section, tensor.name),
+                f"[abi] does not bind tensor {tensor.name!r}; its base row must reach the program",
             )
     return MappingProxyType(abi)
 
 
+# --- cases and golden ---------------------------------------------------------------------
+
+
 def _files(
-    r: _Reader, directory: Path, raw: object, path: tuple[str, ...], allowed: Iterable[str]
+    r: Reader, directory: Path, raw: object, path: tuple[str, ...], allowed: Iterable[str]
 ) -> Mapping[str, Path]:
-    table = r.table(raw, path, f"{path[-1]}")
+    table = r.table(raw, path)
     valid = tuple(allowed)
     out = {}
     for tensor, value in table.items():
         if tensor not in valid:
             raise r.fail(
-                (*path, tensor), f"{path[-1]} {tensor!r} is not one of the tensors {list(valid)}"
+                (*path, tensor), f"{where(path)} {tensor!r} is not one of the tensors {list(valid)}"
             )
-        text = r.typed(value, str, (*path, tensor), f"{path[-1]} {tensor}")
-        out[tensor] = r.inside(directory, text, (*path, tensor), f"{path[-1]} {tensor}")
+        out[tensor] = r.inside(directory, r.typed(value, str, (*path, tensor)), (*path, tensor))
     return MappingProxyType(out)
 
 
 def _case_values(
-    r: _Reader, m: KernelManifest, path: tuple[str, ...], table: Mapping[str, Any]
+    r: Reader, m: KernelManifest, path: tuple[str, ...], table: Mapping[str, Any]
 ) -> dict[str, object]:
-    """The case's parameter values: a scalar, or a tuple (a sweep axis)."""
+    """The case's parameter values: a scalar, or a tuple (a sweep axis). A fixed
+    parameter takes its fixed value (E06-17)."""
     values: dict[str, object] = {}
     for key, value in table.items():
-        if key in m.params:
-            items = value if isinstance(value, list) else [value]
-            if not items:
-                raise r.fail((*path, key), f"[cases.{path[-1]}] {key} sweeps over no values")
-            checked = [_value(r, m.params[key], v, (*path, key)) for v in items]
-            values[key] = tuple(checked) if isinstance(value, list) else checked[0]
+        if key not in m.params:
+            continue
+        items = value if isinstance(value, list) else [value]
+        if not items:
+            raise r.fail((*path, key), f"{where((*path, key))} sweeps over no values")
+        if key in m.fixed:
+            continue  # the registry entry's value replaces the template's
+        checked = [_value(r, m.params[key], v, (*path, key)) for v in items]
+        values[key] = tuple(checked) if isinstance(value, list) else checked[0]
+    values.update(m.fixed)
     return values
 
 
-def _case(r: _Reader, m: KernelManifest, name: str, raw: object) -> CaseDecl:
+def _case(r: Reader, m: KernelManifest, name: str, raw: object) -> CaseDecl:
     path = ("cases", name)
-    table = r.table(raw, path, f"[cases.{name}]")
-    r.known(table, (*m.params, *_CASE_KEYS), path, f"[cases.{name}]")
-    values = _case_values(r, m, path, table)
-    case = CaseDecl(name, MappingProxyType(values))
+    table = r.table(raw, path)
+    r.known(table, (*m.params, *_CASE_KEYS), path)
+    case = CaseDecl(name, MappingProxyType(_case_values(r, m, path, table)))
     if "formats" in table:
-        listed = r.typed(table["formats"], list, (*path, "formats"), "formats")
+        listed = r.typed(table["formats"], list, (*path, "formats"))
         formats = tuple(r.format(f, (*path, "formats")) for f in listed)
+        if not formats:
+            raise r.fail((*path, "formats"), f"{where(path)} formats must not be empty")
         extra = [f.value for f in formats if f not in m.formats]
         if extra:
-            raise r.fail((*path, "formats"), f"[cases.{name}] formats {extra} are not the kernel's")
+            raise r.fail((*path, "formats"), f"{where(path)} formats {extra} are not the kernel's")
         case = replace(case, formats=formats)
     if "inputs" in table:
         inputs = [t.name for t in m.tensors.values() if t.role == "input"]
@@ -469,153 +524,208 @@ def _case(r: _Reader, m: KernelManifest, name: str, raw: object) -> CaseDecl:
         )
     if "expected" in table:
         outputs = [t.name for t in m.tensors.values() if t.role == "output"]
-        case = replace(
-            case, expected=_files(r, m.directory, table["expected"], (*path, "expected"), outputs)
-        )
+        expected = _files(r, m.directory, table["expected"], (*path, "expected"), outputs)
+        case = replace(case, expected=expected)
     if "generator" in table:
         case = replace(
-            case,
-            generator=r.function(
-                m.directory, table["generator"], (*path, "generator"), "generator"
-            ),
+            case, generator=r.function(m.directory, table["generator"], (*path, "generator"))
         )
     if "tier" in table:
-        if table["tier"] not in ("default", "nightly"):
-            raise r.fail((*path, "tier"), f"tier {table['tier']!r} must be default or nightly")
-        case = replace(case, tier=table["tier"])
+        tier = table["tier"]
+        if tier not in ("default", "nightly"):
+            raise r.fail(
+                (*path, "tier"), f"{where((*path, 'tier'))} {tier!r} must be default or nightly"
+            )
+        case = replace(case, tier=tier)
     return case
 
 
 def _golden(
-    r: _Reader, directory: Path, raw: object, formats: tuple[ElementFormat, ...]
+    r: Reader, directory: Path, raw: object, formats: tuple[ElementFormat, ...]
 ) -> GoldenDecl:
-    table = r.table(raw, ("golden",), "[golden]")
-    r.known(table, _GOLDEN_KEYS, ("golden",), "[golden]")
+    table = r.table(raw, ("golden",))
+    r.known(table, _GOLDEN_KEYS, ("golden",))
+    if "reference" in table and "op" in table:
+        raise r.fail(("golden", "op"), "[golden] names both a reference and an op; keep one")
     reference = None
     if "reference" in table:
-        reference = r.function(directory, table["reference"], ("golden", "reference"), "reference")
-    elif (directory / "reference.py").is_file():
+        reference = r.function(directory, table["reference"], ("golden", "reference"))
+    elif "op" not in table and (directory / "reference.py").is_file():
         reference = "reference.py:reference"
-    op = r.typed(table["op"], str, ("golden", "op"), "op") if "op" in table else None
+    op = r.text(table["op"], ("golden", "op")) if "op" in table else None
     tolerance: dict[ElementFormat, str] = {}
     if "tolerance" in table:
-        tiers = r.table(table["tolerance"], ("golden", "tolerance"), "tolerance")
+        tiers = r.table(table["tolerance"], ("golden", "tolerance"))
         for fmt, tier in tiers.items():
-            key = r.format(fmt, ("golden", "tolerance", fmt))
+            path = ("golden", "tolerance", fmt)
+            key = r.format(fmt, path)
             if key not in formats:
-                raise r.fail(
-                    ("golden", "tolerance", fmt),
-                    f"tolerance for {fmt}, a format the kernel does not run in",
-                )
-            tolerance[key] = r.typed(tier, str, ("golden", "tolerance", fmt), f"tolerance {fmt}")
+                raise r.fail(path, f"tolerance for {fmt}, a format the kernel does not run in")
+            tolerance[key] = r.text(tier, path)
     return GoldenDecl(reference, op, MappingProxyType(tolerance))
 
 
 # --- the loader ---------------------------------------------------------------------------
 
 
-def _kernel(
-    r: _Reader, directory: Path, raw: object
-) -> tuple[str, tuple[ElementFormat, ...], Path, str | None]:
-    table = r.table(raw, ("kernel",), "[kernel]")
-    r.known(table, _KERNEL_KEYS, ("kernel",), "[kernel]")
-    op = r.require(table, "op", str, ("kernel",), "[kernel]")
-    listed = r.require(table, "formats", list, ("kernel",), "[kernel]")
+@dataclass(frozen=True)
+class _KernelTable:
+    op: str
+    formats: tuple[ElementFormat, ...]
+    asm: Path
+    stages: str | None
+
+
+def _kernel(r: Reader, directory: Path, raw: object) -> _KernelTable:
+    table = r.table(raw, ("kernel",))
+    r.known(table, _KERNEL_KEYS, ("kernel",))
+    if "op" not in table:
+        raise r.fail(("kernel",), "[kernel] needs 'op'")
+    op = r.text(table["op"], ("kernel", "op"))
+    listed = r.require(table, "formats", list, ("kernel",))
     formats = tuple(r.format(f, ("kernel", "formats")) for f in listed)
     if not formats or len(set(formats)) != len(formats):
         raise r.fail(
             ("kernel", "formats"), "[kernel] formats must list each format once, at least one"
         )
-    asm_name = r.typed(table.get("asm", f"{directory.name}.asm"), str, ("kernel", "asm"), "asm")
-    asm = r.inside(directory, asm_name, ("kernel", "asm"), "asm")
+    asm_name = r.typed(table.get("asm", f"{directory.name}.asm"), str, ("kernel", "asm"))
+    asm = r.inside(directory, asm_name, ("kernel", "asm"))
     if not asm.is_file():
         raise r.fail(("kernel", "asm"), f"the program {asm_name} is not in the kernel directory")
     stages = (
-        r.function(directory, table["stages"], ("kernel", "stages"), "stages")
-        if "stages" in table
-        else None
+        r.function(directory, table["stages"], ("kernel", "stages")) if "stages" in table else None
     )
-    return op, formats, asm, stages
+    return _KernelTable(op, formats, asm, stages)
 
 
-def _sections(r: _Reader, data: Mapping[str, Any]) -> None:
-    r.known(data, _SECTIONS, (), TOML_NAME)
-    for section in ("kernel", "golden"):
-        if section not in data:
-            raise r.fail((), f"{TOML_NAME} needs a [{section}] section")
+@dataclass(frozen=True)
+class _Overrides:
+    name: str | None
+    formats: tuple[ElementFormat, ...]
+    fixed: Mapping[str, object]
 
 
-def _apply_overrides(
-    r: _Reader, params: dict[str, ParamDecl], overrides: Mapping[str, Any]
-) -> str | None:
-    unknown = set(overrides) - {"name", "params"}
+def _overrides(
+    toml: Path,
+    params: dict[str, ParamDecl],
+    formats: tuple[ElementFormat, ...],
+    overrides: Mapping[str, Any],
+    source: str,
+) -> _Overrides:
+    """Apply a registry entry; fixed parameters narrow ``params``. Errors name ``source``."""
+
+    def fail(message: str) -> ManifestError:
+        return ManifestError(f"{source}: override of {toml}: {message}")
+
+    unknown = sorted(set(overrides) - {"name", "params", "formats"})
     if unknown:
-        raise r.fail((), f"unknown overrides {sorted(unknown)}; valid: name, params")
-    for name, value in overrides.get("params", {}).items():
-        if name not in params:
-            raise r.fail(("params",), f"override for {name!r}, which is no parameter")
-        params[name] = replace(
-            params[name], default=_value(r, params[name], value, ("params", name))
-        )
+        raise fail(f"unknown overrides {unknown}; valid: name, formats, params")
     name = overrides.get("name")
-    return str(name) if name is not None else None
+    if name is not None and (not isinstance(name, str) or not name.isidentifier()):
+        raise fail(f"name {name!r} must be an identifier")
+    if "formats" in overrides:
+        listed = overrides["formats"]
+        valid = {f.value for f in formats}
+        if not isinstance(listed, list) or not listed or any(f not in valid for f in listed):
+            raise fail(f"formats {listed!r} must be a non-empty subset of {sorted(valid)}")
+        formats = tuple(ElementFormat(f) for f in listed)
+    fixed_raw = overrides.get("params", {})
+    if not isinstance(fixed_raw, Mapping):
+        raise fail(f"params {fixed_raw!r} must be a table")
+    fixed: dict[str, object] = {}
+    probe = Reader(toml, Locator(""))
+    for pname, value in fixed_raw.items():
+        if pname not in params:
+            raise fail(f"params.{pname} is no parameter of the template")
+        try:
+            fixed[pname] = _value(probe, params[pname], value, ("params", pname))
+        except ManifestError as error:
+            raise fail(str(error).split(": ", 1)[-1]) from None
+        params[pname] = replace(params[pname], choices=(fixed[pname],), default=fixed[pname])
+    return _Overrides(name, formats, MappingProxyType(fixed))
 
 
-def load_manifest(directory: Path, *, overrides: Mapping[str, Any] | None = None) -> KernelManifest:
+def _derived(r: Reader, raw: object, params: Mapping[str, ParamDecl]) -> dict[str, str]:
+    derived: dict[str, str] = {}
+    for name, expression in r.table(raw, ("derived",)).items():
+        path = ("derived", name)
+        _check_name(r, path)
+        if name in params:
+            raise r.fail(path, f"[derived] {name} is also a parameter")
+        derived[name] = r.text(expression, path)
+        _check_expression(r, derived[name], (*params, *derived), path)
+    return derived
+
+
+def _tensors(r: Reader, data: Mapping[str, Any], scalars: tuple[str, ...]) -> dict[str, TensorDecl]:
+    tensors: dict[str, TensorDecl] = {}
+    for section in _ROLES:
+        for name, raw in r.table(data.get(section, {}), (section,)).items():
+            if name in tensors or name in scalars:
+                raise r.fail((section, name), f"{name!r} is declared twice")
+            tensors[name] = _tensor(r, section, name, raw, scalars)
+    return tensors
+
+
+def _read(toml: Path) -> tuple[Reader, dict[str, Any]]:
+    try:
+        text = toml.read_text(encoding="utf-8")
+    except OSError as error:
+        raise ManifestError(f"{toml}:1: cannot read it: {error.strerror}") from None
+    try:
+        data = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as error:
+        raise ManifestError(f"{toml}:{decode_error_line(str(error))}: {error}") from None
+    return Reader(toml, Locator(text)), data
+
+
+def load_manifest(
+    directory: Path, *, overrides: Mapping[str, Any] | None = None, source: str = "overrides"
+) -> KernelManifest:
     """Read and check ``directory/kernel.toml``; the frozen view of it.
 
     Args:
         directory: The kernel's folder (holding ``kernel.toml`` and its program).
-        overrides: From a family ``registry.toml`` entry (E06-17): ``name`` and
-            ``params`` (parameter name to its default).
+        overrides: From a family ``registry.toml`` entry (E06-17): ``name``,
+            ``formats`` (a subset) and ``params`` (fixed values).
+        source: Where ``overrides`` come from, for their errors.
 
     Returns:
         The manifest.
 
     Raises:
-        ManifestError: The file breaks the schema; the message names its line.
+        ManifestError: The file is missing or breaks the schema; the message names the line.
     """
     toml = directory / TOML_NAME
-    text = toml.read_text(encoding="utf-8")
-    r = _Reader(toml, _Locator(text))
-    try:
-        data = tomllib.loads(text)
-    except tomllib.TOMLDecodeError as error:
-        raise ManifestError(f"{toml}: {error}") from None
-    _sections(r, data)
-    op, formats, asm, stages = _kernel(r, directory, data["kernel"])
-    raw_params = r.table(data.get("params", {}), ("params",), "[params]")
-    params = {name: _param(r, name, raw, directory.name) for name, raw in raw_params.items()}
-    name = _apply_overrides(r, params, overrides or {}) or directory.name
-    raw_derived = r.table(data.get("derived", {}), ("derived",), "[derived]")
-    derived = {k: r.typed(v, str, ("derived", k), f"[derived] {k}") for k, v in raw_derived.items()}
-    clash = sorted(set(derived) & set(params))
-    if clash:
-        raise r.fail(("derived", clash[0]), f"[derived] {clash[0]} is also a parameter")
+    r, data = _read(toml)
+    r.known(data, _SECTIONS, ())
+    if "kernel" not in data:
+        raise r.fail((), f"{TOML_NAME} needs a [kernel] section")
+    kernel = _kernel(r, directory, data["kernel"])
+    family_name = f"{directory.parent.name}/{directory.name}"
+    raw_params = r.table(data.get("params", {}), ("params",))
+    params = {name: _param(r, name, raw, family_name) for name, raw in raw_params.items()}
+    entry = _overrides(toml, params, kernel.formats, overrides or {}, source)
+    derived = _derived(r, data.get("derived", {}), params)
     scalars = (*params, *derived)
-    tensors: dict[str, TensorDecl] = {}
-    for section in _ROLES:
-        for tname, raw in r.table(data.get(section, {}), (section,), f"[{section}]").items():
-            if tname in tensors or tname in scalars:
-                raise r.fail((section, tname), f"{tname!r} is declared twice")
-            tensors[tname] = _tensor(r, section, tname, raw, scalars)
-    abi = _abi(r, data.get("abi", {}), {*scalars, *tensors}, tensors)
+    tensors = _tensors(r, data, scalars)
     manifest = KernelManifest(
-        name=name,
+        name=entry.name or directory.name,
         directory=directory,
-        asm=asm,
-        op=op,
-        formats=formats,
+        asm=kernel.asm,
+        op=kernel.op,
+        formats=entry.formats,
         params=MappingProxyType(params),
         tensors=MappingProxyType(tensors),
-        abi=abi,
+        abi=_abi(r, data.get("abi", {}), params, {*scalars, *tensors}, tensors),
         derived=MappingProxyType(derived),
         cases=MappingProxyType({}),
-        golden=_golden(r, directory, data["golden"], formats),
-        stages=stages,
+        golden=_golden(r, directory, data.get("golden", {}), kernel.formats),
+        stages=kernel.stages,
+        fixed=entry.fixed,
     )
-    raw_cases = r.table(data.get("cases", {}), ("cases",), "[cases]")
+    raw_cases = r.table(data.get("cases", {}), ("cases",))
     if "default" not in raw_cases:
         raise r.fail(("cases",), f"{TOML_NAME} needs [cases.default]")
-    cases = {cname: _case(r, manifest, cname, raw) for cname, raw in raw_cases.items()}
+    cases = {name: _case(r, manifest, name, raw) for name, raw in raw_cases.items()}
     return replace(manifest, cases=MappingProxyType(cases))

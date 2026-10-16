@@ -42,6 +42,7 @@ The user decided the program-level questions in the grilling session. They are r
 | Question | Default | Raised in |
 |---|---|---|
 | LR presets | `[abi]` accepts LR targets (`i = "LR3"`) as well as CR targets. | E06-06 |
+| `kernel.toml` readers and loader scope | `ipu_harness.manifest.load_manifest` is the reader; the one other is `ipu-as assemble --abi`, which reads only the `[abi]` table (E05-13; `ipu_as` cannot import `ipu_harness`), and a test allows exactly these two. The loader checks names, domains and paths; E06-03 evaluates shapes; E06-10 checks tolerance tier names and adds the per-kernel table form (the tier spellings differ: `exact`/`accum`/... here, `EXACT`/`FP8_ULP` in E06-10 and the epic; E06-10 settles them); E06-08 adds an input's `range` key; E06-11 adds `[benchmark]`. A registry entry's `params` are fixed values (the param's only choice, and its value in every template case) and its `formats` a subset; errors name the entry's source. `BYTE_UNIT_KERNELS` is keyed `family/name`. | E06-02 |
 | Derived values | A `[derived]` table of arithmetic expressions over params. A `module:fn` hook is the escape hatch. | E06-06 |
 | Tolerance tiers | `exact`, `accum`, `transcendental`, `fp8_e<n>`. The values are set by the projections pilot (E07-03). | E06-10 |
 | Benchmarks | `[benchmark]` table in `kernel.toml`, run by the runner. `benchmark.py` files are deleted. | E06-11 |

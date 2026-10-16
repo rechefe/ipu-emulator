@@ -165,11 +165,9 @@ def representable(value: float, fmt: ElementFormat) -> tuple[bool, tuple[float, 
     if float(fp8_bytes_to_fp32(encoded, DType(info.exp_bits))[0]) == value:
         return True, ()
     values = _fp8_values(fmt)
-    below = [v for v in values if v < value]
-    above = [v for v in values if v > value]
-    return False, tuple(
-        v for v in (below[-1] if below else None, above[0] if above else None) if v is not None
-    )
+    lower = [v for v in values if v < value][-1:]
+    upper = [v for v in values if v > value][:1]
+    return False, (*lower, *upper)
 
 
 # --- the checks ---------------------------------------------------------------------------
