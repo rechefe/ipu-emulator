@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from ipu_as.errors import TemplateError
+from ipu_emu.errors import ConfigurationError
 from ipu_harness.assembly import AssemblyCache, assemble, template_values
 from ipu_harness.manifest import KernelManifest, load_manifest
 from ipu_harness.params import plan_case
@@ -87,7 +88,7 @@ def test_the_template_reads_params_format_and_shapes(tmp_path):
     "line, message",
     [
         ("    SET lr0 {{ cols }} ;;\n", "'cols' is undefined"),
-        ("    SET lr0 {{ cr.z }} ;;\n", "z"),
+        ("    SET lr0 {{ cr.z }} ;;\n", "unknown ABI name cr.z"),
     ],
 )
 def test_an_undefined_name_is_located_in_the_program(tmp_path, line, message):
@@ -103,8 +104,10 @@ def test_a_program_cannot_declare_parameters_of_its_own(tmp_path):
     # name it declares is undefined.
     asm = "{# ipu:params\nextra: int = 3\n#}\n    SET lr0 {{ cr.x }} ;;\n{% if extra %}    BKPT ;;\n{% endif %}"
     m = kernel(tmp_path, asm)
-    with pytest.raises(TemplateError, match="'extra' is undefined"):
+    with pytest.raises(TemplateError, match="'extra' is undefined") as error:
         assemble(plan_case(m, {}, F.FP32))
+    assert error.value.location is not None and error.value.location.source == "scale.asm"
+    assert error.value.location.line == 5
 
 
 def test_the_cache_encodes_each_distinct_rendered_program_once(tmp_path):
@@ -135,3 +138,30 @@ def test_neither_the_harness_nor_the_kernel_library_imports_jinja2():
     for root in (HARNESS, KERNELS):
         for path in sorted(root.rglob("*.py")):
             assert not imports.search(path.read_text(encoding="utf-8")), path
+
+
+def test_a_float_parameter_renders_as_its_value(tmp_path):
+    m = kernel(tmp_path, "{# s is {{ s }} #}    SET lr0 {{ cr.x }} ;; # s = {{ s }}\n")
+    assert "# s = 2.5" in assemble(plan_case(m, {"s": 2.5}, F.FP32)).rendered
+
+
+def test_the_macro_library_is_searched_when_given_and_must_exist(tmp_path):
+    lib = tmp_path / "asm_lib"
+    lib.mkdir()
+    (lib / "halt.asm.j2").write_text("    BKPT ;;\n")
+    m = kernel(tmp_path, '{% include "halt.asm.j2" %}\n')
+    assert assemble(plan_case(m, {}, F.FP32), asm_lib=lib).rendered.strip() == "BKPT ;;"
+    with pytest.raises(TemplateError, match="halt.asm.j2"):
+        assemble(plan_case(m, {}, F.FP32))  # not given: not searched
+    with pytest.raises(ConfigurationError, match="the macro library is not there"):
+        assemble(plan_case(m, {}, F.FP32), asm_lib=tmp_path / "missing")
+
+
+def test_a_cache_hit_raises_the_programs_warnings_again(tmp_path):
+    # STR_ACC_REG is in the simulation-only acc_store slot: encoding warns.
+    m = kernel(tmp_path, "    STR_ACC_REG lr0 cr0 ;;\n    BKPT ;;\n")
+    cache = AssemblyCache()
+    for _ in range(2):
+        with pytest.warns(UserWarning, match="simulation-only"):
+            assemble(plan_case(m, {}, F.FP32), cache)
+    assert cache.assembled == 1

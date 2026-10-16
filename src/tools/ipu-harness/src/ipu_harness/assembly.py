@@ -17,22 +17,24 @@ renders. The harness imports no ``jinja2``.
 from __future__ import annotations
 
 import hashlib
-import importlib.util
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
+from typing import get_args
 
 from ipu_as.session import AssemblyResult, AssemblySession
 from ipu_as.template import REQUIRED, Param, ParamSpec
+from ipu_emu.errors import ConfigurationError
 from ipu_harness.abi import template_names
+from ipu_harness.manifest import ParamType
 from ipu_harness.params import CasePlan
 
 __all__ = ["AssemblyCache", "assemble", "search_path", "template_values"]
 
 _PY_TYPES: Mapping[str, type] = {"int": int, "float": float, "bool": bool, "str": str}
-
-#: The shared macro library's folder in ``ipu_kernels`` (``*.asm.j2``).
-ASM_LIB = "asm_lib"
+assert set(_PY_TYPES) == set(get_args(ParamType)), (
+    "a kernel.toml parameter type has no template type"
+)
 
 
 def template_values(plan: CasePlan) -> Mapping[str, object]:
@@ -58,23 +60,32 @@ def _declared(plan: CasePlan) -> ParamSpec:
     return ParamSpec(tuple(params))
 
 
-def search_path(plan: CasePlan) -> tuple[Path, ...]:
-    """Where ``{% include %}`` and ``{% import %}`` look: the kernel's folder, its
-    family's, and ``ipu_kernels/asm_lib`` if it exists (found, not imported)."""
+def search_path(plan: CasePlan, asm_lib: Path | None = None) -> tuple[Path, ...]:
+    """Where ``{% include %}`` and ``{% import %}`` look.
+
+    Args:
+        plan: The checked case.
+        asm_lib: The shared macro library (``ipu_kernels/asm_lib``, ``*.asm.j2``)
+            when the caller has it (Bazel data); none, only the kernel's folders.
+
+    Returns:
+        The kernel's folder, its family's folder, then ``asm_lib``.
+
+    Raises:
+        ConfigurationError: ``asm_lib`` is given but is no directory.
+    """
     directory = plan.manifest.directory
-    roots = [directory, directory.parent]
-    spec = importlib.util.find_spec("ipu_kernels")
-    for location in (spec.submodule_search_locations or []) if spec else []:
-        if (Path(location) / ASM_LIB).is_dir():
-            roots.append(Path(location) / ASM_LIB)
-    return tuple(roots)
+    if asm_lib is not None and not asm_lib.is_dir():
+        raise ConfigurationError(f"{asm_lib}: the macro library is not there")
+    return (directory, directory.parent, *(() if asm_lib is None else (asm_lib,)))
 
 
 class AssemblyCache:
     """Assembled programs by their rendered text: one per distinct render.
 
-    A runner keeps one for a run (E06-11); the default is none, so every call
-    assembles.
+    It holds every program it has assembled, unbounded, so it lives as long as
+    one run of a kernel's cases (the runner's, E06-11); without one every call
+    assembles. A hit raises the program's encoding warnings again.
     """
 
     def __init__(self) -> None:
@@ -82,7 +93,14 @@ class AssemblyCache:
         self.assembled = 0  #: how many programs were encoded (not served from the cache)
 
     def get(self, session: AssemblySession) -> AssemblyResult:
-        """The session's program, encoded only if its rendered text is new."""
+        """The session's program, encoded only if its rendered text is new.
+
+        Args:
+            session: The program's assembly session (rendered here).
+
+        Returns:
+            The assembled program, cached or new.
+        """
         digest = hashlib.sha256(session.render().encode("utf-8")).hexdigest()
         cached = self._results.get(digest)
         if cached is not None:
@@ -94,27 +112,31 @@ class AssemblyCache:
         return result
 
 
-def assemble(plan: CasePlan, cache: AssemblyCache | None = None) -> AssemblyResult:
+def assemble(
+    plan: CasePlan, cache: AssemblyCache | None = None, *, asm_lib: Path | None = None
+) -> AssemblyResult:
     """The kernel's program for ``plan``: rendered with its values and assembled.
 
     Args:
         plan: The checked case; nothing is checked again.
         cache: Reuses an earlier assembly of the same rendered text.
+        asm_lib: The shared macro library, when the caller has it.
 
     Returns:
         The instruction words, labels and rendered text (E05).
 
     Raises:
-        TemplateError: An undefined name or a bad ``cr.``/``lr.`` name in the
-            program, located in its file and line; ParseError or EncodeError
-            for the rendered program.
+        ipu_as.errors.TemplateError: An undefined name or a bad ``cr.``/``lr.``
+            name in the program, located in its file and line.
+        ipu_as.errors.ParseError: The rendered program does not parse.
+        ipu_as.errors.EncodeError: An instruction does not encode.
     """
     manifest = plan.manifest
     session = AssemblySession(
         manifest.asm.read_text(encoding="utf-8"),
         defines=template_values(plan),
         params=_declared(plan),
-        search_path=search_path(plan),
+        search_path=search_path(plan, asm_lib),
         abi=template_names(manifest),
         name=manifest.asm.name,
     )

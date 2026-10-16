@@ -33,9 +33,9 @@ Module `ipu_harness/assembly.py`:
 def template_values(plan: CasePlan) -> Mapping[str, object]:
     """{**plan.params, "cr": {"x": "CR2", ...}, "format": "e4", "shapes": {...}}"""
 
-def assemble(plan: CasePlan, session: AssemblySession) -> Program:
-    """Render <name>.asm with template_values(plan) and assemble it (E05).
-    The session caches by (source digest, include digests, values)."""
+def assemble(plan: CasePlan, cache: AssemblyCache | None = None, *, asm_lib: Path | None = None) -> AssemblyResult:
+    """Render <name>.asm with template_values(plan) and assemble it through an E05 session.
+    The cache (one per run) keys on the rendered text, which covers values and includes."""
 ```
 
 - The declared template parameters are the `kernel.toml` `[params]` names plus
@@ -58,7 +58,7 @@ def assemble(plan: CasePlan, session: AssemblySession) -> Program:
 - [ ] `scale` renders `{{ cr.x }}` as `CR2` and assembles identically in all three formats (its program does not use `format`).
 - [ ] An undefined template name and an undeclared parameter each give a located error.
 - [ ] Two cases with the same template values assemble once (a session cache hit). Different `rows` values assemble once each, but only if the template uses `rows`.
-- [ ] `assemble_<name>` output equals the binary from the E02 asm digest for a migrated kernel (exercised by E07).
+- [ ] `assemble_<name>` output equals the binary from the E02 asm digest for a migrated kernel (exercised by E07). Deferred: the target comes with E06-13's `ipu_kernel()`.
 - [ ] Assembly takes a `CasePlan` and re-checks nothing (E06-03's single seam).
 
 ## Acceptance Criteria

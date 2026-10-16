@@ -64,7 +64,9 @@ class Param:
     """One declared template parameter."""
 
     name: str
-    type: type  #: int, bool, str or tuple (of ints)
+    #: int, bool, str or tuple (of ints) in an ``ipu:params`` header; a caller's
+    #: ParamSpec may name any type (the kernel harness passes float and dict).
+    type: type
     default: object = REQUIRED
     choices: tuple | None = None
     line: int | None = None  #: its line in the header, when it came from one
@@ -150,7 +152,7 @@ def _from_text(kind: type, text: str) -> object:
 
 
 def _type_name(kind: type) -> str:
-    return next(name for name, value in _TYPES.items() if value is kind)
+    return next((name for name, value in _TYPES.items() if value is kind), kind.__name__)
 
 
 _HEADER = re.compile(r"\{#-?\s*ipu:params[ \t]*\n(?P<body>.*?)-?#\}", re.DOTALL)
