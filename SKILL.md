@@ -1,233 +1,41 @@
-# IPU Emulator & Assembler — AI Assistant Skill Reference
+# IPU Emulator — agent index
 
-This file gives Claude Code the context needed to work effectively in this repository.
+ipu-emulator defines the instruction set of the IPU, a 128-lane VLIW vector processor for neural-network inference. It assembles programs for it, emulates it in Python, and holds the kernels that run on it; Bazel builds and tests everything.
 
----
+`docs/` is canonical. This file only says where each topic is written; follow the link instead of relying on memory of the code.
 
-## Project Purpose
+## Rules
 
-**ipu-emulator** is a Python-based IPU (Inference Processing Unit) emulator and assembler toolchain. It lets you write assembly programs for a custom VLIW ISA, then assemble and emulate them in software.
+The rules agents must never break are in [CLAUDE.md](CLAUDE.md), under "Key Constraints" and "Generated SystemVerilog Package". They are explained in:
 
----
+- Opcodes from position, no duplicated metadata, handler argument names: [adding-instruction.md](docs/content/adding-instruction.md) and [ADR 0001](docs/adr/0001-isa-package-is-the-single-source-of-truth.md).
+- Naming and separator conventions in docs, and the `asm-fragment` marker: [CLAUDE.md](CLAUDE.md), "Docs and written examples".
+- SystemVerilog package widths after an ISA change: [CLAUDE.md](CLAUDE.md), "Generated SystemVerilog Package".
 
-## Repository Layout
+## Where each topic is documented
 
-```
-src/tools/
-├── ipu-common/src/ipu_common/    # Shared definitions (single source of truth)
-│   ├── instruction_spec.py       # ALL instruction definitions live here
-│   ├── registers.py              # ALL register definitions live here
-│   ├── acc_stride_enums.py       # Stride control enums
-│   └── types.py                  # RegDtype, RegKind, RegDescriptor
-├── ipu-as-py/src/ipu_as/         # Assembler
-│   ├── compound_inst.py          # VLIW encoding/decoding
-│   ├── inst.py                   # Instruction classes per slot
-│   ├── lark_tree.py              # Lark parser
-│   └── opcodes.py                # Dynamic opcode generation from spec
-├── ipu-emu-py/src/ipu_emu/       # Emulator
-│   ├── ipu.py                    # execute_* handlers for every instruction
-│   ├── ipu_state.py              # Top-level state (registers, memory, PC)
-│   ├── execute.py                # VLIW decode + dispatch
-│   ├── regfile.py                # Register file
-│   ├── xmem.py                   # 512 MiB external memory
-│   ├── ipu_math.py               # Typed math (INT8, FP8 E1-E7)
-│   └── debug_cli.py              # Interactive debugger
-└── ipu-apps/src/ipu_apps/        # Kernels and their harnesses
-    ├── kernel_registry/          # Factory: discovery, specs, cases, runner, benchmarks
-    └── kernels/<family>/<kernel>/  # One kernel per folder, e.g. linear/fully_connected/
-docs/                             # MkDocs (config + content/ page sources)
-```
-
----
-
-## Architecture: Single Source of Truth
-
-**`instruction_spec.py` is the master file.** Adding an entry there automatically:
-- Gives the assembler a new mnemonic (opcode derived from dict position — never assign manually)
-- Lets the emulator dispatch to the corresponding `execute_*` method
-
-Do not hardcode opcodes anywhere. Do not duplicate instruction metadata.
-
-Same principle applies to **`registers.py`** for register definitions.
-
-### Naming in prose, docs, and examples
-
-- **Instruction mnemonics** are written in **upper case** everywhere in this repository (Markdown, comments, `InstructionDoc.syntax` / examples, and the keys in `INSTRUCTION_SPEC`). The assembler still accepts upper or lower case in source files.
-- **Hardware register names** (`R0`, `R1`, `LR0`–`LR15`, `CR0`–`CR15`) are written in **upper case** in all docs and examples.
-- **Abstract operand placeholder tokens** (`dest`, `src_a`, `offset`) in syntax templates are written in **lower case**.
-
----
-
-## ISA Concepts
-
-### VLIW / Compound Instructions
-
-Every cycle executes one **compound instruction** — multiple independent slots in parallel:
-
-```asm
-next:
-LDR_MULT_REG R0 LR0 CR0; MULT.RC.VV LR1 R0 0 LR3 CR15; ACC.ADD; INC LR0 1; BNE LR0 LR1 next;;
-```
-
-- Binary layout (MSB → LSB): `cond`, `lr` (×3), `load`, `mult`, `acc`, `aaq`, `store`, `acc_store`, `break`
-- Separated by `;`, terminated by `;;`
-- Missing slots → NOP inserted automatically
-- Slots see a register **snapshot** at cycle start (read-before-write semantics)
-
-### Register File
-
-| Register | Size | Purpose |
-|----------|------|---------|
-| `R0`, `R1` | 128 bytes (128×INT8) | Multiply-stage inputs/outputs |
-| `R_CYCLIC` | 512 bytes | Cyclic-access variant of `R0` |
-| `R_MASK` | 128 bytes | Bit mask register |
-| `R_ACC` | 512 bytes (128×INT32) | Accumulator |
-| `LR0`–`LR15` | 32-bit each | Loop/scalar registers |
-| `CR0`–`CR15` | 32-bit, read-only | Configuration (base addresses, params) |
-| `LRD0`, `LRD2`, …, `LRD14` | 64-bit (8 byte elements) | Register-pair alias over LR, named after the lower register: `LRDn` = `LR(n+1)`:`LR(n)`; no separate storage |
-
-`CR15` conventionally holds the dstructure configuration (`valid_elements`, `partition`, and `pad_mode` — the fill value for mask-deactivated `MULT_RES` elements: zero, +inf, or -inf), but any `CR0`–`CR15` may be named as the dstructure source or used as a plain `CrIdx`/`LcrIdx` operand — it is not a blocked register. Data type selection lives on `IpuState.dtype` in the Python emulator.
-
-### Instruction Slots
-
-| Slot | Instructions | Purpose |
-|------|-------------|---------|
-| LOAD | `LDR_MULT_REG`, `LDR_CYCLIC_MULT_REG`, `LDR_MULT_MASK_REG` | First-stage memory loads (feeds multiply) |
-| STORE | `STR_POST_AAQ_REG` | Last-stage memory store (drains `POST_AAQ_REG`) |
-| ACC_STORE | `STR_ACC_REG` | **Simulation-only** — store `R_ACC` to external memory |
-| MULT | `MULT.RC.VV`, `MULT.RC.VE`, `MULT.RC.VS`, `MULT.VE`, `MULT.EE` | 8-bit vector multiply |
-| ACC | `ACC.ADD`, `ACC.ADD.FIRST`, `ACC.MAX`, `ACC.MAX.FIRST`, `ACC.SUB`, `ACC.SUB.FIRST`, `ACC.STRIDE`, `AGG.SUM`, `AGG.SUM.FIRST`, `AGG.MAX`, `AGG.MAX.FIRST`, `ACC.RESHAPE` | Accumulate into `R_ACC`; AGG instructions reduce `MULT_RES` elements (sum/max) into a single slot of `R_ACC`; `ACC.RESHAPE` scatters `MULT_RES` elements into `R_ACC` using two `LrdIdx` byte-index arrays, gated by `reshape_mask` (immediate or LR; trailing elements `reshape_mask..7` participate) |
-| AAQ | `ACTIVATE.QUANTIZE` | Reads **`R_ACC`**, activates each active element and writes the result into **`POST_AAQ_REG`** (512 B staging), leaving **`R_ACC`** unchanged: INT8 mode clamps to the leading **128 B**, wide-vector mode writes **32b** elements and only quantizes when `wide_vector_quantize_output` is set. **`STR_POST_AAQ_REG`** stores the full **512 B** register to XMEM. See `docs/content/building-applications.md#activations-emulator`. |
-| LR (×3) | `SET`, `ADD`, `SUB`, `INCR_MOD_POW2`, `INC`, `DEC`, `ADDB`, `ADDBI` | Scalar loop register ops (`SET` copies from a **`CR`** register; `INC`/`DEC` read-modify-write with union-derived immediate; `ADDB`/`ADDBI` broadcast-add a signed byte to an `LRDn` pair's 8 elements, saturating to [0, 255]) |
-| COND | `BEQ`, `BNE`, `BLT`, `BGE`, `BR`, `BKPT` | Branches. `BGT`, `BLE`, `BZ`, `BNZ`, `B` are pseudo-instructions (assembler-expanded, no opcode) — see `PSEUDO_INSTRUCTION_SPEC` in `instruction_spec.py` |
-| BREAK | `BREAK`, `BREAK.IFEQ` | Debug breakpoints |
-
-### Operand Types (defined in instruction_spec)
-
-The operand types are listed on the generated [Operand types](https://rechefe.github.io/ipu-emulator/operand-types/) page. It is built from `instruction_spec.py`; `bazel build //docs:generate_mkdocs_md` writes it to `bazel-bin/docs/operand-types.md`.
-
-`ACC.STRIDE` operand enums (see `acc_stride_enums.py`): `ElementsInRow` = **`16`**, **`32`**, **`64`**; `HorizontalStride` = **`off`**, **`on`**, **`on_inv`** (expand is fixed hardware behaviour, not programmable).
-
----
-
-## How to Add a New Instruction
-
-1. **Define it in `instruction_spec.py`:**
-   ```python
-   "MY_INST": {
-       "operands": [
-           {"name": "dest", "type": "LrIdx"},
-           {"name": "src",  "type": "MultStageReg", "read": "snapshot"},
-       ],
-       "doc": InstructionDoc(summary="...", ...),
-       "execute_fn": "execute_my_inst",
-   }
-   ```
-
-2. **Implement the handler in `ipu.py`:**
-   ```python
-   def execute_my_inst(self, *, dest: int, src: bytearray) -> None:
-       # dest is the LR index (a destination takes no "read" key); src is the register bytes
-       ...
-   ```
-   - Use `*,` (keyword-only args)
-   - Argument names **must** match `operands[*]["name"]` exactly
-   - The framework resolves operand types and passes values automatically
-
-3. **Write tests in `ipu-emu-py/test/`** using the `_run()` helper.
-
-4. **Run:** `bazel test //...`
-
----
-
-## Testing Patterns
-
-```python
-def _run(asm_code: str) -> IpuState:
-    encoded = assemble(asm_code)
-    decoded = [decode_instruction_word(w) for w in encoded]
-    state = IpuState()
-    load_program(state, decoded)
-    run_until_complete(state)
-    return state
-
-def test_my_instruction():
-    state = _run("MY_INST LR0 R0;;")
-    assert state.regfile.get_lr(0) == expected
-```
-
-Bazel test targets:
-```bash
-bazel test //src/tools/ipu-emu-py:test_execute
-bazel test //src/tools/ipu-as-py:test_assemble
-bazel test //src/tools/ipu-apps:test_fully_connected
-bazel test //...
-```
-
----
-
-## Assembler Usage
-
-```bash
-# Assemble a program
-bazel run //src/tools/ipu-as-py:ipu-as -- assemble --input "$PWD/prog.asm" --output "$PWD/prog.bin" --format bin
-```
-
-Assembly files support full **Jinja2 preprocessing** (variables, loops, macros, conditionals). The CLI has no option to set template variables yet; `--define` is planned (E05-10).
-
----
-
-## Application Pattern
-
-```python
-class MyApp(IpuApp):
-    def setup(self, state: IpuState) -> None:
-        load_binary_to_xmem(state, self.inputs_path, base_addr=0x0000,
-                            chunk_size=128, max_chunks=10)
-        state.regfile.set_cr(2, 0x0000 // 128)   # CR0/CR1 are read-only; operands are rows
-
-    def teardown(self, state: IpuState) -> None:
-        dump_xmem_to_binary(state, self.output_path, base_addr=0x40000,
-                            chunk_size=128, num_chunks=10)
-```
-
-Each kernel has its own folder, `ipu-apps/src/ipu_apps/kernels/<family>/<name>/`:
-- `<name>.asm` — Assembly program
-- `app.py` — `IpuApp` subclass (often a `MemoryApp` with just `memory_layout`)
-  and `SPEC` (`memory_spec` / `folder_spec`: name and `.asm` come from the folder)
-- `cases.py` — Reusable input preparation and explicit output validation, without pytest
-- `test.py` — `test_case = case_tests(__package__)` plus kernel-specific tests
-- `__init__.py` — empty
-Shared code for a family lives in `kernels/<family>/app.py` / `cases.py` / `test.py`.
-
-No BUILD edit is needed: every `kernels/**/<name>.asm` gets `:<name>` (bazel run
-and bazel test), `:assemble_<name>`, a `:<family>` suite, and `:benchmark_<name>`
-when a `benchmark.py` sits beside it. The shared runner loads
-`cases.py`; no per-kernel entry point or instruction-path environment variable
-is needed. `--output` exports completed output even when validation fails.
-Tests may pass `inst_path` to `run_case` to reuse assembled instructions.
-See `docs/content/adding-applications.md` for the full contract.
-
----
-
-## Debugging
-
-Run any kernel target under the debugger TUI:
-
-```bash
-bazel run --config=debug //src/tools/ipu-apps:identity
-```
-
-It opens at cycle 0, before the first instruction: F8 steps, F5 continues, F9 toggles a breakpoint. See [`docs/content/debugging.md`](docs/content/debugging.md) for all controls.
-
----
-
-## Key Things to Remember
-
-- **Never assign opcodes manually** — they are derived from position in `instruction_spec.py`
-- **Never duplicate instruction metadata** — assembler and emulator both read `instruction_spec.py`
-- **Operand names in `execute_*` must exactly match** the names in `instruction_spec.py`
-- **Read-before-write**: slots with `"read": "snapshot"` see pre-cycle register values
-- **`CR15`** conventionally holds dstructure configuration, but any `CR0`–`CR15` is a valid ISA operand — `CR15` is not blocked as a general-purpose register
-- The build system is **Bazel** — use `bazel build/test/run`, not pip/python directly
-- Data types (`DType.INT8`, `DType.E4`, `DType.E5`, etc.) affect how register bytes are interpreted in math ops
+| Task or topic | Page |
+|---|---|
+| Build and run tests | [CLAUDE.md](CLAUDE.md), "Build & Test" |
+| Packages and where the code lives | [README.md](README.md), "Python Packages" |
+| Write a kernel | [building-applications.md](docs/content/building-applications.md) |
+| Register a kernel (folder contract, Bazel targets) | [adding-applications.md](docs/content/adding-applications.md) |
+| Kernel catalogue | [kernels/index.md](docs/content/kernels/index.md) |
+| Add an instruction or pseudo-instruction | [adding-instruction.md](docs/content/adding-instruction.md) |
+| Debug a kernel | [debugging.md](docs/content/debugging.md) |
+| Instructions, slots and operands | generated [Instructions](https://rechefe.github.io/ipu-emulator/instructions/) and [Operand types](https://rechefe.github.io/ipu-emulator/operand-types/) |
+| Assembly syntax, registers, instruction words | generated [Assembly syntax](https://rechefe.github.io/ipu-emulator/assembly-syntax/) |
+| Bit layout of the instruction word | generated [Instruction format](https://rechefe.github.io/ipu-emulator/instruction-format/) |
+| Pseudo-instructions | generated [Programmer's guide](https://rechefe.github.io/ipu-emulator/programmer-guide/) |
+| Element formats, CR constants, dstructure | [ipu-configuration.md](docs/content/ipu-configuration.md), [wide-vector-debug-mode.md](docs/content/wide-vector-debug-mode.md) |
+| Command-line tools | [reference/cli.md](docs/content/reference/cli.md); until it is written, `ipu-as --help` |
+| Reference-model API | [reference/reference-model-api.md](docs/content/reference/reference-model-api.md) |
+| Architecture | [explanation/architecture.md](docs/content/explanation/architecture.md) |
+| Timing model (cycle-start and forwarded values) | [explanation/timing-model.md](docs/content/explanation/timing-model.md), [ADR 0002](docs/adr/0002-timing-contract.md) |
+| Prototyping mode | [prototyping-mode.md](docs/content/prototyping-mode.md) |
+| ISA idioms and kernel coverage | [isa-alias-catalogue.md](docs/content/isa-alias-catalogue.md), [app-coverage.md](docs/content/app-coverage.md) |
+| Hardware specs and requirements | [specs/](docs/content/specs/), [requirements/index.md](docs/content/requirements/index.md) |
+| Open questions | [requirements/open-questions.md](docs/content/requirements/open-questions.md) |
+| Terms | [GLOSSARY.md](GLOSSARY.md) |
+| Design decisions | [docs/adr/](docs/adr/) |
+| Code conventions | not written yet (issue E01-12) |

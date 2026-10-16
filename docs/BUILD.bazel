@@ -259,3 +259,19 @@ py_pytest_test(
     ],
     deps = [requirement("pytest")],
 )
+
+filegroup(
+    name = "adr_sources",
+    srcs = glob(["adr/*.md"]),
+)
+
+py_pytest_test(
+    name = "test_doc_links",
+    size = "small",
+    srcs = ["test_doc_links.py"],
+    data = _DOC_TEST_DATA + [
+        ":adr_sources",
+        "//:GLOSSARY.md",
+    ],
+    deps = [requirement("pytest")],
+)

@@ -42,7 +42,7 @@ Then diff its `localparam` lines against a build of the base commit. Every `*_WI
 
 ## Project Knowledge
 
-See [SKILL.md](SKILL.md) for full architecture details, ISA reference, register file layout, and code examples.
+[SKILL.md](SKILL.md) is the index: for each task or topic it names the `docs/` page that covers it. `docs/` is canonical.
 
 ## Agent skills
 
