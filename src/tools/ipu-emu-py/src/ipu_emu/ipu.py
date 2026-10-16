@@ -145,8 +145,9 @@ def _pack_lanes_one_by_one(lane_fmt: str, buf: bytearray | memoryview, values, b
 
 
 def _check_partition(num_partitions) -> None:
+    # Reached mid-run from the MULT mask path: an internal invariant, not a setup error.
     if not isinstance(num_partitions, Partition):
-        raise ConfigurationError(f"partition must be a Partition enum value, got {num_partitions!r}")
+        raise EmulatorError(f"partition must be a Partition enum value, got {num_partitions!r}")
 
 
 def _store_row(buf: bytearray | memoryview, lane_fmt: str, values) -> None:

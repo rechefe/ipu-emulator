@@ -94,13 +94,13 @@ py_pytest_test(
 )
 
 # test_regfile again with assert statements compiled out (python -O): every
-# pytest.raises in it must still see its typed exception.
+# pytest.raises in it must still see its typed exception. (Its own bare asserts
+# vanish too, so only those checks mean anything here.)
 py_pytest_test(
     name = "test_regfile_optimized",
     srcs = ["test/test_regfile.py"],
     env = {"PYTHONOPTIMIZE": "1"},
     imports = ["src"],
-    main = "test/test_regfile.py",
     deps = [
         ":emu_test_support",
         ":ipu_emu_lib",

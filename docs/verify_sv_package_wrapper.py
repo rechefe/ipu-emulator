@@ -19,7 +19,8 @@ if __name__ == "__main__":
         sys.exit(2)
     # `bazel run` starts in the runfiles tree; a relative path is the caller's.
     path = Path(os.environ.get("BUILD_WORKING_DIRECTORY", ".")) / sys.argv[1]
-    if verify_sv_package(path.read_text(encoding="utf-8")):
+    # Bytes, not text mode: a copy with its line endings rewritten is not unmodified.
+    if verify_sv_package(path.read_bytes().decode("utf-8")):
         print(f"{path}: unmodified")
         sys.exit(0)
     print(f"{path}: does not match the content hash in its header", file=sys.stderr)

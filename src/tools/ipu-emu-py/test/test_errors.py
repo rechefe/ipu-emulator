@@ -54,6 +54,6 @@ def test_a_handler_outside_a_cycle_raises_a_typed_error():
         Ipu(IpuState()).execute_lr_inc(dest=0, imm=1)
 
 
-def test_a_partition_that_is_not_the_enum_is_a_configuration_error():
-    with pytest.raises(ConfigurationError, match="Partition"):
+def test_a_partition_that_is_not_the_enum_is_a_typed_error():
+    with pytest.raises(EmulatorError, match="Partition"):
         Ipu._build_partition_vector(4)

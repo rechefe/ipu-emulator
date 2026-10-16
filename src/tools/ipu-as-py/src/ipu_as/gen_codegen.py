@@ -346,7 +346,10 @@ def _enum_descriptors_for_templates() -> list[dict[str, Any]]:
 
 def _compound_slot_order() -> str:
     """The compound word's slots, MSB first, as its comment names them: ``lr×3``."""
-    return ", ".join(slot if SLOT_COUNT[slot] == 1 else f"{slot}×{SLOT_COUNT[slot]}" for slot in COMPOUND_LAYOUT_SLOT_ORDER)
+    return ", ".join(
+        slot if SLOT_COUNT[slot] == 1 else f"{slot}×{SLOT_COUNT[slot]}"
+        for slot in COMPOUND_LAYOUT_SLOT_ORDER
+    )
 
 
 def build_codegen_context() -> dict[str, Any]:
