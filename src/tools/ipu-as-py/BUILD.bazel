@@ -98,19 +98,47 @@ py_pytest_test(
 # the extension's corpus and test_diagnostics' sources, and each version's schema.
 py_pytest_test(
     name = "test_check_json",
-    srcs = ["test/test_check_json.py"],
+    srcs = [
+        "test/check_corpus.py",
+        "test/test_check_json.py",
+    ],
     data = [
         "test/golden/check_json_v1.json",
         "test/test_diagnostics.py",
         "//vscode-ipu-asm:check_json_contract",
         "//vscode-ipu-asm:corpus",
     ],
-    imports = ["src"],
+    imports = [
+        "src",
+        "test",
+    ],
     deps = [
         ":ipu_as_lib",
         requirement("jsonschema"),
         requirement("pytest"),
         requirement("referencing"),
+    ],
+)
+
+# CLI error output over the check corpus, against a golden (E05-06).
+py_pytest_test(
+    name = "test_cli_errors",
+    srcs = [
+        "test/check_corpus.py",
+        "test/test_cli_errors.py",
+    ],
+    data = [
+        "test/golden/cli_assemble_errors.json",
+        "test/test_diagnostics.py",
+        "//vscode-ipu-asm:corpus",
+    ],
+    imports = [
+        "src",
+        "test",
+    ],
+    deps = [
+        ":ipu_as_lib",
+        requirement("pytest"),
     ],
 )
 

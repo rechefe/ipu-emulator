@@ -12,71 +12,20 @@ test/golden/check_json_v1.json.
 
 from __future__ import annotations
 
-import ast
 import json
 import os
 from pathlib import Path
 
 import jsonschema
+from check_corpus import ROOT, diagnostics_test_sources, sources
 from click.testing import CliRunner
 from referencing import Registry, Resource
 
 from ipu_as.cli import cli
 
-# The workspace root: the runfiles tree under Bazel, the checkout under plain pytest.
-ROOT = Path(__file__).parents[4]
 HERE = ROOT / "src" / "tools" / "ipu-as-py" / "test"
 SCHEMAS = ROOT / "vscode-ipu-asm" / "schema"
 GOLDEN = HERE / "golden" / "check_json_v1.json"
-
-
-def _diagnostics_test_sources() -> list[str]:
-    """The sources test_diagnostics.py checks: the literal passed to `check(...)`,
-    assigned to `source`, or listed for a `source` parameter (alone, or first of
-    several: `"source,expected_line"`)."""
-    tree = ast.parse((HERE / "test_diagnostics.py").read_text(encoding="utf-8"))
-    found: list[str] = []
-
-    def literal(node: ast.AST) -> None:
-        if (
-            isinstance(node, ast.Constant)
-            and isinstance(node.value, str)
-            and node.value not in found
-        ):
-            found.append(node.value)
-
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "check" and node.args:
-            literal(node.args[0])
-        elif isinstance(node, ast.Assign) and any(
-            getattr(t, "id", None) == "source" for t in node.targets
-        ):
-            literal(node.value)
-        elif isinstance(node, ast.Call) and getattr(node.func, "attr", None) == "parametrize":
-            names, values = node.args[0], node.args[1]
-            if not (isinstance(names, ast.Constant) and isinstance(values, ast.List)):
-                continue
-            argnames = [name.strip() for name in names.value.split(",")]
-            if argnames[0] != "source":
-                continue
-            for element in values.elts:
-                literal(
-                    element.elts[0]
-                    if len(argnames) > 1 and isinstance(element, ast.Tuple)
-                    else element
-                )
-    return found
-
-
-def _sources() -> dict[str, str]:
-    """Name -> source text: the corpus by path, test_diagnostics' sources by their own text
-    (so adding one leaves the others' entries as they were)."""
-    corpus = {
-        str(path.relative_to(ROOT)): path.read_text(encoding="utf-8")
-        for path in sorted((ROOT / "vscode-ipu-asm" / "test" / "corpus").rglob("*.asm"))
-    }
-    inline = {f"test_diagnostics.py: {text!r}": text for text in _diagnostics_test_sources()}
-    return corpus | inline
 
 
 def _check(source: str, *options: str) -> tuple[int, str]:
@@ -99,7 +48,7 @@ def _validate(output: object, version: int) -> None:
 
 def _snapshot() -> dict[str, dict]:
     snapshot = {}
-    for name, source in _sources().items():
+    for name, source in sources().items():
         exit_code, stdout = _check(source)
         snapshot[name] = {"exit_code": exit_code, "stdout": stdout}
     return snapshot
@@ -125,18 +74,18 @@ def test_the_schemas_are_valid_json_schemas():
 
 def test_the_snapshot_covers_every_parametrized_source():
     # Including those listed with other parameters ("source,expected_line").
-    assert 'BKPT;;\nBKPT;;\n{{ 1 + "a" }}\nBKPT;;\n' in _diagnostics_test_sources()
+    assert 'BKPT;;\nBKPT;;\n{{ 1 + "a" }}\nBKPT;;\n' in diagnostics_test_sources()
 
 
 def test_v1_output_matches_its_schema():
-    for source in _sources().values():
+    for source in sources().values():
         _, stdout = _check(source)
         _validate(json.loads(stdout), 1)
 
 
 def test_v2_wraps_the_same_diagnostics_and_matches_its_schema():
     found_some = False
-    for source in _sources().values():
+    for source in sources().values():
         v1_code, v1 = _check(source)
         v2_code, v2 = _check(source, "--json-version", "2")
         output = json.loads(v2)
@@ -149,7 +98,7 @@ def test_v2_wraps_the_same_diagnostics_and_matches_its_schema():
 
 
 def test_explicit_version_1_is_the_default():
-    for source in _sources().values():
+    for source in sources().values():
         assert _check(source, "--json-version", "1") == _check(source)
 
 
