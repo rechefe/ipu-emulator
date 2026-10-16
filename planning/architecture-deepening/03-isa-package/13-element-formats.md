@@ -44,7 +44,7 @@ Define one element-format enum in `ipu_isa` (Q47): `INT8` and `E1` to `E7` (hard
    ```
    `register_layout` derives R0/R1 (128 elements), R_CYCLIC (512 elements) and R_MASK from `REGISTER_DEFINITIONS` element counts and the format, and returns the accumulator width for MULT_RES and R_ACC. It describes what E04-17 must allocate; it does not change `REGISTER_DEFINITIONS` in this issue.
 2. Schema rules: every format has exactly one tag; `exp_bits + man_bits + 1 == element_bits` for float formats except FP32 (IEEE layout, checked separately); the accumulator rule above holds.
-3. Docs: generate a format table (name, tag, element bits, exponent and mantissa bits, accumulator) into the generated ISA reference (`gen_docs`). Numeric semantics (bias, specials, saturation, the FP8 special-value convention left open by Q34) stay out: they belong to the codecs in E04-13 and to the open-questions page (E09-05).
+3. Docs: generate a format table (name, tag, element bits, exponent and mantissa bits, accumulator) into the generated ISA reference (`gen_docs`). Numeric semantics (bias, specials, saturation, the FP8 special-value convention left open by Q34, [OQ-19](../../../docs/content/requirements/open-questions.md#emulator-and-isa)) stay out: they belong to the codecs in E04-13 and to the open-questions page (E09-05).
 4. A mapping test pins the correspondence `DType(n) <-> ElementFormat` (`INT8`, `E1`..`E7`) so E04-17 can replace `DType` mechanically.
 
 ## Tests

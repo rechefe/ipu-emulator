@@ -37,7 +37,7 @@ The architecture review (two passes, 11 reviewers, master at 694a8a8) produced a
 
 ## Out of scope
 
-- All AaQ items (Q25, Q35): activation-model divergence, `DEFAULT_ELU_ALPHA` being unpatchable, EXP2 overflow in `ACTIVATE.QUANTIZE`, reciprocal and rsqrt of zero. They are recorded as open questions (E09-05).
+- All AaQ items (Q25, Q35): activation-model divergence, `DEFAULT_ELU_ALPHA` being unpatchable, EXP2 overflow in `ACTIVATE.QUANTIZE`, reciprocal and rsqrt of zero. They are recorded as open questions (E09-05: [OQ-20](../../../docs/content/requirements/open-questions.md#emulator-and-isa) to OQ-25 and OQ-30).
 - XMEM profiler reporting a 512 MiB write on `clear()` / `__setitem__`: fixed by the paged XMEM with ranged events (E04-05).
 - `acc_store` in the SV package and the commit-hash stamp: E03 (HARDWARE / EMULATOR tags, SV generation).
 - Comma-separated syntax in spec text and generated docs: E03 (derived syntax) and E09.

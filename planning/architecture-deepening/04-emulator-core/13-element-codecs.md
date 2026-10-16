@@ -41,7 +41,7 @@ def codec_for(fmt: ElementFormat) -> LaneCodec      # cached; the only format sw
 1. `IntCodec` (INT8, INT32): products and sums in int64, wrapped to int32 exactly like `ipu_add`.
 2. `Fp8Codec` (E1..E7): decode via a cached float64 table of 256 entries built from today's `_fp8_to_float32_scalar`; products and sums in float64, stored as float32 (matches Python-float arithmetic followed by `pack_into("<f")`).
 3. `Fp32Codec` (FP32): moves `_wide_lanes_from`/`_wide_store_lanes` here.
-4. `store_acc` keeps today's overflow behaviour exactly (a finite result too large for float32 raises `OverflowError` with struct's message, lanes before it written, the offending lane zeroed). E04-23 changes that, as a behaviour change.
+4. `store_acc` keeps today's overflow behaviour exactly (a finite result too large for float32 raises `OverflowError` with struct's message, lanes before it written, the offending lane zeroed). E04-23 changes that, as a behaviour change ([OQ-18](../../../docs/content/requirements/open-questions.md#emulator-and-isa)).
 5. `ipu_math.ipu_mult/ipu_add/ipu_sub/dtype_one_byte` become thin adapters over the codecs, kept until E04-17 removes `DType`.
 
 ## Tests
