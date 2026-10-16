@@ -35,7 +35,7 @@ from ipu_debug.pipeline import (
     SLOT_LABELS,
     display_operation,
     pipeline_occupancy,
-    semantic_operations,
+    stage_operations,
 )
 from ipu_debug.session import DebugSession
 from ipu_debug.tui.draw import (
@@ -898,9 +898,9 @@ class CursesDebugView:
         if text is None:
             line = self.debug.disassemble(pc, 1)
             text = f"PC {pc}: {line[0].text}" if line else "PC out of bounds"
-            operations = self._all_operations(text)
-            if len(operations) == len(SLOT_LABELS):
-                text = f"PC {pc}: " + ";\n".join(semantic_operations(operations)) + ";;"
+            if line and self.state.inst_mem[pc] is not None:
+                operations = stage_operations(self.state.inst_mem[pc])
+                text = f"PC {pc}: " + ";\n".join(op for _, op in operations) + ";;"
             self._disassembly_cache[pc] = text
         return text
 

@@ -57,10 +57,6 @@ class LrModPow2KImmediate(ipu_token.IpuToken):
     def encode(self) -> int:
         return self.int - LR_MOD_POW2_K_MIN
 
-    @classmethod
-    def decode(cls, value: int) -> str:
-        return str(value + LR_MOD_POW2_K_MIN)
-
 
 class BreakImmediateType(ipu_token.NumberToken):
     """Immediate value for break.ifeq condition comparison."""
@@ -114,10 +110,6 @@ class MultMaskOffsetImmediate(ipu_token.IpuToken):
 
     def encode(self) -> int:
         return self.int
-
-    @classmethod
-    def decode(cls, value: int) -> str:
-        return str(value)
 
 
 class LrOrReshapeMaskImmediate(ipu_token.IpuToken):
@@ -194,12 +186,6 @@ class LrOrReshapeMaskImmediate(ipu_token.IpuToken):
     def encode(self) -> int:
         return self.int
 
-    @classmethod
-    def decode(cls, value: int) -> str:
-        if value >= RESHAPE_MASK_LR_OFFSET:
-            return f"lr{value - RESHAPE_MASK_LR_OFFSET}"
-        return str(value)
-
 
 class ActivationFnField(ipu_token.EnumToken):
     """Activation keyword for ``ACTIVATE`` (names from ``ACTIVATION_FN_NAMES``)."""
@@ -241,11 +227,6 @@ class LrIncDecImmediate(ipu_token.IpuToken):
 
     def encode(self) -> int:
         return self.int
-
-    @classmethod
-    def decode(cls, value: int) -> str:
-        mask = lr_inc_dec_imm_max()
-        return str(value & mask)
 
 
 # ---------------------------------------------------------------------------

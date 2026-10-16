@@ -22,6 +22,7 @@ from ipu_emu.errors import EmulatorError
 from ipu_emu.ipu import addressable_rows, xmem_row_size_bytes
 from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
 from ipu_emu.xmem import XMEM_SIZE_BYTES
+from ipu_isa.codec.disasm import disassemble
 from ipu_isa.codec.word import DecodedWord
 from ipu_isa.errors import IpuError
 from ipu_isa.registers import create_regfile_schema
@@ -322,8 +323,6 @@ def xmem_address_limit(state: IpuState, mode: str) -> int:
 
 def disassemble_at(state: IpuState, pc: int) -> str:
     """Disassemble the instruction at *pc* as ``PC <pc>: <text>``."""
-    from ipu_as.compound_inst import CompoundInst
-
     if pc < 0 or pc >= INST_MEM_SIZE:
         return "PC out of bounds"
 
@@ -333,7 +332,7 @@ def disassemble_at(state: IpuState, pc: int) -> str:
 
     word = DecodedWord(inst).to_word()
 
-    return f"PC {pc}: {CompoundInst.decode(word)}"
+    return f"PC {pc}: {disassemble(word)}"
 
 
 # ---------------------------------------------------------------------------

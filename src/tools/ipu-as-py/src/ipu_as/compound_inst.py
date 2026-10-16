@@ -4,6 +4,7 @@ import warnings
 import ipu_as.inst as inst
 import ipu_as.utils as utils
 from ipu_as.errors import SlotError
+from ipu_isa.codec.disasm import disassemble
 from ipu_isa.codec.word import WORD_LAYOUT
 from ipu_isa.schema import SpecError
 from ipu_isa.slots import LAYOUT_ORDER, SLOTS, Slot
@@ -156,14 +157,9 @@ class CompoundInst:
 
     @classmethod
     def decode(cls, value: int) -> str:
-        decoded_instructions = []
-        shift_amount = 0
-        for inst_type in reversed(cls.instruction_types()):
-            inst_bits = inst_type.bits()
-            inst_value = (value >> shift_amount) & ((1 << inst_bits) - 1)
-            decoded_instructions.append(inst_type.decode(inst_value))
-            shift_amount += inst_bits
-        return ";\n\t\t\t".join(reversed(decoded_instructions)) + ";;"
+        """The assembly text of instruction word ``value``; kept until E05
+        retires ``CompoundInst``."""
+        return disassemble(value)
 
     @classmethod
     def desc(cls) -> list[str]:

@@ -6,10 +6,10 @@ never print or exit: a bad source raises an `AssemblerError` subclass. Only
 `ipu_as.cli` turns errors into text and exit codes.
 """
 
-import ipu_as.compound_inst as compound_inst
 from ipu_as import session
 from ipu_as.session import instruction_aligned_bytes_len
 from ipu_as.syntax import ASTBuilder, get_parser, parse_tree
+from ipu_isa.codec import disasm
 from ipu_isa.codec.word import unpack_words
 
 __all__ = [
@@ -52,9 +52,7 @@ def assemble_to_bin_file(text: str, output_path: str):
 def disassemble(program: list[int]) -> list[str]:
     disassembled_instructions = []
     for i, encoded_inst in enumerate(program):
-        disassembled_instructions.append(
-            f"{i:04x}:\t\t{compound_inst.CompoundInst.decode(encoded_inst)}"
-        )
+        disassembled_instructions.append(f"{i:04x}:\t\t{disasm.disassemble(encoded_inst)}")
     return disassembled_instructions
 
 

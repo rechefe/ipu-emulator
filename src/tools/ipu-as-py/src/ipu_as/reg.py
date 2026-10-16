@@ -58,13 +58,6 @@ class MultStageRegField(_MultStageBase):
     def bits(cls) -> int:
         return operand_type("MultStageReg").bits
 
-    @classmethod
-    def decode(cls, value: int) -> str:
-        opts = cls.enum_array()
-        if 0 <= value < len(opts):
-            return opts[value]
-        return f"<illegal_mult_stage_{value}>"
-
 
 # Re-export generated classes with their original names
 LrRegField = _generated_classes.get("LrRegField")

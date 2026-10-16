@@ -295,44 +295,6 @@ class Inst:
         return (cls.opcode_type(), *cls.operand_types())
 
     @classmethod
-    def decode(cls, value: int) -> str:
-        """Decode an instruction word to assembly text.
-
-        Uses the opcode to select the correct semantic token types for each
-        union field, so cross-type-sharing fields disassemble correctly.
-        """
-        all_tok = cls.all_tokens()
-        n = len(all_tok)
-        total_bits = cls.bits()
-        opcode_bits = cls.opcode_type().bits()
-
-        # Extract opcode (top bits) to pick semantic types.
-        opcode_value = (value >> (total_bits - opcode_bits)) & ((1 << opcode_bits) - 1)
-        try:
-            opcode_name = cls.opcode_type().enum_array()[opcode_value]
-        except (IndexError, AttributeError):
-            opcode_name = None
-
-        # Map all_tokens index → semantic token class for this opcode.
-        semantic: dict[int, type[ipu_token.IpuToken]] = {}
-        if opcode_name is not None and hasattr(cls, "_slot_union"):
-            bindings = cls._slot_union.opcode_bindings.get(opcode_name, [])
-            struct_entry = cls._struct_entry(opcode_name)
-            for (field_idx, _), op_class in zip(bindings, struct_entry.operands, strict=False):
-                semantic[field_idx + 1] = op_class  # +1: index 0 is the opcode token
-
-        decoded_tokens = []
-        shift_amount = 0
-        for tok_idx in range(n - 1, -1, -1):  # LSB → MSB
-            tok_type = all_tok[tok_idx]
-            token_bits = tok_type.bits()
-            token_value = (value >> shift_amount) & ((1 << token_bits) - 1)
-            actual_type = semantic.get(tok_idx, tok_type)
-            decoded_tokens.append(actual_type.decode(token_value))
-            shift_amount += token_bits
-        return " ".join(reversed(decoded_tokens))
-
-    @classmethod
     def desc(cls) -> list[str]:
         res = []
         res.append(f"{cls.__name__} - {cls.bits()} bits:")

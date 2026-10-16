@@ -50,7 +50,6 @@ ipu_emu = ["ipu_isa"]
 ipu_debug = [
     "ipu_isa",
     "ipu_emu",
-    "ipu_as",  # temporary: disassembly and the pipeline view use CompoundInst (E03-18 removes it)
 ]
 
 # ipu_isa is allowed but not imported today. ipu_debug: debug mode
