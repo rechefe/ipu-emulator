@@ -61,6 +61,17 @@ py_pytest_test(
     ],
 )
 
+# compound_inst.SLOT_TO_INST against the slot registry (E03-06).
+py_pytest_test(
+    name = "test_slot_to_inst",
+    srcs = ["test/test_slot_to_inst.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_as_lib",
+        requirement("pytest"),
+    ],
+)
+
 py_pytest_test(
     name = "test_diagnostics",
     srcs = ["test/test_diagnostics.py"],

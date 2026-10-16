@@ -81,6 +81,7 @@ from typing import Dict, List, Tuple, Any
 
 from ipu_isa import schema
 from ipu_isa.operand_types import OPERAND_TYPES, OperandKind
+from ipu_isa.slots import LAYOUT_ORDER, SLOTS
 
 
 # ===========================================================================
@@ -156,44 +157,22 @@ SLOT_UNIONS: dict = {}
 
 # How many times each slot appears in the VLIW instruction word.
 # Most slots appear once; LR appears three times (three independent sub-instructions).
-SLOT_COUNT: dict[str, int] = {
-    "break": 1,
-    "load": 1,
-    "store": 1,
-    "acc_store": 1,
-    "mult": 1,
-    "acc": 1,
-    "aaq": 1,
-    "lr": 3,
-    "cond": 1,
-}
+# Derived views over the slot registry (ipu_isa.slots), kept so callers can
+# migrate to SLOTS one at a time.
 
-# Compound instruction binary layout (MSB → LSB).  Used by the assembler,
-# union-layout SVG, and docs — keep in sync with compound_inst encoding order.
-COMPOUND_LAYOUT_SLOT_ORDER: list[str] = [
-    "cond",
-    "lr",
-    "load",
-    "mult",
-    "acc",
-    "aaq",
-    "store",
-    "acc_store",
-    "break",
-]
+#: Instances of each slot in one word.
+SLOT_COUNT: dict[str, int] = {slot.value: info.count for slot, info in SLOTS.items()}
 
-# Per-slot metadata.  ``hardware: False`` marks simulation-only slots that are
-# not implemented in real IPU hardware (excluded from HW codegen).
+#: Compound instruction binary layout (MSB → LSB).
+COMPOUND_LAYOUT_SLOT_ORDER: list[str] = [slot.value for slot in LAYOUT_ORDER]
+
+#: Per-slot description, and ``hardware: False`` for a simulation-only slot.
 SLOT_METADATA: dict[str, dict] = {
-    "load":      {"description": "First-stage memory loads that feed the multiply unit (mult-stage, cyclic, and mask registers)."},
-    "store":     {"description": "Last-stage memory stores that drain POST_AAQ_REG to external memory after activation and quantization."},
-    "acc_store": {"hardware": False, "description": "Simulation-only stores of R_ACC to external memory (STR_ACC_REG). Not implemented in real IPU hardware."},
-    "mult":      {"description": "Multiply-stage instructions: element-wise and vector multiply operations."},
-    "acc":       {"description": "Accumulation instructions for combining multiply results into R_ACC."},
-    "aaq":       {"description": "Activation and quantization: apply activation to R_ACC and write quantized INT8 bytes to POST_AAQ_REG."},
-    "lr":        {"description": "Loop register instructions for controlling addresses, counters, and scalars. Three independent sub-slots per cycle."},
-    "cond":      {"description": "Conditional and unconditional branches; control flow based on register comparisons."},
-    "break":     {"description": "Debug break: halts execution or enters debug mode."},
+    slot.value: {
+        **({} if info.hardware else {"hardware": False}),
+        "description": info.description,
+    }
+    for slot, info in SLOTS.items()
 }
 
 
@@ -1523,6 +1502,11 @@ def validate_instruction_spec(instruction_spec: dict, slot_metadata: dict) -> No
     A pure function of its arguments, so a test can check a modified copy.
     Raises :class:`ipu_isa.schema.SpecError` naming the path and the rule.
     """
+    if set(instruction_spec) != {slot.value for slot in SLOTS}:
+        raise schema.SpecError(
+            f"INSTRUCTION_SPEC: slots {sorted(instruction_spec)} do not match the slot "
+            f"registry {sorted(slot.value for slot in SLOTS)}"
+        )
     if set(slot_metadata) != set(instruction_spec):
         raise schema.SpecError(
             f"SLOT_METADATA: slots {sorted(slot_metadata)} do not match "

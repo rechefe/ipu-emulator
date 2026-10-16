@@ -70,3 +70,4 @@ def test_value_range_must_match_the_registry():
         r"MultMaskOffsetImmediate: .* accepts \(0, 3\), but the registry says \(0, 7\)",
         MultMaskOffsetImmediate=narrow,
     )
+

@@ -8,6 +8,7 @@ import ipu_as.reg as reg
 import ipu_as.immediate as immediate
 import ipu_as.utils as utils
 from ipu_isa.operand_types import OPERAND_TYPES, OperandType
+from ipu_isa.slots import SLOTS, Slot
 from ipu_isa.instruction_spec import (
     INSTRUCTION_SPEC,
     COMPOUND_LAYOUT_SLOT_ORDER,
@@ -346,7 +347,9 @@ class Inst:
         )
 
     @classmethod
-    def _render_instruction_docs(cls, heading: str, intro: str, slot_type: str) -> str:
+    def _render_instruction_docs(cls, slot_type: str) -> str:
+        info = SLOTS[Slot(slot_type)]
+        heading, intro = info.doc_heading, info.doc_intro
         lines = [f"## {heading}", ""]
         if not is_hardware_slot(slot_type):
             lines.append(
@@ -455,14 +458,7 @@ class LoadInst(Inst):
 
     @classmethod
     def description(cls) -> str:
-        return cls._render_instruction_docs(
-            heading="LOAD Instructions",
-            intro=(
-                "First-stage memory loads that feed the multiply unit "
-                "(mult-stage registers, cyclic register, and mask register)."
-            ),
-            slot_type="load",
-        )
+        return cls._render_instruction_docs("load")
 
 
 @validate_inst_structure
@@ -493,14 +489,7 @@ class StoreInst(Inst):
 
     @classmethod
     def description(cls) -> str:
-        return cls._render_instruction_docs(
-            heading="STORE Instructions",
-            intro=(
-                "Last-stage memory stores that drain **POST_AAQ_REG** to external "
-                "memory after activation and quantization."
-            ),
-            slot_type="store",
-        )
+        return cls._render_instruction_docs("store")
 
 
 @validate_inst_structure
@@ -531,14 +520,7 @@ class AccStoreInst(Inst):
 
     @classmethod
     def description(cls) -> str:
-        return cls._render_instruction_docs(
-            heading="ACC_STORE Instructions",
-            intro=(
-                "Simulation-only slot for storing **R_ACC** to external memory "
-                "(`STR_ACC_REG`). Not implemented in real IPU hardware."
-            ),
-            slot_type="acc_store",
-        )
+        return cls._render_instruction_docs("acc_store")
 
 
 @validate_inst_structure
@@ -569,13 +551,7 @@ class MultInst(Inst):
 
     @classmethod
     def description(cls) -> str:
-        return cls._render_instruction_docs(
-            heading="MULT Instructions",
-            intro="""Multiplication instructions for element-wise and element-vector operations.
-The multiplication result (`mult_result`) is forwarded to the ACC stage in the CPU and not stored in any register in the way.
-""",
-            slot_type="mult",
-        )
+        return cls._render_instruction_docs("mult")
 
 
 @validate_inst_structure
@@ -606,11 +582,7 @@ class AccInst(Inst):
 
     @classmethod
     def description(cls) -> str:
-        return cls._render_instruction_docs(
-            heading="ACC Instructions",
-            intro="Accumulation instructions for combining values with optional masking and shifting.",
-            slot_type="acc",
-        )
+        return cls._render_instruction_docs("acc")
 
 
 @validate_inst_structure
@@ -641,11 +613,7 @@ class AaqInst(Inst):
 
     @classmethod
     def description(cls) -> str:
-        return cls._render_instruction_docs(
-            heading="AAQ Instructions",
-            intro="Activation and quantization: apply activation to R_ACC elements and write quantized INT8 bytes to POST_AAQ_REG.",
-            slot_type="aaq",
-        )
+        return cls._render_instruction_docs("aaq")
 
 
 @validate_inst_structure
@@ -676,11 +644,7 @@ class LrInst(Inst):
 
     @classmethod
     def description(cls) -> str:
-        return cls._render_instruction_docs(
-            heading="LR Instructions",
-            intro="Loop register manipulation instructions for controlling loop counters and addresses.",
-            slot_type="lr",
-        )
+        return cls._render_instruction_docs("lr")
 
 
 @validate_inst_structure
@@ -710,11 +674,7 @@ class CondInst(Inst):
 
     @classmethod
     def description(cls) -> str:
-        return cls._render_instruction_docs(
-            heading="Conditional Branch Instructions",
-            intro="Control flow instructions for branching based on conditions or unconditionally.",
-            slot_type="cond",
-        )
+        return cls._render_instruction_docs("cond")
 
 
 @validate_inst_structure
@@ -745,8 +705,4 @@ class BreakInst(Inst):
 
     @classmethod
     def description(cls) -> str:
-        return cls._render_instruction_docs(
-            heading="Break Instructions",
-            intro="Debug break instructions for halting execution and entering debug mode.",
-            slot_type="break",
-        )
+        return cls._render_instruction_docs("break")
