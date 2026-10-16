@@ -10,6 +10,7 @@ automatically without touching this file.
 """
 
 import ipu_as.ipu_token as ipu_token
+from ipu_as.errors import SlotError, SourceLocation
 from ipu_isa.instruction_spec import INSTRUCTION_SPEC
 from ipu_isa.slots import SLOTS, Slot
 
@@ -37,7 +38,11 @@ def create_assembler_opcodes() -> dict[str, type]:
             for subclass in cls.__subclasses__():
                 if any(tv == name.lower() for name in subclass.enum_array()):
                     return subclass
-            raise ValueError(f"Opcode '{opcode_token.value}' not found in any Opcode subclass")
+            raise SlotError(
+                f"Opcode '{opcode_token.value}' not found in any Opcode subclass",
+                location=SourceLocation.of(opcode_token),
+                token=opcode_token.value,
+            )
 
     result = {}
     # INSTRUCTION_SPEC order: it fixes the order the token classes are created

@@ -16,7 +16,6 @@ from fixture_kernel_support import kernel_inst
 from fixture_packed_l4_measure import count_instructions
 
 from ipu_apps.kernels.normalize.layernorm_64x192.app import LayerNorm64x192App
-from ipu_as.label import reset_labels
 from ipu_as.lark_tree import assemble_to_bin_file
 from ipu_emu.emulator import load_program_from_binary, run_until_complete
 from ipu_emu.ipu_config import encode_dstructure
@@ -97,7 +96,6 @@ def test_packed_layernorm_correctness_and_cost(tmp_path: Path) -> None:
     )
 
     # ---- Packed run ----
-    reset_labels()
     packed_bin = tmp_path / "packed_layernorm.bin"
     template_text = _PACKED_ASM_SRC.read_text()
     rendered = jinja2.Template(template_text).render()

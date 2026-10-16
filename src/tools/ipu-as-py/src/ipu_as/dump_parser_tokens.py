@@ -26,6 +26,7 @@ import jinja2
 import lark
 
 import ipu_as.template as template
+from ipu_as.errors import TemplateError
 from ipu_as.lark_tree import get_parser
 
 #: Parse-tree rule -> role for the token it owns.
@@ -67,7 +68,7 @@ def jinja_regions(raw: str, path: Path) -> list[dict]:
         pos = end + len(closer)
 
     # Lexing only; nothing is rendered, so no sandbox is needed.
-    lexed = Counter(t for _, t, _ in jinja2.Environment().lex(raw))
+    lexed = Counter(t for _, t, _ in template.lex(raw))
     scanned = Counter(r["kind"] for r in regions)
     for kind, _ in _JINJA_CLOSE.values():
         if scanned[kind] != lexed[f"{kind}_begin"]:
@@ -126,7 +127,9 @@ def main(argv: list[str]) -> int:
     for p in argv[1:]:
         try:
             corpus.append(describe(Path(p)))
-        except jinja2.exceptions.UndefinedError as exc:
+        except TemplateError as exc:
+            if not isinstance(exc.__cause__, jinja2.exceptions.UndefinedError):
+                raise
             # Renders only with its harness's values: no text of its own.
             print(f"skipped {p}: {exc}", file=sys.stderr)
     out.parent.mkdir(parents=True, exist_ok=True)

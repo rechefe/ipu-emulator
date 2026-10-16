@@ -45,7 +45,6 @@ from fixture_packed_l5_measure import count_instructions
 from ipu_apps.kernels.attention.attn_v_16x60.app import AttnV16x60App
 from ipu_apps.kernels.attention.qk_scores_16x60.app import QkScores16x60App
 from ipu_apps.kernels.softmax.softmax_rows_partial.app import SoftmaxRowsPartialApp
-from ipu_as.label import reset_labels
 from ipu_as.lark_tree import assemble_to_bin_file
 from ipu_emu.emulator import load_program_from_binary, run_until_complete
 from ipu_emu.ipu_config import Partition, encode_dstructure
@@ -187,7 +186,6 @@ def run_packed_layernorm(
     allones_mask_row = mask_row + 1
     scratch16_row = allones_mask_row + 1
 
-    reset_labels()
     rendered = jinja2.Template(_PACKED_LAYERNORM_ASM.read_text()).render()
     with tempfile.TemporaryDirectory() as tmpdir:
         bin_path = Path(tmpdir) / "ln.bin"
@@ -234,7 +232,6 @@ def run_unpack(
     mask_row: int,
     max_cycles: int = 100_000,
 ) -> tuple[int, dict]:
-    reset_labels()
     rendered = jinja2.Template(_UNPACK_ASM.read_text()).render()
     with tempfile.TemporaryDirectory() as tmpdir:
         bin_path = Path(tmpdir) / "unpack.bin"
@@ -262,7 +259,6 @@ def run_pack(
     mask_row: int,
     max_cycles: int = 100_000,
 ) -> tuple[int, dict]:
-    reset_labels()
     rendered = jinja2.Template(_PACK_ASM.read_text()).render()
     with tempfile.TemporaryDirectory() as tmpdir:
         bin_path = Path(tmpdir) / "pack.bin"
@@ -311,7 +307,6 @@ def run_packed_output_linear(
         this_weights_base = weights_base_row + group * 8 * w_chunks
         this_output_row = output_base_row + group
 
-        reset_labels()
         with tempfile.TemporaryDirectory() as tmpdir:
             bin_path = Path(tmpdir) / "lin.bin"
             assemble_to_bin_file(rendered, str(bin_path))
@@ -379,7 +374,6 @@ def run_packed_residual_add(
         "read-only zero) -- the A operand's packed rows must start at XMEM "
         "row 0; relocate the OTHER operand (B) or the output instead."
     )
-    reset_labels()
     rendered = _RESIDUAL_ASM.read_text()
     with tempfile.TemporaryDirectory() as tmpdir:
         bin_path = Path(tmpdir) / "res.bin"

@@ -14,6 +14,7 @@ import ipu_as.immediate as immediate
 import ipu_as.utils as utils
 
 # isort: on
+from ipu_as.errors import OperandError, SlotError, SourceLocation
 from ipu_isa.instruction_spec import (
     COMPOUND_LAYOUT_SLOT_ORDER,
     INSTRUCTION_SPEC,
@@ -159,9 +160,11 @@ class Inst:
         operand_types = self._operand_types_from_struct(struct_entry)
 
         if len(inst["operands"]) != len(operand_types):
-            raise ValueError(
+            raise OperandError(
                 f"Instruction {inst['opcode'].token.value} expects {len(operand_types)} operands, "
-                f"got {len(inst['operands'])}, in Line {self.opcode.token.line}, Column {self.opcode.token.column}."
+                f"got {len(inst['operands'])}, in Line {self.opcode.token.line}, Column {self.opcode.token.column}.",
+                location=inst["opcode"].location(),
+                token=inst["opcode"].token.value,
             )
 
         self.operands = [
@@ -241,12 +244,17 @@ class Inst:
         return sum(token_type.bits() for token_type in cls.all_tokens())
 
     @classmethod
-    def find_inst_type_by_opcode(cls, opcode: str) -> type["Inst"]:
+    def find_inst_type_by_opcode(
+        cls, opcode: str, location: SourceLocation | None = None
+    ) -> type["Inst"]:
+        """The Inst subclass whose slot has `opcode`; `location` locates the error if none does."""
         opl = opcode.lower()
         for subclass in cls.__subclasses__():
             if any(opl == name.lower() for name in subclass.struct_by_opcode_table()):
                 return subclass
-        raise ValueError(f"Opcode '{opcode}' not found in any Inst subclass.")
+        raise SlotError(
+            f"Opcode '{opcode}' not found in any Inst subclass.", location=location, token=opcode
+        )
 
     @classmethod
     def all_tokens(cls) -> list[type[ipu_token.IpuToken]]:

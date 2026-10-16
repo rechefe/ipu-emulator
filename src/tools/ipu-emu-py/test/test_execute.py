@@ -1187,22 +1187,18 @@ SET lr0 cr8;;
 
     def test_br_cr(self):
         """br accepts a CR register as the branch target address."""
-        state = make_state(
-            """\
+        from ipu_as.session import AssemblySession
+
+        source = """\
 BR cr2;;
 SET lr0 cr8;;
 BKPT;;
 br_cr_target:
 SET lr0 cr9;;
 BKPT;;
-""",
-            cr={8: 0, 9: 1},
-        )
-        from ipu_as.label import ipu_labels
-
-        target_addr = ipu_labels.get_address(
-            type("T", (), {"value": "br_cr_target", "line": 0, "column": 0})()
-        )
+"""
+        state = make_state(source, cr={8: 0, 9: 1})
+        target_addr = AssemblySession(source).assemble().symbols["br_cr_target"]
         state.regfile.set_cr(2, target_addr)
         run_until_complete(state)
         assert state.regfile.get_lr(0) == 1
