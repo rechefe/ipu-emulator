@@ -44,6 +44,7 @@ from ipu_isa.activations import (
     ACTIVATION_IDENTITY,
     ACTIVATION_RECIPROCAL,
 )
+from ipu_isa.codec.word import field_name, opcode_field
 from ipu_isa.constants import (
     LR_CR_SCALAR_BITS,
     REGISTER_WORD_VALUE_MASK,
@@ -221,31 +222,23 @@ def _active_lane_count(mask_int: int, valid_elements: int) -> int:
 # Operand extraction: maps instruction_spec operand names → inst dict field keys
 # ---------------------------------------------------------------------------
 
-# Maps operand type string → field name suffix in the inst dict (wire format,
-# from the operand-type registry).
-_TYPE_FIELD_SUFFIX = {
-    name: operand_type.field_suffix for name, operand_type in OPERAND_TYPES.items()
-}
-
-# Field prefix of each single-instance slot type (wire format, from the slot
-# registry). LR's sub-slots are "lr_inst_0", "lr_inst_1", ...
-# Keyed by Slot (a str Enum, so a plain slot-name string finds it too).
-_SLOT_FIELD_PREFIX = {slot: info.field_prefix for slot, info in SLOTS.items() if info.count == 1}
+# The slots a word holds once, in registry order. LR's sub-slots are read per
+# instance. Field names come from the ISA's word layout (field_name,
+# opcode_field), never built here (E05-03).
+_SINGLE_INSTANCE_SLOTS = tuple(slot for slot, info in SLOTS.items() if info.count == 1)
 
 
 def _build_field_map_for_instruction_union(
-    prefix: str,
+    slot: Slot,
+    instance: int,
     slot_union: SlotUnion,
     inst_name: str,
 ) -> dict[str, str]:
     """Build operand_name → inst dict field_key mapping using union bindings."""
-    field_map: dict[str, str] = {}
-    for field_idx, operand_name in slot_union.opcode_bindings.get(inst_name, []):
-        canonical_type = slot_union.fields[field_idx].canonical_type
-        token_idx = field_idx + 1  # +1: token_0 is the opcode
-        suffix = _TYPE_FIELD_SUFFIX[canonical_type]
-        field_map[operand_name] = f"{prefix}_token_{token_idx}_{suffix}"
-    return field_map
+    return {
+        operand_name: field_name(slot, instance, field_idx + 1)  # +1: field 0 is the opcode
+        for field_idx, operand_name in slot_union.opcode_bindings.get(inst_name, [])
+    }
 
 
 def _build_all_instruction_field_maps() -> dict[tuple, dict[str, str]]:
@@ -263,7 +256,7 @@ def _build_all_instruction_field_maps() -> dict[tuple, dict[str, str]]:
             continue
         for instruction in isa().instructions(slot):
             result[(slot.value, instruction.mnemonic)] = _build_field_map_for_instruction_union(
-                info.field_prefix, unions[slot], instruction.mnemonic
+                slot, 0, unions[slot], instruction.mnemonic
             )
 
     # Multi-instance slots (LR) read each instance from its own field prefix.
@@ -271,10 +264,10 @@ def _build_all_instruction_field_maps() -> dict[tuple, dict[str, str]]:
         if info.count == 1:
             continue
         for instruction in isa().instructions(slot):
-            for slot_idx, prefix in enumerate(info.field_prefixes()):
+            for slot_idx in range(info.count):
                 result[(slot.value, instruction.mnemonic, slot_idx)] = (
                     _build_field_map_for_instruction_union(
-                        prefix, unions[slot], instruction.mnemonic
+                        slot, slot_idx, unions[slot], instruction.mnemonic
                     )
                 )
 
@@ -416,11 +409,6 @@ _SLOT_STAT = {
 }
 
 
-def _opcode_field(slot_type: str) -> str:
-    """Name of the field carrying a slot's opcode in a decoded instruction word."""
-    return f"{_SLOT_FIELD_PREFIX[slot_type]}_token_0_{SLOTS[Slot(slot_type)].opcode_enum}"
-
-
 def _compile_alias_checks(slot_type: str, inst_name: str) -> tuple[_AliasCheck, ...]:
     """Lower this instruction's ISA_ALIAS_SPEC matches into runtime checks.
 
@@ -442,7 +430,7 @@ def _compile_alias_checks(slot_type: str, inst_name: str) -> tuple[_AliasCheck, 
                 imm_ne = constraint["immediate_ne"]
             elif "co_slot" in constraint:
                 co_slot = constraint["co_slot"]
-                co_field = _opcode_field(co_slot)
+                co_field = opcode_field(Slot(co_slot))
                 co_opcodes = frozenset(
                     isa().instruction(Slot(co_slot), name).opcode
                     for name in constraint["instruction_in"]
@@ -537,13 +525,13 @@ def _build_slot_plans():
 
     Returns ``(opcode_fields, plans, lr_plans, lr_opcode_fields)``.
     """
-    opcode_fields = {slot_type: _opcode_field(slot_type) for slot_type in _SLOT_FIELD_PREFIX}
+    opcode_fields = {slot_type: opcode_field(slot_type) for slot_type in _SINGLE_INSTANCE_SLOTS}
     plans = {
         slot_type: tuple(
             _build_plan(instruction, _INSTRUCTION_FIELD_MAP[(slot_type, instruction.mnemonic)])
             for instruction in isa().instructions(Slot(slot_type))
         )
-        for slot_type in _SLOT_FIELD_PREFIX
+        for slot_type in _SINGLE_INSTANCE_SLOTS
     }
     # LR sub-slots differ only in which fields of the word they read.
     lr = SLOTS[Slot.LR]
@@ -554,9 +542,9 @@ def _build_slot_plans():
             )
             for instruction in isa().instructions(Slot.LR)
         )
-        for slot_idx, _ in enumerate(lr.field_prefixes())
+        for slot_idx in range(lr.count)
     )
-    lr_opcode_fields = tuple(f"{prefix}_token_0_{lr.opcode_enum}" for prefix in lr.field_prefixes())
+    lr_opcode_fields = tuple(opcode_field(Slot.LR, instance) for instance in range(lr.count))
     return opcode_fields, plans, lr_plans, lr_opcode_fields
 
 
