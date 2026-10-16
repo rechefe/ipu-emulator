@@ -1207,10 +1207,16 @@ INSTRUCTION_SPEC = {
         "HALT": {
             "operands": [],
             "doc": InstructionDoc(
-                title="Breakpoint",
-                summary="Conditional breakpoint.",
+                title="Halt",
+                summary="End the kernel after every slot of this word has retired.",
                 operands=[],
-                operation="Halt execution (debugging)",
+                operation="pc stops; kernel done",
+                example="HALT;;",
+                notes=(
+                    "Unconditional. The other slots of the same word retire first; then the "
+                    "kernel is done (IPU-ARCH-5, IPU-DBG-8). To stop for debugging, use "
+                    "**`BREAK`** (emulator-only) instead."
+                ),
             ),
             "execute_fn": "execute_halt",
         },

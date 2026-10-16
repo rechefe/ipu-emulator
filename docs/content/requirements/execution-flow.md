@@ -36,7 +36,7 @@ stateDiagram-v2
 | `IDLE` | No kernel runs. The pipeline is empty. Both contexts are unlocked. |
 | `RUNNING_UNARMED` | A kernel runs. No kernel is armed. |
 | `RUNNING_ARMED` | A kernel runs. The kernel in the inactive context starts when the running kernel is done. |
-| `HALTED` | The kernel stands at a word boundary. The pipeline is empty. The armed flag keeps its value. |
+| `HALTED` | The kernel stands at a word boundary. The pipeline is empty. The armed flag keeps its value. The `HALT` instruction does not enter this state: it ends the kernel (IPU-DBG-8; to confirm, [OQ-31](open-questions.md)). |
 
 `ARM` and `DISARM` in `HALTED` change the armed flag only. The diagram omits them.
 

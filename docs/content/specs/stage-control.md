@@ -176,6 +176,7 @@ XMEM read-address port, and the APB slave.
 | `LRD_REG_COUNT` | `8` | `LRD0`, `LRD2`, …, `LRD14`: register-pair aliases over `LR`, named after the lower register (`LRDn` = `LR(n+1)`:`LR(n)`); no separate storage. |
 | `CR_REG_COUNT` | `16` | `CR0`–`CR15` per bank. |
 | `BRANCH_COND_COUNT` | `5` | `BEQ`, `BNE`, `BLT.S`, `BGE.S`, `BR`. `BGT.S`, `BLE.S`, `BNZ`, `BZ`, `B` are assembler-level pseudo-instructions (no opcode of their own) — see the Programmer's Guide. |
+| `COND_OP_COUNT` | `6` | Every non-`NOP` COND instruction: the five branches above plus `HALT` (§10.2.6). |
 | `LR_OP_COUNT` | `8` | `SET`, `ADD`, `SUB`, `INC.MODP2`, `INC`, `DEC`, `ADDB`, `ADDBI`. |
 | `SET_IMM_BITS` | `5` | Combined `src5` operand: bit 4 selects mode; bits [3:0] are a CR index *or* a signed 4-bit immediate. |
 | `XMEM_ADDR_W` | *impl* | Width of `xmem_read_addr`. Sized to address the external XMEM address space (= log2 of XMEM word count). |
@@ -268,6 +269,11 @@ else:
     // Single sequential read; PC update is just +1
     imem_read_a = PC + 1
     inst $ <= imem_a                          // committed at end of cycle N
+
+if inst$.cond.op == HALT:
+    // The word's other slots retire as usual; then the kernel is done
+    // (IPU-ARCH-5, IPU-DBG-8). No further word issues from this kernel.
+    kernel_done <= 1
 ```
 
 The instruction at the new PC is **always ready in `inst $` at the start of cycle N+1**, so the controller logic never sees a stall or bubble caused by a branch.
@@ -524,7 +530,7 @@ destination LR from two lanes in the same VLIW word (see §10).
 
 A single cond slot appears per VLIW word.
 
-Shared evaluation pseudo-code (applies to every cond mnemonic):
+Shared evaluation pseudo-code (applies to every branch; `HALT`, §10.2.6, is not a branch):
 
 ```text
 // All operands read from {LR | CR}
@@ -595,6 +601,15 @@ branch_taken = taken
 - **Operation:** `pc ← reg` (low `PC_W` bits used as the new PC).
 - **Example:** `BR LR0;;`.
 
+#### 10.2.6 `HALT` — Halt
+
+- **Summary:** End the kernel after every slot of this word has retired.
+- **Syntax:** `HALT`
+- **Operands:** none.
+- **Operation:** unconditional. The word's other slots (LR, MULT, ACC, AAQ, STORE, LOAD) retire as usual; then the kernel is done and no further word of it issues (IPU-ARCH-5, IPU-DBG-8). `HALT` uses the COND opcode the instruction reference assigns it (`3'd5`, `COND_INST_OPCODE_HALT`).
+- **Not for debugging:** to stop for inspection, use `BREAK` (emulator-only BREAK slot).
+- **Example:** `HALT;;`.
+
 ### 10.3 Summary Table
 
 | Slot | Mnemonic | Operands | One-line Effect |
@@ -602,13 +617,14 @@ branch_taken = taken
 | LR   | `SET`            | `dest src5`              | `dest = CR[src5[3:0]]` or signed-4 imm |
 | LR   | `ADD`            | `dest src_a src_b`       | `dest = (src_a + src_b)[31:0]` |
 | LR   | `SUB`            | `dest src_a src_b`       | `dest = (src_a - src_b)[31:0]` |
-| LR   | `INC.MODP2`  | `dst step k`             | `dst = (dst + step) & ((1<<k) - 1)` |
+| LR   | `INC.MODP2`      | `dst step k`             | `dst = (dst + step) & ((1<<k) - 1)` |
 | LR   | `INC`            | `dest imm`               | `dest = (dest + imm)[31:0]` |
 | LR   | `DEC`            | `dest imm`               | `dest = (dest - imm)[31:0]` |
 | LR   | `ADDB`           | `dest src_b`             | broadcast-add signed `src_b[7:0]` to `dest`'s 8 elements, clamp [0,255] |
 | LR   | `ADDBI`          | `dest imm`               | broadcast-add signed `imm` to `dest`'s 8 elements, clamp [0,255] |
 | COND | `BEQ`            | `reg1 reg2 label`        | branch if `reg1 == reg2` |
 | COND | `BNE`            | `reg1 reg2 label`        | branch if `reg1 != reg2` |
-| COND | `BLT.S`            | `reg1 reg2 label`        | branch if `signed(reg1) < signed(reg2)` |
-| COND | `BGE.S`            | `reg1 reg2 label`        | branch if `signed(reg1) >= signed(reg2)` |
+| COND | `BLT.S`          | `reg1 reg2 label`        | branch if `signed(reg1) < signed(reg2)` |
+| COND | `BGE.S`          | `reg1 reg2 label`        | branch if `signed(reg1) >= signed(reg2)` |
 | COND | `BR`             | `reg`                    | unconditional `pc ← reg` |
+| COND | `HALT`           | —                        | end the kernel after this word retires |
