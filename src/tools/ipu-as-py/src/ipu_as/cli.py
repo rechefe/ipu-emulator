@@ -48,13 +48,25 @@ def _parse_defines(
 
 @dataclass(frozen=True)
 class TemplateArgs:
-    """The template inputs a command line gives: `--define` values and `-I` directories."""
+    """The template inputs a command line gives.
+
+    Attributes:
+        defines: The `--define KEY=VALUE` values, as strings.
+        include_dirs: The `-I` directories, in order.
+    """
 
     defines: dict[str, str]
     include_dirs: tuple[str, ...]
 
     def search_path(self, input: str) -> tuple[Path, ...]:
-        """The input's own directory (unless it is stdin), then each `-I` directory."""
+        """The template search path for `input`.
+
+        Args:
+            input: The `--input` path, or `-` for stdin.
+
+        Returns:
+            The input's own directory (unless it is stdin), then each `-I` directory.
+        """
         own = () if input == "-" else (Path(input).resolve().parent,)
         return own + tuple(Path(d) for d in self.include_dirs)
 
@@ -62,8 +74,10 @@ class TemplateArgs:
 def _template_options(command: Callable) -> Callable:
     """Add `--define` and `-I` to `command`, which receives them as one `template_args`."""
 
+    # functools.wraps shares command.__dict__, so the options click has already
+    # attached to `command` (those written below this decorator) stay with it.
     @functools.wraps(command)
-    def with_template(*args, defines, include_dirs, **kwargs):
+    def with_template(*args, defines: dict[str, str], include_dirs: tuple[str, ...], **kwargs):
         return command(*args, template_args=TemplateArgs(defines, include_dirs), **kwargs)
 
     with_template = click.option(
@@ -193,6 +207,11 @@ def disassemble(input: str, output: str, format: str | None, target: str):
             lark_tree.disassemble_from_mem_file(input, output, target)
     except AssemblerError as error:
         _exit_with(error)
+    except IndexError:
+        # A slot holds an opcode no instruction has: most often a file of the
+        # other target's words.
+        click.echo(f"Error disassembling: {input} is not a file of {target} words")
+        sys.exit(1)
 
 
 #: The `check --json` versions this assembler can print; the contract is in

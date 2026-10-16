@@ -25,6 +25,10 @@ ACTIVATE.QUANTIZE relu CR15; BNE LR0 CR0 +0;;
 BKPT;;
 """
 
+#: NOP in every hardware slot: each slot's NOP opcode at its opcode field
+#: (word_fields.json), worked out by hand once; every other bit is 0.
+HARDWARE_NOP = 0x600000800008000080000C00180000300000100
+
 SV_GOLDEN = Path("src/tools/ipu-as-py/test/golden/ipu_instr_pkg.sv")
 
 
@@ -62,9 +66,29 @@ def test_check_reports_emulator_only_instructions_for_the_hardware():
     assert "emulator-only" in found.message and found.line == 0
 
 
-def test_an_unknown_target_is_refused():
+@pytest.mark.parametrize("target", ["assembler", "rtl"])
+def test_an_unknown_target_is_refused(target):
     with pytest.raises(ValueError, match="emulator or hardware"):
-        AssemblySession(PROGRAM).assemble("assembler")
+        AssemblySession(PROGRAM).assemble(target)
+
+
+def test_an_empty_hardware_word_is_every_hardware_slot_nop():
+    # The nine hardware slot instances' NOP opcodes, packed by hand from
+    # word_fields.json: every other bit is 0.
+    (word,) = AssemblySession("NOP;;").assemble("hardware").words
+    assert word == HARDWARE_NOP
+
+
+def test_disassembling_the_other_targets_words_is_an_error(tmp_path):
+    source = tmp_path / "p.asm"
+    source.write_text(PROGRAM)
+    binary, out = tmp_path / "h.bin", tmp_path / "out.txt"
+    runner = CliRunner()
+    argv = ["assemble", "--input", str(source), "--output", str(binary), "--target", "hardware"]
+    assert runner.invoke(cli, argv).exit_code == 0
+    result = runner.invoke(cli, ["disassemble", "--input", str(binary), "--output", str(out)])
+    assert result.exit_code == 1, result.output
+    assert "not a file of emulator words" in result.stdout
 
 
 def test_the_cli_assembles_and_disassembles_hardware_words(tmp_path):

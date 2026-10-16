@@ -33,9 +33,9 @@ __all__ = [
     "WILDCARD_OPCODES",
     "Placed",
     "assign_slots",
-    "target_tag",
     "disassemble_word",
     "encode_word",
+    "target_tag",
 ]
 
 #: Mnemonics (lower case) that take the first free slot in layout order. Every
@@ -211,19 +211,24 @@ def _encode_slot(slot: Slot, mnemonic: str, operands: tuple[int, ...]) -> int:
     return value
 
 
+_TARGETS = (Tag.EMULATOR, Tag.HARDWARE)
+
+
 def target_tag(target: str) -> Tag:
-    """The word a target assembles to: ``"emulator"`` or ``"hardware"``.
+    """The word a target assembles to.
+
+    Args:
+        target: ``"emulator"`` or ``"hardware"`` (or the ``Tag`` itself).
+
+    Returns:
+        ``Tag.EMULATOR`` or ``Tag.HARDWARE``.
 
     Raises:
         ValueError: any other target.
     """
-    tag = Tag(target)
-    if tag not in _TARGETS:
+    if target not in _TARGETS:
         raise ValueError(f"target must be emulator or hardware, not {target!r}")
-    return tag
-
-
-_TARGETS = (Tag.EMULATOR, Tag.HARDWARE)
+    return Tag(target)
 
 
 def _check_target(placed: Placed, target: Tag) -> None:
@@ -239,7 +244,7 @@ def _check_target(placed: Placed, target: Tag) -> None:
         )
 
 
-def encode_word(compound: dict, target: Tag = Tag.EMULATOR) -> int:
+def encode_word(compound: dict, target: str = Tag.EMULATOR) -> int:
     """The instruction word of one parsed compound.
 
     Args:
@@ -342,7 +347,7 @@ _TARGET_INSTANCES: Mapping[Tag, tuple[tuple[Slot, int], ...]] = MappingProxyType
 )
 
 
-def disassemble_word(word: int, target: Tag = Tag.EMULATOR) -> str:
+def disassemble_word(word: int, target: str = Tag.EMULATOR) -> str:
     """The assembly text of one word: every slot instance, NOP and unused fields included.
 
     Args:
