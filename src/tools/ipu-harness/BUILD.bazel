@@ -130,6 +130,17 @@ py_pytest_test(
     ],
 )
 
+# Golden comparison and tolerance tiers (E06-10).
+py_pytest_test(
+    name = "test_compare",
+    srcs = ["test/test_compare.py"],
+    deps = [
+        ":ipu_harness_lib",
+        requirement("numpy"),
+        requirement("pytest"),
+    ],
+)
+
 # kernel.toml: the schema, the loader and its errors (E06-02).
 py_pytest_test(
     name = "test_manifest",
