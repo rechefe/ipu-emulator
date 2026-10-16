@@ -17,6 +17,7 @@ dependencies = [
 # Linux wheel brings the CUDA stack).
 dev = [
     "pytest>=9.0.1",
+    # Exact: a ~200 MB wheel whose numerics the references depend on.
     "torch==2.14.1",
 ]
 

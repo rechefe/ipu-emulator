@@ -118,7 +118,9 @@ and `docs` extras) go on the test and docs targets that use them, as
 PyTorch is test-only (the shared kernel references, `ipu-kernels`' `dev`
 extra). It is the CPU wheel from PyTorch's own index: `ipu-kernels`'
 `pyproject.toml` names the index for `uv`, and `pip.parse` in `MODULE.bazel`
-adds it as an extra index. Only targets with `requirement("torch")` fetch it.
+adds it as an extra index. Only targets with `requirement("torch")` fetch it,
+but `//src/tools/ipu-kernels:test_reference_ops` is one of them and is in the
+default tier, so a cold `bazel test //...` downloads the ~200 MB wheel once.
 
 Notes
 -----

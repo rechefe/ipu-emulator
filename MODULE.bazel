@@ -30,7 +30,10 @@ pip.parse(
     # containers; pip's 15s default read timeout is not enough for numpy.
     # torch is the CPU wheel, from PyTorch's CPU index (the lock pins
     # torch==...+cpu, which PyPI does not have; E06-09). Only the targets that
-    # depend on requirement("torch") fetch it.
+    # depend on requirement("torch") fetch it. pip consults the extra index for
+    # every wheel; the lock's == pins and hashes are what keep that safe (a
+    # file from either index must match its hash). rules_python 0.40 has no
+    # per-package index outside its experimental downloader.
     extra_pip_args = [
         "--timeout",
         "120",
