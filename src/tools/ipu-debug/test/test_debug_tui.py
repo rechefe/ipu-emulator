@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import struct
+import tempfile
 
 import pytest
 from emu_support import ElementFormat, make_state, new_state
@@ -18,7 +19,7 @@ from ipu_debug.control import DebugControl
 from ipu_debug.session import DebugSession, XmemRequest
 from ipu_debug.tui.keymap import KEY_BINDINGS, PANE_FOCUS_ORDER, footer_text, help_lines
 from ipu_debug.tui.layout import MIN_TERMINAL_COLUMNS
-from ipu_debug.tui.panes.disassembly import DisassemblyTab
+from ipu_debug.tui.panes.disassembly import DisassemblyPane, DisassemblyTab
 from ipu_debug.tui.panes.pipeline import (
     PIPELINE_REGISTERS,
     PipelineTab,
@@ -1286,20 +1287,42 @@ class TestMouseAndTerminalFallbacks:
         assert run_debug_tui(state, 3, session=session) == DebugAction.CONTINUE
         assert session.active
 
-    def test_curses_initialization_failure_is_reported(self, monkeypatch):
+    def test_curses_initialization_failure_is_logged_and_raised(
+        self, monkeypatch, tmp_path, capsys
+    ):
         state = IpuState()
 
         def in_terminal(body):
             raise OSError("no terminal")
 
         monkeypatch.setattr(debug_tui, "run_in_terminal", in_terminal)
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
 
         session = new_debug_view_session(state)
-        with pytest.raises(RuntimeError, match="curses TUI failed"):
+        with pytest.raises(OSError, match="no terminal"):
             run_debug_tui(state, 0, session=session)
         assert not session.active
+        (log,) = tmp_path.glob("ipu-debug-*.log")
+        assert "OSError: no terminal" in log.read_text()
+        assert str(log) in capsys.readouterr().err
 
-    def test_wrapper_restores_terminal_when_view_raises(self, monkeypatch):
+    def test_a_pane_that_raises_is_logged_and_propagates(self, monkeypatch, tmp_path):
+        state = IpuState()
+
+        def broken_render(self, *args, **kwargs):
+            raise RuntimeError("a bug in a pane")
+
+        monkeypatch.setattr(DisassemblyPane, "render", broken_render)
+        monkeypatch.setattr(debug_tui, "run_in_terminal", lambda body: body(FakeScreen([Key.F5])))
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+
+        session = new_debug_view_session(state)
+        with pytest.raises(RuntimeError, match="a bug in a pane"):
+            run_debug_tui(state, 0, session=session)
+        (log,) = tmp_path.glob("ipu-debug-*.log")
+        assert "a bug in a pane" in log.read_text()
+
+    def test_wrapper_restores_terminal_when_view_raises(self, monkeypatch, tmp_path):
         state = IpuState()
         restored = False
 
@@ -1315,12 +1338,15 @@ class TestMouseAndTerminalFallbacks:
                 restored = True
 
         monkeypatch.setattr(debug_tui, "run_in_terminal", in_terminal)
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
 
         session = new_debug_view_session(state)
-        with pytest.raises(RuntimeError, match="render loop failed"):
+        with pytest.raises(ValueError, match="render loop failed"):
             run_debug_tui(state, 0, session=session)
         assert restored
         assert not session.active
+        (log,) = tmp_path.glob("ipu-debug-*.log")
+        assert "render loop failed" in log.read_text()
 
 
 def footer_row(screen: FakeScreen) -> str:

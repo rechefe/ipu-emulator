@@ -11,7 +11,12 @@ footer and the overlays around them.
 
 from __future__ import annotations
 
+import os
+import sys
+import tempfile
+import traceback
 from collections.abc import Callable
+from pathlib import Path
 
 from ipu_debug.control import DebugControl
 from ipu_debug.session import DebugSession
@@ -474,6 +479,18 @@ def run_debug_tui(
     except KeyboardInterrupt:
         session.active = False
         return DebugAction.QUIT
-    except Exception as error:
+    except Exception:
+        # A bug, not a user mistake (those are DebugErrors, shown on the
+        # status line). curses has restored the terminal by now, so the
+        # traceback can be kept and pointed at before the error goes on.
         session.active = False
-        raise RuntimeError(f"curses TUI failed: {error}") from error
+        path = _log_crash(traceback.format_exc())
+        print(f"ipu-debug: the debugger failed; traceback in {path}", file=sys.stderr)
+        raise
+
+
+def _log_crash(text: str) -> Path:
+    """Write a crash traceback to ``$TMPDIR/ipu-debug-<pid>.log`` and return the path."""
+    path = Path(tempfile.gettempdir()) / f"ipu-debug-{os.getpid()}.log"
+    path.write_text(text, encoding="utf-8")
+    return path

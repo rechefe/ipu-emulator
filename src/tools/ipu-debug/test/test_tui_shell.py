@@ -256,6 +256,13 @@ class TestScreens:
                     importers.append(path.relative_to(_PACKAGE).as_posix())
         assert importers == ["src/ipu_debug/tui/screen.py"]
 
+    def test_a_terminal_too_small_for_the_layout_still_draws(self):
+        # 20x5 cannot hold the panes; the view draws what fits and stops cleanly.
+        screen = FakeScreen([Key.F5], rows=5, columns=20)
+        view = CursesDebugView(screen, make_state("NOP;;"), _session(), cycle=0)
+        view.run()
+        assert any(screen.row(row).strip() for row in range(5))
+
     def test_fake_screen_records_draws_into_a_grid(self):
         screen = FakeScreen(rows=3, columns=10)
         screen.draw(1, 2, "hello world", Style.BOLD)
