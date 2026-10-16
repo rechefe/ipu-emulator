@@ -45,7 +45,6 @@ Usage (normally through the registry: ``create_harness(
 from __future__ import annotations
 
 import copy
-import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -54,13 +53,11 @@ import numpy as np
 from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.convolutions.app import (
     CHUNK_ELEMENTS,
-    kernel_asm,
     universal_spec,
 )
 from ipu_apps.kernels.convolutions.depthwise_conv_universal.app import (
-    DepthwiseConvUniversalApp,
+    DepthwiseConvUniversalStage,
 )
-from ipu_as.lark_tree import assemble_to_bin_file
 from ipu_emu.emulator import run_test
 from ipu_isa.constants import Partition
 
@@ -71,7 +68,7 @@ if TYPE_CHECKING:
 ROW_BYTES = CHUNK_ELEMENTS * 4  # 512 B/row in FP32 wide-vector mode
 
 
-class _Stage1FullWidthApp(DepthwiseConvUniversalApp):
+class _Stage1FullWidthApp(DepthwiseConvUniversalStage):
     """depthwise_conv_universal pinned to the cols=128 (no-packing) case.
 
     At cols=128 there's exactly one packed spatial row per 128-element chunk --
@@ -162,7 +159,7 @@ class DepthwiseConvStride2_128App(IpuApp):
         # ctor) is the single source of truth for where stage 1's output
         # really lands.
         self._stage1_app = _Stage1FullWidthApp(
-            inst_path="depthwise_conv_universal.asm",  # replaced in run()
+            inst_path="depthwise_conv_universal.asm",  # not run: the stage assembles its .asm
             input_path=self.input_path,
             kernel=kernel,
             kernel_path=self.kernel_path,
@@ -180,18 +177,13 @@ class DepthwiseConvStride2_128App(IpuApp):
         self.output_base_row = self.output_base_addr // ROW_BYTES
 
     def run(self, *, max_cycles: int = 2_000_000, **kwargs) -> tuple[IpuState, int]:
-        with tempfile.TemporaryDirectory(prefix="depthwise_stride2_128_") as tmp:
-            stage1_bin_path = Path(tmp) / "stage1.bin"
-            assemble_to_bin_file(kernel_asm("depthwise_conv_universal"), str(stage1_bin_path))
-
-            stage1_app = self._stage1_app
-            stage1_app.inst_path = stage1_bin_path
-            stage1_app.input_path = self.input_path
-            kwargs.setdefault("state", self.make_state())
-            state, cycles1 = stage1_app.run(max_cycles=max_cycles, **kwargs)
-            # Each run's stats cover that run only; keep stage 1's so the
-            # kernel's stats can cover both stages.
-            stage1_stats = copy.copy(state.stats)
+        stage1_app = self._stage1_app
+        stage1_app.input_path = self.input_path
+        kwargs.setdefault("state", self.make_state())
+        state, cycles1 = stage1_app.run(max_cycles=max_cycles, **kwargs)
+        # Each run's stats cover that run only; keep stage 1's so the
+        # kernel's stats can cover both stages.
+        stage1_stats = copy.copy(state.stats)
 
         def stage2_setup(s: IpuState) -> None:
             # Stage 1 left program_counter at its halted sentinel; reset it

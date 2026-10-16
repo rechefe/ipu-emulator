@@ -7,8 +7,8 @@ Assembles every program the E02-01 digest manifest
 (``src/tools/ipu-apps/test/baselines/asm_digests.json``) lists, and splits the
 wall time into the three stages of ``ipu_as.session.AssemblySession``:
 
-- render: the Jinja layer (for a manifest entry with a render context, the
-  ``jinja2.Template`` render the digest test does, plus the session's render);
+- render: the Jinja layer (a manifest entry's render context is passed as
+  defines, as the digest test does);
 - parse: grammar and AST building, labels included;
 - encode: building and encoding every compound instruction word.
 
@@ -31,8 +31,6 @@ import time
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-
-import jinja2
 
 from ipu_as.session import AssemblySession
 
@@ -76,9 +74,7 @@ def load_programs(root: Path) -> list[Program]:
 def _assemble_timed(text: str, program: Program) -> tuple[float, float, float, int]:
     """Seconds spent rendering, parsing and encoding one program, and its word count."""
     t0 = time.perf_counter()
-    if program.context is not None:
-        text = jinja2.Template(text).render(**program.context)
-    session = AssemblySession(text, name=program.path)
+    session = AssemblySession(text, defines=program.context, name=program.path)
     session.render()
     t1 = time.perf_counter()
     session.parse()

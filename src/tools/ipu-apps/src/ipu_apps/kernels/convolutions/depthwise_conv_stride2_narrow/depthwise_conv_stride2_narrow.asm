@@ -1,6 +1,8 @@
-{#- The harness renders elements_in_row (= cols) per run; the default only
-    lets the file assemble standalone (`assemble_<kernel>`). -#}
-{%- set elements_in_row = elements_in_row | default(32) -%}
+{#- ipu:params
+elements_in_row: int = 32    # = cols
+-#}
+{#- The harness assembles elements_in_row per run; the default only lets the
+    file assemble standalone (`assemble_<kernel>`). -#}
 # Stage 2 of depthwise_conv_stride2_narrow: joint row+col decimation 2x for
 # packed (multi-row-per-chunk) layouts, cols in {16, 32, 64}.
 #

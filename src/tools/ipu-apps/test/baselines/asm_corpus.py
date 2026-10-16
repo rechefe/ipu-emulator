@@ -27,9 +27,8 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-import jinja2
-
 from ipu_as import lark_tree
+from ipu_as.session import AssemblySession
 
 #: Repo-relative directories whose `.asm` files (recursively) form the corpus.
 CORPUS_ROOTS = (
@@ -60,6 +59,23 @@ RENDER_CONTEXTS: dict[str, tuple[dict, ...]] = {
         {"chunk_widths": [128, 128, 128, 128, 128, 128, 128, 64]},
     ),
     _MOBILEVIT + "asm_packed_output_linear_silu.asm": ({"chunk_widths": [128, 112]},),
+}
+
+#: Programs that also assemble standalone (from their ``ipu:params`` header
+#: defaults), and the other defines their harness tests assemble them with.
+#: Each set of defines is one more corpus entry. ``conv_universal_wide384``'s
+#: test sweeps rows=16 at width 384 and width 512 (cpr=4) at rows=4;
+#: ``depthwise_conv_stride2_narrow``'s runs cols 64 and 16.
+_CONVOLUTIONS = "src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/"
+HARNESS_DEFINES: dict[str, tuple[dict, ...]] = {
+    _CONVOLUTIONS + "conv_universal_wide384/conv_universal_wide384.asm": (
+        {"cpr": 3, "rows": 16},
+        {"cpr": 4, "rows": 4},
+    ),
+    _CONVOLUTIONS + "depthwise_conv_stride2_narrow/depthwise_conv_stride2_narrow.asm": (
+        {"elements_in_row": 16},
+        {"elements_in_row": 64},
+    ),
 }
 
 #: Where the digests live, repo-relative.
@@ -122,21 +138,22 @@ def discover(root: Path) -> list[CorpusEntry]:
                 entries.extend(CorpusEntry.rendered(path, c) for c in RENDER_CONTEXTS[path])
             else:
                 entries.append(CorpusEntry(path))
+                entries.extend(CorpusEntry.rendered(path, c) for c in HARNESS_DEFINES.get(path, ()))
     return sorted(entries, key=lambda entry: entry.key)
 
 
 def assemble(root: Path, entry: CorpusEntry) -> AssembledProgram:
     """Assemble one entry through the assembler's two file entry points.
 
-    A context is rendered the way the tests that use it render it today
-    (``jinja2.Template(...).render(**context)``); a standalone program goes to
+    A context is rendered as defines for the source's ``ipu:params`` header,
+    as the tests that use it render it; a standalone program goes to
     the assembler as is, which renders any Jinja layer itself. Each assembly
     has its own label table (``ipu_as.session``), so entries do not see each
     other's labels.
     """
     text = (root / entry.path).read_text()
     if entry.context is not None:
-        text = jinja2.Template(text).render(**entry.context)
+        text = AssemblySession(text, defines=entry.context).render()
     with tempfile.TemporaryDirectory() as tmp:
         bin_path = Path(tmp) / "program.bin"
         mem_path = Path(tmp) / "program.mem"

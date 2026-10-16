@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Mapping
-from contextlib import nullcontext
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field
 from importlib import import_module
+from importlib.abc import Traversable
 from importlib.resources import files
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
 from ipu_apps.kernel_registry.registry import create_harness, kernel_spec
-from ipu_as.lark_tree import assemble_to_bin_file
+from ipu_as import session
+from ipu_as.session import AssemblyResult
 from ipu_emu.emulator import DEFAULT_MAX_CYCLES
 
 
@@ -71,6 +73,37 @@ def case_options(case: KernelCase) -> dict[str, dict[str, Any]]:
     return options
 
 
+def assemble_program(
+    source: Path | Traversable,
+    *,
+    defines: Mapping[str, object] | None = None,
+    search_path: Sequence[Path] = (),
+) -> AssemblyResult:
+    """Assemble one ``.asm`` file through the assembler's session (and its cache).
+
+    Args:
+        source: The ``.asm`` file, a path or a package resource.
+        defines: Values for the parameters its ``ipu:params`` header declares.
+        search_path: Directories its ``{% include %}`` and ``{% import %}``
+            resolve in.
+
+    Raises:
+        AssemblerError: the source does not render or assemble.
+    """
+    return session.assemble(
+        source.read_text(), defines=defines, search_path=search_path, name=source.name
+    )
+
+
+@contextmanager
+def program_file(program: AssemblyResult) -> Iterator[Path]:
+    """``program`` written as a ``.bin`` file, which exists until the block ends."""
+    with TemporaryDirectory(prefix="ipu_program_") as tmp:
+        path = Path(tmp) / "program.bin"
+        path.write_bytes(program.to_bin())
+        yield path
+
+
 def assemble_kernel(kernel_name: str, directory) -> Path:
     """Assemble a registered kernel's ``.asm`` into ``directory``; return the binary."""
     spec = kernel_spec(kernel_name)
@@ -78,7 +111,7 @@ def assemble_kernel(kernel_name: str, directory) -> Path:
         raise ValueError(f"{kernel_name}: SPEC must declare asm")
     inst_path = Path(directory) / f"{kernel_name}.bin"
     source = files(spec.resource_package).joinpath(spec.asm)
-    assemble_to_bin_file(source.read_text(), str(inst_path))
+    inst_path.write_bytes(assemble_program(source).to_bin())
     return inst_path
 
 

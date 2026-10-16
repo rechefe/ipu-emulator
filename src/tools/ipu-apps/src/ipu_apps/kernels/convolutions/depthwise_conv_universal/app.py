@@ -48,6 +48,7 @@ Usage (normally through the registry: ``create_harness(
 from __future__ import annotations
 
 import math
+from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -62,6 +63,7 @@ from ipu_apps.kernels.convolutions.app import (
     next_valid_cols,
     pack_input_chunked,
     padding_caveat,
+    sibling_program,
     universal_spec,
     unpack_output_chunked,
 )
@@ -314,6 +316,16 @@ class DepthwiseConvUniversalApp(IpuApp):
             padded_out = unpack_output_chunked(raw, self.channels, self.rows, self.cols)
             out = padded_out[:, : self.height, : self.width]
             self.output_path.write_bytes(out.astype(np.float32).tobytes())
+
+
+class DepthwiseConvUniversalStage(DepthwiseConvUniversalApp):
+    """This kernel run as stage 1 of another: it assembles its own ``.asm``.
+
+    The ``inst_path`` it is given is not run.
+    """
+
+    def program(self) -> AbstractContextManager[Path]:
+        return sibling_program("depthwise_conv_universal")
 
 
 # -- registry declaration ---------------------------------------------------

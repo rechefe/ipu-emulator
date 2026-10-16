@@ -39,9 +39,11 @@ import; every universal kernel's ``app.py`` imports this module, so
 from __future__ import annotations
 
 import math
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
+from importlib.abc import Traversable
 from importlib.resources import files
-from typing import Any
+from pathlib import Path
 
 import numpy as np
 
@@ -58,6 +60,7 @@ from ipu_apps.kernel_registry import (
     register_layer,
     yes,
 )
+from ipu_apps.kernel_registry.cases import assemble_program, program_file
 from ipu_apps.kernel_registry.memory import MemoryApp, MemoryLayout, ceildiv, positive_shape
 from ipu_isa.constants import DEFAULT_VALID_ELEMENTS
 
@@ -135,25 +138,18 @@ WIDE_VECTOR_ONLY = (
 )
 
 
-def kernel_asm(kernel: str) -> str:
-    """Source of the family's ``<kernel>/<kernel>.asm`` (for multi-stage kernels).
+def kernel_source(kernel: str) -> Traversable:
+    """The family's ``<kernel>/<kernel>.asm`` (for multi-stage kernels).
 
     Every kernel target gets its family's ``.asm`` files as data, so a kernel
     may assemble a sibling's program as one of its stages.
     """
-    return files(f"{FAMILY_PACKAGE}.{kernel}").joinpath(f"{kernel}.asm").read_text()
+    return files(f"{FAMILY_PACKAGE}.{kernel}").joinpath(f"{kernel}.asm")
 
 
-def render_asm(text: str, **context: Any) -> str:
-    """Render a Jinja-templated ``.asm`` with ``context``, sandboxed.
-
-    The assembler renders templates without a context (see ``ipu_as.template``
-    for why rendering is sandboxed); kernels whose program is specialised per
-    shape render it here first.
-    """
-    from jinja2.sandbox import SandboxedEnvironment
-
-    return SandboxedEnvironment().from_string(text).render(**context)
+def sibling_program(kernel: str) -> AbstractContextManager[Path]:
+    """A sibling kernel's program as a ``.bin`` file, for one stage of a multi-stage kernel."""
+    return program_file(assemble_program(kernel_source(kernel)))
 
 
 def read_bias(bias, bias_path, count: int) -> np.ndarray:

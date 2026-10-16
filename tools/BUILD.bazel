@@ -85,6 +85,24 @@ py_pytest_test(
     ],
 )
 
+# ruff.toml bans a second assembly render path (E05-12).
+py_pytest_test(
+    name = "test_one_render_path",
+    size = "small",
+    srcs = [
+        "ruff_runner.py",
+        "test_one_render_path.py",
+    ],
+    data = [
+        "//:ruff.toml",
+        data_requirement("ruff"),
+    ],
+    deps = [
+        requirement("pytest"),
+        requirement("ruff"),
+    ],
+)
+
 # tools/update_baselines.sh runs every update_* target of the packages that
 # hold baselines (docs/content/code-conventions.md, "Baselines").
 py_pytest_test(

@@ -4,6 +4,7 @@ load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
 load("//tools:runtime_deps.bzl", "runtime_deps_manifest")
 load(":deps.bzl", "RUNTIME_DEPS")
 load("//tools:lint.bzl", "ruff_test")
+load("//:asm_rules.bzl", "assemble_asm")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -104,6 +105,30 @@ py_pytest_test(
 py_pytest_test(
     name = "test_cli",
     srcs = ["test/test_cli.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_as_lib",
+        requirement("click"),
+        requirement("pytest"),
+    ],
+)
+
+# assemble_asm(defines=, includes=) against the CLI (E05-12).
+assemble_asm(
+    name = "asm_rule_defines",
+    src = "test/asm_rule/template.asm",
+    defines = {"cpr": "3"},
+    includes = ["test/asm_rule/lib/body.asm.j2"],
+)
+
+py_pytest_test(
+    name = "test_asm_rule",
+    srcs = ["test/test_asm_rule.py"],
+    data = [
+        ":asm_rule_defines",
+        "test/asm_rule/lib/body.asm.j2",
+        "test/asm_rule/template.asm",
+    ],
     imports = ["src"],
     deps = [
         ":ipu_as_lib",

@@ -42,9 +42,9 @@ composed from ``depthwise_conv_universal``.
   native cols values via the single Jinja parameter ``elements_in_row``.
 
 Under the registry, stage 1 is assembled from the sibling
-``depthwise_conv_universal.asm`` and stage 2 is rendered from this kernel's
+``depthwise_conv_universal.asm`` and stage 2 is assembled from this kernel's
 ``.asm`` with ``elements_in_row = cols`` at run time; the bound ``inst_path``
-(the ``.asm`` assembled standalone, i.e. with its template default 32) is
+(the ``.asm`` assembled standalone, i.e. with its header default 32) is
 not run.
 
 Usage (normally through the registry: ``create_harness(
@@ -55,7 +55,7 @@ Usage (normally through the registry: ``create_harness(
     )
 
     app = DepthwiseConvStride2NarrowApp(
-        inst_path="depthwise_conv_stride2_narrow.bin",  # ignored: stage 2 is rendered per cols
+        inst_path="depthwise_conv_stride2_narrow.bin",  # ignored: stage 2 is assembled per cols
         input_path="input.bin",     # raw [channels, rows, cols] float32
         kernel_path="kernel.bin",   # raw [channels, 1, 3, 3] float32 (or kernel=array)
         output_path="output.bin",
@@ -67,23 +67,21 @@ Usage (normally through the registry: ``create_harness(
 from __future__ import annotations
 
 import copy
-import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
 
 from ipu_apps.kernel_registry.base import IpuApp
+from ipu_apps.kernel_registry.cases import assemble_program, program_file
 from ipu_apps.kernels.convolutions.app import (
     CHUNK_ELEMENTS,
-    kernel_asm,
-    render_asm,
+    kernel_source,
     universal_spec,
 )
 from ipu_apps.kernels.convolutions.depthwise_conv_universal.app import (
-    DepthwiseConvUniversalApp,
+    DepthwiseConvUniversalStage,
 )
-from ipu_as.lark_tree import assemble_to_bin_file
 from ipu_emu.emulator import run_test
 from ipu_isa.constants import Partition
 
@@ -131,7 +129,7 @@ class DepthwiseConvStride2NarrowApp(IpuApp):
         **kwargs,
     ) -> None:
         # The bound inst_path is kept but not run: stage 1 is assembled from
-        # depthwise_conv_universal's .asm and stage 2 is rendered per cols in run().
+        # depthwise_conv_universal's .asm and stage 2 is assembled per cols in run().
         kwargs.setdefault("inst_path", "depthwise_conv_stride2_narrow.asm")
         super().__init__(**kwargs)
         self.input_path = Path(self.input_path)
@@ -180,8 +178,8 @@ class DepthwiseConvStride2NarrowApp(IpuApp):
         # so its region layout (computed dynamically per DepthwiseConvUniversalApp's
         # ctor) is the single source of truth for where stage 1's output
         # really lands.
-        self._stage1_app = DepthwiseConvUniversalApp(
-            inst_path="depthwise_conv_universal.asm",  # replaced in run()
+        self._stage1_app = DepthwiseConvUniversalStage(
+            inst_path="depthwise_conv_universal.asm",  # not run: the stage assembles its .asm
             input_path=self.input_path,
             kernel=kernel,
             kernel_path=self.kernel_path,
@@ -198,27 +196,17 @@ class DepthwiseConvStride2NarrowApp(IpuApp):
         self.output_base_row = self.output_base_addr // ROW_BYTES
 
     def run(self, *, max_cycles: int = 2_000_000, **kwargs) -> tuple[IpuState, int]:
-        with tempfile.TemporaryDirectory(prefix="depthwise_stride2_narrow_") as tmp:
-            return self._run(Path(tmp), max_cycles=max_cycles, **kwargs)
-
-    def _run(self, tmp_dir: Path, *, max_cycles: int, **kwargs) -> tuple[IpuState, int]:
-        stage1_bin_path = tmp_dir / "stage1.bin"
-        assemble_to_bin_file(kernel_asm("depthwise_conv_universal"), str(stage1_bin_path))
-
         stage1_app = self._stage1_app
-        stage1_app.inst_path = stage1_bin_path
         kwargs.setdefault("state", self.make_state())
         state, cycles1 = stage1_app.run(max_cycles=max_cycles, **kwargs)
         # Each run's stats cover that run only; keep stage 1's so the
         # kernel's stats can cover both stages.
         stage1_stats = copy.copy(state.stats)
 
-        stage2_src = render_asm(
-            kernel_asm("depthwise_conv_stride2_narrow"),
-            elements_in_row=self.cols,
+        stage2 = assemble_program(
+            kernel_source("depthwise_conv_stride2_narrow"),
+            defines={"elements_in_row": self.cols},
         )
-        stage2_bin_path = tmp_dir / "stage2.bin"
-        assemble_to_bin_file(stage2_src, str(stage2_bin_path))
 
         def stage2_setup(s: IpuState) -> None:
             # Stage 1 left program_counter at its halted sentinel; reset it
@@ -236,13 +224,14 @@ class DepthwiseConvStride2NarrowApp(IpuApp):
             s.regfile.set_cr(5, self.output_base_row)
             s.regfile.set_cr(6, self.num_out_groups)
 
-        state2, cycles2 = run_test(
-            inst_path=stage2_bin_path,
-            setup=stage2_setup,
-            teardown=lambda s: None,
-            max_cycles=max_cycles,
-            state=state,
-        )
+        with program_file(stage2) as stage2_path:
+            state2, cycles2 = run_test(
+                inst_path=stage2_path,
+                setup=stage2_setup,
+                teardown=lambda s: None,
+                max_cycles=max_cycles,
+                state=state,
+            )
         state2.stats = stage1_stats + state2.stats
 
         if self.output_path is not None:
