@@ -185,7 +185,10 @@ def _cache_key(
 ) -> tuple | None:
     """The cache key, or None when the inputs cannot be one (an unhashable define value)."""
     digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
-    key = (digest, tuple(sorted((defines or {}).items())), params)
+    # Each value with its type and repr: True == 1 == 1.0 in Python, but they
+    # bind differently against a declared int (only 1 is valid).
+    values = tuple(sorted((k, type(v).__name__, repr(v)) for k, v in (defines or {}).items()))
+    key = (digest, values, params)
     try:
         hash(key)
     except TypeError:

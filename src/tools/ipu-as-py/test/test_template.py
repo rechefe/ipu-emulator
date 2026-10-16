@@ -56,7 +56,7 @@ def test_a_param_spec_from_the_caller_replaces_the_header() -> None:
     [
         (HEADER, {"rows": 1, "cprr": 2}, "undeclared define 'cprr'", 1),
         (HEADER, {}, "missing required define 'rows'", 3),
-        (HEADER, {"rows": "eight"}, "define 'rows' is 'eight', not a int", 3),
+        (HEADER, {"rows": "eight"}, "define 'rows' is 'eight', not of type int", 3),
         (HEADER, {"rows": 1, "activation": "tanh"}, "not one of", 4),
         ("{{ x }}NOP;;", {"x": 1}, "declares no parameters", 1),
         ("{#- ipu:params\nn: float\n-#}", {}, "unknown ipu:params type", 2),
@@ -136,3 +136,38 @@ def test_an_assemble_error_from_an_included_file_names_it(roots) -> None:
 def test_a_source_without_markers_is_returned_unrendered() -> None:
     text = "NOP;;\nBKPT;;\n"
     assert template.render(text) is text
+
+
+def test_a_hash_inside_a_quoted_default_is_part_of_the_value() -> None:
+    spec = template.declared_params('{#- ipu:params\nmark: str = "a#b"  # note\n-#}')
+    assert spec.params[0].default == "a#b"
+
+
+def test_a_quoted_choice_may_hold_commas_and_parentheses() -> None:
+    spec = template.declared_params('{#- ipu:params\nmode: str = "a,b" in ("a,b", "(c)", d)\n-#}')
+    assert spec.params[0].choices == ("a,b", "(c)", "d")
+
+
+def test_a_parameter_declared_twice_is_an_error() -> None:
+    with pytest.raises(TemplateError, match="declares 'n' twice") as info:
+        template.declared_params("{#- ipu:params\nn: int = 1\nn: int = 2\n-#}")
+    assert info.value.location.line == 3
+
+
+def test_a_deleted_include_is_reported_as_not_found(tmp_path: Path) -> None:
+    (tmp_path / "gone.asm.j2").write_text("NOP;;")
+    source = '{% include "gone.asm.j2" %}'
+    assert template.render(source, search_path=[tmp_path]) == "NOP;;"
+    (tmp_path / "gone.asm.j2").unlink()
+    with pytest.raises(TemplateError) as info:
+        template.render(source, search_path=[tmp_path])
+    assert isinstance(info.value.__cause__, jinja2.TemplateNotFound)
+
+
+def test_the_cache_does_not_bypass_define_types() -> None:
+    from ipu_as import session
+
+    source = "{#- ipu:params\nx: int\n-#}\n{% for _ in range(x) %}NOP;;\n{% endfor %}BKPT;;\n"
+    session.assemble(source, defines={"x": 1})
+    with pytest.raises(TemplateError, match="not of type int"):
+        session.assemble(source, defines={"x": True})

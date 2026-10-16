@@ -115,7 +115,7 @@ def _coerce(param: Param, value: object, where: SourceLocation) -> object:
             return _from_text(param.type, value)
         except ValueError:
             raise TemplateError(
-                f"define {param.name!r} is {value!r}, not a {_type_name(param.type)}",
+                f"define {param.name!r} is {value!r}, not of type {_type_name(param.type)}",
                 location=where,
             ) from None
     if param.type is tuple and isinstance(value, (list, tuple)):
@@ -125,7 +125,8 @@ def _coerce(param: Param, value: object, where: SourceLocation) -> object:
         valid = valid and all(isinstance(v, int) and not isinstance(v, bool) for v in value)
     if not valid:
         raise TemplateError(
-            f"define {param.name!r} is {value!r}, not a {_type_name(param.type)}", location=where
+            f"define {param.name!r} is {value!r}, not of type {_type_name(param.type)}",
+            location=where,
         )
     return value
 
@@ -154,8 +155,25 @@ def _type_name(kind: type) -> str:
 _HEADER = re.compile(r"\{#-?\s*ipu:params[ \t]*\n(?P<body>.*?)-?#\}", re.DOTALL)
 _PARAM_LINE = re.compile(
     r"(?P<name>[A-Za-z_]\w*)\s*:\s*(?P<type>tuple\[int,\s*\.\.\.\]|\w+)"
-    r"(?:\s*=\s*(?P<default>.+?))?(?:\s+in\s+\((?P<choices>[^)]*)\))?\s*$"
+    r"(?:\s*=\s*(?P<default>.+?))?"
+    r"(?:\s+in\s+\((?P<choices>(?:\"[^\"]*\"|'[^']*'|[^)\"'])*)\))?\s*$"
 )
+#: One choice in `in (...)`: a quoted string (which may hold commas) or a bare word.
+_CHOICE = re.compile(r"\"(?P<double>[^\"]*)\"|'(?P<single>[^']*)'|(?P<bare>[^,\s]+)")
+
+
+def _strip_comment(line: str) -> str:
+    """`line` without its `# note`; a `#` inside quotes is part of a value."""
+    quote = None
+    for i, char in enumerate(line):
+        if quote is not None:
+            if char == quote:
+                quote = None
+        elif char in "\"'":
+            quote = char
+        elif char == "#":
+            return line[:i]
+    return line
 
 
 def declared_params(text: str, source: str = "<asm>") -> ParamSpec | None:
@@ -172,10 +190,14 @@ def declared_params(text: str, source: str = "<asm>") -> ParamSpec | None:
     params = []
     for offset, raw in enumerate(header.group("body").splitlines()):
         line = body_line + offset
-        spec = raw.split("#", 1)[0].strip()
+        spec = _strip_comment(raw).strip()
         if not spec:
             continue
-        params.append(_parse_param(spec, SourceLocation(line, 1, source=source)))
+        where = SourceLocation(line, 1, source=source)
+        param = _parse_param(spec, where)
+        if any(seen.name == param.name for seen in params):
+            raise TemplateError(f"ipu:params declares {param.name!r} twice", location=where)
+        params.append(param)
     return ParamSpec(tuple(params), line=first)
 
 
@@ -198,9 +220,8 @@ def _parse_param(spec: str, where: SourceLocation) -> Param:
     choices = None
     if match["choices"] is not None:
         choices = tuple(
-            _coerce(probe, choice.strip().strip("\"'"), where)
-            for choice in match["choices"].split(",")
-            if choice.strip()
+            _coerce(probe, next(text for text in choice.groups() if text is not None), where)
+            for choice in _CHOICE.finditer(match["choices"])
         )
     return Param(match["name"], kind, default, choices, where.line)
 
@@ -235,8 +256,16 @@ class _RootedLoader(jinja2.BaseLoader):
                     text = self.transform(name, text)
                 mtime = path.stat().st_mtime
                 self.loaded[str(path)] = name
-                return text, str(path), lambda path=path, mtime=mtime: path.stat().st_mtime == mtime
+                return text, str(path), lambda path=path, mtime=mtime: _unchanged(path, mtime)
         raise jinja2.TemplateNotFound(name, f"{name!r} is not in the search path")
+
+
+def _unchanged(path: Path, mtime: float) -> bool:
+    """jinja's uptodate check: False (reload) when the file changed or is gone."""
+    try:
+        return path.stat().st_mtime == mtime
+    except OSError:
+        return False
 
 
 _ENVIRONMENTS: dict[tuple, SandboxedEnvironment] = {}
@@ -246,7 +275,8 @@ def _environment(
     search_path: Sequence[Path], transform: SourceTransform | None
 ) -> SandboxedEnvironment:
     """One sandboxed environment per (search path, transform)."""
-    key = (tuple(Path(p) for p in search_path), transform)
+    # Resolved, so a relative root means the directory it meant when the call was made.
+    key = (tuple(Path(p).resolve() for p in search_path), transform)
     if key not in _ENVIRONMENTS:
         loader = _RootedLoader(key[0], transform) if key[0] else None
         _ENVIRONMENTS[key] = SandboxedEnvironment(loader=loader)
