@@ -95,8 +95,7 @@ _CONSTRAINT_KEYS = {
 # surrounding idiom is really performing.
 _ACC_ADD_RUNNING = ("ACC.ADD",)
 _ACC_SUB = ("ACC.SUB", "ACC.SUB.FIRST")
-_ACC_REDUCE = ("AGG.SUM", "AGG.SUM.FIRST", "AGG.MAX", "AGG.MAX.FIRST",
-               "ACC.MAX", "ACC.MAX.FIRST")
+_ACC_REDUCE = ("AGG.SUM", "AGG.SUM.FIRST", "AGG.MAX", "AGG.MAX.FIRST", "ACC.MAX", "ACC.MAX.FIRST")
 
 # Every mult form that takes a scalar multiplicand, and the operand carrying it.
 # The emulator reads this too, to know which operand to probe for a constant
@@ -124,8 +123,7 @@ def _identity_mult_matches(*, where_extra=(), only=None, exclude=()):
         if (only is None or inst in only) and inst not in exclude
     ]
     vector = [
-        {"slot": "mult", "instruction": inst,
-         "where": [{"vector_ones": True}, *where_extra]}
+        {"slot": "mult", "instruction": inst, "where": [{"vector_ones": True}, *where_extra]}
         for inst in VECTOR_IDENTITY_MULTS
         if (only is None or inst in only) and inst not in exclude
     ]
@@ -142,9 +140,17 @@ ISA_ALIAS_SPEC: dict[str, dict] = {
         "summary": "Masked pass-through: rc_idx picks the read window, mask_offset the write window.",
         "matches": _identity_mult_matches(
             where_extra=({"masked_window": True},),
-        ) + [{"slot": "mult", "instruction": "MULT.RC.VV",
-              "where": [{"vector_ones": True},
-                        {"co_slot": "acc", "instruction_in": ("ACC.STRIDE",)}]}],
+        )
+        + [
+            {
+                "slot": "mult",
+                "instruction": "MULT.RC.VV",
+                "where": [
+                    {"vector_ones": True},
+                    {"co_slot": "acc", "instruction_in": ("ACC.STRIDE",)},
+                ],
+            }
+        ],
     },
     "A4_AGG_RC": {
         "missing_op": "AGG.SUM.RC / AGG.MAX.RC",
@@ -212,8 +218,7 @@ def validate_isa_alias_spec() -> None:
                 raise ValueError(f"alias {alias_id!r} names unknown slot {slot!r}")
             if instruction not in INSTRUCTION_SPEC[slot]:
                 raise ValueError(
-                    f"alias {alias_id!r} names unknown instruction "
-                    f"{instruction!r} in slot {slot!r}"
+                    f"alias {alias_id!r} names unknown instruction {instruction!r} in slot {slot!r}"
                 )
             operands = _operand_names(slot, instruction)
 
@@ -242,17 +247,17 @@ def validate_isa_alias_spec() -> None:
                         f"{[sorted(k) for k in _CONSTRAINT_KEYS]}"
                     )
                 if keys in seen_keys:
-                    raise ValueError(
-                        f"alias {alias_id!r} repeats constraint kind {sorted(keys)}"
-                    )
+                    raise ValueError(f"alias {alias_id!r} repeats constraint kind {sorted(keys)}")
                 seen_keys.add(keys)
                 if "vector_ones" in constraint and (
-                    constraint["vector_ones"] is not True or slot != "mult"
+                    constraint["vector_ones"] is not True
+                    or slot != "mult"
                     or instruction not in VECTOR_IDENTITY_MULTS
                 ):
                     raise ValueError(f"alias {alias_id!r}: unsupported vector_ones constraint")
                 if "masked_window" in constraint and (
-                    constraint["masked_window"] is not True or slot != "mult"
+                    constraint["masked_window"] is not True
+                    or slot != "mult"
                     or not {"mask_offset", "mask_shift", "cr_idx"} <= operands
                 ):
                     raise ValueError(f"alias {alias_id!r}: unsupported masked_window constraint")
@@ -271,7 +276,8 @@ def validate_isa_alias_spec() -> None:
                         )
                     if "immediate_ne" in constraint:
                         operand = next(
-                            op for op in INSTRUCTION_SPEC[slot][instruction]["operands"]
+                            op
+                            for op in INSTRUCTION_SPEC[slot][instruction]["operands"]
                             if op["name"] == name
                         )
                         # This is the only immediate type on the supported
@@ -282,49 +288,44 @@ def validate_isa_alias_spec() -> None:
                                 f"alias {alias_id!r}: {slot}/{instruction}.{name} "
                                 "is not a supported raw immediate operand"
                             )
-                    if (
-                        "scalar_is" in constraint
-                        and (slot != "mult" or name != SCALAR_MULT_OPERANDS.get(instruction))
+                    if "scalar_is" in constraint and (
+                        slot != "mult" or name != SCALAR_MULT_OPERANDS.get(instruction)
                     ):
                         raise ValueError(
                             f"alias {alias_id!r}: {slot}/{instruction}.{name} "
                             "is not a supported scalar multiplicand"
                         )
-                    if (
-                        "scalar_is" in constraint
-                        and constraint["scalar_is"] not in _SCALAR_VALUES
-                    ):
+                    if "scalar_is" in constraint and constraint["scalar_is"] not in _SCALAR_VALUES:
                         raise ValueError(
-                            f"alias {alias_id!r}: scalar_is must be one of "
-                            f"{_SCALAR_VALUES}"
+                            f"alias {alias_id!r}: scalar_is must be one of {_SCALAR_VALUES}"
                         )
                 if "co_slot" in constraint:
                     co_slot = constraint["co_slot"]
                     if co_slot not in INSTRUCTION_SPEC:
-                        raise ValueError(
-                            f"alias {alias_id!r} names unknown co_slot {co_slot!r}"
-                        )
+                        raise ValueError(f"alias {alias_id!r} names unknown co_slot {co_slot!r}")
                     for name in constraint["instruction_in"]:
                         if name not in INSTRUCTION_SPEC[co_slot]:
                             raise ValueError(
                                 f"alias {alias_id!r} names unknown instruction "
                                 f"{name!r} in co_slot {co_slot!r}"
                             )
-                if constraint.get("hardware_only") and SLOT_METADATA[slot].get(
-                    "hardware", True
-                ):
+                if constraint.get("hardware_only") and SLOT_METADATA[slot].get("hardware", True):
                     raise ValueError(
                         f"alias {alias_id!r} uses hardware_only on slot {slot!r}, "
-                        "which is not flagged \"hardware\": False"
+                        'which is not flagged "hardware": False'
                     )
 
-            signature = (slot, instruction, frozenset(
+            signature = (
+                slot,
+                instruction,
                 frozenset(
-                    (key, frozenset(value) if key == "instruction_in" else value)
-                    for key, value in constraint.items()
-                )
-                for constraint in match["where"]
-            ))
+                    frozenset(
+                        (key, frozenset(value) if key == "instruction_in" else value)
+                        for key, value in constraint.items()
+                    )
+                    for constraint in match["where"]
+                ),
+            )
             if signature in signatures:
                 raise ValueError(f"alias {alias_id!r} repeats an identical match")
             signatures.add(signature)

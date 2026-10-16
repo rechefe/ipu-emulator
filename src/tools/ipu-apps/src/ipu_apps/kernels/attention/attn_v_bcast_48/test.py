@@ -1,4 +1,5 @@
 """attn_v_bcast_48: every case in cases.py, plus padding isolation."""
+
 import numpy as np
 
 from ipu_apps.kernel_registry.testing import case_tests
@@ -16,7 +17,8 @@ def test_padding_is_inert(tmp_path):
     """
     zero_padded, garbage_padded = padded_runs("attn_v_bcast_48", tmp_path, (0.0, 1e3))
     np.testing.assert_array_equal(
-        garbage_padded, zero_padded,
+        garbage_padded,
+        zero_padded,
         err_msg=(
             "attn_v_bcast_48 output changed when padding lanes were filled "
             "with garbage -- per-lane ACC is not isolated from unused lanes"

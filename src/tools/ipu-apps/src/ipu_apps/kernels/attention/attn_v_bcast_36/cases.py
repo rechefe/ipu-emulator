@@ -10,6 +10,7 @@ is only how V's scalar source is staged). The reference (``acc_fold``) mirrors
 that per-step fold exactly, so it agrees with the kernel's output exactly
 (rtol = atol = 0), not merely within a loose tolerance.
 """
+
 from ipu_apps.kernels.attention.attn_v_bcast_36 import app
 from ipu_apps.kernels.attention.cases import attn_v_bcast_cases
 

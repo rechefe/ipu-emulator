@@ -57,13 +57,12 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ipu_emu.ipu_config import Partition
-
 from ipu_apps.kernel_registry.base import IpuApp
+
 # The border mask builder is shared with conv_universal(_bn_activation): a
 # single 128-byte blob (slots 0/3/6) where left/right edge columns are applied
 # at runtime via mask_shift (CR15 partition).
@@ -79,6 +78,7 @@ from ipu_apps.kernels.convolutions.app import (
     universal_spec,
     unpack_output_chunked,
 )
+from ipu_emu.ipu_config import Partition
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -94,14 +94,16 @@ ROW_BYTES = CHUNK_ELEMENTS * 4  # 512 B/row in FP32 wide-vector mode
 
 OUTPUT_CHUNK_BYTES = CHUNK_ELEMENTS * 4  # bytes per output channel per chunk (FP32)
 
-FPB = 25            # channels per 256-element super-block (1 bias + 9 taps each)
+FPB = 25  # channels per 256-element super-block (1 bias + 9 taps each)
 CH_SLOT_ELEMENTS = 10  # per-channel slot: element 0 = bias, 1..9 = 9 taps
 SUPER_BLOCK_ELEMENTS = 256
 SUPER_BLOCK_ROWS = SUPER_BLOCK_ELEMENTS * 4 // ROW_BYTES  # = 2
 
 
 def _pack_depthwise_kernel_bias(
-    weights: np.ndarray, bias: np.ndarray, channels: int,
+    weights: np.ndarray,
+    bias: np.ndarray,
+    channels: int,
 ) -> bytes:
     """Pack per-channel (bias + 9 weight taps) into FPB=25 super-blocks (float32).
 
@@ -125,7 +127,7 @@ def _pack_depthwise_kernel_bias(
                 break
             slot = sb_base + s * CH_SLOT_ELEMENTS
             packed[slot] = bias[ch]
-            packed[slot + 1:slot + 10] = weights[ch]
+            packed[slot + 1 : slot + 10] = weights[ch]
     return packed.tobytes()
 
 
@@ -161,8 +163,8 @@ class DepthwiseConvUniversalBnActivationApp(IpuApp):
         height: int,
         width: int,
         channels: int,
-        kernel: Optional[np.ndarray] = None,
-        bias: Optional[np.ndarray] = None,
+        kernel: np.ndarray | None = None,
+        bias: np.ndarray | None = None,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -200,12 +202,14 @@ class DepthwiseConvUniversalBnActivationApp(IpuApp):
         self.total_kernel_elements = self.num_super_blocks * SUPER_BLOCK_ELEMENTS
 
         input_region_rows = self.group_stride + self.num_chunks * self.group_stride
-        self._regions = allocate_regions([
-            ("input", input_region_rows * CHUNK_ELEMENTS),
-            ("kernel", self.total_kernel_elements),
-            ("mask", CHUNK_ELEMENTS),
-            ("output", self.num_chunks * self.channels * CHUNK_ELEMENTS),
-        ])
+        self._regions = allocate_regions(
+            [
+                ("input", input_region_rows * CHUNK_ELEMENTS),
+                ("kernel", self.total_kernel_elements),
+                ("mask", CHUNK_ELEMENTS),
+                ("output", self.num_chunks * self.channels * CHUNK_ELEMENTS),
+            ]
+        )
         self.input_base_row = self._regions["input"] // CHUNK_ELEMENTS
         self.kernel_base_row = self._regions["kernel"] // CHUNK_ELEMENTS
         self.mask_base_row = self._regions["mask"] // CHUNK_ELEMENTS
@@ -224,17 +228,15 @@ class DepthwiseConvUniversalBnActivationApp(IpuApp):
                     f"kernel_path file has {len(raw)} bytes, "
                     f"expected {expected} (channels * 9 * 4 B float32)"
                 )
-            weights = (
-                np.frombuffer(raw, dtype=np.float32).reshape(self.channels, 3, 3)
-            )
+            weights = np.frombuffer(raw, dtype=np.float32).reshape(self.channels, 3, 3)
         w_flat = weights.reshape(self.channels, 9)
         return _pack_depthwise_kernel_bias(w_flat, self._bias_array, self.channels)
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         input_raw = np.frombuffer(self.input_path.read_bytes(), dtype=np.float32)
         input_chw = input_raw.reshape(self.channels, self.height, self.width)
         padded = np.zeros((self.channels, self.rows, self.cols), dtype=np.float32)
-        padded[:, :self.height, :self.width] = input_chw
+        padded[:, : self.height, : self.width] = input_chw
         input_data = pack_input_chunked(padded, self.cols)
         state.xmem.write_address(self.input_data_row * ROW_BYTES, input_data)
 
@@ -265,19 +267,21 @@ class DepthwiseConvUniversalBnActivationApp(IpuApp):
         state.regfile.set_cr(7, FPB)
         state.regfile.set_cr(8, self.total_kernel_rows)
         state.regfile.set_cr(
-            11, (self.num_chunks - 1) * self.group_stride + self.group_stride,
+            11,
+            (self.num_chunks - 1) * self.group_stride + self.group_stride,
         )
         state.regfile.set_cr(12, 128)
         state.regfile.set_cr(13, 256)
         state.regfile.set_cr(14, (256 - 2 * self.cols - 2) & 0xFFFFFFFF)
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         if self.output_path is not None:
             total_outputs = self.num_chunks * self.channels
             raw = state.xmem.read_address(self.output_base_addr, total_outputs * ROW_BYTES)
             padded_out = unpack_output_chunked(raw, self.channels, self.rows, self.cols)
-            out = padded_out[:, :self.height, :self.width]
+            out = padded_out[:, : self.height, : self.width]
             self.output_path.write_bytes(out.astype(np.float32).tobytes())
+
 
 # -- registry declaration ---------------------------------------------------
 # groups == in_channels (depthwise), folded bias + ReLU.
@@ -289,24 +293,24 @@ def _supports(q):
     if q.dilation != 1:
         return f"handles only dilation=1; got {q.dilation}"
     if q.padding != 1:
-        return f"handles only padding=1 (\"same\" padding for a 3x3 kernel); got {q.padding}"
+        return f'handles only padding=1 ("same" padding for a 3x3 kernel); got {q.padding}'
     if q.stride != 1:
         return f"handles only stride=1; got {q.stride}"
     if not q.is_depthwise:
-        return (f"handles only depthwise (groups==in_channels); got groups={q.groups}, "
-                f"in_channels={q.in_channels}")
+        return (
+            f"handles only depthwise (groups==in_channels); got groups={q.groups}, "
+            f"in_channels={q.in_channels}"
+        )
     if q.out_channels != q.in_channels:
-        return (f"depthwise requires out_channels==in_channels; got {q.out_channels} "
-                f"vs {q.in_channels}")
+        return (
+            f"depthwise requires out_channels==in_channels; got {q.out_channels} vs {q.in_channels}"
+        )
     if not q.apply_relu:
         return "this kernel always applies ReLU; see depthwise_conv_universal for the plain twin"
     if not q.has_bias:
         return "this kernel requires bias (folded); see depthwise_conv_universal for the bias-free twin"
     if q.width > 128:
-        return (
-            f"width ({q.width}) exceeds 128, the largest width this app "
-            "supports"
-        )
+        return f"width ({q.width}) exceeds 128, the largest width this app supports"
     return None
 
 

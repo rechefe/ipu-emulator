@@ -22,14 +22,15 @@ class DType(IntEnum):
     where "m" counts sign + mantissa bits, giving 1 sign + x exponent
     + (7-x) stored mantissa bits = 8 bits total.
     """
+
     INT8 = 0  # integer mode: 8-bit signed (no exponent)
-    E1 = 1    # fp8_e1: 1 exp bit,  6 mantissa bits
-    E2 = 2    # fp8_e2: 2 exp bits, 5 mantissa bits
-    E3 = 3    # fp8_e3: 3 exp bits, 4 mantissa bits
-    E4 = 4    # fp8_e4: 4 exp bits, 3 mantissa bits  (formerly FP8_E4M3)
-    E5 = 5    # fp8_e5: 5 exp bits, 2 mantissa bits  (formerly FP8_E5M2)
-    E6 = 6    # fp8_e6: 6 exp bits, 1 mantissa bit
-    E7 = 7    # fp8_e7: 7 exp bits, 0 mantissa bits
+    E1 = 1  # fp8_e1: 1 exp bit,  6 mantissa bits
+    E2 = 2  # fp8_e2: 2 exp bits, 5 mantissa bits
+    E3 = 3  # fp8_e3: 3 exp bits, 4 mantissa bits
+    E4 = 4  # fp8_e4: 4 exp bits, 3 mantissa bits  (formerly FP8_E4M3)
+    E5 = 5  # fp8_e5: 5 exp bits, 2 mantissa bits  (formerly FP8_E5M2)
+    E6 = 6  # fp8_e6: 6 exp bits, 1 mantissa bit
+    E7 = 7  # fp8_e7: 7 exp bits, 0 mantissa bits
 
 
 def _int8_to_signed(val: int) -> int:
@@ -178,9 +179,7 @@ def fp8_bytes_to_fp32(raw: bytes, dtype: DType) -> np.ndarray:
     if dtype == DType.INT8:
         raise ValueError(f"fp8_bytes_to_fp32 only supports FP8 dtypes, got {dtype!r}")
     exp_bits = int(dtype)
-    return np.array(
-        [_fp8_to_float32_scalar(b, exp_bits) for b in raw], dtype=np.float32
-    )
+    return np.array([_fp8_to_float32_scalar(b, exp_bits) for b in raw], dtype=np.float32)
 
 
 def dtype_one_byte(dtype: DType) -> int:

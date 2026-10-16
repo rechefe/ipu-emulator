@@ -1,10 +1,11 @@
 """Fully connected regression tests using the runtime cases."""
+
 import pytest
 
-from ipu_apps.kernels.linear.fully_connected.cases import CASES, DATA, MissingInputFixture, prepare
 from ipu_apps.kernel_registry import create_harness, resolve
 from ipu_apps.kernel_registry.cases import run_case
 from ipu_apps.kernel_registry.testing import case_tests
+from ipu_apps.kernels.linear.fully_connected.cases import CASES, DATA, MissingInputFixture, prepare
 from ipu_emu.errors import DebugOnlyInstructionWarning
 
 test_case = case_tests(__package__)

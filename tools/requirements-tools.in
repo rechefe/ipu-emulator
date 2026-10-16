@@ -5,3 +5,5 @@ uv
 # Reads pyproject.toml files in //tools:deps_consistency_test (stdlib tomllib
 # from Python 3.11).
 tomli
+# Lint and format: //tools:ruff and the ruff_test targets (tools/lint.bzl).
+ruff

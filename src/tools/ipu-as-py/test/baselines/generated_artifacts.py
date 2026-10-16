@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import gen_vscode_wrapper
+
 from ipu_as import gen_docs, gen_vscode
 from ipu_gen import gen_union_layout_svg
 

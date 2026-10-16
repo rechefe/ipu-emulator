@@ -1,4 +1,5 @@
 """Runtime cases for proj_outproj_240_p4."""
+
 from ipu_apps.kernels.projections.cases import projection_cases
 from ipu_apps.kernels.projections.proj_outproj_240_p4 import app
 

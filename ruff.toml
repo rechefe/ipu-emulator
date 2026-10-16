@@ -1,0 +1,29 @@
+# The one ruff configuration for every Python file in the repository (Q65).
+# Checked by the ruff_test targets (tools/lint.bzl); run the locked ruff with
+# `bazel run //tools:ruff -- <args>`. No package carries its own ruff config.
+target-version = "py310"
+line-length = 100
+
+[lint]
+# E4/E7/E9/F: ruff's defaults. I: import order. UP: pyupgrade. B: bugbear.
+# C901/PLR0912/PLR0913/PLR0915: function size and complexity (Q66, about
+# 60-line functions); PLR0913 backs the "no flag arguments" convention.
+select = ["E4", "E7", "E9", "F", "I", "UP", "B", "C901", "PLR0912", "PLR0913", "PLR0915"]
+
+[lint.isort]
+# The repository's own packages (src/tools/*/src/<name>). Named explicitly so
+# import grouping is the same in the workspace and in a ruff_test sandbox,
+# where the other packages' directories are absent.
+known-first-party = ["ipu_apps", "ipu_as", "ipu_emu", "ipu_gen", "ipu_isa"]
+
+[lint.mccabe]
+max-complexity = 10
+
+[lint.pylint]
+max-branches = 12
+max-statements = 50
+max-args = 6
+
+[lint.per-file-ignores]
+# Baseline: existing offenders, removed as each refactor epic reaches the file.
+# Do not add entries; fix the code instead.

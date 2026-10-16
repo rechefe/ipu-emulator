@@ -4,7 +4,11 @@
 # kernel re-runs all four passes on the next group -- kept here so the
 # per-group overhead stays visible in cyc/rows.
 CONFIGS = [
-    dict(rows=8, n=200), dict(rows=8, n=300), dict(rows=16, n=500),
-    dict(rows=4, n=1000), dict(rows=200, n=200), dict(rows=300, n=129),
+    dict(rows=8, n=200),
+    dict(rows=8, n=300),
+    dict(rows=16, n=500),
+    dict(rows=4, n=1000),
+    dict(rows=200, n=200),
+    dict(rows=300, n=129),
 ]
 PER = "rows"

@@ -52,4 +52,3 @@ class DebugControl(RunControl):
         validate_pc(pc)
         self.run_target = pc if pc != current_pc else None
         return pc != current_pc
-

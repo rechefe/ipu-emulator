@@ -25,15 +25,15 @@ import pytest
 from ipu_apps.kernel_registry import kernels, resolve
 from ipu_apps.kernel_registry.cases import assemble_kernel
 from ipu_apps.kernels.attention.app import CHAIN_OF, CHAINS
-from ipu_apps.kernels.attention.cases import acc_fold, agg_fold
 from ipu_apps.kernels.attention.attn_scores_km_16x60 import app as km16
-from ipu_apps.kernels.attention.attn_scores_km_256x36 import app as km256
 from ipu_apps.kernels.attention.attn_scores_km_64x48 import app as km64
+from ipu_apps.kernels.attention.attn_scores_km_256x36 import app as km256
 from ipu_apps.kernels.attention.attn_v_16x60 import app as av16
 from ipu_apps.kernels.attention.attn_v_256x36 import app as av256
 from ipu_apps.kernels.attention.attn_v_bcast_36 import app as bc36
 from ipu_apps.kernels.attention.attn_v_bcast_48 import app as bc48
 from ipu_apps.kernels.attention.attn_v_bcast_60 import app as bc60
+from ipu_apps.kernels.attention.cases import acc_fold, agg_fold
 from ipu_apps.kernels.attention.qk_scores_16x60 import app as qk16
 from ipu_apps.kernels.attention.qk_scores_256x36 import app as qk256
 
@@ -72,6 +72,7 @@ POISON = np.float32(1e3)
 
 
 # -- chain separation ---------------------------------------------------------
+
 
 def _attention_kernels():
     return [s for s in kernels() if s.resource_package.startswith("ipu_apps.kernels.attention.")]
@@ -141,35 +142,43 @@ def _qk256_raw(inst, tmp_path, q_head, k_head, tag):
     q_path.write_bytes(q_head.astype(np.float32).tobytes())
     k_path.write_bytes(k_head.astype(np.float32).tobytes())
     out = tmp_path / f"qk_out_{tag}.bin"
-    _run(qk256.QkScores256x36App(inst_path=inst("qk_scores_256x36"), query_path=q_path,
-                                 key_path=k_path, output_path=out),
-         poison=[(qk256.S_BASE, qk256.N * qk256.N_TG)])
+    _run(
+        qk256.QkScores256x36App(
+            inst_path=inst("qk_scores_256x36"), query_path=q_path, key_path=k_path, output_path=out
+        ),
+        poison=[(qk256.S_BASE, qk256.N * qk256.N_TG)],
+    )
     raw = out.read_bytes()
     assert len(raw) == qk256.N * qk256.N_TG * qk256.OUTPUT_ROW_BYTES
     # Poison detector: no output element should still read as the poison
     # value (extremely unlikely from real uniform(-1,1) products/sums).
     assert not np.any(np.frombuffer(raw, np.float32) == POISON), (
-        f"{tag}: producer under-wrote its output region -- poison survived")
+        f"{tag}: producer under-wrote its output region -- poison survived"
+    )
     return raw
 
 
 def _v_rows(V, width):
     """V[h, t, s] channel-major: one row of ``width`` lanes per value channel."""
     return np.ascontiguousarray(
-        np.pad(V.reshape(-1, V.shape[-1]), ((0, 0), (0, width - V.shape[-1])))).astype(np.float32)
+        np.pad(V.reshape(-1, V.shape[-1]), ((0, 0), (0, width - V.shape[-1])))
+    ).astype(np.float32)
 
 
 def _attn_v256(inst, tmp_path, p_bytes, V, tag):
     p_path, v_path, out = (tmp_path / f"{n}_{tag}.bin" for n in ("p", "v", "o"))
     p_path.write_bytes(p_bytes)
     v_path.write_bytes(_v_rows(V, av256.PV_STRIDE_ROWS * LANES).tobytes())
-    _run(av256.AttnV256x36App(inst_path=inst("attn_v_256x36"), p_path=p_path, v_path=v_path,
-                              output_path=out),
-         poison=[(av256.OBASE, av256.O_ROWS)])
+    _run(
+        av256.AttnV256x36App(
+            inst_path=inst("attn_v_256x36"), p_path=p_path, v_path=v_path, output_path=out
+        ),
+        poison=[(av256.OBASE, av256.O_ROWS)],
+    )
     raw = np.fromfile(out, dtype="<f4")
     assert raw.size == av256.N_CHAN * 2 * LANES
     assert not np.any(raw == POISON), "attn_v_256x36 under-wrote its output region"
-    return raw.reshape(av256.N_HEAD, av256.D, 2 * LANES)[..., :av256.N_TOK]
+    return raw.reshape(av256.N_HEAD, av256.D, 2 * LANES)[..., : av256.N_TOK]
 
 
 def _two_stage(Q, K, V):
@@ -193,10 +202,12 @@ def test_seam_qk_scores_to_attn_v_256x36(inst, tmp_path):
     p_bytes = b"".join(_qk256_raw(inst, tmp_path, Q[h], K[h], f"h{h}") for h in range(av256.N_HEAD))
     assert len(p_bytes) == av256.N_HEAD * av256.P_HEAD_STRIDE_ROWS * ROW_BYTES, (
         "concatenated qk_scores output size does not equal attn_v_256x36's "
-        "expected P region size -- head-block row counts disagree")
+        "expected P region size -- head-block row counts disagree"
+    )
     got = _attn_v256(inst, tmp_path, p_bytes, V, "chained")
-    np.testing.assert_allclose(got, _two_stage(Q, K, V), rtol=1e-3, atol=1e-2,
-                               err_msg="chained qk_scores->attn_v mismatch")
+    np.testing.assert_allclose(
+        got, _two_stage(Q, K, V), rtol=1e-3, atol=1e-2, err_msg="chained qk_scores->attn_v mismatch"
+    )
 
 
 def test_seam_qk_attn_v_head_block_pitch_mutation_detected(inst, tmp_path):
@@ -208,13 +219,14 @@ def test_seam_qk_attn_v_head_block_pitch_mutation_detected(inst, tmp_path):
     h_mut = 2
     block = av256.P_HEAD_STRIDE_ROWS * ROW_BYTES
     lo, hi = h_mut * block, (h_mut + 1) * block
-    mutated = good[:lo] + good[lo + ROW_BYTES:hi] + good[lo:lo + ROW_BYTES] + good[hi:]
+    mutated = good[:lo] + good[lo + ROW_BYTES : hi] + good[lo : lo + ROW_BYTES] + good[hi:]
     assert mutated != good, "mutation harness produced no actual change"
     got = _attn_v256(inst, tmp_path, mutated, V, "mut")
     expected = _two_stage(Q, K, V)
     assert not np.allclose(got[h_mut], expected[h_mut], rtol=1e-3, atol=1e-2), (
         "mutated (row-rolled) head block did not produce any numeric "
-        "mismatch -- the seam assertion would not have caught this bug")
+        "mismatch -- the seam assertion would not have caught this bug"
+    )
 
 
 # -- seam: attn_scores_km_256x36 -> attn_v_bcast_36 (key-major, L3) -----------
@@ -229,13 +241,21 @@ assert km256.N_HEADS == bc36.N_HEAD and bc36.PV_STRIDE_ROWS == km256.N_TG
 
 
 def _km256_raw(inst, q_path, k_path, head, out):
-    _run(km256.AttnScoresKM256x36App(inst_path=inst("attn_scores_km_256x36"), input_path=q_path,
-                                     weights_path=k_path, output_path=out, head=head),
-         poison=[(km256.SBASE, km256.N_TOK * km256.N_TG)])
+    _run(
+        km256.AttnScoresKM256x36App(
+            inst_path=inst("attn_scores_km_256x36"),
+            input_path=q_path,
+            weights_path=k_path,
+            output_path=out,
+            head=head,
+        ),
+        poison=[(km256.SBASE, km256.N_TOK * km256.N_TG)],
+    )
     raw = out.read_bytes()
     assert len(raw) == km256.N_TOK * km256.N_TG * km256.OUTPUT_ROW_BYTES
     assert not np.any(np.frombuffer(raw, np.float32) == POISON), (
-        f"head {head}: producer under-wrote its output region -- poison survived")
+        f"head {head}: producer under-wrote its output region -- poison survived"
+    )
     return raw
 
 
@@ -248,11 +268,14 @@ def _km256_chain(inst, tmp_path, seed, tag):
     q_path, k_path = tmp_path / f"q_{tag}.bin", tmp_path / f"k_{tag}.bin"
     q_path.write_bytes(Q.tobytes())
     k_path.write_bytes(K.tobytes())
-    p_bytes = b"".join(_km256_raw(inst, q_path, k_path, h, tmp_path / f"km_{tag}{h}.bin")
-                       for h in range(km256.N_HEADS))
+    p_bytes = b"".join(
+        _km256_raw(inst, q_path, k_path, h, tmp_path / f"km_{tag}{h}.bin")
+        for h in range(km256.N_HEADS)
+    )
     assert len(p_bytes) == bc36.N_HEAD * bc36.P_HEAD_STRIDE_ROWS * ROW_BYTES, (
         "concatenated attn_scores_km output size does not equal attn_v_bcast_36's "
-        "expected P region size -- head-block row counts disagree")
+        "expected P region size -- head-block row counts disagree"
+    )
     shape = (km256.N_HEADS, km256.D, km256.N_TOK)
     return p_bytes, _two_stage(Q.reshape(shape), K.reshape(shape), V), V
 
@@ -261,20 +284,24 @@ def _bcast36(inst, tmp_path, p_bytes, V, tag):
     p_path, v_path, out = (tmp_path / f"{n}_{tag}.bin" for n in ("p", "v", "o"))
     p_path.write_bytes(p_bytes)
     v_path.write_bytes(_v_rows(V, bc36.PV_STRIDE_ROWS * LANES).tobytes())
-    _run(bc36.AttnVBcast36App(inst_path=inst("attn_v_bcast_36"), p_path=p_path, v_path=v_path,
-                              output_path=out),
-         poison=[(bc36.OBASE, bc36.O_ROWS)])
+    _run(
+        bc36.AttnVBcast36App(
+            inst_path=inst("attn_v_bcast_36"), p_path=p_path, v_path=v_path, output_path=out
+        ),
+        poison=[(bc36.OBASE, bc36.O_ROWS)],
+    )
     raw = np.fromfile(out, dtype="<f4")
     assert raw.size == bc36.N_CHAN * 2 * LANES
     assert not np.any(raw == POISON), "attn_v_bcast_36 under-wrote its output region"
-    return raw.reshape(bc36.N_HEAD, bc36.D, 2 * LANES)[..., :bc36.N_TOK]
+    return raw.reshape(bc36.N_HEAD, bc36.D, 2 * LANES)[..., : bc36.N_TOK]
 
 
 def test_seam_attn_scores_km_to_attn_v_bcast_36(inst, tmp_path):
     p_bytes, expected, V = _km256_chain(inst, tmp_path, 0x6EA3, "ok")
     got = _bcast36(inst, tmp_path, p_bytes, V, "chained")
-    np.testing.assert_allclose(got, expected, rtol=1e-3, atol=1e-2,
-                               err_msg="chained attn_scores_km->attn_v_bcast mismatch")
+    np.testing.assert_allclose(
+        got, expected, rtol=1e-3, atol=1e-2, err_msg="chained attn_scores_km->attn_v_bcast mismatch"
+    )
 
 
 def test_seam_km_bcast_head_block_pitch_mutation_detected(inst, tmp_path):
@@ -285,12 +312,13 @@ def test_seam_km_bcast_head_block_pitch_mutation_detected(inst, tmp_path):
     h_mut = 1
     block = bc36.P_HEAD_STRIDE_ROWS * ROW_BYTES
     lo, hi = h_mut * block, (h_mut + 1) * block
-    mutated = good[:lo] + good[lo + ROW_BYTES:hi] + good[lo:lo + ROW_BYTES] + good[hi:]
+    mutated = good[:lo] + good[lo + ROW_BYTES : hi] + good[lo : lo + ROW_BYTES] + good[hi:]
     assert mutated != good, "mutation harness produced no actual change"
     got = _bcast36(inst, tmp_path, mutated, V, "mut")
     assert not np.allclose(got[h_mut], expected[h_mut], rtol=1e-3, atol=1e-2), (
         "mutated (row-rolled) head block did not produce any numeric "
-        "mismatch -- the seam assertion would not have caught this bug")
+        "mismatch -- the seam assertion would not have caught this bug"
+    )
 
 
 # -- seam: qk_scores_16x60 -> attn_v_16x60 (query-major + AGG, L5) ------------
@@ -306,7 +334,8 @@ def test_seam_km_bcast_head_block_pitch_mutation_detected(inst, tmp_path):
 # attn_v_16x60 expects.
 
 assert qk16.N == av16.N_TOK and qk16.D == av16.D and qk16.N_TG == 1, (
-    "qk_scores_16x60 / attn_v_16x60 shape constants diverged")
+    "qk_scores_16x60 / attn_v_16x60 shape constants diverged"
+)
 
 
 def _qk16_raw(inst, tmp_path, q_head, k_head, tag):
@@ -314,12 +343,16 @@ def _qk16_raw(inst, tmp_path, q_head, k_head, tag):
     q_path, k_path, out = (tmp_path / f"{n}_{tag}.bin" for n in ("q", "k", "s"))
     q_path.write_bytes(q_head.tobytes())
     k_path.write_bytes(k_head.tobytes())
-    _run(qk16.QkScores16x60App(inst_path=inst("qk_scores_16x60"), query_path=q_path,
-                               key_path=k_path, output_path=out),
-         poison=[(qk16.S_BASE, qk16.N * qk16.N_TG)])
+    _run(
+        qk16.QkScores16x60App(
+            inst_path=inst("qk_scores_16x60"), query_path=q_path, key_path=k_path, output_path=out
+        ),
+        poison=[(qk16.S_BASE, qk16.N * qk16.N_TG)],
+    )
     raw = out.read_bytes()
     assert not np.any(np.frombuffer(raw, np.float32) == POISON), (
-        f"{tag}: producer under-wrote its output region -- poison survived")
+        f"{tag}: producer under-wrote its output region -- poison survived"
+    )
     return raw
 
 
@@ -330,10 +363,11 @@ def _qk16_chain(inst, tmp_path, Q, K):
     D = av16.D
     parts = []
     for h in range(av16.N_HEAD):
-        raw = _qk16_raw(inst, tmp_path, Q[h * D:(h + 1) * D], K[h * D:(h + 1) * D], f"h{h}")
+        raw = _qk16_raw(inst, tmp_path, Q[h * D : (h + 1) * D], K[h * D : (h + 1) * D], f"h{h}")
         assert len(raw) == av16.P_HEAD_STRIDE_ROWS * ROW_BYTES, (
             f"head {h}: qk_scores_16x60 produced {len(raw)} B, expected "
-            f"{av16.P_HEAD_STRIDE_ROWS * ROW_BYTES} B (P_HEAD_STRIDE)")
+            f"{av16.P_HEAD_STRIDE_ROWS * ROW_BYTES} B (P_HEAD_STRIDE)"
+        )
         parts.append(raw)
     return b"".join(parts)
 
@@ -343,19 +377,23 @@ def _attn_v16(inst, tmp_path, p_bytes, V, tag):
     p_path, v_path, out = (tmp_path / f"{n}_{tag}.bin" for n in ("p", "v", "o"))
     p_path.write_bytes(p_bytes)
     v_path.write_bytes(_v_rows(V, av16.PV_STRIDE_ROWS * LANES).tobytes())
-    _run(av16.AttnV16x60App(inst_path=inst("attn_v_16x60"), p_path=p_path, v_path=v_path,
-                            output_path=out),
-         poison=[(av16.OBASE, av16.O_ROWS)])
-    got = np.fromfile(out, dtype="<f4").reshape(av16.N_HEAD, av16.D, LANES)[..., :av16.N_TOK]
+    _run(
+        av16.AttnV16x60App(
+            inst_path=inst("attn_v_16x60"), p_path=p_path, v_path=v_path, output_path=out
+        ),
+        poison=[(av16.OBASE, av16.O_ROWS)],
+    )
+    got = np.fromfile(out, dtype="<f4").reshape(av16.N_HEAD, av16.D, LANES)[..., : av16.N_TOK]
     assert not np.any(got == POISON), (
         f"{tag}: attn_v_16x60 under-wrote its output region -- poison survived "
-        f"into the valid-lane bytes")
+        f"into the valid-lane bytes"
+    )
     return got
 
 
 def _scores16(Q, K, heads, d):
     """S[h, i, s] = sum_c Q[h*d + c, i] K[h*d + c, s] as the float32 matmul."""
-    return np.stack([Q[h * d:(h + 1) * d].T @ K[h * d:(h + 1) * d] for h in range(heads)])
+    return np.stack([Q[h * d : (h + 1) * d].T @ K[h * d : (h + 1) * d] for h in range(heads)])
 
 
 def _qkv16(seed):
@@ -375,15 +413,24 @@ def test_seam_qk_to_attn_v_16x60_agrees(inst, tmp_path):
     p_bytes = _qk16_chain(inst, tmp_path, Q, K)
     assert len(p_bytes) == av16.P_ROWS * ROW_BYTES, (
         f"chained P is {len(p_bytes)} B, attn_v_16x60 expects {av16.P_ROWS * ROW_BYTES} B "
-        f"-- producer/consumer region-size mismatch")
+        f"-- producer/consumer region-size mismatch"
+    )
     p_arr = np.frombuffer(p_bytes, dtype=np.float32).reshape(av16.P_ROWS, LANES)
-    assert not np.any(p_arr[:, :av16.N_TOK] == POISON), (
-        "producer failed to overwrite poison in its declared-valid lanes")
+    assert not np.any(p_arr[:, : av16.N_TOK] == POISON), (
+        "producer failed to overwrite poison in its declared-valid lanes"
+    )
     got = _attn_v16(inst, tmp_path, p_bytes, V, "chained")
     expected = agg_fold(_scores16(Q, K, av16.N_HEAD, av16.D), V)
-    np.testing.assert_allclose(got, expected, rtol=1e-4, atol=1e-3, err_msg=(
-        "chained qk_scores_16x60 -> attn_v_16x60 mismatch against the full "
-        "two-stage numpy reference"))
+    np.testing.assert_allclose(
+        got,
+        expected,
+        rtol=1e-4,
+        atol=1e-3,
+        err_msg=(
+            "chained qk_scores_16x60 -> attn_v_16x60 mismatch against the full "
+            "two-stage numpy reference"
+        ),
+    )
 
 
 def test_seam_qk_to_attn_v_16x60_head_concat_order(inst, tmp_path):
@@ -396,9 +443,15 @@ def test_seam_qk_to_attn_v_16x60_head_concat_order(inst, tmp_path):
     p_arr = np.frombuffer(_qk16_chain(inst, tmp_path, Q, K), dtype=np.float32)
     p_arr = p_arr.reshape(H, av16.P_HEAD_STRIDE_ROWS, LANES)
     for h in range(H):
-        np.testing.assert_allclose(p_arr[h, :, :N], np.float32(D * (h + 1)), rtol=1e-5, err_msg=(
-            f"block at head-slot {h} does not contain head {h}'s scores -- head "
-            f"concatenation order does not match attn_v_16x60's PBASE + h*P_HEAD_STRIDE"))
+        np.testing.assert_allclose(
+            p_arr[h, :, :N],
+            np.float32(D * (h + 1)),
+            rtol=1e-5,
+            err_msg=(
+                f"block at head-slot {h} does not contain head {h}'s scores -- head "
+                f"concatenation order does not match attn_v_16x60's PBASE + h*P_HEAD_STRIDE"
+            ),
+        )
 
 
 def test_seam_qk_to_attn_v_16x60_mutation_kills_test(inst, tmp_path):
@@ -450,18 +503,21 @@ def test_seam_qk_to_attn_v_16x60_shared_state_zero_copy(inst, tmp_path):
     state = None
     for h in range(av16.N_HEAD):
         q_path, k_path = tmp_path / f"q_shared_h{h}.bin", tmp_path / f"k_shared_h{h}.bin"
-        q_path.write_bytes(Q[h * D:(h + 1) * D].tobytes())
-        k_path.write_bytes(K[h * D:(h + 1) * D].tobytes())
+        q_path.write_bytes(Q[h * D : (h + 1) * D].tobytes())
+        k_path.write_bytes(K[h * D : (h + 1) * D].tobytes())
         qk_app = qk16.QkScores16x60App(
-            inst_path=inst("qk_scores_16x60"), query_path=q_path, key_path=k_path,
+            inst_path=inst("qk_scores_16x60"),
+            query_path=q_path,
+            key_path=k_path,
             output_path=None,
             qrow_base_row=qk_staging_base_row,
             s_base_row=p_base_row + h * av16.P_HEAD_STRIDE_ROWS,  # attn_v's P slot for head h
         )
         if state is None:
             state = qk_app.make_state()
-            state.xmem.write_address(v_base_row * ROW_BYTES, bytearray(
-                _v_rows(V, av16.PV_STRIDE_ROWS * LANES).tobytes()))
+            state.xmem.write_address(
+                v_base_row * ROW_BYTES, bytearray(_v_rows(V, av16.PV_STRIDE_ROWS * LANES).tobytes())
+            )
         # run() reloads the program but never resets the program counter of a
         # state a prior run left halted.
         state.program_counter = 0
@@ -471,22 +527,32 @@ def test_seam_qk_to_attn_v_16x60_shared_state_zero_copy(inst, tmp_path):
     state.program_counter = 0
     av_app = av16.AttnV16x60App(
         inst_path=inst("attn_v_16x60"),
-        p_path=None,   # P already in shared XMEM from the qk_scores runs above
-        v_path=None,   # V already in shared XMEM, staged above
+        p_path=None,  # P already in shared XMEM from the qk_scores runs above
+        v_path=None,  # V already in shared XMEM, staged above
         output_path=None,
-        pbase_row=p_base_row, vbase_row=v_base_row, obase_row=o_base_row,
+        pbase_row=p_base_row,
+        vbase_row=v_base_row,
+        obase_row=o_base_row,
     )
     _, cycles = av_app.run(max_cycles=MAX_CYCLES, state=state)
     assert cycles > 0
 
     raw = state.xmem.read_address(o_base_row * ROW_BYTES, av16.N_CHAN * av16.O_CHAN_BYTES)
     got = np.frombuffer(bytes(raw), dtype=np.float32).reshape(av16.N_HEAD, D, LANES)
-    S = np.stack([Q[h * D:(h + 1) * D].T.astype(np.float64) @ K[h * D:(h + 1) * D].astype(np.float64)
-                  for h in range(av16.N_HEAD)])
+    S = np.stack(
+        [
+            Q[h * D : (h + 1) * D].T.astype(np.float64) @ K[h * D : (h + 1) * D].astype(np.float64)
+            for h in range(av16.N_HEAD)
+        ]
+    )
     expected = np.einsum("his,hts->hti", S, V.astype(np.float64))
-    np.testing.assert_allclose(got[..., :av16.N_TOK].astype(np.float64), expected,
-                               rtol=1e-4, atol=1e-3,
-                               err_msg="shared-state chain mismatch vs numpy float64 reference")
+    np.testing.assert_allclose(
+        got[..., : av16.N_TOK].astype(np.float64),
+        expected,
+        rtol=1e-4,
+        atol=1e-3,
+        err_msg="shared-state chain mismatch vs numpy float64 reference",
+    )
 
 
 # -- seam: attn_scores_km_16x60 -> attn_v_bcast_60 (key-major, L5) ------------
@@ -501,8 +567,9 @@ def test_seam_qk_to_attn_v_16x60_shared_state_zero_copy(inst, tmp_path):
 #   attn_v_bcast_60      -> P key-major: row s = all queries for key s, heads
 #                           concatenated at PBASE + h*P_HEAD_STRIDE.
 
-assert (km16.N_TOK == bc60.N_TOK and km16.D == bc60.D and km16.N_TG == 1
-        and km16.N_HEADS == bc60.N_HEAD), "attn_scores_km_16x60 / attn_v_bcast_60 diverged"
+assert (
+    km16.N_TOK == bc60.N_TOK and km16.D == bc60.D and km16.N_TG == 1 and km16.N_HEADS == bc60.N_HEAD
+), "attn_scores_km_16x60 / attn_v_bcast_60 diverged"
 
 
 def _km16_raw(inst, tmp_path, Q, K, head, tag):
@@ -511,12 +578,20 @@ def _km16_raw(inst, tmp_path, Q, K, head, tag):
     q_path, k_path, out = (tmp_path / f"{n}_{tag}.bin" for n in ("q", "k", "s"))
     q_path.write_bytes(Q.tobytes())
     k_path.write_bytes(K.tobytes())
-    _run(km16.AttnScoresKM16x60App(inst_path=inst("attn_scores_km_16x60"), input_path=q_path,
-                                   weights_path=k_path, output_path=out, head=head),
-         poison=[(km16.SBASE, km16.N_TOK * km16.N_TG)])
+    _run(
+        km16.AttnScoresKM16x60App(
+            inst_path=inst("attn_scores_km_16x60"),
+            input_path=q_path,
+            weights_path=k_path,
+            output_path=out,
+            head=head,
+        ),
+        poison=[(km16.SBASE, km16.N_TOK * km16.N_TG)],
+    )
     raw = out.read_bytes()
     assert not np.any(np.frombuffer(raw, np.float32) == POISON), (
-        f"{tag}: producer under-wrote its output region -- poison survived")
+        f"{tag}: producer under-wrote its output region -- poison survived"
+    )
     return raw
 
 
@@ -526,7 +601,8 @@ def _km16_chain(inst, tmp_path, Q, K):
         raw = _km16_raw(inst, tmp_path, Q, K, h, f"h{h}")
         assert len(raw) == bc60.P_HEAD_STRIDE_ROWS * ROW_BYTES, (
             f"head {h}: attn_scores_km_16x60 produced {len(raw)} B, expected "
-            f"{bc60.P_HEAD_STRIDE_ROWS * ROW_BYTES} B (P_HEAD_STRIDE)")
+            f"{bc60.P_HEAD_STRIDE_ROWS * ROW_BYTES} B (P_HEAD_STRIDE)"
+        )
         parts.append(raw)
     return b"".join(parts)
 
@@ -535,13 +611,17 @@ def _bcast60(inst, tmp_path, p_bytes, V, tag):
     p_path, v_path, out = (tmp_path / f"{n}_{tag}.bin" for n in ("p", "v", "o"))
     p_path.write_bytes(p_bytes)
     v_path.write_bytes(_v_rows(V, bc60.PV_STRIDE_ROWS * LANES).tobytes())
-    _run(bc60.AttnVBcast60App(inst_path=inst("attn_v_bcast_60"), p_path=p_path, v_path=v_path,
-                              output_path=out),
-         poison=[(bc60.OBASE, bc60.O_ROWS)])
-    got = np.fromfile(out, dtype="<f4").reshape(bc60.N_HEAD, bc60.D, LANES)[..., :bc60.N_TOK]
+    _run(
+        bc60.AttnVBcast60App(
+            inst_path=inst("attn_v_bcast_60"), p_path=p_path, v_path=v_path, output_path=out
+        ),
+        poison=[(bc60.OBASE, bc60.O_ROWS)],
+    )
+    got = np.fromfile(out, dtype="<f4").reshape(bc60.N_HEAD, bc60.D, LANES)[..., : bc60.N_TOK]
     assert not np.any(got == POISON), (
         f"{tag}: attn_v_bcast_60 under-wrote its output region -- poison survived "
-        f"into the valid-lane bytes")
+        f"into the valid-lane bytes"
+    )
     return got
 
 
@@ -556,15 +636,24 @@ def test_seam_km_to_bcast_60_agrees(inst, tmp_path):
     p_bytes = _km16_chain(inst, tmp_path, Q, K)
     assert len(p_bytes) == bc60.P_ROWS * ROW_BYTES, (
         f"chained P is {len(p_bytes)} B, attn_v_bcast_60 expects {bc60.P_ROWS * ROW_BYTES} B "
-        f"-- producer/consumer region-size mismatch")
+        f"-- producer/consumer region-size mismatch"
+    )
     p_arr = np.frombuffer(p_bytes, dtype=np.float32).reshape(bc60.P_ROWS, LANES)
-    assert not np.any(p_arr[:, :bc60.N_TOK] == POISON), (
-        "producer failed to overwrite poison in its declared-valid lanes")
+    assert not np.any(p_arr[:, : bc60.N_TOK] == POISON), (
+        "producer failed to overwrite poison in its declared-valid lanes"
+    )
     got = _bcast60(inst, tmp_path, p_bytes, V, "chained")
     expected = acc_fold(_scores16(Q, K, bc60.N_HEAD, bc60.D), V)
-    np.testing.assert_allclose(got, expected, rtol=1e-4, atol=1e-3, err_msg=(
-        "chained attn_scores_km_16x60 -> attn_v_bcast_60 mismatch against the "
-        "full two-stage numpy reference"))
+    np.testing.assert_allclose(
+        got,
+        expected,
+        rtol=1e-4,
+        atol=1e-3,
+        err_msg=(
+            "chained attn_scores_km_16x60 -> attn_v_bcast_60 mismatch against the "
+            "full two-stage numpy reference"
+        ),
+    )
 
 
 def test_seam_km_to_bcast_60_row_pitch_and_head_concat(inst, tmp_path):
@@ -579,17 +668,24 @@ def test_seam_km_to_bcast_60_row_pitch_and_head_concat(inst, tmp_path):
     raw_h0 = _km16_raw(inst, tmp_path, Q, K, 0, "pitchcheck")
     assert len(raw_h0) == N * ROW_BYTES, (
         f"attn_scores_km_16x60 raw output is {len(raw_h0)} B for {N} keys -- expected "
-        f"exactly {N * ROW_BYTES} B ({ROW_BYTES} B/row, full row pitch)")
+        f"exactly {N * ROW_BYTES} B ({ROW_BYTES} B/row, full row pitch)"
+    )
     arr_h0 = np.frombuffer(raw_h0, dtype=np.float32).reshape(N, LANES)
     np.testing.assert_allclose(arr_h0[:, :N], float(D), rtol=1e-5)
 
     p_arr = np.frombuffer(_km16_chain(inst, tmp_path, Q, K), dtype=np.float32)
     p_arr = p_arr.reshape(H, bc60.P_HEAD_STRIDE_ROWS, LANES)
     for h in range(H):
-        np.testing.assert_allclose(p_arr[h, :, :N], np.float32(D * (h + 1)), rtol=1e-5, err_msg=(
-            f"block at head-slot {h} does not contain head {h}'s scores -- head "
-            f"concatenation order does not match attn_v_bcast_60's "
-            f"PBASE + h*P_HEAD_STRIDE indexing (CR7=P_HEAD_STRIDE_ROWS)"))
+        np.testing.assert_allclose(
+            p_arr[h, :, :N],
+            np.float32(D * (h + 1)),
+            rtol=1e-5,
+            err_msg=(
+                f"block at head-slot {h} does not contain head {h}'s scores -- head "
+                f"concatenation order does not match attn_v_bcast_60's "
+                f"PBASE + h*P_HEAD_STRIDE indexing (CR7=P_HEAD_STRIDE_ROWS)"
+            ),
+        )
 
 
 def test_seam_km_to_bcast_60_mutation_kills_test(inst, tmp_path):
@@ -617,8 +713,13 @@ def test_seam_km_to_bcast_60_mutation_kills_test(inst, tmp_path):
 # needs N_HEAD=4 producer runs, each contributing 4 blocks (p=0..3 at fixed h)
 # that are NOT contiguous in the consumer's b ordering.
 
-assert (km64.N == bc48.N_TOK and km64.D == bc48.D and km64.P == 4 and km64.N_HEAD == 4
-        and bc48.N_BLOCK == km64.P * km64.N_HEAD)
+assert (
+    km64.N == bc48.N_TOK
+    and km64.D == bc48.D
+    and km64.P == 4
+    and km64.N_HEAD == 4
+    and bc48.N_BLOCK == km64.P * km64.N_HEAD
+)
 
 
 def _km64_raw(inst, tmp_path, Q, K, head):
@@ -627,9 +728,16 @@ def _km64_raw(inst, tmp_path, Q, K, head):
     q_path, k_path, out = (tmp_path / f"{n}_{head}.bin" for n in ("q", "k", "km_out"))
     q_path.write_bytes(Q.tobytes())
     k_path.write_bytes(K.tobytes())
-    _run(km64.AttnScoresKM64x48App(inst_path=inst("attn_scores_km_64x48"), input_path=q_path,
-                                   weights_path=k_path, output_path=out, head=head),
-         poison=[(km64.SBASE, km64.S_ROWS)])
+    _run(
+        km64.AttnScoresKM64x48App(
+            inst_path=inst("attn_scores_km_64x48"),
+            input_path=q_path,
+            weights_path=k_path,
+            output_path=out,
+            head=head,
+        ),
+        poison=[(km64.SBASE, km64.S_ROWS)],
+    )
     raw = out.read_bytes()
     assert len(raw) == km64.P * km64.N * km64.OUTPUT_ROW_BYTES
     # Every row must have been written by the kernel's own store path.
@@ -637,7 +745,8 @@ def _km64_raw(inst, tmp_path, Q, K, head):
     untouched = np.all(rows == POISON, axis=1)
     assert not untouched.any(), (
         f"producer left {untouched.sum()} whole rows as untouched poison "
-        f"(row indices {np.nonzero(untouched)[0].tolist()})")
+        f"(row indices {np.nonzero(untouched)[0].tolist()})"
+    )
     return raw
 
 
@@ -649,7 +758,7 @@ def _km64_p_file(head_outputs):
         rows = np.frombuffer(raw, dtype=np.float32).reshape(km64.P, km64.N, LANES)
         for p in range(km64.P):
             lo = (p * km64.N_HEAD + h) * bc48.N_TOK * ROW_BYTES
-            out[lo:lo + bc48.N_TOK * ROW_BYTES] = rows[p].tobytes()
+            out[lo : lo + bc48.N_TOK * ROW_BYTES] = rows[p].tobytes()
     return bytes(out)
 
 
@@ -665,8 +774,11 @@ def _bcast48(inst, tmp_path, p_bytes, V, tag):
     p_path, v_path, out = (tmp_path / f"{n}_{tag}.bin" for n in ("p", "v", "o"))
     p_path.write_bytes(p_bytes)
     v_path.write_bytes(_v_rows(V, LANES).tobytes())
-    _run(bc48.AttnVBcast48App(inst_path=inst("attn_v_bcast_48"), p_path=p_path, v_path=v_path,
-                              output_path=out))
+    _run(
+        bc48.AttnVBcast48App(
+            inst_path=inst("attn_v_bcast_48"), p_path=p_path, v_path=v_path, output_path=out
+        )
+    )
     return np.fromfile(out, dtype="<f4").reshape(bc48.N_BLOCK, bc48.D, bc48.N_TOK)
 
 
@@ -679,11 +791,19 @@ def test_seam_km_bcast_48_agrees(inst, tmp_path):
     # S[p,h][key, query] = sum_c Q[p,h,c,query] K[p,h,c,key];
     # O[b, t, query] = sum_key S[b][key, query] V[b, t, key].
     S = np.einsum("phcq,phck->phkq", Q.astype(np.float64), K.astype(np.float64))
-    expected = np.einsum("bkq,btk->btq", S.reshape(bc48.N_BLOCK, km64.N, km64.N),
-                         V.astype(np.float64))
-    np.testing.assert_allclose(got, expected, rtol=2e-3, atol=2e-2, err_msg=(
-        "chained attn_scores_km_64x48 -> attn_v_bcast_48 mismatch vs independent "
-        "two-stage numpy reference"))
+    expected = np.einsum(
+        "bkq,btk->btq", S.reshape(bc48.N_BLOCK, km64.N, km64.N), V.astype(np.float64)
+    )
+    np.testing.assert_allclose(
+        got,
+        expected,
+        rtol=2e-3,
+        atol=2e-2,
+        err_msg=(
+            "chained attn_scores_km_64x48 -> attn_v_bcast_48 mismatch vs independent "
+            "two-stage numpy reference"
+        ),
+    )
 
 
 def test_seam_km_bcast_48_row_pitch_mismatch_is_caught(inst, tmp_path):
@@ -696,14 +816,18 @@ def test_seam_km_bcast_48_row_pitch_mismatch_is_caught(inst, tmp_path):
     head_outputs = {h: _km64_raw(inst, tmp_path, Q, K, h) for h in range(km64.N_HEAD)}
     correct = _km64_p_file(head_outputs)
     cropped = b"".join(
-        np.frombuffer(raw, dtype=np.float32).reshape(km64.P * km64.N, LANES)[:, :km64.N].tobytes()
-        for raw in head_outputs.values())
+        np.frombuffer(raw, dtype=np.float32).reshape(km64.P * km64.N, LANES)[:, : km64.N].tobytes()
+        for raw in head_outputs.values()
+    )
     mispitched = cropped + bytes(len(correct) - len(cropped))
-    diff = np.abs(_bcast48(inst, tmp_path, correct, V, "correct")
-                  - _bcast48(inst, tmp_path, mispitched, V, "mispitched"))
+    diff = np.abs(
+        _bcast48(inst, tmp_path, correct, V, "correct")
+        - _bcast48(inst, tmp_path, mispitched, V, "mispitched")
+    )
     assert float(diff.max()) > 1e-2, (
         "mutating the producer's row pitch to a packed 256 B stride did not "
-        f"change attn_v_bcast_48's output (max diff {float(diff.max()):.3e})")
+        f"change attn_v_bcast_48's output (max diff {float(diff.max()):.3e})"
+    )
 
 
 # -- softmax feed: L5 scores into the real softmax kernels --------------------
@@ -736,9 +860,13 @@ def test_query_major_scores_feed_softmax_rows(inst, tmp_path):
     verbatim = tmp_path / "uncropped.bin"
     verbatim.write_bytes(raw)
     with pytest.raises(ValueError, match="input must hold"):
-        SoftmaxRowsPartialApp(inst_path=assemble_kernel("softmax_rows_partial", tmp_path),
-                              input_path=verbatim, output_path=tmp_path / "sm.bin",
-                              n=N, rows=N).run(max_cycles=2_000_000)
+        SoftmaxRowsPartialApp(
+            inst_path=assemble_kernel("softmax_rows_partial", tmp_path),
+            input_path=verbatim,
+            output_path=tmp_path / "sm.bin",
+            n=N,
+            rows=N,
+        ).run(max_cycles=2_000_000)
 
     scores = np.frombuffer(raw, dtype=np.float32).reshape(N, LANES)[:, :N]
     _, got = run_array("softmax_rows_partial", np.ascontiguousarray(scores), axis=1)
@@ -760,15 +888,19 @@ def test_key_major_scores_feed_softmax_columns(inst, tmp_path):
     verbatim = tmp_path / "uncropped.bin"
     verbatim.write_bytes(raw)
     with pytest.raises(ValueError, match="input must hold"):
-        SoftmaxColumnsPackedApp(inst_path=assemble_kernel("softmax_columns_packed", tmp_path),
-                                input_path=verbatim, output_path=tmp_path / "smc.bin",
-                                rows=N, width=N).run(max_cycles=2_000_000)
+        SoftmaxColumnsPackedApp(
+            inst_path=assemble_kernel("softmax_columns_packed", tmp_path),
+            input_path=verbatim,
+            output_path=tmp_path / "smc.bin",
+            rows=N,
+            width=N,
+        ).run(max_cycles=2_000_000)
 
     # Key-major storage: row s = key s. Softmax reduces over keys, i.e. down
     # each COLUMN of the [key, query] matrix.
     scores_km = np.frombuffer(raw, dtype=np.float32).reshape(N, LANES)[:, :N]
     _, got = run_array("softmax_columns_packed", np.ascontiguousarray(scores_km), axis=0)
     lo = head * D
-    expected = _softmax((Q[lo:lo + D].T @ K[lo:lo + D]).T, axis=0)      # [key, query]
+    expected = _softmax((Q[lo : lo + D].T @ K[lo : lo + D]).T, axis=0)  # [key, query]
     err = float(np.max(np.abs(got - expected)))
     assert err < 1e-4, f"softmax of cropped attn_scores_km_16x60 output: max abs error {err:.3e}"

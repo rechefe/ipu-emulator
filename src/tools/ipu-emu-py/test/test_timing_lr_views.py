@@ -14,8 +14,8 @@ from __future__ import annotations
 import struct
 
 import pytest
-
 from timing_probes import PROBES, RAISES, ROW, lane, prepare, r_cyclic_element, ra_element, run
+
 from ipu_emu.errors import DebugOnlyInstructionWarning
 from ipu_emu.execute import Ipu
 

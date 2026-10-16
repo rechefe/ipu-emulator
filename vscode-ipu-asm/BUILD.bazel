@@ -9,6 +9,7 @@
 # .github/workflows/vscode-extension.yml. Please do not add a JS ruleset here.
 
 load("@rules_python//python:defs.bzl", "py_binary")
+load("//tools:lint.bzl", "ruff_test")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -111,3 +112,11 @@ genrule(
 #
 # `bazel run` needs no declared inputs, which keeps the app package free of a
 # filegroup that exists only for this tool. See the workflow for the invocation.
+
+# Ruff lint and format over this package's Python files (tools/lint.bzl).
+# Manual until E01-10 makes the repository pass; run with `bazel test //tools:lint`.
+ruff_test(
+    name = "ruff",
+    srcs = glob(["**/*.py"]),
+    tags = ["manual"],
+)

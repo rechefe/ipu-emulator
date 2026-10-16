@@ -27,12 +27,11 @@ import re
 import struct
 from pathlib import Path
 
-from ipu_emu.ipu_math import DType
-from ipu_emu.ipu_config import LR_CR_SCALAR_VALUE_MASK
-from ipu_emu.emulator import load_binary_to_xmem
-from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
-
 from ipu_apps.kernel_registry.base import IpuApp
+from ipu_emu.emulator import load_binary_to_xmem
+from ipu_emu.ipu_config import LR_CR_SCALAR_VALUE_MASK
+from ipu_emu.ipu_math import DType
+from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 
 # -- Constants (mirror #defines in fully_connected.c) -----------------------
 
@@ -83,8 +82,7 @@ def parse_dtype(dtype_str: str) -> DType:
     if m:
         return DType(int(m.group(1)))
     raise ValueError(
-        f"Invalid dtype '{dtype_str}'. Use 'int8', 'fp8_eX', "
-        "'fp8_e4m3', or 'fp8_e5m2'."
+        f"Invalid dtype '{dtype_str}'. Use 'int8', 'fp8_eX', 'fp8_e4m3', or 'fp8_e5m2'."
     )
 
 
@@ -97,9 +95,7 @@ def _expand_int8_row(row: bytes | bytearray) -> bytes:
 def _load_inputs(state: IpuState, inputs_path: str | Path) -> None:
     """Load inputs with the row spacing required by the active mode."""
     if not state.wide_vector_debug:
-        load_binary_to_xmem(
-            state, inputs_path, INPUT_BASE_ADDR, INPUT_NEURONS, SAMPLES_NUM
-        )
+        load_binary_to_xmem(state, inputs_path, INPUT_BASE_ADDR, INPUT_NEURONS, SAMPLES_NUM)
         return
 
     raw = Path(inputs_path).read_bytes()
@@ -123,9 +119,7 @@ def _load_and_transpose_weights(state: IpuState, weights_path: str | Path) -> No
     raw = Path(weights_path).read_bytes()
     expected = OUTPUT_NEURONS * INPUT_NEURONS
     if len(raw) < expected:
-        raise ValueError(
-            f"Weights file too small: {len(raw)} bytes, expected {expected}"
-        )
+        raise ValueError(f"Weights file too small: {len(raw)} bytes, expected {expected}")
 
     original: list[bytes] = []
     for j in range(OUTPUT_NEURONS):
@@ -156,9 +150,7 @@ class FullyConnectedApp(IpuApp):
         dtype:        Data type string or :class:`DType`.
     """
 
-    def __init__(
-        self, *, dtype: str | DType = "INT8", wide_mode: bool = False, **kwargs
-    ) -> None:
+    def __init__(self, *, dtype: str | DType = "INT8", wide_mode: bool = False, **kwargs) -> None:
         super().__init__(**kwargs)
         self.inputs_path = Path(self.inputs_path)
         self.weights_path = Path(self.weights_path)
@@ -169,8 +161,7 @@ class FullyConnectedApp(IpuApp):
     def setup(self, state: IpuState) -> None:
         state.dtype = self.dtype
         if state.wide_vector_debug and (
-            state.wide_vector_arithmetic != WideVectorArithmetic.INT32
-            or self.dtype != DType.INT8
+            state.wide_vector_arithmetic != WideVectorArithmetic.INT32 or self.dtype != DType.INT8
         ):
             raise ValueError("fully-connected wide mode temporarily supports INT8 only")
 
@@ -195,13 +186,15 @@ class FullyConnectedApp(IpuApp):
         # Pre-decremented by one VLIW step because ADD runs before LDR/MULT within a cycle.
         # The 32-bit wraparound on the first ADD gives the correct starting values (0 for
         # both lr4 offset and lr5 element index on the first effective iteration).
-        state.regfile.set_cr(9, (-1) & LR_CR_SCALAR_VALUE_MASK)     # lr4 cyclic offset (rows): pre-decremented
-        state.regfile.set_cr(10, (-1) & LR_CR_SCALAR_VALUE_MASK)    # lr5 counter: pre-decremented
-        state.regfile.set_cr(11, 127)                # BNE exit condition
+        state.regfile.set_cr(
+            9, (-1) & LR_CR_SCALAR_VALUE_MASK
+        )  # lr4 cyclic offset (rows): pre-decremented
+        state.regfile.set_cr(10, (-1) & LR_CR_SCALAR_VALUE_MASK)  # lr5 counter: pre-decremented
+        state.regfile.set_cr(11, 127)  # BNE exit condition
         state.regfile.set_cr(12, 0)
         state.regfile.set_cr(13, WEIGHTS_BASE_ADDR // row_size)
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         if self.output_path is not None:
             # STR_ACC_REG writes each sample 512 B apart (OUTPUT_STRIDE_ROWS
             # rows), but only the first OUTPUT_NEURONS*4 bytes of each are
@@ -239,7 +232,8 @@ SPEC = folder_spec(
     FullyConnectedApp,
     op="fully_connected",
     execution=lambda app: ExecutionConfig(
-        mode="int32" if app.wide_mode else "native", dtype=app.dtype,
+        mode="int32" if app.wide_mode else "native",
+        dtype=app.dtype,
     ),
     supports=_supports,
     build=lambda **p: {"dtype": p.get("dtype", "INT8"), "wide_mode": p.get("wide_mode", False)},

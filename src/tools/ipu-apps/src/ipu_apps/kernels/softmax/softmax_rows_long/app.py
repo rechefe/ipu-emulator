@@ -63,27 +63,34 @@ class SoftmaxRowsLongApp(SoftmaxApp):
 
     def _crs(self):
         return {
-            8: self.tail,              # tail dstructure: valid_elements = tail
-            9: LANES,                  # maxvec R1 byte base
-            11: self.rows,             # row loop bound
-            12: self.full_chunks,      # full-chunk loop bound
-            13: self.chunks_per_row,   # chunks per row
-            14: self.chunks_per_row,   # row stride in XMEM rows
+            8: self.tail,  # tail dstructure: valid_elements = tail
+            9: LANES,  # maxvec R1 byte base
+            11: self.rows,  # row loop bound
+            12: self.full_chunks,  # full-chunk loop bound
+            13: self.chunks_per_row,  # chunks per row
+            14: self.chunks_per_row,  # row stride in XMEM rows
         }
 
 
 def _explain(q):
     full, tail = divmod(q.n, LANES)
-    shape = (f"{full} full chunks + {tail}-element tail" if tail
-             else f"exactly {full} full chunks (no tail chunk)")
+    shape = (
+        f"{full} full chunks + {tail}-element tail"
+        if tail
+        else f"exactly {full} full chunks (no tail chunk)"
+    )
     return f"n ({q.n}) > {LANES}: {shape}, reduced with a running cross-chunk AGG."
 
 
 SPEC = softmax_spec(
-    SoftmaxRowsLongApp, along_rows=True,
-    supports=lambda q: (None if q.n > LANES else
-                        f"splits a row across several {LANES}-element chunks, so it needs a "
-                        f"row longer than {LANES}; this row has {q.n}"),
+    SoftmaxRowsLongApp,
+    along_rows=True,
+    supports=lambda q: (
+        None
+        if q.n > LANES
+        else f"splits a row across several {LANES}-element chunks, so it needs a "
+        f"row longer than {LANES}; this row has {q.n}"
+    ),
     explain=_explain,
     cost=lambda q: 1.0,
 )

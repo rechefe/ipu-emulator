@@ -12,32 +12,26 @@ import struct
 import subprocess
 import sys
 
-import numpy as np
 import pytest
+from emu_support import ElementFormat, decode_program, make_state, new_state, run
 
-from ipu_emu.execute import decode_instruction_word, BreakResult
+from ipu_as.compound_inst import CompoundInst
+from ipu_as.lark_tree import assemble, parse
+from ipu_emu.activations import apply_activation
+from ipu_emu.debug_control import DebugControl
 from ipu_emu.emulator import (
+    DebugAction,
     load_program,
     run_until_complete,
     run_with_debug,
-    DebugAction,
 )
-from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE
-from ipu_emu.debug_control import DebugControl
-from ipu_emu.ipu_math import DType
-from ipu_emu.ipu_config import encode_dstructure, PadMode
 from ipu_emu.errors import DebugOnlyInstructionWarning
-from ipu_emu.ipu import EmulatorError, NARROW_MAX_ROW
+from ipu_emu.execute import BreakResult, decode_instruction_word
+from ipu_emu.ipu import NARROW_MAX_ROW, EmulatorError
+from ipu_emu.ipu_config import PadMode, encode_dstructure
+from ipu_emu.ipu_math import DType
+from ipu_emu.ipu_state import IpuState
 from ipu_emu.xmem import XMEM_SIZE_BYTES
-
-from ipu_as.lark_tree import assemble, parse
-
-from ipu_as.compound_inst import CompoundInst
-
-from ipu_emu.activations import apply_activation
-
-from emu_support import ElementFormat, decode_program, make_state, new_state, run
-
 
 # ============================================================================
 # Basic Register Operations
@@ -50,13 +44,15 @@ class TestRegisterOperations:
         assert state.regfile.get_lr(13) == 0x1000
 
     def test_add_imm_accumulates_lr(self):
-        state = run("""\
+        state = run(
+            """\
 SET lr11 cr8;;
 INC lr11 5;;
 INC lr11 3;;
 BKPT;;
 """,
-            cr={8: 10})
+            cr={8: 10},
+        )
         assert state.regfile.get_lr(11) == 18  # 10 + 5 + 3
 
     def test_direct_access(self):
@@ -69,24 +65,28 @@ BKPT;;
         assert state.regfile.get_cr(2) == 0xABCDE
 
     def test_add_lr_lr(self):
-        state = run("""\
+        state = run(
+            """\
 SET lr1 cr8;;
 SET lr2 cr9;;
 ADD lr3 lr1 lr2;;
 BKPT;;
 """,
-            cr={8: 100, 9: 50})
+            cr={8: 100, 9: 50},
+        )
         assert state.regfile.get_lr(1) == 100
         assert state.regfile.get_lr(2) == 50
         assert state.regfile.get_lr(3) == 150
 
     def test_add_lr_cr(self):
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr1 cr8;;
 ADD lr4 lr1 cr5;;
 BKPT;;
 """,
-            cr={8: 200})
+            cr={8: 200},
+        )
         state.regfile.set_cr(5, 75)
         run_until_complete(state)
         assert state.regfile.get_lr(1) == 200
@@ -94,44 +94,52 @@ BKPT;;
         assert state.regfile.get_lr(4) == 275
 
     def test_add_lr_lr_imm5(self):
-        state = run("""\
+        state = run(
+            """\
 SET lr1 cr8;;
 SET lr2 cr9;;
 ADD lr4 lr1 lr2;;
 BKPT;;
 """,
-            cr={8: 200, 9: 11})
+            cr={8: 200, 9: 11},
+        )
         assert state.regfile.get_lr(4) == 211
 
     def test_sub_lr_lr(self):
-        state = run("""\
+        state = run(
+            """\
 SET lr1 cr8;;
 SET lr2 cr9;;
 SUB lr3 lr1 lr2;;
 BKPT;;
 """,
-            cr={8: 100, 9: 30})
+            cr={8: 100, 9: 30},
+        )
         assert state.regfile.get_lr(3) == 70
 
     def test_sub_lr_lr_cr(self):
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr2 cr8;;
 SUB lr5 lr2 cr3;;
 BKPT;;
 """,
-            cr={8: 45})
+            cr={8: 45},
+        )
         state.regfile.set_cr(3, 200)
         run_until_complete(state)
         assert state.regfile.get_lr(5) == (45 - 200) & 0xFFFFFFFF
 
     def test_sub_lr_lr_imm5(self):
-        state = run("""\
+        state = run(
+            """\
 SET lr2 cr8;;
 SET lr4 cr9;;
 SUB lr3 lr2 lr4;;
 BKPT;;
 """,
-            cr={8: 100, 9: 30})
+            cr={8: 100, 9: 30},
+        )
         assert state.regfile.get_lr(3) == 70
 
 
@@ -143,55 +151,65 @@ BKPT;;
 class TestIncrModPow2:
     def test_basic_wrap_small_k(self):
         """k=4 → mod 16; 15 + 1 wraps to 0."""
-        state = run("""\
+        state = run(
+            """\
 SET lr0 cr8;;
 SET lr1 cr9;;
 INCR_MOD_POW2 lr0 lr1 4;;
 BKPT;;
 """,
-            cr={8: 15, 9: 1})
+            cr={8: 15, 9: 1},
+        )
         assert state.regfile.get_lr(0) == 0
 
     def test_k9_mask_511(self):
         """k=9 → mask 511; largest legal k from spec."""
-        state = run("""\
+        state = run(
+            """\
 SET lr0 cr8;;
 SET lr1 cr9;;
 INCR_MOD_POW2 lr0 lr1 9;;
 BKPT;;
 """,
-            cr={8: 500, 9: 20})
+            cr={8: 500, 9: 20},
+        )
         assert state.regfile.get_lr(0) == (500 + 20) & 511
 
     def test_read_before_write_same_register(self):
         """dst and step both lr0: uses snapshot value of lr0 for the sum."""
-        state = run("""\
+        state = run(
+            """\
 SET lr0 cr8;;
 INCR_MOD_POW2 lr0 lr0 3;;
 BKPT;;
 """,
-            cr={8: 5})
+            cr={8: 5},
+        )
         assert state.regfile.get_lr(0) == (5 + 5) & 7
 
     def test_step_from_cr(self):
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr0 cr8;;
 INCR_MOD_POW2 lr0 cr4 4;;
 BKPT;;
 """,
-            cr={8: 2})
+            cr={8: 2},
+        )
         state.regfile.set_cr(4, 10)
         run_until_complete(state)
         assert state.regfile.get_lr(0) == (2 + 10) & 15
 
     def test_large_unsigned_step_reduces_mod_mask(self):
         """Uint32 add before mask: step loaded from CR as full uint32."""
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr0 cr8;;
 INCR_MOD_POW2 lr0 cr5 3;;
 BKPT;;
 """,
-            cr={8: 3})
+            cr={8: 3},
+        )
         state.regfile.set_cr(5, 0xFFFFFFFE)
         run_until_complete(state)
         assert state.regfile.get_lr(0) == (3 + 0xFFFFFFFE) & 7
@@ -210,46 +228,54 @@ BKPT;;
 
     def test_two_incr_mod_pow2_different_dst_no_conflict(self):
         """Two INCR_MOD_POW2 writing different LRs must not raise a conflict error."""
-        state = run("""\
+        state = run(
+            """\
 SET lr5 cr8;;
 SET lr12 cr9;;
 SET lr13 cr10;;
 INCR_MOD_POW2 lr5 lr12 7; INCR_MOD_POW2 lr6 lr13 8;;
 BKPT;;
 """,
-            cr={8: 0, 9: 1, 10: 128})
+            cr={8: 0, 9: 1, 10: 128},
+        )
         assert state.regfile.get_lr(5) == 1
         assert state.regfile.get_lr(6) == 128
 
 
 class TestIncDec:
     def test_inc_dest(self):
-        state = run("""\
+        state = run(
+            """\
 SET lr5 cr8;;
 INC lr5 7;;
 BKPT;;
 """,
-            cr={8: 100})
+            cr={8: 100},
+        )
         assert state.regfile.get_lr(5) == 107
 
     def test_dec_dest(self):
-        state = run("""\
+        state = run(
+            """\
 SET lr5 cr8;;
 DEC lr5 30;;
 BKPT;;
 """,
-            cr={8: 100})
+            cr={8: 100},
+        )
         assert state.regfile.get_lr(5) == 70
 
     def test_inc_dec_same_cycle(self):
-        state = run("""\
+        state = run(
+            """\
 SET lr0 cr8;;
 SET lr1 cr9;;
 INC lr0 5;;
 DEC lr1 2;;
 BKPT;;
 """,
-            cr={8: 10, 9: 20})
+            cr={8: 10, 9: 20},
+        )
         assert state.regfile.get_lr(0) == 15
         assert state.regfile.get_lr(1) == 18
 
@@ -259,7 +285,9 @@ BKPT;;
         d = decode_instruction_word(encoded[0])
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 4  # inc
         assert d["lr_inst_0_token_2_lr_reg_field"] == 2
-        assert d["lr_inst_0_token_1_addbi_immediate"] == 7  # imm in field shared with AddbiImmediate
+        assert (
+            d["lr_inst_0_token_1_addbi_immediate"] == 7
+        )  # imm in field shared with AddbiImmediate
 
 
 class TestAddb:
@@ -267,84 +295,98 @@ class TestAddb:
 
     def test_addb_lr_source(self):
         """Register source: each of the 8 elements across LR0/LR1 gains the same byte."""
-        state = run("""\
+        state = run(
+            """\
 SET lr0 cr8;;
 SET lr1 cr9;;
 SET lr5 cr10;;
 ADDB lrd0 lr5;;
 BKPT;;
 """,
-            cr={8: 0x01020304, 9: 0x05060708, 10: 10})
+            cr={8: 0x01020304, 9: 0x05060708, 10: 10},
+        )
         assert state.regfile.get_lr(0) == 0x0B0C0D0E
         assert state.regfile.get_lr(1) == 0x0F101112
 
     def test_addb_cr_source(self):
         """CR source: src_b's low byte is read directly from the CR (no intermediate SET)."""
-        state = run("""\
+        state = run(
+            """\
 SET lr0 cr8;;
 SET lr1 cr9;;
 ADDB lrd0 cr11;;
 BKPT;;
 """,
-            cr={8: 0x01020304, 9: 0x05060708, 11: 10})
+            cr={8: 0x01020304, 9: 0x05060708, 11: 10},
+        )
         assert state.regfile.get_lr(0) == 0x0B0C0D0E
         assert state.regfile.get_lr(1) == 0x0F101112
 
     def test_addbi_immediate(self):
         """Immediate source: unsigned 200 reinterprets as signed -56, decreasing each element."""
-        state = run("""\
+        state = run(
+            """\
 SET lr0 cr8;;
 SET lr1 cr9;;
 ADDBI lrd0 200;;
 BKPT;;
 """,
-            cr={8: 0x64646464, 9: 0x64646464})
+            cr={8: 0x64646464, 9: 0x64646464},
+        )
         # 0x64 == 100 in every lane; 100 + (-56) == 44 == 0x2C in every lane.
         assert state.regfile.get_lr(0) == 0x2C2C2C2C
         assert state.regfile.get_lr(1) == 0x2C2C2C2C
 
     def test_addbi_negative_literal_matches_unsigned_spelling(self):
         """``-56`` and ``200`` encode identically and produce the same result."""
-        state = run("""\
+        state = run(
+            """\
 SET lr0 cr8;;
 ADDBI lrd0 -56;;
 BKPT;;
 """,
-            cr={8: 0x64646464})
+            cr={8: 0x64646464},
+        )
         assert state.regfile.get_lr(0) == 0x2C2C2C2C
 
     def test_addbi_saturates_at_255_ceiling(self):
         """An element already near 255 clamps at 255 instead of wrapping."""
-        state = run("""\
+        state = run(
+            """\
 SET lr0 cr8;;
 ADDBI lrd0 20;;
 BKPT;;
 """,
-            cr={8: 250})  # LR0 = 0x000000FA: low lane 250, others 0
+            cr={8: 250},
+        )  # LR0 = 0x000000FA: low lane 250, others 0
         lanes = state.regfile.get_lr(0).to_bytes(4, "little")
         assert lanes[0] == 255  # 250 + 20 saturates at 255
-        assert lanes[1] == 20   # 0 + 20, no saturation
+        assert lanes[1] == 20  # 0 + 20, no saturation
 
     def test_addbi_saturates_at_0_floor(self):
         """A negative byte pushes a low element below 0, clamping at 0 instead of wrapping."""
-        state = run("""\
+        state = run(
+            """\
 SET lr0 cr8;;
 ADDBI lrd0 200;;
 BKPT;;
 """,
-            cr={8: 5})  # LR0 = 0x00000005; 200 decodes as signed -56
+            cr={8: 5},
+        )  # LR0 = 0x00000005; 200 decodes as signed -56
         assert state.regfile.get_lr(0) == 0  # every lane clamps to 0 (5-56 and 0-56 both < 0)
         assert state.regfile.get_lr(1) == 0
 
     def test_addb_lrd_maps_to_correct_lr_pair(self):
         """LRD6 = LR7:LR6 (named after the lower register) — only LR6/LR7 change; other LRs are untouched."""
-        state = run("""\
+        state = run(
+            """\
 SET lr6 cr8;;
 SET lr7 cr9;;
 ADDBI lrd6 5;;
 BKPT;;
 """,
-            cr={8: 100, 9: 50})
+            cr={8: 100, 9: 50},
+        )
         # +5 broadcasts to all 8 lanes, including LR6/LR7's zero upper bytes.
         assert state.regfile.get_lr(6) == 84215145  # bytes [105, 5, 5, 5]
         assert state.regfile.get_lr(7) == 84215095  # bytes [55, 5, 5, 5]
@@ -364,7 +406,7 @@ BKPT;;
         encoded = assemble("ADDB lrd4 lr5;; BKPT;;")
         d = decode_instruction_word(encoded[0])
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 6  # addb
-        assert d["lr_inst_0_token_2_lr_reg_field"] == 2    # dest = lrd4 (pair index 2)
+        assert d["lr_inst_0_token_2_lr_reg_field"] == 2  # dest = lrd4 (pair index 2)
         assert d["lr_inst_0_token_1_addbi_immediate"] == 5  # src_b = lr5
 
     def test_decode_addbi_operand_fields(self):
@@ -375,7 +417,7 @@ BKPT;;
         encoded = assemble("ADDBI lrd8 200;; BKPT;;")
         d = decode_instruction_word(encoded[0])
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 7  # addbi
-        assert d["lr_inst_0_token_2_lr_reg_field"] == 4    # dest = lrd8 (pair index 4)
+        assert d["lr_inst_0_token_2_lr_reg_field"] == 4  # dest = lrd8 (pair index 4)
         assert d["lr_inst_0_token_1_addbi_immediate"] == 200
 
 
@@ -412,23 +454,23 @@ BKPT;;
         assert len(encoded) == 2
         d = decode_instruction_word(encoded[0])
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 0  # set
-        assert d["lr_inst_0_token_2_lr_reg_field"] == 4   # reg = lr4
+        assert d["lr_inst_0_token_2_lr_reg_field"] == 4  # reg = lr4
         assert d["lr_inst_0_token_1_addbi_immediate"] == 8  # src = cr8
-        assert d["lr_inst_0_token_3_lr_reg_field"] == 0   # unused field (default lr0)
-        assert d["lr_inst_1_token_2_lr_reg_field"] == 5   # reg = lr5
-        assert d["lr_inst_1_token_1_addbi_immediate"] == 9   # src = cr9
-        assert d["lr_inst_1_token_3_lr_reg_field"] == 0   # unused field (default lr0)
-        assert d["lr_inst_2_token_2_lr_reg_field"] == 6   # reg = lr6
+        assert d["lr_inst_0_token_3_lr_reg_field"] == 0  # unused field (default lr0)
+        assert d["lr_inst_1_token_2_lr_reg_field"] == 5  # reg = lr5
+        assert d["lr_inst_1_token_1_addbi_immediate"] == 9  # src = cr9
+        assert d["lr_inst_1_token_3_lr_reg_field"] == 0  # unused field (default lr0)
+        assert d["lr_inst_2_token_2_lr_reg_field"] == 6  # reg = lr6
         assert d["lr_inst_2_token_1_addbi_immediate"] == 10  # src = cr10
-        assert d["lr_inst_2_token_3_lr_reg_field"] == 0   # unused field (default lr0)
+        assert d["lr_inst_2_token_3_lr_reg_field"] == 0  # unused field (default lr0)
 
     def test_decode_add_lcr_operand_field(self):
         """``ADD`` third operand uses LcrRegField (register-only), sharing a field with AddbiImmediate."""
         encoded = assemble("ADD lr2 lr1 cr7;; BKPT;;")
         d = decode_instruction_word(encoded[0])
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 1  # add
-        assert d["lr_inst_0_token_2_lr_reg_field"] == 2   # dest = lr2
-        assert d["lr_inst_0_token_3_lr_reg_field"] == 1   # src_a = lr1
+        assert d["lr_inst_0_token_2_lr_reg_field"] == 2  # dest = lr2
+        assert d["lr_inst_0_token_3_lr_reg_field"] == 1  # src_a = lr1
         assert d["lr_inst_0_token_1_addbi_immediate"] == 16 + 7  # src_b = cr7
 
 
@@ -441,12 +483,14 @@ class TestMemoryOperations:
     def test_load_from_memory(self):
         """cr8=32 is a row number: row 32 * 128 B/row (narrow) = byte 0x1000."""
         test_data = bytes(range(128))
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr13 cr8;;
 LDR_MULT_REG r1 lr13 cr0;;
 BKPT;;
 """,
-            cr={8: 32})
+            cr={8: 32},
+        )
         state.xmem.write_address(0x1000, test_data)
         run_until_complete(state)
 
@@ -459,7 +503,8 @@ BKPT;;
         r1_data = bytes([2] * 128)
         cyclic_data = bytes([3] * 512)
 
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr13 cr8;;
 LDR_MULT_REG r1 lr13 cr0;;
 SET lr14 cr9;;
@@ -471,7 +516,8 @@ SET lr0 cr11;;
 STR_ACC_REG lr0 cr0;;
 BKPT;;
 """,
-            cr={8: 32, 9: 64, 10: 0, 11: 96})
+            cr={8: 32, 9: 64, 10: 0, 11: 96},
+        )
         state.xmem.write_address(0x1000, r1_data)
         state.xmem.write_address(0x2000, cyclic_data)
         with pytest.warns(DebugOnlyInstructionWarning):
@@ -484,13 +530,15 @@ BKPT;;
 
     def test_cyclic_register_load(self):
         cyclic_data = bytes([(i * 2) & 0xFF for i in range(128)])
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr0 cr8;;
 SET lr1 cr9;;
 LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
 BKPT;;
 """,
-            cr={8: 160, 9: 0})
+            cr={8: 160, 9: 0},
+        )
         state.xmem.write_address(0x5000, cyclic_data)
         run_until_complete(state)
 
@@ -502,24 +550,28 @@ BKPT;;
         """index must be one of the four R_CYCLIC slot boundaries — no implicit wrap."""
         from ipu_emu.ipu import EmulatorError
 
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr0 cr8;;
 SET lr1 cr9;;
 LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
 BKPT;;
 """,
-            cr={8: 160, 9: 64})
+            cr={8: 160, 9: 64},
+        )
         with pytest.raises(EmulatorError, match="index must be one of"):
             run_until_complete(state)
 
     def test_mask_register_load(self):
         mask_data = bytes([(i + 1) & 0xFF for i in range(128)])
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr0 cr8;;
 LDR_MULT_MASK_REG lr0 cr0;;
 BKPT;;
 """,
-            cr={8: 192})
+            cr={8: 192},
+        )
         state.xmem.write_address(0x6000, mask_data)
         run_until_complete(state)
 
@@ -532,13 +584,15 @@ BKPT;;
         addr = 0x1000
         row = addr // 128  # row number for the shared cr8 base operand
         old_data = bytes([i & 0xFF for i in range(128)])
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr0 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 STR_ACC_REG lr0 cr0;;
 BKPT;;
 """,
-            cr={8: row})
+            cr={8: row},
+        )
         state.xmem.write_address(addr, old_data)
         state.regfile.set_r_acc_bytes(bytes([0xAB] * 512))
         with pytest.warns(DebugOnlyInstructionWarning):
@@ -558,7 +612,8 @@ BKPT;;
         for i in range(8):
             mask_data[i] = 0xFF
 
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr0 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 SET lr1 cr9;;
@@ -574,7 +629,8 @@ SET lr9 cr12;;
 STR_ACC_REG lr9 cr0;;
 BKPT;;
 """,
-            cr={8: 32, 9: 64, 10: 0, 11: 96, 12: 128})
+            cr={8: 32, 9: 64, 10: 0, 11: 96, 12: 128},
+        )
         state.xmem.write_address(0x1000, r0_data)
         state.xmem.write_address(0x2000, cyclic_data)
         state.xmem.write_address(0x3000, mask_data)
@@ -597,7 +653,8 @@ BKPT;;
         for i in range(16, 20):
             mask_data[i] = 0xFF
 
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr0 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 SET lr1 cr9;;
@@ -613,7 +670,8 @@ SET lr9 cr13;;
 STR_ACC_REG lr9 cr0;;
 BKPT;;
 """,
-            cr={8: 32, 9: 64, 10: 0, 11: 96, 12: 1, 13: 128})
+            cr={8: 32, 9: 64, 10: 0, 11: 96, 12: 1, 13: 128},
+        )
         state.xmem.write_address(0x1000, r0_data)
         state.xmem.write_address(0x2000, cyclic_data)
         state.xmem.write_address(0x3000, mask_data)
@@ -638,7 +696,8 @@ BKPT;;
             mask_data[i] = 0xFF
         dstructure = encode_dstructure(valid_elements=128, partition=0, pad_mode=PadMode.POS_INF)
 
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr0 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 SET lr1 cr9;;
@@ -654,7 +713,8 @@ SET lr9 cr12;;
 STR_ACC_REG lr9 cr0;;
 BKPT;;
 """,
-            cr={8: 32, 9: 64, 10: 0, 11: 96, 12: 128, 15: dstructure})
+            cr={8: 32, 9: 64, 10: 0, 11: 96, 12: 128, 15: dstructure},
+        )
         state.dtype = DType.E4
         state.xmem.write_address(0x1000, r0_data)
         state.xmem.write_address(0x2000, cyclic_data)
@@ -678,7 +738,8 @@ BKPT;;
             mask_data[i] = 0xFF
         dstructure = encode_dstructure(valid_elements=128, partition=0, pad_mode=PadMode.NEG_INF)
 
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr0 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 SET lr1 cr9;;
@@ -694,7 +755,8 @@ SET lr9 cr12;;
 STR_ACC_REG lr9 cr0;;
 BKPT;;
 """,
-            cr={8: 32, 9: 64, 10: 0, 11: 96, 12: 128, 15: dstructure})
+            cr={8: 32, 9: 64, 10: 0, 11: 96, 12: 128, 15: dstructure},
+        )
         state.dtype = DType.E5
         state.xmem.write_address(0x1000, r0_data)
         state.xmem.write_address(0x2000, cyclic_data)
@@ -716,7 +778,8 @@ BKPT;;
             mask_data[i] = 0xFF
         dstructure = encode_dstructure(valid_elements=128, partition=0, pad_mode=PadMode.POS_INF)
 
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr0 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 SET lr1 cr9;;
@@ -729,7 +792,8 @@ SET lr6 cr10;;
 MULT.RC.VV lr6 r0 0 lr5 cr15;
 BKPT;;
 """,
-            cr={8: 32, 9: 64, 10: 0, 11: 96, 15: dstructure})
+            cr={8: 32, 9: 64, 10: 0, 11: 96, 15: dstructure},
+        )
         state.dtype = DType.INT8
         state.xmem.write_address(0x1000, bytes(128))
         state.xmem.write_address(0x2000, bytes(512))
@@ -747,7 +811,8 @@ BKPT;;
         for i in range(8):
             mask_data[i] = 0xFF
 
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr0 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 SET lr1 cr9;;
@@ -763,7 +828,9 @@ SET lr9 cr12;;
 STR_ACC_REG lr9 cr0;;
 BKPT;;
 """,
-            cr={8: 8, 9: 16, 10: 0, 11: 24, 12: 32}, fmt=ElementFormat.FP32)
+            cr={8: 8, 9: 16, 10: 0, 11: 24, 12: 32},
+            fmt=ElementFormat.FP32,
+        )
         state.xmem.write_address(0x1000, r0_data)
         state.xmem.write_address(0x2000, cyclic_data)
         state.xmem.write_address(0x3000, mask_data)
@@ -789,7 +856,8 @@ BKPT;;
             mask_data[i] = 0xFF
         dstructure = encode_dstructure(valid_elements=128, partition=0, pad_mode=PadMode.POS_INF)
 
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr0 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 SET lr1 cr9;;
@@ -805,7 +873,9 @@ SET lr9 cr12;;
 STR_ACC_REG lr9 cr0;;
 BKPT;;
 """,
-            cr={8: 8, 9: 16, 10: 0, 11: 24, 12: 32, 15: dstructure}, fmt=ElementFormat.FP32)
+            cr={8: 8, 9: 16, 10: 0, 11: 24, 12: 32, 15: dstructure},
+            fmt=ElementFormat.FP32,
+        )
         assert state.dtype == DType.INT8  # unchanged default; must not gate the pad check
         state.xmem.write_address(0x1000, r0_data)
         state.xmem.write_address(0x2000, cyclic_data)
@@ -829,7 +899,8 @@ BKPT;;
             mask_data[i] = 0xFF
         dstructure = encode_dstructure(valid_elements=128, partition=0, pad_mode=PadMode.POS_INF)
 
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr0 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 SET lr1 cr9;;
@@ -842,7 +913,9 @@ SET lr6 cr10;;
 MULT.RC.VV lr6 r0 0 lr5 cr15;
 BKPT;;
 """,
-            cr={8: 4096, 9: 8192, 10: 0, 11: 12288, 15: dstructure}, fmt=ElementFormat.INT32)
+            cr={8: 4096, 9: 8192, 10: 0, 11: 12288, 15: dstructure},
+            fmt=ElementFormat.INT32,
+        )
         state.xmem.write_address(0x1000, bytes(128))
         state.xmem.write_address(0x2000, bytes(512))
         state.xmem.write_address(0x3000, mask_data)
@@ -857,7 +930,8 @@ BKPT;;
 
 class TestControlFlow:
     def test_unconditional_branch(self):
-        state = run("""\
+        state = run(
+            """\
 SET lr0 cr8;;
 b skip_section;;
 SET lr0 cr9;;
@@ -865,12 +939,14 @@ skip_section:
 SET lr1 cr10;;
 BKPT;;
 """,
-            cr={8: 1, 9: 2, 10: 3})
+            cr={8: 1, 9: 2, 10: 3},
+        )
         assert state.regfile.get_lr(0) == 1
         assert state.regfile.get_lr(1) == 3
 
     def test_bne(self):
-        state = run("""\
+        state = run(
+            """\
 SET lr0 cr8;;
 SET lr1 cr9;;
 BNE lr0 lr1 not_equal_branch;;
@@ -880,11 +956,13 @@ not_equal_branch:
 SET lr2 cr11;;
 BKPT;;
 """,
-            cr={8: 10, 9: 20, 10: 0, 11: 1})
+            cr={8: 10, 9: 20, 10: 0, 11: 1},
+        )
         assert state.regfile.get_lr(2) == 1
 
     def test_beq(self):
-        state = run("""\
+        state = run(
+            """\
 SET lr0 cr8;;
 SET lr1 cr8;;
 BEQ lr0 lr1 equal_branch;;
@@ -894,11 +972,13 @@ equal_branch:
 SET lr2 cr10;;
 BKPT;;
 """,
-            cr={8: 42, 9: 0, 10: 1})
+            cr={8: 42, 9: 0, 10: 1},
+        )
         assert state.regfile.get_lr(2) == 1
 
     def test_blt(self):
-        state = run("""\
+        state = run(
+            """\
 SET lr0 cr8;;
 SET lr1 cr9;;
 BLT lr0 lr1 less_branch;;
@@ -908,11 +988,13 @@ less_branch:
 SET lr2 cr11;;
 BKPT;;
 """,
-            cr={8: 5, 9: 6, 10: 0, 11: 1})
+            cr={8: 5, 9: 6, 10: 0, 11: 1},
+        )
         assert state.regfile.get_lr(2) == 1
 
     def test_bge(self):
-        state = run("""\
+        state = run(
+            """\
 SET lr0 cr8;;
 SET lr1 cr9;;
 BGE lr0 lr1 ge_branch;;
@@ -922,11 +1004,13 @@ ge_branch:
 SET lr2 cr11;;
 BKPT;;
 """,
-            cr={8: 6, 9: 5, 10: 0, 11: 1})
+            cr={8: 6, 9: 5, 10: 0, 11: 1},
+        )
         assert state.regfile.get_lr(2) == 1
 
     def test_bge_not_taken(self):
-        state = run("""\
+        state = run(
+            """\
 SET lr0 cr8;;
 SET lr1 cr9;;
 BGE lr0 lr1 ge_branch_not_taken;;
@@ -936,11 +1020,13 @@ ge_branch_not_taken:
 SET lr2 cr11;;
 BKPT;;
 """,
-            cr={8: 5, 9: 6, 10: 1, 11: 0})
+            cr={8: 5, 9: 6, 10: 1, 11: 0},
+        )
         assert state.regfile.get_lr(2) == 1
 
     def test_bnz(self):
-        state = run("""\
+        state = run(
+            """\
 SET lr0 cr8;;
 BNZ lr0 nonzero_branch;;
 SET lr2 cr9;;
@@ -949,11 +1035,13 @@ nonzero_branch:
 SET lr2 cr8;;
 BKPT;;
 """,
-            cr={8: 1, 9: 0})
+            cr={8: 1, 9: 0},
+        )
         assert state.regfile.get_lr(2) == 1
 
     def test_bz(self):
-        state = run("""\
+        state = run(
+            """\
 SET lr0 cr8;;
 BZ lr0 zero_branch;;
 SET lr2 cr8;;
@@ -962,12 +1050,14 @@ zero_branch:
 SET lr2 cr9;;
 BKPT;;
 """,
-            cr={8: 0, 9: 1})
+            cr={8: 0, 9: 1},
+        )
         assert state.regfile.get_lr(2) == 1
 
     def test_bne_lr_cr(self):
         """bne branches when LR does not equal a CR constant."""
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr0 cr8;;
 BNE lr0 cr1 bne_cr_branch;;
 SET lr2 cr9;;
@@ -976,13 +1066,15 @@ bne_cr_branch:
 SET lr2 cr10;;
 BKPT;;
 """,
-            cr={8: 10, 9: 0, 10: 1})
+            cr={8: 10, 9: 0, 10: 1},
+        )
         run_until_complete(state)
         assert state.regfile.get_lr(2) == 1
 
     def test_beq_lr_cr(self):
         """beq branches when LR equals a CR constant."""
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr0 cr8;;
 BEQ lr0 cr3 beq_cr_branch;;
 SET lr2 cr9;;
@@ -991,14 +1083,16 @@ beq_cr_branch:
 SET lr2 cr10;;
 BKPT;;
 """,
-            cr={8: 42, 9: 0, 10: 1})
+            cr={8: 42, 9: 0, 10: 1},
+        )
         state.regfile.set_cr(3, 42)
         run_until_complete(state)
         assert state.regfile.get_lr(2) == 1
 
     def test_blt_lr_cr(self):
         """blt branches when LR is less than a CR constant."""
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr0 cr8;;
 BLT lr0 cr2 blt_cr_branch;;
 SET lr2 cr9;;
@@ -1007,14 +1101,16 @@ blt_cr_branch:
 SET lr2 cr10;;
 BKPT;;
 """,
-            cr={8: 5, 9: 0, 10: 1})
+            cr={8: 5, 9: 0, 10: 1},
+        )
         state.regfile.set_cr(2, 10)
         run_until_complete(state)
         assert state.regfile.get_lr(2) == 1
 
     def test_blt_negative_counter(self):
         """BLT sign-extends at 32 bits: -1 < 0 must branch (issue #142)."""
-        state = run("""\
+        state = run(
+            """\
 SET lr0 cr8;;
 SET lr1 cr9;;
 BLT lr0 lr1 neg_branch;;
@@ -1024,12 +1120,14 @@ neg_branch:
 SET lr2 cr11;;
 BKPT;;
 """,
-            cr={8: -1, 9: 0, 10: 0, 11: 1})
+            cr={8: -1, 9: 0, 10: 0, 11: 1},
+        )
         assert state.regfile.get_lr(2) == 1
 
     def test_bge_negative_not_taken(self):
         """BGE sign-extends at 32 bits: -1 >= 0 must not branch (issue #142)."""
-        state = run("""\
+        state = run(
+            """\
 SET lr0 cr8;;
 SET lr1 cr9;;
 BGE lr0 lr1 neg_ge_branch;;
@@ -1039,25 +1137,29 @@ neg_ge_branch:
 SET lr2 cr11;;
 BKPT;;
 """,
-            cr={8: -1, 9: 0, 10: 1, 11: 0})
+            cr={8: -1, 9: 0, 10: 1, 11: 0},
+        )
         assert state.regfile.get_lr(2) == 1
 
     def test_loop_with_cr_limit(self):
         """Loop using bne against a CR constant instead of an LR."""
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr0 cr8;;
 cr_loop_start:
 INC lr0 1;;
 BNE lr0 cr5 cr_loop_start;;
 BKPT;;
 """,
-            cr={8: 0})
+            cr={8: 0},
+        )
         state.regfile.set_cr(5, 10)
         run_until_complete(state, max_cycles=1000)
         assert state.regfile.get_lr(0) == 10
 
     def test_simple_loop(self):
-        state = run("""\
+        state = run(
+            """\
 SET lr0 cr8;;
 SET lr1 cr9;;
 SET lr2 cr8;;
@@ -1078,13 +1180,15 @@ SET lr0 cr10;;
 BKPT;;
 SET lr0 cr8;;
 """,
-            cr={8: 0, 9: 10, 10: 99})
+            cr={8: 0, 9: 10, 10: 99},
+        )
         # BKPT sets PC = INST_MEM_SIZE, so `SET lr0 0` is never reached
         assert state.regfile.get_lr(0) == 99
 
     def test_br_cr(self):
         """br accepts a CR register as the branch target address."""
-        state = make_state("""\
+        state = make_state(
+            """\
 BR cr2;;
 SET lr0 cr8;;
 BKPT;;
@@ -1092,8 +1196,10 @@ br_cr_target:
 SET lr0 cr9;;
 BKPT;;
 """,
-            cr={8: 0, 9: 1})
+            cr={8: 0, 9: 1},
+        )
         from ipu_as.label import ipu_labels
+
         target_addr = ipu_labels.get_address(
             type("T", (), {"value": "br_cr_target", "line": 0, "column": 0})()
         )
@@ -1125,7 +1231,9 @@ BKPT;;
             struct.pack_into("<i", mult_buf, i * 4, 7)
         run_until_complete(state)
         for i in range(128):
-            assert state.regfile.get_r_acc_word(i) == 7, f"word {i}: expected 7, got {state.regfile.get_r_acc_word(i)}"
+            assert state.regfile.get_r_acc_word(i) == 7, (
+                f"word {i}: expected 7, got {state.regfile.get_r_acc_word(i)}"
+            )
 
     def test_acc_add_accumulates(self):
         """ACC.ADD adds mult_res to existing r_acc (running sum)."""
@@ -1143,7 +1251,9 @@ BKPT;;
             struct.pack_into("<i", mult_buf, i * 4, 3)
         run_until_complete(state)
         for i in range(128):
-            assert state.regfile.get_r_acc_word(i) == 13, f"word {i}: expected 13, got {state.regfile.get_r_acc_word(i)}"
+            assert state.regfile.get_r_acc_word(i) == 13, (
+                f"word {i}: expected 13, got {state.regfile.get_r_acc_word(i)}"
+            )
 
     def test_acc_max_takes_larger(self):
         """ACC.MAX: each element takes max(R_ACC[i], MULT_RES[i])."""
@@ -1226,12 +1336,14 @@ BKPT;;
 
     def test_acc_stride_no_stride(self):
         """ACC.STRIDE with both strides off copies all 128 mult_res words to r_acc from start 0."""
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr0 cr8;;
 ACC.STRIDE 16 off off lr0;;
 BKPT;;
 """,
-            cr={8: 0})
+            cr={8: 0},
+        )
         state.dtype = DType.INT8
         mult_buf = state.regfile.mutable("mult_res")
         for i in range(128):
@@ -1243,12 +1355,14 @@ BKPT;;
 
     def test_acc_stride_horizontal(self):
         """ACC.STRIDE with horizontal on: take every 2nd column → 64 elements at r_acc[0:64]."""
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr0 cr8;;
 ACC.STRIDE 16 on off lr0;;
 BKPT;;
 """,
-            cr={8: 0})
+            cr={8: 0},
+        )
         state.dtype = DType.INT8
         mult_buf = state.regfile.mutable("mult_res")
         for i in range(128):
@@ -1264,12 +1378,14 @@ BKPT;;
 
     def test_acc_stride_offset(self):
         """ACC.STRIDE with offset: (lr0 % 4)*32 is start index; 64 elements written at r_acc[32:96]."""
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr0 cr8;;
 ACC.STRIDE 16 on off lr0;;
 BKPT;;
 """,
-            cr={8: 1})
+            cr={8: 1},
+        )
         # lr0=1 → offset % 4 = 1 → start index 32. Horizontal on → 64 elements.
         state.dtype = DType.INT8
         for i in range(128):
@@ -1286,7 +1402,9 @@ BKPT;;
             col = (out_i % 8) * 2
             expected_src = row * 16 + col
             w = state.regfile.get_r_acc_word(32 + out_i)
-            assert w == 100 + expected_src, f"word {32 + out_i}: expected {100 + expected_src}, got {w}"
+            assert w == 100 + expected_src, (
+                f"word {32 + out_i}: expected {100 + expected_src}, got {w}"
+            )
         for i in range(96, 128):
             w = state.regfile.get_r_acc_word(i)
             assert w == 0, f"word {i} (after segment): expected 0, got {w}"
@@ -1407,7 +1525,9 @@ BKPT;;
         state.set_cr_dstructure(128)
         state.regfile.set_lr(0, 127)
         for i in range(128):
-            state.regfile.set_mult_res_word(i, struct.unpack("<I", struct.pack("<i", 5 + (i % 10)))[0])
+            state.regfile.set_mult_res_word(
+                i, struct.unpack("<I", struct.pack("<i", 5 + (i % 10)))[0]
+            )
         state.regfile.set_mult_res_word(127, struct.unpack("<I", struct.pack("<i", 9999))[0])
         run_until_complete(state)
         raw = state.regfile.get_r_acc_word(127)
@@ -1436,7 +1556,9 @@ BKPT;;
         run_until_complete(state)
         raw = state.regfile.get_r_acc_word(127)
         result = struct.unpack("<i", struct.pack("<I", raw))[0]
-        assert result == 5, f"expected max of active MULT_RES lanes = 5 (not R_ACC seed 9999), got {result}"
+        assert result == 5, (
+            f"expected max of active MULT_RES lanes = 5 (not R_ACC seed 9999), got {result}"
+        )
 
     def test_agg_max_first_zero_active_writes_identity_seed(self):
         """AGG.MAX.FIRST with valid_elements=0: dest gets the identity seed (INT32_MIN)."""
@@ -1491,7 +1613,9 @@ BKPT;;
         run_until_complete(state)
         raw = state.regfile.get_r_acc_word(127)
         result = struct.unpack("<i", struct.pack("<I", raw))[0]
-        assert result == 99, f"expected seed 99 to remain (beats all MULT_RES lanes=10), got {result}"
+        assert result == 99, (
+            f"expected seed 99 to remain (beats all MULT_RES lanes=10), got {result}"
+        )
 
     def test_agg_max_lane_wins(self):
         """AGG.MAX: an active MULT_RES element beats the existing R_ACC[dest] seed — dest updated."""
@@ -1531,6 +1655,7 @@ BKPT;;
         state.dtype = DType.INT8
         state.regfile.set_lr(0, 0)  # AGG dest = r_acc[0]
         import struct as _struct
+
         for i in range(128):
             # MULT_RES lanes = 3 (source for AGG.SUM.FIRST)
             state.regfile.set_mult_res_word(i, _struct.unpack("<I", _struct.pack("<i", 3))[0])
@@ -1761,7 +1886,7 @@ BKPT;;
         run_until_complete(state)
         for i in range(8):
             assert state.regfile.get_r_acc_word(10 + i) == 2000 + i, (
-                f"R_ACC[{10+i}] should be MULT_RES[{i}]=={2000+i}, not R_ACC[{i}]"
+                f"R_ACC[{10 + i}] should be MULT_RES[{i}]=={2000 + i}, not R_ACC[{i}]"
             )
 
     def test_reshape_mask_lr_mode_uses_lr_low_bits(self):
@@ -1870,12 +1995,14 @@ class TestProgramCounter:
     def test_pc_advances(self):
         from ipu_emu.execute import execute_next_instruction
 
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr0 cr8;;
 SET lr1 cr9;;
 BKPT;;
 """,
-            cr={8: 100, 9: 200})
+            cr={8: 100, 9: 200},
+        )
         assert state.program_counter == 0
         execute_next_instruction(state)
         assert state.program_counter == 1
@@ -1892,13 +2019,15 @@ class TestBreakpoints:
     def test_break_stops_execution(self):
         from ipu_emu.execute import execute_next_instruction
 
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr0 cr8;;
 BREAK;;
 SET lr0 cr9;;
 BKPT;;
 """,
-            cr={8: 1, 9: 2})
+            cr={8: 1, 9: 2},
+        )
         r = execute_next_instruction(state)
         assert r == BreakResult.CONTINUE
         assert state.regfile.get_lr(0) == 1
@@ -1909,12 +2038,14 @@ BKPT;;
     def test_break_ifeq(self):
         from ipu_emu.execute import execute_next_instruction
 
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr5 cr8;;
 BREAK.IFEQ lr5 42;;
 BKPT;;
 """,
-            cr={8: 42})
+            cr={8: 42},
+        )
         execute_next_instruction(state)  # SET lr5 42
         assert state.regfile.get_lr(5) == 42
 
@@ -1924,12 +2055,14 @@ BKPT;;
     def test_break_ifeq_no_match(self):
         from ipu_emu.execute import execute_next_instruction
 
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr5 cr8;;
 BREAK.IFEQ lr5 42;;
 BKPT;;
 """,
-            cr={8: 10})
+            cr={8: 10},
+        )
         execute_next_instruction(state)
         r = execute_next_instruction(state)
         assert r == BreakResult.CONTINUE
@@ -1940,12 +2073,14 @@ BKPT;;
         def callback(state, cycle):
             return next(actions, DebugAction.CONTINUE)
 
-        state = make_state("""\
+        state = make_state(
+            """\
 BREAK;;
 SET lr0 cr8;;
 BKPT;;
 """,
-            cr={8: 1})
+            cr={8: 1},
+        )
         run_with_debug(state, callback)
         assert state.regfile.get_lr(0) == 1
 
@@ -2059,7 +2194,9 @@ class TestDebuggerStops:
         # A fresh interpreter, so this test file's own imports do not count.
         probe = "import sys, ipu_emu; print(sorted(m for m in sys.modules if m.startswith('ipu_emu.debug')))"
         env = {**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)}
-        result = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, env=env, check=True)
+        result = subprocess.run(
+            [sys.executable, "-c", probe], capture_output=True, text=True, env=env, check=True
+        )
         assert result.stdout.strip() == "[]"
 
     def test_two_states_keep_their_own_controls(self):
@@ -2149,7 +2286,8 @@ class TestFp8:
         r0_data = bytes([fp_one_byte] * 128)
         cyclic_data = bytes([fp_two_byte] * 512)
 
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr0 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 SET lr1 cr9;;
@@ -2161,7 +2299,8 @@ MULT.RC.VV lr6 r0 0 lr5 cr15;
 ACC.ADD;;
 BKPT;;
 """,
-            cr={8: 32, 9: 64, 10: 0})
+            cr={8: 32, 9: 64, 10: 0},
+        )
         # Set dtype to E4 (fp8_e4)
         state.dtype = DType.E4
         state.xmem.write_address(0x1000, r0_data)
@@ -2192,7 +2331,8 @@ class TestMultRcVe:
         # CR scalar byte = 3, RC elements = all 2 → each result = 3*2 = 6
         cyclic_data = bytes([2] * 512)
 
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr0 cr8;;
 SET lr1 cr9;;
 LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
@@ -2202,7 +2342,8 @@ MULT.RC.VE lr2 cr3 0 lr4 cr15;
 ACC.ADD;;
 BKPT;;
 """,
-            cr={8: 32, 9: 0})
+            cr={8: 32, 9: 0},
+        )
         state.dtype = DType.INT8
         state.regfile.set_cr(3, 3)  # scalar = low byte = 3
         state.xmem.write_address(0x1000, cyclic_data)
@@ -2218,7 +2359,8 @@ BKPT;;
         # CR scalar byte = 0xFE = -2 (signed int8), RC elements = 5 → result = -10
         cyclic_data = bytes([5] * 512)
 
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr0 cr8;;
 SET lr1 cr9;;
 LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
@@ -2228,7 +2370,8 @@ MULT.RC.VE lr2 cr2 0 lr4 cr15;
 ACC.ADD;;
 BKPT;;
 """,
-            cr={8: 32, 9: 0})
+            cr={8: 32, 9: 0},
+        )
         state.dtype = DType.INT8
         state.regfile.set_cr(2, 0xFE)  # low byte 0xFE = int8(-2)
         state.xmem.write_address(0x1000, cyclic_data)
@@ -2245,14 +2388,16 @@ BKPT;;
         rc_fill = 4
         scalar = 7
 
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr2 cr8;;
 SET lr4 cr9;;
 MULT.RC.VE lr2 cr3 0 lr4 cr15;
 ACC.ADD;;
 BKPT;;
 """,
-            cr={8: 450, 9: 0})
+            cr={8: 450, 9: 0},
+        )
         state.dtype = DType.INT8
         state.regfile.set_cr(3, scalar)
         # Fill the full 512-byte cyclic register directly
@@ -2272,7 +2417,8 @@ BKPT;;
         one_fp8 = _float32_to_fp8_scalar(1.0, 4)
         cyclic_data = bytes([one_fp8] * 512)
 
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr0 cr8;;
 SET lr1 cr9;;
 LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
@@ -2282,7 +2428,8 @@ MULT.RC.VE lr2 cr5 0 lr4 cr15;
 ACC.ADD;;
 BKPT;;
 """,
-            cr={8: 32, 9: 0})
+            cr={8: 32, 9: 0},
+        )
         state.dtype = DType.E4
         state.regfile.set_cr(5, one_fp8)  # scalar = 1.0 in fp8_e4
         state.xmem.write_address(0x1000, cyclic_data)
@@ -2301,14 +2448,16 @@ BKPT;;
         two_fp8 = _float32_to_fp8_scalar(2.0, 5)
         scalar_fp8 = _float32_to_fp8_scalar(3.0, 5)
 
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr2 cr8;;
 SET lr4 cr9;;
 MULT.RC.VE lr2 cr6 0 lr4 cr15;
 ACC.ADD;;
 BKPT;;
 """,
-            cr={8: 500, 9: 0})
+            cr={8: 500, 9: 0},
+        )
         state.dtype = DType.E5
         state.regfile.set_cr(6, scalar_fp8)  # scalar = 3.0
         # Fill the full 512-byte cyclic register directly with 2.0 in fp8_e5
@@ -2329,7 +2478,8 @@ BKPT;;
         r0_data = bytes([4] * 128)
         cyclic_data = bytes([5] * 512)
 
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr0 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 SET lr1 cr9;;
@@ -2339,7 +2489,8 @@ MULT.RC.VV lr2 r0 0 lr2 cr15;
 ACC.ADD;;
 BKPT;;
 """,
-            cr={8: 32, 9: 64, 10: 0})
+            cr={8: 32, 9: 64, 10: 0},
+        )
         state.dtype = DType.INT8
         state.xmem.write_address(0x1000, r0_data)
         state.xmem.write_address(0x2000, cyclic_data)
@@ -2356,7 +2507,8 @@ BKPT;;
         r0_data = bytearray(128)
         r0_data[0] = 3  # LR value 0 → Ra[0] = 3
 
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr0 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 SET lr1 cr9;;
@@ -2366,7 +2518,8 @@ MULT.RC.VE lr2 lr2 0 lr2 cr15;
 ACC.ADD;;
 BKPT;;
 """,
-            cr={8: 32, 9: 64, 10: 0})
+            cr={8: 32, 9: 64, 10: 0},
+        )
         state.dtype = DType.INT8
         state.xmem.write_address(0x1000, bytes(r0_data))
         state.xmem.write_address(0x2000, cyclic_data)
@@ -2384,7 +2537,8 @@ BKPT;;
         r1_data[0] = 7  # LR value=128 → r1[0] = 7
         cyclic_data = bytes([4] * 512)
 
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr0 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 SET lr0 cr9;;
@@ -2397,7 +2551,8 @@ MULT.RC.VE lr2 lr3 0 lr2 cr15;
 ACC.ADD;;
 BKPT;;
 """,
-            cr={8: 32, 9: 34, 10: 64, 11: 0, 12: 128})
+            cr={8: 32, 9: 34, 10: 64, 11: 0, 12: 128},
+        )
         state.dtype = DType.INT8
         state.xmem.write_address(0x1000, bytes(r0_data))
         state.xmem.write_address(0x1100, bytes(r1_data))
@@ -2417,7 +2572,8 @@ class TestMultRcVs:
         """Each RC element multiplied by itself (4 × 4 = 16)."""
         cyclic_data = bytes([4] * 512)
 
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr0 cr8;;
 SET lr1 cr9;;
 LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
@@ -2426,7 +2582,8 @@ MULT.RC.VS lr1 0 lr5 cr15;
 ACC.ADD;;
 BKPT;;
 """,
-            cr={8: 32, 9: 0})
+            cr={8: 32, 9: 0},
+        )
         state.dtype = DType.INT8
         state.xmem.write_address(0x1000, cyclic_data)
         run_until_complete(state)
@@ -2440,14 +2597,16 @@ BKPT;;
         """rc_idx near the 512-byte boundary wraps cyclically (3 × 3 = 9)."""
         cyclic_data = bytes([3] * 512)
 
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr2 cr10;;
 SET lr5 cr11;;
 MULT.RC.VS lr2 0 lr5 cr15;
 ACC.ADD;;
 BKPT;;
 """,
-            cr={10: 450, 11: 0})
+            cr={10: 450, 11: 0},
+        )
         state.dtype = DType.INT8
         state.regfile.set_r_cyclic_at(0, cyclic_data)
         run_until_complete(state)
@@ -2459,12 +2618,13 @@ BKPT;;
 
     def test_mult_rc_vs_mask_zeroes_lanes(self):
         """mask_offset/mask_shift still gate elements (first 64 active, rest zeroed)."""
-        cyclic_data = bytes([3] * 512)   # squared → 9
+        cyclic_data = bytes([3] * 512)  # squared → 9
         mask_data = bytearray(128)
-        for i in range(8):           # 64 bits set → first 64 lanes active
+        for i in range(8):  # 64 bits set → first 64 lanes active
             mask_data[i] = 0xFF
 
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr0 cr8;;
 SET lr1 cr9;;
 LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
@@ -2475,7 +2635,8 @@ MULT.RC.VS lr1 0 lr5 cr15;
 ACC.ADD;;
 BKPT;;
 """,
-            cr={8: 32, 9: 0, 10: 64})
+            cr={8: 32, 9: 0, 10: 64},
+        )
         state.dtype = DType.INT8
         state.xmem.write_address(0x1000, cyclic_data)
         state.xmem.write_address(0x2000, bytes(mask_data))
@@ -2506,13 +2667,13 @@ class TestMaskShiftSequential:
     The partition_vector is derived from CR15.partition (0 = no partitioning).
     """
 
-    _RC_ADDR = 0x1000   # xmem byte address for R_CYCLIC data
+    _RC_ADDR = 0x1000  # xmem byte address for R_CYCLIC data
     _MASK_ADDR = 0x2000  # xmem byte address for mask data
-    _RC_ROW = _RC_ADDR // 128    # row number for CR holding R_CYCLIC xmem base
+    _RC_ROW = _RC_ADDR // 128  # row number for CR holding R_CYCLIC xmem base
     _MASK_ROW = _MASK_ADDR // 128  # row number for CR holding mask xmem base
-    _RC_CR = 8           # CR holding R_CYCLIC xmem row
-    _MASK_CR = 9         # CR holding mask xmem row
-    _SHIFT_CR = 2        # CR holding mask_shift_idx (set per test)
+    _RC_CR = 8  # CR holding R_CYCLIC xmem row
+    _MASK_CR = 9  # CR holding mask xmem row
+    _SHIFT_CR = 2  # CR holding mask_shift_idx (set per test)
 
     _ASM = """\
 SET lr0 cr8;;
@@ -2755,6 +2916,7 @@ BKPT;;
     def test_requires_int8_mode(self):
         """Raises EmulatorError when not in INT8 mode."""
         from ipu_emu.ipu import EmulatorError
+
         state = make_state("ACTIVATE.QUANTIZE relu cr15;;\nBKPT;;")
         state.dtype = DType.E4
         with pytest.raises(EmulatorError, match="INT8 mode"):
@@ -2815,7 +2977,7 @@ BKPT;;
         run_until_complete(state)
         result = state.regfile.get_post_aaq_reg()
         for i in range(4):
-            assert result[i] == i + 1, f"lane {i}: expected {i+1}"
+            assert result[i] == i + 1, f"lane {i}: expected {i + 1}"
         assert result[4:] == bytearray(508), "inactive lanes must be zeroed"
 
     def test_elu_respects_ipu_state_alpha(self):
@@ -2933,6 +3095,7 @@ BKPT;;
 """
         )
         from ipu_emu.emulator import load_program, run_until_complete
+
         decoded = decode_program(encoded)
         load_program(state, decoded)
         run_until_complete(state)
@@ -2947,6 +3110,7 @@ BKPT;;
 
         encoded = assemble("STR_ACC_REG lr0 cr0;;\nBKPT;;")
         from ipu_emu.emulator import load_program, run_until_complete
+
         decoded = decode_program(encoded)
         load_program(state, decoded)
 
@@ -2977,12 +3141,14 @@ class TestXmemRowAddressing:
         """A narrow-mode row well past the old 8 KB test-suite footprint round-trips."""
         row = 100  # byte 12800 -- past 0x2000 (8192), still well inside the 2 MB narrow bound
         test_data = bytes(range(128))
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr13 cr8;;
 LDR_MULT_REG r1 lr13 cr0;;
 BKPT;;
 """,
-            cr={8: row})
+            cr={8: row},
+        )
         state.xmem.write_address(row * 128, test_data)
         run_until_complete(state)
         assert state.regfile.get_r(1) == bytearray(test_data)
@@ -2991,24 +3157,28 @@ BKPT;;
         """The last valid narrow-mode row (16383, byte 2097024) round-trips."""
         row = NARROW_MAX_ROW - 1
         test_data = bytes(range(128))
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr13 cr8;;
 LDR_MULT_REG r1 lr13 cr0;;
 BKPT;;
 """,
-            cr={8: row})
+            cr={8: row},
+        )
         state.xmem.write_address(row * 128, test_data)
         run_until_complete(state)
         assert state.regfile.get_r(1) == bytearray(test_data)
 
     def test_narrow_row_at_2mb_bound_raises(self):
         """Row 16384 (the first row past the 2 MB narrow bound) is rejected in narrow mode."""
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr13 cr8;;
 LDR_MULT_REG r1 lr13 cr0;;
 BKPT;;
 """,
-            cr={8: NARROW_MAX_ROW})
+            cr={8: NARROW_MAX_ROW},
+        )
         with pytest.raises(EmulatorError, match="out of range for narrow mode"):
             run_until_complete(state)
 
@@ -3031,12 +3201,14 @@ BKPT;;
         """LR/CR values are unsigned 32-bit, so a 'negative' row arrives as a huge
         positive row number -- it is rejected by the narrow-mode range check, not a
         separate negative-row path (registers can never hold a negative row)."""
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr13 cr8;;
 LDR_MULT_REG r1 lr13 cr0;;
 BKPT;;
 """,
-            cr={8: 0xFFFFFFFF})
+            cr={8: 0xFFFFFFFF},
+        )
         with pytest.raises(EmulatorError, match="out of range for narrow mode"):
             run_until_complete(state)
 
@@ -3096,12 +3268,14 @@ BKPT;;
         """LDR_MULT_MASK_REG translates the row address but always reads 128 B."""
         row = 50
         mask_data = bytes([(i + 1) & 0xFF for i in range(128)])
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr0 cr8;;
 LDR_MULT_MASK_REG lr0 cr0;;
 BKPT;;
 """,
-            cr={8: row})
+            cr={8: row},
+        )
         state.xmem.write_address(row * 128, mask_data)
         run_until_complete(state)
         assert state.regfile.get_r_mask() == bytearray(mask_data)
@@ -3109,18 +3283,19 @@ BKPT;;
     def test_str_acc_reg_writes_512_bytes_at_translated_row_narrow(self):
         """STR_ACC_REG writes all 512 B of R_ACC unconditionally, spanning 4 narrow rows."""
         row = 40
-        state = make_state("""\
+        state = make_state(
+            """\
 SET lr9 cr12;;
 STR_ACC_REG lr9 cr0;;
 BKPT;;
 """,
-            cr={12: row})
+            cr={12: row},
+        )
         state.regfile.set_r_acc_bytes(bytes(range(1, 129)) * 4)
         with pytest.warns(DebugOnlyInstructionWarning):
             run_until_complete(state)
         stored = state.xmem.read_address(row * 128, 512)
         assert stored == state.regfile.get_r_acc_bytes()
-
 
 
 class TestNarrowStoreOverflow:
@@ -3132,7 +3307,7 @@ class TestNarrowStoreOverflow:
     """
 
     def test_acc_add_overflow_leaves_the_lane_by_lane_state(self) -> None:
-        from ipu_emu.ipu import Ipu, LANES
+        from ipu_emu.ipu import LANES, Ipu
 
         state = make_state("ACC.ADD ;;", fmt=ElementFormat.E4)
         k = 7
@@ -3208,5 +3383,7 @@ class TestDispatchPlans:
         from ipu_emu.ipu import _build_plan
 
         spec = {"execute_fn": "execute_no_such_handler", "operands": []}
-        with pytest.raises(RuntimeError, match=r"mult/FAKE names handler Ipu\.execute_no_such_handler"):
+        with pytest.raises(
+            RuntimeError, match=r"mult/FAKE names handler Ipu\.execute_no_such_handler"
+        ):
             _build_plan("mult", "FAKE", spec, {})

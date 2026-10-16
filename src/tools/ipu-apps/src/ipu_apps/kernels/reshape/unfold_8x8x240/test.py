@@ -1,13 +1,21 @@
 """unfold_8x8x240: every case in cases.py, plus the output-row contract."""
+
 import numpy as np
 import pytest
 
 from ipu_apps.kernel_registry.cases import assemble_kernel, load_cases, run_case
 from ipu_apps.kernel_registry.testing import case_tests
-from ipu_apps.kernels.reshape.unfold_8x8x240.app import (
-    C, H, W, LANES, N_OUT, N_STREAMS, N_TOK, OUTPUT_ROW_BYTES,
-)
 from ipu_apps.kernels.reshape.cases import spatial_tensor, stream_rows
+from ipu_apps.kernels.reshape.unfold_8x8x240.app import (
+    LANES,
+    N_OUT,
+    N_STREAMS,
+    N_TOK,
+    OUTPUT_ROW_BYTES,
+    C,
+    H,
+    W,
+)
 
 KERNEL = "unfold_8x8x240"
 
@@ -52,8 +60,10 @@ def test_output_shape_and_stale_lanes(inst_file, tmp_path):
     for s in range(N_STREAMS):
         # Valid prefix: lanes 0..15.
         np.testing.assert_allclose(
-            rows[s, :, :N_TOK], expected[s, :, :N_TOK],
-            rtol=1e-4, atol=1e-3,
+            rows[s, :, :N_TOK],
+            expected[s, :, :N_TOK],
+            rtol=1e-4,
+            atol=1e-3,
             err_msg=f"stream {s} valid prefix mismatch",
         )
 
@@ -65,7 +75,8 @@ def test_output_shape_and_stale_lanes(inst_file, tmp_path):
         # by this kernel and stay 0.0 from reset.
         stale = rows[s, :, N_TOK:]
         np.testing.assert_array_equal(
-            stale, np.zeros_like(stale),
+            stale,
+            np.zeros_like(stale),
             err_msg=(
                 f"stream {s}: stale lanes are not the modelled zeros -- the "
                 "input padding or R_ACC slot usage changed"

@@ -2,20 +2,27 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 import lark
+
+# isort: off
+# Import order defines EnumToken subclass registration order, which fixes the
+# enum order in generated outputs (ipu_instr_pkg.sv, disassembly): opcodes
+# first, then registers, then immediates.
 import ipu_as.opcodes as opcodes
 import ipu_as.ipu_token as ipu_token
 import ipu_as.reg as reg
 import ipu_as.immediate as immediate
 import ipu_as.utils as utils
-from ipu_isa.operand_types import OPERAND_TYPES, OperandType
+
+# isort: on
 from ipu_isa.instruction_spec import (
-    INSTRUCTION_SPEC,
     COMPOUND_LAYOUT_SLOT_ORDER,
-    InstructionDoc,
+    INSTRUCTION_SPEC,
     SLOT_UNIONS,
+    InstructionDoc,
     is_hardware_slot,
     syntax,
 )
+from ipu_isa.operand_types import OPERAND_TYPES, OperandType
 
 
 def _operand_type_md_link(typ: str) -> str:
@@ -125,12 +132,8 @@ def _build_struct_table(slot_type: str) -> dict[str, "InstructionFormat"]:
     slot_spec = INSTRUCTION_SPEC[slot_type]
     result = {}
     for inst_name, inst_def in slot_spec.items():
-        operand_classes = [
-            OPERAND_TYPE_MAP[op["type"]] for op in inst_def["operands"]
-        ]
-        result[inst_name] = InstructionFormat(
-            operands=operand_classes, doc=inst_def["doc"]
-        )
+        operand_classes = [OPERAND_TYPE_MAP[op["type"]] for op in inst_def["operands"]]
+        result[inst_name] = InstructionFormat(operands=operand_classes, doc=inst_def["doc"])
     return result
 
 
@@ -161,9 +164,7 @@ class Inst:
                 f"got {len(inst['operands'])}, in Line {self.opcode.token.line}, Column {self.opcode.token.column}."
             )
 
-        self.operands = [
-            op_type(op) for op_type, op in zip(operand_types, inst["operands"])
-        ]
+        self.operands = [op_type(op) for op_type, op in zip(operand_types, inst["operands"])]
         self.specific_operand_types = operand_types
 
     def _get_full_token_list(self) -> list[ipu_token.IpuToken]:
@@ -188,9 +189,7 @@ class Inst:
     @classmethod
     def _slot_type_name(cls) -> str:
         """Return the slot name string (e.g. 'lr', 'mult') for this Inst subclass."""
-        raise NotImplementedError(
-            "_slot_type_name must be implemented by subclasses"
-        )
+        raise NotImplementedError("_slot_type_name must be implemented by subclasses")
 
     @classmethod
     def operand_types(cls) -> list[type[ipu_token.IpuToken]]:
@@ -203,9 +202,7 @@ class Inst:
         cls._inst_mapping_table = {}
         cls._slot_union = SLOT_UNIONS[cls._slot_type_name()]
         names = cls.opcode_type().enum_array()
-        for opcode_idx, (opcode_name, _) in enumerate(
-            cls.struct_by_opcode_table().items()
-        ):
+        for opcode_idx, (opcode_name, _) in enumerate(cls.struct_by_opcode_table().items()):
             assert opcode_name == names[opcode_idx], (
                 f"Configuration of {cls.__name__} is invalid: opcode table order "
                 f"does not match {cls.opcode_type().__name__}.enum_array()"
@@ -223,9 +220,7 @@ class Inst:
 
     @classmethod
     def opcode_type(cls) -> type[ipu_token.IpuToken]:
-        raise NotImplementedError(
-            "opcode_type method must be implemented by subclasses"
-        )
+        raise NotImplementedError("opcode_type method must be implemented by subclasses")
 
     def encode(self) -> int:
         encoded_inst = 0
@@ -304,17 +299,13 @@ class Inst:
     @classmethod
     def description(cls) -> str:
         """Return human-readable description of this instruction type."""
-        raise NotImplementedError(
-            "description method must be implemented by subclasses"
-        )
+        raise NotImplementedError("description method must be implemented by subclasses")
 
     @classmethod
     def get_all_instruction_classes(cls) -> list[type["Inst"]]:
         """Return instruction subclasses in compound-layout slot order."""
-        slot_to_class = {
-            subclass._slot_type_name(): subclass for subclass in cls.__subclasses__()
-        }
-        seen: list[type["Inst"]] = []
+        slot_to_class = {subclass._slot_type_name(): subclass for subclass in cls.__subclasses__()}
+        seen: list[type[Inst]] = []
         for slot in COMPOUND_LAYOUT_SLOT_ORDER:
             inst_class = slot_to_class.get(slot)
             if inst_class is None:
@@ -331,9 +322,7 @@ class Inst:
         cls, struct_entry: InstructionFormat | list[type[ipu_token.IpuToken]]
     ) -> list[type[ipu_token.IpuToken]]:
         return (
-            struct_entry.operands
-            if isinstance(struct_entry, InstructionFormat)
-            else struct_entry
+            struct_entry.operands if isinstance(struct_entry, InstructionFormat) else struct_entry
         )
 
     @classmethod
@@ -365,9 +354,7 @@ class Inst:
             if instruction_format.doc is None:
                 continue
             spec_ops = INSTRUCTION_SPEC[slot_type][opcode]["operands"]
-            lines.extend(
-                cls._render_opcode_doc(opcode, instruction_format.doc, spec_ops)
-            )
+            lines.extend(cls._render_opcode_doc(opcode, instruction_format.doc, spec_ops))
             lines.append("")
 
         return "\n".join(lines).rstrip()
@@ -396,9 +383,7 @@ class Inst:
                 typ = sop["type"]
                 link = _operand_type_md_link(typ)
                 detail = doc.operands[i] if i < len(doc.operands) else "—"
-                lines.append(
-                    f"| `{name}` | {link} | {_md_table_cell(detail)} |"
-                )
+                lines.append(f"| `{name}` | {link} | {_md_table_cell(detail)} |")
             lines.append("")
         elif doc.operands:
             lines.append("**Operands:**")

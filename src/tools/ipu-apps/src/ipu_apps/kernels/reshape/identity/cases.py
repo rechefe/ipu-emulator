@@ -1,8 +1,9 @@
 """Identity inputs and output checks, independent of pytest."""
+
 import numpy as np
 
-from ipu_emu.ipu import LANES
 from ipu_apps.kernel_registry.cases import KernelCase, PreparedCase, check_output_bytes
+from ipu_emu.ipu import LANES
 
 
 def prepare(workspace, *, rows):
@@ -13,8 +14,7 @@ def prepare(workspace, *, rows):
     def check():
         check_output_bytes(out, inp)
 
-    return PreparedCase({"shape": (rows, LANES)},
-                        {"input_path": inp, "output_path": out}, check)
+    return PreparedCase({"shape": (rows, LANES)}, {"input_path": inp, "output_path": out}, check)
 
 
 CASES = {

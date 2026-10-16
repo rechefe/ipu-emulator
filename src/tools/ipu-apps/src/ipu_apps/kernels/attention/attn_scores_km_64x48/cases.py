@@ -11,10 +11,11 @@ The producer emits full 512 B rows (producers write full rows, the final consume
 rows, so the check crops to the valid N lanes itself. ``head`` selects which
 head is scored (the default exercises a non-zero one).
 """
+
 import numpy as np
 
 from ipu_apps.kernel_registry.cases import KernelCase, PreparedCase
-from ipu_apps.kernels.attention.attn_scores_km_64x48.app import D, LANES, N, N_HEAD, P
+from ipu_apps.kernels.attention.attn_scores_km_64x48.app import LANES, N_HEAD, D, N, P
 from ipu_apps.kernels.attention.cases import MAX_CYCLES, assert_close, read_fp32, uniform
 
 
@@ -31,14 +32,15 @@ def prepare(workspace, *, seed, head):
     def check():
         # The selected head, per stream: S[p] = Q[p].T @ K[p] with the channel
         # axis contracted -> [queries, keys], then transposed to key-major.
-        expected = np.einsum("pci,pcs->psi", Q[:, head], K[:, head])   # [P, key, query]
+        expected = np.einsum("pci,pcs->psi", Q[:, head], K[:, head])  # [P, key, query]
         got = read_fp32(out, P * N * LANES).reshape(P, N, LANES)[:, :, :N]
-        assert_close(got, expected, rtol=1e-4, atol=1e-3,
-                     what=f"key-major score (head {head})")
+        assert_close(got, expected, rtol=1e-4, atol=1e-3, what=f"key-major score (head {head})")
 
-    return PreparedCase({"n_tok": N, "d": D, "head": head},
-                        {"input_path": q_path, "weights_path": k_path, "output_path": out},
-                        check)
+    return PreparedCase(
+        {"n_tok": N, "d": D, "head": head},
+        {"input_path": q_path, "weights_path": k_path, "output_path": out},
+        check,
+    )
 
 
 CASES = {"default": KernelCase(prepare, {"seed": 0xD48, "head": 2}, MAX_CYCLES)}

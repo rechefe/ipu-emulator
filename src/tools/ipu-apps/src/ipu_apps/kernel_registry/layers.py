@@ -34,9 +34,10 @@ Two rules adapters follow, because both failure modes are silent and severe:
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
-from ipu_apps.kernel_registry.shapes import Shape, ShapeBundle, flatten_to_matrix
+from ipu_apps.kernel_registry.shapes import Shape
 
 # layer class name -> adapter(layer, input_shape) -> (op, params)
 _ADAPTERS: dict[str, Callable[[Any, Shape], tuple[str, dict[str, Any]]]] = {}

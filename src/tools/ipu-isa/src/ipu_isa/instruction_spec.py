@@ -9,11 +9,11 @@ This module defines ALL IPU instructions in one place with complete metadata:
 KEY DESIGN PRINCIPLES:
 1. NO EXPLICIT OPCODES: Opcode is derived from instruction position within slot.
    Position 0 → opcode 0, position 1 → opcode 1, etc.
-   
+
 2. DATA ONLY: this package imports nothing from the assembler or the
    emulator. Each consumer derives what it needs from the dicts here (the
    assembler builds its own opcode token classes).
-   
+
 3. STRUCTURED OPERANDS: Each operand has a meaningful name and type.
    Types are string names the assembler resolves to its token classes.
    Operands with a ``"read"`` field are source registers whose values
@@ -24,7 +24,7 @@ KEY DESIGN PRINCIPLES:
 
 OPERAND TYPE NAMES (resolved by the assembler into its token classes):
   - "MultStageReg": R0 or R1 (MultStageRegField); 2-bit encoding in the VLIW word
-  - "LrIdx": LR0–LR15 (LrRegField)  
+  - "LrIdx": LR0–LR15 (LrRegField)
   - "CrIdx": CR0–CR15 (CrRegField)
   - "LcrIdx": LR0–LR15 or CR0–CR15 (LcrRegField)
   - "LrdIdx": LRD0, LRD2, LRD4, ..., LRD14 register-pair alias over LR (LrdRegField), named after the lower register in the pair; no physical storage — LRDn = LR(n+1):LR(n)
@@ -77,11 +77,9 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Dict, List, Tuple, Any
 
 from ipu_isa import schema
 from ipu_isa.operand_types import OPERAND_TYPES, OperandKind
-
 
 # ===========================================================================
 # Exports
@@ -114,6 +112,7 @@ __all__ = [
 # Documentation Type
 # ===========================================================================
 
+
 @dataclass
 class InstructionDoc:
     """Documentation for an instruction (used by assembler for help/docs).
@@ -122,6 +121,7 @@ class InstructionDoc:
     operand names, so it cannot disagree with them. ``example`` is real code,
     with operands separated by spaces as the grammar requires.
     """
+
     title: str
     summary: str
     operands: list[str]
@@ -185,15 +185,30 @@ COMPOUND_LAYOUT_SLOT_ORDER: list[str] = [
 # Per-slot metadata.  ``hardware: False`` marks simulation-only slots that are
 # not implemented in real IPU hardware (excluded from HW codegen).
 SLOT_METADATA: dict[str, dict] = {
-    "load":      {"description": "First-stage memory loads that feed the multiply unit (mult-stage, cyclic, and mask registers)."},
-    "store":     {"description": "Last-stage memory stores that drain POST_AAQ_REG to external memory after activation and quantization."},
-    "acc_store": {"hardware": False, "description": "Simulation-only stores of R_ACC to external memory (STR_ACC_REG). Not implemented in real IPU hardware."},
-    "mult":      {"description": "Multiply-stage instructions: element-wise and vector multiply operations."},
-    "acc":       {"description": "Accumulation instructions for combining multiply results into R_ACC."},
-    "aaq":       {"description": "Activation and quantization: apply activation to R_ACC and write quantized INT8 bytes to POST_AAQ_REG."},
-    "lr":        {"description": "Loop register instructions for controlling addresses, counters, and scalars. Three independent sub-slots per cycle."},
-    "cond":      {"description": "Conditional and unconditional branches; control flow based on register comparisons."},
-    "break":     {"description": "Debug break: halts execution or enters debug mode."},
+    "load": {
+        "description": "First-stage memory loads that feed the multiply unit (mult-stage, cyclic, and mask registers)."
+    },
+    "store": {
+        "description": "Last-stage memory stores that drain POST_AAQ_REG to external memory after activation and quantization."
+    },
+    "acc_store": {
+        "hardware": False,
+        "description": "Simulation-only stores of R_ACC to external memory (STR_ACC_REG). Not implemented in real IPU hardware.",
+    },
+    "mult": {
+        "description": "Multiply-stage instructions: element-wise and vector multiply operations."
+    },
+    "acc": {"description": "Accumulation instructions for combining multiply results into R_ACC."},
+    "aaq": {
+        "description": "Activation and quantization: apply activation to R_ACC and write quantized INT8 bytes to POST_AAQ_REG."
+    },
+    "lr": {
+        "description": "Loop register instructions for controlling addresses, counters, and scalars. Three independent sub-slots per cycle."
+    },
+    "cond": {
+        "description": "Conditional and unconditional branches; control flow based on register comparisons."
+    },
+    "break": {"description": "Debug break: halts execution or enters debug mode."},
 }
 
 
@@ -278,7 +293,6 @@ INSTRUCTION_SPEC = {
             "execute_fn": "execute_load_nop",
         },
     },
-
     # =========================================================================
     # STORE Slot (last pipeline stage — drains POST_AAQ_REG after AAQ/activate)
     # =========================================================================
@@ -313,7 +327,6 @@ INSTRUCTION_SPEC = {
             "execute_fn": "execute_store_nop",
         },
     },
-
     # =========================================================================
     # ACC_STORE Slot (simulation-only — NOT implemented in real IPU hardware)
     # =========================================================================
@@ -349,7 +362,6 @@ INSTRUCTION_SPEC = {
             "execute_fn": "execute_acc_store_nop",
         },
     },
-    
     # =========================================================================
     # LR Slot (Loop Register Instructions)
     # Opcode = position: SET=0, ADD=1, SUB=2, INCR_MOD_POW2=3, INC=4, DEC=5,
@@ -381,9 +393,7 @@ INSTRUCTION_SPEC = {
             ],
             "doc": InstructionDoc(
                 title="Add",
-                summary=(
-                    "Add two register sources and store the result in the destination LR."
-                ),
+                summary=("Add two register sources and store the result in the destination LR."),
                 operands=[
                     "dest: Destination local register (LR0–LR15)",
                     "src_a: First source local register (LR0–LR15)",
@@ -445,9 +455,7 @@ INSTRUCTION_SPEC = {
             ],
             "doc": InstructionDoc(
                 title="Increment",
-                summary=(
-                    "Add an unsigned immediate to the destination LR (read-modify-write)."
-                ),
+                summary=("Add an unsigned immediate to the destination LR (read-modify-write)."),
                 operands=[
                     "dest: Destination local register (LR0–LR15); also the implicit source",
                     "imm: Unsigned immediate; range 0 to 2^W − 1 where W is derived from the LR slot union layout",
@@ -547,7 +555,6 @@ INSTRUCTION_SPEC = {
             "execute_fn": "execute_lr_nop",
         },
     },
-
     # =========================================================================
     # MULT Slot (Multiply Instructions)
     # Opcode = position: MULT.RC.VV=0, MULT.RC.VE=1, MULT.RC.VS=2, NOP=3,
@@ -703,7 +710,6 @@ INSTRUCTION_SPEC = {
             "execute_fn": "execute_mult_ee",
         },
     },
-
     # =========================================================================
     # ACC Slot (Accumulator Instructions)
     # Opcode = position: ACC.ADD=0, ACC.ADD.FIRST=1, ACC.MAX=2, ACC.MAX.FIRST=3,
@@ -953,7 +959,6 @@ INSTRUCTION_SPEC = {
             "execute_fn": "execute_acc_reshape",
         },
     },
-
     # =========================================================================
     # AAQ Slot (Activation and Quantization)
     # Opcode = position: NOP=0, ACTIVATE.QUANTIZE=1
@@ -1006,7 +1011,6 @@ INSTRUCTION_SPEC = {
             "execute_fn": "execute_activate_quantize",
         },
     },
-
     # =========================================================================
     # COND Slot (Conditional Branch Instructions)
     # Opcode = position: BEQ=0, BNE=1, BLT=2, BGE=3, BR=4, BKPT=5, NOP=6
@@ -1123,7 +1127,6 @@ INSTRUCTION_SPEC = {
             "execute_fn": "execute_cond_nop",
         },
     },
-
     # =========================================================================
     # BREAK Slot (Break Instructions)
     # Opcode = position: BREAK=0, BREAK.IFEQ=1, NOP=2
@@ -1173,6 +1176,7 @@ INSTRUCTION_SPEC = {
 # Query Functions (position-based opcode derivation)
 # ===========================================================================
 
+
 def canonical_instruction_name(slot_type: str, instruction_name: str) -> str:
     """Return the canonical instruction key for ``instruction_name`` (case-insensitive)."""
     instructions = INSTRUCTION_SPEC[slot_type]
@@ -1180,21 +1184,19 @@ def canonical_instruction_name(slot_type: str, instruction_name: str) -> str:
     for name in instructions:
         if name.lower() == lowered:
             return name
-    raise KeyError(
-        f"Instruction {instruction_name!r} not found in slot {slot_type!r}"
-    )
+    raise KeyError(f"Instruction {instruction_name!r} not found in slot {slot_type!r}")
 
 
 def get_opcode_for_instruction(slot_type: str, instruction_name: str) -> int:
     """Get opcode index for an instruction (derived from its position).
-    
+
     Args:
         slot_type: Slot type (e.g., "load", "store", "lr", "mult")
         instruction_name: Instruction name (e.g., "LDR_MULT_REG")
-    
+
     Returns:
         Opcode index (0-based position in slot's instruction list)
-    
+
     Raises:
         KeyError if slot or instruction not found
     """
@@ -1206,12 +1208,12 @@ def get_opcode_for_instruction(slot_type: str, instruction_name: str) -> int:
     raise KeyError(f"Instruction '{instruction_name}' not found in slot '{slot_type}'")
 
 
-def extract_opcodes() -> Dict[str, List[str]]:
+def extract_opcodes() -> dict[str, list[str]]:
     """Extract all instruction names grouped by slot type (in order).
-    
+
     Returns a dict mapping slot type to list of instruction names, where
     the position in the list IS the opcode index.
-    
+
     Example:
         {
             "load": ["LDR_MULT_REG", "LDR_CYCLIC_MULT_REG", ...],
@@ -1227,30 +1229,30 @@ def extract_opcodes() -> Dict[str, List[str]]:
 
 def get_instruction(slot_type: str, instruction_name: str) -> dict:
     """Look up a specific instruction definition.
-    
+
     Args:
         slot_type: Slot type (e.g., "load", "store", "lr", "mult")
         instruction_name: Instruction name (e.g., "LDR_MULT_REG")
-    
+
     Returns:
         The instruction definition dict with "operands", "doc", "execute_fn"
-    
+
     Raises:
         KeyError if instruction not found
     """
     return INSTRUCTION_SPEC[slot_type][canonical_instruction_name(slot_type, instruction_name)]
 
 
-def get_instruction_by_opcode(slot_type: str, opcode_index: int) -> Tuple[str, dict]:
+def get_instruction_by_opcode(slot_type: str, opcode_index: int) -> tuple[str, dict]:
     """Look up instruction by slot type and opcode (position-based).
-    
+
     Args:
         slot_type: Slot type (e.g., "load", "lr")
         opcode_index: 0-based opcode index
-    
+
     Returns:
         Tuple of (instruction_name, instruction_definition)
-    
+
     Raises:
         KeyError if opcode index out of range
     """
@@ -1259,12 +1261,12 @@ def get_instruction_by_opcode(slot_type: str, opcode_index: int) -> Tuple[str, d
     return instruction_name, instructions[instruction_name]
 
 
-def get_operand_names_and_types(slot_type: str, instruction_name: str) -> List[Tuple[str, str]]:
+def get_operand_names_and_types(slot_type: str, instruction_name: str) -> list[tuple[str, str]]:
     """Get operand names and types for an instruction.
-    
+
     Returns:
         List of (operand_name, operand_type) tuples
-        
+
     Example:
         [("offset", "CrIdx"), ("base", "CrIdx")]
     """
@@ -1485,8 +1487,7 @@ def _check_operands(path: str, operands: object) -> None:
         if "read" in operand:
             if operand["read"] not in schema.READ_SOURCES:
                 raise schema.SpecError(
-                    f"{where}.read: {operand['read']!r} is not one of "
-                    f"{sorted(schema.READ_SOURCES)}"
+                    f"{where}.read: {operand['read']!r} is not one of {sorted(schema.READ_SOURCES)}"
                 )
             if operand["type"] not in READABLE_OPERAND_TYPES:
                 raise schema.SpecError(
@@ -1568,13 +1569,18 @@ def validate_pseudo_instruction_spec(pseudo_spec: dict, instruction_spec: dict) 
         expansion = pseudo_def["expands_to"]
         schema.check_keys(f"{path}.expands_to", expansion, schema.EXPANSION)
         slot, real_instruction, args = (
-            expansion["slot"], expansion["instruction"], expansion["args"]
+            expansion["slot"],
+            expansion["instruction"],
+            expansion["args"],
         )
         if slot not in instruction_spec:
             raise schema.SpecError(f"{path}.expands_to.slot: {slot!r} is not a slot")
         real_def = next(
-            (d for n, d in instruction_spec[slot].items()
-             if n.upper() == str(real_instruction).upper()),
+            (
+                d
+                for n, d in instruction_spec[slot].items()
+                if n.upper() == str(real_instruction).upper()
+            ),
             None,
         )
         if real_def is None:
@@ -1608,11 +1614,10 @@ validate_instruction_spec(INSTRUCTION_SPEC, SLOT_METADATA)
 validate_pseudo_instruction_spec(PSEUDO_INSTRUCTION_SPEC, INSTRUCTION_SPEC)
 
 # Derive union layout from INSTRUCTION_SPEC (must run after spec is fully defined).
-from ipu_isa.union_layout import compute_slot_layouts, SlotUnion  # noqa: E402
+from ipu_isa.union_layout import SlotUnion, compute_slot_layouts  # noqa: E402
 
 _computed_unions = compute_slot_layouts(INSTRUCTION_SPEC)
 SLOT_UNIONS.update(_computed_unions)
-SLOT_BINARY_LAYOUT.update({
-    slot: [f.canonical_type for f in su.fields]
-    for slot, su in _computed_unions.items()
-})
+SLOT_BINARY_LAYOUT.update(
+    {slot: [f.canonical_type for f in su.fields] for slot, su in _computed_unions.items()}
+)

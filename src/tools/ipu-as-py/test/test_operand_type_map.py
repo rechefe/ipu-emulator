@@ -57,7 +57,9 @@ def test_enum_members_must_match_the_registry_domain():
 
 def test_width_must_match_the_registry():
     wide = type("AddbiImmediate", (immediate.AddbiImmediate,), {"bits": classmethod(lambda cls: 9)})
-    _rejects(r"AddbiImmediate: AddbiImmediate is 9 bits, but the registry says 8", AddbiImmediate=wide)
+    _rejects(
+        r"AddbiImmediate: AddbiImmediate is 9 bits, but the registry says 8", AddbiImmediate=wide
+    )
 
 
 def test_value_range_must_match_the_registry():

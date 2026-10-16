@@ -8,8 +8,13 @@ per-group cost of the group loop stays measured (see STATUS.md).
 # re-runs all four passes on the next group -- included so that per-group
 # overhead shows up in cyc/rows rather than hiding behind small inputs.
 CONFIGS = [
-    dict(n=8, rows=16), dict(n=16, rows=16), dict(n=32, rows=40),
-    dict(n=64, rows=50), dict(n=128, rows=50),
-    dict(n=16, rows=512), dict(n=64, rows=300), dict(n=128, rows=300),
+    dict(n=8, rows=16),
+    dict(n=16, rows=16),
+    dict(n=32, rows=40),
+    dict(n=64, rows=50),
+    dict(n=128, rows=50),
+    dict(n=16, rows=512),
+    dict(n=64, rows=300),
+    dict(n=128, rows=300),
 ]
 PER = "rows"

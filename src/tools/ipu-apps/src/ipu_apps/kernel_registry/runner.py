@@ -1,10 +1,11 @@
 """Thin command-line frontend for registry cases, shared by every kernel."""
+
 from __future__ import annotations
 
 import argparse
 import os
-from pathlib import Path
 import sys
+from pathlib import Path
 
 from ipu_apps.kernel_registry.cases import case_options, load_cases, run_case
 from ipu_isa.errors import IpuError
@@ -30,10 +31,19 @@ def main(argv=None):
     selector.add_argument("--list-cases", action="store_true", help="list cases without running")
     parser = argparse.ArgumentParser(description=__doc__, parents=[selector], allow_abbrev=False)
     parser.add_argument("--max-cycles", type=int)
-    parser.add_argument("--profile-aliases", action="store_true", help="collect full ISA alias measurements")
-    parser.add_argument("--alias-report", type=_user_path, help="write full ISA measurements as JSON (enables profiling)")
-    parser.add_argument("--output", type=_user_path,
-                        help="export completed output, including output that fails validation")
+    parser.add_argument(
+        "--profile-aliases", action="store_true", help="collect full ISA alias measurements"
+    )
+    parser.add_argument(
+        "--alias-report",
+        type=_user_path,
+        help="write full ISA measurements as JSON (enables profiling)",
+    )
+    parser.add_argument(
+        "--output",
+        type=_user_path,
+        help="export completed output, including output that fails validation",
+    )
     selected, _ = selector.parse_known_args(argv)
     if selected.kernel is None:
         # argparse handles generic --help before checking the kernel requirement.
@@ -50,18 +60,42 @@ def main(argv=None):
         case = cases[selected.case]
         for option in case_options(case).values():
             default = option["default"]
-            how = {"action": argparse.BooleanOptionalAction} if isinstance(default, bool) else {"type": type(default)}
+            how = (
+                {"action": argparse.BooleanOptionalAction}
+                if isinstance(default, bool)
+                else {"type": type(default)}
+            )
             parser.add_argument(option["flag"], default=default, **how)
         args = parser.parse_args(argv)
         from ipu_emu.alias_profile import AliasProfile
-        profile = AliasProfile(metadata={"case": args.case}) if args.profile_aliases or args.alias_report else None
-        state, cycles = run_case(args.kernel, case,
-                                options={k: getattr(args, k) for k in case.defaults},
-                                max_cycles=args.max_cycles, output_path=args.output, alias_profile=profile)
+
+        profile = (
+            AliasProfile(metadata={"case": args.case})
+            if args.profile_aliases or args.alias_report
+            else None
+        )
+        state, cycles = run_case(
+            args.kernel,
+            case,
+            options={k: getattr(args, k) for k in case.defaults},
+            max_cycles=args.max_cycles,
+            output_path=args.output,
+            alias_profile=profile,
+        )
         if args.alias_report:
             args.alias_report.write_text(profile.to_json(indent=2) + "\n")
-    except (IpuError, ValueError, OSError, RuntimeError, AssertionError, ImportError,
-            AttributeError, KeyError, TypeError, argparse.ArgumentError) as exc:
+    except (
+        IpuError,
+        ValueError,
+        OSError,
+        RuntimeError,
+        AssertionError,
+        ImportError,
+        AttributeError,
+        KeyError,
+        TypeError,
+        argparse.ArgumentError,
+    ) as exc:
         parser.exit(1, f"error: {str(exc) or type(exc).__name__}\n")
     print(f"{args.kernel}/{args.case}: PASS ({cycles} cycles)")
     print(state.stats.format_summary())

@@ -18,4 +18,6 @@ def test_no_test_inserts_into_sys_path():
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
         if "sys.path.insert" in line and path.name != Path(__file__).name
     ]
-    assert not offenders, f"sys.path.insert in {offenders}; declare the module as a py_library instead"
+    assert not offenders, (
+        f"sys.path.insert in {offenders}; declare the module as a py_library instead"
+    )
