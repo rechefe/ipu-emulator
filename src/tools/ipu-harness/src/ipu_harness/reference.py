@@ -100,8 +100,10 @@ def evaluate(
     """
     import torch  # test-only (Q74b): only a comparison against a reference needs it
 
+    # Copies: a reference that works in place must not change the case's inputs.
     tensors = {
-        name: torch.from_numpy(np.asarray(a, dtype=np.float64)) for name, a in inputs.items()
+        name: torch.from_numpy(np.array(a, dtype=np.float64, copy=True))
+        for name, a in inputs.items()
     }
     made = fn(**tensors, **params)
     if not isinstance(made, Mapping):
@@ -109,6 +111,7 @@ def evaluate(
     out = {}
     for name, value in made.items():
         if isinstance(value, torch.Tensor):
-            value = value.detach().cpu().numpy()
+            # float64 first: NumPy has no bfloat16.
+            value = value.detach().to(torch.float64).cpu().numpy()
         out[name] = np.asarray(value, dtype=np.float64)
     return out

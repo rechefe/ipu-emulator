@@ -26,7 +26,8 @@ def _executed(path: Path, digest: str) -> ModuleType:
 
 def load_file(path: Path) -> ModuleType:
     """A kernel folder's ``.py`` file (no ``__init__.py`` needed), executed once
-    per content: an edit is seen, an unchanged file is not run again.
+    per content: an edit to it is seen, an unchanged file is not run again. An
+    edit to a module it imports is not: Python's import cache keeps that one.
 
     Raises:
         Exception: Whatever executing the file raises.

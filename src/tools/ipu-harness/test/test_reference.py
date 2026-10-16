@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -58,6 +59,9 @@ def shared(tmp_path, monkeypatch):
         "def layernorm(x, rows):\n    return {'y': -x}\n\n\nnot_a_function = 3\n"
     )
     monkeypatch.syspath_prepend(str(tmp_path / "site"))
+    # Each test imports its own copy, not one an earlier test left in sys.modules.
+    for name in ("fake_refs", "fake_refs.ops"):
+        monkeypatch.delitem(sys.modules, name, raising=False)
     return "fake_refs.ops"
 
 
@@ -103,6 +107,17 @@ def test_a_reference_that_does_not_load_is_located(
     assert error.value.key == key
 
 
+def test_a_shared_module_that_fails_to_import_is_located(tmp_path, shared):
+    # As an op kernel's would without torch installed.
+    (tmp_path / "site" / "fake_refs" / "ops.py").write_text("import no_such_torch\n")
+    m = kernel(tmp_path, '[golden]\nop = "layernorm"\n')
+    with pytest.raises(
+        PlanError, match="cannot import fake_refs.ops: ModuleNotFoundError"
+    ) as error:
+        load_reference(m, shared=shared)
+    assert error.value.key == "golden.op"
+
+
 def test_a_missing_shared_module_is_located(tmp_path):
     m = kernel(tmp_path, '[golden]\nop = "layernorm"\n')
     with pytest.raises(PlanError, match="no_such_refs.ops is not installed") as error:
@@ -111,10 +126,20 @@ def test_a_missing_shared_module_is_located(tmp_path):
 
 
 def test_evaluate_passes_float64_tensors_and_returns_float64_arrays(tmp_path):
-    torch = pytest.importorskip("torch")  # test-only; skipped where it is not installed
-    m = kernel(tmp_path, reference="def reference(x, rows):\n    return {'y': x * rows}\n")
+    pytest.importorskip("torch")  # test-only; runs where torch is installed (E06-09 part 2)
+    m = kernel(
+        tmp_path,
+        reference=(
+            "import torch\n\n\n"
+            "def reference(x, rows):\n"
+            "    assert isinstance(x, torch.Tensor) and x.dtype == torch.float64\n"
+            "    x.mul_(rows)  # in place: the caller's array must not change\n"
+            "    return {'y': x.to(torch.bfloat16)}\n"
+        ),
+    )
     fn = load_reference(m)
     assert fn is not None
-    out = evaluate(fn, {"x": np.ones((2, 128), dtype=np.float32)}, {"rows": 2})
+    x = np.ones((2, 128))
+    out = evaluate(fn, {"x": x}, {"rows": 2})
     assert out["y"].dtype == np.float64 and np.array_equal(out["y"], np.full((2, 128), 2.0))
-    assert isinstance(torch.zeros(1), torch.Tensor)
+    assert np.array_equal(x, np.ones((2, 128)))
