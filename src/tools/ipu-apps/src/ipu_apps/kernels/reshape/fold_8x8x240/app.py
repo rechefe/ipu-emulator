@@ -33,50 +33,50 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ipu_emu.emulator import dump_xmem_to_binary
-
 from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.reshape.app import unfold_spec
+from ipu_emu.emulator import dump_xmem_to_binary
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
 
 # -- Dimensions (shared with unfold_8x8x240; same (H, W, C) triple) ---------
 
-H         = 8     # spatial height
-W         = 8     # spatial width
-C         = 240   # channels
-N_STREAMS = 4     # four stride-2 phases
-N_TOK     = 16    # valid tokens per stream row (4x4 decimated grid)
-N_VALID   = H * W # valid tokens per destination row (64) -- naive spatial layout
+H = 8  # spatial height
+W = 8  # spatial width
+C = 240  # channels
+N_STREAMS = 4  # four stride-2 phases
+N_TOK = 16  # valid tokens per stream row (4x4 decimated grid)
+N_VALID = H * W  # valid tokens per destination row (64) -- naive spatial layout
 
 # -- Memory map ---------------------------------------------------------
 #
 # Wide-vector FP32 only, same convention as fold_16x16x192/fold_32x32x144:
 # an XMEM row is LANES * 4 = 512 bytes unconditionally, and .asm XMEM
 # operands are ROW numbers, not byte offsets.
-ELEM_BYTES = 4                               # FP32
-LANES      = 128                             # elements per XMEM row
-ROW_BYTES  = LANES * ELEM_BYTES              # 512
+ELEM_BYTES = 4  # FP32
+LANES = 128  # elements per XMEM row
+ROW_BYTES = LANES * ELEM_BYTES  # 512
 
-DST_ROW_BYTES = ROW_BYTES                    # 512 bytes/row in wide-vector debug mode
+DST_ROW_BYTES = ROW_BYTES  # 512 bytes/row in wide-vector debug mode
 
-_STREAM_ROWS = C                             # rows per input stream (one per channel)
-SRC_STRIDE_ROWS = 1                          # one src row per channel, per stream
-DST_STRIDE_ROWS = 1                          # one dst row per channel
+_STREAM_ROWS = C  # rows per input stream (one per channel)
+SRC_STRIDE_ROWS = 1  # one src row per channel, per stream
+DST_STRIDE_ROWS = 1  # one dst row per channel
 
 SRC_BASE_ROW = 0
 DST_BASE_ROW = SRC_BASE_ROW + N_STREAMS * _STREAM_ROWS
 ONES_BASE_ROW = DST_BASE_ROW + C
 
-SRC_BASE  = SRC_BASE_ROW * ROW_BYTES
-DST_BASE  = DST_BASE_ROW * ROW_BYTES
+SRC_BASE = SRC_BASE_ROW * ROW_BYTES
+DST_BASE = DST_BASE_ROW * ROW_BYTES
 ONES_BASE = ONES_BASE_ROW * ROW_BYTES
 
 
 # -- XMEM loaders -------------------------------------------------------
 
-def _load_input(state: "IpuState", input_path: str | Path) -> None:
+
+def _load_input(state: IpuState, input_path: str | Path) -> None:
     """Write the 4 stride-2 streams directly into XMEM at SRC_BASE.
 
     File layout: (4 streams x 240 channels) rows of 128 FP32 elements
@@ -90,7 +90,7 @@ def _load_input(state: "IpuState", input_path: str | Path) -> None:
     state.xmem.write_address(SRC_BASE, bytearray(raw))
 
 
-def _load_ones(state: "IpuState") -> None:
+def _load_ones(state: IpuState) -> None:
     """One XMEM row of FP32 1.0 for R_CYCLIC (the pass-through multiplier)."""
     state.xmem.write_address(ONES_BASE, bytearray(np.ones(LANES, dtype=np.float32).tobytes()))
 
@@ -109,6 +109,7 @@ def _pack_bytes(values: list[int]) -> int:
 
 # -- App ------------------------------------------------------------------
 
+
 class Fold8x8x240App(IpuApp):
     """Fold 4 stride-2 channel-major streams into an 8x8x240 spatial tensor.
 
@@ -124,7 +125,7 @@ class Fold8x8x240App(IpuApp):
         super().__init__(**kwargs)
         self.input_path = Path(self.input_path)
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         _load_input(state, self.input_path)
         _load_ones(state)
 
@@ -137,7 +138,7 @@ class Fold8x8x240App(IpuApp):
         # CR8: ones base (for R_CYCLIC loading in assembly init)
         state.regfile.set_cr(8, ONES_BASE_ROW)
         # CR9..CR12: per-stream SOURCE bases (s0, s1, s2, s3)
-        state.regfile.set_cr(9,  SRC_BASE_ROW)
+        state.regfile.set_cr(9, SRC_BASE_ROW)
         state.regfile.set_cr(10, SRC_BASE_ROW + _STREAM_ROWS)
         state.regfile.set_cr(11, SRC_BASE_ROW + 2 * _STREAM_ROWS)
         state.regfile.set_cr(12, SRC_BASE_ROW + 3 * _STREAM_ROWS)
@@ -156,19 +157,22 @@ class Fold8x8x240App(IpuApp):
 
         # constant LRs preset here (SET requires a CR source;
         # set_lr in the harness has no such restriction).
-        state.regfile.set_lr(0, 0)      # R_CYCLIC slot 0
-        state.regfile.set_lr(6, 0)      # src row offset within a stream; += 1 per channel
-        state.regfile.set_lr(7, SRC_STRIDE_ROWS)   # src stride per channel (1 row)
-        state.regfile.set_lr(8, 0)      # dst row offset = ch; += 1 per channel
-        state.regfile.set_lr(9, DST_STRIDE_ROWS)   # dst stride per channel (1 row)
-        state.regfile.set_lr(10, 0)     # channel counter
-        state.regfile.set_lr(11, C)     # loop limit
+        state.regfile.set_lr(0, 0)  # R_CYCLIC slot 0
+        state.regfile.set_lr(6, 0)  # src row offset within a stream; += 1 per channel
+        state.regfile.set_lr(7, SRC_STRIDE_ROWS)  # src stride per channel (1 row)
+        state.regfile.set_lr(8, 0)  # dst row offset = ch; += 1 per channel
+        state.regfile.set_lr(9, DST_STRIDE_ROWS)  # dst stride per channel (1 row)
+        state.regfile.set_lr(10, 0)  # channel counter
+        state.regfile.set_lr(11, C)  # loop limit
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         if self.output_path is not None:
             dump_xmem_to_binary(
-                state, self.output_path,
-                DST_BASE, DST_ROW_BYTES, C,
+                state,
+                self.output_path,
+                DST_BASE,
+                DST_ROW_BYTES,
+                C,
             )
 
 

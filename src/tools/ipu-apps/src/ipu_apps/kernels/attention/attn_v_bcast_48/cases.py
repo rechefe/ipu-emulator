@@ -11,12 +11,18 @@ accumulation over the 64 keys, so the golden is a plain float32 running sum
 (``acc_fold``) -- NOT the float64 left-fold that the AGG sibling's golden needs.
 ``pad`` fills the unused 64 lanes of every P and V row (see ``test.py``).
 """
+
 import numpy as np
 
 from ipu_apps.kernel_registry.cases import KernelCase, PreparedCase
-from ipu_apps.kernels.attention.attn_v_bcast_48.app import D, N_BLOCK, N_CHAN, N_TOK
+from ipu_apps.kernels.attention.attn_v_bcast_48.app import N_BLOCK, N_CHAN, N_TOK, D
 from ipu_apps.kernels.attention.cases import (
-    MAX_CYCLES, acc_fold, assert_close, pad_rows, read_fp32, uniform,
+    MAX_CYCLES,
+    acc_fold,
+    assert_close,
+    pad_rows,
+    read_fp32,
+    uniform,
 )
 
 
@@ -37,11 +43,13 @@ def prepare(workspace, *, seed, pad):
         # Output: channel (b*D + t) is one cropped row of N_TOK FP32 queries --
         # the same shape attn_v_64x48 emits.
         got = read_fp32(out, N_CHAN * N_TOK).reshape(N_BLOCK, D, N_TOK)
-        assert_close(got, acc_fold(P, V), rtol=1e-4, atol=1e-3,
-                     what="attn@V (key-major + broadcast)")
+        assert_close(
+            got, acc_fold(P, V), rtol=1e-4, atol=1e-3, what="attn@V (key-major + broadcast)"
+        )
 
-    return PreparedCase({"n_tok": N_TOK, "d": D},
-                        {"p_path": p_path, "v_path": v_path, "output_path": out}, check)
+    return PreparedCase(
+        {"n_tok": N_TOK, "d": D}, {"p_path": p_path, "v_path": v_path, "output_path": out}, check
+    )
 
 
 CASES = {"default": KernelCase(prepare, {"seed": 0xB48, "pad": 0.0}, MAX_CYCLES)}

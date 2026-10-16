@@ -12,17 +12,15 @@ from pathlib import Path
 
 import jinja2
 import numpy as np
-
-from ipu_as.lark_tree import assemble_to_bin_file
-from ipu_as.label import reset_labels
-from ipu_emu.emulator import load_program_from_binary, run_until_complete
-from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
-from ipu_emu.ipu_config import encode_dstructure
-
 from fixture_kernel_support import kernel_inst
 from fixture_packed_l5_measure import count_instructions
 
 from ipu_apps.kernels.normalize.layernorm_16x240.app import LayerNorm16x240App
+from ipu_as.label import reset_labels
+from ipu_as.lark_tree import assemble_to_bin_file
+from ipu_emu.emulator import load_program_from_binary, run_until_complete
+from ipu_emu.ipu_config import encode_dstructure
+from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 
 _PACKED_ASM_SRC = Path(__file__).parent / "asm_packed_layernorm_240x16.asm"
 
@@ -53,7 +51,7 @@ def _pack(x: np.ndarray) -> np.ndarray:
     for r in range(N_PACKED_ROWS):
         for p in range(PACK):
             ch = r * PACK + p
-            rows[r, p * N_TOK:(p + 1) * N_TOK] = x[ch]
+            rows[r, p * N_TOK : (p + 1) * N_TOK] = x[ch]
     return rows
 
 
@@ -62,7 +60,7 @@ def _unpack(rows: np.ndarray) -> np.ndarray:
     for r in range(N_PACKED_ROWS):
         for p in range(PACK):
             ch = r * PACK + p
-            out[ch] = rows[r, p * N_TOK:(p + 1) * N_TOK]
+            out[ch] = rows[r, p * N_TOK : (p + 1) * N_TOK]
     return out
 
 
@@ -75,7 +73,7 @@ def _replicate_per_channel(vals: np.ndarray) -> np.ndarray:
     for r in range(N_PACKED_ROWS):
         for p in range(PACK):
             ch = r * PACK + p
-            rows[r, p * N_TOK:(p + 1) * N_TOK] = vals[ch]
+            rows[r, p * N_TOK : (p + 1) * N_TOK] = vals[ch]
     return rows
 
 
@@ -94,7 +92,9 @@ def test_packed_layernorm_correctness_and_cost(tmp_path: Path) -> None:
     gamma = rng.uniform(0.5, 1.5, size=(N_CH,)).astype(np.float32)
     beta = rng.uniform(-0.5, 0.5, size=(N_CH,)).astype(np.float32)
 
-    expected = _numpy_layernorm(X.astype(np.float64), gamma.astype(np.float64), beta.astype(np.float64))
+    expected = _numpy_layernorm(
+        X.astype(np.float64), gamma.astype(np.float64), beta.astype(np.float64)
+    )
 
     # ---- Packed run ----
     reset_labels()
@@ -125,42 +125,42 @@ def test_packed_layernorm_correctness_and_cost(tmp_path: Path) -> None:
     for p_out in range(8):
         bits = 0
         for b in range(16 * p_out, 16 * p_out + 16):
-            bits |= (1 << b)
-        mrow[p_out * 16:(p_out + 1) * 16] = bits.to_bytes(16, "little")
+            bits |= 1 << b
+        mrow[p_out * 16 : (p_out + 1) * 16] = bits.to_bytes(16, "little")
     state.xmem.write_address(MASK_ROW * ROW_BYTES, bytes(mrow))
     state.xmem.write_address(ALLONES_MASK_ROW * ROW_BYTES, bytes([0xFF] * 128))
 
     # CR assignments -- must match asm_packed_layernorm_240x16.asm's register-name block
-    state.regfile.set_cr(2, DATA_BASE_ROW)       # DATA_BASE
-    state.regfile.set_cr(3, N_PACKED_ROWS)       # ROW_COUNT
-    state.regfile.set_cr(4, 1)                   # ROW_STRIDE
-    state.regfile.set_cr(5, SCRATCH16_ROW)       # SCRATCH16 (NEG_MEAN_BASE/TEMP_BASE/INVSTD_BASE alias)
-    state.regfile.set_cr(6, NEG_MEAN_TILE_ROW)   # NEG_MEAN_TILE (also NEG_INV_N scratch)
-    state.regfile.set_cr(7, CENTERED_BASE_ROW)   # CENTERED_BASE
-    state.regfile.set_cr(8, INVSTD_TILE_ROW)     # INVSTD_TILE (also INV_N scratch)
+    state.regfile.set_cr(2, DATA_BASE_ROW)  # DATA_BASE
+    state.regfile.set_cr(3, N_PACKED_ROWS)  # ROW_COUNT
+    state.regfile.set_cr(4, 1)  # ROW_STRIDE
+    state.regfile.set_cr(5, SCRATCH16_ROW)  # SCRATCH16 (NEG_MEAN_BASE/TEMP_BASE/INVSTD_BASE alias)
+    state.regfile.set_cr(6, NEG_MEAN_TILE_ROW)  # NEG_MEAN_TILE (also NEG_INV_N scratch)
+    state.regfile.set_cr(7, CENTERED_BASE_ROW)  # CENTERED_BASE
+    state.regfile.set_cr(8, INVSTD_TILE_ROW)  # INVSTD_TILE (also INV_N scratch)
     state.regfile.set_cr(9, GAMMA_TILE_BASE_ROW)  # GAMMA_TILE_BASE
     state.regfile.set_cr(10, BETA_TILE_BASE_ROW)  # BETA_TILE_BASE
-    state.regfile.set_cr(11, OUTPUT_BASE_ROW)     # OUTPUT_BASE
-    state.regfile.set_cr(12, MASK_ROW)            # MASK_BASE
-    state.regfile.set_cr(13, encode_dstructure(valid_elements=16))    # DSTRUCT16
-    state.regfile.set_cr(14, encode_dstructure(valid_elements=128))   # DSTRUCT128
-    state.regfile.set_cr(15, ALLONES_MASK_ROW)    # ALLONES_MASK_BASE
+    state.regfile.set_cr(11, OUTPUT_BASE_ROW)  # OUTPUT_BASE
+    state.regfile.set_cr(12, MASK_ROW)  # MASK_BASE
+    state.regfile.set_cr(13, encode_dstructure(valid_elements=16))  # DSTRUCT16
+    state.regfile.set_cr(14, encode_dstructure(valid_elements=128))  # DSTRUCT128
+    state.regfile.set_cr(15, ALLONES_MASK_ROW)  # ALLONES_MASK_BASE
     # cr0/cr1 are the hardwired ZERO/ONE constants.
 
     with count_instructions() as packed_counts:
         packed_cycles = run_until_complete(state, max_cycles=200_000)
 
     packed_out_raw = state.xmem.read_address(OUTPUT_BASE_ROW * ROW_BYTES, N_PACKED_ROWS * ROW_BYTES)
-    packed_out_rows = np.frombuffer(bytes(packed_out_raw), dtype=np.float32).reshape(N_PACKED_ROWS, LANES)
+    packed_out_rows = np.frombuffer(bytes(packed_out_raw), dtype=np.float32).reshape(
+        N_PACKED_ROWS, LANES
+    )
     packed_out = _unpack(packed_out_rows)
     packed_err = float(np.max(np.abs(packed_out - expected)))
 
     # Rows resident during the run: X, NEG_MEAN_TILE(1), CENTERED, INVSTD_TILE(1),
     # GAMMA_TILE, BETA_TILE, OUTPUT, MASK(1), ALLONES_MASK(1), SCRATCH16(1) --
     # everything this kernel touches in XMEM.
-    packed_xmem_activation_bytes = (
-        (N_PACKED_ROWS * 5 + 5) * ROW_BYTES
-    )
+    packed_xmem_activation_bytes = (N_PACKED_ROWS * 5 + 5) * ROW_BYTES
 
     # ---- Unpacked run (layernorm_16x240, the unpacked baseline) ----
     unpacked_bin = kernel_inst("layernorm_16x240")
@@ -181,13 +181,20 @@ def test_packed_layernorm_correctness_and_cost(tmp_path: Path) -> None:
     beta_path.write_bytes(beta.tobytes())
 
     app = LayerNorm16x240App(
-        inst_path=unpacked_bin, input_path=x_path, gamma_path=gamma_path, beta_path=beta_path,
+        inst_path=unpacked_bin,
+        input_path=x_path,
+        gamma_path=gamma_path,
+        beta_path=beta_path,
         output_path=out_path,
     )
     with count_instructions() as unpacked_counts:
         _, unpacked_cycles = app.run(max_cycles=200_000, state=app.make_state())
 
-    unpacked_out = np.frombuffer(out_path.read_bytes(), dtype=np.float32).reshape(N_CH, N_TOK).astype(np.float64)
+    unpacked_out = (
+        np.frombuffer(out_path.read_bytes(), dtype=np.float32)
+        .reshape(N_CH, N_TOK)
+        .astype(np.float64)
+    )
     unpacked_err = float(np.max(np.abs(unpacked_out - expected)))
 
     # Rows resident: X(240) + gamma(2) + beta(2) + centered(240) + output(240)
@@ -198,13 +205,19 @@ def test_packed_layernorm_correctness_and_cost(tmp_path: Path) -> None:
     unpacked_xmem_activation_bytes = (N_CH * 3 + 4) * ROW_BYTES
 
     print("=== Packed vs unpacked LayerNorm, 240ch x 16tok ===")
-    print(f"packed:   cycles={packed_cycles:6d}  instrs={packed_counts.total:6d}  "
-          f"xmem_activation_bytes={packed_xmem_activation_bytes:8d}  max_abs_err={packed_err:.6e}")
-    print(f"unpacked: cycles={unpacked_cycles:6d}  instrs={unpacked_counts.total:6d}  "
-          f"xmem_activation_bytes={unpacked_xmem_activation_bytes:8d}  max_abs_err={unpacked_err:.6e}")
+    print(
+        f"packed:   cycles={packed_cycles:6d}  instrs={packed_counts.total:6d}  "
+        f"xmem_activation_bytes={packed_xmem_activation_bytes:8d}  max_abs_err={packed_err:.6e}"
+    )
+    print(
+        f"unpacked: cycles={unpacked_cycles:6d}  instrs={unpacked_counts.total:6d}  "
+        f"xmem_activation_bytes={unpacked_xmem_activation_bytes:8d}  max_abs_err={unpacked_err:.6e}"
+    )
     print(f"packed/unpacked cycles ratio: {packed_cycles / unpacked_cycles:.4f}")
     print(f"packed/unpacked instr ratio:  {packed_counts.total / unpacked_counts.total:.4f}")
-    print(f"packed/unpacked xmem ratio:   {packed_xmem_activation_bytes / unpacked_xmem_activation_bytes:.4f}")
+    print(
+        f"packed/unpacked xmem ratio:   {packed_xmem_activation_bytes / unpacked_xmem_activation_bytes:.4f}"
+    )
     print(f"LAYERNORM_PACKED_CYCLES={packed_cycles}")
     print(f"LAYERNORM_PACKED_INSTRUCTIONS={packed_counts.total}")
     print(f"LAYERNORM_PACKED_XMEM_BYTES={packed_xmem_activation_bytes}")

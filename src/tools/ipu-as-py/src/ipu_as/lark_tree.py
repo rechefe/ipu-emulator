@@ -1,6 +1,8 @@
 import functools
 import os
+
 import lark
+
 import ipu_as.compound_inst as compound_inst
 import ipu_as.ipu_token as ipu_token
 import ipu_as.label as ipu_label
@@ -79,7 +81,7 @@ def _expand_pseudo_instructions(instructions: list[dict]) -> list[dict]:
 
         expansion = pseudo_def["expands_to"]
         operand_by_name = dict(
-            zip((op["name"] for op in pseudo_def["operands"]), operands)
+            zip((op["name"] for op in pseudo_def["operands"]), operands, strict=False)
         )
         # Borrow the position of the pseudo-instruction being expanded. A bare
         # lark.Token() carries no line or column, so any later error about the
@@ -232,7 +234,7 @@ def disassemble(program: list[int]) -> list[str]:
 
 
 def disassemble_from_mem_file(input_path: str, output_path: str):
-    with open(input_path, "r") as f:
+    with open(input_path) as f:
         program = [int(line.strip(), 0) for line in f.readlines()]
     with open(output_path, "w") as f:
         for line in disassemble(program):

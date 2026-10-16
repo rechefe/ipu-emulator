@@ -1,10 +1,20 @@
 """qk_scores_16x60: every case in cases.py, plus the stored-extent probe."""
+
 import numpy as np
 
 from ipu_apps.kernel_registry.testing import case_tests
 from ipu_apps.kernels.attention.cases import run_poked
 from ipu_apps.kernels.attention.qk_scores_16x60.app import (
-    D, ELEM_BYTES, K_BASE, K_STRIDE_ROWS, LANES, N, N_TG, OUTPUT_ROW_BYTES, ROW_BYTES, S_BASE,
+    ELEM_BYTES,
+    K_BASE,
+    K_STRIDE_ROWS,
+    LANES,
+    N_TG,
+    OUTPUT_ROW_BYTES,
+    ROW_BYTES,
+    S_BASE,
+    D,
+    N,
 )
 
 test_case = case_tests(__package__)
@@ -27,12 +37,14 @@ def test_padding_lanes_not_stored(tmp_path):
 
     def poke(state):
         for c in range(D):
-            state.xmem.write_address(K_BASE + c * K_STRIDE_ROWS * ROW_BYTES + N * ELEM_BYTES, garbage)
+            state.xmem.write_address(
+                K_BASE + c * K_STRIDE_ROWS * ROW_BYTES + N * ELEM_BYTES, garbage
+            )
 
     state = run_poked("qk_scores_16x60", tmp_path, poke, seed=0x5C1)
     for r in range(N * N_TG):
         row = state.xmem.read_address(S_BASE + r * OUTPUT_ROW_BYTES, ROW_BYTES)
-        tail = np.frombuffer(bytes(row[N * ELEM_BYTES:]), dtype=np.float32)
+        tail = np.frombuffer(bytes(row[N * ELEM_BYTES :]), dtype=np.float32)
         assert np.all(tail == 0.0), (
             f"row {r}: padding lanes {N}:{LANES} were stored non-zero -- "
             f"valid_elements is not gating the ACTIVATE.QUANTIZE store window"

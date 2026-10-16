@@ -3,12 +3,23 @@
 # `bazel run //tools:ruff -- <args>`. No package carries its own ruff config.
 target-version = "py310"
 line-length = 100
+# Python lives in .py files only. Ruff also formats ```python blocks in
+# Markdown; those are prose examples (often deliberately partial), and the
+# ruff_test targets glob **/*.py, so exclude Markdown to keep a workspace
+# `ruff format --check` in agreement with the Bazel tests.
+extend-exclude = ["*.md"]
 
 [lint]
 # E4/E7/E9/F: ruff's defaults. I: import order. UP: pyupgrade. B: bugbear.
 # C901/PLR0912/PLR0913/PLR0915: function size and complexity (Q66, about
 # 60-line functions); PLR0913 backs the "no flag arguments" convention.
 select = ["E4", "E7", "E9", "F", "I", "UP", "B", "C901", "PLR0912", "PLR0913", "PLR0915"]
+
+[lint.isort]
+# The repository's own packages (src/tools/*/src/<name>). Named explicitly so
+# import grouping is the same in the workspace and in a ruff_test sandbox,
+# where the other packages' directories are absent.
+known-first-party = ["ipu_apps", "ipu_as", "ipu_emu", "ipu_gen", "ipu_isa"]
 
 [lint.mccabe]
 max-complexity = 10
@@ -20,4 +31,59 @@ max-args = 6
 
 [lint.per-file-ignores]
 # Baseline: existing offenders, removed as each refactor epic reaches the file.
-# Do not add entries; fix the code instead.
+# Complexity rules only (C901, PLR0912, PLR0913, PLR0915), one file per line,
+# grouped by the epic that removes them. Do not add entries; fix the code instead.
+
+# docs: doc drift tests, restructured by E09.
+"docs/doc_blocks.py" = ["C901"]
+"docs/test_doc_commands.py" = ["C901", "PLR0912"]
+
+# ipu-apps kernel framework: removed by E06.
+"src/tools/ipu-apps/src/ipu_apps/kernel_registry/base.py" = ["PLR0913"]
+"src/tools/ipu-apps/src/ipu_apps/kernel_registry/case_support.py" = ["PLR0913"]
+"src/tools/ipu-apps/src/ipu_apps/kernel_registry/cases.py" = ["C901", "PLR0913"]
+"src/tools/ipu-apps/test/mobilevit/fixture_full_layer_chain.py" = ["PLR0913"]
+"src/tools/ipu-apps/test/mobilevit/fixture_kernel_support.py" = ["PLR0913"]
+
+# ipu-apps kernel harnesses and MobileViT tests: removed by E07.
+"src/tools/ipu-apps/src/ipu_apps/kernels/attention/app.py" = ["PLR0913"]
+"src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/app.py" = ["PLR0913"]
+"src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/cases.py" = ["C901", "PLR0913"]
+"src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/conv_universal_wide384/app.py" = ["PLR0913"]
+"src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/pointwise_conv_unified/app.py" = ["C901"]
+"src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/test.py" = ["PLR0913"]
+"src/tools/ipu-apps/src/ipu_apps/kernels/elementwise/cases.py" = ["PLR0913"]
+"src/tools/ipu-apps/src/ipu_apps/kernels/normalize/cases.py" = ["PLR0913"]
+"src/tools/ipu-apps/src/ipu_apps/kernels/sampling/cases.py" = ["PLR0913"]
+"src/tools/ipu-apps/src/ipu_apps/kernels/sampling/test.py" = ["PLR0913"]
+"src/tools/ipu-apps/src/ipu_apps/kernels/softmax/app.py" = ["PLR0913"]
+"src/tools/ipu-apps/test/mobilevit/test_full_layer_l4.py" = ["C901", "PLR0912", "PLR0913", "PLR0915"]
+"src/tools/ipu-apps/test/mobilevit/test_full_layer_l4_packed.py" = ["PLR0913", "PLR0915"]
+"src/tools/ipu-apps/test/mobilevit/test_full_layer_l5.py" = ["C901", "PLR0912", "PLR0913", "PLR0915"]
+"src/tools/ipu-apps/test/mobilevit/test_full_layer_l5_packed.py" = ["PLR0913", "PLR0915"]
+"src/tools/ipu-apps/test/mobilevit/test_packed_layernorm_192x64.py" = ["PLR0915"]
+"src/tools/ipu-apps/test/mobilevit/test_packed_layernorm_240x16.py" = ["PLR0915"]
+"src/tools/ipu-apps/test/mobilevit/test_packed_residual_add_192x64.py" = ["PLR0915"]
+"src/tools/ipu-apps/test/mobilevit/test_packed_residual_add_240x16.py" = ["PLR0915"]
+"src/tools/ipu-apps/test/mobilevit/test_seam_proj_qkv_to_scores_km_repack.py" = ["PLR0913"]
+
+# ipu-as-py assembler: removed by E05 (slot codec, assembly session).
+"src/tools/ipu-as-py/src/ipu_as/compound_inst.py" = ["C901", "PLR0912", "PLR0915"]
+"src/tools/ipu-as-py/src/ipu_as/diagnostics.py" = ["C901"]
+"src/tools/ipu-as-py/src/ipu_as/inst.py" = ["C901"]
+
+# ipu-emu-py emulator core: removed by E04 (cycle module, codecs, alias profiling).
+"src/tools/ipu-emu-py/src/ipu_emu/activations.py" = ["C901", "PLR0912"]
+"src/tools/ipu-emu-py/src/ipu_emu/alias_detectors.py" = ["C901", "PLR0912", "PLR0915"]
+"src/tools/ipu-emu-py/src/ipu_emu/alias_observer.py" = ["C901", "PLR0912"]
+"src/tools/ipu-emu-py/src/ipu_emu/emulator.py" = ["PLR0913"]
+"src/tools/ipu-emu-py/src/ipu_emu/ipu.py" = ["C901", "PLR0912"]
+"src/tools/ipu-emu-py/src/ipu_emu/ipu_state.py" = ["PLR0913"]
+"src/tools/ipu-emu-py/src/ipu_emu/isa_alias_spec.py" = ["C901", "PLR0912", "PLR0915"]
+
+# ipu-emu-py debugger: removed by E08.
+"src/tools/ipu-emu-py/src/ipu_emu/debug_cli.py" = ["C901", "PLR0912"]
+"src/tools/ipu-emu-py/src/ipu_emu/debug_tui.py" = ["C901", "PLR0912", "PLR0913", "PLR0915"]
+
+# ipu-isa layout solver: removed by E03 (immutable derived layout).
+"src/tools/ipu-isa/src/ipu_isa/union_layout.py" = ["C901", "PLR0912"]

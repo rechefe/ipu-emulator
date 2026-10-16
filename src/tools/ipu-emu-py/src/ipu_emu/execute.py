@@ -30,14 +30,13 @@ from __future__ import annotations
 from ipu_as.compound_inst import CompoundInst
 
 # Re-export Ipu class and BreakResult for backward compatibility
-from ipu_emu.ipu import Ipu, BreakResult
+from ipu_emu.ipu import BreakResult, Ipu
 from ipu_emu.ipu_state import IpuState
 from ipu_isa.instruction_spec import (
     SLOT_COUNT,
     get_instruction_by_opcode,
 )
 from ipu_isa.slots import SLOTS
-
 
 # ---------------------------------------------------------------------------
 # Instruction word decoder
@@ -103,11 +102,15 @@ def emulator_only_instructions(instructions) -> set[str]:
     slots = [slot.value for slot, info in SLOTS.items() if info.debug_only]
     for slot in slots:
         if SLOT_COUNT[slot] != 1:
-            raise NotImplementedError(f"emulator-only slot {slot!r} appears {SLOT_COUNT[slot]} times")
+            raise NotImplementedError(
+                f"emulator-only slot {slot!r} appears {SLOT_COUNT[slot]} times"
+            )
     found: set[str] = set()
     for inst in instructions:
         for slot in slots:
-            name, _ = get_instruction_by_opcode(slot, inst[f"{slot}_inst_token_0_{slot}_inst_opcode"])
+            name, _ = get_instruction_by_opcode(
+                slot, inst[f"{slot}_inst_token_0_{slot}_inst_opcode"]
+            )
             if name != "NOP":
                 found.add(name)
     return found

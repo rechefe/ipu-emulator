@@ -1,5 +1,6 @@
 """Runnable cases for residual_add: two random FP32 tensors, checked bit-exact
 against their NumPy float32 sum."""
+
 import numpy as np
 
 from ipu_apps.kernel_registry.cases import KernelCase, PreparedCase
@@ -25,10 +26,14 @@ def prepare(workspace, *, num_channels, seed):
             ch, lane = divmod(int(mismatches[0]), LANES)
             raise ValueError(
                 f"{mismatches.size} mismatches; first at ch={ch} lane={lane}: "
-                f"got {actual[mismatches[0]]}, expected {expected[ch, lane]}")
+                f"got {actual[mismatches[0]]}, expected {expected[ch, lane]}"
+            )
 
-    return PreparedCase({"num_channels": num_channels},
-                        {f"{name}_path": path for name, path in paths.items()}, check)
+    return PreparedCase(
+        {"num_channels": num_channels},
+        {f"{name}_path": path for name, path in paths.items()},
+        check,
+    )
 
 
 CASES = {

@@ -45,15 +45,14 @@ except ImportError:  # pragma: no cover - unavailable on some platforms
     readline = None
 
 # Single source of truth — import register types/schema from ipu_isa
-from ipu_isa.types import RegDescriptor, RegDtype, RegKind
-from ipu_isa.registers import create_regfile_schema
-
-from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE
-from ipu_emu.emulator import DebugAction
 from ipu_emu.debug_control import DebugControl, validate_pc
+from ipu_emu.emulator import DebugAction
 from ipu_emu.errors import EmulatorError
 from ipu_emu.ipu import addressable_rows, xmem_row_size_bytes
+from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
 from ipu_emu.xmem import XMEM_SIZE_BYTES, XMEM_WIDTH_BYTES
+from ipu_isa.registers import create_regfile_schema
+from ipu_isa.types import RegDescriptor, RegDtype
 
 # Re-export so callers only need this module
 __all__ = [
@@ -129,10 +128,7 @@ class XmemRequest:
     fmt: str
 
     def command(self) -> str:
-        return (
-            f"xmem {self.mode} {self.base_token} {self.offset_token} "
-            f"{self.count} {self.fmt}"
-        )
+        return f"xmem {self.mode} {self.base_token} {self.offset_token} {self.count} {self.fmt}"
 
 
 @dataclass(frozen=True)
@@ -190,9 +186,7 @@ def _ansi_colored_character(char: str, fg_4bit: int, bg_4bit: int) -> str:
     return f"\033[{ansi_fg};{ansi_bg}m{char}\033[0m"
 
 
-def decode_16bit_cell(
-    char_code: int, fg_4bit: int, bg_4bit: int
-) -> tuple[str, int, int]:
+def decode_16bit_cell(char_code: int, fg_4bit: int, bg_4bit: int) -> tuple[str, int, int]:
     """Return the visible character and normalized 4-bit colors."""
     return (
         VISIBLE_ALPHABET[char_code & _CELL16_CHARACTER_MASK],
@@ -273,7 +267,7 @@ def format_register(
 
 
 def _print_scalar_group(state: IpuState, name: str, out: TextIO) -> None:
-    desc = state.regfile._desc(name)
+    desc = state.regfile.descriptor(name)
     header = f"=== {name.upper()} Registers ==="
     out.write(header + "\n")
     for i in range(desc.count):
@@ -281,10 +275,8 @@ def _print_scalar_group(state: IpuState, name: str, out: TextIO) -> None:
         out.write(f"  {name}{i:>2d} = {val:>10d} ({_hex32(val)})\n")
 
 
-def _print_byte_register(
-    state: IpuState, name: str, out: TextIO, preview_bytes: int = 16
-) -> None:
-    desc = state.regfile._desc(name)
+def _print_byte_register(state: IpuState, name: str, out: TextIO, preview_bytes: int = 16) -> None:
+    desc = state.regfile.descriptor(name)
     data = state.regfile.raw_readonly(name)
     if desc.count == 1:
         header = f"=== {name} ({desc.size_bytes} bytes) ==="
@@ -498,8 +490,7 @@ def _resolve_xmem_address(
             return (
                 None,
                 None,
-                f"XMEM row {effective} out of range "
-                f"[0, {addressable_rows(state) - 1}]",
+                f"XMEM row {effective} out of range [0, {addressable_rows(state) - 1}]",
             )
         byte_address = effective * row_size
         metadata.update(
@@ -584,8 +575,7 @@ def _resolve_xmem_request(
     if item_size > 1 and byte_address % item_size:
         return (
             None,
-            f"XMEM {request.fmt} address must be {item_size}-byte aligned; "
-            f"got {byte_address}",
+            f"XMEM {request.fmt} address must be {item_size}-byte aligned; got {byte_address}",
         )
 
     byte_count = request.count * item_size
@@ -636,11 +626,7 @@ def _tokenize_xmem(
             fg: int | None = None
             bg: int | None = None
             if fmt == "hex":
-                if (
-                    row_size > XMEM_WIDTH_BYTES
-                    and i > 0
-                    and i % _HEX_BYTES_PER_GROUP == 0
-                ):
+                if row_size > XMEM_WIDTH_BYTES and i > 0 and i % _HEX_BYTES_PER_GROUP == 0:
                     leading = "  "
                 text = f"{data[raw_start]:02x}"
             elif fmt == "int8":
@@ -654,11 +640,7 @@ def _tokenize_xmem(
                 fg = (cell >> _CELL16_FOREGROUND_SHIFT) & _CELL16_COLOR_MASK
                 bg = (cell >> _CELL16_BACKGROUND_SHIFT) & _CELL16_COLOR_MASK
                 text = VISIBLE_ALPHABET[char_code]
-                leading = (
-                    " "
-                    if i == 0 or i % _CELL16_CHARACTERS_PER_GROUP == 0
-                    else ""
-                )
+                leading = " " if i == 0 or i % _CELL16_CHARACTERS_PER_GROUP == 0 else ""
             elif fmt == "u32":
                 value = struct.unpack_from("<I", data, raw_start)[0]
                 text = f"{value:0{_U32_DECIMAL_WIDTH}d}"
@@ -682,9 +664,7 @@ def _tokenize_xmem(
     return lines
 
 
-def _format_xmem(
-    data: bytes | bytearray, byte_address: int, fmt: str, row_size: int
-) -> str:
+def _format_xmem(data: bytes | bytearray, byte_address: int, fmt: str, row_size: int) -> str:
     """Format an already-validated XMEM range for interactive display."""
     rendered: list[str] = []
     for line in _tokenize_xmem(data, byte_address, fmt, row_size):
@@ -789,13 +769,9 @@ class DebugCLI(cmd.Cmd):
                     def _make_handler(d: RegDescriptor):
                         def handler(self_inner, args: str) -> None:
                             if d.dtype in (RegDtype.UINT32, RegDtype.INT32):
-                                _print_scalar_group(
-                                    self_inner.state, d.name, self_inner.out
-                                )
+                                _print_scalar_group(self_inner.state, d.name, self_inner.out)
                             else:
-                                _print_byte_register(
-                                    self_inner.state, d.name, self_inner.out
-                                )
+                                _print_byte_register(self_inner.state, d.name, self_inner.out)
 
                         handler.__doc__ = f"Print {d.name} register(s)"
                         return handler
@@ -892,9 +868,7 @@ class DebugCLI(cmd.Cmd):
 
     def do_pc(self, args: str) -> None:
         """Print program counter."""
-        self.out.write(
-            f"=== Program Counter ===\n  PC = {self.state.program_counter}\n"
-        )
+        self.out.write(f"=== Program Counter ===\n  PC = {self.state.program_counter}\n")
 
     def do_get(self, args: str) -> None:
         """Get register value.  Usage: get <register> [offset] [count]"""
@@ -919,9 +893,7 @@ class DebugCLI(cmd.Cmd):
             self.out.write("Invalid offset\n")
             return
 
-        text = format_register(
-            self.state, desc, idx, offset or 0, count, as_words=False
-        )
+        text = format_register(self.state, desc, idx, offset or 0, count, as_words=False)
         self.out.write(f"{reg_name} {text}\n")
 
     def do_getw(self, args: str) -> None:
@@ -983,9 +955,7 @@ class DebugCLI(cmd.Cmd):
                 return
             self.out.write(f"Set {reg_name} = {value}\n")
         else:
-            self.out.write(
-                f"Cannot set byte-array register '{reg_name}' with a scalar value\n"
-            )
+            self.out.write(f"Cannot set byte-array register '{reg_name}' with a scalar value\n")
 
     def do_xmem(self, args: str) -> None:
         """Read XMEM. Usage: xmem row|byte BASE OFFSET COUNT FORMAT"""
@@ -1006,10 +976,7 @@ class DebugCLI(cmd.Cmd):
                 f"(byte address 0x{resolved.byte_address:08x}, {request.fmt}) ==="
             )
         else:
-            heading = (
-                f"=== XMEM byte address 0x{resolved.byte_address:08x} "
-                f"({request.fmt}) ==="
-            )
+            heading = f"=== XMEM byte address 0x{resolved.byte_address:08x} ({request.fmt}) ==="
         self.out.write(heading + "\n")
         self.out.write(
             _format_xmem(
@@ -1070,9 +1037,7 @@ class DebugCLI(cmd.Cmd):
             mode, base_token, offset_token, count_token = parts[2:]
             count = _parse_int(count_token)
             if count is None or count < 1:
-                self.out.write(
-                    f"XMEM count must be a positive integer; got '{count_token}'\n"
-                )
+                self.out.write(f"XMEM count must be a positive integer; got '{count_token}'\n")
                 return
 
             byte_address, metadata, error = _resolve_xmem_address(
@@ -1082,11 +1047,7 @@ class DebugCLI(cmd.Cmd):
                 self.out.write(error + "\n")
                 return
             assert byte_address is not None and metadata is not None
-            byte_count = (
-                count * int(metadata["row_size_bytes"])
-                if mode.lower() == "row"
-                else count
-            )
+            byte_count = count * int(metadata["row_size_bytes"]) if mode.lower() == "row" else count
         else:
             self.out.write(usage)
             return
@@ -1097,17 +1058,13 @@ class DebugCLI(cmd.Cmd):
             self.out.write(error + "\n")
             return
 
-        sidecar = _save_state_with_xmem(
-            self.state, json_path, byte_address, byte_count, metadata
-        )
+        sidecar = _save_state_with_xmem(self.state, json_path, byte_address, byte_count, metadata)
         self.out.write(f"Registers saved to {json_path}\n")
         self.out.write(f"XMEM saved to {sidecar}\n")
 
     def default(self, line: str) -> None:
         """Handle unknown commands."""
-        self.out.write(
-            f"Unknown command: {line}. Type 'help' for available commands.\n"
-        )
+        self.out.write(f"Unknown command: {line}. Type 'help' for available commands.\n")
 
     # -- REPL entry point ---------------------------------------------------
 
@@ -1134,8 +1091,7 @@ class DebugCLI(cmd.Cmd):
             self.out.write(f"Registers saved to {filename}\n")
 
         self.out.write(
-            "\nType 'help' for available commands, "
-            "'continue' or 'c' to resume execution.\n\n"
+            "\nType 'help' for available commands, 'continue' or 'c' to resume execution.\n\n"
         )
 
         self.cmdloop(intro="")

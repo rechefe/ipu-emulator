@@ -7,9 +7,9 @@ from pathlib import Path
 
 import numpy as np
 
-from ipu_emu.ipu import LANES
 from ipu_apps.kernel_registry import resolve
 from ipu_apps.kernel_registry.cases import assemble_kernel
+from ipu_emu.ipu import LANES
 
 
 def test_registry_resolve_and_run_across_tile_widths() -> None:
@@ -49,9 +49,7 @@ def test_registry_resolve_and_run_across_tile_widths() -> None:
             )
             assert verdict.supported
             expected_name = (
-                "maxpool2d_stride2_tail"
-                if input_tiles < 2 * out_tiles
-                else "maxpool2d_stride2"
+                "maxpool2d_stride2_tail" if input_tiles < 2 * out_tiles else "maxpool2d_stride2"
             )
             assert verdict.app_name == expected_name
 
@@ -67,9 +65,7 @@ def test_registry_resolve_and_run_across_tile_widths() -> None:
             )
             tiled_input[:, :, :width] = logical_input
             trimmed = logical_input[:, : 2 * out_height, : 2 * out_width]
-            expected = trimmed.reshape(
-                channels, out_height, 2, out_width, 2
-            ).max(axis=(2, 4))
+            expected = trimmed.reshape(channels, out_height, 2, out_width, 2).max(axis=(2, 4))
 
             input_path = tmp_path / f"input-{case}.bin"
             output_path = tmp_path / f"output-{case}.bin"
@@ -84,9 +80,7 @@ def test_registry_resolve_and_run_across_tile_widths() -> None:
             assert app.layout.input_rows == channels * height * input_tiles
             state, cycles = app.run(max_cycles=2_000_000)
             raw_output = np.frombuffer(output_path.read_bytes(), dtype="<f4")
-            tiled_output = raw_output.reshape(
-                channels, out_height, out_tiles * LANES
-            )
+            tiled_output = raw_output.reshape(channels, out_height, out_tiles * LANES)
 
             assert cycles > 0
             expected_cr12 = out_tiles - 1 if expected_name.endswith("_tail") else 0
@@ -98,4 +92,3 @@ def test_registry_resolve_and_run_across_tile_widths() -> None:
             )
             assert state.stats.xmem_reads == channels * out_height * reads_per_output_row
             assert np.array_equal(tiled_output[:, :, :out_width], expected)
-

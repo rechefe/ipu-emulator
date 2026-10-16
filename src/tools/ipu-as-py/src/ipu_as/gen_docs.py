@@ -7,11 +7,11 @@ import sys
 from pathlib import Path
 
 from ipu_isa.instruction_spec import (
+    COMPOUND_LAYOUT_SLOT_ORDER,
     PSEUDO_INSTRUCTION_SPEC,
-    VALID_OPERAND_TYPES,
     SLOT_COUNT,
     SLOT_METADATA,
-    COMPOUND_LAYOUT_SLOT_ORDER,
+    VALID_OPERAND_TYPES,
 )
 from ipu_isa.operand_types import operand_type
 from ipu_isa.registers import create_assembler_reg_enums
@@ -50,7 +50,7 @@ def generate_assembly_syntax_md(output_path: Path) -> None:
     lr_span = f"`{lr_vals[0]}`–`{lr_vals[-1]}`" if lr_vals else ""
     cr_span = f"`{cr_vals[0]}`–`{cr_vals[-1]}`" if cr_vals else ""
 
-    main = """# Assembly Language Syntax
+    main = f"""# Assembly Language Syntax
 
 The IPU assembler is a Python-based tool that turns assembly source into binary VLIW instructions for the emulator. Instruction names, operands, and encoding are driven by `instruction_spec.py` in `ipu_isa`; the [Instruction reference](instructions.md) and [Operand types](operand-types.md) are generated from that same toolchain.
 
@@ -129,11 +129,7 @@ loop:
 
 Relative labels such as `B +5` / `B -2` are supported where the grammar accepts a **label** token (see cond-slot instructions in the reference).
 
-""".format(
-        mult_vals=mult_vals,
-        lr_span=lr_span,
-        cr_span=cr_span,
-    )
+"""
 
     masking_section = """
 ## Masking
@@ -347,8 +343,8 @@ def _generate_slots_section() -> str:
 
 def generate_instruction_docs(output_path: Path) -> None:
     """Generate instruction reference documentation."""
-    from ipu_as.inst import Inst
     from ipu_as.compound_inst import CompoundInst
+    from ipu_as.inst import Inst
 
     content = ["# IPU Assembly Instruction Reference\n"]
     content.append(

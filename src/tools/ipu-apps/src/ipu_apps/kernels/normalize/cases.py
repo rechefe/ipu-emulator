@@ -16,18 +16,18 @@ where mu/sigma reduce over the CHANNEL axis, independently per token. No
 epsilon -- this matches the rsqrt activation, which maps a non-positive
 variance to 0 rather than to an infinity.
 """
+
 import numpy as np
 
-from ipu_emu.ipu import LANES
-
 from ipu_apps.kernel_registry.cases import KernelCase, PreparedCase
+from ipu_emu.ipu import LANES
 
 
 def reference_layernorm(x, gamma, beta):
     """LayerNorm over axis 0 (channels) of ``x``; gamma/beta are ``[N_CH]``."""
     mean = x.mean(axis=0)
     centered = x - mean
-    var = (centered ** 2).mean(axis=0)
+    var = (centered**2).mean(axis=0)
     inv_std = np.where(var > 0.0, 1.0 / np.sqrt(var), 0.0).astype(np.float32)
     normalized = centered * inv_std
     bcast = (slice(None),) + (None,) * (x.ndim - 1)
@@ -75,11 +75,15 @@ def check_not_degenerate(actual, expected, x, gamma, beta):
     de_scaled = (actual - beta[:, None]) / gamma[:, None]
     tokens = actual.shape[1]
     np.testing.assert_allclose(
-        de_scaled.mean(axis=0), np.zeros(tokens), atol=1e-4,
+        de_scaled.mean(axis=0),
+        np.zeros(tokens),
+        atol=1e-4,
         err_msg="de-scaled output is not centred over the channel axis",
     )
     np.testing.assert_allclose(
-        de_scaled.std(axis=0), np.ones(tokens), rtol=1e-3,
+        de_scaled.std(axis=0),
+        np.ones(tokens),
+        rtol=1e-3,
         err_msg="de-scaled output does not have unit variance over channels",
     )
 
@@ -89,8 +93,18 @@ def check_not_degenerate(actual, expected, x, gamma, beta):
         raise AssertionError("output equals the input -- the kernel is a pass-through")
 
 
-def layernorm_cases(app, *, inputs, seed, rtol, atol, pad_params=False,
-                    cropped_output=False, guards=False, max_cycles=5_000_000):
+def layernorm_cases(
+    app,
+    *,
+    inputs,
+    seed,
+    rtol,
+    atol,
+    pad_params=False,
+    cropped_output=False,
+    guards=False,
+    max_cycles=5_000_000,
+):
     """``CASES`` for the layernorm kernel whose harness module is ``app``.
 
     Args:
@@ -113,12 +127,13 @@ def layernorm_cases(app, *, inputs, seed, rtol, atol, pad_params=False,
         rows[..., :per_group] = x
 
         inp, gamma_path, beta_path, out = (
-            workspace / name for name in
-            ("input_x_fp32.bin", "gamma_fp32.bin", "beta_fp32.bin", "output.bin"))
+            workspace / name
+            for name in ("input_x_fp32.bin", "gamma_fp32.bin", "beta_fp32.bin", "output.bin")
+        )
         inp.write_bytes(rows.tobytes())
         gamma_path.write_bytes((_fp32_rows(gamma) if pad_params else gamma).tobytes())
         beta_path.write_bytes((_fp32_rows(beta) if pad_params else beta).tobytes())
-        expected = reference_layernorm(x, gamma, beta)          # [N_CH, N_TG, per_group]
+        expected = reference_layernorm(x, gamma, beta)  # [N_CH, N_TG, per_group]
 
         def check():
             raw = np.fromfile(out, dtype="<f4")
@@ -128,15 +143,31 @@ def layernorm_cases(app, *, inputs, seed, rtol, atol, pad_params=False,
                 raise ValueError(f"output has {raw.size} FP32 values, expected {want}")
             got = raw.reshape(channels, groups, lanes)[..., :per_group]
             np.testing.assert_allclose(
-                got, expected, rtol=rtol, atol=atol,
-                err_msg=f"{app.__package__.rpartition('.')[2]} output does not match reference")
+                got,
+                expected,
+                rtol=rtol,
+                atol=atol,
+                err_msg=f"{app.__package__.rpartition('.')[2]} output does not match reference",
+            )
             if guards:
-                check_not_degenerate(got.reshape(channels, tokens),
-                                     expected.reshape(channels, tokens),
-                                     x.reshape(channels, tokens), gamma, beta)
+                check_not_degenerate(
+                    got.reshape(channels, tokens),
+                    expected.reshape(channels, tokens),
+                    x.reshape(channels, tokens),
+                    gamma,
+                    beta,
+                )
 
         params = {"shape": (channels, tokens)}
-        return PreparedCase(params, {"input_path": inp, "gamma_path": gamma_path,
-                                     "beta_path": beta_path, "output_path": out}, check)
+        return PreparedCase(
+            params,
+            {
+                "input_path": inp,
+                "gamma_path": gamma_path,
+                "beta_path": beta_path,
+                "output_path": out,
+            },
+            check,
+        )
 
     return {"default": KernelCase(prepare, {"seed": seed}, max_cycles)}

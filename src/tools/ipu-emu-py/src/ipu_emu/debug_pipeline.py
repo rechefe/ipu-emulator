@@ -1,4 +1,5 @@
 """Read-only VLIW stage descriptions derived from assembler metadata."""
+
 from __future__ import annotations
 
 from ipu_as.compound_inst import CompoundInst
@@ -68,13 +69,19 @@ PIPELINE_STAGES = (
 )
 
 
-def pipeline_occupancy(instruction: dict[str, int] | None) -> list[tuple[str, list[tuple[str, str]]]]:
+def pipeline_occupancy(
+    instruction: dict[str, int] | None,
+) -> list[tuple[str, list[tuple[str, str]]]]:
     """Commands ready in each physical stage at the paused cycle boundary.
 
     NOPs are empty stages, not previously completed commands held in flight.
     Several control operations may occupy CTRL concurrently.
     """
     slots = dict(stage_operations(instruction))
-    return [(stage, [(slot, slots[slot]) for slot in members
-                     if slots[slot].split()[0].upper() != "NOP"])
-            for stage, members in PIPELINE_STAGES]
+    return [
+        (
+            stage,
+            [(slot, slots[slot]) for slot in members if slots[slot].split()[0].upper() != "NOP"],
+        )
+        for stage, members in PIPELINE_STAGES
+    ]

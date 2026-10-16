@@ -82,7 +82,7 @@ def write_row(state: IpuState, row: int, values) -> None:
 def fill_ra(state: IpuState, values) -> None:
     """R0 ++ R1 (256 elements)."""
     name = "r_wide_debug" if _wide(state) else "r"
-    state.regfile.raw(name)[: len(values) * (4 if _wide(state) else 1)] = _element_bytes(
+    state.regfile.mutable(name)[: len(values) * (4 if _wide(state) else 1)] = _element_bytes(
         state, values
     )
 
@@ -90,33 +90,33 @@ def fill_ra(state: IpuState, values) -> None:
 def fill_r_cyclic(state: IpuState, values) -> None:
     """The first ``len(values)`` elements of R_CYCLIC."""
     name = "r_cyclic_wide_debug" if _wide(state) else "r_cyclic"
-    state.regfile.raw(name)[: len(values) * (4 if _wide(state) else 1)] = _element_bytes(
+    state.regfile.mutable(name)[: len(values) * (4 if _wide(state) else 1)] = _element_bytes(
         state, values
     )
 
 
 def fill_lanes(state: IpuState, register: str, values) -> None:
     """MULT_RES or R_ACC lanes."""
-    state.regfile.raw(register)[: 4 * len(values)] = struct.pack(
+    state.regfile.mutable(register)[: 4 * len(values)] = struct.pack(
         f"<{len(values)}{_lane_format(state)[1]}", *values
     )
 
 
 def lane(state: IpuState, register: str, index: int):
     """One MULT_RES or R_ACC lane."""
-    return struct.unpack_from(_lane_format(state), state.regfile.raw(register), 4 * index)[0]
+    return struct.unpack_from(_lane_format(state), state.regfile.view(register), 4 * index)[0]
 
 
 def ra_element(state: IpuState, index: int):
     if _wide(state):
-        return struct.unpack_from("<f", state.regfile.raw("r_wide_debug"), 4 * index)[0]
-    return state.regfile.raw("r")[index]
+        return struct.unpack_from("<f", state.regfile.view("r_wide_debug"), 4 * index)[0]
+    return state.regfile.view("r")[index]
 
 
 def r_cyclic_element(state: IpuState, index: int):
     if _wide(state):
-        return struct.unpack_from("<f", state.regfile.raw("r_cyclic_wide_debug"), 4 * index)[0]
-    return state.regfile.raw("r_cyclic")[index]
+        return struct.unpack_from("<f", state.regfile.view("r_cyclic_wide_debug"), 4 * index)[0]
+    return state.regfile.view("r_cyclic")[index]
 
 
 # -- probes ---------------------------------------------------------------------
@@ -210,7 +210,7 @@ def _row(row: int, values) -> Callable[[IpuState], None]:
 
 def _post_aaq(values) -> Callable[[IpuState], None]:
     def setup(state: IpuState) -> None:
-        state.regfile.raw("post_aaq_reg")[: len(values)] = bytes(v & 0xFF for v in values)
+        state.regfile.mutable("post_aaq_reg")[: len(values)] = bytes(v & 0xFF for v in values)
 
     return setup
 
@@ -219,9 +219,7 @@ def _break_lr_subslot_1_source(program: list) -> None:
     """Point LR sub-slot 1's SET source at a CR index that does not exist."""
     word = program[0]
     field_name = next(
-        name
-        for name in word
-        if name.startswith("lr_inst_1_") and name.endswith("_addbi_immediate")
+        name for name in word if name.startswith("lr_inst_1_") and name.endswith("_addbi_immediate")
     )
     # SET's src shares the ADDBI immediate's union column; make sure the field
     # found is that operand (CR3) before breaking it.
@@ -293,12 +291,8 @@ PROBES: dict[str, Probe] = {
         "SET LR1 CR2 ;;\nSET LR1 CR3 ; ADDB LRD2 LR1 ;;\nBKPT ;;", cr={2: 5, 3: 100}
     ),
     "lr_subslots": Probe("INC LR0 1 ; ADD LR1 LR0 CR1 ;;\nBKPT ;;"),
-    "lr_inc_own_dest": Probe(
-        "SET LR0 CR2 ;;\nINC LR0 3 ; ADD LR1 LR0 CR0 ;;\nBKPT ;;", cr={2: 10}
-    ),
-    "lr_dec_own_dest": Probe(
-        "SET LR0 CR2 ;;\nDEC LR0 3 ; ADD LR1 LR0 CR0 ;;\nBKPT ;;", cr={2: 10}
-    ),
+    "lr_inc_own_dest": Probe("SET LR0 CR2 ;;\nINC LR0 3 ; ADD LR1 LR0 CR0 ;;\nBKPT ;;", cr={2: 10}),
+    "lr_dec_own_dest": Probe("SET LR0 CR2 ;;\nDEC LR0 3 ; ADD LR1 LR0 CR0 ;;\nBKPT ;;", cr={2: 10}),
     "cond_beq": Probe(_BRANCH.format(branch="BEQ LR0 CR0"), cr=_BRANCH_CR),
     "cond_bne": Probe(_BRANCH.format(branch="BNE LR0 CR0"), cr=_BRANCH_CR),
     "cond_blt": Probe(_BRANCH.format(branch="BLT LR0 CR1"), cr=_BRANCH_CR),

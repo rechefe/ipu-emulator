@@ -13,17 +13,15 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-
-from ipu_as.lark_tree import assemble_to_bin_file
-from ipu_as.label import reset_labels
-from ipu_emu.emulator import load_program_from_binary, run_until_complete
-from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
-from ipu_emu.ipu_config import encode_dstructure
-
 from fixture_kernel_support import kernel_inst
 from fixture_packed_l4_measure import count_instructions
 
 from ipu_apps.kernels.elementwise.residual_add_64x192.app import ResidualAdd64x192App
+from ipu_as.label import reset_labels
+from ipu_as.lark_tree import assemble_to_bin_file
+from ipu_emu.emulator import load_program_from_binary, run_until_complete
+from ipu_emu.ipu_config import encode_dstructure
+from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 
 _PACKED_ASM_SRC = Path(__file__).parent / "asm_packed_residual_add_192x64.asm"
 
@@ -31,7 +29,7 @@ N_CH = 192
 N_TOK = 64
 LANES = 128
 ROW_BYTES = 512
-PACK = 2                    # channels per packed row
+PACK = 2  # channels per packed row
 N_PACKED_ROWS = N_CH // PACK
 assert N_CH % PACK == 0
 
@@ -48,7 +46,7 @@ def _pack(x: np.ndarray) -> bytes:
     for r in range(N_PACKED_ROWS):
         for p in range(PACK):
             ch = r * PACK + p
-            rows[r, p * N_TOK:(p + 1) * N_TOK] = x[ch]
+            rows[r, p * N_TOK : (p + 1) * N_TOK] = x[ch]
     return rows.tobytes()
 
 
@@ -58,7 +56,7 @@ def _unpack(raw: bytes) -> np.ndarray:
     for r in range(N_PACKED_ROWS):
         for p in range(PACK):
             ch = r * PACK + p
-            out[ch] = rows[r, p * N_TOK:(p + 1) * N_TOK]
+            out[ch] = rows[r, p * N_TOK : (p + 1) * N_TOK]
     return out
 
 
@@ -66,7 +64,7 @@ def test_packed_residual_add_correctness_and_cost(tmp_path: Path) -> None:
     rng = np.random.RandomState(7)
     A = rng.uniform(-3.0, 3.0, size=(N_CH, N_TOK)).astype(np.float32)
     B = rng.uniform(-3.0, 3.0, size=(N_CH, N_TOK)).astype(np.float32)
-    expected = (A.astype(np.float64) + B.astype(np.float64))
+    expected = A.astype(np.float64) + B.astype(np.float64)
 
     # ---- Packed run ----
     reset_labels()
@@ -113,24 +111,35 @@ def test_packed_residual_add_correctness_and_cost(tmp_path: Path) -> None:
     out_path = tmp_path / "out.bin"
 
     app = ResidualAdd64x192App(
-        inst_path=unpacked_bin, input_a_path=a_path, input_b_path=b_path, output_path=out_path,
+        inst_path=unpacked_bin,
+        input_a_path=a_path,
+        input_b_path=b_path,
+        output_path=out_path,
     )
     with count_instructions() as unpacked_counts:
         _, unpacked_cycles = app.run(max_cycles=100_000, state=app.make_state())
 
-    unpacked_out = np.frombuffer(out_path.read_bytes(), dtype=np.float32).reshape(N_CH, LANES)[:, :N_TOK]
+    unpacked_out = np.frombuffer(out_path.read_bytes(), dtype=np.float32).reshape(N_CH, LANES)[
+        :, :N_TOK
+    ]
     unpacked_err = float(np.max(np.abs(unpacked_out.astype(np.float64) - expected)))
 
     unpacked_xmem_activation_bytes = 3 * N_CH * ROW_BYTES  # A + B + C resident, one channel/row
 
     print("=== packed vs unpacked residual add, 192ch x 64tok (L4) ===")
-    print(f"packed:   cycles={packed_cycles:6d}  instrs={packed_counts.total:6d}  "
-          f"xmem_activation_bytes={packed_xmem_activation_bytes:8d}  max_abs_err={packed_err:.6e}")
-    print(f"unpacked: cycles={unpacked_cycles:6d}  instrs={unpacked_counts.total:6d}  "
-          f"xmem_activation_bytes={unpacked_xmem_activation_bytes:8d}  max_abs_err={unpacked_err:.6e}")
+    print(
+        f"packed:   cycles={packed_cycles:6d}  instrs={packed_counts.total:6d}  "
+        f"xmem_activation_bytes={packed_xmem_activation_bytes:8d}  max_abs_err={packed_err:.6e}"
+    )
+    print(
+        f"unpacked: cycles={unpacked_cycles:6d}  instrs={unpacked_counts.total:6d}  "
+        f"xmem_activation_bytes={unpacked_xmem_activation_bytes:8d}  max_abs_err={unpacked_err:.6e}"
+    )
     print(f"packed/unpacked cycles ratio: {packed_cycles / unpacked_cycles:.4f}")
     print(f"packed/unpacked instr ratio:  {packed_counts.total / unpacked_counts.total:.4f}")
-    print(f"packed/unpacked xmem ratio:   {packed_xmem_activation_bytes / unpacked_xmem_activation_bytes:.4f}")
+    print(
+        f"packed/unpacked xmem ratio:   {packed_xmem_activation_bytes / unpacked_xmem_activation_bytes:.4f}"
+    )
     print(f"RESIDUAL_L4_PACKED_CYCLES={packed_cycles}")
     print(f"RESIDUAL_L4_PACKED_INSTRUCTIONS={packed_counts.total}")
     print(f"RESIDUAL_L4_PACKED_XMEM_BYTES={packed_xmem_activation_bytes}")

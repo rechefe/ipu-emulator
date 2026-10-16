@@ -1,5 +1,3 @@
-// Auto-generated from instruction_spec.py — do not edit.
-// Source: rechefe/ipu-emulator @ {{ source_commit }}
 //
 // Opcode/operand enums and per-slot structs/unions are generated from
 // instruction_spec.py (union field layout in SLOT_UNIONS).
@@ -44,7 +42,7 @@ package ipu_instr_pkg;
 
 {% endfor %}
   // -------------------------------------------------------------------------
-  // Compound VLIW instruction (slots MSB → LSB: cond, lr×N, xmem, mult, acc, aaq, break)
+  // Compound VLIW instruction (slots MSB → LSB: {{ compound_slot_order }})
   // -------------------------------------------------------------------------
   typedef struct packed {
 {% for member in compound_members %}

@@ -80,10 +80,12 @@ class _Files:
 
 
 def test_map_consistent_with_files_logs_nothing(repo: Path, caplog) -> None:
-    files = _Files([
-        _file("setup.md", repo / "docs" / "content" / "setup.md"),
-        _file("instructions.md", repo / "bazel-out" / "docs" / "instructions.md"),
-    ])
+    files = _Files(
+        [
+            _file("setup.md", repo / "docs" / "content" / "setup.md"),
+            _file("instructions.md", repo / "bazel-out" / "docs" / "instructions.md"),
+        ]
+    )
     with caplog.at_level(logging.WARNING):
         history_link.on_files(files, _config({"instructions.md": GENERATOR}))
     assert caplog.records == []

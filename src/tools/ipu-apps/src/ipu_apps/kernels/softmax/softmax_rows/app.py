@@ -69,11 +69,15 @@ class SoftmaxRowsApp(SoftmaxApp):
 
 
 SPEC = softmax_spec(
-    SoftmaxRowsApp, along_rows=True,
-    supports=lambda q: (None if q.n == LANES else
-                        f"handles exactly {LANES} elements per row; this row has {q.n}"),
-    explain=lambda q: (f"n == {LANES} exactly: the full-width row kernel. Rows are processed "
-                       f"in groups of at most {LANES}, so any row count works."),
+    SoftmaxRowsApp,
+    along_rows=True,
+    supports=lambda q: (
+        None if q.n == LANES else f"handles exactly {LANES} elements per row; this row has {q.n}"
+    ),
+    explain=lambda q: (
+        f"n == {LANES} exactly: the full-width row kernel. Rows are processed "
+        f"in groups of at most {LANES}, so any row count works."
+    ),
     # Exact-width match: no padding, no chunking. Cheapest possible claim.
     cost=lambda q: 0.0,
 )

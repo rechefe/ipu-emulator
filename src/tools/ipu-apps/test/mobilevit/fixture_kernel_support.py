@@ -41,11 +41,21 @@ def kernel_inst(name: str) -> Path:
 
 def poison(state, base: int, n_rows: int, lanes: int = LANES) -> None:
     """Fill ``n_rows`` rows of ``lanes`` FP32 lanes at byte address ``base`` with POISON."""
-    state.xmem.write_address(base, bytearray(np.full(n_rows * lanes, POISON, dtype=np.float32).tobytes()))
+    state.xmem.write_address(
+        base, bytearray(np.full(n_rows * lanes, POISON, dtype=np.float32).tobytes())
+    )
 
 
-def run_layernorm_capture_xmem(module, app_class, *, x_rows: np.ndarray, gamma: np.ndarray,
-                               beta: np.ndarray, tmp_path: Path, tag: str) -> bytes:
+def run_layernorm_capture_xmem(
+    module,
+    app_class,
+    *,
+    x_rows: np.ndarray,
+    gamma: np.ndarray,
+    beta: np.ndarray,
+    tmp_path: Path,
+    tag: str,
+) -> bytes:
     """Run a real ``layernorm_*`` kernel and return its raw OUTPUT region bytes.
 
     ``x_rows`` is the harness's input file content: one zero-padded
@@ -61,8 +71,12 @@ def run_layernorm_capture_xmem(module, app_class, *, x_rows: np.ndarray, gamma: 
     gamma_path.write_bytes(gamma.astype(np.float32).tobytes())
     beta_path.write_bytes(beta.astype(np.float32).tobytes())
 
-    app = app_class(inst_path=kernel_inst(module.__package__.rpartition(".")[2]),
-                    input_path=input_path, gamma_path=gamma_path, beta_path=beta_path)
+    app = app_class(
+        inst_path=kernel_inst(module.__package__.rpartition(".")[2]),
+        input_path=input_path,
+        gamma_path=gamma_path,
+        beta_path=beta_path,
+    )
     state = app.make_state()
     poison(state, module.OUTPUT_BASE, n_rows)
     state, cycles = app.run(max_cycles=20_000_000, state=state)
@@ -74,8 +88,16 @@ def run_layernorm_capture_xmem(module, app_class, *, x_rows: np.ndarray, gamma: 
     return raw
 
 
-def run_matmul_direct_xmem_handoff(module, app_class, *, data_raw: bytes, W: np.ndarray,
-                                   tmp_path: Path, tag: str, output_file: bool = True) -> np.ndarray:
+def run_matmul_direct_xmem_handoff(
+    module,
+    app_class,
+    *,
+    data_raw: bytes,
+    W: np.ndarray,
+    tmp_path: Path,
+    tag: str,
+    output_file: bool = True,
+) -> np.ndarray:
     """Feed ``data_raw`` straight into a ``matmul_*_x128`` kernel's DATA region.
 
     DATA and OUTPUT are poisoned, ``data_raw`` is written verbatim at
@@ -94,7 +116,7 @@ def run_matmul_direct_xmem_handoff(module, app_class, *, data_raw: bytes, W: np.
     weights_path.write_bytes(W.astype(np.float32).tobytes())
     app = app_class(
         inst_path=kernel_inst(module.__package__.rpartition(".")[2]),
-        input_path="/dev/null",   # placeholder; _load_data is skipped below
+        input_path="/dev/null",  # placeholder; _load_data is skipped below
         weights_path=weights_path,
         output_path=tmp_path / f"mm_out_{tag}.bin" if output_file else None,
     )

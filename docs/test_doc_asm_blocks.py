@@ -8,10 +8,10 @@ skipped with that reason.
 from __future__ import annotations
 
 import pytest
-from ipu_as import diagnostics
 
 from docs.doc_blocks import Block, DocBlockError, fenced_blocks
 from docs.doc_files import doc_files
+from ipu_as import diagnostics
 
 
 def _cases() -> list:

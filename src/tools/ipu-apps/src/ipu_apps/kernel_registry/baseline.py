@@ -38,11 +38,10 @@ from importlib.resources import files
 from pathlib import Path
 
 import ipu_emu.emulator as emulator
+from ipu_apps.kernel_registry.registry import kernel_spec
 from ipu_emu.descriptors import REGFILE_SCHEMA
 from ipu_emu.ipu_config import CR_REGISTER_NAME
 from ipu_emu.ipu_state import IpuState
-
-from ipu_apps.kernel_registry.registry import kernel_spec
 
 #: The one command that rewrites baselines from the current tree.
 UPDATE_COMMAND = "bazel run //src/tools/ipu-apps:update_kernel_baselines -- <kernel> ..."
@@ -95,7 +94,9 @@ def _xmem_digest(state: IpuState, digest) -> None:
     """Feed every non-zero 64 KiB XMEM page, with its index, into ``digest``."""
     for base, page in state.xmem.touched_pages():
         if len(page) != _PAGE:
-            raise ValueError(f"XMEM page is {len(page)} bytes; the baselines hash {_PAGE}-byte pages")
+            raise ValueError(
+                f"XMEM page is {len(page)} bytes; the baselines hash {_PAGE}-byte pages"
+            )
         if page != _ZERO_PAGE:
             digest.update((base // _PAGE).to_bytes(4, "little"))
             digest.update(page)
@@ -171,13 +172,13 @@ def differences(expected: CaseRecord, actual: CaseRecord) -> list[str]:
     lines = []
     if len(expected.programs) != len(actual.programs):
         lines.append(f"programs: {len(expected.programs)} -> {len(actual.programs)}")
-    for index, (old, new) in enumerate(zip(expected.programs, actual.programs)):
+    for index, (old, new) in enumerate(zip(expected.programs, actual.programs, strict=False)):
         where = f"program {index} " if len(actual.programs) > 1 else ""
         for name in ("program_sha256", "xmem_setup_sha256"):
             if getattr(old, name) != getattr(new, name):
                 lines.append(f"{where}{name}: {getattr(old, name)} -> {getattr(new, name)}")
         for bank, prefix in (("cr", CR_REGISTER_NAME.upper()), ("lr", "LR")):
-            for reg, (a, b) in enumerate(zip(getattr(old, bank), getattr(new, bank))):
+            for reg, (a, b) in enumerate(zip(getattr(old, bank), getattr(new, bank), strict=False)):
                 if a != b:
                     lines.append(f"{where}{prefix}{reg}: {a} -> {b}")
     for name in ("output_sha256", "state_sha256", "cycles"):

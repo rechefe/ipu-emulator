@@ -12,17 +12,15 @@ from pathlib import Path
 
 import jinja2
 import numpy as np
-
-from ipu_as.lark_tree import assemble_to_bin_file
-from ipu_as.label import reset_labels
-from ipu_emu.emulator import load_program_from_binary, run_until_complete
-from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
-from ipu_emu.ipu_config import encode_dstructure
-
 from fixture_kernel_support import kernel_inst
 from fixture_packed_l4_measure import count_instructions
 
 from ipu_apps.kernels.normalize.layernorm_64x192.app import LayerNorm64x192App
+from ipu_as.label import reset_labels
+from ipu_as.lark_tree import assemble_to_bin_file
+from ipu_emu.emulator import load_program_from_binary, run_until_complete
+from ipu_emu.ipu_config import encode_dstructure
+from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 
 _PACKED_ASM_SRC = Path(__file__).parent / "asm_packed_layernorm_192x64.asm"
 
@@ -53,7 +51,7 @@ def _pack(x: np.ndarray) -> np.ndarray:
     for r in range(N_PACKED_ROWS):
         for p in range(PACK):
             ch = r * PACK + p
-            rows[r, p * N_TOK:(p + 1) * N_TOK] = x[ch]
+            rows[r, p * N_TOK : (p + 1) * N_TOK] = x[ch]
     return rows
 
 
@@ -62,7 +60,7 @@ def _unpack(rows: np.ndarray) -> np.ndarray:
     for r in range(N_PACKED_ROWS):
         for p in range(PACK):
             ch = r * PACK + p
-            out[ch] = rows[r, p * N_TOK:(p + 1) * N_TOK]
+            out[ch] = rows[r, p * N_TOK : (p + 1) * N_TOK]
     return out
 
 
@@ -75,7 +73,7 @@ def _replicate_per_channel(vals: np.ndarray) -> np.ndarray:
     for r in range(N_PACKED_ROWS):
         for p in range(PACK):
             ch = r * PACK + p
-            rows[r, p * N_TOK:(p + 1) * N_TOK] = vals[ch]
+            rows[r, p * N_TOK : (p + 1) * N_TOK] = vals[ch]
     return rows
 
 
@@ -94,7 +92,9 @@ def test_packed_layernorm_correctness_and_cost(tmp_path: Path) -> None:
     gamma = rng.uniform(0.5, 1.5, size=(N_CH,)).astype(np.float32)
     beta = rng.uniform(-0.5, 0.5, size=(N_CH,)).astype(np.float32)
 
-    expected = _numpy_layernorm(X.astype(np.float64), gamma.astype(np.float64), beta.astype(np.float64))
+    expected = _numpy_layernorm(
+        X.astype(np.float64), gamma.astype(np.float64), beta.astype(np.float64)
+    )
 
     # ---- Packed run ----
     reset_labels()
@@ -122,8 +122,8 @@ def test_packed_layernorm_correctness_and_cost(tmp_path: Path) -> None:
     for p_out in range(PACK):
         bits = 0
         for b in range(N_TOK * p_out, N_TOK * p_out + N_TOK):
-            bits |= (1 << b)
-        mrow[p_out * 16:(p_out + 1) * 16] = bits.to_bytes(16, "little")
+            bits |= 1 << b
+        mrow[p_out * 16 : (p_out + 1) * 16] = bits.to_bytes(16, "little")
     state.xmem.write_address(MASK_ROW * ROW_BYTES, bytes(mrow))
     state.xmem.write_address(ALLONES_MASK_ROW * ROW_BYTES, bytes([0xFF] * 128))
 
@@ -147,13 +147,13 @@ def test_packed_layernorm_correctness_and_cost(tmp_path: Path) -> None:
         packed_cycles = run_until_complete(state, max_cycles=200_000)
 
     packed_out_raw = state.xmem.read_address(OUTPUT_BASE_ROW * ROW_BYTES, N_PACKED_ROWS * ROW_BYTES)
-    packed_out_rows = np.frombuffer(bytes(packed_out_raw), dtype=np.float32).reshape(N_PACKED_ROWS, LANES)
+    packed_out_rows = np.frombuffer(bytes(packed_out_raw), dtype=np.float32).reshape(
+        N_PACKED_ROWS, LANES
+    )
     packed_out = _unpack(packed_out_rows)
     packed_err = float(np.max(np.abs(packed_out - expected)))
 
-    packed_xmem_activation_bytes = (
-        (N_PACKED_ROWS * 5 + 5) * ROW_BYTES
-    )
+    packed_xmem_activation_bytes = (N_PACKED_ROWS * 5 + 5) * ROW_BYTES
 
     # ---- Unpacked run (layernorm_64x192, the unpacked baseline) ----
     unpacked_bin = kernel_inst("layernorm_64x192")
@@ -171,25 +171,38 @@ def test_packed_layernorm_correctness_and_cost(tmp_path: Path) -> None:
     beta_path.write_bytes(beta.tobytes())
 
     app = LayerNorm64x192App(
-        inst_path=unpacked_bin, input_path=x_path, gamma_path=gamma_path, beta_path=beta_path,
+        inst_path=unpacked_bin,
+        input_path=x_path,
+        gamma_path=gamma_path,
+        beta_path=beta_path,
         output_path=out_path,
     )
     with count_instructions() as unpacked_counts:
         _, unpacked_cycles = app.run(max_cycles=200_000, state=app.make_state())
 
-    unpacked_out = np.frombuffer(out_path.read_bytes(), dtype=np.float32).reshape(N_CH, LANES)[:, :N_TOK].astype(np.float64)
+    unpacked_out = (
+        np.frombuffer(out_path.read_bytes(), dtype=np.float32)
+        .reshape(N_CH, LANES)[:, :N_TOK]
+        .astype(np.float64)
+    )
     unpacked_err = float(np.max(np.abs(unpacked_out - expected)))
 
     unpacked_xmem_activation_bytes = (N_CH * 3 + 4) * ROW_BYTES
 
     print("=== Packed vs unpacked LayerNorm, 192ch x 64tok (L4) ===")
-    print(f"packed:   cycles={packed_cycles:6d}  instrs={packed_counts.total:6d}  "
-          f"xmem_activation_bytes={packed_xmem_activation_bytes:8d}  max_abs_err={packed_err:.6e}")
-    print(f"unpacked: cycles={unpacked_cycles:6d}  instrs={unpacked_counts.total:6d}  "
-          f"xmem_activation_bytes={unpacked_xmem_activation_bytes:8d}  max_abs_err={unpacked_err:.6e}")
+    print(
+        f"packed:   cycles={packed_cycles:6d}  instrs={packed_counts.total:6d}  "
+        f"xmem_activation_bytes={packed_xmem_activation_bytes:8d}  max_abs_err={packed_err:.6e}"
+    )
+    print(
+        f"unpacked: cycles={unpacked_cycles:6d}  instrs={unpacked_counts.total:6d}  "
+        f"xmem_activation_bytes={unpacked_xmem_activation_bytes:8d}  max_abs_err={unpacked_err:.6e}"
+    )
     print(f"packed/unpacked cycles ratio: {packed_cycles / unpacked_cycles:.4f}")
     print(f"packed/unpacked instr ratio:  {packed_counts.total / unpacked_counts.total:.4f}")
-    print(f"packed/unpacked xmem ratio:   {packed_xmem_activation_bytes / unpacked_xmem_activation_bytes:.4f}")
+    print(
+        f"packed/unpacked xmem ratio:   {packed_xmem_activation_bytes / unpacked_xmem_activation_bytes:.4f}"
+    )
     print(f"LAYERNORM_L4_PACKED_CYCLES={packed_cycles}")
     print(f"LAYERNORM_L4_PACKED_INSTRUCTIONS={packed_counts.total}")
     print(f"LAYERNORM_L4_PACKED_XMEM_BYTES={packed_xmem_activation_bytes}")

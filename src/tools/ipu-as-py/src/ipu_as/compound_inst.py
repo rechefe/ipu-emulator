@@ -191,8 +191,7 @@ class CompoundInst:
 
             for i, token_type in enumerate(inst_type.all_tokens()):
                 field_name = (
-                    f"{inst_prefix}"
-                    f"_token_{i}_{utils.camel_case_to_snake_case(token_type.__name__)}"
+                    f"{inst_prefix}_token_{i}_{utils.camel_case_to_snake_case(token_type.__name__)}"
                 )
                 fields.append((field_name, token_type.bits()))
         return list(reversed(fields))
@@ -241,13 +240,15 @@ class CompoundInst:
             for token_type in reversed(inst_type.all_tokens()):
                 token_bits = token_type.bits()
                 token_name = utils.camel_case_to_snake_case(token_type.__name__)
-                fields_with_positions.append({
-                    "name": _smart_abbreviate_field_name(token_name),
-                    "bits": token_bits,
-                    "start_bit": current_bit,
-                    "end_bit": current_bit + token_bits - 1,
-                    "color": color_map.get(inst_type, "#CCCCCC"),
-                })
+                fields_with_positions.append(
+                    {
+                        "name": _smart_abbreviate_field_name(token_name),
+                        "bits": token_bits,
+                        "start_bit": current_bit,
+                        "end_bit": current_bit + token_bits - 1,
+                        "color": color_map.get(inst_type, "#CCCCCC"),
+                    }
+                )
                 current_bit += token_bits
 
         bits_per_width = 24
@@ -266,18 +267,18 @@ class CompoundInst:
 
         svg_lines = [
             f'<svg width="{svg_width}" height="{svg_height}" xmlns="http://www.w3.org/2000/svg">',
-            '  <defs>',
-            '    <style>',
-            f'      .inst-title {{ font-size: {font_size_title}px; font-weight: bold; font-family: Arial; }}',
-            f'      .inst-label {{ font-size: {font_size_label}px; font-weight: bold; font-family: Arial; }}',
-            f'      .field-label {{ font-size: {font_size_bits}px; font-family: Arial; }}',
-            f'      .bit-range {{ font-size: {font_size_label}px; font-family: Arial; }}',
-            '    </style>',
-            '  </defs>',
+            "  <defs>",
+            "    <style>",
+            f"      .inst-title {{ font-size: {font_size_title}px; font-weight: bold; font-family: Arial; }}",
+            f"      .inst-label {{ font-size: {font_size_label}px; font-weight: bold; font-family: Arial; }}",
+            f"      .field-label {{ font-size: {font_size_bits}px; font-family: Arial; }}",
+            f"      .bit-range {{ font-size: {font_size_label}px; font-family: Arial; }}",
+            "    </style>",
+            "  </defs>",
             f'  <rect x="0" y="0" width="{svg_width}" height="{svg_height}" fill="white" stroke="none"/>',
-            f'  <text x="{svg_width/2}" y="{padding + font_size_title}" '
+            f'  <text x="{svg_width / 2}" y="{padding + font_size_title}" '
             f'text-anchor="middle" class="inst-title">'
-            f'{cls.__name__} Layout - {cls.bits()} total bits</text>',
+            f"{cls.__name__} Layout - {cls.bits()} total bits</text>",
         ]
 
         for row_idx in range(num_rows - 1, -1, -1):
@@ -292,7 +293,7 @@ class CompoundInst:
                 f'fill="white" stroke="black" stroke-width="2"/>'
             )
             svg_lines.append(
-                f'  <text x="{padding + 30}" y="{current_y + row_height/2 + font_size_label/2}" '
+                f'  <text x="{padding + 30}" y="{current_y + row_height / 2 + font_size_label / 2}" '
                 f'text-anchor="end" class="bit-range">[{row_end_bit}:{row_start_bit}]</text>'
             )
 
@@ -324,12 +325,12 @@ class CompoundInst:
                 text_lines = []
                 for word in field["name"].split():
                     if len(word) > 10:
-                        if word.startswith('immediate'):
-                            text_lines.append('imm')
-                        elif word.startswith('opcode'):
-                            text_lines.append('op')
-                        elif word.startswith('stage'):
-                            text_lines.append('stg')
+                        if word.startswith("immediate"):
+                            text_lines.append("imm")
+                        elif word.startswith("opcode"):
+                            text_lines.append("op")
+                        elif word.startswith("stage"):
+                            text_lines.append("stg")
                         else:
                             text_lines.append(word[:5])
                     else:
@@ -346,7 +347,7 @@ class CompoundInst:
                 svg_lines.append(
                     f'  <text x="{field_center_x}" y="{field_center_y + total_text_height / 2 + 3}" '
                     f'text-anchor="middle" class="field-label" style="font-weight: bold;">'
-                    f'[{field["end_bit"]}:{field["start_bit"]}]</text>'
+                    f"[{field['end_bit']}:{field['start_bit']}]</text>"
                 )
 
         legend_y = padding + font_size_title * 2.5 + (num_rows * row_height) + 20
@@ -368,8 +369,8 @@ class CompoundInst:
                 f'class="field-label" style="font-size: 9px;">{label}</text>'
             )
 
-        svg_lines.append('</svg>')
-        return '\n'.join(svg_lines)
+        svg_lines.append("</svg>")
+        return "\n".join(svg_lines)
 
 
 def _smart_abbreviate_field_name(name: str) -> str:
@@ -381,7 +382,7 @@ def _smart_abbreviate_field_name(name: str) -> str:
     if name.endswith("_type"):
         name = name[:-5]
     formatted_parts: list[str] = []
-    for part in name.split('_'):
-        words = re.findall('[A-Z][a-z]*|[a-z]+', part)
+    for part in name.split("_"):
+        words = re.findall("[A-Z][a-z]*|[a-z]+", part)
         formatted_parts.extend(words if words else [part])
-    return ' '.join(formatted_parts)
+    return " ".join(formatted_parts)

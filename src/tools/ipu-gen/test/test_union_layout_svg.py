@@ -4,10 +4,12 @@ We don't try to assert visual fidelity here — just that the renderer produces
 a syntactically valid-looking SVG that mentions every slot, every opcode, and
 every field's canonical type.  Visual review is up to the docs build.
 """
+
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 
+from ipu_gen.union_layout_svg import render_union_layout_svg
 from ipu_isa.instruction_spec import (
     COMPOUND_LAYOUT_SLOT_ORDER,
     SLOT_COUNT,
@@ -75,5 +77,5 @@ def test_msb_to_lsb_slot_order():
         assert pos != -1, f"slot title for {slot!r} not found in SVG"
         positions.append(pos)
     assert positions == sorted(positions), (
-        f"slots out of order: {list(zip(COMPOUND_LAYOUT_SLOT_ORDER, positions))}"
+        f"slots out of order: {list(zip(COMPOUND_LAYOUT_SLOT_ORDER, positions, strict=True))}"
     )

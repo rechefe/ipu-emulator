@@ -21,9 +21,7 @@ import ipu_isa
 
 FORBIDDEN = ("ipu_as", "ipu_emu", "ipu_gen", "ipu_apps")
 
-MODULES = sorted(
-    module.name for module in pkgutil.walk_packages(ipu_isa.__path__, "ipu_isa.")
-)
+MODULES = sorted(module.name for module in pkgutil.walk_packages(ipu_isa.__path__, "ipu_isa."))
 
 
 def _forbidden_packages_loaded(modules: list[str], extra_path: str | None = None) -> list[str]:

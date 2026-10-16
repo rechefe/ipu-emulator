@@ -11,6 +11,7 @@ The diagram is the canonical visual for the "Compound Instruction Layout"
 section of the docs.  Slot order follows the binary layout MSB → LSB so the
 picture matches what an encoded VLIW word looks like in memory.
 """
+
 from __future__ import annotations
 
 from ipu_isa.slots import SLOTS
@@ -32,13 +33,7 @@ def _escape(s: str) -> str:
 
 
 def _slot_block_height(su: SlotUnion) -> int:
-    return (
-        _TITLE_BAND_H
-        + _FIELD_ROW_H
-        + 6
-        + len(su.opcode_bindings) * _OPCODE_ROW_H
-        + _BLOCK_PAD_H
-    )
+    return _TITLE_BAND_H + _FIELD_ROW_H + 6 + len(su.opcode_bindings) * _OPCODE_ROW_H + _BLOCK_PAD_H
 
 
 def _render_slot(
@@ -72,7 +67,7 @@ def _render_slot(
     labels += [(f.canonical_type, f.bits, color) for f in su.fields]
 
     px = x
-    for (label, bits, fill), cw in zip(labels, col_widths):
+    for (label, bits, fill), cw in zip(labels, col_widths, strict=True):
         out.append(
             f'  <rect x="{px}" y="{field_row_y}" width="{cw}" height="{_FIELD_ROW_H}" '
             f'fill="{fill}" stroke="#333" stroke-width="1" rx="3"/>'
@@ -110,9 +105,7 @@ def _render_slot(
                 op_name = binding_map[fi]
                 actual_type = field.users.get(opcode, (op_name, "?"))[1]
                 cell_text = (
-                    op_name
-                    if actual_type == field.canonical_type
-                    else f"{op_name}:{actual_type}"
+                    op_name if actual_type == field.canonical_type else f"{op_name}:{actual_type}"
                 )
                 cell_fill = color + "55"
             else:
@@ -125,7 +118,7 @@ def _render_slot(
             out.append(
                 f'  <text x="{cx + dw // 2}" y="{row_y + _OPCODE_ROW_H - 4}" '
                 f'text-anchor="middle" font-size="7.5" font-family="Arial">'
-                f'{_escape(cell_text)}</text>'
+                f"{_escape(cell_text)}</text>"
             )
             cx += dw
     return out

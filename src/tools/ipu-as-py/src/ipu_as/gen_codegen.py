@@ -7,8 +7,7 @@ per-instruction ``union packed`` views derived from ``SLOT_UNIONS`` in
 
 from __future__ import annotations
 
-import os
-import subprocess
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +15,7 @@ import jinja2
 
 from ipu_as import compound_inst, ipu_token, utils
 from ipu_isa.instruction_spec import (
+    COMPOUND_LAYOUT_SLOT_ORDER,
     INSTRUCTION_SPEC,
     SLOT_COUNT,
 )
@@ -26,12 +26,15 @@ from ipu_isa.union_layout import get_operand_type_bits
 
 _TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 
-# Stamped into the package header; see tools/workspace_status.sh.
-UNKNOWN_SOURCE_COMMIT = "unknown"
-_SOURCE_COMMIT_STATUS_KEY = "STABLE_GIT_COMMIT"
+#: The SV package's first line. Its second names the SHA-256 of everything
+#: after the two: the file changes only when its content does, and a vendored
+#: copy can be checked (verify_sv_package).
+SV_PACKAGE_HEADER = "// Auto-generated from instruction_spec.py — do not edit.\n"
+SV_PACKAGE_TEMPLATE = "ipu_instr_pkg.sv.j2"
 
 # IEEE 1800-2017 Annex B reserved keywords. Generated identifiers must avoid them.
-_SV_KEYWORDS = frozenset("""
+_SV_KEYWORDS = frozenset(
+    """
     accept_on alias always always_comb always_ff always_latch and assert assign
     assume automatic before begin bind bins binsof bit break buf bufif0 bufif1
     byte case casex casez cell chandle checker class clocking cmos config const
@@ -58,28 +61,32 @@ _SV_KEYWORDS = frozenset("""
     tranif1 tri tri0 tri1 triand trior trireg type typedef union unique unique0
     unsigned until until_with untyped use uwire var vectored virtual void wait
     wait_order wand weak weak0 weak1 while wildcard wire with within wor xnor xor
-""".split())
+""".split()
+)
 
 
 def _sv_sized_literal(width: int, value: int) -> str:
     """SystemVerilog sized integer literal, e.g. width=3 value=5 → ``3'd5``."""
     return f"{width}'d{value}"
 
+
 # Slot name → opcode EnumToken descriptor key and struct basename.
-_SV_RESERVED_STRUCT_NAMES = frozenset({
-    "break",
-    "continue",
-    "return",
-    "module",
-    "endmodule",
-    "begin",
-    "end",
-    "case",
-    "default",
-    "function",
-    "task",
-    "set",
-})
+_SV_RESERVED_STRUCT_NAMES = frozenset(
+    {
+        "break",
+        "continue",
+        "return",
+        "module",
+        "endmodule",
+        "begin",
+        "end",
+        "case",
+        "default",
+        "function",
+        "task",
+        "set",
+    }
+)
 
 
 def _sanitize_enum_member(name: str) -> str:
@@ -121,8 +128,7 @@ def _operand_sv_type(
     reserved_bits = type_bits[op_type] or column_bits
     if reserved_bits > column_bits:
         raise ValueError(
-            f"{op_type} reserves {reserved_bits} bits but its union column is "
-            f"{column_bits} bits"
+            f"{op_type} reserves {reserved_bits} bits but its union column is {column_bits} bits"
         )
     typedef_name = operand_type(op_type).sv_typedef
     if typedef_name is None:
@@ -167,8 +173,7 @@ def _instruction_layout_fields(
     field for the whole payload.
     """
     bindings = {
-        field_idx: op_name
-        for field_idx, op_name in slot_union.opcode_bindings.get(inst_name, [])
+        field_idx: op_name for field_idx, op_name in slot_union.opcode_bindings.get(inst_name, [])
     }
     operand_types = {op["name"]: op["type"] for op in inst_def["operands"]}
 
@@ -332,7 +337,15 @@ def _enum_descriptors_for_templates() -> list[dict[str, Any]]:
     return result
 
 
-def build_codegen_context(source_commit: str = UNKNOWN_SOURCE_COMMIT) -> dict[str, Any]:
+def _compound_slot_order() -> str:
+    """The compound word's slots, MSB first, as its comment names them: ``lr×3``."""
+    return ", ".join(
+        slot if SLOT_COUNT[slot] == 1 else f"{slot}×{SLOT_COUNT[slot]}"
+        for slot in COMPOUND_LAYOUT_SLOT_ORDER
+    )
+
+
+def build_codegen_context() -> dict[str, Any]:
     """Build the Jinja render context from live assembler metadata."""
     enum_list = _enum_descriptors_for_templates()
     typedef_bits = {e["sv_type"]: e["width"] for e in enum_list}
@@ -342,7 +355,7 @@ def build_codegen_context(source_commit: str = UNKNOWN_SOURCE_COMMIT) -> dict[st
         "slots": _slot_union_descriptors(typedef_bits),
         "compound_members": _compound_members(),
         "compound_width": compound_inst.CompoundInst.bits(),
-        "source_commit": source_commit,
+        "compound_slot_order": _compound_slot_order(),
     }
 
 
@@ -372,43 +385,26 @@ def write_generated_file(
     path.write_text(render_template(template_name, context), encoding="utf-8")
 
 
-def source_commit_from_status(status_text: str) -> str:
-    """Commit recorded by tools/workspace_status.sh, e.g. in Bazel's stable-status.txt."""
-    for line in status_text.splitlines():
-        key, _, value = line.partition(" ")
-        if key == _SOURCE_COMMIT_STATUS_KEY and value:
-            return value
-    return UNKNOWN_SOURCE_COMMIT
+def _content_line(body: str) -> str:
+    return f"// Content: sha256:{hashlib.sha256(body.encode('utf-8')).hexdigest()}\n"
 
 
-def workspace_source_commit() -> str:
-    """Commit of the enclosing checkout, as tools/workspace_status.sh reports it.
-
-    ``bazel run`` changes the working directory, so the source tree it reports
-    in ``BUILD_WORKSPACE_DIRECTORY`` takes precedence.
-    """
-    start = os.environ.get("BUILD_WORKSPACE_DIRECTORY", os.getcwd())
-    try:
-        top = subprocess.run(
-            ["git", "-C", start, "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, check=True,
-        ).stdout.strip()
-        status = subprocess.run(
-            [str(Path(top) / "tools" / "workspace_status.sh")],
-            cwd=top, capture_output=True, text=True, check=True,
-        ).stdout
-    except (OSError, subprocess.CalledProcessError):
-        return UNKNOWN_SOURCE_COMMIT
-    return source_commit_from_status(status)
+def render_sv_package(context: dict[str, Any] | None = None) -> str:
+    """The SystemVerilog package: its header line, the hash of its body, the body."""
+    body = render_template(SV_PACKAGE_TEMPLATE, context)
+    return SV_PACKAGE_HEADER + _content_line(body) + body
 
 
-def generate_sv_package(output_path: str | Path, source_commit: str | None = None) -> None:
-    """Generate a SystemVerilog package with instruction-format structs and enums.
+def verify_sv_package(text: str) -> bool:
+    """Whether *text* is an SV package as generated: its body still has the hash
+    its header names, so not a byte of it was edited."""
+    header, _, rest = text.partition("\n")
+    content, _, body = rest.partition("\n")
+    return header + "\n" == SV_PACKAGE_HEADER and content + "\n" == _content_line(body)
 
-    *source_commit* defaults to the commit of the enclosing git checkout.
-    """
-    if source_commit is None:
-        source_commit = workspace_source_commit()
-    write_generated_file(
-        "ipu_instr_pkg.sv.j2", output_path, build_codegen_context(source_commit)
-    )
+
+def generate_sv_package(output_path: str | Path) -> None:
+    """Write the SystemVerilog package (instruction-format structs and enums)."""
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(render_sv_package(), encoding="utf-8")

@@ -24,23 +24,22 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ipu_emu.emulator import dump_xmem_to_binary
-
 from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.reshape.app import unfold_spec
+from ipu_emu.emulator import dump_xmem_to_binary
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
 
 # -- Dimensions -------------------------------------------------------------
 
-H         = 16    # spatial height
-W         = 16    # spatial width
-C         = 192   # channels
-N_STRIPES = 2     # 128-element row = 8 spatial rows × 16 cols → H/8 = 2 stripes
-N_STREAMS = 4     # TL, TR, BL, BR
-N_OUT     = C     # output channels per stream (same as input channels)
-N_TOK     = 64    # tokens per stream (8×8 sub-grid) — HALF of a 128-lane row
+H = 16  # spatial height
+W = 16  # spatial width
+C = 192  # channels
+N_STRIPES = 2  # 128-element row = 8 spatial rows × 16 cols → H/8 = 2 stripes
+N_STREAMS = 4  # TL, TR, BL, BR
+N_OUT = C  # output channels per stream (same as input channels)
+N_TOK = 64  # tokens per stream (8×8 sub-grid) — HALF of a 128-lane row
 
 # -- Memory map -------------------------------------------------------------
 
@@ -53,30 +52,31 @@ N_TOK     = 64    # tokens per stream (8×8 sub-grid) — HALF of a 128-lane row
 # from row counts, not hardcoded bytes: a byte map sized for 1-byte elements
 # overflows at 4 bytes/element and regions silently overwrite each other.
 # ---------------------------------------------------------------------------
-ELEM_BYTES = 4                               # FP32
-LANES      = 128                             # elements per XMEM row
-ROW_BYTES  = LANES * ELEM_BYTES              # 512
+ELEM_BYTES = 4  # FP32
+LANES = 128  # elements per XMEM row
+ROW_BYTES = LANES * ELEM_BYTES  # 512
 
-OUTPUT_ROW_BYTES = 512                       # one R_ACC store = one row in wide mode
-VALID_ROW_BYTES  = N_TOK * ELEM_BYTES        # meaningful prefix of each output row
+OUTPUT_ROW_BYTES = 512  # one R_ACC store = one row in wide mode
+VALID_ROW_BYTES = N_TOK * ELEM_BYTES  # meaningful prefix of each output row
 
-_STRIPE_ROWS = C                             # one row per channel within a stripe
-_STREAM_ROWS = N_OUT * 1               # rows per output stream
-SRC_STRIDE_ROWS = 1                          # one src row per channel
-DST_STRIDE_ROWS = 1                    # rows per output channel
+_STRIPE_ROWS = C  # one row per channel within a stripe
+_STREAM_ROWS = N_OUT * 1  # rows per output stream
+SRC_STRIDE_ROWS = 1  # one src row per channel
+DST_STRIDE_ROWS = 1  # rows per output channel
 
-SRC_BASE_ROW  = 0
+SRC_BASE_ROW = 0
 ONES_BASE_ROW = SRC_BASE_ROW + N_STRIPES * _STRIPE_ROWS
-DST_BASE_ROW  = ONES_BASE_ROW + 1
+DST_BASE_ROW = ONES_BASE_ROW + 1
 
-SRC_BASE  = SRC_BASE_ROW * ROW_BYTES
+SRC_BASE = SRC_BASE_ROW * ROW_BYTES
 ONES_BASE = ONES_BASE_ROW * ROW_BYTES
-DST_BASE  = DST_BASE_ROW * ROW_BYTES
+DST_BASE = DST_BASE_ROW * ROW_BYTES
 
 
 # -- XMEM loaders -----------------------------------------------------------
 
-def _load_input(state: "IpuState", input_path: str | Path) -> None:
+
+def _load_input(state: IpuState, input_path: str | Path) -> None:
     """Write NHCW-striped input directly into XMEM at SRC_BASE.
 
     File layout: (2 stripes × 192 channels) rows of 128 FP32 elements.
@@ -87,12 +87,13 @@ def _load_input(state: "IpuState", input_path: str | Path) -> None:
     state.xmem.write_address(SRC_BASE, bytearray(raw))
 
 
-def _load_ones(state: "IpuState") -> None:
+def _load_ones(state: IpuState) -> None:
     """One XMEM row of FP32 1.0 for R_CYCLIC (the pass-through multiplier)."""
     state.xmem.write_address(ONES_BASE, bytearray(np.ones(LANES, dtype=np.float32).tobytes()))
 
 
 # -- App --------------------------------------------------------------------
+
 
 class Unfold16x16x192App(IpuApp):
     """Unfold a 16×16×192 spatial tensor into 4 channel-major streams.
@@ -107,7 +108,7 @@ class Unfold16x16x192App(IpuApp):
         super().__init__(**kwargs)
         self.input_path = Path(self.input_path)
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         _load_input(state, self.input_path)
         _load_ones(state)
         # CR0, CR13: per-stripe source bases. CR0 (≡0) and CR1 (≡1) are read-only
@@ -117,25 +118,28 @@ class Unfold16x16x192App(IpuApp):
         # CR8: ones base (for R_CYCLIC loading in assembly init)
         state.regfile.set_cr(8, ONES_BASE_ROW)
         # CR9..CR12: per-stream destination bases (TL, TR, BL, BR)
-        state.regfile.set_cr(9,  DST_BASE_ROW)
+        state.regfile.set_cr(9, DST_BASE_ROW)
         state.regfile.set_cr(10, DST_BASE_ROW + _STREAM_ROWS)
         state.regfile.set_cr(11, DST_BASE_ROW + 2 * _STREAM_ROWS)
         state.regfile.set_cr(12, DST_BASE_ROW + 3 * _STREAM_ROWS)
         # constant LRs preset here (SET requires a CR source)
-        state.regfile.set_lr(0, 0)      # R_CYCLIC slot 0 / mask / ACC.STRIDE slot 0
-        state.regfile.set_lr(1, 1)      # ACC.STRIDE R_ACC slot 1 → [32..63]
-        state.regfile.set_lr(4, 0)      # src row offset, += 1 per channel
-        state.regfile.set_lr(5, SRC_STRIDE_ROWS)   # src stride per channel (1 row)
-        state.regfile.set_lr(6, DST_STRIDE_ROWS)   # dst stride per channel (1 row)
-        state.regfile.set_lr(8, 0)      # dst row offset = ch
-        state.regfile.set_lr(10, 0)     # channel counter
-        state.regfile.set_lr(11, C)     # loop limit
+        state.regfile.set_lr(0, 0)  # R_CYCLIC slot 0 / mask / ACC.STRIDE slot 0
+        state.regfile.set_lr(1, 1)  # ACC.STRIDE R_ACC slot 1 → [32..63]
+        state.regfile.set_lr(4, 0)  # src row offset, += 1 per channel
+        state.regfile.set_lr(5, SRC_STRIDE_ROWS)  # src stride per channel (1 row)
+        state.regfile.set_lr(6, DST_STRIDE_ROWS)  # dst stride per channel (1 row)
+        state.regfile.set_lr(8, 0)  # dst row offset = ch
+        state.regfile.set_lr(10, 0)  # channel counter
+        state.regfile.set_lr(11, C)  # loop limit
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         if self.output_path is not None:
             dump_xmem_to_binary(
-                state, self.output_path,
-                DST_BASE, OUTPUT_ROW_BYTES, N_STREAMS * N_OUT,
+                state,
+                self.output_path,
+                DST_BASE,
+                OUTPUT_ROW_BYTES,
+                N_STREAMS * N_OUT,
             )
 
 

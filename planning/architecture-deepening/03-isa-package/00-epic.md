@@ -130,3 +130,4 @@ E02-01..06
 - [ ] The emulator and assembler share one binary codec in `ipu_isa`; `ipu_emu` sources import nothing from `ipu_as`.
 - [ ] The SV package is generated from the HARDWARE set, with its header a hash of its body; the only `*_WIDTH` changes are the ones E03-22 announces.
 - [ ] The "one edit" test passes with an empty list of manual edits once E04-14 and E05-02 have landed.
+- [ ] `//src/tools/ipu-isa:mypy` is `mypy_test(name = "mypy", lib = ":ipu_isa_lib", strict = True)` and passes (Q65, E01-11; E03-09 makes it strict).

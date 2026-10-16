@@ -19,46 +19,46 @@ from __future__ import annotations
 import math
 import struct
 import warnings
+from collections.abc import Callable
 from enum import IntEnum
-from functools import lru_cache
-from typing import Any, Callable, NamedTuple
+from functools import cache, lru_cache
+from typing import Any, NamedTuple
 
 import numpy as np
 
-from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE, WideVectorArithmetic
-from ipu_emu.xmem import XMEM_SIZE_BYTES
+from ipu_emu.activations import apply_activation
+from ipu_emu.errors import ConfigurationError, DebugOnlyInstructionWarning, EmulatorError
+from ipu_emu.ipu_config import LR_CR_SCALAR_BITS, REGISTER_WORD_VALUE_MASK, PadMode, Partition
+from ipu_emu.ipu_math import DType, dtype_one_byte, ipu_add, ipu_mult, ipu_sub
+from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState, WideVectorArithmetic
+from ipu_emu.isa_alias_spec import SCALAR_MULT_OPERANDS, VECTOR_IDENTITY_MULTS, aliases_for
 from ipu_emu.regfile import RegFile
 from ipu_emu.stats import RunStats
-from ipu_emu.errors import DebugOnlyInstructionWarning, EmulatorError
-from ipu_emu.ipu_math import ipu_mult, ipu_add, ipu_sub, dtype_one_byte, DType
-from ipu_emu.ipu_config import REGISTER_WORD_VALUE_MASK, LR_CR_SCALAR_BITS, PadMode, Partition
-from ipu_isa.instruction_spec import (
-    INSTRUCTION_SPEC,
-    SLOT_COUNT,
-    get_opcode_for_instruction,
-)
-from ipu_isa.layout import SLOT_UNIONS
-from ipu_isa.operand_types import OPERAND_TYPES
-from ipu_isa.slots import SLOTS, Slot
+from ipu_emu.xmem import XMEM_SIZE_BYTES
 from ipu_isa.acc_stride_enums import (
     get_elements_per_row,
     get_horizontal_stride_bits,
     get_vertical_stride_bits,
-)
-from ipu_emu.isa_alias_spec import SCALAR_MULT_OPERANDS, VECTOR_IDENTITY_MULTS, aliases_for
-from ipu_isa.incr_mod_pow2_k import LR_MOD_POW2_K_ENCODED_MAX, LR_MOD_POW2_K_MIN
-from ipu_isa.reshape_mask import RESHAPE_ELEMENT_COUNT, RESHAPE_MASK_LR_OFFSET
-from ipu_isa.registers import (
-    get_register_sizes,
-    get_lane_count,
-    get_mult_stage_map,
 )
 from ipu_isa.activations import (
     ACTIVATION_EXP2,
     ACTIVATION_IDENTITY,
     ACTIVATION_RECIPROCAL,
 )
-from ipu_emu.activations import apply_activation
+from ipu_isa.incr_mod_pow2_k import LR_MOD_POW2_K_ENCODED_MAX, LR_MOD_POW2_K_MIN
+from ipu_isa.instruction_spec import (
+    INSTRUCTION_SPEC,
+    get_opcode_for_instruction,
+)
+from ipu_isa.layout import SLOT_UNIONS
+from ipu_isa.operand_types import OPERAND_TYPES
+from ipu_isa.registers import (
+    get_lane_count,
+    get_mult_stage_map,
+    get_register_sizes,
+)
+from ipu_isa.reshape_mask import RESHAPE_ELEMENT_COUNT, RESHAPE_MASK_LR_OFFSET
+from ipu_isa.slots import SLOTS, Slot
 
 # ---------------------------------------------------------------------------
 # Constants — derived from the single source of truth in ipu-isa
@@ -120,6 +120,7 @@ def addressable_rows(state: IpuState) -> int:
     """Return how many XMEM rows ``.asm`` may address in the active mode."""
     return XMEM_ADDRESSABLE_ROWS if state.wide_vector_debug else NARROW_MAX_ROW
 
+
 # 0..LANES-1, for the rotated Ra window MULT.VE reads.
 _LANE_INDEX = np.arange(LANES)
 
@@ -131,7 +132,9 @@ _ROW_FMT = {"<f": f"<{LANES}f", "<i": f"<{LANES}i"}
 _LOG_2 = math.log(2.0)
 
 
-def _pack_lanes_one_by_one(lane_fmt: str, buf: bytearray, values, byte_off: int = 0) -> None:
+def _pack_lanes_one_by_one(
+    lane_fmt: str, buf: bytearray | memoryview, values, byte_off: int = 0
+) -> None:
     """The lane-by-lane store, kept for the failure path.
 
     ``struct.pack_into`` zeroes a field before it packs it and raises on a
@@ -144,7 +147,13 @@ def _pack_lanes_one_by_one(lane_fmt: str, buf: bytearray, values, byte_off: int 
         struct.pack_into(lane_fmt, buf, byte_off + 4 * i, v)
 
 
-def _store_row(buf: bytearray, lane_fmt: str, values) -> None:
+def _check_partition(num_partitions) -> None:
+    # Reached mid-run from the MULT mask path: an internal invariant, not a setup error.
+    if not isinstance(num_partitions, Partition):
+        raise EmulatorError(f"partition must be a Partition enum value, got {num_partitions!r}")
+
+
+def _store_row(buf: bytearray | memoryview, lane_fmt: str, values) -> None:
     """Write LANES values into *buf* as one row, or fail exactly as lane-by-lane would."""
     try:
         packed = struct.pack(_ROW_FMT[lane_fmt], *values)
@@ -221,7 +230,9 @@ _SLOT_FIELD_PREFIX = {
 
 
 def _build_field_map_for_instruction_union(
-    prefix: str, slot_union: object, inst_name: str,
+    prefix: str,
+    slot_union: object,
+    inst_name: str,
 ) -> dict[str, str]:
     """Build operand_name → inst dict field_key mapping using union bindings."""
     field_map: dict[str, str] = {}
@@ -274,9 +285,7 @@ def _build_read_operand_types() -> dict[tuple[str, str], dict[str, tuple[str, st
     for slot_type, instructions in INSTRUCTION_SPEC.items():
         for inst_name, inst_def in instructions.items():
             read_ops = {
-                op["name"]: (op["type"], op["read"])
-                for op in inst_def["operands"]
-                if "read" in op
+                op["name"]: (op["type"], op["read"]) for op in inst_def["operands"] if "read" in op
             }
             if read_ops:
                 result[(slot_type, inst_name)] = read_ops
@@ -321,8 +330,8 @@ class _OperandRead(NamedTuple):
 # Which operand carries it comes from SCALAR_MULT_OPERANDS; how it is addressed
 # is read off that operand's declared type, so neither fact is restated here.
 _SCALAR_NONE = 0
-_SCALAR_LCR = 1    # LcrIdx: an LR selects an Ra element, or a CR supplies the byte
-_SCALAR_CR = 2     # CrIdx: the CR's low byte is the scalar
+_SCALAR_LCR = 1  # LcrIdx: an LR selects an Ra element, or a CR supplies the byte
+_SCALAR_CR = 2  # CrIdx: the CR's low byte is the scalar
 
 _SCALAR_KINDS = {"LcrIdx": _SCALAR_LCR, "CrIdx": _SCALAR_CR}
 
@@ -337,11 +346,11 @@ class _AliasCheck(NamedTuple):
     """
 
     alias_id: str
-    imm_operand: str | None             # operand whose immediate must differ
+    imm_operand: str | None  # operand whose immediate must differ
     imm_ne: int
-    co_field: str | None                # opcode field of the co-issued slot
-    co_opcodes: frozenset               # ...and the opcodes that satisfy it
-    hardware_only: bool                 # matches unconditionally
+    co_field: str | None  # opcode field of the co-issued slot
+    co_opcodes: frozenset  # ...and the opcodes that satisfy it
+    hardware_only: bool  # matches unconditionally
     vector_only: bool
     masked_window: bool
 
@@ -350,16 +359,16 @@ class _Plan(NamedTuple):
     """Everything dispatch needs for one (slot, opcode), precomputed."""
 
     inst_name: str
-    fn: Callable                                   # unbound Ipu method
-    fields: tuple[tuple[str, str], ...]            # (operand name, inst field key)
+    fn: Callable  # unbound Ipu method
+    fields: tuple[tuple[str, str], ...]  # (operand name, inst field key)
     reads: tuple[_OperandRead, ...]
-    stat: str | None                               # RunStats counter to bump
-    write_operand: str | None                      # LR slot: name of the target
-    write_is_lrd: bool                             # ...and whether it is an LRD pair
-    is_mult: bool                                  # mult slot, and not its NOP
-    scalar_operand: str | None                     # mult slot: scalar multiplicand
-    scalar_kind: int                               # ...and how it is addressed
-    alias_checks: tuple[_AliasCheck, ...]          # empty for almost every plan
+    stat: str | None  # RunStats counter to bump
+    write_operand: str | None  # LR slot: name of the target
+    write_is_lrd: bool  # ...and whether it is an LRD pair
+    is_mult: bool  # mult slot, and not its NOP
+    scalar_operand: str | None  # mult slot: scalar multiplicand
+    scalar_kind: int  # ...and how it is addressed
+    alias_checks: tuple[_AliasCheck, ...]  # empty for almost every plan
 
 
 # Which RunStats counter a non-NOP instruction in each slot bumps.
@@ -455,9 +464,7 @@ def _build_plan(slot_type: str, inst_name: str, spec: dict, field_map: dict) -> 
     scalar_operand, scalar_kind = None, _SCALAR_NONE
     if slot_type == "mult" and inst_name in SCALAR_MULT_OPERANDS:
         scalar_operand = SCALAR_MULT_OPERANDS[inst_name]
-        op_type = next(
-            op["type"] for op in spec["operands"] if op["name"] == scalar_operand
-        )
+        op_type = next(op["type"] for op in spec["operands"] if op["name"] == scalar_operand)
         scalar_kind = _SCALAR_KINDS[op_type]
     return _Plan(
         inst_name=inst_name,
@@ -465,7 +472,8 @@ def _build_plan(slot_type: str, inst_name: str, spec: dict, field_map: dict) -> 
         fields=tuple(field_map.items()),
         reads=reads,
         stat=("mult_idle_cycles" if slot_type == "mult" else None)
-        if inst_name == "NOP" else _SLOT_STAT.get(slot_type),
+        if inst_name == "NOP"
+        else _SLOT_STAT.get(slot_type),
         write_operand=write_operand,
         write_is_lrd=write_is_lrd,
         is_mult=(slot_type == "mult" and inst_name != "NOP"),
@@ -480,14 +488,10 @@ def _build_slot_plans():
 
     Returns ``(opcode_fields, plans, lr_plans, lr_opcode_fields)``.
     """
-    opcode_fields = {
-        slot_type: _opcode_field(slot_type) for slot_type in _SLOT_FIELD_PREFIX
-    }
+    opcode_fields = {slot_type: _opcode_field(slot_type) for slot_type in _SLOT_FIELD_PREFIX}
     plans = {
         slot_type: tuple(
-            _build_plan(
-                slot_type, inst_name, spec, _INSTRUCTION_FIELD_MAP[(slot_type, inst_name)]
-            )
+            _build_plan(slot_type, inst_name, spec, _INSTRUCTION_FIELD_MAP[(slot_type, inst_name)])
             for inst_name, spec in INSTRUCTION_SPEC[slot_type].items()
         )
         for slot_type in _SLOT_FIELD_PREFIX
@@ -495,9 +499,7 @@ def _build_slot_plans():
     # LR sub-slots differ only in which fields of the word they read.
     lr_plans = tuple(
         tuple(
-            _build_plan(
-                "lr", inst_name, spec, _INSTRUCTION_FIELD_MAP[("lr", inst_name, slot_idx)]
-            )
+            _build_plan("lr", inst_name, spec, _INSTRUCTION_FIELD_MAP[("lr", inst_name, slot_idx)])
             for inst_name, spec in INSTRUCTION_SPEC["lr"].items()
         )
         for slot_idx, _ in enumerate(SLOTS[Slot.LR].field_prefixes())
@@ -517,6 +519,7 @@ class BreakResult(IntEnum):
 # ---------------------------------------------------------------------------
 # IPU Execution Engine
 # ---------------------------------------------------------------------------
+
 
 class Ipu:
     """IPU execution engine with automatic instruction dispatch.
@@ -552,11 +555,12 @@ class Ipu:
         self._profile = None
         if state.alias_profile is not None:
             from ipu_emu.alias_observer import ExecutionObserver
+
             profile = state.alias_profile
             if profile._bridge is None:
                 profile._bridge = ExecutionObserver(profile, state)
             elif profile._bridge.state is not state:
-                raise ValueError("an AliasProfile belongs to a single IpuState")
+                raise ConfigurationError("an AliasProfile belongs to a single IpuState")
             self._profile = profile._bridge
             state.stats.alias_profile = profile
         # Snapshot buffer reused across cycles. Every register is refreshed from
@@ -590,6 +594,19 @@ class Ipu:
         if self._public_snapshot is None:
             self._public_snapshot = self._snapshot_buffer.snapshot()
         return self._public_snapshot
+
+    def _require_snapshot(self) -> None:
+        """A handler reading the cycle's snapshot runs inside a cycle, which takes it."""
+        if self._snapshot_buffer is None:
+            raise EmulatorError("no register snapshot: a handler ran outside a cycle")
+
+    @staticmethod
+    def _read_forgetting_provenance(regfile: RegFile, name: str) -> memoryview:
+        """*regfile*'s register *name*, to read. Reading through ``raw()`` used to
+        forget the register's constant-ones provenance, and these reads still
+        do, so alias and identity statistics stay as they were until E04-24."""
+        regfile.forget_provenance(name)  # E04-24
+        return regfile.view(name)
 
     def _take_snapshot(self) -> None:
         """Refresh the private execution snapshot at cycle start."""
@@ -657,9 +674,7 @@ class Ipu:
     def _wide_assert_lane_aligned_byte_offset(self, name: str, byte_off: int) -> None:
         """Wide-vector mode treats r_cyclic in 4-byte elements; misaligned offsets corrupt unpacking."""
         if byte_off % 4 != 0:
-            raise EmulatorError(
-                f"Wide-vector debug: {name} must be 4-byte aligned, got {byte_off}"
-            )
+            raise EmulatorError(f"Wide-vector debug: {name} must be 4-byte aligned, got {byte_off}")
 
     def _wide_imult32(self, a: int, b: int) -> int:
         p = int(a) * int(b)
@@ -686,23 +701,21 @@ class Ipu:
             # NumPy's global error policy belongs to the embedding application;
             # signaling-NaN conversion must behave like struct regardless of it.
             with np.errstate(all="ignore"):
-                return np.frombuffer(
-                    buf, dtype="<f4", count=LANES, offset=byte_off
-                ).astype(np.float64)
-        return np.frombuffer(
-            buf, dtype="<i4", count=LANES, offset=byte_off
-        ).astype(np.int64)
+                return np.frombuffer(buf, dtype="<f4", count=LANES, offset=byte_off).astype(
+                    np.float64
+                )
+        return np.frombuffer(buf, dtype="<i4", count=LANES, offset=byte_off).astype(np.int64)
 
-    def _wide_store_lanes(self, buf: bytearray, values: np.ndarray, byte_off: int = 0) -> None:
+    def _wide_store_lanes(
+        self, buf: bytearray | memoryview, values: np.ndarray, byte_off: int = 0
+    ) -> None:
         """Write LANES lanes back, rounding once — what ``pack_into`` did."""
         if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
             # numpy 2 refuses to re-enter one errstate object, so this stays
             # per call (~2 us); a magnitude pre-check measured slower.
             with np.errstate(all="ignore"):
                 narrowed = values.astype(np.float32)
-            if not np.isfinite(narrowed).all() and np.any(
-                np.isinf(narrowed) & np.isfinite(values)
-            ):
+            if not np.isfinite(narrowed).all() and np.any(np.isinf(narrowed) & np.isfinite(values)):
                 # A finite double too large for float32: struct.pack_into
                 # raises OverflowError where numpy would store an infinity.
                 # Replay the lane-by-lane store so the register ends up exactly
@@ -713,7 +726,7 @@ class Ipu:
         else:
             # int32 wrap, as _wide_imult32 / ipu_add(INT8) do lane by lane.
             raw = (values & 0xFFFFFFFF).astype(np.uint32)
-        buf[byte_off:byte_off + LANES * 4] = raw.tobytes()
+        buf[byte_off : byte_off + LANES * 4] = raw.tobytes()
 
     def _wide_ra_lanes(self, mult_stage_enc: int) -> np.ndarray:
         """R0/R1 wide lanes from the cycle-start snapshot (issue #157).
@@ -733,7 +746,9 @@ class Ipu:
         is the 4-byte element at ``4 * idx`` whichever register it falls in.
         """
         fmt = "<f" if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32 else "<i"
-        return struct.unpack_from(fmt, self._snapshot_buffer.raw_readonly("r_wide_debug"), 4 * idx)[0]
+        return struct.unpack_from(fmt, self._snapshot_buffer.raw_readonly("r_wide_debug"), 4 * idx)[
+            0
+        ]
 
     def _wide_rb_lanes(self, cyclic_byte_off: int) -> np.ndarray:
         """r_cyclic wide lanes from the cycle-start snapshot."""
@@ -768,8 +783,7 @@ class Ipu:
     # Helper Methods
     # -----------------------------------------------------------------------
 
-    def _resolve_operand(self, op_type: str, raw_value: int,
-                         source: RegFile) -> int | bytearray:
+    def _resolve_operand(self, op_type: str, raw_value: int, source: RegFile) -> int | bytearray:
         """Resolve a 'read' operand to its register value.
 
         Called by dispatch for operands with a ``"read"`` field in instruction_spec.
@@ -797,8 +811,7 @@ class Ipu:
         elif op_type == "MultStageReg":
             if raw_value > 1:
                 raise EmulatorError(
-                    "Mult-stage operand must encode r0 (0) or r1 (1); "
-                    f"got {raw_value}"
+                    f"Mult-stage operand must encode r0 (0) or r1 (1); got {raw_value}"
                 )
             if self._wide_vector_active():
                 # Mult handlers read wide lanes via _wide_ra_lanes(raw_value),
@@ -810,7 +823,7 @@ class Ipu:
             return raw_value
 
     @staticmethod
-    @lru_cache(maxsize=None)
+    @cache
     def _build_partition_vector(num_partitions: int) -> int:
         """Build the left-shift partition vector (0 at the START of each group).
 
@@ -819,20 +832,18 @@ class Ipu:
         num_partitions=0: all-ones — no boundaries, shifts are unconstrained.
         num_partitions=P: P groups of LANES/P elements; bit 0 of each group is 0.
         """
-        assert isinstance(num_partitions, Partition), (
-            f"partition must be a Partition enum value, got {num_partitions!r}"
-        )
+        _check_partition(num_partitions)
         if num_partitions == 0:
             return (1 << LANES) - 1
         step = LANES // num_partitions
         result = 0
         for i in range(LANES):
             if i % step != 0:
-                result |= (1 << i)
+                result |= 1 << i
         return result
 
     @staticmethod
-    @lru_cache(maxsize=None)
+    @cache
     def _build_inverse_partition_vector(num_partitions: int) -> int:
         """Build the right-shift partition vector (0 at the END of each group).
 
@@ -841,16 +852,14 @@ class Ipu:
         num_partitions=0: all-ones — no boundaries, shifts are unconstrained.
         num_partitions=P: P groups of LANES/P elements; last bit of each group is 0.
         """
-        assert isinstance(num_partitions, Partition), (
-            f"partition must be a Partition enum value, got {num_partitions!r}"
-        )
+        _check_partition(num_partitions)
         if num_partitions == 0:
             return (1 << LANES) - 1
         step = LANES // num_partitions
         result = 0
         for i in range(LANES):
             if i % step != step - 1:
-                result |= (1 << i)
+                result |= 1 << i
         return result
 
     def _mult_mask_and_shift(self, mask_idx: int, shift: int, cr_idx: int) -> None:
@@ -882,10 +891,11 @@ class Ipu:
             # Lane statistics are still recorded: prototyping mode is only
             # allowed to skip work, never to change what a run reports.
             slot = (mask_idx % (LANES // 16)) * 16
-            if self.state.regfile.raw("r_mask")[slot:slot + 16] == _ALL_ONES_MASK_SLOT:
-                self._count_mult_lanes(
-                    _ALL_ONES_MASK_INT, self.state.get_dstructure_for(cr_idx)
-                )
+            if (
+                self._read_forgetting_provenance(self.state.regfile, "r_mask")[slot : slot + 16]
+                == _ALL_ONES_MASK_SLOT
+            ):
+                self._count_mult_lanes(_ALL_ONES_MASK_INT, self.state.get_dstructure_for(cr_idx))
                 return
 
         mask_int, dstructure = self._effective_mult_mask(mask_idx, shift, cr_idx)
@@ -895,9 +905,9 @@ class Ipu:
         if not inactive:
             return
         pad_bytes = self._mult_pad_lane_bytes(dstructure.pad_mode)
-        mult_res = self.state.regfile.raw("mult_res")
+        mult_res = self.state.regfile.mutable("mult_res")
         for i in inactive:
-            mult_res[i * 4:i * 4 + 4] = pad_bytes
+            mult_res[i * 4 : i * 4 + 4] = pad_bytes
 
     def _count_mult_lanes(self, mask_int: int, dstructure) -> None:
         """Record the lanes a multiply retires under ``mask_int``.
@@ -922,7 +932,9 @@ class Ipu:
         mask_slot = mask_idx % (LANES // 16)  # 8 slots of 128 bits each
         offset = mask_slot * 16
         _128_BIT_MASK = (1 << LANES) - 1
-        base_mask = int.from_bytes(mask_bytes[offset:offset + 16], byteorder="little") & _128_BIT_MASK
+        base_mask = (
+            int.from_bytes(mask_bytes[offset : offset + 16], byteorder="little") & _128_BIT_MASK
+        )
 
         dstructure = self.state.get_dstructure_for(cr_idx)
         num_partitions = dstructure.partition
@@ -1029,9 +1041,7 @@ class Ipu:
     def execute_ldr_mult_reg(self, *, dest: int, offset: int, base: int) -> None:
         """Execute LDR_MULT_REG: Load data from memory into a mult stage register."""
         if dest not in (0, 1):
-            raise EmulatorError(
-                f"LDR_MULT_REG: dest must be 0 (r0) or 1 (r1); got {dest}"
-            )
+            raise EmulatorError(f"LDR_MULT_REG: dest must be 0 (r0) or 1 (r1); got {dest}")
         addr = self._xmem_row_addr(offset + base)
         if self._wide_vector_active():
             data = self.state.xmem.read_address(addr, self._row_size_bytes())
@@ -1101,19 +1111,19 @@ class Ipu:
 
     def execute_lr_inc(self, *, dest: int, imm: int) -> None:
         """Execute INC: uint32 ``dest = dest + imm`` (read-modify-write)."""
-        assert self._snapshot_buffer is not None
+        self._require_snapshot()
         cur = self._snapshot_buffer.get_lr(dest)
         self.state.regfile.set_lr(dest, (cur + imm) & 0xFFFFFFFF)
 
     def execute_lr_dec(self, *, dest: int, imm: int) -> None:
         """Execute DEC: uint32 ``dest = dest - imm`` (read-modify-write)."""
-        assert self._snapshot_buffer is not None
+        self._require_snapshot()
         cur = self._snapshot_buffer.get_lr(dest)
         self.state.regfile.set_lr(dest, (cur - imm) & 0xFFFFFFFF)
 
     def _addb_broadcast(self, dest: int, byte_val: int) -> None:
         """Broadcast-add a signed byte to all 8 elements of LRDn = LR(2n+1):LR(2n), clamped to [0, 255]."""
-        assert self._snapshot_buffer is not None
+        self._require_snapshot()
         lanes = bytearray(self._get_lrd_bytes(dest, self._snapshot_buffer))
         signed = byte_val - 256 if byte_val >= 128 else byte_val
         for i in range(8):
@@ -1135,7 +1145,7 @@ class Ipu:
         resolved from LcrIdx (snapshot), interpreted as uint32 like ``add``/``sub``.
         ``k`` is the raw encoded field (k_semantic − 1); semantic exponent is k + 1.
         """
-        assert self._snapshot_buffer is not None
+        self._require_snapshot()
         if k > LR_MOD_POW2_K_ENCODED_MAX:
             raise EmulatorError(
                 f"INCR_MOD_POW2: invalid k encoding {k} (max {LR_MOD_POW2_K_ENCODED_MAX})"
@@ -1183,8 +1193,13 @@ class Ipu:
             )
 
         for plan, kwargs in pending:
-            token = (self._profile.start(self, "lr", plan, kwargs,
-                     {name: inst[key] for name, key in plan.fields}) if self._profile else None)
+            token = (
+                self._profile.start(
+                    self, "lr", plan, kwargs, {name: inst[key] for name, key in plan.fields}
+                )
+                if self._profile
+                else None
+            )
             plan.fn(self, **kwargs)
             if self._profile:
                 self._profile.finish(self, token)
@@ -1209,7 +1224,9 @@ class Ipu:
             # are visible, like other mult index operands).  Only the Ra DATA is
             # snapshot (issue #157): a same-cycle LDR_MULT_REG is not yet visible.
             idx = self.state.regfile.get_lr(src) % (2 * R_REG_SIZE)
-            r_buf = self._snapshot_buffer.raw_readonly("r")  # Ra (R0/R1) DATA from snapshot (issue #157)
+            r_buf = self._snapshot_buffer.raw_readonly(
+                "r"
+            )  # Ra (R0/R1) DATA from snapshot (issue #157)
             return r_buf[idx]
         cr_idx = src - LR_REG_COUNT
         return self.state.regfile.get_cr(cr_idx) & 0xFF
@@ -1227,10 +1244,11 @@ class Ipu:
             return float(cr_scalar)
         return cr_scalar
 
-    def execute_mult_rc_vv(self, *, rc_idx: int, ra: bytearray | int,
-                           mask_offset: int, mask_shift: int, cr_idx: int) -> None:
+    def execute_mult_rc_vv(
+        self, *, rc_idx: int, ra: bytearray | int, mask_offset: int, mask_shift: int, cr_idx: int
+    ) -> None:
         """Execute MULT.RC.VV: R_CYCLIC vector × Ra (R0/R1) vector, element-wise."""
-        mult_res = self.state.regfile.raw("mult_res")
+        mult_res = self.state.regfile.mutable("mult_res")
 
         if self._wide_vector_active():
             byte_off = self._rc_element_to_byte_offset(rc_idx)
@@ -1256,10 +1274,11 @@ class Ipu:
 
         self._mult_mask_and_shift(mask_offset, mask_shift, cr_idx)
 
-    def execute_mult_rc_ve(self, *, rc_idx: int, src: int,
-                           mask_offset: int, mask_shift: int, cr_idx: int) -> None:
+    def execute_mult_rc_ve(
+        self, *, rc_idx: int, src: int, mask_offset: int, mask_shift: int, cr_idx: int
+    ) -> None:
         """Execute MULT.RC.VE: R_CYCLIC vector × scalar (R0/R1 element or CR value)."""
-        mult_res = self.state.regfile.raw("mult_res")
+        mult_res = self.state.regfile.mutable("mult_res")
 
         if self._wide_vector_active():
             byte_off = self._rc_element_to_byte_offset(rc_idx)
@@ -1287,10 +1306,11 @@ class Ipu:
 
         self._mult_mask_and_shift(mask_offset, mask_shift, cr_idx)
 
-    def execute_mult_rc_vs(self, *, rc_idx: int,
-                           mask_offset: int, mask_shift: int, cr_idx: int) -> None:
+    def execute_mult_rc_vs(
+        self, *, rc_idx: int, mask_offset: int, mask_shift: int, cr_idx: int
+    ) -> None:
         """Execute MULT.RC.VS: R_CYCLIC vector self-multiply (square), element-wise."""
-        mult_res = self.state.regfile.raw("mult_res")
+        mult_res = self.state.regfile.mutable("mult_res")
 
         if self._wide_vector_active():
             byte_off = self._rc_element_to_byte_offset(rc_idx)
@@ -1316,10 +1336,11 @@ class Ipu:
 
         self._mult_mask_and_shift(mask_offset, mask_shift, cr_idx)
 
-    def execute_mult_ve(self, *, ra_idx: int, cr_idx: int,
-                        mask_offset: int, mask_shift: int, dstructure_cr_idx: int) -> None:
+    def execute_mult_ve(
+        self, *, ra_idx: int, cr_idx: int, mask_offset: int, mask_shift: int, dstructure_cr_idx: int
+    ) -> None:
         """Execute MULT.VE: Ra (combined R0/R1) vector × CR scalar, element-wise."""
-        mult_res = self.state.regfile.raw("mult_res")
+        mult_res = self.state.regfile.mutable("mult_res")
 
         if self._wide_vector_active():
             cr_scalar = self._wide_cr_scalar_byte_as_int32(cr_idx)
@@ -1337,7 +1358,9 @@ class Ipu:
 
         dtype = self.state.dtype
         scalar_byte = self.state.regfile.get_cr(cr_idx) & 0xFF
-        r_buf = self._snapshot_buffer.raw_readonly("r")  # Ra (R0/R1) from snapshot (issue #157); [0:128]=r0, [128:256]=r1
+        r_buf = self._snapshot_buffer.raw_readonly(
+            "r"
+        )  # Ra (R0/R1) from snapshot (issue #157); [0:128]=r0, [128:256]=r1
         fmt = "<i" if dtype == DType.INT8 else "<f"
 
         for i in range(LANES):
@@ -1347,10 +1370,11 @@ class Ipu:
 
         self._mult_mask_and_shift(mask_offset, mask_shift, dstructure_cr_idx)
 
-    def execute_mult_ee(self, *, ra_idx: int, cr_idx: int,
-                        mask_offset: int, mask_shift: int, dstructure_cr_idx: int) -> None:
+    def execute_mult_ee(
+        self, *, ra_idx: int, cr_idx: int, mask_offset: int, mask_shift: int, dstructure_cr_idx: int
+    ) -> None:
         """Execute MULT.EE: single Ra element × CR scalar, broadcast to all 128 elements."""
-        mult_res = self.state.regfile.raw("mult_res")
+        mult_res = self.state.regfile.mutable("mult_res")
 
         if self._wide_vector_active():
             cr_scalar = self._wide_cr_scalar_byte_as_int32(cr_idx)
@@ -1366,7 +1390,9 @@ class Ipu:
 
         dtype = self.state.dtype
         scalar_byte = self.state.regfile.get_cr(cr_idx) & 0xFF
-        r_buf = self._snapshot_buffer.raw_readonly("r")  # Ra (R0/R1) from snapshot (issue #157); [0:128]=r0, [128:256]=r1
+        r_buf = self._snapshot_buffer.raw_readonly(
+            "r"
+        )  # Ra (R0/R1) from snapshot (issue #157); [0:128]=r0, [128:256]=r1
         fmt = "<i" if dtype == DType.INT8 else "<f"
 
         ra_byte = r_buf[ra_idx % (2 * R_REG_SIZE)]
@@ -1387,15 +1413,15 @@ class Ipu:
     def _store_mult_res_row_in_acc(self) -> None:
         """Store MULT_RES in R_ACC through the parent lane conversion path."""
         fmt = self._acc_agg_lane_fmt()
-        mult_res = self.state.regfile.raw("mult_res")
+        mult_res = self._read_forgetting_provenance(self.state.regfile, "mult_res")
         values = struct.unpack_from(_ROW_FMT[fmt], mult_res, 0)
-        _store_row(self.state.regfile.raw("r_acc"), fmt, values)
+        _store_row(self.state.regfile.mutable("r_acc"), fmt, values)
 
     def execute_acc_add(self) -> None:
         """Execute ACC.ADD: Accumulate mult_res into accumulator (running add)."""
-        acc_buf = self.state.regfile.raw("r_acc")
-        mult_res = self.state.regfile.raw("mult_res")
-        snap_acc = self._snapshot_buffer.raw("r_acc")
+        acc_buf = self.state.regfile.mutable("r_acc")
+        mult_res = self._read_forgetting_provenance(self.state.regfile, "mult_res")
+        snap_acc = self._read_forgetting_provenance(self._snapshot_buffer, "r_acc")
 
         if self._wide_vector_active():
             acc_lanes = self._wide_lanes_from(snap_acc)
@@ -1412,7 +1438,9 @@ class Ipu:
         fmt = self._acc_agg_lane_fmt()
         acc_vals = struct.unpack_from(_ROW_FMT[fmt], snap_acc, 0)
         mult_vals = struct.unpack_from(_ROW_FMT[fmt], mult_res, 0)
-        _store_row(acc_buf, fmt, [ipu_add(a, m, dtype) for a, m in zip(acc_vals, mult_vals)])
+        _store_row(
+            acc_buf, fmt, [ipu_add(a, m, dtype) for a, m in zip(acc_vals, mult_vals, strict=True)]
+        )
 
     def execute_acc_add_first(self) -> None:
         """Execute ACC.ADD.FIRST: Set r_acc to multiply result (no previous sum)."""
@@ -1420,9 +1448,9 @@ class Ipu:
 
     def execute_acc_max(self) -> None:
         """Execute ACC.MAX: Each R_ACC element takes max(R_ACC[i], MULT_RES[i])."""
-        acc_buf = self.state.regfile.raw("r_acc")
-        mult_res = self.state.regfile.raw("mult_res")
-        snap_acc = self._snapshot_buffer.raw("r_acc")
+        acc_buf = self.state.regfile.mutable("r_acc")
+        mult_res = self._read_forgetting_provenance(self.state.regfile, "mult_res")
+        snap_acc = self._read_forgetting_provenance(self._snapshot_buffer, "r_acc")
 
         if self._wide_vector_active():
             acc_lanes = self._wide_lanes_from(snap_acc)
@@ -1440,7 +1468,7 @@ class Ipu:
         fmt = self._acc_agg_lane_fmt()
         acc_vals = struct.unpack_from(_ROW_FMT[fmt], snap_acc, 0)
         mult_vals = struct.unpack_from(_ROW_FMT[fmt], mult_res, 0)
-        _store_row(acc_buf, fmt, [max(a, m) for a, m in zip(acc_vals, mult_vals)])
+        _store_row(acc_buf, fmt, [max(a, m) for a, m in zip(acc_vals, mult_vals, strict=True)])
 
     def execute_acc_max_first(self) -> None:
         """Execute ACC.MAX.FIRST: Overwrite each R_ACC element with MULT_RES (clean init for max)."""
@@ -1448,9 +1476,9 @@ class Ipu:
 
     def execute_acc_sub(self) -> None:
         """Execute ACC.SUB: Subtract MULT_RES from each R_ACC element (running subtract)."""
-        acc_buf = self.state.regfile.raw("r_acc")
-        mult_res = self.state.regfile.raw("mult_res")
-        snap_acc = self._snapshot_buffer.raw("r_acc")
+        acc_buf = self.state.regfile.mutable("r_acc")
+        mult_res = self._read_forgetting_provenance(self.state.regfile, "mult_res")
+        snap_acc = self._read_forgetting_provenance(self._snapshot_buffer, "r_acc")
 
         if self._wide_vector_active():
             acc_lanes = self._wide_lanes_from(snap_acc)
@@ -1467,12 +1495,14 @@ class Ipu:
         fmt = self._acc_agg_lane_fmt()
         acc_vals = struct.unpack_from(_ROW_FMT[fmt], snap_acc, 0)
         mult_vals = struct.unpack_from(_ROW_FMT[fmt], mult_res, 0)
-        _store_row(acc_buf, fmt, [ipu_sub(a, m, dtype) for a, m in zip(acc_vals, mult_vals)])
+        _store_row(
+            acc_buf, fmt, [ipu_sub(a, m, dtype) for a, m in zip(acc_vals, mult_vals, strict=True)]
+        )
 
     def execute_acc_sub_first(self) -> None:
         """Execute ACC.SUB.FIRST: Set each R_ACC element to negated MULT_RES (clean init for subtract)."""
-        acc_buf = self.state.regfile.raw("r_acc")
-        mult_res = self.state.regfile.raw("mult_res")
+        acc_buf = self.state.regfile.mutable("r_acc")
+        mult_res = self._read_forgetting_provenance(self.state.regfile, "mult_res")
 
         if self._wide_vector_active():
             # 0 - x, not -x: for x = +0.0 the scalar path produced +0.0, and
@@ -1539,15 +1569,17 @@ class Ipu:
 
         base = (offset % 4) * 32
         fmt = self._acc_agg_lane_fmt()
-        acc_buf = self.state.regfile.raw("r_acc")
-        mult_res = self.state.regfile.raw("mult_res")
+        # From the first lane written to the end: a row overrunning it still fails in
+        # pack_into (struct.error), with offsets counted from that lane.
+        acc_buf = self.state.regfile.mutable("r_acc", base * 4)
+        mult_res = self._read_forgetting_provenance(self.state.regfile, "mult_res")
 
         for i, idx in enumerate(out_indices):
             if idx >= 0:
                 val = struct.unpack_from(fmt, mult_res, idx * 4)[0]
             else:
                 val = 0.0 if fmt == "<f" else 0
-            struct.pack_into(fmt, acc_buf, (base + i) * 4, val)
+            struct.pack_into(fmt, acc_buf, i * 4, val)
 
     def execute_acc_reshape(self, *, source: int, dest: int, reshape_mask: int) -> None:
         """Execute ACC.RESHAPE: scatter MULT_RES elements into R_ACC via two LRDn byte-index arrays.
@@ -1562,7 +1594,7 @@ class Ipu:
         come from the pre-instruction snapshot; a participating source[i]/dest[i]
         outside [0, 127] raises rather than being silently skipped.
         """
-        assert self._snapshot_buffer is not None
+        self._require_snapshot()
         src_bytes = self._get_lrd_bytes(source, self._snapshot_buffer)
         dst_bytes = self._get_lrd_bytes(dest, self._snapshot_buffer)
 
@@ -1577,7 +1609,7 @@ class Ipu:
                 f"({RESHAPE_ELEMENT_COUNT})"
             )
 
-        mult_res = self._snapshot_buffer.raw("mult_res")
+        mult_res = self._read_forgetting_provenance(self._snapshot_buffer, "mult_res")
         writes = []
         for i in range(mask, RESHAPE_ELEMENT_COUNT):
             if src_bytes[i] >= LANES or dst_bytes[i] >= LANES:
@@ -1585,9 +1617,7 @@ class Ipu:
                     f"ACC.RESHAPE element {i}: source={src_bytes[i]}, dest={dst_bytes[i]} "
                     f"must both be in [0, {LANES - 1}]"
                 )
-            writes.append(
-                (dst_bytes[i], struct.unpack_from("<I", mult_res, src_bytes[i] * 4)[0])
-            )
+            writes.append((dst_bytes[i], struct.unpack_from("<I", mult_res, src_bytes[i] * 4)[0]))
         for dest_idx, value in writes:
             self.state.regfile.set_r_acc_word(dest_idx, value)
 
@@ -1605,7 +1635,7 @@ class Ipu:
         v = int(val) & 0xFFFFFFFF
         return v - 0x100000000 if v >= 0x80000000 else v
 
-    def _agg_sum_lanes(self, fmt: str, snap_acc: bytearray, active: int) -> float | int:
+    def _agg_sum_lanes(self, fmt: str, snap_acc: bytes | memoryview, active: int) -> float | int:
         # Summed in lane order, one lane at a time: floating-point addition is
         # not associative, so a pairwise (numpy) sum would give a different
         # answer. Only the unpacking is batched.
@@ -1615,7 +1645,7 @@ class Ipu:
         return total
 
     def _agg_max_lanes(
-        self, fmt: str, snap_acc: bytearray, active: int, seed: float | int
+        self, fmt: str, snap_acc: bytes | memoryview, active: int, seed: float | int
     ) -> float | int:
         best = seed
         for v in struct.unpack_from(_ROW_FMT[fmt], snap_acc, 0)[:active]:
@@ -1627,22 +1657,24 @@ class Ipu:
         """Execute AGG.SUM.FIRST: sum active MULT_RES elements, write to R_ACC[dest] (clean init)."""
         valid_elements = self.state.get_dstructure_for(cr_idx).valid_elements
         fmt = self._acc_agg_lane_fmt()
-        mult_res = self.state.regfile.raw("mult_res")
+        mult_res = self._read_forgetting_provenance(self.state.regfile, "mult_res")
         active = self._agg_active_lane_count(valid_elements)
         result = self._agg_sum_lanes(fmt, mult_res, active)
         dest = int(dest_slot) % LANES
         if fmt == "<i":
             result = self._to_int32(result)
-        struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
+        struct.pack_into(fmt, self.state.regfile.mutable("r_acc", dest * 4, 4), 0, result)
 
     def execute_agg_sum(self, *, dest_slot: int, cr_idx: int) -> None:
         """Execute AGG.SUM: sum active MULT_RES elements and add to R_ACC[dest] (running accumulation)."""
         valid_elements = self.state.get_dstructure_for(cr_idx).valid_elements
         fmt = self._acc_agg_lane_fmt()
-        mult_res = self.state.regfile.raw("mult_res")
+        mult_res = self._read_forgetting_provenance(self.state.regfile, "mult_res")
         active = self._agg_active_lane_count(valid_elements)
         dest = int(dest_slot) % LANES
-        snap_dest = struct.unpack_from(fmt, self._snapshot_buffer.raw("r_acc"), dest * 4)[0]
+        snap_dest = struct.unpack_from(
+            fmt, self._read_forgetting_provenance(self._snapshot_buffer, "r_acc"), dest * 4
+        )[0]
         partial = self._agg_sum_lanes(fmt, mult_res, active)
         if fmt == "<f":
             result: float | int = float(partial) + float(snap_dest)
@@ -1651,7 +1683,7 @@ class Ipu:
             # (_acc_agg_lane_fmt); ipu_add's DType.INT8 branch is plain 32-bit wrap
             # with no 8-bit saturation, so it's correct for INT32 lanes too.
             result = ipu_add(self._to_int32(partial), int(snap_dest), DType.INT8)
-        struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
+        struct.pack_into(fmt, self.state.regfile.mutable("r_acc", dest * 4, 4), 0, result)
 
     def execute_agg_max_first(self, *, dest_slot: int, cr_idx: int) -> None:
         """Execute AGG.MAX.FIRST: max of active MULT_RES elements, write to R_ACC[dest] (no seed).
@@ -1661,26 +1693,28 @@ class Ipu:
         """
         valid_elements = self.state.get_dstructure_for(cr_idx).valid_elements
         fmt = self._acc_agg_lane_fmt()
-        mult_res = self.state.regfile.raw("mult_res")
+        mult_res = self._read_forgetting_provenance(self.state.regfile, "mult_res")
         active = self._agg_active_lane_count(valid_elements)
         seed: float | int = -2147483648 if fmt == "<i" else float("-inf")
         result = self._agg_max_lanes(fmt, mult_res, active, seed)
         dest = int(dest_slot) % LANES
-        struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
+        struct.pack_into(fmt, self.state.regfile.mutable("r_acc", dest * 4, 4), 0, result)
 
     def execute_agg_max(self, *, dest_slot: int, cr_idx: int) -> None:
         """Execute AGG.MAX: max of active MULT_RES elements seeded with R_ACC[dest] (running max)."""
         valid_elements = self.state.get_dstructure_for(cr_idx).valid_elements
         fmt = self._acc_agg_lane_fmt()
-        mult_res = self.state.regfile.raw("mult_res")
+        mult_res = self._read_forgetting_provenance(self.state.regfile, "mult_res")
         active = self._agg_active_lane_count(valid_elements)
         dest = int(dest_slot) % LANES
-        snap_dest = struct.unpack_from(fmt, self._snapshot_buffer.raw("r_acc"), dest * 4)[0]
+        snap_dest = struct.unpack_from(
+            fmt, self._read_forgetting_provenance(self._snapshot_buffer, "r_acc"), dest * 4
+        )[0]
         result = self._agg_max_lanes(fmt, mult_res, active, snap_dest)
-        struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
+        struct.pack_into(fmt, self.state.regfile.mutable("r_acc", dest * 4, 4), 0, result)
 
     def _execute_prototype_wide_fp32_activation(
-        self, fn_id: int, acc_buf: bytearray, post_buf: bytearray
+        self, fn_id: int, acc_buf: memoryview, post_buf: memoryview
     ) -> bool:
         """Batch the full-row activations used by FP32 softmax.
 
@@ -1739,8 +1773,8 @@ class Ipu:
         valid_elements = self.state.get_dstructure_for(cr_idx).valid_elements
         active = self._agg_active_lane_count(valid_elements)
         fmt = self._acc_agg_lane_fmt()
-        acc_buf = self.state.regfile.raw("r_acc")
-        post_buf = self.state.regfile.raw("post_aaq_reg")
+        acc_buf = self._read_forgetting_provenance(self.state.regfile, "r_acc")
+        post_buf = self.state.regfile.mutable("post_aaq_reg")
 
         if self._wide_vector_active():
             if (
@@ -1748,9 +1782,7 @@ class Ipu:
                 and active == LANES
                 and fmt == "<f"
                 and not self.state.wide_vector_quantize_output
-                and self._execute_prototype_wide_fp32_activation(
-                    fn_id, acc_buf, post_buf
-                )
+                and self._execute_prototype_wide_fp32_activation(fn_id, acc_buf, post_buf)
             ):
                 return
 
@@ -1812,7 +1844,9 @@ class Ipu:
         modes; only the row address is translated.
         """
         addr = self._xmem_row_addr(offset + base)
-        self.state.xmem.write_address(addr, bytes(self.state.regfile.raw("post_aaq_reg")))
+        self.state.xmem.write_address(
+            addr, bytes(self._read_forgetting_provenance(self.state.regfile, "post_aaq_reg"))
+        )
 
     # -----------------------------------------------------------------------
     # COND Instruction Handlers
@@ -1926,9 +1960,13 @@ class Ipu:
         alias = self._record_alias(plan, kwargs, inst) if plan.alias_checks else None
 
         # Call handler with named arguments
-        token = (self._profile.start(self, slot_type, plan, kwargs,
-                 {name: inst[key] for name, key in plan.fields})
-                 if self._profile and slot_type != "break" else None)
+        token = (
+            self._profile.start(
+                self, slot_type, plan, kwargs, {name: inst[key] for name, key in plan.fields}
+            )
+            if self._profile and slot_type != "break"
+            else None
+        )
         result = plan.fn(self, **kwargs)
         if self._profile:
             self._profile.finish(self, token, alias)
@@ -1944,8 +1982,11 @@ class Ipu:
         ring = "r_cyclic_wide_debug" if wide else "r_cyclic"
         start = self._rc_element_to_byte_offset(kwargs["rc_idx"])
         if snap.has_constant_ones(ring, start, size):
-            data = (snap.get_r_cyclic_wide_debug_at(start, size) if wide
-                    else snap.get_r_cyclic_at(start, size))
+            data = (
+                snap.get_r_cyclic_wide_debug_at(start, size)
+                if wide
+                else snap.get_r_cyclic_at(start, size)
+            )
             if self._ones_bytes(data):
                 return True
         if name == "MULT.RC.VV":
@@ -1994,8 +2035,9 @@ class Ipu:
             return self._mult_resolve_lcr_scalar_wide(lcr) == 1
         return self._mult_resolve_lcr_scalar(lcr) == _one_byte_for(self.state.dtype)
 
-    def _record_alias(self, plan: _Plan, kwargs: dict[str, Any],
-                      inst: dict[str, int]) -> str | None:
+    def _record_alias(
+        self, plan: _Plan, kwargs: dict[str, Any], inst: dict[str, int]
+    ) -> str | None:
         """Attribute this instruction to at most one declared ISA alias.
 
         First match wins, so hits partition ``mult_identity_cycles`` instead of
@@ -2003,17 +2045,15 @@ class Ipu:
         """
         for check in plan.alias_checks:
             if not check.hardware_only:
-                if not (self._mult_vector_identity if check.vector_only else self._mult_cr_identity):
+                if not (
+                    self._mult_vector_identity if check.vector_only else self._mult_cr_identity
+                ):
                     continue
                 if check.masked_window and not self._alias_masked_window(kwargs):
                     continue
-                if check.imm_operand is not None and (
-                    kwargs[check.imm_operand] == check.imm_ne
-                ):
+                if check.imm_operand is not None and (kwargs[check.imm_operand] == check.imm_ne):
                     continue
-                if check.co_field is not None and (
-                    inst[check.co_field] not in check.co_opcodes
-                ):
+                if check.co_field is not None and (inst[check.co_field] not in check.co_opcodes):
                     continue
             self.state.stats.alias_hits[check.alias_id] += 1
             return check.alias_id
@@ -2035,9 +2075,7 @@ class Ipu:
                 kwargs[read.name] = source.get_cr(raw)
             elif code == _READ_LCR:
                 kwargs[read.name] = (
-                    source.get_lr(raw)
-                    if raw < LR_REG_COUNT
-                    else source.get_cr(raw - LR_REG_COUNT)
+                    source.get_lr(raw) if raw < LR_REG_COUNT else source.get_cr(raw - LR_REG_COUNT)
                 )
             else:
                 kwargs[read.name] = self._resolve_operand(read.op_type, raw, source)
@@ -2052,11 +2090,7 @@ class Ipu:
         type and message.
         """
         for read in plan.reads:
-            source = (
-                self._snapshot_buffer
-                if read.from_snapshot
-                else self.state.regfile
-            )
+            source = self._snapshot_buffer if read.from_snapshot else self.state.regfile
             raw = kwargs[read.name]
             code = read.code
             if code == _READ_LR:
@@ -2088,8 +2122,7 @@ class Ipu:
             elif read.op_type == "MultStageReg" and self._wide_vector_active():
                 if raw > 1:
                     raise EmulatorError(
-                        "Mult-stage operand must encode r0 (0) or r1 (1); "
-                        f"got {raw}"
+                        f"Mult-stage operand must encode r0 (0) or r1 (1); got {raw}"
                     )
                 # Wide handlers consume the encoded R0/R1 index directly.
             else:
@@ -2163,9 +2196,7 @@ class Ipu:
         for slot in Ipu._SLOT_ORDER:
             plan = _SLOT_PLANS[slot][inst[_SLOT_OPCODE_FIELDS[slot]]]
             if plan.inst_name != "NOP" or slot in Ipu._SLOTS_WITH_ACTIVE_NOP:
-                slot_work.append(
-                    (plan, {name: inst[key] for name, key in plan.fields})
-                )
+                slot_work.append((plan, {name: inst[key] for name, key in plan.fields}))
             elif plan.stat is not None:
                 # Kept in place with no operands: run it for the counter alone.
                 slot_work.append((plan, None))

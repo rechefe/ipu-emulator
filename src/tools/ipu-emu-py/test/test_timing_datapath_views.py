@@ -14,8 +14,8 @@ from __future__ import annotations
 import struct
 
 import pytest
-
 from timing_probes import PROBES, ROW, Mode, lane, prepare, run
+
 from ipu_emu.errors import DebugOnlyInstructionWarning
 from ipu_emu.execute import BreakResult, Ipu
 from ipu_emu.ipu_state import INST_MEM_SIZE
@@ -103,7 +103,7 @@ def test_activate_reads_this_cycle_r_acc(op, expected):
     case; this one covers ACC.ADD(.FIRST).
     """
     state = run(PROBES[f"activate_r_acc_{op}"]).state
-    assert state.regfile.raw("post_aaq_reg")[0] == expected
+    assert state.regfile.view("post_aaq_reg")[0] == expected
 
 
 def test_store_reads_this_cycle_post_aaq():

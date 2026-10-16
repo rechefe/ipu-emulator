@@ -222,9 +222,7 @@ def test_unpinned_requirement_is_reported():
     )
     runtime, extras = pyproject_requirements(pyproject)
     pins = lock_pins("numpy==2.2.6 \\\n    --hash=sha256:00\npytest==9.1.1\n")
-    assert unlocked({"p/pyproject.toml": runtime + extras}, pins) == [
-        "p/pyproject.toml: requests"
-    ]
+    assert unlocked({"p/pyproject.toml": runtime + extras}, pins) == ["p/pyproject.toml: requests"]
 
 
 def test_unpinned_tool_is_reported():

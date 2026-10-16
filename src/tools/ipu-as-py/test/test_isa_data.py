@@ -8,13 +8,13 @@ import contextlib
 import lark
 import pytest
 
-from ipu_isa.acc_stride_enums import get_horizontal_stride_bits, get_vertical_stride_bits
-from ipu_isa.instruction_spec import VALID_OPERAND_TYPES
 from ipu_as.diagnostics import check
 from ipu_as.gen_vscode import build_hover_data
 from ipu_as.inst import OPERAND_TYPE_MAP
 from ipu_as.ipu_token import AnnotatedToken
 from ipu_as.lark_tree import get_parser
+from ipu_isa.acc_stride_enums import get_horizontal_stride_bits, get_vertical_stride_bits
+from ipu_isa.instruction_spec import VALID_OPERAND_TYPES
 
 DATA = build_hover_data()
 TYPES = DATA["operandTypes"]
@@ -32,7 +32,8 @@ def test_every_operand_type_is_described():
 
 
 @pytest.mark.parametrize(
-    "type_name, value", [(name, value) for name, domain in TYPES.items() for value in domain.get("values", [])]
+    "type_name, value",
+    [(name, value) for name, domain in TYPES.items() for value in domain.get("values", [])],
 )
 def test_every_offered_value_is_accepted(type_name, value):
     _build(type_name, value)
@@ -42,8 +43,13 @@ def test_every_offered_value_is_accepted(type_name, value):
 
 @pytest.mark.parametrize(
     "type_name, edge, beyond",
-    [(name, domain[end], domain[end] + step) for name, domain in TYPES.items() if "min" in domain
-     for end, step in (("min", -1), ("max", 1))] + [("Label", f"+{RELATIVE_MAX}", f"+{RELATIVE_MAX + 1}")],
+    [
+        (name, domain[end], domain[end] + step)
+        for name, domain in TYPES.items()
+        if "min" in domain
+        for end, step in (("min", -1), ("max", 1))
+    ]
+    + [("Label", f"+{RELATIVE_MAX}", f"+{RELATIVE_MAX + 1}")],
 )
 def test_range_is_exact(type_name, edge, beyond):
     # Each end of a numeric range (and a label's relative offset) is accepted;
@@ -55,7 +61,10 @@ def test_range_is_exact(type_name, edge, beyond):
 
 @pytest.mark.parametrize(
     "type_name, decode",
-    [("HorizontalStride", get_horizontal_stride_bits), ("VerticalStride", get_vertical_stride_bits)],
+    [
+        ("HorizontalStride", get_horizontal_stride_bits),
+        ("VerticalStride", get_vertical_stride_bits),
+    ],
 )
 def test_withheld_enum_values_are_the_undecodable_ones(type_name, decode):
     # The assembler accepts padding names like `reserved3`; completion leaves
@@ -75,7 +84,12 @@ def _operand_text(type_name: str) -> str:
 
 @pytest.mark.parametrize(
     "mnemonic, form",
-    [(mnemonic, form) for mnemonic, forms in DATA["instructions"].items() for form in forms if form["operands"]],
+    [
+        (mnemonic, form)
+        for mnemonic, forms in DATA["instructions"].items()
+        for form in forms
+        if form["operands"]
+    ],
     ids=lambda v: v if isinstance(v, str) else v["slot"],
 )
 def test_every_instruction_assembles_from_completion_values(mnemonic, form):

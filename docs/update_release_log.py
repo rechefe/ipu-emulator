@@ -183,8 +183,7 @@ def main(argv: list[str] | None = None) -> int:
     token = os.environ.get("GITHUB_TOKEN")
     if not token:
         print(
-            "Warning: GITHUB_TOKEN not set; requests are unauthenticated "
-            "(60 req/h limit).",
+            "Warning: GITHUB_TOKEN not set; requests are unauthenticated (60 req/h limit).",
             file=sys.stderr,
         )
 

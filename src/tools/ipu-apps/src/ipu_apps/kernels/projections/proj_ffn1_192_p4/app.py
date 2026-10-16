@@ -42,17 +42,21 @@ Usage::
 from __future__ import annotations
 
 from ipu_apps.kernels.projections.app import (  # noqa: F401  (LANES, N_STREAM re-exported)
-    LANES, N_STREAM, ProjectionLayout, ProjectionP4App, projection_spec,
+    LANES,
+    N_STREAM,
+    ProjectionLayout,
+    ProjectionP4App,
+    projection_spec,
 )
 
 # -- Dimensions -------------------------------------------------------------
 
-K     = 192   # input channels
-N_OUT = 384   # output channels
-N_TG  = 1     # single token group
-N_TOK = 64    # tokens (padded to LANES in XMEM)
+K = 192  # input channels
+N_OUT = 384  # output channels
+N_TG = 1  # single token group
+N_TOK = 64  # tokens (padded to LANES in XMEM)
 
-ACTIVATION = "silu"   # fused into the store by the .asm
+ACTIVATION = "silu"  # fused into the store by the .asm
 
 
 class ProjFFN1192P4App(ProjectionP4App):

@@ -15,25 +15,26 @@ and sets ``state.stats.total_cycles`` even when the run raises.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from enum import Enum, auto
 from pathlib import Path
-from typing import Any, Callable
 
 import numpy as np
 
-from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE
-from ipu_emu.run_control import RunControl
-from ipu_emu.ipu_math import DType, fp32_to_fp8_bytes, fp8_bytes_to_fp32
+from ipu_emu.errors import ConfigurationError
 from ipu_emu.execute import (
     BreakResult,
     Ipu,
-    decode_instruction_word,
     load_binary_instructions,
 )
+from ipu_emu.ipu_math import DType, fp32_to_fp8_bytes
+from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
+from ipu_emu.run_control import RunControl
 
 
 class DebugAction(Enum):
     """Action returned by a debug callback on breakpoint."""
+
     CONTINUE = auto()
     STEP = auto()
     QUIT = auto()
@@ -56,9 +57,8 @@ def _begin_run(state: IpuState) -> None:
 def load_program(state: IpuState, instructions: list[dict[str, int]]) -> None:
     """Load decoded instruction dicts into the state's instruction memory."""
     if len(instructions) > INST_MEM_SIZE:
-        raise ValueError(
-            f"Program too large: {len(instructions)} instructions "
-            f"(max {INST_MEM_SIZE})"
+        raise ConfigurationError(
+            f"Program too large: {len(instructions)} instructions (max {INST_MEM_SIZE})"
         )
     for i, inst in enumerate(instructions):
         state.inst_mem[i] = inst
@@ -71,9 +71,7 @@ def load_program_from_binary(state: IpuState, path: str | Path) -> None:
     load_program(state, instructions)
 
 
-def run_until_complete(
-    state: IpuState, max_cycles: int = DEFAULT_MAX_CYCLES
-) -> int:
+def run_until_complete(state: IpuState, max_cycles: int = DEFAULT_MAX_CYCLES) -> int:
     """Run the program ignoring breakpoints until it halts.
 
     Returns the number of cycles executed. ``state.stats`` describes this run
@@ -330,9 +328,7 @@ def run_test(
     if state is None:
         state = IpuState(elu_alpha=elu_alpha, window_a=window_a, window_b=window_b)
     elif elu_alpha is not None or window_a is not None or window_b is not None:
-        state.set_activation_alphas(
-            elu_alpha=elu_alpha, window_a=window_a, window_b=window_b
-        )
+        state.set_activation_alphas(elu_alpha=elu_alpha, window_a=window_a, window_b=window_b)
     load_program_from_binary(state, inst_path)
 
     if setup is not None:
@@ -340,8 +336,11 @@ def run_test(
 
     if debug_callback is not None:
         cycles = run_with_debug(
-            state, debug_callback, max_cycles,
-            control=debug_control, break_on_entry=break_on_entry,
+            state,
+            debug_callback,
+            max_cycles,
+            control=debug_control,
+            break_on_entry=break_on_entry,
         )
     else:
         cycles = run_until_complete(state, max_cycles)

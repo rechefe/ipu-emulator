@@ -1,9 +1,15 @@
 """residual_add_16x240: every case in cases.py, plus the one-channel-per-row contract."""
+
 import numpy as np
 
 from ipu_apps.kernel_registry.cases import run_case
 from ipu_apps.kernel_registry.testing import case_tests
-from ipu_apps.kernels.elementwise.residual_add_16x240.app import LANES, N_CH, N_TOK, OUTPUT_ROW_BYTES
+from ipu_apps.kernels.elementwise.residual_add_16x240.app import (
+    LANES,
+    N_CH,
+    N_TOK,
+    OUTPUT_ROW_BYTES,
+)
 from ipu_apps.kernels.elementwise.residual_add_16x240.cases import CASES
 
 test_case = case_tests(__package__)
@@ -22,8 +28,7 @@ def test_one_channel_per_row(tmp_path):
 
     rows = np.fromfile(tmp_path / "output.rows.bin", dtype="<f4")
     assert rows.size == N_CH * LANES, (
-        f"raw rows have {rows.size} floats, expected {N_CH * LANES} "
-        "(one whole row per channel)"
+        f"raw rows have {rows.size} floats, expected {N_CH * LANES} (one whole row per channel)"
     )
     rows = rows.reshape(N_CH, LANES)
     assert OUTPUT_ROW_BYTES == LANES * 4
@@ -37,6 +42,7 @@ def test_one_channel_per_row(tmp_path):
     # channel's data had been packed into this row.
     tail = rows[:, N_TOK:]
     np.testing.assert_array_equal(
-        tail, np.zeros_like(tail),
+        tail,
+        np.zeros_like(tail),
         err_msg="row tail is not zero -- channels may be sharing a row",
     )

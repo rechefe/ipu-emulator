@@ -11,12 +11,12 @@ import copy
 
 import pytest
 
-from ipu_isa.instruction_spec import INSTRUCTION_SPEC
 from ipu_emu.isa_alias_spec import (
     ISA_ALIAS_SPEC,
     aliases_for,
     validate_isa_alias_spec,
 )
+from ipu_isa.instruction_spec import INSTRUCTION_SPEC
 
 
 class TestTableIsWellFormed:
@@ -36,9 +36,7 @@ class TestTableIsWellFormed:
             for match in entry["matches"]:
                 names = {
                     op["name"]
-                    for op in INSTRUCTION_SPEC[match["slot"]][match["instruction"]][
-                        "operands"
-                    ]
+                    for op in INSTRUCTION_SPEC[match["slot"]][match["instruction"]]["operands"]
                 }
                 for constraint in match["where"]:
                     if "operand" in constraint:
@@ -66,8 +64,7 @@ class TestValidatorRejectsMistakes:
                     "missing_op": "x",
                     "summary": "x",
                     "matches": [
-                        {"slot": "mult", "instruction": "NO_SUCH_INSTRUCTION",
-                         "where": []}
+                        {"slot": "mult", "instruction": "NO_SUCH_INSTRUCTION", "where": []}
                     ],
                 },
             )
@@ -81,8 +78,11 @@ class TestValidatorRejectsMistakes:
                     "missing_op": "x",
                     "summary": "x",
                     "matches": [
-                        {"slot": "mult", "instruction": "MULT.RC.VE",
-                         "where": [{"operand": "no_such_operand", "scalar_is": 1}]}
+                        {
+                            "slot": "mult",
+                            "instruction": "MULT.RC.VE",
+                            "where": [{"operand": "no_such_operand", "scalar_is": 1}],
+                        }
                     ],
                 },
             )
@@ -96,8 +96,7 @@ class TestValidatorRejectsMistakes:
                     "missing_op": "x",
                     "summary": "x",
                     "matches": [
-                        {"slot": "mult", "instruction": "MULT.RC.VE",
-                         "where": [{"vibes": "good"}]}
+                        {"slot": "mult", "instruction": "MULT.RC.VE", "where": [{"vibes": "good"}]}
                     ],
                 },
             )
@@ -105,9 +104,7 @@ class TestValidatorRejectsMistakes:
 
     def test_existing_operand_that_is_not_the_scalar(self):
         self._validate_with(
-            lambda spec: spec["A1_MOV_RC"]["matches"][0]["where"][0].update(
-                operand="rc_idx"
-            )
+            lambda spec: spec["A1_MOV_RC"]["matches"][0]["where"][0].update(operand="rc_idx")
         )
 
     @pytest.mark.parametrize("operand", ["mask_shift", "rc_idx", "src", "cr_idx"])
@@ -120,12 +117,19 @@ class TestValidatorRejectsMistakes:
             )
         )
 
-    @pytest.mark.parametrize("constraints", [
-        [{"co_slot": "acc", "instruction_in": ["ACC.ADD"]},
-         {"co_slot": "acc", "instruction_in": ["ACC.SUB"]}],
-        [{"operand": "mask_offset", "immediate_ne": 0},
-         {"operand": "mask_offset", "immediate_ne": 1}],
-    ])
+    @pytest.mark.parametrize(
+        "constraints",
+        [
+            [
+                {"co_slot": "acc", "instruction_in": ["ACC.ADD"]},
+                {"co_slot": "acc", "instruction_in": ["ACC.SUB"]},
+            ],
+            [
+                {"operand": "mask_offset", "immediate_ne": 0},
+                {"operand": "mask_offset", "immediate_ne": 1},
+            ],
+        ],
+    )
     def test_multiple_constraints_of_the_same_kind(self, constraints):
         self._validate_with(
             lambda spec: spec["A1_MOV_RC"]["matches"][0]["where"].extend(constraints)
@@ -144,6 +148,7 @@ class TestValidatorRejectsMistakes:
             for match in entry["matches"]:
                 match["where"].reverse()
             spec["DUPLICATE"] = entry
+
         self._validate_with(duplicate)
 
     def test_hardware_only_on_a_real_hardware_slot(self):
@@ -155,8 +160,11 @@ class TestValidatorRejectsMistakes:
                     "missing_op": "x",
                     "summary": "x",
                     "matches": [
-                        {"slot": "store", "instruction": "STR_POST_AAQ_REG",
-                         "where": [{"hardware_only": True}]}
+                        {
+                            "slot": "store",
+                            "instruction": "STR_POST_AAQ_REG",
+                            "where": [{"hardware_only": True}],
+                        }
                     ],
                 },
             )
@@ -185,14 +193,23 @@ class TestPrecedence:
         assert all({"vector_ones": True} in match["where"] for _, match in matches)
 
 
-@pytest.mark.parametrize('instruction,where', [
-    ('MULT.RC.VS', [{'vector_ones': True}]),
-    ('MULT.RC.VV', [{'vector_ones': False}]),
-    ('MULT.RC.VV', [{'vector_ones': True}, {'masked_window': False}]),
-    ('MULT.RC.VE', [{'vector_ones': True}, {'operand': 'src', 'scalar_is': 1}]),
-])
+@pytest.mark.parametrize(
+    "instruction,where",
+    [
+        ("MULT.RC.VS", [{"vector_ones": True}]),
+        ("MULT.RC.VV", [{"vector_ones": False}]),
+        ("MULT.RC.VV", [{"vector_ones": True}, {"masked_window": False}]),
+        ("MULT.RC.VE", [{"vector_ones": True}, {"operand": "src", "scalar_is": 1}]),
+    ],
+)
 def test_invalid_provenance_constraints_are_rejected(instruction, where):
-    TestValidatorRejectsMistakes()._validate_with(lambda spec: spec.__setitem__('BAD', {
-        'missing_op': 'bad', 'summary': 'bad',
-        'matches': [{'slot': 'mult', 'instruction': instruction, 'where': where}],
-    }))
+    TestValidatorRejectsMistakes()._validate_with(
+        lambda spec: spec.__setitem__(
+            "BAD",
+            {
+                "missing_op": "bad",
+                "summary": "bad",
+                "matches": [{"slot": "mult", "instruction": instruction, "where": where}],
+            },
+        )
+    )

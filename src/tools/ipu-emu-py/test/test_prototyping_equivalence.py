@@ -17,6 +17,8 @@ import contextlib
 
 import numpy as np
 import pytest
+import timing_probes
+from emu_support import ElementFormat, assemble_program, make_state, new_state, run_both
 
 from ipu_emu.emulator import load_program
 from ipu_emu.errors import DebugOnlyInstructionWarning, RegisterIndexError
@@ -28,11 +30,6 @@ from ipu_emu.prototyping import (
     build_enabled,
     default_enabled,
 )
-
-from emu_support import ElementFormat, assemble_program, make_state, new_state, run_both
-
-import timing_probes
-
 
 _REQUIRES_PROTO_BUILD = pytest.mark.skipif(
     not build_enabled(), reason="requires --define=ipu_proto=1"
@@ -96,11 +93,11 @@ def _seed(fmt: ElementFormat, seed: int):
             payload = bytes(rng.randint(0, 256, 128 * 6, dtype=np.uint8))
         state.xmem.write_address(0x10000, payload)
 
-        state.regfile.set_cr(2, 0x10000 // row)          # R0 source row
-        state.regfile.set_cr(3, 0x10000 // row + 1)      # cyclic source row
-        state.regfile.set_cr(4, 0x30000 // row)          # post-AAQ store row
-        state.regfile.set_cr(6, 0x10000 // row + 2)      # mask row
-        state.regfile.set_cr(7, 5)                       # loop bound
+        state.regfile.set_cr(2, 0x10000 // row)  # R0 source row
+        state.regfile.set_cr(3, 0x10000 // row + 1)  # cyclic source row
+        state.regfile.set_cr(4, 0x30000 // row)  # post-AAQ store row
+        state.regfile.set_cr(6, 0x10000 // row + 2)  # mask row
+        state.regfile.set_cr(7, 5)  # loop bound
         state.set_cr_dstructure(valid_elements=128, partition=4)
 
     return setup
@@ -145,9 +142,7 @@ def _cycle_comparer():
 
 def _run_equivalence(asm: str, *, fmt: ElementFormat = ElementFormat.INT8, seed: int = 5):
     """Run *asm* faithful and prototyping in lockstep; compare after every cycle."""
-    faithful, fast = run_both(
-        asm, fmt=fmt, setup=_seed(fmt, seed), on_cycle=_cycle_comparer()
-    )
+    faithful, fast = run_both(asm, fmt=fmt, setup=_seed(fmt, seed), on_cycle=_cycle_comparer())
     _assert_states_identical(faithful, fast)
     return faithful, fast
 
@@ -281,8 +276,8 @@ def _wide_fp32_activation_state(
         dstructure={"valid_elements": 128},
         prototyping=prototyping,
     )
-    state.regfile.raw("r_acc")[:] = payload
-    state.regfile.raw("post_aaq_reg")[:] = b"\xa5" * 512
+    state.regfile.mutable("r_acc")[:] = payload
+    state.regfile.mutable("post_aaq_reg")[:] = b"\xa5" * 512
     return state, Ipu(state)
 
 
@@ -310,9 +305,7 @@ def test_full_row_fp32_activation_fast_path_is_bit_exact(activation):
     outcomes = []
 
     for prototyping in (False, True):
-        state, ipu = _wide_fp32_activation_state(
-            activation, payload, prototyping
-        )
+        state, ipu = _wide_fp32_activation_state(activation, payload, prototyping)
         outcomes.append(ipu.execute_vliw_cycle())
         states.append(state)
 
@@ -324,13 +317,11 @@ def test_full_row_fp32_activation_fast_path_is_bit_exact(activation):
 @pytest.mark.parametrize(
     ("activation", "overflow_bits"),
     [
-        ("exp2", 0x447A0000),        # 1000.0: math.exp overflows
+        ("exp2", 0x447A0000),  # 1000.0: math.exp overflows
         ("reciprocal", 0x00000001),  # reciprocal cannot narrow to float32
     ],
 )
-def test_full_row_fp32_activation_exception_state_is_bit_exact(
-    activation, overflow_bits
-):
+def test_full_row_fp32_activation_exception_state_is_bit_exact(activation, overflow_bits):
     bits = np.full(128, 0x3F800000, dtype=np.uint32)
     bits[2] = overflow_bits
     payload = bits.tobytes()
@@ -338,9 +329,7 @@ def test_full_row_fp32_activation_exception_state_is_bit_exact(
     exceptions = []
 
     for prototyping in (False, True):
-        state, ipu = _wide_fp32_activation_state(
-            activation, payload, prototyping
-        )
+        state, ipu = _wide_fp32_activation_state(activation, payload, prototyping)
         with pytest.raises(OverflowError) as caught:
             ipu.execute_vliw_cycle()
         states.append(state)
@@ -355,9 +344,7 @@ def test_full_row_fp32_activation_exception_state_is_bit_exact(
 def test_cached_scalar_read_invalid_index_exception_is_bit_exact():
     inst = assemble_program("SET LR0 CR1 ;;\n")[0]
     cr_field = next(
-        name
-        for name in inst
-        if name.startswith("lr_inst_0_") and name.endswith("_addbi_immediate")
+        name for name in inst if name.startswith("lr_inst_0_") and name.endswith("_addbi_immediate")
     )
     inst[cr_field] = 999
     states = []
@@ -419,9 +406,7 @@ def test_bazel_flag_is_a_mandatory_capability(monkeypatch):
             IpuState()
 
 
-@pytest.mark.parametrize(
-    "raw", ["FALSE", "False", "false", "NO", "Off", " 0 ", ""]
-)
+@pytest.mark.parametrize("raw", ["FALSE", "False", "false", "NO", "Off", " 0 ", ""])
 def test_env_false_values_are_case_insensitive(raw):
     assert _env_requests_prototyping(raw) is False
 

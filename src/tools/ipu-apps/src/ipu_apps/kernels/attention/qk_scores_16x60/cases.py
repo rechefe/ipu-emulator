@@ -5,6 +5,7 @@ key-major chain (``attn_scores_km_16x60`` + ``attn_v_bcast_60``) computes the
 same mathematical scores through a different mapping and has its OWN golden --
 the two are bit-different by design and must never share expectations.
 """
+
 from ipu_apps.kernels.attention.cases import qk_scores_cases
 from ipu_apps.kernels.attention.qk_scores_16x60 import app
 

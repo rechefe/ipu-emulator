@@ -35,6 +35,7 @@ the op-agnostic registry carries no softmax vocabulary. They register on
 import, and every softmax kernel imports this module, so
 :func:`~ipu_apps.kernel_registry.lookup_layer` sees them.
 """
+
 from __future__ import annotations
 
 import math
@@ -42,8 +43,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-
-from ipu_emu.ipu import LANES
 
 from ipu_apps.kernel_registry import (
     ExecutionConfig,
@@ -57,6 +56,7 @@ from ipu_apps.kernel_registry import (
     yes,
 )
 from ipu_apps.kernel_registry.base import IpuApp
+from ipu_emu.ipu import LANES
 
 ROW_BYTES = LANES * 4
 LOG2E = math.log2(math.e)
@@ -81,12 +81,13 @@ class SoftmaxApp(IpuApp):
     column kernels (``dim = 0``).
     """
 
-    dim = 1                   # 1: along each row; 0: down each column
-    fill = 0.0                # value of on-device padding elements
-    valid_elements = LANES    # CR15 dstructure
+    dim = 1  # 1: along each row; 0: down each column
+    fill = 0.0  # value of on-device padding elements
+    valid_elements = LANES  # CR15 dstructure
 
-    def __init__(self, *, rows: int, n: int | None = None, width: int | None = None,
-                 **kwargs) -> None:
+    def __init__(
+        self, *, rows: int, n: int | None = None, width: int | None = None, **kwargs
+    ) -> None:
         super().__init__(**kwargs)
         from ipu_apps.kernel_registry.registry import _harness_spec
 
@@ -159,8 +160,14 @@ class SoftmaxApp(IpuApp):
 
         # CR0 == 0 and CR1 == 1 are read-only; CR1 doubles as the 1.0 scalar
         # and the +1 increment. .asm XMEM operands are row numbers.
-        bases = {2: self.output_base, 3: self.cvec_addr, 4: self.num_base,
-                 5: self.max_addr, 6: self.rvec_addr, 10: self.input_base}
+        bases = {
+            2: self.output_base,
+            3: self.cvec_addr,
+            4: self.num_base,
+            5: self.max_addr,
+            6: self.rvec_addr,
+            10: self.input_base,
+        }
         for register, addr in bases.items():
             state.regfile.set_cr(register, addr // ROW_BYTES)
         state.regfile.set_cr(7, 1)  # region stride: one XMEM row per step
@@ -175,7 +182,8 @@ class SoftmaxApp(IpuApp):
         raw = state.xmem.read_address(self.output_base, self.device_rows * ROW_BYTES)
         device = np.frombuffer(bytes(raw), dtype="<f4").reshape(-1, self.slot)
         Path(self.output_path).write_bytes(
-            np.ascontiguousarray(device[: self.rows, : self.cols]).tobytes())
+            np.ascontiguousarray(device[: self.rows, : self.cols]).tobytes()
+        )
 
 
 # -- spec helpers ---------------------------------------------------------
@@ -232,9 +240,7 @@ def softmax_query(shape, dim: int) -> SoftmaxQuery:
     """
     bundle, dim_2d, shape_2d = softmax_bundle(tuple(int(d) for d in shape), int(dim))
     rows, cols = shape_2d
-    return SoftmaxQuery(
-        rows=rows, cols=cols, along_rows=(dim_2d == 1), bundle=bundle
-    )
+    return SoftmaxQuery(rows=rows, cols=cols, along_rows=(dim_2d == 1), bundle=bundle)
 
 
 def positive_dims(q: SoftmaxQuery) -> str | None:
@@ -246,14 +252,14 @@ def positive_dims(q: SoftmaxQuery) -> str | None:
     return None
 
 
-def softmax_spec(app_class, *, along_rows, supports, explain, cost,
-                 caveats=lambda q: (), tags=()):
+def softmax_spec(app_class, *, along_rows, supports, explain, cost, caveats=lambda q: (), tags=()):
     """KernelSpec for a softmax kernel; every callback receives the SoftmaxQuery.
 
     ``supports(q)`` returns a refusal reason, or None to accept. The shared
     preconditions -- positive extents and the reduction axis -- are checked
     first, and ``build`` hands the harness ``rows`` plus ``n`` or ``width``.
     """
+
     def query(params):
         return softmax_query(params["shape"], params["dim"])
 
@@ -261,8 +267,11 @@ def softmax_spec(app_class, *, along_rows, supports, explain, cost,
         q = query(params)
         reason = positive_dims(q)
         if reason is None and q.along_rows != along_rows:
-            reason = ("reduces down columns, not along rows" if along_rows
-                      else "reduces along rows, not down columns")
+            reason = (
+                "reduces down columns, not along rows"
+                if along_rows
+                else "reduces along rows, not down columns"
+            )
         if reason is None:
             reason = supports(q)
         return no(reason) if reason else yes()

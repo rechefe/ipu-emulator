@@ -7,13 +7,15 @@ attn_v_16x60, or any softmax kernel.
 
 Instruction counting: RunStats (ipu_emu/stats.py) tracks cycles and
 mult/acc-active cycles and XMEM accesses, but NOT a dynamic executed-
-instruction count. Rather than reimplement NOP detection (risk of drifting
-from the real logic and fabricating a number), this monkeypatches
-Ipu.dispatch_instruction -- the exact seam where the emulator itself
-resolves "instruction_name != NOP" (ipu.py:1343, see the mult/acc/load/store
-stats updates a few lines below the lookup) -- to tally every dispatched,
-non-NOP slot across every executed cycle. No ipu.py edit; this only wraps
-the method from outside for the duration of one run() call.
+instruction count. This counts every non-NOP slot of every executed cycle
+(LR slots aside), as the emulator itself classifies the opcode
+(get_instruction_by_opcode). It wraps the cycle entry points,
+Ipu.execute_vliw_cycle and Ipu.execute_vliw_cycle_skip_break, which both the
+faithful path and prototyping mode's fast path run through -- the fast path
+skips Ipu.dispatch_instruction, so counting there read zero in that mode. The
+counts match the per-dispatch ones: a cycle's break slot counts when the cycle
+starts, its other slots once it continues past the break. No ipu.py edit; the
+methods are wrapped from outside for the duration of one `with` block.
 """
 
 from __future__ import annotations
@@ -21,7 +23,12 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 
-from ipu_emu.ipu import Ipu
+from ipu_emu.execute import BreakResult
+from ipu_emu.ipu import _SLOT_FIELD_PREFIX, Ipu
+from ipu_isa.instruction_spec import get_instruction_by_opcode
+
+#: The slots a cycle runs after its break slot (the LR slots are not counted).
+_AFTER_BREAK = tuple(slot for slot in _SLOT_FIELD_PREFIX if slot != "break")
 
 
 @dataclass
@@ -34,36 +41,43 @@ class InstrCount:
     def total(self) -> int:
         return sum(self.by_slot.values())
 
+    def add(self, inst: dict | None, slots) -> None:
+        """Count the non-NOP instructions of *inst* in *slots*."""
+        if inst is None:
+            return
+        for slot_type in slots:
+            opcode = inst[f"{_SLOT_FIELD_PREFIX[slot_type]}_token_0_{slot_type}_inst_opcode"]
+            if get_instruction_by_opcode(slot_type, opcode)[0] != "NOP":
+                self.by_slot[slot_type] = self.by_slot.get(slot_type, 0) + 1
+
 
 @contextmanager
 def count_instructions():
     """Context manager: yields an InstrCount that fills in as the emulator runs.
 
-    Wraps Ipu.dispatch_instruction for the duration of the `with` block only;
-    the original method is restored on exit regardless of how the block ends.
+    Wraps Ipu.execute_vliw_cycle and Ipu.execute_vliw_cycle_skip_break for the
+    duration of the `with` block only; the originals are restored on exit
+    regardless of how the block ends.
     """
     counts = InstrCount()
-    original = Ipu.dispatch_instruction
+    cycle, rest_of_cycle = Ipu.execute_vliw_cycle, Ipu.execute_vliw_cycle_skip_break
 
-    # We need the resolved instruction_name, which `original` computes
-    # internally but does not return. Re-derive it the same way
-    # dispatch_instruction does (get_instruction_by_opcode), rather than
-    # guessing from the return value -- this stays byte-for-byte aligned
-    # with the emulator's own NOP classification.
-    from ipu_isa.instruction_spec import get_instruction_by_opcode
-    from ipu_emu.ipu import _SLOT_FIELD_PREFIX
+    def counting_cycle(self):
+        inst = self.state.inst_mem[self.state.program_counter]
+        counts.add(inst, ("break",))
+        result = cycle(self)
+        if result != BreakResult.BREAK:
+            counts.add(inst, _AFTER_BREAK)
+        return result
 
-    def counting_dispatch(self, slot_type, inst):
-        prefix = _SLOT_FIELD_PREFIX[slot_type]
-        opcode_field = f"{prefix}_token_0_{slot_type}_inst_opcode"
-        opcode = inst[opcode_field]
-        instruction_name, _spec = get_instruction_by_opcode(slot_type, opcode)
-        if instruction_name != "NOP":
-            counts.by_slot[slot_type] = counts.by_slot.get(slot_type, 0) + 1
-        return original(self, slot_type, inst)
+    def counting_rest_of_cycle(self):
+        counts.add(self.state.inst_mem[self.state.program_counter], _AFTER_BREAK)
+        return rest_of_cycle(self)
 
-    Ipu.dispatch_instruction = counting_dispatch
+    Ipu.execute_vliw_cycle = counting_cycle
+    Ipu.execute_vliw_cycle_skip_break = counting_rest_of_cycle
     try:
         yield counts
     finally:
-        Ipu.dispatch_instruction = original
+        Ipu.execute_vliw_cycle = cycle
+        Ipu.execute_vliw_cycle_skip_break = rest_of_cycle

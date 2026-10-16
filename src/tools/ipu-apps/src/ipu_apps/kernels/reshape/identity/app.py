@@ -7,10 +7,10 @@ them. The only kernel-specific code is the CR map in ``memory_layout``:
 
   CR2 = input base row, CR3 = output base row, CR4 = row count.
 """
-from ipu_emu.ipu import LANES
 
 from ipu_apps.kernel_registry import OUTPUT, ShapeBundle
 from ipu_apps.kernel_registry.memory import MemoryApp, MemoryLayout, memory_spec
+from ipu_emu.ipu import LANES
 
 
 class IdentityApp(MemoryApp):
@@ -28,13 +28,15 @@ class IdentityApp(MemoryApp):
 
 
 SPEC = memory_spec(
-    "identity", IdentityApp,
+    "identity",
+    IdentityApp,
     variant="fp32_matrix",
     explain=lambda **params: (
         f"a {tuple(params['shape'])[0]} x {LANES} FP32 matrix is copied without changing layout"
     ),
     caveats=lambda **params: (),
     bundle=lambda **params: ShapeBundle.of(input=tuple(params["shape"])).with_shapes(
-        derived={OUTPUT: tuple(params["shape"])}),
+        derived={OUTPUT: tuple(params["shape"])}
+    ),
     tags=("example", "fp32-wide"),
 )

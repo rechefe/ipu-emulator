@@ -5,11 +5,11 @@ module; the module's constants say which file layout it uses (see the family
 ``app.py``). Inputs are uniform in ``[-1, 1)``; the tolerance allows for IPU FP32
 accumulation order differing from NumPy's.
 """
+
 import numpy as np
 
-from ipu_emu.ipu import LANES
-
 from ipu_apps.kernel_registry.cases import KernelCase, PreparedCase
+from ipu_emu.ipu import LANES
 
 RTOL, ATOL = 1e-4, 1e-3
 
@@ -38,7 +38,9 @@ def matmul_cases(app, *, activation="none", max_cycles=5_000_000):
         if activation == "silu":
             expected = silu(expected)
 
-        inp, weights, out = (workspace / name for name in ("input.bin", "weights.bin", "output.bin"))
+        inp, weights, out = (
+            workspace / name for name in ("input.bin", "weights.bin", "output.bin")
+        )
         # Channel-major kernels read D = A^T, as the transformer blocks hold it.
         inp.write_bytes(np.ascontiguousarray(a.T if channel_major else a).tobytes())
         weights.write_bytes(w.tobytes())
@@ -50,7 +52,7 @@ def matmul_cases(app, *, activation="none", max_cycles=5_000_000):
                 if raw.size != want:
                     raise ValueError(f"output has {raw.size} FP32 values, expected {want}")
                 # (N_TG, N, 128) rows; lanes past N_TOK are padding.
-                got = raw.reshape(groups, n, LANES)[..., :app.N_TOK]
+                got = raw.reshape(groups, n, LANES)[..., : app.N_TOK]
                 got = got.transpose(0, 2, 1).reshape(tokens, n)
             else:
                 if raw.size != tokens * n:
@@ -59,8 +61,9 @@ def matmul_cases(app, *, activation="none", max_cycles=5_000_000):
             np.testing.assert_allclose(got, expected, rtol=RTOL, atol=ATOL)
 
         params = {"shape_a": (tokens, k), "shape_b_t": (n, k), "activation": activation}
-        return PreparedCase(params, {"input_path": inp, "weights_path": weights,
-                                     "output_path": out}, check)
+        return PreparedCase(
+            params, {"input_path": inp, "weights_path": weights, "output_path": out}, check
+        )
 
     return {
         "default": KernelCase(prepare, {"seed": 0}, max_cycles),
