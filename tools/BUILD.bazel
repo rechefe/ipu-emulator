@@ -11,7 +11,7 @@ exports_files([
     "ruff_runner.py",
 ])
 
-# Refresh //:requirements_lock.txt from the five pyproject.toml files and
+# Refresh //:requirements_lock.txt from the six pyproject.toml files and
 # tools/requirements-tools.in. Runs uv from the lock itself, so no host tool is
 # needed. Extra arguments go to `uv pip compile`:
 #
@@ -40,6 +40,8 @@ py_pytest_test(
         "//src/tools/ipu-as-py:runtime_deps",
         "//src/tools/ipu-debug:pyproject.toml",
         "//src/tools/ipu-debug:runtime_deps",
+        "//src/tools/ipu-gen:pyproject.toml",
+        "//src/tools/ipu-gen:runtime_deps",
         "//src/tools/ipu-isa:pyproject.toml",
         "//src/tools/ipu-isa:runtime_deps",
         "//src/tools/ipu-emu-py:pyproject.toml",

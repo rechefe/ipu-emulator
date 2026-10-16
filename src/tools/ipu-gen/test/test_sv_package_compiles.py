@@ -4,7 +4,7 @@ from pyslang import DiagnosticEngine
 from pyslang.ast import Compilation
 from pyslang.syntax import SyntaxTree
 
-from ipu_as import gen_codegen
+from ipu_gen import sv_package
 
 # Declaring the compound type elaborates every slot struct and union member;
 # slang rejects a packed union whose members differ in width.
@@ -22,7 +22,7 @@ endmodule
 def test_sv_package_compiles():
     compilation = Compilation()
     for text, name in (
-        (gen_codegen.render_sv_package(), "ipu_instr_pkg.sv"),
+        (sv_package.render_sv_package(), "ipu_instr_pkg.sv"),
         (_ELAB_TOP, "ipu_instr_pkg_elab_top.sv"),
     ):
         compilation.addSyntaxTree(SyntaxTree.fromText(text, name=name))
