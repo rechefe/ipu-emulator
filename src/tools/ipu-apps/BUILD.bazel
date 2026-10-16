@@ -246,6 +246,19 @@ py_pytest_test(
     ],
 )
 
+# The ISA's slot codec against the assembler, over the corpus (E03-17).
+py_pytest_test(
+    name = "test_slot_codec_corpus",
+    srcs = ["test/test_slot_codec_corpus.py"],
+    data = _ASM_CORPUS,
+    deps = [
+        ":asm_corpus",
+        "//src/tools/ipu-as-py:ipu_as_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
 # No `| default` or definedness test in an assembly source (E05-11).
 py_pytest_test(
     name = "test_template_lint",

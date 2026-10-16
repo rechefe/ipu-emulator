@@ -43,7 +43,7 @@ Complete the binary codec (Q69): turn one instruction (mnemonic plus operand val
 ## Tests
 
 - [ ] `ipu-isa/test/test_slot_codec.py`: for every slot and instruction, encode with operand values at both ends of each domain, decode, and compare; `nop()` equals today's NOP encoding; unused opcodes raise `ReservedEncoding`.
-- [ ] Cross-check (in `ipu-as-py/test/`): for every word of the E02-01 corpus, `WordCodec.unpack` then re-`pack` gives the same word, and each slot's `encode` equals what `Inst.encode` produced.
+- [ ] Cross-check (in `ipu-apps/test/test_slot_codec_corpus.py`, where the `asm_corpus` helper lives): for every word of the E02-01 corpus, `WordCodec.unpack` then re-`pack` gives the same word, and each slot's `encode` equals what `Inst.encode` produced.
 - [ ] E02 baselines unchanged (no production caller changes in this issue except tests).
 
 ## Acceptance Criteria

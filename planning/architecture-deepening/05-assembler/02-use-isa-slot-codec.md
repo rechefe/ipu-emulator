@@ -22,19 +22,26 @@ This deepens the module. The interface (`assemble(text) -> words`) stays the sam
 
 ## Implementation
 
-1. Assumed codec interface, provided by E03. Adjust names to what E03 lands:
+1. The codec interface E03-16 and E03-17 provide:
 
    ```python
-   # ipu_isa.codec
+   # ipu_isa.codec.slot (E03-17)
    class SlotCodec:
-       slot: str; instances: int; bits: int
-       def encode(self, opcode: str, operands: Sequence[int]) -> int   # operand values in assembly order
+       slot: Slot; instances: int; bits: int
+       def encode(self, mnemonic: str, operands: Sequence[int]) -> int  # encoded values, assembly order; raises EncodeError
        def nop(self) -> int
-       def decode(self, value: int) -> DecodedSlot
-   SLOT_CODECS: Mapping[str, SlotCodec]
-   OPCODE_SLOT: Mapping[str, str]          # upper-case mnemonic -> slot
-   class WordCodec: def pack(self, slot_values: Mapping[tuple[str, int], int]) -> int; ...
+       def decode(self, value: int) -> DecodedSlot                      # raises ReservedEncoding for an unused opcode
+       def instruction(self, mnemonic: str) -> Instruction
+   SLOT_CODECS: Mapping[Slot, SlotCodec]
+   OPCODE_SLOT: Mapping[str, Slot]         # upper-case mnemonic -> slot; NOP is absent (it is in every slot)
+   WORD_CODEC: WordCodec                   # .pack(Mapping[tuple[Slot, int], int]) -> int (missing = NOP)
+                                           # .unpack(word) -> dict[tuple[Slot, int], DecodedSlot]
+   def codecs(view: Isa | None = None) -> Codecs   # .slots, .word, .opcode_slot for a modified ISA
+   # ipu_isa.codec.word (E03-16): WORD_LAYOUT, FieldSpec, field_name, opcode_field,
+   # DecodedWord, word_bytes, hardware_word, pack_program, unpack_program, unpack_words
    ```
+
+   `Slot` is a `str` Enum, so a slot name such as `"lr"` finds the same entries.
 
 2. In `ipu_as`, add `encode.py`:
    - `operand_value(token: AnnotatedToken, operand_type, symbols) -> int` validates and converts one operand. Range checks and enum lookups use the operand-type metadata from `ipu_isa`, and errors carry the token's location.
