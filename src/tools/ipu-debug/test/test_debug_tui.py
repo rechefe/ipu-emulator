@@ -522,7 +522,7 @@ class TestSessionPersistence:
             callback(FakeScreen([debug_tui.curses.KEY_F5]))
 
         class View:
-            def __init__(self, screen, state, session, cycle, control):
+            def __init__(self, screen, state, session, cycle, control, debug):
                 self.session, self.control = session, control
 
             def run(self):
@@ -2887,7 +2887,7 @@ class TestConsoleBars:
     def test_removed_hints_help_button_and_group_order(self, monkeypatch):
         view, screen, session = make_view(screen=FakeScreen(columns=200))
         session.focus = "disassembly"
-        view.control.kernel_name = "softmax_rows_partial"
+        view.debug.kernel_name = "softmax_rows_partial"
         view.handle_key("p")
         assert session.selected_disassembly_tab().fmt == "compact"
         view.render()

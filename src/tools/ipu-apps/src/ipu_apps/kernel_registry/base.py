@@ -78,6 +78,10 @@ class IpuApp:
     ) -> tuple[IpuState, int]:
         """Run the app end-to-end. Returns ``(state, cycles)``.
 
+        When the debugger quits (or, in a debug launch, the user interrupts)
+        the run stops early: ``state.quit_requested`` is true and
+        :meth:`teardown` is skipped.
+
         Optional ``elu_alpha``, ``window_a`` and ``window_b`` match
         :func:`ipu_emu.emulator.run_test`: they configure emulator-only activation
         parameters (not CR) — α for ``elu`` and the ``[a, b)`` bounds of ``window``.
@@ -98,8 +102,8 @@ class IpuApp:
             debug_callback, debug_control = make_tui_debug_callback(
                 spec.name if spec is not None else type(self).__name__
             )
+        state = state if state is not None else self.make_state()
         try:
-            state = state if state is not None else self.make_state()
             if alias_profile is not None:
                 state.alias_profile = alias_profile
                 state.stats.alias_profile = alias_profile
@@ -117,9 +121,10 @@ class IpuApp:
                 window_b=wb,
             )
         except KeyboardInterrupt:
-            if debug_launch:
-                # F5 restores the terminal before resuming the emulator, so
-                # interrupts between stops must cancel outside curses too.
-                # Unwind case workspaces without checking incomplete output.
-                raise SystemExit(0) from None
-            raise
+            if not debug_launch:
+                raise
+            # F5 restores the terminal before resuming the emulator, so
+            # interrupts between stops must cancel outside curses too: the
+            # same outcome as QUIT, without teardown of incomplete output.
+            state.quit_requested = True
+            return state, state.stats.total_cycles

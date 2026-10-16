@@ -50,8 +50,9 @@ DEFAULT_MAX_CYCLES = 1_000_000
 
 
 def _begin_run(state: IpuState) -> None:
-    """Start a run: stats describe this run only."""
+    """Start a run: stats describe this run only, and no quit is pending."""
     state.stats.reset()
+    state.quit_requested = False
 
 
 def load_program(state: IpuState, instructions: list[dict[str, int]]) -> None:
@@ -117,7 +118,8 @@ def run_with_debug(
     - ``CONTINUE`` — resume execution until the next embedded or runtime
       breakpoint, or a temporary run target.
     - ``STEP`` — execute the current instruction, then break again.
-    - ``QUIT`` — halt immediately.
+    - ``QUIT`` — stop the run here and set ``state.quit_requested``; the
+      program is left unfinished.
 
     Stops occur before instruction side effects. Callback cycle counts and
     the return value count completed instructions. *control* holds the
@@ -169,6 +171,7 @@ def run_with_debug(
                 control.run_target = None
                 action = debug_callback(state, cycles)
                 if action == DebugAction.QUIT or state.is_halted:
+                    state.quit_requested = action == DebugAction.QUIT
                     break
                 stepping = action == DebugAction.STEP
                 # Resume the paused instruction exactly once, including when
@@ -314,7 +317,9 @@ def run_test(
     4. Runs the program.
     5. Calls *teardown(state)* (e.g. to dump XMEM results).
 
-    Returns ``(state, cycles)`` so callers can inspect final state.
+    Returns ``(state, cycles)`` so callers can inspect final state. When the
+    debugger quits, ``state.quit_requested`` is true and *teardown* is not
+    called: the program did not finish, so there are no results to collect.
 
     Optional ``elu_alpha``, ``window_a`` and ``window_b`` configure the
     emulator-only activation parameters (same idea as dtype setup, but not via
@@ -345,7 +350,7 @@ def run_test(
     else:
         cycles = run_until_complete(state, max_cycles)
 
-    if teardown is not None:
+    if teardown is not None and not state.quit_requested:
         teardown(state)
 
     return state, cycles

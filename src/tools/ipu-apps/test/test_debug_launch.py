@@ -2,6 +2,7 @@
 
 import sys
 from io import StringIO
+from pathlib import Path
 
 import pytest
 
@@ -61,14 +62,15 @@ def test_entry_is_after_setup_and_before_side_effects(app, debug_terminal, monke
 
     monkeypatch.setattr("ipu_debug.cli.DebugCLI", forbidden)
 
-    def view(state, cycle, *, control, session):
+    def view(state, cycle, *, control, session, debug):
         assert app.events == ["setup"]
         assert state.inst_mem[0] is not None
         assert state.xmem.read_address(0, 8) == b"prepared"
         assert not control.breakpoints
         stops.append((state.program_counter, cycle, state.regfile.get_lr(0)))
         assert control.stop_reason == "entry"
-        assert control.kernel_name == type(app).__name__
+        assert debug.kernel_name == type(app).__name__
+        assert debug.control is control and debug.state is state
         return DebugAction.CONTINUE
 
     monkeypatch.setattr(tui, "run_debug_tui", view)
@@ -86,7 +88,7 @@ def test_tui_steps_and_breakpoints_reopen_without_the_cli(app, debug_terminal, m
     def forbidden(*args, **kwargs):
         pytest.fail("TUI stops must not construct the legacy CLI")
 
-    def view(state, cycle, *, control, session):
+    def view(state, cycle, *, control, session, debug):
         stops.append((state.program_counter, cycle))
         if len(stops) == 1:
             session.focus = "registers"
@@ -104,11 +106,12 @@ def test_tui_steps_and_breakpoints_reopen_without_the_cli(app, debug_terminal, m
     assert cycles == 3
 
 
-def test_quit_unwinds_without_teardown_or_returning_partial_state(app, debug_terminal, monkeypatch):
+def test_quit_returns_without_teardown(app, debug_terminal, monkeypatch):
     monkeypatch.setattr(tui, "run_debug_tui", lambda state, cycle, **frontend: DebugAction.QUIT)
-    with pytest.raises(SystemExit) as result:
-        app.run()
-    assert result.value.code == 0
+    state, cycles = app.run()
+    assert state.quit_requested
+    assert not state.is_halted
+    assert cycles == 0
     assert app.events == ["setup"]
     assert not app.output_path.exists()
 
@@ -136,9 +139,8 @@ def test_terminal_interrupt_cancels_without_entering_cli(app, debug_terminal, mo
 
     monkeypatch.setattr(tui.curses, "wrapper", interrupted)
     monkeypatch.setattr("ipu_debug.cli.DebugCLI", forbidden)
-    with pytest.raises(SystemExit) as result:
-        app.run()
-    assert result.value.code == 0
+    state, _ = app.run()
+    assert state.quit_requested
     assert app.events == ["setup"]
     assert not app.output_path.exists()
 
@@ -160,7 +162,7 @@ def test_interrupt_after_continue_cancels_without_teardown(app, debug_terminal, 
     state = IpuState()
     stops = []
 
-    def view(state, cycle, *, control, session):
+    def view(state, cycle, **frontend):
         stops.append((state.program_counter, cycle))
         return DebugAction.CONTINUE
 
@@ -172,9 +174,8 @@ def test_interrupt_after_continue_cancels_without_teardown(app, debug_terminal, 
 
     monkeypatch.setattr(tui, "run_debug_tui", view)
     monkeypatch.setattr("ipu_emu.ipu.Ipu.execute_vliw_cycle", interrupt)
-    with pytest.raises(SystemExit) as result:
-        app.run(state=state)
-    assert result.value.code == 0
+    assert app.run(state=state) == (state, 1)
+    assert state.quit_requested
     assert stops == [(0, 0)]
     assert state.stats.total_cycles == 1
     assert app.events == ["setup"]
@@ -260,7 +261,7 @@ def test_registry_case_cancel_skips_check_and_cleans_workspace(debug_terminal, m
         prepared = original.prepare(workspace, rows=1)
         return PreparedCase(prepared.params, prepared.bindings, lambda: checks.append(True))
 
-    def view(state, cycle, *, control, session):
+    def view(state, cycle, **frontend):
         assert cycle == 0 and state.program_counter == 0
         assert state.regfile.get_cr(4) == 1
         return DebugAction.QUIT if cancel == "quit" else DebugAction.CONTINUE
@@ -271,9 +272,8 @@ def test_registry_case_cancel_skips_check_and_cleans_workspace(debug_terminal, m
     monkeypatch.setattr(tui, "run_debug_tui", view)
     if cancel == "interrupt_after_continue":
         monkeypatch.setattr("ipu_emu.ipu.Ipu.execute_vliw_cycle", interrupt)
-    with pytest.raises(SystemExit) as exc:
-        run_case("identity", KernelCase(prepare))
-    assert exc.value.code == 0
+    state, _ = run_case("identity", KernelCase(prepare))
+    assert state.quit_requested
     assert not checks
     assert not workspaces[0].exists()
 
@@ -283,7 +283,7 @@ def test_registry_case_completion_checks_and_exports(debug_terminal, monkeypatch
 
     stops = []
 
-    def view(state, cycle, *, control, session):
+    def view(state, cycle, **frontend):
         stops.append((state.program_counter, cycle))
         return DebugAction.CONTINUE
 
@@ -293,3 +293,35 @@ def test_registry_case_completion_checks_and_exports(debug_terminal, monkeypatch
     assert state.is_halted and cycles > 0
     assert stops == [(0, 0)]
     assert len(output.read_bytes()) == 512
+
+
+@pytest.mark.parametrize("cancel", ["quit", "interrupt_after_continue"])
+def test_runner_quit_exits_zero_without_pass(debug_terminal, monkeypatch, cancel):
+    import ipu_apps.kernel_registry.cases as cases
+    from ipu_apps.kernel_registry import runner
+
+    workspaces = []
+
+    class RecordingTemporaryDirectory(cases.TemporaryDirectory):
+        def __enter__(self):
+            workspaces.append(Path(super().__enter__()))
+            return str(workspaces[-1])
+
+    def view(state, cycle, **frontend):
+        return DebugAction.QUIT if cancel == "quit" else DebugAction.CONTINUE
+
+    def interrupt(engine):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cases, "TemporaryDirectory", RecordingTemporaryDirectory)
+    monkeypatch.setattr(tui, "run_debug_tui", view)
+    if cancel == "interrupt_after_continue":
+        monkeypatch.setattr("ipu_emu.ipu.Ipu.execute_vliw_cycle", interrupt)
+    try:
+        code = runner.main(["--kernel", "identity", "--case", "single_row"])
+    except SystemExit as exc:  # pragma: no cover - the failure being guarded
+        pytest.fail(f"SystemExit({exc.code!r}) raised below the runner's main")
+    assert code == 0
+    assert "PASS" not in sys.stdout.getvalue()
+    assert len(workspaces) == 1
+    assert not workspaces[0].exists()

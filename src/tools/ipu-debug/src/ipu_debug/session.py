@@ -361,7 +361,7 @@ class DebugSession:
     ) -> None:
         self.state = state
         self.control = control if control is not None else DebugControl()
-        self.kernel_name = kernel_name if kernel_name is not None else self.control.kernel_name
+        self.kernel_name = kernel_name
         self.generation = 0
 
     # -- parsing ------------------------------------------------------------

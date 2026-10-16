@@ -807,12 +807,18 @@ class CursesDebugView:
         session: DebugViewSession,
         cycle: int,
         control: DebugControl | None = None,
+        debug: DebugSession | None = None,
     ) -> None:
         self.screen = screen
         self.state = state
-        # The run's control, from whoever started the run; else this view's own.
-        self.control = control if control is not None else DebugControl()
-        self.debug = DebugSession(state, self.control)
+        # The run's control and session, from whoever started the run; else
+        # this view's own.
+        if debug is not None:
+            self.control = debug.control
+            self.debug = debug
+        else:
+            self.control = control if control is not None else DebugControl()
+            self.debug = DebugSession(state, self.control)
         self.session = session
         self.cycle = cycle
         self.colors = _ColorManager()
@@ -1183,7 +1189,7 @@ class CursesDebugView:
     def _draw_header(self, rect: Rect) -> None:
         mode = "wide" if self.state.wide_vector_debug else "normal"
         segments = [
-            self.control.kernel_name or "IPU DEBUG",
+            self.debug.kernel_name or "IPU DEBUG",
             "PAUSED",
             f"PC={self.state.program_counter:04d}",
             f"cycle={self.cycle}",
@@ -3731,11 +3737,14 @@ def run_debug_tui(
     *,
     control: DebugControl | None = None,
     session: DebugViewSession | None = None,
+    debug: DebugSession | None = None,
 ) -> DebugAction:
     """Enter curses and return an execution action; interrupts cancel.
 
     *control* is the one passed to ``run_with_debug``, and *session* the view
-    kept from the previous stop; without them, this stop has its own.
+    kept from the previous stop; without them, this stop has its own. *debug*
+    is the run's ``DebugSession`` (it carries the kernel name the header
+    shows); when given, its control is the one used.
     """
     if curses is None:
         raise RuntimeError("curses is not available on this platform")
@@ -3747,7 +3756,7 @@ def run_debug_tui(
 
     def _run(screen: Any) -> None:
         nonlocal result
-        result = CursesDebugView(screen, state, session, cycle, control).run()
+        result = CursesDebugView(screen, state, session, cycle, control, debug).run()
 
     try:
         curses.wrapper(_run)

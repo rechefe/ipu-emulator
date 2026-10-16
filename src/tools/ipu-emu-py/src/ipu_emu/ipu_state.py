@@ -61,6 +61,7 @@ class IpuState:
         inst_mem:        Instruction memory (list of decoded instruction dicts).
         dtype:           Arithmetic data type (not stored in CR; emulator-only).
         prototyping:     Whether the opt-in fast paths are active (emulator-only).
+        quit_requested:  The debugger quit the last run before it finished.
     """
 
     def __init__(
@@ -83,6 +84,9 @@ class IpuState:
         self.alias_profile = alias_profile
         self.stats.alias_profile = alias_profile
         self.inst_mem: list[dict[str, Any] | None] = [None] * INST_MEM_SIZE
+        # Set when a debugger quit the last run before the program finished
+        # (emulator-only; cleared at the start of every run).
+        self.quit_requested: bool = False
 
         # Arithmetic data type — not stored in a CR register (emulator-only).
         self.dtype: DType = dtype

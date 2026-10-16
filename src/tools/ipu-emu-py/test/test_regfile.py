@@ -107,6 +107,8 @@ class TestRegFileOptimizedMode:
         assert probe.returncode == 0, probe.stderr
 
         script = """
+import sys
+
 from ipu_emu.errors import RegisterIndexError, RegisterSizeError
 from ipu_emu.regfile import RegFile
 
@@ -124,7 +126,7 @@ for expected, call in checks:
         call()
     except expected:
         continue
-    raise SystemExit(f"no {expected.__name__} raised")
+    sys.exit(f"no {expected.__name__} raised")
 print("ok")
 """
         result = subprocess.run(

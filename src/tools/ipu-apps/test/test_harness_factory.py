@@ -264,7 +264,7 @@ def test_frontend_boolean_options_and_collisions(monkeypatch, capsys):
     import ipu_apps.kernel_registry.runner as runner
 
     options = []
-    state = SimpleNamespace(stats=SimpleNamespace(format_summary=lambda: ""))
+    state = SimpleNamespace(quit_requested=False, stats=SimpleNamespace(format_summary=lambda: ""))
     monkeypatch.setattr(
         runner, "run_case", lambda *_, **kw: (options.append(kw["options"]) or state, 1)
     )
