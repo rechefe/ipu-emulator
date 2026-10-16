@@ -21,6 +21,7 @@ from pathlib import Path
 
 import numpy as np
 
+from ipu_emu.errors import ConfigurationError
 from ipu_emu.execute import (
     BreakResult,
     Ipu,
@@ -56,7 +57,7 @@ def _begin_run(state: IpuState) -> None:
 def load_program(state: IpuState, instructions: list[dict[str, int]]) -> None:
     """Load decoded instruction dicts into the state's instruction memory."""
     if len(instructions) > INST_MEM_SIZE:
-        raise ValueError(
+        raise ConfigurationError(
             f"Program too large: {len(instructions)} instructions (max {INST_MEM_SIZE})"
         )
     for i, inst in enumerate(instructions):

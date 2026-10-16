@@ -82,7 +82,7 @@ def write_row(state: IpuState, row: int, values) -> None:
 def fill_ra(state: IpuState, values) -> None:
     """R0 ++ R1 (256 elements)."""
     name = "r_wide_debug" if _wide(state) else "r"
-    state.regfile.raw(name)[: len(values) * (4 if _wide(state) else 1)] = _element_bytes(
+    state.regfile.mutable(name)[: len(values) * (4 if _wide(state) else 1)] = _element_bytes(
         state, values
     )
 
@@ -90,33 +90,33 @@ def fill_ra(state: IpuState, values) -> None:
 def fill_r_cyclic(state: IpuState, values) -> None:
     """The first ``len(values)`` elements of R_CYCLIC."""
     name = "r_cyclic_wide_debug" if _wide(state) else "r_cyclic"
-    state.regfile.raw(name)[: len(values) * (4 if _wide(state) else 1)] = _element_bytes(
+    state.regfile.mutable(name)[: len(values) * (4 if _wide(state) else 1)] = _element_bytes(
         state, values
     )
 
 
 def fill_lanes(state: IpuState, register: str, values) -> None:
     """MULT_RES or R_ACC lanes."""
-    state.regfile.raw(register)[: 4 * len(values)] = struct.pack(
+    state.regfile.mutable(register)[: 4 * len(values)] = struct.pack(
         f"<{len(values)}{_lane_format(state)[1]}", *values
     )
 
 
 def lane(state: IpuState, register: str, index: int):
     """One MULT_RES or R_ACC lane."""
-    return struct.unpack_from(_lane_format(state), state.regfile.raw(register), 4 * index)[0]
+    return struct.unpack_from(_lane_format(state), state.regfile.view(register), 4 * index)[0]
 
 
 def ra_element(state: IpuState, index: int):
     if _wide(state):
-        return struct.unpack_from("<f", state.regfile.raw("r_wide_debug"), 4 * index)[0]
-    return state.regfile.raw("r")[index]
+        return struct.unpack_from("<f", state.regfile.view("r_wide_debug"), 4 * index)[0]
+    return state.regfile.view("r")[index]
 
 
 def r_cyclic_element(state: IpuState, index: int):
     if _wide(state):
-        return struct.unpack_from("<f", state.regfile.raw("r_cyclic_wide_debug"), 4 * index)[0]
-    return state.regfile.raw("r_cyclic")[index]
+        return struct.unpack_from("<f", state.regfile.view("r_cyclic_wide_debug"), 4 * index)[0]
+    return state.regfile.view("r_cyclic")[index]
 
 
 # -- probes ---------------------------------------------------------------------
@@ -210,7 +210,7 @@ def _row(row: int, values) -> Callable[[IpuState], None]:
 
 def _post_aaq(values) -> Callable[[IpuState], None]:
     def setup(state: IpuState) -> None:
-        state.regfile.raw("post_aaq_reg")[: len(values)] = bytes(v & 0xFF for v in values)
+        state.regfile.mutable("post_aaq_reg")[: len(values)] = bytes(v & 0xFF for v in values)
 
     return setup
 

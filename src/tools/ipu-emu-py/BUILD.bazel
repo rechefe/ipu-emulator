@@ -94,6 +94,33 @@ py_pytest_test(
     ],
 )
 
+# test_regfile again with assert statements compiled out of the emulator (python
+# -O; pytest still rewrites the test's own asserts): the register file's checks
+# must hold without asserts.
+py_pytest_test(
+    name = "test_regfile_optimized",
+    srcs = ["test/test_regfile.py"],
+    env = {"PYTHONOPTIMIZE": "1"},
+    imports = ["src"],
+    deps = [
+        ":emu_test_support",
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_errors",
+    size = "small",
+    srcs = ["test/test_errors.py"],
+    imports = ["src"],
+    deps = [
+        ":emu_test_support",
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
+)
+
 py_pytest_test(
     name = "test_execute",
     srcs = ["test/test_execute.py"],
