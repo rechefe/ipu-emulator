@@ -8,10 +8,11 @@ from typing import Any
 import pytest
 from emu_support import ElementFormat, make_state, new_state
 
-# TODO(E08): debugger internals (CursesDebugView._*, debug_tui._*,
-# _resolve_xmem_request) are tested white-box until the debuggers move to ipu_debug.
+# TODO(E08): debugger internals (CursesDebugView._*, debug_tui._*) are tested
+# white-box until the TUI is split per pane (E08-08..E08-11).
+import ipu_debug.format as debug_format
 import ipu_debug.tui as debug_tui
-from ipu_debug.cli import XmemRequest, _resolve_xmem_request
+from ipu_debug.session import DebugSession, XmemRequest
 from ipu_debug.tui import (
     MIN_TERMINAL_COLUMNS,
     MIN_TERMINAL_ROWS,
@@ -236,7 +237,7 @@ class TestLayout:
 
     def test_parallel_operations_are_stacked_under_their_instruction(self, monkeypatch):
         monkeypatch.setattr(
-            "ipu_debug.cli.disassemble_at",
+            "ipu_debug.session.disassemble_at",
             lambda _state, pc: f"PC {pc}: first\nsecond",
         )
         view, screen, _ = make_view(screen=FakeScreen(columns=140))
@@ -257,7 +258,7 @@ class TestLayout:
 
     def test_no_instruction_spans_the_pane_sideways(self, monkeypatch):
         monkeypatch.setattr(
-            "ipu_debug.cli.disassemble_at",
+            "ipu_debug.session.disassemble_at",
             lambda _state, pc: f"PC {pc}: ADD lr0 lr1 lr2\nMULT lr3 lr4 lr5\nSET cr0 lr6",
         )
         view, screen, _ = make_view(screen=FakeScreen(columns=140))
@@ -270,7 +271,7 @@ class TestLayout:
 
     def test_every_row_of_an_instruction_carries_its_cursor(self, monkeypatch):
         monkeypatch.setattr(
-            "ipu_debug.cli.disassemble_at",
+            "ipu_debug.session.disassemble_at",
             lambda _state, pc: f"PC {pc}: first\nsecond",
         )
         view, screen, session = make_view(screen=FakeScreen(columns=140))
@@ -288,7 +289,7 @@ class TestLayout:
 
     def test_mnemonics_share_one_column_across_every_slot(self, monkeypatch):
         monkeypatch.setattr(
-            "ipu_debug.cli.disassemble_at",
+            "ipu_debug.session.disassemble_at",
             lambda _state, pc: f"PC {pc}: ADD lr0 lr1\nSTR_ACC_REG lr2 lr3",
         )
         view, screen, _ = make_view(screen=FakeScreen(columns=140))
@@ -304,7 +305,7 @@ class TestLayout:
 
     def test_the_parallel_marker_recedes(self, monkeypatch):
         monkeypatch.setattr(
-            "ipu_debug.cli.disassemble_at",
+            "ipu_debug.session.disassemble_at",
             lambda _state, pc: f"PC {pc}: ADD lr0 lr1 lr2\nADD lr3 lr4 lr5",
         )
         view, screen, _ = make_view(screen=FakeScreen(columns=140))
@@ -321,7 +322,7 @@ class TestLayout:
             mnemonic = "STR_ACC_REG" if pc % 2 else "ADD"
             return f"PC {pc}: {mnemonic} lr0 lr1"
 
-        monkeypatch.setattr("ipu_debug.cli.disassemble_at", disassemble)
+        monkeypatch.setattr("ipu_debug.session.disassemble_at", disassemble)
         view, screen, _ = make_view(screen=FakeScreen(columns=140))
 
         view.render()
@@ -331,7 +332,7 @@ class TestLayout:
 
     def test_nops_are_collapsed_in_disassembly(self, monkeypatch):
         monkeypatch.setattr(
-            "ipu_debug.cli.disassemble_at",
+            "ipu_debug.session.disassemble_at",
             lambda _state, pc: f"PC {pc}: NOP 0 lr0 lr0;\nADD lr0 lr1 lr2;;",
         )
         view, screen, _ = make_view()
@@ -670,15 +671,11 @@ class TestXmemTabs:
         assert len(session.tabs) == 2
         tab = session.tabs[-1]
         assert tab.request.base_token == "cr4"
-        resolved, error = _resolve_xmem_request(state, tab.request)
-        assert error is None
-        assert resolved is not None
+        resolved = DebugSession(state).read_xmem(tab.request)
         assert resolved.metadata["row"] == 3
 
         state.regfile.set_lr(0, 2)
-        resolved, error = _resolve_xmem_request(state, tab.request)
-        assert error is None
-        assert resolved is not None
+        resolved = DebugSession(state).read_xmem(tab.request)
         assert resolved.metadata["row"] == 4
 
     def test_invalid_tab_request_stays_in_editor(self):
@@ -1238,13 +1235,11 @@ class TestPipelineRegisters:
         )
         view, _, _ = make_view(state, session=session)
         session.focus = "xmem"
-        before, error = _resolve_xmem_request(state, session.tabs[0].request)
-        assert error is None
+        before = DebugSession(state).read_xmem(session.tabs[0].request)
 
         view.handle_key("f")
 
-        after, error = _resolve_xmem_request(state, session.tabs[0].request)
-        assert error is None
+        after = DebugSession(state).read_xmem(session.tabs[0].request)
         assert (after.byte_address, after.byte_count) == (
             before.byte_address,
             before.byte_count,
@@ -1398,7 +1393,7 @@ class TestRenderCost:
             decoded.append(pc)
             return f"PC {pc}: ADD lr0 lr1 lr2"
 
-        monkeypatch.setattr("ipu_debug.cli.disassemble_at", disassemble)
+        monkeypatch.setattr("ipu_debug.session.disassemble_at", disassemble)
         view, _, _ = make_view()
 
         view.render()
@@ -1410,16 +1405,14 @@ class TestRenderCost:
         assert len(decoded) == first
 
     def test_an_xmem_request_is_tokenised_once_per_curses_entry(self, monkeypatch):
-        import ipu_debug.cli as debug_cli
-
         tokenized: list[int] = []
-        real = debug_cli._tokenize_xmem
+        real = debug_format.tokenize_xmem
 
         def tokenize(data, address, fmt, row_size):
             tokenized.append(address)
             return real(data, address, fmt, row_size)
 
-        monkeypatch.setattr(debug_cli, "_tokenize_xmem", tokenize)
+        monkeypatch.setattr(debug_format, "tokenize_xmem", tokenize)
         view, _, session = make_view()
         session.focus = "xmem"
 

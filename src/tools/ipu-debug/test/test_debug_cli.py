@@ -14,9 +14,8 @@ from ipu_debug.cli import (
     VISIBLE_ALPHABET,
     DebugAction,
     DebugCLI,
-    # TODO(E08): debugger internals (_resolve_register, DebugCLI._result) are
-    # tested white-box until the debuggers move to ipu_debug.
-    _resolve_register,
+    # TODO(E08-05): DebugCLI._result is tested white-box until the mutation
+    # path moves into DebugSession.
     debug_prompt,
     decode_16bit_cell,
     disassemble_current,
@@ -80,56 +79,6 @@ def test_legacy_cli_has_no_tui_command():
     assert "tui" not in output.getvalue()
     cli.onecmd("tui")
     assert "Unknown command: tui" in output.getvalue()
-
-
-# ============================================================================
-# Register resolution
-# ============================================================================
-
-
-class TestResolveRegister:
-    def test_lr_by_index(self):
-        desc, idx = _resolve_register("lr5")
-        assert desc is not None
-        assert desc.name == "lr"
-        assert idx == 5
-
-    def test_cr_by_index(self):
-        desc, idx = _resolve_register("cr15")
-        assert desc is not None
-        assert desc.name == "cr"
-        assert idx == 15
-
-    def test_acc_alias(self):
-        desc, idx = _resolve_register("acc")
-        assert desc is not None
-        assert desc.name == "r_acc"
-
-    def test_rcyclic_alias(self):
-        desc, idx = _resolve_register("rcyclic")
-        assert desc is not None
-        assert desc.name == "r_cyclic"
-
-    def test_rmask_alias(self):
-        desc, idx = _resolve_register("rmask")
-        assert desc is not None
-        assert desc.name == "r_mask"
-
-    def test_r0_alias(self):
-        desc, idx = _resolve_register("r0")
-        assert desc is not None
-        assert desc.name == "r"
-        assert idx == 0
-
-    def test_r1_alias(self):
-        desc, idx = _resolve_register("r1")
-        assert desc is not None
-        assert desc.name == "r"
-        assert idx == 1
-
-    def test_unknown(self):
-        desc, _ = _resolve_register("xyz")
-        assert desc is None
 
 
 # ============================================================================
