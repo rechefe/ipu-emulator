@@ -1,0 +1,33 @@
+load("@ipu_as_deps//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
+load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
+
+package(default_visibility = ["//visibility:public"])
+
+# Generators that render artifacts from the ISA. E08 moves the docs, SV and
+# VS Code generators here.
+py_library(
+    name = "ipu_gen_lib",
+    srcs = glob(["src/ipu_gen/*.py"]),
+    imports = ["src"],
+    deps = ["//src/tools/ipu-isa:ipu_isa_lib"],
+)
+
+#   bazel run //src/tools/ipu-gen:gen_union_layout_svg -- /tmp/union_layout.svg
+py_binary(
+    name = "gen_union_layout_svg",
+    srcs = ["src/ipu_gen/gen_union_layout_svg.py"],
+    imports = ["src"],
+    main = "src/ipu_gen/gen_union_layout_svg.py",
+    deps = [":ipu_gen_lib"],
+)
+
+py_pytest_test(
+    name = "test_union_layout_svg",
+    srcs = ["test/test_union_layout_svg.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_gen_lib",
+        requirement("pytest"),
+    ],
+)

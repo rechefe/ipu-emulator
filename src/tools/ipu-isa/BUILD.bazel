@@ -1,0 +1,59 @@
+load("@ipu_as_deps//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_library")
+load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
+load("//tools:runtime_deps.bzl", "runtime_deps_manifest")
+load(":deps.bzl", "RUNTIME_DEPS")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "pyproject.toml",
+])
+
+# RUNTIME_DEPS as JSON, for //tools:deps_consistency_test.
+runtime_deps_manifest(
+    name = "runtime_deps",
+    runtime_deps = RUNTIME_DEPS,
+)
+
+py_library(
+    name = "ipu_isa_lib",
+    srcs = glob([
+        "src/ipu_isa/*.py",
+    ]),
+    imports = ["src"],
+    deps = [requirement(dep) for dep in RUNTIME_DEPS],
+)
+
+py_pytest_test(
+    name = "test_union_layout",
+    srcs = ["test/test_union_layout.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+
+# ipu_isa imports nothing from the other IPU packages (E03-02). Depends on
+# ipu_isa_lib alone, so Bazel enforces the rule as well.
+py_pytest_test(
+    name = "test_purity",
+    srcs = ["test/test_purity.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_schema",
+    srcs = ["test/test_schema.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)

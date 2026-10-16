@@ -5,7 +5,7 @@ import ipu_as.opcodes as opcodes
 import ipu_as.ipu_token as ipu_token
 import ipu_as.reg as reg
 import ipu_as.immediate as immediate
-from ipu_common.instruction_spec import (
+from ipu_isa.instruction_spec import (
     INSTRUCTION_SPEC,
     COMPOUND_LAYOUT_SLOT_ORDER,
     InstructionDoc,

@@ -42,7 +42,7 @@ const CHECKER_BINARY_PATH = path.join('src', 'tools', 'ipu-as-py', 'ipu-as');
  *  the whole story. */
 const SOURCE_DIRS = [
   path.join('src', 'tools', 'ipu-as-py', 'src'),
-  path.join('src', 'tools', 'ipu-common', 'src'),
+  path.join('src', 'tools', 'ipu-isa', 'src'),
 ];
 
 const SOURCE_EXTENSIONS = ['.py', '.lark', '.j2'];

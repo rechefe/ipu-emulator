@@ -4,7 +4,7 @@ from pathlib import Path
 
 from ipu_as import gen_codegen
 from ipu_as.compound_inst import CompoundInst
-from ipu_common.instruction_spec import SLOT_UNIONS
+from ipu_isa.instruction_spec import SLOT_UNIONS
 
 
 def test_build_context_matches_compound_width():

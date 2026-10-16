@@ -32,7 +32,7 @@ from ipu_as.compound_inst import CompoundInst
 # Re-export Ipu class and BreakResult for backward compatibility
 from ipu_emu.ipu import Ipu, BreakResult
 from ipu_emu.ipu_state import IpuState
-from ipu_common.instruction_spec import (
+from ipu_isa.instruction_spec import (
     INSTRUCTION_SPEC,
     SLOT_COUNT,
     get_instruction_by_opcode,

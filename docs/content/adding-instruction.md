@@ -4,7 +4,7 @@ This guide shows how to add a new instruction to the IPU assembler and emulator.
 
 ## Overview
 
-The IPU uses a **single source of truth** for all instruction definitions: `INSTRUCTION_SPEC` in `src/tools/ipu-common/src/ipu_common/instruction_spec.py`.
+The IPU uses a **single source of truth** for all instruction definitions: `INSTRUCTION_SPEC` in `src/tools/ipu-isa/src/ipu_isa/instruction_spec.py`.
 
 Adding an instruction takes three edits, then two checks:
 
@@ -22,7 +22,7 @@ When you add a **new operand type** string to `INSTRUCTION_SPEC`, also add it to
 
 ## Step 1: Add Instruction to `instruction_spec.py`
 
-Open `src/tools/ipu-common/src/ipu_common/instruction_spec.py` and find the `INSTRUCTION_SPEC` dictionary. Locate the slot type where your instruction belongs (e.g., `"mult"`, `"acc"`, `"load"`, `"store"`, `"acc_store"`, `"lr"`, `"cond"`, `"break"`).
+Open `src/tools/ipu-isa/src/ipu_isa/instruction_spec.py` and find the `INSTRUCTION_SPEC` dictionary. Locate the slot type where your instruction belongs (e.g., `"mult"`, `"acc"`, `"load"`, `"store"`, `"acc_store"`, `"lr"`, `"cond"`, `"break"`).
 
 Add your instruction to the slot's dictionary (**instruction keys are upper-case mnemonics**, e.g. `MULT.EE`, `STR_ACC_REG`; operand `"name"` fields stay **lower case**):
 
@@ -58,6 +58,17 @@ INSTRUCTION_SPEC = {
     # ... other slot types ...
 }
 ```
+
+The spec is checked strictly when `ipu_isa` is imported (`validate_instruction_spec`):
+
+- An instruction has exactly the keys `operands`, `doc` and `execute_fn`, and an operand has `name`, `type` and optionally `read`. Any other key is an error, so a typo such as `"raed"` fails at import instead of being ignored. The allowed keys are listed in `src/tools/ipu-isa/src/ipu_isa/schema.py`; a new key goes there first.
+- Operand names are unique within the instruction and match `[a-z][a-z0-9_]*`.
+- `read` is allowed only on register operands (`LrIdx`, `CrIdx`, `LcrIdx`, `MultStageReg`, `LrdIdx`).
+- Each `doc.operands` line starts with its operand's name, in operand order.
+- Mnemonics are unique within the slot ignoring case, and each slot has exactly one `NOP`.
+- A pseudo-instruction has exactly `operands`, `expands_to` and `doc`, and its `expands_to` has exactly `slot`, `instruction` and `args`. Each argument is one of the pseudo's own operand names or a register valid for the target operand's type (`CR0` for an `LcrIdx`).
+
+A failure raises `SpecError` with the path of the entry, for example `mult.MY_NEW_INSTRUCTION.operands[src_a].read`.
 
 **Key fields:**
 

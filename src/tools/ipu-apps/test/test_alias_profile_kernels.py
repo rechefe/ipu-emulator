@@ -10,7 +10,7 @@ from ipu_apps.kernel_registry.cases import load_cases, run_case
 from ipu_apps.kernel_registry.testing import debug_only_warning, kernel_uses_debug_only_instructions
 from ipu_emu.alias_profile import AliasProfile
 from ipu_emu.alias_detectors import default_registry
-from ipu_common.isa_alias_spec import ISA_ALIAS_SPEC
+from ipu_emu.isa_alias_spec import ISA_ALIAS_SPEC
 
 load()
 # IPU_KERNEL selects one kernel (one Bazel target per kernel); unset, every kernel.

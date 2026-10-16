@@ -538,7 +538,7 @@ The repository contains the assembler, the emulator and the kernel library:
 src/tools/
   ipu-as-py/             assembler (.asm -> .bin)
   ipu-emu-py/            emulator (runs a .bin cycle by cycle)
-  ipu-common/            instruction set definition shared by both
+  ipu-isa/            instruction set definition shared by both
   ipu-apps/              kernel library
     src/ipu_apps/
       kernel_registry/   finds kernels, runs cases, command-line tools
@@ -1378,7 +1378,7 @@ To measure what an alias would save as a real instruction --- for example an
 
 \begin{enumerate}
 \item Add the instruction to
-  \texttt{src/tools/ipu-common/src/ipu\_common/instruction\_spec.py}. Its
+  \texttt{src/tools/ipu-isa/src/ipu\_isa/instruction\_spec.py}. Its
   opcode comes from its position in the file; never assign one.
 \item Add its handler, \texttt{execute\_<name>}, to
   \texttt{src/tools/ipu-emu-py/src/ipu\_emu/ipu.py}. Its keyword arguments must

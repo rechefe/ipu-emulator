@@ -1,0 +1,41 @@
+{
+ "default": {
+  "cycles": 363,
+  "output_sha256": "568eb6f360cc264eac92f97954da0a771ab01a7879804aee35569732ce9231ba",
+  "programs": [
+   {
+    "cr": [0, 1, 0, 12, 128, 1, 12, 4, 1, 0, 0, 0, 0, 0, 0, 128],
+    "lr": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "program_sha256": "053ff19599e6570c02b7d97df3e98412896c8635b3d71c2cca9645daa8c3c1d7",
+    "xmem_setup_sha256": "b80e2dc556fabb5e294645d6aaf86edd3b60561236563f36641e4360dd2e87dd"
+   }
+  ],
+  "state_sha256": "b032a4cccc38577a8c5dc1b54a9217fe095dba35b77bfacb6edc5fd9afbe1b31"
+ },
+ "single_pixel": {
+  "cycles": 96,
+  "output_sha256": "7d393ed3db2c020366b77c6c5bf5a922ed65d690e07b05334daaad311f35e9a1",
+  "programs": [
+   {
+    "cr": [0, 1, 0, 9, 128, 1, 9, 1, 1, 0, 0, 0, 0, 0, 0, 128],
+    "lr": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "program_sha256": "053ff19599e6570c02b7d97df3e98412896c8635b3d71c2cca9645daa8c3c1d7",
+    "xmem_setup_sha256": "522eafc261f7f2980057e8a5c4d9d30462369412d85a0d2fa7bf81d28e2b8a53"
+   }
+  ],
+  "state_sha256": "ebf60ba4f181bd914975dc4e8afb70a05232e8963c55afbdcf2face18f2e155f"
+ },
+ "tile_boundary": {
+  "cycles": 1060,
+  "output_sha256": "85f44d078f226c14b856480b31fb07323003549a50e1cb1dcd2bd8bfca2a7987",
+  "programs": [
+   {
+    "cr": [0, 1, 0, 44, 128, 2, 22, 3, 2, 0, 0, 0, 0, 0, 0, 128],
+    "lr": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "program_sha256": "053ff19599e6570c02b7d97df3e98412896c8635b3d71c2cca9645daa8c3c1d7",
+    "xmem_setup_sha256": "a7378ab6666386d6f0c2478e476fd89f772d369479228ac2c88e53219dcc93d0"
+   }
+  ],
+  "state_sha256": "ecb9c68c81ad06daf111e2464156ff2ea635bfd5cc8f017f8c4618580965557b"
+ }
+}

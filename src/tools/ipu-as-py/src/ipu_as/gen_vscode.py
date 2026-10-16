@@ -31,15 +31,15 @@ import re
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 
-from ipu_common.instruction_spec import (
+from ipu_isa.instruction_spec import (
     COMPOUND_LAYOUT_SLOT_ORDER,
     INSTRUCTION_SPEC,
     PSEUDO_INSTRUCTION_SPEC,
     SLOT_COUNT,
     SLOT_METADATA,
 )
-from ipu_common.registers import REGISTER_DEFINITIONS, create_assembler_reg_enums
-from ipu_common.types import RegKind
+from ipu_isa.registers import REGISTER_DEFINITIONS, create_assembler_reg_enums
+from ipu_isa.types import RegKind
 
 from ipu_as.diagnostics import check
 from ipu_as.gen_docs import OPERAND_TYPE_DETAILS

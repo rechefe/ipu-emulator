@@ -1,0 +1,54 @@
+{
+ "default": {
+  "cycles": 408,
+  "output_sha256": "418a79d63bb4afb04e6e4efb12d0a81c9edd0f079931b5f48ee92049c7464200",
+  "programs": [
+   {
+    "cr": [0, 1, 0, 8, 2, 4, 1, 235670024, 2, 64, 16, 7, 50462976, 117835012, 100925952, 128],
+    "lr": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "program_sha256": "ddecaad08764501ea31ab297f499ea3f07571ba7c0c2f5eaa7911ef5d8fb0e64",
+    "xmem_setup_sha256": "65900ec09ebd35e8608b442164f9aff081c12599bcd1c07761a608b2fa00014c"
+   }
+  ],
+  "state_sha256": "9ccdd15ff5a35d7e8909cd8d0177b8449de32fdd3819ed7cc5b22ab6fd2e89c0"
+ },
+ "identity": {
+  "cycles": 98,
+  "output_sha256": "78fd415997f31377ba5143c43354e331794d2a65a79da01d6163a2d0d3e804a6",
+  "programs": [
+   {
+    "cr": [0, 1, 0, 2, 2, 2, 2, 117835012, 1, 128, 8, 15, 50462976, 117835012, 50462976, 128],
+    "lr": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "program_sha256": "ddecaad08764501ea31ab297f499ea3f07571ba7c0c2f5eaa7911ef5d8fb0e64",
+    "xmem_setup_sha256": "82794fb564c05e88765ccc71130e76b3bc9d4de1a8c5b097fa241a6f655171c3"
+   }
+  ],
+  "state_sha256": "ec3cb9f29ae798664572ed0212140201d5491baba07b7b07c1305c155da92121"
+ },
+ "superpoint": {
+  "cycles": 4981,
+  "output_sha256": "27344bfdcc921807649136dc303c1cd218e9951c31e07140b0fc2a70362a0e13",
+  "programs": [
+   {
+    "cr": [0, 1, 0, 64, 1, 8, 1, 942680096, 8, 16, 64, 1, 50462976, 117835012, 403703808, 128],
+    "lr": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "program_sha256": "ddecaad08764501ea31ab297f499ea3f07571ba7c0c2f5eaa7911ef5d8fb0e64",
+    "xmem_setup_sha256": "054e1da71206c8b5ce5513df0af00b6c768abefa96f86a3023c37a1cfa9b128f"
+   }
+  ],
+  "state_sha256": "4bbe171adcf8f07eb3309d554cec5900566409cb3fca0fa5fbc5d726709e2321"
+ },
+ "tile_boundary": {
+  "cycles": 3728,
+  "output_sha256": "071dd47ace32899a82b3f8b56d88ae520b5c6fc073e294f1621f4f9a94f5c697",
+  "programs": [
+   {
+    "cr": [0, 1, 0, 64, 4, 16, 2, 471340048, 4, 32, 32, 3, 50462976, 117835012, 201851904, 128],
+    "lr": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "program_sha256": "ddecaad08764501ea31ab297f499ea3f07571ba7c0c2f5eaa7911ef5d8fb0e64",
+    "xmem_setup_sha256": "ccbf8b164509146299e8491d6bd38389d210aa7f44a87cd3aec16a01581ce70e"
+   }
+  ],
+  "state_sha256": "bd877a2df0669eb6ffdcddd993e235f4e6c6aea12cc6fcd87af8022c9610a414"
+ }
+}

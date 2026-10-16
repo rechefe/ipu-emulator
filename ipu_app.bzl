@@ -89,8 +89,9 @@ def ipu_apps_from_kernels(kernels_root, deps, test_deps = []):
     kernel package under kernels_root registers its run/test label without
     editing the calling BUILD file. Each kernel has its own package; any .bin
     fixtures alongside the kernel (e.g. fully_connected's test_data_format/)
-    are pulled in as data automatically, as are its family siblings' .asm
-    files: a multi-stage kernel may run a sibling kernel's program as a stage.
+    are pulled in as data automatically, as are its baseline.json and its
+    family siblings' .asm files: a multi-stage kernel may run a sibling
+    kernel's program as a stage.
     """
     for asm in _kernel_asms(kernels_root):
         kernel_package = _kernel_package(asm)
@@ -100,8 +101,9 @@ def ipu_apps_from_kernels(kernels_root, deps, test_deps = []):
             kernel_package = kernel_package,
             deps = deps,
             test_deps = test_deps,
+            # baseline.json: the per-case records case_tests compares with (E02-07).
             data = native.glob(
-                [family + "/**/*.asm", kernel_package + "/**/*.bin"],
+                [family + "/**/*.asm", kernel_package + "/**/*.bin", kernel_package + "/baseline.json"],
                 exclude = [asm],
                 allow_empty = True,
             ),

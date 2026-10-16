@@ -3,7 +3,7 @@
 Retained for existing Python callers. Use ``bazel run --config=debug TARGET`` for the TUI.
 
 All register display/get/set commands are **auto-generated** from
-the single source of truth in ``ipu_common.registers`` — adding a new
+the single source of truth in ``ipu_isa.registers`` — adding a new
 register descriptor automatically creates the corresponding debug commands.
 
 Built on Python's ``cmd.Cmd`` for readline support, history, and ``?`` help.
@@ -42,9 +42,9 @@ try:
 except ImportError:  # pragma: no cover - unavailable on some platforms
     readline = None
 
-# Single source of truth — import register types/schema from ipu_common
-from ipu_common.types import RegDescriptor, RegDtype, RegKind
-from ipu_common.registers import create_regfile_schema
+# Single source of truth — import register types/schema from ipu_isa
+from ipu_isa.types import RegDescriptor, RegDtype, RegKind
+from ipu_isa.registers import create_regfile_schema
 
 from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE
 from ipu_emu.emulator import DebugAction
@@ -733,7 +733,7 @@ class DebugCLI(cmd.Cmd):
 
     Uses Python's ``cmd.Cmd`` for readline, history, and ``help_*`` support.
     Register group commands (``do_lr``, ``do_acc``, etc.) are auto-generated
-    from ``REGFILE_SCHEMA`` (sourced from ``ipu_common``).
+    from ``REGFILE_SCHEMA`` (sourced from ``ipu_isa``).
     """
 
     prompt = "debug >>> "
