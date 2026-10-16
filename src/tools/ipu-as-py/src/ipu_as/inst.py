@@ -3,11 +3,17 @@ from dataclasses import dataclass
 
 import lark
 
-import ipu_as.immediate as immediate
-import ipu_as.ipu_token as ipu_token
+# isort: off
+# Import order defines EnumToken subclass registration order, which fixes the
+# enum order in generated outputs (ipu_instr_pkg.sv, disassembly): opcodes
+# first, then registers, then immediates.
 import ipu_as.opcodes as opcodes
+import ipu_as.ipu_token as ipu_token
 import ipu_as.reg as reg
+import ipu_as.immediate as immediate
 import ipu_as.utils as utils
+
+# isort: on
 from ipu_isa.instruction_spec import (
     COMPOUND_LAYOUT_SLOT_ORDER,
     INSTRUCTION_SPEC,
