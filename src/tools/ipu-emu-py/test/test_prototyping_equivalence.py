@@ -224,22 +224,27 @@ def test_timing_probes_are_identical(name, mode):
     _lockstep(_probe_states(name, mode))
 
 
+#: Raising probes whose two modes are known to end in different states.
+_KNOWN_DIVERGENT = {"lr_subslot_exception"}
+
+
 def _run_until_raise(name: str):
     """Run a probe that raises in both modes; return each mode's exception and
     final state."""
-    states = _probe_states(name, timing_probes.Mode.NARROW)
+    (mode,) = timing_probes.PROBES[name].modes
+    states = _probe_states(name, mode)
     exceptions = []
     for state in states:
         engine = Ipu(state)
         with pytest.raises(timing_probes.RAISES[name]) as caught:
-            while not state.is_halted:
+            for _ in range(timing_probes.MAX_CYCLES):
                 engine.execute_vliw_cycle()
         exceptions.append(caught.value)
     return states, exceptions
 
 
 @_REQUIRES_PROTO_BUILD
-@pytest.mark.parametrize("name", ["lr_conflict_same_lr", "lr_conflict_lrd_overlap"])
+@pytest.mark.parametrize("name", sorted(set(timing_probes.RAISES) - _KNOWN_DIVERGENT))
 def test_raising_timing_probes_are_identical(name):
     states, exceptions = _run_until_raise(name)
     assert type(exceptions[0]) is type(exceptions[1])
@@ -248,7 +253,9 @@ def test_raising_timing_probes_are_identical(name):
 
 
 @_REQUIRES_PROTO_BUILD
-@pytest.mark.xfail(strict=True, reason="E04-07 closes the LR sub-slot divergence")
+@pytest.mark.xfail(
+    strict=True, raises=AssertionError, reason="E04-07 closes the LR sub-slot divergence"
+)
 def test_lr_subslot_exception_partial_state_matches():
     """When an LR sub-slot's operand read raises, faithful mode has written no
     LR; prototyping mode runs sub-slots one at a time and has already written
