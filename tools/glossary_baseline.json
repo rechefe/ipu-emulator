@@ -32,12 +32,6 @@
     "program counter": 1,
     "snapshot": 2
   },
-  "docs/content/release-log.md": {
-    "VLIW word": 1,
-    "compound instruction": 1,
-    "snapshot": 1,
-    "wide-vector debug mode": 2
-  },
   "docs/content/requirements/architecture.md": {
     "DRAM": 2,
     "VLIW word": 1

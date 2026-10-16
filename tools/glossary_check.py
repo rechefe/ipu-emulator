@@ -38,6 +38,12 @@ GENERATED_PAGES = frozenset(
     }
 )
 
+# Committed pages a workflow rewrites, not a person. .github/workflows/release-log.yml
+# rebuilds the release log from merged pull request titles and pushes it to
+# master without touching the baseline; the titles are historical records that
+# nobody can reword.
+MACHINE_WRITTEN_PAGES = frozenset({"docs/content/release-log.md"})
+
 # Avoided terms that are ordinary English words. A regex cannot tell the
 # discouraged sense from the ordinary one, so they are not counted. This list is
 # the only place to tune the check.
@@ -172,7 +178,11 @@ def doc_files(root: Path) -> list[str]:
     content = sorted(
         path.relative_to(root).as_posix() for path in (root / "docs/content").rglob("*.md")
     )
-    content = [path for path in content if path not in GENERATED_PAGES]
+    content = [
+        path
+        for path in content
+        if path not in GENERATED_PAGES and path not in MACHINE_WRITTEN_PAGES
+    ]
     return content + [name for name in ROOT_FILES if (root / name).is_file()]
 
 
