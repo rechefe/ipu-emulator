@@ -16,6 +16,10 @@ catalogue live in `ipu_emu`, and generators live in `ipu_gen`.
   forwarded rules (`contract_view`), and `KNOWN_DEVIATIONS`, the reads where the
   emulator differs from the contract today; each instruction declares its
   register reads and writes in `instruction_spec.py`
+- **Faults** (`faults.py`): the hardware faults F-1 to F-9 (`FaultId`, `FAULTS`:
+  priority, detector, modelled, enabled at reset), the `ArithmeticEvent` values,
+  and `reserved_encodings`, F-1's reserved opcodes and operand codes derived from
+  the ISA
 - **Errors** (`errors.py`): `IpuError`, the root of every IPU tooling error
 - **Register descriptors** (`RegDescriptor`): Metadata for all IPU registers
 - **Data types** (`RegDtype`): Register storage formats (uint8, int8, uint32, int32, uint128)
