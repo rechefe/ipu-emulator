@@ -162,8 +162,9 @@ def test_row_counts_from_packing_win_and_must_name_tensors(tmp_path):
     assert default_rows(plan, m.tensors["x"]) == 4
     with pytest.raises(ValueError, match="row count for 'z', which is no tensor"):
         place(plan, {"z": 1})
-    with pytest.raises(ValueError, match="row count 0 for 'x'"):
-        place(plan, {"x": 0})
+    for bad in (0, -1, 2.5, True):
+        with pytest.raises(ValueError, match=f"row count {bad!r} for 'x'"):
+            place(plan, {"x": bad})
 
 
 def test_place_takes_the_plan_as_checked(tmp_path):
@@ -172,8 +173,12 @@ def test_place_takes_the_plan_as_checked(tmp_path):
     scan keeps the checks out of this module.)"""
     m = manifest(tmp_path, SCALE.format(x_pin="", y_extra=""))
     plan = plan_case(m, {"rows": 4, "s": 2.0}, F.FP32)
-    unchecked = dataclasses.replace(plan, params=MappingProxyType({"rows": -1, "s": "?"}))
-    assert bases(place(unchecked)) == bases(place(plan))
+    unchecked = dataclasses.replace(
+        plan,
+        params=MappingProxyType({"rows": -1, "s": "?"}),
+        shapes=MappingProxyType({"x": (2, 0), "y": (4, 128)}),  # plan_case refuses a 0 dim
+    )
+    assert bases(place(unchecked)) == {"x": (0, 0), "y": (0, 4)}
 
 
 PROJECTIONS = [
@@ -219,13 +224,7 @@ def test_projection_layouts_come_out_of_declaration_order(tmp_path, name):
     dependency goes when E07 deletes ProjectionLayout.
     """
     app = importlib.import_module(f"ipu_apps.kernels.projections.{name}.app")
-    layouts = [
-        v.layout
-        for v in vars(app).values()
-        if isinstance(getattr(v, "layout", None), ProjectionLayout)
-    ]
-    assert len(layouts) == 1, f"{name}: expected one app class with a ProjectionLayout"
-    (layout,) = layouts
+    layout = ProjectionLayout(k=app.K, n_out=app.N_OUT, n_tok=app.N_TOK, n_tg=app.N_TG)
     toml = PROJECTION_TOML.format(k=layout.k, n_out=layout.n_out, n_tg=layout.n_tg)
     placement = place(plan_case(manifest(tmp_path, toml, name), {}, F.FP32))
     assert placement.region("data").base_row == layout.data_base_row

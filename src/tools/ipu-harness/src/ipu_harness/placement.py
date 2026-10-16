@@ -147,8 +147,10 @@ def _row_counts(plan: CasePlan, row_counts: Mapping[str, int] | None) -> dict[st
     for name, count in counts.items():
         if name not in plan.manifest.tensors:
             raise ValueError(f"row count for {name!r}, which is no tensor")
-        if count < 1:
-            raise ValueError(f"row count {count} for {name!r}; a region takes at least 1 row")
+        if not isinstance(count, int) or isinstance(count, bool) or count < 1:
+            raise ValueError(
+                f"row count {count!r} for {name!r}; a region takes a whole number of rows, at least 1"
+            )
     return {
         name: counts.get(name, default_rows(plan, tensor))
         for name, tensor in plan.manifest.tensors.items()
