@@ -1,0 +1,486 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="660" height="1936" viewBox="0 0 660 1936">
+  <rect x="0" y="0" width="660" height="1936" fill="white"/>
+  <text x="330" y="38" text-anchor="middle" font-size="14" font-weight="bold" font-family="Arial">IPU VLIW — Union Field Layout (per slot, MSB → LSB)</text>
+  <text x="330" y="68" text-anchor="middle" font-size="11" font-weight="bold" font-family="Arial">COND  (23 bits = 3b opcode + 10+5+5b fields)</text>
+  <rect x="24" y="76" width="79" height="64" fill="#D3D3D3" stroke="#333" stroke-width="1" rx="3"/>
+  <text x="63" y="104" text-anchor="middle" font-size="9" font-weight="bold" font-family="Arial">opcode</text>
+  <text x="63" y="118" text-anchor="middle" font-size="8" font-family="Arial">3b</text>
+  <rect x="103" y="76" width="266" height="64" fill="#98D8C8" stroke="#333" stroke-width="1" rx="3"/>
+  <text x="236" y="104" text-anchor="middle" font-size="9" font-weight="bold" font-family="Arial">Label</text>
+  <text x="236" y="118" text-anchor="middle" font-size="8" font-family="Arial">10b</text>
+  <rect x="369" y="76" width="133" height="64" fill="#98D8C8" stroke="#333" stroke-width="1" rx="3"/>
+  <text x="435" y="104" text-anchor="middle" font-size="9" font-weight="bold" font-family="Arial">LcrIdx</text>
+  <text x="435" y="118" text-anchor="middle" font-size="8" font-family="Arial">5b</text>
+  <rect x="502" y="76" width="134" height="64" fill="#98D8C8" stroke="#333" stroke-width="1" rx="3"/>
+  <text x="569" y="104" text-anchor="middle" font-size="9" font-weight="bold" font-family="Arial">LcrIdx</text>
+  <text x="569" y="118" text-anchor="middle" font-size="8" font-family="Arial">5b</text>
+  <text x="28" y="156" font-size="8.5" font-family="monospace" fill="#222">BEQ</text>
+  <rect x="134" y="147" width="218" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
+  <text x="243" y="156" text-anchor="middle" font-size="7.5" font-family="Arial">label</text>
+  <rect x="352" y="147" width="109" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
+  <text x="406" y="156" text-anchor="middle" font-size="7.5" font-family="Arial">reg1</text>
+  <rect x="461" y="147" width="175" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
+  <text x="548" y="156" text-anchor="middle" font-size="7.5" font-family="Arial">reg2</text>
+  <text x="28" y="170" font-size="8.5" font-family="monospace" fill="#222">BGE</text>
+  <rect x="134" y="161" width="218" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
+  <text x="243" y="170" text-anchor="middle" font-size="7.5" font-family="Arial">label</text>
+  <rect x="352" y="161" width="109" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
+  <text x="406" y="170" text-anchor="middle" font-size="7.5" font-family="Arial">reg1</text>
+  <rect x="461" y="161" width="175" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
+  <text x="548" y="170" text-anchor="middle" font-size="7.5" font-family="Arial">reg2</text>
+  <text x="28" y="184" font-size="8.5" font-family="monospace" fill="#222">BKPT</text>
+  <rect x="134" y="175" width="218" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="243" y="184" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="352" y="175" width="109" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="406" y="184" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="461" y="175" width="175" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="548" y="184" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <text x="28" y="198" font-size="8.5" font-family="monospace" fill="#222">BLT</text>
+  <rect x="134" y="189" width="218" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
+  <text x="243" y="198" text-anchor="middle" font-size="7.5" font-family="Arial">label</text>
+  <rect x="352" y="189" width="109" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
+  <text x="406" y="198" text-anchor="middle" font-size="7.5" font-family="Arial">reg1</text>
+  <rect x="461" y="189" width="175" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
+  <text x="548" y="198" text-anchor="middle" font-size="7.5" font-family="Arial">reg2</text>
+  <text x="28" y="212" font-size="8.5" font-family="monospace" fill="#222">BNE</text>
+  <rect x="134" y="203" width="218" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
+  <text x="243" y="212" text-anchor="middle" font-size="7.5" font-family="Arial">label</text>
+  <rect x="352" y="203" width="109" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
+  <text x="406" y="212" text-anchor="middle" font-size="7.5" font-family="Arial">reg1</text>
+  <rect x="461" y="203" width="175" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
+  <text x="548" y="212" text-anchor="middle" font-size="7.5" font-family="Arial">reg2</text>
+  <text x="28" y="226" font-size="8.5" font-family="monospace" fill="#222">BR</text>
+  <rect x="134" y="217" width="218" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="243" y="226" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="352" y="217" width="109" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
+  <text x="406" y="226" text-anchor="middle" font-size="7.5" font-family="Arial">reg</text>
+  <rect x="461" y="217" width="175" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="548" y="226" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <text x="28" y="240" font-size="8.5" font-family="monospace" fill="#222">NOP</text>
+  <rect x="134" y="231" width="218" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="243" y="240" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="352" y="231" width="109" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="406" y="240" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="461" y="231" width="175" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="548" y="240" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <text x="330" y="298" text-anchor="middle" font-size="11" font-weight="bold" font-family="Arial">LR (×3)  (20 bits = 4b opcode + 8+4+4b fields)</text>
+  <rect x="24" y="306" width="122" height="64" fill="#D3D3D3" stroke="#333" stroke-width="1" rx="3"/>
+  <text x="85" y="334" text-anchor="middle" font-size="9" font-weight="bold" font-family="Arial">opcode</text>
+  <text x="85" y="348" text-anchor="middle" font-size="8" font-family="Arial">4b</text>
+  <rect x="146" y="306" width="244" height="64" fill="#FFA07A" stroke="#333" stroke-width="1" rx="3"/>
+  <text x="268" y="334" text-anchor="middle" font-size="9" font-weight="bold" font-family="Arial">AddbiImmediate</text>
+  <text x="268" y="348" text-anchor="middle" font-size="8" font-family="Arial">8b</text>
+  <rect x="390" y="306" width="122" height="64" fill="#FFA07A" stroke="#333" stroke-width="1" rx="3"/>
+  <text x="451" y="334" text-anchor="middle" font-size="9" font-weight="bold" font-family="Arial">LrIdx</text>
+  <text x="451" y="348" text-anchor="middle" font-size="8" font-family="Arial">4b</text>
+  <rect x="512" y="306" width="124" height="64" fill="#FFA07A" stroke="#333" stroke-width="1" rx="3"/>
+  <text x="574" y="334" text-anchor="middle" font-size="9" font-weight="bold" font-family="Arial">LrIdx</text>
+  <text x="574" y="348" text-anchor="middle" font-size="8" font-family="Arial">4b</text>
+  <text x="28" y="386" font-size="8.5" font-family="monospace" fill="#222">ADD</text>
+  <rect x="134" y="377" width="200" height="12" fill="#FFA07A55" stroke="#bbb" stroke-width="0.5"/>
+  <text x="234" y="386" text-anchor="middle" font-size="7.5" font-family="Arial">src_b:LcrIdx</text>
+  <rect x="334" y="377" width="100" height="12" fill="#FFA07A55" stroke="#bbb" stroke-width="0.5"/>
+  <text x="384" y="386" text-anchor="middle" font-size="7.5" font-family="Arial">dest</text>
+  <rect x="434" y="377" width="202" height="12" fill="#FFA07A55" stroke="#bbb" stroke-width="0.5"/>
+  <text x="535" y="386" text-anchor="middle" font-size="7.5" font-family="Arial">src_a</text>
+  <text x="28" y="400" font-size="8.5" font-family="monospace" fill="#222">ADDB</text>
+  <rect x="134" y="391" width="200" height="12" fill="#FFA07A55" stroke="#bbb" stroke-width="0.5"/>
+  <text x="234" y="400" text-anchor="middle" font-size="7.5" font-family="Arial">src_b:LcrIdx</text>
+  <rect x="334" y="391" width="100" height="12" fill="#FFA07A55" stroke="#bbb" stroke-width="0.5"/>
+  <text x="384" y="400" text-anchor="middle" font-size="7.5" font-family="Arial">dest:LrdIdx</text>
+  <rect x="434" y="391" width="202" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="535" y="400" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <text x="28" y="414" font-size="8.5" font-family="monospace" fill="#222">ADDBI</text>
+  <rect x="134" y="405" width="200" height="12" fill="#FFA07A55" stroke="#bbb" stroke-width="0.5"/>
+  <text x="234" y="414" text-anchor="middle" font-size="7.5" font-family="Arial">imm</text>
+  <rect x="334" y="405" width="100" height="12" fill="#FFA07A55" stroke="#bbb" stroke-width="0.5"/>
+  <text x="384" y="414" text-anchor="middle" font-size="7.5" font-family="Arial">dest:LrdIdx</text>
+  <rect x="434" y="405" width="202" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="535" y="414" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <text x="28" y="428" font-size="8.5" font-family="monospace" fill="#222">DEC</text>
+  <rect x="134" y="419" width="200" height="12" fill="#FFA07A55" stroke="#bbb" stroke-width="0.5"/>
+  <text x="234" y="428" text-anchor="middle" font-size="7.5" font-family="Arial">imm:LrIncDecImmediate</text>
+  <rect x="334" y="419" width="100" height="12" fill="#FFA07A55" stroke="#bbb" stroke-width="0.5"/>
+  <text x="384" y="428" text-anchor="middle" font-size="7.5" font-family="Arial">dest</text>
+  <rect x="434" y="419" width="202" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="535" y="428" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <text x="28" y="442" font-size="8.5" font-family="monospace" fill="#222">INC</text>
+  <rect x="134" y="433" width="200" height="12" fill="#FFA07A55" stroke="#bbb" stroke-width="0.5"/>
+  <text x="234" y="442" text-anchor="middle" font-size="7.5" font-family="Arial">imm:LrIncDecImmediate</text>
+  <rect x="334" y="433" width="100" height="12" fill="#FFA07A55" stroke="#bbb" stroke-width="0.5"/>
+  <text x="384" y="442" text-anchor="middle" font-size="7.5" font-family="Arial">dest</text>
+  <rect x="434" y="433" width="202" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="535" y="442" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <text x="28" y="456" font-size="8.5" font-family="monospace" fill="#222">INCR_MOD_POW2</text>
+  <rect x="134" y="447" width="200" height="12" fill="#FFA07A55" stroke="#bbb" stroke-width="0.5"/>
+  <text x="234" y="456" text-anchor="middle" font-size="7.5" font-family="Arial">step:LcrIdx</text>
+  <rect x="334" y="447" width="100" height="12" fill="#FFA07A55" stroke="#bbb" stroke-width="0.5"/>
+  <text x="384" y="456" text-anchor="middle" font-size="7.5" font-family="Arial">dest</text>
+  <rect x="434" y="447" width="202" height="12" fill="#FFA07A55" stroke="#bbb" stroke-width="0.5"/>
+  <text x="535" y="456" text-anchor="middle" font-size="7.5" font-family="Arial">k:LrModPow2KImmediate</text>
+  <text x="28" y="470" font-size="8.5" font-family="monospace" fill="#222">NOP</text>
+  <rect x="134" y="461" width="200" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="234" y="470" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="334" y="461" width="100" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="384" y="470" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="434" y="461" width="202" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="535" y="470" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <text x="28" y="484" font-size="8.5" font-family="monospace" fill="#222">SET</text>
+  <rect x="134" y="475" width="200" height="12" fill="#FFA07A55" stroke="#bbb" stroke-width="0.5"/>
+  <text x="234" y="484" text-anchor="middle" font-size="7.5" font-family="Arial">src:CrIdx</text>
+  <rect x="334" y="475" width="100" height="12" fill="#FFA07A55" stroke="#bbb" stroke-width="0.5"/>
+  <text x="384" y="484" text-anchor="middle" font-size="7.5" font-family="Arial">reg</text>
+  <rect x="434" y="475" width="202" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="535" y="484" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <text x="28" y="498" font-size="8.5" font-family="monospace" fill="#222">SUB</text>
+  <rect x="134" y="489" width="200" height="12" fill="#FFA07A55" stroke="#bbb" stroke-width="0.5"/>
+  <text x="234" y="498" text-anchor="middle" font-size="7.5" font-family="Arial">src_b:LcrIdx</text>
+  <rect x="334" y="489" width="100" height="12" fill="#FFA07A55" stroke="#bbb" stroke-width="0.5"/>
+  <text x="384" y="498" text-anchor="middle" font-size="7.5" font-family="Arial">dest</text>
+  <rect x="434" y="489" width="202" height="12" fill="#FFA07A55" stroke="#bbb" stroke-width="0.5"/>
+  <text x="535" y="498" text-anchor="middle" font-size="7.5" font-family="Arial">src_a</text>
+  <text x="330" y="556" text-anchor="middle" font-size="11" font-weight="bold" font-family="Arial">LOAD  (14 bits = 2b opcode + 4+4+4b fields)</text>
+  <rect x="24" y="564" width="87" height="64" fill="#D3D3D3" stroke="#333" stroke-width="1" rx="3"/>
+  <text x="67" y="592" text-anchor="middle" font-size="9" font-weight="bold" font-family="Arial">opcode</text>
+  <text x="67" y="606" text-anchor="middle" font-size="8" font-family="Arial">2b</text>
+  <rect x="111" y="564" width="174" height="64" fill="#FF6B6B" stroke="#333" stroke-width="1" rx="3"/>
+  <text x="198" y="592" text-anchor="middle" font-size="9" font-weight="bold" font-family="Arial">CrIdx</text>
+  <text x="198" y="606" text-anchor="middle" font-size="8" font-family="Arial">4b</text>
+  <rect x="285" y="564" width="174" height="64" fill="#FF6B6B" stroke="#333" stroke-width="1" rx="3"/>
+  <text x="372" y="592" text-anchor="middle" font-size="9" font-weight="bold" font-family="Arial">LrIdx</text>
+  <text x="372" y="606" text-anchor="middle" font-size="8" font-family="Arial">4b</text>
+  <rect x="459" y="564" width="177" height="64" fill="#FF6B6B" stroke="#333" stroke-width="1" rx="3"/>
+  <text x="547" y="592" text-anchor="middle" font-size="9" font-weight="bold" font-family="Arial">LrIdx</text>
+  <text x="547" y="606" text-anchor="middle" font-size="8" font-family="Arial">4b</text>
+  <text x="28" y="644" font-size="8.5" font-family="monospace" fill="#222">LDR_CYCLIC_MULT_REG</text>
+  <rect x="134" y="635" width="142" height="12" fill="#FF6B6B55" stroke="#bbb" stroke-width="0.5"/>
+  <text x="205" y="644" text-anchor="middle" font-size="7.5" font-family="Arial">base</text>
+  <rect x="276" y="635" width="142" height="12" fill="#FF6B6B55" stroke="#bbb" stroke-width="0.5"/>
+  <text x="347" y="644" text-anchor="middle" font-size="7.5" font-family="Arial">offset</text>
+  <rect x="418" y="635" width="218" height="12" fill="#FF6B6B55" stroke="#bbb" stroke-width="0.5"/>
+  <text x="527" y="644" text-anchor="middle" font-size="7.5" font-family="Arial">index</text>
+  <text x="28" y="658" font-size="8.5" font-family="monospace" fill="#222">LDR_MULT_MASK_REG</text>
+  <rect x="134" y="649" width="142" height="12" fill="#FF6B6B55" stroke="#bbb" stroke-width="0.5"/>
+  <text x="205" y="658" text-anchor="middle" font-size="7.5" font-family="Arial">base</text>
+  <rect x="276" y="649" width="142" height="12" fill="#FF6B6B55" stroke="#bbb" stroke-width="0.5"/>
+  <text x="347" y="658" text-anchor="middle" font-size="7.5" font-family="Arial">offset</text>
+  <rect x="418" y="649" width="218" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="527" y="658" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <text x="28" y="672" font-size="8.5" font-family="monospace" fill="#222">LDR_MULT_REG</text>
+  <rect x="134" y="663" width="142" height="12" fill="#FF6B6B55" stroke="#bbb" stroke-width="0.5"/>
+  <text x="205" y="672" text-anchor="middle" font-size="7.5" font-family="Arial">base</text>
+  <rect x="276" y="663" width="142" height="12" fill="#FF6B6B55" stroke="#bbb" stroke-width="0.5"/>
+  <text x="347" y="672" text-anchor="middle" font-size="7.5" font-family="Arial">offset</text>
+  <rect x="418" y="663" width="218" height="12" fill="#FF6B6B55" stroke="#bbb" stroke-width="0.5"/>
+  <text x="527" y="672" text-anchor="middle" font-size="7.5" font-family="Arial">dest:MultStageReg</text>
+  <text x="28" y="686" font-size="8.5" font-family="monospace" fill="#222">NOP</text>
+  <rect x="134" y="677" width="142" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="205" y="686" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="276" y="677" width="142" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="347" y="686" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="418" y="677" width="218" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="527" y="686" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <text x="330" y="744" text-anchor="middle" font-size="11" font-weight="bold" font-family="Arial">MULT  (23 bits = 3b opcode + 5+4+4+4+3b fields)</text>
+  <rect x="24" y="752" width="79" height="64" fill="#D3D3D3" stroke="#333" stroke-width="1" rx="3"/>
+  <text x="63" y="780" text-anchor="middle" font-size="9" font-weight="bold" font-family="Arial">opcode</text>
+  <text x="63" y="794" text-anchor="middle" font-size="8" font-family="Arial">3b</text>
+  <rect x="103" y="752" width="133" height="64" fill="#4ECDC4" stroke="#333" stroke-width="1" rx="3"/>
+  <text x="169" y="780" text-anchor="middle" font-size="9" font-weight="bold" font-family="Arial">LcrIdx</text>
+  <text x="169" y="794" text-anchor="middle" font-size="8" font-family="Arial">5b</text>
+  <rect x="236" y="752" width="106" height="64" fill="#4ECDC4" stroke="#333" stroke-width="1" rx="3"/>
+  <text x="289" y="780" text-anchor="middle" font-size="9" font-weight="bold" font-family="Arial">DstructureCrIdx</text>
+  <text x="289" y="794" text-anchor="middle" font-size="8" font-family="Arial">4b</text>
+  <rect x="342" y="752" width="106" height="64" fill="#4ECDC4" stroke="#333" stroke-width="1" rx="3"/>
+  <text x="395" y="780" text-anchor="middle" font-size="9" font-weight="bold" font-family="Arial">LrIdx</text>
+  <text x="395" y="794" text-anchor="middle" font-size="8" font-family="Arial">4b</text>
+  <rect x="448" y="752" width="106" height="64" fill="#4ECDC4" stroke="#333" stroke-width="1" rx="3"/>
+  <text x="501" y="780" text-anchor="middle" font-size="9" font-weight="bold" font-family="Arial">LrIdx</text>
+  <text x="501" y="794" text-anchor="middle" font-size="8" font-family="Arial">4b</text>
+  <rect x="554" y="752" width="82" height="64" fill="#4ECDC4" stroke="#333" stroke-width="1" rx="3"/>
+  <text x="595" y="780" text-anchor="middle" font-size="9" font-weight="bold" font-family="Arial">MultMaskOffsetImmediate</text>
+  <text x="595" y="794" text-anchor="middle" font-size="8" font-family="Arial">3b</text>
+  <text x="28" y="832" font-size="8.5" font-family="monospace" fill="#222">MULT.EE</text>
+  <rect x="134" y="823" width="109" height="12" fill="#4ECDC455" stroke="#bbb" stroke-width="0.5"/>
+  <text x="188" y="832" text-anchor="middle" font-size="7.5" font-family="Arial">cr_idx:CrIdx</text>
+  <rect x="243" y="823" width="86" height="12" fill="#4ECDC455" stroke="#bbb" stroke-width="0.5"/>
+  <text x="286" y="832" text-anchor="middle" font-size="7.5" font-family="Arial">dstructure_cr_idx</text>
+  <rect x="329" y="823" width="86" height="12" fill="#4ECDC455" stroke="#bbb" stroke-width="0.5"/>
+  <text x="372" y="832" text-anchor="middle" font-size="7.5" font-family="Arial">ra_idx</text>
+  <rect x="415" y="823" width="86" height="12" fill="#4ECDC455" stroke="#bbb" stroke-width="0.5"/>
+  <text x="458" y="832" text-anchor="middle" font-size="7.5" font-family="Arial">mask_shift</text>
+  <rect x="501" y="823" width="135" height="12" fill="#4ECDC455" stroke="#bbb" stroke-width="0.5"/>
+  <text x="568" y="832" text-anchor="middle" font-size="7.5" font-family="Arial">mask_offset</text>
+  <text x="28" y="846" font-size="8.5" font-family="monospace" fill="#222">MULT.RC.VE</text>
+  <rect x="134" y="837" width="109" height="12" fill="#4ECDC455" stroke="#bbb" stroke-width="0.5"/>
+  <text x="188" y="846" text-anchor="middle" font-size="7.5" font-family="Arial">src</text>
+  <rect x="243" y="837" width="86" height="12" fill="#4ECDC455" stroke="#bbb" stroke-width="0.5"/>
+  <text x="286" y="846" text-anchor="middle" font-size="7.5" font-family="Arial">cr_idx</text>
+  <rect x="329" y="837" width="86" height="12" fill="#4ECDC455" stroke="#bbb" stroke-width="0.5"/>
+  <text x="372" y="846" text-anchor="middle" font-size="7.5" font-family="Arial">rc_idx</text>
+  <rect x="415" y="837" width="86" height="12" fill="#4ECDC455" stroke="#bbb" stroke-width="0.5"/>
+  <text x="458" y="846" text-anchor="middle" font-size="7.5" font-family="Arial">mask_shift</text>
+  <rect x="501" y="837" width="135" height="12" fill="#4ECDC455" stroke="#bbb" stroke-width="0.5"/>
+  <text x="568" y="846" text-anchor="middle" font-size="7.5" font-family="Arial">mask_offset</text>
+  <text x="28" y="860" font-size="8.5" font-family="monospace" fill="#222">MULT.RC.VS</text>
+  <rect x="134" y="851" width="109" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="188" y="860" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="243" y="851" width="86" height="12" fill="#4ECDC455" stroke="#bbb" stroke-width="0.5"/>
+  <text x="286" y="860" text-anchor="middle" font-size="7.5" font-family="Arial">cr_idx</text>
+  <rect x="329" y="851" width="86" height="12" fill="#4ECDC455" stroke="#bbb" stroke-width="0.5"/>
+  <text x="372" y="860" text-anchor="middle" font-size="7.5" font-family="Arial">rc_idx</text>
+  <rect x="415" y="851" width="86" height="12" fill="#4ECDC455" stroke="#bbb" stroke-width="0.5"/>
+  <text x="458" y="860" text-anchor="middle" font-size="7.5" font-family="Arial">mask_shift</text>
+  <rect x="501" y="851" width="135" height="12" fill="#4ECDC455" stroke="#bbb" stroke-width="0.5"/>
+  <text x="568" y="860" text-anchor="middle" font-size="7.5" font-family="Arial">mask_offset</text>
+  <text x="28" y="874" font-size="8.5" font-family="monospace" fill="#222">MULT.RC.VV</text>
+  <rect x="134" y="865" width="109" height="12" fill="#4ECDC455" stroke="#bbb" stroke-width="0.5"/>
+  <text x="188" y="874" text-anchor="middle" font-size="7.5" font-family="Arial">ra:MultStageReg</text>
+  <rect x="243" y="865" width="86" height="12" fill="#4ECDC455" stroke="#bbb" stroke-width="0.5"/>
+  <text x="286" y="874" text-anchor="middle" font-size="7.5" font-family="Arial">cr_idx</text>
+  <rect x="329" y="865" width="86" height="12" fill="#4ECDC455" stroke="#bbb" stroke-width="0.5"/>
+  <text x="372" y="874" text-anchor="middle" font-size="7.5" font-family="Arial">rc_idx</text>
+  <rect x="415" y="865" width="86" height="12" fill="#4ECDC455" stroke="#bbb" stroke-width="0.5"/>
+  <text x="458" y="874" text-anchor="middle" font-size="7.5" font-family="Arial">mask_shift</text>
+  <rect x="501" y="865" width="135" height="12" fill="#4ECDC455" stroke="#bbb" stroke-width="0.5"/>
+  <text x="568" y="874" text-anchor="middle" font-size="7.5" font-family="Arial">mask_offset</text>
+  <text x="28" y="888" font-size="8.5" font-family="monospace" fill="#222">MULT.VE</text>
+  <rect x="134" y="879" width="109" height="12" fill="#4ECDC455" stroke="#bbb" stroke-width="0.5"/>
+  <text x="188" y="888" text-anchor="middle" font-size="7.5" font-family="Arial">cr_idx:CrIdx</text>
+  <rect x="243" y="879" width="86" height="12" fill="#4ECDC455" stroke="#bbb" stroke-width="0.5"/>
+  <text x="286" y="888" text-anchor="middle" font-size="7.5" font-family="Arial">dstructure_cr_idx</text>
+  <rect x="329" y="879" width="86" height="12" fill="#4ECDC455" stroke="#bbb" stroke-width="0.5"/>
+  <text x="372" y="888" text-anchor="middle" font-size="7.5" font-family="Arial">ra_idx</text>
+  <rect x="415" y="879" width="86" height="12" fill="#4ECDC455" stroke="#bbb" stroke-width="0.5"/>
+  <text x="458" y="888" text-anchor="middle" font-size="7.5" font-family="Arial">mask_shift</text>
+  <rect x="501" y="879" width="135" height="12" fill="#4ECDC455" stroke="#bbb" stroke-width="0.5"/>
+  <text x="568" y="888" text-anchor="middle" font-size="7.5" font-family="Arial">mask_offset</text>
+  <text x="28" y="902" font-size="8.5" font-family="monospace" fill="#222">NOP</text>
+  <rect x="134" y="893" width="109" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="188" y="902" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="243" y="893" width="86" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="286" y="902" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="329" y="893" width="86" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="372" y="902" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="415" y="893" width="86" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="458" y="902" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="501" y="893" width="135" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="568" y="902" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <text x="330" y="960" text-anchor="middle" font-size="11" font-weight="bold" font-family="Arial">ACC  (17 bits = 4b opcode + 4+3+4+2b fields)</text>
+  <rect x="24" y="968" width="144" height="64" fill="#D3D3D3" stroke="#333" stroke-width="1" rx="3"/>
+  <text x="96" y="996" text-anchor="middle" font-size="9" font-weight="bold" font-family="Arial">opcode</text>
+  <text x="96" y="1010" text-anchor="middle" font-size="8" font-family="Arial">4b</text>
+  <rect x="168" y="968" width="144" height="64" fill="#45B7D1" stroke="#333" stroke-width="1" rx="3"/>
+  <text x="240" y="996" text-anchor="middle" font-size="9" font-weight="bold" font-family="Arial">DstructureCrIdx</text>
+  <text x="240" y="1010" text-anchor="middle" font-size="8" font-family="Arial">4b</text>
+  <rect x="312" y="968" width="108" height="64" fill="#45B7D1" stroke="#333" stroke-width="1" rx="3"/>
+  <text x="366" y="996" text-anchor="middle" font-size="9" font-weight="bold" font-family="Arial">LrdIdx</text>
+  <text x="366" y="1010" text-anchor="middle" font-size="8" font-family="Arial">3b</text>
+  <rect x="420" y="968" width="144" height="64" fill="#45B7D1" stroke="#333" stroke-width="1" rx="3"/>
+  <text x="492" y="996" text-anchor="middle" font-size="9" font-weight="bold" font-family="Arial">LrIdx</text>
+  <text x="492" y="1010" text-anchor="middle" font-size="8" font-family="Arial">4b</text>
+  <rect x="564" y="968" width="72" height="64" fill="#45B7D1" stroke="#333" stroke-width="1" rx="3"/>
+  <text x="600" y="996" text-anchor="middle" font-size="9" font-weight="bold" font-family="Arial">VerticalStride</text>
+  <text x="600" y="1010" text-anchor="middle" font-size="8" font-family="Arial">2b</text>
+  <text x="28" y="1048" font-size="8.5" font-family="monospace" fill="#222">ACC.ADD</text>
+  <rect x="134" y="1039" width="118" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="193" y="1048" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="252" y="1039" width="88" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="296" y="1048" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="340" y="1039" width="118" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="399" y="1048" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="458" y="1039" width="178" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="547" y="1048" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <text x="28" y="1062" font-size="8.5" font-family="monospace" fill="#222">ACC.ADD.FIRST</text>
+  <rect x="134" y="1053" width="118" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="193" y="1062" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="252" y="1053" width="88" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="296" y="1062" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="340" y="1053" width="118" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="399" y="1062" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="458" y="1053" width="178" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="547" y="1062" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <text x="28" y="1076" font-size="8.5" font-family="monospace" fill="#222">ACC.MAX</text>
+  <rect x="134" y="1067" width="118" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="193" y="1076" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="252" y="1067" width="88" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="296" y="1076" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="340" y="1067" width="118" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="399" y="1076" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="458" y="1067" width="178" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="547" y="1076" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <text x="28" y="1090" font-size="8.5" font-family="monospace" fill="#222">ACC.MAX.FIRST</text>
+  <rect x="134" y="1081" width="118" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="193" y="1090" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="252" y="1081" width="88" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="296" y="1090" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="340" y="1081" width="118" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="399" y="1090" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="458" y="1081" width="178" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="547" y="1090" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <text x="28" y="1104" font-size="8.5" font-family="monospace" fill="#222">ACC.RESHAPE</text>
+  <rect x="134" y="1095" width="118" height="12" fill="#45B7D155" stroke="#bbb" stroke-width="0.5"/>
+  <text x="193" y="1104" text-anchor="middle" font-size="7.5" font-family="Arial">reshape_mask:LrOrReshapeMaskImmediate</text>
+  <rect x="252" y="1095" width="88" height="12" fill="#45B7D155" stroke="#bbb" stroke-width="0.5"/>
+  <text x="296" y="1104" text-anchor="middle" font-size="7.5" font-family="Arial">source</text>
+  <rect x="340" y="1095" width="118" height="12" fill="#45B7D155" stroke="#bbb" stroke-width="0.5"/>
+  <text x="399" y="1104" text-anchor="middle" font-size="7.5" font-family="Arial">dest:LrdIdx</text>
+  <rect x="458" y="1095" width="178" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="547" y="1104" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <text x="28" y="1118" font-size="8.5" font-family="monospace" fill="#222">ACC.STRIDE</text>
+  <rect x="134" y="1109" width="118" height="12" fill="#45B7D155" stroke="#bbb" stroke-width="0.5"/>
+  <text x="193" y="1118" text-anchor="middle" font-size="7.5" font-family="Arial">elements_in_row:ElementsInRow</text>
+  <rect x="252" y="1109" width="88" height="12" fill="#45B7D155" stroke="#bbb" stroke-width="0.5"/>
+  <text x="296" y="1118" text-anchor="middle" font-size="7.5" font-family="Arial">horizontal_stride:HorizontalStride</text>
+  <rect x="340" y="1109" width="118" height="12" fill="#45B7D155" stroke="#bbb" stroke-width="0.5"/>
+  <text x="399" y="1118" text-anchor="middle" font-size="7.5" font-family="Arial">offset</text>
+  <rect x="458" y="1109" width="178" height="12" fill="#45B7D155" stroke="#bbb" stroke-width="0.5"/>
+  <text x="547" y="1118" text-anchor="middle" font-size="7.5" font-family="Arial">vertical_stride</text>
+  <text x="28" y="1132" font-size="8.5" font-family="monospace" fill="#222">ACC.SUB</text>
+  <rect x="134" y="1123" width="118" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="193" y="1132" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="252" y="1123" width="88" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="296" y="1132" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="340" y="1123" width="118" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="399" y="1132" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="458" y="1123" width="178" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="547" y="1132" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <text x="28" y="1146" font-size="8.5" font-family="monospace" fill="#222">ACC.SUB.FIRST</text>
+  <rect x="134" y="1137" width="118" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="193" y="1146" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="252" y="1137" width="88" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="296" y="1146" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="340" y="1137" width="118" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="399" y="1146" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="458" y="1137" width="178" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="547" y="1146" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <text x="28" y="1160" font-size="8.5" font-family="monospace" fill="#222">AGG.MAX</text>
+  <rect x="134" y="1151" width="118" height="12" fill="#45B7D155" stroke="#bbb" stroke-width="0.5"/>
+  <text x="193" y="1160" text-anchor="middle" font-size="7.5" font-family="Arial">cr_idx</text>
+  <rect x="252" y="1151" width="88" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="296" y="1160" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="340" y="1151" width="118" height="12" fill="#45B7D155" stroke="#bbb" stroke-width="0.5"/>
+  <text x="399" y="1160" text-anchor="middle" font-size="7.5" font-family="Arial">dest_slot</text>
+  <rect x="458" y="1151" width="178" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="547" y="1160" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <text x="28" y="1174" font-size="8.5" font-family="monospace" fill="#222">AGG.MAX.FIRST</text>
+  <rect x="134" y="1165" width="118" height="12" fill="#45B7D155" stroke="#bbb" stroke-width="0.5"/>
+  <text x="193" y="1174" text-anchor="middle" font-size="7.5" font-family="Arial">cr_idx</text>
+  <rect x="252" y="1165" width="88" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="296" y="1174" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="340" y="1165" width="118" height="12" fill="#45B7D155" stroke="#bbb" stroke-width="0.5"/>
+  <text x="399" y="1174" text-anchor="middle" font-size="7.5" font-family="Arial">dest_slot</text>
+  <rect x="458" y="1165" width="178" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="547" y="1174" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <text x="28" y="1188" font-size="8.5" font-family="monospace" fill="#222">AGG.SUM</text>
+  <rect x="134" y="1179" width="118" height="12" fill="#45B7D155" stroke="#bbb" stroke-width="0.5"/>
+  <text x="193" y="1188" text-anchor="middle" font-size="7.5" font-family="Arial">cr_idx</text>
+  <rect x="252" y="1179" width="88" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="296" y="1188" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="340" y="1179" width="118" height="12" fill="#45B7D155" stroke="#bbb" stroke-width="0.5"/>
+  <text x="399" y="1188" text-anchor="middle" font-size="7.5" font-family="Arial">dest_slot</text>
+  <rect x="458" y="1179" width="178" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="547" y="1188" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <text x="28" y="1202" font-size="8.5" font-family="monospace" fill="#222">AGG.SUM.FIRST</text>
+  <rect x="134" y="1193" width="118" height="12" fill="#45B7D155" stroke="#bbb" stroke-width="0.5"/>
+  <text x="193" y="1202" text-anchor="middle" font-size="7.5" font-family="Arial">cr_idx</text>
+  <rect x="252" y="1193" width="88" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="296" y="1202" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="340" y="1193" width="118" height="12" fill="#45B7D155" stroke="#bbb" stroke-width="0.5"/>
+  <text x="399" y="1202" text-anchor="middle" font-size="7.5" font-family="Arial">dest_slot</text>
+  <rect x="458" y="1193" width="178" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="547" y="1202" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <text x="28" y="1216" font-size="8.5" font-family="monospace" fill="#222">NOP</text>
+  <rect x="134" y="1207" width="118" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="193" y="1216" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="252" y="1207" width="88" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="296" y="1216" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="340" y="1207" width="118" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="399" y="1216" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="458" y="1207" width="178" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="547" y="1216" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <text x="330" y="1274" text-anchor="middle" font-size="11" font-weight="bold" font-family="Arial">AAQ  (9 bits = 1b opcode + 4+4b fields)</text>
+  <rect x="24" y="1282" width="68" height="64" fill="#D3D3D3" stroke="#333" stroke-width="1" rx="3"/>
+  <text x="58" y="1310" text-anchor="middle" font-size="9" font-weight="bold" font-family="Arial">opcode</text>
+  <text x="58" y="1324" text-anchor="middle" font-size="8" font-family="Arial">1b</text>
+  <rect x="92" y="1282" width="272" height="64" fill="#9B59B6" stroke="#333" stroke-width="1" rx="3"/>
+  <text x="228" y="1310" text-anchor="middle" font-size="9" font-weight="bold" font-family="Arial">ActivationFn</text>
+  <text x="228" y="1324" text-anchor="middle" font-size="8" font-family="Arial">4b</text>
+  <rect x="364" y="1282" width="272" height="64" fill="#9B59B6" stroke="#333" stroke-width="1" rx="3"/>
+  <text x="500" y="1310" text-anchor="middle" font-size="9" font-weight="bold" font-family="Arial">DstructureCrIdx</text>
+  <text x="500" y="1324" text-anchor="middle" font-size="8" font-family="Arial">4b</text>
+  <text x="28" y="1362" font-size="8.5" font-family="monospace" fill="#222">ACTIVATE.QUANTIZE</text>
+  <rect x="134" y="1353" width="223" height="12" fill="#9B59B655" stroke="#bbb" stroke-width="0.5"/>
+  <text x="245" y="1362" text-anchor="middle" font-size="7.5" font-family="Arial">activation_fn</text>
+  <rect x="357" y="1353" width="279" height="12" fill="#9B59B655" stroke="#bbb" stroke-width="0.5"/>
+  <text x="496" y="1362" text-anchor="middle" font-size="7.5" font-family="Arial">cr_idx</text>
+  <text x="28" y="1376" font-size="8.5" font-family="monospace" fill="#222">NOP</text>
+  <rect x="134" y="1367" width="223" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="245" y="1376" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="357" y="1367" width="279" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="496" y="1376" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <text x="330" y="1434" text-anchor="middle" font-size="11" font-weight="bold" font-family="Arial">STORE  (9 bits = 1b opcode + 4+4b fields)</text>
+  <rect x="24" y="1442" width="68" height="64" fill="#D3D3D3" stroke="#333" stroke-width="1" rx="3"/>
+  <text x="58" y="1470" text-anchor="middle" font-size="9" font-weight="bold" font-family="Arial">opcode</text>
+  <text x="58" y="1484" text-anchor="middle" font-size="8" font-family="Arial">1b</text>
+  <rect x="92" y="1442" width="272" height="64" fill="#E74C3C" stroke="#333" stroke-width="1" rx="3"/>
+  <text x="228" y="1470" text-anchor="middle" font-size="9" font-weight="bold" font-family="Arial">CrIdx</text>
+  <text x="228" y="1484" text-anchor="middle" font-size="8" font-family="Arial">4b</text>
+  <rect x="364" y="1442" width="272" height="64" fill="#E74C3C" stroke="#333" stroke-width="1" rx="3"/>
+  <text x="500" y="1470" text-anchor="middle" font-size="9" font-weight="bold" font-family="Arial">LrIdx</text>
+  <text x="500" y="1484" text-anchor="middle" font-size="8" font-family="Arial">4b</text>
+  <text x="28" y="1522" font-size="8.5" font-family="monospace" fill="#222">NOP</text>
+  <rect x="134" y="1513" width="223" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="245" y="1522" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="357" y="1513" width="279" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="496" y="1522" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <text x="28" y="1536" font-size="8.5" font-family="monospace" fill="#222">STR_POST_AAQ_REG</text>
+  <rect x="134" y="1527" width="223" height="12" fill="#E74C3C55" stroke="#bbb" stroke-width="0.5"/>
+  <text x="245" y="1536" text-anchor="middle" font-size="7.5" font-family="Arial">base</text>
+  <rect x="357" y="1527" width="279" height="12" fill="#E74C3C55" stroke="#bbb" stroke-width="0.5"/>
+  <text x="496" y="1536" text-anchor="middle" font-size="7.5" font-family="Arial">offset</text>
+  <text x="330" y="1594" text-anchor="middle" font-size="11" font-weight="bold" font-family="Arial">ACC_STORE  (9 bits = 1b opcode + 4+4b fields)</text>
+  <rect x="24" y="1602" width="68" height="64" fill="#D3D3D3" stroke="#333" stroke-width="1" rx="3"/>
+  <text x="58" y="1630" text-anchor="middle" font-size="9" font-weight="bold" font-family="Arial">opcode</text>
+  <text x="58" y="1644" text-anchor="middle" font-size="8" font-family="Arial">1b</text>
+  <rect x="92" y="1602" width="272" height="64" fill="#C0392B" stroke="#333" stroke-width="1" rx="3"/>
+  <text x="228" y="1630" text-anchor="middle" font-size="9" font-weight="bold" font-family="Arial">CrIdx</text>
+  <text x="228" y="1644" text-anchor="middle" font-size="8" font-family="Arial">4b</text>
+  <rect x="364" y="1602" width="272" height="64" fill="#C0392B" stroke="#333" stroke-width="1" rx="3"/>
+  <text x="500" y="1630" text-anchor="middle" font-size="9" font-weight="bold" font-family="Arial">LrIdx</text>
+  <text x="500" y="1644" text-anchor="middle" font-size="8" font-family="Arial">4b</text>
+  <text x="28" y="1682" font-size="8.5" font-family="monospace" fill="#222">NOP</text>
+  <rect x="134" y="1673" width="223" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="245" y="1682" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="357" y="1673" width="279" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="496" y="1682" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <text x="28" y="1696" font-size="8.5" font-family="monospace" fill="#222">STR_ACC_REG</text>
+  <rect x="134" y="1687" width="223" height="12" fill="#C0392B55" stroke="#bbb" stroke-width="0.5"/>
+  <text x="245" y="1696" text-anchor="middle" font-size="7.5" font-family="Arial">base</text>
+  <rect x="357" y="1687" width="279" height="12" fill="#C0392B55" stroke="#bbb" stroke-width="0.5"/>
+  <text x="496" y="1696" text-anchor="middle" font-size="7.5" font-family="Arial">offset</text>
+  <text x="330" y="1754" text-anchor="middle" font-size="11" font-weight="bold" font-family="Arial">BREAK  (22 bits = 2b opcode + 16+4b fields)</text>
+  <rect x="24" y="1762" width="55" height="64" fill="#D3D3D3" stroke="#333" stroke-width="1" rx="3"/>
+  <text x="51" y="1790" text-anchor="middle" font-size="9" font-weight="bold" font-family="Arial">opcode</text>
+  <text x="51" y="1804" text-anchor="middle" font-size="8" font-family="Arial">2b</text>
+  <rect x="79" y="1762" width="445" height="64" fill="#FFD93D" stroke="#333" stroke-width="1" rx="3"/>
+  <text x="301" y="1790" text-anchor="middle" font-size="9" font-weight="bold" font-family="Arial">BreakImmediate</text>
+  <text x="301" y="1804" text-anchor="middle" font-size="8" font-family="Arial">16b</text>
+  <rect x="524" y="1762" width="112" height="64" fill="#FFD93D" stroke="#333" stroke-width="1" rx="3"/>
+  <text x="580" y="1790" text-anchor="middle" font-size="9" font-weight="bold" font-family="Arial">LrIdx</text>
+  <text x="580" y="1804" text-anchor="middle" font-size="8" font-family="Arial">4b</text>
+  <text x="28" y="1842" font-size="8.5" font-family="monospace" fill="#222">BREAK</text>
+  <rect x="134" y="1833" width="365" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="316" y="1842" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="499" y="1833" width="137" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="567" y="1842" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <text x="28" y="1856" font-size="8.5" font-family="monospace" fill="#222">BREAK.IFEQ</text>
+  <rect x="134" y="1847" width="365" height="12" fill="#FFD93D55" stroke="#bbb" stroke-width="0.5"/>
+  <text x="316" y="1856" text-anchor="middle" font-size="7.5" font-family="Arial">value</text>
+  <rect x="499" y="1847" width="137" height="12" fill="#FFD93D55" stroke="#bbb" stroke-width="0.5"/>
+  <text x="567" y="1856" text-anchor="middle" font-size="7.5" font-family="Arial">reg</text>
+  <text x="28" y="1870" font-size="8.5" font-family="monospace" fill="#222">NOP</text>
+  <rect x="134" y="1861" width="365" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="316" y="1870" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <rect x="499" y="1861" width="137" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="567" y="1870" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+</svg>

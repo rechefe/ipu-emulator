@@ -49,6 +49,16 @@ py_binary(
     deps = ["//src/tools/ipu-as-py:ipu_as_lib", "//src/tools/ipu-emu-py:ipu_emu_lib"],
 )
 
+# The wrapper as a library, so the generated-artifact snapshot test
+# (//src/tools/ipu-as-py:test_generated_artifacts) renders isa.json with the
+# same emulator data the binary passes.
+py_library(
+    name = "gen_vscode_lib",
+    srcs = ["gen_vscode_wrapper.py"],
+    imports = ["."],
+    deps = ["//src/tools/ipu-as-py:ipu_as_lib", "//src/tools/ipu-emu-py:ipu_emu_lib"],
+)
+
 # Ground truth for the agreement test: the parser's own tokenization of the
 # corpus, including each token's structural role.
 py_binary(
