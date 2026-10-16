@@ -3,8 +3,8 @@
 Encodings match ``docs/content/specs/stage-aaq-str.md`` section 5.0. Assembly
 uses ``ACTIVATE … <name>`` where ``<name>`` is one of the strings in
 ``ACTIVATION_FN_NAMES`` (same order as ids **0**–**12**). The activation math
-and its emulator-only defaults (α, window bounds) live in
-:mod:`ipu_emu.activations`.
+and its emulator-only defaults (α, window bounds) live in the emulator
+package.
 """
 
 from __future__ import annotations

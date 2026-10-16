@@ -37,7 +37,6 @@ from ipu_isa.instruction_spec import (
     SLOT_BINARY_LAYOUT,
     SLOT_UNIONS,
     SLOT_COUNT,
-    create_emulator_constants,
     get_opcode_for_instruction,
 )
 from ipu_isa.acc_stride_enums import (
@@ -64,7 +63,6 @@ from ipu_emu.activations import apply_activation
 # Constants — derived from the single source of truth in ipu-isa
 # ---------------------------------------------------------------------------
 
-_emu_constants = create_emulator_constants()
 _reg_sizes = get_register_sizes()
 
 # MultStageRegField: index → (register_name, element_index)

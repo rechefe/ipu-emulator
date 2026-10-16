@@ -5,7 +5,6 @@ used by both assembler and emulator:
 
 - `REGISTER_DEFINITIONS`: Master dict with all register metadata
 - `create_regfile_schema()`: Generate RegDescriptor list for emulator
-- `create_assembler_reg_classes()`: Generate EnumToken subclasses for assembler
 
 The key insight: Define each register once, let the factory functions
 adapt it for each package. This eliminates duplication and ensures
@@ -295,62 +294,6 @@ def create_assembler_reg_enums() -> dict[str, list[str]]:
         enums["LcrRegField"] = enums["LrRegField"] + enums["CrRegField"]
     
     return enums
-
-
-# ===========================================================================
-# Dynamic EnumToken Class Generation
-# ===========================================================================
-
-def create_assembler_reg_classes(ipu_token_module=None):
-    """Dynamically generate EnumToken subclasses from master definitions.
-    
-    This function creates Python classes that inherit from EnumToken, each with
-    their own enum_array() implementation based on the master register definitions.
-    
-    Args:
-        ipu_token_module: The ipu_as.ipu_token module (imported for base class).
-                         If None, attempts to import it automatically.
-    
-    Returns:
-        dict[str, type]: Mapping of class names to generated EnumToken subclasses.
-        
-    Example:
-        classes = create_assembler_reg_classes()
-        lr_field_class = classes["LrRegField"]
-        # Now use lr_field_class as a normal class
-    
-    When used in ipu-as-py:
-        classes = create_assembler_reg_classes(ipu_as.ipu_token)
-        # Add to ipu_as namespace:
-        for class_name, cls in classes.items():
-            globals()[class_name] = cls
-    """
-    if ipu_token_module is None:
-        try:
-            from ipu_as import ipu_token as ipu_token_module
-        except ImportError:
-            raise ImportError(
-                "Please pass ipu_token module or import ipu_as first"
-            )
-    
-    enums = create_assembler_reg_enums()
-    generated_classes = {}
-    
-    for class_name, enum_values in enums.items():
-        # Create a new EnumToken subclass dynamically
-        def make_class(name, values):
-            class GeneratedRegField(ipu_token_module.EnumToken):
-                @classmethod
-                def enum_array(cls):
-                    return values
-            
-            GeneratedRegField.__name__ = name
-            GeneratedRegField.__qualname__ = name
-            return GeneratedRegField
-        
-        generated_classes[class_name] = make_class(class_name, enum_values)
-    
-    return generated_classes
 
 
 # ===========================================================================

@@ -10,18 +10,19 @@ KEY DESIGN PRINCIPLES:
 1. NO EXPLICIT OPCODES: Opcode is derived from instruction position within slot.
    Position 0 → opcode 0, position 1 → opcode 1, etc.
    
-2. NO CODE GENERATION: All opcode classes and constants are created at runtime
-   using factory functions (create_assembler_opcodes, create_emulator_constants).
+2. DATA ONLY: this package imports nothing from the assembler or the
+   emulator. Each consumer derives what it needs from the dicts here (the
+   assembler builds its own opcode token classes).
    
 3. STRUCTURED OPERANDS: Each operand has a meaningful name and type.
-   Types are string names resolved to actual classes by ipu_as.
+   Types are string names the assembler resolves to its token classes.
    Operands with a ``"read"`` field are source registers whose values
    are auto-resolved by the emulator dispatcher before calling handlers.
    The value controls which register file is used:
      - ``"snapshot"`` → read from the VLIW snapshot (pre-write state)
      - ``"live"``     → read from the current (post-write) register file
 
-OPERAND TYPE NAMES (resolved by ipu_as into actual token classes):
+OPERAND TYPE NAMES (resolved by the assembler into its token classes):
   - "MultStageReg": R0 or R1 (MultStageRegField); 2-bit encoding in the VLIW word
   - "LrIdx": LR0–LR15 (LrRegField)  
   - "CrIdx": CR0–CR15 (CrRegField)
@@ -74,7 +75,7 @@ Structure:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Tuple, Any, Type
+from typing import Dict, List, Tuple, Any
 
 
 # ===========================================================================
@@ -94,8 +95,6 @@ __all__ = [
     "canonical_instruction_name",
     "get_instruction",
     "get_instruction_by_opcode",
-    "create_assembler_opcodes",
-    "create_emulator_constants",
     "get_operand_names_and_types",
     "is_hardware_slot",
     "validate_instruction_spec",
@@ -1304,108 +1303,6 @@ def get_operand_names_and_types(slot_type: str, instruction_name: str) -> List[T
     """
     inst_def = get_instruction(slot_type, instruction_name)
     return [(op["name"], op["type"]) for op in inst_def["operands"]]
-
-
-# ===========================================================================
-# Runtime Opcode Factories (no code generation!)
-# ===========================================================================
-
-def create_assembler_opcodes() -> Dict[str, Type]:
-    """Create Opcode classes at runtime (no code generation needed).
-    
-    Returns a dict of dynamically created Opcode subclasses:
-        {
-            "LoadInstOpcode": <class>,
-            "LrInstOpcode": <class>,
-            ...
-        }
-    
-    Each class has an enum_array() classmethod returning instruction names
-    in order (position = opcode).
-    """
-    import ipu_as.ipu_token as ipu_token
-    
-    class Opcode(ipu_token.EnumToken):
-        """Base class for all opcode types."""
-        @classmethod
-        def find_opcode_class(cls, opcode_token) -> Type["Opcode"]:
-            tv = opcode_token.value.lower()
-            for subclass in cls.__subclasses__():
-                if any(tv == name.lower() for name in subclass.enum_array()):
-                    return subclass
-            raise ValueError(
-                f"Opcode '{opcode_token.value}' not found in any Opcode subclass"
-            )
-    
-    slot_to_class_name = {
-        "load": "LoadInstOpcode",
-        "store": "StoreInstOpcode",
-        "acc_store": "AccStoreInstOpcode",
-        "lr": "LrInstOpcode",
-        "mult": "MultInstOpcode",
-        "acc": "AccInstOpcode",
-        "aaq": "AaqInstOpcode",
-        "cond": "CondInstOpcode",
-        "break": "BreakInstOpcode",
-    }
-    
-    result = {}
-    for slot_type, class_name in slot_to_class_name.items():
-        instructions = INSTRUCTION_SPEC[slot_type]
-        enum_array = list(instructions.keys())
-        
-        # Create class dynamically
-        opcode_class = type(
-            class_name,
-            (Opcode,),
-            {
-                "enum_array": classmethod(lambda cls, ea=enum_array: ea),
-            }
-        )
-        result[class_name] = opcode_class
-    
-    return result
-
-
-def create_emulator_constants() -> Dict[str, int]:
-    """Create emulator opcode constants at runtime.
-    
-    Returns a dict of constants like:
-        {
-            "XMEM_OP_STR_ACC_REG": 0,
-            "XMEM_OP_LDR_MULT_REG": 1,
-            ...
-            "NUM_XMEM_OP": 5,
-            ...
-        }
-    """
-    slot_to_prefix = {
-        "load": "LOAD_OP",
-        "store": "STORE_OP",
-        "acc_store": "ACC_STORE_OP",
-        "lr": "LR_OP",
-        "mult": "MULT_OP",
-        "acc": "ACC_OP",
-        "aaq": "AAQ_OP",
-        "cond": "COND_OP",
-        "break": "BREAK_OP",
-    }
-    
-    constants = {}
-    
-    for slot_type, instructions in INSTRUCTION_SPEC.items():
-        prefix = slot_to_prefix[slot_type]
-        
-        # Add opcode constants for each instruction
-        for opcode_idx, instruction_name in enumerate(instructions.keys()):
-            # Convert name to constant style: "STR_ACC_REG" → "STR_ACC_REG"
-            const_name = instruction_name.upper().replace(".", "_").replace("-", "_")
-            constants[f"{prefix}_{const_name}"] = opcode_idx
-        
-        # Add count constant
-        constants[f"NUM_{prefix}"] = len(instructions)
-    
-    return constants
 
 
 # ===========================================================================

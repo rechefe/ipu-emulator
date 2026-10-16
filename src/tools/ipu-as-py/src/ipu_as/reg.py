@@ -9,19 +9,43 @@ New code uses: from ipu_isa.registers import create_regfile_schema, etc.
 """
 
 import ipu_as.ipu_token as ipu_token
-from ipu_isa.registers import create_assembler_reg_classes, create_assembler_reg_enums
+from ipu_isa.registers import REGISTER_DEFINITIONS, create_assembler_reg_enums
+
+
+def create_assembler_reg_classes() -> dict[str, type]:
+    """Generate an ``EnumToken`` subclass per register encoding class, from
+    ``ipu_isa.registers.create_assembler_reg_enums()``."""
+    enums = create_assembler_reg_enums()
+    generated_classes = {}
+
+    for class_name, enum_values in enums.items():
+        # Create a new EnumToken subclass dynamically
+        def make_class(name, values):
+            class GeneratedRegField(ipu_token.EnumToken):
+                @classmethod
+                def enum_array(cls):
+                    return values
+
+            GeneratedRegField.__name__ = name
+            GeneratedRegField.__qualname__ = name
+            return GeneratedRegField
+
+        generated_classes[class_name] = make_class(class_name, enum_values)
+
+    return generated_classes
+
 
 # ============================================================================
 # Backward Compatibility: Re-export all original names
 # ============================================================================
 
 # Constants (for reference/reference)
-IPU_MULT_STAGE_REG_R_NUM = 2
-IPU_LR_REG_NUM = 16
-IPU_CR_REG_NUM = 16
+IPU_MULT_STAGE_REG_R_NUM = REGISTER_DEFINITIONS["r"]["count"]
+IPU_LR_REG_NUM = REGISTER_DEFINITIONS["lr"]["count"]
+IPU_CR_REG_NUM = REGISTER_DEFINITIONS["cr"]["count"]
 
 # Generate the EnumToken classes from ipu-isa
-_generated_classes = create_assembler_reg_classes(ipu_token)
+_generated_classes = create_assembler_reg_classes()
 
 _MultStageBase = _generated_classes.pop("MultStageRegField")
 

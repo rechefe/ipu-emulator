@@ -1,7 +1,7 @@
 """Opcode definitions for IPU assembler — auto-generated from instruction_spec.
 
-This module re-exports Opcode classes created from ipu_isa.instruction_spec
-at runtime. No manual opcode definitions here — everything flows from the
+This module builds the Opcode token classes from ipu_isa.instruction_spec
+at import. No manual opcode definitions here — everything flows from the
 single source of truth (INSTRUCTION_SPEC).
 
 All opcode values are AUTOMATICALLY DERIVED from instruction position.
@@ -9,8 +9,68 @@ When you add or reorder instructions in INSTRUCTION_SPEC, opcodes update
 automatically without touching this file.
 """
 
+from typing import Dict, Type
+
 import lark
-from ipu_isa.instruction_spec import create_assembler_opcodes
+
+import ipu_as.ipu_token as ipu_token
+from ipu_isa.instruction_spec import INSTRUCTION_SPEC
+
+
+def create_assembler_opcodes() -> Dict[str, Type]:
+    """Create Opcode classes at runtime (no code generation needed).
+
+    Returns a dict of dynamically created Opcode subclasses:
+        {
+            "LoadInstOpcode": <class>,
+            "LrInstOpcode": <class>,
+            ...
+        }
+
+    Each class has an enum_array() classmethod returning instruction names
+    in order (position = opcode).
+    """
+    class Opcode(ipu_token.EnumToken):
+        """Base class for all opcode types."""
+        @classmethod
+        def find_opcode_class(cls, opcode_token) -> Type["Opcode"]:
+            tv = opcode_token.value.lower()
+            for subclass in cls.__subclasses__():
+                if any(tv == name.lower() for name in subclass.enum_array()):
+                    return subclass
+            raise ValueError(
+                f"Opcode '{opcode_token.value}' not found in any Opcode subclass"
+            )
+
+    slot_to_class_name = {
+        "load": "LoadInstOpcode",
+        "store": "StoreInstOpcode",
+        "acc_store": "AccStoreInstOpcode",
+        "lr": "LrInstOpcode",
+        "mult": "MultInstOpcode",
+        "acc": "AccInstOpcode",
+        "aaq": "AaqInstOpcode",
+        "cond": "CondInstOpcode",
+        "break": "BreakInstOpcode",
+    }
+
+    result = {}
+    for slot_type, class_name in slot_to_class_name.items():
+        instructions = INSTRUCTION_SPEC[slot_type]
+        enum_array = list(instructions.keys())
+
+        # Create class dynamically
+        opcode_class = type(
+            class_name,
+            (Opcode,),
+            {
+                "enum_array": classmethod(lambda cls, ea=enum_array: ea),
+            }
+        )
+        result[class_name] = opcode_class
+
+    return result
+
 
 # Create Opcode classes at runtime from instruction_spec
 _opcode_classes = create_assembler_opcodes()
