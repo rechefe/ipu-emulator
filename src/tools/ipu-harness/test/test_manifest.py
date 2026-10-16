@@ -188,7 +188,7 @@ RULES = [
     (
         '[inputs.x]\nshape = ["rows", 128]',
         '[inputs.x]\nshape = ["rows", 128]\nrange = [-500, 500]',
-        "is outside int8's [-128.0, 127.0]",
+        "[inputs.x] range [-500, 500] is outside int8's [-128, 127]",
         "range = [-500, 500]",
     ),
     ('s    = "CR5"', 's    = "CR1"', "[abi] binds CR1, a hardwired constant", 's    = "CR1"'),

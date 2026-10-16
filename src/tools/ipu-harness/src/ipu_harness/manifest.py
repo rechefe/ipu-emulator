@@ -414,9 +414,11 @@ def _fits(
     lo, hi = bounds
     least, most = limits(fmt)
     if lo < least or hi > most:
-        raise r.fail(path, f"{where(path)} [{lo}, {hi}] is outside {fmt.value}'s [{least}, {most}]")
+        raise r.fail(
+            path, f"{where(path)} [{lo:g}, {hi:g}] is outside {fmt.value}'s [{least:g}, {most:g}]"
+        )
     if not FORMATS[fmt].is_float and math.ceil(lo) > math.floor(hi):
-        raise r.fail(path, f"{where(path)} [{lo}, {hi}] holds no {fmt.value} value")
+        raise r.fail(path, f"{where(path)} [{lo:g}, {hi:g}] holds no {fmt.value} value")
 
 
 def _range(

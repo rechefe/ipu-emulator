@@ -24,7 +24,14 @@ _FP32_MAX = float(np.finfo(np.float32).max)
 
 @functools.cache
 def limits(fmt: ElementFormat) -> tuple[float, float]:
-    """The lowest and highest finite value ``fmt`` holds."""
+    """The lowest and highest finite value ``fmt`` holds.
+
+    Args:
+        fmt: The element format.
+
+    Returns:
+        ``(lowest, highest)``.
+    """
     info = FORMATS[fmt]
     if not info.is_float:
         half = 1 << (info.element_bits - 1)
@@ -37,8 +44,15 @@ def limits(fmt: ElementFormat) -> tuple[float, float]:
 
 
 def held(values: Array, fmt: ElementFormat) -> Array:
-    """Finite ``values`` as ``fmt`` holds them: rounded to nearest, saturated to its
-    range; an integer array for an integer format, else float32."""
+    """``values`` as ``fmt`` holds them: rounded to nearest, saturated to its range.
+
+    Args:
+        values: Finite numbers (the caller checks; NaN has no defined result).
+        fmt: The element format.
+
+    Returns:
+        An int8 or int32 array for an integer format, else float32.
+    """
     info = FORMATS[fmt]
     lo, hi = limits(fmt)
     clipped = np.clip(np.asarray(values, dtype=np.float64), lo, hi)

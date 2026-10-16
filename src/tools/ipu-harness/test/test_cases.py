@@ -242,6 +242,7 @@ def test_an_override_names_an_input_and_its_errors_name_the_file(tmp_path):
         (np.zeros((3, 128)), r"x has shape \(3, 128\), the case's is \(2, 128\)"),
         (np.array([["a"] * 128] * 2), "dtype <U1, not an int or float one"),
         (np.zeros((2, 128), dtype=np.complex64), "dtype complex64, not an int or float one"),
+        (np.zeros((2, 128), dtype=bool), "dtype bool, not an int or float one"),
         (np.full((2, 128), np.inf), "not finite"),
     ],
 )
