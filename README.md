@@ -35,6 +35,24 @@ bazel test //...
 bazel build //src/tools/ipu-apps:assemble_fully_connected
 ```
 
+Development
+-----------
+
+### Python dependencies
+
+Bazel installs third-party Python packages from `requirements_lock.txt`, a
+committed, hash-pinned lock compiled from the four `pyproject.toml` files and
+`tools/requirements-tools.in` (repository tools such as `uv`). Fetching never
+resolves versions, so every checkout of a commit tests against the same
+packages. After adding or changing a dependency, refresh the lock and commit
+it; no host tool is needed:
+
+```bash
+bazel run //tools:update_requirements_lock                              # keep current versions
+bazel run //tools:update_requirements_lock -- --upgrade-package numpy   # move one package
+bazel run //tools:update_requirements_lock -- --upgrade                 # move everything
+```
+
 Notes
 -----
 - The assembler and emulator share a single source of truth via `ipu_common` (instruction spec, register schema).

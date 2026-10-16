@@ -40,15 +40,15 @@ cd ipu-emulator
 
 3. **Install the pinned toolchain** (Linux). `tools/bootstrap.sh` installs
 bazelisk as `bazel`, at the pinned version and checksum that CI, the dev
-container and the Claude Code hook also use; `--with-uv` adds `uv`, which the
-Python dependency fetch needs. It installs into `/usr/local/bin`, or into
+container and the Claude Code hook also use. Python packages come from the
+committed `requirements_lock.txt`, so no other host tool is needed. It installs into `/usr/local/bin`, or into
 `~/.local/bin` when that is not writable (set `BIN_DIR` to choose).
 
 ```bash
-./tools/bootstrap.sh --with-uv
+./tools/bootstrap.sh
 
 # macOS
-brew install bazelisk uv
+brew install bazelisk
 ```
 
 ### Windows (WSL2)

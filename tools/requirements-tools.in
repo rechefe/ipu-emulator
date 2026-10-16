@@ -1,0 +1,4 @@
+# Repository tools that belong to no package. Compiled into
+# requirements_lock.txt together with the four pyproject.toml files; refresh
+# with `bazel run //tools:update_requirements_lock`.
+uv

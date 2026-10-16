@@ -54,11 +54,9 @@ jobs:
         with:
           node-version: '20'
 
-      # The same pinned bazelisk (and uv) as every other workflow. uv is needed
-      # before any bazel invocation while tools/python_deps.bzl shells out to
-      # `uv pip compile` at fetch time.
+      # The same pinned bazelisk as every other workflow.
       - name: Install toolchain
-        run: ./tools/bootstrap.sh --with-uv
+        run: ./tools/bootstrap.sh
 
       # Writes syntaxes/ipu-asm.tmLanguage.json and language-configuration.json
       # into the extension directory. Both are build outputs, not committed.

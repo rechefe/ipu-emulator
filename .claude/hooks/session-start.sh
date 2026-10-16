@@ -4,7 +4,7 @@
 set -euo pipefail
 
 # Only needed in the remote (web) environment. Local checkouts use the
-# devcontainer image, which already ships bazelisk and uv.
+# devcontainer image, which already ships bazelisk.
 if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ]; then
   exit 0
 fi

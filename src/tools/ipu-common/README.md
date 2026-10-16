@@ -33,4 +33,10 @@ bazel build //src/tools/ipu-common:ipu_common_lib
 
 ## Updating
 
-Python dependencies are declared in `pyproject.toml`; see the repository README for how the lockfile is refreshed.
+Python dependencies are declared in `pyproject.toml` and pinned, with hashes, in
+the repository-root `requirements_lock.txt`. After changing a dependency, refresh
+the lock:
+
+```bash
+bazel run //tools:update_requirements_lock
+```

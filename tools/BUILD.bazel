@@ -1,0 +1,20 @@
+load("@ipu_as_deps//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_binary")
+
+exports_files([
+    "pyproject_deps.bzl",
+    "requirements-tools.in",
+])
+
+# Refresh //:requirements_lock.txt from the four pyproject.toml files and
+# tools/requirements-tools.in. Runs uv from the lock itself, so no host tool is
+# needed. Extra arguments go to `uv pip compile`:
+#
+#   bazel run //tools:update_requirements_lock
+#   bazel run //tools:update_requirements_lock -- --upgrade-package numpy
+#   bazel run //tools:update_requirements_lock -- --upgrade
+py_binary(
+    name = "update_requirements_lock",
+    srcs = ["update_requirements_lock.py"],
+    deps = [requirement("uv")],
+)

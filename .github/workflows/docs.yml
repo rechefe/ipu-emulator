@@ -28,7 +28,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install toolchain
-        run: ./tools/bootstrap.sh --with-uv
+        run: ./tools/bootstrap.sh
 
       - name: Build documentation with Bazel
         env:

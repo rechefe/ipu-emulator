@@ -17,11 +17,11 @@ RUN apt-get update && apt-get install -y \
     gnupg \
     && rm -rf /var/lib/apt/lists/*
 
-# Pinned bazelisk (and uv, until E01-02) from the shared bootstrap script, the
+# Pinned bazelisk from the shared bootstrap script, the
 # same one CI and the Claude Code SessionStart hook run. Installed system-wide,
 # so the non-root user below needs no installs of its own.
 COPY tools/bootstrap.sh /tmp/bootstrap.sh
-RUN BIN_DIR=/usr/local/bin /tmp/bootstrap.sh --with-uv \
+RUN BIN_DIR=/usr/local/bin /tmp/bootstrap.sh \
     && rm /tmp/bootstrap.sh
 
 # Set working directory
