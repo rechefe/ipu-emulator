@@ -78,6 +78,20 @@ py_pytest_test(
     ],
 )
 
+# tools/update_baselines.sh runs every update_* target of the packages that
+# hold baselines (docs/content/code-conventions.md, "Baselines").
+py_pytest_test(
+    name = "test_update_baselines",
+    size = "small",
+    srcs = ["test_update_baselines.py"],
+    data = [
+        "update_baselines.sh",
+        "//src/tools/ipu-apps:BUILD.bazel",
+        "//src/tools/ipu-as-py:BUILD.bazel",
+    ],
+    deps = [requirement("pytest")],
+)
+
 # Per-package line coverage of a combined lcov report, as a Markdown table.
 # Run by the nightly workflow after `bazel coverage --config=full //...`.
 py_binary(

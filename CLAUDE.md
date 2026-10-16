@@ -15,7 +15,10 @@ bazel test //tools:lint                                  # ruff lint + format ch
 bazel test --test_tag_filters=typecheck //...            # every mypy_test (tools/typecheck.bzl, mypy.ini)
 bazel run //tools:ruff -- check --fix                    # auto-fix lint with the locked ruff
 bazel run //tools:ruff -- format                         # format with the locked ruff
+tools/update_baselines.sh [--with-kernels]               # regenerate every baseline, list the changed files
 ```
+
+Baselines: a refactor PR changes no baseline file; a behaviour-change PR regenerates only the baselines it changes and says why each changed ([Code conventions, Baselines](docs/content/code-conventions.md#baselines)).
 
 Use `bazel`, not `pip install` or `python` directly.
 

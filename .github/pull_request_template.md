@@ -12,6 +12,11 @@ Code rules: docs/content/code-conventions.md.
 - [ ] Behaviour change (label `behaviour change`): <!-- what changes, for whom; one sentence of justification per golden update -->
 - [ ] Docs / build / CI only
 
+## Baselines
+<!-- Rule: docs/content/code-conventions.md, "Baselines". Regenerate with tools/update_baselines.sh. Tick one. -->
+- [ ] No baseline file changed
+- [ ] Baselines changed: <!-- each file --> because <!-- one sentence per file -->
+
 ## Checks I ran locally
 <!-- Tick what you ran. If a run was not possible, say which part and why under "Notes for reviewers". -->
 - [ ] `bazel test --config=full //...` passed (all tests, including the nightly tier)

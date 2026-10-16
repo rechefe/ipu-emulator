@@ -9,6 +9,8 @@ load("//tools:lint.bzl", "ruff_test")
 package(default_visibility = ["//visibility:public"])
 
 exports_files([
+    # Read by //tools:test_update_baselines.
+    "BUILD.bazel",
     "pyproject.toml",
 ])
 
