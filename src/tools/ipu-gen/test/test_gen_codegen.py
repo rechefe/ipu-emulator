@@ -2,8 +2,13 @@
 
 from pathlib import Path
 
+from click.testing import CliRunner
+
 from ipu_as.compound_inst import CompoundInst
+from ipu_as.inst import Inst
+from ipu_as.ipu_token import EnumToken
 from ipu_gen import sv_package
+from ipu_gen.cli import cli
 from ipu_isa.layout import SLOT_UNIONS
 
 
@@ -174,21 +179,22 @@ def test_compound_comment_lists_the_layout_order():
     assert "slots MSB → LSB: cond, lr×3, load, mult, acc, aaq, store, acc_store, break" in text
 
 
+def _subclasses(cls):
+    for sub in cls.__subclasses__():
+        yield sub
+        yield from _subclasses(sub)
+
+
 def test_renaming_token_classes_does_not_change_the_package():
-    """SV names come from ISA data, not from the assembler's class names (E08-13)."""
-    import ipu_as.inst  # noqa: F401  (defines every token class)
-    from ipu_as.ipu_token import EnumToken
+    """SV names come from ISA data, not from the assembler's class names (E08-13).
 
+    The structural guarantee is the import-graph row ``ipu_gen = ["ipu_isa"]``
+    (tools/import_graph.toml); this checks the output as well.
+    """
     before = sv_package.render_sv_package()
-
-    def subclasses(cls):
-        for sub in cls.__subclasses__():
-            yield sub
-            yield from subclasses(sub)
-
     # Restored by hand: monkeypatch cannot delete __name__ from a type.
-    names = {cls: cls.__name__ for cls in subclasses(EnumToken)}
-    assert len(names) > 10
+    names = {cls: cls.__name__ for base in (EnumToken, Inst) for cls in _subclasses(base)}
+    assert len(names) > 20
     try:
         for i, cls in enumerate(names):
             cls.__name__ = f"Renamed{i}"
@@ -198,11 +204,14 @@ def test_renaming_token_classes_does_not_change_the_package():
             cls.__name__ = name
 
 
-def test_every_enum_name_comes_from_the_isa():
-    from ipu_isa.operand_types import OPERAND_TYPES
-    from ipu_isa.slots import SLOTS
+def test_enums_match_the_assembler():
+    """The SV enums are the assembler's, by name, member and order (an
+    independent source: the assembler derives them from its class names)."""
+    assert sv_package.enum_descriptors() == EnumToken.get_all_enum_descriptors()
 
-    names = set(sv_package.enum_descriptors())
-    assert names == {s.opcode_enum for s in SLOTS.values()} | {
-        t.sv_typedef.removesuffix("_t") for t in OPERAND_TYPES.values() if t.sv_typedef
-    }
+
+def test_cli_writes_the_package(tmp_path: Path):
+    out = tmp_path / "pkg.sv"
+    result = CliRunner().invoke(cli, ["sv-package", "--output", str(out)])
+    assert result.exit_code == 0, result.output
+    assert out.read_text(encoding="utf-8") == sv_package.render_sv_package()

@@ -41,8 +41,9 @@ py_binary(
     deps = [":ipu_gen_lib"],
 )
 
-# The SV package's structure; the compound width is checked against the
-# assembler's own CompoundInst.
+# The SV package's structure and the ipu-gen CLI. Needs ipu_as_lib: the word
+# width is cross-checked against CompoundInst, the enums against the
+# assembler's token classes, and the rename test renames those classes.
 py_pytest_test(
     name = "test_gen_codegen",
     srcs = ["test/test_gen_codegen.py"],

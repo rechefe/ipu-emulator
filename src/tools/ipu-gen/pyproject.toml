@@ -14,10 +14,13 @@ dependencies = [
 ]
 
 [tool.uv.sources]
+ipu-as-py = { path = "../ipu-as-py", editable = true }
 ipu-isa = { path = "../ipu-isa", editable = true }
 
 [project.optional-dependencies]
+# The tests cross-check the package against the assembler (ipu-as-py).
 dev = [
+    "ipu-as-py",
     "pytest>=9.0.1",
     "pyslang>=11.0.0",
 ]
