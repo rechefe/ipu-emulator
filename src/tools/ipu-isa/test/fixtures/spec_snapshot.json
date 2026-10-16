@@ -13,12 +13,12 @@
     {
      "name": "offset",
      "type": "LrIdx",
-     "read": "live"
+     "read": "forwarded"
     },
     {
      "name": "base",
      "type": "CrIdx",
-     "read": "live"
+     "read": "cycle_start"
     }
    ],
    "tag": "hardware",
@@ -32,17 +32,17 @@
     {
      "name": "offset",
      "type": "LrIdx",
-     "read": "live"
+     "read": "forwarded"
     },
     {
      "name": "base",
      "type": "CrIdx",
-     "read": "live"
+     "read": "cycle_start"
     },
     {
      "name": "index",
      "type": "LrIdx",
-     "read": "live"
+     "read": "forwarded"
     }
    ],
    "tag": "hardware",
@@ -56,12 +56,12 @@
     {
      "name": "offset",
      "type": "LrIdx",
-     "read": "live"
+     "read": "forwarded"
     },
     {
      "name": "base",
      "type": "CrIdx",
-     "read": "live"
+     "read": "cycle_start"
     }
    ],
    "tag": "hardware",
@@ -83,12 +83,12 @@
     {
      "name": "offset",
      "type": "LrIdx",
-     "read": "live"
+     "read": "forwarded"
     },
     {
      "name": "base",
      "type": "CrIdx",
-     "read": "live"
+     "read": "cycle_start"
     }
    ],
    "tag": "hardware",
@@ -110,12 +110,12 @@
     {
      "name": "offset",
      "type": "LrIdx",
-     "read": "live"
+     "read": "forwarded"
     },
     {
      "name": "base",
      "type": "CrIdx",
-     "read": "live"
+     "read": "cycle_start"
     }
    ],
    "tag": "emulator",
@@ -142,7 +142,7 @@
     {
      "name": "src",
      "type": "CrIdx",
-     "read": "snapshot"
+     "read": "cycle_start"
     }
    ],
    "tag": "hardware",
@@ -161,12 +161,12 @@
     {
      "name": "src_a",
      "type": "LrIdx",
-     "read": "snapshot"
+     "read": "cycle_start"
     },
     {
      "name": "src_b",
      "type": "LcrIdx",
-     "read": "snapshot"
+     "read": "cycle_start"
     }
    ],
    "tag": "hardware",
@@ -185,12 +185,12 @@
     {
      "name": "src_a",
      "type": "LrIdx",
-     "read": "snapshot"
+     "read": "cycle_start"
     },
     {
      "name": "src_b",
      "type": "LcrIdx",
-     "read": "snapshot"
+     "read": "cycle_start"
     }
    ],
    "tag": "hardware",
@@ -209,7 +209,7 @@
     {
      "name": "step",
      "type": "LcrIdx",
-     "read": "snapshot"
+     "read": "cycle_start"
     },
     {
      "name": "k",
@@ -271,7 +271,7 @@
     {
      "name": "src_b",
      "type": "LcrIdx",
-     "read": "snapshot"
+     "read": "cycle_start"
     }
    ],
    "tag": "hardware",
@@ -312,12 +312,12 @@
     {
      "name": "rc_idx",
      "type": "LrIdx",
-     "read": "live"
+     "read": "forwarded"
     },
     {
      "name": "ra",
      "type": "MultStageReg",
-     "read": "snapshot"
+     "read": "cycle_start"
     },
     {
      "name": "mask_offset",
@@ -327,7 +327,7 @@
     {
      "name": "mask_shift",
      "type": "LrIdx",
-     "read": "live"
+     "read": "forwarded"
     },
     {
      "name": "cr_idx",
@@ -346,7 +346,7 @@
     {
      "name": "rc_idx",
      "type": "LrIdx",
-     "read": "live"
+     "read": "forwarded"
     },
     {
      "name": "src",
@@ -361,7 +361,7 @@
     {
      "name": "mask_shift",
      "type": "LrIdx",
-     "read": "live"
+     "read": "forwarded"
     },
     {
      "name": "cr_idx",
@@ -380,7 +380,7 @@
     {
      "name": "rc_idx",
      "type": "LrIdx",
-     "read": "live"
+     "read": "forwarded"
     },
     {
      "name": "mask_offset",
@@ -390,7 +390,7 @@
     {
      "name": "mask_shift",
      "type": "LrIdx",
-     "read": "live"
+     "read": "forwarded"
     },
     {
      "name": "cr_idx",
@@ -417,7 +417,7 @@
     {
      "name": "ra_idx",
      "type": "LrIdx",
-     "read": "live"
+     "read": "forwarded"
     },
     {
      "name": "cr_idx",
@@ -432,7 +432,7 @@
     {
      "name": "mask_shift",
      "type": "LrIdx",
-     "read": "live"
+     "read": "forwarded"
     },
     {
      "name": "dstructure_cr_idx",
@@ -451,7 +451,7 @@
     {
      "name": "ra_idx",
      "type": "LrIdx",
-     "read": "live"
+     "read": "forwarded"
     },
     {
      "name": "cr_idx",
@@ -466,7 +466,7 @@
     {
      "name": "mask_shift",
      "type": "LrIdx",
-     "read": "live"
+     "read": "forwarded"
     },
     {
      "name": "dstructure_cr_idx",
@@ -556,7 +556,7 @@
     {
      "name": "offset",
      "type": "LrIdx",
-     "read": "live"
+     "read": "forwarded"
     }
    ],
    "tag": "hardware",
@@ -570,7 +570,7 @@
     {
      "name": "dest_slot",
      "type": "LrIdx",
-     "read": "snapshot"
+     "read": "cycle_start"
     },
     {
      "name": "cr_idx",
@@ -589,7 +589,7 @@
     {
      "name": "dest_slot",
      "type": "LrIdx",
-     "read": "snapshot"
+     "read": "cycle_start"
     },
     {
      "name": "cr_idx",
@@ -608,7 +608,7 @@
     {
      "name": "dest_slot",
      "type": "LrIdx",
-     "read": "snapshot"
+     "read": "cycle_start"
     },
     {
      "name": "cr_idx",
@@ -627,7 +627,7 @@
     {
      "name": "dest_slot",
      "type": "LrIdx",
-     "read": "snapshot"
+     "read": "cycle_start"
     },
     {
      "name": "cr_idx",
@@ -646,12 +646,12 @@
     {
      "name": "source",
      "type": "LrdIdx",
-     "read": "snapshot"
+     "read": "cycle_start"
     },
     {
      "name": "dest",
      "type": "LrdIdx",
-     "read": "snapshot"
+     "read": "cycle_start"
     },
     {
      "name": "reshape_mask",
@@ -697,12 +697,12 @@
     {
      "name": "reg1",
      "type": "LcrIdx",
-     "read": "snapshot"
+     "read": "cycle_start"
     },
     {
      "name": "reg2",
      "type": "LcrIdx",
-     "read": "snapshot"
+     "read": "cycle_start"
     },
     {
      "name": "label",
@@ -721,12 +721,12 @@
     {
      "name": "reg1",
      "type": "LcrIdx",
-     "read": "snapshot"
+     "read": "cycle_start"
     },
     {
      "name": "reg2",
      "type": "LcrIdx",
-     "read": "snapshot"
+     "read": "cycle_start"
     },
     {
      "name": "label",
@@ -745,12 +745,12 @@
     {
      "name": "reg1",
      "type": "LcrIdx",
-     "read": "snapshot"
+     "read": "cycle_start"
     },
     {
      "name": "reg2",
      "type": "LcrIdx",
-     "read": "snapshot"
+     "read": "cycle_start"
     },
     {
      "name": "label",
@@ -769,12 +769,12 @@
     {
      "name": "reg1",
      "type": "LcrIdx",
-     "read": "snapshot"
+     "read": "cycle_start"
     },
     {
      "name": "reg2",
      "type": "LcrIdx",
-     "read": "snapshot"
+     "read": "cycle_start"
     },
     {
      "name": "label",
@@ -793,7 +793,7 @@
     {
      "name": "reg",
      "type": "LcrIdx",
-     "read": "snapshot"
+     "read": "cycle_start"
     }
    ],
    "tag": "hardware",
@@ -831,7 +831,7 @@
     {
      "name": "reg",
      "type": "LrIdx",
-     "read": "snapshot"
+     "read": "cycle_start"
     },
     {
      "name": "value",

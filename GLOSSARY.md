@@ -83,6 +83,12 @@ _Avoid_: snapshot (in prose), pre-instruction value
 A value written earlier in the same cycle and seen by a later stage in that cycle: post-LR-write LRs outside the Control stage, MULT_RES in ACC, R_ACC in AAQ.
 _Avoid_: live value
 
+**Timing contract**:
+The rules for which value, cycle start or forwarded, each register read sees within one cycle, with the slot execution order (ADR 0002). Declared in `ipu_isa.timing`; each instruction declares its register reads and writes.
+
+**Known deviation**:
+A read where today's emulator differs from the timing contract, listed in `KNOWN_DEVIATIONS` with the E04 issue that removes it. The list can only shrink.
+
 ## Faults and events
 
 **Fault**:
