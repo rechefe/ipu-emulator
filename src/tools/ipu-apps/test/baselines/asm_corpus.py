@@ -54,16 +54,12 @@ RENDER_CONTEXTS: dict[str, tuple[dict, ...]] = {
         {"chunk_widths": [128, 64]},
         {"chunk_widths": [128, 128, 128, 128, 128, 128]},
     ),
-    _MOBILEVIT + "asm_packed_output_linear_silu_p4.asm": (
-        {"chunk_widths": [128, 64]},
-    ),
+    _MOBILEVIT + "asm_packed_output_linear_silu_p4.asm": ({"chunk_widths": [128, 64]},),
     _MOBILEVIT + "asm_packed_output_linear_generic.asm": (
         {"chunk_widths": [128, 112]},
         {"chunk_widths": [128, 128, 128, 128, 128, 128, 128, 64]},
     ),
-    _MOBILEVIT + "asm_packed_output_linear_silu.asm": (
-        {"chunk_widths": [128, 112]},
-    ),
+    _MOBILEVIT + "asm_packed_output_linear_silu.asm": ({"chunk_widths": [128, 112]},),
 }
 
 #: Where the digests live, repo-relative.
@@ -157,8 +153,7 @@ def word_fingerprints(words: list[int]) -> str:
     """
     width = lark_tree.instruction_aligned_bytes_len()
     return "".join(
-        hashlib.sha256(word.to_bytes(width, byteorder="little")).hexdigest()[:8]
-        for word in words
+        hashlib.sha256(word.to_bytes(width, byteorder="little")).hexdigest()[:8] for word in words
     )
 
 
@@ -216,9 +211,7 @@ def first_differing_word(expected: dict, actual: dict) -> int | None:
 def digest_mismatch(key: str, expected: dict, actual: dict) -> str | None:
     """Explain how one entry's assembled output changed, or None if it did not."""
     changed = [
-        name
-        for name in ("bin_sha256", "mem_sha256", "words")
-        if expected.get(name) != actual[name]
+        name for name in ("bin_sha256", "mem_sha256", "words") if expected.get(name) != actual[name]
     ]
     if not changed:
         return None

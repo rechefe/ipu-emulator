@@ -7,12 +7,10 @@ import json
 
 import pytest
 
-from ipu_emu.xmem import XMEM_SIZE_BYTES
-
 from ipu_apps.kernel_registry import baseline
 from ipu_apps.kernel_registry.cases import load_cases, run_case
-from ipu_apps.kernel_registry.registry import kernel_spec
 from ipu_apps.kernel_registry.testing import check_baseline
+from ipu_emu.xmem import XMEM_SIZE_BYTES
 
 _KERNEL = "identity"
 

@@ -74,9 +74,7 @@ def test_union_member_fields_named_after_their_operands():
         bindings = SLOT_UNIONS[slot["slot"]].opcode_bindings
         for inst in slot["instructions"]:
             expected = {f"{op}_{idx}" for idx, op in bindings.get(inst["name"], [])}
-            names = {
-                f["name"] for f in inst["layout_fields"] if f["operand"] != "padding"
-            }
+            names = {f["name"] for f in inst["layout_fields"] if f["operand"] != "padding"}
             assert names == expected, f"{slot['slot']}.{inst['name']}"
 
 
@@ -111,7 +109,7 @@ def test_union_members_exclude_opcode(tmp_path: Path):
     union = text[start:end]
     assert "cond_inst_opcode_t opcode" not in union
     nop_start = union.rindex("struct packed {", 0, union.index("} nop;"))
-    nop = union[nop_start:union.index("} nop;")]
+    nop = union[nop_start : union.index("} nop;")]
     assert "opcode" not in nop
     assert "logic [19:0] padding" in nop
     assert "label_0" not in nop

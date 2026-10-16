@@ -1,6 +1,13 @@
 import lark
 
 import ipu_as.ipu_token as ipu_token
+from ipu_isa.acc_stride_enums import (
+    ELEMENTS_IN_ROW_NAMES,
+    HORIZONTAL_STRIDE_NAMES,
+    VERTICAL_STRIDE_NAMES,
+    decodable_horizontal_stride_names,
+    decodable_vertical_stride_names,
+)
 from ipu_isa.incr_mod_pow2_k import (
     LR_MOD_POW2_K_FIELD_BITS,
     LR_MOD_POW2_K_MAX,
@@ -13,17 +20,9 @@ from ipu_isa.mult_mask_offset import (
 )
 from ipu_isa.operand_types import operand_type
 from ipu_isa.reshape_mask import (
-    RESHAPE_ELEMENT_COUNT,
     RESHAPE_MASK_LR_OFFSET,
     reshape_mask_field_bits,
     reshape_mask_field_max,
-)
-from ipu_isa.acc_stride_enums import (
-    ELEMENTS_IN_ROW_NAMES,
-    HORIZONTAL_STRIDE_NAMES,
-    VERTICAL_STRIDE_NAMES,
-    decodable_horizontal_stride_names,
-    decodable_vertical_stride_names,
 )
 
 
@@ -36,11 +35,7 @@ class LrModPow2KImmediate(ipu_token.IpuToken):
 
     @classmethod
     def default(cls) -> "ipu_token.IpuToken":
-        return cls(
-            ipu_token.AnnotatedToken(
-                lark.Token("NUMBER", str(LR_MOD_POW2_K_MIN)), 0
-            )
-        )
+        return cls(ipu_token.AnnotatedToken(lark.Token("NUMBER", str(LR_MOD_POW2_K_MIN)), 0))
 
     @classmethod
     def value_range(cls) -> tuple[int, int]:
@@ -55,8 +50,7 @@ class LrModPow2KImmediate(ipu_token.IpuToken):
         low, high = self.value_range()
         if not (low <= self.int <= high):
             self._raise_error(
-                f"Value {self.int} out of range [{low}, {high}] "
-                "for INCR_MOD_POW2 k operand"
+                f"Value {self.int} out of range [{low}, {high}] for INCR_MOD_POW2 k operand"
             )
 
     def encode(self) -> int:
@@ -69,6 +63,7 @@ class LrModPow2KImmediate(ipu_token.IpuToken):
 
 class BreakImmediateType(ipu_token.NumberToken):
     """Immediate value for break.ifeq condition comparison."""
+
     @classmethod
     def bits(cls) -> int:
         return operand_type("BreakImmediate").bits
@@ -78,6 +73,7 @@ class AddbiImmediate(ipu_token.NumberToken):
     """Byte immediate for ADDBI: 0-255 (or an equivalent signed -128..127 literal,
     encoded to the same bit pattern), reinterpreted as a signed int8 for the add.
     """
+
     @classmethod
     def bits(cls) -> int:
         return operand_type("AddbiImmediate").bits
@@ -112,8 +108,7 @@ class MultMaskOffsetImmediate(ipu_token.IpuToken):
         low, high = self.value_range()
         if not (low <= self.int <= high):
             self._raise_error(
-                f"Value {self.int} out of range [{low}, {high}] "
-                "for mult mask slot selector"
+                f"Value {self.int} out of range [{low}, {high}] for mult mask slot selector"
             )
 
     def encode(self) -> int:
@@ -191,8 +186,7 @@ class LrOrReshapeMaskImmediate(ipu_token.IpuToken):
             low, high = self.value_range()
             if not (low <= imm <= high):
                 self._raise_error(
-                    f"Immediate {imm} out of range [{low}, {high}] "
-                    "for ACC.RESHAPE reshape_mask"
+                    f"Immediate {imm} out of range [{low}, {high}] for ACC.RESHAPE reshape_mask"
                 )
             self.int = imm
 
@@ -244,8 +238,7 @@ class LrIncDecImmediate(ipu_token.IpuToken):
         low, high = self.value_range()
         if not (low <= self.int <= high):
             self._raise_error(
-                f"Value {self.int} out of range [{low}, {high}] "
-                "for INC/DEC immediate operand"
+                f"Value {self.int} out of range [{low}, {high}] for INC/DEC immediate operand"
             )
 
     def encode(self) -> int:
@@ -262,8 +255,10 @@ class LrIncDecImmediate(ipu_token.IpuToken):
 # Single source of truth: ipu_isa.acc_stride_enums
 # ---------------------------------------------------------------------------
 
+
 class ElementsInRowField(ipu_token.EnumToken):
     """Elements per row: 16, 32, or 64."""
+
     @classmethod
     def enum_array(cls) -> list[str]:
         return list(ELEMENTS_IN_ROW_NAMES)
@@ -271,6 +266,7 @@ class ElementsInRowField(ipu_token.EnumToken):
 
 class HorizontalStrideField(ipu_token.EnumToken):
     """Horizontal stride: off, on, or on_inv."""
+
     @classmethod
     def enum_array(cls) -> list[str]:
         return list(HORIZONTAL_STRIDE_NAMES)
@@ -282,6 +278,7 @@ class HorizontalStrideField(ipu_token.EnumToken):
 
 class VerticalStrideField(ipu_token.EnumToken):
     """Vertical stride: enabled(1), inverted(2). Bits 0..1."""
+
     @classmethod
     def enum_array(cls) -> list[str]:
         return list(VERTICAL_STRIDE_NAMES)
@@ -289,5 +286,3 @@ class VerticalStrideField(ipu_token.EnumToken):
     @classmethod
     def completion_values(cls) -> list[str]:
         return list(decodable_vertical_stride_names())
-
-

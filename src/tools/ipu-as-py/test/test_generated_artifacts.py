@@ -9,9 +9,8 @@ from __future__ import annotations
 import difflib
 from pathlib import Path
 
-import pytest
-
 import generated_artifacts
+import pytest
 
 # Bazel runs the test from the runfiles root of the main repository.
 SNAPSHOTS = Path.cwd() / generated_artifacts.SNAPSHOT_DIR
@@ -44,6 +43,4 @@ def test_artifact_matches_snapshot(name):
     shown = "".join(diff[:MAX_DIFF_LINES])
     if len(diff) > MAX_DIFF_LINES:
         shown += f"... {len(diff) - MAX_DIFF_LINES} more diff lines\n"
-    pytest.fail(
-        f"{name} changed. If intended, run {generated_artifacts.UPDATE_COMMAND}\n{shown}"
-    )
+    pytest.fail(f"{name} changed. If intended, run {generated_artifacts.UPDATE_COMMAND}\n{shown}")

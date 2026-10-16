@@ -31,7 +31,8 @@ UNKNOWN_SOURCE_COMMIT = "unknown"
 _SOURCE_COMMIT_STATUS_KEY = "STABLE_GIT_COMMIT"
 
 # IEEE 1800-2017 Annex B reserved keywords. Generated identifiers must avoid them.
-_SV_KEYWORDS = frozenset("""
+_SV_KEYWORDS = frozenset(
+    """
     accept_on alias always always_comb always_ff always_latch and assert assign
     assume automatic before begin bind bins binsof bit break buf bufif0 bufif1
     byte case casex casez cell chandle checker class clocking cmos config const
@@ -58,28 +59,32 @@ _SV_KEYWORDS = frozenset("""
     tranif1 tri tri0 tri1 triand trior trireg type typedef union unique unique0
     unsigned until until_with untyped use uwire var vectored virtual void wait
     wait_order wand weak weak0 weak1 while wildcard wire with within wor xnor xor
-""".split())
+""".split()
+)
 
 
 def _sv_sized_literal(width: int, value: int) -> str:
     """SystemVerilog sized integer literal, e.g. width=3 value=5 → ``3'd5``."""
     return f"{width}'d{value}"
 
+
 # Slot name → opcode EnumToken descriptor key and struct basename.
-_SV_RESERVED_STRUCT_NAMES = frozenset({
-    "break",
-    "continue",
-    "return",
-    "module",
-    "endmodule",
-    "begin",
-    "end",
-    "case",
-    "default",
-    "function",
-    "task",
-    "set",
-})
+_SV_RESERVED_STRUCT_NAMES = frozenset(
+    {
+        "break",
+        "continue",
+        "return",
+        "module",
+        "endmodule",
+        "begin",
+        "end",
+        "case",
+        "default",
+        "function",
+        "task",
+        "set",
+    }
+)
 
 
 def _sanitize_enum_member(name: str) -> str:
@@ -121,8 +126,7 @@ def _operand_sv_type(
     reserved_bits = type_bits[op_type] or column_bits
     if reserved_bits > column_bits:
         raise ValueError(
-            f"{op_type} reserves {reserved_bits} bits but its union column is "
-            f"{column_bits} bits"
+            f"{op_type} reserves {reserved_bits} bits but its union column is {column_bits} bits"
         )
     typedef_name = operand_type(op_type).sv_typedef
     if typedef_name is None:
@@ -167,8 +171,7 @@ def _instruction_layout_fields(
     field for the whole payload.
     """
     bindings = {
-        field_idx: op_name
-        for field_idx, op_name in slot_union.opcode_bindings.get(inst_name, [])
+        field_idx: op_name for field_idx, op_name in slot_union.opcode_bindings.get(inst_name, [])
     }
     operand_types = {op["name"]: op["type"] for op in inst_def["operands"]}
 
@@ -391,11 +394,16 @@ def workspace_source_commit() -> str:
     try:
         top = subprocess.run(
             ["git", "-C", start, "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         ).stdout.strip()
         status = subprocess.run(
             [str(Path(top) / "tools" / "workspace_status.sh")],
-            cwd=top, capture_output=True, text=True, check=True,
+            cwd=top,
+            capture_output=True,
+            text=True,
+            check=True,
         ).stdout
     except (OSError, subprocess.CalledProcessError):
         return UNKNOWN_SOURCE_COMMIT
@@ -409,6 +417,4 @@ def generate_sv_package(output_path: str | Path, source_commit: str | None = Non
     """
     if source_commit is None:
         source_commit = workspace_source_commit()
-    write_generated_file(
-        "ipu_instr_pkg.sv.j2", output_path, build_codegen_context(source_commit)
-    )
+    write_generated_file("ipu_instr_pkg.sv.j2", output_path, build_codegen_context(source_commit))

@@ -41,11 +41,13 @@ class Block:
 def _strip_indent(line: str, indent: int) -> str:
     """Remove up to `indent` leading whitespace characters."""
     stripped = len(line) - len(line.lstrip(" \t"))
-    return line[min(indent, stripped):]
+    return line[min(indent, stripped) :]
 
 
 def _orphan_marker(path: str | Path, line: int, lang: str) -> DocBlockError:
-    return DocBlockError(f"{path}:{line}: {lang}-fragment marker is not followed by a ```{lang} fence")
+    return DocBlockError(
+        f"{path}:{line}: {lang}-fragment marker is not followed by a ```{lang} fence"
+    )
 
 
 def fenced_blocks(path: str | Path, lang: str) -> list[Block]:

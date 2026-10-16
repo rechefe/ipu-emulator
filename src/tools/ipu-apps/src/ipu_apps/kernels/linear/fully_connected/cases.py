@@ -1,4 +1,5 @@
 """Fully connected fixtures and checks, shared by run and test."""
+
 from pathlib import Path
 
 from ipu_apps.kernel_registry.cases import KernelCase, PreparedCase, check_output_bytes
@@ -27,8 +28,11 @@ def prepare(workspace, *, dtype, wide_mode=False):
     def check():
         check_output_bytes(out, golden)
 
-    return PreparedCase({"dtype": dtype, "wide_mode": wide_mode},
-                        {"inputs_path": inputs, "weights_path": weights, "output_path": out}, check)
+    return PreparedCase(
+        {"dtype": dtype, "wide_mode": wide_mode},
+        {"inputs_path": inputs, "weights_path": weights, "output_path": out},
+        check,
+    )
 
 
 def prepare_default(workspace, *, dtype):

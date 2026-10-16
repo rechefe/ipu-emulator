@@ -1,17 +1,17 @@
 """Debug launch belongs to the shared runner, never individual harnesses."""
 
-from io import StringIO
 import sys
+from io import StringIO
 
 import pytest
 
-from ipu_as.lark_tree import assemble_to_bin_file
+import ipu_emu.debug_launch as launch
+import ipu_emu.debug_tui as tui
 from ipu_apps.kernel_registry.base import IpuApp
+from ipu_as.lark_tree import assemble_to_bin_file
 from ipu_emu.debug_control import DebugControl
 from ipu_emu.emulator import DebugAction, run_test
 from ipu_emu.ipu_state import IpuState
-import ipu_emu.debug_tui as tui
-import ipu_emu.debug_launch as launch
 
 
 class Terminal(StringIO):
@@ -234,8 +234,12 @@ def test_entry_uses_prepared_pc_and_combines_break_causes(program):
         return DebugAction.CONTINUE
 
     _, cycles = run_test(
-        inst_path=program, state=state, setup=setup,
-        debug_callback=callback, break_on_entry=True, debug_control=control,
+        inst_path=program,
+        state=state,
+        setup=setup,
+        debug_callback=callback,
+        break_on_entry=True,
+        debug_control=control,
     )
     assert stops == [(1, 0, "entry, breakpoint, BREAK instruction")]
     assert cycles == 2
@@ -278,6 +282,7 @@ def test_registry_case_completion_checks_and_exports(debug_terminal, monkeypatch
     from ipu_apps.kernel_registry.cases import load_cases, run_case
 
     stops = []
+
     def view(state, cycle, *, control, session):
         stops.append((state.program_counter, cycle))
         return DebugAction.CONTINUE

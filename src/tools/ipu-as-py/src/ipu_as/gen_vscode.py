@@ -31,6 +31,10 @@ import re
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 
+from ipu_as.diagnostics import check
+from ipu_as.inst import OPERAND_TYPE_MAP
+from ipu_as.lark_tree import get_parser
+from ipu_as.reg import LRD_REG_FIELDS, LrdRegField
 from ipu_isa.instruction_spec import (
     COMPOUND_LAYOUT_SLOT_ORDER,
     INSTRUCTION_SPEC,
@@ -43,11 +47,6 @@ from ipu_isa.operand_types import operand_type
 from ipu_isa.slots import SLOTS, Slot
 from ipu_isa.registers import REGISTER_DEFINITIONS, create_assembler_reg_enums
 from ipu_isa.types import RegKind
-
-from ipu_as.diagnostics import check
-from ipu_as.inst import OPERAND_TYPE_MAP
-from ipu_as.lark_tree import get_parser
-from ipu_as.reg import LRD_REG_FIELDS, LrdRegField
 
 GENERATED_BY = "//vscode-ipu-asm:gen_vscode from asm_grammar.lark — do not edit by hand"
 
@@ -98,12 +97,51 @@ _JINJA_PUNCTUATION = "punctuation.definition.template-expression.jinja.ipu-asm"
 #: legitimately so: Jinja is a fixed external language the parser never sees, so
 #: there is nothing in this repo to derive them from.
 _JINJA_KEYWORDS = (
-    "set", "endset", "for", "endfor", "if", "elif", "else", "endif", "macro", "endmacro", "call", "endcall",
-    "filter", "endfilter", "include", "import", "from", "as", "extends", "block", "endblock", "with", "without",
-    "context", "endwith", "raw", "endraw", "do", "in", "is", "not", "and", "or", "recursive", "ignore",
-    "missing", "scoped", "required",
+    "set",
+    "endset",
+    "for",
+    "endfor",
+    "if",
+    "elif",
+    "else",
+    "endif",
+    "macro",
+    "endmacro",
+    "call",
+    "endcall",
+    "filter",
+    "endfilter",
+    "include",
+    "import",
+    "from",
+    "as",
+    "extends",
+    "block",
+    "endblock",
+    "with",
+    "without",
+    "context",
+    "endwith",
+    "raw",
+    "endraw",
+    "do",
+    "in",
+    "is",
+    "not",
+    "and",
+    "or",
+    "recursive",
+    "ignore",
+    "missing",
+    "scoped",
+    "required",
     # Constants, in both spellings Jinja accepts; none can be assigned.
-    "true", "false", "none", "True", "False", "None",
+    "true",
+    "false",
+    "none",
+    "True",
+    "False",
+    "None",
 )
 
 #: Shared by `{% … %}` and `{{ … }}`; without these the whole construct carries
@@ -149,6 +187,7 @@ def scope_for(name: str) -> str | None:
 # Vocabulary layer
 # ---------------------------------------------------------------------------
 
+
 def _mnemonics() -> list[str]:
     real = {name for slot in INSTRUCTION_SPEC.values() for name in slot}
     return sorted(real | set(PSEUDO_INSTRUCTION_SPEC))
@@ -167,7 +206,11 @@ def _terminals() -> dict:
 
 def _comment_patterns() -> list[str]:
     """The grammar's comment terminals, as regexes."""
-    return [t.pattern.to_regexp() for n, t in sorted(_terminals().items()) if (scope_for(n) or "").startswith("comment.")]
+    return [
+        t.pattern.to_regexp()
+        for n, t in sorted(_terminals().items())
+        if (scope_for(n) or "").startswith("comment.")
+    ]
 
 
 def _register_docs(emulator: dict | None = None) -> dict[str, dict]:
@@ -176,8 +219,11 @@ def _register_docs(emulator: dict | None = None) -> dict[str, dict]:
     which this package does not depend on: `fixed` values and LRD `pairs`."""
     emulator = emulator or {}
     kinds = dict(re.findall(r"^\s*(\w+):\s+(.+)$", RegKind.__doc__, re.M))
-    docs = {name: {"about": kinds[meta["kind"].name]}
-            for meta in REGISTER_DEFINITIONS.values() for name in meta.get("assembler_values", [])}
+    docs = {
+        name: {"about": kinds[meta["kind"].name]}
+        for meta in REGISTER_DEFINITIONS.values()
+        for name in meta.get("assembler_values", [])
+    }
     pair = " ".join(LrdRegField.__doc__.split("\n\n")[0].split())
     docs.update({name: {"about": pair} for name in LRD_REG_FIELDS})
     for name, (lo, hi) in emulator.get("pairs", {}).items():
@@ -203,6 +249,7 @@ def _keyword_pattern(values) -> str:
 # ---------------------------------------------------------------------------
 # Structure layer
 # ---------------------------------------------------------------------------
+
 
 def _label_pattern() -> dict:
     """Derive the label rule from the grammar's own ``label`` expansions.
@@ -454,7 +501,8 @@ def build_hover_data(emulator: dict | None = None) -> dict:
         # What each operand type accepts, from the class that validates it, so
         # completion never offers a value the assembler rejects (test_isa_data.py).
         "operandTypes": {
-            name: {**cls.completion_domain(), "description": operand_type(name).doc} for name, cls in OPERAND_TYPE_MAP.items()
+            name: {**cls.completion_domain(), "description": operand_type(name).doc}
+            for name, cls in OPERAND_TYPE_MAP.items()
         },
         # Lexical facts: patterns from the grammar's terminals, and case rules
         # measured by probe programs (_case_insensitive), not stated.
@@ -469,7 +517,9 @@ def build_hover_data(emulator: dict | None = None) -> dict:
             "caseInsensitive": {
                 "mnemonics": _case_insensitive("BKPT;;", "bkpt;;"),
                 "registers": _case_insensitive("SET lr0 cr0;;\nBKPT;;", "SET LR0 CR0;;\nBKPT;;"),
-                "labels": _case_insensitive("Top:\n    B Top;;\nBKPT;;", "Top:\n    B top;;\nBKPT;;"),
+                "labels": _case_insensitive(
+                    "Top:\n    B Top;;\nBKPT;;", "Top:\n    B top;;\nBKPT;;"
+                ),
             },
         },
     }
@@ -512,4 +562,6 @@ def generate_all(out_dir: Path, emulator: dict | None = None) -> None:
     for rel_path, render in GENERATED_FILES.items():
         target = out_dir / rel_path
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(render(emulator) if render is render_hover_data else render(), encoding="utf-8")
+        target.write_text(
+            render(emulator) if render is render_hover_data else render(), encoding="utf-8"
+        )

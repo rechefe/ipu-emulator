@@ -1,15 +1,20 @@
 """Memory geometry shared by the max-pool kernels."""
-from ipu_emu.ipu import LANES, R_ACC_SIZE
-from ipu_emu.xmem import XMEM_SIZE_BYTES
 
 from ipu_apps.kernel_registry import OUTPUT, ShapeBundle
 from ipu_apps.kernel_registry.memory import (
-    MemoryApp, MemoryLayout, ceildiv, memory_spec, positive_shape,
+    MemoryApp,
+    MemoryLayout,
+    ceildiv,
+    memory_spec,
+    positive_shape,
 )
+from ipu_emu.ipu import LANES, R_ACC_SIZE
+from ipu_emu.xmem import XMEM_SIZE_BYTES
 
 
 class WindowPoolApp(MemoryApp):
     """Centred, stride-1 max-pool; ``fixed_kernel`` pins an unrolled window."""
+
     fixed_kernel = None
 
     @classmethod
@@ -27,8 +32,7 @@ class WindowPoolApp(MemoryApp):
         rows = c * plane
         general = cls.fixed_kernel is None
         output = rows + int(general)
-        crs = {2: 0, 3: output, 4: rows if general else 128,
-               5: tiles, 6: plane, 7: h, 8: c}
+        crs = {2: 0, 3: output, 4: rows if general else 128, 5: tiles, 6: plane, 7: h, 8: c}
         if general:
             crs.update({9: k, 10: 384, 11: k - 1})
         return MemoryLayout(output, c * h * tiles, crs)
@@ -49,6 +53,7 @@ class Stride2PoolApp(MemoryApp):
     ``tail`` selects the kernel for a final output XMEM row backed by only one
     input XMEM row; exactly one of the two kernels accepts any given shape.
     """
+
     tail = False
 
     @classmethod
@@ -57,22 +62,39 @@ class Stride2PoolApp(MemoryApp):
         if height < 2 or width < 2:
             raise ValueError(f"a 2x2 window does not fit shape {tuple(shape)}")
         if kernel_size != 2 or stride != 2:
-            raise ValueError(f"implements kernel_size=2, stride=2; got "
-                             f"kernel_size={kernel_size}, stride={stride}")
+            raise ValueError(
+                f"implements kernel_size=2, stride=2; got "
+                f"kernel_size={kernel_size}, stride={stride}"
+            )
         if padding != 0:
             raise ValueError(f"implements padding=0; got padding={padding}")
         in_tiles, out_tiles = ceildiv(width, LANES), ceildiv(width // 2, LANES)
         if (in_tiles < 2 * out_tiles) != cls.tail:
-            raise ValueError("every output XMEM row has two input XMEM rows" if cls.tail
-                             else "the final output XMEM row has only one input XMEM row")
+            raise ValueError(
+                "every output XMEM row has two input XMEM rows"
+                if cls.tail
+                else "the final output XMEM row has only one input XMEM row"
+            )
         input_rows = channels * height * in_tiles
         output_rows = channels * (height // 2) * out_tiles
         scratch = input_rows + output_rows
         if (scratch + STRIDE2_SCRATCH_ROWS) * R_ACC_SIZE > XMEM_SIZE_BYTES:
-            raise ValueError(f"memory image needs {scratch + STRIDE2_SCRATCH_ROWS} XMEM rows, "
-                             f"exceeding the IPU capacity of {XMEM_SIZE_BYTES // R_ACC_SIZE} rows")
-        crs = {2: 0, 3: input_rows, 4: scratch, 5: in_tiles, 6: 2 * in_tiles,
-               7: out_tiles, 8: height // 2, 9: channels, 10: LANES, 11: height * in_tiles}
+            raise ValueError(
+                f"memory image needs {scratch + STRIDE2_SCRATCH_ROWS} XMEM rows, "
+                f"exceeding the IPU capacity of {XMEM_SIZE_BYTES // R_ACC_SIZE} rows"
+            )
+        crs = {
+            2: 0,
+            3: input_rows,
+            4: scratch,
+            5: in_tiles,
+            6: 2 * in_tiles,
+            7: out_tiles,
+            8: height // 2,
+            9: channels,
+            10: LANES,
+            11: height * in_tiles,
+        }
         if cls.tail:
             crs[12] = out_tiles - 1
         return MemoryLayout(input_rows, output_rows, crs)
@@ -86,12 +108,16 @@ def _stride2_output_shape(params):
 def stride2_spec(app_class, variant, tag, detail=""):
     """SPEC for a :class:`Stride2PoolApp` kernel."""
     return memory_spec(
-        "maxpool2d", app_class,
+        "maxpool2d",
+        app_class,
         variant=variant,
-        explain=lambda **p: (f"a 2x2 stride-2 max-pool maps {tuple(p['shape'])} "
-                             f"to {_stride2_output_shape(p)}{detail}"),
+        explain=lambda **p: (
+            f"a 2x2 stride-2 max-pool maps {tuple(p['shape'])} "
+            f"to {_stride2_output_shape(p)}{detail}"
+        ),
         bundle=lambda **p: ShapeBundle.of(input=tuple(p["shape"])).with_shapes(
-            derived={OUTPUT: _stride2_output_shape(p)}),
+            derived={OUTPUT: _stride2_output_shape(p)}
+        ),
         caveats=lambda **p: ("input and output files use the kernel's raw tiled XMEM layout",),
         tags=("fp32-wide", "strided", tag),
     )

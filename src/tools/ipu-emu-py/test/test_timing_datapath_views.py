@@ -14,8 +14,8 @@ from __future__ import annotations
 import struct
 
 import pytest
-
 from timing_probes import PROBES, ROW, Mode, lane, prepare, run
+
 from ipu_emu.errors import DebugOnlyInstructionWarning
 from ipu_emu.execute import BreakResult, Ipu
 from ipu_emu.ipu_state import INST_MEM_SIZE

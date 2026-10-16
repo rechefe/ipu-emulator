@@ -149,12 +149,9 @@ class RunStats:
         ]
         if self.mult_active_cycles and self.mult_lane_ops == self.mult_active_cycles * LANES:
             lines.append(
-                "  note: every multiply used all 128 lanes — if this kernel pads a"
-                " narrower row,"
+                "  note: every multiply used all 128 lanes — if this kernel pads a narrower row,"
             )
-            lines.append(
-                "        occupancy is overstated until it declares CR15.valid_elements."
-            )
+            lines.append("        occupancy is overstated until it declares CR15.valid_elements.")
         if self.alias_hits:
             lines.append("--- ISA alias hits ---")
             for alias_id, count in self.alias_hits.most_common():

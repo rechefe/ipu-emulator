@@ -77,33 +77,41 @@ class SoftmaxColumnsApp(SoftmaxApp):
 
     def _crs(self):
         return {
-            9: self.chunks_per_row,    # row stride in XMEM rows
-            11: self.rows,             # row loop bound
-            13: self.chunks_per_row,   # chunk-column loop bound
+            9: self.chunks_per_row,  # row stride in XMEM rows
+            11: self.rows,  # row loop bound
+            13: self.chunks_per_row,  # chunk-column loop bound
         }
 
 
 def _explain(q):
     cpr = -(-q.width // LANES)
-    return (f"width ({q.width}) >= {MIN_WIDTH}: per-element running ACC reduce down "
-            f"the rows over {cpr} chunk-column(s), no AGG and no row-group cap.")
+    return (
+        f"width ({q.width}) >= {MIN_WIDTH}: per-element running ACC reduce down "
+        f"the rows over {cpr} chunk-column(s), no AGG and no row-group cap."
+    )
 
 
 def _caveats(q):
     padded = -(-q.width // LANES) * LANES
     if padded == q.width:
         return ()
-    return (f"width {q.width} pads to {padded} elements, so {padded - q.width} of "
-            f"every {padded} elements sit idle ({q.width / padded:.0%} "
-            f"utilisation). A chunk costs the same regardless of how many elements "
-            f"carry real columns, so this runs at the cost of width {padded}.",)
+    return (
+        f"width {q.width} pads to {padded} elements, so {padded - q.width} of "
+        f"every {padded} elements sit idle ({q.width / padded:.0%} "
+        f"utilisation). A chunk costs the same regardless of how many elements "
+        f"carry real columns, so this runs at the cost of width {padded}.",
+    )
 
 
 SPEC = softmax_spec(
-    SoftmaxColumnsApp, along_rows=False,
-    supports=lambda q: (None if q.width >= MIN_WIDTH else
-                        f"width ({q.width}) < {MIN_WIDTH}: at this width several whole "
-                        f"rows fit in one vector, which the packed column kernel exploits"),
+    SoftmaxColumnsApp,
+    along_rows=False,
+    supports=lambda q: (
+        None
+        if q.width >= MIN_WIDTH
+        else f"width ({q.width}) < {MIN_WIDTH}: at this width several whole "
+        f"rows fit in one vector, which the packed column kernel exploits"
+    ),
     explain=_explain,
     caveats=_caveats,
     cost=lambda q: 1.0,

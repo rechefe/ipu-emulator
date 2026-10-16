@@ -27,19 +27,18 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ipu_emu.emulator import dump_xmem_to_binary
-
-from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernel_registry import ShapeBundle
+from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.attention.app import attention_spec
+from ipu_emu.emulator import dump_xmem_to_binary
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
 
-N_TOK   = 256       # queries == keys
-D       = 36        # head_dim
-N_HEAD  = 4
-N_CHAN  = N_HEAD * D  # 144 value channels total
+N_TOK = 256  # queries == keys
+D = 36  # head_dim
+N_HEAD = 4
+N_CHAN = N_HEAD * D  # 144 value channels total
 
 # ---------------------------------------------------------------------------
 # Wide-vector FP32 only. Elements are 4 bytes and an XMEM row is LANES * 4 =
@@ -50,17 +49,17 @@ N_CHAN  = N_HEAD * D  # 144 value channels total
 # from row counts, not hardcoded bytes: a byte map sized for 1-byte elements
 # overflows at 4 bytes/element and regions silently overwrite each other.
 # ---------------------------------------------------------------------------
-ELEM_BYTES = 4                               # FP32
-LANES      = 128                             # elements per XMEM row
-ROW_BYTES  = LANES * ELEM_BYTES              # 512
+ELEM_BYTES = 4  # FP32
+LANES = 128  # elements per XMEM row
+ROW_BYTES = LANES * ELEM_BYTES  # 512
 
 # Row counts below are LANE counts -- element-width independent by construction.
-PV_STRIDE_ROWS     = N_TOK // LANES          # 2: rows per P key / V channel
-R1_OFF_ROWS        = 1                       # R1 source is the next row
+PV_STRIDE_ROWS = N_TOK // LANES  # 2: rows per P key / V channel
+R1_OFF_ROWS = 1  # R1 source is the next row
 P_HEAD_STRIDE_ROWS = N_TOK * PV_STRIDE_ROWS  # 512: rows per head in P
-OUT_ROW_ROWS       = 1                       # one R_ACC store = one row (wide)
-GRP_QUERY_ROWS     = 1                       # group query offset
-O_CHAN_ROWS        = 2 * OUT_ROW_ROWS        # 2 groups per output channel
+OUT_ROW_ROWS = 1  # one R_ACC store = one row (wide)
+GRP_QUERY_ROWS = 1  # group query offset
+O_CHAN_ROWS = 2 * OUT_ROW_ROWS  # 2 groups per output channel
 
 P_ROWS = N_HEAD * P_HEAD_STRIDE_ROWS
 V_ROWS = N_CHAN * PV_STRIDE_ROWS
@@ -75,7 +74,7 @@ VBASE = VBASE_ROW * ROW_BYTES
 OBASE = OBASE_ROW * ROW_BYTES
 
 P_HEAD_STRIDE = P_HEAD_STRIDE_ROWS * ROW_BYTES
-O_CHAN_BYTES  = O_CHAN_ROWS * ROW_BYTES
+O_CHAN_BYTES = O_CHAN_ROWS * ROW_BYTES
 
 
 class AttnVBcast36App(IpuApp):
@@ -86,7 +85,7 @@ class AttnVBcast36App(IpuApp):
         self.p_path = Path(self.p_path)
         self.v_path = Path(self.v_path)
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         # P and V are stored verbatim (already in the kernel's row layout).
         state.xmem.write_address(PBASE, bytearray(self.p_path.read_bytes()))
         state.xmem.write_address(VBASE, bytearray(self.v_path.read_bytes()))
@@ -95,27 +94,30 @@ class AttnVBcast36App(IpuApp):
         state.regfile.set_cr(2, PBASE_ROW)
         state.regfile.set_cr(3, VBASE_ROW)
         state.regfile.set_cr(4, OBASE_ROW)
-        state.regfile.set_cr(5, R1_OFF_ROWS)        # R1 source offset within V channel (rows)
-        state.regfile.set_cr(6, -1)               # key-index startup
-        state.regfile.set_cr(7, P_HEAD_STRIDE_ROWS) # P head stride (rows)
+        state.regfile.set_cr(5, R1_OFF_ROWS)  # R1 source offset within V channel (rows)
+        state.regfile.set_cr(6, -1)  # key-index startup
+        state.regfile.set_cr(7, P_HEAD_STRIDE_ROWS)  # P head stride (rows)
         # Loop bounds are count-1: the counter ADD and the BLT share one bundle,
         # so BLT reads the pre-ADD snapshot (branch taken while snapshot < bound).
-        state.regfile.set_cr(8, N_TOK - 2)        # 254: key-loop bound (width 256, peeled+startup)
-        state.regfile.set_cr(9, D - 1)            # 35: t-loop bound (36 channels)
-        state.regfile.set_cr(10, N_HEAD - 1)      # 3: head-loop bound (4 heads)
-        state.regfile.set_cr(11, 1)               # 1: g-loop bound (2 groups)
+        state.regfile.set_cr(8, N_TOK - 2)  # 254: key-loop bound (width 256, peeled+startup)
+        state.regfile.set_cr(9, D - 1)  # 35: t-loop bound (36 channels)
+        state.regfile.set_cr(10, N_HEAD - 1)  # 3: head-loop bound (4 heads)
+        state.regfile.set_cr(11, 1)  # 1: g-loop bound (2 groups)
         # LRs
-        state.regfile.set_lr(0, 0)                # R_CYCLIC index / mask_shift
-        state.regfile.set_lr(1, PV_STRIDE_ROWS)     # P key stride / V channel stride (rows)
-        state.regfile.set_lr(2, OUT_ROW_ROWS)       # output-row stride (rows)
-        state.regfile.set_lr(3, GRP_QUERY_ROWS)     # group query offset (rows)
+        state.regfile.set_lr(0, 0)  # R_CYCLIC index / mask_shift
+        state.regfile.set_lr(1, PV_STRIDE_ROWS)  # P key stride / V channel stride (rows)
+        state.regfile.set_lr(2, OUT_ROW_ROWS)  # output-row stride (rows)
+        state.regfile.set_lr(3, GRP_QUERY_ROWS)  # group query offset (rows)
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         if self.output_path is not None:
             # 144 channels, each 256 elements (two 128-lane FP32 group rows).
             dump_xmem_to_binary(
-                state, self.output_path,
-                OBASE, O_CHAN_BYTES, N_CHAN,
+                state,
+                self.output_path,
+                OBASE,
+                O_CHAN_BYTES,
+                N_CHAN,
             )
 
 

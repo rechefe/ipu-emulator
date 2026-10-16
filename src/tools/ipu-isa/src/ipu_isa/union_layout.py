@@ -23,6 +23,7 @@ Algorithm (per slot)
 The solver is pure: it takes the bit widths and padding targets as arguments
 and returns new frozen values. ``ipu_isa.layout`` runs it once over the spec.
 """
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -54,6 +55,7 @@ class UnionField:
             instruction that writes a meaningful value here.  Instructions
             that leave this field at its default are absent from the dict.
     """
+
     index: int
     canonical_type: str
     bits: int
@@ -72,6 +74,7 @@ class SlotUnion:
             in operand declaration order.  Every opcode appears here; those
             with no operands map to an empty tuple.
     """
+
     slot: str
     opcode_bits: int
     fields: tuple[UnionField, ...]
@@ -139,9 +142,7 @@ def compute_slot_layout(
 
     # (t, slot_idx) → bin_index
     slot_to_bin: dict[tuple[str, int], int] = {
-        (t, si): bin_idx
-        for bin_idx, bin_ in enumerate(bins)
-        for (t, si, _) in bin_
+        (t, si): bin_idx for bin_idx, bin_ in enumerate(bins) for (t, si, _) in bin_
     }
 
     # ------------------------------------------------------------------ #
@@ -156,7 +157,7 @@ def compute_slot_layout(
 
         # Build users dict: opcode_name → (operand_name, actual_type)
         users_map: dict[str, tuple[str, str]] = {}
-        for (t, si, user_set) in bin_:
+        for t, si, user_set in bin_:
             for opcode_name in user_set:
                 count = 0
                 for op in instructions[opcode_name]["operands"]:
@@ -166,12 +167,14 @@ def compute_slot_layout(
                             break
                         count += 1
 
-        fields.append(UnionField(
-            index=bin_idx,
-            canonical_type=canonical,
-            bits=max_width,
-            users=MappingProxyType(users_map),
-        ))
+        fields.append(
+            UnionField(
+                index=bin_idx,
+                canonical_type=canonical,
+                bits=max_width,
+                users=MappingProxyType(users_map),
+            )
+        )
 
     # ------------------------------------------------------------------ #
     # Step 7: build opcode_bindings                                       #
@@ -217,6 +220,4 @@ def _pad_slot(su: SlotUnion, target: int | None) -> SlotUnion:
             padded = replace(field, bits=field.bits + deficit)
             fields = tuple(padded if f is field else f for f in su.fields)
             return replace(su, fields=fields)
-    raise ValueError(
-        f"Cannot pad {su.slot} slot to {target} bits (currently {su.bits})"
-    )
+    raise ValueError(f"Cannot pad {su.slot} slot to {target} bits (currently {su.bits})")

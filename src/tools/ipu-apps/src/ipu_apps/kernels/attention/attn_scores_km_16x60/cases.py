@@ -10,6 +10,7 @@ Contraction is ACC.ADD over 60 channels (no AGG), which rounds to float32 at
 every step, so a float32 matmul reference is compared at rtol=1e-4/atol=1e-3.
 Head 1 exercises the head slicing.
 """
+
 from ipu_apps.kernels.attention.attn_scores_km_16x60 import app
 from ipu_apps.kernels.attention.cases import scores_km_cases
 

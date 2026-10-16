@@ -81,7 +81,5 @@ def resolve_enabled(requested: bool | None) -> bool:
         return default_enabled()
     enabled = bool(requested)
     if enabled and not build_enabled():
-        raise ValueError(
-            "prototyping mode requires a Bazel build with --define=ipu_proto=1"
-        )
+        raise ValueError("prototyping mode requires a Bazel build with --define=ipu_proto=1")
     return enabled

@@ -16,19 +16,19 @@ the full ISA alias profile (``AliasProfile``, every alias in
 because kernels route data through the multiplier. Profiling never changes
 cycles or stats.
 """
+
 from __future__ import annotations
 
-from dataclasses import dataclass
-from importlib import import_module
 import os
-from pathlib import Path
 import re
 import sys
-from typing import Mapping, Sequence
-
-from ipu_emu.alias_profile import AliasProfile
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from importlib import import_module
+from pathlib import Path
 
 from ipu_apps.kernel_registry.cases import load_cases, options_label, package_kernel, run_case
+from ipu_emu.alias_profile import AliasProfile
 
 LEGEND = (
     "mult% / acc%: cycles the stage was busy. lanes%: multiplier lanes that "
@@ -61,20 +61,27 @@ def run_benchmark(module) -> list[BenchRow]:
     rows = []
     for options in module.CONFIGS:
         profile = AliasProfile()
-        state, cycles = run_case(kernel, case, options=options, alias_profile=profile,
-                                 max_cycles=getattr(module, "MAX_CYCLES", None))
+        state, cycles = run_case(
+            kernel,
+            case,
+            options=options,
+            alias_profile=profile,
+            max_cycles=getattr(module, "MAX_CYCLES", None),
+        )
         stats = state.stats
-        rows.append(BenchRow(
-            label=options_label(options),
-            cycles=cycles,
-            per_unit=cycles / {**case.defaults, **options}[per] if per else None,
-            mult_utilization=stats.mult_utilization,
-            acc_utilization=stats.acc_utilization,
-            lane_occupancy=stats.lane_occupancy,
-            identity_fraction=stats.identity_fraction,
-            effective_mac_utilization=stats.effective_mac_utilization,
-            aliases=_observed_aliases(profile),
-        ))
+        rows.append(
+            BenchRow(
+                label=options_label(options),
+                cycles=cycles,
+                per_unit=cycles / {**case.defaults, **options}[per] if per else None,
+                mult_utilization=stats.mult_utilization,
+                acc_utilization=stats.acc_utilization,
+                lane_occupancy=stats.lane_occupancy,
+                identity_fraction=stats.identity_fraction,
+                effective_mac_utilization=stats.effective_mac_utilization,
+                aliases=_observed_aliases(profile),
+            )
+        )
         # Release this run's state (and its XMEM) before the next one is built.
         del state
     return rows
@@ -109,20 +116,36 @@ def _alias_order(alias: str):
 def render_table(rows: Sequence[BenchRow], per: str | None = None) -> str:
     """The metrics table, then a table of observed ISA aliases per config."""
     labels = [r.label for r in rows]
-    headers = ["cycles"] + ([f"cyc/{per}"] if per else []) + [
-        "mult%", "acc%", "lanes%", "ident%", "effMAC%"]
-    cells = [[str(r.cycles)] + ([f"{r.per_unit:.2f}"] if per else []) + [
-        f"{value * 100:.1f}%" for value in (
-            r.mult_utilization, r.acc_utilization, r.lane_occupancy,
-            r.identity_fraction, r.effective_mac_utilization)]
-        for r in rows]
+    headers = (
+        ["cycles"]
+        + ([f"cyc/{per}"] if per else [])
+        + ["mult%", "acc%", "lanes%", "ident%", "effMAC%"]
+    )
+    cells = [
+        [str(r.cycles)]
+        + ([f"{r.per_unit:.2f}"] if per else [])
+        + [
+            f"{value * 100:.1f}%"
+            for value in (
+                r.mult_utilization,
+                r.acc_utilization,
+                r.lane_occupancy,
+                r.identity_fraction,
+                r.effective_mac_utilization,
+            )
+        ]
+        for r in rows
+    ]
     aliases = sorted({alias for r in rows for alias in r.aliases}, key=_alias_order)
     if not aliases:
         return _table(labels, headers, cells) + "\n\nISA aliases: none observed"
     hits = [[_occurrences(*r.aliases.get(alias, (0, 0))) for alias in aliases] for r in rows]
     names = "  ".join(alias.replace("_", " ", 1) for alias in aliases)
-    return (_table(labels, headers, cells) + f"\n\nISA aliases: {names}\n"
-            + _table(labels, [alias.partition("_")[0] for alias in aliases], hits))
+    return (
+        _table(labels, headers, cells)
+        + f"\n\nISA aliases: {names}\n"
+        + _table(labels, [alias.partition("_")[0] for alias in aliases], hits)
+    )
 
 
 def _occurrences(verified: int, candidate: int) -> str:

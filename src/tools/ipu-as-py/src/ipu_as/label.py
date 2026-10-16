@@ -1,5 +1,6 @@
 import lark
 
+
 class Labels:
     def __init__(self):
         self.labels = {}

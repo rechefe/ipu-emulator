@@ -1,4 +1,5 @@
 """The unified target preserves each command's arguments and exit status."""
+
 import sys
 
 import pytest
@@ -63,12 +64,20 @@ def test_debug_terminal_restored_on_completion_and_cancellation(monkeypatch, can
     descriptors = {0: "terminal", 1: "pipe"}
     signals = []
     monkeypatch.setattr(bazel_entry.os, "tcgetpgrp", lambda fd: foreground[0])
-    monkeypatch.setattr(bazel_entry.os, "tcsetpgrp", lambda fd, group: foreground.__setitem__(0, group))
+    monkeypatch.setattr(
+        bazel_entry.os, "tcsetpgrp", lambda fd, group: foreground.__setitem__(0, group)
+    )
     monkeypatch.setattr(bazel_entry.os, "getpgrp", lambda: 100)
-    monkeypatch.setattr(bazel_entry.os, "dup", lambda fd: descriptors.__setitem__(77, descriptors[fd]) or 77)
-    monkeypatch.setattr(bazel_entry.os, "dup2", lambda src, dst: descriptors.__setitem__(dst, descriptors[src]))
+    monkeypatch.setattr(
+        bazel_entry.os, "dup", lambda fd: descriptors.__setitem__(77, descriptors[fd]) or 77
+    )
+    monkeypatch.setattr(
+        bazel_entry.os, "dup2", lambda src, dst: descriptors.__setitem__(dst, descriptors[src])
+    )
     monkeypatch.setattr(bazel_entry.os, "close", lambda fd: descriptors.pop(fd))
-    monkeypatch.setattr(bazel_entry.signal, "signal", lambda sig, handler: signals.append(handler) or "original")
+    monkeypatch.setattr(
+        bazel_entry.signal, "signal", lambda sig, handler: signals.append(handler) or "original"
+    )
 
     try:
         with bazel_entry.app_terminal():
@@ -88,6 +97,8 @@ def test_noninteractive_debug_does_not_reopen_a_terminal(monkeypatch):
 
     monkeypatch.setenv("IPU_DEBUG_TUI", "1")
     monkeypatch.setattr(sys, "stdin", StringIO())
-    monkeypatch.setattr(bazel_entry.os, "dup", lambda fd: pytest.fail("redirected noninteractive stream"))
+    monkeypatch.setattr(
+        bazel_entry.os, "dup", lambda fd: pytest.fail("redirected noninteractive stream")
+    )
     with bazel_entry.app_terminal():
         assert not sys.stdin.isatty()

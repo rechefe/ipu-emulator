@@ -13,8 +13,9 @@ are produced.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
-from typing import Any, Callable, Iterable, Sequence
+from typing import Any
 
 from ipu_apps.kernel_registry.registry import kernels, load, operations, resolve
 
@@ -28,8 +29,10 @@ class Boundary:
     kernel: str | None
 
     def render(self, param: str) -> str:
-        span = f"{param} = {self.start}" if self.start == self.end else (
-            f"{param} {self.start}..{self.end}"
+        span = (
+            f"{param} = {self.start}"
+            if self.start == self.end
+            else (f"{param} {self.start}..{self.end}")
         )
         return f"{span:<28} {self.kernel or '(not covered)'}"
 

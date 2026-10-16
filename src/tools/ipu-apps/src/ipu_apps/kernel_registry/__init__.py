@@ -39,7 +39,15 @@ from ipu_apps.kernel_registry.layers import (
     from_layer,
     register_layer,
 )
-from ipu_apps.kernel_registry.registry import create_harness, create_state, kernel_spec, kernels, load, operations, resolve
+from ipu_apps.kernel_registry.registry import (
+    create_harness,
+    create_state,
+    kernel_spec,
+    kernels,
+    load,
+    operations,
+    resolve,
+)
 from ipu_apps.kernel_registry.shapes import (
     BIAS,
     INPUT,
@@ -50,7 +58,14 @@ from ipu_apps.kernel_registry.shapes import (
     flatten_to_matrix,
 )
 from ipu_apps.kernel_registry.spec import (
-    ExecutionConfig, KernelSpec, Support, Verdict, folder_spec, kernel_folder, no, yes,
+    ExecutionConfig,
+    KernelSpec,
+    Support,
+    Verdict,
+    folder_spec,
+    kernel_folder,
+    no,
+    yes,
 )
 
 

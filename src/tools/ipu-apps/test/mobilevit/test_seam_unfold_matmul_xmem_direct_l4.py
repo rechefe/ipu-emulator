@@ -42,13 +42,15 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+from fixture_kernel_support import (
+    POISON,
+    kernel_inst,
+    poison,
+    run_matmul_direct_xmem_handoff,
+)
 
 from ipu_apps.kernels.matmul.matmul_576x192_x128 import app as mm
 from ipu_apps.kernels.reshape.unfold_16x16x192 import app as uf
-
-from fixture_kernel_support import (
-    POISON, kernel_inst, poison, run_matmul_direct_xmem_handoff,
-)
 
 # Structural precondition: unfold's per-stream channel count must equal the
 # matmul's K (unfold's output feeds the matmul's contraction dimension), and
@@ -57,10 +59,10 @@ assert uf.C == uf.N_OUT == mm.K == 192
 assert uf.LANES == mm.LANES == 128
 assert uf.N_TOK == 64
 assert mm.N_TOK == 64
-_STRIPE_H = uf.H // uf.N_STRIPES     # 8 spatial rows per stripe
+_STRIPE_H = uf.H // uf.N_STRIPES  # 8 spatial rows per stripe
 _ROW_BYTES = uf.LANES * 4
 
-_STREAM = 0   # TL: phase (0, 0) -- arbitrary but fixed single-stream choice
+_STREAM = 0  # TL: phase (0, 0) -- arbitrary but fixed single-stream choice
 
 
 def _run_unfold_capture_stream_xmem(x: np.ndarray, tmp_path: Path, tag: str) -> bytes:
@@ -100,13 +102,16 @@ def _run_unfold_capture_stream_xmem(x: np.ndarray, tmp_path: Path, tag: str) -> 
     return raw
 
 
-def _run_matmul_576x192_direct_xmem_handoff(uf_raw: bytes, W, tmp_path: Path, tag: str) -> np.ndarray:
+def _run_matmul_576x192_direct_xmem_handoff(
+    uf_raw: bytes, W, tmp_path: Path, tag: str
+) -> np.ndarray:
     """Feed uf_raw verbatim into matmul_576x192_x128's DATA region -- the
     unfold tail lanes ride along untouched. Returns the cropped [N_OUT, N_TOK]
     result."""
-    rows = run_matmul_direct_xmem_handoff(mm, mm.MatMul576x192x128App, data_raw=uf_raw, W=W,
-                                          tmp_path=tmp_path, tag=tag)
-    return rows[:, :mm.N_TOK]
+    rows = run_matmul_direct_xmem_handoff(
+        mm, mm.MatMul576x192x128App, data_raw=uf_raw, W=W, tmp_path=tmp_path, tag=tag
+    )
+    return rows[:, : mm.N_TOK]
 
 
 def _unfold_stream_reference(x: np.ndarray) -> np.ndarray:
@@ -143,7 +148,7 @@ def test_unfold_16x16x192_output_is_not_byte_compatible_with_matmul_576x192_inpu
     uf_raw[off : off + uf.N_TOK * 4] = np.full(uf.N_TOK, 999.0, dtype=np.float32).tobytes()
 
     got = _run_matmul_576x192_direct_xmem_handoff(bytes(uf_raw), W, tmp_path, tag="mut")
-    expected = W.astype(np.float64) @ _unfold_stream_reference(x)   # [N_OUT, N_TOK]
+    expected = W.astype(np.float64) @ _unfold_stream_reference(x)  # [N_OUT, N_TOK]
 
     max_err = float(np.max(np.abs(got.astype(np.float64) - expected)))
     assert max_err > 1.0, (
@@ -164,7 +169,7 @@ def test_unfold_tail_lanes_are_structurally_inert_when_poisoned(tmp_path: Path) 
 
     uf_raw = _run_unfold_capture_stream_xmem(x, tmp_path, tag="poison_tail")
     rows = np.frombuffer(uf_raw, dtype=np.float32).reshape(uf.N_OUT, uf.LANES).copy()
-    rows[:, uf.N_TOK:] = 999.0
+    rows[:, uf.N_TOK :] = 999.0
 
     got = _run_matmul_576x192_direct_xmem_handoff(rows.tobytes(), W, tmp_path, tag="poison_tail")
     expected = W.astype(np.float64) @ _unfold_stream_reference(x)
@@ -173,7 +178,10 @@ def test_unfold_tail_lanes_are_structurally_inert_when_poisoned(tmp_path: Path) 
     print(f"unfold tail-lane poison probe max abs error (valid lanes only) = {max_err:.3e}")
 
     np.testing.assert_allclose(
-        got, expected, rtol=2e-3, atol=2e-2,
+        got,
+        expected,
+        rtol=2e-3,
+        atol=2e-2,
         err_msg=(
             "matmul_576x192_x128's valid-lane output changed when unfold's "
             "tail lanes were poisoned -- the tail is NOT structurally inert, "
@@ -196,11 +204,16 @@ def test_unfold_16x16x192_feeds_matmul_576x192_via_direct_xmem_no_file_staging_l
     expected = W.astype(np.float64) @ _unfold_stream_reference(x)
 
     max_err = float(np.max(np.abs(got.astype(np.float64) - expected)))
-    print(f"seam unfold_16x16x192(direct XMEM, stream {_STREAM})->matmul_576x192_x128 "
-          f"max abs error = {max_err:.3e}")
+    print(
+        f"seam unfold_16x16x192(direct XMEM, stream {_STREAM})->matmul_576x192_x128 "
+        f"max abs error = {max_err:.3e}"
+    )
 
     np.testing.assert_allclose(
-        got, expected, rtol=2e-3, atol=2e-2,
+        got,
+        expected,
+        rtol=2e-3,
+        atol=2e-2,
         err_msg=(
             "unfold_16x16x192's raw per-stream XMEM output (with its stale "
             "r_acc garbage tail), handed to matmul_576x192_x128 verbatim "

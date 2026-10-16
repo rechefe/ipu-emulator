@@ -58,7 +58,7 @@ def jinja_regions(raw: str, path: Path) -> list[dict]:
     counted per kind against that lexer, so a misread (`{% raw %}`, a closer
     inside a string) fails instead of lying."""
     regions, pos = [], 0
-    while (m := _JINJA_OPEN.search(raw, pos)):
+    while m := _JINJA_OPEN.search(raw, pos):
         kind, closer = _JINJA_CLOSE[m.group()]
         end = raw.find(closer, m.end())
         if end < 0:
@@ -71,8 +71,10 @@ def jinja_regions(raw: str, path: Path) -> list[dict]:
     scanned = Counter(r["kind"] for r in regions)
     for kind, _ in _JINJA_CLOSE.values():
         if scanned[kind] != lexed[f"{kind}_begin"]:
-            raise SystemExit(f"{path}: found {scanned[kind]} Jinja {kind} tag(s), "
-                             f"but Jinja's lexer found {lexed[f'{kind}_begin']}.")
+            raise SystemExit(
+                f"{path}: found {scanned[kind]} Jinja {kind} tag(s), "
+                f"but Jinja's lexer found {lexed[f'{kind}_begin']}."
+            )
     return regions
 
 
@@ -102,7 +104,13 @@ def describe(path: Path) -> dict:
             f"test needs total coverage to compare against TextMate."
         )
 
-    return {"file": str(path), "text": text, "tokens": tokens, "raw": raw, "jinja": jinja_regions(raw, path)}
+    return {
+        "file": str(path),
+        "text": text,
+        "tokens": tokens,
+        "raw": raw,
+        "jinja": jinja_regions(raw, path),
+    }
 
 
 def main(argv: list[str]) -> int:

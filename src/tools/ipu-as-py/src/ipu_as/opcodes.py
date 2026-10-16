@@ -9,16 +9,12 @@ When you add or reorder instructions in INSTRUCTION_SPEC, opcodes update
 automatically without touching this file.
 """
 
-from typing import Dict, Type
-
-import lark
-
 import ipu_as.ipu_token as ipu_token
 from ipu_isa.instruction_spec import INSTRUCTION_SPEC
 from ipu_isa.slots import SLOTS, Slot
 
 
-def create_assembler_opcodes() -> Dict[str, Type]:
+def create_assembler_opcodes() -> dict[str, type]:
     """Create Opcode classes at runtime (no code generation needed).
 
     Returns a dict of dynamically created Opcode subclasses:
@@ -31,17 +27,17 @@ def create_assembler_opcodes() -> Dict[str, Type]:
     Each class has an enum_array() classmethod returning instruction names
     in order (position = opcode).
     """
+
     class Opcode(ipu_token.EnumToken):
         """Base class for all opcode types."""
+
         @classmethod
-        def find_opcode_class(cls, opcode_token) -> Type["Opcode"]:
+        def find_opcode_class(cls, opcode_token) -> type["Opcode"]:
             tv = opcode_token.value.lower()
             for subclass in cls.__subclasses__():
                 if any(tv == name.lower() for name in subclass.enum_array()):
                     return subclass
-            raise ValueError(
-                f"Opcode '{opcode_token.value}' not found in any Opcode subclass"
-            )
+            raise ValueError(f"Opcode '{opcode_token.value}' not found in any Opcode subclass")
 
     result = {}
     # INSTRUCTION_SPEC order: it fixes the order the token classes are created
@@ -56,7 +52,7 @@ def create_assembler_opcodes() -> Dict[str, Type]:
             (Opcode,),
             {
                 "enum_array": classmethod(lambda cls, ea=enum_array: ea),
-            }
+            },
         )
         result[class_name] = opcode_class
 

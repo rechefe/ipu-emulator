@@ -8,6 +8,7 @@ groups), so it is the only place cross-chunk AGG accumulation is exercised.
 The reference (``agg_fold``) therefore mirrors AGG's actual datapath rather
 than calling ``np.einsum``, and is compared at rtol = atol = 1e-6.
 """
+
 from ipu_apps.kernels.attention.attn_v_256x36 import app
 from ipu_apps.kernels.attention.cases import attn_v_cases
 

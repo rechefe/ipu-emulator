@@ -45,8 +45,6 @@ from typing import Any
 
 import numpy as np
 
-from ipu_emu.ipu_config import DEFAULT_VALID_ELEMENTS
-
 from ipu_apps.kernel_registry import (
     BIAS,
     INPUT,
@@ -61,7 +59,7 @@ from ipu_apps.kernel_registry import (
     yes,
 )
 from ipu_apps.kernel_registry.memory import MemoryApp, MemoryLayout, ceildiv, positive_shape
-
+from ipu_emu.ipu_config import DEFAULT_VALID_ELEMENTS
 
 # -- Memory-layout kernels ----------------------------------------------------
 
@@ -88,11 +86,32 @@ class ConvApp(MemoryApp):
         bias = weights + out_channels * groups
         output = bias + out_channels
         if cls.single_channel:
-            crs = {2: 0, 3: output, 4: weights, 5: bias, 6: tiles,
-                   7: h, 8: out_channels, 9: 126, 10: 128, 11: tiles - 1}
+            crs = {
+                2: 0,
+                3: output,
+                4: weights,
+                5: bias,
+                6: tiles,
+                7: h,
+                8: out_channels,
+                9: 126,
+                10: 128,
+                11: tiles - 1,
+            }
         else:
-            crs = {2: 0, 3: output, 4: weights, 5: bias, 6: h * tiles,
-                   7: tiles, 8: h, 9: c, 10: out_channels, 11: groups, 12: 128}
+            crs = {
+                2: 0,
+                3: output,
+                4: weights,
+                5: bias,
+                6: h * tiles,
+                7: tiles,
+                8: h,
+                9: c,
+                10: out_channels,
+                11: groups,
+                12: 128,
+            }
             if k == 3:
                 crs.update({13: 13, 14: 126})
         return MemoryLayout(output, out_channels * h * tiles, crs)
@@ -106,9 +125,9 @@ FAMILY_PACKAGE = "ipu_apps.kernels.convolutions"
 # One chunk (= one XMEM row) holds DEFAULT_VALID_ELEMENTS lanes; in the FP32
 # wide-vector mode these kernels run in, that is 512 bytes. CHUNK_BYTES is the
 # narrow-mode byte count, numerically equal to the element count.
-CHUNK_BYTES = DEFAULT_VALID_ELEMENTS                 # 128
-CHUNK_ELEMENTS = CHUNK_BYTES                         # 128 elements/chunk
-ROW_BYTES = CHUNK_ELEMENTS * 4                       # 512 B/row, FP32
+CHUNK_BYTES = DEFAULT_VALID_ELEMENTS  # 128
+CHUNK_ELEMENTS = CHUNK_BYTES  # 128 elements/chunk
+ROW_BYTES = CHUNK_ELEMENTS * 4  # 512 B/row, FP32
 
 WIDE_VECTOR_ONLY = (
     "FP32 wide-vector debug mode only (wide_vector_debug=True). This "
@@ -184,7 +203,7 @@ def pack_input_chunked(input_chw, cols: int) -> bytes:
             chunk = r // rows_per_chunk
             local_row = r % rows_per_chunk
             row_off = (chunk * channels + ch) * CHUNK_ELEMENTS + local_row * cols
-            packed[row_off:row_off + cols] = input_chw[ch, r, :].astype(np.float32)
+            packed[row_off : row_off + cols] = input_chw[ch, r, :].astype(np.float32)
     return packed.tobytes()
 
 
@@ -199,7 +218,7 @@ def unpack_output_chunked(raw: bytes, out_channels: int, out_rows: int, cols: in
             chunk = r // rows_per_chunk
             local_row = r % rows_per_chunk
             off = (chunk * out_channels + ch) * CHUNK_ELEMENTS + local_row * cols
-            out[ch, r, :] = arr[off:off + cols]
+            out[ch, r, :] = arr[off : off + cols]
     return out
 
 
@@ -284,7 +303,7 @@ def build_border_mask_blob(cols: int) -> bytes:
     conv_universal_bn_activation and both depthwise_conv_universal kernels.
     """
     rows_per_chunk = 128 // cols
-    top_bits = set(range(0, cols))                                  # row 0
+    top_bits = set(range(0, cols))  # row 0
     bottom_row = rows_per_chunk - 1
     bottom_bits = set(range(bottom_row * cols, bottom_row * cols + cols))
 
@@ -307,8 +326,17 @@ def build_border_mask_blob(cols: int) -> bytes:
 # -- Query vocabulary --------------------------------------------------------
 
 REQUIRES = (
-    "in_channels", "out_channels", "kernel_size", "stride", "padding",
-    "dilation", "groups", "has_bias", "apply_relu", "height", "width",
+    "in_channels",
+    "out_channels",
+    "kernel_size",
+    "stride",
+    "padding",
+    "dilation",
+    "groups",
+    "has_bias",
+    "apply_relu",
+    "height",
+    "width",
 )
 
 
@@ -355,8 +383,10 @@ class ConvQuery:
             **{
                 INPUT: (self.in_channels, self.height, self.width),
                 WEIGHT: (
-                    self.out_channels, self.in_channels // self.groups,
-                    self.kernel_size, self.kernel_size,
+                    self.out_channels,
+                    self.in_channels // self.groups,
+                    self.kernel_size,
+                    self.kernel_size,
                 ),
                 **({BIAS: (self.out_channels,)} if self.has_bias else {}),
             }
@@ -474,14 +504,16 @@ def padding_caveat(q: ConvQuery, rows: int, cols: int) -> tuple[str, ...]:
 # -- Spec helper --------------------------------------------------------------
 
 
-def universal_spec(app_class, *, variant, supports, build, explain,
-                   caveats=lambda q: (), cost=lambda q: 0.0):
+def universal_spec(
+    app_class, *, variant, supports, build, explain, caveats=lambda q: (), cost=lambda q: 0.0
+):
     """KernelSpec for a universal conv2d kernel; callbacks receive the ConvQuery.
 
     ``supports(q)`` returns a refusal reason, or None to accept; positive
     extents are checked first. ``build(q)`` returns the harness kwargs.
     ``caveats(q)`` adds to the shared FP32-only caveat.
     """
+
     def query(params):
         return conv_query(**params)
 
@@ -534,11 +566,16 @@ class Conv2dDescription:
 
     def params(self) -> dict:
         return {
-            "in_channels": self.in_channels, "out_channels": self.out_channels,
-            "kernel_size": self.kernel_size, "stride": self.stride,
-            "padding": self.padding, "dilation": self.dilation,
-            "groups": self.groups, "has_bias": self.has_bias,
-            "apply_relu": self.apply_relu, "height": self.height,
+            "in_channels": self.in_channels,
+            "out_channels": self.out_channels,
+            "kernel_size": self.kernel_size,
+            "stride": self.stride,
+            "padding": self.padding,
+            "dilation": self.dilation,
+            "groups": self.groups,
+            "has_bias": self.has_bias,
+            "apply_relu": self.apply_relu,
+            "height": self.height,
             "width": self.width,
         }
 
@@ -556,8 +593,16 @@ def from_torch_conv2d(layer, input_shape=None, *, apply_relu: bool = False) -> C
             mode other than zeros, or an input shape that is not
             ``(in_channels, height, width)``.
     """
-    names = ("in_channels", "out_channels", "kernel_size", "stride", "padding",
-             "dilation", "groups", "bias")
+    names = (
+        "in_channels",
+        "out_channels",
+        "kernel_size",
+        "stride",
+        "padding",
+        "dilation",
+        "groups",
+        "bias",
+    )
     missing = [n for n in names if not hasattr(layer, n)]
     if missing:
         raise UnsupportedLayer(
@@ -585,8 +630,7 @@ def from_torch_conv2d(layer, input_shape=None, *, apply_relu: bool = False) -> C
     padding_mode = getattr(layer, "padding_mode", "zeros")
     if padding_mode != "zeros":
         raise UnsupportedLayer(
-            f"padding_mode={padding_mode!r} is not supported; every kernel "
-            "zero-pads"
+            f"padding_mode={padding_mode!r} is not supported; every kernel zero-pads"
         )
 
     height, width = (0, 0)

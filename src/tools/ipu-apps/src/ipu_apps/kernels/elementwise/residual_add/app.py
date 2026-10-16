@@ -103,7 +103,7 @@ class ResidualAddApp(IpuApp):
         self.total_output_bytes = num_channels * WIDE_CHUNK_BYTES
         self.output_base = OUTPUT_BASE
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         for path, base in ((self.input_a_path, INPUT_A_BASE), (self.input_b_path, INPUT_B_BASE)):
             data = path.read_bytes()
             if len(data) != self.total_input_bytes:
@@ -124,7 +124,7 @@ class ResidualAddApp(IpuApp):
         state.regfile.set_cr(5, 1)  # chunk step: 1 row
         state.regfile.set_cr(6, self.num_channels)  # row count
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         if self.output_path is not None:
             result = state.xmem.read_address(OUTPUT_BASE, self.total_output_bytes)
             Path(self.output_path).write_bytes(bytes(result))

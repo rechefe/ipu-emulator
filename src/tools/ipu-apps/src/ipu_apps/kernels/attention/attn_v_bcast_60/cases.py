@@ -7,6 +7,7 @@ with a DIFFERENT datapath (MULT.RC.VV + AGG.SUM); the two chains are
 bit-different BY DESIGN and must never share expectations, so the reference is
 the ACC.ADD float32 fold (``acc_fold``), not the AGG float64 fold.
 """
+
 from ipu_apps.kernels.attention.attn_v_bcast_60 import app
 from ipu_apps.kernels.attention.cases import attn_v_bcast_cases
 

@@ -7,7 +7,6 @@ one). These tests stop a new instruction from shipping an example that does not
 assemble, and stop a comma from reaching either code field.
 """
 
-import json
 import re
 
 import pytest
@@ -63,9 +62,7 @@ def test_every_shipped_example_assembles(example):
     assert not found, f"{example!r} does not assemble: {[d.message for d in found]}"
 
 
-@pytest.mark.parametrize(
-    "field", ["syntax", "example"]
-)
+@pytest.mark.parametrize("field", ["syntax", "example"])
 def test_code_fields_use_the_separator_the_grammar_accepts(field):
     # Operands are whitespace-separated; a comma would not lex.
     offenders = [

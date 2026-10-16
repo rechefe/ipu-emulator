@@ -88,8 +88,17 @@ def _members(bank: str) -> tuple[str, ...]:
 #: The keys each authored entry holds (all required).
 ENTRY_KEYS = schema.Keys(
     frozenset(
-        {"kind", "bits", "domain", "readable", "token_class", "field_suffix",
-         "sv_typedef", "summary", "doc"}
+        {
+            "kind",
+            "bits",
+            "domain",
+            "readable",
+            "token_class",
+            "field_suffix",
+            "sv_typedef",
+            "summary",
+            "doc",
+        }
     )
 )
 
