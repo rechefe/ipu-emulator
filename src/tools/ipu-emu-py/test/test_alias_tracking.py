@@ -222,7 +222,8 @@ class TestIdleAccounting:
             "ADD LR1 LR1 CR1 ;;\nBKPT;;"
         )
         load_program(state, [decode_instruction_word(w) for w in code])
-        get_debug_control(state).breakpoints.update({1, 2})
+        get_debug_control(state).add_breakpoint(1)
+        get_debug_control(state).add_breakpoint(2)
         observed = []
 
         def callback(state, cycles):

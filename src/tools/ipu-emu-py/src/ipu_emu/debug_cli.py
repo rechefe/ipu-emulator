@@ -864,12 +864,12 @@ class DebugCLI(cmd.Cmd):
     def do_delete(self, args: str) -> None:
         """Remove runtime breakpoints. Usage: delete PC|all"""
         if args.strip().lower() == "all":
-            self.control.breakpoints.clear()
+            self.control.clear_breakpoints()
             self.out.write("All runtime breakpoints removed\n")
             return
         pc = self._command_pc(args.strip())
         if pc is not None:
-            self.control.breakpoints.discard(pc)
+            self.control.remove_breakpoint(pc)
             self.out.write(f"Breakpoint removed at PC {pc}\n")
 
     def do_until(self, args: str) -> bool | None:
@@ -958,7 +958,11 @@ class DebugCLI(cmd.Cmd):
             return
 
         if reg_name == "pc":
-            self.state.program_counter = value
+            try:
+                self.control.set_pc(self.state, value)
+            except ValueError as error:
+                self.out.write(f"{error}\n")
+                return
             self.out.write(f"Set pc = {value}\n")
             return
 

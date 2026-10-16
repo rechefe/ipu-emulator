@@ -9,7 +9,7 @@ from io import StringIO
 import pytest
 
 import ipu_emu.debug_cli as debug_cli_module
-from ipu_emu.ipu_state import IpuState
+from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
 from ipu_emu.debug_cli import (
     DebugCLI,
     DebugAction,
@@ -708,6 +708,20 @@ class TestRuntimeControls:
         assert cli.control.breakpoints == {2}
         assert cli.control.run_target is None
         assert "PC must" in output.getvalue()
+
+    def test_breakpoints_cannot_be_changed_from_outside(self):
+        cli, _ = _make_cli(IpuState(), "")
+        with pytest.raises(AttributeError):
+            cli.control.breakpoints.add(3)
+        assert not cli.control.breakpoints
+
+    def test_out_of_range_pc_is_refused(self):
+        state = IpuState()
+        state.program_counter = 5
+        cli, output = _make_cli(state, "")
+        cli.onecmd("set pc 99999")
+        assert f"PC must be between 0 and {INST_MEM_SIZE - 1}" in output.getvalue()
+        assert state.program_counter == 5
 
     def test_until_current_pc_stays_paused(self):
         cli, output = _make_cli(IpuState(), "")
