@@ -58,6 +58,17 @@ def sv_package(output: str):
     click.echo(f"Wrote SystemVerilog package to {output}")
 
 
+#: The `check --json` versions this assembler can print; the contract is in
+#: vscode-ipu-asm/schema/check-json.md.
+JSON_VERSIONS = (1, 2)
+
+
+def _print_json_versions(ctx: click.Context, _param: click.Parameter, value: bool) -> None:
+    if value and not ctx.resilient_parsing:
+        click.echo(json.dumps(list(JSON_VERSIONS)))
+        ctx.exit(0)
+
+
 @click.command()
 @click.option(
     "--input",
@@ -70,7 +81,23 @@ def sv_package(output: str):
     default=False,
     help="Emit machine-readable diagnostics (used by the VS Code extension).",
 )
-def check(input: str, as_json: bool):
+@click.option(
+    "--json-version",
+    type=click.IntRange(min(JSON_VERSIONS), max(JSON_VERSIONS)),
+    default=1,
+    show_default=True,
+    help="Which --json layout to print: 1 is a bare array of diagnostics, "
+    '2 is {"schemaVersion": 2, "diagnostics": [...]}.',
+)
+@click.option(
+    "--json-versions",
+    is_flag=True,
+    is_eager=True,
+    expose_value=False,
+    callback=_print_json_versions,
+    help="Print the --json versions this assembler supports, as a JSON array, and exit.",
+)
+def check(input: str, as_json: bool, json_version: int):
     """Report errors in an assembly source without producing output.
 
     Unlike `assemble`, this never exits on the first problem and never writes a
@@ -110,7 +137,8 @@ def check(input: str, as_json: bool):
 
     if as_json:
         # stdout is the protocol here; keep it pure JSON.
-        json.dump([d.to_dict() for d in found], sys.stdout)
+        listed = [d.to_dict() for d in found]
+        json.dump(listed if json_version == 1 else {"schemaVersion": 2, "diagnostics": listed}, sys.stdout)
         sys.stdout.write("\n")
     else:
         for d in found:

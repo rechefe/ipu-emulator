@@ -59,6 +59,25 @@ py_pytest_test(
     ],
 )
 
+# The `check --json` contract with the VS Code extension: a snapshot of v1 over
+# the extension's corpus and test_diagnostics' sources, and each version's schema.
+py_pytest_test(
+    name = "test_check_json",
+    srcs = ["test/test_check_json.py"],
+    data = [
+        "test/golden/check_json_v1.json",
+        "test/test_diagnostics.py",
+        "//vscode-ipu-asm:check_json_contract",
+        "//vscode-ipu-asm:corpus",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_as_lib",
+        requirement("jsonschema"),
+        requirement("pytest"),
+    ],
+)
+
 py_pytest_test(
     name = "test_hover_data",
     srcs = ["test/test_hover_data.py"],

@@ -219,6 +219,8 @@ checked as soon as it opens; in Restricted Mode nothing is checked at all (see
 [Restricted Mode](#restricted-mode)).
 A template that expects harness values should give them a `| default(...)`.
 
+What `ipu-as check --json` prints is a versioned contract between the two: [schema/check-json.md](schema/check-json.md).
+
 It shells out to `ipu-as check --json` rather than speaking LSP, which keeps the
 extension dependency-free — no `vscode-languageclient`, no bundled
 `node_modules`, and the vsix stays a few kilobytes.

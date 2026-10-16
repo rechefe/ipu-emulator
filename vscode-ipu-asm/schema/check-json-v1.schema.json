@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "check-json-v1.schema.json",
+  "title": "ipu-as check --json, version 1",
+  "description": "What `ipu-as check --json` (or `--json-version 1`) prints: every problem found in the source, as a bare array. See check-json.md.",
+  "type": "array",
+  "items": { "$ref": "#/$defs/diagnostic" },
+  "$defs": {
+    "diagnostic": {
+      "type": "object",
+      "required": ["line", "column", "end_line", "end_column", "message", "severity", "stage", "approximate"],
+      "additionalProperties": false,
+      "properties": {
+        "line": { "type": "integer", "minimum": 0, "description": "First line of the span, from 0." },
+        "column": { "type": "integer", "minimum": 0, "description": "First column of the span, from 0." },
+        "end_line": { "type": "integer", "minimum": 0, "description": "Line the span ends on, from 0." },
+        "end_column": { "type": "integer", "minimum": 0, "description": "Column the span ends before, from 0." },
+        "message": { "type": "string", "description": "What is wrong. Its wording is part of the contract: the extension compares messages." },
+        "severity": { "enum": ["error"] },
+        "stage": {
+          "enum": ["template", "parse", "assemble", "internal"],
+          "description": "Which step found it: Jinja rendering, parsing, encoding, or the checker itself failing."
+        },
+        "approximate": { "type": "boolean", "description": "True when the position could not be pinned down exactly." }
+      }
+    }
+  }
+}

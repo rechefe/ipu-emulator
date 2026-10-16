@@ -17,6 +17,18 @@ exports_files([
     ".vscodeignore",
 ])
 
+# The `ipu-as check --json` contract (schema/check-json.md), and the corpus its
+# snapshot runs over: //src/tools/ipu-as-py:test_check_json.
+filegroup(
+    name = "check_json_contract",
+    srcs = glob(["schema/*"]),
+)
+
+filegroup(
+    name = "corpus",
+    srcs = glob(["test/corpus/**/*.asm"]),
+)
+
 filegroup(
     name = "agreement_test_srcs",
     srcs = [
