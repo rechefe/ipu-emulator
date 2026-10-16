@@ -9,6 +9,16 @@ from ipu_isa.slots import LAYOUT_ORDER, SLOTS, Slot
 
 INST_SEPARATOR = ";"
 
+#: Mnemonics (lower case) that take the first free slot in layout order. Every
+#: other instruction takes a free slot of its own kind. The editor takes both
+#: rules from isa.json (``slotFill``).
+WILDCARD_OPCODES = frozenset({"nop"})
+
+
+def slot_kind(opcode: str) -> str:
+    """The slot a non-wildcard instruction ``opcode`` takes (raises ``SlotError`` for none)."""
+    return inst.Inst.find_inst_type_by_opcode(opcode)._slot_type_name()
+
 
 #: The assembler's instruction class of each slot. E05-02 replaces the
 #: classes with the slot codec and deletes this table.
@@ -64,8 +74,8 @@ class CompoundInst:
             if address is None:
                 address = instruction["opcode"].instr_id
 
-            # NOP is context-aware: fill the next available unfilled slot.
-            if opcode_str.lower() == "nop":
+            # A wildcard (NOP) is context-aware: fill the next available unfilled slot.
+            if opcode_str.lower() in WILDCARD_OPCODES:
                 slot_filled = False
                 for i, expected_type in enumerate(inst_types_list):
                     if self.instructions[i] is None:
