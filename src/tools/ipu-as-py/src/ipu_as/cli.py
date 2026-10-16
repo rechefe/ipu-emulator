@@ -1,9 +1,31 @@
 import json
 import sys
+from typing import NoReturn
 
 import click
+import lark
 
 from ipu_as import diagnostics, gen_codegen, lark_tree
+from ipu_as.errors import AssemblerError, ParseError, TemplateError
+
+
+def _exit_with(error: AssemblerError) -> NoReturn:
+    """Print one line for a bad source and exit 1.
+
+    The parse and assemble lines are the text the assembler always printed. A
+    parse-stage error is chained to the lark exception it came from (the
+    session raises it `from` that exception), and that exception's text is
+    the one printed.
+    """
+    cause = error.__cause__
+    if isinstance(error, TemplateError):
+        click.echo(f"Error rendering template: {error}")
+    elif isinstance(error, ParseError) or isinstance(cause, lark.exceptions.LarkError):
+        reported = cause if isinstance(cause, lark.exceptions.LarkError) else error
+        click.echo(f"Error parsing code: {reported}")
+    else:
+        click.echo(f"Error assembling code: {error}")
+    sys.exit(1)
 
 
 @click.group()
@@ -25,10 +47,15 @@ def assemble(input: click.Path, output: click.Path, format: str):
     click.echo(f"Assembling file: {input}")
     if output:
         click.echo(f"Output will be saved to: {output}")
-    if format == "mem":
-        lark_tree.assemble_to_mem_file(open(input).read(), output)
-    elif format == "bin":
-        lark_tree.assemble_to_bin_file(open(input).read(), output)
+    with open(input) as source:
+        text = source.read()
+    try:
+        if format == "mem":
+            lark_tree.assemble_to_mem_file(text, output)
+        elif format == "bin":
+            lark_tree.assemble_to_bin_file(text, output)
+    except AssemblerError as error:
+        _exit_with(error)
 
 
 @click.command()
@@ -45,10 +72,13 @@ def disassemble(input: click.Path, output: click.Path, format: str):
     click.echo(f"Disassembling file: {input}")
     if output:
         click.echo(f"Output will be saved to: {output}")
-    if format == "mem":
-        lark_tree.disassemble_from_mem_file(input, output)
-    elif format == "bin":
-        lark_tree.disassemble_from_bin_file(input, output)
+    try:
+        if format == "mem":
+            lark_tree.disassemble_from_mem_file(input, output)
+        elif format == "bin":
+            lark_tree.disassemble_from_bin_file(input, output)
+    except AssemblerError as error:
+        _exit_with(error)
 
 
 @click.command("sv-package")

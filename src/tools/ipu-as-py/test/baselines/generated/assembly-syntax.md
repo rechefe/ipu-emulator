@@ -77,6 +77,22 @@ loop:
 
 Relative labels such as `B +5` / `B -2` are supported where the grammar accepts a **label** token (see cond-slot instructions in the reference).
 
+### Local labels
+
+A label made of decimal digits only, such as `1:`, is a **local label** (the GNU assembler's numeric labels). It may be defined any number of times. `1f` refers to the next `1:` after the current instruction word, and `1b` to the nearest `1:` at or before it, so a word may branch to its own label with `1b`. A bare `1` as a branch target is an error. Local labels let a macro or a loop body use one short label in every expansion:
+
+```asm
+{% macro count_to(limit_cr) %}
+    SET LR0 CR0;;
+1:
+    INC LR0 1;;
+    BNE LR0 {{ limit_cr }} 1b;;
+{% endmacro %}
+{{ count_to("CR2") }}
+{{ count_to("CR3") }}
+    BKPT;;
+```
+
 
 ## Masking
 

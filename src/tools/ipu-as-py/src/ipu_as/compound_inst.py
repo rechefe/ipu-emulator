@@ -1,7 +1,9 @@
+import functools
 import warnings
 
 import ipu_as.inst as inst
 import ipu_as.utils as utils
+from ipu_as.errors import SlotError
 from ipu_gen.union_layout_svg import render_union_layout_svg
 from ipu_isa.layout import SLOT_UNIONS
 from ipu_isa.schema import SpecError
@@ -73,13 +75,17 @@ class CompoundInst:
                         slot_filled = True
                         break
                 if not slot_filled:
-                    raise ValueError(
+                    raise SlotError(
                         f"NOP: all slots are already filled\n"
-                        f"At: {instruction['opcode'].get_location_string()}"
+                        f"At: {instruction['opcode'].get_location_string()}",
+                        location=instruction["opcode"].location(),
+                        token=opcode_str,
                     )
                 continue
 
-            inst_type = inst.Inst.find_inst_type_by_opcode(opcode_str)
+            inst_type = inst.Inst.find_inst_type_by_opcode(
+                opcode_str, instruction["opcode"].location()
+            )
 
             # Find the first available slot for this instruction type
             slot_filled = False
@@ -94,14 +100,18 @@ class CompoundInst:
                 available_slots = sum(1 for t in inst_types_list if t == inst_type)
 
                 if available_slots == 0:
-                    raise ValueError(
+                    raise SlotError(
                         f"Instruction type {inst_type.__name__} is not allowed in compound instruction\n"
-                        f"At: {instruction['opcode'].get_location_string()}"
+                        f"At: {instruction['opcode'].get_location_string()}",
+                        location=instruction["opcode"].location(),
+                        token=opcode_str,
                     )
                 else:
-                    raise ValueError(
+                    raise SlotError(
                         f"Too many instructions of type {inst_type.__name__} (max {available_slots})\n"
-                        f"At: {instruction['opcode'].get_location_string()}"
+                        f"At: {instruction['opcode'].get_location_string()}",
+                        location=instruction["opcode"].location(),
+                        token=opcode_str,
                     )
 
             if SLOTS[Slot(inst_type._slot_type_name())].debug_only:
@@ -119,17 +129,20 @@ class CompoundInst:
                 self.instructions[i] = inst_type.nop_inst(address)
 
     @classmethod
-    def instruction_types(cls) -> list[type[inst.Inst]]:
-        # Instruction slots in MSB → LSB list order (encode places the last entry at LSB).
+    @functools.cache
+    def instruction_types(cls) -> tuple[type[inst.Inst], ...]:
+        # Instruction slots in MSB → LSB order (encode places the last entry at LSB).
         # Execution order (break first, then LR, …) is handled in ipu.py, not here.
-        # Slot order and counts come from the slot registry (ipu_isa.slots).
+        # Slot order and counts come from the slot registry (ipu_isa.slots); built once.
         result = []
         for slot in LAYOUT_ORDER:
             result.extend([SLOT_TO_INST[slot]] * SLOTS[slot].count)
-        return result
+        return tuple(result)
 
     @classmethod
+    @functools.cache
     def bits(cls) -> int:
+        """The instruction word width. Static ISA data, so computed once."""
         return sum(instruction.bits() for instruction in cls.instruction_types())
 
     def encode(self) -> int:
@@ -163,7 +176,13 @@ class CompoundInst:
         return res
 
     @classmethod
-    def get_fields(cls) -> list[tuple[str, int]]:
+    @functools.cache
+    def get_fields(cls) -> tuple[tuple[str, int], ...]:
+        """``(name, bits)`` of every instruction word field, LSB first.
+
+        Static ISA data, so computed once; the tuple is shared, hence immutable.
+        ``CompoundInst.get_fields.cache_clear()`` recomputes it on the next call.
+        """
         fields = []
         inst_types_list = cls.instruction_types()
 
@@ -193,7 +212,7 @@ class CompoundInst:
                     f"{inst_prefix}_token_{i}_{utils.camel_case_to_snake_case(token_type.__name__)}"
                 )
                 fields.append((field_name, token_type.bits()))
-        return list(reversed(fields))
+        return tuple(reversed(fields))
 
     @classmethod
     def generate_union_layout_svg(cls) -> str:

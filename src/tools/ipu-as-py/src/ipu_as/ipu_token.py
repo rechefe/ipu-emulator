@@ -1,11 +1,18 @@
+from __future__ import annotations
+
 import dataclasses
+from typing import TYPE_CHECKING
 
 import lark
 
-import ipu_as.label as label
 import ipu_as.utils as utils
+from ipu_as.errors import LabelError, OperandError, SourceLocation
+from ipu_as.symbols import is_local_reference
 from ipu_isa.geometry import INST_MEM_WORDS
 from ipu_isa.operand_types import operand_type
+
+if TYPE_CHECKING:
+    from ipu_as.symbols import SymbolTable
 
 #: Instruction-memory depth, as the assembler names it.
 MAX_PROGRAM_SIZE = INST_MEM_WORDS
@@ -15,9 +22,15 @@ MAX_PROGRAM_SIZE = INST_MEM_WORDS
 class AnnotatedToken:
     token: lark.Token
     instr_id: int
+    #: The label table of the assembly this token belongs to; None outside one.
+    symbols: SymbolTable | None = None
+
+    def location(self) -> SourceLocation:
+        """Where this token is in the rendered source."""
+        return SourceLocation.of(self.token)
 
     def get_location_string(self) -> str:
-        return f"Line {self.token.line}, Column {self.token.column}"
+        return str(self.location())
 
 
 class IpuToken:
@@ -40,14 +53,22 @@ class IpuToken:
             return {"kind": "number", "min": low, "max": high}
         raise NotImplementedError(f"{cls.__name__} does not describe its values")
 
-    def _raise_error(self, extra_msg: str = ""):
+    def _invalid_value_message(self, extra_msg: str) -> str:
         error_msg = (
             f"Invalid token value - {self.token.value} in token {self.__class__.__name__}\n"
             f"In {self.annotated_token.get_location_string()}"
         )
         if extra_msg:
             error_msg += f"\nAdditional Information: {extra_msg}"
-        raise ValueError(error_msg)
+        return error_msg
+
+    def _raise_error(self, extra_msg: str = ""):
+        """Raise an OperandError for this token's value."""
+        raise OperandError(
+            self._invalid_value_message(extra_msg),
+            location=self.annotated_token.location(),
+            token=self.token.value,
+        )
 
 
 class NumberToken(IpuToken):
@@ -64,7 +85,7 @@ class NumberToken(IpuToken):
             )
 
     @classmethod
-    def default(cls) -> "IpuToken":
+    def default(cls) -> IpuToken:
         return cls(AnnotatedToken(lark.Token("NUMBER", "0"), 0))
 
     @classmethod
@@ -86,10 +107,14 @@ class NumberToken(IpuToken):
         return f"{value}"
 
 
+#: Each EnumToken subclass's lower-case name -> value map, built on first use.
+_REVERSE_MAPS: dict[type, dict[str, int]] = {}
+
+
 class EnumToken(IpuToken):
     def __init__(self, token: AnnotatedToken):
         super().__init__(token)
-        if self.token.value.lower() not in {n.lower() for n in self.enum_array()}:
+        if self.token.value.lower() not in self._reverse_map():
             self._raise_error(
                 f"Value {self.token.value} not in enum options\n"
                 f"Available options: {self.enum_array()}"
@@ -103,7 +128,7 @@ class EnumToken(IpuToken):
         raise NotImplementedError("enum_array property must be implemented by subclasses")
 
     @classmethod
-    def default(cls) -> "IpuToken":
+    def default(cls) -> IpuToken:
         return cls(AnnotatedToken(lark.Token("ENUM", cls.enum_array()[0]), 0))
 
     @classmethod
@@ -126,8 +151,15 @@ class EnumToken(IpuToken):
     def encode(self) -> int:
         return self._reverse_map()[self.token.value.lower()]
 
-    def _reverse_map(self) -> dict[str, int]:
-        return {name.lower(): idx for idx, name in enumerate(self.enum_array())}
+    @classmethod
+    def _reverse_map(cls) -> dict[str, int]:
+        """Lower-case member name -> value, built once per class (the enum
+        tables are static ISA data). Do not mutate: it is shared."""
+        reverse = _REVERSE_MAPS.get(cls)
+        if reverse is None:
+            reverse = {name.lower(): idx for idx, name in enumerate(cls.enum_array())}
+            _REVERSE_MAPS[cls] = reverse
+        return reverse
 
     @classmethod
     def decode(cls, value: int) -> str:
@@ -173,11 +205,28 @@ class LabelToken(IpuToken):
                 self._raise_error(
                     f"Relative label target address {target_address} out of range for program size {MAX_PROGRAM_SIZE}"
                 )
-        elif self.token.value not in label.ipu_labels.labels:
-            self._raise_error(f"Label {self.token.value} not defined")
+        elif self.annotated_token.symbols is not None and is_local_reference(self.token.value):
+            try:
+                self.annotated_token.symbols.address(self.token, at=self.instr_id)
+            except LabelError as error:
+                # In the token-error format, which carries "Line N, Column M".
+                raise LabelError(
+                    self._invalid_value_message(str(error)),
+                    location=error.location,
+                    token=error.token,
+                ) from error
+        elif (
+            self.annotated_token.symbols is None
+            or self.token.value not in self.annotated_token.symbols
+        ):
+            raise LabelError(
+                self._invalid_value_message(f"Label {self.token.value} not defined"),
+                location=self.annotated_token.location(),
+                token=self.token.value,
+            )
 
     @classmethod
-    def default(cls) -> "IpuToken":
+    def default(cls) -> IpuToken:
         return cls(AnnotatedToken(lark.Token("LABEL", "+0"), 0))
 
     @classmethod
@@ -193,7 +242,7 @@ class LabelToken(IpuToken):
         if self.token.value.startswith("+"):
             offset = int(self.token.value, 0)
             return self.instr_id + offset
-        return label.ipu_labels.get_address(self.token)
+        return self.annotated_token.symbols.address(self.token, at=self.instr_id)
 
     @classmethod
     def decode(cls, value: int) -> str:

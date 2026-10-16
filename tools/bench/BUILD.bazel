@@ -15,6 +15,8 @@ py_library(
     imports = ["."],
     deps = [
         "//src/tools/ipu-apps:ipu_apps_lib",
+        # assemble/{render,parse,encode}_s, over the digest corpus (E05-01).
+        "//src/tools/ipu-as-py:bench_assemble_lib",
         "//src/tools/ipu-as-py:ipu_as_lib",
         "//src/tools/ipu-emu-py:ipu_emu_lib",
     ],

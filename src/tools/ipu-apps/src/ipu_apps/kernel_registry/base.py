@@ -92,7 +92,7 @@ class IpuApp:
         debug_control = None
         if debug_launch:
             from ipu_apps.kernel_registry.registry import _harness_spec
-            from ipu_emu.debug_launch import make_tui_debug_callback
+            from ipu_debug.launch import make_tui_debug_callback
 
             spec = _harness_spec(self)
             debug_callback, debug_control = make_tui_debug_callback(

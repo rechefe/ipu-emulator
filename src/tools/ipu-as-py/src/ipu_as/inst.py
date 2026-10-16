@@ -1,5 +1,7 @@
+import functools
 from collections.abc import Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 
 import lark
 
@@ -14,6 +16,7 @@ import ipu_as.immediate as immediate
 import ipu_as.utils as utils
 
 # isort: on
+from ipu_as.errors import OperandError, SlotError, SourceLocation
 from ipu_isa.instruction_spec import (
     COMPOUND_LAYOUT_SLOT_ORDER,
     INSTRUCTION_SPEC,
@@ -123,23 +126,48 @@ def check_operand_type_map(
 check_operand_type_map(OPERAND_TYPE_MAP)
 
 
-def _build_struct_table(slot_type: str) -> dict[str, "InstructionFormat"]:
-    """Build struct_by_opcode_table from INSTRUCTION_SPEC for a given slot.
+@functools.cache
+def _build_struct_table(slot_type: str) -> Mapping[str, "InstructionFormat"]:
+    """The struct_by_opcode_table of a slot, built once from INSTRUCTION_SPEC.
 
     Resolves string operand type names to actual token classes using
-    OPERAND_TYPE_MAP, and wraps each instruction in an InstructionFormat.
+    OPERAND_TYPE_MAP, and wraps each instruction in an InstructionFormat. The
+    table is shared by every caller, so it is read-only.
     """
     slot_spec = INSTRUCTION_SPEC[slot_type]
     result = {}
     for inst_name, inst_def in slot_spec.items():
-        operand_classes = [OPERAND_TYPE_MAP[op["type"]] for op in inst_def["operands"]]
+        operand_classes = tuple(OPERAND_TYPE_MAP[op["type"]] for op in inst_def["operands"])
         result[inst_name] = InstructionFormat(operands=operand_classes, doc=inst_def["doc"])
-    return result
+    return MappingProxyType(result)
 
 
-@dataclass
+@functools.cache
+def _inst_type_by_opcode() -> Mapping[str, type["Inst"]]:
+    """Lower-case opcode -> the Inst subclass whose slot has it, built once.
+
+    NOP is in every slot; like the subclass scan this replaces, it maps to the
+    first subclass defined (LoadInst). CompoundInst places NOP itself.
+    """
+    table: dict[str, type[Inst]] = {}
+    for subclass in Inst.__subclasses__():
+        for name in subclass.struct_by_opcode_table():
+            table.setdefault(name.lower(), subclass)
+    return MappingProxyType(table)
+
+
+@functools.cache
+def _default_token(token_class: type[ipu_token.IpuToken]) -> ipu_token.IpuToken:
+    """The token an unused union field encodes, built once per token class.
+
+    Defaults are fixed literals at address 0, so one instance serves every word.
+    """
+    return token_class.default()
+
+
+@dataclass(frozen=True)
 class InstructionFormat:
-    operands: list[type[ipu_token.IpuToken]]
+    operands: tuple[type[ipu_token.IpuToken], ...]
     doc: InstructionDoc | None = None
 
 
@@ -153,15 +181,16 @@ class Inst:
     def __init__(self, inst: dict[str, any]):
         self.opcode = self.opcode_type()(inst["opcode"])
         opcode_idx = self.opcode.encode()
-        struct_table = self.struct_by_opcode_table()
-        struct_names = list(struct_table.keys())
-        struct_entry = struct_table[struct_names[opcode_idx]]
+        # The table's order is the opcode order (_validate_instr_structure).
+        struct_entry = self.struct_by_opcode_table()[self.opcode_type().enum_array()[opcode_idx]]
         operand_types = self._operand_types_from_struct(struct_entry)
 
         if len(inst["operands"]) != len(operand_types):
-            raise ValueError(
+            raise OperandError(
                 f"Instruction {inst['opcode'].token.value} expects {len(operand_types)} operands, "
-                f"got {len(inst['operands'])}, in Line {self.opcode.token.line}, Column {self.opcode.token.column}."
+                f"got {len(inst['operands'])}, in Line {self.opcode.token.line}, Column {self.opcode.token.column}.",
+                location=inst["opcode"].location(),
+                token=inst["opcode"].token.value,
             )
 
         self.operands = [
@@ -175,15 +204,16 @@ class Inst:
         for i, operand in enumerate(self.operands):
             mapped_index = self._inst_mapping_table[self.opcode.encode()][i]
             full_token_list[mapped_index + 1] = operand
+        operand_types = self.operand_types()
         for i in range(len(full_token_list)):
             if full_token_list[i] is None:
-                full_token_list[i] = self.operand_types()[i - 1].default()
+                full_token_list[i] = _default_token(operand_types[i - 1])
         return full_token_list
 
     @classmethod
     def struct_by_opcode_table(
         cls,
-    ) -> dict[str, InstructionFormat | list[type[ipu_token.IpuToken]]]:
+    ) -> Mapping[str, InstructionFormat]:
         raise NotImplementedError(
             "struct_by_opcode_table property must be implemented by subclasses"
         )
@@ -194,10 +224,11 @@ class Inst:
         raise NotImplementedError("_slot_type_name must be implemented by subclasses")
 
     @classmethod
-    def operand_types(cls) -> list[type[ipu_token.IpuToken]]:
-        """Return canonical token types for each union field (derived from SLOT_UNIONS)."""
+    @functools.cache
+    def operand_types(cls) -> tuple[type[ipu_token.IpuToken], ...]:
+        """Canonical token types for each union field (derived from SLOT_UNIONS), built once."""
         slot_union = SLOT_UNIONS[cls._slot_type_name()]
-        return [OPERAND_TYPE_MAP[f.canonical_type] for f in slot_union.fields]
+        return tuple(OPERAND_TYPE_MAP[f.canonical_type] for f in slot_union.fields)
 
     @classmethod
     def _validate_instr_structure(cls) -> None:
@@ -227,30 +258,41 @@ class Inst:
     def encode(self) -> int:
         encoded_inst = 0
         shift_amount = 0
-        canonical_types = self.all_tokens()
+        widths = self._token_widths()
         full_token_list = self._get_full_token_list()
         for i in range(len(full_token_list) - 1, -1, -1):
-            token = full_token_list[i]
-            canonical_width = canonical_types[i].bits()
-            encoded_inst |= token.encode() << shift_amount
-            shift_amount += canonical_width
+            encoded_inst |= full_token_list[i].encode() << shift_amount
+            shift_amount += widths[i]
         return encoded_inst
 
     @classmethod
+    @functools.cache
+    def _token_widths(cls) -> tuple[int, ...]:
+        """The width of each all_tokens() field, built once."""
+        return tuple(token_type.bits() for token_type in cls.all_tokens())
+
+    @classmethod
+    @functools.cache
     def bits(cls) -> int:
         return sum(token_type.bits() for token_type in cls.all_tokens())
 
     @classmethod
-    def find_inst_type_by_opcode(cls, opcode: str) -> type["Inst"]:
-        opl = opcode.lower()
-        for subclass in cls.__subclasses__():
-            if any(opl == name.lower() for name in subclass.struct_by_opcode_table()):
-                return subclass
-        raise ValueError(f"Opcode '{opcode}' not found in any Inst subclass.")
+    def find_inst_type_by_opcode(
+        cls, opcode: str, location: SourceLocation | None = None
+    ) -> type["Inst"]:
+        """The Inst subclass whose slot has `opcode`; `location` locates the error if none does."""
+        inst_type = _inst_type_by_opcode().get(opcode.lower())
+        if inst_type is not None:
+            return inst_type
+        raise SlotError(
+            f"Opcode '{opcode}' not found in any Inst subclass.", location=location, token=opcode
+        )
 
     @classmethod
-    def all_tokens(cls) -> list[type[ipu_token.IpuToken]]:
-        return [cls.opcode_type()] + cls.operand_types()
+    @functools.cache
+    def all_tokens(cls) -> tuple[type[ipu_token.IpuToken], ...]:
+        """The opcode token type, then the canonical operand types; built once."""
+        return (cls.opcode_type(), *cls.operand_types())
 
     @classmethod
     def decode(cls, value: int) -> str:
@@ -427,7 +469,7 @@ class LoadInst(Inst):
         return opcodes.LoadInstOpcode
 
     @classmethod
-    def struct_by_opcode_table(cls) -> dict[str, InstructionFormat]:
+    def struct_by_opcode_table(cls) -> Mapping[str, InstructionFormat]:
         return _build_struct_table("load")
 
     @classmethod
@@ -458,7 +500,7 @@ class StoreInst(Inst):
         return opcodes.StoreInstOpcode
 
     @classmethod
-    def struct_by_opcode_table(cls) -> dict[str, InstructionFormat]:
+    def struct_by_opcode_table(cls) -> Mapping[str, InstructionFormat]:
         return _build_struct_table("store")
 
     @classmethod
@@ -489,7 +531,7 @@ class AccStoreInst(Inst):
         return opcodes.AccStoreInstOpcode
 
     @classmethod
-    def struct_by_opcode_table(cls) -> dict[str, InstructionFormat]:
+    def struct_by_opcode_table(cls) -> Mapping[str, InstructionFormat]:
         return _build_struct_table("acc_store")
 
     @classmethod
@@ -520,7 +562,7 @@ class MultInst(Inst):
         return opcodes.MultInstOpcode
 
     @classmethod
-    def struct_by_opcode_table(cls) -> dict[str, InstructionFormat]:
+    def struct_by_opcode_table(cls) -> Mapping[str, InstructionFormat]:
         return _build_struct_table("mult")
 
     @classmethod
@@ -551,7 +593,7 @@ class AccInst(Inst):
         return opcodes.AccInstOpcode
 
     @classmethod
-    def struct_by_opcode_table(cls) -> dict[str, InstructionFormat]:
+    def struct_by_opcode_table(cls) -> Mapping[str, InstructionFormat]:
         return _build_struct_table("acc")
 
     @classmethod
@@ -582,7 +624,7 @@ class AaqInst(Inst):
         return opcodes.AaqInstOpcode
 
     @classmethod
-    def struct_by_opcode_table(cls) -> dict[str, InstructionFormat]:
+    def struct_by_opcode_table(cls) -> Mapping[str, InstructionFormat]:
         return _build_struct_table("aaq")
 
     @classmethod
@@ -613,7 +655,7 @@ class LrInst(Inst):
         return opcodes.LrInstOpcode
 
     @classmethod
-    def struct_by_opcode_table(cls) -> dict[str, InstructionFormat]:
+    def struct_by_opcode_table(cls) -> Mapping[str, InstructionFormat]:
         return _build_struct_table("lr")
 
     @classmethod
@@ -644,7 +686,7 @@ class CondInst(Inst):
         return opcodes.CondInstOpcode
 
     @classmethod
-    def struct_by_opcode_table(cls) -> dict[str, InstructionFormat]:
+    def struct_by_opcode_table(cls) -> Mapping[str, InstructionFormat]:
         return _build_struct_table("cond")
 
     @classmethod
@@ -674,7 +716,7 @@ class BreakInst(Inst):
         return opcodes.BreakInstOpcode
 
     @classmethod
-    def struct_by_opcode_table(cls) -> dict[str, InstructionFormat]:
+    def struct_by_opcode_table(cls) -> Mapping[str, InstructionFormat]:
         return _build_struct_table("break")
 
     @classmethod

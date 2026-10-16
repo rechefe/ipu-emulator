@@ -49,8 +49,8 @@ breakpoints set at its prompt last for that prompt only:
 
 ```python
 from ipu_emu.emulator import run_with_debug
-from ipu_emu.debug_cli import debug_prompt
-from ipu_emu.debug_control import DebugControl
+from ipu_debug.cli import debug_prompt
+from ipu_debug.control import DebugControl
 
 control = DebugControl()
 run_with_debug(state, lambda s, c: debug_prompt(s, c, level=1, control=control), control=control)
@@ -215,7 +215,7 @@ Outside an editor and the help overlay, `Esc` does nothing.
 | `F8` | Execute one instruction and refresh |
 | `F9` | Toggle a runtime breakpoint at the disassembly cursor |
 | `F10` | Run to the disassembly cursor or the next stop |
-| `e` | Edit the selected LR/CR, pipeline-register, or XMEM value |
+| `e` | Edit the selected LR/CR, pipeline-register, or XMEM value; in disassembly, edit the PC |
 | `q` | Halt execution and exit the debugger (ignored while Help is open) |
 | `Esc` | Close the help overlay or cancel an open editor; otherwise do nothing |
 | `F2` | Add a tab to the focused pane |
@@ -262,7 +262,7 @@ and pane sizes are retained in memory for the current IPU state.
 `?` opens a scrollable overlay listing every control, grouped by scope. While it
 is open it consumes all input, so `F5` and `F8` cannot start execution by
 accident; `Esc`, `?`, or `Enter` closes it. The overlay and the shortcut
-bar are generated from one table in `debug_tui.py`, so they cannot disagree.
+bar are generated from one table in `ipu_debug/tui.py`, so they cannot disagree.
 
 The bottom shortcut bar changes with the focused pane, so it only shows actions
 that apply to the current context. It drops the least important shortcuts on a
@@ -540,7 +540,7 @@ To add debug support to your IPU application, use `run_with_debug` with a debug 
 ```python
 from ipu_emu.ipu_state import IpuState
 from ipu_emu.emulator import run_with_debug
-from ipu_emu.debug_cli import debug_prompt
+from ipu_debug.cli import debug_prompt
 
 state = IpuState()
 state.load_program("program.bin")
@@ -548,7 +548,7 @@ state.load_program("program.bin")
 
 # Run with debug CLI (level 0-2 controls verbosity); the shared control
 # carries breakpoints set at the prompt back to the run
-from ipu_emu.debug_control import DebugControl
+from ipu_debug.control import DebugControl
 control = DebugControl()
 run_with_debug(state, lambda s, c: debug_prompt(s, c, level=1, control=control), control=control)
 ```
@@ -678,6 +678,12 @@ input leaves the bytes unchanged and keeps the editor open.
 Edits affect only the selected value’s byte span. Pipeline edits use the displayed
 register’s native or wide backing; XMEM edits use the resolved selected address.
 Other memory tabs refresh immediately after applying an edit.
+
+In Disassembly, `e` edits the PC. The value must lie between `0` and
+`INST_MEM_SIZE - 1`; an out-of-range PC keeps the editor open with an error.
+The TUI editors and the line CLI's `set`, `break`, `delete` and `until` make
+the same change through one debugger core, so any of them refreshes every
+cached XMEM view.
 
 Escape sequence decoding waits at most 25 ms, so a standalone Escape closes
 popups promptly while arrow/function-key sequences remain enabled.

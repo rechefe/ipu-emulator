@@ -50,6 +50,37 @@ def _orphan_marker(path: str | Path, line: int, lang: str) -> DocBlockError:
     )
 
 
+def _marker_reason(path: str | Path, line: int, marker: re.Match, lang: str) -> str:
+    """The reason in a fragment marker; DocBlockError if it has none."""
+    rest = marker.group("rest").strip()
+    reason = rest[1:].strip() if rest.startswith(":") else ""
+    if not reason:
+        raise DocBlockError(
+            f"{path}:{line}: {lang}-fragment marker needs a reason "
+            f"(<!-- {lang}-fragment: why this block is not checked -->)"
+        )
+    return reason
+
+
+def _read_fence(
+    path: str | Path, lines: list[str], start: int, fence: re.Match
+) -> tuple[str, list[str], int]:
+    """(language, body lines, index after the closing fence) for the fence at `start`."""
+    indent = len(fence.group("indent"))
+    char = fence.group("fence")[0]
+    length = len(fence.group("fence"))
+    info = fence.group("info").strip()
+    closing = re.compile(rf"^[ \t]*{re.escape(char)}{{{length},}}[ \t]*$")
+    body: list[str] = []
+    i = start + 1
+    while i < len(lines) and not closing.match(lines[i]):
+        body.append(_strip_indent(lines[i], indent))
+        i += 1
+    if i == len(lines):
+        raise DocBlockError(f"{path}:{start + 1}: fence has no closing line")
+    return (info.split()[0] if info else ""), body, i + 1
+
+
 def fenced_blocks(path: str | Path, lang: str) -> list[Block]:
     """Return every fenced block in `path` whose info string starts with `lang`.
 
@@ -58,57 +89,30 @@ def fenced_blocks(path: str | Path, lang: str) -> list[Block]:
     `<lang>-fragment` marker without a reason, or a marker that is not followed
     by a `lang` fence.
     """
-    text = Path(path).read_text(encoding="utf-8")
-    lines = text.splitlines()
+    lines = Path(path).read_text(encoding="utf-8").splitlines()
     blocks: list[Block] = []
     pending_marker: tuple[int, str] | None = None  # (line, reason)
     i = 0
     while i < len(lines):
-        line = lines[i]
-        marker = _MARKER.match(line)
+        marker = _MARKER.match(lines[i])
+        fence = _FENCE.match(lines[i])
+        if pending_marker is not None and not fence:
+            raise _orphan_marker(path, pending_marker[0], lang)
         if marker and marker.group("lang") == lang:
-            if pending_marker is not None:
-                raise _orphan_marker(path, pending_marker[0], lang)
-            rest = marker.group("rest").strip()
-            reason = rest[1:].strip() if rest.startswith(":") else ""
-            if not reason:
-                raise DocBlockError(
-                    f"{path}:{i + 1}: {lang}-fragment marker needs a reason "
-                    f"(<!-- {lang}-fragment: why this block is not checked -->)"
-                )
-            pending_marker = (i + 1, reason)
+            pending_marker = (i + 1, _marker_reason(path, i + 1, marker, lang))
             i += 1
             continue
-
-        fence = _FENCE.match(line)
         if not fence:
-            if pending_marker is not None:
-                raise _orphan_marker(path, pending_marker[0], lang)
             i += 1
             continue
-
-        open_line = i + 1
-        indent = len(fence.group("indent"))
-        char = fence.group("fence")[0]
-        length = len(fence.group("fence"))
-        info = fence.group("info").strip()
-        block_lang = info.split()[0] if info else ""
-        closing = re.compile(rf"^[ \t]*{re.escape(char)}{{{length},}}[ \t]*$")
-        body: list[str] = []
-        i += 1
-        while i < len(lines) and not closing.match(lines[i]):
-            body.append(_strip_indent(lines[i], indent))
-            i += 1
-        if i == len(lines):
-            raise DocBlockError(f"{path}:{open_line}: fence has no closing line")
-        i += 1  # past the closing fence
-
+        block_lang, body, next_i = _read_fence(path, lines, i, fence)
         if block_lang == lang:
             reason = pending_marker[1] if pending_marker else None
-            blocks.append(Block(str(path), open_line, "\n".join(body) + "\n", reason))
+            blocks.append(Block(str(path), i + 1, "\n".join(body) + "\n", reason))
         elif pending_marker is not None:
             raise _orphan_marker(path, pending_marker[0], lang)
         pending_marker = None
+        i = next_i
 
     if pending_marker is not None:
         raise _orphan_marker(path, pending_marker[0], lang)

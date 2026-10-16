@@ -10,6 +10,7 @@ import decode_snapshots
 import pytest
 
 from ipu_as import reg
+from ipu_as.compound_inst import CompoundInst
 
 # Bazel runs the test from the runfiles root of the main repository.
 ROOT = Path.cwd()
@@ -40,11 +41,14 @@ def test_renaming_a_token_class_changes_word_fields():
     class rename even when the encoding is unchanged."""
     before = decode_snapshots.word_fields()
     # monkeypatch cannot restore __name__ (it is not in the class __dict__).
+    # get_fields() is computed once (E05-01), so recompute it around the rename.
     original = reg.LrRegField.__name__
     reg.LrRegField.__name__ = "RenamedLrRegField"
+    CompoundInst.get_fields.cache_clear()
     try:
         after = decode_snapshots.word_fields()
     finally:
         reg.LrRegField.__name__ = original
+        CompoundInst.get_fields.cache_clear()
     assert after != before
     assert any("renamed_lr_reg_field" in name for name, _ in after["fields_lsb_first"])

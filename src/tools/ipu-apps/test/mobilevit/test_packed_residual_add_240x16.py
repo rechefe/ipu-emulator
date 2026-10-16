@@ -15,7 +15,6 @@ from fixture_kernel_support import kernel_inst
 from fixture_packed_l5_measure import count_instructions
 
 from ipu_apps.kernels.elementwise.residual_add_16x240.app import ResidualAdd16x240App
-from ipu_as.label import reset_labels
 from ipu_as.lark_tree import assemble_to_bin_file
 from ipu_emu.emulator import load_program_from_binary, run_until_complete
 from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
@@ -65,7 +64,6 @@ def test_packed_residual_add_correctness_and_cost(tmp_path: Path) -> None:
     expected = A.astype(np.float64) + B.astype(np.float64)
 
     # ---- Packed run ----
-    reset_labels()
     packed_bin = tmp_path / "packed.bin"
     assemble_to_bin_file(_PACKED_ASM_SRC.read_text(encoding="utf-8"), str(packed_bin))
 

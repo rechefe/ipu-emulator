@@ -177,3 +177,31 @@ def test_allowed_self_relative_and_third_party_imports_pass(tmp_path):
     )
     table = {"pkg_a": frozenset({"pkg_b"}), "pkg_b": frozenset()}
     assert violations(packages, table) == []
+
+
+# Rules of the real table, checked on planted packages.
+
+#: The only packages that may import the debugger: the runner (Q62, E08-03).
+DEBUGGER_IMPORTERS = frozenset({"ipu_apps", "ipu_harness"})
+
+
+def test_only_the_runner_may_import_the_debugger():
+    importers = {package for package, deps in TABLE_ROWS.items() if "ipu_debug" in deps}
+    assert importers <= DEBUGGER_IMPORTERS
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["import ipu_debug\n", "def f():\n    from ipu_debug.tui import run_debug_tui\n"],
+)
+def test_the_emulator_importing_the_debugger_is_reported(tmp_path, text):
+    packages = _plant(
+        tmp_path,
+        {
+            "ipu-emu-py/src/ipu_emu/emulator.py": text,
+            "ipu-debug/src/ipu_debug/__init__.py": "import ipu_emu\n",
+        },
+    )
+    table = {name: TABLE_ROWS[name] & packages.keys() for name in packages}
+    [found] = violations(packages, table)
+    assert "ipu_emu imports ipu_debug" in found

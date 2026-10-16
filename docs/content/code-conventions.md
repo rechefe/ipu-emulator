@@ -73,6 +73,28 @@ Run the heavy tier before review when a change touches code that only heavy-tier
 
 The [PR template](https://github.com/rechefe/ipu-emulator/blob/master/.github/pull_request_template.md) asks for both; [Code review](code-review.md) says what the author and the reviewer check.
 
+## Baselines
+
+A baseline is a checked-in file that pins today's output. Its test fails on any change. The baselines are how a refactor PR proves it changes no output:
+
+| Baseline | Location | Update target |
+|---|---|---|
+| Assembled-program digests | `src/tools/ipu-apps/test/baselines/asm_digests.json` | `//src/tools/ipu-apps:update_asm_digests` |
+| Field names, emulator field maps, enum descriptors | `src/tools/ipu-as-py/test/baselines/*.json` | `//src/tools/ipu-as-py:update_decode_snapshots` |
+| Disassembly text | `src/tools/ipu-apps/test/baselines/disassembly/` | `//src/tools/ipu-apps:update_disassembly_snapshots` |
+| SV package golden | `src/tools/ipu-as-py/test/golden/ipu_instr_pkg.sv`, plus the `EXPECTED_LOCALPARAMS` table in `test_sv_package_golden.py` (edited by hand) | `//src/tools/ipu-as-py:update_sv_golden` |
+| Generated artifacts | `src/tools/ipu-as-py/test/baselines/generated/` | `//src/tools/ipu-as-py:update_generated_artifacts` |
+| Kernel case records | `baseline.json` in each kernel folder | `//src/tools/ipu-apps:update_kernel_baselines` |
+
+`tools/update_baselines.sh` runs every update target and then lists the baseline files that changed. The kernel target takes minutes, so it runs only with `--with-kernels`. The timing tests have no baseline file: their expected values are code, changed by hand in the behaviour PR that changes the timing rule.
+
+| Rule | Why | Checked by |
+|---|---|---|
+| A PR labelled refactor modifies no baseline file. | An unchanged baseline is the proof that the refactor changes no output. Regenerating a baseline to make a refactor pass hides the change it was there to catch. | Review; the PR template asks for it |
+| A PR labelled `behaviour change` regenerates only the baselines it means to change. Its description says why each one changed, in one sentence. | The reviewer reads each baseline diff as the effect of the change. | Review; the PR template asks for the list |
+| Every `*_WIDTH` localparam of the SV package stays identical to the base, or the PR calls the change out as breaking. `tools/sv_localparam_diff.sh <base-ref>` prints nothing when they are identical. | Each width is wire format for the downstream RTL repository (`CLAUDE.md`, "Generated SystemVerilog Package"). | `//src/tools/ipu-as-py:test_sv_package_golden`; the diff script; Review |
+| A new update target is added to `tools/update_baselines.sh`. | One command must regenerate every baseline. | `//tools:test_update_baselines` |
+
 ## Words
 
 | Rule | Why | Checked by |

@@ -16,43 +16,48 @@ import time
 from collections.abc import Iterator
 from contextlib import closing
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 try:  # pragma: no cover - import availability is platform-dependent
     import curses
 except ImportError:  # pragma: no cover
     curses = None  # type: ignore[assignment]
 
-from ipu_emu.debug_cli import (
-    _CELL16_BACKGROUND_SHIFT,
-    _CELL16_CHARACTER_MASK,
-    _CELL16_CHARACTERS_PER_GROUP,
-    _CELL16_COLOR_MASK,
-    _CELL16_FOREGROUND_SHIFT,
-    _F32_DISPLAY_WIDTH,
-    _F32_SIGNIFICANT_DIGITS,
-    _HEX_BYTES_PER_GROUP,
-    _INT8_DECIMAL_WIDTH,
-    _U8_DECIMAL_WIDTH,
-    _U32_DECIMAL_WIDTH,
+from ipu_debug import format as debug_format
+from ipu_debug.control import DebugControl
+from ipu_debug.format import (
+    CELL16_BACKGROUND_SHIFT,
+    CELL16_CHARACTER_MASK,
+    CELL16_CHARACTERS_PER_GROUP,
+    CELL16_COLOR_MASK,
+    CELL16_FOREGROUND_SHIFT,
+    F32_DISPLAY_WIDTH,
+    F32_SIGNIFICANT_DIGITS,
+    HEX_BYTES_PER_GROUP,
+    INT8_DECIMAL_WIDTH,
+    U8_DECIMAL_WIDTH,
+    U32_DECIMAL_WIDTH,
     decode_16bit_cell,
 )
-from ipu_emu.debug_control import DebugControl
-from ipu_emu.debug_pipeline import (
+from ipu_debug.pipeline import (
     SLOT_LABELS,
     display_operation,
     pipeline_occupancy,
     semantic_operations,
+)
+from ipu_debug.session import (
+    XMEM_FORMAT_ITEM_SIZE_BYTES,
+    XMEM_FORMATS,
+    DebugError,
+    DebugSession,
+    XmemRequest,
+    XmemWindow,
 )
 from ipu_emu.descriptors import REGFILE_SCHEMA
 from ipu_emu.emulator import DebugAction
 from ipu_emu.errors import EmulatorError
 from ipu_emu.ipu import xmem_row_size_bytes
 from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
-
-if TYPE_CHECKING:
-    from ipu_emu.debug_cli import ResolvedXmemRequest, XmemRequest
-
 
 MIN_TERMINAL_ROWS = 24
 MIN_TERMINAL_COLUMNS = 80
@@ -153,7 +158,7 @@ _SCALAR_FORMAT_VALUE_WIDTHS = {
     "hex": 8,
     "u32": 10,
     "int32": 11,
-    "f32": _F32_DISPLAY_WIDTH,
+    "f32": F32_DISPLAY_WIDTH,
     "bits": BITS_PER_REGISTER,
 }
 
@@ -364,10 +369,10 @@ KEY_BINDINGS: tuple[KeyBinding, ...] = (
     KeyBinding(
         ("e",),
         "pane",
-        "Edit the selected register or memory value",
+        "Edit the selected value (PC in Disassembly)",
         "e:Value",
         1,
-        panes=("registers", "pipeline", "xmem"),
+        panes=("disassembly", "registers", "pipeline", "xmem"),
     ),
     KeyBinding(
         ("Shift-Left", "Shift-Right"),
@@ -544,8 +549,6 @@ class DebugViewSession:
         self.message_is_error = error
 
     def ensure_default_tab(self, state: IpuState) -> None:
-        from ipu_emu.debug_cli import XmemRequest
-
         fresh = not self.initialized
         if fresh and not self.tabs:
             numeric = (
@@ -602,8 +605,7 @@ class DebugViewSession:
         return snapshot
 
     def commit_baseline(self, state: IpuState) -> None:
-        from ipu_emu.debug_cli import _resolve_xmem_request
-
+        debug = DebugSession(state)
         register_snapshot = self.snapshot_registers(state)
         for tab in self.register_tabs:
             tab.baseline = register_snapshot.copy()
@@ -612,8 +614,9 @@ class DebugViewSession:
             tab.baseline_key = spec.key
             tab.baseline_data = _read_pipeline_register(state, spec)
         for tab in self.tabs:
-            resolved, error = _resolve_xmem_request(state, tab.request)
-            if error is not None or resolved is None:
+            try:
+                resolved = debug.read_xmem(tab.request)
+            except DebugError:
                 tab.baseline_key = None
                 tab.baseline_data = None
                 continue
@@ -629,7 +632,7 @@ def new_debug_view_session(state: IpuState) -> DebugViewSession:
     return session
 
 
-def _resolved_key(resolved: ResolvedXmemRequest) -> tuple[int, int, str, int]:
+def _resolved_key(resolved: XmemWindow) -> tuple[int, int, str, int]:
     return (
         resolved.byte_address,
         resolved.byte_count,
@@ -647,10 +650,9 @@ def _read_pipeline_register(
         if state.wide_vector_debug and spec.wide_backing is not None
         else spec.backing
     )
-    descriptor = state.regfile.descriptor(backing)
-    raw = state.regfile.view(backing)
-    start = spec.index * descriptor.size_bytes
-    return bytes(raw[start : start + descriptor.size_bytes])
+    value = DebugSession(state).register(backing, spec.index).value
+    assert isinstance(value, bytes)
+    return value
 
 
 def _pipeline_format(state: IpuState, spec: PipelineRegisterSpec) -> str:
@@ -696,8 +698,8 @@ def _cell16_color_summary(data: bytes) -> str:
     backgrounds: set[int] = set()
     for offset in range(0, len(data), 2):
         cell = struct.unpack_from("<H", data, offset)[0]
-        foregrounds.add((cell >> _CELL16_FOREGROUND_SHIFT) & _CELL16_COLOR_MASK)
-        backgrounds.add((cell >> _CELL16_BACKGROUND_SHIFT) & _CELL16_COLOR_MASK)
+        foregrounds.add((cell >> CELL16_FOREGROUND_SHIFT) & CELL16_COLOR_MASK)
+        backgrounds.add((cell >> CELL16_BACKGROUND_SHIFT) & CELL16_COLOR_MASK)
     return f"fg={_compact_color_set(foregrounds)} bg={_compact_color_set(backgrounds)}"
 
 
@@ -810,6 +812,7 @@ class CursesDebugView:
         self.state = state
         # The run's control, from whoever started the run; else this view's own.
         self.control = control if control is not None else DebugControl()
+        self.debug = DebugSession(state, self.control)
         self.session = session
         self.cycle = cycle
         self.colors = _ColorManager()
@@ -820,7 +823,8 @@ class CursesDebugView:
         self.cursor = 0
         self.editor_mode: str | None = None
         self.editor_pane: str | None = None
-        self.editor_register: tuple[str, int] | None = None
+        # The scalar being edited, as ``DebugSession.set_register`` names it.
+        self.editor_register: str | None = None
         # Overlay state is per curses entry, so help never survives a step.
         self.help_visible = False
         self.help_scroll = 0
@@ -855,10 +859,12 @@ class CursesDebugView:
         # does, and instruction memory cannot change while the debugger is
         # stopped, so each PC is decoded at most once per curses entry.
         self._disassembly_cache: dict[int, str] = {}
-        # XMEM is frozen for the same reason, and one request can tokenise into
-        # far more lines than a pane shows.
+        # XMEM only changes through ``self.debug``, and one request can tokenise
+        # into far more lines than a pane shows, so reads are cached for as
+        # long as the session's generation stays the same.
         self._xmem_cache: dict[tuple[int, int, str, int], list[Any]] = {}
-        self._xmem_requests: dict[XmemRequest, tuple[ResolvedXmemRequest | None, str | None]] = {}
+        self._xmem_requests: dict[XmemRequest, tuple[XmemWindow | None, str | None]] = {}
+        self._xmem_generation = self.debug.generation
         self.redraw = True
         self.disassembly_rect = Rect(0, 0, 0, 0)
         self.registers_rect = Rect(0, 0, 0, 0)
@@ -1330,20 +1336,28 @@ class CursesDebugView:
                 1,
             )
 
-    def _resolve_xmem(self, request: XmemRequest) -> tuple[ResolvedXmemRequest | None, str | None]:
-        from ipu_emu.debug_cli import _resolve_xmem_request
+    def _fresh_xmem_views(self) -> None:
+        """Drop cached XMEM reads once the session has changed state."""
+        if self._xmem_generation != self.debug.generation:
+            self._xmem_generation = self.debug.generation
+            self._xmem_requests = {}
+            self._xmem_cache = {}
 
+    def _resolve_xmem(self, request: XmemRequest) -> tuple[XmemWindow | None, str | None]:
+        self._fresh_xmem_views()
         if request not in self._xmem_requests:
-            self._xmem_requests[request] = _resolve_xmem_request(self.state, request)
+            try:
+                self._xmem_requests[request] = (self.debug.read_xmem(request), None)
+            except DebugError as error:
+                self._xmem_requests[request] = (None, str(error))
         return self._xmem_requests[request]
 
-    def _xmem_lines(self, resolved: ResolvedXmemRequest) -> list[Any]:
+    def _xmem_lines(self, resolved: XmemWindow) -> list[Any]:
+        self._fresh_xmem_views()
         key = _resolved_key(resolved)
         lines = self._xmem_cache.get(key)
         if lines is None:
-            from ipu_emu.debug_cli import _tokenize_xmem
-
-            lines = _tokenize_xmem(
+            lines = debug_format.tokenize_xmem(
                 resolved.data,
                 resolved.byte_address,
                 resolved.request.fmt,
@@ -1355,9 +1369,8 @@ class CursesDebugView:
     def _disassembly(self, pc: int) -> str:
         text = self._disassembly_cache.get(pc)
         if text is None:
-            from ipu_emu.debug_cli import disassemble_at
-
-            text = disassemble_at(self.state, pc)
+            line = self.debug.disassemble(pc, 1)
+            text = f"PC {pc}: {line[0].text}" if line else "PC out of bounds"
             operations = self._all_operations(text)
             if len(operations) == len(SLOT_LABELS):
                 text = f"PC {pc}: " + ";\n".join(semantic_operations(operations)) + ";;"
@@ -1747,12 +1760,12 @@ class CursesDebugView:
         if fmt == "hex":
             text = f"{unsigned:08x}"
         elif fmt == "u32":
-            text = f"{unsigned:0{_U32_DECIMAL_WIDTH}d}"
+            text = f"{unsigned:0{U32_DECIMAL_WIDTH}d}"
         elif fmt == "int32":
             text = str(struct.unpack("<i", struct.pack("<I", unsigned))[0])
         elif fmt == "f32":
             value = struct.unpack("<f", struct.pack("<I", unsigned))[0]
-            text = f"{value:>{_F32_DISPLAY_WIDTH}.{_F32_SIGNIFICANT_DIGITS}g}"
+            text = f"{value:>{F32_DISPLAY_WIDTH}.{F32_SIGNIFICANT_DIGITS}g}"
         else:
             text = CursesDebugView._format_bits(unsigned)
         return text.rjust(width)[:width]
@@ -2026,9 +2039,9 @@ class CursesDebugView:
                 if fmt == "cell16":
                     cell = struct.unpack("<H", raw)[0]
                     text, foreground, background = decode_16bit_cell(
-                        cell & _CELL16_CHARACTER_MASK,
-                        (cell >> _CELL16_FOREGROUND_SHIFT) & _CELL16_COLOR_MASK,
-                        (cell >> _CELL16_BACKGROUND_SHIFT) & _CELL16_COLOR_MASK,
+                        cell & CELL16_CHARACTER_MASK,
+                        (cell >> CELL16_FOREGROUND_SHIFT) & CELL16_COLOR_MASK,
+                        (cell >> CELL16_BACKGROUND_SHIFT) & CELL16_COLOR_MASK,
                     )
                 else:
                     text = self._format_pipeline_value(raw, fmt, value_width)
@@ -2070,18 +2083,18 @@ class CursesDebugView:
         if fmt == "hex":
             return 1, 2
         if fmt == "u8":
-            return 1, _U8_DECIMAL_WIDTH
+            return 1, U8_DECIMAL_WIDTH
         if fmt == "int8":
-            return 1, _INT8_DECIMAL_WIDTH
+            return 1, INT8_DECIMAL_WIDTH
         if fmt == "cell16":
             return 2, 1
         if fmt == "u32":
-            return 4, _U32_DECIMAL_WIDTH
+            return 4, U32_DECIMAL_WIDTH
         if fmt == "int32":
             return 4, 11
         if fmt == "bits":
             return 4, BITS_PER_REGISTER
-        return 4, _F32_DISPLAY_WIDTH
+        return 4, F32_DISPLAY_WIDTH
 
     def _pipeline_display_rows(self, fmt: str, rect: Rect, item_count: int) -> list[int | None]:
         per_line = self._pipeline_items_per_line(fmt, rect)
@@ -2127,11 +2140,11 @@ class CursesDebugView:
         if item_in_line == 0:
             return 0
         if fmt == "cell16":
-            return 1 if item_in_line % _CELL16_CHARACTERS_PER_GROUP == 0 else 0
+            return 1 if item_in_line % CELL16_CHARACTERS_PER_GROUP == 0 else 0
         if (
             fmt == "hex"
             and self.state.wide_vector_debug
-            and item_in_line % _HEX_BYTES_PER_GROUP == 0
+            and item_in_line % HEX_BYTES_PER_GROUP == 0
         ):
             return 2
         return 1
@@ -2141,17 +2154,17 @@ class CursesDebugView:
         if fmt == "hex":
             return f"{raw[0]:02x}"
         if fmt == "u8":
-            return f"{raw[0]:0{_U8_DECIMAL_WIDTH}d}"
+            return f"{raw[0]:0{U8_DECIMAL_WIDTH}d}"
         if fmt == "int8":
             return f"{struct.unpack('<b', raw)[0]:>{width}d}"
         if fmt == "u32":
-            return f"{struct.unpack('<I', raw)[0]:0{_U32_DECIMAL_WIDTH}d}"
+            return f"{struct.unpack('<I', raw)[0]:0{U32_DECIMAL_WIDTH}d}"
         if fmt == "int32":
             return f"{struct.unpack('<i', raw)[0]:>{width}d}"
         if fmt == "bits":
             return CursesDebugView._format_bits(struct.unpack("<I", raw)[0])
         value = struct.unpack("<f", raw)[0]
-        return f"{value:>{width}.{_F32_SIGNIFICANT_DIGITS}g}"
+        return f"{value:>{width}.{F32_SIGNIFICANT_DIGITS}g}"
 
     def _draw_keys(self, rect: Rect) -> None:
         text = self._footer_text(rect.width)
@@ -2461,8 +2474,7 @@ class CursesDebugView:
         action = "Add" if self.editor_mode == "add" else "Edit"
         title = f"{action} {pane_label} tab"
         if self.editor_register is not None:
-            name, index = self.editor_register
-            title = f"Edit {name.upper()}{index} value"
+            title = f"Edit {self.editor_register.upper()} value"
         if self.editor_mode == "value":
             title = f"Edit {self.editor_value[4]}"
         self._draw_overlay_frame(rect, [title])
@@ -2487,7 +2499,11 @@ class CursesDebugView:
         first_description, second_description = descriptions[pane]
         if self.editor_mode == "scalar":
             first_description = "Integer value: decimal, 0x hex, or 0b binary"
-            second_description = "Register masking applies; CR0 and CR1 are read-only"
+            second_description = (
+                "Range: 0 through instruction memory size - 1"
+                if self.editor_register == "pc"
+                else "Register masking applies; CR0 and CR1 are read-only"
+            )
         if self.editor_mode == "value":
             first_description = f"Format: {self.editor_value[3]} / {self.editor_value[2]} bytes"
             second_description = "Enter a number; hex/binary prefixes accepted for integers"
@@ -2601,7 +2617,9 @@ class CursesDebugView:
                 self.session.stages_scroll = 0 if self._key_is("KEY_HOME", key) else 10000
                 return _NO_OUTCOME
         if key in ("e", "E"):
-            if self.session.focus in ("registers", "pipeline", "xmem"):
+            if self.session.focus == "disassembly":
+                self._begin_scalar_editor("pc")
+            elif self.session.focus in ("registers", "pipeline", "xmem"):
                 self._begin_value_editor()
             return _NO_OUTCOME
         if self._key_is("KEY_F9", key) or self._key_is("KEY_F10", key):
@@ -2611,16 +2629,16 @@ class CursesDebugView:
             base = self.state.program_counter if tab.target is None else tab.target
             pc = max(0, min(INST_MEM_SIZE - 1, base + tab.cursor_offset))
             if self._key_is("KEY_F9", key):
-                enabled = self.control.toggle_breakpoint(pc)
+                enabled = self.debug.toggle_breakpoint(pc)
                 action = "set" if enabled else "removed"
                 self.session.set_message(f"Breakpoint {action} at PC {pc}")
-            elif self.control.run_until(pc, self.state.program_counter):
+            elif self.debug.run_until(pc):
                 return self._execution_action(DebugAction.CONTINUE)
             else:
                 self.session.set_message(f"Already at PC {pc}")
             return _NO_OUTCOME
         if isinstance(key, str) and key.lower() == "q":
-            self.state.program_counter = INST_MEM_SIZE
+            self.debug.halt()
             return self._execution_action(DebugAction.QUIT)
         if isinstance(key, str) and key.lower() == "f":
             self._cycle_focused_format()
@@ -2930,7 +2948,7 @@ class CursesDebugView:
             if rect.contains(y, x) and x < rect.x + 2:
                 self._focus_pane("disassembly")
                 self._place_cursor("disassembly", pc)
-                enabled = self.control.toggle_breakpoint(pc)
+                enabled = self.debug.toggle_breakpoint(pc)
                 action = "set" if enabled else "removed"
                 self.session.set_message(f"Breakpoint {action} at PC {pc}")
                 return
@@ -3105,14 +3123,12 @@ class CursesDebugView:
             fmt = existing.fmt if isinstance(existing, PipelineTab) else None
             return PipelineTab(register_key=spec.key, fmt=fmt), None
 
-        from ipu_emu.debug_cli import _parse_xmem_request
-
-        if command.lower().startswith("xmem "):
-            command = command[5:]
-        request, error = _parse_xmem_request(command)
-        if error is None and request is not None:
-            _, error = self._resolve_xmem(request)
-        if error is not None or request is None:
+        try:
+            request = self.debug.parse_xmem(command)
+        except DebugError as error:
+            return None, str(error)
+        _, error = self._resolve_xmem(request)
+        if error is not None:
             return None, error
         return XmemTab(request), None
 
@@ -3131,10 +3147,13 @@ class CursesDebugView:
                 if self.state.wide_vector_debug and spec.wide_backing
                 else spec.backing
             )
-            register_size = self.state.regfile.descriptor(backing).size_bytes
+            register = self.debug.register(backing, spec.index).value
+            assert isinstance(register, bytes)
+            register_size = len(register)
             tab.cursor = max(0, min(tab.cursor, register_size // size - 1))
-            offset = spec.index * register_size + tab.cursor * size
-            raw = bytes(self.state.regfile.view(backing)[offset : offset + size])
+            start = tab.cursor * size
+            offset = spec.index * register_size + start
+            raw = register[start : start + size]
             label = f"{spec.label}[{tab.cursor}]"
         else:
             tab = self.session.selected_tab()
@@ -3152,7 +3171,7 @@ class CursesDebugView:
             token = tokens[tab.cursor_column]
             offset, size = resolved.byte_address + token.raw_start, token.raw_size
             fmt, backing = tab.request.fmt, None
-            raw = self.state.xmem.snapshot_bytes(offset, size)
+            raw = resolved.data[token.raw_start : token.raw_start + size]
             label = f"XMEM 0x{offset:08x}"
         if len(raw) != size:
             self.session.set_message("Selected value is out of range", error=True)
@@ -3175,65 +3194,65 @@ class CursesDebugView:
         self.session.set_message(f"Editing {label}")
 
     def _submit_value_editor(self) -> object:
-        from ipu_emu.debug_cli import _parse_int
-
         backing, offset, size, fmt, label = self.editor_value
         try:
             if fmt == "f32":
                 raw = struct.pack("<f", float(self.command.strip()))
             else:
-                value = _parse_int(self.command.strip())
-                if value is None:
-                    raise ValueError("Enter a valid integer")
+                try:
+                    value = self.debug.parse_int(self.command.strip())
+                except DebugError:
+                    raise ValueError("Enter a valid integer") from None
                 raw = value.to_bytes(size, "little", signed=fmt in ("int8", "int32"))
             if backing is None:
-                self.state.xmem.write_address(offset, raw)
+                self.debug.write_xmem(offset, raw)
             else:
-                if offset < 0 or offset + size > len(self.state.regfile.view(backing)):
-                    raise ValueError("Selected value is out of range")
-                self.state.regfile.mutable(backing, offset, size)[:] = raw
+                self.debug.write_register_bytes(backing, offset, raw)
         except (ValueError, OverflowError, struct.error, EmulatorError) as error:
             self.session.set_message(f"Invalid value: {error}", error=True)
             return _NO_OUTCOME
-        self._xmem_requests.clear()
-        self._xmem_cache.clear()
         self._clear_editor()
         self.editor_value = None
         self.session.set_message(f"Updated {label}")
         return _NO_OUTCOME
 
-    def _begin_scalar_editor(self) -> None:
-        tab = self.session.selected_register_tab()
-        groups = self._register_groups(tab)
-        position = max(0, min(tab.cursor, len(groups) * _REGISTERS_PER_GROUP - 1))
-        name = groups[position // _REGISTERS_PER_GROUP]
-        index = position % _REGISTERS_PER_GROUP
-        self.editor_register = (name, index)
+    def _begin_scalar_editor(self, register: str | None = None) -> None:
+        """Edit one scalar: *register* (``"pc"``) or the LR / CR under the cursor."""
+        if register is None:
+            tab = self.session.selected_register_tab()
+            groups = self._register_groups(tab)
+            position = max(0, min(tab.cursor, len(groups) * _REGISTERS_PER_GROUP - 1))
+            register = (
+                f"{groups[position // _REGISTERS_PER_GROUP]}{position % _REGISTERS_PER_GROUP}"
+            )
+        if register == "pc":
+            current = self.state.program_counter
+            self.editor_pane = "disassembly"
+        else:
+            desc, index = self.debug.resolve_register(register)
+            current = self.state.regfile.get_scalar(desc.name, index)
+            self.editor_pane = "registers"
+        self.editor_register = register
         self.editor_mode = "scalar"
-        self.editor_pane = "registers"
-        self.command = hex(self.state.regfile.get_scalar(name, index))
+        self.command = hex(current)
         self.cursor = len(self.command)
-        self.session.set_message(f"Enter an integer for {name.upper()}{index}")
+        self.session.set_message(f"Enter an integer for {register.upper()}")
 
     def _submit_scalar_editor(self) -> object:
-        from ipu_emu.debug_cli import _parse_int
-
         assert self.editor_register is not None
-        name, index = self.editor_register
-        value = _parse_int(self.command.strip())
-        if value is None:
+        try:
+            value = self.debug.parse_int(self.command.strip())
+        except DebugError:
             self.session.set_message("Invalid integer value", error=True)
             return _NO_OUTCOME
         try:
-            self.state.regfile.set_scalar(name, index, value)
-        except EmulatorError as error:
+            written = self.debug.set_register(self.editor_register, value)
+        except DebugError as error:
             self.session.set_message(str(error), error=True)
             return _NO_OUTCOME
-        self._xmem_requests.clear()
-        self._xmem_cache.clear()
+        label = self.editor_register.upper()
         self._clear_editor()
-        actual = self.state.regfile.get_scalar(name, index)
-        self.session.set_message(f"Set {name.upper()}{index} = {actual:#x}")
+        self.session.set_message(f"Set {label} = {written.value:#x}")
         return _NO_OUTCOME
 
     def _begin_tab_editor(self, mode: str) -> None:
@@ -3337,12 +3356,6 @@ class CursesDebugView:
         self._cycle_xmem_format(delta)
 
     def _cycle_xmem_format(self, delta: int) -> None:
-        from ipu_emu.debug_cli import (
-            _XMEM_FORMAT_ITEM_SIZE_BYTES,
-            _XMEM_FORMATS,
-            XmemRequest,
-        )
-
         tab = self.session.selected_tab()
         if tab is None:
             self.session.set_message("XMEM has no tabs")
@@ -3351,10 +3364,10 @@ class CursesDebugView:
         if error is not None or resolved is None:
             self.session.set_message(f"XMEM format error: {error}", error=True)
             return
-        current_index = _XMEM_FORMATS.index(tab.request.fmt)
-        for distance in range(1, len(_XMEM_FORMATS) + 1):
-            candidate = _XMEM_FORMATS[(current_index + distance * delta) % len(_XMEM_FORMATS)]
-            item_size = _XMEM_FORMAT_ITEM_SIZE_BYTES[candidate]
+        current_index = XMEM_FORMATS.index(tab.request.fmt)
+        for distance in range(1, len(XMEM_FORMATS) + 1):
+            candidate = XMEM_FORMATS[(current_index + distance * delta) % len(XMEM_FORMATS)]
+            item_size = XMEM_FORMAT_ITEM_SIZE_BYTES[candidate]
             if resolved.byte_address % item_size == 0 and resolved.byte_count % item_size == 0:
                 tab.request = XmemRequest(
                     tab.request.mode,

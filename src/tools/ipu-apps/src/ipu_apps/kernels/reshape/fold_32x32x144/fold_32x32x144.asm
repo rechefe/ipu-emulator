@@ -221,7 +221,7 @@
     # rotation cannot carry a stale prefetch across the boundary.
     LDR_MULT_REG        r0 lr6 cr9;;
 
-ch_loop_stripe{{ stripe }}:
+1:                                      # this stripe's channel loop (local label)
 
 {% for g in groups %}
 {%- set name = g[0] %}
@@ -263,7 +263,7 @@ ch_loop_stripe{{ stripe }}:
     # -- Advance pointers; loop within this stripe --------------------------
     ADD                 lr8 lr8 lr9;;       # dst offset: next row (running across the whole kernel)
     ADD                 lr10 lr10 cr1;;
-    BLT                 lr10 lr11 ch_loop_stripe{{ stripe }};;   # loop while ch < 144
+    BLT                 lr10 lr11 1b;;                  # loop while ch < 144
 {% endfor %}
 
 end:

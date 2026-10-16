@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 
-from ipu_emu.debug_control import DebugControl
+from ipu_debug.control import DebugControl
 from ipu_emu.emulator import DebugAction, DebugCallback
 
 
@@ -16,7 +16,7 @@ def make_tui_debug_callback(kernel_name: str | None = None) -> tuple[DebugCallba
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         raise RuntimeError("IPU debugging requires an interactive input and output terminal")
 
-    from ipu_emu import debug_tui
+    from ipu_debug import tui as debug_tui
 
     control = DebugControl(kernel_name=kernel_name)
     session = None

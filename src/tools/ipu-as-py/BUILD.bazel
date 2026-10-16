@@ -8,6 +8,8 @@ load("//tools:lint.bzl", "ruff_test")
 package(default_visibility = ["//visibility:public"])
 
 exports_files([
+    # Read by //tools:test_update_baselines.
+    "BUILD.bazel",
     "pyproject.toml",
 ])
 
@@ -15,12 +17,6 @@ exports_files([
 runtime_deps_manifest(
     name = "runtime_deps",
     runtime_deps = RUNTIME_DEPS,
-)
-
-# The package's Python sources, for //tools:test_import_graph.
-filegroup(
-    name = "py_sources",
-    srcs = glob(["src/**/*.py"]),
 )
 
 py_library(
@@ -68,6 +64,12 @@ py_pytest_test(
     ],
 )
 
+# The package's Python sources, for //tools:test_import_graph.
+filegroup(
+    name = "py_sources",
+    srcs = glob(["src/**/*.py"]),
+)
+
 # Derived operand widths are right whatever is imported first (E03-08).
 py_pytest_test(
     name = "test_import_order",
@@ -90,6 +92,63 @@ py_pytest_test(
     ],
 )
 
+# Template render API: params, defines, rooted loader (E05-09).
+py_pytest_test(
+    name = "test_template",
+    srcs = ["test/test_template.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_as_lib",
+        requirement("pytest"),
+    ],
+)
+
+# GNU numeric local labels (E05-14).
+py_pytest_test(
+    name = "test_local_labels",
+    srcs = ["test/test_local_labels.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_as_lib",
+        requirement("pytest"),
+    ],
+)
+
+# AssemblySession: own symbol table, one render, cache (E05-05).
+py_pytest_test(
+    name = "test_session",
+    srcs = ["test/test_session.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_as_lib",
+        requirement("pytest"),
+    ],
+)
+
+# The encoder's ISA tables are built once and shared read-only (E05-01).
+py_pytest_test(
+    name = "test_encode_tables",
+    srcs = ["test/test_encode_tables.py"],
+    data = ["test/baselines/enum_descriptors.json"],
+    imports = ["src"],
+    deps = [
+        ":ipu_as_lib",
+        requirement("lark"),
+        requirement("pytest"),
+    ],
+)
+
+# Every input error is a located AssemblerError subclass (E05-04).
+py_pytest_test(
+    name = "test_errors",
+    srcs = ["test/test_errors.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_as_lib",
+        requirement("pytest"),
+    ],
+)
+
 py_pytest_test(
     name = "test_diagnostics",
     srcs = ["test/test_diagnostics.py"],
@@ -104,19 +163,47 @@ py_pytest_test(
 # the extension's corpus and test_diagnostics' sources, and each version's schema.
 py_pytest_test(
     name = "test_check_json",
-    srcs = ["test/test_check_json.py"],
+    srcs = [
+        "test/check_corpus.py",
+        "test/test_check_json.py",
+    ],
     data = [
         "test/golden/check_json_v1.json",
         "test/test_diagnostics.py",
         "//vscode-ipu-asm:check_json_contract",
         "//vscode-ipu-asm:corpus",
     ],
-    imports = ["src"],
+    imports = [
+        "src",
+        "test",
+    ],
     deps = [
         ":ipu_as_lib",
         requirement("jsonschema"),
         requirement("pytest"),
         requirement("referencing"),
+    ],
+)
+
+# CLI error output over the check corpus, against a golden (E05-06).
+py_pytest_test(
+    name = "test_cli_errors",
+    srcs = [
+        "test/check_corpus.py",
+        "test/test_cli_errors.py",
+    ],
+    data = [
+        "test/golden/cli_assemble_errors.json",
+        "test/test_diagnostics.py",
+        "//vscode-ipu-asm:corpus",
+    ],
+    imports = [
+        "src",
+        "test",
+    ],
+    deps = [
+        ":ipu_as_lib",
+        requirement("pytest"),
     ],
 )
 
@@ -241,6 +328,28 @@ py_binary(
     srcs = ["test/baselines/update_generated_artifacts.py"],
     main = "test/baselines/update_generated_artifacts.py",
     deps = [":generated_artifacts"],
+)
+
+# Assembler wall time split into render, parse and encode, over every program
+# in the E02-01 digest manifest (E05-01). Tracked, not gated: the nightly job
+# records it through //tools/bench (ipu_bench.benchmarks.assemble_stages).
+#   bazel run //src/tools/ipu-as-py:bench_assemble -- --repeat 5
+py_library(
+    name = "bench_assemble_lib",
+    srcs = ["bench/bench_assemble.py"],
+    data = ["//src/tools/ipu-apps:asm_corpus_files"],
+    imports = ["bench"],
+    deps = [
+        ":ipu_as_lib",
+        requirement("jinja2"),
+    ],
+)
+
+py_binary(
+    name = "bench_assemble",
+    srcs = ["bench/bench_assemble.py"],
+    main = "bench/bench_assemble.py",
+    deps = [":bench_assemble_lib"],
 )
 
 # Ruff lint and format over this package's Python files (tools/lint.bzl).
