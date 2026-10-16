@@ -94,10 +94,10 @@ py_pytest_test(
     ],
 )
 
-# compound_inst.SLOT_TO_INST against the slot registry (E03-06).
+# Encode through the ipu_isa slot codec (E05-02).
 py_pytest_test(
-    name = "test_slot_to_inst",
-    srcs = ["test/test_slot_to_inst.py"],
+    name = "test_encode",
+    srcs = ["test/test_encode.py"],
     imports = ["src"],
     deps = [
         ":ipu_as_lib",

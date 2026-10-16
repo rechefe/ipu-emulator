@@ -130,7 +130,7 @@ code --install-extension ipu-asm.vsix
 
 - **Hover**: an instruction's reference, a register's role, a Jinja name's value.
 - **Completion**: at an instruction start, the mnemonics that still fit the
-  word (slots filled as `CompoundInst._fill_instructions` does), each bringing
+  word (slots filled as `ipu_as.encode.assign_slots` does), each bringing
   its operands as tab stops named as the instruction spec names them; at an
   operand, what its type accepts, labels and fitting Jinja names, with an
   operand hint.

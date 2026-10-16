@@ -5,7 +5,6 @@ from pathlib import Path
 from click.testing import CliRunner
 
 from ipu_as.compound_inst import CompoundInst
-from ipu_as.inst import Inst
 from ipu_as.ipu_token import EnumToken
 from ipu_gen import layout_svg, sv_package
 from ipu_gen.cli import cli
@@ -195,7 +194,7 @@ def test_renaming_token_classes_does_not_change_the_package():
     """
     before = sv_package.render_sv_package()
     # Restored by hand: monkeypatch cannot delete __name__ from a type.
-    names = {cls: cls.__name__ for base in (EnumToken, Inst) for cls in _subclasses(base)}
+    names = {cls: cls.__name__ for cls in _subclasses(EnumToken)}
     assert len(names) > 20
     try:
         for i, cls in enumerate(names):

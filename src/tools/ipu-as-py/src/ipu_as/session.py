@@ -23,7 +23,7 @@ from types import MappingProxyType
 
 import lark
 
-import ipu_as.compound_inst as compound_inst
+import ipu_as.encode as encode
 import ipu_as.template as template
 from ipu_as.errors import AssemblerError, ParseError, SourceLocation
 from ipu_as.symbols import SymbolTable
@@ -152,7 +152,7 @@ class AssemblySession:
         Raises:
             EncodeError: an operand, slot or label error.
         """
-        return tuple(compound_inst.CompoundInst(instr).encode() for instr in parsed)
+        return tuple(encode.encode_word(instr) for instr in parsed)
 
     def assemble(self) -> AssemblyResult:
         """Encode every instruction word and raise the encoder's warnings.

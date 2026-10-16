@@ -1,27 +1,23 @@
-import functools
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
-from types import MappingProxyType
+"""Operand types to token classes, and the instruction reference in Markdown.
 
-import lark
+Encoding is not here: ``ipu_as.encode`` places instructions and the ``ipu_isa``
+codec owns the bits (E05-02).
+"""
+
+from collections.abc import Mapping, Sequence
 
 # isort: off
 # Import order defines EnumToken subclass registration order, which fixes the
 # enum order in generated outputs (ipu_instr_pkg.sv, disassembly): opcodes
 # first, then registers, then immediates.
-import ipu_as.opcodes as opcodes
+import ipu_as.opcodes as opcodes  # noqa: F401 - registers the opcode enums first
 import ipu_as.ipu_token as ipu_token
 import ipu_as.reg as reg
 import ipu_as.immediate as immediate
 import ipu_as.utils as utils
 
 # isort: on
-from ipu_as.errors import OperandError, SlotError, SourceLocation
-from ipu_isa.instruction_spec import (
-    COMPOUND_LAYOUT_SLOT_ORDER,
-    InstructionDoc,
-    syntax,
-)
+from ipu_isa.instruction_spec import InstructionDoc, syntax
 from ipu_isa.operand_types import OPERAND_TYPES, OperandType
 from ipu_isa.slots import Slot
 from ipu_isa.view import Isa, Operand, isa
@@ -125,625 +121,99 @@ def check_operand_type_map(
 check_operand_type_map(OPERAND_TYPE_MAP)
 
 
-@functools.cache
-def _build_struct_table(slot_type: str) -> Mapping[str, "InstructionFormat"]:
-    """The struct_by_opcode_table of a slot, built once from the ISA view.
+# ===========================================================================
+# Instruction reference (Markdown), for the generated docs
+# ===========================================================================
 
-    Resolves each operand's type to its token class using OPERAND_TYPE_MAP, and
-    wraps each instruction in an InstructionFormat. The table is shared by
-    every caller, so it is read-only.
-    """
-    result = {}
-    for instruction in isa().instructions(Slot(slot_type)):
-        operand_classes = tuple(OPERAND_TYPE_MAP[op.type.name] for op in instruction.operands)
-        result[instruction.mnemonic] = InstructionFormat(
-            operands=operand_classes, doc=instruction.doc
+
+def render_slot_docs(slot: str, view: Isa | None = None) -> str:
+    """The reference section of ``slot``: heading, intro and one entry per
+    documented instruction of ``view`` (default: ``isa()``).
+
+    The heading and intro come from the slot registry (``SlotInfo.doc_heading``,
+    ``doc_intro``)."""
+    view = isa() if view is None else view
+    info = view.slots[Slot(slot)]
+    heading, intro = info.doc_heading, info.doc_intro
+    lines = [f"## {heading}", ""]
+    if info.debug_only:
+        lines.append(
+            "> **Simulation-only slot** — not implemented in real IPU hardware. "
+            "Excluded from hardware codegen."
         )
-    return MappingProxyType(result)
-
-
-@functools.cache
-def _inst_type_by_opcode() -> Mapping[str, type["Inst"]]:
-    """Lower-case opcode -> the Inst subclass whose slot has it, built once.
-
-    NOP is in every slot; like the subclass scan this replaces, it maps to the
-    first subclass defined (LoadInst). CompoundInst places NOP itself.
-    """
-    table: dict[str, type[Inst]] = {}
-    for subclass in Inst.__subclasses__():
-        for name in subclass.struct_by_opcode_table():
-            table.setdefault(name.lower(), subclass)
-    return MappingProxyType(table)
-
-
-@functools.cache
-def _default_token(token_class: type[ipu_token.IpuToken]) -> ipu_token.IpuToken:
-    """The token an unused union field encodes, built once per token class.
-
-    Defaults are fixed literals at address 0, so one instance serves every word.
-    """
-    return token_class.default()
-
-
-@dataclass(frozen=True)
-class InstructionFormat:
-    operands: tuple[type[ipu_token.IpuToken], ...]
-    doc: InstructionDoc | None = None
-
-
-def validate_inst_structure(cls: type) -> type:
-    """Class decorator to validate instruction structure."""
-    cls._validate_instr_structure()
-    return cls
-
-
-class Inst:
-    def __init__(self, inst: dict[str, any]):
-        self.opcode = self.opcode_type()(inst["opcode"])
-        opcode_idx = self.opcode.encode()
-        # The table's order is the opcode order (_validate_instr_structure).
-        struct_entry = self.struct_by_opcode_table()[self.opcode_type().enum_array()[opcode_idx]]
-        operand_types = self._operand_types_from_struct(struct_entry)
-
-        if len(inst["operands"]) != len(operand_types):
-            raise OperandError(
-                f"Instruction {inst['opcode'].token.value} expects {len(operand_types)} operands, "
-                f"got {len(inst['operands'])}, in Line {self.opcode.token.line}, Column {self.opcode.token.column}.",
-                location=inst["opcode"].location(),
-                token=inst["opcode"].token.value,
-            )
-
-        self.operands = [
-            op_type(op) for op_type, op in zip(operand_types, inst["operands"], strict=True)
-        ]
-        self.specific_operand_types = operand_types
-
-    def _get_full_token_list(self) -> list[ipu_token.IpuToken]:
-        full_token_list = [None for _ in range(1 + len(self.operand_types()))]
-        full_token_list[0] = self.opcode
-        for i, operand in enumerate(self.operands):
-            mapped_index = self._inst_mapping_table[self.opcode.encode()][i]
-            full_token_list[mapped_index + 1] = operand
-        operand_types = self.operand_types()
-        for i in range(len(full_token_list)):
-            if full_token_list[i] is None:
-                full_token_list[i] = _default_token(operand_types[i - 1])
-        return full_token_list
-
-    @classmethod
-    def struct_by_opcode_table(
-        cls,
-    ) -> Mapping[str, InstructionFormat]:
-        raise NotImplementedError(
-            "struct_by_opcode_table property must be implemented by subclasses"
-        )
-
-    @classmethod
-    def _slot_type_name(cls) -> str:
-        """Return the slot name string (e.g. 'lr', 'mult') for this Inst subclass."""
-        raise NotImplementedError("_slot_type_name must be implemented by subclasses")
-
-    @classmethod
-    @functools.cache
-    def operand_types(cls) -> tuple[type[ipu_token.IpuToken], ...]:
-        """Canonical token types for each union field (from the slot's union layout), built once."""
-        slot_union = isa().layout.unions[Slot(cls._slot_type_name())]
-        return tuple(OPERAND_TYPE_MAP[f.canonical_type] for f in slot_union.fields)
-
-    @classmethod
-    def _validate_instr_structure(cls) -> None:
-        cls._inst_mapping_table = {}
-        cls._slot_union = isa().layout.unions[Slot(cls._slot_type_name())]
-        names = cls.opcode_type().enum_array()
-        for opcode_idx, (opcode_name, _) in enumerate(cls.struct_by_opcode_table().items()):
-            assert opcode_name == names[opcode_idx], (
-                f"Configuration of {cls.__name__} is invalid: opcode table order "
-                f"does not match {cls.opcode_type().__name__}.enum_array()"
-            )
-            bindings = cls._slot_union.opcode_bindings.get(opcode_name, [])
-            cls._inst_mapping_table[opcode_idx] = [fi for fi, _ in bindings]
-
-    @classmethod
-    def nop_inst(cls) -> str:
-        raise NotImplementedError("nop_inst method must be implemented by subclasses")
-
-    @staticmethod
-    def _reversed_inst_mapping_table(mapping: list[int]) -> dict[int, int]:
-        return {j: i for i, j in enumerate(mapping)}
-
-    @classmethod
-    def opcode_type(cls) -> type[ipu_token.IpuToken]:
-        raise NotImplementedError("opcode_type method must be implemented by subclasses")
-
-    def encode(self) -> int:
-        encoded_inst = 0
-        shift_amount = 0
-        widths = self._token_widths()
-        full_token_list = self._get_full_token_list()
-        for i in range(len(full_token_list) - 1, -1, -1):
-            encoded_inst |= full_token_list[i].encode() << shift_amount
-            shift_amount += widths[i]
-        return encoded_inst
-
-    @classmethod
-    @functools.cache
-    def _token_widths(cls) -> tuple[int, ...]:
-        """The width of each all_tokens() field, built once."""
-        return tuple(token_type.bits() for token_type in cls.all_tokens())
-
-    @classmethod
-    @functools.cache
-    def bits(cls) -> int:
-        return sum(token_type.bits() for token_type in cls.all_tokens())
-
-    @classmethod
-    def find_inst_type_by_opcode(
-        cls, opcode: str, location: SourceLocation | None = None
-    ) -> type["Inst"]:
-        """The Inst subclass whose slot has `opcode`; `location` locates the error if none does."""
-        inst_type = _inst_type_by_opcode().get(opcode.lower())
-        if inst_type is not None:
-            return inst_type
-        raise SlotError(
-            f"Opcode '{opcode}' not found in any Inst subclass.", location=location, token=opcode
-        )
-
-    @classmethod
-    @functools.cache
-    def all_tokens(cls) -> tuple[type[ipu_token.IpuToken], ...]:
-        """The opcode token type, then the canonical operand types; built once."""
-        return (cls.opcode_type(), *cls.operand_types())
-
-    @classmethod
-    def decode(cls, value: int) -> str:
-        """Decode an instruction word to assembly text.
-
-        Uses the opcode to select the correct semantic token types for each
-        union field, so cross-type-sharing fields disassemble correctly.
-        """
-        all_tok = cls.all_tokens()
-        n = len(all_tok)
-        total_bits = cls.bits()
-        opcode_bits = cls.opcode_type().bits()
-
-        # Extract opcode (top bits) to pick semantic types.
-        opcode_value = (value >> (total_bits - opcode_bits)) & ((1 << opcode_bits) - 1)
-        try:
-            opcode_name = cls.opcode_type().enum_array()[opcode_value]
-        except (IndexError, AttributeError):
-            opcode_name = None
-
-        # Map all_tokens index → semantic token class for this opcode.
-        semantic: dict[int, type[ipu_token.IpuToken]] = {}
-        if opcode_name is not None and hasattr(cls, "_slot_union"):
-            bindings = cls._slot_union.opcode_bindings.get(opcode_name, [])
-            struct_entry = cls._struct_entry(opcode_name)
-            for (field_idx, _), op_class in zip(bindings, struct_entry.operands, strict=False):
-                semantic[field_idx + 1] = op_class  # +1: index 0 is the opcode token
-
-        decoded_tokens = []
-        shift_amount = 0
-        for tok_idx in range(n - 1, -1, -1):  # LSB → MSB
-            tok_type = all_tok[tok_idx]
-            token_bits = tok_type.bits()
-            token_value = (value >> shift_amount) & ((1 << token_bits) - 1)
-            actual_type = semantic.get(tok_idx, tok_type)
-            decoded_tokens.append(actual_type.decode(token_value))
-            shift_amount += token_bits
-        return " ".join(reversed(decoded_tokens))
-
-    @classmethod
-    def desc(cls) -> list[str]:
-        res = []
-        res.append(f"{cls.__name__} - {cls.bits()} bits:")
-        for token_type in cls.all_tokens():
-            res.append(f"\t{token_type.__name__} - {token_type.bits()} bits")
-        return res
-
-    @classmethod
-    def description(cls) -> str:
-        """Return human-readable description of this instruction type."""
-        raise NotImplementedError("description method must be implemented by subclasses")
-
-    @classmethod
-    def get_all_instruction_classes(cls) -> list[type["Inst"]]:
-        """Return instruction subclasses in compound-layout slot order."""
-        slot_to_class = {subclass._slot_type_name(): subclass for subclass in cls.__subclasses__()}
-        seen: list[type[Inst]] = []
-        for slot in COMPOUND_LAYOUT_SLOT_ORDER:
-            inst_class = slot_to_class.get(slot)
-            if inst_class is None:
-                continue
-            seen.append(inst_class)
-        # Any subclasses not in COMPOUND_LAYOUT_SLOT_ORDER (should not happen).
-        for subclass in cls.__subclasses__():
-            if subclass not in seen:
-                seen.append(subclass)
-        return seen
-
-    @classmethod
-    def _operand_types_from_struct(
-        cls, struct_entry: InstructionFormat | list[type[ipu_token.IpuToken]]
-    ) -> list[type[ipu_token.IpuToken]]:
-        return (
-            struct_entry.operands if isinstance(struct_entry, InstructionFormat) else struct_entry
-        )
-
-    @classmethod
-    def _struct_entry(cls, opcode: str) -> InstructionFormat:
-        struct_entry = cls.struct_by_opcode_table()[opcode]
-        return (
-            struct_entry
-            if isinstance(struct_entry, InstructionFormat)
-            else InstructionFormat(struct_entry)
-        )
-
-    @classmethod
-    def _render_instruction_docs(cls, slot: str, view: Isa | None = None) -> str:
-        """The reference section of ``slot``: heading, intro and one entry per
-        documented instruction of ``view`` (default: ``isa()``)."""
-        view = isa() if view is None else view
-        info = view.slots[Slot(slot)]
-        heading, intro = info.doc_heading, info.doc_intro
-        lines = [f"## {heading}", ""]
-        if info.debug_only:
-            lines.append(
-                "> **Simulation-only slot** — not implemented in real IPU hardware. "
-                "Excluded from hardware codegen."
-            )
-            lines.append("")
-        if intro.strip():
-            lines.append(intro.strip())
-            lines.append("")
-
-        for instruction in view.instructions(info.slot):
-            if instruction.mnemonic == "NOP":
-                continue  # documented once globally in the Slots section
-            if instruction.doc is None:
-                continue
-            lines.extend(
-                cls.render_opcode_doc(instruction.mnemonic, instruction.doc, instruction.operands)
-            )
-            lines.append("")
-
-        return "\n".join(lines).rstrip()
-
-    @staticmethod
-    def render_opcode_doc(
-        opcode: str,
-        doc: InstructionDoc,
-        spec_operands: Sequence[Operand],
-    ) -> list[str]:
-        """Markdown documentation of one opcode or pseudo-instruction.
-
-        Args:
-            opcode: The mnemonic, as written in assembly.
-            doc: Its ``InstructionDoc``.
-            spec_operands: Its operand dicts from the instruction spec, in order.
-
-        Returns:
-            The Markdown lines: heading, syntax, operands, and the doc's prose.
-        """
-        lines = [f"### `{opcode}` — {doc.title}", ""]
-        names = [operand.name for operand in spec_operands]
-        lines.append(f"**Syntax:** `{syntax(opcode, names)}`")
+        lines.append("")
+    if intro.strip():
+        lines.append(intro.strip())
         lines.append("")
 
-        if spec_operands:
-            lines.append(
-                "**Operands:** *(the **Type** column links to the "
-                "[operand type reference](operand-types.md))*"
-            )
-            lines.append("")
-            lines.append("| Name | Type | Details |")
-            lines.append("|------|------|---------|")
-            for i, sop in enumerate(spec_operands):
-                name = sop.name
-                typ = sop.type.name
-                link = _operand_type_md_link(typ)
-                detail = doc.operands[i] if i < len(doc.operands) else "—"
-                lines.append(f"| `{name}` | {link} | {_md_table_cell(detail)} |")
-            lines.append("")
-        elif doc.operands:
-            lines.append("**Operands:**")
-            lines.extend([f"- {operand}" for operand in doc.operands])
-            lines.append("")
-
-        lines.append("**General description:**")
-        lines.append(doc.summary)
+    for instruction in view.instructions(info.slot):
+        if instruction.mnemonic == "NOP":
+            continue  # documented once globally in the Slots section
+        if instruction.doc is None:
+            continue
+        lines.extend(render_opcode_doc(instruction.mnemonic, instruction.doc, instruction.operands))
         lines.append("")
 
-        if doc.notes:
-            lines.append(f"> {doc.notes}")
-            lines.append("")
-
-        if doc.operation:
-            lines.append("**Pseudo code:**")
-            lines.append(f"`{doc.operation}`")
-            lines.append("")
-
-        if doc.example:
-            lines.append("**Example of usage:**")
-            lines.append("```asm")
-            lines.append(doc.example)
-            lines.append("```")
-
-        return lines
+    return "\n".join(lines).rstrip()
 
 
-@validate_inst_structure
-class LoadInst(Inst):
-    @classmethod
-    def _slot_type_name(cls) -> str:
-        return "load"
+def render_opcode_doc(
+    opcode: str,
+    doc: InstructionDoc,
+    spec_operands: Sequence[Operand],
+) -> list[str]:
+    """Markdown documentation of one opcode or pseudo-instruction.
 
-    @classmethod
-    def opcode_type(cls) -> type[ipu_token.IpuToken]:
-        return opcodes.LoadInstOpcode
+    Args:
+        opcode: The mnemonic, as written in assembly.
+        doc: Its ``InstructionDoc``.
+        spec_operands: Its operand dicts from the instruction spec, in order.
 
-    @classmethod
-    def struct_by_opcode_table(cls) -> Mapping[str, InstructionFormat]:
-        return _build_struct_table("load")
+    Returns:
+        The Markdown lines: heading, syntax, operands, and the doc's prose.
+    """
+    lines = [f"### `{opcode}` — {doc.title}", ""]
+    names = [operand.name for operand in spec_operands]
+    lines.append(f"**Syntax:** `{syntax(opcode, names)}`")
+    lines.append("")
 
-    @classmethod
-    def nop_inst(cls, addr: int) -> str:
-        return LoadInst(
-            {
-                "opcode": ipu_token.AnnotatedToken(
-                    token=lark.Token("TOKEN", "NOP", line=0, column=0),
-                    instr_id=addr,
-                ),
-                "operands": [],
-            }
+    if spec_operands:
+        lines.append(
+            "**Operands:** *(the **Type** column links to the "
+            "[operand type reference](operand-types.md))*"
         )
+        lines.append("")
+        lines.append("| Name | Type | Details |")
+        lines.append("|------|------|---------|")
+        for i, sop in enumerate(spec_operands):
+            name = sop.name
+            typ = sop.type.name
+            link = _operand_type_md_link(typ)
+            detail = doc.operands[i] if i < len(doc.operands) else "—"
+            lines.append(f"| `{name}` | {link} | {_md_table_cell(detail)} |")
+        lines.append("")
+    elif doc.operands:
+        lines.append("**Operands:**")
+        lines.extend([f"- {operand}" for operand in doc.operands])
+        lines.append("")
 
-    @classmethod
-    def description(cls) -> str:
-        return cls._render_instruction_docs("load")
+    lines.append("**General description:**")
+    lines.append(doc.summary)
+    lines.append("")
 
+    if doc.notes:
+        lines.append(f"> {doc.notes}")
+        lines.append("")
 
-@validate_inst_structure
-class StoreInst(Inst):
-    @classmethod
-    def _slot_type_name(cls) -> str:
-        return "store"
+    if doc.operation:
+        lines.append("**Pseudo code:**")
+        lines.append(f"`{doc.operation}`")
+        lines.append("")
 
-    @classmethod
-    def opcode_type(cls) -> type[ipu_token.IpuToken]:
-        return opcodes.StoreInstOpcode
+    if doc.example:
+        lines.append("**Example of usage:**")
+        lines.append("```asm")
+        lines.append(doc.example)
+        lines.append("```")
 
-    @classmethod
-    def struct_by_opcode_table(cls) -> Mapping[str, InstructionFormat]:
-        return _build_struct_table("store")
-
-    @classmethod
-    def nop_inst(cls, addr: int) -> str:
-        return StoreInst(
-            {
-                "opcode": ipu_token.AnnotatedToken(
-                    token=lark.Token("TOKEN", "NOP", line=0, column=0),
-                    instr_id=addr,
-                ),
-                "operands": [],
-            }
-        )
-
-    @classmethod
-    def description(cls) -> str:
-        return cls._render_instruction_docs("store")
-
-
-@validate_inst_structure
-class AccStoreInst(Inst):
-    @classmethod
-    def _slot_type_name(cls) -> str:
-        return "acc_store"
-
-    @classmethod
-    def opcode_type(cls) -> type[ipu_token.IpuToken]:
-        return opcodes.AccStoreInstOpcode
-
-    @classmethod
-    def struct_by_opcode_table(cls) -> Mapping[str, InstructionFormat]:
-        return _build_struct_table("acc_store")
-
-    @classmethod
-    def nop_inst(cls, addr: int) -> str:
-        return AccStoreInst(
-            {
-                "opcode": ipu_token.AnnotatedToken(
-                    token=lark.Token("TOKEN", "NOP", line=0, column=0),
-                    instr_id=addr,
-                ),
-                "operands": [],
-            }
-        )
-
-    @classmethod
-    def description(cls) -> str:
-        return cls._render_instruction_docs("acc_store")
-
-
-@validate_inst_structure
-class MultInst(Inst):
-    @classmethod
-    def _slot_type_name(cls) -> str:
-        return "mult"
-
-    @classmethod
-    def opcode_type(cls) -> type[ipu_token.IpuToken]:
-        return opcodes.MultInstOpcode
-
-    @classmethod
-    def struct_by_opcode_table(cls) -> Mapping[str, InstructionFormat]:
-        return _build_struct_table("mult")
-
-    @classmethod
-    def nop_inst(cls, addr: int) -> str:
-        return MultInst(
-            {
-                "opcode": ipu_token.AnnotatedToken(
-                    token=lark.Token("TOKEN", "NOP", line=0, column=0),
-                    instr_id=addr,
-                ),
-                "operands": [],
-            }
-        )
-
-    @classmethod
-    def description(cls) -> str:
-        return cls._render_instruction_docs("mult")
-
-
-@validate_inst_structure
-class AccInst(Inst):
-    @classmethod
-    def _slot_type_name(cls) -> str:
-        return "acc"
-
-    @classmethod
-    def opcode_type(cls) -> type[ipu_token.IpuToken]:
-        return opcodes.AccInstOpcode
-
-    @classmethod
-    def struct_by_opcode_table(cls) -> Mapping[str, InstructionFormat]:
-        return _build_struct_table("acc")
-
-    @classmethod
-    def nop_inst(cls, addr: int) -> str:
-        return AccInst(
-            {
-                "opcode": ipu_token.AnnotatedToken(
-                    token=lark.Token("TOKEN", "NOP", line=0, column=0),
-                    instr_id=addr,
-                ),
-                "operands": [],
-            }
-        )
-
-    @classmethod
-    def description(cls) -> str:
-        return cls._render_instruction_docs("acc")
-
-
-@validate_inst_structure
-class AaqInst(Inst):
-    @classmethod
-    def _slot_type_name(cls) -> str:
-        return "aaq"
-
-    @classmethod
-    def opcode_type(cls) -> type[ipu_token.IpuToken]:
-        return opcodes.AaqInstOpcode
-
-    @classmethod
-    def struct_by_opcode_table(cls) -> Mapping[str, InstructionFormat]:
-        return _build_struct_table("aaq")
-
-    @classmethod
-    def nop_inst(cls, addr: int) -> str:
-        return AaqInst(
-            {
-                "opcode": ipu_token.AnnotatedToken(
-                    token=lark.Token("TOKEN", "NOP", line=0, column=0),
-                    instr_id=addr,
-                ),
-                "operands": [],
-            }
-        )
-
-    @classmethod
-    def description(cls) -> str:
-        return cls._render_instruction_docs("aaq")
-
-
-@validate_inst_structure
-class LrInst(Inst):
-    @classmethod
-    def _slot_type_name(cls) -> str:
-        return "lr"
-
-    @classmethod
-    def opcode_type(cls) -> type[ipu_token.IpuToken]:
-        return opcodes.LrInstOpcode
-
-    @classmethod
-    def struct_by_opcode_table(cls) -> Mapping[str, InstructionFormat]:
-        return _build_struct_table("lr")
-
-    @classmethod
-    def nop_inst(cls, addr: int) -> str:
-        return LrInst(
-            {
-                "opcode": ipu_token.AnnotatedToken(
-                    token=lark.Token("TOKEN", "NOP", line=0, column=0),
-                    instr_id=addr,
-                ),
-                "operands": [],
-            }
-        )
-
-    @classmethod
-    def description(cls) -> str:
-        return cls._render_instruction_docs("lr")
-
-
-@validate_inst_structure
-class CondInst(Inst):
-    @classmethod
-    def _slot_type_name(cls) -> str:
-        return "cond"
-
-    @classmethod
-    def opcode_type(cls) -> type[ipu_token.IpuToken]:
-        return opcodes.CondInstOpcode
-
-    @classmethod
-    def struct_by_opcode_table(cls) -> Mapping[str, InstructionFormat]:
-        return _build_struct_table("cond")
-
-    @classmethod
-    def nop_inst(cls, addr: int) -> str:
-        return CondInst(
-            {
-                "opcode": ipu_token.AnnotatedToken(
-                    token=lark.Token("TOKEN", "NOP", line=0, column=0), instr_id=addr
-                ),
-                "operands": [],
-            }
-        )
-
-    @classmethod
-    def description(cls) -> str:
-        return cls._render_instruction_docs("cond")
-
-
-@validate_inst_structure
-class BreakInst(Inst):
-    @classmethod
-    def _slot_type_name(cls) -> str:
-        return "break"
-
-    @classmethod
-    def opcode_type(cls) -> type[ipu_token.IpuToken]:
-        return opcodes.BreakInstOpcode
-
-    @classmethod
-    def struct_by_opcode_table(cls) -> Mapping[str, InstructionFormat]:
-        return _build_struct_table("break")
-
-    @classmethod
-    def nop_inst(cls, addr: int) -> str:
-        return BreakInst(
-            {
-                "opcode": ipu_token.AnnotatedToken(
-                    token=lark.Token("TOKEN", "NOP", line=0, column=0),
-                    instr_id=addr,
-                ),
-                "operands": [],
-            }
-        )
-
-    @classmethod
-    def description(cls) -> str:
-        return cls._render_instruction_docs("break")
+    return lines

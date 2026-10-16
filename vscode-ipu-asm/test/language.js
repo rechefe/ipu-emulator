@@ -66,7 +66,7 @@ test('only mnemonics that fit the word\'s free slots are offered; operand types 
   }
   const ctx = contextAt(alternatives);
   eq([ctx.kind, ctx.others.before], ['mnemonic', ['MULT.VE']], 'the other branch is not in this word');
-  // CompoundInst._fill_instructions: in source order, NOP takes the first free slot in order -- cond.
+  // ipu_as.encode.assign_slots: in source order, NOP takes the first free slot in order -- cond.
   eq([lang.fits(['NOP', 'BKPT']), lang.fits(['BKPT', 'NOP'])], [false, true]);
   // Operand types come from isa.json; accepts follows the domain, case and number bases.
   const t = lang.operandType('ACTIVATE.QUANTIZE', 0);

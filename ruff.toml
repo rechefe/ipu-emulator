@@ -92,7 +92,6 @@ max-args = 6
 "src/tools/ipu-apps/test/mobilevit/test_seam_proj_qkv_to_scores_km_repack.py" = ["PLR0913"]
 
 # ipu-as-py assembler: removed by E05 (slot codec, assembly session).
-"src/tools/ipu-as-py/src/ipu_as/compound_inst.py" = ["C901"]
 "src/tools/ipu-as-py/src/ipu_as/inst.py" = ["C901"]
 
 # ipu-emu-py emulator core: removed by E04 (cycle module, codecs, alias profiling).
