@@ -434,16 +434,6 @@ class Language {
     this.jinjaKeywords = new Set(lexical.jinjaKeywords);
     // mnemonic (lower case) -> { mnemonic, forms }, as in the hover index.
     this.instructions = new Map(Object.entries(isa.instructions).map(([mnemonic, forms]) => [mnemonic.toLowerCase(), { mnemonic, forms }]));
-    // From schema version 1 on, the number syntax and the slot-fill rule are the assembler's own
-    // (isa.json numberPattern, slotFill). A bundled isa.json without a version is version 0 and
-    // keeps the rules this file used to hard-code, so an older checkout still works.
-    this.schemaVersion = isa.schemaVersion || 0;
-    this.numberRe = this.schemaVersion >= 1
-      ? new RegExp(`^(?:${isa.numberPattern})$`)
-      : /^[+-]?(0[xX][0-9a-fA-F_]+|0[bB][01_]+|0[oO][0-7_]+|\d+)$/;
-    this.slotFill = this.schemaVersion >= 1
-      ? { order: isa.slotFill.order, wildcards: new Set(isa.slotFill.wildcards), kinds: isa.slotFill.kinds }
-      : null;
   }
 
   // --- Masking: the assembly layer with Jinja and comments taken out ---
@@ -537,30 +527,20 @@ class Language {
     return this.instructions.get(mnemonic.toLowerCase()) || null;
   }
 
-  /** Whether one word's instructions fit its slots, filled as the assembler fills them (isa.json
-   *  slotFill): in source order, a wildcard (NOP) takes the first free slot in `order`, and every
-   *  other instruction needs a free slot of its own kind. Unknown names are left to the checker. */
+  /** Whether one word's instructions fit its slots, filled the way CompoundInst._fill_instructions
+   *  does: in source order, a named instruction takes a free slot of its own kind and a NOP (whose
+   *  forms name no single slot) takes the first free slot in slotOrder. Unknown names are
+   *  left to the checker. */
   fits(mnemonics) {
     const free = { ...this.isa.slotCount };
     for (const m of mnemonics) {
       const entry = this.lookup(m);
       if (!entry) continue;
-      const slot = this.slotFor(entry, free);
+      const slot = (entry.forms.length === 1 && entry.forms[0].slot) || this.isa.slotOrder.find((s) => free[s] > 0);
       if (!slot || !(free[slot] > 0)) return false;
       free[slot] -= 1;
     }
     return true;
-  }
-
-  /** The slot an instruction takes, given the free slots. */
-  slotFor(entry, free) {
-    if (!this.slotFill) {
-      // Version 0: a mnemonic with several forms took the first free slot.
-      return (entry.forms.length === 1 && entry.forms[0].slot) || this.isa.slotOrder.find((s) => free[s] > 0);
-    }
-    const { order, wildcards, kinds } = this.slotFill;
-    if (wildcards.has(entry.mnemonic.toLowerCase())) return order.find((s) => free[s] > 0);
-    return kinds[entry.mnemonic] || entry.forms[0].slot;
   }
 
   // --- Cursor context, for completion and signature help ---
@@ -600,15 +580,11 @@ class Language {
     const v = String(value);
     const values = domain.values || [];
     if (this.caseInsensitive.registers ? values.some((x) => x.toLowerCase() === v.toLowerCase()) : values.includes(v)) return true;
-    if (!('min' in domain) || !this.numberRe.test(v)) return false;
-    if (this.schemaVersion < 1) {
+    if ('min' in domain && /^[+-]?(0[xX][0-9a-fA-F_]+|0[bB][01_]+|0[oO][0-7_]+|\d+)$/.test(v)) {
       const n = Number(v.replace(/_/g, ''));
       return n >= domain.min && n <= domain.max;
     }
-    // Exactly, as Python's int(v, 0) reads it: BigInt takes no sign before a 0x/0o/0b prefix.
-    const digits = v.replace(/_/g, '').replace(/^[+-]/, '');
-    const n = (v.startsWith('-') ? -1n : 1n) * BigInt(digits);
-    return n >= BigInt(domain.min) && n <= BigInt(domain.max);
+    return false;
   }
 
   // --- Labels ---
