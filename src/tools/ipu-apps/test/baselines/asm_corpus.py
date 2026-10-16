@@ -4,7 +4,9 @@ This is the corpus the assembled-binary baseline pins (E02-01, see
 ``test/test_asm_digests.py``): the `.bin` and `.mem` bytes of every `.asm` file
 under ``CORPUS_ROOTS``, plus one entry per render context that today's tests
 pass to a program that only assembles correctly with one. A refactor that keeps
-every digest proves the encoded programs are byte-identical.
+every digest proves the encoded programs are byte-identical. Each record also
+keeps a short fingerprint per word, used only to name the first word that
+changed.
 
 Render contexts are copied here as literals, not imported, because the tests
 that use them (``test/mobilevit/test_full_layer_l{4,5}_packed.py``) are manual
@@ -204,7 +206,7 @@ def corpus_drift(manifest_keys: set[str], corpus_keys: set[str]) -> str | None:
 def first_differing_word(expected: dict, actual: dict) -> int | None:
     """Index of the first word whose fingerprint differs, or of the first word
     one program has and the other lacks; None if every word matches."""
-    old, new = expected["word_fingerprints"], actual["word_fingerprints"]
+    old, new = expected.get("word_fingerprints", ""), actual["word_fingerprints"]
     for index in range(0, max(len(old), len(new)), 8):
         if old[index : index + 8] != new[index : index + 8]:
             return index // 8

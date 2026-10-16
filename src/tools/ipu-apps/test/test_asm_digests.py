@@ -48,7 +48,7 @@ def test_every_render_context_is_in_the_corpus():
             assert asm_corpus.CorpusEntry.rendered(path, context).key in keys
 
 
-# The harness itself, on a temporary corpus.
+# The baseline check itself, on a temporary corpus.
 
 
 def _copy_into(tmp_path: Path, path: str) -> Path:
