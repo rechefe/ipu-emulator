@@ -75,7 +75,7 @@ def _with_expected(found: str, expected) -> str:
 
 
 def _recover_line_without_fusion(
-    text: str, inputs: template.TemplateInputs
+    text: str, inputs: template.TemplateInputs, target: str
 ) -> tuple[str, int] | None:
     """Recover an error's source line by rendering without whitespace control.
 
@@ -97,7 +97,7 @@ def _recover_line_without_fusion(
     # A fresh session: this variant's labels must not meet the real check's.
     stages = AssemblySession(variant)
     try:
-        stages.encode(stages.parse_rendered(rendered))
+        stages.encode(stages.parse_rendered(rendered), target)
     except ParseError as error:
         offset = _parse_offset(error)
         line = source_line_at(rendered, offset) if offset is not None else None
@@ -285,7 +285,9 @@ def _encode_diagnostic(error: EncodeError, raw: str, rendered: str) -> Diagnosti
     )
 
 
-def _recover(diagnostic: Diagnostic, text: str, inputs: template.TemplateInputs) -> Diagnostic:
+def _recover(
+    diagnostic: Diagnostic, text: str, inputs: template.TemplateInputs, target: str
+) -> Diagnostic:
     """Last resort: give an approximate diagnostic a real line if one exists.
 
     Only whitespace-control fusion lands here (see
@@ -295,7 +297,7 @@ def _recover(diagnostic: Diagnostic, text: str, inputs: template.TemplateInputs)
     if not diagnostic.approximate:
         return diagnostic
 
-    recovered = _recover_line_without_fusion(text, inputs)
+    recovered = _recover_line_without_fusion(text, inputs, target)
     if recovered is None or recovered[0] != diagnostic.stage:
         return diagnostic
 
@@ -388,6 +390,7 @@ def check(
     defines: Mapping[str, object] | None = None,
     search_path: Sequence[Path] = (),
     abi: Mapping[str, Mapping[str, str]] | None = None,
+    target: str = "emulator",
 ) -> list[Diagnostic]:
     """Return diagnostics for one assembly source. Empty means it assembles.
 
@@ -402,6 +405,8 @@ def check(
             error inside an included template is reported at the open file's
             include line, and its message names the template and line.
         abi: The `cr` / `lr` names the template reads.
+        target: `"emulator"` or `"hardware"`; for the hardware an emulator-only
+            instruction is an error at its mnemonic.
     """
     inputs = template.TemplateInputs(
         defines=dict(defines or {}),
@@ -413,9 +418,9 @@ def check(
         return [failed]
     stages = AssemblySession(text)
     try:
-        stages.encode(stages.parse_rendered(rendered))
+        stages.encode(stages.parse_rendered(rendered), target)
     except ParseError as error:
-        return [_recover(_parse_diagnostic(error, text, rendered), text, inputs)]
+        return [_recover(_parse_diagnostic(error, text, rendered), text, inputs, target)]
     except EncodeError as error:
-        return [_recover(_encode_diagnostic(error, text, rendered), text, inputs)]
+        return [_recover(_encode_diagnostic(error, text, rendered), text, inputs, target)]
     return []
