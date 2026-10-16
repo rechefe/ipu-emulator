@@ -26,10 +26,7 @@ py_library(
     ]),
     data = glob(["src/ipu_as/**/*.lark"]),
     imports = ["src"],
-    deps = [
-        "//src/tools/ipu-gen:ipu_gen_lib",
-        "//src/tools/ipu-isa:ipu_isa_lib",
-    ] + [requirement(dep) for dep in RUNTIME_DEPS],
+    deps = ["//src/tools/ipu-isa:ipu_isa_lib"] + [requirement(dep) for dep in RUNTIME_DEPS],
 )
 
 py_binary(

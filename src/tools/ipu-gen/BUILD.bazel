@@ -22,17 +22,24 @@ filegroup(
 )
 
 # Generators that render artifacts from the ISA: the SystemVerilog package
-# (E08-13) and the union layout SVG. E08-14 and E08-15 move the docs and
-# VS Code generators here.
+# (E08-13), the docs pages and layout SVGs (E08-14). E08-15 moves the VS Code
+# generator here. ipu_as: the instruction reference renders each Inst class's
+# description.
 py_library(
     name = "ipu_gen_lib",
     srcs = glob(["src/ipu_gen/*.py"]),
     data = glob(["src/ipu_gen/templates/*.j2"]),
     imports = ["src"],
-    deps = ["//src/tools/ipu-isa:ipu_isa_lib"] + [requirement(dep) for dep in RUNTIME_DEPS],
+    deps = [
+        "//src/tools/ipu-as-py:ipu_as_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+    ] + [requirement(dep) for dep in RUNTIME_DEPS],
 )
 
 #   bazel run //src/tools/ipu-gen:ipu-gen -- sv-package --output /tmp/ipu_instr_pkg.sv
+#   bazel run //src/tools/ipu-gen:ipu-gen -- docs-pages /tmp/docs
+#   bazel run //src/tools/ipu-gen:ipu-gen -- instruction-format-md /tmp/instruction-format.md
+#   bazel run //src/tools/ipu-gen:ipu-gen -- union-layout-svg /tmp/union_layout.svg
 py_binary(
     name = "ipu-gen",
     srcs = ["src/ipu_gen/cli.py"],
@@ -65,15 +72,6 @@ py_pytest_test(
         requirement("pytest"),
         requirement("pyslang"),
     ],
-)
-
-#   bazel run //src/tools/ipu-gen:gen_union_layout_svg -- /tmp/union_layout.svg
-py_binary(
-    name = "gen_union_layout_svg",
-    srcs = ["src/ipu_gen/gen_union_layout_svg.py"],
-    imports = ["src"],
-    main = "src/ipu_gen/gen_union_layout_svg.py",
-    deps = [":ipu_gen_lib"],
 )
 
 py_pytest_test(

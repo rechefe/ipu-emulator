@@ -25,15 +25,14 @@
 # The ISA is the root: it depends on no other package (Q31, Q62).
 ipu_isa = []
 
-# Artifact generators. E08 moves the docs, SV and VS Code generators here
-# from ipu_as. The SV package (E08-13) reads ipu_isa only; E08-14 and E08-15
-# add ipu_as here if a generator needs the assembler's parser.
-ipu_gen = ["ipu_isa"]
-
-ipu_as = [
+# Artifact generators (E08-13, E08-14, E08-15). Nothing imports ipu_gen. The
+# SV package and the layout SVGs read ipu_isa only.
+ipu_gen = [
     "ipu_isa",
-    "ipu_gen",  # temporary: compound_inst renders the layout SVG (E08-14 removes it)
+    "ipu_as",  # the instruction reference renders each Inst class's description (E03-11 reads the ISA view)
 ]
+
+ipu_as = ["ipu_isa"]
 
 ipu_emu = [
     "ipu_isa",

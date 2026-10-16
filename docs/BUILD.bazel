@@ -14,14 +14,6 @@ filegroup(
     visibility = ["//visibility:public"],
 )
 
-py_binary(
-    name = "gen_docs",
-    srcs = ["gen_docs_wrapper.py"],
-    main = "gen_docs_wrapper.py",
-    deps = ["//src/tools/ipu-as-py:ipu_as_lib"],
-    python_version = "PY3",
-)
-
 genrule(
     name = "generate_mkdocs_md",
     outs = [
@@ -30,8 +22,8 @@ genrule(
         "assembly-syntax.md",
         "programmer-guide.md",
     ],
-    cmd = "$(location :gen_docs) $(location instructions.md) $(location operand-types.md) $(location assembly-syntax.md) $(location programmer-guide.md)",
-    tools = [":gen_docs"],
+    cmd = "$(location //src/tools/ipu-gen:ipu-gen) docs-pages $(RULEDIR) > /dev/null",
+    tools = ["//src/tools/ipu-gen:ipu-gen"],
 )
 
 # Not stamped: the package's header names a hash of its own content, so its
@@ -53,19 +45,11 @@ py_binary(
     python_version = "PY3",
 )
 
-py_binary(
-    name = "gen_instruction_format_md",
-    srcs = ["gen_instruction_format_md_wrapper.py"],
-    main = "gen_instruction_format_md_wrapper.py",
-    deps = ["//src/tools/ipu-as-py:ipu_as_lib"],
-    python_version = "PY3",
-)
-
 genrule(
     name = "generate_instruction_format_md",
     outs = ["instruction-format.md"],
-    cmd = "$(location :gen_instruction_format_md) $(location instruction-format.md)",
-    tools = [":gen_instruction_format_md"],
+    cmd = "$(location //src/tools/ipu-gen:ipu-gen) instruction-format-md $@ > /dev/null",
+    tools = ["//src/tools/ipu-gen:ipu-gen"],
 )
 
 # Refreshes the committed docs/content/release-log.md from the GitHub API. Not
