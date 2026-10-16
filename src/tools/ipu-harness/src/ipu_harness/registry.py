@@ -414,8 +414,12 @@ class Registry:
 
 
 def kernel_tree() -> Path:
-    """The ``kernels/`` tree: in Bazel's runfiles when run by Bazel, else in the
-    checkout this package is in (``src/tools/ipu-harness/src/ipu_harness``)."""
+    """Where the ``kernels/`` tree is.
+
+    Returns:
+        ``$RUNFILES_DIR/_main/kernels`` when run by Bazel (``//kernels:tree``
+        data), else the ``kernels/`` of the checkout this package is in.
+    """
     runfiles = os.environ.get("RUNFILES_DIR")
     if runfiles and (Path(runfiles) / "_main" / "kernels").is_dir():
         return Path(runfiles) / "_main" / "kernels"
@@ -424,8 +428,7 @@ def kernel_tree() -> Path:
 
 @functools.cache
 def default_registry() -> Registry:
-    """The registry of :func:`kernel_tree`, with ``ipu_kernels``' layer adapters.
-    Built once.
+    """The registry of :func:`kernel_tree` with ``ipu_kernels``' adapters, built once.
 
     Raises:
         ConfigurationError: There is no kernel tree (a binary without the

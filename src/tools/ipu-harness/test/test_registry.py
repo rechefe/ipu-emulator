@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import itertools
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -241,11 +242,20 @@ def test_a_layer_without_an_adapter_names_the_known_ones(tmp_path):
         registry.from_layer(Conv2d(1), (1,))
 
 
-def test_the_default_registry_reads_the_kernel_tree_once():
+def test_the_default_registry_reads_the_kernel_tree_once_and_imports_no_kernel_module():
     # The tree is in the test's runfiles (//kernels:tree); E06-13 adds kernels to it.
+    before = {m for m in sys.modules if m.startswith("ipu_kernels")}
     assert (kernel_tree() / "BUILD.bazel").is_file()
     assert default_registry() is default_registry()
     assert default_registry().invalid == {}
+    assert {m for m in sys.modules if m.startswith("ipu_kernels")} == before
+
+
+@pytest.mark.parametrize("made", [("scale",), ["scale", {}], ("scale", [("rows", 1)])])
+def test_an_adapter_that_returns_no_op_and_params_is_an_error(tmp_path, made):
+    registry = Registry.of(manifests(tmp_path), adapters={"Conv2d": lambda layer, shape: made})
+    with pytest.raises(ConfigurationError, match=r"not \(op, params\)"):
+        registry.from_layer(Conv2d(1), (1,))
 
 
 def test_a_missing_tree_is_an_error_not_an_empty_registry(tmp_path):
