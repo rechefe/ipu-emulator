@@ -38,6 +38,8 @@ from ipu_emu.ipu_math import DType
 from ipu_emu.ipu_state import IpuState
 from ipu_emu.xmem import XMEM_SIZE_BYTES
 from ipu_isa.constants import PadMode, encode_dstructure
+from ipu_isa.formats import ElementFormat as IsaFormat
+from ipu_isa.formats import encode_element
 
 # ============================================================================
 # Basic Register Operations
@@ -2282,11 +2284,8 @@ class TestDecodeRoundtrip:
 class TestFp8:
     def test_fp8_e4m3_mult_ee(self):
         """FP8 E4 (e4m3): 1.0 × 2.0 → 2.0 for every element."""
-        # TODO(E04-13): use the element codec's public encode.
-        from ipu_emu.ipu_math import _float32_to_fp8_scalar
-
-        fp_one_byte = _float32_to_fp8_scalar(1.0, 4)
-        fp_two_byte = _float32_to_fp8_scalar(2.0, 4)
+        fp_one_byte = encode_element(1.0, IsaFormat.E4)
+        fp_two_byte = encode_element(2.0, IsaFormat.E4)
 
         r0_data = bytes([fp_one_byte] * 128)
         cyclic_data = bytes([fp_two_byte] * 512)
@@ -2416,10 +2415,7 @@ HALT;;
 
     def test_mult_rc_ve_cr_fp8e4m3(self):
         """MULT.RC.VE fp8_e4: scalar 1.0 × RC elements 1.0 → result 1.0 each."""
-        # TODO(E04-13): use the element codec's public encode.
-        from ipu_emu.ipu_math import _float32_to_fp8_scalar
-
-        one_fp8 = _float32_to_fp8_scalar(1.0, 4)
+        one_fp8 = encode_element(1.0, IsaFormat.E4)
         cyclic_data = bytes([one_fp8] * 512)
 
         state = make_state(
@@ -2447,11 +2443,8 @@ HALT;;
 
     def test_mult_rc_ve_cr_wraps_fp8e5m2(self):
         """MULT.RC.VE fp8_e5: RC indices wrap modulo 512 (cyclic, no padding)."""
-        # TODO(E04-13): use the element codec's public encode.
-        from ipu_emu.ipu_math import _float32_to_fp8_scalar
-
-        two_fp8 = _float32_to_fp8_scalar(2.0, 5)
-        scalar_fp8 = _float32_to_fp8_scalar(3.0, 5)
+        two_fp8 = encode_element(2.0, IsaFormat.E5)
+        scalar_fp8 = encode_element(3.0, IsaFormat.E5)
 
         state = make_state(
             """\
