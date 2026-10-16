@@ -57,7 +57,7 @@ find "$PROJECT_DIR" -type f -name "*.sh" -exec chmod +x {} + 2>/dev/null || true
 # (module registry entries and pip wheels) while the image is still being built.
 cd "$PROJECT_DIR"
 bazel version
-bazel build //... --build_tag_filters=-docs || true
+bazel build --config=ci //... || true
 
 # Persist the settings the rest of the session needs.
 if [ -n "${CLAUDE_ENV_FILE:-}" ] && ! grep -q "^export BAZELISK_BASE_URL=" "$CLAUDE_ENV_FILE" 2>/dev/null; then

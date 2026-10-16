@@ -127,12 +127,16 @@ py_pytest_test(
     deps = [":ipu_apps_lib", requirement("pytest")],
 )
 
+# Profiler consistency: every case of each kernel run twice (baseline and
+# profiled). `enormous` (heavy tier) because it repeats the work of each
+# kernel's own default-tier target and is about 60 % of all test time.
 ipu_per_kernel_test(
     name = "test_alias_profile_kernels",
     src = "test/test_alias_profile_kernels.py",
     kernels_root = "src/ipu_apps/kernels",
     data = glob(["src/ipu_apps/**/*.asm", "src/ipu_apps/**/*.bin"]),
     deps = [":ipu_apps_lib", requirement("pytest")],
+    size = "enormous",
 )
 
 # Tests that run several kernels together: one target per test/<suite>/test_*.py.

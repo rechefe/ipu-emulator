@@ -3,7 +3,8 @@
 ## Build & Test
 
 ```bash
-bazel test //...                                          # run all tests
+bazel test //...                                          # run the default test tier
+bazel test --config=full //...                            # include the heavy (nightly) tier
 bazel test //src/tools/ipu-emu-py:test_execute           # emulator tests only
 bazel test //src/tools/ipu-as-py:test_assemble           # assembler tests only
 bazel test //src/tools/ipu-apps:test_fully_connected     # app tests only

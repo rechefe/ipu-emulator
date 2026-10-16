@@ -28,12 +28,34 @@ Build (Bazel)
 # Build all targets
 bazel build //...
 
-# Run all tests
+# Run the default test tier
 bazel test //...
+
+# Include the heavy (nightly) tier
+bazel test --config=full //...
 
 # Assemble an IPU program
 bazel build //src/tools/ipu-apps:assemble_fully_connected
 ```
+
+Test tiers
+----------
+
+Tests are split into two tiers by Bazel test size. The named configs in
+`.bazelrc` select them, so CI and developers run the same command.
+
+| Tier | Holds | Command |
+|------|-------|---------|
+| Default | Every test except size `enormous`: what a change must pass before review. CI runs it on every push. | `bazel test //...` (CI: `bazel test --config=ci //...`, which also skips `docs` targets) |
+| Heavy | Size `enormous` tests, such as the per-kernel `test_alias_profile_kernels_*` and `test_debug_launch_kernels_*` sweeps. Runs nightly. | `bazel test --config=full //...` |
+
+`manual` targets (for example the `test_full_*` MobileViT stacks) are in
+neither tier; run them by name.
+
+Put a new test in the heavy tier (`size = "enormous"`) only when it repeats
+coverage that a default-tier test already gives, or when it takes more than
+about 2 minutes on CI. Run `bazel test --config=full //...` before review when
+a change touches code that only heavy-tier tests exercise.
 
 Development
 -----------
