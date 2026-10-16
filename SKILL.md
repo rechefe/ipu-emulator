@@ -171,7 +171,7 @@ bazel test //...
 
 ```bash
 # Assemble a program
-bazel run //src/tools/ipu-as-py:ipu-as -- assemble --input prog.asm --output prog.bin
+bazel run //src/tools/ipu-as-py:ipu-as -- assemble --input "$PWD/prog.asm" --output "$PWD/prog.bin" --format bin
 
 # With Jinja2 template variables
 bazel run //src/tools/ipu-as-py:ipu-as -- assemble --define ROWS=8 prog.asm.j2
