@@ -72,6 +72,7 @@ def unpack(tensor: TensorDecl, raw: bytes, plan: CasePlan) -> np.ndarray:
 - [ ] INT8 packing of a `[2, 128]` tensor is 256 bytes, and FP32 packing is 1024 bytes.
 - [ ] A wrong-shape array, including oversize, is rejected with the tensor name and both shapes.
 - [ ] A kernel-local `pack.py` transform overrides a shared one of the same name.
+- [ ] Packing takes a `CasePlan` and re-checks nothing (E06-03's single seam).
 
 ## Acceptance Criteria
 

@@ -70,7 +70,6 @@ each becomes the parameter's only choice and its value in every case).
 
 from __future__ import annotations
 
-import ast
 import re
 import sys
 from collections.abc import Iterable, Mapping
@@ -80,6 +79,7 @@ from types import MappingProxyType
 from typing import Any, Literal
 
 from ipu_harness._toml_source import Locator, ManifestError, Reader, decode_error_line, where
+from ipu_harness.expressions import ExpressionError, names_in
 from ipu_isa.formats import ElementFormat
 from ipu_isa.registers import REGISTER_DEFINITIONS
 
@@ -96,6 +96,7 @@ __all__ = [
     "KernelManifest",
     "ManifestError",
     "ParamDecl",
+    "SECTION_OF",
     "TensorDecl",
     "load_manifest",
 ]
@@ -119,6 +120,8 @@ _PY_TYPES: Mapping[str, tuple[type, ...]] = {
     "str": (str,),
 }
 _ROLES: Mapping[str, Role] = {"inputs": "input", "outputs": "output", "scratch": "scratch"}
+#: The section each role is declared in.
+SECTION_OF: Mapping[Role, str] = {role: section for section, role in _ROLES.items()}
 _SECTIONS = (
     "kernel",
     "params",
@@ -139,9 +142,8 @@ _TENSOR_KEYS: Mapping[Role, tuple[str, ...]] = {
 }
 _CASE_KEYS = ("formats", "inputs", "expected", "generator", "tier")
 _GOLDEN_KEYS = ("reference", "op", "tolerance")
-_RESERVED_NAMES = frozenset({"cr", "lr", *_CASE_KEYS})
-#: The shape grammar's functions (E06-03), not names to resolve.
-_SHAPE_FUNCTIONS = frozenset({"ceil", "min", "max"})
+#: Names a template or a case reserves (E06-07: cr, lr, format, shapes).
+_RESERVED_NAMES = frozenset({"cr", "lr", "format", "shapes", *_CASE_KEYS})
 
 
 @dataclass(frozen=True)
@@ -190,6 +192,11 @@ class TensorDecl:
     pack: str | None = None
     store: Store = "element"
     fill: int | float = 0
+
+    @property
+    def section(self) -> str:
+        """Its section in ``kernel.toml``: ``inputs``, ``outputs`` or ``scratch``."""
+        return SECTION_OF[self.role]
 
 
 @dataclass(frozen=True)
@@ -279,26 +286,17 @@ def _check_name(r: Reader, path: tuple[str, ...]) -> None:
         raise r.fail(
             path,
             f"{where(path)}: {name!r} must be an identifier, not start with _, "
-            "and not be cr, lr or a reserved case key",
+            "and not be cr, lr, format, shapes or a reserved case key",
         )
 
 
-def _expression_names(r: Reader, text: str, path: tuple[str, ...]) -> list[str]:
-    """The names an expression reads (the shape grammar's functions aside)."""
-    try:
-        tree = ast.parse(text, mode="eval")
-    except SyntaxError:
-        raise r.fail(path, f"{where(path)} {text!r} is not an expression") from None
-    calls = {id(n.func) for n in ast.walk(tree) if isinstance(n, ast.Call)}
-    return [
-        n.id
-        for n in ast.walk(tree)
-        if isinstance(n, ast.Name) and not (id(n) in calls and n.id in _SHAPE_FUNCTIONS)
-    ]
-
-
 def _check_expression(r: Reader, text: str, known: Iterable[str], path: tuple[str, ...]) -> None:
-    unknown = sorted(set(_expression_names(r, text, path)) - set(known))
+    """``text`` is in the shape grammar (E06-03) and names only ``known`` values."""
+    try:
+        names = names_in(text)
+    except ExpressionError as error:
+        raise r.fail(path, f"{where(path)}: {error}") from None
+    unknown = sorted(set(names) - set(known))
     if unknown:
         raise r.fail(path, f"{where(path)} {text!r} names no parameter or derived value: {unknown}")
 
@@ -457,9 +455,8 @@ def _abi(
         abi[name] = register
     for tensor in tensors.values():
         if tensor.name not in abi:
-            section = next(s for s, role in _ROLES.items() if role == tensor.role)
             raise r.fail(
-                (section, tensor.name),
+                (tensor.section, tensor.name),
                 f"[abi] does not bind tensor {tensor.name!r}; its base row must reach the program",
             )
     return MappingProxyType(abi)

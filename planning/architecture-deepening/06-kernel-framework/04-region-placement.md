@@ -67,6 +67,7 @@ Rules:
 - [ ] The same element tensor needs the same row count in FP32 and E4, while the capacity in rows differs (4x).
 - [ ] An `accumulator` output of 2 vectors takes 2 rows in FP32 and 8 rows in INT8.
 - [ ] Placement for `projections` layouts matches `ProjectionLayout` bases (`kernels/projections/app.py:141-156`) for all 12 kernels, using declaration order and no pins (guards E07-02).
+- [ ] `place` takes a `CasePlan` and re-checks nothing (E06-03's single seam).
 
 ## Acceptance Criteria
 

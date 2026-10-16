@@ -342,6 +342,19 @@ RULES = [
         "e5 =",
     ),
     ("rows = [1, 7, 33, 128]", "rows = []", "sweeps over no values", "rows = []"),
+    (
+        "[abi]\n",
+        '[derived]\nh = "rows ** 2"\n\n[abi]\n',
+        "is outside the shape grammar",
+        "rows ** 2",
+    ),
+    (
+        "[abi]\n",
+        '[derived]\nh = "min(rows)"\n\n[abi]\n',
+        "min() takes at least 2 positional arguments",
+        "min(rows)",
+    ),
+    (S, 'format = { type = "str" }', "'format' must be an identifier", "format = {"),
 ]
 
 

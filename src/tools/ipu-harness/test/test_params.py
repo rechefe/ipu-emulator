@@ -2,21 +2,14 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
 
-from ipu_harness import params as params_module
+from ipu_harness.expressions import ExpressionError, evaluate
 from ipu_harness.manifest import load_manifest
-from ipu_harness.params import (
-    CasePlan,
-    ExpressionError,
-    PlanError,
-    check_params,
-    evaluate,
-    plan_case,
-    representable,
-)
+from ipu_harness.params import CasePlan, PlanError, check_params, plan_case, representable
 from ipu_isa.formats import ElementFormat as F
 
 TOML = """\
@@ -120,7 +113,7 @@ def test_a_plan_has_complete_params_and_int_shapes(manifest):
 )
 def test_each_check_names_the_key_and_the_value(manifest, values, fmt, case, key, words):
     with pytest.raises(PlanError) as error:
-        plan_case(manifest, values, fmt, case=case)
+        plan_case(manifest, values, fmt, case=manifest.cases[case] if case else None)
     assert error.value.key == key
     assert words in str(error.value)
     assert str(error.value).startswith(f"{manifest.directory / 'kernel.toml'}: {key}: ")
@@ -133,13 +126,22 @@ def test_a_shape_that_is_not_positive_is_an_error(manifest):
         plan_case(load_manifest(manifest.directory), {"rows": 3, "s": 2.0}, F.FP32)
 
 
-def test_element_scalars_exact_in_the_format_pass():
+def test_representable_answers_exactly_and_names_the_true_neighbours():
     assert representable(2.0, F.INT8) == (True, ())
-    assert representable(2.0, F.E4) == (True, ())
-    assert representable(1.5, F.FP32) == (True, ())
+    assert representable(-128.0, F.INT8) == (True, ())
     assert representable(1.5, F.INT8) == (False, (1.0, 2.0))
+    assert representable(200.0, F.INT8) == (False, (127.0,))
+    assert representable(2.0, F.E4) == (True, ()) and representable(-0.0, F.E4) == (True, ())
+    assert representable(1.5, F.FP32) == (True, ())
+    # 0.1 rounds to float32 0.100000001...: the neighbours straddle 0.1, one of them is that rounding.
+    assert representable(0.1, F.FP32) == (False, (0.09999999403953552, 0.10000000149011612))
+    assert representable(1e-300, F.FP32) == (False, (0.0, 1.401298464324817e-45))
+    assert representable(1e39, F.FP32) == (False, (3.4028234663852886e38,))
+    assert representable(float("nan"), F.FP32) == (False, ())
     exact, near = representable(0.1, F.E4)
     assert not exact and len(near) == 2 and near[0] < 0.1 < near[1]
+    assert representable(1000.0, F.E4) == (False, (240.0,))  # past E4's largest finite
+    assert representable(0.75, F.E5)[0] and representable(7.0, F.INT32) == (True, ())
 
 
 def test_s_1_5_is_rejected_in_int8_and_2_0_accepted_in_int8_and_e4(manifest):
@@ -150,6 +152,19 @@ def test_s_1_5_is_rejected_in_int8_and_2_0_accepted_in_int8_and_e4(manifest):
 
 
 @pytest.mark.parametrize(
+    ("value", "words"),
+    [
+        (float("nan"), "s = nan is not finite"),
+        (float("inf"), "s = inf is not finite"),
+        (10**400, "is too large for a float"),
+    ],
+)
+def test_non_finite_and_huge_floats_are_refused(manifest, value, words):
+    with pytest.raises(PlanError, match=words):
+        plan_case(manifest, {"rows": 1, "s": value}, F.FP32)
+
+
+@pytest.mark.parametrize(
     ("expression", "value"),
     [
         ("ceil(k / 128)", 2),
@@ -157,6 +172,10 @@ def test_s_1_5_is_rejected_in_int8_and_2_0_accepted_in_int8_and_e4(manifest):
         ("k // 7 % 5", 3),
         ("max(rows, 2) - min(1, k)", 2),
         ("-rows + 5", 2),
+        ("-7 // 2", -4),  # Python's floor semantics
+        ("-7 % 3", 2),
+        ("ceil(-3 / 2)", -1),
+        ("min(rows, k, 2)", 2),
     ],
 )
 def test_shape_expressions_evaluate(expression, value):
@@ -170,6 +189,9 @@ def test_shape_expressions_evaluate(expression, value):
         "rows.real",
         "abs(rows)",
         "ceil(x=rows)",
+        "ceil(rows, 2)",
+        "min(rows)",
+        "max()",
         "rows ** 2",
         "k / 3",  # not a whole number
         "rows / 0",
@@ -179,6 +201,7 @@ def test_shape_expressions_evaluate(expression, value):
         "rows if rows else 1",
         "[rows]",
         "rows +",
+        "1" + "+1" * 5000,  # too deeply nested
     ],
 )
 def test_anything_else_is_rejected(expression):
@@ -186,24 +209,43 @@ def test_anything_else_is_rejected(expression):
         evaluate(expression, {"k": 128, "rows": 3})
 
 
-def test_check_params_is_the_same_checks_without_a_format(manifest):
-    check_params(manifest, {"rows": 2, "s": 0.1})  # no format: s is not checked against one
+def test_a_derived_value_that_does_not_evaluate_is_an_error(manifest):
+    toml = TOML.replace('blocks = "ceil(k / 128)"', 'blocks = "k / 3"')
+    (manifest.directory / "kernel.toml").write_text(toml)
+    with pytest.raises(PlanError) as error:
+        plan_case(load_manifest(manifest.directory), {"rows": 3, "s": 2.0}, F.FP32)
+    assert error.value.key == "derived.blocks"
+    assert "'k / 3': 'k / 3' is 128/3, not a whole number" in str(error.value)
+
+
+def test_check_params_runs_checks_2_and_3_and_names_the_formats_that_accept(manifest):
+    check = check_params(manifest, {"rows": 2, "s": 2.0})
+    assert dict(check.params) == {"rows": 2, "k": 128, "mode": "a", "s": 2.0}
+    assert check.formats == (F.FP32, F.INT8, F.E4)
+    assert check_params(manifest, {"rows": 2, "s": 1.5}).formats == (F.FP32, F.E4)
+    assert check_params(manifest, {"rows": 2, "s": 0.1}).formats == ()
     with pytest.raises(PlanError, match="rows = 0 is below its min 1"):
         check_params(manifest, {"rows": 0, "s": 1.0})
+    toml = TOML.replace('shape = ["rows * 4", "blocks"]', 'shape = ["rows - 4", "blocks"]')
+    (manifest.directory / "kernel.toml").write_text(toml)
+    with pytest.raises(PlanError, match="not a positive size"):
+        check_params(load_manifest(manifest.directory), {"rows": 3, "s": 1.0})
 
 
-def test_plan_case_is_the_only_validation(monkeypatch, manifest):
-    # Every check is a function plan_case calls once per case run, and nothing else in the
-    # package calls them: a later stage re-validating would show up here.
-    calls = []
-    real = params_module._check_params
-    monkeypatch.setattr(params_module, "_check_params", lambda *a: calls.append(a) or real(*a))
-    plan_case(manifest, {"rows": 2, "s": 2.0}, F.FP32)
-    assert len(calls) == 1
-    package = Path(params_module.__file__).parent
-    others = [p for p in package.glob("*.py") if p.name != "params.py"]
-    assert not [
-        p.name
-        for p in others
-        if "_check_params" in p.read_text() or "_check_value" in p.read_text()
+def test_only_entry_points_call_the_validation_seam():
+    """No later stage re-validates: plan_case, check_params and representable are
+    called only by params.py itself and the entry points (the runner, E06-11; the
+    registry, E06-16)."""
+    import ipu_harness
+
+    package = Path(ipu_harness.__file__).parent
+    allowed = {"params.py", "runner.py", "registry.py"}
+    calls = re.compile(
+        r"\b(plan_case|check_params|representable|_check_(?:params|value|number|format|scalars))\("
+    )
+    offenders = [
+        str(p.relative_to(package))
+        for p in package.rglob("*.py")
+        if p.name not in allowed and calls.search(p.read_text(encoding="utf-8"))
     ]
+    assert offenders == []

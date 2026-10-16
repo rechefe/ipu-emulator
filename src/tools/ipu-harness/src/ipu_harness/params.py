@@ -1,23 +1,22 @@
 """The one place a kernel's parameters are validated: :func:`plan_case` (E06-03).
 
 ``plan_case(manifest, params, fmt)`` turns a request into a :class:`CasePlan`
-(complete parameters, every tensor shape in ints) or raises
-:class:`PlanError`. Placement, packing, CR programming, assembly and the runner
-take the plan and never check again. The registry asks "does this kernel take
-these parameters?" with :func:`check_params`, the same checks without a format.
+(complete parameters, every tensor shape in ints, every derived value) or
+raises :class:`PlanError`. Placement, packing, CR programming, assembly and the
+runner take the plan and never check again. The registry asks "does this kernel
+take these parameters, and in which formats?" with :func:`check_params`, the
+same checks.
 
 Checks, in order:
 
 1. Format: ``fmt`` is one of ``[kernel] formats``, and of the case's
    ``formats`` when it lists them.
 2. Parameters: no unknown names, every parameter without a default given,
-   each value of its type and in its domain (``min``, ``max``, ``multiple_of``,
-   ``choices``).
-3. Shapes: every tensor dimension is a positive int. A dimension is an int, a
-   parameter or derived name, or an expression in a small grammar: int
-   literals, names, ``+ - * / // %``, unary minus, and the calls ``ceil``,
-   ``min`` and ``max``. Arithmetic is exact (fractions); ``/`` must end up
-   inside ``ceil`` or divide evenly. Nothing else is evaluated.
+   each value of its type, finite, and in its domain (``min``, ``max``,
+   ``multiple_of``, ``choices``).
+3. Shapes and derived values: every ``[derived]`` value and every tensor
+   dimension evaluates, in the shape grammar (:mod:`ipu_harness.expressions`),
+   to a whole number; dimensions are positive.
 4. Element scalars: a ``float`` parameter bound in ``[abi]`` is a scalar in the
    active format, so it must encode in ``fmt`` exactly. If it does not, the
    error names the nearest representable values; nothing is rounded silently.
@@ -25,20 +24,21 @@ Checks, in order:
 
 from __future__ import annotations
 
-import ast
+import functools
 import math
-import struct
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
-from fractions import Fraction
 from types import MappingProxyType
-from typing import Any
 
 import numpy as np
 
 from ipu_emu.errors import ConfigurationError
-from ipu_emu.ipu_math import DType, fp8_bytes_to_fp32, fp32_to_fp8_bytes
-from ipu_harness.manifest import TOML_NAME, KernelManifest, ParamDecl
+
+# The element codec moves to ipu_isa.formats in E04-13; until then the emulator's
+# public FP8 encode/decode answers "does this value encode exactly".
+from ipu_emu.ipu_math import DType, fp8_bytes_to_fp32
+from ipu_harness.expressions import ExpressionError, evaluate
+from ipu_harness.manifest import TOML_NAME, CaseDecl, KernelManifest, ParamDecl
 from ipu_isa.formats import FORMATS, ElementFormat
 
 Value = int | float | bool | str
@@ -49,10 +49,16 @@ _PY_TYPES: Mapping[str, tuple[type, ...]] = {
     "bool": (bool,),
     "str": (str,),
 }
+_FP32_MAX = float(np.finfo(np.float32).max)
 
 
 class PlanError(ConfigurationError):
-    """A request a kernel does not accept (setup time, Q59). Names the manifest and the key."""
+    """A request a kernel does not accept (setup time, Q59).
+
+    Attributes:
+        toml: The kernel's ``kernel.toml``.
+        key: The key that failed, as ``section.name[.field]``.
+    """
 
     def __init__(self, manifest: KernelManifest, key: str, message: str) -> None:
         self.toml = manifest.directory / TOML_NAME
@@ -60,134 +66,116 @@ class PlanError(ConfigurationError):
         super().__init__(f"{self.toml}: {key}: {message}")
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class CasePlan:
+    """A checked request: what every later stage takes (compared by identity).
+
+    Attributes:
+        manifest: The kernel.
+        format: The element format it runs in.
+        params: Every parameter, defaults filled; a float parameter's value is a float.
+        shapes: Every tensor's shape, in ints.
+        derived: Every ``[derived]`` value.
+    """
+
     manifest: KernelManifest
     format: ElementFormat
-    params: Mapping[str, Value]  # complete: defaults filled, ints for float params made floats
-    shapes: Mapping[str, tuple[int, ...]]  # every tensor shape in ints
-    derived: Mapping[str, int]  # [derived] values that are shape-grammar expressions
-
-
-# --- shape expressions --------------------------------------------------------------------
-
-_BINARY: Mapping[type, Callable[[Fraction, Fraction], Fraction]] = {
-    ast.Add: lambda a, b: a + b,
-    ast.Sub: lambda a, b: a - b,
-    ast.Mult: lambda a, b: a * b,
-    ast.Div: lambda a, b: a / b,
-    ast.FloorDiv: lambda a, b: Fraction(a // b),
-    ast.Mod: lambda a, b: a % b,
-}
-_CALLS: Mapping[str, Callable[..., Fraction]] = {
-    "ceil": lambda x: Fraction(math.ceil(x)),
-    "min": min,
-    "max": max,
-}
-
-
-class ExpressionError(ValueError):
-    """A shape or derived expression outside the grammar, or one that does not evaluate."""
-
-
-def _evaluate(node: ast.AST, names: Mapping[str, Fraction]) -> Fraction:
-    if isinstance(node, ast.Expression):
-        return _evaluate(node.body, names)
-    if isinstance(node, ast.Constant) and type(node.value) is int:
-        return Fraction(node.value)
-    if isinstance(node, ast.Name):
-        if node.id not in names:
-            raise ExpressionError(f"{node.id!r} is no integer parameter or derived value")
-        return names[node.id]
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        return -_evaluate(node.operand, names)
-    if isinstance(node, ast.BinOp) and type(node.op) in _BINARY:
-        left, right = _evaluate(node.left, names), _evaluate(node.right, names)
-        if right == 0 and isinstance(node.op, ast.Div | ast.FloorDiv | ast.Mod):
-            raise ExpressionError("division by zero")
-        return _BINARY[type(node.op)](left, right)
-    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in _CALLS:
-        if node.keywords or not node.args:
-            raise ExpressionError(f"{node.func.id}() takes positional arguments only")
-        return _CALLS[node.func.id](*(_evaluate(a, names) for a in node.args))
-    raise ExpressionError(f"{ast.dump(node)[:60]} is outside the shape grammar")
-
-
-def evaluate(expression: str, names: Mapping[str, int]) -> int:
-    """``expression`` (the shape grammar) over integer ``names``, as an exact int.
-
-    Raises:
-        ExpressionError: Outside the grammar, an unknown name, or not a whole number.
-    """
-    try:
-        tree = ast.parse(expression, mode="eval")
-    except SyntaxError as error:
-        raise ExpressionError(f"{expression!r} does not parse: {error.msg}") from None
-    value = _evaluate(tree, {k: Fraction(v) for k, v in names.items()})
-    if value.denominator != 1:
-        raise ExpressionError(f"{expression!r} is {value}, not a whole number")
-    return int(value)
+    params: Mapping[str, Value]
+    shapes: Mapping[str, tuple[int, ...]]
+    derived: Mapping[str, int]
 
 
 # --- element scalars ----------------------------------------------------------------------
 
 
-def _fp32(value: float) -> float:
-    return float(struct.unpack("<f", struct.pack("<f", value))[0])
-
-
-def _fp8_values(fmt: ElementFormat) -> list[float]:
+@functools.cache
+def _fp8_values(fmt: ElementFormat) -> tuple[float, ...]:
     decoded = fp8_bytes_to_fp32(bytes(range(256)), DType(FORMATS[fmt].exp_bits))
-    return sorted({float(v) for v in decoded if np.isfinite(v)})
+    return tuple(sorted({float(v) for v in decoded if np.isfinite(v)}))
+
+
+def _neighbours(value: float, values: tuple[float, ...]) -> tuple[float, ...]:
+    """The nearest of ``values`` below and above ``value``."""
+    below = [v for v in values if v < value][-1:]
+    above = [v for v in values if v > value][:1]
+    return (*below, *above)
+
+
+def _fp32_neighbours(value: float) -> tuple[float, ...]:
+    """The float32 values on either side of ``value`` (one of them is its rounding)."""
+    if abs(value) > _FP32_MAX:
+        return (math.copysign(_FP32_MAX, value),)
+    rounded = np.float32(value)
+    if float(rounded) < value:
+        return (float(rounded), float(np.nextafter(rounded, np.float32(np.inf))))
+    return (float(np.nextafter(rounded, np.float32(-np.inf))), float(rounded))
 
 
 def representable(value: float, fmt: ElementFormat) -> tuple[bool, tuple[float, ...]]:
-    """Whether ``value`` encodes exactly in ``fmt``; if not, its nearest neighbours there.
+    """Whether ``value`` encodes exactly in ``fmt``.
 
-    The FP8 formats round-trip through the emulator's codec until E04-13 moves
-    the element codec into ``ipu_isa.formats``.
+    Args:
+        value: A finite number.
+        fmt: The element format.
+
+    Returns:
+        ``(True, ())``, or ``(False, nearest)``: the representable values on
+        either side of ``value`` (one, at the edge of the format's range).
     """
+    if not math.isfinite(value):
+        return False, ()
     info = FORMATS[fmt]
     if not info.is_float:
         lo, hi = -(1 << (info.element_bits - 1)), (1 << (info.element_bits - 1)) - 1
-        if float(value).is_integer() and lo <= value <= hi:
+        if value < lo or value > hi:
+            return False, (float(lo if value < lo else hi),)
+        if value.is_integer():
             return True, ()
-        near = {min(max(math.floor(value), lo), hi), min(max(math.ceil(value), lo), hi)}
-        return False, tuple(float(v) for v in sorted(near))
+        return False, (float(math.floor(value)), float(math.ceil(value)))
     if fmt is ElementFormat.FP32:
-        exact = math.isfinite(value) and _fp32(value) == value
-        if exact:
-            return True, ()
-        below = float(np.nextafter(np.float32(value), np.float32(-np.inf)))
-        above = float(np.nextafter(np.float32(value), np.float32(np.inf)))
-        return False, (below, above)
-    encoded = fp32_to_fp8_bytes(np.array([value], dtype=np.float32), DType(info.exp_bits))
-    if float(fp8_bytes_to_fp32(encoded, DType(info.exp_bits))[0]) == value:
-        return True, ()
+        exact = abs(value) <= _FP32_MAX and float(np.float32(value)) == value
+        return (True, ()) if exact else (False, _fp32_neighbours(value))
     values = _fp8_values(fmt)
-    lower = [v for v in values if v < value][-1:]
-    upper = [v for v in values if v > value][:1]
-    return False, (*lower, *upper)
+    if value in values:
+        return True, ()
+    return False, _neighbours(value, values)
 
 
 # --- the checks ---------------------------------------------------------------------------
 
 
-def _check_format(manifest: KernelManifest, fmt: ElementFormat, case: str | None) -> None:
+def _check_format(manifest: KernelManifest, fmt: ElementFormat, case: CaseDecl | None) -> None:
     if fmt not in manifest.formats:
         allowed = ", ".join(f.value for f in manifest.formats)
         raise PlanError(
             manifest, "formats", f"format {fmt.value} is not one of the kernel's: {allowed}"
         )
-    if case is None:
-        return
-    if case not in manifest.cases:
-        raise PlanError(manifest, f"cases.{case}", f"no case {case!r}")
-    listed = manifest.cases[case].formats
-    if listed is not None and fmt not in listed:
+    if case is not None and case.formats is not None and fmt not in case.formats:
         raise PlanError(
-            manifest, f"cases.{case}.formats", f"format {fmt.value} is not one of the case's"
+            manifest, f"cases.{case.name}.formats", f"format {fmt.value} is not one of the case's"
         )
+
+
+def _check_number(manifest: KernelManifest, decl: ParamDecl, value: int | float) -> int | float:
+    key = f"params.{decl.name}"
+    if decl.type == "float":
+        try:
+            value = float(value)
+        except OverflowError:
+            raise PlanError(
+                manifest, key, f"{decl.name} = {value!r} is too large for a float"
+            ) from None
+        if not math.isfinite(value):
+            raise PlanError(manifest, key, f"{decl.name} = {value!r} is not finite")
+    if decl.min is not None and value < decl.min:
+        raise PlanError(manifest, key, f"{decl.name} = {value!r} is below its min {decl.min}")
+    if decl.max is not None and value > decl.max:
+        raise PlanError(manifest, key, f"{decl.name} = {value!r} is above its max {decl.max}")
+    if decl.multiple_of and value % decl.multiple_of:
+        raise PlanError(
+            manifest, key, f"{decl.name} = {value!r} is not a multiple of {decl.multiple_of}"
+        )
+    return value
 
 
 def _check_value(manifest: KernelManifest, decl: ParamDecl, value: object) -> Value:
@@ -196,21 +184,18 @@ def _check_value(manifest: KernelManifest, decl: ParamDecl, value: object) -> Va
         isinstance(value, bool) and decl.type != "bool"
     ):
         raise PlanError(manifest, key, f"{decl.name} = {value!r} is not {decl.type}")
-    checked: Any = float(value) if decl.type == "float" else value  # type: ignore[arg-type]
-    if decl.min is not None and checked < decl.min:
-        raise PlanError(manifest, key, f"{decl.name} = {value!r} is below its min {decl.min}")
-    if decl.max is not None and checked > decl.max:
-        raise PlanError(manifest, key, f"{decl.name} = {value!r} is above its max {decl.max}")
-    if decl.multiple_of and checked % decl.multiple_of:
-        raise PlanError(
-            manifest, key, f"{decl.name} = {value!r} is not a multiple of {decl.multiple_of}"
-        )
+    checked: Value
+    if isinstance(value, bool | str):
+        checked = value
+    elif isinstance(value, int | float):
+        checked = _check_number(manifest, decl, value)
+    else:  # pragma: no cover - the type check above admits nothing else
+        raise PlanError(manifest, key, f"{decl.name} = {value!r} is not {decl.type}")
     if decl.choices is not None and checked not in decl.choices:
         raise PlanError(
             manifest, key, f"{decl.name} = {value!r} is not one of {list(decl.choices)}"
         )
-    result: Value = checked
-    return result
+    return checked
 
 
 def _check_params(manifest: KernelManifest, params: Mapping[str, object]) -> dict[str, Value]:
@@ -225,9 +210,8 @@ def _check_params(manifest: KernelManifest, params: Mapping[str, object]) -> dic
     for name, decl in manifest.params.items():
         if name in params:
             out[name] = _check_value(manifest, decl, params[name])
-        elif decl.default is not None:
-            default: Any = decl.default  # checked against the domain by load_manifest
-            out[name] = default
+        elif decl.default is not None:  # TOML has no null: None means "no default"
+            out[name] = _check_value(manifest, decl, decl.default)
         else:
             raise PlanError(
                 manifest, f"params.{name}", f"{name} has no default and no value was given"
@@ -235,27 +219,24 @@ def _check_params(manifest: KernelManifest, params: Mapping[str, object]) -> dic
     return out
 
 
-def _names(manifest: KernelManifest, params: Mapping[str, Value]) -> dict[str, int]:
-    """Integer parameters, then the [derived] values the shape grammar can evaluate."""
+def _derived(manifest: KernelManifest, params: Mapping[str, Value]) -> dict[str, int]:
+    """Integer parameters, then every [derived] value, in declaration order."""
     names = {k: v for k, v in params.items() if isinstance(v, int) and not isinstance(v, bool)}
+    derived: dict[str, int] = {}
     for name, expression in manifest.derived.items():
         try:
-            names[name] = evaluate(expression, names)
-        except ExpressionError:
-            continue  # a derived value outside the shape grammar is E06-06's (module:fn)
-    return names
+            derived[name] = names[name] = evaluate(expression, names)
+        except ExpressionError as error:
+            raise PlanError(manifest, f"derived.{name}", f"{expression!r}: {error}") from None
+    return derived
 
 
 def _shapes(manifest: KernelManifest, names: Mapping[str, int]) -> dict[str, tuple[int, ...]]:
     shapes: dict[str, tuple[int, ...]] = {}
     for tensor in manifest.tensors.values():
+        key = f"{tensor.section}.{tensor.name}.shape"
         dims = []
         for dim in tensor.shape:
-            key = (
-                f"{tensor.role}s.{tensor.name}.shape"
-                if tensor.role != "scratch"
-                else f"scratch.{tensor.name}.shape"
-            )
             try:
                 size = dim if isinstance(dim, int) else evaluate(dim, names)
             except ExpressionError as error:
@@ -272,10 +253,9 @@ def _check_scalars(
 ) -> None:
     for name in manifest.abi:
         decl = manifest.params.get(name)
-        if decl is None or decl.type != "float":
+        value = params.get(name)
+        if decl is None or decl.type != "float" or not isinstance(value, float):
             continue
-        raw: Any = params[name]
-        value = float(raw)
         exact, near = representable(value, fmt)
         if not exact:
             nearest = " and ".join(repr(v) for v in near) or "none"
@@ -286,13 +266,44 @@ def _check_scalars(
             )
 
 
-def check_params(manifest: KernelManifest, params: Mapping[str, object]) -> None:
-    """Checks 2 and 3 (no format): raises :class:`PlanError` when one fails.
+@dataclass(frozen=True)
+class ParamCheck:
+    """What :func:`check_params` found.
 
-    For the registry's "does this kernel accept these parameters?" (E06-16).
+    Attributes:
+        params: Every parameter, defaults filled.
+        formats: The kernel's formats whose element scalars accept the values.
+    """
+
+    params: Mapping[str, Value]
+    formats: tuple[ElementFormat, ...]
+
+
+def check_params(manifest: KernelManifest, params: Mapping[str, object]) -> ParamCheck:
+    """Checks 2 and 3, and check 4 per format: for the registry (E06-16).
+
+    Args:
+        manifest: The kernel.
+        params: Parameter values; missing ones take their defaults.
+
+    Returns:
+        The complete parameters and the formats that accept them (possibly none).
+
+    Raises:
+        PlanError: Check 2 or 3 fails.
     """
     checked = _check_params(manifest, params)
-    _shapes(manifest, _names(manifest, checked))
+    derived = _derived(manifest, checked)
+    names = {k: v for k, v in checked.items() if isinstance(v, int) and not isinstance(v, bool)}
+    _shapes(manifest, {**names, **derived})
+    formats = []
+    for fmt in manifest.formats:
+        try:
+            _check_scalars(manifest, checked, fmt)
+        except PlanError:
+            continue
+        formats.append(fmt)
+    return ParamCheck(MappingProxyType(checked), tuple(formats))
 
 
 def plan_case(
@@ -300,7 +311,7 @@ def plan_case(
     params: Mapping[str, object],
     fmt: ElementFormat,
     *,
-    case: str | None = None,
+    case: CaseDecl | None = None,
 ) -> CasePlan:
     """The only place a kernel's parameters are validated.
 
@@ -308,7 +319,8 @@ def plan_case(
         manifest: The kernel.
         params: Parameter values; missing ones take their defaults.
         fmt: The element format to run in.
-        case: The case the values come from, if any (its ``formats`` limit applies).
+        case: The case the values come from, if any (its ``formats`` limit
+            applies; a sweep's expanded cases pass their base case).
 
     Returns:
         The plan every later stage takes.
@@ -318,10 +330,10 @@ def plan_case(
     """
     _check_format(manifest, fmt, case)
     checked = _check_params(manifest, params)
-    names = _names(manifest, checked)
-    shapes = _shapes(manifest, names)
+    derived = _derived(manifest, checked)
+    names = {k: v for k, v in checked.items() if isinstance(v, int) and not isinstance(v, bool)}
+    shapes = _shapes(manifest, {**names, **derived})
     _check_scalars(manifest, checked, fmt)
-    derived = {k: v for k, v in names.items() if k in manifest.derived}
     return CasePlan(
         manifest=manifest,
         format=fmt,

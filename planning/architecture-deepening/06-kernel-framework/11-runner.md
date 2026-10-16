@@ -101,6 +101,7 @@ Error handling:
 - [ ] Not reaching `HALT` within `max_cycles` gives a clear error (the E04 cycle-limit fault).
 - [ ] A planted `AttributeError` in a generator exits 2 with a traceback.
 - [ ] The runner does not import `torch` when the case has an expected file and no reference.
+- [ ] A spy shows `plan_case` runs once per case run (E06-03).
 
 ## Acceptance Criteria
 

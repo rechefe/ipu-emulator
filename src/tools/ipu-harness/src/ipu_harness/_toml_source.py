@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
-from ipu_isa.errors import IpuError
+from ipu_emu.errors import ConfigurationError
 from ipu_isa.formats import ElementFormat
 
 _KEY_PART = r"(?:[A-Za-z0-9_\-]+|\"[^\"]*\"|'[^']*')"
@@ -23,8 +23,9 @@ _HEADER = re.compile(rf"\s*\[\[?\s*({_KEY_PART}(?:\s*\.\s*{_KEY_PART})*)\s*\]\]?
 _TRIPLE = re.compile(r"\"\"\"|'''")
 
 
-class ManifestError(IpuError, ValueError):
-    """A ``kernel.toml`` that breaks the schema; the message starts ``<file>:<line>:``."""
+class ManifestError(ConfigurationError):
+    """A ``kernel.toml`` that breaks the schema (a configuration error, Q59); the
+    message starts ``<file>:<line>:``."""
 
 
 def split_key(key: str) -> tuple[str, ...]:
