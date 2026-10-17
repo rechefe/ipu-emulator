@@ -4,12 +4,13 @@ This page shows how to drive the emulator as a reference model from a cocotb
 testbench, and compare the RTL with it in three ways: word by word (lockstep),
 at the end of a run, or through a trace file read offline.
 
-The reference model is `ipu_emu.reference.ReferenceModel`. Its names and the
+The reference model is
+[`ipu_emu.reference.ReferenceModel`](../reference/reference-model-api.md#ReferenceModel). Its names and the
 commit records its `step()` returns are the stable part of the emulator: they
-change only with a version bump of `API_VERSION`, and a breaking change bumps
-the major number. The rest of `ipu_emu` can change in any release. The
+change only with a version bump of [`API_VERSION`](../reference/reference-model-api.md#API_VERSION), and a
+breaking change bumps the major number. The rest of `ipu_emu` can change in any release. The
 [Reference model API](../reference/reference-model-api.md) page lists every
-method and rule.
+method and rule; each call below links to its entry there.
 
 Every Python block on this page comes from
 `docs/examples/test_reference_model_cocotb.py`.
@@ -43,9 +44,12 @@ bazel run //src/tools/ipu-as-py:ipu-as -- assemble --input "$PWD/prog.asm" --out
 
 ## Step 2: give the model and the RTL the same starting state
 
-`reset(fmt)` sets the element format and the reset values (`CR15` holds the
-default dstructure). `load_program` takes the program file's bytes. Then write
-the registers and XMEM the test needs. Writes are allowed only while the model
+[`reset(fmt)`](../reference/reference-model-api.md#ReferenceModel-reset) sets the element format
+([`ElementFormat`](../reference/reference-model-api.md#ElementFormat)) and the reset values (`CR15` holds the
+default dstructure). [`load_program`](../reference/reference-model-api.md#ReferenceModel-load_program) takes
+the program file's bytes. Then write the registers
+([`write_register`](../reference/reference-model-api.md#ReferenceModel-write_register)) and XMEM
+([`write_xmem`](../reference/reference-model-api.md#ReferenceModel-write_xmem)) the test needs. Writes are allowed only while the model
 is halted, which it is after a reset or a program load.
 
 ```python
@@ -61,14 +65,16 @@ ints; the other banks take and return bytes.
 
 ## Step 3: compare word by word (lockstep)
 
-A lockstep comparison calls `step()` once for each word the RTL retires, and
-compares the model's commit record with the one the RTL's retire monitor
-builds.
+A lockstep comparison calls [`step()`](../reference/reference-model-api.md#ReferenceModel-step) once for each
+word the RTL retires, and compares the model's commit record
+([`CommitRecord.to_json()`](../reference/reference-model-api.md#CommitRecord-to_json)) with the one the RTL's
+retire monitor builds.
 
 Your testbench provides the monitor: a coroutine (`rtl_retire` below) that
 awaits the next retired word and returns it as a dict with the commit record's
 fields. Their JSON form is defined by
-`src/tools/ipu-isa/src/ipu_isa/schemas/commit_record.v1.json`:
+`src/tools/ipu-isa/src/ipu_isa/schemas/commit_record.v1.json`
+([every field](../reference/reference-model-api.md#commit-record-schema)):
 
 | Field | What it holds |
 |---|---|
@@ -93,8 +99,9 @@ word, its PC and the first field that differs:
 
 If your monitor cannot see a field, such as `slots`, pass `fields` without it.
 
-The cocotb test prepares both sides and runs the loop. `load_rtl` and
-`rtl_retire` are your testbench's coroutines:
+The cocotb test prepares both sides and runs the loop, then checks
+[`status`](../reference/reference-model-api.md#ReferenceModel-status) for [`RunState`](../reference/reference-model-api.md#RunState)
+`HALTED`. `load_rtl` and `rtl_retire` are your testbench's coroutines:
 
 ```python
 import cocotb
@@ -109,8 +116,11 @@ monitor before it reports the word.
 ## Step 4: compare at the end of a run
 
 When the RTL cannot report each word, run both to the end and compare the
-state. `run()` steps until a `HALT` word, a fault, or the cycle limit, and
-returns the final `status` and the number of words retired (`cycles`).
+state. [`run()`](../reference/reference-model-api.md#ReferenceModel-run) steps until a `HALT` word, a fault,
+or the cycle limit, and returns a [`RunResult`](../reference/reference-model-api.md#RunResult): the final
+`status` and the number of words retired (`cycles`). Then read the registers
+([`read_register`](../reference/reference-model-api.md#ReferenceModel-read_register)) and XMEM
+([`read_xmem`](../reference/reference-model-api.md#ReferenceModel-read_xmem)) to compare.
 Compare that count with the words the RTL retired, not with its clock cycles:
 the RTL can stall, the model does not.
 
@@ -126,7 +136,10 @@ XMEM range by backdoor.
 
 A trace is a JSON Lines file: a header line
 (`ipu_isa/schemas/trace.v1.json`), then one commit record per word. Pass a
-`TraceWriter` to `run()` to write the model's trace as each word retires:
+[`TraceWriter`](../reference/reference-model-api.md#TraceWriter) to `run()` to write the model's trace as each
+word retires. The header's fields come from
+[`SCHEMA_VERSION`](../reference/reference-model-api.md#SCHEMA_VERSION), [`isa_digest()`](../reference/reference-model-api.md#isa_digest) and
+[`EMULATOR_VERSION`](../reference/reference-model-api.md#EMULATOR_VERSION):
 
 ```python
 --8<-- "docs/examples/test_reference_model_cocotb.py:trace-write"
