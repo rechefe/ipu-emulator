@@ -34,7 +34,7 @@ filegroup(
 py_library(
     name = "ipu_gen_lib",
     srcs = glob(["src/ipu_gen/*.py"]),
-    data = glob(["src/ipu_gen/templates/*.j2"]),
+    data = glob(["src/ipu_gen/templates/*.j2", "src/ipu_gen/schemas/*.json"]),
     imports = ["src"],
     deps = [
         "//src/tools/ipu-as-py:ipu_as_lib",
@@ -66,6 +66,19 @@ py_pytest_test(
     deps = [
         ":ipu_gen_lib",
         "//src/tools/ipu-as-py:ipu_as_lib",
+        requirement("pytest"),
+    ],
+)
+
+# The Cycle Inspector adapter on a hand-written trace (E08-16).
+py_pytest_test(
+    name = "test_inspector_trace",
+    srcs = ["test/test_inspector_trace.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_gen_lib",
+        "//src/tools/ipu-as-py:ipu_as_lib",
+        requirement("jsonschema"),
         requirement("pytest"),
     ],
 )

@@ -241,6 +241,7 @@ test_suite(
     tests = [
         "//:ruff",
         "//docs:ruff",
+        "//docs/inspector:ruff",
         "//src/tools/ipu-apps:ruff",
         "//src/tools/ipu-as-py:ruff",
         "//src/tools/ipu-debug:ruff",

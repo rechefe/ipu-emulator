@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/rechefe/ipu-emulator/schemas/inspector-trace/1",
+  "title": "Cycle Inspector trace",
+  "description": "One recorded kernel case as the Cycle Inspector page reads it (E08-16): a presentation of an E04-29 trace, written by ipu_gen.inspector_trace. Hex strings are lowercase; vector data is little-endian.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "kernel", "case", "options", "source_path", "source", "meta", "trace",
+    "program", "layout", "init", "cycles", "total_cycles", "truncated"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "kernel": {"type": "string"},
+    "case": {"type": "string"},
+    "options": {"type": "object"},
+    "source_path": {"type": "string"},
+    "source": {"type": "string"},
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "is_float", "element_bits", "exp_bits", "man_bits", "accumulator", "wide"],
+      "properties": {
+        "format": {"type": "string"},
+        "is_float": {"type": "boolean"},
+        "element_bits": {"type": "integer"},
+        "exp_bits": {"type": "integer"},
+        "man_bits": {"type": "integer"},
+        "accumulator": {"type": "string"},
+        "wide": {"type": "boolean", "description": "An emulator-only format (FP32, INT32): wide-vector debug mode."}
+      }
+    },
+    "trace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "isa_digest", "program_digest"],
+      "properties": {
+        "schema_version": {"type": "string"},
+        "isa_digest": {"type": "string"},
+        "program_digest": {"type": "string"}
+      }
+    },
+    "program": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["label", "word", "slots"],
+        "properties": {
+          "label": {"type": ["string", "null"]},
+          "word": {"$ref": "#/$defs/hex_number"},
+          "slots": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["slot", "instance", "op", "args"],
+              "properties": {
+                "slot": {"type": "string"},
+                "instance": {"type": "integer", "minimum": 0},
+                "op": {"type": "string"},
+                "args": {"type": "array", "items": {"type": "string"}}
+              }
+            }
+          }
+        }
+      }
+    },
+    "layout": {
+      "type": "array",
+      "description": "Every field of the word, MSB to LSB: [name, width, slot].",
+      "items": {
+        "type": "array",
+        "prefixItems": [{"type": "string"}, {"type": "integer", "minimum": 1}, {"type": "string"}],
+        "minItems": 3,
+        "maxItems": 3
+      }
+    },
+    "init": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/hex_bytes"}
+    },
+    "cycles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["pc", "d", "m"],
+        "properties": {
+          "pc": {"type": "integer", "minimum": 0},
+          "d": {
+            "type": "object",
+            "description": "Register writes: lr and cr as {index: value}, any other register as [[byte offset, hex], ...].",
+            "additionalProperties": {
+              "oneOf": [
+                {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "array",
+                    "prefixItems": [{"type": "integer", "minimum": 0}, {"$ref": "#/$defs/hex_bytes"}],
+                    "minItems": 2,
+                    "maxItems": 2
+                  }
+                }
+              ]
+            }
+          },
+          "m": {
+            "type": "array",
+            "description": "XMEM accesses: [R or W, address, bytes].",
+            "items": {
+              "type": "array",
+              "prefixItems": [
+                {"enum": ["R", "W"]},
+                {"type": "integer", "minimum": 0},
+                {"type": "integer", "minimum": 1}
+              ],
+              "minItems": 3,
+              "maxItems": 3
+            }
+          },
+          "L": {"type": "integer", "minimum": 1, "description": "Multiplier lanes used."},
+          "o": {"enum": ["break", "halt", "fault"], "description": "The outcome, when not retired."}
+        }
+      }
+    },
+    "total_cycles": {"type": "integer", "minimum": 0},
+    "truncated": {"type": "boolean"}
+  },
+  "$defs": {
+    "hex_bytes": {"type": "string", "pattern": "^([0-9a-f]{2})*$"},
+    "hex_number": {"type": "string", "pattern": "^[0-9a-f]+$"}
+  }
+}
