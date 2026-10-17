@@ -18,6 +18,7 @@ from ipu_emu.emulator import load_program, run_until_complete
 from ipu_emu.errors import EmulatorFault
 from ipu_emu.execute import Ipu
 from ipu_emu.trace import TraceWriter, read_trace, trace_header
+from ipu_isa.codec.word import DecodedWord, word_bytes
 from ipu_isa.registers import REGISTER_DEFINITIONS
 from ipu_isa.trace_schema import SCHEMA_VERSION, load_schema
 
@@ -240,6 +241,25 @@ def test_the_program_digest_names_the_program():
     c = new_state()
     load_program(c, assemble_program("INC LR0 1 ;;\nHALT ;;"))
     assert trace_header(a) == trace_header(c)
+    # The recipe trace.v1.json states: each word's encoding, word_bytes()
+    # little-endian, hashed in order.
+    words = b"".join(
+        DecodedWord(w).to_word().to_bytes(word_bytes(), "little")
+        for w in a.inst_mem[: a.program_length]
+    )
+    assert trace_header(a)["program_digest"] == hashlib.sha256(words).hexdigest()
+
+
+def test_a_rerun_at_the_same_pc_records_its_break_once():
+    from ipu_emu.emulator import DebugAction
+
+    state = make_state("BREAK ;;\nHALT ;;")
+    with CommitCollector(state) as collector:
+        _debug_run(state, lambda s, c: DebugAction.QUIT, break_on_entry=True)
+        state.program_counter = 0
+        run_until_complete(state)
+    first = collector.records[0]
+    assert first.pc_before == 0 and [op.mnemonic for op in first.slots] == ["BREAK"]
 
 
 @pytest.mark.parametrize("name", sorted(SNAPSHOT))

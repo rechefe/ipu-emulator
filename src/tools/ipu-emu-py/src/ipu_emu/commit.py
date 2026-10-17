@@ -259,7 +259,9 @@ class CommitCollector:
 
     def retired(self, facts: IssueFacts, result: Any) -> None:
         op = facts.plan.inst_name
-        if self._pending is None and self._pre_pc != self.state.program_counter:
+        if self._pending is None:
+            # The BREAK slot, which runs once per evaluation: this one
+            # replaces any earlier stop's (a rerun at the same PC included).
             self._pre, self._pre_pc, self._broke = [], self.state.program_counter, False
         if facts.slot == "break" and result is CycleOutcome.BREAK:
             self._broke = True
@@ -277,6 +279,8 @@ class CommitCollector:
             return
         halt = self.state.halt
         outcome: Outcome = "retired"
+        # ``_seen_halt``: a word stepped directly (no run, so no ``begin_run``
+        # to clear ``halt``) after an earlier HALT is no HALT itself.
         if halt is not None and halt is not self._seen_halt and halt.reason == "halt":
             outcome = "halt"
             self._seen_halt = halt
@@ -300,7 +304,6 @@ class CommitCollector:
         """Record the faulting word (or, for a fault before any word began,
         a record of the PC alone), with no writes."""
         pending, self._pending = self._pending, None
-        self._seen_halt = halt
         slots = pending.slots if pending is not None and pending.pc == halt.pc else []
         if pending is None and self._pre_pc == halt.pc:
             slots = self._pre  # faulted at its BREAK stop's retire, before ``begin``

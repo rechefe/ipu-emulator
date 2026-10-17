@@ -70,8 +70,8 @@ class RunClock:
         limit = self.state.cycle_limit
         if limit and self.cycles >= limit:
             faults = self.state.faults
-            faults.sticky.add(FaultId.F9)
             if not faults.enable.get(FaultId.F9, True):
+                faults.sticky.add(FaultId.F9)  # record_fault sets it otherwise
                 return
             pc = self.state.program_counter
             self.state.record_fault(FaultId.F9, pc)
