@@ -3,9 +3,8 @@
     "bundle": 3
   },
   "docs/content/building-applications.md": {
-    "dtype": 1,
     "program counter": 1,
-    "wide-vector debug mode": 3
+    "wide-vector debug mode": 2
   },
   "docs/content/debugging.md": {
     "dtype": 1,

@@ -5,7 +5,7 @@ the reduction runs and how the reduced length relates to the 128-element datapat
 but they share one formulation and one four-pass structure, so understanding one
 gets you most of the way through the others.
 
-All five are **wide-vector FP32 mode only** (`wide_vector_debug=True`). They
+All five are **wide-vector FP32 mode only** (`fmt=ElementFormat.FP32`). They
 build on `exp2` and reciprocal over an FP32 vector path and have no narrow
 (INT8/FP8) variant.
 

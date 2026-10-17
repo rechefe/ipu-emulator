@@ -115,22 +115,22 @@ def test_frontend(capsys):
 
 
 @pytest.mark.parametrize(
-    "mode,dtype,quantize,row_bytes",
+    "fmt,quantize,row_bytes",
     [
-        ("native", "INT8", False, 128),
-        ("native", "E4", False, 128),
-        ("fp32", "INT8", False, 512),
-        ("int32", "INT8", False, 512),
-        ("fp32", "INT8", True, 512),
+        ("int8", False, 128),
+        ("e4", False, 128),
+        ("fp32", False, 512),
+        ("int32", False, 512),
+        ("fp32", True, 512),
     ],
 )
-def test_execution_profiles_and_fresh_state(monkeypatch, mode, dtype, quantize, row_bytes):
+def test_execution_profiles_and_fresh_state(monkeypatch, fmt, quantize, row_bytes):
     import ipu_apps.kernel_registry.registry as registry
     from ipu_apps.kernel_registry import ExecutionConfig, KernelSpec
     from ipu_emu.ipu import xmem_row_size_bytes
-    from ipu_emu.ipu_math import DType
+    from ipu_isa.formats import ElementFormat
 
-    config = ExecutionConfig(mode=mode, dtype=DType[dtype], quantize_output=quantize)
+    config = ExecutionConfig(fmt=ElementFormat(fmt), quantize_output=quantize)
     spec = KernelSpec(
         "test",
         "test",
@@ -143,11 +143,9 @@ def test_execution_profiles_and_fresh_state(monkeypatch, mode, dtype, quantize, 
     monkeypatch.setattr(registry, "kernel_spec", lambda *_, **__: spec)
     app = create_harness("test", params={}, bindings={"inst_path": "unused"})
     first = app.make_state()
-    assert first.dtype == DType[dtype]
+    assert first.fmt is ElementFormat(fmt)
     assert xmem_row_size_bytes(first) == row_bytes
-    assert first.wide_vector_debug == (mode != "native")
-    assert first.wide_vector_arithmetic.value == ("int32" if mode == "int32" else "fp32")
-    assert first.wide_vector_quantize_output is quantize
+    assert first.aaq.quantize_output is quantize
     first.regfile.set_lr(0, 42)
     first.xmem.write_address(0, b"changed")
     second = app.make_state()
@@ -166,11 +164,8 @@ def test_factory_and_direct_constructor_execution_agree(name, tmp_path):
     direct = spec.app_class(**spec.build(**prepared.params), **bindings)
     for app in (via_factory, direct):
         state = app.make_state()
-        assert state.wide_vector_debug
-        assert not state.wide_vector_quantize_output
-        assert state.wide_vector_arithmetic.value == (
-            "int32" if name == "fully_connected" else "fp32"
-        )
+        assert not state.aaq.quantize_output
+        assert state.fmt.value == ("int32" if name == "fully_connected" else "fp32")
 
 
 def test_explicit_state_bypasses_execution_selector(monkeypatch):
@@ -193,7 +188,7 @@ def test_explicit_state_bypasses_execution_selector(monkeypatch):
     supplied.regfile.set_lr(0, 91)
     monkeypatch.setattr(base, "run_test", lambda **kw: kw["state"])
     assert app.run(state=supplied) is supplied
-    assert not supplied.wide_vector_debug
+    assert supplied.fmt.value == "int8"
     assert supplied.regfile.get_lr(0) == 91
 
 
@@ -206,7 +201,7 @@ def test_unregistered_harness_defaults_and_direct_subclass(monkeypatch, tmp_path
 
     monkeypatch.setattr(registry, "load", forbidden)
     plain = IpuApp(inst_path="unused").make_state()
-    assert not plain.wide_vector_debug
+    assert plain.fmt.value == "int8"
 
     class DerivedIdentity(IdentityApp):
         pass
@@ -214,19 +209,21 @@ def test_unregistered_harness_defaults_and_direct_subclass(monkeypatch, tmp_path
     inp = tmp_path / "input.bin"
     inp.write_bytes(bytes(512))
     app = DerivedIdentity(inst_path="unused", input_path=inp, params={"shape": (1, 128)})
-    assert app.make_state().wide_vector_debug
+    assert app.make_state().fmt.value == "fp32"
 
 
-def test_execution_config_is_immutable_and_rejects_bad_modes():
+def test_execution_config_is_immutable_and_rejects_bad_formats():
     from dataclasses import FrozenInstanceError
 
     from ipu_apps.kernel_registry import ExecutionConfig
+    from ipu_emu.errors import ConfigurationError
+    from ipu_isa.formats import ElementFormat
 
     config = ExecutionConfig()
     with pytest.raises(FrozenInstanceError):
-        config.mode = "fp32"
-    with pytest.raises(ValueError, match="execution mode"):
-        ExecutionConfig(mode="typo")
+        config.fmt = ElementFormat.FP32
+    with pytest.raises(ConfigurationError, match="execution format"):
+        ExecutionConfig(fmt="typo")
 
 
 def test_frontend_help_and_case_listing(capsys):

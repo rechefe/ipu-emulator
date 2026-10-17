@@ -239,7 +239,7 @@ class CursesDebugView:
             self.hits.scroll[pane_id] = drawing.scroll
 
     def _draw_header(self, canvas: Canvas, rect: Rect) -> None:
-        mode = "wide" if self.state.wide_vector_debug else "normal"
+        mode = "wide" if self.state.codec.element_bytes != 1 else "normal"
         segments = [
             self.debug.kernel_name or "IPU DEBUG",
             "PAUSED",

@@ -63,6 +63,7 @@ from ipu_apps.kernel_registry import (
 from ipu_apps.kernel_registry.memory import MemoryApp, MemoryLayout, ceildiv, positive_shape
 from ipu_apps.kernel_registry.programs import assemble_program, program_file
 from ipu_isa.constants import DEFAULT_VALID_ELEMENTS
+from ipu_isa.formats import ElementFormat
 
 # -- Memory-layout kernels ----------------------------------------------------
 
@@ -133,8 +134,7 @@ CHUNK_ELEMENTS = CHUNK_BYTES  # 128 elements/chunk
 ROW_BYTES = CHUNK_ELEMENTS * 4  # 512 B/row, FP32
 
 WIDE_VECTOR_ONLY = (
-    "FP32 wide-vector debug mode only (wide_vector_debug=True). This "
-    "kernel has no INT8/quantized variant."
+    "FP32 element format only (fmt=ElementFormat.FP32). This kernel has no INT8/quantized variant."
 )
 
 
@@ -532,7 +532,7 @@ def universal_spec(
         caveats=lambda **params: (WIDE_VECTOR_ONLY, *caveats(query(params))),
         bundle=lambda **params: query(params).bundle,
         cost=lambda **params: cost(query(params)),
-        execution=ExecutionConfig(mode="fp32"),
+        execution=ExecutionConfig(fmt=ElementFormat.FP32),
     )
 
 

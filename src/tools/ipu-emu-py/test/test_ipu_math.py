@@ -20,13 +20,22 @@ import numpy as np
 import pytest
 
 from ipu_emu.ipu_math import (
-    DType,
     _float32_to_fp8_scalar,
     fp8_bytes_to_fp32,
     fp32_to_fp8_bytes,
 )
+from ipu_isa.formats import FORMATS as FORMAT_INFO
+from ipu_isa.formats import ElementFormat
 
-FORMATS = [DType.E1, DType.E2, DType.E3, DType.E4, DType.E5, DType.E6, DType.E7]
+FORMATS = [
+    ElementFormat.E1,
+    ElementFormat.E2,
+    ElementFormat.E3,
+    ElementFormat.E4,
+    ElementFormat.E5,
+    ElementFormat.E6,
+    ElementFormat.E7,
+]
 
 
 # ---------------------------------------------------------------------------
@@ -148,7 +157,7 @@ def _check_encode(x: float, e: int) -> None:
 
 @pytest.mark.parametrize("dtype", FORMATS, ids=lambda d: d.name)
 def test_decode_exhaustive(dtype):
-    e = int(dtype)
+    e = FORMAT_INFO[dtype].exp_bits
     got = fp8_bytes_to_fp32(bytes(range(256)), dtype)
     for code in range(256):
         want = ref_decode(code, e)
@@ -167,7 +176,7 @@ def test_decode_exhaustive(dtype):
 
 @pytest.mark.parametrize("dtype", FORMATS, ids=lambda d: d.name)
 def test_encode_round_trip(dtype):
-    e = int(dtype)
+    e = FORMAT_INFO[dtype].exp_bits
     for code in range(256):
         if ref_is_nan(code, e):
             continue
@@ -181,7 +190,7 @@ def test_encode_round_trip(dtype):
 
 @pytest.mark.parametrize("dtype", FORMATS, ids=lambda d: d.name)
 def test_encode_midpoints(dtype):
-    e = int(dtype)
+    e = FORMAT_INFO[dtype].exp_bits
     table = _TABLES[e]
     for (lo, lo_c), (hi, hi_c) in zip(table, table[1:], strict=False):
         mid = _f32(float((lo + hi) / 2))
@@ -197,7 +206,7 @@ def test_encode_midpoints(dtype):
 @pytest.mark.parametrize("dtype", FORMATS[1:], ids=lambda d: d.name)  # E1 has no normal range
 def test_encode_subnormal_to_normal_gap_dense(dtype):
     """Every float32 sample in [max_subnormal, min_normal) rounds to nearest."""
-    e = int(dtype)
+    e = FORMAT_INFO[dtype].exp_bits
     m, _ = _fields(e)
     max_sub = float(ref_decode(2**m - 1, e))
     min_norm = float(ref_decode(2**m, e))
@@ -208,7 +217,7 @@ def test_encode_subnormal_to_normal_gap_dense(dtype):
 
 @pytest.mark.parametrize("dtype", FORMATS, ids=lambda d: d.name)
 def test_encode_saturation_and_nan(dtype):
-    e = int(dtype)
+    e = FORMAT_INFO[dtype].exp_bits
     max_mag, max_code = _TABLES[e][-1]
     big = _f32(float(max_mag) * 1.01)
     assert _float32_to_fp8_scalar(big, e) == max_code
@@ -224,20 +233,22 @@ def test_encode_saturation_and_nan(dtype):
 # the smallest normal.  Before E00-01 the encoder clamped these to the largest
 # subnormal (or to zero for E7).
 _GAP_REGRESSION = [
-    (DType.E2, 0x20),
-    (DType.E3, 0x10),
-    (DType.E4, 0x08),
-    (DType.E5, 0x04),
-    (DType.E6, 0x02),
-    (DType.E7, 0x01),
+    (ElementFormat.E2, 0x20),
+    (ElementFormat.E3, 0x10),
+    (ElementFormat.E4, 0x08),
+    (ElementFormat.E5, 0x04),
+    (ElementFormat.E6, 0x02),
+    (ElementFormat.E7, 0x01),
 ]
 
 
 @pytest.mark.parametrize(
-    "dtype,expected", _GAP_REGRESSION, ids=lambda p: getattr(p, "name", hex(p))
+    "dtype,expected",
+    _GAP_REGRESSION,
+    ids=lambda p: p.name if isinstance(p, ElementFormat) else hex(p),
 )
 def test_subnormal_carry_regression(dtype, expected):
-    e = int(dtype)
+    e = FORMAT_INFO[dtype].exp_bits
     m, _ = _fields(e)
     max_sub = float(ref_decode(2**m - 1, e))
     min_norm = float(ref_decode(2**m, e))
@@ -262,7 +273,7 @@ def _all_scalar_inputs(e: int) -> list[float]:
 
 @pytest.mark.parametrize("dtype", FORMATS, ids=lambda d: d.name)
 def test_array_path_matches_scalar(dtype):
-    e = int(dtype)
+    e = FORMAT_INFO[dtype].exp_bits
     vals = _all_scalar_inputs(e)
     got = fp32_to_fp8_bytes(np.array(vals, dtype=np.float32), dtype)
     want = bytes(_float32_to_fp8_scalar(v, e) for v in vals)
@@ -276,9 +287,9 @@ def test_array_path_matches_scalar(dtype):
 # ---------------------------------------------------------------------------
 
 _ML_DTYPES = [
-    (DType.E3, ml_dtypes.float8_e3m4),
-    (DType.E4, ml_dtypes.float8_e4m3),
-    (DType.E5, ml_dtypes.float8_e5m2),
+    (ElementFormat.E3, ml_dtypes.float8_e3m4),
+    (ElementFormat.E4, ml_dtypes.float8_e4m3),
+    (ElementFormat.E5, ml_dtypes.float8_e5m2),
 ]
 
 
@@ -288,7 +299,7 @@ def _ml_encode(xs: np.ndarray, ml_type) -> bytes:
 
 @pytest.mark.parametrize("dtype,ml_type", _ML_DTYPES, ids=lambda p: getattr(p, "name", str(p)))
 def test_ml_dtypes_cross_check(dtype, ml_type):
-    e = int(dtype)
+    e = FORMAT_INFO[dtype].exp_bits
     max_mag = float(_TABLES[e][-1][0])
 
     mids = np.array(_midpoint_inputs(e), dtype=np.float32)

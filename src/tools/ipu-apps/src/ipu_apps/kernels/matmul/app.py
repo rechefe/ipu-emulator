@@ -41,6 +41,7 @@ from ipu_apps.kernel_registry import (
     no,
     yes,
 )
+from ipu_isa.formats import ElementFormat
 
 OP = "matmul"
 ACTIVATIONS = ("none", "silu")
@@ -131,5 +132,5 @@ def matmul_spec(app_class, *, m: int, k: int, n: int, role: str, activation: str
         bundle=lambda **params: _query(params).bundle,
         # Exact-shape match: no two matmul kernels share a (triple, activation).
         cost=lambda **params: 0.0,
-        execution=ExecutionConfig(mode="fp32"),
+        execution=ExecutionConfig(fmt=ElementFormat.FP32),
     )

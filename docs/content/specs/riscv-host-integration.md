@@ -147,7 +147,7 @@ source delivered by [Issue 1](#9-implementation-plan).
 | `0x010` | `CYCLES`      | RO     | Cycles executed since the last start/reset. |
 | `0x014` | `MAX_CYCLES`  | RW     | Watchdog limit; `0` = use engine default. Guards against runaway programs. |
 | `0x018` | `PROG_LEN`    | RW     | Program length in VLIW words (entries in `inst_mem`). Writable only while halted; used by the engine halt condition (`PC >= PROG_LEN`). |
-| `0x020` | `DTYPE`       | RW     | Arithmetic data type selector (enum mirroring `DType`). |
+| `0x020` | `DTYPE`       | RW     | Arithmetic data type selector (enum mirroring `ElementFormat`). |
 | `0x024` | `DSTRUCTURE`  | RW     | `valid_elements[7:0]`, `partition[11:8]` — mirrors `CR15`. |
 | `0x028` | `ELU_ALPHA`   | RW     | Activation α (IEEE-754 float bits; emulator-only knob). |
 | `0x040` | `CR[0..15]`   | RW\*   | Application config window. `CR0`/`CR1` are hard-wired (`0`/`1`) and reject writes (`ERROR`); `CR15` aliases `DSTRUCTURE`. `CR2`–`CR14` are writable. |

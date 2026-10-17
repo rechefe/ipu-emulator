@@ -47,8 +47,9 @@ from ipu_apps.kernels.softmax.softmax_rows_partial.app import SoftmaxRowsPartial
 from ipu_as.lark_tree import assemble_to_bin_file
 from ipu_as.session import AssemblySession
 from ipu_emu.emulator import load_program_from_binary, run_until_complete
-from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
+from ipu_emu.ipu_state import IpuState
 from ipu_isa.constants import Partition, encode_dstructure
+from ipu_isa.formats import ElementFormat
 
 N_CH = 240
 N_TOK = 16
@@ -433,7 +434,7 @@ def test_stage1_layernorm_qkv_unpack(tmp_path: Path) -> None:
     UNPACK_MASK_ROW = alloc.alloc(1)
     UNPACKED_ROW = alloc.alloc(N_CH)
 
-    state = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
+    state = IpuState(fmt=ElementFormat.FP32)
     state.xmem.write_address(DATA_ROW * ROW_BYTES, bytearray(_pack(X).tobytes()))
 
     cycles_ln, _ = run_packed_layernorm(
@@ -540,7 +541,7 @@ def test_stage3_outproj_residual_ffn_residual(tmp_path: Path) -> None:
     _FFN2_WEIGHTS_ROW = alloc.alloc(linear_weight_rows(FFN1_N_OUT, N_CH))
     FFN2_OUT_ROW_TMP = alloc.alloc(N_PACKED_ROWS)  # will be copied to row 0 for residual2's A
 
-    state = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
+    state = IpuState(fmt=ElementFormat.FP32)
     state.xmem.write_address(ATTN_OUT_ROW * ROW_BYTES, bytearray(_pack(attn_out).tobytes()))
 
     # ---- out-proj (packed output, identity activation) ----
@@ -838,7 +839,7 @@ def test_stage2_attention(tmp_path: Path) -> None:
     PACK_MASK_ROW = alloc.alloc(1)
     ATTN_PACKED_ROW = alloc.alloc(N_PACKED_ROWS)
 
-    state = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
+    state = IpuState(fmt=ElementFormat.FP32)
     for base, arr in ((Q_ROW, Q), (K_ROW, K), (V_ROW, V)):
         rows = np.zeros((N_CH, LANES), dtype=np.float32)
         rows[:, :N_TOK] = arr
@@ -995,7 +996,7 @@ def test_full_l5_layer_packed_end_to_end(tmp_path: Path) -> None:
         for slot, n in counts.items():
             total_instrs[slot] = total_instrs.get(slot, 0) + n
 
-    state = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
+    state = IpuState(fmt=ElementFormat.FP32)
     state.xmem.write_address(X_ROW * ROW_BYTES, bytearray(_pack(X).tobytes()))
 
     # ---- layernorm 1 ----

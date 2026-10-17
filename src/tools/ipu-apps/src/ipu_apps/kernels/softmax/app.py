@@ -57,6 +57,7 @@ from ipu_apps.kernel_registry import (
 )
 from ipu_apps.kernel_registry.base import IpuApp
 from ipu_emu.ipu import LANES
+from ipu_isa.formats import ElementFormat
 
 ROW_BYTES = LANES * 4
 LOG2E = math.log2(math.e)
@@ -191,7 +192,7 @@ class SoftmaxApp(IpuApp):
 SINGLE_GROUP_MAX_ROWS = 128  # rows whose per-row scalars fit one 128-element vector
 
 WIDE_VECTOR_ONLY = (
-    "Wide-vector FP32 debug mode only (wide_vector_debug=True). These apps "
+    "FP32 element format only (fmt=ElementFormat.FP32). These apps "
     "build on exp2/reciprocal over an FP32 vector path and have no narrow "
     "(INT8/FP8) variant."
 )
@@ -296,7 +297,7 @@ def softmax_spec(app_class, *, along_rows, supports, explain, cost, caveats=lamb
         caveats=lambda **params: (WIDE_VECTOR_ONLY, *caveats(query(params))),
         bundle=lambda **params: query(params).bundle,
         cost=lambda **params: cost(query(params)),
-        execution=ExecutionConfig(mode="fp32"),
+        execution=ExecutionConfig(fmt=ElementFormat.FP32),
     )
 
 

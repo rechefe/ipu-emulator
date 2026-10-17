@@ -1085,7 +1085,7 @@ INSTRUCTION_SPEC = {
                     "cr_idx: CR0…CR15 supplying valid_elements (must be given explicitly)",
                 ],
                 operation=(
-                    "Requires INT8 mode (IpuState.dtype == DType.INT8). "
+                    "Requires the INT8 element format (IpuState.fmt == ElementFormat.INT8). "
                     "Let n = min(CR[cr_idx].valid_elements, 128) and k = encoded activation index. "
                     "For i in [0, n): POST_AAQ_REG[i] = clamp(round(activation_k(R_ACC[i])), -128, 127). "
                     "POST_AAQ_REG[n..511] = 0. R_ACC is not modified. "

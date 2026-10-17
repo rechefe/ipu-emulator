@@ -397,12 +397,13 @@ def test_constructors_require_their_sizes(app_cls, kwargs, message):
 
 def test_input_file_of_the_wrong_size_is_refused_by_name(tmp_path):
     from ipu_emu.ipu_state import IpuState
+    from ipu_isa.formats import ElementFormat
 
     short = tmp_path / "short.bin"
     short.write_bytes(np.zeros(5 * 20, dtype="<f4").tobytes())  # 5 rows, not 10
     app = SoftmaxRowsPartialApp(inst_path="x", input_path=short, output_path=None, rows=10, n=20)
     with pytest.raises(ValueError, match="10 x 20 FP32 values"):
-        app.setup(IpuState(wide_vector_debug=True))
+        app.setup(IpuState(fmt=ElementFormat.FP32))
 
 
 # -- docs routing -------------------------------------------------------------

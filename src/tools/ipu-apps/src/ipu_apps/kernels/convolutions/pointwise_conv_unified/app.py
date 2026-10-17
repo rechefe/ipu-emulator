@@ -254,7 +254,7 @@ class PointwiseConvUnifiedApp(IpuApp):
         # dstructure CR's valid_elements field. The asm names CR15, so set
         # CR15.valid_elements = 128 to activate the full 128-lane output chunk.
         # (Mults use mask_offset 0 / no masking, so partition is irrelevant.)
-        # With wide_vector_quantize_output=False (SPEC.execution), ACTIVATE
+        # With AaqOptions.quantize_output off (SPEC.execution), ACTIVATE
         # writes identity-activated FP32 into post_aaq_reg with no clamp --
         # this is NOT a quantize step in this mode; the name comes
         # from the INT8 quantize path.

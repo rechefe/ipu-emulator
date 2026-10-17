@@ -3,9 +3,10 @@
 The activation ids and names are the ISA's ``ActivationFn`` operand
 (:mod:`ipu_isa.activations`). α for ``elu`` defaults to ``DEFAULT_ELU_ALPHA``
 below, and the ``window`` bounds ``[a, b)`` default to ``DEFAULT_WINDOW_A`` /
-``DEFAULT_WINDOW_B``; override per run via the
-:class:`ipu_emu.ipu_state.IpuState` constructor or
-:meth:`IpuState.set_activation_alphas` (not CR-visible). The emulator writes
+``DEFAULT_WINDOW_B``; override per run with an :class:`ActivationParams`
+given to the :class:`ipu_emu.ipu_state.IpuState` constructor, or with
+:meth:`IpuState.set_activation_alphas` (not CR-visible). :class:`AaqOptions`
+holds the other emulator-only setting of the AAQ stage. The emulator writes
 activated elements into ``POST_AAQ_REG``. See
 ``docs/content/building-applications.md#activations-emulator`` for calibration,
 ``ST.AAQ`` (store that register to XMEM), and pipeline notes.
@@ -14,6 +15,7 @@ activated elements into ``POST_AAQ_REG``. See
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass, field
 
 from ipu_isa.activations import (
     ACTIVATION_COUNT,
@@ -43,6 +45,56 @@ DEFAULT_WINDOW_B: float = 0.1
 
 # Legacy private name (same object) for older monkeypatch patterns.
 _ELU_ALPHA = DEFAULT_ELU_ALPHA
+
+
+def _default_elu_alpha() -> float:
+    # Read when a value is built, so a monkeypatched default applies.
+    return float(_ELU_ALPHA)
+
+
+def _default_window_a() -> float:
+    return float(DEFAULT_WINDOW_A)
+
+
+def _default_window_b() -> float:
+    return float(DEFAULT_WINDOW_B)
+
+
+@dataclass(frozen=True, slots=True)
+class ActivationParams:
+    """The activation parameters ``ACTIVATE`` reads (emulator-only; not CR).
+
+    An omitted field takes the module default at the time the value is built.
+
+    Attributes:
+        elu_alpha: α of ``elu``.
+        window_a: Lower bound (inclusive) of ``window``.
+        window_b: Upper bound (exclusive) of ``window``.
+    """
+
+    elu_alpha: float = field(default_factory=_default_elu_alpha)
+    window_a: float = field(default_factory=_default_window_a)
+    window_b: float = field(default_factory=_default_window_b)
+
+    def __post_init__(self) -> None:
+        for name in ("elu_alpha", "window_a", "window_b"):
+            object.__setattr__(self, name, float(getattr(self, name)))
+
+
+@dataclass(frozen=True, slots=True)
+class AaqOptions:
+    """Emulator-only options of the AAQ stage (``ACTIVATE.QUANTIZE``).
+
+    A placeholder for the AaQ stage model, which is out of scope (Q35): only
+    the AAQ handler reads it.
+
+    Attributes:
+        quantize_output: In FP32 and INT32, also quantize the activated lanes
+            to INT8 into ``POST_AAQ_REG``, as the hardware path does. Off by
+            default, so the activated values stay unquantized for analysis.
+    """
+
+    quantize_output: bool = False
 
 
 def _sigmoid(x: float) -> float:

@@ -3,15 +3,12 @@
 Every emulator test that needs a program goes through this module, so a change
 to how state is built or how a program runs is made here once.
 
-``fmt`` names the element format a state runs in. Until E04-17 replaces the
-``dtype`` attribute and the three ``wide_vector_*`` constructor flags with one
-element format on ``IpuState``, :func:`new_state` maps ``fmt`` onto them. That
-mapping is the only place the tests know about the old flags.
+``fmt`` names the element format a state runs in (``IpuState(fmt=...)``,
+E04-17); ``ElementFormat`` is re-exported from ``ipu_isa.formats``.
 """
 
 from __future__ import annotations
 
-import enum
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -19,9 +16,9 @@ from typing import Any
 from ipu_as.lark_tree import assemble
 from ipu_emu.emulator import DEFAULT_MAX_CYCLES, load_program, run_until_complete
 from ipu_emu.execute import BreakResult, Ipu, decode_instruction_word
-from ipu_emu.ipu_math import DType
-from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
+from ipu_emu.ipu_state import IpuState
 from ipu_emu.run_control import RunControl
+from ipu_isa.formats import ElementFormat
 
 __all__ = [
     "BreakpointRunControl",
@@ -47,42 +44,6 @@ class BreakpointRunControl(RunControl):
     def run_until(self, pc: int, current_pc: int) -> bool:
         self.run_target = pc if pc != current_pc else None
         return pc != current_pc
-
-
-class ElementFormat(enum.Enum):
-    """Element formats as decided in Q47 (one enum, later owned by ``ipu_isa``).
-
-    INT8 and E1..E7 are hardware formats; FP32 and INT32 are emulator-only
-    (today's wide-vector debug mode). Test-side stand-in until E03/E04-17 land.
-    """
-
-    INT8 = "int8"
-    E1 = "e1"
-    E2 = "e2"
-    E3 = "e3"
-    E4 = "e4"
-    E5 = "e5"
-    E6 = "e6"
-    E7 = "e7"
-    FP32 = "fp32"
-    INT32 = "int32"
-
-
-_WIDE = {
-    ElementFormat.FP32: WideVectorArithmetic.FP32,
-    ElementFormat.INT32: WideVectorArithmetic.INT32,
-}
-
-
-def _format_kwargs(fmt: ElementFormat) -> dict[str, Any]:
-    """Map an element format onto today's ``IpuState`` keywords (until E04-17)."""
-    if fmt in _WIDE:
-        return {
-            "wide_vector_debug": True,
-            "wide_vector_arithmetic": _WIDE[fmt],
-            "dtype": DType.INT8,
-        }
-    return {"wide_vector_debug": False, "dtype": DType[fmt.name]}
 
 
 def decode_program(words: Iterable[int]) -> list[dict[str, int]]:
@@ -112,7 +73,7 @@ def new_state(
     """
     kwargs = dict(state_kw)
     if fmt is not None:
-        kwargs.update(_format_kwargs(fmt))
+        kwargs["fmt"] = fmt
     state = IpuState(**kwargs)
     if dstructure:
         state.set_cr_dstructure(**dstructure)

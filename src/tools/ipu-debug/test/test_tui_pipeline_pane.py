@@ -26,6 +26,7 @@ from ipu_debug.tui.panes.pipeline import (
     value_grid,
 )
 from ipu_debug.tui.tabs import TabSet
+from ipu_emu.activations import AaqOptions
 from ipu_emu.descriptors import REGFILE_SCHEMA
 from ipu_emu.ipu_state import IpuState
 
@@ -336,7 +337,7 @@ def test_fresh_tabs_cover_every_register_in_its_storage_format(
     wide, arithmetic, quantize, r0, post_aaq
 ):
     fmt = ElementFormat(arithmetic) if wide else ElementFormat.INT8
-    state = new_state(fmt=fmt, wide_vector_quantize_output=quantize)
+    state = new_state(fmt=fmt, aaq=AaqOptions(quantize_output=quantize))
 
     formats = {tab.register_key: tab.fmt for tab in default_tabs(state, True)}
 

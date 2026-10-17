@@ -970,7 +970,8 @@ The value a MULT masking instruction writes into the elements its mask deactivat
 {pad_rows}
 
 `POS_INF` and `NEG_INF` exist only in float element formats; they are the identity
-values of `min`- and `max`-style reductions (`ACC.MAX`).
+values of `min`- and `max`-style reductions (`ACC.MAX`). In INT8 or INT32 the emulator
+raises `EmulatorError` for them.
 
 ```asm
 AGG.SUM LR0 CR15;;
