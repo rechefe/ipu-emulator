@@ -15,7 +15,8 @@ name: Documentation
 on:
   push:
     branches: [master]
-    tags: ["v*"]
+    # Releases only: vX.Y (the publish tool refuses any other version name).
+    tags: ["v[0-9]+.[0-9]+"]
   pull_request:
     paths:
       - "docs/**" # includes docs/mkdocs.yml and docs/content/release-log.md
@@ -78,24 +79,24 @@ jobs:
           fi
       
       - name: Upload the site
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master')
         uses: actions/upload-artifact@v4
         with:
           name: site
           path: bazel-bin/docs/site.tar
           if-no-files-found: error
 
-  # Writes the site into gh-pages. Only this job pushes to that branch, and one
-  # publish runs at a time across all refs.
+  # Writes the site into gh-pages: dev from master (a push, or a manual run such
+  # as release-log.yml's dispatch), vX.Y from a tag. Only this job pushes to that
+  # branch. Runs of different refs may overlap (the workflow's per-ref group): a
+  # shared group would let a queued master run cancel a pending tag publish. The
+  # tool never forces its push and redoes a push that lost a race.
   publish:
     runs-on: ubuntu-latest
     needs: build
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master')
     permissions:
       contents: write
-    concurrency:
-      group: gh-pages-publish
-      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v5
         with:
@@ -118,6 +119,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           if [ "$REF_TYPE" = tag ]; then
+            # latest moves only if this is the newest release (the tool checks).
             set -- --version "$REF_NAME" --alias latest
           else
             set -- --version dev

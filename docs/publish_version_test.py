@@ -143,3 +143,76 @@ def test_the_cli_commits_locally_unless_told_to_push(repo: Path, tmp_path: Path)
     assert _git(repo, "ls-remote", "origin", "gh-pages") == ""
     publish_version.main(["--repo", str(repo), "--site", str(site), "--version", "dev", "--push"])
     assert _git(repo, "ls-remote", "origin", "gh-pages") != ""
+
+
+def test_the_root_redirects_to_dev_until_a_release_exists(repo: Path, tmp_path: Path):
+    publish_version.publish(repo, _site(tmp_path, "a", PAGES), "dev", push=True)
+    _git(repo, "fetch", "-q", "origin")
+    assert 'url=dev/"' in _branch_file(repo, "index.html")
+    publish_version.publish(repo, _site(tmp_path, "v1", PAGES), "v1.0", ["latest"], push=True)
+    _git(repo, "fetch", "-q", "origin")
+    assert 'url=latest/"' in _branch_file(repo, "index.html")
+
+
+def test_a_tag_publish_leaves_dev_alone(repo: Path, tmp_path: Path):
+    publish_version.publish(repo, _site(tmp_path, "a", PAGES), "dev", push=True)
+    _git(repo, "fetch", "-q", "origin")
+    before = _git(repo, "rev-parse", "origin/gh-pages").strip()
+    publish_version.publish(repo, _site(tmp_path, "v1", PAGES), "v1.0", ["latest"], push=True)
+    _git(repo, "fetch", "-q", "origin")
+    files = _git(repo, "diff", "--name-only", before, "origin/gh-pages").split()
+    assert files and not [f for f in files if f.startswith("dev/")]
+
+
+def test_latest_never_moves_to_an_older_release(repo: Path, tmp_path: Path):
+    publish_version.publish(repo, _site(tmp_path, "v2", PAGES), "v2.0", ["latest"], push=True)
+    publish_version.publish(repo, _site(tmp_path, "v1", PAGES), "v1.3", ["latest"], push=True)
+    _git(repo, "fetch", "-q", "origin")
+    assert _versions(repo) == [
+        {"version": "v2.0", "title": "v2.0", "aliases": ["latest"]},
+        {"version": "v1.3", "title": "v1.3", "aliases": []},
+    ]
+
+
+@pytest.mark.parametrize("alias", ["", ".", "..", "a/b", "dev", "v1.0", "v2.0"])
+def test_invalid_aliases_are_refused(repo: Path, tmp_path: Path, alias: str):
+    publish_version.publish(repo, _site(tmp_path, "v1", PAGES), "v1.0", push=True)
+    with pytest.raises(ValueError):
+        publish_version.publish(repo, _site(tmp_path, "v2", PAGES), "v2.0", [alias], push=True)
+
+
+def test_nothing_is_left_behind_after_an_error(repo: Path, tmp_path: Path):
+    with pytest.raises(FileNotFoundError):
+        publish_version.publish(repo, tmp_path / "missing.tar", "dev", push=True)
+    assert len(_git(repo, "worktree", "list").splitlines()) == 1
+    assert "publish-version" not in _git(repo, "branch", "--list")
+    assert _git(repo, "ls-remote", "origin", "gh-pages") == ""
+
+
+def test_a_push_that_loses_a_race_is_redone_on_top(repo: Path, tmp_path: Path, monkeypatch):
+    """A tag publish and a master publish race: the loser rebuilds on the winner."""
+    publish_version.publish(repo, _site(tmp_path, "a", PAGES), "dev", push=True)
+    rival = tmp_path / "rival"
+    subprocess.run(
+        ["git", "clone", "-q", _git(repo, "remote", "get-url", "origin").strip(), str(rival)],
+        check=True,
+    )
+    for key, value in (("user.name", "rival"), ("user.email", "rival@example.com")):
+        _git(rival, "config", key, value)
+    real_git = publish_version._git
+    raced = []
+
+    def racing_git(where, *args, check=True):
+        if args[:1] == ("push",) and not raced:
+            raced.append(True)  # the rival lands first, once
+            publish_version.publish(
+                rival, _site(tmp_path, "v1", PAGES), "v1.0", ["latest"], push=True
+            )
+        return real_git(where, *args, check=check)
+
+    monkeypatch.setattr(publish_version, "_git", racing_git)
+    changed = {**PAGES, "index.html": "<h1>dev, changed</h1>"}
+    assert publish_version.publish(repo, _site(tmp_path, "b", changed), "dev", push=True)
+    _git(repo, "fetch", "-q", "origin")
+    assert [e["version"] for e in _versions(repo)] == ["dev", "v1.0"]
+    assert _branch_file(repo, "dev/index.html") == "<h1>dev, changed</h1>"
