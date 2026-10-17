@@ -3,7 +3,7 @@ reference model, give its expected trace record by record.
 
 The runner reads only the case files (``conformance.load``, ``run_case``);
 the other tests check the files are complete, cover the ISA and are what the
-generator writes.
+generator writes from the catalog (``conformance_cases``).
 """
 
 from __future__ import annotations
@@ -14,9 +14,10 @@ import time
 
 import conformance
 import pytest
-from conformance_cases import all_cases
+from conformance_cases import all_cases, files_of
 from jsonschema import Draft202012Validator
 
+from ipu_emu.trace import read_trace
 from ipu_isa.tags import Tag
 from ipu_isa.view import isa
 
@@ -35,7 +36,7 @@ def test_every_case_gives_its_expected_trace(tmp_path):
         trace = tmp_path / f"{case.name}.jsonl"
         conformance.run_case(case, trace)
         difference = conformance.first_difference(
-            conformance.read(case / "expected.trace.jsonl"), conformance.read(trace)
+            read_trace(case / "expected.trace.jsonl"), read_trace(trace)
         )
         if difference is not None:
             failures.append(f"{case.name}: {difference}")
@@ -46,7 +47,7 @@ def test_every_case_gives_its_expected_trace(tmp_path):
 
 def test_a_corrupted_trace_names_the_cycle_and_field():
     case = SUITE / "insn_add_int8"
-    header, records = conformance.read(case / "expected.trace.jsonl")
+    header, records = read_trace(case / "expected.trace.jsonl")
     write = records[1].reg_writes[0]
     corrupted = list(records)
     corrupted[1] = dataclasses.replace(
@@ -59,17 +60,24 @@ def test_a_corrupted_trace_names_the_cycle_and_field():
     )
 
 
-def test_a_header_from_another_isa_or_program_differs():
-    header, records = conformance.read(SUITE / "insn_add_int8" / "expected.trace.jsonl")
-    other = {**header, "program_digest": "0" * 64, "emulator_version": "9.9.9"}
+@pytest.mark.parametrize("field", ["isa_digest", "program_digest"])
+def test_a_header_from_another_isa_or_program_differs(field):
+    header, records = read_trace(SUITE / "insn_add_int8" / "expected.trace.jsonl")
+    other = {**header, field: "0" * 64}
     message = conformance.first_difference((header, records), (other, records))
-    assert message is not None and message.startswith("header.program_digest")
+    assert message == f"header.{field}: expected {header[field]!r}, got {'0' * 64!r}"
+
+
+def test_the_emulator_version_is_not_compared():
+    header, records = read_trace(SUITE / "insn_add_int8" / "expected.trace.jsonl")
     producer = {**header, "emulator_version": "9.9.9"}
     assert conformance.first_difference((header, records), (producer, records)) is None
 
 
 def test_every_case_holds_the_four_files_and_no_python():
-    schema = Draft202012Validator(json.loads((SUITE / conformance.SETUP_SCHEMA).read_text()))
+    schema = Draft202012Validator(
+        json.loads((SUITE / conformance.SETUP_SCHEMA).read_text(encoding="utf-8"))
+    )
     for case in CASES:
         assert sorted(p.name for p in case.iterdir()) == sorted(conformance.FILES), case.name
         schema.validate(json.loads((case / "setup.json").read_text(encoding="utf-8")))
@@ -92,8 +100,15 @@ def test_every_hardware_instruction_is_in_a_case():
     assert not missing, f"no case runs {missing}"
 
 
-def test_the_suite_holds_the_generators_cases():
-    """A case added to or removed from the catalog without a regeneration."""
-    assert [case.name for case in CASES] == [case.name for case in all_cases()], (
-        "run bazel run //src/tools/ipu-emu-py:regen_conformance"
+@pytest.mark.filterwarnings("ignore::ipu_emu.errors.DebugOnlyInstructionWarning")
+def test_the_files_are_what_the_generator_writes():
+    """A case changed in the catalog without a regeneration."""
+    cases = all_cases()
+    assert [case.name for case in CASES] == [case.name for case in cases], (
+        f"cases added or removed: run {conformance.UPDATE_COMMAND}"
     )
+    for case in cases:
+        for name, data in files_of(case).items():
+            assert (SUITE / case.name / name).read_bytes() == data, (
+                f"{case.name}/{name} is stale: run {conformance.UPDATE_COMMAND}"
+            )

@@ -9,9 +9,11 @@ A case is a folder under ``src/tools/ipu-isa/conformance/``:
   cycle limit (``setup.schema.json`` beside the cases);
 * ``expected.trace.jsonl``: the E04-29 trace of the run.
 
-This module is one consumer of those files: it needs only them,
-``ipu_emu.reference`` and the trace reader. The generator
-(``regen_conformance.py``) writes them with the same :func:`run_case`.
+This module is one consumer of those files: it runs them through
+``ipu_emu.reference`` and reads traces with ``ipu_emu.trace``; from
+``ipu_isa`` it takes the trace header's fields and the decoding of a program
+file. The generator (``regen_conformance.py``) writes the files and runs them
+with the same :func:`run_case`.
 """
 
 from __future__ import annotations
@@ -24,7 +26,7 @@ from typing import Any
 
 from ipu_emu.commit import CommitRecord
 from ipu_emu.reference import ReferenceModel
-from ipu_emu.trace import EMULATOR_VERSION, TraceWriter, read_trace
+from ipu_emu.trace import EMULATOR_VERSION, TraceWriter
 from ipu_isa.codec.word import opcode_field, unpack_program
 from ipu_isa.errors import IsaLookupError
 from ipu_isa.faults import FaultId
@@ -36,6 +38,7 @@ from ipu_isa.view import isa
 #: The suite, relative to the repository root (and to the runfiles root).
 SUITE = Path("src/tools/ipu-isa/conformance")
 SETUP_SCHEMA = "setup.schema.json"
+UPDATE_COMMAND = "bazel run //src/tools/ipu-emu-py:regen_conformance"
 FILES = ("program.asm", "program.bin", "setup.json", "expected.trace.jsonl")
 #: Header fields that name the producer, not the behaviour: not compared.
 PRODUCER_FIELDS = ("emulator_version",)
@@ -77,7 +80,15 @@ def header(case: Path) -> dict[str, Any]:
 
 
 def load(model: ReferenceModel, case: Path) -> dict[str, Any]:
-    """Reset *model* into *case*'s starting state; returns the setup."""
+    """Put *model* in *case*'s starting state, as the suite's README says.
+
+    Args:
+        model: The model; it is reset.
+        case: The case folder.
+
+    Returns:
+        The case's ``setup.json``.
+    """
     setup = json.loads((case / "setup.json").read_text(encoding="utf-8"))
     model.reset(ElementFormat(setup["format"]))
     model.load_program((case / "program.bin").read_bytes())
@@ -92,8 +103,12 @@ def load(model: ReferenceModel, case: Path) -> dict[str, Any]:
 
 
 def run_case(case: Path, trace_path: Path) -> None:
-    """Run *case* from its files and write the trace of the run to
-    *trace_path*."""
+    """Run *case* from its files until HALT, a fault or its cycle limit.
+
+    Args:
+        case: The case folder.
+        trace_path: Where to write the trace of the run.
+    """
     model = ReferenceModel()
     setup = load(model, case)
     with TraceWriter(trace_path, header(case)) as trace:
@@ -122,8 +137,17 @@ def first_difference(
     expected: tuple[dict[str, Any], list[CommitRecord]],
     actual: tuple[dict[str, Any], list[CommitRecord]],
 ) -> str | None:
-    """The first field where two traces differ, named by record and path, or
-    ``None`` when they agree (the producer fields of the header aside)."""
+    """The first field where two traces differ.
+
+    Args:
+        expected: A trace's header and records (``ipu_emu.trace.read_trace``).
+        actual: Another's.
+
+    Returns:
+        ``header.<field>: ...`` or ``cycle N (record N): record.<path>:
+        expected ..., got ...``; ``None`` when they agree, the header's
+        producer fields aside.
+    """
     (want_header, want), (got_header, got) = expected, actual
     keep = {k: v for k, v in want_header.items() if k not in PRODUCER_FIELDS}
     seen = {k: v for k, v in got_header.items() if k not in PRODUCER_FIELDS}
@@ -135,8 +159,3 @@ def first_difference(
     if len(want) != len(got):
         return f"expected {len(want)} records, got {len(got)}"
     return None
-
-
-def read(path: Path) -> tuple[dict[str, Any], list[CommitRecord]]:
-    """A trace file's header and records."""
-    return read_trace(path)

@@ -1,8 +1,9 @@
 """The conformance suite's cases, as the generator builds them (E04-31).
 
 Each case is a program, the element format it runs in and a starting state.
-:func:`all_cases` lists them; ``regen_conformance.py`` writes each one's files
-and the trace a run of them gives. The cases are:
+:func:`all_cases` lists them and :func:`files_of` gives each one's input
+files; ``regen_conformance.py`` writes those and the trace a run of them
+gives. The cases are:
 
 * every HARDWARE instruction (Q17), in INT8 and E4, and in FP32 too when its
   slot is a datapath slot (format-dependent): ``insn_<mnemonic>_<format>``;
@@ -15,22 +16,26 @@ Only this module is Python; the files it leads to are data.
 
 from __future__ import annotations
 
+import json
 import random
 import struct
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from typing import Any
 
+import conformance
 import timing_probes
 
 from ipu_as.lark_tree import assemble
 from ipu_emu.execute import decode_instruction_word
 from ipu_emu.ipu_state import IpuState
-from ipu_isa.codec.word import DecodedWord
+from ipu_isa.codec.word import DecodedWord, pack_program
 from ipu_isa.faults import reserved_encodings
 from ipu_isa.formats import FORMATS, AccumulatorType, ElementFormat
 from ipu_isa.geometry import LANES
 from ipu_isa.registers import REGISTER_DEFINITIONS
 from ipu_isa.slots import Slot
+from ipu_isa.tags import Tag
 from ipu_isa.view import isa
 
 #: The cycle limit of every case but the F-9 ones.
@@ -61,7 +66,7 @@ class Case:
     asm: str
     fmt: ElementFormat
     prepare: Callable[[IpuState], None]
-    edit: Callable[[list], None] | None = None
+    edit: Callable[[list[dict[str, int] | None]], None] | None = None
     fault_enables: Mapping[str, bool] = field(default_factory=dict)
     max_cycles: int = MAX_CYCLES
 
@@ -80,8 +85,6 @@ CRS = {2: 1, 3: 4, 4: 2, 5: 7, 6: 128, 7: 0xFFFFFFFE, 8: 100, 9: 3}
 #: LR values: small row offsets, a cyclic slot boundary (LR6) and a branch target (LR7).
 LRS = {1: 1, 2: 2, 3: 3, 4: 5, 6: 128, 7: 3}
 
-_WIDE = (ElementFormat.FP32, ElementFormat.INT32)
-
 
 def _floats(rng: random.Random, count: int) -> bytes:
     return struct.pack(f"<{count}f", *(rng.uniform(-8.0, 8.0) for _ in range(count)))
@@ -92,7 +95,8 @@ def _ints(rng: random.Random, count: int, bound: int) -> bytes:
 
 
 def _elements(rng: random.Random, fmt: ElementFormat, count: int) -> bytes:
-    """*count* input elements: any byte narrow, small float32 wide."""
+    """*count* input elements: any byte in the narrow formats, small values
+    (float32 for FP32, int32 for INT32) in the wide ones."""
     if fmt is ElementFormat.FP32:
         return _floats(rng, count)
     if fmt is ElementFormat.INT32:
@@ -132,7 +136,11 @@ def random_state(seed: str, reads: frozenset[str], xmem: bool) -> Callable[[IpuS
         fmt = state.fmt
         scalars(state)
         for register in sorted(reads - {"lr", "cr"}):
-            name = _WIDE_NAMES.get(register, register) if fmt in _WIDE else register
+            name = (
+                _WIDE_NAMES.get(register, register)
+                if FORMATS[fmt].tag is Tag.EMULATOR
+                else register
+            )
             state.regfile.mutable(name)[:] = _fill(rng, fmt, register)
         if xmem:
             state.xmem.write_address(0, _elements(rng, fmt, ROWS * LANES))
@@ -217,6 +225,7 @@ def _slug(text: str) -> str:
 
 
 def instruction_cases() -> list[Case]:
+    """Each HARDWARE instruction in each of its formats (INSTRUCTIONS)."""
     view = isa()
     every = [i for slot in view.spec_slot_order for i in view.instructions(slot)]
     reads = {i.mnemonic: frozenset(a.register for a in i.reads()) for i in every}
@@ -254,6 +263,7 @@ def _probe_state(
 
 
 def probe_cases() -> list[Case]:
+    """Each timing probe in each mode it declares, but UNREPRESENTABLE."""
     cases = []
     for name, probe in sorted(timing_probes.PROBES.items()):
         if name in UNREPRESENTABLE:
@@ -300,7 +310,8 @@ def _lanes_of(code: str, acc: float, res: float) -> Callable[[IpuState], None]:
 
 
 def fault_cases() -> list[Case]:
-    int8, fp32 = ElementFormat.INT8, ElementFormat.FP32
+    """Each modelled fault, and F-1 and F-9 disabled."""
+    int8 = ElementFormat.INT8
     return [
         Case(
             "fault_f1_reserved_opcode",
@@ -364,6 +375,13 @@ def fault_cases() -> list[Case]:
             fault_enables={"F-9": False},
             max_cycles=20,
         ),
+    ]
+
+
+def arith_cases() -> list[Case]:
+    """The arithmetic events the emulator records (E04-23)."""
+    int8, fp32 = ElementFormat.INT8, ElementFormat.FP32
+    return [
         Case(
             "arith_acc_overflow_int8",
             "ACC_OVERFLOW: int32 lanes that wrap",
@@ -395,9 +413,102 @@ def fault_cases() -> list[Case]:
     ]
 
 
+# -- the files of a case ------------------------------------------------------
+
+
+def _registers(state: IpuState, fresh: IpuState) -> list[dict[str, Any]]:
+    """Every register that differs from its reset value, in the order of
+    ``ipu_isa.registers``."""
+    writes = []
+    for name, definition in REGISTER_DEFINITIONS.items():
+        size = definition["size_bytes"]
+        have, reset = state.regfile.view(name), fresh.regfile.view(name)
+        for index in range(definition["count"]):
+            data = bytes(have[index * size : (index + 1) * size])
+            if data == bytes(reset[index * size : (index + 1) * size]):
+                continue
+            if definition["vector"]:
+                writes.append({"name": name, "index": index, "hex": data.hex()})
+            else:
+                writes.append(
+                    {"name": name, "index": index, "value": int.from_bytes(data, "little")}
+                )
+    return writes
+
+
+def _xmem(state: IpuState) -> list[dict[str, Any]]:
+    """The XMEM bytes that are not zero, one region per run (zero runs of
+    fewer than 64 bytes stay inside a region)."""
+    regions = []
+    for base, page in state.xmem.touched_pages():
+        data = bytes(page)
+        start = None
+        zeros = 0
+        for offset, byte in enumerate(data):
+            if byte:
+                if start is None:
+                    start = offset
+                zeros = 0
+            elif start is not None:
+                zeros += 1
+                if zeros == 64:
+                    end = offset - zeros + 1
+                    regions.append({"address": base + start, "hex": data[start:end].hex()})
+                    start, zeros = None, 0
+        if start is not None:
+            end = len(data) - zeros
+            regions.append({"address": base + start, "hex": data[start:end].hex()})
+    return regions
+
+
+def _emulator_only(case: Case, data: bytes) -> bool:
+    """True when the hardware cannot run the case: a wide format, or an
+    EMULATOR slot's op other than NOP."""
+    if FORMATS[case.fmt].tag is Tag.EMULATOR:
+        return True
+    emulator = set(isa().layout.slots_with_tag(Tag.EMULATOR))
+    return any(slot in emulator and op != "NOP" for slot, op in conformance.slot_ops(data))
+
+
+def setup_of(case: Case, data: bytes) -> dict[str, Any]:
+    """The ``setup.json`` of *case*: its starting state, as differences from reset."""
+    state, fresh = IpuState(fmt=case.fmt), IpuState(fmt=case.fmt)
+    case.prepare(state)
+    return {
+        "description": case.description,
+        "format": case.fmt.value,
+        "emulator_only": _emulator_only(case, data),
+        "max_cycles": case.max_cycles,
+        "fault_enables": dict(case.fault_enables),
+        "registers": _registers(state, fresh),
+        "xmem": _xmem(state),
+    }
+
+
+def source_of(case: Case) -> str:
+    """The ``program.asm`` of *case*: its name and description, what the
+    edit of ``program.bin`` changes (when there is one), then the source."""
+    lines = [f"# {case.name}: {case.description}"]
+    if case.edit is not None:
+        what = " ".join((case.edit.__doc__ or "").split())
+        lines.append(f"# program.bin edits the assembled words: {what}")
+    return "\n".join(lines) + "\n" + case.asm.strip() + "\n"
+
+
+def files_of(case: Case) -> dict[str, bytes]:
+    """The input files of *case* (all but the expected trace), by name."""
+    data = pack_program(case.words())
+    setup = json.dumps(setup_of(case, data), indent=1) + "\n"
+    return {
+        "program.asm": source_of(case).encode(),
+        "program.bin": data,
+        "setup.json": setup.encode(),
+    }
+
+
 def all_cases() -> list[Case]:
     """Every case, by name."""
-    cases = instruction_cases() + probe_cases() + fault_cases()
+    cases = instruction_cases() + probe_cases() + fault_cases() + arith_cases()
     names = [case.name for case in cases]
     duplicates = {name for name in names if names.count(name) > 1}
     if duplicates:

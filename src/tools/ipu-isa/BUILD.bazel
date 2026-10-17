@@ -9,6 +9,8 @@ load("//tools:typecheck.bzl", "mypy_test")
 package(default_visibility = ["//visibility:public"])
 
 exports_files([
+    # Linked from SKILL.md (//docs:test_doc_links).
+    "conformance/README.md",
     "pyproject.toml",
 ])
 

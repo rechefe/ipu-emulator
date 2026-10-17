@@ -541,7 +541,10 @@ py_library(
     testonly = True,
     srcs = ["test/conformance.py"],
     imports = ["test"],
-    deps = [":ipu_emu_lib"],
+    deps = [
+        ":ipu_emu_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+    ],
 )
 
 py_library(
@@ -550,9 +553,11 @@ py_library(
     srcs = ["test/conformance_cases.py"],
     imports = ["test"],
     deps = [
+        ":conformance_support",
         ":ipu_emu_lib",
         ":timing_probes",
         "//src/tools/ipu-as-py:ipu_as_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
     ],
 )
 
@@ -564,6 +569,7 @@ py_binary(
     deps = [
         ":conformance_cases",
         ":conformance_support",
+        ":ipu_emu_lib",
     ],
 )
 
@@ -584,6 +590,8 @@ py_pytest_test(
     deps = [
         ":conformance_cases",
         ":conformance_support",
+        ":ipu_emu_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
         requirement("jsonschema"),
         requirement("pytest"),
     ],

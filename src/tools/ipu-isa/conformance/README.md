@@ -11,7 +11,7 @@ Each folder is one case:
 
 | File | What it holds |
 |---|---|
-| `program.asm` | The source, for reading. A case whose `program.bin` was edited after assembly (a word the assembler does not produce) says so on its second line. |
+| `program.asm` | The source, for reading. When `program.bin` holds a word the assembler does not produce, the second line says how the assembled words were edited. |
 | `program.bin` | The assembled words, what a model loads: `ipu-as` program-file format, each word little-endian. |
 | `setup.json` | The starting state and run limits (`setup.schema.json`). |
 | `expected.trace.jsonl` | The trace of the run: a header line (`ipu_isa/schemas/trace.v1.json`), then one commit record per word (`commit_record.v1.json`). |

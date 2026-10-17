@@ -292,6 +292,7 @@ py_pytest_test(
         ":adr_sources",
         "//:.github/pull_request_template.md",
         "//:GLOSSARY.md",
+        "//src/tools/ipu-isa:conformance/README.md",
         "//tools/bench:README.md",
     ],
     deps = [requirement("pytest")],

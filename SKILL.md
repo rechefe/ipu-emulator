@@ -28,7 +28,8 @@ The rules agents must never break are in [CLAUDE.md](CLAUDE.md), under "Key Cons
 | Pseudo-instructions | generated [Programmer's guide](https://rechefe.github.io/ipu-emulator/programmer-guide/) |
 | Element formats, CR constants, dstructure | [ipu-configuration.md](docs/content/ipu-configuration.md), [wide-vector-debug-mode.md](docs/content/wide-vector-debug-mode.md) |
 | Command-line tools | [reference/cli.md](docs/content/reference/cli.md) (stub, E09-15); meanwhile `bazel run //src/tools/ipu-as-py:ipu-as -- --help` |
-| Reference-model API | [reference/reference-model-api.md](docs/content/reference/reference-model-api.md) (stub, E09-16); meanwhile [ADR 0004](docs/adr/0004-stable-reference-model-api.md) |
+| Reference-model API | [reference/reference-model-api.md](docs/content/reference/reference-model-api.md); the decision: [ADR 0004](docs/adr/0004-stable-reference-model-api.md) |
+| Conformance suite (cases as data, running them in an RTL testbench) | [src/tools/ipu-isa/conformance/README.md](src/tools/ipu-isa/conformance/README.md) |
 | Architecture | [explanation/architecture.md](docs/content/explanation/architecture.md) (stub, E09-17); meanwhile [docs/adr/](docs/adr/) |
 | Timing model (cycle-start and forwarded values) | [explanation/timing-model.md](docs/content/explanation/timing-model.md) (stub, E09-18); meanwhile [ADR 0002](docs/adr/0002-timing-contract.md) |
 | Prototyping mode | [prototyping-mode.md](docs/content/prototyping-mode.md) |
