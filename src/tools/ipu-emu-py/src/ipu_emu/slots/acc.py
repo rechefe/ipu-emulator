@@ -1,16 +1,21 @@
-"""ACC slot handlers: accumulate (ACC.*), reduce (AGG.*), ACC.STRIDE and ACC.RESHAPE."""
+"""ACC slot handlers: accumulate (ACC.*), reduce (AGG.*), ACC.STRIDE and ACC.RESHAPE.
+
+Every handler is one path for every element format (Q43, Q48): it loads
+MULT_RES and R_ACC lanes through the active codec (``ipu._codec``), computes
+with ``codec.add``/``sub``/``max`` and stores with ``codec.store_acc``, which
+rounds once and fails lane by lane exactly as ``struct.pack_into`` did.
+"""
 
 from __future__ import annotations
 
 import struct
+from functools import cache
 from typing import TYPE_CHECKING
 
 import numpy as np
 
 from ipu_emu.errors import EmulatorError
-from ipu_emu.geometry import agg_lane_count, lane_format, lrd_bytes, store_wide_lanes, wide_lanes
-from ipu_emu.ipu_math import DType, ipu_add, ipu_sub
-from ipu_emu.ipu_state import WideVectorArithmetic
+from ipu_emu.geometry import agg_lane_count, lrd_bytes
 from ipu_isa.acc_stride_enums import (
     get_elements_per_row,
     get_horizontal_stride_bits,
@@ -22,37 +27,10 @@ from ipu_isa.reshape_mask import RESHAPE_ELEMENT_COUNT, RESHAPE_MASK_LR_OFFSET
 
 if TYPE_CHECKING:
     from ipu_emu.ipu import Ipu
+    from ipu_emu.numerics import LaneCodec
 
-# Whole-row struct formats for the narrow datapath, keyed by the per-lane
-# format ``lane_format`` returns.
-_ROW_FMT = {"<f": f"<{LANES}f", "<i": f"<{LANES}i"}
-
-
-def _pack_lanes_one_by_one(
-    lane_fmt: str, buf: bytearray | memoryview, values, byte_off: int = 0
-) -> None:
-    """The lane-by-lane store, kept for the failure path.
-
-    ``struct.pack_into`` zeroes a field before it packs it and raises on a
-    value the format cannot hold, so a row that fails at lane *k* leaves lanes
-    ``0..k-1`` written, lane *k* zeroed and the rest untouched. The whole-row
-    stores keep that behaviour by replaying this loop when a row fails: it
-    fails at the same lane, leaves the same bytes and raises the same error.
-    """
-    for i, v in enumerate(values):
-        struct.pack_into(lane_fmt, buf, byte_off + 4 * i, v)
-
-
-def _store_row(buf: bytearray | memoryview, lane_fmt: str, values) -> None:
-    """Write LANES values into *buf* as one row, or fail exactly as lane-by-lane would."""
-    try:
-        packed = struct.pack(_ROW_FMT[lane_fmt], *values)
-    except (OverflowError, struct.error):
-        packed = None
-    if packed is None:
-        _pack_lanes_one_by_one(lane_fmt, buf, values)  # raises at the offending lane
-        return
-    buf[: LANES * 4] = packed
+#: Bytes of one accumulator lane (int32 or float32) in every format.
+_ACC_LANE_BYTES = 4
 
 
 # ---------------------------------------------------------------------------
@@ -64,127 +42,59 @@ def execute_acc_nop(ipu: Ipu) -> None:
     """Execute NOP in acc slot: No operation."""
 
 
-def _store_mult_res_row_in_acc(ipu: Ipu) -> None:
-    """Store MULT_RES in R_ACC through the parent lane conversion path."""
-    fmt = lane_format(ipu.state)
-    mult_res = ipu._view.read_forgetting_provenance("mult_res")
-    values = struct.unpack_from(_ROW_FMT[fmt], mult_res, 0)
-    _store_row(ipu.state.regfile.mutable("r_acc"), fmt, values)
+def _operands(ipu: Ipu) -> tuple[LaneCodec, np.ndarray, np.ndarray]:
+    """The codec, R_ACC (this cycle's snapshot) and MULT_RES, as accumulator lanes."""
+    codec = ipu._codec
+    acc = codec.load_acc(ipu._view.read_forgetting_provenance("r_acc"))
+    res = codec.load_acc(ipu._view.read_forgetting_provenance("mult_res"))
+    return codec, acc, res
+
+
+def _store_acc(ipu: Ipu, codec: LaneCodec, lanes: np.ndarray) -> None:
+    codec.store_acc(ipu.state.regfile.mutable("r_acc"), lanes)
+
+
+def _store_mult_res_in_acc(ipu: Ipu) -> None:
+    """R_ACC = MULT_RES, through the accumulator load and store (a NaN is quietened)."""
+    codec = ipu._codec
+    res = codec.load_acc(ipu._view.read_forgetting_provenance("mult_res"))
+    _store_acc(ipu, codec, res)
 
 
 def execute_acc_add(ipu: Ipu) -> None:
     """Execute ACC.ADD: Accumulate mult_res into accumulator (running add)."""
-    state = ipu.state
-    acc_buf = state.regfile.mutable("r_acc")
-    mult_res = ipu._view.read_forgetting_provenance("mult_res")
-    snap_acc = ipu._view.read_forgetting_provenance("r_acc")
-
-    if state.wide_vector_debug:
-        acc_lanes = wide_lanes(state, snap_acc)
-        mult_lanes = wide_lanes(state, mult_res)
-        if state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
-            with np.errstate(all="ignore"):
-                result = acc_lanes + mult_lanes
-        else:
-            result = acc_lanes + mult_lanes
-        store_wide_lanes(state, acc_buf, result)
-        return
-
-    dtype = state.dtype
-    fmt = lane_format(state)
-    acc_vals = struct.unpack_from(_ROW_FMT[fmt], snap_acc, 0)
-    mult_vals = struct.unpack_from(_ROW_FMT[fmt], mult_res, 0)
-    _store_row(
-        acc_buf, fmt, [ipu_add(a, m, dtype) for a, m in zip(acc_vals, mult_vals, strict=True)]
-    )
+    codec, acc, res = _operands(ipu)
+    _store_acc(ipu, codec, codec.add(acc, res))
 
 
 def execute_acc_add_first(ipu: Ipu) -> None:
     """Execute ACC.ADD.FIRST: Set r_acc to multiply result (no previous sum)."""
-    _store_mult_res_row_in_acc(ipu)
+    _store_mult_res_in_acc(ipu)
 
 
 def execute_acc_max(ipu: Ipu) -> None:
     """Execute ACC.MAX: Each R_ACC element takes max(R_ACC[i], MULT_RES[i])."""
-    state = ipu.state
-    acc_buf = state.regfile.mutable("r_acc")
-    mult_res = ipu._view.read_forgetting_provenance("mult_res")
-    snap_acc = ipu._view.read_forgetting_provenance("r_acc")
-
-    if state.wide_vector_debug:
-        acc_lanes = wide_lanes(state, snap_acc)
-        mult_lanes = wide_lanes(state, mult_res)
-        # max(a, b) returns b only when b > a -- the NaN-carrying case
-        # differs from np.maximum, so the comparison is written out.
-        if state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
-            with np.errstate(all="ignore"):
-                result = np.where(mult_lanes > acc_lanes, mult_lanes, acc_lanes)
-        else:
-            result = np.where(mult_lanes > acc_lanes, mult_lanes, acc_lanes)
-        store_wide_lanes(state, acc_buf, result)
-        return
-
-    fmt = lane_format(state)
-    acc_vals = struct.unpack_from(_ROW_FMT[fmt], snap_acc, 0)
-    mult_vals = struct.unpack_from(_ROW_FMT[fmt], mult_res, 0)
-    _store_row(acc_buf, fmt, [max(a, m) for a, m in zip(acc_vals, mult_vals, strict=True)])
+    codec, acc, res = _operands(ipu)
+    _store_acc(ipu, codec, codec.max(acc, res))
 
 
 def execute_acc_max_first(ipu: Ipu) -> None:
     """Execute ACC.MAX.FIRST: Overwrite each R_ACC element with MULT_RES (clean init for max)."""
-    _store_mult_res_row_in_acc(ipu)
+    _store_mult_res_in_acc(ipu)
 
 
 def execute_acc_sub(ipu: Ipu) -> None:
     """Execute ACC.SUB: Subtract MULT_RES from each R_ACC element (running subtract)."""
-    state = ipu.state
-    acc_buf = state.regfile.mutable("r_acc")
-    mult_res = ipu._view.read_forgetting_provenance("mult_res")
-    snap_acc = ipu._view.read_forgetting_provenance("r_acc")
-
-    if state.wide_vector_debug:
-        acc_lanes = wide_lanes(state, snap_acc)
-        mult_lanes = wide_lanes(state, mult_res)
-        if state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
-            with np.errstate(all="ignore"):
-                result = acc_lanes - mult_lanes
-        else:
-            result = acc_lanes - mult_lanes
-        store_wide_lanes(state, acc_buf, result)
-        return
-
-    dtype = state.dtype
-    fmt = lane_format(state)
-    acc_vals = struct.unpack_from(_ROW_FMT[fmt], snap_acc, 0)
-    mult_vals = struct.unpack_from(_ROW_FMT[fmt], mult_res, 0)
-    _store_row(
-        acc_buf, fmt, [ipu_sub(a, m, dtype) for a, m in zip(acc_vals, mult_vals, strict=True)]
-    )
+    codec, acc, res = _operands(ipu)
+    _store_acc(ipu, codec, codec.sub(acc, res))
 
 
 def execute_acc_sub_first(ipu: Ipu) -> None:
     """Execute ACC.SUB.FIRST: Set each R_ACC element to negated MULT_RES (clean init for subtract)."""
-    state = ipu.state
-    acc_buf = state.regfile.mutable("r_acc")
-    mult_res = ipu._view.read_forgetting_provenance("mult_res")
-
-    if state.wide_vector_debug:
-        # 0 - x, not -x: for x = +0.0 the scalar path produced +0.0, and
-        # negation would flip the sign bit.
-        mult_lanes = wide_lanes(state, mult_res)
-        if state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
-            with np.errstate(all="ignore"):
-                result = 0 - mult_lanes
-        else:
-            result = 0 - mult_lanes
-        store_wide_lanes(state, acc_buf, result)
-        return
-
-    dtype = state.dtype
-    fmt = lane_format(state)
-    zero = 0 if dtype == DType.INT8 else 0.0
-    mult_vals = struct.unpack_from(_ROW_FMT[fmt], mult_res, 0)
-    _store_row(acc_buf, fmt, [ipu_sub(zero, m, dtype) for m in mult_vals])
+    codec = ipu._codec
+    res = codec.load_acc(ipu._view.read_forgetting_provenance("mult_res"))
+    # 0 - x, not -x: for x = +0.0 that is +0.0, where negation flips the sign bit.
+    _store_acc(ipu, codec, codec.sub(np.zeros_like(res), res))
 
 
 # ---------------------------------------------------------------------------
@@ -227,6 +137,21 @@ def _stride_indices(elements_in_row: int, horizontal_stride: int, vertical_strid
     return out_indices
 
 
+@cache
+def _stride_gather(
+    elements_in_row: int, horizontal_stride: int, vertical_stride: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """``_stride_indices`` as a gather: (MULT_RES lane per output lane, pad mask)."""
+    indices = np.array(
+        _stride_indices(elements_in_row, horizontal_stride, vertical_stride), dtype=np.intp
+    )
+    pad = indices < 0
+    indices[pad] = 0
+    indices.flags.writeable = False
+    pad.flags.writeable = False
+    return indices, pad
+
+
 def execute_acc_stride(
     ipu: Ipu,
     *,
@@ -239,29 +164,26 @@ def execute_acc_stride(
 
     Operand semantics from ipu_isa.acc_stride_enums (single source of truth).
     offset: LR value; (offset % 4) * 32 is the start index in r_acc (0, 32, 64, or 96).
+    A result that runs past R_ACC's last lane writes the lanes that fit, then
+    raises ``struct.error`` (what the lane-by-lane ``struct.pack_into`` did).
     """
-    out_indices = _stride_indices(elements_in_row, horizontal_stride, vertical_stride)
-
+    indices, pad = _stride_gather(elements_in_row, horizontal_stride, vertical_stride)
     base = (offset % 4) * 32
-    fmt = lane_format(ipu.state)
+    codec = ipu._codec
+    res = codec.load_acc(ipu._view.read_forgetting_provenance("mult_res"))
+    values = np.where(pad, np.zeros_like(res[:1]), res[indices])
     # From the first lane written to the end of R_ACC.
-    acc_buf = ipu.state.regfile.mutable("r_acc", base * 4)
-    if len(out_indices) * 4 > len(acc_buf):
+    acc_buf = ipu.state.regfile.mutable("r_acc", base * _ACC_LANE_BYTES)
+    fit = LANES - base
+    if len(values) > fit:
         # The ISA leaves start + N > R_ACC undefined (stage-accumulator 6.8):
         # an open question, not a fault yet, so an EmulatorError before any
         # lane is written.
         raise EmulatorError(
-            f"ACC.STRIDE writes {len(out_indices)} elements from lane {base}, "
-            f"past the end of R_ACC ({base + len(acc_buf) // 4} lanes)"
+            f"ACC.STRIDE writes {len(values)} elements from lane {base}, "
+            f"past the end of R_ACC ({LANES} lanes)"
         )
-    mult_res = ipu._view.read_forgetting_provenance("mult_res")
-
-    for i, idx in enumerate(out_indices):
-        if idx >= 0:
-            val = struct.unpack_from(fmt, mult_res, idx * 4)[0]
-        else:
-            val = 0.0 if fmt == "<f" else 0
-        struct.pack_into(fmt, acc_buf, i * 4, val)
+    codec.store_acc(acc_buf, values)
 
 
 def _reshape_operands(
@@ -327,86 +249,73 @@ def execute_acc_reshape(ipu: Ipu, *, source: int, dest: int, reshape_mask: int) 
 # ---------------------------------------------------------------------------
 
 
-def _to_int32(val: int) -> int:
-    v = int(val) & 0xFFFFFFFF
-    return v - 0x100000000 if v >= 0x80000000 else v
+def _agg_inputs(ipu: Ipu, cr_idx: int, dest_slot: int) -> tuple[LaneCodec, list, int]:
+    """The codec, the active MULT_RES lanes (Python numbers) and the R_ACC lane written."""
+    valid_elements = ipu._view.dstructure(cr_idx, "cr_idx").valid_elements
+    codec = ipu._codec
+    active = agg_lane_count(valid_elements)
+    lanes = codec.load_acc(ipu._view.read_forgetting_provenance("mult_res"), active).tolist()
+    return codec, lanes, int(dest_slot) % LANES
 
 
-def _agg_sum_lanes(fmt: str, snap_acc: bytes | memoryview, active: int) -> float | int:
-    # Summed in lane order, one lane at a time: floating-point addition is
-    # not associative, so a pairwise (numpy) sum would give a different
-    # answer. Only the unpacking is batched.
-    total: float | int = 0.0 if fmt == "<f" else 0
-    for value in struct.unpack_from(_ROW_FMT[fmt], snap_acc, 0)[:active]:
+def _agg_dest(ipu: Ipu, codec: LaneCodec, dest: int) -> np.ndarray:
+    """R_ACC[dest] from this cycle's snapshot, as one accumulator lane."""
+    snap = ipu._view.read_forgetting_provenance("r_acc")
+    return codec.load_acc(snap[dest * _ACC_LANE_BYTES :], 1)
+
+
+def _store_dest(ipu: Ipu, codec: LaneCodec, dest: int, value: np.ndarray | float | int) -> None:
+    """Write one accumulator lane to R_ACC[dest]."""
+    out = ipu.state.regfile.mutable("r_acc", dest * _ACC_LANE_BYTES, _ACC_LANE_BYTES)
+    codec.store_acc(out, np.asarray(value).reshape(1))
+
+
+def _fold_sum(lanes: list) -> float | int:
+    # Summed in lane order, one lane at a time, in Python numbers: floating-
+    # point addition is not associative, so a pairwise (numpy) sum would give
+    # a different answer. Integer sums are exact; the store wraps them to int32.
+    # (An int 0 start adds exactly as 0.0 to a float lane.)
+    total: float | int = 0
+    for value in lanes:
         total += value
     return total
 
 
-def _agg_max_lanes(
-    fmt: str, snap_acc: bytes | memoryview, active: int, seed: float | int
-) -> float | int:
+def _fold_max(lanes: list, seed: float | int) -> float | int:
+    # Python's max fold: a lane replaces the best only when strictly greater,
+    # so a NaN seed stays and the first of equal values (+0.0, -0.0) wins.
     best = seed
-    for v in struct.unpack_from(_ROW_FMT[fmt], snap_acc, 0)[:active]:
-        if v > best:
-            best = v
+    for value in lanes:
+        if value > best:
+            best = value
     return best
 
 
 def execute_agg_sum_first(ipu: Ipu, *, dest_slot: int, cr_idx: int) -> None:
     """Execute AGG.SUM.FIRST: sum active MULT_RES elements, write to R_ACC[dest] (clean init)."""
-    valid_elements = ipu._view.dstructure(cr_idx, "cr_idx").valid_elements
-    fmt = lane_format(ipu.state)
-    mult_res = ipu._view.read_forgetting_provenance("mult_res")
-    active = agg_lane_count(valid_elements)
-    result = _agg_sum_lanes(fmt, mult_res, active)
-    dest = int(dest_slot) % LANES
-    if fmt == "<i":
-        result = _to_int32(result)
-    struct.pack_into(fmt, ipu.state.regfile.mutable("r_acc", dest * 4, 4), 0, result)
+    codec, lanes, dest = _agg_inputs(ipu, cr_idx, dest_slot)
+    _store_dest(ipu, codec, dest, _fold_sum(lanes))
 
 
 def execute_agg_sum(ipu: Ipu, *, dest_slot: int, cr_idx: int) -> None:
     """Execute AGG.SUM: sum active MULT_RES elements and add to R_ACC[dest] (running accumulation)."""
-    valid_elements = ipu._view.dstructure(cr_idx, "cr_idx").valid_elements
-    fmt = lane_format(ipu.state)
-    mult_res = ipu._view.read_forgetting_provenance("mult_res")
-    active = agg_lane_count(valid_elements)
-    dest = int(dest_slot) % LANES
-    snap_dest = struct.unpack_from(fmt, ipu._view.read_forgetting_provenance("r_acc"), dest * 4)[0]
-    partial = _agg_sum_lanes(fmt, mult_res, active)
-    if fmt == "<f":
-        result: float | int = float(partial) + float(snap_dest)
-    else:
-        # fmt == "<i" covers both narrow INT8 mode and wide-vector INT32 mode
-        # (lane_format); ipu_add's DType.INT8 branch is plain 32-bit wrap
-        # with no 8-bit saturation, so it's correct for INT32 lanes too.
-        result = ipu_add(_to_int32(partial), int(snap_dest), DType.INT8)
-    struct.pack_into(fmt, ipu.state.regfile.mutable("r_acc", dest * 4, 4), 0, result)
+    codec, lanes, dest = _agg_inputs(ipu, cr_idx, dest_slot)
+    partial = np.asarray([_fold_sum(lanes)])
+    _store_dest(ipu, codec, dest, codec.add(partial, _agg_dest(ipu, codec, dest)))
 
 
 def execute_agg_max_first(ipu: Ipu, *, dest_slot: int, cr_idx: int) -> None:
     """Execute AGG.MAX.FIRST: max of active MULT_RES elements, write to R_ACC[dest] (no seed).
 
     When no elements are active (valid_elements=0) the identity seed
-    (INT32_MIN / -inf) is written, so the destination is always defined.
+    (``codec.acc_min()``: INT32_MIN or -inf) is written, so the destination is always defined.
     """
-    valid_elements = ipu._view.dstructure(cr_idx, "cr_idx").valid_elements
-    fmt = lane_format(ipu.state)
-    mult_res = ipu._view.read_forgetting_provenance("mult_res")
-    active = agg_lane_count(valid_elements)
-    seed: float | int = -2147483648 if fmt == "<i" else float("-inf")
-    result = _agg_max_lanes(fmt, mult_res, active, seed)
-    dest = int(dest_slot) % LANES
-    struct.pack_into(fmt, ipu.state.regfile.mutable("r_acc", dest * 4, 4), 0, result)
+    codec, lanes, dest = _agg_inputs(ipu, cr_idx, dest_slot)
+    _store_dest(ipu, codec, dest, _fold_max(lanes, codec.acc_min().item()))
 
 
 def execute_agg_max(ipu: Ipu, *, dest_slot: int, cr_idx: int) -> None:
     """Execute AGG.MAX: max of active MULT_RES elements seeded with R_ACC[dest] (running max)."""
-    valid_elements = ipu._view.dstructure(cr_idx, "cr_idx").valid_elements
-    fmt = lane_format(ipu.state)
-    mult_res = ipu._view.read_forgetting_provenance("mult_res")
-    active = agg_lane_count(valid_elements)
-    dest = int(dest_slot) % LANES
-    snap_dest = struct.unpack_from(fmt, ipu._view.read_forgetting_provenance("r_acc"), dest * 4)[0]
-    result = _agg_max_lanes(fmt, mult_res, active, snap_dest)
-    struct.pack_into(fmt, ipu.state.regfile.mutable("r_acc", dest * 4, 4), 0, result)
+    codec, lanes, dest = _agg_inputs(ipu, cr_idx, dest_slot)
+    seed = _agg_dest(ipu, codec, dest)[0].item()
+    _store_dest(ipu, codec, dest, _fold_max(lanes, seed))

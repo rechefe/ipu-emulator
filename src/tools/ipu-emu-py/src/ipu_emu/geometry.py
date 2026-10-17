@@ -19,8 +19,8 @@ observer never reaches into ``Ipu`` for a helper (E04-11):
   :meth:`~ipu_emu.numerics.LaneCodec.decode_scalar`);
 - :func:`xmem_row_addr` turns an assembly row number into a byte address;
 - :func:`lrd_bytes` reads the eight byte elements of an LRD pair;
-- :func:`lane_format`, :func:`wide_lanes` and :func:`store_wide_lanes` read
-  and write the 4-byte lanes of MULT_RES, R_ACC and POST_AAQ_REG;
+- :func:`lane_format` is the struct format of one 4-byte accumulator lane
+  (the AAQ activation path's; every other handler goes through the codec);
 - :func:`agg_lane_count` is how many R_ACC lanes a reduction includes.
 
 The slot modules (``ipu_emu.slots``) share these instead of importing each
@@ -31,8 +31,6 @@ from __future__ import annotations
 
 from functools import lru_cache
 from typing import TYPE_CHECKING, NamedTuple, Protocol
-
-import numpy as np
 
 from ipu_emu.errors import EmulatorError
 from ipu_emu.ipu_math import DType
@@ -63,9 +61,7 @@ __all__ = [
     "lrd_lr_indices",
     "partition_vector",
     "row_size_bytes",
-    "store_wide_lanes",
     "vector_registers",
-    "wide_lanes",
     "xmem_element_width_bytes",
     "xmem_row_addr",
     "xmem_row_fault",
@@ -339,23 +335,6 @@ def lane_format(state: IpuState) -> str:
     if state.wide_vector_debug:
         return "<f" if state.wide_vector_arithmetic == WideVectorArithmetic.FP32 else "<i"
     return "<i" if state.dtype == DType.INT8 else "<f"
-
-
-# The FP32 / INT32 lane codecs (``ipu_emu.numerics``) widen to float64 /
-# int64 and round once on the store, so the vectorised wide-vector paths are
-# bit-for-bit the scalar loops they replaced.
-
-
-def wide_lanes(state: IpuState, buf, byte_off: int = 0) -> np.ndarray:
-    """Read LANES lanes of *buf* widened to float64 (FP32) or int64 (INT32)."""
-    return codec_for(element_format(state)).decode(memoryview(buf)[byte_off:])
-
-
-def store_wide_lanes(
-    state: IpuState, buf: bytearray | memoryview, values: np.ndarray, byte_off: int = 0
-) -> None:
-    """Write LANES lanes back, rounding once — what ``pack_into`` did."""
-    codec_for(element_format(state)).store_acc(memoryview(buf)[byte_off:], values)
 
 
 def agg_lane_count(valid_elements: int) -> int:

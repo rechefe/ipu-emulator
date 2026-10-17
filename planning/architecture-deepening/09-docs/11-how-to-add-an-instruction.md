@@ -47,6 +47,8 @@ the handler, the test.
    page (edit with `mattpocock-skills:writing-for-agents`). The checklist and the
    page must list the same steps.
 
+*As built:* following the page on scratch edits (an `lr` HARDWARE instruction and an `acc_store` EMULATOR one) showed that the three edits are enough for the code but not for the tests. The tests that pin today's ISA fail. `tools/update_baselines.sh` regenerates nine baseline files. Four facts are pinned by hand and have no update target: `ipu-isa/test/fixtures/spec_snapshot.json`, the reserved-opcode counts in `test_faults.py`, the F-1 table in `requirements/faults.md`, and the one-edit tests' own count of `lr` instructions. The page lists them in step 4. A follow-up could derive or regenerate them.
+
 ## Tests
 
 - [ ] `bazel test //docs:test_doc_asm_blocks //docs:test_doc_commands` passes.

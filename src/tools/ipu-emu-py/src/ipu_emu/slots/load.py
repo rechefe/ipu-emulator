@@ -4,13 +4,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ipu_emu.geometry import (
-    xmem_element_width_bytes,
-    xmem_row_addr,
-    xmem_row_fault,
-    xmem_row_size_bytes,
-)
+from ipu_emu.geometry import vector_registers, xmem_row_addr, xmem_row_fault
 from ipu_isa.faults import FaultId
+from ipu_isa.geometry import LANES
 from ipu_isa.registers import get_mult_stage_map, get_register_sizes
 
 if TYPE_CHECKING:
@@ -46,19 +42,18 @@ def check_ld_mult(ipu: Ipu, *, dest: int, offset: int, base: int) -> Fault | Non
     return _row_fault(ipu, offset + base)
 
 
+def _row_bytes(ipu: Ipu) -> int:
+    """Bytes of one XMEM row in the active format: LANES elements."""
+    return ipu._codec.element_bytes * LANES
+
+
 def execute_ld_mult(ipu: Ipu, *, dest: int, offset: int, base: int) -> None:
-    """Execute LD.MULT: Load data from memory into a mult stage register."""
+    """Execute LD.MULT: Load one XMEM row into R0 or R1 (Ra in the active element width)."""
     state = ipu.state
     addr = xmem_row_addr(state, offset + base)
-    if state.wide_vector_debug:
-        data = state.xmem.read_address(addr, xmem_row_size_bytes(state))
-        state.regfile.set_r_wide_debug(dest, data)
-        if state.xmem.is_constant_ones(addr, data):
-            state.regfile.mark_constant_ones("r_wide_debug", dest * len(data), len(data))
-        return
-
-    data = state.xmem.read_address(addr, R_REG_SIZE)
-    reg_name, elem_idx = _MULT_STAGE_MAP[dest]
+    data = state.xmem.read_address(addr, _row_bytes(ipu))
+    reg_name = vector_registers(state).ra
+    elem_idx = _MULT_STAGE_MAP[dest][1]
     state.regfile.set_register_bytes(reg_name, elem_idx, data)
     if state.xmem.is_constant_ones(addr, data):
         state.regfile.mark_constant_ones(reg_name, elem_idx * len(data), len(data))
@@ -80,21 +75,20 @@ def execute_ld_mult_cyclic(ipu: Ipu, *, offset: int, base: int, index: int) -> N
     """Execute LD.MULT.CYCLIC: Load with cyclic addressing into r_cyclic.
 
     ``index`` is an ELEMENT index into r_cyclic's 512-element ring and must
-    land on one of the four slot boundaries (0/128/256/384) in both modes
+    land on one of the four slot boundaries (0/128/256/384) in every format
     -- writes only ever replace a whole slot, never a partial one. This is
-    unlike reads (MULT.RC.* via ``get_r_cyclic_wide_debug_at``), which are
-    allowed at any element index and may cross a slot boundary.
+    unlike reads (MULT.RC.*), which are allowed at any element index and may
+    cross a slot boundary.
     """
     state = ipu.state
     addr = xmem_row_addr(state, offset + base)
-    byte_idx = index * xmem_element_width_bytes(state)
-    data = state.xmem.read_address(addr, xmem_row_size_bytes(state))
-    if state.wide_vector_debug:
-        state.regfile.set_r_cyclic_wide_debug_at(byte_idx, data)
-    else:
-        state.regfile.set_r_cyclic_at(byte_idx, data)
+    row_bytes = _row_bytes(ipu)
+    byte_idx = index * ipu._codec.element_bytes
+    data = state.xmem.read_address(addr, row_bytes)
+    name = vector_registers(state).r_cyclic
+    # A slot never wraps the ring, so this is the ring's own slot write.
+    state.regfile.mutable(name, byte_idx, row_bytes)[:] = data
     if state.xmem.is_constant_ones(addr, data):
-        name = "r_cyclic_wide_debug" if state.wide_vector_debug else "r_cyclic"
         state.regfile.mark_constant_ones(name, byte_idx, len(data))
 
 
