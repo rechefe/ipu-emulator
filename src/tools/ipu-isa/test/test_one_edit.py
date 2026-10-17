@@ -4,7 +4,7 @@ With ``TESTNEG`` added to the LR slot and nothing else changed, every artifact
 ``ipu_isa`` derives follows: opcode, layout, slot codec, disassembly, syntax,
 timing check and the F-1 reserved encodings. The generators' half is
 ``ipu-gen/test/test_one_edit_generators.py``; the end-to-end half (assembler
-and emulator, in a subprocess) is ``ipu-apps/test/test_one_edit_end_to_end.py``.
+and emulator, in a subprocess) is ``ipu-emu-py/test/test_one_edit_end_to_end.py``.
 """
 
 from __future__ import annotations

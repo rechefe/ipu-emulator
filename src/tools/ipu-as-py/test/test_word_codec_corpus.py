@@ -13,8 +13,7 @@ from pathlib import Path
 
 import asm_corpus
 import pytest
-
-from ipu_isa.codec.word import DecodedWord, pack_program, unpack_program
+from program_checks import check_word_codec
 
 ROOT = Path.cwd()
 ENTRIES = asm_corpus.discover(ROOT)
@@ -23,8 +22,4 @@ ENTRIES = asm_corpus.discover(ROOT)
 @pytest.mark.parametrize("entry", ENTRIES, ids=lambda entry: entry.key)
 def test_codec_round_trips_the_program(entry):
     program = asm_corpus.assemble(ROOT, entry)
-    words = program.words
-    decoded = unpack_program(program.bin_bytes)
-    assert [d.to_word() for d in decoded] == words
-    assert [DecodedWord.from_word(w) for w in words] == decoded
-    assert pack_program(words) == program.bin_bytes
+    check_word_codec(program.words, program.bin_bytes)

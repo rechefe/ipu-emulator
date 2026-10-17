@@ -505,3 +505,109 @@ py_pytest_test(
         requirement("pytest"),
     ],
 )
+
+# No `| default` or definedness test in an assembly source (E05-11), over the
+# kernel tree, the ipu_apps programs (until E07-25) and the editor's corpus.
+py_pytest_test(
+    name = "test_template_lint",
+    srcs = ["test/test_template_lint.py"],
+    data = [
+        "//kernels:tree",
+        "//src/tools/ipu-apps:asm_corpus_files",
+    ],
+    deps = [requirement("pytest")],
+)
+
+# Every assembly program in the repo, assembled as its users assemble it: the
+# corpus the E02 digests pin and the ISA-wide corpus tests read (E07-25 moves
+# it here from ipu-apps; the digest manifest stays there until then).
+py_library(
+    name = "asm_corpus",
+    srcs = ["test/corpus/asm_corpus.py"],
+    imports = ["test/corpus"],
+    deps = [
+        ":ipu_as_lib",
+        requirement("jinja2"),
+    ],
+)
+
+# The ISA-wide checks of one assembled program (round trip, slot and word
+# codec, hardware target), shared by the corpus tests below and the kernel
+# tree's //src/tools/ipu-harness:test_kernel_programs.
+py_library(
+    name = "program_checks",
+    testonly = True,
+    srcs = ["test/corpus/program_checks.py"],
+    imports = ["test/corpus"],
+    deps = [
+        ":ipu_as_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+    ],
+)
+
+# Disassembly to assembly syntax assembles back to the same words, for both
+# targets, over every program of the corpus (E05-15).
+py_pytest_test(
+    name = "test_assembly_round_trip",
+    srcs = ["test/test_assembly_round_trip.py"],
+    data = ["//src/tools/ipu-apps:asm_corpus_files"],
+    deps = [
+        ":asm_corpus",
+        ":program_checks",
+        ":ipu_as_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+# The ISA's slot codec against the assembler, over the corpus (E03-17).
+py_pytest_test(
+    name = "test_slot_codec_corpus",
+    srcs = ["test/test_slot_codec_corpus.py"],
+    data = ["//src/tools/ipu-apps:asm_corpus_files"],
+    deps = [
+        ":asm_corpus",
+        ":program_checks",
+        ":ipu_as_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+# The ISA's word codec over every program of the corpus (E03-16).
+py_pytest_test(
+    name = "test_word_codec_corpus",
+    srcs = ["test/test_word_codec_corpus.py"],
+    data = ["//src/tools/ipu-apps:asm_corpus_files"],
+    deps = [
+        ":asm_corpus",
+        ":program_checks",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+# --target hardware over the corpus (E05-15).
+py_pytest_test(
+    name = "test_hardware_target",
+    srcs = ["test/test_hardware_target.py"],
+    data = ["//src/tools/ipu-apps:asm_corpus_files"],
+    deps = [
+        ":asm_corpus",
+        ":program_checks",
+        ":ipu_as_lib",
+        requirement("pytest"),
+    ],
+)
+
+# AssemblyResult bytes against the file entry points, over the corpus (E05-05).
+py_pytest_test(
+    name = "test_session_outputs",
+    srcs = ["test/test_session_outputs.py"],
+    data = ["//src/tools/ipu-apps:asm_corpus_files"],
+    deps = [
+        ":asm_corpus",
+        ":ipu_as_lib",
+        requirement("pytest"),
+    ],
+)

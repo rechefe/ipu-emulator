@@ -60,7 +60,7 @@ The "one edit" test proves it. It adds a dummy instruction, `TESTNEG`, as one
 spec entry and one handler, and checks that every artifact follows:
 `//src/tools/ipu-isa:test_one_edit` for the ISA's own artifacts,
 `src/tools/ipu-gen/test/test_one_edit_generators.py` for the generators, and
-`src/tools/ipu-apps/test/test_one_edit_end_to_end.py` for an assembled program
+`src/tools/ipu-emu-py/test/test_one_edit_end_to_end.py` for an assembled program
 running on the emulator. Its list of manual edits beyond the entry and the
 handler, `KNOWN_MANUAL_EDITS`, is empty.
 [How-to: add an instruction](../how-to/add-an-instruction.md) walks through

@@ -8,7 +8,7 @@ completion, and the SystemVerilog package.
 
 The "one edit" test proves it. It adds a dummy instruction, `TESTNEG`, to copies
 of the sources with only the first two edits, then assembles and runs a program
-that uses it (`src/tools/ipu-apps/test/test_one_edit_end_to_end.py`). The examples
+that uses it (`src/tools/ipu-emu-py/test/test_one_edit_end_to_end.py`). The examples
 below are that test's own entry and handler.
 
 ## Before you start

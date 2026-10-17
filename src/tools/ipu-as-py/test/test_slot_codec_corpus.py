@@ -12,10 +12,10 @@ from pathlib import Path
 
 import asm_corpus
 import pytest
+from program_checks import check_slot_codec
 
 from ipu_as.lark_tree import assemble
-from ipu_isa.codec.slot import SLOT_CODECS, WORD_CODEC
-from ipu_isa.codec.word import DecodedWord
+from ipu_isa.codec.slot import WORD_CODEC
 
 ROOT = Path.cwd()
 ENTRIES = asm_corpus.discover(ROOT)
@@ -23,15 +23,7 @@ ENTRIES = asm_corpus.discover(ROOT)
 
 @pytest.mark.parametrize("entry", ENTRIES, ids=lambda entry: entry.key)
 def test_codec_matches_the_assembler(entry):
-    for word in asm_corpus.assemble(ROOT, entry).words:
-        slots = WORD_CODEC.unpack(word)
-        fields = DecodedWord.from_word(word)
-        values = {}
-        for key, decoded in slots.items():
-            assert decoded.unused_bits == 0, key
-            values[key] = SLOT_CODECS[key[0]].encode(decoded.instruction.mnemonic, decoded.operands)
-            assert values[key] == fields.slot_value(*key), key
-        assert WORD_CODEC.pack(values) == word
+    check_slot_codec(asm_corpus.assemble(ROOT, entry).words)
 
 
 def test_all_nop_word():

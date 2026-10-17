@@ -214,7 +214,7 @@ py_pytest_test(
     data = ["//src/tools/ipu-apps:asm_corpus_files"],
     imports = ["."],
     deps = [
-        "//src/tools/ipu-apps:asm_corpus",
+        "//src/tools/ipu-as-py:asm_corpus",
         "//src/tools/ipu-as-py:ipu_as_lib",
         "//src/tools/ipu-isa:ipu_isa_lib",
         requirement("pytest"),
@@ -230,7 +230,7 @@ py_binary(
     name = "audit_cross_slot_hazards",
     srcs = ["audit_cross_slot_hazards.py"],
     deps = [
-        "//src/tools/ipu-apps:asm_corpus",
+        "//src/tools/ipu-as-py:asm_corpus",
         "//src/tools/ipu-isa:ipu_isa_lib",
     ],
 )
@@ -246,7 +246,7 @@ py_pytest_test(
     data = ["//src/tools/ipu-apps:asm_corpus_files"],
     imports = ["."],
     deps = [
-        "//src/tools/ipu-apps:asm_corpus",
+        "//src/tools/ipu-as-py:asm_corpus",
         "//src/tools/ipu-as-py:ipu_as_lib",
         "//src/tools/ipu-isa:ipu_isa_lib",
         requirement("pytest"),

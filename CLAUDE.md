@@ -40,7 +40,7 @@ The steps, with examples: [Add an instruction](docs/content/how-to/add-an-instru
 3. Write a test with `run()` from `ipu-emu-py/test/emu_support.py`.
 4. Run `bazel test //...`. Tests that pin today's ISA fail by design: run `tools/update_baselines.sh`, then edit the hand-pinned facts the failing tests name (the page lists them). HARDWARE: check the generated SystemVerilog package (below). EMULATOR: `assemble --target hardware` rejects it.
 
-The "one edit" tests prove these steps are enough: `//src/tools/ipu-apps:test_one_edit_end_to_end` adds a dummy instruction with one spec entry and one handler and runs it; `//src/tools/ipu-isa:test_one_edit` and `//src/tools/ipu-gen:test_one_edit_generators` check every derived artifact. The end-to-end test's `KNOWN_MANUAL_EDITS` (empty) names any other edit still needed.
+The "one edit" tests prove these steps are enough: `//src/tools/ipu-emu-py:test_one_edit_end_to_end` adds a dummy instruction with one spec entry and one handler and runs it; `//src/tools/ipu-isa:test_one_edit` and `//src/tools/ipu-gen:test_one_edit_generators` check every derived artifact. The end-to-end test's `KNOWN_MANUAL_EDITS` (empty) names any other edit still needed.
 
 ## Generated SystemVerilog Package
 
