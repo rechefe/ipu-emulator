@@ -179,3 +179,10 @@ def test_f6_follows_the_wide_row_size(prototyping):
     state = _prepared(program, {9: 16384}, prototyping, ElementFormat.FP32)
     run_until_complete(state)
     assert state.halt == HaltRecord("halt", 2, None)
+
+
+@pytest.mark.parametrize("prototyping", MODES)
+def test_a_cyclic_load_with_a_legal_index_faults_f6_on_its_row(prototyping):
+    asm = "SET LR1 CR8 ; SET LR7 CR9 ; INC LR6 1 ; LD.MULT.CYCLIC LR7 CR2 LR1 ;;"
+    program = assemble_program(f"INC LR7 0 ;;\n{asm}\nHALT ;;")
+    _faults_at_word_one(program, {8: 128, 9: 16384}, FaultId.F6, prototyping)

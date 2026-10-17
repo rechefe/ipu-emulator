@@ -174,16 +174,15 @@ def execute_acc_stride(
 
     Operand semantics from ipu_isa.acc_stride_enums (single source of truth).
     offset: LR value; (offset % 4) * 32 is the start index in r_acc (0, 32, 64, or 96).
-    A result that runs past R_ACC's last lane writes the lanes that fit, then
-    raises ``struct.error`` (what the lane-by-lane ``struct.pack_into`` did).
+    A result that runs past R_ACC's last lane raises ``EmulatorError`` before
+    any lane is written: the ISA leaves it undefined (stage-accumulator 6.8),
+    an open question rather than a fault.
     """
     indices, pad = _stride_gather(elements_in_row, horizontal_stride, vertical_stride)
     base = (offset % 4) * 32
     codec = ipu._codec
     res = codec.load_acc(ipu._view.read_forgetting_provenance("mult_res"))
     values = np.where(pad, np.zeros_like(res[:1]), res[indices])
-    # From the first lane written to the end of R_ACC.
-    acc_buf = ipu.state.regfile.mutable("r_acc", base * _ACC_LANE_BYTES)
     fit = LANES - base
     if len(values) > fit:
         # The ISA leaves start + N > R_ACC undefined (stage-accumulator 6.8):
@@ -193,6 +192,8 @@ def execute_acc_stride(
             f"ACC.STRIDE writes {len(values)} elements from lane {base}, "
             f"past the end of R_ACC ({LANES} lanes)"
         )
+    # From the first lane written to the end of R_ACC.
+    acc_buf = ipu.state.regfile.mutable("r_acc", base * _ACC_LANE_BYTES)
     _store_events(ipu, codec, acc_buf, values)
 
 

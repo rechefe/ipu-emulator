@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ipu_emu.geometry import vector_registers, xmem_row_addr, xmem_row_check
+from ipu_emu.geometry import vector_registers, xmem_row_addr, xmem_row_check, xmem_row_size_bytes
 from ipu_isa.faults import FaultId
-from ipu_isa.geometry import LANES
 from ipu_isa.registers import get_mult_stage_map, get_register_sizes
 
 if TYPE_CHECKING:
@@ -38,8 +37,9 @@ def check_ld_mult(ipu: Ipu, *, dest: int, offset: int, base: int) -> Fault | Non
 
 
 def _row_bytes(ipu: Ipu) -> int:
-    """Bytes of one XMEM row in the active format: LANES elements."""
-    return ipu._codec.element_bytes * LANES
+    """Bytes of one XMEM row in the active format: LANES elements. The row
+    size the F-6 check uses (``xmem_row_size_bytes``) is the same number."""
+    return xmem_row_size_bytes(ipu.state)
 
 
 def execute_ld_mult(ipu: Ipu, *, dest: int, offset: int, base: int) -> None:
