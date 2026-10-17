@@ -18,6 +18,7 @@ from collections.abc import Mapping
 
 from ipu_isa.codec.slot import DecodedSlot, codecs
 from ipu_isa.codec.word import DecodedWord
+from ipu_isa.errors import IsaValueError
 from ipu_isa.operand_types import OperandKind, OperandType
 from ipu_isa.reshape_mask import RESHAPE_MASK_LR_OFFSET
 from ipu_isa.tags import Tag
@@ -45,7 +46,7 @@ def target_tag(target: Tag | str) -> Tag:
         ValueError: Any other target.
     """
     if target not in TARGETS:
-        raise ValueError(f"target must be emulator or hardware, not {target!r}")
+        raise IsaValueError(f"target must be emulator or hardware, not {target!r}")
     return Tag(target)
 
 

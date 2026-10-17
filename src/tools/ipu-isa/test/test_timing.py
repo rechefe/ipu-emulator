@@ -73,39 +73,42 @@ def test_operand_registers_cover_the_readable_operand_types():
 
 # -- contract_view: one test per Q32 rule ---------------------------------------
 
+#: The repository ISA's writers, as load_isa checks it with.
+WRITERS = register_writers(INSTRUCTION_SPEC)
+
 
 @pytest.mark.parametrize("slot", [Slot.LR, Slot.COND, Slot.BREAK])
 def test_rule_1_control_reads_lrs_at_cycle_start(slot):
-    assert contract_view(slot, "lr") is CS
+    assert contract_view(slot, "lr", WRITERS) is CS
 
 
 @pytest.mark.parametrize("slot", [Slot.LOAD, Slot.MULT, Slot.ACC, Slot.STORE, Slot.ACC_STORE])
 def test_rule_1_other_stages_read_lrs_forwarded(slot):
-    assert contract_view(slot, "lr") is FW
+    assert contract_view(slot, "lr", WRITERS) is FW
 
 
 @pytest.mark.parametrize("register", ["r", "r_cyclic", "r_mask"])
 def test_rule_2_mult_reads_its_inputs_at_cycle_start(register):
     """LOAD writes them earlier in the word; MULT still reads cycle start."""
-    assert contract_view(Slot.MULT, register) is CS
+    assert contract_view(Slot.MULT, register, WRITERS) is CS
 
 
 def test_rule_3_mult_res_and_r_acc_are_forwarded():
-    assert contract_view(Slot.ACC, "mult_res") is FW
-    assert contract_view(Slot.AAQ, "r_acc") is FW
+    assert contract_view(Slot.ACC, "mult_res", WRITERS) is FW
+    assert contract_view(Slot.AAQ, "r_acc", WRITERS) is FW
 
 
 def test_rule_4_lr_subslots_read_cycle_start():
-    assert contract_view(Slot.LR, "lr") is CS
+    assert contract_view(Slot.LR, "lr", WRITERS) is CS
 
 
 def test_other_reads_follow_the_producers():
     """Forwarded when every writer runs earlier; cycle start for a same-slot
     writer or a register nothing writes."""
-    assert contract_view(Slot.ACC, "r_acc") is CS  # ACC itself writes it
-    assert contract_view(Slot.ACC_STORE, "r_acc") is FW
-    assert contract_view(Slot.STORE, "post_aaq_reg") is FW
-    assert contract_view(Slot.LOAD, "cr") is CS
+    assert contract_view(Slot.ACC, "r_acc", WRITERS) is CS  # ACC itself writes it
+    assert contract_view(Slot.ACC_STORE, "r_acc", WRITERS) is FW
+    assert contract_view(Slot.STORE, "post_aaq_reg", WRITERS) is FW
+    assert contract_view(Slot.LOAD, "cr", WRITERS) is CS
     writers = {"r_acc": [Slot.ACC, Slot.COND]}  # a later writer: cycle start
     assert contract_view(Slot.ACC_STORE, "r_acc", writers) is CS
 

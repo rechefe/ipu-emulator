@@ -15,7 +15,7 @@ from ipu_isa.instruction_spec import (
 )
 from ipu_isa.layout import slots_with_tag, word_bits
 from ipu_isa.schema import SpecError
-from ipu_isa.slots import _SPEC, LAYOUT_ORDER, SLOTS, Slot, _load
+from ipu_isa.slots import LAYOUT_ORDER, SLOTS, Slot, load_slots, slot_spec_copy
 from ipu_isa.tags import Tag
 from ipu_isa.view import isa
 
@@ -45,7 +45,7 @@ def test_every_instruction_and_pseudo_has_one_tag():
 
 
 def _with(slot, field, value):
-    spec = {s: dict(entry) for s, entry in _SPEC.items()}
+    spec = {s: dict(entry) for s, entry in slot_spec_copy().items()}
     spec[slot][field] = value
     return spec
 
@@ -55,22 +55,22 @@ def test_an_emulator_slot_before_a_hardware_slot_is_rejected():
     order.remove(Slot.ACC_STORE)
     order.insert(order.index(Slot.STORE), Slot.ACC_STORE)
     with pytest.raises(SpecError, match="HARDWARE slot 'store' follows an EMULATOR slot"):
-        _load(_SPEC, tuple(order))
+        load_slots(slot_spec_copy(), tuple(order))
 
 
 def test_a_slot_cannot_be_assembler():
     with pytest.raises(SpecError, match=r"SLOTS\.mult\.tag"):
-        _load(_with(Slot.MULT, "tag", Tag.ASSEMBLER), LAYOUT_ORDER)
+        load_slots(_with(Slot.MULT, "tag", Tag.ASSEMBLER), LAYOUT_ORDER)
 
 
 def test_a_slot_tag_must_be_a_tag():
     with pytest.raises(SpecError, match=r"SLOTS\.mult\.tag"):
-        _load(_with(Slot.MULT, "tag", "hardware"), LAYOUT_ORDER)
+        load_slots(_with(Slot.MULT, "tag", "hardware"), LAYOUT_ORDER)
 
 
 def test_a_debug_only_slot_must_be_emulator():
     with pytest.raises(SpecError, match=r"SLOTS\.mult\.debug_only"):
-        _load(_with(Slot.MULT, "debug_only", True), LAYOUT_ORDER)
+        load_slots(_with(Slot.MULT, "debug_only", True), LAYOUT_ORDER)
 
 
 @pytest.mark.parametrize(

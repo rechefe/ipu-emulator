@@ -32,6 +32,7 @@ from ipu_isa.acc_stride_enums import (
     VERTICAL_STRIDE_NAMES,
 )
 from ipu_isa.activations import ACTIVATION_FN_NAMES
+from ipu_isa.errors import IsaLookupError
 from ipu_isa.geometry import INST_MEM_WORDS
 from ipu_isa.incr_mod_pow2_k import (
     LR_MOD_POW2_K_FIELD_BITS,
@@ -43,6 +44,8 @@ from ipu_isa.registers import REGISTER_DEFINITIONS
 
 
 class OperandKind(Enum):
+    """What an operand's value names: a register, an enum member or an immediate."""
+
     REGISTER = "register"
     ENUM = "enum"
     IMMEDIATE = "immediate"
@@ -61,6 +64,8 @@ class Domain:
 
 @dataclass(frozen=True, slots=True)
 class OperandType:
+    """One operand type of the registry: its width, value domain and wire names."""
+
     name: str  # "LrIdx": the spec key; appears as an SV comment
     kind: OperandKind
     bits: int | None  # None: decided by union packing
@@ -369,4 +374,6 @@ def operand_type(name: str) -> OperandType:
     try:
         return OPERAND_TYPES[name]
     except KeyError:
-        raise KeyError(f"unknown operand type {name!r}; known: {sorted(OPERAND_TYPES)}") from None
+        raise IsaLookupError(
+            f"unknown operand type {name!r}; known: {sorted(OPERAND_TYPES)}"
+        ) from None

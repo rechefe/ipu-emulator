@@ -23,6 +23,7 @@ with the timing contract.
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
@@ -56,6 +57,8 @@ class Slot(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class SlotInfo:
+    """One slot as the registry authors it: instances, tag, widths and names."""
+
     slot: Slot
     count: int  # instances per word: 3 for LR
     pad_to_bits: int | None  # pad the packed slot to this width (wire format), or None
@@ -313,10 +316,27 @@ LAYOUT_ORDER: tuple[Slot, ...] = (
 )
 
 
-def _load(
+def slot_spec_copy() -> dict[Slot, dict[str, Any]]:
+    """A deep copy of the authored slot entries, to edit and pass to
+    :func:`load_slots` (tests). The original stays private."""
+    return copy.deepcopy(_SPEC)
+
+
+def load_slots(
     spec: Mapping[Slot, dict[str, Any]], layout_order: tuple[Slot, ...]
 ) -> Mapping[Slot, SlotInfo]:
-    """Check the authored entries and freeze them into records."""
+    """Check authored slot entries and freeze them into records.
+
+    Args:
+        spec: One entry per slot, as ``SLOTS`` is authored.
+        layout_order: The slots from the word's most significant end.
+
+    Returns:
+        The records, by slot.
+
+    Raises:
+        SpecError: an entry or the order breaks a rule.
+    """
     if set(spec) != set(Slot):
         raise schema.SpecError(f"SLOTS: entries {sorted(spec)} do not match Slot {sorted(Slot)}")
     if sorted(layout_order) != sorted(Slot):
@@ -347,4 +367,4 @@ def _load(
 
 
 #: Every slot, in authoring order.
-SLOTS: Mapping[Slot, SlotInfo] = _load(_SPEC, LAYOUT_ORDER)
+SLOTS: Mapping[Slot, SlotInfo] = load_slots(_SPEC, LAYOUT_ORDER)
