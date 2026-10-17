@@ -25,7 +25,6 @@ ROOT = Path.cwd()
 SOURCE_ROOTS = (
     "kernels",
     "src/tools/ipu-apps/src/ipu_apps/kernels",
-    "src/tools/ipu-apps/test/mobilevit",
     "vscode-ipu-asm/test",
 )
 
