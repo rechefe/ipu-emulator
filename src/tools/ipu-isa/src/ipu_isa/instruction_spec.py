@@ -584,7 +584,7 @@ INSTRUCTION_SPEC = {
             ),
             "implicit_reads": [
                 {"register": "r_cyclic", "view": "cycle_start"},
-                {"register": "r_mask", "view": "forwarded"},
+                {"register": "r_mask", "view": "cycle_start"},
                 {"register": "cr", "via_operand": "cr_idx", "view": "cycle_start"},
             ],
             "implicit_writes": [{"register": "mult_res"}],
@@ -622,7 +622,7 @@ INSTRUCTION_SPEC = {
                 {"register": "cr", "via_operand": "src", "view": "cycle_start"},
                 {"register": "r", "view": "cycle_start"},
                 {"register": "r_cyclic", "view": "cycle_start"},
-                {"register": "r_mask", "view": "forwarded"},
+                {"register": "r_mask", "view": "cycle_start"},
                 {"register": "cr", "via_operand": "cr_idx", "view": "cycle_start"},
             ],
             "implicit_writes": [{"register": "mult_res"}],
@@ -654,7 +654,7 @@ INSTRUCTION_SPEC = {
             ),
             "implicit_reads": [
                 {"register": "r_cyclic", "view": "cycle_start"},
-                {"register": "r_mask", "view": "forwarded"},
+                {"register": "r_mask", "view": "cycle_start"},
                 {"register": "cr", "via_operand": "cr_idx", "view": "cycle_start"},
             ],
             "implicit_writes": [{"register": "mult_res"}],
@@ -698,7 +698,7 @@ INSTRUCTION_SPEC = {
             "implicit_reads": [
                 {"register": "cr", "via_operand": "cr_idx", "view": "cycle_start"},
                 {"register": "r", "view": "cycle_start"},
-                {"register": "r_mask", "view": "forwarded"},
+                {"register": "r_mask", "view": "cycle_start"},
                 {"register": "cr", "via_operand": "dstructure_cr_idx", "view": "cycle_start"},
             ],
             "implicit_writes": [{"register": "mult_res"}],
@@ -733,7 +733,7 @@ INSTRUCTION_SPEC = {
             "implicit_reads": [
                 {"register": "cr", "via_operand": "cr_idx", "view": "cycle_start"},
                 {"register": "r", "view": "cycle_start"},
-                {"register": "r_mask", "view": "forwarded"},
+                {"register": "r_mask", "view": "cycle_start"},
                 {"register": "cr", "via_operand": "dstructure_cr_idx", "view": "cycle_start"},
             ],
             "implicit_writes": [{"register": "mult_res"}],

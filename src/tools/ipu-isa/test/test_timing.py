@@ -15,6 +15,7 @@ from ipu_isa.timing import (
     KNOWN_DEVIATIONS,
     OPERAND_REGISTERS,
     SLOT_EXECUTION_ORDER,
+    Deviation,
     RegisterAccess,
     View,
     contract_view,
@@ -156,13 +157,21 @@ def test_every_non_nop_instruction_but_a_branch_writes_something():
 
 
 def test_known_deviations_are_the_issue_table():
-    rows = {(d.mnemonic, d.register, d.via_operand, d.today, d.fixed_by) for d in KNOWN_DEVIATIONS}
-    mult = ("MULT.RC.VV", "MULT.RC.VE", "MULT.RC.VS", "MULT.VE", "MULT.EE")
-    assert rows == {
-        *((m, "r_mask", None, FW, "E04-27") for m in mult),
-    }
-    assert all(d.contract is not d.today for d in KNOWN_DEVIATIONS)
-    assert set(deviations(INSTRUCTION_SPEC)) == set(KNOWN_DEVIATIONS)
+    """E04-27 removed the last rows: the emulator follows the contract everywhere."""
+    assert KNOWN_DEVIATIONS == ()
+    assert deviations(INSTRUCTION_SPEC) == ()
+
+
+@pytest.mark.parametrize(
+    "mnemonic", ["MULT.RC.VV", "MULT.RC.VE", "MULT.RC.VS", "MULT.VE", "MULT.EE"]
+)
+def test_mult_reads_its_data_inputs_at_cycle_start(mnemonic):
+    """Q20, Q32 rule 2: every MULT data input (R0/R1, R_CYCLIC, R_MASK) is read
+    at cycle start (E04-27 flipped R_MASK)."""
+    reads = {a.register: a.view for a in isa().instruction(Slot.MULT, mnemonic).reads()}
+    assert reads["r_mask"] is CS
+    for register in ("r", "r_cyclic"):
+        assert reads.get(register, CS) is CS
 
 
 # -- each validator rule fails on a planted violation -----------------------------
@@ -170,7 +179,8 @@ def test_known_deviations_are_the_issue_table():
 
 def test_forwarded_read_from_a_later_slot_is_rejected():
     spec = _spec()
-    _implicit_read(spec, "mult", "MULT.RC.VV", "r_mask")["register"] = "post_aaq_reg"
+    read = _implicit_read(spec, "mult", "MULT.RC.VV", "r_mask")
+    read["register"], read["view"] = "post_aaq_reg", "forwarded"
     _rejects(spec, r"mult\.MULT\.RC\.VV: post_aaq_reg: a forwarded read needs every writer")
 
 
@@ -199,14 +209,24 @@ def test_a_new_undeclared_deviation_is_rejected():
 
 
 def test_a_stale_deviation_row_is_rejected():
-    """Fixing a deviation (E04-27 flips the read) fails until its row is deleted."""
+    """A row whose read no longer differs from the contract fails until it is deleted."""
+    stale = Deviation(Slot.MULT, "MULT.EE", "r_mask", None, FW, CS, "E04-27")
+    with pytest.raises(
+        SpecError, match=r"KNOWN_DEVIATIONS: row\(s\) no longer differ .*MULT\.EE r_mask via None"
+    ):
+        validate_timing(INSTRUCTION_SPEC, SLOTS, [stale])
+
+
+def test_a_listed_deviation_is_accepted():
+    """A read that differs from the contract passes once it is listed."""
     spec = _spec()
-    _implicit_read(spec, "mult", "MULT.EE", "r_mask")["view"] = "cycle_start"
-    _rejects(spec, r"KNOWN_DEVIATIONS: row\(s\) no longer differ .*MULT\.EE r_mask via None")
-    remaining = [
-        d for d in KNOWN_DEVIATIONS if not (d.mnemonic == "MULT.EE" and d.register == "r_mask")
+    _implicit_read(spec, "mult", "MULT.EE", "r_mask")["view"] = "forwarded"
+    _rejects(spec, r"not in KNOWN_DEVIATIONS: mult\.MULT\.EE r_mask")
+    listed = Deviation(Slot.MULT, "MULT.EE", "r_mask", None, FW, CS, "E04-27")
+    validate_timing(spec, SLOTS, [listed])
+    assert [(d.mnemonic, d.register, d.today, d.contract) for d in deviations(spec)] == [
+        ("MULT.EE", "r_mask", FW, CS)
     ]
-    validate_timing(spec, SLOTS, remaining)
 
 
 def test_lr_write_target_must_be_declared():
