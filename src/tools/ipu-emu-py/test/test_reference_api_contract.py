@@ -262,7 +262,7 @@ SNAPSHOTS = {
             "write_xmem": "(self, address: 'int', data: 'bytes') -> 'None'",
         },
         "Status": {"state": "RunState", "pc": "int", "fault": "FaultId | None"},
-        "RunResult": {"status": "Status", "cycles": "int"},
+        "RunResult": {"status": "Status", "cycles": "int", "quit": "bool"},
         "Stats": {
             "cycles": "int",
             "mult_active_cycles": "int",
@@ -685,7 +685,7 @@ def test_debug_run_stops_for_the_callback_and_continues():
 def test_debug_run_quit_pauses_where_it_stopped():
     model = _model()
     result = model.debug_run(lambda state, cycles: DebugAction.QUIT, break_on_entry=True)
-    assert result == RunResult(Status(RunState.RUNNING, 0), 0)
+    assert result == RunResult(Status(RunState.RUNNING, 0), 0, quit=True)
     assert model.run().cycles == 12  # the run picks up at the PC the quit left
 
 
@@ -731,7 +731,7 @@ def test_the_debuggers_quit_past_imem_halts_the_model():
         return DebugAction.QUIT
 
     result = model.debug_run(quit_like_ipu_debug, break_on_entry=True)
-    assert result == RunResult(Status(RunState.HALTED, INST_MEM_SIZE), 0)
+    assert result == RunResult(Status(RunState.HALTED, INST_MEM_SIZE), 0, quit=True)
     model.write_register("cr", 5, 2)  # the host may write again
     with pytest.raises(ConfigurationError, match="past IMEM"):
         model.step()
@@ -763,3 +763,14 @@ def test_a_program_that_fills_imem_faults_f2_stepped_or_run():
     ran = ReferenceModel()
     ran.load_program(words)
     assert ran.run().status == stepped.status == Status(RunState.FAULTED, INST_MEM_SIZE, FaultId.F2)
+
+
+def test_ctrl_c_in_a_debug_run_ends_it_as_a_quit():
+    model = _model()
+
+    def interrupted(state, cycles):
+        raise KeyboardInterrupt
+
+    result = model.debug_run(interrupted, break_on_entry=True)
+    assert result.quit and result == RunResult(Status(RunState.RUNNING, 0), 0, quit=True)
+    assert model.run().quit is False and model.status.state is RunState.HALTED

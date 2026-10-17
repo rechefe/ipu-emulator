@@ -103,10 +103,14 @@ class RunResult:
     Attributes:
         status: The model's status when the run stopped.
         cycles: The words the run retired.
+        quit: The debugger quit the run (:meth:`ReferenceModel.debug_run`:
+            its callback returned ``QUIT``, or Ctrl-C); always ``False`` for
+            :meth:`ReferenceModel.run` (1.3.0).
     """
 
     status: Status
     cycles: int
+    quit: bool = False
 
 
 @dataclass(frozen=True)
@@ -406,7 +410,10 @@ class ReferenceModel:
                 fresh one when ``None``.
 
         Returns:
-            The status the run stopped in and the words it retired. A
+            The status the run stopped in, the words it retired, and
+            ``quit``: whether the callback returned ``QUIT`` or Ctrl-C ended
+            the run (a Ctrl-C at a stop leaves the model between words;
+            during a word, that word may be partly done). A
             ``QUIT`` pauses the model where it stopped (``RUNNING``): a later
             step or run carries on from that PC. A callback that also moves
             the PC past IMEM (``ipu_debug``'s quit) leaves the model
@@ -418,6 +425,7 @@ class ReferenceModel:
         """
         self._steppable()
         before = self._state.stats.total_cycles if self._started else 0
+        quit = False
         try:
             cycles = _run_with_debug(
                 self._state,
@@ -427,14 +435,21 @@ class ReferenceModel:
                 break_on_entry=break_on_entry,
                 reset_stats=not self._started,
             )
+            quit = self._state.quit_requested
         except EmulatorFault:
             # The fault is in ``status``; the run's words are in the statistics.
+            cycles = self._state.stats.total_cycles - before
+        except KeyboardInterrupt:
+            # Ctrl-C ends the run as a quit. At a stop (the callback waiting
+            # for input) the model is between words; elsewhere the word in
+            # flight may be partly done.
+            self._state.quit_requested = quit = True
             cycles = self._state.stats.total_cycles - before
         finally:
             self._started = True
             self._collector.take()  # a debug run writes no trace
             self._collector.drop_stop()  # a stop it quit at is not the next word's
-        return RunResult(self.status, cycles)
+        return RunResult(self.status, cycles, quit)
 
     def attach_alias_profile(self, profile: AliasProfile) -> None:
         """Record the ISA alias profile of every later step or run into
