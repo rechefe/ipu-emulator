@@ -331,15 +331,6 @@ class CycleView:
         """
         return self.source(register, via).view(register)
 
-    def read_forgetting_provenance(self, register: str, via: str | None = None) -> memoryview:
-        """:meth:`read`, and forget the register's constant-ones provenance in
-        the file read. Reading through ``raw()`` used to forget it, and these
-        reads still do, so alias and identity statistics stay as they were
-        until E04-24."""
-        source = self.source(register, via)
-        source.forget_provenance(register)
-        return source.view(register)
-
     def lr(self, index: int, via: str | None = None) -> int:
         """LR *index* in the view declared for ``("lr", via)``."""
         return self.source("lr", via).get_lr(index)

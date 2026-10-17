@@ -21,6 +21,7 @@ from ipu_emu.emulator import DebugAction, load_program, run_until_complete, run_
 from ipu_emu.errors import DebugOnlyInstructionWarning
 from ipu_emu.ipu import LANES, Ipu
 from ipu_emu.ipu_state import IpuState
+from ipu_emu.prototyping import build_enabled
 
 # A declared row narrower than LANES, for the padding cases.
 NARROW_ELEMENTS = 16
@@ -367,3 +368,61 @@ MULT.RC.VV LR0 R0 0 LR0 CR15 ; ACC.ADD;; HALT;;"""
         run_until_complete(state)
         assert state.stats.alias_hits == {"A2_ADD_VV": 1}
         assert state.stats.mult_active_cycles == 2
+
+
+class TestReadsKeepProvenance:
+    """A register read never changes what the profiler knows (E04-24).
+
+    Each case marks a register's whole contents as declared constant ones,
+    runs one word that only reads it, and checks the mark is still there in
+    the live register file and in the following cycle's snapshot.
+    """
+
+    @staticmethod
+    def _mark(state: IpuState, name: str) -> int:
+        size = len(state.regfile.view(name))
+        state.regfile.mark_constant_ones(name, 0, size)
+        return size
+
+    @staticmethod
+    def _assert_kept(state: IpuState, engine: Ipu, name: str, size: int) -> None:
+        assert state.regfile.has_constant_ones(name, 0, size)
+        engine.check_break()  # takes the following cycle's snapshot
+        snapshot = engine.cycle.snapshot
+        assert snapshot is not None and snapshot.has_constant_ones(name, 0, size)
+
+    def test_acc_add_keeps_mult_res_provenance_into_the_next_cycle(self):
+        # ACC.ADD reads R_ACC and MULT_RES; R_ACC is written, MULT_RES is not.
+        state = make_state("ACC.ADD;;\nHALT;;")
+        size = self._mark(state, "mult_res")
+        acc_size = self._mark(state, "r_acc")
+        engine = Ipu(state)
+        engine.execute_vliw_cycle()
+        self._assert_kept(state, engine, "mult_res", size)
+        # The write, not the read, is what revokes R_ACC's declaration.
+        assert not state.regfile.has_constant_ones("r_acc", 0, acc_size)
+
+    def test_activate_quantize_keeps_r_acc_provenance_into_the_next_cycle(self):
+        # ACTIVATE.QUANTIZE reads the forwarded (live) R_ACC and writes POST_AAQ_REG.
+        state = make_state("ACTIVATE.QUANTIZE relu CR15;;\nHALT;;")
+        size = self._mark(state, "r_acc")
+        engine = Ipu(state)
+        engine.execute_vliw_cycle()
+        self._assert_kept(state, engine, "r_acc", size)
+
+    def test_st_aaq_keeps_post_aaq_provenance(self):
+        state = make_state("ST.AAQ LR0 CR0;;\nHALT;;")
+        size = self._mark(state, "post_aaq_reg")
+        engine = Ipu(state)
+        engine.execute_vliw_cycle()
+        self._assert_kept(state, engine, "post_aaq_reg", size)
+
+    @pytest.mark.skipif(not build_enabled(), reason="requires --define=ipu_proto=1")
+    def test_prototyping_mask_shortcut_does_not_pin_r_mask(self):
+        # R_MASK is all ones at reset, so the unshifted multiply takes the
+        # prototyping shortcut, which reads R_MASK and nothing else of it.
+        state = make_state("MULT.RC.VV LR0 R0 0 LR0 CR15 ; ACC.ADD ;;\nHALT;;", prototyping=True)
+        size = self._mark(state, "r_mask")
+        engine = Ipu(state)
+        engine.execute_vliw_cycle()
+        self._assert_kept(state, engine, "r_mask", size)
