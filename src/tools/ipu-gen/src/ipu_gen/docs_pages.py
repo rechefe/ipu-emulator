@@ -368,7 +368,7 @@ bazel run //src/tools/ipu-as-py:ipu-as -- assemble --input prog.asm --output pro
 
 - [Operand types](operand-types.md) — field types used in `instruction_spec`
 - [Instruction reference](instructions.md) — per-opcode documentation
-- [Adding instructions](../../adding-instruction.md)
+- [Adding instructions](../../how-to/add-an-instruction.md)
 - [Building applications](../../building-applications.md)
 """
     output_path.write_text(main + timing_section() + masking_section + jinja_tail)
@@ -832,7 +832,7 @@ def generate_programmer_guide_md(output_path: Path, view: Isa | None = None) -> 
         "Pseudo-instructions are assembly mnemonics that the assembler "
         "expands into a real instruction at compile time. They never get "
         "an opcode and never appear in the binary, so they cost nothing at "
-        "runtime — see [Adding a pseudo-instruction](../../adding-instruction.md#adding-a-pseudo-instruction) "
+        "runtime — see [Adding a pseudo-instruction](../../how-to/add-an-instruction.md#pseudo-instructions) "
         "for how they're declared. This page is **generated** from "
         "`PSEUDO_INSTRUCTION_SPEC` in `instruction_spec.py`.\n"
     )

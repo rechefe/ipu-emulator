@@ -107,6 +107,10 @@ class LaneCodec(Protocol):
         """Write ``lanes`` to the start of ``out`` as accumulator elements, rounding once."""
         ...
 
+    def acc_min(self) -> np.generic:
+        """The least accumulator value, the identity of :meth:`max` (INT32_MIN or -inf)."""
+        ...
+
     def one(self) -> bytes:
         """One element of value 1."""
         ...
@@ -163,6 +167,10 @@ class IntCodec(_Codec):
         """See :meth:`LaneCodec.store_acc`: wraps to int32, so it never fails."""
         raw = (np.asarray(lanes, dtype=np.int64) & _INT32_MASK).astype("<u4").tobytes()
         out[: len(raw)] = raw
+
+    def acc_min(self) -> np.int64:
+        """See :meth:`LaneCodec.acc_min`."""
+        return np.int64(-_INT32_SIGN)
 
     def one(self) -> bytes:
         """See :meth:`LaneCodec.one`."""
@@ -227,6 +235,10 @@ class _FloatCodec(_Codec):
             return
         raw = narrowed.tobytes()
         out[: len(raw)] = raw
+
+    def acc_min(self) -> np.float64:
+        """See :meth:`LaneCodec.acc_min`."""
+        return np.float64(-np.inf)
 
 
 class Fp8Codec(_FloatCodec):

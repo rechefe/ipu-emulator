@@ -96,6 +96,8 @@ genrule(
         ":generate_instruction_format_md",
         ":generate_instruction_format_artifacts",
         "//:GLOSSARY.md",
+        "examples/test_add_an_instruction.py",
+        "//src/tools/ipu-isa:test/one_edit.py",
         "hooks/giscus_env.py",
         "hooks/history_link.py",
         "overrides/main.html",
@@ -149,6 +151,11 @@ genrule(
         # reference/glossary.md includes the root GLOSSARY.md through pymdownx.snippets,
         # whose base_path ".." is the parent of the temp tree, as the repo root is of docs/.
         ln -sfn "$$ORIGDIR/$(location //:GLOSSARY.md)" "$(@D)/GLOSSARY.md"
+
+        # how-to/add-an-instruction.md includes tested code the same way, at its repo path.
+        mkdir -p "$(@D)/docs/examples" "$(@D)/src/tools/ipu-isa/test"
+        ln -sfn "$$ORIGDIR/$(location examples/test_add_an_instruction.py)" "$(@D)/docs/examples/test_add_an_instruction.py"
+        ln -sfn "$$ORIGDIR/$(location //src/tools/ipu-isa:test/one_edit.py)" "$(@D)/src/tools/ipu-isa/test/one_edit.py"
 
         # Generated C header and SystemVerilog package (downloadable; not in git)
         mkdir -p "$(@D)/docs_temp/content/assets"
@@ -258,6 +265,26 @@ py_pytest_test(
     deps = [
         ":doc_blocks",
         "//src/tools/ipu-as-py:ipu_as_lib",
+        requirement("pytest"),
+    ],
+)
+
+# The examples How-to: add an instruction includes (examples/), run, and its
+# line-range includes of the "one edit" test's entry and handler kept exact.
+py_pytest_test(
+    name = "test_add_an_instruction",
+    size = "small",
+    srcs = ["examples/test_add_an_instruction.py"],
+    data = [
+        "content/how-to/add-an-instruction.md",
+        "//src/tools/ipu-isa:one_edit",
+    ],
+    deps = [
+        "//src/tools/ipu-as-py:ipu_as_lib",
+        "//src/tools/ipu-emu-py:emu_test_support",
+        "//src/tools/ipu-emu-py:ipu_emu_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+        "//src/tools/ipu-isa:one_edit",
         requirement("pytest"),
     ],
 )

@@ -1,6 +1,6 @@
 # Programmer's Guide: Pseudo-Instructions
 
-Pseudo-instructions are assembly mnemonics that the assembler expands into a real instruction at compile time. They never get an opcode and never appear in the binary, so they cost nothing at runtime — see [Adding a pseudo-instruction](../../adding-instruction.md#adding-a-pseudo-instruction) for how they're declared. This page is **generated** from `PSEUDO_INSTRUCTION_SPEC` in `instruction_spec.py`.
+Pseudo-instructions are assembly mnemonics that the assembler expands into a real instruction at compile time. They never get an opcode and never appear in the binary, so they cost nothing at runtime — see [Adding a pseudo-instruction](../../how-to/add-an-instruction.md#pseudo-instructions) for how they're declared. This page is **generated** from `PSEUDO_INSTRUCTION_SPEC` in `instruction_spec.py`.
 
 ### `BGT.S` — Branch if Greater Than (pseudo)
 
