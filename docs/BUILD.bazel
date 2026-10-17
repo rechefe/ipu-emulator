@@ -319,7 +319,10 @@ py_pytest_test(
     srcs = ["test_inspector_site.py"],
     data = [":build_docs"],
     tags = ["docs"],
-    deps = [requirement("pytest")],
+    deps = [
+        "//src/tools/ipu-gen:ipu_gen_lib",
+        requirement("pytest"),
+    ],
 )
 
 # Ruff lint and format over this package's Python files (tools/lint.bzl).

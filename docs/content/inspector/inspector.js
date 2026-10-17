@@ -6,6 +6,7 @@
    document ipu_gen.inspector_trace writes) and data/isa.json (the instruction
    reference the editor extension also reads). */
 const VIEWER_SCHEMA = 1;  // the trace document version this viewer reads
+const KERNELS_SCHEMA = 1;  // the kernel list version this viewer reads
 let KERNELS = [];
 // Slot order and instance counts come from isa.json (slotOrder, slotCount).
 let SLOTS = [];
@@ -91,8 +92,10 @@ function loadISA(data) {
 /* ---------- kernel load ---------- */
 async function loadKernel(id) {
   stop();
+  const shown = T ? T.id : null;
+  const select = (k) => { for (const b of document.querySelectorAll(".kbtn")) b.setAttribute("aria-selected", b.dataset.id === k); };
   $("listing").innerHTML = '<li class="loading">Loading trace…</li>';
-  for (const b of document.querySelectorAll(".kbtn")) b.setAttribute("aria-selected", b.dataset.id === id);
+  select(id);
   try {
     const [isa, t] = await Promise.all([getJSON("data/isa.json"), getJSON(`data/${id}.json`)]);
     if (!ISA) loadISA(isa);
@@ -122,7 +125,10 @@ async function loadKernel(id) {
     drawTimelineBase();
     update();
   } catch (e) {
-    $("listing").innerHTML = `<li class="err">Could not load the trace for ${esc(id)}: ${esc(e.message)}</li>`;
+    // The previous kernel stays loaded: keep its panels and button, but say why.
+    select(shown);
+    if (T) renderListing();
+    $("listing").insertAdjacentHTML("afterbegin", `<li class="err">Could not load the trace for ${esc(id)}: ${esc(e.message)}</li>`);
   }
 }
 
@@ -236,7 +242,7 @@ function shortField(name) { return name.replace(/^[a-z_]+?_inst(?:_\d)?_token_\d
 function renderVLIW(pcExec) {
   const lanesEl = $("lanes"), bitsEl = $("bits");
   if (pcExec == null) {
-    $("vliw-title").textContent = "VLIW word";
+    $("vliw-title").textContent = "Instruction word";
     $("vliw-sub").textContent = "Nothing executed yet · press Step";
     lanesEl.innerHTML = LANES.map(([s, i]) => `<div class="lane" style="--sc:${sv(s)}"><span class="ln">${SLOT_NAME[s]}${s === "lr" ? i : ""}</span><span class="op">—</span></div>`).join("");
     bitsEl.innerHTML = ""; $("word").textContent = "";
@@ -781,6 +787,8 @@ function renderKernelButtons() {
 $("kernels").addEventListener("click", (e) => { const b = e.target.closest(".kbtn"); if (b) loadKernel(b.dataset.id); });
 speedLabel();
 getJSON("data/kernels.json").then((list) => {
+  if (list.schemaVersion !== KERNELS_SCHEMA) throw new Error(`kernels.json version ${list.schemaVersion}, viewer ${KERNELS_SCHEMA}`);
+  if (!list.kernels.length) throw new Error("kernels.json lists no kernel");
   KERNELS = list.kernels;
   renderKernelButtons();
   const saved = store.get("ipu-kernel");

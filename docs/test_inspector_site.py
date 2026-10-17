@@ -14,6 +14,8 @@ from pathlib import Path
 
 import pytest
 
+from ipu_gen import inspector_trace
+
 SITE = Path("docs/site.tar")
 
 
@@ -21,7 +23,8 @@ SITE = Path("docs/site.tar")
 def site(tmp_path_factory) -> Path:
     root = tmp_path_factory.mktemp("site")
     with tarfile.open(SITE) as tar:
-        tar.extractall(root)  # our own build output
+        # Our own build output; "data" refuses absolute paths and links out.
+        tar.extractall(root, filter="data")
     return root
 
 
@@ -49,7 +52,7 @@ def test_every_listed_trace_exists_and_parses(site):
     assert kernels
     for entry in kernels:
         trace = _json(data / f"{entry['id']}.json")
-        assert trace["schemaVersion"] == 1
+        assert trace["schemaVersion"] == inspector_trace.SCHEMA_VERSION
         assert trace["kernel"] == entry["kernel"]
 
 

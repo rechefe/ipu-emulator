@@ -13,7 +13,7 @@
   <header class="top">
     <div class="brand">
       <h1>IPU <span>Cycle</span> Inspector</h1>
-      <p>Step through traces recorded from the Python IPU emulator. Each step executes one VLIW compound instruction; the register file shows exactly what it changed. <a href="../debugging-inspector/">About this page</a> · <a href="../">Documentation</a></p>
+      <p>Step through traces recorded from the Python IPU emulator. Each step runs one instruction word; the register file shows exactly what it changed. <a href="../debugging-inspector/">About this page</a> · <a href="../">Documentation</a></p>
     </div>
     <nav class="kernels" id="kernels" role="tablist" aria-label="Kernel"></nav>
   </header>
@@ -83,7 +83,7 @@
         </div>
       </section>
       <section class="panel">
-        <header><h2 id="vliw-title">VLIW word</h2><span class="eyebrow" id="vliw-sub"></span></header>
+        <header><h2 id="vliw-title">Instruction word</h2><span class="eyebrow" id="vliw-sub"></span></header>
         <div class="pbody">
           <div class="lanes" id="lanes"></div>
           <div class="bits-wrap"><div class="bits" id="bits"></div></div>

@@ -5,9 +5,10 @@ by cycle, in the browser, with nothing to install. Pick a kernel, then step
 forward and back, run to a breakpoint, or drag the timeline. For each cycle it
 shows:
 
-- the program listing, with the word that just ran highlighted and how often
+- the program listing, with the instruction word that just ran highlighted and how often
   each word ran;
-- the VLIW word: each slot's instruction and the word's bit fields, MSB first;
+- the instruction word: each slot's instruction and the word's bit fields, MSB
+  first;
 - the register file after the cycle (LR, CR and the vector registers), with the
   cells the cycle changed outlined;
 - the hardware pipeline: which blocks the word used, or each word's stage
@@ -63,7 +64,8 @@ bazel run //src/tools/ipu-gen:ipu-gen -- inspector-trace trace.jsonl context.jso
     such as `fully_connected`'s `int8`, `fp8_e4m3` and `fp8_e5m2`.
 
 2. Add a `[[kernel]]` entry with the same `id`, at the same place, to
-   `docs/inspector/curated.toml`, with its `group` (`native` or `wide`),
+   `docs/inspector/curated.toml`, with its `group` (`hardware` for the 8-bit hardware element formats, `emulator`
+   for the emulator-only FP32 and INT32),
    `title`, `label` and `description`.
 
 `bazel test //docs/inspector:test_kernels` fails when the two lists disagree.

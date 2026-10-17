@@ -26,7 +26,7 @@ ENTRY_KEYS = frozenset({"id", "group", "title", "label", "description"})
 #: then the emulator-only ones.
 GROUPS = ("hardware", "emulator")
 
-#: The kernel list's layout version, which the page checks.
+#: The kernel list's layout version; the page checks it (``KERNELS_SCHEMA``).
 SCHEMA_VERSION = 1
 
 
