@@ -4,7 +4,7 @@ ID E07 · Phase: after E06 · Last epic in the program order
 
 ## Goal
 
-Move all 89 registered kernels, plus the 12 MobileViT packed programs, from the
+Move all 90 registered kernels (89 at planning, plus `vector_tour`, E07-26), plus the 12 MobileViT packed programs, from the
 5-file `ipu_apps` harness format to the E06 format: `<name>.asm` +
 `kernel.toml` + optional `reference.py`, with family `registry.toml` files for
 shape variants. Every migration proves it changed nothing, using identical
@@ -151,6 +151,7 @@ the tools.
 | E07-23 | [23-mobilevit-packed-kernels.md](23-mobilevit-packed-kernels.md) | Promote the 12 MobileViT packed programs to registered kernels | M | E07-06, E07-10, E06-17 | none |
 | E07-24 | [24-mobilevit-chain-tests.md](24-mobilevit-chain-tests.md) | Port the MobileViT chain tests to the harness chaining API | M | E07-23, E07-02, E07-05, E07-08, E07-10, E07-13, E06-15, E06-19 | none |
 | E07-25 | [25-retire-ipu-apps.md](25-retire-ipu-apps.md) | Retire `src/tools/ipu-apps` and its Bazel macros | S | all of E07, E06-20 | none |
+| E07-26 | [26-conformance-vector-tour.md](26-conformance-vector-tour.md) | Conformance: `vector_tour` onto `ipu_harness` | S | E07-01, E07-02, the runner trace-context hook | none |
 
 ## Suggested order
 
@@ -167,6 +168,7 @@ E07-01 ──▶ E07-02 (pilot) ──▶ E07-03 (pilot formats)
                                   └────────┴──▶ E07-20   (convolutions last)
 E07-02 ──▶ E07-21 ──▶ E07-22                            (linear)
 E07-06 + E07-10 ──▶ E07-23 ──▶ E07-24 (also after E07-05, -08, -13)
+E07-02 ──▶ E07-26                                       (conformance: vector_tour)
 MemoryApp users (E07-04, -10, -14, -15, -16) ──▶ E06-20
 everything ──▶ E07-25
 ```

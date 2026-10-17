@@ -28,8 +28,9 @@ Paths are under `src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/`.
   - the `Conv2d` layer adapter (`:622`).
 - **`conv1x1`, `conv3x3_relu`, `conv3x3_relu_cin1`** have 11-line `app.py`
   files over `ConvApp`. The image is built in `convolutions/cases.py` (181
-  lines), where the weights are a prefix of the inputs because of the shared
-  reseeded RNG (`cases.py:29-31`, `case_support.py:8`).
+  lines). Inputs and weights are independent seeded draws since E00-03
+  (c13979a0); before it, the weights were a prefix of the inputs through a
+  shared reseeded RNG.
 - **`conv_first_layer`** (320 lines of `app.py`, 12 `set_cr`) has a
   `benchmark.py`.
 - The kernel_size/dilation/padding/stride check is copied into 11 `_supports`

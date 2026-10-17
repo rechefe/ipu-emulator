@@ -1,6 +1,6 @@
 # Retire `src/tools/ipu-apps` and its Bazel macros
 
-Part of [Epic: Kernel migration](00-epic.md) · ID E07-25 · Size S · Depends on: E07-02..E07-24, E06-20 · Behaviour change: none
+Part of [Epic: Kernel migration](00-epic.md) · ID E07-25 · Size S · Depends on: E07-02..E07-24, E07-26, E06-20 · Behaviour change: none
 
 ## Goal
 

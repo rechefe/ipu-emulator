@@ -33,6 +33,7 @@ from types import MappingProxyType
 import numpy as np
 
 from ipu_emu.errors import ConfigurationError
+from ipu_harness.conditions import narrowed
 from ipu_harness.expressions import ExpressionError, evaluate
 from ipu_harness.manifest import TOML_NAME, CaseDecl, KernelManifest, ParamDecl
 from ipu_isa.formats import FORMATS, ElementFormat, element_values
@@ -74,6 +75,7 @@ class CasePlan:
         params: Every parameter, defaults filled; a float parameter's value is a float.
         shapes: Every tensor's shape, in ints.
         derived: Every ``[derived]`` value.
+        pins: The first row of every pinned tensor (``row``), in ints.
     """
 
     manifest: KernelManifest
@@ -81,6 +83,7 @@ class CasePlan:
     params: Mapping[str, Value]
     shapes: Mapping[str, tuple[int, ...]]
     derived: Mapping[str, int]
+    pins: Mapping[str, int] = field(default_factory=lambda: MappingProxyType({}))
 
 
 # --- element scalars ----------------------------------------------------------------------
@@ -246,6 +249,22 @@ def _shapes(manifest: KernelManifest, names: Mapping[str, int]) -> dict[str, tup
     return shapes
 
 
+def _pins(manifest: KernelManifest, names: Mapping[str, int]) -> dict[str, int]:
+    pins: dict[str, int] = {}
+    for tensor in manifest.tensors.values():
+        if tensor.row is None:
+            continue
+        key = f"{tensor.section}.{tensor.name}.row"
+        try:
+            row = tensor.row if isinstance(tensor.row, int) else evaluate(tensor.row, names)
+        except ExpressionError as error:
+            raise PlanError(manifest, key, f"{tensor.row!r}: {error}") from None
+        if row < 0:
+            raise PlanError(manifest, key, f"{tensor.row!r} = {row}, not a row")
+        pins[tensor.name] = row
+    return pins
+
+
 def _check_scalars(
     manifest: KernelManifest, params: Mapping[str, Value], fmt: ElementFormat
 ) -> None:
@@ -330,9 +349,11 @@ def plan_case(
     """
     _check_format(manifest, fmt, case)
     checked = _check_params(manifest, params)
+    manifest = narrowed(manifest, checked)  # the case's tensors and bindings (``when``)
     derived = _derived(manifest, checked)
     names = {k: v for k, v in checked.items() if isinstance(v, int) and not isinstance(v, bool)}
     shapes = _shapes(manifest, {**names, **derived})
+    pins = _pins(manifest, {**names, **derived})
     _check_scalars(manifest, checked, fmt)
     return CasePlan(
         manifest=manifest,
@@ -340,4 +361,5 @@ def plan_case(
         params=MappingProxyType(checked),
         shapes=MappingProxyType(shapes),
         derived=MappingProxyType(derived),
+        pins=MappingProxyType(pins),
     )

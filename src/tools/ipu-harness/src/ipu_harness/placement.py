@@ -1,8 +1,10 @@
 """Automatic XMEM region placement, in rows, with optional pins (E06-04, Q81).
 
 :func:`place` gives every tensor of a :class:`~ipu_harness.params.CasePlan` a
-base row: pinned regions (``row = N``) first, then the rest in declaration
-order (inputs, outputs, scratch), each at the lowest free row it fits. The same
+base row: pinned regions (``row``, an int or an expression the plan
+evaluated) first, then the rest in placement order, each at the lowest free
+row it fits. Placement order is declaration order (inputs, outputs, scratch),
+except that a tensor with ``after = "<t>"`` comes right after ``t``. The same
 plan always gives the same bases, so a migrated kernel reproduces its old
 layout (E07 proves it against the E02 digests). Bases reach the program only
 through ``[abi]`` (E06-06); no kernel computes one. Placement only reserves
@@ -19,7 +21,7 @@ row_bytes`` rows (4 in INT8, 1 in FP32).
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
@@ -96,6 +98,38 @@ def default_rows(plan: CasePlan, tensor: TensorDecl) -> int:
     return vectors
 
 
+def placement_order(tensors: Iterable[TensorDecl]) -> list[TensorDecl]:
+    """Declaration order, with each ``after`` tensor moved right behind its
+    target (the loader checked the targets exist and form no cycle); one whose
+    target this case lacks (``when``) keeps its declaration place.
+
+    Args:
+        tensors: The kernel's tensors, in declaration order.
+
+    Returns:
+        The order free regions are placed in.
+    """
+    declared = list(tensors)
+    names = {t.name for t in declared}
+    followers: dict[str, list[TensorDecl]] = {}
+    for tensor in declared:
+        if tensor.after in names:
+            followers.setdefault(tensor.after, []).append(tensor)
+    order: list[TensorDecl] = []
+
+    def visit(tensor: TensorDecl) -> None:
+        order.append(tensor)
+        for follower in followers.get(tensor.name, ()):
+            visit(follower)
+
+    for tensor in declared:
+        # A tensor whose target is absent from this case (``when``) keeps its
+        # declaration place.
+        if tensor.after not in names:
+            visit(tensor)
+    return order
+
+
 def _key(tensor: TensorDecl) -> str:
     return f"{tensor.section}.{tensor.name}.row"
 
@@ -105,7 +139,7 @@ def _check_fits(plan: CasePlan, tensor: TensorDecl, region: Region, capacity: in
         return
     where = (
         f"pinned at row {region.base_row} needs {region.rows} rows"
-        if tensor.row is not None
+        if tensor.name in plan.pins
         else f"needs rows {region.base_row}..{region.end_row - 1}"
     )
     raise PlanError(
@@ -120,7 +154,7 @@ def _pinned(
 ) -> list[Region]:
     pins: list[Region] = []
     for tensor in plan.manifest.tensors.values():
-        row = extra.get(tensor.name, tensor.row)
+        row = extra.get(tensor.name, plan.pins.get(tensor.name))
         if row is None:
             continue
         region = Region(tensor.name, tensor.role, row, rows[tensor.name])
@@ -193,8 +227,8 @@ def place(
     if unknown:
         raise ValueError(f"pins for {sorted(unknown)}, which are no tensors")
     taken = _pinned(plan, rows, capacity, extra)
-    for tensor in plan.manifest.tensors.values():
-        if tensor.row is None and tensor.name not in extra:
+    for tensor in placement_order(plan.manifest.tensors.values()):
+        if tensor.name not in plan.pins and tensor.name not in extra:
             need = rows[tensor.name]
             region = Region(tensor.name, tensor.role, _first_fit(taken, need), need)
             _check_fits(plan, tensor, region, capacity)

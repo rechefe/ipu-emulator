@@ -96,6 +96,24 @@ def test_a_tensor_in_a_bytes_kernel_is_its_base_in_bytes(tmp_path, monkeypatch):
     assert writes(m, {"rows": 4, "s": 2.0}, F.INT8)["CR3"] == 4 * 128
 
 
+def test_a_tensor_binding_with_an_offset_is_its_base_plus_the_offset(tmp_path):
+    toml = SCALE.format(unit="").replace('y    = "CR3"', 'y    = { register = "CR3", offset = -1 }')
+    m = kernel(tmp_path, toml)
+    assert m.abi["y"] == "CR3" and m.abi_offsets["y"] == -1
+    assert writes(m, {"rows": 4, "s": 2.0}, F.FP32)["CR3"] == 3  # y at row 4, minus 1
+
+
+def test_a_tensor_pinned_at_row_0_can_be_read_through_cr0(tmp_path):
+    toml = SCALE.format(unit="").replace(
+        '[inputs.x]\nshape = ["rows", 128]', '[inputs.x]\nshape = ["rows", 128]\nrow = 0'
+    )
+    toml = toml.replace('x    = "CR2"', 'x    = "CR0"')
+    m = kernel(tmp_path, toml)
+    got = writes(m, {"rows": 4, "s": 2.0}, F.FP32)
+    assert "CR0" not in got and "CR2" not in got  # nothing is written for x
+    assert template_names(m)["cr"]["x"] == "CR0"
+
+
 def test_binding_cr15_replaces_the_default_dstructure(tmp_path):
     m = kernel(tmp_path, SCALE.format(unit="").replace('s    = "CR5"', 's    = "CR15"'))
     got = writes(m, {"rows": 4, "s": 2.0}, F.FP32)
