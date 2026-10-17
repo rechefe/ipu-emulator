@@ -16,7 +16,8 @@ import weakref
 from collections.abc import Callable, Iterator
 
 from ipu_emu.errors import XMemBoundsError
-from ipu_isa.geometry import LANES, XMEM_BYTES
+from ipu_isa.formats import FORMATS, ElementFormat
+from ipu_isa.geometry import XMEM_BYTES
 
 #: ``fn(kind, address, size, data)`` with *kind* one of ``"read"``,
 #: ``"write"`` or ``"clear"``. The event covers exactly the bytes
@@ -25,7 +26,7 @@ from ipu_isa.geometry import LANES, XMEM_BYTES
 MemoryObserver = Callable[[str, int, int, "bytes | bytearray | None"], None]
 
 XMEM_SIZE_BYTES = XMEM_BYTES  # 512 MiB; full-resolution FP32 descriptors fit
-XMEM_WIDTH_BYTES = LANES  # one "word": a row of LANES one-byte elements
+XMEM_WIDTH_BYTES = FORMATS[ElementFormat.INT8].row_bytes  # one "word": the narrow row
 XMEM_DEPTH_WORDS = XMEM_SIZE_BYTES // XMEM_WIDTH_BYTES
 
 # Storage granule. A multiple of the widest row (512 bytes in wide-vector
@@ -36,13 +37,13 @@ _ZERO_PAGE_VIEW = memoryview(_ZERO_PAGE)
 
 
 def align_addr(addr: int) -> int:
-    """Round *addr* up to the next 128-byte boundary (no-op if already aligned)."""
+    """Round *addr* up to the next XMEM_WIDTH_BYTES boundary (no-op if already aligned)."""
     rem = addr % XMEM_WIDTH_BYTES
     return addr if rem == 0 else addr + XMEM_WIDTH_BYTES - rem
 
 
 def words_needed_for_bytes(n: int) -> int:
-    """Number of 128-byte words required to hold *n* bytes."""
+    """Number of XMEM_WIDTH_BYTES words required to hold *n* bytes."""
     return align_addr(n) // XMEM_WIDTH_BYTES
 
 

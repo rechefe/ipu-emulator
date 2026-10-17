@@ -1,8 +1,9 @@
-"""The lane count and R_CYCLIC's element count are ``ipu_isa``'s (E03-12):
+"""The lane count, R_CYCLIC's element count and the IMEM depth are
+``ipu_isa``'s (E03-12):
 no ``ipu_emu`` module writes them as a literal.
 
-A literal 128 or 512 in ``ipu_emu`` is a copy of ``ipu_isa.geometry.LANES``
-or ``R_CYCLIC_ELEMENTS`` unless it means something else: the INT8 minimum
+A literal 128, 512 or 1024 in ``ipu_emu`` is a copy of
+``ipu_isa.geometry.LANES``, ``R_CYCLIC_ELEMENTS`` or ``INST_MEM_WORDS`` unless it means something else: the INT8 minimum
 (``-128``), a cache size, or an int8 sign test, which ``_NOT_A_LANE_COUNT``
 lists by its line.
 """
@@ -18,7 +19,7 @@ import pytest
 import ipu_emu
 
 PACKAGE = Path(inspect.getsourcefile(ipu_emu)).parent
-_COPIED = (128, 512)
+_COPIED = (128, 512, 1024)
 #: Lines whose 128 is the int8 sign bit, not a lane count.
 _NOT_A_LANE_COUNT = {
     ("geometry.py", "return b if b < 128 else b - 256"),
@@ -54,4 +55,5 @@ def _copies(module: str) -> list[str]:
 
 @pytest.mark.parametrize("module", MODULES)
 def test_no_lane_count_literal(module):
-    assert not _copies(module), "use ipu_isa.geometry.LANES / R_CYCLIC_ELEMENTS"
+    copies = _copies(module)
+    assert not copies, "use ipu_isa.geometry's constants: " + "; ".join(copies)
