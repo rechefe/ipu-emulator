@@ -1,8 +1,9 @@
 """softmax_rows_partial: every case, plus the default case swept over P=1/2/4/8.
 
 Includes the high chunk counts that used to trigger Pass-4 cross-partition
-contamination (see STATUS.md) before the per-partition R_MASK fix, and row
-counts past 128, which used to overflow MULT.RC.VE's src operand before the
+contamination (see the header of
+kernels/softmax/softmax_rows_partial/softmax_rows_partial.asm) before the
+per-partition R_MASK fix, and row counts past 128, which used to overflow MULT.RC.VE's src operand before the
 group loop. The case check reads the app's OUTPUT FILE rather than XMEM, so it
 also pins the round-trip property: output layout == input layout (row-major
 rows x N).
@@ -56,8 +57,8 @@ test_case = case_tests(
         dict(n=16, rows=40, seed=0, scale=5.0),  # P=8 (n=16), num_chunks=5
         # Rows beyond 128 used to silently corrupt: lr_row feeds MULT.RC.VE's `src`
         # scalar-select and AGG's dest slot, both of which index R0 for 0..127 and
-        # switch to the never-loaded R1 at 128 (see STATUS.md's row-count
-        # overflow). The kernel now processes groups of at most 128/P chunks
+        # switch to the never-loaded R1 at 128 (the kernels/softmax .asm header's
+        # GROUP LOOP). The kernel now processes groups of at most 128/P chunks
         # (= 128 logical rows), restarting lr_row each group, so the index can't
         # reach 128. These configs all cross at least one group boundary.
         dict(n=128, rows=129, seed=129, scale=3.0),  # P=1: one row past a full group
