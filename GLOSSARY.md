@@ -117,7 +117,7 @@ An assembly program implementing one operation, plus its declaration in `kernel.
 _Avoid_: app, application, harness (for the kernel itself)
 
 **Family**:
-A group of kernels for one kind of operation (projections, convolutions, softmax), often sharing one template.
+A group of kernels for one kind of operation (projections, convolutions, softmax), often sharing one template. One family, `mobilevit`, has no kernels: it holds the chain tests that run several families' kernels together.
 
 **Variant**:
 A kernel defined as an entry in a family's registry over a shared template, differing only in parameters such as shape or activation.

@@ -43,6 +43,7 @@ KERNELS = {
         "matmul_x128_c3",
         "matmul_x128_c4",
     ],
+    "mobilevit": [],
     "normalize": ["l2_normalize_channels", "layernorm"],
     "pooling": [
         "maxpool2d_nms",
