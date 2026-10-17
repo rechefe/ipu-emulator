@@ -53,7 +53,7 @@ from ipu_isa.trace_schema import SCHEMA_VERSION, isa_digest
 if TYPE_CHECKING:
     from ipu_emu.alias_profile import AliasProfile
 
-__all__ = ["RunFault", "RunOptions", "RunResult", "run_kernel"]
+__all__ = ["RunFault", "RunOptions", "RunResult", "SharedModel", "run_kernel"]
 
 
 @dataclass(frozen=True)
@@ -83,6 +83,26 @@ class RunOptions:
     def __post_init__(self) -> None:
         if self.debug is not None and self.trace is not None:
             raise ConfigurationError("--trace and --debug do not combine")
+
+
+@dataclass(frozen=True)
+class SharedModel:
+    """A run on a model an earlier run left its state in (E06-15's ``Chain``).
+
+    Attributes:
+        model: The model; it keeps its XMEM between runs.
+        inputs: The input tensors to pack and write, by name; each input not
+            here must be in ``pinned``.
+        pinned: Inputs already in XMEM, by name, at these base rows: placed
+            there, not written.
+        compare: Hold the outputs to their goldens (an intermediate step of a
+            chain need not).
+    """
+
+    model: ReferenceModel
+    inputs: Mapping[str, Array]
+    pinned: Mapping[str, int]
+    compare: bool = True
 
 
 @dataclass(frozen=True)
@@ -128,6 +148,8 @@ class RunResult:
         stages: A multi-stage kernel's stages (E06-14), each as its program
             and the words it retired; ``cycles`` is their sum. Empty for a
             one-program kernel.
+        placement: Where the case's tensors were in XMEM (E06-15 chains an
+            output region into the next kernel's input).
     """
 
     kernel: str
@@ -143,6 +165,7 @@ class RunResult:
     quit: bool = False
     halted: bool = True
     stages: tuple[tuple[str, int], ...] = ()
+    placement: Placement | None = None
 
     @property
     def passed(self) -> bool:
@@ -343,6 +366,32 @@ def _execute_stages(
     return staged.result, profile, staged.cycles, staged.mac_utilization, rendered, stages
 
 
+def _write_tensors(
+    model: ReferenceModel,
+    plan: CasePlan,
+    placement: Placement,
+    case: Case,
+    options: RunOptions,
+    shared: SharedModel | None,
+) -> Mapping[str, Array]:
+    """Write every input and scratch region but the pinned inputs, which are
+    already in XMEM; return every input's values, the pinned ones read back
+    (for the goldens)."""
+    if shared is None:
+        inputs = dict(inputs_for(case, plan, overrides=options.inputs).tensors)
+    else:
+        inputs = dict(shared.inputs)
+    for tensor in plan.manifest.tensors.values():
+        if tensor.role == "input" and shared is not None and tensor.name in shared.pinned:
+            data = _read_region(model, plan, placement, tensor)
+            inputs[tensor.name] = unpack(tensor, data, plan)
+        elif tensor.role == "input":
+            _write_region(model, plan, placement, tensor, pack(tensor, inputs[tensor.name], plan))
+        elif tensor.role == "scratch":
+            _write_region(model, plan, placement, tensor, _scratch_fill(tensor, plan, placement))
+    return inputs
+
+
 def run_kernel(
     manifest: KernelManifest,
     case: Case,
@@ -350,6 +399,7 @@ def run_kernel(
     options: RunOptions | None = None,
     *,
     cache: AssemblyCache | None = None,
+    shared: SharedModel | None = None,
 ) -> RunResult:
     """Run ``case`` in ``fmt`` and hold its outputs to their goldens.
 
@@ -359,6 +409,8 @@ def run_kernel(
         fmt: The element format.
         options: Limits, input overrides, output and trace files.
         cache: Reuses programs already assembled (a sweep renders few).
+        shared: Run on this model, with these inputs, some already in XMEM
+            (E06-15); ``None``: a fresh model and the case's inputs.
 
     Returns:
         The result; ``passed`` says whether the run reached ``HALT`` and
@@ -374,20 +426,18 @@ def run_kernel(
     """
     options = options or RunOptions()
     plan = plan_case(manifest, case.values, fmt, case=case.decl)
-    inputs = inputs_for(case, plan, overrides=options.inputs).tensors
     tensors = plan.manifest.tensors
-    placement = place(plan, {name: stored_rows(t, plan) for name, t in tensors.items()})
+    pinned = shared.pinned if shared is not None else {}
+    placement = place(
+        plan, {name: stored_rows(t, plan) for name, t in tensors.items()}, pins=pinned
+    )
     # A multi-stage kernel's hook assembles and loads each stage (E06-14).
     program = None if manifest.stages is not None else assemble(plan, cache)
-    model = ReferenceModel(fmt)
+    model = shared.model if shared is not None else ReferenceModel(fmt)
     if program is not None:
         check_cr_reads(manifest, program.rendered)
         model.load_program(program.words)
-    for tensor in tensors.values():
-        if tensor.role == "input":
-            _write_region(model, plan, placement, tensor, pack(tensor, inputs[tensor.name], plan))
-        elif tensor.role == "scratch":
-            _write_region(model, plan, placement, tensor, _scratch_fill(tensor, plan, placement))
+    inputs = _write_tensors(model, plan, placement, case, options, shared)
     if program is None:
         outcome = _execute_stages(model, plan, placement, case, options, cache)
     else:
@@ -408,6 +458,7 @@ def run_kernel(
             quit=True,
             halted=False,
             stages=stage_cycles,
+            placement=placement,
         )
 
     raw = {
@@ -426,7 +477,7 @@ def run_kernel(
     if run.status.state is RunState.FAULTED:
         assert run.status.fault is not None  # a faulted status names its fault
         fault = RunFault(run.status.fault, run.status.pc, _source_line(rendered, run.status.pc))
-    else:
+    elif shared is None or shared.compare:
         golden = _goldens(case, plan, inputs)
         comparisons = tuple(
             compare(
@@ -451,4 +502,5 @@ def run_kernel(
         alias_profile=profile,
         halted=run.status.state is RunState.HALTED,
         stages=stage_cycles,
+        placement=placement,
     )

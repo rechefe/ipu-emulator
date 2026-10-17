@@ -113,12 +113,15 @@ def _check_fits(plan: CasePlan, tensor: TensorDecl, region: Region, capacity: in
     )
 
 
-def _pinned(plan: CasePlan, rows: Mapping[str, int], capacity: int) -> list[Region]:
+def _pinned(
+    plan: CasePlan, rows: Mapping[str, int], capacity: int, extra: Mapping[str, int]
+) -> list[Region]:
     pins: list[Region] = []
     for tensor in plan.manifest.tensors.values():
-        if tensor.row is None:
+        row = extra.get(tensor.name, tensor.row)
+        if row is None:
             continue
-        region = Region(tensor.name, tensor.role, tensor.row, rows[tensor.name])
+        region = Region(tensor.name, tensor.role, row, rows[tensor.name])
         _check_fits(plan, tensor, region, capacity)
         for other in pins:
             if region.base_row < other.end_row and other.base_row < region.end_row:
@@ -157,7 +160,12 @@ def _row_counts(plan: CasePlan, row_counts: Mapping[str, int] | None) -> dict[st
     }
 
 
-def place(plan: CasePlan, row_counts: Mapping[str, int] | None = None) -> Placement:
+def place(
+    plan: CasePlan,
+    row_counts: Mapping[str, int] | None = None,
+    *,
+    pins: Mapping[str, int] | None = None,
+) -> Placement:
     """Place every tensor of ``plan``. Takes the plan as checked; checks no parameter.
 
     Args:
@@ -165,6 +173,8 @@ def place(plan: CasePlan, row_counts: Mapping[str, int] | None = None) -> Placem
         row_counts: Rows each tensor occupies as stored, from packing (E06-05),
             an accumulator output's stride included; a tensor left out takes
             :func:`default_rows`.
+        pins: Base rows a caller fixes besides the ``row = N`` pins, by tensor
+            name: a chained input already in XMEM (E06-15). Checked like them.
 
     Returns:
         The placement, deterministic for the plan.
@@ -175,9 +185,13 @@ def place(plan: CasePlan, row_counts: Mapping[str, int] | None = None) -> Placem
     """
     rows = _row_counts(plan, row_counts)
     capacity = addressable_rows(plan.format)
-    taken = _pinned(plan, rows, capacity)
+    extra = dict(pins or {})
+    unknown = set(extra) - set(plan.manifest.tensors)
+    if unknown:
+        raise ValueError(f"pins for {sorted(unknown)}, which are no tensors")
+    taken = _pinned(plan, rows, capacity, extra)
     for tensor in plan.manifest.tensors.values():
-        if tensor.row is None:
+        if tensor.row is None and tensor.name not in extra:
             need = rows[tensor.name]
             region = Region(tensor.name, tensor.role, _first_fit(taken, need), need)
             _check_fits(plan, tensor, region, capacity)

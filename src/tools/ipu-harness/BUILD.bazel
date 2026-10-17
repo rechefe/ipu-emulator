@@ -213,6 +213,20 @@ py_pytest_test(
     ],
 )
 
+# Chaining kernels in memory: one step's output region is the next one's input (E06-15).
+py_pytest_test(
+    name = "test_chain",
+    srcs = ["test/test_chain.py"],
+    deps = [
+        ":ipu_harness_lib",
+        "//src/tools/ipu-emu-py:ipu_emu_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+        requirement("numpy"),
+        requirement("pytest"),
+        requirement("torch"),
+    ],
+)
+
 # The runner without torch: expected files need no reference (E06-11).
 py_pytest_test(
     name = "test_runner_no_torch",
