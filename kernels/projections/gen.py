@@ -6,11 +6,13 @@ In every other format it makes nothing, and the harness's default generator
 fills the inputs from their ``range`` (E07-03): the legacy data, uniform in
 [-1, 1), would round to {-1, 0, 1} in INT8. ``weight_rows`` is the
 weight-pointer check that ``ipu_apps``' slow ``test.py`` test ran.
+``window_mask`` is the packed linear's R_MASK row (E07-23).
 """
 
 import numpy as np
 
-from ipu_isa.formats import ElementFormat
+from ipu_isa.formats import FORMATS, ElementFormat
+from ipu_kernels.pack import r_mask
 
 #: The ``ipu_apps`` cases' seed.
 SEED = 0xC0FFEE
@@ -48,3 +50,8 @@ def weight_rows(plan, rng):
     n_out, k = plan.shapes["a"]
     a = np.repeat(((np.arange(n_out) + 1) * SCALE)[:, None], k, axis=1).astype(np.float32)
     return {"b": np.ones(plan.shapes["b"], dtype=np.float32), "a": a}
+
+
+def window_mask(plan):
+    """packed_output_linear's R_MASK row: each output channel's window in its slot."""
+    return r_mask.window_mask(plan.derived["tokens"], FORMATS[plan.format].row_bytes)

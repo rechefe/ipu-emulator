@@ -234,7 +234,6 @@ py_pytest_test(
 # intended change.
 _ASM_CORPUS = glob([
     "src/ipu_apps/kernels/**/*.asm",
-    "test/mobilevit/**/*.asm",
 ]) + ["//vscode-ipu-asm:asm_fixtures"]
 
 # The corpus and its digest manifest as data, for tools that read the

@@ -8,6 +8,8 @@
   XMEM bytes into the consumer's DATA region itself (the "direct XMEM
   handoff" seams) while weights and CR/LR programming stay exactly the
   harness's own.
+* :func:`kernel_program` -- a //kernels kernel's program words for the given
+  parameters (the packed chains load the registered packed kernels, E07-23).
 * :func:`poison` -- fill XMEM rows with a value no real computation produces,
   so an under-write survives into the output.
 """
@@ -22,6 +24,11 @@ import numpy as np
 from fixture_normalize import run_layernorm_rows
 
 from ipu_apps.kernel_registry.cases import assemble_kernel
+from ipu_harness.assembly import assemble
+from ipu_harness.cases import expand
+from ipu_harness.params import plan_case
+from ipu_harness.registry import default_registry
+from ipu_isa.formats import ElementFormat
 
 POISON = np.float32(1e3)
 LANES = 128
@@ -38,6 +45,15 @@ def kernel_inst(name: str) -> Path:
             _INST_DIR = Path(tempfile.mkdtemp(prefix="mobilevit_inst_"))
         _INST[name] = assemble_kernel(name, _INST_DIR)
     return _INST[name]
+
+
+def kernel_program(name: str, **params: object) -> bytes:
+    """The //kernels kernel ``name``'s program in FP32, as a ``.bin`` file holds
+    it: its default case's parameters, ``params`` replacing them."""
+    manifest = default_registry().kernel(name)
+    (case,) = (c for c in expand(manifest) if c.name == "default")
+    plan = plan_case(manifest, {**case.values, **params}, ElementFormat.FP32)
+    return assemble(plan).to_bin()
 
 
 def poison(state, base: int, n_rows: int, lanes: int = LANES) -> None:

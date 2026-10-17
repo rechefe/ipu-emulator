@@ -27,9 +27,10 @@ the end of the test.
 STANDALONE: does not modify layernorm_16x240, qk_scores_16x60,
 attn_v_16x60, residual_add_16x240, or any softmax kernel. Uses them
 read-only (their binaries come from the kernel registry via
-fixture_kernel_support.kernel_inst). The packed kernels are test-local .asm
-programs next to this file (asm_packed_*.asm); their shared state is a plain
-FP32 wide-vector IpuState since no registered harness describes them.
+fixture_kernel_support.kernel_inst). The packed kernels are the registered
+//kernels entries (E07-23, fixture_kernel_support.kernel_program); this test
+still sets their registers by hand on one shared FP32 IpuState until E07-24
+ports it to the harness's chaining API.
 """
 
 from __future__ import annotations
@@ -39,14 +40,12 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
-from fixture_kernel_support import kernel_inst
+from fixture_kernel_support import kernel_inst, kernel_program
 from fixture_packed_l5_measure import count_instructions
 
 from ipu_apps.kernels.attention.attn_v_16x60.app import AttnV16x60App
 from ipu_apps.kernels.attention.qk_scores_16x60.app import QkScores16x60App
 from ipu_apps.kernels.softmax.softmax_rows_partial.app import SoftmaxRowsPartialApp
-from ipu_as.lark_tree import assemble_to_bin_file
-from ipu_as.session import AssemblySession
 from ipu_emu.emulator import load_program_from_binary, run_until_complete
 from ipu_emu.ipu_state import IpuState
 from ipu_isa.constants import Partition, encode_dstructure
@@ -62,12 +61,14 @@ PACK = 8
 N_PACKED_ROWS = N_CH // PACK
 assert N_CH % PACK == 0
 
-_PACKED_LAYERNORM_ASM = Path(__file__).parent / "asm_packed_layernorm_240x16.asm"
-_UNPACK_ASM = Path(__file__).parent / "asm_packed_unpack_240x16.asm"
-_PACK_ASM = Path(__file__).parent / "asm_packed_pack_240x16.asm"
-_LINEAR_IDENTITY_ASM = Path(__file__).parent / "asm_packed_output_linear_generic.asm"
-_LINEAR_SILU_ASM = Path(__file__).parent / "asm_packed_output_linear_silu.asm"
-_RESIDUAL_ASM = Path(__file__).parent / "asm_packed_residual_add_240x16.asm"
+# The registered kernels (E07-23) the chain loads: //kernels/normalize,
+# //kernels/reshape, //kernels/projections and //kernels/elementwise entries.
+_PACKED_LAYERNORM = "packed_layernorm_240x16"
+_UNPACK = "packed_unpack_240x16"
+_PACK = "packed_pack_240x16"
+_LINEAR_IDENTITY = "packed_output_linear_240"
+_LINEAR_SILU = "packed_output_linear_silu_240"
+_RESIDUAL = "packed_residual_add_240x16"
 
 
 # ---------------------------------------------------------------------------
@@ -130,7 +131,7 @@ def _chunk_widths(k: int) -> list[int]:
 
 
 def linear_weight_rows(k: int, n_out: int) -> int:
-    """Row count asm_packed_output_linear_*.asm's weight region needs for a
+    """Row count the packed_output_linear weight region needs for a
     given (k, n_out) shape: 8 rows per weight-chunk (one per p_out), times
     ceil(k/128) weight-chunks, times n_out/8 groups. NOT the same as the
     number of packed DATA chunks (k/8) -- conflating the two (an earlier
@@ -188,10 +189,10 @@ def run_packed_layernorm(
     allones_mask_row = mask_row + 1
     scratch16_row = allones_mask_row + 1
 
-    rendered = AssemblySession(_PACKED_LAYERNORM_ASM.read_text()).render()
+    program = kernel_program(_PACKED_LAYERNORM)
     with tempfile.TemporaryDirectory() as tmpdir:
         bin_path = Path(tmpdir) / "ln.bin"
-        assemble_to_bin_file(rendered, str(bin_path))
+        bin_path.write_bytes(program)
         load_program_from_binary(state, bin_path)
         state.program_counter = 0
 
@@ -234,10 +235,10 @@ def run_unpack(
     mask_row: int,
     max_cycles: int = 100_000,
 ) -> tuple[int, dict]:
-    rendered = AssemblySession(_UNPACK_ASM.read_text()).render()
+    program = kernel_program(_UNPACK)
     with tempfile.TemporaryDirectory() as tmpdir:
         bin_path = Path(tmpdir) / "unpack.bin"
-        assemble_to_bin_file(rendered, str(bin_path))
+        bin_path.write_bytes(program)
         load_program_from_binary(state, bin_path)
         state.program_counter = 0
         state.xmem.write_address(mask_row * ROW_BYTES, _mask_row_8())
@@ -261,10 +262,10 @@ def run_pack(
     mask_row: int,
     max_cycles: int = 100_000,
 ) -> tuple[int, dict]:
-    rendered = AssemblySession(_PACK_ASM.read_text()).render()
+    program = kernel_program(_PACK)
     with tempfile.TemporaryDirectory() as tmpdir:
         bin_path = Path(tmpdir) / "pack.bin"
-        assemble_to_bin_file(rendered, str(bin_path))
+        bin_path.write_bytes(program)
         load_program_from_binary(state, bin_path)
         state.program_counter = 0
         state.xmem.write_address(mask_row * ROW_BYTES, _mask_row_8())
@@ -282,7 +283,7 @@ def run_pack(
 def run_packed_output_linear(
     state: IpuState,
     *,
-    asm_src: Path,
+    kernel: str,
     data_base_row: int,
     k: int,
     n_out: int,
@@ -298,7 +299,7 @@ def run_packed_output_linear(
     mask_row = scratch_base_row
     weights_base_row = mask_row + 1
 
-    rendered = AssemblySession(asm_src.read_text(), defines={"chunk_widths": widths}).render()
+    program = kernel_program(kernel, k=k)
     state.xmem.write_address(mask_row * ROW_BYTES, _mask_row_8())
 
     total_cycles = 0
@@ -311,7 +312,7 @@ def run_packed_output_linear(
 
         with tempfile.TemporaryDirectory() as tmpdir:
             bin_path = Path(tmpdir) / "lin.bin"
-            assemble_to_bin_file(rendered, str(bin_path))
+            bin_path.write_bytes(program)
             load_program_from_binary(state, bin_path)
             state.program_counter = 0
 
@@ -349,7 +350,7 @@ def run_packed_residual_add(
     out_base_row: int,
     max_cycles: int = 100_000,
 ) -> tuple[int, dict]:
-    """asm_packed_residual_add_240x16.asm hardcodes A_BASE=cr0, which is the
+    """packed_residual_add_240x16 hardcodes A_BASE=cr0, which is the
     hardwired read-only ZERO register in this ISA -- so A's base row MUST be
     0 (a_base_row is accepted here only to assert that constraint, not to
     relocate A; see test_packed_residual_add_240x16.py, which never sets cr0
@@ -358,7 +359,7 @@ def run_packed_residual_add(
     CROSS-KERNEL STATE BLEED: this kernel never calls LD.MASK --
     it relies entirely on R_MASK's regfile-init default (all 1s), correct
     when run standalone (a fresh IpuState). Chained after
-    asm_packed_output_linear_generic.asm (which loads a ONE-HOT 8-slot mask
+    packed_output_linear (which loads a ONE-HOT 8-slot mask
     and never restores it), R_MASK is left restricted to 16 lanes/slot, so
     residual-add's unmasked full-row MULT.RC.VE silently only computes
     partition 0 of every packed row -- partitions 1-7 read back as zero
@@ -372,14 +373,14 @@ def run_packed_residual_add(
     rather than modifying the (validated) production kernel.
     """
     assert a_base_row == 0, (
-        "asm_packed_residual_add_240x16.asm hardcodes A_BASE=cr0 (hardwired "
+        "packed_residual_add_240x16 hardcodes A_BASE=cr0 (hardwired "
         "read-only zero) -- the A operand's packed rows must start at XMEM "
         "row 0; relocate the OTHER operand (B) or the output instead."
     )
-    rendered = _RESIDUAL_ASM.read_text()
+    program = kernel_program(_RESIDUAL)
     with tempfile.TemporaryDirectory() as tmpdir:
         bin_path = Path(tmpdir) / "res.bin"
-        assemble_to_bin_file(rendered, str(bin_path))
+        bin_path.write_bytes(program)
         load_program_from_binary(state, bin_path)
         state.program_counter = 0
         state.regfile.set_r_mask(bytes([0xFF] * 128))
@@ -457,7 +458,7 @@ def test_stage1_layernorm_qkv_unpack(tmp_path: Path) -> None:
     weight_slices = [W_qkv[g * 8 : (g + 1) * 8] for g in range(3 * N_CH // 8)]
     cycles_qkv, _ = run_packed_output_linear(
         state,
-        asm_src=_LINEAR_IDENTITY_ASM,
+        kernel=_LINEAR_IDENTITY,
         data_base_row=LN_OUT_ROW,
         k=N_CH,
         n_out=3 * N_CH,
@@ -494,7 +495,7 @@ def test_stage3_outproj_residual_ffn_residual(tmp_path: Path) -> None:
     """out-proj (packed) -> residual1 -> layernorm2 -> FFN1(silu, packed)
     -> FFN2 (packed) -> residual2, verified against numpy at each boundary.
 
-    asm_packed_residual_add_240x16.asm hardcodes A_BASE=cr0 (the hardwired
+    packed_residual_add_240x16 hardcodes A_BASE=cr0 (the hardwired
     read-only ZERO CR), so operand A of EVERY residual-add call in this
     stage must be staged at XMEM row 0 -- this shapes the row layout below
     (attn_out and ffn2_out, the two residual "A" operands, are placed at
@@ -549,7 +550,7 @@ def test_stage3_outproj_residual_ffn_residual(tmp_path: Path) -> None:
     outproj_weight_slices = [W_outproj[g * 8 : (g + 1) * 8] for g in range(N_CH // 8)]
     cycles_op, _ = run_packed_output_linear(
         state,
-        asm_src=_LINEAR_IDENTITY_ASM,
+        kernel=_LINEAR_IDENTITY,
         data_base_row=ATTN_OUT_ROW,
         k=N_CH,
         n_out=N_CH,
@@ -606,7 +607,7 @@ def test_stage3_outproj_residual_ffn_residual(tmp_path: Path) -> None:
     ffn1_weight_slices = [W_ffn1[g * 8 : (g + 1) * 8] for g in range(FFN1_N_OUT // 8)]
     cycles_ffn1, _ = run_packed_output_linear(
         state,
-        asm_src=_LINEAR_SILU_ASM,
+        kernel=_LINEAR_SILU,
         data_base_row=LN2_OUT_ROW,
         k=N_CH,
         n_out=FFN1_N_OUT,
@@ -628,7 +629,7 @@ def test_stage3_outproj_residual_ffn_residual(tmp_path: Path) -> None:
     ffn2_weight_slices = [W_ffn2[g * 8 : (g + 1) * 8] for g in range(N_CH // 8)]
     cycles_ffn2, _ = run_packed_output_linear(
         state,
-        asm_src=_LINEAR_IDENTITY_ASM,
+        kernel=_LINEAR_IDENTITY,
         data_base_row=FFN1_OUT_ROW,
         k=FFN1_N_OUT,
         n_out=N_CH,
@@ -1020,7 +1021,7 @@ def test_full_l5_layer_packed_end_to_end(tmp_path: Path) -> None:
     qkv_weight_slices = [W_qkv[g * 8 : (g + 1) * 8] for g in range(QKV_N_OUT // 8)]
     c, i = run_packed_output_linear(
         state,
-        asm_src=_LINEAR_IDENTITY_ASM,
+        kernel=_LINEAR_IDENTITY,
         data_base_row=LN1_OUT_ROW,
         k=N_CH,
         n_out=QKV_N_OUT,
@@ -1079,7 +1080,7 @@ def test_full_l5_layer_packed_end_to_end(tmp_path: Path) -> None:
     outproj_weight_slices = [W_outproj[g * 8 : (g + 1) * 8] for g in range(N_CH // 8)]
     c, i = run_packed_output_linear(
         state,
-        asm_src=_LINEAR_IDENTITY_ASM,
+        kernel=_LINEAR_IDENTITY,
         data_base_row=ATTN_PACKED_ROW,
         k=N_CH,
         n_out=N_CH,
@@ -1126,7 +1127,7 @@ def test_full_l5_layer_packed_end_to_end(tmp_path: Path) -> None:
     ffn1_weight_slices = [W_ffn1[g * 8 : (g + 1) * 8] for g in range(FFN1_N_OUT // 8)]
     c, i = run_packed_output_linear(
         state,
-        asm_src=_LINEAR_SILU_ASM,
+        kernel=_LINEAR_SILU,
         data_base_row=LN2_OUT_ROW,
         k=N_CH,
         n_out=FFN1_N_OUT,
@@ -1141,7 +1142,7 @@ def test_full_l5_layer_packed_end_to_end(tmp_path: Path) -> None:
     ffn2_weight_slices = [W_ffn2[g * 8 : (g + 1) * 8] for g in range(N_CH // 8)]
     c, i = run_packed_output_linear(
         state,
-        asm_src=_LINEAR_IDENTITY_ASM,
+        kernel=_LINEAR_IDENTITY,
         data_base_row=FFN1_OUT_ROW,
         k=FFN1_N_OUT,
         n_out=N_CH,

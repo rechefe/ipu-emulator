@@ -1,4 +1,5 @@
-# The four LayerNorm shapes over the layernorm template (E07-10), one template
+# The four LayerNorm shapes over the layernorm template (E07-10; the packed
+# LayerNorms, E07-23, follow at the end), one template
 # rendering each old ipu_apps binary (E02 digests).
 # `bazel test //kernels/normalize:layernorm_64x192` runs the template's cases
 # at that shape.
@@ -26,3 +27,18 @@ name = "layernorm_16x240"
 template = "layernorm"
 params = { channels = 240, tokens = 16 }
 doc = "Layer 5: 240 channels, 16 tokens"
+
+# The MobileViT packed LayerNorms over the packed_layernorm template (E07-23):
+# each renders the old test/mobilevit/asm_packed_layernorm_<shape>.asm binary.
+
+[[kernel]]
+name = "packed_layernorm_192x64"
+template = "packed_layernorm"
+params = { channels = 192, tokens = 64 }
+doc = "Layer 4, packed: 192 channels x 64 tokens, 2 channels a row"
+
+[[kernel]]
+name = "packed_layernorm_240x16"
+template = "packed_layernorm"
+params = { channels = 240, tokens = 16 }
+doc = "Layer 5, packed: 240 channels x 16 tokens, 8 channels a row"

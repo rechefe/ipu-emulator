@@ -96,3 +96,20 @@ def test_each_fold_and_unfold_is_routed_by_its_exact_shape(registry, op, shape):
     assert verdict.kernel_name == f"{op}_{shape}", verdict.reason
     assert verdict.label == f"//kernels/reshape/{op}_{shape}"
     assert not registry.resolve(op, h=h, w=w, c=c + 16)  # another channel count: no kernel
+
+
+#: Each packed seam entry's (op, channels, tokens) (E07-23).
+PACKED = {
+    "packed_pack_192x64": ("pack", 192, 64),
+    "packed_pack_240x16": ("pack", 240, 16),
+    "packed_unpack_192x64": ("unpack", 192, 64),
+    "packed_unpack_240x16": ("unpack", 240, 16),
+}
+
+
+@pytest.mark.parametrize("name", sorted(PACKED))
+def test_each_packed_seam_is_routed_by_its_shape(registry, name):
+    op, channels, tokens = PACKED[name]
+    verdict = registry.resolve(op, channels=channels, tokens=tokens)
+    assert verdict.kernel_name == name, verdict.reason
+    assert registry.kernel(name).directory.name == f"packed_{op}"

@@ -14,6 +14,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from fixture_kernel_support import kernel_program
 from fixture_packed_l5_measure import count_instructions
 
 from ipu_as.lark_tree import assemble_to_bin_file
@@ -25,7 +26,6 @@ from ipu_emu.prototyping import build_enabled
 from ipu_isa.constants import encode_dstructure
 from ipu_isa.formats import ElementFormat
 
-_PACKED_ASM = Path(__file__).parent / "asm_packed_residual_add_240x16.asm"
 _N_PACKED_ROWS = 30
 _ROW_BYTES = 512
 
@@ -62,9 +62,18 @@ def _breaking_state(binary: Path, *, prototyping: bool = False) -> IpuState:
     return state
 
 
+def _write_residual_add(binary: Path) -> None:
+    """The //kernels/elementwise entry (E07-23), the old asm_packed_residual_add_240x16."""
+    binary.write_bytes(kernel_program("packed_residual_add_240x16"))
+
+
+def _write_breaking(binary: Path) -> None:
+    assemble_to_bin_file(_BREAKING_ASM, str(binary))
+
+
 _PROGRAMS = {
-    "packed_residual_add_240x16": (lambda: _PACKED_ASM.read_text("utf-8"), _residual_add_state),
-    "break_and_resume": (lambda: _BREAKING_ASM, _breaking_state),
+    "packed_residual_add_240x16": (_write_residual_add, _residual_add_state),
+    "break_and_resume": (_write_breaking, _breaking_state),
 }
 
 
@@ -82,9 +91,9 @@ def _run_schedule(state: IpuState, *, skip_idle_nops: bool) -> None:
 
 @pytest.mark.parametrize("program", sorted(_PROGRAMS))
 def test_counts_are_identical_in_faithful_and_prototyping_mode(tmp_path: Path, program: str):
-    source, make_state = _PROGRAMS[program]
+    write, make_state = _PROGRAMS[program]
     binary = tmp_path / "program.bin"
-    assemble_to_bin_file(source(), str(binary))
+    write(binary)
 
     counts = {}
     for name, skip in (("faithful", False), ("prototyping schedule", True)):

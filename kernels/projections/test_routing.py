@@ -106,3 +106,20 @@ def test_a_query_without_activation_means_none(registry, name):
     else:  # FFN1: refused, as ipu_apps refused it
         assert not verdict, verdict.describe()
         assert "activation" in verdict.reason
+
+
+#: The packed linears (E07-23): op packed_linear, by tokens (the template) and activation.
+PACKED = {
+    "packed_output_linear_240": ("packed_output_linear", "none"),
+    "packed_output_linear_silu_240": ("packed_output_linear", "silu"),
+    "packed_output_linear_192": ("packed_output_linear_p4", "none"),
+    "packed_output_linear_silu_192": ("packed_output_linear_p4", "silu"),
+}
+
+
+def test_the_packed_linears_are_four_entries_over_two_templates(registry):
+    assert {m.name for m in registry.kernels("packed_linear")} == set(PACKED)
+    for name, (template, activation) in PACKED.items():
+        kernel = registry.kernel(name)
+        assert kernel.directory.name == template
+        assert kernel.fixed == {"activation": activation}

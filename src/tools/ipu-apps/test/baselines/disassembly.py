@@ -28,7 +28,6 @@ UPDATE_COMMAND = "bazel run //src/tools/ipu-apps:update_disassembly_snapshots"
 #: Corpus root -> the short directory its snapshots go in.
 _SHORT_ROOTS = {
     "src/tools/ipu-apps/src/ipu_apps/kernels": "kernels",
-    "src/tools/ipu-apps/test/mobilevit": "mobilevit",
     "vscode-ipu-asm/test": "vscode",
 }
 if set(_SHORT_ROOTS) != set(asm_corpus.CORPUS_ROOTS):
@@ -40,7 +39,7 @@ if set(_SHORT_ROOTS) != set(asm_corpus.CORPUS_ROOTS):
 def snapshot_name(entry: asm_corpus.CorpusEntry) -> str:
     """The snapshot's path under ``SNAPSHOT_DIR``, for example
     ``kernels/softmax/softmax_rows/softmax_rows.txt`` or
-    ``mobilevit/asm_packed_output_linear_silu.chunk_widths-128-112.txt``."""
+    ``<root>/<program>.<define>-<value>.txt`` for a rendered entry."""
     for root, short in _SHORT_ROOTS.items():
         if entry.path.startswith(root + "/"):
             stem = short + entry.path[len(root) : -len(".asm")]

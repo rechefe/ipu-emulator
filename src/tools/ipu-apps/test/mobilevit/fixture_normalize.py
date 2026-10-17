@@ -7,7 +7,7 @@ modules' constant names (``N_CH``, ``N_TG``, ``N_TPG``, ``N_TOK``,
 ``ROW_BYTES``); ``run_layernorm_rows`` writes ``x`` into XMEM row for row, as
 the old harness staged its input file verbatim (padding lanes included), runs
 the kernel on it with its output rows poisoned first, and returns its output
-rows, cycles and instruction count. E07-24 ports the chain tests to the
+rows and cycles. E07-24 ports the chain tests to the
 harness's chaining API and removes this module.
 """
 
@@ -55,13 +55,10 @@ class LayerNorm:
 
 @dataclass(frozen=True)
 class LayerNormRun:
-    """One run: the output rows ``(N_ROWS, LANES)`` FP32, the cycles, and the
-    instructions executed (every non-NOP op but the LR slot's, as the packed
-    tests' ``count_instructions`` counts them)."""
+    """One run: the output rows ``(N_ROWS, LANES)`` FP32 and the cycles."""
 
     rows: np.ndarray
     cycles: int
-    instructions: int
 
 
 def layernorm(name: str) -> LayerNorm:
@@ -101,11 +98,10 @@ def run_layernorm_rows(
     model = staged.model
     start, size = staged.region_bytes("y")
     model.write_xmem(start, np.full(size // 4, poison, dtype="<f4").tobytes())
-    instructions = cycles = 0
+    cycles = 0
     while True:
-        record = model.step()
+        model.step()
         cycles += 1
-        instructions += sum(op.slot != "lr" for op in record.slots)
         if model.status.state is not RunState.RUNNING:
             break
         assert cycles < max_cycles, f"{name} did not halt in {max_cycles} cycles"
@@ -114,4 +110,4 @@ def run_layernorm_rows(
     assert not np.all(rows == np.float32(poison), axis=1).any(), (
         f"{name} left output rows untouched"
     )
-    return LayerNormRun(rows.copy(), cycles, instructions)
+    return LayerNormRun(rows.copy(), cycles)

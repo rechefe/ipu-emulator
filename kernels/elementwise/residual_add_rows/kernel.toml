@@ -1,6 +1,7 @@
 # residual_add_rows: y = a + b over `rows` whole XMEM rows (E07-06). A template:
 # ../registry.toml fixes its shape for the MobileViT entries
-# residual_add_{16x240,64x192,256x144}; run by itself it is a small add of the
+# residual_add_{16x240,64x192,256x144} and, on the packed layout (E07-23),
+# packed_residual_add_{192x64,240x16}; run by itself it is a small add of the
 # same program.
 [kernel]
 op = "residual_add"

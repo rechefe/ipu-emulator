@@ -27,8 +27,9 @@ The four kernels are entries of `kernels/normalize/registry.toml` over the
 Query: `bazel run //kernels:query -- layernorm channels=C tokens=T`. `x` and
 `y` are one 128-element FP32 row per channel and token group (row
 `ch * ceil(tokens / 128) + g`), tokens in the first lanes; `x` is zero past
-them, and `y` holds `beta[ch]` there. `gamma` and `beta` are `channels` FP32 values in zero-padded rows. `x`
-sits at row 0: the program reads its base through `CR0`.
+them, and `y` holds `beta[ch]` there. `gamma` and `beta` are `channels` FP32
+values in zero-padded rows. `x` sits at row 0: the program reads its base
+through `CR0`.
 
 ## `l2_normalize`
 
@@ -42,9 +43,35 @@ per column, down the channels. One kernel, `l2_normalize_channels`
 channels=C columns=N`. An all-zero column gives 0, not NaN: the `rsqrt`
 activation maps a non-positive sum to 0.
 
+## The MobileViT packed layout
+
+The Layer 4 and Layer 5 transformer blocks also run in a packed layout:
+`128 / tokens` channels share a row, channel `c`'s tokens at row
+`c / (128 / tokens)`, lanes `(c % (128 / tokens)) * tokens` on (2 channels a
+row at Layer 4, 8 at Layer 5). It is row-major over the flattened
+`(channels, tokens)` tensor, so each kernel declares a packed tensor as its
+rows. LayerNorm, pack, unpack and the linear use their own `op` names, so no
+unpacked query reaches them; the residual adds share `residual_add` with the
+unpacked ones and are told apart by `per_row`:
+
+| Kernel | Family | Op | What |
+|---|---|---|---|
+| `packed_layernorm_192x64`, `packed_layernorm_240x16` | `kernels/normalize` | `packed_layernorm` | LayerNorm over the channels, `ops.layernorm` (no eps) |
+| `packed_pack_192x64`, `packed_pack_240x16` | `kernels/reshape` | `pack` | one channel a row → packed |
+| `packed_unpack_192x64`, `packed_unpack_240x16` | `kernels/reshape` | `unpack` | packed → one channel a row (the attention seam) |
+| `packed_output_linear{,_silu}_240`, `packed_output_linear{,_silu}_192` | `kernels/projections` | `packed_linear` | one packed output row of `activation(a @ b)` a call; `k` is a parameter |
+| `packed_residual_add_192x64`, `packed_residual_add_240x16` | `kernels/elementwise` | `residual_add` | the `residual_add_rows` program with `per_row` 2 and 8 |
+
+All but the residual add load an R_MASK row (a scratch region whose bytes the
+family's `gen.py` makes from `ipu_kernels.pack.r_mask`). Pack, unpack and the
+linear leave R_MASK changed (LayerNorm ends by reloading all ones): the
+residual add relies on R_MASK's all-ones reset value, so it needs R_MASK
+reloaded first when it runs after one of them. Query, for example:
+`bazel run //kernels:query -- packed_layernorm channels=240 tokens=16`.
+
 ## `residual_add`
 
-Plain elementwise `y = a + b`. The three kernels are entries of
+Plain elementwise `y = a + b`. The three unpacked kernels are entries of
 `kernels/elementwise/registry.toml` over the `residual_add_rows` template (one
 program), each run as `//kernels/elementwise:<kernel>`. For
 `residual_add_16x240` and `residual_add_64x192`, one whole row per channel
@@ -58,7 +85,9 @@ channel takes `ceil(tokens / 128)` full rows.
 | `residual_add_64x192` | 64 | 192 |
 | `residual_add_256x144` | 256 | 144 |
 
-Query: `bazel run //kernels:query -- residual_add tokens=T channels=C`.
+Query: `bazel run //kernels:query -- residual_add tokens=T channels=C`. Two
+more entries, `packed_residual_add_{192x64,240x16}`, run the same program on
+the packed layout (`per_row` 2 and 8; [above](#the-mobilevit-packed-layout)).
 
 The CHW `residual_add` kernel (convolution stages) shares this operation but is
 queried by `num_channels`; see [Convolutions](convolutions.md#residual_add).

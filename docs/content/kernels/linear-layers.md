@@ -50,7 +50,10 @@ The single-stream `matmul_*_x128` shapes run over all 4 pixel streams in one
 invocation, against one shared weight matrix. The 12 kernels are entries of
 `kernels/projections/registry.toml` over three templates: `proj_p4` (one token
 group, the activation a parameter), `proj_p4_2tg` and `proj_p4_2tg_silu` (two
-token groups). Each runs as `//kernels/projections:<kernel>`.
+token groups). Each runs as `//kernels/projections:<kernel>`. The family also
+holds the four packed linears (`op = "packed_linear"`), which run on the
+MobileViT packed layout: see
+[Normalization and shaping](normalization-and-shaping.md#the-mobilevit-packed-layout).
 
 | Kernel | K | N_OUT | activation |
 |---|---|---|---|

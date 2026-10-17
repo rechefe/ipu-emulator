@@ -47,3 +47,17 @@ def test_l2_normalize_takes_any_positive_shape(registry, channels, columns):
     verdict = registry.resolve("l2_normalize", channels=channels, columns=columns)
     assert verdict.label == "//kernels/normalize/l2_normalize_channels", verdict.reason
     assert not registry.resolve("l2_normalize", channels=0, columns=columns)
+
+
+#: Each packed LayerNorm entry's (channels, tokens) (E07-23).
+PACKED = {"packed_layernorm_192x64": (192, 64), "packed_layernorm_240x16": (240, 16)}
+
+
+@pytest.mark.parametrize("name", sorted(PACKED))
+def test_each_packed_layernorm_is_routed_by_its_shape_and_never_as_layernorm(registry, name):
+    channels, tokens = PACKED[name]
+    verdict = registry.resolve("packed_layernorm", channels=channels, tokens=tokens)
+    assert verdict.kernel_name == name, verdict.reason
+    assert registry.kernel(name).directory.name == "packed_layernorm"
+    # the packed layout's tensors are not layernorm's: no layernorm query reaches it
+    assert registry.resolve("layernorm", channels=channels, tokens=tokens).kernel_name != name

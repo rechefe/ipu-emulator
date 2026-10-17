@@ -32,7 +32,6 @@ const root = path.resolve(__dirname, '..', '..');
 const DEFAULT_DIRS = [
   'vscode-ipu-asm/test/corpus',
   'src/tools/ipu-apps/src/ipu_apps/kernels',
-  'src/tools/ipu-apps/test/mobilevit',
 ];
 
 /** Every .asm file under dir, recursively. */
