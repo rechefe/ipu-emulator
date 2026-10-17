@@ -68,5 +68,6 @@ the current lists.
 | `sample_descriptors` | 2 (`sample_descriptors`, `sample_descriptors_separable`) |
 | `channel_peak`, `score_threshold`, `l2_normalize`, `depth_to_space`, `identity`, `fully_connected` | 1 each |
 
-See [Building applications](../building-applications.md) for the structure they
-share.
+[Write a kernel](../how-to/write-a-kernel.md) shows the structure of a kernel
+under `kernels/`; the ones still in `ipu_apps` follow
+[Building applications](../building-applications.md) until E07 migrates them.

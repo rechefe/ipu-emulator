@@ -70,6 +70,16 @@ one run (`state.stats` in Python). For example:
 | Lane ops | Multiplier lanes that passed the mask and lay within `valid_elements`, summed over every multiply; occupancy is that over the total cycles times 128 lanes. |
 | Effective MAC | Lane ops less the identity multiplies' lanes, over the run's peak: the multiplier work that was real arithmetic. |
 
+The counters describe one run: each run resets them before its first cycle,
+so a second program on the same state reports only itself (an `ipu_apps` run
+takes `reset_stats=False` to add to the earlier ones). The total cycles are set
+even when the run raises: a fault, the cycle limit, or an emulator error. Runs
+add up: `stage1_stats + state.stats`.
+
+A run that reaches its cycle limit faults F-9, with the PC of the word that
+would have run next. The default limit is `ipu_emu.emulator.DEFAULT_MAX_CYCLES`
+(1 000 000); `--max-cycles N` sets it for one run, and 0 removes it.
+
 A run in which every multiply used all 128 lanes adds a note: occupancy is
 overstated if the kernel pads a narrower row without declaring
 `CR15.valid_elements`. A run that executed an [ISA idiom](../isa-alias-catalogue.md)

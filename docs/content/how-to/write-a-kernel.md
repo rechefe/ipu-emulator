@@ -122,50 +122,11 @@ operands are separated by spaces.
 
 ## 3. Declare it in `kernel.toml`
 
+The listing is the kernel's own file, included in the docs build, so it is
+always the one the tests run:
+
 ```toml
-[kernel]
-op = "scale"
-formats = ["fp32", "int8", "e4"]
-
-[params]
-rows = { type = "int", min = 1, max = 256 }
-s    = { type = "float" }                 # element scalar: encoded in the active format
-
-[inputs.x]
-shape = ["rows", 128]                     # automatic placement; add row = N to pin
-
-[outputs.y]
-shape = ["rows", 128]
-store = "accumulator"                     # ST.ACC: FP32 (INT32 in INT8)
-
-[abi]                                     # name -> CR; templates see {{ cr.x }} == "CR2"
-x    = "CR2"
-y    = "CR3"
-rows = "CR4"
-s    = "CR5"
-
-[golden]
-reference = "reference.py:reference"
-tolerance = { fp32 = "EXACT", int32 = "EXACT" }   # y, an accumulator output, is compared as FP32 (INT32 in INT8)
-
-[cases.default]
-rows = 4
-s = 2.0
-
-[cases.one_row]
-rows = 1
-s = -3.0
-
-[cases.sweep]                             # one case per value: sweep[rows=1], sweep[rows=7], ...
-rows = [1, 7, 33, 128]
-s = 1.5                                   # exact in E4 and FP32, not in INT8
-formats = ["fp32", "e4"]                  # per-case format limit
-
-[cases.mine]                              # user data instead of the generator / reference
-rows = 2
-s = 2.0
-inputs = { x = "data/x.npy" }             # small integers in [-8, 8]: exact in fp32, int8 and e4
-expected = { y = "data/y.npy" }           # so y = 2x is exact in every format too
+--8<-- "kernels/elementwise/scale/kernel.toml"
 ```
 
 Section by section:
@@ -202,13 +163,7 @@ Every key is listed in the [`kernel.toml` reference](../reference/kernel-toml.md
 of the run, and every parameter as a keyword. It returns each output by name:
 
 ```python
-import torch
-
-
-def reference(x: torch.Tensor, *, rows: int, s: float) -> dict[str, torch.Tensor]:
-    """y = x * s. The framework passes inputs decoded from the active format
-    and rounds the result to that format before comparing."""
-    return {"y": x * s}
+--8<-- "kernels/elementwise/scale/reference.py"
 ```
 
 The harness rounds the result to the format each output is stored in before
@@ -219,6 +174,16 @@ with `[golden] op = "<name>"` and needs no `reference.py`. The second worked
 example, `kernels/reshape/identity/` (`y = x`), does that: its `kernel.toml`
 has `op = "identity"`, and its cases keep their data in a `gen.py` generator.
 
+### Test against your own data
+
+A case can name its own files instead: `inputs` replaces the generated input,
+and `expected` replaces the reference for that output. `scale`'s `mine` case
+reads both from `data/`, saved with `numpy.save` in the tensor's shape
+(`[rows, 128]`). Each file is rounded to the format of the run, so pick values
+the format holds exactly, as `mine` does (small integers), or the comparison
+sees the rounding. To try other data without editing `kernel.toml`, pass
+`--input x=my_x.npy` to a run (step 6).
+
 ## 5. Run its tests
 
 ```bash
@@ -228,7 +193,15 @@ bazel test //kernels/elementwise/scale
 The target runs every case in every format it runs in, as one test each:
 `test_case[default-fp32]`, `test_case[one_row-e4]`, `test_case[sweep[rows=7]-fp32]`.
 A failing test names the case, the format, the output, the worst element and
-the tier it failed at. A case with `tier = "nightly"` runs in
+the tier it failed at. For example, `mine` run with one element of `x` changed
+(`--input`, step 6):
+
+```text
+scale/mine/fp32: FAIL  cycles=12  MAC util=16.7%  y: FAIL at EXACT (max|err|=2 max rel=0.166667); worst at [1, 5]: got 14.0, want 12.0
+```
+
+Row 1, lane 5 of `y` is 14 where `2 * x` is 12. A run that faults instead
+names the fault, the PC and the source line of the word. A case with `tier = "nightly"` runs in
 `//kernels/elementwise/scale:scale_nightly` instead, which only the nightly run
 (`--config=full`) runs.
 
@@ -261,8 +234,13 @@ bazel run //kernels/elementwise/scale -- --case one_row --format e4 --debug
 ```
 
 Relative paths are read from where you run the command. Every option is in
-the [command-line reference](../reference/cli.md#kernel-runner-run_kernel), and
-[Debug a kernel](debug-a-kernel.md) walks through the debugger.
+the [command-line reference](../reference/cli.md#kernel-runner-run_kernel).
+
+When an output is wrong, run the failing case with `--debug`: the debugger
+stops before the first word, and you step through the program watching the
+registers, the accumulator and XMEM, with the source line of each word.
+[Debug a kernel](debug-a-kernel.md) walks through it, and the
+[Cycle Inspector](../debugging-inspector.md) shows a recorded run in the browser.
 
 ## 7. Choose a tolerance tier
 

@@ -325,6 +325,7 @@ genrule(
         ":generate_architecture_md",
         "//docs/inspector:inspector_data",
         "//:GLOSSARY.md",
+        "//kernels/elementwise/scale:scale_files",
         "examples/test_add_an_instruction.py",
         "examples/test_element_formats.py",
         "examples/test_reference_model_cocotb.py",
@@ -382,6 +383,15 @@ genrule(
         # reference/glossary.md includes the root GLOSSARY.md through pymdownx.snippets,
         # whose base_path ".." is the parent of the temp tree, as the repo root is of docs/.
         ln -sfn "$$ORIGDIR/$(location //:GLOSSARY.md)" "$(@D)/GLOSSARY.md"
+
+        # how-to/write-a-kernel.md includes the scale kernel's kernel.toml and
+        # reference.py the same way, at their repo paths.
+        mkdir -p "$(@D)/kernels/elementwise/scale"
+        for f in $(locations //kernels/elementwise/scale:scale_files); do
+          case "$$f" in
+            */kernel.toml|*/reference.py) ln -sfn "$$ORIGDIR/$$f" "$(@D)/kernels/elementwise/scale/$$(basename "$$f")" ;;
+          esac
+        done
 
         # The how-to pages include tested code the same way, at its repo path.
         mkdir -p "$(@D)/docs/examples" "$(@D)/src/tools/ipu-isa/test"
