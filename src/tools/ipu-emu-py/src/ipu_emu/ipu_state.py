@@ -6,7 +6,6 @@ memory into a single object — the Python equivalent of ``ipu__obj_t``.
 
 from __future__ import annotations
 
-import struct
 import weakref
 from collections.abc import Callable
 from enum import Enum
@@ -35,6 +34,16 @@ if TYPE_CHECKING:
 
 #: Instruction-memory depth, as the emulator names it.
 INST_MEM_SIZE = INST_MEM_WORDS
+
+
+def _geometry():
+    """The ``geometry`` module: the active codec and the format's registers.
+
+    ``geometry`` imports this module, so importing it at load time would be circular.
+    """
+    from ipu_emu import geometry
+
+    return geometry
 
 
 def _ipu():
@@ -215,51 +224,41 @@ class IpuState:
     # -- XMEM ↔ register transfers (mirrors ipu__load_r_reg / ipu__store_r_reg) --
 
     def write_constant_ones(self, xmem_addr: int) -> None:
-        """Write a dtype-correct LANES-element ONES row with alias provenance.
+        """Write a LANES-element ONES row in the active format, with alias provenance.
 
         Use only for intentional identity constants, never ordinary inputs or
         weights. Any subsequent XMEM write overlapping this row revokes it.
         """
-        lanes = _ipu().LANES
-        if self.wide_vector_debug:
-            fmt = "<f" if self.wide_vector_arithmetic == WideVectorArithmetic.FP32 else "<i"
-            data = struct.pack(fmt, 1) * lanes
-        else:
-            from ipu_emu.ipu_math import dtype_one_byte
-
-            data = bytes([dtype_one_byte(self.dtype)]) * lanes
+        data = _geometry().active_codec(self).one() * _ipu().LANES
         self.xmem.write_address(xmem_addr, data)
         self.xmem.mark_constant_ones(xmem_addr, data)
 
     # Debug/test conveniences, not on any instruction execution path. Each
-    # takes a ROW number and mirrors its instruction in the active mode:
-    # LD.MULT, LD.MULT.CYCLIC, ST.ACC, LD.MASK.
+    # takes a ROW number and mirrors its instruction in the active format:
+    # LD.MULT, LD.MULT.CYCLIC, ST.ACC, LD.MASK. A row is LANES elements of
+    # the active codec; the registers are the format's (``vector_registers``).
+
+    def _row_bytes(self) -> int:
+        return _geometry().active_codec(self).element_bytes * _ipu().LANES
 
     def _row_address(self, xmem_row: int) -> int:
-        return xmem_row * _ipu().xmem_row_size_bytes(self)
+        return xmem_row * self._row_bytes()
 
     def load_r_reg_from_xmem(self, xmem_row: int, r_index: int) -> None:
         """Load one row from XMEM into R register *r_index* (0=R0, 1=R1)."""
         addr = self._row_address(xmem_row)
-        if self.wide_vector_debug:
-            data = self.xmem.read_address(addr, _ipu().xmem_row_size_bytes(self))
-            self.regfile.set_r_wide_debug(r_index, data)
-            name = "r_wide_debug"
-        else:
-            data = self.xmem.read_address(addr, _ipu().R_REG_SIZE)
-            self.regfile.set_r(r_index, data)
-            name = "r"
+        data = self.xmem.read_address(addr, self._row_bytes())
+        name = _geometry().vector_registers(self).ra
+        self.regfile.set_register_bytes(name, r_index, data)
         if self.xmem.is_constant_ones(addr, data):
             self.regfile.mark_constant_ones(name, r_index * len(data), len(data))
 
     def store_r_reg_to_xmem(self, xmem_row: int, r_index: int) -> None:
         """Store R register *r_index* (one row) to XMEM."""
-        data = (
-            self.regfile.get_r_wide_debug(r_index)
-            if self.wide_vector_debug
-            else self.regfile.get_r(r_index)
+        name = _geometry().vector_registers(self).ra
+        self.xmem.write_address(
+            self._row_address(xmem_row), self.regfile.get_register_bytes(name, r_index)
         )
-        self.xmem.write_address(self._row_address(xmem_row), data)
 
     def load_r_cyclic_from_xmem(self, xmem_row: int, slot_element_idx: int = 0) -> None:
         """Load one row from XMEM into r_cyclic at *slot_element_idx*.
@@ -274,10 +273,12 @@ class IpuState:
                 f"got {slot_element_idx}"
             )
         addr = self._row_address(xmem_row)
-        data = self.xmem.read_address(addr, ipu.xmem_row_size_bytes(self))
-        byte_idx = slot_element_idx * ipu.xmem_element_width_bytes(self)
-        name = "r_cyclic_wide_debug" if self.wide_vector_debug else "r_cyclic"
-        getattr(self.regfile, f"set_{name}_at")(byte_idx, data)
+        row_bytes = self._row_bytes()
+        data = self.xmem.read_address(addr, row_bytes)
+        byte_idx = slot_element_idx * _geometry().active_codec(self).element_bytes
+        name = _geometry().vector_registers(self).r_cyclic
+        # A slot never wraps the ring, so this is the ring's own slot write.
+        self.regfile.mutable(name, byte_idx, row_bytes)[:] = data
         if self.xmem.is_constant_ones(addr, data):
             self.regfile.mark_constant_ones(name, byte_idx, len(data))
 
