@@ -124,7 +124,8 @@ diagnostic says why) shows its diagnostics, and the providers fall back.
 | Semantic tokens (mnemonic, register, enum, number, label, comment) | the assembler's `tokens` | none: the grammar's colours |
 | Mnemonics that fit the word, in completion | the assembler's `words` (slots after pseudo-instructions and `{{ }}` expand); `fallback/` while the source does not parse or render | `fallback/` on `isa.json` |
 | Jinja names: completion, rename, definition, references, hover, inlay values, unused, outline | the assembler's `jinja` (names as Jinja's parser reads them, the `ipu:params` header included) | `fallback/` (Jinja scoping written in JS) |
-| Highlighting, operand hints, labels, formatting, word separation, folding | `language.js` (`scan()`) | the same |
+| Format Document, Format Selection | the assembler's `ipu-as format` (the same rules, and a check that the result is the same program: a refusal edits nothing and says why), where the assembler has `format`; else `language.js` | `language.js` |
+| Highlighting, operand hints, labels, formatting as you type, word separation, folding | `language.js` (`scan()`) | the same |
 
 Until a document's first answer arrives (the first paint), and with a version-1
 checker, the providers answer at once from `language.js` and `fallback/`; faded
@@ -184,6 +185,7 @@ fits only once the `NOP` moves.
 | `test/activation.js` | the extension activated on a stand-in `vscode`: nothing runs in Restricted Mode and trusting the workspace starts it; each checkout's status is its own; a failed check is retried; which checkout an unsaved or non-file document is checked in; activation touches the disk only asynchronously |
 | `test/language.js <isa.json> [parser-tokens.json]` | completion and navigation logic (`language.js`, `fallback/`), and agreement with the parser on the corpus |
 | `test/analysis.js` | the analysis client and each provider on recorded version-2 answers (`fake-checker.js`, `fixtures/analysis-v2.json`): positions in UTF-16, one check per document version (on the Bazel path too), every misfit word marked, a checker from before versions falling back silently, and no checker |
+| `test/formatting.js <isa.json> [<ipu-as> ...]` | the format provider over `ipu-as format` (`formatting.js`, on a stand-in `fake-formatter.js`): asked once whether it formats, its range read back, a refusal edits nothing, an assembler without `format` falls back; with an assembler, it formats the corpus as `language.js` does |
 | `test/analysis-agreement.js <isa.json> [bundle.json]` | `fallback/` against the assembler's analysis, both ways, but for the known gaps |
 | `test/runs.js [manifest.json]` | the run, test, debug, benchmark and query commands, against the real manifest; a manifest value that is no label or flag is refused |
 | `test/rewrites.js` + `check_rewrites` | renaming each label and Jinja symbol (with and without the assembler's analysis), and formatting, leaves the assembled binary unchanged |
@@ -254,7 +256,8 @@ code --install-extension ipu-asm.vsix
   proceeds on the lexical check and says so). Outline and folding too.
 - **Formatting**: a label at column 0 on its own line, instructions one indent
   in, one `;;` word per line; nothing but that whitespace changes, and every
-  kernel is already formatted. Typing indents after a label, splits code after
+  kernel is already formatted. A checkout's assembler formats the document or
+  selection (`ipu-as format`) where it can. Typing indents after a label, splits code after
   a typed `;;` and moves a label to column 0 on `:`.
 - **Buttons** on a kernel's `.asm`: Run (`bazel run <target> -- --case default`),
   Debug (the same with `--config=debug`), Test (`bazel test <target>`) and

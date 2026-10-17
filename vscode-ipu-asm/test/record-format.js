@@ -25,6 +25,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { Language } = require('../language');
+const { spliceLines } = require('../formatting');
 const { mangle } = require('./mangle');
 
 const root = path.resolve(__dirname, '..', '..');
@@ -74,15 +75,7 @@ const VARIANTS = [
 /** The whole text with lines [fromLine, toLine] replaced by their formatted version. */
 function formatted(text, options) {
   const out = lang.format(text, options);
-  if (options.fromLine === undefined) return out;
-  const lines = text.split('\n');
-  const last = Math.min(options.toLine, lines.length - 1);
-  let start = 0;
-  for (let n = 0; n < options.fromLine; n++) start += lines[n].length + 1;
-  let end = 0;
-  for (let n = 0; n < last; n++) end += lines[n].length + 1;
-  end += lines[last].endsWith('\r') ? lines[last].length - 1 : lines[last].length;
-  return text.slice(0, start) + out + text.slice(end);
+  return options.fromLine === undefined ? out : spliceLines(text, options.fromLine, options.toLine, out);
 }
 
 const sha = (text) => crypto.createHash('sha256').update(text, 'utf8').digest('hex');

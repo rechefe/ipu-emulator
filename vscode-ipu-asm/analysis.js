@@ -186,17 +186,51 @@ function parseCheck(stdout, text) {
   throw new Error(`unrecognised check output (schemaVersion ${out && out.schemaVersion})`);
 }
 
+/** What a checker says about itself (its versions, whether it formats), asked once per command
+ *  and checkout. A probe that could not run is asked again next time; one that ran out of time
+ *  reads as `interpret` reads a failed run for `retryMs`, so callers do not each wait it out. */
+class Probes {
+  /** `run`: checker.run's signature. */
+  constructor(run, retryMs) {
+    this.run = run;
+    this.retryMs = retryMs;
+    /** [cwd, probe] as JSON -> promise of what `interpret` made of its result. */
+    this.asked = new Map();
+  }
+
+  /** `interpret(result)` of running `probe` in `cwd`, asked once. */
+  ask(probe, cwd, seconds, interpret) {
+    const key = JSON.stringify([cwd, probe]);
+    if (!this.asked.has(key)) {
+      const asked = this.run(probe[0], probe.slice(1), cwd, seconds).then((r) => {
+        const forget = () => this.asked.get(key) === asked && this.asked.delete(key);
+        if (r.spawnError) forget();
+        else if (r.timedOut) {
+          const timer = setTimeout(forget, this.retryMs);
+          if (timer.unref) timer.unref();
+        }
+        return interpret(r);
+      });
+      this.asked.set(key, asked);
+    }
+    return this.asked.get(key);
+  }
+
+  /** Forget every answer from `cwd`: its checker's sources changed. */
+  forget(cwd) {
+    for (const key of [...this.asked.keys()]) if (JSON.parse(key)[0] === cwd) this.asked.delete(key);
+  }
+}
+
 /** Asks each checker its versions once, and keeps each document's latest check: every provider
  *  reads it, so a document version is checked once whatever asks about it. */
 class AnalysisClient {
   /** `run`: checker.run's signature. `waitMs`: the longest a provider waits for a check.
    *  `retryMs`: how long a probe that ran out of time counts as version 1. */
   constructor({ run = checker.run, waitMs = 5000, retryMs = 60000 } = {}) {
-    this.run = run;
     this.waitMs = waitMs;
-    this.retryMs = retryMs;
-    /** Probe (where it runs, and its command, as JSON) -> promise of the versions it speaks. */
-    this.probes = new Map();
+    /** Each checker's versions, asked once per command and checkout. */
+    this.probes = new Probes(run, retryMs);
     /** Bumped when the probes are forgotten: a kept check from before was another checker's. */
     this.epoch = 0;
     /** Document key -> { version, text, found, answer } of its latest successful check. */
@@ -217,26 +251,13 @@ class AnalysisClient {
   versions(argv, cwd, seconds) {
     const { probe } = commandsFor(argv);
     if (!probe) return Promise.resolve([1]);
-    const key = JSON.stringify([cwd, probe]);
-    if (!this.probes.has(key)) {
-      const asked = this.run(probe[0], probe.slice(1), cwd, seconds).then((r) => {
-        const forget = () => this.probes.get(key) === asked && this.probes.delete(key);
-        if (r.spawnError) forget();
-        else if (r.timedOut) {
-          const timer = setTimeout(forget, this.retryMs);
-          if (timer.unref) timer.unref();
-        }
-        return versionsFrom(r);
-      });
-      this.probes.set(key, asked);
-    }
-    return this.probes.get(key);
+    return this.probes.ask(probe, cwd, seconds, versionsFrom);
   }
 
   /** Forget the probes' answers in `cwd`: its checker's sources changed, so it may be rebuilt
    *  into one that speaks other versions. */
   forgetVersions(cwd) {
-    for (const key of [...this.probes.keys()]) if (JSON.parse(key)[0] === cwd) this.probes.delete(key);
+    this.probes.forget(cwd);
     this.epoch++;
   }
 
@@ -319,4 +340,4 @@ class AnalysisClient {
   }
 }
 
-module.exports = { Answer, AnalysisClient, ANALYSES, CONTRACT_VERSION, Positions, commandsFor, parseCheck, versionsFrom };
+module.exports = { Answer, AnalysisClient, Probes, ANALYSES, CONTRACT_VERSION, Positions, commandsFor, parseCheck, versionsFrom };

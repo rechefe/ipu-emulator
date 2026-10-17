@@ -1,7 +1,10 @@
 'use strict';
 
 // Formatting (whole document, range, and as you type), and how `;;` words are set apart on
-// screen (ipuAsm.wordSeparation).
+// screen (ipuAsm.wordSeparation). A document or range is formatted by the checkout's assembler
+// (`ipu-as format`, formatting.js) when it has `format`, else by the editor's own rules
+// (language.js `format`), which are the same rules. Typing formats one line at a time, with the
+// editor's rules: a process per keystroke would be too slow.
 
 const vscode = require('vscode');
 
@@ -12,21 +15,47 @@ const { LANGUAGE_ID, provide } = require('./shared');
 const separation = (document) =>
   vscode.workspace.getConfiguration('ipuAsm', document.uri).get('wordSeparation', 'space');
 
-function registerFormatting(context, lang) {
-  /** Replace lines [from, to] with their formatted text, if it differs: indentation from the
-   *  editor, the empty line between words from the setting. */
-  const formatLines = (document, options, from, to) => {
-    const indent = options.insertSpaces ? ' '.repeat(options.tabSize) : '\t';
-    const blankLine = separation(document) === 'emptyLine';
-    const formatted = lang.format(document.getText(), { indent, blankLine, fromLine: from, toLine: to });
-    const range = new vscode.Range(from, 0, to, document.lineAt(to).text.length);
-    return formatted === document.getText(range) ? [] : [vscode.TextEdit.replace(range, formatted)];
+/** The language.js `format` options for lines [from, to]: indentation from the editor, the
+ *  empty line between words from the setting. */
+const formatOptions = (document, options, from, to) => ({
+  indent: options.insertSpaces ? ' '.repeat(options.tabSize) : '\t',
+  blankLine: separation(document) === 'emptyLine',
+  fromLine: from,
+  toLine: to,
+});
+
+/** The edit replacing lines [from, to] with `formatted`, if it differs. */
+const editFor = (document, from, to, formatted) => {
+  const range = new vscode.Range(from, 0, to, document.lineAt(to).text.length);
+  return formatted === document.getText(range) ? [] : [vscode.TextEdit.replace(range, formatted)];
+};
+
+/** `format(document, options)`: the assembler's { lines }, { refused }, or null (see formatting.js
+ *  CheckoutFormatter.format); absent, the editor's rules format everything. */
+function registerFormatting(context, lang, format = async () => null) {
+  /** Lines [from, to] formatted by the editor's rules. */
+  const formatLines = (document, options, from, to) =>
+    editFor(document, from, to, lang.format(document.getText(), formatOptions(document, options, from, to)));
+
+  /** Lines [from, to] formatted by the assembler if it can, else by the editor's rules. */
+  const formatWithAssembler = async (document, options, from, to, token) => {
+    const version = document.version;
+    const result = await format(document, formatOptions(document, options, from, to));
+    // Edits for an older text would land in the wrong place.
+    if ((token && token.isCancellationRequested) || document.version !== version) return [];
+    if (!result) return formatLines(document, options, from, to);
+    if (result.refused) {
+      vscode.window.showWarningMessage(`IPU Assembly: the file was not formatted. ${result.refused}`);
+      return [];
+    }
+    return editFor(document, from, to, result.lines);
   };
 
   const formatting = {
-    provideDocumentFormattingEdits: (document, options) => formatLines(document, options, 0, document.lineCount - 1),
-    provideDocumentRangeFormattingEdits: (document, range, options) =>
-      formatLines(document, options, range.start.line, range.end.line),
+    provideDocumentFormattingEdits: (document, options, token) =>
+      formatWithAssembler(document, options, 0, document.lineCount - 1, token),
+    provideDocumentRangeFormattingEdits: (document, range, options, token) =>
+      formatWithAssembler(document, options, range.start.line, range.end.line, token),
   };
   provide(context, 'DocumentFormattingEdit', formatting);
   provide(context, 'DocumentRangeFormattingEdit', formatting);
@@ -102,8 +131,8 @@ function registerSeparation(context, lang) {
   return { separatorLines, gapLines };
 }
 
-function register(context, { lang }) {
-  registerFormatting(context, lang);
+function register(context, { lang, format }) {
+  registerFormatting(context, lang, format);
   return registerSeparation(context, lang);
 }
 

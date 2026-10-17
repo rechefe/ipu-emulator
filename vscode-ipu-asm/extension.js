@@ -20,6 +20,7 @@ const path = require('path');
 const vscode = require('vscode');
 
 const { AnalysisClient, Positions, parseCheck } = require('./analysis');
+const { CheckoutFormatter } = require('./formatting');
 const { V2Semantics } = require('./analysis-semantics');
 const checker = require('./checker');
 const { fallbackOf } = require('./fallback');
@@ -150,6 +151,14 @@ function slotFitDiagnostic(word) {
   return diagnostic;
 }
 
+/** Where the checker runs for a document in checkout `root` (null: none): { folder, cwd }, or
+ *  null for a document with neither a checkout nor a file, which has nowhere to run from. */
+function placeOf(root, uri) {
+  const folder = vscode.workspace.getWorkspaceFolder(uri);
+  if (!root && !folder && !FILE_SCHEMES.has(uri.scheme)) return null;
+  return { folder, cwd: root || (folder ? folder.uri.fsPath : path.dirname(uri.fsPath)) };
+}
+
 /** The checker, run on documents as they change, with a CheckState per checkout. */
 class Checking {
   constructor(kernelApi) {
@@ -166,6 +175,8 @@ class Checking {
     this.latest = new Map();
     /** Which contract version each checker speaks, and each document's latest check. */
     this.analysis = new AnalysisClient();
+    /** Which checkers have `format`, and running it. */
+    this.formatter = new CheckoutFormatter();
   }
 
   stateOf(root) {
@@ -189,6 +200,7 @@ class Checking {
       const changed = () => {
         state.invalidate();
         this.analysis.forgetVersions(root);
+        this.formatter.forget(root);
       };
       for (const event of [watcher.onDidCreate, watcher.onDidChange, watcher.onDidDelete]) event(changed);
       return watcher;
@@ -294,14 +306,25 @@ class Checking {
     return this.runIn(root, uri, text, key, undefined, async (argv, cwd, seconds) => (await this.analysis.plan(argv, cwd, seconds)).argv);
   }
 
+  /** A document's lines formatted by its checkout's assembler (formatting.js
+   *  CheckoutFormatter.format): null where it cannot be asked, for the editor's rules. */
+  async formatWithChecker(document, options) {
+    if (!trust.mayRun()) return null;
+    const { uri } = document;
+    const root = await this.checkoutFor(uri);
+    const place = placeOf(root, uri);
+    const argv = place && await this.checkCommand(place.folder, root);
+    if (!argv) return null;
+    return this.formatter.format(argv, place.cwd, timeoutSeconds(place.folder), document.getText(), options);
+  }
+
   /** Run the checker on `text`; `planFor(argv, cwd, seconds)` gives the argv to run it as. */
   async runIn(root, uri, text, key, token, planFor) {
     // In Restricted Mode the folder's settings and BUILD files would choose what runs.
     if (!trust.mayRun()) return { error: trust.RESTRICTED };
-    const folder = vscode.workspace.getWorkspaceFolder(uri);
-    // A document with neither a checkout nor a file has nowhere to be checked from.
-    if (!root && !folder && !FILE_SCHEMES.has(uri.scheme)) return { outside: true };
-    const cwd = root || (folder ? folder.uri.fsPath : path.dirname(uri.fsPath));
+    const place = placeOf(root, uri);
+    if (!place) return { outside: true };
+    const { folder, cwd } = place;
     const argv = await this.checkCommand(folder, root);
     if (!argv) return { outside: true };
     if (token && token.isCancellationRequested) return { superseded: true };
@@ -580,6 +603,7 @@ async function activate(context) {
       semantics: (document, options) => checking.semanticsOf(lang, document, options),
       answer: (document) => checking.analysis.current(document.uri.toString(), document.version, document.getText()),
       onAnswer: (listener) => checking.analysis.onStore(listener),
+      format: (document, options) => checking.formatWithChecker(document, options),
     });
   }
   // For tests: the kernels and editing APIs, and why diagnostics are off (for a document,

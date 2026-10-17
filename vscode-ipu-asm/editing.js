@@ -15,7 +15,7 @@ const providers = [
   require('./providers/tokens'),
 ];
 
-/** Register every provider with `env` ({ lang, checkText, semantics, answer, onAnswer }); what they
+/** Register every provider with `env` ({ lang, checkText, semantics, answer, onAnswer, format }); what they
  *  return for tests, merged. */
 const register = (context, env) => Object.assign({}, ...providers.map((p) => p.register(context, env)));
 

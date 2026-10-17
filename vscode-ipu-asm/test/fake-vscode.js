@@ -56,6 +56,10 @@ class Range {
 const records = {
   Position,
   Range,
+  TextEdit: {
+    replace: (range, newText) => ({ range, newText }),
+    insert: (position, newText) => ({ range: new Range(position, position), newText }),
+  },
   Diagnostic: class Diagnostic { constructor(range, message, severity) { Object.assign(this, { range, message, severity }); } },
   Location: class Location { constructor(uri, range) { Object.assign(this, { uri, range }); } },
   Hover: class Hover { constructor(contents, range) { Object.assign(this, { contents, range }); } },
