@@ -546,10 +546,42 @@ def test_a_host_write_cannot_reach_a_held_tensor_but_can_write_into_it(first):
     np.testing.assert_array_equal(chain.read(held)[1], np.ones(128))
 
 
-def test_a_wide_format_takes_fewer_elements_a_row(first):
+def test_a_wide_format_takes_fewer_elements_a_row():
     chain = Chain(ElementFormat.INT8)
     acc = chain.write(np.full((1, 32), 0.5), fmt=ElementFormat.FP32)  # 4 bytes each: 32 a row
     np.testing.assert_array_equal(chain.read(acc), np.full((1, 32), 0.5))
+
+
+def test_an_fp8_round_trip_holds_the_formats_values():
+    chain = Chain(ElementFormat.E4)
+    values = np.array([[1.0, -0.5, 3.0, 0.1] * 32])
+    back = chain.read(chain.write(values))
+    np.testing.assert_array_equal(back[0, :3], [1.0, -0.5, 3.0])
+    assert back[0, 3] != 0.1 and abs(back[0, 3] - 0.1) < 0.01  # rounded to E4
+
+
+def test_a_write_in_place_keeps_the_residents_layout(first):
+    chain = Chain(ElementFormat.INT8)
+    y = chain.run(first, SCALE_2, {"x": X}).resident["y"]
+    values = chain.read(y)
+    with pytest.raises(ConfigurationError, match="leave them out"):
+        chain.write(values, at=y, fmt=ElementFormat.E4)
+    with pytest.raises(ConfigurationError, match="leave them out"):
+        chain.write(values, at=y, pack="other")
+    assert chain.write(values, at=y, fmt=ElementFormat.INT8) is y
+    chain.write(values, at=0)
+    chain.write(np.zeros((1, 128)), at=64)  # y goes stale
+    with pytest.raises(ConfigurationError, match="no longer in XMEM"):
+        chain.write(values, at=y)
+
+
+def test_every_writer_numbers_its_tensors_apart(first):
+    chain = Chain(ElementFormat.INT8)
+    one = chain.write(np.zeros((2, 128)), at=64)
+    two = chain.write(np.zeros((2, 128)), at=64)
+    three = chain.run(first, SCALE_2, {"x": X}).resident["y"]  # rows 64..65 again
+    assert len({one, two, three}) == 3
+    assert [one.step, two.step, three.step] == [0, 1, 2]
 
 
 @pytest.mark.parametrize(

@@ -85,8 +85,9 @@ class Resident:
         pack: The pack transform it was written with (``None``: none).
         format: The element format of its stored elements (an accumulator
             output's is FP32 or INT32).
-        step: The chain step that wrote it (0 for the first), so a later
-            step's output in the same rows is a different tensor.
+        step: What wrote it, counted over the chain's steps, host writes and
+            reserves in order (0 for the first), so a later output in the
+            same rows is a different tensor.
         parent: The resident this is a :meth:`slice` of (``None``: a whole
             tensor); it is in XMEM while its parent is.
     """
@@ -167,6 +168,7 @@ class Chain:
         self.model = ReferenceModel(fmt)
         self._cache = AssemblyCache()
         self._steps = 0
+        self._writers = 0  # steps, host writes and reserves: Resident.step
         self._live: list[Resident] = []
         self._held: list[Resident] = []
         self._fresh: ReferenceModel | None = None  # reset values, for reset=
@@ -211,7 +213,7 @@ class Chain:
         fmt = self.format if fmt is None else fmt
         if not isinstance(rows, int) or isinstance(rows, bool) or rows < 1:
             raise ConfigurationError(f"reserve takes rows >= 1, not {rows!r}")
-        resident = Resident(self._first_free("reserve", rows), rows, pack, fmt, self._steps)
+        resident = Resident(self._first_free("reserve", rows), rows, pack, fmt, self._writer())
         self._live.append(resident)
         self._held.append(resident)
         return resident
@@ -264,8 +266,10 @@ class Chain:
 
         Raises:
             ConfigurationError: The values are not finite or not whole rows
-                of the format; ``at`` is stale, of other rows, or the rows
-                reach a held tensor ``at`` is not part of; or they do not fit.
+                of the format; ``at`` is stale, of other rows or laid out
+                otherwise than ``pack``/``fmt`` say, or the rows reach a held
+                tensor ``at`` is not part of; they do not fit; or the model
+                faulted (it takes no write then).
         """
         target = at if isinstance(at, Resident) else None
         if target is not None:
@@ -273,6 +277,12 @@ class Chain:
                 raise ConfigurationError(
                     f"write: the resident tensor (rows {_rows(target)}) is no longer in XMEM, "
                     "or it is not this chain's"
+                )
+            if (pack is not None and pack != target.pack) or (fmt not in (None, target.format)):
+                raise ConfigurationError(
+                    f"write: pack={pack!r}, format={None if fmt is None else fmt.value} for "
+                    f"a resident tensor laid out as pack={target.pack!r}, "
+                    f"format={target.format.value}: leave them out to write it in place"
                 )
             pack, fmt = target.pack, target.format
         fmt = self.format if fmt is None else fmt
@@ -296,7 +306,7 @@ class Chain:
         self._forget_written({region.name: target} if target is not None else {}, [region])
         if target is not None:
             return target
-        resident = Resident(base, rows, pack, fmt, self._steps)
+        resident = Resident(base, rows, pack, fmt, self._writer())
         self._live.append(resident)
         return resident
 
@@ -314,6 +324,11 @@ class Chain:
                     f"write: rows {region.base_row}..{region.end_row - 1} reach the held "
                     f"tensor (rows {_rows(held)})"
                 )
+
+    def _writer(self) -> int:
+        """The next ``Resident.step``."""
+        self._writers += 1
+        return self._writers - 1
 
     def _first_free(self, what: str, rows: int) -> int:
         """The lowest row where ``rows`` rows hold no live resident."""
@@ -462,6 +477,7 @@ class Chain:
         self._reset(banks)
         options = self._step_options()
         self._steps += 1
+        writer = self._writer()
         try:
             result = run_kernel(
                 manifest, case, self.format, options, cache=self._cache, shared=shared
@@ -469,7 +485,7 @@ class Chain:
         finally:
             # Even when the step raised: it may have written its regions first.
             self._forget_written(targets, written)
-        resident = {**_resident(result, plan, self._steps - 1), **targets}
+        resident = {**_resident(result, plan, writer), **targets}
         if result.placement is None or not result.halted:
             resident = {}
         self._live.extend(t for t in resident.values() if not _among(t, targets.values()))
