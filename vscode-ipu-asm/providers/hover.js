@@ -62,12 +62,17 @@ function renderJinja(lang, sym) {
   return lines.join('\n');
 }
 
-function register(context, { lang, semantics }) {
-  // Hover's word: the assembler's own token shape (mnemonics have dots).
-  const wordPattern = new RegExp(lang.isa.lexical.token);
+function register(context, { langOf, semantics }) {
+  // Hover's word: the assembler's own token shape (mnemonics have dots), per ISA.
+  const patterns = new WeakMap();
+  const wordPattern = (lang) => {
+    if (!patterns.has(lang)) patterns.set(lang, new RegExp(lang.isa.lexical.token));
+    return patterns.get(lang);
+  };
   provide(context, 'Hover', {
     provideHover(document, position) {
-      const range = document.getWordRangeAtPosition(position, wordPattern);
+      const lang = langOf(document);
+      const range = document.getWordRangeAtPosition(position, wordPattern(lang));
       if (!range) return undefined;
       const key = document.getText(range).toLowerCase();
       const instruction = lang.lookup(key);
@@ -80,7 +85,7 @@ function register(context, { lang, semantics }) {
     async provideHover(document, position) {
       const sym = (await semantics(document)).symbolAt(document.offsetAt(position));
       if (!sym || sym.kind !== 'jinja') return undefined;
-      return new vscode.Hover(new vscode.MarkdownString(renderJinja(lang, sym)), rangeOf(document, sym.range));
+      return new vscode.Hover(new vscode.MarkdownString(renderJinja(langOf(document), sym)), rangeOf(document, sym.range));
     },
   });
 }

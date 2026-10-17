@@ -7,7 +7,7 @@ const vscode = require('vscode');
 
 const { LANGUAGE_ID, provide, rangeOf } = require('./shared');
 
-function register(context, { lang, semantics, onAnswer }) {
+function register(context, { langOf, semantics, onAnswer, onLanguage = () => ({ dispose() {} }) }) {
   const symbolAt = async (document, position) => (await semantics(document)).symbolAt(document.offsetAt(position));
   const locations = (document, spans) => spans.map((s) => new vscode.Location(document.uri, rangeOf(document, s)));
 
@@ -71,6 +71,11 @@ function register(context, { lang, semantics, onAnswer }) {
       const document = vscode.workspace.textDocuments.find((d) => d.uri.toString() === key);
       if (document) markUnused(document);
       hintsChanged.fire();
+    }),
+    // Another ISA (the checkout's, once generated): the editor's own rules may read otherwise.
+    onLanguage(() => {
+      vscode.workspace.textDocuments.forEach(markUnused);
+      hintsChanged.fire();
     })
   );
   vscode.workspace.textDocuments.forEach(markUnused);
@@ -84,7 +89,7 @@ function register(context, { lang, semantics, onAnswer }) {
   });
 
   provide(context, 'FoldingRange', {
-    provideFoldingRanges: (document) => lang.folding(document.getText()).map((f) => {
+    provideFoldingRanges: (document) => langOf(document).folding(document.getText()).map((f) => {
       const start = document.positionAt(f.start).line;
       const end = document.positionAt(f.end).line;
       // Keep a block's closing tag visible; a comment folds whole.

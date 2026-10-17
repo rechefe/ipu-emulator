@@ -118,6 +118,19 @@ jobs:
       - name: Check the JS fallback against the assembler's v2 analysis
         run: node vscode-ipu-asm/test/analysis-agreement.js vscode-ipu-asm/data/isa.json
 
+      - name: Check where the language data comes from (a checkout's ISA, else the bundled one)
+        run: |
+          node vscode-ipu-asm/test/language-source.js
+          node vscode-ipu-asm/test/languages.js
+
+      # The format provider over `ipu-as format`, and the assembler formatting the corpus as
+      # the editor's own rules do.
+      - name: Check formatting by the checkout's assembler
+        run: |
+          bazel build //src/tools/ipu-as-py:ipu-as
+          node vscode-ipu-asm/test/formatting.js vscode-ipu-asm/data/isa.json \
+            bazel-bin/src/tools/ipu-as-py/ipu-as
+
       # A correct rename or format leaves the binary byte for byte the same.
       - name: Check renames and formatting leave the program unchanged
         run: |

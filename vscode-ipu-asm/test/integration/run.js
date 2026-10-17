@@ -20,12 +20,26 @@ function write(file, text, mode) {
   fs.writeFileSync(file, text, { mode });
 }
 /** A copy of fixture/ at `dir` marked as an IPU checkout (a Bazel workspace
- *  holding the assembler's package), so the repository gains no nested module. */
-function makeCheckout(dir) {
+ *  holding the assembler's package), so the repository gains no nested module. With `isa`, it
+ *  also has ISA sources, so the extension generates its language data (the stand-in `bazel`). */
+function makeCheckout(dir, { isa = false } = {}) {
   fs.cpSync(path.join(__dirname, 'fixture'), dir, { recursive: true });
-  for (const marker of ['MODULE.bazel', 'src/tools/ipu-as-py/BUILD.bazel']) write(path.join(dir, marker), '');
+  const markers = ['MODULE.bazel', 'src/tools/ipu-as-py/BUILD.bazel', ...(isa ? ['src/tools/ipu-isa/src/spec.py'] : [])];
+  for (const marker of markers) write(path.join(dir, marker), '');
   return dir;
 }
+
+/** The mnemonic only the stand-in generator's ISA has: hover finds it once the checkout's
+ *  language data is swapped in (suite.js). */
+const CHECKOUT_ONLY = 'CHECKOUT.ONLY';
+/** `ipu-gen vscode-data DIR` for the stand-in `bazel`: the bundled isa.json, plus CHECKOUT_ONLY
+ *  (a copy of HALT). */
+const GENERATE = `const fs = require('fs'), path = require('path');
+const out = process.argv[process.argv.length - 1];
+const isa = JSON.parse(fs.readFileSync(${JSON.stringify(path.resolve(__dirname, '..', '..', 'data', 'isa.json'))}, 'utf8'));
+isa.instructions[${JSON.stringify(CHECKOUT_ONLY)}] = isa.instructions.HALT;
+fs.mkdirSync(path.join(out, 'data'), { recursive: true });
+fs.writeFileSync(path.join(out, 'data', 'isa.json'), JSON.stringify(isa));`;
 /** `folder`'s .vscode/settings.json, each key prefixed with `ipuAsm.`. */
 const writeSettings = (folder, settings) => write(path.join(folder, '.vscode', 'settings.json'),
   JSON.stringify(Object.fromEntries(Object.entries(settings).map(([k, v]) => [`ipuAsm.${k}`, v])), null, 2));
@@ -55,11 +69,12 @@ async function main() {
   // Terminals inherit this PATH, so the kernel buttons' `bazel ...` reaches a
   // stand-in and no real Bazel server starts in a temporary folder.
   const bin = path.join(temp, 'bin');
-  write(path.join(bin, 'bazel'), '#!/bin/sh\necho "[stand-in bazel] $*"\n', 0o755);
+  write(path.join(bin, 'generate.js'), GENERATE);
+  write(path.join(bin, 'bazel'), `#!/bin/sh\ncase "$*" in *vscode-data*) exec "${process.execPath}" "${path.join(bin, 'generate.js')}" "$@" ;; esac\necho "[stand-in bazel] $*"\n`, 0o755);
   process.env.PATH = `${bin}${path.delimiter}${process.env.PATH}`;
   try {
     // The checkout itself, opened as the folder: the full suite.
-    const workspace = makeCheckout(path.join(temp, 'checkout'));
+    const workspace = makeCheckout(path.join(temp, 'checkout'), { isa: true });
     const check = process.env.IPU_TEST_CHECK_COMMAND;
     writeSettings(workspace, {
       manifestCommand: MANIFEST,
@@ -67,7 +82,7 @@ async function main() {
       // Without one, a checker that cannot start: rename falls back to its lexical check.
       checkCommand: check ? JSON.parse(check) : [path.join(workspace, 'no-such-checker')],
     });
-    await launch(workspace, 'suite.js', { IPU_TEST_HAS_CHECKER: check ? '1' : '' });
+    await launch(workspace, 'suite.js', { IPU_TEST_HAS_CHECKER: check ? '1' : '', IPU_TEST_CHECKOUT_ONLY: CHECKOUT_ONLY });
 
     // The other ways a folder can relate to a checkout (see layouts.js), each in its own window.
     const parent = path.join(temp, 'parent');

@@ -122,6 +122,19 @@ test('definition of a label and a Jinja name, references, rename and its refusal
   await assert.rejects(rename(doc.uri, pos('row_loop:', 1), '+3'));
 });
 
+test("a mnemonic only the checkout's ISA has gets hover text once its language data is generated", async () => {
+  const d = await vscode.workspace.openTextDocument(vscode.Uri.file(kernelFile));
+  const only = process.env.IPU_TEST_CHECKOUT_ONLY;
+  const scratch = await withText(`${only};;\n`);
+  // The kernel is in the checkout, and asks for its data; the scratch buffer is the window's.
+  await hoverText(d.uri, new vscode.Position(0, 0));
+  const text = await until(async () => {
+    const found = await hoverText(scratch.uri, new vscode.Position(0, 1));
+    return found.includes(isa.instructions.HALT[0].doc.title) && found;
+  }, `hover on ${only}`);
+  assert(text, only);
+});
+
 test('hover on an instruction, a Jinja name (its value and register) and a macro parameter', async () => {
   const instruction = await hoverText(doc.uri, pos('ACC.ADD.FIRST', 1));
   assert(instruction.includes(isa.instructions['ACC.ADD.FIRST'][0].doc.title), instruction);
