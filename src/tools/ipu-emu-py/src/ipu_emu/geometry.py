@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING, NamedTuple, Protocol
 from ipu_emu.errors import EmulatorError
 from ipu_emu.xmem import XMEM_SIZE_BYTES
 from ipu_isa.constants import LR_CR_SCALAR_BITS, Partition
+from ipu_isa.faults import FaultId
 from ipu_isa.formats import FORMATS, AccumulatorType, ElementFormat
 from ipu_isa.geometry import LANES
 from ipu_isa.registers import lrd_pair
@@ -58,6 +59,8 @@ __all__ = [
     "vector_registers",
     "xmem_element_width_bytes",
     "xmem_row_addr",
+    "xmem_row_check",
+    "xmem_row_fault",
     "xmem_row_size_bytes",
 ]
 
@@ -226,6 +229,35 @@ def cr_scalar(regfile: _RegisterReader, cr_idx: int) -> int:
     return b if b < 128 else b - 256
 
 
+def xmem_row_fault(state: IpuState, row: int) -> str | None:
+    """Why *row* is no XMEM row of the active mode (fault F-6), or ``None``.
+
+    A pure check of the row itself; :func:`xmem_row_addr` raises on it, and
+    the precise-fault check phase (E04-20) evaluates it before the word runs.
+    """
+    if row < 0:
+        return f"XMEM row must be non-negative; got {row}"
+    if not _is_wide(state) and row >= NARROW_MAX_ROW:
+        return (
+            f"XMEM row {row} is out of range for narrow mode "
+            f"(rows 0..{NARROW_MAX_ROW - 1}, the first "
+            f"{NARROW_MAX_ROW * xmem_row_size_bytes(state) >> 20} MB of XMEM)"
+        )
+    addr = row * xmem_row_size_bytes(state)
+    if addr >= XMEM_SIZE_BYTES:
+        return (
+            f"XMEM row {row} is out of range: byte address {addr} exceeds "
+            f"the {XMEM_SIZE_BYTES}-byte allocation"
+        )
+    return None
+
+
+def xmem_row_check(state: IpuState, row: int) -> tuple[FaultId, str] | None:
+    """:func:`xmem_row_fault` as a fault predicate's result: F-6 and why."""
+    detail = xmem_row_fault(state, row)
+    return None if detail is None else (FaultId.F6, detail)
+
+
 def xmem_row_addr(state: IpuState, row: int) -> int:
     """Translate an XMEM row number to a byte address in the active mode.
 
@@ -240,24 +272,17 @@ def xmem_row_addr(state: IpuState, row: int) -> int:
     bytes, e.g. ST.ACC's fixed 512-byte R_ACC) is bounds-checked by
     ``XMem.read_address``/``write_address`` against the allocation.
 
+    The row is legal: the word's check phase faulted F-6 on any other
+    (:func:`xmem_row_fault`, E04-20).
+
     Raises:
-        EmulatorError: The row is negative or outside the addressable range.
+        EmulatorError: The row is not legal: a handler ran on a word no
+            check phase saw (a direct call).
     """
-    if row < 0:
-        raise EmulatorError(f"XMEM row must be non-negative; got {row}")
-    if not _is_wide(state) and row >= NARROW_MAX_ROW:
-        raise EmulatorError(
-            f"XMEM row {row} is out of range for narrow mode "
-            f"(rows 0..{NARROW_MAX_ROW - 1}, the first "
-            f"{NARROW_MAX_ROW * xmem_row_size_bytes(state) >> 20} MB of XMEM)"
-        )
-    addr = row * xmem_row_size_bytes(state)
-    if addr >= XMEM_SIZE_BYTES:
-        raise EmulatorError(
-            f"XMEM row {row} is out of range: byte address {addr} exceeds "
-            f"the {XMEM_SIZE_BYTES}-byte allocation"
-        )
-    return addr
+    detail = xmem_row_fault(state, row)
+    if detail is not None:
+        raise EmulatorError(f"{detail} (an unchecked word)")
+    return row * xmem_row_size_bytes(state)
 
 
 def lrd_bytes(regfile: _RegisterReader, n: int) -> bytes:

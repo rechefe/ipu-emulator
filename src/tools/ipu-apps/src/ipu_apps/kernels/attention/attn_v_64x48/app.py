@@ -119,7 +119,9 @@ class AttnV64x48App(IpuApp):
         state.regfile.set_cr(4, OBASE_ROW)
         state.regfile.set_cr(5, PV_STRIDE_ROWS)  # P query stride (rows)
         state.regfile.set_cr(8, P_BLOCK_ROWS)  # P rows per block (64)
-        state.regfile.set_cr(9, N_TOK - 1)  # 63: inner bound -> 64 AGG bundles
+        # agg_slot starts at -1 (AGG reads it after the co-issued INC); BLT.S
+        # reads the cycle-start value -1..62.
+        state.regfile.set_cr(9, N_TOK - 2)  # 62: inner bound -> 64 AGG bundles
         state.regfile.set_cr(10, D)  # 48: channels t per block
         state.regfile.set_cr(11, N_BLOCK)  # 16: (stream, head) blocks
         state.regfile.set_cr(12, O_CHAN_ROWS)  # O channel stride (rows)

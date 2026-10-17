@@ -6,7 +6,7 @@
 5: NOP 0 lr0 lr0; SET cr0 lr7 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP cr0 lr0 lr0; NOP lr0 cr0 lr0 lr0 0; NOP cr0 lrd0 lr0 off; NOP identity cr0; NOP cr0 lr0; NOP cr0 lr0; NOP 0 lr0;;
 6: NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; LD.MULT.CYCLIC cr3 lr4 lr2; NOP lr0 cr0 lr0 lr0 0; NOP cr0 lrd0 lr0 off; NOP identity cr0; NOP cr0 lr0; NOP cr0 lr0; NOP 0 lr0;;
 7: NOP 0 lr0 lr0; SUB lr11 lr0 lr9; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP cr0 lr0 lr0; NOP lr0 cr0 lr0 lr0 0; NOP cr0 lrd0 lr0 off; NOP identity cr0; NOP cr0 lr0; NOP cr0 lr0; NOP 0 lr0;;
-8: NOP 0 lr0 lr0; SET cr0 lr3 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP cr0 lr0 lr0; NOP lr0 cr0 lr0 lr0 0; NOP cr0 lrd0 lr0 off; NOP identity cr0; NOP cr0 lr0; NOP cr0 lr0; NOP 0 lr0;;
+8: NOP 0 lr0 lr0; SUB cr1 lr3 lr2; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP cr0 lr0 lr0; NOP lr0 cr0 lr0 lr0 0; NOP cr0 lrd0 lr0 off; NOP identity cr0; NOP cr0 lr0; NOP cr0 lr0; NOP 0 lr0;;
 9: NOP 0 lr0 lr0; ADD lr11 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; LD.MULT cr2 lr0 r0; NOP lr0 cr0 lr0 lr0 0; NOP cr0 lrd0 lr0 off; NOP identity cr0; NOP cr0 lr0; NOP cr0 lr0; NOP 0 lr0;;
 10: BLT.S 10 lr3 cr9; ADD lr11 lr0 lr0; INC 1 lr3 lr0; NOP 0 lr0 lr0; LD.MULT cr2 lr0 r0; MULT.RC.VV r0 cr15 lr2 lr2 0; AGG.SUM.FIRST cr15 lrd0 lr3 off; NOP identity cr0; NOP cr0 lr0; NOP cr0 lr0; NOP 0 lr0;;
 11: NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP cr0 lr0 lr0; NOP lr0 cr0 lr0 lr0 0; NOP cr0 lrd0 lr0 off; ACTIVATE.QUANTIZE identity cr15; ST.AAQ cr4 lr4; NOP cr0 lr0; NOP 0 lr0;;

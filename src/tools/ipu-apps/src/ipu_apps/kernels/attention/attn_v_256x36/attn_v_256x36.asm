@@ -43,8 +43,10 @@
 # Inner-loop pipeline (live-read offsets, per matmul template):
 #   LD.MULT offset is read LIVE -> ADD p_ptr +256 co-issues; start p_ptr at
 #   (first P row addr - 256) so the first live load hits the first row.
-#   AGG dest_slot is read from SNAPSHOT; INC agg_slot co-issues -> AGG sees 0,1,..,127.
-#   BLT.S reads SNAPSHOT -> bound 127 gives exactly 128 bundles (dest 0..127).
+#   AGG dest_slot is read post-LR-write (forwarded); INC agg_slot co-issues,
+#   so start agg_slot at -1 -> AGG sees 0,1,..,127.
+#   BLT.S (Control stage) reads the cycle-start value -1..126 -> bound 126
+#   gives exactly 128 bundles (dest 0..127).
 #
 #   MULT SNAPSHOT CONTRACT (issue #157): MULT.RC.VV reads its R0 DATA from the
 #   start-of-cycle snapshot, so it cannot consume a P chunk loaded by
@@ -54,8 +56,8 @@
 #   next query's. Only R0 needed shifting: the V chunk in R_CYCLIC is loaded by
 #   LD.MULT.CYCLIC two bundles ahead of the loop and never reloaded inside
 #   it, so it was already snapshot-safe.
-#   agg_slot is unaffected -- both of its readers (AGG and BLT.S) take the
-#   SNAPSHOT, so INC stays co-issued and the dest sequence is still 0..127.
+#   agg_slot is unaffected by this -- INC stays co-issued and the dest
+#   sequence is still 0..127.
 #
 # Output O is FP32 (R_ACC) stored one group per row, like the transformer
 # matmuls. All .asm operands are ROW numbers (issue #179), so O and the P/V
@@ -78,7 +80,7 @@
 {% set p_ptr            = "lr0"  %}  {# P inner load offset (live +2 rows per query) #}
 {% set v_ptr            = "lr1"  %}  {# V chunk offset within the current channel #}
 {% set rc_slot0         = "lr2"  %}  {# const 0: r_cyclic index #}
-{% set agg_slot         = "lr3"  %}  {# AGG dest slot = inner query counter 0..127 #}
+{% set agg_slot         = "lr3"  %}  {# AGG dest slot: -1..126 at cycle start, 0..127 after the INC #}
 {% set chan_off         = "lr4"  %}  {# value-channel offset, += 2 rows per (h,t) step #}
 {% set out_chunk        = "lr5"  %}  {# O row offset for the current group #}
 {% set head_p_off       = "lr6"  %}  {# head P offset, += 512 rows per head #}
@@ -97,7 +99,7 @@
 {% set CHUNK_OFF        = "cr6"  %}  {# 1 = second key-chunk offset (rows) #}
 {% set P_GROUP_STRIDE   = "cr7"  %}  {# 256 = 128 queries x 2 rows (group g=1) #}
 {% set P_HEAD_STRIDE    = "cr8"  %}  {# 512 = P head stride (rows) #}
-{% set INNER_BOUND      = "cr9"  %}  {# 127 = inner bound -> 128 AGG bundles #}
+{% set INNER_BOUND      = "cr9"  %}  {# 126 = inner bound -> 128 AGG bundles #}
 {% set CHAN_COUNT       = "cr10" %}  {# 36 = head channels t #}
 {% set HEAD_COUNT       = "cr11" %}  {# 4 = heads #}
 {% set OUT_GROUP_STRIDE = "cr12" %}  {# 1 = O group stride (rows) #}
@@ -121,7 +123,7 @@ t_loop:
     ADD {{ v_ptr }} {{ chan_off }} {{ ZERO }};;                    # V chunk0 offset = chan
     LD.MULT.CYCLIC {{ v_ptr }} {{ V_BASE }} {{ rc_slot0 }};;  # R_CYCLIC = V[0..127, t]   (base VBASE)
     SUB {{ p_ptr }} {{ group_p_off }} {{ p_query_stride }};;       # P inner start = group P off - 2 rows
-    SET {{ agg_slot }} {{ ZERO }};;                                # dest/inner counter = 0
+    SUB {{ agg_slot }} {{ rc_slot0 }} {{ ONE }};;                  # dest/inner counter = -1
     LD.MULT r0 {{ p_ptr }} {{ P_BASE }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};;  # prime query 0's P chunk
 g0c0_loop:
@@ -137,7 +139,7 @@ g0c0_loop:
     LD.MULT.CYCLIC {{ v_ptr }} {{ V_BASE }} {{ rc_slot0 }};;  # R_CYCLIC = V[128..255, t]
     ADD {{ p_ptr }} {{ group_p_off }} {{ CHUNK_OFF }};;            # P chunk1 base = group P off + 1 row
     SUB {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};;             # minus 2 rows startup
-    SET {{ agg_slot }} {{ ZERO }};;
+    SUB {{ agg_slot }} {{ rc_slot0 }} {{ ONE }};;
     LD.MULT r0 {{ p_ptr }} {{ P_BASE }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};;  # prime query 0's P chunk
 g0c1_loop:
@@ -158,7 +160,7 @@ g0c1_loop:
     LD.MULT.CYCLIC {{ v_ptr }} {{ V_BASE }} {{ rc_slot0 }};;
     ADD {{ p_ptr }} {{ group_p_off }} {{ P_GROUP_STRIDE }};;       # g=1 P base = group P off + 256 rows
     SUB {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};;             # minus 2 rows startup
-    SET {{ agg_slot }} {{ ZERO }};;
+    SUB {{ agg_slot }} {{ rc_slot0 }} {{ ONE }};;
     LD.MULT r0 {{ p_ptr }} {{ P_BASE }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};;  # prime query 0's P chunk
 g1c0_loop:
@@ -175,7 +177,7 @@ g1c0_loop:
     ADD {{ p_ptr }} {{ group_p_off }} {{ P_GROUP_STRIDE }};;       # g=1 P base
     ADD {{ p_ptr }} {{ p_ptr }} {{ CHUNK_OFF }};;                  # + 1 row (chunk1)
     SUB {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};;             # minus 2 rows startup
-    SET {{ agg_slot }} {{ ZERO }};;
+    SUB {{ agg_slot }} {{ rc_slot0 }} {{ ONE }};;
     LD.MULT r0 {{ p_ptr }} {{ P_BASE }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};;  # prime query 0's P chunk
 g1c1_loop:

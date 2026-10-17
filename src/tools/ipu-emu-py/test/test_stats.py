@@ -8,6 +8,7 @@ from collections import Counter
 import pytest
 from emu_support import make_state, run
 
+from ipu_emu import ipu_state
 from ipu_emu.emulator import (
     DEFAULT_MAX_CYCLES,
     DebugAction,
@@ -15,8 +16,10 @@ from ipu_emu.emulator import (
     run_until_complete,
     run_with_debug,
 )
-from ipu_emu.errors import DebugOnlyInstructionWarning, EmulatorError
+from ipu_emu.errors import DebugOnlyInstructionWarning, EmulatorError, EmulatorFault
+from ipu_emu.ipu_state import HaltRecord, IpuState
 from ipu_emu.stats import RunStats
+from ipu_isa.faults import FaultId
 
 # ---------------------------------------------------------------------------
 # RunStats unit tests
@@ -173,6 +176,15 @@ spin:
 BEQ lr0 lr0 spin;;
 """
 
+# LR0 counts up to CR8 in a two-word loop, then HALT (HALT): 2 * CR8 + 2 cycles.
+_COUNTED_LOOP = """\
+SET lr1 cr8;;
+loop:
+INC lr0 1;;
+BNE lr0 lr1 loop;;
+HALT;;
+"""
+
 # Two cycles complete, then the third raises an EmulatorError.
 _FAULTING_PROGRAM = """\
 SET lr0 cr8;;
@@ -217,9 +229,58 @@ class TestStatsPerRun:
     def test_cycle_limit_sets_total_cycles(self, runner):
         state = make_state(_ENDLESS_PROGRAM)
         state.stats.total_cycles = 12345  # stale value from an earlier run
-        with pytest.raises(RuntimeError, match="Exceeded 10 cycles"):
+        with pytest.raises(EmulatorFault, match="F-9 at PC 0: the run reached its cycle limit"):
             _RUNNERS[runner](state, max_cycles=10)
         assert state.stats.total_cycles == 10
+        assert state.halt == HaltRecord("fault", 0, FaultId.F9)
+
+    @pytest.mark.parametrize("runner", sorted(_RUNNERS))
+    @pytest.mark.parametrize(("limit", "pc"), [(2, 2), (3, 1), (4, 2)])
+    def test_f9_is_at_the_word_that_would_run_next(self, runner, limit, pc):
+        # SET@0, INC@1, BNE@2, INC@1, ...: after `limit` words the next is `pc`.
+        state = make_state(_COUNTED_LOOP, cr={8: 200})
+        with pytest.raises(EmulatorFault) as caught:
+            _RUNNERS[runner](state, max_cycles=limit)
+        assert (caught.value.fault, caught.value.pc) == (FaultId.F9, pc)
+        assert state.halt == HaltRecord("fault", pc, FaultId.F9)
+
+    @pytest.mark.parametrize("runner", sorted(_RUNNERS))
+    def test_the_state_limit_holds_and_zero_disables_it(self, runner, monkeypatch):
+        # A small default, so "0 means no limit" and "0 means the default"
+        # differ on a 402-cycle program.
+        monkeypatch.setattr(ipu_state, "DEFAULT_CYCLE_LIMIT", 100)
+        state = make_state(_COUNTED_LOOP, cr={8: 200})
+        assert state.cycle_limit == 100
+        with pytest.raises(EmulatorFault, match="cycle limit \\(100\\)"):
+            _RUNNERS[runner](state)  # no max_cycles: the state's own limit
+        state = make_state(_COUNTED_LOOP, cr={8: 200})
+        state.cycle_limit = 0
+        assert _RUNNERS[runner](state) == 402
+        assert state.halt == HaltRecord("halt", 3, None)
+
+    @pytest.mark.parametrize("runner", sorted(_RUNNERS))
+    def test_max_cycles_is_the_limit_for_that_run_only(self, runner):
+        state = make_state(_COUNTED_LOOP, cr={8: 200})
+        state.cycle_limit = 5
+        assert _RUNNERS[runner](state, max_cycles=0) == 402
+        assert state.cycle_limit == 5
+        # Restored when the run faults under its own limit, too.
+        state = make_state(_COUNTED_LOOP, cr={8: 200})
+        state.cycle_limit = 7
+        with pytest.raises(EmulatorFault):
+            _RUNNERS[runner](state, max_cycles=3)
+        assert state.cycle_limit == 7
+
+    @pytest.mark.parametrize("runner", sorted(_RUNNERS))
+    def test_reset_stats_false_accumulates(self, runner):
+        state = make_state(_MULT_ACC_PROGRAM)
+        cycles = _RUNNERS[runner](state)
+        first = _counters(state.stats)
+        state.program_counter = 0
+        assert _RUNNERS[runner](state, reset_stats=False) == cycles
+        numbers = {k for k, v in first.items() if isinstance(v, int | float)}
+        assert {k: _counters(state.stats)[k] for k in numbers} == {k: 2 * first[k] for k in numbers}
+        assert state.stats.total_cycles == 2 * cycles
 
     @pytest.mark.parametrize("runner", sorted(_RUNNERS))
     def test_emulator_error_sets_total_cycles(self, runner):
@@ -286,7 +347,9 @@ class TestRunStatsArithmetic:
 def test_every_runner_defaults_to_one_cycle_limit():
     import inspect
 
-    assert DEFAULT_MAX_CYCLES == 1_000_000
+    # The runners default to the state's limit, which defaults to the one constant.
+    assert DEFAULT_MAX_CYCLES == ipu_state.DEFAULT_CYCLE_LIMIT == 1_000_000
+    assert IpuState().cycle_limit == DEFAULT_MAX_CYCLES
     for fn in (run_until_complete, run_with_debug, run_test):
         default = inspect.signature(fn).parameters["max_cycles"].default
-        assert default == DEFAULT_MAX_CYCLES, fn.__name__
+        assert default is None, fn.__name__

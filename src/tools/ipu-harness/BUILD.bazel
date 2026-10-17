@@ -118,8 +118,9 @@ py_pytest_test(
     ],
 )
 
-# Reference loading (E06-09). Without torch here: evaluate's test skips until a
-# kernel test target brings requirement("torch") (E06-09 part 2, E06-13).
+# Reference loading (E06-09). Without torch here, so the library's tests prove it
+# needs none: evaluate's test skips, and runs with real torch in
+# //src/tools/ipu-kernels:test_reference_ops.
 py_pytest_test(
     name = "test_reference",
     srcs = ["test/test_reference.py"],

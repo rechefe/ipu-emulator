@@ -126,7 +126,7 @@ def test_a_missing_shared_module_is_located(tmp_path):
 
 
 def test_evaluate_passes_float64_tensors_and_returns_float64_arrays(tmp_path):
-    pytest.importorskip("torch")  # test-only; runs where torch is installed (E06-09 part 2)
+    pytest.importorskip("torch")  # test-only; ipu-kernels:test_reference_ops runs it with torch
     m = kernel(
         tmp_path,
         reference=(

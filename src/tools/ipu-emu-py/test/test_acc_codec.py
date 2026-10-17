@@ -23,6 +23,7 @@ from emu_support import ElementFormat, make_state
 
 import ipu_emu
 from ipu_emu.emulator import run_until_complete
+from ipu_emu.errors import EmulatorError
 from ipu_emu.ipu_state import IpuState
 from ipu_isa.formats import ElementFormat as IsaFormat
 from ipu_isa.formats import encode_element
@@ -153,12 +154,14 @@ def test_agg_folds_in_lane_order(fmt, mnemonic, valid):
 
 
 @pytest.mark.parametrize("fmt", FORMATS, ids=lambda f: f.value)
-def test_acc_stride_past_the_last_lane_writes_what_fits_then_raises(fmt):
+def test_acc_stride_past_the_last_lane_raises_before_writing(fmt):
+    # An open question (stage-accumulator 6.8), not a fault: an EmulatorError
+    # before any lane is written (E04-19).
     state, acc, res = _setup(fmt, "ACC.STRIDE 16 off off LR0", f"stride-{fmt}")
     state.regfile.set_lr(0, 1)  # start lane 32: lanes 96..127 of the result do not fit
-    with pytest.raises(struct.error):
+    with pytest.raises(EmulatorError, match="past the end of R_ACC"):
         run_until_complete(state)
-    assert _acc_lanes(state) == _pack(fmt, acc[:32] + res[:96])
+    assert _acc_lanes(state) == _pack(fmt, acc)
 
 
 def _one(fmt: ElementFormat) -> bytes:

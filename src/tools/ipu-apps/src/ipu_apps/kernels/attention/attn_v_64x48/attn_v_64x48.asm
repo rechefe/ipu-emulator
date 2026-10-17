@@ -58,9 +58,10 @@
 # Inner-loop pipeline (per the matmul template):
 #   LD.MULT offset is read LIVE -> ADD p_ptr +1 row co-issues; start p_ptr
 #     at (first P row - 1) so the first live load hits the first row.
-#   AGG dest_slot is read from SNAPSHOT; INC agg_slot co-issues -> AGG sees
-#     0,1,..,63.
-#   BLT.S reads SNAPSHOT -> bound 63 gives exactly 64 bundles (dest 0..63).
+#   AGG dest_slot is read post-LR-write (forwarded); INC agg_slot co-issues,
+#     so start agg_slot at -1 -> AGG sees 0,1,..,63.
+#   BLT.S (Control stage) reads the cycle-start value -1..62 -> bound 62
+#     gives exactly 64 bundles (dest 0..63).
 #
 #   MULT SNAPSHOT CONTRACT (issue #157): MULT.RC.VV reads its R0 DATA from the
 #   start-of-cycle snapshot, so it cannot consume a P row loaded by
@@ -69,8 +70,8 @@
 #   multiplies the row loaded last cycle while prefetching the next query's.
 #   The V channel in R_CYCLIC is loaded two bundles ahead of the loop and never
 #   reloaded inside it, so it is already snapshot-safe.
-#   agg_slot is unaffected -- both of its readers (AGG and BLT.S) take the
-#   SNAPSHOT, so INC stays co-issued and the dest sequence is still 0..63.
+#   agg_slot is unaffected by this -- INC stays co-issued and the dest
+#   sequence is still 0..63.
 #
 # Registers are referred to below by the symbolic names defined in the
 # register-name block. The assembler's Jinja2 preprocessor substitutes them
@@ -86,7 +87,7 @@
 # ---------------------------------------------------------------------------
 {% set p_ptr            = "lr0"  %}  {# P inner load offset (live +1 row per query) #}
 {% set rc_slot0         = "lr2"  %}  {# const 0: r_cyclic index #}
-{% set agg_slot         = "lr3"  %}  {# AGG dest slot = inner query counter 0..63 #}
+{% set agg_slot         = "lr3"  %}  {# AGG dest slot: -1..62 at cycle start, 0..63 after the INC #}
 {% set chan_off         = "lr4"  %}  {# V/O channel row offset, += 1 per (b,t) step #}
 {% set chan_index       = "lr7"  %}  {# head-channel counter t #}
 {% set blk_index        = "lr8"  %}  {# block counter b (stream, head) #}
@@ -100,7 +101,7 @@
 {% set OUT_BASE         = "cr4"  %}  {# channel-major O base #}
 {% set P_QUERY_STRIDE   = "cr5"  %}  {# 1 = P query stride (rows) #}
 {% set P_BLOCK_STRIDE   = "cr8"  %}  {# 64 = P rows per (stream, head) block #}
-{% set INNER_BOUND      = "cr9"  %}  {# 63 = inner bound -> 64 AGG bundles #}
+{% set INNER_BOUND      = "cr9"  %}  {# 62 = inner bound -> 64 AGG bundles #}
 {% set CHAN_COUNT       = "cr10" %}  {# 48 = head channels t per block #}
 {% set BLOCK_COUNT      = "cr11" %}  {# 16 = P * N_HEAD blocks #}
 {% set OUT_CHAN_STRIDE  = "cr12" %}  {# 1 = O channel stride (rows) #}
@@ -119,7 +120,7 @@ t_loop:
     # V channel -> R_CYCLIC (loaded once, reused by all 64 queries).
     LD.MULT.CYCLIC {{ chan_off }} {{ V_BASE }} {{ rc_slot0 }};;  # R_CYCLIC = V[b, 0..63, t]
     SUB {{ p_ptr }} {{ p_block_off }} {{ p_query_stride }};;       # P inner start = block base - 1 row
-    SET {{ agg_slot }} {{ ZERO }};;                                # dest/inner counter = 0
+    SUB {{ agg_slot }} {{ rc_slot0 }} {{ ONE }};;                  # dest/inner counter = -1
     LD.MULT r0 {{ p_ptr }} {{ P_BASE }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};;  # prime query 0's P row
 

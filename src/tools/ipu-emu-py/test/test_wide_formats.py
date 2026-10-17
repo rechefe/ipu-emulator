@@ -547,16 +547,13 @@ class TestWindowActivationFp32:
 
 
 class TestWideVectorStoreOverflow:
-    """A float32 store that overflows must fail exactly as the lane-by-lane store did.
+    """A float32 accumulate that overflows stores +inf in that lane, the IEEE
+    result, and sets the sticky ACC_OVERFLOW flag (E04-23, Q53); the other
+    lanes are correct and nothing raises, whatever the NumPy error policy."""
 
-    ``struct.pack_into("<f", ...)`` zeroes the field, then raises OverflowError
-    on a finite double too large for float32. The whole-row store replays that
-    lane by lane on failure, so a debugger that catches the exception sees the
-    same register: lanes before the offender written, the offender zeroed, the
-    rest untouched.
-    """
+    def test_acc_add_overflow_stores_inf_and_sets_the_flag(self) -> None:
+        from ipu_isa.faults import ArithmeticEvent
 
-    def test_acc_add_overflow_leaves_the_lane_by_lane_state(self) -> None:
         state = make_state("ACC.ADD ;;", fmt=ElementFormat.FP32)
         k = 5
         acc = [1.0] * LANES
@@ -566,17 +563,11 @@ class TestWideVectorStoreOverflow:
         state.regfile.mutable("mult_res")[:] = struct.pack(f"<{LANES}f", *mult)
 
         with np.errstate(all="raise"):
-            with pytest.raises(OverflowError, match="float too large to pack with f format"):
-                Ipu(state).execute_vliw_cycle()
+            Ipu(state).execute_vliw_cycle()
 
-        expected = [3.0] * k + [0.0] + [1.0] * (LANES - k - 1)
+        expected = [3.0] * k + [float("inf")] + [3.0] * (LANES - k - 1)
         assert state.regfile.view("r_acc")[:] == struct.pack(f"<{LANES}f", *expected)
-        # and the lane-by-lane reference, run on a fresh copy, agrees byte for byte
-        ref = bytearray(struct.pack(f"<{LANES}f", *acc))
-        with pytest.raises(OverflowError):
-            for i in range(LANES):
-                struct.pack_into("<f", ref, i * 4, acc[i] + mult[i])
-        assert state.regfile.view("r_acc")[:] == ref
+        assert state.arith_flags == {ArithmeticEvent.ACC_OVERFLOW}
 
 
 class TestWideVectorNumpyErrorPolicy:

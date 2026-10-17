@@ -183,6 +183,17 @@ class Issuer:
         alias = _record_alias(ipu, plan, operands, inst, identity) if plan.alias_checks else None
         return IssueFacts(op.slot, plan, encoded, operands, identity, alias, op.lr_writes, mask)
 
+    def operands_of(self, op: IssuedOp) -> dict[str, Any]:
+        """*op*'s operands as its handler would get them now, with nothing
+        issued: no counter, no observer (the precise-fault check, E04-20).
+        Also points the cycle view at *op*'s plan, as issuing does."""
+        ipu = self._ipu()
+        plan = op.plan
+        ipu._view.plan = plan
+        if plan.reads:
+            return self._resolve(plan, op.operands, ipu._snapshot_buffer)
+        return dict(op.operands)
+
     def dispatch(self, op: IssuedOp, inst: Mapping[str, int]) -> Any:
         """:meth:`issue` then :meth:`execute`, fused for the cycle's hot path.
 

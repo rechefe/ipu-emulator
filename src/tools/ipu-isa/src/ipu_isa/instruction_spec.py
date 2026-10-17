@@ -881,7 +881,7 @@ INSTRUCTION_SPEC = {
         },
         "AGG.SUM.FIRST": {
             "operands": [
-                {"name": "dest_slot", "type": "LrIdx", "read": "cycle_start"},
+                {"name": "dest_slot", "type": "LrIdx", "read": "forwarded"},
                 {"name": "cr_idx", "type": "DstructureCrIdx"},
             ],
             "doc": InstructionDoc(
@@ -912,7 +912,7 @@ INSTRUCTION_SPEC = {
         },
         "AGG.SUM": {
             "operands": [
-                {"name": "dest_slot", "type": "LrIdx", "read": "cycle_start"},
+                {"name": "dest_slot", "type": "LrIdx", "read": "forwarded"},
                 {"name": "cr_idx", "type": "DstructureCrIdx"},
             ],
             "doc": InstructionDoc(
@@ -944,7 +944,7 @@ INSTRUCTION_SPEC = {
         },
         "AGG.MAX.FIRST": {
             "operands": [
-                {"name": "dest_slot", "type": "LrIdx", "read": "cycle_start"},
+                {"name": "dest_slot", "type": "LrIdx", "read": "forwarded"},
                 {"name": "cr_idx", "type": "DstructureCrIdx"},
             ],
             "doc": InstructionDoc(
@@ -976,7 +976,7 @@ INSTRUCTION_SPEC = {
         },
         "AGG.MAX": {
             "operands": [
-                {"name": "dest_slot", "type": "LrIdx", "read": "cycle_start"},
+                {"name": "dest_slot", "type": "LrIdx", "read": "forwarded"},
                 {"name": "cr_idx", "type": "DstructureCrIdx"},
             ],
             "doc": InstructionDoc(
@@ -1008,8 +1008,8 @@ INSTRUCTION_SPEC = {
         },
         "ACC.RESHAPE": {
             "operands": [
-                {"name": "source", "type": "LrdIdx", "read": "cycle_start"},
-                {"name": "dest", "type": "LrdIdx", "read": "cycle_start"},
+                {"name": "source", "type": "LrdIdx", "read": "forwarded"},
+                {"name": "dest", "type": "LrdIdx", "read": "forwarded"},
                 {"name": "reshape_mask", "type": "LrOrReshapeMaskImmediate"},
             ],
             "doc": InstructionDoc(

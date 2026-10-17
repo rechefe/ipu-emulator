@@ -8,11 +8,12 @@ from __future__ import annotations
 
 import weakref
 from collections.abc import Callable
-from dataclasses import replace
-from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING, Any, Literal
 
 from ipu_emu.activations import AaqOptions, ActivationParams
 from ipu_emu.errors import ConfigurationError
+from ipu_emu.fault_control import FaultControl
 from ipu_emu.inst_mem import InstMem
 from ipu_emu.ipu_config import DEFAULT_DSTRUCTURE_CR
 from ipu_emu.numerics import LaneCodec, codec_for
@@ -28,6 +29,7 @@ from ipu_isa.constants import (
     decode_dstructure,
     encode_dstructure,
 )
+from ipu_isa.faults import ArithmeticEvent, FaultId
 from ipu_isa.formats import FORMATS, ElementFormat, FormatInfo
 from ipu_isa.geometry import INST_MEM_WORDS
 
@@ -36,6 +38,9 @@ if TYPE_CHECKING:
 
 #: Instruction-memory depth, as the emulator names it.
 INST_MEM_SIZE = INST_MEM_WORDS
+
+#: Cycles a run may take before it faults F-9 (L3). 0 disables the check.
+DEFAULT_CYCLE_LIMIT = 1_000_000
 
 
 def _geometry():
@@ -71,6 +76,21 @@ def _check_format(fmt: object) -> ElementFormat:
         ) from None
 
 
+@dataclass(frozen=True)
+class HaltRecord:
+    """Why and where the program stopped (IPU-FLT-4).
+
+    Attributes:
+        reason: ``"halt"`` for a HALT word, ``"fault"`` for a fault.
+        pc: The PC of the HALT or faulting word.
+        fault: The fault, or ``None`` for a HALT.
+    """
+
+    reason: Literal["halt", "fault"]
+    pc: int
+    fault: FaultId | None
+
+
 class IpuState:
     """Complete IPU processor state.
 
@@ -85,6 +105,15 @@ class IpuState:
         aaq:             The AAQ stage's emulator-only options.
         prototyping:     Whether the opt-in fast paths are active (emulator-only).
         quit_requested:  The debugger quit the last run before it finished.
+        halt:            Set when a HALT word retires or a word faults; ``None``
+                         while the program runs. Cleared when a run starts.
+        faults:          Fault enable bits and sticky flags (``FaultControl``);
+                         every fault enabled after construction.
+        cycle_limit:     Cycles a run may take before it faults F-9; 0 means
+                         no limit. A runner's ``max_cycles`` sets it.
+        program_length:  Words of the loaded program: a fetch at or past it
+                         is fault F-2. ``load_program`` sets it; a state whose
+                         IMEM is written directly keeps all of IMEM.
     """
 
     def __init__(
@@ -115,12 +144,21 @@ class IpuState:
         self.regfile = RegFile()
         self.xmem = XMem()
         self.program_counter: int = 0
+        self.halt: HaltRecord | None = None
+        self.program_length: int = INST_MEM_SIZE
+        self.cycle_limit: int = DEFAULT_CYCLE_LIMIT
+        self.faults = FaultControl()
         self.stats = RunStats()
         self.alias_profile = alias_profile
         self.stats.alias_profile = alias_profile
         self._inst_mem = InstMem(INST_MEM_SIZE)
         #: Observers every cycle on this state calls (add_cycle_observer).
         self.cycle_observers: tuple[CycleObserver, ...] = ()
+        self.fault_observers: tuple[Callable[[HaltRecord], None], ...] = ()
+        # Sticky arithmetic flags (E04-23): set by ACC and AGG, never by a
+        # fault, cleared only when the state is built or reset (no run clears them).
+        self.arith_flags: set[ArithmeticEvent] = set()
+        self.arith_observers: tuple[Callable[[frozenset[ArithmeticEvent]], None], ...] = ()
         # Set when a debugger quit the last run before the program finished
         # (emulator-only; cleared at the start of every run).
         self.quit_requested: bool = False
@@ -171,9 +209,11 @@ class IpuState:
         """Return to the reset state, in element format *fmt* if given.
 
         Clears the registers (to their reset values, CR15 the default
-        dstructure), XMEM, the program counter and the run statistics. The
-        instruction memory, the activation parameters, the AAQ options, the
-        prototyping mode and the observers are kept.
+        dstructure), XMEM, the program counter, the halt record, the run
+        statistics and the arithmetic flags, and sets every fault enable bit
+        and clears the sticky fault flags (IPU-FLT-6). The instruction memory
+        and program length, the cycle limit, the activation parameters, the
+        AAQ options, the prototyping mode and the observers are kept.
 
         Args:
             fmt: The new element format; the current one if omitted.
@@ -190,8 +230,11 @@ class IpuState:
         )
         self.xmem.clear()
         self.program_counter = 0
+        self.halt = None
         self.stats.reset()
         self.quit_requested = False
+        self.faults.reset()
+        self.arith_flags.clear()
 
     # -- observers -----------------------------------------------------------
 
@@ -218,6 +261,57 @@ class IpuState:
                 state.cycle_observers = tuple(o for o in state.cycle_observers if o is not observer)
 
         return remove
+
+    def add_fault_observer(self, fn: Callable[[HaltRecord], None]) -> Callable[[], None]:
+        """Call ``fn(halt)`` each time a fault halts this state (:meth:`record_fault`).
+
+        Returns:
+            A function that detaches it; calling it twice is harmless.
+        """
+        self.fault_observers = self.fault_observers + (fn,)
+        ref = weakref.ref(self)
+
+        def remove() -> None:
+            state = ref()
+            if state is not None:
+                state.fault_observers = tuple(o for o in state.fault_observers if o is not fn)
+
+        return remove
+
+    def record_arith(self, events: frozenset[ArithmeticEvent]) -> None:
+        """Set *events*' sticky flags and tell the arithmetic observers. An
+        event never halts (Q53)."""
+        self.arith_flags |= events
+        for observer in self.arith_observers:
+            observer(events)
+
+    def add_arith_observer(
+        self, fn: Callable[[frozenset[ArithmeticEvent]], None]
+    ) -> Callable[[], None]:
+        """Call ``fn(events)`` each time ACC or AGG reports arithmetic events.
+
+        Returns:
+            A function that detaches it; calling it twice is harmless.
+        """
+        self.arith_observers = self.arith_observers + (fn,)
+        ref = weakref.ref(self)
+
+        def remove() -> None:
+            state = ref()
+            if state is not None:
+                state.arith_observers = tuple(o for o in state.arith_observers if o is not fn)
+
+        return remove
+
+    def record_fault(self, fault: FaultId, pc: int) -> HaltRecord:
+        """Halt on *fault* at *pc*: set its sticky flag and ``halt``, then tell
+        the fault observers. The one place a fault is recorded (the cycle's
+        faults and the run's F-9 both come here)."""
+        self.faults.sticky.add(fault)
+        self.halt = HaltRecord("fault", pc, fault)
+        for observer in self.fault_observers:
+            observer(self.halt)
+        return self.halt
 
     # -- CR dstructure convenience (CR15 = valid_elements[7:0] | partition[12:8] | pad_mode[14:13]) --
 
@@ -362,8 +456,9 @@ class IpuState:
 
     @property
     def is_halted(self) -> bool:
-        """True if PC has run past instruction memory."""
-        return self.program_counter >= INST_MEM_SIZE
+        """True once a HALT word retired or a word faulted (``halt`` is set),
+        or the PC is past instruction memory (where a debugger's quit moves it)."""
+        return self.halt is not None or self.program_counter >= INST_MEM_SIZE
 
     # -- serialisation ------------------------------------------------------
 

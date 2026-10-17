@@ -2,8 +2,11 @@
 
 Every handler is one path for every element format (Q43, Q48): it loads
 MULT_RES and R_ACC lanes through the active codec (``ipu._codec``), computes
-with ``codec.add``/``sub``/``max`` and stores with ``codec.store_acc``, which
-rounds once and fails lane by lane exactly as ``struct.pack_into`` did.
+with ``codec.acc_add``/``acc_sub``/``max`` and stores with
+``codec.store_acc_events``, which rounds once and stores the IEEE result (an
+overflow is an infinity, an integer wraps). The events it reports
+(accumulator overflow, NaN result) set the state's sticky arithmetic flags
+and never halt (E04-23, Q53).
 """
 
 from __future__ import annotations
@@ -21,6 +24,7 @@ from ipu_isa.acc_stride_enums import (
     get_horizontal_stride_bits,
     get_vertical_stride_bits,
 )
+from ipu_isa.faults import FaultId
 from ipu_isa.geometry import LANES
 from ipu_isa.reshape_mask import RESHAPE_ELEMENT_COUNT, RESHAPE_MASK_LR_OFFSET
 
@@ -49,8 +53,15 @@ def _operands(ipu: Ipu) -> tuple[LaneCodec, np.ndarray, np.ndarray]:
     return codec, acc, res
 
 
+def _store_events(ipu: Ipu, codec: LaneCodec, out: memoryview, lanes: np.ndarray) -> None:
+    """Store accumulator lanes into *out*; record the arithmetic events."""
+    events = codec.store_acc_events(out, lanes)
+    if events:
+        ipu.state.record_arith(events)
+
+
 def _store_acc(ipu: Ipu, codec: LaneCodec, lanes: np.ndarray) -> None:
-    codec.store_acc(ipu.state.regfile.mutable("r_acc"), lanes)
+    _store_events(ipu, codec, ipu.state.regfile.mutable("r_acc"), lanes)
 
 
 def _store_mult_res_in_acc(ipu: Ipu) -> None:
@@ -63,7 +74,7 @@ def _store_mult_res_in_acc(ipu: Ipu) -> None:
 def execute_acc_add(ipu: Ipu) -> None:
     """Execute ACC.ADD: Accumulate mult_res into accumulator (running add)."""
     codec, acc, res = _operands(ipu)
-    _store_acc(ipu, codec, codec.add(acc, res))
+    _store_acc(ipu, codec, codec.acc_add(acc, res))
 
 
 def execute_acc_add_first(ipu: Ipu) -> None:
@@ -85,7 +96,7 @@ def execute_acc_max_first(ipu: Ipu) -> None:
 def execute_acc_sub(ipu: Ipu) -> None:
     """Execute ACC.SUB: Subtract MULT_RES from each R_ACC element (running subtract)."""
     codec, acc, res = _operands(ipu)
-    _store_acc(ipu, codec, codec.sub(acc, res))
+    _store_acc(ipu, codec, codec.acc_sub(acc, res))
 
 
 def execute_acc_sub_first(ipu: Ipu) -> None:
@@ -93,7 +104,7 @@ def execute_acc_sub_first(ipu: Ipu) -> None:
     codec = ipu._codec
     res = codec.load_acc(ipu._view.read("mult_res"))
     # 0 - x, not -x: for x = +0.0 that is +0.0, where negation flips the sign bit.
-    _store_acc(ipu, codec, codec.sub(np.zeros_like(res), res))
+    _store_acc(ipu, codec, codec.acc_sub(np.zeros_like(res), res))
 
 
 # ---------------------------------------------------------------------------
@@ -163,58 +174,82 @@ def execute_acc_stride(
 
     Operand semantics from ipu_isa.acc_stride_enums (single source of truth).
     offset: LR value; (offset % 4) * 32 is the start index in r_acc (0, 32, 64, or 96).
-    A result that runs past R_ACC's last lane writes the lanes that fit, then
-    raises ``struct.error`` (what the lane-by-lane ``struct.pack_into`` did).
+    A result that runs past R_ACC's last lane raises ``EmulatorError`` before
+    any lane is written: the ISA leaves it undefined (stage-accumulator 6.8),
+    an open question rather than a fault.
     """
     indices, pad = _stride_gather(elements_in_row, horizontal_stride, vertical_stride)
     base = (offset % 4) * 32
     codec = ipu._codec
     res = codec.load_acc(ipu._view.read("mult_res"))
     values = np.where(pad, np.zeros_like(res[:1]), res[indices])
+    fit = LANES - base
+    if len(values) > fit:
+        # The ISA leaves start + N > R_ACC undefined (stage-accumulator 6.8):
+        # an open question, not a fault yet, so an EmulatorError before any
+        # lane is written.
+        raise EmulatorError(
+            f"ACC.STRIDE writes {len(values)} elements from lane {base}, "
+            f"past the end of R_ACC ({LANES} lanes)"
+        )
     # From the first lane written to the end of R_ACC.
     acc_buf = ipu.state.regfile.mutable("r_acc", base * _ACC_LANE_BYTES)
-    fit = LANES - base
-    codec.store_acc(acc_buf, values[:fit])
-    if len(values) > fit:
-        # The next lane does not fit: raise struct's own error, as the lane loop did.
-        struct.pack_into("<I", acc_buf, fit * _ACC_LANE_BYTES, 0)
+    _store_events(ipu, codec, acc_buf, values)
+
+
+def _reshape_operands(
+    ipu: Ipu, source: int, dest: int, reshape_mask: int
+) -> tuple[bytes, bytes, int]:
+    """ACC.RESHAPE's source and destination index bytes and its mask, read
+    through the view the instruction declares."""
+    src_bytes = lrd_bytes(ipu._view.source("lr", "source"), source)
+    dst_bytes = lrd_bytes(ipu._view.source("lr", "dest"), dest)
+    if reshape_mask >= RESHAPE_MASK_LR_OFFSET:
+        mask = ipu._view.lr(reshape_mask - RESHAPE_MASK_LR_OFFSET, "reshape_mask")
+    else:
+        mask = reshape_mask
+    return src_bytes, dst_bytes, mask
+
+
+def check_acc_reshape(
+    ipu: Ipu, *, source: int, dest: int, reshape_mask: int
+) -> tuple[FaultId, str] | None:
+    """F-5: a mask above RESHAPE_ELEMENT_COUNT, or a participating source or
+    destination index of LANES or more."""
+    src_bytes, dst_bytes, mask = _reshape_operands(ipu, source, dest, reshape_mask)
+    if mask > RESHAPE_ELEMENT_COUNT:
+        return (
+            FaultId.F5,
+            f"ACC.RESHAPE reshape_mask value {mask} exceeds RESHAPE_ELEMENT_COUNT "
+            f"({RESHAPE_ELEMENT_COUNT})",
+        )
+    for i in range(mask, RESHAPE_ELEMENT_COUNT):
+        if src_bytes[i] >= LANES or dst_bytes[i] >= LANES:
+            return (
+                FaultId.F5,
+                f"ACC.RESHAPE element {i}: source={src_bytes[i]}, dest={dst_bytes[i]} "
+                f"must both be in [0, {LANES - 1}]",
+            )
+    return None
 
 
 def execute_acc_reshape(ipu: Ipu, *, source: int, dest: int, reshape_mask: int) -> None:
     """Execute ACC.RESHAPE: scatter MULT_RES elements into R_ACC via two LRDn byte-index arrays.
 
     ``source``/``dest`` are LrdIdx pair indices (0-7); each resolves to 8 byte
-    elements read from the pre-instruction snapshot. Only the trailing
+    elements read after the same word's LR writes (forwarded, Q32). Only the trailing
     (RESHAPE_ELEMENT_COUNT - mask) elements (indices mask..RESHAPE_ELEMENT_COUNT-1)
     participate, where mask is either the immediate value (encoded 0-7) or
     the value of the specified LR register (encoded >= RESHAPE_MASK_LR_OFFSET,
     LR_index = encoded - RESHAPE_MASK_LR_OFFSET). A resolved mask greater than
-    RESHAPE_ELEMENT_COUNT raises rather than being clamped. All MULT_RES reads
-    come from the pre-instruction snapshot; a participating source[i]/dest[i]
-    outside [0, 127] raises rather than being silently skipped.
+    RESHAPE_ELEMENT_COUNT, or a participating source[i]/dest[i] outside
+    [0, 127], is fault F-5, found by :func:`check_acc_reshape` before the word
+    runs. All MULT_RES reads come from the pre-instruction snapshot.
     """
-    src_bytes = lrd_bytes(ipu._view.source("lr", "source"), source)
-    dst_bytes = lrd_bytes(ipu._view.source("lr", "dest"), dest)
-
-    if reshape_mask >= RESHAPE_MASK_LR_OFFSET:
-        lr_idx = reshape_mask - RESHAPE_MASK_LR_OFFSET
-        mask = ipu._view.lr(lr_idx, "reshape_mask")
-    else:
-        mask = reshape_mask
-    if mask > RESHAPE_ELEMENT_COUNT:
-        raise EmulatorError(
-            f"ACC.RESHAPE reshape_mask value {mask} exceeds RESHAPE_ELEMENT_COUNT "
-            f"({RESHAPE_ELEMENT_COUNT})"
-        )
-
+    src_bytes, dst_bytes, mask = _reshape_operands(ipu, source, dest, reshape_mask)
     mult_res = ipu._view.read("mult_res")
     writes = []
     for i in range(mask, RESHAPE_ELEMENT_COUNT):
-        if src_bytes[i] >= LANES or dst_bytes[i] >= LANES:
-            raise EmulatorError(
-                f"ACC.RESHAPE element {i}: source={src_bytes[i]}, dest={dst_bytes[i]} "
-                f"must both be in [0, {LANES - 1}]"
-            )
         writes.append((dst_bytes[i], struct.unpack_from("<I", mult_res, src_bytes[i] * 4)[0]))
     for dest_idx, value in writes:
         ipu.state.regfile.set_r_acc_word(dest_idx, value)
@@ -243,7 +278,7 @@ def _agg_dest(ipu: Ipu, codec: LaneCodec, dest: int) -> np.ndarray:
 def _store_dest(ipu: Ipu, codec: LaneCodec, dest: int, value: np.ndarray | float | int) -> None:
     """Write one accumulator lane to R_ACC[dest]."""
     out = ipu.state.regfile.mutable("r_acc", dest * _ACC_LANE_BYTES, _ACC_LANE_BYTES)
-    codec.store_acc(out, np.asarray(value).reshape(1))
+    _store_events(ipu, codec, out, np.asarray(value).reshape(1))
 
 
 def _fold_sum(lanes: list) -> float | int:
@@ -277,7 +312,7 @@ def execute_agg_sum(ipu: Ipu, *, dest_slot: int, cr_idx: int) -> None:
     """Execute AGG.SUM: sum active MULT_RES elements and add to R_ACC[dest] (running accumulation)."""
     codec, lanes, dest = _agg_inputs(ipu, cr_idx, dest_slot)
     partial = np.asarray([_fold_sum(lanes)])
-    _store_dest(ipu, codec, dest, codec.add(partial, _agg_dest(ipu, codec, dest)))
+    _store_dest(ipu, codec, dest, codec.acc_add(partial, _agg_dest(ipu, codec, dest)))
 
 
 def execute_agg_max_first(ipu: Ipu, *, dest_slot: int, cr_idx: int) -> None:

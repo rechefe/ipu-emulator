@@ -197,7 +197,9 @@ def run_case(
     if recorder is not None:
         recorder.finish(state, cycles, bindings.get("output_path"))
     if not state.is_halted:
-        raise RuntimeError(f"{kernel_name} did not complete within {limit} cycles")
+        # The cycle limit is fault F-9, raised by the run; this is a harness
+        # that returned before its program halted.
+        raise RuntimeError(f"{kernel_name} returned before its program halted")
     if output_path is not None:
         source = bindings.get("output_path")
         if source is None:

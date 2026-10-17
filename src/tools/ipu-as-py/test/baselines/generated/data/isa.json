@@ -88,12 +88,12 @@
         "operands": [
           {
             "name": "source",
-            "read": "cycle_start",
+            "read": "forwarded",
             "type": "LrdIdx"
           },
           {
             "name": "dest",
-            "read": "cycle_start",
+            "read": "forwarded",
             "type": "LrdIdx"
           },
           {
@@ -324,7 +324,7 @@
         "operands": [
           {
             "name": "dest_slot",
-            "read": "cycle_start",
+            "read": "forwarded",
             "type": "LrIdx"
           },
           {
@@ -354,7 +354,7 @@
         "operands": [
           {
             "name": "dest_slot",
-            "read": "cycle_start",
+            "read": "forwarded",
             "type": "LrIdx"
           },
           {
@@ -384,7 +384,7 @@
         "operands": [
           {
             "name": "dest_slot",
-            "read": "cycle_start",
+            "read": "forwarded",
             "type": "LrIdx"
           },
           {
@@ -414,7 +414,7 @@
         "operands": [
           {
             "name": "dest_slot",
-            "read": "cycle_start",
+            "read": "forwarded",
             "type": "LrIdx"
           },
           {

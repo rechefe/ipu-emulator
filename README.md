@@ -95,7 +95,7 @@ Development
 ### Python dependencies
 
 Bazel installs third-party Python packages from `requirements_lock.txt`, a
-committed, hash-pinned lock compiled from the four `pyproject.toml` files and
+committed, hash-pinned lock compiled from the packages' `pyproject.toml` files and
 `tools/requirements-tools.in` (repository tools such as `uv`). Fetching never
 resolves versions, so every checkout of a commit tests against the same
 packages. After adding or changing a dependency, refresh the lock and commit
@@ -114,6 +114,13 @@ and `docs` extras) go on the test and docs targets that use them, as
 `requirement("pytest")`. Changing a runtime dependency means editing both
 `pyproject.toml` and `deps.bzl`, then refreshing the lock;
 `//tools:deps_consistency_test` fails if either step is missed.
+
+PyTorch is test-only (the shared kernel references, `ipu-kernels`' `dev`
+extra). It is the CPU wheel from PyTorch's own index: `ipu-kernels`'
+`pyproject.toml` names the index for `uv`, and `pip.parse` in `MODULE.bazel`
+adds it as an extra index. Only targets with `requirement("torch")` fetch it,
+but `//src/tools/ipu-kernels:test_reference_ops` is one of them and is in the
+default tier, so a cold `bazel test //...` downloads the ~200 MB wheel once.
 
 Notes
 -----

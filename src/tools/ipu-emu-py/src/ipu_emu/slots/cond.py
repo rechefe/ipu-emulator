@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ipu_emu.ipu_state import INST_MEM_SIZE
+from ipu_emu.ipu_state import INST_MEM_SIZE, HaltRecord
 from ipu_isa.constants import LR_CR_SCALAR_BITS
 
 if TYPE_CHECKING:
@@ -48,8 +48,10 @@ def execute_br(ipu: Ipu, *, reg: int) -> None:
 
 
 def execute_halt(ipu: Ipu) -> None:
-    """Execute HALT: end the kernel once this word has retired."""
-    ipu.state.program_counter = INST_MEM_SIZE  # halt
+    """Execute HALT: record the halt at this word, then move the PC past
+    IMEM. COND runs last, so the rest of the word has retired."""
+    ipu.state.halt = HaltRecord("halt", ipu.state.program_counter, None)
+    ipu.state.program_counter = INST_MEM_SIZE
 
 
 def execute_cond_nop(ipu: Ipu) -> None:

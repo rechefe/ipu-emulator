@@ -85,6 +85,15 @@ This is `TESTNEG`'s, in `lr.py`:
 - A slot module never imports another one. A helper two slots need goes in
   `ipu_emu/geometry.py` or on `CycleView`; one only this slot uses stays a
   private function in the module.
+- The handler never raises a fault. If the instruction can fault on register
+  values (an XMEM row out of range, an index the ISA forbids), add
+  `check_<name>(ipu, *, <operands>)` beside it, with the same parameters,
+  returning `(FaultId, detail)` or `None`. The emulator binds it by that name
+  and runs it in each word's check phase, before any slot but LR has run, so a
+  faulting word has no effect ([Faults](../requirements/faults.md)).
+  `check_ld_mult_cyclic` in `load.py` is a short example. A fault decided by
+  the encoding alone (a reserved operand code) needs nothing: the emulator
+  finds it at fetch.
 
 ## Step 3: the test
 
