@@ -47,10 +47,15 @@ scratch copy of the tree, not through Bazel.
    the E07-26 trace move. The width table in `test_width_routing_boundaries`
    names `conv_universal_wide384`: edit it, don't delete it, when E07-19
    removes wide384.
-6. **Latent bugs, noted and not fixed** (the coordinator files issues): the
-   chunk count (`num_chunks`) rounds down while the pack rounds up (height 17,
-   width 16), and the pointwise weight file truncates. Do not fix them in a
-   refactor. Keep the programs' digests.
+6. **Latent bugs, noted and not fixed**, filed as issues:
+   - #258: the chunk count (`num_chunks`) rounds down while the pack rounds up
+     (height 17, width 16);
+   - #259: an oversize file is truncated (the pointwise weight file).
+
+   Do not fix them in a refactor. Keep the programs' digests.
+8. **The `conv_universal` Cycle Inspector trace move goes to lane A, at
+   E07-25** (lane E has ended). Until then the frozen old folder and the
+   family `app.py`, `cases.py` and `test.py` stay.
 7. **The proof comes first, then the seeded generators.** Run the E07-01
    checklist from poisoned registers, then switch the cases to the seeded
    generators in a follow-up commit and re-measure the tolerance. E07-17's
