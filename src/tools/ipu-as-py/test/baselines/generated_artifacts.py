@@ -30,12 +30,7 @@ NORMALIZATIONS: tuple[tuple[str, str], ...] = ()
 
 
 def _all_docs(out: Path) -> None:
-    docs_pages.generate_all_docs(
-        out / "instructions.md",
-        out / "operand-types.md",
-        out / "assembly-syntax.md",
-        out / "programmer-guide.md",
-    )
+    docs_pages.generate_all_docs(out)
 
 
 def _instruction_format(out: Path) -> None:
@@ -64,7 +59,7 @@ PRODUCERS = (
     Producer(
         "ipu_gen.docs_pages.generate_all_docs (//docs:generate_mkdocs_md)",
         _all_docs,
-        ("instructions.md", "operand-types.md", "assembly-syntax.md", "programmer-guide.md"),
+        docs_pages.REFERENCE_PAGES,
     ),
     Producer(
         "ipu_gen.docs_pages.generate_instruction_format_md (//docs:generate_instruction_format_md)",

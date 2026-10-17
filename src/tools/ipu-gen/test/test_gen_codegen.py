@@ -252,9 +252,11 @@ def test_cli_writes_the_docs_pages_and_the_union_svg(tmp_path: Path):
     assert CliRunner().invoke(cli, ["docs-pages", str(pages)]).exit_code == 0
     assert sorted(p.name for p in pages.iterdir()) == [
         "assembly-syntax.md",
+        "configuration-registers.md",
         "instructions.md",
         "operand-types.md",
         "programmer-guide.md",
+        "registers.md",
     ]
     svg = tmp_path / "union.svg"
     assert CliRunner().invoke(cli, ["union-layout-svg", str(svg)]).exit_code == 0

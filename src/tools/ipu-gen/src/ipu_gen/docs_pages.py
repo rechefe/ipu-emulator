@@ -7,16 +7,36 @@ and instruction-format pages. ``ipu-gen docs-pages OUT_DIR`` and
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 
-from ipu_as.inst import render_opcode_doc, render_slot_docs
 from ipu_gen.layout_svg import struct_layout_svg, union_layout_svg
+from ipu_isa.constants import (
+    CR_ONE_REG_INDEX,
+    CR_ONE_REG_VALUE,
+    CR_ZERO_REG_INDEX,
+    CR_ZERO_REG_VALUE,
+    DEFAULT_PAD_MODE,
+    DEFAULT_PARTITION,
+    DEFAULT_VALID_ELEMENTS,
+    DSTRUCTURE_PAD_MODE_BITS,
+    DSTRUCTURE_PAD_MODE_SHIFT,
+    DSTRUCTURE_PARTITION_BITS,
+    DSTRUCTURE_PARTITION_SHIFT,
+    DSTRUCTURE_VALID_ELEMENTS_BITS,
+    LR_CR_SCALAR_BITS,
+    PadMode,
+    Partition,
+)
+from ipu_isa.faults import FaultId, instruction_faults
 from ipu_isa.formats import FORMATS
-from ipu_isa.registers import create_assembler_reg_enums
+from ipu_isa.geometry import LANES
+from ipu_isa.instruction_spec import InstructionDoc, syntax
+from ipu_isa.registers import REGISTER_DEFINITIONS, create_assembler_reg_enums
+from ipu_isa.slots import Slot
 from ipu_isa.tags import Tag
 from ipu_isa.timing import KNOWN_DEVIATIONS, SLOT_EXECUTION_ORDER, RegisterAccess, View
-from ipu_isa.view import Isa, isa
+from ipu_isa.view import Instruction, Isa, Operand, isa
 
 
 def _operand_slug(typ: str) -> str:
@@ -47,9 +67,18 @@ def generate_operand_types_md(output_path: Path, view: Isa | None = None) -> Non
 def generate_assembly_syntax_md(output_path: Path) -> None:
     """Write assembly-syntax.md (register table from ipu_isa register enums)."""
     enums = create_assembler_reg_enums()
-    mult_vals = ", ".join(f"`{v}`" for v in enums.get("MultStageRegField", []))
-    lr_vals = enums.get("LrRegField", [])
-    cr_vals = enums.get("CrRegField", [])
+    view = isa()
+    mult_vals = ", ".join(f"`{v.upper()}`" for v in enums.get("MultStageRegField", []))
+    lr_vals = [v.upper() for v in enums.get("LrRegField", [])]
+    cr_vals = [v.upper() for v in enums.get("CrRegField", [])]
+    hardware = ", ".join(
+        f"`{slot.value.upper()}`"
+        + (f"×{view.slots[slot].count}" if view.slots[slot].count > 1 else "")
+        for slot in view.layout.slots_with_tag(Tag.HARDWARE)
+    )
+    emulator = ", ".join(
+        f"`{slot.value.upper()}`" for slot in view.layout.slots_with_tag(Tag.EMULATOR)
+    )
     lr_span = f"`{lr_vals[0]}`–`{lr_vals[-1]}`" if lr_vals else ""
     cr_span = f"`{cr_vals[0]}`–`{cr_vals[-1]}`" if cr_vals else ""
 
@@ -61,7 +90,7 @@ The IPU assembler is a Python-based tool that turns assembly source into binary 
 
 - **Jinja2 preprocessing** — templates and macros for generated assembly
 - **Label resolution** — forward and backward references
-- **VLIW compounds** — multiple pipeline slots per cycle (`LOAD`, `STORE`, `ACC_STORE`†, `MULT`, `ACC`, `AAQ`, `LR`×3, `COND`, `BREAK`; †simulation-only)
+- **VLIW compounds** — multiple pipeline slots per cycle ({hardware}; emulator-only: {emulator})
 - **Syntax validation** — Lark-based parser with detailed errors
 
 ## Basic Syntax
@@ -71,15 +100,17 @@ Assembly is line-oriented. One **compound instruction** may contain several **sl
 ```asm
 # Comments start with # or //
 label:                          # Labels end with a colon
-    LD.MULT r0 lr0 cr0;           # LOAD: load into mult stage r0
-    MULT.RC.VV lr1 r0 0 lr3 cr15; # MULT: element-wise multiply
+    LD.MULT R0 LR0 CR0;           # LOAD: load into mult stage R0
+    MULT.RC.VV LR1 R0 0 LR3 CR15; # MULT: element-wise multiply
     ACC.ADD;                      # ACC: accumulate
-    INC lr0 1;                    # LR: bump address (increment via INC)
-    BNE lr0 lr1 next;             # COND: branch
+    INC LR0 1;                    # LR: bump address (increment via INC)
+    BNE LR0 LR1 next;             # COND: branch
     ;;
+next:
+    HALT;;
 ```
 
-By convention, **instruction mnemonics are written in upper case** in documentation and examples (e.g. `MULT.RC.VV`, `LD.MULT`). **Operand tokens** use **lower case** (`lr0`, `r0`, `cr0`). The assembler accepts **any case** for mnemonics and register tokens.
+By convention, **instruction mnemonics are written in upper case** in documentation and examples (e.g. `MULT.RC.VV`, `LD.MULT`). **Register names** are written in **upper case** (`LR0`, `R0`, `CR0`); operand placeholders such as `dest` are lower case. The assembler accepts **any case** for mnemonics and register tokens.
 
 ## Compound instructions
 
@@ -87,6 +118,7 @@ A full IPU instruction is one **compound** word: several slots execute in parall
 
 **Pattern:**
 
+<!-- asm-fragment: one placeholder per slot, not real instructions -->
 ```asm
 load_inst; mult_inst; acc_inst; aaq_inst; store_inst; acc_store_inst; lr_inst_a; lr_inst_b; lr_inst_c; cond_inst; break_inst;;
 ```
@@ -96,12 +128,13 @@ load_inst; mult_inst; acc_inst; aaq_inst; store_inst; acc_store_inst; lr_inst_a;
 - Each slot appears a fixed number of times (see `SLOT_COUNT` in `instruction_spec.py`); unused slots are filled with that slot’s **NOP** by the assembler.
 - Slot order in the binary word (MSB → LSB) is defined by the toolchain: `cond`, three `lr` sub-slots, `load`, `mult`, `acc`, `aaq`, `store`, `acc_store`, `break` (see the layout diagram on the [Instruction reference](instructions.md#compound-instruction-layout)).
 - The slots of one word execute in a fixed order, and each register read sees either the value at cycle start or the value forwarded from an earlier slot of the same word: see [Execution order and timing](#execution-order-and-timing).
-- The **acc_store** slot (`ST.ACC`) is **simulation-only** — not implemented in real IPU hardware.
+- The emulator-only slots ({emulator}) are not implemented in real IPU hardware: see the [instruction format](instruction-format.md).
 
 **Example (parallel slots):**
 
 ```asm
-LD.MULT r0 lr0 cr0; MULT.RC.VV lr1 r0 0 lr3 cr15; ACC.ADD; INC lr0 1; BNE lr0 lr1 loop;;
+loop:
+LD.MULT R0 LR0 CR0; MULT.RC.VV LR1 R0 0 LR3 CR15; ACC.ADD; INC LR0 1; BNE LR0 LR1 loop;;
 ```
 
 ## Register names
@@ -113,20 +146,20 @@ The mult-stage and scalar register **tokens** below are derived from `REGISTER_D
 | Mult stage | {mult_vals} | 128-byte vectors; 2-bit mult-stage field (`2` reserved). See [MultStageReg](operand-types.md#multstagereg). |
 | Cyclic / mask | *(architectural)* | Cyclic (**RC**) and mask (**RM**) register files are documented per instruction in the reference; operands pass **byte offsets** via `LR` values. |
 | Loop / scalar | {lr_span} | General-purpose; **read/write**. See [LrIdx](operand-types.md#lridx). |
-| Constant | {cr_span} | **Read-only** in assembly; initialized by the harness. **`cr0`** / **`cr1`** are often 0 and 1. **`cr15`** conventionally holds dstructure configuration (see [DstructureCrIdx](operand-types.md#dstructurecridx)) but is a valid `CrIdx`/`LcrIdx` operand like any other CR. See [CrIdx](operand-types.md#cridx). |
+| Constant | {cr_span} | **Read-only** in assembly; initialized by the harness. **`CR0`** / **`CR1`** are often 0 and 1. **`CR15`** conventionally holds dstructure configuration (see [DstructureCrIdx](operand-types.md#dstructurecridx)) but is a valid `CrIdx`/`LcrIdx` operand like any other CR. See [CrIdx](operand-types.md#cridx). |
 
 The **`mem_bypass`** vector may still exist in the **emulator regfile** for debugging, but it is **not** a valid mult-stage assembly operand.
 
-**LR slot:** **`SET`** copies from a **`cr`** register (see [CrIdx](operand-types.md#cridx)); **`ADD`**/**`SUB`**'s **`src_b`** is register-only (see [LcrIdx](operand-types.md#lcridx)) — use **`INC`**/**`DEC`** for an immediate operand instead (see [LrIncDecImmediate](operand-types.md#lrincdecimmediate)); **`INC.MODP2`** uses a dedicated **k** immediate (see [LrModPow2KImmediate](operand-types.md#lrmodpow2kimmediate)).
+**LR slot:** **`SET`** copies from a **`CR`** register (see [CrIdx](operand-types.md#cridx)); **`ADD`**/**`SUB`**'s **`src_b`** is register-only (see [LcrIdx](operand-types.md#lcridx)) — use **`INC`**/**`DEC`** for an immediate operand instead (see [LrIncDecImmediate](operand-types.md#lrincdecimmediate)); **`INC.MODP2`** uses a dedicated **k** immediate (see [LrModPow2KImmediate](operand-types.md#lrmodpow2kimmediate)).
 
 ## Labels and branches
 
 ```asm
 start:
-    SET lr0 cr0;;
+    SET LR0 CR0;;
 loop:
-    INC lr0 1;;
-    BNE lr0 lr1 loop;;
+    INC LR0 1;;
+    BNE LR0 LR1 loop;;
     HALT;;
 ```
 
@@ -163,8 +196,9 @@ a mask of all-zeros deactivates every element.
 `R_MASK` is a 128-byte register packed as **8 independent 128-bit slots** (slots 0–7). Load it
 from XMEM with:
 
+<!-- asm-fragment: operand placeholders -->
 ```asm
-LD.MASK offset, base;;
+LD.MASK offset base;;
 ```
 
 `offset` is an LR register holding the XMEM byte offset; `base` is a CR register holding the
@@ -234,14 +268,14 @@ still be named explicitly via the instruction's CR-index operand — there is no
 
 ```asm
 # LR1 = XMEM byte offset of mask data; CR2 = XMEM base address
-LD.MASK LR1, CR2;;
+LD.MASK LR1 CR2;;
 
 # Load a vector into R0, load cyclic data into R_CYCLIC
-LD.MULT R0, LR0, CR0;;
-LD.MULT.CYCLIC LR2, CR0, LR5;;
+LD.MULT R0 LR0 CR0;;
+LD.MULT.CYCLIC LR2 CR0 LR5;;
 
 # Multiply R0 element-wise vs R_CYCLIC using slot 3, shift index in LR4, accumulate
-MULT.RC.VV LR2, R0, 3, LR4, CR15; ACC.ADD;;
+MULT.RC.VV LR2 R0 3 LR4 CR15; ACC.ADD;;
 ```
 
 `3` is the `mask_offset` (slot 3 of `R_MASK`); `LR4` holds the `mask_shift` index; `CR15` is the
@@ -303,11 +337,11 @@ The assembler runs Jinja2 on the source when `{{`, `{%`, and `{#` appear.
 
 ```jinja2
 {% set off_reg = 6 %}
-SET lr0 cr{{ off_reg }};;
-LD.MULT r0 lr0 cr0;;
+SET LR0 cr{{ off_reg }};;
+LD.MULT R0 LR0 CR0;;
 ```
 
-The harness must initialize **`cr6`** (here: the memory offset) before this program runs.
+The harness must initialize **`CR6`** (here: the memory offset) before this program runs.
 
 ### ABI names
 
@@ -328,14 +362,14 @@ With `[abi]` `data_base = "CR2"` and `data_ptr = "LR0"`, this renders `SET LR0 C
 bazel run //src/tools/ipu-as-py:ipu-as -- assemble --input prog.asm --output prog.bin
 ```
 
-**In Bazel build rules:** use the project’s `ipu_asm` rule (see [Building Applications](building-applications.md)).
+**In Bazel build rules:** use the project’s `ipu_asm` rule (see [Building Applications](../../building-applications.md)).
 
 ## Further reading
 
 - [Operand types](operand-types.md) — field types used in `instruction_spec`
 - [Instruction reference](instructions.md) — per-opcode documentation
-- [Adding instructions](adding-instruction.md)
-- [Building applications](building-applications.md)
+- [Adding instructions](../../adding-instruction.md)
+- [Building applications](../../building-applications.md)
 """
     output_path.write_text(main + timing_section() + masking_section + jinja_tail)
     print(f"Generated assembly syntax page at {output_path}")
@@ -537,6 +571,175 @@ def _generate_formats_section() -> str:
     return "\n".join(lines)
 
 
+# ===========================================================================
+# Instruction reference (Markdown), for the generated docs
+# ===========================================================================
+
+
+def _operand_type_md_link(typ: str) -> str:
+    slug = typ.lower().replace("_", "-")
+    return f"[`{typ}`](operand-types.md#{slug})"
+
+
+def _md_table_cell(text: str) -> str:
+    return text.replace("\n", " ").replace("|", "\\|")
+
+
+#: The fault list, from a page under reference/isa/.
+FAULTS_PAGE = "../../requirements/faults.md#fault-list"
+
+
+def _reads_line(instruction: Instruction) -> str:
+    """``**Reads:** at cycle start ...; forwarded ...`` from the timing contract."""
+    reads = instruction.reads()
+    parts = []
+    cycle_start = [a for a in reads if a.view is View.CYCLE_START]
+    forwarded = [a for a in reads if a.view is View.FORWARDED]
+    if cycle_start:
+        parts.append(f"at cycle start {_accesses(cycle_start)}")
+    if forwarded:
+        parts.append(f"forwarded {_accesses(forwarded)}")
+    return "**Reads:** " + ("; ".join(parts) if parts else "no register") + "."
+
+
+def _faults_line(faults: Iterable[FaultId]) -> str:
+    labels = ", ".join(fault.label for fault in faults)
+    return f"**Faults:** {labels or 'none'} ([fault list]({FAULTS_PAGE}))."
+
+
+def render_slot_docs(slot: str, view: Isa | None = None) -> str:
+    """The reference section of one slot, in Markdown.
+
+    The heading and intro come from the slot registry (``SlotInfo.doc_heading``,
+    ``doc_intro``), then one entry per documented instruction.
+
+    Args:
+        slot: The slot name, e.g. ``"lr"``.
+        view: The ISA; default ``isa()``.
+
+    Returns:
+        The section text.
+
+    Raises:
+        ValueError: ``slot`` is no slot.
+    """
+    view = isa() if view is None else view
+    info = view.slots[Slot(slot)]
+    heading, intro = info.doc_heading, info.doc_intro
+    lines = [f"## {heading}", ""]
+    if info.tag is Tag.EMULATOR:
+        lines.append(
+            "> **Emulator-only slot** — not implemented in real IPU hardware: not in the "
+            "hardware word or the SV package."
+        )
+        lines.append("")
+    if intro.strip():
+        lines.append(intro.strip())
+        lines.append("")
+
+    for instruction in view.instructions(info.slot):
+        if instruction.mnemonic == "NOP":
+            continue  # documented once globally in the Slots section
+        if instruction.doc is None:
+            continue
+        lines.extend(
+            render_opcode_doc(
+                instruction.mnemonic,
+                instruction.doc,
+                instruction.operands,
+                instruction.tag,
+                timing=[
+                    _reads_line(instruction),
+                    _faults_line(instruction_faults(view, instruction)),
+                ],
+            )
+        )
+        lines.append("")
+
+    return "\n".join(lines).rstrip()
+
+
+#: How the instruction reference describes each tag (E03-23).
+TAG_TEXT = {
+    Tag.HARDWARE: "implemented by the IPU",
+    Tag.EMULATOR: "emulator only; not in the hardware word or the SV package",
+    Tag.ASSEMBLER: "expanded by the assembler; no opcode",
+}
+
+
+def render_opcode_doc(
+    opcode: str,
+    doc: InstructionDoc,
+    spec_operands: Sequence[Operand],
+    tag: Tag | None = None,
+    *,
+    timing: Sequence[str] = (),
+) -> list[str]:
+    """Markdown documentation of one opcode or pseudo-instruction.
+
+    Args:
+        opcode: The mnemonic, as written in assembly.
+        doc: Its ``InstructionDoc``.
+        spec_operands: Its operand dicts from the instruction spec, in order.
+        tag: Its tag, shown under the syntax; omitted when ``None``.
+        timing: Lines shown after the tag: its register reads and its faults.
+
+    Returns:
+        The Markdown lines: heading, syntax, tag, operands, and the doc's prose.
+    """
+    lines = [f"### `{opcode}` — {doc.title}", ""]
+    names = [operand.name for operand in spec_operands]
+    lines.append(f"**Syntax:** `{syntax(opcode, names)}`")
+    lines.append("")
+    if tag is not None:
+        lines.append(f"**Tag:** `{tag.name}` ({TAG_TEXT[tag]})")
+        lines.append("")
+    for line in timing:
+        lines.append(line)
+        lines.append("")
+
+    if spec_operands:
+        lines.append(
+            "**Operands:** *(the **Type** column links to the "
+            "[operand type reference](operand-types.md))*"
+        )
+        lines.append("")
+        lines.append("| Name | Type | Details |")
+        lines.append("|------|------|---------|")
+        for i, sop in enumerate(spec_operands):
+            name = sop.name
+            typ = sop.type.name
+            link = _operand_type_md_link(typ)
+            detail = doc.operands[i] if i < len(doc.operands) else "—"
+            lines.append(f"| `{name}` | {link} | {_md_table_cell(detail)} |")
+        lines.append("")
+    elif doc.operands:
+        lines.append("**Operands:**")
+        lines.extend([f"- {operand}" for operand in doc.operands])
+        lines.append("")
+
+    lines.append("**General description:**")
+    lines.append(doc.summary)
+    lines.append("")
+
+    if doc.notes:
+        lines.append(f"> {doc.notes}")
+        lines.append("")
+
+    if doc.operation:
+        lines.append("**Pseudo code:**")
+        lines.append(f"`{doc.operation}`")
+        lines.append("")
+
+    if doc.example:
+        lines.append("**Example of usage:**")
+        lines.append("```asm")
+        lines.append(doc.example)
+        lines.append("```")
+
+    return lines
+
+
 def generate_instruction_docs(output_path: Path, view: Isa | None = None) -> None:
     """Generate instruction reference documentation from ``view`` (default: ``isa()``)."""
 
@@ -595,7 +798,7 @@ These files are produced at documentation build time (and via the `ipu-gen` CLI)
 
 | Artifact | Description | Download |
 |----------|-------------|----------|
-| SystemVerilog package | `ipu_instr_pkg` — enums, per-slot structs (opcode + operand union), per-instruction `union packed` views, the hardware word as the compound type | [ipu_instr_pkg.sv](assets/ipu_instr_pkg.sv) |
+| SystemVerilog package | `ipu_instr_pkg` — enums, per-slot structs (opcode + operand union), per-instruction `union packed` views, the hardware word as the compound type | [ipu_instr_pkg.sv](../../assets/ipu_instr_pkg.sv) |
 
 ### Regenerate locally
 
@@ -624,7 +827,7 @@ def generate_programmer_guide_md(output_path: Path, view: Isa | None = None) -> 
         "Pseudo-instructions are assembly mnemonics that the assembler "
         "expands into a real instruction at compile time. They never get "
         "an opcode and never appear in the binary, so they cost nothing at "
-        "runtime — see [Adding a pseudo-instruction](adding-instruction.md#adding-a-pseudo-instruction) "
+        "runtime — see [Adding a pseudo-instruction](../../adding-instruction.md#adding-a-pseudo-instruction) "
         "for how they're declared. This page is **generated** from "
         "`PSEUDO_INSTRUCTION_SPEC` in `instruction_spec.py`.\n"
     )
@@ -644,15 +847,135 @@ def generate_programmer_guide_md(output_path: Path, view: Isa | None = None) -> 
     print(f"Generated programmer's guide at {output_path}")
 
 
-def generate_all_docs(
-    instructions_path: Path,
-    operand_types_path: Path,
-    assembly_syntax_path: Path,
-    programmer_guide_path: Path,
-    view: Isa | None = None,
-) -> None:
-    """Write the instruction, operand-type, assembly-syntax and programmer's guide pages."""
-    generate_operand_types_md(operand_types_path, view)
-    generate_assembly_syntax_md(assembly_syntax_path)
-    generate_instruction_docs(instructions_path, view)
-    generate_programmer_guide_md(programmer_guide_path, view)
+#: The reference pages ``generate_all_docs`` writes, by file name.
+REFERENCE_PAGES = (
+    "instructions.md",
+    "operand-types.md",
+    "assembly-syntax.md",
+    "programmer-guide.md",
+    "registers.md",
+    "configuration-registers.md",
+)
+
+
+def generate_registers_md(output_path: Path) -> None:
+    """Write the register reference from ``REGISTER_DEFINITIONS`` (E09-14)."""
+    lines = [
+        "# Registers",
+        "",
+        "This page is **generated** from `REGISTER_DEFINITIONS` in `ipu_isa.registers`. "
+        "A register with assembly names is an instruction operand; any other register is "
+        "named only in the instruction reference, or is emulator storage for debugging.",
+        "",
+        "| Register | Kind | Count | Bytes each | Vector | Assembly names |",
+        "|----------|------|------:|-----------:|--------|----------------|",
+    ]
+    for name, meta in REGISTER_DEFINITIONS.items():
+        values = meta.get("assembler_values", [])
+        names = (
+            f"`{values[0].upper()}`–`{values[-1].upper()}`"
+            if len(values) > 2
+            else ", ".join(f"`{v.upper()}`" for v in values)
+        )
+        lines.append(
+            f"| `{name.upper()}` | {meta['kind'].name} | {meta.get('count', 1)} "
+            f"| {meta['size_bytes']} | {'yes' if meta['vector'] else 'no'} | {names or '—'} |"
+        )
+    lines += [
+        "",
+        f"`LR` and `CR` hold {LR_CR_SCALAR_BITS}-bit scalars. `CR0` and `CR1` are read-only "
+        "constants; see [Configuration registers](configuration-registers.md).",
+        "",
+    ]
+    output_path.write_text("\n".join(lines))
+    print(f"Generated register reference at {output_path}")
+
+
+def _bits(shift: int, width: int) -> str:
+    return f"`[{shift + width - 1}:{shift}]`"
+
+
+def generate_configuration_registers_md(output_path: Path, view: Isa | None = None) -> None:
+    """Write the configuration-register reference from ``ipu_isa.constants`` (E09-14)."""
+    view = isa() if view is None else view
+    users = sorted(
+        {
+            instruction.mnemonic
+            for slot in view.layout.layout_order
+            for instruction in view.instructions(slot)
+            if any(op.type.name == "DstructureCrIdx" for op in instruction.operands)
+        }
+    )
+    partitions = ", ".join(f"`{p.value}`" for p in Partition)
+    pad_rows = "\n".join(f"| `{mode.name}` | `{mode.value}` |" for mode in PadMode)
+    content = f"""# Configuration registers
+
+This page is **generated** from `ipu_isa.constants`. The host writes the CRs before a
+kernel runs; a kernel only reads them.
+
+## The CRs
+
+| Register | Value | Notes |
+|----------|-------|-------|
+| `CR{CR_ZERO_REG_INDEX}` | `{CR_ZERO_REG_VALUE}` | Read-only constant. |
+| `CR{CR_ONE_REG_INDEX}` | `{CR_ONE_REG_VALUE}` | Read-only constant. |
+| `CR2`–`CR15` | set by the host | Base addresses, strides, loop bounds, scalar constants and dstructure words. By convention `CR15` holds the dstructure word, but any CR is a valid operand. |
+
+Each LR and CR holds a {LR_CR_SCALAR_BITS}-bit scalar. A negative constant is stored as its
+{LR_CR_SCALAR_BITS}-bit two's complement (`value & LR_CR_SCALAR_VALUE_MASK`). The element format a
+kernel computes in is not a CR: see [Element formats](../../explanation/element-formats.md).
+
+## Dstructure word
+
+A dstructure word in a CR describes the active elements of a vector. The instructions that
+name a dstructure CR operand (`DstructureCrIdx`) read it: {", ".join(f"`{m}`" for m in users)}.
+
+| Field | Bits | Values | Default |
+|-------|------|--------|---------|
+| `valid_elements` | {_bits(0, DSTRUCTURE_VALID_ELEMENTS_BITS)} | `0`–`{LANES}`: how many elements are active | `{DEFAULT_VALID_ELEMENTS}` |
+| `partition` | {_bits(DSTRUCTURE_PARTITION_SHIFT, DSTRUCTURE_PARTITION_BITS)} | {partitions}: groups of elements the MULT mask shifts within (`0` is one group) | `{DEFAULT_PARTITION.value}` |
+| `pad_mode` | {_bits(DSTRUCTURE_PAD_MODE_SHIFT, DSTRUCTURE_PAD_MODE_BITS)} | see below | `{DEFAULT_PAD_MODE.name}` |
+
+`AGG.*` and `ACTIVATE.QUANTIZE` read `valid_elements`; the MULT masking instructions read
+`partition` and `pad_mode`.
+
+### `pad_mode`
+
+The value a MULT masking instruction writes into the elements its mask deactivates.
+
+| Mode | Code |
+|------|------|
+{pad_rows}
+
+`POS_INF` and `NEG_INF` exist only in float element formats.
+
+```asm
+AGG.SUM LR0 CR15;;
+ACTIVATE.QUANTIZE relu CR3;;
+MULT.RC.VV LR2 R0 0 LR4 CR15;;
+```
+
+## From the emulator
+
+```python
+from ipu_isa.constants import LR_CR_SCALAR_VALUE_MASK, PadMode
+
+state.regfile.set_cr(2, 0x40000)                       # a base address
+state.regfile.set_cr(9, (-128) & LR_CR_SCALAR_VALUE_MASK)  # a negative constant
+state.set_cr_dstructure(valid_elements=64, partition=0, pad_mode=PadMode.NEG_INF, cr_idx=3)
+```
+
+`set_cr_dstructure` writes `CR15` when `cr_idx` is omitted.
+"""
+    output_path.write_text(content)
+    print(f"Generated configuration-register reference at {output_path}")
+
+
+def generate_all_docs(out_dir: Path, view: Isa | None = None) -> None:
+    """Write every page of ``REFERENCE_PAGES`` into ``out_dir``."""
+    generate_operand_types_md(out_dir / "operand-types.md", view)
+    generate_assembly_syntax_md(out_dir / "assembly-syntax.md")
+    generate_instruction_docs(out_dir / "instructions.md", view)
+    generate_programmer_guide_md(out_dir / "programmer-guide.md", view)
+    generate_registers_md(out_dir / "registers.md")
+    generate_configuration_registers_md(out_dir / "configuration-registers.md", view)

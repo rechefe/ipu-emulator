@@ -18,7 +18,7 @@ The assembler accepts mnemonics in any case; written examples and the spec use u
 
 No manual opcode management needed — opcodes are automatically derived from instruction position.
 
-A **new operand type** needs one entry in the operand-type registry, `src/tools/ipu-isa/src/ipu_isa/operand_types.py` (kind, width, value domain, readability, wire names and documentation), and one token class in the assembler's `OPERAND_TYPE_MAP` (`src/tools/ipu-as-py/src/ipu_as/inst.py`), plus, if it is readable, a read code in the emulator's operand resolver (`src/tools/ipu-emu-py/src/ipu_emu/resolver.py`). Everything else (the valid-type set, union widths, decoded field names, SV typedefs, the generated [Operand types](operand-types.md) page) is derived from the registry. A missing registry entry or token class, or a token class whose name, width, value range or members disagree with the registry, fails at import naming the type. Its `field_suffix` and `sv_typedef` are wire format: changing one is a breaking change.
+A **new operand type** needs one entry in the operand-type registry, `src/tools/ipu-isa/src/ipu_isa/operand_types.py` (kind, width, value domain, readability, wire names and documentation), and one token class in the assembler's `OPERAND_TYPE_MAP` (`src/tools/ipu-as-py/src/ipu_as/inst.py`), plus, if it is readable, a read code in the emulator's operand resolver (`src/tools/ipu-emu-py/src/ipu_emu/resolver.py`). Everything else (the valid-type set, union widths, decoded field names, SV typedefs, the generated [Operand types](reference/isa/operand-types.md) page) is derived from the registry. A missing registry entry or token class, or a token class whose name, width, value range or members disagree with the registry, fails at import naming the type. Its `field_suffix` and `sv_typedef` are wire format: changing one is a breaking change.
 
 ## Step 1: Add Instruction to `instruction_spec.py`
 
@@ -97,7 +97,7 @@ A failure raises `SpecError` with the path of the entry, for example `mult.MY_NE
     - Omit for destination registers or indices passed as raw values
   - `write` (optional): `True` on the destination register operand; the handler receives its raw index
 
-- **`implicit_reads`** / **`implicit_writes`** (optional): every register the handler reads or writes that is not a `read` / `write` operand, as `{"register": "mult_res", "view": "forwarded"}` (`via_operand` names the operand that selects the register's index, for example `"dest_slot"`; writes have no `view`). The generated [Assembly syntax](assembly-syntax.md#execution-order-and-timing) page lists them for every instruction.
+- **`implicit_reads`** / **`implicit_writes`** (optional): every register the handler reads or writes that is not a `read` / `write` operand, as `{"register": "mult_res", "view": "forwarded"}` (`via_operand` names the operand that selects the register's index, for example `"dest_slot"`; writes have no `view`). The generated [Assembly syntax](reference/isa/assembly-syntax.md#execution-order-and-timing) page lists them for every instruction.
 
 - **`doc`**: `InstructionDoc` with:
   - `title` — Short human-readable name

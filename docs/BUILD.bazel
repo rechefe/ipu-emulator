@@ -22,6 +22,8 @@ genrule(
         "operand-types.md",
         "assembly-syntax.md",
         "programmer-guide.md",
+        "registers.md",
+        "configuration-registers.md",
     ],
     cmd = "$(location //src/tools/ipu-gen:ipu-gen) docs-pages $(RULEDIR) > /dev/null",
     tools = ["//src/tools/ipu-gen:ipu-gen"],
@@ -135,13 +137,14 @@ genrule(
             ln -sfn "$$abssrc" "$(@D)/docs_temp/content/$$rel"
         done
 
-        # Generated pages (instructions, operand types, assembly syntax, instruction format)
+        # Generated ISA reference pages, under reference/isa/ (E09-14)
+        mkdir -p "$(@D)/docs_temp/content/reference/isa"
         for out in $(locations :generate_mkdocs_md); do \
           base=$$(basename "$$out"); \
-          ln -sfn "$$ORIGDIR/$$out" "$(@D)/docs_temp/content/$$base"; \
+          ln -sfn "$$ORIGDIR/$$out" "$(@D)/docs_temp/content/reference/isa/$$base"; \
         done
 
-        ln -sfn "$$ORIGDIR/$(location :generate_instruction_format_md)" "$(@D)/docs_temp/content/instruction-format.md"
+        ln -sfn "$$ORIGDIR/$(location :generate_instruction_format_md)" "$(@D)/docs_temp/content/reference/isa/instruction-format.md"
 
         # reference/glossary.md includes the root GLOSSARY.md through pymdownx.snippets,
         # whose base_path ".." is the parent of the temp tree, as the repo root is of docs/.
@@ -210,7 +213,10 @@ py_pytest_test(
     name = "test_doc_asm_blocks",
     size = "small",
     srcs = ["test_doc_asm_blocks.py"],
-    data = _DOC_TEST_DATA,
+    data = _DOC_TEST_DATA + [
+        ":generate_instruction_format_md",
+        ":generate_mkdocs_md",
+    ],
     deps = [
         ":doc_blocks",
         "//src/tools/ipu-as-py:ipu_as_lib",

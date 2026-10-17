@@ -19,9 +19,6 @@
     "simulation-only": 1,
     "snapshot": 1
   },
-  "docs/content/ipu-configuration.md": {
-    "dtype": 5
-  },
   "docs/content/isa-alias-catalogue.md": {
     "bundle": 6,
     "simulation-only": 2,

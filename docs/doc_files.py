@@ -17,3 +17,12 @@ def doc_files() -> list[Path]:
     """
     content = sorted(Path("docs/content").rglob("*.md"))
     return content + [Path(name) for name in ROOT_FILES]
+
+
+def generated_files() -> list[Path]:
+    """The generated ISA reference pages a test was given as data, under docs/.
+
+    Only ``test_doc_asm_blocks`` takes them (from ``:generate_mkdocs_md`` and
+    ``:generate_instruction_format_md``); other tests see an empty list.
+    """
+    return sorted(path for path in Path("docs").glob("*.md") if path.name != "README.md")

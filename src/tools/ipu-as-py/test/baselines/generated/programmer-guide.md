@@ -1,6 +1,6 @@
 # Programmer's Guide: Pseudo-Instructions
 
-Pseudo-instructions are assembly mnemonics that the assembler expands into a real instruction at compile time. They never get an opcode and never appear in the binary, so they cost nothing at runtime — see [Adding a pseudo-instruction](adding-instruction.md#adding-a-pseudo-instruction) for how they're declared. This page is **generated** from `PSEUDO_INSTRUCTION_SPEC` in `instruction_spec.py`.
+Pseudo-instructions are assembly mnemonics that the assembler expands into a real instruction at compile time. They never get an opcode and never appear in the binary, so they cost nothing at runtime — see [Adding a pseudo-instruction](../../adding-instruction.md#adding-a-pseudo-instruction) for how they're declared. This page is **generated** from `PSEUDO_INSTRUCTION_SPEC` in `instruction_spec.py`.
 
 ### `BGT.S` — Branch if Greater Than (pseudo)
 
@@ -27,6 +27,8 @@ Branch if first register is greater than second.
 **Example of usage:**
 ```asm
 BGT.S LR0 LR1 bigger;;
+bigger:
+HALT;;
 ```
 
 **Expands to:** `BLT.S` (cond slot), arguments `reg2, reg1, label`
@@ -58,6 +60,8 @@ Branch if first register is less than or equal to second.
 **Example of usage:**
 ```asm
 BLE.S LR0 LR1 smaller_or_equal;;
+smaller_or_equal:
+HALT;;
 ```
 
 **Expands to:** `BGE.S` (cond slot), arguments `reg2, reg1, label`
@@ -88,6 +92,8 @@ Branch if register is zero. Assumes CR0 always holds zero.
 **Example of usage:**
 ```asm
 BZ LR0 done;;
+done:
+HALT;;
 ```
 
 **Expands to:** `BEQ` (cond slot), arguments `reg, CR0, label`
@@ -117,6 +123,8 @@ Branch if register is not zero. Assumes CR0 always holds zero.
 
 **Example of usage:**
 ```asm
+loop:
+DEC LR0 1;;
 BNZ LR0 loop;;
 ```
 
@@ -146,6 +154,8 @@ Always branch to label.
 
 **Example of usage:**
 ```asm
+start:
+INC LR0 1;;
 B start;;
 ```
 

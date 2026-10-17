@@ -1379,6 +1379,10 @@ Control flow instructions for branching based on conditions or unconditionally.
 
 **Tag:** `HARDWARE` (implemented by the IPU)
 
+**Reads:** at cycle start `LR` via `reg1`, `CR` via `reg1`, `LR` via `reg2`, `CR` via `reg2`.
+
+**Faults:** F-2 ([fault list](../../requirements/faults.md#fault-list)).
+
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
 | Name | Type | Details |
@@ -1396,6 +1400,8 @@ Branch if two registers are equal.
 **Example of usage:**
 ```asm
 BEQ LR0 LR1 end;;
+end:
+HALT;;
 ```
 
 ### `BNE` — Branch if Not Equal
@@ -1403,6 +1409,10 @@ BEQ LR0 LR1 end;;
 **Syntax:** `BNE reg1 reg2 label`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
+
+**Reads:** at cycle start `LR` via `reg1`, `CR` via `reg1`, `LR` via `reg2`, `CR` via `reg2`.
+
+**Faults:** F-2 ([fault list](../../requirements/faults.md#fault-list)).
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1420,6 +1430,8 @@ Branch if two registers are not equal.
 
 **Example of usage:**
 ```asm
+loop:
+INC LR0 1;;
 BNE LR0 CR0 loop;;
 ```
 
@@ -1428,6 +1440,10 @@ BNE LR0 CR0 loop;;
 **Syntax:** `BLT.S reg1 reg2 label`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
+
+**Reads:** at cycle start `LR` via `reg1`, `CR` via `reg1`, `LR` via `reg2`, `CR` via `reg2`.
+
+**Faults:** F-2 ([fault list](../../requirements/faults.md#fault-list)).
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1446,6 +1462,8 @@ Branch if first register is less than second, as signed 32-bit integers.
 **Example of usage:**
 ```asm
 BLT.S LR0 CR1 smaller;;
+smaller:
+HALT;;
 ```
 
 ### `BGE.S` — Branch if Greater or Equal (signed)
@@ -1453,6 +1471,10 @@ BLT.S LR0 CR1 smaller;;
 **Syntax:** `BGE.S reg1 reg2 label`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
+
+**Reads:** at cycle start `LR` via `reg1`, `CR` via `reg1`, `LR` via `reg2`, `CR` via `reg2`.
+
+**Faults:** F-2 ([fault list](../../requirements/faults.md#fault-list)).
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1471,6 +1493,8 @@ Branch if first register is greater than or equal to second, as signed 32-bit in
 **Example of usage:**
 ```asm
 BGE.S LR0 CR1 ge;;
+ge:
+HALT;;
 ```
 
 ### `BR` — Branch Register
@@ -1478,6 +1502,10 @@ BGE.S LR0 CR1 ge;;
 **Syntax:** `BR reg`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
+
+**Reads:** at cycle start `LR` via `reg`, `CR` via `reg`.
+
+**Faults:** F-2 ([fault list](../../requirements/faults.md#fault-list)).
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1497,6 +1525,10 @@ Branch to address in register.
 **Syntax:** `HALT`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
+
+**Reads:** no register.
+
+**Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
 
 **General description:**
 End the kernel after every slot of this word has retired.
@@ -1523,6 +1555,10 @@ Loop register manipulation instructions for controlling loop counters and addres
 
 **Tag:** `HARDWARE` (implemented by the IPU)
 
+**Reads:** at cycle start `CR` via `src`.
+
+**Faults:** F-3 ([fault list](../../requirements/faults.md#fault-list)).
+
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
 | Name | Type | Details |
@@ -1546,6 +1582,10 @@ SET LR0 CR1;;
 **Syntax:** `ADD dest src_a src_b`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
+
+**Reads:** at cycle start `LR` via `src_a`, `LR` via `src_b`, `CR` via `src_b`.
+
+**Faults:** F-3 ([fault list](../../requirements/faults.md#fault-list)).
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1573,6 +1613,10 @@ ADD LR3 LR1 CR5;;
 
 **Tag:** `HARDWARE` (implemented by the IPU)
 
+**Reads:** at cycle start `LR` via `src_a`, `LR` via `src_b`, `CR` via `src_b`.
+
+**Faults:** F-3 ([fault list](../../requirements/faults.md#fault-list)).
+
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
 | Name | Type | Details |
@@ -1599,6 +1643,10 @@ SUB LR3 LR1 CR5;;
 
 **Tag:** `HARDWARE` (implemented by the IPU)
 
+**Reads:** at cycle start `LR` via `step`, `CR` via `step`, `LR` via `dest`.
+
+**Faults:** F-1, F-3 ([fault list](../../requirements/faults.md#fault-list)).
+
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
 | Name | Type | Details |
@@ -1624,6 +1672,10 @@ INC.MODP2 LR2 LR3 4;;
 
 **Tag:** `HARDWARE` (implemented by the IPU)
 
+**Reads:** at cycle start `LR` via `dest`.
+
+**Faults:** F-3 ([fault list](../../requirements/faults.md#fault-list)).
+
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
 | Name | Type | Details |
@@ -1648,6 +1700,10 @@ INC LR0 7;;
 
 **Tag:** `HARDWARE` (implemented by the IPU)
 
+**Reads:** at cycle start `LR` via `dest`.
+
+**Faults:** F-3 ([fault list](../../requirements/faults.md#fault-list)).
+
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
 | Name | Type | Details |
@@ -1671,6 +1727,10 @@ DEC LR0 3;;
 **Syntax:** `ADDB dest src_b`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
+
+**Reads:** at cycle start `LR` via `src_b`, `CR` via `src_b`, `LR` via `dest`.
+
+**Faults:** F-3 ([fault list](../../requirements/faults.md#fault-list)).
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1699,6 +1759,10 @@ ADDB LRD2 CR5;;
 **Syntax:** `ADDBI dest imm`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
+
+**Reads:** at cycle start `LR` via `dest`.
+
+**Faults:** F-3 ([fault list](../../requirements/faults.md#fault-list)).
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1734,6 +1798,10 @@ First-stage memory loads that feed the multiply unit (mult-stage registers, cycl
 
 **Tag:** `HARDWARE` (implemented by the IPU)
 
+**Reads:** at cycle start `CR` via `base`; forwarded `LR` via `offset`.
+
+**Faults:** F-1, F-6, F-7 ([fault list](../../requirements/faults.md#fault-list)).
+
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
 | Name | Type | Details |
@@ -1760,6 +1828,10 @@ LD.MULT R0 LR0 CR0;;
 
 **Tag:** `HARDWARE` (implemented by the IPU)
 
+**Reads:** at cycle start `CR` via `base`; forwarded `LR` via `offset`, `LR` via `index`.
+
+**Faults:** F-4, F-6, F-7 ([fault list](../../requirements/faults.md#fault-list)).
+
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
 | Name | Type | Details |
@@ -1780,6 +1852,10 @@ Load with cyclic addressing into R_CYCLIC.
 **Syntax:** `LD.MASK offset base`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
+
+**Reads:** at cycle start `CR` via `base`; forwarded `LR` via `offset`.
+
+**Faults:** F-6, F-7 ([fault list](../../requirements/faults.md#fault-list)).
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1806,6 +1882,10 @@ The multiplication result (`mult_result`) is forwarded to the ACC stage in the C
 **Syntax:** `MULT.RC.VV rc_idx ra mask_offset mask_shift cr_idx`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
+
+**Reads:** at cycle start `R` via `ra`, `R_CYCLIC`, `CR` via `cr_idx`; forwarded `LR` via `rc_idx`, `LR` via `mask_shift`, `R_MASK`.
+
+**Faults:** F-1 ([fault list](../../requirements/faults.md#fault-list)).
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1836,6 +1916,10 @@ MULT.RC.VV LR0 R0 0 LR2 CR15;;
 
 **Tag:** `HARDWARE` (implemented by the IPU)
 
+**Reads:** at cycle start `CR` via `src`, `R`, `R_CYCLIC`, `CR` via `cr_idx`; forwarded `LR` via `rc_idx`, `LR` via `mask_shift`, `LR` via `src`, `R_MASK`.
+
+**Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
+
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
 | Name | Type | Details |
@@ -1865,6 +1949,10 @@ MULT.RC.VE LR0 LR3 0 LR2 CR15;;
 
 **Tag:** `HARDWARE` (implemented by the IPU)
 
+**Reads:** at cycle start `R_CYCLIC`, `CR` via `cr_idx`; forwarded `LR` via `rc_idx`, `LR` via `mask_shift`, `R_MASK`.
+
+**Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
+
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
 | Name | Type | Details |
@@ -1892,6 +1980,10 @@ MULT.RC.VS LR0 0 LR2 CR15;;
 **Syntax:** `MULT.VE ra_idx cr_idx mask_offset mask_shift dstructure_cr_idx`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
+
+**Reads:** at cycle start `CR` via `cr_idx`, `R`, `CR` via `dstructure_cr_idx`; forwarded `LR` via `ra_idx`, `LR` via `mask_shift`, `R_MASK`.
+
+**Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1921,6 +2013,10 @@ MULT.VE LR0 CR3 0 LR2 CR15;;
 **Syntax:** `MULT.EE ra_idx cr_idx mask_offset mask_shift dstructure_cr_idx`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
+
+**Reads:** at cycle start `CR` via `cr_idx`, `R`, `CR` via `dstructure_cr_idx`; forwarded `LR` via `ra_idx`, `LR` via `mask_shift`, `R_MASK`.
+
+**Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1957,6 +2053,10 @@ Accumulation instructions for combining values with optional masking and shiftin
 
 **Tag:** `HARDWARE` (implemented by the IPU)
 
+**Reads:** at cycle start `R_ACC`; forwarded `MULT_RES`.
+
+**Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
+
 **General description:**
 Running add accumulation: add multiply result into each R_ACC element.
 
@@ -1973,6 +2073,10 @@ ACC.ADD;;
 **Syntax:** `ACC.ADD.FIRST`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
+
+**Reads:** forwarded `MULT_RES`.
+
+**Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
 
 **General description:**
 Clean-init add: overwrite each R_ACC element with the multiply result (ignores previous R_ACC).
@@ -1991,6 +2095,10 @@ ACC.ADD.FIRST;;
 
 **Tag:** `HARDWARE` (implemented by the IPU)
 
+**Reads:** at cycle start `R_ACC`; forwarded `MULT_RES`.
+
+**Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
+
 **General description:**
 Running max accumulation: each R_ACC element takes the max of its current value and the multiply result.
 
@@ -2007,6 +2115,10 @@ ACC.MAX;;
 **Syntax:** `ACC.MAX.FIRST`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
+
+**Reads:** forwarded `MULT_RES`.
+
+**Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
 
 **General description:**
 Clean-init max: overwrite each R_ACC element unconditionally with the multiply result.
@@ -2025,6 +2137,10 @@ ACC.MAX.FIRST;;
 
 **Tag:** `HARDWARE` (implemented by the IPU)
 
+**Reads:** at cycle start `R_ACC`; forwarded `MULT_RES`.
+
+**Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
+
 **General description:**
 Running subtract accumulation: subtract the multiply result from each R_ACC element each cycle.
 
@@ -2042,6 +2158,10 @@ ACC.SUB;;
 
 **Tag:** `HARDWARE` (implemented by the IPU)
 
+**Reads:** forwarded `MULT_RES`.
+
+**Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
+
 **General description:**
 Clean-init subtract: set each R_ACC element to the negated multiply result.
 
@@ -2058,6 +2178,10 @@ ACC.SUB.FIRST;;
 **Syntax:** `ACC.STRIDE elements_in_row horizontal_stride vertical_stride offset`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
+
+**Reads:** forwarded `LR` via `offset`, `MULT_RES`.
+
+**Faults:** F-1 ([fault list](../../requirements/faults.md#fault-list)).
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -2085,6 +2209,10 @@ ACC.STRIDE 16 off off LR0;;
 
 **Tag:** `HARDWARE` (implemented by the IPU)
 
+**Reads:** at cycle start `LR` via `dest_slot`, `CR` via `cr_idx`; forwarded `MULT_RES`.
+
+**Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
+
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
 | Name | Type | Details |
@@ -2108,6 +2236,10 @@ AGG.SUM.FIRST LR0 CR3;;
 **Syntax:** `AGG.SUM dest_slot cr_idx`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
+
+**Reads:** at cycle start `LR` via `dest_slot`, `CR` via `cr_idx`, `R_ACC`; forwarded `MULT_RES`.
+
+**Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -2133,6 +2265,10 @@ AGG.SUM LR0 CR3;;
 
 **Tag:** `HARDWARE` (implemented by the IPU)
 
+**Reads:** at cycle start `LR` via `dest_slot`, `CR` via `cr_idx`; forwarded `MULT_RES`.
+
+**Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
+
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
 | Name | Type | Details |
@@ -2157,6 +2293,10 @@ AGG.MAX.FIRST LR0 CR3;;
 
 **Tag:** `HARDWARE` (implemented by the IPU)
 
+**Reads:** at cycle start `LR` via `dest_slot`, `CR` via `cr_idx`, `R_ACC`; forwarded `MULT_RES`.
+
+**Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
+
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
 | Name | Type | Details |
@@ -2180,6 +2320,10 @@ AGG.MAX LR0 CR3;;
 **Syntax:** `ACC.RESHAPE source dest reshape_mask`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
+
+**Reads:** at cycle start `LR` via `source`, `LR` via `dest`, `MULT_RES`; forwarded `LR` via `reshape_mask`.
+
+**Faults:** F-5 ([fault list](../../requirements/faults.md#fault-list)).
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -2219,6 +2363,10 @@ Activation and quantization: apply activation to R_ACC elements and write quanti
 
 **Tag:** `HARDWARE` (implemented by the IPU)
 
+**Reads:** at cycle start `CR` via `cr_idx`; forwarded `R_ACC`.
+
+**Faults:** F-1 ([fault list](../../requirements/faults.md#fault-list)).
+
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
 | Name | Type | Details |
@@ -2249,6 +2397,10 @@ Last-stage memory stores that drain **POST_AAQ_REG** to external memory after ac
 
 **Tag:** `HARDWARE` (implemented by the IPU)
 
+**Reads:** at cycle start `CR` via `base`; forwarded `LR` via `offset`, `POST_AAQ_REG`.
+
+**Faults:** F-6, F-7 ([fault list](../../requirements/faults.md#fault-list)).
+
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
 | Name | Type | Details |
@@ -2260,7 +2412,7 @@ Last-stage memory stores that drain **POST_AAQ_REG** to external memory after ac
 Write **512 bytes** of **`POST_AAQ_REG`** to external memory. **Interim:** the buffer is **512 bytes** (128×32-bit elements) until quantization export is finalized.
 
 **Pseudo code:**
-`Memory[row(offset + base)] = POST_AAQ_REG (512 bytes, both modes -- width does not scale with element width); interim staging register`
+`Memory[row(offset + base)] = POST_AAQ_REG (128 32-bit elements, in every element format); interim staging register`
 
 **Example of usage:**
 ```asm
@@ -2281,6 +2433,10 @@ Simulation-only slot for storing **R_ACC** to external memory (`ST.ACC`). Not im
 
 **Tag:** `EMULATOR` (emulator only; not in the hardware word or the SV package)
 
+**Reads:** at cycle start `CR` via `base`; forwarded `LR` via `offset`, `R_ACC`.
+
+**Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
+
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
 | Name | Type | Details |
@@ -2294,7 +2450,7 @@ Store **R_ACC** to external memory. **Simulation-only** — not implemented in r
 > This instruction lives in the simulation-only **acc_store** slot.
 
 **Pseudo code:**
-`Memory[row(offset + base)] = R_ACC (512 bytes, both modes -- width does not scale with element width)`
+`Memory[row(offset + base)] = R_ACC (128 32-bit elements, in every element format)`
 
 **Example of usage:**
 ```asm
@@ -2315,6 +2471,10 @@ Debug break instructions for halting execution and entering debug mode.
 
 **Tag:** `EMULATOR` (emulator only; not in the hardware word or the SV package)
 
+**Reads:** no register.
+
+**Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
+
 **General description:**
 Unconditional break.
 
@@ -2327,6 +2487,10 @@ Unconditional break.
 **Syntax:** `BREAK.IFEQ reg value`
 
 **Tag:** `EMULATOR` (emulator only; not in the hardware word or the SV package)
+
+**Reads:** at cycle start `LR` via `reg`.
+
+**Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 

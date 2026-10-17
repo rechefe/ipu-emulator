@@ -103,3 +103,45 @@ def test_a_new_instruction_takes_a_reserved_opcode():
     spec["cond"]["NEWOP"] = copy.deepcopy(spec["cond"]["NOP"])
     changed = load_isa(spec, PSEUDO_INSTRUCTION_SPEC, SLOTS, OPERAND_TYPES)
     assert reserved_encodings(changed)[Slot.COND].opcodes == ()
+
+
+# By hand, from each fault's summary in docs/content/requirements/faults.md.
+EXPECTED_INSTRUCTION_FAULTS = {
+    "LD.MULT": ("F-1", "F-6", "F-7"),  # MultStageReg: code 2..3 reserved
+    "LD.MULT.CYCLIC": ("F-4", "F-6", "F-7"),
+    "LD.MASK": ("F-6", "F-7"),
+    "ST.AAQ": ("F-6", "F-7"),
+    "MULT.RC.VV": ("F-1",),  # ra is a MultStageReg
+    "ACC.STRIDE": ("F-1",),  # HorizontalStride/VerticalStride reserved3, ElementsInRow code 3
+    "ACC.RESHAPE": ("F-5",),
+    "ACTIVATE.QUANTIZE": ("F-1",),  # ActivationFn: codes 13..15 reserved
+    "SET": ("F-3",),
+    "ADD": ("F-3",),
+    "SUB": ("F-3",),
+    "INC.MODP2": ("F-1", "F-3"),  # k: codes 9..15 reserved
+    "INC": ("F-3",),
+    "DEC": ("F-3",),
+    "ADDB": ("F-3",),
+    "ADDBI": ("F-3",),
+    "BEQ": ("F-2",),
+    "BNE": ("F-2",),
+    "BLT.S": ("F-2",),
+    "BGE.S": ("F-2",),
+    "BR": ("F-2",),
+}
+
+
+def test_instruction_faults():
+    from ipu_isa.faults import instruction_faults
+
+    actual = {
+        i.mnemonic: tuple(f.label for f in instruction_faults(isa(), i))
+        for slot in Slot
+        for i in isa().instructions(slot)
+    }
+    raising = {mnemonic: faults for mnemonic, faults in actual.items() if faults}
+    assert raising == EXPECTED_INSTRUCTION_FAULTS
+    # HALT, NOP, the MULT/ACC instructions without reserved codes, and the
+    # emulator-only ST.ACC, BREAK and BREAK.IFEQ raise none.
+    for mnemonic in ("HALT", "NOP", "ACC.ADD", "MULT.VE", "ST.ACC", "BREAK", "BREAK.IFEQ"):
+        assert actual[mnemonic] == ()

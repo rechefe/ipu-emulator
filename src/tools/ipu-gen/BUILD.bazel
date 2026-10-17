@@ -70,6 +70,17 @@ py_pytest_test(
     ],
 )
 
+# The generated ISA reference follows the CLAUDE.md conventions (E09-14).
+py_pytest_test(
+    name = "test_reference_conventions",
+    srcs = ["test/test_reference_conventions.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_gen_lib",
+        requirement("pytest"),
+    ],
+)
+
 # One ISA entry is enough for the generators (E03-24).
 py_pytest_test(
     name = "test_one_edit_generators",

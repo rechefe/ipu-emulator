@@ -44,15 +44,10 @@ def sv_package(output: str) -> None:
 @cli.command("docs-pages")
 @click.argument("out_dir", type=click.Path(file_okay=False, path_type=Path))
 def docs_pages_command(out_dir: Path) -> None:
-    """Write the instruction, operand-type, assembly-syntax and programmer's guide pages."""
+    """Write the ISA reference pages (``docs_pages.REFERENCE_PAGES``)."""
     out_dir = _caller_path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    docs_pages.generate_all_docs(
-        instructions_path=out_dir / "instructions.md",
-        operand_types_path=out_dir / "operand-types.md",
-        assembly_syntax_path=out_dir / "assembly-syntax.md",
-        programmer_guide_path=out_dir / "programmer-guide.md",
-    )
+    docs_pages.generate_all_docs(out_dir)
 
 
 @cli.command("instruction-format-md")

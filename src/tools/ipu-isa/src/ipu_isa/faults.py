@@ -32,7 +32,7 @@ from ipu_isa.slots import Slot
 from ipu_isa.tags import Tag
 
 if TYPE_CHECKING:
-    from ipu_isa.view import Isa
+    from ipu_isa.view import Instruction, Isa
 
 __all__ = [
     "FAULTS",
@@ -43,6 +43,7 @@ __all__ = [
     "FaultInfo",
     "ReservedEncodings",
     "ReservedOperand",
+    "instruction_faults",
     "reserved_encodings",
     "reserved_operand_codes",
 ]
@@ -258,3 +259,57 @@ def reserved_encodings(isa: Isa) -> Mapping[Slot, ReservedEncodings]:
     return MappingProxyType(
         {slot: _slot_reserved(isa, slot) for slot in isa.layout.slots_with_tag(Tag.HARDWARE)}
     )
+
+
+# ---------------------------------------------------------------------------
+# Which faults an instruction can raise (for the instruction reference, E09-14)
+# ---------------------------------------------------------------------------
+
+#: The instructions F-4 and F-5 name in their own summaries.
+_F4_MNEMONIC = "LD.MULT.CYCLIC"
+_F5_MNEMONIC = "ACC.RESHAPE"
+
+
+def instruction_faults(isa: Isa, instruction: Instruction) -> tuple[FaultId, ...]:
+    """The faults one instruction can raise, in number order.
+
+    Read from each fault's summary, not listed per instruction:
+
+    * F-1: an operand whose type has reserved codes in its field.
+    * F-2: a COND branch, which fetches its target (an instruction of the
+      COND slot that takes an operand; ``HALT`` takes none and fetches nothing).
+    * F-3: an LR-slot instruction that writes an LR: two lanes of one word may
+      write the same one.
+    * F-4: ``LD.MULT.CYCLIC``; F-5: ``ACC.RESHAPE``.
+    * F-6 and F-7: every LOAD and STORE instruction (they address a table).
+    * F-8 and F-9 belong to a word or a kernel, never to one instruction.
+
+    ``NOP`` and EMULATOR or ASSEMBLER instructions raise none: faults are
+    hardware.
+
+    Args:
+        isa: The ISA the instruction belongs to.
+        instruction: The instruction.
+
+    Returns:
+        Its fault IDs, ascending; empty for none.
+    """
+    if instruction.tag is not Tag.HARDWARE or instruction.mnemonic == "NOP":
+        return ()
+    slot = instruction.slot
+    faults: set[FaultId] = set()
+    for operand in instruction.operands:
+        bits = isa.layout.operand_bits[operand.type.name]
+        if reserved_operand_codes(operand.type, bits):
+            faults.add(FaultId.F1)
+    if slot is Slot.COND and instruction.operands:
+        faults.add(FaultId.F2)
+    if slot is Slot.LR and any(operand.write for operand in instruction.operands):
+        faults.add(FaultId.F3)
+    if instruction.mnemonic == _F4_MNEMONIC:
+        faults.add(FaultId.F4)
+    if instruction.mnemonic == _F5_MNEMONIC:
+        faults.add(FaultId.F5)
+    if slot in (Slot.LOAD, Slot.STORE):
+        faults.update((FaultId.F6, FaultId.F7))
+    return tuple(sorted(faults))
