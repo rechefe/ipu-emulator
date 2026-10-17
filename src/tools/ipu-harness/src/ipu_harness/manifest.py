@@ -792,6 +792,33 @@ def _same_pinned_value(
     return mine.row + offset == theirs.row + offsets.get(other, 0)
 
 
+def _check_every_tensor_bound(
+    r: Reader,
+    tensors: Mapping[str, TensorDecl],
+    abi: Mapping[str, str],
+    conditions: Mapping[str, Condition],
+    placed: Mapping[str, frozenset[str]],
+) -> None:
+    """Every tensor's base reaches the program: it is bound, or a bound placed
+    value reads its base (a region bound at a parameter-dependent offset,
+    E07-15) and is bound in every case the tensor exists: unconditionally, or
+    under the tensor's own condition."""
+
+    def reaches(tensor: TensorDecl) -> bool:
+        return any(
+            tensor.name in reads and conditions.get(name) in (None, tensor.when)
+            for name, reads in placed.items()
+            if name in abi
+        )
+
+    for tensor in tensors.values():
+        if tensor.name not in abi and not reaches(tensor):
+            raise r.fail(
+                (tensor.section, tensor.name),
+                f"[abi] does not bind tensor {tensor.name!r}; its base row must reach the program",
+            )
+
+
 def _abi(
     r: Reader,
     raw: object,
@@ -823,22 +850,7 @@ def _abi(
         used.setdefault(register, []).append(name)
         abi[name] = register
 
-    # A bound placed value that reads base(x) carries x's base to the program
-    # too (a region bound at a parameter-dependent offset, E07-15), when it is
-    # bound in every case x exists: unconditionally, or under x's condition.
-    def reaches(tensor: TensorDecl) -> bool:
-        return any(
-            tensor.name in reads and conditions.get(name) in (None, tensor.when)
-            for name, reads in placed.items()
-            if name in abi
-        )
-
-    for tensor in tensors.values():
-        if tensor.name not in abi and not reaches(tensor):
-            raise r.fail(
-                (tensor.section, tensor.name),
-                f"[abi] does not bind tensor {tensor.name!r}; its base row must reach the program",
-            )
+    _check_every_tensor_bound(r, tensors, abi, conditions, placed)
     return MappingProxyType(abi), MappingProxyType(offsets), MappingProxyType(conditions)
 
 
