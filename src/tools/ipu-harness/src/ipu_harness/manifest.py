@@ -105,7 +105,6 @@ else:
 __all__ = [
     "BYTE_UNIT_KERNELS",
     "TOML_NAME",
-    "check_abi",
     "CaseDecl",
     "GoldenDecl",
     "KernelManifest",
@@ -113,6 +112,7 @@ __all__ = [
     "ParamDecl",
     "SECTION_OF",
     "TensorDecl",
+    "check_abi",
     "load_manifest",
 ]
 
@@ -584,7 +584,7 @@ def check_abi(manifest: KernelManifest, abi: Mapping[str, str], *, where: str) -
             raise ConfigurationError(
                 f"{manifest.name}: {where} abi {name!r} names no parameter, tensor or derived value"
             )
-        register = value.upper() if isinstance(value, str) else repr(value)
+        register = value.upper() if isinstance(value, str) else str(value)
         problem = _binding_problem(
             name,
             register,
@@ -594,7 +594,9 @@ def check_abi(manifest: KernelManifest, abi: Mapping[str, str], *, where: str) -
             table=f"{where}'s abi",
         )
         if problem is not None:
-            raise ConfigurationError(f"{manifest.name}: {problem}")
+            # The value as the stage wrote it, not the upper-case one.
+            shown = problem.replace(repr(register), repr(value), 1)
+            raise ConfigurationError(f"{manifest.name}: {shown}")
         checked[name] = register
     return MappingProxyType(checked)
 

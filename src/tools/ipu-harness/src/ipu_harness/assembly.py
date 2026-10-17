@@ -141,6 +141,15 @@ def assemble(
     return assemble_program(plan, plan.manifest.asm, cache, asm_lib=asm_lib)
 
 
+def _search_path(plan: CasePlan, program: Path, asm_lib: Path | None) -> tuple[Path, ...]:
+    """A stage's folder (a sibling kernel's), then :func:`search_path`; the
+    kernel's own program, wherever in its folder, searches only that."""
+    path = search_path(plan, asm_lib)
+    if program == plan.manifest.asm or program.parent in path:
+        return path
+    return (program.parent, *path)
+
+
 def assemble_program(
     plan: CasePlan,
     program: Path,
@@ -155,7 +164,7 @@ def assemble_program(
 
     Args:
         plan: The checked case.
-        program: The ``.asm`` file; its folder is searched first.
+        program: The ``.asm`` file; a stage's folder is searched first.
         cache: Reuses an earlier assembly of the same rendered text.
         params: Template values besides the case's (a stage's own), each
             declared required.
@@ -183,7 +192,7 @@ def assemble_program(
         program.read_text(encoding="utf-8"),
         defines={**defines, **params},
         params=declared,
-        search_path=tuple(dict.fromkeys((program.parent, *search_path(plan, asm_lib)))),
+        search_path=_search_path(plan, program, asm_lib),
         abi=template_names(plan.manifest, abi),
         name=program.name,
     )

@@ -275,19 +275,24 @@ def test_a_stage_reading_a_cr_it_does_not_bind_fails(tmp_path):
         run_kernel(manifest, _default(manifest), ElementFormat.INT8)
 
 
-@pytest.mark.parametrize("catching", [False, True])
+CAUGHT = "    except {kind}:\n        open(__file__ + '.caught', 'w').close()\n"
+
+
+@pytest.mark.parametrize("catching", [None, "Exception", "BaseException"])
 def test_a_stage_that_faults_ends_the_run_with_its_fault(tmp_path, catching):
-    """Even when the hook catches every Exception around its stages."""
-    body = "".join(
-        f"    try:\n        ctx.run_stage({p!r}, abi={a!r})\n    except Exception:\n        pass\n"
-        if catching
-        else f"    ctx.run_stage({p!r}, abi={a!r})\n"
-        for p, a in (("copy.asm", COPY_ABI), ("copy_scale.asm", SCALE_ABI))
-    )
-    manifest = load_manifest(_write(tmp_path, "def run(ctx):\n" + body))
+    """Even when the hook catches what a stage raises: an ``except Exception``
+    never sees the stop, and a stage after a caught stop stops again."""
+    first = f"    ctx.run_stage('copy.asm', abi={COPY_ABI!r})\n"
+    if catching is not None:
+        first = "    try:\n    " + first + CAUGHT.format(kind=catching)
+    body = first + f"    ctx.run_stage('copy_scale.asm', abi={SCALE_ABI!r})\n"
+    directory = _write(tmp_path, "def run(ctx):\n" + body)
+    manifest = load_manifest(directory)
     result = run_kernel(manifest, _default(manifest), ElementFormat.INT8, RunOptions(max_cycles=5))
     assert result.fault is not None and result.fault.fault.label == "F-9"
     assert [program for program, _ in result.stages] == ["copy.asm"]
+    # Only a BaseException handler sees the stop (and the second stage stops again).
+    assert (directory / "stages.py.caught").exists() == (catching == "BaseException")
 
 
 def _debug(callback):
