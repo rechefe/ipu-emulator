@@ -43,7 +43,7 @@ from ipu_emu.errors import ConfigurationError
 from ipu_harness.assembly import AssemblyCache
 from ipu_harness.cases import Case, expand
 from ipu_harness.debug import DebugLaunch
-from ipu_harness.family import ENTRY_SEPARATOR, load_kernel
+from ipu_harness.family import ENTRY_SEPARATOR, load_kernel, split_ref
 from ipu_harness.manifest import KernelManifest
 from ipu_harness.runner import RunOptions, RunResult, run_kernel
 from ipu_isa.errors import IpuError
@@ -62,8 +62,8 @@ def _caller(path: Path) -> Path:
 
 def _kernel(text: str) -> str:
     """A kernel folder, or ``<registry.toml>::<name>``, from where the user ran."""
-    path, sep, name = text.partition(ENTRY_SEPARATOR)
-    return f"{_caller(Path(path))}{sep}{name}"
+    path, name = split_ref(text)
+    return str(_caller(path)) + ("" if name is None else ENTRY_SEPARATOR + name)
 
 
 def _input(text: str) -> tuple[str, Path]:

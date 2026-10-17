@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from ipu_harness import kernel_test
+from ipu_harness.kernel_bin import default_bin
 
 #: Bazel runs the test from the runfiles root of the main repository.
 SCALE = Path.cwd() / "kernels" / "elementwise" / "scale"
@@ -130,3 +131,16 @@ def test_bazel_run_of_an_entry_runs_the_cli(scale, capsys, monkeypatch, tmp_path
     assert kernel_test.main([f"{SCALES}::scale_r2", SHIM, "default", "--case", "negative"]) == 0
     [line] = capsys.readouterr().out.splitlines()
     assert line.startswith("scale_r2/negative/fp32: PASS")
+
+
+@pytest.mark.parametrize(
+    ("target", "kernel"),
+    [
+        (SCALE / "scale.bin", str(SCALE)),
+        (SCALES.parent / "scale_r2.bin", f"{SCALES}::scale_r2"),
+    ],
+)
+def test_the_assemble_targets_write_the_default_case_program(target, kernel):
+    # The genrules' outputs sit beside the sources in the runfiles tree.
+    assert target.read_bytes() == default_bin(kernel)
+    assert target.read_bytes()  # a program, not an empty file

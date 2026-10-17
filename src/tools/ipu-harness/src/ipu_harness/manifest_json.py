@@ -19,8 +19,7 @@ from typing import Any
 
 from ipu_emu.errors import ConfigurationError
 from ipu_harness.cases import expand
-from ipu_harness.family import REGISTRY_NAME
-from ipu_harness.manifest import TOML_NAME
+from ipu_harness.family import invalid_name
 from ipu_harness.registry import Registry, kernel_tree
 
 
@@ -29,15 +28,14 @@ def _skipped(declared: Mapping[str, Any], invalid: Mapping[Path, ConfigurationEr
     entry, or every entry of a ``registry.toml`` that did not read."""
     skipped = set()
     for path in invalid:
-        if path.name == REGISTRY_NAME:
+        name = invalid_name(path)
+        if name is not None:
+            skipped.add(name)
+        else:
             family = path.parent.name
             skipped |= {
                 n for n, t in declared.items() if t.get("registry") and t["family"] == family
             }
-        elif path.name == TOML_NAME:
-            skipped.add(path.parent.name)
-        else:
-            skipped.add(path.name)
     return skipped
 
 

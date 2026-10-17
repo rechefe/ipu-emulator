@@ -11,10 +11,11 @@ from ipu_emu.errors import ConfigurationError
 from ipu_harness import kernel_bin, kernel_test, registry_bzl
 from ipu_harness.family import (
     ENTRY_SEPARATOR,
-    entry_ref,
+    invalid_name,
     load_kernel,
     read_registry,
     render_bzl,
+    split_ref,
 )
 from ipu_harness.manifest import ManifestError
 from ipu_harness.registry import Registry
@@ -69,6 +70,10 @@ template = "proj"
 params = { k = 240, n_out = 240 }
 cases = ["default"]
 """
+
+
+def entry_ref(registry: Path, name: str) -> str:
+    return f"{registry}{ENTRY_SEPARATOR}{name}"
 
 
 def family(root: Path, registry: str = REGISTRY, name: str = "projections") -> Path:
@@ -133,6 +138,27 @@ def test_load_kernel_takes_a_folder_or_an_entry(tmp_path):
     assert load_kernel(entry_ref(path, "proj_qkv_144")).fixed["k"] == 144
     with pytest.raises(ManifestError, match=r"registry.toml:1: no entry named 'nope'"):
         load_kernel(f"{path}{ENTRY_SEPARATOR}nope")
+
+
+def test_a_reference_is_a_folder_its_toml_or_an_entry():
+    assert split_ref("a/b") == (Path("a/b"), None)
+    assert split_ref("a/b/kernel.toml") == (Path("a/b"), None)
+    assert split_ref(f"a/registry.toml{ENTRY_SEPARATOR}x") == (Path("a/registry.toml"), "x")
+    assert [invalid_name(Path(p)) for p in ("f/k/kernel.toml", "f/x", "f/registry.toml")] == [
+        "k",
+        "x",
+        None,
+    ]
+
+
+def test_an_unreadable_registry_is_named_when_its_entry_is_asked_for(tmp_path):
+    path = family(tmp_path, "[[kernel]]\nname = 3\n")
+    registry = Registry.load(tmp_path)
+    assert list(registry.invalid) == [path]
+    with pytest.raises(
+        ConfigurationError, match=f"registries that did not read: {re.escape(str(path))}"
+    ):
+        registry.kernel("proj_qkv_144")
 
 
 def test_the_test_entry_spells_an_entry_as_the_family_module_does():

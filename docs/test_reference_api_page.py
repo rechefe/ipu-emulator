@@ -235,3 +235,10 @@ def test_the_how_to_links_only_existing_anchors():
     linked = set(re.findall(r"reference-model-api\.md#([\w-]+)\)", how_to))
     known = set(page.documented_symbols().values()) | PAGE_ANCHORS
     assert linked and linked <= known
+
+
+def test_every_name_the_model_re_exports_is_listed(api):
+    ids = set(_ids(api))
+    names = page.reexported(ipu_emu.reference)
+    assert names  # TraceWriter and read_trace since API 1.2.0
+    assert set(names) <= ids

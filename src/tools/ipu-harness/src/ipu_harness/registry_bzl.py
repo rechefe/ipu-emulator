@@ -28,7 +28,15 @@ USAGE = (
 
 
 def check(registry: Path, bzl: Path) -> str | None:
-    """Why ``bzl`` is stale, or None when it is what ``update`` writes."""
+    """Whether ``bzl`` is what :func:`update` would write.
+
+    Args:
+        registry: A ``registry.toml``.
+        bzl: Its ``registry.bzl``.
+
+    Returns:
+        None when it is fresh, else why not (naming the update command).
+    """
     wanted = render_bzl(registry)
     have = bzl.read_text(encoding="utf-8") if bzl.is_file() else None
     if have == wanted:
@@ -37,7 +45,14 @@ def check(registry: Path, bzl: Path) -> str | None:
 
 
 def update(roots: Sequence[Path]) -> list[Path]:
-    """Rewrite every stale ``registry.bzl`` under ``roots``; returns those it wrote."""
+    """Rewrite every stale ``registry.bzl`` under ``roots``.
+
+    Args:
+        roots: Folders searched for ``registry.toml`` files, recursively.
+
+    Returns:
+        The files it wrote.
+    """
     written = []
     for root in roots:
         for registry in sorted(root.rglob(REGISTRY_NAME)):

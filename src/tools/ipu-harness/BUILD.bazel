@@ -52,7 +52,7 @@ py_binary(
     main = "src/ipu_harness/query.py",
     deps = [
         ":ipu_harness_lib",
-        "//src/tools/ipu-kernels:ipu_kernels_lib",
+        "//src/tools/ipu-kernels:ipu_kernels_all",
     ],
 )
 
@@ -139,7 +139,7 @@ py_pytest_test(
     deps = [
         ":ipu_harness_lib",
         "//src/tools/ipu-apps:ipu_apps_lib",
-        "//src/tools/ipu-kernels:ipu_kernels_lib",
+        "//src/tools/ipu-kernels:ipu_kernels_all",
         requirement("numpy"),
         requirement("pytest"),
     ],
@@ -311,7 +311,10 @@ py_pytest_test(
     srcs = ["test/test_kernel_test.py"],
     data = [
         "//kernels/elementwise/scale:scale_files",
-        "//src/tools/ipu-harness/test/scales:registry_files",
+        "//kernels/elementwise:files",
+        "//kernels/elementwise/scale:assemble_scale",
+        "//src/tools/ipu-harness/test/scales:assemble_scale_r2",
+        "//src/tools/ipu-harness/test/scales:files",
         "//src/tools/ipu-harness/test/scales/scale_rows:scale_rows_files",
         "@rules_python_pytest//python_pytest:pytest_shim.py",
     ],

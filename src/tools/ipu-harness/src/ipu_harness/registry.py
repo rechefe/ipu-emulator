@@ -28,7 +28,7 @@ from typing import Any
 
 from ipu_emu.errors import ConfigurationError
 from ipu_harness.expressions import evaluate
-from ipu_harness.family import REGISTRY_NAME, Entry, load_entry, read_registry
+from ipu_harness.family import REGISTRY_NAME, Entry, invalid_name, load_entry, read_registry
 from ipu_harness.manifest import TOML_NAME, KernelManifest, load_manifest
 from ipu_harness.params import ParamCheck, PlanError, Value, check_params
 from ipu_isa.formats import ElementFormat
@@ -88,7 +88,10 @@ class Verdict:
         return None if self.kernel is None else self.kernel.label
 
     def _notes(self) -> list[str]:
-        return [f"runs in {', '.join(f.value for f in self.formats)}"] if self.kernel else []
+        if self.kernel is None:
+            return []
+        notes = [f"runs in {', '.join(f.value for f in self.formats)}"]
+        return [self.kernel.doc, *notes] if self.kernel.doc else notes
 
     def to_dict(self) -> dict[str, Any]:
         """The same answer as :meth:`describe`, for tools (``query --json``).
@@ -210,7 +213,7 @@ def _distinct(refusals: list[tuple[str, str]], candidates: int) -> list[str]:
     return lines
 
 
-def _where(manifest: KernelManifest) -> str:
+def _declared_at(manifest: KernelManifest) -> str:
     """Where a kernel is declared, for a name clash."""
     if manifest.registry is not None:
         return f"{manifest.registry} (entry {manifest.name})"
@@ -229,7 +232,8 @@ class _Found:
         for known in (self.manifests, self.templates):
             if manifest.name in known:
                 raise ConfigurationError(
-                    f"{_where(manifest)}: kernel {manifest.name} is also {_where(known[manifest.name])}"
+                    f"{_declared_at(manifest)}: kernel {manifest.name} is also "
+                    f"{_declared_at(known[manifest.name])}"
                 )
         into[manifest.name] = manifest
 
@@ -340,19 +344,24 @@ class Registry:
         return cls(MappingProxyType(by_name), adapters=MappingProxyType(dict(adapters or {})))
 
     def kernel(self, name: str) -> KernelManifest:
-        """The kernel ``name``.
+        """The kernel ``name``: a routed kernel or a template.
 
         Raises:
-            ConfigurationError: Its ``kernel.toml`` failed to load (that error),
-                or there is no such kernel.
+            ConfigurationError: It failed to load (that error), or there is no
+                such kernel; the message then names any ``registry.toml`` that
+                did not read, whose entries are unknown.
         """
         if name in self.manifests:
             return self.manifests[name]
+        if name in self.templates:
+            return self.templates[name]
         for path, error in self.invalid.items():
-            if name in (path.parent.name, path.name):  # a kernel.toml's folder, or an entry
+            if invalid_name(path) == name:
                 raise error
         known = ", ".join(sorted(self.manifests)) or "none"
-        raise ConfigurationError(f"unknown kernel {name!r} (kernels: {known})")
+        unread = [str(path) for path in self.invalid if path.name == REGISTRY_NAME]
+        also = f"; registries that did not read: {', '.join(unread)}" if unread else ""
+        raise ConfigurationError(f"unknown kernel {name!r} (kernels: {known}{also})")
 
     def operations(self) -> tuple[str, ...]:
         """Every op some kernel computes."""

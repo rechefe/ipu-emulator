@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
@@ -28,12 +28,14 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from ipu_as.session import AssemblyResult
 from ipu_emu.errors import ConfigurationError
+from ipu_emu.ipu_state import DEFAULT_CYCLE_LIMIT
 from ipu_emu.reference import ReferenceModel, RunState
 from ipu_emu.reference import RunResult as ModelRun
 from ipu_emu.trace import EMULATOR_VERSION, TraceWriter
 from ipu_harness._codec import Array, encode
-from ipu_harness.abi import apply, check_cr_reads, register_writes
+from ipu_harness.abi import RegisterWrite, apply, check_cr_reads, register_writes
 from ipu_harness.assembly import AssemblyCache, assemble
 from ipu_harness.cases import Case, inputs_for
 from ipu_harness.compare import Comparison, compare, expected_for, tier_for
@@ -51,7 +53,16 @@ from ipu_isa.trace_schema import SCHEMA_VERSION, isa_digest
 if TYPE_CHECKING:
     from ipu_emu.alias_profile import AliasProfile
 
-__all__ = ["RunFault", "RunOptions", "RunResult", "run_kernel"]
+__all__ = [
+    "Executor",
+    "RunContext",
+    "RunFault",
+    "RunOptions",
+    "RunResult",
+    "Staged",
+    "run_kernel",
+    "stage",
+]
 
 
 @dataclass(frozen=True)
@@ -69,6 +80,10 @@ class RunOptions:
         debug: Stop in the debugger (``--debug``, E06-12).
         alias_profile: Profile the ISA aliases of this run (``--profile-aliases``):
             the profile attaches to the one run the case makes.
+        executor: Runs the loaded program in place of ``model.run``: a tool
+            that steps the model itself (the Inspector's curated traces)
+            gets the :class:`RunContext`. The runner then reads the status
+            and the cycles from the model. Not with ``debug`` or ``trace``.
     """
 
     max_cycles: int | None = None
@@ -77,10 +92,46 @@ class RunOptions:
     trace: Path | None = None
     debug: DebugLaunch | None = None
     alias_profile: bool = False
+    executor: Executor | None = None
 
     def __post_init__(self) -> None:
         if self.debug is not None and self.trace is not None:
             raise ConfigurationError("--trace and --debug do not combine")
+        if self.executor is not None and (self.debug is not None or self.trace is not None):
+            raise ConfigurationError("an executor runs the program itself: no debug or trace")
+
+
+@dataclass(frozen=True)
+class RunContext:
+    """A case loaded on the model and ready to run, for an :data:`Executor`.
+
+    Attributes:
+        model: The reference model: program loaded, inputs and scratch
+            written, registers programmed, halted at PC 0.
+        program: The assembled program (``words``, ``rendered``, ``symbols``).
+        format: The element format (``plan.format``).
+        plan: The checked case.
+        placement: Where each tensor lives in XMEM.
+        trace_header: The header of a trace of this run (``trace.v1.json``),
+            for a tool that writes the records ``model.step()`` returns.
+        cycle_limit: The run's cycle limit, resolved (0: none). ``step()`` has
+            none of its own: an executor stops there, or calls ``model.run``.
+    """
+
+    model: ReferenceModel
+    program: AssemblyResult
+    format: ElementFormat
+    plan: CasePlan
+    placement: Placement
+    trace_header: Mapping[str, str]
+    cycle_limit: int
+
+
+#: Runs a loaded case in place of ``model.run``: steps ``context.model`` to a
+#: HALT, a fault or ``context.cycle_limit`` (``step()`` returns each word's commit
+#: record). The runner then takes the status and cycles from the model, and
+#: unpacks and compares as after any run; a run left RUNNING does not pass.
+Executor = Callable[[RunContext], None]
 
 
 @dataclass(frozen=True)
@@ -245,19 +296,20 @@ def _goldens(case: Case, plan: CasePlan, inputs: Mapping[str, Array]) -> dict[st
 
 
 def _execute(
-    model: ReferenceModel,
+    context: RunContext,
     manifest: KernelManifest,
     case: Case,
     fmt: ElementFormat,
-    words: tuple[int, ...],
     options: RunOptions,
 ) -> tuple[ModelRun | None, AliasProfile | None]:
-    """Run the loaded model as ``options`` say: profiled, in the debugger, traced.
+    """Run the loaded model as ``options`` say: profiled, in the debugger, by the
+    executor, traced.
 
     Returns:
         The model's result (``None`` when the user quit the debugger), and the
         profile when the run was profiled.
     """
+    model = context.model
     profile = None
     if options.alias_profile:
         profile = new_alias_profile(kernel=manifest.name, case=case.name, format=fmt.value)
@@ -270,10 +322,88 @@ def _execute(
             max_cycles=options.max_cycles,
         )
         return outcome.run, profile
+    if options.executor is not None:
+        options.executor(context)
+        return ModelRun(model.status, model.stats().cycles), profile
     if options.trace is not None:
-        with TraceWriter(options.trace, _trace_header(words, fmt)) as trace:
+        with TraceWriter(options.trace, dict(context.trace_header)) as trace:
             return model.run(options.max_cycles, trace=trace), profile
     return model.run(options.max_cycles), profile
+
+
+@dataclass(frozen=True)
+class Staged:
+    """A case loaded into a model, every register written, not yet run.
+
+    Attributes:
+        plan: The checked case.
+        inputs: Each input's values, rounded to the format.
+        placement: Where each tensor sits in XMEM.
+        program: The assembled program, loaded into ``model``.
+        writes: The register writes applied (``[abi]`` and the dstructure).
+        model: The model, halted at PC 0, its XMEM and registers set up.
+    """
+
+    plan: CasePlan
+    inputs: Mapping[str, Array]
+    placement: Placement
+    program: AssemblyResult
+    writes: tuple[RegisterWrite, ...]
+    model: ReferenceModel
+
+    def region_bytes(self, tensor: str) -> tuple[int, int]:
+        """The XMEM byte range ``(start, size)`` of ``tensor``'s region."""
+        region = self.placement.region(tensor)
+        row_bytes = _row_bytes(self.plan)
+        return region.base_row * row_bytes, region.rows * row_bytes
+
+
+def stage(
+    manifest: KernelManifest,
+    case: Case,
+    fmt: ElementFormat,
+    *,
+    inputs: Mapping[str, Path] | None = None,
+    cache: AssemblyCache | None = None,
+) -> Staged:
+    """Everything :func:`run_kernel` does before it runs the program.
+
+    It plans the case, makes its inputs, places and packs its tensors,
+    assembles and loads the program, writes the input and scratch regions and
+    programs the registers. ``compare_setup`` (E07-01) reads the result.
+
+    Args:
+        manifest: The kernel.
+        case: One of its cases.
+        fmt: The element format.
+        inputs: Input files that replace the case's inputs, by tensor name.
+        cache: Reuses programs already assembled.
+
+    Returns:
+        The staged model and what went into it.
+
+    Raises:
+        ConfigurationError: As for :func:`run_kernel`.
+        ipu_as.errors.AssemblerError: The program does not render, parse or
+            encode.
+    """
+    plan = plan_case(manifest, case.values, fmt, case=case.decl)
+    values = inputs_for(case, plan, overrides=inputs or {}).tensors
+    tensors = plan.manifest.tensors
+    placement = place(plan, {name: stored_rows(t, plan) for name, t in tensors.items()})
+    program = assemble(plan, cache)
+    check_cr_reads(manifest, program.rendered)
+
+    model = ReferenceModel(fmt)
+    model.load_program(program.words)
+    for tensor in tensors.values():
+        if tensor.role == "input":
+            _write_region(model, plan, placement, tensor, pack(tensor, values[tensor.name], plan))
+        elif tensor.role == "scratch":
+            _write_region(model, plan, placement, tensor, _scratch_fill(tensor, plan, placement))
+    writes = tuple(register_writes(plan, placement))
+    apply(model, writes)
+    return Staged(plan, MappingProxyType(dict(values)), placement, program, writes, model)
 
 
 def run_kernel(
@@ -306,23 +436,20 @@ def run_kernel(
         OSError: An input, output or trace file cannot be read or written.
     """
     options = options or RunOptions()
-    plan = plan_case(manifest, case.values, fmt, case=case.decl)
-    inputs = inputs_for(case, plan, overrides=options.inputs).tensors
+    staged = stage(manifest, case, fmt, inputs=options.inputs, cache=cache)
+    plan, inputs, placement, program, model = (
+        staged.plan,
+        staged.inputs,
+        staged.placement,
+        staged.program,
+        staged.model,
+    )
     tensors = plan.manifest.tensors
-    placement = place(plan, {name: stored_rows(t, plan) for name, t in tensors.items()})
-    program = assemble(plan, cache)
-    check_cr_reads(manifest, program.rendered)
 
-    model = ReferenceModel(fmt)
-    model.load_program(program.words)
-    for tensor in tensors.values():
-        if tensor.role == "input":
-            _write_region(model, plan, placement, tensor, pack(tensor, inputs[tensor.name], plan))
-        elif tensor.role == "scratch":
-            _write_region(model, plan, placement, tensor, _scratch_fill(tensor, plan, placement))
-    apply(model, register_writes(plan, placement))
-
-    run, profile = _execute(model, manifest, case, fmt, program.words, options)
+    limit = DEFAULT_CYCLE_LIMIT if options.max_cycles is None else options.max_cycles
+    header = _trace_header(program.words, fmt)
+    context = RunContext(model, program, fmt, plan, placement, header, limit)
+    run, profile = _execute(context, manifest, case, fmt, options)
     mac_utilization = model.stats().effective_mac_utilization
     if run is None:  # the user quit the debugger: no result
         return RunResult(

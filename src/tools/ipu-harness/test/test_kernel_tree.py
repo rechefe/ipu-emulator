@@ -25,12 +25,6 @@ def _targets() -> dict:
     return json.loads(TARGETS.read_text(encoding="utf-8"))
 
 
-def test_the_list_names_every_kernel_folder():
-    folders = {str(p.parent.relative_to(SOURCE.parent)) for p in SOURCE.glob("*/*/kernel.toml")}
-    folders_listed = {k["dir"] for k in _targets()["kernels"].values() if "registry" not in k}
-    assert folders_listed == folders, "add the folder to KERNELS in kernels/BUILD.bazel"
-
-
 def test_the_registries_name_every_registry_toml_and_its_entries():
     for path in sorted(SOURCE.glob("*/registry.toml")):
         assert registry_bzl.check(path, path.with_name(BZL_NAME)) is None
@@ -40,7 +34,7 @@ def test_the_registries_name_every_registry_toml_and_its_entries():
             if kernel.get("registry") == str(path.relative_to(SOURCE.parent))
         }
         assert listed == {e.name for e in read_registry(path)}, (
-            f"add {path.parent.name} to REGISTRIES in kernels/BUILD.bazel"
+            f"add {path.parent.name} to REGISTRIES in kernels/BUILD.bazel, or run update_registry_bzl"
         )
     with_registry = {k["family"] for k in _targets()["kernels"].values() if "registry" in k}
     assert with_registry <= {p.parent.name for p in SOURCE.glob("*/registry.toml")}
@@ -68,4 +62,4 @@ def test_the_manifest_has_the_legacy_keys():
     # fixed by its name) and a family's suite label.
     assert scale["cases"]["default"]["options"] == {}
     assert scale["cases"]["default"]["values"] == {"rows": 4, "s": 2.0}
-    assert manifest["families"] == {"elementwise": {"suite": "//kernels:elementwise"}}
+    assert manifest["families"] == {"elementwise": {"suite": "//kernels/elementwise:all"}}

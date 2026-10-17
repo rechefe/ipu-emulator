@@ -2,35 +2,58 @@
 # //kernels/<family>/<name>, declared with ipu_kernel() from kernels/defs.bzl.
 # Kernels move here from src/tools/ipu-apps during E06 and E07.
 
+load("@ipu_as_deps//:requirements.bzl", "requirement")
 load("@rules_python//python:defs.bzl", "py_binary")
+load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
+load("//tools:lint.bzl", "ruff_test")
 load(":defs.bzl", "ipu_kernel_tree")
 
-exports_files(["BUILD.bazel"])
+exports_files([
+    "BUILD.bazel",
+    "families.bzl",
+])
 
-# Every kernel folder, templates included. Add a new kernel here too (Bazel
-# cannot glob into subpackages); //src/tools/ipu-harness:test_kernel_tree
-# checks the list.
-KERNELS = [
-    "elementwise/scale",
-]
-
-# Each family with a registry.toml (E06-17): its entries, from its generated
-# registry.bzl, as load("//kernels/<family>:registry.bzl", <FAMILY> = "ENTRIES")
-# above and "<family>": <FAMILY> here. test_kernel_tree checks the map.
+# :tree: every family's and kernel's files, for ipu_harness.registry.kernel_tree()
+# (the routing registry, E06-16); :all_kernels: the tree with every family's
+# library; :kernel_targets; :lint. The families and their kernels are in
+# families.bzl (KERNELS, FAMILY_DEPS).
+#
+# REGISTRIES: each family with a registry.toml (E06-17), its entries from its
+# generated registry.bzl: load("//kernels/<family>:registry.bzl", <FAMILY> =
+# "ENTRIES") above and "<family>": <FAMILY> here. test_kernel_tree checks it.
 REGISTRIES = {}
 
-# :tree: every kernel's files, for ipu_harness.registry.kernel_tree() (the
-# routing registry, E06-16). :kernel_targets: each kernel's targets.
-ipu_kernel_tree(kernels = KERNELS, registries = REGISTRIES)
+ipu_kernel_tree(registries = REGISTRIES)
 
 # Rewrite every family's stale registry.bzl from its registry.toml (E06-17):
-#   bazel run //kernels:update_registry_bzl
+#   bazel run //kernels:update_registry_bzl [-- DIR ...]
 py_binary(
     name = "update_registry_bzl",
     srcs = ["//src/tools/ipu-harness:src/ipu_harness/registry_bzl.py"],
     main = "//src/tools/ipu-harness:src/ipu_harness/registry_bzl.py",
     args = ["update"],
     deps = ["//src/tools/ipu-harness:ipu_harness_lib"],
+)
+
+# Cross-family use is declared in FAMILY_DEPS only (E06-18); KERNELS names
+# every kernel folder. It reads the checkout's kernels/ (a folder missing from
+# KERNELS is no input of the test), so it is not cached.
+py_pytest_test(
+    name = "test_families",
+    size = "small",
+    srcs = ["test_families.py"],
+    data = [
+        "families.bzl",
+        "//src/tools/ipu-kernels:py_sources",
+        ":tree",
+    ],
+    tags = ["external"],
+    deps = [requirement("pytest")],
+)
+
+ruff_test(
+    name = "ruff",
+    srcs = glob(["*.py"]),
 )
 
 # Which kernel computes an op, and why (E06-16):
@@ -49,12 +72,9 @@ py_binary(
     srcs = ["//src/tools/ipu-harness:src/ipu_harness/manifest_json.py"],
     main = "//src/tools/ipu-harness:src/ipu_harness/manifest_json.py",
     args = ["$(rootpath :kernel_targets)"],
-    data = [
-        ":kernel_targets",
-        ":tree",
-    ],
+    data = [":kernel_targets"],
     deps = [
+        ":all_kernels",
         "//src/tools/ipu-harness:ipu_harness_lib",
-        "//src/tools/ipu-kernels:ipu_kernels_lib",
     ],
 )

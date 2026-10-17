@@ -52,11 +52,17 @@ _ENTRY_SEPARATOR = "::"
 
 
 def kernel_ref(arg: str) -> tuple[str, Path | None]:
-    """The kernel an argument names, absolute, and the folder whose tests run.
+    """The kernel an argument names, made absolute, and the folder whose tests run.
 
     Not resolve(): the kernel's files stay the runfiles', not the checkout's.
-    A folder kernel is its folder; an entry is ``<registry.toml>::<name>`` and
-    runs no folder's tests.
+
+    Args:
+        arg: The macro's first argument: a ``kernel.toml``, or
+            ``<registry.toml>::<name>`` for an entry.
+
+    Returns:
+        The reference for :func:`ipu_harness.family.load_kernel`, and the
+        kernel folder, or None for an entry (it runs no folder's tests).
     """
     path, sep, name = arg.partition(_ENTRY_SEPARATOR)
     if sep:

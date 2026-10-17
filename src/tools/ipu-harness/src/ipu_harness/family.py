@@ -1,4 +1,6 @@
-"""A family's ``registry.toml``: shape variants over template kernels (E06-17, Q76).
+"""A family's ``registry.toml``: variants over template kernels (E06-17, Q76).
+
+A variant (GLOSSARY) is a kernel declared as an entry of the registry.
 
 ::
 
@@ -46,11 +48,12 @@ __all__ = [
     "ENTRY_SEPARATOR",
     "REGISTRY_NAME",
     "Entry",
-    "entry_ref",
+    "invalid_name",
     "load_entry",
     "load_kernel",
     "read_registry",
     "render_bzl",
+    "split_ref",
 ]
 
 REGISTRY_NAME = "registry.toml"
@@ -195,6 +198,13 @@ def read_registry(registry: Path) -> tuple[Entry, ...]:
 def load_entry(registry: Path, entry: Entry) -> KernelManifest:
     """The kernel an entry declares: its template with the entry's overrides.
 
+    Args:
+        registry: The ``registry.toml`` the entry is in.
+        entry: One of its entries (:func:`read_registry`).
+
+    Returns:
+        The kernel, named after the entry, with its ``doc`` and ``registry``.
+
     Raises:
         ManifestError: The template fails to load, or an override does not fit
             it (a parameter it lacks, a value outside its domain); errors from
@@ -208,21 +218,38 @@ def load_entry(registry: Path, entry: Entry) -> KernelManifest:
     return replace(manifest, doc=entry.doc, registry=registry)
 
 
-def entry_ref(registry: Path, name: str) -> str:
-    """``<registry.toml>::<name>``: how a tool names an entry."""
-    return f"{registry}{ENTRY_SEPARATOR}{name}"
+def split_ref(ref: str | Path) -> tuple[Path, str | None]:
+    """A kernel reference's path and entry name.
+
+    Args:
+        ref: A kernel folder, its ``kernel.toml``, or ``<registry.toml>::<name>``.
+
+    Returns:
+        The folder (for a ``kernel.toml``, its folder) and None, or the
+        ``registry.toml`` and the entry's name.
+    """
+    path, sep, name = str(ref).partition(ENTRY_SEPARATOR)
+    if sep:
+        return Path(path), name
+    folder = Path(path)
+    return (folder.parent if folder.name == TOML_NAME else folder), None
 
 
 def load_kernel(ref: str | Path) -> KernelManifest:
-    """A kernel by its folder, or by ``<registry.toml>::<name>`` for an entry.
+    """A kernel by its reference (:func:`split_ref`).
+
+    Args:
+        ref: A kernel folder, its ``kernel.toml``, or ``<registry.toml>::<name>``.
+
+    Returns:
+        The kernel: the folder's, or the entry's (its template with its overrides).
 
     Raises:
         ManifestError: It fails to load, or the registry has no such entry.
     """
-    path, sep, name = str(ref).partition(ENTRY_SEPARATOR)
-    if not sep:
-        return load_manifest(Path(path))
-    registry = Path(path)
+    registry, name = split_ref(ref)
+    if name is None:
+        return load_manifest(registry)
     for entry in read_registry(registry):
         if entry.name == name:
             return load_entry(registry, entry)
@@ -235,6 +262,15 @@ def render_bzl(registry: Path) -> str:
     Bazel cannot read TOML at load time; this checked-in file carries what the
     macro needs (each entry's name and template), and a test fails when it is
     stale (IMPLEMENTATION-DECISIONS, E06-17).
+
+    Args:
+        registry: A ``registry.toml``.
+
+    Returns:
+        The text of its ``registry.bzl``.
+
+    Raises:
+        ManifestError: The registry breaks the schema (:func:`read_registry`).
     """
     lines = [
         f'"""Generated from {REGISTRY_NAME} by //kernels:update_registry_bzl. Do not edit."""',
@@ -246,3 +282,19 @@ def render_bzl(registry: Path) -> str:
     ]
     lines.append("]")
     return "\n".join(lines) + "\n"
+
+
+def invalid_name(path: Path) -> str | None:
+    """The kernel a ``Registry.invalid`` key stands for.
+
+    Args:
+        path: A ``kernel.toml`` (its folder's kernel), an entry's
+            ``<family folder>/<name>``, or a ``registry.toml``.
+
+    Returns:
+        The kernel's name; None for a ``registry.toml``, which stands for all
+        its entries.
+    """
+    if path.name == REGISTRY_NAME:
+        return None
+    return path.parent.name if path.name == TOML_NAME else path.name

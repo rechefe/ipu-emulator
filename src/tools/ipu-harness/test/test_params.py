@@ -235,11 +235,11 @@ def test_check_params_runs_checks_2_and_3_and_names_the_formats_that_accept(mani
 def test_only_entry_points_call_the_validation_seam():
     """No later stage re-validates: plan_case, check_params and representable are
     called only by params.py itself and the entry points (the runner, E06-11; the
-    registry, E06-16)."""
+    registry, E06-16; :assemble_<name>'s kernel_bin, E06-17)."""
     import ipu_harness
 
     package = Path(ipu_harness.__file__).parent
-    allowed = {"params.py", "runner.py", "registry.py"}
+    allowed = {"params.py", "runner.py", "registry.py", "kernel_bin.py"}
     calls = re.compile(
         r"\b(plan_case|check_params|representable|_check_(?:params|value|number|format|scalars))\("
     )
