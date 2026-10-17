@@ -48,9 +48,17 @@ def _emulator_words(text: str, defines: Defines) -> tuple[int, ...]:
 def check_disassembly_round_trip(text: str, target: str, defines: Defines = None) -> bool:
     """Disassembly of the program's words for ``target`` assembles back to the same words.
 
+    Args:
+        text: The program's assembly text.
+        target: ``"emulator"`` or ``"hardware"``.
+        defines: The Jinja context it renders with, if any.
+
     Returns:
         False when ``target`` is the hardware and the program uses an
         emulator-only instruction (it has no hardware words), else True.
+
+    Raises:
+        AssertionError: The words do not survive the round trip.
     """
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", message=".*-only .* slot")
@@ -65,7 +73,14 @@ def check_disassembly_round_trip(text: str, target: str, defines: Defines = None
 
 
 def check_slot_codec(words: Sequence[int]) -> None:
-    """Each word's slots, decoded by the ISA's slot codec and encoded again, are the word."""
+    """Each word's slots, decoded by the ISA's slot codec and encoded again, are the word.
+
+    Args:
+        words: The program's words.
+
+    Raises:
+        AssertionError: A slot or a word does not re-encode to its bits.
+    """
     for word in words:
         slots = WORD_CODEC.unpack(word)
         fields = DecodedWord.from_word(word)
@@ -78,7 +93,15 @@ def check_slot_codec(words: Sequence[int]) -> None:
 
 
 def check_word_codec(words: Sequence[int], bin_bytes: bytes) -> None:
-    """The word codec unpacks the ``.bin`` bytes to the words and packs them back."""
+    """The word codec unpacks the ``.bin`` bytes to the words and packs them back.
+
+    Args:
+        words: The program's words.
+        bin_bytes: Its ``.bin`` file, as the assembler writes it.
+
+    Raises:
+        AssertionError: The codec and the assembler disagree.
+    """
     decoded = unpack_program(bin_bytes)
     assert [d.to_word() for d in decoded] == list(words)
     assert [DecodedWord.from_word(w) for w in words] == decoded
@@ -93,11 +116,21 @@ def _uses_emulator_slots(word: int) -> bool:
 
 
 def check_hardware_target(text: str, defines: Defines = None) -> bool:
-    """The program assembles for the hardware unless it uses an emulator-only
-    instruction, and then its hardware words are the top bits of its emulator words.
+    """The hardware words are the top bits of the emulator words.
+
+    The program assembles for the hardware unless it uses an emulator-only
+    instruction, and then its hardware words are the top bits of its emulator
+    words.
+
+    Args:
+        text: The program's assembly text.
+        defines: The Jinja context it renders with, if any.
 
     Returns:
         Whether the program has hardware words.
+
+    Raises:
+        AssertionError: The two targets disagree.
     """
     emulator = _emulator_words(text, defines)
     try:
@@ -112,7 +145,12 @@ def check_hardware_target(text: str, defines: Defines = None) -> bool:
 
 
 def assembles_for_hardware(text: str, defines: Defines = None) -> bool:
-    """Whether the program assembles for the hardware target at all."""
+    """Whether the program assembles for the hardware target at all.
+
+    Args:
+        text: The program's assembly text.
+        defines: The Jinja context it renders with, if any.
+    """
     try:
         _session(text, defines).assemble("hardware")
     except SlotError:
