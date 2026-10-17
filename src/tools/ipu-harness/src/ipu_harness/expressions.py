@@ -170,7 +170,7 @@ def _walk(node: ast.AST, names: Mapping[str, Fraction] | None) -> Fraction:
         if names is None:
             return Fraction(0)
         if node.id not in names:
-            raise ExpressionError(f"{node.id!r} is no integer parameter or derived value")
+            raise ExpressionError(f"{node.id!r} is no parameter or derived value this reads")
         return names[node.id]
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
         return -_walk(node.operand, names)

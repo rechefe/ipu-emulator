@@ -287,6 +287,12 @@ def test_a_fill_may_read_a_float_parameter(tmp_path):
     assert plan_case(m, {"rows": 4, "eps": 0.5}, F.FP32).fills == {"mask": 0.125}
 
 
+def test_a_fill_too_large_for_a_float_is_located(tmp_path):
+    m = load_manifest(scratch_kernel(tmp_path, 'fill = "eps * eps"'))
+    with pytest.raises(PlanError, match="scratch.mask.fill: 'eps \\* eps'"):
+        plan_case(m, {"rows": 2, "eps": 1e300}, F.FP32)
+
+
 def test_a_fill_that_does_not_evaluate_fails_when_the_case_is_planned(tmp_path):
     m = load_manifest(scratch_kernel(tmp_path, 'fill = "1 / (rows - 2)"'))
     with pytest.raises(PlanError, match=r"scratch.mask.fill: '1 / \(rows - 2\)': division by zero"):

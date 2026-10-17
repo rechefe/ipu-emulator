@@ -17,7 +17,9 @@ Checks, in order:
 3. Shapes and derived values: every ``[derived]`` value (but a placed one,
    which reads a region's base: ``abi.register_writes`` computes it) and every
    tensor dimension evaluates, in the shape grammar (:mod:`ipu_harness.expressions`),
-   to a whole number; dimensions are positive.
+   to a whole number; dimensions are positive. In :func:`plan_case` (not
+   :func:`check_params`, which routing calls), also every expression ``row``
+   pin, and every scalar ``fill`` expression, exactly (``CasePlan.fills``).
 4. Element scalars: a ``float`` parameter bound in ``[abi]`` is a scalar in the
    active format, so it must encode in ``fmt`` exactly. If it does not, the
    error names the nearest representable values; nothing is rounded silently.
@@ -269,7 +271,7 @@ def _fills(
         if isinstance(tensor.fill, str):
             try:
                 fills[tensor.name] = float(evaluate_exact(tensor.fill, {**numbers, **derived}))
-            except ExpressionError as error:
+            except (ExpressionError, OverflowError) as error:  # too large for a float
                 key = f"{tensor.section}.{tensor.name}.fill"
                 raise PlanError(manifest, key, f"{tensor.fill!r}: {error}") from None
     return fills
