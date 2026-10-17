@@ -14,7 +14,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from ipu_bench.isolated import call, peak_rss_mb
-from ipu_bench.result import Result, tiny_budget
+from ipu_bench.result import Budget, Result
 
 SMALL = "identity"
 LARGE = "matmul_720x240_x128"
@@ -49,9 +49,9 @@ def measure(kernel: str) -> dict:
     return {"cycles": cycles, "seconds": timer.seconds, "peak_rss_mb": peak_rss_mb()}
 
 
-def run(quick: bool) -> list[Result]:
+def run(budget: Budget) -> list[Result]:
     results = []
-    for kernel in (SMALL,) if tiny_budget() else (SMALL, LARGE):
+    for kernel in (SMALL,) if budget is Budget.TINY else (SMALL, LARGE):
         m = call("ipu_bench.benchmarks.kernels:measure", kernel=kernel)
         extra = f"default case; cycles={m['cycles']} run={m['seconds']:.3f} s"
         results += [

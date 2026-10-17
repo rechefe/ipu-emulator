@@ -8,7 +8,7 @@ parser built and the tables warm first, best of 3 runs (1 with ``--quick``).
 from __future__ import annotations
 
 from ipu_bench.isolated import call
-from ipu_bench.result import Result, tiny_budget
+from ipu_bench.result import Budget, Result
 
 
 def measure(repeat: int, limit: int | None = None) -> dict:
@@ -20,12 +20,11 @@ def measure(repeat: int, limit: int | None = None) -> dict:
     return bench_assemble.measure(root, programs, repeat=repeat)
 
 
-def run(quick: bool) -> list[Result]:
-    tiny = tiny_budget()
+def run(budget: Budget) -> list[Result]:
     m = call(
         "ipu_bench.benchmarks.assemble_stages:measure",
-        repeat=1 if quick or tiny else 3,
-        limit=3 if tiny else None,
+        repeat=3 if budget is Budget.FULL else 1,
+        limit=3 if budget is Budget.TINY else None,
     )
     extra = f"files={m['files']} words={m['words']}"
     return [

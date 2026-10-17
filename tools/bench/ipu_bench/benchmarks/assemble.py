@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 
 from ipu_bench.isolated import call
-from ipu_bench.result import Result, tiny_budget
+from ipu_bench.result import Budget, Result
 
 
 def kernel_sources() -> list[Path]:
@@ -28,8 +28,8 @@ def measure(limit: int | None = None) -> dict:
     return {"files": len(texts), "words": words, "seconds": time.perf_counter() - start}
 
 
-def run(quick: bool) -> list[Result]:
-    m = call("ipu_bench.benchmarks.assemble:measure", limit=3 if tiny_budget() else None)
+def run(budget: Budget) -> list[Result]:
+    m = call("ipu_bench.benchmarks.assemble:measure", limit=3 if budget is Budget.TINY else None)
     extra = f"files={m['files']} words={m['words']}"
     return [
         Result("assemble/all_kernels", "s", m["seconds"], extra=extra),

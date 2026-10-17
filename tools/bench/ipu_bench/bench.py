@@ -20,7 +20,7 @@ from importlib import import_module
 from pathlib import Path
 
 import ipu_bench.benchmarks
-from ipu_bench.result import Result, write_results
+from ipu_bench.result import Budget, Result, write_results
 
 
 def benchmark_modules() -> dict[str, Callable[[bool], list[Result]]]:
@@ -34,7 +34,7 @@ def benchmark_modules() -> dict[str, Callable[[bool], list[Result]]]:
     return modules
 
 
-def run_all(quick: bool, only: list[str] | None = None) -> list[Result]:
+def run_all(budget: Budget, only: list[str] | None = None) -> list[Result]:
     modules = benchmark_modules()
     unknown = sorted(set(only or ()) - modules.keys())
     if unknown:
@@ -44,7 +44,7 @@ def run_all(quick: bool, only: list[str] | None = None) -> list[Result]:
         if only and name not in only:
             continue
         start = time.perf_counter()
-        found = run(quick)
+        found = run(budget)
         if not found or not all(isinstance(r, Result) for r in found):
             raise RuntimeError(f"benchmark module {name} returned no Result list: {found!r}")
         print(f"[{name}] {len(found)} results in {time.perf_counter() - start:.1f} s", flush=True)
@@ -68,13 +68,18 @@ def _default_out() -> Path:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--quick", action="store_true", help="fewer repeats, for local use")
+    size = parser.add_mutually_exclusive_group()
+    size.add_argument("--quick", action="store_true", help="fewer repeats, for local use")
+    size.add_argument(
+        "--tiny", action="store_true", help="as little as still runs each module (smoke test)"
+    )
     parser.add_argument("--out", type=Path, help="directory for the two JSON files")
     parser.add_argument(
         "--only", action="append", metavar="MODULE", help="run only this module (repeatable)"
     )
     args = parser.parse_args(argv)
-    results = run_all(args.quick, args.only)
+    budget = Budget.TINY if args.tiny else Budget.QUICK if args.quick else Budget.FULL
+    results = run_all(budget, args.only)
     smaller, bigger = write_results(results, args.out or _default_out())
     print(format_table(results))
     print(f"wrote {smaller}\nwrote {bigger}")
