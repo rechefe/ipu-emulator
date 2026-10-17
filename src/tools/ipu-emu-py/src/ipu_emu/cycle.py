@@ -28,9 +28,11 @@ the two together.
 
 What a word does is a :class:`Schedule`, built once per PC by
 :func:`schedule_word` and cached until that IMEM entry is written (E04-08).
-Prototyping mode is an adapter on this one cycle: its schedules skip the idle
-NOP slots (``skip_idle_nops=True``) and its reads go through the packed operand
-resolver (:func:`resolver_for`); nothing else differs.
+Prototyping mode changes two things on this one cycle: its schedules skip the
+idle NOP slots (``skip_idle_nops=True``) and its reads go through the packed
+operand resolver (:func:`resolver_for`). Two handlers also take shortcuts in
+it (an all-ones MULT mask, a batched full-row FP32 activation); the list is in
+:mod:`ipu_emu.prototyping`.
 
 Handlers read registers through :class:`CycleView`, which serves each read from
 the snapshot or the live register file as the instruction's timing
@@ -45,6 +47,7 @@ from functools import lru_cache
 from typing import TYPE_CHECKING, Any, NamedTuple, Protocol
 
 from ipu_emu.errors import EmulatorError, EmulatorFault, UndeclaredRead, XMemBoundsError
+from ipu_emu.geometry import WIDE_REGISTERS
 from ipu_emu.outcome import CycleOutcome
 from ipu_emu.resolver import FaithfulResolver, OperandResolver, PackedResolver
 from ipu_isa.constants import DStructureConfig, decode_dstructure
@@ -298,9 +301,9 @@ def schedule_word(inst: Mapping[str, int], *, skip_idle_nops: bool = False) -> S
     )
 
 
-#: Emulator-only storage that holds a declared register in wide-vector debug
-#: mode: a read of it has the view declared for that register.
-_DECLARED_AS = {"r_wide_debug": "r", "r_cyclic_wide_debug": "r_cyclic"}
+#: Emulator-only storage that holds a declared register in a 4-byte element
+#: format: a read of it has the view declared for that register.
+_DECLARED_AS = {wide: declared for declared, wide in WIDE_REGISTERS.items()}
 
 
 class CycleView:
@@ -440,9 +443,10 @@ class Cycle:
         ipu: The handlers and slot dispatch the cycle drives. Held as given:
             ``Ipu`` passes a weak proxy of itself, so it is not a reference cycle.
         skip_idle_nops: Build schedules that skip idle NOP slots. Defaults to
-            ``state.prototyping``: prototyping mode is this flag (and its
-            operand resolver) and nothing else. Results are identical either
-            way, so a test may pass it in any build.
+            ``state.prototyping``: this flag and the operand resolver are
+            prototyping's part in the cycle (two handlers have shortcuts of
+            their own, see :mod:`ipu_emu.prototyping`). Results are identical
+            either way, so a test may pass it in any build.
     """
 
     def __init__(

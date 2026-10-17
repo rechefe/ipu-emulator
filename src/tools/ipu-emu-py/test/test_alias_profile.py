@@ -537,6 +537,8 @@ def test_xmem_clear_under_profiler_is_constant_size():
     """clear() is one ranged event: the observer drops its tables instead of
     stamping a version on each of the 4M 128-byte blocks."""
     state = run("HALT;;")
+    # white-box: the observer's version tables have no public reader; the
+    # constant-size claim is about them.
     observer = state.alias_profile._bridge
     state.xmem.write_address(0, bytes(range(256)))
     assert len(observer.memory_versions) == 2

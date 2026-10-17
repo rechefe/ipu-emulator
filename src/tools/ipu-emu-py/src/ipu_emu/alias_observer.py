@@ -17,7 +17,15 @@ from typing import TYPE_CHECKING, Any
 from ipu_emu.alias_profile import Event
 from ipu_emu.cycle import decode_word
 from ipu_emu.errors import EmulatorFault
-from ipu_emu.geometry import cr_scalar, element_width_bytes, row_size_bytes, vector_registers
+from ipu_emu.geometry import (
+    EMULATOR_REGISTERS,
+    WIDE_REGISTERS,
+    cr_scalar,
+    element_width_bytes,
+    is_wide_format,
+    row_size_bytes,
+    vector_registers,
+)
 from ipu_emu.xmem import XMEM_WIDTH_BYTES
 from ipu_isa.activations import ACTIVATION_IDENTITY
 from ipu_isa.formats import ElementFormat
@@ -62,8 +70,12 @@ class _CycleBinding:
         self._observer.begin(pc)
 
 
-#: The emulator-only 4-byte formats (the profile's ``mode`` names them).
-_WIDE_FORMATS = (ElementFormat.FP32, ElementFormat.INT32)
+#: The vector registers whose rows the profiler tracks, by bank (each with its
+#: 4-byte formats' storage).
+_BANKS = {"r": "ra", "r_cyclic": "ring"}
+_BANKS.update({WIDE_REGISTERS[name]: bank for name, bank in list(_BANKS.items())})
+#: Bytes of one element in a 4-byte format's storage.
+_WIDE_ELEMENT_BYTES = element_width_bytes(ElementFormat.FP32)
 
 
 class ExecutionObserver:
@@ -74,7 +86,8 @@ class ExecutionObserver:
         # for the cyclic garbage collector instead of being freed on release.
         self._state = weakref.ref(state)
         fmt = state.fmt
-        wide = fmt in _WIDE_FORMATS
+        # The 4-byte formats are emulator-only (the profile's ``mode`` names them).
+        wide = is_wide_format(fmt)
         profile.metadata.update(
             mode=fmt.value if wide else "native",
             # The 8-bit format; FP32 and INT32 report INT8, as before E04-17.
@@ -125,11 +138,11 @@ class ExecutionObserver:
         return self._state()
 
     def register_write(self, name, start, size):
-        banks = {"r": "ra", "r_wide_debug": "ra", "r_cyclic": "ring", "r_cyclic_wide_debug": "ring"}
-        if name in banks:
-            width = LANES * (4 if "wide_debug" in name else 1)
+        bank = _BANKS.get(name)
+        if bank is not None:
+            width = LANES * (_WIDE_ELEMENT_BYTES if name in EMULATOR_REGISTERS else 1)
             for index in range(start // width, (start + size - 1) // width + 1):
-                self.rows.pop((banks[name], index), None)
+                self.rows.pop((bank, index), None)
         if self.current is None:
             if name == "r_acc":
                 self.acc = None
@@ -283,7 +296,7 @@ class ExecutionObserver:
         if slot == "aaq":
             facts["acc"] = self.acc
             facts["lossy"] = not (
-                self.state.fmt in _WIDE_FORMATS and not self.state.aaq.quantize_output
+                is_wide_format(self.state.fmt) and not self.state.aaq.quantize_output
             )
             active = min(LANES, self.state.get_dstructure_for(kwargs["cr_idx"]).valid_elements)
             active_mask = (1 << active) - 1

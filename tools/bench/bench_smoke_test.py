@@ -49,8 +49,8 @@ def test_every_module_runs_and_writes_valid_files(tmp_path):
 
 
 def test_emulator_kernels_exist():
-    # The tiny budget skips the matmul run; a renamed kernel or case still fails here.
-    for kernel, case_name in (emulator.MATMUL, emulator.INT8):
+    # The tiny budget skips the matmul and E4 runs; a renamed kernel or case still fails here.
+    for kernel, case_name in (emulator.MATMUL, emulator.INT8, emulator.E4):
         assert case_name in load_cases(kernel), (kernel, case_name)
 
 

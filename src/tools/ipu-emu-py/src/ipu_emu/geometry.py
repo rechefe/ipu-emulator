@@ -7,7 +7,10 @@ observer never reaches into ``Ipu`` for a helper (E04-11):
 - a state's element format is its own field (``IpuState.fmt``, E04-17), and
   ``IpuState.codec`` is that format's lane codec;
 - :func:`vector_registers` names the registers that hold Ra (R0 ++ R1) and
-  R_CYCLIC in a state's element width;
+  R_CYCLIC in a state's element width; :data:`WIDE_REGISTERS` maps each
+  declared register to its emulator-only 4-byte storage and
+  :data:`EMULATOR_REGISTERS` is the set of those (the one list of them);
+- :func:`is_wide_format` says whether a format is one of the 4-byte ones;
 - :func:`element_width_bytes` and :func:`row_size_bytes` give the bytes of one
   element and of one XMEM row in a format; :func:`xmem_element_width_bytes`
   and :func:`xmem_row_size_bytes` are the same for a state, on the hot path;
@@ -29,6 +32,7 @@ other (E04-14).
 from __future__ import annotations
 
 from functools import lru_cache
+from types import MappingProxyType
 from typing import TYPE_CHECKING, NamedTuple, Protocol
 
 from ipu_emu.errors import EmulatorError
@@ -37,22 +41,27 @@ from ipu_isa.constants import LR_CR_SCALAR_BITS, Partition
 from ipu_isa.faults import FaultId
 from ipu_isa.formats import FORMATS, AccumulatorType, ElementFormat
 from ipu_isa.geometry import LANES
-from ipu_isa.registers import lrd_pair
+from ipu_isa.registers import REGISTER_DEFINITIONS, lrd_pair
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     import numpy as np
 
     from ipu_emu.ipu_state import IpuState
     from ipu_isa.constants import DStructureConfig
 
 __all__ = [
+    "EMULATOR_REGISTERS",
     "NARROW_MAX_ROW",
+    "WIDE_REGISTERS",
     "VectorRegisters",
     "agg_lane_count",
     "cr_scalar",
     "effective_mult_mask",
     "element_width_bytes",
     "inverse_partition_vector",
+    "is_wide_format",
     "lane_format",
     "lrd_bytes",
     "lrd_lr_indices",
@@ -82,6 +91,24 @@ _MASK_SLOTS = LANES // _MASK_SLOT_BYTES
 
 _NARROW_ELEMENT_BYTES = FORMATS[ElementFormat.INT8].element_bytes
 
+#: The name suffix of a register's emulator-only 4-byte storage (``ipu_isa.registers``).
+_WIDE_SUFFIX = "_wide_debug"
+
+#: Declared register -> the emulator-only register that holds it in a 4-byte
+#: element format (FP32, INT32): ``r`` -> ``r_wide_debug``, ``r_cyclic`` ->
+#: ``r_cyclic_wide_debug``. Derived from ``REGISTER_DEFINITIONS``; the one
+#: place in ``ipu_emu`` that names these registers.
+WIDE_REGISTERS: Mapping[str, str] = MappingProxyType(
+    {
+        name.removesuffix(_WIDE_SUFFIX): name
+        for name in REGISTER_DEFINITIONS
+        if name.endswith(_WIDE_SUFFIX)
+    }
+)
+
+#: Registers with no hardware equivalent: the 4-byte formats' storage.
+EMULATOR_REGISTERS: frozenset[str] = frozenset(WIDE_REGISTERS.values())
+
 
 class _RegisterReader(Protocol):
     """The register reads these helpers need (a ``RegFile`` or its snapshot)."""
@@ -91,6 +118,11 @@ class _RegisterReader(Protocol):
     def get_lr(self, index: int) -> int: ...
 
     def get_r_mask(self) -> bytes: ...
+
+
+def is_wide_format(fmt: ElementFormat) -> bool:
+    """*fmt* is a 4-byte element format (FP32 or INT32, emulator-only)."""
+    return FORMATS[fmt].element_bytes != _NARROW_ELEMENT_BYTES
 
 
 def _is_wide(state: IpuState) -> bool:
@@ -108,7 +140,9 @@ class VectorRegisters(NamedTuple):
 
 
 _NARROW_REGISTERS = VectorRegisters(ra="r", r_cyclic="r_cyclic")
-_WIDE_REGISTERS = VectorRegisters(ra="r_wide_debug", r_cyclic="r_cyclic_wide_debug")
+_WIDE_REGISTERS = VectorRegisters(
+    ra=WIDE_REGISTERS[_NARROW_REGISTERS.ra], r_cyclic=WIDE_REGISTERS[_NARROW_REGISTERS.r_cyclic]
+)
 
 
 def vector_registers(state: IpuState) -> VectorRegisters:

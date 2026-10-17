@@ -101,6 +101,7 @@ py_pytest_test(
 py_pytest_test(
     name = "test_numerics",
     srcs = ["test/test_numerics.py"],
+    data = ["pytest.ini"],
     imports = ["src"],
     deps = [
         ":ipu_emu_lib",
@@ -114,6 +115,7 @@ py_pytest_test(
 py_pytest_test(
     name = "test_element_formats",
     srcs = ["test/test_element_formats.py"],
+    data = ["pytest.ini"],
     imports = ["src"],
     deps = [
         ":ipu_emu_lib",
@@ -166,6 +168,7 @@ py_pytest_test(
     name = "test_package_root",
     size = "small",
     srcs = ["test/test_package_root.py"],
+    data = ["pytest.ini"],
     imports = ["src"],
     deps = [
         ":ipu_emu_lib",
@@ -178,6 +181,7 @@ py_pytest_test(
     name = "test_slot_modules",
     size = "small",
     srcs = ["test/test_slot_modules.py"],
+    data = ["pytest.ini"],
     imports = ["src"],
     deps = [
         ":ipu_emu_lib",
@@ -310,6 +314,7 @@ py_pytest_test(
 py_pytest_test(
     name = "test_isa_alias_spec",
     srcs = ["test/test_isa_alias_spec.py"],
+    data = ["pytest.ini"],
     imports = ["src"],
     deps = [
         ":ipu_emu_lib",
@@ -411,6 +416,7 @@ py_library(
 py_pytest_test(
     name = "test_timing_lr_views",
     srcs = ["test/test_timing_lr_views.py"],
+    data = ["pytest.ini"],
     args = ["-p", "pytest_shard_plugin"],
     shard_count = 6,
     imports = ["src"],
@@ -437,6 +443,7 @@ py_pytest_test(
 py_pytest_test(
     name = "test_timing_datapath_views",
     srcs = ["test/test_timing_datapath_views.py"],
+    data = ["pytest.ini"],
     args = ["-p", "pytest_shard_plugin"],
     shard_count = 6,
     imports = ["src"],
@@ -451,6 +458,7 @@ py_pytest_test(
 py_pytest_test(
     name = "test_timing_conformance",
     srcs = ["test/test_timing_conformance.py"],
+    data = ["pytest.ini"],
     args = ["-p", "pytest_shard_plugin"],
     shard_count = 4,
     imports = ["src"],
@@ -470,6 +478,7 @@ py_pytest_test(
     name = "test_timing_declarations",
     srcs = ["test/test_timing_declarations.py"],
     data = [
+        "pytest.ini",
         "test/test_timing_datapath_views.py",
         "test/test_timing_lr_views.py",
     ],
@@ -481,8 +490,9 @@ py_pytest_test(
 )
 
 # The Q71 emulator benchmarks (E04-02): IpuState() construction, matmul cycles/s
-# (FP32 and INT8; prototyping too with --config=proto). A `bazel run` target, not a
-# test: //tools/bench:bench_smoke_test keeps it from rotting. tools/bench/README.md.
+# (FP32, INT8 and E4; prototyping too with --config=proto). A `bazel run`
+# target, not a test: //tools/bench:bench_smoke_test keeps it from rotting.
+# tools/bench/README.md.
 # E04-02 names this label; the code lives in //tools/bench as its `emulator`
 # module, so the nightly runner tracks it too.
 py_binary(
@@ -602,6 +612,7 @@ py_pytest_test(
     name = "test_isa_constants_not_copied",
     size = "small",
     srcs = ["test/test_isa_constants_not_copied.py"],
+    data = ["pytest.ini"],
     imports = ["src"],
     deps = [
         ":ipu_emu_lib",

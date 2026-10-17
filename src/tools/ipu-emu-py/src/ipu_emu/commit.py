@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from ipu_emu.cycle import CycleOutcome
 from ipu_emu.errors import EmulatorError
+from ipu_emu.geometry import EMULATOR_REGISTERS
 from ipu_isa.faults import ArithmeticEvent
 from ipu_isa.registers import REGISTER_DEFINITIONS
 from ipu_isa.slots import SLOTS, Slot
@@ -80,10 +81,6 @@ class SlotOp:
 
     def __hash__(self) -> int:
         return hash((self.slot, self.mnemonic, tuple(sorted(self.fields.items()))))
-
-
-#: Registers with no hardware equivalent: wide-vector debug mode's copies.
-EMULATOR_REGISTERS = frozenset({"r_wide_debug", "r_cyclic_wide_debug"})
 
 
 @dataclass(frozen=True)
