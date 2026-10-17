@@ -11,8 +11,8 @@ declares:
 * :<name>: `bazel test` runs every default-tier case in every format it runs in
   (`test_case[<case>-<format>]`) and the folder's test_*.py; `bazel run` runs
   one case through the CLI (`-- --case NAME --format FMT ...`).
-* :<name>_nightly: the cases with `tier = "nightly"`, tagged manual and
-  nightly (Q73).
+* :<name>_nightly: the cases with `tier = "nightly"` (Q73): size enormous,
+  so the default tier skips it and `--config=full` (the nightly run) runs it.
 * :<name>_files: the folder's files, which //kernels:tree joins.
 """
 
@@ -22,9 +22,6 @@ load("@rules_python//python:defs.bzl", "py_test")
 _ENTRY = "//src/tools/ipu-harness:src/ipu_harness/kernel_test.py"
 _PYTEST_SHIM = "@rules_python_pytest//python_pytest:pytest_shim.py"
 
-#: Above this many case x format runs a target is sharded, a shard per this many.
-_RUNS_PER_SHARD = 60
-
 def ipu_kernel(name = None, extra_deps = [], size = "large", shard_count = None):
     """Declare kernel `name` from its folder.
 
@@ -32,11 +29,15 @@ def ipu_kernel(name = None, extra_deps = [], size = "large", shard_count = None)
         name: the kernel's name; default the folder's (the last path component).
         extra_deps: libraries the folder's test_*.py import.
         size: the test size of :<name> (kernels run in the emulator).
-        shard_count: shards of :<name>; set it for a kernel with more than
-            about 60 case x format runs, so a shard keeps inside the CI budget.
+        shard_count: shards of :<name> and :<name>_nightly; set it for a kernel
+            with more than about 60 case x format runs, so a shard keeps inside
+            the CI budget (Starlark cannot read kernel.toml to count them).
     """
     name = name or native.package_name().rpartition("/")[2]
-    files = native.glob(["**"], exclude = ["BUILD.bazel", "BUILD"])
+    files = native.glob(
+        ["**"],
+        exclude = ["BUILD.bazel", "BUILD", "**/__pycache__/**", "**/*.pyc"],
+    )
     native.filegroup(
         name = name + "_files",
         srcs = files,
@@ -49,7 +50,10 @@ def ipu_kernel(name = None, extra_deps = [], size = "large", shard_count = None)
         requirement("pytest"),
         requirement("torch"),
     ] + extra_deps
-    for target, tier, tags in [(name, "default", []), (name + "_nightly", "nightly", ["manual", "nightly"])]:
+    for target, tier, target_size, tags in [
+        (name, "default", size, []),
+        (name + "_nightly", "nightly", "enormous", ["nightly"]),
+    ]:
         py_test(
             name = target,
             srcs = [_ENTRY, _PYTEST_SHIM],
@@ -58,7 +62,7 @@ def ipu_kernel(name = None, extra_deps = [], size = "large", shard_count = None)
             data = files,
             deps = deps,
             legacy_create_init = False,
-            size = size,
+            size = target_size,
             shard_count = shard_count,
             tags = tags,
         )
@@ -82,9 +86,13 @@ def ipu_kernel_tree(kernels):
         visibility = ["//visibility:public"],
     )
     targets = {}
+    families = {}
     for kernel in kernels:
         name = kernel.rpartition("/")[2]
+        if name in targets:
+            fail("ipu_kernel_tree: two kernels are named %s (%s and %s)" % (name, targets[name]["dir"], "kernels/" + kernel))
         label = _label(kernel, name)
+        families.setdefault(kernel.rpartition("/")[0], []).append(label)
         targets[name] = {
             "dir": "kernels/" + kernel,
             "family": kernel.rpartition("/")[0],
@@ -92,7 +100,17 @@ def ipu_kernel_tree(kernels):
             "test": label,
             "nightly": label + "_nightly",
         }
-    content = json.encode_indent({"kernels": targets, "query": "//kernels:query"}, indent = "  ")
+    # :<family>: every kernel of the family (the manifest's family suite).
+    for family, labels in families.items():
+        native.test_suite(name = family, tests = labels, visibility = ["//visibility:public"])
+    content = json.encode_indent(
+        {
+            "kernels": targets,
+            "families": {family: {"suite": "//kernels:" + family} for family in families},
+            "query": "//kernels:query",
+        },
+        indent = "  ",
+    )
     native.genrule(
         name = "kernel_targets",
         outs = ["kernel_targets.json"],

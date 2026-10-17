@@ -63,3 +63,18 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     metafunc.parametrize(
         "case_format", pairs, ids=[f"{case.name}-{fmt.value}" for case, fmt in pairs]
     )
+
+
+# Bazel sharding (shard_count): the rules_python_pytest shim passes the
+# pytest-shard plugin's options; keep every num_shards-th test from shard_id.
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption("--shard-id", type=int, default=0)
+    parser.addoption("--num-shards", type=int, default=1)
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    shard, shards = config.getoption("--shard-id"), config.getoption("--num-shards")
+    if shards > 1:
+        items[:] = [item for index, item in enumerate(items) if index % shards == shard]

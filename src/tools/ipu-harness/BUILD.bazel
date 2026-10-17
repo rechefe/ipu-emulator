@@ -28,6 +28,7 @@ py_library(
         exclude = [
             "src/ipu_harness/kernel_cases.py",
             "src/ipu_harness/kernel_fixtures.py",
+            "src/ipu_harness/kernel_test.py",
         ],
     ),
     imports = ["src"],
@@ -243,10 +244,10 @@ exports_files([
 
 py_library(
     name = "kernel_test_lib",
-    testonly = True,
     srcs = [
         "src/ipu_harness/kernel_cases.py",
         "src/ipu_harness/kernel_fixtures.py",
+        "src/ipu_harness/kernel_test.py",
     ],
     imports = ["src"],
     deps = [
@@ -255,15 +256,28 @@ py_library(
     ],
 )
 
-# The ipu_kernel() entry: generated tests, the folder's own tests, tiers, bazel run.
+# mypy over the ipu_kernel() entry and its pytest plugin (tools/typecheck.bzl).
+mypy_test(
+    name = "mypy_kernel_test",
+    lib = ":kernel_test_lib",
+)
+
+# The ipu_kernel() entry, through the real rules_python_pytest shim, on a copy of
+# //kernels/elementwise/scale: generated tests, the folder's own tests, tiers,
+# sharding, the test filter, bazel run.
 py_pytest_test(
     name = "test_kernel_test",
     srcs = ["test/test_kernel_test.py"],
+    data = [
+        "//kernels/elementwise/scale:scale_files",
+        "@rules_python_pytest//python_pytest:pytest_shim.py",
+    ],
+    env = {"PYTEST_SHIM": "$(rootpath @rules_python_pytest//python_pytest:pytest_shim.py)"},
     deps = [
         ":ipu_harness_lib",
         ":kernel_test_lib",
-        ":scale_kernel",
         requirement("pytest"),
+        requirement("torch"),
     ],
 )
 
@@ -271,6 +285,9 @@ py_pytest_test(
 py_pytest_test(
     name = "test_kernel_tree",
     srcs = ["test/test_kernel_tree.py"],
+    # It reads the checkout's kernels/ to find a folder missing from KERNELS; that
+    # folder is no input of the test, so the result must not be cached.
+    tags = ["external"],
     data = [
         "//kernels:BUILD.bazel",
         "//kernels:kernel_targets",

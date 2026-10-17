@@ -46,3 +46,8 @@ def test_the_manifest_has_the_legacy_keys():
     }
     assert scale["asm"] == "kernels/elementwise/scale/scale.asm"
     assert list(scale["cases"])[:2] == ["default", "one_row"]
+    # The legacy shapes tools read: option descriptors (none: a case's values are
+    # fixed by its name) and a family's suite label.
+    assert scale["cases"]["default"]["options"] == {}
+    assert scale["cases"]["default"]["values"] == {"rows": 4, "s": 2.0}
+    assert manifest["families"] == {"elementwise": {"suite": "//kernels:elementwise"}}

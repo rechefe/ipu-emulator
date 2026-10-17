@@ -50,15 +50,22 @@ def build(targets: Mapping[str, Any], registry: Registry) -> dict[str, Any]:
             "asm": f"{bazel['dir']}/{manifest.asm.name}",
             "targets": {k: bazel[k] for k in ("run", "test", "nightly")},
             "formats": [f.value for f in manifest.formats],
+            # "options" are the command-line flags a case adds (the legacy
+            # manifest's descriptors): a harness case adds none, its values are
+            # fixed by its name. "values" are those values.
             "cases": {
-                case.name: {"options": dict(case.values), "max_cycles": None, "tier": case.tier}
+                case.name: {
+                    "options": {},
+                    "max_cycles": None,
+                    "values": dict(case.values),
+                    "tier": case.tier,
+                }
                 for case in expand(manifest)
             },
         }
-    families = sorted({kernel["family"] for kernel in kernels.values()})
     return {
         "kernels": kernels,
-        "families": {family: {} for family in families},
+        "families": dict(targets["families"]),
         "operations": {op: {"params": sorted(params)} for op, params in operations.items()},
         "query": targets["query"],
         "skipped": [
