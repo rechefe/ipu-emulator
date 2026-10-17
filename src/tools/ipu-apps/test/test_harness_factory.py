@@ -462,7 +462,7 @@ def test_memory_harness_rejects_truncated_image(tmp_path):
     inp.write_bytes(b"short")
     with pytest.raises(ValueError, match="preformatted input must contain"):
         create_harness(
-            "channel_peak",
-            params=dict(shape=(2, 3)),
+            "identity",
+            params=dict(shape=(2, 128)),
             bindings=dict(inst_path="missing", input_path=inp),
         )
