@@ -25,7 +25,7 @@ def _trace(kernel="k", case="default"):
 
 
 def _entry(id_="a"):
-    return {"id": id_, "group": "native", "title": "T", "label": "INT8", "description": "D"}
+    return {"id": id_, "group": "hardware", "title": "T", "label": "INT8", "description": "D"}
 
 
 def test_curated_toml_lists_the_build_files_traces_in_order():

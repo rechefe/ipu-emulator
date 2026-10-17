@@ -36,6 +36,7 @@ neither (it records writes), so the recorder takes them from the run.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 from collections.abc import Iterator, Mapping, Sequence
@@ -44,7 +45,7 @@ from typing import Any
 
 from ipu_isa.codec.disasm import operand_text
 from ipu_isa.codec.slot import codecs
-from ipu_isa.codec.word import WORD_LAYOUT
+from ipu_isa.codec.word import WORD_LAYOUT, word_bytes
 from ipu_isa.formats import FORMATS, ElementFormat, decode_element
 from ipu_isa.operand_types import OperandKind
 from ipu_isa.tags import Tag
@@ -111,6 +112,8 @@ def _check(header: Mapping[str, Any], records: Sequence[Mapping], context: Mappi
             f"context version {context.get('context_version')!r}; this adapter reads "
             f"{CONTEXT_VERSION}"
         )
+    if header.get("program_digest") != _program_digest(context["program"]):
+        raise TraceError("the context's program is not the program the trace ran")
     if len(context["cycles"]) != len(records):
         raise TraceError(f"{len(records)} records but {len(context['cycles'])} context cycles")
 
@@ -122,6 +125,14 @@ def _lut_value(value: float) -> float | str:
     if math.isinf(value):
         return "inf" if value > 0 else "-inf"
     return value
+
+
+def _program_digest(program: Sequence[str]) -> str:
+    """SHA-256 of the words, little-endian: the trace header's ``program_digest``."""
+    digest = hashlib.sha256()
+    for word in program:
+        digest.update(int(word, 16).to_bytes(word_bytes(), "little"))
+    return digest.hexdigest()
 
 
 def _meta(fmt: ElementFormat) -> dict[str, Any]:
@@ -139,8 +150,8 @@ def _meta(fmt: ElementFormat) -> dict[str, Any]:
         "exp_bits": info.exp_bits,
         "man_bits": info.man_bits,
         "accumulator": info.accumulator.value,
-        # FP32 and INT32 exist in the emulator only: wide-vector debug mode.
-        "wide": info.tag is Tag.EMULATOR,
+        # FP32 and INT32 exist in the emulator only.
+        "emulator_only": info.tag is Tag.EMULATOR,
         "lut": lut,
     }
 
@@ -182,7 +193,10 @@ def _branch_targets(words: Sequence[int]) -> dict[int, str]:
 
 
 def _program(words: Sequence[int], source_labels: Mapping[str, int]) -> list[dict[str, Any]]:
-    labels = {address: name for name, address in source_labels.items()} or _branch_targets(words)
+    labels: dict[int, str] = {}
+    for name, address in source_labels.items():
+        labels.setdefault(address, name)  # several at one word: the first defined
+    labels = labels or _branch_targets(words)
     return [
         {"label": labels.get(pc), "word": f"{word:x}", "slots": list(_slots(word, labels))}
         for pc, word in enumerate(words)

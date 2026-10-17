@@ -22,8 +22,12 @@ import tomli
 #: The keys each ``[[kernel]]`` entry holds (all required).
 ENTRY_KEYS = frozenset({"id", "group", "title", "label", "description"})
 
-#: The page's kernel groups, in display order.
-GROUPS = ("native", "wide")
+#: The page's kernel groups, in display order: the hardware element formats,
+#: then the emulator-only ones.
+GROUPS = ("hardware", "emulator")
+
+#: The kernel list's layout version, which the page checks.
+SCHEMA_VERSION = 1
 
 
 def kernel_list(curated: dict[str, Any], traces: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
@@ -60,24 +64,27 @@ def kernel_list(curated: dict[str, Any], traces: dict[str, dict[str, Any]]) -> l
             f"curated.toml and the kernel_trace targets disagree: traces not listed "
             f"{unlisted}, listed ids with no trace {untraced}"
         )
-    return [
-        {
-            **entry,
-            "kernel": traces[entry["id"]]["kernel"],
-            "case": traces[entry["id"]]["case"],
-            "source_path": traces[entry["id"]]["source_path"],
-            "format": traces[entry["id"]]["meta"]["format"],
-            "total_cycles": traces[entry["id"]]["total_cycles"],
-        }
-        for entry in entries
-    ]
+    return [_listed(entry, traces[entry["id"]]) for entry in entries]
+
+
+def _listed(entry: dict[str, Any], trace: dict[str, Any]) -> dict[str, Any]:
+    """A curated entry plus what its trace says about itself."""
+    return {
+        **entry,
+        "kernel": trace["kernel"],
+        "case": trace["case"],
+        "source_path": trace["source_path"],
+        "format": trace["meta"]["format"],
+        "total_cycles": trace["total_cycles"],
+    }
 
 
 def main(argv: list[str]) -> int:
+    """Write ``kernels.json``: ``argv`` is curated.toml, the output, then the traces."""
     curated_path, output, *trace_paths = (Path(arg) for arg in argv)
     curated = tomli.loads(curated_path.read_text(encoding="utf-8"))
     traces = {path.stem: json.loads(path.read_text(encoding="utf-8")) for path in trace_paths}
-    document = {"schemaVersion": 1, "kernels": kernel_list(curated, traces)}
+    document = {"schemaVersion": SCHEMA_VERSION, "kernels": kernel_list(curated, traces)}
     output.write_text(json.dumps(document, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
     return 0
 

@@ -7,13 +7,15 @@ emulator.
 
 from __future__ import annotations
 
+import hashlib
+
 import jsonschema
 import pytest
 
 from ipu_as import session
 from ipu_gen import inspector_trace
 from ipu_gen.inspector_trace import TraceError, convert
-from ipu_isa.codec.word import WORD_LAYOUT
+from ipu_isa.codec.word import WORD_LAYOUT, word_bytes
 from ipu_isa.trace_schema import isa_digest
 from ipu_isa.view import isa
 
@@ -30,7 +32,9 @@ HEADER = {
     "schema_version": "1.0.0",
     "isa_digest": isa_digest(),
     "format": "int8",
-    "program_digest": "0" * 64,
+    "program_digest": hashlib.sha256(
+        b"".join(word.to_bytes(word_bytes(), "little") for word in WORDS)
+    ).hexdigest(),
     "emulator_version": "0.1.0",
 }
 
@@ -155,7 +159,7 @@ def test_the_document_validates_against_its_schema():
     jsonschema.validate(document, inspector_trace.schema())
     assert document["schemaVersion"] == inspector_trace.SCHEMA_VERSION
     assert document["meta"]["format"] == "int8"
-    assert document["meta"]["wide"] is False
+    assert document["meta"]["emulator_only"] is False
     assert document["meta"]["lut"] is None
 
 
@@ -175,6 +179,7 @@ def test_an_fp8_format_carries_its_value_table():
         (dict(HEADER, isa_digest="0" * 64), _context(), "another ISA"),
         (HEADER, dict(_context(), context_version=2), "context version"),
         (HEADER, _context(cycles=[]), "context cycles"),
+        (dict(HEADER, program_digest="0" * 64), _context(), "not the program"),
     ],
 )
 def test_an_unknown_trace_or_context_is_refused(header, context, message):

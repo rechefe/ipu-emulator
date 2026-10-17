@@ -11,9 +11,11 @@ import struct
 
 import pytest
 
+from ipu_apps.kernel_registry import trace_case
 from ipu_apps.kernel_registry.cases import load_cases, run_case
 from ipu_apps.kernel_registry.trace_case import CaseTrace, case_context, record_case
 from ipu_emu.trace import read_trace
+from ipu_gen import inspector_trace
 from ipu_gen.inspector_trace import convert
 from ipu_isa.registers import REGISTER_DEFINITIONS
 
@@ -62,3 +64,8 @@ def test_the_document_covers_the_whole_run(tmp_path):
     assert any(cycle.get("L") for cycle in document["cycles"])
     assert any(m[0] == "R" for cycle in document["cycles"] for m in cycle["m"])
     assert any(m[0] == "W" for cycle in document["cycles"] for m in cycle["m"])
+
+
+def test_recorder_and_adapter_agree_on_the_context_version():
+    # Two packages that may not import each other: the version is written twice.
+    assert trace_case.CONTEXT_VERSION == inspector_trace.CONTEXT_VERSION

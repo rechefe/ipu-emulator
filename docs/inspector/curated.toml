@@ -2,12 +2,12 @@
 # in BUILD.bazel, in the same order (the page's); `id` is the entry's name.
 # //docs/inspector:test_kernels and :kernels_json check that the two agree.
 #
-# group: "native" (8-bit hardware formats) or "wide" (wide-vector debug,
-# emulator-only FP32/INT32). label: the format as the kernel button shows it.
+# group: "hardware" (the 8-bit hardware element formats) or "emulator" (the
+# emulator-only FP32 and INT32). label: the format as the kernel button shows it.
 
 [[kernel]]
 id = "tour_int8"
-group = "native"
+group = "hardware"
 title = "Vector tour"
 label = "INT8"
 description = """The vector_tour conformance program: loads a mask, two R_CYCLIC slots and \
@@ -16,7 +16,7 @@ multiplies, and a 4-row matrix-vector loop with AGG.SUM.FIRST. INT8 lanes multip
 
 [[kernel]]
 id = "tour_e4"
-group = "native"
+group = "hardware"
 title = "Vector tour"
 label = "FP8 E4M3"
 description = """The vector_tour conformance program: loads a mask, two R_CYCLIC slots and \
@@ -25,7 +25,7 @@ multiplies, and a 4-row matrix-vector loop with AGG.SUM.FIRST. FP8 E4M3 lanes mu
 
 [[kernel]]
 id = "tour_e5"
-group = "native"
+group = "hardware"
 title = "Vector tour"
 label = "FP8 E5M2"
 description = """The vector_tour conformance program: loads a mask, two R_CYCLIC slots and \
@@ -34,7 +34,7 @@ multiplies, and a 4-row matrix-vector loop with AGG.SUM.FIRST. FP8 E5M2: wider r
 
 [[kernel]]
 id = "tour_e3"
-group = "native"
+group = "hardware"
 title = "Vector tour"
 label = "FP8 E3M4"
 description = """The vector_tour conformance program: loads a mask, two R_CYCLIC slots and \
@@ -43,7 +43,7 @@ multiplies, and a 4-row matrix-vector loop with AGG.SUM.FIRST. FP8 E3M4: 4 manti
 
 [[kernel]]
 id = "fc_int8"
-group = "native"
+group = "hardware"
 title = "Fully connected"
 label = "INT8"
 description = """Dense layer, 10 samples × 128 inputs → 64 outputs on native 128 × INT8 \
@@ -52,70 +52,70 @@ MULT.RC.VE, ACC.ADD, the next weight-row load and the loop branch."""
 
 [[kernel]]
 id = "fc_e4"
-group = "native"
+group = "hardware"
 title = "Fully connected"
 label = "FP8 E4M3"
 description = "The same dense layer on native FP8 E4M3 vectors with FP32 accumulation."
 
 [[kernel]]
 id = "fc_e5"
-group = "native"
+group = "hardware"
 title = "Fully connected"
 label = "FP8 E5M2"
 description = "The same dense layer on native FP8 E5M2 vectors with FP32 accumulation."
 
 [[kernel]]
 id = "fully_connected"
-group = "wide"
+group = "emulator"
 title = "Fully connected"
-label = "INT32 wide"
-description = "The default fully_connected case: wide-vector debug mode with INT32 lanes."
+label = "INT32"
+description = "The default fully_connected case, in the emulator-only INT32 element format."
 
 [[kernel]]
 id = "identity"
-group = "wide"
+group = "emulator"
 title = "Identity copy"
-label = "FP32 wide"
+label = "FP32"
 description = """Copies a 3 × 128 FP32 matrix one XMEM row at a time: MULT.VE by the \
 hardware constant 1.0 (CR1), ACC.ADD.FIRST, ACTIVATE.QUANTIZE, then a store of POST_AAQ_REG."""
 
 [[kernel]]
 id = "channel_peak"
-group = "wide"
+group = "emulator"
 title = "Channel peak"
-label = "FP32 wide"
+label = "FP32"
 description = """Detector confidence over 4 channels × 16 cells: ACC.MAX across channel \
 planes, ACC.SUB of the threshold, ReLU gate via ACTIVATE.QUANTIZE."""
 
 [[kernel]]
 id = "softmax_rows"
-group = "wide"
+group = "emulator"
 title = "Row softmax"
-label = "FP32 wide"
+label = "FP32"
 description = """Numerically stable softmax over 2 rows: AGG.MAX for the row maximum, the \
 native exp2 activation, AGG.SUM for the denominator, MULT.EE to normalise."""
 
 [[kernel]]
 id = "depth_to_space"
-group = "wide"
+group = "emulator"
 title = "Depth to space"
-label = "FP32 wide"
+label = "FP32"
 description = """Pixel shuffle, upscale factor 2, 2 × 8 grid. ACC.RESHAPE scatters eight \
 MULT_RES elements per instruction into arbitrary R_ACC slots, indexed by LRD pairs."""
 
 [[kernel]]
 id = "conv_universal"
-group = "wide"
+group = "emulator"
 title = "3×3 convolution"
-label = "FP32 wide"
+label = "FP32"
 description = """Standard 3×3 conv2d. Three vertically neighbouring 128-element input chunks \
 rotate through the four R_CYCLIC slots; each tap is one MULT.RC.VE (all 128 lanes × one \
 weight) and an ACC.ADD into R_ACC. Edge lanes are masked."""
 
 [[kernel]]
 id = "residual_add"
-group = "wide"
+group = "emulator"
 title = "Residual add"
-label = "FP32 wide"
+label = "FP32"
 description = """FP32 element-wise add of two 64-channel tensors: MULT.RC.VE by 1.0 copies \
 each chunk, ACC.ADD.FIRST and ACC.ADD sum them, and a store writes R_ACC back."""

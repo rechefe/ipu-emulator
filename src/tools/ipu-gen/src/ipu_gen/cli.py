@@ -96,8 +96,9 @@ def vscode_data_command(out_dir: Path | None) -> None:
 
 
 @cli.command("inspector-trace")
-@click.argument("trace", type=click.Path(dir_okay=False, exists=True, path_type=Path))
-@click.argument("context", type=click.Path(dir_okay=False, exists=True, path_type=Path))
+# No exists=True: click would check the path before _caller_path resolves it.
+@click.argument("trace", type=click.Path(dir_okay=False, path_type=Path))
+@click.argument("context", type=click.Path(dir_okay=False, path_type=Path))
 @click.argument("output", type=click.Path(dir_okay=False, path_type=Path))
 @click.option(
     "--max-cycles",
@@ -116,7 +117,7 @@ def inspector_trace_command(trace: Path, context: Path, output: Path, max_cycles
             _caller_path(trace), _caller_path(context)
         )
         document = inspector_trace.convert(header, records, ctx, max_cycles=max_cycles)
-    except inspector_trace.TraceError as error:
+    except (inspector_trace.TraceError, OSError) as error:
         raise click.ClickException(str(error)) from None
     _caller_path(output).write_text(json.dumps(document, separators=(",", ":")) + "\n", "utf-8")
 

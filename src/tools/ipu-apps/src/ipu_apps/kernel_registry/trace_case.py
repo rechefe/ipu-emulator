@@ -236,6 +236,7 @@ def _option(text: str) -> tuple[str, Any]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Record one case: the command line in the module docstring."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("kernel")
     parser.add_argument("--case", default="default")

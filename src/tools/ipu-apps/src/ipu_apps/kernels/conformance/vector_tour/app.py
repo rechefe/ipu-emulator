@@ -1,10 +1,10 @@
 """Native vector tour: a curated conformance program for the Cycle Inspector.
 
 ``vector_tour.asm`` runs once over 128-element 8-bit vectors (INT8, E3, E4 or
-E5; no wide-vector debug) and exercises each MULT form with ACC.ADD, ACC.SUB,
+E5; no emulator-only format) and exercises each MULT form with ACC.ADD, ACC.SUB,
 ACC.MAX, masked multiplies and an AGG.SUM.FIRST matrix-vector loop.
 
-The input file is the XMEM image the program reads, :data:`INPUT_ROWS` rows of
+The input file is the XMEM the program reads, :data:`INPUT_ROWS` rows of
 128 bytes: the four rows of ``A``, then ``w``, ``c`` and the R_MASK row. The
 output file is what the program stores from :data:`OUTPUT_ROW`: three R_ACC
 stores of :data:`ACC_STORE_ROWS` rows each and, in INT8 only, the
@@ -54,10 +54,10 @@ def output_rows(fmt: ElementFormat) -> int:
 
 
 class VectorTourApp(IpuApp):
-    """Load the tour's XMEM image, set its CRs, and read back what it stored.
+    """Load the tour's input rows into XMEM, set its CRs, and read back what it stored.
 
     Args:
-        input_path: The :data:`INPUT_ROWS`-row XMEM image.
+        input_path: The :data:`INPUT_ROWS` input rows.
         output_path: Where the stored rows go.
         dtype: The element format (see :data:`FORMATS`).
     """

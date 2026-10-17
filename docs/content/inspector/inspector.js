@@ -101,7 +101,7 @@ async function loadKernel(id) {
         : `this trace is older than the viewer (trace version ${t.schemaVersion}, viewer ${VIEWER_SCHEMA}); rebuild the docs`);
     }
     T = t; T.id = id;
-    T.wideMode = !t.meta.wide ? "native" : t.meta.accumulator === "int32" ? "i32" : "f32";
+    T.wideMode = !t.meta.emulator_only ? "native" : t.meta.accumulator === "int32" ? "i32" : "f32";
     T.isInt = !t.meta.is_float;
     T.lut = t.meta.lut ? t.meta.lut.map((v) => v === "nan" ? NaN : v === "inf" ? Infinity : v === "-inf" ? -Infinity : v) : null;
     states = buildStates(t);
@@ -135,7 +135,7 @@ function renderKernelInfo() {
     <span class="pill">${T.total_cycles.toLocaleString()} cycles</span>
     <span class="pill" title="Multiplier lanes used over the whole run, out of 128 per cycle">MAC utilization ${Math.round(100 * T.cycles.reduce((a, c) => a + (c.L || 0), 0) / (128 * T.cycles.length))}%</span>
     ${T.wideMode === "native" ? `<span class="pill">format ${esc(dt)}</span>` : ""}
-    <span class="pill">${T.wideMode === "native" ? "native 8-bit vectors" : "wide-vector debug " + esc(wide)}</span>
+    <span class="pill">${T.wideMode === "native" ? "8-bit hardware format" : "emulator-only format, " + esc(wide) + " lanes"}</span>
     <span class="desc">${esc(k.desc)}</span>`;
   const tr = $("trunc");
   tr.hidden = !T.truncated;
@@ -300,9 +300,9 @@ function vecDefs() {
   const el = T.isInt ? "i8" : "fp8", acc = T.isInt ? "i32" : "f32";
   const dn = T.isInt ? "INT8" : `FP8 E${T.meta.exp_bits}M${T.meta.man_bits}`;
   return wide ? [
-    { key: "R0", reg: "r_wide_debug", off: 0, len: 512, mode: lane, cols: 16, note: "128 × 32-bit lanes (wide mode)" },
-    { key: "R1", reg: "r_wide_debug", off: 512, len: 512, mode: lane, cols: 16, note: "128 × 32-bit lanes (wide mode)" },
-    { key: "R_CYCLIC", reg: "r_cyclic_wide_debug", off: 0, len: 2048, mode: lane, cols: 32, note: "512 × 32-bit lanes in four 128-element slots (wide mode)" },
+    { key: "R0", reg: "r_wide_debug", off: 0, len: 512, mode: lane, cols: 16, note: "128 × 32-bit lanes (emulator-only format)" },
+    { key: "R1", reg: "r_wide_debug", off: 512, len: 512, mode: lane, cols: 16, note: "128 × 32-bit lanes (emulator-only format)" },
+    { key: "R_CYCLIC", reg: "r_cyclic_wide_debug", off: 0, len: 2048, mode: lane, cols: 32, note: "512 × 32-bit lanes in four 128-element slots (emulator-only format)" },
     { key: "MULT_RES", reg: "mult_res", off: 0, len: 512, mode: lane, cols: 16, note: "multiply stage result" },
     { key: "R_ACC", reg: "r_acc", off: 0, len: 512, mode: lane, cols: 16, note: "accumulator" },
     { key: "POST_AAQ_REG", reg: "post_aaq_reg", off: 0, len: 512, mode: lane, cols: 16, note: "activation output staging" },
@@ -435,7 +435,7 @@ document.addEventListener("mousemove", (e) => {
 });
 
 /* ---------- effects ---------- */
-const REG_LABEL = { r: "R0/R1", r_wide_debug: "R0/R1 (wide)", r_cyclic: "R_CYCLIC", r_cyclic_wide_debug: "R_CYCLIC (wide)", r_mask: "R_MASK", r_acc: "R_ACC", mult_res: "MULT_RES", post_aaq_reg: "POST_AAQ_REG" };
+const REG_LABEL = { r: "R0/R1", r_wide_debug: "R0/R1 (32-bit)", r_cyclic: "R_CYCLIC", r_cyclic_wide_debug: "R_CYCLIC (32-bit)", r_mask: "R_MASK", r_acc: "R_ACC", mult_res: "MULT_RES", post_aaq_reg: "POST_AAQ_REG" };
 function renderEffects() {
   if (!pos) { $("eff-regs").innerHTML = '<span class="none">No cycle executed yet.</span>'; $("eff-mem").innerHTML = '<span class="none">—</span>'; return; }
   const c = T.cycles[pos - 1], s = states[pos], p = states[pos - 1];
@@ -773,7 +773,7 @@ let rz; addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(() 
 
 /* ---------- boot ---------- */
 function renderKernelButtons() {
-  $("kernels").innerHTML = [["native", "Native vectors"], ["wide", "Wide-vector debug"]].map(([g, label]) =>
+  $("kernels").innerHTML = [["hardware", "Hardware formats"], ["emulator", "Emulator-only formats"]].map(([g, label]) =>
     `<div class="kgroup"><span class="eyebrow">${label}</span><div class="kbtns">${KERNELS.filter((k) => k.group === g).map((k) =>
       `<button class="kbtn" role="tab" data-id="${esc(k.id)}" aria-selected="false">${esc(k.title)} <span class="kdt">${esc(k.label)}</span><small>${k.total_cycles.toLocaleString()} cyc</small></button>`).join("")}</div></div>`).join("");
 }

@@ -7,6 +7,10 @@ registered kernel case with the E04-29 trace writer
 page cannot show a stale ISA or a stale kernel.
 """
 
+def _shell_word(text):
+    """`text` as one single-quoted shell word, with `$` escaped for genrule."""
+    return "'" + text.replace("'", "'\\''").replace("$", "$$") + "'"
+
 def kernel_trace(name, kernel, case = "default", options = {}, max_cycles = 5000, visibility = None):
     """`<name>.json`: the Cycle Inspector document of one kernel case.
 
@@ -21,7 +25,7 @@ def kernel_trace(name, kernel, case = "default", options = {}, max_cycles = 5000
         visibility: The target's visibility.
     """
     flags = " ".join([
-        "--option '%s=%s'" % (option, json.encode(value))
+        "--option " + _shell_word("%s=%s" % (option, json.encode(value)))
         for option, value in sorted(options.items())
     ])
     native.genrule(
@@ -29,9 +33,9 @@ def kernel_trace(name, kernel, case = "default", options = {}, max_cycles = 5000
         outs = [name + ".json"],
         cmd = " && ".join([
             "TMP=$$(mktemp -d)",
+            "trap 'rm -rf \"$$TMP\"' EXIT",
             "$(location //src/tools/ipu-apps:trace_case) %s --case %s %s --trace $$TMP/trace.jsonl --context $$TMP/context.json" % (kernel, case, flags),
             "$(location //src/tools/ipu-gen:ipu-gen) inspector-trace $$TMP/trace.jsonl $$TMP/context.json $@ --max-cycles %d" % max_cycles,
-            "rm -rf $$TMP",
         ]),
         tools = [
             "//src/tools/ipu-apps:trace_case",

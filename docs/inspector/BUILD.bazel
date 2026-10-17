@@ -29,7 +29,15 @@ CURATED = [
     {"name": "residual_add", "kernel": "residual_add"},
 ]
 
-[kernel_trace(**entry) for entry in CURATED]
+[
+    kernel_trace(
+        name = entry["name"],
+        case = entry.get("case", "default"),
+        kernel = entry["kernel"],
+        options = entry.get("options", {}),
+    )
+    for entry in CURATED
+]
 
 TRACES = [":" + entry["name"] for entry in CURATED]
 

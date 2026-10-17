@@ -1,4 +1,4 @@
-# Native vector tour: 128-element INT8 / FP8 vectors (no wide-vector debug).
+# Native vector tour: 128-element INT8 / FP8 vectors (no emulator-only format).
 #
 # A curated conformance program for the Cycle Inspector: it walks the MULT and
 # ACC slots once each on real 8-bit data. It loads a mask, two R_CYCLIC slots
