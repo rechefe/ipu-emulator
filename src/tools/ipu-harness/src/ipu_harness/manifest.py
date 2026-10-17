@@ -40,10 +40,13 @@ Schema
 
 ``[abi]``
     ``<name> = "CR2"`` .. ``"CR15"``, or ``"LR0"`` .. ``"LR15"`` (a preset, E06-06).
-    ``CR0`` and ``CR1`` are hardwired constants and cannot be bound; a float
-    parameter (an element scalar) binds a CR. Every key names a parameter, a
-    tensor or a derived value, and every tensor is bound (its base row must
-    reach the program).
+    ``CR0`` and ``CR1`` are hardwired constants and cannot be bound, except that
+    a tensor pinned at ``row = 0`` may bind ``CR0``: the program reads its base
+    through the hardwired 0 and nothing is written. A tensor may also bind
+    ``{ register = "CR2", offset = -1 }``: its base row plus ``offset`` (an
+    int). A float parameter (an element scalar) binds a CR. Every key names a
+    parameter, a tensor or a derived value, and every tensor is bound (its base
+    row must reach the program).
 
 ``[derived]``
     ``<name> = "<expression>"`` over parameters and earlier derived values,
@@ -112,6 +115,7 @@ __all__ = [
     "ParamDecl",
     "SECTION_OF",
     "TensorDecl",
+    "ZERO_REGISTER",
     "load_manifest",
 ]
 
@@ -271,7 +275,9 @@ class KernelManifest:
         formats: The element formats it runs in.
         params: The parameters, by name.
         tensors: Inputs, outputs and scratch regions, by name.
-        abi: Name to ``"CR2"``..``"CR15"`` or ``"LR0"``..``"LR15"``.
+        abi: Name to ``"CR2"``..``"CR15"`` or ``"LR0"``..``"LR15"`` (``"CR0"`` for a
+            tensor pinned at row 0).
+        abi_offsets: A tensor's offset from its base row, when ``[abi]`` gives one.
         derived: Name to expression.
         cases: The cases, ``default`` among them.
         golden: How outputs are checked.
@@ -295,6 +301,7 @@ class KernelManifest:
     stages: str | None = None
     fixed: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
     cost: int | float | str = 0
+    abi_offsets: Mapping[str, int] = field(default_factory=lambda: MappingProxyType({}))
 
     @property
     def byte_units(self) -> bool:
@@ -496,16 +503,44 @@ def _tensor(
     return decl
 
 
-def _register(r: Reader, name: str, raw: object) -> str:
+#: The hardwired zero a tensor pinned at row 0 may be read through.
+ZERO_REGISTER = "CR0"
+_BINDING_KEYS = ("register", "offset")
+
+
+def _register(r: Reader, name: str, raw: object, tensor: TensorDecl | None) -> str:
     path = ("abi", name)
     text = str(r.typed(raw, str, path)).upper()
     m = re.fullmatch(r"(CR|LR)(0|[1-9][0-9]?)", text, re.ASCII)
     banks = {"CR": REGISTER_DEFINITIONS["cr"]["count"], "LR": REGISTER_DEFINITIONS["lr"]["count"]}
     if not m or int(m.group(2)) >= banks[m.group(1)]:
         raise r.fail(path, f"{where(path)} = {raw!r} is no CR or LR register")
+    if text == ZERO_REGISTER and tensor is not None:
+        if tensor.row != 0:
+            raise r.fail(path, f"[abi] {name} is read through CR0 (always 0); pin it with row = 0")
+        return text
     if m.group(1) == "CR" and int(m.group(2)) < 2:
         raise r.fail(path, f"[abi] binds {text}, a hardwired constant")
     return text
+
+
+def _binding(
+    r: Reader, name: str, raw: object, tensor: TensorDecl | None
+) -> tuple[str, int | None]:
+    """A register, or ``{ register = ..., offset = n }`` for a tensor."""
+    path = ("abi", name)
+    if not isinstance(raw, dict):
+        return _register(r, name, raw, tensor), None
+    if tensor is None:
+        raise r.fail(path, f"[abi] {name}: only a tensor's binding takes an offset")
+    r.known(raw, _BINDING_KEYS, path)
+    if "register" not in raw:
+        raise r.fail(path, f"{where(path)} needs 'register'")
+    register = _register(r, name, raw["register"], tensor)
+    offset = r.typed(raw.get("offset", 0), int, (*path, "offset"))
+    if register == ZERO_REGISTER and offset:
+        raise r.fail((*path, "offset"), f"[abi] {name} is read through CR0; it takes no offset")
+    return register, offset
 
 
 def _abi(
@@ -514,15 +549,18 @@ def _abi(
     params: Mapping[str, ParamDecl],
     names: set[str],
     tensors: Mapping[str, TensorDecl],
-) -> Mapping[str, str]:
+) -> tuple[Mapping[str, str], Mapping[str, int]]:
     table = r.table(raw, ("abi",))
     abi: dict[str, str] = {}
+    offsets: dict[str, int] = {}
     used: dict[str, str] = {}
     for name, value in table.items():
         path = ("abi", name)
         if name not in names:
             raise r.fail(path, f"{where(path)} names no parameter, tensor or derived value")
-        register = _register(r, name, value)
+        register, offset = _binding(r, name, value, tensors.get(name))
+        if offset:
+            offsets[name] = offset
         if register in used:
             raise r.fail(path, f"[abi] {name} and {used[register]} both bind {register}")
         if name in params and params[name].type == "str":
@@ -539,7 +577,7 @@ def _abi(
                 (tensor.section, tensor.name),
                 f"[abi] does not bind tensor {tensor.name!r}; its base row must reach the program",
             )
-    return MappingProxyType(abi)
+    return MappingProxyType(abi), MappingProxyType(offsets)
 
 
 # --- cases and golden ---------------------------------------------------------------------
@@ -857,6 +895,7 @@ def load_manifest(
         integers = [n for n, p in params.items() if p.type == "int"]
         _check_expression(r, kernel.cost, (*integers, *derived), ("kernel", "cost"))
     tensors = _tensors(r, data, scalars, kernel.formats)
+    abi, abi_offsets = _abi(r, data.get("abi", {}), params, {*scalars, *tensors}, tensors)
     manifest = KernelManifest(
         name=entry.name or directory.name,
         directory=directory,
@@ -865,7 +904,8 @@ def load_manifest(
         formats=entry.formats,
         params=MappingProxyType(params),
         tensors=MappingProxyType(tensors),
-        abi=_abi(r, data.get("abi", {}), params, {*scalars, *tensors}, tensors),
+        abi=abi,
+        abi_offsets=abi_offsets,
         derived=MappingProxyType(derived),
         cases=MappingProxyType({}),
         golden=_golden(r, directory, data.get("golden", {}), kernel.formats),

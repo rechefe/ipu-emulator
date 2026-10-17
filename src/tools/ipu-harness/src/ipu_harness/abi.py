@@ -10,7 +10,10 @@ What a key binds decides the value:
 
 =====================  =====================================================
 a tensor               its base row (``Placement``); in a ``unit = "bytes"``
-                       kernel (L16), ``base_row x row_bytes(format)``
+                       kernel (L16), ``base_row x row_bytes(format)``; plus
+                       the binding's ``offset``, if it gives one. A tensor
+                       bound to ``CR0`` (pinned at row 0) is written nowhere:
+                       the program reads the hardwired 0.
 an ``int`` parameter   the integer
 a ``bool`` parameter   1 or 0
 a ``float`` parameter  its element encoding in ``plan.format``, in the low
@@ -39,7 +42,7 @@ from ipu_emu.errors import ConfigurationError
 from ipu_emu.ipu_config import DEFAULT_DSTRUCTURE_CR
 from ipu_emu.reference import ReferenceModel
 from ipu_harness._codec import encode
-from ipu_harness.manifest import KernelManifest
+from ipu_harness.manifest import ZERO_REGISTER, KernelManifest
 from ipu_harness.params import CasePlan, PlanError
 from ipu_harness.placement import Placement
 from ipu_isa.constants import (
@@ -101,9 +104,12 @@ def _value(name: str, plan: CasePlan, placement: Placement) -> tuple[int, str]:
     manifest = plan.manifest
     if name in manifest.tensors:
         base = placement.region(name).base_row
+        offset = manifest.abi_offsets.get(name, 0)
+        shown = f" {offset:+d}" if offset else ""
         if manifest.byte_units:
-            return base * FORMATS[plan.format].row_bytes, f"{name} (region base, bytes)"
-        return base, f"{name} (region base)"
+            bytes_base = base * FORMATS[plan.format].row_bytes
+            return bytes_base + offset, f"{name} (region base, bytes{shown})"
+        return base + offset, f"{name} (region base{shown})"
     if name in manifest.derived:
         return plan.derived[name], f"{name} (derived)"
     decl = manifest.params[name]
@@ -116,7 +122,8 @@ def _value(name: str, plan: CasePlan, placement: Placement) -> tuple[int, str]:
 
 def register_writes(plan: CasePlan, placement: Placement) -> tuple[RegisterWrite, ...]:
     """Every register's starting value, in ``[abi]`` order, then the default
-    dstructure in ``CR15`` unless ``[abi]`` binds it.
+    dstructure in ``CR15`` unless ``[abi]`` binds it. A ``CR0`` binding writes
+    nothing.
 
     Args:
         plan: The checked case.
@@ -131,6 +138,12 @@ def register_writes(plan: CasePlan, placement: Placement) -> tuple[RegisterWrite
     writes = []
     for name, register in plan.manifest.abi.items():
         value, source = _value(name, plan, placement)
+        if register == ZERO_REGISTER:
+            if value:  # the loader pins it at row 0; a byte-unit base is 0 too
+                raise PlanError(
+                    plan.manifest, f"abi.{name}", f"{source} = {value}, but CR0 always reads 0"
+                )
+            continue
         if not _LOWEST <= value < _PAST_HIGHEST:
             raise PlanError(
                 plan.manifest, f"abi.{name}", f"{source} = {value} does not fit a 32-bit register"

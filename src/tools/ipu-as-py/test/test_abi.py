@@ -134,6 +134,11 @@ def test_a_flat_abi_table_splits_into_the_namespaces() -> None:
         template.abi_namespaces({"x": 2})
 
 
+def test_a_binding_with_an_offset_names_its_register():
+    table = {"out": {"register": "CR2", "offset": -1}, "x": "CR0"}
+    assert template.abi_namespaces(table) == {"cr": {"out": "CR2", "x": "CR0"}, "lr": {}}
+
+
 def test_check_reads_the_abi_names() -> None:
     from ipu_as import diagnostics
 
