@@ -1315,7 +1315,9 @@ def _benchmark(r: Reader, m: KernelManifest, raw: object) -> BenchmarkDecl:
             raise r.fail(point_path, f"[benchmark] point {i}: {sweeps[0]} is one value, not a list")
         points.append(MappingProxyType(_case_values(r, m, point_path, values)))
     per = table.get("per")
-    if per is not None and (per not in m.params or m.params[per].type != "int"):
+    if per is not None and r.typed(per, str, (*path, "per")) not in m.params:
+        raise r.fail((*path, "per"), f"{where(path)} per {per!r} is no int parameter")
+    if per is not None and m.params[per].type != "int":
         raise r.fail((*path, "per"), f"{where(path)} per {per!r} is no int parameter")
     max_cycles = table.get("max_cycles")
     if max_cycles is not None and r.typed(max_cycles, int, (*path, "max_cycles")) < 1:

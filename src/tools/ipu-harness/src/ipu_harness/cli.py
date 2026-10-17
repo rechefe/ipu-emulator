@@ -39,12 +39,13 @@ import os
 import signal
 import sys
 import traceback
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 from ipu_emu.errors import ConfigurationError
+from ipu_harness import benchmark
 from ipu_harness.assembly import AssemblyCache
 from ipu_harness.cases import Case, expand
 from ipu_harness.debug import DebugLaunch
@@ -229,6 +230,7 @@ def _report_profile(args: argparse.Namespace, result: RunResult, many: bool) -> 
 
 
 def _run(args: argparse.Namespace) -> int:
+    _check_options(args)
     manifest = load_kernel(args.kernel)
     if args.list_cases:
         for case in expand(manifest):
@@ -253,20 +255,44 @@ def _run(args: argparse.Namespace) -> int:
     return 0 if passed else 1
 
 
-def _benchmark(manifest: KernelManifest, args: argparse.Namespace) -> int:
-    from ipu_harness import benchmark  # only a benchmark run needs it
+#: The options a --benchmark run takes from its [benchmark] table instead, by flag.
+_RUN_ONLY: Mapping[str, Callable[[argparse.Namespace], bool]] = {
+    "--case": lambda a: a.case != "default",
+    "--input": lambda a: bool(a.input),
+    "--output": lambda a: a.output is not None,
+    "--trace": lambda a: a.trace is not None,
+    "--max-cycles": lambda a: a.max_cycles is not None,
+    "--debug": lambda a: a.debug,
+    "--profile-aliases": lambda a: a.profile_aliases,
+    "--alias-report": lambda a: a.alias_report is not None,
+}
 
-    default = _case(manifest, "default") if "default" in manifest.cases else None
-    if default is None or manifest.benchmark is None:
-        raise ConfigurationError(f"{manifest.name} has no [benchmark]")
+
+def _check_options(args: argparse.Namespace) -> None:
+    """Refuse a flag the request would ignore."""
+    if args.benchmark:
+        given = [flag for flag, set_ in _RUN_ONLY.items() if set_(args)]
+        if given:
+            raise ConfigurationError(
+                f"--benchmark runs the [benchmark] points as declared; it takes no {given[0]}"
+            )
+    else:
+        given = [f for f, v in (("--markdown", args.markdown), ("--json", args.json)) if v]
+        if given:
+            raise ConfigurationError(f"{given[0]} goes with --benchmark")
+
+
+def _benchmark(manifest: KernelManifest, args: argparse.Namespace) -> int:
+    cases = benchmark.point_cases(manifest)  # refuses a kernel without a [benchmark]
+    assert manifest.benchmark is not None
     rows: list[benchmark.BenchRow] = []
     cache = AssemblyCache()
-    for fmt in _formats(default, args.format):
+    for fmt in _formats(cases[0], args.format):
         rows += benchmark.run_benchmark(manifest, fmt, cache=cache)
     for row in rows:
         if not row.result.passed:
             print(row.result.describe())
-    table = benchmark.render(rows, manifest.benchmark.per)
+    table = benchmark.to_markdown(rows, manifest.benchmark.per)
     print(table)
     if args.markdown is not None:
         _caller(args.markdown).write_text(f"# {manifest.name} benchmark\n\n{table}")

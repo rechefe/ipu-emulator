@@ -20,18 +20,18 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import Any
 
 from ipu_emu.errors import ConfigurationError
 from ipu_harness.assembly import AssemblyCache
 from ipu_harness.cases import Case, expand
-from ipu_harness.manifest import CaseDecl, KernelManifest
+from ipu_harness.manifest import BenchmarkDecl, KernelManifest
 from ipu_harness.runner import RunOptions, RunResult, run_kernel
 from ipu_isa.formats import ElementFormat
 
-__all__ = ["LEGEND", "BenchRow", "points", "render", "run_benchmark", "to_json"]
+__all__ = ["LEGEND", "BenchRow", "point_cases", "run_benchmark", "to_json", "to_markdown"]
 
 #: What the report's columns mean.
 LEGEND = (
@@ -62,8 +62,12 @@ class BenchRow:
     aliases: Mapping[str, tuple[int, int]]
 
     def utilization(self) -> dict[str, float] | None:
-        """mult, acc, lanes, ident and effMAC as fractions; ``None`` without
-        the model's statistics (a multi-stage kernel)."""
+        """The busy and lane fractions (mult, acc, lanes, ident, effMAC).
+
+        Returns:
+            Each as 0..1; ``None`` without the model's statistics (a
+            multi-stage kernel).
+        """
         stats = self.result.stats
         if stats is None:
             return None
@@ -79,34 +83,40 @@ class BenchRow:
 
 
 def _label(values: Mapping[str, object]) -> str:
-    return ", ".join(f"{k}={v}" for k, v in values.items())
+    """A point's values, as its case name and report row show them."""
+    return ",".join(f"{k}={v}" for k, v in values.items())
 
 
-def points(manifest: KernelManifest) -> tuple[Case, ...]:
-    """The benchmark's runs, as cases: each point over the default case's
-    values, with its generator (a point's shapes differ, so not its files).
+def _decl(manifest: KernelManifest) -> BenchmarkDecl:
+    if manifest.benchmark is None:
+        raise ConfigurationError(f"{manifest.name} has no [benchmark]")
+    return manifest.benchmark
+
+
+def point_cases(manifest: KernelManifest) -> tuple[Case, ...]:
+    """The benchmark's runs, as cases: ``benchmark[<values>]``, each point
+    over the default case (its first point, if it sweeps), with its
+    generator but not its files (a point's shapes differ).
+
+    Args:
+        manifest: A kernel with a ``[benchmark]``.
+
+    Returns:
+        A case per point, in order.
 
     Raises:
         ConfigurationError: The kernel has no ``[benchmark]``.
     """
-    if manifest.benchmark is None:
-        raise ConfigurationError(f"{manifest.name} has no [benchmark]")
+    bench = _decl(manifest)
     default = next(c for c in expand(manifest) if c.decl.name == "default")
     cases = []
-    for point in manifest.benchmark.points:
-        name = f"benchmark[{','.join(f'{k}={v}' for k, v in point.items())}]"
+    for point in bench.points:
+        name = f"benchmark[{_label(point)}]"
         values = MappingProxyType({**default.values, **point})
+        empty: Mapping[str, Any] = MappingProxyType({})
+        decl = replace(default.decl, name=name, values=values, inputs=empty, expected=empty)
         cases.append(
-            Case(
-                name=name,
-                values=values,
-                formats=default.formats,
-                inputs=MappingProxyType({}),
-                expected=MappingProxyType({}),
-                generator=default.generator,
-                tier="default",
-                decl=CaseDecl(name, values, generator=default.generator),
-            )
+            replace(default, name=name, values=values, inputs=empty, expected=empty, decl=decl)
         )
     return tuple(cases)
 
@@ -127,21 +137,24 @@ def run_benchmark(
 ) -> tuple[BenchRow, ...]:
     """Every point of the kernel's ``[benchmark]``, run in ``fmt``.
 
+    Args:
+        manifest: A kernel with a ``[benchmark]``.
+        fmt: The element format to run in.
+        cache: Reuses programs already assembled.
+
     Returns:
-        A row per point; a row whose ``result`` did not pass is a wrong answer
-        (or a fault), which the report shows and the command line fails on.
+        A row per point. A row whose ``result`` did not pass is a wrong answer
+        or a fault: the report shows it and the command line fails on it.
 
     Raises:
         ConfigurationError: The kernel has no ``[benchmark]``, or a point is
-            wrong for it.
+            wrong for it (as ``run_kernel``).
     """
-    cases = points(manifest)  # raises without a [benchmark]
-    bench = manifest.benchmark
-    assert bench is not None
+    bench = _decl(manifest)
     options = RunOptions(max_cycles=bench.max_cycles, alias_profile=True)
     cache = cache or AssemblyCache()
     rows = []
-    for point, case in zip(bench.points, cases, strict=True):
+    for point, case in zip(bench.points, point_cases(manifest), strict=True):
         result = run_kernel(manifest, case, fmt, options, cache=cache)
         per_unit = None
         if bench.per is not None:
@@ -164,8 +177,16 @@ def _markdown(headers: Sequence[str], cells: Sequence[Sequence[str]]) -> str:
     return "\n".join(lines)
 
 
-def render(rows: Sequence[BenchRow], per: str | None = None) -> str:
-    """The metrics table, then the observed aliases per point, in Markdown."""
+def to_markdown(rows: Sequence[BenchRow], per: str | None = None) -> str:
+    """The report: the metrics table, the observed aliases per point, the legend.
+
+    Args:
+        rows: From :func:`run_benchmark`, any formats.
+        per: The benchmark's ``per`` parameter, for a ``cyc/<per>`` column.
+
+    Returns:
+        Markdown.
+    """
     metrics = ("mult", "acc", "lanes", "ident", "effMAC")
     headers = [
         "point",
@@ -178,13 +199,14 @@ def render(rows: Sequence[BenchRow], per: str | None = None) -> str:
     cells = []
     for row in rows:
         used = row.utilization()
+        per_cell = f"{row.per_unit:.2f}" if row.per_unit is not None else "-"
         cells.append(
             [
                 row.label,
                 row.result.format.value,
                 "pass" if row.result.passed else "FAIL",
                 str(row.result.cycles),
-                *([f"{row.per_unit:.2f}"] if per and row.per_unit is not None else []),
+                *([per_cell] if per else []),
                 *(f"{used[m] * 100:.1f}%" if used else "-" for m in metrics),
             ]
         )
@@ -200,11 +222,20 @@ def render(rows: Sequence[BenchRow], per: str | None = None) -> str:
             for row in rows
         ]
         text += "\n\nISA aliases\n\n" + _markdown(["point", *aliases], alias_cells)
+    else:
+        text += "\n\nISA aliases: none observed."
     return text + "\n\n" + LEGEND + "\n"
 
 
 def to_json(rows: Sequence[BenchRow]) -> str:
-    """The rows as JSON: one object per point, for the nightly history (E01-14)."""
+    """The rows as JSON, for the nightly history (E01-14).
+
+    Args:
+        rows: From :func:`run_benchmark`.
+
+    Returns:
+        A JSON list, one object per row.
+    """
     return json.dumps(
         [
             {
