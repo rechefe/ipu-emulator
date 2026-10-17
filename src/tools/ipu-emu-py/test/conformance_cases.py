@@ -29,13 +29,14 @@ from ipu_isa.codec.word import DecodedWord
 from ipu_isa.faults import reserved_encodings
 from ipu_isa.formats import FORMATS, AccumulatorType, ElementFormat
 from ipu_isa.geometry import LANES
+from ipu_isa.registers import REGISTER_DEFINITIONS
 from ipu_isa.slots import Slot
 from ipu_isa.view import isa
 
 #: The cycle limit of every case but the F-9 ones.
 MAX_CYCLES = 1_000
-#: XMEM rows the instruction cases fill.
-ROWS = 16
+#: XMEM rows the load cases fill (their rows are CR3 + LR1 and CR3 + LR2).
+ROWS = 8
 
 
 @dataclass(frozen=True)
@@ -106,27 +107,35 @@ def _lanes(rng: random.Random, fmt: ElementFormat, count: int = LANES) -> bytes:
     return _floats(rng, count)
 
 
-def random_state(seed: str) -> Callable[[IpuState], None]:
-    """The instruction cases' starting state: CRS and LRS, and every vector
-    register and the first ROWS XMEM rows filled from a generator seeded by
-    *seed*."""
+#: Where each register an instruction reads lives in the wide formats.
+_WIDE_NAMES = {"r": "r_wide_debug", "r_cyclic": "r_cyclic_wide_debug"}
+
+
+def _fill(rng: random.Random, fmt: ElementFormat, register: str) -> bytes:
+    """Random contents for *register* in *fmt*: lanes, elements or bytes."""
+    if register in ("mult_res", "r_acc"):
+        return _lanes(rng, fmt)
+    definition = REGISTER_DEFINITIONS[register]
+    if register in ("r", "r_cyclic"):
+        return _elements(rng, fmt, definition["size_bytes"] * definition["count"])
+    return rng.randbytes(definition["size_bytes"])
+
+
+def random_state(seed: str, reads: frozenset[str], xmem: bool) -> Callable[[IpuState], None]:
+    """An instruction case's starting state: CRS and LRS, the vector
+    registers in *reads* and, when *xmem*, the first ROWS XMEM rows, filled
+    from a generator seeded by *seed*. The registers the instruction does not
+    read keep their reset values, which keeps the suite small."""
 
     def prepare(state: IpuState) -> None:
         rng = random.Random(seed)
         fmt = state.fmt
-        regfile = state.regfile
-        for index, value in CRS.items():
-            regfile.set_cr(index, value)
-        for index, value in LRS.items():
-            regfile.set_lr(index, value)
-        ra, ring = ("r_wide_debug", "r_cyclic_wide_debug") if fmt in _WIDE else ("r", "r_cyclic")
-        regfile.mutable(ra)[:] = _elements(rng, fmt, 2 * LANES)
-        regfile.mutable(ring)[:] = _elements(rng, fmt, 4 * LANES)
-        regfile.mutable("r_mask")[:] = rng.randbytes(LANES)
-        regfile.mutable("mult_res")[:] = _lanes(rng, fmt)
-        regfile.mutable("r_acc")[:] = _lanes(rng, fmt)
-        regfile.mutable("post_aaq_reg")[:] = rng.randbytes(4 * LANES)
-        state.xmem.write_address(0, _elements(rng, fmt, ROWS * LANES))
+        scalars(state)
+        for register in sorted(reads - {"lr", "cr"}):
+            name = _WIDE_NAMES.get(register, register) if fmt in _WIDE else register
+            state.regfile.mutable(name)[:] = _fill(rng, fmt, register)
+        if xmem:
+            state.xmem.write_address(0, _elements(rng, fmt, ROWS * LANES))
 
     return prepare
 
@@ -208,14 +217,17 @@ def _slug(text: str) -> str:
 
 
 def instruction_cases() -> list[Case]:
+    view = isa()
+    every = [i for slot in view.spec_slot_order for i in view.instructions(slot)]
+    reads = {i.mnemonic: frozenset(a.register for a in i.reads()) for i in every}
+    slots = {i.mnemonic: i.slot for i in every}
     cases = []
     for mnemonic, (body, formats) in INSTRUCTIONS.items():
         for fmt in formats:
             name = f"insn_{_slug(mnemonic)}_{fmt.value}"
             asm = f"{body}\nHALT ;;\n" if body else "HALT ;;\n"
-            cases.append(
-                Case(name, f"{mnemonic} in {fmt.value.upper()}", asm, fmt, random_state(name))
-            )
+            state = random_state(name, reads[mnemonic], slots[mnemonic] is Slot.LOAD)
+            cases.append(Case(name, f"{mnemonic} in {fmt.value.upper()}", asm, fmt, state))
     return cases
 
 
@@ -280,7 +292,7 @@ def _lanes_of(code: str, acc: float, res: float) -> Callable[[IpuState], None]:
     """R_ACC lanes all *acc* and MULT_RES lanes all *res*, struct type *code*."""
 
     def prepare(state: IpuState) -> None:
-        random_state("arith")(state)
+        scalars(state)
         state.regfile.mutable("r_acc")[:] = struct.pack(f"<{LANES}{code}", *[acc] * LANES)
         state.regfile.mutable("mult_res")[:] = struct.pack(f"<{LANES}{code}", *[res] * LANES)
 
