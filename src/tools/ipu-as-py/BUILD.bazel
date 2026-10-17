@@ -14,6 +14,8 @@ exports_files([
     "pyproject.toml",
     # Read by //src/tools/ipu-isa:test_word_codec (E03-16).
     "test/baselines/word_fields.json",
+    # Read by //src/tools/ipu-gen:test_one_edit_generators (E03-24).
+    "test/golden/ipu_instr_pkg.sv",
 ])
 
 # RUNTIME_DEPS as JSON, for //tools:deps_consistency_test.

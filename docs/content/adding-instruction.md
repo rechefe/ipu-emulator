@@ -364,3 +364,5 @@ The instruction will automatically work in:
 - Documentation generation (help text, reference docs)
 
 All from the single source of truth in `instruction_spec.py`.
+
+The "one edit" tests check that this list is complete. `//src/tools/ipu-apps:test_one_edit_end_to_end` copies the sources, adds a dummy `TESTNEG` instruction with exactly one spec entry and one handler, then assembles and runs a program that uses it. `//src/tools/ipu-isa:test_one_edit` and `//src/tools/ipu-gen:test_one_edit_generators` check the derived opcode, layout, codec, disassembly, timing check, reserved encodings, SV package, instruction reference and editor data. Any further edit an instruction still needs is listed, with the issue that removes it, in `KNOWN_MANUAL_EDITS` in the end-to-end test; the list is empty.

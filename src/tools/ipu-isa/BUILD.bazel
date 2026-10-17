@@ -210,6 +210,28 @@ py_pytest_test(
     ],
 )
 
+# The "one edit" test's dummy instruction (E03-24), shared with the generator
+# and end-to-end halves in ipu-gen and ipu-apps.
+py_library(
+    name = "one_edit",
+    testonly = True,
+    srcs = ["test/one_edit.py"],
+    imports = ["test"],
+    visibility = ["//visibility:public"],
+    deps = [":ipu_isa_lib"],
+)
+
+py_pytest_test(
+    name = "test_one_edit",
+    srcs = ["test/test_one_edit.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_isa_lib",
+        ":one_edit",
+        requirement("pytest"),
+    ],
+)
+
 # mypy over ipu_isa_lib with the locked mypy and //:mypy.ini (tools/typecheck.bzl).
 mypy_test(
     name = "mypy",
