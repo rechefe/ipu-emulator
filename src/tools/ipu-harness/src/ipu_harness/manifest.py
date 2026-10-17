@@ -47,10 +47,11 @@ Schema
 ``[abi]``
     ``<name> = "CR2"`` .. ``"CR15"``, or ``"LR0"`` .. ``"LR15"`` (a preset, E06-06).
     ``CR0`` and ``CR1`` are hardwired constants and cannot be bound, except that
-    a tensor pinned at ``row = 0`` may bind ``CR0``: the program reads its base
+    a tensor pinned at a literal ``row = 0`` may bind ``CR0``: the program reads its base
     through the hardwired 0 and nothing is written. A tensor may also bind
     ``{ register = "CR2", offset = -1 }``: its base row plus ``offset`` (an
-    int). Any binding may be a table with ``when`` (as a tensor's): it binds
+    int; in a ``unit = "bytes"`` kernel the base and the offset count bytes).
+    Any binding may be a table with ``when`` (as a tensor's): it binds
     only in a case where that holds; a conditional tensor's binding takes the
     tensor's condition. Two bindings may share a register only when their
     conditions exclude each other (``bias`` and ``not bias``). A float
@@ -93,7 +94,6 @@ each becomes the parameter's only choice and its value in every case).
 
 from __future__ import annotations
 
-import functools
 import math
 import re
 import sys
@@ -105,6 +105,7 @@ from typing import Any, Literal
 
 from ipu_harness._codec import limits
 from ipu_harness._toml_source import Locator, ManifestError, Reader, decode_error_line, where
+from ipu_harness.conditions import Condition
 from ipu_harness.expressions import ExpressionError, names_in
 from ipu_harness.tolerance import TIERS
 from ipu_harness.tolerance import Tier as ToleranceTier
@@ -127,8 +128,6 @@ __all__ = [
     "SECTION_OF",
     "TensorDecl",
     "ZERO_REGISTER",
-    "condition_holds",
-    "narrowed",
     "load_manifest",
 ]
 
@@ -214,7 +213,7 @@ class TensorDecl:
         row: The first XMEM row, if pinned (Q81): an int, or an expression over
             parameter and derived names.
         after: The tensor this region is placed right after, if it says.
-        when: The condition it exists under (``"bias"``, ``"not bias"``), if any.
+        when: The condition it exists under (``when = "bias"``), if any.
         pack: The named pack transform of an input or output (E06-05).
         store: How an output is stored: ``element`` or ``accumulator``.
         fill: The value a scratch region is filled with.
@@ -227,7 +226,7 @@ class TensorDecl:
     shape: tuple[int | str, ...]
     row: int | str | None = None
     after: str | None = None
-    when: str | None = None
+    when: Condition | None = None
     pack: str | None = None
     store: Store = "element"
     fill: int | float = 0
@@ -322,7 +321,7 @@ class KernelManifest:
     fixed: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
     cost: int | float | str = 0
     abi_offsets: Mapping[str, int] = field(default_factory=lambda: MappingProxyType({}))
-    abi_when: Mapping[str, str] = field(default_factory=lambda: MappingProxyType({}))
+    abi_when: Mapping[str, Condition] = field(default_factory=lambda: MappingProxyType({}))
 
     @property
     def byte_units(self) -> bool:
@@ -507,39 +506,12 @@ def _placed(
     return decl
 
 
-def _condition(r: Reader, raw: object, bools: Iterable[str], path: tuple[str, ...]) -> str:
-    """``"<bool param>"`` or ``"not <bool param>"``, normalised."""
-    text = " ".join(r.text(raw, path).split())
-    name = text.removeprefix("not ")
-    if name not in bools:
-        raise r.fail(path, f"{where(path)} {text!r} must name a bool parameter, or 'not' one")
-    return text
-
-
-def condition_holds(condition: str | None, params: Mapping[str, object]) -> bool:
-    """Whether a ``when`` condition holds for a case's parameter values.
-
-    Args:
-        condition: ``"<bool param>"``, ``"not <bool param>"``, or None (always).
-        params: The case's values, defaults filled.
-
-    Returns:
-        True when there is no condition or it holds.
-    """
-    if condition is None:
-        return True
-    name = condition.removeprefix("not ")
-    return bool(params[name]) is (name == condition)
-
-
-def _excludes(a: str | None, b: str | None) -> bool:
-    """Whether conditions ``a`` and ``b`` never hold together."""
-    return (
-        a is not None
-        and b is not None
-        and a.removeprefix("not ") == b.removeprefix("not ")
-        and (a.startswith("not ") != b.startswith("not "))
-    )
+def _condition(r: Reader, raw: object, bools: Iterable[str], path: tuple[str, ...]) -> Condition:
+    """``"<bool param>"`` or ``"not <bool param>"``."""
+    condition = Condition.parse(r.text(raw, path))
+    if condition.param not in bools:
+        raise r.fail(path, f"{where(path)} {condition} must name a bool parameter, or 'not' one")
+    return condition
 
 
 def _tensor(
@@ -602,7 +574,7 @@ def _register(r: Reader, name: str, raw: object, tensor: TensorDecl | None) -> s
 class _Binding:
     register: str
     offset: int
-    when: str | None
+    when: Condition | None
 
 
 def _binding(
@@ -624,9 +596,12 @@ def _binding(
         raise r.fail((*path, "offset"), f"[abi] {name} is read through CR0; it takes no offset")
     if "when" in raw:
         own = _condition(r, raw["when"], bools, (*path, "when"))
-        if when is not None and own != when:
+        if tensor is not None and own != when:
+            # An always-present tensor must always be bound, and a conditional
+            # one exactly when it exists.
             raise r.fail(
-                (*path, "when"), f"[abi] {name} takes its tensor's condition {when!r}, not {own!r}"
+                (*path, "when"),
+                f"[abi] {name} takes its tensor's condition ({when or 'always'}), not {own}",
             )
         when = own
     return _Binding(register, offset, when)
@@ -650,12 +625,12 @@ def _abi(
     params: Mapping[str, ParamDecl],
     names: set[str],
     tensors: Mapping[str, TensorDecl],
-) -> tuple[Mapping[str, str], Mapping[str, int], Mapping[str, str]]:
+) -> tuple[Mapping[str, str], Mapping[str, int], Mapping[str, Condition]]:
     table = r.table(raw, ("abi",))
     bools = [n for n, p in params.items() if p.type == "bool"]
     abi: dict[str, str] = {}
     offsets: dict[str, int] = {}
-    conditions: dict[str, str] = {}
+    conditions: dict[str, Condition] = {}
     used: dict[str, list[str]] = {}
     for name, value in table.items():
         path = ("abi", name)
@@ -668,7 +643,7 @@ def _abi(
         if binding.when is not None:
             conditions[name] = binding.when
         for other in used.get(register, []):
-            if not _excludes(binding.when, conditions.get(other)):
+            if binding.when is None or not binding.when.excludes(conditions.get(other)):
                 raise r.fail(path, f"[abi] {name} and {other} both bind {register}")
         if name in params:
             _check_parameter_binding(r, params[name], register, path)
@@ -943,7 +918,7 @@ def _tensors(
     data: Mapping[str, Any],
     scalars: tuple[str, ...],
     formats: tuple[ElementFormat, ...],
-    bools: tuple[str, ...] = (),
+    bools: tuple[str, ...],
 ) -> dict[str, TensorDecl]:
     tensors: dict[str, TensorDecl] = {}
     for section in _ROLES:
@@ -1044,43 +1019,3 @@ def load_manifest(
         raise r.fail(("cases",), f"{TOML_NAME} needs [cases.default]")
     cases = {name: _case(r, manifest, name, raw) for name, raw in raw_cases.items()}
     return replace(manifest, cases=MappingProxyType(cases))
-
-
-@functools.cache
-def _narrowed(
-    manifest: KernelManifest, absent: frozenset[str], inactive: frozenset[str]
-) -> KernelManifest:
-    tensors = {n: t for n, t in manifest.tensors.items() if n not in absent}
-    abi = {n: reg for n, reg in manifest.abi.items() if n not in inactive}
-    return replace(
-        manifest,
-        tensors=MappingProxyType(tensors),
-        abi=MappingProxyType(abi),
-        abi_offsets=MappingProxyType(
-            {n: o for n, o in manifest.abi_offsets.items() if n not in inactive}
-        ),
-        abi_when=MappingProxyType({n: w for n, w in manifest.abi_when.items() if n in abi}),
-    )
-
-
-def narrowed(manifest: KernelManifest, params: Mapping[str, object]) -> KernelManifest:
-    """``manifest`` as one case sees it: only the tensors and bindings whose
-    ``when`` holds for ``params`` (``plan_case`` gives it to every later stage).
-
-    Args:
-        manifest: The kernel.
-        params: The case's checked values, defaults filled.
-
-    Returns:
-        ``manifest`` itself when it has no condition, else the same narrowed
-        view for the same answer.
-    """
-    absent = frozenset(
-        n for n, t in manifest.tensors.items() if not condition_holds(t.when, params)
-    )
-    inactive = frozenset(
-        n for n, when in manifest.abi_when.items() if not condition_holds(when, params)
-    )
-    if not absent and not inactive:
-        return manifest
-    return _narrowed(manifest, absent, inactive)

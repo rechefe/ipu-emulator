@@ -98,7 +98,8 @@ def default_rows(plan: CasePlan, tensor: TensorDecl) -> int:
 
 def placement_order(tensors: Iterable[TensorDecl]) -> list[TensorDecl]:
     """Declaration order, with each ``after`` tensor moved right behind its
-    target (the loader checked the targets exist and form no cycle).
+    target (the loader checked the targets exist and form no cycle); one whose
+    target this case lacks (``when``) keeps its declaration place.
 
     Args:
         tensors: The kernel's tensors, in declaration order.
@@ -107,9 +108,10 @@ def placement_order(tensors: Iterable[TensorDecl]) -> list[TensorDecl]:
         The order free regions are placed in.
     """
     declared = list(tensors)
+    names = {t.name for t in declared}
     followers: dict[str, list[TensorDecl]] = {}
     for tensor in declared:
-        if tensor.after is not None:
+        if tensor.after in names:
             followers.setdefault(tensor.after, []).append(tensor)
     order: list[TensorDecl] = []
 
@@ -119,7 +121,9 @@ def placement_order(tensors: Iterable[TensorDecl]) -> list[TensorDecl]:
             visit(follower)
 
     for tensor in declared:
-        if tensor.after is None:
+        # A tensor whose target is absent from this case (``when``) keeps its
+        # declaration place.
+        if tensor.after not in names:
             visit(tensor)
     return order
 

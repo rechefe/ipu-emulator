@@ -33,8 +33,9 @@ from types import MappingProxyType
 import numpy as np
 
 from ipu_emu.errors import ConfigurationError
+from ipu_harness.conditions import narrowed
 from ipu_harness.expressions import ExpressionError, evaluate
-from ipu_harness.manifest import TOML_NAME, CaseDecl, KernelManifest, ParamDecl, narrowed
+from ipu_harness.manifest import TOML_NAME, CaseDecl, KernelManifest, ParamDecl
 from ipu_isa.formats import FORMATS, ElementFormat, element_values
 
 Value = int | float | bool | str

@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from ipu_harness.abi import register_writes
+from ipu_harness.conditions import Condition
 from ipu_harness.manifest import KernelManifest, ManifestError, load_manifest
 from ipu_harness.params import plan_case
 from ipu_harness.placement import place
@@ -60,8 +61,8 @@ def manifest(tmp_path: Path, toml: str = TOML) -> KernelManifest:
 
 def test_a_conditional_tensor_and_binding_load(tmp_path):
     m = manifest(tmp_path)
-    assert m.tensors["b"].when == "bias"
-    assert dict(m.abi_when) == {"b": "bias", "tail": "not bias"}
+    assert m.tensors["b"].when == Condition("bias")
+    assert {n: str(c) for n, c in m.abi_when.items()} == {"b": "bias", "tail": "not bias"}
 
 
 def test_with_bias_the_bias_region_is_placed_and_bound(tmp_path):
@@ -95,8 +96,20 @@ def test_the_narrowed_view_is_shared_by_plans_with_the_same_answer(tmp_path):
         ('when = "bias"', 'when = "rows"', "must name a bool parameter"),
         ('when = "not bias"', 'when = "bias"', "tail and b both bind CR10"),
         ('b    = "CR10"', 'b    = { register = "CR10", when = "not bias" }', "takes its tensor's"),
+        ('x    = "CR2"', 'x    = { register = "CR2", when = "bias" }', r"condition \(always\)"),
     ],
 )
 def test_a_bad_condition_is_refused(tmp_path, old, new, message):
     with pytest.raises(ManifestError, match=message):
         manifest(tmp_path, TOML.replace(old, new, 1))
+
+
+def test_a_region_after_an_absent_tensor_keeps_its_place(tmp_path):
+    toml = TOML.replace(
+        '[outputs.y]\nshape = ["rows", 128]', '[outputs.y]\nshape = ["rows", 128]\nafter = "b"'
+    )
+    m = manifest(tmp_path, toml)
+    without = place(plan_case(m, {"rows": 2}, F.FP32))
+    assert without.region("y").base_row == 2  # b is absent: y keeps its place
+    with_bias = place(plan_case(m, {"rows": 2, "bias": True}, F.FP32))
+    assert (with_bias.region("b").base_row, with_bias.region("y").base_row) == (2, 3)
