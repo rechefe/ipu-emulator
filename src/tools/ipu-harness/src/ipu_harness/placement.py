@@ -19,6 +19,7 @@ row_bytes`` rows (4 in INT8, 1 in FP32).
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -27,6 +28,7 @@ from ipu_harness.manifest import Role, TensorDecl
 from ipu_harness.params import CasePlan, PlanError
 from ipu_isa.formats import FORMATS, addressable_rows
 from ipu_isa.geometry import LANES
+from ipu_isa.registers import REGISTER_DEFINITIONS
 
 
 @dataclass(frozen=True)
@@ -203,3 +205,44 @@ def place(
         rows_used=max((r.end_row for r in taken), default=0),
         capacity=capacity,
     )
+
+
+#: ``ST.AAQ`` stores the whole of ``POST_AAQ_REG`` (OQ-35), more than one row
+#: in an 8-bit format.
+_AAQ_STORE_BYTES: int = REGISTER_DEFINITIONS["post_aaq_reg"]["size_bytes"]
+
+
+def check_aaq_spill(plan: CasePlan, placement: Placement, program: str) -> None:
+    """Refuse a placement where ``ST.AAQ``'s spill would land on a region.
+
+    ``ST.AAQ`` writes 512 bytes, four rows in an 8-bit format, so a store to
+    an output's last row also writes the three rows after it (OQ-35). When
+    ``program`` stores with ``ST.AAQ``, the rows after every element output
+    must be free and inside XMEM. Accumulator outputs (``ST.ACC``) are not
+    checked: their stride already holds a store.
+
+    Raises:
+        PlanError: A region, or the end of XMEM, is in an output's spill.
+    """
+    spill = _AAQ_STORE_BYTES // FORMATS[plan.format].row_bytes - 1
+    if spill <= 0 or not re.search(r"\bST\.AAQ\b", program, re.IGNORECASE):
+        return
+    capacity = addressable_rows(plan.format)
+    for tensor in plan.manifest.tensors.values():
+        if tensor.role != "output" or tensor.store != "element":
+            continue
+        end = placement.region(tensor.name).end_row
+        hit = [
+            r.name
+            for r in placement.regions.values()
+            if r.name != tensor.name and r.base_row < end + spill and end < r.end_row
+        ]
+        if hit or end + spill > capacity:
+            where = f"region {', '.join(hit)}" if hit else "the end of XMEM"
+            raise PlanError(
+                plan.manifest,
+                _key(tensor),
+                f"ST.AAQ writes {_AAQ_STORE_BYTES} bytes ({spill + 1} {plan.format.value} rows), "
+                f"so a store to {tensor.name}'s last row writes rows {end}..{end + spill - 1}, "
+                f"which hold {where} (OQ-35)",
+            )
