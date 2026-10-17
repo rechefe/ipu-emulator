@@ -1398,6 +1398,8 @@ Branch if two registers are equal.
 BEQ LR0 LR1 end;;
 ```
 
+**Register reads:** `reg1` (`LR`): [cycle start](explanation/timing-model.md#rule-1); `reg1` (`CR`): [cycle start](explanation/timing-model.md#slot-order); `reg2` (`LR`): [cycle start](explanation/timing-model.md#rule-1); `reg2` (`CR`): [cycle start](explanation/timing-model.md#slot-order).
+
 ### `BNE` — Branch if Not Equal
 
 **Syntax:** `BNE reg1 reg2 label`
@@ -1422,6 +1424,8 @@ Branch if two registers are not equal.
 ```asm
 BNE LR0 CR0 loop;;
 ```
+
+**Register reads:** `reg1` (`LR`): [cycle start](explanation/timing-model.md#rule-1); `reg1` (`CR`): [cycle start](explanation/timing-model.md#slot-order); `reg2` (`LR`): [cycle start](explanation/timing-model.md#rule-1); `reg2` (`CR`): [cycle start](explanation/timing-model.md#slot-order).
 
 ### `BLT.S` — Branch if Less Than (signed)
 
@@ -1448,6 +1452,8 @@ Branch if first register is less than second, as signed 32-bit integers.
 BLT.S LR0 CR1 smaller;;
 ```
 
+**Register reads:** `reg1` (`LR`): [cycle start](explanation/timing-model.md#rule-1); `reg1` (`CR`): [cycle start](explanation/timing-model.md#slot-order); `reg2` (`LR`): [cycle start](explanation/timing-model.md#rule-1); `reg2` (`CR`): [cycle start](explanation/timing-model.md#slot-order).
+
 ### `BGE.S` — Branch if Greater or Equal (signed)
 
 **Syntax:** `BGE.S reg1 reg2 label`
@@ -1473,6 +1479,8 @@ Branch if first register is greater than or equal to second, as signed 32-bit in
 BGE.S LR0 CR1 ge;;
 ```
 
+**Register reads:** `reg1` (`LR`): [cycle start](explanation/timing-model.md#rule-1); `reg1` (`CR`): [cycle start](explanation/timing-model.md#slot-order); `reg2` (`LR`): [cycle start](explanation/timing-model.md#rule-1); `reg2` (`CR`): [cycle start](explanation/timing-model.md#slot-order).
+
 ### `BR` — Branch Register
 
 **Syntax:** `BR reg`
@@ -1491,6 +1499,8 @@ Branch to address in register.
 **Pseudo code:**
 `PC = reg`
 
+
+**Register reads:** `reg` (`LR`): [cycle start](explanation/timing-model.md#rule-1); `reg` (`CR`): [cycle start](explanation/timing-model.md#slot-order).
 
 ### `HALT` — Halt
 
@@ -1541,6 +1551,8 @@ Copy a 32-bit value from a configuration register into a loop register.
 SET LR0 CR1;;
 ```
 
+**Register reads:** `src` (`CR`): [cycle start](explanation/timing-model.md#rule-4).
+
 ### `ADD` — Add
 
 **Syntax:** `ADD dest src_a src_b`
@@ -1566,6 +1578,8 @@ Add two register sources and store the result in the destination LR.
 ADD LR0 LR1 LR2;;
 ADD LR3 LR1 CR5;;
 ```
+
+**Register reads:** `src_a` (`LR`): [cycle start](explanation/timing-model.md#rule-4); `src_b` (`LR`): [cycle start](explanation/timing-model.md#rule-4); `src_b` (`CR`): [cycle start](explanation/timing-model.md#rule-4).
 
 ### `SUB` — Subtract
 
@@ -1593,6 +1607,8 @@ SUB LR0 LR1 LR2;;
 SUB LR3 LR1 CR5;;
 ```
 
+**Register reads:** `src_a` (`LR`): [cycle start](explanation/timing-model.md#rule-4); `src_b` (`LR`): [cycle start](explanation/timing-model.md#rule-4); `src_b` (`CR`): [cycle start](explanation/timing-model.md#rule-4).
+
 ### `INC.MODP2` — Increment Loop Register Modulo Power of Two
 
 **Syntax:** `INC.MODP2 dest step k`
@@ -1618,6 +1634,8 @@ Add a loop or configuration register into the destination loop register, then ma
 INC.MODP2 LR2 LR3 4;;
 ```
 
+**Register reads:** `step` (`LR`): [cycle start](explanation/timing-model.md#rule-4); `step` (`CR`): [cycle start](explanation/timing-model.md#rule-4); `dest` (`LR`): [cycle start](explanation/timing-model.md#rule-4).
+
 ### `INC` — Increment
 
 **Syntax:** `INC dest imm`
@@ -1642,6 +1660,8 @@ Add an unsigned immediate to the destination LR (read-modify-write).
 INC LR0 7;;
 ```
 
+**Register reads:** `dest` (`LR`): [cycle start](explanation/timing-model.md#rule-4).
+
 ### `DEC` — Decrement
 
 **Syntax:** `DEC dest imm`
@@ -1665,6 +1685,8 @@ Subtract an unsigned immediate from the destination LR (read-modify-write).
 ```asm
 DEC LR0 3;;
 ```
+
+**Register reads:** `dest` (`LR`): [cycle start](explanation/timing-model.md#rule-4).
 
 ### `ADDB` — Add Byte (Broadcast, Register)
 
@@ -1694,6 +1716,8 @@ ADDB LRD0 LR3;;
 ADDB LRD2 CR5;;
 ```
 
+**Register reads:** `src_b` (`LR`): [cycle start](explanation/timing-model.md#rule-4); `src_b` (`CR`): [cycle start](explanation/timing-model.md#rule-4); `dest` (`LR`): [cycle start](explanation/timing-model.md#rule-4).
+
 ### `ADDBI` — Add Byte Immediate (Broadcast)
 
 **Syntax:** `ADDBI dest imm`
@@ -1721,6 +1745,8 @@ for i in 0..7: dest_byte[i] = clamp(dest_byte[i] + byte_val, 0, 255)`
 ADDBI LRD0 200;;
 ADDBI LRD2 7;;
 ```
+
+**Register reads:** `dest` (`LR`): [cycle start](explanation/timing-model.md#rule-4).
 
 ---
 
@@ -1754,6 +1780,8 @@ SET LR0 CR1;;
 LD.MULT R0 LR0 CR0;;
 ```
 
+**Register reads:** `offset` (`LR`): [after LR writes](explanation/timing-model.md#rule-1); `base` (`CR`): [cycle start](explanation/timing-model.md#slot-order).
+
 ### `LD.MULT.CYCLIC` — Load Cyclic Register
 
 **Syntax:** `LD.MULT.CYCLIC offset base index`
@@ -1775,6 +1803,8 @@ Load with cyclic addressing into R_CYCLIC.
 `R_CYCLIC[index .. index+127] = Memory[row(offset + base)]   # index ∈ {0, 128, 256, 384}`
 
 
+**Register reads:** `offset` (`LR`): [after LR writes](explanation/timing-model.md#rule-1); `base` (`CR`): [cycle start](explanation/timing-model.md#slot-order); `index` (`LR`): [after LR writes](explanation/timing-model.md#rule-1).
+
 ### `LD.MASK` — Load Mask Register
 
 **Syntax:** `LD.MASK offset base`
@@ -1793,6 +1823,9 @@ Load mask data from memory.
 
 **Pseudo code:**
 `R_MASK = Memory[row(offset + base) .. +128B]  # reads only the row's first 128 B, in both modes -- the mask is 1 bit/element and does not scale with element width`
+
+
+**Register reads:** `offset` (`LR`): [after LR writes](explanation/timing-model.md#rule-1); `base` (`CR`): [cycle start](explanation/timing-model.md#slot-order).
 
 ---
 
@@ -1830,6 +1863,8 @@ Multiply R_CYCLIC[rc_idx:rc_idx+128] by Ra (R0 or R1) element-wise. The partitio
 MULT.RC.VV LR0 R0 0 LR2 CR15;;
 ```
 
+**Register reads:** `rc_idx` (`LR`): [after LR writes](explanation/timing-model.md#rule-1); `ra` (`R`): [cycle start](explanation/timing-model.md#rule-2); `mask_shift` (`LR`): [after LR writes](explanation/timing-model.md#rule-1); `R_CYCLIC`: [cycle start](explanation/timing-model.md#rule-2); `R_MASK`: [cycle start](explanation/timing-model.md#rule-2); `cr_idx` (`CR`): [cycle start](explanation/timing-model.md#slot-order).
+
 ### `MULT.RC.VE` — RC Vector × Scalar Multiply
 
 **Syntax:** `MULT.RC.VE rc_idx src mask_offset mask_shift cr_idx`
@@ -1859,6 +1894,8 @@ Multiply R_CYCLIC[rc_idx:rc_idx+128] by a scalar, element-wise. The scalar is ei
 MULT.RC.VE LR0 LR3 0 LR2 CR15;;
 ```
 
+**Register reads:** `rc_idx` (`LR`): [after LR writes](explanation/timing-model.md#rule-1); `mask_shift` (`LR`): [after LR writes](explanation/timing-model.md#rule-1); `src` (`LR`): [after LR writes](explanation/timing-model.md#rule-1); `src` (`CR`): [cycle start](explanation/timing-model.md#slot-order); `R`: [cycle start](explanation/timing-model.md#rule-2); `R_CYCLIC`: [cycle start](explanation/timing-model.md#rule-2); `R_MASK`: [cycle start](explanation/timing-model.md#rule-2); `cr_idx` (`CR`): [cycle start](explanation/timing-model.md#slot-order).
+
 ### `MULT.RC.VS` — RC Vector Self-Multiply (Square)
 
 **Syntax:** `MULT.RC.VS rc_idx mask_offset mask_shift cr_idx`
@@ -1886,6 +1923,8 @@ Square R_CYCLIC[rc_idx:rc_idx+128] element-wise. The partition used by mask_shif
 ```asm
 MULT.RC.VS LR0 0 LR2 CR15;;
 ```
+
+**Register reads:** `rc_idx` (`LR`): [after LR writes](explanation/timing-model.md#rule-1); `mask_shift` (`LR`): [after LR writes](explanation/timing-model.md#rule-1); `R_CYCLIC`: [cycle start](explanation/timing-model.md#rule-2); `R_MASK`: [cycle start](explanation/timing-model.md#rule-2); `cr_idx` (`CR`): [cycle start](explanation/timing-model.md#slot-order).
 
 ### `MULT.VE` — Ra Vector × CR Scalar Multiply
 
@@ -1916,6 +1955,8 @@ Multiply Ra[ra_idx:ra_idx+128] (combined R0/R1) by a CR scalar, element-wise. Th
 MULT.VE LR0 CR3 0 LR2 CR15;;
 ```
 
+**Register reads:** `ra_idx` (`LR`): [after LR writes](explanation/timing-model.md#rule-1); `mask_shift` (`LR`): [after LR writes](explanation/timing-model.md#rule-1); `cr_idx` (`CR`): [cycle start](explanation/timing-model.md#slot-order); `R`: [cycle start](explanation/timing-model.md#rule-2); `R_MASK`: [cycle start](explanation/timing-model.md#rule-2); `dstructure_cr_idx` (`CR`): [cycle start](explanation/timing-model.md#slot-order).
+
 ### `MULT.EE` — Ra Element × CR Scalar Multiply (broadcast)
 
 **Syntax:** `MULT.EE ra_idx cr_idx mask_offset mask_shift dstructure_cr_idx`
@@ -1945,6 +1986,8 @@ Multiply a single Ra element by a CR scalar; broadcast the product to all 128 el
 MULT.EE LR0 CR3 0 LR2 CR15;;
 ```
 
+**Register reads:** `ra_idx` (`LR`): [after LR writes](explanation/timing-model.md#rule-1); `mask_shift` (`LR`): [after LR writes](explanation/timing-model.md#rule-1); `cr_idx` (`CR`): [cycle start](explanation/timing-model.md#slot-order); `R`: [cycle start](explanation/timing-model.md#rule-2); `R_MASK`: [cycle start](explanation/timing-model.md#rule-2); `dstructure_cr_idx` (`CR`): [cycle start](explanation/timing-model.md#slot-order).
+
 ---
 
 ## ACC Instructions
@@ -1968,6 +2011,8 @@ Running add accumulation: add multiply result into each R_ACC element.
 ACC.ADD;;
 ```
 
+**Register reads:** `MULT_RES`: [same-cycle forward](explanation/timing-model.md#rule-3); `R_ACC`: [cycle start](explanation/timing-model.md#slot-order).
+
 ### `ACC.ADD.FIRST` — Accumulate Add (First)
 
 **Syntax:** `ACC.ADD.FIRST`
@@ -1984,6 +2029,8 @@ Clean-init add: overwrite each R_ACC element with the multiply result (ignores p
 ```asm
 ACC.ADD.FIRST;;
 ```
+
+**Register reads:** `MULT_RES`: [same-cycle forward](explanation/timing-model.md#rule-3).
 
 ### `ACC.MAX` — Accumulate Max
 
@@ -2002,6 +2049,8 @@ Running max accumulation: each R_ACC element takes the max of its current value 
 ACC.MAX;;
 ```
 
+**Register reads:** `MULT_RES`: [same-cycle forward](explanation/timing-model.md#rule-3); `R_ACC`: [cycle start](explanation/timing-model.md#slot-order).
+
 ### `ACC.MAX.FIRST` — Accumulate Max (First)
 
 **Syntax:** `ACC.MAX.FIRST`
@@ -2018,6 +2067,8 @@ Clean-init max: overwrite each R_ACC element unconditionally with the multiply r
 ```asm
 ACC.MAX.FIRST;;
 ```
+
+**Register reads:** `MULT_RES`: [same-cycle forward](explanation/timing-model.md#rule-3).
 
 ### `ACC.SUB` — Accumulate Subtract
 
@@ -2036,6 +2087,8 @@ Running subtract accumulation: subtract the multiply result from each R_ACC elem
 ACC.SUB;;
 ```
 
+**Register reads:** `MULT_RES`: [same-cycle forward](explanation/timing-model.md#rule-3); `R_ACC`: [cycle start](explanation/timing-model.md#slot-order).
+
 ### `ACC.SUB.FIRST` — Accumulate Subtract (First)
 
 **Syntax:** `ACC.SUB.FIRST`
@@ -2052,6 +2105,8 @@ Clean-init subtract: set each R_ACC element to the negated multiply result.
 ```asm
 ACC.SUB.FIRST;;
 ```
+
+**Register reads:** `MULT_RES`: [same-cycle forward](explanation/timing-model.md#rule-3).
 
 ### `ACC.STRIDE` — Accumulator Stride
 
@@ -2079,6 +2134,8 @@ Reorder the multiplication result into R_ACC using horizontal/vertical stride de
 ACC.STRIDE 16 off off LR0;;
 ```
 
+**Register reads:** `offset` (`LR`): [after LR writes](explanation/timing-model.md#rule-1); `MULT_RES`: [same-cycle forward](explanation/timing-model.md#rule-3).
+
 ### `AGG.SUM.FIRST` — Aggregate Sum (First)
 
 **Syntax:** `AGG.SUM.FIRST dest_slot cr_idx`
@@ -2102,6 +2159,8 @@ Sum active MULT_RES elements and write the result into R_ACC at the slot given b
 ```asm
 AGG.SUM.FIRST LR0 CR3;;
 ```
+
+**Register reads:** `dest_slot` (`LR`): [after LR writes](explanation/timing-model.md#rule-1); `cr_idx` (`CR`): [cycle start](explanation/timing-model.md#slot-order); `MULT_RES`: [same-cycle forward](explanation/timing-model.md#rule-3).
 
 ### `AGG.SUM` — Aggregate Sum
 
@@ -2127,6 +2186,8 @@ Sum active MULT_RES elements and ADD the result to R_ACC at the slot given by LR
 AGG.SUM LR0 CR3;;
 ```
 
+**Register reads:** `dest_slot` (`LR`): [after LR writes](explanation/timing-model.md#rule-1); `cr_idx` (`CR`): [cycle start](explanation/timing-model.md#slot-order); `MULT_RES`: [same-cycle forward](explanation/timing-model.md#rule-3); `R_ACC`: [cycle start](explanation/timing-model.md#slot-order).
+
 ### `AGG.MAX.FIRST` — Aggregate Max (First)
 
 **Syntax:** `AGG.MAX.FIRST dest_slot cr_idx`
@@ -2151,6 +2212,8 @@ Find the maximum of active MULT_RES elements and write it into R_ACC at the slot
 AGG.MAX.FIRST LR0 CR3;;
 ```
 
+**Register reads:** `dest_slot` (`LR`): [after LR writes](explanation/timing-model.md#rule-1); `cr_idx` (`CR`): [cycle start](explanation/timing-model.md#slot-order); `MULT_RES`: [same-cycle forward](explanation/timing-model.md#rule-3).
+
 ### `AGG.MAX` — Aggregate Max
 
 **Syntax:** `AGG.MAX dest_slot cr_idx`
@@ -2174,6 +2237,8 @@ Find the maximum of active MULT_RES elements seeded with the current destination
 ```asm
 AGG.MAX LR0 CR3;;
 ```
+
+**Register reads:** `dest_slot` (`LR`): [after LR writes](explanation/timing-model.md#rule-1); `cr_idx` (`CR`): [cycle start](explanation/timing-model.md#slot-order); `MULT_RES`: [same-cycle forward](explanation/timing-model.md#rule-3); `R_ACC`: [cycle start](explanation/timing-model.md#slot-order).
 
 ### `ACC.RESHAPE` — Reshape
 
@@ -2207,6 +2272,8 @@ for i in mask..7:
 ACC.RESHAPE LRD0 LRD2 0;;
 ```
 
+**Register reads:** `source` (`LR`): [after LR writes](explanation/timing-model.md#rule-1); `dest` (`LR`): [after LR writes](explanation/timing-model.md#rule-1); `reshape_mask` (`LR`): [after LR writes](explanation/timing-model.md#rule-1); `MULT_RES`: [same-cycle forward](explanation/timing-model.md#rule-3).
+
 ---
 
 ## AAQ Instructions
@@ -2237,6 +2304,8 @@ Read active elements from the forwarded R_ACC (this cycle's ACC result), apply t
 ACTIVATE.QUANTIZE relu CR15;;
 ```
 
+**Register reads:** `cr_idx` (`CR`): [cycle start](explanation/timing-model.md#slot-order); `R_ACC`: [same-cycle forward](explanation/timing-model.md#rule-3).
+
 ---
 
 ## STORE Instructions
@@ -2266,6 +2335,8 @@ Write **512 bytes** of **`POST_AAQ_REG`** to external memory. **Interim:** the b
 ```asm
 ST.AAQ LR0 CR0;;
 ```
+
+**Register reads:** `offset` (`LR`): [after LR writes](explanation/timing-model.md#rule-1); `base` (`CR`): [cycle start](explanation/timing-model.md#slot-order); `POST_AAQ_REG`: [same-cycle forward](explanation/timing-model.md#slot-order).
 
 ---
 
@@ -2300,6 +2371,8 @@ Store **R_ACC** to external memory. **Simulation-only** — not implemented in r
 ```asm
 ST.ACC LR0 CR1;;
 ```
+
+**Register reads:** `offset` (`LR`): [after LR writes](explanation/timing-model.md#rule-1); `base` (`CR`): [cycle start](explanation/timing-model.md#slot-order); `R_ACC`: [same-cycle forward](explanation/timing-model.md#slot-order).
 
 ---
 
@@ -2345,5 +2418,7 @@ Break execution if register equals value.
 ```asm
 BREAK.IFEQ LR0 10;;
 ```
+
+**Register reads:** `reg` (`LR`): [cycle start](explanation/timing-model.md#rule-1).
 
 ---

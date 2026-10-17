@@ -109,6 +109,8 @@ A register read sees one of two values: the value at **cycle start** (when the w
 
 Any other read is forwarded when every slot that writes the register runs earlier in the word, and at cycle start otherwise. CRs are never written during a run, so CR reads are at cycle start.
 
+The [timing model](explanation/timing-model.md) explains the rules, with an example of each.
+
 ### Register reads and writes
 
 `R` is the `R0`/`R1` pair. An operand of type `LcrIdx` reads an LR or a CR.
