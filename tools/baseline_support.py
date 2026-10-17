@@ -34,7 +34,6 @@ def fail_if_changed(
     name: str,
     what: str,
     update_command: str,
-    current: str = "current code",
     max_lines: int | None = None,
 ) -> None:
     """Fail the test, with a diff, unless ``actual`` equals the snapshot ``expected``.
@@ -45,7 +44,6 @@ def fail_if_changed(
         name: The snapshot's name, for the diff header.
         what: What changed, for the message (``"word_fields.json"``).
         update_command: The command that rewrites the snapshot.
-        current: The diff header's label for ``actual``.
         max_lines: Show at most this many diff lines; None for all.
     """
     if actual == expected:
@@ -55,7 +53,7 @@ def fail_if_changed(
             expected.splitlines(keepends=True),
             actual.splitlines(keepends=True),
             f"{name} (snapshot)",
-            f"{name} ({current})",
+            f"{name} (current code)",
         )
     )
     shown = "".join(diff if max_lines is None else diff[:max_lines])

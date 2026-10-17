@@ -28,7 +28,7 @@ def test_every_snapshot_is_generated():
 
 @pytest.mark.parametrize("name", sorted(ARTIFACTS))
 def test_artifact_matches_snapshot(name):
-    function, actual = ARTIFACTS[name]
+    _, actual = ARTIFACTS[name]
     expected = (SNAPSHOTS / name).read_text(encoding="utf-8")
     baseline_support.fail_if_changed(
         expected,
@@ -36,6 +36,5 @@ def test_artifact_matches_snapshot(name):
         name=name,
         what=name,
         update_command=generated_artifacts.UPDATE_COMMAND,
-        current=f"from {function}",
         max_lines=MAX_DIFF_LINES,
     )
