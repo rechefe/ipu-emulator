@@ -57,7 +57,9 @@ token groups). Each runs as `//kernels/projections:<kernel>`.
 | `proj_ffn2_240_p4` | 480 | 240 | none |
 
 Query: `bazel run //kernels:query -- projection k=K n_out=N_OUT [activation=silu]`.
-A query must give `activation`; one that leaves it out is refused.
+A query that leaves `activation` out means `activation=none`: it finds the
+QKV, OutProj and FFN2 kernels, and an FFN1 kernel is found only with
+`activation=silu`.
 
 ## Data layout
 

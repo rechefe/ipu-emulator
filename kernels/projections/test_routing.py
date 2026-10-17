@@ -4,8 +4,9 @@ kernel tree's registry and ``//kernels:query``.
 Each entry is found by exactly its ``(k, n_out, activation)``: a query for an
 FFN1 shape with ``activation=none`` never reaches the kernel whose store fuses
 SiLU, and no identity kernel accepts a SiLU query. A query that leaves
-``activation`` out is refused: every template declares it ``query_required``,
-as the ``ipu_apps`` router refused an FFN1 query without it.
+``activation`` out means ``none``, as for the ``ipu_apps`` router: it reaches
+an identity kernel, and every FFN1 kernel refuses it (the SiLU-only template
+declares ``activation`` ``query_required``; the others default it to none).
 """
 
 from __future__ import annotations
@@ -97,8 +98,11 @@ def test_the_query_tool_gives_the_same_answer(registry, name, capsys):
 
 
 @pytest.mark.parametrize("name", sorted(KERNELS))
-def test_a_query_without_activation_is_refused_for_it(registry, name):
-    k, n_out, _ = KERNELS[name]
-    refused = registry.resolve("projection", k=k, n_out=n_out)
-    assert not refused
-    assert "the query must give activation" in refused.reason
+def test_a_query_without_activation_means_none(registry, name):
+    k, n_out, activation = KERNELS[name]
+    verdict = registry.resolve("projection", k=k, n_out=n_out)
+    if activation == "none":
+        assert verdict.kernel_name == name, verdict.reason
+    else:  # FFN1: refused, as ipu_apps refused it
+        assert not verdict, verdict.describe()
+        assert "activation" in verdict.reason
