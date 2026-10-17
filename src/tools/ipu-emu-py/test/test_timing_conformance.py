@@ -16,7 +16,8 @@ writes, an LR read by an LR sub-slot) cannot be told apart; its case checks
 that this is so and that the plan carries the declared view.
 
 This is the long-term guard on the timing contract. The hand-written E02
-characterization tests (``test_timing_*_views.py``) stay until E04-25.
+characterization tests (``test_timing_*_views.py``) pin the same views with
+hand-picked probes; E04-25 flipped their two Q32 rows with the spec.
 """
 
 from __future__ import annotations
