@@ -1,12 +1,14 @@
 # Programmer's Guide: Pseudo-Instructions
 
-Pseudo-instructions are assembly mnemonics that the assembler expands into a real instruction at compile time. They never get an opcode and never appear in the binary, so they cost nothing at runtime — see [Adding a pseudo-instruction](how-to/add-an-instruction.md#pseudo-instructions) for how they're declared. This page is **generated** from `PSEUDO_INSTRUCTION_SPEC` in `instruction_spec.py`.
+Pseudo-instructions are assembly mnemonics that the assembler expands into a real instruction at compile time. They never get an opcode and never appear in the binary, so they cost nothing at runtime — see [Adding a pseudo-instruction](../../how-to/add-an-instruction.md#pseudo-instructions) for how they're declared. This page is **generated** from `PSEUDO_INSTRUCTION_SPEC` in `instruction_spec.py`.
 
 ### `BGT.S` — Branch if Greater Than (pseudo)
 
 **Syntax:** `BGT.S reg1 reg2 label`
 
 **Tag:** `ASSEMBLER` (expanded by the assembler; no opcode)
+
+**Faults:** F-2, through `BLT.S` ([fault list](../../requirements/faults.md#fault-list)).
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -19,7 +21,7 @@ Pseudo-instructions are assembly mnemonics that the assembler expands into a rea
 **General description:**
 Branch if first register is greater than second.
 
-> Expands to `BLT.S reg2, reg1, label` at assemble time (operands swapped). Identical encoding and runtime cost to a hand-written BLT.S.
+> Expands to `BLT.S reg2 reg1 label` at assemble time (operands swapped). Identical encoding and runtime cost to a hand-written BLT.S.
 
 **Pseudo code:**
 `if (reg1 > reg2) PC = label`
@@ -27,9 +29,11 @@ Branch if first register is greater than second.
 **Example of usage:**
 ```asm
 BGT.S LR0 LR1 bigger;;
+bigger:
+HALT;;
 ```
 
-**Expands to:** `BLT.S` (cond slot), arguments `reg2, reg1, label`
+**Expands to:** `BLT.S reg2 reg1 label` (cond slot)
 
 ---
 
@@ -38,6 +42,8 @@ BGT.S LR0 LR1 bigger;;
 **Syntax:** `BLE.S reg1 reg2 label`
 
 **Tag:** `ASSEMBLER` (expanded by the assembler; no opcode)
+
+**Faults:** F-2, through `BGE.S` ([fault list](../../requirements/faults.md#fault-list)).
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -50,7 +56,7 @@ BGT.S LR0 LR1 bigger;;
 **General description:**
 Branch if first register is less than or equal to second.
 
-> Expands to `BGE.S reg2, reg1, label` at assemble time (operands swapped), exactly mirroring how BGT.S expands to BLT.S. Identical encoding and runtime cost to a hand-written BGE.S.
+> Expands to `BGE.S reg2 reg1 label` at assemble time (operands swapped), exactly mirroring how BGT.S expands to BLT.S. Identical encoding and runtime cost to a hand-written BGE.S.
 
 **Pseudo code:**
 `if (reg1 <= reg2) PC = label`
@@ -58,9 +64,11 @@ Branch if first register is less than or equal to second.
 **Example of usage:**
 ```asm
 BLE.S LR0 LR1 smaller_or_equal;;
+smaller_or_equal:
+HALT;;
 ```
 
-**Expands to:** `BGE.S` (cond slot), arguments `reg2, reg1, label`
+**Expands to:** `BGE.S reg2 reg1 label` (cond slot)
 
 ---
 
@@ -70,6 +78,8 @@ BLE.S LR0 LR1 smaller_or_equal;;
 
 **Tag:** `ASSEMBLER` (expanded by the assembler; no opcode)
 
+**Faults:** F-2, through `BEQ` ([fault list](../../requirements/faults.md#fault-list)).
+
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
 | Name | Type | Details |
@@ -78,9 +88,9 @@ BLE.S LR0 LR1 smaller_or_equal;;
 | `label` | [`Label`](operand-types.md#label) | label: Branch target label |
 
 **General description:**
-Branch if register is zero. Assumes CR0 always holds zero.
+Branch if register is zero (CR0 is the constant 0).
 
-> Expands to `BEQ reg, CR0, label`. Assumes CR0 always holds 0.
+> Expands to `BEQ reg CR0 label`; CR0 is the read-only constant 0.
 
 **Pseudo code:**
 `if (reg == 0) PC = label`
@@ -88,9 +98,11 @@ Branch if register is zero. Assumes CR0 always holds zero.
 **Example of usage:**
 ```asm
 BZ LR0 done;;
+done:
+HALT;;
 ```
 
-**Expands to:** `BEQ` (cond slot), arguments `reg, CR0, label`
+**Expands to:** `BEQ reg CR0 label` (cond slot)
 
 ---
 
@@ -100,6 +112,8 @@ BZ LR0 done;;
 
 **Tag:** `ASSEMBLER` (expanded by the assembler; no opcode)
 
+**Faults:** F-2, through `BNE` ([fault list](../../requirements/faults.md#fault-list)).
+
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
 | Name | Type | Details |
@@ -108,19 +122,21 @@ BZ LR0 done;;
 | `label` | [`Label`](operand-types.md#label) | label: Branch target label |
 
 **General description:**
-Branch if register is not zero. Assumes CR0 always holds zero.
+Branch if register is not zero (CR0 is the constant 0).
 
-> Expands to `BNE reg, CR0, label`. Assumes CR0 always holds 0.
+> Expands to `BNE reg CR0 label`; CR0 is the read-only constant 0.
 
 **Pseudo code:**
 `if (reg != 0) PC = label`
 
 **Example of usage:**
 ```asm
+loop:
+DEC LR0 1;;
 BNZ LR0 loop;;
 ```
 
-**Expands to:** `BNE` (cond slot), arguments `reg, CR0, label`
+**Expands to:** `BNE reg CR0 label` (cond slot)
 
 ---
 
@@ -129,6 +145,8 @@ BNZ LR0 loop;;
 **Syntax:** `B label`
 
 **Tag:** `ASSEMBLER` (expanded by the assembler; no opcode)
+
+**Faults:** F-2, through `BEQ` ([fault list](../../requirements/faults.md#fault-list)).
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -139,16 +157,18 @@ BNZ LR0 loop;;
 **General description:**
 Always branch to label.
 
-> Expands to `BEQ CR0, CR0, label`. CR0 always equals itself, so the branch is always taken.
+> Expands to `BEQ CR0 CR0 label`. CR0 always equals itself, so the branch is always taken.
 
 **Pseudo code:**
 `PC = label`
 
 **Example of usage:**
 ```asm
+start:
+INC LR0 1;;
 B start;;
 ```
 
-**Expands to:** `BEQ` (cond slot), arguments `CR0, CR0, label`
+**Expands to:** `BEQ CR0 CR0 label` (cond slot)
 
 ---

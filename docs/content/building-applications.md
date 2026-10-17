@@ -6,7 +6,7 @@ This guide shows how to build a complete IPU application using the fully connect
 
 Each IPU application is its own folder, `ipu_apps/kernels/<family>/<app>/`, containing:
 
-1. **Assembly code** (`.asm`) — IPU program with compute operations (see [Assembly Syntax Guide](assembly-syntax.md))
+1. **Assembly code** (`.asm`) — IPU program with compute operations (see [Assembly Syntax Guide](reference/isa/assembly-syntax.md))
 2. **Python app class** (`app.py`) — Subclass of `IpuApp` that implements `setup()` and `teardown()`, with `SPEC` at the bottom
 3. **Reusable cases** (`cases.py`) — Input preparation and output checks without pytest
 4. **Test data** — Input/output binary files for validation
@@ -19,7 +19,7 @@ Everything lives together in one directory. `__init__.py` stays empty.
 Application setup is responsible for loading data and selecting the IPU
 configuration that the assembly program reads. Keep this in the Python
 `setup()` hook so assembly remains focused on compute instructions. See
-[IPU Configuration](ipu-configuration.md) for the full register layout.
+[Configuration registers](reference/isa/configuration-registers.md) for the full register layout.
 
 ```python
 from ipu_isa.constants import LR_CR_SCALAR_VALUE_MASK
@@ -55,9 +55,9 @@ ACTIVATE.QUANTIZE relu CR3;;
 
 For aggregation (`AGG.SUM`, `AGG.MAX`, etc.) the element count is controlled by the required `cr_idx` operand — it reads `valid_elements` from the named CR register. `CR15` remains a valid choice (it is the dstructure register's conventional home), but it must be written out like any other register.
 
-## Wide-vector debug mode (optional)
+## Element formats
 
-The emulator can run multiply/accumulate paths with **128×32-bit elements** (FP32 or INT32) instead of 8-bit vectors, for debugging without quantization on that path. XMEM addresses stay the same; load sizes and alignment rules change. See **[Wide-vector debug mode](wide-vector-debug-mode.md)** for how to construct `IpuState`, prepare 512-byte loads, and use `ACTIVATE.QUANTIZE` / **`ST.AAQ`** / `ST.ACC` in that mode.
+A kernel runs in one element format. [Element formats](explanation/element-formats.md) lists them, what each one changes, and how a kernel selects one.
 
 ## Activations, `ACTIVATE.QUANTIZE`, and virtual α (Python emulator) {#activations-emulator}
 
@@ -119,7 +119,7 @@ Use a **fresh `IpuState`** (or a new `run_test` call with different α kwargs) w
 
 ## Step 1: Write the Assembly Program
 
-Create your IPU assembly program (e.g., `fully_connected.asm`). The assembly program contains the compute logic that runs on the IPU. See the [Assembly Syntax Guide](assembly-syntax.md) for details on writing IPU assembly code with Jinja2 preprocessing. To assemble a template from the command line, give a value for a parameter its `ipu:params` header declares with `--define` (here, for a header that declares `rows`), and each extra include directory with `-I DIR` (the input's own directory is always searched first). The output format follows the `--output` suffix (`.bin` gives `bin`, anything else `mem`) unless `--format` says otherwise:
+Create your IPU assembly program (e.g., `fully_connected.asm`). The assembly program contains the compute logic that runs on the IPU. See the [Assembly Syntax Guide](reference/isa/assembly-syntax.md) for details on writing IPU assembly code with Jinja2 preprocessing. To assemble a template from the command line, give a value for a parameter its `ipu:params` header declares with `--define` (here, for a header that declares `rows`), and each extra include directory with `-I DIR` (the input's own directory is always searched first). The output format follows the `--output` suffix (`.bin` gives `bin`, anything else `mem`) unless `--format` says otherwise:
 
 ```bash
 bazel run //src/tools/ipu-as-py:ipu-as -- assemble --input "$PWD/kernel.asm" --output "$PWD/kernel.bin" --define rows=8
@@ -555,4 +555,4 @@ case plus any kernel-specific pytest coverage. Kernel packages do not need a cus
 - **Emulator Run**: The emulator executes instructions until the program counter exceeds instruction memory
 - **Bazel Integration**: `ipu_app` supplies a single label for run and test, plus `assemble_<name>` for the standalone assembled binary
 
-See the [Assembly Syntax Guide](assembly-syntax.md) for more details on writing IPU programs and the complete fully_connected example at `src/tools/ipu-apps/src/ipu_apps/kernels/linear/fully_connected/` for a real-world implementation.
+See the [Assembly Syntax Guide](reference/isa/assembly-syntax.md) for more details on writing IPU programs and the complete fully_connected example at `src/tools/ipu-apps/src/ipu_apps/kernels/linear/fully_connected/` for a real-world implementation.

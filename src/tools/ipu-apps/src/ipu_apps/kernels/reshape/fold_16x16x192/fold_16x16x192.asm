@@ -30,7 +30,7 @@
 #
 # Output (NHCW striped, identical layout to unfold_16x16x192's INPUT):
 #   2 stripes x 192 channels; each row = 8 spatial_rows x 16 cols = 128
-#   elements (512 bytes in wide-vector debug mode).
+#   elements (512 bytes in the FP32 element format).
 #   Row (stripe, ch) at DST_BASE + (stripe x 192 + ch) row.
 #
 # CRITICAL LAYOUT DETAIL -- textual load order is NOT data order, because of

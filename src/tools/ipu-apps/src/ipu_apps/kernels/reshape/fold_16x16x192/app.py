@@ -54,7 +54,7 @@ OUTPUT_ROW_BYTES = (
 # only 128 elements of *narrow* data conceptually, but this kernel runs in
 # wide-vector FP32 debug mode, so a row occupies a full 512-byte XMEM row
 # just like unfold_16x16x192's input did.
-DST_ROW_BYTES = ROW_BYTES  # 512 bytes/row in wide-vector debug mode
+DST_ROW_BYTES = ROW_BYTES  # 512 bytes/row in the FP32 element format
 
 _STREAM_ROWS = C  # rows per input stream (one per channel)
 SRC_STRIDE_ROWS = 1  # one src row per channel, per stream

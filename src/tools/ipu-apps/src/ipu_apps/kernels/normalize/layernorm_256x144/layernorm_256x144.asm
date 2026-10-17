@@ -8,7 +8,7 @@
 #          kernel; feeds residual_add_256x144
 # Tests:   test_layernorm_256x144 (src/tools/ipu-apps/BUILD.bazel)
 #
-# Wide-vector debug mode (512 B per row = 128 × FP32).
+# FP32 element format (512 B per row = 128 × FP32).
 # Same algorithm and VLIW patterns as layernorm_128x16. Key differences:
 #   - N_CH=144, N_TG=2 → outer tg loop reuses all scratch buffers
 #   - Data layout: DATA_BASE + (ch*N_TG + tg)*512  (channel-major, tg interleaved)

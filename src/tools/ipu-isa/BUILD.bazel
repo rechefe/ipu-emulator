@@ -1,5 +1,5 @@
 load("@ipu_as_deps//:requirements.bzl", "requirement")
-load("@rules_python//python:defs.bzl", "py_library")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
 load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
 load("//tools:runtime_deps.bzl", "runtime_deps_manifest")
 load(":deps.bzl", "RUNTIME_DEPS")
@@ -9,6 +9,8 @@ load("//tools:typecheck.bzl", "mypy_test")
 package(default_visibility = ["//visibility:public"])
 
 exports_files([
+    # Read by //tools:test_update_baselines.
+    "BUILD.bazel",
     # Linked from SKILL.md (//docs:test_doc_links).
     "conformance/README.md",
     "pyproject.toml",
@@ -175,6 +177,8 @@ py_pytest_test(
     imports = ["src"],
     deps = [
         ":ipu_isa_lib",
+        ":isa_baselines",
+        ":one_edit",
         requirement("pytest"),
     ],
 )
@@ -186,6 +190,7 @@ py_pytest_test(
     imports = ["src"],
     deps = [
         ":ipu_isa_lib",
+        ":isa_baselines",
         requirement("pytest"),
     ],
 )
@@ -218,6 +223,31 @@ py_pytest_test(
     deps = [
         ":ipu_isa_lib",
         requirement("pytest"),
+    ],
+)
+
+# The files derived from ipu_isa that are kept in the tree: the view snapshot
+# and the F-1 table of the faults requirements page.
+py_library(
+    name = "isa_baselines",
+    testonly = True,
+    srcs = [
+        "test/faults_table.py",
+        "test/spec_snapshot.py",
+    ],
+    imports = ["test"],
+    deps = [":ipu_isa_lib"],
+)
+
+# Rewrites them; tools/update_baselines.sh runs it.
+py_binary(
+    name = "update_isa_baselines",
+    testonly = True,
+    srcs = ["test/update_isa_baselines.py"],
+    main = "test/update_isa_baselines.py",
+    deps = [
+        ":ipu_isa_lib",
+        ":isa_baselines",
     ],
 )
 

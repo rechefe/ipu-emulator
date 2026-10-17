@@ -58,7 +58,7 @@ ELEM_BYTES = 4  # FP32
 LANES = 128  # elements per XMEM row
 ROW_BYTES = LANES * ELEM_BYTES  # 512
 
-DST_ROW_BYTES = ROW_BYTES  # 512 bytes/row in wide-vector debug mode
+DST_ROW_BYTES = ROW_BYTES  # 512 bytes/row in the FP32 element format
 
 _STREAM_ROWS = C  # rows per input stream (one per channel)
 SRC_STRIDE_ROWS = 1  # one src row per channel, per stream

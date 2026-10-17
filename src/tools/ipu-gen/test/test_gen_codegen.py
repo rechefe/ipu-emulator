@@ -252,9 +252,11 @@ def test_cli_writes_the_docs_pages_and_the_union_svg(tmp_path: Path):
     assert CliRunner().invoke(cli, ["docs-pages", str(pages)]).exit_code == 0
     assert sorted(p.name for p in pages.iterdir()) == [
         "assembly-syntax.md",
+        "configuration-registers.md",
         "instructions.md",
         "operand-types.md",
         "programmer-guide.md",
+        "registers.md",
     ]
     svg = tmp_path / "union.svg"
     assert CliRunner().invoke(cli, ["union-layout-svg", str(svg)]).exit_code == 0
@@ -297,7 +299,7 @@ def test_instruction_reference_tags_every_instruction(tmp_path: Path):
     st_acc = text[text.index("### `ST.ACC` —") :]
     assert "**Tag:** `EMULATOR`" in st_acc.split("###", 2)[1]
     assert "**Tag:** `EMULATOR`" in text[text.index("### `BREAK` —") :].split("###", 2)[1]
-    documented = text.count("\n### `") - text.count("\n### `NOP`")
+    documented = text.count("\n### `")  # NOP's one global entry included
     assert text.count("**Tag:** `") == documented
     guide = tmp_path / "guide.md"
     docs_pages.generate_programmer_guide_md(guide)
@@ -358,11 +360,10 @@ def test_instruction_reference_links_each_read_to_the_timing_model(tmp_path: Pat
     docs_pages.generate_instruction_docs(page)
     text = page.read_text()
     entry = text[text.index("### `LD.MULT.CYCLIC` —") :].split("\n### ", 1)[0]
-    assert (
-        "**Register reads:** `offset` (`LR`): [after LR writes](explanation/timing-model.md#rule-1)"
-    ) in entry
+    page_link = docs_pages.TIMING_PAGE  # relative to reference/isa/, where the page is built
+    assert f"**Register reads:** `offset` (`LR`): [after LR writes]({page_link}#rule-1)" in entry
     mult = text[text.index("### `MULT.RC.VS` —") :].split("\n### ", 1)[0]
-    assert "`R_CYCLIC`: [cycle start](explanation/timing-model.md#rule-2)" in mult
+    assert f"`R_CYCLIC`: [cycle start]({page_link}#rule-2)" in mult
     assert "### `HALT` —" in text
     halt = text[text.index("### `HALT` —") :].split("\n### ", 1)[0]
     assert "Register reads" not in halt

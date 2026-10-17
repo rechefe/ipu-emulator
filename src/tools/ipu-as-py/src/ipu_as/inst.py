@@ -1,10 +1,11 @@
-"""Operand types to token classes, and the instruction reference in Markdown.
+"""Operand types to token classes.
 
+The instruction reference is rendered by ``ipu_gen.docs_pages`` (E09-14).
 Encoding is not here: ``ipu_as.encode`` places instructions and the ``ipu_isa``
 codec owns the bits (E05-02).
 """
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping
 
 # isort: off
 # Import order defines EnumToken subclass registration order, which fixes the
@@ -17,21 +18,7 @@ import ipu_as.immediate as immediate
 import ipu_as.utils as utils
 
 # isort: on
-from ipu_isa.instruction_spec import InstructionDoc, syntax
 from ipu_isa.operand_types import OPERAND_TYPES, OperandType
-from ipu_isa.slots import Slot
-from ipu_isa.tags import Tag
-from ipu_isa.view import Instruction, Isa, Operand, isa
-
-
-def _operand_type_md_link(typ: str) -> str:
-    slug = typ.lower().replace("_", "-")
-    return f"[`{typ}`](operand-types.md#{slug})"
-
-
-def _md_table_cell(text: str) -> str:
-    return text.replace("\n", " ").replace("|", "\\|")
-
 
 # ===========================================================================
 # Operand Type Resolution
@@ -126,136 +113,3 @@ def _check_token_class(
 
 
 check_operand_type_map(OPERAND_TYPE_MAP)
-
-
-# ===========================================================================
-# Instruction reference (Markdown), for the generated docs
-# ===========================================================================
-
-
-def render_slot_docs(
-    slot: str,
-    view: Isa | None = None,
-    extra: Callable[[Instruction], Sequence[str]] | None = None,
-) -> str:
-    """The reference section of one slot, in Markdown.
-
-    The heading and intro come from the slot registry (``SlotInfo.doc_heading``,
-    ``doc_intro``), then one entry per documented instruction.
-
-    Args:
-        slot: The slot name, e.g. ``"lr"``.
-        view: The ISA; default ``isa()``.
-        extra: Lines appended to each instruction's entry (the docs generator's
-            register read points); none by default.
-
-    Returns:
-        The section text.
-
-    Raises:
-        ValueError: ``slot`` is no slot.
-    """
-    view = isa() if view is None else view
-    info = view.slots[Slot(slot)]
-    heading, intro = info.doc_heading, info.doc_intro
-    lines = [f"## {heading}", ""]
-    if info.tag is Tag.EMULATOR:
-        lines.append(
-            "> **Emulator-only slot** — not implemented in real IPU hardware: not in the "
-            "hardware word or the SV package."
-        )
-        lines.append("")
-    if intro.strip():
-        lines.append(intro.strip())
-        lines.append("")
-
-    for instruction in view.instructions(info.slot):
-        if instruction.mnemonic == "NOP":
-            continue  # documented once globally in the Slots section
-        if instruction.doc is None:
-            continue
-        lines.extend(
-            render_opcode_doc(
-                instruction.mnemonic, instruction.doc, instruction.operands, instruction.tag
-            )
-        )
-        if extra is not None:
-            lines.extend(extra(instruction))
-        lines.append("")
-
-    return "\n".join(lines).rstrip()
-
-
-#: How the instruction reference describes each tag (E03-23).
-TAG_TEXT = {
-    Tag.HARDWARE: "implemented by the IPU",
-    Tag.EMULATOR: "emulator only; not in the hardware word or the SV package",
-    Tag.ASSEMBLER: "expanded by the assembler; no opcode",
-}
-
-
-def render_opcode_doc(
-    opcode: str,
-    doc: InstructionDoc,
-    spec_operands: Sequence[Operand],
-    tag: Tag | None = None,
-) -> list[str]:
-    """Markdown documentation of one opcode or pseudo-instruction.
-
-    Args:
-        opcode: The mnemonic, as written in assembly.
-        doc: Its ``InstructionDoc``.
-        spec_operands: Its operand dicts from the instruction spec, in order.
-        tag: Its tag, shown under the syntax; omitted when ``None``.
-
-    Returns:
-        The Markdown lines: heading, syntax, tag, operands, and the doc's prose.
-    """
-    lines = [f"### `{opcode}` — {doc.title}", ""]
-    names = [operand.name for operand in spec_operands]
-    lines.append(f"**Syntax:** `{syntax(opcode, names)}`")
-    lines.append("")
-    if tag is not None:
-        lines.append(f"**Tag:** `{tag.name}` ({TAG_TEXT[tag]})")
-        lines.append("")
-
-    if spec_operands:
-        lines.append(
-            "**Operands:** *(the **Type** column links to the "
-            "[operand type reference](operand-types.md))*"
-        )
-        lines.append("")
-        lines.append("| Name | Type | Details |")
-        lines.append("|------|------|---------|")
-        for i, sop in enumerate(spec_operands):
-            name = sop.name
-            typ = sop.type.name
-            link = _operand_type_md_link(typ)
-            detail = doc.operands[i] if i < len(doc.operands) else "—"
-            lines.append(f"| `{name}` | {link} | {_md_table_cell(detail)} |")
-        lines.append("")
-    elif doc.operands:
-        lines.append("**Operands:**")
-        lines.extend([f"- {operand}" for operand in doc.operands])
-        lines.append("")
-
-    lines.append("**General description:**")
-    lines.append(doc.summary)
-    lines.append("")
-
-    if doc.notes:
-        lines.append(f"> {doc.notes}")
-        lines.append("")
-
-    if doc.operation:
-        lines.append("**Pseudo code:**")
-        lines.append(f"`{doc.operation}`")
-        lines.append("")
-
-    if doc.example:
-        lines.append("**Example of usage:**")
-        lines.append("```asm")
-        lines.append(doc.example)
-        lines.append("```")
-
-    return lines

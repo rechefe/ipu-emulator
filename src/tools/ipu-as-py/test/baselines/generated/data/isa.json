@@ -429,8 +429,8 @@
     "B": [
       {
         "doc": {
-          "example": "B start;;",
-          "notes": "Expands to `BEQ CR0, CR0, label`. CR0 always equals itself, so the branch is always taken.",
+          "example": "start:\nINC LR0 1;;\nB start;;",
+          "notes": "Expands to `BEQ CR0 CR0 label`. CR0 always equals itself, so the branch is always taken.",
           "operands": [
             "label: Branch target label"
           ],
@@ -453,7 +453,7 @@
     "BEQ": [
       {
         "doc": {
-          "example": "BEQ LR0 LR1 end;;",
+          "example": "BEQ LR0 LR1 end;;\nend:\nHALT;;",
           "notes": null,
           "operands": [
             "reg1: First register to compare (LR0–LR15 or CR0–CR15)",
@@ -489,7 +489,7 @@
     "BGE.S": [
       {
         "doc": {
-          "example": "BGE.S LR0 CR1 ge;;",
+          "example": "BGE.S LR0 CR1 ge;;\nge:\nHALT;;",
           "notes": null,
           "operands": [
             "reg1: First register to compare (LR0–LR15 or CR0–CR15)",
@@ -525,8 +525,8 @@
     "BGT.S": [
       {
         "doc": {
-          "example": "BGT.S LR0 LR1 bigger;;",
-          "notes": "Expands to `BLT.S reg2, reg1, label` at assemble time (operands swapped). Identical encoding and runtime cost to a hand-written BLT.S.",
+          "example": "BGT.S LR0 LR1 bigger;;\nbigger:\nHALT;;",
+          "notes": "Expands to `BLT.S reg2 reg1 label` at assemble time (operands swapped). Identical encoding and runtime cost to a hand-written BLT.S.",
           "operands": [
             "reg1: First register to compare (LR0–LR15 or CR0–CR15)",
             "reg2: Second register to compare (LR0–LR15 or CR0–CR15)",
@@ -559,8 +559,8 @@
     "BLE.S": [
       {
         "doc": {
-          "example": "BLE.S LR0 LR1 smaller_or_equal;;",
-          "notes": "Expands to `BGE.S reg2, reg1, label` at assemble time (operands swapped), exactly mirroring how BGT.S expands to BLT.S. Identical encoding and runtime cost to a hand-written BGE.S.",
+          "example": "BLE.S LR0 LR1 smaller_or_equal;;\nsmaller_or_equal:\nHALT;;",
+          "notes": "Expands to `BGE.S reg2 reg1 label` at assemble time (operands swapped), exactly mirroring how BGT.S expands to BLT.S. Identical encoding and runtime cost to a hand-written BGE.S.",
           "operands": [
             "reg1: First register to compare (LR0–LR15 or CR0–CR15)",
             "reg2: Second register to compare (LR0–LR15 or CR0–CR15)",
@@ -593,7 +593,7 @@
     "BLT.S": [
       {
         "doc": {
-          "example": "BLT.S LR0 CR1 smaller;;",
+          "example": "BLT.S LR0 CR1 smaller;;\nsmaller:\nHALT;;",
           "notes": null,
           "operands": [
             "reg1: First register to compare (LR0–LR15 or CR0–CR15)",
@@ -629,7 +629,7 @@
     "BNE": [
       {
         "doc": {
-          "example": "BNE LR0 CR0 loop;;",
+          "example": "loop:\nINC LR0 1;;\nBNE LR0 CR0 loop;;",
           "notes": null,
           "operands": [
             "reg1: First register to compare (LR0–LR15 or CR0–CR15)",
@@ -665,14 +665,14 @@
     "BNZ": [
       {
         "doc": {
-          "example": "BNZ LR0 loop;;",
-          "notes": "Expands to `BNE reg, CR0, label`. Assumes CR0 always holds 0.",
+          "example": "loop:\nDEC LR0 1;;\nBNZ LR0 loop;;",
+          "notes": "Expands to `BNE reg CR0 label`; CR0 is the read-only constant 0.",
           "operands": [
             "reg: Register to test (LR0–LR15 or CR0–CR15)",
             "label: Branch target label"
           ],
           "operation": "if (reg != 0) PC = label",
-          "summary": "Branch if register is not zero. Assumes CR0 always holds zero.",
+          "summary": "Branch if register is not zero (CR0 is the constant 0).",
           "syntax": "BNZ reg label",
           "title": "Branch if Not Zero (pseudo)"
         },
@@ -766,14 +766,14 @@
     "BZ": [
       {
         "doc": {
-          "example": "BZ LR0 done;;",
-          "notes": "Expands to `BEQ reg, CR0, label`. Assumes CR0 always holds 0.",
+          "example": "BZ LR0 done;;\ndone:\nHALT;;",
+          "notes": "Expands to `BEQ reg CR0 label`; CR0 is the read-only constant 0.",
           "operands": [
             "reg: Register to test (LR0–LR15 or CR0–CR15)",
             "label: Branch target label"
           ],
           "operation": "if (reg == 0) PC = label",
-          "summary": "Branch if register is zero. Assumes CR0 always holds zero.",
+          "summary": "Branch if register is zero (CR0 is the constant 0).",
           "syntax": "BZ reg label",
           "title": "Branch if Zero (pseudo)"
         },
@@ -1016,8 +1016,8 @@
           "example": "MULT.EE LR0 CR3 0 LR2 CR15;;",
           "notes": "Element masking via `mask_offset` and `mask_shift` fills elements whose derived mask bit is **0** (deactivated) in `MULT_RES` with the dstructure register's `pad_mode` value (zero by default, or +inf/-inf for a floating-point dtype) before accumulation; elements with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
           "operands": [
-            "`ra_idx`: **`LR0`**…**`LR15`** — index of the single Ra element to read (combined `R0` ++ `R1`, 256 bytes, mod 256).",
-            "`cr_idx`: **`CR0`**…**`CR15`** — CR whose low element-width bits, decoded in the active format, are the scalar multiplier (CR1 reads as 1; see `CrIdx`).",
+            "`ra_idx`: **`LR0`**…**`LR15`** — index of the single Ra element to read (combined `R0` ++ `R1`, 256 elements, mod 256).",
+            "`cr_idx`: **`CR0`**…**`CR15`** — CR whose low element-width bits, decoded in the active format, are the scalar multiplier (CR1 reads as 1; see `CrIdx` and [CR scalars](../../explanation/element-formats.md#cr-scalars)).",
             "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**.",
             "`mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end).",
             "`dstructure_cr_idx`: **`CR0`**…**`CR15`** — dstructure register supplying the `partition` field used to build the partition vectors and the `pad_mode` field used to fill deactivated elements (must be given explicitly)."
@@ -1063,7 +1063,7 @@
           "notes": "Element masking via `mask_offset` and `mask_shift` fills elements whose derived mask bit is **0** (deactivated) in `MULT_RES` with the dstructure register's `pad_mode` value (zero by default, or +inf/-inf for a floating-point dtype) before accumulation; elements with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
           "operands": [
             "`rc_idx`: **`LR0`**…**`LR15`** — base ELEMENT index into **`R_CYCLIC`** (cyclic, mod 512 elements; same unit as `LD.MULT.CYCLIC`'s `index`).",
-            "`src`: **`LR0`**…**`LR15`** | **`CR0`**…**`CR15`** — if an LR, its stored value selects the scalar from R0/R1 (0..127 → `R0[idx]`, 128..255 → `R1[idx - 128]`); if a CR, its low element-width bits, decoded in the active format, are the scalar (CR1 reads as 1; see `CrIdx`).",
+            "`src`: **`LR0`**…**`LR15`** | **`CR0`**…**`CR15`** — if an LR, its stored value selects the scalar from R0/R1 (0..127 → `R0[idx]`, 128..255 → `R1[idx - 128]`); if a CR, its low element-width bits, decoded in the active format, are the scalar (CR1 reads as 1; see `CrIdx` and [CR scalars](../../explanation/element-formats.md#cr-scalars)).",
             "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**.",
             "`mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end).",
             "`cr_idx`: **`CR0`**…**`CR15`** — dstructure register supplying the `partition` field used to build the partition vectors and the `pad_mode` field used to fill deactivated elements (must be given explicitly)."
@@ -1196,8 +1196,8 @@
           "example": "MULT.VE LR0 CR3 0 LR2 CR15;;",
           "notes": "Element masking via `mask_offset` and `mask_shift` fills elements whose derived mask bit is **0** (deactivated) in `MULT_RES` with the dstructure register's `pad_mode` value (zero by default, or +inf/-inf for a floating-point dtype) before accumulation; elements with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
           "operands": [
-            "`ra_idx`: **`LR0`**…**`LR15`** — base byte offset into combined Ra (`R0` ++ `R1`, 256 bytes, cyclic mod 256).",
-            "`cr_idx`: **`CR0`**…**`CR15`** — CR whose low element-width bits, decoded in the active format, are the scalar multiplier (CR1 reads as 1; see `CrIdx`).",
+            "`ra_idx`: **`LR0`**…**`LR15`** — base element offset into combined Ra (`R0` ++ `R1`, 256 elements, cyclic mod 256).",
+            "`cr_idx`: **`CR0`**…**`CR15`** — CR whose low element-width bits, decoded in the active format, are the scalar multiplier (CR1 reads as 1; see `CrIdx` and [CR scalars](../../explanation/element-formats.md#cr-scalars)).",
             "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**.",
             "`mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end).",
             "`dstructure_cr_idx`: **`CR0`**…**`CR15`** — dstructure register supplying the `partition` field used to build the partition vectors and the `pad_mode` field used to fill deactivated elements (must be given explicitly)."
@@ -1413,8 +1413,8 @@
             "offset: Offset register (LR0–LR15), in XMEM rows.",
             "base: Base address register (CR0–CR15), in XMEM rows."
           ],
-          "operation": "Memory[row(offset + base)] = POST_AAQ_REG (512 bytes, both modes -- width does not scale with element width); interim staging register",
-          "summary": "Write **512 bytes** of **`POST_AAQ_REG`** to external memory. **Interim:** the buffer is **512 bytes** (128×32-bit elements) until quantization export is finalized.",
+          "operation": "Memory[row(offset + base)] = POST_AAQ_REG (the whole register, one row, in every element format)",
+          "summary": "Write the whole **`POST_AAQ_REG`** to one XMEM row. **Interim:** after `ACTIVATE.QUANTIZE` it holds 128 INT8 results followed by zeros, until quantization export is finalized.",
           "syntax": "ST.AAQ offset base",
           "title": "Store Post-AAQ register"
         },
@@ -1444,7 +1444,7 @@
             "offset: Offset register (LR0–LR15), in XMEM rows.",
             "base: Base address register (CR0–CR15), in XMEM rows."
           ],
-          "operation": "Memory[row(offset + base)] = R_ACC (512 bytes, both modes -- width does not scale with element width)",
+          "operation": "Memory[row(offset + base)] = R_ACC (128 32-bit elements, in every element format)",
           "summary": "Store **R_ACC** to external memory. **Simulation-only** — not implemented in real IPU hardware.",
           "syntax": "ST.ACC offset base",
           "title": "Store Accumulator"
@@ -1599,7 +1599,7 @@
       "min": -32768
     },
     "CrIdx": {
-      "description": "Constant-register index: **`cr0`** … **`cr15`**. CRs are **read-only** in assembly; the harness initializes them (e.g. base pointers, strides). **`cr15`** conventionally holds dstructure configuration but is a valid `CrIdx` operand like any other CR. **`SET`** in the LR slot copies the full **32-bit** CR value into an LR.\n\n**CR as an element scalar.** When a CR is a multiply's scalar element operand (**`MULT.VE`**, **`MULT.EE`**, a CR **`src`** of **`MULT.RC.VE`**), the scalar is the CR's low element-width bits decoded in the active element format: the low byte in INT8 and E1–E7, all 32 bits in INT32 and FP32 (so FP32 1.0 is the CR value `0x3F800000`). One rule for every format. **`CR0`** reads as 0 and **`CR1`** as 1 in the active format (1.0 in a float format), so a multiply by **`CR1`** is an identity in every format; as an LR or integer operand **`CR1`** is the integer 1.",
+      "description": "Constant-register index: **`CR0`** … **`CR15`**. CRs are **read-only** in assembly; the harness initializes them (e.g. base pointers, strides). **`CR15`** conventionally holds dstructure configuration but is a valid `CrIdx` operand like any other CR. **`SET`** in the LR slot copies the full **32-bit** CR value into an LR.\n\n**CR as an element scalar.** When a CR is a multiply's scalar element operand (**`MULT.VE`**, **`MULT.EE`**, a CR **`src`** of **`MULT.RC.VE`**), the scalar is the CR's low element-width bits decoded in the active element format: the low byte in INT8 and E1–E7, all 32 bits in INT32 and FP32 (so FP32 1.0 is the CR value `0x3F800000`). One rule for every format. **`CR0`** reads as 0 and **`CR1`** as 1 in the active format (1.0 in a float format), so a multiply by **`CR1`** is an identity in every format; as an LR or integer operand **`CR1`** is the integer 1.",
       "kind": "enum",
       "values": [
         "cr0",
@@ -1621,7 +1621,7 @@
       ]
     },
     "DstructureCrIdx": {
-      "description": "Constant-register index: **`cr0`** … **`cr15`**, selecting which CR supplies the **valid element mask** / dstructure configuration (`valid_elements`, `partition`) for `AGG.SUM`, `AGG.SUM.FIRST`, `AGG.MAX`, `AGG.MAX.FIRST`, `ACTIVATE.QUANTIZE`, and the masking multiply instructions (`MULT.RC.VV`, `MULT.RC.VE`, `MULT.RC.VS`, `MULT.VE`, `MULT.EE`). Unlike **`CrIdx`**, **`cr15`** is allowed here — it's the conventional dstructure register — but the operand is always mandatory; there is no implicit fallback to `cr15` when it is omitted.",
+      "description": "Constant-register index: **`CR0`** … **`CR15`**, selecting which CR supplies the **valid element mask** / dstructure configuration (`valid_elements`, `partition`) for `AGG.SUM`, `AGG.SUM.FIRST`, `AGG.MAX`, `AGG.MAX.FIRST`, `ACTIVATE.QUANTIZE`, and the masking multiply instructions (`MULT.RC.VV`, `MULT.RC.VE`, `MULT.RC.VS`, `MULT.VE`, `MULT.EE`). Unlike **`CrIdx`**, **`CR15`** is allowed here — it's the conventional dstructure register — but the operand is always mandatory; there is no implicit fallback to `CR15` when it is omitted.",
       "kind": "enum",
       "values": [
         "cr0",
@@ -1666,7 +1666,7 @@
       "relative_max": 1023
     },
     "LcrIdx": {
-      "description": "LR **or** CR index in one field: lower indices map to **`lr0`–`lr15`**, higher indices to **`cr0`–`cr15`** in the usual combined ordering used by the assembler. Used as **`src_b`** on **`ADD`**/**`SUB`**, as **`step`** on **`INC.MODP2`**, and as **`src`** on **`MULT.RC.VE`** (an LR's stored value selects an element from `R0`/`R1`; a CR is the scalar directly, decoded as in [CrIdx](#cridx)).",
+      "description": "LR **or** CR index in one field: lower indices map to **`LR0`–`LR15`**, higher indices to **`CR0`–`CR15`** in the usual combined ordering used by the assembler. Used as **`src_b`** on **`ADD`**/**`SUB`**, as **`step`** on **`INC.MODP2`**, and as **`src`** on **`MULT.RC.VE`** (an LR's stored value selects an element from `R0`/`R1`; a CR is the scalar directly, decoded as in [CrIdx](#cridx)).",
       "kind": "enum",
       "values": [
         "lr0",
@@ -1704,7 +1704,7 @@
       ]
     },
     "LrIdx": {
-      "description": "Loop register index: resolves to **`lr0`** … **`lr15`**. Often used for addresses, strides, and control values. When marked `read: live` in the spec, the emulator reads the **current** LR value after earlier slots in the same cycle.",
+      "description": "Loop register index: resolves to **`LR0`** … **`LR15`**. Often used for addresses, strides, and control values. When marked `read: live` in the spec, the emulator reads the **current** LR value after earlier slots in the same cycle.",
       "kind": "enum",
       "values": [
         "lr0",
@@ -1754,7 +1754,7 @@
       ]
     },
     "LrdIdx": {
-      "description": "Register-pair index: **`lrd0`**, **`lrd2`**, **`lrd4`**, … **`lrd14`** — named after the lower register in the pair — each aliasing two adjacent **`LR`** registers as one 8-byte-element value: **`LRDn`** = **`LR(n+1)`** (high elements) concatenated with **`LR(n)`** (low elements). Purely an assembler/emulator view; there is no separate physical storage. Used as **`dest`** on **`ADDB`** / **`ADDBI`**.",
+      "description": "Register-pair index: **`LRD0`**, **`LRD2`**, **`LRD4`**, … **`LRD14`** — named after the lower register in the pair — each aliasing two adjacent **`LR`** registers as one 8-byte-element value: **`LRDn`** = **`LR(n+1)`** (high elements) concatenated with **`LR(n)`** (low elements). Purely an assembler/emulator view; there is no separate physical storage. Used as **`dest`** on **`ADDB`** / **`ADDBI`**.",
       "kind": "enum",
       "values": [
         "lrd0",
@@ -1774,7 +1774,7 @@
       "min": 0
     },
     "MultStageReg": {
-      "description": "Multiply-stage field in the VLIW encoding. Assembly accepts **`r0`** and **`r1`** only; the field is **two bits** wide (encoding `2` is reserved). Used as the destination of `LD.MULT` and as the **`ra`** operand of `MULT.RC.VV`.",
+      "description": "Multiply-stage field in the VLIW encoding. Assembly accepts **`R0`** and **`R1`** only; the field is **two bits** wide (encoding `2` is reserved). Used as the destination of `LD.MULT` and as the **`ra`** operand of `MULT.RC.VV`.",
       "kind": "enum",
       "values": [
         "r0",

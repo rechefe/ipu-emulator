@@ -17,7 +17,7 @@ runtime by mask_shift (CR15 partition = cols).
 Per-channel budget: **10 cyc/ch** = 1 bias-seed cycle + 9 weight taps, with
 ``ACTIVATE.QUANTIZE`` co-issued in tap 9's word (see the .asm header; the base
 app runs 9 cyc/ch with no bias). Runs on
-the emulator's wide-vector debug datapath (FP32) -- weights, bias, and
+the emulator-only FP32 element format -- weights, bias, and
 activations are genuine floats, no INT8 quantization anywhere in this kernel.
 
 Kernel super-block layout (FPB=25, stride 10):

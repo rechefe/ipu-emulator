@@ -2,8 +2,7 @@
 
 The requirements page stays hand-written. These tests check that its fault-list
 table states the same IDs, illegal states and detectors as :data:`FAULTS`, and
-that its F-1 table states the reserved encodings :func:`reserved_encodings`
-derives from the ISA.
+that its F-1 table is the one ``faults_table.f1_table`` derives from the ISA.
 """
 
 from __future__ import annotations
@@ -12,24 +11,24 @@ import dataclasses
 from collections.abc import Mapping
 from pathlib import Path
 
+import faults_table
+from faults_table import count_word, f1_table, table_span, with_table
+from one_edit import view_with_dummy
+
 from ipu_isa.faults import (
     FAULTS,
     Detector,
     FaultId,
     FaultInfo,
-    ReservedEncodings,
-    ReservedOperand,
     reserved_encodings,
 )
-from ipu_isa.operand_types import OperandKind
 from ipu_isa.slots import Slot
 from ipu_isa.view import isa
 
 # Bazel runs the test from the runfiles root of the main repository.
-FAULTS_PAGE = Path.cwd() / "docs/content/requirements/faults.md"
+FAULTS_PAGE = Path.cwd() / faults_table.FAULTS_PAGE
 
 _DETECTOR_TEXT = {"CTRL": Detector.CTRL, "Cache agent": Detector.CACHE_AGENT}
-_NUMBER_WORDS = ("zero", "one", "two", "three", "four", "five", "six", "seven", "eight")
 
 
 def _table_after(text: str, marker: str) -> list[list[str]]:
@@ -81,39 +80,16 @@ def test_a_wording_change_in_faults_is_caught():
     ]
 
 
-def _opcode_phrase(entry: ReservedEncodings) -> str:
-    count = len(entry.opcodes)
-    noun = "opcode" if count == 1 else "opcodes"
-    return f"{_NUMBER_WORDS[count]} {noun} of the {entry.opcode_bits}-bit field"
+def test_f1_table_is_the_derived_table():
+    """The page holds ``f1_table`` exactly; ``tools/update_baselines.sh`` rewrites it."""
+    start, end = table_span(_page())
+    assert _page()[start:end] == f1_table(isa()), "run tools/update_baselines.sh"
 
 
-def _operand_phrases(reserved: ReservedOperand) -> list[str]:
-    """Text the F-1 table must contain for ``reserved``."""
-    operand_type = isa().operand_types[reserved.operand_type]
-    members = operand_type.domain.members
-    if operand_type.kind is OperandKind.REGISTER:
-        valid = [f"`{m.upper()}`" for code, m in enumerate(members) if code not in reserved.codes]
-        return [f"`{operand_type.name}` values other than " + " and ".join(valid)]
-    if operand_type.name == "ActivationFn":
-        return ["Activation function codes with no named function"]
-    if operand_type.kind is OperandKind.ENUM:
-        return [f"above {min(reserved.codes) - 1}"] + [f"`{n}`" for n in reserved.operands]
-    assert operand_type.domain.value_range is not None
-    low, high = operand_type.domain.value_range
-    return [f"`{name}` outside {low} to {high}" for name in reserved.operands]
-
-
-def test_f1_table_states_the_derived_reserved_encodings():
-    rows = _table_after(_page(), "Reserved encodings for F-1, from the instruction reference:")
-    table = {Slot(row[0].strip("`").lower()): row[1] for row in rows}
-    reserved = reserved_encodings(isa())
-    assert set(table) == {slot for slot, entry in reserved.items() if not entry.empty}
-    for slot, text in table.items():
-        entry = reserved[slot]
-        if entry.opcodes:
-            assert _opcode_phrase(entry) in text.lower(), (slot, text)
-        else:
-            assert "opcode" not in text.lower(), (slot, text)
-        for operand in entry.operands:
-            for phrase in _operand_phrases(operand):
-                assert phrase in text, (slot, phrase, text)
+def test_an_extra_instruction_changes_the_f1_table():
+    changed = view_with_dummy()  # one more LR instruction (E03-24)
+    count = len(reserved_encodings(isa())[Slot.LR].opcodes)
+    new_row = next(r for r in f1_table(changed).splitlines() if r.startswith("| `LR`"))
+    assert new_row.startswith(f"| `LR` | {count_word(count - 1).capitalize()} opcode")
+    assert with_table(_page(), changed) != _page()
+    assert with_table(with_table(_page(), changed), isa()) == _page()

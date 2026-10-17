@@ -27,7 +27,7 @@
 #
 # Output (NHCW striped, identical layout to unfold_32x32x144's INPUT):
 #   8 stripes x 144 channels; each row = 4 spatial_rows x 32 cols = 128
-#   elements (512 bytes in wide-vector debug mode).
+#   elements (512 bytes in the FP32 element format).
 #   Row (stripe, ch) at DST_BASE + (stripe x 144 + ch) row.
 #
 # STRIPE / TOKEN-GROUP MAPPING -- derived and verified, not assumed:

@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 
 import pytest
+from spec_snapshot import records, render
 
 from ipu_isa.instruction_spec import INSTRUCTION_SPEC, PSEUDO_INSTRUCTION_SPEC
 from ipu_isa.operand_types import OPERAND_TYPES
@@ -25,59 +26,19 @@ from ipu_isa.view import (
 SNAPSHOT = Path(__file__).parent / "fixtures" / "spec_snapshot.json"
 
 
-def _operands(operands):
-    return [
-        {"name": op.name, "type": op.type.name, "read": op.read.value if op.read else None}
-        for op in operands
-    ]
-
-
-def _records(view: Isa) -> dict:
-    return {
-        "instructions": [
-            {
-                "slot": i.slot.value,
-                "mnemonic": i.mnemonic,
-                "opcode": i.opcode,
-                "operands": _operands(i.operands),
-                "tag": i.tag.value,
-                "execute_fn": i.execute_fn,
-            }
-            for slot in view.slots
-            for i in view.instructions(slot)
-        ],
-        "pseudo_instructions": [
-            {
-                "mnemonic": p.mnemonic,
-                "operands": _operands(p.operands),
-                "expands_to": {"slot": p.expands_to.slot.value, "mnemonic": p.expands_to.mnemonic},
-                "args": list(p.args),
-                "tag": p.tag.value,
-            }
-            for p in view.pseudos()
-        ],
-    }
-
-
-def _sort(records: dict) -> dict:
-    """The snapshot lists slots in spec order; the view in registry order."""
-    return {
-        "instructions": sorted(records["instructions"], key=lambda r: (r["slot"], r["opcode"])),
-        "pseudo_instructions": records["pseudo_instructions"],
-    }
-
-
 def _load(spec=INSTRUCTION_SPEC, pseudo=PSEUDO_INSTRUCTION_SPEC) -> Isa:
     return load_isa(spec, pseudo, SLOTS, OPERAND_TYPES)
 
 
 def test_the_view_reproduces_the_snapshot():
-    assert _sort(_records(isa())) == _sort(json.loads(SNAPSHOT.read_text()))
+    """An instruction change changes the snapshot: ``tools/update_baselines.sh``."""
+    assert json.loads(render(isa())) == json.loads(SNAPSHOT.read_text())
+    assert render(isa()) == SNAPSHOT.read_text()
 
 
 def test_isa_is_cached_and_equals_a_fresh_load():
     assert isa() is isa()
-    assert _records(_load()) == _records(isa())
+    assert records(_load()) == records(isa())
 
 
 def test_lookups():
