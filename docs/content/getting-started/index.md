@@ -84,7 +84,7 @@ Effective MAC:          87.0%
 |---|---|
 | [Write a kernel](../building-applications.md) | Write an assembly kernel and the Python code that feeds it. |
 | [Add an instruction](../how-to/add-an-instruction.md) | Add an instruction to the ISA, the assembler and the emulator. |
-| [Debug a kernel](../debugging.md) | Step through a kernel in the debugger and inspect registers. |
+| [Debug a kernel](../how-to/debug-a-kernel.md) | Step through a kernel in the debugger and inspect registers. |
 | [Use the reference model from cocotb](../how-to/reference-model-cocotb.md) | Drive the emulator as a reference model from an RTL testbench. |
 
 The [Getting Started guide (PDF)](https://github.com/rechefe/ipu-emulator/releases/download/guide-latest/getting-started.pdf)
@@ -172,4 +172,4 @@ bazel run //docs:update_release_log -- --recent --output "$PWD/docs/content/rele
 |---|---|
 | `bazel: command not found` after the bootstrap | Add the install directory (`~/.local/bin` when `/usr/local/bin` was not writable) to `PATH`. |
 | `external repository not found` | Run `bazel clean --expunge`, then the command again. |
-| A kernel run prints `error:` | Run it again with `--config=debug` to step through it; see [Debug a kernel](../debugging.md). |
+| A kernel run prints `error:` | Run it again with `--config=debug` to step through it; see [Debug a kernel](../how-to/debug-a-kernel.md). |

@@ -34,10 +34,18 @@ a separate promise.
   (a method that now refuses what it accepted, a field that now counts
   something else).
 - **Minor**: an addition that leaves every existing call working, such as a
-  new method or a new optional parameter. Version 1.1.0 added `Stats` and
+  new method, a new optional parameter or a new dataclass field with a
+  default. Version 1.1.0 added `Stats` and
   `stats()`; 1.2.0 added the flag and enable reads (`fault_enabled()`,
   `fault_flags()`, `arith_flags()`), `trace_header()`, and `TraceWriter` and
-  `read_trace` to `__all__`. Nothing earlier changed.
+  `read_trace` to `__all__`; 1.3.0 added `debug_run()`,
+  `attach_alias_profile()`, `alias_profile()` and the `RunResult.quit`
+  field (default `False`). Nothing earlier changed.
+
+`debug_run()` is the one escape hatch for tools such as the debugger: its
+callback receives the emulator's internal state, and that argument's type,
+like its `control` argument's, is outside the contract. The method's
+signature and what it returns follow the version.
 
 Each schema carries its own version, at the end of its `$id`. An optional
 field added is a minor bump; a field removed or renamed, or a meaning

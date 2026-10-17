@@ -1,0 +1,3 @@
+load("//kernels:defs.bzl", "ipu_kernel_family")
+
+ipu_kernel_family()

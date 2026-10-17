@@ -71,7 +71,11 @@ the tools.
    a copy group.
 3. Express the old harness layout through placement, `pack` transforms and
    `[abi]`. Prove that the CR values and the XMEM image after setup are
-   identical to the old harness, using `compare_setup` from E07-01.
+   identical to the old harness, using `compare_setup` from E07-01, for every
+   case: `bazel run //kernels/tools:compare_setup -- <old kernel>
+   kernels/<family>/<name> --case <case>` prints `IDENTICAL`, or names each
+   differing register (`CR7: old 14, new 15`) and XMEM element (`data row 3
+   lane 5`).
 4. Port the cases. Old seeds and old input generators are kept through a
    `generator` hook where needed, so FP32 outputs can be compared bit for bit.
    Moving to the E06 seeded generators is a separate commit, after the proof.
@@ -79,8 +83,9 @@ the tools.
    Choose a tolerance tier per format.
 6. Move all design notes into the `.asm` header. Delete the docstrings that held
    them.
-7. Upper-case the mnemonics with `tools/upper_mnemonics.py` from E07-01. This must be
-   binary-identical, which the digest proves.
+7. Upper-case the mnemonics with `tools/upper_mnemonics.py` from E07-01
+   (`bazel run //tools:upper_mnemonics -- kernels/<family>/*/*.asm`). This
+   must be binary-identical, which the digest proves.
 8. Mark byte-unit CRs `unit = "bytes"` (L16). Make input sizes exact (L15). If
    a kernel used to truncate, that change is its own issue.
 9. Move the family `test.py` tests that go beyond case x format, such as router
@@ -90,8 +95,10 @@ the tools.
     old Bazel targets under `//src/tools/ipu-apps` disappear, and the new
     targets under `//kernels/<family>` keep the same names.
 11. Run the proof: `assemble_<name>` digests equal the E02 asm digests, and the
-    FP32 outputs of every case equal the E02 output digests. Paste the
-    `compare_legacy` report into the PR.
+    FP32 outputs of every case equal the E02 output digests. Run it before
+    step 10 deletes the old folders: `bazel run //kernels/tools:compare_legacy
+    -- <family>` (`--case-map OLD=NEW` where a case was renamed). Paste its
+    Markdown table into the PR; every row reads `yes | yes` with equal cycles.
 12. `//kernels:query` gives the same routing answers as the old `:query` for
     the family's ops.
 

@@ -10,9 +10,11 @@ from types import MappingProxyType
 import pytest
 
 from ipu_apps.kernels.projections.app import ProjectionLayout
+from ipu_harness.cases import expand
 from ipu_harness.manifest import KernelManifest, load_manifest
 from ipu_harness.params import PlanError, plan_case
-from ipu_harness.placement import Placement, default_rows, place
+from ipu_harness.placement import Placement, check_aaq_spill, default_rows, place
+from ipu_harness.runner import run_kernel
 from ipu_isa.formats import ElementFormat as F
 from ipu_isa.formats import addressable_rows
 
@@ -124,6 +126,60 @@ def test_overlapping_pins_name_both_regions(tmp_path):
         place(plan_case(m, {"rows": 4, "s": 2.0}, F.FP32))
     assert error.value.key == "outputs.y.row"
     assert "y (rows 3..6) overlaps x (rows 0..3)" in str(error.value)
+
+
+def test_a_callers_pin_places_its_tensor_and_the_rest_fill_around_it(tmp_path):
+    """A chained input already in XMEM (E06-15)."""
+    m = manifest(tmp_path, SCALE.format(x_pin="", y_extra=""))
+    plan = plan_case(m, {"rows": 2, "s": 2.0}, F.FP32)
+    assert bases(place(plan, pins={"x": 3})) == {"x": (3, 2), "y": (0, 2)}
+    with pytest.raises(ValueError, match="no tensors"):
+        place(plan, pins={"z": 0})
+
+
+def test_a_callers_pin_overlapping_a_row_pin_is_an_error(tmp_path):
+    m = manifest(tmp_path, SCALE.format(x_pin="", y_extra="row = 0\n"))
+    with pytest.raises(PlanError, match="overlaps"):
+        place(plan_case(m, {"rows": 2, "s": 2.0}, F.FP32), pins={"x": 1})
+
+
+def test_st_aaq_spill_onto_a_region_is_an_error_in_an_8_bit_format(tmp_path):
+    """ST.AAQ writes 512 bytes: four INT8 rows, one FP32 row (OQ-35)."""
+    m = manifest(tmp_path, SCALE.format(x_pin="", y_extra="row = 0\n"))
+    program = "ST.AAQ LR0 CR3 ;;\nHALT ;;\n"
+    plan = plan_case(m, {"rows": 2, "s": 2.0}, F.INT8)
+    placement = place(plan)  # y at rows 0..1, x at 2..3: in y's spill
+    with pytest.raises(PlanError, match=r"rows 2\.\.4, which hold region x \(OQ-35\)"):
+        check_aaq_spill(plan, placement, program)
+    check_aaq_spill(plan, placement, "ST.ACC LR0 CR3 ;;\n")  # no ST.AAQ
+    check_aaq_spill(plan, placement, "// ST.AAQ LR0 CR3 ;;\nHALT ;;\n")  # only a comment
+    fp32 = plan_case(m, {"rows": 2, "s": 2.0}, F.FP32)
+    check_aaq_spill(fp32, place(fp32), program)  # one row per store
+    clear = plan_case(
+        manifest(tmp_path, SCALE.format(x_pin="row = 8\n", y_extra="row = 0\n"), "clear"),
+        {"rows": 2, "s": 2.0},
+        F.INT8,
+    )
+    check_aaq_spill(clear, place(clear), program)  # rows 2..4 free
+
+
+@pytest.mark.parametrize("staged", [False, True])
+def test_a_run_refuses_an_st_aaq_spill_before_it_writes(tmp_path, staged):
+    """The guard runs after assembly, for the kernel's program and each stage's."""
+    toml = SCALE.format(x_pin="", y_extra="row = 0\n")
+    if staged:
+        toml = toml.replace(
+            'formats = ["fp32", "int8", "e4"]',
+            'formats = ["fp32", "int8", "e4"]\nstages = "stages.py:run"',
+        )
+    m = manifest(tmp_path, toml)
+    store = "ST.AAQ LR0 {{ cr.y }} ;;\nHALT ;;\n"
+    (m.directory / ("spill.asm" if staged else "scale.asm")).write_text(store)
+    (m.directory / "stages.py").write_text('def run(ctx):\n    ctx.run_stage("spill.asm")\n')
+    m = load_manifest(m.directory)
+    case = next(c for c in expand(m) if c.name == "default")
+    with pytest.raises(PlanError, match="OQ-35"):
+        run_kernel(m, case, F.INT8)
 
 
 CAPACITY = addressable_rows(F.FP32)

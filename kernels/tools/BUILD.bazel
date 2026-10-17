@@ -1,0 +1,73 @@
+# Migration tooling (E07-01): the proofs each family migration (E07-02 to
+# E07-24) pastes into its PR. Temporary: E07-25 deletes this package with
+# src/tools/ipu-apps.
+#
+#   bazel run //kernels/tools:compare_setup -- OLD_KERNEL NEW_KERNEL [--case C]
+#   bazel run //kernels/tools:compare_legacy -- FAMILY [--kernel NAME ...]
+#
+# Upper-casing the mnemonics is //tools:upper_mnemonics.
+
+load("@ipu_as_deps//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
+load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
+load("//tools:lint.bzl", "ruff_test")
+load("//tools:typecheck.bzl", "mypy_test")
+
+_DATA = [
+    "//src/tools/ipu-apps:asm_corpus_files",  # the E02 asm digests
+    "//src/tools/ipu-apps:legacy_kernel_files",  # the old programs and E02 case baselines
+]
+
+py_library(
+    name = "migration_lib",
+    srcs = [
+        "compare_legacy.py",
+        "compare_setup.py",
+        "migration.py",
+    ],
+    data = _DATA,
+    imports = ["."],
+    deps = [
+        "//src/tools/ipu-apps:ipu_apps_lib",
+        "//src/tools/ipu-emu-py:ipu_emu_lib",
+        "//src/tools/ipu-harness:ipu_harness_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+        requirement("numpy"),
+    ],
+)
+
+# The new kernels come from the checkout's kernels/ (bazel run), so an edit
+# shows without a rebuild; their references may need torch and ipu_kernels.
+[
+    py_binary(
+        name = tool,
+        srcs = [tool + ".py"],
+        main = tool + ".py",
+        deps = [
+            ":migration_lib",
+            "//src/tools/ipu-kernels:ipu_kernels_all",
+            requirement("torch"),
+        ],
+    )
+    for tool in ("compare_setup", "compare_legacy")
+]
+
+# On reshape/identity, rebuilt as a kernel.toml kernel in a temporary tree.
+py_pytest_test(
+    name = "test_compare",
+    srcs = ["test_compare.py"],
+    deps = [
+        ":migration_lib",
+        requirement("pytest"),
+    ],
+)
+
+mypy_test(
+    name = "mypy",
+    lib = ":migration_lib",
+)
+
+ruff_test(
+    name = "ruff",
+    srcs = glob(["*.py"]),
+)

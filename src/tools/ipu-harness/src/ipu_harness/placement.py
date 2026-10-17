@@ -25,10 +25,12 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
+from ipu_as.session import AssemblySession
 from ipu_harness.manifest import Role, TensorDecl
 from ipu_harness.params import CasePlan, PlanError
 from ipu_isa.formats import FORMATS, addressable_rows
 from ipu_isa.geometry import LANES
+from ipu_isa.registers import REGISTER_DEFINITIONS
 
 
 @dataclass(frozen=True)
@@ -147,12 +149,15 @@ def _check_fits(plan: CasePlan, tensor: TensorDecl, region: Region, capacity: in
     )
 
 
-def _pinned(plan: CasePlan, rows: Mapping[str, int], capacity: int) -> list[Region]:
+def _pinned(
+    plan: CasePlan, rows: Mapping[str, int], capacity: int, extra: Mapping[str, int]
+) -> list[Region]:
     pins: list[Region] = []
     for tensor in plan.manifest.tensors.values():
-        if tensor.name not in plan.pins:
+        row = extra.get(tensor.name, plan.pins.get(tensor.name))
+        if row is None:
             continue
-        region = Region(tensor.name, tensor.role, plan.pins[tensor.name], rows[tensor.name])
+        region = Region(tensor.name, tensor.role, row, rows[tensor.name])
         _check_fits(plan, tensor, region, capacity)
         for other in pins:
             if region.base_row < other.end_row and other.base_row < region.end_row:
@@ -191,7 +196,12 @@ def _row_counts(plan: CasePlan, row_counts: Mapping[str, int] | None) -> dict[st
     }
 
 
-def place(plan: CasePlan, row_counts: Mapping[str, int] | None = None) -> Placement:
+def place(
+    plan: CasePlan,
+    row_counts: Mapping[str, int] | None = None,
+    *,
+    pins: Mapping[str, int] | None = None,
+) -> Placement:
     """Place every tensor of ``plan``. Takes the plan as checked; checks no parameter.
 
     Args:
@@ -199,19 +209,26 @@ def place(plan: CasePlan, row_counts: Mapping[str, int] | None = None) -> Placem
         row_counts: Rows each tensor occupies as stored, from packing (E06-05),
             an accumulator output's stride included; a tensor left out takes
             :func:`default_rows`.
+        pins: Base rows a caller fixes besides the ``row = N`` pins, by tensor
+            name: a chained input already in XMEM (E06-15). Checked like them.
 
     Returns:
         The placement, deterministic for the plan.
 
     Raises:
         PlanError: Pins overlap or run past capacity, or the regions do not fit.
-        ValueError: ``row_counts`` names no tensor, or gives one fewer than 1 row.
+        ValueError: ``row_counts`` or ``pins`` names no tensor, or
+            ``row_counts`` gives one fewer than 1 row.
     """
     rows = _row_counts(plan, row_counts)
     capacity = addressable_rows(plan.format)
-    taken = _pinned(plan, rows, capacity)
+    extra = dict(pins or {})
+    unknown = set(extra) - set(plan.manifest.tensors)
+    if unknown:
+        raise ValueError(f"pins for {sorted(unknown)}, which are no tensors")
+    taken = _pinned(plan, rows, capacity, extra)
     for tensor in placement_order(plan.manifest.tensors.values()):
-        if tensor.name not in plan.pins:
+        if tensor.name not in plan.pins and tensor.name not in extra:
             need = rows[tensor.name]
             region = Region(tensor.name, tensor.role, _first_fit(taken, need), need)
             _check_fits(plan, tensor, region, capacity)
@@ -222,3 +239,61 @@ def place(plan: CasePlan, row_counts: Mapping[str, int] | None = None) -> Placem
         rows_used=max((r.end_row for r in taken), default=0),
         capacity=capacity,
     )
+
+
+#: ``ST.AAQ`` stores the whole of ``POST_AAQ_REG`` (OQ-35), more than one row
+#: in an 8-bit format.
+_AAQ_STORE_BYTES: int = REGISTER_DEFINITIONS["post_aaq_reg"]["size_bytes"]
+
+
+def _stores_with_aaq(rendered: str) -> bool:
+    """Whether the rendered program has an ``ST.AAQ`` instruction (comments
+    and labels aside)."""
+    return any(
+        instruction["opcode"].token.value.upper() == "ST.AAQ"
+        for word in AssemblySession("").parse_rendered(rendered)
+        for instruction in word["instructions"]
+    )
+
+
+def check_aaq_spill(plan: CasePlan, placement: Placement, program: str) -> None:
+    """Refuse a placement where ``ST.AAQ``'s spill would land on a region.
+
+    ``ST.AAQ`` writes all of ``POST_AAQ_REG``, more than one row in an 8-bit
+    format, so a store to an output's last row also writes (zeros to) the
+    rows after it (OQ-35). When ``program`` (rendered) stores with
+    ``ST.AAQ``, the rows after every element output must be free and inside
+    XMEM. Accumulator outputs (``ST.ACC``) are not checked: their stride
+    already holds a store. Nor is a scratch region a program stores to with
+    ``ST.AAQ`` (a follow-up in OQ-35).
+
+    Raises:
+        PlanError: A region is in an output's spill, or the spill runs past
+            XMEM.
+    """
+    spill = _AAQ_STORE_BYTES // FORMATS[plan.format].row_bytes - 1
+    if spill <= 0 or not _stores_with_aaq(program):
+        return
+    capacity = addressable_rows(plan.format)
+    for tensor in plan.manifest.tensors.values():
+        if tensor.role != "output" or tensor.store != "element":
+            continue
+        end = placement.region(tensor.name).end_row
+        hit = [
+            r.name
+            for r in placement.regions.values()
+            if r.name != tensor.name and r.base_row < end + spill and end < r.end_row
+        ]
+        if hit or end + spill > capacity:
+            where = (
+                f"which hold region {', '.join(hit)}"
+                if hit
+                else f"past XMEM's last row ({capacity - 1})"
+            )
+            raise PlanError(
+                plan.manifest,
+                _key(tensor),
+                f"ST.AAQ writes {_AAQ_STORE_BYTES} bytes ({spill + 1} {plan.format.value} rows), "
+                f"so a store to {tensor.name}'s last row writes rows {end}..{end + spill - 1}, "
+                f"{where} (OQ-35)",
+            )
