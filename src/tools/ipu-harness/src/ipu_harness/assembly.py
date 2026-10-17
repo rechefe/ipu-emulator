@@ -44,15 +44,19 @@ def template_values(plan: CasePlan) -> Mapping[str, object]:
         plan: The checked case.
 
     Returns:
-        Every parameter, ``format`` (the element format's name) and ``shapes``
-        (each tensor's shape, as a list of ints).
+        Every parameter, every ``[derived]`` value but the placed ones (which
+        need the regions; ``[abi]`` binds them), ``format`` (the element
+        format's name) and ``shapes`` (each tensor's shape, as a list of ints).
     """
     shapes = {name: list(shape) for name, shape in plan.shapes.items()}
-    return MappingProxyType({**plan.params, "format": plan.format.value, "shapes": shapes})
+    return MappingProxyType(
+        {**plan.params, **plan.derived, "format": plan.format.value, "shapes": shapes}
+    )
 
 
 def _declared(plan: CasePlan) -> ParamSpec:
-    """The parameters the program may read: the kernel's, ``format`` and ``shapes``.
+    """The parameters the program may read: the kernel's, its derived values
+    (ints), ``format`` and ``shapes``.
 
     Args:
         plan: The checked case.
@@ -63,6 +67,7 @@ def _declared(plan: CasePlan) -> ParamSpec:
     params = [
         Param(name, _PY_TYPES[decl.type], REQUIRED) for name, decl in plan.manifest.params.items()
     ]
+    params += [Param(name, int, REQUIRED) for name in plan.derived]
     params += [Param("format", str, REQUIRED), Param("shapes", dict, REQUIRED)]
     return ParamSpec(tuple(params))
 
