@@ -90,8 +90,8 @@ class ExecutionObserver:
         wide = is_wide_format(fmt)
         profile.metadata.update(
             mode=fmt.value if wide else "native",
-            # The 8-bit format; FP32 and INT32 report INT8, as before E04-17.
-            dtype=ElementFormat.INT8.name if wide else fmt.name,
+            # The run's element format, in every mode.
+            dtype=fmt.name,
             quantize_output=state.aaq.quantize_output,
         )
         self.next_id = 0
