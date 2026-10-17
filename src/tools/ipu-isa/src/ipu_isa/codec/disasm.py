@@ -10,11 +10,15 @@ The one place disassembly text is made.
 * ``operation_text``: one slot's mnemonic and its operands only, in assembly
   operand order; ``slot_operations`` labels it per slot instance, for the
   debugger's pipeline view.
+* ``program_text``: a whole program as source the assembler reads back to
+  the same words (E05-15): every slot instance's ``operation_text`` in layout
+  order, a bare ``NOP`` included so each instruction lands in the instance it
+  came from, and a generated label (``w0012:``) at each branch target.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 from ipu_isa.codec.slot import DecodedSlot, codecs
 from ipu_isa.codec.word import DecodedWord
@@ -197,6 +201,66 @@ def operation_text(decoded: DecodedSlot, *, isa: Isa | None = None) -> str:
     bindings = view.layout.unions[decoded.slot].opcode_bindings[decoded.instruction.mnemonic]
     fields = _field_texts(decoded, view)
     return " ".join((decoded.instruction.mnemonic, *(fields[index] for index, _ in bindings)))
+
+
+#: The label ``program_text`` gives the word at a branch target.
+LABEL_FORMAT = "w{:04d}"
+
+
+def program_text(
+    words: Sequence[int], *, isa: Isa | None = None, target: Tag | str = Tag.EMULATOR
+) -> str:
+    """A program as assembly source that assembles back to ``words``.
+
+    Each word is one line: its slot instances' instructions in layout order,
+    operands in assembly order, ``NOP`` bare. A branch to a word of the program
+    names a label defined on that word; a branch past the end is a ``+N``
+    offset. A field the instruction does not use is not written, so a word
+    with stray bits in one does not reassemble to itself.
+
+    Args:
+        words: The program's words, of ``target``.
+        isa: The ISA; default ``ipu_isa.isa()``.
+        target: Which word ``words`` hold.
+
+    Returns:
+        The source, one line per word.
+
+    Raises:
+        ValueError: An unknown target.
+        ReservedEncoding: A slot holds an opcode no instruction uses.
+    """
+    view = _view(isa)
+    tag = target_tag(target)
+    shift = view.layout.word_bits(Tag.EMULATOR) if tag is Tag.HARDWARE else 0
+    decoded = [[d for _, d in _slots(word << shift, view, tag)] for word in words]
+    targets = {
+        value
+        for slots in decoded
+        for d in slots
+        for op, value in zip(d.instruction.operands, d.operands, strict=True)
+        if op.type.kind is OperandKind.LABEL and value < len(words)
+    }
+
+    def text(d: DecodedSlot, pc: int) -> str:
+        bindings = view.layout.unions[d.slot].opcode_bindings[d.instruction.mnemonic]
+        fields = _field_texts(d, view)
+        operands = []
+        for (index, _), op, value in zip(bindings, d.instruction.operands, d.operands, strict=True):
+            if op.type.kind is not OperandKind.LABEL:
+                operands.append(fields[index])
+            elif value < len(words):
+                operands.append(LABEL_FORMAT.format(value))
+            else:
+                operands.append(f"+{value - pc}")
+        return " ".join((d.instruction.mnemonic, *operands))
+
+    return "\n".join(
+        (f"{LABEL_FORMAT.format(pc)}: " if pc in targets else "")
+        + "; ".join(text(d, pc) for d in slots)
+        + WORD_END
+        for pc, slots in enumerate(decoded)
+    )
 
 
 def slot_operations(word: int, *, isa: Isa | None = None) -> list[tuple[str, str]]:

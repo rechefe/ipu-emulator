@@ -44,7 +44,7 @@ from ipu_isa.registers import REGISTER_DEFINITIONS
 
 
 class OperandKind(Enum):
-    """What an operand's value names: a register, an enum member or an immediate."""
+    """What an operand's value names: a register, an enum member, an immediate or a label."""
 
     REGISTER = "register"
     ENUM = "enum"

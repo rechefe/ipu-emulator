@@ -9,6 +9,7 @@ never print or exit: a bad source raises an `AssemblerError` subclass. Only
 from ipu_as import encode, session
 from ipu_as.session import instruction_aligned_bytes_len
 from ipu_as.syntax import ASTBuilder, get_parser, parse_tree
+from ipu_isa.codec.disasm import program_text
 from ipu_isa.codec.word import unpack_words, word_bytes
 from ipu_isa.tags import Tag
 
@@ -67,8 +68,25 @@ def assemble_to_bin_file(text: str, output_path: str) -> None:
         f.write(result.to_bin())
 
 
-def disassemble(program: list[int], target: str = "emulator") -> list[str]:
-    """One `<index>:\t\t<text>` line per word; `target` says which word they are."""
+#: How ``disassemble`` writes a program: every field of every slot, by word
+#: index (``fields``), or source the assembler reads back (``assembly``).
+SYNTAXES = ("fields", "assembly")
+
+
+def disassemble(program: list[int], target: str = "emulator", syntax: str = "fields") -> list[str]:
+    """The program as text lines; `target` says which word they are.
+
+    Args:
+        program: The words.
+        target: `"emulator"` or `"hardware"`.
+        syntax: `"fields"`: one `<index>:\t\t<text>` line per word with every
+            field of every slot; `"assembly"`: source that assembles back to
+            `program` (``ipu_isa.codec.disasm.program_text``).
+    """
+    if syntax == "assembly":
+        return program_text(program, target=target).split("\n")
+    if syntax != "fields":
+        raise ValueError(f"syntax must be one of {SYNTAXES}, not {syntax!r}")
     return [
         f"{i:04x}:\t\t{encode.disassemble_word(word, target)}" for i, word in enumerate(program)
     ]
@@ -80,17 +98,20 @@ def _write_lines(output_path: str, lines: list[str]) -> None:
             f.write(f"{line}\n")
 
 
-def disassemble_from_mem_file(input_path: str, output_path: str, target: str = "emulator") -> None:
+def disassemble_from_mem_file(
+    input_path: str, output_path: str, target: str = "emulator", syntax: str = "fields"
+) -> None:
     """Disassemble a `.mem` file into one text line per word (`disassemble`).
 
     Args:
         input_path: The `.mem` file: one hex word per line.
         output_path: The text file to write.
         target: Which word the file holds, `"emulator"` or `"hardware"`.
+        syntax: How to write it (``SYNTAXES``).
     """
     with open(input_path) as f:
         program = [int(line.strip(), 0) for line in f.readlines()]
-    _write_lines(output_path, disassemble(program, target))
+    _write_lines(output_path, disassemble(program, target, syntax))
 
 
 def _bin_words(data: bytes, target: str) -> list[int]:
@@ -104,14 +125,17 @@ def _bin_words(data: bytes, target: str) -> list[int]:
     ]
 
 
-def disassemble_from_bin_file(input_path: str, output_path: str, target: str = "emulator") -> None:
+def disassemble_from_bin_file(
+    input_path: str, output_path: str, target: str = "emulator", syntax: str = "fields"
+) -> None:
     """Disassemble a `.bin` file into one text line per word (`disassemble`).
 
     Args:
         input_path: The `.bin` file of little-endian `target` words.
         output_path: The text file to write.
         target: Which word the file holds, `"emulator"` or `"hardware"`.
+        syntax: How to write it (``SYNTAXES``).
     """
     with open(input_path, "rb") as f:
         program = _bin_words(f.read(), target)
-    _write_lines(output_path, disassemble(program, target))
+    _write_lines(output_path, disassemble(program, target, syntax))

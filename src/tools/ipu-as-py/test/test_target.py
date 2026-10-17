@@ -120,6 +120,34 @@ def test_the_cli_assembles_and_disassembles_hardware_words(tmp_path):
         assert hw == text["emulator"][word * every : word * every + hardware]
 
 
+#: A backward branch (a label before its use) and a forward one past the end.
+LOOP = """\
+SET LR0 CR1;;
+top: ADD LR0 LR0 CR1; ACC.ADD;;
+BNE LR0 CR2 top;;
+BEQ LR0 CR0 +3;;
+HALT;;
+"""
+
+
+def test_hardware_words_disassemble_to_source_that_assembles_back(tmp_path):
+    source = tmp_path / "p.asm"
+    source.write_text(PROGRAM + LOOP)
+    binary, text, again = tmp_path / "h.bin", tmp_path / "h.asm", tmp_path / "again.bin"
+    runner = CliRunner()
+    hardware = ["--target", "hardware"]
+    argv = ["assemble", "--input", str(source), "--output", str(binary), *hardware]
+    assert runner.invoke(cli, argv).exit_code == 0
+    argv = ["disassemble", "--input", str(binary), "--output", str(text), "--syntax", "assembly"]
+    assert runner.invoke(cli, [*argv, *hardware]).exit_code == 0
+    written = text.read_text()
+    assert "w0005: " in written and "BNE lr0 cr2 w0005" in written  # the label is generated
+    assert not re.search(r"\bNOP [^;]", written)  # NOP takes no operands
+    argv = ["assemble", "--input", str(text), "--output", str(again), *hardware]
+    assert runner.invoke(cli, argv).exit_code == 0
+    assert again.read_bytes() == binary.read_bytes()
+
+
 def test_check_cli_takes_the_target():
     result = CliRunner().invoke(
         cli, ["check", "--json", "--input", "-", "--target", "hardware"], input="BREAK;;\n"

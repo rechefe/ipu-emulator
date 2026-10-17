@@ -197,16 +197,24 @@ def _read_abi(path: str) -> dict[str, dict[str, str]]:
     help="Input format; by default bin for a .bin --input, else mem.",
 )
 @_target_option
-def disassemble(input: str, output: str, format: str | None, target: str) -> None:
+@click.option(
+    "--syntax",
+    type=click.Choice(lark_tree.SYNTAXES),
+    default="fields",
+    show_default=True,
+    help="fields: every field of every slot, by word; assembly: source that assembles "
+    "back to the same words.",
+)
+def disassemble(input: str, output: str, format: str | None, target: str, syntax: str) -> None:
     """Disassembles the given input file."""
     click.echo(f"Disassembling file: {input}")
     if output:
         click.echo(f"Output will be saved to: {output}")
     try:
         if (format or _format_of(input)) == "bin":
-            lark_tree.disassemble_from_bin_file(input, output, target)
+            lark_tree.disassemble_from_bin_file(input, output, target, syntax)
         else:
-            lark_tree.disassemble_from_mem_file(input, output, target)
+            lark_tree.disassemble_from_mem_file(input, output, target, syntax)
     except AssemblerError as error:
         _exit_with(error)
     except ReservedEncoding:

@@ -234,6 +234,20 @@ py_pytest_test(
     deps = [":asm_corpus", requirement("pytest")],
 )
 
+# Disassembly to assembly syntax assembles back to the same words, for both
+# targets, over every program of the corpus (E05-15).
+py_pytest_test(
+    name = "test_assembly_round_trip",
+    srcs = ["test/test_assembly_round_trip.py"],
+    data = _ASM_CORPUS,
+    deps = [
+        ":asm_corpus",
+        "//src/tools/ipu-as-py:ipu_as_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
 # The ISA's word codec over every program of the corpus (E03-16).
 py_pytest_test(
     name = "test_word_codec_corpus",
