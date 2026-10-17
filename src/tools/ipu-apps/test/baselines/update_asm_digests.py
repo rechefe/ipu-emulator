@@ -3,7 +3,7 @@
     bazel run //src/tools/ipu-apps:update_asm_digests
 
 Run it only in a PR that changes assembled output on purpose, and say why in
-the PR; a refactor must leave the manifest untouched (decision D3).
+the PR; a refactor must leave the manifest untouched (Code conventions, "Baselines").
 """
 
 from __future__ import annotations

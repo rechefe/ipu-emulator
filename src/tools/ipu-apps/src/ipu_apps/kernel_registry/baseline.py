@@ -21,9 +21,8 @@ The capture hooks ``ipu_emu.emulator.run_until_complete``, which ``run_test``
 calls right after ``setup``; every program of every kernel reaches the
 emulator through ``run_test``, so no harness needs to change.
 
-Fields that differ between faithful and prototyping mode would be listed in
-``MODE_DEPENDENT_FIELDS``; none do (run statistics are not recorded), so a
-flagged build checks the same records (E02-08).
+No field differs between faithful and prototyping mode (run statistics are
+not recorded), so a flagged build checks the same records (E02-08).
 """
 
 from __future__ import annotations
@@ -32,6 +31,7 @@ import hashlib
 import json
 import os
 import re
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from importlib.resources import files
@@ -42,6 +42,7 @@ from ipu_apps.kernel_registry.registry import kernel_spec
 from ipu_emu.descriptors import REGFILE_SCHEMA
 from ipu_emu.ipu_state import IpuState
 from ipu_isa.constants import CR_REGISTER_NAME
+from ipu_isa.registers import REGISTER_DEFINITIONS
 
 #: The one command that rewrites baselines from the current tree.
 UPDATE_COMMAND = "bazel run //src/tools/ipu-apps:update_kernel_baselines -- <kernel> ..."
@@ -52,12 +53,8 @@ UPDATE_ENV = "IPU_UPDATE_KERNEL_BASELINES"
 
 BASELINE_FILE = "baseline.json"
 
-#: Record fields allowed to differ between faithful and prototyping mode.
-MODE_DEPENDENT_FIELDS: frozenset[str] = frozenset()
-
 _PAGE = 64 * 1024
 _ZERO_PAGE = bytes(_PAGE)
-_REGISTER_COUNT = 16
 
 
 @dataclass(frozen=True)
@@ -72,6 +69,8 @@ class ProgramRecord:
 
 @dataclass(frozen=True)
 class CaseRecord:
+    """What one case run is pinned by: its programs, output, final state and cycles."""
+
     programs: list[ProgramRecord]
     output_sha256: str | None
     state_sha256: str
@@ -127,8 +126,8 @@ def state_sha256(state: IpuState) -> str:
 def _program(state: IpuState) -> ProgramRecord:
     return ProgramRecord(
         program_sha256=program_sha256(state),
-        cr=[state.regfile.get_cr(i) for i in range(_REGISTER_COUNT)],
-        lr=[state.regfile.get_lr(i) for i in range(_REGISTER_COUNT)],
+        cr=[state.regfile.get_cr(i) for i in range(REGISTER_DEFINITIONS["cr"]["count"])],
+        lr=[state.regfile.get_lr(i) for i in range(REGISTER_DEFINITIONS["lr"]["count"])],
         xmem_setup_sha256=xmem_sha256(state),
     )
 
@@ -141,7 +140,9 @@ class Recorder:
         self.record: CaseRecord | None = None
 
     @contextmanager
-    def watch(self):
+    def watch(self) -> Iterator[Recorder]:
+        """Record each program that reaches ``ipu_emu.emulator.run_until_complete``
+        while the block runs (by patching it, so no harness changes)."""
         original = emulator.run_until_complete
 
         def run_until_complete(state, *args, **kwargs):
@@ -154,7 +155,19 @@ class Recorder:
         finally:
             emulator.run_until_complete = original
 
-    def finish(self, state: IpuState, cycles: int, output_path=None) -> CaseRecord:
+    def finish(
+        self, state: IpuState, cycles: int, output_path: str | Path | None = None
+    ) -> CaseRecord:
+        """The case's record, after ``watch``.
+
+        Args:
+            state: The final state.
+            cycles: The run's cycle count.
+            output_path: The case's output file, hashed if it exists.
+
+        Raises:
+            RuntimeError: no program reached the emulator during ``watch``.
+        """
         if not self.programs:
             raise RuntimeError(
                 "the case ran no program through ipu_emu.emulator.run_until_complete, "

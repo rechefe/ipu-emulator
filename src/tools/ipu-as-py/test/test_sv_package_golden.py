@@ -6,7 +6,7 @@ the rendered text is a change to what they get. Its header names a hash of its
 body, so it changes only with its content; regenerate it with
 ``bazel run //src/tools/ipu-as-py:update_sv_golden``. Every ``*_WIDTH`` is wire
 format: changing one means editing ``EXPECTED_LOCALPARAMS`` by hand and calling
-the change out in the PR as breaking (CLAUDE.md, decision D6).
+the change out in the PR as breaking (CLAUDE.md, "Generated SystemVerilog Package").
 """
 
 from __future__ import annotations

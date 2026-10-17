@@ -3,7 +3,7 @@
     bazel run //src/tools/ipu-as-py:update_sv_golden
 
 It does not touch the localparam table in test_sv_package_golden.py: a width
-change must be an explicit edit there, so review sees it (decision D6).
+change must be an explicit edit there, so review sees it (CLAUDE.md, "Generated SystemVerilog Package").
 """
 
 from __future__ import annotations
