@@ -1,5 +1,6 @@
 {
  "src/tools/ipu-apps/src/ipu_apps/kernels/attention/attn_scores_km_16x60/attn_scores_km_16x60.asm": {
+  "input": "53340008bab9f2e66c7d90b17b2ac90f4ae30be7481599193939c07acbb76b41",
   "mangled": "e07cc7654334adb39f19d82fc83336083769cf0f19703a4410e3551430c4ddc1",
   "default": "53340008bab9f2e66c7d90b17b2ac90f4ae30be7481599193939c07acbb76b41",
   "mangled/default": "53340008bab9f2e66c7d90b17b2ac90f4ae30be7481599193939c07acbb76b41",
@@ -13,6 +14,7 @@
   "mangled/blank-line-range": "e07cc7654334adb39f19d82fc83336083769cf0f19703a4410e3551430c4ddc1"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/attention/attn_scores_km_256x36/attn_scores_km_256x36.asm": {
+  "input": "53f5f44b38318a09998b5c4dc351377435c9f29a71d0042f80869d11cbd360ff",
   "mangled": "ae587d1bf000e53fdf841ca113ffb08965b716e7a5109a447abefd05d6ee068a",
   "default": "53f5f44b38318a09998b5c4dc351377435c9f29a71d0042f80869d11cbd360ff",
   "mangled/default": "53f5f44b38318a09998b5c4dc351377435c9f29a71d0042f80869d11cbd360ff",
@@ -26,6 +28,7 @@
   "mangled/blank-line-range": "bc71baee9b9c5128bbb2f28b748b272515441e606fac80a584d4cb087de91736"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/attention/attn_scores_km_64x48/attn_scores_km_64x48.asm": {
+  "input": "1b8263a6520f25d65e07087855ae597bd68ebae3c792a359b3ba7488dfcfd2c0",
   "mangled": "3c17872cbb0fdfb6e3ac7642f2ab1427902b02431382ab4341141fc6018cf9cc",
   "default": "1b8263a6520f25d65e07087855ae597bd68ebae3c792a359b3ba7488dfcfd2c0",
   "mangled/default": "1b8263a6520f25d65e07087855ae597bd68ebae3c792a359b3ba7488dfcfd2c0",
@@ -39,6 +42,7 @@
   "mangled/blank-line-range": "3c17872cbb0fdfb6e3ac7642f2ab1427902b02431382ab4341141fc6018cf9cc"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/attention/attn_v_16x60/attn_v_16x60.asm": {
+  "input": "47cbe51254d53cefc3790fff7ef6c9e33b742df86368ea06ec810a2e1f58b246",
   "mangled": "4578c02624bc3fba4305f9741855a98d9e3c10e38fbb5e46d3b879da68fa2678",
   "default": "47cbe51254d53cefc3790fff7ef6c9e33b742df86368ea06ec810a2e1f58b246",
   "mangled/default": "47cbe51254d53cefc3790fff7ef6c9e33b742df86368ea06ec810a2e1f58b246",
@@ -52,6 +56,7 @@
   "mangled/blank-line-range": "4578c02624bc3fba4305f9741855a98d9e3c10e38fbb5e46d3b879da68fa2678"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/attention/attn_v_256x36/attn_v_256x36.asm": {
+  "input": "5809445107c17e3fce544836001bd29bcffb675a347f6d22d33c7a72bf2ad880",
   "mangled": "db2c6a980179605e0779a759b76fba024c77152c870658db607b735b1b6a0c1c",
   "default": "5809445107c17e3fce544836001bd29bcffb675a347f6d22d33c7a72bf2ad880",
   "mangled/default": "5809445107c17e3fce544836001bd29bcffb675a347f6d22d33c7a72bf2ad880",
@@ -65,6 +70,7 @@
   "mangled/blank-line-range": "3fb6d839eb76f3a25d54ace9101c65f50bc32de917c733b71448b0ea33f72847"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/attention/attn_v_64x48/attn_v_64x48.asm": {
+  "input": "1fd660568eb5d096d3a29cf92dba9cce1ee4245b5191a6b926b56be770bbdbb3",
   "mangled": "ea73ecaad0692fef8530c7697192b91dd5c6370cbe5b2d326d99481537575b19",
   "default": "1fd660568eb5d096d3a29cf92dba9cce1ee4245b5191a6b926b56be770bbdbb3",
   "mangled/default": "1fd660568eb5d096d3a29cf92dba9cce1ee4245b5191a6b926b56be770bbdbb3",
@@ -78,6 +84,7 @@
   "mangled/blank-line-range": "ea73ecaad0692fef8530c7697192b91dd5c6370cbe5b2d326d99481537575b19"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/attention/attn_v_bcast_36/attn_v_bcast_36.asm": {
+  "input": "feb3f4e36b4972f5dc6bb13f6a1eb3b1e881863caa6d652ea8fcb77f3e9cf51c",
   "mangled": "77531cf791cecb895cd096c755fb7a0e162dbf1d87a108e22173d6231a299814",
   "default": "feb3f4e36b4972f5dc6bb13f6a1eb3b1e881863caa6d652ea8fcb77f3e9cf51c",
   "mangled/default": "feb3f4e36b4972f5dc6bb13f6a1eb3b1e881863caa6d652ea8fcb77f3e9cf51c",
@@ -91,6 +98,7 @@
   "mangled/blank-line-range": "7180755de4235c4086aabe8f93d0e917955bc2ee388b73dd46c33220f874f2ee"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/attention/attn_v_bcast_48/attn_v_bcast_48.asm": {
+  "input": "1752a0ef8786fa388a1900db0adad829ccf6dd4ed7692ea1c34eac0e3d6d0020",
   "mangled": "f74a2a3ed4ae3a3d9a59e53efa15660433f02a2881bff34b0c94158c4c8515e9",
   "default": "1752a0ef8786fa388a1900db0adad829ccf6dd4ed7692ea1c34eac0e3d6d0020",
   "mangled/default": "1752a0ef8786fa388a1900db0adad829ccf6dd4ed7692ea1c34eac0e3d6d0020",
@@ -104,6 +112,7 @@
   "mangled/blank-line-range": "f74a2a3ed4ae3a3d9a59e53efa15660433f02a2881bff34b0c94158c4c8515e9"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/attention/attn_v_bcast_60/attn_v_bcast_60.asm": {
+  "input": "9e149176923976badb5f2ffb58fe4a8043f2dda82378d192bc3bed4fc27b5533",
   "mangled": "1bc9c331002630e0e7b37b98ed6887f1b48684b4a414e490e8e0d275b0779530",
   "default": "9e149176923976badb5f2ffb58fe4a8043f2dda82378d192bc3bed4fc27b5533",
   "mangled/default": "9e149176923976badb5f2ffb58fe4a8043f2dda82378d192bc3bed4fc27b5533",
@@ -117,6 +126,7 @@
   "mangled/blank-line-range": "ea2a9819ad9b7f90e997b855117caa5ac05a73bbfb268f6db29d46fbde97e9b8"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/attention/qk_scores_16x60/qk_scores_16x60.asm": {
+  "input": "f9c347d2d04620d2c75cce22b9faa52c4993354f0d85d5ac25e8b441aa664d7f",
   "mangled": "2cfe1f4d9627e4b43745539a6fde293fed5489bec572a76f9b5b9e8dc19748c8",
   "default": "f9c347d2d04620d2c75cce22b9faa52c4993354f0d85d5ac25e8b441aa664d7f",
   "mangled/default": "f9c347d2d04620d2c75cce22b9faa52c4993354f0d85d5ac25e8b441aa664d7f",
@@ -130,6 +140,7 @@
   "mangled/blank-line-range": "2cfe1f4d9627e4b43745539a6fde293fed5489bec572a76f9b5b9e8dc19748c8"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/attention/qk_scores_256x36/qk_scores_256x36.asm": {
+  "input": "1d508afe6b78d69768e1bda7ba012a77732fea1d848c9b5768df7fa6538d7782",
   "mangled": "b75e74f5a5d8b0ac2df56a375eb08231ba531be179c1ef5a7055821ad18276a0",
   "default": "1d508afe6b78d69768e1bda7ba012a77732fea1d848c9b5768df7fa6538d7782",
   "mangled/default": "1d508afe6b78d69768e1bda7ba012a77732fea1d848c9b5768df7fa6538d7782",
@@ -143,6 +154,7 @@
   "mangled/blank-line-range": "856592ff07f8f5f92a5c99991b3acddc371b3eae9afb69864dc2be2cdc061cc9"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/attention/qk_scores_64x48/qk_scores_64x48.asm": {
+  "input": "471be4eb8a95072fc07b3b49e9b15f555099b74ef3a958f5fcb73825ced3bf31",
   "mangled": "243bc229b3a746f7065b82afeab2a1d8a3f0bbfe6d9ff53121fb03766b7fc304",
   "default": "471be4eb8a95072fc07b3b49e9b15f555099b74ef3a958f5fcb73825ced3bf31",
   "mangled/default": "471be4eb8a95072fc07b3b49e9b15f555099b74ef3a958f5fcb73825ced3bf31",
@@ -156,6 +168,7 @@
   "mangled/blank-line-range": "243bc229b3a746f7065b82afeab2a1d8a3f0bbfe6d9ff53121fb03766b7fc304"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/conv1x1/conv1x1.asm": {
+  "input": "48c1fea32fee90b38ac4418d39c639b2e5f352392c7c2810514b7d3eb83454c3",
   "mangled": "9e539c596764e2419f1e3b252e006b5abdae0cb325e87381d511d26a35579fed",
   "default": "48c1fea32fee90b38ac4418d39c639b2e5f352392c7c2810514b7d3eb83454c3",
   "mangled/default": "48c1fea32fee90b38ac4418d39c639b2e5f352392c7c2810514b7d3eb83454c3",
@@ -169,6 +182,7 @@
   "mangled/blank-line-range": "8f485a53ad756b5bbd2a0ffc397ce012eb191402902087ba778da367e2a231a8"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/conv3x3_relu/conv3x3_relu.asm": {
+  "input": "a4dfe945b6567dbb3527781dfac50dc0b1721c97cd097b927752490ba57df127",
   "mangled": "073e210e538ec665b37b9b04b16bf839f470ff1da9e7c153305e186221462a7f",
   "default": "a4dfe945b6567dbb3527781dfac50dc0b1721c97cd097b927752490ba57df127",
   "mangled/default": "a4dfe945b6567dbb3527781dfac50dc0b1721c97cd097b927752490ba57df127",
@@ -182,6 +196,7 @@
   "mangled/blank-line-range": "2cc31e11b6a13ee8bc2a0995acbd93d150f2fce9dfaefe22161840d483593f89"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/conv3x3_relu_cin1/conv3x3_relu_cin1.asm": {
+  "input": "a1506f826385cd76f8ed10998c6c7af504dd648bb27c2485208336f72d9f2b67",
   "mangled": "218c8c97a81a734e6b035108a918f1ce96413055085e35b88d5ca453586eb809",
   "default": "a1506f826385cd76f8ed10998c6c7af504dd648bb27c2485208336f72d9f2b67",
   "mangled/default": "a1506f826385cd76f8ed10998c6c7af504dd648bb27c2485208336f72d9f2b67",
@@ -195,6 +210,7 @@
   "mangled/blank-line-range": "8f2bf46900b4f5230a2918e29a21e9f03b27d3555fb88857b5c66d6436c362b4"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/conv_first_layer/conv_first_layer.asm": {
+  "input": "e88f3dd5cb8c3362f0c92f00b171c37f844e37811dd87f2cf661b4631a38952e",
   "mangled": "1054a073769e86715d40997c5a71300731ca7c2d18ef068a08d12d8da77f2e96",
   "default": "e88f3dd5cb8c3362f0c92f00b171c37f844e37811dd87f2cf661b4631a38952e",
   "mangled/default": "e88f3dd5cb8c3362f0c92f00b171c37f844e37811dd87f2cf661b4631a38952e",
@@ -208,6 +224,7 @@
   "mangled/blank-line-range": "2d5e906c69ebadf5802f3cf3507bf6c088d6af377236318b2501d48d5d6a3804"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/conv_universal/conv_universal.asm": {
+  "input": "3ebf1a0d2cc67d87420788f14c842f2aa804043db137d537bb5405e1214e3b09",
   "mangled": "f73b0e37401392fe2f6c964be935c61d784d2ee6d079a058d46598dadb1e344d",
   "default": "3ebf1a0d2cc67d87420788f14c842f2aa804043db137d537bb5405e1214e3b09",
   "mangled/default": "3ebf1a0d2cc67d87420788f14c842f2aa804043db137d537bb5405e1214e3b09",
@@ -221,6 +238,7 @@
   "mangled/blank-line-range": "0290ae6b98460d0d81ee7d60ad36ada0134d40921b354c6c5505e5602af5aede"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/conv_universal_bn_activation/conv_universal_bn_activation.asm": {
+  "input": "032c8ce41b865b8ec4209014595605b59b7896fb355f6a2001c6234e070ffaea",
   "mangled": "504faf9969ba51a94cb671c2f5cb7ea18767aa38a90e9b365b946a55ae41215f",
   "default": "032c8ce41b865b8ec4209014595605b59b7896fb355f6a2001c6234e070ffaea",
   "mangled/default": "032c8ce41b865b8ec4209014595605b59b7896fb355f6a2001c6234e070ffaea",
@@ -234,6 +252,7 @@
   "mangled/blank-line-range": "f42ed421e950b8443c44d3b59d7a2966f6304c1a3359db2d7aa48819340b8626"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/conv_universal_wide384/conv_universal_wide384.asm": {
+  "input": "30869c6e79eaa0d45beec60e8466841d1d2f088986cccdb01fd898c339fa67a8",
   "mangled": "c5f76c8817518d7efe1edaceacdbcec57c3df5f3a5010ae291100346c1013d27",
   "default": "30869c6e79eaa0d45beec60e8466841d1d2f088986cccdb01fd898c339fa67a8",
   "mangled/default": "30869c6e79eaa0d45beec60e8466841d1d2f088986cccdb01fd898c339fa67a8",
@@ -247,6 +266,7 @@
   "mangled/blank-line-range": "efb979b08d12de4fff393f2e5f0d1128d89e44b917fb8ac507c2948ac7fb60e6"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/depthwise_conv_stride2_128/depthwise_conv_stride2_128.asm": {
+  "input": "f650b3e1dc4d6c3e5ec21efb8eca499f0d0a7ed33dec7485b4f17a4c765721d9",
   "mangled": "fb98ac276968b20d40df1a6259f5ed209ae858e391aea5f2505af198a96c7039",
   "default": "f650b3e1dc4d6c3e5ec21efb8eca499f0d0a7ed33dec7485b4f17a4c765721d9",
   "mangled/default": "f650b3e1dc4d6c3e5ec21efb8eca499f0d0a7ed33dec7485b4f17a4c765721d9",
@@ -260,6 +280,7 @@
   "mangled/blank-line-range": "d259ba80934aa8a33b780178ccb8ba8f82537f061623e9d34cf54dbf26aba8fc"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/depthwise_conv_stride2_16/depthwise_conv_stride2_16.asm": {
+  "input": "ec4207b807b851643f327dd5ccd0a63ac3bef4014ea3d20b898aee5886022304",
   "mangled": "343e78dda23ed9ec8cd7eb1b167a125532818f0d9fc42a0be5bad3fb18bfa3d8",
   "default": "ec4207b807b851643f327dd5ccd0a63ac3bef4014ea3d20b898aee5886022304",
   "mangled/default": "ec4207b807b851643f327dd5ccd0a63ac3bef4014ea3d20b898aee5886022304",
@@ -273,6 +294,7 @@
   "mangled/blank-line-range": "c888fa2c0af045d79d4c91fb8168a7078a20a1e0a6bf7cb9241af83bc28b3b94"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/depthwise_conv_stride2_narrow/depthwise_conv_stride2_narrow.asm": {
+  "input": "ee37a7d0cb7913e43b375be13efea6f497e2b80cf508c86a3e2bdb74eb9b4b93",
   "mangled": "bd5d495356c4a89af6853e3064a8402249a5a4ee1dd621e7aa4baa855968a263",
   "default": "ee37a7d0cb7913e43b375be13efea6f497e2b80cf508c86a3e2bdb74eb9b4b93",
   "mangled/default": "ee37a7d0cb7913e43b375be13efea6f497e2b80cf508c86a3e2bdb74eb9b4b93",
@@ -286,6 +308,7 @@
   "mangled/blank-line-range": "34639f5ea719c7065773911b62e6dcbec9d8c7a6cda90676a95cef4b11d605d4"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/depthwise_conv_universal/depthwise_conv_universal.asm": {
+  "input": "26e0bba427f99b4594ecb92cabc19a463b7df78a9ac589c0c6c88f4527edd535",
   "mangled": "6930394b8806bf4fdc2c3a53c76df13cef80acc69b65e0c2e1bb748b6b1fed85",
   "default": "26e0bba427f99b4594ecb92cabc19a463b7df78a9ac589c0c6c88f4527edd535",
   "mangled/default": "26e0bba427f99b4594ecb92cabc19a463b7df78a9ac589c0c6c88f4527edd535",
@@ -299,6 +322,7 @@
   "mangled/blank-line-range": "a74784a27aab26a215f554231ace9d098456a8e7c143c10b87f5ac51a192e7c6"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/depthwise_conv_universal_bn_activation/depthwise_conv_universal_bn_activation.asm": {
+  "input": "ed733918389854bba45dce0f4e91530ec8db4831034d0581db889026197bdcdb",
   "mangled": "61942b543183a4eb99db0ab40bafda26ca9a362e3331d80f8567aa36cfc02612",
   "default": "ed733918389854bba45dce0f4e91530ec8db4831034d0581db889026197bdcdb",
   "mangled/default": "ed733918389854bba45dce0f4e91530ec8db4831034d0581db889026197bdcdb",
@@ -312,6 +336,7 @@
   "mangled/blank-line-range": "60f5ed89da9cdcc1a798ff100c2e0311e248c1813c176151e7ed9b8c7d57476b"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/pointwise_conv_unified/pointwise_conv_unified.asm": {
+  "input": "d72a6b14624bcd769d5de67dc48ad136fa3c3b3ff86d081541918726136e7190",
   "mangled": "b3314350753fd89dca67e72a7f443cfacc4b12d8ac1fb48a4945b59a6adc2628",
   "default": "d72a6b14624bcd769d5de67dc48ad136fa3c3b3ff86d081541918726136e7190",
   "mangled/default": "d72a6b14624bcd769d5de67dc48ad136fa3c3b3ff86d081541918726136e7190",
@@ -325,6 +350,7 @@
   "mangled/blank-line-range": "9b3683fd8e7f89971fe01c1ee957df152e477bd291bf1ab484274bcf258730b1"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/pointwise_conv_unified_bn_activation/pointwise_conv_unified_bn_activation.asm": {
+  "input": "11a6e11a1ab52050cf78a5e08f068f661224821c8f3ad55e12c8c8a57e83d8d6",
   "mangled": "4d319320082ff3e94fc781aec6231f58c389188a8567e9c082efec5a1f9d820e",
   "default": "11a6e11a1ab52050cf78a5e08f068f661224821c8f3ad55e12c8c8a57e83d8d6",
   "mangled/default": "11a6e11a1ab52050cf78a5e08f068f661224821c8f3ad55e12c8c8a57e83d8d6",
@@ -338,6 +364,7 @@
   "mangled/blank-line-range": "a8a3e5811a5446db7b336b63def194110c4a98458616e792adea85109af9b1e9"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/detect/channel_peak/channel_peak.asm": {
+  "input": "07a3c681d5279871455ac7a8beec6984f86c6b5cdc8c7205ec3760cc9f6e0771",
   "mangled": "5c12051cba026a85799653255752843c1f4793c6a12dc840d8a9e3fe6a6f56af",
   "default": "07a3c681d5279871455ac7a8beec6984f86c6b5cdc8c7205ec3760cc9f6e0771",
   "mangled/default": "07a3c681d5279871455ac7a8beec6984f86c6b5cdc8c7205ec3760cc9f6e0771",
@@ -351,6 +378,7 @@
   "mangled/blank-line-range": "5c12051cba026a85799653255752843c1f4793c6a12dc840d8a9e3fe6a6f56af"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/detect/score_threshold/score_threshold.asm": {
+  "input": "551abb7fbe59c20888d2f8ed8845dda5ce7aa5c40ca2fadd8624d66fffd7bde3",
   "mangled": "4ac89b76036bc68f7b4997d7260127e736628bd7d021dd0990339767c9d65f8e",
   "default": "551abb7fbe59c20888d2f8ed8845dda5ce7aa5c40ca2fadd8624d66fffd7bde3",
   "mangled/default": "551abb7fbe59c20888d2f8ed8845dda5ce7aa5c40ca2fadd8624d66fffd7bde3",
@@ -364,6 +392,7 @@
   "mangled/blank-line-range": "d2995341791e3fca8e691a5f39f667702332a0c3cb11f949db0b3e04f50f4fd1"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/elementwise/residual_add/residual_add.asm": {
+  "input": "fde100d5c839fe77ac103d93d65ff87a56e2b26094db04201a60c68e0dd1beda",
   "mangled": "48f61609457d81838efc6923f4b7cd788729b6b899323f7f047cf2c06544cd43",
   "default": "fde100d5c839fe77ac103d93d65ff87a56e2b26094db04201a60c68e0dd1beda",
   "mangled/default": "fde100d5c839fe77ac103d93d65ff87a56e2b26094db04201a60c68e0dd1beda",
@@ -377,6 +406,7 @@
   "mangled/blank-line-range": "3b2204bffdcef0e8216c43a9c2b2ddfb26506d00878d130e00cb34ee591e394c"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/elementwise/residual_add_16x240/residual_add_16x240.asm": {
+  "input": "9aa26ba93c74cb3c354dfd59333944289dec6211676e5093f5f607fbf3b81c29",
   "mangled": "6c700ba16e1f54752f3434b91f8984e6acc1405afcc9c374a440a0ac62bf0020",
   "default": "9aa26ba93c74cb3c354dfd59333944289dec6211676e5093f5f607fbf3b81c29",
   "mangled/default": "9aa26ba93c74cb3c354dfd59333944289dec6211676e5093f5f607fbf3b81c29",
@@ -390,6 +420,7 @@
   "mangled/blank-line-range": "6c700ba16e1f54752f3434b91f8984e6acc1405afcc9c374a440a0ac62bf0020"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/elementwise/residual_add_256x144/residual_add_256x144.asm": {
+  "input": "6050b0ff39979e032ee37e3383e1f19f1539d6e9fe0fe9fc917e4b9beda19083",
   "mangled": "4b8fbcca39a317418ab7db11e49a48250bb723afd77799d0637e6053e55ba066",
   "default": "6050b0ff39979e032ee37e3383e1f19f1539d6e9fe0fe9fc917e4b9beda19083",
   "mangled/default": "6050b0ff39979e032ee37e3383e1f19f1539d6e9fe0fe9fc917e4b9beda19083",
@@ -403,6 +434,7 @@
   "mangled/blank-line-range": "0a43621ead91465434ea9ebfb762068b43d049b0b6668861bf44bd3e403715a3"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/elementwise/residual_add_64x192/residual_add_64x192.asm": {
+  "input": "8dc1d397df64149169623ac000ffed18a1b2a928f58b50988c2cd940438bc59f",
   "mangled": "4347f537111115bb3c53cc9d5f7d0e9bc3a09e71387587e9fb8cd00802d4d8f7",
   "default": "8dc1d397df64149169623ac000ffed18a1b2a928f58b50988c2cd940438bc59f",
   "mangled/default": "8dc1d397df64149169623ac000ffed18a1b2a928f58b50988c2cd940438bc59f",
@@ -416,6 +448,7 @@
   "mangled/blank-line-range": "8d64dfcdbc0057d9239920c3bd1bbdbb8d248ea6e77969d5ffb0b614fdf54e54"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/linear/fully_connected/fully_connected.asm": {
+  "input": "b5072227f96044a321ae3239fe1a50fd1cfb5579042c18aadaa12cf32c866f4d",
   "mangled": "7871cf7f16a6e1f2378c97d4c47cd663e7089b7064aa9a7ee7f4cd34977e2445",
   "default": "b5072227f96044a321ae3239fe1a50fd1cfb5579042c18aadaa12cf32c866f4d",
   "mangled/default": "b5072227f96044a321ae3239fe1a50fd1cfb5579042c18aadaa12cf32c866f4d",
@@ -429,6 +462,7 @@
   "mangled/blank-line-range": "30bf6989a24d3f04d295ed4fc55613af0e7f5cd8dee29e8fd861448dac7127c5"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/matmul/matmul_128x128/matmul_128x128.asm": {
+  "input": "aba6cf1bbcf067f7e555838275fdebb3f02c2b705725e3b391dcfd396e272338",
   "mangled": "3d8be6baa2dae5cd3dd23870135377c6acb9936e53213be329a15b640079cd6e",
   "default": "aba6cf1bbcf067f7e555838275fdebb3f02c2b705725e3b391dcfd396e272338",
   "mangled/default": "aba6cf1bbcf067f7e555838275fdebb3f02c2b705725e3b391dcfd396e272338",
@@ -442,6 +476,7 @@
   "mangled/blank-line-range": "f6539330bfd07bb133dcb3f3400e58d0d8a89dd1773c92ce82a6cf87ba5bc6c0"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/matmul/matmul_128x64x128/matmul_128x64x128.asm": {
+  "input": "3ce964e48c244ccc908f549e3e1cb3a083add8351b8cb41e87965ddc33cfe672",
   "mangled": "2696479281faf0b56fa4866e4f38b7b68ac895b52a97d882154d21870ff1cb56",
   "default": "3ce964e48c244ccc908f549e3e1cb3a083add8351b8cb41e87965ddc33cfe672",
   "mangled/default": "3ce964e48c244ccc908f549e3e1cb3a083add8351b8cb41e87965ddc33cfe672",
@@ -455,6 +490,7 @@
   "mangled/blank-line-range": "c12ff4b7d14997866f24dee352c7080ddc7b5c62d2872a3b6696a90b77e3ca13"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/matmul/matmul_128x64x64/matmul_128x64x64.asm": {
+  "input": "74d05088249238bb36d31ba905c87e1c1f433bd38363fa165e3fee558ffaa788",
   "mangled": "eda914b65caed66788167b045336e06274f53e449fb04f96b99df6dcf52b1cc1",
   "default": "74d05088249238bb36d31ba905c87e1c1f433bd38363fa165e3fee558ffaa788",
   "mangled/default": "74d05088249238bb36d31ba905c87e1c1f433bd38363fa165e3fee558ffaa788",
@@ -468,6 +504,7 @@
   "mangled/blank-line-range": "3800fba625211b3249415ce3f424e3953cd7384587ebb97d69b5d0b96717d065"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/matmul/matmul_144x144_x128/matmul_144x144_x128.asm": {
+  "input": "0b6fc71ff165f32fbea243ff03f2b6b3889f800fd17e426c6906ce49bdb6d50f",
   "mangled": "d76f8c84124b6bb0b46f86e64658a5e23ffcd266cbf045a941a53f1f51963881",
   "default": "0b6fc71ff165f32fbea243ff03f2b6b3889f800fd17e426c6906ce49bdb6d50f",
   "mangled/default": "0b6fc71ff165f32fbea243ff03f2b6b3889f800fd17e426c6906ce49bdb6d50f",
@@ -481,6 +518,7 @@
   "mangled/blank-line-range": "b5ab0833f1801f94acfe258cef71cd4af5dfc15d0a267fac7337215b87668d69"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/matmul/matmul_144x288_x128/matmul_144x288_x128.asm": {
+  "input": "e5c0611fea678a60b9f9509b23632c017a6ec770a4029ff319703872387a2dde",
   "mangled": "795a4947b428e7948943f7f6c02d5ff22174a6e9c3886b947a1618ad92a46e06",
   "default": "e5c0611fea678a60b9f9509b23632c017a6ec770a4029ff319703872387a2dde",
   "mangled/default": "e5c0611fea678a60b9f9509b23632c017a6ec770a4029ff319703872387a2dde",
@@ -494,6 +532,7 @@
   "mangled/blank-line-range": "15059b525c73b7ee60b3d32e1f7fe3e5e695349bb5b47f35e53310f39f14cb2e"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/matmul/matmul_192x192_x128/matmul_192x192_x128.asm": {
+  "input": "22451e38374ad6476aa6e8ce0bce8e8715802ffeeeb189e19d4596034f8cc7e2",
   "mangled": "9201cb9931c8dd734575f5bbccf826c1f417f379e5ae6760c513c03e7bd319f9",
   "default": "22451e38374ad6476aa6e8ce0bce8e8715802ffeeeb189e19d4596034f8cc7e2",
   "mangled/default": "22451e38374ad6476aa6e8ce0bce8e8715802ffeeeb189e19d4596034f8cc7e2",
@@ -507,6 +546,7 @@
   "mangled/blank-line-range": "1a9783825b9164905794ce08464c6c33eddf0c0913647ff777d32746e013785c"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/matmul/matmul_192x384_x128/matmul_192x384_x128.asm": {
+  "input": "2791e3373d0dea73075785c09b898ec2591915668a02fc4785181f4a5d3f9e8d",
   "mangled": "fb683ceedc6c6aee42b515431bca04a9bbf8a6c8894570c1a594535d56cddca9",
   "default": "2791e3373d0dea73075785c09b898ec2591915668a02fc4785181f4a5d3f9e8d",
   "mangled/default": "2791e3373d0dea73075785c09b898ec2591915668a02fc4785181f4a5d3f9e8d",
@@ -520,6 +560,7 @@
   "mangled/blank-line-range": "0d31182cf944431c3f66b6c2cc62b794db606ec632872d2c4027254e3af8218e"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/matmul/matmul_240x240_x128/matmul_240x240_x128.asm": {
+  "input": "5469324ac89b6e87f3d59375bf63da00022ed79ee4cebde6fddd543ab6d83f05",
   "mangled": "961b4420a3244598286c74f5a00ff674b92968d0a161c50d79e7f3e32507a0ef",
   "default": "5469324ac89b6e87f3d59375bf63da00022ed79ee4cebde6fddd543ab6d83f05",
   "mangled/default": "5469324ac89b6e87f3d59375bf63da00022ed79ee4cebde6fddd543ab6d83f05",
@@ -533,6 +574,7 @@
   "mangled/blank-line-range": "79499d9edda4997154c4a43b6167f85ef60a832a45106afdbdd01928ef56c751"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/matmul/matmul_240x480_x128/matmul_240x480_x128.asm": {
+  "input": "f680ff2ac0a4f36179cb5318d5703497cd4ebb4581a17813d2a3cd45afa5d00a",
   "mangled": "b6e3086040789456aa50354e54652e807152a9c50ae855eec703a1e3df62009a",
   "default": "f680ff2ac0a4f36179cb5318d5703497cd4ebb4581a17813d2a3cd45afa5d00a",
   "mangled/default": "f680ff2ac0a4f36179cb5318d5703497cd4ebb4581a17813d2a3cd45afa5d00a",
@@ -546,6 +588,7 @@
   "mangled/blank-line-range": "2b9d8d0e9b24557a6a62c7b7036c3f7ea6ce95f1e333e5c477ca20515fadcdf9"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/matmul/matmul_288x144_x128/matmul_288x144_x128.asm": {
+  "input": "3ea75e703e49a471a6fcdc12f264551cb4a24829a5b9b253c37c90ccc5c395fe",
   "mangled": "c5b1055633ba773d9a96dc846a43716cd146b76043dc485fefa594853869511d",
   "default": "3ea75e703e49a471a6fcdc12f264551cb4a24829a5b9b253c37c90ccc5c395fe",
   "mangled/default": "3ea75e703e49a471a6fcdc12f264551cb4a24829a5b9b253c37c90ccc5c395fe",
@@ -559,6 +602,7 @@
   "mangled/blank-line-range": "0a342af97297794f759ee6458cf2b18403c5c74e228555387e631819e7bf8965"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/matmul/matmul_384x192_x128/matmul_384x192_x128.asm": {
+  "input": "37bf77b8bbfb9b55fe29b56959ea57603d2003bfa61e77cc604e4af129c7d95c",
   "mangled": "053a6c0a132e78107142c1c74c2e6d8ef009e80636850d7495469ca9577571d4",
   "default": "37bf77b8bbfb9b55fe29b56959ea57603d2003bfa61e77cc604e4af129c7d95c",
   "mangled/default": "37bf77b8bbfb9b55fe29b56959ea57603d2003bfa61e77cc604e4af129c7d95c",
@@ -572,6 +616,7 @@
   "mangled/blank-line-range": "16ddc540ec2308954eec777a90ee03cdecd392e0bd4fd330f61708f447827d86"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/matmul/matmul_432x144_x128/matmul_432x144_x128.asm": {
+  "input": "0312dfadcf5a56e435224f1128a390f26dc9d6c68acbd11b978d7b1b3e11b82a",
   "mangled": "52648c36ec92d6d1be250c1487b4d8b8c89c026b61942769ff0f47a665b6c9c6",
   "default": "0312dfadcf5a56e435224f1128a390f26dc9d6c68acbd11b978d7b1b3e11b82a",
   "mangled/default": "0312dfadcf5a56e435224f1128a390f26dc9d6c68acbd11b978d7b1b3e11b82a",
@@ -585,6 +630,7 @@
   "mangled/blank-line-range": "9abde644d7c082b5ea2ed83d744cad81b9a1a01c09fec5d9179bd2e63c4e4a0f"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/matmul/matmul_480x240_x128/matmul_480x240_x128.asm": {
+  "input": "723af51137630c8fb5f5843595e10737fdc10e9c82a5e21da6bb4ba922d65cd1",
   "mangled": "eed3858772868f4b5fa582fb57ab6e770a102520715ea6683316024e7eef570b",
   "default": "723af51137630c8fb5f5843595e10737fdc10e9c82a5e21da6bb4ba922d65cd1",
   "mangled/default": "723af51137630c8fb5f5843595e10737fdc10e9c82a5e21da6bb4ba922d65cd1",
@@ -598,6 +644,7 @@
   "mangled/blank-line-range": "d961afcce36fb11591b831f3de8b2c99c76abb03bb1e4d0944427b97970122d9"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/matmul/matmul_576x192_x128/matmul_576x192_x128.asm": {
+  "input": "a74787ab73714a249457a3b81074fb9f269bd78d0227f7de802be16808be0583",
   "mangled": "a4b687c7d7da18cbaad083e6e666ee76288b2cb7c8374d49f2a5b363ea712aba",
   "default": "a74787ab73714a249457a3b81074fb9f269bd78d0227f7de802be16808be0583",
   "mangled/default": "a74787ab73714a249457a3b81074fb9f269bd78d0227f7de802be16808be0583",
@@ -611,6 +658,7 @@
   "mangled/blank-line-range": "02b47ccc411fe918aa574e4db6432844b0f61302f260e9c649a847bb5d188051"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/matmul/matmul_64x64x64/matmul_64x64x64.asm": {
+  "input": "a31983a5d816418d7ef93034e977748fbe779ef00b92edffe9dcb5536a97a824",
   "mangled": "25ad960d55398b631babd44a55f577b5b436316df6ac482bbf32f7740a754acc",
   "default": "a31983a5d816418d7ef93034e977748fbe779ef00b92edffe9dcb5536a97a824",
   "mangled/default": "a31983a5d816418d7ef93034e977748fbe779ef00b92edffe9dcb5536a97a824",
@@ -624,6 +672,7 @@
   "mangled/blank-line-range": "891a65e98bd9998c47c3730cd880f2e38e4f454008e30da15df5bff3622864c3"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/matmul/matmul_720x240_x128/matmul_720x240_x128.asm": {
+  "input": "1ac6dc4342b8f6fde7dc2eb650f0abb532c48c4347664b2ad1b5bbc8d099b13c",
   "mangled": "5824798070c56cb2f21a2c824da8e95b613804ed9e9dbe21400b622740359dae",
   "default": "1ac6dc4342b8f6fde7dc2eb650f0abb532c48c4347664b2ad1b5bbc8d099b13c",
   "mangled/default": "1ac6dc4342b8f6fde7dc2eb650f0abb532c48c4347664b2ad1b5bbc8d099b13c",
@@ -637,6 +686,7 @@
   "mangled/blank-line-range": "3afae4d698bc77b7b5e41b09283f05f4250539c0d14d621be625ca304861ce3e"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/normalize/l2_normalize_channels/l2_normalize_channels.asm": {
+  "input": "548e80aa2bb0b95b3aaae697c02dfc621cdefca99dfdb8c16d76ba1bc2011bf1",
   "mangled": "e08a43a402b93d084a0881ee8b683064bb4eec16e236ca0caa1a8e7e4b01df6e",
   "default": "548e80aa2bb0b95b3aaae697c02dfc621cdefca99dfdb8c16d76ba1bc2011bf1",
   "mangled/default": "548e80aa2bb0b95b3aaae697c02dfc621cdefca99dfdb8c16d76ba1bc2011bf1",
@@ -650,6 +700,7 @@
   "mangled/blank-line-range": "e08a43a402b93d084a0881ee8b683064bb4eec16e236ca0caa1a8e7e4b01df6e"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/normalize/layernorm_128x16/layernorm_128x16.asm": {
+  "input": "a7d2c1c74ea3898d883e80147adc2b4d0e36b6a97961c2cf09384c9e5258a740",
   "mangled": "e739f635dd4d4425b7b2ec6c500d418da4d2c40a49fcc56b91778b9b80ab81b0",
   "default": "a7d2c1c74ea3898d883e80147adc2b4d0e36b6a97961c2cf09384c9e5258a740",
   "mangled/default": "a7d2c1c74ea3898d883e80147adc2b4d0e36b6a97961c2cf09384c9e5258a740",
@@ -663,6 +714,7 @@
   "mangled/blank-line-range": "e8164861d83a46fdf8467d9ebe286dffc980124792fe6951e7d65f1abd121e70"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/normalize/layernorm_16x240/layernorm_16x240.asm": {
+  "input": "e680f385c594f82083f02e77f7fb4e93ff935237504f68e26fe7a0024eb5ec17",
   "mangled": "33427b94536a6019e242bd9c32e0d8c68e62059e10ffb7cc59179f544073b1db",
   "default": "e680f385c594f82083f02e77f7fb4e93ff935237504f68e26fe7a0024eb5ec17",
   "mangled/default": "e680f385c594f82083f02e77f7fb4e93ff935237504f68e26fe7a0024eb5ec17",
@@ -676,6 +728,7 @@
   "mangled/blank-line-range": "2d9b42a5c86b773cb50a943341e280d5e4768adb9b8c8c73ca6215ff8505bd3f"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/normalize/layernorm_256x144/layernorm_256x144.asm": {
+  "input": "91a08b37f1d442929ea5d16288e40996ada8da5f62f63cfe24810bc6b46e4610",
   "mangled": "0f10436252858f11a52cf19686cedf911b20dd001c2880899d7fe490bb434708",
   "default": "91a08b37f1d442929ea5d16288e40996ada8da5f62f63cfe24810bc6b46e4610",
   "mangled/default": "91a08b37f1d442929ea5d16288e40996ada8da5f62f63cfe24810bc6b46e4610",
@@ -689,6 +742,7 @@
   "mangled/blank-line-range": "3a7683b55f11e3b34c747c08c2b746947c2b8e2b89a63158bd8e51399a7ff9cc"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/normalize/layernorm_64x192/layernorm_64x192.asm": {
+  "input": "8f519ef271e2612effd4e06d59097b8103923d3f069129e557bc4aba93b4eadb",
   "mangled": "bc8341f15aae56f711b71b28c57c5a27ee2ed486d060fe2ea978247315728ba5",
   "default": "8f519ef271e2612effd4e06d59097b8103923d3f069129e557bc4aba93b4eadb",
   "mangled/default": "8f519ef271e2612effd4e06d59097b8103923d3f069129e557bc4aba93b4eadb",
@@ -702,6 +756,7 @@
   "mangled/blank-line-range": "eb2bbb85023c509c061df440a1fb4f7903afe43323ea08960d306a9fc12bdf7c"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/pooling/maxpool2d_nms7/maxpool2d_nms7.asm": {
+  "input": "5a79f76515762d5b072f56f8d48f81527cae13cf80de72b48da3e73ce059438f",
   "mangled": "f455e0ce6614220f203191d313c28bc0cd532789b44087d833e1179121f09ad6",
   "default": "5a79f76515762d5b072f56f8d48f81527cae13cf80de72b48da3e73ce059438f",
   "mangled/default": "5a79f76515762d5b072f56f8d48f81527cae13cf80de72b48da3e73ce059438f",
@@ -715,6 +770,7 @@
   "mangled/blank-line-range": "62948494b1c9391cfec460ca95ebafa898b269804db9292a7f9c91b0b72835c0"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/pooling/maxpool2d_nms9/maxpool2d_nms9.asm": {
+  "input": "1eba29332a2ee8d44f29481a44b5d59d10086a1ca7ef95dcd14096b0fa48cf66",
   "mangled": "31dde0518ca5562eb74e6fa37f55aa187e4d260f48c6e0fd7c5af81273c11e94",
   "default": "1eba29332a2ee8d44f29481a44b5d59d10086a1ca7ef95dcd14096b0fa48cf66",
   "mangled/default": "1eba29332a2ee8d44f29481a44b5d59d10086a1ca7ef95dcd14096b0fa48cf66",
@@ -728,6 +784,7 @@
   "mangled/blank-line-range": "f5e90eaf49f1feba7fc826d94bb2789c1035d348fc9f23003f61df2fd5d5849e"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/pooling/maxpool2d_stride2/maxpool2d_stride2.asm": {
+  "input": "e06f148fddf9dbc5c601aa0d2b3e362ce771a6fe30fec09f8e907aaa31dacf90",
   "mangled": "8394b5d6904bd1ec920a1af49afe12a97cedeff0115f519e0cf14112f182dea4",
   "default": "88f5021c68d8c227dcc5531d40b20616e888295a46f7684c72691e907fbd6ada",
   "mangled/default": "88f5021c68d8c227dcc5531d40b20616e888295a46f7684c72691e907fbd6ada",
@@ -741,6 +798,7 @@
   "mangled/blank-line-range": "5f33884f4510355b246bcd78b35de520ddb9c08cb85350fe4aea622ebf2d876d"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/pooling/maxpool2d_stride2_tail/maxpool2d_stride2_tail.asm": {
+  "input": "75194281d407e59592731dfb85023fdc40adbecf7095a5584ecc5de5aa4a70b5",
   "mangled": "548774936cb0cb19a5a546b5fc82c7270f0c36656e6fcd4d98609065bf57387b",
   "default": "75194281d407e59592731dfb85023fdc40adbecf7095a5584ecc5de5aa4a70b5",
   "mangled/default": "75194281d407e59592731dfb85023fdc40adbecf7095a5584ecc5de5aa4a70b5",
@@ -754,6 +812,7 @@
   "mangled/blank-line-range": "43ea7b14f75d58735b02c69b4aea9709b20aa42ff65bdd7cd405d6459be8633c"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/pooling/maxpool2d_window/maxpool2d_window.asm": {
+  "input": "78b5ae36225168d5ee96a8b33dfb2948d92ca03e31020ce891af40dde1ffc204",
   "mangled": "5312bfb2880705d7b9bed1b78cc7c7495ad0031ec684f61337e12d2fae99a92f",
   "default": "78b5ae36225168d5ee96a8b33dfb2948d92ca03e31020ce891af40dde1ffc204",
   "mangled/default": "78b5ae36225168d5ee96a8b33dfb2948d92ca03e31020ce891af40dde1ffc204",
@@ -767,6 +826,7 @@
   "mangled/blank-line-range": "bd86c7d41dbbbff07b78319f9cb1e912caf33d6d68c422f030c306a101f15283"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/projections/proj_ffn1_144_p4/proj_ffn1_144_p4.asm": {
+  "input": "fe8685116365db8b466d4df5e6532e66ff6350956d52e9d203f8059a185803ec",
   "mangled": "aeb496591b27466817d25f758f3a16b614d27db766b4db6828282b0381177273",
   "default": "fe8685116365db8b466d4df5e6532e66ff6350956d52e9d203f8059a185803ec",
   "mangled/default": "fe8685116365db8b466d4df5e6532e66ff6350956d52e9d203f8059a185803ec",
@@ -780,6 +840,7 @@
   "mangled/blank-line-range": "73dde5beaa773debeb8ec634b39ead499f5eb31cd0901929035103224568edb0"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/projections/proj_ffn1_192_p4/proj_ffn1_192_p4.asm": {
+  "input": "90e2833f06b1074cb7abf7187eee5e0ab01f5871f5a7ab0d1d3dc4863147ba66",
   "mangled": "c01f63e9c4bf408f2f0eb856f63f7ca16f34e2aade3ce89ef28c675d97bf9b76",
   "default": "90e2833f06b1074cb7abf7187eee5e0ab01f5871f5a7ab0d1d3dc4863147ba66",
   "mangled/default": "90e2833f06b1074cb7abf7187eee5e0ab01f5871f5a7ab0d1d3dc4863147ba66",
@@ -793,6 +854,7 @@
   "mangled/blank-line-range": "70d675bbc52e6a93d99933a2eeb8758ed892c62d30fd34919f6847e50b0ac9b6"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/projections/proj_ffn1_240_p4/proj_ffn1_240_p4.asm": {
+  "input": "e617fb4324e80d4260da8c48cad1701638977cd308f0fe8a770ba05e090f89a6",
   "mangled": "5ebc9a86c9a257ec1b488645eb17f90256d7e591e66b14a7843ade143595ba4c",
   "default": "e617fb4324e80d4260da8c48cad1701638977cd308f0fe8a770ba05e090f89a6",
   "mangled/default": "e617fb4324e80d4260da8c48cad1701638977cd308f0fe8a770ba05e090f89a6",
@@ -806,6 +868,7 @@
   "mangled/blank-line-range": "3a8105cb6ff59292d3b5489fe9b40e7d3c5ca4396f5a4d7e852d2496a78097f4"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/projections/proj_ffn2_144_p4/proj_ffn2_144_p4.asm": {
+  "input": "77f696113b00036eaa7bf98957ee614853e528a0e5bfb9243ad70475a307964e",
   "mangled": "3b1f886747bd79f9da26f971bf95c5a8be4d169fcf9da352aad84d49b8e09349",
   "default": "77f696113b00036eaa7bf98957ee614853e528a0e5bfb9243ad70475a307964e",
   "mangled/default": "77f696113b00036eaa7bf98957ee614853e528a0e5bfb9243ad70475a307964e",
@@ -819,6 +882,7 @@
   "mangled/blank-line-range": "36b2653f7988274fa6ee0edc944fcd42337cf992a284992c6044f557b094aa41"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/projections/proj_ffn2_192_p4/proj_ffn2_192_p4.asm": {
+  "input": "91aa27b6f0508bfdf97a570882ed945617252ead5391c0c893e36c31335d1049",
   "mangled": "bb9002aa1cd4755cb0533ea4566d2ce3da4c19ae094f99a969a4c5ac9a2534b5",
   "default": "91aa27b6f0508bfdf97a570882ed945617252ead5391c0c893e36c31335d1049",
   "mangled/default": "91aa27b6f0508bfdf97a570882ed945617252ead5391c0c893e36c31335d1049",
@@ -832,6 +896,7 @@
   "mangled/blank-line-range": "4fa1f49f26c86e10373f83d6789c7c2fabd8f4e42c111218ef8bde5e04a93f8e"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/projections/proj_ffn2_240_p4/proj_ffn2_240_p4.asm": {
+  "input": "80a38e4104dd7bdaad40b18e082842b0d19a951a437adf2687bc3383011b3901",
   "mangled": "c28436b1572dcfb6cb4b056c4482c8f466fd4c0f23049218f29c460f8bec6827",
   "default": "80a38e4104dd7bdaad40b18e082842b0d19a951a437adf2687bc3383011b3901",
   "mangled/default": "80a38e4104dd7bdaad40b18e082842b0d19a951a437adf2687bc3383011b3901",
@@ -845,6 +910,7 @@
   "mangled/blank-line-range": "1649e0dbb357be5fad6ff8d2fe3cf7bff75478b9b61040fb2d6eba445a585aaa"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/projections/proj_outproj_144_p4/proj_outproj_144_p4.asm": {
+  "input": "1d4298df9235ccf285eb7b756447eaee30f3d70716177cb2e4d23af3d88181bf",
   "mangled": "1db97805018af335fd539207406cd677c47ca1a0374544a1ab34c94801944b4e",
   "default": "1d4298df9235ccf285eb7b756447eaee30f3d70716177cb2e4d23af3d88181bf",
   "mangled/default": "1d4298df9235ccf285eb7b756447eaee30f3d70716177cb2e4d23af3d88181bf",
@@ -858,6 +924,7 @@
   "mangled/blank-line-range": "cb2baf6701ff0f7bb8e8fde9726b798a1ab3e8ce854473fa03fb7c339d125040"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/projections/proj_outproj_192_p4/proj_outproj_192_p4.asm": {
+  "input": "91f84a4e7b16d10edc811a6e9ae70a39ba8b9f72e1afe568a6e85f98f732974e",
   "mangled": "b80d0a682104aa49d7497267e992bfc78296d91fc8c23fad0eb7c8c0b0ae9bb6",
   "default": "91f84a4e7b16d10edc811a6e9ae70a39ba8b9f72e1afe568a6e85f98f732974e",
   "mangled/default": "91f84a4e7b16d10edc811a6e9ae70a39ba8b9f72e1afe568a6e85f98f732974e",
@@ -871,6 +938,7 @@
   "mangled/blank-line-range": "3ccbd48258c21c7b08e8f16d0efc4ec359356797e51ad9033e294a93bd13a391"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/projections/proj_outproj_240_p4/proj_outproj_240_p4.asm": {
+  "input": "6132d5b5d4e1780e3309d1abc74a0917db8b62e9933d9a3dd1cc8526b0d2e4a3",
   "mangled": "a7b5056eb63d761631ac2c0c4bd41fe8b175539fd9efeebb62233edd8419d12c",
   "default": "6132d5b5d4e1780e3309d1abc74a0917db8b62e9933d9a3dd1cc8526b0d2e4a3",
   "mangled/default": "6132d5b5d4e1780e3309d1abc74a0917db8b62e9933d9a3dd1cc8526b0d2e4a3",
@@ -884,6 +952,7 @@
   "mangled/blank-line-range": "ea14b098ac1816b89d5796d07ce629fff5bca7fd029f52a7423c73f13fe90f8a"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/projections/proj_qkv_144_p4/proj_qkv_144_p4.asm": {
+  "input": "c201dbb2d8ccb40168aebd38ce2b621377c14632985a9bcc730eec12dc6a521c",
   "mangled": "b1509a9ac87fe7f2bb3ace04825aa8b70e9e6eefe2add8703aeb062886231ec5",
   "default": "c201dbb2d8ccb40168aebd38ce2b621377c14632985a9bcc730eec12dc6a521c",
   "mangled/default": "c201dbb2d8ccb40168aebd38ce2b621377c14632985a9bcc730eec12dc6a521c",
@@ -897,6 +966,7 @@
   "mangled/blank-line-range": "6811d2dd1e96325b9ada98b0ed2fabacfe53834dddd96c7ca1dafc3591e59cf0"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/projections/proj_qkv_192_p4/proj_qkv_192_p4.asm": {
+  "input": "20a93f23fb881991b9c932f0e0db9c2f97489c6bf652ba22b592b44f74e8857c",
   "mangled": "f3804347ef47d53b602aa58842083a62968339660aec7eb848197fd6f63307d6",
   "default": "20a93f23fb881991b9c932f0e0db9c2f97489c6bf652ba22b592b44f74e8857c",
   "mangled/default": "20a93f23fb881991b9c932f0e0db9c2f97489c6bf652ba22b592b44f74e8857c",
@@ -910,6 +980,7 @@
   "mangled/blank-line-range": "7f3e2a30689e6e3f74f38b4fe3c5369d5ff717fc15da25f746735f649deccb48"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/projections/proj_qkv_240_p4/proj_qkv_240_p4.asm": {
+  "input": "c9b782baa582c7975dd6d2fb8a20747ae46a9cad852bde81e24dd1637c668fc3",
   "mangled": "bad17b2c311e09f3d845ea7cfdd5c030a94197d01475c6706dd41571c1d9aa09",
   "default": "c9b782baa582c7975dd6d2fb8a20747ae46a9cad852bde81e24dd1637c668fc3",
   "mangled/default": "c9b782baa582c7975dd6d2fb8a20747ae46a9cad852bde81e24dd1637c668fc3",
@@ -923,6 +994,7 @@
   "mangled/blank-line-range": "da69c0f4625940747488fbee76d1fc159ba6f03679354048dc897110e2fb1206"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/reshape/concat_16x16x128x128/concat_16x16x128x128.asm": {
+  "input": "47d21d56d33d09c192f210b35ad915289d34f645c52d7213c2906ad5bd8bf014",
   "mangled": "a6b9ebb79619936bba0790e6a7ed3ea915b71fc0a9da9bc6d1a34558ce58492f",
   "default": "47d21d56d33d09c192f210b35ad915289d34f645c52d7213c2906ad5bd8bf014",
   "mangled/default": "47d21d56d33d09c192f210b35ad915289d34f645c52d7213c2906ad5bd8bf014",
@@ -936,6 +1008,7 @@
   "mangled/blank-line-range": "a6b9ebb79619936bba0790e6a7ed3ea915b71fc0a9da9bc6d1a34558ce58492f"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/reshape/concat_32x32x96x96/concat_32x32x96x96.asm": {
+  "input": "4830cd02e3ffbc0c3da3c483d16f58cb2395d60c94fb09a9fce7a600671d808d",
   "mangled": "1c923a7003167a61af1c46b514f826aab6aa5b830cffd30e6fffeec23878d35f",
   "default": "4830cd02e3ffbc0c3da3c483d16f58cb2395d60c94fb09a9fce7a600671d808d",
   "mangled/default": "4830cd02e3ffbc0c3da3c483d16f58cb2395d60c94fb09a9fce7a600671d808d",
@@ -949,6 +1022,7 @@
   "mangled/blank-line-range": "1c923a7003167a61af1c46b514f826aab6aa5b830cffd30e6fffeec23878d35f"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/reshape/concat_8x8x160x160/concat_8x8x160x160.asm": {
+  "input": "6d96df25fc656c5726c1356e65d5db972795489c9df08dc0a9b97d3a5198e9be",
   "mangled": "76bfe230f425f6fb295268c1d3f6e9b8514a19f87f58712b89189da46b00dda8",
   "default": "6d96df25fc656c5726c1356e65d5db972795489c9df08dc0a9b97d3a5198e9be",
   "mangled/default": "6d96df25fc656c5726c1356e65d5db972795489c9df08dc0a9b97d3a5198e9be",
@@ -962,6 +1036,7 @@
   "mangled/blank-line-range": "76bfe230f425f6fb295268c1d3f6e9b8514a19f87f58712b89189da46b00dda8"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/reshape/depth_to_space/depth_to_space.asm": {
+  "input": "94b545b7c8d278c8144ea40ef835a805782a6271638b1fc71be7d26974e4ec6d",
   "mangled": "9d0dceed04f5ef4060cddfd448d9c9fb785fd5738ebb5a9cd09488adc8ff95e7",
   "default": "94b545b7c8d278c8144ea40ef835a805782a6271638b1fc71be7d26974e4ec6d",
   "mangled/default": "94b545b7c8d278c8144ea40ef835a805782a6271638b1fc71be7d26974e4ec6d",
@@ -975,6 +1050,7 @@
   "mangled/blank-line-range": "9d0dceed04f5ef4060cddfd448d9c9fb785fd5738ebb5a9cd09488adc8ff95e7"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/reshape/fold_16x16x192/fold_16x16x192.asm": {
+  "input": "c8d72a09b8dc5d3fbf73c803f0224ecdc9dda3142f0705c5c718ebeb775cdf84",
   "mangled": "ab7bc2a069ecfa3894f9e6942c889dbad873f3863afb8a246de5f4a0b643243c",
   "default": "c8d72a09b8dc5d3fbf73c803f0224ecdc9dda3142f0705c5c718ebeb775cdf84",
   "mangled/default": "c8d72a09b8dc5d3fbf73c803f0224ecdc9dda3142f0705c5c718ebeb775cdf84",
@@ -988,6 +1064,7 @@
   "mangled/blank-line-range": "800ea1a0b9888387a7ac5f7b025b8644164a47f2923a85b1d1ddc661229915c0"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/reshape/fold_32x32x144/fold_32x32x144.asm": {
+  "input": "d618215fd054148bb4ec136f85187fb8e2506780368eead777f45b9ff836bed0",
   "mangled": "14f38bee50584ad1228e7a38db8a5c732715fdbbaa2bca7340e54fe9446a92e7",
   "default": "d618215fd054148bb4ec136f85187fb8e2506780368eead777f45b9ff836bed0",
   "mangled/default": "d618215fd054148bb4ec136f85187fb8e2506780368eead777f45b9ff836bed0",
@@ -1001,6 +1078,7 @@
   "mangled/blank-line-range": "14f38bee50584ad1228e7a38db8a5c732715fdbbaa2bca7340e54fe9446a92e7"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/reshape/fold_8x8x240/fold_8x8x240.asm": {
+  "input": "07b7dd5336aa70a039a7291e8fe3b25ab9366d3de901aa74476c556e2050949a",
   "mangled": "216235dc043e3ba30cc87df1f14be1864ac366e50a1597be499b78ecd9557991",
   "default": "07b7dd5336aa70a039a7291e8fe3b25ab9366d3de901aa74476c556e2050949a",
   "mangled/default": "07b7dd5336aa70a039a7291e8fe3b25ab9366d3de901aa74476c556e2050949a",
@@ -1014,6 +1092,7 @@
   "mangled/blank-line-range": "216235dc043e3ba30cc87df1f14be1864ac366e50a1597be499b78ecd9557991"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/reshape/identity/identity.asm": {
+  "input": "53cdd6f68083f8d1326a196fa0c705b1f0593fadc840f50744baead2f9d4e995",
   "mangled": "87e2ed9a90ff7ec008272f22882161f7e09fea01cf0ad97cd7b8381fefefbf99",
   "default": "53cdd6f68083f8d1326a196fa0c705b1f0593fadc840f50744baead2f9d4e995",
   "mangled/default": "53cdd6f68083f8d1326a196fa0c705b1f0593fadc840f50744baead2f9d4e995",
@@ -1027,6 +1106,7 @@
   "mangled/blank-line-range": "87e2ed9a90ff7ec008272f22882161f7e09fea01cf0ad97cd7b8381fefefbf99"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/reshape/unfold_16x16x192/unfold_16x16x192.asm": {
+  "input": "9c35a8082c7e5053a886ea806de4bb0b748cf36f097fffc0b9fcddcb4e87f7eb",
   "mangled": "c0358c5d2fe65ab4d4fd285167cd2acee20be1cb231492cb57d51e396fdef32d",
   "default": "9c35a8082c7e5053a886ea806de4bb0b748cf36f097fffc0b9fcddcb4e87f7eb",
   "mangled/default": "9c35a8082c7e5053a886ea806de4bb0b748cf36f097fffc0b9fcddcb4e87f7eb",
@@ -1040,6 +1120,7 @@
   "mangled/blank-line-range": "c0358c5d2fe65ab4d4fd285167cd2acee20be1cb231492cb57d51e396fdef32d"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/reshape/unfold_32x32x144/unfold_32x32x144.asm": {
+  "input": "889dd6543cb2021318d838d21febd39d447cacd71fffb88ab28bee1e9b96a29f",
   "mangled": "7d4ab52a4a18b1f09cfdbeab45a096e191b26a4bf494aa1689e7ca1ed76128b6",
   "default": "889dd6543cb2021318d838d21febd39d447cacd71fffb88ab28bee1e9b96a29f",
   "mangled/default": "889dd6543cb2021318d838d21febd39d447cacd71fffb88ab28bee1e9b96a29f",
@@ -1053,6 +1134,7 @@
   "mangled/blank-line-range": "7d4ab52a4a18b1f09cfdbeab45a096e191b26a4bf494aa1689e7ca1ed76128b6"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/reshape/unfold_8x8x240/unfold_8x8x240.asm": {
+  "input": "a4a24071b69fb8b809bb9b85da5d21d0dd525974341f3404bfb1521a35b1fe1d",
   "mangled": "347c64251668f796851562d798f936576d2a099bf9706f41b7be93dce3a254db",
   "default": "a4a24071b69fb8b809bb9b85da5d21d0dd525974341f3404bfb1521a35b1fe1d",
   "mangled/default": "a4a24071b69fb8b809bb9b85da5d21d0dd525974341f3404bfb1521a35b1fe1d",
@@ -1066,6 +1148,7 @@
   "mangled/blank-line-range": "347c64251668f796851562d798f936576d2a099bf9706f41b7be93dce3a254db"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/sampling/sample_descriptors/sample_descriptors.asm": {
+  "input": "7ba6cd9ad88136a1675653501db6f886499eea0f96b0555d46ceb30a17fc8d56",
   "mangled": "563d2c2316f2bd5984c0c5fdc9e96395f3fde57cdaf6e594a534caf75f57a0c9",
   "default": "7ba6cd9ad88136a1675653501db6f886499eea0f96b0555d46ceb30a17fc8d56",
   "mangled/default": "7ba6cd9ad88136a1675653501db6f886499eea0f96b0555d46ceb30a17fc8d56",
@@ -1079,6 +1162,7 @@
   "mangled/blank-line-range": "1a3dea71efc61204a75ac357973f46eb2155f4d5e5d297591b6fd589338ac579"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/sampling/sample_descriptors_separable/sample_descriptors_separable.asm": {
+  "input": "00e4743501796dc584c1cd19cb65b155f8a0eaa1eec5b6c3c8af4499a0a66317",
   "mangled": "94de0bae19980039702498c7a3a14883134eb720ba5847a3620be70b213e23dc",
   "default": "00e4743501796dc584c1cd19cb65b155f8a0eaa1eec5b6c3c8af4499a0a66317",
   "mangled/default": "00e4743501796dc584c1cd19cb65b155f8a0eaa1eec5b6c3c8af4499a0a66317",
@@ -1092,6 +1176,7 @@
   "mangled/blank-line-range": "fc1992e6b115cb0bc4e938d623426072c3087f80cb8503c4b8e70ffbbbb2557d"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/softmax/softmax_columns/softmax_columns.asm": {
+  "input": "d1d05553c575daa5c98ab86f04b22540b35fa84fa85f6e744f3fa8d885ddf360",
   "mangled": "c11de5b0c7472c549f7b69461087dae1a12f52a244546771f6b4f965f9a8bd60",
   "default": "d1d05553c575daa5c98ab86f04b22540b35fa84fa85f6e744f3fa8d885ddf360",
   "mangled/default": "d1d05553c575daa5c98ab86f04b22540b35fa84fa85f6e744f3fa8d885ddf360",
@@ -1105,6 +1190,7 @@
   "mangled/blank-line-range": "fa401e3a99d5db07cac88331048bd14e633bceca12d816a6a51f892733e9a7ca"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/softmax/softmax_columns_packed/softmax_columns_packed.asm": {
+  "input": "b77cffa8f5608f4d6445604526f36d86b00222c58d379714241e46dcfae2a3c1",
   "mangled": "bdc9cf7d046582382a5a176c7d4b074ef757007b7969d9dafa1ba90bca466e43",
   "default": "b77cffa8f5608f4d6445604526f36d86b00222c58d379714241e46dcfae2a3c1",
   "mangled/default": "b77cffa8f5608f4d6445604526f36d86b00222c58d379714241e46dcfae2a3c1",
@@ -1118,6 +1204,7 @@
   "mangled/blank-line-range": "b83d4fd30ee94453a2a2cc092883271460601efb2f25f9deb7036e9446db00f2"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/softmax/softmax_rows/softmax_rows.asm": {
+  "input": "c766b2365a79dd8f4ad7bf94bed3d5948e126d7e96561b0cf35b7fbb0c78af31",
   "mangled": "ea7b3a8afb127f7e417773f81557a3cce7256a14aa214ecf8609756aa2519a3b",
   "default": "c766b2365a79dd8f4ad7bf94bed3d5948e126d7e96561b0cf35b7fbb0c78af31",
   "mangled/default": "c766b2365a79dd8f4ad7bf94bed3d5948e126d7e96561b0cf35b7fbb0c78af31",
@@ -1131,6 +1218,7 @@
   "mangled/blank-line-range": "5e00d58c23a8fc623de570f2e44afabedd248df03e3e538aa2986e2379adcd0e"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/softmax/softmax_rows_long/softmax_rows_long.asm": {
+  "input": "ff928f31f4b4f0c32e32d0f5f3abde7e00d54297a4540764e1805ae844a0c0cd",
   "mangled": "c91b15754a6a30ec497d640d35b8af59d760ed1489495c7b73964d8cffbd2b1d",
   "default": "ff928f31f4b4f0c32e32d0f5f3abde7e00d54297a4540764e1805ae844a0c0cd",
   "mangled/default": "ff928f31f4b4f0c32e32d0f5f3abde7e00d54297a4540764e1805ae844a0c0cd",
@@ -1144,6 +1232,7 @@
   "mangled/blank-line-range": "addc8b579816248a0126690b109dcd22b9cddc67317943aee4eb6c8e838d8065"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/softmax/softmax_rows_partial/softmax_rows_partial.asm": {
+  "input": "211ab9cd64116ca3dcd48b9905322d12f734795f9e6c10155f90942d273e210b",
   "mangled": "5159006d3ecb9230625fc8104ab1a522247d3233009e266bdf61c60231f42895",
   "default": "211ab9cd64116ca3dcd48b9905322d12f734795f9e6c10155f90942d273e210b",
   "mangled/default": "211ab9cd64116ca3dcd48b9905322d12f734795f9e6c10155f90942d273e210b",
@@ -1157,6 +1246,7 @@
   "mangled/blank-line-range": "4ddec9f00b91419f4ea898443f6473f9319f434810e6aa465e61950837f9f98b"
  },
  "src/tools/ipu-apps/test/mobilevit/asm_packed_layernorm_192x64.asm": {
+  "input": "176946aaea99fa1f9f8d6ff7c9ea6bc3943b19067b41be6678b6877d520d4512",
   "mangled": "e93078ae1799cf8ec82568f6eb091515f9c3aeceeccd62b10e7258f7f37e3efa",
   "default": "176946aaea99fa1f9f8d6ff7c9ea6bc3943b19067b41be6678b6877d520d4512",
   "mangled/default": "176946aaea99fa1f9f8d6ff7c9ea6bc3943b19067b41be6678b6877d520d4512",
@@ -1170,6 +1260,7 @@
   "mangled/blank-line-range": "f9b08531ecc0e3ca8d2c00db1e03cff15dc547e0fae93c6b78aa13bfbdee92b5"
  },
  "src/tools/ipu-apps/test/mobilevit/asm_packed_layernorm_240x16.asm": {
+  "input": "4bf80266961235c92ea863c7cb19d168032f67438afc3dd63efaec4ae6414569",
   "mangled": "d3129b39a3ec711939d372b8700166512640ad18c947dd43df57dc28cabf961e",
   "default": "4bf80266961235c92ea863c7cb19d168032f67438afc3dd63efaec4ae6414569",
   "mangled/default": "4bf80266961235c92ea863c7cb19d168032f67438afc3dd63efaec4ae6414569",
@@ -1183,6 +1274,7 @@
   "mangled/blank-line-range": "688c42ddcd471b1ebef4e32616f0ea14e34fe9410935678e6888b0aba6c0129f"
  },
  "src/tools/ipu-apps/test/mobilevit/asm_packed_output_linear_generic.asm": {
+  "input": "3444c6b84743c285c478511e5f4e2d123557d26c7c85ae42b2c7f0bb415edc79",
   "mangled": "82c95388776a10111603848857ca99d70ee993681505d119e30fc9e40fa78f1b",
   "default": "3444c6b84743c285c478511e5f4e2d123557d26c7c85ae42b2c7f0bb415edc79",
   "mangled/default": "3444c6b84743c285c478511e5f4e2d123557d26c7c85ae42b2c7f0bb415edc79",
@@ -1196,6 +1288,7 @@
   "mangled/blank-line-range": "50f2f4feccb7d2139e0db875babce58eaec56d44f9a12059d58f7f0d14728ab9"
  },
  "src/tools/ipu-apps/test/mobilevit/asm_packed_output_linear_generic_p4.asm": {
+  "input": "b424a9bf59675c1914db9483559fb167cb756c1d26eb3e4d23c43dbda88725e9",
   "mangled": "0602e4753908b2504f714e9d8ecd548feb462ae4202cffe50535722586476964",
   "default": "b424a9bf59675c1914db9483559fb167cb756c1d26eb3e4d23c43dbda88725e9",
   "mangled/default": "b424a9bf59675c1914db9483559fb167cb756c1d26eb3e4d23c43dbda88725e9",
@@ -1209,6 +1302,7 @@
   "mangled/blank-line-range": "2afe0e9d27a55e3dcb4112da00b26f67dfa74ca0f7486db60464d3b9e2f217ea"
  },
  "src/tools/ipu-apps/test/mobilevit/asm_packed_output_linear_silu.asm": {
+  "input": "b9d3ded50b2f8b397db8ebdafbb45dbcba0050a243e8b7fb730df246a2b8be69",
   "mangled": "c2071b8deb68e5a1db3edf88b8d0326817c05b62f99dfd26d4d058b7fdacf95f",
   "default": "b9d3ded50b2f8b397db8ebdafbb45dbcba0050a243e8b7fb730df246a2b8be69",
   "mangled/default": "b9d3ded50b2f8b397db8ebdafbb45dbcba0050a243e8b7fb730df246a2b8be69",
@@ -1222,6 +1316,7 @@
   "mangled/blank-line-range": "5baeccc9883e3360f8a84ec007db3202ccf3f6e51025fb5123a9b660b825b0f3"
  },
  "src/tools/ipu-apps/test/mobilevit/asm_packed_output_linear_silu_p4.asm": {
+  "input": "5d2c44e883a81f246a0acd511dac167dd02fc2436fcfd1f1869e23055180fefe",
   "mangled": "ac3f82bf955f5d4579b7c27d3b1fcc77e15fb52296286c31bc50721fa4e37807",
   "default": "5d2c44e883a81f246a0acd511dac167dd02fc2436fcfd1f1869e23055180fefe",
   "mangled/default": "5d2c44e883a81f246a0acd511dac167dd02fc2436fcfd1f1869e23055180fefe",
@@ -1235,6 +1330,7 @@
   "mangled/blank-line-range": "2c1fbc3237f70e58834ab7b3537e7fbec157e000d3bc308ddd8fb6a42ba4f5a7"
  },
  "src/tools/ipu-apps/test/mobilevit/asm_packed_pack_192x64.asm": {
+  "input": "a1c01ef396820a072657cc2967003f45d8562180702e3bfb8c88030dde09bea3",
   "mangled": "9471efd08f78fb699dbf28162eae6b89594f5c0f342d69d9a5d880f73e1ade81",
   "default": "a1c01ef396820a072657cc2967003f45d8562180702e3bfb8c88030dde09bea3",
   "mangled/default": "a1c01ef396820a072657cc2967003f45d8562180702e3bfb8c88030dde09bea3",
@@ -1248,6 +1344,7 @@
   "mangled/blank-line-range": "990825bee012c187455a5d611625db37d49d573cc4bcf1e82a93aec35047b892"
  },
  "src/tools/ipu-apps/test/mobilevit/asm_packed_pack_240x16.asm": {
+  "input": "446f966abc7c0b5141e8509d07781bcec5c26a761335810a23690b77711e3892",
   "mangled": "96a9a2faa1dd942a7c4ce51b929c807acc95bf2064eaab0794b267c2b56bbfb5",
   "default": "446f966abc7c0b5141e8509d07781bcec5c26a761335810a23690b77711e3892",
   "mangled/default": "446f966abc7c0b5141e8509d07781bcec5c26a761335810a23690b77711e3892",
@@ -1261,6 +1358,7 @@
   "mangled/blank-line-range": "8e6079cfa705ff0cf2b552a97bbf0aead06d9ed2bd12010ed80ee1c76469d10e"
  },
  "src/tools/ipu-apps/test/mobilevit/asm_packed_residual_add_192x64.asm": {
+  "input": "959b31c337f6a59e9ed7eec1fb5de1a4d42fecb26921afe94fbe657bad278f53",
   "mangled": "dc030ed6ca559a086fdae1895a96db1631827b3da2b15413683a29868fba5977",
   "default": "959b31c337f6a59e9ed7eec1fb5de1a4d42fecb26921afe94fbe657bad278f53",
   "mangled/default": "959b31c337f6a59e9ed7eec1fb5de1a4d42fecb26921afe94fbe657bad278f53",
@@ -1274,6 +1372,7 @@
   "mangled/blank-line-range": "2b0f0f04e2f2bb57e14baab500064d4c198cb939ca07b666b58f109ab689261d"
  },
  "src/tools/ipu-apps/test/mobilevit/asm_packed_residual_add_240x16.asm": {
+  "input": "64a43a228c4c8c9ea4981b51739113975cd77aa30204cbadea2ac4316c496f86",
   "mangled": "caa0bc969df8fdc74c135ce375681df3b3b8fde8e28e2ce3c2961a3c203e9168",
   "default": "64a43a228c4c8c9ea4981b51739113975cd77aa30204cbadea2ac4316c496f86",
   "mangled/default": "64a43a228c4c8c9ea4981b51739113975cd77aa30204cbadea2ac4316c496f86",
@@ -1287,6 +1386,7 @@
   "mangled/blank-line-range": "b7e79f4df53fb66ad639c5cda9a09b65e6afbb64c9fac2e16c7982fbd47d7f60"
  },
  "src/tools/ipu-apps/test/mobilevit/asm_packed_unpack_192x64.asm": {
+  "input": "caa2b7f5e8025671574cb858077bb9e97eb5b5b9ebf6c99dee8dbe409ef6153a",
   "mangled": "c031174341ab035d124c4e9682abe4e815a9581c72a6c50f2bac78a6a7c50841",
   "default": "caa2b7f5e8025671574cb858077bb9e97eb5b5b9ebf6c99dee8dbe409ef6153a",
   "mangled/default": "caa2b7f5e8025671574cb858077bb9e97eb5b5b9ebf6c99dee8dbe409ef6153a",
@@ -1300,6 +1400,7 @@
   "mangled/blank-line-range": "fda5d9c2f03bb4eb91d122a39fc0e162a480e241920a4daff40daf04f7743f9c"
  },
  "src/tools/ipu-apps/test/mobilevit/asm_packed_unpack_240x16.asm": {
+  "input": "b377212e13c81c49d7e16e8dfb19f43af27d245c2daef52ed3278152b64c9887",
   "mangled": "1a8b32b2691ae759d44ee3bcf10886e392ee8b637f022e17ba31f1fdb9c4eb39",
   "default": "b377212e13c81c49d7e16e8dfb19f43af27d245c2daef52ed3278152b64c9887",
   "mangled/default": "b377212e13c81c49d7e16e8dfb19f43af27d245c2daef52ed3278152b64c9887",

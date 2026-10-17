@@ -370,9 +370,11 @@ def _format(text: str, indent: str, blank_line: bool, line_range: tuple[int, int
     first, last = (0, len(lines) - 1) if line_range is None else line_range
     if first < 0 or last < first:
         raise ValueError(f"line range {line_range} is not first <= last, from 0")
+    if first >= len(lines):
+        return text
     out = _Formatter(text, indent).run(first, last, blank_line)
-    if line_range is None or first >= len(lines):
-        return out if line_range is None else text
+    if line_range is None:
+        return out
     last = min(last, len(lines) - 1)
     start = sum(len(line) + 1 for line in lines[:first])
     end = sum(len(line) + 1 for line in lines[:last]) + len(lines[last].removesuffix("\r"))
@@ -493,6 +495,11 @@ def check_same_program(before: str, after: str) -> None:
     whitespace between two items wherever it was and the render could tell.
     A source without Jinja must also assemble to the same words, if it
     assembles at all: one being edited may not, and still gets formatted.
+
+    Whitespace is compared only as present or absent, which is enough for
+    assembly but not where Jinja keeps it as a value: a re-indented line
+    inside a `{% set %}...{% endset %}`, `{% filter %}` or macro body that
+    the template then compares as a string passes this check.
 
     Args:
         before: The source as it was.

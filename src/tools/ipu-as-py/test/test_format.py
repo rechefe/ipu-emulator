@@ -5,6 +5,16 @@ The expected outputs are the editor's formatter's (vscode-ipu-asm/language.js
 test/golden/format/: in full for the extension's corpus, as SHA-256 digests for
 the kernels. The small cases below are the editor's own unit cases
 (vscode-ipu-asm/test/language.js), each written out by hand.
+
+A kernel's digests hold only for the kernel as recorded (its `input` digest).
+An edited kernel is skipped, not failed, until it is recorded again:
+
+    bazel run //vscode-ipu-asm:gen_vscode
+    node vscode-ipu-asm/test/record-format.js
+
+The recorder is not in tools/update_baselines.sh because Bazel has no node
+toolchain here. Re-recording after a kernel edit changes only that kernel's
+entry in kernels.json.
 """
 
 from __future__ import annotations
@@ -124,12 +134,23 @@ def _cases(recorded: dict) -> list:
         pytest.param(name, key, id=f"{name}:{key}")
         for name, entry in recorded.items()
         for key in entry
-        if key != "mangled"
+        if key not in ("input", "mangled")
     ]
 
 
-def _input(name: str, key: str) -> str:
+def _raw(name: str) -> str:
+    """The file's text; a kernel edited since it was recorded is skipped."""
     raw = (ROOT / name).read_text(encoding="utf-8")
+    if name in KERNELS and _sha(raw) != KERNELS[name]["input"]:
+        pytest.skip(
+            f"{name} changed since its format was recorded; "
+            "re-record with `node vscode-ipu-asm/test/record-format.js` (see this module's docstring)"
+        )
+    return raw
+
+
+def _input(name: str, key: str) -> str:
+    raw = _raw(name)
     return _mangle(raw) if key.startswith("mangled/") else raw
 
 
@@ -139,7 +160,7 @@ def _variant(key: str) -> str:
 
 @pytest.mark.parametrize("name", sorted(CORPUS) + sorted(KERNELS))
 def test_the_stripped_copy_is_the_editors(name):
-    raw = (ROOT / name).read_text(encoding="utf-8")
+    raw = _raw(name)
     if name in CORPUS:
         assert _mangle(raw) == CORPUS[name]["mangled"]
     else:
@@ -270,11 +291,20 @@ def test_bad_options_are_usage_errors(args):
     assert _run(*args, stdin="HALT;;").exit_code == 2
 
 
-def test_a_format_error_exits_1_and_writes_nothing(tmp_path):
+@pytest.mark.parametrize("mode", ["--in-place", "--check"])
+def test_a_format_error_exits_3_and_writes_nothing(tmp_path, mode):
     path = tmp_path / "k.asm"
     text = 'HALT;; {{ "}};; HALT" }}'
     path.write_text(text)
-    result = _run("--in-place", "--input", str(path))
-    assert result.exit_code == 1
+    result = _run(mode, "--input", str(path))
+    assert result.exit_code == 3
     assert "would change the program" in result.stderr
     assert path.read_text() == text
+
+
+def test_an_input_not_in_utf8_exits_3(tmp_path):
+    path = tmp_path / "k.asm"
+    path.write_bytes(b"HALT;; # \xff\n")
+    result = _run("--input", str(path))
+    assert result.exit_code == 3
+    assert "Error formatting" in result.stderr
