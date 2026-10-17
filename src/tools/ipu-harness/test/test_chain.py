@@ -393,10 +393,12 @@ def test_every_register_of_a_bank_is_reset_but_the_hardwired_crs(free):
     chain = Chain(ElementFormat.INT8)
     for index in range(2, 16):
         chain.model.write_register("cr", 7, index)
-    chain.run(free, SCALE_2, {"x": X}, reset=("cr", "lr"))
+    chain.model.write_register("lr", 7, 9)
+    chain.run(free, SCALE_2, {"x": X}, reset=("cr", "lr"), at={"x": 20})
     assert chain.model.read_register("cr", 1) == 1  # hardwired, untouched
     assert chain.model.read_register("cr", 9) == 0  # bound by no [abi]: reset
-    assert chain.model.read_register("cr", 2) != 7  # bound: the step's value
+    assert chain.model.read_register("cr", 2) == 20  # bound: the step writes x's base after
+    assert chain.model.read_register("lr", 9) == 0  # the program uses LR0 and LR1 only
 
 
 @pytest.mark.parametrize(
