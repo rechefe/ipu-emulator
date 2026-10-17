@@ -1,0 +1,17 @@
+# The softmax family (E07-11): five folder kernels, one per shape regime
+# (rows: n = 128, n < 128 slot-packed, n > 128 chunked; columns: width >= 65
+# chunked, width <= 64 slot-packed). The registry routes a softmax query
+# (rows, n or width, dim) to the cheapest that takes it. gen.py and
+# scratch.py, beside the kernels, are their shared case generators and
+# scratch rows (data, loaded by path); the slot layouts are
+# ipu_kernels.softmax.pack and the layer adapters ipu_kernels.softmax.layers.
+
+load("//kernels:defs.bzl", "ipu_kernel_family")
+
+# :tests routes through the whole tree's registry (default_registry) and reads
+# the routing tables of docs/content/kernels/softmax.md.
+ipu_kernel_family(
+    tests_data = ["//docs:doc_sources"],
+    tests_size = "large",
+    tests_tree = True,
+)

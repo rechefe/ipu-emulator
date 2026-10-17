@@ -4,8 +4,9 @@ kernel tree's registry and ``//kernels:query``.
 Each entry is found by exactly its ``(k, n_out, activation)``: a query for an
 FFN1 shape with ``activation=none`` never reaches the kernel whose store fuses
 SiLU, and no identity kernel accepts a SiLU query. A query that leaves
-``activation`` out takes the entry's fixed value (E06-17: a fixed value is its
-parameter's default), so ``k=192 n_out=384`` names the FFN1 kernel.
+``activation`` out means ``none``, as for the ``ipu_apps`` router: it reaches
+an identity kernel, and every FFN1 kernel refuses it (the SiLU-only template
+declares ``activation`` ``query_required``; the others default it to none).
 """
 
 from __future__ import annotations
@@ -78,13 +79,13 @@ def test_ffn1_kernels_are_exactly_the_silu_kernels(registry):
 
 
 def test_other_stream_counts_and_unknown_activations_are_refused(registry):
-    verdict = registry.resolve("projection", k=240, n_out=720, n_streams=1)
+    verdict = registry.resolve("projection", k=240, n_out=720, n_streams=1, activation="none")
     assert not verdict
     assert "n_streams = 1 is not one of [4]" in verdict.reason
     verdict = registry.resolve("projection", k=240, n_out=720, activation="gelu")
     assert not verdict
     assert "activation = 'gelu' is not one of" in verdict.reason
-    assert not registry.resolve("projection", k=200, n_out=200)  # no entry's shape
+    assert not registry.resolve("projection", k=200, n_out=200, activation="none")  # no shape
 
 
 @pytest.mark.parametrize("name", sorted(KERNELS))
@@ -94,3 +95,14 @@ def test_the_query_tool_gives_the_same_answer(registry, name, capsys):
     assert query.main(argv, registry) == 0
     answer = json.loads(capsys.readouterr().out)
     assert (answer["app"], answer["use"]) == (name, f"//kernels/projections:{name}")
+
+
+@pytest.mark.parametrize("name", sorted(KERNELS))
+def test_a_query_without_activation_means_none(registry, name):
+    k, n_out, activation = KERNELS[name]
+    verdict = registry.resolve("projection", k=k, n_out=n_out)
+    if activation == "none":
+        assert verdict.kernel_name == name, verdict.reason
+    else:  # FFN1: refused, as ipu_apps refused it
+        assert not verdict, verdict.describe()
+        assert "activation" in verdict.reason

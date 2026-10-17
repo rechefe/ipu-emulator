@@ -16,7 +16,7 @@ n_out      = { type = "int", min = 1 }                       # output channels
 n_tok      = { type = "int", min = 1, max = 128 }            # tokens per group: one row
 n_tg       = { type = "int", choices = [2], default = 2 }    # token groups (hand-duplicated)
 n_streams  = { type = "int", choices = [4], default = 4 }    # pixel-streams per invocation
-activation = { type = "str", choices = ["silu"], default = "silu" }  # fused at the store
+activation = { type = "str", choices = ["silu"], default = "silu", query_required = true }  # fused at the store
 
 [derived]
 neg_one         = "-1"                             # data-pointer and fixed_idx startup
