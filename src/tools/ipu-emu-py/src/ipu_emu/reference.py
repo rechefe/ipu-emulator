@@ -33,14 +33,18 @@ from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from ipu_emu.alias_profile import AliasProfile
 from ipu_emu.commit import CommitCollector as _CommitCollector
 from ipu_emu.commit import CommitRecord
+from ipu_emu.emulator import DebugCallback
 from ipu_emu.emulator import load_program as _load_program
+from ipu_emu.emulator import run_with_debug as _run_with_debug
 from ipu_emu.errors import ConfigurationError, EmulatorFault
 from ipu_emu.ipu import Ipu as _Ipu
 from ipu_emu.ipu_state import INST_MEM_SIZE
 from ipu_emu.ipu_state import IpuState as _IpuState
 from ipu_emu.run_clock import RunClock as _RunClock
+from ipu_emu.run_control import RunControl
 from ipu_emu.trace import TraceWriter, read_trace
 from ipu_emu.trace import trace_header as _trace_header
 from ipu_isa.codec.word import DecodedWord, unpack_program, word_bytes
@@ -62,7 +66,7 @@ __all__ = [
 ]
 
 #: The version of this API (Q11).
-API_VERSION = "1.2.0"
+API_VERSION = "1.3.0"
 
 
 class RunState(str, enum.Enum):
@@ -369,6 +373,89 @@ class ReferenceModel:
             self._flush(trace, numbering)
         self._started = True
         return RunResult(self.status, clock.cycles)
+
+    def debug_run(
+        self,
+        callback: DebugCallback,
+        break_on_entry: bool = False,
+        *,
+        max_cycles: int | None = None,
+        control: RunControl | None = None,
+    ) -> RunResult:
+        """Run as :meth:`run` does, stopping for a debugger (1.3.0).
+
+        The one escape hatch for tools such as ``ipu_debug``: at each stop (a
+        breakpoint or run target in *control*, a ``BREAK`` slot that fires, a
+        step, or the entry when *break_on_entry*) it calls
+        ``callback(state, cycles)`` with the emulator's internal state and
+        the words retired so far, and the callback's ``DebugAction`` says
+        whether to continue, step or quit (``ipu_emu.emulator.run_with_debug``'s
+        contract). Unlike the rest of this API, the callback's argument type
+        and *control*'s are internal and may change in any release; the
+        method itself, and what it returns, follow ``API_VERSION``.
+
+        Args:
+            callback: Called at each stop; returns a ``DebugAction``.
+            break_on_entry: Stop before the first word.
+            max_cycles: The cycle limit of this run, as for :meth:`run`.
+            control: The breakpoints and run target to honour, shared with a
+                debugger frontend (``ipu_emu.run_control.RunControl``); a
+                fresh one when ``None``.
+
+        Returns:
+            The status the run stopped in and the words it retired. A
+            ``QUIT`` pauses the model where it stopped (``RUNNING``): a later
+            step or run carries on from that PC.
+
+        Raises:
+            ConfigurationError: As :meth:`step`.
+        """
+        self._steppable()
+        before = self._state.stats.total_cycles if self._started else 0
+        try:
+            cycles = _run_with_debug(
+                self._state,
+                callback,
+                max_cycles,
+                control=control,
+                break_on_entry=break_on_entry,
+                reset_stats=not self._started,
+            )
+        except EmulatorFault:
+            # The fault is in ``status``; the run's words are in the statistics.
+            cycles = self._state.stats.total_cycles - before
+        finally:
+            self._started = True
+            self._collector.take()  # a debug run writes no trace
+        return RunResult(self.status, cycles)
+
+    def attach_alias_profile(self, profile: AliasProfile) -> None:
+        """Record the ISA alias profile of every later step or run into
+        *profile* (1.3.0); only while halted. A profile belongs to one model.
+
+        Args:
+            profile: The profile (``ipu_emu.alias_profile.AliasProfile``).
+
+        Raises:
+            ConfigurationError: The model is running or faulted, or *profile*
+                already records another model.
+        """
+        self._writable()
+        bridge = getattr(profile, "_bridge", None)
+        if bridge is not None and bridge.state is not self._state:
+            raise ConfigurationError("an AliasProfile belongs to a single model")
+        self._state.alias_profile = profile
+        self._state.stats.alias_profile = profile
+        self._ipu = _Ipu(self._state)  # the engine binds the profile's observer when built
+
+    def alias_profile(self) -> AliasProfile | None:
+        """The attached alias profile, or ``None`` (1.3.0).
+
+        Returns:
+            The profile :meth:`attach_alias_profile` attached.
+        """
+        profile: AliasProfile | None = self._state.alias_profile
+        return profile
 
     def stats(self) -> Stats:
         """A snapshot of the run statistics (1.1.0).

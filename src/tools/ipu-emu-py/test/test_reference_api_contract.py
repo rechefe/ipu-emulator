@@ -19,7 +19,9 @@ import pytest
 from emu_support import ElementFormat, assemble_program
 
 import ipu_emu.reference as api
+from ipu_emu.alias_profile import AliasProfile
 from ipu_emu.commit import CommitRecord, FaultInfo, Outcome, RegWrite, SlotOp, XmemWrite
+from ipu_emu.emulator import DebugAction
 from ipu_emu.errors import ConfigurationError
 from ipu_emu.reference import API_VERSION, ReferenceModel, RunResult, RunState, Stats, Status
 from ipu_emu.trace import TraceWriter, read_trace
@@ -155,6 +157,92 @@ SNAPSHOTS = {
         "ReferenceModel": {
             "__init__": "(self, fmt: 'ElementFormat' = <ElementFormat.INT8: 'int8'>) -> 'None'",
             "arith_flags": "(self) -> 'frozenset[ArithmeticEvent]'",
+            "fault_enabled": "(self, fault: 'FaultId') -> 'bool'",
+            "fault_flags": "(self) -> 'frozenset[FaultId]'",
+            "load_program": "(self, words: 'bytes | Sequence[int]') -> 'None'",
+            "read_register": "(self, name: 'str', index: 'int' = 0) -> 'int | bytes'",
+            "read_xmem": "(self, address: 'int', size: 'int') -> 'bytes'",
+            "reset": "(self, fmt: 'ElementFormat') -> 'None'",
+            "run": "(self, max_cycles: 'int | None' = None, *, trace: 'TraceWriter | None' = None)"
+            " -> 'RunResult'",
+            "set_fault_enable": "(self, fault: 'FaultId', enabled: 'bool') -> 'None'",
+            "stats": "(self) -> 'Stats'",
+            "status": "property",
+            "step": "(self) -> 'CommitRecord'",
+            "trace_header": "(self) -> 'dict[str, Any]'",
+            "write_register": "(self, name: 'str', value: 'int | bytes', index: 'int' = 0)"
+            " -> 'None'",
+            "write_xmem": "(self, address: 'int', data: 'bytes') -> 'None'",
+        },
+        "Status": {"state": "RunState", "pc": "int", "fault": "FaultId | None"},
+        "RunResult": {"status": "Status", "cycles": "int"},
+        "Stats": {
+            "cycles": "int",
+            "mult_active_cycles": "int",
+            "acc_active_cycles": "int",
+            "xmem_reads": "int",
+            "xmem_writes": "int",
+            "mult_lane_ops": "int",
+            "mult_identity_lane_ops": "int",
+            "lane_occupancy": "float",
+            "effective_mac_utilization": "float",
+        },
+        "RunState": {"RUNNING": "running", "HALTED": "halted", "FAULTED": "faulted"},
+        # What step() returns (ipu_emu.commit), field by field.
+        "CommitRecord": {
+            "cycle": "int",
+            "pc_before": "int",
+            "pc_after": "int",
+            "slots": "tuple[SlotOp, ...]",
+            "reg_writes": "tuple[RegWrite, ...]",
+            "xmem_writes": "tuple[XmemWrite, ...]",
+            "outcome": "Outcome",
+            "fault": "FaultInfo | None",
+            "arith_events": "tuple[str, ...]",
+        },
+        "Outcome": ["retired", "break", "halt", "fault"],
+        "SlotOp": {
+            "slot": "str",
+            "mnemonic": "str",
+            "fields": "Mapping[str, int]",
+            "emulator_only": "bool",
+        },
+        "RegWrite": {
+            "register": "str",
+            "index": "int | None",
+            "value": "int | None",
+            "offset": "int | None",
+            "data": "bytes | None",
+        },
+        "XmemWrite": {"address": "int", "data": "bytes"},
+        "TraceWriter": {
+            "__init__": "(self, path: 'str | Path', header: 'dict[str, Any]') -> 'None'",
+            "close": "(self) -> 'None'",
+            "write": "(self, record: 'CommitRecord') -> 'None'",
+            "write_all": "(self, records: 'Iterable[CommitRecord]') -> 'None'",
+        },
+        "read_trace": "(path: 'str | Path') -> 'tuple[dict[str, Any], list[CommitRecord]]'",
+        "FaultInfo": {"id": "str", "pc": "int"},
+    },
+    "1.3.0": {
+        "__all__": [
+            "API_VERSION",
+            "ReferenceModel",
+            "RunResult",
+            "RunState",
+            "Stats",
+            "Status",
+            "TraceWriter",
+            "read_trace",
+        ],
+        "ReferenceModel": {
+            "__init__": "(self, fmt: 'ElementFormat' = <ElementFormat.INT8: 'int8'>) -> 'None'",
+            "alias_profile": "(self) -> 'AliasProfile | None'",
+            "arith_flags": "(self) -> 'frozenset[ArithmeticEvent]'",
+            "attach_alias_profile": "(self, profile: 'AliasProfile') -> 'None'",
+            "debug_run": "(self, callback: 'DebugCallback', break_on_entry: 'bool' = False, *, "
+            "max_cycles: 'int | None' = None, control: 'RunControl | None' = None)"
+            " -> 'RunResult'",
             "fault_enabled": "(self, fault: 'FaultId') -> 'bool'",
             "fault_flags": "(self) -> 'frozenset[FaultId]'",
             "load_program": "(self, words: 'bytes | Sequence[int]') -> 'None'",
@@ -572,3 +660,52 @@ def test_the_trace_header_names_the_loaded_program(tmp_path):
 def test_fault_enabled_refuses_a_non_fault():
     with pytest.raises(ConfigurationError, match="no FaultId"):
         ReferenceModel().fault_enabled("F-1")
+
+
+def test_debug_run_stops_for_the_callback_and_continues():
+    model = _model("BREAK ;;\nINC LR0 1 ;;\nHALT ;;")
+    stops = []
+
+    def callback(state, cycles):
+        stops.append((state.program_counter, cycles))
+        return DebugAction.CONTINUE
+
+    result = model.debug_run(callback, break_on_entry=True)
+    # The entry and word 0's BREAK slot stop at the same PC: one callback.
+    assert stops == [(0, 0)]
+    assert result == RunResult(Status(RunState.HALTED, 2), 3)
+    assert model.read_register("lr", 0) == 1
+    stops.clear()
+    model.load_program(_words("INC LR0 1 ;;\nBREAK ;;\nHALT ;;"))
+    model.debug_run(callback)
+    assert stops == [(1, 1)]  # the BREAK word, before it retires
+
+
+def test_debug_run_quit_pauses_where_it_stopped():
+    model = _model()
+    result = model.debug_run(lambda state, cycles: DebugAction.QUIT, break_on_entry=True)
+    assert result == RunResult(Status(RunState.RUNNING, 0), 0)
+    assert model.run().cycles == 12  # the run picks up at the PC the quit left
+
+
+def test_debug_run_reports_a_fault():
+    model = _model("INC LR0 1 ;;\n" + FAULT)
+    result = model.debug_run(lambda state, cycles: DebugAction.CONTINUE)
+    assert result == RunResult(Status(RunState.FAULTED, 1, FaultId.F3), 1)
+
+
+def test_an_alias_profile_records_the_runs_after_it_is_attached():
+    model = _model("MULT.RC.VE LR0 CR1 0 LR0 CR15 ; ACC.ADD.FIRST ;;\nHALT ;;")
+    assert model.alias_profile() is None
+    profile = AliasProfile()
+    model.attach_alias_profile(profile)
+    assert model.alias_profile() is profile
+    model.run()
+    assert profile.cycles == 2 and profile.events > 0
+    other = _model()
+    with pytest.raises(ConfigurationError, match="single model"):
+        other.attach_alias_profile(profile)
+    running = _model()
+    running.step()
+    with pytest.raises(ConfigurationError, match="halted"):
+        running.attach_alias_profile(AliasProfile())
