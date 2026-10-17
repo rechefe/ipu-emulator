@@ -6,7 +6,10 @@
         [--alias-report PATH]
 
 ``--debug``, or ``IPU_DEBUG_TUI=1`` in the environment (the spelling a
-``bazel run`` of a test target passes), stops the run in the debugger TUI.
+``bazel run`` of a test target passes), stops the run in the debugger TUI;
+quitting it (or Ctrl-C) ends the command with exit code 0 and no result.
+``--profile-aliases`` prints the alias profile's summary; ``--alias-report``
+writes the profile as JSON instead (one file per format with ``--format all``).
 This module is the only one in ``ipu_harness`` that reads the environment.
 
 One line per run, from :meth:`RunResult.describe`. Exit codes:
@@ -31,13 +34,14 @@ import traceback
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 from ipu_emu.errors import ConfigurationError
 from ipu_harness.assembly import AssemblyCache
 from ipu_harness.cases import Case, expand
 from ipu_harness.debug import DebugLaunch
 from ipu_harness.manifest import KernelManifest, load_manifest
-from ipu_harness.runner import RunOptions, run_kernel
+from ipu_harness.runner import RunOptions, RunResult, run_kernel
 from ipu_isa.errors import IpuError
 from ipu_isa.formats import ElementFormat
 
@@ -90,10 +94,15 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--list-cases", action="store_true", help="list the cases and stop")
     parser.add_argument("--debug", action="store_true", help="stop in the debugger TUI")
     parser.add_argument(
-        "--profile-aliases", action="store_true", help="profile the ISA aliases of the run"
+        "--profile-aliases",
+        action="store_true",
+        help="profile the ISA aliases of the run and print the summary",
     )
     parser.add_argument(
-        "--alias-report", type=Path, help="write the alias profile as JSON (implies profiling)"
+        "--alias-report",
+        type=Path,
+        help="write the alias profile as JSON instead (implies profiling; "
+        "with --format all, PATH.<format>.json each)",
     )
     return parser
 
@@ -158,6 +167,42 @@ def _formats(case: Case, requested: str | None) -> tuple[ElementFormat, ...]:
     return (fmt,)
 
 
+def _options(
+    args: argparse.Namespace, fmt: ElementFormat, many: bool, debug: DebugLaunch | None
+) -> RunOptions:
+    """The run options of one format: with several, one output folder and trace each."""
+    output = None
+    if args.output is not None:
+        output = _caller(args.output) / fmt.value if many else _caller(args.output)
+    trace = None
+    if args.trace is not None:
+        trace = _per_format(_caller(args.trace), fmt, many)
+    return RunOptions(
+        max_cycles=args.max_cycles,
+        inputs=dict(args.input),
+        output_dir=output,
+        trace=trace,
+        debug=debug,
+        alias_profile=args.profile_aliases or args.alias_report is not None,
+    )
+
+
+def _per_format(path: Path, fmt: ElementFormat, many: bool) -> Path:
+    """``path``, or ``path.<format><suffix>`` when several formats run."""
+    return path.with_name(f"{path.stem}.{fmt.value}{path.suffix}") if many else path
+
+
+def _report_profile(args: argparse.Namespace, result: RunResult, many: bool) -> None:
+    profile: Any = result.alias_profile  # ipu_emu's AliasProfile is untyped
+    if profile is None:
+        return
+    if args.alias_report is None:
+        print(profile.format_summary())
+        return
+    report = _per_format(_caller(args.alias_report), result.format, many)
+    report.write_text(profile.to_json(indent=2) + "\n")
+
+
 def _run(args: argparse.Namespace) -> int:
     manifest = load_manifest(_caller(args.kernel))
     if args.list_cases:
@@ -167,34 +212,16 @@ def _run(args: argparse.Namespace) -> int:
     case = _case(manifest, args.case)
     debug = debug_launch(args.debug, os.environ)
     formats = _formats(case, args.format)
-    many = len(formats) > 1
     passed = True
     cache = AssemblyCache()
     for fmt in formats:
-        output = None
-        if args.output is not None:
-            output = _caller(args.output) / fmt.value if many else _caller(args.output)
-        trace = None
-        if args.trace is not None:
-            trace = _caller(args.trace)
-            if many:  # one trace per format: trace.e4.jsonl
-                trace = trace.with_name(f"{trace.stem}.{fmt.value}{trace.suffix}")
-        options = RunOptions(
-            max_cycles=args.max_cycles,
-            inputs=dict(args.input),
-            output_dir=output,
-            trace=trace,
-            debug=debug,
-            alias_profile=args.profile_aliases or args.alias_report is not None,
-        )
+        options = _options(args, fmt, len(formats) > 1, debug)
         with _terminal(debug is not None):
             result = run_kernel(manifest, case, fmt, options, cache=cache)
         print(result.describe())
-        if args.alias_report is not None and result.alias_profile is not None:
-            report = _caller(args.alias_report)
-            if many:
-                report = report.with_name(f"{report.stem}.{fmt.value}{report.suffix}")
-            report.write_text(result.alias_profile.to_json())
+        if result.quit:  # the user quit the debugger: no result, and no more runs
+            return 0
+        _report_profile(args, result, len(formats) > 1)
         passed = passed and result.passed
     return 0 if passed else 1
 
