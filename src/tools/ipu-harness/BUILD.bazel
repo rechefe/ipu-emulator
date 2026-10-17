@@ -288,7 +288,24 @@ py_binary(
     name = "run_kernel",
     srcs = ["src/ipu_harness/cli.py"],
     main = "src/ipu_harness/cli.py",
-    deps = [":ipu_harness_lib"],
+    deps = [
+        ":ipu_harness_lib",
+        # A kernel's reference.py, or [golden] op's shared reference, runs on torch.
+        "//src/tools/ipu-kernels:ipu_kernels_lib",
+        requirement("torch"),
+    ],
+)
+
+# The binary itself, on a kernel with a reference.py (torch).
+py_pytest_test(
+    name = "test_run_kernel_bin",
+    srcs = ["test/test_run_kernel_bin.py"],
+    data = [
+        ":run_kernel",
+        "//kernels/elementwise/scale:scale_files",
+    ],
+    env = {"RUN_KERNEL": "$(rootpath :run_kernel)"},
+    deps = [requirement("pytest")],
 )
 
 # Debugging and alias profiling as run options (E06-12).
