@@ -83,7 +83,8 @@ function loadISA(data) {
     }
   }
   for (const s of SLOTS) ISA[s].sort((a, b) => a.opcode - b.opcode);
-  $("lanes").style.gridTemplateColumns = `repeat(${LANES.length}, minmax(0, 1fr))`;
+  TL_ROWS = ["macs", ...SLOTS, "xmem"];
+  $("lanes").style.setProperty("--lane-count", LANES.length);
   readColors();
 }
 
@@ -136,7 +137,7 @@ function renderKernelInfo() {
     <span class="pill" title="Multiplier lanes used over the whole run, out of 128 per cycle">MAC utilization ${Math.round(100 * T.cycles.reduce((a, c) => a + (c.L || 0), 0) / (128 * T.cycles.length))}%</span>
     ${T.wideMode === "native" ? `<span class="pill">format ${esc(dt)}</span>` : ""}
     <span class="pill">${T.wideMode === "native" ? "8-bit hardware format" : "emulator-only format, " + esc(wide) + " lanes"}</span>
-    <span class="desc">${esc(k.desc)}</span>`;
+    <span class="desc">${esc(k.description)}</span>`;
   const tr = $("trunc");
   tr.hidden = !T.truncated;
   if (T.truncated) tr.textContent = `Showing the first ${T.cycles.length.toLocaleString()} of ${T.total_cycles.toLocaleString()} cycles (the docs build keeps the first ${T.cycles.length.toLocaleString()}).`;
@@ -614,7 +615,7 @@ function renderTiming() {
 function renderPipeline() { if (!T) return; pview === "datapath" ? renderDatapath() : renderTiming(); }
 
 /* ---------- timeline ---------- */
-const TL_ROWS = ["macs", ...SLOTS, "xmem"];
+let TL_ROWS = [];  // set once isa.json gives the slots
 const tl = $("tl");
 let tlBase = null;
 function slotMask(pc) { const m = new Set(T.program[pc].slots.map((s) => s.slot)); return m; }

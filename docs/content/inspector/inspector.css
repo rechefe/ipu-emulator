@@ -88,7 +88,7 @@ button { cursor: pointer; }
 .kinfo { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; color: var(--muted); }
 .kinfo strong { color: var(--ink); font-size: 18px; }
 .kinfo .desc { flex: 1 1 420px; min-width: 0; }
-.pill { font-family: var(--f-mono); font-size: 11.5px; border: 1px solid var(--line); padding: 1px 7px; border-radius: 4px; background: var(--panel); color: var(--ink); white-space: nowrap; }
+.pill { font-family: var(--f-mono); font-size: 11.5px; border: 1px solid var(--line); padding: 1px 7px; border-radius: 4px; background: var(--panel); color: var(--ink); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 
 /* transport */
 .transport {
@@ -154,7 +154,7 @@ button { cursor: pointer; }
 .hits .bar { position: absolute; right: 0; bottom: -2px; height: 2px; background: var(--accent); opacity: .5; border-radius: 1px; }
 
 /* VLIW panel */
-.lanes { display: grid; grid-template-columns: repeat(11, minmax(0, 1fr)); gap: 4px; }
+.lanes { display: grid; grid-template-columns: repeat(var(--lane-count, 11), minmax(0, 1fr)); gap: 4px; }
 .lane { border: 1px solid var(--line); border-top: 3px solid var(--sc); border-radius: 4px; padding: 5px 6px 6px; min-height: 64px; min-width: 0; background: var(--panel); display: flex; flex-direction: column; gap: 3px; text-align: left; }
 .lane.active { background: color-mix(in srgb, var(--sc) 12%, var(--panel)); cursor: pointer; }
 .lane.active:hover { border-color: var(--sc); }
