@@ -1,0 +1,73 @@
+# matmul_x128_c3: the single-stream transformer matmul y = act(a @ b) in FP32
+# (E07-08): one token group, K in three chunks. registry.toml fixes (m, k, n,
+# activation) for its entries; run by itself it is its first entry's shape.
+[kernel]
+op = "matmul"
+formats = ["fp32"]
+
+[params]
+m          = { type = "int", min = 1, max = 128 }                # tokens: one group, one row
+k          = { type = "int", min = 257, max = 384 }            # input channels: 3 chunks
+n          = { type = "int", min = 1 }                        # output channels
+activation = { type = "str", choices = ["none"], default = "none" }  # fused at the store
+
+[derived]
+n_tg       = "ceil(m / 128)"                           # token groups
+n_tok      = "m / n_tg"                                # tokens per group: one row
+chunks     = "ceil(k / 128)"                           # weight rows per output channel
+w1         = "base(a) + 1"                             # weight chunk 1
+w2         = "base(a) + 2"                             # weight chunk 2
+d_start    = "-1"                                      # data startup (rows)
+idx_start  = "-1"                                      # per-chunk fixed_idx startup
+tail_bound = "k - 256 - 2"                             # last chunk's bound: its width - 2
+slot0      = "0"                                       # R_CYCLIC write index 0 (LR0)
+d_stride   = "n_tg"                                    # data rows per input channel (LR2)
+y_stride   = "1"                                       # output rows per channel (LR3)
+full_bound = "126"                                     # a 128-wide chunk's bound (LR6)
+y_ptr      = "0"                                       # output pointer (LR7)
+w_off      = "0"                                       # weight row offset (LR8)
+j0         = "0"                                       # j counter (LR9)
+w_stride   = "chunks"                                  # weight rows per output channel (LR12)
+
+# Placed from row 0: b, a, y (the old XMEM map).
+[inputs.b]                                        # the data D = A^T, channel-major
+shape = ["n_tg", "k", "n_tok"]
+pack = "channel_major"
+row = 0
+
+[inputs.a]                                        # the weights W, output-major
+shape = ["n", "k"]
+pack = "output_major_weights"
+
+[outputs.y]                                       # one row per (group, channel), n_tok lanes valid
+shape = ["n_tg", "n", "n_tok"]
+
+[abi]
+b          = "CR0"
+a          = "CR9"
+w1         = "CR2"
+w2         = "CR3"
+y          = "CR5"
+d_start    = "CR6"
+idx_start  = "CR8"
+slot0      = "LR0"
+d_stride   = "LR2"
+y_stride   = "LR3"
+full_bound = "LR6"
+y_ptr      = "LR7"
+w_off      = "LR8"
+j0         = "LR9"
+n          = "LR10"
+tail_bound = "LR11"
+w_stride   = "LR12"
+
+[golden]
+op = "linear"                                    # activation(a @ b), ipu_kernels.reference.ops
+tolerance = { fp32 = "FP32_LONG" }
+
+# The ipu_apps cases' data (../gen.py: RandomState(0), A then W).
+[cases.default]
+m = 64
+k = 384
+n = 192
+generator = "../gen.py:legacy_channel_major"

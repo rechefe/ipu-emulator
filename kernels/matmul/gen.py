@@ -25,3 +25,13 @@ def legacy_uniform(plan, rng):
     n = plan.shapes["b"][1]
     a, w = _draw(m, k, n)
     return {"a": a, "b": np.ascontiguousarray(w.T)}
+
+
+def legacy_channel_major(plan, rng):
+    """The ``*_x128`` kernels: ``b`` is the data D = A^T, ``(n_tg, k, n_tok)``
+    (token ``t`` of A is token ``t % n_tok`` of group ``t // n_tok``), and ``a``
+    is W ``(n, k)``."""
+    n_tg, k, n_tok = plan.shapes["b"]
+    n = plan.shapes["a"][0]
+    a, w = _draw(n_tg * n_tok, k, n)
+    return {"a": w, "b": np.ascontiguousarray(a.reshape(n_tg, n_tok, k).transpose(0, 2, 1))}
