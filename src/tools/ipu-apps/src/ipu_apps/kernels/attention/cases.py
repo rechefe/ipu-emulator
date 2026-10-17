@@ -55,7 +55,7 @@ def pad_rows(x: np.ndarray, *, width: int = LANES, fill: float = 0.0) -> np.ndar
 def agg_fold(P: np.ndarray, V: np.ndarray) -> np.ndarray:
     """``O[b, t, i] = sum_s P[b, i, s] * V[b, t, s]`` through the AGG datapath.
 
-    ``AGG.SUM.FIRST`` (ipu.py ``_agg_sum_lanes``) left-folds the active
+    ``AGG.SUM.FIRST`` (``ipu_emu/slots/acc.py``) left-folds the active
     MULT_RES lanes starting from a Python float (float64) and rounds the total
     ONCE to float32 on the R_ACC write; the per-lane products themselves are
     float32 (MULT writes ``<f`` lanes). A second 128-key chunk (N_TOK=256) is a

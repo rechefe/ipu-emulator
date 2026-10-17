@@ -99,7 +99,6 @@ max-args = 6
 "src/tools/ipu-emu-py/src/ipu_emu/alias_detectors.py" = ["C901", "PLR0912", "PLR0915"]
 "src/tools/ipu-emu-py/src/ipu_emu/alias_observer.py" = ["C901", "PLR0912"]
 "src/tools/ipu-emu-py/src/ipu_emu/emulator.py" = ["PLR0913"]
-"src/tools/ipu-emu-py/src/ipu_emu/ipu.py" = ["C901", "PLR0912"]
 "src/tools/ipu-emu-py/src/ipu_emu/ipu_state.py" = ["PLR0913"]
 "src/tools/ipu-emu-py/src/ipu_emu/isa_alias_spec.py" = ["C901", "PLR0912", "PLR0915"]
 

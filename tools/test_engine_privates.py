@@ -9,8 +9,8 @@ and ``ipu_emu.geometry``. This gate fails on either of:
   read off a name ``ipu`` or ``Ipu``: an engine, the module or the class);
 
 in any Python source or test under ``src/tools/``, except the engine's own
-modules: ``ipu.py`` and the modules it is split into (the issuer and the
-cycle today; E04-14 adds its slot modules to ``ENGINE_MODULES``).
+modules: ``ipu.py`` and the modules it is split into (the issuer, the cycle
+and the slot handler modules of ``ipu_emu.slots``, E04-14).
 """
 
 from __future__ import annotations
@@ -25,7 +25,16 @@ SOURCE_ROOT = Path("src/tools")
 
 #: The engine itself, repo-relative: free to use its own privates.
 ENGINE_MODULES = frozenset(
-    SOURCE_ROOT / "ipu-emu-py/src/ipu_emu" / name for name in ("ipu.py", "issue.py", "cycle.py")
+    SOURCE_ROOT / "ipu-emu-py/src/ipu_emu" / name
+    for name in (
+        "ipu.py",
+        "issue.py",
+        "cycle.py",
+        *(
+            f"slots/{slot}.py"
+            for slot in ("aaq", "acc", "brk", "cond", "load", "lr", "mult", "store")
+        ),
+    )
 )
 
 #: Names under which code holds an engine, the engine module or its class.

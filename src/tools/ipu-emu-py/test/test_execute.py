@@ -3397,7 +3397,8 @@ class TestDispatchPlans:
             execute_fn="execute_no_such_handler",
         )
         with pytest.raises(
-            RuntimeError, match=r"mult/FAKE names handler Ipu\.execute_no_such_handler"
+            RuntimeError,
+            match=r"mult/FAKE names handler ipu_emu\.slots\.mult\.execute_no_such_handler",
         ):
             build_plan(fake, {})
 

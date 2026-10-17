@@ -32,12 +32,13 @@ from __future__ import annotations
 
 import weakref
 from collections.abc import Callable, Mapping
-from enum import IntEnum
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, NamedTuple, Protocol
 
 from ipu_emu.errors import EmulatorError, UndeclaredRead
+from ipu_emu.outcome import CycleOutcome
 from ipu_emu.resolver import FaithfulResolver, OperandResolver, PackedResolver
+from ipu_isa.constants import DStructureConfig, decode_dstructure
 from ipu_isa.registers import lrd_pair
 from ipu_isa.slots import Slot
 from ipu_isa.timing import SLOT_EXECUTION_ORDER
@@ -47,19 +48,6 @@ if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
     from ipu_emu.issue import IssueFacts
     from ipu_emu.regfile import RegFile, RegFileReader
-
-
-class CycleOutcome(IntEnum):
-    """How one call into the cycle ended.
-
-    ``CONTINUE`` is an alias of ``RETIRED``, so code written against the old
-    ``BreakResult`` (an alias of this class until E08 migrates the debuggers)
-    keeps working.
-    """
-
-    RETIRED = 0
-    BREAK = 1
-    CONTINUE = 0
 
 
 class IssuedOp(NamedTuple):
@@ -359,6 +347,10 @@ class CycleView:
     def cr(self, index: int, via: str | None = None) -> int:
         """CR *index* in the view declared for ``("cr", via)``."""
         return self.source("cr", via).get_cr(index)
+
+    def dstructure(self, index: int, via: str | None = None) -> DStructureConfig:
+        """CR *index*'s dstructure configuration, read as :meth:`cr` reads it."""
+        return decode_dstructure(self.cr(index, via))
 
     @staticmethod
     def _undeclared(plan: SlotPlan, register: str, via: str | None) -> UndeclaredRead:
