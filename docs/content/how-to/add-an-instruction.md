@@ -71,9 +71,9 @@ This is `TESTNEG`'s, in `lr.py`:
 ```
 
 - The first parameter is the engine, `ipu`. The rest are keyword-only (the
-  `*`), and their names are exactly the operand names of the entry. The emulator binds every entry's
-  `execute_fn` when it is imported and names any handler that is missing or
-  whose parameters differ.
+  `*`), and their names are exactly the operand names of the entry. The
+  emulator binds every entry's `execute_fn` when it is imported and names any
+  handler that is missing or whose parameters differ.
 - An operand with `"read"` arrives resolved: an LR or CR as its 32-bit value,
   a mult-stage register as its bytes, which the handler decodes. One without,
   such as the register written, an immediate or a label, arrives as its index
