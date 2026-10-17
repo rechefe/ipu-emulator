@@ -77,15 +77,17 @@ dstructure  = "CR15"
 
 [golden]
 reference = "reference.py:reference"   # filters split, then the shared conv2d
-# y is an element output: compared in FP32. Measured on the ipu_apps data:
-# max |err| 5.7e-6 (in_channels 56, K = 504), where FP32_ORDER fails.
+# y is an element output: compared in FP32. Measured on the harness's seeded
+# data: max |err| 1.7e-5 (in_channels 56, K = 504); FP32_ORDER fails 7 of the
+# 22 entry cases (in_channels 16 and up), FP32_LONG passes all.
 tolerance = { fp32 = "FP32_LONG" }
 
 # The two ipu_apps kernels' cases and test sweeps (each entry chooses its
 # own, ../registry.toml). has_bias and apply_relu are the bias + ReLU twin's;
-# conv_universal's entry fixes both false.
-# A sweep point of one value per axis is named <case>[in_channels=..,...,width=..],
-# its old sweep id.
+# conv_universal's entry fixes both false. The data is the harness's seeded
+# per-tensor streams, but for negative_outputs and negative_bias, whose
+# patterns gen.py makes. A sweep point of one value per axis is named
+# <case>[in_channels=..,...,width=..], its old sweep id.
 
 [cases.default]  # both twins' cases.py DEFAULTS
 in_channels = 16
@@ -99,7 +101,6 @@ stride = 1
 groups = 1
 has_bias = true
 apply_relu = true
-generator = "../gen.py:legacy_universal"  # the ipu_apps data, for the proof
 
 [cases.negative_outputs]  # conv_universal: weights -1 on input 5, every sum negative (test_conv_universal.py)
 in_channels = 4
@@ -113,7 +114,7 @@ stride = 1
 groups = 1
 has_bias = true
 apply_relu = true
-generator = "../gen.py:legacy_universal_negative"  # the ipu_apps data, for the proof
+generator = "gen.py:negative_sums"
 
 [cases.negative_bias]  # conv_universal_bn_activation: zero weights, bias below zero, so ReLU writes zeros (test_conv_universal.py)
 in_channels = 8
@@ -127,7 +128,7 @@ stride = 1
 groups = 1
 has_bias = true
 apply_relu = true
-generator = "../gen.py:legacy_universal_negative_bias"  # the ipu_apps data, for the proof
+generator = "gen.py:negative_bias"
 
 [cases.sweep_28x4]  # one full 28-channel super-block
 in_channels = [28]
@@ -141,7 +142,6 @@ stride = 1
 groups = 1
 has_bias = true
 apply_relu = true
-generator = "../gen.py:legacy_universal"  # the ipu_apps data, for the proof
 
 [cases.sweep_56x4]  # two full super-blocks (the bias is seeded once)
 in_channels = [56]
@@ -155,7 +155,6 @@ stride = 1
 groups = 1
 has_bias = true
 apply_relu = true
-generator = "../gen.py:legacy_universal"  # the ipu_apps data, for the proof
 
 [cases.sweep_10x4]  # one partial super-block
 in_channels = [10]
@@ -169,7 +168,6 @@ stride = 1
 groups = 1
 has_bias = true
 apply_relu = true
-generator = "../gen.py:legacy_universal"  # the ipu_apps data, for the proof
 
 [cases.sweep_32x32]  # several chunks, several filters
 in_channels = [16]
@@ -183,7 +181,6 @@ stride = 1
 groups = 1
 has_bias = true
 apply_relu = true
-generator = "../gen.py:legacy_universal"  # the ipu_apps data, for the proof
 
 [cases.sweep_cols128]  # cols = 128, partition P0
 in_channels = [4]
@@ -197,7 +194,6 @@ stride = 1
 groups = 1
 has_bias = true
 apply_relu = true
-generator = "../gen.py:legacy_universal"  # the ipu_apps data, for the proof
 
 [cases.sweep_cols128_partial]  # cols = 128, a partial super-block
 in_channels = [16]
@@ -211,7 +207,6 @@ stride = 1
 groups = 1
 has_bias = true
 apply_relu = true
-generator = "../gen.py:legacy_universal"  # the ipu_apps data, for the proof
 
 [cases.sweep_pad8]  # 8x8 padded to 16x16
 in_channels = [4]
@@ -225,7 +220,6 @@ stride = 1
 groups = 1
 has_bias = true
 apply_relu = true
-generator = "../gen.py:legacy_universal"  # the ipu_apps data, for the proof
 
 [cases.sweep_pad5]  # 5x5 padded to 16x16
 in_channels = [4]
@@ -239,7 +233,6 @@ stride = 1
 groups = 1
 has_bias = true
 apply_relu = true
-generator = "../gen.py:legacy_universal"  # the ipu_apps data, for the proof
 
 [cases.sweep_w100]  # conv_universal: width 100 padded to 128
 in_channels = [3]
@@ -253,7 +246,6 @@ stride = 1
 groups = 1
 has_bias = true
 apply_relu = true
-generator = "../gen.py:legacy_universal"  # the ipu_apps data, for the proof
 
 [cases.sweep_w127]  # conv_universal_bn_activation: width 127
 in_channels = [3]
@@ -267,7 +259,6 @@ stride = 1
 groups = 1
 has_bias = true
 apply_relu = true
-generator = "../gen.py:legacy_universal"  # the ipu_apps data, for the proof
 
 # The two ipu_apps benchmark.py CONFIGS (10 and 9 points), as one list: each
 # entry times all 11 (max_cycles was MAX_CYCLES).
