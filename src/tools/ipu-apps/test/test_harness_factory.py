@@ -155,7 +155,7 @@ def test_execution_profiles_and_fresh_state(monkeypatch, fmt, quantize, row_byte
 
 
 #: Kernels whose default case does not run in the wide-vector FP32 format.
-_DEFAULT_FORMATS = {"fully_connected": "int32", "vector_tour": "int8"}
+_DEFAULT_FORMATS = {"fully_connected": "int32"}
 
 
 @pytest.mark.parametrize("name", [spec.name for spec in kernels()])

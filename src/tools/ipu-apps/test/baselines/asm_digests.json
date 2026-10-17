@@ -71,12 +71,6 @@
     "word_fingerprints": "af88ca1c203cfbdd22187d2c6543796abfaa23797cbbe0e139d052253eaee48abfabb2d0d139709642cdcc57262f6c37fa2aa84f5e1556065417ee303db2610f9a2ace7f7fbf1a7968177f66",
     "words": 19
   },
-  "src/tools/ipu-apps/src/ipu_apps/kernels/conformance/vector_tour/vector_tour.asm": {
-    "bin_sha256": "24d12b90d63403d779b78dc8131f22545a204260c4e6ac99fc792e9ac76b9a74",
-    "mem_sha256": "2d0e6606040a104df6371aa85c98ed685e7c9cac242df15bd789acd68346568a",
-    "word_fingerprints": "1f17ae40d93311bdb0aa1bc5b71df933963d0258923bc2d81eb4fc2a3654305a47cbcd1241455a9f23f86cffa20811bccb6439acf287018bf197e3bd4731909e7ab8659456fbf0508cc7224b03a70f48f197e3bdc8cee0fcada2e96303a70f487b4ebf9068177f66",
-    "words": 26
-  },
   "src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/conv1x1/conv1x1.asm": {
     "bin_sha256": "9d5c4149c0d70f538ab9b3222586f4d405e4fbd319734f6a9db87ea355899048",
     "mem_sha256": "34b86a3410377ee51cbd78d8aee6b57c4bcd04f79b334b6e85292fd9bea0c606",

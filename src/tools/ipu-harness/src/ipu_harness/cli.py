@@ -1,7 +1,7 @@
 """Run a kernel's cases from the command line (E06-11).
 
     python -m ipu_harness.cli KERNEL [--case NAME] [--format FMT|all]
-        [--input NAME=PATH.npy ...] [--output DIR] [--trace PATH]
+        [--input NAME=PATH.npy ...] [--output DIR] [--trace PATH [--context PATH]]
         [--max-cycles N] [--list-cases] [--debug] [--profile-aliases]
         [--alias-report PATH]
     python -m ipu_harness.cli KERNEL --benchmark [--format FMT|all]
@@ -15,7 +15,10 @@ entry (E06-17).
 quitting it (or Ctrl-C) ends the command with exit code 0 and no result.
 ``--profile-aliases`` prints the alias profile's summary; ``--alias-report``
 writes the profile as JSON instead (one file per format with ``--format all``).
-This module is the only one in ``ipu_harness`` that reads the environment.
+``--context`` records the run for the Cycle Inspector
+(:mod:`ipu_harness.inspector`): the trace, and beside it the context a
+viewer needs. This module is the only one in ``ipu_harness`` that reads the
+environment.
 
 One line per run, from :meth:`RunResult.describe`. ``--benchmark`` instead
 runs the kernel's ``[benchmark]`` points (:mod:`ipu_harness.benchmark`) and
@@ -35,6 +38,7 @@ point that does not pass fails the command. Exit codes:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import signal
 import sys
@@ -50,6 +54,7 @@ from ipu_harness.assembly import AssemblyCache
 from ipu_harness.cases import Case, expand
 from ipu_harness.debug import DebugLaunch
 from ipu_harness.family import ENTRY_SEPARATOR, load_kernel, split_ref
+from ipu_harness.inspector import InspectorRecorder
 from ipu_harness.manifest import KernelManifest
 from ipu_harness.runner import RunOptions, RunResult, run_kernel
 from ipu_isa.errors import IpuError
@@ -109,6 +114,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--output", type=Path, help="write each output as DIR/<name>.npy")
     parser.add_argument("--trace", type=Path, help="write the run's trace (JSON Lines)")
+    parser.add_argument(
+        "--context",
+        type=Path,
+        help="with --trace, also write the Cycle Inspector's context (JSON): the source, "
+        "the starting registers, and each word's lanes and XMEM reads",
+    )
     parser.add_argument(
         "--max-cycles", type=_cycles, help="the cycle limit (0: no limit; default: the model's)"
     )
@@ -203,12 +214,16 @@ def _options(
     trace = None
     if args.trace is not None:
         trace = _per_format(_caller(args.trace), fmt, many)
+    recorder = None
+    if args.context is not None and trace is not None:
+        recorder, trace = InspectorRecorder(trace), None  # the recorder writes the trace
     return RunOptions(
         max_cycles=args.max_cycles,
         inputs=dict(args.input),
         output_dir=output,
         trace=trace,
         debug=debug,
+        executor=recorder,
         alias_profile=args.profile_aliases or args.alias_report is not None,
     )
 
@@ -241,6 +256,8 @@ def _run(args: argparse.Namespace) -> int:
     case = _case(manifest, args.case)
     debug = debug_launch(args.debug, os.environ)
     formats = _formats(case, args.format)
+    if args.context is not None and debug is not None:
+        raise ConfigurationError("--context records the run as it is; it takes no --debug")
     passed = True
     cache = AssemblyCache()
     for fmt in formats:
@@ -248,6 +265,10 @@ def _run(args: argparse.Namespace) -> int:
         with _terminal(debug is not None):
             result = run_kernel(manifest, case, fmt, options, cache=cache)
         print(result.describe())
+        if isinstance(options.executor, InspectorRecorder):
+            context = _per_format(_caller(args.context), fmt, len(formats) > 1)
+            document = options.executor.context(manifest, case)
+            context.write_text(json.dumps(document, separators=(",", ":")) + "\n")
         if result.quit:  # the user quit the debugger: no result, and no more runs
             return 0
         _report_profile(args, result, len(formats) > 1)
@@ -261,6 +282,7 @@ _RUN_ONLY: Mapping[str, Callable[[argparse.Namespace], bool]] = {
     "--input": lambda a: bool(a.input),
     "--output": lambda a: a.output is not None,
     "--trace": lambda a: a.trace is not None,
+    "--context": lambda a: a.context is not None,
     "--max-cycles": lambda a: a.max_cycles is not None,
     "--debug": lambda a: a.debug,
     "--profile-aliases": lambda a: a.profile_aliases,
@@ -280,6 +302,8 @@ def _check_options(args: argparse.Namespace) -> None:
         given = [f for f, v in (("--markdown", args.markdown), ("--json", args.json)) if v]
         if given:
             raise ConfigurationError(f"{given[0]} goes with --benchmark")
+        if args.context is not None and args.trace is None:
+            raise ConfigurationError("--context goes with --trace")
 
 
 def _benchmark(manifest: KernelManifest, args: argparse.Namespace) -> int:

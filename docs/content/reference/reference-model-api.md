@@ -40,7 +40,9 @@ a separate promise.
   `fault_flags()`, `arith_flags()`), `trace_header()`, and `TraceWriter` and
   `read_trace` to `__all__`; 1.3.0 added `debug_run()`,
   `attach_alias_profile()`, `alias_profile()` and the `RunResult.quit`
-  field (default `False`). Nothing earlier changed.
+  field (default `False`); 1.4.0 added `observe_xmem_reads()`, which reports
+  each XMEM read the program makes (a commit record carries writes only; the
+  Cycle Inspector's recorder shows the reads). Nothing earlier changed.
 
 `debug_run()` is the one escape hatch for tools such as the debugger: its
 callback receives the emulator's internal state, and that argument's type,

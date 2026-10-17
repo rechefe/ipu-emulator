@@ -167,20 +167,6 @@
   "blank-line-range": "471be4eb8a95072fc07b3b49e9b15f555099b74ef3a958f5fcb73825ced3bf31",
   "mangled/blank-line-range": "243bc229b3a746f7065b82afeab2a1d8a3f0bbfe6d9ff53121fb03766b7fc304"
  },
- "src/tools/ipu-apps/src/ipu_apps/kernels/conformance/vector_tour/vector_tour.asm": {
-  "input": "cd5b43270c6ad6febb180bf25fa3e616ab626e5018570a345b82f7206ebad7c5",
-  "mangled": "72a5281bd03a4d2dfd9bee7f96dc404d43beb2a3c2e1e50d10252ed184089459",
-  "default": "cd5b43270c6ad6febb180bf25fa3e616ab626e5018570a345b82f7206ebad7c5",
-  "mangled/default": "cd5b43270c6ad6febb180bf25fa3e616ab626e5018570a345b82f7206ebad7c5",
-  "blank-line": "4cf91f6649b11b5aa0ae181f0a9fb9bf5f0bcfad46705388033707ad924494b3",
-  "mangled/blank-line": "4cf91f6649b11b5aa0ae181f0a9fb9bf5f0bcfad46705388033707ad924494b3",
-  "indent-tab": "1f2987f51a78fec2084d6fc2ae7152c2d28d6eb92bd174dbf901cc202421b106",
-  "mangled/indent-tab": "1f2987f51a78fec2084d6fc2ae7152c2d28d6eb92bd174dbf901cc202421b106",
-  "indent-2-range": "402e07fb720b59886f0263b88a2206e3dc82e4d81f5289349a1eed500eed0aef",
-  "mangled/indent-2-range": "dc93a05e94e2d96bb5c20db43f5defe211fe875965b2f9ea1f8e04a82cd684cc",
-  "blank-line-range": "d1c2d575d19b9f6be77e90ae46ed431851969509236978edbca54ca2e66dcf9b",
-  "mangled/blank-line-range": "f79e8e4ac825f1302347ea3f3666f71f329948a8a09109709515fa4ed648d161"
- },
  "src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/conv1x1/conv1x1.asm": {
   "input": "48c1fea32fee90b38ac4418d39c639b2e5f352392c7c2810514b7d3eb83454c3",
   "mangled": "9e539c596764e2419f1e3b252e006b5abdae0cb325e87381d511d26a35579fed",

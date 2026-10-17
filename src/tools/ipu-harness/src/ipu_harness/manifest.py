@@ -67,7 +67,10 @@ Schema
     Any binding may be a table with ``when`` (as a tensor's): it binds
     only in a case where that holds; a conditional tensor's binding takes the
     tensor's condition. Two bindings may share a register only when their
-    conditions exclude each other (``bias`` and ``not bias``). A float
+    conditions exclude each other (``bias`` and ``not bias``), or when both
+    are tensors pinned at literal rows that put the same value in it (``acc``
+    at ``row = 8`` and ``relu = { register = "CR7", offset = -12 }`` at
+    ``row = 20``: the program reaches relu from acc's base). A float
     parameter (an element scalar) binds a CR. Every key names a parameter, a
     tensor or a derived value, and every tensor is bound (its base row must
     reach the program).
@@ -753,6 +756,25 @@ def _binding(
     return _Binding(register, offset, when)
 
 
+def _same_pinned_value(
+    tensors: Mapping[str, TensorDecl],
+    offsets: Mapping[str, int],
+    name: str,
+    offset: int,
+    other: str,
+) -> bool:
+    """Whether ``name`` (at ``offset``) and ``other`` are tensors pinned at literal
+    rows whose bindings give their register the same value (row plus offset):
+    one register then reaches both regions (vector_tour's relu, stored at
+    ``acc`` plus three accumulator stores)."""
+    mine, theirs = tensors.get(name), tensors.get(other)
+    if mine is None or theirs is None:
+        return False
+    if not isinstance(mine.row, int) or not isinstance(theirs.row, int):
+        return False
+    return mine.row + offset == theirs.row + offsets.get(other, 0)
+
+
 def _abi(
     r: Reader,
     raw: object,
@@ -776,7 +798,9 @@ def _abi(
         if binding.when is not None:
             conditions[name] = binding.when
         for other in used.get(register, []):
-            if binding.when is None or not binding.when.excludes(conditions.get(other)):
+            if binding.when is not None and binding.when.excludes(conditions.get(other)):
+                continue
+            if not _same_pinned_value(tensors, offsets, name, binding.offset, other):
                 raise r.fail(path, f"[abi] {name} and {other} both bind {register}")
         used.setdefault(register, []).append(name)
         abi[name] = register
