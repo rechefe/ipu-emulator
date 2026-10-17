@@ -224,6 +224,20 @@ py_pytest_test(
     ],
 )
 
+# Precise faults (E04-20): a faulting word has no effect; the lowest fault wins.
+# Both modes under --config=proto.
+py_pytest_test(
+    name = "test_precise_faults",
+    size = "small",
+    srcs = ["test/test_precise_faults.py"],
+    imports = ["src"],
+    deps = [
+        ":emu_test_support",
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
+)
+
 py_pytest_test(
     name = "test_emulator_e2e",
     srcs = ["test/test_emulator_e2e.py"],

@@ -99,6 +99,9 @@ class Schedule(NamedTuple):
             undefined opcode or a reserved operand code), else ``None``. That
             slot is a NOP in this schedule: what the word does with F-1
             disabled (OQ-2's proposal).
+        checks: The ops after LR whose instruction can fault on register
+            values (a ``check_<name>`` predicate, E04-20), in issue order;
+            empty for most words, which then skip the check phase.
     """
 
     break_op: IssuedOp | None
@@ -107,6 +110,7 @@ class Schedule(NamedTuple):
     lr_position: int
     lr_conflict: tuple[int, ...] | None
     reserved: str | None = None
+    checks: tuple[IssuedOp, ...] = ()
 
 
 class CycleObserver(Protocol):
@@ -283,6 +287,11 @@ def schedule_word(inst: Mapping[str, int], *, skip_idle_nops: bool = False) -> S
         lr_position=lr_position,
         lr_conflict=tuple(targets) if len(targets) != len(set(targets)) else None,
         reserved=reserved,
+        checks=tuple(
+            op
+            for op in slot_ops[lr_position:]
+            if op.operands is not None and op.plan.check is not None
+        ),
     )
 
 
@@ -634,6 +643,29 @@ class Cycle:
         self.state.record_fault(fault.fault, fault.pc)
         return fault
 
+    def _check(self, checks: tuple[IssuedOp, ...]) -> None:
+        """The check phase (E04-20, IPU-FLT-3): evaluate every fault predicate
+        of the word against the forwarded LRs (the LR sub-slots have just
+        written) and the CRs. On a fault, undo the LR writes, which are the
+        only writes so far (BREAK writes nothing), and raise the
+        lowest-numbered fault (IPU-FLT-8): the word has no effect.
+
+        F-1 and F-3 are decided before any slot runs; both number below every
+        fault a predicate finds (F-4 to F-6).
+        """
+        operands_of = self._ipu.issuer.operands_of
+        ipu = self._ipu
+        found = None
+        for op in checks:
+            fault = op.plan.check(ipu, **operands_of(op))
+            if fault is not None and (found is None or fault[0] < found[0]):
+                found = fault
+        if found is not None:
+            snapshot = self._buffer
+            assert snapshot is not None  # taken before the word ran
+            self.state.regfile.mutable("lr")[:] = snapshot.view("lr")
+            raise EmulatorFault(found[0], self.state.program_counter, found[1])
+
     def _reserved(self, pc: int, detail: str) -> None:
         """F-1 for the word at *pc*; with F-1 disabled, only its sticky flag
         (the schedule already holds the slot as a NOP)."""
@@ -721,6 +753,8 @@ class Cycle:
         # Every LR sub-slot resolves its reads before any of them writes, in
         # both modes, so a read that raises leaves no LR written.
         issuer.dispatch_all(schedule.lr_ops, inst)
+        if schedule.checks:
+            self._check(schedule.checks)
         for op in slot_ops[lr_position:]:
             if op.operands is None:
                 setattr(stats, op.plan.stat, getattr(stats, op.plan.stat) + 1)

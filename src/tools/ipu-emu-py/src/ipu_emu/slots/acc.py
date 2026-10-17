@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ipu_emu.errors import EmulatorError, EmulatorFault
+from ipu_emu.errors import EmulatorError
 from ipu_emu.geometry import agg_lane_count, lane_format, lrd_bytes, store_wide_lanes, wide_lanes
 from ipu_emu.ipu_math import DType, ipu_add, ipu_sub
 from ipu_emu.ipu_state import WideVectorArithmetic
@@ -264,6 +264,42 @@ def execute_acc_stride(
         struct.pack_into(fmt, acc_buf, i * 4, val)
 
 
+def _reshape_operands(
+    ipu: Ipu, source: int, dest: int, reshape_mask: int
+) -> tuple[bytes, bytes, int]:
+    """ACC.RESHAPE's source and destination index bytes and its mask, read
+    through the view the instruction declares."""
+    src_bytes = lrd_bytes(ipu._view.source("lr", "source"), source)
+    dst_bytes = lrd_bytes(ipu._view.source("lr", "dest"), dest)
+    if reshape_mask >= RESHAPE_MASK_LR_OFFSET:
+        mask = ipu._view.lr(reshape_mask - RESHAPE_MASK_LR_OFFSET, "reshape_mask")
+    else:
+        mask = reshape_mask
+    return src_bytes, dst_bytes, mask
+
+
+def check_acc_reshape(
+    ipu: Ipu, *, source: int, dest: int, reshape_mask: int
+) -> tuple[FaultId, str] | None:
+    """F-5: a mask above RESHAPE_ELEMENT_COUNT, or a participating source or
+    destination index of LANES or more."""
+    src_bytes, dst_bytes, mask = _reshape_operands(ipu, source, dest, reshape_mask)
+    if mask > RESHAPE_ELEMENT_COUNT:
+        return (
+            FaultId.F5,
+            f"ACC.RESHAPE reshape_mask value {mask} exceeds RESHAPE_ELEMENT_COUNT "
+            f"({RESHAPE_ELEMENT_COUNT})",
+        )
+    for i in range(mask, RESHAPE_ELEMENT_COUNT):
+        if src_bytes[i] >= LANES or dst_bytes[i] >= LANES:
+            return (
+                FaultId.F5,
+                f"ACC.RESHAPE element {i}: source={src_bytes[i]}, dest={dst_bytes[i]} "
+                f"must both be in [0, {LANES - 1}]",
+            )
+    return None
+
+
 def execute_acc_reshape(ipu: Ipu, *, source: int, dest: int, reshape_mask: int) -> None:
     """Execute ACC.RESHAPE: scatter MULT_RES elements into R_ACC via two LRDn byte-index arrays.
 
@@ -273,36 +309,14 @@ def execute_acc_reshape(ipu: Ipu, *, source: int, dest: int, reshape_mask: int) 
     participate, where mask is either the immediate value (encoded 0-7) or
     the value of the specified LR register (encoded >= RESHAPE_MASK_LR_OFFSET,
     LR_index = encoded - RESHAPE_MASK_LR_OFFSET). A resolved mask greater than
-    RESHAPE_ELEMENT_COUNT raises rather than being clamped. All MULT_RES reads
-    come from the pre-instruction snapshot; a participating source[i]/dest[i]
-    outside [0, 127] raises rather than being silently skipped.
+    RESHAPE_ELEMENT_COUNT, or a participating source[i]/dest[i] outside
+    [0, 127], is fault F-5, found by :func:`check_acc_reshape` before the word
+    runs. All MULT_RES reads come from the pre-instruction snapshot.
     """
-    src_bytes = lrd_bytes(ipu._view.source("lr", "source"), source)
-    dst_bytes = lrd_bytes(ipu._view.source("lr", "dest"), dest)
-
-    if reshape_mask >= RESHAPE_MASK_LR_OFFSET:
-        lr_idx = reshape_mask - RESHAPE_MASK_LR_OFFSET
-        mask = ipu._view.lr(lr_idx, "reshape_mask")
-    else:
-        mask = reshape_mask
-    if mask > RESHAPE_ELEMENT_COUNT:
-        raise EmulatorFault(
-            FaultId.F5,
-            ipu.state.program_counter,
-            f"ACC.RESHAPE reshape_mask value {mask} exceeds RESHAPE_ELEMENT_COUNT "
-            f"({RESHAPE_ELEMENT_COUNT})",
-        )
-
+    src_bytes, dst_bytes, mask = _reshape_operands(ipu, source, dest, reshape_mask)
     mult_res = ipu._view.read_forgetting_provenance("mult_res")
     writes = []
     for i in range(mask, RESHAPE_ELEMENT_COUNT):
-        if src_bytes[i] >= LANES or dst_bytes[i] >= LANES:
-            raise EmulatorFault(
-                FaultId.F5,
-                ipu.state.program_counter,
-                f"ACC.RESHAPE element {i}: source={src_bytes[i]}, dest={dst_bytes[i]} "
-                f"must both be in [0, {LANES - 1}]",
-            )
         writes.append((dst_bytes[i], struct.unpack_from("<I", mult_res, src_bytes[i] * 4)[0]))
     for dest_idx, value in writes:
         ipu.state.regfile.set_r_acc_word(dest_idx, value)

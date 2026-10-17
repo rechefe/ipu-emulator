@@ -281,6 +281,10 @@ class SlotPlan(NamedTuple):
     # union column can be wider than the operand type, so the capacity is the
     # type's width, not the column's.
     operand_checks: tuple[tuple[str, int, frozenset[int]], ...] = ()
+    # The fault predicate ``check_<name>(ipu, **operands) -> (FaultId, detail)
+    # | None`` beside the handler in its slot module, when the instruction can
+    # fault on register values (E04-20); ``None`` for every other.
+    check: Callable | None = None
 
 
 def _operand_checks(instruction: Instruction) -> tuple[tuple[str, int, frozenset[int]], ...]:
@@ -409,6 +413,9 @@ def build_plan(instruction: Instruction, field_map: dict[str, str]) -> SlotPlan:
         mask_cr_operand=_mask_cr_operand(instruction),
         views=read_views(instruction),
         operand_checks=_operand_checks(instruction),
+        check=getattr(
+            HANDLER_MODULES[slot], instruction.execute_fn.replace("execute_", "check_", 1), None
+        ),
     )
 
 

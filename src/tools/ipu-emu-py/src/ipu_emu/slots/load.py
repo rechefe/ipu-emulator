@@ -4,8 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ipu_emu.errors import EmulatorFault
-from ipu_emu.geometry import xmem_element_width_bytes, xmem_row_addr, xmem_row_size_bytes
+from ipu_emu.geometry import (
+    xmem_element_width_bytes,
+    xmem_row_addr,
+    xmem_row_fault,
+    xmem_row_size_bytes,
+)
 from ipu_isa.faults import FaultId
 from ipu_isa.registers import get_mult_stage_map, get_register_sizes
 
@@ -29,14 +33,21 @@ def execute_load_nop(ipu: Ipu) -> None:
     """Execute NOP in load slot: No operation."""
 
 
+Fault = tuple[FaultId, str]
+
+
+def _row_fault(ipu: Ipu, row: int) -> Fault | None:
+    detail = xmem_row_fault(ipu.state, row)
+    return None if detail is None else (FaultId.F6, detail)
+
+
+def check_ld_mult(ipu: Ipu, *, dest: int, offset: int, base: int) -> Fault | None:
+    """F-6 for a row outside XMEM (``dest`` other than R0/R1 is F-1 at fetch)."""
+    return _row_fault(ipu, offset + base)
+
+
 def execute_ld_mult(ipu: Ipu, *, dest: int, offset: int, base: int) -> None:
     """Execute LD.MULT: Load data from memory into a mult stage register."""
-    if dest not in (0, 1):
-        raise EmulatorFault(
-            FaultId.F1,
-            ipu.state.program_counter,
-            f"LD.MULT: dest must be 0 (r0) or 1 (r1); got {dest}",
-        )
     state = ipu.state
     addr = xmem_row_addr(state, offset + base)
     if state.wide_vector_debug:
@@ -53,6 +64,18 @@ def execute_ld_mult(ipu: Ipu, *, dest: int, offset: int, base: int) -> None:
         state.regfile.mark_constant_ones(reg_name, elem_idx * len(data), len(data))
 
 
+def check_ld_mult_cyclic(ipu: Ipu, *, offset: int, base: int, index: int) -> Fault | None:
+    """F-4 for an index off a slot boundary, else F-6 for a row outside XMEM
+    (the lower number first: IPU-FLT-8)."""
+    if index not in R_CYCLIC_VALID_INDICES:
+        return (
+            FaultId.F4,
+            f"LD.MULT.CYCLIC: index must be one of {R_CYCLIC_VALID_INDICES} "
+            f"(R_CYCLIC slot boundaries); got {index}",
+        )
+    return _row_fault(ipu, offset + base)
+
+
 def execute_ld_mult_cyclic(ipu: Ipu, *, offset: int, base: int, index: int) -> None:
     """Execute LD.MULT.CYCLIC: Load with cyclic addressing into r_cyclic.
 
@@ -64,13 +87,6 @@ def execute_ld_mult_cyclic(ipu: Ipu, *, offset: int, base: int, index: int) -> N
     """
     state = ipu.state
     addr = xmem_row_addr(state, offset + base)
-    if index not in R_CYCLIC_VALID_INDICES:
-        raise EmulatorFault(
-            FaultId.F4,
-            state.program_counter,
-            f"LD.MULT.CYCLIC: index must be one of {R_CYCLIC_VALID_INDICES} "
-            f"(R_CYCLIC slot boundaries); got {index}",
-        )
     byte_idx = index * xmem_element_width_bytes(state)
     data = state.xmem.read_address(addr, xmem_row_size_bytes(state))
     if state.wide_vector_debug:
@@ -80,6 +96,11 @@ def execute_ld_mult_cyclic(ipu: Ipu, *, offset: int, base: int, index: int) -> N
     if state.xmem.is_constant_ones(addr, data):
         name = "r_cyclic_wide_debug" if state.wide_vector_debug else "r_cyclic"
         state.regfile.mark_constant_ones(name, byte_idx, len(data))
+
+
+def check_ld_mask(ipu: Ipu, *, offset: int, base: int) -> Fault | None:
+    """F-6 for a row outside XMEM."""
+    return _row_fault(ipu, offset + base)
 
 
 def execute_ld_mask(ipu: Ipu, *, offset: int, base: int) -> None:

@@ -376,6 +376,9 @@ def test_an_lr_conflict_still_raises():
     [
         ("INC LR0 1 ;;\nINC LR0 1 ;;", FaultId.F2, 2),
         ("NOP ;;\nACC.RESHAPE LRD0 LRD2 LR4 ;;\nHALT ;;", FaultId.F5, 1),
+        # The mask is written by the faulting word itself (forwarded), and
+        # that LR write is undone: precise in both modes (E04-20).
+        ("SET LR4 CR9 ; INC LR6 1 ; ACC.RESHAPE LRD0 LRD2 LR4 ;;\nHALT ;;", FaultId.F5, 0),
     ],
 )
 def test_both_modes_raise_the_same_fault_at_the_same_pc(asm, fault, pc):
@@ -383,8 +386,12 @@ def test_both_modes_raise_the_same_fault_at_the_same_pc(asm, fault, pc):
     for prototyping in (False, True):
         state = make_state(asm, prototyping=prototyping)
         state.regfile.set_lr(4, 9)
+        state.regfile.set_cr(9, 9)
+        lrs = bytes(state.regfile.view("lr"))
         with pytest.raises(EmulatorFault) as caught:
             run_until_complete(state)
+        if pc == 0:
+            assert bytes(state.regfile.view("lr")) == lrs  # no LR write survived
         assert (caught.value.fault, caught.value.pc) == (fault, pc)
         states.append(state)
     assert states[0].halt == states[1].halt == HaltRecord("fault", pc, fault)

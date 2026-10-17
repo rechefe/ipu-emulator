@@ -34,13 +34,12 @@ from typing import TYPE_CHECKING, NamedTuple, Protocol
 
 import numpy as np
 
-from ipu_emu.errors import EmulatorError, EmulatorFault
+from ipu_emu.errors import EmulatorError
 from ipu_emu.ipu_math import DType
 from ipu_emu.ipu_state import WideVectorArithmetic
 from ipu_emu.numerics import LaneCodec, codec_for
 from ipu_emu.xmem import XMEM_SIZE_BYTES
 from ipu_isa.constants import LR_CR_SCALAR_BITS, Partition
-from ipu_isa.faults import FaultId
 from ipu_isa.formats import FORMATS, ElementFormat
 from ipu_isa.geometry import LANES
 from ipu_isa.registers import lrd_pair
@@ -311,13 +310,16 @@ def xmem_row_addr(state: IpuState, row: int) -> int:
     bytes, e.g. ST.ACC's fixed 512-byte R_ACC) is bounds-checked by
     ``XMem.read_address``/``write_address`` against the allocation.
 
+    The row is legal: the word's check phase faulted F-6 on any other
+    (:func:`xmem_row_fault`, E04-20).
+
     Raises:
-        EmulatorFault: F-6, the row is negative or outside the addressable
-            range (:func:`xmem_row_fault`).
+        EmulatorError: The row is not legal: a handler ran on a word no
+            check phase saw (a direct call).
     """
     detail = xmem_row_fault(state, row)
     if detail is not None:
-        raise EmulatorFault(FaultId.F6, state.program_counter, detail)
+        raise EmulatorError(f"{detail} (an unchecked word)")
     return row * xmem_row_size_bytes(state)
 
 
