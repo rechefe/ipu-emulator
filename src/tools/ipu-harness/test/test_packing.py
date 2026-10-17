@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from ipu_harness.manifest import ManifestError, load_manifest
+from ipu_harness.manifest import KernelManifest, ManifestError, load_manifest
 from ipu_harness.packing import pack, stored_rows, unpack
 from ipu_harness.params import PlanError, plan_case
 from ipu_isa.formats import ElementFormat as F
@@ -82,7 +82,7 @@ def test_an_output_names_a_pack_transform_and_unpack_uses_it(tmp_path):
     np.testing.assert_array_equal(unpack(y, raw, plan), values)
 
 
-def _family_kernel(tmp_path: Path, *, own: str | None) -> object:
+def _family_kernel(tmp_path: Path, *, own: str | None) -> KernelManifest:
     """``copy`` in a family folder with a shared pack.py, and its own if given."""
     directory = tmp_path / "fam" / "copy"
     directory.mkdir(parents=True)
@@ -99,6 +99,18 @@ def test_a_familys_pack_py_serves_its_kernels(tmp_path):
     m = _family_kernel(tmp_path, own=None)
     plan = plan_case(m, {"rows": 2}, F.FP32)
     assert stored_rows(m.tensors["y"], plan) == 3  # the family's reversed_rows
+
+
+def test_the_family_folders_pack_py_comes_before_the_familys_package(tmp_path, monkeypatch):
+    package = tmp_path / "fakepkg"
+    (package / "fam").mkdir(parents=True)
+    for folder in (package, package / "fam"):
+        (folder / "__init__.py").write_text("")
+    (package / "fam" / "pack.py").write_text(PACK_PY.replace("shape[0] + 1", "shape[0] + 9"))
+    monkeypatch.syspath_prepend(str(tmp_path))
+    m = _family_kernel(tmp_path, own=None)
+    plan = plan_case(m, {"rows": 2}, F.FP32)
+    assert stored_rows(m.tensors["y"], plan, package="fakepkg") == 3  # the folder's, not +9
 
 
 def test_the_kernels_own_pack_py_wins_over_its_familys(tmp_path):

@@ -109,7 +109,7 @@ def _named(source: object, name: str, where: str) -> PackTransform | None:
 
 
 def _local(path: Path, name: str) -> PackTransform | None:
-    """Transform ``name`` from a kernel folder's ``pack.py``, if it defines one."""
+    """Transform ``name`` from a kernel or family folder's ``pack.py``, if it defines one."""
     return _named(load_file(path), name, str(path))
 
 
