@@ -156,7 +156,7 @@ class IpuState:
 
         return remove
 
-    # -- CR dstructure convenience (CR15 = valid_elements[7:0] | partition[12:8]) --
+    # -- CR dstructure convenience (CR15 = valid_elements[7:0] | partition[12:8] | pad_mode[14:13]) --
 
     def get_cr_dstructure(self) -> DStructureConfig:
         """Read CR15 as decoded dstructure configuration fields."""

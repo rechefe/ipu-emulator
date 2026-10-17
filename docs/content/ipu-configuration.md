@@ -12,7 +12,7 @@ harnesses and tests.
 | `CR0` | Read-only constant zero. | Already initialized; writes raise `EmulatorError`. |
 | `CR1` | Read-only constant one. | Already initialized; writes raise `EmulatorError`. |
 | `CR2`-`CR14` | Application configuration such as base addresses, strides, loop bounds, and scalar constants. | `state.regfile.set_cr(index, value)` |
-| `CR15` | Dstructure register. Bits `[7:0]` hold `valid_elements`; bits `[11:8]` hold `partition`; bits `[13:12]` hold `pad_mode`. | `state.set_cr_dstructure(valid_elements=128, partition=0, pad_mode=PadMode.ZERO)` |
+| `CR15` | Dstructure register. Bits `[7:0]` hold `valid_elements`; bits `[12:8]` hold `partition`; bits `[14:13]` hold `pad_mode`. | `state.set_cr_dstructure(valid_elements=128, partition=0, pad_mode=PadMode.ZERO)` |
 
 `LR` and `CR` registers store 32-bit scalar values. Use
 `LR_CR_SCALAR_VALUE_MASK` when encoding negative or wrapped constants for those
