@@ -34,7 +34,7 @@ state.reset(ElementFormat.E4)
 ```
 
 `INT8` and `E1`-`E7` are the hardware formats; `FP32` and `INT32` are
-emulator-only four-byte formats (see [Wide-Vector Debug Mode](wide-vector-debug-mode.md)).
+emulator-only four-byte formats (see [the emulator-only formats](wide-vector-debug-mode.md)).
 `state.fmt` cannot be assigned, and an unknown format raises
 `ConfigurationError` when the state is built, never while a program runs.
 
