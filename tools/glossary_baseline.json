@@ -9,10 +9,6 @@
     "bundle": 6,
     "simulation-only": 2
   },
-  "docs/content/prototyping-mode.md": {
-    "program counter": 1,
-    "snapshot": 2
-  },
   "docs/content/requirements/architecture.md": {
     "DRAM": 2,
     "VLIW word": 1

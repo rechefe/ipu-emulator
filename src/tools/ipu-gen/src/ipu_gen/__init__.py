@@ -1,4 +1,5 @@
-"""Generators that render artifacts from the ISA (``ipu_isa``).
+"""Generators that render artifacts from the ISA (``ipu_isa``): the SystemVerilog
+package, the generated docs pages and the VS Code language data.
 
 ``sv_package`` (the SystemVerilog package, E08-13), ``docs_pages`` and
 ``layout_svg`` (the generated docs pages and their SVGs, E08-14),

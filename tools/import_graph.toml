@@ -7,7 +7,9 @@
 # :py_sources to the test's data, its name to known-first-party in ruff.toml
 # and its ruff_test to //tools:lint; until then the test fails on a package
 # with sources and no row, and on any import of an ipu_* package it has no
-# sources for.
+# sources for. The docs' Architecture page renders its package table and
+# diagram from this file and each package's __init__.py docstring, so the new
+# package also adds its :py_sources to _PACKAGE_SOURCES in docs/BUILD.bazel.
 #
 # "Nothing imports X except Y" is a row matter: list X only in Y's row.
 #

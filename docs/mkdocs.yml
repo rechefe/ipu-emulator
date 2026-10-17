@@ -27,6 +27,8 @@ plugins:
         wide-vector-debug-mode.md: explanation/element-formats.md
         # E09-12 replaced the debugger page with the debug how-to.
         debugging.md: how-to/debug-a-kernel.md
+        # E09-17 folded prototyping mode into the architecture page.
+        prototyping-mode.md: explanation/architecture.md
   - git-revision-date-localized:
       enable_creation_date: true
       type: timeago
@@ -126,8 +128,7 @@ nav:
       - Glossary: reference/glossary.md
   - Explanation:
       - explanation/index.md
-      - Architecture: explanation/architecture.md           # placeholder, E09-17
-      - Prototyping mode: prototyping-mode.md               # E09-17 folds it in
+      - Architecture: explanation/architecture.md           # E09-17; package table generated (docs/architecture_page.py)
       - Timing model: explanation/timing-model.md
       - Element formats: explanation/element-formats.md
       - ISA idioms: isa-alias-catalogue.md                  # E09-10
