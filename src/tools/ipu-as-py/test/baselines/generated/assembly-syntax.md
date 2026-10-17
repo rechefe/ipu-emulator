@@ -140,11 +140,11 @@ Any other read is forwarded when every slot that writes the register runs earlie
 | `ACC.SUB` | `ACC` | `R_ACC` | `MULT_RES` | `R_ACC` |
 | `ACC.SUB.FIRST` | `ACC` | — | `MULT_RES` | `R_ACC` |
 | `ACC.STRIDE` | `ACC` | — | `LR` via `offset`, `MULT_RES` | `R_ACC` |
-| `AGG.SUM.FIRST` | `ACC` | `LR` via `dest_slot`, `CR` via `cr_idx` | `MULT_RES` | `R_ACC` |
-| `AGG.SUM` | `ACC` | `LR` via `dest_slot`, `CR` via `cr_idx`, `R_ACC` | `MULT_RES` | `R_ACC` |
-| `AGG.MAX.FIRST` | `ACC` | `LR` via `dest_slot`, `CR` via `cr_idx` | `MULT_RES` | `R_ACC` |
-| `AGG.MAX` | `ACC` | `LR` via `dest_slot`, `CR` via `cr_idx`, `R_ACC` | `MULT_RES` | `R_ACC` |
-| `ACC.RESHAPE` | `ACC` | `LR` via `source`, `LR` via `dest`, `MULT_RES` | `LR` via `reshape_mask` | `R_ACC` |
+| `AGG.SUM.FIRST` | `ACC` | `CR` via `cr_idx` | `LR` via `dest_slot`, `MULT_RES` | `R_ACC` |
+| `AGG.SUM` | `ACC` | `CR` via `cr_idx`, `R_ACC` | `LR` via `dest_slot`, `MULT_RES` | `R_ACC` |
+| `AGG.MAX.FIRST` | `ACC` | `CR` via `cr_idx` | `LR` via `dest_slot`, `MULT_RES` | `R_ACC` |
+| `AGG.MAX` | `ACC` | `CR` via `cr_idx`, `R_ACC` | `LR` via `dest_slot`, `MULT_RES` | `R_ACC` |
+| `ACC.RESHAPE` | `ACC` | `MULT_RES` | `LR` via `source`, `LR` via `dest`, `LR` via `reshape_mask` | `R_ACC` |
 | `ACTIVATE.QUANTIZE` | `AAQ` | `CR` via `cr_idx` | `R_ACC` | `POST_AAQ_REG` |
 | `ST.AAQ` | `STORE` | `CR` via `base` | `LR` via `offset`, `POST_AAQ_REG` | — |
 | `ST.ACC` | `ACC_STORE` | `CR` via `base` | `LR` via `offset`, `R_ACC` | — |
@@ -161,12 +161,6 @@ Where the emulator differs from the contract today. Each row is removed by the i
 
 | Instruction | Read | Today | Contract | Fixed by |
 |-------------|------|-------|----------|----------|
-| `AGG.SUM.FIRST` | `LR` via `dest_slot` | cycle start | forwarded | E04-25 |
-| `AGG.SUM` | `LR` via `dest_slot` | cycle start | forwarded | E04-25 |
-| `AGG.MAX.FIRST` | `LR` via `dest_slot` | cycle start | forwarded | E04-25 |
-| `AGG.MAX` | `LR` via `dest_slot` | cycle start | forwarded | E04-25 |
-| `ACC.RESHAPE` | `LR` via `source` | cycle start | forwarded | E04-25 |
-| `ACC.RESHAPE` | `LR` via `dest` | cycle start | forwarded | E04-25 |
 | `ACC.RESHAPE` | `MULT_RES` | cycle start | forwarded | E04-26 |
 | `MULT.RC.VV` | `R_MASK` | forwarded | cycle start | E04-27 |
 | `MULT.RC.VE` | `R_MASK` | forwarded | cycle start | E04-27 |

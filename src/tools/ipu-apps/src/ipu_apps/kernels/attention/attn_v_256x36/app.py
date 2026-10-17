@@ -93,7 +93,9 @@ class AttnV256x36App(IpuApp):
         state.regfile.set_cr(6, CHUNK_OFF_ROWS)  # chunk offset (rows)
         state.regfile.set_cr(7, P_GROUP1_OFF_ROWS)  # P group-1 offset (rows)
         state.regfile.set_cr(8, P_HEAD_STRIDE_ROWS)  # P head stride (rows)
-        state.regfile.set_cr(9, 127)  # inner-loop bound
+        # agg_slot starts at -1 (AGG reads it after the co-issued INC); BLT.S
+        # reads the cycle-start value -1..126.
+        state.regfile.set_cr(9, 126)  # inner-loop bound -> 128 AGG bundles
         state.regfile.set_cr(10, D)  # t count (36)
         state.regfile.set_cr(11, N_HEAD)  # head count (4)
         state.regfile.set_cr(12, O_GROUP_ROWS)  # O group stride (rows, FP32)

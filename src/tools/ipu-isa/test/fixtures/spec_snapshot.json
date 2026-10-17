@@ -570,7 +570,7 @@
     {
      "name": "dest_slot",
      "type": "LrIdx",
-     "read": "cycle_start"
+     "read": "forwarded"
     },
     {
      "name": "cr_idx",
@@ -589,7 +589,7 @@
     {
      "name": "dest_slot",
      "type": "LrIdx",
-     "read": "cycle_start"
+     "read": "forwarded"
     },
     {
      "name": "cr_idx",
@@ -608,7 +608,7 @@
     {
      "name": "dest_slot",
      "type": "LrIdx",
-     "read": "cycle_start"
+     "read": "forwarded"
     },
     {
      "name": "cr_idx",
@@ -627,7 +627,7 @@
     {
      "name": "dest_slot",
      "type": "LrIdx",
-     "read": "cycle_start"
+     "read": "forwarded"
     },
     {
      "name": "cr_idx",
@@ -646,12 +646,12 @@
     {
      "name": "source",
      "type": "LrdIdx",
-     "read": "cycle_start"
+     "read": "forwarded"
     },
     {
      "name": "dest",
      "type": "LrdIdx",
-     "read": "cycle_start"
+     "read": "forwarded"
     },
     {
      "name": "reshape_mask",

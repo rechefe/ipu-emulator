@@ -237,7 +237,7 @@ def execute_acc_reshape(ipu: Ipu, *, source: int, dest: int, reshape_mask: int) 
     """Execute ACC.RESHAPE: scatter MULT_RES elements into R_ACC via two LRDn byte-index arrays.
 
     ``source``/``dest`` are LrdIdx pair indices (0-7); each resolves to 8 byte
-    elements read from the pre-instruction snapshot. Only the trailing
+    elements read after the same word's LR writes (forwarded, Q32). Only the trailing
     (RESHAPE_ELEMENT_COUNT - mask) elements (indices mask..RESHAPE_ELEMENT_COUNT-1)
     participate, where mask is either the immediate value (encoded 0-7) or
     the value of the specified LR register (encoded >= RESHAPE_MASK_LR_OFFSET,
