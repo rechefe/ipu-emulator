@@ -62,7 +62,7 @@ The emulator raises `ipu_emu.errors.EmulatorFault` for a fault. The exception ca
 | F-3 | Two LR sub-slots write the same LR, detected before any LR write. |
 | F-4 | An `LD.MULT.CYCLIC` index that is not a slot boundary. |
 | F-5 | An `ACC.RESHAPE` mask above 8, or an index of 128 or more. |
-| F-6 | An XMEM row beyond the address space, or an access past the XMEM allocation. There is no table model yet, so the row is checked against XMEM. |
+| F-6 | An XMEM row beyond the address space. There is no table model yet, so the row is checked against XMEM; with the row in range, no load or store reaches past the allocation. |
 | F-7 | Not modelled. The emulator has no table configuration, so no table is read-only or write-only. |
 | F-8 | Not modelled. The emulator has no stall model (Q59, [OQ-28](open-questions.md#emulator-and-isa)). |
 | F-9 | A run reaches `IpuState.cycle_limit` (default 1 000 000; a runner's `max_cycles` replaces it for that run; 0 disables the check). The fault's PC is the word that would have run next. |

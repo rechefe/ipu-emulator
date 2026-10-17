@@ -12,7 +12,9 @@ with its value at the end of the cycle: a write that leaves a value unchanged
 is still a write. Scalar registers (LR, CR) are recorded per index. A write
 to an emulator-only register (the wide-vector debug copies) carries
 ``"tag": "emulator"``. A faulting word is recorded when the fault is (through
-``IpuState.add_fault_observer``), with no writes: faults are precise (E04-20).
+``IpuState.add_fault_observer``), with no slots and no writes: nothing of a
+faulting word retires (E04-20), though observers saw its LR ops run before
+the check phase undid them.
 """
 
 from __future__ import annotations
@@ -302,15 +304,11 @@ class CommitCollector:
 
     def _faulted(self, halt: HaltRecord) -> None:
         """Record the faulting word (or, for a fault before any word began,
-        a record of the PC alone), with no writes."""
-        pending, self._pending = self._pending, None
-        slots = pending.slots if pending is not None and pending.pc == halt.pc else []
-        if pending is None and self._pre_pc == halt.pc:
-            slots = self._pre  # faulted at its BREAK stop's retire, before ``begin``
-        self._pre, self._pre_pc, self._broke = [], None, False
+        its PC alone): no slots, no writes, as nothing of it retired."""
+        self._pending, self._pre, self._pre_pc, self._broke = None, [], None, False
         assert halt.fault is not None
         self._emit(
-            _Pending(halt.pc, slots=slots),
+            _Pending(halt.pc),
             self.state.program_counter,
             "fault",
             FaultInfo(halt.fault.label, halt.pc),

@@ -201,8 +201,10 @@ def test_a_fault_cycle_names_the_fault_and_pc():
     records = _collect(state)
     assert [r.outcome for r in records] == ["retired", "fault"]
     assert records[-1].fault == FaultInfo("F-3", 1) and records[-1].pc_before == 1
-    assert {op.mnemonic for op in records[-1].slots} <= {"SET"}
-    assert records[-1].reg_writes == () and records[-1].xmem_writes == ()
+    # Nothing of a faulting word retires: no slots, no writes (E04-20).
+    assert (
+        records[-1].slots == () and records[-1].reg_writes == () and records[-1].xmem_writes == ()
+    )
     # F-2 at fetch: no word began, yet the run's end is recorded.
     state = make_state("INC LR0 1 ;;")
     records = _collect(state)

@@ -6,7 +6,7 @@ from __future__ import annotations
 import copy
 
 import pytest
-from emu_support import assemble_program, make_state, new_state
+from emu_support import ElementFormat, assemble_program, make_state, new_state
 
 from ipu_emu.emulator import load_program, run_until_complete
 from ipu_emu.errors import EmulatorFault
@@ -50,8 +50,8 @@ def _observable(state):
 MODES = [False, True] if build_enabled() else [False]
 
 
-def _prepared(program, cr, prototyping=False):
-    state = new_state(prototyping=prototyping)
+def _prepared(program, cr, prototyping=False, fmt=None):
+    state = new_state(prototyping=prototyping, fmt=fmt)
     load_program(state, program)
     for index, value in cr.items():
         state.regfile.set_cr(index, value)
@@ -60,8 +60,8 @@ def _prepared(program, cr, prototyping=False):
     return state
 
 
-def _faults_at_word_one(program, cr, want, prototyping=False):
-    state = _prepared(program, cr, prototyping)
+def _faults_at_word_one(program, cr, want, prototyping=False, fmt=None):
+    state = _prepared(program, cr, prototyping, fmt)
     # Run the first word (a plain INC) alone: the limit of 1 then faults F-9
     # at word 1, before it runs. Snapshot there.
     with pytest.raises(EmulatorFault, match="F-9"):
@@ -87,7 +87,8 @@ def test_a_faulting_word_has_no_effect(fault, prototyping):
     _faults_at_word_one(program, cr, fault, prototyping)
 
 
-def test_f1_word_has_no_effect():
+@pytest.mark.parametrize("prototyping", MODES)
+def test_f1_word_has_no_effect(prototyping):
     # A reserved activation code beside an LR write, a load and a multiply.
     word = dict(
         assemble_program(
@@ -99,7 +100,7 @@ def test_f1_word_has_no_effect():
         if plan.inst_name == "ACTIVATE.QUANTIZE":
             word[dict(plan.fields)["activation_fn"]] = 15
     program = [assemble_program("INC LR7 0 ;;")[0], word, assemble_program("HALT ;;")[0]]
-    _faults_at_word_one(program, {2: 5}, FaultId.F1)
+    _faults_at_word_one(program, {2: 5}, FaultId.F1, prototyping)
 
 
 @pytest.mark.parametrize(
@@ -125,9 +126,10 @@ def test_f1_word_has_no_effect():
         ),
     ],
 )
-def test_the_lowest_numbered_fault_wins(asm, cr, want):
+@pytest.mark.parametrize("prototyping", MODES)
+def test_the_lowest_numbered_fault_wins(asm, cr, want, prototyping):
     program = assemble_program(f"INC LR7 0 ;;\n{asm}\nHALT ;;")
-    _faults_at_word_one(program, cr, want)
+    _faults_at_word_one(program, cr, want, prototyping)
 
 
 def test_a_clean_word_with_a_check_runs_as_before():
@@ -136,3 +138,44 @@ def test_a_clean_word_with_a_check_runs_as_before():
     run_until_complete(state)
     assert state.halt == HaltRecord("halt", 1, None)
     assert state.regfile.get_lr(7) == 3 and bytes(state.regfile.get_r(0)) == bytes([7]) * 128
+
+
+def test_the_instructions_that_can_fault_on_register_values():
+    # The predicates are bound by name (check_<name> beside execute_<name>):
+    # a misspelt one would silently stop checking. Pin the set.
+    checked = {
+        (slot.value, plan.inst_name)
+        for slot in Slot
+        for _, plans in plans_for(slot)
+        for plan in plans
+        if plan.check is not None
+    }
+    assert checked == {
+        ("load", "LD.MULT"),
+        ("load", "LD.MULT.CYCLIC"),
+        ("load", "LD.MASK"),
+        ("store", "ST.AAQ"),
+        ("acc_store", "ST.ACC"),
+        ("acc", "ACC.RESHAPE"),
+    }
+
+
+@pytest.mark.filterwarnings("ignore::ipu_emu.errors.DebugOnlyInstructionWarning")
+@pytest.mark.parametrize("prototyping", MODES)
+@pytest.mark.parametrize("op", ["LD.MASK LR7 CR2", "ST.AAQ LR7 CR2", "ST.ACC LR7 CR2"])
+def test_each_load_and_store_faults_f6_with_no_effect(op, prototyping):
+    asm = f"SET LR7 CR9 ; INC LR6 1 ; {op} ;;"
+    program = assemble_program(f"INC LR7 0 ;;\n{asm}\nHALT ;;")
+    _faults_at_word_one(program, {9: 16384}, FaultId.F6, prototyping)
+
+
+@pytest.mark.parametrize("prototyping", MODES)
+def test_f6_follows_the_wide_row_size(prototyping):
+    # Wide-vector debug rows are 512 bytes: row 16384 is in XMEM there, and
+    # row 1 Mi (byte 512 MiB) is past it.
+    word = "SET LR7 CR9 ; INC LR6 1 ; LD.MULT R0 LR7 CR2 ;;"
+    program = assemble_program(f"INC LR7 0 ;;\n{word}\nHALT ;;")
+    _faults_at_word_one(program, {9: 1 << 20}, FaultId.F6, prototyping, ElementFormat.FP32)
+    state = _prepared(program, {9: 16384}, prototyping, ElementFormat.FP32)
+    run_until_complete(state)
+    assert state.halt == HaltRecord("halt", 2, None)

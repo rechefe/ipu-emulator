@@ -38,6 +38,7 @@ from ipu_emu.ipu_state import WideVectorArithmetic
 from ipu_emu.numerics import LaneCodec, codec_for
 from ipu_emu.xmem import XMEM_SIZE_BYTES
 from ipu_isa.constants import LR_CR_SCALAR_BITS, Partition
+from ipu_isa.faults import FaultId
 from ipu_isa.formats import FORMATS, ElementFormat
 from ipu_isa.geometry import LANES
 from ipu_isa.registers import lrd_pair
@@ -64,6 +65,7 @@ __all__ = [
     "vector_registers",
     "xmem_element_width_bytes",
     "xmem_row_addr",
+    "xmem_row_check",
     "xmem_row_fault",
     "xmem_row_size_bytes",
 ]
@@ -290,6 +292,12 @@ def xmem_row_fault(state: IpuState, row: int) -> str | None:
             f"the {XMEM_SIZE_BYTES}-byte allocation"
         )
     return None
+
+
+def xmem_row_check(state: IpuState, row: int) -> tuple[FaultId, str] | None:
+    """:func:`xmem_row_fault` as a fault predicate's result: F-6 and why."""
+    detail = xmem_row_fault(state, row)
+    return None if detail is None else (FaultId.F6, detail)
 
 
 def xmem_row_addr(state: IpuState, row: int) -> int:

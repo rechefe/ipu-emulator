@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ipu_emu.geometry import vector_registers, xmem_row_addr, xmem_row_fault
+from ipu_emu.geometry import vector_registers, xmem_row_addr, xmem_row_check
 from ipu_isa.faults import FaultId
 from ipu_isa.geometry import LANES
 from ipu_isa.registers import get_mult_stage_map, get_register_sizes
@@ -32,14 +32,9 @@ def execute_load_nop(ipu: Ipu) -> None:
 Fault = tuple[FaultId, str]
 
 
-def _row_fault(ipu: Ipu, row: int) -> Fault | None:
-    detail = xmem_row_fault(ipu.state, row)
-    return None if detail is None else (FaultId.F6, detail)
-
-
 def check_ld_mult(ipu: Ipu, *, dest: int, offset: int, base: int) -> Fault | None:
     """F-6 for a row outside XMEM (``dest`` other than R0/R1 is F-1 at fetch)."""
-    return _row_fault(ipu, offset + base)
+    return xmem_row_check(ipu.state, offset + base)
 
 
 def _row_bytes(ipu: Ipu) -> int:
@@ -68,7 +63,7 @@ def check_ld_mult_cyclic(ipu: Ipu, *, offset: int, base: int, index: int) -> Fau
             f"LD.MULT.CYCLIC: index must be one of {R_CYCLIC_VALID_INDICES} "
             f"(R_CYCLIC slot boundaries); got {index}",
         )
-    return _row_fault(ipu, offset + base)
+    return xmem_row_check(ipu.state, offset + base)
 
 
 def execute_ld_mult_cyclic(ipu: Ipu, *, offset: int, base: int, index: int) -> None:
@@ -94,7 +89,7 @@ def execute_ld_mult_cyclic(ipu: Ipu, *, offset: int, base: int, index: int) -> N
 
 def check_ld_mask(ipu: Ipu, *, offset: int, base: int) -> Fault | None:
     """F-6 for a row outside XMEM."""
-    return _row_fault(ipu, offset + base)
+    return xmem_row_check(ipu.state, offset + base)
 
 
 def execute_ld_mask(ipu: Ipu, *, offset: int, base: int) -> None:

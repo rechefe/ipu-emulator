@@ -7,11 +7,14 @@ instruction at the PC) is an idle cycle: it counts one idle multiplier cycle and
 advances the PC. Two LR sub-slots writing the same register is fault F-3,
 raised before any LR write.
 
-An illegal program faults (E04-19): a fetch at or past ``program_length`` is
-F-2, an undefined opcode or a reserved operand code (or one past its type's
-width) F-1, an XMEM access beyond the allocation F-6, and
-handlers raise the rest. Every :class:`EmulatorFault` leaving a cycle has first
-recorded ``IpuState.halt``.
+An illegal program faults (E04-19), precisely (E04-20): a fetch at or past
+``program_length`` is F-2; an undefined opcode or a reserved operand code (or
+one past its type's width) F-1, and an LR conflict F-3, are found before any
+slot runs; F-4 to F-6 are found by the check phase after the LR slot, from
+each checked op's ``check_<name>`` predicate, which undoes the LR writes on a
+fault. A faulting word changes nothing but the halt record and the sticky
+flag; the lowest-numbered fault is recorded. Every :class:`EmulatorFault`
+leaving a cycle has first gone through ``IpuState.record_fault``.
 
 :class:`Cycle` owns all of that: the snapshot, the slot order, the idle-word
 path, the LR conflict check and the observers' hooks. It knows nothing
