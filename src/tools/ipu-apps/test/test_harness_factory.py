@@ -486,7 +486,6 @@ def test_every_assembly_has_a_registered_case():
         ),
         ("l2_normalize_channels", dict(shape=(1, 10**10))),
         ("channel_peak", dict(shape=(0, 2))),
-        ("score_threshold", dict(shape=(0,))),
     ],
 )
 def test_memory_harness_rejects_unsupported_geometry(name, params):

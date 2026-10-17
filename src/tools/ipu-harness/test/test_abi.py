@@ -121,6 +121,18 @@ def test_a_derived_value_may_read_a_regions_base(tmp_path):
     assert (got["CR6"], got["CR7"]) == (5, 9)  # y at row 4: 4 + 1, then 5 + 4
 
 
+def test_a_region_may_reach_the_program_only_through_a_derived_value(tmp_path):
+    """A region bound at a parameter-dependent offset (sample_descriptors'
+    per-cell table, E07-15) needs no binding of its own; one that no bound
+    value reads still does."""
+    toml = SCALE.format(unit="").replace('neg = "-rows"', 'neg = "-rows"\nyr = "base(y) + rows"')
+    bound = toml.replace('y    = "CR3"', 'yr   = "CR3"')
+    got = writes(kernel(tmp_path, bound), {"rows": 4, "s": 2.0}, F.FP32)
+    assert got["CR3"] == 8  # y at row 4, plus rows
+    with pytest.raises(ManifestError, match="does not bind tensor 'y'"):
+        kernel(tmp_path / "unbound", toml.replace('y    = "CR3"\n', ""))
+
+
 def test_a_bytes_kernels_base_counts_bytes(tmp_path, monkeypatch):
     monkeypatch.setattr(manifest_module, "BYTE_UNIT_KERNELS", frozenset({"elementwise/scale"}))
     toml = SCALE.format(unit=', unit = "bytes"').replace(

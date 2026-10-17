@@ -67,7 +67,8 @@ Schema
     conditions exclude each other (``bias`` and ``not bias``). A float
     parameter (an element scalar) binds a CR. Every key names a parameter, a
     tensor or a derived value, and every tensor is bound (its base row must
-    reach the program).
+    reach the program), itself or through a bound ``[derived]`` value that
+    reads its ``base()``.
 
 ``[derived]``
     ``<name> = "<expression>"`` over parameters and earlier derived values,
@@ -749,6 +750,7 @@ def _abi(
     params: Mapping[str, ParamDecl],
     names: set[str],
     tensors: Mapping[str, TensorDecl],
+    placed: Mapping[str, frozenset[str]],
 ) -> tuple[Mapping[str, str], Mapping[str, int], Mapping[str, Condition]]:
     table = r.table(raw, ("abi",))
     abi: dict[str, str] = {}
@@ -770,8 +772,11 @@ def _abi(
                 raise r.fail(path, f"[abi] {name} and {other} both bind {register}")
         used.setdefault(register, []).append(name)
         abi[name] = register
+    # A bound placed value that reads base(x) carries x's base to the program
+    # too (a region bound at a parameter-dependent offset, E07-15).
+    reached = {tensor for name, reads in placed.items() if name in abi for tensor in reads}
     for tensor in tensors.values():
-        if tensor.name not in abi:
+        if tensor.name not in abi and tensor.name not in reached:
             raise r.fail(
                 (tensor.section, tensor.name),
                 f"[abi] does not bind tensor {tensor.name!r}; its base row must reach the program",
@@ -1316,7 +1321,9 @@ def load_manifest(
             path = (tensor.section, tensor.name, "fill")
             _check_expression(r, tensor.fill, (*numbers, *derived), path)
     _no_placed_reads(r, placed, tensors, kernel.cost)
-    abi, abi_offsets, abi_when = _abi(r, data.get("abi", {}), params, {*scalars, *tensors}, tensors)
+    abi, abi_offsets, abi_when = _abi(
+        r, data.get("abi", {}), params, {*scalars, *tensors}, tensors, placed
+    )
     _placed_conditions(r, placed, tensors, abi_when, abi)
     manifest = KernelManifest(
         name=entry.name or directory.name,

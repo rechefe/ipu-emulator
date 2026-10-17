@@ -10,6 +10,7 @@ names them; //kernels:test_families checks it against the kernel.toml folders.
 
 #: Each family's kernels, by folder name.
 KERNELS = {
+    "detect": ["channel_peak", "score_threshold"],
     "elementwise": ["scale"],
     "pooling": [
         "maxpool2d_nms",
@@ -19,6 +20,7 @@ KERNELS = {
     ],
     "projections": ["proj_p4", "proj_p4_2tg", "proj_p4_2tg_silu"],
     "reshape": ["concat", "depth_to_space", "identity"],
+    "sampling": ["sample_descriptors", "sample_descriptors_separable"],
 }
 
 #: The families each family may use: import from (ipu_kernels.<other>) or refer

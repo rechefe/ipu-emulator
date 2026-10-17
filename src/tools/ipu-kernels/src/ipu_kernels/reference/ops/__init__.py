@@ -20,6 +20,7 @@ it.
 
 from __future__ import annotations
 
+from ipu_kernels.reference.ops.channel_peak import channel_peak
 from ipu_kernels.reference.ops.concat import concat
 from ipu_kernels.reference.ops.depth_to_space import depth_to_space
 from ipu_kernels.reference.ops.identity import identity
@@ -27,10 +28,13 @@ from ipu_kernels.reference.ops.layernorm import layernorm
 from ipu_kernels.reference.ops.linear import linear
 from ipu_kernels.reference.ops.matmul import matmul
 from ipu_kernels.reference.ops.maxpool2d import maxpool2d
+from ipu_kernels.reference.ops.sample_descriptors import sample_descriptors
+from ipu_kernels.reference.ops.score_threshold import score_threshold
 from ipu_kernels.reference.ops.silu import silu
 from ipu_kernels.reference.ops.softmax import softmax
 
 __all__ = [
+    "channel_peak",
     "concat",
     "depth_to_space",
     "identity",
@@ -38,6 +42,8 @@ __all__ = [
     "linear",
     "matmul",
     "maxpool2d",
+    "sample_descriptors",
+    "score_threshold",
     "silu",
     "softmax",
 ]

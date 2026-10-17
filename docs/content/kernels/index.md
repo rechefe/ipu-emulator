@@ -60,8 +60,8 @@ the current list.
 | `unfold`, `fold`, `concat` | 3 each — see [Normalization and shaping](normalization-and-shaping.md) |
 | `qk_scores`, `attn_scores_km`, `attn_v`, `attn_v_bcast` | 3 each — see [Attention](attention.md) |
 | `maxpool2d` | 5 in `kernels/pooling/` (`maxpool2d_window`, `_nms7`, `_nms9`, `_stride2`, `_stride2_tail`; `bazel run //kernels:query`) |
-| `sample_descriptors` | 2 (`sample_descriptors`, `sample_descriptors_separable`) |
-| `channel_peak`, `score_threshold`, `l2_normalize`, `depth_to_space`, `identity`, `fully_connected` | 1 each |
+| `sample_descriptors` | 2 in `kernels/sampling/` (`sample_descriptors`, `sample_descriptors_separable`) |
+| `channel_peak`, `score_threshold` (`kernels/detect/`), `l2_normalize`, `depth_to_space`, `identity`, `fully_connected` | 1 each |
 
 See [Building applications](../building-applications.md) for the structure they
 share.
