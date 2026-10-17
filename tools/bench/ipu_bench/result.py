@@ -4,19 +4,16 @@ from __future__ import annotations
 
 import json
 import math
-import os
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 
 # Times and memory (``customSmallerIsBetter``) and rates (``customBiggerIsBetter``).
 SMALLER_FILE = "bench-smaller.json"
 BIGGER_FILE = "bench-bigger.json"
 
-# Set by the smoke test: every module runs its smallest useful measurement, so
-# the modules cannot rot without the default tier noticing.
-TINY_ENV = "IPU_BENCH_TINY"
 
 _NAME = re.compile(r"[a-z0-9_]+(/[a-z0-9_.]+)+")
 
@@ -46,9 +43,16 @@ class Result:
         return entry
 
 
-def tiny_budget() -> bool:
-    """True under the smoke test: measure as little as still exercises the code."""
-    return os.environ.get(TINY_ENV) == "1"
+class Budget(Enum):
+    """How much a benchmark module measures."""
+
+    #: Every case, every repeat: the nightly numbers.
+    FULL = "full"
+    #: Fewer repeats, for a PR's before/after table (``--quick``).
+    QUICK = "quick"
+    #: As little as still runs the code (``--tiny``): the smoke test, so no
+    #: module can rot without the default tier noticing.
+    TINY = "tiny"
 
 
 def write_results(results: Iterable[Result], out_dir: Path) -> tuple[Path, Path]:

@@ -9,7 +9,7 @@ import pytest
 
 from ipu_apps.kernel_registry import baseline
 from ipu_apps.kernel_registry.cases import load_cases, run_case
-from ipu_apps.kernel_registry.testing import check_baseline
+from ipu_apps.kernel_registry.testing import record_baseline
 from ipu_emu.xmem import XMEM_SIZE_BYTES
 
 _KERNEL = "identity"
@@ -82,13 +82,12 @@ def test_differences_list_each_field():
     ]
 
 
-def test_the_update_command_writes_the_kernel_folder(monkeypatch, tmp_path):
-    monkeypatch.setenv(baseline.UPDATE_ENV, str(tmp_path))
+def test_the_update_command_writes_the_kernel_folder(tmp_path):
     path = baseline.source_path(tmp_path, _KERNEL)
     path.parent.mkdir(parents=True)
     record = _record()
     updated: dict = {}
-    check_baseline(_KERNEL, "default", record, updated)
+    record_baseline(tmp_path, _KERNEL, "default", record, updated)
     assert path.as_posix().endswith("kernels/reshape/identity/baseline.json")
     written = json.loads(path.read_text())
     assert baseline.CaseRecord.from_json(written["default"]) == record

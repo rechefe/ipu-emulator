@@ -18,11 +18,25 @@ from dataclasses import dataclass
 from types import MappingProxyType
 
 from ipu_isa.codec.word import word_layout
-from ipu_isa.errors import IpuError
+from ipu_isa.errors import IpuError, IsaLookupError
 from ipu_isa.faults import FaultId, reserved_operand_codes
 from ipu_isa.schema import SpecError
 from ipu_isa.slots import Slot
-from ipu_isa.view import Instruction, Isa, isa
+from ipu_isa.view import Instruction, Isa, isa, mnemonic_key
+
+
+def field_code(value: int, bits: int) -> int:
+    """The ``bits``-bit field code of ``value``: a negative value in two's
+    complement, any other as it is.
+
+    Args:
+        value: The operand's value, signed or not.
+        bits: The field's width.
+
+    Returns:
+        The code, ``0 <= code < 2**bits`` for an in-range value.
+    """
+    return value + (1 << bits) if value < 0 else value
 
 
 class EncodeError(IpuError, ValueError):
@@ -92,7 +106,7 @@ class SlotCodec:
         "_fields",
         "_opcode_shift",
         "_instructions",
-        "_by_mnemonic",
+        "_view",
         "_operands",
         "_used",
         "_nop",
@@ -111,7 +125,7 @@ class SlotCodec:
         self._fields = tuple(fields)
         self._opcode_shift = self.bits - union.opcode_bits
         self._instructions = view.instructions(slot)
-        self._by_mnemonic = {i.mnemonic.upper(): i for i in self._instructions}
+        self._view = view
         self._operands: dict[str, tuple[_Operand, ...]] = {}
         self._used: dict[str, int] = {}  # mnemonic -> mask of its opcode and operand bits
         opcode_mask = ((1 << union.opcode_bits) - 1) << self._opcode_shift
@@ -153,8 +167,8 @@ class SlotCodec:
             EncodeError: The slot has no such instruction.
         """
         try:
-            return self._by_mnemonic[mnemonic.upper()]
-        except KeyError:
+            return self._view.instruction(self.slot, mnemonic)
+        except IsaLookupError:
             raise EncodeError(f"{self.slot}: no instruction {mnemonic!r}") from None
 
     def encode(self, mnemonic: str, operands: Sequence[int]) -> int:
@@ -191,6 +205,33 @@ class SlotCodec:
                     "is a reserved code"
                 )
             value |= encoded << operand.field.shift
+        return value
+
+    def encode_with_reserved(self, mnemonic: str, operands: Sequence[int]) -> int:
+        """``encode``, but an operand may be one of its reserved codes.
+
+        A reserved code (``ACC.STRIDE``'s ``reserved3``) has no meaning:
+        hardware faults (F-1) when it runs. An assembler writes one on purpose
+        for fault tests, so it encodes with this method.
+
+        Args:
+            mnemonic: An instruction of this slot (case-insensitive).
+            operands: Encoded operand values, in assembly order.
+
+        Returns:
+            The slot's bits, each reserved code at its operand's field.
+
+        Raises:
+            EncodeError: As ``encode``, but for a reserved code.
+        """
+        instruction = self.instruction(mnemonic)
+        layout = self._operands[instruction.mnemonic]
+        reserved = {
+            i for i, (op, v) in enumerate(zip(layout, operands, strict=False)) if v in op.reserved
+        }  # encode checks the count
+        value = self.encode(mnemonic, [0 if i in reserved else v for i, v in enumerate(operands)])
+        for i in reserved:
+            value |= operands[i] << layout[i].field.shift
         return value
 
     def nop(self) -> int:
@@ -307,7 +348,7 @@ def _codecs(view: Isa) -> Codecs:
     opcode_slot: dict[str, Slot] = {}
     for slot in view.layout.layout_order:
         for instruction in view.instructions(slot):
-            mnemonic = instruction.mnemonic.upper()
+            mnemonic = mnemonic_key(instruction.mnemonic)
             if mnemonic == "NOP":
                 continue
             try:

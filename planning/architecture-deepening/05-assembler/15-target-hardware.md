@@ -34,6 +34,7 @@ The same source can be assembled for the RTL (Q42):
 - [ ] A source with `BREAK` fails with `--target hardware` at the `BREAK` location, and assembles with the default target.
 - [ ] Hardware `.bin` length = words × aligned hardware word bytes.
 - [ ] Round trip: hardware-assemble, disassemble with `--target hardware`, re-assemble gives identical words.
+  *As built:* the round trip needs source the assembler reads, so `disassemble --syntax assembly` (`ipu_isa.codec.disasm.program_text`) writes it; the default field listing is unchanged. `//src/tools/ipu-apps:test_assembly_round_trip` runs it over the whole kernel corpus for both targets, and `test_target.py` through the CLI.
 - [ ] The default target digests are unchanged. `bazel test //...` green.
 
 ## Acceptance Criteria

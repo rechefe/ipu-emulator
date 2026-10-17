@@ -261,3 +261,14 @@ ruff_test(
     name = "ruff_lint",
     srcs = glob(["**/*.py"]),
 )
+
+# What every baseline updater and baseline test shares: the workspace an
+# update_* target writes into, and the snapshot diff a test fails with.
+py_library(
+    name = "baseline_support",
+    testonly = True,
+    srcs = ["baseline_support.py"],
+    imports = ["."],
+    visibility = ["//visibility:public"],
+    deps = [requirement("pytest")],
+)

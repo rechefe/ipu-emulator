@@ -7,7 +7,7 @@ Each package is measured through the module its users import first: a bare
 from __future__ import annotations
 
 from ipu_bench.isolated import python_wall_s
-from ipu_bench.result import Result, tiny_budget
+from ipu_bench.result import Budget, Result
 
 # Result name -> the module imported.
 MODULES = {
@@ -17,8 +17,8 @@ MODULES = {
 }
 
 
-def run(quick: bool) -> list[Result]:
-    repeats = 1 if tiny_budget() else 2 if quick else 5
+def run(budget: Budget) -> list[Result]:
+    repeats = {Budget.FULL: 5, Budget.QUICK: 2, Budget.TINY: 1}[budget]
     startup = min(python_wall_s("pass") for _ in range(repeats))
     results = []
     for name, module in MODULES.items():

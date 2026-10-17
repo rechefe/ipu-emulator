@@ -33,7 +33,8 @@ test:full --test_tag_filters=-docs
 
 # Prototyping build: the emulator's opt-in fast paths. Short form of
 # --define=ipu_proto=1, which keeps working. CI runs the default tier in both
-# modes (the `proto` job in .github/workflows/ci.yml).
+# modes (the `proto` job in .github/workflows/ci.yml), and the nightly
+# workflow's `proto` job the heavy tier.
 build:proto --define=ipu_proto=1
 
 # Docs build: giscus settings for docs/hooks/giscus_env.py. Scoped to

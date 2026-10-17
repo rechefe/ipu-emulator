@@ -3,10 +3,10 @@
 
 from __future__ import annotations
 
-import difflib
 from pathlib import Path
 
 import asm_corpus
+import baseline_support
 import disassembly
 import pytest
 
@@ -34,17 +34,10 @@ def test_disassembly_matches_snapshot(entry):
         pytest.fail(f"No snapshot {name}; run {disassembly.UPDATE_COMMAND}")
     expected = path.read_text()
     actual = disassembly.disassemble(asm_corpus.assemble(ROOT, entry).words)
-    if actual != expected:
-        diff = "".join(
-            difflib.unified_diff(
-                expected.splitlines(keepends=True),
-                actual.splitlines(keepends=True),
-                f"{name} (snapshot)",
-                f"{name} (current code)",
-                n=1,
-            )
-        )
-        pytest.fail(
-            f"{entry.key}: disassembly changed. If intended, run "
-            f"{disassembly.UPDATE_COMMAND}\n{diff}"
-        )
+    baseline_support.fail_if_changed(
+        expected,
+        actual,
+        name=name,
+        what=f"{entry.key}: disassembly",
+        update_command=disassembly.UPDATE_COMMAND,
+    )

@@ -348,7 +348,11 @@ py_pytest_test(
     name = "test_decode_snapshots",
     srcs = ["test/test_decode_snapshots.py"],
     data = glob(["test/baselines/*.json"]),
-    deps = [":decode_snapshots", requirement("pytest")],
+    deps = [
+        ":decode_snapshots",
+        "//tools:baseline_support",
+        requirement("pytest"),
+    ],
 )
 
 py_binary(
@@ -356,7 +360,10 @@ py_binary(
     testonly = True,
     srcs = ["test/baselines/update_decode_snapshots.py"],
     main = "test/baselines/update_decode_snapshots.py",
-    deps = [":decode_snapshots"],
+    deps = [
+        ":decode_snapshots",
+        "//tools:baseline_support",
+    ],
 )
 
 # SV package golden (E02-03): the rendered ipu_instr_pkg.sv
@@ -367,7 +374,10 @@ py_binary(
     testonly = True,
     srcs = ["test/golden/update_sv_golden.py"],
     main = "test/golden/update_sv_golden.py",
-    deps = ["//src/tools/ipu-gen:ipu_gen_lib"],
+    deps = [
+        "//src/tools/ipu-gen:ipu_gen_lib",
+        "//tools:baseline_support",
+    ],
 )
 
 py_pytest_test(
@@ -378,7 +388,11 @@ py_pytest_test(
     ],
     data = ["test/golden/ipu_instr_pkg.sv"],
     imports = ["test/golden"],
-    deps = ["//src/tools/ipu-gen:ipu_gen_lib", requirement("pytest")],
+    deps = [
+        "//src/tools/ipu-gen:ipu_gen_lib",
+        "//tools:baseline_support",
+        requirement("pytest"),
+    ],
 )
 
 # The SV rename table published for the downstream RTL repo (E03-19).
@@ -410,7 +424,11 @@ py_pytest_test(
     name = "test_generated_artifacts",
     srcs = ["test/test_generated_artifacts.py"],
     data = glob(["test/baselines/generated/**"]),
-    deps = [":generated_artifacts", requirement("pytest")],
+    deps = [
+        ":generated_artifacts",
+        "//tools:baseline_support",
+        requirement("pytest"),
+    ],
 )
 
 py_binary(
@@ -418,7 +436,10 @@ py_binary(
     testonly = True,
     srcs = ["test/baselines/update_generated_artifacts.py"],
     main = "test/baselines/update_generated_artifacts.py",
-    deps = [":generated_artifacts"],
+    deps = [
+        ":generated_artifacts",
+        "//tools:baseline_support",
+    ],
 )
 
 # Assembler wall time split into render, parse and encode, over every program

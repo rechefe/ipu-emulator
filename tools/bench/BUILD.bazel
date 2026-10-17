@@ -45,7 +45,7 @@ py_binary(
     deps = [":ipu_bench"],
 )
 
-# Every benchmark module with quick=True and a tiny budget, so none can rot;
+# Every benchmark module on the TINY budget (`--tiny`), so none can rot;
 # plus the result format and the CI wall-time parsing.
 py_pytest_test(
     name = "bench_smoke_test",
