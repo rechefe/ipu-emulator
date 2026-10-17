@@ -40,12 +40,16 @@ Schema
     ``pack`` (inputs and outputs): a named pack transform (E06-05); an output's
     lays out the stored rows that :func:`ipu_harness.packing.unpack` reads back. ``store`` (outputs):
     ``element`` (default) or ``accumulator``. ``fill`` (scratch): the value the
-    region is filled with, default 0. ``bytes`` (scratch, not with ``fill``):
+    region is filled with, default 0: a number, or an expression over
+    parameters and derived values in the shape grammar, evaluated exactly
+    (``"-1 / channels"``, whole or not) and rounded to the format when
+    stored. ``bytes`` (scratch, not with ``fill``):
     ``"file.py:fn"``, ``fn(plan)`` returns the region's exact starting bytes,
     format-blind (a lane mask, which no element value can carry). The runner
     writes either through :func:`ipu_harness.packing.region_fill`. Scratch
     regions are placed and filled, never compared. ``range`` (inputs): ``[lo, hi]`` for the generated values in
-    every format, or ``{ int8 = [lo, hi], e4 = [lo, hi] }`` per format (E06-08).
+    every format, or ``{ int8 = [lo, hi], e4 = [lo, hi] }`` per format (E06-08);
+    ``lo`` may equal ``hi`` (a constant input).
 
 ``[abi]``
     ``<name> = "CR2"`` .. ``"CR15"``, or ``"LR0"`` .. ``"LR15"`` (a preset, E06-06).
@@ -266,7 +270,9 @@ class TensorDecl:
         when: The condition it exists under (``when = "bias"``), if any.
         pack: The named pack transform of an input or output (E06-05).
         store: How an output is stored: ``element`` or ``accumulator``.
-        fill: The value a scratch region is filled with.
+        fill: The value a scratch region is filled with: a number, or an
+            expression over parameters and derived values, evaluated exactly
+            (``"1 / channels"``) and rounded to the format when stored.
         content: ``"file.py:fn"`` giving a scratch region's bytes, if it says.
         value_range: ``[lo, hi]`` per format for an input's generated values
             (``range``, E06-08); a format not listed takes the default.
@@ -280,7 +286,7 @@ class TensorDecl:
     when: Condition | None = None
     pack: str | None = None
     store: Store = "element"
-    fill: int | float = 0
+    fill: int | float | str = 0
     content: str | None = None
     value_range: Mapping[ElementFormat, tuple[float, float]] = field(
         default_factory=lambda: MappingProxyType({})
@@ -535,8 +541,8 @@ def _pair(r: Reader, raw: object, path: tuple[str, ...]) -> tuple[float, float]:
     if len(pair) != 2:
         raise r.fail(path, f"{where(path)} must be [lo, hi]")
     lo, hi = (r.typed(v, (int, float), path) for v in pair)
-    if not lo < hi:
-        raise r.fail(path, f"{where(path)} [{lo}, {hi}] is empty: lo must be below hi")
+    if lo > hi:
+        raise r.fail(path, f"{where(path)} [{lo}, {hi}] is empty: lo must not be above hi")
     return float(lo), float(hi)
 
 
@@ -631,7 +637,10 @@ def _tensor(
             )
         decl = replace(decl, store=store)
     if "fill" in table:
-        decl = replace(decl, fill=r.typed(table["fill"], (int, float), (*path, "fill")))
+        fill = r.typed(table["fill"], (int, float, str), (*path, "fill"))
+        if isinstance(fill, str):
+            _check_expression(r, fill, names, (*path, "fill"))
+        decl = replace(decl, fill=fill)
     if "range" in table:
         ranges = _range(r, table["range"], (*path, "range"), formats)
         decl = replace(decl, value_range=MappingProxyType(ranges))
@@ -1129,7 +1138,11 @@ def _no_placed_reads(
     reading: list[tuple[tuple[str, ...], str]] = [
         ((tensor.section, tensor.name, key), text)
         for tensor in tensors.values()
-        for key, texts in (("shape", tensor.shape), ("row", (tensor.row,)))
+        for key, texts in (
+            ("shape", tensor.shape),
+            ("row", (tensor.row,)),
+            ("fill", (tensor.fill,)),
+        )
         for text in texts
         if isinstance(text, str)
     ]

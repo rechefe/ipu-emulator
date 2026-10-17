@@ -190,9 +190,9 @@ RULES = [
     ),
     (
         '[inputs.x]\nshape = ["rows", 128]',
-        '[inputs.x]\nshape = ["rows", 128]\nrange = [2, 2]',
+        '[inputs.x]\nshape = ["rows", 128]\nrange = [3, 2]',
         "is empty",
-        "range = [2, 2]",
+        "range = [3, 2]",
     ),
     (
         '[inputs.x]\nshape = ["rows", 128]',

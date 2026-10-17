@@ -30,6 +30,7 @@ import numpy as np
 
 from ipu_harness._codec import Array, decode, encode
 from ipu_harness._plugins import import_named, load_file
+from ipu_harness.expressions import ExpressionError, evaluate_exact
 from ipu_harness.manifest import TensorDecl
 from ipu_harness.params import CasePlan, PlanError
 from ipu_isa.formats import FORMATS, ElementFormat
@@ -292,6 +293,19 @@ def unpack(
     return _laid_out(tensor, plan, package, lambda t: t.from_rows(rows, plan, shape))
 
 
+def _fill_value(tensor: TensorDecl, plan: CasePlan) -> float:
+    """A scratch region's ``fill``: its number, or its expression evaluated
+    exactly over the case's integer parameters and derived values."""
+    if not isinstance(tensor.fill, str):
+        return float(tensor.fill)
+    ints = {k: v for k, v in plan.params.items() if isinstance(v, int) and not isinstance(v, bool)}
+    try:
+        return float(evaluate_exact(tensor.fill, {**ints, **plan.derived}))
+    except ExpressionError as error:
+        key = f"{tensor.section}.{tensor.name}.fill"
+        raise PlanError(plan.manifest, key, f"{tensor.fill!r}: {error}") from None
+
+
 def region_fill(tensor: TensorDecl, plan: CasePlan, rows: int) -> bytes:
     """A scratch region's starting bytes.
 
@@ -309,13 +323,14 @@ def region_fill(tensor: TensorDecl, plan: CasePlan, rows: int) -> bytes:
         ``rows x row_bytes`` bytes.
 
     Raises:
-        PlanError: The function's result is not bytes of exactly that size.
+        PlanError: The function's result is not bytes of exactly that size, or
+            the ``fill`` expression does not evaluate (division by zero).
     """
     region_bytes = rows * FORMATS[plan.format].row_bytes
     if tensor.content is None:
         fmt = stored_format(tensor, plan.format)
         elements = region_bytes // FORMATS[fmt].element_bytes
-        return encode(np.full(elements, tensor.fill, dtype=np.float64), fmt)
+        return encode(np.full(elements, _fill_value(tensor, plan), dtype=np.float64), fmt)
     file, _, name = tensor.content.partition(":")
     data = getattr(load_file(plan.manifest.directory / file), name)(plan)
     key = f"{tensor.section}.{tensor.name}.bytes"

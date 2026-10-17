@@ -201,6 +201,44 @@ def test_a_filled_region_is_its_fill_in_every_element(tmp_path):
     assert region_fill(m.tensors["mask"], plan, 2) == np.full(256, 1.5, "<f4").tobytes()
 
 
+def test_a_fill_may_be_an_exact_expression_of_the_case(tmp_path):
+    """layernorm's 1/n and -1/n rows: evaluated exactly, rounded when stored."""
+    from ipu_harness.packing import region_fill
+
+    m = load_manifest(scratch_kernel(tmp_path, 'fill = "-1 / (rows + 1)"'))
+    assert m.tensors["mask"].fill == "-1 / (rows + 1)"
+    fp32 = plan_case(m, {"rows": 2}, F.FP32)
+    assert region_fill(m.tensors["mask"], fp32, 1) == np.full(128, -1 / 3, "<f4").tobytes()
+    int8 = plan_case(m, {"rows": 2}, F.INT8)  # -1/3 rounds to 0 in INT8
+    assert region_fill(m.tensors["mask"], int8, 1) == bytes(128)
+
+
+@pytest.mark.parametrize(
+    ("fill", "match"),
+    [('"1 / rowz"', "names no parameter"), ('"base(x)"', "names no parameter")],
+)
+def test_a_fill_expression_reads_only_the_cases_values(tmp_path, fill, match):
+    with pytest.raises(ManifestError, match=match):
+        load_manifest(scratch_kernel(tmp_path, f"fill = {fill}"))
+
+
+def test_a_constant_input_range_is_allowed(tmp_path):
+    from ipu_harness.cases import expand, inputs_for
+
+    directory = scratch_kernel(tmp_path, "")
+    toml = directory / "kernel.toml"
+    toml.write_text(
+        toml.read_text().replace(
+            '[inputs.x]\nshape = ["rows", 128]', '[inputs.x]\nshape = ["rows", 128]\nrange = [0, 0]'
+        )
+    )
+    m = load_manifest(directory)
+    case = expand(m)[0]
+    for fmt in (F.FP32, F.INT8):
+        x = inputs_for(case, plan_case(m, case.values, fmt, case=case.decl)).tensors["x"]
+        assert not x.any()
+
+
 def test_a_bytes_region_is_its_functions_bytes(tmp_path):
     import dataclasses
 

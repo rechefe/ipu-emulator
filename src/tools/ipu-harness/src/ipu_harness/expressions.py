@@ -181,6 +181,21 @@ def names_in(text: str) -> list[str]:
     ]
 
 
+def evaluate_exact(text: str, names: Mapping[str, int]) -> Fraction:
+    """``text`` over integer ``names``, exactly, whole or not (a scratch
+    region's ``fill``: ``"1 / channels"``).
+
+    Raises:
+        ExpressionError: Outside the grammar, an unknown name or division by
+            zero.
+    """
+    tree = _parse(text)
+    try:
+        return _walk(tree.body, {k: Fraction(v) for k, v in names.items()})
+    except RecursionError:
+        raise ExpressionError(f"{text[:40]!r}... is too deeply nested") from None
+
+
 def evaluate(text: str, names: Mapping[str, int]) -> int:
     """``text`` over integer ``names``, as an exact int.
 
