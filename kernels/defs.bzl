@@ -24,7 +24,7 @@ load(":families.bzl", "FAMILY_DEPS", "KERNELS")
 _ENTRY = "//src/tools/ipu-harness:src/ipu_harness/kernel_test.py"
 _PYTEST_SHIM = "@rules_python_pytest//python_pytest:pytest_shim.py"
 
-def ipu_kernel(name = None, extra_deps = [], size = "large", shard_count = None):
+def ipu_kernel(name = None, extra_deps = [], size = "large", shard_count = None, uses = []):
     """Declare kernel `name` from its folder.
 
     Args:
@@ -34,6 +34,9 @@ def ipu_kernel(name = None, extra_deps = [], size = "large", shard_count = None)
         shard_count: shards of :<name> and :<name>_nightly; set it for a kernel
             with more than about 60 case x format runs, so a shard keeps inside
             the CI budget (Starlark cannot read kernel.toml to count them).
+        uses: kernels of the same family whose programs this one's stages
+            hook runs (E06-14: `ctx.run_stage("../<kernel>/<any>.asm")`), by
+            folder name; their files become this kernel's data.
     """
     name = name or native.package_name().rpartition("/")[2]
     files = native.glob(
@@ -47,7 +50,12 @@ def ipu_kernel(name = None, extra_deps = [], size = "large", shard_count = None)
     )
     family = native.package_name().split("/")[1]
     # Its family's library and files only (E06-18): editing another family's
-    # kernel reruns none of these tests.
+    # kernel reruns none of these tests. `uses` adds a same-family kernel's
+    # files (E06-14 stages).
+    data = files + ["//kernels/" + family + ":files"] + [
+        "//kernels/" + family + "/" + used + ":" + used + "_files"
+        for used in uses
+    ]
     deps = [
         "//kernels/" + family + ":lib",
         "//src/tools/ipu-harness:kernel_test_lib",
@@ -65,7 +73,7 @@ def ipu_kernel(name = None, extra_deps = [], size = "large", shard_count = None)
             srcs = [_ENTRY, _PYTEST_SHIM],
             main = _ENTRY,
             args = ["$(rootpath kernel.toml)", "$(location " + _PYTEST_SHIM + ")", tier],
-            data = files + ["//kernels/" + family + ":files"],
+            data = data,
             deps = deps,
             legacy_create_init = False,
             size = target_size,
