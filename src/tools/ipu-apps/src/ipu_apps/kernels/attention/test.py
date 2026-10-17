@@ -12,9 +12,8 @@
   or ordering mismatch between them). Each seam is checked against a numpy
   reference of the WHOLE two-stage computation, and each has a mutation check
   proving the assertion would catch a shifted block.
-* **Softmax feed** -- the L5 producers' uncropped output against the real
-  softmax kernels: verbatim it is refused, cropped to the live lanes it
-  computes the right softmax.
+* The softmax feed (the L5 score kernels into the softmax kernels) is
+  kernels/attention/test_softmax_feed.py since E07-12.
 """
 
 from __future__ import annotations
@@ -828,79 +827,3 @@ def test_seam_km_bcast_48_row_pitch_mismatch_is_caught(inst, tmp_path):
         "mutating the producer's row pitch to a packed 256 B stride did not "
         f"change attn_v_bcast_48's output (max diff {float(diff.max()):.3e})"
     )
-
-
-# -- softmax feed: L5 scores into the real softmax kernels --------------------
-#
-# The question these tests answer: can a producer's raw,
-# UNCROPPED output (whole 512 B rows, N_TOK live lanes) be fed straight into
-# softmax? The softmax harnesses take a dense row-major (rows x cols) file and
-# refuse any other size, so verbatim it is rejected rather than silently read
-# as garbage; cropped to the live lanes (the consumer-crops convention) it
-# gives the right softmax. Softmax kernels live in another family; every
-# family test gets every kernel's .asm as data, so a missing one fails here.
-
-
-def _softmax(x, axis):
-    z = np.exp(x - x.max(axis=axis, keepdims=True))
-    return z / z.sum(axis=axis, keepdims=True)
-
-
-def test_query_major_scores_feed_softmax_rows(inst, tmp_path):
-    from ipu_apps.kernels.softmax.cases import run_array
-    from ipu_apps.kernels.softmax.softmax_rows_partial.app import SoftmaxRowsPartialApp
-
-    N, D = qk16.N, qk16.D
-    rng = np.random.RandomState(0)
-    Q = (rng.randn(D, N) * 2).astype(np.float32)
-    K = (rng.randn(D, N) * 2).astype(np.float32)
-    raw = _qk16_raw(inst, tmp_path, Q, K, "softmax")
-    assert len(raw) == N * ROW_BYTES
-
-    verbatim = tmp_path / "uncropped.bin"
-    verbatim.write_bytes(raw)
-    with pytest.raises(ValueError, match="input must hold"):
-        SoftmaxRowsPartialApp(
-            inst_path=assemble_kernel("softmax_rows_partial", tmp_path),
-            input_path=verbatim,
-            output_path=tmp_path / "sm.bin",
-            n=N,
-            rows=N,
-        ).run(max_cycles=2_000_000)
-
-    scores = np.frombuffer(raw, dtype=np.float32).reshape(N, LANES)[:, :N]
-    _, got = run_array("softmax_rows_partial", np.ascontiguousarray(scores), axis=1)
-    err = float(np.max(np.abs(got - _softmax(Q.T @ K, axis=1))))
-    assert err < 1e-4, f"softmax of cropped qk_scores_16x60 output: max abs error {err:.3e}"
-
-
-def test_key_major_scores_feed_softmax_columns(inst, tmp_path):
-    from ipu_apps.kernels.softmax.cases import run_array
-    from ipu_apps.kernels.softmax.softmax_columns_packed.app import SoftmaxColumnsPackedApp
-
-    N, D, head = km16.N_TOK, km16.D, 1
-    rng = np.random.RandomState(1)
-    Q = rng.uniform(-1.0, 1.0, size=(km16.N_HEADS * D, N)).astype(np.float32)
-    K = rng.uniform(-1.0, 1.0, size=(km16.N_HEADS * D, N)).astype(np.float32)
-    raw = _km16_raw(inst, tmp_path, Q, K, head, "softmax")
-    assert len(raw) == N * km16.N_TG * ROW_BYTES
-
-    verbatim = tmp_path / "uncropped.bin"
-    verbatim.write_bytes(raw)
-    with pytest.raises(ValueError, match="input must hold"):
-        SoftmaxColumnsPackedApp(
-            inst_path=assemble_kernel("softmax_columns_packed", tmp_path),
-            input_path=verbatim,
-            output_path=tmp_path / "smc.bin",
-            rows=N,
-            width=N,
-        ).run(max_cycles=2_000_000)
-
-    # Key-major storage: row s = key s. Softmax reduces over keys, i.e. down
-    # each COLUMN of the [key, query] matrix.
-    scores_km = np.frombuffer(raw, dtype=np.float32).reshape(N, LANES)[:, :N]
-    _, got = run_array("softmax_columns_packed", np.ascontiguousarray(scores_km), axis=0)
-    lo = head * D
-    expected = _softmax((Q[lo : lo + D].T @ K[lo : lo + D]).T, axis=0)  # [key, query]
-    err = float(np.max(np.abs(got - expected)))
-    assert err < 1e-4, f"softmax of cropped attn_scores_km_16x60 output: max abs error {err:.3e}"

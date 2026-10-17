@@ -1,0 +1,88 @@
+# qk_scores_64x48: L4 QK^T scores, query-major, all 16 (stream, head) blocks
+# in one run: y[b, i, s] = sum_c Q[b, i, c] K[b, s, c], 64 tokens, head_dim 48.
+# Pairs with attn_v_64x48 (the query-major chain), never with attn_v_bcast_48.
+[kernel]
+op = "qk_scores"                            # a separate op per chain stage keeps the query-major and key-major chains apart
+formats = ["fp32"]
+
+[params]
+n_tok = { type = "int", choices = [64] }   # fixed: legacy routes on exact (n_tok, d)
+d = { type = "int", choices = [48] }   # fixed: legacy routes on exact (n_tok, d)
+n_block = { type = "int", choices = [16], default = 16 }   # geometry, not in the legacy query: a default keeps (n_tok, d) queries routable
+seed = { type = "int", default = 0x4C0 }   # legacy RandomState seed (0x4C0); generator only
+pad = { type = "float", default = 0.0 }   # the padding lanes of b (pack "padded"): 0, as the old harness staged them
+
+# Legacy placement: the inputs back to back from row 0 in the order below, then the output; first fit in
+# declaration order reproduces it (compare_setup: IDENTICAL).
+[inputs.b]                         # K, channel-major: row (blk, c) holds the n_tok keys of channel c
+pack = "padded"
+shape = ["n_block", "d", "n_tok"]
+
+[inputs.a]                         # Q staged query-major: row (blk, i) holds query i's d channels (legacy _stage_inputs transposes)
+shape = ["n_block", "n_tok", "d"]
+
+[outputs.y]                             # S query-major: row (i, g) holds keys [g*128, g*128+128) -- RowMajor over n_tok keys
+shape = ["n_block", "n_tok", "n_tok"]
+# ST.AAQ, one row per store, in row order
+
+[derived]
+k_start = "-1"           # CR5
+chan_start = "-1"        # CR7
+chan_bound_unread = "d - 2" # CR8: written, never read
+k_block = "d"            # CR11: K rows per block
+rc_slot0 = "0"           # LR0
+k_stride = "1"           # LR2
+out_stride = "1"         # LR3
+chan_bound = "d - 2"     # LR6: the contraction bound (the program raises it by one into LR11)
+out_ptr = "0"            # LR7
+q_ptr = "0"              # LR8
+q_index = "0"            # LR9
+q_stride = "1"           # LR12
+k_block_off = "0"        # LR13
+block_index = "0"        # LR14
+dstruct = "dstructure(n_tok)" # CR15: valid_elements = n_tok
+
+[abi]
+b = "CR2"        # K_BASE (= row 0, but through a writable CR: no CR0 problem)
+a = "CR9"        # QROW_BASE
+y = "CR3"        # S_BASE
+k_start = "CR5"
+chan_start = "CR7"
+chan_bound_unread = "CR8"
+n_block = "CR10"
+k_block = "CR11"
+rc_slot0 = "LR0"
+k_stride = "LR2"
+out_stride = "LR3"
+chan_bound = "LR6"
+out_ptr = "LR7"
+q_ptr = "LR8"
+q_index = "LR9"
+n_tok = "LR10"
+q_stride = "LR12"
+k_block_off = "LR13"
+block_index = "LR14"
+dstruct = "CR15"
+# Zero-valued LR presets are bound on purpose: in a Chain (E06-15) LRs carry over from the previous step.
+
+[golden]
+op = "matmul"                          # y = a @ b in the logical shapes above (batched over the leading dim)
+tolerance = { fp32 = "FP32_ORDER" }    # a short contraction (d terms); the old check: rtol=1e-4, atol=1e-3 vs einsum("bci,bcs->bis").
+
+[cases.default]
+n_tok = 64
+d = 48
+n_block = 16
+seed = 0x4C0
+generator = "../gen.py:legacy_qk"
+
+# Garbage (1e3) in K's padding lanes, as a chained producer leaves another
+# stream's data there: the stored rows stay zero past n_tok (the old
+# stored-extent probe; test_padding.py reads the raw rows).
+[cases.padding_not_stored]
+n_tok = 64
+d = 48
+n_block = 16
+seed = 0x4C1
+pad = 1000.0
+generator = "../gen.py:legacy_qk"

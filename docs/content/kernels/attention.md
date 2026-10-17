@@ -21,7 +21,11 @@ S[i, s] = sum_c Q[c, i] * K[c, s]
 
 stored **query-major**: one whole row per query token. `qk_scores_64x48`
 covers all 16 (stream, head) pairs per call; `qk_scores_256x36` and
-`qk_scores_16x60` score one head per call.
+`qk_scores_16x60` score one head per call. The score kernels are folders under
+`kernels/attention/` (E07-12), run and tested as `//kernels/attention/<kernel>`;
+each is held to a matmul reference and, bit for bit, to the ACC datapath
+mirror (`ipu_kernels.reference.datapath.acc_fold`,
+`kernels/attention/test_datapath.py`).
 
 | Kernel | n_tok | d (head_dim) |
 |---|---|---|
@@ -33,7 +37,7 @@ covers all 16 (stream, head) pairs per call; `qk_scores_256x36` and
 
 Same mathematical scores as `qk_scores`, stored **key-major**: one whole row
 per key token. Optional query parameter `head` (0–3, default 0) selects which
-of the input file's 4 heads to score.
+of the 4 heads to score.
 
 | Kernel | n_tok | d (head_dim) |
 |---|---|---|
@@ -72,8 +76,8 @@ with `n_tok`.
 ## Queries
 
 ```bash
-bazel run //src/tools/ipu-apps:query -- qk_scores n_tok=64 d=48
-bazel run //src/tools/ipu-apps:query -- attn_scores_km n_tok=64 d=48 head=2
+bazel run //kernels:query -- qk_scores n_tok=64 d=48
+bazel run //kernels:query -- attn_scores_km n_tok=64 d=48 head=2
 bazel run //src/tools/ipu-apps:query -- attn_v n_tok=64 d=48
 bazel run //src/tools/ipu-apps:query -- attn_v_bcast d=48
 ```

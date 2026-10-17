@@ -330,6 +330,14 @@ Kept until a later issue (the old folder stays frozen, logged here when it goes)
 
 **Kept until later issues (the softmax shim).** `src/tools/ipu-apps/src/ipu_apps/kernels/softmax/` keeps `__init__.py`, `app.py` (`SoftmaxApp`, `softmax_spec`, and the `Softmax`/`LogSoftmax`/`Softmin` layer adapters of the old registry), `cases.py` (`run_array`), and the folders `softmax_rows/`, `softmax_rows_partial/` and `softmax_columns_packed/` (`app.py`, `cases.py`, `test.py`, `baseline.json`, the `.asm`). They are kept until E07-12 (`attention/test.py` imports `run_array`, `SoftmaxRowsPartialApp` and `SoftmaxColumnsPackedApp`), E07-24 (the MobileViT L4/L5 tests and `fixture_full_layer_chain.py` import the two apps) and E07-26 (the Cycle Inspector's `softmax_rows` trace and `test_harness_factory.py` run `softmax_rows` through `//src/tools/ipu-apps:trace_case` and `load_cases`); the issue that removes the last user deletes them, with rows here. The new kernels are the tested ones; the shim's programs are the old ones, byte for byte (`compare_legacy`). When the shim goes, its `softmax_rows_partial/test.py` takes with it `test_scatter_counts_every_partition`'s `mult_identity_cycles == 2 * rows` assertion, which the reference model's statistics cannot express (the new test keeps the lane counts); that issue's row records it.
 
+**E07-12 deletes no file (the score kernels' shim).** The six score kernels moved to `kernels/attention/` (`compare_setup` IDENTICAL for all 8 old cases; `compare_legacy`: 8/8 binary, output and cycles equal). `src/tools/ipu-apps/src/ipu_apps/kernels/attention/` keeps `qk_scores_*` and `attn_scores_km_*` (`app.py`, `cases.py`, `test.py`, `baseline.json`, the `.asm`) and the family `app.py`, `cases.py` (with `agg_fold`/`acc_fold`, now also `ipu_kernels/reference/datapath.py`) and `test.py` until E07-13: the family `test.py`'s seam tests chain the score kernels into the `attn_v*` kernels E07-13 migrates, and E07-13 deletes the family with rows here. Two tests left `src/tools/ipu-apps/src/ipu_apps/kernels/attention/test.py` for the new family:
+
+| Test | Now covered by |
+|---|---|
+| `test_query_major_scores_feed_softmax_rows` | `kernels/attention/test_softmax_feed.py::test_query_major_scores_feed_softmax_rows` (the new `qk_scores_16x60` and `softmax_rows_partial`, the same data) |
+| `test_key_major_scores_feed_softmax_columns` | `kernels/attention/test_softmax_feed.py::test_key_major_scores_feed_softmax_columns` (the new `attn_scores_km_16x60` and `softmax_columns_packed`, the same data) |
+
+With them, `attention/test.py` no longer uses the softmax shim; its other users are as listed above.
 ### Tests from `src/tools/ipu-apps/src/ipu_apps/kernels/projections/<kernel>/test.py` (11 files)
 
 | Test | Now covered by |
