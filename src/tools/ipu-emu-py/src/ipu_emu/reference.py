@@ -85,7 +85,8 @@ class Status:
 
     Attributes:
         state: Running (stepped and not stopped), halted (after reset, a
-            program load or a HALT word) or faulted.
+            program load, a HALT word, or a debugger quit that moved the PC
+            past IMEM) or faulted.
         pc: The program counter; after a HALT word or a fault, that word's.
         fault: The fault, when faulted; else ``None``.
     """
@@ -455,7 +456,7 @@ class ReferenceModel:
         if bridge is not None and bridge.state is not None and bridge.state is not self._state:
             raise ConfigurationError("an AliasProfile belongs to a single model")
         if bridge is not None and bridge.state is None:
-            profile._bridge = None  # its model is gone: the profile is free again
+            profile._bridge = None  # its model is gone (collected): the profile is free again
         old = self._state.alias_profile
         if old is not None and old is not profile and old._bridge is not None:
             old._bridge.detach()  # the replaced profile stops watching this model
@@ -547,8 +548,8 @@ class ReferenceModel:
             return Status(RunState.FAULTED, halt.pc, halt.fault)
         if halt is not None:
             return Status(RunState.HALTED, halt.pc)  # the HALT word's PC
-        if not self._started or state.program_counter >= INST_MEM_SIZE:
-            # Before the first word, or stopped past IMEM (a debugger's quit).
+        if not self._started or self._quit_past_imem():
+            # Before the first word, or a debugger quit that moved the PC past IMEM.
             return Status(RunState.HALTED, state.program_counter)
         return Status(RunState.RUNNING, state.program_counter)
 
@@ -576,6 +577,12 @@ class ReferenceModel:
             )
         return definition, definition["size_bytes"]
 
+    def _quit_past_imem(self) -> bool:
+        """A debugger quit moved the PC past IMEM (``ipu_debug``'s quit). A
+        program that runs off IMEM is not this: its next fetch faults F-2."""
+        state = self._state
+        return state.quit_requested and state.program_counter >= INST_MEM_SIZE
+
     def _writable(self) -> None:
         state = self.status.state
         if state is not RunState.HALTED:
@@ -592,7 +599,7 @@ class ReferenceModel:
             )
         if self._state.halt is not None:
             raise ConfigurationError("halted after HALT: reset or load a program first")
-        if self._state.program_counter >= INST_MEM_SIZE:
+        if self._quit_past_imem():
             raise ConfigurationError(
                 f"PC {self._state.program_counter} is past IMEM: reset or load a program first"
             )

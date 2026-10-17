@@ -750,3 +750,16 @@ def test_attaching_another_profile_detaches_the_one_before():
     _model().attach_alias_profile(first)  # free again
     with pytest.raises(ConfigurationError, match="no AliasProfile"):
         model.attach_alias_profile(None)
+
+
+def test_a_program_that_fills_imem_faults_f2_stepped_or_run():
+    words = _words("INC LR0 1 ;;") * INST_MEM_SIZE
+    stepped = ReferenceModel()
+    stepped.load_program(words)
+    for _ in range(INST_MEM_SIZE):
+        stepped.step()
+    assert stepped.status.state is RunState.RUNNING  # not a halt: the next fetch faults
+    assert stepped.step().fault == FaultInfo("F-2", INST_MEM_SIZE)
+    ran = ReferenceModel()
+    ran.load_program(words)
+    assert ran.run().status == stepped.status == Status(RunState.FAULTED, INST_MEM_SIZE, FaultId.F2)
