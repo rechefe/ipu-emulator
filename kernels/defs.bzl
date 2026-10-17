@@ -22,12 +22,15 @@ load("@rules_python//python:defs.bzl", "py_test")
 _ENTRY = "//src/tools/ipu-harness:src/ipu_harness/kernel_test.py"
 _PYTEST_SHIM = "@rules_python_pytest//python_pytest:pytest_shim.py"
 
-def ipu_kernel(name = None, extra_deps = [], size = "large", shard_count = None):
+def ipu_kernel(name = None, extra_deps = [], size = "large", shard_count = None, uses = []):
     """Declare kernel `name` from its folder.
 
     Args:
         name: the kernel's name; default the folder's (the last path component).
         extra_deps: libraries the folder's test_*.py import.
+        uses: kernels of the same family whose programs this one's stages
+            hook runs (E06-14: `ctx.run_stage("../<kernel>/<kernel>.asm")`), by
+            folder name; their files become this kernel's data.
         size: the test size of :<name> (kernels run in the emulator).
         shard_count: shards of :<name> and :<name>_nightly; set it for a kernel
             with more than about 60 case x format runs, so a shard keeps inside
@@ -43,6 +46,8 @@ def ipu_kernel(name = None, extra_deps = [], size = "large", shard_count = None)
         srcs = files,
         visibility = ["//visibility:public"],
     )
+    family = native.package_name().rpartition("/")[0]
+    data = files + ["//" + family + "/" + used + ":" + used + "_files" for used in uses]
     deps = [
         "//src/tools/ipu-harness:ipu_harness_lib",
         "//src/tools/ipu-harness:kernel_test_lib",
@@ -59,7 +64,7 @@ def ipu_kernel(name = None, extra_deps = [], size = "large", shard_count = None)
             srcs = [_ENTRY, _PYTEST_SHIM],
             main = _ENTRY,
             args = ["$(rootpath kernel.toml)", "$(location " + _PYTEST_SHIM + ")", tier],
-            data = files,
+            data = data,
             deps = deps,
             legacy_create_init = False,
             size = target_size,

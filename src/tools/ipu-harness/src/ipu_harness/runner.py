@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from ipu_as.session import AssemblyResult
 from ipu_emu.errors import ConfigurationError
 from ipu_emu.reference import ReferenceModel, RunState
 from ipu_emu.reference import RunResult as ModelRun
@@ -43,6 +44,7 @@ from ipu_harness.packing import pack, stored_format, stored_rows, unpack
 from ipu_harness.params import CasePlan, plan_case
 from ipu_harness.placement import Placement, place
 from ipu_harness.reference import evaluate, load_reference
+from ipu_harness.stages import StageOptions, run_stages
 from ipu_isa.codec.word import word_bytes
 from ipu_isa.faults import FaultId
 from ipu_isa.formats import FORMATS, ElementFormat
@@ -123,6 +125,9 @@ class RunResult:
         quit: The user quit the debugger: the run has no result (no outputs,
             no comparisons) and did not pass.
         halted: The run reached ``HALT``.
+        stages: A multi-stage kernel's stages (E06-14), each as its program
+            and the words it retired; ``cycles`` is their sum. Empty for a
+            one-program kernel.
     """
 
     kernel: str
@@ -137,6 +142,7 @@ class RunResult:
     alias_profile: AliasProfile | None = None
     quit: bool = False
     halted: bool = True
+    stages: tuple[tuple[str, int], ...] = ()
 
     @property
     def passed(self) -> bool:
@@ -153,6 +159,8 @@ class RunResult:
             f"MAC util={self.mac_utilization * 100:.1f}%"
         )
         parts = [head]
+        if self.stages:
+            parts.append("stages " + " ".join(f"{p}={c}" for p, c in self.stages))
         if self.fault is not None:
             parts.append(f"fault {self.fault.describe()}")
         parts.extend(
@@ -276,6 +284,65 @@ def _execute(
     return model.run(options.max_cycles), profile
 
 
+#: How a run went: the model's (last) result, ``None`` when the user quit
+#: the debugger; the profile, when profiled; the words retired; the effective
+#: MAC utilization; the rendered program of the (last) stage; and each
+#: stage's program and cycles (empty for one program).
+_Outcome = tuple[
+    "ModelRun | None", "AliasProfile | None", int, float, str, tuple[tuple[str, int], ...]
+]
+
+
+def _execute_program(
+    model: ReferenceModel,
+    plan: CasePlan,
+    placement: Placement,
+    case: Case,
+    options: RunOptions,
+    program: AssemblyResult,
+) -> _Outcome:
+    """Run the kernel's one program, loaded, after writing its registers."""
+    apply(model, register_writes(plan, placement))
+    manifest, fmt = plan.manifest, plan.format
+    run, profile = _execute(model, manifest, case, fmt, program.words, options)
+    cycles = run.cycles if run is not None else model.stats().cycles
+    mac = model.stats().effective_mac_utilization
+    return run, profile, cycles, mac, program.rendered, ()
+
+
+def _execute_stages(
+    model: ReferenceModel,
+    plan: CasePlan,
+    placement: Placement,
+    case: Case,
+    options: RunOptions,
+    cache: AssemblyCache | None,
+) -> _Outcome:
+    """Run a multi-stage kernel's hook (E06-14) as ``options`` say: one
+    profile over every stage, each stage in the debugger, a trace per stage."""
+    manifest = plan.manifest
+    profile = None
+    if options.alias_profile:
+        profile = new_alias_profile(kernel=manifest.name, case=case.name, format=plan.format.value)
+        attach_alias_profile(model, profile)
+    debug = options.debug
+    staged = run_stages(
+        plan,
+        placement,
+        model,
+        cache=cache,
+        options=StageOptions(
+            max_cycles=options.max_cycles,
+            debug=debug.hook(manifest.name) if debug is not None else None,
+            break_on_entry=debug.break_on_entry if debug is not None else False,
+            trace=options.trace,
+        ),
+    )
+    stages = tuple((stage.program, stage.cycles) for stage in staged.stages)
+    rendered = staged.stages[-1].rendered
+    return staged.result, profile, staged.cycles, staged.mac_utilization, rendered, stages
+
+
 def run_kernel(
     manifest: KernelManifest,
     case: Case,
@@ -310,26 +377,28 @@ def run_kernel(
     inputs = inputs_for(case, plan, overrides=options.inputs).tensors
     tensors = plan.manifest.tensors
     placement = place(plan, {name: stored_rows(t, plan) for name, t in tensors.items()})
-    program = assemble(plan, cache)
-    check_cr_reads(manifest, program.rendered)
-
+    # A multi-stage kernel's hook assembles and loads each stage (E06-14).
+    program = None if manifest.stages is not None else assemble(plan, cache)
     model = ReferenceModel(fmt)
-    model.load_program(program.words)
+    if program is not None:
+        check_cr_reads(manifest, program.rendered)
+        model.load_program(program.words)
     for tensor in tensors.values():
         if tensor.role == "input":
             _write_region(model, plan, placement, tensor, pack(tensor, inputs[tensor.name], plan))
         elif tensor.role == "scratch":
             _write_region(model, plan, placement, tensor, _scratch_fill(tensor, plan, placement))
-    apply(model, register_writes(plan, placement))
-
-    run, profile = _execute(model, manifest, case, fmt, program.words, options)
-    mac_utilization = model.stats().effective_mac_utilization
+    if program is None:
+        outcome = _execute_stages(model, plan, placement, case, options, cache)
+    else:
+        outcome = _execute_program(model, plan, placement, case, options, program)
+    run, profile, cycles, mac_utilization, rendered, stage_cycles = outcome
     if run is None:  # the user quit the debugger: no result
         return RunResult(
             kernel=manifest.name,
             case=case.name,
             format=fmt,
-            cycles=model.stats().cycles,
+            cycles=cycles,
             mac_utilization=mac_utilization,
             outputs=MappingProxyType({}),
             raw_outputs=MappingProxyType({}),
@@ -338,6 +407,7 @@ def run_kernel(
             alias_profile=profile,
             quit=True,
             halted=False,
+            stages=stage_cycles,
         )
 
     raw = {
@@ -355,9 +425,7 @@ def run_kernel(
     comparisons: tuple[Comparison, ...] = ()
     if run.status.state is RunState.FAULTED:
         assert run.status.fault is not None  # a faulted status names its fault
-        fault = RunFault(
-            run.status.fault, run.status.pc, _source_line(program.rendered, run.status.pc)
-        )
+        fault = RunFault(run.status.fault, run.status.pc, _source_line(rendered, run.status.pc))
     else:
         golden = _goldens(case, plan, inputs)
         comparisons = tuple(
@@ -374,7 +442,7 @@ def run_kernel(
         kernel=manifest.name,
         case=case.name,
         format=fmt,
-        cycles=run.cycles,
+        cycles=cycles,
         mac_utilization=mac_utilization,
         outputs=MappingProxyType(outputs),
         raw_outputs=MappingProxyType(raw),
@@ -382,4 +450,5 @@ def run_kernel(
         fault=fault,
         alias_profile=profile,
         halted=run.status.state is RunState.HALTED,
+        stages=stage_cycles,
     )

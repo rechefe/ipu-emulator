@@ -29,7 +29,7 @@ from ipu_harness.abi import template_names
 from ipu_harness.manifest import ParamType
 from ipu_harness.params import CasePlan
 
-__all__ = ["AssemblyCache", "assemble", "search_path", "template_values"]
+__all__ = ["AssemblyCache", "assemble", "declared_params", "search_path", "template_values"]
 
 _PY_TYPES: Mapping[str, type] = {"int": int, "float": float, "bool": bool, "str": str}
 assert set(_PY_TYPES) == set(get_args(ParamType)), (
@@ -51,8 +51,15 @@ def template_values(plan: CasePlan) -> Mapping[str, object]:
     return MappingProxyType({**plan.params, "format": plan.format.value, "shapes": shapes})
 
 
-def _declared(plan: CasePlan) -> ParamSpec:
-    """The parameters the program may read: the kernel's, ``format`` and ``shapes``."""
+def declared_params(plan: CasePlan) -> ParamSpec:
+    """The parameters the program may read: the kernel's, ``format`` and ``shapes``.
+
+    Args:
+        plan: The checked case.
+
+    Returns:
+        Their template declarations (a stage adds its own, E06-14).
+    """
     params = [
         Param(name, _PY_TYPES[decl.type], REQUIRED) for name, decl in plan.manifest.params.items()
     ]
@@ -135,7 +142,7 @@ def assemble(
     session = AssemblySession(
         manifest.asm.read_text(encoding="utf-8"),
         defines=template_values(plan),
-        params=_declared(plan),
+        params=declared_params(plan),
         search_path=search_path(plan, asm_lib),
         abi=template_names(manifest),
         name=manifest.asm.name,

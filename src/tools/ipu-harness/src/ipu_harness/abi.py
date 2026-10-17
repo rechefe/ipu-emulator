@@ -96,6 +96,12 @@ def _element_bits(value: float, plan: CasePlan) -> int:
     return int.from_bytes(encode(np.array([value]), plan.format), "little")
 
 
+def _binds(manifest: KernelManifest, name: str) -> bool:
+    """Whether ``name`` is something a register can hold: a tensor, a
+    parameter or a derived value."""
+    return name in manifest.tensors or name in manifest.derived or name in manifest.params
+
+
 def _value(name: str, plan: CasePlan, placement: Placement) -> tuple[int, str]:
     """The bits ``name`` puts in its register, and what they are."""
     manifest = plan.manifest
@@ -114,13 +120,17 @@ def _value(name: str, plan: CasePlan, placement: Placement) -> tuple[int, str]:
     return int(value), f"{name} ({decl.type} param)"
 
 
-def register_writes(plan: CasePlan, placement: Placement) -> tuple[RegisterWrite, ...]:
+def register_writes(
+    plan: CasePlan, placement: Placement, *, abi: Mapping[str, str] | None = None
+) -> tuple[RegisterWrite, ...]:
     """Every register's starting value, in ``[abi]`` order, then the default
     dstructure in ``CR15`` unless ``[abi]`` binds it.
 
     Args:
         plan: The checked case.
         placement: Its regions.
+        abi: Names to registers in place of the kernel's ``[abi]`` (a stage's,
+            E06-14); each name is still a tensor, parameter or derived value.
 
     Returns:
         The writes, values as raw register bits.
@@ -128,8 +138,11 @@ def register_writes(plan: CasePlan, placement: Placement) -> tuple[RegisterWrite
     Raises:
         PlanError: A value does not fit a 32-bit register.
     """
+    bindings = plan.manifest.abi if abi is None else abi
     writes = []
-    for name, register in plan.manifest.abi.items():
+    for name, register in bindings.items():
+        if not _binds(plan.manifest, name):
+            raise PlanError(plan.manifest, f"abi.{name}", f"{name!r} is no tensor or parameter")
         value, source = _value(name, plan, placement)
         if not _LOWEST <= value < _PAST_HIGHEST:
             raise PlanError(
@@ -137,24 +150,27 @@ def register_writes(plan: CasePlan, placement: Placement) -> tuple[RegisterWrite
             )
         writes.append(RegisterWrite(register, value & LR_CR_SCALAR_VALUE_MASK, source))
     dstructure = f"CR{DEFAULT_DSTRUCTURE_CR}"
-    if dstructure not in plan.manifest.abi.values():
+    if dstructure not in bindings.values():
         bits = encode_dstructure(valid_elements=LANES)
         writes.append(RegisterWrite(dstructure, bits, "dstructure (default, 128 valid elements)"))
     return tuple(writes)
 
 
-def template_names(manifest: KernelManifest) -> Mapping[str, Mapping[str, str]]:
+def template_names(
+    manifest: KernelManifest, abi: Mapping[str, str] | None = None
+) -> Mapping[str, Mapping[str, str]]:
     """The program's register names (E06-07).
 
     Args:
         manifest: The kernel.
+        abi: Names to registers in place of its ``[abi]`` (a stage's, E06-14).
 
     Returns:
         ``{"cr": {"x": "CR2", ...}, "lr": {...}}``, read as ``{{ cr.x }}`` and
         ``{{ lr.i }}``.
     """
     banks: dict[str, dict[str, str]] = {"cr": {}, "lr": {}}
-    for name, register in manifest.abi.items():
+    for name, register in (manifest.abi if abi is None else abi).items():
         banks[_bank(register)][name] = register
     return MappingProxyType({bank: MappingProxyType(names) for bank, names in banks.items()})
 
@@ -196,7 +212,13 @@ def _operand_types(view: Isa) -> dict[str, list[str]]:
     return types
 
 
-def check_cr_reads(manifest: KernelManifest, rendered: str) -> None:
+def check_cr_reads(
+    manifest: KernelManifest,
+    rendered: str,
+    *,
+    abi: Mapping[str, str] | None = None,
+    name: str | None = None,
+) -> None:
     """Fail a rendered program that reads a CR neither hardwired nor bound.
 
     ``CR0`` and ``CR1`` are hardwired; ``CR15`` holds the default dstructure
@@ -206,18 +228,22 @@ def check_cr_reads(manifest: KernelManifest, rendered: str) -> None:
         manifest: The kernel.
         rendered: Its program with the template rendered (E06-07's
             ``AssemblyResult.rendered``); it is parsed, not rendered again.
+        abi: The names bound in place of its ``[abi]`` (a stage's, E06-14).
+        name: The program's file name for messages; its ``.asm`` by default.
 
     Raises:
         ConfigurationError: A read of an unbound CR, naming the line and its
             text. The line is the rendered program's: the program file's own
             line when it has no template layer.
     """
-    bound = {int(r[2:]) for r in manifest.abi.values() if _bank(r) == "cr"}
+    bindings = manifest.abi if abi is None else abi
+    program = manifest.asm.name if name is None else name
+    bound = {int(r[2:]) for r in bindings.values() if _bank(r) == "cr"}
     bound |= {*CR_READ_ONLY_INITIAL_VALUES, DEFAULT_DSTRUCTURE_CR}
     view = isa()
     types, cr_types = _operand_types(view), _cr_types(view)
     lines = rendered.splitlines()
-    for word in AssemblySession("", name=manifest.asm.name).parse_rendered(rendered):
+    for word in AssemblySession("", name=program).parse_rendered(rendered):
         for instruction in word["instructions"]:
             mnemonic = instruction["opcode"].token.value
             for kind, operand in zip(types[mnemonic.lower()], instruction["operands"], strict=True):
@@ -225,7 +251,7 @@ def check_cr_reads(manifest: KernelManifest, rendered: str) -> None:
                 if kind in cr_types and m and int(m.group(1)) not in bound:
                     where = operand.location()
                     raise ConfigurationError(
-                        f"{manifest.asm.name}, rendered line {where.line} "
+                        f"{program}, rendered line {where.line} "
                         f"({lines[where.line - 1].strip()!r}): reads CR{m.group(1)}, which "
                         f"[abi] does not bind (bound: {', '.join(f'CR{i}' for i in sorted(bound))})"
                     )
