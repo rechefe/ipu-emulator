@@ -19,7 +19,7 @@ import numpy as np
 import pytest
 
 import ipu_emu.numerics
-from ipu_emu.ipu_math import DType, ipu_add, ipu_mult, ipu_sub
+from ipu_emu.ipu_math import ipu_add, ipu_mult, ipu_sub
 from ipu_emu.numerics import codec_for
 from ipu_isa.formats import FORMATS, ElementFormat, decode_element
 from ipu_isa.geometry import LANES
@@ -29,17 +29,13 @@ FLOAT8 = [f for f in EIGHT_BIT if FORMATS[f].is_float]
 INT_ACC = [f for f, info in FORMATS.items() if not info.is_float]
 FLOAT_ACC = [f for f, info in FORMATS.items() if info.is_float]
 
-# Any float-accumulator DType selects ipu_add's float branch.
-_INT_DTYPE = DType.INT8
-_FLOAT_DTYPE = DType.E4
+# Any float-accumulator format selects ipu_add's float branch.
+_INT_FORMAT = ElementFormat.INT8
+_FLOAT_FORMAT = ElementFormat.E4
 
 _ROWS = 7813  # 7813 * 128 = 1_000_064 accumulator pairs
 _PAIRS = _ROWS * LANES
 _SENTINEL = 0xA5
-
-
-def _dtype(fmt: ElementFormat) -> DType:
-    return DType[fmt.name]
 
 
 def _scalar_values(fmt: ElementFormat) -> list[int | float]:
@@ -99,7 +95,7 @@ def test_mult_every_byte_pair(fmt):
     lane = _lane_fmt(fmt)[1]
     assert bytes(got) == struct.pack(f"<{count}{lane}", *products)
 
-    dtype = _dtype(fmt)
+    dtype = fmt
     via_ipu_mult = [ipu_mult(a, b, dtype) for a, b in zip(a_raw, b_raw, strict=True)]
     assert struct.pack(f"<{count}{lane}", *via_ipu_mult) == bytes(got)
 
@@ -108,7 +104,7 @@ def test_mult_every_byte_pair(fmt):
 def test_mult_by_a_scalar_broadcasts(fmt):
     codec = codec_for(fmt)
     row = bytes(range(128))
-    dtype = _dtype(fmt)
+    dtype = fmt
     for scalar in (0x00, 0x01, 0x38, 0x7F, 0x80, 0xC5, 0xFF):
         got = bytearray(4 * LANES)
         codec.store_acc(got, codec.mult(codec.decode(row), codec.decode_scalar(scalar)))
@@ -204,7 +200,7 @@ def _scalar_ops(lane_fmt: str, a_raw: bytes, b_raw: bytes, *, wide_mult: bool) -
     """Each op's stored bytes and failing rows, computed the scalar way."""
     a = list(struct.unpack(f"<{_PAIRS}{lane_fmt[1]}", a_raw))
     b = list(struct.unpack(f"<{_PAIRS}{lane_fmt[1]}", b_raw))
-    dtype = _INT_DTYPE if lane_fmt == "<i" else _FLOAT_DTYPE
+    dtype = _INT_FORMAT if lane_fmt == "<i" else _FLOAT_FORMAT
     results = {
         "add": [ipu_add(x, y, dtype) for x, y in zip(a, b, strict=True)],
         "sub": [ipu_sub(x, y, dtype) for x, y in zip(a, b, strict=True)],
@@ -284,7 +280,7 @@ def test_int_accumulate_wraps_at_2_pow_31(fmt):
     for op, scalar in (("add", ipu_add), ("sub", ipu_sub)):
         got = bytearray(4 * a.size)
         codec.store_acc(got, getattr(codec, op)(a, b))
-        expected = [scalar(int(x), int(y), _INT_DTYPE) for x, y in zip(a, b, strict=True)]
+        expected = [scalar(int(x), int(y), _INT_FORMAT) for x, y in zip(a, b, strict=True)]
         assert bytes(got) == struct.pack(f"<{a.size}i", *expected), op
     assert codec.add(np.array([top]), np.array([1])).tolist() == [bottom]
     assert codec.sub(np.array([bottom]), np.array([1])).tolist() == [top]

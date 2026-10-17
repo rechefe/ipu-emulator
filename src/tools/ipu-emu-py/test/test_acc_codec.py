@@ -34,7 +34,9 @@ _INT_FORMATS = (ElementFormat.INT8, ElementFormat.INT32)
 _INT32_MIN = -(1 << 31)
 
 PACKAGE_DIR = Path(inspect.getsourcefile(ipu_emu)).parent
-_FORMAT_BRANCH_NAMES = ("_wide_vector_active", "WideVectorArithmetic", "wide_vector_debug")
+#: What a handler would read to branch on the element format (E04-17: the
+#: state's one format value and what it declares).
+_FORMAT_BRANCH_NAMES = ("fmt", "format_info", "ElementFormat", "AccumulatorType")
 _STATE_HELPERS = (
     "write_constant_ones",
     "load_r_reg_from_xmem",

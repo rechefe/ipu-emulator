@@ -1,5 +1,6 @@
 """IPU cycle-functional emulator."""
 
+from ipu_emu.activations import AaqOptions, ActivationParams
 from ipu_emu.descriptors import REGFILE_SCHEMA, RegDescriptor
 from ipu_emu.emulator import (
     DEFAULT_MAX_CYCLES,
@@ -28,8 +29,8 @@ from ipu_emu.execute import (
     load_binary_instructions,
 )
 from ipu_emu.ipu import Ipu
-from ipu_emu.ipu_math import DType, fp8_bytes_to_fp32, fp32_to_fp8_bytes, ipu_add, ipu_mult
-from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
+from ipu_emu.ipu_math import fp8_bytes_to_fp32, fp32_to_fp8_bytes, ipu_add, ipu_mult
+from ipu_emu.ipu_state import IpuState
 from ipu_emu.regfile import RegFile
 from ipu_emu.stats import RunStats
 from ipu_emu.xmem import XMem
@@ -47,8 +48,8 @@ __all__ = [
     "Ipu",
     "IpuState",
     "RunStats",
-    "WideVectorArithmetic",
-    "DType",
+    "ActivationParams",
+    "AaqOptions",
     "ipu_mult",
     "ipu_add",
     "decode_instruction_word",

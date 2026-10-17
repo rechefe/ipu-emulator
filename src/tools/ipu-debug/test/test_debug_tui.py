@@ -32,6 +32,7 @@ from ipu_debug.tui.panes.xmem import XmemTab
 from ipu_debug.tui.screen import COLOR_MASK, FakeScreen, Key, MouseEvent
 from ipu_debug.tui.view import CursesDebugView, run_debug_tui
 from ipu_debug.tui.workspace import DebugViewSession, new_debug_view_session
+from ipu_emu.activations import AaqOptions
 from ipu_emu.emulator import DebugAction
 from ipu_emu.ipu import xmem_row_size_bytes
 from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
@@ -2605,7 +2606,7 @@ class TestDefaultWorkspace:
         self, wide, arithmetic, quantize
     ):
         fmt = ElementFormat(arithmetic) if wide else ElementFormat.INT8
-        state = new_state(fmt=fmt, wide_vector_quantize_output=quantize)
+        state = new_state(fmt=fmt, aaq=AaqOptions(quantize_output=quantize))
         session = DebugViewSession()
         view, _, _ = make_view(state, session=session)
         assert [tab.register_key for tab in session.pipeline.tabs] == [

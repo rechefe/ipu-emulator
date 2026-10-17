@@ -83,20 +83,15 @@ def _harness_spec(app: IpuApp) -> KernelSpec | None:
 
 def create_state(app: IpuApp) -> IpuState:
     """Create fresh state from a harness's declared execution requirements."""
-    from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
+    from ipu_emu.activations import AaqOptions
+    from ipu_emu.ipu_state import IpuState
 
     spec = _harness_spec(app)
     execution = spec.execution if spec is not None else ExecutionConfig()
     config = execution(app) if callable(execution) else execution
     if not isinstance(config, ExecutionConfig):
         raise TypeError("SPEC.execution must produce an ExecutionConfig")
-    arithmetic = WideVectorArithmetic.INT32 if config.mode == "int32" else WideVectorArithmetic.FP32
-    return IpuState(
-        wide_vector_debug=config.mode != "native",
-        wide_vector_arithmetic=arithmetic,
-        wide_vector_quantize_output=config.quantize_output,
-        dtype=config.dtype,
-    )
+    return IpuState(fmt=config.fmt, aaq=AaqOptions(quantize_output=config.quantize_output))
 
 
 def load(package: str = "ipu_apps", *, refresh: bool = False) -> Discovered:

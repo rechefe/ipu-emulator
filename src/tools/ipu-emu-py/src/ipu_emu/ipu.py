@@ -26,7 +26,6 @@ from typing import NamedTuple
 from ipu_emu.errors import ConfigurationError, EmulatorError
 from ipu_emu.geometry import (
     NARROW_MAX_ROW,
-    active_codec,
     xmem_element_width_bytes,
     xmem_row_size_bytes,
 )
@@ -103,7 +102,7 @@ XMEM_ADDRESSABLE_ROWS = XMEM_SIZE_BYTES // (LANES * 4)
 
 def addressable_rows(state: IpuState) -> int:
     """Return how many XMEM rows ``.asm`` may address in the active mode."""
-    return XMEM_ADDRESSABLE_ROWS if state.wide_vector_debug else NARROW_MAX_ROW
+    return XMEM_ADDRESSABLE_ROWS if xmem_element_width_bytes(state) != 1 else NARROW_MAX_ROW
 
 
 # ---------------------------------------------------------------------------
@@ -602,12 +601,12 @@ class Ipu:
 
     @property
     def _codec(self) -> LaneCodec:
-        """The active element format's lane codec (:func:`~ipu_emu.geometry.active_codec`).
+        """The state's lane codec (``IpuState.codec``, of ``IpuState.fmt``).
 
         The handlers decode, compute and store through it, so none branches on
         a format (Q43, Q48).
         """
-        return active_codec(self.state)
+        return self.state.codec
 
     def bind_snapshot(self, buffer: RegFile) -> None:
         """Make *buffer* the register snapshot handlers read. Called by :class:`Cycle`.

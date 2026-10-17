@@ -24,7 +24,7 @@ from emu_support import (
 
 from ipu_as.compound_inst import CompoundInst
 from ipu_as.lark_tree import assemble, parse
-from ipu_emu.activations import apply_activation
+from ipu_emu.activations import ActivationParams, apply_activation
 from ipu_emu.emulator import (
     DebugAction,
     load_program,
@@ -34,12 +34,10 @@ from ipu_emu.emulator import (
 from ipu_emu.errors import DebugOnlyInstructionWarning, EmulatorFault
 from ipu_emu.execute import BreakResult, decode_instruction_word
 from ipu_emu.ipu import NARROW_MAX_ROW, EmulatorError
-from ipu_emu.ipu_math import DType
 from ipu_emu.ipu_state import HaltRecord, IpuState
 from ipu_emu.xmem import XMEM_SIZE_BYTES
 from ipu_isa.constants import PadMode, encode_dstructure
 from ipu_isa.faults import FaultId
-from ipu_isa.formats import ElementFormat as IsaFormat
 from ipu_isa.formats import encode_element
 
 # ============================================================================
@@ -697,7 +695,7 @@ HALT;;
             assert words[i] == 0, f"word {i} should be 0 (deactivated)"
 
     def test_mask_pad_pos_inf(self):
-        """dstructure pad_mode=POS_INF fills masked-out mult_res elements with +inf (FP8 dtype)."""
+        """dstructure pad_mode=POS_INF fills masked-out mult_res elements with +inf (FP8 format)."""
         r0_data = bytes([0x00] * 128)
         cyclic_data = bytes([0x00] * 512)
         # Mask: first 8 bytes = 0xFF (64 bits set), rest 0
@@ -724,8 +722,8 @@ ST.ACC lr9 cr0;;
 HALT;;
 """,
             cr={8: 32, 9: 64, 10: 0, 11: 96, 12: 128, 15: dstructure},
+            fmt=ElementFormat.E4,
         )
-        state.dtype = DType.E4
         state.xmem.write_address(0x1000, r0_data)
         state.xmem.write_address(0x2000, cyclic_data)
         state.xmem.write_address(0x3000, mask_data)
@@ -740,7 +738,7 @@ HALT;;
             assert words[i] == float("inf"), f"word {i} should be +inf (deactivated)"
 
     def test_mask_pad_neg_inf(self):
-        """dstructure pad_mode=NEG_INF fills masked-out mult_res elements with -inf (FP8 dtype)."""
+        """dstructure pad_mode=NEG_INF fills masked-out mult_res elements with -inf (FP8 format)."""
         r0_data = bytes([0x00] * 128)
         cyclic_data = bytes([0x00] * 512)
         mask_data = bytearray(128)
@@ -766,8 +764,8 @@ ST.ACC lr9 cr0;;
 HALT;;
 """,
             cr={8: 32, 9: 64, 10: 0, 11: 96, 12: 128, 15: dstructure},
+            fmt=ElementFormat.E5,
         )
-        state.dtype = DType.E5
         state.xmem.write_address(0x1000, r0_data)
         state.xmem.write_address(0x2000, cyclic_data)
         state.xmem.write_address(0x3000, mask_data)
@@ -804,16 +802,14 @@ HALT;;
 """,
             cr={8: 32, 9: 64, 10: 0, 11: 96, 15: dstructure},
         )
-        state.dtype = DType.INT8
         state.xmem.write_address(0x1000, bytes(128))
         state.xmem.write_address(0x2000, bytes(512))
         state.xmem.write_address(0x3000, mask_data)
         with pytest.raises(EmulatorError, match="floating-point lanes"):
             run_until_complete(state)
 
-    def test_mask_affects_multiplication_wide_vector_debug(self):
-        """Same program as test_mask_affects_multiplication, run under wide-vector
-        debug/FP32: masking must be honored identically to narrow mode — first 64
+    def test_mask_affects_multiplication_fp32(self):
+        """Same program as test_mask_affects_multiplication, run in FP32: masking must be honored identically to narrow mode — first 64
         elements active, last 64 masked to the pad value (ZERO)."""
         r0_data = struct.pack("<128f", *([2.0] * 128))
         cyclic_data = struct.pack("<128f", *([3.0] * 128))
@@ -854,11 +850,9 @@ HALT;;
         for i in range(64, 128):
             assert words[i] == 0.0, f"word {i} should be masked to 0.0, got {words[i]}"
 
-    def test_mask_pad_pos_inf_wide_vector_debug(self):
-        """pad_mode=POS_INF fills masked-out elements with +inf under debug/FP32,
-        where dtype stays INT8-default but element arithmetic is float — the
-        defect this fix corrects (dtype-based rejection would wrongly reject
-        this)."""
+    def test_mask_pad_pos_inf_fp32(self):
+        """pad_mode=POS_INF fills masked-out elements with +inf in FP32, whose
+        element arithmetic is float."""
         r0_data = bytes([0x00] * 128)
         cyclic_data = bytes([0x00] * 512)
         mask_data = bytearray(128)
@@ -886,7 +880,6 @@ HALT;;
             cr={8: 8, 9: 16, 10: 0, 11: 24, 12: 32, 15: dstructure},
             fmt=ElementFormat.FP32,
         )
-        assert state.dtype == DType.INT8  # unchanged default; must not gate the pad check
         state.xmem.write_address(0x1000, r0_data)
         state.xmem.write_address(0x2000, cyclic_data)
         state.xmem.write_address(0x3000, mask_data)
@@ -900,10 +893,9 @@ HALT;;
         for i in range(64, 128):
             assert words[i] == float("inf"), f"word {i} should be +inf (deactivated)"
 
-    def test_mask_pad_inf_rejected_under_wide_vector_debug_int32(self):
-        """POS_INF pad_mode must still raise under debug/INT32 elements, where
-        infinity has no representation — the gate must key off
-        wide_vector_arithmetic, not the (irrelevant, INT8-default) dtype field."""
+    def test_mask_pad_inf_rejected_in_int32(self):
+        """POS_INF pad_mode must still raise in INT32, where
+        infinity has no representation — the gate keys off the element format."""
         mask_data = bytearray(128)
         for i in range(8):
             mask_data[i] = 0xFF
@@ -1228,7 +1220,6 @@ ACC.ADD.FIRST;;
 HALT;;
 """
         )
-        state.dtype = DType.INT8
         # Pre-fill acc with garbage; ACC.ADD.FIRST should ignore it
         for i in range(128):
             state.regfile.set_r_acc_word(i, 9999)
@@ -1249,7 +1240,6 @@ ACC.ADD;;
 HALT;;
 """
         )
-        state.dtype = DType.INT8
         for i in range(128):
             state.regfile.set_r_acc_word(i, 10)
         mult_buf = state.regfile.mutable("mult_res")
@@ -1269,7 +1259,6 @@ ACC.MAX;;
 HALT;;
 """
         )
-        state.dtype = DType.INT8
         for i in range(128):
             # alternate: even lanes R_ACC>MULT_RES, odd lanes R_ACC<MULT_RES
             state.regfile.set_r_acc_word(i, 20 if i % 2 == 0 else 5)
@@ -1290,7 +1279,6 @@ ACC.MAX.FIRST;;
 HALT;;
 """
         )
-        state.dtype = DType.INT8
         for i in range(128):
             state.regfile.set_r_acc_word(i, 9999)
         mult_buf = state.regfile.mutable("mult_res")
@@ -1309,7 +1297,6 @@ ACC.SUB;;
 HALT;;
 """
         )
-        state.dtype = DType.INT8
         for i in range(128):
             state.regfile.set_r_acc_word(i, 100)
         mult_buf = state.regfile.mutable("mult_res")
@@ -1328,7 +1315,6 @@ ACC.SUB.FIRST;;
 HALT;;
 """
         )
-        state.dtype = DType.INT8
         for i in range(128):
             state.regfile.set_r_acc_word(i, 9999)
         mult_buf = state.regfile.mutable("mult_res")
@@ -1350,7 +1336,6 @@ HALT;;
 """,
             cr={8: 0},
         )
-        state.dtype = DType.INT8
         mult_buf = state.regfile.mutable("mult_res")
         for i in range(128):
             struct.pack_into("<i", mult_buf, i * 4, i)
@@ -1369,7 +1354,6 @@ HALT;;
 """,
             cr={8: 0},
         )
-        state.dtype = DType.INT8
         mult_buf = state.regfile.mutable("mult_res")
         for i in range(128):
             struct.pack_into("<i", mult_buf, i * 4, i)
@@ -1393,7 +1377,6 @@ HALT;;
             cr={8: 1},
         )
         # lr0=1 → offset % 4 = 1 → start index 32. Horizontal on → 64 elements.
-        state.dtype = DType.INT8
         for i in range(128):
             state.regfile.set_r_acc_word(i, 0)
         mult_buf = state.regfile.mutable("mult_res")
@@ -1423,7 +1406,6 @@ AGG.SUM.FIRST LR0 cr15;;
 HALT;;
 """
         )
-        state.dtype = DType.INT8
         state.set_cr_dstructure(128)
         state.regfile.set_lr(0, 127)  # dest = R_ACC[127]
         for i in range(128):
@@ -1445,7 +1427,6 @@ AGG.SUM.FIRST LR0 cr15;;
 HALT;;
 """
         )
-        state.dtype = DType.INT8
         state.set_cr_dstructure(4)  # only lanes 0..3 active
         state.regfile.set_lr(0, 127)  # dest = R_ACC[127], outside active range
         for i in range(128):
@@ -1465,7 +1446,6 @@ AGG.SUM.FIRST LR0 cr15;;
 HALT;;
 """
         )
-        state.dtype = DType.INT8
         state.set_cr_dstructure(4)
         state.regfile.set_lr(0, 127)
         for i in range(128):
@@ -1484,7 +1464,6 @@ AGG.SUM.FIRST LR0 cr3;;
 HALT;;
 """
         )
-        state.dtype = DType.INT8
         state.set_cr_dstructure(valid_elements=4)
         state.regfile.set_cr(3, encode_dstructure(valid_elements=128, partition=0))
         state.regfile.set_lr(0, 127)
@@ -1507,7 +1486,6 @@ AGG.SUM LR0 cr15;;
 HALT;;
 """
         )
-        state.dtype = DType.INT8
         state.set_cr_dstructure(64)  # only lanes 0..63 active
         state.regfile.set_lr(0, 127)  # dest = R_ACC[127], outside active range
         for i in range(128):
@@ -1527,7 +1505,6 @@ AGG.MAX.FIRST LR0 cr15;;
 HALT;;
 """
         )
-        state.dtype = DType.INT8
         state.set_cr_dstructure(128)
         state.regfile.set_lr(0, 127)
         for i in range(128):
@@ -1553,7 +1530,6 @@ AGG.MAX.FIRST LR0 cr15;;
 HALT;;
 """
         )
-        state.dtype = DType.INT8
         state.set_cr_dstructure(64)  # only lanes 0..63 active
         state.regfile.set_lr(0, 127)  # dest = R_ACC[127], outside active range
         for i in range(128):
@@ -1574,7 +1550,6 @@ AGG.MAX.FIRST LR0 cr15;;
 HALT;;
 """
         )
-        state.dtype = DType.INT8
         state.set_cr_dstructure(0)  # no active lanes
         state.regfile.set_lr(0, 7)
         state.regfile.set_r_acc_word(7, struct.unpack("<I", struct.pack("<i", 1234))[0])
@@ -1591,7 +1566,6 @@ AGG.MAX.FIRST LR0 cr15;;
 HALT;;
 """
         )
-        state.dtype = DType.INT8
         state.set_cr_dstructure(50)
         state.regfile.set_lr(0, 127)
         for i in range(128):
@@ -1610,7 +1584,6 @@ AGG.MAX LR0 cr15;;
 HALT;;
 """
         )
-        state.dtype = DType.INT8
         state.set_cr_dstructure(128)
         state.regfile.set_lr(0, 127)
         for i in range(128):
@@ -1631,7 +1604,6 @@ AGG.MAX LR0 cr15;;
 HALT;;
 """
         )
-        state.dtype = DType.INT8
         state.set_cr_dstructure(100)
         state.regfile.set_lr(0, 127)
         for i in range(128):
@@ -1658,7 +1630,6 @@ AGG.SUM.FIRST LR0 cr15; ACTIVATE.QUANTIZE relu cr15;;
 HALT;;
 """
         )
-        state.dtype = DType.INT8
         state.regfile.set_lr(0, 0)  # AGG dest = r_acc[0]
         import struct as _struct
 
@@ -2292,8 +2263,8 @@ class TestDecodeRoundtrip:
 class TestFp8:
     def test_fp8_e4m3_mult_ee(self):
         """FP8 E4 (e4m3): 1.0 × 2.0 → 2.0 for every element."""
-        fp_one_byte = encode_element(1.0, IsaFormat.E4)
-        fp_two_byte = encode_element(2.0, IsaFormat.E4)
+        fp_one_byte = encode_element(1.0, ElementFormat.E4)
+        fp_two_byte = encode_element(2.0, ElementFormat.E4)
 
         r0_data = bytes([fp_one_byte] * 128)
         cyclic_data = bytes([fp_two_byte] * 512)
@@ -2312,9 +2283,8 @@ ACC.ADD;;
 HALT;;
 """,
             cr={8: 32, 9: 64, 10: 0},
+            fmt=ElementFormat.E4,
         )
-        # Set dtype to E4 (fp8_e4)
-        state.dtype = DType.E4
         state.xmem.write_address(0x1000, r0_data)
         state.xmem.write_address(0x2000, cyclic_data)
         run_until_complete(state)
@@ -2356,7 +2326,6 @@ HALT;;
 """,
             cr={8: 32, 9: 0},
         )
-        state.dtype = DType.INT8
         state.regfile.set_cr(3, 3)  # scalar = low byte = 3
         state.xmem.write_address(0x1000, cyclic_data)
         run_until_complete(state)
@@ -2384,7 +2353,6 @@ HALT;;
 """,
             cr={8: 32, 9: 0},
         )
-        state.dtype = DType.INT8
         state.regfile.set_cr(2, 0xFE)  # low byte 0xFE = int8(-2)
         state.xmem.write_address(0x1000, cyclic_data)
         run_until_complete(state)
@@ -2410,7 +2378,6 @@ HALT;;
 """,
             cr={8: 450, 9: 0},
         )
-        state.dtype = DType.INT8
         state.regfile.set_cr(3, scalar)
         # Fill the full 512-byte cyclic register directly
         state.regfile.set_r_cyclic_at(0, bytes([rc_fill] * 512))
@@ -2423,7 +2390,7 @@ HALT;;
 
     def test_mult_rc_ve_cr_fp8e4m3(self):
         """MULT.RC.VE fp8_e4: scalar 1.0 × RC elements 1.0 → result 1.0 each."""
-        one_fp8 = encode_element(1.0, IsaFormat.E4)
+        one_fp8 = encode_element(1.0, ElementFormat.E4)
         cyclic_data = bytes([one_fp8] * 512)
 
         state = make_state(
@@ -2438,8 +2405,8 @@ ACC.ADD;;
 HALT;;
 """,
             cr={8: 32, 9: 0},
+            fmt=ElementFormat.E4,
         )
-        state.dtype = DType.E4
         state.regfile.set_cr(5, one_fp8)  # scalar = 1.0 in fp8_e4
         state.xmem.write_address(0x1000, cyclic_data)
         run_until_complete(state)
@@ -2451,8 +2418,8 @@ HALT;;
 
     def test_mult_rc_ve_cr_wraps_fp8e5m2(self):
         """MULT.RC.VE fp8_e5: RC indices wrap modulo 512 (cyclic, no padding)."""
-        two_fp8 = encode_element(2.0, IsaFormat.E5)
-        scalar_fp8 = encode_element(3.0, IsaFormat.E5)
+        two_fp8 = encode_element(2.0, ElementFormat.E5)
+        scalar_fp8 = encode_element(3.0, ElementFormat.E5)
 
         state = make_state(
             """\
@@ -2463,8 +2430,8 @@ ACC.ADD;;
 HALT;;
 """,
             cr={8: 500, 9: 0},
+            fmt=ElementFormat.E5,
         )
-        state.dtype = DType.E5
         state.regfile.set_cr(6, scalar_fp8)  # scalar = 3.0
         # Fill the full 512-byte cyclic register directly with 2.0 in fp8_e5
         state.regfile.set_r_cyclic_at(0, bytes([two_fp8] * 512))
@@ -2497,7 +2464,6 @@ HALT;;
 """,
             cr={8: 32, 9: 64, 10: 0},
         )
-        state.dtype = DType.INT8
         state.xmem.write_address(0x1000, r0_data)
         state.xmem.write_address(0x2000, cyclic_data)
         run_until_complete(state)
@@ -2526,7 +2492,6 @@ HALT;;
 """,
             cr={8: 32, 9: 64, 10: 0},
         )
-        state.dtype = DType.INT8
         state.xmem.write_address(0x1000, bytes(r0_data))
         state.xmem.write_address(0x2000, cyclic_data)
         run_until_complete(state)
@@ -2559,7 +2524,6 @@ HALT;;
 """,
             cr={8: 32, 9: 34, 10: 64, 11: 0, 12: 128},
         )
-        state.dtype = DType.INT8
         state.xmem.write_address(0x1000, bytes(r0_data))
         state.xmem.write_address(0x1100, bytes(r1_data))
         state.xmem.write_address(0x2000, cyclic_data)
@@ -2590,7 +2554,6 @@ HALT;;
 """,
             cr={8: 32, 9: 0},
         )
-        state.dtype = DType.INT8
         state.xmem.write_address(0x1000, cyclic_data)
         run_until_complete(state)
 
@@ -2613,7 +2576,6 @@ HALT;;
 """,
             cr={10: 450, 11: 0},
         )
-        state.dtype = DType.INT8
         state.regfile.set_r_cyclic_at(0, cyclic_data)
         run_until_complete(state)
 
@@ -2643,7 +2605,6 @@ HALT;;
 """,
             cr={8: 32, 9: 0, 10: 64},
         )
-        state.dtype = DType.INT8
         state.xmem.write_address(0x1000, cyclic_data)
         state.xmem.write_address(0x2000, bytes(mask_data))
         run_until_complete(state)
@@ -2710,7 +2671,6 @@ HALT;;
                 self._SHIFT_CR: shift_idx & 0xFFFFFFFF,
             },
         )
-        state.dtype = DType.INT8
         state.set_cr_dstructure(valid_elements=128, partition=partition)
         state.xmem.write_address(self._RC_ADDR, bytes([2] * 512))
         state.xmem.write_address(self._MASK_ADDR, mask_bytes)
@@ -2861,7 +2821,6 @@ ACTIVATE.QUANTIZE relu cr15;;
 HALT;;
 """
         )
-        state.dtype = DType.INT8
         state.set_cr_dstructure(128)
         state.regfile.set_r_acc_word(0, struct.unpack("<I", struct.pack("<i", -9))[0])
         run_until_complete(state)
@@ -2876,7 +2835,6 @@ ACTIVATE.QUANTIZE relu cr15;;
 HALT;;
 """
         )
-        state.dtype = DType.INT8
         state.set_cr_dstructure(128)
         state.regfile.set_r_acc_word(0, struct.unpack("<I", struct.pack("<i", 5))[0])
         run_until_complete(state)
@@ -2890,7 +2848,6 @@ ACTIVATE.QUANTIZE identity cr15;;
 HALT;;
 """
         )
-        state.dtype = DType.INT8
         state.set_cr_dstructure(128)
         state.regfile.set_r_acc_word(0, struct.unpack("<I", struct.pack("<i", 200))[0])
         state.regfile.set_r_acc_word(1, struct.unpack("<I", struct.pack("<i", -200))[0])
@@ -2907,7 +2864,6 @@ ACTIVATE.QUANTIZE identity cr15;;
 HALT;;
 """
         )
-        state.dtype = DType.INT8
         state.set_cr_dstructure(128)
         buf = bytearray(512)
         struct.pack_into("<128i", buf, 0, *[i - 64 for i in range(128)])
@@ -2923,8 +2879,7 @@ HALT;;
         """Raises EmulatorError when not in INT8 mode."""
         from ipu_emu.ipu import EmulatorError
 
-        state = make_state("ACTIVATE.QUANTIZE relu cr15;;\nHALT;;")
-        state.dtype = DType.E4
+        state = make_state("ACTIVATE.QUANTIZE relu cr15;;\nHALT;;", fmt=ElementFormat.E4)
         with pytest.raises(EmulatorError, match="INT8 mode"):
             run_until_complete(state)
 
@@ -2936,7 +2891,6 @@ ACTIVATE.QUANTIZE relu cr15;;
 HALT;;
 """
         )
-        state.dtype = DType.INT8
         state.set_cr_dstructure(valid_elements=2)
         state.regfile.set_r_acc_word(0, struct.unpack("<I", struct.pack("<i", -5))[0])
         state.regfile.set_r_acc_word(1, struct.unpack("<I", struct.pack("<i", -3))[0])
@@ -2956,7 +2910,6 @@ ACTIVATE.QUANTIZE relu cr3;;
 HALT;;
 """
         )
-        state.dtype = DType.INT8
         state.set_cr_dstructure(valid_elements=4)
         state.regfile.set_cr(3, encode_dstructure(valid_elements=128, partition=0))
         # use values 1..127 (fit in INT8 after relu; value 0 maps to lane 127)
@@ -2976,7 +2929,6 @@ ACTIVATE.QUANTIZE relu cr15;;
 HALT;;
 """
         )
-        state.dtype = DType.INT8
         state.set_cr_dstructure(valid_elements=4)
         for i in range(128):
             state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", i + 1))[0])
@@ -2995,9 +2947,8 @@ HALT;;
 ACTIVATE.QUANTIZE elu cr15;;
 HALT;;
 """,
-            elu_alpha=alpha,
+            activation=ActivationParams(elu_alpha=alpha),
         )
-        state.dtype = DType.INT8
         state.set_cr_dstructure(1)
         state.regfile.set_r_acc_word(0, struct.unpack("<I", struct.pack("<i", x))[0])
         run_until_complete(state)
@@ -3012,7 +2963,6 @@ ACTIVATE.QUANTIZE window cr15;;
 HALT;;
 """
         )
-        state.dtype = DType.INT8
         state.set_cr_dstructure(4)
         for i, x in enumerate((0, 1, -1, 7)):
             state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", x))[0])
@@ -3030,10 +2980,8 @@ HALT;;
 ACTIVATE.QUANTIZE window cr15;;
 HALT;;
 """,
-            window_a=-3.0,
-            window_b=5.0,
+            activation=ActivationParams(window_a=-3.0, window_b=5.0),
         )
-        state.dtype = DType.INT8
         state.set_cr_dstructure(5)
         for i, x in enumerate((-4, -3, 0, 4, 5)):
             state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", x))[0])
@@ -3052,10 +3000,8 @@ HALT;;
 ACTIVATE.QUANTIZE window cr15;;
 HALT;;
 """,
-            window_a=1.5,
-            window_b=3.5,
+            activation=ActivationParams(window_a=1.5, window_b=3.5),
         )
-        state.dtype = DType.INT8
         state.set_cr_dstructure(4)
         for i, x in enumerate((1, 2, 3, 4)):
             state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", x))[0])
@@ -3074,7 +3020,6 @@ ACTIVATE.QUANTIZE relu cr15;;
 HALT;;
 """
         )
-        state.dtype = DType.INT8
         state.set_cr_dstructure(128)
         raw = struct.unpack("<I", struct.pack("<i", -42))[0]
         state.regfile.set_r_acc_word(0, raw)
@@ -3088,7 +3033,6 @@ class TestPostAaqReg:
     def test_str_post_aaq_reg_writes_post_aaq_reg_512_to_xmem(self):
         """ST.AAQ stores POST_AAQ_REG (512 B) to XMEM."""
         state = IpuState()
-        state.dtype = DType.INT8
         state.regfile.set_cr(8, 0x4000 // 128)  # row number for base
         data = bytearray(range(256)) * 2
         state.regfile.set_post_aaq_reg(data)
@@ -3112,7 +3056,6 @@ HALT;;
     def test_STR_ACC_REG_emits_warning(self):
         """ST.ACC emits a DebugOnlyInstructionWarning (a UserWarning)."""
         state = IpuState()
-        state.dtype = DType.INT8
 
         encoded = assemble("ST.ACC lr0 cr0;;\nHALT;;")
         from ipu_emu.emulator import load_program, run_until_complete

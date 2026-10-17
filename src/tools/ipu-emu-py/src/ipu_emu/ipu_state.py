@@ -8,15 +8,15 @@ from __future__ import annotations
 
 import weakref
 from collections.abc import Callable
-from dataclasses import dataclass
-from enum import Enum
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Literal
 
-from ipu_emu import activations as _activations
+from ipu_emu.activations import AaqOptions, ActivationParams
+from ipu_emu.errors import ConfigurationError
 from ipu_emu.fault_control import FaultControl
 from ipu_emu.inst_mem import InstMem
 from ipu_emu.ipu_config import DEFAULT_DSTRUCTURE_CR
-from ipu_emu.ipu_math import DType
+from ipu_emu.numerics import LaneCodec, codec_for
 from ipu_emu.prototyping import resolve_enabled as _resolve_prototyping
 from ipu_emu.regfile import RegFile
 from ipu_emu.stats import RunStats
@@ -30,6 +30,7 @@ from ipu_isa.constants import (
     encode_dstructure,
 )
 from ipu_isa.faults import ArithmeticEvent, FaultId
+from ipu_isa.formats import FORMATS, ElementFormat, FormatInfo
 from ipu_isa.geometry import INST_MEM_WORDS
 
 if TYPE_CHECKING:
@@ -43,7 +44,7 @@ DEFAULT_CYCLE_LIMIT = 1_000_000
 
 
 def _geometry():
-    """The ``geometry`` module: the active codec and the format's registers.
+    """The ``geometry`` module: the format's registers.
 
     ``geometry`` imports this module, so importing it at load time would be circular.
     """
@@ -62,15 +63,17 @@ def _ipu():
     return ipu
 
 
-class WideVectorArithmetic(str, Enum):
-    """How 128-element wide-vector debug math is performed (emulator-only; issue #33).
-
-    FP32: each element is IEEE float32 (default for "no quantization" FP analysis).
-    INT32: each element is signed int32 with wrap semantics matching INT8-mode acc ops.
-    """
-
-    FP32 = "fp32"
-    INT32 = "int32"
+def _check_format(fmt: object) -> ElementFormat:
+    """*fmt* as an :class:`ElementFormat`, or a :class:`ConfigurationError`."""
+    if isinstance(fmt, ElementFormat):
+        return fmt
+    try:
+        return ElementFormat(fmt)
+    except ValueError:
+        names = ", ".join(f.value for f in ElementFormat)
+        raise ConfigurationError(
+            f"unknown element format {fmt!r}; expected one of: {names}"
+        ) from None
 
 
 @dataclass(frozen=True)
@@ -93,11 +96,13 @@ class IpuState:
 
     Attributes:
         regfile:         The live register file.
-        xmem:            External memory (512 MiB, mode-independent allocation).
+        xmem:            External memory (512 MiB, format-independent allocation).
         program_counter: Current instruction address.
         inst_mem:        Instruction memory: frozen decoded words, written
                          through ``inst_mem[pc] = word`` (see ``InstMem``).
-        dtype:           Arithmetic data type (not stored in CR; emulator-only).
+        fmt:             The element format (read-only; see :meth:`reset`).
+        activation:      The activation parameters ``ACTIVATE`` reads (emulator-only).
+        aaq:             The AAQ stage's emulator-only options.
         prototyping:     Whether the opt-in fast paths are active (emulator-only).
         quit_requested:  The debugger quit the last run before it finished.
         halt:            Set when a HALT word retires or a word faults; ``None``
@@ -114,16 +119,28 @@ class IpuState:
     def __init__(
         self,
         *,
-        wide_vector_debug: bool = False,
-        wide_vector_arithmetic: WideVectorArithmetic = WideVectorArithmetic.FP32,
-        wide_vector_quantize_output: bool = False,
-        elu_alpha: float | None = None,
-        window_a: float | None = None,
-        window_b: float | None = None,
-        dtype: DType = DType.INT8,
+        fmt: ElementFormat = ElementFormat.INT8,
+        activation: ActivationParams | None = None,
+        aaq: AaqOptions | None = None,
         prototyping: bool | None = None,
         alias_profile=None,
     ) -> None:
+        """Build a state at reset in element format *fmt*.
+
+        Args:
+            fmt: The element format (Q47). It sets the element and row bytes,
+                the accumulator type and the vector registers; it is fixed
+                for the state's life, except through :meth:`reset`.
+            activation: The activation parameters; the module defaults if omitted.
+            aaq: The AAQ stage's options; :class:`AaqOptions` defaults if omitted.
+            prototyping: Select the opt-in fast paths (see ``ipu_emu.prototyping``).
+            alias_profile: An alias profile to record into, or ``None``.
+
+        Raises:
+            ConfigurationError: *fmt* is no element format, or prototyping
+                was asked for outside a prototyping build.
+        """
+        self._set_format(fmt)
         self.regfile = RegFile()
         self.xmem = XMem()
         self.program_counter: int = 0
@@ -146,18 +163,10 @@ class IpuState:
         # (emulator-only; cleared at the start of every run).
         self.quit_requested: bool = False
 
-        # Arithmetic data type — not stored in a CR register (emulator-only).
-        self.dtype: DType = dtype
-
         self.set_cr_dstructure(
             valid_elements=DEFAULT_DSTRUCTURE.valid_elements,
             partition=DEFAULT_DSTRUCTURE.partition,
         )
-
-        # --- Emulator-only wide-vector debug mode (GitHub issue #33) ------------
-        self.wide_vector_debug: bool = wide_vector_debug
-        self.wide_vector_arithmetic: WideVectorArithmetic = wide_vector_arithmetic
-        self.wide_vector_quantize_output: bool = wide_vector_quantize_output
 
         # --- Prototyping mode (emulator-only; see ipu_emu/prototyping.py) --------
         # Opt-in fast paths that produce bit-identical state while skipping work
@@ -165,18 +174,68 @@ class IpuState:
         # runtime controls may only select the mode inside a flagged build.
         self.prototyping: bool = _resolve_prototyping(prototyping)
 
-        # --- Activation α (emulator-only; not mapped to CR) ----------------------
-        self.elu_alpha: float = (
-            float(elu_alpha) if elu_alpha is not None else float(_activations._ELU_ALPHA)
+        # --- Activation α and window bounds (emulator-only; not mapped to CR) ----
+        self.activation: ActivationParams = (
+            activation if activation is not None else ActivationParams()
         )
+        # --- AAQ options (emulator-only; the AaQ placeholder, Q35) --------------
+        self.aaq: AaqOptions = aaq if aaq is not None else AaqOptions()
 
-        # --- Window bounds [a, b) for the ``window`` activation (emulator-only) ---
-        self.window_a: float = (
-            float(window_a) if window_a is not None else float(_activations.DEFAULT_WINDOW_A)
+    # -- element format --------------------------------------------------------
+
+    def _set_format(self, fmt: object) -> None:
+        checked = _check_format(fmt)
+        self._fmt = checked
+        self._codec = codec_for(checked)
+
+    @property
+    def fmt(self) -> ElementFormat:
+        """The element format this state runs in. Read-only: build a new state
+        or call :meth:`reset` to change it."""
+        return self._fmt
+
+    @property
+    def format_info(self) -> FormatInfo:
+        """What :attr:`fmt` declares in ``ipu_isa.formats``: element and row
+        bytes, the accumulator type."""
+        return FORMATS[self._fmt]
+
+    @property
+    def codec(self) -> LaneCodec:
+        """The lane codec of :attr:`fmt`, which every handler decodes and encodes through."""
+        return self._codec
+
+    def reset(self, fmt: ElementFormat | None = None) -> None:
+        """Return to the reset state, in element format *fmt* if given.
+
+        Clears the registers (to their reset values, CR15 the default
+        dstructure), XMEM, the program counter, the halt record, the run
+        statistics and the arithmetic flags, and sets every fault enable bit
+        and clears the sticky fault flags (IPU-FLT-6). The cycle limit and the
+        program length are kept, with the instruction memory. The
+        instruction memory, the activation parameters, the AAQ options, the
+        prototyping mode and the observers are kept.
+
+        Args:
+            fmt: The new element format; the current one if omitted.
+
+        Raises:
+            ConfigurationError: *fmt* is no element format. Nothing is reset.
+        """
+        if fmt is not None:
+            self._set_format(fmt)
+        RegFile().copy_into(self.regfile)
+        self.set_cr_dstructure(
+            valid_elements=DEFAULT_DSTRUCTURE.valid_elements,
+            partition=DEFAULT_DSTRUCTURE.partition,
         )
-        self.window_b: float = (
-            float(window_b) if window_b is not None else float(_activations.DEFAULT_WINDOW_B)
-        )
+        self.xmem.clear()
+        self.program_counter = 0
+        self.halt = None
+        self.stats.reset()
+        self.quit_requested = False
+        self.faults.reset()
+        self.arith_flags.clear()
 
     # -- observers -----------------------------------------------------------
 
@@ -298,12 +357,18 @@ class IpuState:
         Only arguments that are not ``None`` are updated. Values apply to subsequent
         ``ACTIVATE`` instructions executed on this state.
         """
-        if elu_alpha is not None:
-            self.elu_alpha = float(elu_alpha)
-        if window_a is not None:
-            self.window_a = float(window_a)
-        if window_b is not None:
-            self.window_b = float(window_b)
+        self.activation = replace(
+            self.activation,
+            **{
+                name: value
+                for name, value in (
+                    ("elu_alpha", elu_alpha),
+                    ("window_a", window_a),
+                    ("window_b", window_b),
+                )
+                if value is not None
+            },
+        )
 
     # -- register file snapshot (for VLIW dispatch) -------------------------
 
@@ -319,7 +384,7 @@ class IpuState:
         Use only for intentional identity constants, never ordinary inputs or
         weights. Any subsequent XMEM write overlapping this row revokes it.
         """
-        data = _geometry().active_codec(self).one() * _ipu().LANES
+        data = self._codec.one() * _ipu().LANES
         self.xmem.write_address(xmem_addr, data)
         self.xmem.mark_constant_ones(xmem_addr, data)
 
@@ -329,7 +394,7 @@ class IpuState:
     # the active codec; the registers are the format's (``vector_registers``).
 
     def _row_bytes(self) -> int:
-        return _geometry().active_codec(self).element_bytes * _ipu().LANES
+        return self._codec.element_bytes * _ipu().LANES
 
     def _row_address(self, xmem_row: int) -> int:
         return xmem_row * self._row_bytes()
@@ -365,7 +430,7 @@ class IpuState:
         addr = self._row_address(xmem_row)
         row_bytes = self._row_bytes()
         data = self.xmem.read_address(addr, row_bytes)
-        byte_idx = slot_element_idx * _geometry().active_codec(self).element_bytes
+        byte_idx = slot_element_idx * self._codec.element_bytes
         name = _geometry().vector_registers(self).r_cyclic
         # A slot never wraps the ring, so this is the ring's own slot write.
         self.regfile.mutable(name, byte_idx, row_bytes)[:] = data

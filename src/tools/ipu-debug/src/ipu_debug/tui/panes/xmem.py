@@ -39,6 +39,7 @@ from ipu_debug.tui.screen import overlay_style
 from ipu_debug.tui.tabs import TabSet
 from ipu_emu.ipu import xmem_row_size_bytes
 from ipu_emu.ipu_state import IpuState
+from ipu_isa.formats import ElementFormat
 
 # The pane's first row is a border, its second the tab bar, its last a border.
 XMEM_NON_CONTENT_ROWS = 3
@@ -86,15 +87,13 @@ def window_key(window: XmemWindow) -> WindowKey:
     return (window.byte_address, window.byte_count, window.request.fmt, window.row_size)
 
 
+#: The numeric tab of the four-byte formats; every 8-bit format shows int8.
+_NUMERIC_FORMAT = {ElementFormat.FP32: "f32", ElementFormat.INT32: "u32"}
+
+
 def default_tabs(state: IpuState) -> list[XmemTab]:
     """The first stop's tabs: row 0 in hex and in the mode's numeric format."""
-    numeric = (
-        "f32"
-        if state.wide_vector_debug and state.wide_vector_arithmetic.value == "fp32"
-        else "int8"
-    )
-    if state.wide_vector_debug and state.wide_vector_arithmetic.value == "int32":
-        numeric = "u32"
+    numeric = _NUMERIC_FORMAT.get(state.fmt, "int8")
     row_bytes = xmem_row_size_bytes(state)
     return [XmemTab(XmemRequest("row", "0", "0", row_bytes, fmt)) for fmt in ("hex", numeric)]
 

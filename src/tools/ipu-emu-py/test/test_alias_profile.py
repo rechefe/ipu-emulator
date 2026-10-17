@@ -435,13 +435,10 @@ HALT;;
     assert count(state, "A9_EXP", "verified" if overwrite == "none" else "candidate") == 1
 
 
-@pytest.mark.parametrize("dtype_name", ["INT8", "E4", "E5"])
-def test_binary_vector_mask_uses_active_dtype(dtype_name):
-    from ipu_emu.ipu_math import DType, dtype_one_byte
-
-    dtype = DType[dtype_name]
-    state = IpuState(dtype=dtype, alias_profile=AliasProfile())
-    state.xmem.write_address(0, bytes([0, dtype_one_byte(dtype)]) * 64)
+@pytest.mark.parametrize("fmt", ["int8", "e4", "e5"])
+def test_binary_vector_mask_uses_active_format(fmt):
+    state = IpuState(fmt=fmt, alias_profile=AliasProfile())
+    state.xmem.write_address(0, (bytes(1) + state.codec.one()) * 64)
     load_program(
         state,
         assemble_program("""

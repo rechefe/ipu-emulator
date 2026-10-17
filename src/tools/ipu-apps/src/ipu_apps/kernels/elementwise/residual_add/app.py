@@ -38,6 +38,7 @@ from typing import TYPE_CHECKING
 
 from ipu_apps.kernel_registry import ExecutionConfig, folder_spec, no, yes
 from ipu_apps.kernel_registry.base import IpuApp
+from ipu_isa.formats import ElementFormat
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -157,9 +158,9 @@ SPEC = folder_spec(
         "debug datapath (one channel per 512-byte/128-lane chunk)."
     ),
     caveats=lambda **params: (
-        "FP32 wide-vector debug mode only (wide_vector_debug=True). This "
+        "FP32 element format only (fmt=ElementFormat.FP32). This "
         "kernel has no INT8/quantized variant.",
     ),
     cost=lambda **params: 0.0,
-    execution=ExecutionConfig(mode="fp32"),
+    execution=ExecutionConfig(fmt=ElementFormat.FP32),
 )

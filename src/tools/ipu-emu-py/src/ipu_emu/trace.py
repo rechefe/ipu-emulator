@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import IO, Any
 
 from ipu_emu.commit import CommitRecord
-from ipu_emu.geometry import element_format
 from ipu_emu.ipu_state import IpuState
 from ipu_isa.codec.word import DecodedWord, word_bytes
 from ipu_isa.trace_schema import SCHEMA_VERSION, isa_digest
@@ -41,7 +40,7 @@ def trace_header(state: IpuState) -> dict[str, Any]:
     return {
         "schema_version": SCHEMA_VERSION,
         "isa_digest": isa_digest(),
-        "format": element_format(state).value,
+        "format": state.fmt.value,
         "program_digest": _program_digest(state),
         "emulator_version": EMULATOR_VERSION,
     }

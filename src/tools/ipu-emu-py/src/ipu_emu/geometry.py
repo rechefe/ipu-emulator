@@ -4,9 +4,8 @@ Pure functions of the element format and of register contents. The engine's
 handlers call them, and so do the observers (the alias profiler), so an
 observer never reaches into ``Ipu`` for a helper (E04-11):
 
-- :func:`element_format` names the active :class:`~ipu_isa.formats.ElementFormat`
-  of a state (until E04-17 makes the format the state's own field), and
-  :func:`active_codec` is its lane codec;
+- a state's element format is its own field (``IpuState.fmt``, E04-17), and
+  ``IpuState.codec`` is that format's lane codec;
 - :func:`vector_registers` names the registers that hold Ra (R0 ++ R1) and
   R_CYCLIC in a state's element width;
 - :func:`element_width_bytes` and :func:`row_size_bytes` give the bytes of one
@@ -33,13 +32,10 @@ from functools import lru_cache
 from typing import TYPE_CHECKING, NamedTuple, Protocol
 
 from ipu_emu.errors import EmulatorError
-from ipu_emu.ipu_math import DType
-from ipu_emu.ipu_state import WideVectorArithmetic
-from ipu_emu.numerics import LaneCodec, codec_for
 from ipu_emu.xmem import XMEM_SIZE_BYTES
 from ipu_isa.constants import LR_CR_SCALAR_BITS, Partition
 from ipu_isa.faults import FaultId
-from ipu_isa.formats import FORMATS, ElementFormat
+from ipu_isa.formats import FORMATS, AccumulatorType, ElementFormat
 from ipu_isa.geometry import LANES
 from ipu_isa.registers import lrd_pair
 
@@ -50,11 +46,9 @@ if TYPE_CHECKING:
 __all__ = [
     "NARROW_MAX_ROW",
     "VectorRegisters",
-    "active_codec",
     "agg_lane_count",
     "cr_scalar",
     "effective_mult_mask",
-    "element_format",
     "element_width_bytes",
     "inverse_partition_vector",
     "lane_format",
@@ -85,7 +79,6 @@ _MASK_SLOT_BYTES = LANES // 8
 _MASK_SLOTS = LANES // _MASK_SLOT_BYTES
 
 _NARROW_ELEMENT_BYTES = FORMATS[ElementFormat.INT8].element_bytes
-_WIDE_ELEMENT_BYTES = FORMATS[ElementFormat.FP32].element_bytes
 
 
 class _RegisterReader(Protocol):
@@ -98,44 +91,9 @@ class _RegisterReader(Protocol):
     def get_r_mask(self) -> bytes: ...
 
 
-def element_format(state: IpuState) -> ElementFormat:
-    """The element format *state* runs in.
-
-    Wide-vector debug mode is FP32 or INT32 (its arithmetic); otherwise the
-    format is the 8-bit one ``state.dtype`` names (``DType(x)`` is ``Ex``).
-
-    Args:
-        state: The machine state.
-
-    Returns:
-        Its element format.
-    """
-    if state.wide_vector_debug:
-        return ElementFormat(state.wide_vector_arithmetic.value)
-    return ElementFormat[state.dtype.name]
-
-
-# (wide_vector_debug, wide_vector_arithmetic, dtype) -> codec: element_format's inputs.
-_ACTIVE_CODECS: dict[tuple[bool, WideVectorArithmetic, DType], LaneCodec] = {}
-
-
-def active_codec(state: IpuState) -> LaneCodec:
-    """The lane codec of :func:`element_format` (*state*), cached per mode.
-
-    Read per call, not once per engine: a caller may change ``state.dtype``
-    after the engine is built.
-
-    Args:
-        state: The machine state.
-
-    Returns:
-        Its element format's codec.
-    """
-    key = (state.wide_vector_debug, state.wide_vector_arithmetic, state.dtype)
-    codec = _ACTIVE_CODECS.get(key)
-    if codec is None:
-        codec = _ACTIVE_CODECS[key] = codec_for(element_format(state))
-    return codec
+def _is_wide(state: IpuState) -> bool:
+    """*state* runs in a 4-byte element format (FP32 or INT32, emulator-only)."""
+    return state.codec.element_bytes != _NARROW_ELEMENT_BYTES
 
 
 class VectorRegisters(NamedTuple):
@@ -154,11 +112,11 @@ _WIDE_REGISTERS = VectorRegisters(ra="r_wide_debug", r_cyclic="r_cyclic_wide_deb
 def vector_registers(state: IpuState) -> VectorRegisters:
     """Where Ra and R_CYCLIC live in *state*'s element width.
 
-    Wide-vector debug mode keeps 4-byte elements in their own registers
+    A 4-byte format (FP32, INT32) keeps its elements in their own registers
     (``r_wide_debug``, ``r_cyclic_wide_debug``); both layouts hold the same
     number of elements, so a handler indexes either in elements.
     """
-    return _WIDE_REGISTERS if state.wide_vector_debug else _NARROW_REGISTERS
+    return _WIDE_REGISTERS if _is_wide(state) else _NARROW_REGISTERS
 
 
 def element_width_bytes(fmt: ElementFormat) -> int:
@@ -172,8 +130,8 @@ def row_size_bytes(fmt: ElementFormat) -> int:
 
 
 def xmem_element_width_bytes(state: IpuState) -> int:
-    """:func:`element_width_bytes` of *state*'s format, without building the enum."""
-    return _WIDE_ELEMENT_BYTES if state.wide_vector_debug else _NARROW_ELEMENT_BYTES
+    """:func:`element_width_bytes` of *state*'s format, from its codec (the hot path)."""
+    return state.codec.element_bytes
 
 
 def xmem_row_size_bytes(state: IpuState) -> int:
@@ -279,7 +237,7 @@ def xmem_row_fault(state: IpuState, row: int) -> str | None:
     """
     if row < 0:
         return f"XMEM row must be non-negative; got {row}"
-    if not state.wide_vector_debug and row >= NARROW_MAX_ROW:
+    if not _is_wide(state) and row >= NARROW_MAX_ROW:
         return (
             f"XMEM row {row} is out of range for narrow mode "
             f"(rows 0..{NARROW_MAX_ROW - 1}, the first "
@@ -339,10 +297,8 @@ def lrd_bytes(regfile: _RegisterReader, n: int) -> bytes:
 
 
 def lane_format(state: IpuState) -> str:
-    """Struct format of one 4-byte R_ACC / MULT_RES / AGG lane in the active mode."""
-    if state.wide_vector_debug:
-        return "<f" if state.wide_vector_arithmetic == WideVectorArithmetic.FP32 else "<i"
-    return "<i" if state.dtype == DType.INT8 else "<f"
+    """Struct format of one 4-byte R_ACC / MULT_RES / AGG lane: the format's accumulator."""
+    return "<f" if state.format_info.accumulator is AccumulatorType.FP32 else "<i"
 
 
 def agg_lane_count(valid_elements: int) -> int:

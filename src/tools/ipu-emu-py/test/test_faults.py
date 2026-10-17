@@ -18,7 +18,7 @@ from ipu_emu.errors import ConfigurationError, EmulatorError, EmulatorFault, XMe
 from ipu_emu.execute import Ipu
 from ipu_emu.ipu import plans_for
 from ipu_emu.ipu_state import HaltRecord
-from ipu_isa.faults import FaultId
+from ipu_isa.faults import ArithmeticEvent, FaultId
 from ipu_isa.slots import Slot
 
 
@@ -305,3 +305,13 @@ def test_f1_disabled_word_retires_once_after_a_debugger_stop():
     assert stops == [0]
     assert state.regfile.get_lr(0) == 1  # retired exactly once
     assert state.faults.sticky == {FaultId.F1} and state.halt == HaltRecord("halt", 1, None)
+
+
+def test_reset_sets_every_enable_bit_and_clears_the_flags():
+    state = make_state("INC LR0 1 ;;")
+    fault_of(state)
+    state.faults.set_enabled(FaultId.F1, False)
+    state.arith_flags.add(ArithmeticEvent.ACC_OVERFLOW)
+    state.reset()
+    assert state.faults.enable == dict.fromkeys(FaultId, True) and not state.faults.sticky
+    assert state.halt is None and not state.arith_flags

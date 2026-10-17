@@ -107,7 +107,7 @@ py_pytest_test(
     ],
 )
 
-# DType <-> ipu_isa ElementFormat correspondence (E03-13), for E04-17.
+# IpuState(fmt=...) configures everything format-dependent (E04-17).
 py_pytest_test(
     name = "test_element_formats",
     srcs = ["test/test_element_formats.py"],
@@ -280,8 +280,8 @@ py_pytest_test(
 )
 
 py_pytest_test(
-    name = "test_wide_vector_debug",
-    srcs = ["test/test_wide_vector_debug.py"],
+    name = "test_wide_formats",
+    srcs = ["test/test_wide_formats.py"],
     imports = ["src"],
     deps = [
         ":emu_test_support",
