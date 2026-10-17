@@ -776,6 +776,25 @@ def _same_pinned_value(
     return mine.row + offset == theirs.row + offsets.get(other, 0)
 
 
+def _sharing_clash(
+    name: str,
+    binding: _Binding,
+    others: list[str],
+    conditions: Mapping[str, Condition],
+    tensors: Mapping[str, TensorDecl],
+    offsets: Mapping[str, int],
+) -> str | None:
+    """The first earlier binding of the same register that ``name`` may not
+    share it with: unless their conditions exclude each other, or both are
+    tensors pinned so the register holds one value (:func:`_same_pinned_value`)."""
+    for other in others:
+        if binding.when is not None and binding.when.excludes(conditions.get(other)):
+            continue
+        if not _same_pinned_value(tensors, offsets, name, binding.offset, other):
+            return other
+    return None
+
+
 def _abi(
     r: Reader,
     raw: object,
@@ -799,11 +818,9 @@ def _abi(
             offsets[name] = binding.offset
         if binding.when is not None:
             conditions[name] = binding.when
-        for other in used.get(register, []):
-            if binding.when is not None and binding.when.excludes(conditions.get(other)):
-                continue
-            if not _same_pinned_value(tensors, offsets, name, binding.offset, other):
-                raise r.fail(path, f"[abi] {name} and {other} both bind {register}")
+        clash = _sharing_clash(name, binding, used.get(register, []), conditions, tensors, offsets)
+        if clash is not None:
+            raise r.fail(path, f"[abi] {name} and {clash} both bind {register}")
         used.setdefault(register, []).append(name)
         abi[name] = register
 
