@@ -72,7 +72,7 @@
     ST.AAQ reads its offset operand LIVE -- never co-issue an ADD on
     the store's offset LR in the same instruction word as the store, or the row
     lands one slot late (same hazard documented in fold_16x16x192.asm and
-    residual_add_16x240.asm).
+    the elementwise family's residual_add_rows.asm).
 
     CR0 and CR1 are BOTH read-only hardwired constants (0 and 1 respectively;
     a host write raises, CR_READ_ONLY_INITIAL_VALUES); every base and count
@@ -145,7 +145,7 @@ a_loop:
     # Cycle 2: stage r_acc into post_aaq_reg and store it (ACTIVATE.QUANTIZE
     #   identity + ST.AAQ co-issue in one VLIW word; in-word slot
     #   order CTRL -> MULT -> ACC -> AaQ -> STR means STR consumes this
-    #   cycle's AaQ result -- same free-store pattern residual_add_16x240
+    #   cycle's AaQ result -- same free-store pattern residual_add_rows
     #   uses). Advance the row counter in the same cycle (it does not feed
     #   this cycle's STR offset, which is out_ptr, not row_index).
     ACTIVATE.QUANTIZE   identity {{ DSTRUCT }};

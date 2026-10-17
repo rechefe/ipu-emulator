@@ -32,7 +32,7 @@ KERNELS = {
         "conv_first_layer",
     ],
     "detect": ["channel_peak", "score_threshold"],
-    "elementwise": ["scale"],
+    "elementwise": ["residual_add", "residual_add_rows", "scale"],
     "linear": ["fully_connected"],
     "matmul": ["matmul_small"],
     "pooling": [
