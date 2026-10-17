@@ -25,7 +25,7 @@ def _targets() -> dict:
 def test_the_list_names_every_kernel_folder():
     folders = {str(p.parent.relative_to(SOURCE.parent)) for p in SOURCE.glob("*/*/kernel.toml")}
     listed = {kernel["dir"] for kernel in _targets()["kernels"].values()}
-    assert listed == folders, "add the folder to KERNELS in kernels/BUILD.bazel"
+    assert listed == folders, "add the kernel to KERNELS in kernels/families.bzl"
 
 
 def test_the_tree_holds_every_kernels_files():
@@ -50,4 +50,4 @@ def test_the_manifest_has_the_legacy_keys():
     # fixed by its name) and a family's suite label.
     assert scale["cases"]["default"]["options"] == {}
     assert scale["cases"]["default"]["values"] == {"rows": 4, "s": 2.0}
-    assert manifest["families"] == {"elementwise": {"suite": "//kernels:elementwise"}}
+    assert manifest["families"] == {"elementwise": {"suite": "//kernels/elementwise:all"}}
