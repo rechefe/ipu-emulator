@@ -32,6 +32,7 @@ registry.bzl (written by `bazel run //kernels:update_registry_bzl`) is stale.
 
 load("@ipu_as_deps//:requirements.bzl", "requirement")
 load("@rules_python//python:defs.bzl", "py_library", "py_test")
+load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
 load("//tools:lint.bzl", "ruff_test")
 load(":families.bzl", "FAMILY_DEPS", "KERNELS")
 
@@ -131,7 +132,11 @@ def ipu_kernel_family(entries = [], kernels_lib = None, extra_deps = [], size = 
       and any *.py the harness loads by path), with the :files of each family
       it uses.
     * :all: every kernel test of the family (the manifest's family suite),
-      its entries' included.
+      its entries' and :tests included.
+    * :tests: the family folder's own test_*.py (routing, conformance,
+      datapath tests across its kernels), when it has any: pytest, with the
+      family's :lib and :files, every kernel's and template's files, and the
+      whole kernel tree (//kernels:all_kernels) for a Registry or a query.
     * :ruff: lint over its Python.
     * :<entry>, :<entry>_nightly, :assemble_<entry> for each registry entry,
       and :registry_bzl_test when it has entries.
@@ -142,7 +147,7 @@ def ipu_kernel_family(entries = [], kernels_lib = None, extra_deps = [], size = 
             //src/tools/ipu-kernels:ipu_kernels_<family>. A fixture family
             outside kernels/ names the shared one.
         extra_deps: libraries the template folders' Python imports, for the
-            entries' tests (as ipu_kernel()'s).
+            entries' tests (as ipu_kernel()'s), and the family's :tests.
         size: the test size of each :<entry>, as ipu_kernel()'s.
         shard_count: shards of :<entry> and :<entry>_nightly, by entry name,
             for an entry with more than about 60 case x format runs.
@@ -165,10 +170,20 @@ def ipu_kernel_family(entries = [], kernels_lib = None, extra_deps = [], size = 
                ["//kernels/" + other + ":files" for other in uses],
         visibility = ["//visibility:public"],
     )
+    family_tests = native.glob(["test_*.py"], allow_empty = True)
+    if family_tests:
+        folders = KERNELS.get(family, []) + sorted({e["template"]: None for e in entries}.keys())
+        py_pytest_test(
+            name = "tests",
+            srcs = family_tests,
+            data = [":files"] + ["//%s/%s:%s_files" % (package, k, k) for k in folders],
+            deps = _test_deps(package) + ["//kernels:all_kernels"] + extra_deps,
+            size = "medium",
+        )
     native.test_suite(
         name = "all",
         tests = ["//%s/%s:%s" % (package, kernel, kernel) for kernel in KERNELS.get(family, [])] +
-                [":" + entry["name"] for entry in entries],
+                [":" + entry["name"] for entry in entries] + ([":tests"] if family_tests else []),
         visibility = ["//visibility:public"],
     )
     ruff_test(name = "ruff", srcs = py)
