@@ -530,3 +530,72 @@ py_library(
         requirement("jinja2"),
     ],
 )
+
+# The ISA-wide checks of one assembled program (round trip, slot and word
+# codec, hardware target), shared by the corpus tests below and the kernel
+# tree's //src/tools/ipu-harness:test_kernel_programs.
+py_library(
+    name = "program_checks",
+    testonly = True,
+    srcs = ["test/corpus/program_checks.py"],
+    imports = ["test/corpus"],
+    deps = [
+        ":ipu_as_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+    ],
+)
+
+# Disassembly to assembly syntax assembles back to the same words, for both
+# targets, over every program of the corpus (E05-15).
+py_pytest_test(
+    name = "test_assembly_round_trip",
+    srcs = ["test/test_assembly_round_trip.py"],
+    data = ["//src/tools/ipu-apps:asm_corpus_files"],
+    deps = [
+        ":asm_corpus",
+        ":program_checks",
+        ":ipu_as_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+# The ISA's slot codec against the assembler, over the corpus (E03-17).
+py_pytest_test(
+    name = "test_slot_codec_corpus",
+    srcs = ["test/test_slot_codec_corpus.py"],
+    data = ["//src/tools/ipu-apps:asm_corpus_files"],
+    deps = [
+        ":asm_corpus",
+        ":program_checks",
+        ":ipu_as_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+# The ISA's word codec over every program of the corpus (E03-16).
+py_pytest_test(
+    name = "test_word_codec_corpus",
+    srcs = ["test/test_word_codec_corpus.py"],
+    data = ["//src/tools/ipu-apps:asm_corpus_files"],
+    deps = [
+        ":asm_corpus",
+        ":program_checks",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+# --target hardware over the corpus (E05-15).
+py_pytest_test(
+    name = "test_hardware_target",
+    srcs = ["test/test_hardware_target.py"],
+    data = ["//src/tools/ipu-apps:asm_corpus_files"],
+    deps = [
+        ":asm_corpus",
+        ":program_checks",
+        ":ipu_as_lib",
+        requirement("pytest"),
+    ],
+)
