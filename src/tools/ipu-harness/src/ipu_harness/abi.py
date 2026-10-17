@@ -45,6 +45,7 @@ from ipu_harness.placement import Placement
 from ipu_isa.constants import (
     CR_READ_ONLY_INITIAL_VALUES,
     LR_CR_SCALAR_VALUE_MASK,
+    DStructureConfig,
     encode_dstructure,
 )
 from ipu_isa.formats import FORMATS
@@ -96,12 +97,6 @@ def _element_bits(value: float, plan: CasePlan) -> int:
     return int.from_bytes(encode(np.array([value]), plan.format), "little")
 
 
-def _binds(manifest: KernelManifest, name: str) -> bool:
-    """Whether ``name`` is something a register can hold: a tensor, a
-    parameter or a derived value."""
-    return name in manifest.tensors or name in manifest.derived or name in manifest.params
-
-
 def _value(name: str, plan: CasePlan, placement: Placement) -> tuple[int, str]:
     """The bits ``name`` puts in its register, and what they are."""
     manifest = plan.manifest
@@ -121,38 +116,52 @@ def _value(name: str, plan: CasePlan, placement: Placement) -> tuple[int, str]:
 
 
 def register_writes(
-    plan: CasePlan, placement: Placement, *, abi: Mapping[str, str] | None = None
+    plan: CasePlan,
+    placement: Placement,
+    *,
+    abi: Mapping[str, str] | None = None,
+    dstructure: DStructureConfig | None = None,
 ) -> tuple[RegisterWrite, ...]:
-    """Every register's starting value, in ``[abi]`` order, then the default
+    """Every register's starting value, in ``[abi]`` order, then the
     dstructure in ``CR15`` unless ``[abi]`` binds it.
 
     Args:
         plan: The checked case.
         placement: Its regions.
         abi: Names to registers in place of the kernel's ``[abi]`` (a stage's,
-            E06-14); each name is still a tensor, parameter or derived value.
+            E06-14), already checked by ``manifest.check_abi``.
+        dstructure: ``CR15``'s dstructure; ``None``: the default (128 valid
+            elements).
 
     Returns:
         The writes, values as raw register bits.
 
     Raises:
         PlanError: A value does not fit a 32-bit register.
+        ConfigurationError: ``dstructure`` is given and ``abi`` binds ``CR15``.
     """
     bindings = plan.manifest.abi if abi is None else abi
+    cr15 = f"CR{DEFAULT_DSTRUCTURE_CR}"
+    if dstructure is not None and cr15 in bindings.values():
+        raise ConfigurationError(
+            f"{plan.manifest.name}: the abi binds {cr15} and a dstructure is given for it"
+        )
     writes = []
     for name, register in bindings.items():
-        if not _binds(plan.manifest, name):
-            raise PlanError(plan.manifest, f"abi.{name}", f"{name!r} is no tensor or parameter")
         value, source = _value(name, plan, placement)
         if not _LOWEST <= value < _PAST_HIGHEST:
             raise PlanError(
                 plan.manifest, f"abi.{name}", f"{source} = {value} does not fit a 32-bit register"
             )
         writes.append(RegisterWrite(register, value & LR_CR_SCALAR_VALUE_MASK, source))
-    dstructure = f"CR{DEFAULT_DSTRUCTURE_CR}"
-    if dstructure not in bindings.values():
-        bits = encode_dstructure(valid_elements=LANES)
-        writes.append(RegisterWrite(dstructure, bits, "dstructure (default, 128 valid elements)"))
+    if cr15 not in bindings.values():
+        if dstructure is None:
+            bits = encode_dstructure(valid_elements=LANES)
+            source = "dstructure (default, 128 valid elements)"
+        else:
+            bits = dstructure.to_register_value()
+            source = f"dstructure ({dstructure.valid_elements} valid elements)"
+        writes.append(RegisterWrite(cr15, bits, source))
     return tuple(writes)
 
 

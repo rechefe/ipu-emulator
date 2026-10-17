@@ -15,31 +15,34 @@ regions are ``[scratch.*]`` tensors (placement owns their rows), and a stage
 names the registers it reads as ``[abi]`` does. A stage may run another
 kernel's program only from the same family folder (``FAMILY_DEPS``, E06-18,
 will widen that).
+
+Every stage runs in the case's one format, on one model. ``max_cycles`` limits
+each stage, not the run. Under a debugger no trace is written, as for a
+one-program kernel.
 """
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
 from typing import Protocol
 
-from ipu_as.session import AssemblySession
-from ipu_as.template import REQUIRED, Param, ParamSpec
 from ipu_emu.errors import ConfigurationError
 from ipu_emu.reference import ReferenceModel, RunResult, RunState, TraceWriter
 from ipu_harness._plugins import load_file
-from ipu_harness.abi import apply, check_cr_reads, register_writes, template_names
-from ipu_harness.assembly import AssemblyCache, declared_params, search_path, template_values
+from ipu_harness.abi import apply, check_cr_reads, register_writes
+from ipu_harness.assembly import AssemblyCache, assemble_program
 from ipu_harness.debug import DebugHook, debug_run
-from ipu_harness.manifest import KernelManifest
+from ipu_harness.manifest import KernelManifest, check_abi
 from ipu_harness.params import CasePlan
 from ipu_harness.placement import Placement
-from ipu_isa.constants import DStructureConfig, encode_dstructure
+from ipu_isa.constants import DStructureConfig
 from ipu_isa.geometry import LANES
 
-__all__ = ["StageContext", "StageOptions", "StageRun", "StagesRun", "run_stages"]
+__all__ = ["StageContext", "StageOptions", "StageRun", "StagesRun", "load_hook", "run_stages"]
 
 
 @dataclass(frozen=True)
@@ -156,9 +159,10 @@ class StageContext(Protocol):
         ...
 
 
-class _StageStop(Exception):
+class _StageStop(BaseException):
     """A stage faulted, or the user quit the debugger in it: the stages after
-    it do not run."""
+    it do not run. A ``BaseException``, so a hook's ``except Exception`` does
+    not swallow it."""
 
 
 @dataclass
@@ -172,10 +176,13 @@ class _Stages:
     runs: list[StageRun] = field(default_factory=list)
     last: RunResult | None = None
     quit: bool = False
+    stopped: bool = False
 
     def _program(self, program: str) -> Path:
-        directory = self.manifest.directory.resolve()
-        path = (directory / program).resolve()
+        # Lexical, not resolve(): under Bazel the files are symlinks out of
+        # the runfiles tree (as kernel_test.py keeps them).
+        directory = Path(os.path.abspath(self.manifest.directory))
+        path = Path(os.path.normpath(directory / program))
         family = directory.parent
         if family not in path.parents:
             raise ConfigurationError(
@@ -195,42 +202,22 @@ class _Stages:
         dstructure: DStructureConfig | None = None,
         max_cycles: int | None = None,
     ) -> int:
+        if self.stopped:
+            raise _StageStop  # an earlier stage ended the run; the hook caught its stop
         path = self._program(program)
-        bindings = self.manifest.abi if abi is None else MappingProxyType(dict(abi))
-        clash = set(params) & set(template_values(self.plan))
-        if clash:
-            raise ConfigurationError(
-                f"{self.manifest.name}: stage params {sorted(clash)} are already the case's"
-            )
-        declared = ParamSpec(
-            (
-                *declared_params(self.plan).params,
-                *(Param(n, type(v), REQUIRED) for n, v in params.items()),
-            )
+        bindings = (
+            self.manifest.abi
+            if abi is None
+            else check_abi(self.manifest, abi, where=f"stage {program}")
         )
-        session = AssemblySession(
-            path.read_text(encoding="utf-8"),
-            defines={**template_values(self.plan), **params},
-            params=declared,
-            search_path=(path.parent, *search_path(self.plan)),
-            abi=template_names(self.manifest, bindings),
-            name=path.name,
-        )
-        assembled = self.cache.get(session)
+        assembled = assemble_program(self.plan, path, self.cache, params=params, abi=bindings)
         check_cr_reads(self.manifest, assembled.rendered, abi=bindings, name=path.name)
 
         model = self.model
         model.load_program(assembled.words)
-        writes = register_writes(self.plan, self.placement, abi=bindings)
-        if dstructure is not None and "CR15" not in bindings.values():
-            bits = encode_dstructure(
-                valid_elements=dstructure.valid_elements,
-                partition=dstructure.partition,
-                pad_mode=dstructure.pad_mode,
-            )
-            writes = tuple(w for w in writes if w.register != "CR15")
-            model.write_register("cr", bits, 15)
-        apply(model, writes)
+        apply(
+            model, register_writes(self.plan, self.placement, abi=bindings, dstructure=dstructure)
+        )
 
         options = self.options
         limit = options.max_cycles if max_cycles is None else max_cycles
@@ -258,6 +245,7 @@ class _Stages:
         )
         self.last = result
         if result is None or result.status.state is not RunState.HALTED:
+            self.stopped = True
             raise _StageStop
         return result.cycles
 

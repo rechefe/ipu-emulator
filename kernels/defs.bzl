@@ -28,13 +28,13 @@ def ipu_kernel(name = None, extra_deps = [], size = "large", shard_count = None,
     Args:
         name: the kernel's name; default the folder's (the last path component).
         extra_deps: libraries the folder's test_*.py import.
-        uses: kernels of the same family whose programs this one's stages
-            hook runs (E06-14: `ctx.run_stage("../<kernel>/<kernel>.asm")`), by
-            folder name; their files become this kernel's data.
         size: the test size of :<name> (kernels run in the emulator).
         shard_count: shards of :<name> and :<name>_nightly; set it for a kernel
             with more than about 60 case x format runs, so a shard keeps inside
             the CI budget (Starlark cannot read kernel.toml to count them).
+        uses: kernels of the same family whose programs this one's stages
+            hook runs (E06-14: `ctx.run_stage("../<kernel>/<any>.asm")`), by
+            folder name; their files become this kernel's data.
     """
     name = name or native.package_name().rpartition("/")[2]
     files = native.glob(

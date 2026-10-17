@@ -29,7 +29,7 @@ from ipu_harness.abi import template_names
 from ipu_harness.manifest import ParamType
 from ipu_harness.params import CasePlan
 
-__all__ = ["AssemblyCache", "assemble", "declared_params", "search_path", "template_values"]
+__all__ = ["AssemblyCache", "assemble", "assemble_program", "search_path", "template_values"]
 
 _PY_TYPES: Mapping[str, type] = {"int": int, "float": float, "bool": bool, "str": str}
 assert set(_PY_TYPES) == set(get_args(ParamType)), (
@@ -51,7 +51,7 @@ def template_values(plan: CasePlan) -> Mapping[str, object]:
     return MappingProxyType({**plan.params, "format": plan.format.value, "shapes": shapes})
 
 
-def declared_params(plan: CasePlan) -> ParamSpec:
+def _declared(plan: CasePlan) -> ParamSpec:
     """The parameters the program may read: the kernel's, ``format`` and ``shapes``.
 
     Args:
@@ -138,13 +138,53 @@ def assemble(
         ipu_as.errors.ParseError: The rendered program does not parse.
         ipu_as.errors.EncodeError: An instruction does not encode.
     """
-    manifest = plan.manifest
+    return assemble_program(plan, plan.manifest.asm, cache, asm_lib=asm_lib)
+
+
+def assemble_program(
+    plan: CasePlan,
+    program: Path,
+    cache: AssemblyCache | None = None,
+    *,
+    params: Mapping[str, object] = MappingProxyType({}),
+    abi: Mapping[str, str] | None = None,
+    asm_lib: Path | None = None,
+) -> AssemblyResult:
+    """``program`` rendered with ``plan``'s values and assembled: the kernel's
+    own program, or one stage of a multi-stage kernel (E06-14).
+
+    Args:
+        plan: The checked case.
+        program: The ``.asm`` file; its folder is searched first.
+        cache: Reuses an earlier assembly of the same rendered text.
+        params: Template values besides the case's (a stage's own), each
+            declared required.
+        abi: The ``cr``/``lr`` names, in place of the kernel's ``[abi]``.
+        asm_lib: The shared macro library, when the caller has it.
+
+    Returns:
+        The instruction words, labels and rendered text (E05).
+
+    Raises:
+        ConfigurationError: A name in ``params`` is already a template value.
+        ipu_as.errors.TemplateError, ParseError, EncodeError: As
+            :func:`assemble`.
+    """
+    defines = template_values(plan)
+    clash = set(params) & set(defines)
+    if clash:
+        raise ConfigurationError(
+            f"{plan.manifest.name}: {program.name} params {sorted(clash)} are already the case's"
+        )
+    declared = ParamSpec(
+        (*_declared(plan).params, *(Param(n, type(v), REQUIRED) for n, v in params.items()))
+    )
     session = AssemblySession(
-        manifest.asm.read_text(encoding="utf-8"),
-        defines=template_values(plan),
-        params=declared_params(plan),
-        search_path=search_path(plan, asm_lib),
-        abi=template_names(manifest),
-        name=manifest.asm.name,
+        program.read_text(encoding="utf-8"),
+        defines={**defines, **params},
+        params=declared,
+        search_path=tuple(dict.fromkeys((program.parent, *search_path(plan, asm_lib)))),
+        abi=template_names(plan.manifest, abi),
+        name=program.name,
     )
     return (cache or AssemblyCache()).get(session)

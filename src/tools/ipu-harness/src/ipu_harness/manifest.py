@@ -88,6 +88,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Literal
 
+from ipu_emu.errors import ConfigurationError
 from ipu_harness._codec import limits
 from ipu_harness._toml_source import Locator, ManifestError, Reader, decode_error_line, where
 from ipu_harness.expressions import ExpressionError, names_in
@@ -104,6 +105,7 @@ else:
 __all__ = [
     "BYTE_UNIT_KERNELS",
     "TOML_NAME",
+    "check_abi",
     "CaseDecl",
     "GoldenDecl",
     "KernelManifest",
@@ -495,16 +497,31 @@ def _tensor(
     return decl
 
 
-def _register(r: Reader, name: str, raw: object) -> str:
-    path = ("abi", name)
-    text = str(r.typed(raw, str, path)).upper()
-    m = re.fullmatch(r"(CR|LR)(0|[1-9][0-9]?)", text, re.ASCII)
+def _binding_problem(
+    name: str,
+    register: str,
+    params: Mapping[str, ParamDecl],
+    used: Mapping[str, str],
+    *,
+    label: str,
+    table: str,
+) -> str | None:
+    """What is wrong with binding ``name`` to ``register`` (already upper case),
+    or ``None``; ``label`` names the key in a message, ``table`` the table.
+    The caller has checked that ``name`` is the kernel's."""
+    m = re.fullmatch(r"(CR|LR)(0|[1-9][0-9]?)", register, re.ASCII)
     banks = {"CR": REGISTER_DEFINITIONS["cr"]["count"], "LR": REGISTER_DEFINITIONS["lr"]["count"]}
     if not m or int(m.group(2)) >= banks[m.group(1)]:
-        raise r.fail(path, f"{where(path)} = {raw!r} is no CR or LR register")
+        return f"{label} = {register!r} is no CR or LR register"
     if m.group(1) == "CR" and int(m.group(2)) < 2:
-        raise r.fail(path, f"[abi] binds {text}, a hardwired constant")
-    return text
+        return f"{table} binds {register}, a hardwired constant"
+    if register in used:
+        return f"{table} {name} and {used[register]} both bind {register}"
+    if name in params and params[name].type == "str":
+        return f"{table} {name} is a str parameter; a register holds a number"
+    if register.startswith("LR") and name in params and params[name].type == "float":
+        return f"{table} {name} is an element scalar (a float); it binds a CR, not {register}"
+    return None
 
 
 def _abi(
@@ -516,22 +533,23 @@ def _abi(
 ) -> Mapping[str, str]:
     table = r.table(raw, ("abi",))
     abi: dict[str, str] = {}
-    used: dict[str, str] = {}
     for name, value in table.items():
         path = ("abi", name)
         if name not in names:
             raise r.fail(path, f"{where(path)} names no parameter, tensor or derived value")
-        register = _register(r, name, value)
-        if register in used:
-            raise r.fail(path, f"[abi] {name} and {used[register]} both bind {register}")
-        if name in params and params[name].type == "str":
-            raise r.fail(path, f"[abi] {name} is a str parameter; a register holds a number")
-        if register.startswith("LR") and name in params and params[name].type == "float":
-            raise r.fail(
-                path, f"[abi] {name} is an element scalar (a float); it binds a CR, not {register}"
-            )
-        used[register] = name
-        abi[name] = register
+        text = str(r.typed(value, str, path))
+        problem = _binding_problem(
+            name,
+            text.upper(),
+            params,
+            {v: k for k, v in abi.items()},
+            label=where(path),
+            table="[abi]",
+        )
+        if problem is not None:
+            # The kernel.toml spelling, not the upper-case one.
+            raise r.fail(path, problem.replace(repr(text.upper()), repr(text), 1))
+        abi[name] = text.upper()
     for tensor in tensors.values():
         if tensor.name not in abi:
             raise r.fail(
@@ -539,6 +557,46 @@ def _abi(
                 f"[abi] does not bind tensor {tensor.name!r}; its base row must reach the program",
             )
     return MappingProxyType(abi)
+
+
+def check_abi(manifest: KernelManifest, abi: Mapping[str, str], *, where: str) -> Mapping[str, str]:
+    """``abi`` checked by ``[abi]``'s rules, for a table that is not the
+    kernel's own (a stage's, E06-14): each name is the kernel's parameter,
+    tensor or derived value, each register a CR (not CR0 or CR1) or LR bound
+    once, no ``str`` parameter, no float on an LR. Unlike ``[abi]``, it need
+    not bind every tensor.
+
+    Args:
+        manifest: The kernel whose names ``abi`` binds.
+        abi: Names to registers (``{"x": "CR2"}``; any case).
+        where: What the table is, for the error (``"stage copy.asm"``).
+
+    Returns:
+        The table, registers in upper case.
+
+    Raises:
+        ConfigurationError: A binding breaks a rule.
+    """
+    names = {*manifest.params, *manifest.tensors, *manifest.derived}
+    checked: dict[str, str] = {}
+    for name, value in abi.items():
+        if name not in names:
+            raise ConfigurationError(
+                f"{manifest.name}: {where} abi {name!r} names no parameter, tensor or derived value"
+            )
+        register = value.upper() if isinstance(value, str) else repr(value)
+        problem = _binding_problem(
+            name,
+            register,
+            manifest.params,
+            {v: k for k, v in checked.items()},
+            label=f"{where} abi {name!r}",
+            table=f"{where}'s abi",
+        )
+        if problem is not None:
+            raise ConfigurationError(f"{manifest.name}: {problem}")
+        checked[name] = register
+    return MappingProxyType(checked)
 
 
 # --- cases and golden ---------------------------------------------------------------------
