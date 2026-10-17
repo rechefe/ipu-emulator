@@ -15,8 +15,7 @@ from ipu_emu import xmem
 from ipu_emu.cycle import schedule_word
 from ipu_emu.emulator import DebugAction, load_program, run_until_complete, run_with_debug
 from ipu_emu.errors import ConfigurationError, EmulatorError, EmulatorFault, XMemBoundsError
-from ipu_emu.execute import Ipu
-from ipu_emu.ipu import plans_for
+from ipu_emu.ipu import Ipu, plans_for
 from ipu_emu.ipu_state import HaltRecord
 from ipu_isa.faults import ArithmeticEvent, FaultId
 from ipu_isa.slots import Slot

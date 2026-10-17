@@ -23,7 +23,9 @@ observer never reaches into ``Ipu`` for a helper (E04-11):
 - :func:`lrd_bytes` reads the eight byte elements of an LRD pair;
 - :func:`lane_format` is the struct format of one 4-byte accumulator lane
   (the AAQ activation path's; every other handler goes through the codec);
-- :func:`agg_lane_count` is how many R_ACC lanes a reduction includes.
+- :func:`agg_lane_count` is how many R_ACC lanes a reduction includes;
+- ``R_REG_SIZE``, ``R_CYCLIC_SIZE`` and ``R_CYCLIC_VALID_INDICES`` are the R
+  register and R_CYCLIC sizes in bytes and R_CYCLIC's slot boundaries.
 
 The slot modules (``ipu_emu.slots``) share these instead of importing each
 other (E04-14).
@@ -41,7 +43,7 @@ from ipu_isa.constants import LR_CR_SCALAR_BITS, Partition
 from ipu_isa.faults import FaultId
 from ipu_isa.formats import FORMATS, AccumulatorType, ElementFormat
 from ipu_isa.geometry import LANES
-from ipu_isa.registers import REGISTER_DEFINITIONS, lrd_pair
+from ipu_isa.registers import REGISTER_DEFINITIONS, get_register_sizes, lrd_pair
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -54,6 +56,9 @@ if TYPE_CHECKING:
 __all__ = [
     "EMULATOR_REGISTERS",
     "NARROW_MAX_ROW",
+    "R_CYCLIC_SIZE",
+    "R_CYCLIC_VALID_INDICES",
+    "R_REG_SIZE",
     "WIDE_REGISTERS",
     "VectorRegisters",
     "agg_lane_count",
@@ -74,6 +79,17 @@ __all__ = [
     "xmem_row_fault",
     "xmem_row_size_bytes",
 ]
+
+_REG_SIZES = get_register_sizes()
+
+#: Bytes of one R register (one narrow row) and of the R_CYCLIC ring, from
+#: ``REGISTER_DEFINITIONS`` via ``get_register_sizes()``.
+R_REG_SIZE = _REG_SIZES["r"]["size_bytes"]
+R_CYCLIC_SIZE = _REG_SIZES["r_cyclic"]["size_bytes"]
+
+#: R_CYCLIC is divided into four 128-byte slots; LD.MULT.CYCLIC's index must
+#: land exactly on a slot boundary (no implicit wraparound).
+R_CYCLIC_VALID_INDICES = tuple(range(0, R_CYCLIC_SIZE, R_REG_SIZE))
 
 # XMEM is allocated at XMEM_SIZE_BYTES always (mode-independent). Narrow mode
 # may address only its first 16384 rows of 128 B (2 MB) -- a fixed limit, not

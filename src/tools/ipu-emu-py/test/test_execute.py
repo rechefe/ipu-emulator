@@ -31,10 +31,11 @@ from ipu_emu.emulator import (
     run_until_complete,
     run_with_debug,
 )
-from ipu_emu.errors import DebugOnlyInstructionWarning, EmulatorFault
-from ipu_emu.execute import BreakResult, decode_instruction_word
+from ipu_emu.errors import ConfigurationError, DebugOnlyInstructionWarning, EmulatorFault
+from ipu_emu.execute import decode_instruction_word
 from ipu_emu.ipu import NARROW_MAX_ROW, EmulatorError, Ipu
 from ipu_emu.ipu_state import HaltRecord, IpuState
+from ipu_emu.outcome import CycleOutcome
 from ipu_emu.xmem import XMEM_SIZE_BYTES
 from ipu_isa.constants import PadMode, encode_dstructure
 from ipu_isa.faults import FaultId
@@ -1979,7 +1980,7 @@ HALT;;
         assert state.regfile.get_r_acc_word(15) == 9999
 
 
-def _step(state: IpuState) -> BreakResult:
+def _step(state: IpuState) -> CycleOutcome:
     """One cycle on *state*, honouring BREAK (``Cycle.step``)."""
     ipu = Ipu(state)
     return ipu.cycle.step()
@@ -2019,11 +2020,11 @@ HALT;;
             cr={8: 1, 9: 2},
         )
         r = _step(state)
-        assert r == BreakResult.CONTINUE
+        assert r == CycleOutcome.RETIRED
         assert state.regfile.get_lr(0) == 1
 
         r = _step(state)
-        assert r == BreakResult.BREAK
+        assert r == CycleOutcome.BREAK
 
     def test_break_ifeq(self):
         state = make_state(
@@ -2038,7 +2039,7 @@ HALT;;
         assert state.regfile.get_lr(5) == 42
 
         r = _step(state)
-        assert r == BreakResult.BREAK
+        assert r == CycleOutcome.BREAK
 
     def test_break_ifeq_no_match(self):
         state = make_state(
@@ -2051,7 +2052,7 @@ HALT;;
         )
         _step(state)
         r = _step(state)
-        assert r == BreakResult.CONTINUE
+        assert r == CycleOutcome.RETIRED
 
     def test_run_with_debug_step(self):
         actions = iter([DebugAction.STEP, DebugAction.CONTINUE])
@@ -3273,7 +3274,8 @@ class TestNarrowStoreOverflow:
         state.regfile.mutable("r_acc")[:] = struct.pack(f"<{LANES}f", *acc)
         state.regfile.mutable("mult_res")[:] = struct.pack(f"<{LANES}f", *mult)
 
-        Ipu(state).execute_vliw_cycle()
+        engine = Ipu(state)
+        engine.cycle.step()
 
         expected = [3.0] * k + [float("inf")] + [3.0] * (LANES - k - 1)
         assert state.regfile.view("r_acc")[:] == struct.pack(f"<{LANES}f", *expected)
@@ -3295,7 +3297,8 @@ class TestFirstStoreBitExactness:
         quiet_nan = struct.pack("<I", 0x7FC00001)
         state.regfile.mutable("mult_res")[:] = signaling_nan * 128
 
-        Ipu(state).execute_vliw_cycle()
+        engine = Ipu(state)
+        engine.cycle.step()
 
         assert state.regfile.view("r_acc") == quiet_nan * 128
 
@@ -3315,7 +3318,7 @@ HALT;;
         )
         ipu = Ipu(state)
 
-        ipu.execute_vliw_cycle()
+        ipu.cycle.step()
         first = ipu.snapshot
         assert first is not None
         assert ipu.snapshot is first
@@ -3329,7 +3332,7 @@ HALT;;
             return real_snapshot(regfile)
 
         monkeypatch.setattr(RegFile, "snapshot", counting_snapshot)
-        ipu.execute_vliw_cycle()
+        ipu.cycle.step()
         # The cycle refreshes its buffer in place; no public copy until asked.
         assert copies == []
         assert first.get_lr(0) == 0
@@ -3355,7 +3358,7 @@ class TestDispatchPlans:
             execute_fn="execute_no_such_handler",
         )
         with pytest.raises(
-            RuntimeError,
+            ConfigurationError,
             match=r"mult/FAKE names handler ipu_emu\.slots\.mult\.execute_no_such_handler",
         ):
             build_plan(fake, {})
@@ -3405,10 +3408,10 @@ class TestDeclaredSlotOrder:
         state = make_state("SET lr0 cr8 ; BREAK.IFEQ lr1 5;;\nHALT;;", cr={8: 7}, prototyping=False)
         engine = ipu_mod.Ipu(state)
         if skip_break:
-            engine.execute_vliw_cycle_skip_break()
+            engine.cycle.retire()
             expected = [slot.value for slot in order[1:]]
         else:
-            engine.execute_vliw_cycle()
+            engine.cycle.step()
             expected = [slot.value for slot in order]
         assert dispatched == expected
         assert state.regfile.get_lr(0) == 7
@@ -3440,5 +3443,5 @@ class TestDeclaredSlotOrder:
 
         short = tuple(slot for slot in ipu_mod.SLOT_EXECUTION_ORDER if slot is not Slot.AAQ)
         monkeypatch.setattr(ipu_mod, "SLOT_EXECUTION_ORDER", short)
-        with pytest.raises(ImportError, match="missing \\['aaq'\\]"):
+        with pytest.raises(ConfigurationError, match="missing \\['aaq'\\]"):
             ipu_mod._check_execution_order_covers_plans()

@@ -16,6 +16,7 @@ import functools
 
 import numpy as np
 
+from ipu_emu.errors import ConfigurationError
 from ipu_emu.numerics import codec_for
 from ipu_isa.formats import FORMATS, ElementFormat, decode_element, encode_element
 
@@ -23,7 +24,7 @@ from ipu_isa.formats import FORMATS, ElementFormat, decode_element, encode_eleme
 def _check_fp8(fmt: ElementFormat, what: str) -> ElementFormat:
     info = FORMATS.get(ElementFormat(fmt))
     if info is None or not info.is_float or info.element_bits != 8:
-        raise ValueError(f"{what} only supports the FP8 formats E1..E7, got {fmt!r}")
+        raise ConfigurationError(f"{what} only supports the FP8 formats E1..E7, got {fmt!r}")
     return info.format
 
 
@@ -37,7 +38,7 @@ def _format_of(exp_bits: int) -> ElementFormat:
     try:
         return _FORMAT_OF_EXP_BITS[int(exp_bits)]
     except KeyError:
-        raise ValueError(f"no 8-bit format has {exp_bits!r} exponent bits") from None
+        raise ConfigurationError(f"no 8-bit format has {exp_bits!r} exponent bits") from None
 
 
 def _fp8_to_float32_scalar(byte_val: int, exp_bits: int) -> float:
@@ -63,7 +64,7 @@ def fp32_to_fp8_bytes(fp32_values: np.ndarray, fmt: ElementFormat) -> bytes:
     """Convert an array of FP32 values to FP8 bytes in *fmt* (one of E1..E7).
 
     Raises:
-        ValueError: *fmt* is not an FP8 format.
+        ConfigurationError: *fmt* is not an FP8 format.
     """
     fmt = _check_fp8(fmt, "fp32_to_fp8_bytes")
     arr = fp32_values.astype(np.float32)
@@ -75,7 +76,7 @@ def fp8_bytes_to_fp32(raw: bytes, fmt: ElementFormat) -> np.ndarray:
     """Convert raw FP8 bytes in *fmt* (one of E1..E7) back to an FP32 numpy array.
 
     Raises:
-        ValueError: *fmt* is not an FP8 format.
+        ConfigurationError: *fmt* is not an FP8 format.
     """
     fmt = _check_fp8(fmt, "fp8_bytes_to_fp32")
     codec = codec_for(fmt)

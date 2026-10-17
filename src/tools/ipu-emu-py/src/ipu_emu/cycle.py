@@ -660,7 +660,8 @@ class Cycle:
                 found = fault
         if found is not None:
             snapshot = self._buffer
-            assert snapshot is not None  # taken before the word ran
+            if snapshot is None:  # taken before the word ran
+                raise EmulatorError("a check fault was found before the cycle took its snapshot")
             self.state.regfile.mutable("lr")[:] = snapshot.view("lr")
             raise EmulatorFault(found[0], self.state.program_counter, found[1])
 
@@ -761,7 +762,7 @@ class Cycle:
 
 
 # ``ipu_emu.ipu`` holds the decode tables (a plan holds its handler function) and
-# builds its ``Cycle`` from this module. Each module imports the other last, so
-# either can be imported first. The Ipu-side edge goes once callers stop
-# entering through Ipu's cycle delegates (E08).
+# builds its ``Cycle`` from this module, so the two modules depend on each other.
+# Each imports the other last, so either can be imported first. Removing the
+# cycle means moving the plan tables out of ``ipu_emu.ipu``.
 from ipu_emu.ipu import plans_for  # noqa: E402

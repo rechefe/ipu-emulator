@@ -16,8 +16,8 @@ from emu_support import assemble_program, make_state, new_state
 from ipu_emu.cycle import Cycle, CycleOutcome, decode_word, schedule_word
 from ipu_emu.emulator import load_program
 from ipu_emu.errors import EmulatorError, EmulatorFault
-from ipu_emu.execute import BreakResult, Ipu
 from ipu_emu.geometry import effective_mult_mask, partition_vector
+from ipu_emu.ipu import Ipu
 from ipu_emu.ipu_state import HaltRecord, IpuState
 from ipu_emu.regfile import RegFile
 from ipu_isa.faults import FaultId
@@ -423,11 +423,6 @@ def test_a_nop_break_slot_is_not_scheduled_and_conflicts_are_found_once():
 
     assert schedule.break_op is None
     assert schedule.lr_conflict == (0, 0)
-
-
-def test_break_result_is_an_alias_of_cycle_outcome():
-    assert BreakResult is CycleOutcome
-    assert BreakResult.CONTINUE is CycleOutcome.RETIRED
 
 
 def test_skipping_idle_nops_keeps_counters_and_the_cond_nop_in_place():

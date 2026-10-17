@@ -38,9 +38,9 @@ def _engine_at_vv_multiply():
     )
     load_program(state, assemble_program(code))
     engine = Ipu(state)
-    engine.execute_vliw_cycle()
-    engine.execute_vliw_cycle()
-    engine.check_break()  # takes the cycle's snapshot; the word has no BREAK
+    engine.cycle.step()
+    engine.cycle.step()
+    engine.cycle.evaluate_break()  # takes the cycle's snapshot; the word has no BREAK
     pc = state.program_counter
     inst = state.inst_mem[pc]
     schedule = engine.cycle.cached_schedule(pc)

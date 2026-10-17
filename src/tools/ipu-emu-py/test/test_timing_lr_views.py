@@ -17,7 +17,7 @@ import pytest
 from timing_probes import PROBES, RAISES, ROW, lane, prepare, r_cyclic_element, ra_element, run
 
 from ipu_emu.errors import DebugOnlyInstructionWarning
-from ipu_emu.execute import Ipu
+from ipu_emu.ipu import Ipu
 from ipu_isa.faults import FaultId
 
 
@@ -171,5 +171,6 @@ def test_lr_subslot_exception_leaves_no_partial_write():
     """
     state = prepare(PROBES["lr_subslot_exception"])
     with pytest.raises(RAISES["lr_subslot_exception"]):
-        Ipu(state).execute_vliw_cycle()
+        engine = Ipu(state)
+        engine.cycle.step()
     assert state.regfile.get_lr(1) == 0

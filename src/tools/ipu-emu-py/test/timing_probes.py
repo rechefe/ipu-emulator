@@ -24,8 +24,10 @@ from enum import Enum
 from ipu_as.lark_tree import assemble
 from ipu_emu.emulator import load_program
 from ipu_emu.errors import EmulatorFault
-from ipu_emu.execute import BreakResult, Ipu, decode_instruction_word
+from ipu_emu.execute import decode_instruction_word
+from ipu_emu.ipu import Ipu
 from ipu_emu.ipu_state import IpuState
+from ipu_emu.outcome import CycleOutcome
 from ipu_isa.formats import ElementFormat
 
 #: XMEM row the probes load from and store to.
@@ -173,9 +175,9 @@ def run(probe: Probe, mode: Mode = Mode.NARROW, *, prototyping: bool = False) ->
     while not state.is_halted:
         if cycles >= MAX_CYCLES:
             raise RuntimeError(f"probe ran past {MAX_CYCLES} cycles")
-        if ipu.execute_vliw_cycle() == BreakResult.BREAK:
+        if ipu.cycle.step() == CycleOutcome.BREAK:
             breaks.append(state.program_counter)
-            ipu.execute_vliw_cycle_skip_break()
+            ipu.cycle.retire()
         cycles += 1
     return Run(state, breaks, cycles)
 

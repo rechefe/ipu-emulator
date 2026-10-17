@@ -15,7 +15,7 @@ from __future__ import annotations
 import weakref
 from collections.abc import Callable, Iterator
 
-from ipu_emu.errors import XMemBoundsError
+from ipu_emu.errors import ConfigurationError, XMemBoundsError
 from ipu_isa.formats import FORMATS, ElementFormat
 from ipu_isa.geometry import XMEM_BYTES
 
@@ -104,7 +104,7 @@ class XMem:
     def mark_constant_ones(self, address: int, data: bytes) -> None:
         """Record host-declared ONES provenance, after a validated write."""
         if self.snapshot_bytes(address, len(data)) != data:
-            raise ValueError("constant ONES declaration does not match memory")
+            raise ConfigurationError("constant ONES declaration does not match memory")
         self._constant_ones[address] = data
 
     def is_constant_ones(self, address: int, data: bytes | bytearray) -> bool:
@@ -189,7 +189,7 @@ class XMem:
         """
         self._check_bounds("write", address, size)
         if not 0 <= value <= 0xFF:
-            raise ValueError(f"XMEM fill value must be a byte, got {value}")
+            raise ConfigurationError(f"XMEM fill value must be a byte, got {value}")
         self._invalidate_constants(address, address + size)
         pos = 0
         while pos < size:
@@ -284,7 +284,7 @@ class XMem:
         if isinstance(idx, slice):
             start, stop = _contiguous_range(idx)
             if stop - start == XMEM_SIZE_BYTES:
-                raise ValueError(
+                raise ConfigurationError(
                     "slicing all of XMEM would allocate 512 MiB; iterate "
                     "XMem.touched_pages() (absent pages are zero) or use "
                     "XMem.__eq__ to compare memories"
@@ -308,7 +308,7 @@ class XMem:
             start, stop = _contiguous_range(idx)
             data = bytes(val)
             if len(data) != stop - start:
-                raise ValueError(
+                raise ConfigurationError(
                     f"XMEM slice assignment must keep the size: slice covers "
                     f"{stop - start} bytes, value has {len(data)}"
                 )
