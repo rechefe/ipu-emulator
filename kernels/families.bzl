@@ -12,7 +12,17 @@ names them; //kernels:test_families checks it against the kernel.toml folders.
 KERNELS = {
     "elementwise": ["scale"],
     "projections": ["proj_p4", "proj_p4_2tg", "proj_p4_2tg_silu"],
-    "reshape": ["concat", "depth_to_space", "identity"],
+    "reshape": [
+        "concat",
+        "depth_to_space",
+        "fold_16x16x192",
+        "fold_32x32x144",
+        "fold_8x8x240",
+        "identity",
+        "unfold_16x16x192",
+        "unfold_32x32x144",
+        "unfold_8x8x240",
+    ],
     "softmax": [
         "softmax_columns",
         "softmax_columns_packed",

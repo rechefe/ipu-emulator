@@ -25,11 +25,11 @@ K-dimension chunk loop (lr6=126, lr11=110) walks CHANNELS/ROWS, not lanes.
 So whatever sits in lanes N_TOK..127 (zero, per the above) can only ever
 contaminate output lanes N_TOK..127, cropped away here, never lanes 0..15.
 
-Method: run the REAL unfold_8x8x240 kernel (using pack_input_rows to build
+Method: run the REAL unfold_8x8x240 kernel (its paired_rows pack transform builds
 valid packed input per its own input contract -- _ROW_PACK_ORDER correctness
 is out of scope here, this test only exercises the output->matmul-input
-seam), capture one stream's raw XMEM output bytes directly via
-state.xmem.read_address, feed them verbatim into matmul_720x240_x128's DATA
+seam), capture one stream's raw XMEM output bytes directly (the output
+region's raw rows, fixture_reshape.run_unfold), feed them verbatim into matmul_720x240_x128's DATA
 region (bypassing _load_data -- the matmul harness runs its own setup() with
 _load_data disabled), and compare against an independent reference
 computed straight from the unfold definition (stride-2 decimation of the
@@ -48,13 +48,13 @@ from pathlib import Path
 import numpy as np
 from fixture_kernel_support import (
     POISON,
-    kernel_inst,
-    poison,
     run_matmul_direct_xmem_handoff,
 )
+from fixture_reshape import run_unfold, unfold
 
 from ipu_apps.kernels.matmul.matmul_720x240_x128 import app as mm
-from ipu_apps.kernels.reshape.unfold_8x8x240 import app as uf
+
+uf = unfold("unfold_8x8x240")  # //kernels/reshape (E07-05), through the adapter
 
 assert uf.C == uf.N_OUT == mm.K == 240
 assert uf.LANES == mm.LANES == 128
@@ -67,22 +67,16 @@ _STREAM = 0  # phase (0, 0) -- arbitrary but fixed single-stream choice
 
 def _run_unfold_capture_stream_xmem(x: np.ndarray, tmp_path: Path, tag: str) -> bytes:
     """Run the real unfold_8x8x240 kernel; return stream _STREAM's raw XMEM
-    output bytes (N_OUT * ROW_BYTES = 240 * 512 B), read directly via
-    state.xmem -- no file round-trip. x is [C, H, W]; packed into the
-    kernel's required input layout via pack_input_rows (its own documented
+    output bytes (N_OUT * ROW_BYTES = 240 * 512 B): the output region's raw
+    rows (fixture_reshape.run_unfold) -- no file round-trip. x is [C, H, W]; packed into the
+    kernel's required input layout by its paired_rows pack transform (its own documented
     input contract, per the module docstring -- not re-derived here).
     """
-    input_path = tmp_path / f"uf_x_{tag}.bin"
-    input_path.write_bytes(np.ascontiguousarray(uf.pack_input_rows(x), dtype=np.float32).tobytes())
-
-    app = uf.Unfold8x8x240App(inst_path=kernel_inst("unfold_8x8x240"), input_path=input_path)
-    state = app.make_state()
-    poison(state, uf.DST_BASE, uf.N_STREAMS * uf.N_OUT)
-    state, cycles = app.run(max_cycles=20_000_000, state=state)
+    streams, cycles = run_unfold(uf.name, x, POISON)  # the kernel's paired_rows pack x
     assert cycles > 0
 
-    stream_base = uf.DST_BASE + _STREAM * uf.N_OUT * _ROW_BYTES
-    raw = bytes(state.xmem.read_address(stream_base, uf.N_OUT * _ROW_BYTES))
+    stream_base = _STREAM * uf.N_OUT * _ROW_BYTES
+    raw = streams[stream_base : stream_base + uf.N_OUT * _ROW_BYTES]
     rows = np.frombuffer(raw, dtype=np.float32).reshape(uf.N_OUT, uf.LANES)
     assert not np.all(rows == POISON, axis=1).any(), "unfold left poisoned rows untouched"
     return raw
@@ -110,7 +104,7 @@ def _unfold_stream_reference(x: np.ndarray) -> np.ndarray:
     """Independent reference for stream _STREAM (phase (0,0)): the standard
     stride-2 space-to-depth decimation, matching unfold_8x8x240's module
     docstring exactly -- computed directly from the UNPACKED [C, H, W] array,
-    not from pack_input_rows or the kernel's own implementation.
+    not from the pack transform or the kernel's own implementation.
     """
     r_ph, c_ph = _STREAM // 2, _STREAM % 2
     return x[:, r_ph::2, c_ph::2].reshape(uf.C, uf.N_TOK).astype(np.float64)  # [C, N_TOK]

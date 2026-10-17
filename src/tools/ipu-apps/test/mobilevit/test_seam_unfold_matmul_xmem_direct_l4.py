@@ -25,7 +25,7 @@ kernel is per-lane-independent, garbage in lanes 64..127 of every input row
 can only ever contaminate OUTPUT lanes 64..127 -- which this test crops away
 (MM_N_TOK=64) -- never output lanes 0..63. This test confirms that
 empirically: run unfold for real, capture its raw per-stream output bytes
-directly via state.xmem.read_address, feed one stream's raw bytes verbatim
+directly (its output region's raw rows, fixture_reshape.run_unfold), feed one stream's raw bytes verbatim
 into the matmul's DATA region (the matmul harness runs its own setup() with
 _load_data disabled), and compare against an independent reference
 computed straight from the unfold definition (stride-2
@@ -44,13 +44,13 @@ from pathlib import Path
 import numpy as np
 from fixture_kernel_support import (
     POISON,
-    kernel_inst,
-    poison,
     run_matmul_direct_xmem_handoff,
 )
+from fixture_reshape import run_unfold, unfold
 
 from ipu_apps.kernels.matmul.matmul_576x192_x128 import app as mm
-from ipu_apps.kernels.reshape.unfold_16x16x192 import app as uf
+
+uf = unfold("unfold_16x16x192")  # //kernels/reshape (E07-05), through the adapter
 
 # Structural precondition: unfold's per-stream channel count must equal the
 # matmul's K (unfold's output feeds the matmul's contraction dimension), and
@@ -59,7 +59,6 @@ assert uf.C == uf.N_OUT == mm.K == 192
 assert uf.LANES == mm.LANES == 128
 assert uf.N_TOK == 64
 assert mm.N_TOK == 64
-_STRIPE_H = uf.H // uf.N_STRIPES  # 8 spatial rows per stripe
 _ROW_BYTES = uf.LANES * 4
 
 _STREAM = 0  # TL: phase (0, 0) -- arbitrary but fixed single-stream choice
@@ -67,26 +66,14 @@ _STREAM = 0  # TL: phase (0, 0) -- arbitrary but fixed single-stream choice
 
 def _run_unfold_capture_stream_xmem(x: np.ndarray, tmp_path: Path, tag: str) -> bytes:
     """Run the real unfold_16x16x192 kernel; return stream _STREAM's raw XMEM
-    output bytes (N_OUT * ROW_BYTES = 192 * 512 B), read directly via
-    state.xmem -- no file round-trip. x is [C, H, W].
+    output bytes (N_OUT * ROW_BYTES = 192 * 512 B): the output region's raw
+    rows (fixture_reshape.run_unfold) -- no file round-trip. x is [C, H, W].
     """
-    src = np.zeros((uf.N_STRIPES * uf.C, uf.LANES), dtype=np.float32)
-    for stripe in range(uf.N_STRIPES):
-        r0 = stripe * _STRIPE_H
-        for ch in range(uf.C):
-            block = x[ch, r0 : r0 + _STRIPE_H, :]
-            src[stripe * uf.C + ch, : _STRIPE_H * uf.W] = block.reshape(-1)
-    input_path = tmp_path / f"uf_x_{tag}.bin"
-    input_path.write_bytes(src.tobytes())
-
-    app = uf.Unfold16x16x192App(inst_path=kernel_inst("unfold_16x16x192"), input_path=input_path)
-    state = app.make_state()
-    poison(state, uf.DST_BASE, uf.N_STREAMS * uf.N_OUT)
-    state, cycles = app.run(max_cycles=20_000_000, state=state)
+    streams, cycles = run_unfold(uf.name, x, POISON)  # the kernel's stripes pack x
     assert cycles > 0
 
-    stream_base = uf.DST_BASE + _STREAM * uf.N_OUT * _ROW_BYTES
-    raw = bytes(state.xmem.read_address(stream_base, uf.N_OUT * _ROW_BYTES))
+    stream_base = _STREAM * uf.N_OUT * _ROW_BYTES
+    raw = streams[stream_base : stream_base + uf.N_OUT * _ROW_BYTES]
     rows = np.frombuffer(raw, dtype=np.float32).reshape(uf.N_OUT, uf.LANES)
     assert not np.all(rows == POISON, axis=1).any(), "unfold left poisoned rows untouched"
     # NOTE: the module docstring's "256 B of stale r_acc garbage" is stale

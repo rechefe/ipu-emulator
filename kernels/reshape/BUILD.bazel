@@ -21,3 +21,18 @@ py_pytest_test(
         requirement("pytest"),
     ],
 )
+
+# fold(unfold(x)) == x on one model (ipu_harness.chain), plain and with R_ACC
+# poisoned before fold: the ipu_apps family test.py.
+py_pytest_test(
+    name = "test_fold_unfold",
+    size = "medium",
+    srcs = ["test_fold_unfold.py"],
+    data = ["//kernels:tree"],
+    deps = [
+        "//src/tools/ipu-harness:ipu_harness_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+        requirement("numpy"),
+        requirement("pytest"),
+    ],
+)
