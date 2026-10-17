@@ -216,9 +216,10 @@ class _Stages:
 
         model = self.model
         model.load_program(assembled.words)
-        apply(
-            model, register_writes(self.plan, self.placement, abi=bindings, dstructure=dstructure)
-        )
+        # No table of its own: the kernel's [abi], offsets included (register_writes
+        # applies a tensor's [abi] offset only to the kernel's own bindings).
+        own = None if abi is None else bindings
+        apply(model, register_writes(self.plan, self.placement, abi=own, dstructure=dstructure))
 
         options = self.options
         limit = options.max_cycles if max_cycles is None else max_cycles
