@@ -643,8 +643,8 @@ def _condition(r: Reader, raw: object, bools: Iterable[str], path: tuple[str, ..
     if any(param not in known for param in condition.params):
         raise r.fail(
             path,
-            f"{where(path)} {condition} must name bool parameters, each or 'not' it, "
-            "joined by 'or'",
+            f"{where(path)} {condition!s:.60} must be bool parameters (each may be "
+            "'not' one) joined by 'or'",
         )
     return condition
 

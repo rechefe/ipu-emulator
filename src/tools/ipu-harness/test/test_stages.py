@@ -171,8 +171,8 @@ def test_a_stage_without_its_own_abi_gets_the_kernels_offsets(tmp_path, monkeypa
     monkeypatch.setattr(stages, "register_writes", recording)
     manifest = load_manifest(directory)
     result = run_kernel(manifest, _default(manifest), ElementFormat.INT8)
-    ((crs,),) = [seen]
-    assert crs["CR6"] == result.placement.region("y").base_row - 1
+    assert len(seen) == 1  # the one stage
+    assert seen[0]["CR6"] == result.placement.region("y").base_row - 1
 
 
 def test_a_kernel_whose_files_are_symlinks_runs_its_stages(tmp_path):

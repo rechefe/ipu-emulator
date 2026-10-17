@@ -93,8 +93,8 @@ def test_the_narrowed_view_is_shared_by_plans_with_the_same_answer(tmp_path):
 @pytest.mark.parametrize(
     ("old", "new", "message"),
     [
-        ('when = "bias"', 'when = "rows"', "must name bool parameters"),
-        ('when = "bias"', 'when = "bias or rows"', "must name bool parameters"),
+        ('when = "bias"', 'when = "rows"', "must be bool parameters"),
+        ('when = "bias"', 'when = "bias or rows"', "must be bool parameters"),
         ('when = "not bias"', 'when = "bias"', "tail and b both bind CR10"),
         ('b    = "CR10"', 'b    = { register = "CR10", when = "not bias" }', "takes its tensor's"),
         ('x    = "CR2"', 'x    = { register = "CR2", when = "bias" }', r"condition \(always\)"),

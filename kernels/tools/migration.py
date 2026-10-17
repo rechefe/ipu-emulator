@@ -319,7 +319,9 @@ def is_bound_reset(bank: str, index: int, old: int, new: int) -> bool:
     """Whether the new kernel binds a register the old setup left alone to the
     value the old harness relied on, 0 from reset: old still :data:`POISON`,
     new 0. That is no difference (the new kernel states what the old one
-    assumed), so :func:`register_differences` reports it apart."""
+    assumed), so :func:`register_differences` reports it apart. "Left alone"
+    is read from the value: an old setup that wrote :data:`POISON` itself
+    would look the same (a value no kernel uses as a parameter)."""
     return (bank, index) in POISONED and old == POISON and new == 0
 
 

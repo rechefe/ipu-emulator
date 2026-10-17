@@ -343,4 +343,4 @@ The worked example is the projections (`kernels/projections/`), whose
 | A test the generated cases cannot express, such as a property over many runs | A `test_*.py` in the folder. `bazel test` runs it too, with the fixtures `kernel`, `cases` and `run_case`. |
 | Several programs that run one after another on the same XMEM | A stages hook: `[kernel] stages = "stages.py:run"`. |
 | The same program at other shapes | A variant: a [`registry.toml` entry](../reference/kernel-toml.md#registrytoml) of four lines, not a new folder. |
-| A region only some cases have, or a region placed before another | `when = "<bool param>"` on the tensor, or `after = "<tensor>"`. |
+| A region only some cases have, or a region placed before another | `when = "<bool param>"` on the tensor (or `"not <bool param>"`, or terms joined by `or`), or `after = "<tensor>"`. |
