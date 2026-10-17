@@ -26,6 +26,7 @@ import zlib
 from pathlib import Path
 
 import numpy as np
+from fixture_elementwise import run_residual_add_rows
 from fixture_kernel_support import kernel_inst
 from fixture_projections import run_projection
 
@@ -472,9 +473,8 @@ def run_attn_v_bcast(
 
 
 def run_residual_add(
-    App,
+    name: str,
     *,
-    inst_bin: Path,
     a: np.ndarray,
     b: np.ndarray,
     n_ch: int,
@@ -484,29 +484,21 @@ def run_residual_add(
     tag: str,
     full_row_output: bool,
 ) -> tuple[np.ndarray, int]:
-    """a, b: [n_ch, n_tok] channel-major. Returns cropped [n_ch, n_tok] sum."""
+    """a, b: [n_ch, n_tok] channel-major. Returns cropped [n_ch, n_tok] sum.
+
+    ``name`` is the //kernels/elementwise entry (E07-06), run through
+    ``fixture_elementwise``; its output rows are cropped here, whether the
+    old harness emitted full rows (``full_row_output``) or cropped them.
+    """
     lanes = row_bytes // 4
     a_rows = np.zeros((n_ch, lanes), dtype=np.float32)
     a_rows[:, :n_tok] = a
     b_rows = np.zeros((n_ch, lanes), dtype=np.float32)
     b_rows[:, :n_tok] = b
 
-    a_path = tmp_path / f"res_{tag}_a.bin"
-    a_path.write_bytes(a_rows.tobytes())
-    b_path = tmp_path / f"res_{tag}_b.bin"
-    b_path.write_bytes(b_rows.tobytes())
-    output_path = tmp_path / f"res_{tag}_o.bin"
-
-    app = App(inst_path=inst_bin, input_a_path=a_path, input_b_path=b_path, output_path=output_path)
-    state = app.make_state()
-    _, cycles = app.run(max_cycles=5_000_000, state=state)
+    rows, cycles = run_residual_add_rows(name, a_rows, b_rows)
     assert cycles > 0
-
-    raw = np.frombuffer(output_path.read_bytes(), dtype=np.float32)
-    if full_row_output:
-        got = raw.reshape(n_ch, lanes)[:, :n_tok]
-    else:
-        got = raw.reshape(n_ch, n_tok)
+    got = rows[:, :n_tok]
     _assert_no_poison(got, f"{tag} residual_add")
     return got, cycles
 

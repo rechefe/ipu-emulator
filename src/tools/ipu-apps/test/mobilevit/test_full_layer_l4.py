@@ -56,7 +56,6 @@ from ipu_apps.kernels.attention.attn_scores_km_64x48.app import AttnScoresKM64x4
 from ipu_apps.kernels.attention.attn_v_64x48.app import AttnV64x48App
 from ipu_apps.kernels.attention.attn_v_bcast_48.app import AttnVBcast48App
 from ipu_apps.kernels.attention.qk_scores_64x48.app import QkScores64x48App
-from ipu_apps.kernels.elementwise.residual_add_64x192.app import ResidualAdd64x192App
 from ipu_apps.kernels.normalize.layernorm_64x192.app import LayerNorm64x192App
 
 # USE_REAL_SOFTMAX=1 routes the chain through the real softmax_rows_partial /
@@ -382,8 +381,7 @@ def _run_layer_query_major(
         stages["out_proj"] = proj.astype(np.float64)
 
     resid1, c = run_residual_add(
-        ResidualAdd64x192App,
-        inst_bin=app_inst("residual_add_64x192"),
+        "residual_add_64x192",
         a=proj,
         b=x,
         n_ch=D_MODEL,
@@ -457,8 +455,7 @@ def _run_layer_query_major(
         stages["ffn2"] = ffn2.astype(np.float64)
 
     resid2, c = run_residual_add(
-        ResidualAdd64x192App,
-        inst_bin=app_inst("residual_add_64x192"),
+        "residual_add_64x192",
         a=ffn2,
         b=resid1,
         n_ch=D_MODEL,
@@ -621,8 +618,7 @@ def _run_layer_key_major(
     proj = op_outs[0][:, :N_TOK]
 
     resid1, c = run_residual_add(
-        ResidualAdd64x192App,
-        inst_bin=app_inst("residual_add_64x192"),
+        "residual_add_64x192",
         a=proj,
         b=x,
         n_ch=D_MODEL,
@@ -688,8 +684,7 @@ def _run_layer_key_major(
     ffn2 = ffn2_outs[0][:, :N_TOK]
 
     resid2, c = run_residual_add(
-        ResidualAdd64x192App,
-        inst_bin=app_inst("residual_add_64x192"),
+        "residual_add_64x192",
         a=ffn2,
         b=resid1,
         n_ch=D_MODEL,

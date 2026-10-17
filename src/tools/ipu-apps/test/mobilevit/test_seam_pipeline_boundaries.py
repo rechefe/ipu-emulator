@@ -58,14 +58,17 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+from fixture_elementwise import residual_add, run_residual_add_rows
 from fixture_kernel_support import POISON, kernel_inst
 
-from ipu_apps.kernels.elementwise.residual_add_16x240 import app as ra5
-from ipu_apps.kernels.elementwise.residual_add_64x192 import app as ra4
 from ipu_apps.kernels.matmul.matmul_192x192_x128 import app as op4
 from ipu_apps.kernels.matmul.matmul_240x240_x128 import app as op5
 from ipu_apps.kernels.matmul.matmul_576x192_x128 import app as qkv4
 from ipu_apps.kernels.normalize.layernorm_64x192 import app as ln4
+
+# The residual adds run from //kernels/elementwise (E07-06), through the adapter.
+ra5 = residual_add("residual_add_16x240")
+ra4 = residual_add("residual_add_64x192")
 
 # ---------------------------------------------------------------------------
 # Seam 1 (was a DEFECT, fixed): matmul_240x240_x128 (L5 OutProj) -> residual_add_16x240
@@ -115,24 +118,13 @@ def test_seam_outproj_240x240_to_residual_add_16x240_agrees(tmp_path: Path) -> N
     # Feed OutProj's real raw output verbatim as residual_add_16x240's A
     # input; B is a zero buffer of matching full-row shape so the residual
     # add's result isolates OutProj's own numeric correctness.
-    b_path = tmp_path / "residual_b.bin"
-    b_path.write_bytes(np.zeros(ra5.N_CH * op5.LANES, dtype=np.float32).tobytes())
-
-    residual_app = ra5.ResidualAdd16x240App(
-        inst_path=kernel_inst("residual_add_16x240"),
-        input_a_path=outproj_output_path,
-        input_b_path=b_path,
-        output_path=tmp_path / "residual_output.bin",
-    )
-    _, cycles = residual_app.run(max_cycles=1_000_000)
+    a_rows = np.frombuffer(outproj_raw, dtype=np.float32).reshape(ra5.N_CH, op5.LANES)
+    b_rows = np.zeros((ra5.N_CH, op5.LANES), dtype=np.float32)
+    rows, cycles = run_residual_add_rows(ra5.name, a_rows, b_rows)
     assert cycles > 0
 
-    # residual_add_16x240 is the FINAL consumer in this chain, so (per the
-    # crop convention) it crops its own output to N_TOK -- unlike
-    # residual_add_64x192 in the L4 control below, which emits full rows.
-    got = np.frombuffer(Path(residual_app.output_path).read_bytes(), dtype=np.float32).reshape(
-        ra5.N_CH, ra5.N_TOK
-    )
+    # The valid prefix of each row is the result (the old harness cropped it).
+    got = rows[:, : ra5.N_TOK]
 
     expected = W @ D  # [N_OUT, N_TOK], the OutProj matmul result (B is all zero)
     np.testing.assert_allclose(
@@ -182,21 +174,10 @@ def test_seam_outproj_192x192_to_residual_add_64x192_agrees(tmp_path: Path) -> N
         "A/B row shape for the verbatim feed to even be plausible"
     )
 
-    b_path = tmp_path / "residual4_b.bin"
-    b_path.write_bytes(np.zeros(ra4.N_ROWS * op4.LANES, dtype=np.float32).tobytes())
-
-    residual_app = ra4.ResidualAdd64x192App(
-        inst_path=kernel_inst("residual_add_64x192"),
-        input_a_path=outproj_output_path,
-        input_b_path=b_path,
-        output_path=tmp_path / "residual4_output.bin",
-    )
-    _, cycles = residual_app.run(max_cycles=1_000_000)
+    a_rows = np.frombuffer(outproj_raw, dtype=np.float32).reshape(ra4.N_ROWS, op4.LANES)
+    b_rows = np.zeros((ra4.N_ROWS, op4.LANES), dtype=np.float32)
+    got, cycles = run_residual_add_rows(ra4.name, a_rows, b_rows)
     assert cycles > 0
-
-    got = np.frombuffer(Path(residual_app.output_path).read_bytes(), dtype=np.float32).reshape(
-        ra4.N_ROWS, op4.LANES
-    )
 
     expected = W @ D  # [N_OUT, N_TOK], the OutProj matmul result (B is all zero)
     np.testing.assert_allclose(

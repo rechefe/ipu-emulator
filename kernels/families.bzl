@@ -10,7 +10,7 @@ names them; //kernels:test_families checks it against the kernel.toml folders.
 
 #: Each family's kernels, by folder name.
 KERNELS = {
-    "elementwise": ["scale"],
+    "elementwise": ["residual_add", "residual_add_rows", "scale"],
     "projections": ["proj_p4", "proj_p4_2tg", "proj_p4_2tg_silu"],
     "reshape": [
         "concat",

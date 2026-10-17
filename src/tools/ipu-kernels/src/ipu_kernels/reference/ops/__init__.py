@@ -27,6 +27,7 @@ from ipu_kernels.reference.ops.identity import identity
 from ipu_kernels.reference.ops.layernorm import layernorm
 from ipu_kernels.reference.ops.linear import linear
 from ipu_kernels.reference.ops.matmul import matmul
+from ipu_kernels.reference.ops.residual_add import residual_add
 from ipu_kernels.reference.ops.silu import silu
 from ipu_kernels.reference.ops.softmax import softmax
 from ipu_kernels.reference.ops.unfold import unfold
@@ -39,6 +40,7 @@ __all__ = [
     "layernorm",
     "linear",
     "matmul",
+    "residual_add",
     "silu",
     "softmax",
     "unfold",

@@ -1,0 +1,58 @@
+# residual_add_rows: y = a + b over `rows` whole XMEM rows (E07-06). A template:
+# ../registry.toml fixes its shape for the MobileViT entries
+# residual_add_{16x240,64x192,256x144}; run by itself it is a small add of the
+# same program.
+[kernel]
+op = "residual_add"
+formats = ["fp32"]
+
+[params]
+tokens   = { type = "int", min = 1 }
+channels = { type = "int", min = 1 }
+# Channels side by side in one row (MobileViT packed layout); 1 = one channel
+# per row, or ceil(tokens / 128) rows per channel when tokens > 128.
+per_row  = { type = "int", min = 1, max = 128, default = 1 }
+# The pass-through multiplier: MULT.RC.VE x 1.0 copies a row into the accumulator.
+one      = { type = "float", choices = [1.0], default = 1.0 }
+
+[derived]
+rows       = "channels / per_row * ceil(per_row * tokens / 128)"
+zero       = "0"
+ptr_start  = "-1"                   # A/B row pointers start one row early
+row_stride = "1"
+out_stride = "1"
+
+# Logical view: one row of the tensor is `per_row` channels side by side, so the
+# default row-major pack gives the old layouts: [240, 16] -> 240 rows of 16
+# lanes; [144, 256] -> 288 rows (2 per channel); [30, 128] -> 30 packed rows.
+[inputs.a]
+shape = ["channels / per_row", "per_row * tokens"]
+row = 0                             # the program reads a's base through CR0
+
+[inputs.b]
+shape = ["channels / per_row", "per_row * tokens"]
+
+[outputs.y]
+shape = ["channels / per_row", "per_row * tokens"]   # ST.AAQ: element store
+
+[abi]
+a          = "CR0"                  # hardwired 0: a is pinned at row 0 (E06 gap G5)
+y          = "CR3"
+zero       = "CR4"
+ptr_start  = "CR5"
+rows       = "CR6"
+row_stride = "CR7"
+out_stride = "CR8"
+b          = "CR9"
+one        = "CR10"
+
+[golden]
+op = "residual_add"
+tolerance = { fp32 = "EXACT" }      # one FP32 add, rounded once: as the reference rounds it
+
+# The ipu_apps cases' data: RandomState(seed), a then b, uniform [-1, 1)
+# (../gen.py: each entry's old seed).
+[cases.default]
+tokens = 16
+channels = 8
+generator = "../gen.py:legacy_uniform"
