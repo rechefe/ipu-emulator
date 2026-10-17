@@ -81,7 +81,8 @@ def case_tests(package, sweep=()):
     raises if the kernel does not halt or a check fails. Each run asserts the
     ``DebugOnlyInstructionWarning`` exactly when the assembled program uses an
     emulator-only instruction (see :func:`debug_only_warning`), and is compared
-    with its baseline record (see :func:`check_baseline`).
+    with its baseline record, or recorded under the update command
+    (see :class:`UpdateBaselines`).
     """
     kernel = package_kernel(package)
     cases = load_cases(kernel)
@@ -100,7 +101,7 @@ def case_tests(package, sweep=()):
     updated: dict = {}
 
     @pytest.mark.parametrize("case,options", params, ids=[f"{kernel}-{i}" for i in ids])
-    def test_case(case, options, tmp_path_factory):
+    def test_case(case, options, tmp_path_factory, request):
         if not assembled:
             inst_path = assemble_kernel(kernel, tmp_path_factory.mktemp(kernel))
             assembled.append((inst_path, uses_debug_only_instructions(inst_path)))
@@ -115,22 +116,40 @@ def case_tests(package, sweep=()):
                 recorder=recorder,
             )
         case_id = options_label(options) if options else case
-        check_baseline(kernel, case_id, recorder.record, updated)
+        root = request.config.stash.get(UPDATE_ROOT, None)
+        if root is None:
+            baseline.check(kernel, case_id, recorder.record)
+        else:
+            record_baseline(root, kernel, case_id, recorder.record, updated)
 
     return test_case
 
 
-def check_baseline(
+#: The workspace to write baselines into, set by the update command
+#: (``UpdateBaselines``); unset, the case tests compare instead.
+UPDATE_ROOT = pytest.StashKey[Path]()
+
+
+class UpdateBaselines:
+    """A pytest plugin that makes ``case_tests`` record each case's baseline
+    into the kernel folders under ``root`` instead of comparing it:
+    ``pytest.main(args, plugins=[UpdateBaselines(root)])``."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+
+    def pytest_configure(self, config: pytest.Config) -> None:
+        config.stash[UPDATE_ROOT] = self.root
+
+
+def record_baseline(
+    root: Path,
     kernel: str,
     case_id: str,
     record: baseline.CaseRecord | None,
     updated: dict[str, baseline.CaseRecord | None],
 ) -> None:
-    """Compare a case's run with its baseline record, or, under the update
-    command, collect it into ``updated`` and rewrite the kernel's file."""
-    root = baseline.update_root()
-    if root is None:
-        baseline.check(kernel, case_id, record)
-        return
+    """Collect a case's record into ``updated`` and rewrite the kernel's
+    baseline file under ``root`` with every case collected so far."""
     updated[case_id] = record
     baseline.write(baseline.source_path(root, kernel), updated)

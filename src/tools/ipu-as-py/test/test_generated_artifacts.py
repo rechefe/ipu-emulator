@@ -6,9 +6,9 @@ Normalizations applied before comparing are listed in
 
 from __future__ import annotations
 
-import difflib
 from pathlib import Path
 
+import baseline_support
 import generated_artifacts
 import pytest
 
@@ -28,19 +28,13 @@ def test_every_snapshot_is_generated():
 
 @pytest.mark.parametrize("name", sorted(ARTIFACTS))
 def test_artifact_matches_snapshot(name):
-    function, actual = ARTIFACTS[name]
+    _, actual = ARTIFACTS[name]
     expected = (SNAPSHOTS / name).read_text(encoding="utf-8")
-    if actual == expected:
-        return
-    diff = list(
-        difflib.unified_diff(
-            expected.splitlines(keepends=True),
-            actual.splitlines(keepends=True),
-            f"{name} (snapshot)",
-            f"{name} (from {function})",
-        )
+    baseline_support.fail_if_changed(
+        expected,
+        actual,
+        name=name,
+        what=name,
+        update_command=generated_artifacts.UPDATE_COMMAND,
+        max_lines=MAX_DIFF_LINES,
     )
-    shown = "".join(diff[:MAX_DIFF_LINES])
-    if len(diff) > MAX_DIFF_LINES:
-        shown += f"... {len(diff) - MAX_DIFF_LINES} more diff lines\n"
-    pytest.fail(f"{name} changed. If intended, run {generated_artifacts.UPDATE_COMMAND}\n{shown}")

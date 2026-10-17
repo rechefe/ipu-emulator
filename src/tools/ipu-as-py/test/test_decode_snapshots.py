@@ -3,9 +3,9 @@ their snapshots in ``test/baselines/`` (see ``decode_snapshots.py``)."""
 
 from __future__ import annotations
 
-import difflib
 from pathlib import Path
 
+import baseline_support
 import decode_snapshots
 import pytest
 
@@ -20,16 +20,9 @@ ROOT = Path.cwd()
 def test_snapshot_matches(name):
     expected = (ROOT / decode_snapshots.SNAPSHOT_DIR / name).read_text()
     actual = decode_snapshots.render(decode_snapshots.SNAPSHOTS[name]())
-    if actual != expected:
-        diff = "".join(
-            difflib.unified_diff(
-                expected.splitlines(keepends=True),
-                actual.splitlines(keepends=True),
-                f"{name} (snapshot)",
-                f"{name} (current code)",
-            )
-        )
-        pytest.fail(f"{name} changed. If intended, run {decode_snapshots.UPDATE_COMMAND}\n{diff}")
+    baseline_support.fail_if_changed(
+        expected, actual, name=name, what=name, update_command=decode_snapshots.UPDATE_COMMAND
+    )
 
 
 def test_word_is_186_bits():

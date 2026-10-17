@@ -19,11 +19,13 @@ and signalling-NaN conversion behave like ``struct`` whatever that policy is.
 from __future__ import annotations
 
 import struct
+from functools import cached_property
 from typing import Final, Protocol
 
 import numpy as np
 import numpy.typing as npt
 
+from ipu_isa.constants import CR_ONE_REG_INDEX
 from ipu_isa.faults import ArithmeticEvent
 from ipu_isa.formats import FORMATS, ElementFormat, FormatInfo, element_values, encode_element
 from ipu_isa.geometry import LANES
@@ -34,9 +36,9 @@ Lanes = npt.NDArray[np.int64] | npt.NDArray[np.float64]
 _INT32_SIGN: Final = 1 << 31
 _INT32_MASK: Final = (1 << 32) - 1
 
-# A CR or LR-indexed scalar is the low byte of the register word, read as a
-# signed byte, in every format but the 8-bit floats. E04-28 decodes it in the
-# active format instead (Q49).
+# A CR scalar is the register word's low element-width bits, decoded in the
+# active format (Q49, E04-28): the low byte in INT8 and E1..E7, the whole
+# 32-bit word in INT32 and FP32.
 _SCALAR_BYTE_MASK: Final = 0xFF
 
 
@@ -52,9 +54,10 @@ def wrap_int32(values: Lanes) -> npt.NDArray[np.int64]:
     return ((values + _INT32_SIGN) & _INT32_MASK) - _INT32_SIGN
 
 
-def _signed_byte(word: int) -> int:
-    byte = word & _SCALAR_BYTE_MASK
-    return byte - 0x100 if byte & 0x80 else byte
+def _low_signed(word: int, bits: int) -> int:
+    """The low *bits* bits of *word* as a two's-complement integer."""
+    low = word & ((1 << bits) - 1)
+    return low - (1 << bits) if low >> (bits - 1) else low
 
 
 def _pack_lanes_one_by_one(lane_fmt: str, out: Buffer, values: list[float]) -> None:
@@ -81,7 +84,20 @@ class LaneCodec(Protocol):
         ...
 
     def decode_scalar(self, word: int) -> np.generic:
-        """A CR or LR-indexed scalar (a register word) in the compute domain."""
+        """A register word as an element scalar, in the compute domain.
+
+        The word's low element-width bits, decoded in this format (Q49): the
+        low byte in INT8 and E1..E7, all 32 bits in INT32 and FP32.
+        """
+        ...
+
+    def decode_cr_scalar(self, cr_index: int, word: int) -> np.generic:
+        """CR *cr_index*, holding *word*, as an element scalar.
+
+        :meth:`decode_scalar` of the word, except CR1: the hardware constant 1
+        reads as 1 in the active format (1.0 in a float format), so
+        ``MULT.VE … CR1`` is an identity multiply in every format.
+        """
         ...
 
     def mult(self, a: Lanes, b: Lanes | np.generic) -> Lanes:
@@ -147,6 +163,24 @@ class _Codec:
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self.fmt})"
 
+    def decode_scalar(self, word: int) -> np.generic:
+        """See :meth:`LaneCodec.decode_scalar` (every codec overrides it)."""
+        raise NotImplementedError
+
+    def one(self) -> bytes:
+        """See :meth:`LaneCodec.one` (every codec overrides it)."""
+        raise NotImplementedError
+
+    @cached_property
+    def _one_scalar(self) -> np.generic:
+        return self.decode_scalar(int.from_bytes(self.one(), "little"))
+
+    def decode_cr_scalar(self, cr_index: int, word: int) -> np.generic:
+        """See :meth:`LaneCodec.decode_cr_scalar`."""
+        if cr_index == CR_ONE_REG_INDEX:
+            return self._one_scalar
+        return self.decode_scalar(word)
+
 
 class IntCodec(_Codec):
     """INT8 and INT32: products and sums in int64, wrapped to int32 like ``ipu_add``."""
@@ -160,8 +194,8 @@ class IntCodec(_Codec):
         return np.frombuffer(raw, dtype=self._element_dtype, count=count).astype(np.int64)
 
     def decode_scalar(self, word: int) -> np.int64:
-        """See :meth:`LaneCodec.decode_scalar`: the word's low byte, signed."""
-        return np.int64(_signed_byte(word))
+        """See :meth:`LaneCodec.decode_scalar`: the word's low element-width bits, signed."""
+        return np.int64(_low_signed(word, 8 * self.element_bytes))
 
     def mult(self, a: Lanes, b: Lanes | np.generic) -> npt.NDArray[np.int64]:
         """See :meth:`LaneCodec.mult`. An int32 product cannot overflow int64."""
@@ -332,8 +366,9 @@ class Fp32Codec(_FloatCodec):
         return self.load_acc(raw, count)
 
     def decode_scalar(self, word: int) -> np.float64:
-        """See :meth:`LaneCodec.decode_scalar`: the word's low byte, signed, as a float."""
-        return np.float64(_signed_byte(word))
+        """See :meth:`LaneCodec.decode_scalar`: the word's 32 bits as a float32."""
+        with np.errstate(all="ignore"):
+            return np.float64(np.uint32(word & _INT32_MASK).view("<f4"))
 
     def one(self) -> bytes:
         """See :meth:`LaneCodec.one`."""

@@ -64,19 +64,20 @@ Encoding a value into an 8-bit format:
 
 ## CR scalars
 
-!!! note "Changes in E04-28"
-    E04-28 decodes a CR scalar from the CR's low element-width bits in every
-    format (Q49). This section describes the rule before it.
-
 A CR holds 32 bits. `MULT.VE`, `MULT.EE` and `MULT.RC.VE` (with a CR as `src`)
-use a CR as a scalar element: they multiply a vector by it. They read the
-CR's low byte, in every format:
+use a CR as a scalar element: they multiply a vector by it. The scalar is the
+CR's low element-width bits, decoded as an element of the active format:
 
 --8<-- "docs/generated/element-format-tables.md:cr-scalars"
 
-In the 8-bit float formats the byte is an element of the format, so the same CR
-value stands for different numbers in `INT8` and `E4`. In `FP32` and `INT32`
-the byte is a signed integer: a CR scalar cannot hold a fraction there.
+So the same CR value stands for a different number in each format. A host that
+programs a scalar writes it in the kernel's format: the float32 bit pattern of
+the value in `FP32`, its 8-bit code in `E4`.
+
+`CR1` is the exception. It is the hardware constant 1, and as a scalar it reads
+as 1 in every format (1.0 in a float format), so a multiply by `CR1` is an
+identity multiply whatever the format. This rule holds from E04-28 on; before
+it, every format read the CR's low byte.
 
 This program multiplies a vector of ones by `CR3`, so every element of
 `MULT_RES` is the scalar as the format decodes it:

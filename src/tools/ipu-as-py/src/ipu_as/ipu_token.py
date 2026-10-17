@@ -8,8 +8,9 @@ import lark
 import ipu_as.utils as utils
 from ipu_as.errors import LabelError, OperandError, SourceLocation
 from ipu_as.symbols import is_local_reference
+from ipu_isa.codec.slot import field_code
 from ipu_isa.geometry import INST_MEM_WORDS
-from ipu_isa.operand_types import operand_type
+from ipu_isa.operand_types import code_bits, operand_type
 
 if TYPE_CHECKING:
     from ipu_as.symbols import SymbolTable
@@ -107,9 +108,7 @@ class NumberToken(IpuToken):
         raise NotImplementedError("bits property must be implemented by subclasses")
 
     def encode(self) -> int:
-        if self.int < 0:
-            return self.int + (1 << self.bits())
-        return self.int
+        return field_code(self.int, self.bits())
 
 
 #: Each EnumToken subclass's lower-case name -> value map, built on first use.
@@ -151,7 +150,7 @@ class EnumToken(IpuToken):
             "EnumToken must have at least two values, check if you really need an Enum here if its "
             "just the one, consider adding 'nop' instruction instead."
         )
-        return (len(cls.enum_array()) - 1).bit_length()
+        return code_bits(len(cls.enum_array()))
 
     def encode(self) -> int:
         return self._reverse_map()[self.token.value.lower()]

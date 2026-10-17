@@ -3,7 +3,6 @@
 This module provides:
 - Instruction word decoding (decode_instruction_word)
 - Binary instruction file loading (load_binary_instructions)
-- Legacy execution functions for backward compatibility
 
 The actual instruction execution is handled by the handlers of ipu_emu.slots
 (one module per slot), which ipu_emu.ipu binds from instruction_spec metadata.
@@ -26,9 +25,8 @@ These dicts (``DecodedWord``) are produced by :func:`decode_instruction_word`.
 
 from __future__ import annotations
 
-# Re-export Ipu class and BreakResult for backward compatibility
-from ipu_emu.ipu import BreakResult, Ipu
-from ipu_emu.ipu_state import IpuState
+# Re-exported: emulator.py imports Ipu, and tests import both, from here.
+from ipu_emu.ipu import BreakResult, Ipu  # noqa: F401  (re-exported)
 from ipu_isa.codec.word import DecodedWord, opcode_field, unpack_program
 from ipu_isa.slots import SLOTS
 from ipu_isa.view import isa
@@ -67,34 +65,3 @@ def emulator_only_instructions(instructions) -> set[str]:
             if name != "NOP":
                 found.add(name)
     return found
-
-
-# ---------------------------------------------------------------------------
-# Legacy execution API (backward compatibility wrappers)
-# ---------------------------------------------------------------------------
-# These functions maintain the old API but delegate to ipu_emu.cycle.Cycle.
-# New code should use Cycle (``ipu.cycle``, or ``Cycle(state, ipu)``) directly.
-# ---------------------------------------------------------------------------
-
-
-def execute_next_instruction(state: IpuState) -> BreakResult:
-    """Execute one VLIW cycle, honouring BREAK.
-
-    Legacy wrapper of :meth:`ipu_emu.cycle.Cycle.step`, deleted when the
-    reference-model API replaces it (E04-30).
-
-    Returns:
-        BreakResult.BREAK if the word stopped at its BREAK slot, else CONTINUE.
-    """
-    ipu = Ipu(state)
-    return ipu.cycle.step()
-
-
-def execute_instruction_skip_break(state: IpuState) -> None:
-    """Retire the current word without evaluating BREAK.
-
-    Legacy wrapper of :meth:`ipu_emu.cycle.Cycle.retire`, deleted when the
-    reference-model API replaces it (E04-30).
-    """
-    ipu = Ipu(state)
-    ipu.cycle.retire()

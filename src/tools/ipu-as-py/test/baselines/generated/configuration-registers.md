@@ -8,7 +8,7 @@ kernel runs; a kernel only reads them.
 | Register | Value | Notes |
 |----------|-------|-------|
 | `CR0` | `0` | Read-only constant. |
-| `CR1` | `1` | Read-only constant. |
+| `CR1` | `1` | Read-only constant. As a scalar element it reads as 1 in every format (see [CR scalars](../../explanation/element-formats.md#cr-scalars)). |
 | `CR2`–`CR15` | set by the host | Base addresses, strides, loop bounds, scalar constants and dstructure words. By convention `CR15` holds the dstructure word, but any CR is a valid operand. |
 
 Each LR and CR holds a 32-bit scalar. A negative constant is stored as its

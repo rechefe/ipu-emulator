@@ -30,7 +30,7 @@
 <!-- --8<-- [start:cr-scalars] -->
 | Format | CR bits | Decoded as |
 |--------|---------|------------|
-| `INT8` | `[7:0]` | a signed byte (-128 to 127) |
+| `INT8` | `[7:0]` | a signed 8-bit integer |
 | `E1` | `[7:0]` | an `E1` element |
 | `E2` | `[7:0]` | an `E2` element |
 | `E3` | `[7:0]` | an `E3` element |
@@ -38,6 +38,6 @@
 | `E5` | `[7:0]` | an `E5` element |
 | `E6` | `[7:0]` | an `E6` element |
 | `E7` | `[7:0]` | an `E7` element |
-| `FP32` | `[7:0]` | a signed byte (-128 to 127), converted to a float |
-| `INT32` | `[7:0]` | a signed byte (-128 to 127) |
+| `FP32` | `[31:0]` | an `FP32` element |
+| `INT32` | `[31:0]` | a signed 32-bit integer |
 <!-- --8<-- [end:cr-scalars] -->

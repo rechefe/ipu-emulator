@@ -25,6 +25,11 @@ from ipu_emu.ipu import LANES, EmulatorError, Ipu
 from ipu_emu.ipu_state import IpuState
 
 
+def _f32_bits(value: float) -> int:
+    """*value*'s float32 bit pattern, the CR word an FP32 CR scalar of *value* needs."""
+    return struct.unpack("<I", struct.pack("<f", value))[0]
+
+
 class TestWideVectorFp32:
     def test_mult_ee_fp32_no_quantization_in_acc(self) -> None:
         """128 float elements multiply element-wise; acc holds float products."""
@@ -234,7 +239,7 @@ class TestWideVectorWrap:
         for k in range(96):
             struct.pack_into("<f", buf, k * 4, 5.0)
         st = new_state(fmt=ElementFormat.FP32)
-        st.regfile.set_cr(2, 2)  # low byte 2 → scalar 2.0 in wide FP32 path
+        st.regfile.set_cr(2, _f32_bits(2.0))  # a CR scalar is its 32 bits as a float32 (Q49)
         st.regfile.set_r_cyclic_wide_debug_at(0, buf)
         st.regfile.set_cr(6, 480)  # rc_idx is an ELEMENT index (issue #182 follow-up)
         st.regfile.set_cr(7, 0)

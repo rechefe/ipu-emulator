@@ -8,19 +8,17 @@ mnemonic rename), and say why in the PR (Code conventions, "Baselines").
 
 from __future__ import annotations
 
-import os
 import sys
-from pathlib import Path
 
+import baseline_support
 import disassembly
 
 
 def main() -> int:
-    workspace = os.environ.get("BUILD_WORKSPACE_DIRECTORY")
-    if not workspace:
-        print(f"Run this through Bazel: {disassembly.UPDATE_COMMAND}", file=sys.stderr)
+    root = baseline_support.workspace(disassembly.UPDATE_COMMAND)
+    if root is None:
         return 2
-    count = disassembly.write_all(Path(workspace))
+    count = disassembly.write_all(root)
     print(f"Wrote {count} snapshots to {disassembly.SNAPSHOT_DIR}")
     return 0
 

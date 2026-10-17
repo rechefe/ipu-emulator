@@ -105,6 +105,15 @@ class Instruction:
         raise IsaLookupError(f"{self.slot}.{self.mnemonic} has no operand {name!r}")
 
 
+def mnemonic_key(mnemonic: str) -> str:
+    """The form two mnemonics are compared in: assembly accepts any case."""
+    return mnemonic.upper()
+
+
+def _mnemonic_index(instructions: tuple[Instruction, ...]) -> Mapping[str, Instruction]:
+    return MappingProxyType({mnemonic_key(i.mnemonic): i for i in instructions})
+
+
 @dataclass(frozen=True, slots=True)
 class PseudoInstruction:
     """An assembler alias: expands to ``expands_to`` with ``args`` and has no opcode.
@@ -130,6 +139,8 @@ class Isa:
     layout: IsaLayout
     _instructions: Mapping[Slot, tuple[Instruction, ...]] = field(repr=False)
     _pseudos: tuple[PseudoInstruction, ...] = field(repr=False)
+    #: Slot -> ``mnemonic_key`` -> instruction.
+    _by_mnemonic: Mapping[Slot, Mapping[str, Instruction]] = field(repr=False)
 
     @property
     def spec_slot_order(self) -> tuple[Slot, ...]:
@@ -150,10 +161,9 @@ class Isa:
         Raises:
             IsaLookupError: ``slot`` has no such instruction.
         """
-        wanted = mnemonic.upper()
-        for instruction in self._instructions[slot]:
-            if instruction.mnemonic.upper() == wanted:
-                return instruction
+        found = self._by_mnemonic[slot].get(mnemonic_key(mnemonic))
+        if found is not None:
+            return found
         raise IsaLookupError(f"Instruction {mnemonic!r} not found in slot {str(slot)!r}")
 
     def by_opcode(self, slot: Slot, opcode: int) -> Instruction:
@@ -167,6 +177,11 @@ class Isa:
             raise IsaLookupError(f"Slot {str(slot)!r} has no opcode {opcode}")
         return instructions[opcode]
 
+    def has_instruction(self, mnemonic: str) -> bool:
+        """True when some slot has an instruction ``mnemonic`` (case-insensitive)."""
+        wanted = mnemonic_key(mnemonic)
+        return any(wanted in by_mnemonic for by_mnemonic in self._by_mnemonic.values())
+
     def find_slot(self, mnemonic: str) -> Slot:
         """The one slot that has an instruction ``mnemonic`` (case-insensitive).
 
@@ -174,12 +189,8 @@ class Isa:
             IsaLookupError: no slot has it (a ``KeyError``).
             IsaValueError: several do, as ``NOP`` is in every slot (a ``ValueError``).
         """
-        wanted = mnemonic.upper()
-        found = [
-            slot
-            for slot, instructions in self._instructions.items()
-            if any(instruction.mnemonic.upper() == wanted for instruction in instructions)
-        ]
+        wanted = mnemonic_key(mnemonic)
+        found = [slot for slot, by_mnemonic in self._by_mnemonic.items() if wanted in by_mnemonic]
         if not found:
             raise IsaLookupError(f"No slot has an instruction {mnemonic!r}")
         if len(found) > 1:
@@ -196,9 +207,9 @@ class Isa:
         Matched case-insensitively and by operand count, so a pseudo never
         shadows a real instruction of another arity with the same name.
         """
-        wanted = mnemonic.upper()
+        wanted = mnemonic_key(mnemonic)
         for pseudo in self._pseudos:
-            if pseudo.mnemonic.upper() == wanted and len(pseudo.operands) == arity:
+            if mnemonic_key(pseudo.mnemonic) == wanted and len(pseudo.operands) == arity:
                 return pseudo
         return None
 
@@ -269,10 +280,10 @@ def load_isa(
             for opcode, (mnemonic, entry) in enumerate(entries.items())
         )
 
+    by_mnemonic = {slot: _mnemonic_index(entries) for slot, entries in instructions.items()}
+
     def target(expansion: Mapping[str, Any]) -> Instruction:
-        slot = Slot(expansion["slot"])
-        wanted = str(expansion["instruction"]).upper()
-        return next(i for i in instructions[slot] if i.mnemonic.upper() == wanted)
+        return by_mnemonic[Slot(expansion["slot"])][mnemonic_key(str(expansion["instruction"]))]
 
     pseudos = tuple(
         PseudoInstruction(
@@ -291,6 +302,7 @@ def load_isa(
         layout=layout,
         _instructions=MappingProxyType(instructions),
         _pseudos=pseudos,
+        _by_mnemonic=MappingProxyType(by_mnemonic),
     )
 
 

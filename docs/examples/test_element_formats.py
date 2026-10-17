@@ -25,15 +25,15 @@ PROGRAM = """
 MULT.VE LR0 CR3 0 LR2 CR15;;
 HALT;;
 """
-CR3 = 0x0000_0138  # low byte 0x38
+CR3 = 0x3F80_0038  # the float32 1.0 (0x3F800000) plus 0x38
 # --8<-- [end:program]
 
 # --8<-- [start:expected]
 EXPECTED = {
-    ElementFormat.INT8: 56,  # 0x38 as a signed byte; bit 8 is not read
+    ElementFormat.INT8: 56,  # the low byte, 0x38, as a signed byte
     ElementFormat.E4: 1.0,  # 0x38 as an E4 element: exponent 7, bias 7, mantissa 0
-    ElementFormat.FP32: 56.0,  # 0x38 as a signed byte, converted to a float
-    ElementFormat.INT32: 56,  # 0x38 as a signed byte
+    ElementFormat.FP32: 1 + 56 * 2**-23,  # all 32 bits as a float32: 1.0 plus 56 ulps
+    ElementFormat.INT32: 1_065_353_272,  # all 32 bits as a signed integer
 }
 # --8<-- [end:expected]
 
@@ -49,6 +49,18 @@ def test_a_cr_scalar_is_decoded_in_the_active_format(fmt):
     got = struct.unpack_from(lane, bytes(state.regfile.view("mult_res")))[0]  # element 0
     assert got == EXPECTED[fmt], (
         f"{fmt}: CR3 = {CR3:#x} now decodes to {got}, not {EXPECTED[fmt]}. "
-        f"The CR scalar rule changed (E04-28?): update EXPECTED and the {SECTION}, "
+        f"The CR scalar rule changed: update EXPECTED and the {SECTION}, "
         "and its generated table (ipu_gen.docs_pages._cr_scalar_table)."
     )
+
+
+@pytest.mark.parametrize("fmt", list(EXPECTED), ids=str)
+def test_cr1_reads_as_one_in_every_format(fmt):
+    """CR1, the hardware constant 1, is the scalar 1 in every format (the page says so)."""
+    state = make_state(PROGRAM.replace("CR3", "CR1"), fmt=fmt)
+    ra = vector_registers(state).ra
+    for half in (0, 1):
+        state.regfile.set_register_bytes(ra, half, codec_for(fmt).one() * LANES)
+    run_until_complete(state)
+    lane = "<i" if FORMATS[fmt].accumulator is AccumulatorType.INT32 else "<f"
+    assert struct.unpack_from(lane, bytes(state.regfile.view("mult_res")))[0] == 1, SECTION

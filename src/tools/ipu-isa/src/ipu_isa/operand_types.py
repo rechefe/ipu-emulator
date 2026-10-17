@@ -44,7 +44,7 @@ from ipu_isa.registers import REGISTER_DEFINITIONS
 
 
 class OperandKind(Enum):
-    """What an operand's value names: a register, an enum member or an immediate."""
+    """What an operand's value names: a register, an enum member, an immediate or a label."""
 
     REGISTER = "register"
     ENUM = "enum"
@@ -77,13 +77,48 @@ class OperandType:
     summary: str  # one line
     doc: str  # long form, for the generated operand-types page and editor hover
 
+    def field_codes(self, bits: int | None) -> FieldCodes:
+        """How a ``bits``-wide field holds this type's values; the one rule
+        disassembly (``codec.disasm.type_text``) and the reserved-code fault
+        (``faults.reserved_operand_codes``) read.
+
+        * REGISTER and ENUM: code ``i`` is ``domain.members[i]``.
+        * An immediate or label whose value range fits the field: the range is
+          stored from code 0 upward (``INC.MODP2`` stores ``k - 1``), so a code
+          plus the range's low end is its value, and only the range's size of
+          codes is defined.
+        * Any other type, or ``bits`` None: every code is its own value.
+        """
+        if self.kind in (OperandKind.REGISTER, OperandKind.ENUM):
+            members = self.domain.members
+            return FieldCodes(members=members, offset=0, defined=len(members))
+        if self.domain.value_range is not None and bits is not None:
+            low, high = self.domain.value_range
+            size = high - low + 1
+            if size <= 1 << bits:
+                return FieldCodes(members=None, offset=low, defined=size)
+        return FieldCodes(members=None, offset=0, defined=None)
+
+
+@dataclass(frozen=True, slots=True)
+class FieldCodes:
+    """How the codes of one field map to an operand type's values (``OperandType.field_codes``)."""
+
+    members: tuple[str, ...] | None  # REGISTER and ENUM: code i names members[i]
+    offset: int  # a code's value is code + offset
+    defined: int | None  # codes 0..defined-1 mean a value; None: every code does
+
 
 _LR_COUNT = REGISTER_DEFINITIONS["lr"]["count"]
 _CR_COUNT = REGISTER_DEFINITIONS["cr"]["count"]
 
 
-def _index_bits(count: int) -> int:
-    """Bits to encode one of ``count`` values."""
+def code_bits(count: int) -> int:
+    """Bits to encode one of ``count`` values (codes ``0..count-1``).
+
+    The width of an index or enum field, for the registry here and for an
+    assembler's enum tokens (E05-02: bit layouts are computed in ``ipu_isa``).
+    """
     return (count - 1).bit_length()
 
 
@@ -124,7 +159,7 @@ _SPEC: dict[str, dict[str, Any]] = {
     },
     "LrIdx": {
         "kind": OperandKind.REGISTER,
-        "bits": _index_bits(_LR_COUNT),
+        "bits": code_bits(_LR_COUNT),
         "domain": Domain(members=_members("lr")),
         "readable": True,
         "token_class": "LrRegField",
@@ -137,7 +172,7 @@ _SPEC: dict[str, dict[str, Any]] = {
     },
     "CrIdx": {
         "kind": OperandKind.REGISTER,
-        "bits": _index_bits(_CR_COUNT),
+        "bits": code_bits(_CR_COUNT),
         "domain": Domain(members=_members("cr")),
         "readable": True,
         "token_class": "CrRegField",
@@ -147,11 +182,18 @@ _SPEC: dict[str, dict[str, Any]] = {
         "doc": "Constant-register index: **`CR0`** … **`CR15`**. CRs are **read-only** in assembly; the "
         "harness initializes them (e.g. base pointers, strides). **`CR15`** conventionally holds "
         "dstructure configuration but is a valid `CrIdx` operand like any other CR. **`SET`** in "
-        "the LR slot copies the full **32-bit** CR value into an LR.",
+        "the LR slot copies the full **32-bit** CR value into an LR.\n\n"
+        "**CR as an element scalar.** When a CR is a multiply's scalar element operand "
+        "(**`MULT.VE`**, **`MULT.EE`**, a CR **`src`** of **`MULT.RC.VE`**), the scalar is the CR's "
+        "low element-width bits decoded in the active element format: the low byte in INT8 and "
+        "E1–E7, all 32 bits in INT32 and FP32 (so FP32 1.0 is the CR value `0x3F800000`). One rule "
+        "for every format. **`CR0`** reads as 0 and **`CR1`** as 1 in the active format (1.0 in a "
+        "float format), so a multiply by **`CR1`** is an identity in every format; as an LR or "
+        "integer operand **`CR1`** is the integer 1.",
     },
     "LcrIdx": {
         "kind": OperandKind.REGISTER,
-        "bits": _index_bits(_LR_COUNT + _CR_COUNT),
+        "bits": code_bits(_LR_COUNT + _CR_COUNT),
         "domain": Domain(members=_members("lr") + _members("cr")),
         "readable": True,
         "token_class": "LcrRegField",
@@ -161,12 +203,12 @@ _SPEC: dict[str, dict[str, Any]] = {
         "doc": "LR **or** CR index in one field: lower indices map to **`LR0`–`LR15`**, higher indices to "
         "**`CR0`–`CR15`** in the usual combined ordering used by the assembler. Used as **`src_b`** "
         "on **`ADD`**/**`SUB`**, as **`step`** on **`INC.MODP2`**, and as **`src`** on "
-        "**`MULT.RC.VE`** (an LR's stored value selects an element from `R0`/`R1`; a CR's low byte "
-        "is the scalar directly).",
+        "**`MULT.RC.VE`** (an LR's stored value selects an element from `R0`/`R1`; a CR is the scalar "
+        "directly, decoded as in [CrIdx](#cridx)).",
     },
     "LrdIdx": {
         "kind": OperandKind.REGISTER,
-        "bits": _index_bits(_LR_COUNT // 2),
+        "bits": code_bits(_LR_COUNT // 2),
         "domain": Domain(members=tuple(f"lrd{2 * i}" for i in range(_LR_COUNT // 2))),
         "readable": True,
         "token_class": "LrdRegField",
@@ -181,7 +223,7 @@ _SPEC: dict[str, dict[str, Any]] = {
     },
     "DstructureCrIdx": {
         "kind": OperandKind.REGISTER,
-        "bits": _index_bits(_CR_COUNT),
+        "bits": code_bits(_CR_COUNT),
         "domain": Domain(members=_members("cr")),
         "readable": False,
         "token_class": "DstructureCrRegField",
@@ -198,7 +240,7 @@ _SPEC: dict[str, dict[str, Any]] = {
     },
     "ElementsInRow": {
         "kind": OperandKind.ENUM,
-        "bits": _index_bits(len(ELEMENTS_IN_ROW_NAMES)),
+        "bits": code_bits(len(ELEMENTS_IN_ROW_NAMES)),
         "domain": Domain(members=tuple(ELEMENTS_IN_ROW_NAMES)),
         "readable": False,
         "token_class": "ElementsInRowField",
@@ -210,7 +252,7 @@ _SPEC: dict[str, dict[str, Any]] = {
     },
     "HorizontalStride": {
         "kind": OperandKind.ENUM,
-        "bits": _index_bits(len(HORIZONTAL_STRIDE_NAMES)),
+        "bits": code_bits(len(HORIZONTAL_STRIDE_NAMES)),
         "domain": Domain(members=tuple(HORIZONTAL_STRIDE_NAMES)),
         "readable": False,
         "token_class": "HorizontalStrideField",
@@ -223,7 +265,7 @@ _SPEC: dict[str, dict[str, Any]] = {
     },
     "VerticalStride": {
         "kind": OperandKind.ENUM,
-        "bits": _index_bits(len(VERTICAL_STRIDE_NAMES)),
+        "bits": code_bits(len(VERTICAL_STRIDE_NAMES)),
         "domain": Domain(members=tuple(VERTICAL_STRIDE_NAMES)),
         "readable": False,
         "token_class": "VerticalStrideField",
@@ -235,7 +277,7 @@ _SPEC: dict[str, dict[str, Any]] = {
     },
     "ActivationFn": {
         "kind": OperandKind.ENUM,
-        "bits": _index_bits(len(ACTIVATION_FN_NAMES)),
+        "bits": code_bits(len(ACTIVATION_FN_NAMES)),
         "domain": Domain(members=tuple(ACTIVATION_FN_NAMES)),
         "readable": False,
         "token_class": "ActivationFnField",
@@ -330,7 +372,7 @@ _SPEC: dict[str, dict[str, Any]] = {
     },
     "Label": {
         "kind": OperandKind.LABEL,
-        "bits": _index_bits(INST_MEM_WORDS),
+        "bits": code_bits(INST_MEM_WORDS),
         "domain": Domain(value_range=(0, INST_MEM_WORDS - 1)),
         "readable": False,
         "token_class": "LabelToken",

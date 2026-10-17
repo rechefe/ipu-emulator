@@ -25,8 +25,8 @@
       and a BGE.S skips the loop entirely when there is only one plane.
 
     THE THRESHOLD IS A RESIDENT VECTOR:
-      CR scalars are integer-only in wide-vector mode (MULT.*'s CR operand
-      supplies its low byte), so a fractional tau cannot ride in a CR. It lives
+      tau is a per-run input vector, not a CR scalar (an FP32 CR scalar would
+      have to hold tau's float32 bit pattern, Q49). It lives
       in R_CYCLIC slot 1 for the whole run and is subtracted with ACC.SUB. The
       older kernel negated it and added (AGG max value_cr(-1) then ACC.ADD_AAQ);
       ACC.SUB does it directly.

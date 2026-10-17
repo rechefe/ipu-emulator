@@ -5,7 +5,7 @@
 # bytes, so a load brings in a full 512-byte channel and ST.ACC
 # writes the full 512-byte r_acc.
 #
-# Algorithm: use MULT.RC.VE with scalar = 1.0 (cr1 low byte = 1) to copy
+# Algorithm: use MULT.RC.VE with scalar = 1.0 (cr1 reads as 1.0 in FP32) to copy
 # each FP32 chunk into mult_res, then accumulate both into r_acc:
 #   acc.add.first  <- 1 * A[i]   (FP32)
 #   acc.add        <- 1 * B[i]

@@ -20,6 +20,8 @@ Prototyping mode stays (D7), and E04 turns it into an adapter on a single cycle 
 3. Make sure the E02-07 baseline check runs unchanged in a flagged build, so each kernel case's `output_sha256`, `state_sha256` and `cycles` must match the faithful baseline in prototyping mode. Fields that legitimately differ between modes (none are expected; `stats` counters are not in the record) are listed in `baseline.py`, not skipped silently.
 4. Tag the flagged run for E01's nightly heavy tier: document `bazel test --define=ipu_proto=1 //...` as the nightly command in the E01 CI workflow (E01 owns the job; this issue provides the command and the expectation that it is green).
 
+*As built:* the nightly `proto` job runs `bazel test --config=full --config=proto --test_size_filters=enormous //...`, the heavy tier only. The default tier already runs with the flag on every pull request (ci.yml `proto` job), so running it again nightly would repeat that.
+
 ## Tests
 
 - [ ] `bazel test --define=ipu_proto=1 //src/tools/ipu-emu-py:test_prototyping_equivalence` passes, with the timing probes included and one strict xfail.

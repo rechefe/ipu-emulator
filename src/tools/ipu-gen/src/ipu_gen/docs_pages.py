@@ -632,19 +632,14 @@ def _encodings_table(formats: Mapping[ElementFormat, FormatInfo]) -> list[str]:
 def _cr_scalar_table(formats: Mapping[ElementFormat, FormatInfo]) -> list[str]:
     """Which CR bits a scalar operand reads, and how they are decoded, per format.
 
-    Today's rule: the low byte in every format, decoded as an element in the
-    8-bit float formats and as a signed byte in the others. E04-28 (Q49)
-    changes the 32-bit formats to their low 32 bits, decoded in the format.
+    The rule of Q49 (E04-28): the CR's low element-width bits, decoded as an
+    element of the active format. CR1 is the exception the page states.
     """
     lines = ["| Format | CR bits | Decoded as |", "|--------|---------|------------|"]
     for fmt, info in formats.items():
-        if info.is_float and info.element_bits == 8:
-            decoded = f"an `{fmt.name}` element"
-        elif info.is_float:
-            decoded = "a signed byte (-128 to 127), converted to a float"
-        else:
-            decoded = "a signed byte (-128 to 127)"
-        lines.append(f"| `{fmt.name}` | `[7:0]` | {decoded} |")
+        bits = info.element_bits
+        decoded = f"an `{fmt.name}` element" if info.is_float else f"a signed {bits}-bit integer"
+        lines.append(f"| `{fmt.name}` | `[{bits - 1}:0]` | {decoded} |")
     return lines
 
 
@@ -1038,7 +1033,7 @@ kernel runs; a kernel only reads them.
 | Register | Value | Notes |
 |----------|-------|-------|
 | `CR{CR_ZERO_REG_INDEX}` | `{CR_ZERO_REG_VALUE}` | Read-only constant. |
-| `CR{CR_ONE_REG_INDEX}` | `{CR_ONE_REG_VALUE}` | Read-only constant. |
+| `CR{CR_ONE_REG_INDEX}` | `{CR_ONE_REG_VALUE}` | Read-only constant. As a scalar element it reads as 1 in every format (see [CR scalars](../../explanation/element-formats.md#cr-scalars)). |
 | `CR2`–`CR15` | set by the host | Base addresses, strides, loop bounds, scalar constants and dstructure words. By convention `CR15` holds the dstructure word, but any CR is a valid operand. |
 
 Each LR and CR holds a {LR_CR_SCALAR_BITS}-bit scalar. A negative constant is stored as its

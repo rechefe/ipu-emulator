@@ -212,6 +212,20 @@ def test_a_fault_cycle_names_the_fault_and_pc():
     assert records[-1].slots == () and records[-1].reg_writes == ()
 
 
+def test_take_hands_over_the_records_and_numbering_goes_on():
+    state = make_state("INC LR0 1 ;;\nINC LR0 1 ;;\nHALT ;;")
+    ipu = Ipu(state)
+    cycle = ipu.cycle
+    with CommitCollector(state) as collector:
+        cycle.step()
+        taken = collector.take()
+        assert [r.cycle for r in taken] == [0] and collector.records == []
+        cycle.step()
+        cycle.step()
+        assert [r.cycle for r in collector.take()] == [1, 2]
+        assert collector.take() == []
+
+
 def test_no_collector_attached_by_default_and_close_detaches():
     state = make_state("INC LR0 1 ;;\nHALT ;;")
     assert state.cycle_observers == ()
