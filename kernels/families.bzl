@@ -34,6 +34,7 @@ KERNELS = {
     "detect": ["channel_peak", "score_threshold"],
     "elementwise": ["scale"],
     "linear": ["fully_connected"],
+    "matmul": ["matmul_small"],
     "pooling": [
         "maxpool2d_nms",
         "maxpool2d_stride2",

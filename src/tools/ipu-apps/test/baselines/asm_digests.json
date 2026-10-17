@@ -167,24 +167,6 @@
     "word_fingerprints": "699c360f0e6fe4673ffef49617ad8be886a87ea57126c4ac20d99508c79e778244406b151919e9c94b140ee59af3778fac8275ae4b140ee5c95f9866d73e052644161d599a9aad9104de4a6068177f66",
     "words": 20
   },
-  "src/tools/ipu-apps/src/ipu_apps/kernels/matmul/matmul_128x128/matmul_128x128.asm": {
-    "bin_sha256": "61867660673c8dd55f33170372ca4883adf35aa8a58c56779c67581b7a163e47",
-    "mem_sha256": "4890cb67ea17e1673f4f21780acd089d7df003dd3dd81d98c45b384ec107d933",
-    "word_fingerprints": "92969096a0923a0a35eb7a181602611e4dcb5768e2d4c4aa17ad8be8282a14302e13f032450c4289ebe9f6585b4d3e1ba5da3ebc0e5924941d75690ba5da3ebc5759e46caf9b32f23632fbb19a9aad91c246f1db68177f66",
-    "words": 22
-  },
-  "src/tools/ipu-apps/src/ipu_apps/kernels/matmul/matmul_128x64x128/matmul_128x64x128.asm": {
-    "bin_sha256": "61867660673c8dd55f33170372ca4883adf35aa8a58c56779c67581b7a163e47",
-    "mem_sha256": "4890cb67ea17e1673f4f21780acd089d7df003dd3dd81d98c45b384ec107d933",
-    "word_fingerprints": "92969096a0923a0a35eb7a181602611e4dcb5768e2d4c4aa17ad8be8282a14302e13f032450c4289ebe9f6585b4d3e1ba5da3ebc0e5924941d75690ba5da3ebc5759e46caf9b32f23632fbb19a9aad91c246f1db68177f66",
-    "words": 22
-  },
-  "src/tools/ipu-apps/src/ipu_apps/kernels/matmul/matmul_128x64x64/matmul_128x64x64.asm": {
-    "bin_sha256": "61867660673c8dd55f33170372ca4883adf35aa8a58c56779c67581b7a163e47",
-    "mem_sha256": "4890cb67ea17e1673f4f21780acd089d7df003dd3dd81d98c45b384ec107d933",
-    "word_fingerprints": "92969096a0923a0a35eb7a181602611e4dcb5768e2d4c4aa17ad8be8282a14302e13f032450c4289ebe9f6585b4d3e1ba5da3ebc0e5924941d75690ba5da3ebc5759e46caf9b32f23632fbb19a9aad91c246f1db68177f66",
-    "words": 22
-  },
   "src/tools/ipu-apps/src/ipu_apps/kernels/matmul/matmul_144x144_x128/matmul_144x144_x128.asm": {
     "bin_sha256": "e8bd96817bfffe32e05ae316beb2ac566070f31e07638f7152c26c3d74f1bc52",
     "mem_sha256": "40cf28aa37c3285a471206e26cc3d6f0978f34aae73739cfad705ea91e64d339",
@@ -250,12 +232,6 @@
     "mem_sha256": "4da6a891744e59b4e5568ffe48180984728ef50130322b6b4a36c10acb9bdd82",
     "word_fingerprints": "8d9ed134310cb3f6a996a09bed2122371aa80272b93495c52348565606dd1db41ea600c9262f6c37fa2aa84f5e1556068cd448ed68177f66",
     "words": 14
-  },
-  "src/tools/ipu-apps/src/ipu_apps/kernels/matmul/matmul_64x64x64/matmul_64x64x64.asm": {
-    "bin_sha256": "61867660673c8dd55f33170372ca4883adf35aa8a58c56779c67581b7a163e47",
-    "mem_sha256": "4890cb67ea17e1673f4f21780acd089d7df003dd3dd81d98c45b384ec107d933",
-    "word_fingerprints": "92969096a0923a0a35eb7a181602611e4dcb5768e2d4c4aa17ad8be8282a14302e13f032450c4289ebe9f6585b4d3e1ba5da3ebc0e5924941d75690ba5da3ebc5759e46caf9b32f23632fbb19a9aad91c246f1db68177f66",
-    "words": 22
   },
   "src/tools/ipu-apps/src/ipu_apps/kernels/matmul/matmul_720x240_x128/matmul_720x240_x128.asm": {
     "bin_sha256": "68fa57301e0938b99e6a39ad0b69b02a19960a84ded46ece62a4a42500c4ddbe",
