@@ -123,7 +123,8 @@ New since master:
 7. Rename the old mnemonics in the RTL repository's test sources, or they no
    longer assemble (`BKPT` is now `HALT`, for example):
    `bazel run //tools:rename_mnemonics -- --check /abs/path/to/rtl-repo` lists
-   what would change, and the same command without `--check` rewrites it.
+   what would change, and the same command without `--check` rewrites it. It
+   reads only files git tracks, so commit new test sources first.
 8. Assemble the test programs with `--target hardware`. To compare with a word
    assembled for the emulator, or by master's assembler, take its bits
    `[185:31]`: the emulator word shifted right by 31 is the hardware word.
