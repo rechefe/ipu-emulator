@@ -17,7 +17,23 @@ exports_files([
 # (the routing registry, E06-16); :all_kernels: the tree with every family's
 # library; :kernel_targets; :lint. The families and their kernels are in
 # families.bzl (KERNELS, FAMILY_DEPS).
-ipu_kernel_tree()
+#
+# REGISTRIES: each family with a registry.toml (E06-17), its entries from its
+# generated registry.bzl: load("//kernels/<family>:registry.bzl", <FAMILY> =
+# "ENTRIES") above and "<family>": <FAMILY> here. test_kernel_tree checks it.
+REGISTRIES = {}
+
+ipu_kernel_tree(registries = REGISTRIES)
+
+# Rewrite every family's stale registry.bzl from its registry.toml (E06-17):
+#   bazel run //kernels:update_registry_bzl [-- DIR ...]
+py_binary(
+    name = "update_registry_bzl",
+    srcs = ["//src/tools/ipu-harness:src/ipu_harness/registry_bzl.py"],
+    main = "//src/tools/ipu-harness:src/ipu_harness/registry_bzl.py",
+    args = ["update"],
+    deps = ["//src/tools/ipu-harness:ipu_harness_lib"],
+)
 
 # Cross-family use is declared in FAMILY_DEPS only (E06-18); KERNELS names
 # every kernel folder. It reads the checkout's kernels/ (a folder missing from

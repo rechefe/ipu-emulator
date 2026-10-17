@@ -236,11 +236,11 @@ def test_only_entry_points_call_the_validation_seam():
     """No later stage re-validates: plan_case, check_params and representable are
     called only by params.py itself and the entry points (the runner, E06-11; the
     registry, E06-16; a chain step, E06-15, which checks a resident's layout
-    before the runner plans the step)."""
+    before the runner plans the step; :assemble_<name>'s kernel_bin, E06-17)."""
     import ipu_harness
 
     package = Path(ipu_harness.__file__).parent
-    allowed = {"params.py", "runner.py", "registry.py", "chain.py"}
+    allowed = {"params.py", "runner.py", "registry.py", "chain.py", "kernel_bin.py"}
     calls = re.compile(
         r"\b(plan_case|check_params|representable|_check_(?:params|value|number|format|scalars))\("
     )
