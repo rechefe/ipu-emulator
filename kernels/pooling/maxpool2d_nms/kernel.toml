@@ -5,7 +5,10 @@
 [kernel]
 op = "maxpool2d"
 formats = ["fp32"]
-cost = 0                                                 # below maxpool2d_window's 1
+# 0 for maxpool2d_nms7, 1 for nms9: both below maxpool2d_window's 3, and
+# apart, so a query that leaves kernel_size out (each entry's fixed value is
+# its default, E06-17) names nms7 instead of tying.
+cost = "(kernel_size - 7) // 2"
 
 [params]
 channels    = { type = "int", min = 1 }

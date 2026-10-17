@@ -1,0 +1,103 @@
+# sample_descriptors: dense 8x bilinear interpolation of [H, W, 256] FP32
+# descriptors, HWC, over a band of coarse rows (E07-15); the 3x3 neighbour
+# weights of each fine phase are a table in XMEM. Was a whole-image
+# (MemoryApp) kernel. sample_descriptors_separable takes stock queries at a
+# lower cost.
+[kernel]
+op = "sample_descriptors"
+formats = ["fp32"]
+
+[params]
+height         = { type = "int", min = 1 }                  # coarse rows H
+width          = { type = "int", min = 1 }                  # coarse columns W
+channels       = { type = "int", choices = [256] }          # HWC, two rows per cell
+stock          = { type = "bool", default = false }         # SuperPoint's align_corners=True grid, else the shared phase-centred one
+cell_row_start = { type = "int", min = 0, default = 0 }     # first coarse row of the band
+cell_row_count = { type = "int", min = 0, default = 0 }     # coarse rows; 0: to the last row
+amplitude      = { type = "float", min = 1.401298464324817e-45, max = 3.4028234663852886e38, default = 1.0 }  # the generator's: x uniform in [-amplitude, amplitude)
+
+[derived]
+band      = "cell_row_count + (height - cell_row_start) * (1 - min(1, cell_row_count))"
+# 1 when the band ends inside the map, else no value (a division by zero):
+# the shape grammar has no comparison. An empty band is refused by y's shape.
+inside    = "1 / max(0, min(1, height - cell_row_start - band + 1))"
+stride    = "(width + 2) * 2"                               # padded input row stride (rows)
+x_band    = "base(x) + cell_row_start * stride"             # the band's top halo row
+tap_delta = "stride - 4"                                    # next tap-row address delta
+chan_tiles = "2"                                            # 128-lane tiles per cell
+phases    = "8"                                             # fine phases per axis
+phase_gap = "16 * width - 16"                               # output phase-row gap
+cell_gap  = "16 * width * 7"                                # output cell-row gap
+k_first   = "base(k)"                                       # one table for every cell
+k_band    = "base(k_cells) + cell_row_start * width * 9"   # the band's first cell's table
+no_step   = "0"                                             # table step per cell, shared
+cell_step = "9"                                             # table step per cell, stock
+
+# Placed from row 0: x, the table, y (the old image).
+[inputs.x]
+shape = ["height", "width", "channels"]
+pack = "hwc_halo"                                           # ipu_kernels.sampling.pack
+
+[scratch.k]                                                 # K[dy, dx, a, b]
+shape = [9, 128]
+bytes = "../tables.py:shared"
+when = "not stock"
+after = "x"
+
+[scratch.k_cells]                                           # K[i, j, dy, dx, a, b]
+shape = ["height * width * 9", 128]
+bytes = "../tables.py:stock"
+when = "stock"
+after = "x"
+
+[outputs.y]
+shape = ["band * 8", "width * 8", "channels"]
+
+[abi]
+x_band     = "CR2"
+y          = "CR3"
+k_first    = { register = "CR4", when = "not stock" }
+k_band     = { register = "CR4", when = "stock" }
+stride     = "CR5"
+tap_delta  = "CR6"
+width      = "CR7"
+band       = "CR8"
+chan_tiles = "CR9"
+phases     = "CR10"
+phase_gap  = "CR11"
+cell_gap   = "CR12"
+no_step    = { register = "CR13", when = "not stock" }
+cell_step  = { register = "CR13", when = "stock" }
+
+[golden]
+op = "sample_descriptors"
+# Measured: max|err| 1.2e-7 (default, stock), 0 (single cells): nine FP32
+# products summed in another order than the reference's.
+tolerance = { fp32 = "FP32_ORDER" }
+
+# The ipu_apps cases' data (../gen.py: uniform, seed 31).
+[cases.default]
+height = 2
+width = 3
+channels = 256
+generator = "../gen.py:legacy_uniform"
+
+[cases.stock]
+height = 2
+width = 3
+channels = 256
+stock = true
+generator = "../gen.py:legacy_uniform"
+
+[cases.single_cell]
+height = 1
+width = 1
+channels = 256
+generator = "../gen.py:legacy_uniform"
+
+[cases.stock_single_cell]
+height = 1
+width = 1
+channels = 256
+stock = true
+generator = "../gen.py:legacy_uniform"

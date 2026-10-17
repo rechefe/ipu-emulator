@@ -63,9 +63,10 @@ bazel run //src/tools/ipu-gen:ipu-gen -- inspector-trace "$PWD/trace.jsonl" "$PW
 
     `kernel` is a kernel-tree label (`//kernels/conformance/vector_tour`, or
     `//kernels/<family>:<entry>` for a registry entry) or an `ipu_apps` kernel
-    name. `case` picks one of the kernel's cases (`default` unless given); a
-    kernel-tree case runs in its first format, so give each format its own
-    case, as `vector_tour`'s `int8`, `e4`, `e5` and `e3`. `options` overrides
+    name. `case` picks one of the kernel's cases (`default` unless given). A
+    kernel-tree case runs in its first format unless `format` names another,
+    as `fc_e4` does: `{"name": "fc_e4", "kernel":
+    "//kernels/linear/fully_connected", "format": "e4"}`. `options` overrides
     an `ipu_apps` kernel's options; a kernel-tree kernel takes none (add a
     case instead).
 

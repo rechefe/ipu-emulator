@@ -87,7 +87,7 @@
 # Register names (Jinja2 preprocessor; pure source-level substitution)
 # ---------------------------------------------------------------------------
 {% set data_ptr        = "LR0"  %}  {# data row pointer for the active tg, walks by tg_stride per k-step #}
-{% set rc_slot0         = "LR1"  %}  {# const 0: r_cyclic write-index 0 #}
+{% set rc_slot0         = lr.rc_slot0 %}  {# const 0: r_cyclic write-index 0 #}
 {% set k_idx            = "LR2"  %}  {# fixed_idx (MULT.RC.VE rc_idx), reset per chunk, biased on chunk 0 #}
 {% set bound            = "LR3"  %}  {# selected inner-loop bound for the current chunk #}
 {% set weight_row_off   = "LR4"  %}  {# j's weight-row base = j*W_STRIDE_ROWS, PERSISTENT across the whole j_loop body -- reset only at stream_loop top (once per stream, alongside j_idx), advanced ONCE per j at the bottom of j_loop. Must NOT be reset inside tg=0/tg=1 blocks. #}

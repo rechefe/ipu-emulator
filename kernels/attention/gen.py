@@ -1,4 +1,4 @@
-"""The attention family's case generators (E07-12).
+"""The attention family's case generators (E07-12, E07-13).
 
 They keep the ``ipu_apps`` cases' data (``attention/cases.py`` and each
 kernel's ``cases.py``): ``RandomState(seed).uniform(-1, 1)`` in FP32, Q drawn
@@ -50,3 +50,25 @@ def legacy_km(plan, rng):
         q = _uniform(state, shape)[h * d : (h + 1) * d]
         k = _uniform(state, shape)[h * d : (h + 1) * d]
     return {"b": q, "a": np.ascontiguousarray(np.swapaxes(k, -1, -2))}
+
+
+def legacy_attn_v(plan, rng):
+    """An ``attn_v`` case: P ``(n_head, n_tok, n_tok)`` query-major, then V
+    ``(n_head, d, n_tok)`` channel-major, as the old cases drew them; the
+    golden is ``a @ b^T`` (``matmul_nt``). The harness's ``rng`` is ignored."""
+    params = plan.params
+    state = np.random.RandomState(params["seed"])
+    p = _uniform(state, plan.shapes["b"])
+    v = _uniform(state, plan.shapes["a"])
+    return {"b": p, "a": v}
+
+
+def legacy_attn_v_bcast(plan, rng):
+    """An ``attn_v_bcast`` case: P and V drawn as for ``attn_v``, then P staged
+    key-major (``b[h, s, i] = P[h, i, s]``), so ``y = a @ b``. The harness's
+    ``rng`` is ignored."""
+    params = plan.params
+    state = np.random.RandomState(params["seed"])
+    p = _uniform(state, plan.shapes["b"])  # (n_head, n_tok, n_tok): square, query-major
+    v = _uniform(state, plan.shapes["a"])
+    return {"b": np.ascontiguousarray(p.transpose(0, 2, 1)), "a": v}

@@ -4,8 +4,8 @@ kernel tree's registry and ``//kernels:query``.
 A ``maxpool2d`` query names ``channels``, ``height``, ``width`` (the old
 ``shape=(C, H, W)``), ``kernel_size``, ``stride`` and ``padding``. A centred
 stride-1 window (``padding = kernel_size // 2``, odd ``kernel_size``) goes to
-the unrolled ``maxpool2d_nms7``/``nms9`` at 7 and 9 (cost 0) and to
-``maxpool2d_window`` otherwise (cost 1). A 2x2 stride-2 pool goes to exactly
+the unrolled ``maxpool2d_nms7``/``nms9`` at 7 and 9 (cost 0 and 1) and to
+``maxpool2d_window`` otherwise (cost 3). A 2x2 stride-2 pool goes to exactly
 one of ``maxpool2d_stride2`` and ``maxpool2d_stride2_tail``, by width.
 """
 
@@ -81,6 +81,13 @@ def test_a_centred_window_prefers_the_unrolled_kernel(registry, kernel_size, nam
     assert verdict.label == f"//kernels/pooling{':' if entry else '/'}{name}"
 
 
+def test_a_query_without_the_window_takes_the_nms7_entry(registry):
+    """Each entry's fixed values are its defaults (E06-17), so a query that
+    leaves ``kernel_size`` and ``padding`` out is a 7x7 window, not a tie."""
+    verdict = registry.resolve("maxpool2d", channels=1, height=4, width=16, stride=1)
+    assert verdict.kernel_name == "maxpool2d_nms7", verdict.reason
+
+
 @pytest.mark.parametrize(
     "params",
     [
@@ -137,7 +144,9 @@ def test_exactly_one_stride2_kernel_takes_each_width_and_runs_it(registry, shape
     case = dataclasses.replace(
         expand(kernel)[0], name="x".join(map(str, shape)), values=_stride2(*shape)
     )
-    writes = {w.register: w.value for w in stage(kernel, case, FP32, cache=CACHE).writes}
+    staged = stage(kernel, case, FP32, cache=CACHE)
+    assert staged.placement.region("x").rows == channels * height * in_tiles
+    writes = {w.register: w.value for w in staged.writes}
     assert writes["CR5"] == in_tiles
     assert writes.get("CR12", 0) == (out_tiles - 1 if tail else 0)
     result = run_kernel(kernel, case, FP32, cache=CACHE)

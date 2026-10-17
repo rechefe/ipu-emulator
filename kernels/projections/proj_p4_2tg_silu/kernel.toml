@@ -19,6 +19,7 @@ n_streams  = { type = "int", choices = [4], default = 4 }    # pixel-streams per
 activation = { type = "str", choices = ["silu"], default = "silu", query_required = true }  # fused at the store
 
 [derived]
+rc_slot0        = "0"                              # LR1 start value: the R_CYCLIC slot-0 index the program reads
 neg_one         = "-1"                             # data-pointer and fixed_idx startup
 full_bound      = "126"                            # inner-loop bound of a 128-wide chunk
 chunk_count     = "ceil(k / 128)"
@@ -56,6 +57,7 @@ last_chunk_idx  = "CR11"
 data_stream_str = "CR12"
 out_stream_str  = "CR13"
 stream_count    = "CR14"
+rc_slot0        = "LR1"
 
 [golden]
 op = "linear"                                      # activation(a @ b), ipu_kernels.reference.ops

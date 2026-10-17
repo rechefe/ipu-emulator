@@ -32,7 +32,17 @@ identity for every other kernel.
 | `matmul_480x240_x128` | 16 | 240 | 480 | silu |
 | `matmul_720x240_x128` | 16 | 240 | 720 | none |
 
-Query: `matmul shape_a=M,K shape_b_t=N,K [activation=silu]`.
+All 16 are entries of `kernels/matmul/registry.toml` over 7 templates, each
+run as `//kernels/matmul:<kernel>`: `matmul_small` (the four row-major kernels,
+one program), and for the `_x128` kernels one template per distinct program:
+`matmul_x128_2tg_c2` (`144x144`, `432x144`, `288x144`), `matmul_x128_2tg_c3`
+(`144x288`), `matmul_x128_c2` (`192x192`, `240x240`, `720x240`, `384x192`,
+`480x240`), `matmul_x128_c2_qkv` (`576x192`), `matmul_x128_c3` (`192x384`) and
+`matmul_x128_c4` (`240x480`). A template's `activation` parameter renders the
+store's `ACTIVATE.QUANTIZE`, so an FFN1 kernel shares its template's program.
+
+Query: `bazel run //kernels:query -- matmul m=M k=K n=N [activation=silu]`. A
+plain query at an FFN1 shape is refused: the activation is part of the query.
 
 ## `projection`
 
@@ -84,17 +94,19 @@ Query: `bazel run //kernels:query -- fully_connected`. The shape parameters
 
 ## Data layout
 
-A `matmul_*` kernel takes `input_path`, `weights_path` and `output_path`. The
-weight file is `[N, K]` float32, output-major, stored verbatim.
+`matmul_*` kernels declare their tensors in `kernel.toml` in one of two
+layouts:
 
-`matmul_*` kernels use one of two layouts (each kernel's `cases.py` states its
-own):
-
-- **row-major** (`matmul_64x64x64`, `matmul_128x*`): the input file is A,
-  `(M, K)`; the output file is dense C, `(M, N)`.
-- **channel-major** (`matmul_*_x128`): the input file is D = Aᵀ, `(K, M)`, as
-  the transformer blocks hold it; the output file is raw XMEM rows,
-  `(N_TG, N, 128)`, with the first `N_TOK` lanes of each row valid.
+- **row-major** (`matmul_64x64x64`, `matmul_128x*`): `a`, A `(M, K)`, and
+  `b`, Wᵀ `(K, N)`, one XMEM row per matrix row each, and the output `y`, C
+  `(M, N)`; the reference is the shared `matmul` op, `a @ b`.
+- **channel-major** (`matmul_*_x128`): `b`, the data D = Aᵀ as the transformer
+  blocks hold it, `(N_TG, K, N_TOK)` (`channel_major`: one row per channel and
+  token group), `a`, the weights W `[N, K]` output-major
+  (`output_major_weights`), and `y` `(N_TG, N, N_TOK)`, one row per output
+  channel and group, the first `N_TOK` lanes valid. `M = N_TG * N_TOK`: two
+  groups of 128 tokens at L3, one group of 64 or 16 at L4/L5. The reference is
+  the shared `linear` op, `activation(a @ b)`, as for the projections.
 
 A `proj_*_p4` kernel declares its tensors in `kernel.toml`, and the harness
 places and packs them. `b` holds the 4 streams' data, `(N_STREAM, N_TG, K,

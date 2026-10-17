@@ -15,7 +15,7 @@ from ipu_harness.runner import RunOptions
 #: one ISA alias the ipu_apps test counted, ``alias_hits``). The profile's
 #: sequence detectors also report post-increment addressing (A12), a narrow
 #: MULT (A13: 64 outputs on 128 lanes) and multiple accumulators (A14); see
-#: docs/content/isa-alias-catalogue.md.
+#: docs/content/explanation/isa-idioms.md.
 ALIASES = {
     "A16_STR_ACC_REG": (10, 0),
     "A12_ADDRESSING": (3869, 0),

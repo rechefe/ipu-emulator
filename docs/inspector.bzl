@@ -27,20 +27,23 @@ def _kernel_path(kernel):
         return package + "/registry.toml::" + entry
     return package
 
-def _record(kernel, case, options):
+def _record(kernel, case, options, format):
     """The command that writes $TMP/trace.jsonl and $TMP/context.json, and its tool."""
     files = "--trace $$TMP/trace.jsonl --context $$TMP/context.json"
     if kernel.startswith(_KERNELS):
         if options:
             fail("kernel_trace: %s runs its cases as kernel.toml declares them; give it a case, not options" % kernel)
-        return "$(location %s) %s --case %s %s" % (_RUN_KERNEL, _kernel_path(kernel), case, files), _RUN_KERNEL
+        flags = "" if format == None else " --format " + _shell_word(format)
+        return "$(location %s) %s --case %s%s %s" % (_RUN_KERNEL, _kernel_path(kernel), _shell_word(case), flags, files), _RUN_KERNEL
+    if format != None:
+        fail("kernel_trace: an ipu_apps kernel's formats are its cases; %s takes no format" % kernel)
     flags = " ".join([
         "--option " + _shell_word("%s=%s" % (option, json.encode(value)))
         for option, value in sorted(options.items())
     ])
     return "$(location %s) %s --case %s %s %s" % (_TRACE_CASE, kernel, case, flags, files), _TRACE_CASE
 
-def kernel_trace(name, kernel, case = "default", options = {}, max_cycles = 5000, visibility = None):
+def kernel_trace(name, kernel, case = "default", format = None, options = {}, max_cycles = 5000, visibility = None):
     """`<name>.json`: the Cycle Inspector document of one kernel case.
 
     Args:
@@ -49,14 +52,16 @@ def kernel_trace(name, kernel, case = "default", options = {}, max_cycles = 5000
             or `//kernels/<family>:<entry>`), or a registered ipu_apps kernel
             (`bazel run //src/tools/ipu-apps:query`).
         case: One of its cases. An ipu_apps kernel's element formats are its
-            cases (fully_connected: `int8`, `fp8_e4m3`, `fp8_e5m2`); a
-            //kernels case runs in its first format.
+            cases; a //kernels case runs in its first format unless `format`
+            names another.
+        format: For a //kernels kernel, the element format to record the case
+            in (`run_kernel --format`), such as `e4`.
         options: Case option overrides of an ipu_apps kernel, NAME -> value
             (JSON-encoded on the command line).
         max_cycles: Cycles the document keeps; it says when it is truncated.
         visibility: The target's visibility.
     """
-    record, recorder = _record(kernel, case, options)
+    record, recorder = _record(kernel, case, options, format)
     native.genrule(
         name = name,
         # A //kernels kernel's files (and its family's, or its registry's): the tree.

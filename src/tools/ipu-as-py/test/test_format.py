@@ -159,7 +159,7 @@ def _variant(key: str) -> str:
 
 
 #: Where record-format.js finds the kernels (its DEFAULT_DIRS).
-KERNEL_DIRS = ("src/tools/ipu-apps/src/ipu_apps/kernels", "src/tools/ipu-apps/test/mobilevit")
+KERNEL_DIRS = ("src/tools/ipu-apps/src/ipu_apps/kernels",)
 
 
 def test_every_kernel_is_recorded():
