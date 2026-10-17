@@ -27,9 +27,6 @@ padding      = { type = "int", choices = [1], query_required = true }
 dilation     = { type = "int", choices = [1], query_required = true }
 has_bias     = { type = "bool", choices = [false], query_required = true }
 apply_relu   = { type = "bool", choices = [false], query_required = true }
-# The old cases' data seed, for the proof only (the old defaults: 7, sweeps 3 and 11).
-# The next commit moves the cases to the harness's seeded generators and drops it.
-seed         = { type = "int", min = 0, default = 0 }
 
 [derived]
 # -- stage 1: depthwise_conv_tpl's program. These are the names it reads
@@ -109,7 +106,9 @@ dstructure  = "CR15"
 
 [golden]
 reference = "reference.py:reference"
-# The old check was max |diff| < 1e-2. 9 taps; the decimation is exact.
+# Measured on the harness's seeded data: max |err| 4.8e-7 over the three
+# stride-2 kernels (2.4e-7 on the ipu_apps data of the proof); the decimation is
+# exact. The old check was max |diff| < 1e-2.
 tolerance = { fp32 = "FP32_ORDER" }
 
 # The old cases and test sweep.
@@ -126,8 +125,6 @@ padding = 1
 stride = 2
 has_bias = false
 apply_relu = false
-seed = 7
-generator = "../gen.py:legacy_depthwise"
 
 [cases.rpc2_c2]  # rows_per_chunk 2, minimal
 in_channels = 2
@@ -141,8 +138,6 @@ padding = 1
 stride = 2
 has_bias = false
 apply_relu = false
-seed = 3
-generator = "../gen.py:legacy_depthwise"
 
 [cases.rpc8_c3]  # rows_per_chunk 8, an odd channel count
 in_channels = 3
@@ -156,8 +151,6 @@ padding = 1
 stride = 2
 has_bias = false
 apply_relu = false
-seed = 11
-generator = "../gen.py:legacy_depthwise"
 
 # The old benchmark.py CONFIGS (per channel).
 [benchmark]

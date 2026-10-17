@@ -84,7 +84,8 @@ lr5_start         = "LR5"
 
 [golden]
 op = "conv2d"                          # x, w [out, in, 3, 3]; no bias, no ReLU
-# The old check was max |diff| < 1e-2. K = 9 * in_channels <= 27 in the cases.
+# Measured on the harness's seeded data: max |err| 1.4e-6 (c3x4; 3.6e-7 on the
+# ipu_apps data of the proof). The old check was max |diff| < 1e-2.
 tolerance = { fp32 = "FP32_ORDER" }
 
 # The old default (the .asm's standalone defaults cpr = 3, rows = 8) and the
@@ -103,7 +104,6 @@ stride = 1
 groups = 1
 has_bias = false
 apply_relu = false
-generator = "../gen.py:legacy_wide"
 
 [cases.c2_h16]
 in_channels = 2
@@ -117,7 +117,6 @@ stride = 1
 groups = 1
 has_bias = false
 apply_relu = false
-generator = "../gen.py:legacy_wide"
 
 [cases.c3x4]
 in_channels = 3
@@ -131,7 +130,6 @@ stride = 1
 groups = 1
 has_bias = false
 apply_relu = false
-generator = "../gen.py:legacy_wide"
 
 [cases.w512]                               # cpr = 4
 in_channels = 1
@@ -145,7 +143,6 @@ stride = 1
 groups = 1
 has_bias = false
 apply_relu = false
-generator = "../gen.py:legacy_wide"
 
 # The old benchmark.py CONFIGS.
 [benchmark]
