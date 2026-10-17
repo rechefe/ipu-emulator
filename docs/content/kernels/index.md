@@ -26,28 +26,33 @@ Rather than reading each kernel's docstring, ask the registry. It answers from
 the kernels themselves, so it cannot drift out of date:
 
 ```bash
-bazel run //src/tools/ipu-apps:query -- softmax shape=32,300 dim=1
-bazel run //src/tools/ipu-apps:query                                 # every op and kernel
+bazel run //kernels:query -- softmax rows=32 n=300 dim=1
+bazel run //kernels:query                                            # the migrated kernels
+bazel run //src/tools/ipu-apps:query                                 # the kernels still in ipu_apps
 ```
 
 ```python
-from ipu_apps.kernel_registry import lookup_layer, resolve
+from ipu_harness.registry import default_registry
+
+registry = default_registry()
 
 # PyTorch-native: the layer plus the shape it will receive
-lookup_layer(nn.Softmax(dim=1), input_shape=(32, 300))
+registry.from_layer(nn.Softmax(dim=1), (32, 300))
 
 # framework-free
-resolve("softmax", shape=(32, 300), dim=1)
+registry.resolve("softmax", rows=32, n=300, dim=1)
 ```
 
-Both return a verdict carrying the app class, its constructor arguments, why
-that kernel was chosen, and any caveats that still apply — or, when nothing
-covers the shape, what each candidate objected to.
+Both return a verdict carrying the kernel, its parameters and why that kernel
+was chosen — or, when nothing covers the query, what each candidate objected
+to. The families already migrated to `kernels/` (projections, softmax) answer
+there; the others still answer `//src/tools/ipu-apps:query` until their
+migration.
 
 ## Currently registered
 
-89 kernels across 21 operations; `bazel run //src/tools/ipu-apps:query` prints
-the current list.
+`bazel run //kernels:query` and `bazel run //src/tools/ipu-apps:query` print
+the current lists.
 
 | Operation | Kernels |
 |---|---|

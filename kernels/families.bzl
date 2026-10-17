@@ -23,6 +23,13 @@ KERNELS = {
         "unfold_32x32x144",
         "unfold_8x8x240",
     ],
+    "softmax": [
+        "softmax_columns",
+        "softmax_columns_packed",
+        "softmax_rows",
+        "softmax_rows_long",
+        "softmax_rows_partial",
+    ],
 }
 
 #: The families each family may use: import from (ipu_kernels.<other>) or refer

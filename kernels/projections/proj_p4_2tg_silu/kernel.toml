@@ -3,6 +3,11 @@
 # run by itself it is a small shape of the same program.
 [kernel]
 op = "projection"
+# FP32 only (E07-03). INT8 waits for OQ-35: ST.AAQ stores all of POST_AAQ_REG,
+# four rows in an 8-bit format, and this program stores both groups' row j
+# before row j + 1, so the spill of group 0's last rows zeroes group 1's first
+# three, already stored. E4 waits for the AaQ stage (OQ-20), as proj_p4's does.
+# test_formats.py fails when either is answered.
 formats = ["fp32"]
 
 [params]
@@ -11,7 +16,7 @@ n_out      = { type = "int", min = 1 }                       # output channels
 n_tok      = { type = "int", min = 1, max = 128 }            # tokens per group: one row
 n_tg       = { type = "int", choices = [2], default = 2 }    # token groups (hand-duplicated)
 n_streams  = { type = "int", choices = [4], default = 4 }    # pixel-streams per invocation
-activation = { type = "str", choices = ["silu"], default = "silu" }  # fused at the store
+activation = { type = "str", choices = ["silu"], default = "silu", query_required = true }  # fused at the store
 
 [derived]
 neg_one         = "-1"                             # data-pointer and fixed_idx startup
