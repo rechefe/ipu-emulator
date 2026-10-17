@@ -22,6 +22,10 @@ A VLIW instruction word encodes one sub-instruction per slot. Slots are grouped 
 
 **Syntax:** `NOP`
 
+**Tag:** `HARDWARE` in the hardware slots, `EMULATOR` in the emulator-only slots.
+
+**Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
+
 No operation. Every slot accepts `NOP`. The assembler fills any omitted slot with `NOP` automatically. When written explicitly in a compound instruction, `NOP` is assigned to the next unfilled slot in compound-layout order (COND → LR → LOAD → MULT → ACC → AAQ → STORE → ACC_STORE → BREAK).
 
 ## Element formats
@@ -1989,7 +1993,7 @@ MULT.RC.VS LR0 0 LR2 CR15;;
 
 | Name | Type | Details |
 |------|------|---------|
-| `ra_idx` | [`LrIdx`](operand-types.md#lridx) | `ra_idx`: **`LR0`**…**`LR15`** — base byte offset into combined Ra (`R0` ++ `R1`, 256 bytes, cyclic mod 256). |
+| `ra_idx` | [`LrIdx`](operand-types.md#lridx) | `ra_idx`: **`LR0`**…**`LR15`** — base element offset into combined Ra (`R0` ++ `R1`, 256 elements, cyclic mod 256). |
 | `cr_idx` | [`CrIdx`](operand-types.md#cridx) | `cr_idx`: **`CR0`**…**`CR15`** — CR register whose low byte supplies the scalar multiplier. |
 | `mask_offset` | [`MultMaskOffsetImmediate`](operand-types.md#multmaskoffsetimmediate) | `mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**. |
 | `mask_shift` | [`LrIdx`](operand-types.md#lridx) | `mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end). |
@@ -2022,7 +2026,7 @@ MULT.VE LR0 CR3 0 LR2 CR15;;
 
 | Name | Type | Details |
 |------|------|---------|
-| `ra_idx` | [`LrIdx`](operand-types.md#lridx) | `ra_idx`: **`LR0`**…**`LR15`** — index of the single Ra element to read (combined `R0` ++ `R1`, 256 bytes, mod 256). |
+| `ra_idx` | [`LrIdx`](operand-types.md#lridx) | `ra_idx`: **`LR0`**…**`LR15`** — index of the single Ra element to read (combined `R0` ++ `R1`, 256 elements, mod 256). |
 | `cr_idx` | [`CrIdx`](operand-types.md#cridx) | `cr_idx`: **`CR0`**…**`CR15`** — CR register whose low byte supplies the scalar multiplier. |
 | `mask_offset` | [`MultMaskOffsetImmediate`](operand-types.md#multmaskoffsetimmediate) | `mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**. |
 | `mask_shift` | [`LrIdx`](operand-types.md#lridx) | `mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end). |
@@ -2409,10 +2413,10 @@ Last-stage memory stores that drain **POST_AAQ_REG** to external memory after ac
 | `base` | [`CrIdx`](operand-types.md#cridx) | base: Base address register (CR0–CR15), in XMEM rows. |
 
 **General description:**
-Write **512 bytes** of **`POST_AAQ_REG`** to external memory. **Interim:** the buffer is **512 bytes** (128×32-bit elements) until quantization export is finalized.
+Write the whole **`POST_AAQ_REG`** to one XMEM row. **Interim:** after `ACTIVATE.QUANTIZE` it holds 128 INT8 results followed by zeros, until quantization export is finalized.
 
 **Pseudo code:**
-`Memory[row(offset + base)] = POST_AAQ_REG (128 32-bit elements, in every element format); interim staging register`
+`Memory[row(offset + base)] = POST_AAQ_REG (the whole register, one row, in every element format)`
 
 **Example of usage:**
 ```asm

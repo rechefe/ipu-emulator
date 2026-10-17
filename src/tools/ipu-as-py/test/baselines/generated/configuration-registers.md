@@ -26,6 +26,9 @@ name a dstructure CR operand (`DstructureCrIdx`) read it: `ACTIVATE.QUANTIZE`, `
 | `partition` | `[12:8]` | `0`, `2`, `4`, `8`, `16`: groups of elements the MULT mask shifts within (`0` is one group) | `0` |
 | `pad_mode` | `[14:13]` | see below | `ZERO` |
 
+The defaults are the emulator's initial `CR15`. Any other CR starts at 0, which
+decodes to `valid_elements = 0`.
+
 `AGG.*` and `ACTIVATE.QUANTIZE` read `valid_elements`; the MULT masking instructions read
 `partition` and `pad_mode`.
 
@@ -33,13 +36,14 @@ name a dstructure CR operand (`DstructureCrIdx`) read it: `ACTIVATE.QUANTIZE`, `
 
 The value a MULT masking instruction writes into the elements its mask deactivates.
 
-| Mode | Code |
-|------|------|
-| `ZERO` | `0` |
-| `POS_INF` | `1` |
-| `NEG_INF` | `2` |
+| Mode | Code | Fill value |
+|------|------|------------|
+| `ZERO` | `0` | `0` |
+| `POS_INF` | `1` | `+inf` |
+| `NEG_INF` | `2` | `-inf` |
 
-`POS_INF` and `NEG_INF` exist only in float element formats.
+`POS_INF` and `NEG_INF` exist only in float element formats; they are the identity
+values of `min`- and `max`-style reductions (`ACC.MAX`).
 
 ```asm
 AGG.SUM LR0 CR15;;

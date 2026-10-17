@@ -16,6 +16,8 @@ from ipu_as import diagnostics
 
 
 def _cases() -> list:
+    # The generated pages come from the test's data; without them it would check nothing.
+    assert generated_files(), "no generated ISA reference pages in the test data"
     cases = []
     for path in [*doc_files(), *generated_files()]:
         try:

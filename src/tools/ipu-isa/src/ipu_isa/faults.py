@@ -278,6 +278,7 @@ def instruction_faults(isa: Isa, instruction: Instruction) -> tuple[FaultId, ...
     * F-1: an operand whose type has reserved codes in its field.
     * F-2: a COND branch, which fetches its target (an instruction of the
       COND slot that takes an operand; ``HALT`` takes none and fetches nothing).
+      F-2 by sequential flow belongs to a word, not an instruction.
     * F-3: an LR-slot instruction that writes an LR: two lanes of one word may
       write the same one.
     * F-4: ``LD.MULT.CYCLIC``; F-5: ``ACC.RESHAPE``.

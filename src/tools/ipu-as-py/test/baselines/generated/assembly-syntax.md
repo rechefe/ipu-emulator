@@ -62,7 +62,7 @@ The mult-stage and scalar register **tokens** below are derived from `REGISTER_D
 | Mult stage | `R0`, `R1` | 128-byte vectors; 2-bit mult-stage field (`2` reserved). See [MultStageReg](operand-types.md#multstagereg). |
 | Cyclic / mask | *(architectural)* | Cyclic (**RC**) and mask (**RM**) register files are documented per instruction in the reference; operands pass **byte offsets** via `LR` values. |
 | Loop / scalar | `LR0`–`LR15` | General-purpose; **read/write**. See [LrIdx](operand-types.md#lridx). |
-| Constant | `CR0`–`CR15` | **Read-only** in assembly; initialized by the harness. **`CR0`** / **`CR1`** are often 0 and 1. **`CR15`** conventionally holds dstructure configuration (see [DstructureCrIdx](operand-types.md#dstructurecridx)) but is a valid `CrIdx`/`LcrIdx` operand like any other CR. See [CrIdx](operand-types.md#cridx). |
+| Constant | `CR0`–`CR15` | **Read-only** in assembly; the host writes `CR2`–`CR15` before a kernel runs. **`CR0`** and **`CR1`** are the read-only constants 0 and 1 (see [Configuration registers](configuration-registers.md)). **`CR15`** conventionally holds dstructure configuration (see [DstructureCrIdx](operand-types.md#dstructurecridx)) but is a valid `CrIdx`/`LcrIdx` operand like any other CR. See [CrIdx](operand-types.md#cridx). |
 
 The **`mem_bypass`** vector may still exist in the **emulator regfile** for debugging, but it is **not** a valid mult-stage assembly operand.
 
@@ -329,7 +329,7 @@ The assembler runs Jinja2 on the source when `{{`, `{%`, and `{#` appear.
 
 ```jinja2
 {% set off_reg = 6 %}
-SET LR0 cr{{ off_reg }};;
+SET LR0 CR{{ off_reg }};;
 LD.MULT R0 LR0 CR0;;
 ```
 

@@ -299,7 +299,7 @@ def test_instruction_reference_tags_every_instruction(tmp_path: Path):
     st_acc = text[text.index("### `ST.ACC` —") :]
     assert "**Tag:** `EMULATOR`" in st_acc.split("###", 2)[1]
     assert "**Tag:** `EMULATOR`" in text[text.index("### `BREAK` —") :].split("###", 2)[1]
-    documented = text.count("\n### `") - text.count("\n### `NOP`")
+    documented = text.count("\n### `")  # NOP's one global entry included
     assert text.count("**Tag:** `") == documented
     guide = tmp_path / "guide.md"
     docs_pages.generate_programmer_guide_md(guide)

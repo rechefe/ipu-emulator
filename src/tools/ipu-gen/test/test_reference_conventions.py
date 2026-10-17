@@ -13,7 +13,11 @@ import pytest
 
 from ipu_gen import docs_pages
 
-_LOWER_REGISTER = re.compile(r"(?<![A-Za-z0-9_.\-])(?:r|lr|cr|lrd)\d+\b")
+# r0, lr3, cr15, lrd2, and a templated cr{{ n }}
+_LOWER_REGISTER = re.compile(r"(?<![A-Za-z0-9_.\-])(?:r|lr|cr|lrd)(?:\d+\b|\{\{)")
+# A code span that starts with a mnemonic and an operand: an assembly command.
+# (A comma inside an asm block already fails test_doc_asm_blocks.)
+_COMMAND = re.compile(r"`([A-Z][A-Z0-9.]* [^`]*)`")
 _BYTES = re.compile(r"\bbytes?\b")  # the unit, not an identifier such as byte_val
 
 
@@ -28,6 +32,9 @@ def violations(text: str) -> list[str]:
             found.append(f"line {number}: lower-case register {_LOWER_REGISTER.search(line)[0]}")
         if line.startswith("**Syntax:**") and "," in line:
             found.append(f"line {number}: comma in a syntax line")
+        for command in _COMMAND.findall(line):
+            if "," in command:
+                found.append(f"line {number}: comma in an assembly command {command!r}")
         if number > 1 and lines[number - 2].startswith("**Pseudo code:**") and _BYTES.search(line):
             found.append(f"line {number}: pseudocode size in bytes")
     return found
@@ -54,6 +61,8 @@ def test_page_follows_the_conventions(pages, name):
     ("planted", "reason"),
     [
         ("Load into lr0.", "lower-case register lr0"),
+        ("SET LR0 cr{{ n }};;", "lower-case register cr{{"),
+        ("Expands to `BLT.S reg2, reg1, label`.", "comma in an assembly command"),
         ("**Syntax:** `BEQ reg1, reg2, label`", "comma in a syntax line"),
         ("**Pseudo code:**\n`R_ACC = x (512 bytes)`", "pseudocode size in bytes"),
     ],

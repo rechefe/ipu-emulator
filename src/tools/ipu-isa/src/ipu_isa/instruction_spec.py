@@ -279,14 +279,15 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Store Post-AAQ register",
                 summary=(
-                    "Write **512 bytes** of **`POST_AAQ_REG`** to external memory. **Interim:** "
-                    "the buffer is **512 bytes** (128×32-bit elements) until quantization export is finalized."
+                    "Write the whole **`POST_AAQ_REG`** to one XMEM row. **Interim:** after "
+                    "`ACTIVATE.QUANTIZE` it holds 128 INT8 results followed by zeros, until "
+                    "quantization export is finalized."
                 ),
                 operands=[
                     "offset: Offset register (LR0–LR15), in XMEM rows.",
                     "base: Base address register (CR0–CR15), in XMEM rows.",
                 ],
-                operation="Memory[row(offset + base)] = POST_AAQ_REG (128 32-bit elements, in every element format); interim staging register",
+                operation="Memory[row(offset + base)] = POST_AAQ_REG (the whole register, one row, in every element format)",
                 example="ST.AAQ LR0 CR0;;",
             ),
             "implicit_reads": [
@@ -685,7 +686,7 @@ INSTRUCTION_SPEC = {
                     "configuration (any CR0-CR15; must be named explicitly)."
                 ),
                 operands=[
-                    "`ra_idx`: **`LR0`**…**`LR15`** — base byte offset into combined Ra (`R0` ++ `R1`, 256 bytes, cyclic mod 256).",
+                    "`ra_idx`: **`LR0`**…**`LR15`** — base element offset into combined Ra (`R0` ++ `R1`, 256 elements, cyclic mod 256).",
                     "`cr_idx`: **`CR0`**…**`CR15`** — CR register whose low byte supplies the scalar multiplier.",
                     "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**.",
                     "`mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end).",
@@ -720,7 +721,7 @@ INSTRUCTION_SPEC = {
                     "configuration (any CR0-CR15; must be named explicitly)."
                 ),
                 operands=[
-                    "`ra_idx`: **`LR0`**…**`LR15`** — index of the single Ra element to read (combined `R0` ++ `R1`, 256 bytes, mod 256).",
+                    "`ra_idx`: **`LR0`**…**`LR15`** — index of the single Ra element to read (combined `R0` ++ `R1`, 256 elements, mod 256).",
                     "`cr_idx`: **`CR0`**…**`CR15`** — CR register whose low byte supplies the scalar multiplier.",
                     "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**.",
                     "`mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end).",
@@ -1339,7 +1340,7 @@ PSEUDO_INSTRUCTION_SPEC: dict[str, dict[str, Any]] = {
             operation="if (reg1 > reg2) PC = label",
             example="BGT.S LR0 LR1 bigger;;\nbigger:\nHALT;;",
             notes=(
-                "Expands to `BLT.S reg2, reg1, label` at assemble time "
+                "Expands to `BLT.S reg2 reg1 label` at assemble time "
                 "(operands swapped). Identical encoding and runtime cost "
                 "to a hand-written BLT.S."
             ),
@@ -1367,7 +1368,7 @@ PSEUDO_INSTRUCTION_SPEC: dict[str, dict[str, Any]] = {
             operation="if (reg1 <= reg2) PC = label",
             example="BLE.S LR0 LR1 smaller_or_equal;;\nsmaller_or_equal:\nHALT;;",
             notes=(
-                "Expands to `BGE.S reg2, reg1, label` at assemble time "
+                "Expands to `BGE.S reg2 reg1 label` at assemble time "
                 "(operands swapped), exactly mirroring how BGT.S expands to "
                 "BLT.S. Identical encoding and runtime cost to a hand-written "
                 "BGE.S."
@@ -1386,14 +1387,14 @@ PSEUDO_INSTRUCTION_SPEC: dict[str, dict[str, Any]] = {
         },
         "doc": InstructionDoc(
             title="Branch if Zero (pseudo)",
-            summary="Branch if register is zero. Assumes CR0 always holds zero.",
+            summary="Branch if register is zero (CR0 is the constant 0).",
             operands=[
                 "reg: Register to test (LR0–LR15 or CR0–CR15)",
                 "label: Branch target label",
             ],
             operation="if (reg == 0) PC = label",
             example="BZ LR0 done;;\ndone:\nHALT;;",
-            notes="Expands to `BEQ reg, CR0, label`. Assumes CR0 always holds 0.",
+            notes="Expands to `BEQ reg CR0 label`; CR0 is the read-only constant 0.",
         ),
     },
     "BNZ": {
@@ -1408,14 +1409,14 @@ PSEUDO_INSTRUCTION_SPEC: dict[str, dict[str, Any]] = {
         },
         "doc": InstructionDoc(
             title="Branch if Not Zero (pseudo)",
-            summary="Branch if register is not zero. Assumes CR0 always holds zero.",
+            summary="Branch if register is not zero (CR0 is the constant 0).",
             operands=[
                 "reg: Register to test (LR0–LR15 or CR0–CR15)",
                 "label: Branch target label",
             ],
             operation="if (reg != 0) PC = label",
             example="loop:\nDEC LR0 1;;\nBNZ LR0 loop;;",
-            notes="Expands to `BNE reg, CR0, label`. Assumes CR0 always holds 0.",
+            notes="Expands to `BNE reg CR0 label`; CR0 is the read-only constant 0.",
         ),
     },
     "B": {
@@ -1433,7 +1434,7 @@ PSEUDO_INSTRUCTION_SPEC: dict[str, dict[str, Any]] = {
             operands=["label: Branch target label"],
             operation="PC = label",
             example="start:\nINC LR0 1;;\nB start;;",
-            notes="Expands to `BEQ CR0, CR0, label`. CR0 always equals itself, so the branch is always taken.",
+            notes="Expands to `BEQ CR0 CR0 label`. CR0 always equals itself, so the branch is always taken.",
         ),
     },
 }

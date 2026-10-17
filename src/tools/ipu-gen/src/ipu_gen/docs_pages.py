@@ -146,7 +146,7 @@ The mult-stage and scalar register **tokens** below are derived from `REGISTER_D
 | Mult stage | {mult_vals} | 128-byte vectors; 2-bit mult-stage field (`2` reserved). See [MultStageReg](operand-types.md#multstagereg). |
 | Cyclic / mask | *(architectural)* | Cyclic (**RC**) and mask (**RM**) register files are documented per instruction in the reference; operands pass **byte offsets** via `LR` values. |
 | Loop / scalar | {lr_span} | General-purpose; **read/write**. See [LrIdx](operand-types.md#lridx). |
-| Constant | {cr_span} | **Read-only** in assembly; initialized by the harness. **`CR0`** / **`CR1`** are often 0 and 1. **`CR15`** conventionally holds dstructure configuration (see [DstructureCrIdx](operand-types.md#dstructurecridx)) but is a valid `CrIdx`/`LcrIdx` operand like any other CR. See [CrIdx](operand-types.md#cridx). |
+| Constant | {cr_span} | **Read-only** in assembly; the host writes `CR2`–`CR15` before a kernel runs. **`CR0`** and **`CR1`** are the read-only constants 0 and 1 (see [Configuration registers](configuration-registers.md)). **`CR15`** conventionally holds dstructure configuration (see [DstructureCrIdx](operand-types.md#dstructurecridx)) but is a valid `CrIdx`/`LcrIdx` operand like any other CR. See [CrIdx](operand-types.md#cridx). |
 
 The **`mem_bypass`** vector may still exist in the **emulator regfile** for debugging, but it is **not** a valid mult-stage assembly operand.
 
@@ -337,7 +337,7 @@ The assembler runs Jinja2 on the source when `{{`, `{%`, and `{#` appear.
 
 ```jinja2
 {% set off_reg = 6 %}
-SET LR0 cr{{ off_reg }};;
+SET LR0 CR{{ off_reg }};;
 LD.MULT R0 LR0 CR0;;
 ```
 
@@ -484,6 +484,8 @@ def _generate_slots_section(view: Isa) -> str:
         "",
         "### `NOP` — No Operation\n",
         "**Syntax:** `NOP`\n",
+        "**Tag:** `HARDWARE` in the hardware slots, `EMULATOR` in the emulator-only slots.\n",
+        f"{_faults_line(())}\n",
         "No operation. Every slot accepts `NOP`. "
         "The assembler fills any omitted slot with `NOP` automatically. "
         "When written explicitly in a compound instruction, `NOP` is assigned to "
@@ -602,9 +604,12 @@ def _reads_line(instruction: Instruction) -> str:
     return "**Reads:** " + ("; ".join(parts) if parts else "no register") + "."
 
 
-def _faults_line(faults: Iterable[FaultId]) -> str:
-    labels = ", ".join(fault.label for fault in faults)
-    return f"**Faults:** {labels or 'none'} ([fault list]({FAULTS_PAGE}))."
+def _faults_line(faults: Iterable[FaultId], via: str | None = None) -> str:
+    """The faults an instruction can raise. Word-level faults (F-2 by sequential
+    flow, F-8, F-9) belong to no instruction and are not listed."""
+    labels = ", ".join(fault.label for fault in faults) or "none"
+    through = f", through `{via}`" if via else ""
+    return f"**Faults:** {labels}{through} ([fault list]({FAULTS_PAGE}))."
 
 
 def render_slot_docs(slot: str, view: Isa | None = None) -> str:
@@ -648,7 +653,7 @@ def render_slot_docs(slot: str, view: Isa | None = None) -> str:
                 instruction.doc,
                 instruction.operands,
                 instruction.tag,
-                timing=[
+                extra_lines=[
                     _reads_line(instruction),
                     _faults_line(instruction_faults(view, instruction)),
                 ],
@@ -673,16 +678,16 @@ def render_opcode_doc(
     spec_operands: Sequence[Operand],
     tag: Tag | None = None,
     *,
-    timing: Sequence[str] = (),
+    extra_lines: Sequence[str] = (),
 ) -> list[str]:
     """Markdown documentation of one opcode or pseudo-instruction.
 
     Args:
         opcode: The mnemonic, as written in assembly.
         doc: Its ``InstructionDoc``.
-        spec_operands: Its operand dicts from the instruction spec, in order.
+        spec_operands: Its operands, in assembly order.
         tag: Its tag, shown under the syntax; omitted when ``None``.
-        timing: Lines shown after the tag: its register reads and its faults.
+        extra_lines: Lines shown after the tag: its register reads and its faults.
 
     Returns:
         The Markdown lines: heading, syntax, tag, operands, and the doc's prose.
@@ -694,7 +699,7 @@ def render_opcode_doc(
     if tag is not None:
         lines.append(f"**Tag:** `{tag.name}` ({TAG_TEXT[tag]})")
         lines.append("")
-    for line in timing:
+    for line in extra_lines:
         lines.append(line)
         lines.append("")
 
@@ -832,13 +837,21 @@ def generate_programmer_guide_md(output_path: Path, view: Isa | None = None) -> 
         "`PSEUDO_INSTRUCTION_SPEC` in `instruction_spec.py`.\n"
     )
 
-    for pseudo in (isa() if view is None else view).pseudos():
+    view = isa() if view is None else view
+    for pseudo in view.pseudos():
         target = pseudo.expands_to
-        lines = render_opcode_doc(pseudo.mnemonic, pseudo.doc, pseudo.operands, pseudo.tag)
+        real = view.instruction(target.slot, target.mnemonic)
+        lines = render_opcode_doc(
+            pseudo.mnemonic,
+            pseudo.doc,
+            pseudo.operands,
+            pseudo.tag,
+            extra_lines=[_faults_line(instruction_faults(view, real), via=target.mnemonic)],
+        )
         lines.append("")
         lines.append(
-            f"**Expands to:** `{target.mnemonic}` "
-            f"({target.slot.value} slot), arguments `{', '.join(pseudo.args)}`"
+            f"**Expands to:** `{target.mnemonic} {' '.join(pseudo.args)}` "
+            f"({target.slot.value} slot)"
         )
         content.append("\n".join(lines))
         content.append("\n---\n")
@@ -891,6 +904,10 @@ def generate_registers_md(output_path: Path) -> None:
     print(f"Generated register reference at {output_path}")
 
 
+#: What each pad mode writes into a deactivated element.
+_PAD_FILL = {PadMode.ZERO: "`0`", PadMode.POS_INF: "`+inf`", PadMode.NEG_INF: "`-inf`"}
+
+
 def _bits(shift: int, width: int) -> str:
     return f"`[{shift + width - 1}:{shift}]`"
 
@@ -907,7 +924,9 @@ def generate_configuration_registers_md(output_path: Path, view: Isa | None = No
         }
     )
     partitions = ", ".join(f"`{p.value}`" for p in Partition)
-    pad_rows = "\n".join(f"| `{mode.name}` | `{mode.value}` |" for mode in PadMode)
+    pad_rows = "\n".join(
+        f"| `{mode.name}` | `{mode.value}` | {_PAD_FILL[mode]} |" for mode in PadMode
+    )
     content = f"""# Configuration registers
 
 This page is **generated** from `ipu_isa.constants`. The host writes the CRs before a
@@ -936,6 +955,9 @@ name a dstructure CR operand (`DstructureCrIdx`) read it: {", ".join(f"`{m}`" fo
 | `partition` | {_bits(DSTRUCTURE_PARTITION_SHIFT, DSTRUCTURE_PARTITION_BITS)} | {partitions}: groups of elements the MULT mask shifts within (`0` is one group) | `{DEFAULT_PARTITION.value}` |
 | `pad_mode` | {_bits(DSTRUCTURE_PAD_MODE_SHIFT, DSTRUCTURE_PAD_MODE_BITS)} | see below | `{DEFAULT_PAD_MODE.name}` |
 
+The defaults are the emulator's initial `CR15`. Any other CR starts at 0, which
+decodes to `valid_elements = 0`.
+
 `AGG.*` and `ACTIVATE.QUANTIZE` read `valid_elements`; the MULT masking instructions read
 `partition` and `pad_mode`.
 
@@ -943,11 +965,12 @@ name a dstructure CR operand (`DstructureCrIdx`) read it: {", ".join(f"`{m}`" fo
 
 The value a MULT masking instruction writes into the elements its mask deactivates.
 
-| Mode | Code |
-|------|------|
+| Mode | Code | Fill value |
+|------|------|------------|
 {pad_rows}
 
-`POS_INF` and `NEG_INF` exist only in float element formats.
+`POS_INF` and `NEG_INF` exist only in float element formats; they are the identity
+values of `min`- and `max`-style reductions (`ACC.MAX`).
 
 ```asm
 AGG.SUM LR0 CR15;;
