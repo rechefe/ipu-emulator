@@ -866,13 +866,14 @@ adapter).
 Other scopes:
 
 \begin{termcmd}
-$ bazel test //src/tools/ipu-apps:test_seam_pipeline_boundaries   # one multi-kernel test
-$ bazel test //...                                                # everything
+$ bazel test //kernels/mobilevit:tests   # the multi-kernel seams
+$ bazel test //...                        # everything
 \end{termcmd}
 
-Tests under \texttt{src/tools/ipu-apps/test/mobilevit/} run several kernels in a
-row on shared memory. The \texttt{test\_full\_*} ones run a whole transformer
-layer and take hours, so \texttt{bazel test //...} skips them; run them by
+The seams in \texttt{kernels/mobilevit/} run several kernels in a row on one
+model (an \texttt{ipu\_harness} chain). The \texttt{test\_full\_*} tests under
+\texttt{src/tools/ipu-apps/test/mobilevit/} run a whole transformer layer on
+the old harnesses and take hours, so \texttt{bazel test //...} skips them; run them by
 name, picking a variant with \texttt{--test\_arg}:
 
 \begin{termcmd}

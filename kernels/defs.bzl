@@ -170,7 +170,7 @@ def ipu_kernel_family(
             for an entry with more than about 60 case x format runs.
         tests_tree: give :tests the whole kernel tree, not only the family's.
         tests_size: the test size of :tests.
-        tests_shard_count: shards of :tests.
+        tests_shard_count: shards of :tests (pytest_shard_plugin splits the collected tests).
         tests_data: more data of :tests.
     """
     package = native.package_name()
@@ -200,7 +200,9 @@ def ipu_kernel_family(
             name = "tests",
             srcs = family_tests,
             data = [":files"] + ["//%s/%s:%s_files" % (package, k, k) for k in sorted(folders.keys())] + tests_data,
-            deps = _test_deps(package) + (["//kernels:all_kernels"] if tests_tree else []) + extra_deps,
+            deps = _test_deps(package) + (["//kernels:all_kernels"] if tests_tree else []) + extra_deps +
+                   (["//tools:pytest_shard_plugin"] if tests_shard_count else []),
+            args = ["-p", "pytest_shard_plugin"] if tests_shard_count else [],
             size = tests_size,
             shard_count = tests_shard_count,
             legacy_create_init = False,
