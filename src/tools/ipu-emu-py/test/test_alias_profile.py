@@ -338,6 +338,17 @@ HALT;;
     assert count(no, "A7_REDUCE_SEG") == 0
 
 
+@pytest.mark.parametrize("fmt", list(ElementFormat))
+def test_the_profile_names_the_runs_element_format(fmt):
+    """An FP32 run's profile says FP32, not INT8 (mode=fp32)."""
+    state = emu_support.run("HALT;;", alias_profile=AliasProfile(), fmt=fmt)
+    metadata = state.alias_profile.to_dict()["metadata"]
+    assert metadata["dtype"] == fmt.name
+    assert metadata["mode"] == (
+        fmt.value if fmt in (ElementFormat.FP32, ElementFormat.INT32) else "native"
+    )
+
+
 def test_hardware_only_alias_and_dtype_support():
     with pytest.warns(DebugOnlyInstructionWarning):
         state = run("ST.ACC LR0 CR0;;\nHALT;;")
