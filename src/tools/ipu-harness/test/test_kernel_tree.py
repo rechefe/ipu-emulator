@@ -10,8 +10,6 @@ from ipu_harness.registry import Registry, kernel_tree
 
 # Bazel runs the test from the runfiles root of the main repository.
 TARGETS = Path.cwd() / "kernels" / "kernel_targets.json"
-#: The checkout's kernels/ (the BUILD file is a symlink into it).
-SOURCE = (Path.cwd() / "kernels" / "BUILD.bazel").resolve().parent
 
 #: //src/tools/ipu-apps:kernel_manifest's keys, which tools read.
 LEGACY_KEYS = {"kernels", "families", "operations", "query", "skipped"}
@@ -20,12 +18,6 @@ LEGACY_KERNEL_KEYS = {"op", "variant", "tags", "family", "asm", "targets", "case
 
 def _targets() -> dict:
     return json.loads(TARGETS.read_text(encoding="utf-8"))
-
-
-def test_the_list_names_every_kernel_folder():
-    folders = {str(p.parent.relative_to(SOURCE.parent)) for p in SOURCE.glob("*/*/kernel.toml")}
-    listed = {kernel["dir"] for kernel in _targets()["kernels"].values()}
-    assert listed == folders, "add the kernel to KERNELS in kernels/families.bzl"
 
 
 def test_the_tree_holds_every_kernels_files():

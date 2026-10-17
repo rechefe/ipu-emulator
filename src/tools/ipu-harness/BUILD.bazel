@@ -52,7 +52,7 @@ py_binary(
     main = "src/ipu_harness/query.py",
     deps = [
         ":ipu_harness_lib",
-        "//src/tools/ipu-kernels:ipu_kernels_lib",
+        "//src/tools/ipu-kernels:ipu_kernels_all",
     ],
 )
 
@@ -108,7 +108,7 @@ py_pytest_test(
     deps = [
         ":ipu_harness_lib",
         "//src/tools/ipu-apps:ipu_apps_lib",
-        "//src/tools/ipu-kernels:ipu_kernels_lib",
+        "//src/tools/ipu-kernels:ipu_kernels_all",
         requirement("numpy"),
         requirement("pytest"),
     ],

@@ -76,30 +76,29 @@ def ipu_kernel(name = None, extra_deps = [], size = "large", shard_count = None)
 def ipu_kernel_family():
     """Declare one family, //kernels/<family> (E06-18).
 
-    * :lib: the family's shared Python (its *.py: pack.py, stages.py, gen.py,
-      reference.py, layers.py), on the harness, the shared ipu_kernels code and
-      the :lib of each family FAMILY_DEPS lists for it.
-    * :files: its shared files (*.asm, *.asm.j2 macros, registry.toml, *.npy),
-      with the :files of each family it uses.
-    * :all: every kernel test of the family.
+    * :lib: the family's Python, ipu_kernels.<family> (packs, stages, layer
+      adapters: //src/tools/ipu-kernels:ipu_kernels_<family>), on the harness,
+      the shared ipu_kernels code and the :lib of each family FAMILY_DEPS lists.
+    * :files: its shared files (*.asm, *.asm.j2 macros, registry.toml, *.npy,
+      and any *.py the harness loads by path), with the :files of each family
+      it uses.
+    * :all: every kernel test of the family (the manifest's family suite).
     * :ruff: lint over its Python.
     """
     family = native.package_name().rpartition("/")[2]
     uses = FAMILY_DEPS.get(family, [])
-    py = native.glob(["*.py"], allow_empty = True)
     py_library(
         name = "lib",
-        srcs = py,
-        imports = ["."],
         deps = [
             "//src/tools/ipu-harness:ipu_harness_lib",
-            "//src/tools/ipu-kernels:ipu_kernels_lib",
+            "//src/tools/ipu-kernels:ipu_kernels_" + family,
         ] + ["//kernels/" + other + ":lib" for other in uses],
         visibility = ["//visibility:public"],
     )
+    py = native.glob(["*.py"], allow_empty = True)
     native.filegroup(
         name = "files",
-        srcs = native.glob(["*.asm", "*.asm.j2", "registry.toml", "*.npy"], allow_empty = True) +
+        srcs = native.glob(["*.asm", "*.asm.j2", "registry.toml", "*.npy"], allow_empty = True) + py +
                ["//kernels/" + other + ":files" for other in uses],
         visibility = ["//visibility:public"],
     )
@@ -167,4 +166,3 @@ def ipu_kernel_tree():
         visibility = ["//visibility:public"],
         cmd = "cat > $@ <<'IPU_KERNEL_TARGETS'\n" + content + "\nIPU_KERNEL_TARGETS\n",
     )
-

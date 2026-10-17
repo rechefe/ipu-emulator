@@ -45,7 +45,7 @@ py_library(
         main = tool + ".py",
         deps = [
             ":migration_lib",
-            "//src/tools/ipu-kernels:ipu_kernels_lib",
+            "//src/tools/ipu-kernels:ipu_kernels_all",
             requirement("torch"),
         ],
     )
