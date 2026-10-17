@@ -13,6 +13,7 @@ import subprocess
 import sys
 import time
 from importlib import import_module
+from typing import Any
 
 _MARKER = "IPU_BENCH_RESULT "
 
@@ -24,7 +25,7 @@ def child_env() -> dict[str, str]:
     return env
 
 
-def call(target: str, **kwargs):
+def call(target: str, **kwargs: object) -> Any:
     """``target`` is ``module:function``; returns the function's JSON-able result."""
     proc = subprocess.run(
         [sys.executable, "-m", "ipu_bench.isolated", target, json.dumps(kwargs)],

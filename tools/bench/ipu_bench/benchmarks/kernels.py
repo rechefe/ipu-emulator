@@ -8,6 +8,7 @@ matmul case; E04-02's ``emulator`` module uses a smaller one), each with its
 from __future__ import annotations
 
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
 from tempfile import TemporaryDirectory
 
@@ -24,15 +25,15 @@ class RunTimer:
     seconds = 0.0
 
     @contextmanager
-    def watch(self):
+    def watch(self) -> Iterator[None]:
         start = time.perf_counter()
         try:
             yield
         finally:
             self.seconds = time.perf_counter() - start
 
-    def finish(self, state, cycles, output_path=None):
-        pass
+    def finish(self, state: object, cycles: int, output_path: object = None) -> None:
+        """Nothing to record: ``watch`` timed the run."""
 
 
 def measure(kernel: str) -> dict:
