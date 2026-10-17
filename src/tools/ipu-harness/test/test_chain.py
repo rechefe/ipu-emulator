@@ -16,7 +16,7 @@ from ipu_harness.chain import Chain, Resident
 from ipu_harness.manifest import load_manifest
 from ipu_harness.params import PlanError
 from ipu_harness.runner import RunOptions
-from ipu_isa.formats import ElementFormat
+from ipu_isa.formats import ElementFormat, addressable_rows
 
 #: y = x * s, quantized back to INT8 elements (so y can be the next x). ST.AAQ
 #: writes all 512 bytes of POST_AAQ_REG, four INT8 rows, so each store spills
@@ -465,3 +465,37 @@ def test_a_target_must_be_a_live_output_laid_out_as_the_step_writes_it(free):
         chain.run(free, SCALE_2, {"x": X}, at={"y": Resident(200, 2, None, ElementFormat.INT8)})
     with pytest.raises(ConfigurationError, match="rows >= 1"):
         chain.reserve(0)
+
+
+def test_a_scratch_spill_onto_a_held_resident_fails_before_it_runs(tmp_path, first):
+    directory = _kernel(tmp_path, "scratchy")
+    toml = (directory / "kernel.toml").read_text()
+    toml = toml.replace("[abi]", "[scratch.t]\nshape = [1, 128]\n\n[abi]")
+    (directory / "kernel.toml").write_text(
+        toml.replace('s    = "CR5"', 's    = "CR5"\nt    = "CR6"')
+    )
+    scratchy = load_manifest(directory)
+    chain = Chain(ElementFormat.INT8)
+    chain.hold(chain.run(first, SCALE_2, {"x": X}).resident["y"])  # rows 64..65
+    stats = chain.model.stats()
+    with pytest.raises(PlanError, match=r"t \(rows 63..66, with its ST.AAQ spill\) would write"):
+        chain.run(scratchy, SCALE_2, {"x": X}, at={"t": 63})
+    assert chain.model.stats() == stats
+
+
+def test_a_target_keeps_its_tensor_live_only_if_the_rest_is_unwritten(first, free, second):
+    chain = Chain(ElementFormat.INT8)
+    whole = chain.run(first, {"rows": 4, "s": 2.0}, {"x": X4}).resident["y"]  # rows 64..67
+    step = chain.run(free, SCALE_3, {"x": X}, at={"y": whole.slice(2, 2), "x": 64})
+    with pytest.raises(ConfigurationError, match="no longer in XMEM"):
+        chain.run(second, SCALE_4, {"x": whole})  # x went over its rows 64..65
+    out = chain.run(second, {"rows": 2, "s": 1.0}, {"x": step.resident["y"]}).result.outputs["y"]
+    np.testing.assert_array_equal(out, X.astype(np.float64) * 3)
+
+
+def test_reserve_counts_rows_in_the_chains_format():
+    chain = Chain(ElementFormat.INT8)
+    rows = addressable_rows(ElementFormat.INT8)
+    assert chain.reserve(rows, fmt=ElementFormat.FP32).rows == rows
+    with pytest.raises(ConfigurationError, match="do not fit"):
+        chain.reserve(1)

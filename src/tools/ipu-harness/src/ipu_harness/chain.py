@@ -209,10 +209,11 @@ class Chain:
             if base + rows <= t.base_row:
                 break
             base = max(base, t.base_row + t.rows)
-        if base + rows > addressable_rows(fmt):
+        capacity = addressable_rows(self.format)  # rows are the chain format's
+        if base + rows > capacity:
             raise ConfigurationError(
-                f"reserve: {rows} rows do not fit in XMEM ({addressable_rows(fmt)} "
-                f"{fmt.value} rows) around the live residents"
+                f"reserve: {rows} rows do not fit in XMEM ({capacity} "
+                f"{self.format.value} rows) around the live residents"
             )
         resident = Resident(base, rows, pack, fmt, self._steps)
         self._live.append(resident)
@@ -314,20 +315,72 @@ class Chain:
         manifest = default_registry().kernel(kernel) if isinstance(kernel, str) else kernel
         decl = CaseDecl(_STEP_CASE, MappingProxyType(dict(params)))
         plan = plan_case(manifest, params, self.format, case=decl)
-        targets = {n: v for n, v in (at or {}).items() if isinstance(v, Resident)}
-        for name, target in targets.items():
-            _check_layout(name, target, plan, role="output")
-            if not self._is_live(target):
-                raise ConfigurationError(
-                    f"{manifest.name}: at {name}'s resident tensor (rows {_rows(target)}) is "
-                    "no longer in XMEM, or it is not this chain's"
-                )
+        targets = self._targets(plan, at or {})
         placed = _checked_at(
             plan,
             {n: v.base_row if isinstance(v, Resident) else v for n, v in (at or {}).items()},
             inputs,
         )
         banks = _checked_banks(manifest, reset)
+        pinned, arrays = self._split_inputs(plan, inputs)
+        case = Case(
+            name=_STEP_CASE,
+            values=MappingProxyType(dict(params)),
+            formats=(self.format,),
+            inputs=MappingProxyType({}),
+            expected=MappingProxyType({}),
+            generator=None,
+            tier="default",
+            decl=decl,
+        )
+        rendered = None if manifest.stages is not None else assemble(plan, self._cache).rendered
+        spill = aaq_spill_rows(plan, rendered)
+        reserved = _reserved(self._held, inputs, targets, spill)
+        avoid = _avoid(reserved, targets, spill)
+        written = _regions_written(plan, pinned, placed, reserved, avoid, spill)
+        _check_reserved(plan, written, reserved)
+        shared = SharedModel(
+            self.model,
+            MappingProxyType(arrays),
+            MappingProxyType(pinned),
+            check,
+            MappingProxyType(placed),
+            MappingProxyType(reserved),
+            avoid,
+        )
+        self._reset(banks)
+        options = self._step_options()
+        self._steps += 1
+        try:
+            result = run_kernel(
+                manifest, case, self.format, options, cache=self._cache, shared=shared
+            )
+        finally:
+            # Even when the step raised: it may have written its regions first.
+            self._forget_written(targets, written, spill)
+        resident = {**_resident(result, plan, self._steps - 1), **targets}
+        if result.placement is None or not result.halted:
+            resident = {}
+        self._live.extend(t for t in resident.values() if not _among(t, targets.values()))
+        return ChainStep(result, MappingProxyType(resident))
+
+    def _targets(self, plan: CasePlan, at: Mapping[str, int | Resident]) -> dict[str, Resident]:
+        """The ``Resident`` values of ``at``: live, and laid out as the outputs."""
+        targets = {n: v for n, v in at.items() if isinstance(v, Resident)}
+        for name, target in targets.items():
+            _check_layout(name, target, plan, role="output")
+            if not self._is_live(target):
+                raise ConfigurationError(
+                    f"{plan.manifest.name}: at {name}'s resident tensor (rows {_rows(target)}) "
+                    "is no longer in XMEM, or it is not this chain's"
+                )
+        return targets
+
+    def _split_inputs(
+        self, plan: CasePlan, inputs: Mapping[str, Array | Resident]
+    ) -> tuple[dict[str, int], dict[str, Array]]:
+        """The resident inputs' rows (checked live and laid out as declared),
+        and the array inputs (checked)."""
         pinned: dict[str, int] = {}
         arrays: dict[str, Array] = {}
         for name, value in inputs.items():
@@ -342,62 +395,30 @@ class Chain:
                 _check_layout(name, value, plan)
                 if not self._is_live(value):
                     raise ConfigurationError(
-                        f"{manifest.name}: input {name}'s resident tensor (rows "
-                        f"{value.base_row}..{value.base_row + value.rows - 1}) is no longer "
-                        "in XMEM: a later step wrote over it, or it is not this chain's"
+                        f"{plan.manifest.name}: input {name}'s resident tensor (rows "
+                        f"{_rows(value)}) is no longer in XMEM: a later step wrote over it, "
+                        "or it is not this chain's"
                     )
                 pinned[name] = value.base_row
             else:
                 arrays[name] = checked_input(plan, name, value)
-        case = Case(
-            name=_STEP_CASE,
-            values=MappingProxyType(dict(params)),
-            formats=(self.format,),
-            inputs=MappingProxyType({}),
-            expected=MappingProxyType({}),
-            generator=None,
-            tier="default",
-            decl=decl,
-        )
-        rendered = None if manifest.stages is not None else assemble(plan, self._cache).rendered
-        spill = aaq_spill_rows(plan, rendered)
-        reserved = _reserved(self._held, inputs, targets, spill)
-        # First fit also leaves the rows a store's spill would reach: below
-        # each reserved range, and after each target (its own tensor's rows).
-        avoid = tuple(
-            [(max(0, base - spill), min(spill, base)) for base, _ in reserved.values()]
-            + [(t.base_row + t.rows, spill) for t in targets.values()]
-        )
-        avoid = tuple(a for a in avoid if a[1] > 0)
-        shared = SharedModel(
-            self.model,
-            MappingProxyType(arrays),
-            MappingProxyType(pinned),
-            check,
-            MappingProxyType(placed),
-            MappingProxyType(reserved),
-            avoid,
-        )
-        self._reset(banks)
-        options = self._step_options()
-        self._steps += 1
-        written = _regions_written(plan, pinned, placed, reserved, avoid, spill)
-        try:
-            result = run_kernel(
-                manifest, case, self.format, options, cache=self._cache, shared=shared
-            )
-        finally:
-            # Even when the step raised: it may have written its regions
-            # first. A target written into, and what it is part of, stay.
-            kept = [a for t in targets.values() for a in _lineage(t)]
-            self._live = [
-                t for t in self._live if _among(t, kept) or not any(t.overlaps(r) for r in written)
-            ]
-        resident = {**_resident(result, plan, self._steps - 1), **targets}
-        if result.placement is None or not result.halted:
-            resident = {}
-        self._live.extend(t for t in resident.values() if not _among(t, targets.values()))
-        return ChainStep(result, MappingProxyType(resident))
+        return pinned, arrays
+
+    def _forget_written(
+        self, targets: Mapping[str, Resident], written: list[Region], spill: int
+    ) -> None:
+        """Drop the live residents a step wrote over. A target written into,
+        and the tensor it is part of, stay, unless the step wrote the rest of
+        that tensor too; a target is then live in its own right."""
+        into = [(t.base_row, t.base_row + t.rows + spill) for t in targets.values()]
+        other = [r for r in written if not any(a <= r.base_row and r.end_row <= b for a, b in into)]
+        kept = [a for t in targets.values() for a in _lineage(t)]
+        self._live = [
+            t
+            for t in self._live
+            if not any(t.overlaps(r) for r in (other if _among(t, kept) else written))
+        ]
+        self._live.extend(t for t in targets.values() if not self._is_live(t))
 
 
 def _checked_at(
@@ -467,6 +488,33 @@ def _reserved(
         for a, b in parts:
             out[f"held tensor (rows {a}..{b - 1})"] = (a, b - a)
     return out
+
+
+def _avoid(
+    reserved: Mapping[str, tuple[int, int]], targets: Mapping[str, Resident], spill: int
+) -> tuple[tuple[int, int], ...]:
+    """Rows first fit leaves for a store's spill: below each reserved range,
+    and after each target (its own tensor's rows)."""
+    avoid = [(max(0, base - spill), min(spill, base)) for base, _ in reserved.values()]
+    avoid += [(t.base_row + t.rows, spill) for t in targets.values()]
+    return tuple(a for a in avoid if a[1] > 0)
+
+
+def _check_reserved(
+    plan: CasePlan, written: list[Region], reserved: Mapping[str, tuple[int, int]]
+) -> None:
+    """Refuse a step whose writes reach a held tensor: a pinned region, or
+    its spill (a scratch region's is no placement error)."""
+    for region in written:
+        for name, (base, rows) in reserved.items():
+            if region.base_row < base + rows and base < region.end_row:
+                tensor = plan.manifest.tensors[region.name]
+                raise PlanError(
+                    plan.manifest,
+                    f"{tensor.section}.{tensor.name}.row",
+                    f"{region.name} (rows {region.base_row}..{region.end_row - 1}, with "
+                    f"its ST.AAQ spill) would write the {name}",
+                )
 
 
 def _lineage(resident: Resident) -> list[Resident]:
