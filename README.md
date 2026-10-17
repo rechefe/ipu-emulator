@@ -10,11 +10,7 @@ IPU emulator and assembler toolchain implemented in Python. Includes a sample `f
 Python Packages
 ---------------
 
-| Package | Path | Description |
-|---------|------|-------------|
-| `ipu_isa` | `src/tools/ipu-isa/` | Shared types, register schema, instruction spec |
-| `ipu_as` | `src/tools/ipu-as-py/` | IPU assembler (`.asm` → binary) |
-| `ipu_emu` | `src/tools/ipu-emu-py/` | IPU emulator |
+The toolchain is one Python package per directory under `src/tools/`. [Architecture](docs/content/explanation/architecture.md) lists them, what each owns, which way their dependencies point, and where to make a change.
 
 Quick Start
 -----------
