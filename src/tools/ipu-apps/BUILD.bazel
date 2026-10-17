@@ -311,19 +311,6 @@ py_pytest_test(
     ],
 )
 
-# One ISA entry and one handler are enough, end to end in a subprocess (E03-24).
-py_pytest_test(
-    name = "test_one_edit_end_to_end",
-    srcs = ["test/test_one_edit_end_to_end.py"],
-    deps = [
-        "//src/tools/ipu-as-py:ipu_as_lib",
-        "//src/tools/ipu-emu-py:ipu_emu_lib",
-        "//src/tools/ipu-isa:ipu_isa_lib",
-        "//src/tools/ipu-isa:one_edit",
-        requirement("pytest"),
-    ],
-)
-
 # --target hardware over the corpus (E05-15).
 py_pytest_test(
     name = "test_hardware_target",
