@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from ipu_emu.activations import AaqOptions, ActivationParams
 from ipu_emu.errors import ConfigurationError
 from ipu_emu.fault_control import FaultControl
+from ipu_emu.geometry import R_CYCLIC_VALID_INDICES, R_REG_SIZE, vector_registers
 from ipu_emu.inst_mem import InstMem
 from ipu_emu.ipu_config import DEFAULT_DSTRUCTURE_CR
 from ipu_emu.numerics import LaneCodec, codec_for
@@ -31,7 +32,7 @@ from ipu_isa.constants import (
 )
 from ipu_isa.faults import ArithmeticEvent, FaultId
 from ipu_isa.formats import FORMATS, ElementFormat, FormatInfo
-from ipu_isa.geometry import INST_MEM_WORDS
+from ipu_isa.geometry import INST_MEM_WORDS, LANES
 
 if TYPE_CHECKING:
     from ipu_emu.cycle import CycleObserver
@@ -41,26 +42,6 @@ INST_MEM_SIZE = INST_MEM_WORDS
 
 #: Cycles a run may take before it faults F-9 (L3). 0 disables the check.
 DEFAULT_CYCLE_LIMIT = 1_000_000
-
-
-def _geometry():
-    """The ``geometry`` module: the format's registers.
-
-    ``geometry`` imports this module, so importing it at load time would be circular.
-    """
-    from ipu_emu import geometry
-
-    return geometry
-
-
-def _ipu():
-    """The ``ipu`` module, for its register sizes and row geometry.
-
-    ``ipu`` imports this module, so importing it at load time would be circular.
-    """
-    from ipu_emu import ipu
-
-    return ipu
 
 
 def _check_format(fmt: object) -> ElementFormat:
@@ -383,7 +364,7 @@ class IpuState:
         Use only for intentional identity constants, never ordinary inputs or
         weights. Any subsequent XMEM write overlapping this row revokes it.
         """
-        data = self._codec.one() * _ipu().LANES
+        data = self._codec.one() * LANES
         self.xmem.write_address(xmem_addr, data)
         self.xmem.mark_constant_ones(xmem_addr, data)
 
@@ -393,7 +374,7 @@ class IpuState:
     # the active codec; the registers are the format's (``vector_registers``).
 
     def _row_bytes(self) -> int:
-        return self._codec.element_bytes * _ipu().LANES
+        return self._codec.element_bytes * LANES
 
     def _row_address(self, xmem_row: int) -> int:
         return xmem_row * self._row_bytes()
@@ -402,14 +383,14 @@ class IpuState:
         """Load one row from XMEM into R register *r_index* (0=R0, 1=R1)."""
         addr = self._row_address(xmem_row)
         data = self.xmem.read_address(addr, self._row_bytes())
-        name = _geometry().vector_registers(self).ra
+        name = vector_registers(self).ra
         self.regfile.set_register_bytes(name, r_index, data)
         if self.xmem.is_constant_ones(addr, data):
             self.regfile.mark_constant_ones(name, r_index * len(data), len(data))
 
     def store_r_reg_to_xmem(self, xmem_row: int, r_index: int) -> None:
         """Store R register *r_index* (one row) to XMEM."""
-        name = _geometry().vector_registers(self).ra
+        name = vector_registers(self).ra
         self.xmem.write_address(
             self._row_address(xmem_row), self.regfile.get_register_bytes(name, r_index)
         )
@@ -420,17 +401,15 @@ class IpuState:
         An element index on a slot boundary (``R_CYCLIC_VALID_INDICES``), as
         for LD.MULT.CYCLIC. Defaults to slot 0.
         """
-        ipu = _ipu()
-        if slot_element_idx not in ipu.R_CYCLIC_VALID_INDICES:
-            raise ValueError(
-                f"slot_element_idx must be one of {ipu.R_CYCLIC_VALID_INDICES}; "
-                f"got {slot_element_idx}"
+        if slot_element_idx not in R_CYCLIC_VALID_INDICES:
+            raise ConfigurationError(
+                f"slot_element_idx must be one of {R_CYCLIC_VALID_INDICES}; got {slot_element_idx}"
             )
         addr = self._row_address(xmem_row)
         row_bytes = self._row_bytes()
         data = self.xmem.read_address(addr, row_bytes)
         byte_idx = slot_element_idx * self._codec.element_bytes
-        name = _geometry().vector_registers(self).r_cyclic
+        name = vector_registers(self).r_cyclic
         # A slot never wraps the ring, so this is the ring's own slot write.
         self.regfile.mutable(name, byte_idx, row_bytes)[:] = data
         if self.xmem.is_constant_ones(addr, data):
@@ -442,9 +421,7 @@ class IpuState:
 
     def load_r_mask_from_xmem(self, xmem_row: int) -> None:
         """Load the mask register (R_REG_SIZE bytes in both modes: 1 bit per lane)."""
-        self.regfile.set_r_mask(
-            self.xmem.read_address(self._row_address(xmem_row), _ipu().R_REG_SIZE)
-        )
+        self.regfile.set_r_mask(self.xmem.read_address(self._row_address(xmem_row), R_REG_SIZE))
 
     # -- state queries ------------------------------------------------------
 

@@ -213,9 +213,9 @@ class TestIdleAccounting:
         state = IpuState()
         ipu = Ipu(state)
         if skip_break:
-            ipu.execute_vliw_cycle_skip_break()
+            ipu.cycle.retire()
         else:
-            ipu.execute_vliw_cycle()
+            ipu.cycle.step()
         assert state.program_counter == 1
         assert state.stats.mult_idle_cycles == 1
 
@@ -286,8 +286,8 @@ class TestDeclaredVectorIdentities:
         engine = Ipu(state)
         if mutation == "memory":
             state.xmem[0:128] = bytes([1]) * 128
-        engine.execute_vliw_cycle()
-        engine.execute_vliw_cycle()
+        engine.cycle.step()
+        engine.cycle.step()
         if mutation == "setter":
             state.regfile.set_r(0, bytes([1]) * 128)
         elif mutation == "raw":
@@ -351,7 +351,7 @@ MULT.RC.VE LR3 LR0 0 LR0 CR15 ; ACC.ADD;; HALT;;"""
         with pytest.deprecated_call():
             escaped = state.regfile.raw("r")
         engine = Ipu(state)
-        engine.execute_vliw_cycle()  # declared load after the handle escaped
+        engine.cycle.step()  # declared load after the handle escaped
         escaped[:128] = bytes([1]) * 128
         run_until_complete(state)
         assert state.stats.alias_hits == {}
@@ -387,7 +387,7 @@ class TestReadsKeepProvenance:
     @staticmethod
     def _assert_kept(state: IpuState, engine: Ipu, name: str, size: int) -> None:
         assert state.regfile.has_constant_ones(name, 0, size)
-        engine.check_break()  # takes the following cycle's snapshot
+        engine.cycle.evaluate_break()  # takes the following cycle's snapshot
         snapshot = engine.cycle.snapshot
         assert snapshot is not None and snapshot.has_constant_ones(name, 0, size)
 
@@ -397,7 +397,7 @@ class TestReadsKeepProvenance:
         size = self._mark(state, "mult_res")
         acc_size = self._mark(state, "r_acc")
         engine = Ipu(state)
-        engine.execute_vliw_cycle()
+        engine.cycle.step()
         self._assert_kept(state, engine, "mult_res", size)
         # The write, not the read, is what revokes R_ACC's declaration.
         assert not state.regfile.has_constant_ones("r_acc", 0, acc_size)
@@ -407,14 +407,14 @@ class TestReadsKeepProvenance:
         state = make_state("ACTIVATE.QUANTIZE relu CR15;;\nHALT;;")
         size = self._mark(state, "r_acc")
         engine = Ipu(state)
-        engine.execute_vliw_cycle()
+        engine.cycle.step()
         self._assert_kept(state, engine, "r_acc", size)
 
     def test_st_aaq_keeps_post_aaq_provenance(self):
         state = make_state("ST.AAQ LR0 CR0;;\nHALT;;")
         size = self._mark(state, "post_aaq_reg")
         engine = Ipu(state)
-        engine.execute_vliw_cycle()
+        engine.cycle.step()
         self._assert_kept(state, engine, "post_aaq_reg", size)
 
     @pytest.mark.skipif(not build_enabled(), reason="requires --define=ipu_proto=1")
@@ -424,5 +424,5 @@ class TestReadsKeepProvenance:
         state = make_state("MULT.RC.VV LR0 R0 0 LR0 CR15 ; ACC.ADD ;;\nHALT;;", prototyping=True)
         size = self._mark(state, "r_mask")
         engine = Ipu(state)
-        engine.execute_vliw_cycle()
+        engine.cycle.step()
         self._assert_kept(state, engine, "r_mask", size)

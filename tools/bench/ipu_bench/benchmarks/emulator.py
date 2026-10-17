@@ -4,9 +4,10 @@
   the ``ru_maxrss`` growth of the first construction (targets: < 5 ms, < 5 MB).
 * Cycles per second of a fixed matmul kernel run to ``HALT``, best of 5 (one
   run with ``--quick``; target: >= 50k cycles/s): ``MATMUL`` in FP32, the
-  format it is written for, and ``INT8`` (the INT8 case of ``fully_connected``;
-  no matmul kernel is written for INT8). Both run on the faithful path and, in
-  a build with ``--define=ipu_proto=1``, also in prototyping mode.
+  format it is written for, ``INT8`` (the INT8 case of ``fully_connected``;
+  no matmul kernel is written for INT8) and ``E4`` (its FP8 E4M3 case, the E4
+  format). All run on the faithful path and, in a build with
+  ``--define=ipu_proto=1``, also in prototyping mode; ``--tiny`` runs INT8 only.
 
 ``bazel run //src/tools/ipu-emu-py:bench_emulator`` runs only this module.
 """
@@ -23,9 +24,10 @@ from ipu_bench.result import Budget, Result
 # The largest matmul whose default case runs in about 10 s on the faithful path
 # (77185 cycles). matmul_720x240_x128 (the default in IMPLEMENTATION-DECISIONS.md,
 # still kernels.LARGE) takes about 22 s, which breaks the 30 s bound on --quick.
-# TODO(E04-17): add an E4 entry once the E4 format lands.
 MATMUL = ("matmul_384x192_x128", "default")
 INT8 = ("fully_connected", "int8")
+# The E4 format (E04-17): the only kernel case written for it.
+E4 = ("fully_connected", "fp8_e4m3")
 CONSTRUCT_NUMBER = 20
 
 
@@ -92,7 +94,7 @@ def run(budget: Budget) -> list[Result]:
     ]
     # The smoke test runs the INT8 case (2674 cycles) once per mode, nothing larger.
     repeats = 5 if budget is Budget.FULL else 1
-    kernels = (INT8,) if budget is Budget.TINY else (MATMUL, INT8)
+    kernels = (INT8,) if budget is Budget.TINY else (MATMUL, INT8, E4)
     modes = ("faithful", "prototyping") if _prototyping_built() else ("faithful",)
     for mode in modes:
         for kernel, case_name in kernels:

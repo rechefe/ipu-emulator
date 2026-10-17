@@ -43,13 +43,10 @@ DEFAULT_ELU_ALPHA: float = 1.0
 DEFAULT_WINDOW_A: float = 0.0
 DEFAULT_WINDOW_B: float = 0.1
 
-# Legacy private name (same object) for older monkeypatch patterns.
-_ELU_ALPHA = DEFAULT_ELU_ALPHA
-
 
 def _default_elu_alpha() -> float:
     # Read when a value is built, so a monkeypatched default applies.
-    return float(_ELU_ALPHA)
+    return float(DEFAULT_ELU_ALPHA)
 
 
 def _default_window_a() -> float:
@@ -138,7 +135,7 @@ def apply_activation(
     if k >= ACTIVATION_COUNT:
         return x
 
-    ea = _ELU_ALPHA if elu_alpha is None else float(elu_alpha)
+    ea = _default_elu_alpha() if elu_alpha is None else float(elu_alpha)
     wa = DEFAULT_WINDOW_A if window_a is None else float(window_a)
     wb = DEFAULT_WINDOW_B if window_b is None else float(window_b)
 

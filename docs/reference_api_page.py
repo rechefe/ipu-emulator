@@ -61,8 +61,17 @@ class Group:
     symbols: tuple[tuple[ModuleType, str], ...]
 
 
+def _defined_here(module: ModuleType, name: str) -> bool:
+    """False for a name *module* re-exports (``reference.TraceWriter``): it is
+    listed once, under the module that defines it."""
+    value = getattr(module, name)
+    if not (inspect.isclass(value) or inspect.isfunction(value)):
+        return True  # a constant or a type alias (``Outcome``) has no home module
+    return value.__module__ == module.__name__
+
+
 def _public(module: ModuleType, *only: str) -> tuple[tuple[ModuleType, str], ...]:
-    names = only or tuple(module.__all__)
+    names = only or tuple(n for n in module.__all__ if _defined_here(module, n))
     return tuple((module, n) for n in names if f"{module.__name__}.{n}" not in INTERNAL)
 
 
@@ -71,7 +80,8 @@ def groups() -> tuple[Group, ...]:
     return (
         Group(
             "The model",
-            "`ipu_emu.reference`: the names in its `__all__`.",
+            "`ipu_emu.reference`: the names in its `__all__` (`TraceWriter` and "
+            "`read_trace`, which it re-exports, are listed under Traces).",
             _public(ipu_emu.reference),
         ),
         Group(

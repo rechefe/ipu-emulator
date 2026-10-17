@@ -2,12 +2,26 @@
 
 The default emulator models what the hardware does, cycle by cycle and slot by
 slot: every slot is dispatched even when it holds a NOP, every multiply applies
-its element mask, every cycle takes a full register snapshot. That fidelity is
-the point — it is what makes the emulator answerable about the chip.
+its element mask, every operand is read through the register file's accessors.
+That fidelity is the point — it is what makes the emulator answerable about the
+chip. Both modes take the same cycle-start register snapshot.
 
 Prototyping mode trades some of it for speed on long runs (a full-image
 convolution, a sweep over shapes) where the question is "what does this kernel
-compute" rather than "what does the chip do". Its shortcuts are:
+compute" rather than "what does the chip do". It differs in four places, and
+nowhere else:
+
+1. schedules skip the idle NOP slots (``Cycle(skip_idle_nops=...)``,
+   :func:`ipu_emu.cycle.schedule_word`);
+2. read operands go through the packed resolver
+   (:class:`ipu_emu.resolver.PackedResolver`, picked by
+   :func:`ipu_emu.cycle.resolver_for`);
+3. a MULT with no mask shift whose R_MASK slot is all ones skips the mask
+   pipeline (``ipu_emu.slots.mult``); and
+4. an FP32 ``ACTIVATE.QUANTIZE`` over all LANES lanes without output
+   quantization runs as one batched row (``ipu_emu.slots.aaq``).
+
+These shortcuts are:
 
 * provably result-preserving — the state after every cycle is **bit-identical**
   to the faithful path, and ``test_prototyping_equivalence.py`` pins registers,
