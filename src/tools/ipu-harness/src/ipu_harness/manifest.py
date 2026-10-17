@@ -40,7 +40,8 @@ Schema
     right after that tensor's in placement order (by default inputs, then
     outputs, then scratch, each in file order), so scratch can come before an
     output; not with ``row``. ``when`` (``"<bool param>"`` or ``"not <bool
-    param>"``): the tensor exists only in a case where that holds; otherwise it
+    param>"``, or such terms joined by ``or``: ``"has_bias or apply_relu"``):
+    the tensor exists only in a case where that holds; otherwise it
     is not placed, generated, passed to the reference or bound.
     ``pack`` (inputs and outputs): a named pack transform (E06-05); an output's
     lays out the stored rows that :func:`ipu_harness.packing.unpack` reads back. ``store`` (outputs):
@@ -69,7 +70,9 @@ Schema
     Any binding may be a table with ``when`` (as a tensor's): it binds
     only in a case where that holds; a conditional tensor's binding takes the
     tensor's condition. Two bindings may share a register only when their
-    conditions exclude each other (``bias`` and ``not bias``). A float
+    conditions exclude each other (``bias`` and ``not bias``; a condition with
+    ``or`` excludes another only when every term of one contradicts every term
+    of the other). A float
     parameter (an element scalar) binds a CR. Every key names a parameter, a
     tensor or a derived value, and every tensor is bound (its base row must
     reach the program).
@@ -634,10 +637,15 @@ def _placed(
 
 
 def _condition(r: Reader, raw: object, bools: Iterable[str], path: tuple[str, ...]) -> Condition:
-    """``"<bool param>"`` or ``"not <bool param>"``."""
+    """``"<bool param>"``, ``"not <bool param>"``, or such terms joined by ``or``."""
     condition = Condition.parse(r.text(raw, path))
-    if condition.param not in bools:
-        raise r.fail(path, f"{where(path)} {condition} must name a bool parameter, or 'not' one")
+    known = set(bools)
+    if any(param not in known for param in condition.params):
+        raise r.fail(
+            path,
+            f"{where(path)} {condition} must name bool parameters, each or 'not' it, "
+            "joined by 'or'",
+        )
     return condition
 
 

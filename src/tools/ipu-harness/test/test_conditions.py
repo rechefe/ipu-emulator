@@ -61,7 +61,7 @@ def manifest(tmp_path: Path, toml: str = TOML) -> KernelManifest:
 
 def test_a_conditional_tensor_and_binding_load(tmp_path):
     m = manifest(tmp_path)
-    assert m.tensors["b"].when == Condition("bias")
+    assert m.tensors["b"].when == Condition.of("bias")
     assert {n: str(c) for n, c in m.abi_when.items()} == {"b": "bias", "tail": "not bias"}
 
 
@@ -93,7 +93,8 @@ def test_the_narrowed_view_is_shared_by_plans_with_the_same_answer(tmp_path):
 @pytest.mark.parametrize(
     ("old", "new", "message"),
     [
-        ('when = "bias"', 'when = "rows"', "must name a bool parameter"),
+        ('when = "bias"', 'when = "rows"', "must name bool parameters"),
+        ('when = "bias"', 'when = "bias or rows"', "must name bool parameters"),
         ('when = "not bias"', 'when = "bias"', "tail and b both bind CR10"),
         ('b    = "CR10"', 'b    = { register = "CR10", when = "not bias" }', "takes its tensor's"),
         ('x    = "CR2"', 'x    = { register = "CR2", when = "bias" }', r"condition \(always\)"),
@@ -134,3 +135,38 @@ def test_a_placed_value_reading_a_conditional_tensor_takes_its_condition(tmp_pat
     toml = PLACED.replace("tail = { register", 'pb   = "CR6"\ntail = { register')
     with pytest.raises(ManifestError, match="bind it with when = 'bias'"):
         manifest(tmp_path, toml)
+
+
+@pytest.mark.parametrize(
+    ("text", "values", "holds"),
+    [
+        ("bias or relu", {"bias": False, "relu": True}, True),
+        ("bias or relu", {"bias": False, "relu": False}, False),
+        ("not bias or relu", {"bias": True, "relu": False}, False),
+        ("not bias or relu", {"bias": False, "relu": False}, True),
+    ],
+)
+def test_a_condition_joined_by_or_holds_when_one_term_does(text, values, holds):
+    assert Condition.parse(text).holds(values) is holds
+
+
+def test_or_conditions_compare_by_their_terms_and_exclude_only_when_every_pair_does():
+    assert Condition.parse("relu   or  bias") == Condition.parse("bias or relu")
+    assert str(Condition.parse("relu or not bias")) == "not bias or relu"
+    bias, no_bias = Condition.of("bias"), Condition.of("bias", negated=True)
+    assert bias.excludes(no_bias) and no_bias.excludes(bias)
+    assert not Condition.parse("bias or relu").excludes(no_bias)  # relu and not bias may hold
+    assert not bias.excludes(None)
+
+
+def test_a_tensor_exists_when_either_term_holds(tmp_path):
+    toml = TOML.replace(
+        'bias = { type = "bool", default = false }',
+        'bias = { type = "bool", default = false }\nrelu = { type = "bool", default = false }',
+    )
+    toml = toml.replace('when = "bias"', 'when = "bias or relu"', 1)
+    toml = toml.replace('b    = "CR10"', 'b    = "CR11"')
+    m = manifest(tmp_path, toml)
+    for bias, relu, present in ((False, False, False), (False, True, True), (True, False, True)):
+        plan = plan_case(m, {"rows": 2, "bias": bias, "relu": relu}, F.FP32)
+        assert ("b" in plan.manifest.tensors) is present
