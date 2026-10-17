@@ -1380,10 +1380,10 @@ To measure what an alias would save as a real instruction --- for example an
 \item Add the instruction to
   \texttt{src/tools/ipu-isa/src/ipu\_isa/instruction\_spec.py}. Its
   opcode comes from its position in the file; never assign one.
-\item Add its handler, \texttt{execute\_<name>}, to
-  \texttt{src/tools/ipu-emu-py/src/ipu\_emu/ipu.py}. Its keyword arguments must
-  be named exactly like the operands in the spec
-  (\doc{adding-instruction}{Adding Instructions} walks through both steps).
+\item Add its handler, \texttt{execute\_<name>}, to its slot's module,
+  \texttt{src/tools/ipu-emu-py/src/ipu\_emu/slots/<slot>.py}. Its keyword
+  arguments must be named exactly like the operands in the spec
+  (\doc{how-to/add-an-instruction}{Add an instruction} walks through every step).
 \item Copy the kernel folder under a new name (folder, \texttt{.asm} file and
   name must match, e.g. \texttt{residual\_add\_addvv/residual\_add\_addvv.asm})
   and replace the stand-in sequence with the new instruction. The copy keeps

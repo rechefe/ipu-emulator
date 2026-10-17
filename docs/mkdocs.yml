@@ -84,7 +84,7 @@ nav:
       - how-to/index.md
       - Write a kernel: building-applications.md            # E09-09
       - Register a kernel: adding-applications.md           # E09-09 merges it
-      - Add an instruction: adding-instruction.md           # E09-11
+      - Add an instruction: how-to/add-an-instruction.md    # E09-11
       - Debug a kernel: debugging.md                        # E09-12; the Cycle Inspector page (E08) goes here
       - Use the reference model from cocotb: how-to/reference-model-cocotb.md   # placeholder, E09-13
   - Reference:

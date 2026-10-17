@@ -355,5 +355,5 @@ bazel run //src/tools/ipu-as-py:ipu-as -- assemble --input prog.asm --output pro
 
 - [Operand types](operand-types.md) — field types used in `instruction_spec`
 - [Instruction reference](instructions.md) — per-opcode documentation
-- [Adding instructions](adding-instruction.md)
+- [Adding instructions](how-to/add-an-instruction.md)
 - [Building applications](building-applications.md)
