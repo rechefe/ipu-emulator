@@ -164,3 +164,49 @@ ruff_test(
     name = "ruff",
     srcs = glob(["**/*.py"]),
 )
+
+# The epic's scale kernel, written to a temporary folder for the runner's tests.
+py_library(
+    name = "scale_kernel",
+    testonly = True,
+    srcs = ["test/scale_kernel.py"],
+    imports = ["test"],
+    deps = [
+        ":ipu_harness_lib",
+        requirement("numpy"),
+    ],
+)
+
+# The runner end to end (E06-11), with torch for the scale kernel's reference.
+py_pytest_test(
+    name = "test_runner",
+    srcs = ["test/test_runner.py"],
+    deps = [
+        ":ipu_harness_lib",
+        ":scale_kernel",
+        requirement("jsonschema"),
+        requirement("numpy"),
+        requirement("pytest"),
+        requirement("torch"),
+    ],
+)
+
+# The runner without torch: expected files need no reference (E06-11).
+py_pytest_test(
+    name = "test_runner_no_torch",
+    srcs = ["test/test_runner_no_torch.py"],
+    deps = [
+        ":ipu_harness_lib",
+        ":scale_kernel",
+        requirement("pytest"),
+    ],
+)
+
+# Runs a kernel's case (E06-11). E06-13's ipu_kernel() wraps it per kernel; meanwhile:
+#   bazel run //src/tools/ipu-harness:run_kernel -- path/to/kernel --case NAME --format all
+py_binary(
+    name = "run_kernel",
+    srcs = ["src/ipu_harness/cli.py"],
+    main = "src/ipu_harness/cli.py",
+    deps = [":ipu_harness_lib"],
+)

@@ -1,8 +1,8 @@
 """Unified pointwise (1x1) convolution + folded BN bias + ReLU harness (FP32).
 
 BN/activation twin of ``pointwise_conv_unified``: same single multi-pass code
-path, on the FP32 wide-vector debug datapath (see
-docs/content/wide-vector-debug-mode.md), with two additions:
+path, in the FP32 element format (see
+docs/content/explanation/element-formats.md), with two additions:
 
   * **Folded bias** — one float32 bias per output channel, seeded into the
     accumulator (``R_ACC = bias``) once per OC before the conv taps, via a

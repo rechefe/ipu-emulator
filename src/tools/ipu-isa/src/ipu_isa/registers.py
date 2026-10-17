@@ -59,9 +59,9 @@ REGISTER_DEFINITIONS: dict[str, RegisterDefinition] = {
         "assembler_values": ["r0", "r1"],
         "encoding_class": "MultStageRegField",
     },
-    # Wide-vector debug mode's counterpart to "r": same r0/r1 pair, but each
+    # The FP32/INT32 element formats' counterpart to "r": same r0/r1 pair, but each
     # element widened to LANES(128) x 4 B = 512 B (float32/int32 lanes instead
-    # of narrow's 1 B/lane). Mirrors r_cyclic's approach of a mode-independent
+    # of the 8-bit formats' 1 B/lane). Mirrors r_cyclic's approach of a mode-independent
     # allocation sized for the wider mode, so the RegFile-native snapshot()
     # covers it automatically instead of a hand-rolled shadow dict on IpuState.
     # Emulator/debug storage only -- not encodable as an assembly operand
@@ -78,14 +78,14 @@ REGISTER_DEFINITIONS: dict[str, RegisterDefinition] = {
         "kind": RegKind.MULT,
         "vector": True,
         "cyclic": True,
-        # 512 elements at 1 B/element (narrow mode only -- see r_cyclic_wide_debug
-        # for wide-vector debug mode's separate 4 B/element storage).
+        # 512 elements at 1 B/element (8-bit formats only -- see r_cyclic_wide_debug
+        # for the FP32/INT32 formats' separate 4 B/element storage).
         "size_bytes": 512,
         "count": 1,
         "dtype": RegDtype.UINT8,
         "debug_aliases": ("rcyclic",),
     },
-    # Wide-vector debug mode's counterpart to "r_cyclic": same 512-element ring,
+    # The FP32/INT32 element formats' counterpart to "r_cyclic": same 512-element ring,
     # but each element widened to 4 B (float32/int32 lanes instead of narrow's
     # 1 B/lane) -- mirrors the r/r_wide_debug split (#180). Emulator/debug
     # storage only -- not encodable as an assembly operand.

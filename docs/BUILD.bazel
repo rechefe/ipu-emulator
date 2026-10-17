@@ -11,6 +11,10 @@ filegroup(
         "content/**/*.md",
         "content/**/*.svg",
         "content/**/*.csv",
+        # The Cycle Inspector page (E08-17): static HTML, CSS and JS, no bundling (D9).
+        "content/inspector/*.html",
+        "content/inspector/*.css",
+        "content/inspector/*.js",
     ]),
     visibility = ["//visibility:public"],
 )
@@ -22,6 +26,8 @@ genrule(
         "operand-types.md",
         "assembly-syntax.md",
         "programmer-guide.md",
+        "registers.md",
+        "configuration-registers.md",
     ],
     cmd = "$(location //src/tools/ipu-gen:ipu-gen) docs-pages $(RULEDIR) > /dev/null",
     tools = ["//src/tools/ipu-gen:ipu-gen"],
@@ -43,6 +49,14 @@ alias(
     actual = "//src/tools/ipu-gen:verify_sv_package",
 )
 
+# The tables explanation/element-formats.md includes (E09-19).
+genrule(
+    name = "generate_element_format_tables",
+    outs = ["element-format-tables.md"],
+    cmd = "$(location //src/tools/ipu-gen:ipu-gen) element-format-tables $@ > /dev/null",
+    tools = ["//src/tools/ipu-gen:ipu-gen"],
+)
+
 # The timing model page (content/explanation/timing-model.md) includes this table
 # through pymdownx.snippets: build_docs's output directory is the snippets base_path.
 genrule(
@@ -50,6 +64,58 @@ genrule(
     outs = ["generated/timing-contract-table.md"],
     cmd = "$(location //src/tools/ipu-gen:ipu-gen) timing-table $@ > /dev/null",
     tools = ["//src/tools/ipu-gen:ipu-gen"],
+)
+
+# The Reference model API page (content/reference/reference-model-api.md) includes
+# these snippets through pymdownx.snippets; the schema files are its downloads.
+#   bazel run //docs:reference_api_page -- "$PWD/out"
+py_binary(
+    name = "reference_api_page",
+    srcs = ["reference_api_page.py"],
+    main = "reference_api_page.py",
+    python_version = "PY3",
+    deps = [
+        "//src/tools/ipu-emu-py:ipu_emu_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+    ],
+)
+
+_REFERENCE_API_FILES = [
+    "version.md",
+    "api.md",
+    "schema.md",
+    "faults.md",
+    "commit_record.v1.json",
+    "trace.v1.json",
+]
+
+genrule(
+    name = "generate_reference_api_md",
+    outs = ["generated/reference-api/" + f for f in _REFERENCE_API_FILES],
+    cmd = "$(location :reference_api_page) $(RULEDIR)/generated/reference-api > /dev/null",
+    tools = [":reference_api_page"],
+)
+
+# The page's generator and its promises: every public symbol and schema field is
+# rendered, a schema change changes the page, and the cocotb how-to links each
+# call it uses.
+py_pytest_test(
+    name = "test_reference_api_page",
+    size = "small",
+    srcs = [
+        "reference_api_page.py",
+        "test_reference_api_page.py",
+    ],
+    data = [
+        "content/how-to/reference-model-cocotb.md",
+        "content/reference/reference-model-api.md",
+        "examples/test_reference_model_cocotb.py",
+    ],
+    deps = [
+        "//src/tools/ipu-emu-py:ipu_emu_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+        requirement("pytest"),
+    ],
 )
 
 genrule(
@@ -102,9 +168,14 @@ genrule(
         ":generate_mkdocs_md",
         ":generate_instruction_format_md",
         ":generate_instruction_format_artifacts",
+        ":generate_element_format_tables",
         ":generate_timing_contract_table",
+        ":generate_reference_api_md",
+        "//docs/inspector:inspector_data",
         "//:GLOSSARY.md",
         "examples/test_add_an_instruction.py",
+        "examples/test_element_formats.py",
+        "examples/test_reference_model_cocotb.py",
         "//src/tools/ipu-isa:test/one_edit.py",
         "hooks/giscus_env.py",
         "hooks/history_link.py",
@@ -147,22 +218,43 @@ genrule(
             ln -sfn "$$abssrc" "$(@D)/docs_temp/content/$$rel"
         done
 
-        # Generated pages (instructions, operand types, assembly syntax, instruction format)
+        # Generated ISA reference pages, under reference/isa/ (E09-14)
+        mkdir -p "$(@D)/docs_temp/content/reference/isa"
         for out in $(locations :generate_mkdocs_md); do \
           base=$$(basename "$$out"); \
-          ln -sfn "$$ORIGDIR/$$out" "$(@D)/docs_temp/content/$$base"; \
+          ln -sfn "$$ORIGDIR/$$out" "$(@D)/docs_temp/content/reference/isa/$$base"; \
         done
 
-        ln -sfn "$$ORIGDIR/$(location :generate_instruction_format_md)" "$(@D)/docs_temp/content/instruction-format.md"
+        ln -sfn "$$ORIGDIR/$(location :generate_instruction_format_md)" "$(@D)/docs_temp/content/reference/isa/instruction-format.md"
 
         # reference/glossary.md includes the root GLOSSARY.md through pymdownx.snippets,
         # whose base_path ".." is the parent of the temp tree, as the repo root is of docs/.
         ln -sfn "$$ORIGDIR/$(location //:GLOSSARY.md)" "$(@D)/GLOSSARY.md"
 
-        # how-to/add-an-instruction.md includes tested code the same way, at its repo path.
+        # The how-to pages include tested code the same way, at its repo path.
         mkdir -p "$(@D)/docs/examples" "$(@D)/src/tools/ipu-isa/test"
         ln -sfn "$$ORIGDIR/$(location examples/test_add_an_instruction.py)" "$(@D)/docs/examples/test_add_an_instruction.py"
+        ln -sfn "$$ORIGDIR/$(location examples/test_reference_model_cocotb.py)" "$(@D)/docs/examples/test_reference_model_cocotb.py"
         ln -sfn "$$ORIGDIR/$(location //src/tools/ipu-isa:test/one_edit.py)" "$(@D)/src/tools/ipu-isa/test/one_edit.py"
+
+        # explanation/element-formats.md includes its tested example the same way, and
+        # its generated tables from docs/generated/.
+        ln -sfn "$$ORIGDIR/$(location examples/test_element_formats.py)" "$(@D)/docs/examples/test_element_formats.py"
+        mkdir -p "$(@D)/docs/generated"
+        ln -sfn "$$ORIGDIR/$(location :generate_element_format_tables)" "$(@D)/docs/generated/element-format-tables.md"
+        # The reference model API page's schema downloads (its snippets are read
+        # from generated/reference-api/ through the snippets base_path).
+        mkdir -p "$(@D)/docs_temp/content/assets/schemas"
+        for f in $(locations :generate_reference_api_md); do
+          case "$$f" in
+            *.json)
+              dest="$(@D)/docs_temp/content/assets/schemas/$$(basename "$$f")"
+              rm -f "$$dest"
+              cp "$$ORIGDIR/$$f" "$$dest"
+              chmod u+w "$$dest"
+              ;;
+          esac
+        done
 
         # Generated C header and SystemVerilog package (downloadable; not in git)
         mkdir -p "$(@D)/docs_temp/content/assets"
@@ -171,6 +263,16 @@ genrule(
           dest="$(@D)/docs_temp/content/assets/$$base"; \
           rm -f "$$dest"; \
           cp "$$ORIGDIR/$$artifact" "$$dest"; \
+          chmod u+w "$$dest"; \
+        done
+
+        # The Cycle Inspector's data (E08-16): every curated trace, kernels.json
+        # and isa.json, regenerated on each build, never checked in.
+        mkdir -p "$(@D)/docs_temp/content/inspector/data"
+        for data in $(locations //docs/inspector:inspector_data); do \
+          dest="$(@D)/docs_temp/content/inspector/data/$$(basename "$$data")"; \
+          rm -f "$$dest"; \
+          cp "$$ORIGDIR/$$data" "$$dest"; \
           chmod u+w "$$dest"; \
         done
 
@@ -185,6 +287,32 @@ genrule(
             -cf $@ -C $(@D)/site_output .
     """,
     tools = [":mkdocs"],
+)
+
+# Publishes a built site.tar as one docs version on gh-pages, in mike's layout
+# (E09-21). CI runs it (.github/workflows/docs.yml); nobody else pushes there.
+#
+# CI only:
+#   bazel run //docs:publish_version -- --repo "$GITHUB_WORKSPACE" \
+#       --site bazel-bin/docs/site.tar --version dev --push
+py_binary(
+    name = "publish_version",
+    srcs = ["publish_version.py"],
+    main = "publish_version.py",
+    python_version = "PY3",
+)
+
+py_pytest_test(
+    name = "publish_version_test",
+    size = "small",
+    srcs = [
+        "publish_version.py",
+        "publish_version_test.py",
+    ],
+    deps = [
+        requirement("mike"),
+        requirement("pytest"),
+    ],
 )
 
 py_binary(
@@ -227,7 +355,10 @@ py_pytest_test(
     name = "test_doc_asm_blocks",
     size = "small",
     srcs = ["test_doc_asm_blocks.py"],
-    data = _DOC_TEST_DATA,
+    data = _DOC_TEST_DATA + [
+        ":generate_instruction_format_md",
+        ":generate_mkdocs_md",
+    ],
     deps = [
         ":doc_blocks",
         "//src/tools/ipu-as-py:ipu_as_lib",
@@ -263,6 +394,36 @@ py_pytest_test(
         "//src/tools/ipu-emu-py:ipu_emu_lib",
         "//src/tools/ipu-isa:ipu_isa_lib",
         "//src/tools/ipu-isa:one_edit",
+        requirement("pytest"),
+    ],
+)
+
+# The CR scalar example Explanation: element formats includes (examples/), run in
+# each format (E09-19).
+py_pytest_test(
+    name = "test_element_formats",
+    size = "small",
+    srcs = ["examples/test_element_formats.py"],
+    deps = [
+        "//src/tools/ipu-as-py:ipu_as_lib",
+        "//src/tools/ipu-emu-py:emu_test_support",
+        "//src/tools/ipu-emu-py:ipu_emu_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+# The testbench How-to: use the reference model from cocotb includes (examples/)
+# runs against a second model as the DUT; no simulator.
+py_pytest_test(
+    name = "test_reference_model_cocotb",
+    size = "small",
+    srcs = ["examples/test_reference_model_cocotb.py"],
+    data = ["content/how-to/reference-model-cocotb.md"],
+    deps = [
+        "//src/tools/ipu-as-py:ipu_as_lib",
+        "//src/tools/ipu-emu-py:ipu_emu_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
         requirement("pytest"),
     ],
 )
@@ -321,6 +482,19 @@ py_pytest_test(
         "//tools/bench:README.md",
     ],
     deps = [requirement("pytest")],
+)
+
+# The built site has the Cycle Inspector page and every curated trace (E08-17).
+#   bazel test //docs:test_inspector_site
+py_pytest_test(
+    name = "test_inspector_site",
+    srcs = ["test_inspector_site.py"],
+    data = [":build_docs"],
+    tags = ["docs"],
+    deps = [
+        "//src/tools/ipu-gen:ipu_gen_lib",
+        requirement("pytest"),
+    ],
 )
 
 # Ruff lint and format over this package's Python files (tools/lint.bzl).

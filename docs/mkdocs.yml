@@ -15,7 +15,16 @@ plugins:
   - search
   # When a page moves, map its old path to the new one here so old URLs keep working.
   - redirects:
-      redirect_maps: {}
+      redirect_maps:
+        # E09-14 moved the ISA reference under reference/isa/.
+        instructions.md: reference/isa/instructions.md
+        operand-types.md: reference/isa/operand-types.md
+        assembly-syntax.md: reference/isa/assembly-syntax.md
+        programmer-guide.md: reference/isa/programmer-guide.md
+        instruction-format.md: reference/isa/instruction-format.md
+        ipu-configuration.md: reference/isa/configuration-registers.md
+        # E09-19 folded the emulator-only formats into the element-formats page.
+        wide-vector-debug-mode.md: explanation/element-formats.md
   - git-revision-date-localized:
       enable_creation_date: true
       type: timeago
@@ -25,11 +34,13 @@ plugins:
       # them with the build time and no two builds of a commit would match.
       # Keep in step with extra.generated_pages below.
       exclude:
-        - instructions.md
-        - operand-types.md
-        - assembly-syntax.md
-        - programmer-guide.md
-        - instruction-format.md
+        - reference/isa/instructions.md
+        - reference/isa/operand-types.md
+        - reference/isa/assembly-syntax.md
+        - reference/isa/programmer-guide.md
+        - reference/isa/instruction-format.md
+        - reference/isa/registers.md
+        - reference/isa/configuration-registers.md
 
 theme:
   name: material
@@ -86,18 +97,21 @@ nav:
       - Register a kernel: adding-applications.md           # E09-09 merges it
       - Add an instruction: how-to/add-an-instruction.md    # E09-11
       - Debug a kernel: debugging.md                        # E09-12; the Cycle Inspector page (E08) goes here
-      - Use the reference model from cocotb: how-to/reference-model-cocotb.md   # placeholder, E09-13
+      - Step through a kernel run: debugging-inspector.md   # E08-17; E09 decides its final place
+      - Cycle Inspector: inspector/index.html               # E08-17: the static viewer page
+      - Use the reference model from cocotb: how-to/reference-model-cocotb.md   # E09-13
   - Reference:
       - reference/index.md
-      - ISA:
-          - Instructions: instructions.md
-          - Operand types: operand-types.md
-          - Assembly syntax: assembly-syntax.md
-          - Instruction format: instruction-format.md
-          - Programmer's guide: programmer-guide.md
-          - IPU configuration: ipu-configuration.md         # E09-14 folds it in
+      - ISA:                                                # generated, E09-14
+          - Instructions: reference/isa/instructions.md
+          - Operand types: reference/isa/operand-types.md
+          - Registers: reference/isa/registers.md
+          - Configuration registers: reference/isa/configuration-registers.md
+          - Assembly syntax: reference/isa/assembly-syntax.md
+          - Instruction format: reference/isa/instruction-format.md
+          - Programmer's guide: reference/isa/programmer-guide.md
       - Command-line tools: reference/cli.md                # placeholder, E09-15
-      - Reference model API: reference/reference-model-api.md   # placeholder, E09-16
+      - Reference model API: reference/reference-model-api.md   # E09-16; parts generated (docs/reference_api_page.py)
       - Kernels:                                            # E06/E07 generate these
           - kernels/index.md
           - Softmax: kernels/softmax.md
@@ -114,7 +128,7 @@ nav:
       - Architecture: explanation/architecture.md           # placeholder, E09-17
       - Prototyping mode: prototyping-mode.md               # E09-17 folds it in
       - Timing model: explanation/timing-model.md
-      - Element formats: wide-vector-debug-mode.md          # E09-19 replaces it
+      - Element formats: explanation/element-formats.md
       - ISA idioms: isa-alias-catalogue.md                  # E09-10
       - Kernel coverage: app-coverage.md                    # E09-10
   - Specs and requirements:
@@ -176,15 +190,24 @@ markdown_extensions:
 
 extra:
   docs_git_branch: master
+  # The version selector (E09-21). CI publishes each build into gh-pages in mike's
+  # layout: dev from master, vX.Y from a release tag, with the alias latest on the
+  # newest release (docs/publish_version.py). The site root redirects to latest,
+  # or to dev until the first release.
+  version:
+    provider: mike
+    default: latest
   # Pages generated at build time (docs/BUILD.bazel) are not in docs/content/, so their
   # "history" link (hooks/history_link.py) goes to the generator instead. This map is the
   # one place to update when a generator or a generated page moves.
   generated_pages:
-    instructions.md: src/tools/ipu-gen/src/ipu_gen/docs_pages.py
-    operand-types.md: src/tools/ipu-gen/src/ipu_gen/docs_pages.py
-    assembly-syntax.md: src/tools/ipu-gen/src/ipu_gen/docs_pages.py
-    programmer-guide.md: src/tools/ipu-gen/src/ipu_gen/docs_pages.py
-    instruction-format.md: src/tools/ipu-gen/src/ipu_gen/docs_pages.py
+    reference/isa/instructions.md: src/tools/ipu-gen/src/ipu_gen/docs_pages.py
+    reference/isa/operand-types.md: src/tools/ipu-gen/src/ipu_gen/docs_pages.py
+    reference/isa/assembly-syntax.md: src/tools/ipu-gen/src/ipu_gen/docs_pages.py
+    reference/isa/programmer-guide.md: src/tools/ipu-gen/src/ipu_gen/docs_pages.py
+    reference/isa/instruction-format.md: src/tools/ipu-gen/src/ipu_gen/docs_pages.py
+    reference/isa/registers.md: src/tools/ipu-gen/src/ipu_gen/docs_pages.py
+    reference/isa/configuration-registers.md: src/tools/ipu-gen/src/ipu_gen/docs_pages.py
   # giscus IDs are public (they are rendered into every page), so they are committed
   # here (IMPLEMENTATION-DECISIONS.md, E00-06). Values come from https://giscus.app,
   # or GraphQL: repository.id and repository.discussionCategories[].id.

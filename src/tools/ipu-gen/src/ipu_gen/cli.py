@@ -7,19 +7,21 @@ bazel run //src/tools/ipu-gen:ipu-gen -- timing-table /tmp/timing-contract-table
 bazel run //src/tools/ipu-gen:ipu-gen -- union-layout-svg /tmp/union_layout.svg
 bazel run //src/tools/ipu-gen:ipu-gen -- vscode-data [OUT_DIR]
 bazel run //src/tools/ipu-gen:ipu-gen -- verify-sv-package path/to/ipu_instr_pkg.sv
+bazel run //src/tools/ipu-gen:ipu-gen -- inspector-trace TRACE CONTEXT OUTPUT [--max-cycles N]
 
 Under ``bazel run`` a relative path is the caller's (``BUILD_WORKING_DIRECTORY``).
 """
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 from pathlib import Path
 
 import click
 
-from ipu_gen import docs_pages, layout_svg, vscode_data
+from ipu_gen import docs_pages, inspector_trace, layout_svg, vscode_data
 from ipu_gen import sv_package as sv
 
 
@@ -45,15 +47,10 @@ def sv_package(output: str) -> None:
 @cli.command("docs-pages")
 @click.argument("out_dir", type=click.Path(file_okay=False, path_type=Path))
 def docs_pages_command(out_dir: Path) -> None:
-    """Write the instruction, operand-type, assembly-syntax and programmer's guide pages."""
+    """Write the ISA reference pages (``docs_pages.REFERENCE_PAGES``)."""
     out_dir = _caller_path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    docs_pages.generate_all_docs(
-        instructions_path=out_dir / "instructions.md",
-        operand_types_path=out_dir / "operand-types.md",
-        assembly_syntax_path=out_dir / "assembly-syntax.md",
-        programmer_guide_path=out_dir / "programmer-guide.md",
-    )
+    docs_pages.generate_all_docs(out_dir)
 
 
 @cli.command("instruction-format-md")
@@ -63,6 +60,15 @@ def instruction_format_md(output: Path) -> None:
     output = _caller_path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
     docs_pages.generate_instruction_format_md(output)
+
+
+@cli.command("element-format-tables")
+@click.argument("output", type=click.Path(dir_okay=False, path_type=Path))
+def element_format_tables(output: Path) -> None:
+    """Write the tables the element-formats page includes."""
+    output = _caller_path(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    docs_pages.generate_element_format_tables_md(output)
 
 
 @cli.command("timing-table")
@@ -101,6 +107,33 @@ def vscode_data_command(out_dir: Path | None) -> None:
             )
         out_dir = Path(workspace) / "vscode-ipu-asm"
     vscode_data.generate_all(_caller_path(out_dir), vscode_data.REGISTER_FACTS)
+
+
+@cli.command("inspector-trace")
+# No exists=True: click would check the path before _caller_path resolves it.
+@click.argument("trace", type=click.Path(dir_okay=False, path_type=Path))
+@click.argument("context", type=click.Path(dir_okay=False, path_type=Path))
+@click.argument("output", type=click.Path(dir_okay=False, path_type=Path))
+@click.option(
+    "--max-cycles",
+    type=click.IntRange(min=1),
+    default=inspector_trace.DEFAULT_MAX_CYCLES,
+    show_default=True,
+    help="Keep at most this many cycles; the document says it is truncated.",
+)
+def inspector_trace_command(trace: Path, context: Path, output: Path, max_cycles: int) -> None:
+    """Write the Cycle Inspector's JSON for one recorded case (E08-16).
+
+    TRACE and CONTEXT are what //src/tools/ipu-apps:trace_case wrote.
+    """
+    try:
+        header, records, ctx = inspector_trace.read_inputs(
+            _caller_path(trace), _caller_path(context)
+        )
+        document = inspector_trace.convert(header, records, ctx, max_cycles=max_cycles)
+    except (inspector_trace.TraceError, OSError) as error:
+        raise click.ClickException(str(error)) from None
+    _caller_path(output).write_text(json.dumps(document, separators=(",", ":")) + "\n", "utf-8")
 
 
 @cli.command("verify-sv-package")

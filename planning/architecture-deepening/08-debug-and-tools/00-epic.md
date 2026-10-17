@@ -81,7 +81,7 @@ Verified at HEAD `694a8a8`.
 - The runner's debug and profile flags (E06 "runner owns debug/profile"); E08-06 provides the hook it calls.
 - Docs restructure and page rewrites (E09). E08 updates only the pages its own changes break (`debugging.md` commands, the extension README).
 - Generated-docs conventions fixes (upper-case registers, element units in `gen_docs` output): E09, after the E08-14 move.
-- Cycle Inspector phase 2 (live Pyodide mode): a follow-up issue (E08-18), not in this program.
+- Cycle Inspector phase 2 (live Pyodide mode): a follow-up issue (E08-18, filed as #256), not in this program.
 - LSP (L37).
 
 ## Issue index

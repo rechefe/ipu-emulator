@@ -279,14 +279,15 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Store Post-AAQ register",
                 summary=(
-                    "Write **512 bytes** of **`POST_AAQ_REG`** to external memory. **Interim:** "
-                    "the buffer is **512 bytes** (128×32-bit elements) until quantization export is finalized."
+                    "Write the whole **`POST_AAQ_REG`** to one XMEM row. **Interim:** after "
+                    "`ACTIVATE.QUANTIZE` it holds 128 INT8 results followed by zeros, until "
+                    "quantization export is finalized."
                 ),
                 operands=[
                     "offset: Offset register (LR0–LR15), in XMEM rows.",
                     "base: Base address register (CR0–CR15), in XMEM rows.",
                 ],
-                operation="Memory[row(offset + base)] = POST_AAQ_REG (512 bytes, both modes -- width does not scale with element width); interim staging register",
+                operation="Memory[row(offset + base)] = POST_AAQ_REG (the whole register, one row, in every element format)",
                 example="ST.AAQ LR0 CR0;;",
             ),
             "implicit_reads": [
@@ -323,7 +324,7 @@ INSTRUCTION_SPEC = {
                     "offset: Offset register (LR0–LR15), in XMEM rows.",
                     "base: Base address register (CR0–CR15), in XMEM rows.",
                 ],
-                operation="Memory[row(offset + base)] = R_ACC (512 bytes, both modes -- width does not scale with element width)",
+                operation="Memory[row(offset + base)] = R_ACC (128 32-bit elements, in every element format)",
                 example="ST.ACC LR0 CR1;;",
                 notes="This instruction lives in the simulation-only **acc_store** slot.",
             ),
@@ -608,7 +609,7 @@ INSTRUCTION_SPEC = {
                 ),
                 operands=[
                     "`rc_idx`: **`LR0`**…**`LR15`** — base ELEMENT index into **`R_CYCLIC`** (cyclic, mod 512 elements; same unit as `LD.MULT.CYCLIC`'s `index`).",
-                    "`src`: **`LR0`**…**`LR15`** | **`CR0`**…**`CR15`** — if an LR, its stored value selects the scalar from R0/R1 (0..127 → `R0[idx]`, 128..255 → `R1[idx - 128]`); if a CR, its low element-width bits, decoded in the active format, are the scalar (CR1 reads as 1; see `CrIdx`).",
+                    "`src`: **`LR0`**…**`LR15`** | **`CR0`**…**`CR15`** — if an LR, its stored value selects the scalar from R0/R1 (0..127 → `R0[idx]`, 128..255 → `R1[idx - 128]`); if a CR, its low element-width bits, decoded in the active format, are the scalar (CR1 reads as 1; see `CrIdx` and [CR scalars](../../explanation/element-formats.md#cr-scalars)).",
                     "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**.",
                     "`mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end).",
                     "`cr_idx`: **`CR0`**…**`CR15`** — dstructure register supplying the `partition` field used to build the partition vectors and the `pad_mode` field used to fill deactivated elements (must be given explicitly).",
@@ -685,8 +686,8 @@ INSTRUCTION_SPEC = {
                     "configuration (any CR0-CR15; must be named explicitly)."
                 ),
                 operands=[
-                    "`ra_idx`: **`LR0`**…**`LR15`** — base byte offset into combined Ra (`R0` ++ `R1`, 256 bytes, cyclic mod 256).",
-                    "`cr_idx`: **`CR0`**…**`CR15`** — CR whose low element-width bits, decoded in the active format, are the scalar multiplier (CR1 reads as 1; see `CrIdx`).",
+                    "`ra_idx`: **`LR0`**…**`LR15`** — base element offset into combined Ra (`R0` ++ `R1`, 256 elements, cyclic mod 256).",
+                    "`cr_idx`: **`CR0`**…**`CR15`** — CR whose low element-width bits, decoded in the active format, are the scalar multiplier (CR1 reads as 1; see `CrIdx` and [CR scalars](../../explanation/element-formats.md#cr-scalars)).",
                     "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**.",
                     "`mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end).",
                     "`dstructure_cr_idx`: **`CR0`**…**`CR15`** — dstructure register supplying the `partition` field used to build the partition vectors and the `pad_mode` field used to fill deactivated elements (must be given explicitly).",
@@ -720,8 +721,8 @@ INSTRUCTION_SPEC = {
                     "configuration (any CR0-CR15; must be named explicitly)."
                 ),
                 operands=[
-                    "`ra_idx`: **`LR0`**…**`LR15`** — index of the single Ra element to read (combined `R0` ++ `R1`, 256 bytes, mod 256).",
-                    "`cr_idx`: **`CR0`**…**`CR15`** — CR whose low element-width bits, decoded in the active format, are the scalar multiplier (CR1 reads as 1; see `CrIdx`).",
+                    "`ra_idx`: **`LR0`**…**`LR15`** — index of the single Ra element to read (combined `R0` ++ `R1`, 256 elements, mod 256).",
+                    "`cr_idx`: **`CR0`**…**`CR15`** — CR whose low element-width bits, decoded in the active format, are the scalar multiplier (CR1 reads as 1; see `CrIdx` and [CR scalars](../../explanation/element-formats.md#cr-scalars)).",
                     "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**.",
                     "`mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end).",
                     "`dstructure_cr_idx`: **`CR0`**…**`CR15`** — dstructure register supplying the `partition` field used to build the partition vectors and the `pad_mode` field used to fill deactivated elements (must be given explicitly).",
@@ -1127,7 +1128,7 @@ INSTRUCTION_SPEC = {
                     "label: Branch target label",
                 ],
                 operation="if (reg1 == reg2) PC = label",
-                example="BEQ LR0 LR1 end;;",
+                example="BEQ LR0 LR1 end;;\nend:\nHALT;;",
             ),
             "execute_fn": "execute_beq",
         },
@@ -1146,7 +1147,7 @@ INSTRUCTION_SPEC = {
                     "label: Branch target label",
                 ],
                 operation="if (reg1 != reg2) PC = label",
-                example="BNE LR0 CR0 loop;;",
+                example="loop:\nINC LR0 1;;\nBNE LR0 CR0 loop;;",
             ),
             "execute_fn": "execute_bne",
         },
@@ -1165,7 +1166,7 @@ INSTRUCTION_SPEC = {
                     "label: Branch target label",
                 ],
                 operation="if (int32(reg1) < int32(reg2)) PC = label  # signed 32-bit",
-                example="BLT.S LR0 CR1 smaller;;",
+                example="BLT.S LR0 CR1 smaller;;\nsmaller:\nHALT;;",
             ),
             "execute_fn": "execute_blt_s",
         },
@@ -1187,7 +1188,7 @@ INSTRUCTION_SPEC = {
                     "label: Branch target label",
                 ],
                 operation="if (int32(reg1) >= int32(reg2)) PC = label  # signed 32-bit",
-                example="BGE.S LR0 CR1 ge;;",
+                example="BGE.S LR0 CR1 ge;;\nge:\nHALT;;",
             ),
             "execute_fn": "execute_bge_s",
         },
@@ -1337,9 +1338,9 @@ PSEUDO_INSTRUCTION_SPEC: dict[str, dict[str, Any]] = {
                 "label: Branch target label",
             ],
             operation="if (reg1 > reg2) PC = label",
-            example="BGT.S LR0 LR1 bigger;;",
+            example="BGT.S LR0 LR1 bigger;;\nbigger:\nHALT;;",
             notes=(
-                "Expands to `BLT.S reg2, reg1, label` at assemble time "
+                "Expands to `BLT.S reg2 reg1 label` at assemble time "
                 "(operands swapped). Identical encoding and runtime cost "
                 "to a hand-written BLT.S."
             ),
@@ -1365,9 +1366,9 @@ PSEUDO_INSTRUCTION_SPEC: dict[str, dict[str, Any]] = {
                 "label: Branch target label",
             ],
             operation="if (reg1 <= reg2) PC = label",
-            example="BLE.S LR0 LR1 smaller_or_equal;;",
+            example="BLE.S LR0 LR1 smaller_or_equal;;\nsmaller_or_equal:\nHALT;;",
             notes=(
-                "Expands to `BGE.S reg2, reg1, label` at assemble time "
+                "Expands to `BGE.S reg2 reg1 label` at assemble time "
                 "(operands swapped), exactly mirroring how BGT.S expands to "
                 "BLT.S. Identical encoding and runtime cost to a hand-written "
                 "BGE.S."
@@ -1386,14 +1387,14 @@ PSEUDO_INSTRUCTION_SPEC: dict[str, dict[str, Any]] = {
         },
         "doc": InstructionDoc(
             title="Branch if Zero (pseudo)",
-            summary="Branch if register is zero. Assumes CR0 always holds zero.",
+            summary="Branch if register is zero (CR0 is the constant 0).",
             operands=[
                 "reg: Register to test (LR0–LR15 or CR0–CR15)",
                 "label: Branch target label",
             ],
             operation="if (reg == 0) PC = label",
-            example="BZ LR0 done;;",
-            notes="Expands to `BEQ reg, CR0, label`. Assumes CR0 always holds 0.",
+            example="BZ LR0 done;;\ndone:\nHALT;;",
+            notes="Expands to `BEQ reg CR0 label`; CR0 is the read-only constant 0.",
         ),
     },
     "BNZ": {
@@ -1408,14 +1409,14 @@ PSEUDO_INSTRUCTION_SPEC: dict[str, dict[str, Any]] = {
         },
         "doc": InstructionDoc(
             title="Branch if Not Zero (pseudo)",
-            summary="Branch if register is not zero. Assumes CR0 always holds zero.",
+            summary="Branch if register is not zero (CR0 is the constant 0).",
             operands=[
                 "reg: Register to test (LR0–LR15 or CR0–CR15)",
                 "label: Branch target label",
             ],
             operation="if (reg != 0) PC = label",
-            example="BNZ LR0 loop;;",
-            notes="Expands to `BNE reg, CR0, label`. Assumes CR0 always holds 0.",
+            example="loop:\nDEC LR0 1;;\nBNZ LR0 loop;;",
+            notes="Expands to `BNE reg CR0 label`; CR0 is the read-only constant 0.",
         ),
     },
     "B": {
@@ -1432,8 +1433,8 @@ PSEUDO_INSTRUCTION_SPEC: dict[str, dict[str, Any]] = {
             summary="Always branch to label.",
             operands=["label: Branch target label"],
             operation="PC = label",
-            example="B start;;",
-            notes="Expands to `BEQ CR0, CR0, label`. CR0 always equals itself, so the branch is always taken.",
+            example="start:\nINC LR0 1;;\nB start;;",
+            notes="Expands to `BEQ CR0 CR0 label`. CR0 always equals itself, so the branch is always taken.",
         ),
     },
 }

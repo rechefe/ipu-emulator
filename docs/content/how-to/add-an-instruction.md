@@ -16,7 +16,7 @@ below are that test's own entry and handler.
 Decide three things:
 
 - **The slot** the instruction issues in: `lr`, `load`, `mult`, `acc`, `aaq`,
-  `store`, `acc_store`, `cond` or `break`. The [Instructions](../instructions.md)
+  `store`, `acc_store`, `cond` or `break`. The [Instructions](../reference/isa/instructions.md)
   reference lists what each slot holds today.
 - **The tag**, which the instruction takes from its slot:
     - **HARDWARE** (every slot but `acc_store` and `break`) is in the IPU, so it
@@ -44,7 +44,7 @@ end of the `"lr"` dictionary:
   register the instruction reads has `"read"`: `"cycle_start"` (its value when
   the word began) or `"forwarded"` (after earlier slots of the same word wrote
   it). The register it writes has `"write": True`. The types are on the
-  [Operand types](../operand-types.md) page.
+  [Operand types](../reference/isa/operand-types.md) page.
 - **`implicit_reads`**, **`implicit_writes`** (optional): every register the
   handler reads or writes that no operand names, such as
   `{"register": "mult_res", "view": "forwarded"}`.

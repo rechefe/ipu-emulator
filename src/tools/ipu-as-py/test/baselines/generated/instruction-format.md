@@ -1328,7 +1328,7 @@ These files are produced at documentation build time (and via the `ipu-gen` CLI)
 
 | Artifact | Description | Download |
 |----------|-------------|----------|
-| SystemVerilog package | `ipu_instr_pkg` — enums, per-slot structs (opcode + operand union), per-instruction `union packed` views, the hardware word as the compound type | [ipu_instr_pkg.sv](assets/ipu_instr_pkg.sv) |
+| SystemVerilog package | `ipu_instr_pkg` — enums, per-slot structs (opcode + operand union), per-instruction `union packed` views, the hardware word as the compound type | [ipu_instr_pkg.sv](../../assets/ipu_instr_pkg.sv) |
 
 ### Regenerate locally
 

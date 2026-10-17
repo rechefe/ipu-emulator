@@ -48,12 +48,23 @@ __all__ = [
     "XmemWrite",
 ]
 
+#: How a word ended: ``retired``; ``break`` (its BREAK slot fired: a run that
+#: honours breakpoints stopped before it, and the word retired when the run went
+#: on); ``halt`` (a HALT word retired); ``fault`` (the word faulted).
 Outcome = Literal["retired", "break", "halt", "fault"]
 
 
 @dataclass(frozen=True)
 class SlotOp:
-    """One non-NOP op of the word: its slot, mnemonic and encoded fields."""
+    """One non-NOP op of the word: its slot, mnemonic and encoded fields.
+
+    Attributes:
+        slot: The slot, as ``ipu_isa.slots`` names it.
+        mnemonic: The op's mnemonic.
+        fields: The encoded operand values, by operand name.
+        emulator_only: The op has no hardware equivalent (an EMULATOR slot);
+            its JSON form carries ``"tag": "emulator"``.
+    """
 
     slot: str
     mnemonic: str
@@ -61,6 +72,7 @@ class SlotOp:
     emulator_only: bool = False
 
     def to_json(self) -> dict[str, Any]:
+        """The op as a schema ``slot_op`` document."""
         out: dict[str, Any] = {
             "slot": self.slot,
             "mnemonic": self.mnemonic,
@@ -72,6 +84,7 @@ class SlotOp:
 
     @classmethod
     def from_json(cls, doc: Mapping[str, Any]) -> SlotOp:
+        """An op from a schema ``slot_op`` document."""
         return cls(doc["slot"], doc["mnemonic"], dict(doc["fields"]), doc.get("tag") == "emulator")
 
     def __eq__(self, other: object) -> bool:
@@ -86,7 +99,22 @@ class SlotOp:
 @dataclass(frozen=True)
 class RegWrite:
     """A register write: ``value`` of a scalar register's ``index``, or
-    ``data`` (bytes) at byte ``offset`` of a vector register."""
+    ``data`` (bytes) at byte ``offset`` of a vector register.
+
+    A write to an emulator-only register (``r_wide_debug``,
+    ``r_cyclic_wide_debug``) carries ``"tag": "emulator"`` in its JSON form.
+
+    Attributes:
+        register: The bank, as ``ipu_isa.registers`` names it.
+        index: A scalar register (``lr``, ``cr``): the register within the
+            bank; else ``None``.
+        value: A scalar register: its unsigned 32-bit value at the end of the
+            cycle; else ``None``.
+        offset: A vector register: the first byte written, within the bank;
+            else ``None``.
+        data: A vector register: the bytes written, at their end-of-cycle
+            values; else ``None``.
+    """
 
     register: str
     index: int | None = None
@@ -95,6 +123,7 @@ class RegWrite:
     data: bytes | None = None
 
     def to_json(self) -> dict[str, Any]:
+        """The write as a schema ``reg_write`` document."""
         out: dict[str, Any]
         if self.data is None:
             out = {"register": self.register, "index": self.index, "value": self.value}
@@ -106,6 +135,7 @@ class RegWrite:
 
     @classmethod
     def from_json(cls, doc: Mapping[str, Any]) -> RegWrite:
+        """A write from a schema ``reg_write`` document."""
         if "data" in doc:
             return cls(doc["register"], offset=doc["offset"], data=bytes.fromhex(doc["data"]))
         return cls(doc["register"], index=doc["index"], value=doc["value"])
@@ -113,22 +143,34 @@ class RegWrite:
 
 @dataclass(frozen=True)
 class XmemWrite:
-    """``data`` written at XMEM byte ``address``."""
+    """``data`` written at XMEM byte ``address``.
+
+    Attributes:
+        address: The first XMEM byte written.
+        data: The bytes written, at their end-of-cycle values.
+    """
 
     address: int
     data: bytes
 
     def to_json(self) -> dict[str, Any]:
+        """The write as a schema ``xmem_write`` document."""
         return {"address": self.address, "data": self.data.hex()}
 
     @classmethod
     def from_json(cls, doc: Mapping[str, Any]) -> XmemWrite:
+        """A write from a schema ``xmem_write`` document."""
         return cls(doc["address"], bytes.fromhex(doc["data"]))
 
 
 @dataclass(frozen=True)
 class FaultInfo:
-    """The fault a word raised: its label (``"F-3"``) and PC."""
+    """The fault a word raised: its label (``"F-3"``) and PC.
+
+    Attributes:
+        id: The fault ID as the requirements write it (``FaultId.label``).
+        pc: The faulting word's PC.
+    """
 
     id: str
     pc: int
@@ -136,7 +178,21 @@ class FaultInfo:
 
 @dataclass(frozen=True)
 class CommitRecord:
-    """One retired word, as the commit record schema describes it."""
+    """One retired word, as the commit record schema describes it.
+
+    Attributes:
+        cycle: The words before this one since the last reset or program
+            load; in a trace, the records before this one.
+        pc_before: The word's PC.
+        pc_after: The PC of the next word.
+        slots: The word's ops, one per non-NOP slot, in slot order.
+        reg_writes: The registers the word wrote, at their end-of-cycle values.
+        xmem_writes: The XMEM ranges the word wrote.
+        outcome: How the word ended.
+        fault: The fault, when ``outcome`` is ``fault``; else ``None``.
+        arith_events: The arithmetic events the word raised
+            (``ipu_isa.faults.ArithmeticEvent`` values), sorted.
+    """
 
     cycle: int
     pc_before: int

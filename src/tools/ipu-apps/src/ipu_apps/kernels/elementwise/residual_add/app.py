@@ -1,7 +1,7 @@
 """Universal residual add (wide-vector FP32): FP32 + FP32 -> FP32.
 
 Adds two FP32 tensors element-wise and stores the result as FP32, running the
-emulator in **wide-vector debug mode**. In that mode every lane is FP32, so
+emulator in the **FP32 element format**. In that format every lane is FP32, so
 each channel occupies one full XMEM row of 128 FP32 lanes and ``ST.ACC``
 writes the full 128-lane accumulator.
 
@@ -52,8 +52,8 @@ WIDE_CHUNK_BYTES = LANES_PER_CHUNK * 4  # 512: one channel, 128 FP32 lanes
 #
 # Row-addressed ISA: XMEM offset/base operands on LD.MULT.CYCLIC
 # (offset+base) / ST.ACC are ROW numbers, not byte addresses. This app
-# runs EXCLUSIVELY in wide-vector debug mode (SPEC.execution) -- there is no
-# narrow-mode variant to preserve -- so its native row size is always
+# runs EXCLUSIVELY in the FP32 element format (SPEC.execution) -- there is no
+# 8-bit-format variant to preserve -- so its native row size is always
 # WIDE_CHUNK_BYTES (512), and one channel is always exactly one row. *_BASE
 # below stay as byte constants for host-side xmem pokes (write_address/
 # read_address are byte-granular); *_BASE_ROW = *_BASE // WIDE_CHUNK_BYTES
@@ -75,7 +75,7 @@ MAX_CHANNELS = (INPUT_B_BASE - INPUT_A_BASE) // WIDE_CHUNK_BYTES
 
 
 class ResidualAddApp(IpuApp):
-    """Universal residual add: FP32 + FP32 -> FP32 (wide-vector debug mode).
+    """Universal residual add: FP32 + FP32 -> FP32 (FP32 element format).
 
     Args:
         inst_path:    Path to assembled binary.

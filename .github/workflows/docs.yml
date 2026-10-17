@@ -1,7 +1,11 @@
 name: Documentation
 
-# Builds the site on master pushes (and deploys it), on pull requests that touch
-# the docs or the code that generates pages, and on demand. The build is offline:
+# Builds the site on master pushes and release tags (and publishes it), on pull
+# requests that touch the docs or the code that generates pages, and on demand.
+# Publishing (E09-21) writes the Bazel-built site into the gh-pages branch in
+# mike's layout with //docs:publish_version: a master push updates dev/, a tag
+# vX.Y publishes vX.Y/ and moves the alias latest to it. Pages serves the branch
+# (Settings -> Pages -> Deploy from a branch: gh-pages). The build is offline:
 # the release log is committed (docs/content/release-log.md) and refreshed by
 # release-log.yml, which dispatches this workflow after committing a new entry.
 #
@@ -11,6 +15,8 @@ name: Documentation
 on:
   push:
     branches: [master]
+    # Releases only: vX.Y (the publish tool refuses any other version name).
+    tags: ["v[0-9]+.[0-9]+"]
   pull_request:
     paths:
       - "docs/**" # includes docs/mkdocs.yml and docs/content/release-log.md
@@ -28,14 +34,12 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 # One run per ref. A newer push supersedes an older run on the same branch,
-# but a master build-and-deploy is never cancelled.
+# but a master or tag build-and-publish is never cancelled.
 concurrency:
-  group: pages-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+  group: docs-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
@@ -64,8 +68,6 @@ jobs:
           # --config=docs forwards the GISCUS_* variables into the build (.bazelrc).
           # No GITHUB_TOKEN: nothing in the build calls the GitHub API.
           bazel build --config=docs //docs:build_docs
-          mkdir -p site
-          tar -xf bazel-bin/docs/site.tar -C site
 
       - name: Check giscus widget is rendered
         id: giscus
@@ -76,25 +78,57 @@ jobs:
             echo "rendered=false" >> "$GITHUB_OUTPUT"
           fi
       
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v4
+      - name: Upload the site
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master')
+        uses: actions/upload-artifact@v4
         with:
-          path: ./site
+          name: site
+          path: bazel-bin/docs/site.tar
+          if-no-files-found: error
 
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  # Writes the site into gh-pages: dev from master (a push, or a manual run such
+  # as release-log.yml's dispatch), vX.Y from a tag. Only this job pushes to that
+  # branch. Runs of different refs may overlap (the workflow's per-ref group): a
+  # shared group would let a queued master run cancel a pending tag publish. The
+  # tool never forces its push and redoes a push that lost a race.
+  publish:
     runs-on: ubuntu-latest
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master')
+    permissions:
+      contents: write
     steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v5
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Install toolchain
+        run: ./tools/bootstrap.sh
+
+      - name: Download the site
+        uses: actions/download-artifact@v4
+        with:
+          name: site
+          path: ${{ runner.temp }}/site
+
+      - name: Publish the version
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ "$REF_TYPE" = tag ]; then
+            # latest moves only if this is the newest release (the tool checks).
+            set -- --version "$REF_NAME" --alias latest
+          else
+            set -- --version dev
+          fi
+          bazel run //docs:publish_version -- --repo "$GITHUB_WORKSPACE" \
+            --site "$RUNNER_TEMP/site/site.tar" "$@" --push
 
   # Fails the master run when the giscus widget is missing, without blocking the
-  # deploy job, so a missing ID makes the run red but the site still updates.
+  # publish job, so a missing ID makes the run red but the site still updates.
   check-giscus:
     runs-on: ubuntu-latest
     needs: build

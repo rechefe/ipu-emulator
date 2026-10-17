@@ -1,0 +1,124 @@
+load("@ipu_as_deps//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_binary")
+load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
+load("//docs:inspector.bzl", "kernel_trace")
+load("//tools:lint.bzl", "ruff_test")
+
+package(default_visibility = ["//visibility:public"])
+
+# The Cycle Inspector's curated kernels (E08-16, Q55), in the page's order.
+# Each entry is one kernel_trace: it records one registered case and converts
+# it to the page's JSON. Its name is the page's kernel id, and the [[kernel]]
+# entry of that id in curated.toml gives its title and description. Adding a
+# kernel: one entry here, one there. Every target is tagged `docs`: they build
+# with the docs, not in the default CI tier.
+CURATED = [
+    {"name": "tour_int8", "kernel": "vector_tour", "case": "int8"},
+    {"name": "tour_e4", "kernel": "vector_tour", "case": "e4"},
+    {"name": "tour_e5", "kernel": "vector_tour", "case": "e5"},
+    {"name": "tour_e3", "kernel": "vector_tour", "case": "e3"},
+    {"name": "fc_int8", "kernel": "fully_connected", "case": "int8"},
+    {"name": "fc_e4", "kernel": "fully_connected", "case": "fp8_e4m3"},
+    {"name": "fc_e5", "kernel": "fully_connected", "case": "fp8_e5m2"},
+    {"name": "fully_connected", "kernel": "fully_connected"},
+    {"name": "identity", "kernel": "identity"},
+    {"name": "channel_peak", "kernel": "channel_peak"},
+    {"name": "softmax_rows", "kernel": "softmax_rows", "options": {"rows": 2}},
+    {"name": "depth_to_space", "kernel": "depth_to_space"},
+    {"name": "conv_universal", "kernel": "conv_universal"},
+    {"name": "residual_add", "kernel": "residual_add"},
+]
+
+[
+    kernel_trace(
+        name = entry["name"],
+        case = entry.get("case", "default"),
+        kernel = entry["kernel"],
+        options = entry.get("options", {}),
+    )
+    for entry in CURATED
+]
+
+TRACES = [":" + entry["name"] for entry in CURATED]
+
+py_binary(
+    name = "kernel_list",
+    srcs = ["kernel_list.py"],
+    main = "kernel_list.py",
+    deps = [requirement("tomli")],  # tomllib before Python 3.11
+)
+
+# The page's kernel list: curated.toml plus what each trace says about itself.
+# Fails when curated.toml and the traces disagree.
+genrule(
+    name = "kernels_json",
+    srcs = ["curated.toml"] + TRACES,
+    outs = ["kernels.json"],
+    cmd = "$(location :kernel_list) $(location curated.toml) $@ " + " ".join(["$(location %s)" % t for t in TRACES]),
+    tags = ["docs"],
+    tools = [":kernel_list"],
+)
+
+# What the page fetches: data/kernels.json, data/<id>.json per trace, and
+# data/isa.json, the instruction reference the editor extension also reads
+# (`ipu-gen vscode-data`).
+filegroup(
+    name = "inspector_data",
+    srcs = TRACES + [
+        ":kernels_json",
+        "//vscode-ipu-asm:generated/data/isa.json",
+    ],
+    tags = ["docs"],
+)
+
+# Every generated document validates against ipu_gen's inspector-trace schema.
+py_pytest_test(
+    name = "test_inspector_data",
+    srcs = ["test_inspector_data.py"],
+    data = [":inspector_data"],
+    tags = ["docs"],
+    deps = [
+        "//src/tools/ipu-gen:ipu_gen_lib",
+        requirement("jsonschema"),
+        requirement("pytest"),
+    ],
+)
+
+# curated.toml against this file's kernel_trace targets, and kernel_list.py's
+# checks; without building a trace, so in the default tier.
+py_pytest_test(
+    name = "test_kernels",
+    srcs = [
+        "kernel_list.py",
+        "test_kernels.py",
+    ],
+    imports = ["."],
+    data = [
+        "BUILD.bazel",
+        "curated.toml",
+    ],
+    deps = [
+        requirement("pytest"),
+        requirement("tomli"),
+    ],
+)
+
+# Replaying a recorded trace's init and deltas gives the run's final registers.
+py_pytest_test(
+    name = "test_inspector_replay",
+    srcs = ["test_inspector_replay.py"],
+    data = [
+        "//src/tools/ipu-apps:kernel_data",
+        "//src/tools/ipu-apps:kernel_sources",
+    ],
+    deps = [
+        "//src/tools/ipu-apps:ipu_apps_lib",
+        "//src/tools/ipu-gen:ipu_gen_lib",
+        requirement("pytest"),
+    ],
+)
+
+ruff_test(
+    name = "ruff",
+    srcs = glob(["*.py"]),
+)

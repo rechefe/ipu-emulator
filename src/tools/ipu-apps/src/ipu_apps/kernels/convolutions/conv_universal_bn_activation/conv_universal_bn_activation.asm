@@ -41,8 +41,8 @@
 #
 # CYCLIC REGISTER LAYOUT (rotating slots, lr_read = lr4):
 #   The 512-ELEMENT cyclic register holds three vertically-neighboring
-#   128-element chunks of one input channel.  The ring is 512 elements in both
-#   narrow and wide-vector debug mode (only its byte size differs), so every
+#   128-element chunks of one input channel.  The ring is 512 elements in every
+#   element format (only its byte size differs), so every
 #   offset below is an element index and needs no per-mode scaling.
 #   Slot bases (mod 512):
 #     kr=-1 chunk → lr_read - 128

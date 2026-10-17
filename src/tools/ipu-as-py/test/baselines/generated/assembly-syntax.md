@@ -6,7 +6,7 @@ The IPU assembler is a Python-based tool that turns assembly source into binary 
 
 - **Jinja2 preprocessing** — templates and macros for generated assembly
 - **Label resolution** — forward and backward references
-- **VLIW compounds** — multiple pipeline slots per cycle (`LOAD`, `STORE`, `ACC_STORE`†, `MULT`, `ACC`, `AAQ`, `LR`×3, `COND`, `BREAK`; †simulation-only)
+- **VLIW compounds** — multiple pipeline slots per cycle (`COND`, `LR`×3, `LOAD`, `MULT`, `ACC`, `AAQ`, `STORE`; emulator-only: `ACC_STORE`, `BREAK`)
 - **Syntax validation** — Lark-based parser with detailed errors
 
 ## Basic Syntax
@@ -16,15 +16,17 @@ Assembly is line-oriented. One **compound instruction** may contain several **sl
 ```asm
 # Comments start with # or //
 label:                          # Labels end with a colon
-    LD.MULT r0 lr0 cr0;           # LOAD: load into mult stage r0
-    MULT.RC.VV lr1 r0 0 lr3 cr15; # MULT: element-wise multiply
+    LD.MULT R0 LR0 CR0;           # LOAD: load into mult stage R0
+    MULT.RC.VV LR1 R0 0 LR3 CR15; # MULT: element-wise multiply
     ACC.ADD;                      # ACC: accumulate
-    INC lr0 1;                    # LR: bump address (increment via INC)
-    BNE lr0 lr1 next;             # COND: branch
+    INC LR0 1;                    # LR: bump address (increment via INC)
+    BNE LR0 LR1 next;             # COND: branch
     ;;
+next:
+    HALT;;
 ```
 
-By convention, **instruction mnemonics are written in upper case** in documentation and examples (e.g. `MULT.RC.VV`, `LD.MULT`). **Operand tokens** use **lower case** (`lr0`, `r0`, `cr0`). The assembler accepts **any case** for mnemonics and register tokens.
+By convention, **instruction mnemonics are written in upper case** in documentation and examples (e.g. `MULT.RC.VV`, `LD.MULT`). **Register names** are written in **upper case** (`LR0`, `R0`, `CR0`); operand placeholders such as `dest` are lower case. The assembler accepts **any case** for mnemonics and register tokens.
 
 ## Compound instructions
 
@@ -32,6 +34,7 @@ A full IPU instruction is one **compound** word: several slots execute in parall
 
 **Pattern:**
 
+<!-- asm-fragment: one placeholder per slot, not real instructions -->
 ```asm
 load_inst; mult_inst; acc_inst; aaq_inst; store_inst; acc_store_inst; lr_inst_a; lr_inst_b; lr_inst_c; cond_inst; break_inst;;
 ```
@@ -41,12 +44,13 @@ load_inst; mult_inst; acc_inst; aaq_inst; store_inst; acc_store_inst; lr_inst_a;
 - Each slot appears a fixed number of times (see `SLOT_COUNT` in `instruction_spec.py`); unused slots are filled with that slot’s **NOP** by the assembler.
 - Slot order in the binary word (MSB → LSB) is defined by the toolchain: `cond`, three `lr` sub-slots, `load`, `mult`, `acc`, `aaq`, `store`, `acc_store`, `break` (see the layout diagram on the [Instruction reference](instructions.md#compound-instruction-layout)).
 - The slots of one word execute in a fixed order, and each register read sees either the value at cycle start or the value forwarded from an earlier slot of the same word: see [Execution order and timing](#execution-order-and-timing).
-- The **acc_store** slot (`ST.ACC`) is **simulation-only** — not implemented in real IPU hardware.
+- The emulator-only slots (`ACC_STORE`, `BREAK`) are not implemented in real IPU hardware: see the [instruction format](instruction-format.md).
 
 **Example (parallel slots):**
 
 ```asm
-LD.MULT r0 lr0 cr0; MULT.RC.VV lr1 r0 0 lr3 cr15; ACC.ADD; INC lr0 1; BNE lr0 lr1 loop;;
+loop:
+LD.MULT R0 LR0 CR0; MULT.RC.VV LR1 R0 0 LR3 CR15; ACC.ADD; INC LR0 1; BNE LR0 LR1 loop;;
 ```
 
 ## Register names
@@ -55,23 +59,23 @@ The mult-stage and scalar register **tokens** below are derived from `REGISTER_D
 
 | Kind | Assembler tokens | Notes |
 |------|------------------|--------|
-| Mult stage | `r0`, `r1` | 128-byte vectors; 2-bit mult-stage field (`2` reserved). See [MultStageReg](operand-types.md#multstagereg). |
+| Mult stage | `R0`, `R1` | 128-byte vectors; 2-bit mult-stage field (`2` reserved). See [MultStageReg](operand-types.md#multstagereg). |
 | Cyclic / mask | *(architectural)* | Cyclic (**RC**) and mask (**RM**) register files are documented per instruction in the reference; operands pass **byte offsets** via `LR` values. |
-| Loop / scalar | `lr0`–`lr15` | General-purpose; **read/write**. See [LrIdx](operand-types.md#lridx). |
-| Constant | `cr0`–`cr15` | **Read-only** in assembly; initialized by the harness. **`cr0`** / **`cr1`** are often 0 and 1. **`cr15`** conventionally holds dstructure configuration (see [DstructureCrIdx](operand-types.md#dstructurecridx)) but is a valid `CrIdx`/`LcrIdx` operand like any other CR. See [CrIdx](operand-types.md#cridx). |
+| Loop / scalar | `LR0`–`LR15` | General-purpose; **read/write**. See [LrIdx](operand-types.md#lridx). |
+| Constant | `CR0`–`CR15` | **Read-only** in assembly; the host writes `CR2`–`CR15` before a kernel runs. **`CR0`** and **`CR1`** are the read-only constants 0 and 1 (see [Configuration registers](configuration-registers.md)). **`CR15`** conventionally holds dstructure configuration (see [DstructureCrIdx](operand-types.md#dstructurecridx)) but is a valid `CrIdx`/`LcrIdx` operand like any other CR. See [CrIdx](operand-types.md#cridx). |
 
 The **`mem_bypass`** vector may still exist in the **emulator regfile** for debugging, but it is **not** a valid mult-stage assembly operand.
 
-**LR slot:** **`SET`** copies from a **`cr`** register (see [CrIdx](operand-types.md#cridx)); **`ADD`**/**`SUB`**'s **`src_b`** is register-only (see [LcrIdx](operand-types.md#lcridx)) — use **`INC`**/**`DEC`** for an immediate operand instead (see [LrIncDecImmediate](operand-types.md#lrincdecimmediate)); **`INC.MODP2`** uses a dedicated **k** immediate (see [LrModPow2KImmediate](operand-types.md#lrmodpow2kimmediate)).
+**LR slot:** **`SET`** copies from a **`CR`** register (see [CrIdx](operand-types.md#cridx)); **`ADD`**/**`SUB`**'s **`src_b`** is register-only (see [LcrIdx](operand-types.md#lcridx)) — use **`INC`**/**`DEC`** for an immediate operand instead (see [LrIncDecImmediate](operand-types.md#lrincdecimmediate)); **`INC.MODP2`** uses a dedicated **k** immediate (see [LrModPow2KImmediate](operand-types.md#lrmodpow2kimmediate)).
 
 ## Labels and branches
 
 ```asm
 start:
-    SET lr0 cr0;;
+    SET LR0 CR0;;
 loop:
-    INC lr0 1;;
-    BNE lr0 lr1 loop;;
+    INC LR0 1;;
+    BNE LR0 LR1 loop;;
     HALT;;
 ```
 
@@ -109,7 +113,7 @@ A register read sees one of two values: the value at **cycle start** (when the w
 
 Any other read is forwarded when every slot that writes the register runs earlier in the word, and at cycle start otherwise. CRs are never written during a run, so CR reads are at cycle start.
 
-The [timing model](explanation/timing-model.md) explains the rules, with an example of each.
+The [timing model](../../explanation/timing-model.md) explains the rules, with an example of each.
 
 ### Register reads and writes
 
@@ -173,8 +177,9 @@ a mask of all-zeros deactivates every element.
 `R_MASK` is a 128-byte register packed as **8 independent 128-bit slots** (slots 0–7). Load it
 from XMEM with:
 
+<!-- asm-fragment: operand placeholders -->
 ```asm
-LD.MASK offset, base;;
+LD.MASK offset base;;
 ```
 
 `offset` is an LR register holding the XMEM byte offset; `base` is a CR register holding the
@@ -246,14 +251,14 @@ still be named explicitly via the instruction's CR-index operand — there is no
 
 ```asm
 # LR1 = XMEM byte offset of mask data; CR2 = XMEM base address
-LD.MASK LR1, CR2;;
+LD.MASK LR1 CR2;;
 
 # Load a vector into R0, load cyclic data into R_CYCLIC
-LD.MULT R0, LR0, CR0;;
-LD.MULT.CYCLIC LR2, CR0, LR5;;
+LD.MULT R0 LR0 CR0;;
+LD.MULT.CYCLIC LR2 CR0 LR5;;
 
 # Multiply R0 element-wise vs R_CYCLIC using slot 3, shift index in LR4, accumulate
-MULT.RC.VV LR2, R0, 3, LR4, CR15; ACC.ADD;;
+MULT.RC.VV LR2 R0 3 LR4 CR15; ACC.ADD;;
 ```
 
 `3` is the `mask_offset` (slot 3 of `R_MASK`); `LR4` holds the `mask_shift` index; `CR15` is the
@@ -313,11 +318,11 @@ The assembler runs Jinja2 on the source when `{{`, `{%`, and `{#` appear.
 
 ```jinja2
 {% set off_reg = 6 %}
-SET lr0 cr{{ off_reg }};;
-LD.MULT r0 lr0 cr0;;
+SET LR0 CR{{ off_reg }};;
+LD.MULT R0 LR0 CR0;;
 ```
 
-The harness must initialize **`cr6`** (here: the memory offset) before this program runs.
+The harness must initialize **`CR6`** (here: the memory offset) before this program runs.
 
 ### ABI names
 
@@ -338,11 +343,11 @@ With `[abi]` `data_base = "CR2"` and `data_ptr = "LR0"`, this renders `SET LR0 C
 bazel run //src/tools/ipu-as-py:ipu-as -- assemble --input prog.asm --output prog.bin
 ```
 
-**In Bazel build rules:** use the project’s `ipu_asm` rule (see [Building Applications](building-applications.md)).
+**In Bazel build rules:** use the project’s `ipu_asm` rule (see [Building Applications](../../building-applications.md)).
 
 ## Further reading
 
 - [Operand types](operand-types.md) — field types used in `instruction_spec`
 - [Instruction reference](instructions.md) — per-opcode documentation
-- [Adding instructions](how-to/add-an-instruction.md)
-- [Building applications](building-applications.md)
+- [Adding instructions](../../how-to/add-an-instruction.md)
+- [Building applications](../../building-applications.md)

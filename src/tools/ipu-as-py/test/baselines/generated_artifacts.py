@@ -30,16 +30,15 @@ NORMALIZATIONS: tuple[tuple[str, str], ...] = ()
 
 
 def _all_docs(out: Path) -> None:
-    docs_pages.generate_all_docs(
-        out / "instructions.md",
-        out / "operand-types.md",
-        out / "assembly-syntax.md",
-        out / "programmer-guide.md",
-    )
+    docs_pages.generate_all_docs(out)
 
 
 def _instruction_format(out: Path) -> None:
     docs_pages.generate_instruction_format_md(out / "instruction-format.md")
+
+
+def _element_format_tables(out: Path) -> None:
+    docs_pages.generate_element_format_tables_md(out / docs_pages.ELEMENT_FORMAT_TABLES)
 
 
 def _vscode(out: Path) -> None:
@@ -64,12 +63,17 @@ PRODUCERS = (
     Producer(
         "ipu_gen.docs_pages.generate_all_docs (//docs:generate_mkdocs_md)",
         _all_docs,
-        ("instructions.md", "operand-types.md", "assembly-syntax.md", "programmer-guide.md"),
+        docs_pages.REFERENCE_PAGES,
     ),
     Producer(
         "ipu_gen.docs_pages.generate_instruction_format_md (//docs:generate_instruction_format_md)",
         _instruction_format,
         ("instruction-format.md",),
+    ),
+    Producer(
+        "ipu_gen.docs_pages.generate_element_format_tables_md (//docs:generate_element_format_tables)",
+        _element_format_tables,
+        (docs_pages.ELEMENT_FORMAT_TABLES,),
     ),
     Producer(
         "ipu_gen.vscode_data.generate_all (//vscode-ipu-asm:generate_grammar)",

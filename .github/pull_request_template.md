@@ -1,6 +1,6 @@
 <!--
 Fill in every section. What reviewers check, and what CI already checks:
-docs/content/code-review.md (https://rechefe.github.io/ipu-emulator/code-review/).
+docs/content/code-review.md (https://rechefe.github.io/ipu-emulator/dev/code-review/).
 Code rules: docs/content/code-conventions.md.
 -->
 

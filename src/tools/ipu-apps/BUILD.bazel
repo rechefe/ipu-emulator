@@ -89,14 +89,14 @@ ipu_benchmarks_from_kernels(
 )
 
 # Every kernel .asm, for //tools/bench (assemble/all_kernels and the kernel
-# speed cases).
+# speed cases) and :trace_case.
 filegroup(
     name = "kernel_sources",
     srcs = glob(["src/ipu_apps/kernels/**/*.asm"]),
 )
 
 # Every kernel's checked-in input and golden files, for //tools/bench (the
-# emulator module runs the INT8 case of fully_connected).
+# emulator module runs the INT8 case of fully_connected) and :trace_case.
 filegroup(
     name = "kernel_data",
     srcs = glob(["src/ipu_apps/kernels/**/*.bin"]),
@@ -108,6 +108,22 @@ py_binary(
     name = "query",
     srcs = ["src/ipu_apps/kernel_registry/query.py"],
     main = "src/ipu_apps/kernel_registry/query.py",
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+# Records one registered case as an E04-29 trace plus the Cycle Inspector's
+# context (E08-16); docs/inspector.bzl's kernel_trace runs it.
+#   bazel run //src/tools/ipu-apps:trace_case -- identity --trace "$PWD/t.jsonl" --context "$PWD/c.json"
+py_binary(
+    name = "trace_case",
+    srcs = ["src/ipu_apps/kernel_registry/trace_case.py"],
+    # Which case runs is a run-time argument: every kernel's source and fixtures.
+    data = [
+        ":kernel_data",
+        ":kernel_sources",
+    ],
+    main = "src/ipu_apps/kernel_registry/trace_case.py",
     imports = ["src"],
     deps = [":ipu_apps_lib"],
 )

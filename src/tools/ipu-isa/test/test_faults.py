@@ -53,18 +53,20 @@ def test_arithmetic_events_are_not_faults():
 def test_reserved_opcodes_of_todays_isa():
     reserved = reserved_encodings(isa())
     assert set(reserved) == set(isa().layout.slots_with_tag(Tag.HARDWARE))
-    counts = {slot: len(entry.opcodes) for slot, entry in reserved.items()}
-    assert counts == {
-        Slot.COND: 1,
-        Slot.LR: 7,
-        Slot.LOAD: 0,
-        Slot.MULT: 2,
-        Slot.ACC: 3,
-        Slot.AAQ: 0,
-        Slot.STORE: 0,
+    # Every opcode past the slot's last instruction is reserved, so the counts
+    # follow the spec; the field widths are wire format and stay pinned.
+    for slot, entry in reserved.items():
+        used = len(INSTRUCTION_SPEC[slot.value])
+        assert entry.opcodes == tuple(range(used, 1 << entry.opcode_bits)), slot
+    assert {slot: entry.opcode_bits for slot, entry in reserved.items()} == {
+        Slot.COND: 3,
+        Slot.LR: 4,
+        Slot.LOAD: 2,
+        Slot.MULT: 3,
+        Slot.ACC: 4,
+        Slot.AAQ: 1,
+        Slot.STORE: 1,
     }
-    assert reserved[Slot.COND].opcodes == (7,)
-    assert reserved[Slot.LR].opcode_bits == 4
     assert reserved[Slot.STORE].empty
 
 
@@ -102,4 +104,47 @@ def test_a_new_instruction_takes_a_reserved_opcode():
     spec = copy.deepcopy(INSTRUCTION_SPEC)
     spec["cond"]["NEWOP"] = copy.deepcopy(spec["cond"]["NOP"])
     changed = load_isa(spec, PSEUDO_INSTRUCTION_SPEC, SLOTS, OPERAND_TYPES)
-    assert reserved_encodings(changed)[Slot.COND].opcodes == ()
+    before = reserved_encodings(isa())[Slot.COND].opcodes
+    assert reserved_encodings(changed)[Slot.COND].opcodes == before[1:]
+
+
+# By hand, from each fault's summary in docs/content/requirements/faults.md.
+EXPECTED_INSTRUCTION_FAULTS = {
+    "LD.MULT": ("F-1", "F-6", "F-7"),  # MultStageReg: code 2..3 reserved
+    "LD.MULT.CYCLIC": ("F-4", "F-6", "F-7"),
+    "LD.MASK": ("F-6", "F-7"),
+    "ST.AAQ": ("F-6", "F-7"),
+    "MULT.RC.VV": ("F-1",),  # ra is a MultStageReg
+    "ACC.STRIDE": ("F-1",),  # HorizontalStride/VerticalStride reserved3, ElementsInRow code 3
+    "ACC.RESHAPE": ("F-5",),
+    "ACTIVATE.QUANTIZE": ("F-1",),  # ActivationFn: codes 13..15 reserved
+    "SET": ("F-3",),
+    "ADD": ("F-3",),
+    "SUB": ("F-3",),
+    "INC.MODP2": ("F-1", "F-3"),  # k: codes 9..15 reserved
+    "INC": ("F-3",),
+    "DEC": ("F-3",),
+    "ADDB": ("F-3",),
+    "ADDBI": ("F-3",),
+    "BEQ": ("F-2",),
+    "BNE": ("F-2",),
+    "BLT.S": ("F-2",),
+    "BGE.S": ("F-2",),
+    "BR": ("F-2",),
+}
+
+
+def test_instruction_faults():
+    from ipu_isa.faults import instruction_faults
+
+    actual = {
+        i.mnemonic: tuple(f.label for f in instruction_faults(isa(), i))
+        for slot in Slot
+        for i in isa().instructions(slot)
+    }
+    # Today's instructions only: one added later is not pinned here.
+    assert {m: actual[m] for m in EXPECTED_INSTRUCTION_FAULTS} == EXPECTED_INSTRUCTION_FAULTS
+    # HALT, NOP, the MULT/ACC instructions without reserved codes, and the
+    # emulator-only ST.ACC, BREAK and BREAK.IFEQ raise none.
+    for mnemonic in ("HALT", "NOP", "ACC.ADD", "MULT.VE", "ST.ACC", "BREAK", "BREAK.IFEQ"):
+        assert actual[mnemonic] == ()

@@ -17,7 +17,7 @@ This is the ``_bn_activation`` flavour: per-output-filter **BN bias** is folded
 into the kernel (element 0 of each filter's 128-element block) and accumulated
 once before the conv taps; **ReLU** is applied at the end. Batch-norm scale is
 assumed folded into the conv weights, so only the bias remains separate. Runs
-on the emulator's wide-vector debug datapath (FP32) -- weights and
+in the emulator-only FP32 element format -- weights and
 activations are genuine floats, no INT8 quantization anywhere in this kernel.
 
 The 256-wide input strip trick (no seam):

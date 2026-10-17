@@ -2,6 +2,9 @@
 
 The IPU emulator includes a powerful interactive debugger that allows you to pause execution, inspect registers, step through instructions, and modify state at runtime.
 
+To replay a recorded kernel run cycle by cycle in the browser instead, see the
+[Cycle Inspector](debugging-inspector.md).
+
 ## Quick Start
 
 Use native Bazel commands with a registered kernel target:

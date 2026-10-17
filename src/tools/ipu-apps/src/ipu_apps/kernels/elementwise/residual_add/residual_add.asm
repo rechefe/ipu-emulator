@@ -1,7 +1,7 @@
 # Universal Residual Add (wide-vector FP32 debug mode): FP32 + FP32 -> FP32.
 #
 # Adds two FP32 tensors element-wise, one channel per 512-byte chunk
-# (128 FP32 lanes each). Wide-vector debug mode widens every lane to 4
+# (128 FP32 lanes each). The FP32 element format widens every lane to 4
 # bytes, so a load brings in a full 512-byte channel and ST.ACC
 # writes the full 512-byte r_acc.
 #
@@ -18,8 +18,8 @@
 #
 # Row-addressed ISA (issue #179): XMEM offset/base operands on
 # LD.MULT.CYCLIC's offset+base and ST.ACC are ROW numbers, not byte
-# addresses. This app runs ONLY in wide-vector debug mode (harness always
-# builds an FP32 wide state -- see make_state()), so its native row size is
+# addresses. This app runs ONLY in the FP32 element format (harness always
+# builds an FP32 state -- see make_state()), so its native row size is
 # always 512 bytes and one channel is always exactly one row: the old
 # byte-512 walking step becomes a row step of 1. LD.MULT.CYCLIC's
 # `index` (lr0, always 0 here -- wide mode fills the whole r_cyclic register
