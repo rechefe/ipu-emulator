@@ -11,6 +11,7 @@ names them; //kernels:test_families checks it against the kernel.toml folders.
 #: Each family's kernels, by folder name.
 KERNELS = {
     "conformance": ["vector_tour"],
+    "detect": ["channel_peak", "score_threshold"],
     "elementwise": ["scale"],
     "pooling": [
         "maxpool2d_nms",
@@ -30,6 +31,7 @@ KERNELS = {
         "unfold_32x32x144",
         "unfold_8x8x240",
     ],
+    "sampling": ["sample_descriptors", "sample_descriptors_separable"],
     "softmax": [
         "softmax_columns",
         "softmax_columns_packed",

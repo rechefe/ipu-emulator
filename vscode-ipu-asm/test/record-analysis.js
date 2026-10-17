@@ -25,7 +25,7 @@ const FILES = [
   ...fs.readdirSync(path.join(__dirname, 'corpus', 'negative')).filter((f) => f.endsWith('.asm')).sort()
     .map((f) => `vscode-ipu-asm/test/corpus/negative/${f}`),
   'vscode-ipu-asm/test/integration/fixture/kernels/demo/demo_kernel/demo_kernel.asm',
-  'src/tools/ipu-apps/src/ipu_apps/kernels/sampling/sample_descriptors/sample_descriptors.asm',
+  'kernels/sampling/sample_descriptors/sample_descriptors.asm',
   'src/tools/ipu-apps/test/mobilevit/asm_packed_unpack_192x64.asm',
 ];
 const SNIPPETS = path.join(__dirname, 'fixtures', 'analysis-snippets.json');

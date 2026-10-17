@@ -1,0 +1,8 @@
+# The sampling family (E07-15): folder kernels sample_descriptors and
+# sample_descriptors_separable. gen.py and tables.py, beside them, are their
+# shared case generator and coefficient tables (data, loaded by path); the
+# pack transform is ipu_kernels.sampling.pack.
+
+load("//kernels:defs.bzl", "ipu_kernel_family")
+
+ipu_kernel_family()
