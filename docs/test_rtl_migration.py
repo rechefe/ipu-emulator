@@ -1,7 +1,7 @@
-"""specs/rtl-migration.md against the SystemVerilog golden of this branch.
+"""specs/rtl-migration.md against the SystemVerilog golden of the current package.
 
 The page tells the downstream RTL repository what changed in ipu_instr_pkg.sv
-since master. These checks keep its claims about this branch true: each new
+since master. These checks keep its claims about the current package true: each new
 name in its rename table is in the package with its value and each old one is
 gone, the names it says were removed are gone, and the word width it states
 is the package's.

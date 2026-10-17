@@ -1,8 +1,8 @@
-# RTL migration: `ipu_instr_pkg.sv` from master to this branch
+# RTL migration: `ipu_instr_pkg.sv` since master 694a8a89
 
 For the downstream RTL repository that vendors `ipu_instr_pkg.sv`. It lists
-every difference between the package generated on master (694a8a89) and on
-this branch, and how to update. Each item was checked against the two
+every difference between the package generated on master at 694a8a89 and the
+package this documentation describes, and how to update. Each item was checked against the two
 generated files (`bazel build //docs:generate_instruction_format_artifacts`
 in each tree) and `tools/sv_localparam_diff.sh origin/master`.
 
@@ -10,9 +10,10 @@ in each tree) and `tools/sv_localparam_diff.sh origin/master`.
 
 No opcode value changes, and the hardware slots keep their order, widths and
 operand fields. Three things change: some names, the emulator-only slots
-leaving the package, and the header line.
+leaving the package, and the header line. The comment above
+`ipu_compound_inst_t` changes with the second.
 
-### 1. Nine enum and union members are renamed (E03-19)
+### 1. Eight instructions' enum and union members are renamed (E03-19)
 
 The mnemonic standard renamed nine instructions. Their opcode values are the
 same; only the SV names change. The full table, with the old and new
@@ -73,20 +74,23 @@ generated on master has no hash, so it fails this check.
 ## Programs for the RTL
 
 The assembler writes the emulator's word by default: 186 bits, which is 24
-bytes per word in a `.bin` file and 48 hex digits per line in a `.mem` file.
-That is the same output as master's assembler. For the hardware word, pass
+bytes per word in a `.bin` file (little-endian) and `0x` plus 48 hex digits per
+line in a `.mem` file. That is the same output as master's assembler, bit for
+bit. Its 31 lowest bits are the ACC_STORE and BREAK slots, which hold their NOP
+encodings when a word does not use them, not zeros. For the hardware word, pass
 `--target hardware`. The words are then 155 bits, written as 20 bytes per word
-in `.bin` and 40 hex digits per line in `.mem`, and an emulator-only
+in `.bin` and `0x` plus 40 hex digits per line in `.mem`, and an emulator-only
 instruction is an error.
 
 ```bash
 bazel run //src/tools/ipu-as-py:ipu-as -- assemble --target hardware --input "$PWD/prog.asm" --output "$PWD/prog.mem"
 ```
 
-The output format comes from the `--output` suffix (`.bin` or `.mem`). Master
-asked for it instead (`--format`).
+`--format` is now optional: by default an `--output` ending in `.bin` gives
+bin, and any other gives mem. Master asked for the format when `--format` was
+not given.
 
-## In this repository
+## In the IPU emulator repository
 
 The test that elaborates the package with slang moved from
 `//src/tools/ipu-as-py:test_sv_package_compiles` to
@@ -102,15 +106,24 @@ New since master:
 
 ## How to update
 
-1. Generate the package on this branch:
+1. Generate the package:
    `bazel build //docs:generate_instruction_format_artifacts`, then copy
    `bazel-bin/docs/ipu_instr_pkg.sv` into the RTL repository.
-2. Check the copy: `bazel run //docs:verify_sv_package -- <path>`.
-3. Replace the eight old enum members and union members in section 1.
+2. Check the copy, by absolute path since it is in another repository:
+   `bazel run //docs:verify_sv_package -- /abs/path/to/ipu_instr_pkg.sv`.
+3. Replace the eight old enum members and the eight old union members in
+   section 1.
 4. Remove every use of the ACC_STORE and BREAK typedefs, localparams and
    `ipu_compound_inst_t` members (section 2).
 5. Size the instruction word, memories and buses by `IPU_COMPOUND_INST_WIDTH`
    (155). A constant 186 is now wrong.
-6. Assemble test programs with `--target hardware`. A program assembled for the
-   emulator, or by master's assembler, is the hardware word shifted left by 31
-   bits: shift it right by 31 to compare.
+6. Find every literal bit range of the instruction word. Every slot is 31 bits
+   lower than it was: `cond_slot` was `[185:163]` and is `[154:132]`. Read the
+   slots through the members of `ipu_compound_inst_t` instead.
+7. Rename the old mnemonics in the RTL repository's test sources, or they no
+   longer assemble (`BKPT` is now `HALT`, for example):
+   `bazel run //tools:rename_mnemonics -- --check /abs/path/to/rtl-repo` lists
+   what would change, and the same command without `--check` rewrites it.
+8. Assemble the test programs with `--target hardware`. To compare with a word
+   assembled for the emulator, or by master's assembler, take its bits
+   `[185:31]`: the emulator word shifted right by 31 is the hardware word.
