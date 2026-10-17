@@ -1,5 +1,13 @@
 # Building IPU Applications
 
+!!! note "Legacy: the `ipu_apps` kernel framework"
+    This page describes kernels under `src/tools/ipu-apps`, written as an
+    `IpuApp` subclass that programs the CRs by hand. New kernels go under
+    `kernels/` with a `kernel.toml` and no harness: see
+    [Write a kernel](how-to/write-a-kernel.md) and the
+    [`kernel.toml` reference](reference/kernel-toml.md). E07 migrates the
+    kernels below and then removes this page.
+
 This guide shows how to build a complete IPU application using the fully connected neural network layer as an example. The complete code is in [src/tools/ipu-apps/src/ipu_apps/kernels/linear/fully_connected](https://github.com/rechefe/ipu-emulator/tree/master/src/tools/ipu-apps/src/ipu_apps/kernels/linear/fully_connected).
 
 ## Application Structure

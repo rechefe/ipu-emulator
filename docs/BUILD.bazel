@@ -224,6 +224,49 @@ py_pytest_test(
     ],
 )
 
+# The kernel.toml reference page (content/reference/kernel-toml.md) includes these
+# snippets through pymdownx.snippets: the schema from the ipu_harness.manifest
+# docstring and key tuples, and the registry.toml example (E06-21).
+#   bazel run //docs:kernel_toml_page -- "$PWD/out"
+py_binary(
+    name = "kernel_toml_page",
+    srcs = ["kernel_toml_page.py"],
+    main = "kernel_toml_page.py",
+    python_version = "PY3",
+    deps = ["//src/tools/ipu-harness:ipu_harness_lib"],
+)
+
+genrule(
+    name = "generate_kernel_toml_md",
+    outs = [
+        "generated/kernel-toml/registry.md",
+        "generated/kernel-toml/schema.md",
+    ],
+    cmd = "$(location :kernel_toml_page) $(RULEDIR)/generated/kernel-toml > /dev/null",
+    tools = [":kernel_toml_page"],
+)
+
+# Every key the loader accepts is on the page, and the page includes both
+# snippets; the how-to's listings are the scale kernel's files.
+py_pytest_test(
+    name = "test_kernel_toml_page",
+    size = "small",
+    srcs = [
+        "kernel_toml_page.py",
+        "test_kernel_toml_page.py",
+    ],
+    data = [
+        "content/how-to/write-a-kernel.md",
+        "content/reference/kernel-toml.md",
+        "//kernels/elementwise/scale:scale_files",
+    ],
+    deps = [
+        ":doc_blocks",
+        "//src/tools/ipu-harness:ipu_harness_lib",
+        requirement("pytest"),
+    ],
+)
+
 genrule(
     name = "generate_instruction_format_md",
     outs = ["instruction-format.md"],
@@ -278,6 +321,7 @@ genrule(
         ":generate_timing_contract_table",
         ":generate_reference_api_md",
         ":generate_cli_reference_md",
+        ":generate_kernel_toml_md",
         ":generate_architecture_md",
         "//docs/inspector:inspector_data",
         "//:GLOSSARY.md",
@@ -466,10 +510,13 @@ py_pytest_test(
     data = _DOC_TEST_DATA + [
         ":generate_instruction_format_md",
         ":generate_mkdocs_md",
+        # The kernels an asm-kernel marker names (the how-to's listing).
+        "//kernels/elementwise/scale:scale_files",
     ],
     deps = [
         ":doc_blocks",
         "//src/tools/ipu-as-py:ipu_as_lib",
+        "//src/tools/ipu-harness:ipu_harness_lib",
         requirement("pytest"),
     ],
 )

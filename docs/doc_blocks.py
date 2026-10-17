@@ -12,6 +12,11 @@ comment on the line just before its fence:
     ```
 
 The reason after the colon is required.
+
+A kernel's program, which renders only with that kernel's values, carries a
+kernel marker instead, naming the kernel folder (from the repository root):
+
+    <!-- asm-kernel: kernels/elementwise/scale -->
 """
 
 from __future__ import annotations
@@ -21,7 +26,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 _FENCE = re.compile(r"^(?P<indent>[ \t]*)(?P<fence>`{3,}|~{3,})[ \t]*(?P<info>[^`]*)$")
-_MARKER = re.compile(r"^[ \t]*<!--[ \t]*(?P<lang>[\w+-]+)-fragment(?P<rest>.*?)-->[ \t]*$")
+_MARKER = re.compile(
+    r"^[ \t]*<!--[ \t]*(?P<lang>[\w+-]+)-(?P<kind>fragment|kernel)(?P<rest>.*?)-->[ \t]*$"
+)
 
 
 class DocBlockError(ValueError):
@@ -36,6 +43,8 @@ class Block:
     body: str
     #: The reason from the fragment marker, or None when the block is not a fragment.
     fragment_reason: str | None
+    #: The kernel folder from a kernel marker, or None.
+    kernel: str | None = None
 
 
 def _strip_indent(line: str, indent: int) -> str:
@@ -50,16 +59,24 @@ def _orphan_marker(path: str | Path, line: int, lang: str) -> DocBlockError:
     )
 
 
-def _marker_reason(path: str | Path, line: int, marker: re.Match, lang: str) -> str:
-    """The reason in a fragment marker; DocBlockError if it has none."""
+_MARKER_EXAMPLE = {
+    "fragment": "why this block is not checked",
+    "kernel": "kernels/<family>/<name>",
+}
+
+
+def _marker_value(path: str | Path, line: int, marker: re.Match, lang: str) -> str:
+    """The text after the colon of a marker; DocBlockError if it has none."""
     rest = marker.group("rest").strip()
-    reason = rest[1:].strip() if rest.startswith(":") else ""
-    if not reason:
+    value = rest[1:].strip() if rest.startswith(":") else ""
+    if not value:
+        kind = marker.group("kind")
+        what = "a reason" if kind == "fragment" else "a kernel folder"
         raise DocBlockError(
-            f"{path}:{line}: {lang}-fragment marker needs a reason "
-            f"(<!-- {lang}-fragment: why this block is not checked -->)"
+            f"{path}:{line}: {lang}-{kind} marker needs {what} "
+            f"(<!-- {lang}-{kind}: {_MARKER_EXAMPLE[kind]} -->)"
         )
-    return reason
+    return value
 
 
 def _read_fence(
@@ -91,7 +108,7 @@ def fenced_blocks(path: str | Path, lang: str) -> list[Block]:
     """
     lines = Path(path).read_text(encoding="utf-8").splitlines()
     blocks: list[Block] = []
-    pending_marker: tuple[int, str] | None = None  # (line, reason)
+    pending_marker: tuple[int, str, str] | None = None  # (line, kind, value)
     i = 0
     while i < len(lines):
         marker = _MARKER.match(lines[i])
@@ -99,7 +116,8 @@ def fenced_blocks(path: str | Path, lang: str) -> list[Block]:
         if pending_marker is not None and not fence:
             raise _orphan_marker(path, pending_marker[0], lang)
         if marker and marker.group("lang") == lang:
-            pending_marker = (i + 1, _marker_reason(path, i + 1, marker, lang))
+            value = _marker_value(path, i + 1, marker, lang)
+            pending_marker = (i + 1, marker.group("kind"), value)
             i += 1
             continue
         if not fence:
@@ -107,8 +125,10 @@ def fenced_blocks(path: str | Path, lang: str) -> list[Block]:
             continue
         block_lang, body, next_i = _read_fence(path, lines, i, fence)
         if block_lang == lang:
-            reason = pending_marker[1] if pending_marker else None
-            blocks.append(Block(str(path), i + 1, "\n".join(body) + "\n", reason))
+            kind, value = pending_marker[1:] if pending_marker else (None, None)
+            reason = value if kind == "fragment" else None
+            kernel = value if kind == "kernel" else None
+            blocks.append(Block(str(path), i + 1, "\n".join(body) + "\n", reason, kernel))
         elif pending_marker is not None:
             raise _orphan_marker(path, pending_marker[0], lang)
         pending_marker = None

@@ -31,7 +31,7 @@ Schema
     ``shape`` (non-empty list, required): positive ints, or expressions over
     parameter and derived names in E06-03's grammar (``"rows * 4"``,
     ``"ceil(k / 128)"``). ``row``: pin the region's first XMEM row (Q81), an int
-    or an expression like a shape's. ``after = "<tensor>"``: place the region
+    or an expression like a shape's. ``after`` (``"<tensor>"``): place the region
     right after that tensor's in placement order (by default inputs, then
     outputs, then scratch, each in file order), so scratch can come before an
     output; not with ``row``. ``when = "<bool param>"`` (or ``"not <bool
@@ -51,9 +51,10 @@ Schema
     ``<name> = "CR2"`` .. ``"CR15"``, or ``"LR0"`` .. ``"LR15"`` (a preset, E06-06).
     ``CR0`` and ``CR1`` are hardwired constants and cannot be bound, except that
     a tensor pinned at a literal ``row = 0`` may bind ``CR0``: the program reads its base
-    through the hardwired 0 and nothing is written. A tensor may also bind
-    ``{ register = "CR2", offset = -1 }``: its base row plus ``offset`` (an
-    int; in a ``unit = "bytes"`` kernel the base and the offset count bytes).
+    through the hardwired 0 and nothing is written. A binding may be a table
+    with ``register`` and optional keys: a tensor's may add ``offset``,
+    ``{ register = "CR2", offset = -1 }`` for its base row plus an int (in a
+    ``unit = "bytes"`` kernel the base and the offset count bytes).
     Any binding may be a table with ``when`` (as a tensor's): it binds
     only in a case where that holds; a conditional tensor's binding takes the
     tensor's condition. Two bindings may share a register only when their
@@ -139,6 +140,7 @@ __all__ = [
     "KernelManifest",
     "ManifestError",
     "ParamDecl",
+    "SCHEMA_KEYS",
     "SECTION_OF",
     "TensorDecl",
     "ZERO_REGISTER",
@@ -188,6 +190,24 @@ _TENSOR_KEYS: Mapping[Role, tuple[str, ...]] = {
 _CASE_KEYS = ("formats", "inputs", "expected", "generator", "tier")
 _GOLDEN_KEYS = ("reference", "op", "tolerance")
 _TIER_KEYS = ("tier", "rtol", "atol", "ulps", "why")
+_BINDING_KEYS = ("register", "offset", "when")
+
+#: Every table of the schema and the keys it takes, in the module docstring's
+#: order: what the ``kernel.toml`` reference page lists (E06-21). A case's
+#: other keys are parameter values; ``[abi]`` and ``[derived]`` take names.
+SCHEMA_KEYS: Mapping[str, tuple[str, ...]] = MappingProxyType(
+    {
+        "[kernel]": _KERNEL_KEYS,
+        "[params.<name>]": _PARAM_KEYS,
+        "[inputs.<name>]": _TENSOR_KEYS["input"],
+        "[outputs.<name>]": _TENSOR_KEYS["output"],
+        "[scratch.<name>]": _TENSOR_KEYS["scratch"],
+        "[abi] table binding": _BINDING_KEYS,
+        "[cases.<name>] (reserved keys)": _CASE_KEYS,
+        "[golden]": _GOLDEN_KEYS,
+        "[golden] tolerance override": _TIER_KEYS,
+    }
+)
 #: Names a template or a case reserves (E06-07: cr, lr, format, shapes).
 _RESERVED_NAMES = frozenset({"cr", "lr", "format", "shapes", *_CASE_KEYS})
 
@@ -615,7 +635,6 @@ def _binding_problem(
 
 #: The hardwired zero a tensor pinned at row 0 may be read through.
 ZERO_REGISTER = "CR0"
-_BINDING_KEYS = ("register", "offset", "when")
 
 
 def _register(

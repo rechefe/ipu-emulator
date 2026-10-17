@@ -1,5 +1,13 @@
 # Adding applications
 
+!!! note "Legacy: the `ipu_apps` kernel framework"
+    This page describes kernels under `src/tools/ipu-apps`, written as an
+    `IpuApp` subclass that programs the CRs by hand. New kernels go under
+    `kernels/` with a `kernel.toml` and no harness: see
+    [Write a kernel](how-to/write-a-kernel.md) and the
+    [`kernel.toml` reference](reference/kernel-toml.md). E07 migrates the
+    kernels below and then removes this page.
+
 How to contribute a kernel so the registry can find it, route to it, and report
 its coverage accurately. See [Application coverage](app-coverage.md) for why the
 system is shaped this way.
