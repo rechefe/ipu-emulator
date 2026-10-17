@@ -9,6 +9,8 @@ load("//tools:typecheck.bzl", "mypy_test")
 package(default_visibility = ["//visibility:public"])
 
 exports_files([
+    # Linked from SKILL.md (//docs:test_doc_links).
+    "conformance/README.md",
     "pyproject.toml",
 ])
 
@@ -16,6 +18,13 @@ exports_files([
 runtime_deps_manifest(
     name = "runtime_deps",
     runtime_deps = RUNTIME_DEPS,
+)
+
+# The conformance suite (E04-31): programs, setups and expected traces, as data
+# any model runs. Written by //src/tools/ipu-emu-py:regen_conformance.
+filegroup(
+    name = "conformance",
+    srcs = glob(["conformance/**"]),
 )
 
 # The package's Python sources, for //tools:test_import_graph.

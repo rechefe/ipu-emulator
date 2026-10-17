@@ -595,9 +595,7 @@ def _add_cyclic_accessors(methods: dict, name: str, total_size: int) -> None:
     """
 
     def _make_get(n: str = name, default_sz: int = total_size):
-        def get_at(
-            self, start_idx: int, length: int = 128, wrap_size: int | None = None
-        ) -> bytearray:
+        def get_at(self, start_idx: int, length: int, wrap_size: int | None = None) -> bytearray:
             buf = self._storage[n]
             sz = default_sz if wrap_size is None else wrap_size
             start_idx %= sz

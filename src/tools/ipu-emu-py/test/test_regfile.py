@@ -226,7 +226,7 @@ class TestRegFileCyclic:
         rf.set_r_cyclic_at(0, full)
 
         # Read 128 bytes starting at 450 — wraps at 512
-        got = rf.get_r_cyclic_at(450)
+        got = rf.get_r_cyclic_at(450, 128)
         expected = full[450:] + full[: 128 - (512 - 450)]
         assert got == expected
 

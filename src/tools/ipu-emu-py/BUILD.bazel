@@ -9,6 +9,8 @@ load("//tools:lint.bzl", "ruff_test")
 package(default_visibility = ["//visibility:public"])
 
 exports_files([
+    # Read by //tools:test_update_baselines.
+    "BUILD.bazel",
     "pyproject.toml",
 ])
 
@@ -525,6 +527,83 @@ py_pytest_test(
     imports = ["src"],
     deps = [
         ":emu_test_support",
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
+)
+
+# The conformance suite (E04-31). The runner reads only the case files
+# (//src/tools/ipu-isa:conformance) through the reference-model API; the
+# catalog and the generator build them. `bazel run :regen_conformance`
+# rewrites the suite (tools/update_baselines.sh runs it as update_conformance).
+py_library(
+    name = "conformance_support",
+    testonly = True,
+    srcs = ["test/conformance.py"],
+    imports = ["test"],
+    deps = [
+        ":ipu_emu_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+    ],
+)
+
+py_library(
+    name = "conformance_cases",
+    testonly = True,
+    srcs = ["test/conformance_cases.py"],
+    imports = ["test"],
+    deps = [
+        ":conformance_support",
+        ":ipu_emu_lib",
+        ":timing_probes",
+        "//src/tools/ipu-as-py:ipu_as_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+    ],
+)
+
+py_binary(
+    name = "update_conformance",
+    testonly = True,
+    srcs = ["test/regen_conformance.py"],
+    main = "test/regen_conformance.py",
+    deps = [
+        ":conformance_cases",
+        ":conformance_support",
+        ":ipu_emu_lib",
+    ],
+)
+
+alias(
+    name = "regen_conformance",
+    actual = ":update_conformance",
+)
+
+py_pytest_test(
+    name = "test_conformance",
+    size = "small",
+    srcs = ["test/test_conformance.py"],
+    data = [
+        "pytest.ini",
+        "//src/tools/ipu-isa:conformance",
+    ],
+    imports = ["src"],
+    deps = [
+        ":conformance_cases",
+        ":conformance_support",
+        ":ipu_emu_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+        requirement("jsonschema"),
+        requirement("pytest"),
+    ],
+)
+
+# E03-12: no ipu_emu module copies the lane count or R_CYCLIC's size.
+py_pytest_test(
+    name = "test_isa_constants_not_copied",
+    size = "small",
+    srcs = ["test/test_isa_constants_not_copied.py"],
+    imports = ["src"],
+    deps = [
         ":ipu_emu_lib",
         requirement("pytest"),
     ],

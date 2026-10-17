@@ -1,0 +1,3 @@
+{"schema_version":"1.0.0","isa_digest":"7e0d11b257cdf1873b81998a87e480eed040716e2e6ebadf4c54a74d12dcb968","format":"fp32","program_digest":"de0b2c9485114563c0648f0d8b8e3431af12ab351c72d5ff9bf0a21380d8558f","emulator_version":"0.1.0"}
+{"cycle":0,"pc_before":0,"pc_after":1,"slots":[{"slot":"acc","mnemonic":"ACC.RESHAPE","fields":{"source":0,"dest":1,"reshape_mask":0}}],"reg_writes":[{"register":"r_acc","offset":0,"data":"04633d40"},{"register":"r_acc","offset":8,"data":"04633d402df05a40"}],"xmem_writes":[],"outcome":"retired","fault":null,"arith_events":[]}
+{"cycle":1,"pc_before":1,"pc_after":1024,"slots":[{"slot":"cond","mnemonic":"HALT","fields":{}}],"reg_writes":[],"xmem_writes":[],"outcome":"halt","fault":null,"arith_events":[]}
