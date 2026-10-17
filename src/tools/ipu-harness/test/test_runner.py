@@ -17,6 +17,7 @@ import pytest
 from scale_kernel import write_scale
 
 from ipu_emu.emulator import load_program
+from ipu_emu.errors import ConfigurationError
 from ipu_emu.execute import decode_instruction_word
 from ipu_emu.ipu_state import IpuState
 from ipu_emu.trace import read_trace, trace_header
@@ -101,6 +102,65 @@ def test_a_scratch_region_starts_with_its_fill(tmp_path):
     result = run_kernel(manifest, _case(manifest, "default"), F.FP32)  # y = t * 2, not x * 2
     # t is 100 wide: its rows' padding lanes hold the fill too, not zeros.
     np.testing.assert_array_equal(result.outputs["y"], np.full((4, 128), 6.0))
+
+
+def test_a_bytes_region_starts_with_its_functions_bytes(tmp_path):
+    directory = write_scale(tmp_path).directory
+    (directory / "mask.py").write_text(
+        "def mask(plan):\n    return bytes(range(256)) * 2  # one FP32 row\n"
+    )
+    toml = (directory / "kernel.toml").read_text()
+    toml = toml.replace(
+        "[abi]\n", '[scratch.m]\nshape = [1, 128]\nbytes = "mask.py:mask"\n\n[abi]\nm    = "CR6"\n'
+    )
+    (directory / "kernel.toml").write_text(toml)
+    manifest = load_manifest(directory)
+    staged = runner.stage(manifest, _case(manifest, "default"), F.FP32)
+    assert staged.model.read_xmem(*staged.region_bytes("m")) == bytes(range(256)) * 2
+
+
+CONDITIONAL_TOML = """\
+[kernel]
+op = "conv"
+formats = ["fp32"]
+
+[params]
+rows = { type = "int", min = 1 }
+bias = { type = "bool", default = false }
+
+[inputs.x]
+shape = ["rows", 128]
+
+[inputs.b]
+shape = [1, 128]
+when = "bias"
+
+[outputs.y]
+shape = ["rows", 128]
+
+[abi]
+x = "CR2"
+y = "CR3"
+b = "CR10"
+
+[cases.default]
+rows = 1
+bias = [false, true]
+"""
+
+
+def test_a_cr_bound_only_under_another_cases_condition_is_an_unbound_read(tmp_path):
+    """CR10 holds the bias base only when ``bias``; a case without it reading
+    CR10 reads an unbound register, though the kernel's ``[abi]`` lists it."""
+    directory = tmp_path / "conv"
+    directory.mkdir()
+    (directory / "conv.asm").write_text("ADD LR0 LR0 CR10 ;;\nHALT ;;\n")
+    (directory / "kernel.toml").write_text(CONDITIONAL_TOML)
+    manifest = load_manifest(directory)
+    cases = {case.values["bias"]: case for case in expand(manifest)}
+    runner.stage(manifest, cases[True], F.FP32)
+    with pytest.raises(ConfigurationError, match="reads CR10"):
+        runner.stage(manifest, cases[False], F.FP32)
 
 
 def test_the_cycle_limit_is_a_fault_naming_its_word(scale):
