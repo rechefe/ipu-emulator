@@ -79,7 +79,7 @@ jobs:
             "$PWD"/src/tools/ipu-apps/src/ipu_apps/**/*.asm \
             "$PWD"/src/tools/ipu-apps/test/**/*.asm \
             "$PWD/vscode-ipu-asm/test/corpus/edge_cases.asm"
-        shell: bash --noprofile --norc -eo pipefail -O globstar {0}
+        shell: bash --noprofile --norc -eo pipefail -O globstar -O nullglob {0}
 
       # The real VS Code tokenizer (Python's re is a different engine, so a
       # misleading oracle) and the VS Code test harness; --no-save keeps them
