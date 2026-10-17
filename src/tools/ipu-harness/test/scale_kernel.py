@@ -56,7 +56,7 @@ rows = "CR4"
 s    = "CR5"
 
 [golden]
-{reference}tolerance = {{ fp32 = "EXACT", int8 = "EXACT", e4 = "FP8_ULP" }}
+{reference}tolerance = {{ fp32 = "EXACT", int32 = "EXACT" }}
 
 [cases.default]
 rows = 4

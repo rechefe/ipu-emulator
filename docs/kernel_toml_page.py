@@ -57,12 +57,50 @@ def _paragraphs(lines: list[str]) -> list[str]:
     return out
 
 
-def schema_section(doc: str) -> str:
-    """The ``Schema`` section of a docstring as Markdown.
+def sections(doc: str) -> list[tuple[str | None, list[str]]]:
+    """The ``Schema`` section of a docstring, block by block.
 
     A line at the left margin followed by indented lines is a table's heading
     and its description; a paragraph at the margin with nothing indented under
     it is prose.
+
+    Args:
+        doc: The module docstring.
+
+    Returns:
+        ``(heading, body lines)`` per table, ``(None, lines)`` per prose paragraph.
+
+    Raises:
+        ValueError: The docstring has no ``Schema`` section.
+    """
+    lines = inspect.cleandoc(doc).splitlines()
+    try:
+        i = lines.index("Schema") + 2  # the title and its underline
+    except ValueError:
+        raise ValueError("the docstring has no 'Schema' section") from None
+    blocks: list[tuple[str | None, list[str]]] = []
+    while i < len(lines):
+        line = lines[i]
+        if not line.strip():
+            i += 1
+        elif i + 1 < len(lines) and lines[i + 1][:1].isspace() and lines[i + 1].strip():
+            i += 1
+            body = []
+            while i < len(lines) and (not lines[i].strip() or lines[i][0].isspace()):
+                body.append(lines[i])
+                i += 1
+            blocks.append((line, body))
+        else:
+            body = []
+            while i < len(lines) and lines[i].strip() and not lines[i][0].isspace():
+                body.append(lines[i])
+                i += 1
+            blocks.append((None, body))
+    return blocks
+
+
+def schema_section(doc: str) -> str:
+    """The ``Schema`` section of a docstring as Markdown (:func:`sections`).
 
     Args:
         doc: The module docstring.
@@ -73,30 +111,13 @@ def schema_section(doc: str) -> str:
     Raises:
         ValueError: The docstring has no ``Schema`` section.
     """
-    lines = inspect.cleandoc(doc).splitlines()
-    try:
-        i = lines.index("Schema") + 2  # the title and its underline
-    except ValueError:
-        raise ValueError("the docstring has no 'Schema' section") from None
     parts: list[str] = []
-    while i < len(lines):
-        line = lines[i]
-        if not line.strip():
-            i += 1
-        elif i + 1 < len(lines) and lines[i + 1][:1].isspace() and lines[i + 1].strip():
-            parts.append(f"### {markdown(line)}\n")  # a table and its description
-            i += 1
-            body = []
-            while i < len(lines) and (not lines[i].strip() or lines[i][0].isspace()):
-                body.append(lines[i])
-                i += 1
-            parts += [markdown(text) + "\n" for text in _paragraphs(body)]
-        else:
-            body = []
-            while i < len(lines) and lines[i].strip() and not lines[i][0].isspace():
-                body.append(lines[i])
-                i += 1
+    for heading, body in sections(doc):
+        if heading is None:
             parts.append(markdown(" ".join(body)) + "\n")
+        else:
+            parts.append(f"### {markdown(heading)}\n")
+            parts += [markdown(text) + "\n" for text in _paragraphs(body)]
     return "\n".join(parts)
 
 
@@ -133,21 +154,30 @@ def _example(doc: str) -> str:
 
 
 def undocumented(doc: str, schema: Mapping[str, tuple[str, ...]]) -> list[str]:
-    """The keys of ``schema`` a docstring does not describe.
+    """The keys of ``schema`` their own table's section does not describe.
+
+    A table of ``schema`` (``"[abi] table binding"``) belongs to the section
+    whose heading names its first word as code (````[abi]````); its keys
+    must be written as code (````register````) in that section's text.
 
     Args:
         doc: The docstring.
         schema: Table name to its keys.
 
     Returns:
-        ``"<table> <key>"`` for each key never written as ````key````.
+        ``"<table> <key>"`` for each key its section does not name, and
+        ``"<table> (no section)"`` for a table no heading names.
     """
-    return [
-        f"{table} {key}"
-        for table, keys in schema.items()
-        for key in keys
-        if f"``{key}``" not in doc
-    ]
+    blocks = [(heading, "\n".join(body)) for heading, body in sections(doc) if heading]
+    missing = []
+    for table, keys in schema.items():
+        token = f"``{table.split()[0]}``"
+        text = next((body for heading, body in blocks if token in heading), None)
+        if text is None:
+            missing.append(f"{table} (no section)")
+            continue
+        missing += [f"{table} {key}" for key in keys if f"``{key}``" not in text]
+    return missing
 
 
 def schema_page() -> str:
