@@ -85,7 +85,7 @@ A baseline is a checked-in file that pins today's output. Its test fails on any 
 | SV package golden | `src/tools/ipu-as-py/test/golden/ipu_instr_pkg.sv`, plus the `EXPECTED_LOCALPARAMS` table in `test_sv_package_golden.py` (edited by hand) | `//src/tools/ipu-as-py:update_sv_golden` |
 | Generated artifacts | `src/tools/ipu-as-py/test/baselines/generated/` | `//src/tools/ipu-as-py:update_generated_artifacts` |
 | Kernel case records | `baseline.json` in each kernel folder | `//src/tools/ipu-apps:update_kernel_baselines` |
-| ISA view snapshot, and the F-1 table of the faults requirements page | `src/tools/ipu-isa/test/fixtures/spec_snapshot.json`, `docs/content/requirements/faults.md` | `//src/tools/ipu-isa:update_isa_baselines` |
+| The ISA view as JSON, and the F-1 table of the faults requirements page | `src/tools/ipu-isa/test/fixtures/spec_snapshot.json`, `docs/content/requirements/faults.md` | `//src/tools/ipu-isa:update_isa_baselines` |
 
 `tools/update_baselines.sh` runs every update target and then lists the baseline files that changed. The kernel target takes minutes, so it runs only with `--with-kernels`. The timing tests have no baseline file: their expected values are code, changed by hand in the behaviour PR that changes the timing rule.
 
