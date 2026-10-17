@@ -28,11 +28,13 @@ Every trace is a build output; none is checked in. The docs build records each
 curated case with the reference model's trace writer and converts it to the
 page's format, so the page always matches the current ISA and kernels:
 
-1. `//src/tools/ipu-apps:trace_case` runs a registered kernel case exactly as
-   its test runs it. It writes the case's trace (one commit record per retired
-   word; the schemas are in `ipu_isa/schemas/`) and a context file: the
-   kernel's source and labels, the starting registers, and per word the
-   multiplier lanes used and the XMEM ranges read.
+1. The kernel runner (`//src/tools/ipu-harness:run_kernel` with `--trace` and
+   `--context`) runs a kernel-tree case exactly as its test runs it. It writes
+   the case's trace (one commit record per retired word; the schemas are in
+   `ipu_isa/schemas/`) and a context file: the kernel's source and labels, the
+   starting registers, and per word the multiplier lanes used and the XMEM
+   ranges read. A kernel still in `ipu_apps` is recorded the same way by
+   `//src/tools/ipu-apps:trace_case` until its family migrates (E07).
 2. `ipu-gen inspector-trace` converts the two files into the page's JSON
    (`ipu_gen/schemas/inspector-trace.schema.json`). It keeps the first 5000
    cycles of a long run and marks the trace as truncated.
@@ -45,8 +47,8 @@ The `kernel_trace` macro in `docs/inspector.bzl` does steps 1 and 2 for one
 case. To record a trace by hand:
 
 ```bash
-bazel run //src/tools/ipu-apps:trace_case -- identity --trace "$PWD/trace.jsonl" --context "$PWD/context.json"
-bazel run //src/tools/ipu-gen:ipu-gen -- inspector-trace trace.jsonl context.json identity.json
+bazel run //src/tools/ipu-harness:run_kernel -- kernels/conformance/vector_tour --case e4 --trace "$PWD/trace.jsonl" --context "$PWD/context.json"
+bazel run //src/tools/ipu-gen:ipu-gen -- inspector-trace "$PWD/trace.jsonl" "$PWD/context.json" "$PWD/tour_e4.json"
 ```
 
 ## Add a kernel
@@ -56,12 +58,16 @@ bazel run //src/tools/ipu-gen:ipu-gen -- inspector-trace trace.jsonl context.jso
    the kernel's id on the page:
 
     ```python
-    {"name": "softmax_rows", "kernel": "softmax_rows", "options": {"rows": 2}},
+    {"name": "tour_e4", "kernel": "//kernels/conformance/vector_tour", "case": "e4"},
     ```
 
-    `case` picks one of the kernel's cases (`default` unless given), and
-    `options` overrides its options. A kernel's element formats are its cases,
-    such as `fully_connected`'s `int8`, `fp8_e4m3` and `fp8_e5m2`.
+    `kernel` is a kernel-tree label (`//kernels/conformance/vector_tour`, or
+    `//kernels/<family>:<entry>` for a registry entry) or an `ipu_apps` kernel
+    name. `case` picks one of the kernel's cases (`default` unless given); a
+    kernel-tree case runs in its first format, so give each format its own
+    case, as `vector_tour`'s `int8`, `e4`, `e5` and `e3`. `options` overrides
+    an `ipu_apps` kernel's options; a kernel-tree kernel takes none (add a
+    case instead).
 
 2. Add a `[[kernel]]` entry with the same `id`, at the same place, to
    `docs/inspector/curated.toml`, with its `group` (`hardware` for the 8-bit hardware element formats, `emulator`

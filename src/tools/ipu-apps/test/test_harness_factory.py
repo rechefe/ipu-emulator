@@ -155,7 +155,7 @@ def test_execution_profiles_and_fresh_state(monkeypatch, fmt, quantize, row_byte
 
 
 #: Kernels whose default case does not run in the wide-vector FP32 format.
-_DEFAULT_FORMATS = {"fully_connected": "int32", "vector_tour": "int8"}
+_DEFAULT_FORMATS = {"fully_connected": "int32"}
 
 
 @pytest.mark.parametrize("name", [spec.name for spec in kernels()])
@@ -457,33 +457,12 @@ def test_every_assembly_has_a_registered_case():
         assert "default" in load_cases(name)
 
 
-@pytest.mark.parametrize(
-    "name,params",
-    [
-        ("maxpool2d_window", dict(shape=(1, 2, 2), kernel_size=2, stride=1, padding=1)),
-        ("maxpool2d_nms7", dict(shape=(1, 2, 2), kernel_size=9, stride=1, padding=4)),
-        ("depth_to_space", dict(shape=(256, 2, 2), upscale_factor=16)),
-        ("depth_to_space", dict(shape=(3, 2, 2), upscale_factor=2)),
-        ("l2_normalize_channels", dict(shape=(1, 10**10))),
-        ("channel_peak", dict(shape=(0, 2))),
-        ("score_threshold", dict(shape=(0,))),
-    ],
-)
-def test_memory_harness_rejects_unsupported_geometry(name, params):
-    assert not kernel_spec(name).check(**params)
-    # Validation must happen before opening input/instruction files.
-    with pytest.raises(ValueError):
-        create_harness(
-            name, params=params, bindings=dict(inst_path="missing", input_path="missing")
-        )
-
-
 def test_memory_harness_rejects_truncated_image(tmp_path):
     inp = tmp_path / "input.bin"
     inp.write_bytes(b"short")
     with pytest.raises(ValueError, match="preformatted input must contain"):
         create_harness(
-            "l2_normalize_channels",
-            params=dict(shape=(2, 3)),
+            "identity",
+            params=dict(shape=(2, 128)),
             bindings=dict(inst_path="missing", input_path=inp),
         )

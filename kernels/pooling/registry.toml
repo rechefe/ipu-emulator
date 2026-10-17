@@ -1,0 +1,17 @@
+# The pooling family's registry entries (E07-14): the two unrolled window
+# sizes over the maxpool2d_nms template. `bazel test
+# //kernels/pooling:maxpool2d_nms9` runs the template's cases at K = 9;
+# `bazel run //kernels:query -- maxpool2d channels=1 height=480 width=640
+# kernel_size=9 stride=1 padding=4` finds it.
+
+[[kernel]]
+name = "maxpool2d_nms7"
+template = "maxpool2d_nms"
+params = { kernel_size = 7, padding = 3 }
+doc = "SuperPoint simple_nms, nms_radius = 3"
+
+[[kernel]]
+name = "maxpool2d_nms9"
+template = "maxpool2d_nms"
+params = { kernel_size = 9, padding = 4 }
+doc = "SuperPoint simple_nms, nms_radius = 4 (the default)"

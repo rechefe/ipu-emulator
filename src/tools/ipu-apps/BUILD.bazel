@@ -146,7 +146,7 @@ py_binary(
     deps = [":ipu_apps_lib"],
 )
 
-# `:<family>` (e.g. :pooling, :reshape) runs every kernel in that family plus
+# `:<family>` (e.g. :convolutions, :attention) runs every kernel in that family plus
 # the family's own test.py. Family tests may check the family's docs page.
 ipu_families_from_kernels(
     kernels_root = "src/ipu_apps/kernels",
@@ -194,10 +194,11 @@ ipu_per_kernel_test(
 )
 
 # The MobileViT suite's shared fixtures, imported by module name (`fixture_*`).
-# fixture_projections, fixture_reshape and fixture_elementwise run the
-# projections, unfold and the residual adds from //kernels/projections,
-# //kernels/reshape and //kernels/elementwise (E07-02, E07-05, E07-06)
-# until E07-24 ports the chain tests to the harness's chaining API.
+# fixture_projections, fixture_reshape, fixture_elementwise and
+# fixture_normalize run the projections, unfold, the residual adds and the
+# LayerNorms from //kernels/projections, //kernels/reshape,
+# //kernels/elementwise and //kernels/normalize (E07-02, E07-05, E07-06,
+# E07-10) until E07-24 ports the chain tests to the harness's chaining API.
 py_library(
     name = "mobilevit_fixtures",
     srcs = glob(["test/mobilevit/fixture_*.py"]),

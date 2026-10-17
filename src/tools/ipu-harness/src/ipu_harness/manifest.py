@@ -72,10 +72,14 @@ Schema
     tensor's condition. Two bindings may share a register only when their
     conditions exclude each other (``bias`` and ``not bias``; a condition with
     ``or`` excludes another only when every term of one contradicts every term
-    of the other). A float
+    of the other), or when both are tensors pinned at literal rows that put the
+    same value in it (``acc`` at ``row = 8`` and ``relu = { register = "CR7",
+    offset = -12 }`` at ``row = 20``: the program reaches relu from acc's
+    base). A float
     parameter (an element scalar) binds a CR. Every key names a parameter, a
     tensor or a derived value, and every tensor is bound (its base row must
-    reach the program).
+    reach the program), itself or through a bound ``[derived]`` value that
+    reads its ``base()``.
 
 ``[derived]``
     ``<name> = "<expression>"`` over parameters and earlier derived values,
@@ -777,12 +781,51 @@ def _binding(
     return _Binding(register, offset, when)
 
 
+def _same_pinned_value(
+    tensors: Mapping[str, TensorDecl],
+    offsets: Mapping[str, int],
+    name: str,
+    offset: int,
+    other: str,
+) -> bool:
+    """Whether ``name`` (at ``offset``) and ``other`` are tensors pinned at literal
+    rows whose bindings give their register the same value (row plus offset):
+    one register then reaches both regions (vector_tour's relu, stored at
+    ``acc`` plus three accumulator stores)."""
+    mine, theirs = tensors.get(name), tensors.get(other)
+    if mine is None or theirs is None:
+        return False
+    if not isinstance(mine.row, int) or not isinstance(theirs.row, int):
+        return False
+    return mine.row + offset == theirs.row + offsets.get(other, 0)
+
+
+def _sharing_clash(
+    name: str,
+    binding: _Binding,
+    others: list[str],
+    conditions: Mapping[str, Condition],
+    tensors: Mapping[str, TensorDecl],
+    offsets: Mapping[str, int],
+) -> str | None:
+    """The first earlier binding of the same register that ``name`` may not
+    share it with: unless their conditions exclude each other, or both are
+    tensors pinned so the register holds one value (:func:`_same_pinned_value`)."""
+    for other in others:
+        if binding.when is not None and binding.when.excludes(conditions.get(other)):
+            continue
+        if not _same_pinned_value(tensors, offsets, name, binding.offset, other):
+            return other
+    return None
+
+
 def _abi(
     r: Reader,
     raw: object,
     params: Mapping[str, ParamDecl],
     names: set[str],
     tensors: Mapping[str, TensorDecl],
+    placed: Mapping[str, frozenset[str]],
 ) -> tuple[Mapping[str, str], Mapping[str, int], Mapping[str, Condition]]:
     table = r.table(raw, ("abi",))
     abi: dict[str, str] = {}
@@ -799,13 +842,24 @@ def _abi(
             offsets[name] = binding.offset
         if binding.when is not None:
             conditions[name] = binding.when
-        for other in used.get(register, []):
-            if binding.when is None or not binding.when.excludes(conditions.get(other)):
-                raise r.fail(path, f"[abi] {name} and {other} both bind {register}")
+        clash = _sharing_clash(name, binding, used.get(register, []), conditions, tensors, offsets)
+        if clash is not None:
+            raise r.fail(path, f"[abi] {name} and {clash} both bind {register}")
         used.setdefault(register, []).append(name)
         abi[name] = register
+
+    # A bound placed value that reads base(x) carries x's base to the program
+    # too (a region bound at a parameter-dependent offset, E07-15), when it is
+    # bound in every case x exists: unconditionally, or under x's condition.
+    def reaches(tensor: TensorDecl) -> bool:
+        return any(
+            tensor.name in reads and conditions.get(name) in (None, tensor.when)
+            for name, reads in placed.items()
+            if name in abi
+        )
+
     for tensor in tensors.values():
-        if tensor.name not in abi:
+        if tensor.name not in abi and not reaches(tensor):
             raise r.fail(
                 (tensor.section, tensor.name),
                 f"[abi] does not bind tensor {tensor.name!r}; its base row must reach the program",
@@ -1380,7 +1434,9 @@ def load_manifest(
             path = (tensor.section, tensor.name, "fill")
             _check_expression(r, tensor.fill, (*numbers, *derived), path)
     _no_placed_reads(r, placed, tensors, kernel.cost)
-    abi, abi_offsets, abi_when = _abi(r, data.get("abi", {}), params, {*scalars, *tensors}, tensors)
+    abi, abi_offsets, abi_when = _abi(
+        r, data.get("abi", {}), params, {*scalars, *tensors}, tensors, placed
+    )
     _placed_conditions(r, placed, tensors, abi_when, abi)
     manifest = KernelManifest(
         name=entry.name or directory.name,

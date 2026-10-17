@@ -165,16 +165,12 @@ def test_every_kernel_is_named_after_its_folder():
 
 
 def test_misplaced_harnesses_fail_with_a_reason():
-    """A family base class has no SPEC, and a class outside any package has no
+    """A shared base class has no SPEC, and a class outside any package has no
     folder: both used to die with AttributeError on None."""
-    from ipu_apps.kernels.pooling.app import Stride2PoolApp
+    from ipu_apps.kernel_registry.memory import MemoryApp
 
     with pytest.raises(TypeError, match="no SPEC"):
-        Stride2PoolApp(
-            inst_path="x",
-            input_path="y",
-            params=dict(shape=(1, 2, 256), kernel_size=2, stride=2, padding=0),
-        )
+        MemoryApp(inst_path="x", input_path="y", params=dict(shape=(1, 128)))
     loose = type("Loose", (), {"__module__": "os"})  # a top-level, non-package module
     with pytest.raises(ValueError, match="kernel folder"):
         kernel_folder(loose)
@@ -869,7 +865,7 @@ def test_debug_only_detection_reads_the_assembled_words(tmp_path):
         assemble_to_bin_file(program, str(path))
         assert uses_debug_only_instructions(path) is (name == "uses_str_acc_reg")
     assert kernel_uses_debug_only_instructions("fully_connected")
-    assert not kernel_uses_debug_only_instructions("maxpool2d_stride2")
+    assert not kernel_uses_debug_only_instructions("identity")
 
 
 def test_runner_reports_a_broken_kernel_source(tmp_path, monkeypatch, capsys):
