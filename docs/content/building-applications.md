@@ -55,9 +55,9 @@ ACTIVATE.QUANTIZE relu CR3;;
 
 For aggregation (`AGG.SUM`, `AGG.MAX`, etc.) the element count is controlled by the required `cr_idx` operand — it reads `valid_elements` from the named CR register. `CR15` remains a valid choice (it is the dstructure register's conventional home), but it must be written out like any other register.
 
-## Wide-vector debug mode (optional)
+## Element formats
 
-The emulator can run multiply/accumulate paths with **128×32-bit elements** (FP32 or INT32) instead of 8-bit vectors, for debugging without quantization on that path. XMEM addresses stay the same; load sizes and alignment rules change. See **[Wide-vector debug mode](wide-vector-debug-mode.md)** for how to construct `IpuState`, prepare 512-byte loads, and use `ACTIVATE.QUANTIZE` / **`ST.AAQ`** / `ST.ACC` in that mode.
+A kernel runs in one element format. [Element formats](explanation/element-formats.md) lists them, what each one changes, and how a kernel selects one.
 
 ## Activations, `ACTIVATE.QUANTIZE`, and virtual α (Python emulator) {#activations-emulator}
 

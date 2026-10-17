@@ -45,6 +45,14 @@ alias(
     actual = "//src/tools/ipu-gen:verify_sv_package",
 )
 
+# The tables explanation/element-formats.md includes (E09-19).
+genrule(
+    name = "generate_element_format_tables",
+    outs = ["element-format-tables.md"],
+    cmd = "$(location //src/tools/ipu-gen:ipu-gen) element-format-tables $@ > /dev/null",
+    tools = ["//src/tools/ipu-gen:ipu-gen"],
+)
+
 genrule(
     name = "generate_instruction_format_md",
     outs = ["instruction-format.md"],
@@ -95,8 +103,10 @@ genrule(
         ":generate_mkdocs_md",
         ":generate_instruction_format_md",
         ":generate_instruction_format_artifacts",
+        ":generate_element_format_tables",
         "//:GLOSSARY.md",
         "examples/test_add_an_instruction.py",
+        "examples/test_element_formats.py",
         "//src/tools/ipu-isa:test/one_edit.py",
         "hooks/giscus_env.py",
         "hooks/history_link.py",
@@ -156,6 +166,12 @@ genrule(
         mkdir -p "$(@D)/docs/examples" "$(@D)/src/tools/ipu-isa/test"
         ln -sfn "$$ORIGDIR/$(location examples/test_add_an_instruction.py)" "$(@D)/docs/examples/test_add_an_instruction.py"
         ln -sfn "$$ORIGDIR/$(location //src/tools/ipu-isa:test/one_edit.py)" "$(@D)/src/tools/ipu-isa/test/one_edit.py"
+
+        # explanation/element-formats.md includes its tested example the same way, and
+        # its generated tables from docs/generated/.
+        ln -sfn "$$ORIGDIR/$(location examples/test_element_formats.py)" "$(@D)/docs/examples/test_element_formats.py"
+        mkdir -p "$(@D)/docs/generated"
+        ln -sfn "$$ORIGDIR/$(location :generate_element_format_tables)" "$(@D)/docs/generated/element-format-tables.md"
 
         # Generated C header and SystemVerilog package (downloadable; not in git)
         mkdir -p "$(@D)/docs_temp/content/assets"
@@ -285,6 +301,21 @@ py_pytest_test(
         "//src/tools/ipu-emu-py:ipu_emu_lib",
         "//src/tools/ipu-isa:ipu_isa_lib",
         "//src/tools/ipu-isa:one_edit",
+        requirement("pytest"),
+    ],
+)
+
+# The CR scalar example Explanation: element formats includes (examples/), run in
+# each format (E09-19).
+py_pytest_test(
+    name = "test_element_formats",
+    size = "small",
+    srcs = ["examples/test_element_formats.py"],
+    deps = [
+        "//src/tools/ipu-as-py:ipu_as_lib",
+        "//src/tools/ipu-emu-py:emu_test_support",
+        "//src/tools/ipu-emu-py:ipu_emu_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
         requirement("pytest"),
     ],
 )

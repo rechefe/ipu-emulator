@@ -30,20 +30,7 @@ No operation. Every slot accepts `NOP`. The assembler fills any omitted slot wit
 
 ## Element formats
 
-The element format is selected at run time. It sets the element width, and from it the XMEM row width, the register element widths and the accumulator type. An XMEM row, R0 and R1 hold 128 elements in every format. `EMULATOR` formats exist only in the emulator. A float element is 1 sign bit, the exponent bits and the stored mantissa bits.
-
-| Format | Tag | Element bits | Exponent bits | Mantissa bits | Row bytes | Accumulator |
-|--------|-----|-------------:|--------------:|--------------:|----------:|-------------|
-| `INT8` | `HARDWARE` | 8 | 0 | 0 | 128 | `INT32` |
-| `E1` | `HARDWARE` | 8 | 1 | 6 | 128 | `FP32` |
-| `E2` | `HARDWARE` | 8 | 2 | 5 | 128 | `FP32` |
-| `E3` | `HARDWARE` | 8 | 3 | 4 | 128 | `FP32` |
-| `E4` | `HARDWARE` | 8 | 4 | 3 | 128 | `FP32` |
-| `E5` | `HARDWARE` | 8 | 5 | 2 | 128 | `FP32` |
-| `E6` | `HARDWARE` | 8 | 6 | 1 | 128 | `FP32` |
-| `E7` | `HARDWARE` | 8 | 7 | 0 | 128 | `FP32` |
-| `FP32` | `EMULATOR` | 32 | 8 | 23 | 512 | `FP32` |
-| `INT32` | `EMULATOR` | 32 | 0 | 0 | 512 | `INT32` |
+The element format is selected at run time and sets the element width. [Element formats](../../explanation/element-formats.md) lists the formats and how each encodes values.
 
 ## Compound Instruction Layout
 
@@ -1929,7 +1916,7 @@ MULT.RC.VV LR0 R0 0 LR2 CR15;;
 | Name | Type | Details |
 |------|------|---------|
 | `rc_idx` | [`LrIdx`](operand-types.md#lridx) | `rc_idx`: **`LR0`**…**`LR15`** — base ELEMENT index into **`R_CYCLIC`** (cyclic, mod 512 elements; same unit as `LD.MULT.CYCLIC`'s `index`). |
-| `src` | [`LcrIdx`](operand-types.md#lcridx) | `src`: **`LR0`**…**`LR15`** \| **`CR0`**…**`CR15`** — if an LR, its stored value selects the scalar from R0/R1 (0..127 → `R0[idx]`, 128..255 → `R1[idx - 128]`); if a CR, its low byte supplies the scalar directly. |
+| `src` | [`LcrIdx`](operand-types.md#lcridx) | `src`: **`LR0`**…**`LR15`** \| **`CR0`**…**`CR15`** — if an LR, its stored value selects the scalar from R0/R1 (0..127 → `R0[idx]`, 128..255 → `R1[idx - 128]`); if a CR, it supplies the scalar directly ([CR scalars](../../explanation/element-formats.md#cr-scalars)). |
 | `mask_offset` | [`MultMaskOffsetImmediate`](operand-types.md#multmaskoffsetimmediate) | `mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**. |
 | `mask_shift` | [`LrIdx`](operand-types.md#lridx) | `mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end). |
 | `cr_idx` | [`DstructureCrIdx`](operand-types.md#dstructurecridx) | `cr_idx`: **`CR0`**…**`CR15`** — dstructure register supplying the `partition` field used to build the partition vectors and the `pad_mode` field used to fill deactivated elements (must be given explicitly). |
@@ -1994,7 +1981,7 @@ MULT.RC.VS LR0 0 LR2 CR15;;
 | Name | Type | Details |
 |------|------|---------|
 | `ra_idx` | [`LrIdx`](operand-types.md#lridx) | `ra_idx`: **`LR0`**…**`LR15`** — base element offset into combined Ra (`R0` ++ `R1`, 256 elements, cyclic mod 256). |
-| `cr_idx` | [`CrIdx`](operand-types.md#cridx) | `cr_idx`: **`CR0`**…**`CR15`** — CR register whose low byte supplies the scalar multiplier. |
+| `cr_idx` | [`CrIdx`](operand-types.md#cridx) | `cr_idx`: **`CR0`**…**`CR15`** — CR register that supplies the scalar multiplier ([CR scalars](../../explanation/element-formats.md#cr-scalars)). |
 | `mask_offset` | [`MultMaskOffsetImmediate`](operand-types.md#multmaskoffsetimmediate) | `mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**. |
 | `mask_shift` | [`LrIdx`](operand-types.md#lridx) | `mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end). |
 | `dstructure_cr_idx` | [`DstructureCrIdx`](operand-types.md#dstructurecridx) | `dstructure_cr_idx`: **`CR0`**…**`CR15`** — dstructure register supplying the `partition` field used to build the partition vectors and the `pad_mode` field used to fill deactivated elements (must be given explicitly). |
@@ -2027,7 +2014,7 @@ MULT.VE LR0 CR3 0 LR2 CR15;;
 | Name | Type | Details |
 |------|------|---------|
 | `ra_idx` | [`LrIdx`](operand-types.md#lridx) | `ra_idx`: **`LR0`**…**`LR15`** — index of the single Ra element to read (combined `R0` ++ `R1`, 256 elements, mod 256). |
-| `cr_idx` | [`CrIdx`](operand-types.md#cridx) | `cr_idx`: **`CR0`**…**`CR15`** — CR register whose low byte supplies the scalar multiplier. |
+| `cr_idx` | [`CrIdx`](operand-types.md#cridx) | `cr_idx`: **`CR0`**…**`CR15`** — CR register that supplies the scalar multiplier ([CR scalars](../../explanation/element-formats.md#cr-scalars)). |
 | `mask_offset` | [`MultMaskOffsetImmediate`](operand-types.md#multmaskoffsetimmediate) | `mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**. |
 | `mask_shift` | [`LrIdx`](operand-types.md#lridx) | `mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end). |
 | `dstructure_cr_idx` | [`DstructureCrIdx`](operand-types.md#dstructurecridx) | `dstructure_cr_idx`: **`CR0`**…**`CR15`** — dstructure register supplying the `partition` field used to build the partition vectors and the `pad_mode` field used to fill deactivated elements (must be given explicitly). |

@@ -3,7 +3,7 @@
 A single code path that handles any valid pointwise convolution via a
 multi-pass inner loop. Runs on the emulator's wide-vector debug datapath
 (128 elements of 32-bit FP32 per vector, see
-docs/content/wide-vector-debug-mode.md) -- weights, activations, and output
+docs/content/explanation/element-formats.md) -- weights, activations, and output
 are all genuine floats, no INT8 quantization anywhere in this kernel.
 
 Kernel layout: one OC per 128-element register-load, padded with zeros to
@@ -228,7 +228,7 @@ class PointwiseConvUnifiedApp(IpuApp):
         # Parameter CR registers (see the .asm header). CR8/CR13 are XMEM-space
         # (rows); CR4/CR5/CR6/CR7/CR9/CR10/CR11 are plain counters/lane
         # bounds, unaffected by row addressing. CR scalars stay integer-only
-        # even in wide mode (see docs/content/wide-vector-debug-mode.md) --
+        # even in wide mode (see docs/content/explanation/element-formats.md) --
         # none of these carry fractional values, so FP32 mode does not affect
         # them.
         state.regfile.set_cr(4, self.num_passes)

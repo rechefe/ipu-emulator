@@ -59,6 +59,15 @@ def instruction_format_md(output: Path) -> None:
     docs_pages.generate_instruction_format_md(output)
 
 
+@cli.command("element-format-tables")
+@click.argument("output", type=click.Path(dir_okay=False, path_type=Path))
+def element_format_tables(output: Path) -> None:
+    """Write the tables the element-formats page includes."""
+    output = _caller_path(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    docs_pages.generate_element_format_tables_md(output)
+
+
 @cli.command("union-layout-svg")
 @click.argument("output", type=click.Path(dir_okay=False, path_type=Path))
 def union_layout_svg(output: Path) -> None:

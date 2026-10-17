@@ -2,7 +2,7 @@
 
 Bias+ReLU twin of ``conv_universal``. Same chunk-interleaved internal layout and
 FPB=28 super-block kernel packing, on the FP32 wide-vector debug datapath
-(see docs/content/wide-vector-debug-mode.md), with two additions:
+(see docs/content/explanation/element-formats.md), with two additions:
 
   * **Folded bias** — one float32 bias per output filter, injected as a
     single extra "multiply by 1" accumulate at the start of each filter (see

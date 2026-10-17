@@ -5,7 +5,7 @@ configuration (spatial >= 16x16, in_channels >= 1). Same chunk-interleaved
 internal layout and FPB=28 super-block kernel packing, no bias/activation
 folding (see ``conv_universal_bn_activation`` for the bias+ReLU twin). Runs
 on the emulator's wide-vector debug datapath (see
-docs/content/wide-vector-debug-mode.md) -- weights and activations are
+docs/content/explanation/element-formats.md) -- weights and activations are
 genuine floats, no INT8 quantization anywhere in this kernel.
 
 Pipeline per filter: R_ACC seeded from the first 3x3 conv tap

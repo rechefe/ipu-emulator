@@ -81,6 +81,18 @@ py_pytest_test(
     ],
 )
 
+# The element-format tables follow ipu_isa.formats; CR scalar operands link to the page (E09-19).
+py_pytest_test(
+    name = "test_element_format_tables",
+    srcs = ["test/test_element_format_tables.py"],
+    data = ["//docs:doc_sources"],
+    imports = ["src"],
+    deps = [
+        ":ipu_gen_lib",
+        requirement("pytest"),
+    ],
+)
+
 # One ISA entry is enough for the generators (E03-24).
 py_pytest_test(
     name = "test_one_edit_generators",

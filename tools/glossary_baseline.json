@@ -3,8 +3,7 @@
     "bundle": 3
   },
   "docs/content/building-applications.md": {
-    "program counter": 1,
-    "wide-vector debug mode": 2
+    "program counter": 1
   },
   "docs/content/debugging.md": {
     "dtype": 1,
@@ -69,11 +68,5 @@
     "VLIW word": 16,
     "program counter": 3,
     "snapshot": 9
-  },
-  "docs/content/wide-vector-debug-mode.md": {
-    "debug-only": 1,
-    "narrow mode": 2,
-    "wide mode": 6,
-    "wide-vector debug mode": 2
   }
 }

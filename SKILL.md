@@ -28,7 +28,7 @@ The rules agents must never break are in [CLAUDE.md](CLAUDE.md), under "Key Cons
 | Pseudo-instructions | generated [Programmer's guide](https://rechefe.github.io/ipu-emulator/dev/reference/isa/programmer-guide/) |
 | Registers | generated [Registers](https://rechefe.github.io/ipu-emulator/dev/reference/isa/registers/) |
 | CR constants, dstructure | generated [Configuration registers](https://rechefe.github.io/ipu-emulator/dev/reference/isa/configuration-registers/) |
-| Element formats | [element-formats.md](docs/content/explanation/element-formats.md), [wide-vector-debug-mode.md](docs/content/wide-vector-debug-mode.md) |
+| Element formats | [element-formats.md](docs/content/explanation/element-formats.md) |
 | Command-line tools | [reference/cli.md](docs/content/reference/cli.md) (stub, E09-15); meanwhile `bazel run //src/tools/ipu-as-py:ipu-as -- --help` |
 | Reference-model API | [reference/reference-model-api.md](docs/content/reference/reference-model-api.md) (stub, E09-16); meanwhile [ADR 0004](docs/adr/0004-stable-reference-model-api.md) |
 | Architecture | [explanation/architecture.md](docs/content/explanation/architecture.md) (stub, E09-17); meanwhile [docs/adr/](docs/adr/) |

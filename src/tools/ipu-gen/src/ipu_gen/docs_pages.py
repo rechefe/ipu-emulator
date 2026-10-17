@@ -1,13 +1,15 @@
 """Generate the MkDocs pages for IPU assembly (E08-14).
 
 The instruction reference, operand types, assembly syntax, programmer's guide
-and instruction-format pages. ``ipu-gen docs-pages OUT_DIR`` and
-``ipu-gen instruction-format-md OUT`` write them.
+and instruction-format pages, and the tables the element-formats page
+includes. ``ipu-gen docs-pages OUT_DIR``, ``ipu-gen instruction-format-md OUT``
+and ``ipu-gen element-format-tables OUT`` write them.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+import math
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 
 from ipu_gen.layout_svg import struct_layout_svg, union_layout_svg
@@ -29,7 +31,7 @@ from ipu_isa.constants import (
     Partition,
 )
 from ipu_isa.faults import FaultId, instruction_faults
-from ipu_isa.formats import FORMATS
+from ipu_isa.formats import FORMATS, ElementFormat, FormatInfo, element_values
 from ipu_isa.geometry import LANES
 from ipu_isa.instruction_spec import InstructionDoc, syntax
 from ipu_isa.registers import REGISTER_DEFINITIONS, create_assembler_reg_enums
@@ -553,24 +555,120 @@ the emulator-only slots ({_slot_names(view, Tag.EMULATOR)}) below its bit 0. Its
 
 
 def _generate_formats_section() -> str:
-    """Generate the Element formats table from ``ipu_isa.formats``."""
-    lines: list[str] = [
-        "## Element formats\n",
-        "The element format is selected at run time. It sets the element width, "
-        "and from it the XMEM row width, the register element widths and the "
-        "accumulator type. An XMEM row, R0 and R1 hold 128 elements in every format. "
-        "`EMULATOR` formats exist only in the emulator. A float element is "
-        "1 sign bit, the exponent bits and the stored mantissa bits.\n",
+    """The instruction reference's pointer to the element-format page (E09-19)."""
+    return (
+        "## Element formats\n\n"
+        "The element format is selected at run time and sets the element width. "
+        "[Element formats](../../explanation/element-formats.md) lists the formats and "
+        "how each encodes values.\n"
+    )
+
+
+# ===========================================================================
+# Element-format tables, included by explanation/element-formats.md (E09-19)
+# ===========================================================================
+
+#: The file the explanation page includes its tables from, and its sections.
+ELEMENT_FORMAT_TABLES = "element-format-tables.md"
+ELEMENT_FORMAT_SECTIONS = ("formats", "encodings", "cr-scalars")
+
+
+def _value_text(value: float) -> str:
+    """An exact, short text for a value of an 8-bit format."""
+    if value == int(value) and abs(value) < 1 << 20:
+        return str(int(value))
+    mantissa, exponent = math.frexp(value)  # value = mantissa * 2**exponent, 0.5 <= mantissa < 1
+    mantissa, exponent = 2 * mantissa, exponent - 1
+    if -10 <= exponent < 20:
+        return repr(value)
+    power = f"2<sup>{exponent}</sup>"
+    return power if mantissa == 1 else f"{mantissa:g} × {power}"
+
+
+def _section(name: str, lines: list[str]) -> list[str]:
+    return [f"<!-- --8<-- [start:{name}] -->", *lines, f"<!-- --8<-- [end:{name}] -->", ""]
+
+
+def _formats_table(formats: Mapping[ElementFormat, FormatInfo]) -> list[str]:
+    lines = [
         "| Format | Tag | Element bits | Exponent bits | Mantissa bits | Row bytes | Accumulator |",
         "|--------|-----|-------------:|--------------:|--------------:|----------:|-------------|",
     ]
-    for fmt, info in FORMATS.items():
+    for fmt, info in formats.items():
         lines.append(
             f"| `{fmt.name}` | `{info.tag.name}` | {info.element_bits} | {info.exp_bits} | "
             f"{info.man_bits} | {info.row_bytes} | `{info.accumulator.name}` |"
         )
-    lines.append("")
+    return lines
+
+
+def _encodings_table(formats: Mapping[ElementFormat, FormatInfo]) -> list[str]:
+    """One row per 8-bit float format, from the element codec's decode table."""
+    lines = [
+        "| Format | Bias | Largest finite | Smallest normal | Smallest subnormal | NaN codes |",
+        "|--------|-----:|---------------:|----------------:|-------------------:|----------:|",
+    ]
+    for fmt, info in formats.items():
+        if not info.is_float or info.element_bits != 8:
+            continue
+        exponents = [(code >> info.man_bits) & ((1 << info.exp_bits) - 1) for code in range(256)]
+        values = element_values(fmt)
+        positive = [(v, e) for v, e in zip(values, exponents, strict=True) if v > 0]
+        normal = [v for v, e in positive if e]
+        subnormal = [v for v, e in positive if not e]
+        nans = sum(math.isnan(v) for v in values)
+        lines.append(
+            f"| `{fmt.name}` | {(1 << (info.exp_bits - 1)) - 1} | "
+            f"{_value_text(max(v for v, _ in positive))} | "
+            f"{_value_text(min(normal)) if normal else 'none'} | "
+            f"{_value_text(min(subnormal)) if subnormal else 'none'} | {nans} |"
+        )
+    return lines
+
+
+def _cr_scalar_table(formats: Mapping[ElementFormat, FormatInfo]) -> list[str]:
+    """Which CR bits a scalar operand reads, and how they are decoded, per format.
+
+    Today's rule: the low byte in every format, decoded as an element in the
+    8-bit float formats and as a signed byte in the others. E04-28 (Q49)
+    changes the 32-bit formats to their low 32 bits, decoded in the format.
+    """
+    lines = ["| Format | CR bits | Decoded as |", "|--------|---------|------------|"]
+    for fmt, info in formats.items():
+        if info.is_float and info.element_bits == 8:
+            decoded = f"an `{fmt.name}` element"
+        elif info.is_float:
+            decoded = "a signed byte (-128 to 127), converted to a float"
+        else:
+            decoded = "a signed byte (-128 to 127)"
+        lines.append(f"| `{fmt.name}` | `[7:0]` | {decoded} |")
+    return lines
+
+
+def render_element_format_tables(formats: Mapping[ElementFormat, FormatInfo] = FORMATS) -> str:
+    """The tables ``explanation/element-formats.md`` includes, one snippet section each.
+
+    Args:
+        formats: The formats to list; default every format of ``ipu_isa.formats``.
+
+    Returns:
+        The file's text: sections ``ELEMENT_FORMAT_SECTIONS``, marked for
+        ``pymdownx.snippets``.
+    """
+    lines = [
+        "<!-- Generated by ipu_gen.docs_pages.render_element_format_tables (E09-19). -->",
+        "",
+        *_section("formats", _formats_table(formats)),
+        *_section("encodings", _encodings_table(formats)),
+        *_section("cr-scalars", _cr_scalar_table(formats)),
+    ]
     return "\n".join(lines)
+
+
+def generate_element_format_tables_md(output_path: Path) -> None:
+    """Write ``render_element_format_tables()`` to ``output_path``."""
+    output_path.write_text(render_element_format_tables())
+    print(f"Generated element-format tables at {output_path}")
 
 
 # ===========================================================================

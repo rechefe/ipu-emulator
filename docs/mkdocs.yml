@@ -23,6 +23,8 @@ plugins:
         programmer-guide.md: reference/isa/programmer-guide.md
         instruction-format.md: reference/isa/instruction-format.md
         ipu-configuration.md: reference/isa/configuration-registers.md
+        # E09-19 folded the emulator-only formats into the element-formats page.
+        wide-vector-debug-mode.md: explanation/element-formats.md
   - git-revision-date-localized:
       enable_creation_date: true
       type: timeago
@@ -124,8 +126,7 @@ nav:
       - Architecture: explanation/architecture.md           # placeholder, E09-17
       - Prototyping mode: prototyping-mode.md               # E09-17 folds it in
       - Timing model: explanation/timing-model.md           # placeholder, E09-18
-      - Element formats: explanation/element-formats.md     # placeholder, E09-19
-      - Wide-vector debug mode: wide-vector-debug-mode.md   # E09-19 folds it in
+      - Element formats: explanation/element-formats.md
       - ISA idioms: isa-alias-catalogue.md                  # E09-10
       - Kernel coverage: app-coverage.md                    # E09-10
   - Specs and requirements:
