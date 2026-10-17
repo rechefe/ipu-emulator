@@ -1370,8 +1370,6 @@ Control flow instructions for branching based on conditions or unconditionally.
 
 **Tag:** `HARDWARE` (implemented by the IPU)
 
-**Reads:** at cycle start `LR` via `reg1`, `CR` via `reg1`, `LR` via `reg2`, `CR` via `reg2`.
-
 **Faults:** F-2 ([fault list](../../requirements/faults.md#fault-list)).
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
@@ -1395,13 +1393,13 @@ end:
 HALT;;
 ```
 
+**Register reads:** `reg1` (`LR`): [cycle start](../../explanation/timing-model.md#rule-1); `reg1` (`CR`): [cycle start](../../explanation/timing-model.md#slot-order); `reg2` (`LR`): [cycle start](../../explanation/timing-model.md#rule-1); `reg2` (`CR`): [cycle start](../../explanation/timing-model.md#slot-order).
+
 ### `BNE` — Branch if Not Equal
 
 **Syntax:** `BNE reg1 reg2 label`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
-
-**Reads:** at cycle start `LR` via `reg1`, `CR` via `reg1`, `LR` via `reg2`, `CR` via `reg2`.
 
 **Faults:** F-2 ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -1426,13 +1424,13 @@ INC LR0 1;;
 BNE LR0 CR0 loop;;
 ```
 
+**Register reads:** `reg1` (`LR`): [cycle start](../../explanation/timing-model.md#rule-1); `reg1` (`CR`): [cycle start](../../explanation/timing-model.md#slot-order); `reg2` (`LR`): [cycle start](../../explanation/timing-model.md#rule-1); `reg2` (`CR`): [cycle start](../../explanation/timing-model.md#slot-order).
+
 ### `BLT.S` — Branch if Less Than (signed)
 
 **Syntax:** `BLT.S reg1 reg2 label`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
-
-**Reads:** at cycle start `LR` via `reg1`, `CR` via `reg1`, `LR` via `reg2`, `CR` via `reg2`.
 
 **Faults:** F-2 ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -1457,13 +1455,13 @@ smaller:
 HALT;;
 ```
 
+**Register reads:** `reg1` (`LR`): [cycle start](../../explanation/timing-model.md#rule-1); `reg1` (`CR`): [cycle start](../../explanation/timing-model.md#slot-order); `reg2` (`LR`): [cycle start](../../explanation/timing-model.md#rule-1); `reg2` (`CR`): [cycle start](../../explanation/timing-model.md#slot-order).
+
 ### `BGE.S` — Branch if Greater or Equal (signed)
 
 **Syntax:** `BGE.S reg1 reg2 label`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
-
-**Reads:** at cycle start `LR` via `reg1`, `CR` via `reg1`, `LR` via `reg2`, `CR` via `reg2`.
 
 **Faults:** F-2 ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -1488,13 +1486,13 @@ ge:
 HALT;;
 ```
 
+**Register reads:** `reg1` (`LR`): [cycle start](../../explanation/timing-model.md#rule-1); `reg1` (`CR`): [cycle start](../../explanation/timing-model.md#slot-order); `reg2` (`LR`): [cycle start](../../explanation/timing-model.md#rule-1); `reg2` (`CR`): [cycle start](../../explanation/timing-model.md#slot-order).
+
 ### `BR` — Branch Register
 
 **Syntax:** `BR reg`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
-
-**Reads:** at cycle start `LR` via `reg`, `CR` via `reg`.
 
 **Faults:** F-2 ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -1511,13 +1509,13 @@ Branch to address in register.
 `PC = reg`
 
 
+**Register reads:** `reg` (`LR`): [cycle start](../../explanation/timing-model.md#rule-1); `reg` (`CR`): [cycle start](../../explanation/timing-model.md#slot-order).
+
 ### `HALT` — Halt
 
 **Syntax:** `HALT`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
-
-**Reads:** no register.
 
 **Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -1546,8 +1544,6 @@ Loop register manipulation instructions for controlling loop counters and addres
 
 **Tag:** `HARDWARE` (implemented by the IPU)
 
-**Reads:** at cycle start `CR` via `src`.
-
 **Faults:** F-3 ([fault list](../../requirements/faults.md#fault-list)).
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
@@ -1568,13 +1564,13 @@ Copy a 32-bit value from a configuration register into a loop register.
 SET LR0 CR1;;
 ```
 
+**Register reads:** `src` (`CR`): [cycle start](../../explanation/timing-model.md#rule-4).
+
 ### `ADD` — Add
 
 **Syntax:** `ADD dest src_a src_b`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
-
-**Reads:** at cycle start `LR` via `src_a`, `LR` via `src_b`, `CR` via `src_b`.
 
 **Faults:** F-3 ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -1598,13 +1594,13 @@ ADD LR0 LR1 LR2;;
 ADD LR3 LR1 CR5;;
 ```
 
+**Register reads:** `src_a` (`LR`): [cycle start](../../explanation/timing-model.md#rule-4); `src_b` (`LR`): [cycle start](../../explanation/timing-model.md#rule-4); `src_b` (`CR`): [cycle start](../../explanation/timing-model.md#rule-4).
+
 ### `SUB` — Subtract
 
 **Syntax:** `SUB dest src_a src_b`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
-
-**Reads:** at cycle start `LR` via `src_a`, `LR` via `src_b`, `CR` via `src_b`.
 
 **Faults:** F-3 ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -1628,13 +1624,13 @@ SUB LR0 LR1 LR2;;
 SUB LR3 LR1 CR5;;
 ```
 
+**Register reads:** `src_a` (`LR`): [cycle start](../../explanation/timing-model.md#rule-4); `src_b` (`LR`): [cycle start](../../explanation/timing-model.md#rule-4); `src_b` (`CR`): [cycle start](../../explanation/timing-model.md#rule-4).
+
 ### `INC.MODP2` — Increment Loop Register Modulo Power of Two
 
 **Syntax:** `INC.MODP2 dest step k`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
-
-**Reads:** at cycle start `LR` via `step`, `CR` via `step`, `LR` via `dest`.
 
 **Faults:** F-1, F-3 ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -1657,13 +1653,13 @@ Add a loop or configuration register into the destination loop register, then ma
 INC.MODP2 LR2 LR3 4;;
 ```
 
+**Register reads:** `step` (`LR`): [cycle start](../../explanation/timing-model.md#rule-4); `step` (`CR`): [cycle start](../../explanation/timing-model.md#rule-4); `dest` (`LR`): [cycle start](../../explanation/timing-model.md#rule-4).
+
 ### `INC` — Increment
 
 **Syntax:** `INC dest imm`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
-
-**Reads:** at cycle start `LR` via `dest`.
 
 **Faults:** F-3 ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -1685,13 +1681,13 @@ Add an unsigned immediate to the destination LR (read-modify-write).
 INC LR0 7;;
 ```
 
+**Register reads:** `dest` (`LR`): [cycle start](../../explanation/timing-model.md#rule-4).
+
 ### `DEC` — Decrement
 
 **Syntax:** `DEC dest imm`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
-
-**Reads:** at cycle start `LR` via `dest`.
 
 **Faults:** F-3 ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -1713,13 +1709,13 @@ Subtract an unsigned immediate from the destination LR (read-modify-write).
 DEC LR0 3;;
 ```
 
+**Register reads:** `dest` (`LR`): [cycle start](../../explanation/timing-model.md#rule-4).
+
 ### `ADDB` — Add Byte (Broadcast, Register)
 
 **Syntax:** `ADDB dest src_b`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
-
-**Reads:** at cycle start `LR` via `src_b`, `CR` via `src_b`, `LR` via `dest`.
 
 **Faults:** F-3 ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -1745,13 +1741,13 @@ ADDB LRD0 LR3;;
 ADDB LRD2 CR5;;
 ```
 
+**Register reads:** `src_b` (`LR`): [cycle start](../../explanation/timing-model.md#rule-4); `src_b` (`CR`): [cycle start](../../explanation/timing-model.md#rule-4); `dest` (`LR`): [cycle start](../../explanation/timing-model.md#rule-4).
+
 ### `ADDBI` — Add Byte Immediate (Broadcast)
 
 **Syntax:** `ADDBI dest imm`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
-
-**Reads:** at cycle start `LR` via `dest`.
 
 **Faults:** F-3 ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -1777,6 +1773,8 @@ ADDBI LRD0 200;;
 ADDBI LRD2 7;;
 ```
 
+**Register reads:** `dest` (`LR`): [cycle start](../../explanation/timing-model.md#rule-4).
+
 ---
 
 ## LOAD Instructions
@@ -1788,8 +1786,6 @@ First-stage memory loads that feed the multiply unit (mult-stage registers, cycl
 **Syntax:** `LD.MULT dest offset base`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
-
-**Reads:** at cycle start `CR` via `base`; forwarded `LR` via `offset`.
 
 **Faults:** F-1, F-6, F-7 ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -1813,13 +1809,13 @@ SET LR0 CR1;;
 LD.MULT R0 LR0 CR0;;
 ```
 
+**Register reads:** `offset` (`LR`): [after LR writes](../../explanation/timing-model.md#rule-1); `base` (`CR`): [cycle start](../../explanation/timing-model.md#slot-order).
+
 ### `LD.MULT.CYCLIC` — Load Cyclic Register
 
 **Syntax:** `LD.MULT.CYCLIC offset base index`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
-
-**Reads:** at cycle start `CR` via `base`; forwarded `LR` via `offset`, `LR` via `index`.
 
 **Faults:** F-4, F-6, F-7 ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -1838,13 +1834,13 @@ Load with cyclic addressing into R_CYCLIC.
 `R_CYCLIC[index .. index+127] = Memory[row(offset + base)]   # index ∈ {0, 128, 256, 384}`
 
 
+**Register reads:** `offset` (`LR`): [after LR writes](../../explanation/timing-model.md#rule-1); `base` (`CR`): [cycle start](../../explanation/timing-model.md#slot-order); `index` (`LR`): [after LR writes](../../explanation/timing-model.md#rule-1).
+
 ### `LD.MASK` — Load Mask Register
 
 **Syntax:** `LD.MASK offset base`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
-
-**Reads:** at cycle start `CR` via `base`; forwarded `LR` via `offset`.
 
 **Faults:** F-6, F-7 ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -1861,6 +1857,9 @@ Load mask data from memory.
 **Pseudo code:**
 `R_MASK = Memory[row(offset + base) .. +128B]  # reads only the row's first 128 B, in both modes -- the mask is 1 bit/element and does not scale with element width`
 
+
+**Register reads:** `offset` (`LR`): [after LR writes](../../explanation/timing-model.md#rule-1); `base` (`CR`): [cycle start](../../explanation/timing-model.md#slot-order).
+
 ---
 
 ## MULT Instructions
@@ -1873,8 +1872,6 @@ The multiplication result (`mult_result`) is forwarded to the ACC stage in the C
 **Syntax:** `MULT.RC.VV rc_idx ra mask_offset mask_shift cr_idx`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
-
-**Reads:** at cycle start `R` via `ra`, `R_CYCLIC`, `R_MASK`, `CR` via `cr_idx`; forwarded `LR` via `rc_idx`, `LR` via `mask_shift`.
 
 **Faults:** F-1 ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -1901,13 +1898,13 @@ Multiply R_CYCLIC[rc_idx:rc_idx+128] by Ra (R0 or R1) element-wise. The partitio
 MULT.RC.VV LR0 R0 0 LR2 CR15;;
 ```
 
+**Register reads:** `rc_idx` (`LR`): [after LR writes](../../explanation/timing-model.md#rule-1); `ra` (`R`): [cycle start](../../explanation/timing-model.md#rule-2); `mask_shift` (`LR`): [after LR writes](../../explanation/timing-model.md#rule-1); `R_CYCLIC`: [cycle start](../../explanation/timing-model.md#rule-2); `R_MASK`: [cycle start](../../explanation/timing-model.md#rule-2); `cr_idx` (`CR`): [cycle start](../../explanation/timing-model.md#slot-order).
+
 ### `MULT.RC.VE` — RC Vector × Scalar Multiply
 
 **Syntax:** `MULT.RC.VE rc_idx src mask_offset mask_shift cr_idx`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
-
-**Reads:** at cycle start `CR` via `src`, `R`, `R_CYCLIC`, `R_MASK`, `CR` via `cr_idx`; forwarded `LR` via `rc_idx`, `LR` via `mask_shift`, `LR` via `src`.
 
 **Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -1934,13 +1931,13 @@ Multiply R_CYCLIC[rc_idx:rc_idx+128] by a scalar, element-wise. The scalar is ei
 MULT.RC.VE LR0 LR3 0 LR2 CR15;;
 ```
 
+**Register reads:** `rc_idx` (`LR`): [after LR writes](../../explanation/timing-model.md#rule-1); `mask_shift` (`LR`): [after LR writes](../../explanation/timing-model.md#rule-1); `src` (`LR`): [after LR writes](../../explanation/timing-model.md#rule-1); `src` (`CR`): [cycle start](../../explanation/timing-model.md#slot-order); `R`: [cycle start](../../explanation/timing-model.md#rule-2); `R_CYCLIC`: [cycle start](../../explanation/timing-model.md#rule-2); `R_MASK`: [cycle start](../../explanation/timing-model.md#rule-2); `cr_idx` (`CR`): [cycle start](../../explanation/timing-model.md#slot-order).
+
 ### `MULT.RC.VS` — RC Vector Self-Multiply (Square)
 
 **Syntax:** `MULT.RC.VS rc_idx mask_offset mask_shift cr_idx`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
-
-**Reads:** at cycle start `R_CYCLIC`, `R_MASK`, `CR` via `cr_idx`; forwarded `LR` via `rc_idx`, `LR` via `mask_shift`.
 
 **Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -1966,13 +1963,13 @@ Square R_CYCLIC[rc_idx:rc_idx+128] element-wise. The partition used by mask_shif
 MULT.RC.VS LR0 0 LR2 CR15;;
 ```
 
+**Register reads:** `rc_idx` (`LR`): [after LR writes](../../explanation/timing-model.md#rule-1); `mask_shift` (`LR`): [after LR writes](../../explanation/timing-model.md#rule-1); `R_CYCLIC`: [cycle start](../../explanation/timing-model.md#rule-2); `R_MASK`: [cycle start](../../explanation/timing-model.md#rule-2); `cr_idx` (`CR`): [cycle start](../../explanation/timing-model.md#slot-order).
+
 ### `MULT.VE` — Ra Vector × CR Scalar Multiply
 
 **Syntax:** `MULT.VE ra_idx cr_idx mask_offset mask_shift dstructure_cr_idx`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
-
-**Reads:** at cycle start `CR` via `cr_idx`, `R`, `R_MASK`, `CR` via `dstructure_cr_idx`; forwarded `LR` via `ra_idx`, `LR` via `mask_shift`.
 
 **Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -1999,13 +1996,13 @@ Multiply Ra[ra_idx:ra_idx+128] (combined R0/R1) by a CR scalar, element-wise. Th
 MULT.VE LR0 CR3 0 LR2 CR15;;
 ```
 
+**Register reads:** `ra_idx` (`LR`): [after LR writes](../../explanation/timing-model.md#rule-1); `mask_shift` (`LR`): [after LR writes](../../explanation/timing-model.md#rule-1); `cr_idx` (`CR`): [cycle start](../../explanation/timing-model.md#slot-order); `R`: [cycle start](../../explanation/timing-model.md#rule-2); `R_MASK`: [cycle start](../../explanation/timing-model.md#rule-2); `dstructure_cr_idx` (`CR`): [cycle start](../../explanation/timing-model.md#slot-order).
+
 ### `MULT.EE` — Ra Element × CR Scalar Multiply (broadcast)
 
 **Syntax:** `MULT.EE ra_idx cr_idx mask_offset mask_shift dstructure_cr_idx`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
-
-**Reads:** at cycle start `CR` via `cr_idx`, `R`, `R_MASK`, `CR` via `dstructure_cr_idx`; forwarded `LR` via `ra_idx`, `LR` via `mask_shift`.
 
 **Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -2032,6 +2029,8 @@ Multiply a single Ra element by a CR scalar; broadcast the product to all 128 el
 MULT.EE LR0 CR3 0 LR2 CR15;;
 ```
 
+**Register reads:** `ra_idx` (`LR`): [after LR writes](../../explanation/timing-model.md#rule-1); `mask_shift` (`LR`): [after LR writes](../../explanation/timing-model.md#rule-1); `cr_idx` (`CR`): [cycle start](../../explanation/timing-model.md#slot-order); `R`: [cycle start](../../explanation/timing-model.md#rule-2); `R_MASK`: [cycle start](../../explanation/timing-model.md#rule-2); `dstructure_cr_idx` (`CR`): [cycle start](../../explanation/timing-model.md#slot-order).
+
 ---
 
 ## ACC Instructions
@@ -2043,8 +2042,6 @@ Accumulation instructions for combining values with optional masking and shiftin
 **Syntax:** `ACC.ADD`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
-
-**Reads:** at cycle start `R_ACC`; forwarded `MULT_RES`.
 
 **Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -2059,13 +2056,13 @@ Running add accumulation: add multiply result into each R_ACC element.
 ACC.ADD;;
 ```
 
+**Register reads:** `MULT_RES`: [same-cycle forward](../../explanation/timing-model.md#rule-3); `R_ACC`: [cycle start](../../explanation/timing-model.md#slot-order).
+
 ### `ACC.ADD.FIRST` — Accumulate Add (First)
 
 **Syntax:** `ACC.ADD.FIRST`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
-
-**Reads:** forwarded `MULT_RES`.
 
 **Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -2080,13 +2077,13 @@ Clean-init add: overwrite each R_ACC element with the multiply result (ignores p
 ACC.ADD.FIRST;;
 ```
 
+**Register reads:** `MULT_RES`: [same-cycle forward](../../explanation/timing-model.md#rule-3).
+
 ### `ACC.MAX` — Accumulate Max
 
 **Syntax:** `ACC.MAX`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
-
-**Reads:** at cycle start `R_ACC`; forwarded `MULT_RES`.
 
 **Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -2101,13 +2098,13 @@ Running max accumulation: each R_ACC element takes the max of its current value 
 ACC.MAX;;
 ```
 
+**Register reads:** `MULT_RES`: [same-cycle forward](../../explanation/timing-model.md#rule-3); `R_ACC`: [cycle start](../../explanation/timing-model.md#slot-order).
+
 ### `ACC.MAX.FIRST` — Accumulate Max (First)
 
 **Syntax:** `ACC.MAX.FIRST`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
-
-**Reads:** forwarded `MULT_RES`.
 
 **Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -2122,13 +2119,13 @@ Clean-init max: overwrite each R_ACC element unconditionally with the multiply r
 ACC.MAX.FIRST;;
 ```
 
+**Register reads:** `MULT_RES`: [same-cycle forward](../../explanation/timing-model.md#rule-3).
+
 ### `ACC.SUB` — Accumulate Subtract
 
 **Syntax:** `ACC.SUB`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
-
-**Reads:** at cycle start `R_ACC`; forwarded `MULT_RES`.
 
 **Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -2143,13 +2140,13 @@ Running subtract accumulation: subtract the multiply result from each R_ACC elem
 ACC.SUB;;
 ```
 
+**Register reads:** `MULT_RES`: [same-cycle forward](../../explanation/timing-model.md#rule-3); `R_ACC`: [cycle start](../../explanation/timing-model.md#slot-order).
+
 ### `ACC.SUB.FIRST` — Accumulate Subtract (First)
 
 **Syntax:** `ACC.SUB.FIRST`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
-
-**Reads:** forwarded `MULT_RES`.
 
 **Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -2164,13 +2161,13 @@ Clean-init subtract: set each R_ACC element to the negated multiply result.
 ACC.SUB.FIRST;;
 ```
 
+**Register reads:** `MULT_RES`: [same-cycle forward](../../explanation/timing-model.md#rule-3).
+
 ### `ACC.STRIDE` — Accumulator Stride
 
 **Syntax:** `ACC.STRIDE elements_in_row horizontal_stride vertical_stride offset`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
-
-**Reads:** forwarded `LR` via `offset`, `MULT_RES`.
 
 **Faults:** F-1 ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -2194,13 +2191,13 @@ Reorder the multiplication result into R_ACC using horizontal/vertical stride de
 ACC.STRIDE 16 off off LR0;;
 ```
 
+**Register reads:** `offset` (`LR`): [after LR writes](../../explanation/timing-model.md#rule-1); `MULT_RES`: [same-cycle forward](../../explanation/timing-model.md#rule-3).
+
 ### `AGG.SUM.FIRST` — Aggregate Sum (First)
 
 **Syntax:** `AGG.SUM.FIRST dest_slot cr_idx`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
-
-**Reads:** at cycle start `CR` via `cr_idx`; forwarded `LR` via `dest_slot`, `MULT_RES`.
 
 **Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -2222,13 +2219,13 @@ Sum active MULT_RES elements and write the result into R_ACC at the slot given b
 AGG.SUM.FIRST LR0 CR3;;
 ```
 
+**Register reads:** `dest_slot` (`LR`): [after LR writes](../../explanation/timing-model.md#rule-1); `cr_idx` (`CR`): [cycle start](../../explanation/timing-model.md#slot-order); `MULT_RES`: [same-cycle forward](../../explanation/timing-model.md#rule-3).
+
 ### `AGG.SUM` — Aggregate Sum
 
 **Syntax:** `AGG.SUM dest_slot cr_idx`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
-
-**Reads:** at cycle start `CR` via `cr_idx`, `R_ACC`; forwarded `LR` via `dest_slot`, `MULT_RES`.
 
 **Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -2250,13 +2247,13 @@ Sum active MULT_RES elements and ADD the result to R_ACC at the slot given by LR
 AGG.SUM LR0 CR3;;
 ```
 
+**Register reads:** `dest_slot` (`LR`): [after LR writes](../../explanation/timing-model.md#rule-1); `cr_idx` (`CR`): [cycle start](../../explanation/timing-model.md#slot-order); `MULT_RES`: [same-cycle forward](../../explanation/timing-model.md#rule-3); `R_ACC`: [cycle start](../../explanation/timing-model.md#slot-order).
+
 ### `AGG.MAX.FIRST` — Aggregate Max (First)
 
 **Syntax:** `AGG.MAX.FIRST dest_slot cr_idx`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
-
-**Reads:** at cycle start `CR` via `cr_idx`; forwarded `LR` via `dest_slot`, `MULT_RES`.
 
 **Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -2278,13 +2275,13 @@ Find the maximum of active MULT_RES elements and write it into R_ACC at the slot
 AGG.MAX.FIRST LR0 CR3;;
 ```
 
+**Register reads:** `dest_slot` (`LR`): [after LR writes](../../explanation/timing-model.md#rule-1); `cr_idx` (`CR`): [cycle start](../../explanation/timing-model.md#slot-order); `MULT_RES`: [same-cycle forward](../../explanation/timing-model.md#rule-3).
+
 ### `AGG.MAX` — Aggregate Max
 
 **Syntax:** `AGG.MAX dest_slot cr_idx`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
-
-**Reads:** at cycle start `CR` via `cr_idx`, `R_ACC`; forwarded `LR` via `dest_slot`, `MULT_RES`.
 
 **Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -2306,13 +2303,13 @@ Find the maximum of active MULT_RES elements seeded with the current destination
 AGG.MAX LR0 CR3;;
 ```
 
+**Register reads:** `dest_slot` (`LR`): [after LR writes](../../explanation/timing-model.md#rule-1); `cr_idx` (`CR`): [cycle start](../../explanation/timing-model.md#slot-order); `MULT_RES`: [same-cycle forward](../../explanation/timing-model.md#rule-3); `R_ACC`: [cycle start](../../explanation/timing-model.md#slot-order).
+
 ### `ACC.RESHAPE` — Reshape
 
 **Syntax:** `ACC.RESHAPE source dest reshape_mask`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
-
-**Reads:** forwarded `LR` via `source`, `LR` via `dest`, `LR` via `reshape_mask`, `MULT_RES`.
 
 **Faults:** F-5 ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -2342,6 +2339,8 @@ for i in mask..7:
 ACC.RESHAPE LRD0 LRD2 0;;
 ```
 
+**Register reads:** `source` (`LR`): [after LR writes](../../explanation/timing-model.md#rule-1); `dest` (`LR`): [after LR writes](../../explanation/timing-model.md#rule-1); `reshape_mask` (`LR`): [after LR writes](../../explanation/timing-model.md#rule-1); `MULT_RES`: [same-cycle forward](../../explanation/timing-model.md#rule-3).
+
 ---
 
 ## AAQ Instructions
@@ -2353,8 +2352,6 @@ Activation and quantization: apply activation to R_ACC elements and write quanti
 **Syntax:** `ACTIVATE.QUANTIZE activation_fn cr_idx`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
-
-**Reads:** at cycle start `CR` via `cr_idx`; forwarded `R_ACC`.
 
 **Faults:** F-1 ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -2376,6 +2373,8 @@ Read active elements from the forwarded R_ACC (this cycle's ACC result), apply t
 ACTIVATE.QUANTIZE relu CR15;;
 ```
 
+**Register reads:** `cr_idx` (`CR`): [cycle start](../../explanation/timing-model.md#slot-order); `R_ACC`: [same-cycle forward](../../explanation/timing-model.md#rule-3).
+
 ---
 
 ## STORE Instructions
@@ -2387,8 +2386,6 @@ Last-stage memory stores that drain **POST_AAQ_REG** to external memory after ac
 **Syntax:** `ST.AAQ offset base`
 
 **Tag:** `HARDWARE` (implemented by the IPU)
-
-**Reads:** at cycle start `CR` via `base`; forwarded `LR` via `offset`, `POST_AAQ_REG`.
 
 **Faults:** F-6, F-7 ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -2410,6 +2407,8 @@ Write the whole **`POST_AAQ_REG`** to one XMEM row. **Interim:** after `ACTIVATE
 ST.AAQ LR0 CR0;;
 ```
 
+**Register reads:** `offset` (`LR`): [after LR writes](../../explanation/timing-model.md#rule-1); `base` (`CR`): [cycle start](../../explanation/timing-model.md#slot-order); `POST_AAQ_REG`: [same-cycle forward](../../explanation/timing-model.md#slot-order).
+
 ---
 
 ## ACC_STORE Instructions
@@ -2423,8 +2422,6 @@ Simulation-only slot for storing **R_ACC** to external memory (`ST.ACC`). Not im
 **Syntax:** `ST.ACC offset base`
 
 **Tag:** `EMULATOR` (emulator only; not in the hardware word or the SV package)
-
-**Reads:** at cycle start `CR` via `base`; forwarded `LR` via `offset`, `R_ACC`.
 
 **Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -2448,6 +2445,8 @@ Store **R_ACC** to external memory. **Simulation-only** — not implemented in r
 ST.ACC LR0 CR1;;
 ```
 
+**Register reads:** `offset` (`LR`): [after LR writes](../../explanation/timing-model.md#rule-1); `base` (`CR`): [cycle start](../../explanation/timing-model.md#slot-order); `R_ACC`: [same-cycle forward](../../explanation/timing-model.md#slot-order).
+
 ---
 
 ## Break Instructions
@@ -2461,8 +2460,6 @@ Debug break instructions for halting execution and entering debug mode.
 **Syntax:** `BREAK`
 
 **Tag:** `EMULATOR` (emulator only; not in the hardware word or the SV package)
-
-**Reads:** no register.
 
 **Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -2478,8 +2475,6 @@ Unconditional break.
 **Syntax:** `BREAK.IFEQ reg value`
 
 **Tag:** `EMULATOR` (emulator only; not in the hardware word or the SV package)
-
-**Reads:** at cycle start `LR` via `reg`.
 
 **Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -2500,5 +2495,7 @@ Break execution if register equals value.
 ```asm
 BREAK.IFEQ LR0 10;;
 ```
+
+**Register reads:** `reg` (`LR`): [cycle start](../../explanation/timing-model.md#rule-1).
 
 ---

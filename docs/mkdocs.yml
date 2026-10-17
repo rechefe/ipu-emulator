@@ -125,7 +125,7 @@ nav:
       - explanation/index.md
       - Architecture: explanation/architecture.md           # placeholder, E09-17
       - Prototyping mode: prototyping-mode.md               # E09-17 folds it in
-      - Timing model: explanation/timing-model.md           # placeholder, E09-18
+      - Timing model: explanation/timing-model.md
       - Element formats: explanation/element-formats.md
       - ISA idioms: isa-alias-catalogue.md                  # E09-10
       - Kernel coverage: app-coverage.md                    # E09-10

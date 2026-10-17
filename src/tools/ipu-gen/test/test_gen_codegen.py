@@ -327,3 +327,44 @@ def test_cli_resolves_relative_paths_against_the_callers_directory(tmp_path: Pat
     result = CliRunner().invoke(cli, ["union-layout-svg", "out/union.svg"])
     assert result.exit_code == 0, result.output
     assert (tmp_path / "out" / "union.svg").read_text() == layout_svg.union_layout_svg()
+
+
+def test_timing_table_has_a_row_for_every_rule(tmp_path: Path):
+    """The timing model page's table (E09-18): every rule and the slot order label a
+    row, and the rows hand-checked against the contract's four rules are there."""
+    out = tmp_path / "timing.md"
+    assert CliRunner().invoke(cli, ["timing-table", str(out)]).exit_code == 0
+    from ipu_gen import docs_pages
+
+    text = out.read_text()
+    assert text == docs_pages.timing_contract_table()
+    for anchor in ("rule-1", "rule-2", "rule-3", "rule-4", "slot-order"):
+        assert f"(#{anchor})" in text
+    for row in (
+        "| `COND` | `LR` | `reg1`, `reg2`, `reg` | cycle start | [Rule 1](#rule-1) |",
+        "| `LOAD` | `LR` | `offset`, `index` | after LR writes | [Rule 1](#rule-1) |",
+        "| `MULT` | `R_CYCLIC` | implicit | cycle start | [Rule 2](#rule-2) |",
+        "| `MULT` | `R_MASK` | implicit | cycle start | [Rule 2](#rule-2) |",
+        "| `ACC` | `MULT_RES` | implicit | same-cycle forward | [Rule 3](#rule-3) |",
+        "| `AAQ` | `R_ACC` | implicit | same-cycle forward | [Rule 3](#rule-3) |",
+        "| `ACC` | `R_ACC` | implicit | cycle start | [slot order](#slot-order) |",
+    ):
+        assert row in text, row
+    assert "| `LR` | `LR` |" in text and "cycle start | [Rule 4](#rule-4) |" in text
+
+
+def test_instruction_reference_links_each_read_to_the_timing_model(tmp_path: Path):
+    from ipu_gen import docs_pages
+
+    page = tmp_path / "instructions.md"
+    docs_pages.generate_instruction_docs(page)
+    text = page.read_text()
+    entry = text[text.index("### `LD.MULT.CYCLIC` —") :].split("\n### ", 1)[0]
+    assert (
+        "**Register reads:** `offset` (`LR`): [after LR writes](explanation/timing-model.md#rule-1)"
+    ) in entry
+    mult = text[text.index("### `MULT.RC.VS` —") :].split("\n### ", 1)[0]
+    assert "`R_CYCLIC`: [cycle start](explanation/timing-model.md#rule-2)" in mult
+    assert "### `HALT` —" in text
+    halt = text[text.index("### `HALT` —") :].split("\n### ", 1)[0]
+    assert "Register reads" not in halt

@@ -8,13 +8,11 @@
   "docs/content/debugging.md": {
     "dtype": 1,
     "program counter": 3,
-    "simulation-only": 1,
-    "snapshot": 1
+    "simulation-only": 1
   },
   "docs/content/isa-alias-catalogue.md": {
     "bundle": 6,
-    "simulation-only": 2,
-    "snapshot": 1
+    "simulation-only": 2
   },
   "docs/content/prototyping-mode.md": {
     "program counter": 1,

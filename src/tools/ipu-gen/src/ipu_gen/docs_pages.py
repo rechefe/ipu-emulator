@@ -9,7 +9,7 @@ and ``ipu-gen element-format-tables OUT`` write them.
 from __future__ import annotations
 
 import math
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 
 from ipu_gen.layout_svg import struct_layout_svg, union_layout_svg
@@ -37,7 +37,13 @@ from ipu_isa.instruction_spec import InstructionDoc, syntax
 from ipu_isa.registers import REGISTER_DEFINITIONS, create_assembler_reg_enums
 from ipu_isa.slots import Slot
 from ipu_isa.tags import Tag
-from ipu_isa.timing import KNOWN_DEVIATIONS, SLOT_EXECUTION_ORDER, RegisterAccess, View
+from ipu_isa.timing import (
+    KNOWN_DEVIATIONS,
+    SLOT_EXECUTION_ORDER,
+    RegisterAccess,
+    View,
+    contract_rule,
+)
 from ipu_isa.view import Instruction, Isa, Operand, isa
 
 
@@ -423,6 +429,8 @@ def timing_section(view: Isa | None = None) -> str:
         "the word, and at cycle start otherwise. CRs are never written during a run, so CR "
         "reads are at cycle start.",
         "",
+        f"The [timing model]({TIMING_PAGE}) explains the rules, with an example of each.",
+        "",
         "### Register reads and writes",
         "",
         "`R` is the `R0`/`R1` pair. An operand of type `LcrIdx` reads an LR or a CR.",
@@ -461,6 +469,96 @@ def timing_section(view: Isa | None = None) -> str:
         )
     lines.append("")
     return "\n".join(lines)
+
+
+#: The explanation page of the timing contract, from a page under reference/isa/ (E09-18).
+TIMING_PAGE = "../../explanation/timing-model.md"
+
+
+def read_point(access: RegisterAccess) -> str:
+    """The read point of one read, as the timing model page names it.
+
+    ``cycle start``, ``after LR writes`` (a forwarded LR) or ``same-cycle
+    forward`` (any other forwarded register).
+    """
+    if access.view is View.CYCLE_START:
+        return "cycle start"
+    return "after LR writes" if access.register == "lr" else "same-cycle forward"
+
+
+def rule_anchor(slot: Slot, register: str) -> str:
+    """The timing model page's heading for the rule that fixes a read's view:
+    ``rule-1`` to ``rule-4``, or ``slot-order``."""
+    rule = contract_rule(slot, register)
+    return "slot-order" if rule is None else f"rule-{rule}"
+
+
+def _rule_label(anchor: str) -> str:
+    return "slot order" if anchor == "slot-order" else anchor.replace("-", " ").capitalize()
+
+
+def timing_contract_table(view: Isa | None = None, page: str = "") -> str:
+    """Every register read of the ISA, by slot, with its read point and the rule behind it.
+
+    One row per slot, register and read point; the operands column names the
+    operands that select the register (``implicit`` for a read no operand
+    names). The rows come from the declared reads (``Instruction.reads()``),
+    which ``load_isa`` checks against the contract. The timing model page
+    includes this table (E09-18).
+
+    Args:
+        view: The ISA; default ``isa()``.
+        page: The page the rule links point at ("" for the page that includes the table).
+
+    Returns:
+        The Markdown table.
+    """
+    view = isa() if view is None else view
+    rows: dict[tuple[Slot, str, str], list[str]] = {}
+    for slot in SLOT_EXECUTION_ORDER:
+        for instruction in view.instructions(slot):
+            for access in instruction.reads():
+                names = rows.setdefault((slot, access.register, read_point(access)), [])
+                name = f"`{access.via_operand}`" if access.via_operand else "implicit"
+                if name not in names:
+                    names.append(name)
+    lines = [
+        "| Slot | Register | Selected by | Read point | Rule |",
+        "|------|----------|-------------|------------|------|",
+    ]
+    for (slot, register, point), names in rows.items():
+        anchor = rule_anchor(slot, register)
+        lines.append(
+            f"| `{slot.value.upper()}` | {_register(register)} | {', '.join(names)} "
+            f"| {point} | [{_rule_label(anchor)}]({page}#{anchor}) |"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def generate_timing_contract_table(output_path: Path, view: Isa | None = None) -> None:
+    """Write the timing model page's table (:func:`timing_contract_table`)."""
+    output_path.write_text(timing_contract_table(view))
+    print(f"Generated the timing contract table at {output_path}")
+
+
+def _read_target(access: RegisterAccess) -> str:
+    """```offset` (`LR`)`` for an operand, ```R_CYCLIC``` for an implicit read."""
+    register = _register(access.register)
+    return f"`{access.via_operand}` ({register})" if access.via_operand else register
+
+
+def register_reads_lines(instruction: Instruction, page: str = TIMING_PAGE) -> list[str]:
+    """The instruction reference's "Register reads" line: each register the
+    instruction reads, with its read point linked to the rule on the timing
+    model page. Empty for an instruction that reads no register."""
+    reads = [
+        f"{_read_target(access)}: "
+        f"[{read_point(access)}]({page}#{rule_anchor(instruction.slot, access.register)})"
+        for access in instruction.reads()
+    ]
+    if not reads:
+        return []
+    return ["", "**Register reads:** " + "; ".join(reads) + "."]
 
 
 def _view(view: View) -> str:
@@ -687,19 +785,6 @@ def _md_table_cell(text: str) -> str:
 FAULTS_PAGE = "../../requirements/faults.md#fault-list"
 
 
-def _reads_line(instruction: Instruction) -> str:
-    """``**Reads:** at cycle start ...; forwarded ...`` from the timing contract."""
-    reads = instruction.reads()
-    parts = []
-    cycle_start = [a for a in reads if a.view is View.CYCLE_START]
-    forwarded = [a for a in reads if a.view is View.FORWARDED]
-    if cycle_start:
-        parts.append(f"at cycle start {_accesses(cycle_start)}")
-    if forwarded:
-        parts.append(f"forwarded {_accesses(forwarded)}")
-    return "**Reads:** " + ("; ".join(parts) if parts else "no register") + "."
-
-
 def _faults_line(faults: Iterable[FaultId], via: str | None = None) -> str:
     """The faults an instruction can raise. Word-level faults (F-2 by sequential
     flow, F-8, F-9) belong to no instruction and are not listed."""
@@ -708,7 +793,11 @@ def _faults_line(faults: Iterable[FaultId], via: str | None = None) -> str:
     return f"**Faults:** {labels}{through} ([fault list]({FAULTS_PAGE}))."
 
 
-def render_slot_docs(slot: str, view: Isa | None = None) -> str:
+def render_slot_docs(
+    slot: str,
+    view: Isa | None = None,
+    extra: Callable[[Instruction], Sequence[str]] | None = None,
+) -> str:
     """The reference section of one slot, in Markdown.
 
     The heading and intro come from the slot registry (``SlotInfo.doc_heading``,
@@ -717,6 +806,8 @@ def render_slot_docs(slot: str, view: Isa | None = None) -> str:
     Args:
         slot: The slot name, e.g. ``"lr"``.
         view: The ISA; default ``isa()``.
+        extra: Lines appended to each instruction's entry (the register read
+            points, E09-18); none by default.
 
     Returns:
         The section text.
@@ -749,12 +840,11 @@ def render_slot_docs(slot: str, view: Isa | None = None) -> str:
                 instruction.doc,
                 instruction.operands,
                 instruction.tag,
-                extra_lines=[
-                    _reads_line(instruction),
-                    _faults_line(instruction_faults(view, instruction)),
-                ],
+                extra_lines=[_faults_line(instruction_faults(view, instruction))],
             )
         )
+        if extra is not None:
+            lines.extend(extra(instruction))
         lines.append("")
 
     return "\n".join(lines).rstrip()
@@ -871,7 +961,7 @@ def generate_instruction_docs(output_path: Path, view: Isa | None = None) -> Non
     content.append("\n---\n\n")
 
     for slot in view.layout.layout_order:
-        content.append(render_slot_docs(slot.value, view))
+        content.append(render_slot_docs(slot.value, view, register_reads_lines))
         content.append("\n---\n")
 
     output_path.write_text("\n".join(content))

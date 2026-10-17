@@ -45,6 +45,7 @@ __all__ = [
     "Deviation",
     "RegisterAccess",
     "View",
+    "contract_rule",
     "contract_view",
     "declared_reads",
     "declared_writes",
@@ -190,6 +191,26 @@ _MULT_CYCLE_START = frozenset({"r", "r_cyclic", "r_mask"})
 _FORWARDED_TO = {("mult_res", Slot.ACC), ("r_acc", Slot.AAQ)}
 
 
+def _classify(
+    slot: Slot, register: str, writers: Mapping[str, Iterable[Slot]]
+) -> tuple[View, int | None]:
+    """The contract's view of one read, and the number of the rule that gives it."""
+    if slot is Slot.LR:  # rule 4 (and rule 1 for LRs)
+        return View.CYCLE_START, 4
+    if slot in CONTROL_SLOTS:  # rule 1; a Control read of anything else is at cycle start too
+        return View.CYCLE_START, 1 if register == "lr" else None
+    if register == "lr":  # rule 1
+        return View.FORWARDED, 1
+    if slot is Slot.MULT and register in _MULT_CYCLE_START:  # rule 2
+        return View.CYCLE_START, 2
+    if (register, slot) in _FORWARDED_TO:  # rule 3
+        return View.FORWARDED, 3
+    producers = tuple(writers.get(register, ()))
+    if producers and all(_precedes(producer, slot) for producer in producers):
+        return View.FORWARDED, None
+    return View.CYCLE_START, None
+
+
 def contract_view(slot: Slot, register: str, writers: Mapping[str, Iterable[Slot]]) -> View:
     """The view the contract gives a read of ``register`` by an instruction in ``slot``.
 
@@ -202,18 +223,17 @@ def contract_view(slot: Slot, register: str, writers: Mapping[str, Iterable[Slot
     Returns:
         ``View.FORWARDED`` or ``View.CYCLE_START``.
     """
-    if slot in CONTROL_SLOTS:  # rules 1 and 4
-        return View.CYCLE_START
-    if register == "lr":  # rule 1
-        return View.FORWARDED
-    if slot is Slot.MULT and register in _MULT_CYCLE_START:  # rule 2
-        return View.CYCLE_START
-    if (register, slot) in _FORWARDED_TO:  # rule 3
-        return View.FORWARDED
-    producers = tuple(writers.get(register, ()))
-    if producers and all(_precedes(producer, slot) for producer in producers):
-        return View.FORWARDED
-    return View.CYCLE_START
+    return _classify(slot, register, writers)[0]
+
+
+def contract_rule(slot: Slot, register: str) -> int | None:
+    """The number (1 to 4, as in the module docstring) of the rule that fixes a read's view.
+
+    ``None`` when no numbered rule names the read: its view then follows the
+    slot order (forwarded when every writer runs earlier in the word, cycle start
+    otherwise; a CR is never written in a run). The docs label each read with it.
+    """
+    return _classify(slot, register, {})[1]
 
 
 # ---------------------------------------------------------------------------
