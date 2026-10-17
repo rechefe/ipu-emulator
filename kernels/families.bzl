@@ -11,6 +11,7 @@ names them; //kernels:test_families checks it against the kernel.toml folders.
 #: Each family's kernels, by folder name.
 KERNELS = {
     "elementwise": ["scale"],
+    "linear": ["fully_connected"],
     "projections": ["proj_p4", "proj_p4_2tg", "proj_p4_2tg_silu"],
     "reshape": ["concat", "depth_to_space", "identity"],
     "softmax": [

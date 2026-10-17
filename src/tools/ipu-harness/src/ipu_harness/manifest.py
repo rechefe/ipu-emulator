@@ -34,7 +34,9 @@ Schema
     ``shape`` (non-empty list, required): positive ints, or expressions over
     parameter and derived names in E06-03's grammar (``"rows * 4"``,
     ``"ceil(k / 128)"``). ``row``: pin the region's first XMEM row (Q81), an int
-    or an expression like a shape's. ``after`` (``"<tensor>"``): place the region
+    or an expression like a shape's, which may also read ``row_bytes``, the
+    bytes of one row in the case's format (``"131072 / row_bytes"`` pins the
+    region at byte 0x20000 in every format: a legacy layout). ``after`` (``"<tensor>"``): place the region
     right after that tensor's in placement order (by default inputs, then
     outputs, then scratch, each in file order), so scratch can come before an
     output; not with ``row``. ``when`` (``"<bool param>"`` or ``"not <bool
@@ -81,12 +83,18 @@ Schema
     when the registers are written, so only ``[abi]`` binds it; a shape, a
     pin or the cost cannot read it. ``w1 = "base(weights) + 1"`` gives one
     region several offset registers, which a ``{ register, offset }``
-    binding cannot.
+    binding cannot. A value that reads ``row_bytes`` (the bytes of one XMEM
+    row in the case's format) is placed too: ``"512 / row_bytes"`` is the
+    rows one accumulator vector spans (4 in an 8-bit format, 1 in FP32 and
+    INT32).
 
 ``[cases.<name>]``
     Parameter values: a scalar, or a non-empty list (a sweep axis). Reserved
     keys: ``formats`` (a non-empty subset of the kernel's), ``inputs`` and
-    ``expected`` (tensor name to a user file, Q82), ``generator``
+    ``expected`` (tensor name to a user file, Q82; an ``expected`` may instead
+    be ``"file.py:fn"``, or ``"../file.py:fn"`` in the family's folder, whose
+    ``fn(plan)`` returns the output's values in the case's format: a golden
+    kept in another encoding, such as ``fully_connected``'s ``.bin``), ``generator``
     (``"file.py:fn"``, or ``"../file.py:fn"`` in the family's folder, a
     generator its kernels share), ``tier`` (``default`` or ``nightly``, Q73).
     ``[cases.default]`` is required.
@@ -148,7 +156,7 @@ from ipu_emu.errors import ConfigurationError
 from ipu_harness._codec import limits
 from ipu_harness._toml_source import Locator, ManifestError, Reader, decode_error_line, where
 from ipu_harness.conditions import Condition
-from ipu_harness.expressions import ExpressionError, base_tensor, names_in, placed_reads
+from ipu_harness.expressions import ROW_BYTES, ExpressionError, base_tensor, names_in, placed_reads
 from ipu_harness.tolerance import TIERS
 from ipu_harness.tolerance import Tier as ToleranceTier
 from ipu_isa.formats import FORMATS, ElementFormat
@@ -239,7 +247,7 @@ SCHEMA_KEYS: Mapping[str, tuple[str, ...]] = MappingProxyType(
     }
 )
 #: Names a template or a case reserves (E06-07: cr, lr, format, shapes).
-_RESERVED_NAMES = frozenset({"cr", "lr", "format", "shapes", *_CASE_KEYS})
+_RESERVED_NAMES = frozenset({"cr", "lr", "format", "shapes", ROW_BYTES, *_CASE_KEYS})
 
 
 @dataclass(frozen=True)
@@ -320,7 +328,8 @@ class CaseDecl:
         values: Parameter values; a tuple is a sweep axis.
         formats: The formats it runs in, if it limits them.
         inputs: User input files, by tensor name (Q82).
-        expected: User expected-output files, by tensor name.
+        expected: User expected outputs, by tensor name: a ``.npy`` file, or a
+            ``"file.py:fn"`` whose ``fn(plan)`` returns the values.
         generator: ``"file.py:fn"`` that makes inputs instead.
         tier: ``default`` or ``nightly`` (Q73).
     """
@@ -329,7 +338,7 @@ class CaseDecl:
     values: Mapping[str, object]
     formats: tuple[ElementFormat, ...] | None = None
     inputs: Mapping[str, Path] = field(default_factory=lambda: MappingProxyType({}))
-    expected: Mapping[str, Path] = field(default_factory=lambda: MappingProxyType({}))
+    expected: Mapping[str, Path | str] = field(default_factory=lambda: MappingProxyType({}))
     generator: str | None = None
     tier: Tier = "default"
 
@@ -426,9 +435,10 @@ class KernelManifest:
 
     @functools.cached_property
     def placed(self) -> Mapping[str, frozenset[str]]:
-        """The ``[derived]`` values that read ``base(<tensor>)``, directly or
-        through another, with the tensors whose bases each reads: known once
-        the regions are placed, so only ``[abi]`` reads them."""
+        """The ``[derived]`` values that read ``base(<tensor>)`` or ``row_bytes``,
+        directly or through another, with the tensors whose bases each reads:
+        known once the case's regions (and format) are, so only ``[abi]`` reads
+        them."""
         return MappingProxyType(placed_reads(self.derived))
 
     @property
@@ -446,7 +456,7 @@ def _check_name(r: Reader, path: tuple[str, ...]) -> None:
         raise r.fail(
             path,
             f"{where(path)}: {name!r} must be an identifier, not start with _, "
-            "and not be cr, lr, format, shapes or a reserved case key",
+            "and not be cr, lr, format, shapes, row_bytes or a reserved case key",
         )
 
 
@@ -606,7 +616,7 @@ def _placed(
     if "row" in table:
         row = r.typed(table["row"], (int, str), (*path, "row"))
         if isinstance(row, str):
-            _check_expression(r, row, names, (*path, "row"))
+            _check_expression(r, row, (*names, ROW_BYTES), (*path, "row"))
         elif row < 0:
             raise r.fail((*path, "row"), f"{where((*path, 'row'))} {row} must not be negative")
         decl = replace(decl, row=row)
@@ -849,6 +859,27 @@ def _files(
     return MappingProxyType(out)
 
 
+def _expected(
+    r: Reader, directory: Path, raw: object, path: tuple[str, ...], outputs: Iterable[str]
+) -> Mapping[str, Path | str]:
+    """A case's ``expected``: per output a ``.npy`` file, or a ``"file.py:fn"``
+    (or ``"../file.py:fn"``, the family's) whose ``fn(plan)`` returns the values."""
+    table = r.table(raw, path)
+    valid = tuple(outputs)
+    out: dict[str, Path | str] = {}
+    for tensor, value in table.items():
+        if tensor not in valid:
+            raise r.fail(
+                (*path, tensor), f"{where(path)} {tensor!r} is not one of the tensors {list(valid)}"
+            )
+        text = r.typed(value, str, (*path, tensor))
+        if ".py:" in text:
+            out[tensor] = r.shared_function(directory, text, (*path, tensor))
+        else:
+            out[tensor] = r.inside(directory, text, (*path, tensor))
+    return MappingProxyType(out)
+
+
 def _case_values(
     r: Reader, m: KernelManifest, path: tuple[str, ...], table: Mapping[str, Any]
 ) -> dict[str, object]:
@@ -890,7 +921,7 @@ def _case(r: Reader, m: KernelManifest, name: str, raw: object) -> CaseDecl:
         )
     if "expected" in table:
         outputs = [t.name for t in m.tensors.values() if t.role == "output"]
-        expected = _files(r, m.directory, table["expected"], (*path, "expected"), outputs)
+        expected = _expected(r, m.directory, table["expected"], (*path, "expected"), outputs)
         case = replace(case, expected=expected)
     if "generator" in table:
         case = replace(
@@ -1149,7 +1180,7 @@ def _derived(r: Reader, raw: object, params: Mapping[str, ParamDecl]) -> dict[st
         derived[name] = r.text(expression, path)
         bases = [n for n in _names(r, derived[name], path) if base_tensor(n) is not None]
         earlier = [d for d in derived if d != name]  # not itself: it would never resolve
-        _check_expression(r, derived[name], (*params, *earlier, *bases), path)
+        _check_expression(r, derived[name], (*params, *earlier, *bases, ROW_BYTES), path)
     return derived
 
 
@@ -1204,7 +1235,7 @@ def _no_placed_reads(
         if read:
             raise r.fail(
                 path,
-                f"{where(path)} {text!r} reads {read}, which read a region's base: "
+                f"{where(path)} {text!r} reads {read}, which read a region's base or row_bytes: "
                 "only [abi] may read such a value",
             )
 

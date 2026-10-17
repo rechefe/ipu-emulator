@@ -1,0 +1,66 @@
+# fully_connected: y[s, :] = w @ x[s, :] for 10 samples of 128 inputs and 64
+# outputs, in INT8, in INT32 (INT8 data widened: the emulator-only format that
+# replaces ipu_apps' wide_mode, Q47), and in E4 and E5 (FP32 accumulation).
+# The shapes are fixed by the program (the .asm header has the design notes).
+[kernel]
+op = "fully_connected"
+formats = ["int8", "int32", "e4", "e5"]
+
+[params]
+samples      = { type = "int", choices = [10], default = 10 }   # the program's loop bound
+in_features  = { type = "int", choices = [128], default = 128 } # one row of inputs
+out_features = { type = "int", choices = [64], default = 64 }   # lanes of the accumulator used
+
+# The regions sit where the ipu_apps harness put them, at fixed byte
+# addresses in every format: x at 0x0, w at 0x20000, y at 0x40000. A row is
+# 128 bytes in INT8, E4 and E5 and 512 bytes in INT32, so the rows differ.
+[inputs.x]
+shape = ["samples", "in_features"]
+row = 0
+
+[inputs.w]
+shape = ["out_features", "in_features"]          # logical: output-major, not transposed
+pack = "transposed"                               # one row per input feature (../pack.py)
+row = "131072 / row_bytes"                        # byte 0x20000
+
+[outputs.y]
+shape = ["samples", "out_features"]
+store = "accumulator"                             # ST.ACC: 512 B per sample, 4 rows in 8-bit formats
+row = "262144 / row_bytes"                        # byte 0x40000
+
+[derived]
+row_step      = "1"                  # LR0 (sample) and LR14 (weight row) step one row
+element_step  = "1"                  # LR5 (input element) steps by one
+y_stride      = "512 / row_bytes"    # rows one accumulator vector spans: 4 (8-bit), 1 (INT32)
+first_sample  = "0"                  # LR0's start
+lr2_start     = "0"                  # LR2's start (the program never reads LR2)
+weight_start  = "-1"                 # LR14's start, one step before weight row 0
+element_start = "-1"                 # LR5's start, one step before element 0
+last_element  = "in_features - 1"    # the element loop's exit (BNE)
+cyclic_index  = "0"                  # LR15: R_CYCLIC index and mask shift
+
+[abi]
+x             = "CR0"                # pinned at row 0: the hardwired 0
+y             = "CR2"
+row_step      = "CR3"
+element_step  = "CR4"
+y_stride      = "CR5"
+first_sample  = "CR6"
+samples       = "CR7"
+lr2_start     = "CR8"
+weight_start  = "CR9"
+element_start = "CR10"
+last_element  = "CR11"
+cyclic_index  = "CR12"
+w             = "CR13"
+
+[golden]
+# y is an accumulator output: INT32 for INT8 and INT32 data, FP32 for E4 and E5.
+tolerance = { int32 = "EXACT", fp32 = "EXACT" }
+
+# The ipu_apps cases' data and goldens (gen.py): one .bin set per format, INT32
+# reading the INT8 set. The old cases map to formats: default -> int32,
+# int8 -> int8, fp8_e4m3 -> e4, fp8_e5m2 -> e5. E07-22 replaces them.
+[cases.default]
+generator = "gen.py:legacy_bin"
+expected = { y = "gen.py:legacy_golden" }
