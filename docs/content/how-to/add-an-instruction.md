@@ -105,6 +105,26 @@ running, so the test can write XMEM first. A test of `ADD`, the instruction
 bazel test //...
 ```
 
+Some tests pin today's ISA, and fail by design once it has one more
+instruction. Update them; the failing test names what it pins.
+
+- **Baselines** regenerate: run `tools/update_baselines.sh`. For an `lr`
+  instruction it rewrites nine files, among them the generated pages, the
+  editor's data, the decoded field maps and the SystemVerilog golden. Commit
+  them with the reason, as the [Baselines](../code-conventions.md#baselines)
+  rule asks.
+- **Facts written by hand** are edited:
+    - the ISA snapshot, `src/tools/ipu-isa/test/fixtures/spec_snapshot.json`;
+    - the reserved encodings: the per-slot counts in
+      `src/tools/ipu-isa/test/test_faults.py`, and the F-1 table in
+      [Faults](../requirements/faults.md);
+    - for an `lr` instruction, the "one edit" tests' own count of `lr`
+      instructions (`test_one_edit.py` in ipu-isa, `test_one_edit_generators.py`
+      in ipu-gen).
+- An instruction that fills its slot's opcode field widens the slot, and with
+  it the instruction word. For a HARDWARE slot that is a breaking change to the
+  wire format (`CLAUDE.md`, below).
+
 For a HARDWARE instruction, check the generated SystemVerilog package: a
 downstream RTL repository vendors it, and its widths are wire format. Follow
 the [Generated SystemVerilog Package](https://github.com/rechefe/ipu-emulator/blob/master/CLAUDE.md#generated-systemverilog-package)
@@ -119,11 +139,12 @@ bazel run //src/tools/ipu-as-py:ipu-as -- assemble --target hardware --input "$P
 
 ## What you do not edit
 
-The opcode, the assembler's grammar and encoder, the disassembler, the
-generated pages and the editor's data all follow from the entry, and none of
-them has a list of instructions to extend. If adding an instruction needs an
-edit beyond the three above, the "one edit" test lists it in
-`KNOWN_MANUAL_EDITS`. That list is empty.
+No code has a list of instructions to extend. The opcode, the assembler's
+grammar and encoder, the disassembler, the generated pages and the editor's
+data all follow from the entry. If the code needed an edit beyond the entry and
+the handler, the "one edit" test would list it in `KNOWN_MANUAL_EDITS`. That
+list is empty. Only the tests and pages that pin today's ISA change, as in
+step 4.
 
 A **new operand type** is the exception: it needs an entry in
 `src/tools/ipu-isa/src/ipu_isa/operand_types.py`, a token class in the
