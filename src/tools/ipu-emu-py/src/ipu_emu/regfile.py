@@ -213,11 +213,6 @@ class RegFile:
         self._forget_constant_ones(canon, start, size)
         return memoryview(storage)[start : start + size]
 
-    def forget_provenance(self, name: str) -> None:
-        """Forget register *name*'s constant-ones provenance. Only the emulator's
-        reads call it, to keep alias statistics as they were (E04-24)."""
-        self._constant_one_bytes.pop(self._resolve(name), None)
-
     def raw(self, name: str) -> bytearray:
         """Return the ``bytearray`` backing register *name*.
 

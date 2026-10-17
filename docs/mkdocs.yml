@@ -137,6 +137,7 @@ nav:
           - Control Stage Specification: specs/stage-control.md
           - RISC-V Host Integration: specs/riscv-host-integration.md
           - Mnemonic rename (SV names): specs/mnemonic-rename.md
+          - RTL migration (SV package): specs/rtl-migration.md
       - HW requirements:
           - Overview and goals: requirements/index.md
           - Architecture and pipeline: requirements/architecture.md

@@ -150,7 +150,7 @@ def execute_activate_quantize(ipu: Ipu, *, activation_fn: int, cr_idx: int) -> N
     active = agg_lane_count(valid_elements)
     fmt = lane_format(state)
     codec = ipu._codec
-    acc_buf = ipu._view.read_forgetting_provenance("r_acc")
+    acc_buf = ipu._view.read("r_acc")
     post_buf = state.regfile.mutable("post_aaq_reg")
 
     if codec.element_bytes != 1:

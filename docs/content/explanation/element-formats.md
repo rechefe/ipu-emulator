@@ -148,7 +148,7 @@ its vectors spans four rows.
   each of the 128 mask bits gates one element.
 - **`ACTIVATE.QUANTIZE`** writes the activated elements to `POST_AAQ_REG`
   without quantizing them, unless the state was built with
-  `AaqOptions(quantize_output=True)`. `R_ACC` keeps the full results; `ST.ACC`
+  `AaqOptions(quantize_output=True)` (from `ipu_emu.activations`). `R_ACC` keeps the full results; `ST.ACC`
   stores them. The AaQ stage is a placeholder: see OQ-20, OQ-22 and OQ-34 in
   [Open questions](../requirements/open-questions.md#emulator-and-isa).
 
