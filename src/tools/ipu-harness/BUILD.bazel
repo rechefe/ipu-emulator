@@ -258,6 +258,17 @@ py_pytest_test(
     ],
 )
 
+# The kernel page's data: design notes and the ABI table (E06-21).
+py_pytest_test(
+    name = "test_kernel_page",
+    srcs = ["test/test_kernel_page.py"],
+    deps = [
+        ":ipu_harness_lib",
+        ":scale_kernel",
+        requirement("pytest"),
+    ],
+)
+
 # The runner without torch: expected files need no reference (E06-11).
 py_pytest_test(
     name = "test_runner_no_torch",
