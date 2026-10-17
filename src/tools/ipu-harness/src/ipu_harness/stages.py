@@ -38,7 +38,7 @@ from ipu_harness.assembly import AssemblyCache, assemble_program
 from ipu_harness.debug import DebugHook, debug_run
 from ipu_harness.manifest import KernelManifest, check_abi
 from ipu_harness.params import CasePlan
-from ipu_harness.placement import Placement
+from ipu_harness.placement import Placement, check_aaq_spill
 from ipu_isa.constants import DStructureConfig
 from ipu_isa.geometry import LANES
 
@@ -212,6 +212,7 @@ class _Stages:
         )
         assembled = assemble_program(self.plan, path, self.cache, params=params, abi=bindings)
         check_cr_reads(self.manifest, assembled.rendered, abi=bindings, name=path.name)
+        check_aaq_spill(self.plan, self.placement, assembled.rendered)
 
         model = self.model
         model.load_program(assembled.words)

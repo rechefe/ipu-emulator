@@ -43,7 +43,7 @@ from ipu_harness.debug import DebugLaunch, attach_alias_profile, debug_run, new_
 from ipu_harness.manifest import KernelManifest, TensorDecl
 from ipu_harness.packing import pack, stored_format, stored_rows, unpack
 from ipu_harness.params import CasePlan, plan_case
-from ipu_harness.placement import Placement, place
+from ipu_harness.placement import Placement, check_aaq_spill, place
 from ipu_harness.reference import evaluate, load_reference
 from ipu_harness.stages import StageOptions, StagesRun, run_stages
 from ipu_isa.codec.word import word_bytes
@@ -514,6 +514,7 @@ def stage(
     plan, values, placement = _prepare(manifest, case, fmt, inputs, shared)
     program = assemble(plan, cache)
     check_cr_reads(manifest, program.rendered)
+    check_aaq_spill(plan, placement, program.rendered)
 
     model = ReferenceModel(fmt) if shared is None else shared.model
     model.load_program(program.words)
