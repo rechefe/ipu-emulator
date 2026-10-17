@@ -1,0 +1,4 @@
+# insn_ld_mult_cyclic_int8: LD.MULT.CYCLIC in INT8
+LD.MULT.CYCLIC LR1 CR3 LR0 ;;
+LD.MULT.CYCLIC LR2 CR3 LR6 ;;
+HALT ;;

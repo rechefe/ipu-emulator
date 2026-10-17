@@ -4,7 +4,7 @@ Encoding is not here: ``ipu_as.encode`` places instructions and the ``ipu_isa``
 codec owns the bits (E05-02).
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 
 # isort: off
 # Import order defines EnumToken subclass registration order, which fixes the
@@ -21,7 +21,7 @@ from ipu_isa.instruction_spec import InstructionDoc, syntax
 from ipu_isa.operand_types import OPERAND_TYPES, OperandType
 from ipu_isa.slots import Slot
 from ipu_isa.tags import Tag
-from ipu_isa.view import Isa, Operand, isa
+from ipu_isa.view import Instruction, Isa, Operand, isa
 
 
 def _operand_type_md_link(typ: str) -> str:
@@ -133,7 +133,11 @@ check_operand_type_map(OPERAND_TYPE_MAP)
 # ===========================================================================
 
 
-def render_slot_docs(slot: str, view: Isa | None = None) -> str:
+def render_slot_docs(
+    slot: str,
+    view: Isa | None = None,
+    extra: Callable[[Instruction], Sequence[str]] | None = None,
+) -> str:
     """The reference section of one slot, in Markdown.
 
     The heading and intro come from the slot registry (``SlotInfo.doc_heading``,
@@ -142,6 +146,8 @@ def render_slot_docs(slot: str, view: Isa | None = None) -> str:
     Args:
         slot: The slot name, e.g. ``"lr"``.
         view: The ISA; default ``isa()``.
+        extra: Lines appended to each instruction's entry (the docs generator's
+            register read points); none by default.
 
     Returns:
         The section text.
@@ -173,6 +179,8 @@ def render_slot_docs(slot: str, view: Isa | None = None) -> str:
                 instruction.mnemonic, instruction.doc, instruction.operands, instruction.tag
             )
         )
+        if extra is not None:
+            lines.extend(extra(instruction))
         lines.append("")
 
     return "\n".join(lines).rstrip()

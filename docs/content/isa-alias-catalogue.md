@@ -268,7 +268,7 @@ Writing `ACC.ADD` in place of the round-trip computes `A+B`, not `A*B`.
 
 ### A12 — post-increment addressing / same-cycle load→mult forwarding
 
-`MULT.RC.*` reads `R_CYCLIC` from the start-of-cycle snapshot, so it cannot consume
+`MULT.RC.*` reads `R_CYCLIC` at cycle start ([timing model](explanation/timing-model.md#rule-2)), so it cannot consume
 a row loaded in its own bundle (issue #157). The pointer bump therefore needs an
 LR-only bundle of its own per inner-loop iteration, with the mult slot idle in it.
 

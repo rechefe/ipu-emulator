@@ -651,7 +651,7 @@ show **IDLE**; completed commands are not shown as occupying a stage.
 
 The header identifies the cycle and PC. The debugger pauses before execution,
 so active commands are marked **READY**. The emulator completes all slots of
-one issue in one cycle, using each handler's snapshot/live operand semantics;
+one issue in one cycle, as the [timing model](explanation/timing-model.md) describes;
 it does not expose intermediate hardware stage occupancy or stalls.
 
 Step with `F8` while keeping this view open. Commands update from the actual

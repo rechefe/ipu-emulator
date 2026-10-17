@@ -18,7 +18,9 @@ from ipu_isa.timing import (
     Deviation,
     RegisterAccess,
     View,
+    contract_rule,
     contract_view,
+    declared_reads,
     deviations,
     register_writers,
     validate_timing,
@@ -112,6 +114,41 @@ def test_other_reads_follow_the_producers():
     assert contract_view(Slot.LOAD, "cr", WRITERS) is CS
     writers = {"r_acc": [Slot.ACC, Slot.COND]}  # a later writer: cycle start
     assert contract_view(Slot.ACC_STORE, "r_acc", writers) is CS
+
+
+@pytest.mark.parametrize(
+    ("slot", "register", "rule"),
+    [
+        (Slot.COND, "lr", 1),
+        (Slot.BREAK, "lr", 1),
+        (Slot.LOAD, "lr", 1),
+        (Slot.ACC, "lr", 1),
+        (Slot.MULT, "lr", 1),
+        (Slot.MULT, "r", 2),
+        (Slot.MULT, "r_cyclic", 2),
+        (Slot.MULT, "r_mask", 2),
+        (Slot.ACC, "mult_res", 3),
+        (Slot.AAQ, "r_acc", 3),
+        (Slot.LR, "lr", 4),
+        (Slot.LR, "cr", 4),
+        (Slot.COND, "cr", None),
+        (Slot.ACC, "r_acc", None),
+        (Slot.STORE, "post_aaq_reg", None),
+    ],
+)
+def test_contract_rule_names_the_rule_that_gives_the_view(slot, register, rule):
+    assert contract_rule(slot, register) == rule
+
+
+def test_every_declared_read_is_labelled_with_a_rule_or_the_slot_order():
+    """Each of the four rules labels at least one read of the repository ISA."""
+    rules = {
+        contract_rule(Slot(slot), access.register)
+        for slot, instructions in INSTRUCTION_SPEC.items()
+        for inst_def in instructions.values()
+        for access in declared_reads(inst_def)
+    }
+    assert rules == {1, 2, 3, 4, None}
 
 
 def test_register_writers():

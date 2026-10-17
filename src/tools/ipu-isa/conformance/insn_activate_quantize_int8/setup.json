@@ -1,0 +1,95 @@
+{
+ "description": "ACTIVATE.QUANTIZE in INT8",
+ "format": "int8",
+ "emulator_only": false,
+ "max_cycles": 1000,
+ "fault_enables": {},
+ "registers": [
+  {
+   "name": "r_mask",
+   "index": 0,
+   "hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  {
+   "name": "r_acc",
+   "index": 0,
+   "hex": "4ebb01009e4e06001891f3ff96bf07001da9ffff9f5f0f000ee1f2ffa90607001d8d030076be0e00d924060034fa0d004290f8ffc9fafaff4ec801007ccb0b0058780e00caa7faffdf420500ece90100bccef7ffd712f5ff16c30900c428fbff9ea80c0084d6feff5bb10500f64bfaff9d2dffff1ad80a0018bd0000e248feff0f530500af1d0e00a94d0d001a67faff93dffafff7b1f4ff96b00500d198feffd02e0d0054dcfcff9d580000904af5ff7844fbff3611050015acfbff36d4faff9bee0400d7f9f6ff8485f0ff21f20c00c230f2fff721f2ff4dcf0e003ffc070003c90e007b5df4ff1a42f1ff9897070072530500accb00000b710c00fcb4f1ffc5e407000750f2ffd7440700f721f7ff2d65f9ff076df9ff5e7a0900d1ce01001b9df2ff779e00005e6bf9fffa3d02000ca90b00672dfcff1076feff1b5700005d22f9ff93a40200ad4ef8ffe92bffff559df6ff4b0d05006c36feff8910060098dff8ff6fc8080003e10200c62bfaffc5cdfdff93b6f1ffe83d0600508608007de70100757efeff7709090066180b00454c0c0004aa060016880400da7d0c00d4400000515f0600111e0300596df0ff8fdbf0ff3b49000072e40900a8580e002ce20c00a33bffff7c270200429b02007ddff2ff3722f7ffd434070096b807001db4f0ffa6cef8ff7182f4ff18050000d5b60400d232fdff41e300002d110d00"
+  },
+  {
+   "name": "lr",
+   "index": 1,
+   "value": 1
+  },
+  {
+   "name": "lr",
+   "index": 2,
+   "value": 2
+  },
+  {
+   "name": "lr",
+   "index": 3,
+   "value": 3
+  },
+  {
+   "name": "lr",
+   "index": 4,
+   "value": 5
+  },
+  {
+   "name": "lr",
+   "index": 6,
+   "value": 128
+  },
+  {
+   "name": "lr",
+   "index": 7,
+   "value": 3
+  },
+  {
+   "name": "cr",
+   "index": 2,
+   "value": 1
+  },
+  {
+   "name": "cr",
+   "index": 3,
+   "value": 4
+  },
+  {
+   "name": "cr",
+   "index": 4,
+   "value": 2
+  },
+  {
+   "name": "cr",
+   "index": 5,
+   "value": 7
+  },
+  {
+   "name": "cr",
+   "index": 6,
+   "value": 128
+  },
+  {
+   "name": "cr",
+   "index": 7,
+   "value": 4294967294
+  },
+  {
+   "name": "cr",
+   "index": 8,
+   "value": 100
+  },
+  {
+   "name": "cr",
+   "index": 9,
+   "value": 3
+  },
+  {
+   "name": "cr",
+   "index": 15,
+   "value": 128
+  }
+ ],
+ "xmem": []
+}

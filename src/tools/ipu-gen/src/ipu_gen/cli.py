@@ -3,6 +3,7 @@
 bazel run //src/tools/ipu-gen:ipu-gen -- sv-package --output /tmp/ipu_instr_pkg.sv
 bazel run //src/tools/ipu-gen:ipu-gen -- docs-pages /tmp/docs
 bazel run //src/tools/ipu-gen:ipu-gen -- instruction-format-md /tmp/instruction-format.md
+bazel run //src/tools/ipu-gen:ipu-gen -- timing-table /tmp/timing-contract-table.md
 bazel run //src/tools/ipu-gen:ipu-gen -- union-layout-svg /tmp/union_layout.svg
 bazel run //src/tools/ipu-gen:ipu-gen -- vscode-data [OUT_DIR]
 bazel run //src/tools/ipu-gen:ipu-gen -- verify-sv-package path/to/ipu_instr_pkg.sv
@@ -64,6 +65,15 @@ def instruction_format_md(output: Path) -> None:
     output = _caller_path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
     docs_pages.generate_instruction_format_md(output)
+
+
+@cli.command("timing-table")
+@click.argument("output", type=click.Path(dir_okay=False, path_type=Path))
+def timing_table(output: Path) -> None:
+    """Write the timing contract table the timing model page includes."""
+    output = _caller_path(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    docs_pages.generate_timing_contract_table(output)
 
 
 @cli.command("union-layout-svg")

@@ -18,6 +18,7 @@ from ipu_isa.activations import (
 from ipu_isa.constants import REGISTER_WORD_VALUE_MASK
 from ipu_isa.formats import AccumulatorType, ElementFormat
 from ipu_isa.geometry import LANES
+from ipu_isa.registers import REGISTER_DEFINITIONS
 
 if TYPE_CHECKING:
     from ipu_emu.ipu import Ipu
@@ -26,6 +27,8 @@ if TYPE_CHECKING:
 
 # Exactly the double used by ``apply_activation`` for EXP2, computed once.
 _LOG_2 = math.log(2.0)
+#: POST_AAQ_REG's bytes; QUANTIZE fills its first LANES and zeroes the rest.
+_POST_AAQ_BYTES = REGISTER_DEFINITIONS["post_aaq_reg"]["size_bytes"]
 
 
 def execute_aaq_nop(ipu: Ipu) -> None:
@@ -117,7 +120,7 @@ def _activate_wide(
     if not state.aaq.quantize_output:
         return
 
-    result = bytearray(128)
+    result = bytearray(LANES)
     post = codec.load_acc(post_buf, active).tolist()
     if state.format_info.accumulator is AccumulatorType.FP32:
         for i, val in enumerate(post):
@@ -125,7 +128,7 @@ def _activate_wide(
     else:
         for i, val in enumerate(post):
             result[i] = max(-128, min(127, val)) & 0xFF
-    state.regfile.set_post_aaq_reg(result + bytearray(384))
+    state.regfile.set_post_aaq_reg(result + bytearray(_POST_AAQ_BYTES - LANES))
 
 
 def execute_activate_quantize(ipu: Ipu, *, activation_fn: int, cr_idx: int) -> None:
@@ -168,8 +171,8 @@ def execute_activate_quantize(ipu: Ipu, *, activation_fn: int, cr_idx: int) -> N
     if state.fmt is not ElementFormat.INT8:
         raise EmulatorError("ACTIVATE.QUANTIZE instruction requires INT8 mode")
 
-    result = bytearray(128)
+    result = bytearray(LANES)
     for i, raw in enumerate(codec.load_acc(acc_buf, active).tolist()):
         y = _activate(state, fn_id, raw)
         result[i] = max(-128, min(127, int(round(y)))) & 0xFF
-    state.regfile.set_post_aaq_reg(result + bytearray(384))
+    state.regfile.set_post_aaq_reg(result + bytearray(_POST_AAQ_BYTES - LANES))

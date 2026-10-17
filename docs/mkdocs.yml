@@ -88,7 +88,7 @@ nav:
       - Debug a kernel: debugging.md                        # E09-12; the Cycle Inspector page (E08) goes here
       - Step through a kernel run: debugging-inspector.md   # E08-17; E09 decides its final place
       - Cycle Inspector: inspector/index.html               # E08-17: the static viewer page
-      - Use the reference model from cocotb: how-to/reference-model-cocotb.md   # placeholder, E09-13
+      - Use the reference model from cocotb: how-to/reference-model-cocotb.md   # E09-13
   - Reference:
       - reference/index.md
       - ISA:
@@ -115,7 +115,7 @@ nav:
       - explanation/index.md
       - Architecture: explanation/architecture.md           # placeholder, E09-17
       - Prototyping mode: prototyping-mode.md               # E09-17 folds it in
-      - Timing model: explanation/timing-model.md           # placeholder, E09-18
+      - Timing model: explanation/timing-model.md
       - Element formats: wide-vector-debug-mode.md          # E09-19 replaces it
       - ISA idioms: isa-alias-catalogue.md                  # E09-10
       - Kernel coverage: app-coverage.md                    # E09-10

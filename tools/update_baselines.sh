@@ -20,6 +20,7 @@ UPDATE_TARGETS=(
   //src/tools/ipu-apps:update_disassembly_snapshots
   //src/tools/ipu-as-py:update_sv_golden
   //src/tools/ipu-as-py:update_generated_artifacts
+  //src/tools/ipu-emu-py:update_conformance
 )
 KERNEL_TARGET=//src/tools/ipu-apps:update_kernel_baselines
 
@@ -27,6 +28,7 @@ BASELINE_PATHS=(
   src/tools/ipu-apps/test/baselines
   src/tools/ipu-as-py/test/baselines
   src/tools/ipu-as-py/test/golden
+  src/tools/ipu-isa/conformance
   ':(glob)src/tools/ipu-apps/src/ipu_apps/kernels/**/baseline.json'
 )
 

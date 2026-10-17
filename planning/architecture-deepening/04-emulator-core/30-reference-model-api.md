@@ -6,6 +6,10 @@ Part of [Epic E04: Emulator core](00-epic.md) · ID E04-30 · Size M · Depends 
 
 Give RTL verification a small, fixed, non-breaking Python interface to the emulator (D5, Q10, Q11): a cocotb-style testbench resets the model, loads a program, sets registers and XMEM, steps cycle by cycle and compares each commit record with the RTL. Everything else in `ipu_emu` stays free to change.
 
+## Follow-up
+
+- 1.1.0 (additive) added `ReferenceModel.stats() -> Stats`, the run statistics lane B's E06-11 runner needs (effective MAC utilization); see the decisions row.
+
 ## Background
 
 - Today callers combine `IpuState`, `load_program`, `run_until_complete`, `Ipu(state).execute_vliw_cycle()` and register accessors with names like `get_lr`, `raw("r_acc")` and `get_r_wide_debug`. Nothing is marked stable.
