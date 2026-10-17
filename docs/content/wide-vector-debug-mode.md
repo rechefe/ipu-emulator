@@ -36,10 +36,10 @@ state = IpuState(
 run_until_complete(state)
 ```
 
-`WideVectorArithmetic` is re-exported from `ipu_emu` for convenience:
+`WideVectorArithmetic` is in `ipu_emu.ipu_state`, beside `IpuState`:
 
 ```python
-from ipu_emu import IpuState, WideVectorArithmetic
+from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 ```
 
 The high-level helper [`run_test`](https://github.com/rechefe/ipu-emulator/blob/master/src/tools/ipu-emu-py/src/ipu_emu/emulator.py) always builds a default `IpuState()`. To use wide-vector mode with your own harness, create the state as above, then use `load_program_from_binary` / `load_program` and `run_until_complete` or `run_with_debug` the same way tests do.
