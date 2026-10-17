@@ -10,7 +10,7 @@ registration list to edit, no import to remember.
 Two properties this has to hold:
 
 * **Arbitrary depth.** Family kernels sit two levels down
-  (``kernels/softmax/softmax_rows/``, ``kernels/convolutions/conv1x1/``), and
+  (``kernels/softmax/softmax_rows/``, ``kernels/convolutions/conv_universal/``), and
   nothing fixes that depth. Recursion is not optional.
 * **Tolerance of broken or half-present packages.** A working tree can easily
   contain directories that are not importable -- stale ``__pycache__`` shells

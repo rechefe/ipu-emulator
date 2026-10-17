@@ -460,28 +460,6 @@ def test_every_assembly_has_a_registered_case():
 @pytest.mark.parametrize(
     "name,params",
     [
-        (
-            "conv3x3_relu",
-            dict(
-                shape=(1, 2, 2),
-                out_channels=1,
-                kernel_size=3,
-                stride=1,
-                padding=1,
-                activation="none",
-            ),
-        ),
-        (
-            "conv3x3_relu_cin1",
-            dict(
-                shape=(2, 2, 2),
-                out_channels=1,
-                kernel_size=3,
-                stride=1,
-                padding=1,
-                activation="relu",
-            ),
-        ),
         ("l2_normalize_channels", dict(shape=(1, 10**10))),
     ],
 )

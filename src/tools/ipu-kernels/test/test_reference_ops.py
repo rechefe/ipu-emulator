@@ -114,6 +114,29 @@ def test_linear_is_a_matmul_then_its_activation():
     assert ops.linear(weights, data)["y"].shape == (4, 1, 3, 5)
 
 
+def test_conv2d_is_a_zero_padded_correlation_plus_bias_then_its_activation():
+    # One input channel, a 3x3 kernel picking the right neighbour, padding 1.
+    x = t([[[1, 2], [3, 4]]])
+    w = torch.zeros(1, 1, 3, 3, dtype=torch.float64)
+    w[0, 0, 1, 2] = 1.0
+    shifted = [[[2.0, 0.0], [4.0, 0.0]]]
+    assert ops.conv2d(x, w, padding=1, height=2)["y"].tolist() == shifted
+    biased = ops.conv2d(x, w, t([-3]), padding=1)["y"].tolist()
+    assert biased == [[[-1.0, -3.0], [1.0, -3.0]]]
+    relu = [[[0.0, 0.0], [1.0, 0.0]]]
+    assert ops.conv2d(x, w, t([-3]), padding=1, activation="relu")["y"].tolist() == relu
+    assert ops.conv2d(x, w, t([-3]), padding=1, apply_relu=True)["y"].tolist() == relu
+    # Stride 2 halves each side; groups = channels is depthwise.
+    assert ops.conv2d(torch.ones(1, 4, 4, dtype=torch.float64), w, stride=2, padding=1)[
+        "y"
+    ].shape == (1, 2, 2)
+    two = torch.ones(2, 2, 2, dtype=torch.float64)
+    depthwise = ops.conv2d(two, w.repeat(2, 1, 1, 1), padding=1, groups=2)["y"]
+    assert depthwise.tolist() == [[[1.0, 0.0], [1.0, 0.0]]] * 2
+    with pytest.raises(ValueError, match="'gelu' is not one of"):
+        ops.conv2d(x, w, activation="gelu")
+
+
 def test_an_axis_op_needs_its_dim():
     # No default axis: a kernel that forgets [params] dim fails, not reduces wrongly.
     with pytest.raises(TypeError, match="dim"):

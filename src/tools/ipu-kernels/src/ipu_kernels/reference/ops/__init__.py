@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from ipu_kernels.reference.ops.channel_peak import channel_peak
 from ipu_kernels.reference.ops.concat import concat
+from ipu_kernels.reference.ops.conv2d import conv2d
 from ipu_kernels.reference.ops.depth_to_space import depth_to_space
 from ipu_kernels.reference.ops.fold import fold
 from ipu_kernels.reference.ops.identity import identity
@@ -39,6 +40,7 @@ from ipu_kernels.reference.ops.unfold import unfold
 __all__ = [
     "channel_peak",
     "concat",
+    "conv2d",
     "depth_to_space",
     "fold",
     "identity",

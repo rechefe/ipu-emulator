@@ -25,6 +25,12 @@ KERNELS = {
         "qk_scores_64x48",
     ],
     "conformance": ["vector_tour"],
+    "convolutions": [
+        "conv1x1",
+        "conv3x3_relu",
+        "conv3x3_relu_cin1",
+        "conv_first_layer",
+    ],
     "detect": ["channel_peak", "score_threshold"],
     "elementwise": ["scale"],
     "linear": ["fully_connected"],
