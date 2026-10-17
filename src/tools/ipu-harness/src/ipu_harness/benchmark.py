@@ -23,13 +23,13 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any
 
 from ipu_emu.errors import ConfigurationError
 from ipu_harness.assembly import AssemblyCache
-from ipu_harness.cases import Case, expand
+from ipu_harness.cases import Case, at_values, expand
 from ipu_harness.manifest import BenchmarkDecl, KernelManifest
 from ipu_harness.runner import RunOptions, RunResult, run_kernel
 from ipu_isa.formats import ElementFormat
@@ -41,7 +41,7 @@ LEGEND = (
     "mult% / acc%: cycles the slot was busy. lanes%: multiplier lanes that "
     "carried data. ident%: the part of those lanes that multiplied by a constant 1 "
     "(data routing, not MACs). effMAC%: peak MACs actually retired. ISA aliases: "
-    "verified occurrences of each alias in docs/content/isa-alias-catalogue.md, "
+    "verified occurrences of each alias in docs/content/explanation/isa-idioms.md, "
     "subtypes summed (+N? = unverified candidates); occurrences can overlap, so "
     "they are not savings estimates."
 )
@@ -114,16 +114,7 @@ def point_cases(manifest: KernelManifest) -> tuple[Case, ...]:
     """
     bench = _decl(manifest)
     default = next(c for c in expand(manifest) if c.decl.name == "default")
-    cases = []
-    for point in bench.points:
-        name = f"benchmark[{_label(point)}]"
-        values = MappingProxyType({**default.values, **point})
-        empty: Mapping[str, Any] = MappingProxyType({})
-        decl = replace(default.decl, name=name, values=values, inputs=empty, expected=empty)
-        cases.append(
-            replace(default, name=name, values=values, inputs=empty, expected=empty, decl=decl)
-        )
-    return tuple(cases)
+    return tuple(at_values(default, f"benchmark[{_label(p)}]", p) for p in bench.points)
 
 
 def _observed_aliases(profile: Any) -> dict[str, tuple[int, int]]:

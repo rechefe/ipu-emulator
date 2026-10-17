@@ -33,8 +33,9 @@ per-partition ``R_MASK`` slot (``mask_offset=p``, built by ``_partition_masks``
 and loaded once per chunk via ``LD.MASK``) so every OTHER element is
 zeroed before ``acc.add``/``acc.add.first`` accumulates it into the shared
 r_acc -- this is what lets P separate partitions safely share one accumulator
-without corrupting each other (see STATUS.md's "Pass-4 cross-partition
-contamination" for why this masking is necessary). One ACTIVATE+store then
+without corrupting each other (PASS-4 MASKS in the header of
+kernels/softmax/softmax_rows_partial/softmax_rows_partial.asm says why this
+masking is necessary). One ACTIVATE+store then
 drains the fully assembled packed chunk. ``mask_offset`` is a compile-time
 immediate, so the per-partition instruction sequence is unrolled per P value
 via Jinja in the ``.asm`` (one block each for P=1/2/4/8), with a runtime
@@ -97,7 +98,7 @@ class SoftmaxRowsPartialApp(SoftmaxApp):
         Slot p (p < P) keeps bits [p*ps, p*ps+N) and zeroes every other bit
         (bit 1 = keep). Each partition's MULT.RC.VE (mask_offset=p) is thereby
         restricted to exactly its own elements, so acc.add never leaks another
-        row's data into a neighbouring partition (see STATUS.md).
+        row's data into a neighbouring partition (the kernels/softmax .asm header).
         """
         buf = bytearray(128)
         for p in range(self.parts_per_chunk):

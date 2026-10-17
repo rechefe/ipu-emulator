@@ -287,6 +287,55 @@ be overridden for one format, with the reason. For a kernel whose output is
 stored in E4 (an element output):
 `e4 = { tier = "FP8_ULP", ulps = 2, why = "two roundings: the product and the store" }`.
 
+## Add a format to a migrated kernel
+
+A kernel moved from `ipu_apps` runs in FP32 first, on its old data, so its
+outputs match the old harness's. Adding a format afterwards is its own change.
+The worked example is the projections (`kernels/projections/`), whose
+`proj_p4` template runs in FP32 and INT8:
+
+1. **Check that the program does not depend on the format.** Region bases
+   and strides in CRs count rows, not bytes; the program holds no byte
+   offsets; each output's `store` matches its store instruction (`element`
+   for `ST.AAQ`, `accumulator` for `ST.ACC`, which takes 4 rows a vector in an
+   8-bit format). If one fails, fix the program in its own change first, and
+   show that the FP32 outputs are unchanged.
+2. **Keep the old data in FP32 only.** The case generator that reproduces
+   the old data returns nothing in another format, so the harness's default
+   generator makes those inputs. The projections' `gen.py`:
+
+   ```python
+   def legacy_uniform(plan, rng):
+       if plan.format is not ElementFormat.FP32:
+           return {}
+       ...
+   ```
+
+3. **Give the inputs a range for the format.** The default range of an
+   integer format is all of it, and a long dot product of full-range INT8
+   values saturates almost every output, so the test would pass whatever the
+   program did. Choose a range that keeps fewer than 1% of the outputs at the
+   rails, and test that it does:
+
+   ```toml
+   [inputs.b]
+   shape = ["n_streams", "n_tg", "k", "n_tok"]
+   pack = "channel_major"
+   range = { int8 = [-2, 2] }   # at most 0.36% of y saturates (K = 480)
+   ```
+
+4. **Add the format and its tier.** Add it to `[kernel] formats` and name its
+   tier in `[golden] tolerance`, then run the kernel and every registry entry
+   over it: `bazel run //kernels/projections:proj_qkv_192_p4 -- --format int8`
+   prints each output's largest error. Record what you measured beside the
+   tier.
+5. **Leave out what the emulator cannot run yet, and say why.** The
+   projections do not run in E4, because `ACTIVATE.QUANTIZE` refuses an 8-bit
+   float format (OQ-20), and the two-group templates do not run in INT8,
+   because `ST.AAQ` stores four rows in an 8-bit format and their store order
+   overwrites rows already stored (OQ-35). A test that fails when the
+   emulator changes (`kernels/projections/test_formats.py`) records each one.
+
 ## When the kernel needs more
 
 | The kernel needs | Use |

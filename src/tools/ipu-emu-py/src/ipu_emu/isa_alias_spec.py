@@ -8,7 +8,7 @@ retiring zero MACs, which is why ``mult%`` is not MAC utilization.
 
 This table declares those idioms so the emulator can count them. It holds **no
 instruction metadata** — only references into the ISA (``ipu_isa.view.isa()``), checked by
-``validate_isa_alias_spec()`` at import. See ``docs/content/isa-alias-catalogue.md``
+``validate_isa_alias_spec()`` at import. See ``docs/content/explanation/isa-idioms.md``
 for what each alias stands in for and the sequence that implements it.
 
 Structure:

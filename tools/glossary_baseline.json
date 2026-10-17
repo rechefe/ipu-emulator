@@ -1,13 +1,6 @@
 {
-  "docs/content/app-coverage.md": {
-    "bundle": 3
-  },
   "docs/content/building-applications.md": {
     "program counter": 1
-  },
-  "docs/content/isa-alias-catalogue.md": {
-    "bundle": 6,
-    "simulation-only": 2
   },
   "docs/content/requirements/architecture.md": {
     "DRAM": 2,

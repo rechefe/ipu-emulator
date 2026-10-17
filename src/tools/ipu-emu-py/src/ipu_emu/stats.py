@@ -9,7 +9,7 @@ multiply against a constant 1.0 is how kernels emulate the vector move, add and
 subtract the ISA lacks, and a 16-lane row still occupies all 128 lanes. The
 lane- and identity-aware counters below exist so ``effective_mac_utilization``
 can report what the multiplier actually retired. See
-``docs/content/isa-alias-catalogue.md``.
+``docs/content/explanation/isa-idioms.md``.
 """
 
 from __future__ import annotations

@@ -10,8 +10,18 @@ names them; //kernels:test_families checks it against the kernel.toml folders.
 
 #: Each family's kernels, by folder name.
 KERNELS = {
+    "attention": [
+        "attn_scores_km_16x60",
+        "attn_scores_km_256x36",
+        "attn_scores_km_64x48",
+        "qk_scores_16x60",
+        "qk_scores_256x36",
+        "qk_scores_64x48",
+    ],
+    "conformance": ["vector_tour"],
     "detect": ["channel_peak", "score_threshold"],
     "elementwise": ["scale"],
+    "linear": ["fully_connected"],
     "matmul": ["matmul_small"],
     "pooling": [
         "maxpool2d_nms",
@@ -20,12 +30,31 @@ KERNELS = {
         "maxpool2d_window",
     ],
     "projections": ["proj_p4", "proj_p4_2tg", "proj_p4_2tg_silu"],
-    "reshape": ["concat", "depth_to_space", "identity"],
+    "reshape": [
+        "concat",
+        "depth_to_space",
+        "fold_16x16x192",
+        "fold_32x32x144",
+        "fold_8x8x240",
+        "identity",
+        "unfold_16x16x192",
+        "unfold_32x32x144",
+        "unfold_8x8x240",
+    ],
     "sampling": ["sample_descriptors", "sample_descriptors_separable"],
+    "softmax": [
+        "softmax_columns",
+        "softmax_columns_packed",
+        "softmax_rows",
+        "softmax_rows_long",
+        "softmax_rows_partial",
+    ],
 }
 
 #: The families each family may use: import from (ipu_kernels.<other>) or refer
 #: to the files of (kernels/<other>/...). A use not listed here fails
 #: //kernels:test_families. E07 adds the edges its migrations need, for
 #: example "attention": ["softmax"].
-FAMILY_DEPS = {}
+FAMILY_DEPS = {
+    "attention": ["softmax"],
+}

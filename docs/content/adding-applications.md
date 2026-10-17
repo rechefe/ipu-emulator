@@ -9,7 +9,7 @@
     kernels below and then removes this page.
 
 How to contribute a kernel so the registry can find it, route to it, and report
-its coverage accurately. See [Application coverage](app-coverage.md) for why the
+its coverage accurately. See [Kernel coverage](explanation/kernel-coverage.md) for why the
 system is shaped this way.
 
 Adding an application is **purely additive**: you create files inside your own
@@ -63,12 +63,12 @@ PER = "rows"  # optional: adds a cycles-per-row column
 Kernels of one family keep shared code in the family directory under the same
 names: `<family>/app.py` for a shared harness base or spec helpers,
 `<family>/cases.py` for shared case builders, and `<family>/test.py` for tests
-that span the family (see `kernels/convolutions/`,
-`kernels/softmax/`). `bazel test :<family>` runs every kernel in the family plus
-the family's `test.py`.
+that span the family (see `kernels/convolutions/`, `kernels/attention/`).
+`bazel test :<family>` runs every kernel in the family plus the family's
+`test.py`.
 
 Every family has the same shape, `kernels/<family>/<app>/` — e.g.
-`kernels/convolutions/conv1x1/` and `kernels/softmax/softmax_rows/`.
+`kernels/convolutions/conv1x1/` and `kernels/attention/attn_scores_km_16x60/`.
 
 No `BUILD.bazel` edit is needed: `ipu_apps_from_kernels` (in `//:ipu_app.bzl`)
 globs every `.asm` file under `src/ipu_apps/kernels/` and declares one
@@ -287,8 +287,8 @@ contract below.
 
 ```bash
 bazel run //src/tools/ipu-apps:query                                  # coverage report
-bazel run //src/tools/ipu-apps:query -- softmax shape=32,300 dim=1    # which kernel, and why
-bazel run //src/tools/ipu-apps:query -- softmax shape=8,n dim=1 --sweep n=1..200   # routing table
+bazel run //src/tools/ipu-apps:query -- maxpool2d shape=2,8,8 kernel_size=7 stride=1 padding=3   # which kernel, and why
+bazel run //src/tools/ipu-apps:query -- maxpool2d shape=1,2,w kernel_size=2 stride=2 padding=0 --sweep w=250..260   # routing table
 ```
 
 `query` is op-agnostic: parameters are `NAME=VALUE` pairs handed to `resolve`
@@ -298,7 +298,7 @@ verbatim, so your kernel's op works there as soon as its `SPEC` is discovered.
 from ipu_apps.kernel_registry import load, report, resolve
 
 load().skipped        # () -- if your module is here, it failed to import
-resolve("softmax", shape=(32, 300), dim=1).describe()
+resolve("maxpool2d", shape=(2, 8, 8), kernel_size=7, stride=1, padding=3).describe()
 print(report())
 ```
 

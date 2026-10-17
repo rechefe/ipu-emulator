@@ -163,9 +163,9 @@ loop:
 # expect: LR0 == 4
 ```
 
-The [ISA idioms](../isa-alias-catalogue.md) catalogue shows these patterns in
+The [ISA idioms](isa-idioms.md) catalogue shows these patterns in
 the kernels, including the pointer bump that needs an LR-only word
-([A12](../isa-alias-catalogue.md#a12-post-increment-addressing-same-cycle-loadmult-forwarding)).
+([A12](isa-idioms.md#a12-post-increment-addressing-a-load-feeds-the-next-words-multiply)).
 
 ## What the emulator does not model
 

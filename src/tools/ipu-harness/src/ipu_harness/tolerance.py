@@ -3,8 +3,19 @@
 A kernel picks a tier per format in ``[golden] tolerance``, by name, or
 overrides one with its own numbers and a required ``why``
 (``{ tier = "FP32_ORDER", rtol = 3e-5, why = "measured on case X" }``), so no
-tolerance literal goes unexplained. The values are provisional: the E07 pilot
-(E07-03) measures them in FP32, INT8 and E4 and records the numbers here.
+tolerance literal goes unexplained.
+
+The six tiers are the set (E07-03 settles E06-10's question). What the
+projections pilot (E07-03, the 8 ``proj_p4`` entries, K = 192 to 480)
+measured against ``ops.linear`` rounded to the output format:
+
+* ``FP32_LONG``: FP32, largest error 8.6e-6 on the template's default case
+  (K = 192, SiLU); the entries pass it too.
+* ``INT8_LSB``: INT8, error 0 in every entry, identity and SiLU alike: the
+  INT32 sum is exact and the store rounds once, as the reference does. The
+  tier keeps its one LSB for SiLU, whose AaQ model is a placeholder (Q25, Q35).
+* ``FP8_ULP``: not measured, so still provisional. No projection runs in E4:
+  ``ACTIVATE.QUANTIZE`` refuses an 8-bit float format (OQ-20).
 """
 
 from __future__ import annotations
@@ -43,8 +54,8 @@ TIERS: dict[str, Tier] = {
         Tier(
             "TRANSCENDENT", 1e-3, 1e-4, None, "libm vs future AaQ LUT headroom (Q25: provisional)"
         ),
-        Tier("INT8_LSB", 0, 1, None, "one LSB after round-to-nearest"),
-        Tier("FP8_ULP", 0, 0, 1, "one code step in the 8-bit float format"),
+        Tier("INT8_LSB", 0, 1, None, "one LSB after round-to-nearest (measured 0, E07-03)"),
+        Tier("FP8_ULP", 0, 0, 1, "one code step in the 8-bit float format (provisional)"),
     )
 }
 

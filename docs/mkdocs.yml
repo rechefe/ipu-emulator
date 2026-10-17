@@ -33,6 +33,9 @@ plugins:
         setup.md: getting-started/index.md
         # E09-11 moved the instruction how-to under how-to/.
         adding-instruction.md: how-to/add-an-instruction.md
+        # E09-10 rewrote the idiom and coverage pages under explanation/.
+        isa-alias-catalogue.md: explanation/isa-idioms.md
+        app-coverage.md: explanation/kernel-coverage.md
   - git-revision-date-localized:
       enable_creation_date: true
       type: timeago
@@ -137,8 +140,8 @@ nav:
       - Architecture: explanation/architecture.md           # E09-17; package table generated (docs/architecture_page.py)
       - Timing model: explanation/timing-model.md
       - Element formats: explanation/element-formats.md
-      - ISA idioms: isa-alias-catalogue.md                  # E09-10
-      - Kernel coverage: app-coverage.md                    # E09-10
+      - ISA idioms: explanation/isa-idioms.md
+      - Kernel coverage: explanation/kernel-coverage.md     # tables generated (docs/kernel_coverage_page.py)
   - Specs and requirements:
       - Specs:
           - Cache Unit Specification: specs/cache-unit.md

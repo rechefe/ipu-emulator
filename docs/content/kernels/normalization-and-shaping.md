@@ -56,12 +56,17 @@ output[s] = x[:, r_ph::2, c_ph::2]
 | `unfold_16x16x192` | 16 | 16 | 192 |
 | `unfold_32x32x144` | 32 | 32 | 144 |
 
-Query: `unfold shape=H,W,C`. `input_path` is striped per spatial stripe and
-channel, zero-padded to 128 lanes per row; `unfold_8x8x240`'s rows are
-permuted by its `pack_input_rows`.
+Each runs as `//kernels/reshape/<kernel>`. Query:
+`bazel run //kernels:query -- unfold h=H w=W c=C`. The input `x` `[C, H, W]`
+is laid out in spatial stripes, one row per channel and stripe (the family
+`pack.py` transform `stripes`); `unfold_8x8x240`'s rows are permuted
+(`paired_rows`). The output `y` `[4, C, tokens]` holds the four phases one
+after another, the first `tokens` lanes of each row valid (`phase_rows`).
 
-`fold_8x8x240`, `fold_16x16x192` and `fold_32x32x144` (op `fold`, same
-`shape=(H, W, C)` query) are the inverses. `concat_8x8x160x160`,
+`fold_8x8x240`, `fold_16x16x192` and `fold_32x32x144` (op `fold`, the same
+`h w c` query) are the inverses: `x` `[4, C, tokens]` in, `y` `[C, H, W]` out
+in stripes. `kernels/reshape/test_fold_unfold.py` runs each pair end to end on
+one model. `concat_8x8x160x160`,
 `concat_16x16x128x128` and `concat_32x32x96x96` concatenate two tensors along
 the channel axis, one channel per row: entries of `kernels/reshape/registry.toml`
 over the `concat` template, each run as `//kernels/reshape:<kernel>`. Query:

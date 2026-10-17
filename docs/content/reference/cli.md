@@ -72,7 +72,7 @@ one run (`state.stats` in Python). For example:
 
 A run in which every multiply used all 128 lanes adds a note: occupancy is
 overstated if the kernel pads a narrower row without declaring
-`CR15.valid_elements`. A run that executed an [ISA idiom](../isa-alias-catalogue.md)
+`CR15.valid_elements`. A run that executed an [ISA idiom](../explanation/isa-idioms.md)
 adds a `--- ISA alias hits ---` block, with the count for each idiom, and
 `--profile-aliases` (or `--alias-report FILE`) adds the full idiom
 measurements.
@@ -116,6 +116,11 @@ editor. The controls, from the debugger's own key table:
 
 ## Trace recorder: `trace_case`
 
+A kernel-tree kernel is recorded by the runner itself: `run_kernel` with
+`--trace` and `--context` (above) writes the trace and the
+[Cycle Inspector](../debugging-inspector.md)'s context. `trace_case` does the
+same for a kernel still in `ipu_apps`, until its family migrates (E07).
+
 `trace_case` runs one registered case and records its trace (JSON Lines, the
 [trace schema](reference-model-api.md)) and the context the
 [Cycle Inspector](../debugging-inspector.md) needs beside it.
@@ -132,7 +137,7 @@ bazel run //src/tools/ipu-apps:trace_case -- identity --case single_row --trace 
 With no operation it prints the coverage report.
 
 ```bash
-bazel run //src/tools/ipu-apps:query -- softmax shape=32,300 dim=1
+bazel run //src/tools/ipu-apps:query -- maxpool2d shape=2,8,8 kernel_size=7 stride=1 padding=3
 ```
 
 `NAME=VALUE` parameters go to the registry as given: a value with a comma is

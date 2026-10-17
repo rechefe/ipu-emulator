@@ -1,0 +1,81 @@
+# vector_tour: the Cycle Inspector's curated conformance program (E08-16,
+# E07-26). One fixed 4 x 128 tour of the MULT and ACC slots, in the four 8-bit
+# hardware formats; each case runs in one of them.
+[kernel]
+op = "vector_tour"
+formats = ["int8", "e4", "e5", "e3"]
+
+[params]
+two       = { type = "float", default = 2.0 }   # element scalar: encoded in the active format
+int8_tail = { type = "bool", default = false }  # run ACTIVATE.QUANTIZE RELU and store relu (INT8 only)
+
+[derived]
+slot1     = "128"                               # the second R_CYCLIC slot, in elements
+acc_rows  = "4"                                 # rows one R_ACC store spans (8-bit formats)
+last_row  = "3"                                 # rows of a - 1: BLT.S reads LR1 from cycle start
+
+# XMEM: a, w, c, mask from row 0 (rows 0-6), acc from row 8, relu after acc.
+[inputs.a]
+shape = [4, 128]
+row = 0
+
+[inputs.w]
+shape = [128]
+
+[inputs.c]
+shape = [128]
+
+[outputs.acc]                                   # three R_ACC stores: INT32 in INT8, else FP32
+shape = [3, 128]
+store = "accumulator"
+row = 8
+
+[outputs.relu]                                  # ST.AAQ: 128 results, then 384 zeros
+shape = [4, 128]
+row = 20
+when = "int8_tail"
+
+[scratch.mask]                                  # three 16-byte R_MASK slots
+shape = [128]
+bytes = "gen.py:mask_slots"
+after = "c"
+
+[abi]
+a         = "CR2"
+w         = "CR3"
+c         = "CR4"
+mask      = "CR5"
+slot1     = "CR6"
+acc       = "CR7"
+relu      = { register = "CR7", offset = -12 }  # stored at acc + 3 * acc_rows
+acc_rows  = "CR8"
+two       = "CR9"
+last_row  = "CR11"
+int8_tail = "CR12"
+
+[golden]
+reference = "reference.py:reference"
+tolerance = { int32 = "EXACT", fp32 = "EXACT" } # acc, an accumulator output; relu is INT8, EXACT too
+
+# The ipu_apps cases' data: default_rng(16), a then w then c.
+[cases.default]
+generator = "gen.py:legacy_steps"
+int8_tail = true
+formats = ["int8"]
+
+[cases.int8]
+generator = "gen.py:legacy_steps"
+int8_tail = true
+formats = ["int8"]
+
+[cases.e4]
+generator = "gen.py:legacy_steps"
+formats = ["e4"]
+
+[cases.e5]
+generator = "gen.py:legacy_steps"
+formats = ["e5"]
+
+[cases.e3]
+generator = "gen.py:legacy_steps"
+formats = ["e3"]

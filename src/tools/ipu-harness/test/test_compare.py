@@ -120,6 +120,38 @@ def test_an_expected_file_wins_over_the_reference(tmp_path):
     assert want.tolist() == [[1.0, 2.0, 3.0, 4.0]]
 
 
+def test_an_expected_function_gives_the_values_for_the_plan(tmp_path):
+    """A golden kept in another encoding (fully_connected's .bin, E07-21)."""
+    m = kernel(tmp_path)
+    (m.directory / "gold.py").write_text(
+        "import numpy as np\n\n"
+        "def y(plan):\n"
+        "    return np.full(plan.shapes['y'], 3.0 if plan.format.value == 'fp32' else 4.0)\n"
+    )
+    toml = (m.directory / "kernel.toml").read_text()
+    (m.directory / "kernel.toml").write_text(
+        toml.replace('expected = { y = "y.npy" }', 'expected = { y = "gold.py:y" }')
+    )
+    m = load_manifest(m.directory)
+    assert m.cases["mine"].expected == {"y": "gold.py:y"}
+    for fmt, value in ((F.FP32, 3.0), (F.INT8, 4.0)):
+        case, plan = planned(m, "mine", fmt)
+        assert expected_for(case, plan, {"y": np.zeros((1, 4))})["y"].tolist() == [[value] * 4]
+
+
+def test_an_expected_function_that_fails_is_located(tmp_path):
+    m = kernel(tmp_path)
+    (m.directory / "gold.py").write_text("def y(plan):\n    raise FileNotFoundError('y.bin')\n")
+    toml = (m.directory / "kernel.toml").read_text()
+    (m.directory / "kernel.toml").write_text(
+        toml.replace('expected = { y = "y.npy" }', 'expected = { y = "gold.py:y" }')
+    )
+    case, plan = planned(load_manifest(m.directory), "mine", F.FP32)
+    with pytest.raises(PlanError, match=r"gold.py:y raised FileNotFoundError: y.bin") as error:
+        expected_for(case, plan, None)
+    assert error.value.key == "cases.mine.expected.y"
+
+
 def test_no_reference_and_no_file_is_no_golden(tmp_path):
     case, plan = planned(kernel(tmp_path, reference=False), "default", F.FP32)
     assert expected_for(case, plan, None) == {}

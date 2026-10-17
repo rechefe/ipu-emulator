@@ -20,7 +20,8 @@ a ``float`` parameter  its element encoding in ``plan.format``, in the low
                        element-width bits (Q49; E06-03 checked it is exact)
 a ``[derived]`` value  the integer (``-1``, ``"k - 128 * (ceil(k / 128) - 1) - 2"``);
                        a placed one (``"base(w) + 1"``) over the regions'
-                       bases, in rows (bytes in a ``unit = "bytes"`` kernel)
+                       bases, in rows (bytes in a ``unit = "bytes"`` kernel),
+                       and ``row_bytes`` in the case's format
 =====================  =====================================================
 
 Values are raw register bits: a negative integer is its two's complement in
@@ -44,7 +45,7 @@ from ipu_emu.errors import ConfigurationError
 from ipu_emu.ipu_config import DEFAULT_DSTRUCTURE_CR
 from ipu_emu.reference import ReferenceModel
 from ipu_harness._codec import encode
-from ipu_harness.expressions import ExpressionError, base_tensor, evaluate, names_in
+from ipu_harness.expressions import ROW_BYTES_NAME, ExpressionError, base_tensor, evaluate, names_in
 from ipu_harness.manifest import ZERO_REGISTER, KernelManifest
 from ipu_harness.params import CasePlan, PlanError
 from ipu_harness.placement import Placement
@@ -105,9 +106,9 @@ def _element_bits(value: float, plan: CasePlan) -> int:
 
 def _placed_value(name: str, plan: CasePlan, placement: Placement) -> int:
     """A placed ``[derived]`` value: its expression over the integer parameters,
-    the other derived values (placed ones computed as it reads them) and the
+    the other derived values (placed ones computed as it reads them), the
     bases it reads (bytes in a ``unit = "bytes"`` kernel, as a tensor's
-    binding)."""
+    binding) and ``row_bytes``, the bytes of one row in the case's format."""
     manifest = plan.manifest
     expression = manifest.derived[name]
     scale = FORMATS[plan.format].row_bytes if manifest.byte_units else 1
@@ -123,6 +124,8 @@ def _placed_value(name: str, plan: CasePlan, placement: Placement) -> int:
                     f"{expression!r}: {tensor} is not placed in this case (its when is false)",
                 )
             names[read] = placement.regions[tensor].base_row * scale
+        elif read == ROW_BYTES_NAME:
+            names[read] = FORMATS[plan.format].row_bytes
         elif read in manifest.placed:
             names[read] = _placed_value(read, plan, placement)
     try:
@@ -196,7 +199,7 @@ def register_writes(
         raise ConfigurationError(
             f"{plan.manifest.name}: the abi binds {cr15} and a dstructure is given for it"
         )
-    writes = []
+    writes: list[RegisterWrite] = []
     for name, register in bindings.items():
         value, source = _value(name, plan, placement, offsets)
         if register == ZERO_REGISTER:
@@ -209,7 +212,15 @@ def register_writes(
             raise PlanError(
                 plan.manifest, f"abi.{name}", f"{source} = {value} does not fit a 32-bit register"
             )
-        writes.append(RegisterWrite(register, value & LR_CR_SCALAR_VALUE_MASK, source))
+        bits = value & LR_CR_SCALAR_VALUE_MASK
+        clash = next((w for w in writes if w.register == register and w.value != bits), None)
+        if clash is not None:  # the loader lets two bindings share only an equal value
+            raise PlanError(
+                plan.manifest,
+                f"abi.{name}",
+                f"{source} = {value}, but {clash.source} put {clash.value} in {register}",
+            )
+        writes.append(RegisterWrite(register, bits, source))
     if cr15 not in bindings.values():
         if dstructure is None:
             bits = encode_dstructure(valid_elements=LANES)
