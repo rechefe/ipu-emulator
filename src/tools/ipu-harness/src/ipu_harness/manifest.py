@@ -83,9 +83,12 @@ Schema
 
 ``[benchmark]`` (optional, E06-11)
     ``points``: a non-empty list of tables of parameter values, each over the
-    default case's (one run each, paired, not swept); ``per``: an int
-    parameter the report divides cycles by; ``max_cycles``: each run's
-    limit. ``python -m ipu_harness.cli KERNEL --benchmark`` (``bazel run
+    default case's, which must take one value each (one run per point and
+    format, paired, not swept; a point keeps the default case's generator
+    but not its files, and may not change a registry entry's fixed
+    parameter); ``per``: an int parameter the report divides cycles by;
+    ``max_cycles``: each run's limit (the model's by default). It needs a
+    ``[golden]`` reference or op, which each point is held to. ``python -m ipu_harness.cli KERNEL --benchmark`` (``bazel run
     :<kernel> -- --benchmark``) runs them; :mod:`ipu_harness.benchmark`.
 
 ``[golden]`` (optional)
@@ -295,8 +298,8 @@ class BenchmarkDecl:
     """The ``[benchmark]`` table (E06-11): sizes to time the kernel at.
 
     Attributes:
-        points: Parameter values, each over the default case's: one run each
-            (paired values, not a sweep).
+        points: Parameter values, each over the default case's: one run per
+            point and format (paired values, not a sweep).
         per: An int parameter cycles are divided by in the report, if any.
         max_cycles: Each run's cycle limit, if not the model's.
     """
@@ -1302,6 +1305,15 @@ def _benchmark(r: Reader, m: KernelManifest, raw: object) -> BenchmarkDecl:
     path = ("benchmark",)
     table = r.table(raw, path)
     r.known(table, _BENCHMARK_KEYS, path)
+    if m.golden.reference is None and m.golden.op is None:
+        # A point's shapes are its own, so no expected file fits it: without a
+        # reference a point would compare nothing and pass.
+        raise r.fail(path, f"{where(path)} needs a [golden] reference or op to hold each point to")
+    default = m.cases["default"].values
+    if any(isinstance(v, tuple) for v in default.values()):
+        raise r.fail(
+            path, f"{where(path)} needs a one-value [cases.default] to put its points over"
+        )
     listed = r.typed(table.get("points", []), list, (*path, "points"))
     if not listed:
         raise r.fail((*path, "points"), f"{where(path)} needs a non-empty points list")
@@ -1313,6 +1325,13 @@ def _benchmark(r: Reader, m: KernelManifest, raw: object) -> BenchmarkDecl:
         sweeps = [k for k, v in values.items() if isinstance(v, list)]
         if sweeps:
             raise r.fail(point_path, f"[benchmark] point {i}: {sweeps[0]} is one value, not a list")
+        moved = [k for k, v in values.items() if k in m.fixed and v != m.fixed[k]]
+        if moved:
+            raise r.fail(
+                point_path,
+                f"[benchmark] point {i}: {moved[0]} is fixed at {m.fixed[moved[0]]!r} "
+                "by the registry entry",
+            )
         points.append(MappingProxyType(_case_values(r, m, point_path, values)))
     per = table.get("per")
     if per is not None and r.typed(per, str, (*path, "per")) not in m.params:

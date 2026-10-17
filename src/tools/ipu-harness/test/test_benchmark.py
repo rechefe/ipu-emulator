@@ -11,6 +11,7 @@ from scale_kernel import write_scale
 
 from ipu_harness import cli
 from ipu_harness.benchmark import point_cases, run_benchmark, to_json, to_markdown
+from ipu_harness.family import ENTRY_SEPARATOR, load_kernel
 from ipu_harness.manifest import ManifestError, load_manifest
 from ipu_isa.formats import ElementFormat as F
 
@@ -93,7 +94,14 @@ def test_every_point_runs_passes_and_is_reported(tmp_path):
     table = to_markdown(rows, "rows")
     assert "| point | format | result | cycles | cyc/rows | mult% |" in table
     assert "| rows=16 | fp32 | pass |" in table
-    assert json.loads(to_json(rows))[2]["cycles"] == cycles[2]
+    entry = json.loads(to_json(rows))[1]  # the history's format (E01-14)
+    assert (entry["name"], entry["unit"], entry["value"]) == (
+        "kernel/scale/fp32/rows_4_s_3.0",
+        "cycles",
+        cycles[1],
+    )
+    extra = json.loads(entry["extra"])
+    assert extra["values"] == {"rows": 4, "s": 3.0} and extra["passed"] is True
 
 
 def test_the_command_line_runs_the_benchmark(tmp_path, capsys):
@@ -102,7 +110,7 @@ def test_the_command_line_runs_the_benchmark(tmp_path, capsys):
     markdown = tmp_path / "bench.md"
     argv = [str(manifest.directory), "--benchmark", "--format", "all"]
     assert cli.main([*argv, "--json", str(out), "--markdown", str(markdown)]) == 0
-    rows = json.loads(out.read_text())
+    rows = [json.loads(e["extra"]) for e in json.loads(out.read_text())]
     assert {r["format"] for r in rows} == {f.value for f in manifest.formats}
     assert len(rows) == 3 * len(manifest.formats) and all(r["passed"] for r in rows)
     assert markdown.read_text().startswith("# scale benchmark")
@@ -136,3 +144,32 @@ def test_an_option_the_request_would_ignore_is_refused(tmp_path, capsys, extra, 
     manifest = _with(tmp_path)
     assert cli.main([str(manifest.directory), *extra]) == 1
     assert match in capsys.readouterr().err
+
+
+def test_a_benchmark_needs_a_reference_to_hold_its_points_to(tmp_path):
+    """A point's shapes are its own: no expected file fits it, so without a
+    reference it would compare nothing and pass."""
+    directory = write_scale(tmp_path, with_reference=False).directory
+    toml = directory / "kernel.toml"
+    toml.write_text(toml.read_text() + BENCHMARK)
+    with pytest.raises(ManifestError, match="needs a \\[golden\\] reference or op"):
+        load_manifest(directory)
+
+
+def test_a_benchmark_needs_a_one_value_default_case(tmp_path):
+    directory = write_scale(tmp_path).directory
+    toml = directory / "kernel.toml"
+    swept = toml.read_text().replace("[cases.default]\nrows = 4", "[cases.default]\nrows = [4, 8]")
+    toml.write_text(swept + BENCHMARK)
+    with pytest.raises(ManifestError, match="needs a one-value \\[cases.default\\]"):
+        load_manifest(directory)
+
+
+def test_a_point_cannot_move_a_registry_entrys_fixed_parameter(tmp_path):
+    template = _with(tmp_path).directory
+    registry = template.parent / "registry.toml"
+    registry.write_text(
+        '[[kernel]]\nname = "scale_r2"\ntemplate = "scale"\nparams = { rows = 2 }\n'
+    )
+    with pytest.raises(ManifestError, match="rows is fixed at 2 by the registry entry"):
+        load_kernel(f"{registry}{ENTRY_SEPARATOR}scale_r2")

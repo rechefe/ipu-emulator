@@ -4,8 +4,11 @@
 point is a set of parameter values over the default case's, run once per
 format through :func:`ipu_harness.runner.run_kernel`, with an alias profile,
 and held to its golden like any case, so a benchmark cannot report a fast
-wrong answer. ``per`` (``PER``) adds a cycles-per column and ``max_cycles``
-(``MAX_CYCLES``) raises the limit.
+wrong answer (so a ``[benchmark]`` needs a reference or op: a point's shapes
+are its own, so no expected file fits it). ``per`` (``PER``) adds a
+cycles-per column and ``max_cycles`` (``MAX_CYCLES``) sets the limit (the
+model's by default). A point that is wrong for one of the formats asked for
+stops the run with its error.
 
 The report has the legacy columns: cycles, ``cyc/<per>``, the MULT and ACC
 slots' busy cycles, the multiplier lanes that carried data, the part of those
@@ -49,17 +52,19 @@ class BenchRow:
     """One point, run in one format.
 
     Attributes:
-        label: The point's values (``rows=16, width=128``).
+        label: The point's values (``rows=16,width=128``).
         result: The run.
         per_unit: Cycles over the point's ``per`` parameter, if the benchmark
             names one.
         aliases: Each observed alias: (verified, candidate) occurrences.
+        values: The point's values.
     """
 
     label: str
     result: RunResult
     per_unit: float | None
     aliases: Mapping[str, tuple[int, int]]
+    values: Mapping[str, object] = MappingProxyType({})
 
     def utilization(self) -> dict[str, float] | None:
         """The busy and lane fractions (mult, acc, lanes, ident, effMAC).
@@ -162,7 +167,15 @@ def run_benchmark(
             assert isinstance(count, int)  # the loader checked per is an int parameter
             per_unit = result.cycles / count
         aliases = _observed_aliases(result.alias_profile) if result.alias_profile else {}
-        rows.append(BenchRow(_label(point), result, per_unit, MappingProxyType(aliases)))
+        rows.append(
+            BenchRow(
+                _label(point),
+                result,
+                per_unit,
+                MappingProxyType(aliases),
+                MappingProxyType(dict(point)),
+            )
+        )
     return tuple(rows)
 
 
@@ -227,27 +240,42 @@ def to_markdown(rows: Sequence[BenchRow], per: str | None = None) -> str:
     return text + "\n\n" + LEGEND + "\n"
 
 
+def _slug(text: str) -> str:
+    """``text`` as a benchmark-name part: lower case, ``[a-z0-9_.]`` only."""
+    return re.sub(r"[^a-z0-9_.]+", "_", text.lower().replace("-", "m")).strip("_")
+
+
 def to_json(rows: Sequence[BenchRow]) -> str:
-    """The rows as JSON, for the nightly history (E01-14).
+    """The rows in the nightly history's format (E01-14, ``ipu_bench``'s
+    ``Result``, github-action-benchmark's ``customSmallerIsBetter``): one
+    entry per row, ``kernel/<kernel>/<format>/<point>`` in cycles, the rest
+    in ``extra``.
 
     Args:
         rows: From :func:`run_benchmark`.
 
     Returns:
-        A JSON list, one object per row.
+        A JSON list.
     """
-    return json.dumps(
-        [
+    entries = []
+    for row in rows:
+        result = row.result
+        extra = {
+            "kernel": result.kernel,
+            "format": result.format.value,
+            "values": {k: v for k, v in row.values.items()},
+            "passed": result.passed,
+            "per_unit": row.per_unit,
+            "utilization": row.utilization(),
+            "aliases": {a: list(n) for a, n in row.aliases.items()},
+        }
+        point = "_".join(f"{_slug(str(k))}_{_slug(str(v))}" for k, v in row.values.items())
+        entries.append(
             {
-                "point": row.label,
-                "format": row.result.format.value,
-                "passed": row.result.passed,
-                "cycles": row.result.cycles,
-                "per_unit": row.per_unit,
-                "utilization": row.utilization(),
-                "aliases": {a: list(n) for a, n in row.aliases.items()},
+                "name": f"kernel/{_slug(result.kernel)}/{result.format.value}/{point or 'default'}",
+                "unit": "cycles",
+                "value": result.cycles,
+                "extra": json.dumps(extra, sort_keys=True),
             }
-            for row in rows
-        ],
-        indent=2,
-    )
+        )
+    return json.dumps(entries, indent=2)
