@@ -47,7 +47,7 @@ function renderRegister(lang, name) {
   return lines.join('\n\n');
 }
 
-const jinjaKinds = { macro: 'macro', param: 'macro parameter', for: 'loop variable' };
+const jinjaKinds = { macro: 'macro', param: 'macro parameter', for: 'loop variable', import: 'imported name', header: 'template parameter' };
 
 /** A Jinja name's hover: its value where the cursor is, then the reference for that value if
  *  it is a register or an instruction. */
@@ -62,7 +62,7 @@ function renderJinja(lang, sym) {
   return lines.join('\n');
 }
 
-function register(context, { lang }) {
+function register(context, { lang, semantics }) {
   // Hover's word: the assembler's own token shape (mnemonics have dots).
   const wordPattern = new RegExp(lang.isa.lexical.token);
   provide(context, 'Hover', {
@@ -77,8 +77,8 @@ function register(context, { lang }) {
     },
   });
   provide(context, 'Hover', {
-    provideHover(document, position) {
-      const sym = lang.symbolAt(document.getText(), document.offsetAt(position));
+    async provideHover(document, position) {
+      const sym = (await semantics(document)).symbolAt(document.offsetAt(position));
       if (!sym || sym.kind !== 'jinja') return undefined;
       return new vscode.Hover(new vscode.MarkdownString(renderJinja(lang, sym)), rangeOf(document, sym.range));
     },

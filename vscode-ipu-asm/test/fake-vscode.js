@@ -42,6 +42,73 @@ class Uri {
   }
 }
 
+class Position {
+  constructor(line, character) {
+    Object.assign(this, { line, character });
+  }
+}
+class Range {
+  constructor(a, b, c, d) {
+    [this.start, this.end] = a instanceof Position ? [a, b] : [new Position(a, b), new Position(c, d)];
+  }
+}
+/** The VS Code classes the provider tests look into: plain records of what they were given. */
+const records = {
+  Position,
+  Range,
+  Diagnostic: class Diagnostic { constructor(range, message, severity) { Object.assign(this, { range, message, severity }); } },
+  Location: class Location { constructor(uri, range) { Object.assign(this, { uri, range }); } },
+  Hover: class Hover { constructor(contents, range) { Object.assign(this, { contents, range }); } },
+  MarkdownString: class MarkdownString { constructor(value = '') { this.value = value; } },
+  SnippetString: class SnippetString { constructor(value = '') { this.value = value; } },
+  CompletionItem: class CompletionItem { constructor(label, kind) { Object.assign(this, { label, kind }); } },
+  InlayHint: class InlayHint { constructor(position, label) { Object.assign(this, { position, label }); } },
+  DocumentSymbol: class DocumentSymbol {
+    constructor(name, detail, kind, range, selectionRange) { Object.assign(this, { name, detail, kind, range, selectionRange }); }
+  },
+  WorkspaceEdit: class WorkspaceEdit {
+    constructor() { this.edits = []; }
+    replace(uri, range, newText) { this.edits.push({ uri, range, newText }); }
+  },
+  SemanticTokensLegend: class SemanticTokensLegend {
+    constructor(tokenTypes, tokenModifiers = []) { Object.assign(this, { tokenTypes, tokenModifiers }); }
+  },
+  /** Keeps the tokens pushed, absolute, rather than VS Code's relative encoding. */
+  SemanticTokensBuilder: class SemanticTokensBuilder {
+    constructor(legend) { Object.assign(this, { legend, tokens: [] }); }
+    push(line, character, length, type, modifiers = 0) { this.tokens.push([line, character, length, type, modifiers]); }
+    build() { return { tokens: this.tokens }; }
+  },
+};
+
+/** A text document as VS Code gives one to providers: offsets and positions in UTF-16 units. */
+function textDocument(uri, text, languageId = 'ipu-asm') {
+  const doc = {
+    uri, languageId, version: 1, isClosed: false, text,
+    getText(range) {
+      return range ? this.text.slice(this.offsetAt(range.start), this.offsetAt(range.end)) : this.text;
+    },
+    get lineCount() { return this.text.split('\n').length; },
+    lineAt(at) {
+      const line = typeof at === 'number' ? at : at.line;
+      const body = this.text.split('\n')[line].replace(/\r$/, '');
+      return { text: body, range: new Range(line, 0, line, body.length) };
+    },
+    offsetAt(p) {
+      const lines = this.text.split('\n');
+      let at = 0;
+      for (let n = 0; n < p.line && n < lines.length; n++) at += lines[n].length + 1;
+      return Math.min(at + p.character, this.text.length);
+    },
+    positionAt(offset) {
+      const before = this.text.slice(0, offset);
+      const line = before.split('\n').length - 1;
+      return new Position(line, offset - (before.lastIndexOf('\n') + 1));
+    },
+  };
+  return doc;
+}
+
 /** Any class or enum the extension names and the tests do not look at: constructible, and
  *  each of its members is its own name. */
 const stub = (name) => new Proxy(function Stub(...args) { this.args = args; }, {
@@ -53,7 +120,7 @@ const disposable = () => ({ dispose() {} });
 /** Install the fake as `vscode` for every module required from now on. `folders` are the
  *  workspace folders' paths; `settings` the `ipuAsm.*` values each folder sees. */
 function install({ trusted = true, folders = [], settings = {} } = {}) {
-  const log = { statuses: [], warnings: [], errors: [], terminals: [], watchers: [], commands: new Map() };
+  const log = { statuses: [], warnings: [], errors: [], terminals: [], watchers: [], commands: new Map(), providers: {}, diagnostics: {} };
   const events = new Proxy({}, { get: (all, key) => (all[key] = all[key] || new EventEmitter()) });
   const on = (name) => events[name].event;
   const workspaceFolders = folders.map((dir, index) => ({ uri: Uri.file(dir), name: path.basename(dir), index }));
@@ -66,6 +133,7 @@ function install({ trusted = true, folders = [], settings = {} } = {}) {
   };
 
   const vscode = {
+    ...records,
     EventEmitter,
     Uri,
     RelativePattern: class RelativePattern {
@@ -116,8 +184,10 @@ function install({ trusted = true, folders = [], settings = {} } = {}) {
       withProgress: (_options, task) => task(),
     },
     languages: {
-      createDiagnosticCollection: () => {
+      /** Each collection by name, in `log.diagnostics`. */
+      createDiagnosticCollection: (name) => {
         const map = new Map();
+        log.diagnostics[name] = map;
         return { set: (uri, d) => map.set(uri.toString(), d), delete: (uri) => map.delete(uri.toString()), get: (uri) => map.get(uri.toString()), dispose() {} };
       },
     },
@@ -137,7 +207,18 @@ function install({ trusted = true, folders = [], settings = {} } = {}) {
       if (!(name in area)) area[name] = on(name);
     }
   }
-  vscode.languages = new Proxy(vscode.languages, { get: (t, key) => (key in t ? t[key] : disposable) });
+  // `register…Provider(selector, provider, ...rest)`: each kind's providers, in `log.providers`.
+  vscode.languages = new Proxy(vscode.languages, {
+    get: (t, key) => {
+      if (key in t) return t[key];
+      const kind = /^register(\w+)Provider$/.exec(String(key));
+      if (!kind) return disposable;
+      return (_selector, provider, ...rest) => {
+        (log.providers[kind[1]] = log.providers[kind[1]] || []).push({ provider, rest });
+        return disposable();
+      };
+    },
+  });
   const module = new Proxy(vscode, { get: (t, key) => (key in t ? t[key] : stub(String(key))) });
 
   // A fresh copy of the extension's modules, so each install starts from clean module state.
@@ -161,11 +242,24 @@ function install({ trusted = true, folders = [], settings = {} } = {}) {
     events,
     /** Open a document holding `text` at `uri` in the active editor, as VS Code reports it. */
     open(uri, text, languageId = 'ipu-asm') {
-      const doc = { uri, languageId, version: 1, isClosed: false, getText: () => text };
+      const doc = textDocument(uri, text, languageId);
       documents.push(doc);
       events.onDidOpenTextDocument.fire(doc);
       this.show(doc);
       return doc;
+    },
+    /** Replace `doc`'s text, as an edit does: a new version, and the change reported. */
+    edit(doc, text) {
+      doc.text = text;
+      doc.version++;
+      events.onDidChangeTextDocument.fire({ document: doc, contentChanges: [{ text }] });
+    },
+    /** The first provider of `kind` (`Hover`, `CompletionItem`, …) the extension registered;
+     *  with `n`, the n-th. */
+    provider(kind, n = 0) {
+      const all = log.providers[kind] || [];
+      if (!all[n]) throw new Error(`no ${kind} provider #${n} registered`);
+      return all[n].provider;
     },
     /** Make `doc` the active editor's document. */
     show(doc) {
@@ -187,4 +281,4 @@ function install({ trusted = true, folders = [], settings = {} } = {}) {
   };
 }
 
-module.exports = { install, Uri };
+module.exports = { install, Uri, Position, Range };

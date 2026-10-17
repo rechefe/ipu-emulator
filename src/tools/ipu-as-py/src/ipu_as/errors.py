@@ -81,3 +81,15 @@ class SlotError(EncodeError):
 
 class LabelError(EncodeError):
     """A label is defined twice or used but never defined."""
+
+
+class FormatError(AssemblerError):
+    """Formatting would change the program, so the formatter left the source as it was.
+
+    Raised by `ipu_as.formatter.format_source` when its own output does not
+    assemble to the same words, or does not read as the same token stream, as
+    its input: a formatter bug or a source it does not understand, never a
+    layout to apply.
+    """
+
+    stage = "format"
