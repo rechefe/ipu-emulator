@@ -214,10 +214,12 @@ def _distinct(refusals: list[tuple[str, str]], candidates: int) -> list[str]:
 
 
 def _left_out(tied: Sequence[KernelManifest], params: Mapping[str, object]) -> list[str]:
-    """The parameters the query leaves out that tied registry entries fix to
-    different values: what it must give to choose among them."""
-    names = sorted({n for m in tied for n in m.fixed} - set(params))
-    return [n for n in names if len({repr(m.fixed.get(n)) for m in tied}) > 1]
+    """The parameters the query leaves out that every tied kernel, each a
+    registry entry, fixes, to more than one value: what it must give to choose
+    among them. Empty when a tied kernel fixes none of them (a tie a query
+    cannot settle, so a configuration error)."""
+    names = set.intersection(*({*m.fixed} for m in tied)) - set(params)
+    return [n for n in sorted(names) if len({repr(m.fixed[n]) for m in tied}) > 1]
 
 
 def _declared_at(manifest: KernelManifest) -> str:

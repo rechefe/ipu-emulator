@@ -80,6 +80,8 @@ def _domain(manifest: KernelManifest) -> dict[str, dict[str, Any]]:
         domain.update({k: v for k, v in fields.items() if v is not None})
         if p.choices is not None:
             domain["choices"] = list(p.choices)
+            if p.default not in p.choices:  # a registry entry's: leaving it out is refused
+                domain.pop("default", None)
         out[name] = domain
     return out
 

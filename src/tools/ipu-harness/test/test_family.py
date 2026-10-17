@@ -150,6 +150,16 @@ def test_a_query_leaving_out_what_entries_fix_differently_is_refused_for_it(tmp_
     assert "each fix n_out, which the query leaves out; give n_out" in verdict.reason
 
 
+def test_a_tie_with_a_kernel_that_is_no_entry_stays_a_configuration_error(tmp_path):
+    family(tmp_path)
+    free = tmp_path / "other" / "free_proj"  # a folder kernel with the template's free domain
+    free.mkdir(parents=True)
+    (free / "free_proj.asm").write_text("HALT ;;\n")
+    (free / "kernel.toml").write_text(TEMPLATE)
+    with pytest.raises(ConfigurationError, match="both accept this proj query at cost 0"):
+        Registry.load(tmp_path).resolve("proj", k=144, n_out=432)
+
+
 def test_an_entry_chooses_its_template_cases(tmp_path):
     family(tmp_path)
     registry = Registry.load(tmp_path)

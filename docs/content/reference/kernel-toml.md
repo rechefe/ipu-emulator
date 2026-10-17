@@ -29,9 +29,8 @@ becomes the parameter's only value. A default the template gives stays, so
 a query that leaves the parameter out means that default, and an entry fixing
 another value refuses it. Without one the entry's value stands in, and a query
 that leaves out a parameter its entries fix differently is refused for it. The
-entry runs the
-template's cases with those values, in the template's formats unless it
-narrows them. Its Bazel targets are `//kernels/<family>:<name>`,
+entry runs the template's cases with those values, in the template's formats
+unless it narrows them. Its Bazel targets are `//kernels/<family>:<name>`,
 `:<name>_nightly` and `:assemble_<name>`.
 
 --8<-- "generated/kernel-toml/registry.md"
