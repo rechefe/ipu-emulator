@@ -5,14 +5,18 @@ handlers call them, and so do the observers (the alias profiler), so an
 observer never reaches into ``Ipu`` for a helper (E04-11):
 
 - :func:`element_format` names the active :class:`~ipu_isa.formats.ElementFormat`
-  of a state (until E04-17 makes the format the state's own field);
+  of a state (until E04-17 makes the format the state's own field), and
+  :func:`active_codec` is its lane codec;
+- :func:`vector_registers` names the registers that hold Ra (R0 ++ R1) and
+  R_CYCLIC in a state's element width;
 - :func:`element_width_bytes` and :func:`row_size_bytes` give the bytes of one
   element and of one XMEM row in a format; :func:`xmem_element_width_bytes`
   and :func:`xmem_row_size_bytes` are the same for a state, on the hot path;
 - :func:`lrd_lr_indices` names the two LRs behind an ``LrdIdx`` operand;
 - :func:`effective_mult_mask` is the 128-bit lane mask a MULT applies;
-- :func:`cr_scalar` is a CR's low byte as a signed element (the wide-vector
-  scalar multiplicand);
+- :func:`cr_scalar` is a CR's low byte as a signed element (the alias
+  observer's identity check; the MULT handlers decode CR scalars through
+  :meth:`~ipu_emu.numerics.LaneCodec.decode_scalar`);
 - :func:`xmem_row_addr` turns an assembly row number into a byte address;
 - :func:`lrd_bytes` reads the eight byte elements of an LRD pair;
 - :func:`lane_format`, :func:`wide_lanes` and :func:`store_wide_lanes` read
@@ -26,14 +30,14 @@ other (E04-14).
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, NamedTuple, Protocol
 
 import numpy as np
 
 from ipu_emu.errors import EmulatorError
 from ipu_emu.ipu_math import DType
 from ipu_emu.ipu_state import WideVectorArithmetic
-from ipu_emu.numerics import codec_for
+from ipu_emu.numerics import LaneCodec, codec_for
 from ipu_emu.xmem import XMEM_SIZE_BYTES
 from ipu_isa.constants import LR_CR_SCALAR_BITS, Partition
 from ipu_isa.formats import FORMATS, ElementFormat
@@ -46,6 +50,8 @@ if TYPE_CHECKING:
 
 __all__ = [
     "NARROW_MAX_ROW",
+    "VectorRegisters",
+    "active_codec",
     "agg_lane_count",
     "cr_scalar",
     "effective_mult_mask",
@@ -58,6 +64,7 @@ __all__ = [
     "partition_vector",
     "row_size_bytes",
     "store_wide_lanes",
+    "vector_registers",
     "wide_lanes",
     "xmem_element_width_bytes",
     "xmem_row_addr",
@@ -107,6 +114,52 @@ def element_format(state: IpuState) -> ElementFormat:
     if state.wide_vector_debug:
         return ElementFormat(state.wide_vector_arithmetic.value)
     return ElementFormat[state.dtype.name]
+
+
+# (wide_vector_debug, wide_vector_arithmetic, dtype) -> codec: element_format's inputs.
+_ACTIVE_CODECS: dict[tuple[bool, WideVectorArithmetic, DType], LaneCodec] = {}
+
+
+def active_codec(state: IpuState) -> LaneCodec:
+    """The lane codec of :func:`element_format` (*state*), cached per mode.
+
+    Read per call, not once per engine: a caller may change ``state.dtype``
+    after the engine is built.
+
+    Args:
+        state: The machine state.
+
+    Returns:
+        Its element format's codec.
+    """
+    key = (state.wide_vector_debug, state.wide_vector_arithmetic, state.dtype)
+    codec = _ACTIVE_CODECS.get(key)
+    if codec is None:
+        codec = _ACTIVE_CODECS[key] = codec_for(element_format(state))
+    return codec
+
+
+class VectorRegisters(NamedTuple):
+    """The register names behind the MULT stage's vector operands in one element width."""
+
+    #: R0 ++ R1 (Ra): two rows of LANES elements, R0 first.
+    ra: str
+    #: The R_CYCLIC ring: 512 elements.
+    r_cyclic: str
+
+
+_NARROW_REGISTERS = VectorRegisters(ra="r", r_cyclic="r_cyclic")
+_WIDE_REGISTERS = VectorRegisters(ra="r_wide_debug", r_cyclic="r_cyclic_wide_debug")
+
+
+def vector_registers(state: IpuState) -> VectorRegisters:
+    """Where Ra and R_CYCLIC live in *state*'s element width.
+
+    Wide-vector debug mode keeps 4-byte elements in their own registers
+    (``r_wide_debug``, ``r_cyclic_wide_debug``); both layouts hold the same
+    number of elements, so a handler indexes either in elements.
+    """
+    return _WIDE_REGISTERS if state.wide_vector_debug else _NARROW_REGISTERS
 
 
 def element_width_bytes(fmt: ElementFormat) -> int:
@@ -212,8 +265,8 @@ def effective_mult_mask(
 def cr_scalar(regfile: _RegisterReader, cr_idx: int) -> int:
     """CR *cr_idx*'s low byte as a signed element (the CR itself is not widened).
 
-    The wide-vector scalar multiplicand until E04-28 decodes CR scalars in the
-    active format.
+    What ``Fp32Codec.decode_scalar`` and ``IntCodec.decode_scalar`` read as a
+    number, until E04-28 decodes CR scalars in the active format.
     """
     b = regfile.get_cr(cr_idx) & 0xFF
     return b if b < 128 else b - 256

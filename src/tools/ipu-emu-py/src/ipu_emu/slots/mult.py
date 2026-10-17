@@ -8,7 +8,6 @@ identity and alias questions with these handlers' own operand resolution.
 
 from __future__ import annotations
 
-import struct
 from collections.abc import Mapping
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any
@@ -16,18 +15,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from ipu_emu.errors import EmulatorError
-from ipu_emu.geometry import (
-    cr_scalar as _geometry_cr_scalar,
-)
-from ipu_emu.geometry import (
-    effective_mult_mask,
-    store_wide_lanes,
-    wide_lanes,
-    xmem_element_width_bytes,
-    xmem_row_size_bytes,
-)
-from ipu_emu.ipu_math import DType, dtype_one_byte, ipu_mult
-from ipu_emu.ipu_state import WideVectorArithmetic
+from ipu_emu.geometry import effective_mult_mask, vector_registers, xmem_row_size_bytes
 from ipu_emu.isa_alias_spec import VECTOR_IDENTITY_MULTS
 from ipu_isa.constants import DStructureConfig, PadMode
 from ipu_isa.geometry import LANES
@@ -35,6 +23,10 @@ from ipu_isa.registers import get_mult_stage_map, get_register_sizes
 
 if TYPE_CHECKING:
     from ipu_emu.ipu import Ipu
+    from ipu_emu.numerics import LaneCodec
+    from ipu_emu.numerics.codecs import Lanes
+
+    Scalar = np.generic | int | float
 
 __all__ = [
     "SCALAR_CR",
@@ -47,7 +39,6 @@ __all__ = [
 
 _reg_sizes = get_register_sizes()
 LR_REG_COUNT = _reg_sizes["lr"]["count"]
-R_REG_SIZE = _reg_sizes["r"]["size_bytes"]
 
 # MultStageRegField: index → (register_name, element_index)
 _MULT_STAGE_MAP: list[tuple[str, int]] = get_mult_stage_map()
@@ -60,8 +51,13 @@ SCALAR_NONE = 0
 SCALAR_LCR = 1  # LcrIdx: an LR selects an Ra element, or a CR supplies the byte
 SCALAR_CR = 2  # CrIdx: the CR's low byte is the scalar
 
-# 0..LANES-1, for the rotated Ra window MULT.VE reads.
+# 0..LANES-1, for the rotated Ra and R_CYCLIC windows.
 _LANE_INDEX = np.arange(LANES)
+
+# Ra (R0 ++ R1) holds two rows of lanes. The R_CYCLIC ring holds 512 elements
+# in every element width: ``r_cyclic`` is its 1-byte-element form.
+_RA_LANES = 2 * LANES
+_RING_LANES = _reg_sizes["r_cyclic"]["size_bytes"]
 
 # One R_MASK slot (128 bits) with every lane active.
 _ALL_ONES_MASK_SLOT = b"\xff" * 16
@@ -69,20 +65,16 @@ _ALL_ONES_MASK_INT = (1 << LANES) - 1
 
 
 @lru_cache(maxsize=512)
-def _inactive_lanes(mask_int: int) -> tuple[int, ...]:
-    """Lanes a 128-bit multiply mask deactivates, in ascending order.
+def _inactive_lanes(mask_int: int) -> np.ndarray:
+    """Lanes a 128-bit multiply mask deactivates, in ascending order (read-only).
 
     A mask that activates every lane (the default R_MASK, and what every
-    kernel in the tree runs with) yields an empty tuple, so the caller writes
-    no pad values -- exactly what the per-lane scan did, without the scan.
+    kernel in the tree runs with) yields an empty array, so the caller writes
+    no pad values.
     """
-    return tuple(i for i in range(LANES) if not ((mask_int >> i) & 1))
-
-
-@lru_cache(maxsize=8)
-def _one_byte_for(dtype: DType) -> int:
-    """Raw encoding of 1.0 for a dtype. Cached: the FP8 path re-encodes."""
-    return dtype_one_byte(dtype)
+    lanes = np.array([i for i in range(LANES) if not ((mask_int >> i) & 1)], dtype=np.intp)
+    lanes.flags.writeable = False
+    return lanes
 
 
 @lru_cache(maxsize=1024)
@@ -111,65 +103,32 @@ def _active_lane_count(mask_int: int, valid_elements: int) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Wide-vector debug mode (emulator-only; GitHub issue #33)
+# Operand lanes, decoded through the active codec
 # ---------------------------------------------------------------------------
 
 
-def _wide_assert_lane_aligned_byte_offset(name: str, byte_off: int) -> None:
-    """Wide-vector mode treats r_cyclic in 4-byte elements; misaligned offsets corrupt unpacking."""
-    if byte_off % 4 != 0:
-        raise EmulatorError(f"Wide-vector debug: {name} must be 4-byte aligned, got {byte_off}")
+def _ra_lanes(ipu: Ipu, codec: LaneCodec) -> Lanes:
+    """Ra (R0 ++ R1) as one 256-lane array in the compute domain, from its declared view."""
+    return codec.decode(ipu._view.read(vector_registers(ipu.state).ra), _RA_LANES)
 
 
-def _wide_imult32(a: int, b: int) -> int:
-    p = int(a) * int(b)
-    p &= 0xFFFFFFFF
-    return p - 0x100000000 if p >= 0x80000000 else p
+def _r_cyclic_window(ipu: Ipu, codec: LaneCodec, rc_idx: int) -> Lanes:
+    """LANES elements of R_CYCLIC from element ``rc_idx``, wrapping at the ring's end.
 
-
-def _wide_ra_lanes(ipu: Ipu, mult_stage_enc: int) -> np.ndarray:
-    """R0/R1 wide lanes from the cycle-start snapshot (issue #157).
-
-    Read an immutable copy of snapshot storage: R0 and R1 are the two
-    512-byte elements of ``r_wide_debug``, and ``wide_lanes`` makes
-    its own widened copy, so nothing aliases the register.
+    ``rc_idx`` (the MULT.RC.* operand) addresses R_CYCLIC in elements, as
+    ``LD.MULT.CYCLIC``'s ``index`` operand does, so reads and writes share one
+    unit in every element width.
     """
-    return wide_lanes(ipu.state, ipu._view.read("r_wide_debug"), mult_stage_enc * LANES * 4)
+    buf = ipu._view.read(vector_registers(ipu.state).r_cyclic)
+    start = rc_idx % _RING_LANES
+    if start + LANES <= _RING_LANES:
+        return codec.decode(buf[start * codec.element_bytes :], LANES)
+    return codec.decode(buf, _RING_LANES)[(start + _LANE_INDEX) % _RING_LANES]
 
 
-def _wide_ra_lane(ipu: Ipu, idx: int) -> float | int:
-    """One lane of the R0 ++ R1 pair (``0 <= idx < 2*LANES``) from the snapshot.
-
-    The pair is contiguous in ``r_wide_debug`` (R0 first), so lane *idx*
-    is the 4-byte element at ``4 * idx`` whichever register it falls in.
-    """
-    fmt = "<f" if ipu.state.wide_vector_arithmetic == WideVectorArithmetic.FP32 else "<i"
-    return struct.unpack_from(fmt, ipu._view.read("r_wide_debug"), 4 * idx)[0]
-
-
-def _wide_rb_lanes(ipu: Ipu, cyclic_byte_off: int) -> np.ndarray:
-    """r_cyclic wide lanes from the cycle-start snapshot."""
-    _wide_assert_lane_aligned_byte_offset("cyclic_offset", cyclic_byte_off)
-    return wide_lanes(
-        ipu.state,
-        ipu._view.source("r_cyclic_wide_debug").get_r_cyclic_wide_debug_at(
-            cyclic_byte_off, xmem_row_size_bytes(ipu.state)
-        ),
-    )
-
-
-def _rc_element_to_byte_offset(ipu: Ipu, rc_idx: int) -> int:
-    """Scale an r_cyclic ELEMENT index to a byte offset (mode-dependent width).
-
-    ``rc_idx`` (MULT.RC.* operand) addresses r_cyclic the same way
-    ``LD.MULT.CYCLIC``'s ``index`` operand does -- in elements, not
-    bytes -- so reads and writes to the same register share one unit. A
-    no-op in narrow mode (1 byte/element); scales by 4 in wide-vector
-    debug mode. See issue #182's follow-up: rc_idx used to be a raw byte
-    offset, which silently diverged from the write-side element index
-    once r_cyclic's wide-mode ring grew to 2048 B (512 elements x 4 B).
-    """
-    return rc_idx * xmem_element_width_bytes(ipu.state)
+def _store_mult_res(ipu: Ipu, codec: LaneCodec, product: Lanes) -> None:
+    """Write LANES products to MULT_RES, rounded once to the accumulator type."""
+    codec.store_acc(ipu.state.regfile.mutable("mult_res"), product)
 
 
 # ---------------------------------------------------------------------------
@@ -193,7 +152,7 @@ def _mult_mask_and_shift(ipu: Ipu, mask_idx: int, shift: int, cr_idx: int) -> No
 
     Elements in mult_res where the resulting mask bit is 0 are set to
     CR[cr_idx].pad_mode's fill value (ZERO, +inf, or -inf). +inf/-inf
-    require a floating-point dtype — they have no INT8 representation.
+    require a float accumulator — an integer one has no infinity.
 
     Mode-blind: the mask is 128 bits (one bit per element) and MULT_RES is
     128 four-byte elements in both narrow and wide-vector debug mode, so the
@@ -219,12 +178,10 @@ def _mult_mask_and_shift(ipu: Ipu, mask_idx: int, shift: int, cr_idx: int) -> No
     _count_mult_lanes(ipu, mask_int, dstructure)
 
     inactive = _inactive_lanes(mask_int)
-    if not inactive:
+    if not inactive.size:
         return
-    pad_bytes = _mult_pad_lane_bytes(ipu, dstructure.pad_mode)
-    mult_res = ipu.state.regfile.mutable("mult_res")
-    for i in inactive:
-        mult_res[i * 4 : i * 4 + 4] = pad_bytes
+    pad_word = np.frombuffer(_mult_pad_lane_bytes(ipu, dstructure.pad_mode), dtype="<u4")[0]
+    np.frombuffer(ipu.state.regfile.mutable("mult_res"), dtype="<u4")[inactive] = pad_word
 
 
 def _count_mult_lanes(ipu: Ipu, mask_int: int, dstructure: DStructureConfig) -> None:
@@ -251,32 +208,20 @@ def _effective_mult_mask(
 def _mult_pad_lane_bytes(ipu: Ipu, pad_mode: PadMode) -> bytes:
     """Encode the 4-byte MULT_RES fill value for a masked-out element.
 
-    ZERO is representable in both INT8 (int32) and float dtypes.
-    POS_INF/NEG_INF only exist in floating-point representations, so
-    they are rejected under integer element arithmetic.
-
-    Which field decides that differs by mode: in wide-vector debug mode
-    element arithmetic is governed by ``wide_vector_arithmetic``, not by
-    ``dtype`` (which stays at its INT8 default unless a caller overrides
-    it). Using ``dtype`` here would reject +inf/-inf in debug/FP32, where
-    infinity is perfectly representable.
+    ZERO is representable in every accumulator type. POS_INF/NEG_INF exist
+    only in a float accumulator, so they are rejected under integer element
+    arithmetic (INT8, and INT32 in wide-vector debug mode).
     """
     if pad_mode == PadMode.ZERO:
         return b"\x00\x00\x00\x00"
-    if not _lanes_are_float(ipu):
+    acc_dtype = ipu._codec.acc_dtype
+    if acc_dtype.kind != "f":
         raise EmulatorError(
             f"dstructure pad_mode {pad_mode.name} requires floating-point lanes; "
             "integer lane arithmetic has no infinity representation"
         )
     value = float("inf") if pad_mode == PadMode.POS_INF else float("-inf")
-    return struct.pack("<f", value)
-
-
-def _lanes_are_float(ipu: Ipu) -> bool:
-    """Whether MULT_RES elements hold floats, under whichever mode is active."""
-    if ipu.state.wide_vector_debug:
-        return ipu.state.wide_vector_arithmetic == WideVectorArithmetic.FP32
-    return ipu.state.dtype != DType.INT8
+    return np.array(value, dtype=acc_dtype).tobytes()
 
 
 # ---------------------------------------------------------------------------
@@ -288,62 +233,29 @@ def execute_mult_nop(ipu: Ipu) -> None:
     """Execute NOP in mult slot: No operation."""
 
 
-def _mult_resolve_lcr_scalar(ipu: Ipu, src: int, via: str = "src") -> int:
-    """Resolve an LcrIdx ``src`` field that addresses a *byte* scalar.
+def _mult_resolve_lcr_scalar(ipu: Ipu, codec: LaneCodec, src: int, via: str = "src") -> Scalar:
+    """Resolve an LcrIdx ``src`` field that addresses an element scalar.
 
     If ``src`` encodes an LR, the LR's stored value is itself used as an
     index (mod 256) into the combined Ra buffer (``R0`` ++ ``R1``). If
-    ``src`` encodes a CR, the CR's low byte is the scalar directly. Each
-    read has the view the instruction declares for it (the LR and the CR
-    through the operand *via*, Ra as ``r``).
+    ``src`` encodes a CR, the CR word is the scalar, decoded by
+    :meth:`LaneCodec.decode_scalar`. Each read has the view the instruction
+    declares for it (the LR and the CR through the operand *via*, Ra as
+    ``r``).
     """
     if src < LR_REG_COUNT:
         # The LR holds an INDEX into Ra; the Ra DATA is a separate read.
-        idx = ipu._view.lr(src, via) % (2 * R_REG_SIZE)
-        return ipu._view.read("r")[idx]
-    return ipu._view.cr(src - LR_REG_COUNT, via) & 0xFF
-
-
-def _mult_resolve_lcr_scalar_wide(ipu: Ipu, src: int, via: str = "src") -> float | int:
-    """Wide-vector counterpart of ``_mult_resolve_lcr_scalar``."""
-    if src < LR_REG_COUNT:
-        return _wide_ra_lane(ipu, ipu._view.lr(src, via) % (2 * LANES))
-    cr_idx = src - LR_REG_COUNT
-    cr_scalar = _geometry_cr_scalar(ipu._view.source("cr", via), cr_idx)
-    if ipu.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
-        return float(cr_scalar)
-    return cr_scalar
+        return _ra_lanes(ipu, codec)[ipu._view.lr(src, via) % _RA_LANES]
+    return codec.decode_scalar(ipu._view.cr(src - LR_REG_COUNT, via))
 
 
 def execute_mult_rc_vv(
-    ipu: Ipu, *, rc_idx: int, ra: bytearray | int, mask_offset: int, mask_shift: int, cr_idx: int
+    ipu: Ipu, *, rc_idx: int, ra: bytearray, mask_offset: int, mask_shift: int, cr_idx: int
 ) -> None:
     """Execute MULT.RC.VV: R_CYCLIC vector × Ra (R0/R1) vector, element-wise."""
-    state = ipu.state
-    mult_res = state.regfile.mutable("mult_res")
-
-    if state.wide_vector_debug:
-        byte_off = _rc_element_to_byte_offset(ipu, rc_idx)
-        rb_lanes = _wide_rb_lanes(ipu, byte_off)
-        ra_lanes = _wide_ra_lanes(ipu, ra)
-        if state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
-            with np.errstate(all="ignore"):
-                product = rb_lanes * ra_lanes
-        else:
-            product = rb_lanes * ra_lanes
-        store_wide_lanes(state, mult_res, product)
-        _mult_mask_and_shift(ipu, mask_offset, mask_shift, cr_idx)
-        return
-
-    dtype = state.dtype
-    rc = ipu._view.source("r_cyclic").get_r_cyclic_at(
-        _rc_element_to_byte_offset(ipu, rc_idx), R_REG_SIZE
-    )
-
-    for i in range(LANES):
-        result = ipu_mult(rc[i], ra[i], dtype)
-        struct.pack_into("<i" if dtype == DType.INT8 else "<f", mult_res, i * 4, result)
-
+    codec = ipu._codec
+    rc = _r_cyclic_window(ipu, codec, rc_idx)
+    _store_mult_res(ipu, codec, codec.mult(rc, codec.decode(ra)))
     _mult_mask_and_shift(ipu, mask_offset, mask_shift, cr_idx)
 
 
@@ -351,33 +263,10 @@ def execute_mult_rc_ve(
     ipu: Ipu, *, rc_idx: int, src: int, mask_offset: int, mask_shift: int, cr_idx: int
 ) -> None:
     """Execute MULT.RC.VE: R_CYCLIC vector × scalar (R0/R1 element or CR value)."""
-    state = ipu.state
-    mult_res = state.regfile.mutable("mult_res")
-
-    if state.wide_vector_debug:
-        byte_off = _rc_element_to_byte_offset(ipu, rc_idx)
-        scalar = _mult_resolve_lcr_scalar_wide(ipu, src)
-        rb_lanes = _wide_rb_lanes(ipu, byte_off)
-        if state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
-            with np.errstate(all="ignore"):
-                product = rb_lanes * float(scalar)
-        else:
-            product = rb_lanes * int(scalar)
-        store_wide_lanes(state, mult_res, product)
-        _mult_mask_and_shift(ipu, mask_offset, mask_shift, cr_idx)
-        return
-
-    dtype = state.dtype
-    scalar_byte = _mult_resolve_lcr_scalar(ipu, src)
-    rc = ipu._view.source("r_cyclic").get_r_cyclic_at(
-        _rc_element_to_byte_offset(ipu, rc_idx), R_REG_SIZE
-    )
-    fmt = "<i" if dtype == DType.INT8 else "<f"
-
-    for i in range(LANES):
-        result = ipu_mult(rc[i], scalar_byte, dtype)
-        struct.pack_into(fmt, mult_res, i * 4, result)
-
+    codec = ipu._codec
+    scalar = _mult_resolve_lcr_scalar(ipu, codec, src)
+    rc = _r_cyclic_window(ipu, codec, rc_idx)
+    _store_mult_res(ipu, codec, codec.mult(rc, scalar))
     _mult_mask_and_shift(ipu, mask_offset, mask_shift, cr_idx)
 
 
@@ -385,31 +274,9 @@ def execute_mult_rc_vs(
     ipu: Ipu, *, rc_idx: int, mask_offset: int, mask_shift: int, cr_idx: int
 ) -> None:
     """Execute MULT.RC.VS: R_CYCLIC vector self-multiply (square), element-wise."""
-    state = ipu.state
-    mult_res = state.regfile.mutable("mult_res")
-
-    if state.wide_vector_debug:
-        byte_off = _rc_element_to_byte_offset(ipu, rc_idx)
-        rb_lanes = _wide_rb_lanes(ipu, byte_off)
-        if state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
-            with np.errstate(all="ignore"):
-                product = rb_lanes * rb_lanes
-        else:
-            product = rb_lanes * rb_lanes
-        store_wide_lanes(state, mult_res, product)
-        _mult_mask_and_shift(ipu, mask_offset, mask_shift, cr_idx)
-        return
-
-    dtype = state.dtype
-    rc = ipu._view.source("r_cyclic").get_r_cyclic_at(
-        _rc_element_to_byte_offset(ipu, rc_idx), R_REG_SIZE
-    )
-    fmt = "<i" if dtype == DType.INT8 else "<f"
-
-    for i in range(LANES):
-        result = ipu_mult(rc[i], rc[i], dtype)
-        struct.pack_into(fmt, mult_res, i * 4, result)
-
+    codec = ipu._codec
+    rc = _r_cyclic_window(ipu, codec, rc_idx)
+    _store_mult_res(ipu, codec, codec.mult(rc, rc))
     _mult_mask_and_shift(ipu, mask_offset, mask_shift, cr_idx)
 
 
@@ -417,33 +284,11 @@ def execute_mult_ve(
     ipu: Ipu, *, ra_idx: int, cr_idx: int, mask_offset: int, mask_shift: int, dstructure_cr_idx: int
 ) -> None:
     """Execute MULT.VE: Ra (combined R0/R1) vector × CR scalar, element-wise."""
-    state = ipu.state
-    mult_res = state.regfile.mutable("mult_res")
-
-    if state.wide_vector_debug:
-        cr_scalar = _geometry_cr_scalar(ipu._view.source("cr", "cr_idx"), cr_idx)
-        # Ra is the R0 ++ R1 pair read as one 256-lane cyclic window.
-        combined = np.concatenate((_wide_ra_lanes(ipu, 0), _wide_ra_lanes(ipu, 1)))
-        window = combined[(ra_idx + _LANE_INDEX) % (2 * LANES)]
-        if state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
-            with np.errstate(all="ignore"):
-                product = window * float(cr_scalar)
-        else:
-            product = window * int(cr_scalar)
-        store_wide_lanes(state, mult_res, product)
-        _mult_mask_and_shift(ipu, mask_offset, mask_shift, dstructure_cr_idx)
-        return
-
-    dtype = state.dtype
-    scalar_byte = ipu._view.cr(cr_idx, "cr_idx") & 0xFF
-    r_buf = ipu._view.read("r")  # Ra: [0:128]=r0, [128:256]=r1
-    fmt = "<i" if dtype == DType.INT8 else "<f"
-
-    for i in range(LANES):
-        pos = (ra_idx + i) % (2 * R_REG_SIZE)
-        result = ipu_mult(r_buf[pos], scalar_byte, dtype)
-        struct.pack_into(fmt, mult_res, i * 4, result)
-
+    codec = ipu._codec
+    scalar = codec.decode_scalar(ipu._view.cr(cr_idx, "cr_idx"))
+    # Ra is the R0 ++ R1 pair read as one 256-lane cyclic window.
+    window = _ra_lanes(ipu, codec)[(ra_idx + _LANE_INDEX) % _RA_LANES]
+    _store_mult_res(ipu, codec, codec.mult(window, scalar))
     _mult_mask_and_shift(ipu, mask_offset, mask_shift, dstructure_cr_idx)
 
 
@@ -451,31 +296,12 @@ def execute_mult_ee(
     ipu: Ipu, *, ra_idx: int, cr_idx: int, mask_offset: int, mask_shift: int, dstructure_cr_idx: int
 ) -> None:
     """Execute MULT.EE: single Ra element × CR scalar, broadcast to all 128 elements."""
-    state = ipu.state
-    mult_res = state.regfile.mutable("mult_res")
-
-    if state.wide_vector_debug:
-        cr_scalar = _geometry_cr_scalar(ipu._view.source("cr", "cr_idx"), cr_idx)
-        ra_lane = _wide_ra_lane(ipu, ra_idx % (2 * LANES))
-        # The product is one scalar operation, broadcast to every lane.
-        if state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
-            result = float(ra_lane) * float(cr_scalar)
-        else:
-            result = _wide_imult32(int(ra_lane), cr_scalar)
-        store_wide_lanes(state, mult_res, np.full(LANES, result))
-        _mult_mask_and_shift(ipu, mask_offset, mask_shift, dstructure_cr_idx)
-        return
-
-    dtype = state.dtype
-    scalar_byte = ipu._view.cr(cr_idx, "cr_idx") & 0xFF
-    r_buf = ipu._view.read("r")  # Ra: [0:128]=r0, [128:256]=r1
-    fmt = "<i" if dtype == DType.INT8 else "<f"
-
-    ra_byte = r_buf[ra_idx % (2 * R_REG_SIZE)]
-    result = ipu_mult(ra_byte, scalar_byte, dtype)
-    for i in range(LANES):
-        struct.pack_into(fmt, mult_res, i * 4, result)
-
+    codec = ipu._codec
+    scalar = codec.decode_scalar(ipu._view.cr(cr_idx, "cr_idx"))
+    pos = ra_idx % _RA_LANES
+    # One product, broadcast to every lane.
+    product = codec.mult(_ra_lanes(ipu, codec)[pos : pos + 1], scalar)
+    _store_mult_res(ipu, codec, np.repeat(product, LANES))
     _mult_mask_and_shift(ipu, mask_offset, mask_shift, dstructure_cr_idx)
 
 
@@ -500,34 +326,35 @@ def vector_is_one(
     """
     if name not in VECTOR_IDENTITY_MULTS:
         return False
-    wide = ipu.state.wide_vector_debug
+    codec = ipu._codec
+    registers = vector_registers(ipu.state)
     size = xmem_row_size_bytes(ipu.state)
-    ring = "r_cyclic_wide_debug" if wide else "r_cyclic"
-    start = _rc_element_to_byte_offset(ipu, kwargs["rc_idx"])
+    ring = registers.r_cyclic
+    start = kwargs["rc_idx"] * codec.element_bytes
     source = ipu._view.source(ring)
-    if source.has_constant_ones(ring, start, size):
-        data = (
-            source.get_r_cyclic_wide_debug_at(start, size)
-            if wide
-            else source.get_r_cyclic_at(start, size)
-        )
-        if _ones_bytes(ipu, data):
-            return True
+    if source.has_constant_ones(ring, start, size) and _is_ones_row(
+        codec, _cyclic_bytes(source.view(ring), start, size)
+    ):
+        return True
     if name == "MULT.RC.VV":
-        # Narrow ra is already resolved to bytes; the issuer kept its index.
-        index = encoded["ra"]
-        reg, index = ("r_wide_debug", index) if wide else _MULT_STAGE_MAP[index]
+        # ra is already resolved to bytes; the issuer kept its index.
+        index = _MULT_STAGE_MAP[encoded["ra"]][1]
+        reg = registers.ra
         snap = ipu._view.source(reg, "ra")
         if snap.has_constant_ones(reg, index * size, size):
-            return _ones_bytes(ipu, snap.get_register_bytes(reg, index))
+            return _is_ones_row(codec, snap.get_register_bytes(reg, index))
     return False
 
 
-def _ones_bytes(ipu: Ipu, data: bytes | bytearray) -> bool:
-    if ipu.state.wide_vector_debug:
-        fmt = "<f" if ipu.state.wide_vector_arithmetic == WideVectorArithmetic.FP32 else "<i"
-        return data == struct.pack(fmt, 1) * LANES
-    return data == bytes([_one_byte_for(ipu.state.dtype)]) * LANES
+def _cyclic_bytes(buf: memoryview, start: int, size: int) -> bytes:
+    """``size`` bytes of a ring from byte ``start``, wrapping at its end."""
+    start %= len(buf)
+    head = bytes(buf[start : start + size])
+    return head + bytes(buf[: size - len(head)])
+
+
+def _is_ones_row(codec: LaneCodec, data: bytes | bytearray) -> bool:
+    return data == codec.one() * LANES
 
 
 def alias_masked_window(ipu: Ipu, kwargs: Mapping[str, Any]) -> bool:
@@ -559,8 +386,8 @@ def scalar_is_one(ipu: Ipu, kind: int, raw: int, operand: str) -> bool:
     1 is a real MAC, not a pass-through, and must not be written off as
     routing.
 
-    Uses the dtype's own encoding of 1.0 because "one" is a different byte
-    in every dtype, and a float under wide-vector FP32.
+    Compares the decoded scalar with 1, so "one" is the active format's own
+    encoding of 1.
 
     Args:
         ipu: The engine.
@@ -577,6 +404,4 @@ def scalar_is_one(ipu: Ipu, kind: int, raw: int, operand: str) -> bool:
     lcr = raw if kind == SCALAR_LCR else raw + LR_REG_COUNT
     if lcr < LR_REG_COUNT:
         return False
-    if ipu.state.wide_vector_debug:
-        return _mult_resolve_lcr_scalar_wide(ipu, lcr, operand) == 1
-    return _mult_resolve_lcr_scalar(ipu, lcr, operand) == _one_byte_for(ipu.state.dtype)
+    return bool(_mult_resolve_lcr_scalar(ipu, ipu._codec, lcr, operand) == 1)

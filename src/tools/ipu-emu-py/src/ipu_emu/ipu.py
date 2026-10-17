@@ -26,12 +26,14 @@ from typing import NamedTuple
 from ipu_emu.errors import ConfigurationError, EmulatorError
 from ipu_emu.geometry import (
     NARROW_MAX_ROW,
+    active_codec,
     xmem_element_width_bytes,
     xmem_row_size_bytes,
 )
 from ipu_emu.ipu_state import IpuState
 from ipu_emu.isa_alias_spec import SCALAR_MULT_OPERANDS, aliases_for
 from ipu_emu.issue import Issuer
+from ipu_emu.numerics import LaneCodec
 from ipu_emu.regfile import RegFile
 from ipu_emu.resolver import READ_CR, READ_LCR, READ_LR, READ_MULT_STAGE, READ_OTHER
 from ipu_emu.slots import HANDLER_MODULES
@@ -574,6 +576,15 @@ class Ipu:
         See :attr:`Cycle.snapshot`.
         """
         return self.cycle.snapshot
+
+    @property
+    def _codec(self) -> LaneCodec:
+        """The active element format's lane codec (:func:`~ipu_emu.geometry.active_codec`).
+
+        The handlers decode, compute and store through it, so none branches on
+        a format (Q43, Q48).
+        """
+        return active_codec(self.state)
 
     def bind_snapshot(self, buffer: RegFile) -> None:
         """Make *buffer* the register snapshot handlers read. Called by :class:`Cycle`.
