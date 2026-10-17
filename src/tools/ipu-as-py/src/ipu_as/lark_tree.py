@@ -17,12 +17,14 @@ from ipu_isa.tags import Tag
 
 __all__ = [
     "ASTBuilder",
+    "Renderer",
     "assemble",
     "assemble_to_bin_file",
     "assemble_to_mem_file",
     "disassemble",
     "disassemble_from_bin_file",
     "disassemble_from_mem_file",
+    "disassemble_to_source",
     "get_parser",
     "instruction_aligned_bytes_len",
     "parse",
@@ -97,7 +99,7 @@ def _write_lines(output_path: str, lines: list[str]) -> None:
 def disassemble_from_mem_file(
     input_path: str, output_path: str, target: str = "emulator", render: Renderer = disassemble
 ) -> None:
-    """Disassemble a `.mem` file into one text line per word (`disassemble`).
+    """Disassemble a `.mem` file as text lines, written by `render`.
 
     Args:
         input_path: The `.mem` file: one hex word per line.
@@ -124,7 +126,7 @@ def _bin_words(data: bytes, target: str) -> list[int]:
 def disassemble_from_bin_file(
     input_path: str, output_path: str, target: str = "emulator", render: Renderer = disassemble
 ) -> None:
-    """Disassemble a `.bin` file into one text line per word (`disassemble`).
+    """Disassemble a `.bin` file as text lines, written by `render`.
 
     Args:
         input_path: The `.bin` file of little-endian `target` words.
