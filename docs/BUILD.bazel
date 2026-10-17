@@ -56,6 +56,58 @@ genrule(
     tools = ["//src/tools/ipu-gen:ipu-gen"],
 )
 
+# The Reference model API page (content/reference/reference-model-api.md) includes
+# these snippets through pymdownx.snippets; the schema files are its downloads.
+#   bazel run //docs:reference_api_page -- "$PWD/out"
+py_binary(
+    name = "reference_api_page",
+    srcs = ["reference_api_page.py"],
+    main = "reference_api_page.py",
+    python_version = "PY3",
+    deps = [
+        "//src/tools/ipu-emu-py:ipu_emu_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+    ],
+)
+
+_REFERENCE_API_FILES = [
+    "version.md",
+    "api.md",
+    "schema.md",
+    "faults.md",
+    "commit_record.v1.json",
+    "trace.v1.json",
+]
+
+genrule(
+    name = "generate_reference_api_md",
+    outs = ["generated/reference-api/" + f for f in _REFERENCE_API_FILES],
+    cmd = "$(location :reference_api_page) $(RULEDIR)/generated/reference-api > /dev/null",
+    tools = [":reference_api_page"],
+)
+
+# The page's generator and its promises: every public symbol and schema field is
+# rendered, a schema change changes the page, and the cocotb how-to links each
+# call it uses.
+py_pytest_test(
+    name = "test_reference_api_page",
+    size = "small",
+    srcs = [
+        "reference_api_page.py",
+        "test_reference_api_page.py",
+    ],
+    data = [
+        "content/how-to/reference-model-cocotb.md",
+        "content/reference/reference-model-api.md",
+        "examples/test_reference_model_cocotb.py",
+    ],
+    deps = [
+        "//src/tools/ipu-emu-py:ipu_emu_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
 genrule(
     name = "generate_instruction_format_md",
     outs = ["instruction-format.md"],
@@ -107,6 +159,7 @@ genrule(
         ":generate_instruction_format_md",
         ":generate_instruction_format_artifacts",
         ":generate_timing_contract_table",
+        ":generate_reference_api_md",
         "//docs/inspector:inspector_data",
         "//:GLOSSARY.md",
         "examples/test_add_an_instruction.py",
@@ -170,6 +223,20 @@ genrule(
         ln -sfn "$$ORIGDIR/$(location examples/test_add_an_instruction.py)" "$(@D)/docs/examples/test_add_an_instruction.py"
         ln -sfn "$$ORIGDIR/$(location examples/test_reference_model_cocotb.py)" "$(@D)/docs/examples/test_reference_model_cocotb.py"
         ln -sfn "$$ORIGDIR/$(location //src/tools/ipu-isa:test/one_edit.py)" "$(@D)/src/tools/ipu-isa/test/one_edit.py"
+
+        # The reference model API page's schema downloads (its snippets are read
+        # from generated/reference-api/ through the snippets base_path).
+        mkdir -p "$(@D)/docs_temp/content/assets/schemas"
+        for f in $(locations :generate_reference_api_md); do
+          case "$$f" in
+            *.json)
+              dest="$(@D)/docs_temp/content/assets/schemas/$$(basename "$$f")"
+              rm -f "$$dest"
+              cp "$$ORIGDIR/$$f" "$$dest"
+              chmod u+w "$$dest"
+              ;;
+          esac
+        done
 
         # Generated C header and SystemVerilog package (downloadable; not in git)
         mkdir -p "$(@D)/docs_temp/content/assets"

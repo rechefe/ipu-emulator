@@ -99,7 +99,7 @@ nav:
           - Programmer's guide: programmer-guide.md
           - IPU configuration: ipu-configuration.md         # E09-14 folds it in
       - Command-line tools: reference/cli.md                # placeholder, E09-15
-      - Reference model API: reference/reference-model-api.md   # placeholder, E09-16
+      - Reference model API: reference/reference-model-api.md   # E09-16; parts generated (docs/reference_api_page.py)
       - Kernels:                                            # E06/E07 generate these
           - kernels/index.md
           - Softmax: kernels/softmax.md
