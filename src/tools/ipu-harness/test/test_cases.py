@@ -200,6 +200,20 @@ def test_input_priority_override_then_case_file_then_generator(tmp_path):
     assert np.array_equal(inputs_for(case, plan).tensors["x"], np.full((2, 128), 0.5))
 
 
+def test_a_generator_file_not_in_the_kernel_folder_is_its_family_folders(tmp_path):
+    """A family's templates share one gen.py beside them (E07-02 gap G9); the
+    kernel folder's own file of the same name wins."""
+    m = scale(tmp_path, extra_cases=MADE)
+    (tmp_path / "gen.py").write_text(
+        "import numpy as np\n\n\ndef make(plan, rng):\n"
+        "    return {'x': np.full(plan.shapes['x'], 0.25)}\n"
+    )
+    case, plan = planned(m, "made")
+    assert np.array_equal(inputs_for(case, plan).tensors["x"], np.full((2, 128), 0.25))
+    generator(m, "return {'x': np.full(plan.shapes['x'], 0.5)}")
+    assert np.array_equal(inputs_for(case, plan).tensors["x"], np.full((2, 128), 0.5))
+
+
 def test_a_generators_values_are_rounded_to_the_format_and_counted(tmp_path):
     m = scale(tmp_path, extra_cases=MADE)
     generator(m, "return {'x': np.full(plan.shapes['x'], 0.3)}")

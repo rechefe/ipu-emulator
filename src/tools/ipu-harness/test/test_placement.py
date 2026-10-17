@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import dataclasses
-import importlib
 from pathlib import Path
 from types import MappingProxyType
 
 import pytest
 
-from ipu_apps.kernels.projections.app import ProjectionLayout
 from ipu_harness.cases import expand
 from ipu_harness.manifest import KernelManifest, load_manifest
 from ipu_harness.params import PlanError, plan_case
@@ -143,6 +141,32 @@ def test_a_callers_pin_overlapping_a_row_pin_is_an_error(tmp_path):
         place(plan_case(m, {"rows": 2, "s": 2.0}, F.FP32), pins={"x": 1})
 
 
+def test_reserved_rows_are_placed_around_and_a_pin_on_them_is_an_error(tmp_path):
+    """Rows a chain holds (E06-15) are no region's."""
+    m = manifest(tmp_path, SCALE.format(x_pin="", y_extra=""))
+    plan = plan_case(m, {"rows": 2, "s": 2.0}, F.FP32)
+    placement = place(plan, reserved={"held": (1, 2)})
+    assert bases(placement) == {"x": (3, 2), "y": (5, 2)}
+    assert [(r.name, r.base_row, r.rows) for r in placement.reserved] == [("held", 1, 2)]
+    with pytest.raises(PlanError, match=r"x \(rows 2..3\) overlaps held \(rows 1..2\)"):
+        place(plan, pins={"x": 2}, reserved={"held": (1, 2)})
+
+
+def test_avoided_rows_are_left_by_first_fit_but_may_be_pinned(tmp_path):
+    m = manifest(tmp_path, SCALE.format(x_pin="", y_extra=""))
+    plan = plan_case(m, {"rows": 2, "s": 2.0}, F.FP32)
+    assert bases(place(plan, avoid=[(0, 3)])) == {"x": (3, 2), "y": (5, 2)}
+    assert bases(place(plan, pins={"x": 1}, avoid=[(0, 3)])) == {"x": (1, 2), "y": (3, 2)}
+
+
+def test_st_aaq_spill_onto_reserved_rows_is_an_error(tmp_path):
+    m = manifest(tmp_path, SCALE.format(x_pin="row = 10\n", y_extra="row = 0\n"))
+    plan = plan_case(m, {"rows": 2, "s": 2.0}, F.INT8)
+    placement = place(plan, reserved={"held": (3, 1)})  # y 0..1 spills onto 2..4
+    with pytest.raises(PlanError, match="which hold region held"):
+        check_aaq_spill(plan, placement, "ST.AAQ LR0 CR3 ;;\nHALT ;;\n")
+
+
 def test_st_aaq_spill_onto_a_region_is_an_error_in_an_8_bit_format(tmp_path):
     """ST.AAQ writes 512 bytes: four INT8 rows, one FP32 row (OQ-35)."""
     m = manifest(tmp_path, SCALE.format(x_pin="", y_extra="row = 0\n"))
@@ -257,11 +281,23 @@ def test_place_takes_the_plan_as_checked(tmp_path):
     assert bases(place(unchecked)) == {"x": (0, 0), "y": (0, 4)}
 
 
-PROJECTIONS = [
-    f"proj_{kind}_{width}_p4"
-    for kind in ("qkv", "outproj", "ffn1", "ffn2")
-    for width in (144, 192, 240)
-]
+#: Each projection's (k, n_out, n_tg) and its data, weights and output base rows
+#: under the ipu_apps ProjectionLayout (E02 baselines; frozen in E07-02, which
+#: deleted it).
+PROJECTIONS = {
+    "proj_qkv_144_p4": (144, 432, 2, (0, 1152, 2016)),
+    "proj_outproj_144_p4": (144, 144, 2, (0, 1152, 1440)),
+    "proj_ffn1_144_p4": (144, 288, 2, (0, 1152, 1728)),
+    "proj_ffn2_144_p4": (288, 144, 2, (0, 2304, 2736)),
+    "proj_qkv_192_p4": (192, 576, 1, (0, 768, 1920)),
+    "proj_outproj_192_p4": (192, 192, 1, (0, 768, 1152)),
+    "proj_ffn1_192_p4": (192, 384, 1, (0, 768, 1536)),
+    "proj_ffn2_192_p4": (384, 192, 1, (0, 1536, 2112)),
+    "proj_qkv_240_p4": (240, 720, 1, (0, 960, 2400)),
+    "proj_outproj_240_p4": (240, 240, 1, (0, 960, 1440)),
+    "proj_ffn1_240_p4": (240, 480, 1, (0, 960, 1920)),
+    "proj_ffn2_240_p4": (480, 240, 1, (0, 1920, 2880)),
+}
 
 PROJECTION_TOML = """\
 [kernel]
@@ -291,18 +327,15 @@ out     = "CR4"
 """
 
 
-@pytest.mark.parametrize("name", PROJECTIONS)
+@pytest.mark.parametrize("name", sorted(PROJECTIONS))
 def test_projection_layouts_come_out_of_declaration_order(tmp_path, name):
     """Guards E07-02: with no pins, placement reproduces ProjectionLayout's bases.
 
-    The shapes are today's XMEM layout with default_rows, not the logical shapes:
-    E06-05/E07-02 re-run this with the packing's row counts, and the ipu_apps
-    dependency goes when E07 deletes ProjectionLayout.
+    The shapes are the old XMEM layout with default_rows, not the logical
+    shapes; ipu-kernels' test_pack places the logical shapes with packing's
+    row counts.
     """
-    app = importlib.import_module(f"ipu_apps.kernels.projections.{name}.app")
-    layout = ProjectionLayout(k=app.K, n_out=app.N_OUT, n_tok=app.N_TOK, n_tg=app.N_TG)
-    toml = PROJECTION_TOML.format(k=layout.k, n_out=layout.n_out, n_tg=layout.n_tg)
+    k, n_out, n_tg, bases = PROJECTIONS[name]
+    toml = PROJECTION_TOML.format(k=k, n_out=n_out, n_tg=n_tg)
     placement = place(plan_case(manifest(tmp_path, toml, name), {}, F.FP32))
-    assert placement.region("data").base_row == layout.data_base_row
-    assert placement.region("weights").base_row == layout.weights_base_row
-    assert placement.region("out").base_row == layout.output_base_row
+    assert tuple(placement.region(t).base_row for t in ("data", "weights", "out")) == bases

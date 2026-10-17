@@ -202,6 +202,18 @@ def test_each_rows_form_gets_the_plan_it_asks_for(tmp_path, name, rows):
     assert stored_rows(m.tensors["y"], plan_case(m, {"rows": 2}, F.FP32)) == rows
 
 
+def test_a_transform_not_in_the_kernels_pack_py_is_its_family_folders(tmp_path):
+    """A family's templates share one pack.py beside them (E07-02 gap G9),
+    after the kernel's own, before the ipu_kernels modules."""
+    m = manifest(tmp_path, "reversed_rows", "family_rows")
+    (tmp_path / "pack.py").write_text(PACK_PY.replace("reversed_rows", "family_rows"))
+    plan = plan_case(m, {"rows": 2}, F.FP32)
+    assert stored_rows(m.tensors["y"], plan) == 3
+    (tmp_path / "pack.py").unlink()
+    with pytest.raises(PlanError, match="no transform 'family_rows'"):
+        stored_rows(m.tensors["y"], plan)
+
+
 # --- a scratch region's starting bytes (E06 gap G2) ----------------------------------------
 
 SCRATCH_TOML = """\
@@ -348,6 +360,22 @@ def test_a_bytes_region_is_its_functions_bytes(tmp_path):
 def test_a_bytes_region_loads(tmp_path):
     directory = scratch_kernel(tmp_path, 'bytes = "mask.py:mask"')
     assert load_manifest(directory).tensors["mask"].content == "mask.py:mask"
+
+
+def test_a_bytes_function_may_be_the_familys(tmp_path):
+    from ipu_harness.packing import region_fill
+
+    directory = scratch_kernel(tmp_path, 'bytes = "../shared_mask.py:mask"')
+    (tmp_path / "shared_mask.py").write_text(MASK_PY)  # the family's folder
+    m = load_manifest(directory)
+    plan = plan_case(m, {"rows": 2}, F.FP32)
+    assert region_fill(m.tensors["mask"], plan, 1) == bytes([0xFF, 0x00] * 64) * 4
+
+
+@pytest.mark.parametrize("ref", ["../../up.py:mask", "../sub/mask.py:mask", "/abs.py:mask"])
+def test_a_bytes_function_outside_the_family_is_refused(tmp_path, ref):
+    with pytest.raises(ManifestError, match="must be"):
+        load_manifest(scratch_kernel(tmp_path, f'bytes = "{ref}"'))
 
 
 def test_fill_and_bytes_together_are_refused(tmp_path):

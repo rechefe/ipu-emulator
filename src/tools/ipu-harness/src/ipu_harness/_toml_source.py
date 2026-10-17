@@ -153,11 +153,12 @@ class Reader:
         self.inside(directory, file, path)
         return str(self.typed(value, str, path))
 
-    def generator(self, directory: Path, value: object, path: tuple[str, ...]) -> str:
-        """A case's generator: ``"file.py:function"`` in the kernel directory,
-        or ``"../file.py:function"``, a file directly in the family's folder
-        (the folder that holds the kernel folder, or ``registry.toml`` for an
-        entry's template), which the family's kernels share."""
+    def shared_function(self, directory: Path, value: object, path: tuple[str, ...]) -> str:
+        """A ``"file.py:function"`` in the kernel directory, or
+        ``"../file.py:function"``, a file directly in the family's folder (the
+        folder that holds the kernel folder, or ``registry.toml`` for an
+        entry's template), which the family's kernels share: a case's
+        generator, a scratch region's ``bytes``."""
         file = self._file(value, path)
         if not file.startswith("../"):
             return self.function(directory, value, path)

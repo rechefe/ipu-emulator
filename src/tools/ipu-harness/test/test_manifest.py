@@ -526,11 +526,34 @@ def test_a_tier_override_keeps_its_why(tmp_path):
     assert tier == ("FP32_ORDER", 3e-5, 1e-6, None, "measured on case X")
 
 
+ACCUMULATED = SCALE.replace(
+    '[outputs.y]\nshape = ["rows", 128]',
+    '[outputs.y]\nshape = ["rows", 128]\nstore = "accumulator"',
+)
+
+
 def test_an_accumulator_format_may_name_a_tier(tmp_path):
     # INT8 accumulates in INT32: an accumulator output in an int8 case is compared there.
-    toml = SCALE.replace('fp32 = "EXACT"', 'fp32 = "EXACT", int32 = "INT8_LSB"')
+    toml = ACCUMULATED.replace(
+        'fp32 = "EXACT", int8 = "EXACT", e4 = "FP8_ULP"', 'fp32 = "EXACT", int32 = "INT8_LSB"'
+    )
     tiers = load_manifest(kernel(tmp_path, toml)).golden.tolerance
     assert tiers[ElementFormat.INT32].name == "INT8_LSB"
+
+
+@pytest.mark.parametrize(
+    ("toml", "unread"),
+    [
+        # Every output is an accumulator output: an E4 run compares it as FP32.
+        (ACCUMULATED, "int8"),
+        (ACCUMULATED.replace('int8 = "EXACT", ', ""), "e4"),
+        # An element output is never compared in an accumulator format.
+        (SCALE.replace('fp32 = "EXACT"', 'fp32 = "EXACT", int32 = "EXACT"'), "int32"),
+    ],
+)
+def test_a_tier_no_output_is_compared_at_is_an_error(tmp_path, toml, unread):
+    with pytest.raises(ManifestError, match=rf"tolerance for {unread} is never read"):
+        load_manifest(kernel(tmp_path, toml))
 
 
 def test_an_input_range_is_per_format(tmp_path):

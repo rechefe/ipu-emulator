@@ -37,6 +37,7 @@ from fixture_full_layer_chain import (
     run_residual_add,
 )
 from fixture_host_softmax_fold_stubs import softmax_key_major, softmax_query_major
+from fixture_projections import projection
 
 import ipu_apps.kernels.attention.attn_v_bcast_60.app as attn_v_bcast_60_mod
 from ipu_apps.kernels.attention.attn_scores_km_16x60.app import AttnScoresKM16x60App
@@ -45,42 +46,6 @@ from ipu_apps.kernels.attention.attn_v_bcast_60.app import AttnVBcast60App
 from ipu_apps.kernels.attention.qk_scores_16x60.app import QkScores16x60App
 from ipu_apps.kernels.elementwise.residual_add_16x240.app import ResidualAdd16x240App
 from ipu_apps.kernels.normalize.layernorm_16x240.app import LayerNorm16x240App
-from ipu_apps.kernels.projections.proj_ffn1_240_p4.app import (
-    N_OUT as FFN1_N_OUT,
-)
-from ipu_apps.kernels.projections.proj_ffn1_240_p4.app import (
-    K as FFN1_K,
-)
-from ipu_apps.kernels.projections.proj_ffn1_240_p4.app import (
-    ProjFFN1240P4App,
-)
-from ipu_apps.kernels.projections.proj_ffn2_240_p4.app import (
-    N_OUT as FFN2_N_OUT,
-)
-from ipu_apps.kernels.projections.proj_ffn2_240_p4.app import (
-    K as FFN2_K,
-)
-from ipu_apps.kernels.projections.proj_ffn2_240_p4.app import (
-    ProjFFN2240P4App,
-)
-from ipu_apps.kernels.projections.proj_outproj_240_p4.app import (
-    N_OUT as OUTPROJ_N_OUT,
-)
-from ipu_apps.kernels.projections.proj_outproj_240_p4.app import (
-    K as OUTPROJ_K,
-)
-from ipu_apps.kernels.projections.proj_outproj_240_p4.app import (
-    ProjOutProj240P4App,
-)
-from ipu_apps.kernels.projections.proj_qkv_240_p4.app import (
-    N_OUT as QKV_N_OUT,
-)
-from ipu_apps.kernels.projections.proj_qkv_240_p4.app import (
-    K as QKV_K,
-)
-from ipu_apps.kernels.projections.proj_qkv_240_p4.app import (
-    ProjQKV240P4App,
-)
 
 # See test_full_layer_l4.py's matching flag for what this does.
 USE_REAL_SOFTMAX = os.environ.get("USE_REAL_SOFTMAX", "0") == "1"
@@ -97,6 +62,16 @@ N_LAYERS = 3
 ROW_BYTES = 512
 SCALE = 1.0 / np.sqrt(HEAD_DIM)  # 0.129099, per docs/content/kernels/mobilevit.md
 EXPECTED_SCALE_RATIO = 1.0 / SCALE  # sqrt(60) = 7.745...
+
+# The projections' shapes, from //kernels/projections (fixture_projections).
+QKV = projection("proj_qkv_240_p4")
+QKV_K, QKV_N_OUT = QKV.k, QKV.n_out
+OUTPROJ = projection("proj_outproj_240_p4")
+OUTPROJ_K, OUTPROJ_N_OUT = OUTPROJ.k, OUTPROJ.n_out
+FFN1 = projection("proj_ffn1_240_p4")
+FFN1_K, FFN1_N_OUT = FFN1.k, FFN1.n_out
+FFN2 = projection("proj_ffn2_240_p4")
+FFN2_K, FFN2_N_OUT = FFN2.k, FFN2.n_out
 
 assert QKV_K == D_MODEL and QKV_N_OUT == 3 * N_HEAD * HEAD_DIM == 720
 assert OUTPROJ_K == D_MODEL and OUTPROJ_N_OUT == D_MODEL
@@ -266,8 +241,7 @@ def _run_layer_query_major(
         for p in range(P_STREAM)
     ]
     qkv_outs, c, _ = run_proj_p4(
-        ProjQKV240P4App,
-        inst_bin=app_inst("proj_qkv_240_p4"),
+        "proj_qkv_240_p4",
         d_streams=d_streams,
         w=w["w_qkv"],
         k=D_MODEL,
@@ -356,8 +330,7 @@ def _run_layer_query_major(
         for p in range(P_STREAM)
     ]
     op_outs, c, _ = run_proj_p4(
-        ProjOutProj240P4App,
-        inst_bin=app_inst("proj_outproj_240_p4"),
+        "proj_outproj_240_p4",
         d_streams=d_streams_op,
         w=w["w_outproj"],
         k=D_MODEL,
@@ -411,8 +384,7 @@ def _run_layer_query_major(
         for p in range(P_STREAM)
     ]
     ffn1_outs, c, _ = run_proj_p4(
-        ProjFFN1240P4App,
-        inst_bin=app_inst("proj_ffn1_240_p4"),
+        "proj_ffn1_240_p4",
         d_streams=d_streams_f1,
         w=w["w_ffn1"],
         k=D_MODEL,
@@ -433,8 +405,7 @@ def _run_layer_query_major(
         for p in range(P_STREAM)
     ]
     ffn2_outs, c, _ = run_proj_p4(
-        ProjFFN2240P4App,
-        inst_bin=app_inst("proj_ffn2_240_p4"),
+        "proj_ffn2_240_p4",
         d_streams=d_streams_f2,
         w=w["w_ffn2"],
         k=480,
@@ -501,8 +472,7 @@ def _run_layer_key_major(
         for p in range(P_STREAM)
     ]
     qkv_outs, c, _ = run_proj_p4(
-        ProjQKV240P4App,
-        inst_bin=app_inst("proj_qkv_240_p4"),
+        "proj_qkv_240_p4",
         d_streams=d_streams,
         w=w["w_qkv"],
         k=D_MODEL,
@@ -581,8 +551,7 @@ def _run_layer_key_major(
         for p in range(P_STREAM)
     ]
     op_outs, c, _ = run_proj_p4(
-        ProjOutProj240P4App,
-        inst_bin=app_inst("proj_outproj_240_p4"),
+        "proj_outproj_240_p4",
         d_streams=d_streams_op,
         w=w["w_outproj"],
         k=D_MODEL,
@@ -630,8 +599,7 @@ def _run_layer_key_major(
         for p in range(P_STREAM)
     ]
     ffn1_outs, c, _ = run_proj_p4(
-        ProjFFN1240P4App,
-        inst_bin=app_inst("proj_ffn1_240_p4"),
+        "proj_ffn1_240_p4",
         d_streams=d_streams_f1,
         w=w["w_ffn1"],
         k=D_MODEL,
@@ -650,8 +618,7 @@ def _run_layer_key_major(
         for p in range(P_STREAM)
     ]
     ffn2_outs, c, _ = run_proj_p4(
-        ProjFFN2240P4App,
-        inst_bin=app_inst("proj_ffn2_240_p4"),
+        "proj_ffn2_240_p4",
         d_streams=d_streams_f2,
         w=w["w_ffn2"],
         k=480,

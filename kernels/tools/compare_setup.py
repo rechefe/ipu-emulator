@@ -114,6 +114,12 @@ def compare_setup(
         The report.
     """
     manifest = new_kernel(new, root)
+    if manifest.stages is not None:
+        raise ValueError(
+            f"{manifest.name} is a multi-stage kernel: the runner has no point between "
+            "staging and its first stage to compare (compare_legacy compares its programs, "
+            "outputs and cycles)"
+        )
     old_case = legacy_case(old_kernel, case_id)
     case = new_case(manifest, case_id, case_map or {})
     with tempfile.TemporaryDirectory(prefix="compare-setup-") as tmp:

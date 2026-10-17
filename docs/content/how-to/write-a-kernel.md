@@ -146,7 +146,7 @@ s    = "CR5"
 
 [golden]
 reference = "reference.py:reference"
-tolerance = { fp32 = "EXACT", int8 = "EXACT", e4 = "FP8_ULP" }
+tolerance = { fp32 = "EXACT", int32 = "EXACT" }   # y, an accumulator output, is compared as FP32 (INT32 in INT8)
 
 [cases.default]
 rows = 4
@@ -265,9 +265,10 @@ the [command-line reference](../reference/cli.md#kernel-runner-run_kernel), and
 ## 7. Choose a tolerance tier
 
 `[golden] tolerance` names the tier each format is compared at; a format not
-listed is compared at `EXACT`. The key is the format the output is stored in,
-so an accumulator output in E4 is compared at the `fp32` tier, and `scale`'s
-`e4` tier applies only to an element output:
+listed is compared at `EXACT`. The key is the format an output is compared
+in: the format of the run for an element output, its accumulator format for an
+accumulator output. So `scale` names `fp32` and `int32`, and a key no output is
+compared in (`e4` here) is an error that says so. The tiers:
 
 | Tier | For |
 |---|---|
@@ -279,7 +280,8 @@ so an accumulator output in E4 is compared at the `fp32` tier, and `scale`'s
 | `FP8_ULP` | One code step in an 8-bit float format. |
 
 Start from the strictest tier that passes, and say why. A tier's numbers can
-be overridden for one format, with the reason:
+be overridden for one format, with the reason. For a kernel whose output is
+stored in E4 (an element output):
 `e4 = { tier = "FP8_ULP", ulps = 2, why = "two roundings: the product and the store" }`.
 
 ## When the kernel needs more

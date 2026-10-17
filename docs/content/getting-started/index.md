@@ -52,31 +52,26 @@ README explains the default and heavy tiers.
 Run the QKV projection kernel's default FP32 case:
 
 ```bash
-bazel run //src/tools/ipu-apps:proj_qkv_144_p4
+bazel run //kernels/projections:proj_qkv_144_p4
 ```
 
-The run assembles the kernel, loads its inputs, emulates it to `HALT` and
-compares the outputs with a reference. It takes about a minute. The output
-starts with:
+The run places and packs the kernel's inputs, assembles it, emulates it to
+`HALT` and compares the output with the reference. It takes about a minute
+and prints one line per case and format:
 
 ```text
-proj_qkv_144_p4/default: PASS (572006 cycles)
-=== Run summary ===
-Total cycles:          572006
-Mult active:           497664  (87.0%)
-...
-Effective MAC:          87.0%
+proj_qkv_144_p4/default/fp32: PASS  cycles=572006  MAC util=87.0%  y: max|err|=8.58307e-06 (FP32_LONG)
 ```
 
-| Line | Meaning |
+| Field | Meaning |
 |---|---|
-| `PASS (N cycles)` | Every output matched the reference within the case's tolerance. A mismatch prints `error:` and the reason instead, and the command exits 1. |
-| `Total cycles` | Instruction words retired. |
-| `Mult active` | Cycles whose MULT slot was not a no-op, and their fraction of the total cycles. |
-| `Effective MAC` | Multiplier work that was real arithmetic, as a fraction of the run's peak (MAC utilisation). |
+| `PASS` | Every output matched the reference within its tolerance tier. A mismatch prints `FAIL`, the worst element and its tier instead, and the command exits 1. |
+| `cycles` | Instruction words retired. |
+| `MAC util` | Multiplier work that was real arithmetic, as a fraction of the run's peak (MAC utilisation). |
+| `y:` | Output `y`: its largest absolute difference from the reference, and the tolerance tier it was held to. |
 
-[Run statistics](../reference/cli.md#run-statistics) lists every counter.
 `--list-cases` lists a kernel's cases, and `--case NAME` runs one of them.
+[CLI reference](../reference/cli.md) lists the other options.
 
 ## Next steps
 

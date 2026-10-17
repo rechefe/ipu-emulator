@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import importlib
 import re
 from pathlib import Path
-from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
-from ipu_apps.kernels.projections.app import ProjectionLayout, ProjectionP4App
 from ipu_harness._codec import held
 from ipu_harness.manifest import KernelManifest, load_manifest
 from ipu_harness.packing import pack, stored_rows, transform_for, unpack
@@ -266,55 +265,47 @@ out     = "CR4"
 [cases.default]
 """
 
-PROJECTIONS = [
-    f"proj_{kind}_{width}_p4"
-    for kind in ("qkv", "outproj", "ffn1", "ffn2")
-    for width in (144, 192, 240)
-]
+#: Each projection's (k, n_out, n_tok, n_tg), today's (E02) data/weights/output
+#: base rows, and the SHA-256 of the bytes the ipu_apps loaders (``_load_data``,
+#: ``_load_weights``) wrote for ``values(FP32, ...)``: frozen in E07-02 before
+#: the loaders were deleted.
+PROJECTIONS = {
+    "proj_qkv_144_p4": (144, 432, 128, 2, (0, 1152, 2016), "bb567b61", "207d1547"),
+    "proj_outproj_144_p4": (144, 144, 128, 2, (0, 1152, 1440), "bb567b61", "579b3981"),
+    "proj_ffn1_144_p4": (144, 288, 128, 2, (0, 1152, 1728), "bb567b61", "9b36ec29"),
+    "proj_ffn2_144_p4": (288, 144, 128, 2, (0, 2304, 2736), "efd1b5a5", "91ecf463"),
+    "proj_qkv_192_p4": (192, 576, 64, 1, (0, 768, 1920), "c23ffd87", "61d6d371"),
+    "proj_outproj_192_p4": (192, 192, 64, 1, (0, 768, 1152), "c23ffd87", "06ad8ca9"),
+    "proj_ffn1_192_p4": (192, 384, 64, 1, (0, 768, 1536), "c23ffd87", "eed7989f"),
+    "proj_ffn2_192_p4": (384, 192, 64, 1, (0, 1536, 2112), "0cc8eb8f", "950edb4f"),
+    "proj_qkv_240_p4": (240, 720, 16, 1, (0, 960, 2400), "49a3db23", "1cc91bb1"),
+    "proj_outproj_240_p4": (240, 240, 16, 1, (0, 960, 1440), "49a3db23", "4e7a1c3a"),
+    "proj_ffn1_240_p4": (240, 480, 16, 1, (0, 960, 1920), "49a3db23", "e74cfcc5"),
+    "proj_ffn2_240_p4": (480, 240, 16, 1, (0, 1920, 2880), "eb9e6454", "1af70750"),
+}
 
 
-class _Xmem:
-    def __init__(self) -> None:
-        self.written: dict[int, bytes] = {}
-
-    def write_address(self, address: int, data: bytes) -> None:
-        self.written[address] = bytes(data)
-
-
-@pytest.mark.parametrize("name", PROJECTIONS)
+@pytest.mark.parametrize("name", sorted(PROJECTIONS))
 def test_projection_packing_is_byte_identical_to_the_loaders(tmp_path, name):
-    app = importlib.import_module(f"ipu_apps.kernels.projections.{name}.app")
-    layout = ProjectionLayout(k=app.K, n_out=app.N_OUT, n_tok=app.N_TOK, n_tg=app.N_TG)
-    data = values(F.FP32, layout.input_shape).astype(np.float32)
-    weights = values(F.FP32, (layout.n_out, layout.k)).astype(np.float32)
-    (tmp_path / "d.bin").write_bytes(data.tobytes())
-    (tmp_path / "w.bin").write_bytes(weights.tobytes())
-    harness = SimpleNamespace(
-        layout=layout, input_path=tmp_path / "d.bin", weights_path=tmp_path / "w.bin"
-    )
-    state = SimpleNamespace(xmem=_Xmem())
-    ProjectionP4App._load_data(harness, state)
-    ProjectionP4App._load_weights(harness, state)
-
+    k, n_out, n_tok, n_tg, bases, data_digest, weights_digest = PROJECTIONS[name]
+    data = values(F.FP32, (4, n_tg, k, n_tok)).astype(np.float32)
+    weights = values(F.FP32, (n_out, k)).astype(np.float32)
     directory = tmp_path / "projections" / name
     directory.mkdir(parents=True)
     (directory / f"{name}.asm").write_text("HALT ;;\n")
     (directory / "kernel.toml").write_text(
-        PROJECTION.format(k=layout.k, n_out=layout.n_out, n_tg=layout.n_tg, n_tok=layout.n_tok)
+        PROJECTION.format(k=k, n_out=n_out, n_tg=n_tg, n_tok=n_tok)
     )
     m = load_manifest(directory)
     plan = plan_case(m, {}, F.FP32)
-    row = 512
-    assert pack(m.tensors["data"], data, plan) == state.xmem.written[layout.data_base_row * row]
-    assert (
-        pack(m.tensors["weights"], weights, plan)
-        == state.xmem.written[layout.weights_base_row * row]
-    )
+    digest = hashlib.sha256(pack(m.tensors["data"], data, plan)).hexdigest()
+    assert digest.startswith(data_digest)
+    digest = hashlib.sha256(pack(m.tensors["weights"], weights, plan)).hexdigest()
+    assert digest.startswith(weights_digest)
     # Placed with packing's row counts and the logical shapes, the bases are today's.
     placement = place(plan, {name: stored_rows(t, plan) for name, t in m.tensors.items()})
-    assert placement.region("data").base_row == layout.data_base_row
-    assert placement.region("weights").base_row == layout.weights_base_row
-    assert placement.region("out").base_row == layout.output_base_row
+    got = tuple(placement.region(t).base_row for t in ("data", "weights", "out"))
+    assert got == bases
 
 
 # --- what the acceptance criteria forbid ----------------------------------------------------

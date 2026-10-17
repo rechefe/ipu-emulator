@@ -63,11 +63,13 @@ class Placement:
         regions: The regions, by tensor name, in declaration order.
         rows_used: One past the last row any region occupies.
         capacity: The XMEM rows addressable in the case's format.
+        reserved: The rows ``place`` kept free for others (``reserved``).
     """
 
     regions: Mapping[str, Region]
     rows_used: int
     capacity: int
+    reserved: tuple[Region, ...] = ()
 
     def region(self, name: str) -> Region:
         """The region of tensor ``name``.
@@ -201,6 +203,8 @@ def place(
     row_counts: Mapping[str, int] | None = None,
     *,
     pins: Mapping[str, int] | None = None,
+    reserved: Mapping[str, tuple[int, int]] | None = None,
+    avoid: Iterable[tuple[int, int]] = (),
 ) -> Placement:
     """Place every tensor of ``plan``. Takes the plan as checked; checks no parameter.
 
@@ -211,12 +215,20 @@ def place(
             :func:`default_rows`.
         pins: Base rows a caller fixes besides the ``row = N`` pins, by tensor
             name: a chained input already in XMEM (E06-15). Checked like them.
+        reserved: Rows no region may take, as ``(base row, rows)`` by a name
+            for messages: a tensor a chain holds in XMEM (E06-15). First fit
+            places around them; a pin on them is an error; so is an
+            ``ST.AAQ`` spill onto them (:func:`check_aaq_spill`).
+        avoid: Rows first fit leaves free besides, as ``(base row, rows)``;
+            a pin on them is fine: room for a store's spill
+            (:func:`aaq_spill_rows`) below a reserved range, say.
 
     Returns:
         The placement, deterministic for the plan.
 
     Raises:
-        PlanError: Pins overlap or run past capacity, or the regions do not fit.
+        PlanError: Pins overlap each other or a reserved range or run past
+            capacity, or the regions do not fit.
         ValueError: ``row_counts`` or ``pins`` names no tensor, or
             ``row_counts`` gives one fewer than 1 row.
     """
@@ -227,10 +239,21 @@ def place(
     if unknown:
         raise ValueError(f"pins for {sorted(unknown)}, which are no tensors")
     taken = _pinned(plan, rows, capacity, extra)
+    blocked = [Region(name, "scratch", base, n) for name, (base, n) in (reserved or {}).items()]
+    fenced = blocked + [Region("(avoided)", "scratch", base, n) for base, n in avoid]
+    for region in taken:
+        for other in blocked:
+            if region.base_row < other.end_row and other.base_row < region.end_row:
+                raise PlanError(
+                    plan.manifest,
+                    _key(plan.manifest.tensors[region.name]),
+                    f"{region.name} (rows {region.base_row}..{region.end_row - 1}) overlaps "
+                    f"{other.name} (rows {other.base_row}..{other.end_row - 1})",
+                )
     for tensor in placement_order(plan.manifest.tensors.values()):
         if tensor.name not in plan.pins and tensor.name not in extra:
             need = rows[tensor.name]
-            region = Region(tensor.name, tensor.role, _first_fit(taken, need), need)
+            region = Region(tensor.name, tensor.role, _first_fit(taken + fenced, need), need)
             _check_fits(plan, tensor, region, capacity)
             taken.append(region)
     by_name = {r.name: r for r in taken}
@@ -238,6 +261,7 @@ def place(
         regions=MappingProxyType({name: by_name[name] for name in plan.manifest.tensors}),
         rows_used=max((r.end_row for r in taken), default=0),
         capacity=capacity,
+        reserved=tuple(blocked),
     )
 
 
@@ -256,23 +280,46 @@ def _stores_with_aaq(rendered: str) -> bool:
     )
 
 
+def aaq_spill_rows(plan: CasePlan, rendered: str | None) -> int:
+    """The rows past an element output's last row that its stores write.
+
+    ``ST.AAQ`` writes all of ``POST_AAQ_REG`` (OQ-35): more than one row in an
+    8-bit format.
+
+    Args:
+        plan: The checked case.
+        rendered: Its rendered program; ``None`` when there is no one program
+            (a multi-stage kernel, E06-14), which is taken to store with
+            ``ST.AAQ``.
+
+    Returns:
+        0 when the program has no ``ST.AAQ`` or the format's row holds the
+        whole register; else the rows after the last one it writes.
+    """
+    spill = _AAQ_STORE_BYTES // FORMATS[plan.format].row_bytes - 1
+    if spill <= 0 or (rendered is not None and not _stores_with_aaq(rendered)):
+        return 0
+    return spill
+
+
 def check_aaq_spill(plan: CasePlan, placement: Placement, program: str) -> None:
     """Refuse a placement where ``ST.AAQ``'s spill would land on a region.
 
     ``ST.AAQ`` writes all of ``POST_AAQ_REG``, more than one row in an 8-bit
     format, so a store to an output's last row also writes (zeros to) the
     rows after it (OQ-35). When ``program`` (rendered) stores with
-    ``ST.AAQ``, the rows after every element output must be free and inside
-    XMEM. Accumulator outputs (``ST.ACC``) are not checked: their stride
-    already holds a store. Nor is a scratch region a program stores to with
-    ``ST.AAQ`` (a follow-up in OQ-35).
+    ``ST.AAQ``, the rows after every element output must be free (of
+    regions and of reserved rows) and inside XMEM. Accumulator outputs
+    (``ST.ACC``) are not checked: their stride already holds a store. Nor is
+    a scratch region a program stores to with ``ST.AAQ`` (a follow-up in
+    OQ-35).
 
     Raises:
         PlanError: A region is in an output's spill, or the spill runs past
             XMEM.
     """
-    spill = _AAQ_STORE_BYTES // FORMATS[plan.format].row_bytes - 1
-    if spill <= 0 or not _stores_with_aaq(program):
+    spill = aaq_spill_rows(plan, program)
+    if not spill:
         return
     capacity = addressable_rows(plan.format)
     for tensor in plan.manifest.tensors.values():
@@ -281,7 +328,7 @@ def check_aaq_spill(plan: CasePlan, placement: Placement, program: str) -> None:
         end = placement.region(tensor.name).end_row
         hit = [
             r.name
-            for r in placement.regions.values()
+            for r in (*placement.regions.values(), *placement.reserved)
             if r.name != tensor.name and r.base_row < end + spill and end < r.end_row
         ]
         if hit or end + spill > capacity:

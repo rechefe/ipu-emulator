@@ -8,7 +8,9 @@ input tensor of a planned case, from the first source that has it:
 1. an override (``--input x=path.npy``);
 2. the case's ``inputs`` file;
 3. the case's ``generator`` (``"gen.py:make"``: ``make(plan, rng)`` returns
-   logical tensors by name, for inputs that need structure);
+   logical tensors by name, for inputs that need structure; the file is the
+   kernel folder's, else its family folder's, so a family's templates can
+   share one);
 4. the default generator: uniform values in ``[-1, 1]`` for a float format and
    over the whole range of an integer one, or the input's ``range``.
 
@@ -35,6 +37,7 @@ import numpy as np
 
 from ipu_emu.errors import ConfigurationError
 from ipu_harness._codec import Array, held, limits
+from ipu_harness._plugins import kernel_file
 from ipu_harness.manifest import CaseDecl, KernelManifest, Tier
 from ipu_harness.params import CasePlan, PlanError
 from ipu_isa.formats import FORMATS, ElementFormat
@@ -209,7 +212,7 @@ def _from_generator(plan: CasePlan, case: Case) -> dict[str, tuple[Array, int]]:
     assert case.generator is not None
     key = f"cases.{case.decl.name}.generator"
     file, _, function = case.generator.partition(":")
-    path = plan.manifest.directory / file
+    path = kernel_file(plan.manifest.directory, file)
     try:
         spec = importlib.util.spec_from_file_location(f"_ipu_case_generator_{path.stem}", path)
         if spec is None or spec.loader is None:

@@ -33,11 +33,14 @@ from pathlib import Path
 
 import numpy as np
 from fixture_kernel_support import kernel_inst, poison
+from fixture_projections import projection, run_projection
 
 from ipu_apps.kernels.attention.attn_scores_km_16x60 import app as km5
 from ipu_apps.kernels.attention.attn_scores_km_64x48 import app as km4
-from ipu_apps.kernels.projections.proj_qkv_192_p4 import app as qkv4
-from ipu_apps.kernels.projections.proj_qkv_240_p4 import app as qkv5
+
+# The QKV projections, from //kernels/projections (fixture_projections).
+qkv4 = projection("proj_qkv_192_p4")
+qkv5 = projection("proj_qkv_240_p4")
 
 # attn_scores_km_16x60 (unlike attn_scores_km_64x48) processes ONE stream's
 # Q/K per invocation -- its input file is canonical [N_HEADS*D, N_TOK]
@@ -74,34 +77,16 @@ def repack_qkv_to_km(
     return blocks.reshape(P, n_head, d, n_tok)
 
 
-def _run_proj_qkv_p4(
-    module, app_class, D_acts: list[np.ndarray], W: np.ndarray, tmp_path: Path, tag: str
-) -> list[np.ndarray]:
+def _run_proj_qkv_p4(qkv, D_acts: list[np.ndarray], W: np.ndarray) -> list[np.ndarray]:
     """One proj_qkv_*_p4 invocation over all 4 streams.
 
-    The harness takes all streams in ONE input file, ``(N_STREAM, N_TG, K,
-    N_TOK)`` FP32, and writes ONE output file of raw XMEM rows,
+    The kernel takes all streams in ONE input, ``(N_STREAM, N_TG, K, N_TOK)``
+    FP32, and writes ONE output region of raw XMEM rows,
     ``(N_STREAM, N_TG, N_OUT, LANES)``. Returns stream p's [N_OUT, LANES] rows.
     """
-    input_path = tmp_path / f"d_{tag}.bin"
-    input_path.write_bytes(np.stack(D_acts).astype(np.float32).tobytes())  # N_TG = 1
-    weights_path = tmp_path / f"w_{tag}.bin"
-    weights_path.write_bytes(W.astype(np.float32).tobytes())
-    output_path = tmp_path / f"out_{tag}.bin"
-
-    app = app_class(
-        inst_path=kernel_inst(module.__package__.rpartition(".")[2]),
-        input_path=input_path,
-        weights_path=weights_path,
-        output_path=output_path,
-    )
-    _, cycles = app.run(max_cycles=20_000_000)
+    rows, cycles = run_projection(qkv.name, np.stack(D_acts)[:, None], W)  # N_TG = 1
     assert cycles > 0
-
-    raw = output_path.read_bytes()
-    assert len(raw) == module.N_STREAM * module.N_OUT * module.LANES * 4
-    rows = np.frombuffer(raw, dtype=np.float32).reshape(module.N_STREAM, module.N_OUT, module.LANES)
-    return [rows[p] for p in range(module.N_STREAM)]
+    return [rows[p, 0] for p in range(qkv.n_stream)]
 
 
 def _run_scores_km(module, app_class, q_blocks, k_blocks, head, out_rows, tmp_path: Path, tag: str):
@@ -127,10 +112,10 @@ def _run_scores_km(module, app_class, q_blocks, k_blocks, head, out_rows, tmp_pa
 
 def _l4_inputs(seed):
     rng = np.random.RandomState(seed)
-    W = rng.uniform(-1.0, 1.0, size=(qkv4.N_OUT, qkv4.K)).astype(np.float32)
+    W = rng.uniform(-1.0, 1.0, size=(qkv4.n_out, qkv4.k)).astype(np.float32)
     D_acts = [
-        rng.uniform(-1.0, 1.0, size=(qkv4.K, qkv4.N_TOK)).astype(np.float32)
-        for _ in range(qkv4.N_STREAM)
+        rng.uniform(-1.0, 1.0, size=(qkv4.k, qkv4.n_tok)).astype(np.float32)
+        for _ in range(qkv4.n_stream)
     ]
     return W, D_acts
 
@@ -184,7 +169,7 @@ def test_repack_control_mismatch_is_detected(tmp_path: Path) -> None:
     being wrong, not passing vacuously.
     """
     W, D_acts = _l4_inputs(0xBAD5EED)
-    stream_outputs = _run_proj_qkv_p4(qkv4, qkv4.ProjQkv192P4App, D_acts, W, tmp_path, tag="ctrl")
+    stream_outputs = _run_proj_qkv_p4(qkv4, D_acts, W)
 
     head = 2
     k_row0 = km4.N_HEAD * km4.D
@@ -216,7 +201,7 @@ def test_proj_qkv_192_p4_to_scores_km_64x48_agrees_l4(tmp_path: Path) -> None:
     independent reference computed straight from W/D_act.
     """
     W, D_acts = _l4_inputs(0xF00D4)
-    stream_outputs = _run_proj_qkv_p4(qkv4, qkv4.ProjQkv192P4App, D_acts, W, tmp_path, tag="clean")
+    stream_outputs = _run_proj_qkv_p4(qkv4, D_acts, W)
 
     head = 1
     k_row0 = km4.N_HEAD * km4.D
@@ -271,18 +256,18 @@ def test_proj_qkv_240_p4_to_scores_km_16x60_agrees_l5(tmp_path: Path) -> None:
     that stream's repacked (padding-stripped only) Q/K block.
     """
     rng = np.random.RandomState(0xF00D5)
-    W = rng.uniform(-1.0, 1.0, size=(qkv5.N_OUT, qkv5.K)).astype(np.float32)
+    W = rng.uniform(-1.0, 1.0, size=(qkv5.n_out, qkv5.k)).astype(np.float32)
     D_acts = [
-        rng.uniform(-1.0, 1.0, size=(qkv5.K, qkv5.N_TOK)).astype(np.float32)
-        for _ in range(qkv5.N_STREAM)
+        rng.uniform(-1.0, 1.0, size=(qkv5.k, qkv5.n_tok)).astype(np.float32)
+        for _ in range(qkv5.n_stream)
     ]
 
-    stream_outputs = _run_proj_qkv_p4(qkv5, qkv5.ProjQKV240P4App, D_acts, W, tmp_path, tag="clean5")
+    stream_outputs = _run_proj_qkv_p4(qkv5, D_acts, W)
 
     head = 0
     k_row0 = km5.N_HEADS * km5.D
 
-    for p in range(qkv5.N_STREAM):
+    for p in range(qkv5.n_stream):
         q_block = _repack_one_stream_to_km5_file(stream_outputs[p], row0=_Q_ROW0)
         k_block = _repack_one_stream_to_km5_file(stream_outputs[p], row0=k_row0)
         rows = _run_scores_km(

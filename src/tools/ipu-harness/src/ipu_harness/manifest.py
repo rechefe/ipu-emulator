@@ -34,7 +34,7 @@ Schema
     or an expression like a shape's. ``after`` (``"<tensor>"``): place the region
     right after that tensor's in placement order (by default inputs, then
     outputs, then scratch, each in file order), so scratch can come before an
-    output; not with ``row``. ``when = "<bool param>"`` (or ``"not <bool
+    output; not with ``row``. ``when`` (``"<bool param>"`` or ``"not <bool
     param>"``): the tensor exists only in a case where that holds; otherwise it
     is not placed, generated, passed to the reference or bound.
     ``pack`` (inputs and outputs): a named pack transform (E06-05); an output's
@@ -45,7 +45,8 @@ Schema
     evaluated exactly when the case is planned (``"-1 / channels"``, whole or
     not; a float parameter is its exact binary value) and rounded to the
     format when stored. ``bytes`` (scratch, not with ``fill``):
-    ``"file.py:fn"``, ``fn(plan)`` returns the region's exact starting bytes,
+    ``"file.py:fn"``, or ``"../file.py:fn"`` in the family's folder as a
+    generator may be, ``fn(plan)`` returns the region's exact starting bytes,
     format-blind (a lane mask, which no element value can carry). The runner
     writes either through :func:`ipu_harness.packing.region_fill`. Scratch
     regions are placed and filled, never compared. ``range`` (inputs): ``[lo, hi]`` for the generated values in
@@ -103,17 +104,21 @@ Schema
     ``reference`` (``"file.py:fn"``; default ``reference.py:reference`` when the
     kernel has a ``reference.py``) or ``op`` (a shared reference in
     ``ipu_kernels.reference``), not both; ``tolerance`` (format to a tier name
-    of :data:`ipu_harness.tolerance.TIERS`, or ``{ tier = ..., rtol = ..., atol =
-    ..., ulps = ..., why = "..." }`` overriding a tier's numbers, ``why`` required;
-    a key is a format the kernel runs in, or the accumulator format of one
-    (FP32, INT32) for an accumulator output; an override may set only what
+    of :data:`ipu_harness.tolerance.TIERS`, or a table overriding a tier's
+    numbers: ``tier`` and ``why`` (required), ``rtol``, ``atol``, ``ulps``;
+    a key is a format some output is compared in: a format the kernel runs in
+    for an element output, its accumulator format (FP32, INT32) for an
+    accumulator output, so a key no output reads is an error; an override may set only what
     ``compare`` reads for that format: ``ulps`` only for an 8-bit float, and
     then not ``rtol``/``atol``; a format not listed is compared at ``EXACT``).
 
 Every declared name (parameter, tensor, derived value) is an identifier that
 does not start with ``_`` and is not ``cr``, ``lr`` or a reserved case key.
 Every file path stays inside the kernel directory: ``..`` and absolute paths
-are refused (checked lexically). An unknown section or key is an error that
+are refused (checked lexically). A case ``generator``'s file that is not in the
+kernel's folder is its family folder's (``kernels/<family>/gen.py``), as a
+``pack`` transform may be the family folder's ``pack.py``: a family's
+templates share them. An unknown section or key is an error that
 names the closest valid one.
 
 A family ``registry.toml`` entry (E06-17, :mod:`ipu_harness.family`) loads its
@@ -880,7 +885,7 @@ def _case(r: Reader, m: KernelManifest, name: str, raw: object) -> CaseDecl:
     if "generator" in table:
         case = replace(
             case,
-            generator=r.generator(m.directory, table["generator"], (*path, "generator")),
+            generator=r.shared_function(m.directory, table["generator"], (*path, "generator")),
         )
     if "tier" in table:
         tier = table["tier"]
@@ -948,8 +953,28 @@ def _non_negative(
     return float(value)
 
 
+def _read_formats(
+    formats: tuple[ElementFormat, ...], tensors: Mapping[str, TensorDecl]
+) -> set[ElementFormat]:
+    """The formats some output is compared in: a run's format for an element
+    output, its accumulator format (FP32, INT32) for an accumulator output
+    (as ``packing.stored_format``, which this module cannot import)."""
+    read = set()
+    for tensor in tensors.values():
+        if tensor.role != "output":
+            continue
+        for fmt in formats:
+            accumulated = ElementFormat(FORMATS[fmt].accumulator.value)
+            read.add(accumulated if tensor.store == "accumulator" else fmt)
+    return read
+
+
 def _golden(
-    r: Reader, directory: Path, raw: object, formats: tuple[ElementFormat, ...]
+    r: Reader,
+    directory: Path,
+    raw: object,
+    formats: tuple[ElementFormat, ...],
+    tensors: Mapping[str, TensorDecl],
 ) -> GoldenDecl:
     table = r.table(raw, ("golden",))
     r.known(table, _GOLDEN_KEYS, ("golden",))
@@ -966,6 +991,7 @@ def _golden(
         tiers = r.table(table["tolerance"], ("golden", "tolerance"))
         # An accumulator output is compared in its accumulator format (FP32 or INT32).
         accumulated = {ElementFormat(FORMATS[f].accumulator.value) for f in formats}
+        read = _read_formats(formats, tensors)
         for fmt, tier in tiers.items():
             path = ("golden", "tolerance", fmt)
             key = r.format(fmt, path)
@@ -973,6 +999,14 @@ def _golden(
                 raise r.fail(
                     path,
                     f"tolerance for {fmt}, a format the kernel does not run in or accumulate in",
+                )
+            if key not in read:
+                compared = ", ".join(sorted(f.value for f in read)) or "none"
+                raise r.fail(
+                    path,
+                    f"tolerance for {fmt} is never read: no output is compared in {fmt} "
+                    f"(an accumulator output is compared in its accumulator format; "
+                    f"outputs are compared in: {compared})",
                 )
             tolerance[key] = _tier(r, tier, key, path)
     return GoldenDecl(reference, op, MappingProxyType(tolerance))
@@ -1207,10 +1241,10 @@ def _tensors(
 
 
 def _content(r: Reader, directory: Path, table: Mapping[str, Any], path: tuple[str, ...]) -> str:
-    """A scratch region's ``bytes = "file.py:fn"``."""
+    """A scratch region's ``bytes = "file.py:fn"`` (or ``"../file.py:fn"``, the family's)."""
     if "fill" in table:
         raise r.fail((*path, "bytes"), f"{where(path)} takes 'fill' or 'bytes', not both")
-    return r.function(directory, table["bytes"], (*path, "bytes"))
+    return r.shared_function(directory, table["bytes"], (*path, "bytes"))
 
 
 def _check_after(r: Reader, tensor: TensorDecl, tensors: Mapping[str, TensorDecl]) -> None:
@@ -1297,7 +1331,7 @@ def load_manifest(
         abi_when=abi_when,
         derived=MappingProxyType(derived),
         cases=MappingProxyType({}),
-        golden=_golden(r, directory, data.get("golden", {}), kernel.formats),
+        golden=_golden(r, directory, data.get("golden", {}), kernel.formats, tensors),
         stages=kernel.stages,
         fixed=entry.fixed,
         cost=kernel.cost,

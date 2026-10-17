@@ -2,15 +2,11 @@
 
 from __future__ import annotations
 
-import importlib
 import re
 from pathlib import Path
-from types import SimpleNamespace
 
-import numpy as np
 import pytest
 
-from ipu_apps.kernels.projections.app import ProjectionLayout, ProjectionP4App
 from ipu_emu.errors import ConfigurationError
 from ipu_emu.ipu_state import IpuState
 from ipu_emu.reference import ReferenceModel
@@ -101,6 +97,14 @@ def test_a_tensor_binding_with_an_offset_is_its_base_plus_the_offset(tmp_path):
     m = kernel(tmp_path, toml)
     assert m.abi["y"] == "CR3" and m.abi_offsets["y"] == -1
     assert writes(m, {"rows": 4, "s": 2.0}, F.FP32)["CR3"] == 3  # y at row 4, minus 1
+
+
+def test_a_stage_table_binds_a_region_at_its_base_whatever_the_kernels_offset(tmp_path):
+    toml = SCALE.format(unit="").replace('y    = "CR3"', 'y    = { register = "CR3", offset = -1 }')
+    m = kernel(tmp_path, toml)
+    plan = plan_case(m, {"rows": 4, "s": 2.0}, F.FP32)
+    got = {w.register: w.value for w in register_writes(plan, place(plan), abi={"y": "CR6"})}
+    assert got["CR6"] == 4  # y's base row: the [abi] offset is the kernel's binding only
 
 
 def test_a_derived_value_may_read_a_regions_base(tmp_path):
@@ -361,42 +365,51 @@ stream_count    = "CR14"
 [cases.default]
 """
 
-PROJECTIONS = [
-    f"proj_{kind}_{width}_p4"
-    for kind in ("qkv", "outproj", "ffn1", "ffn2")
-    for width in (144, 192, 240)
-]
+#: Each projection's (k, n_out, n_tok, n_tg) and the CR2..CR15 the ipu_apps
+#: harness's setup() wrote (E02 baselines; frozen in E07-02, which deleted it).
+PROJECTIONS = {
+    "proj_qkv_144_p4": (144, 432, 128, 2, (0, 1152, 2016, -1, 126, 14, 2, 432, 2, 1, 288, 864, 4)),
+    "proj_outproj_144_p4": (
+        144,
+        144,
+        128,
+        2,
+        (0, 1152, 1440, -1, 126, 14, 2, 144, 2, 1, 288, 288, 4),
+    ),
+    "proj_ffn1_144_p4": (144, 288, 128, 2, (0, 1152, 1728, -1, 126, 14, 2, 288, 2, 1, 288, 576, 4)),
+    "proj_ffn2_144_p4": (288, 144, 128, 2, (0, 2304, 2736, -1, 126, 30, 3, 144, 3, 2, 576, 288, 4)),
+    "proj_qkv_192_p4": (192, 576, 64, 1, (0, 768, 1920, -1, 126, 62, 2, 576, 2, 1, 192, 576, 4)),
+    "proj_outproj_192_p4": (
+        192,
+        192,
+        64,
+        1,
+        (0, 768, 1152, -1, 126, 62, 2, 192, 2, 1, 192, 192, 4),
+    ),
+    "proj_ffn1_192_p4": (192, 384, 64, 1, (0, 768, 1536, -1, 126, 62, 2, 384, 2, 1, 192, 384, 4)),
+    "proj_ffn2_192_p4": (384, 192, 64, 1, (0, 1536, 2112, -1, 126, 126, 3, 192, 3, 2, 384, 192, 4)),
+    "proj_qkv_240_p4": (240, 720, 16, 1, (0, 960, 2400, -1, 126, 110, 2, 720, 2, 1, 240, 720, 4)),
+    "proj_outproj_240_p4": (
+        240,
+        240,
+        16,
+        1,
+        (0, 960, 1440, -1, 126, 110, 2, 240, 2, 1, 240, 240, 4),
+    ),
+    "proj_ffn1_240_p4": (240, 480, 16, 1, (0, 960, 1920, -1, 126, 110, 2, 480, 2, 1, 240, 480, 4)),
+    "proj_ffn2_240_p4": (480, 240, 16, 1, (0, 1920, 2880, -1, 126, 94, 4, 240, 4, 3, 480, 240, 4)),
+}
 
 
-class _Recorder:
-    def __init__(self) -> None:
-        self.crs: dict[int, int] = {}
-
-    def set_cr(self, index: int, value: int) -> None:
-        self.crs[index] = value & 0xFFFFFFFF
-
-    def write_address(self, address: int, data: bytes) -> None:
-        pass
-
-
-@pytest.mark.parametrize("name", PROJECTIONS)
+@pytest.mark.parametrize("name", sorted(PROJECTIONS))
 def test_the_projections_abi_reproduces_todays_crs(tmp_path, name):
-    app = importlib.import_module(f"ipu_apps.kernels.projections.{name}.app")
-    layout = ProjectionLayout(k=app.K, n_out=app.N_OUT, n_tok=app.N_TOK, n_tg=app.N_TG)
-    (tmp_path / "d.bin").write_bytes(np.zeros(layout.input_shape, dtype="<f4").tobytes())
-    (tmp_path / "w.bin").write_bytes(np.zeros((layout.n_out, layout.k), dtype="<f4").tobytes())
-    recorder = _Recorder()
-    harness = SimpleNamespace(
-        layout=layout, input_path=tmp_path / "d.bin", weights_path=tmp_path / "w.bin"
-    )
-    harness._load_data = lambda state: ProjectionP4App._load_data(harness, state)
-    harness._load_weights = lambda state: ProjectionP4App._load_weights(harness, state)
-    ProjectionP4App.setup(harness, SimpleNamespace(regfile=recorder, xmem=recorder))
-    toml = PROJECTION.format(k=layout.k, n_out=layout.n_out, n_tg=layout.n_tg, n_tok=layout.n_tok)
+    k, n_out, n_tok, n_tg, crs = PROJECTIONS[name]
+    toml = PROJECTION.format(k=k, n_out=n_out, n_tg=n_tg, n_tok=n_tok)
     m = kernel(tmp_path, toml, family="projections", name=name)
     # As E07-02 runs it: logical shapes, the shared transforms, packing's row counts.
     plan = plan_case(m, {}, F.FP32)
     placement = place(plan, {n: stored_rows(t, plan) for n, t in m.tensors.items()})
     got = {int(w.register[2:]): w.value for w in register_writes(plan, placement)}
-    # Today's harness leaves CR15 at the state's default dstructure.
-    assert got == {**recorder.crs, 15: IpuState().regfile.get_cr(15)}
+    today = {cr: value & 0xFFFFFFFF for cr, value in enumerate(crs, start=2)}
+    # Today's harness left CR15 at the state's default dstructure.
+    assert got == {**today, 15: IpuState().regfile.get_cr(15)}

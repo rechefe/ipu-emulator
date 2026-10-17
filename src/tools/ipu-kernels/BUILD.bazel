@@ -75,9 +75,10 @@ ruff_test(
     srcs = glob(["**/*.py"]),
 )
 
-# Packing with the shared transforms (E06-05). ipu_apps only for the loaders
-# the transforms are extracted from: E07-02 freezes these byte goldens before it
-# deletes the loaders, and drops the dependency.
+# Packing with the shared transforms (E06-05). ipu_apps only for the
+# convolutions' loader chunk_interleaved is extracted from; the projections'
+# loaders are byte goldens since E07-02 deleted them. E07-16 freezes the
+# convolutions' the same way and drops the dependency.
 py_pytest_test(
     name = "test_pack",
     srcs = ["test/test_pack.py"],

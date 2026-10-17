@@ -1,5 +1,9 @@
 """Kernel-side Python loaded as plugins (Q62): a kernel folder's file by path, an
 ``ipu_kernels`` module by name. The harness never imports either statically.
+
+A kernel's file is looked up in the kernel's folder, then in its family's
+folder (:func:`kernel_file`), the search path a program's includes use: a
+family's templates share one ``gen.py`` or ``pack.py`` beside them.
 """
 
 from __future__ import annotations
@@ -22,6 +26,23 @@ def _executed(path: Path, digest: str) -> ModuleType:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def kernel_file(directory: Path, name: str) -> Path:
+    """``directory/name`` if it exists, else the family folder's
+    ``directory/../name`` if that exists, else ``directory/name`` (whose
+    absence the caller reports).
+
+    Args:
+        directory: The kernel's folder.
+        name: A path relative to it, already checked to stay inside it.
+
+    Returns:
+        The file to load.
+    """
+    own = directory / name
+    family = directory.parent / name
+    return family if not own.is_file() and family.is_file() else own
 
 
 def load_file(path: Path) -> ModuleType:
