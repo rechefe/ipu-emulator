@@ -606,7 +606,7 @@ Operations: attn_scores_km, attn_v, attn_v_bcast, channel_peak, concat, conv2d, 
 Kernels:    89
 
 ## conv2d
-- **conv1x1** -- `ipu_apps.kernels.convolutions.conv1x1.app`
+- **conv_universal** -- `ipu_apps.kernels.convolutions.conv_universal.app`
 ...
 \end{termout}
 
@@ -651,7 +651,7 @@ $ bazel run //src/tools/ipu-apps:query -- conv2d in_channels=32 out_channels=32 
     has_bias=False apply_relu=False height=64 width=64
 \end{termcmdtop}
 \begin{termout}
-NOT SUPPORTED: no conv2d kernel covers this query -- conv1x1, conv3x3_relu, conv3x3_relu_cin1: needs parameter(s) 'shape', 'activation', which this query does not carry; conv_first_layer, conv_universal, conv_universal_bn_activation, conv_universal_wide384, depthwise_conv_stride2_128, depthwise_conv_stride2_16, depthwise_conv_stride2_narrow, depthwise_conv_universal, depthwise_conv_universal_bn_activation: handles only kernel_size=3; got 5; pointwise_conv_unified, pointwise_conv_unified_bn_activation: handles only kernel_size=1 (pointwise); got 5
+NOT SUPPORTED: no conv2d kernel covers this query -- conv_universal, conv_universal_bn_activation, conv_universal_wide384, depthwise_conv_stride2_128, depthwise_conv_stride2_16, depthwise_conv_stride2_narrow, depthwise_conv_universal, depthwise_conv_universal_bn_activation: handles only kernel_size=3; got 5; pointwise_conv_unified, pointwise_conv_unified_bn_activation: handles only kernel_size=1 (pointwise); got 5
 \end{termout}
 
 \subsection{Sweep a parameter: \texttt{--sweep}}
@@ -852,7 +852,7 @@ A whole family:
 $ bazel test //src/tools/ipu-apps:convolutions
 \end{termcmdtop}
 \begin{termout}
-//src/tools/ipu-apps:conv1x1                                             PASSED in 19.2s
+//src/tools/ipu-apps:conv_universal                                      PASSED in 19.2s
 ...
 //src/tools/ipu-apps:pointwise_conv_unified_bn_activation                PASSED in 33.7s
 

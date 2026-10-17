@@ -1,0 +1,119 @@
+# conv3x3_relu: 3x3 zero-padded FP32 convolution plus bias, then ReLU (E07-16).
+# The tiled query vocabulary: a query names in_channels, height, width,
+# out_channels, kernel_size, stride, padding and activation, all required, as
+# the ipu_apps ConvApp's did; a universal conv2d query (dilation, groups,
+# has_bias, apply_relu) names parameters this kernel does not take.
+[kernel]
+op = "conv2d"
+formats = ["fp32"]
+cost = 1
+
+[params]
+in_channels  = { type = "int", min = 1 }
+height       = { type = "int", min = 1 }
+width        = { type = "int", min = 1 }
+out_channels = { type = "int", min = 1 }
+kernel_size  = { type = "int", choices = [3] }
+stride       = { type = "int", choices = [1] }
+padding      = { type = "int", choices = [1] }
+activation   = { type = "str", choices = ["relu"] }
+
+[derived]
+tiles          = "ceil(width / 126)"            # 126-column halo tiles per spatial row
+plane_advance  = "height * ceil(width / 126)"   # row (y+2) of channel c to row y of c+1
+channel_groups = "ceil(in_channels / 14)"       # weight rows per output channel (14 x 9 taps)
+lanes          = "128"                          # R1[0]'s element index; R_CYCLIC slot 1
+group_last     = "13"                           # the channel-group cap - 1
+rc_step        = "126"                          # the R_CYCLIC read index step between rows
+
+# Placed in this order from row 0: x (with its guard plane), w, b, y.
+[inputs.x]
+shape = ["in_channels", "height", "width"]
+pack = "halo_tiled_guard"
+
+[inputs.w]
+shape = ["out_channels", "in_channels", 3, 3]
+pack = "conv_weight_groups"
+
+[inputs.b]
+shape = ["out_channels"]
+pack = "lane0_rows"
+
+[outputs.y]                                     # one row per (o, y, tile), 126 lanes valid
+shape = ["out_channels", "height", "width"]
+pack = "tiles126"
+
+[abi]
+x              = "CR2"
+y              = "CR3"
+w              = "CR4"
+b              = "CR5"
+plane_advance  = "CR6"
+tiles          = "CR7"
+height         = "CR8"
+in_channels    = "CR9"
+out_channels   = "CR10"
+channel_groups = "CR11"
+lanes          = "CR12"
+group_last     = "CR13"
+rc_step        = "CR14"
+
+[golden]
+op = "conv2d"
+tolerance = { fp32 = "FP32_ORDER" }               # measured: max |err| <= 9.6e-7 over every case
+
+# The ipu_apps cases (convolutions/cases.py make_cases) and their data.
+[cases.default]
+generator = "../gen.py:legacy_tiled"
+in_channels = 3
+height = 3
+width = 8
+out_channels = 2
+kernel_size = 3
+stride = 1
+padding = 1
+activation = "relu"
+
+[cases.tile_boundary]                           # two column tiles
+generator = "../gen.py:legacy_tiled"
+in_channels = 2
+height = 2
+width = 133
+out_channels = 2
+kernel_size = 3
+stride = 1
+padding = 1
+activation = "relu"
+
+[cases.single_pixel]
+generator = "../gen.py:legacy_tiled"
+in_channels = 1
+height = 1
+width = 1
+out_channels = 1
+kernel_size = 3
+stride = 1
+padding = 1
+activation = "relu"
+
+[cases.full_group]                              # exactly one 14-channel group
+generator = "../gen.py:legacy_tiled"
+in_channels = 14
+height = 1
+width = 2
+out_channels = 1
+kernel_size = 3
+stride = 1
+padding = 1
+activation = "relu"
+
+[cases.partial_group]                           # 14 channels, then 1
+generator = "../gen.py:legacy_tiled"
+in_channels = 15
+height = 1
+width = 2
+out_channels = 2
+kernel_size = 3
+stride = 1
+padding = 1
+activation = "relu"

@@ -434,7 +434,7 @@ py_pytest_test(
     srcs = ["test/test_reference_model_kernels.py"],
     data = glob([
         "src/ipu_apps/kernels/reshape/identity/*",
-        "src/ipu_apps/kernels/convolutions/conv1x1/*",
+        "src/ipu_apps/kernels/convolutions/conv_universal/*",
         "src/ipu_apps/kernels/softmax/softmax_columns_packed/*",
     ]),
     legacy_create_init = False,

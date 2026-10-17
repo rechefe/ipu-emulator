@@ -1,0 +1,91 @@
+# conv_first_layer: the network's first layer, 3x256x256 -> 16x128x128, a 3x3
+# stride-2 pad-1 FP32 convolution plus bias, then ReLU (E07-16). One fixed
+# shape, routed in the universal conv2d vocabulary: every one of its 11
+# parameters is required, as the ipu_apps query's were.
+[kernel]
+op = "conv2d"
+formats = ["fp32"]
+
+[params]
+in_channels  = { type = "int", choices = [3] }
+out_channels = { type = "int", choices = [16] }
+kernel_size  = { type = "int", choices = [3] }
+stride       = { type = "int", choices = [2] }
+padding      = { type = "int", choices = [1] }
+dilation     = { type = "int", choices = [1] }
+groups       = { type = "int", choices = [1] }
+has_bias     = { type = "bool", choices = [true] }
+apply_relu   = { type = "bool", choices = [true] }
+height       = { type = "int", choices = [256] }
+width        = { type = "int", choices = [256] }
+
+[derived]
+channel_stride = "width / 128"                         # rows from one channel-row to the next
+row_group      = "in_channels * width / 128"           # one input spatial row, every channel
+block_stride   = "1"                                   # one filter block (and output row) a row
+row_advance    = "stride * in_channels * width / 128"  # the input advance per output row
+out_rows       = "height / stride"                     # the output-row loop bound
+filter_rows    = "out_channels"                        # the filter-block loop bound
+slot1          = "128"                                 # R_CYCLIC slot 1's element index
+
+# Pinned at the ipu_apps harness's addresses (byte address / 512).
+[inputs.x]                                             # row-interleaved by channel
+shape = ["in_channels", "height", "width"]
+row = 0
+pack = "row_interleaved"
+
+[inputs.filters]                                       # per filter: its bias, then its 27 taps
+shape = ["out_channels", 28]
+row = 2048
+
+[outputs.y]                                            # row-interleaved by filter
+shape = ["out_channels", "height / stride", "width / stride"]
+row = 2560
+pack = "row_interleaved"
+
+[scratch.mask]                                         # the R_MASK blob
+shape = [1, 128]
+row = 2080
+bytes = "../masks.py:first_layer_mask"
+
+[scratch.temp]                                         # the two half-row partial results
+shape = [2, 128]
+row = 2082
+
+[abi]
+filters        = "CR3"
+mask           = "CR4"
+y              = "CR5"
+channel_stride = "CR6"
+row_group      = "CR7"
+block_stride   = "CR8"
+row_advance    = "CR9"
+x              = "CR10"
+out_rows       = "CR11"
+filter_rows    = "CR12"
+temp           = "CR13"
+slot1          = "CR14"
+
+[golden]
+reference = "reference.py:reference"                   # filters split, then the shared conv2d
+tolerance = { fp32 = "FP32_ORDER" }               # measured: max |err| <= 9.6e-7 over every case
+
+# The ipu_apps case (conv_first_layer/cases.py) and its data.
+[cases.default]
+generator = "../gen.py:legacy_first_layer"
+in_channels = 3
+out_channels = 16
+kernel_size = 3
+stride = 2
+padding = 1
+dilation = 1
+groups = 1
+has_bias = true
+apply_relu = true
+height = 256
+width = 256
+
+# The ipu_apps benchmark.py: the default case, one run.
+[benchmark]
+points = [{}]
+max_cycles = 50_000_000

@@ -306,6 +306,10 @@ Rows are added by each E07 issue as it deletes the old ipu-apps kernels.
 | Deleted | Issue | Why | Replaced by | Evidence |
 |---|---|---|---|---|
 | `src/tools/ipu-apps/src/ipu_apps/kernels/projections/` | E07-02 (e718ae69) | The 12 projection kernels moved onto `ipu_harness`: per-shape folders (`app.py`, `cases.py`, `test.py`, `__init__.py`, `baseline.json`, the `.asm`) and the family's `app.py`, `cases.py`, `test.py`. | `kernels/projections/`: 12 `registry.toml` entries over the templates `proj_p4` (8), `proj_p4_2tg` (3) and `proj_p4_2tg_silu` (1), plus the family's `pack.py`, `gen.py` and `test_routing.py`. Targets keep their names under `//kernels/projections:`. | `compare_setup`: IDENTICAL for all 12 (CR0-CR15, LR0-LR15, XMEM). `compare_legacy projections`: 12/12 cases identical in binary, output and cycles (for example `proj_qkv_240_p4` 748832/748832). Every `:assemble_<name>.bin` matches its E02 digest. The MobileViT L4/L5 full-layer tests pass through the temporary adapter `test/mobilevit/fixture_projections.py` (7/7 each). |
+| `src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/conv1x1/` | E07-16 (COMMIT) | The tiled 1x1 conv kernel moved onto `ipu_harness` (`app.py`, `cases.py`, `test.py`, `__init__.py`, `baseline.json`, the `.asm`). Its whole-image `ConvApp` input became the tensors `x`, `w`, `b`. | `kernels/convolutions/conv1x1/` (`kernel.toml`, `conv1x1.asm`), with the family's `pack.py`, `gen.py` and `test_routing.py`; `//kernels/convolutions/conv1x1:conv1x1`. | `compare_setup`: IDENTICAL for every case (CR0-CR15, LR0-LR15, XMEM). `compare_legacy convolutions --kernel <name>`: every case identical in binary, output and cycles (5/5, e.g. `partial_group` 569/569). `:assemble_conv1x1` = E02 digest `9d5c4149…`. |
+| `src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/conv3x3_relu/` | E07-16 (COMMIT) | The tiled 3x3 + bias + ReLU kernel moved onto `ipu_harness` (same files). | `kernels/convolutions/conv3x3_relu/`; `//kernels/convolutions/conv3x3_relu:conv3x3_relu`. | `compare_setup`: IDENTICAL for every case (CR0-CR15, LR0-LR15, XMEM). `compare_legacy convolutions --kernel <name>`: every case identical in binary, output and cycles (5/5, e.g. `partial_group` 331/331). `:assemble_conv3x3_relu` = E02 digest `1426fd8a…`. |
+| `src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/conv3x3_relu_cin1/` | E07-16 (COMMIT) | The one-input-channel 3x3 kernel moved onto `ipu_harness` (same files). | `kernels/convolutions/conv3x3_relu_cin1/`; `//kernels/convolutions/conv3x3_relu_cin1:conv3x3_relu_cin1`. | `compare_setup`: IDENTICAL for every case (CR0-CR15, LR0-LR15, XMEM). `compare_legacy convolutions --kernel <name>`: every case identical in binary, output and cycles (3/3, e.g. `tile_boundary` 130/130). `:assemble_conv3x3_relu_cin1` = E02 digest `7e95cf2e…`. |
+| `src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/conv_first_layer/` | E07-16 (COMMIT) | The fixed-shape first-layer conv moved onto `ipu_harness` (the same files and `benchmark.py`, now `[benchmark]`). | `kernels/convolutions/conv_first_layer/` (`kernel.toml`, `conv_first_layer.asm`, `reference.py`) and the family's `masks.py`; `//kernels/convolutions/conv_first_layer:conv_first_layer`. | `compare_setup`: IDENTICAL for every case (CR0-CR15, LR0-LR15, XMEM). `compare_legacy convolutions --kernel <name>`: every case identical in binary, output and cycles (1/1, 286532/286532). `:assemble_conv_first_layer` = E02 digest `e9179d77…`. |
 
 ### Tests from `src/tools/ipu-apps/src/ipu_apps/kernels/projections/<kernel>/test.py` (11 files)
 
@@ -325,3 +329,29 @@ Rows are added by each E07 issue as it deletes the old ipu-apps kernels.
 | `test_the_family_base_harness_cannot_be_constructed` | dropped: it tested the legacy `ipu_apps` base-harness class, which no longer exists; a template is not routed (`Registry.templates`). |
 | `test_spec_activation_matches_the_asm_store` | dropped: the activation is now rendered into the program from the entry's `activation` parameter, so the spec and the store cannot disagree; the `:assemble_<name>` digests pin each store word. |
 | `test_proj_p4_weight_row_is_not_stuck_at_channel_zero` | `kernels/projections/proj_p4/kernel.toml` nightly case `weight_rows` (`gen.py:weight_rows`), run by `//kernels/projections/proj_p4:proj_p4_nightly`. |
+
+### Tests from `src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/<kernel>/test.py` (`conv1x1`, `conv3x3_relu`, `conv3x3_relu_cin1`)
+
+| Test | Now covered by |
+|---|---|
+| `test_case` (`case_tests(__package__)`: every case of `make_cases`: default, tile_boundary, single_pixel, and full_group, partial_group for the two multi-channel kernels) | The kernel's generated tests, `bazel test //kernels/convolutions/<kernel>` (the same case names; the old data through `gen.py:legacy_tiled`). |
+
+### Tests from `src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/conv_first_layer/test.py`
+
+| Test | Now covered by |
+|---|---|
+| `test_case` | `bazel test //kernels/convolutions/conv_first_layer` (its default case, `gen.py:legacy_first_layer`). |
+| `test_only_the_fixed_shape_is_supported` | `kernels/convolutions/test_routing.py::test_resolve[params5-conv_first_layer]` (the fixed query is accepted) and `::test_the_first_layer_kernel_takes_only_its_fixed_shape` (height 128, out_channels 8, stride 1, apply_relu False refused). |
+
+### Tests moved out of `src/tools/ipu-apps` files that stay (E07-16)
+
+The family `convolutions/test.py` and the framework tests keep their other tests until the remaining conv kernels migrate (E07-17..19).
+
+| Test | Now covered by |
+|---|---|
+| `kernels/convolutions/test.py::test_both_conv2d_vocabularies_resolve_to_their_own_kernels` | `kernels/convolutions/test_routing.py::test_both_conv2d_vocabularies_resolve_to_their_own_kernels` (the tiled query names `in_channels`, `height`, `width` instead of `shape=(c, h, w)`; the universal side is `conv_first_layer` until E07-17) and `::test_a_universal_query_names_parameters_no_tiled_kernel_takes`. |
+| `kernels/convolutions/test.py::test_resolve[overrides10-conv_first_layer]` | `kernels/convolutions/test_routing.py::test_resolve[params5-conv_first_layer]`. |
+| `test/test_harness_factory.py::test_memory_harness_rejects_unsupported_geometry[conv3x3_relu-params4]` (activation none refused) | `kernels/convolutions/test_routing.py::test_tiled_refusals[params0-activation]`. |
+| `test/test_harness_factory.py::test_memory_harness_rejects_unsupported_geometry[conv3x3_relu_cin1-params5]` (two input channels refused) | `kernels/convolutions/test_routing.py::test_the_cin1_kernel_takes_one_input_channel_only` (`in_channels` allows only 1). The "validated before opening files" half is the harness's: `plan_case` refuses before anything is read. |
+| `test/test_kernel_registry.py::test_convolution_case_tensors_share_no_values` (6 params) | `kernels/convolutions/test_gen.py::test_tiled_case_tensors_share_no_values` (4 params: both kernel sizes, the default and single-pixel shapes). |
+| `test/test_reference_model_kernels.py::test_a_kernel_runs_the_same_through_the_api[conv1x1-full_group]` | The same test on `conv_universal`'s default case: the API check is about the reference model, not the kernel. |

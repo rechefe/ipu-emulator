@@ -464,28 +464,6 @@ def test_every_assembly_has_a_registered_case():
         ("maxpool2d_nms7", dict(shape=(1, 2, 2), kernel_size=9, stride=1, padding=4)),
         ("depth_to_space", dict(shape=(256, 2, 2), upscale_factor=16)),
         ("depth_to_space", dict(shape=(3, 2, 2), upscale_factor=2)),
-        (
-            "conv3x3_relu",
-            dict(
-                shape=(1, 2, 2),
-                out_channels=1,
-                kernel_size=3,
-                stride=1,
-                padding=1,
-                activation="none",
-            ),
-        ),
-        (
-            "conv3x3_relu_cin1",
-            dict(
-                shape=(2, 2, 2),
-                out_channels=1,
-                kernel_size=3,
-                stride=1,
-                padding=1,
-                activation="relu",
-            ),
-        ),
         ("l2_normalize_channels", dict(shape=(1, 10**10))),
         ("channel_peak", dict(shape=(0, 2))),
         ("score_threshold", dict(shape=(0,))),

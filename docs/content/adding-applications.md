@@ -68,7 +68,7 @@ that span the family (see `kernels/pooling/`, `kernels/convolutions/`,
 the family's `test.py`.
 
 Every family has the same shape, `kernels/<family>/<app>/` — e.g.
-`kernels/convolutions/conv1x1/` and `kernels/softmax/softmax_rows/`.
+`kernels/convolutions/conv_universal/` and `kernels/softmax/softmax_rows/`.
 
 No `BUILD.bazel` edit is needed: `ipu_apps_from_kernels` (in `//:ipu_app.bzl`)
 globs every `.asm` file under `src/ipu_apps/kernels/` and declares one
