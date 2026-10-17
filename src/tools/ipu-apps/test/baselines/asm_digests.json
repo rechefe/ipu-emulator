@@ -377,12 +377,6 @@
     "word_fingerprints": "2580f2eae409f8bed84ab69a1e9628ad1a5a073d22c13129034cdfe6d8baf0362770a2b3cbc383018d6d5d340f8f945c6195618e9175aac0378040672758000e2e459ca96c0456ec68177f66",
     "words": 19
   },
-  "src/tools/ipu-apps/src/ipu_apps/kernels/reshape/depth_to_space/depth_to_space.asm": {
-    "bin_sha256": "cd1e0e2be66c1bf8fd21687bdbbd4b918b0bf3b0af9565ebca20c6bd28161f4a",
-    "mem_sha256": "0b3b09edae7d6ec6e5361a56669d8ad87ff59a24b3340f0abd68c0b52b698ce4",
-    "word_fingerprints": "2580f2eacf473d9ab4771c55ce350becf08ac551a0369f0c1373a58da15a52da37d366c82d78feb6ac64eecb473c4af96118a8c17f0a20fffa01d1caba08e1a4d139709692246f94830158cab41507f266f106c03a38bb8f68177f66",
-    "words": 23
-  },
   "src/tools/ipu-apps/src/ipu_apps/kernels/reshape/fold_16x16x192/fold_16x16x192.asm": {
     "bin_sha256": "3ca5372afadf1052598368cb528b2daed0d62b47de88fe3b7be3c4bd0480edf2",
     "mem_sha256": "28647e29bcb1a9707823904bdde48f1bd1e0a0fb2e3b74b52d46ecdf54bb8948",
