@@ -1,0 +1,28 @@
+# The matmul family's registry entries (E07-07, E07-08): each fixes its
+# template's shape. `bazel test //kernels/matmul:matmul_128x128` runs the
+# template's cases at that shape; `bazel run //kernels:query -- matmul m=128
+# k=128 n=128` finds it.
+
+[[kernel]]
+name = "matmul_64x64x64"
+template = "matmul_small"
+params = { m = 64, k = 64, n = 64 }
+doc = "Generic 64x64x64 matmul"
+
+[[kernel]]
+name = "matmul_128x64x64"
+template = "matmul_small"
+params = { m = 128, k = 64, n = 64 }
+doc = "Generic 128x64x64 matmul"
+
+[[kernel]]
+name = "matmul_128x64x128"
+template = "matmul_small"
+params = { m = 128, k = 64, n = 128 }
+doc = "Generic 128x64x128 matmul"
+
+[[kernel]]
+name = "matmul_128x128"
+template = "matmul_small"
+params = { m = 128, k = 128, n = 128 }
+doc = "Generic 128x128x128 matmul"

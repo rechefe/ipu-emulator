@@ -56,33 +56,6 @@ def _rows(x: np.ndarray) -> np.ndarray:
 # -- matmul -------------------------------------------------------------
 
 
-def test_resolved_matmul_computes_the_operation(tmp_path):
-    from ipu_apps.kernels.matmul.matmul_128x128.app import K, M, N
-
-    query = dict(shape_a=(M, K), shape_b_t=(N, K))
-    verdict = resolve("matmul", **query)
-    assert verdict.kernel.name == "matmul_128x128", verdict.reason
-
-    rng = np.random.RandomState(0x128128)
-    A = rng.uniform(-1.0, 1.0, size=(M, K)).astype(np.float32)
-    W = rng.uniform(-1.0, 1.0, size=(N, K)).astype(np.float32)
-
-    input_path = tmp_path / "a.bin"
-    weights_path = tmp_path / "w.bin"
-    output_path = tmp_path / "out.bin"
-    input_path.write_bytes(A.tobytes())
-    weights_path.write_bytes(W.tobytes())
-
-    app = _harness(
-        verdict, query, input_path=input_path, weights_path=weights_path, output_path=output_path
-    )
-    _, cycles = app.run(max_cycles=20_000_000)
-    assert cycles > 0
-
-    got = np.frombuffer(output_path.read_bytes(), dtype=np.float32).reshape(M, N)
-    np.testing.assert_allclose(got, A @ W.T, rtol=1e-4, atol=1e-3)
-
-
 def test_matmul_silu_shape_routes_only_with_activation():
     """A plain matmul at an FFN1 shape must not reach the silu-fused kernel."""
     from ipu_apps.kernels.matmul.matmul_384x192_x128.app import K, M, N

@@ -12,6 +12,7 @@ names them; //kernels:test_families checks it against the kernel.toml folders.
 KERNELS = {
     "detect": ["channel_peak", "score_threshold"],
     "elementwise": ["scale"],
+    "matmul": ["matmul_small"],
     "pooling": [
         "maxpool2d_nms",
         "maxpool2d_stride2",

@@ -33,6 +33,12 @@ identity for every other kernel.
 
 Query: `matmul shape_a=M,K shape_b_t=N,K [activation=silu]`.
 
+The four row-major kernels (`matmul_64x64x64` and `matmul_128x*`) are
+entries of `kernels/matmul/registry.toml` over one template, `matmul_small`
+(one program; the shape reaches it through the registers). Each runs as
+`//kernels/matmul:<kernel>`. Query: `bazel run //kernels:query -- matmul m=M
+k=K n=N`.
+
 ## `projection`
 
 The single-stream `matmul_*_x128` shapes run over all 4 pixel streams in one
@@ -68,8 +74,10 @@ weight file is `[N, K]` float32, output-major, stored verbatim.
 `matmul_*` kernels use one of two layouts (each kernel's `cases.py` states its
 own):
 
-- **row-major** (`matmul_64x64x64`, `matmul_128x*`): the input file is A,
-  `(M, K)`; the output file is dense C, `(M, N)`.
+- **row-major** (`matmul_64x64x64`, `matmul_128x*`): `kernel.toml` declares
+  `a`, A `(M, K)`, and `b`, Wᵀ `(K, N)`, one XMEM row per matrix row each,
+  and the output `y`, C `(M, N)`; the reference is the shared `matmul` op,
+  `a @ b`.
 - **channel-major** (`matmul_*_x128`): the input file is D = Aᵀ, `(K, M)`, as
   the transformer blocks hold it; the output file is raw XMEM rows,
   `(N_TG, N, 128)`, with the first `N_TOK` lanes of each row valid.
