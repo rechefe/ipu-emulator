@@ -15,6 +15,11 @@ kernel of the same name under the checkout's ``kernels/<FAMILY>/``:
   how each old ``teardown`` wrote its file;
 * cycles: the same on both sides.
 
+A multi-stage kernel (``[kernel] stages``, E06-14) is compared the same way:
+its programs are the distinct programs its stages assembled, in order, held
+to the old harness's distinct programs, and the E02 digest must be one of
+them; its cycles are its stages' sum.
+
 Every case of the old kernel's E02 baseline runs, in FP32, and the new case
 of the same name (or ``--case-map OLD=NEW``) runs on the same input values:
 the migration keeps the old seeds and generators (the per-family checklist,
@@ -49,10 +54,13 @@ from migration import (
 from ipu_apps.kernel_registry import baseline
 from ipu_apps.kernel_registry.registry import kernel_spec, kernels
 from ipu_harness.assembly import AssemblyCache
+from ipu_harness.cases import Case
 from ipu_harness.manifest import KernelManifest
+from ipu_harness.placement import Placement
 from ipu_harness.registry import Registry
-from ipu_harness.runner import run_kernel, stage
+from ipu_harness.runner import RunResult, run_kernel, stage
 from ipu_isa.errors import IpuError
+from ipu_isa.formats import FORMATS, ElementFormat
 
 __all__ = ["Row", "compare_kernel", "main", "table"]
 
@@ -115,10 +123,44 @@ def table(rows: Sequence[Row]) -> str:
     return "\n".join(lines)
 
 
-def _default_digest(manifest: KernelManifest, cache: AssemblyCache) -> str:
-    """The digest of the new default case's program in FP32: ``assemble_<name>``."""
+def _default_digests(manifest: KernelManifest, cache: AssemblyCache) -> set[str]:
+    """The digests of the new default case's programs in its first format:
+    ``assemble_<name>``'s, or a multi-stage kernel's stages'."""
     default = new_case(manifest, "default", {})
-    return sha256(stage(manifest, default, default.formats[0], cache=cache).program.to_bin())
+    fmt = default.formats[0]
+    if manifest.stages is None:
+        return {sha256(stage(manifest, default, fmt, cache=cache).program.to_bin())}
+    return {sha256(program) for program in _stage_programs(manifest, default, fmt)[1]}
+
+
+def _stage_programs(
+    manifest: KernelManifest, case: Case, fmt: ElementFormat
+) -> tuple[RunResult, list[bytes]]:
+    """A multi-stage run, and the distinct programs its stages assembled, in order."""
+    own = AssemblyCache()  # this run's programs only
+    result = run_kernel(manifest, case, fmt, cache=own)
+    return result, [program.to_bin() for program in own.programs]
+
+
+def _new_run(
+    manifest: KernelManifest, case: Case, fmt: ElementFormat, cache: AssemblyCache
+) -> tuple[RunResult, list[bytes], Placement]:
+    """The new kernel's run of ``case``, its programs, and where its tensors were."""
+    if manifest.stages is None:
+        staged = stage(manifest, case, fmt, cache=cache)
+        return (
+            run_kernel(manifest, case, fmt, cache=cache),
+            [staged.program.to_bin()],
+            staged.placement,
+        )
+    new, programs = _stage_programs(manifest, case, fmt)
+    if new.placement is None:
+        raise ValueError(f"{manifest.name}/{case.name}: the run reports no placement")
+    return new, programs, new.placement
+
+
+def _distinct(programs: Sequence[bytes]) -> list[bytes]:
+    return list(dict.fromkeys(programs))
 
 
 def compare_kernel(
@@ -141,15 +183,16 @@ def compare_kernel(
     e02 = e02_asm_digest(spec)
     kernel_notes = []
     try:
-        digest = _default_digest(manifest, cache)
+        digests: set[str] | None = _default_digests(manifest, cache)
     except (IpuError, ValueError) as error:
-        digest = None
+        digests = None
         kernel_notes.append(f"the new default case does not assemble: {error}")
-    e02_ok = e02 is not None and digest == e02
+    e02_ok = e02 is not None and digests is not None and e02 in digests
     if e02 is None:
         kernel_notes.append("the old program has no E02 asm digest")
-    elif digest is not None and not e02_ok:
-        kernel_notes.append(f"assemble_{name} digest {digest[:12]} is not the E02 {e02[:12]}")
+    elif digests is not None and not e02_ok:
+        shown = ", ".join(sorted(d[:12] for d in digests))
+        kernel_notes.append(f"assemble_{name} digest {shown} is not the E02 {e02[:12]}")
     kernel = _Kernel(name, manifest, case_map or {}, cache, e02_ok, tuple(kernel_notes))
     return [_compare_case(kernel, case_id) for case_id in legacy_case_ids(name)]
 
@@ -174,17 +217,19 @@ def _compare_case(kernel: _Kernel, case_id: str) -> Row:
         with tempfile.TemporaryDirectory(prefix="compare-legacy-") as tmp:
             old = legacy_run(name, legacy_case(name, case_id), Path(tmp))
         fmt = case_format(old.state, case)
-        staged = stage(manifest, case, fmt, cache=cache)
-        new = run_kernel(manifest, case, fmt, cache=cache)
+        new, programs, placement = _new_run(manifest, case, fmt, cache)
     except (IpuError, ValueError, OSError, AssertionError, RuntimeError) as error:
         return Row(name, case_id, False, False, None, None, (*notes, f"{error}"))
 
-    program = staged.program.to_bin()
-    binary_ok = kernel.e02_ok and old.programs == [program]
-    if len(old.programs) != 1:
-        notes.append(f"the old harness ran {len(old.programs)} programs; the new kernel one")
-    elif old.programs[0] != program:
-        notes.append("the case's program differs from the old harness's")
+    old_programs = _distinct(old.programs)
+    binary_ok = kernel.e02_ok and old_programs == programs
+    if len(old_programs) != len(programs):
+        notes.append(
+            f"the old harness ran {len(old_programs)} distinct program(s); the new kernel "
+            f"{len(programs)}"
+        )
+    elif old_programs != programs:
+        notes.append("the case's programs differ from the old harness's")
 
     output_ok = True
     want = baseline.load(name).get(case_id)
@@ -197,8 +242,10 @@ def _compare_case(kernel: _Kernel, case_id: str) -> Row:
     if new.fault is not None:
         output_ok = False
         notes.append(f"the new run faulted: {new.fault.describe()}")
+    row_bytes = FORMATS[fmt].row_bytes
     for output, data in new.raw_outputs.items():
-        start, size = staged.region_bytes(output)
+        region = placement.region(output)
+        start, size = region.base_row * row_bytes, region.rows * row_bytes
         if old.state.xmem.snapshot_bytes(start, size) != data:
             output_ok = False
             notes.append(f"output {output} differs from the old XMEM at bytes {start}..")

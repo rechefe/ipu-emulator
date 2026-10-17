@@ -159,3 +159,42 @@ def test_a_kernel_not_migrated_yet_is_a_failed_row(tree, capsys):
     argv = ["reshape", "--kernel", "identity", "--kernels-root", str(tree)]
     assert compare_legacy.main(argv) == 1
     assert "no new kernel of this name" in capsys.readouterr().out
+
+
+# --- a multi-stage kernel (E06-14) -------------------------------------------------
+
+STAGES = """\
+def run(ctx):
+    for _ in range({times}):
+        ctx.run_stage("identity.asm", abi={{"x": "CR2", "y": "CR3", "rows": "CR4"}})
+"""
+
+
+def _as_stages(tree: Path, times: int) -> None:
+    """The identity kernel as a stages hook running its program ``times`` times."""
+    toml = _kernel(tree) / "kernel.toml"
+    toml.write_text(
+        TOML.replace('formats = ["fp32"]', 'formats = ["fp32"]\nstages = "stages.py:run"')
+    )
+    (_kernel(tree) / "stages.py").write_text(STAGES.format(times=times))
+
+
+def test_a_multi_stage_kernel_is_compared_by_its_stages_programs_and_cycles(tree):
+    _as_stages(tree, 1)
+    rows = compare_family("reshape", only=["identity"], root=tree)
+    assert [(row.case, row.passed) for row in rows] == [("default", True), ("single_row", True)]
+    assert "| identity | default | yes | yes | 17/17 |" in table(rows)
+
+
+def test_a_multi_stage_kernel_running_more_than_the_old_harness_is_named(tree):
+    # The same program twice is one distinct program, but twice the cycles.
+    _as_stages(tree, 2)
+    rows = compare_family("reshape", only=["identity"], root=tree)
+    assert all(row.binary_ok and row.output_ok and not row.passed for row in rows)
+    assert "cycles differ: old 17, new 34" in rows[0].notes
+
+
+def test_compare_setup_refuses_a_multi_stage_kernel_and_names_the_other_tool(tree, capsys):
+    _as_stages(tree, 1)
+    assert compare_setup.main(["identity", str(_kernel(tree))]) == 2
+    assert "compare_legacy compares its programs" in capsys.readouterr().err
