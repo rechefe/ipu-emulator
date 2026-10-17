@@ -377,3 +377,10 @@ Kept until a later issue (the old folder stays frozen, logged here when it goes)
 |---|---|
 | `test_case` (`case_tests(__package__)`: the `default` case of `residual_add_cases`) | The entry's generated tests, `bazel test //kernels/elementwise:residual_add_<shape>`: the template's `default` case at the entry's shape with the old data (`../gen.py`), held EXACT to `ops.residual_add`. |
 | `residual_add_16x240`: `test_one_channel_per_row` | `kernels/elementwise/test_residual_add.py::test_residual_add_16x240_stores_one_channel_per_row` |
+
+### Tests removed from `src/tools/ipu-apps/test/mobilevit/test_kernel_registry_new_families.py` (the file stays)
+
+| Test | Now covered by |
+|---|---|
+| `test_resolved_unfold_computes_the_operation` (E07-05) | `kernels/reshape/test_routing.py::test_each_fold_and_unfold_is_routed_by_its_exact_shape` (routing), and `//kernels/reshape/unfold_16x16x192`'s `default` case, held EXACT to `ops.unfold` (the computation). |
+| `test_resolved_residual_add_computes_the_operation` (E07-06) | `kernels/elementwise/test_residual_add.py::test_each_entry_is_routed_by_its_exact_shape` (routing), and `//kernels/elementwise:residual_add_16x240`'s `default` case, held EXACT to `ops.residual_add` (the computation). |

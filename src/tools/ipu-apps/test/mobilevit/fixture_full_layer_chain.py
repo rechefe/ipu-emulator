@@ -480,15 +480,12 @@ def run_residual_add(
     n_ch: int,
     n_tok: int,
     row_bytes: int,
-    tmp_path: Path,
     tag: str,
-    full_row_output: bool,
 ) -> tuple[np.ndarray, int]:
     """a, b: [n_ch, n_tok] channel-major. Returns cropped [n_ch, n_tok] sum.
 
     ``name`` is the //kernels/elementwise entry (E07-06), run through
-    ``fixture_elementwise``; its output rows are cropped here, whether the
-    old harness emitted full rows (``full_row_output``) or cropped them.
+    ``fixture_elementwise``; its output rows are cropped here.
     """
     lanes = row_bytes // 4
     a_rows = np.zeros((n_ch, lanes), dtype=np.float32)

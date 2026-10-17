@@ -387,9 +387,7 @@ def _run_layer_query_major(
         n_ch=D_MODEL,
         n_tok=N_TOK,
         row_bytes=ROW_BYTES,
-        tmp_path=tmp_path,
         tag=f"{tag}_res1",
-        full_row_output=True,
     )
     profile.append(("residual_add_64x192", c))
     if stages is not None:
@@ -461,9 +459,7 @@ def _run_layer_query_major(
         n_ch=D_MODEL,
         n_tok=N_TOK,
         row_bytes=ROW_BYTES,
-        tmp_path=tmp_path,
         tag=f"{tag}_res2",
-        full_row_output=True,
     )
     profile.append(("residual_add_64x192", c))
     if stages is not None:
@@ -624,9 +620,7 @@ def _run_layer_key_major(
         n_ch=D_MODEL,
         n_tok=N_TOK,
         row_bytes=ROW_BYTES,
-        tmp_path=tmp_path,
         tag=f"{tag}_res1",
-        full_row_output=True,
     )
     profile.append(("residual_add_64x192", c))
 
@@ -690,9 +684,7 @@ def _run_layer_key_major(
         n_ch=D_MODEL,
         n_tok=N_TOK,
         row_bytes=ROW_BYTES,
-        tmp_path=tmp_path,
         tag=f"{tag}_res2",
-        full_row_output=True,
     )
     profile.append(("residual_add_64x192", c))
 

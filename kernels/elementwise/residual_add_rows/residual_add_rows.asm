@@ -18,7 +18,7 @@
           zero; the consumer crops it (producer emits full rows, final consumer
           crops).
         two rows per channel (256x144): tokens > 128, each channel's 256 tokens
-          over 2 consecutive full rows (channel-major, token groups interleaved),
+          over 2 consecutive full rows (channel-major, 2 rows per channel),
           288 rows, no padding.
         packed (per_row > 1): per_row channels side by side in one row
           (240x16: 8 per row, 30 rows; 192x64: 2 per row, 96 rows). Elementwise
@@ -100,7 +100,7 @@
 
 row_loop:
     # Cycle 1: r_acc = A[r] × 1.0  (A[r] was loaded a cycle earlier)
-    #   MULT.RC.VE r_cyclic[0] × DTYPE_ONE(=dtype 1.0) → A[r] passed through.
+    #   MULT.RC.VE r_cyclic[0] × DTYPE_ONE (1.0) → A[r] passed through.
     #   Co-issued load fetches B[r] for cycle 2.
     LD.MULT.CYCLIC {{ b_ptr }} {{ B_BASE }} {{ rc_slot0 }};
     ADD {{ b_ptr }} {{ b_ptr }} {{ row_stride }};
@@ -123,7 +123,7 @@ row_loop:
     ADD {{ row_index }} {{ row_index }} {{ ONE }};
     LD.MULT.CYCLIC {{ a_ptr }} {{ A_BASE }} {{ rc_slot0 }};
     ADD {{ a_ptr }} {{ a_ptr }} {{ row_stride }};;
-    # Cycle 4: advance output ptr; BLT.S reads snap row_index = already-incremented
+    # Cycle 4: advance output ptr; BLT.S reads the cycle-start row_index = already-incremented
     ADD                 {{ out_ptr }} {{ out_ptr }} {{ out_stride }};
     BLT.S {{ row_index }} {{ row_limit }} row_loop;;
 

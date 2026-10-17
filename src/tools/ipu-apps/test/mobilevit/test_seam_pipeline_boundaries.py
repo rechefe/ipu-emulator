@@ -28,8 +28,8 @@ defect):
 
 2. matmul_192x192_x128 (L4 OutProj) --> residual_add_64x192: AGREES.
    OutProj's teardown here uses OUTPUT_ROW_BYTES = 512 (full row, uncropped),
-   matching residual_add_64x192.setup()'s verbatim write_address of the raw
-   file with no length assertion at all. Included as the passing control that
+   matching residual_add_64x192's input rows, which the test host-writes
+   verbatim (fixture_elementwise) with no length assertion at all. Included as the passing control that
    proved the L5 case above was a real defect, not a test-harness artifact --
    now also the pattern the fixed L5 kernels follow.
 
@@ -144,8 +144,8 @@ def test_seam_outproj_192x192_to_residual_add_64x192_agrees(tmp_path: Path) -> N
     """Control case: the L4 OutProj -> residual_add seam DOES agree.
 
     matmul_192x192_x128's teardown uses OUTPUT_ROW_BYTES=512 (full,
-    uncropped rows) and residual_add_64x192.setup() stages A/B verbatim with
-    no reshape.
+    uncropped rows) and the test host-writes them as residual_add_64x192's A
+    verbatim (fixture_elementwise), with no reshape.
     """
     rng = np.random.RandomState(0xC0FFEE)
     D = rng.uniform(-1.0, 1.0, size=(op4.K, op4.N_TOK)).astype(np.float32)

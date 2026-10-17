@@ -10,7 +10,7 @@ formats = ["fp32"]
 num_channels = { type = "int", min = 1, max = 1024 }
 
 [derived]
-step = "1"                          # chunk step: one row per channel
+step = "1"                          # the row step: one row per channel
 
 [inputs.a]
 shape = ["num_channels", 128]       # automatic placement: row 0

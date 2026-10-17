@@ -2,8 +2,8 @@
     residual_add.asm -- y = a + b, FP32, one channel per row
 
     Adds two FP32 tensors element by element: num_channels rows of 128 FP32
-    elements each (a [num_channels, 128] tensor, e.g. a CHW tensor whose H*W
-    is 128), the CHW residual of the convolution stages (MobileViT-S:
+    elements each (a [num_channels, 128] tensor), the CHW residual of the
+    convolution stages (MobileViT-S:
     64x64x64, 32x32x96, 16x16x128, 8x8x160). FP32 only: each channel is one
     whole XMEM row and ST.ACC stores the whole 128-element accumulator.
 
@@ -51,7 +51,7 @@
     LD.MULT.CYCLIC LR2 CR2 LR0;;
 
 # ===========================================================================
-# Main loop: one iteration per 512-byte channel chunk
+# Main loop: one iteration per channel (one 512-byte row)
 # ===========================================================================
 
 loop:
@@ -69,7 +69,7 @@ loop:
     MULT.RC.VE          LR0 CR1 0 LR0 CR15;
     ACC.ADD;;
 
-# Store FP32 accumulator (512 bytes per chunk). The output-pointer bump must
+# Store FP32 accumulator (512 bytes, one row). The output-pointer bump must
 # NOT share this word: LR runs before XMEM, so it would store to the wrong
 # address. Advance lr3 in the branch word instead (after the store).
     ST.ACC         LR3 CR4;;

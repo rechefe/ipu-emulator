@@ -16,8 +16,11 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from ipu_emu.reference import RunState
+from ipu_harness.cases import expand
 from ipu_harness.chain import Chain
 from ipu_harness.registry import default_registry
+from ipu_harness.runner import SharedModel, stage
 from ipu_isa.formats import ElementFormat
 from ipu_isa.geometry import LANES
 
@@ -59,3 +62,34 @@ def run_residual_add_rows(
     assert result.halted and result.fault is None, result.describe()
     rows = np.frombuffer(result.raw_outputs["y"], dtype="<f4")
     return rows.reshape(len(a_rows), LANES).copy(), result.cycles
+
+
+def count_residual_add_rows(
+    name: str, a_rows: np.ndarray, b_rows: np.ndarray
+) -> tuple[np.ndarray, int, int]:
+    """As :func:`run_residual_add_rows`, stepping the model word by word to
+    count the executed instructions: every non-NOP op but the LR slot's, as
+    the packed tests' ``count_instructions`` counts them.
+
+    Returns:
+        The output rows, the cycles, and the instruction count.
+    """
+    manifest = default_registry().kernel(name)
+    (case,) = (c for c in expand(manifest) if c.name == "default")
+    chain = Chain(ElementFormat.FP32)
+    chain.write(np.asarray(a_rows, dtype=np.float32), at=0)
+    b = chain.write(np.asarray(b_rows, dtype=np.float32))
+    shared = SharedModel(chain.model, {}, {"a": 0, "b": b.base_row})
+    staged = stage(manifest, case, ElementFormat.FP32, shared=shared)
+    model = staged.model
+    instructions = cycles = 0
+    while True:
+        record = model.step()
+        cycles += 1
+        instructions += sum(op.slot != "lr" for op in record.slots)
+        if model.status.state is not RunState.RUNNING:
+            break
+    assert model.status.fault is None, model.status
+    start, size = staged.region_bytes("y")
+    rows = np.frombuffer(model.read_xmem(start, size), dtype="<f4")
+    return rows.reshape(len(a_rows), LANES).copy(), cycles, instructions
