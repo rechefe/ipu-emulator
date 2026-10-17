@@ -40,6 +40,7 @@ from ipu_emu.slots.load import R_CYCLIC_VALID_INDICES
 from ipu_emu.slots.mult import SCALAR_CR, SCALAR_LCR, SCALAR_NONE
 from ipu_emu.xmem import XMEM_SIZE_BYTES
 from ipu_isa.codec.word import field_name, opcode_field
+from ipu_isa.faults import reserved_operand_codes
 from ipu_isa.geometry import LANES
 from ipu_isa.operand_types import OPERAND_TYPES, OperandKind, OperandType
 from ipu_isa.registers import (
@@ -275,6 +276,24 @@ class SlotPlan(NamedTuple):
     # declared reads all share one view also has a ``(register, None)`` key.
     # ``CycleView`` serves handler reads from it (E04-12).
     views: Mapping[tuple[str, str | None], bool]
+    # F-1: (operand name, field capacity, reserved codes) of every operand. The
+    # union column can be wider than the operand type, so the capacity is the
+    # type's width, not the column's.
+    operand_checks: tuple[tuple[str, int, frozenset[int]], ...] = ()
+    # The fault predicate ``check_<name>(ipu, **operands) -> (FaultId, detail)
+    # | None`` beside the handler in its slot module, when the instruction can
+    # fault on register values (E04-20); ``None`` for every other.
+    check: Callable | None = None
+
+
+def _operand_checks(instruction: Instruction) -> tuple[tuple[str, int, frozenset[int]], ...]:
+    """Each operand's F-1 check: codes at or past its type's width, or reserved."""
+    operand_bits = isa().layout.operand_bits
+    checks = []
+    for op in instruction.operands:
+        bits = operand_bits[op.type.name]
+        checks.append((op.name, 1 << bits, frozenset(reserved_operand_codes(op.type, bits))))
+    return tuple(checks)
 
 
 # Which RunStats counter a non-NOP instruction in each slot bumps.
@@ -392,6 +411,10 @@ def build_plan(instruction: Instruction, field_map: dict[str, str]) -> SlotPlan:
         alias_checks=_compile_alias_checks(slot.value, inst_name),
         mask_cr_operand=_mask_cr_operand(instruction),
         views=read_views(instruction),
+        operand_checks=_operand_checks(instruction),
+        check=getattr(
+            HANDLER_MODULES[slot], instruction.execute_fn.replace("execute_", "check_", 1), None
+        ),
     )
 
 

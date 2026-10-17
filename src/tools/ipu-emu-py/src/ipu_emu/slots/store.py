@@ -6,7 +6,8 @@ import warnings
 from typing import TYPE_CHECKING
 
 from ipu_emu.errors import DebugOnlyInstructionWarning
-from ipu_emu.geometry import xmem_row_addr
+from ipu_emu.geometry import xmem_row_addr, xmem_row_check
+from ipu_isa.faults import FaultId
 
 if TYPE_CHECKING:
     from ipu_emu.ipu import Ipu
@@ -18,6 +19,16 @@ def execute_store_nop(ipu: Ipu) -> None:
 
 def execute_acc_store_nop(ipu: Ipu) -> None:
     """Execute NOP in acc_store slot: No operation."""
+
+
+def check_st_acc(ipu: Ipu, *, offset: int, base: int) -> tuple[FaultId, str] | None:
+    """F-6 for a row outside XMEM."""
+    return xmem_row_check(ipu.state, offset + base)
+
+
+def check_st_aaq(ipu: Ipu, *, offset: int, base: int) -> tuple[FaultId, str] | None:
+    """F-6 for a row outside XMEM."""
+    return xmem_row_check(ipu.state, offset + base)
 
 
 def execute_st_acc(ipu: Ipu, *, offset: int, base: int) -> None:

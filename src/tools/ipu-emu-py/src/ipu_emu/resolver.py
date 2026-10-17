@@ -56,7 +56,9 @@ _WIDE_RA = "r_wide_debug"
 def check_mult_stage(raw: int) -> None:
     """Raise unless *raw* encodes a mult-stage register (R0 = 0, R1 = 1).
 
-    The one mult-stage operand check; both adapters call it.
+    The one mult-stage operand check; both adapters call it. An encoded word
+    never reaches it with a reserved code: ``cycle.schedule_word`` makes that
+    word fault F-1 at fetch (E04-19). It guards words built by hand.
 
     Raises:
         EmulatorError: *raw* is a reserved encoding.

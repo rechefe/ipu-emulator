@@ -49,11 +49,31 @@ Reserved encodings for F-1, from the instruction reference:
 
 The fault list and this table are mirrored as data in `ipu_isa.faults`, which derives the reserved encodings from the ISA. A test (`//src/tools/ipu-isa:test_faults_docs`) checks that both tables state the same as that data.
 
+## In the emulator
+
+The emulator raises `ipu_emu.errors.EmulatorFault` for a fault. The exception carries the fault (`FaultId`) and the PC of the faulting word. The cycle that raises it first records `IpuState.halt` as `HaltRecord("fault", pc, fault)`. A `HALT` word records `HaltRecord("halt", pc, None)`. `run_until_complete` re-raises the fault, unless it is called with `raise_on_fault=False`. Faults are precise (IPU-FLT-3): a faulting word changes no register, XMEM byte, PC or statistic, only the halt record and the sticky flag. F-1 and F-3 are found before any slot runs; F-4 to F-6 by a check phase after the LR slot (whose results the other slots see forwarded), which undoes the LR writes on a fault. When one word raises several faults, the lowest number is recorded (IPU-FLT-8).
+
+`IpuState.faults` (`ipu_emu.fault_control.FaultControl`) holds each fault's enable bit, all set at construction, and the sticky flags, which every fault sets, enabled or not (IPU-FLT-5, IPU-FLT-6). With F-1 disabled, the slot with the reserved encoding runs as `NOP` and the rest of the word retires (the proposal in OQ-2). With F-9 disabled, the run goes on past its limit. Clearing the bit of F-2 to F-6 raises `ConfigurationError`, because OQ-2 does not say what the word then does; clearing F-7 or F-8 changes nothing, as neither is modelled.
+
+| Fault | In the emulator |
+|---|---|
+| F-1 | At fetch: an opcode the ISA does not define, or an operand code that is reserved (the table above) or past its operand type's width (a union column can be wider). |
+| F-2 | A fetch at or past `IpuState.program_length`, which `load_program` sets, by sequential flow, branch or `BR`, including a target past IMEM. A state whose IMEM is written directly keeps all of IMEM. |
+| F-3 | Two LR sub-slots write the same LR, detected before any LR write. |
+| F-4 | An `LD.MULT.CYCLIC` index that is not a slot boundary. |
+| F-5 | An `ACC.RESHAPE` mask above 8, or an index of 128 or more. |
+| F-6 | An XMEM row beyond the address space. There is no table model yet, so the row is checked against XMEM; with the row in range, no load or store reaches past the allocation. |
+| F-7 | Not modelled. The emulator has no table configuration, so no table is read-only or write-only. |
+| F-8 | Not modelled. The emulator has no stall model (Q59, [OQ-28](open-questions.md#emulator-and-isa)). |
+| F-9 | A run reaches `IpuState.cycle_limit` (default 1 000 000; a runner's `max_cycles` replaces it for that run; 0 disables the check). The fault's PC is the word that would have run next. |
+
 ## Arithmetic events
 
 Status: **Proposed**. Owner: Yuval Harary.
 
 Accumulator overflow, NaN results and quantization saturation occur in ACC and AAQ, after the cache agent accepts the word. They are not faults and never halt. Step 0 does not detect them. The fault control registers reserve one sticky flag for each event.
+
+In the emulator, ACC and AGG store the IEEE result (a float overflow is an infinity, a NaN stays, an integer wraps to 32 bits) and set the event's flag in `IpuState.arith_flags`: `ACC_OVERFLOW` when a finite result rounds to an infinity or an integer result leaves int32 (an AGG sum is judged on its exact total), `NAN_RESULT` when a stored lane is NaN, computed or copied (so R_ACC holding a NaN flags again at each ACC word). `ACC.RESHAPE` moves raw words and reports nothing. Flags are sticky: no run clears them, a reset does. A commit record lists each word's events. MULT and AAQ report no events: a float32 overflow there still raises `OverflowError` (MULT can overflow only in FP32; whether that is an accumulator event is open), and quantization saturation waits for AaQ ([OQ-20](open-questions.md#emulator-and-isa)).
 
 ## Illegal host accesses
 

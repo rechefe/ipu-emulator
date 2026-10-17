@@ -276,7 +276,7 @@ def test_implicit_read_honours_its_declared_view(case, mode, prototyping_on):
 def _plan(slot: Slot, mnemonic: str):
     """The plan the emulator dispatches for *mnemonic* (from its READERS word)."""
     word = decode_instruction_word(assemble(f"{READERS[mnemonic]} ;;")[0])
-    return next(op.plan for op in decode_word(word) if op.slot == slot.value)
+    return next(op.plan for op in decode_word(word, pc=0) if op.slot == slot.value)
 
 
 def test_an_undeclared_read_raises():

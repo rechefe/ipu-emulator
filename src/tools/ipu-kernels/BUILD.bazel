@@ -2,9 +2,19 @@ load("@ipu_as_deps//:requirements.bzl", "requirement")
 load("@rules_python//python:defs.bzl", "py_library")
 load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
 load("//tools:lint.bzl", "ruff_test")
+load("//tools:runtime_deps.bzl", "runtime_deps_manifest")
+load(":deps.bzl", "RUNTIME_DEPS")
 load("//tools:typecheck.bzl", "mypy_test")
 
 package(default_visibility = ["//visibility:public"])
+
+exports_files(["pyproject.toml"])
+
+# RUNTIME_DEPS as JSON, for //tools:deps_consistency_test.
+runtime_deps_manifest(
+    name = "runtime_deps",
+    runtime_deps = RUNTIME_DEPS,
+)
 
 # The package's Python sources, for //tools:test_import_graph.
 filegroup(
@@ -27,7 +37,7 @@ py_library(
     deps = [
         "//src/tools/ipu-harness:ipu_harness_lib",
         "//src/tools/ipu-isa:ipu_isa_lib",
-    ],
+    ] + [requirement(name) for name in RUNTIME_DEPS],
 )
 
 mypy_test(
@@ -53,5 +63,19 @@ py_pytest_test(
         "//src/tools/ipu-harness:ipu_harness_lib",
         requirement("numpy"),
         requirement("pytest"),
+    ],
+)
+
+# The shared references (E06-09). torch is test-only (Q74b): only targets that
+# run a reference depend on it, never ipu_kernels_lib.
+py_pytest_test(
+    name = "test_reference_ops",
+    srcs = ["test/test_reference_ops.py"],
+    deps = [
+        ":ipu_kernels_lib",
+        "//src/tools/ipu-harness:ipu_harness_lib",
+        requirement("numpy"),
+        requirement("pytest"),
+        requirement("torch"),
     ],
 )

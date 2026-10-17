@@ -43,7 +43,9 @@ those are transitional delegates of `Cycle`.
   - status surface: `running`, `halted`, `break_hit`, `cycles`, `error`.
 - Re-express `run_until_complete()` / `run_with_debug()` in terms of the engine
   so behavior and tests are unchanged.
-- Fold `RunStats` cycle counting and `is_halted` into the engine status.
+- Fold `RunStats` cycle counting and `is_halted` into the engine status. The
+  engine owns `ipu_emu.run_clock.RunClock` (E04-21): the run's cycle count,
+  the F-9 cycle limit and the one write of `total_cycles`.
 
 ## Docs
 

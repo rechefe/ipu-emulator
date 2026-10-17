@@ -18,6 +18,7 @@ from timing_probes import PROBES, RAISES, ROW, lane, prepare, r_cyclic_element, 
 
 from ipu_emu.errors import DebugOnlyInstructionWarning
 from ipu_emu.execute import Ipu
+from ipu_isa.faults import FaultId
 
 
 def _lr(probe: str, index: int) -> int:
@@ -156,18 +157,17 @@ def test_reshape_source_dest_read_forwarded(probe, dest, value):
 @pytest.mark.parametrize("probe", ["lr_conflict_same_lr", "lr_conflict_lrd_overlap"])
 def test_lr_write_conflict_raises(probe):
     """Two LR sub-slots writing one LR (directly, or through an ADDB LRD pair)
-    raise before any LR is written. Becomes fault F-3 in E04-19."""
-    with pytest.raises(RAISES[probe], match="LR conflict"):
+    fault F-3 before any LR is written."""
+    with pytest.raises(RAISES[probe], match="LR conflict") as caught:
         run(PROBES[probe])
+    assert caught.value.fault is FaultId.F3
 
 
 def test_lr_subslot_exception_leaves_no_partial_write():
-    """Faithful mode reads every LR sub-slot's operands before writing any, so
-    when sub-slot 1's read raises, sub-slot 0's write to LR1 has not happened.
-
-    Prototyping mode diverges here today (it runs sub-slots one at a time);
-    E02-08 records that in test_prototyping_equivalence as a strict xfail
-    until E04-07.
+    """A word whose LR sub-slot 1 source is a reserved encoding faults F-1 at
+    fetch, before any slot runs, so sub-slot 0's write to LR1 never happens.
+    (Before E04-19 this word raised in the operand read; no encodable word
+    can make an LR read raise now.)
     """
     state = prepare(PROBES["lr_subslot_exception"])
     with pytest.raises(RAISES["lr_subslot_exception"]):

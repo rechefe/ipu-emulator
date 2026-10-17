@@ -8,9 +8,10 @@ Provides two modes:
     quit.
 
 Both functions operate on an :class:`IpuState` that has already been
-loaded with an assembled program (via :func:`load_program`). Each resets
-``state.stats`` before its first cycle, so the stats describe that run only,
-and sets ``state.stats.total_cycles`` even when the run raises.
+loaded with an assembled program (via :func:`load_program`). Each counts its
+cycles with a :class:`~ipu_emu.run_clock.RunClock`: ``state.stats`` starts from
+zero (unless ``reset_stats=False``), ``total_cycles`` is set even when the run
+raises, and the run faults F-9 at ``state.cycle_limit`` cycles.
 """
 
 from __future__ import annotations
@@ -23,13 +24,14 @@ import numpy as np
 
 from ipu_emu.activations import ActivationParams
 from ipu_emu.cycle import CycleOutcome
-from ipu_emu.errors import ConfigurationError
+from ipu_emu.errors import ConfigurationError, EmulatorFault
 from ipu_emu.execute import (
     Ipu,
     load_binary_instructions,
 )
 from ipu_emu.ipu_math import fp32_to_fp8_bytes
-from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
+from ipu_emu.ipu_state import DEFAULT_CYCLE_LIMIT, INST_MEM_SIZE, IpuState
+from ipu_emu.run_clock import RunClock
 from ipu_emu.run_control import RunControl
 from ipu_isa.formats import ElementFormat
 
@@ -46,25 +48,28 @@ class DebugAction(Enum):
 # Receives (state, cycle_count) and returns a DebugAction.
 DebugCallback = Callable[[IpuState, int], DebugAction]
 
-# The cycle limit every run entry point defaults to. Kernels that need more
-# pass their own limit; the default is the same whichever API runs a program.
-DEFAULT_MAX_CYCLES = 1_000_000
+# The cycle limit every run entry point defaults to (``IpuState``'s default).
+# Kernels that need more pass their own; 0 disables the check.
+DEFAULT_MAX_CYCLES = DEFAULT_CYCLE_LIMIT
 
 
-def _begin_run(state: IpuState) -> None:
-    """Start a run: stats describe this run only, and no quit is pending."""
-    state.stats.reset()
-    state.quit_requested = False
+def _word_at(state: IpuState, pc: int):
+    """The IMEM word at *pc*, or ``None`` outside IMEM (the fetch faults F-2)."""
+    return state.inst_mem[pc] if 0 <= pc < len(state.inst_mem) else None
 
 
 def load_program(state: IpuState, instructions: list[dict[str, int]]) -> None:
-    """Load decoded instruction dicts into the state's instruction memory."""
+    """Load decoded instruction dicts into the state's instruction memory.
+
+    Sets ``state.program_length``: fetching past the last word is fault F-2.
+    """
     if len(instructions) > INST_MEM_SIZE:
         raise ConfigurationError(
             f"Program too large: {len(instructions)} instructions (max {INST_MEM_SIZE})"
         )
     for i, inst in enumerate(instructions):
         state.inst_mem[i] = inst
+    state.program_length = len(instructions)
 
 
 def load_program_from_binary(state: IpuState, path: str | Path) -> None:
@@ -74,43 +79,56 @@ def load_program_from_binary(state: IpuState, path: str | Path) -> None:
     load_program(state, instructions)
 
 
-def run_until_complete(state: IpuState, max_cycles: int = DEFAULT_MAX_CYCLES) -> int:
+def run_until_complete(
+    state: IpuState,
+    max_cycles: int | None = None,
+    *,
+    raise_on_fault: bool = True,
+    reset_stats: bool = True,
+) -> int:
     """Run the program ignoring breakpoints until it halts.
 
     Returns the number of cycles executed. ``state.stats`` describes this run
-    only; its ``total_cycles`` is set even when the run raises.
+    only, unless *reset_stats* is false (then it accumulates); its
+    ``total_cycles`` is set even when the run raises. ``state.halt`` says how
+    the run ended. *max_cycles*, when given, is ``state.cycle_limit`` for this
+    run (0: no limit); else the state's own limit holds.
 
-    Raises ``RuntimeError`` if *max_cycles* is exceeded (likely infinite loop).
+    Raises ``EmulatorFault`` when a word faults (the faulting word is not
+    counted), including F-9 at the cycle limit, unless *raise_on_fault* is
+    false: the run then returns, and ``state.halt`` holds the fault.
     """
-    cycles = 0
     # One engine for the whole run: it carries no per-cycle state beyond the
     # snapshot buffer it reuses, and building one per cycle was pure overhead.
     ipu = Ipu(state)
     cycle = ipu.cycle  # works while ``ipu`` is alive, which it is for the run
-    _begin_run(state)
+    clock = RunClock(state, max_cycles)
+    clock.begin_run(reset_stats=reset_stats)
     try:
-        while not state.is_halted:
-            if cycles >= max_cycles:
-                raise RuntimeError(
-                    f"Exceeded {max_cycles} cycles — possible infinite loop "
-                    f"(PC={state.program_counter})"
-                )
+        # Until a HALT or a fault: a PC past the program, IMEM included, is
+        # fetched and faults F-2 (``is_halted`` also counts a PC past IMEM).
+        while state.halt is None:
+            clock.admit()
             # A BREAK does not stop a normal run: the word retires.
             if cycle.step() is CycleOutcome.BREAK:
                 cycle.retire()
-            cycles += 1
+            clock.count_cycle()
+    except EmulatorFault:
+        if raise_on_fault:
+            raise
     finally:
-        state.stats.total_cycles = cycles
-    return cycles
+        clock.end_run()
+    return clock.cycles
 
 
 def run_with_debug(
     state: IpuState,
     debug_callback: DebugCallback,
-    max_cycles: int = DEFAULT_MAX_CYCLES,
+    max_cycles: int | None = None,
     *,
     control: RunControl | None = None,
     break_on_entry: bool = False,
+    reset_stats: bool = True,
 ) -> int:
     """Run the program honouring breakpoints.
 
@@ -130,14 +148,16 @@ def run_with_debug(
     frontend passes it in, else a fresh one is used.
     ``break_on_entry`` stops at the prepared PC before the first instruction.
 
-    ``state.stats`` describes this run only; its ``total_cycles`` is set even
-    when the run raises.
+    ``state.stats`` describes this run only, unless *reset_stats* is false;
+    its ``total_cycles`` is set even when the run raises. *max_cycles*, when
+    given, is ``state.cycle_limit`` for this run (0: no limit); reaching the
+    limit faults F-9.
     """
-    cycles = 0
     stepping = False
     ipu = Ipu(state)
     cycle = ipu.cycle
-    _begin_run(state)
+    clock = RunClock(state, max_cycles)
+    clock.begin_run(reset_stats=reset_stats)
 
     # TODO(E04): express this loop over the stepping engine once E04 lands it.
     control = control if control is not None else RunControl()
@@ -145,15 +165,12 @@ def run_with_debug(
     control.last_completed_instruction = None
     entry_pending = break_on_entry
     try:
-        while not state.is_halted:
-            if cycles >= max_cycles:
-                raise RuntimeError(
-                    f"Exceeded {max_cycles} cycles — possible infinite loop "
-                    f"(PC={state.program_counter})"
-                )
-
+        # As in run_until_complete; a debugger's quit (PC past IMEM) ends the
+        # run at the callback below.
+        while state.halt is None:
+            clock.admit()
             issued_pc = state.program_counter
-            issued_instruction = state.inst_mem[issued_pc]
+            issued_instruction = _word_at(state, issued_pc)
             reasons = []
             if entry_pending:
                 reasons.append("entry")
@@ -172,7 +189,7 @@ def run_with_debug(
             if reasons:
                 control.stop_reason = ", ".join(reasons)
                 control.run_target = None
-                action = debug_callback(state, cycles)
+                action = debug_callback(state, clock.cycles)
                 if action == DebugAction.QUIT or state.is_halted:
                     state.quit_requested = action == DebugAction.QUIT
                     break
@@ -180,17 +197,17 @@ def run_with_debug(
                 # Resume the paused instruction exactly once, including when
                 # the callback edits PC. A later loop visit can stop again.
                 issued_pc = state.program_counter
-                issued_instruction = state.inst_mem[issued_pc]
+                issued_instruction = _word_at(state, issued_pc)
                 cycle.retire()
             control.last_completed_pc = issued_pc
             control.last_completed_instruction = (
                 dict(issued_instruction) if issued_instruction is not None else None
             )
-            cycles += 1
+            clock.count_cycle()
     finally:
         control.run_target = None
-        state.stats.total_cycles = cycles
-    return cycles
+        clock.end_run()
+    return clock.cycles
 
 
 # ---------------------------------------------------------------------------
@@ -303,7 +320,7 @@ def run_test(
     inst_path: str | Path,
     setup: Callable[[IpuState], None] | None = None,
     teardown: Callable[[IpuState], None] | None = None,
-    max_cycles: int = DEFAULT_MAX_CYCLES,
+    max_cycles: int | None = None,
     debug_callback: DebugCallback | None = None,
     break_on_entry: bool = False,
     debug_control: RunControl | None = None,

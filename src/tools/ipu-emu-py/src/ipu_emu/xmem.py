@@ -15,6 +15,7 @@ from __future__ import annotations
 import weakref
 from collections.abc import Callable, Iterator
 
+from ipu_emu.errors import XMemBoundsError
 from ipu_isa.geometry import XMEM_BYTES
 
 #: ``fn(kind, address, size, data)`` with *kind* one of ``"read"``,
@@ -119,7 +120,7 @@ class XMem:
     @staticmethod
     def _check_bounds(kind: str, address: int, size: int) -> None:
         if address < 0 or size < 0 or address + size > XMEM_SIZE_BYTES:
-            raise ValueError(
+            raise XMemBoundsError(
                 f"XMEM {kind} out of bounds: address={address}, size={size}, "
                 f"end={address + size}, max={XMEM_SIZE_BYTES}"
             )

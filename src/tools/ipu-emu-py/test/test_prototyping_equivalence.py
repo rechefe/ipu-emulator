@@ -20,11 +20,12 @@ import pytest
 import timing_probes
 from emu_support import ElementFormat, assemble_program, make_state, new_state, run_both
 
-from ipu_emu.emulator import load_program
-from ipu_emu.errors import DebugOnlyInstructionWarning, RegisterIndexError
+from ipu_emu.emulator import load_program, run_until_complete
+from ipu_emu.errors import DebugOnlyInstructionWarning, EmulatorFault
 from ipu_emu.execute import BreakResult, Ipu
-from ipu_emu.ipu_state import IpuState
+from ipu_emu.ipu_state import HaltRecord, IpuState
 from ipu_emu.prototyping import build_enabled, default_enabled, env_requests_prototyping
+from ipu_isa.faults import FaultId
 
 _REQUIRES_PROTO_BUILD = pytest.mark.skipif(
     not build_enabled(), reason="requires --define=ipu_proto=1"
@@ -234,8 +235,9 @@ def test_raising_timing_probes_are_identical(name):
 
 @_REQUIRES_PROTO_BUILD
 def test_lr_subslot_exception_partial_state_matches():
-    """When an LR sub-slot's operand read raises, neither mode has written an
-    LR: both resolve every sub-slot before any writes (E04-08)."""
+    """A word with a reserved LR sub-slot operand faults F-1 at fetch in both
+    modes, before any LR is written (it raised in the operand read before
+    E04-19)."""
     states, _ = _run_until_raise("lr_subslot_exception")
     _assert_states_identical(*states)
 
@@ -339,7 +341,7 @@ def test_cached_scalar_read_invalid_index_exception_is_bit_exact():
     for prototyping in (False, True):
         state = new_state(prototyping=prototyping)
         load_program(state, [dict(inst)])
-        with pytest.raises(RegisterIndexError) as caught:
+        with pytest.raises(EmulatorFault, match="reserved encoding") as caught:
             Ipu(state).execute_vliw_cycle()
         states.append(state)
         exceptions.append(caught.value)
@@ -357,14 +359,62 @@ def test_an_lr_conflict_still_raises():
     exceptions = []
     for prototyping in (False, True):
         state = make_state(asm, prototyping=prototyping)
-        with pytest.raises(RuntimeError, match="LR conflict") as caught:
+        with pytest.raises(EmulatorFault, match="LR conflict") as caught:
             Ipu(state).execute_vliw_cycle()
         states.append(state)
         exceptions.append(caught.value)
 
     assert type(exceptions[0]) is type(exceptions[1])
     assert exceptions[0].args == exceptions[1].args
+    assert states[0].halt == states[1].halt == HaltRecord("fault", 0, FaultId.F3)
     _assert_states_identical(*states)
+
+
+@_REQUIRES_PROTO_BUILD
+@pytest.mark.parametrize(
+    ("asm", "fault", "pc"),
+    [
+        ("INC LR0 1 ;;\nINC LR0 1 ;;", FaultId.F2, 2),
+        ("NOP ;;\nACC.RESHAPE LRD0 LRD2 LR4 ;;\nHALT ;;", FaultId.F5, 1),
+        # The mask is written by the faulting word itself (forwarded), and
+        # that LR write is undone: precise in both modes (E04-20).
+        ("SET LR4 CR9 ; INC LR6 1 ; ACC.RESHAPE LRD0 LRD2 LR4 ;;\nHALT ;;", FaultId.F5, 0),
+    ],
+)
+def test_both_modes_raise_the_same_fault_at_the_same_pc(asm, fault, pc):
+    states = []
+    for prototyping in (False, True):
+        state = make_state(asm, prototyping=prototyping)
+        state.regfile.set_lr(4, 9)
+        state.regfile.set_cr(9, 9)
+        lrs = bytes(state.regfile.view("lr"))
+        with pytest.raises(EmulatorFault) as caught:
+            run_until_complete(state)
+        if pc == 0:
+            assert bytes(state.regfile.view("lr")) == lrs  # no LR write survived
+        assert (caught.value.fault, caught.value.pc) == (fault, pc)
+        states.append(state)
+    assert states[0].halt == states[1].halt == HaltRecord("fault", pc, fault)
+    _assert_states_identical(*states)
+
+
+@_REQUIRES_PROTO_BUILD
+def test_a_disabled_f1_runs_the_same_nop_in_both_modes():
+    # A reserved activation code in the AAQ slot: with F-1 disabled the slot
+    # is a NOP in both modes, and the LR slot retires.
+    word = dict(assemble_program("INC LR0 1 ; ACTIVATE.QUANTIZE relu CR15 ;;")[0])
+    aaq = next(name for name in word if name.startswith("aaq_") and "activation_fn" in name)
+    word[aaq] = 15
+    states = []
+    for prototyping in (False, True):
+        state = new_state(prototyping=prototyping)
+        load_program(state, [word, assemble_program("HALT ;;")[0]])
+        state.faults.set_enabled(FaultId.F1, False)
+        run_until_complete(state)
+        assert state.faults.sticky == {FaultId.F1}
+        states.append(state)
+    _assert_states_identical(*states)
+    assert states[0].stats == states[1].stats
 
 
 def test_bazel_flag_is_a_mandatory_capability(monkeypatch):
