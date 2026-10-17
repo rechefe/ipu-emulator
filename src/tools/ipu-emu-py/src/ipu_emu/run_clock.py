@@ -10,7 +10,7 @@ debugger's seam in :mod:`ipu_emu.run_control`.)
 from __future__ import annotations
 
 from ipu_emu.errors import EmulatorFault
-from ipu_emu.ipu_state import HaltRecord, IpuState
+from ipu_emu.ipu_state import IpuState
 from ipu_isa.faults import FaultId
 
 __all__ = ["RunClock"]
@@ -74,7 +74,7 @@ class RunClock:
             if not faults.enable.get(FaultId.F9, True):
                 return
             pc = self.state.program_counter
-            self.state.halt = HaltRecord("fault", pc, FaultId.F9)
+            self.state.record_fault(FaultId.F9, pc)
             raise EmulatorFault(FaultId.F9, pc, f"the run reached its cycle limit ({limit})")
 
     def count_cycle(self) -> None:

@@ -128,6 +128,7 @@ class IpuState:
         self._inst_mem = InstMem(INST_MEM_SIZE)
         #: Observers every cycle on this state calls (add_cycle_observer).
         self.cycle_observers: tuple[CycleObserver, ...] = ()
+        self.fault_observers: tuple[Callable[[HaltRecord], None], ...] = ()
         # Set when a debugger quit the last run before the program finished
         # (emulator-only; cleared at the start of every run).
         self.quit_requested: bool = False
@@ -189,6 +190,32 @@ class IpuState:
                 state.cycle_observers = tuple(o for o in state.cycle_observers if o is not observer)
 
         return remove
+
+    def add_fault_observer(self, fn: Callable[[HaltRecord], None]) -> Callable[[], None]:
+        """Call ``fn(halt)`` each time a fault halts this state (:meth:`record_fault`).
+
+        Returns:
+            A function that detaches it; calling it twice is harmless.
+        """
+        self.fault_observers = self.fault_observers + (fn,)
+        ref = weakref.ref(self)
+
+        def remove() -> None:
+            state = ref()
+            if state is not None:
+                state.fault_observers = tuple(o for o in state.fault_observers if o is not fn)
+
+        return remove
+
+    def record_fault(self, fault: FaultId, pc: int) -> HaltRecord:
+        """Halt on *fault* at *pc*: set its sticky flag and ``halt``, then tell
+        the fault observers. The one place a fault is recorded (the cycle's
+        faults and the run's F-9 both come here)."""
+        self.faults.sticky.add(fault)
+        self.halt = HaltRecord("fault", pc, fault)
+        for observer in self.fault_observers:
+            observer(self.halt)
+        return self.halt
 
     # -- CR dstructure convenience (CR15 = valid_elements[7:0] | partition[11:8]) --
 

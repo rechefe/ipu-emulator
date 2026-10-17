@@ -16,6 +16,7 @@ from typing import IO, Any
 from ipu_emu.commit import CommitRecord
 from ipu_emu.geometry import element_format
 from ipu_emu.ipu_state import IpuState
+from ipu_isa.codec.word import DecodedWord, word_bytes
 from ipu_isa.trace_schema import SCHEMA_VERSION, isa_digest
 
 __all__ = ["EMULATOR_VERSION", "TraceWriter", "read_trace", "trace_header"]
@@ -25,11 +26,14 @@ EMULATOR_VERSION = "0.1.0"
 
 
 def _program_digest(state: IpuState) -> str:
-    words = [
-        None if word is None else dict(sorted(word.items()))
-        for word in state.inst_mem[: state.program_length]
-    ]
-    return hashlib.sha256(json.dumps(words).encode()).hexdigest()
+    """SHA-256 of the loaded words, encoded: what any reader of the program
+    file can recompute (trace.v1.json's ``program_digest``)."""
+    width = word_bytes()
+    digest = hashlib.sha256()
+    for word in state.inst_mem[: state.program_length]:
+        value = 0 if word is None else DecodedWord(word).to_word()
+        digest.update(value.to_bytes(width, "little"))
+    return digest.hexdigest()
 
 
 def trace_header(state: IpuState) -> dict[str, Any]:

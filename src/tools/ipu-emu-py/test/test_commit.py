@@ -35,8 +35,8 @@ SNAPSHOT = {
     "trace": "1.0.0",
 }
 SNAPSHOT_SHA256 = {
-    "commit_record": "d2975ca755b91b66e1484f4946976ba5133273f38be95514bed6e84de5947d99",
-    "trace": "6b08e1f1e95b8f2d2fd8f1acd8abe4a6b0c7b6a219613ec5a1e19fec31deab02",
+    "commit_record": "54f5afe5ba2e299a7b392196d727e0ded2e5828baaee47d8cb20068241d3f7f3",
+    "trace": "90e26dc04251f4d85de0d750b2cf2a0f9cba7ca1ff97a9c3f10d0e712ff342ee",
 }
 
 
@@ -49,10 +49,17 @@ def _collect(state):
     return collector.records
 
 
+# Every probe in every mode it declares (the wide modes write the
+# emulator-only registers).
+PROBE_RUNS = [
+    (name, mode) for name, probe in sorted(timing_probes.PROBES.items()) for mode in probe.modes
+]
+
+
 @_DEBUG_ONLY
-@pytest.mark.parametrize("name", sorted(timing_probes.PROBES))
-def test_every_record_and_header_validates(name):
-    state = timing_probes.prepare(timing_probes.PROBES[name], timing_probes.PROBES[name].modes[0])
+@pytest.mark.parametrize(("name", "mode"), PROBE_RUNS, ids=str)
+def test_every_record_and_header_validates(name, mode):
+    state = timing_probes.prepare(timing_probes.PROBES[name], mode)
     records = _collect(state)
     assert records
     for record in records:
@@ -72,12 +79,30 @@ def test_a_record_round_trips():
             RegWrite("r_acc", offset=4, data=b"\x01\x02"),
         ),
         xmem_writes=(XmemWrite(128, b"\xff" * 4),),
-        outcome="fault",
-        fault=FaultInfo("F-6", 7),
     )
     RECORD.validate(record.to_json())
     assert CommitRecord.from_json(record.to_json()) == record
     assert record.to_json()["slots"][1]["tag"] == "emulator"
+    fault = CommitRecord(
+        cycle=4, pc_before=8, pc_after=8, outcome="fault", fault=FaultInfo("F-6", 8)
+    )
+    RECORD.validate(fault.to_json())
+    assert CommitRecord.from_json(fault.to_json()) == fault
+
+
+def test_the_schema_ties_the_fault_to_the_outcome():
+    ok = CommitRecord(cycle=0, pc_before=0, pc_after=1).to_json()
+    for bad in (
+        dict(ok, outcome="fault"),  # a fault outcome needs the fault
+        dict(ok, fault={"id": "F-2", "pc": 0}),  # a retired word has none
+        dict(
+            ok,
+            outcome="fault",
+            fault={"id": "F-2", "pc": 0},
+            reg_writes=[{"register": "lr", "index": 0, "value": 1}],
+        ),
+    ):
+        assert not RECORD.is_valid(bad), bad
 
 
 def _registers(state):
@@ -85,7 +110,7 @@ def _registers(state):
 
 
 def _xmem(state):
-    return {page: bytes(data) for page, data in state.xmem._pages.items()}
+    return {base: bytes(data) for base, data in state.xmem.touched_pages()}
 
 
 def _covered(record, name, byte):
@@ -120,14 +145,14 @@ def _check_registers(record, before, after):
 def _check_xmem(record, before, state):
     """The same for XMEM, page by page."""
     after = _xmem(state)
-    for page in set(before) | set(after):
-        old, new = before.get(page), after.get(page)
+    for base in set(before) | set(after):
+        old, new = before.get(base), after.get(base)
         if old == new:
             continue
         size = len(new or old)
         old, new = old or bytes(size), new or bytes(size)
         for i in (i for i in range(size) if old[i] != new[i]):
-            address = page * size + i
+            address = base + i
             assert any(
                 w.address <= address < w.address + len(w.data) for w in record.xmem_writes
             ), address
@@ -136,23 +161,23 @@ def _check_xmem(record, before, state):
 
 
 @_DEBUG_ONLY
-@pytest.mark.parametrize("name", sorted(timing_probes.PROBES))
-def test_the_writes_are_the_state_difference(name):
-    probe = timing_probes.PROBES[name]
-    state = timing_probes.prepare(probe, probe.modes[0])
+@pytest.mark.parametrize(("name", "mode"), PROBE_RUNS, ids=str)
+def test_the_writes_are_the_state_difference(name, mode):
+    state = timing_probes.prepare(timing_probes.PROBES[name], mode)
     ipu = Ipu(state)
     with CommitCollector(state) as collector:
         for _ in range(200):
             if state.halt is not None:
                 break
             regs, mem = _registers(state), _xmem(state)
-            seen = len(collector.records)
+            seen, pc = len(collector.records), state.program_counter
             try:
                 if ipu.cycle.step() is CycleOutcome.BREAK:
                     ipu.cycle.retire()
             except EmulatorFault:
                 break
             (record,) = collector.records[seen:]
+            assert record.pc_before == pc and record.pc_after == state.program_counter
             _check_registers(record, regs, _registers(state))
             _check_xmem(record, mem, state)
 
@@ -176,6 +201,7 @@ def test_a_fault_cycle_names_the_fault_and_pc():
     assert [r.outcome for r in records] == ["retired", "fault"]
     assert records[-1].fault == FaultInfo("F-3", 1) and records[-1].pc_before == 1
     assert {op.mnemonic for op in records[-1].slots} <= {"SET"}
+    assert records[-1].reg_writes == () and records[-1].xmem_writes == ()
     # F-2 at fetch: no word began, yet the run's end is recorded.
     state = make_state("INC LR0 1 ;;")
     records = _collect(state)
@@ -237,3 +263,69 @@ def test_an_emulator_only_op_is_tagged():
     ops = [op for r in _collect(state) for op in r.slots if op.slot == "acc_store"]
     assert ops and all(op.emulator_only for op in ops)
     assert all(op.to_json()["tag"] == "emulator" for op in ops)
+
+
+def test_a_fault_is_recorded_when_it_happens():
+    # Writes after the fault (a host poking registers) are no part of it, and
+    # a rerun without close() keeps the fault's record.
+    state = make_state("INC LR3 1 ;;\nSET LR0 CR1 ; SET LR0 CR2 ;;\nHALT ;;")
+    collector = CommitCollector(state)
+    with pytest.raises(EmulatorFault):
+        run_until_complete(state)
+    state.regfile.set_lr(5, 99)
+    state.program_counter = 2
+    run_until_complete(state)
+    records = collector.close()
+    assert [(r.pc_before, r.outcome) for r in records] == [
+        (0, "retired"),
+        (1, "fault"),
+        (2, "halt"),
+    ]
+    assert records[1].reg_writes == ()
+
+
+def _debug_run(state, callback, **kw):
+    from ipu_emu.emulator import run_with_debug
+
+    return run_with_debug(state, callback, **kw)
+
+
+def test_a_break_belongs_to_its_own_word_when_the_debugger_moves_the_pc():
+    from ipu_emu.emulator import DebugAction
+
+    state = make_state("INC LR0 1 ;;\nBREAK ;;\nINC LR1 1 ;;\nINC LR2 1 ;;\nHALT ;;")
+
+    def callback(state, cycles):
+        state.program_counter = 3  # skip to the third INC
+        return DebugAction.CONTINUE
+
+    with CommitCollector(state) as collector:
+        _debug_run(state, callback)
+    by_pc = {r.pc_before: r for r in collector.records}
+    assert by_pc[3].outcome == "retired"
+    assert [op.mnemonic for op in by_pc[3].slots] == ["INC"]
+    assert 1 not in by_pc  # the stopped BREAK word never retired
+
+
+def test_quit_then_rerun_leaves_no_stale_break():
+    from ipu_emu.emulator import DebugAction
+
+    state = make_state("INC LR0 1 ;;\nBREAK ;;\nHALT ;;")
+    with CommitCollector(state) as collector:
+        _debug_run(state, lambda s, c: DebugAction.QUIT)
+        state.program_counter = 2
+        run_until_complete(state)
+    last = collector.records[-1]
+    assert last.outcome == "halt" and [op.mnemonic for op in last.slots] == ["HALT"]
+
+
+@_DEBUG_ONLY
+def test_a_wide_debug_register_write_is_tagged():
+    runs = [(n, m) for n, m in PROBE_RUNS if "WIDE" in str(m)]
+    assert runs
+    tagged = []
+    for name, mode in runs:
+        state = timing_probes.prepare(timing_probes.PROBES[name], mode)
+        for record in _collect(state):
+            tagged += [w.to_json() for w in record.reg_writes if w.register.endswith("_wide_debug")]
+    assert tagged and all(w["tag"] == "emulator" for w in tagged)

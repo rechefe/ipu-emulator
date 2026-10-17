@@ -9,7 +9,10 @@ collected, and nothing costs, unless a collector is attached.
 
 A write is a range the word wrote (what its handlers said they may write),
 with its value at the end of the cycle: a write that leaves a value unchanged
-is still a write. Scalar registers (LR, CR) are recorded per index.
+is still a write. Scalar registers (LR, CR) are recorded per index. A write
+to an emulator-only register (the wide-vector debug copies) carries
+``"tag": "emulator"``. A faulting word is recorded when the fault is (through
+``IpuState.add_fault_observer``), with no writes: faults are precise (E04-20).
 """
 
 from __future__ import annotations
@@ -27,7 +30,7 @@ from ipu_isa.tags import Tag
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from ipu_emu.ipu_state import IpuState
+    from ipu_emu.ipu_state import HaltRecord, IpuState
     from ipu_emu.issue import IssueFacts
 
 __all__ = [
@@ -75,6 +78,10 @@ class SlotOp:
         return hash((self.slot, self.mnemonic, tuple(sorted(self.fields.items()))))
 
 
+#: Registers with no hardware equivalent: wide-vector debug mode's copies.
+EMULATOR_REGISTERS = frozenset({"r_wide_debug", "r_cyclic_wide_debug"})
+
+
 @dataclass(frozen=True)
 class RegWrite:
     """A register write: ``value`` of a scalar register's ``index``, or
@@ -87,9 +94,14 @@ class RegWrite:
     data: bytes | None = None
 
     def to_json(self) -> dict[str, Any]:
+        out: dict[str, Any]
         if self.data is None:
-            return {"register": self.register, "index": self.index, "value": self.value}
-        return {"register": self.register, "offset": self.offset, "data": self.data.hex()}
+            out = {"register": self.register, "index": self.index, "value": self.value}
+        else:
+            out = {"register": self.register, "offset": self.offset, "data": self.data.hex()}
+        if self.register in EMULATOR_REGISTERS:
+            out["tag"] = "emulator"
+        return out
 
     @classmethod
     def from_json(cls, doc: Mapping[str, Any]) -> RegWrite:
@@ -193,8 +205,8 @@ class CommitCollector:
     """Builds a :class:`CommitRecord` for every word *state* runs.
 
     Attach it before a run and :meth:`close` it after (or use it as a context
-    manager): ``close`` also records a fault that ended the run before a word
-    began (F-2 at fetch, F-9 at the cycle limit) or in the middle of one.
+    manager). A fault is recorded when it happens, whether before a word
+    began (F-2 at fetch, F-9 at the cycle limit) or inside one.
 
     Args:
         state: The machine state to watch.
@@ -204,11 +216,15 @@ class CommitCollector:
         self.state = state
         self.records: list[CommitRecord] = []
         self._pending: _Pending | None = None
+        # The BREAK slot runs before ``begin``: its op, and whether it fired,
+        # wait for the word at that PC to begin.
         self._pre: list[SlotOp] = []
+        self._pre_pc: int | None = None
         self._broke = False
         self._seen_halt: object = state.halt
         self._detach: list[Callable[[], None]] = [
             state.add_cycle_observer(self),
+            state.add_fault_observer(self._faulted),
             state.regfile.add_observer(self._register_written),
             state.xmem.add_observer(self._memory_event),
         ]
@@ -220,28 +236,34 @@ class CommitCollector:
         self.close()
 
     def close(self) -> list[CommitRecord]:
-        """Stop watching; record a fault that ended the run. Returns the records."""
-        self._settle()
+        """Stop watching. Returns the records."""
         for detach in self._detach:
             detach()
         self._detach = []
+        self._pending, self._pre, self._pre_pc, self._broke = None, [], None, False
         return self.records
 
     # -- CycleObserver ------------------------------------------------------
 
     def begin(self, pc: int) -> None:
-        self._settle()
-        self._pending = _Pending(pc, slots=self._pre, broke=self._broke)
-        self._pre, self._broke = [], False
+        # A word that began and never ended raised an emulator error, not a
+        # fault (a fault is recorded at once): it leaves no record.
+        same_word = self._pre_pc == pc
+        self._pending = _Pending(
+            pc, slots=self._pre if same_word else [], broke=same_word and self._broke
+        )
+        self._pre, self._pre_pc, self._broke = [], None, False
 
     def issued(self, facts: IssueFacts) -> None:
         pass
 
     def retired(self, facts: IssueFacts, result: Any) -> None:
         op = facts.plan.inst_name
+        if self._pending is None and self._pre_pc != self.state.program_counter:
+            self._pre, self._pre_pc, self._broke = [], self.state.program_counter, False
         if facts.slot == "break" and result is CycleOutcome.BREAK:
             self._broke = True
-        if op == "NOP" or facts.operands is None:
+        if op == "NOP":
             return
         slot_op = SlotOp(facts.slot, op, dict(facts.encoded), facts.slot in _EMULATOR_SLOTS)
         if self._pending is None:
@@ -269,26 +291,27 @@ class CommitCollector:
             self._pending.regs.setdefault(name, []).append((start, start + size))
 
     def _memory_event(self, kind: str, address: int, size: int, data: object) -> None:
-        if self._pending is not None and kind != "read" and size:
+        if self._pending is not None and kind == "write" and size:
             self._pending.xmem.append((address, address + size))
 
     # -- records ------------------------------------------------------------
 
-    def _settle(self) -> None:
-        """Record the fault that ended a word mid-cycle (``end`` never ran),
-        or a run before a word began."""
-        halt = self.state.halt
-        fresh_fault = halt is not None and halt is not self._seen_halt and halt.reason == "fault"
+    def _faulted(self, halt: HaltRecord) -> None:
+        """Record the faulting word (or, for a fault before any word began,
+        a record of the PC alone), with no writes."""
         pending, self._pending = self._pending, None
-        if fresh_fault:
-            assert halt is not None and halt.fault is not None
-            self._seen_halt = halt
-            fault = FaultInfo(halt.fault.label, halt.pc)
-            if pending is None or pending.pc != halt.pc:
-                pending = _Pending(halt.pc)
-            self._emit(pending, self.state.program_counter, "fault", fault)
-        # A word that stopped without a fault (an emulator error, not a
-        # hardware outcome) leaves no record.
+        self._seen_halt = halt
+        slots = pending.slots if pending is not None and pending.pc == halt.pc else []
+        if pending is None and self._pre_pc == halt.pc:
+            slots = self._pre  # faulted at its BREAK stop's retire, before ``begin``
+        self._pre, self._pre_pc, self._broke = [], None, False
+        assert halt.fault is not None
+        self._emit(
+            _Pending(halt.pc, slots=slots),
+            self.state.program_counter,
+            "fault",
+            FaultInfo(halt.fault.label, halt.pc),
+        )
 
     def _emit(
         self, pending: _Pending, pc_after: int, outcome: Outcome, fault: FaultInfo | None

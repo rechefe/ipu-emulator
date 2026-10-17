@@ -5,12 +5,35 @@
   "description": "A trace is JSON Lines: this header on the first line, then one commit record (commit_record schema) per line (E04-29).",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "isa_digest", "format", "program_digest", "emulator_version"],
+  "required": [
+    "schema_version",
+    "isa_digest",
+    "format",
+    "program_digest",
+    "emulator_version"
+  ],
   "properties": {
-    "schema_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$", "description": "The commit record schema's version."},
-    "isa_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "SHA-256 of the ISA definition (ipu_isa.trace_schema.isa_digest)."},
-    "format": {"type": "string", "description": "The element format the program ran in."},
-    "program_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "SHA-256 of the loaded program's words."},
-    "emulator_version": {"type": "string"}
+    "schema_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "The commit record schema's version."
+    },
+    "isa_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "SHA-256 of the ISA definition (ipu_isa.trace_schema.isa_digest)."
+    },
+    "format": {
+      "type": "string",
+      "description": "The element format the program ran in."
+    },
+    "program_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "SHA-256 of the program as it is loaded: each IMEM word up to the program length, packed little-endian in its emulator word width (ipu_isa.codec.word.word_bytes()), an empty word as zeros."
+    },
+    "emulator_version": {
+      "type": "string"
+    }
   }
 }

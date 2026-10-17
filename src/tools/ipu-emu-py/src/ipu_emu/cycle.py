@@ -42,7 +42,6 @@ from functools import lru_cache
 from typing import TYPE_CHECKING, Any, NamedTuple, Protocol
 
 from ipu_emu.errors import EmulatorError, EmulatorFault, UndeclaredRead, XMemBoundsError
-from ipu_emu.ipu_state import HaltRecord
 from ipu_emu.outcome import CycleOutcome
 from ipu_emu.resolver import FaithfulResolver, OperandResolver, PackedResolver
 from ipu_isa.constants import DStructureConfig, decode_dstructure
@@ -632,8 +631,7 @@ class Cycle:
         fault = (
             error if isinstance(error, EmulatorFault) else EmulatorFault(FaultId.F6, pc, str(error))
         )
-        self.state.faults.sticky.add(fault.fault)
-        self.state.halt = HaltRecord("fault", fault.pc, fault.fault)
+        self.state.record_fault(fault.fault, fault.pc)
         return fault
 
     def _reserved(self, pc: int, detail: str) -> None:

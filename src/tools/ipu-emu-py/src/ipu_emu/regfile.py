@@ -310,8 +310,9 @@ class RegFile:
             value &= REGISTER_WORD_VALUE_MASK
 
         offset = index * desc.size_bytes
-        for observer in self._observers:  # every write is observable (E04-29)
-            observer(canon, offset, desc.size_bytes)
+        if self._observers:  # every write is observable (E04-29); free when none
+            for observer in self._observers:
+                observer(canon, offset, desc.size_bytes)
         struct.pack_into("<I", self._storage[canon], offset, value)
 
     def _is_read_only_cr(self, desc: RegDescriptor, index: int) -> bool:
