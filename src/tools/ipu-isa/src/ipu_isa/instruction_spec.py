@@ -1024,7 +1024,7 @@ INSTRUCTION_SPEC = {
                     "reshape_mask: immediate 0-7 or an LR register; selects the first participating element index (elements reshape_mask..7 participate; reshape_mask = 0 uses all 8, reshape_mask = 7 uses only element 7). When an LR is given, its full value is used as the mask at runtime.",
                 ],
                 operation=(
-                    "mult_res = MULT_RES (cycle-start value)\n"
+                    "mult_res = MULT_RES (this cycle's MULT result)\n"
                     "mask = reshape_mask if immediate else LR[reshape_mask]\n"
                     "if mask > 8: raise error\n"
                     "for i in mask..7:\n"
@@ -1041,7 +1041,7 @@ INSTRUCTION_SPEC = {
             ),
             "implicit_reads": [
                 {"register": "lr", "via_operand": "reshape_mask", "view": "forwarded"},
-                {"register": "mult_res", "view": "cycle_start"},
+                {"register": "mult_res", "view": "forwarded"},
             ],
             "implicit_writes": [{"register": "r_acc"}],
             "execute_fn": "execute_acc_reshape",
