@@ -320,7 +320,7 @@ test('a checker from before versions (exit 2 on --json-version): version 1 and t
   eq(diags.map((d) => span(d.range)), [[3, 2, 3, 4]]);
   eq(fc.checks(false).map((a) => a.slice(-4)), [['check', '--json', '--input', '-']]);
   eq([fc.probes().length, fc.checks(true).length], [1, 0]);
-  eq([ext.log.warnings, ext.log.errors, ext.statusItem.text], [[], [], '$(check) IPU']);
+  eq([ext.log.warnings, ext.log.errors, ext.statusItem.text], [[], [], '$(check) IPU (bundled ISA)']);
   assert.strictEqual(api.analysis.latest(doc.uri.toString()), null);
   assert.strictEqual(await ext.provider('DocumentSemanticTokens').provideDocumentSemanticTokens(doc), undefined, 'the grammar colours alone');
   // The JS rules: a templated mnemonic is left to the checker, so cond looks free.

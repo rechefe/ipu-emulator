@@ -74,7 +74,7 @@ test('in Restricted Mode nothing runs, and the status says why; trusting the wor
 
   ext.trust();
   await until(() => ran(settings.checkCommand) && ran(settings.manifestCommand), 'the checker and the manifest to run', 10000);
-  await until(() => ext.statusItem.text === '$(check) IPU', 'the checker to report');
+  await until(() => ext.statusItem.text === '$(check) IPU (bundled ISA)', 'the checker to report');
   await until(() => index.manifest, 'the kernels to load');
   assert.strictEqual(index.error, null);
   ext.deactivate();
@@ -117,7 +117,7 @@ test('a check that failed is run again for the same text, once the toolchain is 
   assert.match(w.ext.statusItem.text, /checks off/);
   fs.rmSync(path.join(w.roots[0], 'broken'));
   w.ext.events.onDidSaveTextDocument.fire(doc); // the same version, saved
-  await until(() => w.check.runs().length === 2 && w.ext.statusItem.text === '$(check) IPU', 'the same version to be checked again');
+  await until(() => w.check.runs().length === 2 && w.ext.statusItem.text === '$(check) IPU (bundled ISA)', 'the same version to be checked again');
   assert.strictEqual(w.api.checkerError(), null);
   // Once it has succeeded, that version is not checked again.
   w.ext.events.onDidSaveTextDocument.fire(doc);
@@ -133,14 +133,14 @@ test('each checkout has its own status: a broken toolchain in one does not show 
   const docA = w.ext.open(w.kernel(a), 'HALT;;\n');
   await until(() => w.api.checkerError(docA.uri), 'the check in a to fail');
   const docB = w.ext.open(w.kernel(b), 'HALT;;\n');
-  await until(() => w.ext.statusItem.text === '$(check) IPU', 'b to check');
+  await until(() => w.ext.statusItem.text === '$(check) IPU (bundled ISA)', 'b to check');
   assert.deepStrictEqual(w.check.runs(), [a, b], 'each checked in its own checkout');
   assert.strictEqual(w.api.checkerError(docB.uri), null);
   assert.match(w.api.checkerError(docA.uri), /toolchain broken/);
   w.ext.show(docA);
   assert.match(w.ext.statusItem.text, /checks off/);
   w.ext.show(docB);
-  assert.strictEqual(w.ext.statusItem.text, '$(check) IPU');
+  assert.strictEqual(w.ext.statusItem.text, '$(check) IPU (bundled ISA)');
   assert.strictEqual(w.ext.log.warnings.length, 1, 'one pop-up, for the broken checkout');
   w.done();
 });
@@ -186,7 +186,7 @@ test('activating, finding the checkout, loading its kernels and the first check 
   try {
     api = await ext.activate();
     await until(() => api.kernels.indexes.get(root) && api.kernels.indexes.get(root).manifest, 'the kernels to load');
-    await until(() => ext.statusItem.text === '$(check) IPU', 'the first check');
+    await until(() => ext.statusItem.text === '$(check) IPU (bundled ISA)', 'the first check');
   } finally {
     Object.assign(fs, real);
   }

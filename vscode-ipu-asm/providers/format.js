@@ -32,10 +32,10 @@ const editFor = (document, from, to, formatted) => {
 
 /** `format(document, options, token)`: the assembler's { lines }, { refused }, or null (see
  *  formatting.js CheckoutFormatter.format); absent, the editor's rules format everything. */
-function registerFormatting(context, lang, format = async () => null) {
+function registerFormatting(context, langOf, format = async () => null) {
   /** Lines [from, to] formatted by the editor's rules. */
   const formatLines = (document, options, from, to) =>
-    editFor(document, from, to, lang.format(document.getText(), formatOptions(document, options, from, to)));
+    editFor(document, from, to, langOf(document).format(document.getText(), formatOptions(document, options, from, to)));
 
   /** Lines [from, to] formatted by the assembler if it can, else by the editor's rules. A null
    *  `to` is the document's last line, whatever it is when the edits are made. */
@@ -72,7 +72,7 @@ function registerFormatting(context, lang, format = async () => null) {
       const line = position.line;
       if (line === 0) return [];
       const edits = formatLines(document, options, line - 1, line - 1);
-      if (separation(document) === 'emptyLine' && lang.lineEndsWord(document.getText(), line - 1)) {
+      if (separation(document) === 'emptyLine' && langOf(document).lineEndsWord(document.getText(), line - 1)) {
         // At the end of the line above: an edit at the cursor's line would drop the
         // indentation Enter just gave it.
         edits.push(vscode.TextEdit.insert(document.lineAt(line - 1).range.end, '\n'));
@@ -83,7 +83,7 @@ function registerFormatting(context, lang, format = async () => null) {
 }
 
 /** wordSeparation "line" and "space", drawn on screen; for tests, the lines each puts them at. */
-function registerSeparation(context, lang) {
+function registerSeparation(context, langOf, onLanguage) {
   // "line": a thin line drawn (not written) under each `;;` word.
   const separator = vscode.window.createTextEditorDecorationType({
     isWholeLine: true,
@@ -91,7 +91,7 @@ function registerSeparation(context, lang) {
     borderWidth: '0 0 1px 0',
     borderColor: new vscode.ThemeColor('ipuAsm.wordSeparator'),
   });
-  const separatorLines = (document) => (separation(document) === 'line' ? lang.wordEndLines(document.getText()) : []);
+  const separatorLines = (document) => (separation(document) === 'line' ? langOf(document).wordEndLines(document.getText()) : []);
   const paint = (editor) => {
     const lines = editor.document.languageId === LANGUAGE_ID ? separatorLines(editor.document) : [];
     editor.setDecorations(separator, lines.map((n) => new vscode.Range(n, 0, n, 0)));
@@ -101,7 +101,7 @@ function registerSeparation(context, lang) {
   // With wordSeparation "space": an empty CodeLens above each word after the first. It is
   // the one way an extension can add vertical space that is not a line of the file.
   const gapsChanged = new vscode.EventEmitter();
-  const gapLines = (document) => (separation(document) === 'space' ? lang.wordGapLines(document.getText()) : []);
+  const gapLines = (document) => (separation(document) === 'space' ? langOf(document).wordGapLines(document.getText()) : []);
   provide(context, 'CodeLens', {
     onDidChangeCodeLenses: gapsChanged.event,
     provideCodeLenses: (document) =>
@@ -121,6 +121,11 @@ function registerSeparation(context, lang) {
         gapsChanged.fire();
       }
     }),
+    // Another ISA (the checkout's, once generated) may split words elsewhere.
+    onLanguage(() => {
+      paintAll();
+      gapsChanged.fire();
+    }),
     vscode.workspace.onDidChangeTextDocument(({ document, contentChanges }) => {
       // Only a drawn line needs repainting after an edit, once per burst of keystrokes.
       if (document.languageId !== LANGUAGE_ID || !contentChanges.length || separation(document) !== 'line') return;
@@ -135,9 +140,9 @@ function registerSeparation(context, lang) {
   return { separatorLines, gapLines };
 }
 
-function register(context, { lang, format }) {
-  registerFormatting(context, lang, format);
-  return registerSeparation(context, lang);
+function register(context, { langOf, format, onLanguage = () => ({ dispose() {} }) }) {
+  registerFormatting(context, langOf, format);
+  return registerSeparation(context, langOf, onLanguage);
 }
 
 module.exports = { register };

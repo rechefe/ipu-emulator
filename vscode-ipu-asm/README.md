@@ -24,11 +24,36 @@ Elsewhere a `.asm` is only coloured.
 | Which kernel handles a computation | `query --json` | runtime, from the workspace |
 | Whether a program assembles | `ipu-as check` | runtime, from the workspace |
 | Each token's role, each word's slot fit, each Jinja tag's names | `ipu-as check --json --json-version 2` ([analysis](#analysis-from-the-checkout)) | runtime, from the workspace |
-| The same, without such a checker | `data/isa.json` and the editor's own rules (`fallback/`) | extension build |
+| The same, without such a checker | `isa.json` and the editor's own rules (`fallback/`) | as `isa.json` |
+| `isa.json` itself (hover, completion, signature help, slot fit, formatting) | the checkout's ISA (`ipu-gen vscode-data`), else `data/isa.json` | [runtime, else extension build](#which-isa) |
 
-None of it is hand-written but the fallback rules, which read only `data/isa.json`.
+None of it is hand-written but the fallback rules, which read only `isa.json`.
 Build-time knowledge is bundled as `data/isa.json`; runtime knowledge comes from
-the open checkout, so branch-only kernels show up.
+the open checkout, so branch-only kernels and instructions show up.
+
+### Which ISA
+
+On a branch that changes the ISA, the bundled `data/isa.json` (built from
+master) would disagree with the checkout's assembler: hover would call an
+instruction unknown that assembles cleanly. So in a trusted workspace a
+checkout's own ISA is used. It is generated with `bazel run
+//src/tools/ipu-gen:ipu-gen -- vscode-data <cache>` (`language-source.js`) the
+first time a file of that checkout is opened, and again after its ISA or
+generator sources change. The cache lives in the extension's global storage, so
+the next window reads it at once. The bundled data answers until the
+checkout's is ready; then hover, completion and the rest switch over.
+
+The bundled data is used, and the status bar adds `(bundled ISA)` (its tooltip
+says why), when:
+
+- the file is in no checkout;
+- the workspace is in Restricted Mode;
+- generation is running or failed;
+- the checkout's `isa.json` has a newer layout (`schemaVersion`) than this
+  extension reads. A warning then says once to update the extension.
+
+`ipuAsm.languageSource` forces a source: `checkout` uses the checkout's ISA and
+warns when it cannot; `bundled` never generates.
 
 ## Generated, not written
 
@@ -186,6 +211,7 @@ fits only once the `NOP` moves.
 | `test/language.js <isa.json> [parser-tokens.json]` | completion and navigation logic (`language.js`, `fallback/`), and agreement with the parser on the corpus |
 | `test/analysis.js` | the analysis client and each provider on recorded version-2 answers (`fake-checker.js`, `fixtures/analysis-v2.json`): positions in UTF-16, one check per document version (on the Bazel path too), every misfit word marked, a checker from before versions falling back silently, and no checker |
 | `test/formatting.js <isa.json> [<ipu-as> ...]` | the format provider over `ipu-as format` (`formatting.js`, on a stand-in `fake-formatter.js`): asked once whether it formats, its range read back, a refusal edits nothing, an assembler without `format` falls back; with an assembler, it formats the corpus as `language.js` does |
+| `test/language-source.js`, `test/languages.js` | which ISA a document's editing help reads (the checkout's, generated once per source change, or the bundled one) and why; the swap once it is generated; the status bar's `(bundled ISA)` |
 | `test/analysis-agreement.js <isa.json> [bundle.json]` | `fallback/` against the assembler's analysis, both ways, but for the known gaps |
 | `test/runs.js [manifest.json]` | the run, test, debug, benchmark and query commands, against the real manifest; a manifest value that is no label or flag is refused |
 | `test/rewrites.js` + `check_rewrites` | renaming each label and Jinja symbol (with and without the assembler's analysis), and formatting, leaves the assembled binary unchanged |
@@ -284,6 +310,7 @@ code --install-extension ipu-asm.vsix
 | `ipuAsm.bazelFlags` | none | extra flags for Run, Debug, Test and Benchmark, e.g. `--define=ipu_proto=1` |
 | `ipuAsm.cases` | none | cases saved from the form, by kernel: `{ "tall": { "base": "default", "options": { "rows": 64 } } }` |
 | `ipuAsm.timeoutSeconds` | `300` | the longest the checker, the manifest or a query may run before it is stopped; `0` for no limit |
+| `ipuAsm.languageSource` | `auto` | which ISA editing help reads ([Which ISA](#which-isa)): `auto` (the checkout's once generated, else the bundled one), `checkout` (the same, and a warning when it cannot), `bundled` |
 | `ipuAsm.wordSeparation` | `space` | how `;;` words are set apart (a label, comment or opening Jinja tag stays with its word): `space` (an empty CodeLens row; file unchanged), `emptyLine` (written by formatting), `line` (colour `ipuAsm.wordSeparator`) or `none` |
 
 ## Restricted Mode
@@ -295,9 +322,9 @@ set `ipuAsm.checkCommand`, `ipuAsm.manifestCommand`, `ipuAsm.queryCommand` and
 Restricted Mode the extension runs nothing:
 
 - **Works:** highlighting, hover, completion, operand hints, navigation, rename
-  (on its lexical check, and it says so), formatting.
+  (on its lexical check, and it says so), formatting, all on the bundled ISA.
 - **Off:** diagnostics, the kernel sidebar and its buttons, Run, Debug, Test,
-  Benchmark and query. The status bar shows `$(shield) IPU: Restricted Mode`;
+  Benchmark and query. The status bar shows `$(shield) IPU: Restricted Mode (bundled ISA)`;
   clicking it opens VS Code's trust settings.
 
 VS Code also ignores the four settings above when a Restricted Mode workspace

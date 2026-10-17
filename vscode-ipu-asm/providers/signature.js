@@ -20,9 +20,10 @@ function describeDomain(domain) {
   return Object.hasOwn(kinds, domain.kind) ? kinds[domain.kind] : '';
 }
 
-function register(context, { lang }) {
+function register(context, { langOf }) {
   provide(context, 'SignatureHelp', {
     provideSignatureHelp(document, position) {
+      const lang = langOf(document);
       const ctx = lang.context(document.getText(), document.offsetAt(position));
       if (ctx.kind !== 'operand') return undefined;
       const entry = lang.lookup(ctx.mnemonic);

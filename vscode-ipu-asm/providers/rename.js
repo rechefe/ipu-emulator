@@ -7,7 +7,7 @@ const vscode = require('vscode');
 
 const { provide, rangeOf } = require('./shared');
 
-function register(context, { lang, checkText, semantics }) {
+function register(context, { langOf, checkText, semantics }) {
   const symbolAt = async (document, position) => ({ known: await semantics(document), offset: document.offsetAt(position) });
   provide(context, 'Rename', {
     async prepareRename(document, position) {
@@ -25,6 +25,7 @@ function register(context, { lang, checkText, semantics }) {
       const sym = known.symbolAt(offset);
       if (!sym) return undefined;
       const label = sym.kind === 'label';
+      const lang = langOf(document);
       if (!lang.validName(sym.kind, newName)) throw new Error(`"${newName}" is not a valid ${label ? 'label' : 'Jinja name'}.`);
       if (label ? lang.labels(text).defs.some((d) => lang.sameLabel(d.name, newName)) : known.jinjaClash(sym, newName)) {
         throw new Error(label

@@ -98,6 +98,15 @@ function textDocument(uri, text, languageId = 'ipu-asm') {
       const body = this.text.split('\n')[line].replace(/\r$/, '');
       return { text: body, range: new Range(line, 0, line, body.length) };
     },
+    getWordRangeAtPosition(p, pattern) {
+      const body = this.lineAt(p.line).text;
+      const re = new RegExp(pattern.source, 'g');
+      for (let m = re.exec(body); m; m = re.exec(body)) {
+        if (!m[0]) { re.lastIndex++; continue; }
+        if (m.index <= p.character && p.character <= m.index + m[0].length) return new Range(p.line, m.index, p.line, m.index + m[0].length);
+      }
+      return undefined;
+    },
     offsetAt(p) {
       const lines = this.text.split('\n');
       let at = 0;
@@ -123,7 +132,7 @@ const disposable = () => ({ dispose() {} });
 
 /** Install the fake as `vscode` for every module required from now on. `folders` are the
  *  workspace folders' paths; `settings` the `ipuAsm.*` values each folder sees. */
-function install({ trusted = true, folders = [], settings = {} } = {}) {
+function install({ trusted = true, folders = [], settings = {}, storage } = {}) {
   const log = { statuses: [], warnings: [], errors: [], terminals: [], watchers: [], commands: new Map(), providers: {}, diagnostics: {} };
   const events = new Proxy({}, { get: (all, key) => (all[key] = all[key] || new EventEmitter()) });
   const on = (name) => events[name].event;
@@ -237,7 +246,7 @@ function install({ trusted = true, folders = [], settings = {} } = {}) {
 
   // Loaded now, so activating it reads no module from disk.
   const extension = require(path.join(EXTENSION, 'extension.js'));
-  const context = { subscriptions: [], workspaceState: { get() {}, async update() {} } };
+  const context = { subscriptions: [], workspaceState: { get() {}, async update() {} }, ...(storage && { globalStorageUri: Uri.file(storage) }) };
   return {
     vscode,
     log,

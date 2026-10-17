@@ -15,7 +15,6 @@
 // A checker that speaks version 2 of that output answers the editing providers
 // too, from the same run (analysis.js): one check per document version.
 
-const fs = require('fs').promises;
 const path = require('path');
 const vscode = require('vscode');
 
@@ -28,7 +27,8 @@ const project = require('./project');
 const editing = require('./editing');
 const kernels = require('./kernels');
 const { timeoutSeconds } = kernels;
-const { Language } = require('./language');
+const { Languages } = require('./languages');
+const { BundledLanguageSource } = require('./language-source');
 const { LANGUAGE_ID } = require('./providers/shared');
 const trust = require('./trust');
 
@@ -114,10 +114,10 @@ class StatusBar {
   }
 }
 
-/** language.js over isa.json (built with the extension, so always matching), or null. */
+/** language.js over the bundled isa.json (built with the extension, so always matching), or null. */
 async function loadLanguage() {
   try {
-    return new Language(JSON.parse(await fs.readFile(path.join(__dirname, 'data', 'isa.json'), 'utf8')));
+    return (await new BundledLanguageSource().load()).lang;
   } catch (err) {
     // A convenience: losing it must not take highlighting with it.
     console.warn(`[ipu-asm] no language data (${err.message})`);
@@ -177,6 +177,8 @@ class Checking {
     this.analysis = new AnalysisClient();
     /** Which checkers have `format`, and running it. */
     this.formatter = new CheckoutFormatter();
+    /** Each document's language data (languages.js), once the bundled data is read. */
+    this.languages = null;
   }
 
   stateOf(root) {
@@ -201,6 +203,7 @@ class Checking {
         state.invalidate();
         this.analysis.forgetVersions(root);
         this.formatter.forget(root);
+        if (this.languages) this.languages.invalidate(root);
       };
       for (const event of [watcher.onDidCreate, watcher.onDidChange, watcher.onDidDelete]) event(changed);
       return watcher;
@@ -489,18 +492,27 @@ class Checking {
    *  assembly). */
   showStatus() {
     if (!trust.mayRun()) {
-      this.status.show('$(shield) IPU: Restricted Mode', `IPU Assembly: ${trust.RESTRICTED}`, 'workbench.trust.manage');
+      // Editing help, which still works, uses the bundled ISA: the checkout's is not generated.
+      const suffix = this.languages ? ' (bundled ISA)' : '';
+      this.status.show(`$(shield) IPU: Restricted Mode${suffix}`, `IPU Assembly: ${trust.RESTRICTED}`, 'workbench.trust.manage');
       return;
     }
     const editor = vscode.window.activeTextEditor;
     if (!editor || editor.document.languageId !== LANGUAGE_ID) return;
     const state = this.states.get(this.knownCheckout(editor.document.uri) || '');
+    // Hover, completion and the other editing help: the checkout's ISA, or the bundled one.
+    const chosen = this.languages && this.languages.chosen(editor.document);
+    const bundled = chosen && chosen.use === 'bundled';
+    const suffix = bundled ? ' (bundled ISA)' : '';
+    const isa = bundled ? `\n\nEditing help uses the ISA bundled with the extension: ${chosen.why}.` : '';
     if (state && state.lastError) {
-      this.status.show('$(warning) IPU: checks off', `IPU Assembly diagnostics are not running:\n\n${state.lastError}`, 'ipuAsm.showCheckerStatus');
+      this.status.show(`$(warning) IPU: checks off${suffix}`, `IPU Assembly diagnostics are not running:\n\n${state.lastError}${isa}`, 'ipuAsm.showCheckerStatus');
     } else if (state && state.ok) {
-      this.status.show('$(check) IPU', 'IPU Assembly diagnostics are running.', undefined);
-    } else {
+      this.status.show(`$(check) IPU${suffix}`, `IPU Assembly diagnostics are running.${isa}`, undefined);
+    } else if (bundled) {
       // Nothing checked in this checkout yet, or a file in none.
+      this.status.show(`$(book) IPU${suffix}`, isa.trim(), undefined);
+    } else {
       this.status.hide();
     }
   }
@@ -591,16 +603,25 @@ async function activate(context) {
   );
 
   let editingApi = null;
-  const lang = await loadLanguage();
-  if (lang) {
+  const bundled = await loadLanguage();
+  if (bundled) {
+    const languages = new Languages(context, {
+      bundled,
+      checkoutOf: (uri) => checking.knownCheckout(uri),
+      findCheckout: (uri) => checking.checkoutFor(uri),
+    });
+    checking.languages = languages;
+    context.subscriptions.push(languages.onDidChange(() => checking.showStatus()));
+    const langOf = (document) => languages.of(document);
     /** Numbers rename checks, so concurrent ones never supersede each other. */
     let renameChecks = 0;
     editingApi = editing.register(context, {
-      lang,
+      langOf,
+      onLanguage: (listener) => languages.onDidChange(listener),
       // The document's own text was checked already (unless its check failed): not again.
       checkText: (uri, text, token) => checking.keptCheck(uri, text)
         || checking.runCheckText(uri, text, `${uri.toString()}#rename-${++renameChecks}`, token),
-      semantics: (document, options) => checking.semanticsOf(lang, document, options),
+      semantics: (document, options) => checking.semanticsOf(langOf(document), document, options),
       answer: (document) => checking.analysis.current(document.uri.toString(), document.version, document.getText()),
       onAnswer: (listener) => checking.analysis.onStore(listener),
       format: (document, options, token) => checking.formatWithChecker(document, options, token),
@@ -608,7 +629,7 @@ async function activate(context) {
   }
   // For tests: the kernels and editing APIs, and why diagnostics are off (for a document,
   // the active editor's, or any), if they are.
-  return { kernels: kernelApi, editing: editingApi, checkerError: (uri) => checking.errorFor(uri), analysis: checking.analysis };
+  return { kernels: kernelApi, editing: editingApi, checkerError: (uri) => checking.errorFor(uri), analysis: checking.analysis, languages: checking.languages };
 }
 
 module.exports = { activate };
