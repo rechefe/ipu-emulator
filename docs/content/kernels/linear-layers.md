@@ -1,6 +1,7 @@
 # Linear layers
 
-All kernels in `kernels/matmul/` and `kernels/projections/` compute
+All kernels in `kernels/matmul/` and `kernels/projections/`, and
+`fully_connected` in `kernels/linear/`, compute
 
 ```
 C = act(A @ W^T)          C[m, n] = act(sum_k A[m, k] * W[n, k])
@@ -61,6 +62,23 @@ A query that leaves `activation` out means `activation=none`: it finds the
 QKV, OutProj and FFN2 kernels, and an FFN1 kernel is found only with
 `activation=silu`.
 
+## `fully_connected`
+
+One kernel, `kernels/linear/fully_connected`, run and tested as
+`//kernels/linear/fully_connected`. It computes `y[s, :] = w @ x[s, :]` for a
+fixed shape: 10 samples of 128 inputs, 64 outputs, with no activation. It is
+the one kernel that runs in several element formats with one program: INT8,
+INT32 (the emulator-only format: INT8 data in 32-bit elements), E4 and E5.
+`y` is stored from the accumulator: INT32 for INT8 and INT32 data, FP32 for E4
+and E5. The case data are seeded, generated per format inside each input's
+`range`, which keeps every sum inside the accumulator. The goldens come from
+the shared `linear` op (`y = linear(w, x.T).T`), rounded to the accumulator
+format: exact in INT8 and INT32, `FP32_ORDER` in E4 and E5.
+
+Query: `bazel run //kernels:query -- fully_connected`. The shape parameters
+`samples`, `in_features` and `out_features` each take one value (10, 128,
+64).
+
 ## Data layout
 
 A `matmul_*` kernel takes `input_path`, `weights_path` and `output_path`. The
@@ -83,3 +101,10 @@ stored as one XMEM row of 128 lanes per output channel, with the first `N_TOK`
 lanes valid. L3 (144) has `N_TG = 2` token groups of 128; L4/L5 have
 `N_TG = 1` (64 / 16 tokens padded to 128 lanes). The reference is the shared
 `linear` op, `activation(a @ b)`.
+
+`fully_connected` declares its tensors in `kernel.toml` too. `x` is
+`[10, 128]`, one XMEM row per sample. `w` is `[64, 128]`, output-major; its
+`transposed` pack (`kernels/linear/pack.py`) stores one row per input
+feature, holding that input's weight for each of the 64 outputs. `y` is
+`[10, 64]`, one accumulator vector per sample: 4 rows apart in INT8, E4 and
+E5, 1 row apart in INT32.

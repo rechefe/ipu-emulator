@@ -359,24 +359,6 @@
     "word_fingerprints": "2580f2eae409f8bed84ab69a1e9628ad1a5a073d22c13129034cdfe6d8baf0362770a2b3cbc383018d6d5d340f8f945c6195618e9175aac0378040672758000e2e459ca96c0456ec68177f66",
     "words": 19
   },
-  "src/tools/ipu-apps/src/ipu_apps/kernels/reshape/concat_16x16x128x128/concat_16x16x128x128.asm": {
-    "bin_sha256": "b762282246d3725fcd9a013d19662f6c035df6f37ff65304bec1c68cedf4d02b",
-    "mem_sha256": "38a610f77895cceb36232649b787e90437122c018880dc4554d85a09e90823fd",
-    "word_fingerprints": "a3dea594e098f2ebbcb3d187437d416bf36f6f265712b833419114cd9444acd68fae4f8e4e2a67aae098f2ebbcb3d187437d416bf5849ee929ba6f473ea07428a159886b24f0f8e768177f66",
-    "words": 19
-  },
-  "src/tools/ipu-apps/src/ipu_apps/kernels/reshape/concat_32x32x96x96/concat_32x32x96x96.asm": {
-    "bin_sha256": "b762282246d3725fcd9a013d19662f6c035df6f37ff65304bec1c68cedf4d02b",
-    "mem_sha256": "38a610f77895cceb36232649b787e90437122c018880dc4554d85a09e90823fd",
-    "word_fingerprints": "a3dea594e098f2ebbcb3d187437d416bf36f6f265712b833419114cd9444acd68fae4f8e4e2a67aae098f2ebbcb3d187437d416bf5849ee929ba6f473ea07428a159886b24f0f8e768177f66",
-    "words": 19
-  },
-  "src/tools/ipu-apps/src/ipu_apps/kernels/reshape/concat_8x8x160x160/concat_8x8x160x160.asm": {
-    "bin_sha256": "b762282246d3725fcd9a013d19662f6c035df6f37ff65304bec1c68cedf4d02b",
-    "mem_sha256": "38a610f77895cceb36232649b787e90437122c018880dc4554d85a09e90823fd",
-    "word_fingerprints": "a3dea594e098f2ebbcb3d187437d416bf36f6f265712b833419114cd9444acd68fae4f8e4e2a67aae098f2ebbcb3d187437d416bf5849ee929ba6f473ea07428a159886b24f0f8e768177f66",
-    "words": 19
-  },
   "src/tools/ipu-apps/src/ipu_apps/kernels/reshape/depth_to_space/depth_to_space.asm": {
     "bin_sha256": "cd1e0e2be66c1bf8fd21687bdbbd4b918b0bf3b0af9565ebca20c6bd28161f4a",
     "mem_sha256": "0b3b09edae7d6ec6e5361a56669d8ad87ff59a24b3340f0abd68c0b52b698ce4",
@@ -437,12 +419,6 @@
     "word_fingerprints": "2646e9d5a895e608d1ded03cb17065aa4daf9728ef1234cba8df990b3ea9b53cfcd53d34911ca891b7802a329eb396b2f3a75aea4daf97288260177ec5aae3ac3188108a95745578575247563855c5478161f4e876fde65ce70fad7a632455c21ff227e2bc4c2091b91317d4b7802a327078f50a808f29d4d00d632368177f66",
     "words": 32
   },
-  "src/tools/ipu-apps/src/ipu_apps/kernels/softmax/softmax_columns/softmax_columns.asm": {
-    "bin_sha256": "251f37b7eebcbe5e4a5f9cdbb430733303d8c5e494a6ceb8ba4931b9630910ee",
-    "mem_sha256": "aec381071b7eb26a5b6e8d801966c18fd0cf4f0718b5994bad47ce8cedf18b51",
-    "word_fingerprints": "2420f2da1a5a073d78061ccfa5e23ca135550e34547b47025c99b31635550e3479776c91d735e034d23144fa9debf0546582f7c4978e52e5511bdef91a5a073d565fa1e235550e3478061ccfbf594e0af056bc14b325d2e547f64ece3c1737876582f7c4f2d20189511bdef91a5a073da5e23ca17b6c5b8d2da404b46246a3a17b6c5b8d8fefbe39e95b54de43eceaf15d57d0a96582f7c43ef0bc0c511bdef91a5a073dca786284ea98ac537b6c5b8da145faa5fee42729d6e5d5836582f7c4ea5446fd68177f66",
-    "words": 50
-  },
   "src/tools/ipu-apps/src/ipu_apps/kernels/softmax/softmax_columns_packed/softmax_columns_packed.asm": {
     "bin_sha256": "d1d81bd314b2ff7a120422bc2c042c76081b7243f1d43b6c8a562370f09581bc",
     "mem_sha256": "94b9c7831a20291b9bbfe9e3af113e6935d6572aabd64a0d8a703f4a5a5035b0",
@@ -454,12 +430,6 @@
     "mem_sha256": "2128252a50fcbe8e5df52e27355c588edfddff991d40e13ee3fa4f436b703f84",
     "word_fingerprints": "bd7033401eb51f2f9c368e40afe5e07b9b35f5fb78061ccf38aafa2235550e34a2ffd4aff906642d349fe6d4ae09ed9378061ccfcab1c92d26d6990cf36f6f2635550e34bf594e0acb75da5c35a9df41267011c07c8c20ed38aafa227b6c5b8d1cb267f5f906642d7aaed5eeaaea2e3f70b5da2438aafa227b6c5b8d843901e1f906642dbe990029847f09e86183410368177f66",
     "words": 37
-  },
-  "src/tools/ipu-apps/src/ipu_apps/kernels/softmax/softmax_rows_long/softmax_rows_long.asm": {
-    "bin_sha256": "b6f6c0bfab753e7aeb648b5fd1a7d19d8ca214f9e275231efac6b24285f798b0",
-    "mem_sha256": "6993e7141ce8ae4526a70084e67ead85c65867480f42f63be899fee5412ab2be",
-    "word_fingerprints": "7b543a3f69aa603f5c49f9ba4881f05091671d2e78061ccf612580e130954b6a35550e34a2ffd4af77b1625f05b509e535550e3456147109577b6caebfabb2d035550e34efcb6f93b02e428d3d417f8dae09ed9378061ccfcab1c92d612580e1f36f6f264f8193142eb1440a35550e34bf594e0aee60c6b286044acac6d2288e65f9145af2135dbf612580e130954b6a7b6c5b8d1cb267f577b1625f81aa63c17b6c5b8da2e3bd99577b6cae45cf935d7b6c5b8de50d7231b02e428d5c5e1137aaea2e3f70b5da24612580e185cff92c24b778887b6c5b8d843901e1577b6cae74452a43b02e428df0065252f279839ec5e3525168177f66",
-    "words": 62
   },
   "src/tools/ipu-apps/src/ipu_apps/kernels/softmax/softmax_rows_partial/softmax_rows_partial.asm": {
     "bin_sha256": "7763591d2f3dafb61b7b6111ce58cd06344613a4dce66111a6496e7c58bff19a",

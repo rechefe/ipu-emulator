@@ -3,7 +3,9 @@
 # {192,240}_p4); run by itself it is a small shape of the same program.
 [kernel]
 op = "projection"
-formats = ["fp32"]
+# E4 waits for the AaQ stage: ACTIVATE.QUANTIZE refuses an 8-bit float format
+# (OQ-20). test_formats.py fails when that changes (E07-03).
+formats = ["fp32", "int8"]
 
 [params]
 k          = { type = "int", min = 128, multiple_of = 16 }  # input channels; chunk 0 is a full 128
@@ -28,10 +30,12 @@ stream_count    = "n_streams"
 [inputs.b]                                         # the data D, channel-major per stream
 shape = ["n_streams", "n_tg", "k", "n_tok"]
 pack = "channel_major"
+range = { int8 = [-2, 2] }                         # INT8: < 1% of y saturates (test_formats.py)
 
 [inputs.a]                                         # the shared weights W, output-major
 shape = ["n_out", "k"]
 pack = "output_major_weights"
+range = { int8 = [-2, 2] }
 
 [outputs.y]                                        # ST.AAQ rows, n_tok lanes valid
 shape = ["n_streams", "n_tg", "n_out", "n_tok"]
@@ -54,9 +58,10 @@ stream_count    = "CR14"
 
 [golden]
 op = "linear"                                      # activation(a @ b), ipu_kernels.reference.ops
-tolerance = { fp32 = "FP32_LONG" }
+tolerance = { fp32 = "FP32_LONG", int8 = "INT8_LSB" }  # INT8 measured exact (E07-03)
 
-# The data of the ipu_apps cases: RandomState(0xC0FFEE), b per stream then a.
+# FP32: the data of the ipu_apps cases, RandomState(0xC0FFEE), b per stream
+# then a. INT8: the default generator, in each input's range.
 [cases.default]
 generator = "gen.py:legacy_uniform"
 k = 192
@@ -68,6 +73,7 @@ activation = "silu"
 # so a weight pointer stuck at channel 0 reads every channel as channel 0.
 [cases.weight_rows]
 tier = "nightly"
+formats = ["fp32"]                                 # (j+1)/100 rounds to 0 in INT8
 generator = "gen.py:weight_rows"
 k = 192
 n_out = 8

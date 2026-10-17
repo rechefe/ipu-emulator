@@ -9,7 +9,10 @@ name; valid 0..128; a dstructure CR word, as
 CR without the bit layout in its file). Nothing else is evaluated. A
 ``[derived]`` value may also read ``base(<tensor>)``, a region's base once it
 is placed (:func:`base_name`, :func:`placed_reads`): such a value is known
-only when the registers are written, so only ``[abi]`` reads it.
+only when the registers are written, so only ``[abi]`` reads it. So is a
+``[derived]`` value that reads :data:`ROW_BYTES` (``row_bytes``, the bytes of
+one XMEM row in the case's format), which a ``row`` pin may also read: a
+legacy layout at fixed byte addresses in every format (``fully_connected``).
 Arithmetic is exact (fractions): ``/`` must end up inside ``ceil`` or divide
 evenly, and the result must be a whole number.
 
@@ -66,6 +69,12 @@ BASE = "base"
 
 FUNCTIONS = frozenset({*_CALLS, BASE})
 
+#: The name of the bytes of one XMEM row in the case's format (128 x the
+#: element's bytes: 128 in an 8-bit format, 512 in FP32 and INT32). Known only
+#: with the format, so a ``row`` pin and a placed ``[derived]`` value may read
+#: it, and nothing that routing evaluates without a format.
+ROW_BYTES = "row_bytes"
+
 
 def base_name(tensor: str) -> str:
     """The name ``base(<tensor>)`` is looked up by, in :func:`evaluate`'s names
@@ -81,8 +90,9 @@ def base_tensor(read: str) -> str | None:
 
 
 def placed_reads(derived: Mapping[str, str]) -> dict[str, frozenset[str]]:
-    """Each ``[derived]`` value that reads a region's base, directly or through
-    an earlier such value, with the tensors whose bases it reads.
+    """Each ``[derived]`` value that reads a region's base or :data:`ROW_BYTES`,
+    directly or through an earlier such value, with the tensors whose bases it
+    reads (none for one that reads only ``row_bytes``).
 
     Raises:
         ExpressionError: An expression is outside the grammar.
@@ -93,9 +103,12 @@ def placed_reads(derived: Mapping[str, str]) -> dict[str, frozenset[str]]:
         placed = False
         for read in names_in(expression):
             tensor = base_tensor(read)
-            if tensor is not None or read in reads:
+            if tensor is not None or read in reads or read == ROW_BYTES:
                 placed = True
-                tensors |= {tensor} if tensor is not None else reads[read]
+                if tensor is not None:
+                    tensors.add(tensor)
+                elif read in reads:
+                    tensors |= reads[read]
         if placed:
             reads[name] = frozenset(tensors)
     return reads

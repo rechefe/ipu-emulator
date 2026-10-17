@@ -29,7 +29,7 @@ import itertools
 import math
 import zlib
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from types import MappingProxyType
 
@@ -42,7 +42,7 @@ from ipu_harness.manifest import CaseDecl, KernelManifest, Tier
 from ipu_harness.params import CasePlan, PlanError
 from ipu_isa.formats import FORMATS, ElementFormat
 
-__all__ = ["Case", "CaseInputs", "checked_input", "expand", "inputs_for", "rng"]
+__all__ = ["Case", "CaseInputs", "at_values", "checked_input", "expand", "inputs_for", "rng"]
 
 
 @dataclass(frozen=True)
@@ -56,7 +56,8 @@ class Case:
             ``plan_case`` to report).
         formats: The formats it runs in: its own limit, else the kernel's.
         inputs: User input files, by tensor name.
-        expected: User expected-output files, by tensor name.
+        expected: User expected outputs, by tensor name: a ``.npy`` file, or
+            a ``"file.py:fn"`` (``fn(plan)`` returns the values).
         generator: ``"file.py:fn"`` that makes inputs, if any.
         tier: ``default`` or ``nightly`` (Q73).
         decl: The ``[cases.<name>]`` it comes from, for plan_case's ``case``.
@@ -66,7 +67,7 @@ class Case:
     values: Mapping[str, object]
     formats: tuple[ElementFormat, ...]
     inputs: Mapping[str, Path]
-    expected: Mapping[str, Path]
+    expected: Mapping[str, Path | str]
     generator: str | None
     tier: Tier
     decl: CaseDecl
@@ -118,6 +119,25 @@ def expand(manifest: KernelManifest) -> tuple[Case, ...]:
                 )
             )
     return tuple(cases)
+
+
+def at_values(case: Case, name: str, values: Mapping[str, object]) -> Case:
+    """``case`` run at other parameter values: the same generator, formats and
+    tier, without its files (other values give other shapes). A benchmark
+    point and a routed query run this way, over the default case.
+
+    Args:
+        case: The case to start from.
+        name: The new case's name.
+        values: Values over the case's own.
+
+    Returns:
+        The case, renamed, at ``{**case.values, **values}``.
+    """
+    merged = MappingProxyType({**case.values, **values})
+    empty: Mapping[str, Path] = MappingProxyType({})
+    decl = replace(case.decl, name=name, values=merged, inputs=empty, expected=empty)
+    return replace(case, name=name, values=merged, inputs=empty, expected=empty, decl=decl)
 
 
 def rng(kernel: str, case: str, tensor: str) -> np.random.Generator:

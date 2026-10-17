@@ -12,7 +12,16 @@ names them; //kernels:test_families checks it against the kernel.toml folders.
 KERNELS = {
     "convolutions": ["conv1x1", "conv3x3_relu", "conv3x3_relu_cin1", "conv_first_layer"],
     "elementwise": ["scale"],
+    "linear": ["fully_connected"],
     "projections": ["proj_p4", "proj_p4_2tg", "proj_p4_2tg_silu"],
+    "reshape": ["concat", "depth_to_space", "identity"],
+    "softmax": [
+        "softmax_columns",
+        "softmax_columns_packed",
+        "softmax_rows",
+        "softmax_rows_long",
+        "softmax_rows_partial",
+    ],
 }
 
 #: The families each family may use: import from (ipu_kernels.<other>) or refer

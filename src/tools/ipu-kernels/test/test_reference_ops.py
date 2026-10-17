@@ -123,3 +123,12 @@ def test_a_kernel_names_a_shared_op_and_evaluate_runs_it(tmp_path: Path):
     out = evaluate(fn, {"x": x, "gamma": np.ones(2), "beta": np.zeros(2)}, {"rows": 1, "dim": -1})
     assert out["y"].dtype == np.float64 and out["y"].tolist() == [[-1.0, 1.0]]
     assert x.tolist() == [[1.0, 3.0]]  # inputs are copied, never changed
+
+
+def test_each_op_is_its_own_module_named_for_it():
+    """One module per op (E07): ``ops/<name>.py`` holds ``<name>``, re-exported."""
+    import importlib
+
+    for name in ops.__all__:
+        assert getattr(ops, name).__module__ == f"ipu_kernels.reference.ops.{name}"
+        assert importlib.import_module(f"ipu_kernels.reference.ops.{name}").__all__ == [name]

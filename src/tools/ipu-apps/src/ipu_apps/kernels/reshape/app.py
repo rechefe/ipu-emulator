@@ -1,25 +1,19 @@
-"""Shared code for the reshape kernels: unfold/fold and concat query vocabulary and SPEC helpers.
+"""Shared code for the reshape kernels: unfold/fold query vocabulary and SPEC helpers.
 
-Unfold, fold and concat are shape/layout kernels, not arithmetic ops. Every
+Unfold and fold are shape/layout kernels, not arithmetic ops. Every
 one of them is written against exactly one shape (the geometry -- stripe
 counts, packing order, loop bounds, register layout -- is baked into the .asm
 and harness), so each ``supports`` is an exact-shape match rather than a
 bound, and there is no flattening or axis convention to normalise the way
 softmax's ``dim`` needs. The query helpers exist so the kernels of one op
 cannot disagree about how a ``shape`` parameter unpacks. ``depth_to_space``
-and ``identity`` keep their own memory-layout specs and use none of this.
+and ``identity`` keep their own memory-layout specs and use none of this; the
+concat kernels moved to ``kernels/reshape`` (E07-04).
 
 **Unfold / fold.** The three unfold kernels and the three fold kernels that
 invert them take one parameter:
 
 ``shape``  the input spatial shape, ``(H, W, C)``
-
-**Concat.** Concat joins two same-spatial-shape tensors along the channel
-axis, so its query carries two channel counts:
-
-``shape``  ``(H, W, C_A, C_B)`` -- spatial height, width, channel count of
-           input A, channel count of input B. The output has ``C_A + C_B``
-           channels at the same spatial shape.
 """
 
 from __future__ import annotations
@@ -36,19 +30,10 @@ from ipu_apps.kernel_registry import (
 )
 from ipu_isa.formats import ElementFormat
 
-CONCAT_OP = "concat"
-
 UNFOLD_WIDE_VECTOR_ONLY = (
     "FP32 element format only (fmt=ElementFormat.FP32). These apps "
     "rearrange spatial data via ACC.STRIDE (unfold) or ACC.RESHAPE (fold) over "
     "the FP32 vector path and have no narrow (INT8/FP8) variant."
-)
-
-CONCAT_WIDE_VECTOR_ONLY = (
-    "FP32 element format only (fmt=ElementFormat.FP32). This app "
-    "copies rows via the FP32 vector path (load -> MULT x1.0 -> ACC.ADD.FIRST "
-    "-> ACTIVATE.QUANTIZE identity -> store) and has no narrow (INT8/FP8) "
-    "variant."
 )
 
 
@@ -131,79 +116,6 @@ def unfold_spec(
         caveats=lambda **params: (UNFOLD_WIDE_VECTOR_ONLY,),
         bundle=lambda **params: unfold_query(params["shape"]).bundle,
         # Exact-shape match: no two kernels of one op share a triple.
-        cost=lambda **params: 0.0,
-        execution=ExecutionConfig(fmt=ElementFormat.FP32),
-    )
-
-
-# -- concat -------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class ConcatQuery:
-    """A concat query reduced to what the kernels route on.
-
-    Attributes:
-        h: Spatial height (shared by both inputs and the output).
-        w: Spatial width (shared by both inputs and the output).
-        c_a: Channel count of input A.
-        c_b: Channel count of input B.
-        bundle: The shape bundle for this query.
-    """
-
-    h: int
-    w: int
-    c_a: int
-    c_b: int
-    bundle: ShapeBundle
-
-
-def concat_query(shape) -> ConcatQuery:
-    """Normalise a ``shape=(H, W, C_A, C_B)`` parameter into what kernels route on."""
-    dims = tuple(int(d) for d in shape)
-    if len(dims) != 4:
-        raise ValueError(f"concat shape must be rank 4 (H, W, C_A, C_B); got {dims}")
-    h, w, c_a, c_b = dims
-    bundle = ShapeBundle.of(input_a=(h, w, c_a), input_b=(h, w, c_b)).with_shapes(
-        derived={"output": (h, w, c_a + c_b)}
-    )
-    return ConcatQuery(h=h, w=w, c_a=c_a, c_b=c_b, bundle=bundle)
-
-
-def concat_spec(app_class, *, h: int, w: int, c_a: int, c_b: int):
-    """KernelSpec for a fixed-``(H, W, C_A, C_B)`` concat kernel.
-
-    An exact-shape match, since C_A/C_B and the loop bounds are baked into
-    CR9/CR10 by the harness's setup() for this one tuple.
-    """
-    name = kernel_folder(app_class)
-    dims = (h, w, c_a, c_b)
-
-    def supports(**params):
-        q = concat_query(params["shape"])
-        bad = positive_dims(height=q.h, width=q.w, channels_a=q.c_a, channels_b=q.c_b)
-        if bad:
-            return no(bad)
-        if (q.h, q.w, q.c_a, q.c_b) != dims:
-            return no(
-                f"handles exactly (H, W, C_A, C_B) = {dims}; got ({q.h}, {q.w}, {q.c_a}, {q.c_b})"
-            )
-        return yes()
-
-    return folder_spec(
-        app_class,
-        op=CONCAT_OP,
-        variant=name.removeprefix("concat_"),
-        requires=("shape",),
-        tags=("fp32-wide",),
-        supports=supports,
-        build=lambda **params: {},
-        explain=lambda **params: (
-            f"(H, W, C_A, C_B) == {dims} exactly: channel counts and loop "
-            f"bounds are fixed constants loaded by setup() for this shape."
-        ),
-        caveats=lambda **params: (CONCAT_WIDE_VECTOR_ONLY,),
-        bundle=lambda **params: concat_query(params["shape"]).bundle,
         cost=lambda **params: 0.0,
         execution=ExecutionConfig(fmt=ElementFormat.FP32),
     )

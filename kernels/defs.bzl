@@ -134,7 +134,8 @@ def ipu_kernel_family(
         shard_count = {},
         tests_tree = False,
         tests_size = "medium",
-        tests_shard_count = None):
+        tests_shard_count = None,
+        tests_data = []):
     """Declare one family, //kernels/<family> (E06-18), and its registry entries (E06-17).
 
     * :lib: the family's Python, ipu_kernels.<family> (packs, stages, layer
@@ -151,7 +152,8 @@ def ipu_kernel_family(
       `Registry.load(kernel_tree(), families=[<family>])` sees the family.
       With tests_tree, also the whole kernel tree (//kernels:all_kernels), for
       a test that routes across families or calls ipu_harness.query.main;
-      then an edit to any kernel reruns it.
+      then an edit to any kernel reruns it. tests_data adds files it reads
+      (a docs page whose tables it checks).
     * :ruff: lint over its Python.
     * :<entry>, :<entry>_nightly, :assemble_<entry> for each registry entry,
       and :registry_bzl_test when it has entries.
@@ -169,6 +171,7 @@ def ipu_kernel_family(
         tests_tree: give :tests the whole kernel tree, not only the family's.
         tests_size: the test size of :tests.
         tests_shard_count: shards of :tests.
+        tests_data: more data of :tests.
     """
     package = native.package_name()
     family = package.rpartition("/")[2]
@@ -196,7 +199,7 @@ def ipu_kernel_family(
         py_pytest_test(
             name = "tests",
             srcs = family_tests,
-            data = [":files"] + ["//%s/%s:%s_files" % (package, k, k) for k in sorted(folders.keys())],
+            data = [":files"] + ["//%s/%s:%s_files" % (package, k, k) for k in sorted(folders.keys())] + tests_data,
             deps = _test_deps(package) + (["//kernels:all_kernels"] if tests_tree else []) + extra_deps,
             size = tests_size,
             shard_count = tests_shard_count,

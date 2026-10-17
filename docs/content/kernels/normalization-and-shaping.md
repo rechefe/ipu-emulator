@@ -62,5 +62,7 @@ permuted by its `pack_input_rows`.
 
 `fold_8x8x240`, `fold_16x16x192` and `fold_32x32x144` (op `fold`, same
 `shape=(H, W, C)` query) are the inverses. `concat_8x8x160x160`,
-`concat_16x16x128x128` and `concat_32x32x96x96` (op `concat`,
-`shape=(H, W, C_A, C_B)`) concatenate two tensors along the channel axis.
+`concat_16x16x128x128` and `concat_32x32x96x96` concatenate two tensors along
+the channel axis, one channel per row: entries of `kernels/reshape/registry.toml`
+over the `concat` template, each run as `//kernels/reshape:<kernel>`. Query:
+`bazel run //kernels:query -- concat h=H w=W c_a=C_A c_b=C_B`.
