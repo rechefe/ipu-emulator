@@ -345,6 +345,24 @@ py_pytest_test(
     ],
 )
 
+# Every declared implicit read against the emulator (E04-12): one generated
+# two-bundle probe per (instruction, implicit read), faithful and prototyping.
+py_pytest_test(
+    name = "test_timing_conformance",
+    srcs = ["test/test_timing_conformance.py"],
+    args = ["-p", "pytest_shard_plugin"],
+    shard_count = 4,
+    imports = ["src"],
+    deps = [
+        ":ipu_emu_lib",
+        ":timing_probes",
+        "//src/tools/ipu-as-py:ipu_as_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+        requirement("numpy"),
+        requirement("pytest"),
+    ],
+)
+
 # The ISA's timing declarations against the two files above (E03-14). It
 # reads the timing tests' source, so they are data, not imported.
 py_pytest_test(

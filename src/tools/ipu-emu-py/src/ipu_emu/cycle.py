@@ -28,6 +28,10 @@ What a word does is a :class:`Schedule`, built once per PC by
 Prototyping mode is an adapter on this one cycle: its schedules skip the idle
 NOP slots (``skip_idle_nops=True``) and its reads go through the packed operand
 resolver (:func:`resolver_for`); nothing else differs.
+
+Handlers read registers through :class:`CycleView`, which serves each read from
+the snapshot or the live register file as the instruction's timing
+declaration says (E04-12).
 """
 
 from __future__ import annotations
@@ -38,7 +42,7 @@ from enum import IntEnum
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, NamedTuple, Protocol
 
-from ipu_emu.errors import EmulatorFault, XMemBoundsError
+from ipu_emu.errors import EmulatorError, EmulatorFault, UndeclaredRead, XMemBoundsError
 from ipu_emu.ipu_state import HaltRecord
 from ipu_emu.resolver import FaithfulResolver, OperandResolver, PackedResolver
 from ipu_isa.faults import FaultId
@@ -293,6 +297,133 @@ def schedule_word(inst: Mapping[str, int], *, skip_idle_nops: bool = False) -> S
         lr_conflict=tuple(targets) if len(targets) != len(set(targets)) else None,
         reserved=reserved,
     )
+
+
+#: Emulator-only storage that holds a declared register in wide-vector debug
+#: mode: a read of it has the view declared for that register.
+_DECLARED_AS = {"r_wide_debug": "r", "r_cyclic_wide_debug": "r_cyclic"}
+
+
+class CycleView:
+    """How a handler reads registers: through the view its instruction declares.
+
+    The ISA timing contract (``ipu_isa.timing``, Q32) declares, for every
+    register an instruction reads, which value the read sees: the cycle-start
+    snapshot or the forwarded (live) one. The declaration is the instruction's
+    ``read`` operands and ``implicit_reads``; :attr:`SlotPlan.views
+    <ipu_emu.ipu.SlotPlan>` holds it per plan. A handler names the register
+    (and, where it matters, the operand that selects it) and this class picks
+    the register file, so changing when a read happens is an edit to the spec,
+    not to a handler.
+
+    The issuer sets :attr:`plan` before it issues each op and again before its
+    handler runs; :class:`Cycle` sets :attr:`snapshot` when it takes the
+    cycle's snapshot. Writes never go through here: handlers write the live
+    file (``RegFile.mutable`` and the ``set_*`` accessors).
+
+    Args:
+        state: The machine state whose live register file is read.
+    """
+
+    __slots__ = ("_snapshot", "_state", "plan")
+
+    def __init__(self, state: IpuState) -> None:
+        self._state = state
+        self._snapshot: RegFile | None = None
+        #: The plan of the op being issued or executed; ``None`` before the first.
+        self.plan: SlotPlan | None = None
+
+    @property
+    def snapshot(self) -> RegFile:
+        """The cycle-start register file (read only by handlers).
+
+        Raises:
+            EmulatorError: No cycle has taken a snapshot yet.
+        """
+        snapshot = self._snapshot
+        if snapshot is None:
+            raise EmulatorError("no register snapshot: a handler ran outside a cycle")
+        return snapshot
+
+    @snapshot.setter
+    def snapshot(self, buffer: RegFile) -> None:
+        self._snapshot = buffer
+
+    @property
+    def live(self) -> RegFile:
+        """The register file this cycle writes (the forwarded view)."""
+        return self._state.regfile
+
+    def source(self, register: str, via: str | None = None) -> RegFile:
+        """The register file a read of *register* comes from: snapshot or live.
+
+        Args:
+            register: A ``REGISTER_DEFINITIONS`` name (``"r_mask"``, ``"lr"``,
+                ...); a wide-vector debug register reads as the register it
+                stands in for.
+            via: The operand that selects the register's index, as declared
+                (``"src"``, ``"reshape_mask"``); ``None`` when the
+                instruction's declared reads of *register* all share one view.
+
+        Returns:
+            The cycle-start snapshot or the live register file. Only its read
+            methods may be called.
+
+        Raises:
+            UndeclaredRead: The instruction does not declare this read.
+            EmulatorError: No op is in flight (a handler called outside a
+                cycle), or no cycle has taken a snapshot.
+        """
+        plan = self.plan
+        if plan is None:
+            raise EmulatorError(
+                f"read of {register} with no op issued: a handler ran outside a cycle"
+            )
+        try:
+            from_snapshot = plan.views[_DECLARED_AS.get(register, register), via]
+        except KeyError:
+            raise self._undeclared(plan, register, via) from None
+        return self.snapshot if from_snapshot else self._state.regfile
+
+    def read(self, register: str, via: str | None = None) -> memoryview:
+        """Register *register*'s bytes, read-only, in its declared view.
+
+        Args:
+            register: See :meth:`source`.
+            via: See :meth:`source`.
+
+        Returns:
+            A read-only view of the register's bytes; constant-ones provenance
+            is kept.
+        """
+        return self.source(register, via).view(register)
+
+    def read_forgetting_provenance(self, register: str, via: str | None = None) -> memoryview:
+        """:meth:`read`, and forget the register's constant-ones provenance in
+        the file read. Reading through ``raw()`` used to forget it, and these
+        reads still do, so alias and identity statistics stay as they were
+        until E04-24."""
+        source = self.source(register, via)
+        source.forget_provenance(register)
+        return source.view(register)
+
+    def lr(self, index: int, via: str | None = None) -> int:
+        """LR *index* in the view declared for ``("lr", via)``."""
+        return self.source("lr", via).get_lr(index)
+
+    def cr(self, index: int, via: str | None = None) -> int:
+        """CR *index* in the view declared for ``("cr", via)``."""
+        return self.source("cr", via).get_cr(index)
+
+    @staticmethod
+    def _undeclared(plan: SlotPlan, register: str, via: str | None) -> UndeclaredRead:
+        where = f" via {via!r}" if via is not None else ""
+        declared = sorted(f"{reg} via {op!r}" if op else reg for reg, op in plan.views)
+        return UndeclaredRead(
+            f"{plan.inst_name} reads {register}{where}, which it does not declare "
+            f"(declared reads: {declared}); add it to the instruction's read "
+            "operands or implicit_reads in instruction_spec.py"
+        )
 
 
 def resolver_for(state: IpuState) -> OperandResolver:
