@@ -14,6 +14,28 @@ The AaQ (Activation and Quantization) stage perfome the following tasks:
 > **Note:** A configurable lookup table (LUT) implements some of the activation
 > functions and special functions.
 
+## Table of Contents
+
+1. [Overview](#1-overview)
+2. [Block Diagram](#2-block-diagram)
+3. [Interfaces](#3-interfaces)
+    - 3.1 [`quantizion_format` Layout](#31-quantizion_format-layout)
+    - 3.2 [Active Elements](#32-active-elements)
+4. [AaQ-Str ISA](#4-aaq-str-isa)
+    - 4.1 [`NOP`: No Operation](#41-nop-no-operation)
+    - 4.2 [`LOAD_LUT`: Load Function Estimation LUT Segment](#42-load_lut-load-function-estimation-lut-segment)
+        - 4.2.1 [Function Estimation LUT](#421-function-estimation-lut)
+        - 4.2.2 [Segment Transfer](#422-segment-transfer)
+        - 4.2.3 [Metadata Block](#423-metadata-block)
+    - 4.3 [`ACTIVATE.QUANTIZE`: Activate and Quantize](#43-activatequantize-activate-and-quantize)
+        - 4.3.1 [Activate](#431-activate)
+        - 4.3.2 [Quantize](#432-quantize)
+            - 4.3.2.1 [Element Format](#4321-element-format)
+            - 4.3.2.2 [Block Scale and Exponent Distance](#4322-block-scale-and-exponent-distance)
+            - 4.3.2.3 [Exponent and Mantissa Encoding](#4323-exponent-and-mantissa-encoding)
+            - 4.3.2.4 [Dynamic Exponent Selection](#4324-dynamic-exponent-selection-fe-1-or-fe-2)
+        - 4.3.3 [Store](#433-store)
+
 ## 2. Block Diagram
 
 ```mermaid
@@ -64,249 +86,495 @@ block-beta
 | output data | Output | The 128-element NX vector. |
 | XMEM write address | Output | The XMEM address to which the stage writes the output data. |
 
+### 3.1 `quantizion_format` Layout
 
-## 5. AaQ Operations
+The `quantizion_format` operand names a 32-bit `CR` that holds the quantization
+format. It has four 8-bit fields:
 
-### 5.0 Activate and Quantize (`ACTIVATE.QUANTIZE`)
+| Bits | Field | Description |
+|------|-------|-------------|
+| `[31:24]` | `N/A` | Not used. |
+| `[23:16]` | `sign` | `0` = unsigned, `1` = signed. |
+| `[15:8]` | `nx_format` | Exponent format. `0` = dynamic, `1`-`7` = `e1`-`e7` (fixed exponent width `fe`). |
+| `[7:0]` | `num_bits` | Total element width `W`: `1`-`8`. `0` is reserved/invalid. |
 
-Activation, quantization and store happen in a single instruction; there is no
-separate activate-only or quantize-only instruction. It applies an
-element-wise activation function to every element of `input data`.
+`nx_format` encoding:
 
-**Syntax:** `ACTIVATE.QUANTIZE activation_fn, dstructure,quantizion_format,table_id,table_offset`
+| Value | Meaning |
+|-------|---------|
+| `0` | Dynamic. The quantizer chooses the exponent width `fe` per block (section 4.3.2.4) and records it in `dynamic_exponent`. |
+| `1`-`7` | `e1`-`e7`. The exponent width `fe` is the value. |
 
-**Operands:** *(the Type column links to the [operand type reference](../operand-types.md))*
+### 3.2 Active Elements
+
+#### CR layout (`dstructure`)
+
+The `dstructure` operand names a 32-bit `CR` that holds the data structure
+format (DS) of the 128-element vector. It has four 8-bit fields:
+
+| Bits | Field | Description |
+|------|-------|-------------|
+| `[31:24]` | `N/A` | Not used. |
+| `[23:16]` | `valid_partition` | Number of valid groups. The rightmost `num_partition - valid_partition` groups are masked. |
+| `[15:8]` | `num_partition` | Number of groups: `1`, `2`, `4` or `8`. `1` means one line of 128 elements, `2` means two lines of 64 elements. |
+| `[7:0]` | `valid_elements` | Number of valid elements in a group. |
+
+#### Active elements rule
+
+The `dstructure` fields select which of the 128 elements are active.
+
+The 128 elements are split into `num_partition` equal groups.
+Each group has `group_size = 128 / num_partition` elements. Then:
+
+1. Only the first `valid_partition` groups are active. The remaining groups are masked.
+2. In each active group, only the first `valid_elements` elements are active.
+
+```text
+group_size = 128 / num_partition
+active[i] = (i / group_size < valid_partition) and (i % group_size < valid_elements)
+```
+
+**Example:** `num_partition = 4`, `valid_partition = 3`, `valid_elements = 10`.
+Each group has 32 elements, so active elements are `0-9`, `32-41` and `64-73`
+(30 elements). Group 3 (`96-127`) is masked.
+
+![Active elements example: 4 groups, 3 valid groups, 10 valid elements](assets/aaq-active-elements.svg)
+
+## 4. AaQ-Str ISA
+
+The AaQ slot is resolved by CTRL and forwarded down the pipeline. The stage
+does not read the CR/LR register files itself (see the Control Stage spec,
+section 5).
+
+The opcode enum (`aaq_inst_opcode_t`, package `ipu_instr_pkg`) is generated
+from [`instruction_spec.py`](../../../src/tools/ipu-common/src/ipu_common/instruction_spec.py)
+by [`gen_codegen.py`](../../../src/tools/ipu-as-py/src/ipu_as/gen_codegen.py).
+
+> **Note:** Each `CR0`-`CR15` register named in the instruction operands is
+> **32 bits** wide. `LR0`-`LR15` operands supply a **16-bit** value.
+
+**Instructions in this section:**
+
+| Instruction | Purpose |
+|-------------|---------|
+| [`NOP`](#41-nop-no-operation) | Do nothing. |
+| [`LOAD_LUT`](#42-load_lut-load-function-estimation-lut-segment) | Fill the function estimation LUT. |
+| [`ACTIVATE.QUANTIZE`](#43-activatequantize-activate-and-quantize) | Activate, quantize and store. |
+
+---
+
+### 4.1 `NOP`: No Operation
+
+No operation for the AaQ slot.
+
+#### Syntax
+
+```text
+NOP
+```
+
+#### Operands
+
+None.
+
+#### Example
+
+```text
+NOP;;
+```
+
+---
+
+### 4.2 `LOAD_LUT`: Load Function Estimation LUT Segment
+
+`LOAD_LUT` fills one **segment** (1024 bits) of the function estimation LUT
+(section 4.2.1). The data comes from the lower 32 words of `input data`.
+
+`lut_addr` selects which segment is written:
+
+| `lut_addr` | What it loads |
+|------------|---------------|
+| `0`-`3` | One 1024-bit slice of the table (section 4.2.2). |
+| `4` | The last 256 bits of the table, plus the metadata block (section 4.2.3). |
+
+#### Syntax
+
+```text
+LOAD_LUT lut_addr
+```
+
+#### Operands
+
+The Type column links to the [operand type reference](../operand-types.md).
 
 | Name | Type | Details |
 |------|------|---------|
-| `activation_fn` | [`Imm`](../operand-types.md#activationfn) | enum that names the activation.  |
-| `dstructure` | [`CrIdx`](../operand-types.md#dstructurecridx) | `CR0`–`CR15`. This register supplies a cr that discribe the stractrue of the 128 element vector. |
-| `quantizion_format` | [`CrIdx`](../operand-types.md#cridx) | `CR0`–`CR15`. This register supplies the quantization format. |
-| `table_id` | [`CrIdx`](../operand-types.md#cridx) | `CR0`–`CR15`. This register supplies the ID of the destination table. |
-| `table_offset` | [`LrIdx`](../operand-types.md#lridx) | `LR0`–`LR15`. This register supplies the offset in the destination table. |
+| `lut_addr` | `Imm` | `0`-`4`. LUT segment index: `0`-`3` = table slices, `4` = last table bits + metadata. |
 
-**`activation_fn` enum:**
+#### Operation
 
-| Encoding | Name | Formula | Notes |
-|----------|------|---------|-------|
-| 0 | `identity` | `f(x) = x` | Pass-through; no change. |
-| 1 | `relu` | `f(x) = max(0, x)` |  |
-| 2 | `relu6` | `f(x) = min(max(0, x), 6)` | Clipped ReLU. |
-| 3 | `reciprocal` | `f(x) = 1/x` | implumented using LUT + dedicated logic to calculates the function . If x is in the non negative subnormal range of fp32 add epslion = 2^-127 if in the negative add -2^-127 , if x is `inf` f(x) = 0 . |
-| 4 | `rsqrt` | `f(x) = 1/√x` | implumented using LUT + dedicated logic to calculates the function . If x is in the non negtive subnormal range of fp32 add epslion = 2^-127 under the sqrt (i.e 1/sqrt(x+epsilon)), if x is `inf` f(x) = 0 if x is a `Negative number` f(x) = `NaN`. |
-| 5 | `exp2` | `f(x) = 2^x` |implumented using LUT + dedicated logic to calculates the function. used only for `non positive numbers` if x = -inf f(x) = 0 |
-| 6 | `generic` | `f(x) = Generic(x)` | The LUT and dedicated logic calculate the function. If `x` is not larger than `2^max_exp`, the LUT gives the result. If `x` is smaller than `2^max_exp`, `range_mode` selects the result: `f(x) = x` (identity) or `f(x) = pos_c` (a constant). `max_exp` (`max_exp_num`), `pos_c` and `range_mode` are in the LUT metadata (section 5.2.2). |
+```text
+payload[1023:0] = {input_data[31], ..., input_data[0]}     // 32 words x 32 bits
+
+if lut_addr <= 3:                                          // full table slice
+    TABLE_BITS[1024*lut_addr +: 1024] = payload            // section 4.2.2
+
+else if lut_addr == 4:                                     // last table bits + metadata
+    TABLE_BITS[4351:4096] = payload[255:0]
+    {range_mode, asymetric, pos_c, neg_c, max_exp_num} = payload[330:256]
+    // field layout in section 4.2.3
+```
+
+#### Example
+
+```text
+LOAD_LUT 4;;      // load the metadata block
+```
+
+---
+
+#### 4.2.1 Function Estimation LUT
+
+The stage holds one function estimation LUT. It has two parts:
+
+| Part | Size | Purpose |
+|------|------|---------|
+| Table | 256 entries x 17 bits = **4,352 bits** | The function values. |
+| Metadata block | **75 bits** | Configures range handling. |
+
+Both parts are filled by `LOAD_LUT`, one segment per instruction. The 3-bit
+`lut_addr` selects the segment. Five `LOAD_LUT` instructions (`lut_addr`
+`0`-`4`) program the whole LUT.
+
+#### 4.2.2 Segment Transfer
+
+**Source.** A segment is **1024 bits**. It comes from the **lower 32 words** of
+`input data`, `input_data[31:0]` (32 words x 32 bits). The upper words
+`input_data[127:32]` are ignored by `LOAD_LUT`.
+
+**Payload.** The 1024-bit payload is the little-endian concatenation of those
+words:
+
+```text
+payload[1023:0] = {input_data[31], input_data[30], ..., input_data[1], input_data[0]}
+                                          // payload[32*j +: 32] == input_data[j]
+```
+
+**Table layout.** The table is one **4,352-bit flat bitstream**. Each `LOAD_LUT` transfers one 1024-bit slice of it.
+
+**Segments.** `lut_addr` selects which slice is written:
+
+| `lut_addr` | Contents | Details |
+|------------|----------|---------|
+| `0` | Table bits `[1023:0]` | 1st slice. |
+| `1` | Table bits `[2047:1024]` | 2nd slice. |
+| `2` | Table bits `[3071:2048]` | 3rd slice. |
+| `3` | Table bits `[4095:3072]` | 4th slice. The table's first 4,096 bits are now fully loaded. |
+| `4` | Table bits `[4351:4096]` + metadata | **Mixed.** `payload[255:0]` = the table's last 256 bits. `payload[330:256]` = the 75-bit metadata block (section 4.2.3). |
+
+#### 4.2.3 Metadata Block
+
+**Where it lives.** The metadata is in bits `[330:256]` of the `lut_addr = 4`
+payload.
+
+**Fields.**
+
+| Local bits | Name | Consumed by | Meaning |
+|------------|------|-------------|---------|
+| `[7:0]` | `max_exp_num` | `Quantactivation` | Largest **biased** FP32 exponent still inside the LUT range. `exp > max_exp_num` flags the lane as out-of-range. |
+| `[39:8]` | `neg_c` | `pack_lutout_activ` | FP32 constant substituted for negative out-of-range lanes. |
+| `[71:40]` | `pos_c` | `pack_lutout_activ` | FP32 constant substituted for positive out-of-range lanes. |
+| `[72]` | `asymetric` | `Quantactivation` | Table domain + address form. |
+| `[74:73]` | `range_mode` | `pack_lutout_activ` | Out-of-range policy. |
+
+> **TBD - ask Jacob:** the encodings of `asymetric` (which table domain and
+> address form each value selects) and of `range_mode` (which out-of-range
+> policy each of the 4 values selects) are not yet specified.
+
+---
+
+### 4.3 `ACTIVATE.QUANTIZE`: Activate and Quantize
+
+Activation, quantization and store happen in a single instruction.
+
+The instruction works in three steps:
+
+| Step | What happens | Section |
+|------|--------------|---------|
+| 1. Activate | Applies an element-wise activation function to every element of `input data`. | 4.3.1 |
+| 2. Quantize | Converts each activated fp32 element into the NX8 format. | 4.3.2 |
+| 3. Store | Writes the result to XMEM. | 4.3.3 |
+
+#### Syntax
+
+```text
+ACTIVATE.QUANTIZE activation_fn, dstructure, quantizion_format, table_id, table_offset
+```
+
+#### Operands
+
+The Type column links to the [operand type reference](../operand-types.md).
+
+| Name | Type | Used by | Details |
+|------|------|---------|---------|
+| `activation_fn` | [`Imm`](../operand-types.md#activationfn) | Activate | Enum that names the activation (see [`activation_fn` Values](#activation_fn-values)). |
+| `dstructure` | [`CrIdx`](../operand-types.md#dstructurecridx) | Quantize | `CR0`-`CR15`. Supplies the structure of the 128-element vector: `valid_partition`, `num_partition`, `valid_elements` (section 3.2). |
+| `quantizion_format` | [`CrIdx`](../operand-types.md#cridx) | Quantize | `CR0`-`CR15`. Supplies the quantization format (section 3.1). |
+| `table_id` | [`CrIdx`](../operand-types.md#cridx) | Store | `CR0`-`CR15`. Supplies the ID of the destination table. |
+| `table_offset` | [`LrIdx`](../operand-types.md#lridx) | Store | `LR0`-`LR15`. Supplies the offset in the destination table. |
+
+#### Operation
+
+```text
+for i in 0..127:
+    activated[i] = activate(activation_fn, input_data[i])   // 4.3.1: all elements
+
+for i in 0..127:                                            // active[i]: section 3.2
+    if active[i]:
+        aaq_out.elements[i] = quantize(activated[i])        // 4.3.2
+    else:
+        aaq_out.elements[i] = NaN
+
+aaq_out.scale            = s                            // section 4.3.2.2
+aaq_out.dynamic_static   = (nx_format == 0)             // dynamic or static
+aaq_out.dynamic_exponent = (nx_format == 0) ? (fe == 2) : 0   // section 4.3.2.4
+XMEM[table_id, table_offset] = aaq_out                  // 4.3.3: store
+```
+
+#### Example
+
+```text
+ACTIVATE.QUANTIZE relu, CR15, CR14, CR13, LR0;;
+```
+
+---
+
+#### 4.3.1 Activate
+
+Applies the function named by `activation_fn` to every element of
+`input data`.
+
+| Computed | `activation_fn` |
+|----------|-----------------|
+| Directly | `identity`, `relu`, `relu6` |
+| Through the LUT | `reciprocal`, `rsqrt`, `exp2`, `generic` |
+
+There is a LUT, loaded by `LOAD_LUT` (section 4.2). For the LUT-based
+functions, load the matching function before `ACTIVATE.QUANTIZE`.
+
+#### `activation_fn` Values
+
+| Encoding | Name | Formula | Computed by |
+|----------|------|---------|-------------|
+| 0 | `identity` | `f(x) = x` | Direct |
+| 1 | `relu` | `f(x) = max(0, x)` | Direct |
+| 2 | `relu6` | `f(x) = min(max(0, x), 6)` | Direct |
+| 3 | `reciprocal` | `f(x) = 1/x` | LUT + dedicated logic |
+| 4 | `rsqrt` | `f(x) = 1/√x` | LUT + dedicated logic |
+| 5 | `exp2` | `f(x) = 2^x` | LUT + dedicated logic |
+| 6 | `generic` | `f(x) = Generic(x)` | LUT + dedicated logic |
+
+#### Special Cases
+
+`epsilon = 2^-127`.
+
+| Function | Input `x` | Result |
+|----------|-----------|--------|
+| `reciprocal` | non-negative subnormal | `f(x) = 1/(x + epsilon)` |
+| `reciprocal` | negative subnormal | `f(x) = 1/(x - epsilon)` |
+| `reciprocal` | `inf` | `0` |
+| `rsqrt` | non-negative subnormal | `f(x) = 1/sqrt(x + epsilon)` |
+| `rsqrt` | `inf` | `0` |
+| `rsqrt` | negative | `NaN` |
+| `exp2` | `-inf` | `0` |
+| `exp2` | positive | not supported (input must be non-positive) |
+| `generic` | `x` inside the LUT range (up to `2^max_exp_num`) | `LUT(x)` |
+| `generic` | `x` beyond `2^max_exp_num` | `range_mode` selects `x` (identity) or a constant (`pos_c`, `neg_c`) |
+
+`max_exp_num`, `pos_c`, `neg_c` and `range_mode` are in the LUT metadata
+(section 4.2.3). The three LUT versions of `generic` are below.
+
+#### The `generic` Function: LUT Versions
 
 The LUT for `generic` has three versions. The drawings that follow are a
 reference for each version.
 
 > **Note:** `pos_c` is the constant for the positive side of the x axis.
-> `neg_c` is the constant for the negative side of the x axis. The names give
-> the side of `x`, not the sign of the value. The value of each constant can
-> be positive or negative.
+> `neg_c` is the constant for the negative side of the x axis. The value of each
+> constant can be positive or negative.
 
-**Version 1:** All 256 LUT entries are for positive `x`. Out of the LUT range,
-`range_mode` selects the result: `x` (identity) or a constant.
+##### Version 1
+
+All 256 LUT entries are for positive `x`. Out of the LUT range, `range_mode`
+selects the result: `x` (identity) or a constant.
 
 $$
 f(x) =
 \begin{cases}
-\mathrm{LUT}(x) & 0 \le x < 2^{\mathrm{max\_exp}} \\
-x \ \text{or} \ \mathrm{pos\_c} & x \ge 2^{\mathrm{max\_exp}} \\
+\mathrm{LUT}(x) & 0 \le x < 2^{\mathrm{max\_exp\_num}} \\
+x \ \text{or} \ \mathrm{pos\_c} & x \ge 2^{\mathrm{max\_exp\_num}} \\
 x \ \text{or} \ \mathrm{neg\_c} & x < 0
 \end{cases}
 $$
 
 ![Reference drawing of the generic activation function, version 1](assets/aaq-generic-activation.svg)
 
-**Version 2:** All 256 LUT entries are for negative `x`. Out of the LUT range,
-`range_mode` selects the result: `x` (identity) or a constant.
+##### Version 2
+
+All 256 LUT entries are for negative `x`. Out of the LUT range, `range_mode`
+selects the result: `x` (identity) or a constant.
 
 $$
 f(x) =
 \begin{cases}
-\mathrm{LUT}(x) & -2^{\mathrm{max\_exp}} < x \le 0 \\
-x \ \text{or} \ \mathrm{neg\_c} & x \le -2^{\mathrm{max\_exp}} \\
+\mathrm{LUT}(x) & -2^{\mathrm{max\_exp\_num}} < x \le 0 \\
+x \ \text{or} \ \mathrm{neg\_c} & x \le -2^{\mathrm{max\_exp\_num}} \\
 x \ \text{or} \ \mathrm{pos\_c} & x > 0
 \end{cases}
 $$
 
 ![Reference drawing of the generic activation function, version 2](assets/aaq-generic-activation-v2.svg)
 
-**Version 3:** The LUT entries are divided into 128 entries for negative `x`
-and 128 entries for positive `x`. Out of the LUT range, `range_mode` selects
-the result: `x` (identity) or a constant.
+##### Version 3
+
+The LUT entries are divided into 128 entries for negative `x` and 128 entries
+for positive `x`. Out of the LUT range, `range_mode` selects the result: `x`
+(identity) or a constant.
 
 $$
 f(x) =
 \begin{cases}
-\mathrm{LUT}(x) & -2^{\mathrm{max\_exp}} < x < 2^{\mathrm{max\_exp}} \\
-x \ \text{or} \ \mathrm{pos\_c} & x \ge 2^{\mathrm{max\_exp}} \\
-x \ \text{or} \ \mathrm{neg\_c} & x \le -2^{\mathrm{max\_exp}}
+\mathrm{LUT}(x) & -2^{\mathrm{max\_exp\_num}} < x < 2^{\mathrm{max\_exp\_num}} \\
+x \ \text{or} \ \mathrm{pos\_c} & x \ge 2^{\mathrm{max\_exp\_num}} \\
+x \ \text{or} \ \mathrm{neg\_c} & x \le -2^{\mathrm{max\_exp\_num}}
 \end{cases}
 $$
 
 ![Reference drawing of the generic activation function, version 3](assets/aaq-generic-activation-v3.svg)
 
+---
 
-The function is selected via `function_type` and applied to each FP32
-element. `identity`, `relu`, and `relu6` are computed directly; `exp2`,
-`reciprocal`, `rsqrt`, and `generic` are evaluated through the LUT, so the
-selected function must already be loaded there (section 5.2).
+#### 4.3.2 Quantize
 
+Converts each activated fp32 element into the NX8 format set by
+`quantizion_format` (section 3.1).
 
+The 128 elements of one `ACTIVATE.QUANTIZE` form one **block**. A block has one
+shared scale `s` and one exponent width `fe`, both computed over its active
+elements (section 3.2).
 
-`FP32_MAX` is the largest finite FP32 value, `0x7F7FFFFF`
-(`(2 - 2^-23) · 2^127 ≈ 3.4028235e38`). The guards never produce `inf`.
+| `nx_format` | Mode | Exponent width `fe` |
+|-------------|------|---------------------|
+| `1`-`7` | Static | The `nx_format` value (`e1`-`e7`). |
+| `0` | Dynamic | `1` or `2`, chosen per block (section 4.3.2.4). |
 
-There is a single LUT holding one function at a time: whichever was last
-loaded by `LOAD` (section 6.3). For the LUT-based types (`exp2`, `generic`,
-`reciprocal`, `rsqrt`), `function_type` selects only the guards in the
-pseudocode above; software must load the matching function before issuing
-`ACTIVATE.QUANTIZE`.
+**Outputs:**
 
-Supported function types: activation and special functions grouped onto a
-single field:
+| Output | Description |
+|--------|-------------|
+| Elements | One 8-bit quantized element per lane. Lanes that are not active output `NaN`. |
+| `Scale` (`s`) | One 8-bit scale shared by the whole block. |
+| `dynamic_static` | Dynamic or static quantization. |
+| `dynamic_exponent` | `e1` or `e2`: the exponent width chosen in dynamic quantization. Written as `0` in static quantization; readers ignore it. |
 
+#### 4.3.2.1 Element Format
 
+**Input:** an fp32 value (IEEE-754 single precision) with sign `S`, 8-bit
+exponent `e` and 23-bit mantissa. It is never `inf` or `-inf`. It is treated as
+normalized: `1.M`, with an implicit leading 1.
 
+**Output:** 8 bits, packed from the high end as `{S?, Exp, M, 0-pad}`:
 
-Examples of functions run through `generic` (encoding 6), each loaded into and called through the same LUT:
+| Field | Width | Present when | Value |
+|-------|-------|--------------|-------|
+| `S` | 1 bit | `sign = 1` (signed) | The input sign, passed through. |
+| `Exp` | `fe` bits (`fe >= 1`) | always | Section 4.3.2.3. |
+| `M` | `fm` bits (`fm >= 0`) | always | Section 4.3.2.3. |
+| `0-pad` | the rest of the 8 bits | `W < 8` | `0` |
 
-
-### 5.1 Quantization Algorithm
-
-After activation (section 5.0), each activated FP32 element `a` (IEEE-754 single
-precision: 1-bit sign `S`, 8-bit exponent `e`, 23-bit mantissa) is quantized
-to the format selected by `format` (section 3.3): a sign bit present only if
-`format[7] = 1` (signed; omitted when unsigned), `fe` exponent bits
-(`format[6:4]`), and `fm` mantissa bits derived as the leftover
-`fm = W - fe - sign_bit`, where `W = format[3:0]` (stored directly, no
-offset) is the total element width. Since the mantissa is the remainder of the width, `sign + fe + fm`
-always totals exactly `W`; when `W < 8` the leftover low-order bits of the
-8-bit quantized element are zero-padded. `fe` is at minimum 1 bit; `fm` may be
-0 bits. FP32 inputs are always treated as normalized (implicit leading 1);
-subnormal inputs are not specially handled.
-
-The scale factor `s` (8 bits, `e8m0`: exponent only, no mantissa) is the
-batch's shared scale, computed as the maximum raw exponent across the
-active elements of the batch (`active[i]`, section 6), before quantization.
-Invalid and masked elements do not contribute to `s`:
+The mantissa takes the bits that are left of the element width:
 
 ```text
-s = max(e[i] for i in 0..127 if active[i])   // active[i]: section 6
+fm = W - fe - sign_bit        // W = num_bits, sign_bit = sign
 ```
 
-For each element, define the exponent distance from the batch scale:
+#### 4.3.2.2 Block Scale and Exponent Distance
+
+**Scale.** `s` is an 8-bit `e8m0` value (exponent only). It is the largest raw
+exponent among the active elements:
 
 ```text
-E = -(e - s)   // = s - e
+s = max(e[i] for i in 0..127 if active[i] and not is_inf_nx8[i])   // is_inf_nx8: inf or -inf
 ```
 
-Since `s` is the batch maximum, `E >= 0` for every element, with `E = 0` at
-the batch-max element(s) and `E` growing as an element's magnitude shrinks
-relative to the batch max. The output exponent and mantissa fields are then:
+> **Note:** An element that quantizes to `inf` or `-inf` in the NX8 format is
+> left out of the scale.
+
+**Exponent distance.** Each element is encoded by its distance from the scale:
 
 ```text
-if 0 <= E < 2^fe - 1:                // representable directly in fe bits
-    Exp = E
-    M   = RTN(1.M)                   // round the 23-bit mantissa (implicit leading 1) to fm bits
-
-    if M == 2^fm:                    // edge 1: 1.11...1 rounded up to 10.00...0
-        if E > 0:
-            Exp = E - 1              // the carry moved the value one binade up
-            M   = 0
-        else:                        // E = 0: no binade above the batch scale
-            Exp = 0
-            M   = 2^fm - 1           // saturate at the largest representable value
-
-else:                                // E exceeds what fe bits can represent
-    Exp = 2^fe - 1                   // exponent field saturates at its max value
-    M   = RTN(1.M >> [E - (2^fe - 1) + 1])  // extra right-shift preserves magnitude instead of flushing to zero
-
-    if M == 2^fm:                    // edge 2: 0.11...1 rounded up to 1.00...0
-        Exp = 2^fe - 2               // the smallest directly-encoded exponent
-        M   = 0
+E = s - e
 ```
 
-Both edges are the same event — `RTN` carrying out of the `fm` mantissa bits —
-resolved differently per branch. In the direct branch the carry means the value
-moved one binade up, so the exponent decrements and the mantissa clears; at
-`E = 0` there is no binade above the batch scale, so the element saturates at
-the largest representable value instead of wrapping. In the clamp branch the
-carry turns the shifted fraction into `1.00...0`, which is no longer a
-saturated value but the smallest directly-encoded one, so it is re-encoded as
-`Exp = 2^fe - 2`, `M = 0`.
+`E >= 0` for every element. `E = 0` at the element(s) with the block maximum,
+and `E` grows as the element gets smaller relative to that maximum.
 
-`RTN` = round to nearest; an exact half rounds **up** (away from zero in
-magnitude), the same rule as section 5.1.1. Sign `S` (when present, `format[7] = 1`) is passed
-through unchanged. The final 8-bit quantized element is
-`{S?, Exp, M, 0-pad}`: `S`, `Exp` (`fe` bits), and `M` (`fm` bits) packed at
-the high end, zero-padded at the low end to fill 8 bits. The write payload
-also carries the batch `Scale` (`s`) and the `dynamic_exponent` bit, as
-described in section 3.2. `format` is not written; it is table-level.
+#### 4.3.2.3 Exponent and Mantissa Encoding
 
-> **Note:** the `S`/`Exp`/`M` encoding above is the same in both modes,
-> and `s` is computed the same way (batch max, as shown above) regardless
-> of `format[8]`. `format[8] = 1` (dynamic) restricts
-> `format` to exactly two supported formats, both signed and both 8 bits
-> wide (`format[3:0] = 8`): `e2m5` and `e1m6` — that pair is exactly
-> `fe = 2` and `fe = 1` at `W = 8`, signed, since `fm` is the leftover
-> (section 3.3). Only `fe` is chosen; the rule in section 5.1.1 makes
-> that choice per block.
+`RTN` is round to nearest. An exact half rounds **up** (away from zero in
+magnitude): `0.5 -> 1`, `1.5 -> 2`, `2.5 -> 3`.
 
-A **block** is the full 128-element batch of one `ACTIVATE.QUANTIZE`: one
-scale `s` and one `dynamic_exponent` decision per instruction, computed over
-the block's active elements (section 6). `partition` does not split it into smaller
-blocks.
+| Branch | Condition | `Exp` | `M` |
+|--------|-----------|-------|-----|
+| Direct | `0 <= E < 2^fe - 1` | `E` | `RTN(1.M)` rounded to `fm` bits |
+| Clamp | `E >= 2^fe - 1` | `2^fe - 1` (saturated) | `RTN(1.M >> [E - (2^fe - 1) + 1])` |
 
-#### 5.1.1 Dynamic Exponent-Field Selection (`fe = 1` vs `fe = 2`)
+In the clamp branch the extra right-shift keeps the element's magnitude.
 
-Applies only when `format[8] = 1`. The dynamic decision selects **the exponent
-field width alone**: `fe = 1` or `fe = 2`. The input `format[6:4]` is ignored,
-and the choice is written to the row's `dynamic_exponent` bit (section 3.2). The mantissa is not
-chosen independently — it is the leftover `fm = W - fe - sign_bit` (section
-3.3), so moving from `fe = 1` to `fe = 2` always buys one more exponent bit at
-the cost of exactly one mantissa bit, whatever `W` and `sign_bit` are. Each
-block shares one scale `s` and the quantizer picks one of the two splits per
-block:
+**Rounding carry.** When `RTN` carries out of the `fm` bits (`M == 2^fm`), the
+result is corrected:
+
+| Branch | Corrected result | Reason |
+|--------|------------------|--------|
+| Direct, `E > 0` | `Exp = E - 1`, `M = 0` | `1.11...1` rounded up to `10.00...0`: the value moved one binade up. |
+| Direct, `E = 0` | `Exp = 0`, `M = 2^fm - 1` | There is no binade above the scale, so the element saturates at the largest value. |
+| Clamp | `Exp = 2^fe - 2`, `M = 0` | `0.11...1` rounded up to `1.00...0`: the smallest directly-encoded value. |
+
+#### 4.3.2.4 Dynamic Exponent Selection (`fe = 1` or `fe = 2`)
+
+Applies when `nx_format = 0` (dynamic). Dynamic mode supports two formats,
+both signed and 8 bits wide (`sign = 1`, `num_bits = 8`):
+
+| Format | `fe` | `fm` | `dynamic_exponent` |
+|--------|------|------|--------------------|
+| `e1m6` | 1 | 6 | `0` |
+| `e2m5` | 2 | 5 | `1` |
 
 | Split | Exponent bits | Mantissa bits | Encodable `E` | Step at `E` |
 |---|---|---|---|---|
-| `fe1` | 1 | `fm1 = W - 1 - sign_bit` | 0, 1 | `2^(s - E - fm1)`, clamped at `E >= 1` |
+| `fe1` | 1 | `fm1` | 0, 1 | `2^(s - E - fm1)`, clamped at `E >= 1` |
 | `fe2` | 2 | `fm1 - 1` | 0, 1, 2, 3 | `2^(s - E - fm1 + 1)`, clamped at `E >= 3` |
 
-`fe1` is one bit finer near the top of the block. `fe2` reaches two binades
-further down before it clamps. The rule below decides which trade is better for
-the block actually being quantized. It depends on `fm1` only through the two
-multipliers, so it holds for any `W`/`sign_bit` pairing, not just the signed
-8-bit one.
+- `fe1` is one bit finer near the top of the block.
+- `fe2` reaches two binades further down before it clamps.
+
+The rule uses `fm1` only in the two multipliers, so it holds for any `W` and
+`sign_bit`.
 
 ##### Definitions
 
-- `s`: shared block scale exponent, selected by the same block scale procedure
-  used for static quantization (section 5.1).
-- `e`: exponent of the individual element.
-- `E = s - e`. Always non-negative (section 5.1). `E = 0` means the scale
-  represents the element exactly.
-- `fm1 = W - 1 - sign_bit`: the last mantissa bits under `fe1`. `fe2` always has exactly
-  one fewer. For the signed, 8-bit case `fm1 = 6`.
-- `err1`: truncation error of the element under `fe1`.
-- `err2`: truncation error of the element under `fe2`.
+- `fm1 = W - 1 - sign_bit`: the mantissa bits under `fe1`.
+- `err1`: the element's truncation error under `fe1`.
+- `err2`: the element's truncation error under `fe2`.
 
 ##### Element classification
 
-Each element contributes to at most one accumulator:
-
-| Condition | Accumulator | Meaning |
+| Condition | Sum | Meaning |
 |---|---|---|
 | `E = 0` | A | `fe1` is finer here. A measures the cost of choosing `fe2`. |
 | `E = 1` | none | Don't care. |
 | `1 < E <= fm1 + 2` | B | `fe2` is finer here. B measures the cost of choosing `fe1`. |
 | `E > fm1 + 2` | none | Out of range for both splits. |
-
-Elements at `E = 1` are don't cares. They enter neither sum and have no effect
-on the decision.
 
 ##### Per-element terms
 
@@ -315,9 +583,6 @@ A = RTN( |err2^2 - err1^2| * 2^(2*fm1) )
 B = RTN( |err2^2 - err1^2| * 2^(2*(fm1 + 1)) )
 ```
 
-`RTN` is round to nearest integer, and an exact half rounds **up**: `0.5 -> 1`,
-`1.5 -> 2`, `2.5 -> 3`. 
-
 ##### Decision
 
 ```text
@@ -325,34 +590,31 @@ if sum(B) - 4 * sum(A) < 0:  choose fe1        // dynamic_exponent = 0
 else:                        choose fe2        // dynamic_exponent = 1
 ```
 
-The constant 4 is a unit reconciliation, not a tuning parameter. The B
-multiplier `2^(2*(fm1 + 1))` is exactly four times the A multiplier
-`2^(2*fm1)`, so scaling A by 4 returns both accumulators to a common error.
+The B multiplier `2^(2*(fm1 + 1))` is four times the A multiplier `2^(2*fm1)`.
+Multiplying `sum(A)` by 4 puts both sums in the same units.
 
 ##### Both estimators are unbiased
 
-Assume mantissa bits are uniformly distributed, so `r` — the finer split's
-error as a fraction of its own step — is uniform on `[0, 1)` and the dropped
-bit is 1 with probability one half.
+Assume the mantissa bits are uniformly distributed. Then `r`, the finer split's
+error as a fraction of its own step, is uniform on `[0, 1)`, and the dropped bit
+is 1 with probability one half.
 
 | Term | Pre-RTN value | Distribution | Outcomes | E[RTN] | E[pre-RTN] |
 |---|---|---|---|---|---|
 | A | `1 + 2r` | uniform on `[1, 3)` | 1, 2, 3 at 0.25, 0.5, 0.25 | 2 | 2 |
 | B | `(1 + 2r) / 4` | uniform on `[0.25, 0.75)` | 0, 1 at 0.5, 0.5 | 0.5 | 0.5 |
 
-In both rows the rounded mean equals the unrounded mean exactly. Including the
-zero case, `E[A] = 1` and `E[B] = 0.25`. Neither sum drifts as the block length
-grows, so rounding contributes noise but never a systematic tilt toward one
-format.
+Including the zero case, `E[A] = 1` and `E[B] = 0.25`. Rounding adds noise to
+the sums, with no drift toward either format as the block grows.
 
 ##### Worked example
 
-Block of ten values, `s = 0`, `fm1 = 4` (signed, `W = 6`). The A multiplier is
-`2^8 = 256` and the B multiplier is `2^10 = 1024`. `fm1 = 4` keeps the numbers
-short; for the signed 8-bit case `fm1 = 6`, the multipliers are `2^12` and
-`2^14`, and the B region is `1 < E <= 8`.
+A block of ten values, with `s = 0` and `fm1 = 4` (signed, `W = 6`):
 
-| # | v | e | E | Acc | err1 | err2 | \|err2^2 - err1^2\| | Pre-RTN | A | B |
+- A multiplier: `2^8 = 256`.
+- B multiplier: `2^10 = 1024`.
+
+| # | v | e | E | Sum | err1 | err2 | \|err2^2 - err1^2\| | Pre-RTN | A | B |
 |---|---|---|---|---|---|---|---|---|---|---|
 | 1 | 1.83 | 0 | 0 | A | 0.0175 | 0.0800 | 6.09375e-3 | 1.560 | 2 | |
 | 2 | 1.21 | 0 | 0 | A | 0.0225 | 0.0850 | 6.71875e-3 | 1.720 | 2 | |
@@ -365,192 +627,22 @@ short; for the signed 8-bit case `fm1 = 6`, the multipliers are `2^12` and
 | 9 | 0.0920 | -4 | 4 | B | 0.02950 | 0.013875 | 6.77734e-4 | 0.694 | | 1 |
 | 10 | 0.0555 | -5 | 5 | B | 0.02425 | 0.008625 | 5.13672e-4 | 0.526 | | 1 |
 
-`sum(A) = 5`, `sum(B) = 2`.
+**Result:** `sum(A) = 5`, `sum(B) = 2`, and `2 - 4 * 5 = -18`. The result is
+negative, so the block selects **`fe1`**.
 
-`2 - 4 * 5 = -18`, which is negative, so the block selects **`fe1`**.
+---
 
+#### 4.3.3 Store
 
+Writes the quantized result to XMEM, at the destination selected by `table_id`
+and `table_offset`.
 
-### 5.2 Function Estimation LUT
+| Written | Size | Description |
+|---------|------|-------------|
+| Quantized elements | 128 x 8 bits | The quantized vector. |
+| `Scale` (`s`) | 8 bits | Scale shared by the whole vector. |
+| `dynamic_static` | 1 bit | Dynamic or static quantization. |
+| `dynamic_exponent` | 1 bit | `e1` or `e2`: the exponent width chosen in dynamic quantization. Written as `0` in static quantization; readers ignore it. |
 
-The stage holds a function estimation LUT of **256 entries × 17 bits**,
-plus a **75-bit metadata block** that configures range handling. Both are
-filled by `LOAD` (section 6.3), which writes one **segment** per instruction;
-the 3-bit `lut_addr` selects the segment.
-
-#### 5.2.1 Segment Transfer
-
-A segment is **1024 bits**, sourced from the **lower 32 words** of the
-accumulator, `r_acc[31:0]` (32 words × 32 bits = 1024 bits). The upper words
-`r_acc[127:32]` are ignored by `LOAD`. The 1024-bit payload is the little-endian
-concatenation of those words:
-
-```text
-payload[1023:0] = {r_acc[31], r_acc[30], ..., r_acc[1], r_acc[0]}
-                                          // payload[32*j +: 32] == r_acc[j]
-```
-
-The table itself is a **4,352-bit flat bitstream** — not split per word, and
-not reset per segment: `LOAD` transfers one 1024-bit slice of that stream
-per instruction, and a table entry may straddle the boundary between two
-segments (the same way the metadata field straddles word boundaries,
-section 5.2.2). `lut_addr` selects which slice:
-
-| `lut_addr` | Contents | Interpretation |
-|------------|----------|----------------|
-| `0` | Table bits `[1023:0]` | 1st 1024-bit slice of the flat table bitstream. |
-| `1` | Table bits `[2047:1024]` | 2nd slice. |
-| `2` | Table bits `[3071:2048]` | 3rd slice. |
-| `3` | Table bits `[4095:3072]` | 4th slice — the table's first 4,096 bits are now fully loaded. |
-| `4` | Table bits `[4351:4096]` (the last 256 bits) + metadata | **Mixed.** `payload[255:0]` = the table's last 256 bits; `payload[330:256]` = the 75-bit metadata block (section 5.2.2); `payload[1023:331]` is unused/reserved. |
-| `5`–`7` | Invalid | Not a valid `LOAD` encoding. |
-
-Five `LOAD`s (`lut_addr` `0`–`4`) are required to fully program the LUT and
-its metadata. Only the last of them (`lut_addr = 4`) is partially reserved —
-the first four are fully packed with table bits (256 entries × 17 bits =
-4,352 bits total).
-
-#### 5.2.2 Metadata Block
-
-The metadata occupies bits `[330:256]` of the `lut_addr = 4` segment's
-1024-bit payload (i.e. local bits `[74:0]` of the metadata field itself,
-offset by the 256 bits of leftover table data ahead of it); the remaining
-bits `[1023:331]` are unused. Bits-to-word mapping follows
-`payload[32*j +: 32] == r_acc[j]` (section 5.2.1), so absolute bit `256 + m`
-(for local metadata bit `m`) lands in `r_acc[(256+m) / 32][(256+m) % 32]`.
-Because the field is flat, it straddles word boundaries — for example
-`max_exp_num` is `r_acc[8][7:0]` and `neg_c` spans `r_acc[8][31:8]` together
-with `r_acc[9][7:0]`.
-
-| Bits (local, within metadata) | Name | Consumed by | Meaning |
-|------|------|-------------|---------|
-| `[7:0]` | `max_exp_num` | `Quantactivation` | Largest **biased** FP32 exponent still inside the LUT range. `exp > max_exp_num` → lane flagged out-of-range. |
-| `[39:8]` | `neg_c` | `pack_lutout_activ` | FP32 constant substituted for negative out-of-range lanes. |
-| `[71:40]` | `pos_c` | `pack_lutout_activ` | FP32 constant substituted for positive out-of-range lanes. |
-| `[72]` | `asymetric` | `Quantactivation` | Table domain + address form. |
-| `[74:73]` | `range_mode` | `pack_lutout_activ` | Out-of-range policy. |
-
-> **TBD:** the encodings of `asymetric` (which table domain and address form
-> each value selects) and of `range_mode` (which out-of-range policy each of
-> the 4 values selects) are not yet specified.
-
-## 6. ISA-AaQ: Instruction Reference
-
-The opcode enum
-(`aaq_inst_opcode_t`, package `ipu_instr_pkg`) is generated from
-[`instruction_spec.py`](../../../src/tools/ipu-common/src/ipu_common/instruction_spec.py)
-by [`gen_codegen.py`](../../../src/tools/ipu-as-py/src/ipu_as/gen_codegen.py).
-
-The AaQ slot is resolved by CTRL and forwarded down the pipeline;
-the stage does not read the CR/LR register files itself (see the
-Control Stage spec, section 5). The active elements are determined by
-`ACTIVATE.QUANTIZE`'s mandatory `cr_idx` operand (supplying `valid_elements`) together
-with `partition` and `partition_mask` (section 3.1), at cycle start. The 128
-elements are split into `partition` groups of `G = 128/partition` elements;
-the rightmost `partition_mask` groups are masked entirely, and in every
-remaining group the first `valid_elements` elements (from the left of the
-group) are active:
-
-```text
-G = 128 / partition                                   // group size
-for i in 0..127:
-    g = i / G                                         // group index
-    j = i % G                                         // position within group
-    active[i] = (g < partition - partition_mask) and (j < valid_elements)
-```
-
-Example: `partition = 4` (groups of 32), `partition_mask = 1`,
-`valid_elements = 10` → active elements `0–9`, `32–41`, `64–73`; group 3
-(`96–127`) is masked. 30 elements are active. There is no implicit default register; `cr_idx` must always
-be named explicitly (any `CR0`-`CR15`; `CR15` remains the conventional choice
-but is never assumed).
-
-### 6.1 `NOP`: No Operation
-
-- **Summary:** No operation for the AaQ slot; performs no state changes and no memory write.
-- **Syntax:** `NOP`
-- **Operands:** none.
-
-### 6.2 `ACTIVATE.QUANTIZE`: Activate and Quantize
-
-- **Summary:** Apply an element-wise activation function to the active elements of `r_acc`, quantize the result, and write the resulting 8-bit values, scale factor, and `dynamic_exponent` bit to `POST_AAQ_REG`. `STR_POST_AAQ_REG` performs the XMEM write in the STORE slot. `identity`, `relu`, and `relu6` are computed directly; `exp2`, `generic`, `reciprocal`, and `rsqrt` are evaluated through the function pre-loaded into the LUT by `LOAD` (section 6.3), as described in section 5.0. `r_acc` is not modified.
-- **Syntax:** `ACTIVATE.QUANTIZE function_type, cr_idx`
-- **Operands:**
-  - `function_type`: activation/special-function keyword (see section 5.0): `identity`, `relu`, `relu6`, `generic`, `reciprocal`, `rsqrt`, `exp2`.
-  - `cr_idx`: `CR0`…`CR15`, dstructure register supplying `valid_elements` (must be given explicitly; no implicit default).
-- **Operation:**
-  ```text
-  for i in 0..127:                                     // active[i]: section 6
-      if active[i]:
-          activated[i] = activate(function_type, r_acc[i]) // section 5.0: direct or via LUT
-          aaq_out.elements[i] = quantize(activated[i])     // section 5.1
-      else:
-          aaq_out.elements[i] = 0
-  aaq_out.scale = s                                    // section 5.1
-  aaq_out.dynamic_exponent = format[8] ? (fe == 2) : 0 // section 5.1.1
-  POST_AAQ_REG = aaq_out                              // 1033 bits, section 3.2
-  ```
-- **Example:** `ACTIVATE.QUANTIZE relu, CR15;;`
-
-### 6.3 `LOAD`: Load Function Estimation LUT Segment
-
-- **Summary:** Fill one 1024-bit segment of the function estimation LUT (section 5.2) from the lower 32 words of `r_acc`. The 3-bit `lut_addr` selects the target segment: `0`–`3` each load a 1024-bit slice of the flat 4,352-bit table bitstream, `4` loads the table's last 256 bits plus the metadata block (section 5.2.1). Performs no XMEM write and does not modify `r_acc`.
-- **Syntax:** `LOAD lut_addr`
-- **Operands:**
-  - `lut_addr`: LUT segment index, `0`–`4` (`0`–`3` = table slices, `4` = last table bits + metadata). `5`–`7` are invalid.
-- **Operation:**
-  ```text
-  payload[1023:0] = {r_acc[31], ..., r_acc[0]}        // 32 words x 32 bits
-
-  if lut_addr <= 3:                                  // full table slice
-      TABLE_BITS[1024*lut_addr +: 1024] = payload     // flat bitstream, section 5.2.1
-  else if lut_addr == 4:                             // last table bits + metadata
-      TABLE_BITS[4351:4096] = payload[255:0]
-      {range_mode, asymetric, pos_c, neg_c, max_exp_num} = payload[330:256]
-      // payload[1023:331] unused; field layout in section 5.2.2
-  ```
-- **Example:** `LOAD 4;;` (load the metadata block)
-
-### 6.4 Summary Table
-
-| Slot | Mnemonic | Operands | One-line Effect |
-|------|----------|----------|-----------------|
-| AaQ | `NOP`               | -                       | no state change |
-| AaQ | `ACTIVATE.QUANTIZE` | `function_type, cr_idx` | `aaq_out.elements[i] = active[i] ? quantize(activate(function_type, r_acc[i])) : 0`, `aaq_out.scale/dynamic_exponent` set, `POST_AAQ_REG = aaq_out`; `active[i]` from `partition`/`partition_mask`/`valid_elements` (section 6) |
-| AaQ | `LOAD`              | `lut_addr`              | `TABLE_BITS[1024*lut_addr +: 1024] = r_acc[31:0]` for `lut_addr` `0`-`3`; `4` = table bits `[4351:4096]` + metadata block (section 5.2.1) |
-
-
-### 3.3 `format` Field Layout
-
-`format` is 9 bits. It is a property of the destination table (shared by
-every row of that table, across all of its XMEM banks) and is not written to
-XMEM:
-
-| Bits | Name | Description |
-|------|------|-------------|
-| `[8]` | `dynamic` | Quantization mode: `0` = static, `1` = dynamic (section 5.1.1). |
-| `[7]` | `sign` | `0` = unsigned, `1` = signed. |
-| `[6:4]` | `exp_bits` (`fe`) | Number of exponent bits, `1`–`7`. `0` is reserved/invalid. |
-| `[3:0]` | `width` | Total element width `W`, stored directly (no offset): value `1`–`8`. `0` is reserved/invalid. |
-
-Bits `[7:0]` have the same meaning in both modes. In dynamic mode
-(`format[8] = 1`) the exponent width is chosen per row (section 5.1.1) and
-recorded in that row's `dynamic_exponent` bit, so `format[6:4]` is ignored.
-
-The mantissa is **the remainder** — what is left of the element width once the
-sign and exponent bits are taken out:
-
-```text
-sign_bit = format[7]                 // 0 or 1
-fe       = format[6:4]               // exponent bits
-W        = format[3:0]               // total element width, 1..8 bits (stored directly)
-fm       = W - fe - sign_bit         // mantissa bits (the leftover)
-```
-
-`fm` must be `>= 0`, i.e. `W >= fe + sign_bit`; encodings that violate this are
-invalid. `fm = 0` is legal (no mantissa bits). `W <= 8` always, so a quantized
-element always fits in its 8-bit output slot; when `W < 8` the unused
-low-order bits are zero-padded.
-
-Example: signed, 2 exponent bits, 8-bit width (`e2m5`) is
-`format = {1, 3'd2, 4'd8}` → `fm = 8 - 2 - 1 = 5`.
+> **Note:** The AaQ-Str stage gets the XMEM write address explicitly, from the
+> `table_id` and `table_offset` operands.

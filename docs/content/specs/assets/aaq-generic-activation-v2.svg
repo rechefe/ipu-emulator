@@ -6,7 +6,7 @@
   </defs>
   <rect y="-25" width="850" height="445" fill="#fff"/>
 
-  <!-- LUT range: -2^max_exp .. 0 -->
+  <!-- LUT range: -2^max_exp_num .. 0 -->
   <rect x="340" y="45" width="190" height="335" fill="#2e9e8c" fill-opacity="0.15"/>
   <text x="435" y="270" text-anchor="middle" font-size="20" font-weight="bold" fill="#1a7060">LUT</text>
   <text x="435" y="292" text-anchor="middle" fill="#1a7060">256 entries</text>
@@ -22,7 +22,7 @@
 
   <!-- range limit -->
   <line x1="340" y1="38" x2="340" y2="380" stroke="#222" stroke-width="1.5" stroke-dasharray="6 4"/>
-  <text x="340" y="28" text-anchor="middle" fill="#222">−2<tspan baseline-shift="super" font-size="10">max_exp</tspan></text>
+  <text x="340" y="28" text-anchor="middle" fill="#222">−2<tspan baseline-shift="super" font-size="10">max_exp_num</tspan></text>
 
   <!-- below the range: range_mode selects one of two results -->
   <line x1="340" y1="300" x2="240" y2="400" stroke="#c0392b" stroke-width="2.5"/>
