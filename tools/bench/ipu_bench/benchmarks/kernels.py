@@ -10,6 +10,7 @@ from __future__ import annotations
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
+from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from ipu_bench.isolated import call, peak_rss_mb
@@ -32,7 +33,7 @@ class RunTimer:
         finally:
             self.seconds = time.perf_counter() - start
 
-    def finish(self, state: object, cycles: int, output_path: object = None) -> None:
+    def finish(self, state: object, cycles: int, output_path: str | Path | None = None) -> None:
         """Nothing to record: ``watch`` timed the run."""
 
 

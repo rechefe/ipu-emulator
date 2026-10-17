@@ -10,9 +10,9 @@ it, never restated.
 The element codec of the 8-bit formats is here too (E04-13), so the harness
 and the conformance tooling round and pack values without the emulator:
 :func:`decode_element`, :func:`encode_element` and :func:`element_values`.
-It is pure Python, one element at a time; the emulator's lane codecs build their vectorised tables from it. The arithmetic
-on accumulators belongs to those codecs, and the numeric questions still open
-to OQ-19.
+It is pure Python, one element at a time; the emulator's lane codecs build
+their vectorised tables from it. The arithmetic on accumulators belongs to
+those codecs, and the numeric questions still open to OQ-19.
 """
 
 from __future__ import annotations
