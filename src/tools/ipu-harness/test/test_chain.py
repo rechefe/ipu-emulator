@@ -322,3 +322,41 @@ def test_at_cannot_name_an_output_its_case_lacks(tmp_path):
         Chain(ElementFormat.INT8).run(
             load_manifest(_maybe(tmp_path)), SCALE_2, {"x": X}, at={"z": 0}
         )
+
+
+# --- hold: a resident later steps place around ------------------------------------
+
+
+def test_a_held_resident_is_placed_around(free, second):
+    chain = Chain(ElementFormat.INT8)
+    held = chain.hold(chain.run(free, SCALE_2, {"x": X}, at={"y": 0, "x": 10}).resident["y"])
+    step = chain.run(free, SCALE_3, {"x": X})  # first fit would put x on rows 0..1
+    assert step.result.placement is not None
+    assert step.result.placement.region("x").base_row >= 2
+    two = chain.run(second, SCALE_3, {"x": held}, check=True)  # still live; read in place
+    np.testing.assert_array_equal(two.result.outputs["y"], X.astype(np.float64) * 6)
+
+
+@pytest.mark.parametrize("at", [{"y": 64}, {"y": 62}])  # on it; spilling onto it
+def test_a_step_that_would_write_a_held_resident_fails_before_it_runs(first, free, at):
+    chain = Chain(ElementFormat.INT8)
+    held = chain.hold(chain.run(first, SCALE_2, {"x": X}).resident["y"])  # rows 64..65
+    stats = chain.model.stats()
+    with pytest.raises(PlanError, match=r"held tensor \(rows 64..65\)"):
+        chain.run(free, SCALE_2, {"x": X}, at=at)
+    assert chain.model.stats() == stats
+    chain.release(held)
+    chain.run(free, SCALE_2, {"x": X}, at={"y": 64})
+    with pytest.raises(ConfigurationError, match="cannot hold"):
+        chain.hold(held)  # released, then written over
+
+
+def test_only_a_live_resident_of_the_chain_can_be_held_or_released(first):
+    chain = Chain(ElementFormat.INT8)
+    resident = chain.run(first, SCALE_2, {"x": X}).resident["y"]
+    with pytest.raises(ConfigurationError, match="cannot hold"):
+        chain.hold(Resident(64, 2, None, ElementFormat.INT8))
+    with pytest.raises(ConfigurationError, match="does not hold"):
+        chain.release(resident)
+    assert chain.hold(chain.hold(resident)) is resident
+    chain.release(resident)

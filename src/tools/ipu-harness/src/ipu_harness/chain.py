@@ -16,7 +16,11 @@ program that reads its base through ``CR0``), and knows nothing of an
 earlier step's residents but its inputs, so a step may overwrite a resident it does
 not take. The chain keeps track: a resident that a later step's placed regions
 cover is stale, and passing it fails. The rows an ``ST.AAQ`` store spills past
-an output (three in INT8, OQ-35) count as covered.
+an output (three in INT8, OQ-35) count as covered. A resident the chain
+*holds* (:meth:`Chain.hold`, until :meth:`Chain.release`) is never covered:
+every later step places around it, and a step that pins a region on it (or
+spills onto it) fails before it runs. Hold a tensor a step several steps on
+reads, such as a residual.
 
 Only XMEM is the chain's state. A step's registers start as the step before
 left them, as on the hardware: ``load_program`` resets the PC, and the step
@@ -121,6 +125,36 @@ class Chain:
         self._cache = AssemblyCache()
         self._steps = 0
         self._live: list[Resident] = []
+        self._held: list[Resident] = []
+
+    def hold(self, resident: Resident) -> Resident:
+        """Keep ``resident`` in XMEM until :meth:`release`: later steps place
+        their regions around it.
+
+        Returns:
+            ``resident``.
+
+        Raises:
+            ConfigurationError: It is stale, or another chain's.
+        """
+        if not _among(resident, self._live):
+            raise ConfigurationError(
+                f"cannot hold rows {_rows(resident)}: the resident tensor is no longer in "
+                "XMEM, or it is not this chain's"
+            )
+        if not _among(resident, self._held):
+            self._held.append(resident)
+        return resident
+
+    def release(self, resident: Resident) -> None:
+        """Let later steps place regions over ``resident`` again.
+
+        Raises:
+            ConfigurationError: The chain does not hold it.
+        """
+        if not _among(resident, self._held):
+            raise ConfigurationError(f"rows {_rows(resident)}: the chain does not hold them")
+        self._held = [t for t in self._held if t is not resident]
 
     def _step_options(self) -> RunOptions:
         """The options of the next step: its own trace and output files."""
@@ -188,7 +222,7 @@ class Chain:
                     arrays[name] = value
             elif isinstance(value, Resident):
                 _check_layout(name, value, plan)
-                if not any(value is live for live in self._live):
+                if not _among(value, self._live):
                     raise ConfigurationError(
                         f"{manifest.name}: input {name}'s resident tensor (rows "
                         f"{value.base_row}..{value.base_row + value.rows - 1}) is no longer "
@@ -207,17 +241,26 @@ class Chain:
             tier="default",
             decl=decl,
         )
+        # A held tensor this step reads stays where it is (pinned); every
+        # other one is off limits.
+        reserved = {
+            f"held tensor (rows {_rows(t)})": (t.base_row, t.rows)
+            for t in self._held
+            if not any(t is v for v in inputs.values())
+        }
         shared = SharedModel(
             self.model,
             MappingProxyType(arrays),
             MappingProxyType(pinned),
             check,
             MappingProxyType(placed),
+            MappingProxyType(reserved),
         )
         options = self._step_options()
         self._steps += 1
         rendered = None if manifest.stages is not None else assemble(plan, self._cache).rendered
-        written = _regions_written(plan, pinned, placed, aaq_spill_rows(plan, rendered))
+        spill = aaq_spill_rows(plan, rendered)
+        written = _regions_written(plan, pinned, placed, reserved, spill)
         try:
             result = run_kernel(
                 manifest, case, self.format, options, cache=self._cache, shared=shared
@@ -255,8 +298,21 @@ def _checked_at(
     return dict(at)
 
 
+def _among(resident: Resident, residents: list[Resident]) -> bool:
+    """Whether ``resident`` is one of ``residents`` (the object, not an equal one)."""
+    return any(resident is t for t in residents)
+
+
+def _rows(resident: Resident) -> str:
+    return f"{resident.base_row}..{resident.base_row + resident.rows - 1}"
+
+
 def _regions_written(
-    plan: CasePlan, pinned: Mapping[str, int], placed: Mapping[str, int], spill: int
+    plan: CasePlan,
+    pinned: Mapping[str, int],
+    placed: Mapping[str, int],
+    reserved: Mapping[str, tuple[int, int]],
+    spill: int,
 ) -> list[Region]:
     """The rows a step may write: its regions but its resident inputs, each
     element output with the ``spill`` rows after it; none when placement
@@ -267,6 +323,7 @@ def _regions_written(
             plan,
             {n: stored_rows(t, plan) for n, t in tensors.items()},
             pins={**pinned, **placed},
+            reserved=reserved,
         )
     except (ValueError, PlanError):
         return []
