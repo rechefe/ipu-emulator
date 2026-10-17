@@ -103,6 +103,14 @@ def test_a_tensor_binding_with_an_offset_is_its_base_plus_the_offset(tmp_path):
     assert writes(m, {"rows": 4, "s": 2.0}, F.FP32)["CR3"] == 3  # y at row 4, minus 1
 
 
+def test_a_stage_table_binds_a_region_at_its_base_whatever_the_kernels_offset(tmp_path):
+    toml = SCALE.format(unit="").replace('y    = "CR3"', 'y    = { register = "CR3", offset = -1 }')
+    m = kernel(tmp_path, toml)
+    plan = plan_case(m, {"rows": 4, "s": 2.0}, F.FP32)
+    got = {w.register: w.value for w in register_writes(plan, place(plan), abi={"y": "CR6"})}
+    assert got["CR6"] == 4  # y's base row: the [abi] offset is the kernel's binding only
+
+
 def test_a_derived_value_may_read_a_regions_base(tmp_path):
     """Several offsets of one region (the x128 matmuls' weights + 1..3, E07)."""
     toml = SCALE.format(unit="").replace(
