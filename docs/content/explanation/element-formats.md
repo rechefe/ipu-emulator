@@ -26,8 +26,8 @@ has them, and the host selects one at run time.
 **Emulator formats.** `FP32` and `INT32` are `EMULATOR` formats: they exist only
 in the emulator. They run a kernel at full precision, with no 8-bit rounding
 on the multiply path, so its result can be compared with a full-precision
-reference such as PyTorch. The assembly and the XMEM byte addresses are the same
-as in the 8-bit formats; each element takes four bytes instead of one.
+reference such as PyTorch. The assembly and its XMEM row numbers are the same as
+in the 8-bit formats; each element takes four bytes instead of one.
 
 ## How the 8-bit formats encode values
 
@@ -51,9 +51,10 @@ Encoding a value into an 8-bit format:
 - **Rounding.** It rounds to the nearest value, and a tie goes to the even code.
 - **Overflow.** A value beyond the largest finite value, and an infinity,
   saturate to the largest finite value of that sign. `INT8` saturates to -128 or 127.
-- **NaN.** NaN encodes as the canonical NaN: exponent all ones, mantissa 1.
+- **NaN.** NaN encodes as the canonical NaN: exponent all ones, mantissa 1
+  (`0x7F` in `E7`, which has no mantissa bits).
   `INT8` has no NaN, so encoding NaN to `INT8` is an error.
-- **Negative zero.** `-0.0` keeps its sign bit.
+- **Negative zero.** In `E1` to `E7`, `-0.0` keeps its sign bit (`0x80`).
 
 !!! warning "Open question"
     The special values are not settled. The emulator reads every all-ones
@@ -118,9 +119,11 @@ A kernel declares its formats:
 
 ## XMEM layout per format
 
-XMEM addresses are byte addresses in every format. A row is 128 elements, so
-its width depends on the format: 128 bytes in the 8-bit formats, 512 bytes in
-`FP32` and `INT32`.
+An XMEM operand in assembly (`offset + base`) is a row number in every format.
+A row is 128 elements, so its width depends on the format: row r starts at byte
+r × 128 in the 8-bit formats and r × 512 in `FP32` and `INT32`. A program reaches
+the same row in every format. The 8-bit formats address only the first 16384
+rows of XMEM.
 
 - **`LD.MULT`** reads one row (128 elements) into `R0` or `R1`.
 - **`LD.MULT.CYCLIC`** reads one row into one of the four slots of `R_CYCLIC`.

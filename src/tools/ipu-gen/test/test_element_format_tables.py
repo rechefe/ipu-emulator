@@ -86,6 +86,6 @@ def test_cr_scalar_operands_link_to_the_page():
                     continue
                 operand = instruction.operand(named["name"])
                 if operand.type.name in ("CrIdx", "LcrIdx") and "scalar" in text:
-                    assert CR_SCALAR_LINK in text, (instruction.mnemonic, name)
+                    assert CR_SCALAR_LINK in text, (instruction.mnemonic, named["name"])
                     linked.append(instruction.mnemonic)
     assert sorted(linked) == ["MULT.EE", "MULT.RC.VE", "MULT.VE"]

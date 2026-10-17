@@ -582,7 +582,7 @@ def _value_text(value: float) -> str:
     if -10 <= exponent < 20:
         return repr(value)
     power = f"2<sup>{exponent}</sup>"
-    return power if mantissa == 1 else f"{mantissa:g} × {power}"
+    return power if mantissa == 1 else f"{mantissa!r} × {power}"
 
 
 def _section(name: str, lines: list[str]) -> list[str]:
