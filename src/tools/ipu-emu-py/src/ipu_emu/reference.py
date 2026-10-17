@@ -95,8 +95,9 @@ class RunResult:
 class Stats:
     """The run statistics since the program started (1.1.0).
 
-    They count every word stepped or run since the last :meth:`ReferenceModel.reset`
-    or :meth:`ReferenceModel.load_program`. They depend on operand values (a
+    They count every word retired since the last :meth:`ReferenceModel.reset`
+    or :meth:`ReferenceModel.load_program`, stepped or run (a faulting word
+    retires nothing, so it adds nothing). They depend on operand values (a
     multiply by a constant 1.0 is an identity multiply), so a commit record
     does not carry them.
 
@@ -194,6 +195,7 @@ class ReferenceModel:
         _load_program(self._state, decoded)
         self._state.program_counter = 0
         self._state.halt = None
+        self._state.stats.reset()
         self._new_collector()
         self._started = False
 

@@ -4,10 +4,10 @@
 (API version `1.1.0`). A cocotb testbench resets the model, loads a program,
 sets registers and XMEM, steps it one word at a time and compares each commit
 record with what the RTL retired. The contract is the module's names
-(`API_VERSION`, `ReferenceModel`, `RunResult`, `RunState`, `Stats` and `Status`) and
-the commit records `step()` returns. The rest of `ipu_emu` may change between
-releases; this interface changes only with a version bump, and a breaking
-change bumps the major number.
+(`API_VERSION`, `ReferenceModel`, `RunResult`, `RunState`, `Stats` and
+`Status`) and the commit records `step()` returns. The rest of `ipu_emu` may
+change between releases; this interface changes only with a version bump, and
+a breaking change bumps the major number.
 
 ## A lockstep test
 

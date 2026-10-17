@@ -376,7 +376,7 @@ def test_xmem_round_trips_and_bounds_are_checked():
         model.write_xmem(1 << 40, b"\x00")
 
 
-_PLAIN = (int, str, bytes, bool, type(None), enum.Enum, tuple, typing.Mapping)
+_PLAIN = (int, float, str, bytes, bool, type(None), enum.Enum, tuple, typing.Mapping)
 _API_MODULES = {"ipu_emu.reference", "ipu_emu.commit"}
 
 
@@ -407,6 +407,7 @@ def test_no_method_returns_an_emulator_object():
         "step": model.step(),
         "run": model.run(),
         "status": model.status,
+        "stats": model.stats(),
     }
     for name, value in returned.items():
         _assert_plain(value, name)
@@ -414,14 +415,30 @@ def test_no_method_returns_an_emulator_object():
     _assert_plain(faulted.step(), "step(fault)")
 
 
-def test_stats_count_the_lanes_and_identity_multiplies():
-    model = _model("MULT.RC.VV LR0 R0 0 LR0 CR15 ;;\nHALT ;;")
+# Word 0: an identity multiply (CR1 is 1) and an ACC op; word 1: a multiply
+# by R0, not an identity. Every lane is valid (CR15's default dstructure).
+_STATS_PROGRAM = (
+    "MULT.RC.VE LR0 CR1 0 LR0 CR15 ; ACC.ADD.FIRST ;;\nMULT.RC.VV LR0 R0 0 LR0 CR15 ;;\nHALT ;;"
+)
+
+
+def test_stats_count_lanes_and_identity_multiplies_over_steps_and_runs():
+    model = _model(_STATS_PROGRAM)
+    assert model.stats() == Stats(0, 0, 0, 0, 0, 0, 0, 0.0, 0.0)
+    model.step()
+    assert model.stats() == Stats(1, 1, 1, 0, 0, 128, 128, 1.0, 0.0)
+    model.run()
+    # 3 words, 256 lanes carried data, 128 of them an identity: 1/3 of peak MACs.
+    assert model.stats() == Stats(3, 2, 1, 0, 0, 256, 128, 2 / 3, 1 / 3)
+    model.load_program(_words(_STATS_PROGRAM))
     assert model.stats() == Stats(0, 0, 0, 0, 0, 0, 0, 0.0, 0.0)
     model.run()
-    stats = model.stats()
-    assert (stats.cycles, stats.mult_active_cycles, stats.mult_lane_ops) == (2, 1, 128)
-    useful = stats.mult_lane_ops - stats.mult_identity_lane_ops
-    assert stats.effective_mac_utilization == useful / (stats.cycles * 128)
-    assert stats.lane_occupancy == 128 / (2 * 128)
     model.reset(ElementFormat.INT8)
-    assert model.stats().cycles == 0
+    assert model.stats() == Stats(0, 0, 0, 0, 0, 0, 0, 0.0, 0.0)
+
+
+def test_a_faulting_word_adds_no_statistics():
+    model = _model("INC LR0 1 ;;\n" + FAULT)
+    model.run()
+    assert model.status.fault is FaultId.F3
+    assert model.stats() == Stats(1, 0, 0, 0, 0, 0, 0, 0.0, 0.0)
