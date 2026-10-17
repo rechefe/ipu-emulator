@@ -29,6 +29,11 @@ resident, an input of a step that reads only it (one third of a QKV output).
 fill; write the slices in row order, as each ``ST.AAQ`` spill lands on the
 next rows.
 
+Between steps the host reads and writes rows: :meth:`Chain.read` gives a
+resident's rows as values, :meth:`Chain.write` puts rows in XMEM (a copy to
+row 0, a repack the host computes, a mutation in place) and returns them as
+a resident; what a write covers goes stale, as after a step.
+
 Only XMEM is the chain's state. A step's registers start as the step before
 left them, as on the hardware: ``load_program`` resets the PC, and the step
 writes only its ``[abi]`` registers and CR15; LRs, the vector registers, the
@@ -47,9 +52,11 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 
+import numpy as np
+
 from ipu_emu.errors import ConfigurationError
 from ipu_emu.reference import ReferenceModel
-from ipu_harness._codec import Array
+from ipu_harness._codec import Array, decode, encode
 from ipu_harness.assembly import AssemblyCache, assemble
 from ipu_harness.cases import Case, checked_input
 from ipu_harness.manifest import CaseDecl, KernelManifest
@@ -59,7 +66,7 @@ from ipu_harness.placement import Region, aaq_spill_rows, place
 from ipu_harness.registry import default_registry
 from ipu_harness.runner import RunOptions, RunResult, SharedModel, run_kernel
 from ipu_isa.constants import CR_READ_ONLY_INITIAL_VALUES
-from ipu_isa.formats import ElementFormat, addressable_rows
+from ipu_isa.formats import FORMATS, ElementFormat, addressable_rows
 from ipu_isa.registers import REGISTER_DEFINITIONS
 
 __all__ = ["Chain", "ChainStep", "Resident"]
@@ -204,6 +211,112 @@ class Chain:
         fmt = self.format if fmt is None else fmt
         if not isinstance(rows, int) or isinstance(rows, bool) or rows < 1:
             raise ConfigurationError(f"reserve takes rows >= 1, not {rows!r}")
+        resident = Resident(self._first_free("reserve", rows), rows, pack, fmt, self._steps)
+        self._live.append(resident)
+        self._held.append(resident)
+        return resident
+
+    def read(self, resident: Resident) -> Array:
+        """A live resident's rows, as the host sees them between steps.
+
+        Returns:
+            A ``(rows, elements per row)`` float64 array: each row's elements
+            decoded in the resident's format (an accumulator format's row
+            holds fewer).
+
+        Raises:
+            ConfigurationError: The resident is stale, or another chain's.
+        """
+        if not self._is_live(resident):
+            raise ConfigurationError(
+                f"read: the resident tensor (rows {_rows(resident)}) is no longer in XMEM, "
+                "or it is not this chain's"
+            )
+        row_bytes = FORMATS[self.format].row_bytes
+        raw = self.model.read_xmem(resident.base_row * row_bytes, resident.rows * row_bytes)
+        return decode(raw, resident.format).reshape(resident.rows, -1)
+
+    def write(
+        self,
+        values: Array,
+        *,
+        at: int | Resident | None = None,
+        pack: str | None = None,
+        fmt: ElementFormat | None = None,
+    ) -> Resident:
+        """Write rows from the host between steps: a copy, a repack, a
+        mutation of a tensor in place. The residents the rows cover go stale,
+        as after a step.
+
+        Args:
+            values: ``(rows, elements per row)`` finite numbers, rounded to
+                the format (as :meth:`read` gives them).
+            at: The first row; or a live ``Resident`` to write over in place
+                (it, and the tensor it is part of, stay live), whose pack
+                and format the rows take; or ``None``: first fit around the
+                live residents.
+            pack: The pack transform the rows are laid out as.
+            fmt: Their elements' format; the chain's by default.
+
+        Returns:
+            The rows written, as a live resident (``at`` itself, when a
+            ``Resident``).
+
+        Raises:
+            ConfigurationError: The values are not finite or not whole rows
+                of the format; ``at`` is stale, of other rows, or the rows
+                reach a held tensor ``at`` is not part of; or they do not fit.
+        """
+        target = at if isinstance(at, Resident) else None
+        if target is not None:
+            if not self._is_live(target):
+                raise ConfigurationError(
+                    f"write: the resident tensor (rows {_rows(target)}) is no longer in XMEM, "
+                    "or it is not this chain's"
+                )
+            pack, fmt = target.pack, target.format
+        fmt = self.format if fmt is None else fmt
+        array = _host_values(values, self.format, fmt)
+        rows = array.shape[0]
+        if target is not None and target.rows != rows:
+            raise ConfigurationError(
+                f"write: {rows} rows over a resident tensor of {target.rows} (rows {_rows(target)})"
+            )
+        if target is not None:
+            base = target.base_row
+        elif at is None:
+            base = self._first_free("write", rows)
+        elif isinstance(at, int) and not isinstance(at, bool) and at >= 0:
+            base = at
+        else:
+            raise ConfigurationError(f"write: at = {at!r}, not a row or a resident tensor")
+        region = Region("host write", "output", base, rows)
+        self._check_host_write(region, target)
+        self.model.write_xmem(base * FORMATS[self.format].row_bytes, encode(array, fmt))
+        self._forget_written({region.name: target} if target is not None else {}, [region])
+        if target is not None:
+            return target
+        resident = Resident(base, rows, pack, fmt, self._steps)
+        self._live.append(resident)
+        return resident
+
+    def _check_host_write(self, region: Region, target: Resident | None) -> None:
+        """Refuse a host write past XMEM, or onto a held tensor ``target`` is not part of."""
+        capacity = addressable_rows(self.format)
+        if region.end_row > capacity:
+            raise ConfigurationError(
+                f"write: rows {region.base_row}..{region.end_row - 1} run past XMEM "
+                f"({capacity} {self.format.value} rows)"
+            )
+        for held in self._held:
+            if held.overlaps(region) and not (target is not None and _related(held, target)):
+                raise ConfigurationError(
+                    f"write: rows {region.base_row}..{region.end_row - 1} reach the held "
+                    f"tensor (rows {_rows(held)})"
+                )
+
+    def _first_free(self, what: str, rows: int) -> int:
+        """The lowest row where ``rows`` rows hold no live resident."""
         base = 0
         for t in sorted(self._live, key=lambda t: t.base_row):
             if base + rows <= t.base_row:
@@ -212,13 +325,10 @@ class Chain:
         capacity = addressable_rows(self.format)  # rows are the chain format's
         if base + rows > capacity:
             raise ConfigurationError(
-                f"reserve: {rows} rows do not fit in XMEM ({capacity} "
+                f"{what}: {rows} rows do not fit in XMEM ({capacity} "
                 f"{self.format.value} rows) around the live residents"
             )
-        resident = Resident(base, rows, pack, fmt, self._steps)
-        self._live.append(resident)
-        self._held.append(resident)
-        return resident
+        return base
 
     def _is_live(self, resident: Resident) -> bool:
         """Whether ``resident`` (or the tensor it is a slice of) is in XMEM."""
@@ -512,6 +622,20 @@ def _check_reserved(
                     f"{region.name} (rows {region.base_row}..{region.end_row - 1}, with "
                     f"its ST.AAQ spill) would write the {name}",
                 )
+
+
+def _host_values(values: Array, chain_format: ElementFormat, fmt: ElementFormat) -> Array:
+    """``values`` as whole rows of ``fmt`` elements (a ``chain_format`` row's bytes), finite."""
+    array = np.asarray(values, dtype=np.float64)
+    per_row = FORMATS[chain_format].row_bytes // FORMATS[fmt].element_bytes
+    if array.ndim != 2 or array.shape[0] < 1 or array.shape[1] != per_row:
+        raise ConfigurationError(
+            f"write: values of shape {array.shape}; rows of {per_row} {fmt.value} elements "
+            f"take a (rows, {per_row}) array"
+        )
+    if not np.isfinite(array).all():
+        raise ConfigurationError("write: the values are not all finite")
+    return array
 
 
 def _lineage(resident: Resident) -> list[Resident]:

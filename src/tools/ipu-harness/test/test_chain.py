@@ -499,3 +499,69 @@ def test_reserve_counts_rows_in_the_chains_format():
     assert chain.reserve(rows, fmt=ElementFormat.FP32).rows == rows
     with pytest.raises(ConfigurationError, match="do not fit"):
         chain.reserve(1)
+
+
+# --- the host between steps: read and write -------------------------------------------
+
+
+def test_the_host_reads_a_resident_and_copies_it_to_row_0(first, second):
+    chain = Chain(ElementFormat.INT8)
+    y = chain.run(first, SCALE_2, {"x": X}).resident["y"]
+    values = chain.read(y)
+    np.testing.assert_array_equal(values, X.astype(np.float64) * 2)
+    copy = chain.write(values, at=0)
+    assert copy == Resident(0, 2, None, ElementFormat.INT8, copy.step)
+    out = chain.run(second, SCALE_3, {"x": copy}).result.outputs["y"]
+    np.testing.assert_array_equal(out, X.astype(np.float64) * 6)
+    assert chain.run(second, SCALE_3, {"x": y}).result.halted  # the original is still live
+
+
+def test_a_mutation_in_place_keeps_the_resident_live(first, second):
+    chain = Chain(ElementFormat.INT8)
+    y = chain.run(first, SCALE_2, {"x": X}).resident["y"]
+    values = chain.read(y)
+    values[1, 5] += 1
+    assert chain.write(values, at=y) is y
+    out = chain.run(second, SCALE_3, {"x": y}).result.outputs["y"]
+    np.testing.assert_array_equal(out, values * 3)
+
+
+def test_a_host_write_makes_what_it_covers_stale_and_first_fits_around_the_live(first, second):
+    chain = Chain(ElementFormat.INT8)
+    y = chain.run(first, SCALE_2, {"x": X}).resident["y"]  # rows 64..65
+    assert chain.write(np.zeros((70, 128))).base_row == 66  # rows 0..69 would cover y
+    chain.write(np.zeros((1, 128)), at=65)
+    with pytest.raises(ConfigurationError, match="no longer in XMEM"):
+        chain.run(second, SCALE_3, {"x": y})
+    with pytest.raises(ConfigurationError, match="no longer in XMEM"):
+        chain.read(y)
+
+
+def test_a_host_write_cannot_reach_a_held_tensor_but_can_write_into_it(first):
+    chain = Chain(ElementFormat.INT8)
+    held = chain.hold(chain.run(first, SCALE_2, {"x": X}).resident["y"])  # rows 64..65
+    with pytest.raises(ConfigurationError, match="reach the held tensor"):
+        chain.write(np.zeros((2, 128)), at=63)
+    chain.write(np.ones((1, 128)), at=held.slice(1, 1))
+    np.testing.assert_array_equal(chain.read(held)[1], np.ones(128))
+
+
+def test_a_wide_format_takes_fewer_elements_a_row(first):
+    chain = Chain(ElementFormat.INT8)
+    acc = chain.write(np.full((1, 32), 0.5), fmt=ElementFormat.FP32)  # 4 bytes each: 32 a row
+    np.testing.assert_array_equal(chain.read(acc), np.full((1, 32), 0.5))
+
+
+@pytest.mark.parametrize(
+    ("values", "at", "match"),
+    [
+        (np.zeros((2, 64)), None, "take a"),
+        (np.zeros(128), None, "take a"),
+        (np.full((1, 128), np.nan), None, "not all finite"),
+        (np.zeros((1, 128)), -1, "not a row"),
+        (np.zeros((1, 128)), addressable_rows(ElementFormat.INT8), "run past XMEM"),
+    ],
+)
+def test_a_host_write_takes_whole_finite_rows(values, at, match):
+    with pytest.raises(ConfigurationError, match=match):
+        Chain(ElementFormat.INT8).write(values, at=at)
