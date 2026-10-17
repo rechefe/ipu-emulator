@@ -12,7 +12,8 @@ import pytest
 from emu_support import assemble_program, make_state, new_state
 
 from ipu_emu import xmem
-from ipu_emu.emulator import load_program, run_until_complete
+from ipu_emu.cycle import schedule_word
+from ipu_emu.emulator import DebugAction, load_program, run_until_complete, run_with_debug
 from ipu_emu.errors import ConfigurationError, EmulatorError, EmulatorFault, XMemBoundsError
 from ipu_emu.execute import Ipu
 from ipu_emu.ipu import plans_for
@@ -228,9 +229,11 @@ def test_disabling_an_undecided_fault_is_refused_at_setup(fault):
     # anything changes.
     state.faults.enable[fault] = False
     state.stats.total_cycles = 7
+    state.halt = sentinel = HaltRecord("halt", 99, None)
+    state.quit_requested = True
     with pytest.raises(ConfigurationError, match="OQ-2"):
         run_until_complete(state)
-    assert state.stats.total_cycles == 7 and state.halt is None
+    assert state.stats.total_cycles == 7 and state.halt is sentinel and state.quit_requested
 
 
 def test_fault_state_survives_a_step():
@@ -240,3 +243,65 @@ def test_fault_state_survives_a_step():
     ipu = Ipu(state)  # held: the cycle keeps only a weak reference to it
     ipu.cycle.step()
     assert state.faults.enable[FaultId.F7] is False and state.faults.sticky == {FaultId.F1}
+
+
+def _slot_fields():
+    """(slot, opcode field, plans) of every HARDWARE slot, each LR sub-slot."""
+    return [
+        (slot, field, plans)
+        for slot in (
+            Slot.BREAK,
+            Slot.LR,
+            Slot.LOAD,
+            Slot.MULT,
+            Slot.ACC,
+            Slot.AAQ,
+            Slot.STORE,
+            Slot.COND,
+        )
+        for field, plans in plans_for(slot)
+    ]
+
+
+@pytest.mark.parametrize("skip", [False, True])
+@pytest.mark.parametrize(("slot", "field", "plans"), _slot_fields(), ids=lambda v: str(v)[:40])
+def test_an_undefined_opcode_schedules_as_that_slots_nop(slot, field, plans, skip):
+    word = dict(assemble_program("INC LR0 1 ;;")[0])
+    nop = next(code for code, plan in enumerate(plans) if plan.inst_name == "NOP")
+    as_nop = dict(word, **{field: nop})
+    reserved = schedule_word(dict(word, **{field: len(plans)}), skip_idle_nops=skip)
+    assert reserved.reserved is not None
+    assert reserved._replace(reserved=None) == schedule_word(as_nop, skip_idle_nops=skip)
+
+
+def test_f1_disabled_cond_slot_still_advances_the_pc():
+    field, plans = plans_for(Slot.COND)[0]
+    word = dict(assemble_program("INC LR0 1 ;;")[0], **{field: len(plans)})
+    state = new_state()
+    load_program(state, [word, assemble_program("HALT ;;")[0]])
+    state.faults.set_enabled(FaultId.F1, False)
+    assert run_until_complete(state) == 2
+    assert state.halt == HaltRecord("halt", 1, None) and state.regfile.get_lr(0) == 1
+
+
+def test_f1_disabled_word_retires_once_after_a_debugger_stop():
+    word = with_operand(
+        "INC LR0 1 ; ACTIVATE.QUANTIZE relu CR15 ;;",
+        Slot.AAQ,
+        "ACTIVATE.QUANTIZE",
+        "activation_fn",
+        15,
+    )
+    state = new_state()
+    load_program(state, [word, assemble_program("HALT ;;")[0]])
+    state.faults.set_enabled(FaultId.F1, False)
+    stops = []
+
+    def callback(state, cycles):
+        stops.append(state.program_counter)
+        return DebugAction.CONTINUE
+
+    assert run_with_debug(state, callback, break_on_entry=True) == 2
+    assert stops == [0]
+    assert state.regfile.get_lr(0) == 1  # retired exactly once
+    assert state.faults.sticky == {FaultId.F1} and state.halt == HaltRecord("halt", 1, None)

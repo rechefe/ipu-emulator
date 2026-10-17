@@ -517,7 +517,7 @@ class Cycle:
         """F-1 for the word at *pc*; with F-1 disabled, only its sticky flag
         (the schedule already holds the slot as a NOP)."""
         faults = self.state.faults
-        if faults.enable[FaultId.F1]:
+        if faults.enable.get(FaultId.F1, True):
             raise EmulatorFault(FaultId.F1, pc, detail)
         faults.sticky.add(FaultId.F1)
 

@@ -71,7 +71,7 @@ class RunClock:
         if limit and self.cycles >= limit:
             faults = self.state.faults
             faults.sticky.add(FaultId.F9)
-            if not faults.enable[FaultId.F9]:
+            if not faults.enable.get(FaultId.F9, True):
                 return
             pc = self.state.program_counter
             self.state.halt = HaltRecord("fault", pc, FaultId.F9)

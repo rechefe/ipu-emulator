@@ -146,7 +146,7 @@ class ExecutionObserver:
             try:
                 ops = decode_word(self.state.inst_mem[pc], pc=pc)
             except EmulatorFault:
-                return None  # an undefined opcode: faults when fetched, never a diamond
+                return None  # F-1 (it faults, or runs a NOP slot): never a diamond
             return [
                 (op.slot, op.plan.inst_name, dict(op.operands))
                 for op in ops
