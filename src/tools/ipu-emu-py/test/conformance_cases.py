@@ -28,8 +28,10 @@ import timing_probes
 
 from ipu_as.lark_tree import assemble
 from ipu_emu.execute import decode_instruction_word
+from ipu_emu.geometry import NARROW_MAX_ROW
 from ipu_emu.ipu_state import IpuState
 from ipu_isa.codec.word import DecodedWord, pack_program
+from ipu_isa.constants import CR_READ_ONLY_INITIAL_VALUES
 from ipu_isa.faults import reserved_encodings
 from ipu_isa.formats import FORMATS, AccumulatorType, ElementFormat
 from ipu_isa.geometry import LANES
@@ -246,8 +248,12 @@ _MODE_FORMAT = {
     timing_probes.Mode.NARROW: ElementFormat.INT8,
     timing_probes.Mode.WIDE_FP32: ElementFormat.FP32,
 }
-#: Probes a program file cannot hold: an empty IMEM entry has no encoding.
-UNREPRESENTABLE = {"idle_word"}
+#: Probes the suite leaves out, and why.
+UNREPRESENTABLE = {
+    "idle_word": "an empty IMEM entry has no program-file encoding",
+    "break_ifeq": "the reference API never evaluates BREAK (Q39)",
+    "break_resume": "the reference API never evaluates BREAK (Q39)",
+}
 
 
 def _probe_state(
@@ -309,6 +315,16 @@ def _lanes_of(code: str, acc: float, res: float) -> Callable[[IpuState], None]:
     return prepare
 
 
+def _with_cr(index: int, value: int) -> Callable[[IpuState], None]:
+    """CRS and LRS, and CR *index* = *value*."""
+
+    def prepare(state: IpuState) -> None:
+        scalars(state)
+        state.regfile.set_cr(index, value)
+
+    return prepare
+
+
 def fault_cases() -> list[Case]:
     """Each modelled fault, and F-1 and F-9 disabled."""
     int8 = ElementFormat.INT8
@@ -360,10 +376,10 @@ def fault_cases() -> list[Case]:
         ),
         Case(
             "fault_f6_xmem_row",
-            "F-6: an XMEM row past the end of XMEM",
-            "SET LR0 CR6 ;;\nLD.MULT R0 LR0 CR7 ;;\nHALT ;;\n",
+            f"F-6: XMEM row {NARROW_MAX_ROW}, past the narrow formats' rows",
+            "LD.MULT R0 LR0 CR10 ;;\nHALT ;;\n",
             int8,
-            scalars,
+            _with_cr(10, NARROW_MAX_ROW),
         ),
         Case("fault_f9_cycle_limit", "F-9: the cycle limit", _LOOP, int8, scalars, max_cycles=20),
         Case(
@@ -417,15 +433,20 @@ def arith_cases() -> list[Case]:
 
 
 def _registers(state: IpuState, fresh: IpuState) -> list[dict[str, Any]]:
-    """Every register that differs from its reset value, in the order of
-    ``ipu_isa.registers``."""
+    """Every register a model must write so that the unlisted ones are zero:
+    each one not zero at the start or not zero at reset (such as CR15's
+    default dstructure), in the order of ``ipu_isa.registers``. CR0 and CR1
+    are the hardware's constants and never listed."""
     writes = []
     for name, definition in REGISTER_DEFINITIONS.items():
         size = definition["size_bytes"]
         have, reset = state.regfile.view(name), fresh.regfile.view(name)
         for index in range(definition["count"]):
+            if name == "cr" and index in CR_READ_ONLY_INITIAL_VALUES:
+                continue
             data = bytes(have[index * size : (index + 1) * size])
-            if data == bytes(reset[index * size : (index + 1) * size]):
+            zero = bytes(size)
+            if data == zero and bytes(reset[index * size : (index + 1) * size]) == zero:
                 continue
             if definition["vector"]:
                 writes.append({"name": name, "index": index, "hex": data.hex()})
@@ -471,7 +492,8 @@ def _emulator_only(case: Case, data: bytes) -> bool:
 
 
 def setup_of(case: Case, data: bytes) -> dict[str, Any]:
-    """The ``setup.json`` of *case*: its starting state, as differences from reset."""
+    """The ``setup.json`` of *case*: its starting state, every register and
+    XMEM byte not listed being zero."""
     state, fresh = IpuState(fmt=case.fmt), IpuState(fmt=case.fmt)
     case.prepare(state)
     return {

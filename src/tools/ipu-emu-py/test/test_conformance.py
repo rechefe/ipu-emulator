@@ -18,6 +18,8 @@ from conformance_cases import all_cases, files_of
 from jsonschema import Draft202012Validator
 
 from ipu_emu.trace import read_trace
+from ipu_isa.formats import ElementFormat
+from ipu_isa.registers import REGISTER_DEFINITIONS
 from ipu_isa.tags import Tag
 from ipu_isa.view import isa
 
@@ -85,22 +87,38 @@ def test_every_case_holds_the_four_files_and_no_python():
     assert loose == ["README.md", conformance.SETUP_SCHEMA]
 
 
-def test_every_hardware_instruction_is_in_a_case():
+def test_every_hardware_instruction_runs_in_a_case():
+    """Each HARDWARE instruction retires in some expected trace (not only
+    sits in a program behind a branch)."""
     view = isa()
     hardware = {
-        (slot, instruction.mnemonic)
+        (slot.value, instruction.mnemonic)
         for slot in view.spec_slot_order
         for instruction in view.instructions(slot)
         if instruction.tag is Tag.HARDWARE and instruction.mnemonic != "NOP"
     }
-    found = set()
+    ran = set()
     for case in CASES:
-        found.update(conformance.slot_ops((case / "program.bin").read_bytes()))
-    missing = sorted(f"{slot.value}:{mnemonic}" for slot, mnemonic in hardware - found)
+        _, records = read_trace(case / "expected.trace.jsonl")
+        ran.update((op.slot, op.mnemonic) for record in records for op in record.slots)
+    missing = sorted(f"{slot}:{mnemonic}" for slot, mnemonic in hardware - ran)
     assert not missing, f"no case runs {missing}"
 
 
-@pytest.mark.filterwarnings("ignore::ipu_emu.errors.DebugOnlyInstructionWarning")
+def test_the_readme_and_schema_name_the_isas_registers_and_formats():
+    schema = json.loads((SUITE / conformance.SETUP_SCHEMA).read_text(encoding="utf-8"))
+    properties = schema["properties"]
+    assert properties["format"]["enum"] == [fmt.value for fmt in ElementFormat]
+    names = properties["registers"]["items"]["properties"]["name"]["enum"]
+    assert names == list(REGISTER_DEFINITIONS)
+    readme = (SUITE / "README.md").read_text(encoding="utf-8")
+    for name, definition in REGISTER_DEFINITIONS.items():
+        row = next(line for line in readme.splitlines() if line.startswith(f"| `{name}` |"))
+        count, size = (cell.strip() for cell in row.split("|")[2:4])
+        assert count.split()[0] == str(definition["count"]), name
+        assert size == str(definition["size_bytes"]), name
+
+
 def test_the_files_are_what_the_generator_writes():
     """A case changed in the catalog without a regeneration."""
     cases = all_cases()

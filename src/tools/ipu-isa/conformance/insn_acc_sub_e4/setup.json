@@ -6,6 +6,11 @@
  "fault_enables": {},
  "registers": [
   {
+   "name": "r_mask",
+   "index": 0,
+   "hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  {
    "name": "r_acc",
    "index": 0,
    "hex": "3d428840213271bf3335f24041af12bf0cfc49c07eeeb8c0e0f7ac40611c4840a4ad94bf3b3f3940bd38b3c0cdabe2c0de005540e960473e6a84debf634abd3f2b79abc06a9aa5bfc1bdbabfa0dbd3c0466430c074c151c0a904edc028cb5c4043e9da3f39bed9bf509ac6403f129bc09fe1a14014435cc0c727dbc0b97de3c0abb2db40de7121c0c6f4f8c0fd48c540dd45e63ea576a03fff15a2bfe78699c08896103fb3cbd9c060f41540d19ef540913a4cc05d9ba5c0d393aebfbdbd63402cb53ac0d5a5bec01580f740c0a3f9406302fdc044a76d40e8f667c072893cbb0567e740658bdfc01562fbc0870b73bf9ee2c2c05b829740f03cbf40682aaac0d0dc6cc06b52da3fd226df4052f978c05462de40ff02adbff3dbc3407689433e236366c063798040d673fb409411c63fb0df96400e98f840dae50840073c813feaf71ec0e4a5f83f29e0adbf6efee5bfb04dbb40b760584053c84940f8a1b5c053d28bc068dbe640775c88c03ddcec40c160a94075751c40ccddac40921ed8c0656a0840ec42a4be92f155400a555fc03803ff4009e3bd40625f40c0fd0398c0436d4cc0a08bd540bd30f3c0ddccc4bfcfa7a7408760d1c0d30497c0aadf14c0a07759c024635e40dc9eedc070fd9ac00151c040eeb8e440c4359bc03ee8d640a4fbda409664b540e5153f401770f4409b1f6cc07c1f8a40a8a7edc0c9acb2bf"
@@ -79,6 +84,11 @@
    "name": "cr",
    "index": 9,
    "value": 3
+  },
+  {
+   "name": "cr",
+   "index": 15,
+   "value": 128
   },
   {
    "name": "mult_res",

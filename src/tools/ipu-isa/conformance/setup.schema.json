@@ -21,7 +21,19 @@
     },
     "format": {
       "type": "string",
-      "description": "The element format (ipu_isa.formats.ElementFormat value, e.g. int8, e4, fp32)."
+      "description": "The element format.",
+      "enum": [
+        "int8",
+        "e1",
+        "e2",
+        "e3",
+        "e4",
+        "e5",
+        "e6",
+        "e7",
+        "fp32",
+        "int32"
+      ]
     },
     "emulator_only": {
       "type": "boolean",
@@ -44,7 +56,7 @@
     },
     "registers": {
       "type": "array",
-      "description": "Every register whose starting value differs from reset, in ipu_isa.registers order. `index` is the register within its bank.",
+      "description": "Every register to write; every other register starts at zero, but CR0 and CR1, the constants 0 and 1. In ipu_isa.registers order. `index` is the register within its bank.",
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -54,7 +66,21 @@
         ],
         "properties": {
           "name": {
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "r",
+              "r_wide_debug",
+              "r_cyclic",
+              "r_cyclic_wide_debug",
+              "r_mask",
+              "r_acc",
+              "post_aaq_reg",
+              "lr",
+              "cr",
+              "mult_res",
+              "mem_bypass"
+            ],
+            "description": "The register bank (the suite README's table)."
           },
           "index": {
             "type": "integer",
@@ -88,7 +114,7 @@
     },
     "xmem": {
       "type": "array",
-      "description": "XMEM regions to write; every other byte is zero.",
+      "description": "XMEM regions to write; every other byte starts at zero.",
       "items": {
         "type": "object",
         "additionalProperties": false,

@@ -6,6 +6,11 @@
  "fault_enables": {},
  "registers": [
   {
+   "name": "r_mask",
+   "index": 0,
+   "hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  {
    "name": "cr",
    "index": 2,
    "value": 5
@@ -14,6 +19,11 @@
    "name": "cr",
    "index": 3,
    "value": 100
+  },
+  {
+   "name": "cr",
+   "index": 15,
+   "value": 128
   }
  ],
  "xmem": []

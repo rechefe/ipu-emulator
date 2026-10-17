@@ -6,6 +6,11 @@
  "fault_enables": {},
  "registers": [
   {
+   "name": "r_mask",
+   "index": 0,
+   "hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  {
    "name": "r_acc",
    "index": 0,
    "hex": "a5eacabf773de140679fb23f9c860d40ff2cc340f1b8ba40f3b7993fbd35f740f269a9bef7488b40076e47c0345560bf1af49e40855a1340f791d0c0251850c05562d9c0798428c01803a5403175be404afbff40162f67c00e147e40411383c0e04c95c04b296fc002532fc0c4f2adbb0b88e7c0f9c5c6401e12a6403765cc40c61807c0ecb647409dc00740beb1edbed584cc4002e0c040e6d89ac0570c8840e1503f4010191840a88b0cc0206642407de1ea407d8ab7c006e9e740c7b69ec002888bbfae3aa9c022dedc406a1ca8400d3a1cc04ab7f0406d8f1f402b0a8ec08c96a5c0d9218f40694be5400d173d40c76d0d3fa814c740a9863440d23465405aad69c02007bdbfc71599c08e7009409a5dc4c02f97f4c06720d14013c1e140430aadc0ff1e8e3fa19736c0906d86c0c525b6bea772d9c0bc65b53f560dba3f838afc3fbcfbea40fec6d4405af27640579007bf72f88640c583e240b9e5bb40bf52b2c032271c409018a0c009cfca40557c83409e593ebf36ceab40b438f840e822b9bf07b4484044ec34c043ada7bf7996b540319fae4064e48a40789628c0f828e0bf9997f13f2c1b374058d5dabf9425e8408af890c05feeff40df59ea40012481c0423d8cc09548b3402a828f40142ac540e6769f402a3fb0407da9c6c08a50e4c0515548c058409640a2c82d401709433e034b4bc0cf0a8a3f52fb58c0"
@@ -79,6 +84,11 @@
    "name": "cr",
    "index": 9,
    "value": 3
+  },
+  {
+   "name": "cr",
+   "index": 15,
+   "value": 128
   }
  ],
  "xmem": []
