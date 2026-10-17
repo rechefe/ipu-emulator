@@ -456,3 +456,15 @@ The file stays. Its registry-mechanics tests that used softmax as the example no
 |---|---|
 | `test_mac_accounting_and_alias_hits` (4 ids: `default`, `int8`, `fp8_e4m3`, `fp8_e5m2`) | `kernels/linear/fully_connected/test_accounting.py::test_mac_accounting_and_alias_hits` (`int32`, `int8`, `e4`, `e5`): one profiled run per format (E06-12), held to the golden; `mult_lane_ops == mult_active_cycles * 128`, and the profile's `A16_STR_ACC_REG` is 10 verified (the old `alias_hits`); the profile's sequence detectors (A12, A13, A14) are pinned beside it |
 | `test_missing_input_fixture_fails` | `kernels/linear/fully_connected/test_accounting.py::test_a_missing_data_file_fails_the_case` (a missing input, weight or golden `.bin` is a `PlanError` naming it, not a skip); `MissingInputFixture` is gone |
+
+**fully_connected's legacy data (E07-22).** The goldens now come from the reference (Q78), so the `.bin` copies E07-21 made and their decoders go. Before deleting them, every old golden was checked against `ops.linear` on the decoded old inputs: exact in all three sets (INT8: the INT32 sums equal bit for bit; E4 and E5: the float64 reference rounded to FP32, and a sequential FP32 sum in the kernel's order, both equal the 640 FP32 goldens bit for bit). No FP8 input code is at or above `0x78` (the largest magnitude codes are `0x47` in E4, 3.75, and `0x44` in E5, 4.0), so nothing points to OCP E4M3FN; the E4 inputs hold 108 subnormal codes, which the E03 codecs decode to the values the goldens were made from. The shim's own `test_data_format/` files stay with the frozen shim (above) until E07-25.
+
+| Deleted | Issue | Why | Replaced by | Evidence |
+|---|---|---|---|---|
+| `kernels/linear/fully_connected/data/` | E07-22 | `{int8,e4,e5}/{x,w,y}.bin`, the 9 opaque files no code generated (Q78). | Seeded data: the default generator inside each input's per-format `range` (`kernel.toml`) and `gen.py:extremes`/`gen.py:every_code`; the goldens from `ops.linear` through `kernels/linear/fully_connected/reference.py`, rounded to the accumulator format (INT32 `EXACT`, FP32 `FP32_ORDER`). | The old goldens reproduce exactly from `ops.linear` (above). New cases: `default` and `extremes` in all 4 formats, `every_code` in E4/E5, all pass; program unchanged (`:assemble_fully_connected` still the E02 digest `3f8e6965`), so `compare_legacy`'s binary and cycle checks still hold (2674 cycles); its output check no longer applies (the data changed by design). |
+
+### Tests moved out of `kernels/linear/fully_connected/test_accounting.py` (E07-22)
+
+| Test | Now covered by |
+|---|---|
+| `test_a_missing_data_file_fails_the_case` (3 ids: `e4/x.bin`, `int8/w.bin`, `e5/y.bin`) | dropped: the kernel reads no data file any more. A missing case or `--input` file is still an error, not a skip: `src/tools/ipu-harness/test/test_runner.py::test_a_missing_input_file_exits_1` and `compare.expected_for`'s `cannot read` `PlanError` |

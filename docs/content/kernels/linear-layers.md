@@ -70,8 +70,10 @@ fixed shape: 10 samples of 128 inputs, 64 outputs, with no activation. It is
 the one kernel that runs in several element formats with one program: INT8,
 INT32 (the emulator-only format: INT8 data in 32-bit elements), E4 and E5.
 `y` is stored from the accumulator: INT32 for INT8 and INT32 data, FP32 for E4
-and E5. The case data are fixed files in the kernel's `data/` folder, one set
-per format, with their goldens.
+and E5. The case data are seeded, generated per format inside each input's
+`range`, which keeps every sum inside the accumulator. The goldens come from
+the shared `linear` op (`y = linear(w, x.T).T`), rounded to the accumulator
+format: exact in INT8 and INT32, `FP32_ORDER` in E4 and E5.
 
 Query: `bazel run //kernels:query -- fully_connected`. The shape parameters
 `samples`, `in_features` and `out_features` each take one value (10, 128,

@@ -1,5 +1,4 @@
-"""fully_connected beyond its golden: its multiplier and alias accounting, and
-that a missing data file fails the case (E07-21).
+"""fully_connected beyond its golden: its multiplier and alias accounting (E07-21).
 
 Each format runs once, profiled (E06-12): the profiled run is held to the
 golden too, so the counts are those of a correct run.
@@ -7,14 +6,9 @@ golden too, so the counts are those of a correct run.
 
 from __future__ import annotations
 
-import shutil
-
 import pytest
 
-from ipu_harness.cases import expand
-from ipu_harness.family import load_kernel
-from ipu_harness.params import PlanError
-from ipu_harness.runner import RunOptions, run_kernel
+from ipu_harness.runner import RunOptions
 
 #: What the profile sees in every format, as (verified, candidate) counts.
 #: A16: each of the 10 samples is stored with the emulator-only ST.ACC (the
@@ -61,20 +55,3 @@ def observed(aliases):
         if any(seen.values()):
             counts[alias] = (seen["verified"], seen["candidate"])
     return counts
-
-
-@pytest.mark.parametrize("missing", ["e4/x.bin", "int8/w.bin", "e5/y.bin"])
-def test_a_missing_data_file_fails_the_case(kernel, tmp_path, missing):
-    # A copy of the family folder (the kernel and the family's pack.py) with
-    # one data file removed: the case fails with an error naming it, before
-    # or after the run, and is never skipped.
-    family = tmp_path / kernel.directory.parent.name
-    shutil.copytree(kernel.directory.parent, family, ignore=shutil.ignore_patterns("__pycache__"))
-    copy = family / kernel.directory.name
-    (copy / "data" / missing).unlink()
-    manifest = load_kernel(str(copy))
-    (case,) = [c for c in expand(manifest) if c.name == "default"]
-    fmt = {"int8": "int8", "e4": "e4", "e5": "e5"}[missing.split("/")[0]]
-    (format_,) = [f for f in case.formats if f.value == fmt]
-    with pytest.raises(PlanError, match=missing.split("/")[1]):
-        run_kernel(manifest, case, format_)

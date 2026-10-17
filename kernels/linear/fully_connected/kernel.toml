@@ -1,5 +1,5 @@
 # fully_connected: y[s, :] = w @ x[s, :] for 10 samples of 128 inputs and 64
-# outputs, in INT8, in INT32 (INT8 data widened: the emulator-only format that
+# outputs, in INT8, in INT32 (the emulator-only wide-integer format that
 # replaces ipu_apps' wide_mode, Q47), and in E4 and E5 (FP32 accumulation).
 # The shapes are fixed by the program (the .asm header has the design notes).
 [kernel]
@@ -17,11 +17,13 @@ out_features = { type = "int", choices = [64], default = 64 }   # lanes of the a
 [inputs.x]
 shape = ["samples", "in_features"]
 row = 0
+range = { int8 = [-128, 127], int32 = [-2048, 2048], e4 = [-4, 4], e5 = [-4, 4] }  # no saturation (gen.py:extremes)
 
 [inputs.w]
 shape = ["out_features", "in_features"]          # logical: output-major, not transposed
 pack = "transposed"                               # one row per input feature (../pack.py)
 row = "131072 / row_bytes"                        # byte 0x20000
+range = { int8 = [-128, 127], int32 = [-2048, 2048], e4 = [-4, 4], e5 = [-4, 4] }
 
 [outputs.y]
 shape = ["samples", "out_features"]
@@ -55,12 +57,22 @@ cyclic_index  = "CR12"
 w             = "CR13"
 
 [golden]
-# y is an accumulator output: INT32 for INT8 and INT32 data, FP32 for E4 and E5.
-tolerance = { int32 = "EXACT", fp32 = "EXACT" }
+# y = w @ x per sample, from the shared ops.linear (reference.py), rounded once
+# to y's accumulator format: INT32 for INT8 and INT32 data, FP32 for E4 and E5.
+# INT32 sums are exact. E4 and E5 products are exact in FP32, but the sum of
+# 128 of them rounds in the kernel's order, not the reference's. Measured
+# (E07-22): default and extremes exact in every format; every_code max rel
+# 1.2e-7 (E4) and 9.4e-6 (E5), max |err| 7.6e-6 and 5.7e-6.
+reference = "reference.py:reference"
+tolerance = { int32 = "EXACT", fp32 = "FP32_ORDER" }
 
-# The ipu_apps cases' data and goldens (gen.py): one .bin set per format, INT32
-# reading the INT8 set. The old cases map to formats: default -> int32,
-# int8 -> int8, fp8_e4m3 -> e4, fp8_e5m2 -> e5. E07-22 replaces them.
+# The ranges keep every sum inside the accumulator: at most 128 * 128 * 128
+# (2^21) in INT8, 128 * 2048 * 2048 (2^29) in INT32 and 128 * 16 in E4 and E5.
 [cases.default]
-generator = "gen.py:legacy_bin"
-expected = { y = "gen.py:legacy_golden" }
+
+[cases.extremes]                                  # every element at a range end
+generator = "gen.py:extremes"
+
+[cases.every_code]                                # every code in range, subnormals too
+formats = ["e4", "e5"]
+generator = "gen.py:every_code"
