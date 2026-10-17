@@ -104,6 +104,12 @@ class AssemblyCache:
         self._results: dict[str, AssemblyResult] = {}
         self.assembled = 0  #: how many programs were encoded (not served from the cache)
 
+    @property
+    def programs(self) -> tuple[AssemblyResult, ...]:
+        """Every program it holds, in the order each was first assembled (a
+        multi-stage run's stages, once each: E07's migration tools read them)."""
+        return tuple(self._results.values())
+
     def get(self, session: AssemblySession) -> AssemblyResult:
         """The session's program, encoded only if its rendered text is new.
 

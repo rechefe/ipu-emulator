@@ -350,6 +350,22 @@ def test_a_bytes_region_loads(tmp_path):
     assert load_manifest(directory).tensors["mask"].content == "mask.py:mask"
 
 
+def test_a_bytes_function_may_be_the_familys(tmp_path):
+    from ipu_harness.packing import region_fill
+
+    directory = scratch_kernel(tmp_path, 'bytes = "../shared_mask.py:mask"')
+    (tmp_path / "shared_mask.py").write_text(MASK_PY)  # the family's folder
+    m = load_manifest(directory)
+    plan = plan_case(m, {"rows": 2}, F.FP32)
+    assert region_fill(m.tensors["mask"], plan, 1) == bytes([0xFF, 0x00] * 64) * 4
+
+
+@pytest.mark.parametrize("ref", ["../../up.py:mask", "../sub/mask.py:mask", "/abs.py:mask"])
+def test_a_bytes_function_outside_the_family_is_refused(tmp_path, ref):
+    with pytest.raises(ManifestError, match="must be"):
+        load_manifest(scratch_kernel(tmp_path, f'bytes = "{ref}"'))
+
+
 def test_fill_and_bytes_together_are_refused(tmp_path):
     directory = scratch_kernel(tmp_path, 'fill = 1.0\nbytes = "mask.py:mask"')
     with pytest.raises(ManifestError, match="takes 'fill' or 'bytes', not both"):

@@ -131,12 +131,18 @@ def _placed_value(name: str, plan: CasePlan, placement: Placement) -> int:
         raise PlanError(manifest, f"derived.{name}", f"{expression!r}: {error}") from None
 
 
-def _value(name: str, plan: CasePlan, placement: Placement) -> tuple[int, str]:
-    """The bits ``name`` puts in its register, and what they are."""
+def _value(
+    name: str, plan: CasePlan, placement: Placement, offsets: Mapping[str, int]
+) -> tuple[int, str]:
+    """The bits ``name`` puts in its register, and what they are.
+
+    ``offsets`` are the binding table's (the kernel's ``[abi]`` offsets, or
+    none for a stage's table): a region's base row plus its offset.
+    """
     manifest = plan.manifest
     if name in manifest.tensors:
         base = placement.region(name).base_row
-        offset = manifest.abi_offsets.get(name, 0)
+        offset = offsets.get(name, 0)
         shown = f" {offset:+d}" if offset else ""
         if manifest.byte_units:
             bytes_base = base * FORMATS[plan.format].row_bytes
@@ -169,7 +175,8 @@ def register_writes(
         plan: The checked case.
         placement: Its regions.
         abi: Names to registers in place of the kernel's ``[abi]`` (a stage's,
-            E06-14), already checked by ``manifest.check_abi``.
+            E06-14), already checked by ``manifest.check_abi``. The kernel's
+            ``[abi]`` offsets do not apply to it: each region is its base.
         dstructure: ``CR15``'s dstructure; ``None``: the default (128 valid
             elements).
 
@@ -181,6 +188,9 @@ def register_writes(
         ConfigurationError: ``dstructure`` is given and ``abi`` binds ``CR15``.
     """
     bindings = plan.manifest.abi if abi is None else abi
+    # An [abi] offset belongs to the kernel's own binding: a stage's table
+    # binds each region at its base.
+    offsets = plan.manifest.abi_offsets if abi is None else {}
     cr15 = f"CR{DEFAULT_DSTRUCTURE_CR}"
     if dstructure is not None and cr15 in bindings.values():
         raise ConfigurationError(
@@ -188,7 +198,7 @@ def register_writes(
         )
     writes = []
     for name, register in bindings.items():
-        value, source = _value(name, plan, placement)
+        value, source = _value(name, plan, placement, offsets)
         if register == ZERO_REGISTER:
             if value:  # the loader pins it at row 0; a byte-unit base is 0 too
                 raise PlanError(
