@@ -89,7 +89,6 @@ nav:
   - Home: index.md
   - Getting started:
       - getting-started/index.md
-      - Setup: setup.md
       - Getting Started guide (PDF): https://github.com/rechefe/ipu-emulator/releases/download/guide-latest/getting-started.pdf
   - How-to:
       - how-to/index.md
