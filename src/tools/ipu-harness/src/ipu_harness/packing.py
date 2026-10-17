@@ -20,6 +20,7 @@ as plugins: Q62; the harness has no import of ``ipu_kernels``).
 
 from __future__ import annotations
 
+import inspect
 import math
 from collections.abc import Callable
 from pathlib import Path
@@ -52,8 +53,10 @@ T = TypeVar("T")
 class PackTransform(Protocol):
     """Lays ONE logical tensor out in rows of 128 elements, and back."""
 
-    def rows(self, shape: tuple[int, ...]) -> int:
-        """The rows a tensor of ``shape`` takes."""
+    def rows(self, shape: tuple[int, ...], plan: CasePlan) -> int:
+        """The rows a tensor of ``shape`` takes in ``plan`` (a padded or tiled
+        layout may depend on a parameter, not only the shape). A transform
+        whose ``rows`` takes the shape only is still called with it."""
         ...
 
     def to_rows(self, a: Array, plan: CasePlan) -> Array:
@@ -69,7 +72,7 @@ class RowMajor:
     """The last dimension across the lanes, zero-padded to a whole number of
     rows (``ceil(n / 128)`` rows per index of the other dimensions)."""
 
-    def rows(self, shape: tuple[int, ...]) -> int:
+    def rows(self, shape: tuple[int, ...], plan: CasePlan | None = None) -> int:
         """``ceil(n / 128)`` rows for each index of the other dimensions."""
         return math.prod(shape[:-1]) * -(-shape[-1] // LANES)
 
@@ -192,6 +195,18 @@ def _laid_out(
         raise PlanError(plan.manifest, f"{tensor.section}.{tensor.name}.pack", str(error)) from None
 
 
+def _rows(transform: PackTransform, shape: tuple[int, ...], plan: CasePlan) -> int:
+    """``transform.rows(shape, plan)``, or ``rows(shape)`` for a transform
+    written before it took the plan."""
+    try:
+        takes_plan = len(inspect.signature(transform.rows).parameters) >= 2
+    except (TypeError, ValueError):  # a builtin or C callable: no signature
+        takes_plan = True
+    if takes_plan:
+        return transform.rows(shape, plan)
+    return transform.rows(shape)  # type: ignore[call-arg]
+
+
 def stored_rows(tensor: TensorDecl, plan: CasePlan, *, package: str = "ipu_kernels") -> int:
     """The XMEM rows ``tensor`` takes as stored (E06-04's row counts).
 
@@ -208,7 +223,7 @@ def stored_rows(tensor: TensorDecl, plan: CasePlan, *, package: str = "ipu_kerne
         PlanError: The transform is unknown or cannot lay out the planned shape.
     """
     shape = plan.shapes[tensor.name]
-    rows = _laid_out(tensor, plan, package, lambda t: t.rows(shape))
+    rows = _laid_out(tensor, plan, package, lambda t: _rows(t, shape, plan))
     stored = FORMATS[stored_format(tensor, plan.format)].element_bytes
     return rows * stored // FORMATS[plan.format].element_bytes
 

@@ -116,6 +116,21 @@ def test_a_pack_no_file_defines_names_where_it_looked(tmp_path):
         stored_rows(m.tensors["y"], plan)
 
 
+#: Rows that depend on the plan, not only the shape (a tiled layout's padding).
+PLANNED_PY = PACK_PY.replace(
+    "    @staticmethod\n    def rows(shape):\n        return shape[0] + 1",
+    "    @staticmethod\n    def rows(shape, plan):\n        return shape[0] + plan.params['rows']",
+)
+
+
+def test_a_transforms_rows_may_read_the_plan_and_one_that_does_not_still_works(tmp_path):
+    planned = _family_kernel(tmp_path / "planned", own=PLANNED_PY)
+    plan = plan_case(planned, {"rows": 3}, F.FP32)
+    assert stored_rows(planned.tensors["y"], plan) == 6  # 3 rows + rows = 3
+    shape_only = _family_kernel(tmp_path / "shape_only", own=None)  # rows(shape)
+    assert stored_rows(shape_only.tensors["y"], plan_case(shape_only, {"rows": 3}, F.FP32)) == 4
+
+
 # --- a scratch region's starting bytes (E06 gap G2) ----------------------------------------
 
 SCRATCH_TOML = """\

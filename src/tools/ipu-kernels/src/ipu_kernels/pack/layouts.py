@@ -34,7 +34,7 @@ class ChannelMajor:
         if not 0 < shape[-1] <= LANES:
             raise ValueError(f"channel_major: the width ({shape[-1]}) must fit one row, 1..{LANES}")
 
-    def rows(self, shape: tuple[int, ...]) -> int:
+    def rows(self, shape: tuple[int, ...], plan: CasePlan | None = None) -> int:
         """One row per index of every dimension but the width.
 
         Raises:
@@ -85,7 +85,7 @@ class ChunkInterleaved:
             )
         return LANES // cols
 
-    def rows(self, shape: tuple[int, ...]) -> int:
+    def rows(self, shape: tuple[int, ...], plan: CasePlan | None = None) -> int:
         """``ceil(rows / (128 // cols))`` chunks of every channel.
 
         Raises:
