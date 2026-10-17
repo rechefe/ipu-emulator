@@ -68,10 +68,10 @@ the previous value is shown in the job summary only.
 ## Add a benchmark
 
 Add a module to `ipu_bench/benchmarks/` that defines
-`run(quick: bool) -> list[Result]`. The runner finds it; nothing else changes.
+`run(budget: Budget) -> list[Result]`. The runner finds it; nothing else changes.
 Take each measurement in a fresh interpreter with
 `ipu_bench.isolated.call("ipu_bench.benchmarks.<module>:<function>", **kwargs)`,
-and measure as little as still exercises the code when
-`ipu_bench.result.tiny_budget()` is true: `//tools/bench:bench_smoke_test`
-runs every module that way in the default tier. A `Result` name is
+and measure as little as still exercises the code for `Budget.TINY`
+(`--tiny`): `//tools/bench:bench_smoke_test` runs every module that way in
+the default tier. A `Result` name is
 `<area>/<measurement>` and stays stable: renaming one starts a new history.

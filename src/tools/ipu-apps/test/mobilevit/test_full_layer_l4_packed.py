@@ -43,6 +43,7 @@ harness describes them.
 
 from __future__ import annotations
 
+import struct
 import tempfile
 from pathlib import Path
 
@@ -378,7 +379,7 @@ def run_packed_residual_add(
         state.regfile.set_cr(7, 1)
         state.regfile.set_cr(8, 1)
         state.regfile.set_cr(9, b_base_row)
-        state.regfile.set_cr(10, 1)
+        state.regfile.set_cr(10, struct.unpack("<I", struct.pack("<f", 1.0))[0])  # FP32 1.0 (Q49)
         state.regfile.set_cr(15, encode_dstructure(valid_elements=128))
         with count_instructions(state) as counts:
             cycles = run_until_complete(state, max_cycles=max_cycles)

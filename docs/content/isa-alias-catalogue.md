@@ -238,20 +238,18 @@ needed anywhere.
 
 ### A10 — fractional scalar in a CR
 
-In INT8 and wide vector modes, `MULT.RC.VE` interprets a CR scalar's low byte as a
-signed integer, so fractional constants cannot use that scalar path.
+A CR scalar is the CR's low element-width bits decoded in the active format
+(see [CrIdx](operand-types.md#cridx)), so a float format takes a fractional
+constant directly: store its encoding in a writable CR (the float32 bit pattern
+of 0.5, `0x3F000000`, in FP32; the encoded byte in FP8) and multiply by it.
 
 ```asm
-# Wide FP32: materialise the constant as a full 128-lane row
-    LD.MULT R0 LR2 CR2 ;;  # R0 <- 128 x 0.5
-    MULT.RC.VV LR0 R0 0 LR0 CR15 ;
+    MULT.RC.VE LR0 CR3 0 LR0 CR15 ;  # CR3 holds the encoding of 0.5
     ACC.ADD.FIRST ;;
 ```
 
-Costs one XMEM row and one `R0`/`R1` slot per distinct fractional constant. In
-narrow FP8, store the encoded byte for 0.5 in a writable CR and use
-`MULT.RC.VE LR0 CR3 0 LR0 CR15` directly. In INT8, neither a scalar byte nor a
-vector byte represents a fraction.
+The integer formats INT8 and INT32 have no fraction to encode, in a scalar or a
+vector element.
 
 ### A11 — `ACC.MUL`: scale the accumulator by `MULT_RES`
 
@@ -270,7 +268,7 @@ Writing `ACC.ADD` in place of the round-trip computes `A+B`, not `A*B`.
 
 ### A12 — post-increment addressing / same-cycle load→mult forwarding
 
-`MULT.RC.*` reads `R_CYCLIC` from the start-of-cycle snapshot, so it cannot consume
+`MULT.RC.*` reads `R_CYCLIC` at cycle start ([timing model](explanation/timing-model.md#rule-2)), so it cannot consume
 a row loaded in its own bundle (issue #157). The pointer bump therefore needs an
 LR-only bundle of its own per inner-loop iteration, with the mult slot idle in it.
 

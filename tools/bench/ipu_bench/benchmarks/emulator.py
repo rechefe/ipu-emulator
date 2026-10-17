@@ -18,7 +18,7 @@ from tempfile import TemporaryDirectory
 
 from ipu_bench.benchmarks.kernels import RunTimer
 from ipu_bench.isolated import call, peak_rss_mb
-from ipu_bench.result import Result, tiny_budget
+from ipu_bench.result import Budget, Result
 
 # The largest matmul whose default case runs in about 10 s on the faithful path
 # (77185 cycles). matmul_720x240_x128 (the default in IMPLEMENTATION-DECISIONS.md,
@@ -76,7 +76,7 @@ def _prototyping_built() -> bool:
     return build_enabled()
 
 
-def run(quick: bool) -> list[Result]:
+def run(budget: Budget) -> list[Result]:
     c = call("ipu_bench.benchmarks.emulator:construct")
     first = "the first IpuState() in a fresh interpreter"
     results = [
@@ -91,8 +91,8 @@ def run(quick: bool) -> list[Result]:
         Result("emulator/ipu_state_rss_delta_mb", "MB", c["rss_mb"], extra=first),
     ]
     # The smoke test runs the INT8 case (2674 cycles) once per mode, nothing larger.
-    repeats = 1 if quick or tiny_budget() else 5
-    kernels = (INT8,) if tiny_budget() else (MATMUL, INT8)
+    repeats = 5 if budget is Budget.FULL else 1
+    kernels = (INT8,) if budget is Budget.TINY else (MATMUL, INT8)
     modes = ("faithful", "prototyping") if _prototyping_built() else ("faithful",)
     for mode in modes:
         for kernel, case_name in kernels:

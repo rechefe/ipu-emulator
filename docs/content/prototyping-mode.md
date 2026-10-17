@@ -59,7 +59,9 @@ is exempt.
 
 CI runs the default tier in both modes on every pull request: the `test` job
 builds it as usual, and the `proto` job runs it with the flag and fails if any
-equivalence case in `test_prototyping_equivalence` is skipped. Locally:
+equivalence case in `test_prototyping_equivalence` is skipped. The nightly
+workflow's `proto` job runs the heavy tier (the `enormous` tests) with the flag
+too. Locally:
 
 ```bash
 bazel test --config=proto //...

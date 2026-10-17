@@ -9,9 +9,9 @@ change must be an explicit edit there, so review sees it (CLAUDE.md,
 
 from __future__ import annotations
 
-import os
 import sys
-from pathlib import Path
+
+import baseline_support
 
 from ipu_gen import sv_package
 
@@ -25,11 +25,10 @@ def render() -> str:
 
 
 def main() -> int:
-    workspace = os.environ.get("BUILD_WORKSPACE_DIRECTORY")
-    if not workspace:
-        print(f"Run this through Bazel: {UPDATE_COMMAND}", file=sys.stderr)
+    root = baseline_support.workspace(UPDATE_COMMAND)
+    if root is None:
         return 2
-    (Path(workspace) / GOLDEN_PATH).write_text(render(), encoding="utf-8")
+    (root / GOLDEN_PATH).write_text(render(), encoding="utf-8")
     print(f"Wrote {GOLDEN_PATH}")
     return 0
 

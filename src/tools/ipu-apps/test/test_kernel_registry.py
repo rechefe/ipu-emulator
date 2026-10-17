@@ -884,14 +884,18 @@ def _toy_case_test(monkeypatch, program, *, run_hook=None):
     monkeypatch.setattr(testing, "assemble_kernel", assemble)
     monkeypatch.setattr(testing, "run_case", run)
     # The toy kernel is not registered, so it has no baseline to compare with.
-    monkeypatch.setattr(testing, "check_baseline", lambda *args: None)
+    monkeypatch.setattr(testing.baseline, "check", lambda *args: None)
     return testing.case_tests("toy")
+
+
+#: A request whose config holds no update root: the case test compares.
+_COMPARING = types.SimpleNamespace(config=types.SimpleNamespace(stash={}))
 
 
 def test_case_tests_passes_a_kernel_that_uses_str_acc_reg_when_it_warns(
     monkeypatch, tmp_path_factory
 ):
-    _toy_case_test(monkeypatch, "uses_str_acc_reg")("default", {}, tmp_path_factory)
+    _toy_case_test(monkeypatch, "uses_str_acc_reg")("default", {}, tmp_path_factory, _COMPARING)
 
 
 def test_case_tests_fails_a_kernel_that_uses_str_acc_reg_without_the_warning(
@@ -907,7 +911,7 @@ def test_case_tests_fails_a_kernel_that_uses_str_acc_reg_without_the_warning(
 
     test = _toy_case_test(monkeypatch, "uses_str_acc_reg", run_hook=silence)
     with pytest.raises(pytest.fail.Exception, match="DID NOT WARN"):
-        test("default", {}, tmp_path_factory)
+        test("default", {}, tmp_path_factory, _COMPARING)
 
 
 def test_case_tests_fails_a_hardware_only_kernel_if_the_warning_appears(
@@ -923,11 +927,11 @@ def test_case_tests_fails_a_hardware_only_kernel_if_the_warning_appears(
         yield
 
     # Without the injection the hardware-only kernel passes ...
-    _toy_case_test(monkeypatch, "hardware_only")("default", {}, tmp_path_factory)
+    _toy_case_test(monkeypatch, "hardware_only")("default", {}, tmp_path_factory, _COMPARING)
     # ... and with it, the warning is an error.
     test = _toy_case_test(monkeypatch, "hardware_only", run_hook=inject)
     with pytest.raises(DebugOnlyInstructionWarning, match="injected"):
-        test("default", {}, tmp_path_factory)
+        test("default", {}, tmp_path_factory, _COMPARING)
 
 
 def test_debug_only_detection_reads_the_assembled_words(tmp_path):

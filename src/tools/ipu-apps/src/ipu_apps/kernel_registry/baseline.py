@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -46,10 +45,6 @@ from ipu_isa.registers import REGISTER_DEFINITIONS
 
 #: The one command that rewrites baselines from the current tree.
 UPDATE_COMMAND = "bazel run //src/tools/ipu-apps:update_kernel_baselines -- <kernel> ..."
-
-#: Set by the update command to the workspace root: ``case_tests`` then writes
-#: records there instead of comparing.
-UPDATE_ENV = "IPU_UPDATE_KERNEL_BASELINES"
 
 BASELINE_FILE = "baseline.json"
 
@@ -226,12 +221,6 @@ def check(kernel: str, case_id: str, actual: CaseRecord) -> None:
             + "\n  ".join(changed)
             + f"\nIf this change is intended, run {UPDATE_COMMAND}"
         )
-
-
-def update_root() -> Path | None:
-    """The workspace to write baselines into, when the update command runs."""
-    root = os.environ.get(UPDATE_ENV)
-    return Path(root) if root else None
 
 
 def source_path(root: Path, kernel: str) -> Path:

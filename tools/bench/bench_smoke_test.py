@@ -9,19 +9,14 @@ import pytest
 from ipu_apps.kernel_registry.cases import load_cases
 from ipu_bench import bench, ci_times
 from ipu_bench.benchmarks import emulator
-from ipu_bench.result import BIGGER_FILE, SMALLER_FILE, TINY_ENV, Result, append_results
-
-
-@pytest.fixture(autouse=True)
-def _tiny(monkeypatch):
-    monkeypatch.setenv(TINY_ENV, "1")
+from ipu_bench.result import BIGGER_FILE, SMALLER_FILE, Budget, Result, append_results
 
 
 def test_every_module_runs_and_writes_valid_files(tmp_path):
     assert {"imports", "assemble", "assemble_stages", "kernels", "emulator"} <= (
         bench.benchmark_modules().keys()
     )
-    assert bench.main(["--quick", "--out", str(tmp_path)]) == 0
+    assert bench.main(["--tiny", "--out", str(tmp_path)]) == 0
     smaller = json.loads((tmp_path / SMALLER_FILE).read_text())
     bigger = json.loads((tmp_path / BIGGER_FILE).read_text())
     names = {e["name"] for e in smaller + bigger}
@@ -70,7 +65,7 @@ def test_result_rejects_bad_entries():
 
 def test_unknown_module_is_refused():
     with pytest.raises(SystemExit):
-        bench.run_all(quick=True, only=["no_such_module"])
+        bench.run_all(Budget.TINY, only=["no_such_module"])
 
 
 def _job(name, step, start, end, conclusion="success"):

@@ -8,6 +8,7 @@ which runs unmodified as the baseline.
 
 from __future__ import annotations
 
+import struct
 from pathlib import Path
 
 import numpy as np
@@ -79,7 +80,7 @@ def test_packed_residual_add_correctness_and_cost(tmp_path: Path) -> None:
     state.regfile.set_cr(6, N_PACKED_ROWS)
     state.regfile.set_cr(7, 1)
     state.regfile.set_cr(8, 1)
-    state.regfile.set_cr(10, 1)
+    state.regfile.set_cr(10, struct.unpack("<I", struct.pack("<f", 1.0))[0])  # FP32 1.0 (Q49)
     state.regfile.set_cr(15, encode_dstructure(valid_elements=128))
 
     with count_instructions(state) as packed_counts:

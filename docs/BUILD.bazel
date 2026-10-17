@@ -43,6 +43,15 @@ alias(
     actual = "//src/tools/ipu-gen:verify_sv_package",
 )
 
+# The timing model page (content/explanation/timing-model.md) includes this table
+# through pymdownx.snippets: build_docs's output directory is the snippets base_path.
+genrule(
+    name = "generate_timing_contract_table",
+    outs = ["generated/timing-contract-table.md"],
+    cmd = "$(location //src/tools/ipu-gen:ipu-gen) timing-table $@ > /dev/null",
+    tools = ["//src/tools/ipu-gen:ipu-gen"],
+)
+
 genrule(
     name = "generate_instruction_format_md",
     outs = ["instruction-format.md"],
@@ -93,6 +102,7 @@ genrule(
         ":generate_mkdocs_md",
         ":generate_instruction_format_md",
         ":generate_instruction_format_artifacts",
+        ":generate_timing_contract_table",
         "//:GLOSSARY.md",
         "examples/test_add_an_instruction.py",
         "//src/tools/ipu-isa:test/one_edit.py",
@@ -253,6 +263,21 @@ py_pytest_test(
         "//src/tools/ipu-emu-py:ipu_emu_lib",
         "//src/tools/ipu-isa:ipu_isa_lib",
         "//src/tools/ipu-isa:one_edit",
+        requirement("pytest"),
+    ],
+)
+
+# The timing model page's examples run, and assert the values the page claims.
+py_pytest_test(
+    name = "test_timing_model",
+    size = "small",
+    srcs = ["examples/test_timing_model.py"],
+    data = ["content/explanation/timing-model.md"],
+    deps = [
+        ":doc_blocks",
+        "//src/tools/ipu-as-py:ipu_as_lib",
+        "//src/tools/ipu-emu-py:emu_test_support",
+        "//src/tools/ipu-emu-py:ipu_emu_lib",
         requirement("pytest"),
     ],
 )

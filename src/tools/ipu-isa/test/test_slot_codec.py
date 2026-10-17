@@ -13,6 +13,7 @@ from ipu_isa.codec.slot import (
     EncodeError,
     ReservedEncoding,
     codecs,
+    field_code,
 )
 from ipu_isa.codec.word import DecodedWord, opcode_field
 from ipu_isa.faults import reserved_encodings
@@ -84,6 +85,22 @@ def test_reserved_operand_codes_are_rejected():
     acc.encode("ACC.STRIDE", [0, 2, 0, 0])
     with pytest.raises(EncodeError, match="operand horizontal_stride = 3 is a reserved code"):
         acc.encode("ACC.STRIDE", [0, 3, 0, 0])
+
+
+def test_encode_with_reserved_writes_a_reserved_code_where_encode_puts_it():
+    lr = SLOT_CODECS[Slot.LR]
+    base = lr.encode("INC.MODP2", [0, 0, 0])
+    shift = (lr.encode("INC.MODP2", [0, 0, 1]) ^ base).bit_length() - 1  # where k's field starts
+    assert lr.encode_with_reserved("INC.MODP2", [0, 0, 15]) == base | 15 << shift
+    assert lr.encode_with_reserved("INC.MODP2", [0, 0, 8]) == lr.encode("INC.MODP2", [0, 0, 8])
+    with pytest.raises(EncodeError, match="takes 3 operand"):
+        lr.encode_with_reserved("INC.MODP2", [0, 0])
+    with pytest.raises(EncodeError, match="outside"):
+        lr.encode_with_reserved("INC.MODP2", [0, 0, 16])
+
+
+def test_field_code_is_twos_complement_for_a_negative_value():
+    assert [field_code(v, 8) for v in (0, 5, 255, -1, -128)] == [0, 5, 255, 255, 128]
 
 
 def test_decode_rejects_values_outside_the_slot():

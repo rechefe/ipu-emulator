@@ -22,7 +22,6 @@ from ipu_as.inst import OPERAND_TYPE_MAP
 from ipu_isa.codec import disasm
 from ipu_isa.codec.slot import OPCODE_SLOT, SLOT_CODECS, WORD_CODEC
 from ipu_isa.codec.slot import EncodeError as CodecError
-from ipu_isa.faults import reserved_operand_codes
 from ipu_isa.mnemonics import RESERVED_MNEMONICS
 from ipu_isa.schema import SpecError
 from ipu_isa.slots import LAYOUT_ORDER, SLOTS, Slot
@@ -196,45 +195,10 @@ def _operand_values(placed: Placed) -> tuple[int, ...]:
     return tuple(token.encode() for token in tokens)
 
 
-@functools.cache
-def _reserved_codes(slot: Slot, mnemonic: str) -> tuple[frozenset[int], ...]:
-    """The reserved codes of each operand of ``mnemonic`` (``ipu_isa.faults``)."""
-    view = isa()
-    instruction = SLOT_CODECS[slot].instruction(mnemonic)
-    return tuple(
-        frozenset(reserved_operand_codes(op.type, view.layout.operand_bits[op.type.name]))
-        for op in instruction.operands
-    )
-
-
-@functools.cache
-def _operand_shift(slot: Slot, mnemonic: str, index: int) -> int:
-    """Where the codec places operand ``index``: the bit its value 1 sets."""
-    codec = SLOT_CODECS[slot]
-    arity = len(codec.instruction(mnemonic).operands)
-    zero = codec.encode(mnemonic, (0,) * arity)
-    one = codec.encode(mnemonic, tuple(int(i == index) for i in range(arity)))
-    return (one ^ zero).bit_length() - 1
-
-
 def _encode_slot(slot: Slot, mnemonic: str, operands: tuple[int, ...]) -> int:
-    """The slot value, a reserved operand code included.
-
-    A reserved code (``ACC.STRIDE``'s ``reserved3``) assembles: hardware
-    faults (F-1) when it runs, and fault tests rely on writing one. The codec
-    refuses it, so it encodes the instruction with 0 there and the code is
-    placed where the codec puts that operand.
-    """
-    reserved = [
-        i for i, codes in enumerate(_reserved_codes(slot, mnemonic)) if operands[i] in codes
-    ]
-    if not reserved:
-        return SLOT_CODECS[slot].encode(mnemonic, operands)
-    cleared = tuple(0 if i in reserved else value for i, value in enumerate(operands))
-    value = SLOT_CODECS[slot].encode(mnemonic, cleared)
-    for i in reserved:
-        value |= operands[i] << _operand_shift(slot, mnemonic, i)
-    return value
+    """The slot value; a reserved operand code (``ACC.STRIDE``'s ``reserved3``)
+    assembles, as fault tests rely on writing one (``SlotCodec.encode_with_reserved``)."""
+    return SLOT_CODECS[slot].encode_with_reserved(mnemonic, operands)
 
 
 def target_tag(target: Tag | str) -> Tag:

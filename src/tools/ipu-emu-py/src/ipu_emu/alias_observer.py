@@ -356,15 +356,13 @@ class ExecutionObserver:
                     bank = "ra" if source.facts["bank"] == "ring" else "ring"
                     start = encoded["ra"] * LANES if bank == "ra" else kw["rc_idx"]
                     scaled = self.scaled_window(bank, start, LANES)
-        elif name in ("MULT.VE", "MULT.EE") and cr_scalar(self.state.regfile, kw["cr_idx"]) == 1:
+        elif name in ("MULT.VE", "MULT.EE") and cr_scalar(self.state, kw["cr_idx"]) == 1:
             length = 1 if name == "MULT.EE" else LANES
             scaled = self.scaled_window("ra", kw["ra_idx"], length)
             if length == 1:
                 scaled = full if scaled else 0
         elif (
-            name == "MULT.RC.VE"
-            and kw["src"] >= 16
-            and cr_scalar(self.state.regfile, kw["src"] - 16) == 1
+            name == "MULT.RC.VE" and kw["src"] >= 16 and cr_scalar(self.state, kw["src"] - 16) == 1
         ):
             scaled = self.scaled_window("ring", kw["rc_idx"], LANES)
         # Mask padding is zero or infinity, both invariant under positive scaling.
