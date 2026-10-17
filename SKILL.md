@@ -8,7 +8,7 @@ ipu-emulator defines the instruction set of the IPU, a 128-lane VLIW vector proc
 
 The rules agents must never break are in [CLAUDE.md](CLAUDE.md), under "Key Constraints" and "Generated SystemVerilog Package". They are explained in:
 
-- Opcodes from position, no duplicated metadata, handler argument names: [adding-instruction.md](docs/content/adding-instruction.md) and [ADR 0001](docs/adr/0001-isa-package-is-the-single-source-of-truth.md).
+- Opcodes from position, no duplicated metadata, handler argument names: [Add an instruction](docs/content/how-to/add-an-instruction.md) and [ADR 0001](docs/adr/0001-isa-package-is-the-single-source-of-truth.md).
 - Docs conventions and SystemVerilog package widths: CLAUDE.md is their only home.
 
 ## Where each topic is documented
@@ -20,7 +20,7 @@ The rules agents must never break are in [CLAUDE.md](CLAUDE.md), under "Key Cons
 | Write a kernel | [building-applications.md](docs/content/building-applications.md) |
 | Register a kernel (folder contract, Bazel targets) | [adding-applications.md](docs/content/adding-applications.md) |
 | Kernel catalogue | [kernels/index.md](docs/content/kernels/index.md) |
-| Add an instruction or pseudo-instruction | [adding-instruction.md](docs/content/adding-instruction.md) |
+| Add an instruction or pseudo-instruction | [Add an instruction](docs/content/how-to/add-an-instruction.md) |
 | Debug a kernel | [debugging.md](docs/content/debugging.md) |
 | Instructions, slots and operands | generated [Instructions](https://rechefe.github.io/ipu-emulator/instructions/) and [Operand types](https://rechefe.github.io/ipu-emulator/operand-types/) |
 | Assembly syntax, registers, instruction words | generated [Assembly syntax](https://rechefe.github.io/ipu-emulator/assembly-syntax/) |

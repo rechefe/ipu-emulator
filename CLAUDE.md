@@ -32,11 +32,13 @@ Use `bazel`, not `pip install` or `python` directly.
 
 ## Adding an Instruction (quick checklist)
 
-1. Add entry to `instruction_spec.py` (no opcode assignment — position determines it).
-2. Add `execute_<name>(ipu, *, ...)` to `ipu_emu/slots/<slot>.py` with keyword-only args matching operand names.
-3. Write a test in `ipu-emu-py/test/` using `_run()`.
-4. Run `bazel test //...`.
-5. Check the generated SystemVerilog package (below).
+The steps, with examples: [Add an instruction](docs/content/how-to/add-an-instruction.md).
+
+0. Choose the slot (its tag, HARDWARE or EMULATOR, comes with it) and a mnemonic under the standard (`GLOSSARY.md`, Mnemonic). An existing instruction under another name or operand order is a pseudo-instruction: one `PSEUDO_INSTRUCTION_SPEC` entry, nothing else.
+1. Append the entry to its slot in `instruction_spec.py` (no opcode: position determines it).
+2. Add `execute_<name>(ipu, *, ...)` to `ipu_emu/slots/<slot>.py`, keyword-only args named exactly as the operands.
+3. Write a test with `run()` from `ipu-emu-py/test/emu_support.py`.
+4. Run `bazel test //...`. HARDWARE: check the generated SystemVerilog package (below). EMULATOR: `assemble --target hardware` rejects it.
 
 The "one edit" tests prove these steps are enough: `//src/tools/ipu-apps:test_one_edit_end_to_end` adds a dummy instruction with one spec entry and one handler and runs it; `//src/tools/ipu-isa:test_one_edit` and `//src/tools/ipu-gen:test_one_edit_generators` check every derived artifact. The end-to-end test's `KNOWN_MANUAL_EDITS` (empty) names any other edit still needed.
 
