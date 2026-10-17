@@ -70,6 +70,23 @@ def test_raw_outputs_are_the_region_bytes(scale):
     )
 
 
+def test_stage_is_the_run_up_to_its_first_word(scale):
+    """``stage`` (E07-01's compare_setup reads it) leaves the model halted at PC 0
+    with the inputs packed and the registers written; the run continues from it."""
+    case = _case(scale, "default")
+    staged = runner.stage(scale, case, F.FP32)
+    assert staged.model.status.pc == 0
+    for write in staged.writes:
+        bank, index = write.register[:2].lower(), int(write.register[2:])
+        assert staged.model.read_register(bank, index) == write.value
+    start, size = staged.region_bytes("x")
+    assert (start, size) == (0, 4 * 512)
+    x = np.frombuffer(staged.model.read_xmem(start, size), dtype="<f4").reshape(4, 128)
+    np.testing.assert_array_equal(x, staged.inputs["x"])
+    run = staged.model.run()
+    assert run.cycles == run_kernel(scale, case, F.FP32).cycles
+
+
 def test_a_scratch_region_starts_with_its_fill(tmp_path):
     """Placement only reserves a scratch region; the runner writes its fill."""
     directory = write_scale(tmp_path).directory

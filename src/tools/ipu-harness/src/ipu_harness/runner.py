@@ -28,12 +28,13 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from ipu_as.session import AssemblyResult
 from ipu_emu.errors import ConfigurationError
 from ipu_emu.reference import ReferenceModel, RunState
 from ipu_emu.reference import RunResult as ModelRun
 from ipu_emu.trace import EMULATOR_VERSION, TraceWriter
 from ipu_harness._codec import Array, encode
-from ipu_harness.abi import apply, check_cr_reads, register_writes
+from ipu_harness.abi import RegisterWrite, apply, check_cr_reads, register_writes
 from ipu_harness.assembly import AssemblyCache, assemble
 from ipu_harness.cases import Case, inputs_for
 from ipu_harness.compare import Comparison, compare, expected_for, tier_for
@@ -51,7 +52,7 @@ from ipu_isa.trace_schema import SCHEMA_VERSION, isa_digest
 if TYPE_CHECKING:
     from ipu_emu.alias_profile import AliasProfile
 
-__all__ = ["RunFault", "RunOptions", "RunResult", "run_kernel"]
+__all__ = ["RunFault", "RunOptions", "RunResult", "Staged", "run_kernel", "stage"]
 
 
 @dataclass(frozen=True)
@@ -276,6 +277,81 @@ def _execute(
     return model.run(options.max_cycles), profile
 
 
+@dataclass(frozen=True)
+class Staged:
+    """A case loaded into a model, every register written, not yet run.
+
+    Attributes:
+        plan: The checked case.
+        inputs: Each input's values, rounded to the format.
+        placement: Where each tensor sits in XMEM.
+        program: The assembled program, loaded into ``model``.
+        writes: The register writes applied (``[abi]`` and the dstructure).
+        model: The model, halted at PC 0, its XMEM and registers set up.
+    """
+
+    plan: CasePlan
+    inputs: Mapping[str, Array]
+    placement: Placement
+    program: AssemblyResult
+    writes: tuple[RegisterWrite, ...]
+    model: ReferenceModel
+
+    def region_bytes(self, tensor: str) -> tuple[int, int]:
+        """The XMEM byte range ``(start, size)`` of ``tensor``'s region."""
+        region = self.placement.region(tensor)
+        row_bytes = _row_bytes(self.plan)
+        return region.base_row * row_bytes, region.rows * row_bytes
+
+
+def stage(
+    manifest: KernelManifest,
+    case: Case,
+    fmt: ElementFormat,
+    *,
+    inputs: Mapping[str, Path] | None = None,
+    cache: AssemblyCache | None = None,
+) -> Staged:
+    """Everything :func:`run_kernel` does before it runs the program.
+
+    It plans the case, makes its inputs, places and packs its tensors,
+    assembles and loads the program, writes the input and scratch regions and
+    programs the registers. ``compare_setup`` (E07-01) reads the result.
+
+    Args:
+        manifest: The kernel.
+        case: One of its cases.
+        fmt: The element format.
+        inputs: Input files that replace the case's inputs, by tensor name.
+        cache: Reuses programs already assembled.
+
+    Returns:
+        The staged model and what went into it.
+
+    Raises:
+        ConfigurationError: As for :func:`run_kernel`.
+        ipu_as.errors.AssemblerError: The program does not render, parse or
+            encode.
+    """
+    plan = plan_case(manifest, case.values, fmt, case=case.decl)
+    values = inputs_for(case, plan, overrides=inputs or {}).tensors
+    tensors = plan.manifest.tensors
+    placement = place(plan, {name: stored_rows(t, plan) for name, t in tensors.items()})
+    program = assemble(plan, cache)
+    check_cr_reads(manifest, program.rendered)
+
+    model = ReferenceModel(fmt)
+    model.load_program(program.words)
+    for tensor in tensors.values():
+        if tensor.role == "input":
+            _write_region(model, plan, placement, tensor, pack(tensor, values[tensor.name], plan))
+        elif tensor.role == "scratch":
+            _write_region(model, plan, placement, tensor, _scratch_fill(tensor, plan, placement))
+    writes = tuple(register_writes(plan, placement))
+    apply(model, writes)
+    return Staged(plan, MappingProxyType(dict(values)), placement, program, writes, model)
+
+
 def run_kernel(
     manifest: KernelManifest,
     case: Case,
@@ -306,21 +382,15 @@ def run_kernel(
         OSError: An input, output or trace file cannot be read or written.
     """
     options = options or RunOptions()
-    plan = plan_case(manifest, case.values, fmt, case=case.decl)
-    inputs = inputs_for(case, plan, overrides=options.inputs).tensors
+    staged = stage(manifest, case, fmt, inputs=options.inputs, cache=cache)
+    plan, inputs, placement, program, model = (
+        staged.plan,
+        staged.inputs,
+        staged.placement,
+        staged.program,
+        staged.model,
+    )
     tensors = plan.manifest.tensors
-    placement = place(plan, {name: stored_rows(t, plan) for name, t in tensors.items()})
-    program = assemble(plan, cache)
-    check_cr_reads(manifest, program.rendered)
-
-    model = ReferenceModel(fmt)
-    model.load_program(program.words)
-    for tensor in tensors.values():
-        if tensor.role == "input":
-            _write_region(model, plan, placement, tensor, pack(tensor, inputs[tensor.name], plan))
-        elif tensor.role == "scratch":
-            _write_region(model, plan, placement, tensor, _scratch_fill(tensor, plan, placement))
-    apply(model, register_writes(plan, placement))
 
     run, profile = _execute(model, manifest, case, fmt, program.words, options)
     mac_utilization = model.stats().effective_mac_utilization

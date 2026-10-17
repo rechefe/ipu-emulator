@@ -188,6 +188,37 @@ py_pytest_test(
     deps = [requirement("pytest")],
 )
 
+# Upper-case the mnemonics and register names of assembly sources (E07-01): each
+# family migration runs it on its programs; E07-25 adds --check over kernels/.
+#
+#   bazel run //tools:upper_mnemonics -- [--check] FILE...
+py_binary(
+    name = "upper_mnemonics",
+    srcs = ["upper_mnemonics.py"],
+    deps = [
+        "//src/tools/ipu-as-py:ipu_as_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+    ],
+)
+
+# Rewrites every program of the E02 asm corpus (a dry run in a temporary tree)
+# and holds each to its recorded binary digest.
+py_pytest_test(
+    name = "test_upper_mnemonics",
+    srcs = [
+        "test_upper_mnemonics.py",
+        "upper_mnemonics.py",
+    ],
+    data = ["//src/tools/ipu-apps:asm_corpus_files"],
+    imports = ["."],
+    deps = [
+        "//src/tools/ipu-apps:asm_corpus",
+        "//src/tools/ipu-as-py:ipu_as_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
 # Same-word register reads whose view (cycle start or forwarded) changes the
 # result, over the whole program corpus (E04-25). Rerun it for every timing
 # flip and put its output in the PR:
@@ -211,6 +242,7 @@ py_pytest_test(
         "test_audit_cross_slot_hazards.py",
     ],
     data = ["//src/tools/ipu-apps:asm_corpus_files"],
+    imports = ["."],
     deps = [
         "//src/tools/ipu-apps:asm_corpus",
         "//src/tools/ipu-as-py:ipu_as_lib",
@@ -244,6 +276,7 @@ test_suite(
         "//:ruff",
         "//docs:ruff",
         "//docs/inspector:ruff",
+        "//kernels/tools:ruff",
         "//src/tools/ipu-apps:ruff",
         "//src/tools/ipu-as-py:ruff",
         "//src/tools/ipu-debug:ruff",
