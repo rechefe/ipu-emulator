@@ -34,7 +34,7 @@ import numpy as np
 
 from ipu_emu.errors import ConfigurationError
 from ipu_harness.expressions import ExpressionError, evaluate
-from ipu_harness.manifest import TOML_NAME, CaseDecl, KernelManifest, ParamDecl
+from ipu_harness.manifest import TOML_NAME, CaseDecl, KernelManifest, ParamDecl, narrowed
 from ipu_isa.formats import FORMATS, ElementFormat, element_values
 
 Value = int | float | bool | str
@@ -348,6 +348,7 @@ def plan_case(
     """
     _check_format(manifest, fmt, case)
     checked = _check_params(manifest, params)
+    manifest = narrowed(manifest, checked)  # the case's tensors and bindings (``when``)
     derived = _derived(manifest, checked)
     names = {k: v for k, v in checked.items() if isinstance(v, int) and not isinstance(v, bool)}
     shapes = _shapes(manifest, {**names, **derived})

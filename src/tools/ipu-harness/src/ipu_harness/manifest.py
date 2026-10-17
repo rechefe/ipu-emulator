@@ -34,7 +34,9 @@ Schema
     or an expression like a shape's. ``after = "<tensor>"``: place the region
     right after that tensor's in placement order (by default inputs, then
     outputs, then scratch, each in file order), so scratch can come before an
-    output; not with ``row``.
+    output; not with ``row``. ``when = "<bool param>"`` (or ``"not <bool
+    param>"``): the tensor exists only in a case where that holds; otherwise it
+    is not placed, generated, passed to the reference or bound.
     ``pack`` (inputs and outputs): a named pack transform (E06-05); an output's
     lays out the stored rows that :func:`ipu_harness.packing.unpack` reads back. ``store`` (outputs):
     ``element`` (default) or ``accumulator``. ``fill`` (scratch): the value the
@@ -48,9 +50,13 @@ Schema
     a tensor pinned at ``row = 0`` may bind ``CR0``: the program reads its base
     through the hardwired 0 and nothing is written. A tensor may also bind
     ``{ register = "CR2", offset = -1 }``: its base row plus ``offset`` (an
-    int). A float parameter (an element scalar) binds a CR. Every key names a
-    parameter, a tensor or a derived value, and every tensor is bound (its base
-    row must reach the program).
+    int). Any binding may be a table with ``when`` (as a tensor's): it binds
+    only in a case where that holds; a conditional tensor's binding takes the
+    tensor's condition. Two bindings may share a register only when their
+    conditions exclude each other (``bias`` and ``not bias``). A float
+    parameter (an element scalar) binds a CR. Every key names a parameter, a
+    tensor or a derived value, and every tensor is bound (its base row must
+    reach the program).
 
 ``[derived]``
     ``<name> = "<expression>"`` over parameters and earlier derived values,
@@ -87,6 +93,7 @@ each becomes the parameter's only choice and its value in every case).
 
 from __future__ import annotations
 
+import functools
 import math
 import re
 import sys
@@ -120,6 +127,8 @@ __all__ = [
     "SECTION_OF",
     "TensorDecl",
     "ZERO_REGISTER",
+    "condition_holds",
+    "narrowed",
     "load_manifest",
 ]
 
@@ -158,9 +167,9 @@ _SECTIONS = (
 _KERNEL_KEYS = ("op", "formats", "asm", "stages", "cost")
 _PARAM_KEYS = ("type", "min", "max", "multiple_of", "choices", "default", "unit")
 _TENSOR_KEYS: Mapping[Role, tuple[str, ...]] = {
-    "input": ("shape", "row", "after", "pack", "range"),
-    "output": ("shape", "row", "after", "pack", "store"),
-    "scratch": ("shape", "row", "after", "fill"),
+    "input": ("shape", "row", "after", "when", "pack", "range"),
+    "output": ("shape", "row", "after", "when", "pack", "store"),
+    "scratch": ("shape", "row", "after", "when", "fill"),
 }
 _CASE_KEYS = ("formats", "inputs", "expected", "generator", "tier")
 _GOLDEN_KEYS = ("reference", "op", "tolerance")
@@ -205,6 +214,7 @@ class TensorDecl:
         row: The first XMEM row, if pinned (Q81): an int, or an expression over
             parameter and derived names.
         after: The tensor this region is placed right after, if it says.
+        when: The condition it exists under (``"bias"``, ``"not bias"``), if any.
         pack: The named pack transform of an input or output (E06-05).
         store: How an output is stored: ``element`` or ``accumulator``.
         fill: The value a scratch region is filled with.
@@ -217,6 +227,7 @@ class TensorDecl:
     shape: tuple[int | str, ...]
     row: int | str | None = None
     after: str | None = None
+    when: str | None = None
     pack: str | None = None
     store: Store = "element"
     fill: int | float = 0
@@ -285,6 +296,8 @@ class KernelManifest:
         abi: Name to ``"CR2"``..``"CR15"`` or ``"LR0"``..``"LR15"`` (``"CR0"`` for a
             tensor pinned at row 0).
         abi_offsets: A tensor's offset from its base row, when ``[abi]`` gives one.
+        abi_when: A binding's condition, when it has one (a conditional tensor's
+            included).
         derived: Name to expression.
         cases: The cases, ``default`` among them.
         golden: How outputs are checked.
@@ -309,6 +322,7 @@ class KernelManifest:
     fixed: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
     cost: int | float | str = 0
     abi_offsets: Mapping[str, int] = field(default_factory=lambda: MappingProxyType({}))
+    abi_when: Mapping[str, str] = field(default_factory=lambda: MappingProxyType({}))
 
     @property
     def byte_units(self) -> bool:
@@ -493,6 +507,41 @@ def _placed(
     return decl
 
 
+def _condition(r: Reader, raw: object, bools: Iterable[str], path: tuple[str, ...]) -> str:
+    """``"<bool param>"`` or ``"not <bool param>"``, normalised."""
+    text = " ".join(r.text(raw, path).split())
+    name = text.removeprefix("not ")
+    if name not in bools:
+        raise r.fail(path, f"{where(path)} {text!r} must name a bool parameter, or 'not' one")
+    return text
+
+
+def condition_holds(condition: str | None, params: Mapping[str, object]) -> bool:
+    """Whether a ``when`` condition holds for a case's parameter values.
+
+    Args:
+        condition: ``"<bool param>"``, ``"not <bool param>"``, or None (always).
+        params: The case's values, defaults filled.
+
+    Returns:
+        True when there is no condition or it holds.
+    """
+    if condition is None:
+        return True
+    name = condition.removeprefix("not ")
+    return bool(params[name]) is (name == condition)
+
+
+def _excludes(a: str | None, b: str | None) -> bool:
+    """Whether conditions ``a`` and ``b`` never hold together."""
+    return (
+        a is not None
+        and b is not None
+        and a.removeprefix("not ") == b.removeprefix("not ")
+        and (a.startswith("not ") != b.startswith("not "))
+    )
+
+
 def _tensor(
     r: Reader,
     section: str,
@@ -530,7 +579,7 @@ def _tensor(
 
 #: The hardwired zero a tensor pinned at row 0 may be read through.
 ZERO_REGISTER = "CR0"
-_BINDING_KEYS = ("register", "offset")
+_BINDING_KEYS = ("register", "offset", "when")
 
 
 def _register(r: Reader, name: str, raw: object, tensor: TensorDecl | None) -> str:
@@ -549,23 +598,50 @@ def _register(r: Reader, name: str, raw: object, tensor: TensorDecl | None) -> s
     return text
 
 
+@dataclass(frozen=True)
+class _Binding:
+    register: str
+    offset: int
+    when: str | None
+
+
 def _binding(
-    r: Reader, name: str, raw: object, tensor: TensorDecl | None
-) -> tuple[str, int | None]:
-    """A register, or ``{ register = ..., offset = n }`` for a tensor."""
+    r: Reader, name: str, raw: object, tensor: TensorDecl | None, bools: Iterable[str]
+) -> _Binding:
+    """A register, or ``{ register = ..., offset = n, when = ... }``."""
     path = ("abi", name)
+    when = tensor.when if tensor is not None else None
     if not isinstance(raw, dict):
-        return _register(r, name, raw, tensor), None
-    if tensor is None:
-        raise r.fail(path, f"[abi] {name}: only a tensor's binding takes an offset")
+        return _Binding(_register(r, name, raw, tensor), 0, when)
     r.known(raw, _BINDING_KEYS, path)
     if "register" not in raw:
         raise r.fail(path, f"{where(path)} needs 'register'")
     register = _register(r, name, raw["register"], tensor)
+    if "offset" in raw and tensor is None:
+        raise r.fail((*path, "offset"), f"[abi] {name}: only a tensor's binding takes an offset")
     offset = r.typed(raw.get("offset", 0), int, (*path, "offset"))
     if register == ZERO_REGISTER and offset:
         raise r.fail((*path, "offset"), f"[abi] {name} is read through CR0; it takes no offset")
-    return register, offset
+    if "when" in raw:
+        own = _condition(r, raw["when"], bools, (*path, "when"))
+        if when is not None and own != when:
+            raise r.fail(
+                (*path, "when"), f"[abi] {name} takes its tensor's condition {when!r}, not {own!r}"
+            )
+        when = own
+    return _Binding(register, offset, when)
+
+
+def _check_parameter_binding(
+    r: Reader, decl: ParamDecl, register: str, path: tuple[str, ...]
+) -> None:
+    """A parameter's register holds its value: no str, and an element scalar in a CR."""
+    if decl.type == "str":
+        raise r.fail(path, f"[abi] {decl.name} is a str parameter; a register holds a number")
+    if register.startswith("LR") and decl.type == "float":
+        raise r.fail(
+            path, f"[abi] {decl.name} is an element scalar (a float); it binds a CR, not {register}"
+        )
 
 
 def _abi(
@@ -574,27 +650,29 @@ def _abi(
     params: Mapping[str, ParamDecl],
     names: set[str],
     tensors: Mapping[str, TensorDecl],
-) -> tuple[Mapping[str, str], Mapping[str, int]]:
+) -> tuple[Mapping[str, str], Mapping[str, int], Mapping[str, str]]:
     table = r.table(raw, ("abi",))
+    bools = [n for n, p in params.items() if p.type == "bool"]
     abi: dict[str, str] = {}
     offsets: dict[str, int] = {}
-    used: dict[str, str] = {}
+    conditions: dict[str, str] = {}
+    used: dict[str, list[str]] = {}
     for name, value in table.items():
         path = ("abi", name)
         if name not in names:
             raise r.fail(path, f"{where(path)} names no parameter, tensor or derived value")
-        register, offset = _binding(r, name, value, tensors.get(name))
-        if offset:
-            offsets[name] = offset
-        if register in used:
-            raise r.fail(path, f"[abi] {name} and {used[register]} both bind {register}")
-        if name in params and params[name].type == "str":
-            raise r.fail(path, f"[abi] {name} is a str parameter; a register holds a number")
-        if register.startswith("LR") and name in params and params[name].type == "float":
-            raise r.fail(
-                path, f"[abi] {name} is an element scalar (a float); it binds a CR, not {register}"
-            )
-        used[register] = name
+        binding = _binding(r, name, value, tensors.get(name), bools)
+        register = binding.register
+        if binding.offset:
+            offsets[name] = binding.offset
+        if binding.when is not None:
+            conditions[name] = binding.when
+        for other in used.get(register, []):
+            if not _excludes(binding.when, conditions.get(other)):
+                raise r.fail(path, f"[abi] {name} and {other} both bind {register}")
+        if name in params:
+            _check_parameter_binding(r, params[name], register, path)
+        used.setdefault(register, []).append(name)
         abi[name] = register
     for tensor in tensors.values():
         if tensor.name not in abi:
@@ -602,7 +680,7 @@ def _abi(
                 (tensor.section, tensor.name),
                 f"[abi] does not bind tensor {tensor.name!r}; its base row must reach the program",
             )
-    return MappingProxyType(abi), MappingProxyType(offsets)
+    return MappingProxyType(abi), MappingProxyType(offsets), MappingProxyType(conditions)
 
 
 # --- cases and golden ---------------------------------------------------------------------
@@ -865,13 +943,18 @@ def _tensors(
     data: Mapping[str, Any],
     scalars: tuple[str, ...],
     formats: tuple[ElementFormat, ...],
+    bools: tuple[str, ...] = (),
 ) -> dict[str, TensorDecl]:
     tensors: dict[str, TensorDecl] = {}
     for section in _ROLES:
         for name, raw in r.table(data.get(section, {}), (section,)).items():
             if name in tensors or name in scalars:
                 raise r.fail((section, name), f"{name!r} is declared twice")
-            tensors[name] = _tensor(r, section, name, raw, scalars, formats)
+            decl = _tensor(r, section, name, raw, scalars, formats)
+            if isinstance(raw, dict) and "when" in raw:
+                when = _condition(r, raw["when"], bools, (section, name, "when"))
+                decl = replace(decl, when=when)
+            tensors[name] = decl
     for tensor in tensors.values():
         _check_after(r, tensor, tensors)
     return tensors
@@ -935,8 +1018,9 @@ def load_manifest(
     if isinstance(kernel.cost, str):
         integers = [n for n, p in params.items() if p.type == "int"]
         _check_expression(r, kernel.cost, (*integers, *derived), ("kernel", "cost"))
-    tensors = _tensors(r, data, scalars, kernel.formats)
-    abi, abi_offsets = _abi(r, data.get("abi", {}), params, {*scalars, *tensors}, tensors)
+    bools = tuple(n for n, p in params.items() if p.type == "bool")
+    tensors = _tensors(r, data, scalars, kernel.formats, bools)
+    abi, abi_offsets, abi_when = _abi(r, data.get("abi", {}), params, {*scalars, *tensors}, tensors)
     manifest = KernelManifest(
         name=entry.name or directory.name,
         directory=directory,
@@ -947,6 +1031,7 @@ def load_manifest(
         tensors=MappingProxyType(tensors),
         abi=abi,
         abi_offsets=abi_offsets,
+        abi_when=abi_when,
         derived=MappingProxyType(derived),
         cases=MappingProxyType({}),
         golden=_golden(r, directory, data.get("golden", {}), kernel.formats),
@@ -959,3 +1044,43 @@ def load_manifest(
         raise r.fail(("cases",), f"{TOML_NAME} needs [cases.default]")
     cases = {name: _case(r, manifest, name, raw) for name, raw in raw_cases.items()}
     return replace(manifest, cases=MappingProxyType(cases))
+
+
+@functools.cache
+def _narrowed(
+    manifest: KernelManifest, absent: frozenset[str], inactive: frozenset[str]
+) -> KernelManifest:
+    tensors = {n: t for n, t in manifest.tensors.items() if n not in absent}
+    abi = {n: reg for n, reg in manifest.abi.items() if n not in inactive}
+    return replace(
+        manifest,
+        tensors=MappingProxyType(tensors),
+        abi=MappingProxyType(abi),
+        abi_offsets=MappingProxyType(
+            {n: o for n, o in manifest.abi_offsets.items() if n not in inactive}
+        ),
+        abi_when=MappingProxyType({n: w for n, w in manifest.abi_when.items() if n in abi}),
+    )
+
+
+def narrowed(manifest: KernelManifest, params: Mapping[str, object]) -> KernelManifest:
+    """``manifest`` as one case sees it: only the tensors and bindings whose
+    ``when`` holds for ``params`` (``plan_case`` gives it to every later stage).
+
+    Args:
+        manifest: The kernel.
+        params: The case's checked values, defaults filled.
+
+    Returns:
+        ``manifest`` itself when it has no condition, else the same narrowed
+        view for the same answer.
+    """
+    absent = frozenset(
+        n for n, t in manifest.tensors.items() if not condition_holds(t.when, params)
+    )
+    inactive = frozenset(
+        n for n, when in manifest.abi_when.items() if not condition_holds(when, params)
+    )
+    if not absent and not inactive:
+        return manifest
+    return _narrowed(manifest, absent, inactive)

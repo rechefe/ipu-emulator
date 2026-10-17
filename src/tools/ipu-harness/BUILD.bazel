@@ -80,6 +80,16 @@ py_pytest_test(
     ],
 )
 
+# Conditional tensors and bindings (when).
+py_pytest_test(
+    name = "test_conditions",
+    srcs = ["test/test_conditions.py"],
+    deps = [
+        ":ipu_harness_lib",
+        requirement("pytest"),
+    ],
+)
+
 # Cases, sweeps, seeded generators and user data (E06-08).
 py_pytest_test(
     name = "test_cases",
