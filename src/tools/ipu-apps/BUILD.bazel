@@ -233,6 +233,18 @@ filegroup(
     srcs = _ASM_CORPUS + ["test/baselines/asm_digests.json"],
 )
 
+# The old kernels' programs, prebuilt binaries and E02 case baselines, for
+# //kernels/tools (compare_setup, compare_legacy; E07-01), which runs the old
+# harnesses beside the new kernels until E07-25 deletes both.
+filegroup(
+    name = "legacy_kernel_files",
+    srcs = glob([
+        "src/ipu_apps/kernels/**/*.asm",
+        "src/ipu_apps/kernels/**/*.bin",
+        "src/ipu_apps/kernels/**/baseline.json",
+    ]),
+)
+
 py_library(
     name = "asm_corpus",
     srcs = ["test/baselines/asm_corpus.py"],
