@@ -564,13 +564,15 @@ def test_derived_values_lr_presets_and_scratch(tmp_path):
 
 def test_only_the_loader_and_ipu_as_abi_read_kernel_toml():
     """load_manifest is the reader of kernel.toml; ipu-as --abi reads only its [abi] table,
-    because ipu_as cannot import ipu_harness. Any other reader is a second schema."""
+    because ipu_as cannot import ipu_harness; ipu_harness.family reads registry.toml
+    (E06-17) and hands each entry to load_manifest. Any other reader is a second schema."""
     root = Path(__file__).resolve().parents[4]
     if not (root / "src/tools").is_dir():
         pytest.skip("needs the workspace sources")
     allowed = {
         "src/tools/ipu-harness/src/ipu_harness/manifest.py",
         "src/tools/ipu-as-py/src/ipu_as/cli.py",
+        "src/tools/ipu-harness/src/ipu_harness/family.py",
     }
     readers = []
     for path in sorted((root / "src/tools").glob("*/src/**/*.py")):

@@ -28,6 +28,7 @@ from typing import Any
 
 from ipu_emu.errors import ConfigurationError
 from ipu_harness.expressions import evaluate
+from ipu_harness.family import REGISTRY_NAME, Entry, invalid_name, load_entry, read_registry
 from ipu_harness.manifest import TOML_NAME, KernelManifest, load_manifest
 from ipu_harness.params import ParamCheck, PlanError, Value, check_params
 from ipu_isa.formats import ElementFormat
@@ -82,13 +83,15 @@ class Verdict:
 
     @property
     def label(self) -> str | None:
-        """The chosen kernel's Bazel label, ``//kernels/<family>/<name>``."""
-        if self.kernel is None:
-            return None
-        return f"//kernels/{self.kernel.directory.parent.name}/{self.kernel.directory.name}"
+        """The chosen kernel's Bazel label: ``//kernels/<family>/<name>``, or
+        ``//kernels/<family>:<name>`` for a registry entry (E06-17)."""
+        return None if self.kernel is None else self.kernel.label
 
     def _notes(self) -> list[str]:
-        return [f"runs in {', '.join(f.value for f in self.formats)}"] if self.kernel else []
+        if self.kernel is None:
+            return []
+        notes = [f"runs in {', '.join(f.value for f in self.formats)}"]
+        return [self.kernel.doc, *notes] if self.kernel.doc else notes
 
     def to_dict(self) -> dict[str, Any]:
         """The same answer as :meth:`describe`, for tools (``query --json``).
@@ -210,20 +213,75 @@ def _distinct(refusals: list[tuple[str, str]], candidates: int) -> list[str]:
     return lines
 
 
+def _declared_at(manifest: KernelManifest) -> str:
+    """Where a kernel is declared, for a name clash."""
+    if manifest.registry is not None:
+        return f"{manifest.registry} (entry {manifest.name})"
+    return str(manifest.directory / TOML_NAME)
+
+
+class _Found:
+    """What :meth:`Registry.load` reads, family by family; a name is one kernel's."""
+
+    def __init__(self) -> None:
+        self.manifests: dict[str, KernelManifest] = {}
+        self.templates: dict[str, KernelManifest] = {}
+        self.invalid: dict[Path, ConfigurationError] = {}
+
+    def _add(self, manifest: KernelManifest, into: dict[str, KernelManifest]) -> None:
+        for known in (self.manifests, self.templates):
+            if manifest.name in known:
+                raise ConfigurationError(
+                    f"{_declared_at(manifest)}: kernel {manifest.name} is also "
+                    f"{_declared_at(known[manifest.name])}"
+                )
+        into[manifest.name] = manifest
+
+    def family(self, family: Path) -> None:
+        registry = family / REGISTRY_NAME
+        entries: tuple[Entry, ...] = ()
+        if registry.is_file():
+            try:
+                entries = read_registry(registry)
+            except ConfigurationError as error:
+                self.invalid[registry] = error
+        templates = {e.template for e in entries}
+        for toml in sorted(family.glob(f"*/{TOML_NAME}")):
+            try:
+                manifest = load_manifest(toml.parent)
+            except ConfigurationError as error:
+                self.invalid[toml] = error
+                continue
+            self._add(manifest, self.templates if toml.parent.name in templates else self.manifests)
+        for entry in entries:
+            try:
+                manifest = load_entry(registry, entry)
+            except ConfigurationError as error:
+                self.invalid[family / entry.name] = error
+                continue
+            self._add(manifest, self.manifests)
+
+
 @dataclass(frozen=True)
 class Registry:
     """Every kernel, and the routing over them.
 
     Attributes:
-        manifests: The kernels, by name.
-        invalid: The ``kernel.toml`` files that failed to load, by path, with
-            their errors.
+        manifests: The kernels routing chooses among, by name: folder kernels
+            and ``registry.toml`` entries (E06-17).
+        invalid: The kernels that failed to load, with their errors: a
+            ``kernel.toml`` by its path, a ``registry.toml`` by its path, an
+            entry by ``<family folder>/<name>``.
         adapters: Layer adapters, by layer class name.
+        templates: The folders entries are made from, by name. A template is
+            run and tested itself but not routed: its free domain would tie
+            with its own entries.
     """
 
     manifests: Mapping[str, KernelManifest]
     invalid: Mapping[Path, ConfigurationError] = field(default_factory=lambda: MappingProxyType({}))
     adapters: Mapping[str, LayerAdapter] = field(default_factory=lambda: MappingProxyType({}))
+    templates: Mapping[str, KernelManifest] = field(default_factory=lambda: MappingProxyType({}))
 
     @classmethod
     def load(
@@ -253,27 +311,19 @@ class Registry:
         if not root.is_dir():
             raise ConfigurationError(f"{root}: no kernel tree there")
         wanted = None if families is None else set(families)
-        manifests: dict[str, KernelManifest] = {}
-        invalid: dict[Path, ConfigurationError] = {}
+        found = _Found()
         family_dirs = sorted(p for p in root.iterdir() if p.is_dir())
         for family in family_dirs:
-            if wanted is not None and family.name not in wanted:
-                continue
-            for toml in sorted(family.glob(f"*/{TOML_NAME}")):
-                try:
-                    manifest = load_manifest(toml.parent)
-                except ConfigurationError as error:
-                    invalid[toml] = error
-                    continue
-                if manifest.name in manifests:
-                    raise ConfigurationError(
-                        f"{toml}: kernel {manifest.name} is also "
-                        f"{manifests[manifest.name].directory / TOML_NAME}"
-                    )
-                manifests[manifest.name] = manifest
+            if wanted is None or family.name in wanted:
+                found.family(family)
         names = [f.name for f in family_dirs if wanted is None or f.name in wanted]
         adapters = _LayerAdapters(f"{package}.{n}.layers" for n in names)
-        return cls(MappingProxyType(manifests), MappingProxyType(invalid), adapters)
+        return cls(
+            MappingProxyType(found.manifests),
+            MappingProxyType(found.invalid),
+            adapters,
+            MappingProxyType(found.templates),
+        )
 
     @classmethod
     def of(
@@ -294,19 +344,24 @@ class Registry:
         return cls(MappingProxyType(by_name), adapters=MappingProxyType(dict(adapters or {})))
 
     def kernel(self, name: str) -> KernelManifest:
-        """The kernel ``name``.
+        """The kernel ``name``: a routed kernel or a template.
 
         Raises:
-            ConfigurationError: Its ``kernel.toml`` failed to load (that error),
-                or there is no such kernel.
+            ConfigurationError: It failed to load (that error), or there is no
+                such kernel; the message then names any ``registry.toml`` that
+                did not read, whose entries are unknown.
         """
         if name in self.manifests:
             return self.manifests[name]
-        for toml, error in self.invalid.items():
-            if toml.parent.name == name:
+        if name in self.templates:
+            return self.templates[name]
+        for path, error in self.invalid.items():
+            if invalid_name(path) == name:
                 raise error
         known = ", ".join(sorted(self.manifests)) or "none"
-        raise ConfigurationError(f"unknown kernel {name!r} (kernels: {known})")
+        unread = [str(path) for path in self.invalid if path.name == REGISTRY_NAME]
+        also = f"; registries that did not read: {', '.join(unread)}" if unread else ""
+        raise ConfigurationError(f"unknown kernel {name!r} (kernels: {known}{also})")
 
     def operations(self) -> tuple[str, ...]:
         """Every op some kernel computes."""

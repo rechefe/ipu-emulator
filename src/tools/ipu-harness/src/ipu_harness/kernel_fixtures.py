@@ -9,14 +9,14 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
-from pathlib import Path
 
 import pytest
 
 from ipu_harness.assembly import AssemblyCache
 from ipu_harness.cases import Case, expand
+from ipu_harness.family import load_kernel
 from ipu_harness.kernel_test import KERNEL_ENV, TIER_ENV
-from ipu_harness.manifest import KernelManifest, load_manifest
+from ipu_harness.manifest import KernelManifest
 from ipu_harness.runner import RunOptions, RunResult, run_kernel
 from ipu_isa.formats import ElementFormat
 
@@ -24,7 +24,7 @@ RunCase = Callable[..., RunResult]
 
 
 def _manifest() -> KernelManifest:
-    return load_manifest(Path(os.environ[KERNEL_ENV]))
+    return load_kernel(os.environ[KERNEL_ENV])
 
 
 def _tier_cases(manifest: KernelManifest) -> tuple[Case, ...]:

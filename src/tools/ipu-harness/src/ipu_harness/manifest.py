@@ -97,9 +97,10 @@ Every file path stays inside the kernel directory: ``..`` and absolute paths
 are refused (checked lexically). An unknown section or key is an error that
 names the closest valid one.
 
-A family ``registry.toml`` entry (E06-17) loads its template with
-``overrides``: ``name``, ``formats`` (a subset) and ``params`` (fixed values:
-each becomes the parameter's only choice and its value in every case).
+A family ``registry.toml`` entry (E06-17, :mod:`ipu_harness.family`) loads its
+template with ``overrides``: ``name``, ``formats`` (a subset), ``params`` (fixed
+values: each becomes the parameter's only choice and its value in every case)
+and ``cases`` (the template cases the entry runs, ``default`` among them).
 """
 
 from __future__ import annotations
@@ -108,7 +109,7 @@ import functools
 import math
 import re
 import sys
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import MappingProxyType
@@ -320,6 +321,8 @@ class KernelManifest:
         cost: Routing cost: a number, or an expression over integer
             parameters and derived values (E06-16).
         fixed: Parameters a registry entry fixed (E06-17), with their values.
+        doc: A registry entry's one-line description, if any.
+        registry: The ``registry.toml`` that declares this kernel, for an entry.
     """
 
     name: str
@@ -338,6 +341,16 @@ class KernelManifest:
     cost: int | float | str = 0
     abi_offsets: Mapping[str, int] = field(default_factory=lambda: MappingProxyType({}))
     abi_when: Mapping[str, Condition] = field(default_factory=lambda: MappingProxyType({}))
+    doc: str | None = None
+    registry: Path | None = None
+
+    @property
+    def label(self) -> str:
+        """Its Bazel label: ``//kernels/<family>/<name>`` for a folder kernel,
+        ``//kernels/<family>:<name>`` for a registry entry."""
+        if self.registry is not None:
+            return f"//kernels/{self.registry.parent.name}:{self.name}"
+        return f"//kernels/{self.directory.parent.name}/{self.directory.name}"
 
     @functools.cached_property
     def placed(self) -> frozenset[str]:
@@ -950,6 +963,7 @@ class _Overrides:
     name: str | None
     formats: tuple[ElementFormat, ...]
     fixed: Mapping[str, object]
+    cases: tuple[str, ...] | None = None
 
 
 def _overrides(
@@ -964,9 +978,9 @@ def _overrides(
     def fail(message: str) -> ManifestError:
         return ManifestError(f"{source}: override of {toml}: {message}")
 
-    unknown = sorted(set(overrides) - {"name", "params", "formats"})
+    unknown = sorted(set(overrides) - {"name", "params", "formats", "cases"})
     if unknown:
-        raise fail(f"unknown overrides {unknown}; valid: name, formats, params")
+        raise fail(f"unknown overrides {unknown}; valid: name, formats, params, cases")
     name = overrides.get("name")
     if name is not None and (not isinstance(name, str) or not name.isidentifier()):
         raise fail(f"name {name!r} must be an identifier")
@@ -976,12 +990,27 @@ def _overrides(
         if not isinstance(listed, list) or not listed or any(f not in valid for f in listed):
             raise fail(f"formats {listed!r} must be a non-empty subset of {sorted(valid)}")
         formats = tuple(ElementFormat(f) for f in listed)
-    fixed_raw = overrides.get("params", {})
-    if not isinstance(fixed_raw, Mapping):
-        raise fail(f"params {fixed_raw!r} must be a table")
+    fixed = _fixed(toml, params, overrides.get("params", {}), fail)
+    cases = overrides.get("cases")
+    if cases is not None and not _case_names(cases):
+        raise fail(f"cases {cases!r} must list template cases once each, default among them")
+    return _Overrides(
+        name, formats, MappingProxyType(fixed), None if cases is None else tuple(cases)
+    )
+
+
+def _fixed(
+    toml: Path,
+    params: dict[str, ParamDecl],
+    raw: object,
+    fail: Callable[[str], ManifestError],
+) -> dict[str, object]:
+    """An entry's fixed values, each made its parameter's only choice in ``params``."""
+    if not isinstance(raw, Mapping):
+        raise fail(f"params {raw!r} must be a table")
     fixed: dict[str, object] = {}
     probe = Reader(toml, Locator(""))
-    for pname, value in fixed_raw.items():
+    for pname, value in raw.items():
         if pname not in params:
             raise fail(f"params.{pname} is no parameter of the template")
         try:
@@ -989,7 +1018,17 @@ def _overrides(
         except ManifestError as error:
             raise fail(str(error).split(": ", 1)[-1]) from None
         params[pname] = replace(params[pname], choices=(fixed[pname],), default=fixed[pname])
-    return _Overrides(name, formats, MappingProxyType(fixed))
+    return fixed
+
+
+def _case_names(cases: object) -> bool:
+    """Whether an entry's ``cases`` names cases once each, ``default`` among them."""
+    return (
+        isinstance(cases, list)
+        and all(isinstance(c, str) for c in cases)
+        and "default" in cases
+        and len(set(cases)) == len(cases)
+    )
 
 
 def _derived(r: Reader, raw: object, params: Mapping[str, ParamDecl]) -> dict[str, str]:
@@ -1172,5 +1211,12 @@ def load_manifest(
     raw_cases = r.table(data.get("cases", {}), ("cases",))
     if "default" not in raw_cases:
         raise r.fail(("cases",), f"{TOML_NAME} needs [cases.default]")
+    if entry.cases is not None:
+        missing = sorted(set(entry.cases) - set(raw_cases))
+        if missing:
+            raise ManifestError(
+                f"{source}: override of {toml}: cases {missing} are not the template's"
+            )
+        raw_cases = {name: raw_cases[name] for name in entry.cases}
     cases = {name: _case(r, manifest, name, raw) for name, raw in raw_cases.items()}
     return replace(manifest, cases=MappingProxyType(cases))
