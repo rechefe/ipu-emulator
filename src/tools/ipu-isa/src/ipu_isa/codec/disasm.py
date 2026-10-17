@@ -68,27 +68,21 @@ def type_text(operand_type: OperandType, value: int) -> str:
       the last member as ``<illegal_<type>_<value>>``.
     * ``LrOrReshapeMaskImmediate``: ``lr<n>`` from ``RESHAPE_MASK_LR_OFFSET``
       up, the number below it.
-    * An immediate or label whose value range fits its field is stored from
-      code 0 upward (``k - 1`` for ``INC.MODP2``), so the text adds the
-      range's low end back. Any other value is written as stored. The width
-      is the type's declared ``bits``; every ranged type declares one, so it
-      equals the layout width ``ipu_isa.faults`` uses for the same rule.
+    * Any other value as ``OperandType.field_codes`` reads it: plus the
+      range's low end when the range fits the field, else as stored. The
+      width is the type's declared ``bits``; every ranged type declares one,
+      so it equals the layout width ``ipu_isa.faults`` uses for the same rule.
     """
-    domain = operand_type.domain
-    if operand_type.kind in (OperandKind.REGISTER, OperandKind.ENUM):
-        if 0 <= value < len(domain.members):
-            return domain.members[value]
+    codes = operand_type.field_codes(operand_type.bits)
+    if codes.members is not None:
+        if 0 <= value < len(codes.members):
+            return codes.members[value]
         return f"<illegal_{operand_type.name}_{value}>"
     if operand_type.name == "LrOrReshapeMaskImmediate":
         if value >= RESHAPE_MASK_LR_OFFSET:
             return f"lr{value - RESHAPE_MASK_LR_OFFSET}"
         return str(value)
-    if domain.value_range is not None:
-        low, high = domain.value_range
-        bits = operand_type.bits
-        if bits is not None and high - low + 1 <= 1 << bits:
-            return str(value + low)
-    return str(value)
+    return str(value + codes.offset)
 
 
 def operand_text(op: Operand, value: int) -> str:

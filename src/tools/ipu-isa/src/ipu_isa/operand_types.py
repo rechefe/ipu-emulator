@@ -77,6 +77,37 @@ class OperandType:
     summary: str  # one line
     doc: str  # long form, for the generated operand-types page and editor hover
 
+    def field_codes(self, bits: int | None) -> FieldCodes:
+        """How a ``bits``-wide field holds this type's values; the one rule
+        disassembly (``codec.disasm.type_text``) and the reserved-code fault
+        (``faults.reserved_operand_codes``) read.
+
+        * REGISTER and ENUM: code ``i`` is ``domain.members[i]``.
+        * An immediate or label whose value range fits the field: the range is
+          stored from code 0 upward (``INC.MODP2`` stores ``k - 1``), so a code
+          plus the range's low end is its value, and only the range's size of
+          codes is defined.
+        * Any other type, or ``bits`` None: every code is its own value.
+        """
+        if self.kind in (OperandKind.REGISTER, OperandKind.ENUM):
+            members = self.domain.members
+            return FieldCodes(members=members, offset=0, defined=len(members))
+        if self.domain.value_range is not None and bits is not None:
+            low, high = self.domain.value_range
+            size = high - low + 1
+            if size <= 1 << bits:
+                return FieldCodes(members=None, offset=low, defined=size)
+        return FieldCodes(members=None, offset=0, defined=None)
+
+
+@dataclass(frozen=True, slots=True)
+class FieldCodes:
+    """How the codes of one field map to an operand type's values (``OperandType.field_codes``)."""
+
+    members: tuple[str, ...] | None  # REGISTER and ENUM: code i names members[i]
+    offset: int  # a code's value is code + offset
+    defined: int | None  # codes 0..defined-1 mean a value; None: every code does
+
 
 _LR_COUNT = REGISTER_DEFINITIONS["lr"]["count"]
 _CR_COUNT = REGISTER_DEFINITIONS["cr"]["count"]

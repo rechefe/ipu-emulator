@@ -27,7 +27,7 @@ from enum import Enum, IntEnum
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
-from ipu_isa.operand_types import OperandKind, OperandType
+from ipu_isa.operand_types import OperandType
 from ipu_isa.slots import Slot
 from ipu_isa.tags import Tag
 
@@ -214,20 +214,15 @@ def reserved_operand_codes(operand_type: OperandType, bits: int) -> tuple[int, .
     * An immediate without a range (its width set by union packing) reserves
       nothing here; F-5 covers the ``ACC.RESHAPE`` mask.
     """
-    capacity = 1 << bits
-    domain = operand_type.domain
-    if operand_type.kind in (OperandKind.REGISTER, OperandKind.ENUM):
-        named = [
-            code
-            for code, member in enumerate(domain.members)
-            if member.startswith(RESERVED_MEMBER_PREFIX)
-        ]
-        return tuple(named) + tuple(range(len(domain.members), capacity))
-    if domain.value_range is None:
+    codes = operand_type.field_codes(bits)
+    if codes.defined is None:
         return ()
-    low, high = domain.value_range
-    size = high - low + 1
-    return tuple(range(size, capacity))
+    named = [
+        code
+        for code, member in enumerate(codes.members or ())
+        if member.startswith(RESERVED_MEMBER_PREFIX)
+    ]
+    return tuple(named) + tuple(range(codes.defined, 1 << bits))
 
 
 def _slot_reserved(isa: Isa, slot: Slot) -> ReservedEncodings:
