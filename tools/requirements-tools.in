@@ -9,3 +9,7 @@ tomli
 ruff
 # Type checking: the mypy_test targets (tools/typecheck.bzl).
 mypy
+# Docs versions on gh-pages (E09-21): the local `mike` CLI (mike list, alias,
+# delete) and the versions.json reader the publish tool's test checks against.
+# The site itself is always the Bazel build, never `mike deploy`.
+mike

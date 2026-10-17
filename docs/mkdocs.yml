@@ -186,6 +186,13 @@ markdown_extensions:
 
 extra:
   docs_git_branch: master
+  # The version selector (E09-21). CI publishes each build into gh-pages in mike's
+  # layout: dev from master, vX.Y from a release tag, with the alias latest on the
+  # newest release (docs/publish_version.py). The site root redirects to latest,
+  # or to dev until the first release.
+  version:
+    provider: mike
+    default: latest
   # Pages generated at build time (docs/BUILD.bazel) are not in docs/content/, so their
   # "history" link (hooks/history_link.py) goes to the generator instead. This map is the
   # one place to update when a generator or a generated page moves.

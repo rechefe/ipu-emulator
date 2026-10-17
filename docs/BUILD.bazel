@@ -173,6 +173,32 @@ genrule(
     tools = [":mkdocs"],
 )
 
+# Publishes a built site.tar as one docs version on gh-pages, in mike's layout
+# (E09-21). CI runs it (.github/workflows/docs.yml); nobody else pushes there.
+#
+# CI only:
+#   bazel run //docs:publish_version -- --repo "$GITHUB_WORKSPACE" \
+#       --site bazel-bin/docs/site.tar --version dev --push
+py_binary(
+    name = "publish_version",
+    srcs = ["publish_version.py"],
+    main = "publish_version.py",
+    python_version = "PY3",
+)
+
+py_pytest_test(
+    name = "publish_version_test",
+    size = "small",
+    srcs = [
+        "publish_version.py",
+        "publish_version_test.py",
+    ],
+    deps = [
+        requirement("mike"),
+        requirement("pytest"),
+    ],
+)
+
 py_binary(
     name = "serve_docs",
     srcs = ["serve_docs.py"],

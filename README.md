@@ -33,7 +33,7 @@ Quick Start
    bazel run //src/tools/ipu-apps:identity
    ```
 
-The full documentation is at <https://rechefe.github.io/ipu-emulator/>.
+The full documentation is at <https://rechefe.github.io/ipu-emulator/>: `dev/` follows master, and each release `vX.Y` has its own version (`latest` is the newest).
 
 Build (Bazel)
 -------------
