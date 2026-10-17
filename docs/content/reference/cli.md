@@ -80,8 +80,10 @@ measurements.
 ## Kernel runner: `run_kernel`
 
 `run_kernel` runs a case of a kernel described by a `kernel.toml`, in one
-element format or all of them, and prints one report per run. Until each such
-kernel has its own Bazel target, give it the kernel's folder.
+element format or all of them, and prints one report per run. Each kernel's
+own target (`bazel run //kernels/<family>/<name> -- ...`, or
+`//kernels/<family>:<entry>` for a family entry) runs it; this binary takes any
+kernel folder by path.
 
 ```bash
 bazel run //src/tools/ipu-harness:run_kernel -- path/to/kernel --case default --format all
