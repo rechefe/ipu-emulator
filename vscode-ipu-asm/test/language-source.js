@@ -58,7 +58,11 @@ function checkout(isa) {
     assert.strictEqual(cwd, root);
     return { code: 0, stdout: '', stderr: '' };
   };
-  const touch = (ms) => fs.utimesSync(source, new Date(ms), new Date(ms));
+  const touch = (ms, file = source) => {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    if (!fs.existsSync(file)) fs.writeFileSync(file, '');
+    fs.utimesSync(file, new Date(ms), new Date(ms));
+  };
   return { root, runs, run, touch, source: (cacheBase) => new CheckoutLanguageSource(root, { cacheBase, run }) };
 }
 
@@ -77,6 +81,11 @@ test("a checkout's data is generated once, and again when its sources change", a
   c.touch(Date.now() + 60000);
   await c.source(cache).load();
   eq(c.runs.length, 2, 'a source newer than the data: generated again');
+  // The assembler's sources too: the generator reads its grammar and slot rules.
+  c.touch(Date.now() + 120000, path.join(c.root, 'src', 'tools', 'ipu-as-py', 'src', 'ipu_as', 'ipu_token.py'));
+  await c.source(cache).load();
+  eq(c.runs.length, 3, 'an assembler source newer than the data: generated again');
+  eq(fs.readdirSync(cache).filter((f) => f.includes('.new-')), [], 'no generation directory left behind');
   // Another checkout has its own directory.
   const other = checkout(isa);
   await other.source(cache).load();

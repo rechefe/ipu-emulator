@@ -93,6 +93,14 @@ test("a trusted checkout's own ISA answers once generated; until then the bundle
   api.languages.invalidate(root);
   assert.strictEqual(api.languages.chosen(doc).use, 'checkout');
   await until(() => ran().length === 2 && !api.languages.entries.values().next().value.loading, 'generated again');
+  // A failed regeneration (sources mid-edit) keeps the data it had.
+  delete process.env.GENERATED;
+  fs.utimesSync(path.join(root, 'src/tools/ipu-isa/src/spec.py'), new Date(Date.now() + 120000), new Date(Date.now() + 120000));
+  api.languages.invalidate(root);
+  api.languages.chosen(doc);
+  await until(() => ran().length === 3 && !api.languages.entries.get(root).loading, 'the regeneration to fail');
+  eq(api.languages.chosen(doc).use, 'checkout');
+  assert.match(await hover(), /Halt execution/);
   ext.deactivate();
 });
 

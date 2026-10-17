@@ -38,8 +38,8 @@ master) would disagree with the checkout's assembler: hover would call an
 instruction unknown that assembles cleanly. So in a trusted workspace a
 checkout's own ISA is used. It is generated with `bazel run
 //src/tools/ipu-gen:ipu-gen -- vscode-data <cache>` (`language-source.js`) the
-first time a file of that checkout is opened, and again after its ISA or
-generator sources change. The cache lives in the extension's global storage, so
+first time a file of that checkout is opened, and again after the sources it
+is generated from change (the ISA, the assembler and the generator). The cache lives in the extension's global storage, so
 the next window reads it at once. The bundled data answers until the
 checkout's is ready; then hover, completion and the rest switch over.
 
@@ -53,7 +53,9 @@ says why), when:
   extension reads. A warning then says once to update the extension.
 
 `ipuAsm.languageSource` forces a source: `checkout` uses the checkout's ISA and
-warns when it cannot; `bundled` never generates.
+warns when generating it fails; `bundled` never generates. Only editing help
+follows the setting: the TextMate grammar (highlighting) is always the bundled
+one.
 
 ## Generated, not written
 
@@ -310,7 +312,7 @@ code --install-extension ipu-asm.vsix
 | `ipuAsm.bazelFlags` | none | extra flags for Run, Debug, Test and Benchmark, e.g. `--define=ipu_proto=1` |
 | `ipuAsm.cases` | none | cases saved from the form, by kernel: `{ "tall": { "base": "default", "options": { "rows": 64 } } }` |
 | `ipuAsm.timeoutSeconds` | `300` | the longest the checker, the manifest or a query may run before it is stopped; `0` for no limit |
-| `ipuAsm.languageSource` | `auto` | which ISA editing help reads ([Which ISA](#which-isa)): `auto` (the checkout's once generated, else the bundled one), `checkout` (the same, and a warning when it cannot), `bundled` |
+| `ipuAsm.languageSource` | `auto` | which ISA editing help reads ([Which ISA](#which-isa)): `auto` (the checkout's once generated, else the bundled one), `checkout` (the same, and a warning when generating fails), `bundled` |
 | `ipuAsm.wordSeparation` | `space` | how `;;` words are set apart (a label, comment or opening Jinja tag stays with its word): `space` (an empty CodeLens row; file unchanged), `emptyLine` (written by formatting), `line` (colour `ipuAsm.wordSeparator`) or `none` |
 
 ## Restricted Mode

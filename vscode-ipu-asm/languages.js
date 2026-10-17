@@ -80,6 +80,7 @@ class Languages {
     const entry = this.entries.get(root);
     if (entry.again && !entry.loading) {
       entry.again = false;
+      entry.source.seconds = timeoutSeconds(folder);
       entry.loading = entry.source.load().catch((err) => ({ error: err.message })).then((result) => {
         // A failure after a success keeps the data it had: the sources are mid-edit.
         if (!(result.error && entry.result && entry.result.lang)) entry.result = result;

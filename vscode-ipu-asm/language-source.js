@@ -27,11 +27,9 @@ const SUPPORTED_SCHEMA = 1;
 /** The language data generator. */
 const GENERATOR_TARGET = '//src/tools/ipu-gen:ipu-gen';
 
-/** What the language data is generated from: the ISA, and the generator. */
-const LANGUAGE_SOURCE_DIRS = [
-  path.join('src', 'tools', 'ipu-isa', 'src'),
-  path.join('src', 'tools', 'ipu-gen', 'src'),
-];
+/** What the language data is generated from: the ISA and the assembler (the generator reads
+ *  its grammar, operand types and slot rules), and the generator itself. */
+const LANGUAGE_SOURCE_DIRS = [...checker.SOURCE_DIRS, path.join('src', 'tools', 'ipu-gen', 'src')];
 
 /** The settings `ipuAsm.languageSource` takes. */
 const SETTINGS = ['auto', 'checkout', 'bundled'];
@@ -57,15 +55,17 @@ class CheckoutLanguageSource {
   constructor(root, { cacheBase, run = checker.run, seconds = 300, flags = [] }) {
     this.root = root;
     this.kind = 'checkout';
+    /** Where every checkout's cache directory is. */
+    this.cacheBase = cacheBase;
     this.dir = path.join(cacheBase, crypto.createHash('sha256').update(root).digest('hex').slice(0, 16));
     this.run = run;
     this.seconds = seconds;
     this.flags = flags;
   }
 
-  /** The argv generating the data into this checkout's cache directory. */
-  command() {
-    return ['bazel', 'run', ...this.flags, ...checker.QUIET, GENERATOR_TARGET, '--', 'vscode-data', this.dir];
+  /** The argv generating the data into `dir`. */
+  command(dir) {
+    return ['bazel', 'run', ...this.flags, ...checker.QUIET, GENERATOR_TARGET, '--', 'vscode-data', dir];
   }
 
   /** { lang }: a Language over the checkout's ISA, from the cache when it is fresh, else
@@ -77,13 +77,22 @@ class CheckoutLanguageSource {
     const isaFile = path.join(this.dir, 'data', 'isa.json');
     const stampFile = path.join(this.dir, 'stamp.json');
     const stamp = await fs.readFile(stampFile, 'utf8').then(JSON.parse, () => null);
+    await fs.mkdir(this.cacheBase, { recursive: true });
     if (!stamp || stamp.root !== this.root || stamp.sources < newest) {
-      await fs.mkdir(this.dir, { recursive: true });
-      const [command, ...args] = this.command();
-      const r = await this.run(command, args, this.root, this.seconds);
-      if (r.code !== 0) {
-        const tail = (r.stderr || '').trim().split('\n').slice(-3).join(' ').slice(0, 300);
-        throw new Error(`generating the checkout's language data failed: ${tail || `exit ${r.code}`}`);
+      // Generated beside the cache, then moved in: another window reading the cache meanwhile
+      // reads the old file whole, never a half-written one.
+      const fresh = await fs.mkdtemp(`${this.dir}.new-`);
+      try {
+        const [command, ...args] = this.command(fresh);
+        const r = await this.run(command, args, this.root, this.seconds);
+        if (r.code !== 0) {
+          const tail = (r.stderr || '').trim().split('\n').slice(-3).join(' ').slice(0, 300);
+          throw new Error(`generating the checkout's language data failed: ${tail || `exit ${r.code}`}`);
+        }
+        await fs.mkdir(path.dirname(isaFile), { recursive: true });
+        await fs.rename(path.join(fresh, 'data', 'isa.json'), isaFile);
+      } finally {
+        await fs.rm(fresh, { recursive: true, force: true });
       }
       // Sampled before the run: an edit made during it is not credited to it.
       await fs.writeFile(stampFile, JSON.stringify({ root: this.root, sources: newest }));

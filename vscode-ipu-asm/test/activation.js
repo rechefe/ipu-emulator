@@ -214,7 +214,8 @@ test('the checker binary is used while its sources are unchanged; a change to th
   fs.writeFileSync(binary, `#!/bin/sh\n${old('direct')}echo direct >> ${log}\nprintf '[]'\n`, { mode: 0o755 });
   const standIn = path.join(bin, 'bazel');
   const failing = fs.readFileSync(standIn, 'utf8');
-  fs.writeFileSync(standIn, `#!/bin/sh\ncase "$1" in\n  build) exit 0 ;;\n  info) echo ${bazelBin} ;;\n  run) ${old('bazel-run')}echo bazel-run >> ${log}; printf '[]' ;;\nesac\n`);
+  // The language data generator (languages.js) also goes through `bazel run`: not a check.
+  fs.writeFileSync(standIn, `#!/bin/sh\ncase "$*" in *vscode-data*) exit 1 ;; esac\ncase "$1" in\n  build) exit 0 ;;\n  info) echo ${bazelBin} ;;\n  run) ${old('bazel-run')}echo bazel-run >> ${log}; printf '[]' ;;\nesac\n`);
   const ran = () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').split('\n').filter(Boolean) : []);
   try {
     // The open folder is a subfolder of the checkout: the assembler's sources are outside it.

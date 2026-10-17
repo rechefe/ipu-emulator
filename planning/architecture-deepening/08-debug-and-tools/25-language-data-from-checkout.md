@@ -26,8 +26,8 @@ On a branch that changes the ISA, hover and completion agree with the diagnostic
 4. README: explain both sources and how to force one (`ipuAsm.languageSource: auto|checkout|bundled`).
 
 *As built:*
-- Freshness compares the cache's recorded source stamp with the newest mtime of the ISA and generator sources (`src/tools/ipu-isa/src`, `src/tools/ipu-gen/src`), not with the checker binary's mtime. This is `isFresh`'s rule, with a recorded build stamp, and it does not depend on whether a binary was built.
-- The checker's source watcher (ipu-as-py, ipu-isa) triggers regeneration while the window is open. A change to the generator alone is picked up the next time the data is loaded.
+- Freshness compares the cache's recorded source stamp with the newest mtime of the sources the data is generated from: the checker's (`src/tools/ipu-as-py/src`, `src/tools/ipu-isa/src`) and the generator's (`src/tools/ipu-gen/src`). It does not use the checker binary's mtime. This is `isFresh`'s rule, with a recorded build stamp, and it does not depend on whether a binary was built.
+- The checker's source watcher (ipu-as-py, ipu-isa) triggers regeneration while the window is open. A change to the generator alone is picked up the next time the data is loaded. A failed regeneration keeps the previous data. Data is generated into a temporary directory and moved into the cache, so another window never reads a half-written file.
 - Each document uses its own checkout's ISA, so a window with two checkouts shows each one's.
 - In Restricted Mode the status bar also adds "(bundled ISA)".
 
