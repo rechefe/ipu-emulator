@@ -4,9 +4,10 @@ A shape dimension or a ``[derived]`` value is an int literal, a name, or an
 expression built from int literals, names, ``+ - * / // %``, unary minus, and
 the calls ``ceil(x)``, ``min(a, b, ...)`` and ``max(a, b, ...)``. Nothing else is
 evaluated. A ``[derived]`` value may also read ``base(<tensor>)``, a region's
-base once it is placed (:func:`base_name`): such a value is known only when the
-registers are written, so only ``[abi]`` reads it. Arithmetic is exact (fractions): ``/`` must end up inside ``ceil``
-or divide evenly, and the result must be a whole number.
+base once it is placed (:func:`base_name`, :func:`placed_reads`): such a value
+is known only when the registers are written, so only ``[abi]`` reads it.
+Arithmetic is exact (fractions): ``/`` must end up inside ``ceil`` or divide
+evenly, and the result must be a whole number.
 
 :func:`names_in` checks an expression against the grammar without values (the
 loader, at load time); :func:`evaluate` computes it (``plan_case``).
@@ -43,6 +44,34 @@ def base_name(tensor: str) -> str:
     """The name ``base(<tensor>)`` is looked up by, in :func:`evaluate`'s names
     and in what :func:`names_in` returns."""
     return f"{BASE}({tensor})"
+
+
+def base_tensor(read: str) -> str | None:
+    """The tensor a :func:`names_in` read of ``base(x)`` names; ``None`` for
+    any other read."""
+    prefix = f"{BASE}("
+    return read[len(prefix) : -1] if read.startswith(prefix) and read.endswith(")") else None
+
+
+def placed_reads(derived: Mapping[str, str]) -> dict[str, frozenset[str]]:
+    """Each ``[derived]`` value that reads a region's base, directly or through
+    an earlier such value, with the tensors whose bases it reads.
+
+    Raises:
+        ExpressionError: An expression is outside the grammar.
+    """
+    reads: dict[str, frozenset[str]] = {}
+    for name, expression in derived.items():
+        tensors: set[str] = set()
+        placed = False
+        for read in names_in(expression):
+            tensor = base_tensor(read)
+            if tensor is not None or read in reads:
+                placed = True
+                tensors |= {tensor} if tensor is not None else reads[read]
+        if placed:
+            reads[name] = frozenset(tensors)
+    return reads
 
 
 class ExpressionError(ValueError):

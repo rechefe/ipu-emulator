@@ -120,7 +120,7 @@ from ipu_emu.errors import ConfigurationError
 from ipu_harness._codec import limits
 from ipu_harness._toml_source import Locator, ManifestError, Reader, decode_error_line, where
 from ipu_harness.conditions import Condition
-from ipu_harness.expressions import BASE, ExpressionError, base_name, names_in
+from ipu_harness.expressions import ExpressionError, base_tensor, names_in, placed_reads
 from ipu_harness.tolerance import TIERS
 from ipu_harness.tolerance import Tier as ToleranceTier
 from ipu_isa.formats import FORMATS, ElementFormat
@@ -354,16 +354,11 @@ class KernelManifest:
         return f"//kernels/{self.directory.parent.name}/{self.directory.name}"
 
     @functools.cached_property
-    def placed(self) -> frozenset[str]:
+    def placed(self) -> Mapping[str, frozenset[str]]:
         """The ``[derived]`` values that read ``base(<tensor>)``, directly or
-        through another: known once the regions are placed, so only ``[abi]``
-        reads them."""
-        placed: set[str] = set()
-        for name, expression in self.derived.items():
-            reads = names_in(expression)
-            if any(n.startswith(f"{BASE}(") or n in placed for n in reads):
-                placed.add(name)
-        return frozenset(placed)
+        through another, with the tensors whose bases each reads: known once
+        the regions are placed, so only ``[abi]`` reads them."""
+        return MappingProxyType(placed_reads(self.derived))
 
     @property
     def byte_units(self) -> bool:
@@ -1043,7 +1038,7 @@ def _derived(r: Reader, raw: object, params: Mapping[str, ParamDecl]) -> dict[st
         if name in params:
             raise r.fail(path, f"[derived] {name} is also a parameter")
         derived[name] = r.text(expression, path)
-        bases = [n for n in _names(r, derived[name], path) if n.startswith(f"{BASE}(")]
+        bases = [n for n in _names(r, derived[name], path) if base_tensor(n) is not None]
         _check_expression(r, derived[name], (*params, *derived, *bases), path)
     return derived
 
@@ -1060,18 +1055,69 @@ def _declared_tensors(r: Reader, data: Mapping[str, Any]) -> list[str]:
     return [name for section in _ROLES for name in r.table(data.get(section, {}), (section,))]
 
 
-def _placed_derived(r: Reader, derived: Mapping[str, str], tensors: Iterable[str]) -> set[str]:
-    """The derived values that read a region's base; each ``base(x)`` names a tensor."""
-    placed: set[str] = set()
+def _placed_derived(
+    r: Reader, derived: Mapping[str, str], tensors: Iterable[str]
+) -> Mapping[str, frozenset[str]]:
+    """The derived values that read a region's base (``placed_reads``), once
+    each ``base(x)`` is checked to name a tensor."""
+    declared = set(tensors)
     for name, expression in derived.items():
         path = ("derived", name)
-        reads = _names(r, expression, path)
-        for read in reads:
-            if read.startswith(f"{BASE}(") and read not in {base_name(t) for t in tensors}:
+        for read in _names(r, expression, path):
+            tensor = base_tensor(read)
+            if tensor is not None and tensor not in declared:
                 raise r.fail(path, f"{where(path)} {expression!r}: {read} names no tensor")
-        if any(n.startswith(f"{BASE}(") or n in placed for n in reads):
-            placed.add(name)
-    return placed
+    return placed_reads(derived)
+
+
+def _no_placed_reads(
+    r: Reader, placed: Iterable[str], tensors: Mapping[str, TensorDecl], cost: object
+) -> None:
+    """A shape, a pin or the cost reads no placed value: it is known only once
+    the regions are, after them."""
+    late = set(placed)
+    reading: list[tuple[tuple[str, ...], str]] = [
+        ((tensor.section, tensor.name, key), text)
+        for tensor in tensors.values()
+        for key, texts in (("shape", tensor.shape), ("row", (tensor.row,)))
+        for text in texts
+        if isinstance(text, str)
+    ]
+    if isinstance(cost, str):
+        reading.append((("kernel", "cost"), cost))
+    for path, text in reading:
+        read = sorted(late & set(_names(r, text, path)))
+        if read:
+            raise r.fail(
+                path,
+                f"{where(path)} {text!r} reads {read}, which read a region's base: "
+                "only [abi] may read such a value",
+            )
+
+
+def _placed_conditions(
+    r: Reader,
+    placed: Mapping[str, frozenset[str]],
+    tensors: Mapping[str, TensorDecl],
+    abi_when: Mapping[str, Condition],
+    abi: Mapping[str, str],
+) -> None:
+    """A placed value's binding takes the condition of the conditional tensors
+    it reads, as a tensor's binding takes its tensor's: it is bound exactly
+    when they exist."""
+    for name, read in placed.items():
+        if name not in abi:
+            continue
+        conditions = {tensors[t].when for t in read if tensors[t].when is not None}
+        if len(conditions) > 1:
+            raise r.fail(("abi", name), f"[abi] {name} reads tensors under different conditions")
+        if conditions and abi_when.get(name) not in conditions:
+            want = next(iter(conditions))
+            raise r.fail(
+                ("abi", name),
+                f"[abi] {name} reads the base of a tensor that exists when {want}; "
+                f"bind it with when = {str(want)!r}",
+            )
 
 
 def _tensors(
@@ -1182,18 +1228,15 @@ def load_manifest(
     # A placed derived value (it reads base(x)) is known only once the regions
     # are: a shape, a pin or the cost cannot read it, only [abi].
     placed = _placed_derived(r, derived, _declared_tensors(r, data))
-    unplaced = tuple(d for d in derived if d not in placed)
-    scalars = (*params, *unplaced)
+    scalars = (*params, *derived)
     if isinstance(kernel.cost, str):
         integers = [n for n, p in params.items() if p.type == "int"]
-        _check_expression(r, kernel.cost, (*integers, *unplaced), ("kernel", "cost"))
+        _check_expression(r, kernel.cost, (*integers, *derived), ("kernel", "cost"))
     bools = tuple(n for n, p in params.items() if p.type == "bool")
     tensors = _tensors(r, data, scalars, kernel.formats, bools, directory)
-    for name in placed & set(tensors):
-        raise r.fail((SECTION_OF[tensors[name].role], name), f"{name!r} is declared twice")
-    abi, abi_offsets, abi_when = _abi(
-        r, data.get("abi", {}), params, {*params, *derived, *tensors}, tensors
-    )
+    _no_placed_reads(r, placed, tensors, kernel.cost)
+    abi, abi_offsets, abi_when = _abi(r, data.get("abi", {}), params, {*scalars, *tensors}, tensors)
+    _placed_conditions(r, placed, tensors, abi_when, abi)
     manifest = KernelManifest(
         name=entry.name or directory.name,
         directory=directory,
