@@ -15,9 +15,9 @@ from emu_support import assemble_program, make_state, new_state
 
 from ipu_emu.cycle import Cycle, CycleOutcome, decode_word, schedule_word
 from ipu_emu.emulator import load_program
-from ipu_emu.errors import EmulatorFault
-from ipu_emu.execute import BreakResult, Ipu
+from ipu_emu.errors import EmulatorError, EmulatorFault
 from ipu_emu.geometry import effective_mult_mask, partition_vector
+from ipu_emu.ipu import Ipu
 from ipu_emu.ipu_state import HaltRecord, IpuState
 from ipu_emu.regfile import RegFile
 from ipu_isa.faults import FaultId
@@ -425,11 +425,6 @@ def test_a_nop_break_slot_is_not_scheduled_and_conflicts_are_found_once():
     assert schedule.lr_conflict == (0, 0)
 
 
-def test_break_result_is_an_alias_of_cycle_outcome():
-    assert BreakResult is CycleOutcome
-    assert BreakResult.CONTINUE is CycleOutcome.RETIRED
-
-
 def test_skipping_idle_nops_keeps_counters_and_the_cond_nop_in_place():
     word = assemble_program("SET LR0 CR1 ; ACC.ADD ;;")[0]
 
@@ -507,4 +502,34 @@ def test_lr_subslot_exception_atomicity():
         assert state.regfile.get_lr(4) == 0
 
     assert failures[0] == failures[1]
+    assert _observable(runs[0][0]) == _observable(runs[1][0])
+
+
+def test_lr_subslot_read_error_leaves_no_lr_written(monkeypatch):
+    """Every LR sub-slot's reads are resolved before any of them writes
+    (``Issuer.dispatch_all``, E04-08): when sub-slot 2's operand resolution
+    raises, sub-slot 1 has not written its LR and sub-slot 3 never runs. Both
+    resolver adapters, so the faithful and the prototyping path (a real one in
+    a ``--define=ipu_proto=1`` build), compared in lockstep."""
+    from ipu_emu.resolver import FaithfulResolver, PackedResolver
+
+    def failing(original):
+        def resolve(self, plan, encoded, snapshot):
+            # Sub-slot 2 is the only SET whose source is CR3.
+            if plan.inst_name == "SET" and encoded.get("src") == 3:
+                raise EmulatorError("injected read failure")
+            return original(self, plan, encoded, snapshot)
+
+        return resolve
+
+    for adapter in (FaithfulResolver, PackedResolver):
+        monkeypatch.setattr(adapter, "resolve", failing(adapter.resolve))
+    program = assemble_program("SET LR1 CR2 ; SET LR2 CR3 ; SET LR4 CR5 ;;\nHALT ;;")
+    runs = _lockstep_modes(program, cr={2: 5, 3: 6, 5: 7})
+
+    for state, cycle in runs:
+        with pytest.raises(EmulatorError, match="injected read failure"):
+            cycle.step()
+        assert [state.regfile.get_lr(i) for i in (1, 2, 4)] == [0, 0, 0]
+
     assert _observable(runs[0][0]) == _observable(runs[1][0])

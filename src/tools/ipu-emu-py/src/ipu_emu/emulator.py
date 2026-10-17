@@ -25,10 +25,8 @@ import numpy as np
 from ipu_emu.activations import ActivationParams
 from ipu_emu.cycle import CycleOutcome
 from ipu_emu.errors import ConfigurationError, EmulatorFault
-from ipu_emu.execute import (
-    Ipu,
-    load_binary_instructions,
-)
+from ipu_emu.execute import load_binary_instructions
+from ipu_emu.ipu import Ipu
 from ipu_emu.ipu_math import fp32_to_fp8_bytes
 from ipu_emu.ipu_state import DEFAULT_CYCLE_LIMIT, INST_MEM_SIZE, IpuState
 from ipu_emu.run_clock import RunClock
@@ -159,7 +157,8 @@ def run_with_debug(
     clock = RunClock(state, max_cycles)
     clock.begin_run(reset_stats=reset_stats)
 
-    # TODO(E04): express this loop over the stepping engine once E04 lands it.
+    # TODO: express this loop over the steppable engine
+    # (planning/riscv-host-integration/03-steppable-engine.md).
     control = control if control is not None else RunControl()
     control.last_completed_pc = None
     control.last_completed_instruction = None

@@ -18,12 +18,12 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 
 from ipu_debug.control import DebugControl, validate_pc
+from ipu_debug.errors import DebugError
 from ipu_emu.errors import EmulatorError
 from ipu_emu.ipu import addressable_rows, xmem_row_size_bytes
 from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
 from ipu_emu.xmem import XMEM_SIZE_BYTES
 from ipu_isa.codec.disasm import disassemble_fields
-from ipu_isa.errors import IpuError
 from ipu_isa.registers import create_regfile_schema
 from ipu_isa.types import RegDescriptor, RegDtype
 
@@ -69,10 +69,6 @@ _XMEM_STRUCT_FORMATS = {
     "u32": "<I",
     "f32": "<f",
 }
-
-
-class DebugError(IpuError, ValueError):
-    """A user-facing debugger failure; the message is the text shown."""
 
 
 def is_scalar(desc: RegDescriptor) -> bool:
@@ -381,14 +377,7 @@ class DebugSession:
             pc = parse_int(text)
         except DebugError:
             raise DebugError("PC must be an integer") from None
-        return self._checked_pc(pc)
-
-    @staticmethod
-    def _checked_pc(pc: int) -> int:
-        try:
-            return validate_pc(pc)
-        except ValueError as error:
-            raise DebugError(str(error)) from None
+        return validate_pc(pc)
 
     # -- mutations ----------------------------------------------------------
 
@@ -403,7 +392,7 @@ class DebugSession:
         instruction memory or a read-only CR.
         """
         if name == "pc":
-            self.state.program_counter = self._checked_pc(value)
+            self.state.program_counter = validate_pc(value)
             self._changed()
             return RegisterView("pc", 0, RegDtype.UINT32, value, 4)
         desc, index = resolve_register(name)
@@ -432,12 +421,12 @@ class DebugSession:
         self._changed()
 
     def add_breakpoint(self, pc: int) -> None:
-        self.control.add_breakpoint(self._checked_pc(pc))
+        self.control.add_breakpoint(validate_pc(pc))
         self._changed()
 
     def remove_breakpoint(self, pc: int) -> None:
         """Remove the breakpoint at *pc*; nothing happens if there is none."""
-        self.control.remove_breakpoint(self._checked_pc(pc))
+        self.control.remove_breakpoint(validate_pc(pc))
         self._changed()
 
     def clear_breakpoints(self) -> None:
@@ -446,7 +435,7 @@ class DebugSession:
 
     def toggle_breakpoint(self, pc: int) -> bool:
         """Flip the breakpoint at *pc*; return whether it is now set."""
-        enabled = self.control.toggle_breakpoint(self._checked_pc(pc))
+        enabled = self.control.toggle_breakpoint(validate_pc(pc))
         self._changed()
         return enabled
 
@@ -455,7 +444,7 @@ class DebugSession:
 
         False means the state is already at *pc*, so nothing is armed.
         """
-        resume = self.control.run_until(self._checked_pc(pc), self.state.program_counter)
+        resume = self.control.run_until(validate_pc(pc), self.state.program_counter)
         self._changed()
         return resume
 

@@ -4,24 +4,23 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ipu_emu.geometry import vector_registers, xmem_row_addr, xmem_row_check, xmem_row_size_bytes
+from ipu_emu.geometry import (
+    R_CYCLIC_VALID_INDICES,
+    R_REG_SIZE,
+    vector_registers,
+    xmem_row_addr,
+    xmem_row_check,
+    xmem_row_size_bytes,
+)
 from ipu_isa.faults import FaultId
-from ipu_isa.registers import get_mult_stage_map, get_register_sizes
+from ipu_isa.registers import get_mult_stage_map
 
 if TYPE_CHECKING:
     from ipu_emu.ipu import Ipu
 
-_reg_sizes = get_register_sizes()
-R_REG_SIZE = _reg_sizes["r"]["size_bytes"]
-R_CYCLIC_SIZE = _reg_sizes["r_cyclic"]["size_bytes"]
-
 # MultStageRegField: index → (register_name, element_index)
 # e.g. [("r", 0), ("r", 1)] — encoding 2 is reserved / invalid in assembly
 _MULT_STAGE_MAP: list[tuple[str, int]] = get_mult_stage_map()
-
-# R_CYCLIC is divided into four 128-byte slots; LD.MULT.CYCLIC's index
-# must land exactly on a slot boundary — no implicit wraparound.
-R_CYCLIC_VALID_INDICES = tuple(range(0, R_CYCLIC_SIZE, R_REG_SIZE))
 
 
 def execute_load_nop(ipu: Ipu) -> None:

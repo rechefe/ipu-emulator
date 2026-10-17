@@ -15,8 +15,10 @@ from typing import Any
 
 from ipu_as.lark_tree import assemble
 from ipu_emu.emulator import DEFAULT_MAX_CYCLES, load_program, run_until_complete
-from ipu_emu.execute import BreakResult, Ipu, decode_instruction_word
+from ipu_emu.execute import decode_instruction_word
+from ipu_emu.ipu import Ipu
 from ipu_emu.ipu_state import IpuState
+from ipu_emu.outcome import CycleOutcome
 from ipu_emu.run_control import RunControl
 from ipu_isa.formats import ElementFormat
 
@@ -138,11 +140,11 @@ def run_both(
     cycles = 0
     while not states[0].is_halted:
         assert not states[1].is_halted
-        outcomes = [engine.execute_vliw_cycle() for engine in engines]
+        outcomes = [engine.cycle.step() for engine in engines]
         assert outcomes[0] == outcomes[1]
-        if outcomes[0] == BreakResult.BREAK:
+        if outcomes[0] == CycleOutcome.BREAK:
             for engine in engines:
-                engine.execute_vliw_cycle_skip_break()
+                engine.cycle.retire()
         cycles += 1
         if cycles >= max_cycles:
             raise RuntimeError(f"program exceeded {max_cycles} cycles")

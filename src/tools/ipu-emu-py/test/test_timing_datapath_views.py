@@ -18,8 +18,9 @@ from timing_probes import PROBES, ROW, Mode, lane, prepare, run
 
 from ipu_emu import prototyping as prototyping_mode
 from ipu_emu.errors import DebugOnlyInstructionWarning
-from ipu_emu.execute import BreakResult, Ipu
+from ipu_emu.ipu import Ipu
 from ipu_emu.ipu_state import INST_MEM_SIZE
+from ipu_emu.outcome import CycleOutcome
 
 _MODES = pytest.mark.parametrize("mode", [Mode.NARROW, Mode.WIDE_FP32], ids=lambda m: m.value)
 
@@ -152,10 +153,10 @@ def test_break_has_no_side_effects_and_resume_rereads():
     so an edit made while stopped is what the word sees."""
     state = prepare(PROBES["break_resume"])
     ipu = Ipu(state)
-    assert ipu.execute_vliw_cycle() == BreakResult.BREAK
+    assert ipu.cycle.step() == CycleOutcome.BREAK
     assert (state.program_counter, state.regfile.get_lr(0)) == (0, 0)
     state.regfile.set_cr(2, 9)
-    ipu.execute_vliw_cycle_skip_break()
+    ipu.cycle.retire()
     assert (state.program_counter, state.regfile.get_lr(0)) == (1, 9)
 
 
@@ -164,9 +165,9 @@ def test_idle_word_advances_pc_once():
     idle MULT cycle, and runs nothing."""
     state = prepare(PROBES["idle_word"])
     ipu = Ipu(state)
-    ipu.execute_vliw_cycle()
+    ipu.cycle.step()
     idle_before = state.stats.mult_idle_cycles
-    ipu.execute_vliw_cycle()
+    ipu.cycle.step()
     assert (
         state.program_counter,
         state.stats.mult_idle_cycles - idle_before,

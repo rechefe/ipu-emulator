@@ -22,8 +22,9 @@ from emu_support import ElementFormat, assemble_program, make_state, new_state, 
 
 from ipu_emu.emulator import load_program, run_until_complete
 from ipu_emu.errors import DebugOnlyInstructionWarning, EmulatorFault
-from ipu_emu.execute import BreakResult, Ipu
+from ipu_emu.ipu import Ipu
 from ipu_emu.ipu_state import HaltRecord, IpuState
+from ipu_emu.outcome import CycleOutcome
 from ipu_emu.prototyping import build_enabled, default_enabled, env_requests_prototyping
 from ipu_isa.faults import FaultId
 
@@ -219,7 +220,7 @@ def _run_until_raise(name: str):
         engine = Ipu(state)
         with pytest.raises(timing_probes.RAISES[name]) as caught:
             for _ in range(timing_probes.MAX_CYCLES):
-                engine.execute_vliw_cycle()
+                engine.cycle.step()
         exceptions.append(caught.value)
     return states, exceptions
 
@@ -294,7 +295,7 @@ def test_full_row_fp32_activation_fast_path_is_bit_exact(activation):
 
     for prototyping in (False, True):
         state, ipu = _wide_fp32_activation_state(activation, payload, prototyping)
-        outcomes.append(ipu.execute_vliw_cycle())
+        outcomes.append(ipu.cycle.step())
         states.append(state)
 
     assert outcomes[0] == outcomes[1]
@@ -319,7 +320,7 @@ def test_full_row_fp32_activation_exception_state_is_bit_exact(activation, overf
     for prototyping in (False, True):
         state, ipu = _wide_fp32_activation_state(activation, payload, prototyping)
         with pytest.raises(OverflowError) as caught:
-            ipu.execute_vliw_cycle()
+            ipu.cycle.step()
         states.append(state)
         exceptions.append(caught.value)
 
@@ -342,7 +343,8 @@ def test_cached_scalar_read_invalid_index_exception_is_bit_exact():
         state = new_state(prototyping=prototyping)
         load_program(state, [dict(inst)])
         with pytest.raises(EmulatorFault, match="reserved encoding") as caught:
-            Ipu(state).execute_vliw_cycle()
+            engine = Ipu(state)
+            engine.cycle.step()
         states.append(state)
         exceptions.append(caught.value)
 
@@ -360,7 +362,8 @@ def test_an_lr_conflict_still_raises():
     for prototyping in (False, True):
         state = make_state(asm, prototyping=prototyping)
         with pytest.raises(EmulatorFault, match="LR conflict") as caught:
-            Ipu(state).execute_vliw_cycle()
+            engine = Ipu(state)
+            engine.cycle.step()
         states.append(state)
         exceptions.append(caught.value)
 
@@ -473,7 +476,7 @@ def test_debug_instruction_patch_invalidates_cached_plan():
         state.inst_mem[0] = dict(break_inst)
         ipu = Ipu(state)
 
-        assert ipu.execute_vliw_cycle() == BreakResult.BREAK
+        assert ipu.cycle.step() == CycleOutcome.BREAK
         retained = ipu.snapshot
         assert retained is not None
         retained_bytes = _regfile_bytes(retained)
@@ -484,7 +487,7 @@ def test_debug_instruction_patch_invalidates_cached_plan():
             state.inst_mem[0].clear()
         state.inst_mem[0] = dict(replacement)
 
-        ipu.execute_vliw_cycle_skip_break()
+        ipu.cycle.retire()
         assert state.regfile.get_lr(0) == 99
         assert state.program_counter == 1
         assert _regfile_bytes(retained) == retained_bytes
@@ -513,11 +516,11 @@ def test_profiled_runs_give_identical_profiles(name):
     runs = [_profiled_run(PROGRAMS[name], prototyping) for prototyping in (False, True)]
     states = [state for state, _ in runs]
     while not states[0].is_halted:
-        outcomes = [engine.execute_vliw_cycle() for _, engine in runs]
+        outcomes = [engine.cycle.step() for _, engine in runs]
         assert outcomes[0] == outcomes[1]
-        if outcomes[0] == BreakResult.BREAK:
+        if outcomes[0] == CycleOutcome.BREAK:
             for _, engine in runs:
-                engine.execute_vliw_cycle_skip_break()
+                engine.cycle.retire()
         _assert_states_identical(*states)
     assert states[1].is_halted
     reports = [state.alias_profile.to_dict() for state in states]

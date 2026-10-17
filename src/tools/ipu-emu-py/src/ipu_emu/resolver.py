@@ -28,6 +28,7 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Protocol
 
 from ipu_emu.errors import EmulatorError
+from ipu_emu.geometry import WIDE_REGISTERS
 from ipu_isa.registers import get_mult_stage_map, get_register_sizes
 
 if TYPE_CHECKING:
@@ -49,8 +50,8 @@ CR_REG_COUNT: int = _SIZES["cr"]["count"]
 
 # MultStageReg encoding -> (register name, element index); 2 and 3 are reserved.
 _MULT_STAGE_MAP: list[tuple[str, int]] = get_mult_stage_map()
-# Wide-vector debug mode's R0/R1: the same two elements, 4 bytes per lane.
-_WIDE_RA = "r_wide_debug"
+# A 4-byte format's R0/R1: the same two elements, 4 bytes per lane.
+_WIDE_RA = WIDE_REGISTERS["r"]
 
 
 def check_mult_stage(raw: int) -> None:

@@ -291,25 +291,26 @@ def test_register_overwrite_revokes_transfer_provenance():
     load_program(state, assemble_program(TRANSFER))
     engine = Ipu(state)
     for _ in range(3):
-        engine.execute_vliw_cycle()
+        engine.cycle.step()
     # Same bytes, new register value: it is no longer the recorded load.
     state.regfile.set_r_cyclic_wide_debug_at(0, bytes(512))
-    engine.execute_vliw_cycle()
+    engine.cycle.step()
     assert count(state, "A11_ACC_MUL") == 0
 
 
 def test_empty_cycles_and_break_resume_count_once():
-    from ipu_emu.ipu import BreakResult, Ipu
+    from ipu_emu.ipu import Ipu
+    from ipu_emu.outcome import CycleOutcome
 
     state = IpuState(alias_profile=AliasProfile())
     engine = Ipu(state)
-    engine.execute_vliw_cycle()
+    engine.cycle.step()
     assert state.alias_profile.cycles == 1
     load_program(state, assemble_program("BREAK; MULT.RC.VE LR0 CR1 0 LR0 CR15;;"))
     state.program_counter = 0
-    assert engine.execute_vliw_cycle() == BreakResult.BREAK
+    assert engine.cycle.step() == CycleOutcome.BREAK
     assert state.alias_profile.cycles == 1
-    engine.execute_vliw_cycle_skip_break()
+    engine.cycle.retire()
     assert state.alias_profile.cycles == 2
     assert count(state, "A1_MOV_RC") == 1
 
@@ -423,15 +424,15 @@ HALT;;
     )
     engine = Ipu(state)
     for _ in range(3):
-        engine.execute_vliw_cycle()
+        engine.cycle.step()
     data = state.xmem.read_address(512, 512)
     if overwrite == "memory":
         state.xmem.write_address(512, data)
-    engine.execute_vliw_cycle()
+    engine.cycle.step()
     if overwrite == "register":
         state.regfile.set_r_wide_debug(1, data)
     for _ in range(3):
-        engine.execute_vliw_cycle()
+        engine.cycle.step()
     assert count(state, "A9_EXP", "verified" if overwrite == "none" else "candidate") == 1
 
 
@@ -483,9 +484,9 @@ HALT;;
 """),
     )
     engine = Ipu(state)
-    engine.execute_vliw_cycle()
+    engine.cycle.step()
     state.xmem.write_address(address, bytes(1))
-    engine.execute_vliw_cycle()
+    engine.cycle.step()
     assert count(state, "A14_MULTIPLE_ACC") == expected
 
 
@@ -537,6 +538,8 @@ def test_xmem_clear_under_profiler_is_constant_size():
     """clear() is one ranged event: the observer drops its tables instead of
     stamping a version on each of the 4M 128-byte blocks."""
     state = run("HALT;;")
+    # white-box: the observer's version tables have no public reader; the
+    # constant-size claim is about them.
     observer = state.alias_profile._bridge
     state.xmem.write_address(0, bytes(range(256)))
     assert len(observer.memory_versions) == 2

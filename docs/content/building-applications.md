@@ -119,15 +119,13 @@ Use a **fresh `IpuState`** (or a new `run_test` call with different α kwargs) w
 
 ## Step 1: Write the Assembly Program
 
-Create your IPU assembly program (e.g., `fully_connected.asm`). The assembly program contains the compute logic that runs on the IPU. See the [Assembly Syntax Guide](reference/isa/assembly-syntax.md) for details on writing IPU assembly code with Jinja2 preprocessing. To assemble a template from the command line, give a value for a parameter its `ipu:params` header declares with `--define` (here, for a header that declares `rows`), and each extra include directory with `-I DIR` (the input's own directory is always searched first). The output format follows the `--output` suffix (`.bin` gives `bin`, anything else `mem`) unless `--format` says otherwise:
+Create your IPU assembly program (e.g., `fully_connected.asm`). The assembly program contains the compute logic that runs on the IPU. See the [Assembly Syntax Guide](reference/isa/assembly-syntax.md) for details on writing IPU assembly code with Jinja2 preprocessing. To assemble a template from the command line, give each parameter its `ipu:params` header declares with `--define`:
 
 ```bash
 bazel run //src/tools/ipu-as-py:ipu-as -- assemble --input "$PWD/kernel.asm" --output "$PWD/kernel.bin" --define rows=8
 ```
 
-The `check` subcommand takes the same `--define` and `-I` options. Both, and `disassemble`, take `--target hardware`: the words then hold the hardware slots only (the top bits of the emulator word), and an emulator-only instruction such as `BREAK` is an error at its mnemonic. The default, `--target emulator`, is the full word the emulator runs. `disassemble --syntax assembly` writes the program as source that assembles back to the same words: every slot of each word in layout order, `NOP` bare, and a generated label (`w0012:`) at each branch target. The default, `--syntax fields`, lists every field of every slot by word index.
-
-The `format` subcommand prints a source in the repository's layout: a label at column 0 on its own line, each instruction line one indent in, and code after a `;;` on a line of its own. Only whitespace changes; Jinja tags and comments stay as written. Before it writes anything it checks that the result is the same program (the same words for a source without Jinja, the same tokens for a template), and exits 3 if it is not (or if the input is not UTF-8). `--check` writes nothing and exits 1 when the source would change, for CI and pre-commit hooks, so a gate can tell "would reformat" (1) from "cannot format" (3); `--in-place` rewrites the file instead of printing it; `--range L1:L2` formats only those lines (1-based); `--indent N` (or `--indent tab`) sets the indent, and `--blank-line` puts an empty line between words:
+The `format` subcommand prints a source in the repository's layout; `--check` exits 1 when the source would change, for CI and pre-commit hooks. [Command-line tools](reference/cli.md#assembler-ipu-as) lists every `ipu-as` subcommand and option, including `check`, `disassemble`, `--target hardware` and the `format` exit codes:
 
 ```bash
 bazel run //src/tools/ipu-as-py:ipu-as -- format --check --input "$PWD/kernel.asm"
@@ -320,27 +318,7 @@ The stats describe one run. Both runners reset `state.stats` before the first cy
 
 A run that reaches its cycle limit faults F-9 (`EmulatorFault`), with the PC of the word that would have run next. The limit is `state.cycle_limit`, which defaults to `ipu_emu.emulator.DEFAULT_MAX_CYCLES` (1 000 000); 0 disables it. A runner's `max_cycles` replaces it for that run only, and every run entry point (`run_until_complete`, `run_with_debug`, `run_test`, `IpuApp.run`, `KernelCase`) defaults to the same limit.
 
-Available fields:
-
-- `total_cycles` — VLIW cycles executed
-- `mult_active_cycles` — cycles whose MULT slot was not `MULT_NOP`
-- `acc_active_cycles` — cycles whose ACC slot was not `ACC_NOP`
-- `xmem_reads` — count of `LD.MULT`, `LD.MULT.CYCLIC`, `LD.MASK`
-- `xmem_writes` — count of `ST.ACC`, `ST.AAQ`
-- `xmem_accesses` — sum of reads + writes
-- `mult_utilization`, `acc_utilization` — active-cycle fraction (0.0–1.0)
-
-`state.stats.format_summary()` returns a ready-to-print multi-line block:
-
-```text
-=== Run summary ===
-Total cycles:           12847
-Mult active:            10421  (81.1%)
-Acc  active:             9876  (76.9%)
-XMEM reads:              3200
-XMEM writes:              128
-XMEM accesses:           3328
-```
+[Command-line tools](reference/cli.md#run-statistics) explains each counter of the summary a run prints, `state.stats.format_summary()`.
 
 Typical usage from an interactive runner or a test:
 

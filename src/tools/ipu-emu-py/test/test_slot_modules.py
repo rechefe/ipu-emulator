@@ -17,6 +17,7 @@ import pytest
 
 import ipu_emu
 from ipu_emu import slots
+from ipu_emu.errors import ConfigurationError
 from ipu_emu.ipu import Ipu, bind_handler
 from ipu_isa.slots import SLOTS, Slot
 from ipu_isa.view import isa
@@ -25,9 +26,6 @@ PACKAGE_DIR = Path(inspect.getsourcefile(ipu_emu)).parent
 SLOT_MODULE_NAMES = frozenset(
     module.__name__.rsplit(".", 1)[1] for module in slots.HANDLER_MODULES.values()
 )
-
-#: The two cycle entry points whose names predate the handler convention.
-_CYCLE_METHODS = frozenset({"execute_vliw_cycle", "execute_vliw_cycle_skip_break"})
 
 ALL_INSTRUCTIONS = [instruction for slot in SLOTS for instruction in isa().instructions(slot)]
 
@@ -53,7 +51,7 @@ def test_a_handler_whose_parameters_are_not_the_operands_is_rejected(monkeypatch
         raise AssertionError("never called")
 
     monkeypatch.setattr(slots.HANDLER_MODULES[Slot.LR], "execute_lr_inc", execute_lr_inc)
-    with pytest.raises(RuntimeError, match=r"lr/INC names handler .*'imm'"):
+    with pytest.raises(ConfigurationError, match=r"lr/INC names handler .*'imm'"):
         bind_handler(instruction)
 
 
@@ -61,12 +59,12 @@ def test_a_missing_handler_names_the_slot_module():
     fake = dataclasses.replace(
         isa().instruction(Slot.BREAK, "BREAK"), mnemonic="FAKE", execute_fn="execute_nothing"
     )
-    with pytest.raises(RuntimeError, match=r"ipu_emu\.slots\.brk\.execute_nothing"):
+    with pytest.raises(ConfigurationError, match=r"ipu_emu\.slots\.brk\.execute_nothing"):
         bind_handler(fake)
 
 
 def test_ipu_holds_no_handler():
-    handlers = {name for name in vars(Ipu) if name.startswith("execute_")} - _CYCLE_METHODS
+    handlers = {name for name in vars(Ipu) if name.startswith("execute_")}
     assert handlers == set()
 
 

@@ -1,4 +1,9 @@
-"""One lane codec per element format, and :func:`codec_for`, the only format switch.
+"""One lane codec per element format, and :func:`codec_for`, which picks one.
+
+:func:`codec_for` is the only format switch the slot handlers use for lane
+arithmetic. The register layout (:mod:`ipu_emu.geometry`, the operand resolver,
+the cycle's read views) and the AAQ slot (Q35) branch on the element width
+themselves.
 
 A codec has three domains:
 

@@ -1,13 +1,19 @@
-"""Every documented `ipu-as` command uses only options the CLI declares.
+"""Every documented `ipu-as` command uses only options the CLI declares, and so
+does every documented `bazel run` of a kernel target, `run_kernel`,
+`trace_case` or `query`.
 
-The options are read from the click command itself, so the test follows the
-CLI as it changes.
+The options are read from the click command and the argparse parsers
+themselves, so the test follows each CLI as it changes.
 """
 
 from __future__ import annotations
 
+import argparse
+import contextlib
+import io
 import re
 import shlex
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -21,6 +27,13 @@ from ipu_as.cli import cli
 # `ipu-as-py` or `ipu-asm`.
 _INVOCATION = re.compile(r"\bipu-as(?![\w-])(?:[ \t]+--)?[ \t]+(?P<rest>[a-z].*)$")
 _SHELL_OPERATORS = {"|", "||", "&&", ";", ">", ">>", "<", "&", "2>&1"}
+
+
+# `bazel run [--flag ...] //label [-- args]`.
+_BAZEL_RUN = re.compile(
+    r"\bbazel run(?:[ \t]+--?[\w=.-]+)*[ \t]+(?P<label>//[\w/.-]+:[\w.-]+)(?P<rest>.*)$"
+)
+_APPS = "//src/tools/ipu-apps:"
 
 
 @dataclass(frozen=True)
@@ -46,24 +59,42 @@ def _logical_lines(path: Path) -> list[tuple[int, str]]:
     return result
 
 
+def _argv(rest: str) -> list[str]:
+    """The arguments in `rest`, up to an inline code span's end or a shell operator."""
+    rest = rest.split("`", 1)[0]
+    try:
+        tokens = shlex.split(rest, comments=True)
+    except ValueError:  # an unbalanced quote in prose after the command
+        tokens = rest.split()
+    argv = []
+    for token in tokens:
+        if token in _SHELL_OPERATORS:
+            break
+        argv.append(token)
+    return argv
+
+
 def _commands(path: Path) -> list[Command]:
     commands = []
     for number, text in _logical_lines(path):
         match = _INVOCATION.search(text)
+        if match:
+            commands.append(Command(str(path), number, _argv(match.group("rest"))))
+    return commands
+
+
+def _bazel_runs(path: Path) -> list[Command]:
+    """Each `bazel run` in `path`, as the label followed by the arguments after `--`."""
+    runs = []
+    for number, text in _logical_lines(path):
+        match = _BAZEL_RUN.search(text)
         if not match:
             continue
-        rest = match.group("rest").split("`", 1)[0]  # an inline code span ends at a backtick
-        try:
-            tokens = shlex.split(rest, comments=True)
-        except ValueError:  # an unbalanced quote in prose after the command
-            tokens = rest.split()
-        argv = []
-        for token in tokens:
-            if token in _SHELL_OPERATORS:
-                break
-            argv.append(token)
-        commands.append(Command(str(path), number, argv))
-    return commands
+        argv = _argv(match.group("rest"))
+        if argv and argv[0] != "--":  # a Bazel option after the label: no tool arguments
+            argv = []
+        runs.append(Command(str(path), number, [match.group("label"), *argv[1:]]))
+    return runs
 
 
 def _options_by_flag(command: click.Command) -> dict[str, click.Option]:
@@ -133,6 +164,59 @@ def check_command(argv: list[str]) -> list[str]:
     return problems + _check_missing(command, given)
 
 
+def _parse(parser: argparse.ArgumentParser, args: list[str]) -> list[str]:
+    """argparse's complaint about `args`, or nothing when `parser` accepts them."""
+    errors = io.StringIO()
+    try:
+        with contextlib.redirect_stderr(errors):
+            parser.parse_args(args)
+    except SystemExit:
+        return [errors.getvalue().strip().splitlines()[-1]]
+    return []
+
+
+def _kernel_names() -> set[str]:
+    from ipu_apps.kernel_registry import registry
+
+    registry.load()
+    return {spec.name for spec in registry.kernels()}
+
+
+def _check_kernel_target(kernel: str, args: list[str]) -> list[str]:
+    from ipu_apps.kernel_registry.cases import load_cases
+    from ipu_apps.kernel_registry.runner import build_parser
+
+    selected, _ = build_parser().parse_known_args(args)
+    cases = load_cases(kernel)
+    if selected.case not in cases:
+        return [f"{kernel} has no case {selected.case!r} (have: {', '.join(cases)})"]
+    return _parse(build_parser(cases[selected.case]), ["--kernel", kernel, *args])
+
+
+def _tool_parsers() -> dict[str, Callable[[], argparse.ArgumentParser]]:
+    from ipu_apps.kernel_registry import query, trace_case
+    from ipu_harness import cli as run_kernel
+
+    return {
+        "//src/tools/ipu-harness:run_kernel": run_kernel.build_parser,
+        _APPS + "trace_case": trace_case.build_parser,
+        _APPS + "query": query.build_parser,
+    }
+
+
+def check_bazel_run(label: str, args: list[str]) -> list[str] | None:
+    """Problems with `bazel run label -- args`; None for a label this test does not know."""
+    args = [a for a in args if a != "..."]  # a placeholder for "your options"
+    if "--help" in args or "-h" in args:
+        return []
+    parsers = _tool_parsers()
+    if label in parsers:
+        return _parse(parsers[label](), args)
+    if label.startswith(_APPS) and label.removeprefix(_APPS) in _kernel_names():
+        return _check_kernel_target(label.removeprefix(_APPS), args)
+    return None
+
+
 def _cases() -> list:
     cases = []
     for path in doc_files():
@@ -142,10 +226,53 @@ def _cases() -> list:
     return cases
 
 
+def _run_cases() -> list:
+    return [
+        pytest.param(command, id=f"{command.path}:{command.line}")
+        for path in doc_files()
+        for command in _bazel_runs(path)
+    ]
+
+
 @pytest.mark.parametrize("command", _cases())
 def test_documented_command_runs(command: Command) -> None:
     problems = check_command(command.argv)
     assert not problems, f"{command.path}:{command.line}: " + "; ".join(problems)
+
+
+@pytest.mark.parametrize("command", _run_cases())
+def test_documented_bazel_run_parses(command: Command) -> None:
+    label, *args = command.argv
+    problems = check_bazel_run(label, args)
+    assert not problems, f"{command.path}:{command.line}: " + "; ".join(problems)
+
+
+def test_bazel_runs_are_found() -> None:
+    # Guards the scan: the CLI reference runs every argparse tool it documents.
+    labels = {c.argv[0] for c in _bazel_runs(Path("docs/content/reference/cli.md"))}
+    assert set(_tool_parsers()) <= labels
+    assert _APPS + "softmax_rows" in labels
+
+
+@pytest.mark.parametrize(
+    ("label", "args", "problem"),
+    [
+        ("//src/tools/ipu-harness:run_kernel", ["k", "--inputs", "x=a.npy"], "unrecognized"),
+        ("//src/tools/ipu-harness:run_kernel", ["--case", "default"], "required: kernel"),
+        (_APPS + "trace_case", ["identity", "--trace", "t.jsonl"], "--context"),
+        (_APPS + "identity", ["--rows", "two"], "invalid int value"),
+        (_APPS + "identity", ["--case", "nope"], "no case 'nope'"),
+        (_APPS + "identity", ["--columns", "3"], "unrecognized"),
+    ],
+)
+def test_check_bazel_run_rejects(label: str, args: list[str], problem: str) -> None:
+    assert any(problem in p for p in check_bazel_run(label, args) or [])
+
+
+def test_check_bazel_run_accepts() -> None:
+    assert check_bazel_run(_APPS + "identity", ["--case", "single_row", "--rows", "2"]) == []
+    assert check_bazel_run(_APPS + "query", ["softmax", "shape=8,n", "--sweep", "n=1..9"]) == []
+    assert check_bazel_run("//tools:ruff", ["check", "--fix"]) is None
 
 
 def test_commands_are_found() -> None:

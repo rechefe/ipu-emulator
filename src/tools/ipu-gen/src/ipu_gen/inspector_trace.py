@@ -36,7 +36,6 @@ neither (it records writes), so the recorder takes them from the run.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 from collections.abc import Iterator, Mapping, Sequence
@@ -45,11 +44,11 @@ from typing import Any
 
 from ipu_isa.codec.disasm import operand_text
 from ipu_isa.codec.slot import codecs
-from ipu_isa.codec.word import WORD_LAYOUT, word_bytes
+from ipu_isa.codec.word import WORD_LAYOUT
 from ipu_isa.formats import FORMATS, ElementFormat, decode_element
 from ipu_isa.operand_types import OperandKind
 from ipu_isa.tags import Tag
-from ipu_isa.trace_schema import isa_digest
+from ipu_isa.trace_schema import isa_digest, program_digest
 from ipu_isa.view import isa
 
 __all__ = [
@@ -112,7 +111,7 @@ def _check(header: Mapping[str, Any], records: Sequence[Mapping], context: Mappi
             f"context version {context.get('context_version')!r}; this adapter reads "
             f"{CONTEXT_VERSION}"
         )
-    if header.get("program_digest") != _program_digest(context["program"]):
+    if header.get("program_digest") != program_digest(int(w, 16) for w in context["program"]):
         raise TraceError("the context's program is not the program the trace ran")
     if len(context["cycles"]) != len(records):
         raise TraceError(f"{len(records)} records but {len(context['cycles'])} context cycles")
@@ -125,14 +124,6 @@ def _lut_value(value: float) -> float | str:
     if math.isinf(value):
         return "inf" if value > 0 else "-inf"
     return value
-
-
-def _program_digest(program: Sequence[str]) -> str:
-    """SHA-256 of the words, little-endian: the trace header's ``program_digest``."""
-    digest = hashlib.sha256()
-    for word in program:
-        digest.update(int(word, 16).to_bytes(word_bytes(), "little"))
-    return digest.hexdigest()
 
 
 def _meta(fmt: ElementFormat) -> dict[str, Any]:

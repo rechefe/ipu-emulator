@@ -31,27 +31,44 @@ import enum
 import itertools
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
+from typing import Any
 
+# Imported under their own names, not ``_`` ones: the signatures the contract
+# snapshot pins name them (``'AliasProfile'``, ``'DebugCallback'``, ``'RunControl'``).
+from ipu_emu.alias_profile import AliasProfile
 from ipu_emu.commit import CommitCollector as _CommitCollector
 from ipu_emu.commit import CommitRecord
+from ipu_emu.emulator import DebugCallback
 from ipu_emu.emulator import load_program as _load_program
+from ipu_emu.emulator import run_with_debug as _run_with_debug
 from ipu_emu.errors import ConfigurationError, EmulatorFault
 from ipu_emu.ipu import Ipu as _Ipu
 from ipu_emu.ipu_state import INST_MEM_SIZE
 from ipu_emu.ipu_state import IpuState as _IpuState
 from ipu_emu.run_clock import RunClock as _RunClock
-from ipu_emu.trace import TraceWriter
+from ipu_emu.run_control import RunControl
+from ipu_emu.trace import TraceWriter, read_trace
+from ipu_emu.trace import trace_header as _trace_header
 from ipu_isa.codec.word import DecodedWord, unpack_program, word_bytes
 from ipu_isa.constants import CR_READ_ONLY_INITIAL_VALUES
-from ipu_isa.faults import FaultId
+from ipu_isa.faults import ArithmeticEvent, FaultId
 from ipu_isa.formats import ElementFormat
 from ipu_isa.registers import REGISTER_DEFINITIONS, RegisterDefinition
 from ipu_isa.view import isa
 
-__all__ = ["API_VERSION", "ReferenceModel", "RunResult", "RunState", "Stats", "Status"]
+__all__ = [
+    "API_VERSION",
+    "ReferenceModel",
+    "RunResult",
+    "RunState",
+    "Stats",
+    "Status",
+    "TraceWriter",
+    "read_trace",
+]
 
 #: The version of this API (Q11).
-API_VERSION = "1.1.0"
+API_VERSION = "1.3.0"
 
 
 class RunState(str, enum.Enum):
@@ -68,7 +85,8 @@ class Status:
 
     Attributes:
         state: Running (stepped and not stopped), halted (after reset, a
-            program load or a HALT word) or faulted.
+            program load, a HALT word, or a debugger quit that moved the PC
+            past IMEM) or faulted.
         pc: The program counter; after a HALT word or a fault, that word's.
         fault: The fault, when faulted; else ``None``.
     """
@@ -85,10 +103,14 @@ class RunResult:
     Attributes:
         status: The model's status when the run stopped.
         cycles: The words the run retired.
+        quit: The debugger quit the run (:meth:`ReferenceModel.debug_run`:
+            its callback returned ``QUIT``, or Ctrl-C); always ``False`` for
+            :meth:`ReferenceModel.run` (1.3.0).
     """
 
     status: Status
     cycles: int
+    quit: bool = False
 
 
 @dataclass(frozen=True)
@@ -195,6 +217,7 @@ class ReferenceModel:
         _load_program(self._state, decoded)
         self._state.program_counter = 0
         self._state.halt = None
+        self._state.quit_requested = False
         self._state.stats.reset()
         self._new_collector()
         self._started = False
@@ -359,6 +382,120 @@ class ReferenceModel:
         self._started = True
         return RunResult(self.status, clock.cycles)
 
+    def debug_run(
+        self,
+        callback: DebugCallback,
+        break_on_entry: bool = False,
+        *,
+        max_cycles: int | None = None,
+        control: RunControl | None = None,
+    ) -> RunResult:
+        """Run as :meth:`run` does, stopping for a debugger (1.3.0).
+
+        The one escape hatch for tools such as ``ipu_debug``: at each stop (a
+        breakpoint or run target in *control*, a ``BREAK`` slot that fires, a
+        step, or the entry when *break_on_entry*) it calls
+        ``callback(state, cycles)`` with the emulator's internal state and
+        the words retired so far, and the callback's ``DebugAction`` says
+        whether to continue, step or quit (``ipu_emu.emulator.run_with_debug``'s
+        contract). Unlike the rest of this API, the callback's argument type
+        and *control*'s are internal and may change in any release; the
+        method itself, and what it returns, follow ``API_VERSION``.
+
+        Args:
+            callback: Called at each stop; returns a ``DebugAction``.
+            break_on_entry: Stop before the first word.
+            max_cycles: The cycle limit of this run, as for :meth:`run`.
+            control: The breakpoints and run target to honour, shared with a
+                debugger frontend (``ipu_emu.run_control.RunControl``); a
+                fresh one when ``None``.
+
+        Returns:
+            The status the run stopped in, the words it retired, and
+            ``quit``: whether the callback returned ``QUIT`` or Ctrl-C ended
+            the run. A Ctrl-C at a stop leaves the model between words; one
+            during a word may leave it partly done, and a later step or run
+            re-runs it from the start (its finished part applies twice, and
+            the statistics other than ``cycles`` may already count it), so
+            :meth:`reset` or :meth:`load_program` when results must be
+            exact. A
+            ``QUIT`` pauses the model where it stopped (``RUNNING``): a later
+            step or run carries on from that PC. A callback that also moves
+            the PC past IMEM (``ipu_debug``'s quit) leaves the model
+            ``HALTED`` there: the host may write again, and stepping needs
+            :meth:`reset` or :meth:`load_program`. A callback that moves the
+            PC past IMEM without ``QUIT`` leaves the model ``RUNNING`` there:
+            its next fetch faults F-2.
+
+        Raises:
+            ConfigurationError: As :meth:`step`.
+        """
+        self._steppable()
+        before = self._state.stats.total_cycles if self._started else 0
+        quit = False
+        try:
+            cycles = _run_with_debug(
+                self._state,
+                callback,
+                max_cycles,
+                control=control,
+                break_on_entry=break_on_entry,
+                reset_stats=not self._started,
+            )
+            quit = self._state.quit_requested
+        except EmulatorFault:
+            # The fault is in ``status``; the run's words are in the statistics.
+            cycles = self._state.stats.total_cycles - before
+        except KeyboardInterrupt:
+            # Ctrl-C ends the run as a quit. At a stop (the callback waiting
+            # for input) the model is between words; elsewhere the word in
+            # flight may be partly done.
+            self._state.quit_requested = quit = True
+            cycles = self._state.stats.total_cycles - before
+        finally:
+            self._started = True
+            self._collector.take()  # a debug run writes no trace
+            self._collector.drop_stop()  # a stop it quit at is not the next word's
+        return RunResult(self.status, cycles, quit)
+
+    def attach_alias_profile(self, profile: AliasProfile) -> None:
+        """Record the ISA alias profile of every later step or run into
+        *profile* (1.3.0); only while halted. A profile belongs to one model.
+
+        Args:
+            profile: The profile (``ipu_emu.alias_profile.AliasProfile``).
+
+        Attaching another profile detaches the one before.
+
+        Raises:
+            ConfigurationError: The model is running or faulted; *profile* is
+                no ``AliasProfile`` or already records another model.
+        """
+        self._writable()
+        if not isinstance(profile, AliasProfile):
+            raise ConfigurationError(f"{profile!r} is no AliasProfile")
+        bridge = getattr(profile, "_bridge", None)
+        if bridge is not None and bridge.state is not None and bridge.state is not self._state:
+            raise ConfigurationError("an AliasProfile belongs to a single model")
+        if bridge is not None and bridge.state is None:
+            profile._bridge = None  # its model is gone (collected): the profile is free again
+        old = self._state.alias_profile
+        if old is not None and old is not profile and old._bridge is not None:
+            old._bridge.detach()  # the replaced profile stops watching this model
+            old._bridge = None
+        self._state.alias_profile = profile
+        self._state.stats.alias_profile = profile
+        self._ipu = _Ipu(self._state)  # the engine binds the profile's observer when built
+
+    def alias_profile(self) -> AliasProfile | None:
+        """The attached alias profile, or ``None`` (1.3.0).
+
+        Returns:
+            The profile :meth:`attach_alias_profile` attached.
+        """
+        profile: AliasProfile | None = self._state.alias_profile
+        return profile
+
     def stats(self) -> Stats:
         """A snapshot of the run statistics (1.1.0).
 
@@ -379,6 +516,51 @@ class ReferenceModel:
             effective_mac_utilization=stats.effective_mac_utilization,
         )
 
+    def fault_enabled(self, fault: FaultId) -> bool:
+        """Whether a fault's enable bit is set (IPU-FLT-5; 1.2.0).
+
+        Args:
+            fault: The fault.
+
+        Returns:
+            True when the bit is set (a modelled fault then halts the IPU).
+
+        Raises:
+            ConfigurationError: *fault* is no ``FaultId``.
+        """
+        if not isinstance(fault, FaultId):
+            raise ConfigurationError(f"{fault!r} is no FaultId")
+        return self._state.faults.enable[fault]
+
+    def fault_flags(self) -> frozenset[FaultId]:
+        """The sticky fault flags (1.2.0): every fault that happened since the
+        last :meth:`reset`, whether it halted or, with its enable bit clear,
+        did not. A run does not clear them.
+
+        Returns:
+            The faults whose flag is set.
+        """
+        return frozenset(self._state.faults.sticky)
+
+    def arith_flags(self) -> frozenset[ArithmeticEvent]:
+        """The sticky arithmetic-event flags (E04-23; 1.2.0), since the last
+        :meth:`reset`.
+
+        Returns:
+            The events whose flag is set.
+        """
+        return frozenset(self._state.arith_flags)
+
+    def trace_header(self) -> dict[str, Any]:
+        """The header of a trace of the loaded program (1.2.0), for
+        :class:`TraceWriter`.
+
+        Returns:
+            The ``trace.v1.json`` header: schema version, ISA digest, element
+            format, program digest and emulator version.
+        """
+        return _trace_header(self._state)
+
     @property
     def status(self) -> Status:
         """The run state, PC and (when faulted) the fault."""
@@ -388,7 +570,8 @@ class ReferenceModel:
             return Status(RunState.FAULTED, halt.pc, halt.fault)
         if halt is not None:
             return Status(RunState.HALTED, halt.pc)  # the HALT word's PC
-        if not self._started:
+        if not self._started or self._quit_past_imem():
+            # Before the first word, or a debugger quit that moved the PC past IMEM.
             return Status(RunState.HALTED, state.program_counter)
         return Status(RunState.RUNNING, state.program_counter)
 
@@ -416,6 +599,12 @@ class ReferenceModel:
             )
         return definition, definition["size_bytes"]
 
+    def _quit_past_imem(self) -> bool:
+        """A debugger quit moved the PC past IMEM (``ipu_debug``'s quit). A
+        program that runs off IMEM is not this: its next fetch faults F-2."""
+        state = self._state
+        return state.quit_requested and state.program_counter >= INST_MEM_SIZE
+
     def _writable(self) -> None:
         state = self.status.state
         if state is not RunState.HALTED:
@@ -432,7 +621,7 @@ class ReferenceModel:
             )
         if self._state.halt is not None:
             raise ConfigurationError("halted after HALT: reset or load a program first")
-        if self._state.program_counter >= INST_MEM_SIZE:
+        if self._quit_past_imem():
             raise ConfigurationError(
                 f"PC {self._state.program_counter} is past IMEM: reset or load a program first"
             )

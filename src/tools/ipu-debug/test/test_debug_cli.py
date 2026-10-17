@@ -14,8 +14,6 @@ from ipu_debug.cli import (
     VISIBLE_ALPHABET,
     DebugAction,
     DebugCLI,
-    # TODO(E08-05): DebugCLI._result is tested white-box until the mutation
-    # path moves into DebugSession.
     debug_prompt,
     decode_16bit_cell,
     disassemble_current,
@@ -670,13 +668,14 @@ class TestRuntimeControls:
         assert state.program_counter == 5
 
     def test_until_current_pc_stays_paused(self):
-        cli, output = _make_cli(IpuState(), "")
-        assert cli.onecmd("until 0") is None
-        assert cli.control.run_target is None
+        control = DebugControl()
+        output = StringIO()
+        action = debug_prompt(
+            IpuState(), inp=StringIO("until 0\nuntil 2\n"), out=output, control=control
+        )
         assert "Already at PC 0" in output.getvalue()
-        assert cli.onecmd("until 2") is True
-        assert cli.control.run_target == 2
-        assert cli._result == DebugAction.CONTINUE
+        assert control.run_target == 2
+        assert action == DebugAction.CONTINUE
 
     @pytest.mark.parametrize("register", ["cr0", "cr1"])
     def test_read_only_set_reports_error_without_exiting(self, register):

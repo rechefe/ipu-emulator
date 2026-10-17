@@ -568,7 +568,8 @@ class TestWideVectorStoreOverflow:
         state.regfile.mutable("mult_res")[:] = struct.pack(f"<{LANES}f", *mult)
 
         with np.errstate(all="raise"):
-            Ipu(state).execute_vliw_cycle()
+            engine = Ipu(state)
+            engine.cycle.step()
 
         expected = [3.0] * k + [float("inf")] + [3.0] * (LANES - k - 1)
         assert state.regfile.view("r_acc")[:] == struct.pack(f"<{LANES}f", *expected)
@@ -583,7 +584,8 @@ class TestWideVectorNumpyErrorPolicy:
         state.regfile.mutable("r_acc")[:] = struct.pack(f"<{LANES}f", *([float("inf")] * LANES))
         state.regfile.mutable("mult_res")[:] = struct.pack(f"<{LANES}f", *([float("-inf")] * LANES))
         with np.errstate(all="raise"):
-            Ipu(state).execute_vliw_cycle()
+            engine = Ipu(state)
+            engine.cycle.step()
 
         expected_lane = struct.pack("<f", float("inf") + float("-inf"))
         assert state.regfile.view("r_acc") == expected_lane * LANES
@@ -598,7 +600,8 @@ class TestWideVectorNumpyErrorPolicy:
             f"<{LANES}f", *([float("inf")] * LANES)
         )
         with np.errstate(all="raise"):
-            Ipu(state).execute_vliw_cycle()
+            engine = Ipu(state)
+            engine.cycle.step()
 
         expected_lane = struct.pack("<f", float("inf") * 0.0)
         assert state.regfile.view("mult_res") == expected_lane * LANES

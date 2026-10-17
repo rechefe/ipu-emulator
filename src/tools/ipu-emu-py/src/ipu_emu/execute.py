@@ -25,8 +25,7 @@ These dicts (``DecodedWord``) are produced by :func:`decode_instruction_word`.
 
 from __future__ import annotations
 
-# Re-exported: emulator.py imports Ipu, and tests import both, from here.
-from ipu_emu.ipu import BreakResult, Ipu  # noqa: F401  (re-exported)
+from ipu_emu.errors import ConfigurationError
 from ipu_isa.codec.word import DecodedWord, opcode_field, unpack_program
 from ipu_isa.slots import SLOTS
 from ipu_isa.view import isa
@@ -54,7 +53,7 @@ def emulator_only_instructions(instructions) -> set[str]:
     infos = [info for info in SLOTS.values() if info.debug_only]
     for info in infos:
         if info.count != 1:
-            raise NotImplementedError(
+            raise ConfigurationError(
                 f"emulator-only slot {info.slot.value!r} appears {info.count} times"
             )
     fields = [(info.slot, opcode_field(info.slot)) for info in infos]

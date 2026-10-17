@@ -61,19 +61,35 @@ class Group:
     symbols: tuple[tuple[ModuleType, str], ...]
 
 
+def _defined_here(module: ModuleType, name: str) -> bool:
+    """False for a name *module* re-exports (``reference.TraceWriter``): it is
+    listed once, under the module that defines it."""
+    value = getattr(module, name)
+    if not (inspect.isclass(value) or inspect.isfunction(value)):
+        return True  # a constant or a type alias (``Outcome``) has no home module
+    return value.__module__ == module.__name__
+
+
 def _public(module: ModuleType, *only: str) -> tuple[tuple[ModuleType, str], ...]:
-    names = only or tuple(module.__all__)
+    names = only or tuple(n for n in module.__all__ if _defined_here(module, n))
     return tuple((module, n) for n in names if f"{module.__name__}.{n}" not in INTERNAL)
+
+
+def reexported(module: ModuleType) -> tuple[str, ...]:
+    """The names of *module*'s ``__all__`` that another module defines."""
+    return tuple(n for n in module.__all__ if not _defined_here(module, n))
+
+
+def _model_intro() -> str:
+    names = " and ".join(f"`{n}`" for n in reexported(ipu_emu.reference))
+    tail = f" ({names}, which it re-exports, are listed with their own module)" if names else ""
+    return f"`ipu_emu.reference`: the names in its `__all__`{tail}."
 
 
 def groups() -> tuple[Group, ...]:
     """The documented symbols: the stable module first, then what it hands out."""
     return (
-        Group(
-            "The model",
-            "`ipu_emu.reference`: the names in its `__all__`.",
-            _public(ipu_emu.reference),
-        ),
+        Group("The model", _model_intro(), _public(ipu_emu.reference)),
         Group(
             "Commit records",
             "`ipu_emu.commit`: what `step()` returns. `to_json()` gives the "
