@@ -165,7 +165,7 @@ def _mult_mask_and_shift(ipu: Ipu, mask_idx: int, shift: int, cr_idx: int) -> No
         # Lane statistics are still recorded: prototyping mode is only
         # allowed to skip work, never to change what a run reports.
         slot = (mask_idx % (LANES // 16)) * 16
-        if ipu._view.read_forgetting_provenance("r_mask")[slot : slot + 16] == _ALL_ONES_MASK_SLOT:
+        if ipu._view.read("r_mask")[slot : slot + 16] == _ALL_ONES_MASK_SLOT:
             _count_mult_lanes(ipu, _ALL_ONES_MASK_INT, ipu._view.dstructure(cr_idx))
             return
 

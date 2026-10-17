@@ -44,8 +44,8 @@ def execute_acc_nop(ipu: Ipu) -> None:
 def _operands(ipu: Ipu) -> tuple[LaneCodec, np.ndarray, np.ndarray]:
     """The codec, R_ACC (this cycle's snapshot) and MULT_RES, as accumulator lanes."""
     codec = ipu._codec
-    acc = codec.load_acc(ipu._view.read_forgetting_provenance("r_acc"))
-    res = codec.load_acc(ipu._view.read_forgetting_provenance("mult_res"))
+    acc = codec.load_acc(ipu._view.read("r_acc"))
+    res = codec.load_acc(ipu._view.read("mult_res"))
     return codec, acc, res
 
 
@@ -56,7 +56,7 @@ def _store_acc(ipu: Ipu, codec: LaneCodec, lanes: np.ndarray) -> None:
 def _store_mult_res_in_acc(ipu: Ipu) -> None:
     """R_ACC = MULT_RES, through the accumulator load and store (a NaN is quietened)."""
     codec = ipu._codec
-    res = codec.load_acc(ipu._view.read_forgetting_provenance("mult_res"))
+    res = codec.load_acc(ipu._view.read("mult_res"))
     _store_acc(ipu, codec, res)
 
 
@@ -91,7 +91,7 @@ def execute_acc_sub(ipu: Ipu) -> None:
 def execute_acc_sub_first(ipu: Ipu) -> None:
     """Execute ACC.SUB.FIRST: Set each R_ACC element to negated MULT_RES (clean init for subtract)."""
     codec = ipu._codec
-    res = codec.load_acc(ipu._view.read_forgetting_provenance("mult_res"))
+    res = codec.load_acc(ipu._view.read("mult_res"))
     # 0 - x, not -x: for x = +0.0 that is +0.0, where negation flips the sign bit.
     _store_acc(ipu, codec, codec.sub(np.zeros_like(res), res))
 
@@ -169,7 +169,7 @@ def execute_acc_stride(
     indices, pad = _stride_gather(elements_in_row, horizontal_stride, vertical_stride)
     base = (offset % 4) * 32
     codec = ipu._codec
-    res = codec.load_acc(ipu._view.read_forgetting_provenance("mult_res"))
+    res = codec.load_acc(ipu._view.read("mult_res"))
     values = np.where(pad, np.zeros_like(res[:1]), res[indices])
     # From the first lane written to the end of R_ACC.
     acc_buf = ipu.state.regfile.mutable("r_acc", base * _ACC_LANE_BYTES)
@@ -207,7 +207,7 @@ def execute_acc_reshape(ipu: Ipu, *, source: int, dest: int, reshape_mask: int) 
             f"({RESHAPE_ELEMENT_COUNT})"
         )
 
-    mult_res = ipu._view.read_forgetting_provenance("mult_res")
+    mult_res = ipu._view.read("mult_res")
     writes = []
     for i in range(mask, RESHAPE_ELEMENT_COUNT):
         if src_bytes[i] >= LANES or dst_bytes[i] >= LANES:
@@ -230,13 +230,13 @@ def _agg_inputs(ipu: Ipu, cr_idx: int, dest_slot: int) -> tuple[LaneCodec, list,
     valid_elements = ipu._view.dstructure(cr_idx, "cr_idx").valid_elements
     codec = ipu._codec
     active = agg_lane_count(valid_elements)
-    lanes = codec.load_acc(ipu._view.read_forgetting_provenance("mult_res"), active).tolist()
+    lanes = codec.load_acc(ipu._view.read("mult_res"), active).tolist()
     return codec, lanes, int(dest_slot) % LANES
 
 
 def _agg_dest(ipu: Ipu, codec: LaneCodec, dest: int) -> np.ndarray:
     """R_ACC[dest] from this cycle's snapshot, as one accumulator lane."""
-    snap = ipu._view.read_forgetting_provenance("r_acc")
+    snap = ipu._view.read("r_acc")
     return codec.load_acc(snap[dest * _ACC_LANE_BYTES :], 1)
 
 
