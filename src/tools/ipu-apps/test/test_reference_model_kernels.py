@@ -1,6 +1,7 @@
 """The reference-model API (E04-30) runs kernels as ``run_until_complete``
 does: each case's prepared state is copied into a ``ReferenceModel`` through
-the API alone, both run, and their registers, XMEM and cycle counts agree."""
+the API alone, both run, and their registers, XMEM and cycle counts agree;
+stepping the kernel word by word gives the records its run traces."""
 
 from __future__ import annotations
 
@@ -8,7 +9,7 @@ import pytest
 
 from ipu_apps.kernel_registry.cases import load_cases, run_case
 from ipu_emu import emulator
-from ipu_emu.reference import ReferenceModel, RunState
+from ipu_emu.reference import ReferenceModel, RunState, TraceWriter, read_trace
 from ipu_isa.codec.word import DecodedWord
 from ipu_isa.constants import CR_READ_ONLY_INITIAL_VALUES
 from ipu_isa.registers import REGISTER_DEFINITIONS
@@ -40,13 +41,21 @@ def _copied(state) -> ReferenceModel:
 
 
 @pytest.mark.parametrize(("kernel", "case_id"), CASES)
-def test_a_kernel_runs_the_same_through_the_api(kernel, case_id, monkeypatch):
+def test_a_kernel_runs_the_same_through_the_api(kernel, case_id, monkeypatch, tmp_path):
     original = emulator.run_until_complete
     compared = []
 
     def both(state, max_cycles=None, **kwargs):
+        # Stepped word by word, the kernel gives the records its run traces.
+        stepped = _copied(state)
+        records = []
+        while stepped.status.state is not RunState.HALTED or not records:
+            records.append(stepped.step().to_json())
         model = _copied(state)
-        result = model.run(max_cycles)
+        path = tmp_path / f"{len(compared)}.jsonl"
+        with TraceWriter(path, model.trace_header()) as trace:
+            result = model.run(max_cycles, trace=trace)
+        assert [r.to_json() for r in read_trace(path)[1]] == records
         cycles = original(state, max_cycles, **kwargs)
         assert result.status.state is RunState.HALTED and result.cycles == cycles
         for name, definition in REGISTER_DEFINITIONS.items():

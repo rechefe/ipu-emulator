@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
 from ipu_emu.cycle import CycleOutcome
+from ipu_emu.errors import EmulatorError
 from ipu_isa.faults import ArithmeticEvent
 from ipu_isa.registers import REGISTER_DEFINITIONS
 from ipu_isa.slots import SLOTS, Slot
@@ -325,7 +326,8 @@ class CommitCollector:
         """Record the faulting word (or, for a fault before any word began,
         its PC alone): no slots, no writes, as nothing of it retired."""
         self._pending, self._pre, self._pre_pc, self._broke = None, [], None, False
-        assert halt.fault is not None
+        if halt.fault is None:
+            raise EmulatorError(f"a fault halt at PC {halt.pc} names no fault")
         self._emit(
             _Pending(halt.pc),
             self.state.program_counter,

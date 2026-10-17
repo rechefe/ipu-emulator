@@ -1,11 +1,12 @@
 # Reference model API
 
 `ipu_emu.reference` is the emulator's stable interface for RTL verification
-(API version `1.1.0`). A cocotb testbench resets the model, loads a program,
+(API version `1.2.0`). A cocotb testbench resets the model, loads a program,
 sets registers and XMEM, steps it one word at a time and compares each commit
 record with what the RTL retired. The contract is the module's names
-(`API_VERSION`, `ReferenceModel`, `RunResult`, `RunState`, `Stats` and
-`Status`) and the commit records `step()` returns. The rest of `ipu_emu` may
+(`API_VERSION`, `ReferenceModel`, `RunResult`, `RunState`, `Stats`,
+`Status`, `TraceWriter` and `read_trace`) and the commit records `step()`
+returns. The rest of `ipu_emu` may
 change between releases; this interface changes only with a version bump, and
 a breaking change bumps the major number.
 
@@ -43,8 +44,16 @@ counts the trace's records, as the schema says.
 To run without comparing each word, `run(max_cycles=None, *, trace=None)`
 steps until a `HALT` word, a fault or the cycle limit. It returns a
 `RunResult` with the final `status` and the words retired (`cycles`). Pass a
-`TraceWriter` (`ipu_emu.trace`) as `trace` to write each record as its word
-retires.
+`TraceWriter` as `trace` to write each record as its word retires, and read
+the file back with `read_trace`:
+
+```python
+from ipu_emu.reference import TraceWriter, read_trace
+
+with TraceWriter("run.jsonl", model.trace_header()) as trace:
+    model.run(trace=trace)
+header, records = read_trace("run.jsonl")
+```
 
 ## Methods
 
@@ -59,6 +68,10 @@ retires.
 | `step()` | One word. A `BREAK` slot never stops it: the word retires. A step has no cycle limit. |
 | `run(max_cycles=None, *, trace=None)` | Steps until `HALT`, a fault, or `max_cycles` words (`None` keeps the model's limit, 0 disables it). |
 | `stats()` | A `Stats` copy of the run statistics since the last `reset()` or `load_program()` (1.1.0): `cycles`, `mult_active_cycles`, `acc_active_cycles`, `xmem_reads`, `xmem_writes`, `mult_lane_ops`, `mult_identity_lane_ops`, `lane_occupancy` and `effective_mac_utilization` (`(mult_lane_ops - mult_identity_lane_ops) / (cycles * 128)`). They depend on operand values, so no commit record carries them. |
+| `fault_enabled(fault)` | Whether a fault's enable bit is set (1.2.0). |
+| `fault_flags()` | The sticky fault flags since the last `reset()`, as a `frozenset` of `FaultId`: every fault that happened, whether it halted or, disabled, did not (1.2.0). |
+| `arith_flags()` | The sticky arithmetic-event flags since the last `reset()`, as a `frozenset` of `ipu_isa.faults.ArithmeticEvent` (1.2.0). |
+| `trace_header()` | The `trace.v1.json` header of the loaded program, for a `TraceWriter` (1.2.0). |
 | `status` | A `Status`: `state` (`RunState.RUNNING`, `HALTED` or `FAULTED`), `pc` and, when faulted, `fault`. |
 
 `r_wide_debug` and `r_cyclic_wide_debug` are emulator-only banks: they hold
@@ -80,7 +93,7 @@ have.
   `load_program()`.
 - No method returns an emulator object: values are ints, floats, bytes, the
   dataclasses above and `CommitRecord`.
-- Version 1.1.0 added `Stats` and `stats()`; nothing of 1.0.0 changed.
+- Version 1.1.0 added `Stats` and `stats()`; 1.2.0 added the flag and enable reads, `trace_header()`, and `TraceWriter` and `read_trace` to the contract. Nothing earlier changed.
 - The contract test, `src/tools/ipu-emu-py/test/test_reference_api_contract.py`,
   pins every public name, signature and record field under its version; a
   strict mypy test (`//src/tools/ipu-emu-py:mypy_reference`) types the module.

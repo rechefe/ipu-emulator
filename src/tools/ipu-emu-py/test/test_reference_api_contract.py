@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import dataclasses
 import enum
+import hashlib
 import inspect
+import struct
 import typing
 
 import pytest
@@ -22,7 +24,7 @@ from ipu_emu.errors import ConfigurationError
 from ipu_emu.reference import API_VERSION, ReferenceModel, RunResult, RunState, Stats, Status
 from ipu_emu.trace import TraceWriter, read_trace
 from ipu_isa.codec.word import DecodedWord, pack_program, word_bytes
-from ipu_isa.faults import FaultId
+from ipu_isa.faults import ArithmeticEvent, FaultId
 from ipu_isa.registers import REGISTER_DEFINITIONS
 
 #: The public surface of each released version. Never edit an existing
@@ -139,6 +141,87 @@ SNAPSHOTS = {
         "XmemWrite": {"address": "int", "data": "bytes"},
         "FaultInfo": {"id": "str", "pc": "int"},
     },
+    "1.2.0": {
+        "__all__": [
+            "API_VERSION",
+            "ReferenceModel",
+            "RunResult",
+            "RunState",
+            "Stats",
+            "Status",
+            "TraceWriter",
+            "read_trace",
+        ],
+        "ReferenceModel": {
+            "__init__": "(self, fmt: 'ElementFormat' = <ElementFormat.INT8: 'int8'>) -> 'None'",
+            "arith_flags": "(self) -> 'frozenset[ArithmeticEvent]'",
+            "fault_enabled": "(self, fault: 'FaultId') -> 'bool'",
+            "fault_flags": "(self) -> 'frozenset[FaultId]'",
+            "load_program": "(self, words: 'bytes | Sequence[int]') -> 'None'",
+            "read_register": "(self, name: 'str', index: 'int' = 0) -> 'int | bytes'",
+            "read_xmem": "(self, address: 'int', size: 'int') -> 'bytes'",
+            "reset": "(self, fmt: 'ElementFormat') -> 'None'",
+            "run": "(self, max_cycles: 'int | None' = None, *, trace: 'TraceWriter | None' = None)"
+            " -> 'RunResult'",
+            "set_fault_enable": "(self, fault: 'FaultId', enabled: 'bool') -> 'None'",
+            "stats": "(self) -> 'Stats'",
+            "status": "property",
+            "step": "(self) -> 'CommitRecord'",
+            "trace_header": "(self) -> 'dict[str, Any]'",
+            "write_register": "(self, name: 'str', value: 'int | bytes', index: 'int' = 0)"
+            " -> 'None'",
+            "write_xmem": "(self, address: 'int', data: 'bytes') -> 'None'",
+        },
+        "Status": {"state": "RunState", "pc": "int", "fault": "FaultId | None"},
+        "RunResult": {"status": "Status", "cycles": "int"},
+        "Stats": {
+            "cycles": "int",
+            "mult_active_cycles": "int",
+            "acc_active_cycles": "int",
+            "xmem_reads": "int",
+            "xmem_writes": "int",
+            "mult_lane_ops": "int",
+            "mult_identity_lane_ops": "int",
+            "lane_occupancy": "float",
+            "effective_mac_utilization": "float",
+        },
+        "RunState": {"RUNNING": "running", "HALTED": "halted", "FAULTED": "faulted"},
+        # What step() returns (ipu_emu.commit), field by field.
+        "CommitRecord": {
+            "cycle": "int",
+            "pc_before": "int",
+            "pc_after": "int",
+            "slots": "tuple[SlotOp, ...]",
+            "reg_writes": "tuple[RegWrite, ...]",
+            "xmem_writes": "tuple[XmemWrite, ...]",
+            "outcome": "Outcome",
+            "fault": "FaultInfo | None",
+            "arith_events": "tuple[str, ...]",
+        },
+        "Outcome": ["retired", "break", "halt", "fault"],
+        "SlotOp": {
+            "slot": "str",
+            "mnemonic": "str",
+            "fields": "Mapping[str, int]",
+            "emulator_only": "bool",
+        },
+        "RegWrite": {
+            "register": "str",
+            "index": "int | None",
+            "value": "int | None",
+            "offset": "int | None",
+            "data": "bytes | None",
+        },
+        "XmemWrite": {"address": "int", "data": "bytes"},
+        "TraceWriter": {
+            "__init__": "(self, path: 'str | Path', header: 'dict[str, Any]') -> 'None'",
+            "close": "(self) -> 'None'",
+            "write": "(self, record: 'CommitRecord') -> 'None'",
+            "write_all": "(self, records: 'Iterable[CommitRecord]') -> 'None'",
+        },
+        "read_trace": "(path: 'str | Path') -> 'tuple[dict[str, Any], list[CommitRecord]]'",
+        "FaultInfo": {"id": "str", "pc": "int"},
+    },
 }
 
 _RECORD_TYPES = (CommitRecord, SlotOp, RegWrite, XmemWrite, FaultInfo)
@@ -163,6 +246,11 @@ def _surface() -> dict:
         "RunState": {s.name: s.value for s in RunState},
         **{cls.__name__: _fields(cls) for cls in _RECORD_TYPES},
         "Outcome": list(typing.get_args(Outcome)),
+        "TraceWriter": {
+            name: str(inspect.signature(getattr(api.TraceWriter, name)))
+            for name in ("__init__", "close", "write", "write_all")
+        },
+        "read_trace": str(inspect.signature(api.read_trace)),
     }
 
 
@@ -236,7 +324,7 @@ def test_steps_and_runs_add_up_in_the_cycle_count():
     model.step()
     model.step()
     assert model.run().cycles == 10
-    assert model._state.stats.total_cycles == 12  # white-box: no API reads statistics
+    assert model.stats().cycles == 12
 
 
 def test_a_program_file_loads_as_its_words():
@@ -444,3 +532,38 @@ def test_a_faulting_word_adds_no_statistics():
     model.run()
     assert model.status.fault is FaultId.F3
     assert model.stats() == Stats(1, 0, 0, 0, 0, 0, 0, 0.0, 0.0)
+
+
+def test_the_sticky_fault_and_arithmetic_flags_and_enable_bits():
+    model = _model(cr={2: 100})
+    assert model.fault_flags() == frozenset() and model.fault_enabled(FaultId.F9)
+    model.set_fault_enable(FaultId.F9, False)
+    assert not model.fault_enabled(FaultId.F9)
+    assert model.run(max_cycles=10).status.state is RunState.HALTED
+    # F-9 disabled: no halt, but the flag is set (IPU-FLT-5).
+    assert model.fault_flags() == frozenset({FaultId.F9})
+    model.reset(ElementFormat.INT8)
+    assert model.fault_flags() == frozenset() and model.fault_enabled(FaultId.F9)
+    assert model.arith_flags() == frozenset()
+
+
+def test_the_arithmetic_flags_are_the_runs_events():
+    model = ReferenceModel(ElementFormat.FP32)
+    model.load_program(_words("ACC.ADD ;;\nHALT ;;"))
+    lanes = struct.pack("<128f", *[3.0e38] * 128)
+    model.write_register("r_acc", lanes)
+    model.write_register("mult_res", lanes)
+    model.run()
+    assert model.arith_flags() == frozenset({ArithmeticEvent.ACC_OVERFLOW})
+
+
+def test_the_trace_header_names_the_loaded_program(tmp_path):
+    model = _model()
+    header = model.trace_header()
+    words = pack_program(_words(LOOP))
+    assert header["program_digest"] == hashlib.sha256(words).hexdigest()
+    assert header["format"] == "int8"
+    path = tmp_path / "t.jsonl"
+    with api.TraceWriter(path, header) as trace:
+        model.run(trace=trace)
+    assert api.read_trace(path)[0] == header
