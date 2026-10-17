@@ -17,8 +17,9 @@ declares:
 """
 
 load("@ipu_as_deps//:requirements.bzl", "requirement")
-load("@rules_python//python:defs.bzl", "py_test")
+load("@rules_python//python:defs.bzl", "py_library", "py_test")
 load("//tools:lint.bzl", "ruff_test")
+load(":families.bzl", "FAMILY_DEPS", "KERNELS")
 
 _ENTRY = "//src/tools/ipu-harness:src/ipu_harness/kernel_test.py"
 _PYTEST_SHIM = "@rules_python_pytest//python_pytest:pytest_shim.py"
@@ -47,12 +48,17 @@ def ipu_kernel(name = None, extra_deps = [], size = "large", shard_count = None,
         srcs = files,
         visibility = ["//visibility:public"],
     )
-    family = native.package_name().rpartition("/")[0]
-    data = files + ["//" + family + "/" + used + ":" + used + "_files" for used in uses]
+    family = native.package_name().split("/")[1]
+    # Its family's library and files only (E06-18): editing another family's
+    # kernel reruns none of these tests. `uses` adds a same-family kernel's
+    # files (E06-14 stages).
+    data = files + ["//kernels/" + family + ":files"] + [
+        "//kernels/" + family + "/" + used + ":" + used + "_files"
+        for used in uses
+    ]
     deps = [
-        "//src/tools/ipu-harness:ipu_harness_lib",
+        "//kernels/" + family + ":lib",
         "//src/tools/ipu-harness:kernel_test_lib",
-        "//src/tools/ipu-kernels:ipu_kernels_lib",
         requirement("pytest"),
         requirement("torch"),
     ] + extra_deps
@@ -75,22 +81,61 @@ def ipu_kernel(name = None, extra_deps = [], size = "large", shard_count = None,
             tags = tags,
         )
 
+def ipu_kernel_family():
+    """Declare one family, //kernels/<family> (E06-18).
+
+    * :lib: the family's Python, ipu_kernels.<family> (packs, stages, layer
+      adapters: //src/tools/ipu-kernels:ipu_kernels_<family>), on the harness,
+      the shared ipu_kernels code and the :lib of each family FAMILY_DEPS lists.
+    * :files: its shared files (*.asm, *.asm.j2 macros, registry.toml, *.npy,
+      and any *.py the harness loads by path), with the :files of each family
+      it uses.
+    * :all: every kernel test of the family (the manifest's family suite).
+    * :ruff: lint over its Python.
+    """
+    family = native.package_name().rpartition("/")[2]
+    uses = FAMILY_DEPS.get(family, [])
+    py_library(
+        name = "lib",
+        deps = [
+            "//src/tools/ipu-harness:ipu_harness_lib",
+            "//src/tools/ipu-kernels:ipu_kernels_" + family,
+        ] + ["//kernels/" + other + ":lib" for other in uses],
+        visibility = ["//visibility:public"],
+    )
+    py = native.glob(["*.py"], allow_empty = True)
+    native.filegroup(
+        name = "files",
+        srcs = native.glob(["*.asm", "*.asm.j2", "registry.toml", "*.npy"], allow_empty = True) + py +
+               ["//kernels/" + other + ":files" for other in uses],
+        visibility = ["//visibility:public"],
+    )
+    native.test_suite(
+        name = "all",
+        tests = ["//kernels/%s/%s:%s" % (family, kernel, kernel) for kernel in KERNELS.get(family, [])],
+        visibility = ["//visibility:public"],
+    )
+    ruff_test(name = "ruff", srcs = py)
+
 def _label(kernel, target):
     return "//kernels/" + kernel + ":" + target
 
-def ipu_kernel_tree(kernels):
-    """Declare //kernels' :tree (every kernel's files) and :kernel_targets (its targets, JSON).
-
-    Bazel cannot glob into subpackages, so `kernels` names each kernel folder
-    ("<family>/<name>"); //src/tools/ipu-harness:test_kernel_tree checks it
-    names every folder that holds a kernel.toml.
-
-    Args:
-        kernels: every kernel folder under kernels/, as "<family>/<name>".
-    """
+def ipu_kernel_tree():
+    """Declare //kernels' :tree (every family's and kernel's files), :all_kernels
+    (the tree, with every family library), :kernel_targets (JSON) and :lint,
+    from KERNELS (kernels/families.bzl)."""
+    kernels = [family + "/" + name for family in KERNELS for name in KERNELS[family]]
     native.filegroup(
         name = "tree",
-        srcs = ["BUILD.bazel"] + [_label(k, k.rpartition("/")[2] + "_files") for k in kernels],
+        srcs = ["BUILD.bazel"] + [_label(k, k.rpartition("/")[2] + "_files") for k in kernels] +
+               ["//kernels/" + family + ":files" for family in KERNELS],
+        visibility = ["//visibility:public"],
+    )
+    # For the registry-wide users only (the query, the manifest, the tree tests).
+    py_library(
+        name = "all_kernels",
+        data = [":tree"],
+        deps = ["//kernels/" + family + ":lib" for family in KERNELS],
         visibility = ["//visibility:public"],
     )
     targets = {}
@@ -108,15 +153,17 @@ def ipu_kernel_tree(kernels):
             "test": label,
             "nightly": label + "_nightly",
         }
-    # :lint: every kernel's ruff_test, listed in //tools:lint.
-    native.test_suite(name = "lint", tests = [_label(k, "ruff") for k in kernels], tags = ["lint"])
-    # :<family>: every kernel of the family (the manifest's family suite).
-    for family, labels in families.items():
-        native.test_suite(name = family, tests = labels, visibility = ["//visibility:public"])
+    # :lint: every kernel's and family's ruff_test and //kernels' own, listed in //tools:lint.
+    native.test_suite(
+        name = "lint",
+        tests = [":ruff"] + [_label(k, "ruff") for k in kernels] +
+                ["//kernels/" + family + ":ruff" for family in KERNELS],
+        tags = ["lint"],
+    )
     content = json.encode_indent(
         {
             "kernels": targets,
-            "families": {family: {"suite": "//kernels:" + family} for family in families},
+            "families": {family: {"suite": "//kernels/" + family + ":all"} for family in families},
             "query": "//kernels:query",
         },
         indent = "  ",

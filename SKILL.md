@@ -21,7 +21,7 @@ The rules agents must never break are in [CLAUDE.md](CLAUDE.md), under "Key Cons
 | Register a kernel (folder contract, Bazel targets) | [adding-applications.md](docs/content/adding-applications.md) |
 | Kernel catalogue | [kernels/index.md](docs/content/kernels/index.md) |
 | Add an instruction or pseudo-instruction | [Add an instruction](docs/content/how-to/add-an-instruction.md) |
-| Debug a kernel | [debugging.md](docs/content/debugging.md) |
+| Debug a kernel | [how-to/debug-a-kernel.md](docs/content/how-to/debug-a-kernel.md) |
 | Instructions, slots and operands | generated [Instructions](https://rechefe.github.io/ipu-emulator/dev/reference/isa/instructions/) and [Operand types](https://rechefe.github.io/ipu-emulator/dev/reference/isa/operand-types/) |
 | Assembly syntax, registers, instruction words | generated [Assembly syntax](https://rechefe.github.io/ipu-emulator/dev/reference/isa/assembly-syntax/) |
 | Bit layout of the instruction word | generated [Instruction format](https://rechefe.github.io/ipu-emulator/dev/reference/isa/instruction-format/) |

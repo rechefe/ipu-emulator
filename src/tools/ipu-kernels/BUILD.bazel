@@ -4,6 +4,7 @@ load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
 load("//tools:lint.bzl", "ruff_test")
 load("//tools:runtime_deps.bzl", "runtime_deps_manifest")
 load(":deps.bzl", "RUNTIME_DEPS")
+load("//kernels:families.bzl", "KERNELS")
 load("//tools:typecheck.bzl", "mypy_test")
 
 package(default_visibility = ["//visibility:public"])
@@ -28,16 +29,39 @@ filegroup(
     srcs = glob(["test/**/*.py"], allow_empty = True),
 )
 
-# Kernel-side Python shared across kernels (E06): references, pack transforms,
-# family code. tools/import_graph.toml holds the import rules.
+# Kernel-side Python shared by every family (E06): references, pack transforms.
+# A family's own code, ipu_kernels/<family>/, is its own library below (E06-18),
+# so editing it reruns only that family's tests. tools/import_graph.toml holds
+# the import rules; kernels/families.bzl the families.
 py_library(
     name = "ipu_kernels_lib",
-    srcs = glob(["src/ipu_kernels/**/*.py"]),
+    srcs = glob(
+        ["src/ipu_kernels/**/*.py"],
+        exclude = ["src/ipu_kernels/%s/**" % family for family in KERNELS],
+    ),
     imports = ["src"],
     deps = [
         "//src/tools/ipu-harness:ipu_harness_lib",
         "//src/tools/ipu-isa:ipu_isa_lib",
     ] + [requirement(name) for name in RUNTIME_DEPS],
+)
+
+# ipu_kernels.<family>: one library per family (packs, stages, layer adapters),
+# which //kernels/<family>:lib depends on.
+[
+    py_library(
+        name = "ipu_kernels_" + family,
+        srcs = glob(["src/ipu_kernels/%s/**/*.py" % family], allow_empty = True),
+        imports = ["src"],
+        deps = [":ipu_kernels_lib"],
+    )
+    for family in KERNELS
+]
+
+# Everything, for mypy and the registry-wide users.
+py_library(
+    name = "ipu_kernels_all",
+    deps = [":ipu_kernels_lib"] + [":ipu_kernels_" + family for family in KERNELS],
 )
 
 mypy_test(
