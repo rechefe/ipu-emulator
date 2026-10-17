@@ -155,7 +155,7 @@ def test_execution_profiles_and_fresh_state(monkeypatch, fmt, quantize, row_byte
 
 
 #: Kernels whose default case does not run in the wide-vector FP32 format.
-_DEFAULT_FORMATS = {"fully_connected": "int32", "vector_tour": "int8"}
+_DEFAULT_FORMATS = {"fully_connected": "int32"}
 
 
 @pytest.mark.parametrize("name", [spec.name for spec in kernels()])
@@ -460,35 +460,7 @@ def test_every_assembly_has_a_registered_case():
 @pytest.mark.parametrize(
     "name,params",
     [
-        ("maxpool2d_window", dict(shape=(1, 2, 2), kernel_size=2, stride=1, padding=1)),
-        ("maxpool2d_nms7", dict(shape=(1, 2, 2), kernel_size=9, stride=1, padding=4)),
-        ("depth_to_space", dict(shape=(256, 2, 2), upscale_factor=16)),
-        ("depth_to_space", dict(shape=(3, 2, 2), upscale_factor=2)),
-        (
-            "conv3x3_relu",
-            dict(
-                shape=(1, 2, 2),
-                out_channels=1,
-                kernel_size=3,
-                stride=1,
-                padding=1,
-                activation="none",
-            ),
-        ),
-        (
-            "conv3x3_relu_cin1",
-            dict(
-                shape=(2, 2, 2),
-                out_channels=1,
-                kernel_size=3,
-                stride=1,
-                padding=1,
-                activation="relu",
-            ),
-        ),
         ("l2_normalize_channels", dict(shape=(1, 10**10))),
-        ("channel_peak", dict(shape=(0, 2))),
-        ("score_threshold", dict(shape=(0,))),
     ],
 )
 def test_memory_harness_rejects_unsupported_geometry(name, params):

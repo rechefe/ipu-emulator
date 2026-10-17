@@ -77,7 +77,7 @@ proj_qkv_144_p4/default/fp32: PASS  cycles=572006  MAC util=87.0%  y: max|err|=8
 
 | Page | What it covers |
 |---|---|
-| [Write a kernel](../building-applications.md) | Write an assembly kernel and the Python code that feeds it. |
+| [Write a kernel](../how-to/write-a-kernel.md) | Write a kernel's program and `kernel.toml`, then run, test and debug it. |
 | [Add an instruction](../how-to/add-an-instruction.md) | Add an instruction to the ISA, the assembler and the emulator. |
 | [Debug a kernel](../how-to/debug-a-kernel.md) | Step through a kernel in the debugger and inspect registers. |
 | [Use the reference model from cocotb](../how-to/reference-model-cocotb.md) | Drive the emulator as a reference model from an RTL testbench. |

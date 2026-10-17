@@ -24,10 +24,37 @@ KERNELS = {
         "qk_scores_256x36",
         "qk_scores_64x48",
     ],
-    "elementwise": ["scale"],
+    "conformance": ["vector_tour"],
+    "convolutions": [
+        "conv1x1",
+        "conv3x3_relu",
+        "conv3x3_relu_cin1",
+        "conv_first_layer",
+    ],
+    "detect": ["channel_peak", "score_threshold"],
+    "elementwise": ["residual_add", "residual_add_rows", "scale"],
+    "linear": ["fully_connected"],
+    "matmul": ["matmul_small"],
     "mobilevit": [],  # chain tests only (E07-24): seams and full layers across families
+    "pooling": [
+        "maxpool2d_nms",
+        "maxpool2d_stride2",
+        "maxpool2d_stride2_tail",
+        "maxpool2d_window",
+    ],
     "projections": ["proj_p4", "proj_p4_2tg", "proj_p4_2tg_silu"],
-    "reshape": ["concat", "depth_to_space", "identity"],
+    "reshape": [
+        "concat",
+        "depth_to_space",
+        "fold_16x16x192",
+        "fold_32x32x144",
+        "fold_8x8x240",
+        "identity",
+        "unfold_16x16x192",
+        "unfold_32x32x144",
+        "unfold_8x8x240",
+    ],
+    "sampling": ["sample_descriptors", "sample_descriptors_separable"],
     "softmax": [
         "softmax_columns",
         "softmax_columns_packed",
@@ -39,7 +66,8 @@ KERNELS = {
 
 #: The families each family may use: import from (ipu_kernels.<other>) or refer
 #: to the files of (kernels/<other>/...). A use not listed here fails
-#: //kernels:test_families. E07 adds the edges its migrations need.
+#: //kernels:test_families. E07 adds the edges its migrations need, for
+#: example "attention": ["softmax"].
 FAMILY_DEPS = {
     "attention": ["softmax"],
 }

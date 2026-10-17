@@ -70,9 +70,20 @@ one run (`state.stats` in Python). For example:
 | Lane ops | Multiplier lanes that passed the mask and lay within `valid_elements`, summed over every multiply; occupancy is that over the total cycles times 128 lanes. |
 | Effective MAC | Lane ops less the identity multiplies' lanes, over the run's peak: the multiplier work that was real arithmetic. |
 
+The counters describe one run: each run resets them before its first cycle,
+so a second program on the same state reports only itself (the emulator's
+`run_until_complete` and `run_with_debug` take `reset_stats=False` to add to
+the earlier ones). The total cycles are set
+even when the run raises: a fault, the cycle limit, or an emulator error. Runs
+add up: `stage1_stats + state.stats`.
+
+A run that reaches its cycle limit faults F-9, with the PC of the word that
+would have run next. The default limit is `ipu_emu.emulator.DEFAULT_MAX_CYCLES`
+(1 000 000); `--max-cycles N` sets it for one run, and 0 removes it.
+
 A run in which every multiply used all 128 lanes adds a note: occupancy is
 overstated if the kernel pads a narrower row without declaring
-`CR15.valid_elements`. A run that executed an [ISA idiom](../isa-alias-catalogue.md)
+`CR15.valid_elements`. A run that executed an [ISA idiom](../explanation/isa-idioms.md)
 adds a `--- ISA alias hits ---` block, with the count for each idiom, and
 `--profile-aliases` (or `--alias-report FILE`) adds the full idiom
 measurements.
@@ -115,6 +126,11 @@ editor. The controls, from the debugger's own key table:
 --8<-- "generated/cli/debugger-keys.md"
 
 ## Trace recorder: `trace_case`
+
+A kernel-tree kernel is recorded by the runner itself: `run_kernel` with
+`--trace` and `--context` (above) writes the trace and the
+[Cycle Inspector](../debugging-inspector.md)'s context. `trace_case` does the
+same for a kernel still in `ipu_apps`, until its family migrates (E07).
 
 `trace_case` runs one registered case and records its trace (JSON Lines, the
 [trace schema](reference-model-api.md)) and the context the

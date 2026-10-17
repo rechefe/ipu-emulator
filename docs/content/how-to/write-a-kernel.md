@@ -122,50 +122,11 @@ operands are separated by spaces.
 
 ## 3. Declare it in `kernel.toml`
 
+The listing is the kernel's own file, included in the docs build, so it is
+always the one the tests run:
+
 ```toml
-[kernel]
-op = "scale"
-formats = ["fp32", "int8", "e4"]
-
-[params]
-rows = { type = "int", min = 1, max = 256 }
-s    = { type = "float" }                 # element scalar: encoded in the active format
-
-[inputs.x]
-shape = ["rows", 128]                     # automatic placement; add row = N to pin
-
-[outputs.y]
-shape = ["rows", 128]
-store = "accumulator"                     # ST.ACC: FP32 (INT32 in INT8)
-
-[abi]                                     # name -> CR; templates see {{ cr.x }} == "CR2"
-x    = "CR2"
-y    = "CR3"
-rows = "CR4"
-s    = "CR5"
-
-[golden]
-reference = "reference.py:reference"
-tolerance = { fp32 = "EXACT", int32 = "EXACT" }   # y, an accumulator output, is compared as FP32 (INT32 in INT8)
-
-[cases.default]
-rows = 4
-s = 2.0
-
-[cases.one_row]
-rows = 1
-s = -3.0
-
-[cases.sweep]                             # one case per value: sweep[rows=1], sweep[rows=7], ...
-rows = [1, 7, 33, 128]
-s = 1.5                                   # exact in E4 and FP32, not in INT8
-formats = ["fp32", "e4"]                  # per-case format limit
-
-[cases.mine]                              # user data instead of the generator / reference
-rows = 2
-s = 2.0
-inputs = { x = "data/x.npy" }             # small integers in [-8, 8]: exact in fp32, int8 and e4
-expected = { y = "data/y.npy" }           # so y = 2x is exact in every format too
+--8<-- "kernels/elementwise/scale/kernel.toml"
 ```
 
 Section by section:
@@ -186,7 +147,8 @@ Section by section:
   FP32 (INT32 in INT8).
 - **`[abi]`**: which register holds each value: a region's base row, an
   integer, or an element scalar. Every region must be bound, since the program
-  can reach it only through a register.
+  can reach it only through a register: by itself, or through a bound
+  `[derived]` value that reads its `base()`.
 - **`[golden]`**: the reference function and the tolerance tier per format
   (step 7).
 - **`[cases.*]`**: named sets of parameter values. `[cases.default]` is
@@ -202,13 +164,7 @@ Every key is listed in the [`kernel.toml` reference](../reference/kernel-toml.md
 of the run, and every parameter as a keyword. It returns each output by name:
 
 ```python
-import torch
-
-
-def reference(x: torch.Tensor, *, rows: int, s: float) -> dict[str, torch.Tensor]:
-    """y = x * s. The framework passes inputs decoded from the active format
-    and rounds the result to that format before comparing."""
-    return {"y": x * s}
+--8<-- "kernels/elementwise/scale/reference.py"
 ```
 
 The harness rounds the result to the format each output is stored in before
@@ -219,6 +175,16 @@ with `[golden] op = "<name>"` and needs no `reference.py`. The second worked
 example, `kernels/reshape/identity/` (`y = x`), does that: its `kernel.toml`
 has `op = "identity"`, and its cases keep their data in a `gen.py` generator.
 
+### Test against your own data
+
+A case can name its own files instead: `inputs` replaces the generated input,
+and `expected` replaces the reference for that output. `scale`'s `mine` case
+reads both from `data/`, saved with `numpy.save` in the tensor's shape
+(`[rows, 128]`). Each file is rounded to the format of the run, so pick values
+the format holds exactly, as `mine` does (small integers), or the comparison
+sees the rounding. To try other data without editing `kernel.toml`, pass
+`--input x=my_x.npy` to a run (step 6).
+
 ## 5. Run its tests
 
 ```bash
@@ -227,8 +193,18 @@ bazel test //kernels/elementwise/scale
 
 The target runs every case in every format it runs in, as one test each:
 `test_case[default-fp32]`, `test_case[one_row-e4]`, `test_case[sweep[rows=7]-fp32]`.
-A failing test names the case, the format, the output, the worst element and
-the tier it failed at. A case with `tier = "nightly"` runs in
+A failing test reports the case, the format, the output, the worst element and
+the tier it failed at, in the same line a run prints. For example, `mine` run
+with one element of `x` changed (`--input`, step 6):
+
+```text
+scale/mine/fp32: FAIL  cycles=12  MAC util=16.7%  y: FAIL at EXACT (max|err|=2 max rel=0.166667); worst at [1, 5]: got 14.0, want 12.0
+```
+
+Row 1, lane 5 of `y` is 14 where `2 * x` is 12. A run that faults instead
+names the fault, the PC and the source line of the word.
+
+A case with `tier = "nightly"` runs in
 `//kernels/elementwise/scale:scale_nightly` instead, which only the nightly run
 (`--config=full`) runs.
 
@@ -261,8 +237,13 @@ bazel run //kernels/elementwise/scale -- --case one_row --format e4 --debug
 ```
 
 Relative paths are read from where you run the command. Every option is in
-the [command-line reference](../reference/cli.md#kernel-runner-run_kernel), and
-[Debug a kernel](debug-a-kernel.md) walks through the debugger.
+the [command-line reference](../reference/cli.md#kernel-runner-run_kernel).
+
+When an output is wrong, run the failing case with `--debug`: the debugger
+stops before the first word, and you step through the program watching the
+registers, the accumulator and XMEM, with the source line of each word.
+[Debug a kernel](debug-a-kernel.md) walks through it, and the
+[Cycle Inspector](../debugging-inspector.md) shows a recorded run in the browser.
 
 ## 7. Choose a tolerance tier
 
@@ -285,6 +266,55 @@ Start from the strictest tier that passes, and say why. A tier's numbers can
 be overridden for one format, with the reason. For a kernel whose output is
 stored in E4 (an element output):
 `e4 = { tier = "FP8_ULP", ulps = 2, why = "two roundings: the product and the store" }`.
+
+## Add a format to a migrated kernel
+
+A kernel moved from `ipu_apps` runs in FP32 first, on its old data, so its
+outputs match the old harness's. Adding a format afterwards is its own change.
+The worked example is the projections (`kernels/projections/`), whose
+`proj_p4` template runs in FP32 and INT8:
+
+1. **Check that the program does not depend on the format.** Region bases
+   and strides in CRs count rows, not bytes; the program holds no byte
+   offsets; each output's `store` matches its store instruction (`element`
+   for `ST.AAQ`, `accumulator` for `ST.ACC`, which takes 4 rows a vector in an
+   8-bit format). If one fails, fix the program in its own change first, and
+   show that the FP32 outputs are unchanged.
+2. **Keep the old data in FP32 only.** The case generator that reproduces
+   the old data returns nothing in another format, so the harness's default
+   generator makes those inputs. The projections' `gen.py`:
+
+   ```python
+   def legacy_uniform(plan, rng):
+       if plan.format is not ElementFormat.FP32:
+           return {}
+       ...
+   ```
+
+3. **Give the inputs a range for the format.** The default range of an
+   integer format is all of it, and a long dot product of full-range INT8
+   values saturates almost every output, so the test would pass whatever the
+   program did. Choose a range that keeps fewer than 1% of the outputs at the
+   rails, and test that it does:
+
+   ```toml
+   [inputs.b]
+   shape = ["n_streams", "n_tg", "k", "n_tok"]
+   pack = "channel_major"
+   range = { int8 = [-2, 2] }   # at most 0.36% of y saturates (K = 480)
+   ```
+
+4. **Add the format and its tier.** Add it to `[kernel] formats` and name its
+   tier in `[golden] tolerance`, then run the kernel and every registry entry
+   over it: `bazel run //kernels/projections:proj_qkv_192_p4 -- --format int8`
+   prints each output's largest error. Record what you measured beside the
+   tier.
+5. **Leave out what the emulator cannot run yet, and say why.** The
+   projections do not run in E4, because `ACTIVATE.QUANTIZE` refuses an 8-bit
+   float format (OQ-20), and the two-group templates do not run in INT8,
+   because `ST.AAQ` stores four rows in an 8-bit format and their store order
+   overwrites rows already stored (OQ-35). A test that fails when the
+   emulator changes (`kernels/projections/test_formats.py`) records each one.
 
 ## When the kernel needs more
 

@@ -56,7 +56,8 @@ class Case:
             ``plan_case`` to report).
         formats: The formats it runs in: its own limit, else the kernel's.
         inputs: User input files, by tensor name.
-        expected: User expected-output files, by tensor name.
+        expected: User expected outputs, by tensor name: a ``.npy`` file, or
+            a ``"file.py:fn"`` (``fn(plan)`` returns the values).
         generator: ``"file.py:fn"`` that makes inputs, if any.
         tier: ``default`` or ``nightly`` (Q73).
         decl: The ``[cases.<name>]`` it comes from, for plan_case's ``case``.
@@ -66,7 +67,7 @@ class Case:
     values: Mapping[str, object]
     formats: tuple[ElementFormat, ...]
     inputs: Mapping[str, Path]
-    expected: Mapping[str, Path]
+    expected: Mapping[str, Path | str]
     generator: str | None
     tier: Tier
     decl: CaseDecl

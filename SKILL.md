@@ -16,7 +16,7 @@ The rules agents must never break are in [CLAUDE.md](CLAUDE.md), under "Key Cons
 | Task or topic | Page |
 |---|---|
 | Build and run tests | [CLAUDE.md](CLAUDE.md), "Build & Test" |
-| Packages, their dependencies and where to change what | [explanation/architecture.md](docs/content/explanation/architecture.md); kernels: [adding-applications.md](docs/content/adding-applications.md) |
+| Packages, their dependencies and where to change what | [explanation/architecture.md](docs/content/explanation/architecture.md); kernels: [how-to/write-a-kernel.md](docs/content/how-to/write-a-kernel.md) (legacy `ipu_apps`: [adding-applications.md](docs/content/adding-applications.md)) |
 | Write a kernel (`kernels/`, `kernel.toml`) | [how-to/write-a-kernel.md](docs/content/how-to/write-a-kernel.md); every key: [reference/kernel-toml.md](docs/content/reference/kernel-toml.md) |
 | Write or register a legacy `ipu_apps` kernel (E07 retires them) | [building-applications.md](docs/content/building-applications.md), [adding-applications.md](docs/content/adding-applications.md) |
 | Kernel catalogue | [kernels/index.md](docs/content/kernels/index.md) |
@@ -36,7 +36,7 @@ The rules agents must never break are in [CLAUDE.md](CLAUDE.md), under "Key Cons
 | Architecture (life of a program, the single source of truth) | [explanation/architecture.md](docs/content/explanation/architecture.md); decisions in [docs/adr/](docs/adr/) |
 | Timing model (cycle-start and forwarded values) | [explanation/timing-model.md](docs/content/explanation/timing-model.md); decision in [ADR 0002](docs/adr/0002-timing-contract.md) |
 | Prototyping mode | [explanation/architecture.md](docs/content/explanation/architecture.md), "Faithful and prototyping execution" |
-| ISA idioms and kernel coverage | [isa-alias-catalogue.md](docs/content/isa-alias-catalogue.md), [app-coverage.md](docs/content/app-coverage.md) |
+| ISA idioms and kernel coverage | [isa-idioms.md](docs/content/explanation/isa-idioms.md), [kernel-coverage.md](docs/content/explanation/kernel-coverage.md) |
 | Hardware specs and requirements | [specs/](docs/content/specs/), [requirements/index.md](docs/content/requirements/index.md) |
 | Open questions | [requirements/open-questions.md](docs/content/requirements/open-questions.md) |
 | Terms | [GLOSSARY.md](GLOSSARY.md) |

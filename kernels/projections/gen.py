@@ -1,12 +1,16 @@
 """Case generators shared by the projections' templates (E07-02).
 
-``legacy_uniform`` keeps the ``ipu_apps`` cases' data (``cases.py``), so the
-migration's FP32 outputs compare bit for bit with the old harness's; moving to
-the harness's seeded generator is a separate change. ``weight_rows`` is the
+``legacy_uniform`` keeps the ``ipu_apps`` cases' data (``cases.py``) in FP32,
+so the FP32 outputs compare bit for bit with the old harness's (E02 digests).
+In every other format it makes nothing, and the harness's default generator
+fills the inputs from their ``range`` (E07-03): the legacy data, uniform in
+[-1, 1), would round to {-1, 0, 1} in INT8. ``weight_rows`` is the
 weight-pointer check that ``ipu_apps``' slow ``test.py`` test ran.
 """
 
 import numpy as np
+
+from ipu_isa.formats import ElementFormat
 
 #: The ``ipu_apps`` cases' seed.
 SEED = 0xC0FFEE
@@ -16,7 +20,12 @@ SCALE = 0.01
 
 
 def legacy_uniform(plan, rng):
-    """b per stream, then a, uniform in [-1, 1) from ``RandomState(SEED)``, in FP32."""
+    """In FP32, b per stream, then a, uniform in [-1, 1) from ``RandomState(SEED)``.
+
+    In another format, nothing: the default generator makes b and a.
+    """
+    if plan.format is not ElementFormat.FP32:
+        return {}
     streams, n_tg, k, n_tok = plan.shapes["b"]
     n_out = plan.shapes["a"][0]
     state = np.random.RandomState(SEED)

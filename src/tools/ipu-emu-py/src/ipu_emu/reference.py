@@ -29,7 +29,7 @@ from __future__ import annotations
 import dataclasses
 import enum
 import itertools
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -68,7 +68,7 @@ __all__ = [
 ]
 
 #: The version of this API (Q11).
-API_VERSION = "1.3.0"
+API_VERSION = "1.4.0"
 
 
 class RunState(str, enum.Enum):
@@ -318,6 +318,24 @@ class ReferenceModel:
         self._state.xmem.write_address(address, bytes(data))
 
     # -- running -------------------------------------------------------------
+
+    def observe_xmem_reads(self, callback: Callable[[int, int], None]) -> Callable[[], None]:
+        """Report every XMEM read the program makes (1.4.0): ``callback(address,
+        size)`` in bytes, as each word reads. A commit record carries the
+        word's writes only; a viewer that shows its reads (the Cycle
+        Inspector) takes them from here. Host accesses (:meth:`read_xmem`,
+        :meth:`write_xmem`) are not reported.
+
+        Returns:
+            A function that stops the reports.
+        """
+
+        def observe(kind: str, address: int, size: int, data: object) -> None:
+            if kind == "read" and size:
+                callback(address, size)
+
+        detach: Callable[[], None] = self._state.xmem.add_observer(observe)
+        return detach
 
     def step(self) -> CommitRecord:
         """Run one word. A BREAK slot never stops it (Q39): the word retires.

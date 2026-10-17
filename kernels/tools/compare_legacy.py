@@ -12,7 +12,10 @@ kernel of the same name under the checkout's ``kernels/<FAMILY>/``:
   the baseline itself), and the new run's output regions
   (``RunResult.raw_outputs``) hold the same bytes as the old state's XMEM
   at those rows. Comparing regions, not files, makes the check independent of
-  how each old ``teardown`` wrote its file;
+  how each old ``teardown`` wrote its file. The new run starts with
+  CR2-CR14 and LR0-LR15 at ``migration.POISON`` and the old one does not, so
+  a program that reads a register nothing writes (a reset value it relied
+  on) shows up as an output difference;
 * cycles: the same on both sides.
 
 A multi-stage kernel (``[kernel] stages``, E06-14) is compared the same way:
@@ -50,6 +53,7 @@ from migration import (
     legacy_case_ids,
     legacy_run,
     new_case,
+    poisoned_shared,
     sha256,
 )
 
@@ -140,7 +144,7 @@ def _stage_programs(
 ) -> tuple[RunResult, list[bytes]]:
     """A multi-stage run, and the distinct programs its stages assembled, in order."""
     own = AssemblyCache()  # this run's programs only
-    result = run_kernel(manifest, case, fmt, cache=own)
+    result = run_kernel(manifest, case, fmt, cache=own, shared=poisoned_shared(manifest, case, fmt))
     return result, [program.to_bin() for program in own.programs]
 
 
@@ -151,7 +155,9 @@ def _new_run(
     if manifest.stages is None:
         staged = stage(manifest, case, fmt, cache=cache)
         return (
-            run_kernel(manifest, case, fmt, cache=cache),
+            run_kernel(
+                manifest, case, fmt, cache=cache, shared=poisoned_shared(manifest, case, fmt)
+            ),
             [staged.program.to_bin()],
             staged.placement,
         )

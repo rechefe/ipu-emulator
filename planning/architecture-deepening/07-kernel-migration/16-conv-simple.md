@@ -17,15 +17,15 @@ merge:
 
 Paths are under `src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/`.
 
-- **Family `app.py`** (632 lines) holds:
-  - `ConvApp(MemoryApp)` (`:69`);
-  - `kernel_asm` (`:119`) and `render_asm` (`:128`);
-  - `pack_input_chunked`/`unpack_output_chunked` (`:163`, `:191`);
-  - `allocate_regions` (`:223`), a second placement algorithm;
-  - `build_border_mask_blob` (`:266`);
-  - `ConvQuery` (`:316`) and `Conv2dDescription` (`:515`), which declare the
+- **Family `app.py`** (672 lines at 4aded786; line numbers below are that commit's) holds:
+  - `ConvApp(MemoryApp)` (`:71`);
+  - `kernel_source` (`:141`) and `sibling_program` (`:150`);
+  - `pack_input_chunked`/`unpack_output_chunked` (`:178`, `:206`);
+  - `allocate_regions` (`:238`), a second placement algorithm;
+  - `build_border_mask_blob` (`:281`);
+  - `ConvQuery` (`:339`) and `Conv2dDescription` (`:542`), which declare the
     same 11 fields;
-  - the `Conv2d` layer adapter (`:622`).
+  - the `Conv2d` layer adapter (`:662`).
 - **`conv1x1`, `conv3x3_relu`, `conv3x3_relu_cin1`** have 11-line `app.py`
   files over `ConvApp`. The image is built in `convolutions/cases.py` (181
   lines). Inputs and weights are independent seeded draws since E00-03

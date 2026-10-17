@@ -165,16 +165,12 @@ def test_every_kernel_is_named_after_its_folder():
 
 
 def test_misplaced_harnesses_fail_with_a_reason():
-    """A family base class has no SPEC, and a class outside any package has no
+    """A shared base class has no SPEC, and a class outside any package has no
     folder: both used to die with AttributeError on None."""
-    from ipu_apps.kernels.pooling.app import Stride2PoolApp
+    from ipu_apps.kernel_registry.memory import MemoryApp
 
     with pytest.raises(TypeError, match="no SPEC"):
-        Stride2PoolApp(
-            inst_path="x",
-            input_path="y",
-            params=dict(shape=(1, 2, 256), kernel_size=2, stride=2, padding=0),
-        )
+        MemoryApp(inst_path="x", input_path="y", params=dict(shape=(1, 128)))
     loose = type("Loose", (), {"__module__": "os"})  # a top-level, non-package module
     with pytest.raises(ValueError, match="kernel folder"):
         kernel_folder(loose)
@@ -769,35 +765,6 @@ def test_random_values_with_one_generator_draws_independent_tensors():
             assert not np.isin(a[:4], b).any()
 
 
-@pytest.mark.parametrize("kernel", ["conv1x1", "conv3x3_relu", "conv3x3_relu_cin1"])
-@pytest.mark.parametrize("case_name", ["default", "single_pixel"])
-def test_convolution_case_tensors_share_no_values(kernel, case_name, monkeypatch, tmp_path):
-    """x, weights and bias of one case come from one generator, so a kernel that
-    reads the wrong region (bias where it should read x) cannot pass."""
-    import ipu_apps.kernels.convolutions.cases as conv_cases
-
-    real = conv_cases.random_values
-    calls = []
-
-    def recording(shape, rng=None):
-        values = real(shape, rng)
-        calls.append((rng, values))
-        return values
-
-    monkeypatch.setattr(conv_cases, "random_values", recording)
-    case = load_cases(kernel)[case_name]
-    case.prepare(tmp_path, **case.defaults)
-
-    assert len(calls) == 3
-    rngs = {id(rng) for rng, _ in calls}
-    assert len(rngs) == 1 and calls[0][0] is not None
-    x, weights, bias = (values.ravel() for _, values in calls)
-    assert x.tobytes()[: min(x.nbytes, len(_SEED7_PREFIX))] == _SEED7_PREFIX[: x.nbytes]
-    assert not np.isin(bias, x).any()
-    assert not np.isin(weights, x).any()
-    assert not np.isin(bias, weights).any()
-
-
 # -- case_tests and the emulator-only ST.ACC warning ----------------
 
 _TOY_PROGRAMS = {
@@ -898,7 +865,7 @@ def test_debug_only_detection_reads_the_assembled_words(tmp_path):
         assemble_to_bin_file(program, str(path))
         assert uses_debug_only_instructions(path) is (name == "uses_str_acc_reg")
     assert kernel_uses_debug_only_instructions("fully_connected")
-    assert not kernel_uses_debug_only_instructions("maxpool2d_stride2")
+    assert not kernel_uses_debug_only_instructions("identity")
 
 
 def test_runner_reports_a_broken_kernel_source(tmp_path, monkeypatch, capsys):

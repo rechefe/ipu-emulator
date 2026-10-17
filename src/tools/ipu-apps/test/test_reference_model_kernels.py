@@ -17,7 +17,7 @@ from ipu_isa.registers import REGISTER_DEFINITIONS
 
 CASES = [
     ("identity", "default"),
-    ("conv1x1", "full_group"),
+    ("conv_universal", "default"),
     ("softmax_columns_packed", "default"),
 ]
 

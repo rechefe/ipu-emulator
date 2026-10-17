@@ -58,6 +58,39 @@ def test_matmul_and_unused_parameters():
     assert y.tolist() == [[4.0, 5.0], [10.0, 11.0]]
 
 
+def test_maxpool2d_pads_with_no_maximum_and_drops_a_partial_window():
+    x = t([[[1, -5, 2], [-7, 3, -1], [4, -2, -9]]])  # [C=1, H=3, W=3]
+    centred = ops.maxpool2d(x, kernel_size=3, stride=1, padding=1, channels=1)["y"]
+    assert centred.tolist() == [[[3, 3, 3], [4, 4, 3], [4, 4, 3]]]
+    assert ops.maxpool2d(x, kernel_size=2, stride=2, padding=0)["y"].tolist() == [[[3]]]
+
+
+def test_channel_peak_is_the_channel_maximum_then_its_gate():
+    y = ops.channel_peak(t([[1, -2, 0.5], [3, -4, 0.25]]), threshold=0.75, channels=2)["y"]
+    assert y.tolist() == [[3, -2, 0.5], [2.25, 0, 0]]
+
+
+def test_score_threshold_gates_and_soft_counts():
+    y = ops.score_threshold(t([1, -1, 3]), threshold=1.0, temperature=2.0)["y"]
+    sigmoid = [1 / (1 + math.exp(-2 * d)) for d in (0, -2, 2)]
+    assert y[:3].tolist() == [0, 0, 2]
+    assert y[3].item() == pytest.approx(sum(sigmoid))
+
+
+def test_sample_descriptors_reproduces_a_constant_inside_the_map():
+    """Bilinear weights sum to 1 where all four neighbours exist, so a constant
+    map samples to itself away from the border, in both mappings; a band is
+    its rows of the whole map."""
+    x = torch.full((2, 3, 256), 0.5, dtype=torch.float64)
+    inside = torch.full((8, 16, 256), 0.5, dtype=torch.float64)
+    for stock in (False, True):
+        y = ops.sample_descriptors(x, stock=stock, cell_row_start=0, cell_row_count=0)["y"]
+        assert y.shape == (16, 24, 256)
+        assert torch.allclose(y[4:12, 4:20], inside)
+        band = ops.sample_descriptors(x, stock=stock, cell_row_start=1, cell_row_count=1)["y"]
+        assert torch.equal(band, y[8:16])
+
+
 def test_matmul_nt_contracts_the_last_dimension_of_both():
     a, b = t([[1, 2], [3, 4]]), t([[5, 6], [7, 8]])
     assert ops.matmul_nt(a, b, d=2)["y"].tolist() == [[17.0, 23.0], [39.0, 53.0]]
@@ -79,6 +112,29 @@ def test_linear_is_a_matmul_then_its_activation():
         torch.ones(4, 1, 2, 5, dtype=torch.float64),
     )
     assert ops.linear(weights, data)["y"].shape == (4, 1, 3, 5)
+
+
+def test_conv2d_is_a_zero_padded_correlation_plus_bias_then_its_activation():
+    # One input channel, a 3x3 kernel picking the right neighbour, padding 1.
+    x = t([[[1, 2], [3, 4]]])
+    w = torch.zeros(1, 1, 3, 3, dtype=torch.float64)
+    w[0, 0, 1, 2] = 1.0
+    shifted = [[[2.0, 0.0], [4.0, 0.0]]]
+    assert ops.conv2d(x, w, padding=1, height=2)["y"].tolist() == shifted
+    biased = ops.conv2d(x, w, t([-3]), padding=1)["y"].tolist()
+    assert biased == [[[-1.0, -3.0], [1.0, -3.0]]]
+    relu = [[[0.0, 0.0], [1.0, 0.0]]]
+    assert ops.conv2d(x, w, t([-3]), padding=1, activation="relu")["y"].tolist() == relu
+    assert ops.conv2d(x, w, t([-3]), padding=1, apply_relu=True)["y"].tolist() == relu
+    # Stride 2 halves each side; groups = channels is depthwise.
+    assert ops.conv2d(torch.ones(1, 4, 4, dtype=torch.float64), w, stride=2, padding=1)[
+        "y"
+    ].shape == (1, 2, 2)
+    two = torch.ones(2, 2, 2, dtype=torch.float64)
+    depthwise = ops.conv2d(two, w.repeat(2, 1, 1, 1), padding=1, groups=2)["y"]
+    assert depthwise.tolist() == [[[1.0, 0.0], [1.0, 0.0]]] * 2
+    with pytest.raises(ValueError, match="'gelu' is not one of"):
+        ops.conv2d(x, w, activation="gelu")
 
 
 def test_an_axis_op_needs_its_dim():

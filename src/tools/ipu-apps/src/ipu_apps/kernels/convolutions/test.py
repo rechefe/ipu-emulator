@@ -1,9 +1,8 @@
 """Convolution family tests, beyond each kernel's own cases and test.py.
 
-* **Two conv2d vocabularies** -- the universal kernels (``in_channels`` /
-  ``height`` / ``width`` / ``groups`` / ``has_bias`` / ``apply_relu`` ...)
-  and the memory-layout ``conv1x1`` / ``conv3x3_relu*`` kernels (``shape`` /
-  ``activation`` ...) both answer ``resolve("conv2d", ...)``; ``requires`` keeps each vocabulary routed to its own kernels.
+* The tiled kernels (``conv1x1``, ``conv3x3_relu*``) and ``conv_first_layer``
+  moved to ``kernels/convolutions`` (E07-16); their routing and the two
+  ``conv2d`` vocabularies are tested there (``test_routing.py``).
 * **Routing** -- framework-free dispatch checks and the width ceiling, as a
   generated boundary table.
 * **The ``Conv2d`` layer adapter** -- refusal cases, driven through
@@ -72,30 +71,6 @@ def query(**overrides):
     return params | overrides
 
 
-# -- two vocabularies -----------------------------------------------------------
-
-
-def test_both_conv2d_vocabularies_resolve_to_their_own_kernels():
-    universal = resolve(
-        "conv2d",
-        **query(in_channels=3, out_channels=2, height=3, width=8, has_bias=True, apply_relu=True),
-    )
-    assert universal.app_name == "conv_universal_bn_activation"
-    legacy = resolve(
-        "conv2d",
-        shape=(3, 3, 8),
-        out_channels=2,
-        kernel_size=3,
-        stride=1,
-        padding=1,
-        activation="relu",
-    )
-    assert legacy.app_name == "conv3x3_relu"
-    legacy_names = {"conv1x1", "conv3x3_relu", "conv3x3_relu_cin1"}
-    assert not legacy_names & set(universal.alternatives)
-    assert not {a for a in legacy.alternatives if a not in legacy_names}
-
-
 # -- routing -------------------------------------------------------------------
 
 
@@ -139,18 +114,6 @@ def test_both_conv2d_vocabularies_resolve_to_their_own_kernels():
             "pointwise_conv_unified_bn_activation",
         ),
         (dict(width=384, out_channels=4), "conv_universal_wide384"),
-        (
-            dict(
-                in_channels=3,
-                out_channels=16,
-                stride=2,
-                height=256,
-                width=256,
-                has_bias=True,
-                apply_relu=True,
-            ),
-            "conv_first_layer",
-        ),
     ],
 )
 def test_resolve(overrides, kernel):

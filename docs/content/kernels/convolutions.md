@@ -22,6 +22,8 @@ w 385..400                   (not covered)
 ```
 
 `conv_first_layer` covers only `3x256x256 -> 16x128x128`, stride 2, bias+ReLU.
+It runs as `//kernels/convolutions/conv_first_layer` and answers
+`bazel run //kernels:query -- conv2d ...` with the same eleven parameters.
 
 **Pointwise** (`groups=1, kernel_size=1`), by width, height=64:
 
@@ -70,6 +72,31 @@ h = 64                       depthwise_conv_stride2_narrow
 
 `kernel_size` is 1 or 3, `groups` is 1 or `in_channels`, `dilation` is 1.
 
+## Tiled kernels
+
+`conv1x1`, `conv3x3_relu` and `conv3x3_relu_cin1` (`//kernels/convolutions/<name>`)
+take their own query vocabulary: `in_channels`, `height`, `width`,
+`out_channels`, `kernel_size`, `stride`, `padding` and `activation`, every one
+required. A universal query (it names `dilation`, `groups`, `has_bias` and
+`apply_relu`) never reaches them, and theirs never reaches a universal kernel.
+
+```bash
+bazel run //kernels:query -- conv2d in_channels=1 height=64 width=64 \
+    out_channels=64 kernel_size=3 stride=1 padding=1 activation=relu
+```
+
+| Kernel | `kernel_size` | `padding` | `activation` | Note |
+|---|---|---|---|---|
+| `conv1x1` | 1 | 0 | `none` | bias added, no ReLU |
+| `conv3x3_relu` | 3 | 1 | `relu` | |
+| `conv3x3_relu_cin1` | 3 | 1 | `relu` | `in_channels = 1` only; preferred there (cost 0 against 1) |
+
+Each takes `x` (`[in_channels, height, width]`), `w` (`[out_channels,
+in_channels, k, k]`) and `b` (`[out_channels]`), and writes `y`
+(`[out_channels, height, width]`), all FP32. The program's tiled layout (one
+row per channel, padded row and column tile; the 3x3 kernels' tiles carry a
+one-column halo) is the family's pack transforms (`kernels/convolutions/pack.py`).
+
 ## Stride-2 depthwise
 
 Stage 1 runs `depthwise_conv_universal` at full resolution; stage 2 decimates
@@ -78,11 +105,13 @@ chunk.
 
 ## `residual_add`
 
-Elementwise `C = A + B` over `[channels, height, width]` FP32, one channel per
-128-element chunk. Queried by `num_channels` (at most 1024):
+Elementwise `y = a + b` over `[channels, height, width]` FP32, one channel per
+128-element row: `//kernels/elementwise/residual_add` (E07-06). Queried by
+`num_channels` (at most 1024):
 
 ```bash
-bazel run //src/tools/ipu-apps:query -- residual_add num_channels=64
+bazel run //kernels:query -- residual_add num_channels=64
+bazel run //kernels/elementwise/residual_add -- --benchmark
 ```
 
 ## Data layout

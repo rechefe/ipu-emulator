@@ -34,7 +34,9 @@ Schema
     ``shape`` (non-empty list, required): positive ints, or expressions over
     parameter and derived names in E06-03's grammar (``"rows * 4"``,
     ``"ceil(k / 128)"``). ``row``: pin the region's first XMEM row (Q81), an int
-    or an expression like a shape's. ``after`` (``"<tensor>"``): place the region
+    or an expression like a shape's, which may also read ``row_bytes``, the
+    bytes of one row in the case's format (``"131072 / row_bytes"`` pins the
+    region at byte 0x20000 in every format: a legacy layout). ``after`` (``"<tensor>"``): place the region
     right after that tensor's in placement order (by default inputs, then
     outputs, then scratch, each in file order), so scratch can come before an
     output; not with ``row``. ``when`` (``"<bool param>"`` or ``"not <bool
@@ -67,10 +69,14 @@ Schema
     Any binding may be a table with ``when`` (as a tensor's): it binds
     only in a case where that holds; a conditional tensor's binding takes the
     tensor's condition. Two bindings may share a register only when their
-    conditions exclude each other (``bias`` and ``not bias``). A float
+    conditions exclude each other (``bias`` and ``not bias``), or when both
+    are tensors pinned at literal rows that put the same value in it (``acc``
+    at ``row = 8`` and ``relu = { register = "CR7", offset = -12 }`` at
+    ``row = 20``: the program reaches relu from acc's base). A float
     parameter (an element scalar) binds a CR. Every key names a parameter, a
     tensor or a derived value, and every tensor is bound (its base row must
-    reach the program).
+    reach the program), itself or through a bound ``[derived]`` value that
+    reads its ``base()``.
 
 ``[derived]``
     ``<name> = "<expression>"`` over parameters and earlier derived values,
@@ -81,12 +87,18 @@ Schema
     when the registers are written, so only ``[abi]`` binds it; a shape, a
     pin or the cost cannot read it. ``w1 = "base(weights) + 1"`` gives one
     region several offset registers, which a ``{ register, offset }``
-    binding cannot.
+    binding cannot. A value that reads ``row_bytes`` (the bytes of one XMEM
+    row in the case's format) is placed too: ``"512 / row_bytes"`` is the
+    rows one accumulator vector spans (4 in an 8-bit format, 1 in FP32 and
+    INT32).
 
 ``[cases.<name>]``
     Parameter values: a scalar, or a non-empty list (a sweep axis). Reserved
     keys: ``formats`` (a non-empty subset of the kernel's), ``inputs`` and
-    ``expected`` (tensor name to a user file, Q82), ``generator``
+    ``expected`` (tensor name to a user file, Q82; an ``expected`` may instead
+    be ``"file.py:fn"``, or ``"../file.py:fn"`` in the family's folder, whose
+    ``fn(plan)`` returns the output's values in the case's format: a golden
+    kept in another encoding, such as ``fully_connected``'s ``.bin``), ``generator``
     (``"file.py:fn"``, or ``"../file.py:fn"`` in the family's folder, a
     generator its kernels share), ``tier`` (``default`` or ``nightly``, Q73).
     ``[cases.default]`` is required.
@@ -148,7 +160,13 @@ from ipu_emu.errors import ConfigurationError
 from ipu_harness._codec import limits
 from ipu_harness._toml_source import Locator, ManifestError, Reader, decode_error_line, where
 from ipu_harness.conditions import Condition
-from ipu_harness.expressions import ExpressionError, base_tensor, names_in, placed_reads
+from ipu_harness.expressions import (
+    ROW_BYTES_NAME,
+    ExpressionError,
+    base_tensor,
+    names_in,
+    placed_reads,
+)
 from ipu_harness.tolerance import TIERS
 from ipu_harness.tolerance import Tier as ToleranceTier
 from ipu_isa.formats import FORMATS, ElementFormat
@@ -239,7 +257,7 @@ SCHEMA_KEYS: Mapping[str, tuple[str, ...]] = MappingProxyType(
     }
 )
 #: Names a template or a case reserves (E06-07: cr, lr, format, shapes).
-_RESERVED_NAMES = frozenset({"cr", "lr", "format", "shapes", *_CASE_KEYS})
+_RESERVED_NAMES = frozenset({"cr", "lr", "format", "shapes", ROW_BYTES_NAME, *_CASE_KEYS})
 
 
 @dataclass(frozen=True)
@@ -320,7 +338,8 @@ class CaseDecl:
         values: Parameter values; a tuple is a sweep axis.
         formats: The formats it runs in, if it limits them.
         inputs: User input files, by tensor name (Q82).
-        expected: User expected-output files, by tensor name.
+        expected: User expected outputs, by tensor name: a ``.npy`` file, or a
+            ``"file.py:fn"`` whose ``fn(plan)`` returns the values.
         generator: ``"file.py:fn"`` that makes inputs instead.
         tier: ``default`` or ``nightly`` (Q73).
     """
@@ -329,7 +348,7 @@ class CaseDecl:
     values: Mapping[str, object]
     formats: tuple[ElementFormat, ...] | None = None
     inputs: Mapping[str, Path] = field(default_factory=lambda: MappingProxyType({}))
-    expected: Mapping[str, Path] = field(default_factory=lambda: MappingProxyType({}))
+    expected: Mapping[str, Path | str] = field(default_factory=lambda: MappingProxyType({}))
     generator: str | None = None
     tier: Tier = "default"
 
@@ -426,9 +445,10 @@ class KernelManifest:
 
     @functools.cached_property
     def placed(self) -> Mapping[str, frozenset[str]]:
-        """The ``[derived]`` values that read ``base(<tensor>)``, directly or
-        through another, with the tensors whose bases each reads: known once
-        the regions are placed, so only ``[abi]`` reads them."""
+        """The ``[derived]`` values that read ``base(<tensor>)`` or ``row_bytes``,
+        directly or through another, with the tensors whose bases each reads:
+        known once the case's regions (and format) are, so only ``[abi]`` reads
+        them."""
         return MappingProxyType(placed_reads(self.derived))
 
     @property
@@ -446,7 +466,7 @@ def _check_name(r: Reader, path: tuple[str, ...]) -> None:
         raise r.fail(
             path,
             f"{where(path)}: {name!r} must be an identifier, not start with _, "
-            "and not be cr, lr, format, shapes or a reserved case key",
+            "and not be cr, lr, format, shapes, row_bytes or a reserved case key",
         )
 
 
@@ -606,7 +626,7 @@ def _placed(
     if "row" in table:
         row = r.typed(table["row"], (int, str), (*path, "row"))
         if isinstance(row, str):
-            _check_expression(r, row, names, (*path, "row"))
+            _check_expression(r, row, (*names, ROW_BYTES_NAME), (*path, "row"))
         elif row < 0:
             raise r.fail((*path, "row"), f"{where((*path, 'row'))} {row} must not be negative")
         decl = replace(decl, row=row)
@@ -753,12 +773,51 @@ def _binding(
     return _Binding(register, offset, when)
 
 
+def _same_pinned_value(
+    tensors: Mapping[str, TensorDecl],
+    offsets: Mapping[str, int],
+    name: str,
+    offset: int,
+    other: str,
+) -> bool:
+    """Whether ``name`` (at ``offset``) and ``other`` are tensors pinned at literal
+    rows whose bindings give their register the same value (row plus offset):
+    one register then reaches both regions (vector_tour's relu, stored at
+    ``acc`` plus three accumulator stores)."""
+    mine, theirs = tensors.get(name), tensors.get(other)
+    if mine is None or theirs is None:
+        return False
+    if not isinstance(mine.row, int) or not isinstance(theirs.row, int):
+        return False
+    return mine.row + offset == theirs.row + offsets.get(other, 0)
+
+
+def _sharing_clash(
+    name: str,
+    binding: _Binding,
+    others: list[str],
+    conditions: Mapping[str, Condition],
+    tensors: Mapping[str, TensorDecl],
+    offsets: Mapping[str, int],
+) -> str | None:
+    """The first earlier binding of the same register that ``name`` may not
+    share it with: unless their conditions exclude each other, or both are
+    tensors pinned so the register holds one value (:func:`_same_pinned_value`)."""
+    for other in others:
+        if binding.when is not None and binding.when.excludes(conditions.get(other)):
+            continue
+        if not _same_pinned_value(tensors, offsets, name, binding.offset, other):
+            return other
+    return None
+
+
 def _abi(
     r: Reader,
     raw: object,
     params: Mapping[str, ParamDecl],
     names: set[str],
     tensors: Mapping[str, TensorDecl],
+    placed: Mapping[str, frozenset[str]],
 ) -> tuple[Mapping[str, str], Mapping[str, int], Mapping[str, Condition]]:
     table = r.table(raw, ("abi",))
     abi: dict[str, str] = {}
@@ -775,13 +834,24 @@ def _abi(
             offsets[name] = binding.offset
         if binding.when is not None:
             conditions[name] = binding.when
-        for other in used.get(register, []):
-            if binding.when is None or not binding.when.excludes(conditions.get(other)):
-                raise r.fail(path, f"[abi] {name} and {other} both bind {register}")
+        clash = _sharing_clash(name, binding, used.get(register, []), conditions, tensors, offsets)
+        if clash is not None:
+            raise r.fail(path, f"[abi] {name} and {clash} both bind {register}")
         used.setdefault(register, []).append(name)
         abi[name] = register
+
+    # A bound placed value that reads base(x) carries x's base to the program
+    # too (a region bound at a parameter-dependent offset, E07-15), when it is
+    # bound in every case x exists: unconditionally, or under x's condition.
+    def reaches(tensor: TensorDecl) -> bool:
+        return any(
+            tensor.name in reads and conditions.get(name) in (None, tensor.when)
+            for name, reads in placed.items()
+            if name in abi
+        )
+
     for tensor in tensors.values():
-        if tensor.name not in abi:
+        if tensor.name not in abi and not reaches(tensor):
             raise r.fail(
                 (tensor.section, tensor.name),
                 f"[abi] does not bind tensor {tensor.name!r}; its base row must reach the program",
@@ -849,6 +919,27 @@ def _files(
     return MappingProxyType(out)
 
 
+def _expected(
+    r: Reader, directory: Path, raw: object, path: tuple[str, ...], outputs: Iterable[str]
+) -> Mapping[str, Path | str]:
+    """A case's ``expected``: per output a ``.npy`` file, or a ``"file.py:fn"``
+    (or ``"../file.py:fn"``, the family's) whose ``fn(plan)`` returns the values."""
+    table = r.table(raw, path)
+    valid = tuple(outputs)
+    out: dict[str, Path | str] = {}
+    for tensor, value in table.items():
+        if tensor not in valid:
+            raise r.fail(
+                (*path, tensor), f"{where(path)} {tensor!r} is not one of the tensors {list(valid)}"
+            )
+        text = r.typed(value, str, (*path, tensor))
+        if ".py:" in text:
+            out[tensor] = r.shared_function(directory, text, (*path, tensor))
+        else:
+            out[tensor] = r.inside(directory, text, (*path, tensor))
+    return MappingProxyType(out)
+
+
 def _case_values(
     r: Reader, m: KernelManifest, path: tuple[str, ...], table: Mapping[str, Any]
 ) -> dict[str, object]:
@@ -890,7 +981,7 @@ def _case(r: Reader, m: KernelManifest, name: str, raw: object) -> CaseDecl:
         )
     if "expected" in table:
         outputs = [t.name for t in m.tensors.values() if t.role == "output"]
-        expected = _files(r, m.directory, table["expected"], (*path, "expected"), outputs)
+        expected = _expected(r, m.directory, table["expected"], (*path, "expected"), outputs)
         case = replace(case, expected=expected)
     if "generator" in table:
         case = replace(
@@ -1149,7 +1240,7 @@ def _derived(r: Reader, raw: object, params: Mapping[str, ParamDecl]) -> dict[st
         derived[name] = r.text(expression, path)
         bases = [n for n in _names(r, derived[name], path) if base_tensor(n) is not None]
         earlier = [d for d in derived if d != name]  # not itself: it would never resolve
-        _check_expression(r, derived[name], (*params, *earlier, *bases), path)
+        _check_expression(r, derived[name], (*params, *earlier, *bases, ROW_BYTES_NAME), path)
     return derived
 
 
@@ -1204,7 +1295,7 @@ def _no_placed_reads(
         if read:
             raise r.fail(
                 path,
-                f"{where(path)} {text!r} reads {read}, which read a region's base: "
+                f"{where(path)} {text!r} reads {read}, which read a region's base or row_bytes: "
                 "only [abi] may read such a value",
             )
 
@@ -1335,7 +1426,9 @@ def load_manifest(
             path = (tensor.section, tensor.name, "fill")
             _check_expression(r, tensor.fill, (*numbers, *derived), path)
     _no_placed_reads(r, placed, tensors, kernel.cost)
-    abi, abi_offsets, abi_when = _abi(r, data.get("abi", {}), params, {*scalars, *tensors}, tensors)
+    abi, abi_offsets, abi_when = _abi(
+        r, data.get("abi", {}), params, {*scalars, *tensors}, tensors, placed
+    )
     _placed_conditions(r, placed, tensors, abi_when, abi)
     manifest = KernelManifest(
         name=entry.name or directory.name,

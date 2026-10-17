@@ -9,7 +9,7 @@
     kernels below and then removes this page.
 
 How to contribute a kernel so the registry can find it, route to it, and report
-its coverage accurately. See [Application coverage](app-coverage.md) for why the
+its coverage accurately. See [Kernel coverage](explanation/kernel-coverage.md) for why the
 system is shaped this way.
 
 Adding an application is **purely additive**: you create files inside your own
@@ -63,12 +63,12 @@ PER = "rows"  # optional: adds a cycles-per-row column
 Kernels of one family keep shared code in the family directory under the same
 names: `<family>/app.py` for a shared harness base or spec helpers,
 `<family>/cases.py` for shared case builders, and `<family>/test.py` for tests
-that span the family (see `kernels/pooling/`, `kernels/convolutions/`).
+that span the family (see `kernels/convolutions/`, `kernels/attention/`).
 `bazel test :<family>` runs every kernel in the family plus the family's
 `test.py`.
 
 Every family has the same shape, `kernels/<family>/<app>/` — e.g.
-`kernels/convolutions/conv1x1/` and `kernels/pooling/maxpool2d_window/`.
+`kernels/convolutions/conv_universal/` and `kernels/attention/attn_scores_km_16x60/`.
 
 No `BUILD.bazel` edit is needed: `ipu_apps_from_kernels` (in `//:ipu_app.bzl`)
 globs every `.asm` file under `src/ipu_apps/kernels/` and declares one
