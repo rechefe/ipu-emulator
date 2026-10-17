@@ -243,11 +243,12 @@ def test_documented_routing_matches_the_registry(registry, param, start, end, ke
         )
 
 
-@pytest.mark.parametrize(("param", "start", "end", "kernel"), documented_runs())
+@pytest.mark.parametrize(
+    ("param", "start", "end", "kernel"),
+    [run for run in documented_runs() if run[1] > 1],  # a run from 1 has nothing below it
+)
 def test_documented_boundaries_are_real_boundaries(registry, param, start, end, kernel):
     """A run documented to start at ``start`` changes hands there."""
-    if start == 1:
-        return  # nothing below it to differ from
     below = documented(registry, param, start - 1)
     assert below.kernel_name != kernel, (
         f"the docs start a {kernel} run at {param}={start}, but {param}={start - 1} "

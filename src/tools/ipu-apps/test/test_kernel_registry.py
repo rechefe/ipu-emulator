@@ -1,11 +1,10 @@
-"""Registry mechanics, and a generic conformance suite every kernel inherits.
+"""Registry mechanics, and checks every registered kernel inherits.
 
 The registry's whole value is that its answers match reality, so most of these
 tests are consistency checks against the kernels themselves rather than
-assertions about hardcoded strings. Crucially, the conformance tests are
-written against *whatever is registered* -- a newly added kernel is verified
-automatically, and a kernel whose ``supports`` over-claims fails here rather
-than in a user's hands.
+assertions about hardcoded strings. The per-kernel checks (hygiene, every case
+accepted by its own spec and routed) are written against *whatever is
+registered*, so a newly added kernel is checked automatically.
 """
 
 from __future__ import annotations

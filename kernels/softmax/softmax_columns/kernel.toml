@@ -2,8 +2,8 @@
 # >= 65, reduced down the rows per element with a running ACC (no AGG, no row
 # cap). Each row spans cpr = ceil(width / 128) XMEM rows; a padding lane is a
 # column of its own (zeros), dropped on unpack. Below 65 several whole rows fit
-# one vector, which softmax_columns_packed exploits. At 65..127 most of the
-# one chunk is padding: it runs at the cost of width 128.
+# one vector, which softmax_columns_packed exploits. At 65..127, 128 - width
+# lanes of the one chunk are padding: it runs at the cost of width 128.
 [kernel]
 op = "softmax"
 formats = ["fp32"]                                   # exp2/reciprocal on the FP32 vector path only
@@ -50,7 +50,7 @@ cpr               = "ceil(width / 128)"              # chunk columns
 device_rows       = "rows * cpr"
 step              = "128 * ceil(device_rows / 128)"
 row_stride        = "1"                              # one XMEM row per chunk
-row_stride_chunks = "cpr"                            # XMEM rows per row (a second name: one register each)
+row_stride_chunks = "cpr"                            # XMEM rows per matrix row (a second name: one register each)
 
 [abi]
 y                 = "CR2"

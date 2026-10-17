@@ -77,7 +77,7 @@ def _softmax(layer: object, shape: tuple[int, ...]) -> tuple[str, Mapping[str, o
     return "softmax", softmax_query(shape, int(layer.dim))
 
 
-def _relative(layer: object, shape: tuple[int, ...]) -> tuple[str, Mapping[str, object]]:
+def _refuse_relative(layer: object, shape: tuple[int, ...]) -> tuple[str, Mapping[str, object]]:
     """``LogSoftmax`` and ``Softmin``: refused, never routed to a softmax kernel.
 
     Raises:
@@ -97,6 +97,6 @@ def _relative(layer: object, shape: tuple[int, ...]) -> tuple[str, Mapping[str, 
 #: The adapters, by layer class name.
 LAYER_ADAPTERS: Mapping[str, LayerAdapter] = {
     "Softmax": _softmax,
-    "LogSoftmax": _relative,
-    "Softmin": _relative,
+    "LogSoftmax": _refuse_relative,
+    "Softmin": _refuse_relative,
 }

@@ -1,6 +1,11 @@
 """Shared code for the softmax kernels: harness base and spec helpers.
 
-The five softmax kernels answer the same query -- a 2-D shape plus the axis
+A shim since E07-11: the kernels are kernels/softmax/ on ipu_harness. This
+module, cases.py and three of the old kernels stay for the tests and the
+Cycle Inspector trace that still run them (DELETIONS.md, E07-11), until
+E07-12, E07-24 and E07-26.
+
+The softmax kernels answer the same query -- a 2-D shape plus the axis
 being normalised -- and share one device layout, so the query unpacking, the
 spec boilerplate and the load / unload / core CR map live here once.
 

@@ -115,7 +115,7 @@ def test_softmax_relatives_are_refused_by_name(registry, layer, says):
 def test_the_routed_axis_is_the_one_torch_normalises(registry, shape, dim):
     """Pinned to torch itself, not to this adapter's reading of it: the axis
     whose output sums to 1 is the one the verdict's kernel reduces."""
-    y = torch.softmax(torch.randn(*shape), dim=dim)
+    y = torch.softmax(torch.randn(*shape, generator=torch.Generator().manual_seed(0)), dim=dim)
     sums = y.sum(dim=dim)
     assert torch.allclose(sums, torch.ones_like(sums), atol=1e-5)
     verdict = registry.from_layer(nn.Softmax(dim=dim), shape)

@@ -1,5 +1,7 @@
-"""The slot-packed layouts of the softmax family (E07-11), found by name as
-``ipu_kernels.softmax.pack`` (``pack = "row_slots"`` in ``kernel.toml``).
+"""The softmax family's slot-packed layouts (E07-11).
+
+``kernel.toml`` names them (``pack = "row_slots"``); the harness finds them in
+``ipu_kernels.softmax.pack``.
 
 ``softmax_rows_partial`` and ``softmax_columns_packed`` give each logical row
 of a ``(rows, cols)`` tensor a slot of ``partition_size(cols)`` lanes (the next
@@ -40,8 +42,15 @@ def partition_size(cols: int) -> int:
 
 
 class Slots:
-    """Each row of a ``(rows, cols)`` tensor in a ``partition_size(cols)``-lane
-    slot, ``128 / slot`` slots per XMEM row, the padding set to ``fill``."""
+    """Each row of a ``(rows, cols)`` tensor in its own slot of lanes.
+
+    A slot is ``partition_size(cols)`` lanes, ``128 / slot`` slots per XMEM
+    row; padding lanes and padding slots hold ``fill``. Values are float64,
+    as the default transform's; the harness encodes them in the format.
+
+    Args:
+        fill: The padding value.
+    """
 
     def __init__(self, fill: float) -> None:
         self.fill = fill

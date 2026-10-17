@@ -1,5 +1,5 @@
 {#- ==========================================================================
-    softmax_rows_long.asm -- row softmax for n > 128, FP32 wide-vector mode
+    softmax_rows_long.asm -- row softmax for n > 128, FP32
 
     y[r, :] = softmax(x[r, :]) for a (rows, n) matrix with n > 128. A mix of
     softmax_rows (whole 128-wide rows) and softmax_rows_partial (a sub-128
@@ -33,7 +33,7 @@
 
     CROSS-CHUNK REDUCTION (the novelty): a row's max (Pass 1) and sum (Pass 3)
     span cpr chunks. Each pass keeps a RUNNING per-row scalar: AGG.*.FIRST on the
-    row's first full chunk, AGG.* (running, combines with r_acc[row]) on the rest,
+    row's first full chunk, AGG.* (running, combines with R_ACC[row]) on the rest,
     and finally the tail chunk with valid_elements = tail. Full chunks name CR15
     (valid_elements = 128); the tail chunk names cr.tail.
 
@@ -48,12 +48,12 @@
       cr.rows              = total rows (the group loop bound)
       cr.full_chunks       = n // 128 (the full-chunk loop bound)
       cr.cpr               = chunks per row
-      cr.row_stride_chunks = cpr (rows per row: the row stride)
+      cr.row_stride_chunks = cpr (XMEM rows per matrix row: the row stride)
       CR0 = 0 and CR1 = 1 are read-only; CR15 holds the full-chunk dstructure
       (128 valid elements, the default).
 
-    LR uses 3 sub-slots; ";;" ends a VLIW word, ";" separates sub-instructions.
-    r_cyclic loads use index 0 in wide mode (a whole row).
+    LR uses 3 sub-slots; ";;" ends a instruction word, ";" separates sub-instructions.
+    R_CYCLIC loads use index 0 (a whole row).
 ========================================================================== -#}
 
 {%- set lr_off     = "LR0" -%}  {#- working chunk row offset (x / num / y) -#}
@@ -83,21 +83,21 @@ group_size_set:
 {#- ===================================================================== -#}
 {#- PASS 1 -- maxvec[r] = max over the row's N elements (cross-chunk).      -#}
 {#- ===================================================================== -#}
-    LD.MULT.CYCLIC {{lr_cyc}} {{ cr.log2e }} {{lr_cyc}} ;;   {#- r_cyclic = C_VEC -#}
+    LD.MULT.CYCLIC {{lr_cyc}} {{ cr.log2e }} {{lr_cyc}} ;;   {#- R_CYCLIC = C_VEC -#}
     SET {{lr_row}}   CR0 ;
     ADD {{lr_rbase}} {{lr_gbase}} CR0 ;;               {#- start at this group's base -#}
 
 p1_row:
-    {#- first full chunk: AGG.MAX.FIRST seeds r_acc[row] -#}
+    {#- first full chunk: AGG.MAX.FIRST seeds R_ACC[row] -#}
     ADD {{lr_off}} {{lr_rbase}} CR0 ;;
-    LD.MULT  R0 {{lr_off}} {{ cr.x }} ;;                {#- R0 = x[r,chunk0] (snapshot) -#}
+    LD.MULT  R0 {{lr_off}} {{ cr.x }} ;;                {#- R0 = x[r,chunk0] (read at cycle start: visible next cycle) -#}
     MULT.RC.VV    {{lr_cyc}} R0 0 {{lr_cyc}} CR15 ;     {#- c*x -#}
-    AGG.MAX.FIRST {{lr_row}} CR15 ;;                    {#- r_acc[r] = max chunk0 -#}
+    AGG.MAX.FIRST {{lr_row}} CR15 ;;                    {#- R_ACC[r] = max chunk0 -#}
     ADD {{lr_off}} {{lr_off}} {{ cr.row_stride }} ;
     SET {{lr_chunk}} CR1 ;;                             {#- chunk = 1 (chunk0 done) -#}
 
 p1_full:
-    {#- remaining full chunks: running AGG.MAX into r_acc[row] -#}
+    {#- remaining full chunks: running AGG.MAX into R_ACC[row] -#}
     BGE.S {{lr_chunk}} {{ cr.full_chunks }} p1_tail ;;                    {#- no more full chunks -> tail -#}
     LD.MULT R0 {{lr_off}} {{ cr.x }} ;;
     MULT.RC.VV   {{lr_cyc}} R0 0 {{lr_cyc}} CR15 ;
@@ -116,14 +116,14 @@ p1_tail:
     ADD {{lr_row}} {{lr_row}} CR1 ;;
     BLT.S {{lr_row}} {{lr_bound}} p1_row ;;
 
-    ACTIVATE.QUANTIZE identity CR15 ;                  {#- reads r_acc LIVE (upstream fix) -#}
+    ACTIVATE.QUANTIZE identity CR15 ;                  {#- reads R_ACC forwarded -#}
     ST.AAQ {{lr_cyc}} {{ cr.max }} ;;
 
 {#- ===================================================================== -#}
 {#- PASS 2 -- num[r,c] = 2^(c*x - maxvec[r]).  Writes NUM region.          -#}
 {#-   maxvec[r] is the SAME for every chunk of row r (subtract via ACC.SUB).-#}
 {#- ===================================================================== -#}
-    LD.MULT.CYCLIC {{lr_cyc}} {{ cr.log2e }} {{lr_cyc}} ;;   {#- r_cyclic = C_VEC -#}
+    LD.MULT.CYCLIC {{lr_cyc}} {{ cr.log2e }} {{lr_cyc}} ;;   {#- R_CYCLIC = C_VEC -#}
     LD.MULT R1 {{lr_cyc}} {{ cr.max }} ;;                  {#- R1 = maxvec (elem r) -#}
     SET {{lr_row}}   CR0 ;
     ADD {{lr_rbase}} {{lr_gbase}} CR0 ;;
@@ -136,12 +136,12 @@ p2_row:
 
 p2_chunk:
     BGE.S {{lr_chunk}} {{ cr.cpr }} p2_row_done ;;               {#- all cpr chunks done -#}
-    LD.MULT R0 {{lr_off}} {{ cr.x }} ;;                 {#- R0 = x[r,c] (snapshot) -#}
+    LD.MULT R0 {{lr_off}} {{ cr.x }} ;;                 {#- R0 = x[r,c] (read at cycle start: visible next cycle) -#}
     MULT.RC.VV   {{lr_cyc}} R0 0 {{lr_cyc}} CR15 ;     {#- c*x -#}
     ACC.ADD.FIRST ;;
     MULT.EE {{lr_max_idx}} CR1 0 {{lr_cyc}} CR15 ;     {#- maxvec[r]*1.0 -#}
-    ACC.SUB ;                                          {#- r_acc = c*x - maxvec[r] -#}
-    ACTIVATE.QUANTIZE exp2 CR15 ;                       {#- reads r_acc LIVE (upstream fix) -#}
+    ACC.SUB ;                                          {#- R_ACC = c*x - maxvec[r] -#}
+    ACTIVATE.QUANTIZE exp2 CR15 ;                       {#- reads R_ACC forwarded -#}
     ST.AAQ {{lr_wr}} {{ cr.num }} ;;
 
     ADD {{lr_off}} {{lr_off}} {{ cr.row_stride }} ;
@@ -163,8 +163,8 @@ p2_row_done:
 
 p3_row:
     ADD {{lr_off}} {{lr_rbase}} CR0 ;;
-    {#- first full chunk: AGG.SUM.FIRST seeds r_acc[row] -#}
-    LD.MULT.CYCLIC {{lr_off}} {{ cr.num }} {{lr_cyc}} ;;   {#- r_cyclic = num[r,0] -#}
+    {#- first full chunk: AGG.SUM.FIRST seeds R_ACC[row] -#}
+    LD.MULT.CYCLIC {{lr_off}} {{ cr.num }} {{lr_cyc}} ;;   {#- R_CYCLIC = num[r,0] -#}
     MULT.RC.VE    {{lr_cyc}} CR1 0 {{lr_cyc}} CR15 ;   {#- num*1.0 -#}
     AGG.SUM.FIRST {{lr_row}} CR15 ;;
     ADD {{lr_off}} {{lr_off}} {{ cr.row_stride }} ;
@@ -188,7 +188,7 @@ p3_tail:
     ADD {{lr_row}} {{lr_row}} CR1 ;;
     BLT.S {{lr_row}} {{lr_bound}} p3_row ;;
 
-    ACTIVATE.QUANTIZE reciprocal CR15 ;                {#- reads r_acc LIVE (upstream fix) -#}
+    ACTIVATE.QUANTIZE reciprocal CR15 ;                {#- reads R_ACC forwarded -#}
     ST.AAQ {{lr_cyc}} {{ cr.rvec }} ;;
 
 {#- ===================================================================== -#}
@@ -204,10 +204,10 @@ p4_row:
 
 p4_chunk:
     BGE.S {{lr_chunk}} {{ cr.cpr }} p4_row_done ;;
-    LD.MULT.CYCLIC {{lr_off}} {{ cr.num }} {{lr_cyc}} ;;   {#- r_cyclic = num[r,c] -#}
+    LD.MULT.CYCLIC {{lr_off}} {{ cr.num }} {{lr_cyc}} ;;   {#- R_CYCLIC = num[r,c] -#}
     MULT.RC.VE   {{lr_cyc}} {{lr_row}} 0 {{lr_cyc}} CR15 ;  {#- num*rvec[r] -#}
     ACC.ADD.FIRST ;
-    ACTIVATE.QUANTIZE identity CR15 ;                   {#- reads r_acc LIVE (upstream fix) -#}
+    ACTIVATE.QUANTIZE identity CR15 ;                   {#- reads R_ACC forwarded -#}
     ST.AAQ {{lr_off}} {{ cr.y }} ;;
 
     ADD {{lr_off}} {{lr_off}} {{ cr.row_stride }} ;

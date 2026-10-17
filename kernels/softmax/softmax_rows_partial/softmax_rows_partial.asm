@@ -10,10 +10,10 @@
     (rows, n) layout. Only the numerators are unpacked (one chunk per row),
     which keeps the per-row reduce cheap.
 
-    C_VEC = log2(e) is resident in R0 (broadcast); the x chunk is in r_cyclic.
+    C_VEC = log2(e) is resident in R0 (broadcast); the x chunk is in R_CYCLIC.
     Per partition p, MULT.RC.VV with rc_idx = p*ps (an ELEMENT offset, as
-    LD.MULT.CYCLIC's index; issue #182/PR #196) reads r_cyclic[p*ps + i] * R0[i]
-    = c * x[p][i] into mult_res elements 0..n-1; the masked AGG and
+    LD.MULT.CYCLIC's index; issue #182/PR #196) reads R_CYCLIC[p*ps + i] * R0[i]
+    = c * x[p][i] into MULT_RES elements 0..n-1; the masked AGG and
     ACTIVATE.QUANTIZE name cr.dstruct (valid_elements = n) to act on those n
     elements only. The full-row drains (maxvec, rvec, the output chunk) name
     cr.maxvec_base instead, whose value 128 decodes to valid_elements = 128, so
@@ -45,7 +45,7 @@
     (lr_coff after Pass 4).
 
     PASS-4 MASKS: Pass 4 re-packs P logical rows into one chunk, partition p
-    adding its MULT.RC.VE result into the shared r_acc (ACC.ADD, ACC.ADD.FIRST
+    adding its MULT.RC.VE result into the shared R_ACC (ACC.ADD, ACC.ADD.FIRST
     for p = 0). MULT.RC.VE always produces 128 real elements, and only
     [p*ps, p*ps+n) are this partition's; the rest is other rows' data, picked up
     by the rc_idx wrap-around placement. ACC.ADD does not mask, so without a mask
@@ -77,7 +77,7 @@
       cr.maxvec_base  = 128: maxvec's index base in R1 (R1's element 128 + row),
                         and the full-row dstructure (valid_elements = 128)
       cr.device_rows  = total chunks (the group loop bound)
-      cr.ring         = 512: r_cyclic's ring in ELEMENTS, for the Pass-4 repack's
+      cr.ring         = 512: R_CYCLIC's ring in ELEMENTS, for the Pass-4 repack's
                         reverse-slide SUB src_a (not an XMEM stride: rc_idx wraps
                         at the ring, not the row)
       cr.ps           = the partition's element stride
@@ -94,8 +94,8 @@
 {%- set lr_p      = "LR4" -%}  {#- partition counter (0..P-1) -#}
 {%- set lr_coff   = "LR5" -%}  {#- chunk row offset (one row per chunk) -#}
 {%- set lr_num    = "LR6" -%}  {#- numerator chunk row offset (per row) -#}
-{%- set lr_maxid  = "LR7" -%}  {#- R1 element index for maxvec[row] select (128 + row); Pass 4 reuses as lr_two -#}
-{%- set lr_two    = "LR7" -%}  {#- Pass 4 only: literal 2, for the P==2 dispatch check (dead in Pass 4 otherwise) -#}
+{%- set lr_maxid  = "LR7" -%}  {#- R1 element index for maxvec[row] select (128 + row); Pass 4 reuses as lr_mask_row -#}
+{%- set lr_mask_row    = "LR7" -%}  {#- Pass 4 only: the R_MASK image's row, cr.rvec + 1 -#}
 {%- set lr_rslide = "LR8" -%}  {#- Pass-4 repack slide = RING - p*ps (element offset) -#}
 {%- set lr_c512   = "LR9" -%}  {#- holds RING=512 (for SUB src_a; SUB needs LR src_a) -#}
 {%- set lr_cdone  = "LR10" -%} {#- chunks completed by previous groups -#}
@@ -125,7 +125,7 @@ group_size_set:
     ADD {{lr_coff}} {{lr_gbase}} CR0 ;;        {#- input walks from this group's base -#}
 
 p1_chunk:
-    LD.MULT.CYCLIC {{lr_coff}} {{ cr.x }} {{lr_cyc}} ;;   {#- r_cyclic = x chunk -#}
+    LD.MULT.CYCLIC {{lr_coff}} {{ cr.x }} {{lr_cyc}} ;;   {#- R_CYCLIC = x chunk -#}
     SET {{lr_p}} CR0 ;
     SET {{lr_slide}} CR0 ;;
 
@@ -144,7 +144,7 @@ p1_part:
 {#- logical row count (cbound*P). Capture it -- the LR slot has no multiply,   -#}
 {#- and Pass 3 (which counts rows, not chunks) needs exactly this bound.       -#}
     ADD {{lr_bound}} {{lr_row}} CR0 ;;
-    ACTIVATE.QUANTIZE identity {{ cr.maxvec_base }};                        {#- reads r_acc LIVE (upstream fix) -#}
+    ACTIVATE.QUANTIZE identity {{ cr.maxvec_base }};                        {#- reads R_ACC forwarded -#}
     ST.AAQ {{lr_cyc}} {{ cr.max }} ;;                     {#- MAXVEC <- maxvec -#}
 
 {#- ===================================================================== -#}
@@ -168,8 +168,8 @@ p2_part:
     MULT.RC.VV {{lr_slide}} R0 0 {{lr_cyc}} {{ cr.dstruct }} ;            {#- c*x[p] -#}
     ACC.ADD.FIRST ;;
     MULT.EE {{lr_maxid}} CR1 0 {{lr_cyc}} {{ cr.dstruct }} ;              {#- maxvec[row]*1.0 -#}
-    ACC.SUB ;                                                {#- r_acc = c*x[p] - maxvec[row] -#}
-    ACTIVATE.QUANTIZE exp2 {{ cr.dstruct }};                                     {#- reads r_acc LIVE (upstream fix); masked -> num[row] elements 0..N-1 -#}
+    ACC.SUB ;                                                {#- R_ACC = c*x[p] - maxvec[row] -#}
+    ACTIVATE.QUANTIZE exp2 {{ cr.dstruct }};                                     {#- reads R_ACC forwarded; masked -> num[row] elements 0..N-1 -#}
     ST.AAQ {{lr_num}} {{ cr.num }} ;;                    {#- NUM[row] (unpacked) -#}
     ADD {{lr_slide}} {{lr_slide}} {{ cr.ps }} ;
     ADD {{lr_num}} {{lr_num}} {{ cr.row_stride }} ;
@@ -189,30 +189,30 @@ p2_part:
     SET {{lr_cyc}} CR0 ;;
 
 p3_row:
-    LD.MULT.CYCLIC {{lr_num}} {{ cr.num }} {{lr_cyc}} ;;      {#- r_cyclic = num[row] (snapshot: visible NEXT cycle) -#}
+    LD.MULT.CYCLIC {{lr_num}} {{ cr.num }} {{lr_cyc}} ;;      {#- R_CYCLIC = num[row] (read at cycle start: visible NEXT cycle) -#}
     MULT.RC.VE    {{lr_cyc}} CR1 0 {{lr_cyc}} {{ cr.dstruct }} ;           {#- *1.0 -#}
     AGG.SUM.FIRST {{lr_row}} {{ cr.dstruct }} ;;                          {#- masked -> sumvec[row] -#}
     ADD {{lr_num}} {{lr_num}} {{ cr.row_stride }} ;
     ADD {{lr_row}} {{lr_row}} CR1 ;;
     BLT.S {{lr_row}} {{lr_bound}} p3_row ;;      {#- this group's row count (from Pass 1) -#}
 
-    ACTIVATE.QUANTIZE reciprocal {{ cr.maxvec_base }};                       {#- reads r_acc LIVE (upstream fix) -#}
+    ACTIVATE.QUANTIZE reciprocal {{ cr.maxvec_base }};                       {#- reads R_ACC forwarded -#}
     ST.AAQ {{lr_cyc}} {{ cr.rvec }} ;;                     {#- RVEC <- 1/sum -#}
 
 {#- ===================================================================== -#}
 {#- PASS 4 -- out[row] = num[row]*rvec[row], RE-PACKED to chunk elements.     -#}
-{#-   per chunk: per partition p: r_cyclic=num[row]; MULT.RC.VE with        -#}
+{#-   per chunk: per partition p: R_CYCLIC=num[row]; MULT.RC.VE with        -#}
 {#-   rc_idx = lr_rslide = (RING - p*ps) mod RING places product at        -#}
 {#-   elements p*ps. mask_offset=p selects a per-partition R_MASK slot (built  -#}
-{#-   by the harness in PART_MASK_ADDR, loaded once below) with bits        -#}
+{#-   at cr.rvec + 1 (scratch.py:rvec_mask), loaded once below) with bits-#}
 {#-   [p*ps, p*ps+N) set and every other bit clear -- so MULT.RC.VE's own   -#}
 {#-   masking (mask_shift=0, i.e. the slot's raw bits, unshifted) restricts -#}
-{#-   mult_res to EXACTLY this partition's elements, zeroing everywhere else   -#}
-{#-   (PadMode.ZERO). acc.add/acc.add.first then only ever add zero outside -#}
+{#-   MULT_RES to EXACTLY this partition's elements, zeroing everywhere else   -#}
+{#-   (PadMode.ZERO). ACC.ADD/ACC.ADD.FIRST then only ever add zero outside -#}
 {#-   a partition's own range, so partitions can never contaminate each     -#}
-{#-   other's r_acc elements regardless of P (fixes the cross-partition        -#}
-{#-   contamination bug in STATUS.md, uniformly for P=1/2/4/8).             -#}
-{#-   RING = r_cyclic's full ring size, 512 ELEMENTS (rc_idx is an element  -#}
+{#-   other's R_ACC elements regardless of P (fixes the cross-partition        -#}
+{#-   contamination bug in the header, uniformly for P=1/2/4/8).            -#}
+{#-   RING = R_CYCLIC's full ring size, 512 ELEMENTS (rc_idx is an element  -#}
 {#-   offset, matching LD.MULT.CYCLIC's index -- issue #182/PR #196),  -#}
 {#-   NOT the 128-element row size -- MULT.RC's rc_idx wraps at the ring    -#}
 {#-   boundary, not the row boundary. p=0 -> rc_idx=0 directly (RING-0=RING -#}
@@ -246,9 +246,9 @@ p3_row:
     ADD {{lr_coff}} {{lr_gbase}} CR0 ;;         {#- output chunk offset (group base) -#}
     SET {{lr_num}} CR0 ;
     SET {{lr_c512}} {{ cr.ring }} ;
-    SET {{lr_two}} {{ cr.rvec }} ;;                        {#- lr_c512 = RING (512 elements); lr_two = RVEC row (for mask row below) -#}
-    ADD {{lr_two}} {{lr_two}} CR1 ;;             {#- lr_two = RVEC row + 1 = PART_MASK row -#}
-    LD.MASK {{lr_two}} CR0 ;;         {#- R_MASK <- PART_MASK image (8 per-partition slots), loaded once -#}
+    SET {{lr_mask_row}} {{ cr.rvec }} ;;                        {#- lr_c512 = RING (512 elements); lr_mask_row = cr.rvec -#}
+    ADD {{lr_mask_row}} {{lr_mask_row}} CR1 ;;             {#- lr_mask_row = cr.rvec + 1, the R_MASK image -#}
+    LD.MASK {{lr_mask_row}} CR0 ;;         {#- R_MASK <- the image (8 per-partition slots), loaded once -#}
 p4_chunk:
     LD.MULT.CYCLIC {{lr_num}} {{ cr.num }} {{lr_cyc}} ;
     SET {{lr_slide}} CR0 ;
@@ -284,7 +284,7 @@ p4_run_p8:
     B p4_drain ;;
 
 p4_drain:
-    ACTIVATE.QUANTIZE identity {{ cr.maxvec_base }};                         {#- reads r_acc LIVE (upstream fix) -#}
+    ACTIVATE.QUANTIZE identity {{ cr.maxvec_base }};                         {#- reads R_ACC forwarded -#}
     ST.AAQ {{lr_coff}} {{ cr.y }} ;;                    {#- packed output chunk -#}
     ADD {{lr_coff}} {{lr_coff}} {{ cr.row_stride }} ;
     ADD {{lr_chunk}} {{lr_chunk}} CR1 ;;

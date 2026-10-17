@@ -8,16 +8,23 @@ no register of its own, so both rows are one region.
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 
 from ipu_isa.geometry import LANES
 from ipu_kernels.softmax.pack import partition_size
 
-#: c = log2(e): 2^(c * d) == e^d, so the exp2 activation computes e^d.
-LOG2E = 1.4426950408889634
+#: c = log2(e): 2^(c * d) == e^d, so the exp2 activation computes e^d (the
+#: same value as the kernels' [scratch.log2e] fill).
+LOG2E = math.log2(math.e)
 
 #: One FP32 row.
 ROW_BYTES = LANES * 4
+
+#: The R_MASK image: 8 slots of 16 bytes (128 bits, one per lane).
+MASK_SLOTS = 8
+SLOT_BYTES = 16
 
 
 def rvec_mask(plan) -> bytes:
@@ -30,10 +37,10 @@ def rvec_mask(plan) -> bytes:
     """
     n = plan.params["n"]
     slot = partition_size(n)
-    mask = bytearray(LANES)
+    mask = bytearray(MASK_SLOTS * SLOT_BYTES)
     for p in range(LANES // slot):
         bits = ((1 << n) - 1) << (p * slot)
-        mask[p * 16 : (p + 1) * 16] = bits.to_bytes(16, byteorder="little")
+        mask[p * SLOT_BYTES : (p + 1) * SLOT_BYTES] = bits.to_bytes(SLOT_BYTES, "little")
     return bytes(ROW_BYTES) + bytes(mask) + bytes(ROW_BYTES - len(mask))
 
 

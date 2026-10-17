@@ -51,7 +51,7 @@ step              = "128 * ceil(device_rows / 128)"
 row_stride        = "1"                              # one XMEM row per chunk
 tail              = "dstructure(n % 128)"            # the tail block's valid elements: 0 makes it a no-op
 group_cap         = "128"                            # maxvec's R1 index base
-row_stride_chunks = "cpr"                            # XMEM rows per row (a second name: one register each)
+row_stride_chunks = "cpr"                            # XMEM rows per matrix row (a second name: one register each)
 
 [abi]
 y                 = "CR2"

@@ -5,8 +5,8 @@ the reduction runs and how the reduced length relates to the 128-element datapat
 but they share one formulation and one four-pass structure, so understanding one
 gets you most of the way through the others.
 
-All five are **wide-vector FP32 mode only**. They build on `exp2` and
-reciprocal over an FP32 vector path and have no narrow (INT8/FP8) variant. Each
+All five run in the **FP32 element format only**. They build on `exp2` and
+reciprocal over an FP32 vector path and have no INT8/FP8 variant. Each
 is a folder under `kernels/softmax/` (its `.asm`, with the design notes in its
 header, and its `kernel.toml`), run and tested as `//kernels/softmax/<kernel>`.
 

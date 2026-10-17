@@ -3,8 +3,8 @@
 Includes the high chunk counts that used to trigger Pass-4 cross-partition
 contamination (see the header of
 kernels/softmax/softmax_rows_partial/softmax_rows_partial.asm) before the
-per-partition R_MASK fix, and row counts past 128, which used to overflow MULT.RC.VE's src operand before the
-group loop. The case check reads the app's OUTPUT FILE rather than XMEM, so it
+per-partition R_MASK fix, and row counts past 128, which used to overflow
+MULT.RC.VE's src operand before the group loop. The case check reads the app's OUTPUT FILE rather than XMEM, so it
 also pins the round-trip property: output layout == input layout (row-major
 rows x N).
 """
