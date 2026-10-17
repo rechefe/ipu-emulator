@@ -306,6 +306,8 @@ Rows are added by each E07 issue as it deletes the old ipu-apps kernels.
 | Deleted | Issue | Why | Replaced by | Evidence |
 |---|---|---|---|---|
 | `src/tools/ipu-apps/src/ipu_apps/kernels/projections/` | E07-02 (e718ae69) | The 12 projection kernels moved onto `ipu_harness`: per-shape folders (`app.py`, `cases.py`, `test.py`, `__init__.py`, `baseline.json`, the `.asm`) and the family's `app.py`, `cases.py`, `test.py`. | `kernels/projections/`: 12 `registry.toml` entries over the templates `proj_p4` (8), `proj_p4_2tg` (3) and `proj_p4_2tg_silu` (1), plus the family's `pack.py`, `gen.py` and `test_routing.py`. Targets keep their names under `//kernels/projections:`. | `compare_setup`: IDENTICAL for all 12 (CR0-CR15, LR0-LR15, XMEM). `compare_legacy projections`: 12/12 cases identical in binary, output and cycles (for example `proj_qkv_240_p4` 748832/748832). Every `:assemble_<name>.bin` matches its E02 digest. The MobileViT L4/L5 full-layer tests pass through the temporary adapter `test/mobilevit/fixture_projections.py` (7/7 each). |
+| `src/tools/ipu-apps/src/ipu_apps/kernels/conformance/` | E07-26 | `vector_tour`, the Cycle Inspector's conformance program, moved onto `ipu_harness`: its folder (`app.py`, `cases.py`, `test.py`, `__init__.py`, `baseline.json`; the `.asm` is renamed) and the family's `__init__.py`. | `kernels/conformance/vector_tour/`: `vector_tour.asm`, `kernel.toml` (cases `default`, `int8`, `e4`, `e5`, `e3`, one format each), `gen.py` (the old `default_rng(16)` data and the R_MASK bytes) and `reference.py`. The `tour_*` Inspector traces are recorded through `run_kernel --trace --context`. | `compare_setup`: IDENTICAL for all 5 cases (CR0-CR15, LR0-LR15, 896 XMEM bytes). `compare_legacy conformance`: 5/5 cases identical in binary, output and cycles (INT8 35/35, E4/E5/E3 32/32). The four `tour_*` `trace.jsonl` files are byte-equal; their page JSON differs only in `source_path` and `source`. |
+| `src/tools/ipu-apps/test/baselines/disassembly/kernels/conformance/vector_tour/vector_tour.txt` | E07-26 | The disassembly snapshot of the deleted `ipu_apps` kernel; `update_disassembly_snapshots` covers `ipu_apps` kernels only. | `//kernels/conformance/vector_tour:assemble_vector_tour` (the program's `.bin`); the binary is the E02 asm digest (`compare_legacy`). | Removed by `tools/update_baselines.sh`, with its `asm_digests.json` entry (deletions only). |
 
 ### Tests from `src/tools/ipu-apps/src/ipu_apps/kernels/projections/<kernel>/test.py` (11 files)
 
@@ -325,3 +327,9 @@ Rows are added by each E07 issue as it deletes the old ipu-apps kernels.
 | `test_the_family_base_harness_cannot_be_constructed` | dropped: it tested the legacy `ipu_apps` base-harness class, which no longer exists; a template is not routed (`Registry.templates`). |
 | `test_spec_activation_matches_the_asm_store` | dropped: the activation is now rendered into the program from the entry's `activation` parameter, so the spec and the store cannot disagree; the `:assemble_<name>` digests pin each store word. |
 | `test_proj_p4_weight_row_is_not_stuck_at_channel_zero` | `kernels/projections/proj_p4/kernel.toml` nightly case `weight_rows` (`gen.py:weight_rows`), run by `//kernels/projections/proj_p4:proj_p4_nightly`. |
+
+### Tests from `src/tools/ipu-apps/src/ipu_apps/kernels/conformance/vector_tour/test.py`
+
+| Test | Now covered by |
+|---|---|
+| `test_case` (`case_tests(__package__)`: every case in `cases.py`: `default`, `int8`, `e4`, `e5`, `e3`) | `bazel test //kernels/conformance/vector_tour` (`test_case[<case>-<format>]`, the same five cases on the old data, `gen.py:legacy_steps`), against `reference.py` at `EXACT`. |

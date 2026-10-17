@@ -209,7 +209,15 @@ def register_writes(
             raise PlanError(
                 plan.manifest, f"abi.{name}", f"{source} = {value} does not fit a 32-bit register"
             )
-        writes.append(RegisterWrite(register, value & LR_CR_SCALAR_VALUE_MASK, source))
+        bits = value & LR_CR_SCALAR_VALUE_MASK
+        clash = next((w for w in writes if w.register == register and w.value != bits), None)
+        if clash is not None:  # the loader lets two bindings share only an equal value
+            raise PlanError(
+                plan.manifest,
+                f"abi.{name}",
+                f"{source} = {value}, but {clash.source} put {clash.value} in {register}",
+            )
+        writes.append(RegisterWrite(register, bits, source))
     if cr15 not in bindings.values():
         if dstructure is None:
             bits = encode_dstructure(valid_elements=LANES)

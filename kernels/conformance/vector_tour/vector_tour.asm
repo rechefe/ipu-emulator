@@ -1,21 +1,32 @@
-# Native vector tour: 128-element INT8 / FP8 vectors (no emulator-only format).
-#
-# A curated conformance program for the Cycle Inspector: it walks the MULT and
-# ACC slots once each on real 8-bit data. It loads a mask, two R_CYCLIC slots
-# and R0/R1, runs MULT.VE, MULT.RC.VV/VS/VE and MULT.EE into ACC.ADD/SUB/MAX,
-# two masked multiplies, and a 4-row matrix-vector loop with AGG.SUM.FIRST.
-# The harness is vector_tour/app.py; cases.py checks every store with NumPy.
-#
-#   CR2  = A base row (4 rows)     CR3  = w row        CR4 = c row
-#   CR5  = mask row                CR6  = 128 (second R_CYCLIC slot)
-#   CR7  = output base row         CR8  = 4 (rows one R_ACC store spans)
-#   CR9  = scalar 2 in the active format (low byte)
-#   CR11 = ROWS - 1 (BLT.S reads the counter from cycle start)
-#   CR12 = 1 in INT8 (take the ACTIVATE.QUANTIZE tail), else 0
-#
-# Output rows from CR7: 0-3, 4-7 and 8-11 are three R_ACC stores; in INT8,
-# 12-15 hold POST_AAQ_REG. ACTIVATE.QUANTIZE needs INT8, so in a float format
-# the results leave through ST.ACC only.
+{#- vector_tour.asm -- native vector tour: 128-element INT8 / FP8 vectors (no
+    emulator-only format).
+
+    A curated conformance program for the Cycle Inspector: it walks the MULT
+    and ACC slots once each on real 8-bit data. It loads a mask, two R_CYCLIC
+    slots and R0/R1, runs MULT.VE, MULT.RC.VV/VS/VE and MULT.EE into
+    ACC.ADD/SUB/MAX, two masked multiplies, and a 4-row matrix-vector loop with
+    AGG.SUM.FIRST. kernel.toml's [abi] says which CR holds what.
+
+    Design notes
+    - The registers are written literally (CR2, not a template binding), so the
+      file is plain assembly: the Inspector shows it as source, and its labels
+      are the source's own.
+    - XMEM from row 0: the four rows of a, then w, c and the R_MASK row (three
+      16-byte slots: all lanes, even lanes, the lower half). acc starts at
+      row 8, as the old harness placed it.
+    - acc is three R_ACC stores of four rows each (one accumulator vector is
+      four rows in an 8-bit format): rows 0-3, 4-7 and 8-11 from CR7. In INT8,
+      relu follows at rows 12-15: ACTIVATE.QUANTIZE RELU through ST.AAQ, whose
+      512 bytes hold the 128 results and then zeros. ACTIVATE.QUANTIZE needs
+      INT8, so CR12 (int8_tail) skips that tail in a float format and the
+      results leave through ST.ACC only.
+    - CR9 is the element scalar 2.0 in the active format; CR11 is ROWS - 1
+      because BLT.S reads the counter from the start of the cycle.
+    - The data (gen.py) is small and exact: INT8 elements are integers
+      in [-8, 8], float elements multiples of 0.25 in [-2, 2], which E3, E4
+      and E5 all hold exactly. Every product and sum is then exact in the
+      INT32 or FP32 accumulator, so every format is compared EXACT.
+-#}
     SET                 LR0 CR0;
     SET                 LR3 CR6;
     SET                 LR1 CR0;;
