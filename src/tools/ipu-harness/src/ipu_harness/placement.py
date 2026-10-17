@@ -19,11 +19,11 @@ row_bytes`` rows (4 in INT8, 1 in FP32).
 from __future__ import annotations
 
 import math
-import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
+from ipu_as.session import AssemblySession
 from ipu_harness.manifest import Role, TensorDecl
 from ipu_harness.params import CasePlan, PlanError
 from ipu_isa.formats import FORMATS, addressable_rows
@@ -212,20 +212,33 @@ def place(
 _AAQ_STORE_BYTES: int = REGISTER_DEFINITIONS["post_aaq_reg"]["size_bytes"]
 
 
+def _stores_with_aaq(rendered: str) -> bool:
+    """Whether the rendered program has an ``ST.AAQ`` instruction (comments
+    and labels aside)."""
+    return any(
+        instruction["opcode"].token.value.upper() == "ST.AAQ"
+        for word in AssemblySession("").parse_rendered(rendered)
+        for instruction in word["instructions"]
+    )
+
+
 def check_aaq_spill(plan: CasePlan, placement: Placement, program: str) -> None:
     """Refuse a placement where ``ST.AAQ``'s spill would land on a region.
 
-    ``ST.AAQ`` writes 512 bytes, four rows in an 8-bit format, so a store to
-    an output's last row also writes the three rows after it (OQ-35). When
-    ``program`` stores with ``ST.AAQ``, the rows after every element output
-    must be free and inside XMEM. Accumulator outputs (``ST.ACC``) are not
-    checked: their stride already holds a store.
+    ``ST.AAQ`` writes all of ``POST_AAQ_REG``, more than one row in an 8-bit
+    format, so a store to an output's last row also writes (zeros to) the
+    rows after it (OQ-35). When ``program`` (rendered) stores with
+    ``ST.AAQ``, the rows after every element output must be free and inside
+    XMEM. Accumulator outputs (``ST.ACC``) are not checked: their stride
+    already holds a store. Nor is a scratch region a program stores to with
+    ``ST.AAQ`` (a follow-up in OQ-35).
 
     Raises:
-        PlanError: A region, or the end of XMEM, is in an output's spill.
+        PlanError: A region is in an output's spill, or the spill runs past
+            XMEM.
     """
     spill = _AAQ_STORE_BYTES // FORMATS[plan.format].row_bytes - 1
-    if spill <= 0 or not re.search(r"\bST\.AAQ\b", program, re.IGNORECASE):
+    if spill <= 0 or not _stores_with_aaq(program):
         return
     capacity = addressable_rows(plan.format)
     for tensor in plan.manifest.tensors.values():
@@ -238,11 +251,15 @@ def check_aaq_spill(plan: CasePlan, placement: Placement, program: str) -> None:
             if r.name != tensor.name and r.base_row < end + spill and end < r.end_row
         ]
         if hit or end + spill > capacity:
-            where = f"region {', '.join(hit)}" if hit else "the end of XMEM"
+            where = (
+                f"which hold region {', '.join(hit)}"
+                if hit
+                else f"past XMEM's last row ({capacity - 1})"
+            )
             raise PlanError(
                 plan.manifest,
                 _key(tensor),
                 f"ST.AAQ writes {_AAQ_STORE_BYTES} bytes ({spill + 1} {plan.format.value} rows), "
                 f"so a store to {tensor.name}'s last row writes rows {end}..{end + spill - 1}, "
-                f"which hold {where} (OQ-35)",
+                f"{where} (OQ-35)",
             )
