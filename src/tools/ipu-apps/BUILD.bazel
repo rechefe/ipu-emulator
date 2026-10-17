@@ -361,6 +361,20 @@ py_pytest_test(
     deps = [":ipu_apps_lib", requirement("pytest")],
 )
 
+# The reference-model API (E04-30) runs three kernels as run_until_complete
+# does, with each case's state set through the API alone.
+py_pytest_test(
+    name = "test_reference_model_kernels",
+    srcs = ["test/test_reference_model_kernels.py"],
+    data = glob([
+        "src/ipu_apps/kernels/reshape/identity/*",
+        "src/ipu_apps/kernels/convolutions/conv1x1/*",
+        "src/ipu_apps/kernels/softmax/softmax_columns_packed/*",
+    ]),
+    legacy_create_init = False,
+    deps = [":ipu_apps_lib", requirement("pytest")],
+)
+
 # Ruff lint and format over this package's Python files (tools/lint.bzl).
 ruff_test(
     name = "ruff",

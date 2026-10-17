@@ -1,3 +1,4 @@
+load("//tools:typecheck.bzl", "mypy_test")
 load("@ipu_as_deps//:requirements.bzl", "requirement")
 load("@rules_python//python:defs.bzl", "py_binary", "py_library")
 load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
@@ -493,4 +494,35 @@ py_binary(
 ruff_test(
     name = "ruff",
     srcs = glob(["**/*.py"]),
+)
+# The stable reference-model API (E04-30), type-checked strictly on its own
+# (Q65): the library holds only its module; the rest of ipu_emu, not yet
+# strict-clean, is on the path as data so imports resolve. Users depend on
+# ipu_emu_lib, which also holds the module.
+py_library(
+    name = "reference_lib",
+    srcs = ["src/ipu_emu/reference.py"],
+    imports = ["src"],
+    deps = ["//src/tools/ipu-isa:ipu_isa_lib"] + [requirement(dep) for dep in RUNTIME_DEPS],
+)
+
+mypy_test(
+    name = "mypy_reference",
+    data = [":ipu_emu_lib"],
+    lib = ":reference_lib",
+    strict = True,
+)
+
+# The reference-model API's contract (E04-30): its public surface against a
+# committed snapshot, and each method's behaviour.
+py_pytest_test(
+    name = "test_reference_api_contract",
+    size = "small",
+    srcs = ["test/test_reference_api_contract.py"],
+    imports = ["src"],
+    deps = [
+        ":emu_test_support",
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
 )

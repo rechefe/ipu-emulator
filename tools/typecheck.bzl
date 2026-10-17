@@ -57,7 +57,7 @@ _mypy_manifest = rule(
     doc = "JSON manifest of a py_library's own sources and first-party import roots.",
 )
 
-def mypy_test(name, lib, strict = False, tags = [], **kwargs):
+def mypy_test(name, lib, strict = False, tags = [], data = [], **kwargs):
     """mypy over `lib`'s sources with //:mypy.ini, from the locked wheel.
 
     Args:
@@ -87,10 +87,12 @@ def mypy_test(name, lib, strict = False, tags = [], **kwargs):
             "--manifest",
             "$(rootpath :%s)" % manifest,
         ] + (["--strict"] if strict else []),
+        # A caller's data joins ours: modules imported but not checked (a
+        # strict library whose package is not yet strict-clean, E04-30).
         data = [
             ":" + manifest,
             Label("//:mypy.ini"),
-        ],
+        ] + data,
         deps = [
             lib,
             requirement("mypy"),

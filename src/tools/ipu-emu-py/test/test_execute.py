@@ -33,7 +33,7 @@ from ipu_emu.emulator import (
 )
 from ipu_emu.errors import DebugOnlyInstructionWarning, EmulatorFault
 from ipu_emu.execute import BreakResult, decode_instruction_word
-from ipu_emu.ipu import NARROW_MAX_ROW, EmulatorError
+from ipu_emu.ipu import NARROW_MAX_ROW, EmulatorError, Ipu
 from ipu_emu.ipu_state import HaltRecord, IpuState
 from ipu_emu.xmem import XMEM_SIZE_BYTES
 from ipu_isa.constants import PadMode, encode_dstructure
@@ -1974,10 +1974,14 @@ HALT;;
         assert state.regfile.get_r_acc_word(17) == 800
 
 
+def _step(state: IpuState) -> BreakResult:
+    """One cycle on *state*, honouring BREAK (``Cycle.step``)."""
+    ipu = Ipu(state)
+    return ipu.cycle.step()
+
+
 class TestProgramCounter:
     def test_pc_advances(self):
-        from ipu_emu.execute import execute_next_instruction
-
         state = make_state(
             """\
 SET lr0 cr8;;
@@ -1987,9 +1991,9 @@ HALT;;
             cr={8: 100, 9: 200},
         )
         assert state.program_counter == 0
-        execute_next_instruction(state)
+        _step(state)
         assert state.program_counter == 1
-        execute_next_instruction(state)
+        _step(state)
         assert state.program_counter == 2
 
 
@@ -2000,8 +2004,6 @@ HALT;;
 
 class TestBreakpoints:
     def test_break_stops_execution(self):
-        from ipu_emu.execute import execute_next_instruction
-
         state = make_state(
             """\
 SET lr0 cr8;;
@@ -2011,16 +2013,14 @@ HALT;;
 """,
             cr={8: 1, 9: 2},
         )
-        r = execute_next_instruction(state)
+        r = _step(state)
         assert r == BreakResult.CONTINUE
         assert state.regfile.get_lr(0) == 1
 
-        r = execute_next_instruction(state)
+        r = _step(state)
         assert r == BreakResult.BREAK
 
     def test_break_ifeq(self):
-        from ipu_emu.execute import execute_next_instruction
-
         state = make_state(
             """\
 SET lr5 cr8;;
@@ -2029,15 +2029,13 @@ HALT;;
 """,
             cr={8: 42},
         )
-        execute_next_instruction(state)  # SET lr5 42
+        _step(state)  # SET lr5 42
         assert state.regfile.get_lr(5) == 42
 
-        r = execute_next_instruction(state)
+        r = _step(state)
         assert r == BreakResult.BREAK
 
     def test_break_ifeq_no_match(self):
-        from ipu_emu.execute import execute_next_instruction
-
         state = make_state(
             """\
 SET lr5 cr8;;
@@ -2046,8 +2044,8 @@ HALT;;
 """,
             cr={8: 10},
         )
-        execute_next_instruction(state)
-        r = execute_next_instruction(state)
+        _step(state)
+        r = _step(state)
         assert r == BreakResult.CONTINUE
 
     def test_run_with_debug_step(self):
