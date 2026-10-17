@@ -25,7 +25,7 @@ These dicts (``DecodedWord``) are produced by :func:`decode_instruction_word`.
 
 from __future__ import annotations
 
-# Ipu and BreakResult are re-exported: emulator.py and the tests import them from here.
+# Re-exported: emulator.py imports Ipu, and tests import both, from here.
 from ipu_emu.ipu import BreakResult, Ipu  # noqa: F401  (re-exported)
 from ipu_isa.codec.word import DecodedWord, opcode_field, unpack_program
 from ipu_isa.slots import SLOTS

@@ -495,14 +495,17 @@ ruff_test(
     name = "ruff",
     srcs = glob(["**/*.py"]),
 )
+
 # The stable reference-model API (E04-30), type-checked strictly on its own
 # (Q65): the library holds only its module; the rest of ipu_emu, not yet
-# strict-clean, is on the path as data so imports resolve. Users depend on
-# ipu_emu_lib, which also holds the module.
+# strict-clean, is on the path as data so imports resolve. For mypy only:
+# its deps are incomplete, so users depend on ipu_emu_lib, which also holds
+# the module.
 py_library(
     name = "reference_lib",
     srcs = ["src/ipu_emu/reference.py"],
     imports = ["src"],
+    visibility = ["//visibility:private"],
     deps = ["//src/tools/ipu-isa:ipu_isa_lib"] + [requirement(dep) for dep in RUNTIME_DEPS],
 )
 

@@ -1,49 +1,90 @@
 """The reference-model API v1 (E04-30): its public surface, pinned against a
-snapshot, and the behaviour each method promises.
+snapshot of its version, and the behaviour each method promises.
 
-Changing the snapshot needs an API_VERSION bump; a breaking change (a name
-removed or renamed, a parameter removed, a meaning changed) a major bump
-(Q11).
+A change to the surface is a new version's snapshot (Q11): a minor bump for
+an addition, a major bump for a breaking change (a name removed or renamed, a
+parameter removed, a meaning changed).
 """
 
 from __future__ import annotations
 
 import dataclasses
+import enum
 import inspect
+import typing
 
 import pytest
 from emu_support import ElementFormat, assemble_program
 
 import ipu_emu.reference as api
-from ipu_emu.commit import CommitRecord
+from ipu_emu.commit import CommitRecord, FaultInfo, Outcome, RegWrite, SlotOp, XmemWrite
 from ipu_emu.errors import ConfigurationError
 from ipu_emu.reference import API_VERSION, ReferenceModel, RunResult, RunState, Status
 from ipu_emu.trace import TraceWriter, read_trace
-from ipu_isa.codec.word import DecodedWord, pack_program
+from ipu_isa.codec.word import DecodedWord, pack_program, word_bytes
 from ipu_isa.faults import FaultId
 from ipu_isa.registers import REGISTER_DEFINITIONS
 
-SNAPSHOT = {
-    "API_VERSION": "1.0.0",
-    "__all__": ["API_VERSION", "ReferenceModel", "RunResult", "RunState", "Status"],
-    "ReferenceModel": {
-        "__init__": "(self, fmt: 'ElementFormat' = <ElementFormat.INT8: 'int8'>) -> 'None'",
-        "load_program": "(self, words: 'bytes | Sequence[int]') -> 'None'",
-        "read_register": "(self, name: 'str', index: 'int' = 0) -> 'int | bytes'",
-        "read_xmem": "(self, address: 'int', size: 'int') -> 'bytes'",
-        "reset": "(self, fmt: 'ElementFormat') -> 'None'",
-        "run": "(self, max_cycles: 'int | None' = None, *, trace: 'TraceWriter | None' = None)"
-        " -> 'RunResult'",
-        "set_fault_enable": "(self, fault: 'FaultId', enabled: 'bool') -> 'None'",
-        "status": "property",
-        "step": "(self) -> 'CommitRecord'",
-        "write_register": "(self, name: 'str', value: 'int | bytes', index: 'int' = 0) -> 'None'",
-        "write_xmem": "(self, address: 'int', data: 'bytes') -> 'None'",
+#: The public surface of each released version. Never edit an existing
+#: version's entry: a change to the surface is a new version (Q11), so the
+#: test fails until API_VERSION names an entry that matches.
+SNAPSHOTS = {
+    "1.0.0": {
+        "__all__": ["API_VERSION", "ReferenceModel", "RunResult", "RunState", "Status"],
+        "ReferenceModel": {
+            "__init__": "(self, fmt: 'ElementFormat' = <ElementFormat.INT8: 'int8'>) -> 'None'",
+            "load_program": "(self, words: 'bytes | Sequence[int]') -> 'None'",
+            "read_register": "(self, name: 'str', index: 'int' = 0) -> 'int | bytes'",
+            "read_xmem": "(self, address: 'int', size: 'int') -> 'bytes'",
+            "reset": "(self, fmt: 'ElementFormat') -> 'None'",
+            "run": "(self, max_cycles: 'int | None' = None, *, trace: 'TraceWriter | None' = None)"
+            " -> 'RunResult'",
+            "set_fault_enable": "(self, fault: 'FaultId', enabled: 'bool') -> 'None'",
+            "status": "property",
+            "step": "(self) -> 'CommitRecord'",
+            "write_register": "(self, name: 'str', value: 'int | bytes', index: 'int' = 0)"
+            " -> 'None'",
+            "write_xmem": "(self, address: 'int', data: 'bytes') -> 'None'",
+        },
+        "Status": {"state": "RunState", "pc": "int", "fault": "FaultId | None"},
+        "RunResult": {"status": "Status", "cycles": "int"},
+        "RunState": {"RUNNING": "running", "HALTED": "halted", "FAULTED": "faulted"},
+        # What step() returns (ipu_emu.commit), field by field.
+        "CommitRecord": {
+            "cycle": "int",
+            "pc_before": "int",
+            "pc_after": "int",
+            "slots": "tuple[SlotOp, ...]",
+            "reg_writes": "tuple[RegWrite, ...]",
+            "xmem_writes": "tuple[XmemWrite, ...]",
+            "outcome": "Outcome",
+            "fault": "FaultInfo | None",
+            "arith_events": "tuple[str, ...]",
+        },
+        "Outcome": ["retired", "break", "halt", "fault"],
+        "SlotOp": {
+            "slot": "str",
+            "mnemonic": "str",
+            "fields": "Mapping[str, int]",
+            "emulator_only": "bool",
+        },
+        "RegWrite": {
+            "register": "str",
+            "index": "int | None",
+            "value": "int | None",
+            "offset": "int | None",
+            "data": "bytes | None",
+        },
+        "XmemWrite": {"address": "int", "data": "bytes"},
+        "FaultInfo": {"id": "str", "pc": "int"},
     },
-    "Status": ["state", "pc", "fault"],
-    "RunResult": ["status", "cycles"],
-    "RunState": ["RUNNING", "HALTED", "FAULTED"],
 }
+
+_RECORD_TYPES = (CommitRecord, SlotOp, RegWrite, XmemWrite, FaultInfo)
+
+
+def _fields(cls: type) -> dict[str, str]:
+    return {f.name: str(f.type) for f in dataclasses.fields(cls)}
 
 
 def _surface() -> dict:
@@ -53,17 +94,21 @@ def _surface() -> dict:
             continue
         model[name] = "property" if isinstance(member, property) else str(inspect.signature(member))
     return {
-        "API_VERSION": API_VERSION,
         "__all__": sorted(api.__all__),
         "ReferenceModel": model,
-        "Status": [f.name for f in dataclasses.fields(Status)],
-        "RunResult": [f.name for f in dataclasses.fields(RunResult)],
-        "RunState": [s.name for s in RunState],
+        "Status": _fields(Status),
+        "RunResult": _fields(RunResult),
+        "RunState": {s.name: s.value for s in RunState},
+        **{cls.__name__: _fields(cls) for cls in _RECORD_TYPES},
+        "Outcome": list(typing.get_args(Outcome)),
     }
 
 
-def test_the_public_surface_matches_the_snapshot():
-    assert _surface() == SNAPSHOT, "the API changed: bump API_VERSION (Q11) and the snapshot"
+def test_the_public_surface_matches_the_snapshot_of_its_version():
+    assert API_VERSION in SNAPSHOTS, f"no snapshot of API_VERSION {API_VERSION}"
+    assert _surface() == SNAPSHOTS[API_VERSION], (
+        "the API changed: add a snapshot under a new API_VERSION (Q11)"
+    )
 
 
 def _words(asm: str) -> list[int]:
@@ -71,6 +116,7 @@ def _words(asm: str) -> list[int]:
 
 
 LOOP = "SET LR1 CR2 ;;\nloop:\nINC LR0 1 ;;\nBNE LR0 LR1 loop ;;\nHALT ;;"
+FAULT = "SET LR0 CR1 ; SET LR0 CR2 ;;\nHALT ;;"  # two writes of LR0: F-3
 
 
 def _model(asm: str = LOOP, cr: dict | None = None) -> ReferenceModel:
@@ -92,6 +138,7 @@ def test_step_records_equal_the_records_of_a_run(tmp_path):
         result = run.run(trace=trace)
     _, traced = read_trace(path)
     assert result == RunResult(Status(RunState.HALTED, 3), 12)  # HALT is word 3
+    assert [r.cycle for r in records] == list(range(12))
     assert [r.to_json() for r in traced] == [r.to_json() for r in records]
     assert all(isinstance(r, CommitRecord) for r in records)
 
@@ -103,46 +150,93 @@ def test_a_program_file_loads_as_its_words():
     assert model.run().cycles == 8 and model.read_register("lr", 0) == 3
 
 
+@pytest.mark.parametrize(
+    "words",
+    [b"\x00" * (word_bytes() - 1), [-1], [True], [1 << (8 * word_bytes())]],
+    ids=["partial-word", "negative", "bool", "too-wide"],
+)
+def test_a_malformed_program_is_refused(words):
+    with pytest.raises(ConfigurationError, match="word"):
+        ReferenceModel().load_program(words)
+
+
 @pytest.mark.parametrize("fmt", list(ElementFormat))
-def test_reset_gives_the_declared_register_widths(fmt):
+def test_reset_restores_every_reset_value_in_each_format(fmt):
     model = _model()
-    model.run()
+    model.write_register("r", b"\x05" * 128, 1)
+    model.write_xmem(512, b"\x07" * 4)
+    model.write_register("cr", 0x1234, 15)
+    model.set_fault_enable(FaultId.F9, False)
+    model.run(max_cycles=3)  # F-9 off: the run goes past the limit to HALT
     model.reset(fmt)
     assert model.status == Status(RunState.HALTED, 0)
+    fresh = ReferenceModel(fmt)
     for name, definition in REGISTER_DEFINITIONS.items():
-        value = model.read_register(name, definition["count"] - 1)
-        if definition["vector"]:
-            assert isinstance(value, bytes) and len(value) == definition["size_bytes"], name
-        else:
-            assert isinstance(value, int), name
-    assert model.read_register("lr", 0) == 0
+        for index in range(definition["count"]):
+            value = model.read_register(name, index)
+            assert value == fresh.read_register(name, index), (name, index)
+            if definition["vector"]:
+                assert len(value) == definition["size_bytes"], name
+            else:
+                assert isinstance(value, int), name
+    assert model.read_register("lr", 0) == 0 and model.read_register("cr", 15) != 0x1234
+    assert model.read_xmem(512, 4) == bytes(4)
+    # F-9 is enabled again: a 3-cycle limit faults the 12-cycle loop.
+    model.write_register("cr", 5, 2)
+    assert model.run(max_cycles=3).status.fault is FaultId.F9
+    # The program stayed.
+    model.reset(fmt)
+    model.write_register("cr", 5, 2)
+    assert model.run().cycles == 12
 
 
-def test_host_writes_are_refused_while_running_and_on_cr0_cr1():
+def test_host_writes_are_refused_while_running():
     model = _model()
     model.step()
     assert model.status.state is RunState.RUNNING
-    with pytest.raises(ConfigurationError, match="only while the model is halted"):
-        model.write_register("lr", 1, 0)
-    with pytest.raises(ConfigurationError, match="only while the model is halted"):
-        model.write_xmem(0, b"\x01")
-    model = _model()
-    for index in (0, 1):
-        with pytest.raises(ConfigurationError, match=f"CR{index} is read-only"):
-            model.write_register("cr", 7, index)
-    with pytest.raises(ConfigurationError, match="no register"):
-        model.read_register("nope")
-    with pytest.raises(ConfigurationError, match="takes 128 bytes"):
-        model.write_register("r", b"\x00", 0)
+    for refused in (
+        lambda: model.write_register("lr", 1, 0),
+        lambda: model.write_xmem(0, b"\x01"),
+        lambda: model.load_program(_words("HALT ;;")),
+    ):
+        with pytest.raises(ConfigurationError, match="only while the model is halted"):
+            refused()
 
 
-def test_a_faulted_model_refuses_everything_until_reset():
-    model = _model("SET LR0 CR1 ; SET LR0 CR2 ;;\nHALT ;;")
+@pytest.mark.parametrize("index", [0, 1])
+def test_cr0_and_cr1_are_read_only_to_the_host(index):
+    with pytest.raises(ConfigurationError, match=f"CR{index} is read-only"):
+        _model().write_register("cr", 7, index)
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "index", "match"),
+    [
+        ("nope", 0, 0, "no register"),
+        ("lr", 0, 16, "registers 0..15"),
+        ("r", b"\x00", 0, "takes 128 bytes"),
+        ("lr", 1 << 32, 0, "unsigned 32-bit"),
+        ("lr", True, 0, "unsigned 32-bit"),
+    ],
+)
+def test_a_register_write_that_does_not_fit_is_refused(name, value, index, match):
+    with pytest.raises(ConfigurationError, match=match):
+        _model().write_register(name, value, index)
+
+
+def test_a_faulted_model_refuses_steps_and_writes_until_reset():
+    model = _model(FAULT)
     record = model.step()
     assert record.outcome == "fault" and record.fault.id == "F-3"
     assert model.status == Status(RunState.FAULTED, 0, FaultId.F3)
-    for refused in (model.step, model.run, lambda: model.write_register("lr", 1, 0)):
-        with pytest.raises(ConfigurationError, match="(faulted|halted)"):
+    for refused in (
+        model.step,
+        model.run,
+        lambda: model.write_register("lr", 1, 0),
+        lambda: model.write_xmem(0, b"\x01"),
+        lambda: model.load_program(_words("HALT ;;")),
+    ):
+        with pytest.raises(ConfigurationError, match="faulted"):
             refused()
     model.reset(ElementFormat.INT8)
     assert model.status.state is RunState.HALTED
@@ -158,6 +252,8 @@ def test_step_never_stops_at_break_and_halt_ends_the_run():
     assert model.run().status == Status(RunState.HALTED, 2)
     with pytest.raises(ConfigurationError, match="halted after HALT"):
         model.step()
+    model.load_program(_words("HALT ;;"))  # a new program may follow a HALT
+    assert model.step().outcome == "halt"
 
 
 def test_the_cycle_limit_and_fault_enables():
@@ -184,15 +280,39 @@ def test_xmem_round_trips_and_bounds_are_checked():
         model.write_xmem(1 << 40, b"\x00")
 
 
+_PLAIN = (int, str, bytes, bool, type(None), enum.Enum, tuple, typing.Mapping)
+_API_MODULES = {"ipu_emu.reference", "ipu_emu.commit"}
+
+
+def _assert_plain(value: object, path: str) -> None:
+    """*value* is a plain value or an API dataclass of plain values."""
+    if dataclasses.is_dataclass(value):
+        assert type(value).__module__ in _API_MODULES, path
+        for f in dataclasses.fields(value):
+            _assert_plain(getattr(value, f.name), f"{path}.{f.name}")
+        return
+    assert isinstance(value, _PLAIN), f"{path}: {type(value).__module__}.{type(value).__name__}"
+    if isinstance(value, enum.Enum):
+        assert type(value).__module__ in _API_MODULES | {"ipu_isa.faults"}, path
+    elif isinstance(value, tuple):
+        for i, item in enumerate(value):
+            _assert_plain(item, f"{path}[{i}]")
+    elif isinstance(value, typing.Mapping):
+        for key, item in value.items():
+            _assert_plain(item, f"{path}[{key!r}]")
+
+
 def test_no_method_returns_an_emulator_object():
-    model = _model()
-    returned = [
-        model.read_register("lr", 0),
-        model.read_register("r", 0),
-        model.read_xmem(0, 4),
-        model.step(),
-        model.run(),
-        model.status,
-    ]
-    internal = ("IpuState", "RegFile", "Ipu", "Cycle", "XMem")
-    assert not any(type(v).__name__ in internal for v in returned)
+    model = _model("LD.MULT R0 LR0 CR0 ;;\n" + LOOP)
+    returned = {
+        "read_register(lr)": model.read_register("lr", 0),
+        "read_register(r)": model.read_register("r", 0),
+        "read_xmem": model.read_xmem(0, 4),
+        "step": model.step(),
+        "run": model.run(),
+        "status": model.status,
+    }
+    for name, value in returned.items():
+        _assert_plain(value, name)
+    faulted = _model(FAULT)
+    _assert_plain(faulted.step(), "step(fault)")

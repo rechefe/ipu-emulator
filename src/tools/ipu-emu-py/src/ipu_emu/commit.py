@@ -219,6 +219,7 @@ class CommitCollector:
     def __init__(self, state: IpuState) -> None:
         self.state = state
         self.records: list[CommitRecord] = []
+        self._count = 0  # records made, taken or not: the next record's cycle
         self._pending: _Pending | None = None
         # The BREAK slot runs before ``begin``: its op, and whether it fired,
         # wait for the word at that PC to begin.
@@ -247,6 +248,12 @@ class CommitCollector:
         self._detach = []
         self._pending, self._pre, self._pre_pc, self._broke = None, [], None, False
         return self.records
+
+    def take(self) -> list[CommitRecord]:
+        """The records made since the last take, which the collector then
+        forgets; record numbering goes on."""
+        taken, self.records = self.records, []
+        return taken
 
     # -- CycleObserver ------------------------------------------------------
 
@@ -345,7 +352,7 @@ class CommitCollector:
         )
         self.records.append(
             CommitRecord(
-                cycle=len(self.records),
+                cycle=self._count,
                 pc_before=pending.pc,
                 pc_after=pc_after,
                 slots=tuple(pending.slots),
@@ -356,3 +363,4 @@ class CommitCollector:
                 arith_events=tuple(sorted(e.value for e in pending.arith)),
             )
         )
+        self._count += 1

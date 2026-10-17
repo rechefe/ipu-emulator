@@ -67,6 +67,8 @@ def mypy_test(name, lib, strict = False, tags = [], data = [], **kwargs):
             model API; other packages start in default mode).
         tags: extra tags; `typecheck` is always added, so
             `bazel test --test_tag_filters=typecheck //...` selects them all.
+        data: extra runfiles, e.g. a library `lib` imports but whose sources
+            are not checked.
         **kwargs: passed to py_test (size, timeout, ...).
     """
     manifest = name + "_manifest"

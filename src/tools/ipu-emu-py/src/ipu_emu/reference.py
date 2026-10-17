@@ -3,14 +3,22 @@
 A small, fixed interface for RTL verification: a testbench resets the model,
 loads a program, sets registers and XMEM while the model is halted, steps it
 cycle by cycle and compares each :class:`~ipu_emu.commit.CommitRecord` with
-the RTL. Only the names in ``__all__`` are the contract; everything else in
-``ipu_emu`` may change. :data:`API_VERSION` follows Q11: a change to a public
-name or signature bumps it (a breaking one, its major number), and
-``test_reference_api_contract.py`` holds the snapshot.
+the RTL. Only the names in ``__all__`` and the records :meth:`step` returns
+are the contract; everything else in ``ipu_emu`` may change. :data:`API_VERSION`
+follows Q11: a change to a public name, signature or record field bumps it (a
+breaking one, its major number), and ``test_reference_api_contract.py`` holds
+the snapshot.
 
-Register names are ``ipu_isa``'s (``ipu_isa.registers.REGISTER_DEFINITIONS``):
-``lr`` and ``cr`` are scalar banks indexed by register, the others vector
-registers indexed by element. No method returns an emulator object.
+Register names are ``ipu_isa``'s (``ipu_isa.registers.REGISTER_DEFINITIONS``),
+and ``index`` picks the register within its bank (``lr``: LR0-LR15, ``cr``:
+CR0-CR15, ``r``: R0-R1). ``lr`` and ``cr`` read and write as unsigned 32-bit
+ints, the others as bytes. ``r_wide_debug`` and ``r_cyclic_wide_debug`` are
+emulator-only: they hold the operands of the wide formats (FP32, INT32), which
+the hardware does not have. No method returns an emulator object.
+
+A host access the IPU refuses with an AXI error (faults.md, "Illegal host
+accesses", IPU-FLT-7) raises :class:`~ipu_emu.errors.ConfigurationError`:
+the host acts between cycles, never inside one.
 
 Until the steppable engine lands, run control is the emulator's own
 (``RunClock``, ``Cycle``); the engine will take it over behind this API.
@@ -22,19 +30,21 @@ import enum
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from ipu_emu.commit import CommitCollector, CommitRecord
+from ipu_emu.commit import CommitCollector as _CommitCollector
+from ipu_emu.commit import CommitRecord
 from ipu_emu.emulator import load_program as _load_program
 from ipu_emu.errors import ConfigurationError, EmulatorFault
-from ipu_emu.ipu import Ipu
-from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
-from ipu_emu.run_clock import RunClock
+from ipu_emu.ipu import Ipu as _Ipu
+from ipu_emu.ipu_state import INST_MEM_SIZE
+from ipu_emu.ipu_state import IpuState as _IpuState
+from ipu_emu.run_clock import RunClock as _RunClock
 from ipu_emu.trace import TraceWriter
-from ipu_emu.xmem import XMEM_SIZE_BYTES
-from ipu_isa.codec.word import DecodedWord, unpack_program
+from ipu_isa.codec.word import DecodedWord, unpack_program, word_bytes
 from ipu_isa.constants import CR_READ_ONLY_INITIAL_VALUES
 from ipu_isa.faults import FaultId
 from ipu_isa.formats import ElementFormat
 from ipu_isa.registers import REGISTER_DEFINITIONS, RegisterDefinition
+from ipu_isa.view import isa
 
 __all__ = ["API_VERSION", "ReferenceModel", "RunResult", "RunState", "Status"]
 
@@ -87,45 +97,73 @@ class ReferenceModel:
     """
 
     def __init__(self, fmt: ElementFormat = ElementFormat.INT8) -> None:
-        self._state = IpuState(fmt=fmt)
-        self._ipu = Ipu(self._state)
-        self._collector = CommitCollector(self._state)
+        self._state = _IpuState(fmt=fmt)
+        self._ipu = _Ipu(self._state)
+        self._collector = _CommitCollector(self._state)
         self._started = False
 
     # -- setup ---------------------------------------------------------------
 
     def reset(self, fmt: ElementFormat) -> None:
-        """Reset in element format *fmt*: registers, XMEM, the PC, the fault
-        controls (every fault enabled, no sticky flag), the arithmetic flags
-        and the statistics. The loaded program stays.
+        """Reset the model. The loaded program stays.
+
+        Registers and XMEM go to their reset values (CR15 holds the default
+        dstructure), the PC to 0, every fault is enabled with no sticky flag,
+        and the arithmetic flags and the statistics clear. Record numbering
+        restarts at 0.
+
+        Args:
+            fmt: The element format to run in.
 
         Raises:
             ConfigurationError: *fmt* is no element format.
         """
         self._state.reset(fmt)
         self._ipu.cycle.reset()
-        self._collector.records.clear()
+        self._new_collector()
         self._started = False
 
     def load_program(self, words: bytes | Sequence[int]) -> None:
-        """Load a program: a program file's bytes (``ipu-as`` ``.bin``), or
-        its words as integers. The PC goes to 0.
+        """Load a program, only while halted. The PC goes to 0 and record
+        numbering restarts at 0.
+
+        Args:
+            words: A program file's bytes (``ipu-as`` ``.bin``), or its words
+                as unsigned ints.
 
         Raises:
-            ConfigurationError: The program is larger than IMEM.
+            ConfigurationError: The model is running or faulted (after a
+                fault, :meth:`reset` first); the bytes are not whole words; a
+                word is wider than the instruction word; or the program is
+                larger than IMEM.
         """
+        self._writable()
         decoded: list[dict[str, int]]
         if isinstance(words, (bytes, bytearray)):
+            width = word_bytes()
+            if len(words) % width:
+                raise ConfigurationError(
+                    f"a program file is whole {width}-byte words; this one has {len(words)} bytes"
+                )
             decoded = [*unpack_program(bytes(words))]
         else:
+            bits = isa().layout.word_bits()
+            for word in words:
+                if isinstance(word, bool) or not isinstance(word, int) or not 0 <= word < 1 << bits:
+                    raise ConfigurationError(f"{word!r} is not an unsigned {bits}-bit word")
             decoded = [DecodedWord.from_word(word) for word in words]
         _load_program(self._state, decoded)
         self._state.program_counter = 0
         self._state.halt = None
+        self._new_collector()
         self._started = False
 
     def set_fault_enable(self, fault: FaultId, enabled: bool) -> None:
-        """Set or clear *fault*'s enable bit (IPU-FLT-5).
+        """Set or clear a fault's enable bit (IPU-FLT-5).
+
+        Args:
+            fault: The fault.
+            enabled: Whether it halts the IPU.
 
         Raises:
             ConfigurationError: Clearing F-2 to F-6, whose disabled behaviour
@@ -136,23 +174,37 @@ class ReferenceModel:
     # -- registers and XMEM --------------------------------------------------
 
     def read_register(self, name: str, index: int = 0) -> int | bytes:
-        """Register *name*'s element *index*: an int for ``lr`` and ``cr``,
-        the element's bytes for a vector register.
+        """Read one register.
+
+        Args:
+            name: The bank, as ``ipu_isa`` names it (``lr``, ``cr``, ``r``,
+                ``r_acc``, ...).
+            index: The register within the bank.
+
+        Returns:
+            An unsigned int for ``lr`` and ``cr``; the register's bytes for
+            the others.
 
         Raises:
-            ConfigurationError: No such register or index.
+            ConfigurationError: No such bank or index.
         """
         definition, size = self._register(name, index)
         data = bytes(self._state.regfile.view(name)[index * size : (index + 1) * size])
         return data if definition["vector"] else int.from_bytes(data, "little")
 
     def write_register(self, name: str, value: int | bytes, index: int = 0) -> None:
-        """Write register *name*'s element *index*; only while halted.
+        """Write one register, only while halted.
+
+        Args:
+            name: The bank, as for :meth:`read_register`.
+            value: An unsigned 32-bit int for ``lr`` and ``cr``; exactly the
+                register's bytes for the others.
+            index: The register within the bank.
 
         Raises:
             ConfigurationError: The model is running or faulted; the register
-                is read-only to the host (CR0, CR1); no such register or
-                index; or *value* does not fit it.
+                is read-only to the host (CR0, CR1); no such bank or index; or
+                *value* does not fit the register.
         """
         self._writable()
         definition, size = self._register(name, index)
@@ -163,23 +215,36 @@ class ReferenceModel:
                 raise ConfigurationError(f"{name}[{index}] takes {size} bytes")
             data = bytes(value)
         else:
-            if not isinstance(value, int) or not 0 <= value < 1 << (8 * size):
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, int)
+                or not 0 <= value < 1 << (8 * size)
+            ):
                 raise ConfigurationError(f"{name}[{index}] takes an unsigned {8 * size}-bit int")
             data = value.to_bytes(size, "little")
         self._state.regfile.mutable(name, index * size, size)[:] = data
 
     def read_xmem(self, address: int, size: int) -> bytes:
-        """*size* bytes of XMEM at *address*.
+        """Read XMEM.
+
+        Args:
+            address: The first byte.
+            size: The number of bytes.
+
+        Returns:
+            The bytes.
 
         Raises:
             ConfigurationError: The range is outside XMEM.
         """
-        if address < 0 or size < 0 or address + size > XMEM_SIZE_BYTES:
-            raise ConfigurationError(f"XMEM [{address}, {address + size}) is outside XMEM")
         return self._state.xmem.snapshot_bytes(address, size)
 
     def write_xmem(self, address: int, data: bytes) -> None:
-        """Write *data* at XMEM *address*; only while halted.
+        """Write XMEM, only while halted.
+
+        Args:
+            address: The first byte.
+            data: The bytes.
 
         Raises:
             ConfigurationError: The model is running or faulted, or the range
@@ -191,50 +256,63 @@ class ReferenceModel:
     # -- running -------------------------------------------------------------
 
     def step(self) -> CommitRecord:
-        """Run one word and return its commit record. A BREAK slot never
-        stops it (Q39): the word retires.
+        """Run one word. A BREAK slot never stops it (Q39): the word retires.
+        A step has no cycle limit (F-9 is :meth:`run`'s); its word counts
+        toward the statistics' cycles.
+
+        Returns:
+            The word's commit record; its ``outcome`` is ``retired``, ``halt``
+            or ``fault`` (never ``break``).
 
         Raises:
-            ConfigurationError: The model is faulted (IPU-FLT-7) or halted
-                after a HALT word: reset or load a program first.
+            ConfigurationError: The model is faulted (IPU-FLT-7: reset first),
+                or stopped after a HALT word or past IMEM (reset or load a
+                program first).
         """
         self._steppable()
-        seen = len(self._collector.records)
+        clock = _RunClock(self._state)
+        clock.begin_run(reset_stats=not self._started)
         try:
             self._ipu.cycle.step(honour_break=False)
+            clock.count_cycle()
         except EmulatorFault:
-            pass
+            pass  # the fault is in the word's record and in ``status``
+        finally:
+            clock.end_run()
         self._started = True
-        (record,) = self._collector.records[seen:]
+        (record,) = self._collector.take()
         return record
 
     def run(self, max_cycles: int | None = None, *, trace: TraceWriter | None = None) -> RunResult:
-        """Step until a HALT word, a fault, or *max_cycles* words (fault F-9;
-        ``None`` keeps the cycle limit, 0 disables it).
+        """Step until a HALT word, a fault, or the cycle limit (fault F-9).
 
         Args:
-            max_cycles: The cycle limit of this run.
-            trace: Where to write each word's commit record, if anywhere.
+            max_cycles: The cycle limit of this run: ``None`` keeps the
+                model's, 0 disables it.
+            trace: Where to write each word's commit record, as it retires;
+                ``None`` keeps none.
+
+        Returns:
+            The status the run stopped in and the words it retired.
 
         Raises:
             ConfigurationError: As :meth:`step`.
         """
         self._steppable()
-        clock = RunClock(self._state, max_cycles)
+        clock = _RunClock(self._state, max_cycles)
         clock.begin_run(reset_stats=not self._started)
-        seen = len(self._collector.records)
         try:
             while self._state.halt is None:
                 clock.admit()
                 self._ipu.cycle.step(honour_break=False)
                 clock.count_cycle()
+                self._flush(trace)
         except EmulatorFault:
-            pass
+            pass  # the fault is in the last record and in ``status``
         finally:
             clock.end_run()
+            self._flush(trace)
         self._started = True
-        if trace is not None:
-            trace.write_all(self._collector.records[seen:])
         return RunResult(self.status, clock.cycles)
 
     @property
@@ -252,6 +330,15 @@ class ReferenceModel:
 
     # -- helpers -------------------------------------------------------------
 
+    def _new_collector(self) -> None:
+        self._collector.close()
+        self._collector = _CommitCollector(self._state)
+
+    def _flush(self, trace: TraceWriter | None) -> None:
+        records = self._collector.take()
+        if trace is not None:
+            trace.write_all(records)
+
     def _register(self, name: str, index: int) -> tuple[RegisterDefinition, int]:
         definition = REGISTER_DEFINITIONS.get(name)
         if definition is None:
@@ -260,7 +347,7 @@ class ReferenceModel:
             )
         if not 0 <= index < definition["count"]:
             raise ConfigurationError(
-                f"{name} has elements 0..{definition['count'] - 1}, not {index}"
+                f"{name} has registers 0..{definition['count'] - 1}, not {index}"
             )
         return definition, definition["size_bytes"]
 
@@ -274,8 +361,13 @@ class ReferenceModel:
     def _steppable(self) -> None:
         status = self.status
         if status.state is RunState.FAULTED:
+            fault = status.fault.label if status.fault is not None else "?"
             raise ConfigurationError(
-                f"faulted ({status.fault.label if status.fault else ''} at PC {status.pc}): reset first (IPU-FLT-7)"
+                f"faulted ({fault} at PC {status.pc}): reset first (IPU-FLT-7)"
             )
-        if self._state.halt is not None or self._state.program_counter >= INST_MEM_SIZE:
+        if self._state.halt is not None:
             raise ConfigurationError("halted after HALT: reset or load a program first")
+        if self._state.program_counter >= INST_MEM_SIZE:
+            raise ConfigurationError(
+                f"PC {self._state.program_counter} is past IMEM: reset or load a program first"
+            )
