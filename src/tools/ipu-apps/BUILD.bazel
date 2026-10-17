@@ -228,9 +228,10 @@ py_pytest_test(
 )
 
 # Assembled-binary baseline (E02-01): the .bin and .mem digests of every .asm
-# program in the repo, plus each render context today's tests use. Corpus in
-# test/baselines/asm_corpus.py; `bazel run :update_asm_digests` rewrites the
-# manifest after an intended change.
+# program in the repo, plus each render context today's tests use. The corpus is
+# //src/tools/ipu-as-py:asm_corpus (test/corpus/asm_corpus.py); the manifest
+# stays here until E07-25. `bazel run :update_asm_digests` rewrites it after an
+# intended change.
 _ASM_CORPUS = glob([
     "src/ipu_apps/kernels/**/*.asm",
     "test/mobilevit/**/*.asm",
@@ -255,93 +256,11 @@ filegroup(
     ]),
 )
 
-py_library(
-    name = "asm_corpus",
-    srcs = ["test/baselines/asm_corpus.py"],
-    imports = ["test/baselines"],
-    deps = [
-        "//src/tools/ipu-as-py:ipu_as_lib",
-        requirement("jinja2"),
-    ],
-)
-
 py_pytest_test(
     name = "test_asm_digests",
     srcs = ["test/test_asm_digests.py"],
     data = _ASM_CORPUS + ["test/baselines/asm_digests.json"],
-    deps = [":asm_corpus", requirement("pytest")],
-)
-
-# Disassembly to assembly syntax assembles back to the same words, for both
-# targets, over every program of the corpus (E05-15).
-py_pytest_test(
-    name = "test_assembly_round_trip",
-    srcs = ["test/test_assembly_round_trip.py"],
-    data = _ASM_CORPUS,
-    deps = [
-        ":asm_corpus",
-        "//src/tools/ipu-as-py:ipu_as_lib",
-        "//src/tools/ipu-isa:ipu_isa_lib",
-        requirement("pytest"),
-    ],
-)
-
-# The ISA's word codec over every program of the corpus (E03-16).
-py_pytest_test(
-    name = "test_word_codec_corpus",
-    srcs = ["test/test_word_codec_corpus.py"],
-    data = _ASM_CORPUS,
-    deps = [
-        ":asm_corpus",
-        "//src/tools/ipu-isa:ipu_isa_lib",
-        requirement("pytest"),
-    ],
-)
-
-# The ISA's slot codec against the assembler, over the corpus (E03-17).
-py_pytest_test(
-    name = "test_slot_codec_corpus",
-    srcs = ["test/test_slot_codec_corpus.py"],
-    data = _ASM_CORPUS,
-    deps = [
-        ":asm_corpus",
-        "//src/tools/ipu-as-py:ipu_as_lib",
-        "//src/tools/ipu-isa:ipu_isa_lib",
-        requirement("pytest"),
-    ],
-)
-
-# One ISA entry and one handler are enough, end to end in a subprocess (E03-24).
-py_pytest_test(
-    name = "test_one_edit_end_to_end",
-    srcs = ["test/test_one_edit_end_to_end.py"],
-    deps = [
-        "//src/tools/ipu-as-py:ipu_as_lib",
-        "//src/tools/ipu-emu-py:ipu_emu_lib",
-        "//src/tools/ipu-isa:ipu_isa_lib",
-        "//src/tools/ipu-isa:one_edit",
-        requirement("pytest"),
-    ],
-)
-
-# --target hardware over the corpus (E05-15).
-py_pytest_test(
-    name = "test_hardware_target",
-    srcs = ["test/test_hardware_target.py"],
-    data = _ASM_CORPUS,
-    deps = [
-        ":asm_corpus",
-        "//src/tools/ipu-as-py:ipu_as_lib",
-        requirement("pytest"),
-    ],
-)
-
-# No `| default` or definedness test in an assembly source (E05-11).
-py_pytest_test(
-    name = "test_template_lint",
-    srcs = ["test/test_template_lint.py"],
-    data = _ASM_CORPUS,
-    deps = [":asm_corpus", requirement("pytest")],
+    deps = ["//src/tools/ipu-as-py:asm_corpus", requirement("pytest")],
 )
 
 # AssemblyResult bytes against the file entry points, over the corpus (E05-05).
@@ -350,7 +269,7 @@ py_pytest_test(
     srcs = ["test/test_session_outputs.py"],
     data = _ASM_CORPUS,
     deps = [
-        ":asm_corpus",
+        "//src/tools/ipu-as-py:asm_corpus",
         "//src/tools/ipu-as-py:ipu_as_lib",
         requirement("pytest"),
     ],
@@ -362,7 +281,7 @@ py_binary(
     srcs = ["test/baselines/update_asm_digests.py"],
     main = "test/baselines/update_asm_digests.py",
     deps = [
-        ":asm_corpus",
+        "//src/tools/ipu-as-py:asm_corpus",
         "//tools:baseline_support",
     ],
 )
@@ -374,7 +293,7 @@ py_library(
     name = "disassembly_snapshots",
     srcs = ["test/baselines/disassembly.py"],
     imports = ["test/baselines"],
-    deps = [":asm_corpus"],
+    deps = ["//src/tools/ipu-as-py:asm_corpus"],
 )
 
 py_pytest_test(

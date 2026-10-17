@@ -421,3 +421,18 @@ py_pytest_test(
         requirement("pytest"),
     ],
 )
+
+# The ISA-wide program checks (round trip, slot and word codec, hardware
+# target) over every kernel's rendered default programs (E07-25): the kernel
+# tree's half of ipu-as-py's corpus tests.
+py_pytest_test(
+    name = "test_kernel_programs",
+    size = "medium",
+    srcs = ["test/test_kernel_programs.py"],
+    deps = [
+        ":ipu_harness_lib",
+        "//kernels:all_kernels",
+        "//src/tools/ipu-as-py:program_checks",
+        requirement("pytest"),
+    ],
+)
