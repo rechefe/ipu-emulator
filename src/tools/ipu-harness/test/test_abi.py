@@ -121,23 +121,6 @@ def test_a_derived_value_may_read_a_regions_base(tmp_path):
     assert (got["CR6"], got["CR7"]) == (5, 9)  # y at row 4: 4 + 1, then 5 + 4
 
 
-def test_a_region_may_reach_the_program_only_through_a_derived_value(tmp_path):
-    """A region bound at a parameter-dependent offset (sample_descriptors'
-    per-cell table, E07-15) needs no binding of its own; one that no bound
-    value reads still does."""
-    toml = SCALE.format(unit="").replace('neg = "-rows"', 'neg = "-rows"\nyr = "base(y) + rows"')
-    bound = toml.replace('y    = "CR3"', 'yr   = "CR3"')
-    got = writes(kernel(tmp_path, bound), {"rows": 4, "s": 2.0}, F.FP32)
-    assert got["CR3"] == 8  # y at row 4, plus rows
-    with pytest.raises(ManifestError, match="does not bind tensor 'y'"):
-        kernel(tmp_path / "unbound", toml.replace('y    = "CR3"\n', ""))
-    # Bound only in some cases: y, which always exists, would lose its base.
-    flagged = toml.replace("[params]\n", '[params]\nflag = { type = "bool", default = true }\n')
-    flagged = flagged.replace('y    = "CR3"', 'yr   = { register = "CR3", when = "flag" }')
-    with pytest.raises(ManifestError, match="does not bind tensor 'y'"):
-        kernel(tmp_path / "conditional", flagged)
-
-
 @pytest.mark.parametrize(("fmt", "row", "stride"), [(F.FP32, 256, 1), (F.INT8, 1024, 4)])
 def test_a_pin_and_a_placed_value_may_read_the_formats_row_bytes(tmp_path, fmt, row, stride):
     """A legacy layout at a fixed byte address in every format (fully_connected, E07-21)."""
@@ -173,6 +156,23 @@ def test_only_a_pin_and_abi_read_row_bytes(tmp_path, derived, where, match):
         toml = toml.replace('[outputs.y]\nshape = ["rows", 128]', f"[outputs.y]\n{where}")
     with pytest.raises(ManifestError, match=re.escape(match)):
         kernel(tmp_path, toml)
+
+
+def test_a_region_may_reach_the_program_only_through_a_derived_value(tmp_path):
+    """A region bound at a parameter-dependent offset (sample_descriptors'
+    per-cell table, E07-15) needs no binding of its own; one that no bound
+    value reads still does."""
+    toml = SCALE.format(unit="").replace('neg = "-rows"', 'neg = "-rows"\nyr = "base(y) + rows"')
+    bound = toml.replace('y    = "CR3"', 'yr   = "CR3"')
+    got = writes(kernel(tmp_path, bound), {"rows": 4, "s": 2.0}, F.FP32)
+    assert got["CR3"] == 8  # y at row 4, plus rows
+    with pytest.raises(ManifestError, match="does not bind tensor 'y'"):
+        kernel(tmp_path / "unbound", toml.replace('y    = "CR3"\n', ""))
+    # Bound only in some cases: y, which always exists, would lose its base.
+    flagged = toml.replace("[params]\n", '[params]\nflag = { type = "bool", default = true }\n')
+    flagged = flagged.replace('y    = "CR3"', 'yr   = { register = "CR3", when = "flag" }')
+    with pytest.raises(ManifestError, match="does not bind tensor 'y'"):
+        kernel(tmp_path / "conditional", flagged)
 
 
 def test_a_bytes_kernels_base_counts_bytes(tmp_path, monkeypatch):

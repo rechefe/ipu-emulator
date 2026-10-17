@@ -44,8 +44,6 @@ from ipu_apps.kernels.attention.attn_scores_km_16x60.app import AttnScoresKM16x6
 from ipu_apps.kernels.attention.attn_v_16x60.app import AttnV16x60App
 from ipu_apps.kernels.attention.attn_v_bcast_60.app import AttnVBcast60App
 from ipu_apps.kernels.attention.qk_scores_16x60.app import QkScores16x60App
-from ipu_apps.kernels.elementwise.residual_add_16x240.app import ResidualAdd16x240App
-from ipu_apps.kernels.normalize.layernorm_16x240.app import LayerNorm16x240App
 
 # See test_full_layer_l4.py's matching flag for what this does.
 USE_REAL_SOFTMAX = os.environ.get("USE_REAL_SOFTMAX", "0") == "1"
@@ -219,18 +217,15 @@ def _run_layer_query_major(
     """
     rng = np.random.RandomState(_stable_seed(tag, "filler"))
 
-    ln1, c, _ = run_layernorm(
-        LayerNorm16x240App,
-        inst_bin=app_inst("layernorm_16x240"),
+    ln1, c = run_layernorm(
+        "layernorm_16x240",
         x=x,
         gamma=w["ln1_gamma"],
         beta=w["ln1_beta"],
         n_ch=D_MODEL,
         n_tok=N_TOK,
         row_bytes=ROW_BYTES,
-        tmp_path=tmp_path,
         tag=f"{tag}_ln1",
-        full_row_output=False,
     )
     profile.append(("layernorm_16x240", c))
     if stages is not None:
@@ -347,33 +342,27 @@ def _run_layer_query_major(
         stages["out_proj"] = proj.astype(np.float64)
 
     resid1, c = run_residual_add(
-        ResidualAdd16x240App,
-        inst_bin=app_inst("residual_add_16x240"),
+        "residual_add_16x240",
         a=proj,
         b=x,
         n_ch=D_MODEL,
         n_tok=N_TOK,
         row_bytes=ROW_BYTES,
-        tmp_path=tmp_path,
         tag=f"{tag}_res1",
-        full_row_output=False,
     )
     profile.append(("residual_add_16x240", c))
     if stages is not None:
         stages["resid1"] = resid1.astype(np.float64)
 
-    ln2, c, _ = run_layernorm(
-        LayerNorm16x240App,
-        inst_bin=app_inst("layernorm_16x240"),
+    ln2, c = run_layernorm(
+        "layernorm_16x240",
         x=resid1,
         gamma=w["ln2_gamma"],
         beta=w["ln2_beta"],
         n_ch=D_MODEL,
         n_tok=N_TOK,
         row_bytes=ROW_BYTES,
-        tmp_path=tmp_path,
         tag=f"{tag}_ln2",
-        full_row_output=False,
     )
     profile.append(("layernorm_16x240", c))
     if stages is not None:
@@ -422,16 +411,13 @@ def _run_layer_query_major(
         stages["ffn2"] = ffn2.astype(np.float64)
 
     resid2, c = run_residual_add(
-        ResidualAdd16x240App,
-        inst_bin=app_inst("residual_add_16x240"),
+        "residual_add_16x240",
         a=ffn2,
         b=resid1,
         n_ch=D_MODEL,
         n_tok=N_TOK,
         row_bytes=ROW_BYTES,
-        tmp_path=tmp_path,
         tag=f"{tag}_res2",
-        full_row_output=False,
     )
     profile.append(("residual_add_16x240", c))
     if stages is not None:
@@ -452,18 +438,15 @@ def _run_layer_key_major(
     """
     rng = np.random.RandomState(_stable_seed(tag, "filler_km"))
 
-    ln1, c, _ = run_layernorm(
-        LayerNorm16x240App,
-        inst_bin=app_inst("layernorm_16x240"),
+    ln1, c = run_layernorm(
+        "layernorm_16x240",
         x=x,
         gamma=w["ln1_gamma"],
         beta=w["ln1_beta"],
         n_ch=D_MODEL,
         n_tok=N_TOK,
         row_bytes=ROW_BYTES,
-        tmp_path=tmp_path,
         tag=f"{tag}_ln1",
-        full_row_output=False,
     )
     profile.append(("layernorm_16x240", c))
 
@@ -566,31 +549,25 @@ def _run_layer_key_major(
     proj = op_outs[0][:, :N_TOK]
 
     resid1, c = run_residual_add(
-        ResidualAdd16x240App,
-        inst_bin=app_inst("residual_add_16x240"),
+        "residual_add_16x240",
         a=proj,
         b=x,
         n_ch=D_MODEL,
         n_tok=N_TOK,
         row_bytes=ROW_BYTES,
-        tmp_path=tmp_path,
         tag=f"{tag}_res1",
-        full_row_output=False,
     )
     profile.append(("residual_add_16x240", c))
 
-    ln2, c, _ = run_layernorm(
-        LayerNorm16x240App,
-        inst_bin=app_inst("layernorm_16x240"),
+    ln2, c = run_layernorm(
+        "layernorm_16x240",
         x=resid1,
         gamma=w["ln2_gamma"],
         beta=w["ln2_beta"],
         n_ch=D_MODEL,
         n_tok=N_TOK,
         row_bytes=ROW_BYTES,
-        tmp_path=tmp_path,
         tag=f"{tag}_ln2",
-        full_row_output=False,
     )
     profile.append(("layernorm_16x240", c))
 
@@ -633,16 +610,13 @@ def _run_layer_key_major(
     ffn2 = ffn2_outs[0][:, :N_TOK]
 
     resid2, c = run_residual_add(
-        ResidualAdd16x240App,
-        inst_bin=app_inst("residual_add_16x240"),
+        "residual_add_16x240",
         a=ffn2,
         b=resid1,
         n_ch=D_MODEL,
         n_tok=N_TOK,
         row_bytes=ROW_BYTES,
-        tmp_path=tmp_path,
         tag=f"{tag}_res2",
-        full_row_output=False,
     )
     profile.append(("residual_add_16x240", c))
 

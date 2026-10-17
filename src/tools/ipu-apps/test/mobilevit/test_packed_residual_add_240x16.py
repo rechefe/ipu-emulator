@@ -12,10 +12,9 @@ import struct
 from pathlib import Path
 
 import numpy as np
-from fixture_kernel_support import kernel_inst
+from fixture_elementwise import count_residual_add_rows
 from fixture_packed_l5_measure import count_instructions
 
-from ipu_apps.kernels.elementwise.residual_add_16x240.app import ResidualAdd16x240App
 from ipu_as.lark_tree import assemble_to_bin_file
 from ipu_emu.emulator import load_program_from_binary, run_until_complete
 from ipu_emu.ipu_state import IpuState
@@ -93,32 +92,17 @@ def test_packed_residual_add_correctness_and_cost(tmp_path: Path) -> None:
     packed_xmem_activation_bytes = 3 * N_PACKED_ROWS * ROW_BYTES  # A + B + C resident
 
     # ---- Unpacked run (residual_add_16x240, the unpacked baseline) ----
-    unpacked_bin = kernel_inst("residual_add_16x240")
-
-    a_path = tmp_path / "a.bin"
-    b_path = tmp_path / "b.bin"
-    # residual_add_16x240 expects one full 512-byte row per channel (16
-    # tokens live, 112 lanes padding) -- ONE CHANNEL PER ROW, per its own
-    # header comment.
+    # residual_add_16x240 (//kernels/elementwise, E07-06, through fixture_elementwise)
+    # takes one full row per channel (16 tokens of data, the rest zero
+    # padding): ONE CHANNEL PER ROW, per its own header comment.
     a_rows = np.zeros((N_CH, LANES), dtype=np.float32)
     b_rows = np.zeros((N_CH, LANES), dtype=np.float32)
     a_rows[:, :N_TOK] = A
     b_rows[:, :N_TOK] = B
-    a_path.write_bytes(a_rows.tobytes())
-    b_path.write_bytes(b_rows.tobytes())
-    out_path = tmp_path / "out.bin"
-
-    app = ResidualAdd16x240App(
-        inst_path=unpacked_bin,
-        input_a_path=a_path,
-        input_b_path=b_path,
-        output_path=out_path,
+    unpacked_rows, unpacked_cycles, unpacked_instructions = count_residual_add_rows(
+        "residual_add_16x240", a_rows, b_rows
     )
-    unpacked_state = app.make_state()
-    with count_instructions(unpacked_state) as unpacked_counts:
-        _, unpacked_cycles = app.run(max_cycles=100_000, state=unpacked_state)
-
-    unpacked_out = np.frombuffer(out_path.read_bytes(), dtype=np.float32).reshape(N_CH, N_TOK)
+    unpacked_out = unpacked_rows[:, :N_TOK]
     unpacked_err = float(np.max(np.abs(unpacked_out.astype(np.float64) - expected)))
 
     unpacked_xmem_activation_bytes = 3 * N_CH * ROW_BYTES  # A + B + C resident, one channel/row
@@ -129,11 +113,11 @@ def test_packed_residual_add_correctness_and_cost(tmp_path: Path) -> None:
         f"xmem_activation_bytes={packed_xmem_activation_bytes:8d}  max_abs_err={packed_err:.6e}"
     )
     print(
-        f"unpacked: cycles={unpacked_cycles:6d}  instrs={unpacked_counts.total:6d}  "
+        f"unpacked: cycles={unpacked_cycles:6d}  instrs={unpacked_instructions:6d}  "
         f"xmem_activation_bytes={unpacked_xmem_activation_bytes:8d}  max_abs_err={unpacked_err:.6e}"
     )
     print(f"packed/unpacked cycles ratio: {packed_cycles / unpacked_cycles:.4f}")
-    print(f"packed/unpacked instr ratio:  {packed_counts.total / unpacked_counts.total:.4f}")
+    print(f"packed/unpacked instr ratio:  {packed_counts.total / unpacked_instructions:.4f}")
     print(
         f"packed/unpacked xmem ratio:   {packed_xmem_activation_bytes / unpacked_xmem_activation_bytes:.4f}"
     )
@@ -141,7 +125,7 @@ def test_packed_residual_add_correctness_and_cost(tmp_path: Path) -> None:
     print(f"KERNEL_B_PACKED_INSTRUCTIONS={packed_counts.total}")
     print(f"KERNEL_B_PACKED_XMEM_BYTES={packed_xmem_activation_bytes}")
     print(f"KERNEL_B_UNPACKED_CYCLES={unpacked_cycles}")
-    print(f"KERNEL_B_UNPACKED_INSTRUCTIONS={unpacked_counts.total}")
+    print(f"KERNEL_B_UNPACKED_INSTRUCTIONS={unpacked_instructions}")
     print(f"KERNEL_B_UNPACKED_XMEM_BYTES={unpacked_xmem_activation_bytes}")
 
     assert packed_err < 1e-4, f"packed residual add wrong: max abs error {packed_err:.6e}"

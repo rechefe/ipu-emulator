@@ -10,14 +10,15 @@ Both compute ``O[b, t, i] = sum_s P[b, i, s] * V[b, t, s]``, lane ``i``,
 contracted over ``s``:
 
 * :func:`agg_fold`, ``MULT.RC.VV`` + ``AGG.SUM[.FIRST]``: float32 lane
-  products, a float64 left fold per 128-lane chunk rounded once to float32 on
-  the R_ACC write, and each later chunk added in float32 to the rounded
-  partial;
+  products, a float64 left fold per 128-lane chunk, and the R_ACC write
+  rounding once to float32: a later chunk's fold, unrounded, is added in
+  float64 to the partial R_ACC holds, then rounded;
 * :func:`acc_fold`, ``MULT.RC.VE`` + ``ACC.ADD[.FIRST]``: a float32 running
   sum per lane, rounded at every step.
 
-Copied from ``ipu_apps.kernels.attention.cases``, whose copy goes with the old
-attention family (E07-13).
+Copied from ``ipu_apps.kernels.attention.cases``, then fixed (E07-13): the old
+``agg_fold`` rounded a later chunk's fold before ``AGG.SUM`` added it, which
+its ``rtol = 1e-6`` check hid. The old copy goes with the attention shim.
 """
 
 from __future__ import annotations
@@ -34,9 +35,10 @@ def agg_fold(P: np.ndarray, V: np.ndarray) -> np.ndarray:
 
     ``AGG.SUM.FIRST`` left-folds the active MULT_RES lanes from a float64 and
     rounds the total once to float32 on the R_ACC write; the lane products are
-    float32. A second 128-element chunk is a second float64 fold, added by
-    ``AGG.SUM`` in float32 to the already-rounded partial. ``np.cumsum`` over
-    float64 is a strict left fold, so this is the scalar loop, vectorised.
+    float32. A second 128-element chunk is a second float64 fold, which
+    ``AGG.SUM`` adds, unrounded, to the float32 partial in R_ACC, rounding the
+    sum once on the write. ``np.cumsum`` over float64 is a strict left fold, so
+    this is the scalar loop, vectorised.
 
     Args:
         P: ``[b, i, s]``.
@@ -53,13 +55,10 @@ def agg_fold(P: np.ndarray, V: np.ndarray) -> np.ndarray:
     )  # [b, t, i, s]
     out = None
     for lo in range(0, prod.shape[-1], LANES):
-        chunk = np.cumsum(prod[..., lo : lo + LANES].astype(np.float64), axis=-1)[..., -1]
-        chunk = chunk.astype(np.float32)
-        out = (
-            chunk
-            if out is None
-            else (chunk.astype(np.float64) + out.astype(np.float64)).astype(np.float32)
-        )
+        # + 0.0: the emulator's fold starts from 0, so an all -0.0 chunk sums to +0.0.
+        chunk = np.cumsum(prod[..., lo : lo + LANES].astype(np.float64), axis=-1)[..., -1] + 0.0
+        total = chunk if out is None else chunk + out.astype(np.float64)
+        out = total.astype(np.float32)
     if out is None:
         raise ValueError("agg_fold: an empty contraction (no s)")
     return out

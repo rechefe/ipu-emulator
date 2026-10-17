@@ -9,6 +9,14 @@ output[ch, i] = γ[ch] × (x[ch, i] − μ[i]) / σ[i] + β[ch]
 normalizing **across channels**, independently per token (`μ`, `σ` are
 per-token, not per-channel — the opposite axis from a typical batch norm).
 
+No eps (Q57): a zero variance gives `rsqrt = 0`, so a constant token column
+becomes `β`. The golden is the shared `ipu_kernels.reference.ops.layernorm`
+(`dim = 0`).
+
+The four kernels are entries of `kernels/normalize/registry.toml` over the
+`layernorm` template (one program per shape), each run as
+`//kernels/normalize:<kernel>`.
+
 | Kernel | Channels | Tokens |
 |---|---|---|
 | `layernorm_128x16` | 16 | 128 |
@@ -16,18 +24,33 @@ per-token, not per-channel — the opposite axis from a typical batch norm).
 | `layernorm_16x240` | 240 | 16 |
 | `layernorm_256x144` | 144 | 256 |
 
-Query: `layernorm shape=channels,tokens`. `input_path` is one 128-element FP32 row
-per channel (and token group), tokens in the first lanes and zero padding
-after; `gamma_path`/`beta_path` each hold the `channels` FP32 values
-(`layernorm_128x16` takes them as one zero-padded 128-element row).
+Query: `bazel run //kernels:query -- layernorm channels=C tokens=T`. `x` and
+`y` are one 128-element FP32 row per channel and token group (row
+`ch * ceil(tokens / 128) + g`), tokens in the first lanes; `x` is zero past
+them, and `y` holds `beta[ch]` there. `gamma` and `beta` are `channels` FP32 values in zero-padded rows. `x`
+sits at row 0: the program reads its base through `CR0`.
+
+## `l2_normalize`
+
+```
+y[ch, n] = x[ch, n] / sqrt(Σ_ch x[ch, n]²)
+```
+
+per column, down the channels. One kernel, `l2_normalize_channels`
+(`//kernels/normalize/l2_normalize_channels`), takes any `channels` and
+`columns`, 128 columns a tile: `bazel run //kernels:query -- l2_normalize
+channels=C columns=N`. An all-zero column gives 0, not NaN: the `rsqrt`
+activation maps a non-positive sum to 0.
 
 ## `residual_add`
 
-Plain elementwise `C = A + B` (`input_a_path`, `input_b_path`). For
+Plain elementwise `y = a + b`. The three kernels are entries of
+`kernels/elementwise/registry.toml` over the `residual_add_rows` template (one
+program), each run as `//kernels/elementwise:<kernel>`. For
 `residual_add_16x240` and `residual_add_64x192`, one whole row per channel
-(`tokens` lanes live, rest zero-padded) — the same file convention as
-`layernorm`'s `input_path`; `residual_add_256x144` has `tokens > 128`, so it
-flattens the problem into `ceil(tokens / 128) * channels` full rows.
+(`tokens` elements of data, the rest zero padding) — the same layout as
+`layernorm`'s input; `residual_add_256x144` has `tokens > 128`, so each
+channel takes `ceil(tokens / 128)` full rows.
 
 | Kernel | Tokens | Channels |
 |---|---|---|
@@ -35,8 +58,7 @@ flattens the problem into `ceil(tokens / 128) * channels` full rows.
 | `residual_add_64x192` | 64 | 192 |
 | `residual_add_256x144` | 256 | 144 |
 
-Query: `residual_add shape=tokens,channels` (the transpose of `layernorm`'s
-order).
+Query: `bazel run //kernels:query -- residual_add tokens=T channels=C`.
 
 The CHW `residual_add` kernel (convolution stages) shares this operation but is
 queried by `num_channels`; see [Convolutions](convolutions.md#residual_add).

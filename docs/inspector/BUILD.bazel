@@ -22,9 +22,9 @@ CURATED = [
     {"name": "fc_e5", "kernel": "fully_connected", "case": "fp8_e5m2"},
     {"name": "fully_connected", "kernel": "fully_connected"},
     {"name": "identity", "kernel": "identity"},
-    {"name": "channel_peak", "kernel": "channel_peak"},
-    {"name": "softmax_rows", "kernel": "softmax_rows", "options": {"rows": 2}},
-    {"name": "depth_to_space", "kernel": "depth_to_space"},
+    {"name": "channel_peak", "kernel": "//kernels/detect/channel_peak"},
+    {"name": "softmax_rows", "kernel": "//kernels/softmax/softmax_rows", "case": "constant_row"},
+    {"name": "depth_to_space", "kernel": "//kernels/reshape/depth_to_space"},
     {"name": "conv_universal", "kernel": "conv_universal"},
     {"name": "residual_add", "kernel": "residual_add"},
 ]
@@ -126,15 +126,18 @@ py_pytest_test(
     data = [
         "//kernels/conformance:files",
         "//kernels/conformance/vector_tour:vector_tour_files",
+        "//kernels/softmax:files",
+        "//kernels/softmax/softmax_rows:softmax_rows_files",
         "//src/tools/ipu-apps:kernel_data",
         "//src/tools/ipu-apps:kernel_sources",
     ],
     deps = [
+        "//kernels/softmax:lib",
         "//src/tools/ipu-apps:ipu_apps_lib",
         "//src/tools/ipu-gen:ipu_gen_lib",
         "//src/tools/ipu-harness:ipu_harness_lib",
         requirement("pytest"),
-        requirement("torch"),  # vector_tour's reference.py
+        requirement("torch"),  # the kernels' references
     ],
 )
 

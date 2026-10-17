@@ -792,31 +792,23 @@ def _same_pinned_value(
     return mine.row + offset == theirs.row + offsets.get(other, 0)
 
 
-def _check_every_tensor_bound(
-    r: Reader,
-    tensors: Mapping[str, TensorDecl],
-    abi: Mapping[str, str],
+def _sharing_clash(
+    name: str,
+    binding: _Binding,
+    others: list[str],
     conditions: Mapping[str, Condition],
-    placed: Mapping[str, frozenset[str]],
-) -> None:
-    """Every tensor's base reaches the program: it is bound, or a bound placed
-    value reads its base (a region bound at a parameter-dependent offset,
-    E07-15) and is bound in every case the tensor exists: unconditionally, or
-    under the tensor's own condition."""
-
-    def reaches(tensor: TensorDecl) -> bool:
-        return any(
-            tensor.name in reads and conditions.get(name) in (None, tensor.when)
-            for name, reads in placed.items()
-            if name in abi
-        )
-
-    for tensor in tensors.values():
-        if tensor.name not in abi and not reaches(tensor):
-            raise r.fail(
-                (tensor.section, tensor.name),
-                f"[abi] does not bind tensor {tensor.name!r}; its base row must reach the program",
-            )
+    tensors: Mapping[str, TensorDecl],
+    offsets: Mapping[str, int],
+) -> str | None:
+    """The first earlier binding of the same register that ``name`` may not
+    share it with: unless their conditions exclude each other, or both are
+    tensors pinned so the register holds one value (:func:`_same_pinned_value`)."""
+    for other in others:
+        if binding.when is not None and binding.when.excludes(conditions.get(other)):
+            continue
+        if not _same_pinned_value(tensors, offsets, name, binding.offset, other):
+            return other
+    return None
 
 
 def _abi(
@@ -842,15 +834,28 @@ def _abi(
             offsets[name] = binding.offset
         if binding.when is not None:
             conditions[name] = binding.when
-        for other in used.get(register, []):
-            if binding.when is not None and binding.when.excludes(conditions.get(other)):
-                continue
-            if not _same_pinned_value(tensors, offsets, name, binding.offset, other):
-                raise r.fail(path, f"[abi] {name} and {other} both bind {register}")
+        clash = _sharing_clash(name, binding, used.get(register, []), conditions, tensors, offsets)
+        if clash is not None:
+            raise r.fail(path, f"[abi] {name} and {clash} both bind {register}")
         used.setdefault(register, []).append(name)
         abi[name] = register
 
-    _check_every_tensor_bound(r, tensors, abi, conditions, placed)
+    # A bound placed value that reads base(x) carries x's base to the program
+    # too (a region bound at a parameter-dependent offset, E07-15), when it is
+    # bound in every case x exists: unconditionally, or under x's condition.
+    def reaches(tensor: TensorDecl) -> bool:
+        return any(
+            tensor.name in reads and conditions.get(name) in (None, tensor.when)
+            for name, reads in placed.items()
+            if name in abi
+        )
+
+    for tensor in tensors.values():
+        if tensor.name not in abi and not reaches(tensor):
+            raise r.fail(
+                (tensor.section, tensor.name),
+                f"[abi] does not bind tensor {tensor.name!r}; its base row must reach the program",
+            )
     return MappingProxyType(abi), MappingProxyType(offsets), MappingProxyType(conditions)
 
 

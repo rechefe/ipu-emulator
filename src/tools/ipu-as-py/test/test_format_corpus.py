@@ -25,8 +25,11 @@ from ipu_as.session import AssemblySession
 # The workspace root: the runfiles tree under Bazel, the checkout under plain pytest.
 ROOT = Path(__file__).parents[4]
 APPS = ROOT / "src" / "tools" / "ipu-apps"
-KERNELS = sorted(APPS.glob("src/ipu_apps/kernels/**/*.asm")) + sorted(
-    APPS.glob("test/mobilevit/**/*.asm")
+# The old tree shrinks as E07 migrates its kernels into kernels/, so both count.
+KERNELS = (
+    sorted(APPS.glob("src/ipu_apps/kernels/**/*.asm"))
+    + sorted(APPS.glob("test/mobilevit/**/*.asm"))
+    + sorted((ROOT / "kernels").glob("**/*.asm"))
 )
 OPTIONS = {"default": {}, "blank-line": {"blank_line": True}}
 
@@ -41,7 +44,7 @@ def test_the_corpus_is_there():
     assert len(KERNELS) > 50
 
 
-@pytest.mark.parametrize("path", KERNELS, ids=lambda p: str(p.relative_to(APPS)))
+@pytest.mark.parametrize("path", KERNELS, ids=lambda p: str(p.relative_to(ROOT)))
 @pytest.mark.parametrize("variant", sorted(OPTIONS))
 def test_formatting_a_kernel_keeps_its_program(path, variant):
     text = path.read_text(encoding="utf-8")
@@ -58,7 +61,7 @@ def test_formatting_a_kernel_keeps_its_program(path, variant):
 def test_report_the_kernels_formatting_would_change():
     """Never fails: lists, as a warning in the test log, each kernel not in the layout."""
     changed = [
-        str(path.relative_to(APPS))
+        str(path.relative_to(ROOT))
         for path in KERNELS
         if format_source(text := path.read_text(encoding="utf-8")) != text
     ]

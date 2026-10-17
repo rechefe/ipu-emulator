@@ -495,7 +495,10 @@ py_pytest_test(
 py_pytest_test(
     name = "test_format_corpus",
     srcs = ["test/test_format_corpus.py"],
-    data = ["//src/tools/ipu-apps:asm_corpus_files"],
+    data = [
+        "//kernels:all_kernels",
+        "//src/tools/ipu-apps:asm_corpus_files",
+    ],
     imports = ["src"],
     deps = [
         ":ipu_as_lib",

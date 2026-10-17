@@ -1,0 +1,22 @@
+# The elementwise shape variants (E07-06): the three MobileViT-S residual adds
+# over the residual_add_rows template, one program (E02 digest c52075db).
+# `bazel test //kernels/elementwise:residual_add_16x240` runs the template's
+# cases at that shape.
+
+[[kernel]]
+name = "residual_add_16x240"
+template = "residual_add_rows"
+params = { tokens = 16, channels = 240 }
+doc = "Layer 5: 240 channels x 16 tokens, one channel per row"
+
+[[kernel]]
+name = "residual_add_64x192"
+template = "residual_add_rows"
+params = { tokens = 64, channels = 192 }
+doc = "Layer 4: 192 channels x 64 tokens, one channel per row"
+
+[[kernel]]
+name = "residual_add_256x144"
+template = "residual_add_rows"
+params = { tokens = 256, channels = 144 }
+doc = "Layer 3: 144 channels x 256 tokens, two rows per channel"

@@ -33,7 +33,7 @@ def _record(kernel, case, options):
     if kernel.startswith(_KERNELS):
         if options:
             fail("kernel_trace: %s runs its cases as kernel.toml declares them; give it a case, not options" % kernel)
-        return "$(location %s) %s --case %s %s" % (_RUN_KERNEL, _kernel_path(kernel), case, files), _RUN_KERNEL
+        return "$(location %s) %s --case %s %s" % (_RUN_KERNEL, _kernel_path(kernel), _shell_word(case), files), _RUN_KERNEL
     flags = " ".join([
         "--option " + _shell_word("%s=%s" % (option, json.encode(value)))
         for option, value in sorted(options.items())

@@ -9,7 +9,6 @@ give the registers the emulator ended with: an ``ipu_apps`` case through
 from __future__ import annotations
 
 import struct
-from pathlib import Path
 
 import pytest
 
@@ -26,7 +25,7 @@ from ipu_harness.runner import RunOptions, run_kernel
 from ipu_isa.registers import REGISTER_DEFINITIONS
 
 # Small cases that exercise LR/CR, vector registers and a loop.
-CASES = [("identity", "default", {}), ("softmax_rows", "default", {"rows": 2})]
+CASES = [("identity", "default", {})]
 
 
 def _replay(document: dict) -> dict[str, bytearray]:
@@ -62,13 +61,19 @@ def test_init_plus_every_delta_is_the_final_state(kernel, case, options, tmp_pat
         assert bytes(replayed[name]) == bytes(final.regfile.view(name)), name
 
 
-#: A kernel-tree case: the runner's recorder (``--trace --context``).
-VECTOR_TOUR = Path("kernels/conformance/vector_tour")
+#: Kernel-tree cases, recorded by the runner's recorder (``--trace --context``):
+#: INT8 and FP8 vector registers, and a loop over FP32 rows.
+#: Each with a word the context's labels name, as (pc, label).
+TREE_CASES = [
+    ("kernels/conformance/vector_tour", "int8", (15, "matvec")),
+    ("kernels/conformance/vector_tour", "e4", (15, "matvec")),
+    ("kernels/softmax/softmax_rows", "constant_row", None),
+]
 
 
-@pytest.mark.parametrize("case_name", ["int8", "e4"])
-def test_a_kernel_tree_case_replays_to_its_final_state(case_name, tmp_path):
-    manifest = load_kernel(str(VECTOR_TOUR))
+@pytest.mark.parametrize(("folder", "case_name", "label"), TREE_CASES)
+def test_a_kernel_tree_case_replays_to_its_final_state(folder, case_name, label, tmp_path):
+    manifest = load_kernel(folder)
     case = next(c for c in expand(manifest) if c.name == case_name)
     recorder = inspector.InspectorRecorder(tmp_path / "trace.jsonl")
     final = {}
@@ -85,7 +90,10 @@ def test_a_kernel_tree_case_replays_to_its_final_state(case_name, tmp_path):
     assert result.passed, result.describe()
     header, records = read_trace(recorder.trace_path)
     document = convert(header, [r.to_json() for r in records], recorder.context(manifest, case))
-    assert not document["truncated"] and document["program"][15]["label"] == "matvec"
+    assert not document["truncated"]
+    if label is not None:
+        pc, name = label
+        assert document["program"][pc]["label"] == name
     replayed = _replay(document)
     for name in REGISTER_DEFINITIONS:
         assert bytes(replayed[name]) == final[name], name

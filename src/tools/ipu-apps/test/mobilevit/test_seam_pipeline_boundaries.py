@@ -28,8 +28,8 @@ defect):
 
 2. matmul_192x192_x128 (L4 OutProj) --> residual_add_64x192: AGREES.
    OutProj's teardown here uses OUTPUT_ROW_BYTES = 512 (full row, uncropped),
-   matching residual_add_64x192.setup()'s verbatim write_address of the raw
-   file with no length assertion at all. Included as the passing control that
+   matching residual_add_64x192's input rows, which the test host-writes
+   verbatim (fixture_elementwise) with no length assertion at all. Included as the passing control that
    proved the L5 case above was a real defect, not a test-harness artifact --
    now also the pattern the fixed L5 kernels follow.
 
@@ -58,14 +58,19 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-from fixture_kernel_support import POISON, kernel_inst
+from fixture_elementwise import residual_add, run_residual_add_rows
+from fixture_kernel_support import POISON, kernel_inst, run_layernorm_capture_xmem
+from fixture_normalize import layernorm
 
-from ipu_apps.kernels.elementwise.residual_add_16x240 import app as ra5
-from ipu_apps.kernels.elementwise.residual_add_64x192 import app as ra4
 from ipu_apps.kernels.matmul.matmul_192x192_x128 import app as op4
 from ipu_apps.kernels.matmul.matmul_240x240_x128 import app as op5
 from ipu_apps.kernels.matmul.matmul_576x192_x128 import app as qkv4
-from ipu_apps.kernels.normalize.layernorm_64x192 import app as ln4
+
+# The residual adds run from //kernels/elementwise (E07-06), through the adapter.
+ra5 = residual_add("residual_add_16x240")
+ra4 = residual_add("residual_add_64x192")
+# The LayerNorm runs from //kernels/normalize (E07-10), through the adapter.
+ln4 = layernorm("layernorm_64x192")
 
 # ---------------------------------------------------------------------------
 # Seam 1 (was a DEFECT, fixed): matmul_240x240_x128 (L5 OutProj) -> residual_add_16x240
@@ -115,24 +120,13 @@ def test_seam_outproj_240x240_to_residual_add_16x240_agrees(tmp_path: Path) -> N
     # Feed OutProj's real raw output verbatim as residual_add_16x240's A
     # input; B is a zero buffer of matching full-row shape so the residual
     # add's result isolates OutProj's own numeric correctness.
-    b_path = tmp_path / "residual_b.bin"
-    b_path.write_bytes(np.zeros(ra5.N_CH * op5.LANES, dtype=np.float32).tobytes())
-
-    residual_app = ra5.ResidualAdd16x240App(
-        inst_path=kernel_inst("residual_add_16x240"),
-        input_a_path=outproj_output_path,
-        input_b_path=b_path,
-        output_path=tmp_path / "residual_output.bin",
-    )
-    _, cycles = residual_app.run(max_cycles=1_000_000)
+    a_rows = np.frombuffer(outproj_raw, dtype=np.float32).reshape(ra5.N_CH, op5.LANES)
+    b_rows = np.zeros((ra5.N_CH, op5.LANES), dtype=np.float32)
+    rows, cycles = run_residual_add_rows(ra5.name, a_rows, b_rows)
     assert cycles > 0
 
-    # residual_add_16x240 is the FINAL consumer in this chain, so (per the
-    # crop convention) it crops its own output to N_TOK -- unlike
-    # residual_add_64x192 in the L4 control below, which emits full rows.
-    got = np.frombuffer(Path(residual_app.output_path).read_bytes(), dtype=np.float32).reshape(
-        ra5.N_CH, ra5.N_TOK
-    )
+    # The valid prefix of each row is the result (the old harness cropped it).
+    got = rows[:, : ra5.N_TOK]
 
     expected = W @ D  # [N_OUT, N_TOK], the OutProj matmul result (B is all zero)
     np.testing.assert_allclose(
@@ -152,8 +146,8 @@ def test_seam_outproj_192x192_to_residual_add_64x192_agrees(tmp_path: Path) -> N
     """Control case: the L4 OutProj -> residual_add seam DOES agree.
 
     matmul_192x192_x128's teardown uses OUTPUT_ROW_BYTES=512 (full,
-    uncropped rows) and residual_add_64x192.setup() stages A/B verbatim with
-    no reshape.
+    uncropped rows) and the test host-writes them as residual_add_64x192's A
+    verbatim (fixture_elementwise), with no reshape.
     """
     rng = np.random.RandomState(0xC0FFEE)
     D = rng.uniform(-1.0, 1.0, size=(op4.K, op4.N_TOK)).astype(np.float32)
@@ -182,21 +176,10 @@ def test_seam_outproj_192x192_to_residual_add_64x192_agrees(tmp_path: Path) -> N
         "A/B row shape for the verbatim feed to even be plausible"
     )
 
-    b_path = tmp_path / "residual4_b.bin"
-    b_path.write_bytes(np.zeros(ra4.N_ROWS * op4.LANES, dtype=np.float32).tobytes())
-
-    residual_app = ra4.ResidualAdd64x192App(
-        inst_path=kernel_inst("residual_add_64x192"),
-        input_a_path=outproj_output_path,
-        input_b_path=b_path,
-        output_path=tmp_path / "residual4_output.bin",
-    )
-    _, cycles = residual_app.run(max_cycles=1_000_000)
+    a_rows = np.frombuffer(outproj_raw, dtype=np.float32).reshape(ra4.N_ROWS, op4.LANES)
+    b_rows = np.zeros((ra4.N_ROWS, op4.LANES), dtype=np.float32)
+    got, cycles = run_residual_add_rows(ra4.name, a_rows, b_rows)
     assert cycles > 0
-
-    got = np.frombuffer(Path(residual_app.output_path).read_bytes(), dtype=np.float32).reshape(
-        ra4.N_ROWS, op4.LANES
-    )
 
     expected = W @ D  # [N_OUT, N_TOK], the OutProj matmul result (B is all zero)
     np.testing.assert_allclose(
@@ -245,29 +228,13 @@ def test_seam_layernorm_64x192_to_matmul_576x192_qkv_pitch_mismatch(tmp_path: Pa
     gamma = np.ones(ln4.N_CH, dtype=np.float32)
     beta = np.zeros(ln4.N_CH, dtype=np.float32)
 
-    input_path = tmp_path / "ln_input.bin"
-    gamma_path = tmp_path / "ln_gamma.bin"
-    beta_path = tmp_path / "ln_beta.bin"
-    input_path.write_bytes(x.tobytes())
-    gamma_path.write_bytes(gamma.tobytes())
-    beta_path.write_bytes(beta.tobytes())
-
+    ln_raw = run_layernorm_capture_xmem(ln4.name, x_rows=x, gamma=gamma, beta=beta)
     ln_output_path = tmp_path / "ln_output.bin"
-    ln_app = ln4.LayerNorm64x192App(
-        inst_path=kernel_inst("layernorm_64x192"),
-        input_path=input_path,
-        gamma_path=gamma_path,
-        beta_path=beta_path,
-        output_path=ln_output_path,
-    )
-    _, cycles = ln_app.run(max_cycles=5_000_000)
-    assert cycles > 0
-
-    ln_raw = ln_output_path.read_bytes()
-    # LayerNorm's teardown uses dump_xmem_to_binary(..., ROW_BYTES, N_CH) --
-    # full, uncropped 512 B rows. Confirm that's really what we got.
+    ln_output_path.write_bytes(ln_raw)  # what the old harness's output file held
+    # The output region is full, uncropped 512 B rows, as the old harness's
+    # output file was. Confirm that's really what we got.
     assert len(ln_raw) == ln4.N_CH * 512, (
-        "sanity: layernorm_64x192.teardown() emits full ROW_BYTES rows, "
+        "sanity: layernorm_64x192's output region is full ROW_BYTES rows, "
         f"got {len(ln_raw)} bytes, expected {ln4.N_CH * 512}"
     )
 

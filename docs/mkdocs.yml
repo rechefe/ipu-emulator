@@ -118,6 +118,7 @@ nav:
           - Operand types: reference/isa/operand-types.md
           - Registers: reference/isa/registers.md
           - Configuration registers: reference/isa/configuration-registers.md
+          - ACTIVATE.QUANTIZE in the emulator: reference/isa/activate-quantize.md
           - Assembly syntax: reference/isa/assembly-syntax.md
           - Instruction format: reference/isa/instruction-format.md
           - Programmer's guide: reference/isa/programmer-guide.md

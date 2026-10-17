@@ -1093,7 +1093,7 @@ INSTRUCTION_SPEC = {
                     "The selector uses four bits; encodings outside the thirteen named activations behave as identity. "
                     "window(x) = 1 for a <= x < b and 0 otherwise. "
                     "α for elu and the window bounds a, b are not ISA operands; see "
-                    "docs/content/building-applications.md#activations-emulator."
+                    "docs/content/reference/isa/activate-quantize.md."
                 ),
                 example="ACTIVATE.QUANTIZE relu CR15;;",
             ),

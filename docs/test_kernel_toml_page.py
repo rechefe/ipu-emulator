@@ -2,7 +2,8 @@
 
 The reference is generated from the loader's docstring and key tuples, and a
 key the loader accepts but the docstring does not describe fails the
-generator; the how-to's listings are the ``scale`` kernel's files, verbatim.
+generator; the how-to's program listing is the ``scale`` kernel's file, verbatim, and it
+includes the kernel's ``kernel.toml`` and ``reference.py``.
 """
 
 from __future__ import annotations
@@ -96,18 +97,17 @@ def _listing(lang: str, contains: str) -> str:
     return found[0]
 
 
-@pytest.mark.parametrize(
-    ("name", "lang", "contains"),
-    [
-        ("scale.asm", "asm", "row_loop:"),
-        ("kernel.toml", "toml", "[kernel]"),
-        ("reference.py", "python", "def reference("),
-    ],
-)
-def test_the_howto_listings_are_the_scale_kernels_files(
-    name: str, lang: str, contains: str
-) -> None:
-    listing = _listing(lang, contains)
-    assert listing == (SCALE / name).read_text(encoding="utf-8"), (
-        f"{HOWTO}: the {name} listing differs from {SCALE / name}; copy the file in"
+def test_the_howto_program_listing_is_the_scale_kernels_file() -> None:
+    # The asm block stays a copy: //docs:test_doc_asm_blocks assembles it.
+    listing = _listing("asm", "row_loop:")
+    assert listing == (SCALE / "scale.asm").read_text(encoding="utf-8"), (
+        f"{HOWTO}: the scale.asm listing differs from {SCALE / 'scale.asm'}; copy the file in"
     )
+
+
+@pytest.mark.parametrize(("name", "lang"), [("kernel.toml", "toml"), ("reference.py", "python")])
+def test_the_howto_includes_the_scale_kernels_files(name: str, lang: str) -> None:
+    """kernel.toml and reference.py are included from the kernel folder (E09-09):
+    the block is one snippet line, which build_docs resolves at the file's repo path."""
+    assert (SCALE / name).is_file()
+    _listing(lang, f'--8<-- "{SCALE / name}"')

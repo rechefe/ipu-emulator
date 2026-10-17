@@ -3,8 +3,8 @@
 Mirrors ``test_kernel_registry.py``'s softmax conformance test: for each op,
 ``resolve()`` is asked for the exact shape one of the family's own kernels
 declares, and the kernel the registry hands back must actually compute the
-operation -- not just claim to. Every kernel in these families (matmul,
-layernorm, residual_add and the attention ops) is an
+operation -- not just claim to. Every kernel in these families (matmul
+and the attention ops) is an
 exact-shape-only match (no padding, no chunking across kernels), so there is
 exactly one query worth asking per kernel: its own declared shape.
 
@@ -24,8 +24,9 @@ Query vocabulary: ``matmul`` queries carry an optional ``activation``
 ("none"/"silu"). The FFN1 expansion kernels fuse silu into their store, so a
 plain query at an FFN1 shape must refuse and only the ``activation="silu"``
 query may route there (checked below). The projections moved to
-``//kernels/projections`` (E07-02) and unfold to ``//kernels/reshape``
-(E07-05), whose ``test_routing.py`` files check theirs.
+``//kernels/projections`` (E07-02), unfold to ``//kernels/reshape`` (E07-05),
+the residual adds to ``//kernels/elementwise`` (E07-06) and the LayerNorms to
+``//kernels/normalize`` (E07-10), whose own tests check their routing.
 """
 
 from __future__ import annotations
@@ -47,13 +48,6 @@ def _harness(verdict, params, **bindings):
     )
 
 
-def _rows(x: np.ndarray) -> np.ndarray:
-    """Zero-pad each row of a 2-D FP32 array out to LANES lanes."""
-    out = np.zeros((x.shape[0], LANES), dtype=np.float32)
-    out[:, : x.shape[1]] = x
-    return out
-
-
 # -- matmul -------------------------------------------------------------
 
 
@@ -66,76 +60,6 @@ def test_matmul_silu_shape_routes_only_with_activation():
     assert not refused and "silu" in refused.reason, refused.reason
     verdict = resolve("matmul", **query, activation="silu")
     assert verdict.kernel.name == "matmul_384x192_x128", verdict.reason
-
-
-# -- layernorm --------------------------------------------------------------
-
-
-def test_resolved_layernorm_computes_the_operation(tmp_path):
-    from ipu_apps.kernels.normalize.cases import reference_layernorm
-    from ipu_apps.kernels.normalize.layernorm_128x16.app import N_CH, N_TPG
-
-    query = dict(shape=(N_CH, N_TPG))
-    verdict = resolve("layernorm", **query)
-    assert verdict.kernel.name == "layernorm_128x16", verdict.reason
-
-    rng = np.random.RandomState(0x1A7E)
-    x = rng.uniform(-1.0, 1.0, size=(N_CH, N_TPG)).astype(np.float32)
-    gamma = rng.uniform(0.5, 1.5, size=(N_CH,)).astype(np.float32)
-    beta = rng.uniform(-0.5, 0.5, size=(N_CH,)).astype(np.float32)
-
-    input_path = tmp_path / "x.bin"
-    gamma_path = tmp_path / "gamma.bin"
-    beta_path = tmp_path / "beta.bin"
-    # One zero-padded row per channel; gamma/beta stored verbatim as a row.
-    input_path.write_bytes(_rows(x).tobytes())
-    gamma_path.write_bytes(_rows(gamma[None, :]).tobytes())
-    beta_path.write_bytes(_rows(beta[None, :]).tobytes())
-    output_path = tmp_path / "out.bin"
-
-    app = _harness(
-        verdict,
-        query,
-        input_path=input_path,
-        gamma_path=gamma_path,
-        beta_path=beta_path,
-        output_path=output_path,
-    )
-    _, cycles = app.run(max_cycles=500_000)
-    assert cycles > 0
-
-    got = np.frombuffer(output_path.read_bytes(), dtype=np.float32).reshape(N_CH, LANES)[:, :N_TPG]
-    np.testing.assert_allclose(got, reference_layernorm(x, gamma, beta), atol=1e-4, rtol=1e-4)
-
-
-# -- residual_add -------------------------------------------------------
-
-
-def test_resolved_residual_add_computes_the_operation(tmp_path):
-    from ipu_apps.kernels.elementwise.residual_add_16x240.app import N_CH, N_TOK
-
-    query = dict(shape=(N_TOK, N_CH))
-    verdict = resolve("residual_add", **query)
-    assert verdict.kernel.name == "residual_add_16x240", verdict.reason
-
-    rng = np.random.RandomState(0x5ADD)
-    a = rng.uniform(-1.0, 1.0, size=(N_CH, N_TOK)).astype(np.float32)
-    b = rng.uniform(-1.0, 1.0, size=(N_CH, N_TOK)).astype(np.float32)
-
-    a_path = tmp_path / "a.bin"
-    b_path = tmp_path / "b.bin"
-    a_path.write_bytes(_rows(a).tobytes())
-    b_path.write_bytes(_rows(b).tobytes())
-    output_path = tmp_path / "out.bin"
-
-    app = _harness(
-        verdict, query, input_a_path=a_path, input_b_path=b_path, output_path=output_path
-    )
-    _, cycles = app.run(max_cycles=5_000_000)
-    assert cycles > 0
-
-    got = np.frombuffer(output_path.read_bytes(), dtype=np.float32).reshape(N_CH, N_TOK)
-    np.testing.assert_allclose(got, a + b, rtol=1e-4, atol=1e-3)
 
 
 # -- qk_scores (query-major chain) -------------------------------------

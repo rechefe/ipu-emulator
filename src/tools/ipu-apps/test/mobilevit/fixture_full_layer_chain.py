@@ -26,7 +26,9 @@ import zlib
 from pathlib import Path
 
 import numpy as np
+from fixture_elementwise import run_residual_add_rows
 from fixture_kernel_support import kernel_inst
+from fixture_normalize import run_layernorm_rows
 from fixture_projections import run_projection
 
 from ipu_emu.ipu_state import IpuState
@@ -114,53 +116,31 @@ def _assert_no_poison(arr: np.ndarray, tag: str) -> None:
 
 
 def run_layernorm(
-    App,
+    name: str,
     *,
-    inst_bin: Path,
     x: np.ndarray,
     gamma: np.ndarray,
     beta: np.ndarray,
     n_ch: int,
     n_tok: int,
     row_bytes: int,
-    tmp_path: Path,
     tag: str,
-    full_row_output: bool,
-) -> np.ndarray:
-    """Run a real layernorm_*x* kernel. `x` is [n_ch, n_tok] channel-major.
+) -> tuple[np.ndarray, int]:
+    """Run a layernorm entry. `x` is [n_ch, n_tok] channel-major.
 
-    Returns the valid [n_ch, n_tok] output (cropped here in the test, per the
-    crop convention: this call site is always the final consumer of the raw
-    file, whether or not the kernel's own teardown already cropped).
+    ``name`` is the //kernels/normalize entry (E07-10), run through
+    ``fixture_normalize``. Returns the valid [n_ch, n_tok] output (cropped
+    here, per the crop convention: this call site is the final consumer of
+    the output rows) and the cycles.
     """
     lanes = row_bytes // 4
     x_rows = np.zeros((n_ch, lanes), dtype=np.float32)
     x_rows[:, :n_tok] = x
-    input_path = tmp_path / f"ln_x_{tag}.bin"
-    input_path.write_bytes(x_rows.tobytes())
-    gamma_path = tmp_path / f"ln_gamma_{tag}.bin"
-    gamma_path.write_bytes(gamma.astype(np.float32).tobytes())
-    beta_path = tmp_path / f"ln_beta_{tag}.bin"
-    beta_path.write_bytes(beta.astype(np.float32).tobytes())
-    output_path = tmp_path / f"ln_out_{tag}.bin"
-
-    app = App(
-        inst_path=inst_bin,
-        input_path=input_path,
-        gamma_path=gamma_path,
-        beta_path=beta_path,
-        output_path=output_path,
-    )
-    state = app.make_state()
-    _, cycles = app.run(max_cycles=20_000_000, state=state)
-    assert cycles > 0
-
-    raw = np.frombuffer(output_path.read_bytes(), dtype=np.float32)
-    if full_row_output:
-        got = raw.reshape(n_ch, lanes)[:, :n_tok]
-    else:
-        got = raw.reshape(n_ch, n_tok)
-    return got, cycles, state
+    run = run_layernorm_rows(name, x_rows, gamma, beta, poison=float(_POISON))
+    assert run.cycles > 0
+    got = run.rows[:, :n_tok]
+    _assert_no_poison(got, f"{tag} layernorm")
+    return got, run.cycles
 
 
 # ---------------------------------------------------------------------------
@@ -472,41 +452,29 @@ def run_attn_v_bcast(
 
 
 def run_residual_add(
-    App,
+    name: str,
     *,
-    inst_bin: Path,
     a: np.ndarray,
     b: np.ndarray,
     n_ch: int,
     n_tok: int,
     row_bytes: int,
-    tmp_path: Path,
     tag: str,
-    full_row_output: bool,
 ) -> tuple[np.ndarray, int]:
-    """a, b: [n_ch, n_tok] channel-major. Returns cropped [n_ch, n_tok] sum."""
+    """a, b: [n_ch, n_tok] channel-major. Returns cropped [n_ch, n_tok] sum.
+
+    ``name`` is the //kernels/elementwise entry (E07-06), run through
+    ``fixture_elementwise``; its output rows are cropped here.
+    """
     lanes = row_bytes // 4
     a_rows = np.zeros((n_ch, lanes), dtype=np.float32)
     a_rows[:, :n_tok] = a
     b_rows = np.zeros((n_ch, lanes), dtype=np.float32)
     b_rows[:, :n_tok] = b
 
-    a_path = tmp_path / f"res_{tag}_a.bin"
-    a_path.write_bytes(a_rows.tobytes())
-    b_path = tmp_path / f"res_{tag}_b.bin"
-    b_path.write_bytes(b_rows.tobytes())
-    output_path = tmp_path / f"res_{tag}_o.bin"
-
-    app = App(inst_path=inst_bin, input_a_path=a_path, input_b_path=b_path, output_path=output_path)
-    state = app.make_state()
-    _, cycles = app.run(max_cycles=5_000_000, state=state)
+    rows, cycles = run_residual_add_rows(name, a_rows, b_rows)
     assert cycles > 0
-
-    raw = np.frombuffer(output_path.read_bytes(), dtype=np.float32)
-    if full_row_output:
-        got = raw.reshape(n_ch, lanes)[:, :n_tok]
-    else:
-        got = raw.reshape(n_ch, n_tok)
+    got = rows[:, :n_tok]
     _assert_no_poison(got, f"{tag} residual_add")
     return got, cycles
 

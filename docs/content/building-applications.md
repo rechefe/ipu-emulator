@@ -50,80 +50,21 @@ def setup(self, state: IpuState) -> None:
     state.regfile.set_cr(9, (-1) & LR_CR_SCALAR_VALUE_MASK)
 ```
 
-In assembly, every `AGG.*`/`ACTIVATE.QUANTIZE` instruction must name its
-dstructure CR register explicitly via a mandatory `cr_idx` operand — there is
-no implicit default:
-
-```asm
-AGG.SUM LR0 CR15;;
-ACTIVATE.QUANTIZE relu CR15;;
-AGG.SUM LR0 CR3;;
-ACTIVATE.QUANTIZE relu CR3;;
-```
-
-For aggregation (`AGG.SUM`, `AGG.MAX`, etc.) the element count is controlled by the required `cr_idx` operand — it reads `valid_elements` from the named CR register. `CR15` remains a valid choice (it is the dstructure register's conventional home), but it must be written out like any other register.
+Every `AGG.*` and `ACTIVATE.QUANTIZE` instruction names the CR that holds its
+dstructure word; [Configuration registers](reference/isa/configuration-registers.md)
+describes the word, its fields and `set_cr_dstructure`.
 
 ## Element formats
 
 A kernel runs in one element format. [Element formats](explanation/element-formats.md) lists them, what each one changes, and how a kernel selects one.
 
-## Activations, `ACTIVATE.QUANTIZE`, and virtual α (Python emulator) {#activations-emulator}
+## Activations and `ACTIVATE.QUANTIZE`
 
-The [AaQ stage spec](specs/stage-aaq-str.md) describes how **real hardware** wires activation: a function id (for example from `act_cr_idx` and a `CR` read) and **α-like parameters** that are **not** VLIW immediates—they come from implementation-defined configuration (constants, fuses, side-band registers, etc.).
-
-The **Python emulator** in this repository adds a convenience AAQ-slot instruction **`ACTIVATE.QUANTIZE`** so programs can apply the same thirteen activation shapes to elements read from **`R_ACC`**, writing results into **`POST_AAQ_REG`** (without modifying **`R_ACC`**), without modeling the full `act_cr_idx` path:
-
-```asm
-ACTIVATE.QUANTIZE relu CR15;;
-```
-
-- **Syntax:** `ACTIVATE.QUANTIZE activation_fn, cr_idx`, where *activation_fn* is a **keyword** (`identity`, `relu`, `relu6`, `sigmoid`, `tanh`, `gelu`, `softplus`, `elu`, `exp2`, `reciprocal`, `rsqrt`, `silu`, `window`). The active element count comes from `cr_idx`'s `valid_elements`, the same dstructure field used by the `AGG.*` instructions; `cr_idx` is mandatory (any `CR0`–`CR15`, no implicit default).
-- **Single source of truth:** the keyword order is the ISA's `ActivationFn` operand, in `src/tools/ipu-isa/src/ipu_isa/activations.py` (`ACTIVATION_FN_NAMES`); the pure-Python math is the emulator's, in `src/tools/ipu-emu-py/src/ipu_emu/activations.py` (`apply_activation`).
-
-### `R_ACC`, `POST_AAQ_REG`, and `ST.AAQ` (staging vs export)
-
-- **Accumulation** stays in **`R_ACC`** (512 bytes = 128×32-bit elements). The ACC-slot **`AGG.SUM`** / **`AGG.SUM.FIRST`** / **`AGG.MAX`** / **`AGG.MAX.FIRST`** reduce **`R_ACC`** in place, writing a single `R_ACC` slot selected by an LR register; hardware uses the `act_cr_idx` path described in the AAQ spec for activation selection.
-- **`ACTIVATE.QUANTIZE`** (emulator) reads **`R_ACC`**, activates each active element and writes the result into **`POST_AAQ_REG`**; **`R_ACC`** is left unchanged.
-- **`POST_AAQ_REG`** is **temporarily a 512-byte** wide staging register (same element layout as **`R_ACC`**) until end-to-end quantization and export are finalized.
-- Activation and quantization are **one instruction**; there is no separate activate-only or quantize-only opcode. In **INT8 mode** the activated elements are clamped to `[-128, 127]` and written as **128 bytes** into the **leading** bytes of **`POST_AAQ_REG`**, with the remainder zeroed. In the **FP32 and INT32** formats the activated **32-bit** elements are written wide instead, and are quantized to that same byte prefix only when `AaqOptions.quantize_output` is set (`IpuState(aaq=AaqOptions(quantize_output=True))`).
-- **`ST.AAQ`** stores **`POST_AAQ_REG`** — **512 bytes** — to XMEM (whatever wide or quantized layout that buffer holds at issue time).
-
-### Virtual α and window bounds in the emulator (elu, window)
-
-The stock ISA does not expose α, nor the **`window`** bounds. The emulator reads α and the window bounds from each **`IpuState`**'s `activation` field, an `ActivationParams` (`elu_alpha`, `window_a`, `window_b`). If you do not set them, they are initialized from the default floats in `ipu_emu/activations.py` (`DEFAULT_ELU_ALPHA`, `DEFAULT_WINDOW_A`, `DEFAULT_WINDOW_B`).
-
-**`window`** is the rectangular indicator `window(x) = 1` for `a <= x < b`, `0` otherwise (half-open, lower bound inclusive). The defaults are provisional placeholders pending calibration: `a = 0.0`, `b = 0.1`. On hardware it belongs to the LUT-backed `activation` group of [the AaQ spec](specs/stage-aaq-str.md), so `a` and `b` are baked into the loaded LUT contents; the emulator keeps them as the state fields below instead.
-
-Configure these the same way as the element format — on the state, **not via CR**:
-
-```python
-from ipu_emu.activations import ActivationParams
-from ipu_emu.ipu_state import IpuState
-from ipu_emu.emulator import run_test
-
-state = IpuState(activation=ActivationParams(elu_alpha=1.0, window_a=0.0, window_b=0.1))
-# or after construction:
-state.set_activation_alphas(elu_alpha=1.0, window_a=0.0, window_b=0.1)
-
-# High-level harness (optional kwargs mirror ActivationParams):
-state, cycles = run_test(
-    inst_path="prog.bin",
-    setup=my_setup,
-    elu_alpha=1.0,
-    window_a=0.0,
-    window_b=0.1,
-)
-```
-
-Subclassing **`IpuApp`**, you can pass α through **`run(...)`** or store them on the app from **`__init__`** (same names as `run_test`); explicit **`run()`** arguments override stored attributes:
-
-```python
-app = MyApp(inst_path="prog.bin", elu_alpha=1.0, window_a=0.0, window_b=0.1)
-state, cycles = app.run()  # uses 1.0
-state, cycles = app.run(elu_alpha=0.5)  # uses 0.5 for this run
-```
-
-Use a **fresh `IpuState`** (or a new `run_test` call with different α kwargs) when you need different α values in the same process.
+[`ACTIVATE.QUANTIZE` in the emulator](reference/isa/activate-quantize.md) describes the
+instruction, `R_ACC` and `POST_AAQ_REG`, and how to set `elu`'s α and the `window`
+bounds on the state. An `IpuApp` also takes them as keywords of `__init__` or
+`run()` (`elu_alpha`, `window_a`, `window_b`); a `run()` keyword overrides the
+stored value for that run.
 
 ## Step 1: Write the Assembly Program
 
@@ -320,21 +261,13 @@ suites. Bazel remains the supported build and test workflow.
 
 ## Inspecting Run Statistics
 
-Every run populates `state.stats` (a `RunStats` instance) with counters useful for spotting bottlenecks. They are updated automatically by `run_until_complete` / `run_with_debug` — no opt-in flag is required.
-
-The stats describe one run. Both runners reset `state.stats` before the first cycle, so running a second program on the same state reports only the second program; pass `reset_stats=False` to add a run to the earlier ones instead. `total_cycles` is set even when the run raises (a fault, the cycle limit included, or an emulator error). To report separate runs together, add them: `stage1_stats + state.stats` (the `depthwise_conv_stride2_*` harnesses do this for their two stages).
-
-A run that reaches its cycle limit faults F-9 (`EmulatorFault`), with the PC of the word that would have run next. The limit is `state.cycle_limit`, which defaults to `ipu_emu.emulator.DEFAULT_MAX_CYCLES` (1 000 000); 0 disables it. A runner's `max_cycles` replaces it for that run only, and every run entry point (`run_until_complete`, `run_with_debug`, `run_test`, `IpuApp.run`, `KernelCase`) defaults to the same limit.
-
-[Command-line tools](reference/cli.md#run-statistics) explains each counter of the summary a run prints, `state.stats.format_summary()`.
-
-Typical usage from an interactive runner or a test:
+Every run fills `state.stats`, and `state.stats.format_summary()` prints them.
+[Run statistics](reference/cli.md#run-statistics) explains each counter, when
+the counters reset and the cycle limit.
 
 ```python
 state, cycles = app.run(max_cycles=args.max_cycles)
 print(state.stats.format_summary())
-
-# Or pick individual fields for assertions / metrics:
 assert state.stats.mult_utilization > 0.5
 ```
 

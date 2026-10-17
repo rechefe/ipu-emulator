@@ -68,7 +68,7 @@ that span the family (see `kernels/convolutions/`, `kernels/attention/`).
 `test.py`.
 
 Every family has the same shape, `kernels/<family>/<app>/` — e.g.
-`kernels/convolutions/conv1x1/` and `kernels/attention/attn_scores_km_16x60/`.
+`kernels/convolutions/conv_universal/` and `kernels/attention/attn_scores_km_16x60/`.
 
 No `BUILD.bazel` edit is needed: `ipu_apps_from_kernels` (in `//:ipu_app.bzl`)
 globs every `.asm` file under `src/ipu_apps/kernels/` and declares one
