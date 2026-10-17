@@ -23,7 +23,7 @@ import ipu_bench.benchmarks
 from ipu_bench.result import Budget, Result, write_results
 
 
-def benchmark_modules() -> dict[str, Callable[[bool], list[Result]]]:
+def benchmark_modules() -> dict[str, Callable[[Budget], list[Result]]]:
     """Every module in :mod:`ipu_bench.benchmarks`, by short name."""
     modules = {}
     for info in sorted(pkgutil.iter_modules(ipu_bench.benchmarks.__path__), key=lambda m: m.name):
