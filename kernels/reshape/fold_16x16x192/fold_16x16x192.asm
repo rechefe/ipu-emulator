@@ -105,8 +105,8 @@
       LR7, LR9     source and destination row stride per channel (1)
       LR11         the channel loop's bound (192)
     LR0 (R_CYCLIC slot 0), LR6 (source row offset within a stream), LR8
-    (destination row offset) and LR10 (channel counter) start at their reset
-    value, 0. CR1 (hardwired 1) is the channel loop's increment.
+    (destination row offset) and LR10 (channel counter) start at 0, as kernel.toml's [abi]
+    binds them (slot0, src_row, dst_row, channel). CR1 (hardwired 1) is the channel loop's increment.
 
     CR0 IS NOT A FREE BASE: CR0 (0) and CR1 (1) are hardwired, and a host
     write to either raises. unfold_16x16x192 reads its stripe-0 source base

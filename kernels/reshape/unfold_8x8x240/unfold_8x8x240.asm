@@ -70,8 +70,8 @@
       LR5, LR6     source and destination row stride per channel (1)
       LR11         the channel loop's bound (240)
     LR0 (R_CYCLIC / ACC.STRIDE slot 0), LR4 (source row offset), LR8
-    (destination row offset) and LR10 (channel counter) start at their reset
-    value, 0. CR1 (hardwired 1) is the channel loop's increment. CR0 and CR1
+    (destination row offset) and LR10 (channel counter) start at 0, as kernel.toml's [abi]
+    binds them (slot0, src_row, dst_row, channel). CR1 (hardwired 1) is the channel loop's increment. CR0 and CR1
     are read-only: a host write to either raises.
 
     MULT CYCLE-START CONTRACT (issue #157): MULT.RC.VV reads its R0 data as it

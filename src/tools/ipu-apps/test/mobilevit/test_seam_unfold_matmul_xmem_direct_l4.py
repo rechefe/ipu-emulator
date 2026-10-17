@@ -25,7 +25,7 @@ kernel is per-lane-independent, garbage in lanes 64..127 of every input row
 can only ever contaminate OUTPUT lanes 64..127 -- which this test crops away
 (MM_N_TOK=64) -- never output lanes 0..63. This test confirms that
 empirically: run unfold for real, capture its raw per-stream output bytes
-directly via state.xmem.read_address, feed one stream's raw bytes verbatim
+directly (its output region's raw rows, fixture_reshape.run_unfold), feed one stream's raw bytes verbatim
 into the matmul's DATA region (the matmul harness runs its own setup() with
 _load_data disabled), and compare against an independent reference
 computed straight from the unfold definition (stride-2
@@ -59,7 +59,6 @@ assert uf.C == uf.N_OUT == mm.K == 192
 assert uf.LANES == mm.LANES == 128
 assert uf.N_TOK == 64
 assert mm.N_TOK == 64
-_STRIPE_H = uf.H // uf.N_STRIPES  # 8 spatial rows per stripe
 _ROW_BYTES = uf.LANES * 4
 
 _STREAM = 0  # TL: phase (0, 0) -- arbitrary but fixed single-stream choice
@@ -67,8 +66,8 @@ _STREAM = 0  # TL: phase (0, 0) -- arbitrary but fixed single-stream choice
 
 def _run_unfold_capture_stream_xmem(x: np.ndarray, tmp_path: Path, tag: str) -> bytes:
     """Run the real unfold_16x16x192 kernel; return stream _STREAM's raw XMEM
-    output bytes (N_OUT * ROW_BYTES = 192 * 512 B), read directly via
-    state.xmem -- no file round-trip. x is [C, H, W].
+    output bytes (N_OUT * ROW_BYTES = 192 * 512 B): the output region's raw
+    rows (fixture_reshape.run_unfold) -- no file round-trip. x is [C, H, W].
     """
     streams, cycles = run_unfold(uf.name, x, POISON)  # the kernel's stripes pack x
     assert cycles > 0

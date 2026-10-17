@@ -28,8 +28,8 @@ contaminate output lanes N_TOK..127, cropped away here, never lanes 0..15.
 Method: run the REAL unfold_8x8x240 kernel (its paired_rows pack transform builds
 valid packed input per its own input contract -- _ROW_PACK_ORDER correctness
 is out of scope here, this test only exercises the output->matmul-input
-seam), capture one stream's raw XMEM output bytes directly via
-state.xmem.read_address, feed them verbatim into matmul_720x240_x128's DATA
+seam), capture one stream's raw XMEM output bytes directly (the output
+region's raw rows, fixture_reshape.run_unfold), feed them verbatim into matmul_720x240_x128's DATA
 region (bypassing _load_data -- the matmul harness runs its own setup() with
 _load_data disabled), and compare against an independent reference
 computed straight from the unfold definition (stride-2 decimation of the
@@ -67,8 +67,8 @@ _STREAM = 0  # phase (0, 0) -- arbitrary but fixed single-stream choice
 
 def _run_unfold_capture_stream_xmem(x: np.ndarray, tmp_path: Path, tag: str) -> bytes:
     """Run the real unfold_8x8x240 kernel; return stream _STREAM's raw XMEM
-    output bytes (N_OUT * ROW_BYTES = 240 * 512 B), read directly via
-    state.xmem -- no file round-trip. x is [C, H, W]; packed into the
+    output bytes (N_OUT * ROW_BYTES = 240 * 512 B): the output region's raw
+    rows (fixture_reshape.run_unfold) -- no file round-trip. x is [C, H, W]; packed into the
     kernel's required input layout by its paired_rows pack transform (its own documented
     input contract, per the module docstring -- not re-derived here).
     """

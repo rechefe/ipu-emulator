@@ -54,7 +54,8 @@
       LR11         the channel loop's bound (144)
     LR0 (R_CYCLIC slot 0, mask immediate, ACC.STRIDE slot 0), LR4 (source
     row offset within each stripe), LR8 (token group 0's destination row
-    offset) and LR10 (channel counter) start at their reset value, 0. CR1
+    offset) and LR10 (channel counter) start at 0, as kernel.toml's [abi]
+    binds them (slot0, src_row, dst_row, channel). CR1
     (hardwired 1) is the channel loop's increment. CR0 and CR1 are
     read-only: a host write to either raises.
 
@@ -88,8 +89,8 @@
 # ---------------------------------------------------------------------------
 # Initialisation
 # ---------------------------------------------------------------------------
-# LR0, LR4, LR8 and LR10 start at their reset value, 0; kernel.toml's [abi]
-# binds LR1-LR3, LR5, LR6, LR9 and LR11 (see the header).
+# kernel.toml's [abi] binds LR0-LR6 and LR8-LR11: LR0, LR4, LR8 and LR10 to 0
+# (slot0, src_row, dst_row, channel), the rest as the header lists.
 
 # ---------------------------------------------------------------------------
 # Register names (Jinja2 preprocessor; pure source-level substitution)

@@ -121,10 +121,10 @@
       LR9          destination row stride per channel (1)
       LR11         the channel loop's bound (144)
     LR0 (R_CYCLIC slot 0), LR6 (source row offset = ch*2 + tg), LR8
-    (destination row offset) and LR10 (channel counter) start at their reset
-    value, 0; LR6 and LR10 are SET again at every later stripe.
+    (destination row offset) and LR10 (channel counter) start at 0, as kernel.toml's [abi]
+    binds them (slot0, src_row, dst_row, channel); LR6 and LR10 are SET again at every later stripe.
     CR0 (0) and CR1 (1) are hardwired: CR1 is the channel loop's increment,
-    and both are deliberately reused as LR6's reset value (tg 0 or 1) and
+    and both are deliberately reused as LR6's restart value (tg 0 or 1) and
     CR0 as LR10's.
 
     CR0 IS NOT A FREE BASE: a host write to CR0 or CR1 raises.

@@ -63,7 +63,8 @@
       LR11         the channel loop's bound (192)
     LR0 (R_CYCLIC slot 0, mask offset and shift 0, ACC.STRIDE slot 0), LR4
     (source row offset within each stripe), LR8 (destination row offset)
-    and LR10 (channel counter) start at their reset value, 0. CR1 (hardwired
+    and LR10 (channel counter) start at 0, as kernel.toml's [abi]
+    binds them (slot0, src_row, dst_row, channel). CR1 (hardwired
     1) is the channel loop's increment. CR0 and CR1 are read-only: a host
     write to either raises.
 
