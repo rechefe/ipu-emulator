@@ -13,6 +13,7 @@ from ipu_emu.geometry import partition_vector
 from ipu_emu.ipu import Ipu
 from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
 from ipu_emu.prototyping import build_enabled, resolve_enabled
+from ipu_emu.slots import lr
 from ipu_isa.errors import IpuError
 
 
@@ -58,7 +59,7 @@ def test_an_alias_profile_on_a_second_state_is_a_configuration_error():
 
 def test_a_handler_outside_a_cycle_raises_a_typed_error():
     with pytest.raises(EmulatorError, match="outside a cycle"):
-        Ipu(IpuState()).execute_lr_inc(dest=0, imm=1)
+        lr.execute_lr_inc(Ipu(IpuState()), dest=0, imm=1)
 
 
 def test_a_partition_that_is_not_the_enum_is_a_typed_error():

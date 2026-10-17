@@ -11,8 +11,8 @@ import click
 import lark
 import tomli
 
-from ipu_as import diagnostics, language_service, lark_tree, session, template
-from ipu_as.errors import AssemblerError, ParseError, TemplateError
+from ipu_as import diagnostics, formatter, language_service, lark_tree, session, template
+from ipu_as.errors import AssemblerError, FormatError, ParseError, TemplateError
 from ipu_isa.codec.slot import ReservedEncoding
 
 
@@ -376,9 +376,120 @@ def check(
     sys.exit(1 if found else 0)
 
 
+def _parse_range(
+    _ctx: click.Context, _param: click.Parameter, value: str | None
+) -> tuple[int, int] | None:
+    """`L1:L2` (1-based, inclusive) as the 0-based (first, last) `format_source` takes."""
+    if value is None:
+        return None
+    first, sep, last = value.partition(":")
+    if not (sep and first.isdigit() and last.isdigit() and 1 <= int(first) <= int(last)):
+        raise click.BadParameter(f"{value!r} is not L1:L2 with 1 <= L1 <= L2", param_hint="--range")
+    return int(first) - 1, int(last) - 1
+
+
+def _parse_indent(_ctx: click.Context, _param: click.Parameter, value: str) -> str:
+    """`N` spaces, or `tab`, as the indent string."""
+    if value == "tab":
+        return "\t"
+    if not value.isdigit():
+        raise click.BadParameter(
+            f"{value!r} is not a number of spaces or 'tab'", param_hint="--indent"
+        )
+    return " " * int(value)
+
+
+#: `format`'s exit code when it cannot format the input (refused, or not UTF-8).
+_CANNOT_FORMAT = 3
+
+
+@click.command("format")
+@click.option(
+    "--input",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, allow_dash=True),
+    help='Source file to format, or "-" to read from stdin.',
+)
+@click.option(
+    "--check",
+    is_flag=True,
+    help="Write nothing; exit 1 if formatting would change the source, 0 if not.",
+)
+@click.option(
+    "--in-place",
+    is_flag=True,
+    help="Rewrite the input file instead of printing the result.",
+)
+@click.option(
+    "--indent",
+    default="4",
+    show_default=True,
+    callback=_parse_indent,
+    metavar="N|tab",
+    help="One level of indentation: N spaces, or a tab.",
+)
+@click.option(
+    "--blank-line",
+    is_flag=True,
+    help="Separate each ;; word from the next by an empty line.",
+)
+@click.option(
+    "--range",
+    "line_range",
+    callback=_parse_range,
+    metavar="L1:L2",
+    help="Format only lines L1 to L2 (1-based, inclusive); the others stay as they are.",
+)
+def format_command(
+    input: str,
+    check: bool,
+    in_place: bool,
+    indent: str,
+    blank_line: bool,
+    line_range: tuple[int, int] | None,
+):
+    """Print an assembly source in the repository's layout.
+
+    A label at column 0 on its own line, each instruction line one indent in,
+    and code after a `;;` on a line of its own. Only whitespace changes; Jinja
+    tags and comments stay as written. The result is checked to be the same
+    program (the same words for a source without Jinja, the same tokens for a
+    template); if it is not, or the input is not UTF-8, nothing is written
+    and the exit code is 3, so a `--check` gate tells "cannot format" (3)
+    from "would reformat" (1).
+    """
+    if input == "-" and in_place:
+        raise click.UsageError("--in-place needs a file --input, not stdin")
+    if check and in_place:
+        raise click.UsageError("--check writes nothing; drop --in-place")
+    try:
+        if input == "-":
+            text = sys.stdin.buffer.read().decode("utf-8")
+        else:
+            # newline="": a CRLF file is formatted, and written back, as CRLF.
+            with open(input, encoding="utf-8", newline="") as source:
+                text = source.read()
+        out = formatter.format_source(
+            text, indent=indent, blank_line=blank_line, line_range=line_range
+        )
+    except (FormatError, UnicodeDecodeError) as error:
+        click.echo(f"Error formatting {input}: {error}", err=True)
+        sys.exit(_CANNOT_FORMAT)
+    if check:
+        if out != text:
+            click.echo(f"{input}: would be reformatted", err=True)
+        sys.exit(1 if out != text else 0)
+    if not in_place:
+        sys.stdout.buffer.write(out.encode("utf-8"))
+    elif out != text:
+        with open(input, "w", encoding="utf-8", newline="") as target:
+            target.write(out)
+
+
 cli.add_command(assemble)
 cli.add_command(disassemble)
 cli.add_command(check)
+cli.add_command(format_command)
 
 if __name__ == "__main__":
     cli()

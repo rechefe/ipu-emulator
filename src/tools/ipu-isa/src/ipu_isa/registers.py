@@ -123,7 +123,7 @@ REGISTER_DEFINITIONS: dict[str, RegisterDefinition] = {
     # narrower quantized export buffer instead. **`ACTIVATE`** writes activated wide
     # lanes (sourced from `r_acc`) here. **`AAQ`** (INT8) reads those wide lanes and
     # replaces the register with 128 clamped INT8 bytes plus a cleared tail.
-    # **`ST.AAQ`** stores the full **512 bytes** to XMEM (see `ipu.py`).
+    # **`ST.AAQ`** stores the full **512 bytes** to XMEM (see `ipu_emu/slots/store.py`).
     "post_aaq_reg": {
         "kind": RegKind.AAQ,
         "vector": True,

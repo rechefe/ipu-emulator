@@ -11,12 +11,18 @@
 // It shells out to `ipu-as check --json` rather than speaking LSP, which keeps
 // the extension dependency-free: no vscode-languageclient, no bundled
 // node_modules, and the packaged vsix stays a few kilobytes.
+//
+// A checker that speaks version 2 of that output answers the editing providers
+// too, from the same run (analysis.js): one check per document version.
 
 const fs = require('fs').promises;
 const path = require('path');
 const vscode = require('vscode');
 
+const { AnalysisClient, Positions, parseCheck } = require('./analysis');
+const { V2Semantics } = require('./analysis-semantics');
 const checker = require('./checker');
+const { fallbackOf } = require('./fallback');
 const project = require('./project');
 const editing = require('./editing');
 const kernels = require('./kernels');
@@ -134,6 +140,16 @@ function toVscodeDiagnostic(raw) {
   return diagnostic;
 }
 
+/** A word that does not fit its slots and no diagnostic covers: information, not an error,
+ *  since the error is the assembler's to report (and it reports the first). */
+function slotFitDiagnostic(word) {
+  const r = word.range;
+  const diagnostic = new vscode.Diagnostic(new vscode.Range(r.line, r.character, r.endLine, r.endCharacter),
+    `${word.error} (this word: ${word.mnemonics.join('; ')})`, vscode.DiagnosticSeverity.Information);
+  diagnostic.source = 'ipu-as (slot fit)';
+  return diagnostic;
+}
+
 /** The checker, run on documents as they change, with a CheckState per checkout. */
 class Checking {
   constructor(kernelApi) {
@@ -148,6 +164,8 @@ class Checking {
     /** The latest refresh of each document, by document Uri: what one that was superseded
      *  resolves to, so a refresh resolves once the check that counts is done. */
     this.latest = new Map();
+    /** Which contract version each checker speaks, and each document's latest check. */
+    this.analysis = new AnalysisClient();
   }
 
   stateOf(root) {
@@ -167,7 +185,12 @@ class Checking {
     const glob = `**/*{${checker.SOURCE_EXTENSIONS.join(',')}}`;
     return checker.SOURCE_DIRS.map((dir) => {
       const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(vscode.Uri.file(path.join(root, dir)), glob));
-      for (const event of [watcher.onDidCreate, watcher.onDidChange, watcher.onDidDelete]) event(() => state.invalidate());
+      // Changed sources make a checker that may speak other contract versions: ask it again.
+      const changed = () => {
+        state.invalidate();
+        this.analysis.forgetVersions(root);
+      };
+      for (const event of [watcher.onDidCreate, watcher.onDidChange, watcher.onDidDelete]) event(changed);
       return watcher;
     });
   }
@@ -260,8 +283,19 @@ class Checking {
     return this.checkIn(await this.checkoutFor(uri), uri, text, key, token);
   }
 
-  /** runCheckText, in checkout `root` (null: none). */
-  async checkIn(root, uri, text, key, token) {
+  /** runCheckText, in checkout `root` (null: none): diagnostics only. */
+  checkIn(root, uri, text, key, token) {
+    return this.runIn(root, uri, text, key, token, async (argv) => argv);
+  }
+
+  /** checkIn for a document's own text: a checker that speaks version 2 of the contract is
+   *  asked for every analysis too (`answer` in the result). */
+  analyseIn(root, uri, text, key) {
+    return this.runIn(root, uri, text, key, undefined, async (argv, cwd, seconds) => (await this.analysis.plan(argv, cwd, seconds)).argv);
+  }
+
+  /** Run the checker on `text`; `planFor(argv, cwd, seconds)` gives the argv to run it as. */
+  async runIn(root, uri, text, key, token, planFor) {
     // In Restricted Mode the folder's settings and BUILD files would choose what runs.
     if (!trust.mayRun()) return { error: trust.RESTRICTED };
     const folder = vscode.workspace.getWorkspaceFolder(uri);
@@ -271,7 +305,7 @@ class Checking {
     const argv = await this.checkCommand(folder, root);
     if (!argv) return { outside: true };
     if (token && token.isCancellationRequested) return { superseded: true };
-    const [command, ...args] = argv;
+    const [command, ...args] = await planFor(argv, cwd, timeoutSeconds(folder));
     const state = this.stateOf(root);
     // The fallback rebuilds on its way to checking, so a run that comes back with
     // diagnostics has also brought the binary up to date with these sources.
@@ -305,12 +339,12 @@ class Checking {
     if (r.timedOut) return { error: r.stderr, command };
     // Exit code 1 just means "found problems", so it is not an error here.
     try {
-      const found = JSON.parse(r.stdout);
+      const { found, answer } = parseCheck(r.stdout, text);
       if (rebuilding) {
         state.update({ stamp: Math.max(state.stamp, stamp) });
         this.ensureChecker(root);
       }
-      return { found };
+      return { found, answer };
     } catch {
       return { error: checker.explainFailure(r.stderr || r.stdout, command), command };
     }
@@ -320,7 +354,11 @@ class Checking {
    *  this very version was checked already. Resolves once that check is done, or
    *  the one that superseded it. */
   refresh(document, force = false) {
-    const done = this.refreshOnce(document, force);
+    const version = document ? document.version : undefined;
+    // However it ends, whoever waits for this version's analysis has its answer then.
+    // (Not for a document closed since: forget() has settled it, and must not be undone.)
+    const done = this.refreshOnce(document, force)
+      .finally(() => document && !document.isClosed && this.analysis.release(document.uri.toString(), version));
     if (document) this.latest.set(document.uri.toString(), done);
     return done;
   }
@@ -337,7 +375,8 @@ class Checking {
     const state = this.stateOf(root);
     if (!force && state.checked.get(key) === version) return;
 
-    const result = await this.checkIn(root, document.uri, document.getText(), key);
+    const text = document.getText();
+    const result = await this.analyseIn(root, document.uri, text, key);
 
     // A run we cancelled ourselves says nothing about the toolchain or the code,
     // and a file closed while it ran has nothing left to mark.
@@ -366,7 +405,13 @@ class Checking {
       this.diagnostics.delete(document.uri);
     } else {
       Object.assign(state, { lastError: null, ok: true });
-      this.diagnostics.set(document.uri, result.found.map(toVscodeDiagnostic));
+      this.analysis.store(key, version, text, result.found, result.answer || null);
+      // The contract counts columns in code points, VS Code in UTF-16 units.
+      const positions = result.answer ? result.answer.positions : new Positions(text);
+      const shown = result.found.map((d) => toVscodeDiagnostic(positions.diagnostic(d)));
+      // The assembler stops at a word's first misfit; the analysis fits every word.
+      for (const w of result.answer ? result.answer.misfits() : []) shown.push(slotFitDiagnostic(w));
+      this.diagnostics.set(document.uri, shown);
     }
     this.showStatus();
   }
@@ -396,7 +441,25 @@ class Checking {
     }
     this.roots.delete(key);
     this.latest.delete(key);
+    this.analysis.forget(key);
     this.diagnostics.delete(document.uri);
+  }
+
+  /** The kept check of `text` as the document at `uri`, if its latest check was of that very
+   *  text: a rename compares against it rather than checking the same text again. */
+  keptCheck(uri, text) {
+    const entry = this.analysis.cached(uri.toString(), text);
+    return entry ? Promise.resolve({ found: entry.found }) : null;
+  }
+
+  /** What the providers know about `document` (see editing.js): the answer for its text now
+   *  (waiting for this version's check, if one is due and the last one had an answer), or with
+   *  `stale`, the latest answer at once; else the editor's own rules, as the first paint. */
+  async semanticsOf(lang, document, { stale = false } = {}) {
+    const key = document.uri.toString();
+    const text = document.getText();
+    const answer = stale ? this.analysis.latest(key) : await this.analysis.current(key, document.version, text, { first: false });
+    return answer ? new V2Semantics(lang, answer, text) : fallbackOf(lang).semantics(text);
   }
 
   /** The status of the active editor's checkout (unchanged when the editor holds no IPU
@@ -511,12 +574,17 @@ async function activate(context) {
     let renameChecks = 0;
     editingApi = editing.register(context, {
       lang,
-      checkText: (uri, text, token) => checking.runCheckText(uri, text, `${uri.toString()}#rename-${++renameChecks}`, token),
+      // The document's own text was checked already (unless its check failed): not again.
+      checkText: (uri, text, token) => checking.keptCheck(uri, text)
+        || checking.runCheckText(uri, text, `${uri.toString()}#rename-${++renameChecks}`, token),
+      semantics: (document, options) => checking.semanticsOf(lang, document, options),
+      answer: (document) => checking.analysis.current(document.uri.toString(), document.version, document.getText()),
+      onAnswer: (listener) => checking.analysis.onStore(listener),
     });
   }
   // For tests: the kernels and editing APIs, and why diagnostics are off (for a document,
   // the active editor's, or any), if they are.
-  return { kernels: kernelApi, editing: editingApi, checkerError: (uri) => checking.errorFor(uri) };
+  return { kernels: kernelApi, editing: editingApi, checkerError: (uri) => checking.errorFor(uri), analysis: checking.analysis };
 }
 
 module.exports = { activate };

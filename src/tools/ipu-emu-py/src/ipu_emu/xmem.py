@@ -6,7 +6,7 @@ sparse: only pages that have been written are allocated.
 
 The address space is mode-independent: XMEM is always 512 MiB, in both narrow and
 wide-vector debug mode. Which of it is *reachable* depends on the active
-mode's row size and is enforced by the caller (``Ipu._xmem_row_addr``),
+mode's row size and is enforced by the caller (``ipu_emu.geometry.xmem_row_addr``),
 not here — this class has no notion of "mode".
 """
 

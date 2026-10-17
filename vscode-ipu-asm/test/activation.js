@@ -203,15 +203,18 @@ test('the checker binary is used while its sources are unchanged; a change to th
   fs.mkdirSync(path.dirname(source), { recursive: true });
   fs.writeFileSync(source, '');
   fs.utimesSync(source, new Date(Date.now() - 60000), new Date(Date.now() - 60000));
-  // A Bazel that builds a checker binary, and runs (logging which ran, to `log`).
+  // A Bazel that builds a checker binary, and runs (logging which ran, to `log`). Both are
+  // assemblers from before contract versions: asked for theirs (logged to `probes`), they exit 2.
   const log = path.join(temp, 'ran.log');
+  const probes = path.join(temp, 'probes.log');
+  const old = (name) => `case "$*" in *--json-version*) echo ${name} >> ${probes}; exit 2 ;; esac\n`;
   const bazelBin = path.join(temp, 'bazel-bin');
   const binary = path.join(bazelBin, 'src/tools/ipu-as-py/ipu-as');
   fs.mkdirSync(path.dirname(binary), { recursive: true });
-  fs.writeFileSync(binary, `#!/bin/sh\necho direct >> ${log}\nprintf '[]'\n`, { mode: 0o755 });
+  fs.writeFileSync(binary, `#!/bin/sh\n${old('direct')}echo direct >> ${log}\nprintf '[]'\n`, { mode: 0o755 });
   const standIn = path.join(bin, 'bazel');
   const failing = fs.readFileSync(standIn, 'utf8');
-  fs.writeFileSync(standIn, `#!/bin/sh\ncase "$1" in\n  build) exit 0 ;;\n  info) echo ${bazelBin} ;;\n  run) echo bazel-run >> ${log}; printf '[]' ;;\nesac\n`);
+  fs.writeFileSync(standIn, `#!/bin/sh\ncase "$1" in\n  build) exit 0 ;;\n  info) echo ${bazelBin} ;;\n  run) ${old('bazel-run')}echo bazel-run >> ${log}; printf '[]' ;;\nesac\n`);
   const ran = () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').split('\n').filter(Boolean) : []);
   try {
     // The open folder is a subfolder of the checkout: the assembler's sources are outside it.
@@ -233,6 +236,11 @@ test('the checker binary is used while its sources are unchanged; a change to th
     watcher.fire('Change', fake.Uri.file(source));
     assert.strictEqual(await check(before + 2), 'bazel-run', 'the changed source sends the check through Bazel');
     assert.strictEqual(api.checkerError(doc.uri), null);
+    // Each command was asked its contract versions once, however often it checked, and an
+    // assembler from before versions is no failure.
+    const asked = fs.readFileSync(probes, 'utf8').split('\n').filter(Boolean);
+    assert.strictEqual(asked.filter((p) => p === 'direct').length, 1, asked.join());
+    assert.deepStrictEqual(ext.log.warnings, []);
     ext.deactivate();
   } finally {
     fs.writeFileSync(standIn, failing);
