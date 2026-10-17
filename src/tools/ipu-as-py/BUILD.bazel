@@ -517,3 +517,16 @@ py_pytest_test(
     ],
     deps = [requirement("pytest")],
 )
+
+# Every assembly program in the repo, assembled as its users assemble it: the
+# corpus the E02 digests pin and the ISA-wide corpus tests read (E07-25 moves
+# it here from ipu-apps; the digest manifest stays there until then).
+py_library(
+    name = "asm_corpus",
+    srcs = ["test/corpus/asm_corpus.py"],
+    imports = ["test/corpus"],
+    deps = [
+        ":ipu_as_lib",
+        requirement("jinja2"),
+    ],
+)

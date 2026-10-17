@@ -4,7 +4,7 @@ The manifest (``test/baselines/asm_digests.json``) is today's output. A refactor
 of the assembler, the ISA tables or the templates must leave every digest
 unchanged; a PR that changes assembled output on purpose regenerates the
 manifest with ``bazel run //src/tools/ipu-apps:update_asm_digests`` and says
-why. The corpus is defined in ``test/baselines/asm_corpus.py``.
+why. The corpus is defined in ``src/tools/ipu-as-py/test/corpus/asm_corpus.py``.
 """
 
 from __future__ import annotations
