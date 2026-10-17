@@ -14,8 +14,9 @@ Checks, in order:
 2. Parameters: no unknown names, every parameter without a default given,
    each value of its type, finite, and in its domain (``min``, ``max``,
    ``multiple_of``, ``choices``).
-3. Shapes and derived values: every ``[derived]`` value and every tensor
-   dimension evaluates, in the shape grammar (:mod:`ipu_harness.expressions`),
+3. Shapes and derived values: every ``[derived]`` value (but a placed one,
+   which reads a region's base: ``abi.register_writes`` computes it) and every
+   tensor dimension evaluates, in the shape grammar (:mod:`ipu_harness.expressions`),
    to a whole number; dimensions are positive.
 4. Element scalars: a ``float`` parameter bound in ``[abi]`` is a scalar in the
    active format, so it must encode in ``fmt`` exactly. If it does not, the
@@ -74,7 +75,8 @@ class CasePlan:
         format: The element format it runs in.
         params: Every parameter, defaults filled; a float parameter's value is a float.
         shapes: Every tensor's shape, in ints.
-        derived: Every ``[derived]`` value.
+        derived: Every ``[derived]`` value but the placed ones (they read a
+            region's base: ``abi.register_writes`` computes them).
         pins: The first row of every pinned tensor (``row``), in ints.
     """
 
@@ -221,10 +223,12 @@ def _check_params(manifest: KernelManifest, params: Mapping[str, object]) -> dic
 
 
 def _derived(manifest: KernelManifest, params: Mapping[str, Value]) -> dict[str, int]:
-    """Integer parameters, then every [derived] value, in declaration order."""
+    """Every [derived] value but the placed ones, in declaration order."""
     names = {k: v for k, v in params.items() if isinstance(v, int) and not isinstance(v, bool)}
     derived: dict[str, int] = {}
     for name, expression in manifest.derived.items():
+        if name in manifest.placed:
+            continue  # it reads a region's base: abi.register_writes computes it
         try:
             derived[name] = names[name] = evaluate(expression, names)
         except ExpressionError as error:
@@ -290,7 +294,8 @@ class ParamCheck:
     Attributes:
         params: Every parameter, defaults filled.
         formats: The kernel's formats whose element scalars accept the values.
-        derived: Every ``[derived]`` value (for a routing cost, E06-16).
+        derived: Every ``[derived]`` value but the placed ones (for a routing
+            cost, E06-16).
     """
 
     params: Mapping[str, Value]

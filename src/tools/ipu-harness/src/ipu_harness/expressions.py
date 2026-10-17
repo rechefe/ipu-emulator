@@ -3,8 +3,11 @@
 A shape dimension or a ``[derived]`` value is an int literal, a name, or an
 expression built from int literals, names, ``+ - * / // %``, unary minus, and
 the calls ``ceil(x)``, ``min(a, b, ...)`` and ``max(a, b, ...)``. Nothing else is
-evaluated. Arithmetic is exact (fractions): ``/`` must end up inside ``ceil``
-or divide evenly, and the result must be a whole number.
+evaluated. A ``[derived]`` value may also read ``base(<tensor>)``, a region's
+base once it is placed (:func:`base_name`, :func:`placed_reads`): such a value
+is known only when the registers are written, so only ``[abi]`` reads it.
+Arithmetic is exact (fractions): ``/`` must end up inside ``ceil`` or divide
+evenly, and the result must be a whole number.
 
 :func:`names_in` checks an expression against the grammar without values (the
 loader, at load time); :func:`evaluate` computes it (``plan_case``).
@@ -31,7 +34,44 @@ _CALLS: Mapping[str, tuple[int, int | None, Callable[..., Fraction]]] = {
     "min": (2, None, min),
     "max": (2, None, max),
 }
-FUNCTIONS = frozenset(_CALLS)
+#: The call that reads a placed region's base (``base(x)``).
+BASE = "base"
+
+FUNCTIONS = frozenset({*_CALLS, BASE})
+
+
+def base_name(tensor: str) -> str:
+    """The name ``base(<tensor>)`` is looked up by, in :func:`evaluate`'s names
+    and in what :func:`names_in` returns."""
+    return f"{BASE}({tensor})"
+
+
+def base_tensor(read: str) -> str | None:
+    """The tensor a :func:`names_in` read of ``base(x)`` names; ``None`` for
+    any other read."""
+    prefix = f"{BASE}("
+    return read[len(prefix) : -1] if read.startswith(prefix) and read.endswith(")") else None
+
+
+def placed_reads(derived: Mapping[str, str]) -> dict[str, frozenset[str]]:
+    """Each ``[derived]`` value that reads a region's base, directly or through
+    an earlier such value, with the tensors whose bases it reads.
+
+    Raises:
+        ExpressionError: An expression is outside the grammar.
+    """
+    reads: dict[str, frozenset[str]] = {}
+    for name, expression in derived.items():
+        tensors: set[str] = set()
+        placed = False
+        for read in names_in(expression):
+            tensor = base_tensor(read)
+            if tensor is not None or read in reads:
+                placed = True
+                tensors |= {tensor} if tensor is not None else reads[read]
+        if placed:
+            reads[name] = frozenset(tensors)
+    return reads
 
 
 class ExpressionError(ValueError):
@@ -48,9 +88,22 @@ def _parse(text: str) -> ast.Expression:
         raise ExpressionError(f"{text[:40]!r}... is too deeply nested") from None
 
 
+def _base(node: ast.Call, names: Mapping[str, Fraction] | None) -> Fraction:
+    if node.keywords or len(node.args) != 1 or not isinstance(node.args[0], ast.Name):
+        raise ExpressionError("base() takes one tensor name")
+    if names is None:
+        return Fraction(0)
+    key = base_name(node.args[0].id)
+    if key not in names:
+        raise ExpressionError(f"{key} is no placed region")
+    return names[key]
+
+
 def _call(node: ast.Call, names: Mapping[str, Fraction] | None) -> Fraction:
+    if isinstance(node.func, ast.Name) and node.func.id == BASE:
+        return _base(node, names)
     if not isinstance(node.func, ast.Name) or node.func.id not in _CALLS:
-        raise ExpressionError("only ceil(), min() and max() may be called")
+        raise ExpressionError("only ceil(), min(), max() and base() may be called")
     least, most, function = _CALLS[node.func.id]
     count = len(node.args)
     if node.keywords or count < least or (most is not None and count > most):
@@ -85,7 +138,8 @@ def _walk(node: ast.AST, names: Mapping[str, Fraction] | None) -> Fraction:
 
 
 def names_in(text: str) -> list[str]:
-    """The names ``text`` reads, after checking it against the grammar.
+    """The names ``text`` reads, after checking it against the grammar; a
+    ``base(x)`` read is ``base_name("x")``.
 
     Raises:
         ExpressionError: ``text`` is outside the grammar.
@@ -95,8 +149,18 @@ def names_in(text: str) -> list[str]:
         _walk(tree.body, None)
     except RecursionError:
         raise ExpressionError(f"{text[:40]!r}... is too deeply nested") from None
-    called = {id(n.func) for n in ast.walk(tree) if isinstance(n, ast.Call)}
-    return [n.id for n in ast.walk(tree) if isinstance(n, ast.Name) and id(n) not in called]
+    calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call)]
+    called = {id(n.func) for n in calls}
+    bases = {
+        id(n.args[0]): n.args[0]
+        for n in calls
+        if isinstance(n.func, ast.Name) and n.func.id == BASE
+    }
+    return [
+        base_name(n.id) if id(n) in bases else n.id
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Name) and id(n) not in called
+    ]
 
 
 def evaluate(text: str, names: Mapping[str, int]) -> int:

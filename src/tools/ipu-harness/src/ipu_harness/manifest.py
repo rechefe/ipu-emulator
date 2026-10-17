@@ -64,13 +64,21 @@ Schema
 
 ``[derived]``
     ``<name> = "<expression>"`` over parameters and earlier derived values,
-    in the shape grammar (E06-06).
+    in the shape grammar (E06-06). An expression may also read
+    ``base(<tensor>)``, the region's base row once placed (in bytes in a
+    ``unit = "bytes"`` kernel, as a tensor's binding): such a value, and any
+    that reads it, is *placed* (:attr:`KernelManifest.placed`), known only
+    when the registers are written, so only ``[abi]`` binds it; a shape, a
+    pin or the cost cannot read it. ``w1 = "base(weights) + 1"`` gives one
+    region several offset registers, which a ``{ register, offset }``
+    binding cannot.
 
 ``[cases.<name>]``
     Parameter values: a scalar, or a non-empty list (a sweep axis). Reserved
     keys: ``formats`` (a non-empty subset of the kernel's), ``inputs`` and
     ``expected`` (tensor name to a user file, Q82), ``generator``
-    (``"file.py:fn"``), ``tier`` (``default`` or ``nightly``, Q73).
+    (``"file.py:fn"``, or ``"../file.py:fn"`` in the family's folder, a
+    generator its kernels share), ``tier`` (``default`` or ``nightly``, Q73).
     ``[cases.default]`` is required.
 
 ``[golden]`` (optional)
@@ -98,6 +106,7 @@ and ``cases`` (the template cases the entry runs, ``default`` among them).
 
 from __future__ import annotations
 
+import functools
 import math
 import re
 import sys
@@ -111,7 +120,7 @@ from ipu_emu.errors import ConfigurationError
 from ipu_harness._codec import limits
 from ipu_harness._toml_source import Locator, ManifestError, Reader, decode_error_line, where
 from ipu_harness.conditions import Condition
-from ipu_harness.expressions import ExpressionError, names_in
+from ipu_harness.expressions import ExpressionError, base_tensor, names_in, placed_reads
 from ipu_harness.tolerance import TIERS
 from ipu_harness.tolerance import Tier as ToleranceTier
 from ipu_isa.formats import FORMATS, ElementFormat
@@ -305,7 +314,8 @@ class KernelManifest:
         abi_offsets: A tensor's offset from its base row, when ``[abi]`` gives one.
         abi_when: A binding's condition, when it has one (a conditional tensor's
             included).
-        derived: Name to expression.
+        derived: Name to expression; a placed one (:attr:`placed`) reads a
+            region's base.
         cases: The cases, ``default`` among them.
         golden: How outputs are checked.
         stages: ``"stages.py:run"`` for a multi-program pipeline (E06-14).
@@ -342,6 +352,13 @@ class KernelManifest:
         if self.registry is not None:
             return f"//kernels/{self.registry.parent.name}:{self.name}"
         return f"//kernels/{self.directory.parent.name}/{self.directory.name}"
+
+    @functools.cached_property
+    def placed(self) -> Mapping[str, frozenset[str]]:
+        """The ``[derived]`` values that read ``base(<tensor>)``, directly or
+        through another, with the tensors whose bases each reads: known once
+        the regions are placed, so only ``[abi]`` reads them."""
+        return MappingProxyType(placed_reads(self.derived))
 
     @property
     def byte_units(self) -> bool:
@@ -804,7 +821,8 @@ def _case(r: Reader, m: KernelManifest, name: str, raw: object) -> CaseDecl:
         case = replace(case, expected=expected)
     if "generator" in table:
         case = replace(
-            case, generator=r.function(m.directory, table["generator"], (*path, "generator"))
+            case,
+            generator=r.generator(m.directory, table["generator"], (*path, "generator")),
         )
     if "tier" in table:
         tier = table["tier"]
@@ -1018,8 +1036,87 @@ def _derived(r: Reader, raw: object, params: Mapping[str, ParamDecl]) -> dict[st
         if name in params:
             raise r.fail(path, f"[derived] {name} is also a parameter")
         derived[name] = r.text(expression, path)
-        _check_expression(r, derived[name], (*params, *derived), path)
+        bases = [n for n in _names(r, derived[name], path) if base_tensor(n) is not None]
+        earlier = [d for d in derived if d != name]  # not itself: it would never resolve
+        _check_expression(r, derived[name], (*params, *earlier, *bases), path)
     return derived
+
+
+def _names(r: Reader, text: str, path: tuple[str, ...]) -> list[str]:
+    try:
+        return names_in(text)
+    except ExpressionError as error:
+        raise r.fail(path, f"{where(path)}: {error}") from None
+
+
+def _declared_tensors(r: Reader, data: Mapping[str, Any]) -> list[str]:
+    """Every tensor name the file declares, before its tables are read."""
+    return [name for section in _ROLES for name in r.table(data.get(section, {}), (section,))]
+
+
+def _placed_derived(
+    r: Reader, derived: Mapping[str, str], tensors: Iterable[str]
+) -> Mapping[str, frozenset[str]]:
+    """The derived values that read a region's base (``placed_reads``), once
+    each ``base(x)`` is checked to name a tensor."""
+    declared = set(tensors)
+    for name, expression in derived.items():
+        path = ("derived", name)
+        for read in _names(r, expression, path):
+            tensor = base_tensor(read)
+            if tensor is not None and tensor not in declared:
+                raise r.fail(path, f"{where(path)} {expression!r}: {read} names no tensor")
+    return placed_reads(derived)
+
+
+def _no_placed_reads(
+    r: Reader, placed: Iterable[str], tensors: Mapping[str, TensorDecl], cost: object
+) -> None:
+    """A shape, a pin or the cost reads no placed value: it is known only once
+    the regions are, after them."""
+    late = set(placed)
+    reading: list[tuple[tuple[str, ...], str]] = [
+        ((tensor.section, tensor.name, key), text)
+        for tensor in tensors.values()
+        for key, texts in (("shape", tensor.shape), ("row", (tensor.row,)))
+        for text in texts
+        if isinstance(text, str)
+    ]
+    if isinstance(cost, str):
+        reading.append((("kernel", "cost"), cost))
+    for path, text in reading:
+        read = sorted(late & set(_names(r, text, path)))
+        if read:
+            raise r.fail(
+                path,
+                f"{where(path)} {text!r} reads {read}, which read a region's base: "
+                "only [abi] may read such a value",
+            )
+
+
+def _placed_conditions(
+    r: Reader,
+    placed: Mapping[str, frozenset[str]],
+    tensors: Mapping[str, TensorDecl],
+    abi_when: Mapping[str, Condition],
+    abi: Mapping[str, str],
+) -> None:
+    """A placed value's binding takes the condition of the conditional tensors
+    it reads, as a tensor's binding takes its tensor's: it is bound exactly
+    when they exist."""
+    for name, read in placed.items():
+        if name not in abi:
+            continue
+        conditions = {tensors[t].when for t in read if tensors[t].when is not None}
+        if len(conditions) > 1:
+            raise r.fail(("abi", name), f"[abi] {name} reads tensors under different conditions")
+        if conditions and abi_when.get(name) not in conditions:
+            want = next(iter(conditions))
+            raise r.fail(
+                ("abi", name),
+                f"[abi] {name} reads the base of a tensor that exists when {want}; "
+                f"bind it with when = {str(want)!r}",
+            )
 
 
 def _tensors(
@@ -1108,13 +1205,18 @@ def load_manifest(
     params = {name: _param(r, name, raw, family_name) for name, raw in raw_params.items()}
     entry = _overrides(toml, params, kernel.formats, overrides or {}, source)
     derived = _derived(r, data.get("derived", {}), params)
+    # A placed derived value (it reads base(x)) is known only once the regions
+    # are: a shape, a pin or the cost cannot read it, only [abi].
+    placed = _placed_derived(r, derived, _declared_tensors(r, data))
     scalars = (*params, *derived)
     if isinstance(kernel.cost, str):
         integers = [n for n, p in params.items() if p.type == "int"]
         _check_expression(r, kernel.cost, (*integers, *derived), ("kernel", "cost"))
     bools = tuple(n for n, p in params.items() if p.type == "bool")
     tensors = _tensors(r, data, scalars, kernel.formats, bools, directory)
+    _no_placed_reads(r, placed, tensors, kernel.cost)
     abi, abi_offsets, abi_when = _abi(r, data.get("abi", {}), params, {*scalars, *tensors}, tensors)
+    _placed_conditions(r, placed, tensors, abi_when, abi)
     manifest = KernelManifest(
         name=entry.name or directory.name,
         directory=directory,

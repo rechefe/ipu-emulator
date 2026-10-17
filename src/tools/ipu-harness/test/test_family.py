@@ -5,10 +5,12 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from ipu_emu.errors import ConfigurationError
 from ipu_harness import kernel_bin, kernel_test, registry_bzl
+from ipu_harness.cases import expand, inputs_for
 from ipu_harness.family import (
     ENTRY_SEPARATOR,
     invalid_name,
@@ -18,7 +20,9 @@ from ipu_harness.family import (
     split_ref,
 )
 from ipu_harness.manifest import ManifestError
+from ipu_harness.params import plan_case
 from ipu_harness.registry import Registry
+from ipu_isa.formats import ElementFormat
 
 TEMPLATE = """\
 [kernel]
@@ -130,6 +134,26 @@ def test_an_entry_chooses_its_template_cases(tmp_path):
     registry = Registry.load(tmp_path)
     assert list(registry.manifests["proj_out_240"].cases) == ["default"]
     assert list(registry.manifests["proj_qkv_144"].cases) == ["default", "edge"]
+
+
+def test_an_entrys_cases_may_use_the_familys_shared_generator(tmp_path):
+    """``generator = "../gen.py:fn"`` from a template is the family's file
+    (beside registry.toml), as E07-02's gen.py:legacy_uniform."""
+    path = family(tmp_path)
+    toml = TEMPLATE.replace(
+        "[cases.edge]",
+        '[cases.made]\nk = 2\nn_out = 2\ngenerator = "../gen.py:make"\n\n[cases.edge]',
+    )
+    (path.parent / "proj" / "kernel.toml").write_text(toml)
+    (path.parent / "gen.py").write_text(
+        "import numpy as np\n\n\ndef make(plan, rng):\n"
+        "    return {'x': np.full(plan.shapes['x'], 0.25)}\n"
+    )
+    entry = load_kernel(entry_ref(path, "proj_qkv_144"))
+    assert entry.directory.parent == path.parent  # the family's folder
+    case = next(c for c in expand(entry) if c.name == "made")
+    plan = plan_case(entry, case.values, ElementFormat.FP32, case=case.decl)
+    assert np.array_equal(inputs_for(case, plan).tensors["x"], np.full((144, 128), 0.25))
 
 
 def test_load_kernel_takes_a_folder_or_an_entry(tmp_path):

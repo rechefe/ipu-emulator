@@ -18,7 +18,9 @@ an ``int`` parameter   the integer
 a ``bool`` parameter   1 or 0
 a ``float`` parameter  its element encoding in ``plan.format``, in the low
                        element-width bits (Q49; E06-03 checked it is exact)
-a ``[derived]`` value  the integer (``-1``, ``"k - 128 * (ceil(k / 128) - 1) - 2"``)
+a ``[derived]`` value  the integer (``-1``, ``"k - 128 * (ceil(k / 128) - 1) - 2"``);
+                       a placed one (``"base(w) + 1"``) over the regions'
+                       bases, in rows (bytes in a ``unit = "bytes"`` kernel)
 =====================  =====================================================
 
 Values are raw register bits: a negative integer is its two's complement in
@@ -42,6 +44,7 @@ from ipu_emu.errors import ConfigurationError
 from ipu_emu.ipu_config import DEFAULT_DSTRUCTURE_CR
 from ipu_emu.reference import ReferenceModel
 from ipu_harness._codec import encode
+from ipu_harness.expressions import ExpressionError, base_tensor, evaluate, names_in
 from ipu_harness.manifest import ZERO_REGISTER, KernelManifest
 from ipu_harness.params import CasePlan, PlanError
 from ipu_harness.placement import Placement
@@ -100,6 +103,34 @@ def _element_bits(value: float, plan: CasePlan) -> int:
     return int.from_bytes(encode(np.array([value]), plan.format), "little")
 
 
+def _placed_value(name: str, plan: CasePlan, placement: Placement) -> int:
+    """A placed ``[derived]`` value: its expression over the integer parameters,
+    the other derived values (placed ones computed as it reads them) and the
+    bases it reads (bytes in a ``unit = "bytes"`` kernel, as a tensor's
+    binding)."""
+    manifest = plan.manifest
+    expression = manifest.derived[name]
+    scale = FORMATS[plan.format].row_bytes if manifest.byte_units else 1
+    ints = {k: v for k, v in plan.params.items() if isinstance(v, int) and not isinstance(v, bool)}
+    names: dict[str, int] = {**ints, **plan.derived}
+    for read in names_in(expression):
+        tensor = base_tensor(read)
+        if tensor is not None:
+            if tensor not in placement.regions:
+                raise PlanError(
+                    manifest,
+                    f"derived.{name}",
+                    f"{expression!r}: {tensor} is not placed in this case (its when is false)",
+                )
+            names[read] = placement.regions[tensor].base_row * scale
+        elif read in manifest.placed:
+            names[read] = _placed_value(read, plan, placement)
+    try:
+        return evaluate(expression, names)
+    except ExpressionError as error:
+        raise PlanError(manifest, f"derived.{name}", f"{expression!r}: {error}") from None
+
+
 def _value(name: str, plan: CasePlan, placement: Placement) -> tuple[int, str]:
     """The bits ``name`` puts in its register, and what they are."""
     manifest = plan.manifest
@@ -111,6 +142,8 @@ def _value(name: str, plan: CasePlan, placement: Placement) -> tuple[int, str]:
             bytes_base = base * FORMATS[plan.format].row_bytes
             return bytes_base + offset, f"{name} (region base, bytes{shown})"
         return base + offset, f"{name} (region base{shown})"
+    if name in manifest.placed:
+        return _placed_value(name, plan, placement), f"{name} (derived, placed)"
     if name in manifest.derived:
         return plan.derived[name], f"{name} (derived)"
     decl = manifest.params[name]

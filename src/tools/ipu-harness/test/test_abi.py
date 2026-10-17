@@ -103,6 +103,67 @@ def test_a_tensor_binding_with_an_offset_is_its_base_plus_the_offset(tmp_path):
     assert writes(m, {"rows": 4, "s": 2.0}, F.FP32)["CR3"] == 3  # y at row 4, minus 1
 
 
+def test_a_derived_value_may_read_a_regions_base(tmp_path):
+    """Several offsets of one region (the x128 matmuls' weights + 1..3, E07)."""
+    toml = SCALE.format(unit="").replace(
+        'neg = "-rows"', 'neg = "-rows"\ny1 = "base(y) + 1"\ny2 = "y1 + rows"'
+    )
+    toml = toml.replace('neg  = "LR3"', 'neg  = "LR3"\ny1   = "CR6"\ny2   = "CR7"')
+    m = kernel(tmp_path, toml)
+    assert m.placed == {"y1": frozenset({"y"}), "y2": frozenset({"y"})}
+    plan = plan_case(m, {"rows": 4, "s": 2.0}, F.FP32)
+    assert "y1" not in plan.derived and plan.derived["neg"] == -4
+    got = writes(m, {"rows": 4, "s": 2.0}, F.FP32)
+    assert (got["CR6"], got["CR7"]) == (5, 9)  # y at row 4: 4 + 1, then 5 + 4
+
+
+def test_a_bytes_kernels_base_counts_bytes(tmp_path, monkeypatch):
+    monkeypatch.setattr(manifest_module, "BYTE_UNIT_KERNELS", frozenset({"elementwise/scale"}))
+    toml = SCALE.format(unit=', unit = "bytes"').replace(
+        'neg = "-rows"', 'neg = "-rows"\nyb = "base(y) + 1"'
+    )
+    m = kernel(tmp_path, toml.replace('neg  = "LR3"', 'neg  = "LR3"\nyb   = "CR6"'))
+    assert writes(m, {"rows": 4, "s": 2.0}, F.FP32)["CR6"] == 4 * 512 + 1
+
+
+@pytest.mark.parametrize(
+    ("derived", "where", "match"),
+    [
+        ('w = "base(z) + 1"', "", "base(z) names no tensor"),
+        ('w = "base(1)"', "", "base() takes one tensor name"),
+        ('w = "base(y) + w"', "", "names no parameter or derived value: ['w']"),
+        ('w = "base(y)"', 'shape = ["w", 128]', "reads ['w'], which read a region's base"),
+        (
+            'w = "base(x)"',
+            'shape = ["rows", 128]\nrow = "w + 4"',
+            "only [abi] may read such a value",
+        ),
+    ],
+)
+def test_a_placed_value_needs_a_tensor_and_only_abi_reads_it(tmp_path, derived, where, match):
+    toml = SCALE.format(unit="").replace('neg = "-rows"', f'neg = "-rows"\n{derived}')
+    if where:
+        toml = toml.replace('[outputs.y]\nshape = ["rows", 128]', f"[outputs.y]\n{where}")
+    with pytest.raises(ManifestError, match=re.escape(match)):
+        kernel(tmp_path, toml)
+
+
+def test_a_placed_value_cannot_be_the_cost(tmp_path):
+    toml = SCALE.format(unit="").replace(
+        'formats = ["fp32", "int8", "e4"]', 'formats = ["fp32", "int8", "e4"]\ncost = "w"'
+    )
+    with pytest.raises(ManifestError, match=r"\[kernel\] cost 'w' reads \['w'\]"):
+        kernel(tmp_path, toml.replace('neg = "-rows"', 'neg = "-rows"\nw = "base(y)"'))
+
+
+def test_a_stage_abi_may_bind_a_placed_value(tmp_path):
+    toml = SCALE.format(unit="").replace('neg = "-rows"', 'neg = "-rows"\ny1 = "base(y) + 1"')
+    m = kernel(tmp_path, toml)
+    plan = plan_case(m, {"rows": 4, "s": 2.0}, F.FP32)
+    got = {w.register: w.value for w in register_writes(plan, place(plan), abi={"y1": "CR8"})}
+    assert got["CR8"] == 5
+
+
 def test_a_tensor_pinned_at_row_0_can_be_read_through_cr0(tmp_path):
     toml = SCALE.format(unit="").replace(
         '[inputs.x]\nshape = ["rows", 128]', '[inputs.x]\nshape = ["rows", 128]\nrow = 0'
