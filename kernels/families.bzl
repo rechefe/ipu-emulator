@@ -20,6 +20,7 @@ KERNELS = {
     ],
     "conformance": ["vector_tour"],
     "elementwise": ["scale"],
+    "linear": ["fully_connected"],
     "pooling": [
         "maxpool2d_nms",
         "maxpool2d_stride2",

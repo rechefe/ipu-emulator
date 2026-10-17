@@ -1,7 +1,8 @@
 """Pass or fail, one way for every kernel (E06-10, Q80, Q82).
 
 :func:`expected_for` gives each output's expected values: the case's
-``expected`` file when it has one (Q82), else the reference's output (computed
+``expected`` file when it has one (Q82; or the values its ``"file.py:fn"``
+returns for the plan), else the reference's output (computed
 from the inputs as the format holds them), rounded once to the format the
 output is stored in (its element format, or its accumulator format) with
 saturation. Quantization error therefore never counts against the kernel.
@@ -17,6 +18,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from ipu_harness._codec import Array, codes, held
+from ipu_harness._plugins import kernel_file, load_file
 from ipu_harness.cases import Case
 from ipu_harness.manifest import TensorDecl
 from ipu_harness.packing import stored_format
@@ -80,13 +82,36 @@ def _rounded(values: Array, tensor: TensorDecl, plan: CasePlan) -> Array:
     )
 
 
+def _from_function(source: str, plan: CasePlan, key: str) -> Array:
+    """The values ``"file.py:fn"``'s ``fn(plan)`` returns (the kernel folder's
+    file, else its family folder's), as an array."""
+    file, _, function = source.partition(":")
+    path = kernel_file(plan.manifest.directory, file)
+    try:
+        module = load_file(path)
+    except Exception as error:
+        raise PlanError(
+            plan.manifest, key, f"cannot load {file}: {type(error).__name__}: {error}"
+        ) from error
+    fn = getattr(module, function, None)
+    if not callable(fn):
+        raise PlanError(plan.manifest, key, f"{source}: {file} has no function {function}")
+    try:
+        return np.asarray(fn(plan))
+    except Exception as error:
+        raise PlanError(
+            plan.manifest, key, f"{source} raised {type(error).__name__}: {error}"
+        ) from error
+
+
 def expected_for(
     case: Case, plan: CasePlan, ref_out: Mapping[str, Array] | None
 ) -> dict[str, Array]:
     """Each output's expected values, as the stored format holds them.
 
     Args:
-        case: The case (its ``expected`` files win over the reference).
+        case: The case (its ``expected`` files or functions win over the
+            reference).
         plan: Its plan.
         ref_out: The reference's float64 outputs (``reference.evaluate``), if
             the kernel has a reference.
@@ -96,8 +121,8 @@ def expected_for(
         neither a file nor a reference output has none (a smoke run only).
 
     Raises:
-        PlanError: An expected file is unreadable, not real numbers or not
-            the output's shape; the reference did not make exactly the
+        PlanError: An expected file is unreadable (or its function fails to
+            load or raises), not real numbers or not the output's shape; the reference did not make exactly the
             declared outputs, or made one the wrong shape; or an expected
             value is not finite (located at ``cases.<name>.expected.<output>``
             or ``golden``).
@@ -116,10 +141,13 @@ def expected_for(
         if tensor.name in case.expected:
             key = f"cases.{case.decl.name}.expected.{tensor.name}"
             path = case.expected[tensor.name]
-            try:
-                values = np.load(path, allow_pickle=False)
-            except (OSError, ValueError) as error:
-                raise PlanError(plan.manifest, key, f"cannot read {path}: {error}") from None
+            if isinstance(path, str):
+                values = _from_function(path, plan, key)
+            else:
+                try:
+                    values = np.load(path, allow_pickle=False)
+                except (OSError, ValueError) as error:
+                    raise PlanError(plan.manifest, key, f"cannot read {path}: {error}") from None
             real = np.issubdtype(values.dtype, np.floating) or np.issubdtype(
                 values.dtype, np.integer
             )

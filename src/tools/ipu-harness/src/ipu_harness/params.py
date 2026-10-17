@@ -37,7 +37,7 @@ import numpy as np
 
 from ipu_emu.errors import ConfigurationError
 from ipu_harness.conditions import narrowed
-from ipu_harness.expressions import ExpressionError, evaluate, evaluate_exact
+from ipu_harness.expressions import ROW_BYTES, ExpressionError, evaluate, evaluate_exact
 from ipu_harness.manifest import TOML_NAME, CaseDecl, KernelManifest, ParamDecl
 from ipu_isa.formats import FORMATS, ElementFormat, element_values
 
@@ -382,7 +382,7 @@ def plan_case(
     derived = _derived(manifest, checked)
     names = {k: v for k, v in checked.items() if isinstance(v, int) and not isinstance(v, bool)}
     shapes = _shapes(manifest, {**names, **derived})
-    pins = _pins(manifest, {**names, **derived})
+    pins = _pins(manifest, {**names, **derived, ROW_BYTES: FORMATS[fmt].row_bytes})
     fills = _fills(manifest, checked, derived)
     _check_scalars(manifest, checked, fmt)
     return CasePlan(
