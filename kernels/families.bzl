@@ -34,7 +34,15 @@ KERNELS = {
     "detect": ["channel_peak", "score_threshold"],
     "elementwise": ["residual_add", "residual_add_rows", "scale"],
     "linear": ["fully_connected"],
-    "matmul": ["matmul_small"],
+    "matmul": [
+        "matmul_small",
+        "matmul_x128_2tg_c2",
+        "matmul_x128_2tg_c3",
+        "matmul_x128_c2",
+        "matmul_x128_c2_qkv",
+        "matmul_x128_c3",
+        "matmul_x128_c4",
+    ],
     "mobilevit": [],  # chain tests only (E07-24): seams and full layers across families
     "normalize": ["l2_normalize_channels", "layernorm"],
     "pooling": [

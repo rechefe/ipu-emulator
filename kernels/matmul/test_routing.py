@@ -2,8 +2,9 @@
 router's facts on the kernel tree's registry and ``//kernels:query``.
 
 The old query named ``shape_a=(M, K)`` and ``shape_b_t=(N, K)``; a query now
-names ``m``, ``k`` and ``n``. Every entry is one exact shape, and no two
-entries share one (with their activation).
+names ``m``, ``k`` and ``n`` (and ``activation`` for an FFN1 shape). Every
+entry is one exact shape, and no two entries share one with their
+activation: a plain query at an FFN1 shape is refused, as before.
 """
 
 from __future__ import annotations
@@ -21,6 +22,18 @@ ENTRIES = {
     "matmul_128x64x64": (128, 64, 64, "none", "matmul_small"),
     "matmul_128x64x128": (128, 64, 128, "none", "matmul_small"),
     "matmul_128x128": (128, 128, 128, "none", "matmul_small"),
+    "matmul_144x144_x128": (256, 144, 144, "none", "matmul_x128_2tg_c2"),
+    "matmul_432x144_x128": (256, 144, 432, "none", "matmul_x128_2tg_c2"),
+    "matmul_288x144_x128": (256, 144, 288, "silu", "matmul_x128_2tg_c2"),
+    "matmul_144x288_x128": (256, 288, 144, "none", "matmul_x128_2tg_c3"),
+    "matmul_192x192_x128": (64, 192, 192, "none", "matmul_x128_c2"),
+    "matmul_384x192_x128": (64, 192, 384, "silu", "matmul_x128_c2"),
+    "matmul_240x240_x128": (16, 240, 240, "none", "matmul_x128_c2"),
+    "matmul_480x240_x128": (16, 240, 480, "silu", "matmul_x128_c2"),
+    "matmul_720x240_x128": (16, 240, 720, "none", "matmul_x128_c2"),
+    "matmul_576x192_x128": (64, 192, 576, "none", "matmul_x128_c2_qkv"),
+    "matmul_192x384_x128": (64, 384, 192, "none", "matmul_x128_c3"),
+    "matmul_240x480_x128": (16, 480, 240, "none", "matmul_x128_c4"),
 }
 
 
@@ -45,7 +58,7 @@ def test_each_entry_is_routed_by_its_exact_shape(registry, name, capsys):
     assert verdict.kernel_name == name, verdict.reason
     assert verdict.alternatives == ()
     assert verdict.label == f"//kernels/matmul:{name}"
-    argv = ["matmul", f"m={m}", f"k={k}", f"n={n}", "--json"]
+    argv = ["matmul", f"m={m}", f"k={k}", f"n={n}", f"activation={activation}", "--json"]
     assert query.main(argv, registry) == 0
     assert json.loads(capsys.readouterr().out)["app"] == name
 
@@ -58,3 +71,23 @@ def test_other_shapes_are_refused(registry, shape):
 
 def test_no_small_entry_fuses_silu(registry):
     assert not registry.resolve("matmul", m=128, k=128, n=128, activation="silu")
+
+
+def test_entries_are_7_templates():
+    assert len({t for *_, t in ENTRIES.values()}) == 7
+
+
+@pytest.mark.parametrize("name", sorted(n for n, e in ENTRIES.items() if e[3] == "silu"))
+def test_a_silu_shape_routes_only_with_activation(registry, name):
+    """A plain matmul at an FFN1 shape must not reach the SiLU-fused kernel
+    (the old router's test_matmul_silu_shape_routes_only_with_activation)."""
+    m, k, n, *_ = ENTRIES[name]
+    assert not registry.resolve("matmul", m=m, k=k, n=n)
+    assert not registry.resolve("matmul", m=m, k=k, n=n, activation="none")
+    assert registry.resolve("matmul", m=m, k=k, n=n, activation="silu").kernel_name == name
+
+
+@pytest.mark.parametrize("name", sorted(n for n, e in ENTRIES.items() if e[3] == "none"))
+def test_an_identity_shape_refuses_silu(registry, name):
+    m, k, n, *_ = ENTRIES[name]
+    assert not registry.resolve("matmul", m=m, k=k, n=n, activation="silu")

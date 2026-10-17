@@ -28,8 +28,9 @@
     LRs: LR0 = a row offset (m), LR1 = M, LR4 = b row offset (startup -1: the
     first live row is T[0]), LR5 = fixed_idx (k), LR6 = K - 1, LR7 = y row
     offset, LR12..LR14 = the steps; the program sets each. LR15 is the
-    R_CYCLIC slot index 0 and is never written: the program reads its reset
-    value (neither harness wrote it).
+    R_CYCLIC slot index 0, which the program reads but never writes: [abi]
+    presets it to 0 (the old harness relied on its reset value; a chain step
+    inherits the LRs the step before left).
 -#}
 
     SET                 LR12 CR3;;
