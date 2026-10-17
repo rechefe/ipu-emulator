@@ -43,9 +43,17 @@ Paths are under `src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/`.
 
   Today's query semantics are preserved by the fixed parameters: `has_bias`
   maps to `bias`, and `apply_relu` maps to `activation`. The bn entry still
-  accepts `has_bias = false` with zero bias. Express this with an input `bias`
-  tensor that defaults to zeros, as today.
-- The reference is `ops.conv2d` with the bias and activation parameters.
+  accepts `has_bias = false` with zero bias.
+- **Weights and bias are one input tensor.** In the program the bias sits
+  inside each weight block, in the same region. A pack transform sees one
+  tensor (Q83), and every CR is already bound, so the bias cannot be a tensor
+  of its own. Declare one `filters` input, `[F, taps + 1]`: the weights, then a
+  bias column (zeros when `bias = false`, as today). This is the coordinator's
+  decision on E06 gap G3 (option a). Composite regions, which would relax Q83
+  so that one region packs several tensors, are a follow-up.
+- The reference is `ops.conv2d` with the bias and activation parameters,
+  through a thin family adapter that splits `filters` into the weight and the
+  bias.
 - The benchmarks move. The upper-case and header rules apply (the per-family
   checklist).
 
