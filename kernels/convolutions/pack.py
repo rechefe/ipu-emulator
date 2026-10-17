@@ -262,8 +262,9 @@ class Fpb28Filters:
     program (``has_bias or apply_relu``, as the template's program decides)
     reads the bias at element 0 of a block, so then the channels start at
     ``1 + 9 s`` and the bias is in every block (one weight index for all
-    blocks; the program accumulates it once, from block 0). Unseeded, the bias
-    column is not stored."""
+    blocks; the program accumulates it once, from block 0). Element 0 holds
+    the bias column only when ``has_bias``; seeded without one (ReLU, no bias)
+    it holds 0, so the column is ignored. Unseeded, the column is not stored."""
 
     @staticmethod
     def _channels(shape: tuple[int, ...]) -> int:
@@ -292,12 +293,12 @@ class Fpb28Filters:
         for sb in range(blocks.shape[1]):
             group = weights[:, sb * 28 : (sb + 1) * 28].reshape(f, -1)
             blocks[:, sb, offset : offset + group.shape[1]] = group
-            if offset:
+            if offset and plan.params["has_bias"]:
                 blocks[:, sb, 0] = a[:, -1]
         return blocks.reshape(-1, LANES)
 
     def from_rows(self, r: Array, plan: CasePlan, shape: tuple[int, ...]) -> Array:
-        """The ``shape`` tensor ``r`` holds; unseeded, the bias column reads 0."""
+        """The ``shape`` tensor ``r`` holds; without ``has_bias`` the bias column reads 0."""
         f, c = shape[0], self._channels(shape)
         offset = self._offset(plan)
         blocks = r.reshape(f, _ceil(c, 28), 2 * LANES)
@@ -305,7 +306,7 @@ class Fpb28Filters:
         for sb in range(blocks.shape[1]):
             n = min(28, c - sb * 28) * 9
             out[:, sb * 28 * 9 : sb * 28 * 9 + n] = blocks[:, sb, offset : offset + n]
-        if offset:
+        if offset and plan.params["has_bias"]:
             out[:, -1] = blocks[:, 0, 0]
         return out
 

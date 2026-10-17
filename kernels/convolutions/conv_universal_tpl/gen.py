@@ -9,7 +9,7 @@ def _filters(w, b):
     return np.concatenate([w.reshape(w.shape[0], -1), b[:, None]], axis=1)
 
 
-def negative_sums(plan, rng):
+def negative_outputs(plan, rng):
     """Weights -1 on an input of 5, no bias: every sum is negative."""
     p = plan.params
     i, o = p["in_channels"], p["out_channels"]

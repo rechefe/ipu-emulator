@@ -8,20 +8,22 @@
 op = "conv2d"
 formats = ["fp32"]
 
-# Declared in the old supports' order (kernel_size, dilation, padding, stride,
-# groups), so a refusal names the parameter it named.
+# Declared in the old supports' order (conv_universal/app.py): the extents,
+# then kernel_size, dilation, padding, stride, groups, apply_relu, has_bias,
+# and width last, as its 128 ceiling was the last check, so a refusal names
+# the parameter it named (only width's lower bound, an extent, moves later).
 [params]
 in_channels  = { type = "int", min = 1, query_required = true }
 out_channels = { type = "int", min = 1, query_required = true }
 height       = { type = "int", min = 1, query_required = true }
-width        = { type = "int", min = 1, max = 128, query_required = true }  # wider: conv_universal_wide384
 kernel_size  = { type = "int", choices = [3], query_required = true }
 dilation     = { type = "int", choices = [1], query_required = true }
 padding      = { type = "int", choices = [1], query_required = true }
 stride       = { type = "int", choices = [1], query_required = true }
 groups       = { type = "int", choices = [1], query_required = true }       # depthwise: its own kernels
-has_bias     = { type = "bool", query_required = true }
 apply_relu   = { type = "bool", query_required = true }
+has_bias     = { type = "bool", query_required = true }
+width        = { type = "int", min = 1, max = 128, query_required = true }  # wider: conv_universal_wide384
 
 [derived]
 # cols: the smallest of 16, 32, 64, 128 at least width (one packed spatial row
@@ -44,7 +46,8 @@ shape = ["in_channels", "height", "width"]
 pack = "chunked_guard"
 
 # The weights, then the bias, per filter: one region holds both (Q83), so one
-# tensor. The bias column is read only when the program is seeded.
+# tensor. The bias column is stored and added only when has_bias; the seeded
+# program without one (apply_relu alone) reads a zero bias (fpb28_filters).
 [inputs.filters]
 shape = ["out_channels", "in_channels * 9 + 1"]
 pack = "fpb28_filters"
@@ -114,7 +117,7 @@ stride = 1
 groups = 1
 has_bias = true
 apply_relu = true
-generator = "gen.py:negative_sums"
+generator = "gen.py:negative_outputs"
 
 [cases.negative_bias]  # conv_universal_bn_activation: zero weights, bias below zero, so ReLU writes zeros (test_conv_universal.py)
 in_channels = 8
@@ -129,6 +132,19 @@ groups = 1
 has_bias = true
 apply_relu = true
 generator = "gen.py:negative_bias"
+
+[cases.relu_no_bias]  # conv_universal_bn_activation without a bias: the seeded data's bias column is nonzero, and must be ignored
+in_channels = 16
+out_channels = 4
+height = 16
+width = 16
+kernel_size = 3
+dilation = 1
+padding = 1
+stride = 1
+groups = 1
+has_bias = false
+apply_relu = true
 
 [cases.sweep_28x4]  # one full 28-channel super-block
 in_channels = [28]

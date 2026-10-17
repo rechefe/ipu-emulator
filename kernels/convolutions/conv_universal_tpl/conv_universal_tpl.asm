@@ -140,9 +140,9 @@
     LD.MASK   {{ lr_zero }} {{ cr.border_mask }};;
 
     ADD                 {{ lr_cols_m2 }} {{ lr_zero }} {{ cr.cols }};        # {{ lr_cols_m2 }} = cols (temp)
-    # lr8 starts at ONE GROUP STRIDE, not 0: the input data is placed that far
-    # above cr_input_base so the g0 kr=-1 prefetch (lr8 - cr6) bottoms out at
-    # row 0 instead of underflowing.  cr11 is pre-shifted to match.
+    # lr_chunk_base starts at ONE GROUP STRIDE, not 0: the input data is placed that far
+    # above the base of x so the g0 kr=-1 prefetch (lr_chunk_base - in_channels) bottoms out at
+    # row 0 instead of underflowing.  chunk_limit is pre-shifted to match.
     ADD                 {{ lr_chunk_base }} {{ lr_zero }} {{ cr.in_channels }};
     SET                 {{ lr_out_ptr }} CR0;;
 
@@ -151,7 +151,7 @@
     SUB                 {{ lr_shift_m1 }} {{ lr_zero }} CR1;;        # {{ lr_shift_m1 }} = -1 (mask_shift for kc=+1, permanent)
 
 # ===========================================================================
-# Section 1: Chunk 0 (top border) — kr=-1 row is zeros (loaded from cr9).
+# Section 1: Chunk 0 (top border) — the kr=-1 row is masked (mask slot 3).
 # ===========================================================================
 
     SET                 {{ lr_sb_off }} CR0;;
@@ -162,7 +162,7 @@ g0_filter_loop:
 
     SET                 {{ lr_ch_ctr }} CR0;
     MULT.EE             {{ lr_kern_idx }} {{ cr_seed }} 0 {{ lr_zero }} CR15;   # R0[0] * seed (bias or 0), broadcast
-    ACC.ADD.FIRST;;                                     # r_acc = seed (bias or 0; conv taps add on top)
+    ACC.ADD.FIRST;;                                     # R_ACC = seed (bias or 0; conv taps add on top)
 
     ADD                 {{ lr_scratch }} {{ lr_sb_off }} CR1;
     ADD                 {{ lr_clamp }} {{ lr_ch_ctr }} {{ cr.fpb }};
@@ -177,18 +177,18 @@ g0_ch_loop:
     # Its kr=-1 will be loaded same-cycle at the body's iter-0 tap 1 (g0:
     # masked via slots 4/3/5).  Seed walking-pointer state.
     #
-    # Note: lr10 is NOT reset here.  filter_loop / g0_filter_loop initialise
-    # lr10 = 0 for a fresh filter; reload paths keep lr10 at its end-of-body
+    # Note: lr_ch_ctr is NOT reset here.  filter_loop / g0_filter_loop initialise
+    # lr_ch_ctr = 0 for a fresh filter; reload paths keep lr_ch_ctr at its end-of-body
     # value so the preamble loads the correct channel within the next FPB
     # super-block.
 
-    # Cy 1: lr2 = E0 = ch0 kr=0 ext = lr8+lr10; load ch0 kr=0 → slot 0.
+    # Cy 1: lr_off_zero = E0 = ch0 kr=0 ext = lr_chunk_base+lr_ch_ctr; load ch0 kr=0 → slot 0.
     SET                 {{ lr_read }} CR0;
     SET                 {{ lr_write }} CR0;
     ADD                 {{ lr_off_zero }} {{ lr_chunk_base }} {{ lr_ch_ctr }};
     LD.MULT.CYCLIC {{ lr_off_zero }} {{ cr.x }} {{ lr_write }};;
 
-    # Cy 2: lr_write = 384; load ch0 kr=-1 (ext = E0 - cr6) → slot 384 (masked by slot 3
+    # Cy 2: lr_write = 384; load ch0 kr=-1 (ext = E0 - in_channels) → slot 384 (masked by slot 3
     #     in body, value don't-care).  lr_walk = -384.
     ADD                 {{ lr_write }} {{ lr_zero }} {{ cr.ring_adv }};
     SUB                 {{ lr_scratch }} {{ lr_off_zero }} {{ cr.in_channels }};
@@ -212,7 +212,7 @@ g0_tap_body:
     # don't-care.  THIS ch kr=+1 (real) is loaded at tap 1, read at taps 7-9.
 
     # --- tap 1: kr=-1 kc=-1.  slot 3 zeros row 0; kc=-1 shift.  Load THIS ch kr=+1
-    #     (ext = lr_off_zero + cr6) into the kr=+1 slot (lr_write = lr_read+128).
+    #     (ext = lr_off_zero + in_channels) into the kr=+1 slot (lr_write = lr_read+128).
     ADD                 {{ lr_walk }} {{ lr_walk }} {{ cr.walk_step }};
     INC                 {{ lr_kern_idx }} 1;
     ADD                 {{ lr_scratch }} {{ lr_off_zero }} {{ cr.in_channels }};
@@ -234,7 +234,7 @@ g0_tap_body:
     MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 3 {{ lr_shift_m1 }} CR15;
     ACC.ADD;;
 
-    # --- tap 4: kr=0 kc=-1.  Prefetch NEXT kr=-1 (ext = E' - cr6) into the SPARE slot.
+    # --- tap 4: kr=0 kc=-1.  Prefetch NEXT kr=-1 (ext = E' - in_channels) into the SPARE slot.
     ADD                 {{ lr_walk }} {{ lr_walk }} {{ lr_cols_m2 }};
     INC                 {{ lr_kern_idx }} 1;
     SUB                 {{ lr_scratch }} {{ lr_off_zero }} {{ cr.in_channels }};
@@ -249,7 +249,7 @@ g0_tap_body:
     MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_zero }} CR15;
     ACC.ADD;;
 
-    # --- tap 6.  lr10 += cr12 (loop counter).
+    # --- tap 6.  lr_ch_ctr += CR1 (the channel row counter).
     INC                 {{ lr_walk }} 1;
     INC                 {{ lr_kern_idx }} 1;
     ADD                 {{ lr_ch_ctr }} {{ lr_ch_ctr }} CR1;
@@ -282,7 +282,7 @@ g0_tap_body:
     BLT.S                 {{ lr_ch_ctr }} {{ cr.in_channels }} g0_reload;;
 
     # All input channels done — store aaq_result (128 B int8), advance by 128.
-    # ACTIVATE.QUANTIZE reads r_acc LIVE and ST.AAQ reads
+    # ACTIVATE.QUANTIZE reads R_ACC LIVE and ST.AAQ reads
     # post_aaq_reg LIVE (store dispatches after aaq in the per-cycle order),
     # so they co-issue in one word — no separate store cycle needed.
     ACTIVATE.QUANTIZE {{ activation }} CR15;
@@ -307,12 +307,12 @@ g0_reload_clamp:
     B                   g0_ch_loop;;
 
 # ===========================================================================
-# Section 2: Chunks 1 .. N-2 (main loop) — all rows real from cr10.
+# Section 2: Chunks 1 .. N-2 (main loop) — all rows real from x.
 # ===========================================================================
 
 main_setup:
-    # Chunk 1 = guard(cr6) + one chunk stride(cr6) = 2*cr6 under the guard bias.
-    # lr8 still holds the guard seed (cr6) from init, so one more +cr6 gets there.
+    # Chunk 1 = guard (in_channels) + one chunk stride (in_channels) = 2 * in_channels under the guard bias.
+    # lr_chunk_base still holds the guard seed (in_channels) from init, so one more + in_channels gets there.
     ADD                 {{ lr_chunk_base }} {{ lr_chunk_base }} {{ cr.in_channels }};;
     BLT.S                 {{ lr_chunk_base }} {{ cr.chunk_limit }} row_loop;;
 
@@ -327,7 +327,7 @@ filter_loop:
 
     SET                 {{ lr_ch_ctr }} CR0;
     MULT.EE             {{ lr_kern_idx }} {{ cr_seed }} 0 {{ lr_zero }} CR15;   # R0[0] * seed (bias or 0), broadcast
-    ACC.ADD.FIRST;;                                     # r_acc = seed (bias or 0; conv taps add on top)
+    ACC.ADD.FIRST;;                                     # R_ACC = seed (bias or 0; conv taps add on top)
 
     ADD                 {{ lr_scratch }} {{ lr_sb_off }} CR1;
     ADD                 {{ lr_clamp }} {{ lr_ch_ctr }} {{ cr.fpb }};
@@ -341,16 +341,16 @@ ch_loop:
     # Preamble (9-cyc role scheme): load ch0's kr=0 (slot0) and kr=-1 (slot3); ch0's
     # kr=+1 is loaded by the body at tap 1.  lr_read=0; lr_write enters body = 128
     # (= lr_read+128, ch0 kr=+1 slot1).  lr_off_zero = E0 (ch0 kr=0 ext, NOT bumped:
-    # the body bumps it at tap 2).  walk seed = cols-383 (for -128 rotation, cr14=384-2cols-2).
+    # the body bumps it at tap 2).  walk seed = cols-383 (for -128 rotation, walk_step=384-2cols-2).
 
-    # Cy 1: lr2 = E0 = ch0 kr=0 ext = lr8+lr10; load ch0 kr=0 → slot 0.
+    # Cy 1: lr_off_zero = E0 = ch0 kr=0 ext = lr_chunk_base+lr_ch_ctr; load ch0 kr=0 → slot 0.
     SET                 {{ lr_read }} CR0;
     SET                 {{ lr_write }} CR0;
     ADD                 {{ lr_off_zero }} {{ lr_chunk_base }} {{ lr_ch_ctr }};
     LD.MULT.CYCLIC {{ lr_off_zero }} {{ cr.x }} {{ lr_write }};;
 
-    # Cy 2: lr_write = 384 (= cr_ring_adv); ext = E0 - cr6 (ch0 kr=-1) → slot 384.
-    #     lr_walk = -384 (= -cr_ring_adv; toward cols-383 via +1 then +cols below).
+    # Cy 2: lr_write = 384 (= ring_adv); ext = E0 - in_channels (ch0 kr=-1) → slot 384.
+    #     lr_walk = -384 (= -ring_adv; toward cols-383 via +1 then +cols below).
     ADD                 {{ lr_write }} {{ lr_zero }} {{ cr.ring_adv }};
     SUB                 {{ lr_scratch }} {{ lr_off_zero }} {{ cr.in_channels }};
     SUB                 {{ lr_walk }} {{ lr_zero }} {{ cr.ring_adv }};
@@ -368,7 +368,7 @@ ch_loop:
     B                   mn_tap_body;;
 
 mn_tap_body:
-    # 9 cyc/ch — all loads use cr10.  Role-rotating 4-slot ring; lr_read (kr=0 slot)
+    # 9 cyc/ch — all loads use x.  Role-rotating 4-slot ring; lr_read (kr=0 slot)
     # advances -128 (= +384 mod 512) per channel.  The walk is UNCHANGED from the
     # 10-cyc version (cols-stride, masked straddle).  Slot lifetimes (user): kr=0 slot
     # live ALL 9 taps (NEVER a load target); kr=-1 slot live taps 1-3; kr=+1 slot live
@@ -378,9 +378,9 @@ mn_tap_body:
     #   tap 7: prefetch NEXT ch kr=0  -> THIS dead kr=-1 slot (lr_read+384).
     # lr_write threads a uniform +128 mod 512 chain (enter = lr_read+128).  lr_read is
     # dead (chain self-sustains).  lr_off_zero holds THIS kr=0 ext at tap 1 (for THIS
-    # kr=+1 = +cr6), then is bumped to E' (NEXT kr=0 ext) at tap 2 for taps 4/7.
+    # kr=+1 = +in_channels), then is bumped to E' (NEXT kr=0 ext) at tap 2 for taps 4/7.
 
-    # --- tap 1: kr=-1 kc=-1.  Load THIS ch kr=+1 (ext = lr_off_zero + cr6) into the
+    # --- tap 1: kr=-1 kc=-1.  Load THIS ch kr=+1 (ext = lr_off_zero + in_channels) into the
     #     kr=+1 slot (lr_write = lr_read+128).  Read by taps 7-9 this loop (snapshot OK).
     ADD                 {{ lr_walk }} {{ lr_walk }} {{ cr.walk_step }};
     INC                 {{ lr_kern_idx }} 1;
@@ -403,7 +403,7 @@ mn_tap_body:
     MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_m1 }} CR15;
     ACC.ADD;;
 
-    # --- tap 4: kr=0 kc=-1.  Prefetch NEXT kr=-1 (ext = E' - cr6) into the SPARE slot
+    # --- tap 4: kr=0 kc=-1.  Prefetch NEXT kr=-1 (ext = E' - in_channels) into the SPARE slot
     #     (lr_write = lr_read+256 after the tap-3 +128).
     ADD                 {{ lr_walk }} {{ lr_walk }} {{ lr_cols_m2 }};
     INC                 {{ lr_kern_idx }} 1;
@@ -453,7 +453,7 @@ mn_after_block:
     BLT.S                 {{ lr_ch_ctr }} {{ cr.in_channels }} reload;;
 
     # All input channels done — store aaq_result (128 B int8), advance by 128.
-    # ACTIVATE.QUANTIZE reads r_acc LIVE and ST.AAQ reads
+    # ACTIVATE.QUANTIZE reads R_ACC LIVE and ST.AAQ reads
     # post_aaq_reg LIVE (store dispatches after aaq in the per-cycle order),
     # so they co-issue in one word — no separate store cycle needed.
     ACTIVATE.QUANTIZE {{ activation }} CR15;
@@ -497,7 +497,7 @@ gN_filter_loop:
 
     SET                 {{ lr_ch_ctr }} CR0;
     MULT.EE             {{ lr_kern_idx }} {{ cr_seed }} 0 {{ lr_zero }} CR15;   # R0[0] * seed (bias or 0), broadcast
-    ACC.ADD.FIRST;;                                     # r_acc = seed (bias or 0; conv taps add on top)
+    ACC.ADD.FIRST;;                                     # R_ACC = seed (bias or 0; conv taps add on top)
 
     ADD                 {{ lr_scratch }} {{ lr_sb_off }} CR1;
     ADD                 {{ lr_clamp }} {{ lr_ch_ctr }} {{ cr.fpb }};
@@ -508,20 +508,20 @@ gN_clamp:
     ADD                 {{ lr_clamp }} {{ lr_zero }} {{ cr.in_channels }};;
 
 gN_ch_loop:
-    # Preamble: load first-ch-of-block kr=0 (real) and kr=+1 (real lr2; bottom row masked).
-    # Mirrors g0_ch_loop/ch_loop: lr2 = lr8+lr10 so reload paths load the
+    # Preamble: load first-ch-of-block kr=0 (real) and kr=+1 (real lr_off_zero; bottom row masked).
+    # Mirrors g0_ch_loop/ch_loop: lr_off_zero = lr_chunk_base+lr_ch_ctr so reload paths load the
     # correct channel offset within each super-block.
 
-    # Cy 1: lr2 = E0 = ch0 kr=0 ext = lr8+lr10; load ch0 kr=0 → slot 0.
+    # Cy 1: lr_off_zero = E0 = ch0 kr=0 ext = lr_chunk_base+lr_ch_ctr; load ch0 kr=0 → slot 0.
     SET                 {{ lr_read }} CR0;
     SET                 {{ lr_write }} CR0;
     ADD                 {{ lr_off_zero }} {{ lr_chunk_base }} {{ lr_ch_ctr }};
     LD.MULT.CYCLIC {{ lr_off_zero }} {{ cr.x }} {{ lr_write }};;
 
-    # Cy 2: lr_write = 384; load ch0 kr=-1 (real, ext = E0 - cr6) → slot 384.
+    # Cy 2: lr_write = 384; load ch0 kr=-1 (real, ext = E0 - in_channels) → slot 384.
     #     lr_walk = -384.
-    #     (lr10 is NOT reset here — filter_loop sets it to 0 for a fresh filter;
-    #      reload re-enters here with lr10 at its end-of-block value.)
+    #     (lr_ch_ctr is NOT reset here — filter_loop sets it to 0 for a fresh filter;
+    #      reload re-enters here with lr_ch_ctr at its end-of-block value.)
     ADD                 {{ lr_write }} {{ lr_zero }} {{ cr.ring_adv }};
     SUB                 {{ lr_scratch }} {{ lr_off_zero }} {{ cr.in_channels }};
     SUB                 {{ lr_walk }} {{ lr_zero }} {{ cr.ring_adv }};
@@ -541,9 +541,9 @@ gN_tap_body:
     # 9 cyc/ch body — role-rotating ring (see mn_tap_body).  gN specialization: kr=+1
     # taps (7-9) mask the BOTTOM packed row via mask slot 6.  Only that one row is out
     # of bounds; the other kr=+1 neighbours are real, so THIS ch kr=+1 is loaded with
-    # real data (lr_off_zero + cr6) at tap 1, like mn.  Loads/lr_write identical to mn.
+    # real data (lr_off_zero + in_channels) at tap 1, like mn.  Loads/lr_write identical to mn.
 
-    # --- tap 1: kr=-1 kc=-1.  Load THIS ch kr=+1 (ext = lr_off_zero + cr6) into the
+    # --- tap 1: kr=-1 kc=-1.  Load THIS ch kr=+1 (ext = lr_off_zero + in_channels) into the
     #     kr=+1 slot (lr_write = lr_read+128).
     ADD                 {{ lr_walk }} {{ lr_walk }} {{ cr.walk_step }};
     INC                 {{ lr_kern_idx }} 1;
@@ -566,7 +566,7 @@ gN_tap_body:
     MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_m1 }} CR15;
     ACC.ADD;;
 
-    # --- tap 4: kr=0 kc=-1.  Prefetch NEXT kr=-1 (ext = E' - cr6) into the SPARE slot.
+    # --- tap 4: kr=0 kc=-1.  Prefetch NEXT kr=-1 (ext = E' - in_channels) into the SPARE slot.
     ADD                 {{ lr_walk }} {{ lr_walk }} {{ lr_cols_m2 }};
     INC                 {{ lr_kern_idx }} 1;
     SUB                 {{ lr_scratch }} {{ lr_off_zero }} {{ cr.in_channels }};
@@ -581,7 +581,7 @@ gN_tap_body:
     MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_zero }} CR15;
     ACC.ADD;;
 
-    # --- tap 6.  lr10 += cr12 (loop counter).
+    # --- tap 6.  lr_ch_ctr += CR1 (the channel row counter).
     INC                 {{ lr_walk }} 1;
     INC                 {{ lr_kern_idx }} 1;
     ADD                 {{ lr_ch_ctr }} {{ lr_ch_ctr }} CR1;
@@ -614,7 +614,7 @@ gN_tap_body:
     BLT.S                 {{ lr_ch_ctr }} {{ cr.in_channels }} gN_reload;;
 
     # All input channels done — store aaq_result (128 B int8), advance by 128.
-    # ACTIVATE.QUANTIZE reads r_acc LIVE and ST.AAQ reads
+    # ACTIVATE.QUANTIZE reads R_ACC LIVE and ST.AAQ reads
     # post_aaq_reg LIVE (store dispatches after aaq in the per-cycle order),
     # so they co-issue in one word — no separate store cycle needed.
     ACTIVATE.QUANTIZE {{ activation }} CR15;
