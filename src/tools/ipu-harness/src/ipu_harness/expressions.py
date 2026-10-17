@@ -2,8 +2,10 @@
 
 A shape dimension or a ``[derived]`` value is an int literal, a name, or an
 expression built from int literals, names, ``+ - * / // %``, unary minus, and
-the calls ``ceil(x)``, ``min(a, b, ...)`` and ``max(a, b, ...)``. Nothing else is
-evaluated. A ``[derived]`` value may also read ``base(<tensor>)``, a region's
+the calls ``ceil(x)``, ``min(a, b, ...)``, ``max(a, b, ...)`` and
+``dstructure(valid, partition=0, pad_mode=0)`` (a dstructure CR word, as
+``ipu_isa.constants.encode_dstructure`` packs it, so a kernel binds one to any
+CR without the bit layout in its file). Nothing else is evaluated. A ``[derived]`` value may also read ``base(<tensor>)``, a region's
 base once it is placed (:func:`base_name`, :func:`placed_reads`): such a value
 is known only when the registers are written, so only ``[abi]`` reads it.
 Arithmetic is exact (fractions): ``/`` must end up inside ``ceil`` or divide
@@ -20,6 +22,8 @@ import math
 from collections.abc import Callable, Mapping
 from fractions import Fraction
 
+from ipu_isa.constants import encode_dstructure
+
 _BINARY: Mapping[type, Callable[[Fraction, Fraction], Fraction]] = {
     ast.Add: lambda a, b: a + b,
     ast.Sub: lambda a, b: a - b,
@@ -28,11 +32,25 @@ _BINARY: Mapping[type, Callable[[Fraction, Fraction], Fraction]] = {
     ast.FloorDiv: lambda a, b: Fraction(a // b),
     ast.Mod: lambda a, b: a % b,
 }
+
+
+def _dstructure(*args: Fraction) -> Fraction:
+    """A dstructure CR word from (valid elements, partition, pad mode)."""
+    if any(a.denominator != 1 for a in args):
+        raise ExpressionError(f"dstructure() takes whole numbers, not {[str(a) for a in args]}")
+    valid, partition, pad = (int(a) for a in (*args, Fraction(0), Fraction(0))[:3])
+    try:
+        return Fraction(encode_dstructure(valid_elements=valid, partition=partition, pad_mode=pad))
+    except ValueError as error:
+        raise ExpressionError(f"dstructure({valid}, {partition}, {pad}): {error}") from None
+
+
 #: Each call: (fewest arguments, most arguments or None, the function).
 _CALLS: Mapping[str, tuple[int, int | None, Callable[..., Fraction]]] = {
     "ceil": (1, 1, lambda x: Fraction(math.ceil(x))),
     "min": (2, None, min),
     "max": (2, None, max),
+    "dstructure": (1, 3, _dstructure),
 }
 #: The call that reads a placed region's base (``base(x)``).
 BASE = "base"
@@ -103,7 +121,7 @@ def _call(node: ast.Call, names: Mapping[str, Fraction] | None) -> Fraction:
     if isinstance(node.func, ast.Name) and node.func.id == BASE:
         return _base(node, names)
     if not isinstance(node.func, ast.Name) or node.func.id not in _CALLS:
-        raise ExpressionError("only ceil(), min(), max() and base() may be called")
+        raise ExpressionError("only ceil(), min(), max(), dstructure() and base() may be called")
     least, most, function = _CALLS[node.func.id]
     count = len(node.args)
     if node.keywords or count < least or (most is not None and count > most):

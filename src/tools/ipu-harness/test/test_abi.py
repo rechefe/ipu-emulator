@@ -20,6 +20,7 @@ from ipu_harness.manifest import KernelManifest, ManifestError, load_manifest
 from ipu_harness.packing import stored_rows
 from ipu_harness.params import PlanError, plan_case
 from ipu_harness.placement import place
+from ipu_isa.constants import Partition, encode_dstructure
 from ipu_isa.formats import ElementFormat as F
 
 SCALE = """\
@@ -162,6 +163,30 @@ def test_a_stage_abi_may_bind_a_placed_value(tmp_path):
     plan = plan_case(m, {"rows": 4, "s": 2.0}, F.FP32)
     got = {w.register: w.value for w in register_writes(plan, place(plan), abi={"y1": "CR8"})}
     assert got["CR8"] == 5
+
+
+def test_a_derived_dstructure_binds_any_cr(tmp_path):
+    """dstructure(valid, partition): the word, without its bit layout in the file."""
+    toml = SCALE.format(unit="").replace(
+        'neg = "-rows"', 'neg = "-rows"\ndtok = "dstructure(rows * 16, 8)"'
+    )
+    m = kernel(tmp_path, toml.replace('neg  = "LR3"', 'neg  = "LR3"\ndtok = "CR13"'))
+    got = writes(m, {"rows": 4, "s": 2.0}, F.FP32)
+    assert got["CR13"] == encode_dstructure(valid_elements=64, partition=Partition.P8)
+
+
+@pytest.mark.parametrize(
+    ("expression", "match"),
+    [
+        ("dstructure(64, 3)", "3 is not a valid Partition"),
+        ("dstructure(rows / 3)", "whole numbers"),
+    ],
+)
+def test_a_bad_dstructure_is_located(tmp_path, expression, match):
+    toml = SCALE.format(unit="").replace('neg = "-rows"', f'neg = "-rows"\nd = "{expression}"')
+    m = kernel(tmp_path, toml.replace('neg  = "LR3"', 'neg  = "LR3"\nd    = "CR13"'))
+    with pytest.raises(PlanError, match=match):
+        plan_case(m, {"rows": 4, "s": 2.0}, F.FP32)
 
 
 def test_a_tensor_pinned_at_row_0_can_be_read_through_cr0(tmp_path):
