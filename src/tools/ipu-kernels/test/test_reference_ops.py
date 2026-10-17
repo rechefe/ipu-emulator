@@ -91,6 +91,12 @@ def test_sample_descriptors_reproduces_a_constant_inside_the_map():
         assert torch.equal(band, y[8:16])
 
 
+def test_matmul_nt_contracts_the_last_dimension_of_both():
+    a, b = t([[1, 2], [3, 4]]), t([[5, 6], [7, 8]])
+    assert ops.matmul_nt(a, b, d=2)["y"].tolist() == [[17.0, 23.0], [39.0, 53.0]]
+    assert ops.matmul(a, b)["y"].tolist() == [[19.0, 22.0], [43.0, 50.0]]
+
+
 def test_linear_is_a_matmul_then_its_activation():
     a, b = t([[1, -2], [0.5, 3]]), t([[2, 0], [1, -1]])
     product = [[0.0, 2.0], [4.0, -3.0]]
@@ -106,6 +112,29 @@ def test_linear_is_a_matmul_then_its_activation():
         torch.ones(4, 1, 2, 5, dtype=torch.float64),
     )
     assert ops.linear(weights, data)["y"].shape == (4, 1, 3, 5)
+
+
+def test_conv2d_is_a_zero_padded_correlation_plus_bias_then_its_activation():
+    # One input channel, a 3x3 kernel picking the right neighbour, padding 1.
+    x = t([[[1, 2], [3, 4]]])
+    w = torch.zeros(1, 1, 3, 3, dtype=torch.float64)
+    w[0, 0, 1, 2] = 1.0
+    shifted = [[[2.0, 0.0], [4.0, 0.0]]]
+    assert ops.conv2d(x, w, padding=1, height=2)["y"].tolist() == shifted
+    biased = ops.conv2d(x, w, t([-3]), padding=1)["y"].tolist()
+    assert biased == [[[-1.0, -3.0], [1.0, -3.0]]]
+    relu = [[[0.0, 0.0], [1.0, 0.0]]]
+    assert ops.conv2d(x, w, t([-3]), padding=1, activation="relu")["y"].tolist() == relu
+    assert ops.conv2d(x, w, t([-3]), padding=1, apply_relu=True)["y"].tolist() == relu
+    # Stride 2 halves each side; groups = channels is depthwise.
+    assert ops.conv2d(torch.ones(1, 4, 4, dtype=torch.float64), w, stride=2, padding=1)[
+        "y"
+    ].shape == (1, 2, 2)
+    two = torch.ones(2, 2, 2, dtype=torch.float64)
+    depthwise = ops.conv2d(two, w.repeat(2, 1, 1, 1), padding=1, groups=2)["y"]
+    assert depthwise.tolist() == [[[1.0, 0.0], [1.0, 0.0]]] * 2
+    with pytest.raises(ValueError, match="'gelu' is not one of"):
+        ops.conv2d(x, w, activation="gelu")
 
 
 def test_an_axis_op_needs_its_dim():

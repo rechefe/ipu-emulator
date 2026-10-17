@@ -1,0 +1,10 @@
+# The convolutions (E07-16 onwards): kernel folders, and beside them their shared
+# pack transforms (pack.py) and mask bytes (masks.py), loaded by path. The
+# family's Python package, ipu_kernels.convolutions, holds the Conv2d layer
+# adapter. test_*.py (routing, the layer adapter) run as :tests, over the whole
+# kernel tree: they resolve conv2d queries through the registry and the query
+# tool.
+
+load("//kernels:defs.bzl", "ipu_kernel_family")
+
+ipu_kernel_family(tests_tree = True)

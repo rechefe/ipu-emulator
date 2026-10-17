@@ -267,6 +267,51 @@ py_pytest_test(
     ],
 )
 
+# The Kernel coverage page (content/explanation/kernel-coverage.md) includes
+# these snippets through pymdownx.snippets: each registry's operations and
+# kernels, read from the registries themselves (E09-10).
+#   bazel run //docs:kernel_coverage_page -- "$PWD/out"
+_KERNEL_COVERAGE_DEPS = [
+    "//src/tools/ipu-apps:ipu_apps_lib",
+    "//src/tools/ipu-harness:ipu_harness_lib",
+]
+
+py_binary(
+    name = "kernel_coverage_page",
+    srcs = ["kernel_coverage_page.py"],
+    data = ["//kernels:tree"],
+    main = "kernel_coverage_page.py",
+    python_version = "PY3",
+    deps = _KERNEL_COVERAGE_DEPS,
+)
+
+genrule(
+    name = "generate_kernel_coverage_md",
+    outs = [
+        "generated/kernel-coverage/ipu-apps.md",
+        "generated/kernel-coverage/kernels.md",
+    ],
+    cmd = "$(location :kernel_coverage_page) $(RULEDIR)/generated/kernel-coverage > /dev/null",
+    tools = [":kernel_coverage_page"],
+)
+
+# Every kernel of both registries is on the page, a kernel that does not load
+# is listed, and the page includes both snippets.
+py_pytest_test(
+    name = "test_kernel_coverage_page",
+    size = "small",
+    srcs = [
+        "kernel_coverage_page.py",
+        "test_kernel_coverage_page.py",
+    ],
+    data = [
+        "content/explanation/kernel-coverage.md",
+        "content/kernels/index.md",
+        "//kernels:tree",
+    ],
+    deps = _KERNEL_COVERAGE_DEPS + [requirement("pytest")],
+)
+
 genrule(
     name = "generate_instruction_format_md",
     outs = ["instruction-format.md"],
@@ -322,6 +367,7 @@ genrule(
         ":generate_reference_api_md",
         ":generate_cli_reference_md",
         ":generate_kernel_toml_md",
+        ":generate_kernel_coverage_md",
         ":generate_architecture_md",
         "//docs/inspector:inspector_data",
         "//:GLOSSARY.md",

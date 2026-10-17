@@ -30,7 +30,9 @@ Paths are under `src/tools/ipu-apps/src/ipu_apps/kernels/attention/`.
 - `FAMILY_DEPS = {"attention": ["softmax"]}` is declared (E06-18). Any family
   test that runs softmax uses the registry, not a direct import.
 - Delete the old `attention/` directory: `app.py`, `cases.py`, `test.py` and
-  all kernel folders.
+  all kernel folders. (Done in part: the MobileViT tests still import nine of
+  the old kernel folders, so they, `app.py` and `cases.py` stay as a shim that
+  E07-24 deletes; DELETIONS.md lists its users.)
 - Apply the per-family checklist.
 
 ## Tests

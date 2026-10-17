@@ -12,7 +12,7 @@ SEED = 16
 #: R_MASK slots, 16 bytes each, bit i = lane i: all lanes, even lanes, lower half.
 MASK_SLOTS = (b"\xff" * 16, b"\x55" * 16, b"\xff" * 8 + b"\x00" * 8)
 
-ROW_BYTES = 128
+MASK_IMAGE_BYTES = 128
 
 
 def legacy_steps(plan, rng):
@@ -27,4 +27,4 @@ def legacy_steps(plan, rng):
 
 def mask_slots(plan):
     """The mask row's bytes: the three slots, then zeros."""
-    return b"".join(MASK_SLOTS).ljust(ROW_BYTES, b"\x00")
+    return b"".join(MASK_SLOTS).ljust(MASK_IMAGE_BYTES, b"\x00")

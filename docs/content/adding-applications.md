@@ -9,7 +9,7 @@
     kernels below and then removes this page.
 
 How to contribute a kernel so the registry can find it, route to it, and report
-its coverage accurately. See [Application coverage](app-coverage.md) for why the
+its coverage accurately. See [Kernel coverage](explanation/kernel-coverage.md) for why the
 system is shaped this way.
 
 Adding an application is **purely additive**: you create files inside your own
@@ -68,7 +68,7 @@ that span the family (see `kernels/convolutions/`, `kernels/attention/`).
 `test.py`.
 
 Every family has the same shape, `kernels/<family>/<app>/` — e.g.
-`kernels/convolutions/conv1x1/` and `kernels/attention/attn_scores_km_16x60/`.
+`kernels/convolutions/conv_universal/` and `kernels/attention/attn_scores_km_16x60/`.
 
 No `BUILD.bazel` edit is needed: `ipu_apps_from_kernels` (in `//:ipu_app.bzl`)
 globs every `.asm` file under `src/ipu_apps/kernels/` and declares one

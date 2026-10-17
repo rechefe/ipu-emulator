@@ -457,49 +457,12 @@ def test_every_assembly_has_a_registered_case():
         assert "default" in load_cases(name)
 
 
-@pytest.mark.parametrize(
-    "name,params",
-    [
-        (
-            "conv3x3_relu",
-            dict(
-                shape=(1, 2, 2),
-                out_channels=1,
-                kernel_size=3,
-                stride=1,
-                padding=1,
-                activation="none",
-            ),
-        ),
-        (
-            "conv3x3_relu_cin1",
-            dict(
-                shape=(2, 2, 2),
-                out_channels=1,
-                kernel_size=3,
-                stride=1,
-                padding=1,
-                activation="relu",
-            ),
-        ),
-        ("l2_normalize_channels", dict(shape=(1, 10**10))),
-    ],
-)
-def test_memory_harness_rejects_unsupported_geometry(name, params):
-    assert not kernel_spec(name).check(**params)
-    # Validation must happen before opening input/instruction files.
-    with pytest.raises(ValueError):
-        create_harness(
-            name, params=params, bindings=dict(inst_path="missing", input_path="missing")
-        )
-
-
 def test_memory_harness_rejects_truncated_image(tmp_path):
     inp = tmp_path / "input.bin"
     inp.write_bytes(b"short")
     with pytest.raises(ValueError, match="preformatted input must contain"):
         create_harness(
-            "l2_normalize_channels",
-            params=dict(shape=(2, 3)),
+            "identity",
+            params=dict(shape=(2, 128)),
             bindings=dict(inst_path="missing", input_path=inp),
         )

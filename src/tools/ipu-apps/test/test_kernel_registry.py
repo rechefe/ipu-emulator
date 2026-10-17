@@ -765,35 +765,6 @@ def test_random_values_with_one_generator_draws_independent_tensors():
             assert not np.isin(a[:4], b).any()
 
 
-@pytest.mark.parametrize("kernel", ["conv1x1", "conv3x3_relu", "conv3x3_relu_cin1"])
-@pytest.mark.parametrize("case_name", ["default", "single_pixel"])
-def test_convolution_case_tensors_share_no_values(kernel, case_name, monkeypatch, tmp_path):
-    """x, weights and bias of one case come from one generator, so a kernel that
-    reads the wrong region (bias where it should read x) cannot pass."""
-    import ipu_apps.kernels.convolutions.cases as conv_cases
-
-    real = conv_cases.random_values
-    calls = []
-
-    def recording(shape, rng=None):
-        values = real(shape, rng)
-        calls.append((rng, values))
-        return values
-
-    monkeypatch.setattr(conv_cases, "random_values", recording)
-    case = load_cases(kernel)[case_name]
-    case.prepare(tmp_path, **case.defaults)
-
-    assert len(calls) == 3
-    rngs = {id(rng) for rng, _ in calls}
-    assert len(rngs) == 1 and calls[0][0] is not None
-    x, weights, bias = (values.ravel() for _, values in calls)
-    assert x.tobytes()[: min(x.nbytes, len(_SEED7_PREFIX))] == _SEED7_PREFIX[: x.nbytes]
-    assert not np.isin(bias, x).any()
-    assert not np.isin(weights, x).any()
-    assert not np.isin(bias, weights).any()
-
-
 # -- case_tests and the emulator-only ST.ACC warning ----------------
 
 _TOY_PROGRAMS = {

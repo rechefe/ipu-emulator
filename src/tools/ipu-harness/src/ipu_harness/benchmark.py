@@ -41,7 +41,7 @@ LEGEND = (
     "mult% / acc%: cycles the slot was busy. lanes%: multiplier lanes that "
     "carried data. ident%: the part of those lanes that multiplied by a constant 1 "
     "(data routing, not MACs). effMAC%: peak MACs actually retired. ISA aliases: "
-    "verified occurrences of each alias in docs/content/isa-alias-catalogue.md, "
+    "verified occurrences of each alias in docs/content/explanation/isa-idioms.md, "
     "subtypes summed (+N? = unverified candidates); occurrences can overlap, so "
     "they are not savings estimates."
 )

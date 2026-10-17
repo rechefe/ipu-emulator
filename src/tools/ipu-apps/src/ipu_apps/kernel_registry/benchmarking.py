@@ -12,7 +12,7 @@ writes them to ``results.md`` beside ``benchmark.py``.
 
 Besides cycles, the tables carry the run's MAC accounting (``RunStats``) and
 the full ISA alias profile (``AliasProfile``, every alias in
-``docs/content/isa-alias-catalogue.md``): raw stage occupancy overstates work,
+``docs/content/explanation/isa-idioms.md``): raw stage occupancy overstates work,
 because kernels route data through the multiplier. Profiling never changes
 cycles or stats.
 """
@@ -35,7 +35,7 @@ LEGEND = (
     "carried data. ident%: busy multiply cycles that were identity multiplies "
     "(data routing, not MACs). effMAC%: peak MACs actually retired. "
     "ISA aliases: verified occurrences of each alias in "
-    "docs/content/isa-alias-catalogue.md, all subtypes summed (+N? = unverified "
+    "docs/content/explanation/isa-idioms.md, all subtypes summed (+N? = unverified "
     "candidates); occurrences can overlap, so they are not savings estimates."
 )
 

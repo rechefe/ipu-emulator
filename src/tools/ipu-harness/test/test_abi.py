@@ -121,6 +121,43 @@ def test_a_derived_value_may_read_a_regions_base(tmp_path):
     assert (got["CR6"], got["CR7"]) == (5, 9)  # y at row 4: 4 + 1, then 5 + 4
 
 
+@pytest.mark.parametrize(("fmt", "row", "stride"), [(F.FP32, 256, 1), (F.INT8, 1024, 4)])
+def test_a_pin_and_a_placed_value_may_read_the_formats_row_bytes(tmp_path, fmt, row, stride):
+    """A legacy layout at a fixed byte address in every format (fully_connected, E07-21)."""
+    toml = SCALE.format(unit="").replace(
+        'neg = "-rows"', 'neg = "-rows"\nstride = "512 / row_bytes"'
+    )
+    toml = toml.replace('neg  = "LR3"', 'neg  = "LR3"\nstride = "CR6"')
+    y = '[outputs.y]\nshape = ["rows", 128]'
+    toml = toml.replace(y, f'{y}\nrow = "131072 / row_bytes"')
+    m = kernel(tmp_path, toml)
+    assert m.placed == {"stride": frozenset()}
+    plan = plan_case(m, {"rows": 4, "s": 2.0}, fmt)
+    assert plan.pins["y"] == row and "stride" not in plan.derived
+    got = writes(m, {"rows": 4, "s": 2.0}, fmt)
+    assert (got["CR3"], got["CR6"]) == (row, stride)
+
+
+@pytest.mark.parametrize(
+    ("derived", "where", "match"),
+    [
+        ('row_bytes = "4"', "", "not be cr, lr, format, shapes, row_bytes"),
+        ("", 'shape = ["row_bytes", 128]', "names no parameter or derived value: ['row_bytes']"),
+        (
+            'w = "row_bytes"',
+            'shape = ["w", 128]',
+            "reads ['w'], which read a region's base or row_bytes",
+        ),
+    ],
+)
+def test_only_a_pin_and_abi_read_row_bytes(tmp_path, derived, where, match):
+    toml = SCALE.format(unit="").replace('neg = "-rows"', f'neg = "-rows"\n{derived}')
+    if where:
+        toml = toml.replace('[outputs.y]\nshape = ["rows", 128]', f"[outputs.y]\n{where}")
+    with pytest.raises(ManifestError, match=re.escape(match)):
+        kernel(tmp_path, toml)
+
+
 def test_a_region_may_reach_the_program_only_through_a_derived_value(tmp_path):
     """A region bound at a parameter-dependent offset (sample_descriptors'
     per-cell table, E07-15) needs no binding of its own; one that no bound

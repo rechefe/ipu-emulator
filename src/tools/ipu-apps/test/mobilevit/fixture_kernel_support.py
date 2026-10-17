@@ -19,6 +19,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
+from fixture_normalize import run_layernorm_rows
 
 from ipu_apps.kernel_registry.cases import assemble_kernel
 
@@ -47,45 +48,17 @@ def poison(state, base: int, n_rows: int, lanes: int = LANES) -> None:
 
 
 def run_layernorm_capture_xmem(
-    module,
-    app_class,
-    *,
-    x_rows: np.ndarray,
-    gamma: np.ndarray,
-    beta: np.ndarray,
-    tmp_path: Path,
-    tag: str,
+    name: str, *, x_rows: np.ndarray, gamma: np.ndarray, beta: np.ndarray
 ) -> bytes:
-    """Run a real ``layernorm_*`` kernel and return its raw OUTPUT region bytes.
+    """Run the //kernels/normalize entry ``name`` and return its raw output rows.
 
-    ``x_rows`` is the harness's input file content: one zero-padded
-    ``LANES``-lane FP32 row per ``(ch, tg)`` (the harness writes it to XMEM
-    verbatim). The output is read straight from ``state.xmem`` -- no file
-    round-trip -- after poisoning it, and must hold no untouched row.
+    ``x_rows`` is one zero-padded ``LANES``-lane FP32 row per ``(ch, tg)``,
+    written to XMEM as it is (fixture_normalize). The output is read straight
+    from XMEM after poisoning it, and must hold no untouched row.
     """
-    n_rows = x_rows.shape[0]
-    input_path = tmp_path / f"ln_x_{tag}.bin"
-    gamma_path = tmp_path / f"ln_g_{tag}.bin"
-    beta_path = tmp_path / f"ln_b_{tag}.bin"
-    input_path.write_bytes(np.ascontiguousarray(x_rows, dtype=np.float32).tobytes())
-    gamma_path.write_bytes(gamma.astype(np.float32).tobytes())
-    beta_path.write_bytes(beta.astype(np.float32).tobytes())
-
-    app = app_class(
-        inst_path=kernel_inst(module.__package__.rpartition(".")[2]),
-        input_path=input_path,
-        gamma_path=gamma_path,
-        beta_path=beta_path,
-    )
-    state = app.make_state()
-    poison(state, module.OUTPUT_BASE, n_rows)
-    state, cycles = app.run(max_cycles=20_000_000, state=state)
-    assert cycles > 0
-
-    raw = bytes(state.xmem.read_address(module.OUTPUT_BASE, n_rows * module.ROW_BYTES))
-    rows = np.frombuffer(raw, dtype=np.float32).reshape(n_rows, LANES)
-    assert not np.all(rows == POISON, axis=1).any(), "layernorm left poisoned rows untouched"
-    return raw
+    run = run_layernorm_rows(name, x_rows, gamma, beta, poison=float(POISON))
+    assert run.cycles > 0
+    return run.rows.tobytes()
 
 
 def run_matmul_direct_xmem_handoff(

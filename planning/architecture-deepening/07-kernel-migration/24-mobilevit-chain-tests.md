@@ -47,6 +47,11 @@ Paths are under `src/tools/ipu-apps/test/mobilevit/`.
    named tier overrides with a `why` (E06-10).
 4. Delete `fixture_kernel_support.py`, `skip_load_data`, the temporary adapters
    and every local reference copy.
+5. Delete the shims the MobileViT tests keep alive, with their DELETIONS.md
+   rows: the attention shim (`src/tools/ipu-apps/src/ipu_apps/kernels/attention/`:
+   `__init__.py`, `app.py`, `cases.py` and nine kernel folders, kept by E07-13
+   in place of its "delete the old `attention/` directory") and the MobileViT
+   users of the softmax shim (E07-11). DELETIONS.md lists each shim's users.
 
 ## Tests
 

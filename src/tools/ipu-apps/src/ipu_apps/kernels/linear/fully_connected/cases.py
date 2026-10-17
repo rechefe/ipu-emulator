@@ -1,14 +1,15 @@
-"""Fully connected fixtures and checks, shared by run and test."""
+"""Fully connected fixtures and checks, shared by run and test.
+
+Kept, frozen, for the Cycle Inspector's curated traces, the emulator
+benchmark and the old harness's own tests until E07-25/E07-26: the kernel is
+//kernels/linear/fully_connected (E07-21).
+"""
 
 from pathlib import Path
 
 from ipu_apps.kernel_registry.cases import KernelCase, PreparedCase, check_output_bytes
 
 DATA = Path(__file__).with_name("test_data_format")
-
-
-class MissingInputFixture(FileNotFoundError):
-    """An optional input or weight fixture is unavailable."""
 
 
 def prepare(workspace, *, dtype, wide_mode=False):
@@ -20,7 +21,7 @@ def prepare(workspace, *, dtype, wide_mode=False):
     weights = directory / f"weights_{name}.bin"
     for path in (inputs, weights):
         if not path.is_file():
-            raise MissingInputFixture(f"missing fully connected fixture: {path}")
+            raise FileNotFoundError(f"missing fully connected fixture: {path}")
     out = workspace / "output.bin"
     suffix = "int32" if name == "int8" else "fp32"
     golden = directory / f"out_{name}_acc_{suffix}.bin"

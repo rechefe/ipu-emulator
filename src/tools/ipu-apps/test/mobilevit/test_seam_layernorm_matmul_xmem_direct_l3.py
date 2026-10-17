@@ -13,8 +13,8 @@ so the two kernels already agree on row order without any repacking,
 PROVIDED both use N_CH == K == 144 and N_TG == 2 (verified by the asserts
 below, not assumed).
 
-Method: run the REAL layernorm_256x144 kernel on a fresh state, capture its
-raw OUTPUT_BASE bytes directly via state.xmem.read_address. On a SEPARATE
+Method: run the REAL layernorm_256x144 kernel on a fresh model, capture its
+raw output rows directly from XMEM (fixture_normalize). On a SEPARATE
 fresh state, poison the matmul's DATA region, write the captured LayerNorm
 bytes into it verbatim, run the matmul harness's setup() with _load_data
 disabled (weights load normally), and compare against an independent
@@ -33,9 +33,11 @@ from pathlib import Path
 
 import numpy as np
 from fixture_kernel_support import run_layernorm_capture_xmem, run_matmul_direct_xmem_handoff
+from fixture_normalize import layernorm
 
 from ipu_apps.kernels.matmul.matmul_144x144_x128 import app as mm
-from ipu_apps.kernels.normalize.layernorm_256x144 import app as ln
+
+ln = layernorm("layernorm_256x144")  # //kernels/normalize (E07-10), through the adapter
 
 # Structural precondition: both kernels must agree on N_CH==K and N_TG before
 # any byte handoff makes sense.
@@ -45,20 +47,17 @@ assert ln.N_TPG == mm.N_TOK == 128
 LANES = ln.ROW_BYTES // 4
 
 
-def _run_layernorm_256x144_capture_xmem(x, gamma, beta, tmp_path: Path, tag: str) -> bytes:
+def _run_layernorm_256x144_capture_xmem(x, gamma, beta) -> bytes:
     """x is [N_CH, N_TG, N_TPG]; the input file is one zero-padded 128-lane
     row per (ch, tg), in (ch*N_TG + tg) order (N_TPG == LANES == 128 here so
     no padding is actually needed, but the shape is kept explicit)."""
     x_padded = np.zeros((ln.N_CH, ln.N_TG, LANES), dtype=np.float32)
     x_padded[:, :, : ln.N_TPG] = x
     return run_layernorm_capture_xmem(
-        ln,
-        ln.LayerNorm256x144App,
+        ln.name,
         x_rows=x_padded.reshape(ln.N_CH * ln.N_TG, LANES),
         gamma=gamma,
         beta=beta,
-        tmp_path=tmp_path,
-        tag=tag,
     )
 
 
@@ -115,7 +114,7 @@ def test_layernorm_256x144_output_is_not_byte_compatible_with_matmul_144x144_inp
     """
     x, gamma, beta, W = _inputs(0x1EC3)
 
-    ln_raw = bytearray(_run_layernorm_256x144_capture_xmem(x, gamma, beta, tmp_path, tag="mut"))
+    ln_raw = bytearray(_run_layernorm_256x144_capture_xmem(x, gamma, beta))
     # Corrupt channel 5, tg 1's row (row index 5*N_TG+1 = 11) -- still
     # zero-padding structure preserved, just wrong values.
     row_idx = 5 * ln.N_TG + 1
@@ -139,7 +138,7 @@ def test_layernorm_256x144_feeds_matmul_144x144_via_direct_xmem_no_file_staging_
     """
     x, gamma, beta, W = _inputs(0x1EC4)
 
-    ln_raw = _run_layernorm_256x144_capture_xmem(x, gamma, beta, tmp_path, tag="clean")
+    ln_raw = _run_layernorm_256x144_capture_xmem(x, gamma, beta)
     got = _run_matmul_144x144_direct_xmem_handoff(ln_raw, W, tmp_path, tag="clean")
     expected = _expected(x, gamma, beta, W)
 

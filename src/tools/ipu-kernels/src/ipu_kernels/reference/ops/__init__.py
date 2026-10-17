@@ -22,12 +22,14 @@ from __future__ import annotations
 
 from ipu_kernels.reference.ops.channel_peak import channel_peak
 from ipu_kernels.reference.ops.concat import concat
+from ipu_kernels.reference.ops.conv2d import conv2d
 from ipu_kernels.reference.ops.depth_to_space import depth_to_space
 from ipu_kernels.reference.ops.fold import fold
 from ipu_kernels.reference.ops.identity import identity
 from ipu_kernels.reference.ops.layernorm import layernorm
 from ipu_kernels.reference.ops.linear import linear
 from ipu_kernels.reference.ops.matmul import matmul
+from ipu_kernels.reference.ops.matmul_nt import matmul_nt
 from ipu_kernels.reference.ops.maxpool2d import maxpool2d
 from ipu_kernels.reference.ops.residual_add import residual_add
 from ipu_kernels.reference.ops.sample_descriptors import sample_descriptors
@@ -39,6 +41,7 @@ from ipu_kernels.reference.ops.unfold import unfold
 __all__ = [
     "channel_peak",
     "concat",
+    "conv2d",
     "depth_to_space",
     "fold",
     "identity",
@@ -46,9 +49,10 @@ __all__ = [
     "linear",
     "matmul",
     "maxpool2d",
-    "residual_add",
     "sample_descriptors",
     "score_threshold",
+    "matmul_nt",
+    "residual_add",
     "silu",
     "softmax",
     "unfold",
