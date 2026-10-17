@@ -1,11 +1,13 @@
 """``when`` conditions: a tensor or binding that exists only in some cases (E06 gap G6).
 
-A condition names a ``bool`` parameter, or ``not`` one, or joins such terms
-with ``or``: ``when = "bias"``, ``when = "not bias"``, ``when = "has_bias or
-apply_relu"``. :func:`narrowed` gives a case's view of a kernel: only
-the tensors and ``[abi]`` bindings whose condition holds. ``plan_case`` hands
-that view to every later stage, so placement, packing, inputs, goldens,
-registers and the runner see only what exists.
+A condition names a ``bool`` parameter, or ``not`` one; joins such terms with
+``and``; and joins those clauses with ``or`` (``and`` binds tighter, no
+parentheses): ``when = "bias"``, ``when = "not bias"``, ``when = "has_bias or
+apply_relu"``, ``when = "not has_bias and not apply_relu"`` (E07-20).
+:func:`narrowed` gives a case's view of a kernel: only the tensors and
+``[abi]`` bindings whose condition holds. ``plan_case`` hands that view to
+every later stage, so placement, packing, inputs, goldens, registers and the
+runner see only what exists.
 """
 
 from __future__ import annotations
@@ -22,55 +24,77 @@ if TYPE_CHECKING:
 __all__ = ["Condition", "narrowed"]
 
 _NOT = "not "
+_AND = " and "
 _OR = " or "
 
 #: One term: a ``bool`` parameter's name, and whether it is ``not`` it.
 Term = tuple[str, bool]
+#: One clause: terms that must all hold (joined by ``and``).
+Clause = tuple[Term, ...]
+
+
+def _contradict(a: Clause, b: Clause) -> bool:
+    """Whether ``a`` and ``b`` cannot both hold: a term of one is ``not`` a term of the other."""
+    return any(p == q and n != m for p, n in a for q, m in b)
 
 
 @dataclass(frozen=True)
 class Condition:
-    """At least one of its terms holds: each a ``bool`` parameter, or ``not`` one.
+    """At least one of its clauses holds; a clause holds when all its terms do,
+    each a ``bool`` parameter, or ``not`` one.
 
     Attributes:
-        terms: ``(param, negated)`` pairs, sorted and distinct, so two spellings
-            of one condition (``a or b``, ``b or a``) are equal.
+        clauses: Each clause's ``(param, negated)`` terms, sorted and distinct,
+            and the clauses sorted and distinct, so two spellings of one
+            condition (``a or b``, ``b or a``; ``a and b``, ``b and a``) are
+            equal.
     """
 
-    terms: tuple[Term, ...]
+    clauses: tuple[Clause, ...]
 
     @classmethod
     def of(cls, param: str, negated: bool = False) -> Condition:
         """The one-term condition ``param`` (or ``not param``)."""
-        return cls(((param, negated),))
+        return cls((((param, negated),),))
 
     @classmethod
     def parse(cls, text: str) -> Condition:
-        """``"bias"``, ``"not bias"`` or terms joined by ``or`` (any spacing)."""
-        terms = []
-        for word in " ".join(text.split()).split(_OR):
-            name = word.removeprefix(_NOT)
-            terms.append((name, name != word))
-        return cls(tuple(sorted(set(terms))))
+        """``"bias"``, ``"not bias"``, terms joined by ``and``, and those
+        joined by ``or`` (any spacing)."""
+        clauses = set()
+        for part in " ".join(text.split()).split(_OR):
+            terms = []
+            for word in part.split(_AND):
+                name = word.removeprefix(_NOT)
+                terms.append((name, name != word))
+            clauses.add(tuple(sorted(set(terms))))
+        return cls(tuple(sorted(clauses)))
 
     @property
     def params(self) -> tuple[str, ...]:
         """The parameters it reads."""
-        return tuple(dict.fromkeys(param for param, _ in self.terms))
+        return tuple(dict.fromkeys(param for clause in self.clauses for param, _ in clause))
 
     def holds(self, params: Mapping[str, object]) -> bool:
         """Whether it holds for a case's values (defaults filled)."""
-        return any(bool(params[param]) is not negated for param, negated in self.terms)
+        return any(
+            all(bool(params[param]) is not negated for param, negated in clause)
+            for clause in self.clauses
+        )
 
     def excludes(self, other: Condition | None) -> bool:
-        """Whether it and ``other`` never hold together: every term of one
-        contradicts every term of the other (``bias`` and ``not bias``)."""
+        """Whether it and ``other`` never hold together: every clause of one
+        contradicts every clause of the other (``bias`` and ``not bias``;
+        ``not bias and not relu`` and ``bias or relu``)."""
         return other is not None and all(
-            p == q and n != m for p, n in self.terms for q, m in other.terms
+            _contradict(a, b) for a in self.clauses for b in other.clauses
         )
 
     def __str__(self) -> str:
-        return _OR.join(_NOT + param if negated else param for param, negated in self.terms)
+        return _OR.join(
+            _AND.join(_NOT + param if negated else param for param, negated in clause)
+            for clause in self.clauses
+        )
 
 
 def _holds(condition: Condition | None, params: Mapping[str, object]) -> bool:

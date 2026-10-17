@@ -91,13 +91,13 @@ def test_from_layer_routes_to_conv_universal(registry):
     assert registry.from_layer(layer, (3, 8, 100)).kernel_name == "conv_universal"
 
 
-def test_a_biased_layer_needs_an_explicit_relu(registry):
-    # No 3x3 kernel adds a bias without ReLU (E07-20 adds one)...
+def test_a_biased_layer_routes_to_the_bias_kernel_and_relu_is_explicit(registry):
+    # A biased layer alone is a bias without ReLU: conv_universal_bias (E07-20;
+    # refused before it)...
     layer = Conv2d(3, 4, kernel_size=3, padding=1, bias=True)
     verdict = registry.from_layer(layer, (3, 8, 8))
-    assert not verdict
-    assert "apply_relu" in verdict.reason
-    # ...so the bias + ReLU twin is reached through an explicit geometry.
+    assert verdict.kernel_name == "conv_universal_bias", verdict.reason
+    # ...and the bias + ReLU twin is reached through an explicit geometry.
     geometry = from_torch_conv2d(layer, (3, 8, 8), apply_relu=True)
     verdict = registry.resolve("conv2d", **geometry.params())
     assert verdict.kernel_name == "conv_universal_bn_activation"
@@ -105,8 +105,9 @@ def test_a_biased_layer_needs_an_explicit_relu(registry):
 
 def test_the_depthwise_relu_twin_is_reached_through_an_explicit_geometry(registry):
     layer = Conv2d(4, 4, kernel_size=3, padding=1, groups=4, bias=True)
-    # The layer alone never implies ReLU, so the bias-capable kernels refuse it...
-    assert not registry.from_layer(layer, (4, 6, 65))
+    # The layer alone never implies ReLU: the depthwise bias kernel (E07-20)...
+    verdict = registry.from_layer(layer, (4, 6, 65))
+    assert verdict.kernel_name == "depthwise_conv_universal_bias", verdict.reason
     # ...and asking for it explicitly routes to the depthwise bias + ReLU twin.
     geometry = from_torch_conv2d(layer, (4, 6, 65), apply_relu=True)
     verdict = registry.resolve("conv2d", **geometry.params())
@@ -122,6 +123,8 @@ def test_the_depthwise_relu_twin_is_reached_through_an_explicit_geometry(registr
             (4, 8, 8),
             "depthwise_conv_universal",
         ),
+        # A bias without ReLU (E07-20; refused before it).
+        (Conv2d(8, 8, kernel_size=1, bias=True), (8, 8, 8), "pointwise_conv_unified_bias"),
     ],
 )
 def test_from_layer_routes_to_the_pointwise_and_depthwise_kernels(registry, layer, shape, kernel):
@@ -144,7 +147,6 @@ def test_from_layer_routes_to_the_pointwise_and_depthwise_kernels(registry, laye
             (8, 8, 8),
             "out_channels = 6 is not a multiple of 4",
         ),
-        (Conv2d(8, 8, kernel_size=1, bias=True), (8, 8, 8), "apply_relu"),
     ],
 )
 def test_pointwise_layer_refusals(registry, layer, shape, reason):

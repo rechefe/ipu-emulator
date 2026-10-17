@@ -1,6 +1,7 @@
 # conv_universal_tpl: the template of the 3x3 stride-1 "same" universal
 # convolution (E07-17), FP32 wide vectors. Its variants are the entries
-# conv_universal and conv_universal_bn_activation in ../registry.toml; the
+# conv_universal, conv_universal_bn_activation and conv_universal_bias
+# (E07-20) in ../registry.toml; the
 # program reads has_bias and apply_relu itself (see the .asm header). Routed
 # in the universal conv2d vocabulary: every one of its 11 parameters must be
 # named by a query, as the ipu_apps router's requires had it.

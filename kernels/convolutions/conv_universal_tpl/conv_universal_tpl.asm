@@ -1,13 +1,13 @@
 {#- conv_universal_tpl.asm -- y = act(conv2d(x, w, stride 1, padding 1) + b): a 3x3 "same" convolution in FP32 wide vectors, with an optional folded bias and identity or ReLU.
 
     The template of kernels/convolutions/registry.toml's conv_universal
-    (has_bias = false, apply_relu = false) and conv_universal_bn_activation
+    (has_bias = false, apply_relu = false), conv_universal_bn_activation
     (apply_relu = true; has_bias either: a query without one runs with a zero
-    bias). Batch-norm is assumed folded into the weights and the bias, so no
-    separate BN step runs. The program reads the query's own parameters:
-    "seeded" (has_bias or apply_relu) selects the bias seed, apply_relu the
-    activation. The combination has_bias without ReLU renders the seeded
-    identity program, which no entry routes to yet (E07-20 adds it).
+    bias) and conv_universal_bias (has_bias = true, apply_relu = false; the
+    seeded identity program, E07-20). Batch-norm is assumed folded into the
+    weights and the bias, so no separate BN step runs. The program reads the
+    query's own parameters: "seeded" (has_bias or apply_relu) selects the bias
+    seed, apply_relu the activation.
 
     Pipeline per output filter
     - R_ACC is seeded by MULT.EE + ACC.ADD.FIRST: R0[0] times CR1 (the bias

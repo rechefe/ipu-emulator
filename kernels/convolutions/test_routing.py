@@ -8,7 +8,8 @@ Two ``conv2d`` vocabularies share the op. The tiled kernels (``conv1x1``,
 h, w)``, a tuple no ``kernel.toml`` parameter can be). The universal kernels
 (``conv_first_layer``; ``conv_universal`` and ``conv_universal_bn_activation``,
 E07-17; the pointwise and depthwise twins, E07-18; ``conv_universal_wide384``
-and the ``depthwise_conv_stride2_*`` kernels, E07-19) take the eleven fields of a
+and the ``depthwise_conv_stride2_*`` kernels, E07-19; the bias-without-ReLU
+entries, E07-20) take the eleven fields of a
 ``torch.nn.Conv2d`` query, ``dilation``, ``groups``, ``has_bias`` and ``apply_relu`` among them.
 A query in one vocabulary names a parameter the other's kernels lack, so it
 reaches only its own kernels.
@@ -189,7 +190,7 @@ def universal(**overrides):
         (False, False, "conv_universal"),
         (True, True, "conv_universal_bn_activation"),
         (False, True, "conv_universal_bn_activation"),  # a zero bias
-        (True, False, None),  # no kernel: every bias-capable 3x3 kernel applies ReLU
+        (True, False, "conv_universal_bias"),  # refused before E07-20
     ],
 )
 def test_bias_and_relu_choose_the_universal_kernel(registry, has_bias, apply_relu, kernel):
@@ -217,7 +218,6 @@ def test_a_universal_query_must_name_every_parameter(registry, missing):
         (universal(padding=0), "padding"),
         (universal(stride=3), "stride"),
         (universal(in_channels=4, groups=2), "groups"),
-        (universal(has_bias=True), "apply_relu"),
         (universal(width=200), "width"),
         (universal(in_channels=0), "in_channels"),
     ],
@@ -245,6 +245,7 @@ def test_width_129_is_refused(registry):
     [
         (universal(), "conv_universal"),
         (universal(has_bias=True, apply_relu=True), "conv_universal_bn_activation"),
+        (universal(has_bias=True), "conv_universal_bias"),
     ],
 )
 def test_the_query_tool_names_the_entry(registry, params, kernel, capsys):
@@ -279,7 +280,7 @@ def depthwise(**overrides):
         (False, False, "pointwise_conv_unified"),
         (True, True, "pointwise_conv_unified_bn_activation"),
         (False, True, "pointwise_conv_unified_bn_activation"),  # a zero bias
-        (True, False, None),  # no kernel yet (E07-20)
+        (True, False, "pointwise_conv_unified_bias"),  # refused before E07-20
     ],
 )
 def test_bias_and_relu_choose_the_pointwise_kernel(registry, has_bias, apply_relu, kernel):
@@ -294,8 +295,8 @@ def test_bias_and_relu_choose_the_pointwise_kernel(registry, has_bias, apply_rel
     [
         (False, False, "depthwise_conv_universal"),
         (True, True, "depthwise_conv_universal_bn_activation"),
-        (False, True, None),  # the depthwise bias + ReLU kernel requires the bias
-        (True, False, None),  # no kernel yet (E07-20)
+        (False, True, "depthwise_conv_universal_relu"),  # a zero bias; refused before E07-20
+        (True, False, "depthwise_conv_universal_bias"),  # refused before E07-20
     ],
 )
 def test_bias_and_relu_choose_the_depthwise_kernel(registry, has_bias, apply_relu, kernel):
@@ -303,6 +304,31 @@ def test_bias_and_relu_choose_the_depthwise_kernel(registry, has_bias, apply_rel
     assert verdict.kernel_name == kernel, verdict.reason
     if kernel is not None:
         assert verdict.label == f"//kernels/convolutions:{kernel}"
+
+
+@pytest.mark.parametrize("make", [universal, pointwise, depthwise])
+@pytest.mark.parametrize("has_bias", [False, True])
+@pytest.mark.parametrize("apply_relu", [False, True])
+def test_every_bias_and_relu_combination_routes(registry, make, has_bias, apply_relu):
+    # E07-20: each template's geometry answers all four combinations, each by
+    # one entry (has_bias and apply_relu split the domains, so no tie).
+    verdict = registry.resolve("conv2d", **make(has_bias=has_bias, apply_relu=apply_relu))
+    assert verdict, verdict.reason
+    assert verdict.label == f"//kernels/convolutions:{verdict.kernel_name}"
+
+
+@pytest.mark.parametrize("has_bias", [False, True])
+@pytest.mark.parametrize("apply_relu", [False, True])
+def test_one_channel_depthwise_is_a_plain_3x3_first_at_every_combination(
+    registry, has_bias, apply_relu
+):
+    # The C = 1 query is also depthwise: conv_universal's entries cost less.
+    verdict = registry.resolve(
+        "conv2d",
+        **universal(in_channels=1, out_channels=1, has_bias=has_bias, apply_relu=apply_relu),
+    )
+    assert verdict.kernel_name.startswith("conv_universal"), verdict.reason
+    assert any(name.startswith("depthwise_conv_universal") for name in verdict.alternatives)
 
 
 def test_one_channel_depthwise_is_a_plain_3x3_first(registry):
@@ -331,7 +357,6 @@ def test_a_pointwise_or_depthwise_query_must_name_every_parameter(registry, make
         (pointwise(in_channels=6), "in_channels = 6 is below its min 8"),
         (pointwise(in_channels=12), "in_channels = 12 is not a multiple of 8"),
         (pointwise(out_channels=6), "out_channels = 6 is not a multiple of 4"),
-        (pointwise(has_bias=True), "has_bias = True is not one of [False]"),
         (depthwise(out_channels=8), "out_channels"),
         (depthwise(groups=2), "groups"),
         (depthwise(width=129), "width = 129 is above its max 128"),
@@ -348,6 +373,8 @@ def test_pointwise_and_depthwise_refusals(registry, params, reason):
     [
         (pointwise(), "pointwise_conv_unified"),
         (depthwise(has_bias=True, apply_relu=True), "depthwise_conv_universal_bn_activation"),
+        (pointwise(has_bias=True), "pointwise_conv_unified_bias"),
+        (depthwise(has_bias=True), "depthwise_conv_universal_bias"),
     ],
 )
 def test_the_query_tool_names_the_pointwise_and_depthwise_entries(registry, params, kernel, capsys):

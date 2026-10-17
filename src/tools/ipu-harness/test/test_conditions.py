@@ -95,6 +95,7 @@ def test_the_narrowed_view_is_shared_by_plans_with_the_same_answer(tmp_path):
     [
         ('when = "bias"', 'when = "rows"', "must be bool parameters"),
         ('when = "bias"', 'when = "bias or rows"', "must be bool parameters"),
+        ('when = "bias"', 'when = "bias and rows"', "must be bool parameters"),
         ('when = "not bias"', 'when = "bias"', "tail and b both bind CR10"),
         ('b    = "CR10"', 'b    = { register = "CR10", when = "not bias" }', "takes its tensor's"),
         ('x    = "CR2"', 'x    = { register = "CR2", when = "bias" }', r"condition \(always\)"),
@@ -170,3 +171,48 @@ def test_a_tensor_exists_when_either_term_holds(tmp_path):
     for bias, relu, present in ((False, False, False), (False, True, True), (True, False, True)):
         plan = plan_case(m, {"rows": 2, "bias": bias, "relu": relu}, F.FP32)
         assert ("b" in plan.manifest.tensors) is present
+
+
+@pytest.mark.parametrize(
+    ("text", "values", "holds"),
+    [
+        ("not bias and not relu", {"bias": False, "relu": False}, True),
+        ("not bias and not relu", {"bias": True, "relu": False}, False),
+        ("not bias and not relu", {"bias": False, "relu": True}, False),
+        # and binds tighter than or: (bias and relu) or skip
+        ("bias and relu or skip", {"bias": True, "relu": False, "skip": False}, False),
+        ("bias and relu or skip", {"bias": False, "relu": False, "skip": True}, True),
+        ("bias and relu or skip", {"bias": True, "relu": True, "skip": False}, True),
+    ],
+)
+def test_a_condition_joined_by_and_holds_when_every_term_does(text, values, holds):
+    assert Condition.parse(text).holds(values) is holds
+
+
+def test_and_conditions_compare_by_their_clauses_and_exclude_their_complement():
+    assert Condition.parse("relu  and  not bias") == Condition.parse("not bias and relu")
+    assert str(Condition.parse("skip or relu and not bias")) == "not bias and relu or skip"
+    neither = Condition.parse("not bias and not relu")
+    either = Condition.parse("bias or relu")
+    assert neither.excludes(either) and either.excludes(neither)
+    assert not Condition.parse("not bias and relu").excludes(Condition.of("bias", negated=True))
+    assert neither.params == ("bias", "relu")
+
+
+def test_a_binding_under_and_shares_a_register_with_its_complement(tmp_path):
+    # The pointwise conv's CR10 (E07-20): the bias base when seeded
+    # (bias or relu), the tail size when neither is set.
+    toml = TOML.replace(
+        'bias = { type = "bool", default = false }',
+        'bias = { type = "bool", default = false }\nrelu = { type = "bool", default = false }',
+    )
+    toml = toml.replace('when = "bias"', 'when = "bias or relu"', 1)
+    toml = toml.replace('when = "not bias"', 'when = "not bias and not relu"')
+    m = manifest(tmp_path, toml)
+    for bias, relu, cr10 in ((False, False, 1), (False, True, 2), (True, False, 2)):
+        plan = plan_case(m, {"rows": 2, "bias": bias, "relu": relu}, F.FP32)
+        writes = {w.register: w.value for w in register_writes(plan, place(plan))}
+        assert writes["CR10"] == cr10  # tail = rows - 1, or b's base row
+    (tmp_path / "overlap").mkdir()
+    with pytest.raises(ManifestError, match="tail and b both bind CR10"):
+        manifest(tmp_path / "overlap", toml.replace("not bias and not relu", "not bias"))

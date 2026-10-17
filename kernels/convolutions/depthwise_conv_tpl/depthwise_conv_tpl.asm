@@ -1,9 +1,11 @@
 {#- depthwise_conv_tpl.asm -- y = act(depthwise conv2d(x, w, 3x3, stride 1, padding 1) + b): one 3x3 filter per channel (groups = channels) in FP32 wide vectors, with an optional folded bias and identity or ReLU.
 
     The template of kernels/convolutions/registry.toml's
-    depthwise_conv_universal (has_bias = false, apply_relu = false, fpb = 28)
-    and depthwise_conv_universal_bn_activation (has_bias = true,
-    apply_relu = true, fpb = 25). Batch-norm is assumed folded into the
+    depthwise_conv_universal (has_bias = false, apply_relu = false, fpb = 28),
+    depthwise_conv_universal_bn_activation (has_bias = true,
+    apply_relu = true, fpb = 25), and, E07-20, depthwise_conv_universal_bias
+    (true, false, 25) and depthwise_conv_universal_relu (false, true, 25: a
+    zero bias). Batch-norm is assumed folded into the
     weights and the bias. The program reads the query's own parameters:
     "seeded" (has_bias or apply_relu, as conv_universal_tpl) selects the bias
     seed, apply_relu the activation. It is also stage 1 of the

@@ -1,7 +1,8 @@
 # depthwise_conv_tpl: the template of the depthwise 3x3 stride-1 "same"
 # convolution (E07-18), FP32 wide vectors: one filter per channel, groups =
 # in_channels = out_channels. Its variants are the entries
-# depthwise_conv_universal and depthwise_conv_universal_bn_activation in
+# depthwise_conv_universal, depthwise_conv_universal_bn_activation,
+# depthwise_conv_universal_bias and depthwise_conv_universal_relu (E07-20) in
 # ../registry.toml; the program reads has_bias and apply_relu itself (see the
 # .asm header). Its program is also stage 1 of the depthwise_conv_stride2_*
 # kernels (E07-19). Routed in the universal conv2d vocabulary: every one of its
@@ -153,7 +154,7 @@ apply_relu = true
 fpb = 25
 generator = "gen.py:negative_bias"
 
-[cases.relu_no_bias]  # the template's own: seeded without a bias (no entry routes it), the bias column must read 0
+[cases.relu_no_bias]  # depthwise_conv_universal_relu: seeded without a bias, the bias column must read 0
 in_channels = 4
 out_channels = 4
 height = 16

@@ -1,5 +1,9 @@
-# The convolution variants (E07-17, E07-18): kernels that differ from a template
-# only in parameter values. `bazel test //kernels/convolutions:<name>` runs the
+# The convolution variants (E07-17, E07-18, E07-20): kernels that differ from a
+# template only in parameter values. has_bias and apply_relu split each
+# template's domain, so every combination routes to one entry: (false, false)
+# the plain kernel, (true, true) and (false, true) the bias + ReLU one (a zero
+# bias without has_bias; depthwise: its own *_relu entry), (true, false) the
+# *_bias one (E07-20). An entry costs what its template does. `bazel test //kernels/convolutions:<name>` runs the
 # template's cases the entry chooses, at its fixed values.
 
 [[kernel]]
@@ -22,6 +26,18 @@ cases = [
     "sweep_cols128", "sweep_cols128_partial", "sweep_pad8", "sweep_pad5", "sweep_w127",
 ]
 
+# E07-20: the seeded program with the identity activation. negative_bias (zero
+# weights, a bias below zero) writes the bias itself, so no ReLU ran.
+[[kernel]]
+name = "conv_universal_bias"
+template = "conv_universal_tpl"
+params = { has_bias = true, apply_relu = false }
+doc = "3x3 stride-1 conv + bias, no activation (FP32, width <= 128)"
+cases = [
+    "default", "negative_outputs", "negative_bias", "sweep_28x4", "sweep_56x4", "sweep_10x4",
+    "sweep_32x32", "sweep_cols128", "sweep_cols128_partial", "sweep_pad8", "sweep_pad5", "sweep_w100",
+]
+
 [[kernel]]
 name = "pointwise_conv_unified"
 template = "pointwise_conv_tpl"
@@ -39,11 +55,22 @@ cases = [
     "sweep_3x5", "sweep_1x1", "sweep_layer",
 ]
 
+[[kernel]]
+name = "pointwise_conv_unified_bias"
+template = "pointwise_conv_tpl"
+params = { has_bias = true, apply_relu = false }
+doc = "1x1 conv2d + bias, no activation (FP32, width <= 128)"
+cases = [
+    "default", "negative_bias", "sweep_128", "sweep_144", "sweep_256", "sweep_96x32", "sweep_3x5",
+    "sweep_1x1", "sweep_layer",
+]
+
 # fpb (CR7, channels per filter super-block) follows the seed, but a bool
 # cannot enter [derived], so each depthwise entry fixes it (the pack refuses a
 # mismatch). Unlike the pointwise and conv_universal twins, the bias + ReLU
-# depthwise kernel requires the bias, as the ipu_apps one did: a ReLU query
-# without one is refused.
+# depthwise kernel requires the bias, as the ipu_apps one did; a ReLU query
+# without one routes to depthwise_conv_universal_relu (E07-20), the same
+# seeded program over a zero bias, so the bn entry's routing is unchanged.
 [[kernel]]
 name = "depthwise_conv_universal"
 template = "depthwise_conv_tpl"
@@ -61,5 +88,27 @@ params = { has_bias = true, apply_relu = true, fpb = 25 }
 doc = "3x3 stride-1 depthwise conv2d + folded batch-norm bias + ReLU (FP32, width <= 128)"
 cases = [
     "default", "negative_bias", "c25_16", "c32_16", "c16_32", "c50_64", "c4_8x128", "c30_16x128",
+    "c4_8x8", "c4_5x5", "c4_6x65",
+]
+
+# E07-20: the seeded layout (fpb = 25) with the identity activation, and the
+# ReLU query without a bias (a zero bias, as the other bn twins give).
+[[kernel]]
+name = "depthwise_conv_universal_bias"
+template = "depthwise_conv_tpl"
+params = { has_bias = true, apply_relu = false, fpb = 25 }
+doc = "3x3 stride-1 depthwise conv2d + bias, no activation (FP32, width <= 128)"
+cases = [
+    "default", "negative_outputs", "negative_bias", "c25_16", "c32_16", "c16_32", "c50_64",
+    "c4_8x128", "c30_16x128", "c4_8x8", "c4_5x5", "c3_5x128",
+]
+
+[[kernel]]
+name = "depthwise_conv_universal_relu"
+template = "depthwise_conv_tpl"
+params = { has_bias = false, apply_relu = true, fpb = 25 }
+doc = "3x3 stride-1 depthwise conv2d + ReLU, no bias (FP32, width <= 128)"
+cases = [
+    "default", "relu_no_bias", "c25_16", "c32_16", "c16_32", "c50_64", "c4_8x128", "c30_16x128",
     "c4_8x8", "c4_5x5", "c4_6x65",
 ]

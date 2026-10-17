@@ -1,15 +1,15 @@
 {#- pointwise_conv_tpl.asm -- y = act(conv2d(x, w, 1x1) + b): a pointwise convolution in FP32 wide vectors, any in_channels through a multi-pass inner loop, with an optional folded bias and identity or ReLU.
 
     The template of kernels/convolutions/registry.toml's pointwise_conv_unified
-    (has_bias = false, apply_relu = false) and
+    (has_bias = false, apply_relu = false),
     pointwise_conv_unified_bn_activation (apply_relu = true; has_bias either: a
-    query without one runs with a zero bias). Batch-norm is assumed folded
+    query without one runs with a zero bias) and pointwise_conv_unified_bias
+    (has_bias = true, apply_relu = false; E07-20). Batch-norm is assumed folded
     into the weights and the bias. The program reads the query's own
-    parameters: "seeded" (apply_relu) selects the bias seed, apply_relu the
-    activation. The seed follows apply_relu, not has_bias or apply_relu as in
-    conv_universal_tpl, because the bias region b and CR10 follow it too (b's
-    when, and CR10's: b when seeded, the unread tail_size otherwise); has_bias
-    without ReLU has no entry yet (E07-20).
+    parameters: "seeded" (has_bias or apply_relu, as in conv_universal_tpl)
+    selects the bias seed, apply_relu the activation. The bias region b and
+    CR10 follow the seed (b's when, and CR10's: b when seeded, the unread
+    tail_size when neither is set).
 
     Pipeline (one output channel per register half)
     - Each row group (one 128-element chunk of every input channel) preloads
@@ -76,8 +76,8 @@
     Supported configurations: width 1..128, any height >= 1 (padded),
     in_channels a multiple of 8, out_channels a multiple of 4.
 -#}
-{#- The variants: seeded (apply_relu) seeds R_ACC from the bias row; apply_relu picks the activation. -#}
-{%- set seeded = apply_relu -%}
+{#- The variants: seeded (has_bias or apply_relu) seeds R_ACC from the bias row; apply_relu picks the activation. -#}
+{%- set seeded = has_bias or apply_relu -%}
 {%- set activation = "relu" if apply_relu else "identity" -%}
 # ===========================================================================
 # Initialization

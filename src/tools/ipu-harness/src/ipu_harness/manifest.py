@@ -40,7 +40,8 @@ Schema
     right after that tensor's in placement order (by default inputs, then
     outputs, then scratch, each in file order), so scratch can come before an
     output; not with ``row``. ``when`` (``"<bool param>"`` or ``"not <bool
-    param>"``, or such terms joined by ``or``: ``"has_bias or apply_relu"``):
+    param>"``, such terms joined by ``and``, and those joined by ``or``:
+    ``"has_bias or apply_relu"``, ``"not has_bias and not apply_relu"``):
     the tensor exists only in a case where that holds; otherwise it
     is not placed, generated, passed to the reference or bound.
     ``pack`` (inputs and outputs): a named pack transform (E06-05); an output's
@@ -641,14 +642,14 @@ def _placed(
 
 
 def _condition(r: Reader, raw: object, bools: Iterable[str], path: tuple[str, ...]) -> Condition:
-    """``"<bool param>"``, ``"not <bool param>"``, or such terms joined by ``or``."""
+    """``"<bool param>"``, ``"not <bool param>"``, or such terms joined by ``and`` and ``or``."""
     condition = Condition.parse(r.text(raw, path))
     known = set(bools)
     if any(param not in known for param in condition.params):
         raise r.fail(
             path,
             f"{where(path)} {condition!s:.60} must be bool parameters (each may be "
-            "'not' one) joined by 'or'",
+            "'not' one) joined by 'and' or 'or'",
         )
     return condition
 

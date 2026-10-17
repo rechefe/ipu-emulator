@@ -2,9 +2,20 @@
 
 ## Routing
 
-For `has_bias=False, apply_relu=False`. With `has_bias=True, apply_relu=True`
-the same ranges route to the `_bn_activation` kernels (`conv_universal`,
-`depthwise_conv_universal` and `pointwise_conv_unified` only).
+The width tables below are for `has_bias=False, apply_relu=False`. Over the
+same ranges, each `(has_bias, apply_relu)` combination routes to one entry of
+`kernels/convolutions/registry.toml` (`conv_universal`, `pointwise_conv_unified`
+and `depthwise_conv_universal` only; the other kernels take one combination):
+
+| `has_bias` | `apply_relu` | 3x3 (`groups=1`) | Pointwise (1x1) | Depthwise, stride 1 |
+|---|---|---|---|---|
+| `False` | `False` | `conv_universal` | `pointwise_conv_unified` | `depthwise_conv_universal` |
+| `True` | `True` | `conv_universal_bn_activation` | `pointwise_conv_unified_bn_activation` | `depthwise_conv_universal_bn_activation` |
+| `False` | `True` | `conv_universal_bn_activation` (a zero bias) | `pointwise_conv_unified_bn_activation` (a zero bias) | `depthwise_conv_universal_relu` |
+| `True` | `False` | `conv_universal_bias` | `pointwise_conv_unified_bias` | `depthwise_conv_universal_bias` |
+
+The `_bias` entries and `depthwise_conv_universal_relu` are new in E07-20;
+before it these queries were refused.
 
 ```bash
 bazel run //kernels:query -- conv2d in_channels=8 out_channels=8 \
@@ -35,17 +46,21 @@ chunks a row, `width / 128`) and `height`.
 `kernels/convolutions/registry.toml` over one program,
 `kernels/convolutions/conv_universal_tpl`, and answer `bazel run //kernels:query`
 with the same eleven parameters, every one required. The `_bn_activation`
-entry takes `apply_relu=True` with or without a bias (a zero one);
-`has_bias=True, apply_relu=False` has no kernel.
+entry takes `apply_relu=True` with or without a bias (a zero one), and
+`conv_universal_bias` (`//kernels/convolutions:conv_universal_bias`) takes
+`has_bias=True, apply_relu=False`.
 
-The pointwise and depthwise twins (`pointwise_conv_unified`,
-`pointwise_conv_unified_bn_activation`, `depthwise_conv_universal`,
-`depthwise_conv_universal_bn_activation`) are entries of the same
+The pointwise and depthwise variants (`pointwise_conv_unified`,
+`pointwise_conv_unified_bn_activation`, `pointwise_conv_unified_bias`,
+`depthwise_conv_universal`, `depthwise_conv_universal_bn_activation`,
+`depthwise_conv_universal_bias`, `depthwise_conv_universal_relu`) are entries of the same
 `registry.toml` over two programs, `kernels/convolutions/pointwise_conv_tpl` and
 `kernels/convolutions/depthwise_conv_tpl`, and run as
 `//kernels/convolutions:<name>`. `pointwise_conv_unified_bn_activation` takes
 `apply_relu=True` with or without a bias (a zero one);
-`depthwise_conv_universal_bn_activation` requires both the bias and ReLU.
+`depthwise_conv_universal_bn_activation` requires both the bias and ReLU, and
+`depthwise_conv_universal_relu` takes ReLU without a bias (the same program
+over a zero bias).
 
 `conv_first_layer` covers only `3x256x256 -> 16x128x128`, stride 2, bias+ReLU.
 It runs as `//kernels/convolutions/conv_first_layer` and answers

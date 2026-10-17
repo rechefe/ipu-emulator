@@ -50,15 +50,15 @@ row = 0                                      # the program reads it through CR0
 shape = ["out_channels", "in_channels", 1, 1]
 pack = "conv_weight_groups"                  # 128 input channels a row, num_passes rows per filter
 
-# The bias rows exist exactly when the program is seeded: apply_relu. Seeding on
-# has_bias or apply_relu (as conv_universal_tpl) would need CR10's tail_size
-# binding to hold when neither is set, which a when cannot say yet (E07-20).
-# The bias is stored only when has_bias: seeded without one (ReLU, no bias) the
-# rows hold 0, the zero bias the old harness's read_bias gave.
+# The bias rows exist exactly when the program is seeded: has_bias or
+# apply_relu, as conv_universal_tpl (E07-20; before it, apply_relu alone, as no
+# entry asked for a bias without ReLU). The bias is stored only when has_bias:
+# seeded without one (ReLU, no bias) the rows hold 0, the zero bias the old
+# harness's read_bias gave.
 [inputs.b]
 shape = ["out_channels"]
 pack = "pass0_bias"
-when = "apply_relu"
+when = "has_bias or apply_relu"
 
 [scratch.mask]                               # slot 0 keeps every lane; the program never masks
 shape = [1, 128]
@@ -82,7 +82,7 @@ out_channels        = "CR7"
 in_channels         = "CR8"     # the row-group stride
 pipeline_limit_tail = "CR9"
 b                   = "CR10"    # seeded (b's when)
-tail_size           = { register = "CR10", when = "not apply_relu" }
+tail_size           = { register = "CR10", when = "not has_bias and not apply_relu" }
 last_pass           = "CR11"
 fixed_idx_step      = "CR12"
 pass_stride         = "CR13"
