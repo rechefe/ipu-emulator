@@ -131,6 +131,7 @@ def test_a_bytes_kernels_base_counts_bytes(tmp_path, monkeypatch):
     [
         ('w = "base(z) + 1"', "", "base(z) names no tensor"),
         ('w = "base(1)"', "", "base() takes one tensor name"),
+        ('w = "base(y) + w"', "", "names no parameter or derived value: ['w']"),
         ('w = "base(y)"', 'shape = ["w", 128]', "reads ['w'], which read a region's base"),
         (
             'w = "base(x)"',

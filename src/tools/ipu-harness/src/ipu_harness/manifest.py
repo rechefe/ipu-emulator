@@ -1037,7 +1037,8 @@ def _derived(r: Reader, raw: object, params: Mapping[str, ParamDecl]) -> dict[st
             raise r.fail(path, f"[derived] {name} is also a parameter")
         derived[name] = r.text(expression, path)
         bases = [n for n in _names(r, derived[name], path) if base_tensor(n) is not None]
-        _check_expression(r, derived[name], (*params, *derived, *bases), path)
+        earlier = [d for d in derived if d != name]  # not itself: it would never resolve
+        _check_expression(r, derived[name], (*params, *earlier, *bases), path)
     return derived
 
 
