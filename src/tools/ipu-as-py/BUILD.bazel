@@ -445,3 +445,36 @@ ruff_test(
     name = "ruff",
     srcs = glob(["**/*.py"]),
 )
+
+# `ipu-as format` (E08-24): the editor's formatter's recorded output on its
+# corpus and on every kernel (test/golden/format/, from
+# vscode-ipu-asm/test/record-format.js), idempotence, the safety check, the CLI.
+py_pytest_test(
+    name = "test_format",
+    size = "medium",
+    srcs = ["test/test_format.py"],
+    data = glob(["test/golden/format/*.json"]) + [
+        "//src/tools/ipu-apps:asm_corpus_files",
+        "//vscode-ipu-asm:corpus",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_as_lib",
+        requirement("click"),
+        requirement("pytest"),
+    ],
+)
+
+# Formatting every kernel is idempotent and keeps its program (the same words
+# without Jinja, the same tokens with); reports, without failing, the kernels
+# it would change.
+py_pytest_test(
+    name = "test_format_corpus",
+    srcs = ["test/test_format_corpus.py"],
+    data = ["//src/tools/ipu-apps:asm_corpus_files"],
+    imports = ["src"],
+    deps = [
+        ":ipu_as_lib",
+        requirement("pytest"),
+    ],
+)

@@ -11,8 +11,8 @@ import click
 import lark
 import tomli
 
-from ipu_as import diagnostics, language_service, lark_tree, session, template
-from ipu_as.errors import AssemblerError, ParseError, TemplateError
+from ipu_as import diagnostics, formatter, language_service, lark_tree, session, template
+from ipu_as.errors import AssemblerError, FormatError, ParseError, TemplateError
 from ipu_isa.codec.slot import ReservedEncoding
 
 
@@ -376,9 +376,136 @@ def check(
     sys.exit(1 if found else 0)
 
 
+def _parse_range(
+    _ctx: click.Context, _param: click.Parameter, value: str | None
+) -> tuple[int, int] | None:
+    """`L1:L2` (1-based, inclusive) as the 0-based (first, last) `format_source` takes."""
+    if value is None:
+        return None
+    first, sep, last = value.partition(":")
+    if not (sep and first.isdigit() and last.isdigit() and 1 <= int(first) <= int(last)):
+        raise click.BadParameter(f"{value!r} is not L1:L2 with 1 <= L1 <= L2", param_hint="--range")
+    return int(first) - 1, int(last) - 1
+
+
+def _parse_indent(_ctx: click.Context, _param: click.Parameter, value: str) -> str:
+    """`N` spaces, or `tab`, as the indent string."""
+    if value == "tab":
+        return "\t"
+    if not value.isdigit():
+        raise click.BadParameter(
+            f"{value!r} is not a number of spaces or 'tab'", param_hint="--indent"
+        )
+    return " " * int(value)
+
+
+@dataclass(frozen=True)
+class FormatOptions:
+    """The layout a `format` command line asks for (`ipu_as.formatter.format_source`).
+
+    Attributes:
+        indent: One level of indentation.
+        blank_line: Separate each `;;` word from the next by an empty line.
+        line_range: The 0-based (first, last) lines to format; None for all.
+    """
+
+    indent: str
+    blank_line: bool
+    line_range: tuple[int, int] | None
+
+    def apply(self, text: str) -> str:
+        """`text` in this layout (raises `FormatError` as `format_source` does)."""
+        return formatter.format_source(
+            text, indent=self.indent, blank_line=self.blank_line, line_range=self.line_range
+        )
+
+
+def _format_options(command: Callable) -> Callable:
+    """Add `--indent`, `--blank-line` and `--range` to `command`, which receives one `options`."""
+
+    @functools.wraps(command)
+    def with_options(*args, indent: str, blank_line: bool, line_range, **kwargs):
+        return command(*args, options=FormatOptions(indent, blank_line, line_range), **kwargs)
+
+    with_options = click.option(
+        "--range",
+        "line_range",
+        callback=_parse_range,
+        metavar="L1:L2",
+        help="Format only lines L1 to L2 (1-based, inclusive); the others stay as they are.",
+    )(with_options)
+    with_options = click.option(
+        "--blank-line",
+        is_flag=True,
+        help="Separate each ;; word from the next by an empty line.",
+    )(with_options)
+    return click.option(
+        "--indent",
+        default="4",
+        show_default=True,
+        callback=_parse_indent,
+        metavar="N|tab",
+        help="One level of indentation: N spaces, or a tab.",
+    )(with_options)
+
+
+@click.command("format")
+@click.option(
+    "--input",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, allow_dash=True),
+    help='Source file to format, or "-" to read from stdin.',
+)
+@click.option(
+    "--check",
+    is_flag=True,
+    help="Write nothing; exit 1 if formatting would change the source, 0 if not.",
+)
+@click.option(
+    "--in-place",
+    is_flag=True,
+    help="Rewrite the input file instead of printing the result.",
+)
+@_format_options
+def format_command(input: str, check: bool, in_place: bool, options: FormatOptions):
+    """Print an assembly source in the repository's layout.
+
+    A label at column 0 on its own line, each instruction line one indent in,
+    and code after a `;;` on a line of its own. Only whitespace changes; Jinja
+    tags and comments stay as written. The result is checked to be the same
+    program (the same words for a source without Jinja, the same tokens for a
+    template); if it is not, nothing is written and the exit code is 1.
+    """
+    if input == "-" and in_place:
+        raise click.UsageError("--in-place needs a file --input, not stdin")
+    if check and in_place:
+        raise click.UsageError("--check writes nothing; drop --in-place")
+    if input == "-":
+        text = sys.stdin.buffer.read().decode("utf-8")
+    else:
+        # newline="": a CRLF file is formatted, and written back, as CRLF.
+        with open(input, encoding="utf-8", newline="") as source:
+            text = source.read()
+    try:
+        out = options.apply(text)
+    except FormatError as error:
+        click.echo(f"Error formatting {input}: {error}", err=True)
+        sys.exit(1)
+    if check:
+        if out != text:
+            click.echo(f"{input}: would be reformatted", err=True)
+        sys.exit(1 if out != text else 0)
+    if not in_place:
+        sys.stdout.buffer.write(out.encode("utf-8"))
+    elif out != text:
+        with open(input, "w", encoding="utf-8", newline="") as target:
+            target.write(out)
+
+
 cli.add_command(assemble)
 cli.add_command(disassemble)
 cli.add_command(check)
+cli.add_command(format_command)
 
 if __name__ == "__main__":
     cli()
