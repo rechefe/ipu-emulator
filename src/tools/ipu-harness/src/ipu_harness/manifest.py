@@ -822,9 +822,7 @@ def _case(r: Reader, m: KernelManifest, name: str, raw: object) -> CaseDecl:
     if "generator" in table:
         case = replace(
             case,
-            generator=r.function(
-                m.directory, table["generator"], (*path, "generator"), family=True
-            ),
+            generator=r.generator(m.directory, table["generator"], (*path, "generator")),
         )
     if "tier" in table:
         tier = table["tier"]

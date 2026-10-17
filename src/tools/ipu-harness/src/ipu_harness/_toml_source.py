@@ -147,25 +147,34 @@ class Reader:
             )
         return directory / file
 
-    def function(
-        self, directory: Path, value: object, path: tuple[str, ...], *, family: bool = False
-    ) -> str:
-        """A ``"file.py:function"`` reference to a file in the kernel directory;
-        with ``family``, also ``"../file.py:function"``, a file directly in the
-        family's folder (shared by its kernels)."""
-        text = self.typed(value, str, path)
-        file, sep, fn = text.partition(":")
-        if not sep or not fn.isidentifier() or not file.endswith(".py"):
-            raise self.fail(path, f"{where(path)} {text!r} must be 'file.py:function'")
-        shared = PurePosixPath(file[3:]) if family and file.startswith("../") else None
-        if shared is not None and len(shared.parts) == 1 and shared.name not in ("", ".", ".."):
-            return str(text)
-        if shared is not None:
+    def function(self, directory: Path, value: object, path: tuple[str, ...]) -> str:
+        """A ``"file.py:function"`` reference to a file in the kernel directory."""
+        file = self._file(value, path)
+        self.inside(directory, file, path)
+        return str(self.typed(value, str, path))
+
+    def generator(self, directory: Path, value: object, path: tuple[str, ...]) -> str:
+        """A case's generator: ``"file.py:function"`` in the kernel directory,
+        or ``"../file.py:function"``, a file directly in the family's folder
+        (the folder that holds the kernel folder, or ``registry.toml`` for an
+        entry's template), which the family's kernels share."""
+        file = self._file(value, path)
+        if not file.startswith("../"):
+            return self.function(directory, value, path)
+        shared = PurePosixPath(file[3:])
+        if len(shared.parts) != 1 or shared.parts[0] == "..":
             raise self.fail(
                 path, f"{where(path)} {file!r} must be ../<file> directly in the family's folder"
             )
-        self.inside(directory, file, path)
-        return str(text)
+        return str(self.typed(value, str, path))
+
+    def _file(self, value: object, path: tuple[str, ...]) -> str:
+        """The file of a ``"file.py:function"`` reference, its form checked."""
+        text = str(self.typed(value, str, path))
+        file, sep, fn = text.partition(":")
+        if not sep or not fn.isidentifier() or not file.endswith(".py"):
+            raise self.fail(path, f"{where(path)} {text!r} must be 'file.py:function'")
+        return file
 
 
 def decode_error_line(message: str) -> int:
