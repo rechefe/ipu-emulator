@@ -106,6 +106,21 @@ def test_overlapping_pins_name_both_regions(tmp_path):
     assert "y (rows 3..6) overlaps x (rows 0..3)" in str(error.value)
 
 
+def test_a_callers_pin_places_its_tensor_and_the_rest_fill_around_it(tmp_path):
+    """A chained input already in XMEM (E06-15)."""
+    m = manifest(tmp_path, SCALE.format(x_pin="", y_extra=""))
+    plan = plan_case(m, {"rows": 2, "s": 2.0}, F.FP32)
+    assert bases(place(plan, pins={"x": 3})) == {"x": (3, 2), "y": (0, 2)}
+    with pytest.raises(ValueError, match="no tensors"):
+        place(plan, pins={"z": 0})
+
+
+def test_a_callers_pin_overlapping_a_row_pin_is_an_error(tmp_path):
+    m = manifest(tmp_path, SCALE.format(x_pin="", y_extra="row = 0\n"))
+    with pytest.raises(PlanError, match="overlaps"):
+        place(plan_case(m, {"rows": 2, "s": 2.0}, F.FP32), pins={"x": 1})
+
+
 CAPACITY = addressable_rows(F.FP32)
 
 
