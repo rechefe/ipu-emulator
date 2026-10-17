@@ -96,7 +96,7 @@ _Avoid_: live value
 The rules for which value, cycle start or forwarded, each register read sees within one cycle, with the slot execution order (ADR 0002). Declared in `ipu_isa.timing`; each instruction declares its register reads and writes.
 
 **Known deviation**:
-A read where today's emulator differs from the timing contract, listed in `KNOWN_DEVIATIONS` with the E04 issue that removes it. The list can only shrink.
+A read where today's emulator differs from the timing contract, listed in `KNOWN_DEVIATIONS` with the E04 issue that removes it. The list can only shrink. It is empty today.
 
 ## Faults and events
 

@@ -141,7 +141,7 @@ EXERCISES: dict[str, tuple[Declaration, ...]] = {
     "test_mult_reads_r_cyclic_at_cycle_start": (
         Reads(Slot.MULT, "MULT.RC.VS", "r_cyclic", None, CS),
     ),
-    "test_mult_reads_r_mask_forwarded": (Reads(Slot.MULT, "MULT.RC.VS", "r_mask", None, FW),),
+    "test_mult_reads_r_mask_at_cycle_start": (Reads(Slot.MULT, "MULT.RC.VS", "r_mask", None, CS),),
     "test_acc_reads_this_cycle_mult_res": _reads(Slot.ACC, _ACC_MULT_RES, "mult_res", None, FW),
     "test_agg_reads_this_cycle_mult_res": _reads(Slot.ACC, _AGG, "mult_res", None, FW),
     "test_reshape_reads_this_cycle_mult_res": (

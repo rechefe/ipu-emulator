@@ -222,26 +222,12 @@ def contract_view(
 # ---------------------------------------------------------------------------
 
 
-def _deviation(
-    slot: Slot, mnemonic: str, register: str, via_operand: str | None, today: View, fixed_by: str
-) -> Deviation:
-    contract = View.FORWARDED if today is View.CYCLE_START else View.CYCLE_START
-    return Deviation(slot, mnemonic, register, via_operand, today, contract, fixed_by)
-
-
-_MULT = ("MULT.RC.VV", "MULT.RC.VE", "MULT.RC.VS", "MULT.VE", "MULT.EE")
-
 #: Every read whose declared view (today's emulator) differs from
 #: :func:`contract_view`, with the E04 issue that removes it. The list can only
 #: shrink: :func:`validate_timing` rejects a difference missing from it and a
-#: row whose difference has gone.
-KNOWN_DEVIATIONS: tuple[Deviation, ...] = (
-    # Rule 2: MULT reads R_MASK forwarded.
-    *(
-        _deviation(Slot.MULT, mnemonic, "r_mask", None, View.FORWARDED, "E04-27")
-        for mnemonic in _MULT
-    ),
-)
+#: row whose difference has gone. Empty since E04-27 removed the last rows
+#: (MULT read R_MASK forwarded): the emulator follows the contract everywhere.
+KNOWN_DEVIATIONS: tuple[Deviation, ...] = ()
 
 
 def deviations(
