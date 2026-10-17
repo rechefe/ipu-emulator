@@ -31,29 +31,36 @@ Schema
     ``shape`` (non-empty list, required): positive ints, or expressions over
     parameter and derived names in E06-03's grammar (``"rows * 4"``,
     ``"ceil(k / 128)"``). ``row``: pin the region's first XMEM row (Q81), an int
-    or an expression like a shape's. ``after = "<tensor>"``: place the region
+    or an expression like a shape's. ``after`` (``"<tensor>"``): place the region
     right after that tensor's in placement order (by default inputs, then
     outputs, then scratch, each in file order), so scratch can come before an
-    output; not with ``row``. ``when = "<bool param>"`` (or ``"not <bool
+    output; not with ``row``. ``when`` (``"<bool param>"`` or ``"not <bool
     param>"``): the tensor exists only in a case where that holds; otherwise it
     is not placed, generated, passed to the reference or bound.
     ``pack`` (inputs and outputs): a named pack transform (E06-05); an output's
     lays out the stored rows that :func:`ipu_harness.packing.unpack` reads back. ``store`` (outputs):
     ``element`` (default) or ``accumulator``. ``fill`` (scratch): the value the
-    region is filled with, default 0. ``bytes`` (scratch, not with ``fill``):
-    ``"file.py:fn"``, ``fn(plan)`` returns the region's exact starting bytes,
-    format-blind (a lane mask, which no element value can carry); refused while
-    the runner does not write it (:func:`ipu_harness.packing.region_fill`). Scratch regions are placed and filled,
-    never compared. ``range`` (inputs): ``[lo, hi]`` for the generated values in
-    every format, or ``{ int8 = [lo, hi], e4 = [lo, hi] }`` per format (E06-08).
+    region is filled with, default 0: a number, or an expression over
+    int and float parameters and derived values in the shape grammar,
+    evaluated exactly when the case is planned (``"-1 / channels"``, whole or
+    not; a float parameter is its exact binary value) and rounded to the
+    format when stored. ``bytes`` (scratch, not with ``fill``):
+    ``"file.py:fn"``, or ``"../file.py:fn"`` in the family's folder as a
+    generator may be, ``fn(plan)`` returns the region's exact starting bytes,
+    format-blind (a lane mask, which no element value can carry). The runner
+    writes either through :func:`ipu_harness.packing.region_fill`. Scratch
+    regions are placed and filled, never compared. ``range`` (inputs): ``[lo, hi]`` for the generated values in
+    every format, or ``{ int8 = [lo, hi], e4 = [lo, hi] }`` per format (E06-08);
+    ``lo`` may equal ``hi`` (a constant input).
 
 ``[abi]``
     ``<name> = "CR2"`` .. ``"CR15"``, or ``"LR0"`` .. ``"LR15"`` (a preset, E06-06).
     ``CR0`` and ``CR1`` are hardwired constants and cannot be bound, except that
     a tensor pinned at a literal ``row = 0`` may bind ``CR0``: the program reads its base
-    through the hardwired 0 and nothing is written. A tensor may also bind
-    ``{ register = "CR2", offset = -1 }``: its base row plus ``offset`` (an
-    int; in a ``unit = "bytes"`` kernel the base and the offset count bytes).
+    through the hardwired 0 and nothing is written. A binding may be a table
+    with ``register`` and optional keys: a tensor's may add ``offset``,
+    ``{ register = "CR2", offset = -1 }`` for its base row plus an int (in a
+    ``unit = "bytes"`` kernel the base and the offset count bytes).
     Any binding may be a table with ``when`` (as a tensor's): it binds
     only in a case where that holds; a conditional tensor's binding takes the
     tensor's condition. Two bindings may share a register only when their
@@ -64,23 +71,44 @@ Schema
 
 ``[derived]``
     ``<name> = "<expression>"`` over parameters and earlier derived values,
-    in the shape grammar (E06-06).
+    in the shape grammar (E06-06). An expression may also read
+    ``base(<tensor>)``, the region's base row once placed (in bytes in a
+    ``unit = "bytes"`` kernel, as a tensor's binding): such a value, and any
+    that reads it, is *placed* (:attr:`KernelManifest.placed`), known only
+    when the registers are written, so only ``[abi]`` binds it; a shape, a
+    pin or the cost cannot read it. ``w1 = "base(weights) + 1"`` gives one
+    region several offset registers, which a ``{ register, offset }``
+    binding cannot.
 
 ``[cases.<name>]``
     Parameter values: a scalar, or a non-empty list (a sweep axis). Reserved
     keys: ``formats`` (a non-empty subset of the kernel's), ``inputs`` and
     ``expected`` (tensor name to a user file, Q82), ``generator``
-    (``"file.py:fn"``), ``tier`` (``default`` or ``nightly``, Q73).
+    (``"file.py:fn"``, or ``"../file.py:fn"`` in the family's folder, a
+    generator its kernels share), ``tier`` (``default`` or ``nightly``, Q73).
     ``[cases.default]`` is required.
+
+``[benchmark]`` (optional, E06-11)
+    ``points``: a non-empty list of tables of parameter values, each over the
+    default case's, which must take one value each (one run per point and
+    format, paired, not swept; a point keeps the default case's generator
+    but not its files, and may not change a registry entry's fixed
+    parameter); ``per``: an int parameter the report divides cycles by;
+    ``max_cycles``: each run's limit (the model's by default). It needs a
+    ``[golden]`` reference or op, which each point is held to; no two points
+    may be equal. ``python -m ipu_harness.cli KERNEL --benchmark``
+    (``bazel run :<kernel> -- --benchmark``) runs them;
+    :mod:`ipu_harness.benchmark`.
 
 ``[golden]`` (optional)
     ``reference`` (``"file.py:fn"``; default ``reference.py:reference`` when the
     kernel has a ``reference.py``) or ``op`` (a shared reference in
     ``ipu_kernels.reference``), not both; ``tolerance`` (format to a tier name
-    of :data:`ipu_harness.tolerance.TIERS`, or ``{ tier = ..., rtol = ..., atol =
-    ..., ulps = ..., why = "..." }`` overriding a tier's numbers, ``why`` required;
-    a key is a format the kernel runs in, or the accumulator format of one
-    (FP32, INT32) for an accumulator output; an override may set only what
+    of :data:`ipu_harness.tolerance.TIERS`, or a table overriding a tier's
+    numbers: ``tier`` and ``why`` (required), ``rtol``, ``atol``, ``ulps``;
+    a key is a format some output is compared in: a format the kernel runs in
+    for an element output, its accumulator format (FP32, INT32) for an
+    accumulator output, so a key no output reads is an error; an override may set only what
     ``compare`` reads for that format: ``ulps`` only for an 8-bit float, and
     then not ``rtol``/``atol``; a format not listed is compared at ``EXACT``).
 
@@ -101,6 +129,7 @@ and ``cases`` (the template cases the entry runs, ``default`` among them).
 
 from __future__ import annotations
 
+import functools
 import math
 import re
 import sys
@@ -114,7 +143,7 @@ from ipu_emu.errors import ConfigurationError
 from ipu_harness._codec import limits
 from ipu_harness._toml_source import Locator, ManifestError, Reader, decode_error_line, where
 from ipu_harness.conditions import Condition
-from ipu_harness.expressions import ExpressionError, names_in
+from ipu_harness.expressions import ExpressionError, base_tensor, names_in, placed_reads
 from ipu_harness.tolerance import TIERS
 from ipu_harness.tolerance import Tier as ToleranceTier
 from ipu_isa.formats import FORMATS, ElementFormat
@@ -128,11 +157,13 @@ else:
 __all__ = [
     "BYTE_UNIT_KERNELS",
     "TOML_NAME",
+    "BenchmarkDecl",
     "CaseDecl",
     "GoldenDecl",
     "KernelManifest",
     "ManifestError",
     "ParamDecl",
+    "SCHEMA_KEYS",
     "SECTION_OF",
     "TensorDecl",
     "ZERO_REGISTER",
@@ -171,7 +202,9 @@ _SECTIONS = (
     "derived",
     "cases",
     "golden",
+    "benchmark",
 )
+_BENCHMARK_KEYS = ("points", "per", "max_cycles")
 _KERNEL_KEYS = ("op", "formats", "asm", "stages", "cost")
 _PARAM_KEYS = ("type", "min", "max", "multiple_of", "choices", "default", "unit")
 _TENSOR_KEYS: Mapping[Role, tuple[str, ...]] = {
@@ -182,6 +215,24 @@ _TENSOR_KEYS: Mapping[Role, tuple[str, ...]] = {
 _CASE_KEYS = ("formats", "inputs", "expected", "generator", "tier")
 _GOLDEN_KEYS = ("reference", "op", "tolerance")
 _TIER_KEYS = ("tier", "rtol", "atol", "ulps", "why")
+_BINDING_KEYS = ("register", "offset", "when")
+
+#: Every table of the schema and the keys it takes, in the module docstring's
+#: order: what the ``kernel.toml`` reference page lists (E06-21). A case's
+#: other keys are parameter values; ``[abi]`` and ``[derived]`` take names.
+SCHEMA_KEYS: Mapping[str, tuple[str, ...]] = MappingProxyType(
+    {
+        "[kernel]": _KERNEL_KEYS,
+        "[params.<name>]": _PARAM_KEYS,
+        "[inputs.<name>]": _TENSOR_KEYS["input"],
+        "[outputs.<name>]": _TENSOR_KEYS["output"],
+        "[scratch.<name>]": _TENSOR_KEYS["scratch"],
+        "[abi] table binding": _BINDING_KEYS,
+        "[cases.<name>] (reserved keys)": _CASE_KEYS,
+        "[golden]": _GOLDEN_KEYS,
+        "[golden] tolerance override": _TIER_KEYS,
+    }
+)
 #: Names a template or a case reserves (E06-07: cr, lr, format, shapes).
 _RESERVED_NAMES = frozenset({"cr", "lr", "format", "shapes", *_CASE_KEYS})
 
@@ -225,7 +276,9 @@ class TensorDecl:
         when: The condition it exists under (``when = "bias"``), if any.
         pack: The named pack transform of an input or output (E06-05).
         store: How an output is stored: ``element`` or ``accumulator``.
-        fill: The value a scratch region is filled with.
+        fill: The value a scratch region is filled with: a number, or an
+            expression over parameters and derived values, evaluated exactly
+            (``"1 / channels"``) and rounded to the format when stored.
         content: ``"file.py:fn"`` giving a scratch region's bytes, if it says.
         value_range: ``[lo, hi]`` per format for an input's generated values
             (``range``, E06-08); a format not listed takes the default.
@@ -239,7 +292,7 @@ class TensorDecl:
     when: Condition | None = None
     pack: str | None = None
     store: Store = "element"
-    fill: int | float = 0
+    fill: int | float | str = 0
     content: str | None = None
     value_range: Mapping[ElementFormat, tuple[float, float]] = field(
         default_factory=lambda: MappingProxyType({})
@@ -272,6 +325,22 @@ class CaseDecl:
     expected: Mapping[str, Path] = field(default_factory=lambda: MappingProxyType({}))
     generator: str | None = None
     tier: Tier = "default"
+
+
+@dataclass(frozen=True)
+class BenchmarkDecl:
+    """The ``[benchmark]`` table (E06-11): sizes to time the kernel at.
+
+    Attributes:
+        points: Parameter values, each over the default case's: one run per
+            point and format (paired values, not a sweep).
+        per: An int parameter cycles are divided by in the report, if any.
+        max_cycles: Each run's cycle limit, if not the model's.
+    """
+
+    points: tuple[Mapping[str, object], ...]
+    per: str | None = None
+    max_cycles: int | None = None
 
 
 @dataclass(frozen=True)
@@ -308,7 +377,8 @@ class KernelManifest:
         abi_offsets: A tensor's offset from its base row, when ``[abi]`` gives one.
         abi_when: A binding's condition, when it has one (a conditional tensor's
             included).
-        derived: Name to expression.
+        derived: Name to expression; a placed one (:attr:`placed`) reads a
+            region's base.
         cases: The cases, ``default`` among them.
         golden: How outputs are checked.
         stages: ``"stages.py:run"`` for a multi-program pipeline (E06-14).
@@ -337,6 +407,7 @@ class KernelManifest:
     abi_when: Mapping[str, Condition] = field(default_factory=lambda: MappingProxyType({}))
     doc: str | None = None
     registry: Path | None = None
+    benchmark: BenchmarkDecl | None = None
 
     @property
     def label(self) -> str:
@@ -345,6 +416,13 @@ class KernelManifest:
         if self.registry is not None:
             return f"//kernels/{self.registry.parent.name}:{self.name}"
         return f"//kernels/{self.directory.parent.name}/{self.directory.name}"
+
+    @functools.cached_property
+    def placed(self) -> Mapping[str, frozenset[str]]:
+        """The ``[derived]`` values that read ``base(<tensor>)``, directly or
+        through another, with the tensors whose bases each reads: known once
+        the regions are placed, so only ``[abi]`` reads them."""
+        return MappingProxyType(placed_reads(self.derived))
 
     @property
     def byte_units(self) -> bool:
@@ -469,8 +547,8 @@ def _pair(r: Reader, raw: object, path: tuple[str, ...]) -> tuple[float, float]:
     if len(pair) != 2:
         raise r.fail(path, f"{where(path)} must be [lo, hi]")
     lo, hi = (r.typed(v, (int, float), path) for v in pair)
-    if not lo < hi:
-        raise r.fail(path, f"{where(path)} [{lo}, {hi}] is empty: lo must be below hi")
+    if lo > hi:
+        raise r.fail(path, f"{where(path)} [{lo}, {hi}] is empty: lo must not be above hi")
     return float(lo), float(hi)
 
 
@@ -565,7 +643,7 @@ def _tensor(
             )
         decl = replace(decl, store=store)
     if "fill" in table:
-        decl = replace(decl, fill=r.typed(table["fill"], (int, float), (*path, "fill")))
+        decl = replace(decl, fill=r.typed(table["fill"], (int, float, str), (*path, "fill")))
     if "range" in table:
         ranges = _range(r, table["range"], (*path, "range"), formats)
         decl = replace(decl, value_range=MappingProxyType(ranges))
@@ -601,7 +679,6 @@ def _binding_problem(
 
 #: The hardwired zero a tensor pinned at row 0 may be read through.
 ZERO_REGISTER = "CR0"
-_BINDING_KEYS = ("register", "offset", "when")
 
 
 def _register(
@@ -807,7 +884,8 @@ def _case(r: Reader, m: KernelManifest, name: str, raw: object) -> CaseDecl:
         case = replace(case, expected=expected)
     if "generator" in table:
         case = replace(
-            case, generator=r.function(m.directory, table["generator"], (*path, "generator"))
+            case,
+            generator=r.shared_function(m.directory, table["generator"], (*path, "generator")),
         )
     if "tier" in table:
         tier = table["tier"]
@@ -875,8 +953,28 @@ def _non_negative(
     return float(value)
 
 
+def _read_formats(
+    formats: tuple[ElementFormat, ...], tensors: Mapping[str, TensorDecl]
+) -> set[ElementFormat]:
+    """The formats some output is compared in: a run's format for an element
+    output, its accumulator format (FP32, INT32) for an accumulator output
+    (as ``packing.stored_format``, which this module cannot import)."""
+    read = set()
+    for tensor in tensors.values():
+        if tensor.role != "output":
+            continue
+        for fmt in formats:
+            accumulated = ElementFormat(FORMATS[fmt].accumulator.value)
+            read.add(accumulated if tensor.store == "accumulator" else fmt)
+    return read
+
+
 def _golden(
-    r: Reader, directory: Path, raw: object, formats: tuple[ElementFormat, ...]
+    r: Reader,
+    directory: Path,
+    raw: object,
+    formats: tuple[ElementFormat, ...],
+    tensors: Mapping[str, TensorDecl],
 ) -> GoldenDecl:
     table = r.table(raw, ("golden",))
     r.known(table, _GOLDEN_KEYS, ("golden",))
@@ -893,6 +991,7 @@ def _golden(
         tiers = r.table(table["tolerance"], ("golden", "tolerance"))
         # An accumulator output is compared in its accumulator format (FP32 or INT32).
         accumulated = {ElementFormat(FORMATS[f].accumulator.value) for f in formats}
+        read = _read_formats(formats, tensors)
         for fmt, tier in tiers.items():
             path = ("golden", "tolerance", fmt)
             key = r.format(fmt, path)
@@ -900,6 +999,14 @@ def _golden(
                 raise r.fail(
                     path,
                     f"tolerance for {fmt}, a format the kernel does not run in or accumulate in",
+                )
+            if key not in read:
+                compared = ", ".join(sorted(f.value for f in read)) or "none"
+                raise r.fail(
+                    path,
+                    f"tolerance for {fmt} is never read: no output is compared in {fmt} "
+                    f"(an accumulator output is compared in its accumulator format; "
+                    f"outputs are compared in: {compared})",
                 )
             tolerance[key] = _tier(r, tier, key, path)
     return GoldenDecl(reference, op, MappingProxyType(tolerance))
@@ -1021,8 +1128,91 @@ def _derived(r: Reader, raw: object, params: Mapping[str, ParamDecl]) -> dict[st
         if name in params:
             raise r.fail(path, f"[derived] {name} is also a parameter")
         derived[name] = r.text(expression, path)
-        _check_expression(r, derived[name], (*params, *derived), path)
+        bases = [n for n in _names(r, derived[name], path) if base_tensor(n) is not None]
+        earlier = [d for d in derived if d != name]  # not itself: it would never resolve
+        _check_expression(r, derived[name], (*params, *earlier, *bases), path)
     return derived
+
+
+def _names(r: Reader, text: str, path: tuple[str, ...]) -> list[str]:
+    try:
+        return names_in(text)
+    except ExpressionError as error:
+        raise r.fail(path, f"{where(path)}: {error}") from None
+
+
+def _declared_tensors(r: Reader, data: Mapping[str, Any]) -> list[str]:
+    """Every tensor name the file declares, before its tables are read."""
+    return [name for section in _ROLES for name in r.table(data.get(section, {}), (section,))]
+
+
+def _placed_derived(
+    r: Reader, derived: Mapping[str, str], tensors: Iterable[str]
+) -> Mapping[str, frozenset[str]]:
+    """The derived values that read a region's base (``placed_reads``), once
+    each ``base(x)`` is checked to name a tensor."""
+    declared = set(tensors)
+    for name, expression in derived.items():
+        path = ("derived", name)
+        for read in _names(r, expression, path):
+            tensor = base_tensor(read)
+            if tensor is not None and tensor not in declared:
+                raise r.fail(path, f"{where(path)} {expression!r}: {read} names no tensor")
+    return placed_reads(derived)
+
+
+def _no_placed_reads(
+    r: Reader, placed: Iterable[str], tensors: Mapping[str, TensorDecl], cost: object
+) -> None:
+    """A shape, a pin or the cost reads no placed value: it is known only once
+    the regions are, after them."""
+    late = set(placed)
+    reading: list[tuple[tuple[str, ...], str]] = [
+        ((tensor.section, tensor.name, key), text)
+        for tensor in tensors.values()
+        for key, texts in (
+            ("shape", tensor.shape),
+            ("row", (tensor.row,)),
+            ("fill", (tensor.fill,)),
+        )
+        for text in texts
+        if isinstance(text, str)
+    ]
+    if isinstance(cost, str):
+        reading.append((("kernel", "cost"), cost))
+    for path, text in reading:
+        read = sorted(late & set(_names(r, text, path)))
+        if read:
+            raise r.fail(
+                path,
+                f"{where(path)} {text!r} reads {read}, which read a region's base: "
+                "only [abi] may read such a value",
+            )
+
+
+def _placed_conditions(
+    r: Reader,
+    placed: Mapping[str, frozenset[str]],
+    tensors: Mapping[str, TensorDecl],
+    abi_when: Mapping[str, Condition],
+    abi: Mapping[str, str],
+) -> None:
+    """A placed value's binding takes the condition of the conditional tensors
+    it reads, as a tensor's binding takes its tensor's: it is bound exactly
+    when they exist."""
+    for name, read in placed.items():
+        if name not in abi:
+            continue
+        conditions = {tensors[t].when for t in read if tensors[t].when is not None}
+        if len(conditions) > 1:
+            raise r.fail(("abi", name), f"[abi] {name} reads tensors under different conditions")
+        if conditions and abi_when.get(name) not in conditions:
+            want = next(iter(conditions))
+            raise r.fail(
+                ("abi", name),
+                f"[abi] {name} reads the base of a tensor that exists when {want}; "
+                f"bind it with when = {str(want)!r}",
+            )
 
 
 def _tensors(
@@ -1050,30 +1240,11 @@ def _tensors(
     return tensors
 
 
-def _runner_writes_region_bytes() -> bool:
-    """Whether the runner fills scratch regions through ``packing.region_fill``.
-
-    Until it does (one line in ``runner.run_kernel``), a ``bytes`` region would
-    silently start as zeros, so the loader refuses it. Delete this check with
-    the runner's own ``_scratch_fill``.
-    """
-    from ipu_harness import runner  # runner imports this module: a call-time import
-
-    return not hasattr(runner, "_scratch_fill")
-
-
 def _content(r: Reader, directory: Path, table: Mapping[str, Any], path: tuple[str, ...]) -> str:
-    """A scratch region's ``bytes = "file.py:fn"``."""
+    """A scratch region's ``bytes = "file.py:fn"`` (or ``"../file.py:fn"``, the family's)."""
     if "fill" in table:
         raise r.fail((*path, "bytes"), f"{where(path)} takes 'fill' or 'bytes', not both")
-    content = r.function(directory, table["bytes"], (*path, "bytes"))
-    if not _runner_writes_region_bytes():
-        raise r.fail(
-            (*path, "bytes"),
-            f"{where(path)} bytes: the runner does not write a region's bytes yet "
-            "(it still fills scratch with 'fill' only)",
-        )
-    return content
+    return r.shared_function(directory, table["bytes"], (*path, "bytes"))
 
 
 def _check_after(r: Reader, tensor: TensorDecl, tensors: Mapping[str, TensorDecl]) -> None:
@@ -1130,13 +1301,23 @@ def load_manifest(
     params = {name: _param(r, name, raw, family_name) for name, raw in raw_params.items()}
     entry = _overrides(toml, params, kernel.formats, overrides or {}, source)
     derived = _derived(r, data.get("derived", {}), params)
+    # A placed derived value (it reads base(x)) is known only once the regions
+    # are: a shape, a pin or the cost cannot read it, only [abi].
+    placed = _placed_derived(r, derived, _declared_tensors(r, data))
     scalars = (*params, *derived)
     if isinstance(kernel.cost, str):
         integers = [n for n, p in params.items() if p.type == "int"]
         _check_expression(r, kernel.cost, (*integers, *derived), ("kernel", "cost"))
     bools = tuple(n for n, p in params.items() if p.type == "bool")
     tensors = _tensors(r, data, scalars, kernel.formats, bools, directory)
+    numbers = [n for n, p in params.items() if p.type in ("int", "float")]
+    for tensor in tensors.values():
+        if isinstance(tensor.fill, str):
+            path = (tensor.section, tensor.name, "fill")
+            _check_expression(r, tensor.fill, (*numbers, *derived), path)
+    _no_placed_reads(r, placed, tensors, kernel.cost)
     abi, abi_offsets, abi_when = _abi(r, data.get("abi", {}), params, {*scalars, *tensors}, tensors)
+    _placed_conditions(r, placed, tensors, abi_when, abi)
     manifest = KernelManifest(
         name=entry.name or directory.name,
         directory=directory,
@@ -1150,7 +1331,7 @@ def load_manifest(
         abi_when=abi_when,
         derived=MappingProxyType(derived),
         cases=MappingProxyType({}),
-        golden=_golden(r, directory, data.get("golden", {}), kernel.formats),
+        golden=_golden(r, directory, data.get("golden", {}), kernel.formats, tensors),
         stages=kernel.stages,
         fixed=entry.fixed,
         cost=kernel.cost,
@@ -1166,4 +1347,62 @@ def load_manifest(
             )
         raw_cases = {name: raw_cases[name] for name in entry.cases}
     cases = {name: _case(r, manifest, name, raw) for name, raw in raw_cases.items()}
-    return replace(manifest, cases=MappingProxyType(cases))
+    manifest = replace(manifest, cases=MappingProxyType(cases))
+    if "benchmark" in data:
+        manifest = replace(manifest, benchmark=_benchmark(r, manifest, data["benchmark"]))
+    return manifest
+
+
+def _point(r: Reader, m: KernelManifest, i: int, raw: object) -> Mapping[str, object]:
+    """Benchmark point ``i``: one value per parameter, none moving a fixed one."""
+    path = ("benchmark", "points", str(i))
+    values = r.table(raw, path)
+    r.known(values, tuple(m.params), path)
+    sweeps = [k for k, v in values.items() if isinstance(v, list)]
+    if sweeps:
+        raise r.fail(path, f"[benchmark] point {i}: {sweeps[0]} is one value, not a list")
+    moved = [k for k, v in values.items() if k in m.fixed and v != m.fixed[k]]
+    if moved:
+        raise r.fail(
+            path,
+            f"[benchmark] point {i}: {moved[0]} is fixed at {m.fixed[moved[0]]!r} "
+            "by the registry entry",
+        )
+    return MappingProxyType(_case_values(r, m, path, values))
+
+
+def _benchmark(r: Reader, m: KernelManifest, raw: object) -> BenchmarkDecl:
+    path = ("benchmark",)
+    table = r.table(raw, path)
+    r.known(table, _BENCHMARK_KEYS, path)
+    if m.golden.reference is None and m.golden.op is None:
+        # A point's shapes are its own, so no expected file fits it: without a
+        # reference a point would compare nothing and pass.
+        raise r.fail(path, f"{where(path)} needs a [golden] reference or op to hold each point to")
+    default = m.cases["default"].values
+    if any(isinstance(v, tuple) for v in default.values()):
+        raise r.fail(
+            path, f"{where(path)} needs a one-value [cases.default] to put its points over"
+        )
+    listed = r.typed(table.get("points", []), list, (*path, "points"))
+    if not listed:
+        raise r.fail((*path, "points"), f"{where(path)} needs a non-empty points list")
+    points: list[Mapping[str, object]] = []
+    for i, raw_point in enumerate(listed):
+        point = _point(r, m, i, raw_point)
+        if point in points:
+            # Its run, its row and its history name would be an earlier one's.
+            raise r.fail(
+                (*path, "points", str(i)),
+                f"[benchmark] point {i} repeats point {points.index(point)}",
+            )
+        points.append(point)
+    per = table.get("per")
+    if per is not None and r.typed(per, str, (*path, "per")) not in m.params:
+        raise r.fail((*path, "per"), f"{where(path)} per {per!r} is no int parameter")
+    if per is not None and m.params[per].type != "int":
+        raise r.fail((*path, "per"), f"{where(path)} per {per!r} is no int parameter")
+    max_cycles = table.get("max_cycles")
+    if max_cycles is not None and r.typed(max_cycles, int, (*path, "max_cycles")) < 1:
+        raise r.fail((*path, "max_cycles"), f"{where(path)} max_cycles must be at least 1")
+    return BenchmarkDecl(tuple(points), per, max_cycles)

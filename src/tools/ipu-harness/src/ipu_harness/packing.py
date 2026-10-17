@@ -11,14 +11,16 @@ FP8, INT32 for INT8), whose vectors span several narrow rows (E06-04).
 A transform reshapes **one** tensor and sees nothing else: no other tensor, no
 XMEM, no CR. That is Q83's rule made structural. :data:`DEFAULT` (row-major:
 the last dimension across the lanes) serves most tensors; ``pack = "<name>"``
-names another, found first in the kernel folder's ``pack.py``, then in its
-family folder's ``pack.py`` (each loaded from its file), then in
+names another, found first in the kernel folder's ``pack.py``, then in the
+family folder's ``pack.py`` (``kernels/<family>/pack.py``, shared by the
+family's kernels; both loaded from their files), then in
 ``ipu_kernels.<family>.pack``, then in ``ipu_kernels.pack`` (imported by name,
 as plugins: Q62; the harness has no import of ``ipu_kernels``).
 """
 
 from __future__ import annotations
 
+import inspect
 import math
 from collections.abc import Callable
 from pathlib import Path
@@ -51,8 +53,13 @@ T = TypeVar("T")
 class PackTransform(Protocol):
     """Lays ONE logical tensor out in rows of 128 elements, and back."""
 
-    def rows(self, shape: tuple[int, ...]) -> int:
-        """The rows a tensor of ``shape`` takes."""
+    def rows(self, shape: tuple[int, ...], plan: CasePlan) -> int:
+        """The rows a tensor of ``shape`` takes in ``plan`` (a padded or tiled
+        layout may depend on a parameter, not only the shape). A transform
+        whose ``rows`` takes the shape only is still called with it; one
+        whose second positional parameter means something else (``rows(shape,
+        scale=1)``) would be given the plan there, so name it ``plan`` or
+        make it keyword-only."""
         ...
 
     def to_rows(self, a: Array, plan: CasePlan) -> Array:
@@ -68,7 +75,7 @@ class RowMajor:
     """The last dimension across the lanes, zero-padded to a whole number of
     rows (``ceil(n / 128)`` rows per index of the other dimensions)."""
 
-    def rows(self, shape: tuple[int, ...]) -> int:
+    def rows(self, shape: tuple[int, ...], plan: CasePlan) -> int:
         """``ceil(n / 128)`` rows for each index of the other dimensions."""
         return math.prod(shape[:-1]) * -(-shape[-1] // LANES)
 
@@ -105,7 +112,7 @@ def _named(source: object, name: str, where: str) -> PackTransform | None:
 
 
 def _local(path: Path, name: str) -> PackTransform | None:
-    """Transform ``name`` from a kernel folder's ``pack.py``, if it defines one."""
+    """Transform ``name`` from a kernel or family folder's ``pack.py``, if it defines one."""
     return _named(load_file(path), name, str(path))
 
 
@@ -129,17 +136,19 @@ def transform_for(
         The transform.
 
     Raises:
-        PlanError: Neither the kernel's ``pack.py``, its family folder's,
-            its family's module nor the shared library defines it.
+        PlanError: Neither the kernel's ``pack.py``, its family folder's, its
+            family's package nor the shared library defines it.
     """
     if tensor.pack is None:
         return DEFAULT
-    directory = plan.manifest.directory
-    family = directory.parent.name
+    family = plan.manifest.directory.parent.name
     key = f"{tensor.section}.{tensor.name}.pack"
     try:
         found = None
-        for local in (directory / PACK_FILE, directory.parent / PACK_FILE):
+        for local in (
+            plan.manifest.directory / PACK_FILE,
+            plan.manifest.directory.parent / PACK_FILE,
+        ):
             if found is None and local.is_file():
                 found = _local(local, tensor.pack)
         for module in (f"{package}.{family}.pack", f"{package}.pack"):
@@ -153,8 +162,8 @@ def transform_for(
         raise PlanError(
             plan.manifest,
             key,
-            f"no transform {tensor.pack!r} in the kernel's or its family's {PACK_FILE}, "
-            f"{package}.{family}.pack or {package}.pack",
+            f"no transform {tensor.pack!r} in the kernel's {PACK_FILE}, the family's "
+            f"{family}/{PACK_FILE}, {package}.{family}.pack or {package}.pack",
         )
     return found
 
@@ -189,6 +198,33 @@ def _laid_out(
         raise PlanError(plan.manifest, f"{tensor.section}.{tensor.name}.pack", str(error)) from None
 
 
+def _rows(transform: PackTransform, shape: tuple[int, ...], plan: CasePlan) -> int:
+    """``transform.rows(shape, plan)``; ``rows(shape)`` for a transform written
+    before ``rows`` took the plan.
+
+    A parameter named ``plan`` (keyword-only, or set by ``functools.partial``;
+    not a positional-only one) gets it by name; two positional parameters, or ``*args``, get it second;
+    otherwise only the shape is passed. A callable with no signature (a
+    builtin) is given both.
+    """
+    try:
+        params = inspect.signature(transform.rows).parameters
+    except (TypeError, ValueError):
+        return int(transform.rows(shape, plan))
+    named = params.get("plan")
+    if named is not None and named.kind is not inspect.Parameter.POSITIONAL_ONLY:
+        return int(transform.rows(shape, plan=plan))
+    positional = [
+        p
+        for p in params.values()
+        if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+    ]
+    variadic = any(p.kind is inspect.Parameter.VAR_POSITIONAL for p in params.values())
+    if len(positional) >= 2 or variadic:
+        return int(transform.rows(shape, plan))
+    return int(transform.rows(shape))  # type: ignore[call-arg]
+
+
 def stored_rows(tensor: TensorDecl, plan: CasePlan, *, package: str = "ipu_kernels") -> int:
     """The XMEM rows ``tensor`` takes as stored (E06-04's row counts).
 
@@ -205,7 +241,7 @@ def stored_rows(tensor: TensorDecl, plan: CasePlan, *, package: str = "ipu_kerne
         PlanError: The transform is unknown or cannot lay out the planned shape.
     """
     shape = plan.shapes[tensor.name]
-    rows = _laid_out(tensor, plan, package, lambda t: t.rows(shape))
+    rows = _laid_out(tensor, plan, package, lambda t: _rows(t, shape, plan))
     stored = FORMATS[stored_format(tensor, plan.format)].element_bytes
     return rows * stored // FORMATS[plan.format].element_bytes
 
@@ -297,7 +333,8 @@ def region_fill(tensor: TensorDecl, plan: CasePlan, rows: int) -> bytes:
     if tensor.content is None:
         fmt = stored_format(tensor, plan.format)
         elements = region_bytes // FORMATS[fmt].element_bytes
-        return encode(np.full(elements, tensor.fill, dtype=np.float64), fmt)
+        fill = plan.fills.get(tensor.name, tensor.fill)  # an expression's value, from the plan
+        return encode(np.full(elements, fill, dtype=np.float64), fmt)
     file, _, name = tensor.content.partition(":")
     data = getattr(load_file(plan.manifest.directory / file), name)(plan)
     key = f"{tensor.section}.{tensor.name}.bytes"

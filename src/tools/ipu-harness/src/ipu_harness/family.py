@@ -45,6 +45,7 @@ else:
 
 __all__ = [
     "BZL_NAME",
+    "ENTRY_KEYS",
     "ENTRY_SEPARATOR",
     "REGISTRY_NAME",
     "Entry",
@@ -62,7 +63,8 @@ BZL_NAME = "registry.bzl"
 #: Between a ``registry.toml`` path and an entry's name in a kernel reference.
 ENTRY_SEPARATOR = "::"
 
-_ENTRY_KEYS = ("name", "template", "params", "formats", "cases", "doc")
+#: The keys of a ``[[kernel]]`` entry (the reference page lists them, E06-21).
+ENTRY_KEYS = ("name", "template", "params", "formats", "cases", "doc")
 _ENTRY_HEADER = re.compile(r"^\s*\[\[\s*kernel\s*\]\]")
 _KEY = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=")
 
@@ -131,7 +133,7 @@ def _strings(r: Reader, raw: object, path: tuple[str, ...]) -> tuple[str, ...]:
 def _entry(r: Reader, family: Path, index: int, raw: object) -> Entry:
     path = ("kernel", str(index))
     table = r.table(raw, path)
-    r.known(table, _ENTRY_KEYS, path)
+    r.known(table, ENTRY_KEYS, path)
     for key in ("name", "template"):
         if key not in table:
             raise r.fail(path, f"[[kernel]] #{index + 1} needs '{key}'")

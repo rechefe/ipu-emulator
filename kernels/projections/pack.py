@@ -10,6 +10,7 @@ That is the row-major default over the logical shape; it is named here so
 """
 
 from ipu_harness.packing import RowMajor
+from ipu_harness.params import CasePlan
 from ipu_isa.geometry import LANES
 
 
@@ -17,7 +18,7 @@ class ProjectionOutput(RowMajor):
     """``(..., n_out, n_tok)`` with ``n_tok <= LANES``: one row per output
     channel of each (stream, token group), the first ``n_tok`` lanes valid."""
 
-    def rows(self, shape: tuple[int, ...]) -> int:
+    def rows(self, shape: tuple[int, ...], plan: CasePlan) -> int:
         """One row per index of every dimension but the tokens.
 
         Raises:
@@ -25,7 +26,7 @@ class ProjectionOutput(RowMajor):
         """
         if not 0 < shape[-1] <= LANES:
             raise ValueError(f"projection_output: n_tok ({shape[-1]}) must fit one row, 1..{LANES}")
-        return super().rows(shape)
+        return super().rows(shape, plan)
 
 
 projection_output = ProjectionOutput()

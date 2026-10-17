@@ -2,9 +2,16 @@
 
 A shape dimension or a ``[derived]`` value is an int literal, a name, or an
 expression built from int literals, names, ``+ - * / // %``, unary minus, and
-the calls ``ceil(x)``, ``min(a, b, ...)`` and ``max(a, b, ...)``. Nothing else is
-evaluated. Arithmetic is exact (fractions): ``/`` must end up inside ``ceil``
-or divide evenly, and the result must be a whole number.
+the calls ``ceil(x)``, ``min(a, b, ...)``, ``max(a, b, ...)`` and
+``dstructure(valid, partition=0, pad_mode=0)`` (the last two positional or by
+name; valid 0..128; a dstructure CR word, as
+``ipu_isa.constants.encode_dstructure`` packs it, so a kernel binds one to any
+CR without the bit layout in its file). Nothing else is evaluated. A
+``[derived]`` value may also read ``base(<tensor>)``, a region's base once it
+is placed (:func:`base_name`, :func:`placed_reads`): such a value is known
+only when the registers are written, so only ``[abi]`` reads it.
+Arithmetic is exact (fractions): ``/`` must end up inside ``ceil`` or divide
+evenly, and the result must be a whole number.
 
 :func:`names_in` checks an expression against the grammar without values (the
 loader, at load time); :func:`evaluate` computes it (``plan_case``).
@@ -17,6 +24,9 @@ import math
 from collections.abc import Callable, Mapping
 from fractions import Fraction
 
+from ipu_isa.constants import encode_dstructure
+from ipu_isa.geometry import LANES
+
 _BINARY: Mapping[type, Callable[[Fraction, Fraction], Fraction]] = {
     ast.Add: lambda a, b: a + b,
     ast.Sub: lambda a, b: a - b,
@@ -25,13 +35,70 @@ _BINARY: Mapping[type, Callable[[Fraction, Fraction], Fraction]] = {
     ast.FloorDiv: lambda a, b: Fraction(a // b),
     ast.Mod: lambda a, b: a % b,
 }
+
+
+#: ``dstructure()``'s arguments, in order; the last two may be given by name.
+_DSTRUCTURE_ARGS = ("valid", "partition", "pad_mode")
+
+
+def _dstructure(*args: Fraction) -> Fraction:
+    """A dstructure CR word from (valid elements, partition, pad mode)."""
+    if any(a.denominator != 1 for a in args):
+        raise ExpressionError(f"dstructure() takes whole numbers, not {[str(a) for a in args]}")
+    valid, partition, pad = (int(a) for a in (*args, Fraction(0), Fraction(0))[:3])
+    if not 0 <= valid <= LANES:
+        raise ExpressionError(f"dstructure({valid}, ...): valid elements must be 0..{LANES}")
+    try:
+        return Fraction(encode_dstructure(valid_elements=valid, partition=partition, pad_mode=pad))
+    except ValueError as error:
+        raise ExpressionError(f"dstructure({valid}, {partition}, {pad}): {error}") from None
+
+
 #: Each call: (fewest arguments, most arguments or None, the function).
 _CALLS: Mapping[str, tuple[int, int | None, Callable[..., Fraction]]] = {
     "ceil": (1, 1, lambda x: Fraction(math.ceil(x))),
     "min": (2, None, min),
     "max": (2, None, max),
+    "dstructure": (1, 3, _dstructure),  # its arguments are checked by _dstructure_call
 }
-FUNCTIONS = frozenset(_CALLS)
+#: The call that reads a placed region's base (``base(x)``).
+BASE = "base"
+
+FUNCTIONS = frozenset({*_CALLS, BASE})
+
+
+def base_name(tensor: str) -> str:
+    """The name ``base(<tensor>)`` is looked up by, in :func:`evaluate`'s names
+    and in what :func:`names_in` returns."""
+    return f"{BASE}({tensor})"
+
+
+def base_tensor(read: str) -> str | None:
+    """The tensor a :func:`names_in` read of ``base(x)`` names; ``None`` for
+    any other read."""
+    prefix = f"{BASE}("
+    return read[len(prefix) : -1] if read.startswith(prefix) and read.endswith(")") else None
+
+
+def placed_reads(derived: Mapping[str, str]) -> dict[str, frozenset[str]]:
+    """Each ``[derived]`` value that reads a region's base, directly or through
+    an earlier such value, with the tensors whose bases it reads.
+
+    Raises:
+        ExpressionError: An expression is outside the grammar.
+    """
+    reads: dict[str, frozenset[str]] = {}
+    for name, expression in derived.items():
+        tensors: set[str] = set()
+        placed = False
+        for read in names_in(expression):
+            tensor = base_tensor(read)
+            if tensor is not None or read in reads:
+                placed = True
+                tensors |= {tensor} if tensor is not None else reads[read]
+        if placed:
+            reads[name] = frozenset(tensors)
+    return reads
 
 
 class ExpressionError(ValueError):
@@ -48,9 +115,44 @@ def _parse(text: str) -> ast.Expression:
         raise ExpressionError(f"{text[:40]!r}... is too deeply nested") from None
 
 
+def _base(node: ast.Call, names: Mapping[str, Fraction] | None) -> Fraction:
+    if node.keywords or len(node.args) != 1 or not isinstance(node.args[0], ast.Name):
+        raise ExpressionError("base() takes one tensor name")
+    if names is None:
+        return Fraction(0)
+    key = base_name(node.args[0].id)
+    if key not in names:
+        raise ExpressionError(f"{key} is no placed region")
+    return names[key]
+
+
+def _dstructure_call(node: ast.Call, names: Mapping[str, Fraction] | None) -> Fraction:
+    """``dstructure(valid, partition=0, pad_mode=0)``: positional, or the last
+    two by name."""
+    given = list(node.args)
+    named = {k.arg: k.value for k in node.keywords}
+    unknown = [k for k in named if k not in _DSTRUCTURE_ARGS[1:]]
+    if unknown or None in named or not 1 <= len(given) <= 3:
+        raise ExpressionError(
+            "dstructure() takes valid, then partition and pad_mode (positional or by name)"
+        )
+    slots: list[ast.expr | None] = [*given, *[None] * (3 - len(given))]
+    for i, key in enumerate(_DSTRUCTURE_ARGS):
+        if key in named:
+            if slots[i] is not None:
+                raise ExpressionError(f"dstructure() got {key} twice")
+            slots[i] = named[key]
+    values = [Fraction(0) if a is None else _walk(a, names) for a in slots]
+    return _dstructure(*values) if names is not None else Fraction(0)
+
+
 def _call(node: ast.Call, names: Mapping[str, Fraction] | None) -> Fraction:
+    if isinstance(node.func, ast.Name) and node.func.id == BASE:
+        return _base(node, names)
+    if isinstance(node.func, ast.Name) and node.func.id == "dstructure":
+        return _dstructure_call(node, names)
     if not isinstance(node.func, ast.Name) or node.func.id not in _CALLS:
-        raise ExpressionError("only ceil(), min() and max() may be called")
+        raise ExpressionError("only ceil(), min(), max(), dstructure() and base() may be called")
     least, most, function = _CALLS[node.func.id]
     count = len(node.args)
     if node.keywords or count < least or (most is not None and count > most):
@@ -68,7 +170,7 @@ def _walk(node: ast.AST, names: Mapping[str, Fraction] | None) -> Fraction:
         if names is None:
             return Fraction(0)
         if node.id not in names:
-            raise ExpressionError(f"{node.id!r} is no integer parameter or derived value")
+            raise ExpressionError(f"{node.id!r} is no parameter or derived value this reads")
         return names[node.id]
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
         return -_walk(node.operand, names)
@@ -85,7 +187,8 @@ def _walk(node: ast.AST, names: Mapping[str, Fraction] | None) -> Fraction:
 
 
 def names_in(text: str) -> list[str]:
-    """The names ``text`` reads, after checking it against the grammar.
+    """The names ``text`` reads, after checking it against the grammar; a
+    ``base(x)`` read is ``base_name("x")``.
 
     Raises:
         ExpressionError: ``text`` is outside the grammar.
@@ -95,8 +198,33 @@ def names_in(text: str) -> list[str]:
         _walk(tree.body, None)
     except RecursionError:
         raise ExpressionError(f"{text[:40]!r}... is too deeply nested") from None
-    called = {id(n.func) for n in ast.walk(tree) if isinstance(n, ast.Call)}
-    return [n.id for n in ast.walk(tree) if isinstance(n, ast.Name) and id(n) not in called]
+    calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call)]
+    called = {id(n.func) for n in calls}
+    bases = {
+        id(n.args[0]): n.args[0]
+        for n in calls
+        if isinstance(n.func, ast.Name) and n.func.id == BASE
+    }
+    return [
+        base_name(n.id) if id(n) in bases else n.id
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Name) and id(n) not in called
+    ]
+
+
+def evaluate_exact(text: str, names: Mapping[str, int | float]) -> Fraction:
+    """``text`` over ``names``, exactly, whole or not (a scratch region's
+    ``fill``: ``"1 / channels"``; a float name is its exact binary value).
+
+    Raises:
+        ExpressionError: Outside the grammar, an unknown name or division by
+            zero.
+    """
+    tree = _parse(text)
+    try:
+        return _walk(tree.body, {k: Fraction(v) for k, v in names.items()})
+    except RecursionError:
+        raise ExpressionError(f"{text[:40]!r}... is too deeply nested") from None
 
 
 def evaluate(text: str, names: Mapping[str, int]) -> int:

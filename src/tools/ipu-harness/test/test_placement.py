@@ -141,6 +141,32 @@ def test_a_callers_pin_overlapping_a_row_pin_is_an_error(tmp_path):
         place(plan_case(m, {"rows": 2, "s": 2.0}, F.FP32), pins={"x": 1})
 
 
+def test_reserved_rows_are_placed_around_and_a_pin_on_them_is_an_error(tmp_path):
+    """Rows a chain holds (E06-15) are no region's."""
+    m = manifest(tmp_path, SCALE.format(x_pin="", y_extra=""))
+    plan = plan_case(m, {"rows": 2, "s": 2.0}, F.FP32)
+    placement = place(plan, reserved={"held": (1, 2)})
+    assert bases(placement) == {"x": (3, 2), "y": (5, 2)}
+    assert [(r.name, r.base_row, r.rows) for r in placement.reserved] == [("held", 1, 2)]
+    with pytest.raises(PlanError, match=r"x \(rows 2..3\) overlaps held \(rows 1..2\)"):
+        place(plan, pins={"x": 2}, reserved={"held": (1, 2)})
+
+
+def test_avoided_rows_are_left_by_first_fit_but_may_be_pinned(tmp_path):
+    m = manifest(tmp_path, SCALE.format(x_pin="", y_extra=""))
+    plan = plan_case(m, {"rows": 2, "s": 2.0}, F.FP32)
+    assert bases(place(plan, avoid=[(0, 3)])) == {"x": (3, 2), "y": (5, 2)}
+    assert bases(place(plan, pins={"x": 1}, avoid=[(0, 3)])) == {"x": (1, 2), "y": (3, 2)}
+
+
+def test_st_aaq_spill_onto_reserved_rows_is_an_error(tmp_path):
+    m = manifest(tmp_path, SCALE.format(x_pin="row = 10\n", y_extra="row = 0\n"))
+    plan = plan_case(m, {"rows": 2, "s": 2.0}, F.INT8)
+    placement = place(plan, reserved={"held": (3, 1)})  # y 0..1 spills onto 2..4
+    with pytest.raises(PlanError, match="which hold region held"):
+        check_aaq_spill(plan, placement, "ST.AAQ LR0 CR3 ;;\nHALT ;;\n")
+
+
 def test_st_aaq_spill_onto_a_region_is_an_error_in_an_8_bit_format(tmp_path):
     """ST.AAQ writes 512 bytes: four INT8 rows, one FP32 row (OQ-35)."""
     m = manifest(tmp_path, SCALE.format(x_pin="", y_extra="row = 0\n"))

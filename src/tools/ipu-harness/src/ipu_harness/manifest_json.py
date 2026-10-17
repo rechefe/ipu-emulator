@@ -6,7 +6,9 @@ joins the targets file ``ipu_kernel_tree()`` writes (kernels/defs.bzl) with the
 routing registry (E06-16) and prints one JSON document for tools, with the same
 keys as ``//src/tools/ipu-apps:kernel_manifest``. The two must name the same
 kernels, so no target offered is missing; a ``kernel.toml`` that fails to load
-is listed under ``skipped``.
+is listed under ``skipped``. Each kernel also carries its page's data
+(:func:`ipu_harness.kernel_page.page_data`: design notes, ABI table, parameter
+domain, tolerance tier per format; E06-21).
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ from typing import Any
 from ipu_emu.errors import ConfigurationError
 from ipu_harness.cases import expand
 from ipu_harness.family import invalid_name
+from ipu_harness.kernel_page import page_data
 from ipu_harness.registry import Registry, kernel_tree
 
 
@@ -74,6 +77,8 @@ def build(targets: Mapping[str, Any], registry: Registry) -> dict[str, Any]:
             "asm": f"{bazel['dir']}/{manifest.asm.name}",
             "targets": {k: bazel[k] for k in ("run", "test", "nightly")},
             "formats": [f.value for f in manifest.formats],
+            # The kernel page's data (E06-21): design notes, ABI, domain, tiers.
+            **page_data(manifest),
             # "options" are the command-line flags a case adds (the legacy
             # manifest's descriptors): a harness case adds none, its values are
             # fixed by its name. "values" are those values.

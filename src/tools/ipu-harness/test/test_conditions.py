@@ -113,3 +113,24 @@ def test_a_region_after_an_absent_tensor_keeps_its_place(tmp_path):
     assert without.region("y").base_row == 2  # b is absent: y keeps its place
     with_bias = place(plan_case(m, {"rows": 2, "bias": True}, F.FP32))
     assert (with_bias.region("b").base_row, with_bias.region("y").base_row) == (2, 3)
+
+
+PLACED = TOML.replace(
+    'tail = "rows - 1"', 'tail = "rows - 1"\npb = "base(b) + 1"\npy = "base(y) + 1"'
+)
+
+
+def test_a_placed_value_reading_an_absent_tensor_does_not_stop_the_others(tmp_path):
+    bound = 'pb   = { register = "CR6", when = "bias" }\npy   = "CR7"\ntail = { register'
+    m = manifest(tmp_path, PLACED.replace("tail = { register", bound))
+    # x at rows 0..1; with bias, b at row 2 and y at 3, else y at 2.
+    for bias, cr6, cr7 in ((False, None, 3), (True, 3, 4)):
+        plan = plan_case(m, {"rows": 2, "bias": bias}, F.FP32)
+        got = {w.register: w.value for w in register_writes(plan, place(plan))}
+        assert (got.get("CR6"), got["CR7"]) == (cr6, cr7)
+
+
+def test_a_placed_value_reading_a_conditional_tensor_takes_its_condition(tmp_path):
+    toml = PLACED.replace("tail = { register", 'pb   = "CR6"\ntail = { register')
+    with pytest.raises(ManifestError, match="bind it with when = 'bias'"):
+        manifest(tmp_path, toml)

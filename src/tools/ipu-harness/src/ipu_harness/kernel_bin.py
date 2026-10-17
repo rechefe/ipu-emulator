@@ -17,11 +17,34 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from ipu_as.session import AssemblyResult
 from ipu_harness.assembly import assemble
 from ipu_harness.cases import expand
 from ipu_harness.family import load_kernel
+from ipu_harness.manifest import KernelManifest
 from ipu_harness.params import plan_case
 from ipu_isa.errors import IpuError
+from ipu_isa.formats import ElementFormat
+
+
+def default_programs(manifest: KernelManifest) -> dict[ElementFormat, AssemblyResult]:
+    """The default case's program in each format the case runs in.
+
+    Args:
+        manifest: The kernel (its ``asm`` may be any file, such as a docs listing).
+
+    Returns:
+        Each format's assembly, in the case's format order.
+
+    Raises:
+        ConfigurationError: The default case does not plan.
+        ipu_as.errors.AssemblerError: The program does not assemble.
+    """
+    # The default case's first point, should it sweep.
+    case = next(c for c in expand(manifest) if c.decl is manifest.cases["default"])
+    return {
+        fmt: assemble(plan_case(manifest, case.values, fmt, case=case.decl)) for fmt in case.formats
+    }
 
 
 def default_bin(kernel: str) -> bytes:
@@ -37,11 +60,7 @@ def default_bin(kernel: str) -> bytes:
         ConfigurationError: The kernel does not load or plan.
         ipu_as.errors.AssemblerError: Its program does not assemble.
     """
-    manifest = load_kernel(kernel)
-    # The default case's first point, should it sweep.
-    case = next(c for c in expand(manifest) if c.decl is manifest.cases["default"])
-    plan = plan_case(manifest, case.values, case.formats[0], case=case.decl)
-    return assemble(plan).to_bin()
+    return next(iter(default_programs(load_kernel(kernel)).values())).to_bin()
 
 
 def main(argv: Sequence[str] | None = None) -> int:

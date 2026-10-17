@@ -3,16 +3,26 @@ the generated ISA reference (E09-14), where a failing example is a generator bug
 
 A block that is deliberately incomplete is marked with
 `<!-- asm-fragment: reason -->` on the line before its fence; it is reported as
-skipped with that reason.
+skipped with that reason. A kernel's program, marked
+`<!-- asm-kernel: kernels/<family>/<name> -->`, is assembled as that kernel's
+program: rendered with its default case and its `[abi]` names, as the harness
+renders it.
 """
 
 from __future__ import annotations
+
+import dataclasses
+import tempfile
+from pathlib import Path
 
 import pytest
 
 from docs.doc_blocks import Block, DocBlockError, fenced_blocks
 from docs.doc_files import doc_files, generated_files
 from ipu_as import diagnostics
+from ipu_harness.kernel_bin import default_programs
+from ipu_harness.manifest import load_manifest
+from ipu_isa.errors import IpuError
 
 
 def _cases() -> list:
@@ -29,12 +39,27 @@ def _cases() -> list:
     return cases
 
 
+def _assemble_as_kernel(case: Block) -> None:
+    """The block as its kernel's program: its default case, in every format."""
+    manifest = load_manifest(Path(case.kernel or ""))
+    with tempfile.TemporaryDirectory() as scratch:
+        program = Path(scratch) / manifest.asm.name
+        program.write_text(case.body, encoding="utf-8")
+        try:
+            default_programs(dataclasses.replace(manifest, asm=program))
+        except IpuError as error:
+            pytest.fail(f"{case.path}:{case.line}: {error}", pytrace=False)
+
+
 @pytest.mark.parametrize("case", _cases())
 def test_asm_block_assembles(case: Block | DocBlockError) -> None:
     if isinstance(case, DocBlockError):
         pytest.fail(str(case))
     if case.fragment_reason is not None:
         pytest.skip(f"asm-fragment: {case.fragment_reason}")
+    if case.kernel is not None:
+        _assemble_as_kernel(case)
+        return
     errors = [d for d in diagnostics.check(case.body) if d.severity == "error"]
     if errors:
         first = errors[0]

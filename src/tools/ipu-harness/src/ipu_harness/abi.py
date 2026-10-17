@@ -18,7 +18,9 @@ an ``int`` parameter   the integer
 a ``bool`` parameter   1 or 0
 a ``float`` parameter  its element encoding in ``plan.format``, in the low
                        element-width bits (Q49; E06-03 checked it is exact)
-a ``[derived]`` value  the integer (``-1``, ``"k - 128 * (ceil(k / 128) - 1) - 2"``)
+a ``[derived]`` value  the integer (``-1``, ``"k - 128 * (ceil(k / 128) - 1) - 2"``);
+                       a placed one (``"base(w) + 1"``) over the regions'
+                       bases, in rows (bytes in a ``unit = "bytes"`` kernel)
 =====================  =====================================================
 
 Values are raw register bits: a negative integer is its two's complement in
@@ -42,6 +44,7 @@ from ipu_emu.errors import ConfigurationError
 from ipu_emu.ipu_config import DEFAULT_DSTRUCTURE_CR
 from ipu_emu.reference import ReferenceModel
 from ipu_harness._codec import encode
+from ipu_harness.expressions import ExpressionError, base_tensor, evaluate, names_in
 from ipu_harness.manifest import ZERO_REGISTER, KernelManifest
 from ipu_harness.params import CasePlan, PlanError
 from ipu_harness.placement import Placement
@@ -100,17 +103,53 @@ def _element_bits(value: float, plan: CasePlan) -> int:
     return int.from_bytes(encode(np.array([value]), plan.format), "little")
 
 
-def _value(name: str, plan: CasePlan, placement: Placement) -> tuple[int, str]:
-    """The bits ``name`` puts in its register, and what they are."""
+def _placed_value(name: str, plan: CasePlan, placement: Placement) -> int:
+    """A placed ``[derived]`` value: its expression over the integer parameters,
+    the other derived values (placed ones computed as it reads them) and the
+    bases it reads (bytes in a ``unit = "bytes"`` kernel, as a tensor's
+    binding)."""
+    manifest = plan.manifest
+    expression = manifest.derived[name]
+    scale = FORMATS[plan.format].row_bytes if manifest.byte_units else 1
+    ints = {k: v for k, v in plan.params.items() if isinstance(v, int) and not isinstance(v, bool)}
+    names: dict[str, int] = {**ints, **plan.derived}
+    for read in names_in(expression):
+        tensor = base_tensor(read)
+        if tensor is not None:
+            if tensor not in placement.regions:
+                raise PlanError(
+                    manifest,
+                    f"derived.{name}",
+                    f"{expression!r}: {tensor} is not placed in this case (its when is false)",
+                )
+            names[read] = placement.regions[tensor].base_row * scale
+        elif read in manifest.placed:
+            names[read] = _placed_value(read, plan, placement)
+    try:
+        return evaluate(expression, names)
+    except ExpressionError as error:
+        raise PlanError(manifest, f"derived.{name}", f"{expression!r}: {error}") from None
+
+
+def _value(
+    name: str, plan: CasePlan, placement: Placement, offsets: Mapping[str, int]
+) -> tuple[int, str]:
+    """The bits ``name`` puts in its register, and what they are.
+
+    ``offsets`` are the binding table's (the kernel's ``[abi]`` offsets, or
+    none for a stage's table): a region's base row plus its offset.
+    """
     manifest = plan.manifest
     if name in manifest.tensors:
         base = placement.region(name).base_row
-        offset = manifest.abi_offsets.get(name, 0)
+        offset = offsets.get(name, 0)
         shown = f" {offset:+d}" if offset else ""
         if manifest.byte_units:
             bytes_base = base * FORMATS[plan.format].row_bytes
             return bytes_base + offset, f"{name} (region base, bytes{shown})"
         return base + offset, f"{name} (region base{shown})"
+    if name in manifest.placed:
+        return _placed_value(name, plan, placement), f"{name} (derived, placed)"
     if name in manifest.derived:
         return plan.derived[name], f"{name} (derived)"
     decl = manifest.params[name]
@@ -136,7 +175,8 @@ def register_writes(
         plan: The checked case.
         placement: Its regions.
         abi: Names to registers in place of the kernel's ``[abi]`` (a stage's,
-            E06-14), already checked by ``manifest.check_abi``.
+            E06-14), already checked by ``manifest.check_abi``. The kernel's
+            ``[abi]`` offsets do not apply to it: each region is its base.
         dstructure: ``CR15``'s dstructure; ``None``: the default (128 valid
             elements).
 
@@ -148,6 +188,9 @@ def register_writes(
         ConfigurationError: ``dstructure`` is given and ``abi`` binds ``CR15``.
     """
     bindings = plan.manifest.abi if abi is None else abi
+    # An [abi] offset belongs to the kernel's own binding: a stage's table
+    # binds each region at its base.
+    offsets = plan.manifest.abi_offsets if abi is None else {}
     cr15 = f"CR{DEFAULT_DSTRUCTURE_CR}"
     if dstructure is not None and cr15 in bindings.values():
         raise ConfigurationError(
@@ -155,7 +198,7 @@ def register_writes(
         )
     writes = []
     for name, register in bindings.items():
-        value, source = _value(name, plan, placement)
+        value, source = _value(name, plan, placement, offsets)
         if register == ZERO_REGISTER:
             if value:  # the loader pins it at row 0; a byte-unit base is 0 too
                 raise PlanError(

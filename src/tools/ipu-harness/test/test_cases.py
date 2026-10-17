@@ -223,6 +223,16 @@ def test_a_generators_values_are_rounded_to_the_format_and_counted(tmp_path):
     assert made.rounded == {"x": 256}
 
 
+def test_a_generator_may_be_the_familys_shared_file(tmp_path):
+    """``../gen.py:make``: one generator for every kernel of a family (E07-02)."""
+    m = scale(tmp_path / "family", extra_cases=MADE.replace('"gen.py:make"', '"../gen.py:make"'))
+    (m.directory.parent / "gen.py").write_text(
+        "import numpy as np\n\n\ndef make(plan, rng):\n    return {'x': np.full(plan.shapes['x'], 0.5)}\n"
+    )
+    case, fp32 = planned(m, "made")
+    assert np.array_equal(inputs_for(case, fp32).tensors["x"], np.full((2, 128), 0.5))
+
+
 def test_a_user_file_is_rounded_to_the_format_and_counted(tmp_path):
     # E06-10's rule: user data is rounded (saturating) when packed, and the
     # report says how many values changed; it is not rejected.

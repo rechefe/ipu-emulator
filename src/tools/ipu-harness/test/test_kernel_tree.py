@@ -67,3 +67,21 @@ def test_the_manifest_has_the_legacy_keys():
     entry = manifest["kernels"]["proj_qkv_144_p4"]
     assert entry["targets"]["run"] == "//kernels/projections:proj_qkv_144_p4"
     assert manifest["families"]["projections"] == {"suite": "//kernels/projections:all"}
+
+
+def test_every_kernel_has_design_notes_and_an_abi_table():
+    """The kernel page's data (E06-21): the .asm header (Q79) and [abi]."""
+    manifest = build(_targets(), Registry.load(kernel_tree()))
+    for name, kernel in manifest["kernels"].items():
+        assert kernel["design_notes"], f"{kernel['asm']}: start it with a {{#- ... -#}} header"
+        assert kernel["abi"], name
+    scale = manifest["kernels"]["scale"]
+    assert scale["design_notes"].startswith("scale.asm -- y = x * s")
+    assert [(r["name"], r["register"], r["kind"]) for r in scale["abi"]] == [
+        ("x", "CR2", "region"),
+        ("y", "CR3", "region"),
+        ("rows", "CR4", "int"),
+        ("s", "CR5", "element scalar"),
+    ]
+    assert scale["params"]["rows"] == {"type": "int", "unit": "count", "min": 1, "max": 256}
+    assert scale["tolerance"]["e4"] == {"y": "EXACT"}  # an accumulator output: compared as FP32

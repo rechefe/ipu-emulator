@@ -64,3 +64,15 @@ def test_fragment_marker_not_before_asm_fence_is_an_error(tmp_path: Path, text: 
     path = _write(tmp_path, text)
     with pytest.raises(DocBlockError, match="not followed by"):
         fenced_blocks(path, "asm")
+
+
+def test_kernel_marker(tmp_path: Path) -> None:
+    path = _write(tmp_path, "<!-- asm-kernel: kernels/a/b -->\n```asm\nNOP;;\n```\n")
+    (block,) = fenced_blocks(path, "asm")
+    assert (block.kernel, block.fragment_reason) == ("kernels/a/b", None)
+
+
+def test_kernel_marker_needs_a_folder(tmp_path: Path) -> None:
+    path = _write(tmp_path, "<!-- asm-kernel -->\n```asm\nNOP;;\n```\n")
+    with pytest.raises(DocBlockError, match="needs a kernel folder"):
+        fenced_blocks(path, "asm")

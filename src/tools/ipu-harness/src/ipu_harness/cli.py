@@ -4,6 +4,8 @@
         [--input NAME=PATH.npy ...] [--output DIR] [--trace PATH]
         [--max-cycles N] [--list-cases] [--debug] [--profile-aliases]
         [--alias-report PATH]
+    python -m ipu_harness.cli KERNEL --benchmark [--format FMT|all]
+        [--markdown PATH] [--json PATH]
 
 KERNEL is a kernel folder, or ``<family>/registry.toml::<name>`` for a family
 entry (E06-17).
@@ -15,7 +17,10 @@ quitting it (or Ctrl-C) ends the command with exit code 0 and no result.
 writes the profile as JSON instead (one file per format with ``--format all``).
 This module is the only one in ``ipu_harness`` that reads the environment.
 
-One line per run, from :meth:`RunResult.describe`. Exit codes:
+One line per run, from :meth:`RunResult.describe`. ``--benchmark`` instead
+runs the kernel's ``[benchmark]`` points (:mod:`ipu_harness.benchmark`) and
+prints their table, writing it as Markdown and the rows as JSON when asked; a
+point that does not pass fails the command. Exit codes:
 
 * 0: every run passed.
 * 1: a run failed or faulted, or the request was wrong: a ``ConfigurationError``,
@@ -34,12 +39,13 @@ import os
 import signal
 import sys
 import traceback
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 from ipu_emu.errors import ConfigurationError
+from ipu_harness import benchmark
 from ipu_harness.assembly import AssemblyCache
 from ipu_harness.cases import Case, expand
 from ipu_harness.debug import DebugLaunch
@@ -107,6 +113,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--max-cycles", type=_cycles, help="the cycle limit (0: no limit; default: the model's)"
     )
     parser.add_argument("--list-cases", action="store_true", help="list the cases and stop")
+    parser.add_argument(
+        "--benchmark", action="store_true", help="run the [benchmark] points and print their table"
+    )
+    parser.add_argument("--markdown", type=Path, help="with --benchmark, write the table here")
+    parser.add_argument("--json", type=Path, help="with --benchmark, write the rows as JSON here")
     parser.add_argument("--debug", action="store_true", help="stop in the debugger TUI")
     parser.add_argument(
         "--profile-aliases",
@@ -219,11 +230,14 @@ def _report_profile(args: argparse.Namespace, result: RunResult, many: bool) -> 
 
 
 def _run(args: argparse.Namespace) -> int:
+    _check_options(args)
     manifest = load_kernel(args.kernel)
     if args.list_cases:
         for case in expand(manifest):
             print(f"{case.name}  ({', '.join(f.value for f in case.formats)})")
         return 0
+    if args.benchmark:
+        return _benchmark(manifest, args)
     case = _case(manifest, args.case)
     debug = debug_launch(args.debug, os.environ)
     formats = _formats(case, args.format)
@@ -239,6 +253,52 @@ def _run(args: argparse.Namespace) -> int:
         _report_profile(args, result, len(formats) > 1)
         passed = passed and result.passed
     return 0 if passed else 1
+
+
+#: The options a --benchmark run takes from its [benchmark] table instead, by flag.
+_RUN_ONLY: Mapping[str, Callable[[argparse.Namespace], bool]] = {
+    "--case": lambda a: a.case != "default",
+    "--input": lambda a: bool(a.input),
+    "--output": lambda a: a.output is not None,
+    "--trace": lambda a: a.trace is not None,
+    "--max-cycles": lambda a: a.max_cycles is not None,
+    "--debug": lambda a: a.debug,
+    "--profile-aliases": lambda a: a.profile_aliases,
+    "--alias-report": lambda a: a.alias_report is not None,
+}
+
+
+def _check_options(args: argparse.Namespace) -> None:
+    """Refuse a flag the request would ignore."""
+    if args.benchmark:
+        given = [flag for flag, set_ in _RUN_ONLY.items() if set_(args)]
+        if given:
+            raise ConfigurationError(
+                f"--benchmark runs the [benchmark] points as declared; it takes no {given[0]}"
+            )
+    else:
+        given = [f for f, v in (("--markdown", args.markdown), ("--json", args.json)) if v]
+        if given:
+            raise ConfigurationError(f"{given[0]} goes with --benchmark")
+
+
+def _benchmark(manifest: KernelManifest, args: argparse.Namespace) -> int:
+    cases = benchmark.point_cases(manifest)  # refuses a kernel without a [benchmark]
+    assert manifest.benchmark is not None
+    rows: list[benchmark.BenchRow] = []
+    cache = AssemblyCache()
+    for fmt in _formats(cases[0], args.format):
+        rows += benchmark.run_benchmark(manifest, fmt, cache=cache)
+    for row in rows:
+        if not row.result.passed:
+            print(row.result.describe())
+    table = benchmark.to_markdown(rows, manifest.benchmark.per)
+    print(table)
+    if args.markdown is not None:
+        _caller(args.markdown).write_text(f"# {manifest.name} benchmark\n\n{table}")
+    if args.json is not None:
+        _caller(args.json).write_text(benchmark.to_json(rows) + "\n")
+    return 0 if all(row.result.passed for row in rows) else 1
 
 
 def main(argv: Sequence[str] | None = None) -> int:

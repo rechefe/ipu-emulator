@@ -139,8 +139,8 @@ class StageContext(Protocol):
         Args:
             program: ``"name.asm"`` in the kernel's folder, or
                 ``"../other/name.asm"``, another kernel's in the same family.
-            params: Template values besides the case's parameters, ``format``
-                and ``shapes`` (``elements_in_row``).
+            params: Template values besides the case's parameters, derived
+                values, ``format`` and ``shapes`` (``elements_in_row``).
             abi: Names to registers, as ``[abi]`` binds them
                 (``{"x": "CR2"}``): each name is a tensor (its region base),
                 a parameter or a derived value. ``None``: the kernel's

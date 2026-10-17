@@ -31,17 +31,17 @@ import numpy as np
 from ipu_as.session import AssemblyResult
 from ipu_emu.errors import ConfigurationError
 from ipu_emu.ipu_state import DEFAULT_CYCLE_LIMIT
-from ipu_emu.reference import ReferenceModel, RunState
+from ipu_emu.reference import ReferenceModel, RunState, Stats
 from ipu_emu.reference import RunResult as ModelRun
 from ipu_emu.trace import EMULATOR_VERSION, TraceWriter
-from ipu_harness._codec import Array, encode
+from ipu_harness._codec import Array
 from ipu_harness.abi import RegisterWrite, apply, check_cr_reads, register_writes
 from ipu_harness.assembly import AssemblyCache, assemble
 from ipu_harness.cases import Case, inputs_for
 from ipu_harness.compare import Comparison, compare, expected_for, tier_for
 from ipu_harness.debug import DebugLaunch, attach_alias_profile, debug_run, new_alias_profile
 from ipu_harness.manifest import KernelManifest, TensorDecl
-from ipu_harness.packing import pack, stored_format, stored_rows, unpack
+from ipu_harness.packing import pack, region_fill, stored_format, stored_rows, unpack
 from ipu_harness.params import CasePlan, plan_case
 from ipu_harness.placement import Placement, check_aaq_spill, place
 from ipu_harness.reference import evaluate, load_reference
@@ -148,12 +148,23 @@ class SharedModel:
             there, not written. Every input is in ``inputs`` or here, not both.
         check: Hold the outputs to their goldens (an intermediate step of a
             chain need not; its result then has no comparisons).
+        placed: Base rows the caller fixes for regions the run still writes
+            (an array input, an output, a scratch region), by name: placed
+            there instead of by first fit.
+        reserved: Rows no region of the run may take, as ``(base row, rows)``
+            by a name for messages (``placement.place``): tensors the chain
+            holds.
+        avoid: Rows first fit leaves free besides, as ``(base row, rows)``
+            (``placement.place``).
     """
 
     model: ReferenceModel
     inputs: Mapping[str, Array]
     pinned: Mapping[str, int]
     check: bool = False
+    placed: Mapping[str, int] = field(default_factory=lambda: MappingProxyType({}))
+    reserved: Mapping[str, tuple[int, int]] = field(default_factory=lambda: MappingProxyType({}))
+    avoid: tuple[tuple[int, int], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -201,6 +212,9 @@ class RunResult:
             one-program kernel.
         placement: Where the case's tensors were in XMEM (E06-15 chains an
             output region into the next kernel's input).
+        stats: The model's run statistics (reference-model API 1.1.0) for a
+            one-program kernel: busy slots, lanes and MACs, as the benchmark
+            reports them (E06-11). ``None`` for a multi-stage kernel.
     """
 
     kernel: str
@@ -217,6 +231,7 @@ class RunResult:
     halted: bool = True
     stages: tuple[tuple[str, int], ...] = ()
     placement: Placement | None = None
+    stats: Stats | None = None
 
     @property
     def passed(self) -> bool:
@@ -259,16 +274,6 @@ def _read_region(
 ) -> bytes:
     region = placement.region(tensor.name)
     return model.read_xmem(region.base_row * _row_bytes(plan), region.rows * _row_bytes(plan))
-
-
-def _scratch_fill(tensor: TensorDecl, plan: CasePlan, placement: Placement) -> bytes:
-    """A scratch region's starting bytes: its ``fill`` in every element of every
-    row it occupies, padding lanes included (not through the pack transform,
-    which pads with zeros)."""
-    fmt = stored_format(tensor, plan.format)
-    region_bytes = placement.region(tensor.name).rows * _row_bytes(plan)
-    elements = region_bytes // FORMATS[fmt].element_bytes
-    return encode(np.full(elements, tensor.fill, dtype=np.float64), fmt)
 
 
 #: A comment runs from ``#`` or ``//`` to the end of the line.
@@ -423,7 +428,8 @@ def _write_tensors(
         elif tensor.role == "input":
             _write_region(model, plan, placement, tensor, pack(tensor, inputs[tensor.name], plan))
         elif tensor.role == "scratch":
-            _write_region(model, plan, placement, tensor, _scratch_fill(tensor, plan, placement))
+            fill = region_fill(tensor, plan, placement.region(tensor.name).rows)
+            _write_region(model, plan, placement, tensor, fill)
     return inputs
 
 
@@ -471,7 +477,9 @@ def _prepare(
     placement = place(
         plan,
         {name: stored_rows(t, plan) for name, t in tensors.items()},
-        pins=None if shared is None else shared.pinned,
+        pins=None if shared is None else {**shared.pinned, **shared.placed},
+        reserved=None if shared is None else shared.reserved,
+        avoid=() if shared is None else shared.avoid,
     )
     return plan, values, placement
 
@@ -513,7 +521,7 @@ def stage(
         raise ConfigurationError(f"{manifest.name}: a multi-stage kernel has no one program")
     plan, values, placement = _prepare(manifest, case, fmt, inputs, shared)
     program = assemble(plan, cache)
-    check_cr_reads(manifest, program.rendered)
+    check_cr_reads(plan.manifest, program.rendered)  # the case's bindings (``when``)
     check_aaq_spill(plan, placement, program.rendered)
 
     model = ReferenceModel(fmt) if shared is None else shared.model
@@ -538,6 +546,7 @@ class _Ran:
     mac_utilization: float
     rendered: str
     stages: tuple[tuple[str, int], ...] = ()
+    stats: Stats | None = None
 
 
 def _run_program(
@@ -567,6 +576,7 @@ def _run_program(
         cycles,
         stats.effective_mac_utilization,
         program.rendered,
+        stats=stats,
     )
 
 
@@ -655,6 +665,7 @@ def run_kernel(
             halted=False,
             stages=ran.stages,
             placement=placement,
+            stats=ran.stats,
         )
 
     raw = {
@@ -699,4 +710,5 @@ def run_kernel(
         halted=run.status.state is RunState.HALTED,
         stages=ran.stages,
         placement=placement,
+        stats=ran.stats,
     )

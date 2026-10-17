@@ -8,4 +8,5 @@ load(":registry.bzl", "ENTRIES")
 ipu_kernel_family(
     entries = ENTRIES,
     kernels_lib = "//src/tools/ipu-kernels:ipu_kernels_lib",
+    tests_tree = True,  # test_scales.py loads the kernel tree too
 )
