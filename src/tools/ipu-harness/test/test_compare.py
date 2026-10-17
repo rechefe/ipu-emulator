@@ -52,7 +52,10 @@ def kernel(tmp_path: Path, store: str = "", reference: bool = True) -> KernelMan
     if reference:
         (directory / "reference.py").write_text("def reference(x, s):\n    return {'y': x * s}\n")
     np.save(directory / "y.npy", np.array([[1.0, 2.0, 3.0, 4.0]]))
-    (directory / "kernel.toml").write_text(TOML.format(store=store))
+    toml = TOML.format(store=store)
+    if store:  # an accumulator output is never compared in E4: an e4 tier would be refused
+        toml = toml.replace(', e4 = "EXACT"', "")
+    (directory / "kernel.toml").write_text(toml)
     return load_manifest(directory)
 
 
@@ -139,7 +142,7 @@ def test_an_expected_file_or_reference_of_the_wrong_shape_is_located(tmp_path):
 def test_an_accumulator_output_takes_its_accumulator_format_tier(tmp_path):
     m = kernel(tmp_path, store='store = "accumulator"\n')
     _, plan = planned(m, "default", F.E4)
-    # e4 names EXACT, fp32 FP32_ORDER: the FP32 accumulator output is held at FP32_ORDER.
+    # fp32 names FP32_ORDER: in an E4 run the FP32 accumulator output is held at it.
     assert tier_for(plan, m.tensors["y"]).name == "FP32_ORDER"
 
 
