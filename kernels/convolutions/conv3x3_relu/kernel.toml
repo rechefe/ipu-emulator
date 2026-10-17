@@ -60,11 +60,11 @@ rc_step        = "CR14"
 
 [golden]
 op = "conv2d"
-tolerance = { fp32 = "FP32_ORDER" }               # measured: max |err| <= 9.6e-7 over every case
+tolerance = { fp32 = "FP32_ORDER" }               # measured: max |err| 4.8e-7 over the cases
 
-# The ipu_apps cases (convolutions/cases.py make_cases) and their data.
+# The ipu_apps cases' shapes (convolutions/cases.py make_cases); the data is the
+# harness's seeded per-tensor streams (E06-08).
 [cases.default]
-generator = "../gen.py:legacy_tiled"
 in_channels = 3
 height = 3
 width = 8
@@ -75,7 +75,6 @@ padding = 1
 activation = "relu"
 
 [cases.tile_boundary]                           # two column tiles
-generator = "../gen.py:legacy_tiled"
 in_channels = 2
 height = 2
 width = 133
@@ -86,7 +85,6 @@ padding = 1
 activation = "relu"
 
 [cases.single_pixel]
-generator = "../gen.py:legacy_tiled"
 in_channels = 1
 height = 1
 width = 1
@@ -97,7 +95,6 @@ padding = 1
 activation = "relu"
 
 [cases.full_group]                              # exactly one 14-channel group
-generator = "../gen.py:legacy_tiled"
 in_channels = 14
 height = 1
 width = 2
@@ -108,7 +105,6 @@ padding = 1
 activation = "relu"
 
 [cases.partial_group]                           # 14 channels, then 1
-generator = "../gen.py:legacy_tiled"
 in_channels = 15
 height = 1
 width = 2

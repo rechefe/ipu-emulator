@@ -68,11 +68,11 @@ slot1          = "CR14"
 
 [golden]
 reference = "reference.py:reference"                   # filters split, then the shared conv2d
-tolerance = { fp32 = "FP32_ORDER" }               # measured: max |err| <= 9.6e-7 over every case
+tolerance = { fp32 = "FP32_ORDER" }               # measured: max |err| 2.4e-6 over the cases
 
-# The ipu_apps case (conv_first_layer/cases.py) and its data.
+# The ipu_apps case's shape (conv_first_layer/cases.py); the data is the harness's
+# seeded per-tensor streams (E06-08).
 [cases.default]
-generator = "../gen.py:legacy_first_layer"
 in_channels = 3
 out_channels = 16
 kernel_size = 3
