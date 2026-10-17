@@ -49,6 +49,8 @@ CR_REG_COUNT: int = _SIZES["cr"]["count"]
 
 # MultStageReg encoding -> (register name, element index); 2 and 3 are reserved.
 _MULT_STAGE_MAP: list[tuple[str, int]] = get_mult_stage_map()
+# Wide-vector debug mode's R0/R1: the same two elements, 4 bytes per lane.
+_WIDE_RA = "r_wide_debug"
 
 
 def check_mult_stage(raw: int) -> None:
@@ -63,14 +65,13 @@ def check_mult_stage(raw: int) -> None:
         raise EmulatorError(f"Mult-stage operand must encode r0 (0) or r1 (1); got {raw}")
 
 
-def resolve_mult_stage(raw: int, source: RegFile, wide: bool) -> int | bytearray:
-    """A mult-stage operand's value: R0 or R1's bytes, or in wide-vector mode
-    the encoding itself (the wide handlers index ``r_wide_debug`` with it)."""
+def resolve_mult_stage(raw: int, source: RegFile, wide: bool) -> bytearray:
+    """A mult-stage operand's value: R0 or R1's bytes (``r_wide_debug``'s
+    4-byte elements in wide-vector mode), so a handler decodes it in the
+    active element format either way."""
     check_mult_stage(raw)
-    if wide:
-        return raw
     reg_name, elem_idx = _MULT_STAGE_MAP[raw]
-    return source.get_register_bytes(reg_name, elem_idx)
+    return source.get_register_bytes(_WIDE_RA if wide else reg_name, elem_idx)
 
 
 class OperandResolver(Protocol):

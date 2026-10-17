@@ -9,7 +9,7 @@ The IPU uses a **single source of truth** for all instruction definitions: `INST
 Adding an instruction takes three edits, then two checks:
 
 1. **Add to instruction_spec** — define the instruction with operands and documentation (instruction **mnemonic keys** are **upper case**; each operand’s `"name"` is **lower case**)
-2. **Implement execution handler** — write the Python method in the emulator's `Ipu` class  
+2. **Implement execution handler** — add `execute_<name>` to `ipu_emu/slots/<slot>.py`, the emulator's handler module for the instruction's slot
 3. **Add tests** — verify the instruction works correctly
 4. **Verify integration** — the assembler accepts it and `bazel test //...` passes
 5. **Check the SystemVerilog package** — its widths are wire format
@@ -109,7 +109,7 @@ A failure raises `SpecError` with the path of the entry, for example `mult.MY_NE
   There is no syntax line to write: the generated docs and editor hover derive
   it from the mnemonic and the operand names (`MY_NEW_INSTRUCTION dest src_a src_b`).
 
-- **`execute_fn`**: Name of the Python method in the `Ipu` class that executes this instruction (e.g., `"execute_my_new_instruction"`)
+- **`execute_fn`**: Name of the handler function that executes this instruction, in the slot's handler module `ipu_emu/slots/<slot>.py` (e.g., `"execute_my_new_instruction"`)
 
 **Opcode assignment:**
 
@@ -117,44 +117,38 @@ Opcodes are **automatically derived from position** within the slot's instructio
 
 ## Step 2: Implement Execution Handler
 
-Open `src/tools/ipu-emu-py/src/ipu_emu/ipu.py` and find the section with handlers for your slot type (look for comments like `# MULT Instruction Handlers`).
+Each slot has one handler module in `src/tools/ipu-emu-py/src/ipu_emu/slots/`: `lr.py`, `load.py`, `mult.py`, `acc.py` (ACC, AGG and RESHAPE), `aaq.py`, `store.py` (the STORE and ACC_STORE slots), `cond.py` and `brk.py` (the BREAK slot; `break` is a Python keyword). `ipu_emu.slots.HANDLER_MODULES` maps each slot to its module.
 
-Add your execution method to the `Ipu` class:
+Add your handler to the module of your instruction's slot, here `mult.py`:
 
 ```python
-class Ipu:
-    # ... existing methods ...
-    
-    # -----------------------------------------------------------------------
-    # MULT Instruction Handlers
-    # -----------------------------------------------------------------------
-    
-    # ... existing mult handlers ...
-    
-    def execute_my_new_instruction(self, *, dest: int, src_a: bytearray,
-                                    src_b: bytearray) -> None:
-        """Execute MY_NEW_INSTRUCTION: performs custom operation.
+def execute_my_new_instruction(ipu: Ipu, *, dest: int, src_a: bytearray, src_b: bytearray) -> None:
+    """Execute MY_NEW_INSTRUCTION: performs custom operation.
 
-        Args:
-            dest: Destination register index (raw MultStageRegField value)
-            src_a: Source A register bytes (auto-resolved, cycle start)
-            src_b: Source B register bytes (auto-resolved, cycle start)
-        """
-        result = bytearray(R_REG_SIZE)
-        dtype = self.state.dtype
-        
-        for i in range(R_REG_SIZE):
-            # Perform your custom operation
-            result[i] = (src_a[i] + src_b[i]) & 0xFF  # Example: element-wise add
-        
-        # Write result to destination register
-        reg_name, elem_idx = _MULT_STAGE_MAP[dest]
-        self.state.regfile.set_register_bytes(reg_name, elem_idx, result)
+    Args:
+        ipu: The engine (state, register views, issuer).
+        dest: Destination register index (raw MultStageRegField value)
+        src_a: Source A register bytes (auto-resolved, cycle start)
+        src_b: Source B register bytes (auto-resolved, cycle start)
+    """
+    result = bytearray(R_REG_SIZE)
+
+    for i in range(R_REG_SIZE):
+        # Perform your custom operation
+        result[i] = (src_a[i] + src_b[i]) & 0xFF  # Example: element-wise add
+
+    # Write result to destination register
+    reg_name, elem_idx = _MULT_STAGE_MAP[dest]
+    ipu.state.regfile.set_register_bytes(reg_name, elem_idx, result)
 ```
+
+When the emulator is imported, `ipu_emu.ipu` binds every instruction's `execute_fn` from its slot's module. It raises `RuntimeError` if the function is missing, or if its parameters are not the engine followed by the operand names, keyword-only (`test_slot_modules` checks every instruction).
+
+A slot module never imports another slot module. A helper two slots need goes in `ipu_emu/geometry.py` (lane formats, row addresses, LRD bytes) or on `CycleView` (register reads); a helper only one slot uses stays a private function in that module.
 
 **Key points:**
 
-- **Method signature**: `def execute_<instruction_name>(self, *, <operand_names>) -> None:`
+- **Function signature**: `def execute_<instruction_name>(ipu, *, <operand_names>) -> None:`
   - Use **keyword-only arguments** (note the `*` before operand names)
   - Parameter names **must match** the `name` fields in `instruction_spec`
   - Parameter order doesn't matter (they're passed as kwargs)
@@ -171,18 +165,21 @@ class Ipu:
 
 - **Common patterns**:
   - Use `_MULT_STAGE_MAP[dest]` to get `(reg_name, elem_idx)` from a MultStageReg index
-  - Use `self.state.regfile.set_register_bytes()` to write to a register
-  - Use `self.state.dtype` to get the current data type
+  - Use `ipu.state.regfile.set_register_bytes()` to write to a register
+  - Use `ipu.state.dtype` to get the current data type
+  - Read registers through `ipu._view` (`CycleView`), which serves the cycle-start or the forwarded value as the instruction declares
   - Use `ipu_mult()`, `ipu_add()` from `ipu_emu.ipu_math` for typed arithmetic
 
 **Available helpers:**
 
 ```python
-# Register access (via self.state.regfile)
-self.state.regfile.get_lr(idx) -> int          # Read LR register
-self.state.regfile.set_lr(idx, value: int)     # Write LR register
-self.state.regfile.get_r_acc_bytes() -> bytearray  # Read accumulator
-self.state.regfile.set_r_acc_bytes(data: bytearray)  # Write accumulator
+# Register reads, in the view the instruction declares (ipu._view is a CycleView)
+ipu._view.lr(idx, "operand") -> int            # Read LR register
+ipu._view.read("r_acc") -> memoryview          # Read a register's bytes
+
+# Register writes (the live register file)
+ipu.state.regfile.set_lr(idx, value: int)      # Write LR register
+ipu.state.regfile.set_r_acc_bytes(data: bytearray)  # Write accumulator
 
 # Register metadata
 reg_name, elem_idx = _MULT_STAGE_MAP[idx]      # Resolve MultStageReg index
@@ -190,10 +187,8 @@ R_REG_SIZE                                      # Register size in bytes (128)
 R_ACC_SIZE                                      # Accumulator size (512)
 
 # State access
-self.state.xmem.read_address(addr, size) -> bytearray
-self.state.xmem.write_address(addr, data: bytearray)
-
-self.snapshot                                   # Pre-VLIW register snapshot
+ipu.state.xmem.read_address(addr, size) -> bytearray
+ipu.state.xmem.write_address(addr, data: bytearray)
 
 # Math operations
 from ipu_emu.ipu_math import ipu_mult, ipu_add, DType
@@ -358,7 +353,7 @@ tests for arity disambiguation and misuse errors.
 ## Summary
 
 1. **Add to `instruction_spec.py`** — define operands, docs, and `execute_fn`
-2. **Implement `execute_<name>` in `Ipu` class** — write the execution logic
+2. **Implement `execute_<name>` in `ipu_emu/slots/<slot>.py`** — write the execution logic
 3. **Add tests** — verify correctness in `test_execute.py`
 4. **Check the SystemVerilog package** — its widths are wire format
 5. **No opcode management** — opcodes are derived from position automatically

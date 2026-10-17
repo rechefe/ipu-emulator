@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from ipu_emu.geometry import effective_mult_mask
+from ipu_emu.slots import mult
 from ipu_isa.constants import decode_dstructure
 
 if TYPE_CHECKING:
@@ -172,14 +173,14 @@ class Issuer:
             # multiplier while retiring nothing.
             identity = _MULT_IDENTITIES[
                 bool(plan.scalar_kind)
-                and ipu._mult_scalar_is_one(
-                    plan.scalar_kind, operands[plan.scalar_operand], plan.scalar_operand
+                and mult.scalar_is_one(
+                    ipu, plan.scalar_kind, operands[plan.scalar_operand], plan.scalar_operand
                 ),
-                ipu._mult_vector_is_one(plan.inst_name, operands, encoded),
+                mult.vector_is_one(ipu, plan.inst_name, operands, encoded),
             ]
             if identity.cr or identity.vector:
                 ipu.state.stats.mult_identity_cycles += 1
-        alias = ipu._record_alias(plan, operands, inst, identity) if plan.alias_checks else None
+        alias = _record_alias(ipu, plan, operands, inst, identity) if plan.alias_checks else None
         return IssueFacts(op.slot, plan, encoded, operands, identity, alias, op.lr_writes, mask)
 
     def dispatch(self, op: IssuedOp, inst: Mapping[str, int]) -> Any:
@@ -282,3 +283,40 @@ class Issuer:
         if self.observers:
             return self._observed(ipu, facts, self.observers)
         return facts.plan.fn(ipu, **facts.operands)
+
+
+def _record_alias(
+    ipu: Ipu,
+    plan: SlotPlan,
+    kwargs: Mapping[str, Any],
+    inst: Mapping[str, int],
+    identity: MultIdentity | None,
+) -> str | None:
+    """Attribute this instruction to at most one declared ISA alias.
+
+    First match wins, so hits partition ``mult_identity_cycles`` instead of
+    double-counting idioms whose constraints overlap.
+
+    Args:
+        ipu: The engine.
+        plan: The instruction's plan.
+        kwargs: Its resolved operands.
+        inst: The whole word, for co-issued slot constraints.
+        identity: Its identity verdict (``None`` unless it is a MULT).
+
+    Returns:
+        The alias ID counted, or ``None``.
+    """
+    for check in plan.alias_checks:
+        if not check.hardware_only:
+            if identity is None or not (identity.vector if check.vector_only else identity.cr):
+                continue
+            if check.masked_window and not mult.alias_masked_window(ipu, kwargs):
+                continue
+            if check.imm_operand is not None and (kwargs[check.imm_operand] == check.imm_ne):
+                continue
+            if check.co_field is not None and (inst[check.co_field] not in check.co_opcodes):
+                continue
+        ipu.state.stats.alias_hits[check.alias_id] += 1
+        return check.alias_id
+    return None

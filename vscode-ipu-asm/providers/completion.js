@@ -2,6 +2,8 @@
 
 // Completion: at an instruction start, the mnemonics that still fit the word, each bringing its
 // operands as tab stops; at an operand, what its type accepts, labels and fitting Jinja names.
+// Slot fit and Jinja names come from the latest analysis (`semantics`, stale by a keystroke or two
+// while typing), else from the editor's own rules.
 
 const vscode = require('vscode');
 
@@ -10,7 +12,7 @@ const { renderInstruction, renderRegister } = require('./hover');
 
 const item = (label, kind, props) => Object.assign(new vscode.CompletionItem(label, vscode.CompletionItemKind[kind]), props);
 
-function register(context, { lang }) {
+function register(context, { lang, semantics }) {
   // Instruction docs never change: rendered once per mnemonic, not per request.
   const docs = new Map();
   const docFor = (mnemonic, forms) => {
@@ -19,7 +21,7 @@ function register(context, { lang }) {
   };
   // --- Completion ---
   provide(context, 'CompletionItem', {
-    provideCompletionItems(document, position, _token, completionContext) {
+    async provideCompletionItems(document, position, _token, completionContext) {
       const text = document.getText();
       const offset = document.offsetAt(position);
       const ctx = lang.context(text, offset);
@@ -29,20 +31,20 @@ function register(context, { lang }) {
       const typedTrigger = completionContext
         && completionContext.triggerKind === vscode.CompletionTriggerKind.TriggerCharacter;
       if (typedTrigger && ctx.kind !== 'operand') return undefined;
+      if (ctx.kind === 'comment' || ctx.kind === 'label' || (ctx.kind === 'jinja' && ctx.region.kind === 'comment')) return undefined;
+      const known = await semantics(document, { stale: true });
       if (ctx.kind === 'jinja') {
-        if (ctx.region.kind === 'comment') return undefined;
-        return lang.jinjaVisible(text, offset)
+        return known.jinjaVisible(offset)
           .filter((d) => d.start < offset)
           .map((d) => item(d.name, d.kind === 'macro' ? 'Function' : 'Variable', {
-            detail: d.kind === 'set' && d.expression ? `= ${d.expression}` : d.kind,
+            detail: d.kind === 'set' && d.expression ? `= ${d.expression}` : d.kind === 'header' ? 'template parameter' : d.kind,
           }));
       }
-      if (ctx.kind === 'comment' || ctx.kind === 'label') return undefined;
       if (ctx.kind === 'mnemonic') {
         // Operands already follow the cursor (a mnemonic being replaced): the name alone. A `;`
         // or a comment after it is no operand.
         const bare = /^\s*(?:[^\s;{]|\{\{)/.test(document.lineAt(position).text.slice(position.character).replace(/^[^\s;]*/, ''));
-        return lang.mnemonicsFor(ctx.others).map(({ mnemonic, forms }) => {
+        return known.mnemonicsFor(ctx, offset).map(({ mnemonic, forms }) => {
           const form = forms[0];
           const operands = bare ? [] : (forms.find((f) => f.operands.length) || form).operands;
           return item(mnemonic, 'Keyword', {
@@ -79,7 +81,7 @@ function register(context, { lang }) {
       // Template names whose value in force at the cursor this operand accepts: `{{ lr_row }}`.
       // Braces already typed are replaced, not doubled.
       const braces = ctx.prefix.startsWith('{');
-      for (const d of lang.jinjaVisible(text, offset)) {
+      for (const d of known.jinjaVisible(offset)) {
         if (d.kind !== 'set' || !lang.accepts(domain, d.value)) continue;
         items.push(item(`{{ ${d.name} }}`, 'Variable', {
           filterText: braces ? ctx.prefix + d.name : d.name,

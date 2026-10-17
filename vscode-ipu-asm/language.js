@@ -1,16 +1,34 @@
 'use strict';
 
-// What the editor knows about an IPU assembly source, without an editor.
+// What the editor knows about an IPU assembly source, without an editor or an assembler.
 //
 // Everything language-specific comes from data/isa.json, generated from the assembler; nothing
 // here restates the ISA. The one thing written by hand is how Jinja delimits its tags: Jinja is an
 // external language the assembler renders before parsing. Imports nothing from `vscode`, so
 // test/language.js runs it under plain node against the parser's own reading of every kernel.
+//
+// scan() reads the structure at once, for the first paint: cursor context, labels, formatting,
+// word separation, folding. Slot fit and Jinja scoping are the checkout's assembler's to answer
+// (analysis.js); the editor's own versions, for when it cannot, are in fallback/.
 
 const JINJA_OPEN = /\{#|\{%|\{\{/g;
 const JINJA_CLOSE = { '{#': ['comment', '#}'], '{%': ['block', '%}'], '{{': ['variable', '}}'] };
+/** A Jinja name; global, so each user sets `lastIndex` before its `exec` loop. */
 const JINJA_NAME = /[A-Za-z_][A-Za-z0-9_]*/g;
-const JINJA_STRING = /"[^"]*"|'[^']*'/g;
+/** A Jinja string literal, escapes included: blanked before names are read. */
+const JINJA_STRING = /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g;
+
+/** What follows `set` in a `{% set … %}` tag: its targets as written (`a, b`), its expression
+ *  (null for the block form `{% set x %}…{% endset %}`) and, for a single target set to a string
+ *  or integer literal, that value. Null when it is no `set` this reads. */
+function setParts(rest) {
+  const s = /^([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)\s*(?:=\s*([\s\S]*))?$/.exec(rest);
+  if (!s) return null;
+  const expression = s[2] === undefined ? null : s[2].trim();
+  const literal = !s[1].includes(',') && expression && /^(?:"([^"]*)"|'([^']*)'|([+-]?\d+))$/.exec(expression);
+  return { targets: s[1], expression, value: literal ? (literal[1] ?? literal[2] ?? literal[3]) : null };
+}
+
 /** Jinja block tags that open a region closed by `end<tag>`. */
 const JINJA_PAIRED = ['for', 'if', 'macro', 'call', 'filter', 'raw', 'with', 'block'];
 
@@ -51,35 +69,6 @@ const NON_BLANK = /[^ \t\r\n]/g;
  *  unless `acrossLines`, for a `{{ … }}` that renders to one token however many lines it spans. */
 function blank(span, fill, acrossLines = false) {
   return acrossLines || !span.includes('\n') ? fill.repeat(span.length) : span.replace(/[^\n]/g, fill);
-}
-
-/** The comma-separated parts of a bracketed list from `open` (just after its `(`) to its `)` or
- *  `limit`: commas inside nested brackets or strings do not split. */
-function topLevelParts(text, open, limit) {
-  const parts = [];
-  let depth = 0;
-  let quote = null;
-  let from = open;
-  for (let i = open; i < limit; i++) {
-    const ch = text[i];
-    if (quote) {
-      if (ch === '\\') i++;
-      else if (ch === quote) quote = null;
-    } else if (ch === '"' || ch === "'") quote = ch;
-    else if ('([{'.includes(ch)) depth++;
-    else if (')]}'.includes(ch)) {
-      if (depth === 0) {
-        parts.push({ start: from, end: i });
-        return parts;
-      }
-      depth--;
-    } else if (ch === ',' && depth === 0) {
-      parts.push({ start: from, end: i });
-      from = i + 1;
-    }
-  }
-  parts.push({ start: from, end: limit });
-  return parts;
 }
 
 /** A `{{ }}` tag that calls a macro: `{{ name(`. */
@@ -225,7 +214,8 @@ class Scanner {
     const { lang, i } = this;
     this.openWord(i);
     lang.tokenRe.lastIndex = i;
-    const end = lang.tokenRe.exec(this.masked) ? lang.tokenRe.lastIndex : i + 1;
+    // A character no token takes is one token of its own: a whole code point, not half a pair.
+    const end = lang.tokenRe.exec(this.masked) ? lang.tokenRe.lastIndex : i + (this.masked.codePointAt(i) > 0xffff ? 2 : 1);
     const token = { text: this.text.slice(i, end), start: i, end, templated: this.isTemplated(i, end) };
     if (this.cursorIn(i, end)) this.capture(token);
     const { instruction } = this;
@@ -539,32 +529,6 @@ class Language {
     return this.instructions.get(mnemonic.toLowerCase()) || null;
   }
 
-  /** Whether one word's instructions fit its slots, filled as the assembler fills them (isa.json
-   *  slotFill): in source order, a wildcard (NOP) takes the first free slot in `order`, and every
-   *  other instruction needs a free slot of its own kind. Unknown names are left to the checker. */
-  fits(mnemonics) {
-    const free = { ...this.isa.slotCount };
-    for (const m of mnemonics) {
-      const entry = this.lookup(m);
-      if (!entry) continue;
-      const slot = this.slotFor(entry, free);
-      if (!slot || !(free[slot] > 0)) return false;
-      free[slot] -= 1;
-    }
-    return true;
-  }
-
-  /** The slot an instruction takes, given the free slots. */
-  slotFor(entry, free) {
-    if (!this.slotFill) {
-      // Version 0: a mnemonic with several forms took the first free slot.
-      return (entry.forms.length === 1 && entry.forms[0].slot) || this.isa.slotOrder.find((s) => free[s] > 0);
-    }
-    const { order, wildcards, kinds } = this.slotFill;
-    if (wildcards.has(entry.mnemonic.toLowerCase())) return order.find((s) => free[s] > 0);
-    return kinds[entry.mnemonic]; // none: the word does not fit, so generator drift shows
-  }
-
   // --- Cursor context, for completion and signature help ---
 
   /** Where the cursor is: in Jinja, in a comment, on a label, at a mnemonic, or at the n-th operand
@@ -578,13 +542,11 @@ class Language {
     if (comments.some((c) => c.start < offset && offset <= c.end)) return { kind: 'comment' };
     const prefix = cursor.token ? text.slice(cursor.token.start, offset) : '';
     const others = { before: cursor.before, after: cursor.after };
-    if (cursor.role !== 'operand') return { kind: cursor.role, prefix, others };
-    return { kind: 'operand', mnemonic: cursor.mnemonic, index: cursor.index, prefix, others };
-  }
-
-  /** Mnemonics that fit at the cursor's place in its word. */
-  mnemonicsFor(others) {
-    return [...this.instructions.values()].filter(({ mnemonic }) => this.fits([...others.before, mnemonic, ...others.after]));
+    // Where the cursor's word starts (null: a word not begun yet), and the token under it: what
+    // an answer about the word (analysis.js) is found by.
+    const at = { wordStart: cursor.word ? cursor.word.start : null, token: cursor.token };
+    if (cursor.role !== 'operand') return { kind: cursor.role, prefix, others, ...at };
+    return { kind: 'operand', mnemonic: cursor.mnemonic, index: cursor.index, prefix, others, ...at };
   }
 
   operandType(mnemonic, index) {
@@ -648,7 +610,37 @@ class Language {
     return this.caseInsensitive.labels ? a.toLowerCase() === b.toLowerCase() : a === b;
   }
 
-  // --- Jinja names ---
+  /** The label under `offset`, with every place it is defined and used; null if there is none. */
+  labelAt(text, offset) {
+    const { defs, refs } = this.labels(text);
+    const all = [...defs, ...refs];
+    const hit = all.find((x) => x.start <= offset && offset <= x.end);
+    if (!hit) return null;
+    const same = (d) => this.sameLabel(d.name, hit.name);
+    return { kind: 'label', name: hit.name, range: hit, defs: defs.filter(same), refs: all.filter(same) };
+  }
+
+  /** How often `name` is written in `text` as a whole word (`flags`: 'i' to ignore case). */
+  mentions(text, name, flags) {
+    const word = new RegExp(`(?<![A-Za-z0-9_.])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![A-Za-z0-9_])`, `g${flags}`);
+    return (text.match(word) || []).length;
+  }
+
+  /** Labels nothing branches to: [{ kind, name, start, end }]. A label written anywhere besides its
+   *  definitions (a comment, a string, a templated operand) counts as used. */
+  unusedLabels(text) {
+    const labels = this.labels(text).defs;
+    const flags = this.caseInsensitive.labels ? 'i' : '';
+    const defined = (d) => labels.filter((l) => this.sameLabel(l.name, d.name)).length;
+    return labels.filter((d) => this.mentions(text, d.name, flags) <= defined(d)).map((d) => ({ kind: 'label', ...d }));
+  }
+
+  /** The labels, for the outline. */
+  labelSymbols(text) {
+    return this.labels(text).defs.map((d) => ({ kind: 'label', name: d.name, start: d.start, end: d.end }));
+  }
+
+  // --- Jinja blocks ---
 
   /** Every paired `{% tag %} … {% endtag %}` block (and the block form of `{% set x %}`), with the
    *  end of its opening tag and of its closing one (null while it is unclosed). */
@@ -671,110 +663,6 @@ class Language {
       }
       return out;
     });
-  }
-
-  /** Names the template defines: `set` (with its literal value, if it has one), `macro` and `for`
-   *  targets, and macro parameters. Each carries the `scope` it lives in (null at top level).
-   *
-   *  A scope is the body of a `macro` (its parameters and the names set inside it) or a `for` (its
-   *  targets, and names set in the loop), from the end of its opening tag: the tag itself (a loop's
-   *  iterable, a parameter's default) is read in the scope around it. An unclosed block runs to
-   *  the end of the text. */
-  jinjaDefs(text) {
-    return this.memo('jinjaDefs', text, () => {
-      const scopes = this.pairedBlocks(text)
-        .filter((b) => b.name === 'macro' || b.name === 'for')
-        .map((b) => ({ tag: b.name, tagStart: b.start, start: b.tagEnd, end: b.end === null ? text.length : b.end }));
-      // The innermost scope around `at`, other than one that starts there.
-      const around = (at, own = null) =>
-        scopes.filter((x) => x !== own && x.start <= at && at < x.end).reduce((a, b) => (a && a.start > b.start ? a : b), null);
-      const scopeOf = (r) => scopes.find((x) => x.tagStart === r.start) || null;
-      const defs = [];
-      // Each name in `list`, found at offset `at` of the text.
-      const names = (list, at, kind, props) => {
-        JINJA_NAME.lastIndex = 0;
-        for (let n; (n = JINJA_NAME.exec(list)); ) defs.push({ kind, name: n[0], start: at + n.index, end: at + n.index + n[0].length, ...props });
-      };
-      for (const r of jinjaRegions(text)) {
-        if (r.kind !== 'block') continue;
-        const body = text.slice(r.start, r.end);
-        const inner = /^\{%-?\s*/.exec(body)[0].length;
-        const m = /^(set|macro|for)\s+([\s\S]*?)\s*-?%\}$/.exec(body.slice(inner));
-        if (!m) continue;
-        const [, tag, rest] = m;
-        const restStart = r.start + inner + body.slice(inner).indexOf(rest, tag.length);
-        if (tag === 'set') {
-          // `{% set x = … %}`, `{% set a, b = … %}`, or the block form `{% set x %}…{% endset %}`.
-          const s = /^([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)\s*(?:=\s*([\s\S]*))?$/.exec(rest);
-          if (!s) continue;
-          const expression = s[2] === undefined ? null : s[2].trim();
-          // A literal value only means something for a single target.
-          const literal = !s[1].includes(',') && expression && /^(?:"([^"]*)"|'([^']*)'|([+-]?\d+))$/.exec(expression);
-          const value = literal ? (literal[1] ?? literal[2] ?? literal[3]) : null;
-          // `from`: in force from the end of its tag, so `{% set n = n + 1 %}` reads the n before it.
-          names(s[1], restStart, 'set', { value, expression, scope: around(r.start), from: r.end });
-        } else if (tag === 'macro') {
-          const s = /^([A-Za-z_][A-Za-z0-9_]*)\s*(\()?/.exec(rest);
-          if (!s) continue;
-          const own = scopeOf(r);
-          defs.push({ kind: 'macro', name: s[1], start: restStart, end: restStart + s[1].length, block: r, scope: around(r.start, own) });
-          // Each parameter's name, not its default value.
-          for (const part of s[2] ? topLevelParts(text, restStart + s[0].length, r.end) : []) {
-            const name = /^\s*([A-Za-z_][A-Za-z0-9_]*)/.exec(text.slice(part.start, part.end));
-            if (!name) continue;
-            const at = part.start + name[0].length - name[1].length;
-            defs.push({ kind: 'param', name: name[1], start: at, end: at + name[1].length, scope: own });
-          }
-        } else {
-          const s = /^([\s\S]*?)\s+in\s/.exec(rest);
-          if (s) names(s[1], restStart, 'for', { scope: scopeOf(r) });
-        }
-      }
-      return defs;
-    });
-  }
-
-  /** Every use of a name inside a Jinja tag (definitions included), skipping strings, attributes
-   *  (`x.name`) and Jinja's own words. */
-  jinjaNames(text) {
-    return this.memo('jinjaNames', text, () => {
-      const out = [];
-      for (const r of jinjaRegions(text)) {
-        if (r.kind === 'comment') continue;
-        const body = text.slice(r.start, r.end).replace(JINJA_STRING, (s) => ' '.repeat(s.length));
-        JINJA_NAME.lastIndex = 0;
-        for (let m; (m = JINJA_NAME.exec(body)); ) {
-          if (this.jinjaKeywords.has(m[0]) || body[m.index - 1] === '.') continue;
-          out.push({ name: m[0], start: r.start + m.index, end: r.start + m.index + m[0].length });
-        }
-      }
-      return out;
-    });
-  }
-
-  /** The definition `name` refers to at `offset`, as Jinja resolves it: from the innermost enclosing
-   *  scope out, the last definition of it in that scope before `offset` (a parameter or loop target,
-   *  unless a `set` after it replaced it). Null if nothing defines it there yet. On a definition's
-   *  own name, that definition. */
-  jinjaBinding(text, name, offset, defs = this.jinjaDefs(text)) {
-    const own = defs.find((d) => d.name === name && d.start <= offset && offset <= d.end);
-    if (own) return own;
-    const visible = defs.filter((d) => d.name === name && (!d.scope || (d.scope.start <= offset && offset < d.scope.end)));
-    const depth = (d) => (d.scope ? d.scope.start : -1);
-    for (const start of [...new Set(visible.map(depth))].sort((a, b) => b - a)) {
-      const here = visible.filter((d) => depth(d) === start);
-      const before = here.filter((d) => (d.from === undefined ? d.start : d.from) <= offset);
-      if (before.length) return before[before.length - 1];
-      const bound = here.find((d) => d.kind === 'param' || d.kind === 'for');
-      if (bound) return bound;
-    }
-    return null;
-  }
-
-  /** Every name defined at `offset`, each by the definition in force. */
-  jinjaVisible(text, offset) {
-    const defs = this.jinjaDefs(text);
-    return [...new Set(defs.map((d) => d.name))].map((name) => this.jinjaBinding(text, name, offset, defs)).filter(Boolean);
   }
 
   // --- Formatting ---
@@ -859,49 +747,6 @@ class Language {
 
   // --- Symbols and folding ---
 
-  /** The name under `offset`, as a label or a Jinja name, with every place it is defined and used. */
-  symbolAt(text, offset) {
-    const inside = (x) => x.start <= offset && offset <= x.end;
-    const jinja = this.jinjaNames(text).find(inside);
-    if (jinja) {
-      // One variable is a name in one scope: a macro's parameter is not the top-level `set` of the
-      // same name, nor another macro's parameter.
-      const all = this.jinjaDefs(text);
-      // A definition is its own binding (a loop target sits in the loop's header, before the scope
-      // it opens).
-      const bindingAt = (at) => all.find((d) => d.name === jinja.name && d.start === at)
-        || this.jinjaBinding(text, jinja.name, at, all)
-        || all.find((d) => d.name === jinja.name && d.start >= at && (!d.scope || d.scope.start <= at));
-      const bound = bindingAt(jinja.start);
-      if (!bound) return null;
-      const scope = bound.scope;
-      return {
-        kind: 'jinja', name: jinja.name, range: jinja,
-        defs: all.filter((d) => d.name === jinja.name && d.scope === scope), binding: bound, scope,
-        // A definition's scope is null or a scope object, never undefined.
-        refs: this.jinjaNames(text).filter((n) => n.name === jinja.name && bindingAt(n.start)?.scope === scope),
-      };
-    }
-    const { defs, refs } = this.labels(text);
-    const all = [...defs, ...refs];
-    const hit = all.find(inside);
-    if (!hit) return null;
-    const same = (d) => this.sameLabel(d.name, hit.name);
-    return { kind: 'label', name: hit.name, range: hit, defs: defs.filter(same), refs: all.filter(same) };
-  }
-
-  /** Whether renaming the Jinja symbol `sym` to `name` would meet another name: one defined in the
-   *  same scope, or in a scope around or inside it, where one would hide the other. */
-  jinjaClash(text, sym, name) {
-    const span = (scope) => (scope ? { start: scope.tagStart, end: scope.end } : { start: 0, end: text.length });
-    const outer = span(sym.scope);
-    const meets = (s) => s.start < outer.end && outer.start < s.end;
-    const defined = this.jinjaDefs(text).some((d) => d.name === name && meets(span(d.scope)));
-    // A name the file uses without defining it (one the harness passes in, a builtin, `loop`) would
-    // be captured just the same.
-    return defined || this.jinjaNames(text).some((n) => n.name === name && outer.start <= n.start && n.start < outer.end);
-  }
-
   /** `text` with every use of the symbol `sym` renamed to `name`. */
   rename(text, sym, name) {
     let out = text;
@@ -917,47 +762,6 @@ class Language {
     return this.tokenFull.test(name) && !/^[+-]/.test(name);
   }
 
-  /** `{{ name }}` tags whose name has a literal value where they stand: { at (the tag's end), value }. */
-  jinjaHints(text) {
-    return this.memo('jinjaHints', text, () => {
-      const defs = this.jinjaDefs(text);
-      const out = [];
-      for (const r of jinjaRegions(text)) {
-        const m = r.kind === 'variable' && /^\{\{-?\s*([A-Za-z_][A-Za-z0-9_]*)\s*-?\}\}$/.exec(text.slice(r.start, r.end));
-        const def = m && this.jinjaBinding(text, m[1], r.start, defs);
-        if (def && def.kind === 'set' && def.value != null) out.push({ at: r.end, value: def.value });
-      }
-      return out;
-    });
-  }
-
-  /** Labels nothing branches to and `set` names nothing reads: [{ kind, name, start, end }]. A name
-   *  written anywhere besides its definitions (a comment, a string, a templated operand) counts as
-   *  used, so a name is only ever reported when nothing could be using it. */
-  unused(text) {
-    return this.memo('unused', text, () => {
-      const uses = (name, defs, flags) => {
-        const word = new RegExp(`(?<![A-Za-z0-9_.])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![A-Za-z0-9_])`, `g${flags}`);
-        return (text.match(word) || []).length - defs;
-      };
-      const labels = this.labels(text).defs;
-      const jinja = this.jinjaDefs(text);
-      const sameLabel = (d) => labels.filter((l) => this.sameLabel(l.name, d.name)).length;
-      return [
-        ...labels.filter((d) => uses(d.name, sameLabel(d), this.caseInsensitive.labels ? 'i' : '') <= 0).map((d) => ({ kind: 'label', ...d })),
-        ...jinja.filter((d) => d.kind === 'set' && uses(d.name, jinja.filter((x) => x.name === d.name).length, '') <= 0)
-          .map(({ name, start, end }) => ({ kind: 'set', name, start, end })),
-      ];
-    });
-  }
-
-  symbols(text) {
-    const labels = this.labels(text).defs.map((d) => ({ kind: 'label', name: d.name, start: d.start, end: d.end }));
-    const jinja = this.jinjaDefs(text).filter((d) => d.kind === 'set' || d.kind === 'macro')
-      .map((d) => ({ kind: d.kind, name: d.name, start: d.start, end: d.end, detail: d.kind === 'set' ? d.expression : undefined }));
-    return [...labels, ...jinja].sort((a, b) => a.start - b.start);
-  }
-
   /** Foldable spans: multi-line `{# #}` comments and paired `{% tag %} … {% endtag %}` blocks. */
   folding(text) {
     const comments = jinjaRegions(text).filter((r) => r.kind === 'comment' && text.slice(r.start, r.end).includes('\n'));
@@ -968,4 +772,4 @@ class Language {
   }
 }
 
-module.exports = { Language, jinjaRegions };
+module.exports = { Language, jinjaRegions, JINJA_NAME, JINJA_STRING, setParts };

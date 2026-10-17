@@ -7,39 +7,45 @@ const vscode = require('vscode');
 
 const { LANGUAGE_ID, provide, rangeOf } = require('./shared');
 
-function register(context, { lang }) {
-  const symbolAt = (document, position) => lang.symbolAt(document.getText(), document.offsetAt(position));
+function register(context, { lang, semantics, onAnswer }) {
+  const symbolAt = async (document, position) => (await semantics(document)).symbolAt(document.offsetAt(position));
   const locations = (document, spans) => spans.map((s) => new vscode.Location(document.uri, rangeOf(document, s)));
 
   provide(context, 'Definition', {
-    provideDefinition(document, position) {
-      const sym = symbolAt(document, position);
+    async provideDefinition(document, position) {
+      const sym = await symbolAt(document, position);
       return sym ? locations(document, sym.defs) : undefined;
     },
   });
 
   provide(context, 'Reference', {
-    provideReferences(document, position, { includeDeclaration }) {
-      const sym = symbolAt(document, position);
+    async provideReferences(document, position, { includeDeclaration }) {
+      const sym = await symbolAt(document, position);
       if (!sym) return undefined;
       return locations(document, sym.refs.filter((r) => includeDeclaration || !sym.defs.some((d) => d.start === r.start)));
     },
   });
 
   // A `{{ name }}` with a literal value shows it after the tag: `{{ lr_row }}` lr1.
+  const hintsChanged = new vscode.EventEmitter();
   provide(context, 'InlayHints', {
-    provideInlayHints(document, range) {
+    onDidChangeInlayHints: hintsChanged.event,
+    async provideInlayHints(document, range) {
       const [from, to] = [document.offsetAt(range.start), document.offsetAt(range.end)];
-      return lang.jinjaHints(document.getText()).filter((h) => from <= h.at && h.at <= to)
+      return (await semantics(document)).jinjaHints().filter((h) => from <= h.at && h.at <= to)
         .map((h) => Object.assign(new vscode.InlayHint(document.positionAt(h.at), h.value), { paddingLeft: true }));
     },
   });
 
   // Labels nothing branches to and `set` names nothing reads, faded (a hint: not in Problems).
   const unused = vscode.languages.createDiagnosticCollection('ipu-asm-unused');
-  const markUnused = (document) => {
+  const markUnused = async (document) => {
     if (document.languageId !== LANGUAGE_ID) return;
-    unused.set(document.uri, lang.unused(document.getText()).map((u) => Object.assign(
+    const { version } = document;
+    const found = (await semantics(document)).unused();
+    // A newer version has its own marking on the way; a closed document has none.
+    if (document.isClosed || document.version !== version) return;
+    unused.set(document.uri, found.map((u) => Object.assign(
       new vscode.Diagnostic(rangeOf(document, u), u.kind === 'label' ? `${u.name} is never branched to` : `${u.name} is set but never used`,
         vscode.DiagnosticSeverity.Hint),
       { source: 'ipu-asm', tags: [vscode.DiagnosticTag.Unnecessary] })));
@@ -57,13 +63,21 @@ function register(context, { lang }) {
         markUnused(document);
       }, 300));
     }),
-    { dispose: () => unusedTimers.forEach((timer) => clearTimeout(timer)) }
+    { dispose: () => unusedTimers.forEach((timer) => clearTimeout(timer)) },
+    // An analysis that arrives replaces what was first painted from the editor's own rules.
+    hintsChanged,
+    onAnswer((key, answer) => {
+      if (!answer) return;
+      const document = vscode.workspace.textDocuments.find((d) => d.uri.toString() === key);
+      if (document) markUnused(document);
+      hintsChanged.fire();
+    })
   );
   vscode.workspace.textDocuments.forEach(markUnused);
 
   const symbolKinds = { label: vscode.SymbolKind.Function, set: vscode.SymbolKind.Variable, macro: vscode.SymbolKind.Method };
   provide(context, 'DocumentSymbol', {
-    provideDocumentSymbols: (document) => lang.symbols(document.getText()).map((s) => {
+    provideDocumentSymbols: async (document) => (await semantics(document)).symbols().map((s) => {
       const range = rangeOf(document, s);
       return new vscode.DocumentSymbol(s.name, s.detail || s.kind, symbolKinds[s.kind], range, range);
     }),

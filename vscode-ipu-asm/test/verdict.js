@@ -8,6 +8,8 @@
 // references, words that do not fit their slots, and Jinja blocks left open. Text inside a
 // template (`{{ }}`) is not judged; the template decides it.
 
+const { fallbackOf } = require('../fallback');
+
 /** Why `lang` would reject `text`, as a list of reasons; empty when it accepts it. */
 function verdict(lang, text) {
   const reasons = [];
@@ -38,7 +40,7 @@ function verdict(lang, text) {
         if (!ok) reasons.push(`${name}: operand ${i} "${op.text}" is not accepted`);
       });
     }
-    if (!lang.fits(known)) reasons.push(`the word at ${word.start} does not fit its slots: ${known.join('; ')}`);
+    if (!fallbackOf(lang).fits(known)) reasons.push(`the word at ${word.start} does not fit its slots: ${known.join('; ')}`);
   }
   return reasons;
 }

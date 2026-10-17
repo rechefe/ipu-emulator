@@ -127,6 +127,12 @@ bazel run //src/tools/ipu-as-py:ipu-as -- assemble --input "$PWD/kernel.asm" --o
 
 The `check` subcommand takes the same `--define` and `-I` options. Both, and `disassemble`, take `--target hardware`: the words then hold the hardware slots only (the top bits of the emulator word), and an emulator-only instruction such as `BREAK` is an error at its mnemonic. The default, `--target emulator`, is the full word the emulator runs.
 
+The `format` subcommand prints a source in the repository's layout: a label at column 0 on its own line, each instruction line one indent in, and code after a `;;` on a line of its own. Only whitespace changes; Jinja tags and comments stay as written. Before it writes anything it checks that the result is the same program (the same words for a source without Jinja, the same tokens for a template), and exits 3 if it is not (or if the input is not UTF-8). `--check` writes nothing and exits 1 when the source would change, for CI and pre-commit hooks, so a gate can tell "would reformat" (1) from "cannot format" (3); `--in-place` rewrites the file instead of printing it; `--range L1:L2` formats only those lines (1-based); `--indent N` (or `--indent tab`) sets the indent, and `--blank-line` puts an empty line between words:
+
+```bash
+bazel run //src/tools/ipu-as-py:ipu-as -- format --check --input "$PWD/kernel.asm"
+```
+
 ## Step 2: Define Bazel Build Targets
 
 Nothing to declare. `src/tools/ipu-apps/BUILD.bazel` globs every `.asm` under

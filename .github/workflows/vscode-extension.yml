@@ -112,6 +112,12 @@ jobs:
           node vscode-ipu-asm/test/language.js \
             vscode-ipu-asm/data/isa.json parser-tokens.json
 
+      - name: Check the v2 analysis client and its providers
+        run: node vscode-ipu-asm/test/analysis.js
+
+      - name: Check the JS fallback against the assembler's v2 analysis
+        run: node vscode-ipu-asm/test/analysis-agreement.js vscode-ipu-asm/data/isa.json
+
       # A correct rename or format leaves the binary byte for byte the same.
       - name: Check renames and formatting leave the program unchanged
         run: |

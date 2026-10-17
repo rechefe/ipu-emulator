@@ -400,7 +400,7 @@ class TestWideVectorAlignment:
         element_width_bytes(), so any rc_idx value produces a byte offset that is
         always a multiple of 4 in wide-vector debug mode -- misalignment via
         rc_idx is no longer reachable (unlike when rc_idx was a raw byte offset).
-        The 4-byte-aligned guard in _wide_rb_lanes stays as defense-in-depth."""
+        The MULT handlers index R_CYCLIC in elements, so no byte guard is needed."""
         st = new_state(fmt=ElementFormat.FP32)
         st.xmem.write_address(0x1000, struct.pack("<128f", *([1.0] * 128)))
         st.xmem.write_address(0x2000, struct.pack("<128f", *([2.0] * 128)))

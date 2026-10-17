@@ -33,7 +33,7 @@ Use `bazel`, not `pip install` or `python` directly.
 ## Adding an Instruction (quick checklist)
 
 1. Add entry to `instruction_spec.py` (no opcode assignment — position determines it).
-2. Add `execute_<name>(self, *, ...)` handler in `ipu.py` with keyword-only args matching operand names.
+2. Add `execute_<name>(ipu, *, ...)` to `ipu_emu/slots/<slot>.py` with keyword-only args matching operand names.
 3. Write a test in `ipu-emu-py/test/` using `_run()`.
 4. Run `bazel test //...`.
 5. Check the generated SystemVerilog package (below).

@@ -3,7 +3,7 @@
     "VLIW word": 1,
     "compound instruction": 1,
     "narrow mode": 1,
-    "slot type": 2
+    "slot type": 1
   },
   "docs/content/app-coverage.md": {
     "bundle": 3

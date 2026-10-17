@@ -5,22 +5,40 @@ handlers call them, and so do the observers (the alias profiler), so an
 observer never reaches into ``Ipu`` for a helper (E04-11):
 
 - :func:`element_format` names the active :class:`~ipu_isa.formats.ElementFormat`
-  of a state (until E04-17 makes the format the state's own field);
+  of a state (until E04-17 makes the format the state's own field), and
+  :func:`active_codec` is its lane codec;
+- :func:`vector_registers` names the registers that hold Ra (R0 ++ R1) and
+  R_CYCLIC in a state's element width;
 - :func:`element_width_bytes` and :func:`row_size_bytes` give the bytes of one
   element and of one XMEM row in a format; :func:`xmem_element_width_bytes`
   and :func:`xmem_row_size_bytes` are the same for a state, on the hot path;
 - :func:`lrd_lr_indices` names the two LRs behind an ``LrdIdx`` operand;
 - :func:`effective_mult_mask` is the 128-bit lane mask a MULT applies;
-- :func:`cr_scalar` is a CR's low byte as a signed element (the wide-vector
-  scalar multiplicand).
+- :func:`cr_scalar` is a CR's low byte as a signed element (the alias
+  observer's identity check; the MULT handlers decode CR scalars through
+  :meth:`~ipu_emu.numerics.LaneCodec.decode_scalar`);
+- :func:`xmem_row_addr` turns an assembly row number into a byte address;
+- :func:`lrd_bytes` reads the eight byte elements of an LRD pair;
+- :func:`lane_format`, :func:`wide_lanes` and :func:`store_wide_lanes` read
+  and write the 4-byte lanes of MULT_RES, R_ACC and POST_AAQ_REG;
+- :func:`agg_lane_count` is how many R_ACC lanes a reduction includes.
+
+The slot modules (``ipu_emu.slots``) share these instead of importing each
+other (E04-14).
 """
 
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, NamedTuple, Protocol
+
+import numpy as np
 
 from ipu_emu.errors import EmulatorError
+from ipu_emu.ipu_math import DType
+from ipu_emu.ipu_state import WideVectorArithmetic
+from ipu_emu.numerics import LaneCodec, codec_for
+from ipu_emu.xmem import XMEM_SIZE_BYTES
 from ipu_isa.constants import LR_CR_SCALAR_BITS, Partition
 from ipu_isa.formats import FORMATS, ElementFormat
 from ipu_isa.geometry import LANES
@@ -31,17 +49,34 @@ if TYPE_CHECKING:
     from ipu_isa.constants import DStructureConfig
 
 __all__ = [
+    "NARROW_MAX_ROW",
+    "VectorRegisters",
+    "active_codec",
+    "agg_lane_count",
     "cr_scalar",
     "effective_mult_mask",
     "element_format",
     "element_width_bytes",
     "inverse_partition_vector",
+    "lane_format",
+    "lrd_bytes",
     "lrd_lr_indices",
     "partition_vector",
     "row_size_bytes",
+    "store_wide_lanes",
+    "vector_registers",
+    "wide_lanes",
     "xmem_element_width_bytes",
+    "xmem_row_addr",
     "xmem_row_size_bytes",
 ]
+
+# XMEM is allocated at XMEM_SIZE_BYTES always (mode-independent). Narrow mode
+# may address only its first 16384 rows of 128 B (2 MB) -- a fixed limit, not
+# derived from the allocation, so enlarging XMEM for wide-mode kernels does not
+# silently widen what narrow-mode programs can reach. Debug mode reaches the
+# whole allocation (XMEM_ADDRESSABLE_ROWS rows of 512 B).
+NARROW_MAX_ROW = 16384
 
 #: All 128 lanes active.
 _ALL_LANES = (1 << LANES) - 1
@@ -58,6 +93,8 @@ class _RegisterReader(Protocol):
     """The register reads these helpers need (a ``RegFile`` or its snapshot)."""
 
     def get_cr(self, index: int) -> int: ...
+
+    def get_lr(self, index: int) -> int: ...
 
     def get_r_mask(self) -> bytes: ...
 
@@ -77,6 +114,52 @@ def element_format(state: IpuState) -> ElementFormat:
     if state.wide_vector_debug:
         return ElementFormat(state.wide_vector_arithmetic.value)
     return ElementFormat[state.dtype.name]
+
+
+# (wide_vector_debug, wide_vector_arithmetic, dtype) -> codec: element_format's inputs.
+_ACTIVE_CODECS: dict[tuple[bool, WideVectorArithmetic, DType], LaneCodec] = {}
+
+
+def active_codec(state: IpuState) -> LaneCodec:
+    """The lane codec of :func:`element_format` (*state*), cached per mode.
+
+    Read per call, not once per engine: a caller may change ``state.dtype``
+    after the engine is built.
+
+    Args:
+        state: The machine state.
+
+    Returns:
+        Its element format's codec.
+    """
+    key = (state.wide_vector_debug, state.wide_vector_arithmetic, state.dtype)
+    codec = _ACTIVE_CODECS.get(key)
+    if codec is None:
+        codec = _ACTIVE_CODECS[key] = codec_for(element_format(state))
+    return codec
+
+
+class VectorRegisters(NamedTuple):
+    """The register names behind the MULT stage's vector operands in one element width."""
+
+    #: R0 ++ R1 (Ra): two rows of LANES elements, R0 first.
+    ra: str
+    #: The R_CYCLIC ring: 512 elements.
+    r_cyclic: str
+
+
+_NARROW_REGISTERS = VectorRegisters(ra="r", r_cyclic="r_cyclic")
+_WIDE_REGISTERS = VectorRegisters(ra="r_wide_debug", r_cyclic="r_cyclic_wide_debug")
+
+
+def vector_registers(state: IpuState) -> VectorRegisters:
+    """Where Ra and R_CYCLIC live in *state*'s element width.
+
+    Wide-vector debug mode keeps 4-byte elements in their own registers
+    (``r_wide_debug``, ``r_cyclic_wide_debug``); both layouts hold the same
+    number of elements, so a handler indexes either in elements.
+    """
+    return _WIDE_REGISTERS if state.wide_vector_debug else _NARROW_REGISTERS
 
 
 def element_width_bytes(fmt: ElementFormat) -> int:
@@ -182,8 +265,83 @@ def effective_mult_mask(
 def cr_scalar(regfile: _RegisterReader, cr_idx: int) -> int:
     """CR *cr_idx*'s low byte as a signed element (the CR itself is not widened).
 
-    The wide-vector scalar multiplicand until E04-28 decodes CR scalars in the
-    active format.
+    What ``Fp32Codec.decode_scalar`` and ``IntCodec.decode_scalar`` read as a
+    number, until E04-28 decodes CR scalars in the active format.
     """
     b = regfile.get_cr(cr_idx) & 0xFF
     return b if b < 128 else b - 256
+
+
+def xmem_row_addr(state: IpuState, row: int) -> int:
+    """Translate an XMEM row number to a byte address in the active mode.
+
+    ``.asm`` XMEM operands (``offset + base``) are row numbers, not byte
+    addresses — one row is LANES elements, so the same row number reaches
+    the same logical row in both modes at different byte offsets. XMEM is
+    allocated at XMEM_SIZE_BYTES unconditionally; narrow mode may only
+    *address* the first NARROW_MAX_ROW rows (2 MB) of that allocation.
+
+    This only translates and range-checks the row itself; the resulting
+    address's actual payload (which may span more than one row's worth of
+    bytes, e.g. ST.ACC's fixed 512-byte R_ACC) is bounds-checked by
+    ``XMem.read_address``/``write_address`` against the allocation.
+
+    Raises:
+        EmulatorError: The row is negative or outside the addressable range.
+    """
+    if row < 0:
+        raise EmulatorError(f"XMEM row must be non-negative; got {row}")
+    if not state.wide_vector_debug and row >= NARROW_MAX_ROW:
+        raise EmulatorError(
+            f"XMEM row {row} is out of range for narrow mode "
+            f"(rows 0..{NARROW_MAX_ROW - 1}, the first "
+            f"{NARROW_MAX_ROW * xmem_row_size_bytes(state) >> 20} MB of XMEM)"
+        )
+    addr = row * xmem_row_size_bytes(state)
+    if addr >= XMEM_SIZE_BYTES:
+        raise EmulatorError(
+            f"XMEM row {row} is out of range: byte address {addr} exceeds "
+            f"the {XMEM_SIZE_BYTES}-byte allocation"
+        )
+    return addr
+
+
+def lrd_bytes(regfile: _RegisterReader, n: int) -> bytes:
+    """Read LRDn's 8 byte elements from a register file (snapshot or live).
+
+    Elements 0-3 are LR(2n)'s bytes (little-endian), elements 4-7 are LR(2n+1)'s.
+    """
+    lo_idx, hi_idx = lrd_pair(n)
+    return regfile.get_lr(lo_idx).to_bytes(4, "little") + regfile.get_lr(hi_idx).to_bytes(
+        4, "little"
+    )
+
+
+def lane_format(state: IpuState) -> str:
+    """Struct format of one 4-byte R_ACC / MULT_RES / AGG lane in the active mode."""
+    if state.wide_vector_debug:
+        return "<f" if state.wide_vector_arithmetic == WideVectorArithmetic.FP32 else "<i"
+    return "<i" if state.dtype == DType.INT8 else "<f"
+
+
+# The FP32 / INT32 lane codecs (``ipu_emu.numerics``) widen to float64 /
+# int64 and round once on the store, so the vectorised wide-vector paths are
+# bit-for-bit the scalar loops they replaced.
+
+
+def wide_lanes(state: IpuState, buf, byte_off: int = 0) -> np.ndarray:
+    """Read LANES lanes of *buf* widened to float64 (FP32) or int64 (INT32)."""
+    return codec_for(element_format(state)).decode(memoryview(buf)[byte_off:])
+
+
+def store_wide_lanes(
+    state: IpuState, buf: bytearray | memoryview, values: np.ndarray, byte_off: int = 0
+) -> None:
+    """Write LANES lanes back, rounding once — what ``pack_into`` did."""
+    codec_for(element_format(state)).store_acc(memoryview(buf)[byte_off:], values)
+
+
+def agg_lane_count(valid_elements: int) -> int:
+    """Number of R_ACC words a reduction includes (clamped to LANES)."""
+    v = int(valid_elements) & 0xFFFFFFFF
+    return min(v, LANES)
