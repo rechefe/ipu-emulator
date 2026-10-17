@@ -63,7 +63,7 @@ PER = "rows"  # optional: adds a cycles-per-row column
 Kernels of one family keep shared code in the family directory under the same
 names: `<family>/app.py` for a shared harness base or spec helpers,
 `<family>/cases.py` for shared case builders, and `<family>/test.py` for tests
-that span the family (see `kernels/pooling/`, `kernels/convolutions/`,
+that span the family (see `kernels/convolutions/`,
 `kernels/softmax/`). `bazel test :<family>` runs every kernel in the family plus
 the family's `test.py`.
 
