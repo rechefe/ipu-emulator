@@ -30,7 +30,11 @@ Schema
 ``[inputs.<name>]``, ``[outputs.<name>]``, ``[scratch.<name>]``
     ``shape`` (non-empty list, required): positive ints, or expressions over
     parameter and derived names in E06-03's grammar (``"rows * 4"``,
-    ``"ceil(k / 128)"``). ``row``: pin the region's first XMEM row (Q81).
+    ``"ceil(k / 128)"``). ``row``: pin the region's first XMEM row (Q81), an int
+    or an expression like a shape's. ``after = "<tensor>"``: place the region
+    right after that tensor's in placement order (by default inputs, then
+    outputs, then scratch, each in file order), so scratch can come before an
+    output; not with ``row``.
     ``pack`` (inputs and outputs): a named pack transform (E06-05); an output's
     lays out the stored rows that :func:`ipu_harness.packing.unpack` reads back. ``store`` (outputs):
     ``element`` (default) or ``accumulator``. ``fill`` (scratch): the value the
@@ -154,9 +158,9 @@ _SECTIONS = (
 _KERNEL_KEYS = ("op", "formats", "asm", "stages", "cost")
 _PARAM_KEYS = ("type", "min", "max", "multiple_of", "choices", "default", "unit")
 _TENSOR_KEYS: Mapping[Role, tuple[str, ...]] = {
-    "input": ("shape", "row", "pack", "range"),
-    "output": ("shape", "row", "pack", "store"),
-    "scratch": ("shape", "row", "fill"),
+    "input": ("shape", "row", "after", "pack", "range"),
+    "output": ("shape", "row", "after", "pack", "store"),
+    "scratch": ("shape", "row", "after", "fill"),
 }
 _CASE_KEYS = ("formats", "inputs", "expected", "generator", "tier")
 _GOLDEN_KEYS = ("reference", "op", "tolerance")
@@ -198,7 +202,9 @@ class TensorDecl:
         name: Its name in its section.
         role: ``input``, ``output`` or ``scratch``.
         shape: Ints, or expressions over parameter and derived names (E06-03).
-        row: The first XMEM row, if pinned (Q81).
+        row: The first XMEM row, if pinned (Q81): an int, or an expression over
+            parameter and derived names.
+        after: The tensor this region is placed right after, if it says.
         pack: The named pack transform of an input or output (E06-05).
         store: How an output is stored: ``element`` or ``accumulator``.
         fill: The value a scratch region is filled with.
@@ -209,7 +215,8 @@ class TensorDecl:
     name: str
     role: Role
     shape: tuple[int | str, ...]
-    row: int | None = None
+    row: int | str | None = None
+    after: str | None = None
     pack: str | None = None
     store: Store = "element"
     fill: int | float = 0
@@ -464,6 +471,28 @@ def _range(
     return out
 
 
+def _placed(
+    r: Reader,
+    decl: TensorDecl,
+    table: Mapping[str, Any],
+    path: tuple[str, ...],
+    names: Iterable[str],
+) -> TensorDecl:
+    """``decl`` with its ``row`` pin (an int or an expression) or its ``after``."""
+    if "row" in table:
+        row = r.typed(table["row"], (int, str), (*path, "row"))
+        if isinstance(row, str):
+            _check_expression(r, row, names, (*path, "row"))
+        elif row < 0:
+            raise r.fail((*path, "row"), f"{where((*path, 'row'))} {row} must not be negative")
+        decl = replace(decl, row=row)
+    if "after" in table:
+        if "row" in table:
+            raise r.fail((*path, "after"), f"{where(path)} is pinned by row; it takes no 'after'")
+        decl = replace(decl, after=r.text(table["after"], (*path, "after")))
+    return decl
+
+
 def _tensor(
     r: Reader,
     section: str,
@@ -480,11 +509,7 @@ def _tensor(
     if "shape" not in table:
         raise r.fail(path, f"{where(path)} needs 'shape'")
     decl = TensorDecl(name, role, _shape(r, table["shape"], (*path, "shape"), names))
-    if "row" in table:
-        row = r.typed(table["row"], int, (*path, "row"))
-        if row < 0:
-            raise r.fail((*path, "row"), f"{where((*path, 'row'))} {row} must not be negative")
-        decl = replace(decl, row=row)
+    decl = _placed(r, decl, table, path, names)
     if "pack" in table:
         decl = replace(decl, pack=r.text(table["pack"], (*path, "pack")))
     if "store" in table:
@@ -847,7 +872,23 @@ def _tensors(
             if name in tensors or name in scalars:
                 raise r.fail((section, name), f"{name!r} is declared twice")
             tensors[name] = _tensor(r, section, name, raw, scalars, formats)
+    for tensor in tensors.values():
+        _check_after(r, tensor, tensors)
     return tensors
+
+
+def _check_after(r: Reader, tensor: TensorDecl, tensors: Mapping[str, TensorDecl]) -> None:
+    """``after`` names another tensor, and following it never comes back."""
+    path = (tensor.section, tensor.name, "after")
+    seen = {tensor.name}
+    current = tensor
+    while current.after is not None:
+        if current.after not in tensors:
+            raise r.fail(path, f"{where(path)} {current.after!r} is no tensor")
+        if current.after in seen:
+            raise r.fail(path, f"{where(path)}: after forms a cycle through {current.after!r}")
+        seen.add(current.after)
+        current = tensors[current.after]
 
 
 def _read(toml: Path) -> tuple[Reader, dict[str, Any]]:
