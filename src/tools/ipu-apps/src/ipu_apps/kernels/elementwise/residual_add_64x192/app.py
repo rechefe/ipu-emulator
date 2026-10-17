@@ -15,6 +15,7 @@ Usage::
 
 from __future__ import annotations
 
+import struct
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -80,10 +81,10 @@ class ResidualAdd64x192App(IpuApp):
         state.regfile.set_cr(6, N_ROWS)
         state.regfile.set_cr(7, ROW_STRIDE_ROWS)  # A/B row stride (rows)
         state.regfile.set_cr(8, OUTPUT_STRIDE_ROWS)  # output row stride (rows)
-        # CR10 = 1: in wide FP32 a CR scalar is its low byte read as a signed
-        # int and converted to float, so 1 gives exactly 1.0 -- the MULT.RC.VE
-        # pass-through multiplier that turns the multiplier into an adder.
-        state.regfile.set_cr(10, 1)
+        # CR10 = 1.0: a CR scalar is its low 32 bits read as a float32 in wide
+        # FP32 (Q49), so CR10 holds 1.0's bit pattern -- the MULT.RC.VE
+        # pass-through multiplier.
+        state.regfile.set_cr(10, struct.unpack("<I", struct.pack("<f", 1.0))[0])
 
     def teardown(self, state: IpuState) -> None:
         if self.output_path is not None:

@@ -48,8 +48,8 @@ _MULT_STAGE_MAP: list[tuple[str, int]] = get_mult_stage_map()
 # SCALAR_MULT_OPERANDS; how it is addressed is read off that operand's
 # declared type, so neither fact is restated here.
 SCALAR_NONE = 0
-SCALAR_LCR = 1  # LcrIdx: an LR selects an Ra element, or a CR supplies the byte
-SCALAR_CR = 2  # CrIdx: the CR's low byte is the scalar
+SCALAR_LCR = 1  # LcrIdx: an LR selects an Ra element, or a CR is the scalar
+SCALAR_CR = 2  # CrIdx: the CR is the scalar (LaneCodec.decode_cr_scalar)
 
 # 0..LANES-1, for the rotated Ra and R_CYCLIC windows.
 _LANE_INDEX = np.arange(LANES)
@@ -239,14 +239,16 @@ def _mult_resolve_lcr_scalar(ipu: Ipu, codec: LaneCodec, src: int, via: str = "s
     If ``src`` encodes an LR, the LR's stored value is itself used as an
     index (mod 256) into the combined Ra buffer (``R0`` ++ ``R1``). If
     ``src`` encodes a CR, the CR word is the scalar, decoded by
-    :meth:`LaneCodec.decode_scalar`. Each read has the view the instruction
+    :meth:`LaneCodec.decode_cr_scalar` (its low element-width bits in the
+    active format; CR1 reads as 1). Each read has the view the instruction
     declares for it (the LR and the CR through the operand *via*, Ra as
     ``r``).
     """
     if src < LR_REG_COUNT:
         # The LR holds an INDEX into Ra; the Ra DATA is a separate read.
         return _ra_lanes(ipu, codec)[ipu._view.lr(src, via) % _RA_LANES]
-    return codec.decode_scalar(ipu._view.cr(src - LR_REG_COUNT, via))
+    cr_idx = src - LR_REG_COUNT
+    return codec.decode_cr_scalar(cr_idx, ipu._view.cr(cr_idx, via))
 
 
 def execute_mult_rc_vv(
@@ -285,7 +287,7 @@ def execute_mult_ve(
 ) -> None:
     """Execute MULT.VE: Ra (combined R0/R1) vector × CR scalar, element-wise."""
     codec = ipu._codec
-    scalar = codec.decode_scalar(ipu._view.cr(cr_idx, "cr_idx"))
+    scalar = codec.decode_cr_scalar(cr_idx, ipu._view.cr(cr_idx, "cr_idx"))
     # Ra is the R0 ++ R1 pair read as one 256-lane cyclic window.
     window = _ra_lanes(ipu, codec)[(ra_idx + _LANE_INDEX) % _RA_LANES]
     _store_mult_res(ipu, codec, codec.mult(window, scalar))
@@ -297,7 +299,7 @@ def execute_mult_ee(
 ) -> None:
     """Execute MULT.EE: single Ra element × CR scalar, broadcast to all 128 elements."""
     codec = ipu._codec
-    scalar = codec.decode_scalar(ipu._view.cr(cr_idx, "cr_idx"))
+    scalar = codec.decode_cr_scalar(cr_idx, ipu._view.cr(cr_idx, "cr_idx"))
     pos = ra_idx % _RA_LANES
     # One product, broadcast to every lane.
     product = codec.mult(_ra_lanes(ipu, codec)[pos : pos + 1], scalar)

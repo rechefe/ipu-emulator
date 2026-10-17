@@ -18,6 +18,7 @@ Usage::
 
 from __future__ import annotations
 
+import struct
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -89,7 +90,9 @@ class Concat16x16x128x128App(IpuApp):
         # relies on the hardwired value, not on this setup() writing it.
         state.regfile.set_cr(2, -1)  # PTR_START: src ptr startup (-1 row)
         state.regfile.set_cr(3, 1)  # ROW_STRIDE
-        state.regfile.set_cr(4, 1)  # DTYPE_ONE: 1.0 in wide FP32 (low byte -> float)
+        # DTYPE_ONE: 1.0's float32 bit pattern (a wide FP32 CR scalar is the
+        # CR's low 32 bits as a float32, Q49).
+        state.regfile.set_cr(4, struct.unpack("<I", struct.pack("<f", 1.0))[0])
         state.regfile.set_cr(5, A_BASE_ROW)
         state.regfile.set_cr(6, B_BASE_ROW)
         state.regfile.set_cr(7, OUT_BASE_ROW)  # OUT_A_BASE

@@ -18,6 +18,8 @@ AAQ-slot keyword on **`ACTIVATE.QUANTIZE`**: one of **identity**, **relu**, **re
 
 Constant-register index: **`cr0`** … **`cr15`**. CRs are **read-only** in assembly; the harness initializes them (e.g. base pointers, strides). **`cr15`** conventionally holds dstructure configuration but is a valid `CrIdx` operand like any other CR. **`SET`** in the LR slot copies the full **32-bit** CR value into an LR.
 
+**CR as an element scalar.** When a CR is a multiply's scalar element operand (**`MULT.VE`**, **`MULT.EE`**, a CR **`src`** of **`MULT.RC.VE`**), the scalar is the CR's low element-width bits decoded in the active element format: the low byte in INT8 and E1–E7, all 32 bits in INT32 and FP32 (so FP32 1.0 is the CR value `0x3F800000`). One rule for every format. **`CR0`** reads as 0 and **`CR1`** as 1 in the active format (1.0 in a float format), so a multiply by **`CR1`** is an identity in every format; as an LR or integer operand **`CR1`** is the integer 1.
+
 ## `DstructureCrIdx` {: #dstructurecridx }
 
 Constant-register index: **`cr0`** … **`cr15`**, selecting which CR supplies the **valid element mask** / dstructure configuration (`valid_elements`, `partition`) for `AGG.SUM`, `AGG.SUM.FIRST`, `AGG.MAX`, `AGG.MAX.FIRST`, `ACTIVATE.QUANTIZE`, and the masking multiply instructions (`MULT.RC.VV`, `MULT.RC.VE`, `MULT.RC.VS`, `MULT.VE`, `MULT.EE`). Unlike **`CrIdx`**, **`cr15`** is allowed here — it's the conventional dstructure register — but the operand is always mandatory; there is no implicit fallback to `cr15` when it is omitted.
@@ -36,7 +38,7 @@ Branch target: a symbolic **`label`** or a relative offset accepted by the cond 
 
 ## `LcrIdx` {: #lcridx }
 
-LR **or** CR index in one field: lower indices map to **`lr0`–`lr15`**, higher indices to **`cr0`–`cr15`** in the usual combined ordering used by the assembler. Used as **`src_b`** on **`ADD`**/**`SUB`**, as **`step`** on **`INC.MODP2`**, and as **`src`** on **`MULT.RC.VE`** (an LR's stored value selects an element from `R0`/`R1`; a CR's low byte is the scalar directly).
+LR **or** CR index in one field: lower indices map to **`lr0`–`lr15`**, higher indices to **`cr0`–`cr15`** in the usual combined ordering used by the assembler. Used as **`src_b`** on **`ADD`**/**`SUB`**, as **`step`** on **`INC.MODP2`**, and as **`src`** on **`MULT.RC.VE`** (an LR's stored value selects an element from `R0`/`R1`; a CR is the scalar directly, decoded as in [CrIdx](#cridx)).
 
 ## `LrIdx` {: #lridx }
 

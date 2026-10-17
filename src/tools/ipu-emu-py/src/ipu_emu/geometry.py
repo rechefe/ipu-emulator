@@ -13,9 +13,9 @@ observer never reaches into ``Ipu`` for a helper (E04-11):
   and :func:`xmem_row_size_bytes` are the same for a state, on the hot path;
 - :func:`lrd_lr_indices` names the two LRs behind an ``LrdIdx`` operand;
 - :func:`effective_mult_mask` is the 128-bit lane mask a MULT applies;
-- :func:`cr_scalar` is a CR's low byte as a signed element (the alias
-  observer's identity check; the MULT handlers decode CR scalars through
-  :meth:`~ipu_emu.numerics.LaneCodec.decode_scalar`);
+- :func:`cr_scalar` is a CR as an element scalar of the state's format,
+  through :meth:`~ipu_emu.numerics.LaneCodec.decode_cr_scalar` (the alias
+  observer's identity check; the MULT handlers decode the same way);
 - :func:`xmem_row_addr` turns an assembly row number into a byte address;
 - :func:`lrd_bytes` reads the eight byte elements of an LRD pair;
 - :func:`lane_format` is the struct format of one 4-byte accumulator lane
@@ -40,6 +40,8 @@ from ipu_isa.geometry import LANES
 from ipu_isa.registers import lrd_pair
 
 if TYPE_CHECKING:
+    import numpy as np
+
     from ipu_emu.ipu_state import IpuState
     from ipu_isa.constants import DStructureConfig
 
@@ -219,14 +221,13 @@ def effective_mult_mask(
     return mask
 
 
-def cr_scalar(regfile: _RegisterReader, cr_idx: int) -> int:
-    """CR *cr_idx*'s low byte as a signed element (the CR itself is not widened).
+def cr_scalar(state: IpuState, cr_idx: int) -> np.generic:
+    """CR *cr_idx* as an element scalar of *state*'s format (Q49).
 
-    What ``Fp32Codec.decode_scalar`` and ``IntCodec.decode_scalar`` read as a
-    number, until E04-28 decodes CR scalars in the active format.
+    The CR's low element-width bits decoded in the active format, CR1 read as
+    1: what a MULT with this CR as its scalar operand multiplies by.
     """
-    b = regfile.get_cr(cr_idx) & 0xFF
-    return b if b < 128 else b - 256
+    return state.codec.decode_cr_scalar(cr_idx, state.regfile.get_cr(cr_idx))
 
 
 def xmem_row_fault(state: IpuState, row: int) -> str | None:

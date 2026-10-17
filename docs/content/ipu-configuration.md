@@ -10,7 +10,7 @@ harnesses and tests.
 | --- | --- | --- |
 | `IpuState.fmt` | Element format: element and row bytes, accumulator type and vector registers. It is not stored in a `CR` register, and is read-only after construction. | `IpuState(fmt=ElementFormat.INT8)` or `state.reset(ElementFormat.E4)` |
 | `CR0` | Read-only constant zero. | Already initialized; writes raise `EmulatorError`. |
-| `CR1` | Read-only constant one. | Already initialized; writes raise `EmulatorError`. |
+| `CR1` | Read-only constant one. As an element scalar it reads as 1 in the active format (1.0 in a float format). | Already initialized; writes raise `EmulatorError`. |
 | `CR2`-`CR14` | Application configuration such as base addresses, strides, loop bounds, and scalar constants. | `state.regfile.set_cr(index, value)` |
 | `CR15` | Dstructure register. Bits `[7:0]` hold `valid_elements`; bits `[12:8]` hold `partition`; bits `[14:13]` hold `pad_mode`. | `state.set_cr_dstructure(valid_elements=128, partition=0, pad_mode=PadMode.ZERO)` |
 

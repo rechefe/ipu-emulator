@@ -59,7 +59,7 @@ Wide mode unpacks `r_cyclic` as 128 consecutive 32-bit elements starting at a **
 
 - **Multiply masks** (`mask_offset` immediate slot 0–7 / `mask_shift` LR): mask-and-shift on `mult_res` is **mode-blind** — it runs identically in wide mode as in narrow mode (each of the 128 mask bits gates the corresponding FP32/INT32 element one-for-one, the same lane mapping as narrow mode's per-element gating).
 - **`ACTIVATE.QUANTIZE`**: unless `AaqOptions.quantize_output` is set, it **does not quantize** in wide mode — it writes the activated wide elements to **`POST_AAQ_REG`** and the full element results stay in **`R_ACC`**. Use the existing debug-only **`ST.ACC`** instruction (or read `R_ACC` in Python) to dump 128 elements (512 bytes) of accumulator data.
-- **LR and CR** are **not** widened; scalars such as **`MULT.RC.VE`**'s CR-encoded `src` still use the **low byte** of a CR as a signed value in the wide path.
+- **LR and CR** are **not** widened (they are 32 bits in every format). A CR used as an element scalar (**`MULT.VE`**, **`MULT.EE`**, **`MULT.RC.VE`** with a CR `src`) is the CR's 32 bits read as one wide element: a float32 bit pattern in FP32, an int32 in INT32. **`CR1`** reads as 1 (1.0 in FP32). See [CrIdx](operand-types.md#cridx).
 
 ## INT32 vs FP32
 

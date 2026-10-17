@@ -4,12 +4,12 @@
   "output_sha256": "5bebcc211ef841ca26b3f4e766aed1701022f021a9ab2e9e3942cd93a0303ec6",
   "programs": [
    {
-    "cr": [0, 1, 0, 576, 0, 4294967295, 288, 1, 1, 288, 1, 0, 0, 0, 0, 128],
+    "cr": [0, 1, 0, 576, 0, 4294967295, 288, 1, 1, 288, 1065353216, 0, 0, 0, 0, 128],
     "lr": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     "program_sha256": "3f4c7288cd39f1a090cab2c173cade5ebfeec39169332f1afd234e24a08b87f6",
     "xmem_setup_sha256": "d7c17e673da12db92e21ed7e2a98022cc33ec92ce296ab042062e6343debe6ba"
    }
   ],
-  "state_sha256": "75aabfe094ef1464ce0aafc323a04a43b1e0a86907fe35c86635916819f9589d"
+  "state_sha256": "aadc2af534eee70c9794fc94d9c583534a3e7c71614dd2d953c3172f2bcbda24"
  }
 }
