@@ -13,14 +13,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Iterable
 from functools import cache
 from importlib import resources
 from typing import Any, Literal
 
+from ipu_isa.codec.word import word_bytes
 from ipu_isa.registers import REGISTER_DEFINITIONS
 from ipu_isa.view import isa
 
-__all__ = ["SCHEMA_VERSION", "isa_digest", "load_schema", "schema_version"]
+__all__ = ["SCHEMA_VERSION", "isa_digest", "load_schema", "program_digest", "schema_version"]
 
 SchemaName = Literal["commit_record", "trace"]
 
@@ -40,6 +42,17 @@ def schema_version(name: SchemaName) -> str:
 
 #: The commit record schema's version, written in every trace header.
 SCHEMA_VERSION = schema_version("commit_record")
+
+
+def program_digest(words: Iterable[int]) -> str:
+    """SHA-256 of a program's emulator words, each little-endian in
+    ``word_bytes()`` bytes: what any reader of the program file can recompute
+    (``trace.v1.json``'s ``program_digest``)."""
+    width = word_bytes()
+    digest = hashlib.sha256()
+    for word in words:
+        digest.update(word.to_bytes(width, "little"))
+    return digest.hexdigest()
 
 
 @cache

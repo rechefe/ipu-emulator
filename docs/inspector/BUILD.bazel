@@ -103,6 +103,22 @@ py_pytest_test(
     ],
 )
 
+# The page's VIEWER_SCHEMA and KERNELS_SCHEMA are the versions the build writes.
+py_pytest_test(
+    name = "test_viewer_versions",
+    srcs = [
+        "kernel_list.py",
+        "test_viewer_versions.py",
+    ],
+    data = ["//docs:doc_sources"],
+    imports = ["."],
+    deps = [
+        "//src/tools/ipu-gen:ipu_gen_lib",
+        requirement("pytest"),
+        requirement("tomli"),
+    ],
+)
+
 # Replaying a recorded trace's init and deltas gives the run's final registers.
 py_pytest_test(
     name = "test_inspector_replay",

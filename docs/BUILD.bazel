@@ -80,6 +80,15 @@ py_binary(
     ],
 )
 
+_CLI_REFERENCE_DEPS = [
+    "//src/tools/ipu-apps:ipu_apps_lib",
+    "//src/tools/ipu-as-py:ipu_as_lib",
+    "//src/tools/ipu-debug:ipu_debug_lib",
+    "//src/tools/ipu-emu-py:ipu_emu_lib",
+    "//src/tools/ipu-harness:ipu_harness_lib",
+    requirement("click"),
+]
+
 _REFERENCE_API_FILES = [
     "version.md",
     "api.md",
@@ -116,6 +125,48 @@ py_pytest_test(
         "//src/tools/ipu-isa:ipu_isa_lib",
         requirement("pytest"),
     ],
+)
+
+# The Command-line tools page (content/reference/cli.md) includes these snippets
+# through pymdownx.snippets: each tool's options, read from its own parser.
+#   bazel run //docs:cli_reference_page -- "$PWD/out"
+py_binary(
+    name = "cli_reference_page",
+    srcs = ["cli_reference_page.py"],
+    main = "cli_reference_page.py",
+    python_version = "PY3",
+    deps = _CLI_REFERENCE_DEPS,
+)
+
+_CLI_REFERENCE_FILES = [
+    "ipu-as.md",
+    "kernel-targets.md",
+    "case-options.md",
+    "run-summary.md",
+    "run-kernel.md",
+    "trace-case.md",
+    "query.md",
+    "debugger-keys.md",
+]
+
+genrule(
+    name = "generate_cli_reference_md",
+    outs = ["generated/cli/" + f for f in _CLI_REFERENCE_FILES],
+    cmd = "$(location :cli_reference_page) $(RULEDIR)/generated/cli > /dev/null",
+    tools = [":cli_reference_page"],
+)
+
+# The generator's promise (an option added to a parser shows up on the page),
+# and that the page includes every snippet and runs each tool's example.
+py_pytest_test(
+    name = "test_cli_reference_page",
+    size = "small",
+    srcs = [
+        "cli_reference_page.py",
+        "test_cli_reference_page.py",
+    ],
+    data = ["content/reference/cli.md"],
+    deps = _CLI_REFERENCE_DEPS + [requirement("pytest")],
 )
 
 genrule(
@@ -171,6 +222,7 @@ genrule(
         ":generate_element_format_tables",
         ":generate_timing_contract_table",
         ":generate_reference_api_md",
+        ":generate_cli_reference_md",
         "//docs/inspector:inspector_data",
         "//:GLOSSARY.md",
         "examples/test_add_an_instruction.py",
@@ -373,7 +425,9 @@ py_pytest_test(
     data = _DOC_TEST_DATA,
     deps = [
         ":doc_blocks",
+        "//src/tools/ipu-apps:ipu_apps_lib",
         "//src/tools/ipu-as-py:ipu_as_lib",
+        "//src/tools/ipu-harness:ipu_harness_lib",
         requirement("pytest"),
     ],
 )

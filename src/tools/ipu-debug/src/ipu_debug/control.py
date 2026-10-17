@@ -4,13 +4,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from ipu_debug.errors import DebugError
 from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
 from ipu_emu.run_control import RunControl
 
 
 def validate_pc(pc: int) -> int:
+    """*pc*, when it names an instruction memory word.
+
+    Raises:
+        DebugError: *pc* is outside instruction memory.
+    """
     if not 0 <= pc < INST_MEM_SIZE:
-        raise ValueError(f"PC must be between 0 and {INST_MEM_SIZE - 1}")
+        raise DebugError(f"PC must be between 0 and {INST_MEM_SIZE - 1}")
     return pc
 
 

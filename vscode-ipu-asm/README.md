@@ -345,7 +345,7 @@ validity is not a lexical property — whether a comma is legal depends on the
 parser's state, not on the characters. `BEQ lr0, cr0, +1;;` would be coloured
 perfectly normally.
 
-So `extension.js` runs the real assembler and turns its errors into squiggles,
+So `checking.js` runs the real assembler and turns its errors into squiggles,
 covering all three stages:
 
 | | Example | Reported at |

@@ -105,6 +105,8 @@ class IpuApp:
         ea = elu_alpha if elu_alpha is not None else getattr(self, "elu_alpha", None)
         wa = window_a if window_a is not None else getattr(self, "window_a", None)
         wb = window_b if window_b is not None else getattr(self, "window_b", None)
+        # TODO(E07-25): this legacy reader goes with kernel_registry; ipu_harness.cli
+        # is the reader for kernels on the harness (E06-12).
         debug_launch = os.environ.get("IPU_DEBUG_TUI") == "1"
         debug_control = None
         if debug_launch:

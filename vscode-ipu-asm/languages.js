@@ -10,7 +10,7 @@ const path = require('path');
 const vscode = require('vscode');
 
 const { CheckoutLanguageSource, SETTINGS, select } = require('./language-source');
-const { setting, timeoutSeconds } = require('./kernels');
+const { setting, timeoutSeconds } = require('./settings');
 const trust = require('./trust');
 
 class Languages {

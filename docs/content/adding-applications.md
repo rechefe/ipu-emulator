@@ -322,8 +322,10 @@ Bazel declaration; individual kernels need no executable Python entry point.
 
 Run `bazel run //src/tools/ipu-apps:identity -- --list-cases` for an executable
 example. `--case` selects an input case, and case options such as `--rows`
-override its defaults. `bazel test //src/tools/ipu-apps:identity` exercises
-the same harness factory and cases. See the ipu-apps README for the declaration
+override its defaults; [Command-line tools](reference/cli.md#kernel-runner-kernel-targets)
+lists the shared options and every kernel's case options.
+`bazel test //src/tools/ipu-apps:identity` exercises the same harness factory
+and cases. See the ipu-apps README for the declaration
 and case interfaces. Shape-based `resolve()` remains available independently.
 
 Runtime checks must raise descriptive exceptions, including numerical error and

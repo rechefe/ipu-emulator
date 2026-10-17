@@ -31,8 +31,8 @@ DISASSEMBLY_NON_CONTENT_ROWS = 4
 DISASSEMBLY_FORMATS = ("compact", "full", "stages")
 TITLE = "2 Instructions"
 EMPTY_DISASSEMBLY_OPERATIONS = ("<nop>", "<NOP>", "NOP")
-# Parallel slots are stacked under their instruction and marked the way VLIW
-# assembly listings mark them, rather than run out across the pane.
+# The slots of one instruction word are stacked under it and marked the way
+# parallel-issue assembly listings mark them, rather than run out across the pane.
 DISASSEMBLY_PARALLEL_MARKER = "||"
 DISASSEMBLY_PREFIX_WIDTH = len("> 0000  ")
 # From this row width on, mnemonics share a column and a slot column shows

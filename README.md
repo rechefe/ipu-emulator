@@ -19,19 +19,17 @@ Python Packages
 Quick Start
 -----------
 
-1. Install [Bazelisk](https://github.com/bazelbuild/bazelisk) as `bazel`; see
-   [Setup](docs/content/setup.md) for details.
-2. Run the test suite:
+On Linux, from a fresh clone:
 
-   ```bash
-   bazel test //...
-   ```
+```bash
+./tools/bootstrap.sh                               # install the pinned bazelisk as `bazel`
+bazel test //...                                   # run the default test tier
+bazel run //src/tools/ipu-apps:proj_qkv_144_p4     # run one FP32 kernel case end to end
+```
 
-3. Run one kernel end to end (assemble, load inputs, emulate, check outputs):
-
-   ```bash
-   bazel run //src/tools/ipu-apps:identity
-   ```
+[Getting started](docs/content/getting-started/index.md) explains each step,
+what the kernel run prints, and the other environments (WSL2, macOS, Docker,
+the dev container).
 
 The full documentation is at <https://rechefe.github.io/ipu-emulator/>: `dev/` follows master, and each release `vX.Y` has its own version (`latest` is the newest).
 
