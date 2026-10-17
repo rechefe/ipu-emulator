@@ -320,9 +320,13 @@ py_pytest_test(
 
 py_binary(
     name = "update_asm_digests",
+    testonly = True,
     srcs = ["test/baselines/update_asm_digests.py"],
     main = "test/baselines/update_asm_digests.py",
-    deps = [":asm_corpus"],
+    deps = [
+        ":asm_corpus",
+        "//tools:baseline_support",
+    ],
 )
 
 # Disassembly snapshots (E02-02): one text file per corpus entry in
@@ -339,14 +343,22 @@ py_pytest_test(
     name = "test_disassembly_snapshots",
     srcs = ["test/test_disassembly_snapshots.py"],
     data = _ASM_CORPUS + glob(["test/baselines/disassembly/**/*.txt"]),
-    deps = [":disassembly_snapshots", requirement("pytest")],
+    deps = [
+        ":disassembly_snapshots",
+        "//tools:baseline_support",
+        requirement("pytest"),
+    ],
 )
 
 py_binary(
     name = "update_disassembly_snapshots",
+    testonly = True,
     srcs = ["test/baselines/update_disassembly_snapshots.py"],
     main = "test/baselines/update_disassembly_snapshots.py",
-    deps = [":disassembly_snapshots"],
+    deps = [
+        ":disassembly_snapshots",
+        "//tools:baseline_support",
+    ],
 )
 
 # Kernel case baselines (E02-07): `bazel run :update_kernel_baselines --
@@ -354,6 +366,7 @@ py_binary(
 # baseline.json files.
 py_binary(
     name = "update_kernel_baselines",
+    testonly = True,
     srcs = ["test/baselines/update_kernel_baselines.py"],
     main = "test/baselines/update_kernel_baselines.py",
     data = glob([
@@ -364,7 +377,11 @@ py_binary(
     ], allow_empty = True),
     # As for the kernel tests: pytest must import test.py as ipu_apps.kernels.…
     legacy_create_init = False,
-    deps = [":ipu_apps_lib", requirement("pytest")],
+    deps = [
+        ":ipu_apps_lib",
+        "//tools:baseline_support",
+        requirement("pytest"),
+    ],
 )
 
 py_pytest_test(

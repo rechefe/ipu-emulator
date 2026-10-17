@@ -10,11 +10,10 @@ kernel's results on purpose, and say why in the PR (Code conventions, "Baselines
 
 from __future__ import annotations
 
-import os
 import sys
 from importlib.resources import files
-from pathlib import Path
 
+import baseline_support
 import pytest
 
 from ipu_apps.kernel_registry import baseline
@@ -23,9 +22,8 @@ from ipu_apps.kernel_registry.testing import UpdateBaselines
 
 
 def main(argv: list[str]) -> int:
-    workspace = os.environ.get("BUILD_WORKSPACE_DIRECTORY")
-    if not workspace:
-        print(f"Run this through Bazel: {baseline.UPDATE_COMMAND}", file=sys.stderr)
+    root = baseline_support.workspace(baseline.UPDATE_COMMAND)
+    if root is None:
         return 2
     names = argv or sorted(spec.name for spec in kernels())
     failed = []
@@ -33,7 +31,7 @@ def main(argv: list[str]) -> int:
         test_file = files(kernel_spec(name).resource_package).joinpath("test.py")
         print(f"== {name}", flush=True)
         args = [str(test_file), "-q", "-p", "no:cacheprovider", "-k", "test_case"]
-        status = pytest.main(args, plugins=[UpdateBaselines(Path(workspace))])
+        status = pytest.main(args, plugins=[UpdateBaselines(root)])
         if status != 0:
             failed.append(name)
     if failed:

@@ -8,19 +8,17 @@ the PR; a refactor must leave the manifest untouched (Code conventions, "Baselin
 
 from __future__ import annotations
 
-import os
 import sys
-from pathlib import Path
 
 import asm_corpus
+import baseline_support
 
 
 def main() -> int:
-    workspace = os.environ.get("BUILD_WORKSPACE_DIRECTORY")
-    if not workspace:
-        print(f"Run this through Bazel: {asm_corpus.UPDATE_COMMAND}", file=sys.stderr)
+    root = baseline_support.workspace(asm_corpus.UPDATE_COMMAND)
+    if root is None:
         return 2
-    root = Path(workspace)
+    root = root
     manifest = asm_corpus.compute_manifest(root)
     asm_corpus.write_manifest(root, manifest)
     print(f"Wrote {len(manifest)} entries to {asm_corpus.MANIFEST_PATH}")

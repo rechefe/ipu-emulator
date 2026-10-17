@@ -8,19 +8,17 @@ descriptors on purpose, and say why in the PR (Code conventions, "Baselines").
 
 from __future__ import annotations
 
-import os
 import sys
-from pathlib import Path
 
+import baseline_support
 import decode_snapshots
 
 
 def main() -> int:
-    workspace = os.environ.get("BUILD_WORKSPACE_DIRECTORY")
-    if not workspace:
-        print(f"Run this through Bazel: {decode_snapshots.UPDATE_COMMAND}", file=sys.stderr)
+    root = baseline_support.workspace(decode_snapshots.UPDATE_COMMAND)
+    if root is None:
         return 2
-    decode_snapshots.write_all(Path(workspace))
+    decode_snapshots.write_all(root)
     print(f"Wrote {', '.join(decode_snapshots.SNAPSHOTS)} in {decode_snapshots.SNAPSHOT_DIR}")
     return 0
 

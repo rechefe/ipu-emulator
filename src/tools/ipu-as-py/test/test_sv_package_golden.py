@@ -11,10 +11,10 @@ the change out in the PR as breaking (CLAUDE.md, "Generated SystemVerilog Packag
 
 from __future__ import annotations
 
-import difflib
 import re
 from pathlib import Path
 
+import baseline_support
 import update_sv_golden
 
 GOLDEN = Path.cwd() / update_sv_golden.GOLDEN_PATH
@@ -62,17 +62,12 @@ def localparam_changes(expected: dict[str, int], actual: dict[str, int]) -> list
 def test_package_text_matches_golden():
     expected = GOLDEN.read_text(encoding="utf-8")
     actual = update_sv_golden.render()
-    diff = "".join(
-        difflib.unified_diff(
-            expected.splitlines(keepends=True),
-            actual.splitlines(keepends=True),
-            "ipu_instr_pkg.sv (golden)",
-            "ipu_instr_pkg.sv (current code)",
-        )
-    )
-    assert not diff, (
-        "The generated SV package changed. If intended, run "
-        f"{update_sv_golden.UPDATE_COMMAND}\n{diff}"
+    baseline_support.fail_if_changed(
+        expected,
+        actual,
+        name="ipu_instr_pkg.sv",
+        what="The generated SV package",
+        update_command=update_sv_golden.UPDATE_COMMAND,
     )
 
 

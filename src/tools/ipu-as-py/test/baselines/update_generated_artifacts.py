@@ -8,19 +8,17 @@ in the PR (Code conventions, "Baselines").
 
 from __future__ import annotations
 
-import os
 import sys
-from pathlib import Path
 
+import baseline_support
 import generated_artifacts
 
 
 def main() -> int:
-    workspace = os.environ.get("BUILD_WORKSPACE_DIRECTORY")
-    if not workspace:
-        print(f"Run this through Bazel: {generated_artifacts.UPDATE_COMMAND}", file=sys.stderr)
+    root = baseline_support.workspace(generated_artifacts.UPDATE_COMMAND)
+    if root is None:
         return 2
-    count = generated_artifacts.write_all(Path(workspace))
+    count = generated_artifacts.write_all(root)
     print(f"Wrote {count} artifacts to {generated_artifacts.SNAPSHOT_DIR}")
     return 0
 
