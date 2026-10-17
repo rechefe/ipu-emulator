@@ -261,7 +261,8 @@ def pack(tensor: TensorDecl, a: Array, plan: CasePlan, *, package: str = "ipu_ke
 
     Raises:
         PlanError: ``a``'s shape is not the planned one (oversize included), or
-            the transform is unknown or cannot lay it out.
+            the transform is unknown, cannot lay it out, or lays out another
+            number of rows than its ``rows`` gives (located at ``pack``).
     """
     shape = plan.shapes[tensor.name]
     if a.shape != shape:
@@ -271,8 +272,27 @@ def pack(tensor: TensorDecl, a: Array, plan: CasePlan, *, package: str = "ipu_ke
             f"{tensor.name} has shape {a.shape}; the case's is {shape}",
         )
     values = np.asarray(a, dtype=np.float64)
-    rows = _laid_out(tensor, plan, package, lambda t: t.to_rows(values, plan))
+    rows = _laid_out(tensor, plan, package, lambda t: _to_rows(t, values, plan))
     return encode(rows, stored_format(tensor, plan.format))
+
+
+def _to_rows(transform: PackTransform, a: Array, plan: CasePlan) -> Array:
+    """``transform.to_rows(a, plan)``, which must fill exactly the rows its
+    ``rows`` gives: placement sized the region by those, so a transform that
+    lays out more (one thinking in an element size other than the format's)
+    would write over the next region.
+
+    Raises:
+        ValueError: It laid out another number of elements.
+    """
+    want = _rows(transform, a.shape, plan)
+    rows = np.asarray(transform.to_rows(a, plan))
+    if rows.size != want * LANES:
+        raise ValueError(
+            f"the transform laid out {rows.size} elements ({rows.size / LANES:g} rows of "
+            f"{LANES}), but its rows() gives {want} rows ({want * LANES} elements)"
+        )
+    return rows
 
 
 def unpack(
