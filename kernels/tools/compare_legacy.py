@@ -18,7 +18,9 @@ kernel of the same name under the checkout's ``kernels/<FAMILY>/``:
 A multi-stage kernel (``[kernel] stages``, E06-14) is compared the same way:
 its programs are the distinct programs its stages assembled, in order, held
 to the old harness's distinct programs, and the E02 digest must be one of
-them; its cycles are its stages' sum.
+them; its cycles are its stages' sum. Distinct programs do not show the order
+the stages ran them in (A, B, A against A, A, B): only the output check
+catches a reordering.
 
 Every case of the old kernel's E02 baseline runs, in FP32, and the new case
 of the same name (or ``--case-map OLD=NEW``) runs on the same input values:
@@ -160,6 +162,7 @@ def _new_run(
 
 
 def _distinct(programs: Sequence[bytes]) -> list[bytes]:
+    """``programs`` without repeats, in first-run order (as ``AssemblyCache.programs``)."""
     return list(dict.fromkeys(programs))
 
 
@@ -192,7 +195,10 @@ def compare_kernel(
         kernel_notes.append("the old program has no E02 asm digest")
     elif digests is not None and not e02_ok:
         shown = ", ".join(sorted(d[:12] for d in digests))
-        kernel_notes.append(f"assemble_{name} digest {shown} is not the E02 {e02[:12]}")
+        if manifest.stages is None:
+            kernel_notes.append(f"assemble_{name} digest {shown} is not the E02 {e02[:12]}")
+        else:
+            kernel_notes.append(f"no stage program's digest ({shown}) is the E02 {e02[:12]}")
     kernel = _Kernel(name, manifest, case_map or {}, cache, e02_ok, tuple(kernel_notes))
     return [_compare_case(kernel, case_id) for case_id in legacy_case_ids(name)]
 
