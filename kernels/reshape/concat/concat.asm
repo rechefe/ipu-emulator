@@ -72,7 +72,7 @@
     ST.AAQ reads its offset operand LIVE -- never co-issue an ADD on
     the store's offset LR in the same instruction word as the store, or the row
     lands one slot late (same hazard documented in fold_16x16x192.asm and
-    kernels/elementwise/residual_add_rows/residual_add_rows.asm).
+    the elementwise family's residual_add_rows.asm).
 
     CR0 and CR1 are BOTH read-only hardwired constants (0 and 1 respectively;
     a host write raises, CR_READ_ONLY_INITIAL_VALUES); every base and count
