@@ -5,6 +5,10 @@ from __future__ import annotations
 from ipu_emu.alias_profile import AliasDefinition, DetectorRegistry, Match
 from ipu_emu.isa_alias_spec import ISA_ALIAS_SPEC
 from ipu_isa.activations import ACTIVATION_EXP2, ACTIVATION_IDENTITY
+from ipu_isa.geometry import LANES, R_CYCLIC_ELEMENTS
+
+#: A MULT mask with every lane on.
+_ALL_LANES = (1 << LANES) - 1
 
 
 def transfer(load):
@@ -72,12 +76,12 @@ class AccMultiply:
             kw = mult.facts["operands"]
             enc = mult.facts["encoded"]
             full_vector = (
-                source.facts.get("bank") == "ring" and "rc_idx" in kw and kw["rc_idx"] % 128 == 0
+                source.facts.get("bank") == "ring" and "rc_idx" in kw and kw["rc_idx"] % LANES == 0
             ) or (
                 source.facts.get("bank") == "ra"
                 and (
                     ("ra" in enc and enc["ra"] == source.facts["bank_index"])
-                    or (mult.instruction == "MULT.VE" and kw["ra_idx"] % 128 == 0)
+                    or (mult.instruction == "MULT.VE" and kw["ra_idx"] % LANES == 0)
                 )
             )
             if evidence and full_vector:
@@ -166,8 +170,8 @@ class Lanes:
                 (event,),
                 subtype=f"lanes_{f['active_lanes']}",
                 metrics={
-                    "declared_lane_capacity": f["declared_width"] or 128,
-                    "masked_physical_lanes": 128 - f["mask"].bit_count(),
+                    "declared_lane_capacity": f["declared_width"] or LANES,
+                    "masked_physical_lanes": LANES - f["mask"].bit_count(),
                     "undeclared_width_uses": int(f["declared_width"] == 0),
                 },
             )
@@ -228,28 +232,28 @@ class Segmented:
         if not moves:
             return
         width = mult.facts["active_lanes"]
-        raw_start = mult.facts["operands"].get("rc_idx", 0) % 512
-        moves.sort(key=lambda item: item[0].facts["bank_index"] != raw_start // 128)
+        raw_start = mult.facts["operands"].get("rc_idx", 0) % R_CYCLIC_ELEMENTS
+        moves.sort(key=lambda item: item[0].facts["bank_index"] != raw_start // LANES)
         source, evidence = moves[0]
-        if source.facts["bank_index"] != raw_start // 128:
+        if source.facts["bank_index"] != raw_start // LANES:
             self.parts, self.windows, self.rotation = [], set(), []
             return
         if self.parts and self.parts[-1].instruction.removesuffix(
             ".FIRST"
         ) != event.instruction.removesuffix(".FIRST"):
             self.parts, self.windows = [], set()
-        start = raw_start % 128
+        start = raw_start % LANES
         origin = evidence[-2].id if len(evidence) > 1 else source.id
         if self.origin is not None and self.origin != origin:
             self.parts, self.windows = [], set()
             self.rotation = []
         self.origin = origin
-        if width == 128 and mult.facts["mask"] == (1 << 128) - 1:
+        if width == LANES and mult.facts["mask"] == _ALL_LANES:
             if not mult.facts.get("identity") or len(evidence) == 1:
                 self.rotation = []
                 return
-            raw_start = mult.facts["operands"].get("rc_idx", 0) % 512
-            needed = {(raw_start + i) % 512 // 128 for i in range(128)}
+            raw_start = mult.facts["operands"].get("rc_idx", 0) % R_CYCLIC_ELEMENTS
+            needed = {(raw_start + i) % R_CYCLIC_ELEMENTS // LANES for i in range(LANES)}
             proven = {
                 s.facts["bank_index"] for s, path in moves if len(path) > 1 and path[1].id == origin
             }
@@ -262,13 +266,13 @@ class Segmented:
                 return
             if self.rotation:
                 step = start if len(self.rotation) == 1 else self.rotation[1][0]
-                if not step or 128 % step or start != len(self.rotation) * step:
+                if not step or LANES % step or start != len(self.rotation) * step:
                     self.rotation = []
                     return
             self.rotation.append(
                 (start, tuple(e for _, path in moves for e in path) + (mult, event))
             )
-            if len(self.rotation) > 1 and len(self.rotation) * self.rotation[1][0] == 128:
+            if len(self.rotation) > 1 and len(self.rotation) * self.rotation[1][0] == LANES:
                 yield Match(
                     "A7_REDUCE_SEG",
                     tuple(e for _, path in self.rotation for e in path),
@@ -278,7 +282,7 @@ class Segmented:
                 )
                 self.rotation = []
             return
-        if not width or width == 128 or 128 % width or start % width:
+        if not width or width == LANES or LANES % width or start % width:
             if event.instruction == "ACC.ADD":
                 yield Match(
                     "A7_REDUCE_SEG",
@@ -287,14 +291,14 @@ class Segmented:
                     reason="Accumulator round trip followed by a fold; disjoint partition geometry unproven",
                 )
             return
-        lanes = {(start + i) % 128 for i in range(width)}
+        lanes = {(start + i) % LANES for i in range(width)}
         # Require an unshifted contiguous output mask, not merely the same popcount.
-        if mult.facts["mask"] & ((1 << 128) - 1) != (1 << width) - 1 or lanes & self.windows:
+        if mult.facts["mask"] & _ALL_LANES != (1 << width) - 1 or lanes & self.windows:
             self.parts, self.windows = [], set()
             return
         self.windows |= lanes
         self.parts.extend((mult, event))
-        if len(self.windows) == 128 and len(self.parts) > 2:
+        if len(self.windows) == LANES and len(self.parts) > 2:
             yield Match(
                 "A7_REDUCE_SEG",
                 (*evidence, *self.parts),

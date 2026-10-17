@@ -45,6 +45,7 @@ from ipu_isa.constants import (
     LR_CR_SCALAR_VALUE_MASK,
     REGISTER_WORD_VALUE_MASK,
 )
+from ipu_isa.geometry import LANES
 
 # -- input validation ------------------------------------------------------
 # Real exceptions, not ``assert``: these checks must hold under ``python -O``.
@@ -596,7 +597,7 @@ def _add_cyclic_accessors(methods: dict, name: str, total_size: int) -> None:
 
     def _make_get(n: str = name, default_sz: int = total_size):
         def get_at(
-            self, start_idx: int, length: int = 128, wrap_size: int | None = None
+            self, start_idx: int, length: int = LANES, wrap_size: int | None = None
         ) -> bytearray:
             buf = self._storage[n]
             sz = default_sz if wrap_size is None else wrap_size

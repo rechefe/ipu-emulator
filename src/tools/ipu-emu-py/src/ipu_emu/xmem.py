@@ -16,7 +16,7 @@ import weakref
 from collections.abc import Callable, Iterator
 
 from ipu_emu.errors import XMemBoundsError
-from ipu_isa.geometry import XMEM_BYTES
+from ipu_isa.geometry import LANES, XMEM_BYTES
 
 #: ``fn(kind, address, size, data)`` with *kind* one of ``"read"``,
 #: ``"write"`` or ``"clear"``. The event covers exactly the bytes
@@ -25,7 +25,7 @@ from ipu_isa.geometry import XMEM_BYTES
 MemoryObserver = Callable[[str, int, int, "bytes | bytearray | None"], None]
 
 XMEM_SIZE_BYTES = XMEM_BYTES  # 512 MiB; full-resolution FP32 descriptors fit
-XMEM_WIDTH_BYTES = 128  # one "word" = 128 bytes
+XMEM_WIDTH_BYTES = LANES  # one "word": a row of LANES one-byte elements
 XMEM_DEPTH_WORDS = XMEM_SIZE_BYTES // XMEM_WIDTH_BYTES
 
 # Storage granule. A multiple of the widest row (512 bytes in wide-vector

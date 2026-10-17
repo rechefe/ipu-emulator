@@ -596,3 +596,15 @@ py_pytest_test(
         requirement("pytest"),
     ],
 )
+
+# E03-12: no ipu_emu module copies the lane count or R_CYCLIC's size.
+py_pytest_test(
+    name = "test_isa_constants_not_copied",
+    size = "small",
+    srcs = ["test/test_isa_constants_not_copied.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
+)
