@@ -2200,7 +2200,7 @@ ACC.STRIDE 16 off off LR0;;
 
 **Tag:** `HARDWARE` (implemented by the IPU)
 
-**Reads:** at cycle start `LR` via `dest_slot`, `CR` via `cr_idx`; forwarded `MULT_RES`.
+**Reads:** at cycle start `CR` via `cr_idx`; forwarded `LR` via `dest_slot`, `MULT_RES`.
 
 **Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -2228,7 +2228,7 @@ AGG.SUM.FIRST LR0 CR3;;
 
 **Tag:** `HARDWARE` (implemented by the IPU)
 
-**Reads:** at cycle start `LR` via `dest_slot`, `CR` via `cr_idx`, `R_ACC`; forwarded `MULT_RES`.
+**Reads:** at cycle start `CR` via `cr_idx`, `R_ACC`; forwarded `LR` via `dest_slot`, `MULT_RES`.
 
 **Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -2256,7 +2256,7 @@ AGG.SUM LR0 CR3;;
 
 **Tag:** `HARDWARE` (implemented by the IPU)
 
-**Reads:** at cycle start `LR` via `dest_slot`, `CR` via `cr_idx`; forwarded `MULT_RES`.
+**Reads:** at cycle start `CR` via `cr_idx`; forwarded `LR` via `dest_slot`, `MULT_RES`.
 
 **Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -2284,7 +2284,7 @@ AGG.MAX.FIRST LR0 CR3;;
 
 **Tag:** `HARDWARE` (implemented by the IPU)
 
-**Reads:** at cycle start `LR` via `dest_slot`, `CR` via `cr_idx`, `R_ACC`; forwarded `MULT_RES`.
+**Reads:** at cycle start `CR` via `cr_idx`, `R_ACC`; forwarded `LR` via `dest_slot`, `MULT_RES`.
 
 **Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -2312,7 +2312,7 @@ AGG.MAX LR0 CR3;;
 
 **Tag:** `HARDWARE` (implemented by the IPU)
 
-**Reads:** at cycle start `LR` via `source`, `LR` via `dest`, `MULT_RES`; forwarded `LR` via `reshape_mask`.
+**Reads:** at cycle start `MULT_RES`; forwarded `LR` via `source`, `LR` via `dest`, `LR` via `reshape_mask`.
 
 **Faults:** F-5 ([fault list](../../requirements/faults.md#fault-list)).
 
