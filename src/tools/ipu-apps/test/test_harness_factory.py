@@ -460,8 +460,6 @@ def test_every_assembly_has_a_registered_case():
 @pytest.mark.parametrize(
     "name,params",
     [
-        ("maxpool2d_window", dict(shape=(1, 2, 2), kernel_size=2, stride=1, padding=1)),
-        ("maxpool2d_nms7", dict(shape=(1, 2, 2), kernel_size=9, stride=1, padding=4)),
         ("depth_to_space", dict(shape=(256, 2, 2), upscale_factor=16)),
         ("depth_to_space", dict(shape=(3, 2, 2), upscale_factor=2)),
         (

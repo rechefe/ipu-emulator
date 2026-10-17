@@ -319,6 +319,8 @@ Rows are added by each E07 issue as it deletes the old ipu-apps kernels.
 | `src/tools/ipu-apps/src/ipu_apps/kernels/reshape/app.py` | E07-05 | The family's unfold/fold query vocabulary and `SPEC` helpers (`unfold_query`, `unfold_spec`, `positive_dims`); every kernel that used them moved. | The kernels' `[params]` (`h`, `w`, `c`, one choice each) and `kernels/reshape/test_routing.py`. | No user left: `git grep "kernels.reshape.app"` finds nothing. |
 | `src/tools/ipu-apps/src/ipu_apps/kernels/reshape/cases.py` | E07-05 | The family's shared cases (`spatial_tensor`, `stripe_input`, `stream_rows`, `unfold_cases`, `fold_cases`, the checks). | `kernels/reshape/gen.py` (`spatial`, `phases`: the same seeds and values), the pack transforms in `kernels/reshape/pack.py`, and `ops.unfold`/`ops.fold` as the references. | compare_setup/compare_legacy above: the new cases' inputs are byte-identical to the old ones in XMEM. |
 | `src/tools/ipu-apps/src/ipu_apps/kernels/reshape/test.py` | E07-05 | The family test (fold inverts unfold, plain and with R_ACC poisoned; shared shapes). | `kernels/reshape/test_fold_unfold.py` (`//kernels/reshape:test_fold_unfold`), on `ipu_harness.chain`. | Tests mapped below. |
+| `src/tools/ipu-apps/src/ipu_apps/kernels/pooling/` | E07-14 | The 5 pooling kernels moved onto `ipu_harness` as declared-tensor kernels: per-kernel folders (`app.py`, `cases.py`, `test.py`, `__init__.py`, `baseline.json`, the `.asm`; `benchmark.py` and `results.md` for the two stride-2 kernels) and the family's `app.py` (`WindowPoolApp`, `Stride2PoolApp`, `stride2_spec`), `cases.py` (the image builders) and `test.py`. | `kernels/pooling/`: folder kernels `maxpool2d_window`, `maxpool2d_stride2` and `maxpool2d_stride2_tail`, and the `registry.toml` entries `maxpool2d_nms7` and `maxpool2d_nms9` over the template `maxpool2d_nms` (the two programs differed only in K); the family's `pack.py` (`halo_tiled`, `tiled`: the old image layout), `gen.py` (the old data) and `test_routing.py`; shared reference `ops.maxpool2d` (`src/tools/ipu-kernels/src/ipu_kernels/reference/ops/maxpool2d.py`), EXACT; `[benchmark]` tables for the old `CONFIGS` (same cycles and utilization as `results.md`). Targets keep their names: `//kernels/pooling/<kernel>`, `//kernels/pooling:maxpool2d_nms7`/`nms9`. | `compare_setup`: IDENTICAL for all 17 cases (CR0-CR15, LR0-LR15, XMEM). `compare_legacy pooling`: 17/17 cases identical in binary, output and cycles (for example `maxpool2d_window` large_window 33040/33040, `maxpool2d_nms9` tile_boundary 1060/1060). Each `:assemble_<name>.bin` equals its E02 digest: nms7 `09c72540`, nms9 `eab5191e`, stride2 `22500275`, stride2_tail `288d8366`, window `f6a83d7f`. |
+| `src/tools/ipu-apps/test/baselines/disassembly/kernels/pooling/` | E07-14 | The disassembly snapshots of the 5 deleted programs (`tools/update_baselines.sh`: deletions only, with their `asm_digests.json` and format-golden entries). | The `:assemble_<name>` targets under `//kernels/pooling` (the same binaries, E02 digests above). | `tools/update_baselines.sh` after the folders went changed only these deletions. |
 
 Kept until a later issue (the old folder stays frozen, logged here when it goes):
 
@@ -478,3 +480,17 @@ The file stays. Its registry-mechanics tests that used softmax as the example no
 | Test | Now covered by |
 |---|---|
 | `test_case` (`case_tests(__package__)`: every case in `cases.py`: `default`, `int8`, `e4`, `e5`, `e3`) | `bazel test //kernels/conformance/vector_tour` (`test_case[<case>-<format>]`, the same five cases on the old data, `gen.py:legacy_steps`), against `reference.py` at `EXACT`. |
+
+### Tests from `src/tools/ipu-apps/src/ipu_apps/kernels/pooling/<kernel>/test.py` (5 files)
+
+| `test_case` (`case_tests(__package__)`: every case in the folder's `cases.py`) | The kernel's generated tests, `bazel test //kernels/pooling/<kernel>` (or `//kernels/pooling:maxpool2d_nms7`/`nms9`): the same cases by name, the old data (`gen.py`, `default_rng(7)`) held EXACT to `ops.maxpool2d`. |
+
+### Tests from `src/tools/ipu-apps/src/ipu_apps/kernels/pooling/test.py`
+
+| `test_registry_resolve_and_run_across_tile_widths` | `kernels/pooling/test_routing.py::test_exactly_one_stride2_kernel_takes_each_width_and_runs_it` (the same 13 shapes: the routed kernel, CR5, CR12, the XMEM read count and the output held EXACT to the reference); the query tool in `test_the_query_tool_gives_the_same_answer`. |
+
+### Tests from `src/tools/ipu-apps/test/` that named pooling kernels (E07-14)
+
+| `test_harness_factory.py::test_memory_harness_rejects_unsupported_geometry[maxpool2d_window-...]`, `[maxpool2d_nms7-...]` | `kernels/pooling/test_routing.py::test_unsupported_geometry_is_refused` (an even window, a padding other than `kernel_size // 2`, and more); the parameters left the old test with the kernels. |
+| `test_kernel_registry.py::test_misplaced_harnesses_fail_with_a_reason` | Kept: its family base class `Stride2PoolApp` is gone, so it constructs `MemoryApp`, also a base class with no `SPEC`. |
+| `test_kernel_registry.py::test_debug_only_detection_reads_the_assembled_words` | Kept: its kernel without debug-only instructions is `identity` instead of `maxpool2d_stride2`. |
