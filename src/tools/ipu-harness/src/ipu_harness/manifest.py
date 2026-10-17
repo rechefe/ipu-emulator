@@ -123,7 +123,9 @@ names the closest valid one.
 
 A family ``registry.toml`` entry (E06-17, :mod:`ipu_harness.family`) loads its
 template with ``overrides``: ``name``, ``formats`` (a subset), ``params`` (fixed
-values: each becomes the parameter's only choice and its value in every case)
+values: each becomes the parameter's only choice and its value in every case;
+a default the template gives stays, so a query that leaves the parameter out
+means that default, else the fixed value stands in)
 and ``cases`` (the template cases the entry runs, ``default`` among them).
 """
 
@@ -1106,7 +1108,16 @@ def _fixed(
             fixed[pname] = _value(probe, params[pname], value, ("params", pname))
         except ManifestError as error:
             raise fail(str(error).split(": ", 1)[-1]) from None
-        params[pname] = replace(params[pname], choices=(fixed[pname],), default=fixed[pname])
+        # A default the template gives stays: a query that leaves the parameter
+        # out means it, and an entry fixing another value refuses that query, as
+        # the old exact-match supports did. Without one the fixed value stands
+        # in (a shape the query never names, such as a token count).
+        default = params[pname].default
+        params[pname] = replace(
+            params[pname],
+            choices=(fixed[pname],),
+            default=fixed[pname] if default is None else default,
+        )
     return fixed
 
 

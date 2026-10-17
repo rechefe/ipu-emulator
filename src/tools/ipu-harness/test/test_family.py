@@ -123,10 +123,31 @@ def test_resolve_routes_each_exact_query_to_its_entry(tmp_path):
         assert verdict.kernel_name == name, verdict.reason
         assert verdict.label == f"//kernels/projections:{name}"
     # A shape no entry fixes is refused, though the template's domain holds it.
-    # A fixed value is its parameter's default too; another value is refused.
-    assert registry.resolve("proj", k=192, n_out=384).kernel_name == "proj_ffn1_192"
+    # The template's default stays: leaving act out means act = "none", which the
+    # SiLU entry refuses (as the old exact-match supports did) and a "none" entry takes.
+    refused = registry.resolve("proj", k=192, n_out=384)
+    assert not refused and "act = 'none' is not one of ['silu']" in refused.reason
+    assert registry.resolve("proj", k=144, n_out=432).kernel_name == "proj_qkv_144"
     assert not registry.resolve("proj", k=192, n_out=384, act="none")
     assert not registry.resolve("proj", k=100, n_out=100)
+
+
+def test_a_query_leaving_out_what_entries_fix_differently_is_refused_for_it(tmp_path):
+    # n_out has no template default: each entry's fixed value stands in, so a
+    # query without it is accepted by both 192 entries; routing names what is missing.
+    registry_toml = REGISTRY.replace("k = 144, n_out = 432", "k = 192, n_out = 432")
+    family(tmp_path, registry_toml)
+    registry = Registry.load(tmp_path)
+    # act = "none" by the template's default: the SiLU entry refuses it.
+    verdict = registry.resolve("proj", k=192)
+    assert verdict.kernel_name == "proj_qkv_144"
+    toml = registry_toml.replace(
+        'params = { k = 192, n_out = 384, act = "silu" }', "params = { k = 192, n_out = 384 }"
+    )
+    (tmp_path / "projections" / "registry.toml").write_text(toml)
+    verdict = Registry.load(tmp_path).resolve("proj", k=192)
+    assert not verdict
+    assert "each fix n_out, which the query leaves out; give n_out" in verdict.reason
 
 
 def test_an_entry_chooses_its_template_cases(tmp_path):

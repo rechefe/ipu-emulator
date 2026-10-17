@@ -4,8 +4,8 @@ kernel tree's registry and ``//kernels:query``.
 Each entry is found by exactly its ``(k, n_out, activation)``: a query for an
 FFN1 shape with ``activation=none`` never reaches the kernel whose store fuses
 SiLU, and no identity kernel accepts a SiLU query. A query that leaves
-``activation`` out takes the entry's fixed value (E06-17: a fixed value is its
-parameter's default), so ``k=192 n_out=384`` names the FFN1 kernel.
+``activation`` out takes the template's default, ``none``: an identity kernel
+accepts it and an FFN1 kernel refuses it, as the ``ipu_apps`` router did.
 """
 
 from __future__ import annotations
@@ -94,3 +94,11 @@ def test_the_query_tool_gives_the_same_answer(registry, name, capsys):
     assert query.main(argv, registry) == 0
     answer = json.loads(capsys.readouterr().out)
     assert (answer["app"], answer["use"]) == (name, f"//kernels/projections:{name}")
+
+
+def test_a_query_without_activation_means_none(registry):
+    # The template's default, as the ipu_apps router read a missing activation.
+    refused = registry.resolve("projection", k=192, n_out=384)
+    assert not refused
+    assert "activation = 'none' is not one of ['silu']" in refused.reason
+    assert registry.resolve("projection", k=192, n_out=576).kernel_name == "proj_qkv_192_p4"

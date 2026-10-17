@@ -111,6 +111,7 @@ def test_a_registry_entry_fixes_parameters_and_narrows_formats(tmp_path):
         (ElementFormat.FP32, ElementFormat.E4),
     )
     assert dict(m.fixed) == {"rows": 8}
+    # rows has no template default: the fixed value stands in.
     assert (m.params["rows"].choices, m.params["rows"].default) == ((8,), 8)
     # The template's cases run with the entry's value.
     assert m.cases["default"].values["rows"] == 8 and m.cases["sweep"].values["rows"] == 8

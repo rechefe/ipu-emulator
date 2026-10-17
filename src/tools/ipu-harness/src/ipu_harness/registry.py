@@ -213,6 +213,13 @@ def _distinct(refusals: list[tuple[str, str]], candidates: int) -> list[str]:
     return lines
 
 
+def _left_out(tied: Sequence[KernelManifest], params: Mapping[str, object]) -> list[str]:
+    """The parameters the query leaves out that tied registry entries fix to
+    different values: what it must give to choose among them."""
+    names = sorted({n for m in tied for n in m.fixed} - set(params))
+    return [n for n in names if len({repr(m.fixed.get(n)) for m in tied}) > 1]
+
+
 def _declared_at(manifest: KernelManifest) -> str:
     """Where a kernel is declared, for a name clash."""
     if manifest.registry is not None:
@@ -388,7 +395,9 @@ class Registry:
             every refusal (an unknown parameter by name).
 
         Raises:
-            ConfigurationError: The cheapest accepting kernels tie.
+            ConfigurationError: The cheapest accepting kernels tie, and the
+                query gives every parameter they fix (a tie the query left
+                open by leaving one out is a refusal that names it).
             ExpressionError: A kernel's cost expression does not evaluate.
         """
         fmt = None if format is None else ElementFormat(format)
@@ -417,6 +426,14 @@ class Registry:
             return Verdict(False, f"no {op} kernel covers this query -- {detail}")
         accepted.sort(key=lambda item: item[0])
         if len(accepted) > 1 and accepted[0][0] == accepted[1][0]:
+            tied = [m for c, m, _ in accepted if c == accepted[0][0]]
+            missing = _left_out(tied, params)
+            if missing:
+                return Verdict(
+                    False,
+                    f"{', '.join(m.name for m in tied)} each fix {', '.join(missing)}, "
+                    f"which the query leaves out; give {' and '.join(missing)}",
+                )
             a, b = accepted[0][1].name, accepted[1][1].name
             raise ConfigurationError(
                 f"{a} and {b} both accept this {op} query at cost {accepted[0][0]:g}; "
