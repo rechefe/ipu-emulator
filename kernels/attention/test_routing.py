@@ -48,7 +48,9 @@ def test_attn_scores_km_takes_a_head_of_four(registry):
     assert registry.resolve("attn_scores_km", n_tok=16, d=60).params["head"] == 0
     refused = registry.resolve("attn_scores_km", n_tok=16, d=60, head=4)
     assert not refused and "head" in refused.reason
-    assert not registry.resolve("qk_scores", n_tok=16, d=60, head=0)  # qk scores every head
+    # qk_scores takes no head parameter, so a query naming one is refused (the
+    # old router ignored unknown names; the registry refuses them).
+    assert not registry.resolve("qk_scores", n_tok=16, d=60, head=0)
 
 
 def test_the_query_tool_gives_the_same_answer(registry, capsys):

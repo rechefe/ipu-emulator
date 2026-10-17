@@ -10,7 +10,7 @@ formats = ["fp32"]
 n_tok = { type = "int", choices = [64] }   # fixed: legacy routes on exact (n_tok, d)
 d = { type = "int", choices = [48] }   # fixed: legacy routes on exact (n_tok, d)
 p = { type = "int", choices = [4], default = 4 }   # geometry, not in the legacy query: a default keeps (n_tok, d) queries routable
-head = { type = "int", min = 0, max = 3, default = 0 }   # which head of the 4-head input files is scored (legacy ctor head=)
+head = { type = "int", min = 0, max = 3, default = 0 }   # generator only: which head of the 4 the case scores; a and b ARE that head
 n_heads = { type = "int", choices = [4], default = 4 }   # heads in the canonical file (generator only)
 seed = { type = "int", default = 0xD48 }   # legacy RandomState seed (0xD48); generator only
 
@@ -70,9 +70,8 @@ stream_index = "LR14"
 [golden]
 op = "matmul"                          # y = a @ b in the logical shapes above (batched over the leading dim)
 tolerance = { fp32 = "FP32_ORDER" }    # a short contraction (d terms); the old check: rtol=1e-4, atol=1e-3.
-# The datapath mirror acc_fold moves to ipu_kernels/reference/datapath.py and is checked at EXACT in
-# test_datapath.py (E06-09 rule: a math reference AND the mirror). No [golden] slot holds a second reference:
-# family-level test_*.py need their own py_test (ipu_kernel_family() declares none; ipu_kernel() runs folder ones).
+# The family's test_datapath.py also holds the scores bit for bit to the ACC datapath mirror
+# (ipu_kernels.reference.datapath.acc_fold): a math reference and the mirror (E06-09).
 
 [cases.default]
 n_tok = 64
@@ -88,7 +87,7 @@ n_tok = 64
 d = 48
 p = 4
 head = [0]
-seed = [3401]
+seed = [0xD49]
 generator = "../gen.py:legacy_km"
 
 [cases.sweep_02]
@@ -96,6 +95,6 @@ n_tok = 64
 d = 48
 p = 4
 head = [3]
-seed = [3401]
+seed = [0xD49]
 generator = "../gen.py:legacy_km"
 

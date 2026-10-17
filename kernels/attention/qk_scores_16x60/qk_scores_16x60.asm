@@ -26,7 +26,7 @@
       Q, K logically channel-major. K is loaded channel-major as given:
         K[s, c] at K_BASE + c*K_STRIDE rows (a full channel column, 16 keys,
         loaded as ONE chunk into R_CYCLIC).
-      Q is STAGED query-major by the harness (gather of the strided channels):
+      Q is query-major in a (the case supplies it so; gen.py transposes):
         QROW[i] = Q[i, 0..59] contiguous at QROW_BASE + i*QROW_STRIDE.
         This lets R0 hold one query's 60 channels with a single LD.MULT,
         exactly the matmul broadcast template (scalar from R0 indexed by c).
@@ -48,20 +48,20 @@
 
     MULT CYCLE-START CONTRACT (issue #157): MULT.RC.VE reads its R_CYCLIC DATA from
     the cycle-start value while keeping the LR index live, so it cannot
-    consume a K column loaded by LD.MULT.CYCLIC in its own bundle -- it
-    would see the previous column. `;;` ends one instruction word = one cycle = one
-    cycle start, so a load and a MULT in the same bundle always run in the same
-    cycle regardless of textual order; co-issuing is fine, consuming the
+    consume a K column loaded by LD.MULT.CYCLIC in its own instruction word -- it
+    would see the previous column. `;;` ends one instruction word = one
+    cycle, so a load and a MULT in the same instruction word always run in
+    the same cycle regardless of textual order; co-issuing is fine, consuming the
     same-cycle load is not.
       The key group therefore primes c=0's column, then every loop body
       multiplies the column loaded last cycle while prefetching the next one.
       k_ptr (the load offset) is read LIVE by the load, so its ADD stays
       co-issued with the load it feeds -- and because the load now runs one
-      bundle ahead, k_ptr naturally addresses the NEXT channel's column.
+      instruction word ahead, k_ptr naturally addresses the NEXT channel's column.
       chan_index (the R0 scalar selector) is read LIVE by MULT and must name the
       channel just loaded, so its ADD moves into a c_loop_pre block that falls
       through into the loop body. That changes what BLT.S sees: with the ADD in the
-      same word, BLT.S read the pre-ADD cycle start; with the ADD one word earlier it
+      same word, BLT.S read the pre-ADD cycle-start value; with the ADD one word earlier it
       reads the already-incremented value and would exit a channel early. The
       loop bound is therefore raised by one, in-kernel, into chan_last
       (= chan_bound + 1 = D-1 = 59), leaving the harness's LR6 untouched.

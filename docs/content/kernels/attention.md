@@ -22,7 +22,7 @@ S[i, s] = sum_c Q[c, i] * K[c, s]
 stored **query-major**: one whole row per query token. `qk_scores_64x48`
 covers all 16 (stream, head) pairs per call; `qk_scores_256x36` and
 `qk_scores_16x60` score one head per call. The score kernels are folders under
-`kernels/attention/` (E07-12), run and tested as `//kernels/attention/<kernel>`;
+`kernels/attention/`, run and tested as `//kernels/attention/<kernel>`;
 each is held to a matmul reference and, bit for bit, to the ACC datapath
 mirror (`ipu_kernels.reference.datapath.acc_fold`,
 `kernels/attention/test_datapath.py`).
@@ -36,8 +36,8 @@ mirror (`ipu_kernels.reference.datapath.acc_fold`,
 ## `attn_scores_km`
 
 Same mathematical scores as `qk_scores`, stored **key-major**: one whole row
-per key token. Optional query parameter `head` (0–3, default 0) selects which
-of the 4 heads to score.
+per key token. Each call scores one head: its inputs are that head's Q and K.
+The `head` parameter (0–3, default 0) names which of the 4 a case generates.
 
 | Kernel | n_tok | d (head_dim) |
 |---|---|---|

@@ -18,7 +18,7 @@ pad = { type = "float", default = 0.0 }   # the padding lanes of b (pack "padded
 pack = "padded"
 shape = ["n_block", "d", "n_tok"]
 
-[inputs.a]                         # Q staged query-major: row (blk, i) holds query i's d channels (legacy _stage_inputs transposes)
+[inputs.a]                         # Q staged query-major: row (blk, i) holds query i's d channels (gen.py transposes the old channel-major draw)
 shape = ["n_block", "n_tok", "d"]
 
 [outputs.y]                             # S query-major: row (i, g) holds keys [g*128, g*128+128) -- RowMajor over n_tok keys

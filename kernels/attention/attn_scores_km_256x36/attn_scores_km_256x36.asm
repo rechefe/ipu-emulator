@@ -30,7 +30,7 @@
       ACTIVATE.QUANTIZE identity + ST.AAQ
         → one whole key-major score row (128 FP32 lanes).  No AGG.
 
-    Counts/head: 256 keys × 2 groups × 36 channels = 18432 MULT+ACC bundles
+    Counts/head: 256 keys × 2 groups × 36 channels = 18432 MULT+ACC instruction words
                  + 512 stores.
 
     Registers are referred to below by the symbolic names defined in the
@@ -66,12 +66,12 @@
 {% set Q_START_G0  = cr.q_start_g0  %}  {# -2 rows startup skew (first live = row 0) #}
 {% set Q_START_G1  = cr.q_start_g1  %}  {# -1 row startup skew (first live = row 1) #}
 {% set CHAN_START  = cr.chan_start  %}  {# -1 -> first live c = 0 #}
-{% set K_BASE_KM   = cr.a  %}  {# key-major K scratch base #}
+{% set K_BASE_KM   = cr.a  %}  {# key-major K base (a) #}
 {% set DSTRUCT     = "CR15" %}  {# reserved dstructure register #}
 
     # chan_last = chan_bound + 1 (= D-1 = 35). MULT reads R_CYCLIC from the
     # cycle-start value (issue #157), so each Q channel column is loaded a
-    # bundle before the MULT consuming it and chan_index's ADD moves into a
+    # instruction word before the MULT consuming it and chan_index's ADD moves into a
     # c_loop_*_pre block (MULT reads it LIVE and must name the channel just
     # loaded). BLT.S reads the CYCLE-START, so with that ADD a word earlier it sees an
     # already-incremented index and needs the higher bound, or the last channel

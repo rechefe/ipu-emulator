@@ -25,12 +25,12 @@
     ONE CHANNEL PER ROW: a Q channel column, a key-major K row and an output key
     column are each a WHOLE row (128 FP32 lanes) carrying 16 live FP32 lanes. Rows are never
     shared; CR15.valid_elements = 16 tells ACTIVATE.QUANTIZE how many lanes to
-    emit and the consumer crops to those lanes.
+    emit, and the harness unpacks those lanes of y.
 
     Memory layout (row addresses; XMEM operands are ROW numbers, issue #179):
       Q: channel-major     Q[i, c] at QBASE + c*Q_CHAN_ROWS  (one row per channel,
          16 live query lanes) -> loads straight into R_CYCLIC (vector operand).
-      K: key-major scratch K[s, 0:59] at KBASE_KM + s*K_STRIDE_ROWS (60 channels
+      K: key-major K[s, 0:59] at KBASE_KM + s*K_STRIDE_ROWS (60 channels
          zero-padded to a whole row). Loaded once per key s into R0, and the
          channel index c selects the scalar K[s, c].
       S: key-major rows    S[:, s] at SBASE + s*OUT_ROWS, lane i = query i.
@@ -42,7 +42,7 @@
       ACTIVATE.QUANTIZE identity + ST.AAQ → one key-major score row.
       No AGG.
 
-    Counts/head: 16 keys × 60 channels = 960 MULT+ACC bundles + 16 stores.
+    Counts/head: 16 keys × 60 channels = 960 MULT+ACC instruction words + 16 stores.
 
     Registers are referred to below by the symbolic names defined in the
     register-name block. The assembler's Jinja2 preprocessor substitutes them
@@ -69,19 +69,19 @@
 {% set key_ptr     = lr.key_ptr  %}  {# row offset into key-major K, += key_stride #}
 {% set key_index   = lr.key_index  %}  {# key counter s #}
 {% set key_limit   = lr.n_tok %}  {# 16 = N keys #}
-{% set key_stride  = lr.key_stride %}  {# rows per key row in the K scratch #}
+{% set key_stride  = lr.key_stride %}  {# rows per key row in K #}
 
 {% set Q_BASE      = "CR0"  %}  {# channel-major Q base #}
 {% set ONE         = "CR1"  %}  {# hardwired read-only 1 #}
 {% set S_BASE      = cr.y  %}  {# key-major score output base #}
 {% set Q_START     = cr.q_start  %}  {# -Q_CHAN_ROWS startup skew (first live = 0) #}
 {% set CHAN_START  = cr.chan_start  %}  {# -1 -> first live c = 0 #}
-{% set K_BASE_KM   = cr.a  %}  {# key-major K scratch base #}
+{% set K_BASE_KM   = cr.a  %}  {# key-major K base (a) #}
 {% set DSTRUCT     = cr.dstruct %}  {# reserved dstructure register #}
 
     # chan_last = chan_bound + 1 (= D-1 = 59). MULT reads R_CYCLIC from the
     # cycle-start value (issue #157), so each Q channel column is loaded a
-    # bundle before the MULT consuming it and chan_index's ADD moves into the
+    # instruction word before the MULT consuming it and chan_index's ADD moves into the
     # c_loop_pre block (the scalar operand is read LIVE from R0 and must name the
     # channel just loaded). BLT.S reads the CYCLE-START, so with that ADD a word
     # earlier it sees an already-incremented index and needs the higher bound, or

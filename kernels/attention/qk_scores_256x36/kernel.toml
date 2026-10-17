@@ -12,11 +12,11 @@ seed = { type = "int", default = 0x9C0 }   # legacy RandomState seed (0x9C0); ge
 
 # Legacy placement: the inputs back to back from row 0 in the order below, then the output; first fit in
 # declaration order reproduces it (compare_setup: IDENTICAL).
-[inputs.b]                         # K, channel-major: row (blk, c) holds the n_tok keys of channel c (2 rows per channel at n_tok = 256)
+[inputs.b]                         # K, channel-major: row c holds the n_tok keys of channel c (2 rows per channel at n_tok = 256)
 shape = ["d", "n_tok"]
 row = 0
 
-[inputs.a]                         # Q staged query-major: row (blk, i) holds query i's d channels (legacy _stage_inputs transposes)
+[inputs.a]                         # Q staged query-major: row i holds query i's d channels (gen.py transposes the old channel-major draw)
 shape = ["n_tok", "d"]
 
 [outputs.y]                             # S query-major: row (i, g) holds keys [g*128, g*128+128) -- RowMajor over n_tok keys
@@ -31,7 +31,7 @@ chan_start = "-1"        # CR7
 chan_bound_unread = "d - 2" # CR8: written, never read
 rc_slot0 = "0"           # LR0
 k_stride = "n_tok / 128" # LR2: 2
-out_stride = "2"         # LR3: N_TG * 1
+out_stride = "n_tok / 128" # LR3: rows per query: one per key group
 chan_bound = "d - 2"     # LR6: the contraction bound (the program raises it by one into LR11)
 out_ptr = "0"            # LR7
 q_ptr = "0"              # LR8

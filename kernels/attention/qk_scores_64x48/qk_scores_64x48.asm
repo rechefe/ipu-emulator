@@ -1,7 +1,7 @@
 {#- qk_scores_64x48.asm -- QK^T scores, query-major (Layer 4), per (stream, head) block (FP32)
 
     Layer:   L4
-    Scope:   single-stream
+    Scope:   all 16 (stream, head) blocks
     Layout:  unpacked
     Shape:   64tok x 48chan (head_dim), P=4 streams x 4 heads (16 blocks)
     Related: L4 variant of qk_scores_256x36 (L3); qk_scores_16x60 is the L5 variant;
@@ -22,7 +22,7 @@
         lanes of the row (N = 64 <= LANES = 128, so a channel column is ONE row
         and there is exactly ONE key group -- the 2-group split of the L3 kernel
         collapses away).
-      Q staged query-major by the harness (gather of the strided channels):
+      Q query-major in a (the case supplies it so; gen.py transposes):
         QROW[b, i] = Q[b, i, 0..47] contiguous on row (b*64 + i). This lets R0
         hold one query's 48 channels with a single LD.MULT, exactly the
         matmul broadcast template (scalar from R0 indexed by c).
@@ -44,20 +44,20 @@
 
     MULT CYCLE-START CONTRACT (issue #157): MULT.RC.VE reads its R_CYCLIC DATA from
     the cycle-start value while keeping the LR index live, so it cannot
-    consume a K column loaded by LD.MULT.CYCLIC in its own bundle -- it
-    would see the previous column. `;;` ends one instruction word = one cycle = one
-    cycle start, so a load and a MULT in the same bundle always run in the same
-    cycle regardless of textual order; co-issuing is fine, consuming the
+    consume a K column loaded by LD.MULT.CYCLIC in its own instruction word -- it
+    would see the previous column. `;;` ends one instruction word = one
+    cycle, so a load and a MULT in the same instruction word always run in
+    the same cycle regardless of textual order; co-issuing is fine, consuming the
     same-cycle load is not.
       Each query therefore primes c=0's column, then every loop body multiplies
       the column loaded last cycle while prefetching the next one.
       k_ptr (the load offset) is read LIVE by the load, so its ADD stays
       co-issued with the load it feeds -- and because the load now runs one
-      bundle ahead, k_ptr naturally addresses the NEXT channel's column.
+      instruction word ahead, k_ptr naturally addresses the NEXT channel's column.
       chan_index (the R0 scalar selector) is read LIVE by MULT and must name the
       channel just loaded, so its ADD moves into a c_loop_pre block that falls
       through into the loop body. That changes what BLT.S sees: with the ADD in the
-      same word, BLT.S read the pre-ADD cycle start; with the ADD one word earlier it
+      same word, BLT.S read the pre-ADD cycle-start value; with the ADD one word earlier it
       reads the already-incremented value and would exit a channel early. The
       loop bound is therefore raised by one, in-kernel, into chan_last
       (= chan_bound + 1 = D-1 = 47), leaving the harness's LR6 untouched.
@@ -110,7 +110,7 @@
 {% set S_BASE      = cr.y  %}  {# query-major score output base #}
 {% set K_START     = cr.k_start  %}  {# -1 row startup skew (first live = block base) #}
 {% set CHAN_START  = cr.chan_start  %}  {# -1 -> first live c = 0 #}
-{% set CHAN_BOUND  = cr.chan_bound_unread  %}  {# 46 = D - 2 #}
+{% set CHAN_BOUND  = cr.chan_bound_unread  %}  {# 46 = D - 2: written by the harness, read by no instruction #}
 {% set QROW_BASE   = cr.a  %}  {# staged query-major Q base #}
 {% set BLK_LIMIT   = cr.n_block %}  {# 16 = P * N_HEAD blocks #}
 {% set K_BLOCK     = cr.k_block %}  {# 48 = K rows per (stream, head) block #}

@@ -16,7 +16,8 @@ contracted over ``s``:
 * :func:`acc_fold`, ``MULT.RC.VE`` + ``ACC.ADD[.FIRST]``: a float32 running
   sum per lane, rounded at every step.
 
-Moved from ``ipu_apps.kernels.attention.cases``.
+Copied from ``ipu_apps.kernels.attention.cases``, whose copy goes with the old
+attention family (E07-13).
 """
 
 from __future__ import annotations
@@ -43,6 +44,9 @@ def agg_fold(P: np.ndarray, V: np.ndarray) -> np.ndarray:
 
     Returns:
         ``O``, ``[b, t, i]`` float32.
+
+    Raises:
+        ValueError: ``s`` is empty.
     """
     prod = (P[:, None, :, :].astype(np.float32) * V[:, :, None, :].astype(np.float32)).astype(
         np.float32
@@ -56,7 +60,8 @@ def agg_fold(P: np.ndarray, V: np.ndarray) -> np.ndarray:
             if out is None
             else (chunk.astype(np.float64) + out.astype(np.float64)).astype(np.float32)
         )
-    assert out is not None, "an empty contraction"
+    if out is None:
+        raise ValueError("agg_fold: an empty contraction (no s)")
     return out
 
 
@@ -73,6 +78,9 @@ def acc_fold(P: np.ndarray, V: np.ndarray) -> np.ndarray:
 
     Returns:
         ``O``, ``[b, t, i]`` float32.
+
+    Raises:
+        ValueError: ``s`` is empty.
     """
     P = P.astype(np.float32)
     V = V.astype(np.float32)
@@ -80,5 +88,6 @@ def acc_fold(P: np.ndarray, V: np.ndarray) -> np.ndarray:
     for s in range(P.shape[-1]):
         prod = (P[:, None, :, s] * V[:, :, None, s]).astype(np.float32)  # [b, t, i]
         acc = prod if acc is None else (acc + prod).astype(np.float32)
-    assert acc is not None, "an empty contraction"
+    if acc is None:
+        raise ValueError("acc_fold: an empty contraction (no s)")
     return acc

@@ -8,19 +8,19 @@ formats = ["fp32"]
 [params]
 n_tok = { type = "int", choices = [16] }   # fixed: legacy routes on exact (n_tok, d)
 d = { type = "int", choices = [60] }   # fixed: legacy routes on exact (n_tok, d)
-head = { type = "int", min = 0, max = 3, default = 0 }   # which head of the 4-head input files is scored (legacy ctor head=)
+head = { type = "int", min = 0, max = 3, default = 0 }   # generator only: which head of the 4 the case scores; a and b ARE that head
 n_heads = { type = "int", choices = [4], default = 4 }   # heads in the canonical file (generator only)
 seed = { type = "int", default = 0xD60 }   # legacy RandomState seed (0xD60); generator only
 pad = { type = "float", default = 0.0 }   # the padding lanes of b (pack "padded"): 0, as the old harness staged them
 
 # Legacy placement: the inputs back to back from row 0 in the order below, then the output; first fit in
 # declaration order reproduces it (compare_setup: IDENTICAL).
-[inputs.b]                         # the selected head's Q, channel-major: row (p, c) holds n_tok queries
+[inputs.b]                         # the selected head's Q, channel-major: row c holds n_tok queries
 pack = "padded"
 shape = ["d", "n_tok"]
 row = 0
 
-[inputs.a]                         # the selected head's K, key-major: row (p, s) holds key s's d channels
+[inputs.a]                         # the selected head's K, key-major: row s holds key s's d channels
 shape = ["n_tok", "d"]
 
 [outputs.y]                             # S key-major: row (s, g) holds queries [g*128, g*128+128)
@@ -63,9 +63,8 @@ dstruct = "CR15"
 [golden]
 op = "matmul"                          # y = a @ b in the logical shapes above (batched over the leading dim)
 tolerance = { fp32 = "FP32_ORDER" }    # a short contraction (d terms); the old check: rtol=1e-4, atol=1e-3.
-# The datapath mirror acc_fold moves to ipu_kernels/reference/datapath.py and is checked at EXACT in
-# test_datapath.py (E06-09 rule: a math reference AND the mirror). No [golden] slot holds a second reference:
-# family-level test_*.py need their own py_test (ipu_kernel_family() declares none; ipu_kernel() runs folder ones).
+# The family's test_datapath.py also holds the scores bit for bit to the ACC datapath mirror
+# (ipu_kernels.reference.datapath.acc_fold): a math reference and the mirror (E06-09).
 
 [cases.default]
 n_tok = 16

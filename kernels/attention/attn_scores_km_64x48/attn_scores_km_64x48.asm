@@ -1,7 +1,7 @@
 {#- attn_scores_km_64x48.asm -- K Q^T scores, key-major (Layer 4), one selected head, all streams (FP32)
 
     Layer:   L4
-    Scope:   single-stream
+    Scope:   all 4 streams
     Layout:  unpacked
     Shape:   64tok x 48chan (head_dim), all 4 streams, one selected head
     Related: L4 variant of attn_scores_km_256x36 (L3); attn_scores_km_16x60 is the
@@ -10,7 +10,7 @@
     Tests:   //kernels/attention/attn_scores_km_64x48; the family's test_datapath.py holds it
              bit for bit to the ACC datapath mirror
 
-    Per stream p in [0,4), for the head the harness selected:
+    Per stream p in [0,4), for the case's head (a and b hold that head):
       S[p, i, s] = sum_c Q[p, i, c] * K[p, s, c]     i,s in [0,64), c in [0,48)
         Lanes = QUERIES (i); outer loop = key (s); contraction = head channel (c).
 
@@ -22,7 +22,7 @@
     unchanged -- broadcast template, no AGG, no MULT.RC.VV score form:
       Q channel-major: Q[p, i, c] on row (p*48 + c), queries 0..63 in the first 64
         lanes -> loads straight into R_CYCLIC (the vector operand).
-      K key-major scratch (built by the harness): K[p, s, 0:48] on row (p*64 + s)
+      K key-major in a (the case supplies it so): K[p, s, 0:48] on row (p*64 + s)
         -> one LD.MULT pulls a key's whole head-channel vector into R0 (the
         scalar operand, indexed by the contraction channel c).
       S key-major: key (p, s) owns row (p*64 + s); its leading 64 lanes are the
@@ -42,20 +42,20 @@
 
     MULT CYCLE-START CONTRACT (issue #157): MULT.RC.VE reads its R_CYCLIC DATA from
     the cycle-start value while keeping the LR index live, so it cannot
-    consume a Q column loaded by LD.MULT.CYCLIC in its own bundle -- it would
-    see the previous column. `;;` ends one instruction word = one cycle = one cycle start,
-    so a load and a MULT in the same bundle always run in the same cycle
+    consume a Q column loaded by LD.MULT.CYCLIC in its own instruction word -- it would
+    see the previous column. `;;` ends one instruction word = one cycle,
+    so a load and a MULT in the same instruction word always run in the same cycle
     regardless of textual order; co-issuing is fine, consuming the same-cycle load
     is not.
       Each key therefore primes c=0's column, then every loop body multiplies the
       column loaded last cycle while prefetching the next one.
       q_ptr (the load offset) is read LIVE by the load, so its ADD stays co-issued
-      with the load it feeds -- and because the load now runs one bundle ahead,
+      with the load it feeds -- and because the load now runs one instruction word ahead,
       q_ptr naturally addresses the NEXT channel's column.
       chan_index (the R0 scalar selector) is read LIVE by MULT and must name the
       channel just loaded, so its ADD moves into a c_loop_pre block that falls
       through into the loop body. That changes what BLT.S sees: with the ADD in the
-      same word, BLT.S read the pre-ADD cycle start; with the ADD one word earlier it
+      same word, BLT.S read the pre-ADD cycle-start value; with the ADD one word earlier it
       reads the already-incremented value and would drop the last channel. The
       loop bound is therefore raised by one, in-kernel, into chan_last
       (= chan_bound + 1 = D-1 = 47), leaving the harness's LR6 untouched.
@@ -68,7 +68,7 @@
                     ACTIVATE.QUANTIZE + ST.AAQ
                 }}
 
-    Counts: 4 streams x 64 keys x 48 channels = 12288 MULT+ACC bundles + 256
+    Counts: 4 streams x 64 keys x 48 channels = 12288 MULT+ACC instruction words + 256
             stores.
 
     Addressing is split offset(LR) + base(CR) and all .asm operands are ROW
@@ -101,7 +101,7 @@
 {% set key_ptr      = lr.key_ptr  %}  {# row offset into key-major K, += key_stride #}
 {% set key_index    = lr.key_index  %}  {# key counter s within the stream #}
 {% set key_limit    = lr.n_tok %}  {# 64 = N keys per stream #}
-{% set key_stride   = lr.key_stride %}  {# 1 = rows per key in the K scratch #}
+{% set key_stride   = lr.key_stride %}  {# 1 = rows per key in K #}
 {% set q_stream_off = lr.q_stream_off %}  {# Q row offset of the current stream, += 48 #}
 {% set stream_index = lr.stream_index %}  {# stream counter p #}
 {% set q_start      = "LR15" %}  {# q_stream_off + Q_START; per-key q_ptr seed #}
@@ -112,8 +112,8 @@
 {% set Q_BASE       = cr.b  %}  {# channel-major Q base #}
 {% set Q_START      = cr.q_start  %}  {# -1 row startup skew (first live = stream base) #}
 {% set CHAN_START   = cr.chan_start  %}  {# -1 -> first live c = 0 #}
-{% set CHAN_BOUND   = cr.chan_bound_unread  %}  {# 46 = D - 2 #}
-{% set K_BASE_KM    = cr.a  %}  {# key-major K scratch base #}
+{% set CHAN_BOUND   = cr.chan_bound_unread  %}  {# 46 = D - 2: written by the harness, read by no instruction #}
+{% set K_BASE_KM    = cr.a  %}  {# key-major K base (a) #}
 {% set STREAM_LIMIT = cr.p %}  {# 4 = P streams #}
 {% set Q_STREAM     = cr.q_stream_rows %}  {# 48 = Q rows per stream #}
 {% set DSTRUCT      = "CR15" %}  {# reserved dstructure register #}
