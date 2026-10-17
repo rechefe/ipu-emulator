@@ -71,8 +71,9 @@ one run (`state.stats` in Python). For example:
 | Effective MAC | Lane ops less the identity multiplies' lanes, over the run's peak: the multiplier work that was real arithmetic. |
 
 The counters describe one run: each run resets them before its first cycle,
-so a second program on the same state reports only itself (an `ipu_apps` run
-takes `reset_stats=False` to add to the earlier ones). The total cycles are set
+so a second program on the same state reports only itself (the emulator's
+`run_until_complete` and `run_with_debug` take `reset_stats=False` to add to
+the earlier ones). The total cycles are set
 even when the run raises: a fault, the cycle limit, or an emulator error. Runs
 add up: `stage1_stats + state.stats`.
 

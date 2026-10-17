@@ -192,16 +192,18 @@ bazel test //kernels/elementwise/scale
 
 The target runs every case in every format it runs in, as one test each:
 `test_case[default-fp32]`, `test_case[one_row-e4]`, `test_case[sweep[rows=7]-fp32]`.
-A failing test names the case, the format, the output, the worst element and
-the tier it failed at. For example, `mine` run with one element of `x` changed
-(`--input`, step 6):
+A failing test reports the case, the format, the output, the worst element and
+the tier it failed at, in the same line a run prints. For example, `mine` run
+with one element of `x` changed (`--input`, step 6):
 
 ```text
 scale/mine/fp32: FAIL  cycles=12  MAC util=16.7%  y: FAIL at EXACT (max|err|=2 max rel=0.166667); worst at [1, 5]: got 14.0, want 12.0
 ```
 
 Row 1, lane 5 of `y` is 14 where `2 * x` is 12. A run that faults instead
-names the fault, the PC and the source line of the word. A case with `tier = "nightly"` runs in
+names the fault, the PC and the source line of the word.
+
+A case with `tier = "nightly"` runs in
 `//kernels/elementwise/scale:scale_nightly` instead, which only the nightly run
 (`--config=full`) runs.
 

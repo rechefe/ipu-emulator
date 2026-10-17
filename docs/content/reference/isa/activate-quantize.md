@@ -72,4 +72,5 @@ state = IpuState(activation=ActivationParams(elu_alpha=1.0, window_a=0.0, window
 state.set_activation_alphas(elu_alpha=1.0, window_a=0.0, window_b=0.1)
 ```
 
-A state keeps its values; build a new `IpuState` to run with others.
+A state keeps its values from run to run; change them with
+`set_activation_alphas`, or build a new `IpuState`.

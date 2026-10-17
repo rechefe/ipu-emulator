@@ -18,7 +18,7 @@ add more.
 | [Attention](attention.md) | The two non-interchangeable QKᵀ / attn·V mappings and their twelve kernels |
 | [MobileViT-S](mobilevit.md) | Kernels per MobileViT-S transformer layer, and chaining rules |
 | [Application coverage](../app-coverage.md) | How the emulator knows which kernel implements a computation |
-| [Adding applications](../adding-applications.md) | How to contribute a kernel |
+| [Write a kernel](../how-to/write-a-kernel.md) | How to contribute a kernel ([Adding applications](../adding-applications.md) for a legacy `ipu_apps` kernel) |
 
 ## Finding a kernel for a computation
 
