@@ -55,7 +55,7 @@
       head P offset head_p_off advances by P_HEAD_STRIDE per head.
 
     Inner-loop pipeline (live-read offsets, per matmul template):
-      LD.MULT offset is read LIVE -> ADD p_ptr co-issues; start p_ptr at
+      LD.MULT offset is read forwarded -> ADD p_ptr co-issues; start p_ptr at
       (first P row - PV_STRIDE) so the first live load hits the first row.
       AGG dest_slot is read post-LR-write (forwarded); INC agg_slot co-issues,
       so start agg_slot at -1 -> AGG sees 0,1,..,15.  BLT.S (Control stage)
@@ -67,7 +67,7 @@
       loop therefore primes query 0's P row before the loop, and every instruction word
       multiplies the row loaded last cycle while prefetching the next query's.
       The V row in R_CYCLIC is loaded by LD.MULT.CYCLIC two instruction words ahead of
-      the loop and never reloaded inside it, so it was already cycle start-safe.
+      the loop and never reloaded inside it, so it was already safe under the cycle-start rule.
       agg_slot is unaffected by this -- INC stays co-issued and the dest
       sequence is still 0..15.
 
@@ -77,8 +77,9 @@
     NOTE: Jinja runs before comment stripping, so '#' comments must not
     contain Jinja delimiters -- the preprocessor would try to execute them.
 
-    Register assignments and their meanings are listed in the register-name
-    block below -- it is the single source of truth for this kernel.
+    The register-name block below names every register. The ones the harness
+    sets are kernel.toml's [abi] bindings (cr.<name>, lr.<name>); CR0 and CR1
+    are the hardwired 0 and 1, and the other LRs are the program's own.
 
     ---------------------------------------------------------------------------
     Register names (Jinja2 preprocessor; pure source-level substitution)

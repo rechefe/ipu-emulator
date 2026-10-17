@@ -55,7 +55,8 @@ def agg_fold(P: np.ndarray, V: np.ndarray) -> np.ndarray:
     )  # [b, t, i, s]
     out = None
     for lo in range(0, prod.shape[-1], LANES):
-        chunk = np.cumsum(prod[..., lo : lo + LANES].astype(np.float64), axis=-1)[..., -1]
+        # + 0.0: the emulator's fold starts from 0, so an all -0.0 chunk sums to +0.0.
+        chunk = np.cumsum(prod[..., lo : lo + LANES].astype(np.float64), axis=-1)[..., -1] + 0.0
         total = chunk if out is None else chunk + out.astype(np.float64)
         out = total.astype(np.float32)
     if out is None:

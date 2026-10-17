@@ -13,7 +13,7 @@ head = { type = "int", min = 0, max = 3, default = 0 }   # generator only: which
 n_heads = { type = "int", choices = [4], default = 4 }   # heads in the canonical file (generator only)
 seed = { type = "int", default = 0xD00 }   # the old RandomState seed (0xD00); generator only
 
-# Legacy placement: the inputs back to back from row 0 in the order below, then the output; first fit in
+# The old placement: the inputs back to back from row 0 in the order below, then the output; first fit in
 # declaration order reproduces it (compare_setup: IDENTICAL).
 [inputs.b]                         # the selected head's Q, channel-major: row c holds n_tok queries
 shape = ["d", "n_tok"]
@@ -23,7 +23,7 @@ row = 0
 shape = ["n_tok", "d"]
 
 [outputs.y]                             # S key-major: row (s, g) holds queries [g*128, g*128+128)
-pack = "padded"                    # the row-major rows under the name attn_v's P takes, so a Chain hands the scores over in place
+pack = "padded"                    # the row-major rows under the name attn_v_bcast's P takes, so a Chain hands the scores over in place
 shape = ["n_tok", "n_tok"]
 # ST.AAQ, one row per store, in row order
 

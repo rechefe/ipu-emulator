@@ -1,7 +1,7 @@
 {#- attn_v_64x48.asm -- attn@V (AGG kernel), Layer 4 -- query-major scores -> channel-major output.
 
     Layer:   L4
-    Scope:   single-stream
+    Scope:   all 16 (stream, head) blocks
     Layout:  unpacked
     Shape:   64tok x 48chan (head_dim), P=4 streams x 4 heads (16 blocks)
     Related: L4 variant of attn_v_256x36 (L3); attn_v_16x60 is the L5 variant;
@@ -57,7 +57,7 @@
       p_block_off advances by 64 rows per block.
 
     Inner-loop pipeline (per the matmul template):
-      LD.MULT offset is read LIVE -> ADD p_ptr +1 row co-issues; start p_ptr
+      LD.MULT offset is read forwarded -> ADD p_ptr +1 row co-issues; start p_ptr
         at (first P row - 1) so the first live load hits the first row.
       AGG dest_slot is read post-LR-write (forwarded); INC agg_slot co-issues,
         so start agg_slot at -1 -> AGG sees 0,1,..,63.
@@ -70,7 +70,7 @@
       loop therefore primes query 0's P row before the loop, and every instruction word
       multiplies the row loaded last cycle while prefetching the next query's.
       The V channel in R_CYCLIC is loaded two instruction words ahead of the loop and never
-      reloaded inside it, so it is already cycle start-safe.
+      reloaded inside it, so it is already safe under the cycle-start rule.
       agg_slot is unaffected by this -- INC stays co-issued and the dest
       sequence is still 0..63.
 
@@ -80,8 +80,9 @@
     NOTE: Jinja runs before comment stripping, so '#' comments must not
     contain Jinja delimiters -- the preprocessor would try to execute them.
 
-    Register assignments and their meanings are listed in the register-name
-    block below -- it is the single source of truth for this kernel.
+    The register-name block below names every register. The ones the harness
+    sets are kernel.toml's [abi] bindings (cr.<name>, lr.<name>); CR0 and CR1
+    are the hardwired 0 and 1, and the other LRs are the program's own.
 
     ---------------------------------------------------------------------------
     Register names (Jinja2 preprocessor; pure source-level substitution)

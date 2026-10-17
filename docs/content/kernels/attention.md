@@ -5,7 +5,7 @@
 Two ways to compute the same attention, differing in which operand owns a
 whole XMEM row:
 
-- **query-major**: `qk_scores` → `attn_v` (scores reduced via `AGG`,
+- **query-major**: `qk_scores` → `attn_v` (scores summed via `ACC.ADD`,
   attn·V summed via `AGG.SUM.FIRST`'s float64 left-fold)
 - **key-major**: `attn_scores_km` → `attn_v_bcast` (scores stored key-major,
   attn·V summed via a single continuous float32 `ACC.ADD` fold, no `AGG`)

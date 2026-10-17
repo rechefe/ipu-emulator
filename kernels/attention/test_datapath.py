@@ -28,21 +28,33 @@ from ipu_harness.runner import run_kernel
 from ipu_isa.formats import ElementFormat
 from ipu_kernels.reference.datapath import acc_fold, agg_fold
 
-#: Each kernel's mirror: the ACC fold of ``a @ b``, or the AGG fold of ``a @ b^T``.
-ACC, AGG = "acc", "agg"
+
+def acc_mirror(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """``a @ b`` as the ACC datapath rounds it, batched over leading axes."""
+    a3, b3 = a.reshape(-1, *a.shape[-2:]), b.reshape(-1, *b.shape[-2:])
+    return acc_fold(np.swapaxes(b3, -1, -2), a3).reshape(*a.shape[:-1], b.shape[-1])
+
+
+def agg_mirror(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """``a @ b^T`` as the AGG datapath rounds it: ``P = b`` ``[.., i, s]``, ``V = a`` ``[.., t, s]``."""
+    a3, b3 = a.reshape(-1, *a.shape[-2:]), b.reshape(-1, *b.shape[-2:])
+    return agg_fold(b3, a3).reshape(*a.shape[:-1], b.shape[-2])
+
+
+#: Each kernel's datapath mirror.
 KERNELS = {
-    "qk_scores_16x60": ACC,
-    "qk_scores_64x48": ACC,
-    "qk_scores_256x36": ACC,
-    "attn_scores_km_16x60": ACC,
-    "attn_scores_km_64x48": ACC,
-    "attn_scores_km_256x36": ACC,
-    "attn_v_bcast_36": ACC,
-    "attn_v_bcast_48": ACC,
-    "attn_v_bcast_60": ACC,
-    "attn_v_16x60": AGG,
-    "attn_v_64x48": AGG,
-    "attn_v_256x36": AGG,
+    "qk_scores_16x60": acc_mirror,
+    "qk_scores_64x48": acc_mirror,
+    "qk_scores_256x36": acc_mirror,
+    "attn_scores_km_16x60": acc_mirror,
+    "attn_scores_km_64x48": acc_mirror,
+    "attn_scores_km_256x36": acc_mirror,
+    "attn_v_bcast_36": acc_mirror,
+    "attn_v_bcast_48": acc_mirror,
+    "attn_v_bcast_60": acc_mirror,
+    "attn_v_16x60": agg_mirror,
+    "attn_v_64x48": agg_mirror,
+    "attn_v_256x36": agg_mirror,
 }
 
 CACHE = AssemblyCache()
@@ -59,15 +71,6 @@ def _cases():
     ]
 
 
-def mirror(kind: str, a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    """The kernel's output as its datapath rounds it, batched over leading axes."""
-    a3 = a.reshape(-1, *a.shape[-2:])
-    b3 = b.reshape(-1, *b.shape[-2:])
-    if kind == AGG:  # a @ b^T: P = b [.., i, s], V = a [.., t, s]
-        return agg_fold(b3, a3).reshape(*a.shape[:-1], b.shape[-2])
-    return acc_fold(np.swapaxes(b3, -1, -2), a3).reshape(*a.shape[:-1], b.shape[-1])
-
-
 @pytest.mark.parametrize(("kernel", "case"), _cases())
 def test_each_kernel_equals_its_datapath_mirror(kernel, case):
     fmt = ElementFormat.FP32
@@ -76,5 +79,5 @@ def test_each_kernel_equals_its_datapath_mirror(kernel, case):
     assert result.passed, result.describe()
     np.testing.assert_array_equal(
         np.asarray(result.outputs["y"], dtype=np.float32),
-        mirror(KERNELS[kernel.name], inputs["a"], inputs["b"]),
+        KERNELS[kernel.name](inputs["a"], inputs["b"]),
     )

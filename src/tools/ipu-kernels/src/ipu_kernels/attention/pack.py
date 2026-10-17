@@ -9,7 +9,8 @@ probes). At ``pad = 0`` it is the default transform, byte for byte.
 
 The score kernels' outputs take it too (E07-13): unpacking is the row-major
 default's, and a ``Chain`` hands a resident on only when its pack is the one
-the consumer declares, so the scores feed ``attn_v``'s ``P`` in place.
+the consumer declares, so the scores feed ``attn_v``'s or ``attn_v_bcast``'s
+``P`` in place.
 """
 
 from __future__ import annotations

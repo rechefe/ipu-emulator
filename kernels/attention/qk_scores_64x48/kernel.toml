@@ -12,7 +12,7 @@ n_block = { type = "int", choices = [16], default = 16 }   # geometry, not in a 
 seed = { type = "int", default = 0x4C0 }   # the old RandomState seed (0x4C0); generator only
 pad = { type = "float", default = 0.0 }   # the padding lanes of b (pack "padded"): 0, as the old harness staged them
 
-# Legacy placement: the inputs back to back from row 0 in the order below, then the output; first fit in
+# The old placement: the inputs back to back from row 0 in the order below, then the output; first fit in
 # declaration order reproduces it (compare_setup: IDENTICAL).
 [inputs.b]                         # K, channel-major: row (blk, c) holds the n_tok keys of channel c
 pack = "padded"

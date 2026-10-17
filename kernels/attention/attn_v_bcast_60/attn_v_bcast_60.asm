@@ -43,9 +43,9 @@
       O channel-major: O[i,t] at OBASE + chan*OUT_STRIDE, lane i.
 
     VLIW timing:
-      LR slot runs first; XMEM + MULT then read LR values LIVE (post-ADD); BLT.S reads
-      the CYCLE-START (pre-ADD).  Single-cycle inner body:
-        LDR_CYCLIC P[h,s_live]; ADD data ptr; MULT.RC.VE src=s_live; ACC.ADD; BLT.S
+      LR slot runs first; XMEM + MULT then read LR values forwarded (post-ADD); BLT.S reads
+      the cycle-start value (pre-ADD).  Single-cycle inner body:
+        LD.MULT.CYCLIC P[h,s_live]; ADD data ptr; MULT.RC.VE src=s_live; ACC.ADD; BLT.S
       Startup offsets (one-cycle pipeline align):
         data ptr  p_ptr = first_row - KEY_STRIDE   (ADD -> live = first_row)
         key index key_index = -1                   (ADD +1 -> live s = 0)
@@ -57,8 +57,9 @@
     NOTE: Jinja runs before comment stripping, so '#' comments must not
     contain Jinja delimiters -- the preprocessor would try to execute them.
 
-    Register assignments and their meanings are listed in the register-name
-    block below -- it is the single source of truth for this kernel.
+    The register-name block below names every register. The ones the harness
+    sets are kernel.toml's [abi] bindings (cr.<name>, lr.<name>); CR0 and CR1
+    are the hardwired 0 and 1, and the other LRs are the program's own.
 
     Loop bounds (BLT.S reads the pre-ADD cycle-start value; branch taken while cycle start < bound):
       KEY_BOUND   = 14          (key-loop bound: width 16, peeled + startup)
@@ -94,10 +95,10 @@
 {% set DSTRUCT       = cr.dstruct %}  {# reserved dstructure register #}
 
     # key_last = KEY_BOUND + 1 (= 15). MULT reads R_CYCLIC from the
-    # cycle-start value (issue #157), so each P key row is loaded a instruction word
+    # cycle-start value (issue #157), so each P key row is loaded an instruction word
     # before the MULT consuming it and key_index's ADD moves into s_loop_pre
-    # (the scalar operand is read LIVE from R0 and must name the key just
-    # loaded). BLT.S reads the CYCLE-START, so with that ADD a word earlier it sees an
+    # (the scalar operand is read forwarded from R0 and must name the key just
+    # loaded). BLT.S reads the cycle-start value, so with that ADD a word earlier it sees an
     # already-incremented index and needs the higher bound, or the last key is
     # dropped.
     SET     {{ key_last }} {{ KEY_BOUND }};;

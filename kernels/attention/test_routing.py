@@ -40,8 +40,11 @@ def registry():
 
 
 def test_every_kernel_is_one_op_of_one_chain(registry):
+    family = [m for m in registry.kernels() if m.directory.parent.name == "attention"]
+    assert len(family) == len(OPS) * len(LAYERS)
+    assert all(m.op in OPS for m in family), {m.name: m.op for m in family}
     names = [m.name for op in OPS for m in registry.kernels(op)]
-    assert len(names) == len(set(names)) == len(OPS) * len(LAYERS)
+    assert sorted(names) == sorted(m.name for m in family)
 
 
 @pytest.mark.parametrize("op", OPS)
@@ -58,7 +61,7 @@ def test_each_layer_routes_to_its_own_kernel_of_its_own_op(registry, op):
 def test_attn_v_bcast_takes_n_tok_only_as_its_layers(registry):
     assert registry.resolve("attn_v_bcast", d=36).kernel_name == "attn_v_bcast_36"
     refused = registry.resolve("attn_v_bcast", n_tok=16, d=36)
-    assert not refused and "n_tok" in refused.reason
+    assert not refused and "n_tok" in refused.reason and "256" in refused.reason
 
 
 @pytest.mark.parametrize("op", OPS)

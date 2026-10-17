@@ -68,6 +68,7 @@ class Seam:
 
     @property
     def key_major(self) -> bool:
+        """Whether P is key-major (a row per key), from ``attn_scores_km``."""
         return self.scores.startswith("attn_scores_km")
 
     @property
@@ -101,7 +102,8 @@ def _qkv(seam: Seam, seed: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Q, K ``[heads, d, n_tok]`` channel-major and V ``[heads, d, n_tok]``, uniform(-1, 1)."""
     rng = np.random.RandomState(seed)
     shape = (seam.heads, seam.d, seam.n_tok)
-    return tuple(rng.uniform(-1.0, 1.0, size=shape).astype(np.float32) for _ in range(3))
+    q, k, v = (rng.uniform(-1.0, 1.0, size=shape).astype(np.float32) for _ in range(3))
+    return q, k, v
 
 
 def _producer_inputs(seam: Seam, q: np.ndarray, k: np.ndarray) -> dict[str, np.ndarray]:
@@ -139,7 +141,6 @@ def _score_into(chain: Chain, seam: Seam, p: Resident, q: np.ndarray, k: np.ndar
             at={"y": p.slice(h * seam.head_rows, seam.head_rows)},
         )
         assert step.result.passed, step.result.describe()
-        assert step.resident["y"].rows == seam.head_rows  # one whole row per key or query
 
 
 def _p_values(chain: Chain, seam: Seam, p: Resident) -> np.ndarray:
@@ -206,6 +207,9 @@ def test_each_head_lands_in_its_own_block(seam: Seam):
     p = chain.hold(_p_rows(chain, seam))
     _score_into(chain, seam, p, q, ones)
     p_qm = _p_values(chain, seam, p)
+    # A producer storing fewer than a whole row per key (or query) leaves the
+    # later rows' live lanes as poison.
+    assert not np.any(p_qm == np.float32(POISON)), "a row of P was never written"
     for h in range(seam.heads):
         np.testing.assert_array_equal(p_qm[h], np.float32(seam.d * (h + 1)))
 
@@ -218,46 +222,46 @@ def test_each_head_lands_in_its_own_block(seam: Seam):
 # moves each block to its slot, rows unchanged.
 
 KM64, BCAST48 = "attn_scores_km_64x48", "attn_v_bcast_48"
-STREAMS, HEADS48, N48, D48 = 4, 4, 64, 48
+STREAMS, HEADS_L4, N_TOK_L4, D_L4 = 4, 4, 64, 48
 
 
 def _km64_chain(seed: int) -> tuple[Chain, Resident, np.ndarray, np.ndarray]:
     """The four producer steps, their blocks moved into P. Returns the chain,
     P, the float64 two-stage reference ``[16, d, n]``, and V."""
     rng = np.random.RandomState(seed)
-    shape = (STREAMS, HEADS48, D48, N48)
+    shape = (STREAMS, HEADS_L4, D_L4, N_TOK_L4)
     q = rng.uniform(-1.0, 1.0, size=shape).astype(np.float32)
     k = rng.uniform(-1.0, 1.0, size=shape).astype(np.float32)
-    v = rng.uniform(-1.0, 1.0, size=(STREAMS * HEADS48, D48, N48)).astype(np.float32)
+    v = rng.uniform(-1.0, 1.0, size=(STREAMS * HEADS_L4, D_L4, N_TOK_L4)).astype(np.float32)
     chain = Chain(FP32)
-    p = chain.hold(chain.reserve(STREAMS * HEADS48 * N48, pack="padded"))
+    p = chain.hold(chain.reserve(STREAMS * HEADS_L4 * N_TOK_L4, pack="padded"))
     chain.write(np.full((p.rows, LANES), POISON), at=p)
-    for h in range(HEADS48):
+    for h in range(HEADS_L4):
         step = chain.run(
             KM64,
-            {"n_tok": N48, "d": D48, "head": h},
+            {"n_tok": N_TOK_L4, "d": D_L4, "head": h},
             {"b": q[:, h], "a": np.ascontiguousarray(np.swapaxes(k[:, h], -1, -2))},
             check=True,
         )
         assert step.result.passed, step.result.describe()
-        blocks = chain.read(step.resident["y"]).reshape(STREAMS, N48, LANES)
+        blocks = chain.read(step.resident["y"]).reshape(STREAMS, N_TOK_L4, LANES)
         for stream in range(STREAMS):
-            chain.write(blocks[stream], at=p.slice((stream * HEADS48 + h) * N48, N48))
+            chain.write(blocks[stream], at=p.slice((stream * HEADS_L4 + h) * N_TOK_L4, N_TOK_L4))
     # S[p, h][key, query] = sum_c Q[p, h, c, query] K[p, h, c, key]
     s = np.einsum("phcq,phck->phkq", q.astype(np.float64), k.astype(np.float64))
-    want = np.einsum("bkq,btk->btq", s.reshape(-1, N48, N48), v.astype(np.float64))
+    want = np.einsum("bkq,btk->btq", s.reshape(-1, N_TOK_L4, N_TOK_L4), v.astype(np.float64))
     return chain, p, want, v
 
 
 def _bcast48(chain: Chain, p: Resident, v: np.ndarray) -> np.ndarray:
-    step = chain.run(BCAST48, {"n_tok": N48, "d": D48}, {"b": p, "a": v})
+    step = chain.run(BCAST48, {"n_tok": N_TOK_L4, "d": D_L4}, {"b": p, "a": v})
     assert step.result.passed, step.result.describe()  # halted, no fault
     return np.asarray(step.result.outputs["y"], dtype=np.float32)
 
 
 def test_km64_scores_feed_attn_v_bcast_48():
     chain, p, want, v = _km64_chain(0xC48)
-    p_rows = chain.read(p).reshape(-1, N48, LANES)[..., :N48]
+    p_rows = chain.read(p).reshape(-1, N_TOK_L4, LANES)[..., :N_TOK_L4]
     assert not np.any(p_rows == POISON), "a block of P was never written"
     got = _bcast48(chain, p, v)
     np.testing.assert_allclose(got, want, rtol=2e-3, atol=2e-2)
@@ -270,7 +274,7 @@ def test_km64_scores_at_the_wrong_pitch_are_caught():
     chain, p, _, v = _km64_chain(0xC49)
     correct = _bcast48(chain, p, v)
     rows = chain.read(p)
-    cropped = rows.reshape(-1, LANES)[:, :N48].reshape(-1, LANES)
+    cropped = rows.reshape(-1, LANES)[:, :N_TOK_L4].reshape(-1, LANES)
     mispitched = np.zeros_like(rows)
     mispitched[: cropped.shape[0]] = cropped
     chain.write(mispitched, at=p)

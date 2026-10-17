@@ -34,8 +34,8 @@
       OBASE + 2*chan + g, one ST.AAQ per row.
 
     Timing (same as matmul_144x144's inner loop):
-      LR slot runs first; XMEM + MULT then read LR values LIVE (post-ADD); BLT.S reads
-      the CYCLE-START (pre-ADD).  Single-cycle inner body:
+      LR slot runs first; XMEM + MULT then read LR values forwarded (post-ADD); BLT.S reads
+      the cycle-start value (pre-ADD).  Single-cycle inner body:
         LD.MULT.CYCLIC P[h,g,s_live]; ADD data ptr; ADD s; MULT.RC.VE src=s_live; ACC; BLT.S
       Startup offsets (one-cycle pipeline align):
         data ptr  p_ptr = first_row - 2      (ADD +2 -> live = first_row)
@@ -94,10 +94,10 @@
 {% set DSTRUCT       = "CR15" %}  {# reserved dstructure register #}
 
     # key_last = KEY_BOUND + 1 (= 255). MULT reads R_CYCLIC from the
-    # cycle-start value (issue #157), so each P key row is loaded a instruction word
+    # cycle-start value (issue #157), so each P key row is loaded an instruction word
     # before the MULT consuming it and key_index's ADD moves into s_loop_pre
-    # (MULT reads it LIVE and must name the key just loaded). BLT.S reads the
-    # CYCLE-START, so with that ADD a word earlier it sees an already-incremented
+    # (MULT reads it forwarded and must name the key just loaded). BLT.S reads the
+    # cycle-start value, so with that ADD a word earlier it sees an already-incremented
     # index and needs the higher bound, or the last key is dropped.
     SET     {{ key_last }} {{ KEY_BOUND }};;
     ADD     {{ key_last }} {{ key_last }} {{ ONE }};;

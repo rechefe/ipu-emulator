@@ -10,7 +10,7 @@ n_tok = { type = "int", choices = [256] }   # fixed: the kernel takes exactly it
 d = { type = "int", choices = [36] }   # fixed: the kernel takes exactly its layer's (n_tok, d)
 seed = { type = "int", default = 0x9C0 }   # the old RandomState seed (0x9C0); generator only
 
-# Legacy placement: the inputs back to back from row 0 in the order below, then the output; first fit in
+# The old placement: the inputs back to back from row 0 in the order below, then the output; first fit in
 # declaration order reproduces it (compare_setup: IDENTICAL).
 [inputs.b]                         # K, channel-major: row c holds the n_tok keys of channel c (2 rows per channel at n_tok = 256)
 shape = ["d", "n_tok"]

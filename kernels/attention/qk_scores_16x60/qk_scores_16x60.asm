@@ -55,10 +55,10 @@
     same-cycle load is not.
       The key group therefore primes c=0's column, then every loop body
       multiplies the column loaded last cycle while prefetching the next one.
-      k_ptr (the load offset) is read LIVE by the load, so its ADD stays
+      k_ptr (the load offset) is read forwarded by the load, so its ADD stays
       co-issued with the load it feeds -- and because the load now runs one
       instruction word ahead, k_ptr naturally addresses the NEXT channel's column.
-      chan_index (the R0 scalar selector) is read LIVE by MULT and must name the
+      chan_index (the R0 scalar selector) is read forwarded by MULT and must name the
       channel just loaded, so its ADD moves into a c_loop_pre block that falls
       through into the loop body. That changes what BLT.S sees: with the ADD in the
       same word, BLT.S read the pre-ADD cycle-start value; with the ADD one word earlier it

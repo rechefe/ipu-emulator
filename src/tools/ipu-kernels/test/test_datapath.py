@@ -33,10 +33,10 @@ def test_acc_rounds_every_step_and_agg_once_per_chunk():
     assert agg_fold(P, V)[0, 0, 0] == np.float32(4 * 2.0**-30)
 
 
-def test_agg_rounds_each_128_lane_chunk_before_adding_the_next():
-    """Chunk 0 is 1 + 127 * 2**-40, which rounds to 1 in float32; chunk 1
-    takes it back off. One float64 fold over both chunks would keep the
-    small products; AGG's per-chunk rounding loses them."""
+def test_agg_rounds_the_partial_on_each_r_acc_write():
+    """Chunk 0 is 1 + 127 * 2**-40, which R_ACC's write rounds to 1 in
+    float32; chunk 1 takes it back off. One float64 fold over both chunks
+    would keep the small products; the write between the chunks loses them."""
     products = np.array([1.0, *([2.0**-40] * 127), -1.0], dtype=np.float32)
     P = products[None, None, :]
     V = np.ones_like(P)

@@ -1,7 +1,7 @@
 {#- attn_v_bcast_48.asm -- attn@V (broadcast / no AGG), Layer 4 -- key-major scores -> channel-major output
 
     Layer:   L4
-    Scope:   single-stream
+    Scope:   all 16 (stream, head) blocks
     Layout:  unpacked
     Shape:   64tok x 48chan (head_dim), P=4 streams x 4 heads (16 blocks)
     Related: L4 variant of attn_v_bcast_36 (L3); attn_v_bcast_60 is the L5 variant;
@@ -42,8 +42,9 @@
       O channel-major: O[b, i, t] on row (b*48 + t), queries 0..63 leading.
       V and O match the query-major sibling attn_v_64x48 exactly; only P's
       orientation differs, which is the whole point of the key-major chain.
-      The trailing 64 lanes of every P and V row are zero padding, so the products
-      in lanes 64..127 contribute nothing and fall outside the output's 64 lanes.
+      Whatever the trailing 64 lanes of a P or V row hold (zero, or a chained
+      producer's data), their products land in lanes 64..127, outside the
+      output's 64 lanes.
 
     Loop nest:  for b in 0..15 { for t in 0..47 {
                     load V[b,:,t] -> R0 (all 64 keys, the scalar source)
@@ -69,10 +70,10 @@
     textual order; co-issuing is fine, consuming the same-cycle load is not.
       Each channel therefore primes key 0's P row, then every loop body
       multiplies the row loaded last cycle while prefetching the next one.
-      p_ptr (the load offset) is read LIVE by the load, so its ADD stays co-issued
+      p_ptr (the load offset) is read forwarded by the load, so its ADD stays co-issued
       with the load it feeds -- and because the load now runs one instruction word ahead,
       p_ptr naturally addresses the NEXT key's row.
-      key_index (the R0 scalar selector) is read LIVE by MULT and must name the
+      key_index (the R0 scalar selector) is read forwarded by MULT and must name the
       key just loaded, so its ADD moves into an s_loop_pre block that falls
       through into the loop body. That changes what BLT.S sees: with the ADD in the
       same word, BLT.S read the pre-ADD cycle-start value; with the ADD one word earlier it
@@ -80,7 +81,7 @@
       bound is therefore raised by one, in-kernel, into key_last
       (= KEY_BOUND + 1 = N-1 = 63), leaving the harness's CR untouched.
       R0 (the V channel) is loaded two instruction words ahead of the loop and never
-      reloaded inside it, so it is already cycle start-safe.
+      reloaded inside it, so it is already safe under the cycle-start rule.
 
     Registers are referred to below by the symbolic names defined in the
     register-name block. The assembler's Jinja2 preprocessor substitutes them
@@ -88,8 +89,9 @@
     NOTE: Jinja runs before comment stripping, so '#' comments must not
     contain Jinja delimiters -- the preprocessor would try to execute them.
 
-    Register assignments and their meanings are listed in the register-name
-    block below -- it is the single source of truth for this kernel.
+    The register-name block below names every register. The ones the harness
+    sets are kernel.toml's [abi] bindings (cr.<name>, lr.<name>); CR0 and CR1
+    are the hardwired 0 and 1, and the other LRs are the program's own.
 
     ---------------------------------------------------------------------------
     Register names (Jinja2 preprocessor; pure source-level substitution)

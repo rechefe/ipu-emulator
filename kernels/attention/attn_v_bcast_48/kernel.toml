@@ -8,7 +8,7 @@ formats = ["fp32"]
 [params]
 n_tok = { type = "int", choices = [64], default = 64 }   # fixed; a query may leave it out (the kernel is named by d) or must give this value
 d = { type = "int", choices = [48] }   # fixed: the kernel takes exactly its layer's (n_tok, d)
-n_head = { type = "int", choices = [16], default = 16 }   # geometry, not in a query: the default keeps (n_tok, d) queries routable
+n_head = { type = "int", choices = [16], default = 16 }   # the 16 (stream, head) blocks (qk_scores_64x48's n_block); geometry, not in a query: the default keeps (n_tok, d) queries routable
 seed = { type = "int", default = 0xB48 }   # the old RandomState seed (0xB48); generator only
 pad = { type = "float", default = 0.0 }   # the padding lanes of a and b (pack "padded"): 0, as the old harness staged them
 

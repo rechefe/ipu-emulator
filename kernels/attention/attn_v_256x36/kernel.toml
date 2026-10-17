@@ -11,7 +11,6 @@ d = { type = "int", choices = [36] }   # fixed: the kernel takes exactly its lay
 n_head = { type = "int", choices = [4], default = 4 }   # geometry, not in a query: the default keeps (n_tok, d) queries routable
 seed = { type = "int", default = 0xA18 }   # the old RandomState seed (0xA18); generator only
 pad = { type = "float", default = 0.0 }   # the padding lanes of a and b (pack "padded"): 0, as the old harness staged them
-transpose_b = { type = "bool", choices = [true], default = true }   # the golden is a @ b^T: P is stored a row per query
 
 # The old placement: the inputs back to back from row 0 in the order below, then the output; first fit in
 # declaration order reproduces it (compare_setup: IDENTICAL).
@@ -52,7 +51,7 @@ out_chan_stride = "CR13"
 # CR15 unbound -> default dstructure (valid_elements = 128), as legacy
 
 [golden]
-op = "matmul"                           # y = a @ b^T (transpose_b): V @ P^T, P query-major
+op = "matmul_nt"                        # y = a @ b^T: V @ P^T, P query-major
 tolerance = { fp32 = "FP32_ORDER" }    # the old check: rtol=1e-6, atol=1e-6 vs agg_fold.
 
 [cases.default]
