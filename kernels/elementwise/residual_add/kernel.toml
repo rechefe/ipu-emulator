@@ -1,0 +1,50 @@
+# residual_add: y = a + b over num_channels rows of 128 elements, the CHW
+# residual of the convolution stages (E07-06). Its regions are at fixed rows,
+# 1024 apart, as the ipu_apps harness put them.
+[kernel]
+op = "residual_add"
+formats = ["fp32"]
+
+[params]
+# The fixed regions are 1024 rows apart: more channels would run A into B.
+num_channels = { type = "int", min = 1, max = 1024 }
+
+[derived]
+step = "1"                          # the row step: one row per channel
+
+[inputs.a]
+shape = ["num_channels", 128]       # automatic placement: row 0
+
+[inputs.b]
+shape = ["num_channels", 128]
+row = 1024                          # the old INPUT_B_BASE (0x80000 bytes)
+
+[outputs.y]
+shape = ["num_channels", 128]
+row = 2048                          # the old OUTPUT_BASE (0x100000 bytes)
+store = "accumulator"               # ST.ACC: FP32, one row per vector
+
+[abi]
+a            = "CR2"
+b            = "CR3"
+y            = "CR4"
+step         = "CR5"
+num_channels = "CR6"
+
+[golden]
+op = "residual_add"
+tolerance = { fp32 = "EXACT" }
+
+[cases.default]
+num_channels = 64
+generator = "gen.py:legacy_uniform"
+
+[cases.sweep]                       # MobileViT-S residual stages: sweep[num_channels=96], ...
+num_channels = [96, 128, 160]
+generator = "gen.py:legacy_uniform"
+
+# The MobileViT-S residual channel counts (the ipu_apps benchmark CONFIGS):
+# `bazel run //kernels/elementwise/residual_add -- --benchmark`.
+[benchmark]
+points = [{ num_channels = 64 }, { num_channels = 96 }, { num_channels = 128 }, { num_channels = 160 }]
+per = "num_channels"

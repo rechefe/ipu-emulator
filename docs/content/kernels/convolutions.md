@@ -105,11 +105,13 @@ chunk.
 
 ## `residual_add`
 
-Elementwise `C = A + B` over `[channels, height, width]` FP32, one channel per
-128-element chunk. Queried by `num_channels` (at most 1024):
+Elementwise `y = a + b` over `[channels, height, width]` FP32, one channel per
+128-element row: `//kernels/elementwise/residual_add` (E07-06). Queried by
+`num_channels` (at most 1024):
 
 ```bash
-bazel run //src/tools/ipu-apps:query -- residual_add num_channels=64
+bazel run //kernels:query -- residual_add num_channels=64
+bazel run //kernels/elementwise/residual_add -- --benchmark
 ```
 
 ## Data layout

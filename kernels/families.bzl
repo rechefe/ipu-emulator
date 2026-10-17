@@ -11,10 +11,20 @@ names them; //kernels:test_families checks it against the kernel.toml folders.
 #: Each family's kernels, by folder name.
 KERNELS = {
     "convolutions": ["conv1x1", "conv3x3_relu", "conv3x3_relu_cin1", "conv_first_layer"],
-    "elementwise": ["scale"],
+    "elementwise": ["residual_add", "residual_add_rows", "scale"],
     "linear": ["fully_connected"],
     "projections": ["proj_p4", "proj_p4_2tg", "proj_p4_2tg_silu"],
-    "reshape": ["concat", "depth_to_space", "identity"],
+    "reshape": [
+        "concat",
+        "depth_to_space",
+        "fold_16x16x192",
+        "fold_32x32x144",
+        "fold_8x8x240",
+        "identity",
+        "unfold_16x16x192",
+        "unfold_32x32x144",
+        "unfold_8x8x240",
+    ],
     "softmax": [
         "softmax_columns",
         "softmax_columns_packed",

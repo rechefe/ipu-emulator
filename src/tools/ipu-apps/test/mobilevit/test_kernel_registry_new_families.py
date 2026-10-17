@@ -4,7 +4,7 @@ Mirrors ``test_kernel_registry.py``'s softmax conformance test: for each op,
 ``resolve()`` is asked for the exact shape one of the family's own kernels
 declares, and the kernel the registry hands back must actually compute the
 operation -- not just claim to. Every kernel in these families (matmul,
-layernorm, residual_add, unfold, and the attention ops) is an
+layernorm and the attention ops) is an
 exact-shape-only match (no padding, no chunking across kernels), so there is
 exactly one query worth asking per kernel: its own declared shape.
 
@@ -24,7 +24,9 @@ Query vocabulary: ``matmul`` queries carry an optional ``activation``
 ("none"/"silu"). The FFN1 expansion kernels fuse silu into their store, so a
 plain query at an FFN1 shape must refuse and only the ``activation="silu"``
 query may route there (checked below). The projections moved to
-``//kernels/projections`` (E07-02), whose ``test_routing.py`` checks theirs.
+``//kernels/projections`` (E07-02), unfold to ``//kernels/reshape`` (E07-05)
+and the residual adds to ``//kernels/elementwise`` (E07-06), whose own tests
+check their routing.
 """
 
 from __future__ import annotations
@@ -132,72 +134,6 @@ def test_resolved_layernorm_computes_the_operation(tmp_path):
 
     got = np.frombuffer(output_path.read_bytes(), dtype=np.float32).reshape(N_CH, LANES)[:, :N_TPG]
     np.testing.assert_allclose(got, reference_layernorm(x, gamma, beta), atol=1e-4, rtol=1e-4)
-
-
-# -- residual_add -------------------------------------------------------
-
-
-def test_resolved_residual_add_computes_the_operation(tmp_path):
-    from ipu_apps.kernels.elementwise.residual_add_16x240.app import N_CH, N_TOK
-
-    query = dict(shape=(N_TOK, N_CH))
-    verdict = resolve("residual_add", **query)
-    assert verdict.kernel.name == "residual_add_16x240", verdict.reason
-
-    rng = np.random.RandomState(0x5ADD)
-    a = rng.uniform(-1.0, 1.0, size=(N_CH, N_TOK)).astype(np.float32)
-    b = rng.uniform(-1.0, 1.0, size=(N_CH, N_TOK)).astype(np.float32)
-
-    a_path = tmp_path / "a.bin"
-    b_path = tmp_path / "b.bin"
-    a_path.write_bytes(_rows(a).tobytes())
-    b_path.write_bytes(_rows(b).tobytes())
-    output_path = tmp_path / "out.bin"
-
-    app = _harness(
-        verdict, query, input_a_path=a_path, input_b_path=b_path, output_path=output_path
-    )
-    _, cycles = app.run(max_cycles=5_000_000)
-    assert cycles > 0
-
-    got = np.frombuffer(output_path.read_bytes(), dtype=np.float32).reshape(N_CH, N_TOK)
-    np.testing.assert_allclose(got, a + b, rtol=1e-4, atol=1e-3)
-
-
-# -- unfold -----------------------------------------------------------------
-
-
-def test_resolved_unfold_computes_the_operation(tmp_path):
-    from ipu_apps.kernels.reshape.unfold_16x16x192.app import N_STRIPES, C, H, W
-
-    query = dict(shape=(H, W, C))
-    verdict = resolve("unfold", **query)
-    assert verdict.kernel.name == "unfold_16x16x192", verdict.reason
-
-    rng = np.random.RandomState(0x0F01D)
-    x = rng.uniform(-1.0, 1.0, size=(C, H, W)).astype(np.float32)
-
-    stripe_h = H // N_STRIPES
-    src = np.zeros((N_STRIPES * C, LANES), dtype=np.float32)
-    for stripe in range(N_STRIPES):
-        r0 = stripe * stripe_h
-        for ch in range(C):
-            src[stripe * C + ch, : stripe_h * W] = x[ch, r0 : r0 + stripe_h, :].reshape(-1)
-
-    input_path = tmp_path / "x.bin"
-    input_path.write_bytes(src.tobytes())
-    output_path = tmp_path / "out.bin"
-
-    app = _harness(verdict, query, input_path=input_path, output_path=output_path)
-    _, cycles = app.run(max_cycles=20_000_000)
-    assert cycles > 0
-
-    n_tok = (H * W) // 4
-    got = np.frombuffer(output_path.read_bytes(), dtype=np.float32).reshape(4, C, -1)
-    for s in range(4):
-        r_ph, c_ph = s // 2, s % 2
-        expected = x[:, r_ph::2, c_ph::2].reshape(C, n_tok)
-        np.testing.assert_allclose(got[s, :, :n_tok], expected, rtol=1e-4, atol=1e-3)
 
 
 # -- qk_scores (query-major chain) -------------------------------------

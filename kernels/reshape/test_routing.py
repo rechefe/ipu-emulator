@@ -1,9 +1,10 @@
-"""Routing of the reshape kernels (E07-04): the ``ipu_apps`` routing facts, on
-the kernel tree's registry and ``//kernels:query``.
+"""Routing of the reshape kernels (E07-04, E07-05): the ``ipu_apps`` routing
+facts, on the kernel tree's registry and ``//kernels:query``.
 
 The old router took a ``shape`` tuple; the kernels now take named parameters.
 A concat query is ``concat h=.. w=.. c_a=.. c_b=..`` (the old ``shape=(H, W,
-C_A, C_B)``), a depth-to-space query ``depth_to_space h=.. w=..
+C_A, C_B)``), a fold or unfold query ``fold h=.. w=.. c=..`` (the old
+``shape=(H, W, C)``), a depth-to-space query ``depth_to_space h=.. w=..
 upscale_factor=..`` (the old ``shape=(r * r, H, W)``, whose channel count the
 factor fixes), an identity query ``identity rows=..`` (the old ``shape=(rows,
 128)``, whose width is the row's).
@@ -81,3 +82,17 @@ def test_the_query_tool_names_a_concat(registry, capsys):
         "concat_8x8x160x160",
         "//kernels/reshape:concat_8x8x160x160",
     )
+
+
+#: The fold and unfold kernels' (h, w, c): one shape each, the MobileViT-S L3-L5.
+SHAPES = {"8x8x240": (8, 8, 240), "16x16x192": (16, 16, 192), "32x32x144": (32, 32, 144)}
+
+
+@pytest.mark.parametrize("op", ["unfold", "fold"])
+@pytest.mark.parametrize("shape", sorted(SHAPES))
+def test_each_fold_and_unfold_is_routed_by_its_exact_shape(registry, op, shape):
+    h, w, c = SHAPES[shape]
+    verdict = registry.resolve(op, h=h, w=w, c=c)
+    assert verdict.kernel_name == f"{op}_{shape}", verdict.reason
+    assert verdict.label == f"//kernels/reshape/{op}_{shape}"
+    assert not registry.resolve(op, h=h, w=w, c=c + 16)  # another channel count: no kernel
