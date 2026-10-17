@@ -25,6 +25,20 @@ from ipu_isa.slots import Slot
 from ipu_isa.view import Instruction, Isa, isa
 
 
+def field_code(value: int, bits: int) -> int:
+    """The ``bits``-bit field code of ``value``: a negative value in two's
+    complement, any other as it is.
+
+    Args:
+        value: The operand's value, signed or not.
+        bits: The field's width.
+
+    Returns:
+        The code, ``0 <= code < 2**bits`` for an in-range value.
+    """
+    return value + (1 << bits) if value < 0 else value
+
+
 class EncodeError(IpuError, ValueError):
     """An instruction cannot be encoded: unknown mnemonic, wrong operand count,
     an operand value outside its type's encodings or a reserved code, or a slot
@@ -191,6 +205,26 @@ class SlotCodec:
                     "is a reserved code"
                 )
             value |= encoded << operand.field.shift
+        return value
+
+    def encode_with_reserved(self, mnemonic: str, operands: Sequence[int]) -> int:
+        """``encode``, but an operand may be one of its reserved codes.
+
+        A reserved code (``ACC.STRIDE``'s ``reserved3``) has no meaning:
+        hardware faults (F-1) when it runs. An assembler writes one on purpose
+        for fault tests, so it encodes with this method.
+
+        Raises:
+            EncodeError: As ``encode``, but for a reserved code.
+        """
+        instruction = self.instruction(mnemonic)
+        layout = self._operands[instruction.mnemonic]
+        reserved = {
+            i for i, (op, v) in enumerate(zip(layout, operands, strict=False)) if v in op.reserved
+        }  # encode checks the count
+        value = self.encode(mnemonic, [0 if i in reserved else v for i, v in enumerate(operands)])
+        for i in reserved:
+            value |= operands[i] << layout[i].field.shift
         return value
 
     def nop(self) -> int:

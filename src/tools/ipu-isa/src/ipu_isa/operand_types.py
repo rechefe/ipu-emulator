@@ -82,8 +82,12 @@ _LR_COUNT = REGISTER_DEFINITIONS["lr"]["count"]
 _CR_COUNT = REGISTER_DEFINITIONS["cr"]["count"]
 
 
-def _index_bits(count: int) -> int:
-    """Bits to encode one of ``count`` values."""
+def code_bits(count: int) -> int:
+    """Bits to encode one of ``count`` values (codes ``0..count-1``).
+
+    The width of an index or enum field, for the registry here and for an
+    assembler's enum tokens (E05-02: bit layouts are computed in ``ipu_isa``).
+    """
     return (count - 1).bit_length()
 
 
@@ -124,7 +128,7 @@ _SPEC: dict[str, dict[str, Any]] = {
     },
     "LrIdx": {
         "kind": OperandKind.REGISTER,
-        "bits": _index_bits(_LR_COUNT),
+        "bits": code_bits(_LR_COUNT),
         "domain": Domain(members=_members("lr")),
         "readable": True,
         "token_class": "LrRegField",
@@ -137,7 +141,7 @@ _SPEC: dict[str, dict[str, Any]] = {
     },
     "CrIdx": {
         "kind": OperandKind.REGISTER,
-        "bits": _index_bits(_CR_COUNT),
+        "bits": code_bits(_CR_COUNT),
         "domain": Domain(members=_members("cr")),
         "readable": True,
         "token_class": "CrRegField",
@@ -151,7 +155,7 @@ _SPEC: dict[str, dict[str, Any]] = {
     },
     "LcrIdx": {
         "kind": OperandKind.REGISTER,
-        "bits": _index_bits(_LR_COUNT + _CR_COUNT),
+        "bits": code_bits(_LR_COUNT + _CR_COUNT),
         "domain": Domain(members=_members("lr") + _members("cr")),
         "readable": True,
         "token_class": "LcrRegField",
@@ -166,7 +170,7 @@ _SPEC: dict[str, dict[str, Any]] = {
     },
     "LrdIdx": {
         "kind": OperandKind.REGISTER,
-        "bits": _index_bits(_LR_COUNT // 2),
+        "bits": code_bits(_LR_COUNT // 2),
         "domain": Domain(members=tuple(f"lrd{2 * i}" for i in range(_LR_COUNT // 2))),
         "readable": True,
         "token_class": "LrdRegField",
@@ -181,7 +185,7 @@ _SPEC: dict[str, dict[str, Any]] = {
     },
     "DstructureCrIdx": {
         "kind": OperandKind.REGISTER,
-        "bits": _index_bits(_CR_COUNT),
+        "bits": code_bits(_CR_COUNT),
         "domain": Domain(members=_members("cr")),
         "readable": False,
         "token_class": "DstructureCrRegField",
@@ -198,7 +202,7 @@ _SPEC: dict[str, dict[str, Any]] = {
     },
     "ElementsInRow": {
         "kind": OperandKind.ENUM,
-        "bits": _index_bits(len(ELEMENTS_IN_ROW_NAMES)),
+        "bits": code_bits(len(ELEMENTS_IN_ROW_NAMES)),
         "domain": Domain(members=tuple(ELEMENTS_IN_ROW_NAMES)),
         "readable": False,
         "token_class": "ElementsInRowField",
@@ -210,7 +214,7 @@ _SPEC: dict[str, dict[str, Any]] = {
     },
     "HorizontalStride": {
         "kind": OperandKind.ENUM,
-        "bits": _index_bits(len(HORIZONTAL_STRIDE_NAMES)),
+        "bits": code_bits(len(HORIZONTAL_STRIDE_NAMES)),
         "domain": Domain(members=tuple(HORIZONTAL_STRIDE_NAMES)),
         "readable": False,
         "token_class": "HorizontalStrideField",
@@ -223,7 +227,7 @@ _SPEC: dict[str, dict[str, Any]] = {
     },
     "VerticalStride": {
         "kind": OperandKind.ENUM,
-        "bits": _index_bits(len(VERTICAL_STRIDE_NAMES)),
+        "bits": code_bits(len(VERTICAL_STRIDE_NAMES)),
         "domain": Domain(members=tuple(VERTICAL_STRIDE_NAMES)),
         "readable": False,
         "token_class": "VerticalStrideField",
@@ -235,7 +239,7 @@ _SPEC: dict[str, dict[str, Any]] = {
     },
     "ActivationFn": {
         "kind": OperandKind.ENUM,
-        "bits": _index_bits(len(ACTIVATION_FN_NAMES)),
+        "bits": code_bits(len(ACTIVATION_FN_NAMES)),
         "domain": Domain(members=tuple(ACTIVATION_FN_NAMES)),
         "readable": False,
         "token_class": "ActivationFnField",
@@ -330,7 +334,7 @@ _SPEC: dict[str, dict[str, Any]] = {
     },
     "Label": {
         "kind": OperandKind.LABEL,
-        "bits": _index_bits(INST_MEM_WORDS),
+        "bits": code_bits(INST_MEM_WORDS),
         "domain": Domain(value_range=(0, INST_MEM_WORDS - 1)),
         "readable": False,
         "token_class": "LabelToken",
