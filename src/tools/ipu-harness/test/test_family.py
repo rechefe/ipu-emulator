@@ -160,6 +160,21 @@ def test_a_tie_with_a_kernel_that_is_no_entry_stays_a_configuration_error(tmp_pa
         Registry.load(tmp_path).resolve("proj", k=144, n_out=432)
 
 
+def test_a_query_required_parameter_must_be_given_whatever_its_default(tmp_path):
+    family(tmp_path)
+    toml = tmp_path / "projections" / "proj" / "kernel.toml"
+    toml.write_text(
+        toml.read_text().replace('default = "none" }', 'default = "none", query_required = true }')
+    )
+    registry = Registry.load(tmp_path)
+    refused = registry.resolve("proj", k=144, n_out=432)
+    assert not refused and "the query must give act" in refused.reason
+    assert registry.resolve("proj", k=144, n_out=432, act="none").kernel_name == "proj_qkv_144"
+    # Cases are unaffected: they take the default (or the entry's fixed value).
+    (default, *_) = expand(registry.manifests["proj_qkv_144"])
+    assert default.values["act"] == "none"
+
+
 def test_an_entry_chooses_its_template_cases(tmp_path):
     family(tmp_path)
     registry = Registry.load(tmp_path)

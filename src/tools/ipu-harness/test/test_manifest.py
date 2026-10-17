@@ -156,6 +156,8 @@ S = 's    = { type = "float" }'
 
 # Each rule: an edit of the scale example (old -> new), the message, and the line it must name.
 RULES = [
+    # query_required (routing) is a bool.
+    (P, P.replace(" }", ", query_required = 1 }"), "must be bool, not 1", "rows = {"),
     # Tolerance tiers (E06-10): a known name, or an override with its why.
     ('e4 = "FP8_ULP" }', 'e4 = "LOOSE" }', "'LOOSE' is no tier", 'e4 = "LOOSE"'),
     (

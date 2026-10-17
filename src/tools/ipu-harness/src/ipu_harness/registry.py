@@ -412,6 +412,10 @@ class Registry:
         accepted: list[tuple[float, KernelManifest, ParamCheck]] = []
         refusals: list[tuple[str, str]] = []
         for m in candidates:
+            unnamed = [n for n, p in m.params.items() if p.query_required and n not in params]
+            if unnamed:
+                refusals.append((m.name, f"the query must give {', '.join(unnamed)}"))
+                continue
             try:
                 check = check_params(m, params)
             except PlanError as error:

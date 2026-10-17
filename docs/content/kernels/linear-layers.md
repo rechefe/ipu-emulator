@@ -57,8 +57,7 @@ token groups). Each runs as `//kernels/projections:<kernel>`.
 | `proj_ffn2_240_p4` | 480 | 240 | none |
 
 Query: `bazel run //kernels:query -- projection k=K n_out=N_OUT [activation=silu]`.
-A query that leaves `activation` out means `activation=none`, so an FFN1
-kernel (SiLU) is found only with `activation=silu`.
+A query must give `activation`; one that leaves it out is refused.
 
 ## Data layout
 

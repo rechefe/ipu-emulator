@@ -4,8 +4,8 @@ kernel tree's registry and ``//kernels:query``.
 Each entry is found by exactly its ``(k, n_out, activation)``: a query for an
 FFN1 shape with ``activation=none`` never reaches the kernel whose store fuses
 SiLU, and no identity kernel accepts a SiLU query. A query that leaves
-``activation`` out takes the template's default, ``none``: an identity kernel
-accepts it and an FFN1 kernel refuses it, as the ``ipu_apps`` router did.
+``activation`` out is refused: every template declares it ``query_required``,
+as the ``ipu_apps`` router refused an FFN1 query without it.
 """
 
 from __future__ import annotations
@@ -78,13 +78,13 @@ def test_ffn1_kernels_are_exactly_the_silu_kernels(registry):
 
 
 def test_other_stream_counts_and_unknown_activations_are_refused(registry):
-    verdict = registry.resolve("projection", k=240, n_out=720, n_streams=1)
+    verdict = registry.resolve("projection", k=240, n_out=720, n_streams=1, activation="none")
     assert not verdict
     assert "n_streams = 1 is not one of [4]" in verdict.reason
     verdict = registry.resolve("projection", k=240, n_out=720, activation="gelu")
     assert not verdict
     assert "activation = 'gelu' is not one of" in verdict.reason
-    assert not registry.resolve("projection", k=200, n_out=200)  # no entry's shape
+    assert not registry.resolve("projection", k=200, n_out=200, activation="none")  # no shape
 
 
 @pytest.mark.parametrize("name", sorted(KERNELS))
@@ -96,9 +96,9 @@ def test_the_query_tool_gives_the_same_answer(registry, name, capsys):
     assert (answer["app"], answer["use"]) == (name, f"//kernels/projections:{name}")
 
 
-def test_a_query_without_activation_means_none(registry):
-    # The template's default, as the ipu_apps router read a missing activation.
-    refused = registry.resolve("projection", k=192, n_out=384)
+@pytest.mark.parametrize("name", sorted(KERNELS))
+def test_a_query_without_activation_is_refused_for_it(registry, name):
+    k, n_out, _ = KERNELS[name]
+    refused = registry.resolve("projection", k=k, n_out=n_out)
     assert not refused
-    assert "activation = 'none' is not one of ['silu']" in refused.reason
-    assert registry.resolve("projection", k=192, n_out=576).kernel_name == "proj_qkv_192_p4"
+    assert "the query must give activation" in refused.reason
