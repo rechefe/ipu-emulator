@@ -20,10 +20,11 @@ git ls-files -z '*.py' | while IFS= read -r -d '' f; do
   [ -f "$f" ] && printf '%s\n' "$f"
 done | LC_ALL=C sort >"$tmp/git"
 
-# Files in the srcs of every ruff_test, as workspace-relative paths:
+# Files in the srcs of every ruff_test (also the ones ipu_kernel() declares,
+# whose generator_function is the outer macro), as workspace-relative paths:
 # //pkg:sub/file.py -> pkg/sub/file.py, //:file.py -> file.py.
 bazel query --noshow_progress \
-  'labels(srcs, kind(filegroup, attr(generator_function, "^ruff_test$", //...)))' \
+  'labels(srcs, kind(filegroup, attr(generator_function, "^ruff_test$", //...) + attr(name, "^ruff_files$", attr(generator_function, "^ipu_kernel$", //kernels/...))))' \
   | sed -e 's#^//:##' -e 's#^//\([^:]*\):#\1/#' \
   | grep '\.py$' | LC_ALL=C sort >"$tmp/covered" || true
 
@@ -44,7 +45,7 @@ if [ -n "$duplicated" ]; then
 fi
 
 bazel query --noshow_progress \
-  'kind(py_test, attr(generator_function, "^ruff_test$", //...))' \
+  'kind(py_test, attr(generator_function, "^ruff_test$", //...) + attr(name, "^ruff$", attr(generator_function, "^ipu_kernel$", //kernels/...)))' \
   | LC_ALL=C sort >"$tmp/targets"
 bazel query --noshow_progress 'tests(//tools:lint)' | LC_ALL=C sort >"$tmp/suite"
 if ! diff -u --label "ruff_test targets" --label "tests(//tools:lint)" \
