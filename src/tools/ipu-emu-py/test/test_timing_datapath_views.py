@@ -6,7 +6,7 @@ probe from ``timing_probes.py`` in faithful mode and asserts the value that
 tells the versions apart. The MULT rows run in the default INT8 format and in
 wide FP32 mode, whose R0/R1/R_CYCLIC reads take their own path. The two rows
 decision Q32 changes are ``test_mult_reads_r_mask_forwarded`` (E04-27) and
-``test_reshape_reads_previous_mult_res`` (E04-26).
+``test_reshape_reads_this_cycle_mult_res`` (E04-26, flipped).
 """
 
 from __future__ import annotations
@@ -78,14 +78,14 @@ def test_agg_reads_this_cycle_mult_res(op, expected):
     assert lane(run(PROBES[f"agg_mult_res_{op}"]).state, "r_acc", 0) == expected
 
 
-def test_reshape_reads_previous_mult_res():
-    """ACC.RESHAPE reads MULT_RES at cycle start: it copies 1, not this cycle's 9.
-    Q32 makes this forwarded (flipped by E04-26).
+def test_reshape_reads_this_cycle_mult_res():
+    """ACC.RESHAPE reads this cycle's MULT_RES (9s, not 1s), like every other
+    ACC-stage op (Q32 rule 3; E04-26 flipped it from cycle start).
 
-    ``test_execute.py``'s ``test_reshape_mult_res_reads_from_snapshot`` pins the
-    same row; E04-26 flips both or deletes the older one.
+    ``test_execute.py``'s ``test_reshape_reads_same_cycle_mult_res`` pins the
+    same row with a scatter of distinct products.
     """
-    assert lane(run(PROBES["reshape_mult_res"]).state, "r_acc", 0) == 1
+    assert lane(run(PROBES["reshape_mult_res"]).state, "r_acc", 0) == 9
 
 
 def test_acc_reads_old_r_acc_at_cycle_start():

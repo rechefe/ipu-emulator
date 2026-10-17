@@ -244,7 +244,8 @@ def execute_acc_reshape(ipu: Ipu, *, source: int, dest: int, reshape_mask: int) 
     LR_index = encoded - RESHAPE_MASK_LR_OFFSET). A resolved mask greater than
     RESHAPE_ELEMENT_COUNT, or a participating source[i]/dest[i] outside
     [0, 127], is fault F-5, found by :func:`check_acc_reshape` before the word
-    runs. All MULT_RES reads come from the pre-instruction snapshot.
+    runs. MULT_RES is this cycle's value: a MULT in the same word is seen
+    (forwarded, Q32 rule 3), as for every other ACC-stage op.
     """
     src_bytes, dst_bytes, mask = _reshape_operands(ipu, source, dest, reshape_mask)
     mult_res = ipu._view.read("mult_res")

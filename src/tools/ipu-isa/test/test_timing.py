@@ -156,7 +156,6 @@ def test_known_deviations_are_the_issue_table():
     rows = {(d.mnemonic, d.register, d.via_operand, d.today, d.fixed_by) for d in KNOWN_DEVIATIONS}
     mult = ("MULT.RC.VV", "MULT.RC.VE", "MULT.RC.VS", "MULT.VE", "MULT.EE")
     assert rows == {
-        ("ACC.RESHAPE", "mult_res", None, CS, "E04-26"),
         *((m, "r_mask", None, FW, "E04-27") for m in mult),
     }
     assert all(d.contract is not d.today for d in KNOWN_DEVIATIONS)
@@ -197,14 +196,12 @@ def test_a_new_undeclared_deviation_is_rejected():
 
 
 def test_a_stale_deviation_row_is_rejected():
-    """Fixing a deviation (E04-26 flips the read) fails until its row is deleted."""
+    """Fixing a deviation (E04-27 flips the read) fails until its row is deleted."""
     spec = _spec()
-    _implicit_read(spec, "acc", "ACC.RESHAPE", "mult_res")["view"] = "forwarded"
-    _rejects(spec, r"KNOWN_DEVIATIONS: row\(s\) no longer differ .*ACC\.RESHAPE mult_res via None")
+    _implicit_read(spec, "mult", "MULT.EE", "r_mask")["view"] = "cycle_start"
+    _rejects(spec, r"KNOWN_DEVIATIONS: row\(s\) no longer differ .*MULT\.EE r_mask via None")
     remaining = [
-        d
-        for d in KNOWN_DEVIATIONS
-        if not (d.mnemonic == "ACC.RESHAPE" and d.register == "mult_res")
+        d for d in KNOWN_DEVIATIONS if not (d.mnemonic == "MULT.EE" and d.register == "r_mask")
     ]
     validate_timing(spec, SLOTS, remaining)
 

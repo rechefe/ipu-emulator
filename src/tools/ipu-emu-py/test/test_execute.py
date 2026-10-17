@@ -1844,7 +1844,7 @@ HALT;;
         for i in range(1, 8):
             assert state.regfile.get_r_acc_word(100 + i) == 1000 + i
 
-    def test_reshape_reads_from_mult_res_snapshot_not_r_acc(self):
+    def test_reshape_reads_from_mult_res_not_r_acc(self):
         """ACC.RESHAPE copies from MULT_RES, not R_ACC; R_ACC source values are ignored."""
         src_lo, src_hi = _lrd_bytes(0, 1, 2, 3, 4, 5, 6, 7)
         dst_lo, dst_hi = _lrd_bytes(10, 11, 12, 13, 14, 15, 16, 17)
@@ -1949,9 +1949,10 @@ HALT;;
         assert state.halt == HaltRecord("fault", caught.value.pc, caught.value.fault)
         assert caught.value.fault is FaultId.F5
 
-    def test_reshape_mult_res_reads_from_snapshot(self):
-        """MULT_RES is read from the pre-instruction snapshot (not live state)."""
-        src_lo, src_hi = _lrd_bytes(5, 6, 2, 3, 4, 5, 6, 7)
+    def test_reshape_reads_same_cycle_mult_res(self):
+        """A MULT in the same word is seen: RESHAPE scatters this word's product
+        (Q32 rule 3, E04-26), not the MULT_RES the cycle started with."""
+        src_lo, src_hi = _lrd_bytes(0, 1, 2, 3, 4, 5, 6, 7)
         dst_lo, dst_hi = _lrd_bytes(10, 11, 12, 13, 14, 15, 16, 17)
         state = make_state(
             """\
@@ -1959,19 +1960,23 @@ SET lr0 cr8;;
 SET lr1 cr9;;
 SET lr2 cr10;;
 SET lr3 cr11;;
-ACC.RESHAPE lrd0 lrd2 6;;
+MULT.RC.VS lr4 0 lr4 cr15; ACC.RESHAPE lrd0 lrd2 6;;
 HALT;;
 """,
             cr={8: src_lo, 9: src_hi, 10: dst_lo, 11: dst_hi},
         )
-        # Slots 6 and 7: src[6]=6 → dest[6]=16; src[7]=7 → dest[7]=17
-        state.regfile.set_mult_res_word(6, 700)
-        state.regfile.set_mult_res_word(7, 800)
+        # R_CYCLIC[i] = i + 1, so this word's MULT_RES[i] = (i + 1) ** 2.
+        state.regfile.mutable("r_cyclic")[:8] = bytes(range(1, 9))
+        # The MULT_RES the cycle starts with; RESHAPE must not see it.
+        for i in range(8):
+            state.regfile.set_mult_res_word(i, 700 + i)
         for i in range(128):
             state.regfile.set_r_acc_word(i, 9999)
         run_until_complete(state)
-        assert state.regfile.get_r_acc_word(16) == 700
-        assert state.regfile.get_r_acc_word(17) == 800
+        # Slots 6 and 7: src[6]=6 -> dest[6]=16; src[7]=7 -> dest[7]=17.
+        assert state.regfile.get_r_acc_word(16) == 49
+        assert state.regfile.get_r_acc_word(17) == 64
+        assert state.regfile.get_r_acc_word(15) == 9999
 
 
 class TestProgramCounter:
