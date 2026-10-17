@@ -40,3 +40,12 @@ def border_mask(plan: CasePlan) -> bytes:
             if lane not in lanes:
                 blob[slot * 16 + lane // 8] |= 1 << (lane % 8)
     return bytes(blob)
+
+
+def keep_all_mask(plan: CasePlan) -> bytes:
+    """The pointwise kernels' R_MASK blob (E07-18): slot 0 keeps every lane
+    (16 bytes of 0xFF, as the ipu_apps harness wrote), the rest of the row
+    zero. The program never masks."""
+    blob = bytearray(FORMATS[plan.format].row_bytes)
+    blob[:16] = b"\xff" * 16
+    return bytes(blob)

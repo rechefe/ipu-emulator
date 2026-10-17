@@ -2,18 +2,18 @@
 
 The tiled kernels (``conv1x1``, ``conv3x3_relu``, ``conv3x3_relu_cin1``) and
 ``conv_first_layer`` moved to ``kernels/convolutions`` (E07-16), and so did
-``conv_universal`` and ``conv_universal_bn_activation`` (E07-17); the old
-``conv_universal`` folder stays, frozen, for the Cycle Inspector (E07-26).
+``conv_universal`` and ``conv_universal_bn_activation`` (E07-17) and the
+pointwise and depthwise twins (E07-18); the old ``conv_universal`` folder
+stays, frozen, for the Cycle Inspector (E07-26), and the old
+``depthwise_conv_universal`` folder as stage 1 of the stride-2 kernels (E07-19).
 
-**Universal kernels** -- ``conv_universal`` (the frozen copy),
-``conv_universal_wide384``, ``depthwise_conv_universal``,
-``depthwise_conv_universal_bn_activation``, the three
-``depthwise_conv_stride2_*`` kernels and the two ``pointwise_conv_unified*``
-kernels -- run on the wide-vector FP32 datapath and receive exactly the fields
+**Universal kernels** -- ``conv_universal`` and ``depthwise_conv_universal``
+(the frozen copies), ``conv_universal_wide384`` and the three
+``depthwise_conv_stride2_*`` kernels -- run on the wide-vector FP32 datapath and receive exactly the fields
 of :class:`ConvQuery`, all required (``REQUIRES``):
 
 ``in_channels``, ``out_channels``   channel counts
-``kernel_size``                     1 (pointwise) or 3 (spatial)
+``kernel_size``                     3
 ``stride``, ``padding``, ``dilation``
 ``groups``                          1 (plain), or ``in_channels`` (depthwise)
 ``has_bias``, ``apply_relu``        bias/activation, independent of each other
@@ -23,8 +23,7 @@ Every universal kernel reads and writes raw, unpadded
 ``[channels, height, width]`` float32 (``input_path`` / ``output_path``);
 packing into the on-device chunk-interleaved layout is internal to each
 harness. Weights are ``kernel_path`` -- the torch ``[out, in / groups, k, k]``
-weight tensor as raw float32 -- and, for the bias-capable kernels, ``bias_path``
-holds ``[out_channels]`` float32.
+weight tensor as raw float32.
 
 **Framework adapter.** ``register_layer("Conv2d")`` lives here and registers on
 import; every universal kernel's ``app.py`` imports this module, so
@@ -88,20 +87,6 @@ def kernel_source(kernel: str) -> Traversable:
 def sibling_program(kernel: str) -> AbstractContextManager[Path]:
     """A sibling kernel's program as a ``.bin`` file, for one stage of a multi-stage kernel."""
     return program_file(assemble_program(kernel_source(kernel)))
-
-
-def read_bias(bias, bias_path, count: int) -> np.ndarray:
-    """``bias`` (array) or ``bias_path`` (raw float32 file); zeros if neither."""
-    if bias is not None and bias_path is not None:
-        raise ValueError("Provide at most one of bias= or bias_path=")
-    if bias is None and bias_path is not None:
-        bias = np.fromfile(bias_path, dtype="<f4")
-    if bias is None:
-        bias = np.zeros(count, dtype=np.float32)
-    bias = np.asarray(bias, dtype=np.float32)
-    if bias.shape != (count,):
-        raise ValueError(f"bias must have shape ({count},), got {bias.shape}")
-    return bias
 
 
 # -- Shared chunk-interleaved packing (channel-per-128-element-chunk layout) -
@@ -281,9 +266,9 @@ class ConvQuery:
 
     ``apply_relu`` has no ``torch.nn.Conv2d`` equivalent -- a plain Conv2d
     layer never implies an activation, so callers must state it explicitly
-    rather than have it inferred from ``has_bias``. The two are independent:
-    every bias-capable app in this family unconditionally applies ReLU, so
-    ``has_bias=True, apply_relu=False`` is refused by every universal kernel.
+    rather than have it inferred from ``has_bias``. The two are independent.
+    The bias-capable kernels moved to ``kernels/convolutions`` (E07-17,
+    E07-18), so every kernel left here refuses ``has_bias=True``.
     """
 
     in_channels: int
@@ -364,20 +349,6 @@ def positive_dims(q: ConvQuery) -> str | None:
     return None
 
 
-def bias_requires_relu(q: ConvQuery) -> str | None:
-    """Return a refusal reason if bias is requested without ReLU.
-
-    Every bias-capable app in this family (the ``_bn_activation`` twins)
-    unconditionally applies ReLU, so this refusal is shared across all of them.
-    """
-    if q.has_bias and not q.apply_relu:
-        return (
-            "has_bias=True with apply_relu=False has no matching app: every "
-            "bias-capable kernel in this family unconditionally applies ReLU"
-        )
-    return None
-
-
 # -- Padding math (pure, no app-class dependency) -----------------------------
 
 _VALID_COLS = (16, 32, 64, 128)
@@ -400,27 +371,6 @@ def min_rows_for_chunk_floor(rows: int, cols: int) -> int:
     (the ``num_chunks >= 2`` floor every stride-1 k=3 app enforces)."""
     needed = math.ceil(256 / cols)
     return max(rows, needed)
-
-
-def pointwise_pad_shape(rows: int, width: int) -> tuple[int, int]:
-    """Smallest ``(padded_rows, padded_cols)`` >= ``(rows, width)`` such that
-    ``padded_cols`` divides 128 and ``padded_rows * padded_cols`` is a whole
-    number of 128-element chunks. Pointwise has no spatial neighbourhood, so
-    a padded lane can never leak into a real lane through the conv.
-
-    ``width`` must be <= 128: no integer greater than 128 divides 128, so the
-    search for ``padded_cols`` has no terminating value above it (callers
-    must refuse width > 128 in their own ``supports`` before reaching here;
-    see ``pointwise_conv_unified``'s width bound)."""
-    if width > 128:
-        raise ValueError(f"width ({width}) must be <= 128; no divisor of 128 exists above it")
-    padded_cols = width
-    while 128 % padded_cols != 0:
-        padded_cols += 1
-    padded_rows = rows
-    while (padded_rows * padded_cols) % 128 != 0:
-        padded_rows += 1
-    return padded_rows, padded_cols
 
 
 def padding_caveat(q: ConvQuery, rows: int, cols: int) -> tuple[str, ...]:

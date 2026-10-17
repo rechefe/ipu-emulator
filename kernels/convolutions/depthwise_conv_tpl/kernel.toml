@@ -1,0 +1,353 @@
+# depthwise_conv_tpl: the template of the depthwise 3x3 stride-1 "same"
+# convolution (E07-18), FP32 wide vectors: one filter per channel, groups =
+# in_channels = out_channels. Its variants are the entries
+# depthwise_conv_universal and depthwise_conv_universal_bn_activation in
+# ../registry.toml; the program reads has_bias and apply_relu itself (see the
+# .asm header). Its program is also stage 1 of the depthwise_conv_stride2_*
+# kernels (E07-19). Routed in the universal conv2d vocabulary: every one of its
+# 11 query parameters must be named by a query, as the ipu_apps router's
+# requires had it.
+[kernel]
+op = "conv2d"
+formats = ["fp32"]
+# At in_channels = out_channels = groups = 1 a depthwise 3x3 is also a plain
+# one, which the ipu_apps router answered with conv_universal (this kernel an
+# alternative): so this costs more than the conv_universal entries (an equal
+# cost would be a tie, an error).
+cost = 1
+
+# Declared in the old supports' order (depthwise_conv_universal/app.py): the
+# extents, then kernel_size, dilation, padding, stride, groups, apply_relu,
+# has_bias, and width last.
+[params]
+in_channels  = { type = "int", min = 1, query_required = true }
+out_channels = { type = "int", min = 1, query_required = true }               # = in_channels ([derived] checks)
+height       = { type = "int", min = 1, query_required = true }
+kernel_size  = { type = "int", choices = [3], query_required = true }
+dilation     = { type = "int", choices = [1], query_required = true }
+padding      = { type = "int", choices = [1], query_required = true }
+stride       = { type = "int", choices = [1], query_required = true }         # 2: depthwise_conv_stride2_*
+groups       = { type = "int", min = 1, query_required = true }               # = in_channels ([derived] checks)
+apply_relu   = { type = "bool", query_required = true }
+has_bias     = { type = "bool", query_required = true }
+width        = { type = "int", min = 1, max = 128, query_required = true }
+# Not a query parameter: channels per 256-element super-block, 28 unseeded (9
+# taps a channel) or 25 seeded (the bias and 9 taps). It is CR7, and a bool
+# cannot enter an expression ([derived] takes ints only), so it cannot be
+# derived from has_bias and apply_relu: each entry fixes it (no default), and
+# the depthwise_filters pack refuses an fpb that does not match the seed.
+fpb          = { type = "int", choices = [25, 28] }
+
+[derived]
+# groups = in_channels = out_channels has no [params] form: each ratio must be whole.
+groups_per_in = "groups / in_channels"
+in_per_groups = "in_channels / groups"
+out_per_in    = "out_channels / in_channels"
+in_per_out    = "in_channels / out_channels"
+# cols: the smallest of 16, 32, 64, 128 at least width (as conv_universal_tpl).
+cols          = "16 + 16 * min(1, max(0, width - 16)) + 32 * min(1, max(0, width - 32)) + 64 * min(1, max(0, width - 64))"
+rows          = "max(height, ceil(256 / cols))"            # at least 2 chunks
+num_chunks    = "rows * cols // 128"                       # rounds down, as before (see the .asm header)
+kernel_rows   = "ceil(in_channels / fpb) * 2"              # filter rows; written, never read
+ring_adv      = "3 * 128"                                  # R_CYCLIC elements
+chunk_limit   = "(num_chunks - 1) * in_channels + in_channels"  # biased by the headroom stride
+slot_stride   = "128"                                      # R_CYCLIC elements
+half_slot     = "256"                                      # R_CYCLIC elements
+walk_step     = "256 - 2 * cols - 2"                       # R_CYCLIC elements; -2 at cols 128 (two's complement)
+dstructure    = "dstructure(128, 128 // cols - cols // 128)"  # partition: 128 / cols groups, P0 at 128
+
+# Placed in the old harness's order: input (with its headroom), filters, mask, output.
+[inputs.x]
+shape = ["in_channels", "height", "width"]
+pack = "chunked_guard"
+
+# One region holds each channel's bias and taps (Q83), so one tensor: column 0
+# the bias, then the 9 taps (the bias + ReLU twin's order). The bias is stored
+# and added only when has_bias; unseeded, its column is not stored at all.
+[inputs.filters]
+shape = ["in_channels", 10]
+pack = "depthwise_filters"
+
+[scratch.border_mask]                                        # the R_MASK blob
+shape = [1, 128]
+after = "filters"
+bytes = "../masks.py:border_mask"
+
+[outputs.y]
+shape = ["out_channels", "height", "width"]
+pack = "chunked"
+
+# Every CR the ipu_apps setup() wrote (CR2-CR15; it wrote no LR, and the
+# program reads none before it writes it).
+[abi]
+y           = { register = "CR2", offset = -1 }   # one row low: the store is one channel late
+border_mask = "CR3"
+cols        = "CR4"
+filters     = "CR5"
+in_channels = "CR6"     # the group stride: one chunk of every channel is in_channels rows
+fpb         = "CR7"
+kernel_rows = "CR8"
+ring_adv    = "CR9"
+x           = "CR10"    # the region base, headroom included
+chunk_limit = "CR11"
+slot_stride = "CR12"
+half_slot   = "CR13"
+walk_step   = "CR14"
+dstructure  = "CR15"
+
+[golden]
+reference = "reference.py:reference"   # filters split, then the shared conv2d (groups = channels)
+# y is an element output: compared in FP32. Measured on the ipu_apps data (the
+# proof): max |err| 3.6e-7 (c50_64, bias + ReLU), every one of the 22 entry
+# cases inside FP32_ORDER; the old check was max |diff| < 1e-2.
+tolerance = { fp32 = "FP32_ORDER" }
+
+# The two ipu_apps kernels' cases and test sweeps (each entry chooses its own,
+# ../registry.toml, at its fixed has_bias, apply_relu and fpb). The old sweep
+# points were named channels=..,height=..,width=..; here c<channels>_<h>[x<w>].
+
+[cases.default]  # both twins' cases.py DEFAULTS
+in_channels = 4
+out_channels = 4
+height = 16
+width = 16
+kernel_size = 3
+dilation = 1
+padding = 1
+stride = 1
+groups = 4
+has_bias = false
+apply_relu = false
+fpb = 28
+generator = "../gen.py:legacy_depthwise"  # the ipu_apps data, for the proof
+
+[cases.negative_outputs]  # depthwise_conv_universal: weights -1 on an input of 5, every sum negative (test_depthwise_conv.py)
+in_channels = 4
+out_channels = 4
+height = 16
+width = 16
+kernel_size = 3
+dilation = 1
+padding = 1
+stride = 1
+groups = 4
+has_bias = false
+apply_relu = false
+fpb = 28
+generator = "../gen.py:legacy_depthwise_negative"  # the ipu_apps data, for the proof
+
+[cases.negative_bias]  # depthwise_conv_universal_bn_activation: zero weights, a bias below zero, so ReLU writes zeros (test_depthwise_conv.py)
+in_channels = 4
+out_channels = 4
+height = 16
+width = 16
+kernel_size = 3
+dilation = 1
+padding = 1
+stride = 1
+groups = 4
+has_bias = true
+apply_relu = true
+fpb = 25
+generator = "../gen.py:legacy_depthwise_negative_bias"  # the ipu_apps data, for the proof
+
+[cases.relu_no_bias]  # the template's own: seeded without a bias (no entry routes it), the bias column must read 0
+in_channels = 4
+out_channels = 4
+height = 16
+width = 16
+kernel_size = 3
+dilation = 1
+padding = 1
+stride = 1
+groups = 4
+has_bias = false
+apply_relu = true
+fpb = 25
+generator = "../gen.py:legacy_depthwise"  # the ipu_apps data, for the proof
+
+[cases.c28_16]  # one full FPB = 28 super-block (plain)
+in_channels = 28
+out_channels = 28
+height = 16
+width = 16
+kernel_size = 3
+dilation = 1
+padding = 1
+stride = 1
+groups = 28
+has_bias = false
+apply_relu = false
+fpb = 28
+generator = "../gen.py:legacy_depthwise"  # the ipu_apps data, for the proof
+
+[cases.c25_16]  # one full FPB = 25 super-block (bn)
+in_channels = 25
+out_channels = 25
+height = 16
+width = 16
+kernel_size = 3
+dilation = 1
+padding = 1
+stride = 1
+groups = 25
+has_bias = true
+apply_relu = true
+fpb = 25
+generator = "../gen.py:legacy_depthwise"  # the ipu_apps data, for the proof
+
+[cases.c32_16]  # one full + one partial super-block (both)
+in_channels = 32
+out_channels = 32
+height = 16
+width = 16
+kernel_size = 3
+dilation = 1
+padding = 1
+stride = 1
+groups = 32
+has_bias = false
+apply_relu = false
+fpb = 28
+generator = "../gen.py:legacy_depthwise"  # the ipu_apps data, for the proof
+
+[cases.c16_32]  # multi-chunk, partial super-block (both)
+in_channels = 16
+out_channels = 16
+height = 32
+width = 32
+kernel_size = 3
+dilation = 1
+padding = 1
+stride = 1
+groups = 16
+has_bias = false
+apply_relu = false
+fpb = 28
+generator = "../gen.py:legacy_depthwise"  # the ipu_apps data, for the proof
+
+[cases.c50_64]  # two super-blocks, larger spatial (both)
+in_channels = 50
+out_channels = 50
+height = 64
+width = 64
+kernel_size = 3
+dilation = 1
+padding = 1
+stride = 1
+groups = 50
+has_bias = false
+apply_relu = false
+fpb = 28
+generator = "../gen.py:legacy_depthwise"  # the ipu_apps data, for the proof
+
+[cases.c4_8x128]  # cols = 128, P0 (both)
+in_channels = 4
+out_channels = 4
+height = 8
+width = 128
+kernel_size = 3
+dilation = 1
+padding = 1
+stride = 1
+groups = 4
+has_bias = false
+apply_relu = false
+fpb = 28
+generator = "../gen.py:legacy_depthwise"  # the ipu_apps data, for the proof
+
+[cases.c30_16x128]  # cols = 128, multi-chunk, block spanning (both)
+in_channels = 30
+out_channels = 30
+height = 16
+width = 128
+kernel_size = 3
+dilation = 1
+padding = 1
+stride = 1
+groups = 30
+has_bias = false
+apply_relu = false
+fpb = 28
+generator = "../gen.py:legacy_depthwise"  # the ipu_apps data, for the proof
+
+[cases.c4_8x8]  # padding-heavy (both)
+in_channels = 4
+out_channels = 4
+height = 8
+width = 8
+kernel_size = 3
+dilation = 1
+padding = 1
+stride = 1
+groups = 4
+has_bias = false
+apply_relu = false
+fpb = 28
+generator = "../gen.py:legacy_depthwise"  # the ipu_apps data, for the proof
+
+[cases.c4_5x5]  # padding-heavy (both)
+in_channels = 4
+out_channels = 4
+height = 5
+width = 5
+kernel_size = 3
+dilation = 1
+padding = 1
+stride = 1
+groups = 4
+has_bias = false
+apply_relu = false
+fpb = 28
+generator = "../gen.py:legacy_depthwise"  # the ipu_apps data, for the proof
+
+[cases.c3_5x128]  # end-to-end layer shape (plain)
+in_channels = 3
+out_channels = 3
+height = 5
+width = 128
+kernel_size = 3
+dilation = 1
+padding = 1
+stride = 1
+groups = 3
+has_bias = false
+apply_relu = false
+fpb = 28
+generator = "../gen.py:legacy_depthwise"  # the ipu_apps data, for the proof
+
+[cases.c4_6x65]  # end-to-end layer shape, width 65 -> cols 128 (bn)
+in_channels = 4
+out_channels = 4
+height = 6
+width = 65
+kernel_size = 3
+dilation = 1
+padding = 1
+stride = 1
+groups = 4
+has_bias = true
+apply_relu = true
+fpb = 25
+generator = "../gen.py:legacy_depthwise"  # the ipu_apps data, for the proof
+
+# The two ipu_apps benchmark.py CONFIGS (10 points each, 7 shared) as one list of
+# 13: each entry times all 13 (per was PER = "channels"; max_cycles MAX_CYCLES).
+[benchmark]
+per = "in_channels"
+max_cycles = 50_000_000
+points = [
+  { height = 16, width = 16, in_channels = 8, out_channels = 8, groups = 8 },
+  { height = 16, width = 16, in_channels = 25, out_channels = 25, groups = 25 },
+  { height = 16, width = 16, in_channels = 26, out_channels = 26, groups = 26 },
+  { height = 16, width = 16, in_channels = 28, out_channels = 28, groups = 28 },
+  { height = 16, width = 16, in_channels = 29, out_channels = 29, groups = 29 },
+  { height = 32, width = 32, in_channels = 16, out_channels = 16, groups = 16 },
+  { height = 32, width = 32, in_channels = 32, out_channels = 32, groups = 32 },
+  { height = 32, width = 32, in_channels = 50, out_channels = 50, groups = 50 },
+  { height = 32, width = 32, in_channels = 56, out_channels = 56, groups = 56 },
+  { height = 64, width = 64, in_channels = 32, out_channels = 32, groups = 32 },
+  { height = 64, width = 64, in_channels = 64, out_channels = 64, groups = 64 },
+  { height = 32, width = 32, in_channels = 96, out_channels = 96, groups = 96 },
+  { height = 16, width = 16, in_channels = 40, out_channels = 40, groups = 40 },
+]

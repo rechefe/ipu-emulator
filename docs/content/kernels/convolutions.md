@@ -30,6 +30,15 @@ with the same eleven parameters, every one required. The `_bn_activation`
 entry takes `apply_relu=True` with or without a bias (a zero one);
 `has_bias=True, apply_relu=False` has no kernel.
 
+The pointwise and depthwise twins (`pointwise_conv_unified`,
+`pointwise_conv_unified_bn_activation`, `depthwise_conv_universal`,
+`depthwise_conv_universal_bn_activation`) are entries of the same
+`registry.toml` over two programs, `kernels/convolutions/pointwise_conv_tpl` and
+`kernels/convolutions/depthwise_conv_tpl`, and run as
+`//kernels/convolutions:<name>`. `pointwise_conv_unified_bn_activation` takes
+`apply_relu=True` with or without a bias (a zero one);
+`depthwise_conv_universal_bn_activation` requires both the bias and ReLU.
+
 `conv_first_layer` covers only `3x256x256 -> 16x128x128`, stride 2, bias+ReLU.
 It runs as `//kernels/convolutions/conv_first_layer` and answers
 `bazel run //kernels:query -- conv2d ...` with the same eleven parameters.

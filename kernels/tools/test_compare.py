@@ -237,3 +237,11 @@ def test_a_read_of_a_register_nothing_writes_fails_the_output(tree):
     asm.write_text(source.replace("SET {{lr_row}} cr0 ;;", "NOP ;;"))
     rows = compare_family("reshape", only=["identity"], root=tree)
     assert all(not row.output_ok for row in rows)
+
+
+def test_a_case_map_keeps_the_equals_signs_of_an_old_sweep_id():
+    pairs = ["channels=4,height=8,width=8=c4_8x8", "default=plain"]
+    assert compare_setup.case_mapping(pairs) == {
+        "channels=4,height=8,width=8": "c4_8x8",
+        "default": "plain",
+    }

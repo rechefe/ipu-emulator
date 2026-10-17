@@ -209,48 +209,6 @@
   "blank-line-range": "acef79a6b3ff8e83b46ae968911dad794c080cb090312b9fe541a4866eaaa284",
   "mangled/blank-line-range": "a74784a27aab26a215f554231ace9d098456a8e7c143c10b87f5ac51a192e7c6"
  },
- "src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/depthwise_conv_universal_bn_activation/depthwise_conv_universal_bn_activation.asm": {
-  "input": "ed733918389854bba45dce0f4e91530ec8db4831034d0581db889026197bdcdb",
-  "mangled": "61942b543183a4eb99db0ab40bafda26ca9a362e3331d80f8567aa36cfc02612",
-  "default": "ed733918389854bba45dce0f4e91530ec8db4831034d0581db889026197bdcdb",
-  "mangled/default": "ed733918389854bba45dce0f4e91530ec8db4831034d0581db889026197bdcdb",
-  "blank-line": "68b2158fc8e57e397d78b7bf20146f749f77e3a9c9bbf4265b1a665fec120d63",
-  "mangled/blank-line": "68b2158fc8e57e397d78b7bf20146f749f77e3a9c9bbf4265b1a665fec120d63",
-  "indent-tab": "eefec086c2fb810eb195305f292c0596ea472f085d4e9daa5d256fb750e9bd0f",
-  "mangled/indent-tab": "eefec086c2fb810eb195305f292c0596ea472f085d4e9daa5d256fb750e9bd0f",
-  "indent-2-range": "f49f395a55f7db8b4072c0229da555721e9d99aba102e0a776422f66e80fa699",
-  "mangled/indent-2-range": "25fdd10f6ac517c2d2b8221a268a8abc333ace8d600e841890edc84f9ebbc207",
-  "blank-line-range": "39c636fa8c132af4174d60f2854348377e36a407fff13a61c695174745f8fbea",
-  "mangled/blank-line-range": "60f5ed89da9cdcc1a798ff100c2e0311e248c1813c176151e7ed9b8c7d57476b"
- },
- "src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/pointwise_conv_unified/pointwise_conv_unified.asm": {
-  "input": "d72a6b14624bcd769d5de67dc48ad136fa3c3b3ff86d081541918726136e7190",
-  "mangled": "b3314350753fd89dca67e72a7f443cfacc4b12d8ac1fb48a4945b59a6adc2628",
-  "default": "d72a6b14624bcd769d5de67dc48ad136fa3c3b3ff86d081541918726136e7190",
-  "mangled/default": "d72a6b14624bcd769d5de67dc48ad136fa3c3b3ff86d081541918726136e7190",
-  "blank-line": "48853e78a14218fe9bfd705376699d3c050b53f7b25f261d113a9d827f026f16",
-  "mangled/blank-line": "48853e78a14218fe9bfd705376699d3c050b53f7b25f261d113a9d827f026f16",
-  "indent-tab": "f0b424cbde0dffcb58de8a6fe86b77a08f4a039c5fc7342a53e96a64ee429992",
-  "mangled/indent-tab": "f0b424cbde0dffcb58de8a6fe86b77a08f4a039c5fc7342a53e96a64ee429992",
-  "indent-2-range": "713346665d6d3464196ecdcbc95ab6145ba048e000db76852eb0c2f26461f0f3",
-  "mangled/indent-2-range": "d84ce53bdf25d36990e33ea9747e492c7159616642e78eddf01816eba21e7da6",
-  "blank-line-range": "7a35581a3d877325c0b654adc8f8e3dd655aaeaf78154d0075670d2f46640d3d",
-  "mangled/blank-line-range": "9b3683fd8e7f89971fe01c1ee957df152e477bd291bf1ab484274bcf258730b1"
- },
- "src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/pointwise_conv_unified_bn_activation/pointwise_conv_unified_bn_activation.asm": {
-  "input": "11a6e11a1ab52050cf78a5e08f068f661224821c8f3ad55e12c8c8a57e83d8d6",
-  "mangled": "4d319320082ff3e94fc781aec6231f58c389188a8567e9c082efec5a1f9d820e",
-  "default": "11a6e11a1ab52050cf78a5e08f068f661224821c8f3ad55e12c8c8a57e83d8d6",
-  "mangled/default": "11a6e11a1ab52050cf78a5e08f068f661224821c8f3ad55e12c8c8a57e83d8d6",
-  "blank-line": "a7fb8a9ab8df5735117596cfa14bf48c8b5cbb17d70f46f5d45b97ff66b7887f",
-  "mangled/blank-line": "a7fb8a9ab8df5735117596cfa14bf48c8b5cbb17d70f46f5d45b97ff66b7887f",
-  "indent-tab": "a1397567220bcebf313c5693c4c340756e878176bc0c425f966814c1f24d6496",
-  "mangled/indent-tab": "a1397567220bcebf313c5693c4c340756e878176bc0c425f966814c1f24d6496",
-  "indent-2-range": "9adc93794fbf411fd9933334de3240c70c150542ff59dd18c635e21f72b50de0",
-  "mangled/indent-2-range": "a281a8d63cb51b96a91c0670a20e2935562f0a9bc8aa8c09cb71f2be94ded16a",
-  "blank-line-range": "8e4c74040691c161b853f8250a2e0882cbc24df20a1c2a19fda47d429b95cbcf",
-  "mangled/blank-line-range": "a8a3e5811a5446db7b336b63def194110c4a98458616e792adea85109af9b1e9"
- },
  "src/tools/ipu-apps/src/ipu_apps/kernels/elementwise/residual_add/residual_add.asm": {
   "input": "3b0c770e30dc79212e0a758334071e85df363033119bacdac8658695bae53427",
   "mangled": "74636d0213b062ae747804c3d1dd864b1f12b528b4b918980df6a3bdf3307f31",

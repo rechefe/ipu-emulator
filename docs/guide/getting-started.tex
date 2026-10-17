@@ -651,7 +651,7 @@ $ bazel run //src/tools/ipu-apps:query -- conv2d in_channels=32 out_channels=32 
     has_bias=False apply_relu=False height=64 width=64
 \end{termcmdtop}
 \begin{termout}
-NOT SUPPORTED: no conv2d kernel covers this query -- conv_universal, conv_universal_wide384, depthwise_conv_stride2_128, depthwise_conv_stride2_16, depthwise_conv_stride2_narrow, depthwise_conv_universal, depthwise_conv_universal_bn_activation: handles only kernel_size=3; got 5; pointwise_conv_unified, pointwise_conv_unified_bn_activation: handles only kernel_size=1 (pointwise); got 5
+NOT SUPPORTED: no conv2d kernel covers this query -- conv_universal, conv_universal_wide384, depthwise_conv_stride2_128, depthwise_conv_stride2_16, depthwise_conv_stride2_narrow, depthwise_conv_universal: handles only kernel_size=3; got 5
 \end{termout}
 
 \subsection{Sweep a parameter: \texttt{--sweep}}
@@ -853,7 +853,7 @@ $ bazel test //src/tools/ipu-apps:convolutions
 \end{termcmdtop}
 \begin{termout}
 ...
-//src/tools/ipu-apps:pointwise_conv_unified_bn_activation                PASSED in 33.7s
+//src/tools/ipu-apps:depthwise_conv_universal                            PASSED in 33.7s
 
 Test cases: finished with 133 passing, 0 skipped and 0 failing out of 133 test cases
 Executed 15 out of 15 tests: 15 tests pass.

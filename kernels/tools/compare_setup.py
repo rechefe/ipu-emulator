@@ -154,10 +154,14 @@ def compare_setup(
 
 
 def case_mapping(pairs: Sequence[str]) -> dict[str, str]:
-    """``--case-map OLD=NEW`` arguments as a mapping."""
+    """``--case-map OLD=NEW`` arguments as a mapping.
+
+    A new case name holds no ``=``, so the pair splits at its last one: an old
+    sweep id (``channels=4,height=8,width=8``) maps as it is written.
+    """
     mapping = {}
     for pair in pairs:
-        old, sep, new = pair.partition("=")
+        old, sep, new = pair.rpartition("=")
         if not sep or not old or not new:
             raise argparse.ArgumentTypeError(f"--case-map takes OLD=NEW, not {pair!r}")
         mapping[old] = new

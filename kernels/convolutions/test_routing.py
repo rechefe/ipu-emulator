@@ -7,8 +7,8 @@ Two ``conv2d`` vocabularies share the op. The tiled kernels (``conv1x1``,
 ``activation``, every one required (``ipu_apps`` named the image ``shape=(c,
 h, w)``, a tuple no ``kernel.toml`` parameter can be). The universal kernels
 (``conv_first_layer``; ``conv_universal`` and ``conv_universal_bn_activation``,
-E07-17) take the eleven fields of a ``torch.nn.Conv2d``
-query, ``dilation``, ``groups``, ``has_bias`` and ``apply_relu`` among them.
+E07-17; the pointwise and depthwise twins, E07-18) take the eleven fields of a
+``torch.nn.Conv2d`` query, ``dilation``, ``groups``, ``has_bias`` and ``apply_relu`` among them.
 A query in one vocabulary names a parameter the other's kernels lack, so it
 reaches only its own kernels.
 """
@@ -245,6 +245,109 @@ def test_width_129_is_refused(registry):
     ],
 )
 def test_the_query_tool_names_the_entry(registry, params, kernel, capsys):
+    argv = [
+        "conv2d",
+        *(f"{k}={str(v).lower() if isinstance(v, bool) else v}" for k, v in params.items()),
+    ]
+    assert query.main([*argv, "--json"], registry) == 0
+    answer = json.loads(capsys.readouterr().out)
+    assert (answer["app"], answer["use"]) == (kernel, f"//kernels/convolutions:{kernel}")
+
+
+# -- the pointwise and depthwise twins (E07-18)
+
+
+def pointwise(**overrides):
+    """A universal-vocabulary query for the 1x1 kernels."""
+    return (
+        universal(in_channels=8, out_channels=8, kernel_size=1, padding=0, height=8, width=8)
+        | overrides
+    )
+
+
+def depthwise(**overrides):
+    """A universal-vocabulary query for the depthwise 3x3 stride-1 kernels."""
+    return universal(in_channels=4, out_channels=4, groups=4) | overrides
+
+
+@pytest.mark.parametrize(
+    "has_bias,apply_relu,kernel",
+    [
+        (False, False, "pointwise_conv_unified"),
+        (True, True, "pointwise_conv_unified_bn_activation"),
+        (False, True, "pointwise_conv_unified_bn_activation"),  # a zero bias
+        (True, False, None),  # no kernel yet (E07-20)
+    ],
+)
+def test_bias_and_relu_choose_the_pointwise_kernel(registry, has_bias, apply_relu, kernel):
+    verdict = registry.resolve("conv2d", **pointwise(has_bias=has_bias, apply_relu=apply_relu))
+    assert verdict.kernel_name == kernel, verdict.reason
+    if kernel is not None:
+        assert verdict.label == f"//kernels/convolutions:{kernel}"
+
+
+@pytest.mark.parametrize(
+    "has_bias,apply_relu,kernel",
+    [
+        (False, False, "depthwise_conv_universal"),
+        (True, True, "depthwise_conv_universal_bn_activation"),
+        (False, True, None),  # the depthwise bias + ReLU kernel requires the bias
+        (True, False, None),  # no kernel yet (E07-20)
+    ],
+)
+def test_bias_and_relu_choose_the_depthwise_kernel(registry, has_bias, apply_relu, kernel):
+    verdict = registry.resolve("conv2d", **depthwise(has_bias=has_bias, apply_relu=apply_relu))
+    assert verdict.kernel_name == kernel, verdict.reason
+    if kernel is not None:
+        assert verdict.label == f"//kernels/convolutions:{kernel}"
+
+
+def test_one_channel_depthwise_is_a_plain_3x3_first(registry):
+    # in_channels = out_channels = groups = 1 is both: the plain kernel costs less.
+    verdict = registry.resolve("conv2d", **universal(in_channels=1, out_channels=1))
+    assert verdict.kernel_name == "conv_universal", verdict.reason
+    assert "depthwise_conv_universal" in verdict.alternatives
+
+
+@pytest.mark.parametrize("make", [pointwise, depthwise])
+@pytest.mark.parametrize("missing", list(universal()))
+def test_a_pointwise_or_depthwise_query_must_name_every_parameter(registry, make, missing):
+    params = make()
+    del params[missing]
+    verdict = registry.resolve("conv2d", **params)
+    assert not verdict
+    assert missing in verdict.reason
+
+
+@pytest.mark.parametrize(
+    "params,reason",
+    [
+        (pointwise(width=129), "width = 129 is above its max 128"),
+        (pointwise(stride=2), "stride"),
+        (pointwise(groups=8), "groups"),
+        (pointwise(in_channels=6), "in_channels = 6 is below its min 8"),
+        (pointwise(in_channels=12), "in_channels = 12 is not a multiple of 8"),
+        (pointwise(out_channels=6), "out_channels = 6 is not a multiple of 4"),
+        (pointwise(has_bias=True), "has_bias = True is not one of [False]"),
+        (depthwise(out_channels=8), "out_channels"),
+        (depthwise(groups=2), "groups"),
+        (depthwise(width=129), "width = 129 is above its max 128"),
+    ],
+)
+def test_pointwise_and_depthwise_refusals(registry, params, reason):
+    verdict = registry.resolve("conv2d", **params)
+    assert not verdict
+    assert reason in verdict.reason, verdict.reason
+
+
+@pytest.mark.parametrize(
+    "params,kernel",
+    [
+        (pointwise(), "pointwise_conv_unified"),
+        (depthwise(has_bias=True, apply_relu=True), "depthwise_conv_universal_bn_activation"),
+    ],
+)
+def test_the_query_tool_names_the_pointwise_and_depthwise_entries(registry, params, kernel, capsys):
     argv = [
         "conv2d",
         *(f"{k}={str(v).lower() if isinstance(v, bool) else v}" for k, v in params.items()),

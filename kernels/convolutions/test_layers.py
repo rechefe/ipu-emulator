@@ -101,3 +101,53 @@ def test_a_biased_layer_needs_an_explicit_relu(registry):
     geometry = from_torch_conv2d(layer, (3, 8, 8), apply_relu=True)
     verdict = registry.resolve("conv2d", **geometry.params())
     assert verdict.kernel_name == "conv_universal_bn_activation"
+
+
+def test_the_depthwise_relu_twin_is_reached_through_an_explicit_geometry(registry):
+    layer = Conv2d(4, 4, kernel_size=3, padding=1, groups=4, bias=True)
+    # The layer alone never implies ReLU, so the bias-capable kernels refuse it...
+    assert not registry.from_layer(layer, (4, 6, 65))
+    # ...and asking for it explicitly routes to the depthwise bias + ReLU twin.
+    geometry = from_torch_conv2d(layer, (4, 6, 65), apply_relu=True)
+    verdict = registry.resolve("conv2d", **geometry.params())
+    assert verdict.kernel_name == "depthwise_conv_universal_bn_activation"
+
+
+@pytest.mark.parametrize(
+    "layer,shape,kernel",
+    [
+        (Conv2d(16, 16, kernel_size=1, bias=False), (16, 8, 8), "pointwise_conv_unified"),
+        (
+            Conv2d(4, 4, kernel_size=3, padding=1, groups=4, bias=False),
+            (4, 8, 8),
+            "depthwise_conv_universal",
+        ),
+    ],
+)
+def test_from_layer_routes_to_the_pointwise_and_depthwise_kernels(registry, layer, shape, kernel):
+    assert registry.from_layer(layer, shape).kernel_name == kernel
+
+
+@pytest.mark.parametrize(
+    "layer,shape,reason",
+    [
+        (
+            Conv2d(16, 16, kernel_size=1, bias=False),
+            (16, 8, 129),
+            "width = 129 is above its max 128",
+        ),
+        (Conv2d(8, 8, kernel_size=1, stride=2, bias=False), (8, 8, 8), "stride"),
+        (Conv2d(8, 8, kernel_size=1, groups=8, bias=False), (8, 8, 8), "groups"),
+        (Conv2d(6, 8, kernel_size=1, bias=False), (6, 8, 8), "in_channels = 6 is below its min 8"),
+        (
+            Conv2d(8, 6, kernel_size=1, bias=False),
+            (8, 8, 8),
+            "out_channels = 6 is not a multiple of 4",
+        ),
+        (Conv2d(8, 8, kernel_size=1, bias=True), (8, 8, 8), "apply_relu"),
+    ],
+)
+def test_pointwise_layer_refusals(registry, layer, shape, reason):
+    verdict = registry.from_layer(layer, shape)
+    assert not verdict
+    assert reason in verdict.reason, verdict.reason

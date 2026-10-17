@@ -30,7 +30,9 @@ The universal 3x3 kernels (``conv_universal_tpl``, E07-17) pad the image to
 their ``[derived] rows`` x ``cols`` and chunk-interleave it (``chunked_guard``
 for the input, with its headroom rows; ``chunked`` for the output), and pack
 each filter's weights and bias into 28-channel super-blocks
-(``fpb28_filters``).
+(``fpb28_filters``). The pointwise and depthwise templates (E07-18) reuse
+``chunked``, ``chunked_guard`` and ``conv_weight_groups``, and add
+``pass0_bias`` (the pointwise bias rows) and ``depthwise_filters``.
 """
 
 from __future__ import annotations
@@ -311,6 +313,98 @@ class Fpb28Filters:
         return out
 
 
+class Pass0Bias:
+    """The pointwise kernels' ``(out,)`` bias (E07-18): ``out * num_passes``
+    rows, a grid mirroring the weights (``conv_weight_groups``), the bias at
+    lane 0 of each output channel's pass-0 row and every other element zero,
+    so the weight row offset indexes both regions. The bias is stored only
+    when ``has_bias``: seeded without one (ReLU, no bias) the rows are zero,
+    so the tensor is ignored."""
+
+    @staticmethod
+    def _check(shape: tuple[int, ...]) -> None:
+        if len(shape) != 1:
+            raise ValueError(f"pass0_bias lays out (out_channels,), not {shape}")
+
+    def rows(self, shape: tuple[int, ...], plan: CasePlan) -> int:
+        """``out * num_passes`` rows.
+
+        Raises:
+            ValueError: Not one dimension.
+        """
+        self._check(shape)
+        return shape[0] * int(plan.derived["num_passes"])
+
+    def to_rows(self, a: Array, plan: CasePlan) -> Array:
+        """``a`` at lane 0 of rows ``0, P, 2P, ...`` (zero without ``has_bias``)."""
+        self._check(a.shape)
+        rows = np.zeros((a.shape[0], int(plan.derived["num_passes"]), LANES), dtype=np.float64)
+        if plan.params["has_bias"]:
+            rows[:, 0, 0] = a
+        return rows.reshape(-1, LANES)
+
+    def from_rows(self, r: Array, plan: CasePlan, shape: tuple[int, ...]) -> Array:
+        """Lane 0 of each output channel's first row."""
+        return r.reshape(shape[0], int(plan.derived["num_passes"]), LANES)[:, 0, 0].copy()
+
+
+class DepthwiseFilters:
+    """The depthwise kernels' ``(channels, 10)`` filters (E07-18): per channel
+    the bias, then its 9 taps, in super-blocks of 256 elements (2 rows). A
+    seeded program (``has_bias or apply_relu``, as the template's program
+    decides) reads 10-element slots, 25 channels a block, the bias first; the
+    bias is stored only when ``has_bias`` (seeded without one it is 0, so the
+    column is ignored). Unseeded, a slot is the 9 taps, 28 channels a block,
+    and the bias column is not stored. The kernel's ``fpb`` (a parameter an
+    entry fixes, or a ``[derived]`` value) must agree."""
+
+    @staticmethod
+    def _layout(shape: tuple[int, ...], plan: CasePlan) -> tuple[int, int]:
+        """(first stored column, channels per block)."""
+        if len(shape) != 2 or shape[1] != 10:
+            raise ValueError(f"depthwise_filters lays out (channels, 10), not {shape}")
+        seeded = bool(plan.params["has_bias"] or plan.params["apply_relu"])
+        first, fpb = (0, 25) if seeded else (1, 28)
+        given = int(plan.params["fpb"] if "fpb" in plan.params else plan.derived["fpb"])
+        if given != fpb:
+            raise ValueError(
+                f"depthwise_filters: fpb = {given}, but a "
+                f"{'seeded' if seeded else 'plain'} program stores {fpb} channels a block"
+            )
+        return first, fpb
+
+    def rows(self, shape: tuple[int, ...], plan: CasePlan) -> int:
+        """Two rows per super-block of ``fpb`` channels.
+
+        Raises:
+            ValueError: Not ``(channels, 10)``, or ``fpb`` disagrees with the seed.
+        """
+        _, fpb = self._layout(shape, plan)
+        return _ceil(shape[0], fpb) * 2
+
+    def to_rows(self, a: Array, plan: CasePlan) -> Array:
+        """Each block's channel slots, then zeros."""
+        first, fpb = self._layout(a.shape, plan)
+        c, slot = a.shape[0], 10 - first
+        blocks = _ceil(c, fpb)
+        slots = np.zeros((blocks * fpb, slot), dtype=np.float64)
+        slots[:c] = a[:, first:]
+        if first == 0 and not plan.params["has_bias"]:
+            slots[:c, 0] = 0.0
+        out = np.zeros((blocks, 2 * LANES), dtype=np.float64)
+        out[:, : fpb * slot] = slots.reshape(blocks, fpb * slot)
+        return out.reshape(-1, LANES)
+
+    def from_rows(self, r: Array, plan: CasePlan, shape: tuple[int, ...]) -> Array:
+        """The stored columns back; the bias column reads 0 when it is not stored."""
+        first, fpb = self._layout(shape, plan)
+        c, slot = shape[0], 10 - first
+        blocks = _ceil(c, fpb)
+        out = np.zeros(shape, dtype=np.float64)
+        out[:, first:] = r.reshape(blocks, 2 * LANES)[:, : fpb * slot].reshape(-1, slot)[:c]
+        return out
+
+
 tiled_guard = HaloTiled(halo=0, guard=True)
 halo_tiled_guard = HaloTiled(halo=1, guard=True)
 halo_tiled = HaloTiled(halo=1, guard=False)
@@ -321,3 +415,5 @@ row_interleaved = RowInterleaved()
 chunked_guard = Chunked(guard=True)
 chunked = Chunked(guard=False)
 fpb28_filters = Fpb28Filters()
+pass0_bias = Pass0Bias()
+depthwise_filters = DepthwiseFilters()

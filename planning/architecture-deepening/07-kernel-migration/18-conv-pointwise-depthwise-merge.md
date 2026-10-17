@@ -10,6 +10,17 @@ Apply the E07-17 pattern to the two remaining twin pairs:
 pair becomes one template with `bias` and `activation` parameters, plus 2
 `registry.toml` entries.
 
+As landed: each pair is one template, `kernels/convolutions/pointwise_conv_tpl/`
+and `kernels/convolutions/depthwise_conv_tpl/` (`<name>_tpl`, as E07-17), with
+E07-17's one parameter set: no `bias`/`activation` parameters, the programs read
+the query's `has_bias` and `apply_relu`. Both pairs merge with identical
+binaries (2 program sources for the 4 kernels). The pointwise seed follows
+`apply_relu` (its bias region and CR10 follow the seed, and CR10's other
+binding would need an `and` condition, E07-20); the depthwise seed is
+`has_bias or apply_relu`, and its `fpb` (CR7) is a parameter each entry fixes.
+The old `depthwise_conv_universal` folder stays frozen as stage 1 of the old
+stride-2 kernels until E07-19 (IMPLEMENTATION-DECISIONS, E07-18).
+
 ## Background
 
 Paths are under `src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/`.

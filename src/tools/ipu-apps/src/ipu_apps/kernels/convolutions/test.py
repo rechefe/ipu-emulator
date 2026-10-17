@@ -1,18 +1,19 @@
 """Convolution family tests, beyond each kernel's own cases and test.py.
 
 * The tiled kernels (``conv1x1``, ``conv3x3_relu*``), ``conv_first_layer``
-  (E07-16) and ``conv_universal`` / ``conv_universal_bn_activation`` (E07-17)
-  moved to ``kernels/convolutions``; their routing and the two ``conv2d``
-  vocabularies are tested there (``test_routing.py``, ``test_layers.py``).
-  The old ``conv_universal`` folder stays frozen for the Cycle Inspector
-  (E07-26), so the width table below still names it.
+  (E07-16), ``conv_universal`` / ``conv_universal_bn_activation`` (E07-17)
+  and the pointwise and depthwise twins (E07-18) moved to
+  ``kernels/convolutions``; their routing and the two ``conv2d`` vocabularies
+  are tested there (``test_routing.py``, ``test_layers.py``). The old
+  ``conv_universal`` folder stays frozen for the Cycle Inspector (E07-26), so
+  the width table below still names it, and the old
+  ``depthwise_conv_universal`` folder as stage 1 of the stride-2 kernels
+  (E07-19).
 * **Routing** -- framework-free dispatch checks and the width ceiling, as a
   generated boundary table.
 * **The ``Conv2d`` layer adapter** -- refusal cases, driven through
   :func:`~ipu_apps.kernel_registry.lookup_layer` with a torch-free stand-in
-  for ``torch.nn.Conv2d`` (adapters match by class name), including
-  ``pointwise_conv_unified``'s width bound (a width > 128 pointwise query must
-  be refused, since ``pointwise_pad_shape`` has no divisor of 128 above 128).
+  for ``torch.nn.Conv2d`` (adapters match by class name).
 """
 
 from __future__ import annotations
@@ -27,11 +28,7 @@ from ipu_apps.kernel_registry import (
     lookup_layer,
     resolve,
 )
-from ipu_apps.kernels.convolutions.app import (
-    Conv2dDescription,
-    from_torch_conv2d,
-    pointwise_pad_shape,
-)
+from ipu_apps.kernels.convolutions.app import Conv2dDescription
 
 
 class Conv2d:
@@ -82,10 +79,6 @@ def query(**overrides):
     [
         (dict(in_channels=4, out_channels=4, groups=4), "depthwise_conv_universal"),
         (
-            dict(in_channels=4, out_channels=4, groups=4, has_bias=True, apply_relu=True),
-            "depthwise_conv_universal_bn_activation",
-        ),
-        (
             dict(in_channels=4, out_channels=4, groups=4, stride=2, height=8, width=128),
             "depthwise_conv_stride2_128",
         ),
@@ -96,23 +89,6 @@ def query(**overrides):
         (
             dict(in_channels=4, out_channels=4, groups=4, stride=2, height=16, width=16),
             "depthwise_conv_stride2_16",
-        ),
-        (
-            dict(in_channels=8, out_channels=8, kernel_size=1, padding=0, height=8, width=8),
-            "pointwise_conv_unified",
-        ),
-        (
-            dict(
-                in_channels=8,
-                out_channels=8,
-                kernel_size=1,
-                padding=0,
-                height=8,
-                width=8,
-                has_bias=True,
-                apply_relu=True,
-            ),
-            "pointwise_conv_unified_bn_activation",
         ),
         (dict(width=384, out_channels=4), "conv_universal_wide384"),
     ],
@@ -153,15 +129,6 @@ def test_conv2d_adapter_is_registered():
     assert "Conv2d" in adapters()
 
 
-def test_relu_twins_are_reached_through_an_explicit_description():
-    layer = Conv2d(4, 4, kernel_size=3, padding=1, groups=4, bias=True)
-    # The layer alone never implies ReLU, so the bias-capable twins refuse it...
-    assert not lookup_layer(layer, (4, 6, 65))
-    # ...and asking for it explicitly routes to the depthwise BN twin.
-    desc = from_torch_conv2d(layer, (4, 6, 65), apply_relu=True)
-    assert resolve("conv2d", **desc.params()).app_name == "depthwise_conv_universal_bn_activation"
-
-
 @pytest.mark.parametrize(
     "layer,shape,reason",
     [
@@ -173,13 +140,6 @@ def test_relu_twins_are_reached_through_an_explicit_description():
         (Conv2d(3, 4, kernel_size=3, padding=1, stride=2), (3, 8, 128), "stride"),
         # width 200: over 128 and not a multiple of 128 >= 384 for wide384 either.
         (Conv2d(3, 4, kernel_size=3, padding=1, bias=False), (3, 8, 200), "width"),
-        # Refused by the pointwise width bound before pointwise_pad_shape is reached.
-        (Conv2d(16, 16, kernel_size=1, bias=False), (16, 8, 129), "width (129) exceeds 128"),
-        (Conv2d(8, 8, kernel_size=1, stride=2, bias=False), (8, 8, 8), "stride"),
-        (Conv2d(8, 8, kernel_size=1, groups=8, bias=False), (8, 8, 8), "groups"),
-        (Conv2d(6, 8, kernel_size=1, bias=False), (6, 8, 8), "multiple of 8"),
-        (Conv2d(8, 6, kernel_size=1, bias=False), (8, 8, 8), "multiple of 4"),
-        (Conv2d(8, 8, kernel_size=1, bias=True), (8, 8, 8), "apply_relu"),
     ],
 )
 def test_refusals(layer, shape, reason):
@@ -205,8 +165,3 @@ def test_refusals(layer, shape, reason):
 def test_unmodelled_layer_configurations_are_refused(layer, shape, reason):
     with pytest.raises(UnsupportedLayer, match=reason):
         from_layer(layer, shape)
-
-
-def test_pointwise_pad_shape_refuses_width_over_128():
-    with pytest.raises(ValueError, match="no divisor of 128"):
-        pointwise_pad_shape(8, 129)

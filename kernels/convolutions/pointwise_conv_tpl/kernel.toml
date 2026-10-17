@@ -1,0 +1,261 @@
+# pointwise_conv_tpl: the template of the pointwise (1x1) convolution (E07-18),
+# FP32 wide vectors. Its variants are the entries pointwise_conv_unified and
+# pointwise_conv_unified_bn_activation in ../registry.toml; the program reads
+# apply_relu itself (the bias seed and ReLU; see the .asm header). Routed in the
+# universal conv2d vocabulary: every one of its 11 parameters must be named by a
+# query, as the ipu_apps router's requires had it.
+[kernel]
+op = "conv2d"
+formats = ["fp32"]
+
+# Declared in the old supports' order (pointwise_conv_unified/app.py): height,
+# then kernel_size, dilation, padding, stride, groups, the channel multiples,
+# width, apply_relu and has_bias, so a refusal names the parameter it named.
+[params]
+height       = { type = "int", min = 1, query_required = true }
+kernel_size  = { type = "int", choices = [1], query_required = true }
+dilation     = { type = "int", choices = [1], query_required = true }
+padding      = { type = "int", choices = [0], query_required = true }
+stride       = { type = "int", choices = [1], query_required = true }
+groups       = { type = "int", choices = [1], query_required = true }       # a 1x1 depthwise conv has no kernel
+in_channels  = { type = "int", min = 8, multiple_of = 8, query_required = true }
+out_channels = { type = "int", min = 4, multiple_of = 4, query_required = true }
+width        = { type = "int", min = 1, max = 128, query_required = true }
+apply_relu   = { type = "bool", query_required = true }
+has_bias     = { type = "bool", query_required = true }
+
+[derived]
+# cols: the next power of two at least width, a divisor of 128 (pointwise_pad_shape);
+# min(1, max(0, width - t)) is 1 when width > t.
+cols                = "1 + min(1, max(0, width - 1)) + 2 * min(1, max(0, width - 2)) + 4 * min(1, max(0, width - 4)) + 8 * min(1, max(0, width - 8)) + 16 * min(1, max(0, width - 16)) + 32 * min(1, max(0, width - 32)) + 64 * min(1, max(0, width - 64))"
+row_groups          = "ceil(height * cols / 128)"            # chunks per channel
+rows                = "row_groups * 128 / cols"              # the padded height (the chunked packs)
+num_passes          = "ceil(in_channels / 128)"              # written, never read by the program
+tail_size           = "in_channels - (num_passes - 1) * 128" # the last pass's channels; written, never read
+pipeline_limit_full = "128 - 5"
+pipeline_limit_tail = "tail_size - 5"                        # may be negative (two's complement)
+last_pass           = "num_passes - 1"
+fixed_idx_step      = "128"                                  # lane space: half B's weight index
+pass_stride         = "128"                                  # rows: 128 input channels a pass
+input_row_base      = "0"                                    # LR0's reset value (see [abi])
+cyclic_s0           = "0"                                    # LR7's reset value (see [abi])
+
+# Placed in the old harness's order: input, weights, mask, [bias,] output.
+[inputs.x]
+shape = ["in_channels", "height", "width"]
+pack = "chunked"                             # padded to rows x cols, chunk-interleaved (no headroom)
+row = 0                                      # the program reads it through CR0
+
+[inputs.w]
+shape = ["out_channels", "in_channels", 1, 1]
+pack = "conv_weight_groups"                  # 128 input channels a row, num_passes rows per filter
+
+# The bias rows exist exactly when the program is seeded: apply_relu. Seeding on
+# has_bias or apply_relu (as conv_universal_tpl) would need CR10's tail_size
+# binding to hold when neither is set, which a when cannot say yet (E07-20).
+# The bias is stored only when has_bias: seeded without one (ReLU, no bias) the
+# rows hold 0, the zero bias the old harness's read_bias gave.
+[inputs.b]
+shape = ["out_channels"]
+pack = "pass0_bias"
+when = "apply_relu"
+
+[scratch.mask]                               # slot 0 keeps every lane; the program never masks
+shape = [1, 128]
+after = "w"
+bytes = "../masks.py:keep_all_mask"
+
+[outputs.y]
+shape = ["out_channels", "height", "width"]
+pack = "chunked"
+
+# Every CR the ipu_apps setup() wrote (CR2-CR14; CR0 is x's base, CR15 the
+# default dstructure), and the two LRs the program reads before it writes them.
+[abi]
+x                   = "CR0"
+mask                = "CR2"
+y                   = "CR3"
+num_passes          = "CR4"
+row_groups          = "CR5"
+pipeline_limit_full = "CR6"
+out_channels        = "CR7"
+in_channels         = "CR8"     # the row-group stride
+pipeline_limit_tail = "CR9"
+b                   = "CR10"    # seeded (b's when)
+tail_size           = { register = "CR10", when = "not apply_relu" }
+last_pass           = "CR11"
+fixed_idx_step      = "CR12"
+pass_stride         = "CR13"
+w                   = "CR14"
+# LR0 (the input row-group base, only ever advanced) and LR7 (read by the first
+# word's LD.MASK and ADD LR5, which see it before that word's SET): the old
+# harness wrote neither and the program relied on their reset 0, so they are
+# bound to it, and a run after another kernel starts from the same state.
+input_row_base      = "LR0"
+cyclic_s0           = "LR7"
+
+[golden]
+reference = "reference.py:reference"   # the shared conv2d, the bias only when has_bias
+# y is an element output: compared in FP32. Measured on the ipu_apps data (the
+# proof): max |err| 3.8e-6 (sweep_256, K = 256), and every one of the 18 entry
+# cases passes FP32_ORDER; the old check was max |diff| < 1e-3.
+tolerance = { fp32 = "FP32_ORDER" }
+
+# The two ipu_apps kernels' cases and test sweeps (each entry chooses its own,
+# ../registry.toml). has_bias and apply_relu are the bias + ReLU twin's;
+# pointwise_conv_unified's entry fixes both false. A sweep point of one value
+# per axis is named <case>[in_channels=..,...,width=..], its old sweep id.
+
+[cases.default]  # both twins' cases.py DEFAULTS
+in_channels = 16
+out_channels = 8
+height = 16
+width = 16
+kernel_size = 1
+dilation = 1
+padding = 0
+stride = 1
+groups = 1
+has_bias = true
+apply_relu = true
+generator = "../gen.py:legacy_pointwise"  # the ipu_apps data, for the proof
+
+[cases.negative_bias]  # pointwise_conv_unified_bn_activation: zero weights, a bias below zero, so ReLU writes zeros (test_pointwise_conv.py)
+in_channels = 8
+out_channels = 8
+height = 16
+width = 16
+kernel_size = 1
+dilation = 1
+padding = 0
+stride = 1
+groups = 1
+has_bias = true
+apply_relu = true
+generator = "../gen.py:legacy_pointwise_negative_bias"  # the ipu_apps data, for the proof
+
+[cases.relu_no_bias]  # pointwise_conv_unified_bn_activation without a bias: the bias rows must hold 0
+in_channels = 16
+out_channels = 8
+height = 16
+width = 16
+kernel_size = 1
+dilation = 1
+padding = 0
+stride = 1
+groups = 1
+has_bias = false
+apply_relu = true
+generator = "../gen.py:legacy_pointwise"  # the ipu_apps data, for the proof
+
+[cases.sweep_128]  # single pass, the 128 boundary
+in_channels = [128]
+out_channels = [8]
+height = [16]
+width = [16]
+kernel_size = 1
+dilation = 1
+padding = 0
+stride = 1
+groups = 1
+has_bias = true
+apply_relu = true
+generator = "../gen.py:legacy_pointwise"  # the ipu_apps data, for the proof
+
+[cases.sweep_144]  # multi-pass: 1 full + a tail of 16
+in_channels = [144]
+out_channels = [8]
+height = [16]
+width = [16]
+kernel_size = 1
+dilation = 1
+padding = 0
+stride = 1
+groups = 1
+has_bias = true
+apply_relu = true
+generator = "../gen.py:legacy_pointwise"  # the ipu_apps data, for the proof
+
+[cases.sweep_256]  # multi-pass, no tail
+in_channels = [256]
+out_channels = [8]
+height = [16]
+width = [16]
+kernel_size = 1
+dilation = 1
+padding = 0
+stride = 1
+groups = 1
+has_bias = true
+apply_relu = true
+generator = "../gen.py:legacy_pointwise"  # the ipu_apps data, for the proof
+
+[cases.sweep_96x32]  # larger spatial and out_channels
+in_channels = [96]
+out_channels = [32]
+height = [32]
+width = [32]
+kernel_size = 1
+dilation = 1
+padding = 0
+stride = 1
+groups = 1
+has_bias = true
+apply_relu = true
+generator = "../gen.py:legacy_pointwise"  # the ipu_apps data, for the proof
+
+[cases.sweep_3x5]  # non-power-of-2 spatial: pads to 16 x 8
+in_channels = [144]
+out_channels = [8]
+height = [3]
+width = [5]
+kernel_size = 1
+dilation = 1
+padding = 0
+stride = 1
+groups = 1
+has_bias = true
+apply_relu = true
+generator = "../gen.py:legacy_pointwise"  # the ipu_apps data, for the proof
+
+[cases.sweep_1x1]  # degenerate 1x1 spatial: pads to 128 x 1
+in_channels = [8]
+out_channels = [4]
+height = [1]
+width = [1]
+kernel_size = 1
+dilation = 1
+padding = 0
+stride = 1
+groups = 1
+has_bias = true
+apply_relu = true
+generator = "../gen.py:legacy_pointwise"  # the ipu_apps data, for the proof
+
+[cases.sweep_layer]  # the end-to-end layer shape
+in_channels = [160]
+out_channels = [160]
+height = [8]
+width = [8]
+kernel_size = 1
+dilation = 1
+padding = 0
+stride = 1
+groups = 1
+has_bias = true
+apply_relu = true
+generator = "../gen.py:legacy_pointwise"  # the ipu_apps data, for the proof
+
+# The two ipu_apps benchmark.py CONFIGS (the same 8 points; max_cycles was MAX_CYCLES).
+[benchmark]
+max_cycles = 200_000_000
+points = [
+  { height = 128, width = 128, in_channels = 64,  out_channels = 32 },
+  { height = 128, width = 128, in_channels = 32,  out_channels = 48 },
+  { height = 64,  width = 64,  in_channels = 128, out_channels = 64 },
+  { height = 64,  width = 64,  in_channels = 64,  out_channels = 128 },
+  { height = 32,  width = 32,  in_channels = 256, out_channels = 96 },
+  { height = 32,  width = 32,  in_channels = 96,  out_channels = 256 },
+  { height = 16,  width = 16,  in_channels = 384, out_channels = 128 },
+  { height = 16,  width = 16,  in_channels = 128, out_channels = 256 },
+]
