@@ -25,6 +25,8 @@ plugins:
         ipu-configuration.md: reference/isa/configuration-registers.md
         # E09-19 folded the emulator-only formats into the element-formats page.
         wide-vector-debug-mode.md: explanation/element-formats.md
+        # E09-12 replaced the debugger page with the debug how-to.
+        debugging.md: how-to/debug-a-kernel.md
   - git-revision-date-localized:
       enable_creation_date: true
       type: timeago
@@ -95,7 +97,7 @@ nav:
       - Write a kernel: building-applications.md            # E09-09
       - Register a kernel: adding-applications.md           # E09-09 merges it
       - Add an instruction: how-to/add-an-instruction.md    # E09-11
-      - Debug a kernel: debugging.md                        # E09-12; the Cycle Inspector page (E08) goes here
+      - Debug a kernel: how-to/debug-a-kernel.md            # E09-12
       - Step through a kernel run: debugging-inspector.md   # E08-17; E09 decides its final place
       - Cycle Inspector: inspector/index.html               # E08-17: the static viewer page
       - Use the reference model from cocotb: how-to/reference-model-cocotb.md   # E09-13

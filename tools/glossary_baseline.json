@@ -5,11 +5,6 @@
   "docs/content/building-applications.md": {
     "program counter": 1
   },
-  "docs/content/debugging.md": {
-    "dtype": 1,
-    "program counter": 3,
-    "simulation-only": 1
-  },
   "docs/content/isa-alias-catalogue.md": {
     "bundle": 6,
     "simulation-only": 2

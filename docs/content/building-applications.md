@@ -514,9 +514,8 @@ completed output before validation, allowing inspection of a failing result;
 a failed check still exits with a nonzero status and a diagnostic. Programs
 that exceed their cycle limit are rejected before export.
 
-The shared CLI runs without an interactive debugger. To debug a harness
-through the Python API, pass `debug_callback=debug_prompt` to `app.run()`;
-see [Debugging](debugging.md) for callback usage.
+To stop a kernel in the debugger, run its target with `--config=debug`; see
+[Debug a kernel](how-to/debug-a-kernel.md).
 
 ## Running and Testing Applications
 
