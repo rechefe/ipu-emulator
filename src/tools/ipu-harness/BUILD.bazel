@@ -88,6 +88,17 @@ py_pytest_test(
     ],
 )
 
+# A family's registry.toml: entries over a template, routing, registry.bzl (E06-17).
+py_pytest_test(
+    name = "test_family",
+    srcs = ["test/test_family.py"],
+    deps = [
+        ":ipu_harness_lib",
+        ":kernel_test_lib",
+        requirement("pytest"),
+    ],
+)
+
 # Conditional tensors and bindings (when).
 py_pytest_test(
     name = "test_conditions",
@@ -255,11 +266,20 @@ py_pytest_test(
     ],
 )
 
+# What every :assemble_<name> runs (kernels/defs.bzl): the default case's .bin.
+py_binary(
+    name = "kernel_bin",
+    srcs = ["src/ipu_harness/kernel_bin.py"],
+    main = "src/ipu_harness/kernel_bin.py",
+    deps = [":ipu_harness_lib"],
+)
+
 # What every ipu_kernel() target runs (E06-13, kernels/defs.bzl): the entry, the
 # generated case x format tests and their fixtures (pytest, so not in the library).
 exports_files([
     "src/ipu_harness/kernel_test.py",
     "src/ipu_harness/manifest_json.py",
+    "src/ipu_harness/registry_bzl.py",
 ])
 
 py_library(
@@ -284,12 +304,15 @@ mypy_test(
 
 # The ipu_kernel() entry, through the real rules_python_pytest shim, on a copy of
 # //kernels/elementwise/scale: generated tests, the folder's own tests, tiers,
-# sharding, the test filter, bazel run.
+# sharding, the test filter, bazel run; and an entry of the fixture family
+# test/scales (E06-17).
 py_pytest_test(
     name = "test_kernel_test",
     srcs = ["test/test_kernel_test.py"],
     data = [
         "//kernels/elementwise/scale:scale_files",
+        "//src/tools/ipu-harness/test/scales:registry_files",
+        "//src/tools/ipu-harness/test/scales/scale_rows:scale_rows_files",
         "@rules_python_pytest//python_pytest:pytest_shim.py",
     ],
     env = {"PYTEST_SHIM": "$(rootpath @rules_python_pytest//python_pytest:pytest_shim.py)"},

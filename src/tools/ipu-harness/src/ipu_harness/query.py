@@ -122,7 +122,7 @@ def report(registry: Registry) -> str:
     for op in ops:
         lines += [f"## {op}", ""]
         for m in registry.kernels(op):
-            lines.append(f"- **{m.name}** -- `//kernels/{m.directory.parent.name}/{m.name}`")
+            lines.append(f"- **{m.name}** -- `{m.label}`")
         lines.append("")
     if registry.invalid:
         # Surfaced, not swallowed: a kernel.toml that failed to load is a kernel

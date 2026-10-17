@@ -7,15 +7,31 @@ load(":defs.bzl", "ipu_kernel_tree")
 
 exports_files(["BUILD.bazel"])
 
-# Every kernel folder. Add a new kernel here too (Bazel cannot glob into
-# subpackages); //src/tools/ipu-harness:test_kernel_tree checks the list.
+# Every kernel folder, templates included. Add a new kernel here too (Bazel
+# cannot glob into subpackages); //src/tools/ipu-harness:test_kernel_tree
+# checks the list.
 KERNELS = [
     "elementwise/scale",
 ]
 
+# Each family with a registry.toml (E06-17): its entries, from its generated
+# registry.bzl, as load("//kernels/<family>:registry.bzl", <FAMILY> = "ENTRIES")
+# above and "<family>": <FAMILY> here. test_kernel_tree checks the map.
+REGISTRIES = {}
+
 # :tree: every kernel's files, for ipu_harness.registry.kernel_tree() (the
 # routing registry, E06-16). :kernel_targets: each kernel's targets.
-ipu_kernel_tree(kernels = KERNELS)
+ipu_kernel_tree(kernels = KERNELS, registries = REGISTRIES)
+
+# Rewrite every family's stale registry.bzl from its registry.toml (E06-17):
+#   bazel run //kernels:update_registry_bzl
+py_binary(
+    name = "update_registry_bzl",
+    srcs = ["//src/tools/ipu-harness:src/ipu_harness/registry_bzl.py"],
+    main = "//src/tools/ipu-harness:src/ipu_harness/registry_bzl.py",
+    args = ["update"],
+    deps = ["//src/tools/ipu-harness:ipu_harness_lib"],
+)
 
 # Which kernel computes an op, and why (E06-16):
 #   bazel run //kernels:query -- scale rows=7

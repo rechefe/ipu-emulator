@@ -111,3 +111,22 @@ def test_bazel_run_runs_the_cli(scale, capsys, monkeypatch, tmp_path):
     assert kernel_test.main([toml, SHIM, "default", "--case", "one_row", "--format", "e4"]) == 0
     [line] = capsys.readouterr().out.splitlines()
     assert line.startswith("scale/one_row/e4: PASS  cycles=") and "MAC util=" in line
+
+
+# --- a registry.toml entry (E06-17), on the fixture family test/scales ---------------
+
+SCALES = Path.cwd() / "src" / "tools" / "ipu-harness" / "test" / "scales" / "registry.toml"
+
+
+def test_an_entry_runs_the_template_cases_with_its_values(scale, capsys):
+    # scale_r8_fp32: rows = 8, formats ["fp32"], cases ["default"].
+    assert kernel_test.main([f"{SCALES}::scale_r8_fp32", SHIM, "default", "-v"]) == 0
+    out = capsys.readouterr().out
+    assert "test_case[default-fp32] PASSED" in out and out.count(" PASSED") == 1
+
+
+def test_bazel_run_of_an_entry_runs_the_cli(scale, capsys, monkeypatch, tmp_path):
+    monkeypatch.setenv("BUILD_WORKING_DIRECTORY", str(tmp_path))
+    assert kernel_test.main([f"{SCALES}::scale_r2", SHIM, "default", "--case", "negative"]) == 0
+    [line] = capsys.readouterr().out.splitlines()
+    assert line.startswith("scale_r2/negative/fp32: PASS")

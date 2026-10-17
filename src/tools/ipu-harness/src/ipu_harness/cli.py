@@ -1,9 +1,12 @@
 """Run a kernel's cases from the command line (E06-11).
 
-    python -m ipu_harness.cli KERNEL_DIR [--case NAME] [--format FMT|all]
+    python -m ipu_harness.cli KERNEL [--case NAME] [--format FMT|all]
         [--input NAME=PATH.npy ...] [--output DIR] [--trace PATH]
         [--max-cycles N] [--list-cases] [--debug] [--profile-aliases]
         [--alias-report PATH]
+
+KERNEL is a kernel folder, or ``<family>/registry.toml::<name>`` for a family
+entry (E06-17).
 
 ``--debug``, or ``IPU_DEBUG_TUI=1`` in the environment (the spelling a
 ``bazel run`` of a test target passes), stops the run in the debugger TUI;
@@ -40,7 +43,8 @@ from ipu_emu.errors import ConfigurationError
 from ipu_harness.assembly import AssemblyCache
 from ipu_harness.cases import Case, expand
 from ipu_harness.debug import DebugLaunch
-from ipu_harness.manifest import KernelManifest, load_manifest
+from ipu_harness.family import ENTRY_SEPARATOR, load_kernel
+from ipu_harness.manifest import KernelManifest
 from ipu_harness.runner import RunOptions, RunResult, run_kernel
 from ipu_isa.errors import IpuError
 from ipu_isa.formats import ElementFormat
@@ -54,6 +58,12 @@ def _caller(path: Path) -> Path:
     if path.is_absolute():
         return path
     return Path(os.environ.get("BUILD_WORKING_DIRECTORY", ".")) / path
+
+
+def _kernel(text: str) -> str:
+    """A kernel folder, or ``<registry.toml>::<name>``, from where the user ran."""
+    path, sep, name = text.partition(ENTRY_SEPARATOR)
+    return f"{_caller(Path(path))}{sep}{name}"
 
 
 def _input(text: str) -> tuple[str, Path]:
@@ -73,7 +83,11 @@ def _cycles(text: str) -> int:
 def build_parser() -> argparse.ArgumentParser:
     """The command line in the module docstring; the docs' CLI reference renders it."""
     parser = argparse.ArgumentParser(prog="ipu_harness.cli", description=__doc__.splitlines()[0])
-    parser.add_argument("kernel", type=Path, help="the kernel's folder (it holds kernel.toml)")
+    parser.add_argument(
+        "kernel",
+        type=_kernel,
+        help="the kernel's folder (it holds kernel.toml), or REGISTRY.toml::NAME for an entry",
+    )
     parser.add_argument("--case", default="default", help="a case name, e.g. 'sweep[rows=7]'")
     parser.add_argument(
         "--format",
@@ -205,7 +219,7 @@ def _report_profile(args: argparse.Namespace, result: RunResult, many: bool) -> 
 
 
 def _run(args: argparse.Namespace) -> int:
-    manifest = load_manifest(_caller(args.kernel))
+    manifest = load_kernel(args.kernel)
     if args.list_cases:
         for case in expand(manifest):
             print(f"{case.name}  ({', '.join(f.value for f in case.formats)})")

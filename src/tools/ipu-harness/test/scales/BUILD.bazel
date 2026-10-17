@@ -1,0 +1,8 @@
+# A fixture family for ipu_kernel_family() (E06-17): the entries of
+# registry.toml over the template folder scale_rows/. Outside kernels/, so
+# routing never sees it.
+
+load("//kernels:defs.bzl", "ipu_kernel_family")
+load(":registry.bzl", "ENTRIES")
+
+ipu_kernel_family(ENTRIES)

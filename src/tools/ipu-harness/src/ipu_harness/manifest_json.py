@@ -19,7 +19,26 @@ from typing import Any
 
 from ipu_emu.errors import ConfigurationError
 from ipu_harness.cases import expand
+from ipu_harness.family import REGISTRY_NAME
+from ipu_harness.manifest import TOML_NAME
 from ipu_harness.registry import Registry, kernel_tree
+
+
+def _skipped(declared: Mapping[str, Any], invalid: Mapping[Path, ConfigurationError]) -> set[str]:
+    """The declared kernels that failed to load: a ``kernel.toml``'s folder, an
+    entry, or every entry of a ``registry.toml`` that did not read."""
+    skipped = set()
+    for path in invalid:
+        if path.name == REGISTRY_NAME:
+            family = path.parent.name
+            skipped |= {
+                n for n, t in declared.items() if t.get("registry") and t["family"] == family
+            }
+        elif path.name == TOML_NAME:
+            skipped.add(path.parent.name)
+        else:
+            skipped.add(path.name)
+    return skipped
 
 
 def build(targets: Mapping[str, Any], registry: Registry) -> dict[str, Any]:
@@ -29,24 +48,31 @@ def build(targets: Mapping[str, Any], registry: Registry) -> dict[str, Any]:
         ConfigurationError: The targets and the registry name different kernels.
     """
     declared = set(targets["kernels"])
-    skipped_dirs = {path.parent.name for path in registry.invalid}
-    loaded = set(registry.manifests)
-    if declared - skipped_dirs != loaded:
+    skipped = _skipped(targets["kernels"], registry.invalid)
+    every = {**registry.templates, **registry.manifests}
+    loaded = set(every)
+    if declared - skipped != loaded:
         raise ConfigurationError(
             "kernels/BUILD.bazel and the kernel tree disagree -- targets without a kernel: "
-            f"{sorted(declared - skipped_dirs - loaded) or 'none'}; kernels without a target: "
+            f"{sorted(declared - skipped - loaded) or 'none'}; kernels without a target: "
             f"{sorted(loaded - declared) or 'none'}"
         )
     kernels: dict[str, Any] = {}
     operations: dict[str, set[str]] = {}
-    for name, manifest in sorted(registry.manifests.items()):
+    for name, manifest in sorted(every.items()):
         bazel = targets["kernels"][name]
-        operations.setdefault(manifest.op, set()).update(manifest.params)
+        if name in registry.manifests:
+            operations.setdefault(manifest.op, set()).update(manifest.params)
         kernels[name] = {
             "op": manifest.op,
             "variant": name,
             "tags": [],
             "family": bazel["family"],
+            # E06-17: routing skips a template (its entries are routed);
+            # an entry names its template and may carry a one-line doc.
+            "routed": name in registry.manifests,
+            "template": bazel.get("template"),
+            "doc": manifest.doc,
             "asm": f"{bazel['dir']}/{manifest.asm.name}",
             "targets": {k: bazel[k] for k in ("run", "test", "nightly")},
             "formats": [f.value for f in manifest.formats],
