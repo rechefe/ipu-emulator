@@ -484,8 +484,8 @@ def test_every_assembly_has_a_registered_case():
                 activation="relu",
             ),
         ),
-        ("l2_normalize_channels", dict(shape=(1, 10**10))),
         ("channel_peak", dict(shape=(0, 2))),
+        ("channel_peak", dict(shape=(1, 10**10))),
         ("score_threshold", dict(shape=(0,))),
     ],
 )
@@ -503,7 +503,7 @@ def test_memory_harness_rejects_truncated_image(tmp_path):
     inp.write_bytes(b"short")
     with pytest.raises(ValueError, match="preformatted input must contain"):
         create_harness(
-            "l2_normalize_channels",
+            "channel_peak",
             params=dict(shape=(2, 3)),
             bindings=dict(inst_path="missing", input_path=inp),
         )

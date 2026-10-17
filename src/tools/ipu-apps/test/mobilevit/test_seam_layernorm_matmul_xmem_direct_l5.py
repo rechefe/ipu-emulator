@@ -5,8 +5,8 @@ round-trip and NO ``_load_data()`` re-packing step at all? (L5 OutProj.)
 Near-direct port of ``test_seam_layernorm_matmul_xmem_direct.py`` (the L4
 reference, LayerNorm 64x192 -> matmul_192x192_x128) to the L5 shape: same
 single-token-group (N_TG=1) structure, different constants (N_CH=K=240,
-N_TOK=16). layernorm_16x240's output layout is simply ``OUTPUT_BASE + ch``
-(one row per channel, N_TOK=16 valid lanes + zero pad) and
+N_TOK=16). layernorm_16x240's output layout is simply ``y + ch``
+(one row per channel, N_TOK=16 valid lanes, then beta in the padding lanes) and
 matmul_240x240_x128's DATA region is ``DATA_BASE + k`` (one row per channel,
 N_TOK=16 valid lanes + zero pad) -- structurally identical to L4.
 
@@ -14,8 +14,8 @@ The matmul's OUTPUT region is read back via state.xmem.read_address at full
 ROW_BYTES width, never through teardown()/an output file (the harness runs
 with no output_path), exactly like the L4 reference test.
 
-Method: run the REAL layernorm_16x240 kernel on a fresh state, capture its
-raw OUTPUT_BASE bytes directly via state.xmem.read_address. On a SEPARATE
+Method: run the REAL layernorm_16x240 kernel on a fresh model, capture its
+raw output rows directly from XMEM (fixture_normalize). On a SEPARATE
 fresh state, poison the matmul's DATA region, write the captured LayerNorm
 bytes into it verbatim, run the matmul harness's setup() with _load_data
 disabled (weights load normally), and compare against an independent
@@ -34,9 +34,11 @@ from pathlib import Path
 
 import numpy as np
 from fixture_kernel_support import run_layernorm_capture_xmem, run_matmul_direct_xmem_handoff
+from fixture_normalize import layernorm
 
 from ipu_apps.kernels.matmul.matmul_240x240_x128 import app as mm
-from ipu_apps.kernels.normalize.layernorm_16x240 import app as ln
+
+ln = layernorm("layernorm_16x240")  # //kernels/normalize (E07-10), through the adapter
 
 assert ln.N_CH == mm.K == 240
 assert ln.N_TOK == mm.N_TOK == 16
@@ -47,13 +49,10 @@ def _run_layernorm_16x240_capture_xmem(x, gamma, beta, tmp_path: Path, tag: str)
     x_padded = np.zeros((ln.N_CH, LANES), dtype=np.float32)
     x_padded[:, : ln.N_TOK] = x
     return run_layernorm_capture_xmem(
-        ln,
-        ln.LayerNorm16x240App,
+        ln.name,
         x_rows=x_padded,
         gamma=gamma,
         beta=beta,
-        tmp_path=tmp_path,
-        tag=tag,
     )
 
 

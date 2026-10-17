@@ -1,0 +1,81 @@
+# layernorm: LayerNorm over the channel axis, FP32 (E07-10). A template:
+# ../registry.toml fixes its shape for layernorm_{128x16,16x240,64x192,256x144};
+# run by itself it is the same program at its default case's shape.
+[kernel]
+op = "layernorm"
+formats = ["fp32"]
+
+[params]
+# The shapes the program renders for: channels - 128 must be a power of two or
+# 128 minus one (layernorm.asm, build_count), and tokens at most two groups.
+channels = { type = "int", choices = [16, 144, 192, 240] }   # the reduction axis, one row each
+tokens   = { type = "int", choices = [16, 64, 128, 256] }    # lanes; over 128 = two token groups
+dim      = { type = "int", choices = [0], default = 0 }      # ops.layernorm reduces dim 0
+
+[derived]
+row_stride = "1"
+lanes      = "128"
+
+[inputs.x]
+shape = ["channels", "tokens"]            # row-major: row ch * groups + g, the old (ch, tg) order
+row = 0                                   # the program reads x's base through CR0
+
+[inputs.gamma]
+shape = ["channels"]                      # ceil(channels / 128) rows, zero past channels
+
+[inputs.beta]
+shape = ["channels"]
+
+[outputs.y]
+shape = ["channels", "tokens"]
+after = "invstd"                          # after the scratch rows, as the old layout had it
+
+[scratch.ones]
+shape = [1, 128]
+fill = 1.0
+
+[scratch.neg_inv_n]
+shape = [1, 128]
+fill = "-1 / channels"
+
+[scratch.inv_n]
+shape = [1, 128]
+fill = "1 / channels"
+
+[scratch.neg_mean]
+shape = [1, 128]
+
+[scratch.centered]
+shape = ["channels", 128]
+
+[scratch.temp]
+shape = [1, 128]
+
+[scratch.invstd]
+shape = [1, 128]
+
+[abi]
+x          = "CR0"                        # hardwired 0: x is pinned at row 0
+beta       = "CR2"
+ones       = "CR3"
+neg_inv_n  = "CR4"
+inv_n      = "CR5"
+neg_mean   = "CR6"
+centered   = "CR7"
+temp       = "CR8"
+invstd     = "CR9"
+y          = "CR10"
+gamma      = "CR11"
+channels   = "CR12"
+row_stride = "CR13"
+lanes      = "CR14"
+
+[golden]
+op = "layernorm"                          # ipu_kernels.reference.ops.layernorm: no eps (Q57)
+tolerance = { fp32 = "FP32_LONG" }        # the rsqrt chain; FP32_ORDER also passes the 4 entries' data
+
+# Each entry's default case keeps its old ipu_apps data (../gen.py).
+[cases.default]
+channels = 192
+tokens = 64
+generator = "../gen.py:legacy_layernorm"

@@ -21,6 +21,7 @@ KERNELS = {
     "conformance": ["vector_tour"],
     "elementwise": ["residual_add", "residual_add_rows", "scale"],
     "linear": ["fully_connected"],
+    "normalize": ["l2_normalize_channels", "layernorm"],
     "pooling": [
         "maxpool2d_nms",
         "maxpool2d_stride2",

@@ -5,10 +5,9 @@ _load_data() re-packing step at all?
 Prior seam-audit context: matmul_*_x128's `_load_data` reads a *tightly
 packed disk file* (K*N_TOK contiguous FP32 elements) and row-expands it into
 XMEM -- one zero-padded 512 B row per channel. That is a property of the
-FILE format, not of XMEM itself. layernorm_*'s `teardown()` already writes
-one zero-padded 512 B row per channel directly to XMEM (see
-kernels/normalize/layernorm_64x192/app.py: DATA_BASE + ch, N_TOK valid lanes
-+ zero pad).
+FILE format, not of XMEM itself. layernorm_* already writes one 512 B row
+per channel directly to XMEM (kernels/normalize/layernorm: y has x's layout,
+N_TOK valid lanes, then beta in the padding lanes).
 
 So the file-packing step in matmul's `_load_data` may be pure ceremony: if
 LayerNorm's raw XMEM output bytes, copied verbatim into the matmul's DATA
@@ -29,9 +28,8 @@ true at once: the FILE contract (`_load_data`) is incompatible with
 LayerNorm's full-row file output, while the XMEM CONTENT itself (once placed
 at the right row stride) is exactly what the matmul expects.
 
-Method: run the REAL layernorm_* kernel on a fresh state, capture its raw
-OUTPUT_BASE bytes directly via state.xmem.read_address (not via
-dump_xmem_to_binary + a file re-read). On a SEPARATE fresh state, poison the
+Method: run the REAL layernorm_* kernel on a fresh model, capture its raw
+output rows directly from XMEM (fixture_normalize, no file re-read). On a SEPARATE fresh state, poison the
 matmul's DATA region, write the captured LayerNorm bytes into it verbatim
 (byte length must match exactly -- N_CH*ROW_BYTES on one side must equal
 K*ROW_BYTES on the other), run the matmul harness's own setup() with
@@ -51,26 +49,25 @@ from pathlib import Path
 
 import numpy as np
 from fixture_kernel_support import run_layernorm_capture_xmem, run_matmul_direct_xmem_handoff
+from fixture_normalize import layernorm
 
 from ipu_apps.kernels.matmul.matmul_192x192_x128 import app as mm4
-from ipu_apps.kernels.normalize.layernorm_64x192 import app as ln4
+
+ln4 = layernorm("layernorm_64x192")  # //kernels/normalize (E07-10), through the adapter
 
 assert ln4.N_CH == mm4.K and ln4.N_TOK == mm4.N_TOK and ln4.ROW_BYTES == mm4.ROW_BYTES
 
 
 def _run_layernorm_64x192_capture_xmem(x, gamma, beta, tmp_path: Path, tag: str) -> bytes:
-    """layernorm_64x192.setup() writes its input file to XMEM verbatim, so the
-    file is pre-padded to one zero-padded 128-lane row per channel."""
+    """fixture_normalize writes x's rows to XMEM verbatim, so they are
+    pre-padded to one zero-padded 128-lane row per channel."""
     x_padded = np.zeros((ln4.N_CH, ln4.LANES), dtype=np.float32)
     x_padded[:, : ln4.N_TOK] = x
     return run_layernorm_capture_xmem(
-        ln4,
-        ln4.LayerNorm64x192App,
+        ln4.name,
         x_rows=x_padded,
         gamma=gamma,
         beta=beta,
-        tmp_path=tmp_path,
-        tag=tag,
     )
 
 

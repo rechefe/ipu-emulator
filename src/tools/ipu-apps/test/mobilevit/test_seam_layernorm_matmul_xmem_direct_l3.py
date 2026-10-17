@@ -13,8 +13,8 @@ so the two kernels already agree on row order without any repacking,
 PROVIDED both use N_CH == K == 144 and N_TG == 2 (verified by the asserts
 below, not assumed).
 
-Method: run the REAL layernorm_256x144 kernel on a fresh state, capture its
-raw OUTPUT_BASE bytes directly via state.xmem.read_address. On a SEPARATE
+Method: run the REAL layernorm_256x144 kernel on a fresh model, capture its
+raw output rows directly from XMEM (fixture_normalize). On a SEPARATE
 fresh state, poison the matmul's DATA region, write the captured LayerNorm
 bytes into it verbatim, run the matmul harness's setup() with _load_data
 disabled (weights load normally), and compare against an independent
@@ -33,9 +33,11 @@ from pathlib import Path
 
 import numpy as np
 from fixture_kernel_support import run_layernorm_capture_xmem, run_matmul_direct_xmem_handoff
+from fixture_normalize import layernorm
 
 from ipu_apps.kernels.matmul.matmul_144x144_x128 import app as mm
-from ipu_apps.kernels.normalize.layernorm_256x144 import app as ln
+
+ln = layernorm("layernorm_256x144")  # //kernels/normalize (E07-10), through the adapter
 
 # Structural precondition: both kernels must agree on N_CH==K and N_TG before
 # any byte handoff makes sense.
@@ -52,13 +54,10 @@ def _run_layernorm_256x144_capture_xmem(x, gamma, beta, tmp_path: Path, tag: str
     x_padded = np.zeros((ln.N_CH, ln.N_TG, LANES), dtype=np.float32)
     x_padded[:, :, : ln.N_TPG] = x
     return run_layernorm_capture_xmem(
-        ln,
-        ln.LayerNorm256x144App,
+        ln.name,
         x_rows=x_padded.reshape(ln.N_CH * ln.N_TG, LANES),
         gamma=gamma,
         beta=beta,
-        tmp_path=tmp_path,
-        tag=tag,
     )
 
 
