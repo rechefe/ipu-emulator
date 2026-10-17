@@ -397,8 +397,13 @@ class ReferenceModel:
             fault: The fault.
 
         Returns:
-            True when the fault halts the IPU.
+            True when the bit is set (a modelled fault then halts the IPU).
+
+        Raises:
+            ConfigurationError: *fault* is no ``FaultId``.
         """
+        if not isinstance(fault, FaultId):
+            raise ConfigurationError(f"{fault!r} is no FaultId")
         return self._state.faults.enable[fault]
 
     def fault_flags(self) -> frozenset[FaultId]:

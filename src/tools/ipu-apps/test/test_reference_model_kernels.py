@@ -9,6 +9,7 @@ import pytest
 
 from ipu_apps.kernel_registry.cases import load_cases, run_case
 from ipu_emu import emulator
+from ipu_emu.ipu_state import DEFAULT_CYCLE_LIMIT
 from ipu_emu.reference import ReferenceModel, RunState, TraceWriter, read_trace
 from ipu_isa.codec.word import DecodedWord
 from ipu_isa.constants import CR_READ_ONLY_INITIAL_VALUES
@@ -49,8 +50,10 @@ def test_a_kernel_runs_the_same_through_the_api(kernel, case_id, monkeypatch, tm
         # Stepped word by word, the kernel gives the records its run traces.
         stepped = _copied(state)
         records = []
-        while stepped.status.state is not RunState.HALTED or not records:
+        for _ in range(max_cycles or DEFAULT_CYCLE_LIMIT):
             records.append(stepped.step().to_json())
+            if stepped.status.state is RunState.HALTED:
+                break
         model = _copied(state)
         path = tmp_path / f"{len(compared)}.jsonl"
         with TraceWriter(path, model.trace_header()) as trace:

@@ -567,3 +567,8 @@ def test_the_trace_header_names_the_loaded_program(tmp_path):
     with api.TraceWriter(path, header) as trace:
         model.run(trace=trace)
     assert api.read_trace(path)[0] == header
+
+
+def test_fault_enabled_refuses_a_non_fault():
+    with pytest.raises(ConfigurationError, match="no FaultId"):
+        ReferenceModel().fault_enabled("F-1")

@@ -72,8 +72,8 @@ class _CycleBinding:
 
 #: The vector registers whose rows the profiler tracks, by bank (each with its
 #: 4-byte formats' storage).
-_BANKS = {"r": "ra", "r_cyclic": "ring"}
-_BANKS.update({WIDE_REGISTERS[name]: bank for name, bank in list(_BANKS.items())})
+_NARROW_BANKS = {"r": "ra", "r_cyclic": "ring"}
+_BANKS = {**_NARROW_BANKS, **{WIDE_REGISTERS[n]: b for n, b in _NARROW_BANKS.items()}}
 #: Bytes of one element in a 4-byte format's storage.
 _WIDE_ELEMENT_BYTES = element_width_bytes(ElementFormat.FP32)
 
