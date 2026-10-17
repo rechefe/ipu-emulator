@@ -17,6 +17,7 @@ from ipu_as import encode
 from ipu_as.errors import OperandError, SlotError
 from ipu_as.inst import OPERAND_TYPE_MAP
 from ipu_as.session import AssemblySession
+from ipu_isa.codec import disasm
 from ipu_isa.codec.disasm import type_text
 from ipu_isa.codec.slot import WORD_CODEC
 from ipu_isa.codec.word import DecodedWord
@@ -129,18 +130,18 @@ def test_a_simulation_only_slot_warns():
 def test_disassembling_fields_is_disassembling_the_word():
     word = _word("ADD LR3 LR1 LR2; ACC.ADD;;")
     fields = DecodedWord.from_word(word)
-    assert encode.disassemble_fields(fields) == encode.disassemble_word(word)
+    assert disasm.disassemble_fields(fields) == encode.disassemble_word(word)
     # Only the non-zero fields: the rest read as 0, as in the packed word.
     partial = {name: value for name, value in fields.items() if value}
-    assert encode.disassemble_fields(partial) == encode.disassemble_word(word)
-    assert encode.disassemble_fields({}) == encode.disassemble_word(0)
+    assert disasm.disassemble_fields(partial) == encode.disassemble_word(word)
+    assert disasm.disassemble_fields({}) == encode.disassemble_word(0)
 
 
 def test_operation_text_is_assembly_order_without_unused_fields():
     word = _word("SET LR0 CR1;;")
     decoded = WORD_CODEC.unpack(word)[(Slot.LR, 0)]
-    assert encode.operation_text(decoded) == "SET lr0 cr1"
-    assert encode.operation_text(WORD_CODEC.unpack(word)[(Slot.ACC, 0)]) == "NOP"
+    assert disasm.operation_text(decoded) == "SET lr0 cr1"
+    assert disasm.operation_text(WORD_CODEC.unpack(word)[(Slot.ACC, 0)]) == "NOP"
 
 
 def _pseudos():
