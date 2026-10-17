@@ -28,6 +28,7 @@ from ipu_kernels.reference.ops.identity import identity
 from ipu_kernels.reference.ops.layernorm import layernorm
 from ipu_kernels.reference.ops.linear import linear
 from ipu_kernels.reference.ops.matmul import matmul
+from ipu_kernels.reference.ops.matmul_nt import matmul_nt
 from ipu_kernels.reference.ops.maxpool2d import maxpool2d
 from ipu_kernels.reference.ops.sample_descriptors import sample_descriptors
 from ipu_kernels.reference.ops.score_threshold import score_threshold
@@ -47,6 +48,7 @@ __all__ = [
     "maxpool2d",
     "sample_descriptors",
     "score_threshold",
+    "matmul_nt",
     "silu",
     "softmax",
     "unfold",

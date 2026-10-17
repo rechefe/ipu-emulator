@@ -13,20 +13,6 @@
   "blank-line-range": "53340008bab9f2e66c7d90b17b2ac90f4ae30be7481599193939c07acbb76b41",
   "mangled/blank-line-range": "e07cc7654334adb39f19d82fc83336083769cf0f19703a4410e3551430c4ddc1"
  },
- "src/tools/ipu-apps/src/ipu_apps/kernels/attention/attn_scores_km_256x36/attn_scores_km_256x36.asm": {
-  "input": "53f5f44b38318a09998b5c4dc351377435c9f29a71d0042f80869d11cbd360ff",
-  "mangled": "ae587d1bf000e53fdf841ca113ffb08965b716e7a5109a447abefd05d6ee068a",
-  "default": "53f5f44b38318a09998b5c4dc351377435c9f29a71d0042f80869d11cbd360ff",
-  "mangled/default": "53f5f44b38318a09998b5c4dc351377435c9f29a71d0042f80869d11cbd360ff",
-  "blank-line": "cdb1ce7c7e4e231307cd86742c003b22a7356959a7b0799c5af067a1d958acd8",
-  "mangled/blank-line": "cdb1ce7c7e4e231307cd86742c003b22a7356959a7b0799c5af067a1d958acd8",
-  "indent-tab": "ab7a1b74bcda30e6a901162942751abcc528dff2980f2660fdca05d618d6b085",
-  "mangled/indent-tab": "ab7a1b74bcda30e6a901162942751abcc528dff2980f2660fdca05d618d6b085",
-  "indent-2-range": "ab81295e6c8b8fc425ae4bd4d32661834b2a1a6677f58662c65ec266af015fdb",
-  "mangled/indent-2-range": "327f2d59d5b7297e96bf7cab9b32a2f5b5eeb6e3071410c354f4b1975993bdcc",
-  "blank-line-range": "969e8477272404df91164088e7d45342fefa6e684af7a14d399c65f704db479e",
-  "mangled/blank-line-range": "bc71baee9b9c5128bbb2f28b748b272515441e606fac80a584d4cb087de91736"
- },
  "src/tools/ipu-apps/src/ipu_apps/kernels/attention/attn_scores_km_64x48/attn_scores_km_64x48.asm": {
   "input": "1b8263a6520f25d65e07087855ae597bd68ebae3c792a359b3ba7488dfcfd2c0",
   "mangled": "3c17872cbb0fdfb6e3ac7642f2ab1427902b02431382ab4341141fc6018cf9cc",
@@ -54,20 +40,6 @@
   "mangled/indent-2-range": "b6bef35edf6ef963b638041a9b624d656aade532a27eecec56e8d46f2c4e3111",
   "blank-line-range": "126e81bbfdc1a888caa3ee54b625c2d374dee573f7257d932e40cdd85fd34597",
   "mangled/blank-line-range": "b6bef35edf6ef963b638041a9b624d656aade532a27eecec56e8d46f2c4e3111"
- },
- "src/tools/ipu-apps/src/ipu_apps/kernels/attention/attn_v_256x36/attn_v_256x36.asm": {
-  "input": "845b2efc71ac6ac17026447e1fef220e218e386944f5a3365c59204f51001179",
-  "mangled": "607da49db81d8e3f93e3f9a3af38372373d3c05b643d4193e8be4bbf45fd1295",
-  "default": "845b2efc71ac6ac17026447e1fef220e218e386944f5a3365c59204f51001179",
-  "mangled/default": "845b2efc71ac6ac17026447e1fef220e218e386944f5a3365c59204f51001179",
-  "blank-line": "2e5a77a69b6dff7174ac2c2c67874d9b19dc7d403b793013ce3ddca9a3ff58e4",
-  "mangled/blank-line": "2e5a77a69b6dff7174ac2c2c67874d9b19dc7d403b793013ce3ddca9a3ff58e4",
-  "indent-tab": "ba1441670cdc613f2ddcbf7ba483e3852c076bca242fa95dbba5eafb93130f4c",
-  "mangled/indent-tab": "ba1441670cdc613f2ddcbf7ba483e3852c076bca242fa95dbba5eafb93130f4c",
-  "indent-2-range": "5464caee69a5e8ab6404e943f14ebb20939382cf4dee1faa3f8e81c6429eacc2",
-  "mangled/indent-2-range": "284bdc06e701af6423a5b21284f1a87c007ac8082900e9fc66588b1cf324a8ae",
-  "blank-line-range": "2d7048e17d41bca914978500248894483263630d647c8585c56819f1459067c0",
-  "mangled/blank-line-range": "256f531a311fe1e593868ce7763f8d4e6477b96004729cb75fb235699fb24700"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/attention/attn_v_64x48/attn_v_64x48.asm": {
   "input": "1ddd3783de7a40fbbf1e4f0a2f0b5c50733302f1203549f31f4a7ab86ba16029",
@@ -138,20 +110,6 @@
   "mangled/indent-2-range": "2cfe1f4d9627e4b43745539a6fde293fed5489bec572a76f9b5b9e8dc19748c8",
   "blank-line-range": "f9c347d2d04620d2c75cce22b9faa52c4993354f0d85d5ac25e8b441aa664d7f",
   "mangled/blank-line-range": "2cfe1f4d9627e4b43745539a6fde293fed5489bec572a76f9b5b9e8dc19748c8"
- },
- "src/tools/ipu-apps/src/ipu_apps/kernels/attention/qk_scores_256x36/qk_scores_256x36.asm": {
-  "input": "1d508afe6b78d69768e1bda7ba012a77732fea1d848c9b5768df7fa6538d7782",
-  "mangled": "b75e74f5a5d8b0ac2df56a375eb08231ba531be179c1ef5a7055821ad18276a0",
-  "default": "1d508afe6b78d69768e1bda7ba012a77732fea1d848c9b5768df7fa6538d7782",
-  "mangled/default": "1d508afe6b78d69768e1bda7ba012a77732fea1d848c9b5768df7fa6538d7782",
-  "blank-line": "d9ed42eaf1d8d272a404c53c33148e35f588b4d6a61d01a388d65714a677f564",
-  "mangled/blank-line": "d9ed42eaf1d8d272a404c53c33148e35f588b4d6a61d01a388d65714a677f564",
-  "indent-tab": "8e7343793268782bee2b02cbed2af76030ac15679641594cf1277e4d561c12b8",
-  "mangled/indent-tab": "8e7343793268782bee2b02cbed2af76030ac15679641594cf1277e4d561c12b8",
-  "indent-2-range": "d65accb75566ab5bad62432884abbfd421fcdb11350ce446637f451db34f9b31",
-  "mangled/indent-2-range": "93ed07d467f1fddede8192668e90f07bbae0ff3094de71001af505b0f84f9472",
-  "blank-line-range": "c8065013a08d4ae0334f3ee23f2d2fa6015fef671fd8b92dd190b2798ee333e5",
-  "mangled/blank-line-range": "856592ff07f8f5f92a5c99991b3acddc371b3eae9afb69864dc2be2cdc061cc9"
  },
  "src/tools/ipu-apps/src/ipu_apps/kernels/attention/qk_scores_64x48/qk_scores_64x48.asm": {
   "input": "471be4eb8a95072fc07b3b49e9b15f555099b74ef3a958f5fcb73825ced3bf31",

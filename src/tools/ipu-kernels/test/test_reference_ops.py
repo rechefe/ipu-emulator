@@ -91,6 +91,12 @@ def test_sample_descriptors_reproduces_a_constant_inside_the_map():
         assert torch.equal(band, y[8:16])
 
 
+def test_matmul_nt_contracts_the_last_dimension_of_both():
+    a, b = t([[1, 2], [3, 4]]), t([[5, 6], [7, 8]])
+    assert ops.matmul_nt(a, b, d=2)["y"].tolist() == [[17.0, 23.0], [39.0, 53.0]]
+    assert ops.matmul(a, b)["y"].tolist() == [[19.0, 22.0], [43.0, 50.0]]
+
+
 def test_linear_is_a_matmul_then_its_activation():
     a, b = t([[1, -2], [0.5, 3]]), t([[2, 0], [1, -1]])
     product = [[0.0, 2.0], [4.0, -3.0]]

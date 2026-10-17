@@ -72,7 +72,7 @@
     # chan_last = chan_bound + 1 (= D-1 = 35). MULT reads R_CYCLIC from the
     # cycle-start value (issue #157), so each Q channel column is loaded a
     # instruction word before the MULT consuming it and chan_index's ADD moves into a
-    # c_loop_*_pre block (MULT reads it LIVE and must name the channel just
+    # c_loop_*_pre block (MULT reads it forwarded and must name the channel just
     # loaded). BLT.S reads the CYCLE-START, so with that ADD a word earlier it sees an
     # already-incremented index and needs the higher bound, or the last channel
     # is dropped. Computed in-kernel so the harness's LR6 stays untouched.
