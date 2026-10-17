@@ -614,6 +614,15 @@ def test_regfile_observers_register_and_detach():
     assert [name for name, _, _ in second] == ["r_acc", "mult_res"]
 
 
+def test_a_scalar_write_is_observed():
+    rf = RegFile()
+    events = []
+    rf.add_observer(lambda *event: events.append(event))
+    rf.set_lr(3, 7)
+    rf.set_cr(4, 9)
+    assert events == [("lr", 12, 4), ("cr", 16, 4)]
+
+
 def test_regfile_snapshot_does_not_inherit_observers():
     rf = RegFile()
     events = []

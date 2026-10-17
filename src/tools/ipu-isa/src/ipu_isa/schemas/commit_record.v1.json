@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/rechefe/ipu-emulator/schemas/commit_record/1.0.0",
+  "title": "IPU commit record",
+  "description": "One retired VLIW word (E04-29). Integers up to 32 bits are JSON numbers; wider data are lowercase hex strings, little-endian. Register names are ipu_isa's. NOP slots are omitted. A write is a range the word wrote, with its value at the end of the cycle.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["cycle", "pc_before", "pc_after", "slots", "reg_writes", "xmem_writes", "outcome", "fault", "arith_events"],
+  "properties": {
+    "cycle": {"type": "integer", "minimum": 0, "description": "Records before this one in the trace."},
+    "pc_before": {"$ref": "#/$defs/u32"},
+    "pc_after": {"$ref": "#/$defs/u32"},
+    "slots": {"type": "array", "items": {"$ref": "#/$defs/slot_op"}},
+    "reg_writes": {"type": "array", "items": {"$ref": "#/$defs/reg_write"}},
+    "xmem_writes": {"type": "array", "items": {"$ref": "#/$defs/xmem_write"}},
+    "outcome": {
+      "enum": ["retired", "break", "halt", "fault"],
+      "description": "break: the word's BREAK slot fired, and the word retired when the run went on. halt: a HALT word retired. fault: the word faulted (fault says which)."
+    },
+    "fault": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "pc"],
+          "properties": {
+            "id": {"type": "string", "pattern": "^F-[1-9]$"},
+            "pc": {"$ref": "#/$defs/u32"}
+          }
+        }
+      ]
+    },
+    "arith_events": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Arithmetic events of the word (E04-23); empty until they are modelled."
+    }
+  },
+  "$defs": {
+    "u32": {"type": "integer", "minimum": 0, "maximum": 4294967295},
+    "hex": {"type": "string", "pattern": "^([0-9a-f]{2})*$"},
+    "slot_op": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["slot", "mnemonic", "fields"],
+      "properties": {
+        "slot": {"type": "string"},
+        "mnemonic": {"type": "string"},
+        "fields": {"type": "object", "additionalProperties": {"$ref": "#/$defs/u32"}},
+        "tag": {"const": "emulator", "description": "Present only on an op with no hardware equivalent."}
+      }
+    },
+    "reg_write": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["register", "index", "value"],
+          "properties": {
+            "register": {"type": "string"},
+            "index": {"type": "integer", "minimum": 0},
+            "value": {"$ref": "#/$defs/u32"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["register", "offset", "data"],
+          "properties": {
+            "register": {"type": "string"},
+            "offset": {"type": "integer", "minimum": 0},
+            "data": {"$ref": "#/$defs/hex"}
+          }
+        }
+      ]
+    },
+    "xmem_write": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["address", "data"],
+      "properties": {
+        "address": {"$ref": "#/$defs/u32"},
+        "data": {"$ref": "#/$defs/hex"}
+      }
+    }
+  }
+}

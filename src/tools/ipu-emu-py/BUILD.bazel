@@ -333,6 +333,20 @@ py_pytest_test(
     ],
 )
 
+# Commit records and traces (E04-29): the schema contract (validated with
+# jsonschema, test-only), the collector against the state, the trace file.
+py_pytest_test(
+    name = "test_commit",
+    srcs = ["test/test_commit.py"],
+    imports = ["src"],
+    deps = [
+        ":emu_test_support",
+        ":timing_probes",
+        requirement("jsonschema"),
+        requirement("pytest"),
+    ],
+)
+
 py_pytest_test(
     name = "test_timing_datapath_views",
     srcs = ["test/test_timing_datapath_views.py"],
