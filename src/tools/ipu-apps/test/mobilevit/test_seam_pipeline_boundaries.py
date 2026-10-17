@@ -59,16 +59,18 @@ from pathlib import Path
 
 import numpy as np
 from fixture_elementwise import residual_add, run_residual_add_rows
-from fixture_kernel_support import POISON, kernel_inst
+from fixture_kernel_support import POISON, kernel_inst, run_layernorm_capture_xmem
+from fixture_normalize import layernorm
 
 from ipu_apps.kernels.matmul.matmul_192x192_x128 import app as op4
 from ipu_apps.kernels.matmul.matmul_240x240_x128 import app as op5
 from ipu_apps.kernels.matmul.matmul_576x192_x128 import app as qkv4
-from ipu_apps.kernels.normalize.layernorm_64x192 import app as ln4
 
 # The residual adds run from //kernels/elementwise (E07-06), through the adapter.
 ra5 = residual_add("residual_add_16x240")
 ra4 = residual_add("residual_add_64x192")
+# The LayerNorm runs from //kernels/normalize (E07-10), through the adapter.
+ln4 = layernorm("layernorm_64x192")
 
 # ---------------------------------------------------------------------------
 # Seam 1 (was a DEFECT, fixed): matmul_240x240_x128 (L5 OutProj) -> residual_add_16x240
@@ -226,29 +228,13 @@ def test_seam_layernorm_64x192_to_matmul_576x192_qkv_pitch_mismatch(tmp_path: Pa
     gamma = np.ones(ln4.N_CH, dtype=np.float32)
     beta = np.zeros(ln4.N_CH, dtype=np.float32)
 
-    input_path = tmp_path / "ln_input.bin"
-    gamma_path = tmp_path / "ln_gamma.bin"
-    beta_path = tmp_path / "ln_beta.bin"
-    input_path.write_bytes(x.tobytes())
-    gamma_path.write_bytes(gamma.tobytes())
-    beta_path.write_bytes(beta.tobytes())
-
+    ln_raw = run_layernorm_capture_xmem(ln4.name, x_rows=x, gamma=gamma, beta=beta)
     ln_output_path = tmp_path / "ln_output.bin"
-    ln_app = ln4.LayerNorm64x192App(
-        inst_path=kernel_inst("layernorm_64x192"),
-        input_path=input_path,
-        gamma_path=gamma_path,
-        beta_path=beta_path,
-        output_path=ln_output_path,
-    )
-    _, cycles = ln_app.run(max_cycles=5_000_000)
-    assert cycles > 0
-
-    ln_raw = ln_output_path.read_bytes()
-    # LayerNorm's teardown uses dump_xmem_to_binary(..., ROW_BYTES, N_CH) --
-    # full, uncropped 512 B rows. Confirm that's really what we got.
+    ln_output_path.write_bytes(ln_raw)  # what the old harness's output file held
+    # The output region is full, uncropped 512 B rows, as the old harness's
+    # output file was. Confirm that's really what we got.
     assert len(ln_raw) == ln4.N_CH * 512, (
-        "sanity: layernorm_64x192.teardown() emits full ROW_BYTES rows, "
+        "sanity: layernorm_64x192's output region is full ROW_BYTES rows, "
         f"got {len(ln_raw)} bytes, expected {ln4.N_CH * 512}"
     )
 

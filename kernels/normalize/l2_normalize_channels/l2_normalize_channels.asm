@@ -3,9 +3,9 @@
 
     out[c, n] = x[c, n] / sqrt( SUM_c x[c, n]^2 )
 
-    over a (ROWS x COLS) matrix, where ROWS is the reduction axis. SuperPoint's
-    dense descriptor normalization is this with ROWS = 256 (convDb's channels)
-    and COLS = H*W.
+    over a (channels x columns) matrix, where channels is the reduction axis.
+    SuperPoint's dense descriptor normalization is this with channels = 256
+    (convDb's) and columns = H*W.
 
     WHY REDUCING DOWN COLUMNS NEEDS NO AGG:
       Every column is an INDEPENDENT normalization and the datapath is 128
@@ -20,7 +20,7 @@
       longer exists; rsqrt is one of ACTIVATE.QUANTIZE's twelve activations, so
       the reciprocal square root is taken on the way out of R_ACC:
 
-          ACTIVATE.QUANTIZE rsqrt cr15 ; ST.AAQ -> the scale row
+          ACTIVATE.QUANTIZE rsqrt CR15 ; ST.AAQ -> the scale row
 
       The emulator's rsqrt is guarded (x <= 0 yields 0), so an all-zero column
       normalizes to zeros rather than producing inf or NaN.
@@ -32,9 +32,9 @@
       without touching XMEM and without needing a resident zero row.
 
     LAYOUT -- INPUT AND OUTPUT SHARE ONE OFFSET:
-      Both regions are ROWS x TPR rows with row (c, t) at c*TPR + t, so a single
+      Both regions are channels x tiles rows with row (c, t) at c*tiles + t, so a single
       walking register addresses the load (base CR2) and the store (base CR3).
-      TPR = ceil(COLS / 128); columns past COLS are zero, whose square adds
+      tiles = ceil(columns / 128); lanes past columns are zero, whose square adds
       nothing to any real column's sum -- those lanes form their own all-zero
       columns, which rsqrt's guard sends to zero.
 
@@ -42,61 +42,62 @@
       Pass 1   R_ACC = SUM_c x[c, t]^2       -- MULT.RC.VS + ACC.ADD, 2 words/row
       Pass 2   out[c, t] = x[c, t] * rvec    -- MULT.RC.VV against R0, 3 words/row
 
-    CR map (set by the harness; CR0/CR1 are READ-ONLY hardware constants):
+    ABI (kernel.toml's [abi]; CR0/CR1 are read-only hardware constants):
       CR0  = 0 (-> the 0.0 scalar that clears R_ACC)   CR1 = 1
-      CR2  = INPUT_BASE  (rows)       CR3  = OUTPUT_BASE (rows)
-      CR4  = RVEC_ROW    (rows)       -- one row: 1/||x|| per column of this tile
-      CR5  = TPR -- rows per matrix row, AND the tile-loop bound (same number)
-      CR6  = ROWS (the reduction length)
+      CR2  = x, CR3 = y, CR4 = rvec (rows) -- rvec is one scratch row: 1/||x||
+             per column of this tile
+      CR5  = tiles -- rows per matrix row, AND the tile-loop bound (same number)
+      CR6  = channels (the reduction length)
       CR15 = dstructure (valid_elements = 128)
+    The program sets every LR it reads, so it needs no LR preset.
 
-    LR uses 3 sub-slots; ";;" ends a VLIW word, ";" separates sub-instructions.
+    LR uses 3 slots; ";;" ends an instruction word, ";" separates its instructions.
     Slot order within a word is LR -> LOAD -> MULT -> ACC -> AAQ -> STORE ->
     COND. That is why the walking address is advanced in the word AFTER the load
     or store that uses it, and why each loop counter is incremented one word
-    BEFORE its BLT.S (BLT.S reads its register from the start-of-word snapshot, so
+    BEFORE its BLT.S (BLT.S reads its register at cycle start, so
     an increment in the same word would run one iteration too many).
 ========================================================================== -#}
 
-{%- set lr_zero = "lr0" -%}  {#- 0: mask_shift, R_CYCLIC slot-0 index, rvec offset -#}
-{%- set lr_tile = "lr1" -%}  {#- column-tile counter AND the tile's row offset -#}
-{%- set lr_row  = "lr2" -%}  {#- index along the reduction axis -#}
-{%- set lr_addr = "lr3" -%}  {#- walking row offset: (row, tile) for BOTH regions -#}
+{%- set lr_zero = "LR0" -%}  {#- 0: mask_shift, R_CYCLIC slot-0 index, rvec offset -#}
+{%- set lr_tile = "LR1" -%}  {#- column-tile counter AND the tile's row offset -#}
+{%- set lr_row  = "LR2" -%}  {#- index along the reduction axis -#}
+{%- set lr_addr = "LR3" -%}  {#- walking row offset: (row, tile) for BOTH regions -#}
 
-    SET {{lr_zero}} cr0 ;
-    SET {{lr_tile}} cr0 ;;
+    SET {{lr_zero}} CR0 ;
+    SET {{lr_tile}} CR0 ;;
 
 tile_loop:
 {#- ---- PASS 1: R_ACC = SUM over the reduction axis of x^2 ----------------- -#}
-    MULT.RC.VE {{lr_zero}} cr0 0 {{lr_zero}} cr15 ; ACC.ADD.FIRST ;
-    ADD {{lr_addr}} {{lr_tile}} cr0 ;
-    SET {{lr_row}} cr0 ;;                                {#- R_ACC = 0; addr = tile -#}
+    MULT.RC.VE {{lr_zero}} CR0 0 {{lr_zero}} CR15 ; ACC.ADD.FIRST ;
+    ADD {{lr_addr}} {{lr_tile}} CR0 ;
+    SET {{lr_row}} CR0 ;;                                {#- R_ACC = 0; addr = tile -#}
 
 pass1_loop:
-    ADD {{lr_row}} {{lr_row}} cr1 ;
-    LD.MULT.CYCLIC {{lr_addr}} cr2 {{lr_zero}} ;;   {#- slot0 <- x[row, tile] -#}
-    ADD {{lr_addr}} {{lr_addr}} cr5 ;
-    MULT.RC.VS {{lr_zero}} 0 {{lr_zero}} cr15 ; ACC.ADD ;
-    BLT.S {{lr_row}} cr6 pass1_loop ;;                     {#- += x^2, lane-wise -#}
+    ADD {{lr_row}} {{lr_row}} CR1 ;
+    LD.MULT.CYCLIC {{lr_addr}} CR2 {{lr_zero}} ;;   {#- slot0 <- x[row, tile] -#}
+    ADD {{lr_addr}} {{lr_addr}} CR5 ;
+    MULT.RC.VS {{lr_zero}} 0 {{lr_zero}} CR15 ; ACC.ADD ;
+    BLT.S {{lr_row}} CR6 pass1_loop ;;                     {#- += x^2, lane-wise -#}
 
-    ACTIVATE.QUANTIZE rsqrt cr15 ;
-    ST.AAQ {{lr_zero}} cr4 ;;                  {#- rvec = 1/||x[:, col]|| -#}
-    LD.MULT r0 {{lr_zero}} cr4 ;
-    ADD {{lr_addr}} {{lr_tile}} cr0 ;
-    SET {{lr_row}} cr0 ;;                                {#- R0 = rvec (visible NEXT word) -#}
+    ACTIVATE.QUANTIZE rsqrt CR15 ;
+    ST.AAQ {{lr_zero}} CR4 ;;                  {#- rvec = 1/||x[:, col]|| -#}
+    LD.MULT R0 {{lr_zero}} CR4 ;
+    ADD {{lr_addr}} {{lr_tile}} CR0 ;
+    SET {{lr_row}} CR0 ;;                                {#- R0 = rvec (visible NEXT word) -#}
 
 {#- ---- PASS 2: out = x * rvec, lane-wise -------------------------------- -#}
 pass2_loop:
-    ADD {{lr_row}} {{lr_row}} cr1 ;
-    LD.MULT.CYCLIC {{lr_addr}} cr2 {{lr_zero}} ;;   {#- slot0 <- x[row, tile] -#}
-    MULT.RC.VV {{lr_zero}} r0 0 {{lr_zero}} cr15 ; ACC.ADD.FIRST ;
-    ACTIVATE.QUANTIZE identity cr15 ;
-    ST.AAQ {{lr_addr}} cr3 ;;                  {#- OUT[row, tile] -#}
-    ADD {{lr_addr}} {{lr_addr}} cr5 ;
-    BLT.S {{lr_row}} cr6 pass2_loop ;;
+    ADD {{lr_row}} {{lr_row}} CR1 ;
+    LD.MULT.CYCLIC {{lr_addr}} CR2 {{lr_zero}} ;;   {#- slot0 <- x[row, tile] -#}
+    MULT.RC.VV {{lr_zero}} R0 0 {{lr_zero}} CR15 ; ACC.ADD.FIRST ;
+    ACTIVATE.QUANTIZE identity CR15 ;
+    ST.AAQ {{lr_addr}} CR3 ;;                  {#- OUT[row, tile] -#}
+    ADD {{lr_addr}} {{lr_addr}} CR5 ;
+    BLT.S {{lr_row}} CR6 pass2_loop ;;
 
-    ADD {{lr_tile}} {{lr_tile}} cr1 ;;
-    BLT.S {{lr_tile}} cr5 tile_loop ;;
+    ADD {{lr_tile}} {{lr_tile}} CR1 ;;
+    BLT.S {{lr_tile}} CR5 tile_loop ;;
 
 end:
     HALT ;;

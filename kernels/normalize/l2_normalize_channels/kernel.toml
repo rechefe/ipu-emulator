@@ -1,0 +1,48 @@
+# l2_normalize_channels: x / ||x||_2 down the channels, per column, FP32 (E07-10).
+[kernel]
+op = "l2_normalize"
+formats = ["fp32"]
+
+[params]
+channels = { type = "int", min = 1 }      # the reduction axis
+columns  = { type = "int", min = 1 }      # independent columns, 128 a tile
+
+[derived]
+tiles = "ceil(columns / 128)"
+
+[inputs.x]
+shape = ["channels", "columns"]           # row-major: row ch * tiles + t, zero past columns
+
+[outputs.y]
+shape = ["channels", "columns"]
+
+[scratch.rvec]
+shape = [1, 128]                          # 1/||x|| for the tile's columns
+after = "x"                               # between x and y, as the old layout had it
+
+[abi]
+x        = "CR2"
+y        = "CR3"
+rvec     = "CR4"
+tiles    = "CR5"
+channels = "CR6"
+
+[golden]
+reference = "reference.py:reference"
+tolerance = { fp32 = "FP32_LONG" }        # a sum of squares and rsqrt; FP32_ORDER also passes these cases
+
+# The old ipu_apps cases and values (../gen.py).
+[cases.default]
+channels = 4
+columns = 16
+generator = "../gen.py:legacy_l2"
+
+[cases.tile_boundary]
+channels = 3
+columns = 133
+generator = "../gen.py:legacy_l2"
+
+[cases.single_channel]
+channels = 1
+columns = 129
+generator = "../gen.py:legacy_l2"

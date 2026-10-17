@@ -9,6 +9,7 @@ load("//tools:lint.bzl", "ruff_test")
 load(":defs.bzl", "ipu_kernel_tree")
 load("//kernels/elementwise:registry.bzl", ELEMENTWISE = "ENTRIES")
 load("//kernels/matmul:registry.bzl", MATMUL = "ENTRIES")
+load("//kernels/normalize:registry.bzl", NORMALIZE = "ENTRIES")
 load("//kernels/pooling:registry.bzl", POOLING = "ENTRIES")
 load("//kernels/projections:registry.bzl", PROJECTIONS = "ENTRIES")
 load("//kernels/reshape:registry.bzl", RESHAPE = "ENTRIES")
@@ -29,6 +30,7 @@ exports_files([
 REGISTRIES = {
     "elementwise": ELEMENTWISE,
     "matmul": MATMUL,
+    "normalize": NORMALIZE,
     "pooling": POOLING,
     "projections": PROJECTIONS,
     "reshape": RESHAPE,

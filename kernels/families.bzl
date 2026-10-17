@@ -35,6 +35,7 @@ KERNELS = {
     "elementwise": ["residual_add", "residual_add_rows", "scale"],
     "linear": ["fully_connected"],
     "matmul": ["matmul_small"],
+    "normalize": ["l2_normalize_channels", "layernorm"],
     "pooling": [
         "maxpool2d_nms",
         "maxpool2d_stride2",

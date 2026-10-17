@@ -11,10 +11,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-from fixture_kernel_support import kernel_inst
+from fixture_normalize import run_layernorm_rows
 from fixture_packed_l4_measure import count_instructions
 
-from ipu_apps.kernels.normalize.layernorm_64x192.app import LayerNorm64x192App
 from ipu_as.lark_tree import assemble_to_bin_file
 from ipu_as.session import AssemblySession
 from ipu_emu.emulator import load_program_from_binary, run_until_complete
@@ -155,36 +154,13 @@ def test_packed_layernorm_correctness_and_cost(tmp_path: Path) -> None:
     packed_xmem_activation_bytes = (N_PACKED_ROWS * 5 + 5) * ROW_BYTES
 
     # ---- Unpacked run (layernorm_64x192, the unpacked baseline) ----
-    unpacked_bin = kernel_inst("layernorm_64x192")
-
-    x_path = tmp_path / "x.bin"
-    gamma_path = tmp_path / "gamma.bin"
-    beta_path = tmp_path / "beta.bin"
-    out_path = tmp_path / "out.bin"
-
+    # //kernels/normalize (E07-10), through the adapter: one channel per row,
+    # N_TOK tokens, zero padding after.
     x_rows = np.zeros((N_CH, LANES), dtype=np.float32)
     x_rows[:, :N_TOK] = X
-    x_path.write_bytes(x_rows.tobytes())
-
-    gamma_path.write_bytes(gamma.tobytes())
-    beta_path.write_bytes(beta.tobytes())
-
-    app = LayerNorm64x192App(
-        inst_path=unpacked_bin,
-        input_path=x_path,
-        gamma_path=gamma_path,
-        beta_path=beta_path,
-        output_path=out_path,
-    )
-    unpacked_state = app.make_state()
-    with count_instructions(unpacked_state) as unpacked_counts:
-        _, unpacked_cycles = app.run(max_cycles=200_000, state=unpacked_state)
-
-    unpacked_out = (
-        np.frombuffer(out_path.read_bytes(), dtype=np.float32)
-        .reshape(N_CH, LANES)[:, :N_TOK]
-        .astype(np.float64)
-    )
+    unpacked = run_layernorm_rows("layernorm_64x192", x_rows, gamma, beta)
+    unpacked_cycles = unpacked.cycles
+    unpacked_out = unpacked.rows[:, :N_TOK].astype(np.float64)
     unpacked_err = float(np.max(np.abs(unpacked_out - expected)))
 
     unpacked_xmem_activation_bytes = (N_CH * 3 + 4) * ROW_BYTES
@@ -195,11 +171,11 @@ def test_packed_layernorm_correctness_and_cost(tmp_path: Path) -> None:
         f"xmem_activation_bytes={packed_xmem_activation_bytes:8d}  max_abs_err={packed_err:.6e}"
     )
     print(
-        f"unpacked: cycles={unpacked_cycles:6d}  instrs={unpacked_counts.total:6d}  "
+        f"unpacked: cycles={unpacked_cycles:6d}  instrs={unpacked.instructions:6d}  "
         f"xmem_activation_bytes={unpacked_xmem_activation_bytes:8d}  max_abs_err={unpacked_err:.6e}"
     )
     print(f"packed/unpacked cycles ratio: {packed_cycles / unpacked_cycles:.4f}")
-    print(f"packed/unpacked instr ratio:  {packed_counts.total / unpacked_counts.total:.4f}")
+    print(f"packed/unpacked instr ratio:  {packed_counts.total / unpacked.instructions:.4f}")
     print(
         f"packed/unpacked xmem ratio:   {packed_xmem_activation_bytes / unpacked_xmem_activation_bytes:.4f}"
     )
@@ -207,7 +183,7 @@ def test_packed_layernorm_correctness_and_cost(tmp_path: Path) -> None:
     print(f"LAYERNORM_L4_PACKED_INSTRUCTIONS={packed_counts.total}")
     print(f"LAYERNORM_L4_PACKED_XMEM_BYTES={packed_xmem_activation_bytes}")
     print(f"LAYERNORM_L4_UNPACKED_CYCLES={unpacked_cycles}")
-    print(f"LAYERNORM_L4_UNPACKED_INSTRUCTIONS={unpacked_counts.total}")
+    print(f"LAYERNORM_L4_UNPACKED_INSTRUCTIONS={unpacked.instructions}")
     print(f"LAYERNORM_L4_UNPACKED_XMEM_BYTES={unpacked_xmem_activation_bytes}")
 
     assert packed_err < 1e-3, f"packed layernorm wrong: max abs error {packed_err:.6e}"
