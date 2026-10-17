@@ -36,6 +36,7 @@ KERNELS = {
     "linear": ["fully_connected"],
     "matmul": ["matmul_small"],
     "mobilevit": [],  # chain tests only (E07-24): seams and full layers across families
+    "normalize": ["l2_normalize_channels", "layernorm"],
     "pooling": [
         "maxpool2d_nms",
         "maxpool2d_stride2",

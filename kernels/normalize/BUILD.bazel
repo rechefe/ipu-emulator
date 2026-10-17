@@ -1,0 +1,23 @@
+# The normalize family (E07-10): the l2_normalize_channels folder kernel and
+# the registry.toml entries over the layernorm template
+# (//kernels/normalize:<entry>, as the ipu_apps targets were named).
+
+load("@ipu_as_deps//:requirements.bzl", "requirement")
+load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
+load("//kernels:defs.bzl", "ipu_kernel_family")
+load(":registry.bzl", "ENTRIES")
+
+ipu_kernel_family(entries = ENTRIES)
+
+# Routing: each layernorm entry by exactly its (channels, tokens), as the
+# ipu_apps router found them; l2_normalize by any positive shape.
+py_pytest_test(
+    name = "test_routing",
+    size = "small",
+    srcs = ["test_routing.py"],
+    data = ["//kernels:tree"],
+    deps = [
+        "//src/tools/ipu-harness:ipu_harness_lib",
+        requirement("pytest"),
+    ],
+)
