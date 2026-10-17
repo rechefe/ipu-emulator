@@ -105,6 +105,7 @@ genrule(
         ":generate_timing_contract_table",
         "//:GLOSSARY.md",
         "examples/test_add_an_instruction.py",
+        "examples/test_reference_model_cocotb.py",
         "//src/tools/ipu-isa:test/one_edit.py",
         "hooks/giscus_env.py",
         "hooks/history_link.py",
@@ -159,9 +160,10 @@ genrule(
         # whose base_path ".." is the parent of the temp tree, as the repo root is of docs/.
         ln -sfn "$$ORIGDIR/$(location //:GLOSSARY.md)" "$(@D)/GLOSSARY.md"
 
-        # how-to/add-an-instruction.md includes tested code the same way, at its repo path.
+        # The how-to pages include tested code the same way, at its repo path.
         mkdir -p "$(@D)/docs/examples" "$(@D)/src/tools/ipu-isa/test"
         ln -sfn "$$ORIGDIR/$(location examples/test_add_an_instruction.py)" "$(@D)/docs/examples/test_add_an_instruction.py"
+        ln -sfn "$$ORIGDIR/$(location examples/test_reference_model_cocotb.py)" "$(@D)/docs/examples/test_reference_model_cocotb.py"
         ln -sfn "$$ORIGDIR/$(location //src/tools/ipu-isa:test/one_edit.py)" "$(@D)/src/tools/ipu-isa/test/one_edit.py"
 
         # Generated C header and SystemVerilog package (downloadable; not in git)
@@ -263,6 +265,21 @@ py_pytest_test(
         "//src/tools/ipu-emu-py:ipu_emu_lib",
         "//src/tools/ipu-isa:ipu_isa_lib",
         "//src/tools/ipu-isa:one_edit",
+        requirement("pytest"),
+    ],
+)
+
+# The testbench How-to: use the reference model from cocotb includes (examples/)
+# runs against a second model as the DUT; no simulator.
+py_pytest_test(
+    name = "test_reference_model_cocotb",
+    size = "small",
+    srcs = ["examples/test_reference_model_cocotb.py"],
+    data = ["content/how-to/reference-model-cocotb.md"],
+    deps = [
+        "//src/tools/ipu-as-py:ipu_as_lib",
+        "//src/tools/ipu-emu-py:ipu_emu_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
         requirement("pytest"),
     ],
 )
