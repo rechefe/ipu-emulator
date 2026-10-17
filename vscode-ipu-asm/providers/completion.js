@@ -12,16 +12,19 @@ const { renderInstruction, renderRegister } = require('./hover');
 
 const item = (label, kind, props) => Object.assign(new vscode.CompletionItem(label, vscode.CompletionItemKind[kind]), props);
 
-function register(context, { lang, semantics }) {
-  // Instruction docs never change: rendered once per mnemonic, not per request.
-  const docs = new Map();
-  const docFor = (mnemonic, forms) => {
+function register(context, { langOf, semantics }) {
+  // An ISA's instruction docs never change: rendered once per mnemonic, not per request.
+  const docsOf = new WeakMap();
+  const docFor = (lang, mnemonic, forms) => {
+    if (!docsOf.has(lang)) docsOf.set(lang, new Map());
+    const docs = docsOf.get(lang);
     if (!docs.has(mnemonic)) docs.set(mnemonic, new vscode.MarkdownString(renderInstruction(lang, mnemonic, forms)));
     return docs.get(mnemonic);
   };
   // --- Completion ---
   provide(context, 'CompletionItem', {
     async provideCompletionItems(document, position, _token, completionContext) {
+      const lang = langOf(document);
       const text = document.getText();
       const offset = document.offsetAt(position);
       const ctx = lang.context(text, offset);
@@ -49,7 +52,7 @@ function register(context, { lang, semantics }) {
           const operands = bare ? [] : (forms.find((f) => f.operands.length) || form).operands;
           return item(mnemonic, 'Keyword', {
             detail: forms.length > 1 ? 'any slot' : form.pseudo ? `${form.slot} · pseudo → ${form.expandsTo}` : form.slot,
-            documentation: docFor(mnemonic, forms),
+            documentation: docFor(lang, mnemonic, forms),
             // Its operands as tab stops, named as the instruction spec names them.
             ...(operands.length && {
               insertText: new vscode.SnippetString(`${mnemonic} ${operands.map((op, i) => `\${${i + 1}:${op.name}}`).join(' ')}`),
