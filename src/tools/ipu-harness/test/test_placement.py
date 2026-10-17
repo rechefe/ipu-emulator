@@ -154,6 +154,13 @@ def test_reserved_rows_are_placed_around_and_a_pin_on_them_is_an_error(tmp_path)
         place(plan, pins={"x": 2}, reserved={"held": (1, 2)})
 
 
+def test_avoided_rows_are_left_by_first_fit_but_may_be_pinned(tmp_path):
+    m = manifest(tmp_path, SCALE.format(x_pin="", y_extra=""))
+    plan = plan_case(m, {"rows": 2, "s": 2.0}, F.FP32)
+    assert bases(place(plan, avoid=[(0, 3)])) == {"x": (3, 2), "y": (5, 2)}
+    assert bases(place(plan, pins={"x": 1}, avoid=[(0, 3)])) == {"x": (1, 2), "y": (3, 2)}
+
+
 def test_st_aaq_spill_onto_reserved_rows_is_an_error(tmp_path):
     m = manifest(tmp_path, SCALE.format(x_pin="row = 10\n", y_extra="row = 0\n"))
     plan = plan_case(m, {"rows": 2, "s": 2.0}, F.INT8)

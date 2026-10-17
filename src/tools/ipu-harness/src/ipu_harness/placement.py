@@ -204,6 +204,7 @@ def place(
     *,
     pins: Mapping[str, int] | None = None,
     reserved: Mapping[str, tuple[int, int]] | None = None,
+    avoid: Iterable[tuple[int, int]] = (),
 ) -> Placement:
     """Place every tensor of ``plan``. Takes the plan as checked; checks no parameter.
 
@@ -216,7 +217,11 @@ def place(
             name: a chained input already in XMEM (E06-15). Checked like them.
         reserved: Rows no region may take, as ``(base row, rows)`` by a name
             for messages: a tensor a chain holds in XMEM (E06-15). First fit
-            places around them; a pin on them is an error.
+            places around them; a pin on them is an error; so is an
+            ``ST.AAQ`` spill onto them (:func:`check_aaq_spill`).
+        avoid: Rows first fit leaves free besides, as ``(base row, rows)``;
+            a pin on them is fine: room for a store's spill
+            (:func:`aaq_spill_rows`) below a reserved range, say.
 
     Returns:
         The placement, deterministic for the plan.
@@ -235,6 +240,7 @@ def place(
         raise ValueError(f"pins for {sorted(unknown)}, which are no tensors")
     taken = _pinned(plan, rows, capacity, extra)
     blocked = [Region(name, "scratch", base, n) for name, (base, n) in (reserved or {}).items()]
+    fenced = blocked + [Region("(avoided)", "scratch", base, n) for base, n in avoid]
     for region in taken:
         for other in blocked:
             if region.base_row < other.end_row and other.base_row < region.end_row:
@@ -247,7 +253,7 @@ def place(
     for tensor in placement_order(plan.manifest.tensors.values()):
         if tensor.name not in plan.pins and tensor.name not in extra:
             need = rows[tensor.name]
-            region = Region(tensor.name, tensor.role, _first_fit(taken + blocked, need), need)
+            region = Region(tensor.name, tensor.role, _first_fit(taken + fenced, need), need)
             _check_fits(plan, tensor, region, capacity)
             taken.append(region)
     by_name = {r.name: r for r in taken}

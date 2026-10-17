@@ -407,3 +407,61 @@ def test_every_register_of_a_bank_is_reset_but_the_hardwired_crs(free):
 def test_reset_names_register_banks(free, reset, match):
     with pytest.raises(ConfigurationError, match=match):
         Chain(ElementFormat.INT8).run(free, SCALE_2, {"x": X}, reset=reset)
+
+
+# --- slices and reserve: parts of one tensor ------------------------------------------
+
+X4 = np.concatenate([X, X[::-1]])  # 4 rows
+SCALE_4 = {"rows": 4, "s": 1.0}
+
+
+def test_a_slice_of_a_resident_is_an_input(first, second):
+    chain = Chain(ElementFormat.INT8)
+    whole = chain.run(first, {"rows": 4, "s": 2.0}, {"x": X4}).resident["y"]  # rows 64..67
+    part = whole.slice(2, 2)
+    assert (part.base_row, part.rows, part.root()) == (66, 2, whole)
+    two = chain.run(second, SCALE_3, {"x": part}, check=True)
+    assert two.result.passed, two.result.describe()
+    np.testing.assert_array_equal(two.result.outputs["y"], X4[2:].astype(np.float64) * 6)
+
+
+@pytest.mark.parametrize(("first_row", "rows"), [(-1, 1), (0, 0), (3, 2)])
+def test_a_slice_is_rows_of_the_tensor(first_row, rows):
+    with pytest.raises(ConfigurationError, match="a slice of rows"):
+        Resident(64, 4, None, ElementFormat.INT8).slice(first_row, rows)
+
+
+def test_steps_write_into_slices_of_a_reserved_tensor(free, second):
+    chain = Chain(ElementFormat.INT8)
+    whole = chain.reserve(4)
+    assert whole == Resident(0, 4, None, ElementFormat.INT8)
+    for g, s in enumerate((2.0, 3.0)):  # in row order: each ST.AAQ spill is rewritten next
+        step = chain.run(free, {"rows": 2, "s": s}, {"x": X}, at={"y": whole.slice(2 * g, 2)})
+        assert step.resident["y"].base_row == 2 * g
+    out = chain.run(second, SCALE_4, {"x": whole}).result.outputs["y"]
+    np.testing.assert_array_equal(out, np.concatenate([X * 2, X * 3]).astype(np.float64))
+    chain.release(whole)
+
+
+def test_a_held_slice_outlives_a_write_to_the_rest_of_its_tensor(first, free, second):
+    chain = Chain(ElementFormat.INT8)
+    whole = chain.run(first, {"rows": 4, "s": 2.0}, {"x": X4}).resident["y"]  # rows 64..67
+    kept = chain.hold(whole.slice(0, 2))
+    chain.run(free, SCALE_2, {"x": X}, at={"y": 66, "x": 10})  # over rows 66..67 (and spill)
+    with pytest.raises(ConfigurationError, match="no longer in XMEM"):
+        chain.run(second, SCALE_4, {"x": whole})
+    out = chain.run(second, SCALE_3, {"x": kept}).result.outputs["y"]
+    np.testing.assert_array_equal(out, X4[:2].astype(np.float64) * 6)
+
+
+def test_a_target_must_be_a_live_output_laid_out_as_the_step_writes_it(free):
+    chain = Chain(ElementFormat.INT8)
+    whole = chain.reserve(4)
+    with pytest.raises(ConfigurationError, match="laid out"):
+        chain.run(free, SCALE_2, {"x": X}, at={"y": whole.slice(0, 1)})
+    with pytest.raises(ConfigurationError, match="must be an output"):
+        chain.run(free, SCALE_2, {"x": X}, at={"x": whole.slice(0, 2)})
+    with pytest.raises(ConfigurationError, match="no longer in XMEM"):
+        chain.run(free, SCALE_2, {"x": X}, at={"y": Resident(200, 2, None, ElementFormat.INT8)})
+    with pytest.raises(ConfigurationError, match="rows >= 1"):
+        chain.reserve(0)

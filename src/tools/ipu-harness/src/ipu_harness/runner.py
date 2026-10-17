@@ -154,6 +154,8 @@ class SharedModel:
         reserved: Rows no region of the run may take, as ``(base row, rows)``
             by a name for messages (``placement.place``): tensors the chain
             holds.
+        avoid: Rows first fit leaves free besides, as ``(base row, rows)``
+            (``placement.place``).
     """
 
     model: ReferenceModel
@@ -162,6 +164,7 @@ class SharedModel:
     check: bool = False
     placed: Mapping[str, int] = field(default_factory=lambda: MappingProxyType({}))
     reserved: Mapping[str, tuple[int, int]] = field(default_factory=lambda: MappingProxyType({}))
+    avoid: tuple[tuple[int, int], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -476,6 +479,7 @@ def _prepare(
         {name: stored_rows(t, plan) for name, t in tensors.items()},
         pins=None if shared is None else {**shared.pinned, **shared.placed},
         reserved=None if shared is None else shared.reserved,
+        avoid=() if shared is None else shared.avoid,
     )
     return plan, values, placement
 
