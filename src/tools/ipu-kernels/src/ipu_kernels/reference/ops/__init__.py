@@ -29,6 +29,7 @@ from ipu_kernels.reference.ops.layernorm import layernorm
 from ipu_kernels.reference.ops.linear import linear
 from ipu_kernels.reference.ops.matmul import matmul
 from ipu_kernels.reference.ops.maxpool2d import maxpool2d
+from ipu_kernels.reference.ops.residual_add import residual_add
 from ipu_kernels.reference.ops.sample_descriptors import sample_descriptors
 from ipu_kernels.reference.ops.score_threshold import score_threshold
 from ipu_kernels.reference.ops.silu import silu
@@ -45,6 +46,7 @@ __all__ = [
     "linear",
     "matmul",
     "maxpool2d",
+    "residual_add",
     "sample_descriptors",
     "score_threshold",
     "silu",

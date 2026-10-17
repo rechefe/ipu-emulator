@@ -12,7 +12,7 @@ names them; //kernels:test_families checks it against the kernel.toml folders.
 KERNELS = {
     "conformance": ["vector_tour"],
     "detect": ["channel_peak", "score_threshold"],
-    "elementwise": ["scale"],
+    "elementwise": ["residual_add", "residual_add_rows", "scale"],
     "pooling": [
         "maxpool2d_nms",
         "maxpool2d_stride2",

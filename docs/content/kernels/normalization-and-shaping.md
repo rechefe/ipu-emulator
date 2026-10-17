@@ -23,11 +23,13 @@ after; `gamma_path`/`beta_path` each hold the `channels` FP32 values
 
 ## `residual_add`
 
-Plain elementwise `C = A + B` (`input_a_path`, `input_b_path`). For
+Plain elementwise `y = a + b`. The three kernels are entries of
+`kernels/elementwise/registry.toml` over the `residual_add_rows` template (one
+program), each run as `//kernels/elementwise:<kernel>`. For
 `residual_add_16x240` and `residual_add_64x192`, one whole row per channel
-(`tokens` lanes live, rest zero-padded) — the same file convention as
-`layernorm`'s `input_path`; `residual_add_256x144` has `tokens > 128`, so it
-flattens the problem into `ceil(tokens / 128) * channels` full rows.
+(`tokens` elements of data, the rest zero padding) — the same layout as
+`layernorm`'s input; `residual_add_256x144` has `tokens > 128`, so each
+channel takes `ceil(tokens / 128)` full rows.
 
 | Kernel | Tokens | Channels |
 |---|---|---|
@@ -35,8 +37,7 @@ flattens the problem into `ceil(tokens / 128) * channels` full rows.
 | `residual_add_64x192` | 64 | 192 |
 | `residual_add_256x144` | 256 | 144 |
 
-Query: `residual_add shape=tokens,channels` (the transpose of `layernorm`'s
-order).
+Query: `bazel run //kernels:query -- residual_add tokens=T channels=C`.
 
 The CHW `residual_add` kernel (convolution stages) shares this operation but is
 queried by `num_channels`; see [Convolutions](convolutions.md#residual_add).

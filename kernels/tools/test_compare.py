@@ -16,9 +16,10 @@ import compare_setup
 import pytest
 from compare_legacy import compare_family, table
 from compare_setup import compare_setup as setup_report
-from migration import legacy_asm_path, runfile
+from migration import POISON, POISONED, legacy_asm_path, poisoned_model, runfile
 
 from ipu_apps.kernel_registry.registry import kernel_spec
+from ipu_isa.formats import ElementFormat
 
 TOML = """\
 [kernel]
@@ -103,8 +104,8 @@ def test_a_planted_wrong_abi_register_is_named(tree):
     )
     report = setup_report("identity", str(_kernel(tree)))
     assert not report.identical
-    assert report.registers == ("CR7: old 0, new 7",)
-    assert "registers: 1 differ\n  CR7: old 0, new 7" in report.describe()
+    assert report.registers == (f"CR7: old {POISON}, new 7",)
+    assert f"registers: 1 differ\n  CR7: old {POISON}, new 7" in report.describe()
 
 
 def test_a_planted_input_lane_is_located_by_region_row_and_lane(tree):
@@ -198,3 +199,24 @@ def test_compare_setup_refuses_a_multi_stage_kernel_and_names_the_other_tool(tre
     _as_stages(tree, 1)
     assert compare_setup.main(["identity", str(_kernel(tree))]) == 2
     assert "compare_legacy compares its programs" in capsys.readouterr().err
+
+
+def test_both_sides_start_with_the_same_registers_poisoned():
+    """A register the old harness wrote and [abi] leaves out differs, rather
+    than both sides reading the reset value: every CR and LR but CR0, CR1 and
+    CR15 starts at POISON (CR7 above: the old harness never writes it)."""
+    assert ("cr", 0) not in POISONED and ("cr", 1) not in POISONED and ("cr", 15) not in POISONED
+    assert ("lr", 0) in POISONED and ("cr", 2) in POISONED
+    model = poisoned_model(ElementFormat.FP32)
+    assert all(model.read_register(bank, index) == POISON for bank, index in POISONED)
+
+
+def test_a_read_of_a_register_nothing_writes_fails_the_output(tree):
+    """The program's own SET of its row counter (LR1) is gone: on a fresh model
+    it would still start at 0, on the poisoned one it does not."""
+    asm = _kernel(tree) / "identity.asm"
+    source = asm.read_text()
+    assert source.count("SET {{lr_row}} cr0 ;;") == 1
+    asm.write_text(source.replace("SET {{lr_row}} cr0 ;;", "NOP ;;"))
+    rows = compare_family("reshape", only=["identity"], root=tree)
+    assert all(not row.output_ok for row in rows)
