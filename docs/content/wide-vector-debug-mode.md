@@ -31,10 +31,11 @@ state = IpuState(fmt=ElementFormat.FP32)
 run_until_complete(state)
 ```
 
-`AaqOptions` is re-exported from `ipu_emu` for convenience:
+`AaqOptions` is in `ipu_emu.activations`; the package root exports `IpuState`:
 
 ```python
-from ipu_emu import AaqOptions, IpuState
+from ipu_emu import IpuState
+from ipu_emu.activations import AaqOptions
 ```
 
 The high-level helper [`run_test`](https://github.com/rechefe/ipu-emulator/blob/master/src/tools/ipu-emu-py/src/ipu_emu/emulator.py) builds a default `IpuState()` unless you pass `state=`. To use wide-vector mode with your own harness, create the state as above and pass it, or use `load_program_from_binary` / `load_program` and `run_until_complete` or `run_with_debug` the same way tests do. A kernel harness declares its format in `SPEC` with `ExecutionConfig(fmt=ElementFormat.FP32)`.
