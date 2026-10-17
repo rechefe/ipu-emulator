@@ -873,8 +873,8 @@ $ bazel test //...                        # everything
 The seams in \texttt{kernels/mobilevit/} run several kernels in a row on one
 model (an \texttt{ipu\_harness} chain). The \texttt{test\_full\_*} tests under
 \texttt{src/tools/ipu-apps/test/mobilevit/} run a whole transformer layer on
-the old harnesses and take hours, so \texttt{bazel test //...} skips them; run them by
-name, picking a variant with \texttt{--test\_arg}:
+the old harnesses and take hours, so \texttt{bazel test //...} skips them;
+run them by name, picking a variant with \texttt{--test\_arg}:
 
 \begin{termcmd}
 $ bazel test //src/tools/ipu-apps:test_full_layer_l5 --test_arg=-k \

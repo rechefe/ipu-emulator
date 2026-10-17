@@ -18,9 +18,9 @@ chain tests (E07-24)"), `//kernels/mobilevit:tests`, sharded 6 ways:
 | `test_seam_pipeline_boundaries.py` | `test_seam_pipeline_boundaries.py` (src/tools/ipu-apps) |
 
 Also deleted: `test_kernel_registry_new_families.py`, `fixture_reshape.py`,
-the direct-handoff helpers of `fixture_kernel_support.py`, and 11 of the 12
-old `matmul_*_x128` folders (`matmul_720x240_x128` stays for `tools/bench`
-until E07-25).
+the direct-handoff helpers of `fixture_kernel_support.py`, and 10 of the 12
+old `matmul_*_x128` folders (`matmul_720x240_x128` and `matmul_384x192_x128`
+stay for `tools/bench` until E07-25).
 
 ## Left
 

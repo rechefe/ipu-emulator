@@ -293,6 +293,20 @@
   "blank-line-range": "9f27863c56900a6bb000053cffee894390d8b975dfea612cccdbe1f9a07d66f6",
   "mangled/blank-line-range": "30bf6989a24d3f04d295ed4fc55613af0e7f5cd8dee29e8fd861448dac7127c5"
  },
+ "src/tools/ipu-apps/src/ipu_apps/kernels/matmul/matmul_384x192_x128/matmul_384x192_x128.asm": {
+  "input": "37bf77b8bbfb9b55fe29b56959ea57603d2003bfa61e77cc604e4af129c7d95c",
+  "mangled": "053a6c0a132e78107142c1c74c2e6d8ef009e80636850d7495469ca9577571d4",
+  "default": "37bf77b8bbfb9b55fe29b56959ea57603d2003bfa61e77cc604e4af129c7d95c",
+  "mangled/default": "37bf77b8bbfb9b55fe29b56959ea57603d2003bfa61e77cc604e4af129c7d95c",
+  "blank-line": "fcd5ee8e86d5420b5a55410c7c3c69d31c756e18e61ffb7b1588ef6f778ad424",
+  "mangled/blank-line": "fcd5ee8e86d5420b5a55410c7c3c69d31c756e18e61ffb7b1588ef6f778ad424",
+  "indent-tab": "4451f77206f26cc756c4d0c2f7017a91ff6586881d83817794be1c5ce3da1d98",
+  "mangled/indent-tab": "4451f77206f26cc756c4d0c2f7017a91ff6586881d83817794be1c5ce3da1d98",
+  "indent-2-range": "f2c7cd2375077e81fcf012577f1012a00ff339cb735ddf919d8ed534d365bd2a",
+  "mangled/indent-2-range": "b203e48a3ee805f571b38ed4da13fa8d07d2d59a3465ad0a3a7f533005259bad",
+  "blank-line-range": "408f6d937da034ab14a3525cd224791f77ea574e1658b8a93c15cd258accf364",
+  "mangled/blank-line-range": "16ddc540ec2308954eec777a90ee03cdecd392e0bd4fd330f61708f447827d86"
+ },
  "src/tools/ipu-apps/src/ipu_apps/kernels/matmul/matmul_720x240_x128/matmul_720x240_x128.asm": {
   "input": "1ac6dc4342b8f6fde7dc2eb650f0abb532c48c4347664b2ad1b5bbc8d099b13c",
   "mangled": "5824798070c56cb2f21a2c824da8e95b613804ed9e9dbe21400b622740359dae",

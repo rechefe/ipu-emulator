@@ -149,6 +149,12 @@
     "word_fingerprints": "699c360f0e6fe4673ffef49617ad8be886a87ea57126c4ac20d99508c79e778244406b151919e9c94b140ee59af3778fac8275ae4b140ee5c95f9866d73e052644161d599a9aad9104de4a6068177f66",
     "words": 20
   },
+  "src/tools/ipu-apps/src/ipu_apps/kernels/matmul/matmul_384x192_x128/matmul_384x192_x128.asm": {
+    "bin_sha256": "c5c746f6b86c277443620a912eeca7645c671ef4880d4c64c07a3f2f3b05d694",
+    "mem_sha256": "d0936e22da3c62a0e937d18c6d1afd97dc2fd5d9ab06bffd14484f3a796b7ed0",
+    "word_fingerprints": "8d9ed134310cb3f6a996a09bed2122371aa80272b93495c52348565606dd1db41ea600c91b832306fa2aa84f5e1556068cd448ed68177f66",
+    "words": 14
+  },
   "src/tools/ipu-apps/src/ipu_apps/kernels/matmul/matmul_720x240_x128/matmul_720x240_x128.asm": {
     "bin_sha256": "68fa57301e0938b99e6a39ad0b69b02a19960a84ded46ece62a4a42500c4ddbe",
     "mem_sha256": "6bf79709169e5cd435068da63be9b99ff1aaa00c3bef5ca01e97a79c9056ea97",
