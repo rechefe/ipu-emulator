@@ -116,7 +116,7 @@ def register_names(groups: tuple[str, ...] = REGISTER_GROUPS) -> list[str]:
     return [f"{name}{index}" for name in groups for index in range(_GROUP_COUNTS[name])]
 
 
-def snapshot(
+def register_values(
     session: DebugSession, groups: tuple[str, ...] = REGISTER_GROUPS
 ) -> dict[tuple[str, int], int]:
     """``(group, index) -> value`` for every register of *groups*."""
@@ -129,7 +129,7 @@ def snapshot(
 
 def commit_baselines(session: DebugSession, tabs: TabSet[RegisterTab]) -> None:
     """Remember every register, so the next stop marks what changed."""
-    values = snapshot(session)
+    values = register_values(session)
     for tab in tabs:
         tab.baseline = values.copy()
 
@@ -276,7 +276,7 @@ class RegistersPane:
         drawing = PaneDrawing(canvas.lines)
         grid = layout_grid(tab, rect)
         scroll_to_cursor(tab, grid)
-        values = snapshot(session, tab.groups)
+        values = register_values(session, tab.groups)
         cursor = self.theme.colors.cursor_for(focused)
         limit = grid.x + grid.width
         last = min(grid.columns, tab.column_scroll + grid.visible)
