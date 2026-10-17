@@ -1,6 +1,6 @@
-# The Cycle Inspector's kernel list (E08-16). One [[kernel]] per kernel_trace
-# target in BUILD.bazel, in the order the page lists them; `id` is the
-# target's name. //docs/inspector:kernels_json checks that the two agree.
+# The Cycle Inspector's kernel list (E08-16). One [[kernel]] per CURATED entry
+# in BUILD.bazel, in the same order (the page's); `id` is the entry's name.
+# //docs/inspector:test_kernels and :kernels_json check that the two agree.
 #
 # group: "native" (8-bit hardware formats) or "wide" (wide-vector debug,
 # emulator-only FP32/INT32). label: the format as the kernel button shows it.

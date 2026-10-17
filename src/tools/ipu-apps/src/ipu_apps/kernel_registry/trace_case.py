@@ -44,7 +44,7 @@ from ipu_emu.trace import TraceWriter, trace_header
 from ipu_isa.codec.word import DecodedWord
 from ipu_isa.registers import REGISTER_DEFINITIONS
 
-__all__ = ["CONTEXT_VERSION", "CaseTrace", "main", "record_case"]
+__all__ = ["CONTEXT_VERSION", "CaseTrace", "case_context", "main", "record_case"]
 
 #: The context file's layout version; ``ipu_gen.inspector_trace`` checks it.
 CONTEXT_VERSION = 1
@@ -191,6 +191,18 @@ def record_case(
     recorder = CaseTrace(trace_path)
     with recorder.watch():
         run_case(kernel, cases[case], options=options)
+    return case_context(kernel, case, options, recorder)
+
+
+def case_context(
+    kernel: str, case: str, options: dict[str, Any] | None, recorder: CaseTrace
+) -> dict[str, Any]:
+    """The context document of a case ``recorder`` watched run.
+
+    Raises:
+        RuntimeError: The case ran no program, or its records and cycle facts
+            do not pair up.
+    """
     if recorder.start is None:
         raise RuntimeError(f"{kernel}/{case} ran no program through run_until_complete")
     if len(recorder.facts) != recorder.records:

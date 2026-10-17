@@ -28,14 +28,11 @@ def _entry(id_="a"):
     return {"id": id_, "group": "native", "title": "T", "label": "INT8", "description": "D"}
 
 
-def test_every_curated_id_is_a_kernel_trace_target_in_order():
-    targets = re.findall(r'kernel_trace\(\s*name = "([^"]+)"', BUILD)
-    listed = re.findall(
-        r'^    ":([^"]+)",$', BUILD.split("TRACES = [", 1)[1].split("]", 1)[0], re.M
-    )
+def test_curated_toml_lists_the_build_files_traces_in_order():
+    curated = BUILD.split("CURATED = [", 1)[1].split("\n]\n", 1)[0]
+    targets = re.findall(r'^    \{"name": "([^"]+)"', curated, re.M)
     ids = [entry["id"] for entry in CURATED["kernel"]]
-    assert sorted(targets) == sorted(ids), "a kernel_trace without a curated.toml entry, or back"
-    assert listed == ids, "TRACES lists every kernel_trace, in curated.toml's order"
+    assert targets == ids, "BUILD.bazel's CURATED and curated.toml list the same ids in order"
 
 
 def test_every_curated_entry_is_complete():

@@ -12,7 +12,7 @@ import struct
 import pytest
 
 from ipu_apps.kernel_registry.cases import load_cases, run_case
-from ipu_apps.kernel_registry.trace_case import CaseTrace, record_case
+from ipu_apps.kernel_registry.trace_case import CaseTrace, case_context, record_case
 from ipu_emu.trace import read_trace
 from ipu_gen.inspector_trace import convert
 from ipu_isa.registers import REGISTER_DEFINITIONS
@@ -47,7 +47,9 @@ def test_init_plus_every_delta_is_the_final_state(kernel, case, options, tmp_pat
     recorder = CaseTrace(tmp_path / "trace.jsonl")
     with recorder.watch():
         final, _ = run_case(kernel, load_cases(kernel)[case], options=options)
-    replayed = _replay(_document(kernel, case, options, tmp_path))
+    header, records = read_trace(recorder.trace_path)
+    context = case_context(kernel, case, options, recorder)
+    replayed = _replay(convert(header, [r.to_json() for r in records], context))
     for name in REGISTER_DEFINITIONS:
         assert bytes(replayed[name]) == bytes(final.regfile.view(name)), name
 
