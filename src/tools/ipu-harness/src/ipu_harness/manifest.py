@@ -87,7 +87,10 @@ Schema
 Every declared name (parameter, tensor, derived value) is an identifier that
 does not start with ``_`` and is not ``cr``, ``lr`` or a reserved case key.
 Every file path stays inside the kernel directory: ``..`` and absolute paths
-are refused (checked lexically). An unknown section or key is an error that
+are refused (checked lexically). A case ``generator``'s file that is not in the
+kernel's folder is its family folder's (``kernels/<family>/gen.py``), as a
+``pack`` transform may be the family folder's ``pack.py``: a family's
+templates share them. An unknown section or key is an error that
 names the closest valid one.
 
 A family ``registry.toml`` entry (E06-17, :mod:`ipu_harness.family`) loads its

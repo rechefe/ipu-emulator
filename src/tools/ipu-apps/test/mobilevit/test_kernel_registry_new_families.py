@@ -4,7 +4,7 @@ Mirrors ``test_kernel_registry.py``'s softmax conformance test: for each op,
 ``resolve()`` is asked for the exact shape one of the family's own kernels
 declares, and the kernel the registry hands back must actually compute the
 operation -- not just claim to. Every kernel in these families (matmul,
-projection, layernorm, residual_add, unfold, and the attention ops) is an
+layernorm, residual_add, unfold, and the attention ops) is an
 exact-shape-only match (no padding, no chunking across kernels), so there is
 exactly one query worth asking per kernel: its own declared shape.
 
@@ -20,10 +20,11 @@ P layouts are deliberately NOT interchangeable despite sharing ctor kwarg
 names. Getting a layout wrong here would silently mis-stage inputs and
 produce a false failure, so nothing is re-derived -- only reused.
 
-Query vocabulary: ``matmul`` and ``projection`` queries carry an optional
-``activation`` ("none"/"silu"). The FFN1 expansion kernels fuse silu into
-their store, so a plain query at an FFN1 shape must refuse and only the
-``activation="silu"`` query may route there (checked below).
+Query vocabulary: ``matmul`` queries carry an optional ``activation``
+("none"/"silu"). The FFN1 expansion kernels fuse silu into their store, so a
+plain query at an FFN1 shape must refuse and only the ``activation="silu"``
+query may route there (checked below). The projections moved to
+``//kernels/projections`` (E07-02), whose ``test_routing.py`` checks theirs.
 """
 
 from __future__ import annotations
@@ -91,52 +92,6 @@ def test_matmul_silu_shape_routes_only_with_activation():
     assert not refused and "silu" in refused.reason, refused.reason
     verdict = resolve("matmul", **query, activation="silu")
     assert verdict.kernel.name == "matmul_384x192_x128", verdict.reason
-
-
-# -- projection -----------------------------------------------------------
-
-
-def test_resolved_projection_computes_the_operation(tmp_path):
-    from ipu_apps.kernels.projections.proj_qkv_144_p4.app import N_OUT, N_STREAM, N_TG, N_TOK, K
-
-    query = dict(k=K, n_out=N_OUT)
-    verdict = resolve("projection", **query)
-    assert verdict.kernel.name == "proj_qkv_144_p4", verdict.reason
-
-    rng = np.random.RandomState(0xC0FFEE)
-    D = [rng.uniform(-1.0, 1.0, size=(N_TG, K, N_TOK)).astype(np.float32) for _ in range(N_STREAM)]
-    W = rng.uniform(-1.0, 1.0, size=(N_OUT, K)).astype(np.float32)
-
-    # The harness takes all streams in one file, (N_STREAM, N_TG, K, N_TOK),
-    # and writes one file of raw rows, (N_STREAM, N_TG, N_OUT, LANES).
-    input_path = tmp_path / "input.bin"
-    input_path.write_bytes(np.stack(D).tobytes())
-    weights_path = tmp_path / "weights.bin"
-    weights_path.write_bytes(W.tobytes())
-    output_path = tmp_path / "output.bin"
-
-    app = _harness(
-        verdict, query, input_path=input_path, weights_path=weights_path, output_path=output_path
-    )
-    _, cycles = app.run(max_cycles=20_000_000)
-    assert cycles > 0
-
-    got = np.frombuffer(output_path.read_bytes(), dtype=np.float32).reshape(
-        N_STREAM, N_TG, N_OUT, LANES
-    )
-    for p in range(N_STREAM):
-        for tg in range(N_TG):
-            np.testing.assert_allclose(got[p, tg][:, :N_TOK], W @ D[p][tg], rtol=1e-4, atol=1e-3)
-
-
-def test_projection_silu_shape_routes_only_with_activation():
-    """A plain projection at an FFN1 shape must not reach the silu-fused kernel."""
-    from ipu_apps.kernels.projections.proj_ffn1_144_p4.app import N_OUT, K
-
-    refused = resolve("projection", k=K, n_out=N_OUT)
-    assert not refused and "silu" in refused.reason, refused.reason
-    verdict = resolve("projection", k=K, n_out=N_OUT, activation="silu")
-    assert verdict.kernel.name == "proj_ffn1_144_p4", verdict.reason
 
 
 # -- layernorm --------------------------------------------------------------

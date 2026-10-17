@@ -117,8 +117,9 @@ def ipu_kernel(name = None, extra_deps = [], size = "large", shard_count = None,
         "//" + family + "/" + used + ":" + used + "_files"
         for used in uses
     ]
-    # The folder's Python (reference.py, test_*.py), in //kernels:lint.
-    ruff_test(name = "ruff", srcs = native.glob(["**/*.py"]))
+    # The folder's Python (reference.py, test_*.py), in //kernels:lint; a
+    # template whose reference is a shared op may have none (E07-02).
+    ruff_test(name = "ruff", srcs = native.glob(["**/*.py"], allow_empty = True))
     _kernel_targets(name, "$(rootpath kernel.toml)", data, _test_deps(family) + extra_deps, size, shard_count)
 
 def ipu_kernel_family(entries = [], kernels_lib = None, extra_deps = [], size = "large", shard_count = {}):
@@ -185,12 +186,15 @@ def ipu_kernel_family(entries = [], kernels_lib = None, extra_deps = [], size = 
         legacy_create_init = False,
         size = "small",
     )
+    # Reading registry.toml checks every entry's template folder, so each
+    # entry's data holds every template's files (E07-02), not only its own.
+    template_files = ["//%s/%s:%s_files" % (package, t, t) for t in templates]
     for entry in entries:
-        name, template = entry["name"], entry["template"]
+        name = entry["name"]
         _kernel_targets(
             name,
             "$(rootpath registry.toml)::" + name,
-            ["registry.toml", ":files", "//%s/%s:%s_files" % (package, template, template)],
+            ["registry.toml", ":files"] + template_files,
             _test_deps(package) + extra_deps,
             size,
             shard_count.get(name),

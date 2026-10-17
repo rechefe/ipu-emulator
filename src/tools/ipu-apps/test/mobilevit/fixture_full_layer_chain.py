@@ -27,6 +27,7 @@ from pathlib import Path
 
 import numpy as np
 from fixture_kernel_support import kernel_inst
+from fixture_projections import run_projection
 
 from ipu_emu.ipu_state import IpuState
 
@@ -168,56 +169,35 @@ def run_layernorm(
 
 
 def run_proj_p4(
-    App,
+    name: str,
     *,
-    inst_bin: Path,
     d_streams: list[np.ndarray],
     w: np.ndarray,
-    k: int,
     n_out: int,
-    n_tok: int,
     n_stream: int,
     row_bytes: int,
-    tmp_path: Path,
     tag: str,
-) -> tuple[list[np.ndarray], int, IpuState]:
-    """Run a real proj_*_p4 kernel (QKV / OutProj / FFN1 / FFN2), all 4
-    streams in one invocation. `d_streams[p]` is [k, n_tok] channel-major,
-    tightly packed; the harness takes all streams in ONE input file,
-    (N_STREAM, N_TG=1, k, n_tok) FP32 (see kernels/projections/app.py).
-    `w` is [n_out, k].
+    **_unused: object,
+) -> tuple[list[np.ndarray], int, None]:
+    """Run the projection kernel ``name`` (QKV / OutProj / FFN1 / FFN2, from
+    //kernels/projections through fixture_projections), all 4 streams in one
+    invocation. `d_streams[p]` is [k, n_tok] channel-major, tightly packed (the
+    kernel's input b is (N_STREAM, N_TG=1, k, n_tok)). `w` is [n_out, k].
 
     Returns full uncropped [n_out, lanes] output per stream, split out of the
-    harness's single output file of raw rows (N_STREAM, N_TG=1, n_out, lanes)
-    (the kernel's real teardown emits full rows; cropping to n_tok is the
-    caller's job, done explicitly at each call site rather than inside this
-    helper, so a caller staging this output verbatim into the next kernel's
-    XMEM can choose not to crop).
+    kernel's output region of raw rows (N_STREAM, N_TG=1, n_out, lanes)
+    (cropping to n_tok is the caller's job, done explicitly at each call site
+    rather than inside this helper, so a caller staging this output verbatim
+    into the next kernel's XMEM can choose not to crop), the cycles, and None
+    where the ipu_apps harness returned its state.
     """
     lanes = row_bytes // 4
-    input_path = tmp_path / f"proj_{tag}_d.bin"
-    input_path.write_bytes(np.stack(d_streams[:n_stream]).astype(np.float32).tobytes())
-    weights_path = tmp_path / f"proj_{tag}_w.bin"
-    weights_path.write_bytes(w.astype(np.float32).tobytes())
-    output_path = tmp_path / f"proj_{tag}_o.bin"
-
-    app = App(
-        inst_path=inst_bin,
-        input_path=input_path,
-        weights_path=weights_path,
-        output_path=output_path,
-    )
-    state = app.make_state()
-    _, cycles = app.run(max_cycles=30_000_000, state=state)
+    d = np.stack(d_streams[:n_stream]).astype(np.float32)[:, None]  # N_TG = 1
+    rows, cycles = run_projection(name, d, w)
     assert cycles > 0
-
-    raw = output_path.read_bytes()
-    assert len(raw) == n_stream * n_out * row_bytes, (
-        f"{tag}: output is {len(raw)} B, expected {n_stream * n_out * row_bytes} B"
-    )
-    rows = np.frombuffer(raw, dtype=np.float32).reshape(n_stream, n_out, lanes)
-    outs = [rows[p] for p in range(n_stream)]
-    return outs, cycles, state
+    assert rows.shape == (n_stream, 1, n_out, lanes), f"{tag}: output rows are {rows.shape}"
+    outs = [rows[p, 0] for p in range(n_stream)]
+    return outs, cycles, None
 
 
 # ---------------------------------------------------------------------------

@@ -62,4 +62,8 @@ def test_the_manifest_has_the_legacy_keys():
     # fixed by its name) and a family's suite label.
     assert scale["cases"]["default"]["options"] == {}
     assert scale["cases"]["default"]["values"] == {"rows": 4, "s": 2.0}
-    assert manifest["families"] == {"elementwise": {"suite": "//kernels/elementwise:all"}}
+    assert manifest["families"]["elementwise"] == {"suite": "//kernels/elementwise:all"}
+    # A registry entry (E07-02's projections) is a kernel of its family's package.
+    entry = manifest["kernels"]["proj_qkv_144_p4"]
+    assert entry["targets"]["run"] == "//kernels/projections:proj_qkv_144_p4"
+    assert manifest["families"]["projections"] == {"suite": "//kernels/projections:all"}

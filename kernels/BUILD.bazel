@@ -7,6 +7,7 @@ load("@rules_python//python:defs.bzl", "py_binary")
 load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
 load("//tools:lint.bzl", "ruff_test")
 load(":defs.bzl", "ipu_kernel_tree")
+load("//kernels/projections:registry.bzl", PROJECTIONS = "ENTRIES")
 
 exports_files([
     "BUILD.bazel",
@@ -21,7 +22,9 @@ exports_files([
 # REGISTRIES: each family with a registry.toml (E06-17), its entries from its
 # generated registry.bzl: load("//kernels/<family>:registry.bzl", <FAMILY> =
 # "ENTRIES") above and "<family>": <FAMILY> here. test_kernel_tree checks it.
-REGISTRIES = {}
+REGISTRIES = {
+    "projections": PROJECTIONS,
+}
 
 ipu_kernel_tree(registries = REGISTRIES)
 

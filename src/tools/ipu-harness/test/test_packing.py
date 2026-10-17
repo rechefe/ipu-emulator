@@ -82,6 +82,18 @@ def test_an_output_names_a_pack_transform_and_unpack_uses_it(tmp_path):
     np.testing.assert_array_equal(unpack(y, raw, plan), values)
 
 
+def test_a_transform_not_in_the_kernels_pack_py_is_its_family_folders(tmp_path):
+    """A family's templates share one pack.py beside them (E07-02 gap G9),
+    after the kernel's own, before the ipu_kernels modules."""
+    m = manifest(tmp_path, "reversed_rows", "family_rows")
+    (tmp_path / "pack.py").write_text(PACK_PY.replace("reversed_rows", "family_rows"))
+    plan = plan_case(m, {"rows": 2}, F.FP32)
+    assert stored_rows(m.tensors["y"], plan) == 3
+    (tmp_path / "pack.py").unlink()
+    with pytest.raises(PlanError, match="no transform 'family_rows'"):
+        stored_rows(m.tensors["y"], plan)
+
+
 # --- a scratch region's starting bytes (E06 gap G2) ----------------------------------------
 
 SCRATCH_TOML = """\

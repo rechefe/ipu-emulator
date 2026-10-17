@@ -36,7 +36,10 @@ Query: `matmul shape_a=M,K shape_b_t=N,K [activation=silu]`.
 ## `projection`
 
 The single-stream `matmul_*_x128` shapes run over all 4 pixel streams in one
-invocation, against one shared weight matrix.
+invocation, against one shared weight matrix. The 12 kernels are entries of
+`kernels/projections/registry.toml` over three templates: `proj_p4` (one token
+group, the activation a parameter), `proj_p4_2tg` and `proj_p4_2tg_silu` (two
+token groups). Each runs as `//kernels/projections:<kernel>`.
 
 | Kernel | K | N_OUT | activation |
 |---|---|---|---|
@@ -53,12 +56,14 @@ invocation, against one shared weight matrix.
 | `proj_ffn1_240_p4` | 240 | 480 | silu |
 | `proj_ffn2_240_p4` | 480 | 240 | none |
 
-Query: `projection k=K n_out=N_OUT [activation=silu]`.
+Query: `bazel run //kernels:query -- projection k=K n_out=N_OUT [activation=silu]`.
+A query that leaves `activation` out takes the kernel's own, so give it
+whenever the activation matters.
 
 ## Data layout
 
-Every kernel takes `input_path`, `weights_path` and `output_path`. The weight
-file is `[N, K]` (or `[N_OUT, K]`) float32, output-major, stored verbatim.
+A `matmul_*` kernel takes `input_path`, `weights_path` and `output_path`. The
+weight file is `[N, K]` float32, output-major, stored verbatim.
 
 `matmul_*` kernels use one of two layouts (each kernel's `cases.py` states its
 own):
@@ -69,8 +74,11 @@ own):
   the transformer blocks hold it; the output file is raw XMEM rows,
   `(N_TG, N, 128)`, with the first `N_TOK` lanes of each row valid.
 
-`proj_*_p4` kernels take the 4 streams back to back in **one** input file,
-`(N_STREAM, N_TG, K, N_TOK)` float32 (each stream's block channel-major), and
-write one output file of raw XMEM rows, `(N_STREAM, N_TG, N_OUT, 128)`, with the
-first `N_TOK` lanes of each row valid. L3 (144) has `N_TG = 2` token groups of
-128; L4/L5 have `N_TG = 1` (64 / 16 tokens padded to 128 lanes).
+A `proj_*_p4` kernel declares its tensors in `kernel.toml`, and the harness
+places and packs them. `b` holds the 4 streams' data, `(N_STREAM, N_TG, K,
+N_TOK)` (each stream's block channel-major). `a` holds the shared weights,
+`[N_OUT, K]`, output-major. The output `y` is `(N_STREAM, N_TG, N_OUT, N_TOK)`,
+stored as one XMEM row of 128 lanes per output channel, with the first `N_TOK`
+lanes valid. L3 (144) has `N_TG = 2` token groups of 128; L4/L5 have
+`N_TG = 1` (64 / 16 tokens padded to 128 lanes). The reference is the shared
+`linear` op, `activation(a @ b)`.

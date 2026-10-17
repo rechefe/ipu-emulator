@@ -20,7 +20,7 @@ On Linux, from a fresh clone:
 ```bash
 ./tools/bootstrap.sh                               # install the pinned bazelisk as `bazel`
 bazel test //...                                   # run the default test tier
-bazel run //src/tools/ipu-apps:proj_qkv_144_p4     # run one FP32 kernel case end to end
+bazel run //kernels/projections:proj_qkv_144_p4    # run one FP32 kernel case end to end
 ```
 
 [Getting started](docs/content/getting-started/index.md) explains each step,
