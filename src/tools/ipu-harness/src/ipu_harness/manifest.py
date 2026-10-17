@@ -45,7 +45,8 @@ Schema
     evaluated exactly when the case is planned (``"-1 / channels"``, whole or
     not; a float parameter is its exact binary value) and rounded to the
     format when stored. ``bytes`` (scratch, not with ``fill``):
-    ``"file.py:fn"``, ``fn(plan)`` returns the region's exact starting bytes,
+    ``"file.py:fn"``, or ``"../file.py:fn"`` in the family's folder as a
+    generator may be, ``fn(plan)`` returns the region's exact starting bytes,
     format-blind (a lane mask, which no element value can carry). The runner
     writes either through :func:`ipu_harness.packing.region_fill`. Scratch
     regions are placed and filled, never compared. ``range`` (inputs): ``[lo, hi]`` for the generated values in
@@ -881,7 +882,7 @@ def _case(r: Reader, m: KernelManifest, name: str, raw: object) -> CaseDecl:
     if "generator" in table:
         case = replace(
             case,
-            generator=r.generator(m.directory, table["generator"], (*path, "generator")),
+            generator=r.shared_function(m.directory, table["generator"], (*path, "generator")),
         )
     if "tier" in table:
         tier = table["tier"]
@@ -1237,10 +1238,10 @@ def _tensors(
 
 
 def _content(r: Reader, directory: Path, table: Mapping[str, Any], path: tuple[str, ...]) -> str:
-    """A scratch region's ``bytes = "file.py:fn"``."""
+    """A scratch region's ``bytes = "file.py:fn"`` (or ``"../file.py:fn"``, the family's)."""
     if "fill" in table:
         raise r.fail((*path, "bytes"), f"{where(path)} takes 'fill' or 'bytes', not both")
-    return r.function(directory, table["bytes"], (*path, "bytes"))
+    return r.shared_function(directory, table["bytes"], (*path, "bytes"))
 
 
 def _check_after(r: Reader, tensor: TensorDecl, tensors: Mapping[str, TensorDecl]) -> None:
