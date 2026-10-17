@@ -23,6 +23,7 @@ from ipu_emu.alias_profile import AliasProfile
 from ipu_emu.commit import CommitRecord, FaultInfo, Outcome, RegWrite, SlotOp, XmemWrite
 from ipu_emu.emulator import DebugAction
 from ipu_emu.errors import ConfigurationError
+from ipu_emu.ipu_state import INST_MEM_SIZE
 from ipu_emu.reference import API_VERSION, ReferenceModel, RunResult, RunState, Stats, Status
 from ipu_emu.trace import TraceWriter, read_trace
 from ipu_isa.codec.word import DecodedWord, pack_program, word_bytes
@@ -709,3 +710,43 @@ def test_an_alias_profile_records_the_runs_after_it_is_attached():
     running.step()
     with pytest.raises(ConfigurationError, match="halted"):
         running.attach_alias_profile(AliasProfile())
+
+
+def test_a_quit_at_a_break_word_leaves_no_stop_for_the_next_step():
+    program = "INC LR0 1 ;;\nBREAK ; INC LR0 1 ;;\nHALT ;;"
+    model = _model(program)
+    model.debug_run(lambda state, cycles: DebugAction.QUIT)
+    plain = _model(program)
+    plain.step()
+    # The next word is recorded as a plain step's (outcome retired, no BREAK
+    # slot), apart from its cycle number.
+    assert model.step().to_json() == plain.step().to_json()
+
+
+def test_the_debuggers_quit_past_imem_halts_the_model():
+    model = _model()
+
+    def quit_like_ipu_debug(state, cycles):
+        state.program_counter = INST_MEM_SIZE  # DebugSession.halt()
+        return DebugAction.QUIT
+
+    result = model.debug_run(quit_like_ipu_debug, break_on_entry=True)
+    assert result == RunResult(Status(RunState.HALTED, INST_MEM_SIZE), 0)
+    model.write_register("cr", 5, 2)  # the host may write again
+    with pytest.raises(ConfigurationError, match="past IMEM"):
+        model.step()
+    model.load_program(_words(LOOP))
+    assert model.run().cycles == 12
+
+
+def test_attaching_another_profile_detaches_the_one_before():
+    model = _model()
+    first, second = AliasProfile(), AliasProfile()
+    model.attach_alias_profile(first)
+    model.attach_alias_profile(second)
+    assert first._bridge is None  # white-box: it no longer watches the model
+    model.run()
+    assert first.cycles == 0 and second.cycles == 12
+    _model().attach_alias_profile(first)  # free again
+    with pytest.raises(ConfigurationError, match="no AliasProfile"):
+        model.attach_alias_profile(None)

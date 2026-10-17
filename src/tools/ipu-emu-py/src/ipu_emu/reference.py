@@ -33,6 +33,8 @@ from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+# Imported under their own names, not ``_`` ones: the signatures the contract
+# snapshot pins name them (``'AliasProfile'``, ``'DebugCallback'``, ``'RunControl'``).
 from ipu_emu.alias_profile import AliasProfile
 from ipu_emu.commit import CommitCollector as _CommitCollector
 from ipu_emu.commit import CommitRecord
@@ -405,7 +407,10 @@ class ReferenceModel:
         Returns:
             The status the run stopped in and the words it retired. A
             ``QUIT`` pauses the model where it stopped (``RUNNING``): a later
-            step or run carries on from that PC.
+            step or run carries on from that PC. A callback that also moves
+            the PC past IMEM (``ipu_debug``'s quit) leaves the model
+            ``HALTED`` there: the host may write again, and stepping needs
+            :meth:`reset` or :meth:`load_program`.
 
         Raises:
             ConfigurationError: As :meth:`step`.
@@ -427,6 +432,7 @@ class ReferenceModel:
         finally:
             self._started = True
             self._collector.take()  # a debug run writes no trace
+            self._collector.drop_stop()  # a stop it quit at is not the next word's
         return RunResult(self.status, cycles)
 
     def attach_alias_profile(self, profile: AliasProfile) -> None:
@@ -436,14 +442,24 @@ class ReferenceModel:
         Args:
             profile: The profile (``ipu_emu.alias_profile.AliasProfile``).
 
+        Attaching another profile detaches the one before.
+
         Raises:
-            ConfigurationError: The model is running or faulted, or *profile*
-                already records another model.
+            ConfigurationError: The model is running or faulted; *profile* is
+                no ``AliasProfile`` or already records another model.
         """
         self._writable()
+        if not isinstance(profile, AliasProfile):
+            raise ConfigurationError(f"{profile!r} is no AliasProfile")
         bridge = getattr(profile, "_bridge", None)
-        if bridge is not None and bridge.state is not self._state:
+        if bridge is not None and bridge.state is not None and bridge.state is not self._state:
             raise ConfigurationError("an AliasProfile belongs to a single model")
+        if bridge is not None and bridge.state is None:
+            profile._bridge = None  # its model is gone: the profile is free again
+        old = self._state.alias_profile
+        if old is not None and old is not profile and old._bridge is not None:
+            old._bridge.detach()  # the replaced profile stops watching this model
+            old._bridge = None
         self._state.alias_profile = profile
         self._state.stats.alias_profile = profile
         self._ipu = _Ipu(self._state)  # the engine binds the profile's observer when built
@@ -531,7 +547,8 @@ class ReferenceModel:
             return Status(RunState.FAULTED, halt.pc, halt.fault)
         if halt is not None:
             return Status(RunState.HALTED, halt.pc)  # the HALT word's PC
-        if not self._started:
+        if not self._started or state.program_counter >= INST_MEM_SIZE:
+            # Before the first word, or stopped past IMEM (a debugger's quit).
             return Status(RunState.HALTED, state.program_counter)
         return Status(RunState.RUNNING, state.program_counter)
 
