@@ -1,30 +1,41 @@
 """Seam: the QKV projection (all 4 streams in one step) into the key-major
 score kernel, at L4 and L5 (E07-24, from ``test_seam_proj_qkv_to_scores_km_repack.py``).
 
-``proj_qkv_*_p4`` stores each output channel as a whole row with ``n_tok``
-live lanes, a stream's ``3 * n_head * d`` channels after the previous
-stream's. ``attn_scores_km_*`` takes one head's Q channel-major (``b``) and
-its K key-major (``a``). No base or stride makes the one the other: the host
-repacks between the steps, taking each row's live lanes in the order the
-projection stored them (no reordering) and turning K's channel rows into key
-rows (the transpose the old harness did while staging K). The repack is the
-seam under test:
+``proj_qkv_*_p4`` stores each output channel as a whole row with its first
+``n_tok`` lanes valid, a stream's ``3 * n_head * d`` channels after the
+previous stream's. ``attn_scores_km_*`` takes one head's Q channel-major
+(``b``) and its K key-major (``a``). No base or stride makes the one the
+other, so the host moves the data between the steps in two parts:
 
-* on data whose every element encodes its own (stream, head, channel, token),
-  it moves no element anywhere but where those indices say;
-* through the real kernels it gives the float64 scores of the projection's
-  own weights and data, with the score output poisoned first;
-* one wrong element in the repacked Q moves the scores (the check has teeth).
+* ``repack`` takes each row's first ``n_tok`` lanes in the order the
+  projection stored them (no reordering). On data whose every element
+  encodes its own (stream, head, channel, token), it moves no element
+  anywhere but where those indices say.
+* ``key_major`` turns K's channel rows into key rows, the transpose the old
+  harness did while staging K. The numeric tests cover it.
+
+Through the real kernels the scores equal the shared references chained in
+float64 (``ops.linear``, then ``ops.matmul``) of the projection's own weights
+and data, with the score output poisoned first. The projection step is held
+to its own golden; a score step to its datapath mirror, bit for bit
+(``acc_fold``): the projection's outputs are larger than a case's
+uniform(-1, 1) data, and their cancelling sums put a score past FP32_ORDER's
+1e-6 floor, as on the attention family's own seams. And one wrong element in the repacked Q moves the scores
+(the check has teeth). The score kernel's ``head`` parameter only names a
+case's generated head: the host selects the head here.
 """
 
 from __future__ import annotations
 
 import numpy as np
+import torch
 
 from ipu_harness.chain import Chain
 from ipu_harness.registry import default_registry
 from ipu_isa.formats import ElementFormat
 from ipu_isa.geometry import LANES
+from ipu_kernels.reference import ops
+from ipu_kernels.reference.datapath import acc_fold
 
 FP32 = ElementFormat.FP32
 POISON = 1e3
@@ -47,6 +58,11 @@ def repack(rows: np.ndarray, *, n_head: int, d: int, n_tok: int, first: int) -> 
     return rows[:, first : first + n_head * d, :n_tok].reshape(streams, n_head, d, n_tok)
 
 
+def key_major(k: np.ndarray) -> np.ndarray:
+    """K ``[.., channel, key]`` as the score kernel takes it: ``[.., key, channel]``."""
+    return np.ascontiguousarray(np.swapaxes(k, -1, -2))
+
+
 def _qkv(chain: Chain, name: str, seed: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """The projection step on uniform(-1, 1) data (the old seed and draw
     order: W, then each stream's data). Returns its stored rows ``[stream,
@@ -60,43 +76,45 @@ def _qkv(chain: Chain, name: str, seed: int) -> tuple[np.ndarray, np.ndarray, np
             for _ in range(p["n_streams"])
         ]
     )
-    step = chain.run(name, {}, {"b": d[:, None], "a": w})  # n_tg = 1
+    step = chain.run(name, {}, {"b": d[:, None], "a": w}, check=True)  # n_tg = 1
     assert step.result.passed, step.result.describe()
     rows = chain.read(step.resident["y"]).reshape(p["n_streams"], p["n_out"], LANES)
     return rows, w, d
 
 
 def _scores(chain: Chain, name: str, params: dict, q: np.ndarray, k: np.ndarray) -> np.ndarray:
-    """One score step on Q ``[.., d, n_tok]`` and K ``[.., d, n_tok]``
-    (channel-major), its output region poisoned first. Returns the stored
-    rows' live lanes ``[.., n_tok (key), n_tok (query)]``."""
+    """One score step on Q and K ``[.., d, n_tok]`` (channel-major), held to
+    its datapath mirror, its output region poisoned first. Returns the stored rows'
+    first ``n_tok`` lanes ``[.., n_tok (key), n_tok (query)]``."""
     n_tok = params["n_tok"]
     rows = int(np.prod(q.shape[:-2])) * n_tok
-    # attn_scores_km_16x60 reads b through CR0, so b is pinned at row 0: a
-    # guard over b's rows keeps the output off them.
+    # attn_scores_km_16x60 reads b through CR0, so b is pinned at row 0. The
+    # guard is placed first fit, so it takes row 0 while it is free, and keeps
+    # the poisoned output off b's rows.
     guard = chain.reserve(int(np.prod(q.shape[:-1])))
-    out = chain.reserve(rows, pack="padded")
+    out = chain.write(np.full((rows, LANES), POISON), pack="padded")
     chain.release(guard)
-    chain.write(np.full((rows, LANES), POISON), at=out)
-    chain.release(out)
-    step = chain.run(
-        name,
-        params,
-        {"b": q, "a": np.ascontiguousarray(np.swapaxes(k, -1, -2))},
-        at={"y": out},
-    )
-    assert step.result.passed, step.result.describe()
+    a = key_major(k)
+    step = chain.run(name, params, {"b": q, "a": a}, at={"y": out})
+    assert step.result.passed, step.result.describe()  # halted, no fault
     stored = chain.read(step.resident["y"])
     assert not np.any(stored[:, :n_tok] == POISON), "the score kernel left rows unwritten"
-    return stored[:, :n_tok].reshape(*q.shape[:-2], n_tok, n_tok)
+    got = stored[:, :n_tok].reshape(*q.shape[:-2], n_tok, n_tok).astype(np.float32)
+    a3, b3 = a.reshape(-1, *a.shape[-2:]), q.reshape(-1, *q.shape[-2:])
+    mirror = acc_fold(np.swapaxes(b3, -1, -2), a3).reshape(got.shape)  # y = a @ b, ACC.ADD
+    np.testing.assert_array_equal(got, mirror)
+    return got
 
 
 def _want(w: np.ndarray, d: np.ndarray, head: int, first_k: int, head_d: int) -> np.ndarray:
-    """Key-major float64 scores ``[stream, key, query]`` of one head, from W and the data."""
-    c = np.einsum("ok,pkt->pot", w.astype(np.float64), d.astype(np.float64))
-    q = c[:, head * head_d : (head + 1) * head_d]
-    k = c[:, first_k + head * head_d : first_k + (head + 1) * head_d]
-    return np.einsum("pci,pcs->psi", q, k)
+    """One head's key-major scores ``[stream, key, query]``: the shared
+    references chained in float64, ``ops.linear`` (the projection) then
+    ``ops.matmul`` (the scores, ``K^T Q``)."""
+    c = ops.linear(torch.from_numpy(w.astype(np.float64)), torch.from_numpy(d.astype(np.float64)))
+    qkv = c["y"]  # [stream, n_out, n_tok]
+    q = qkv[:, head * head_d : (head + 1) * head_d]
+    k = qkv[:, first_k + head * head_d : first_k + (head + 1) * head_d]
+    return ops.matmul(k.transpose(-1, -2), q)["y"].numpy()
 
 
 def test_repack_moves_each_element_only_where_its_indices_say():
@@ -122,6 +140,7 @@ def _l4(seed: int, head: int, *, corrupt: bool = False) -> tuple[np.ndarray, np.
     k = repack(rows, n_head=n_head, d=d, n_tok=n_tok, first=n_head * d)[:, head]
     if corrupt:
         q[1, 3, :] = 999.0
+    # The score step's mirror follows the corrupted Q; only the chained reference fails.
     got = _scores(chain, "attn_scores_km_64x48", {"n_tok": n_tok, "d": d, "head": head}, q, k)
     return got, _want(w, data, head, n_head * d, d)
 
