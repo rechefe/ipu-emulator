@@ -372,3 +372,36 @@ def test_only_a_live_resident_of_the_chain_can_be_held_or_released(first):
         chain.release(resident)
     assert chain.hold(chain.hold(resident)) is resident
     chain.release(resident)
+
+
+# --- reset: register banks back to their reset values -------------------------------
+
+ALL_LANES = b"\xff" * 128
+
+
+def test_r_mask_carries_over_unless_the_step_resets_it(free):
+    chain = Chain(ElementFormat.INT8)
+    chain.run(free, SCALE_2, {"x": X})
+    chain.model.write_register("r_mask", bytes(128))  # as a step that masks lanes leaves it
+    chain.run(free, SCALE_2, {"x": X})
+    assert chain.model.read_register("r_mask") == bytes(128)
+    chain.run(free, SCALE_2, {"x": X}, reset=("r_mask",))
+    assert chain.model.read_register("r_mask") == ALL_LANES
+
+
+def test_every_register_of_a_bank_is_reset_but_the_hardwired_crs(free):
+    chain = Chain(ElementFormat.INT8)
+    for index in range(2, 16):
+        chain.model.write_register("cr", 7, index)
+    chain.run(free, SCALE_2, {"x": X}, reset=("cr", "lr"))
+    assert chain.model.read_register("cr", 1) == 1  # hardwired, untouched
+    assert chain.model.read_register("cr", 9) == 0  # bound by no [abi]: reset
+    assert chain.model.read_register("cr", 2) != 7  # bound: the step's value
+
+
+@pytest.mark.parametrize(
+    ("reset", "match"), [(("nope",), "no register bank"), ("r_mask", "bank names")]
+)
+def test_reset_names_register_banks(free, reset, match):
+    with pytest.raises(ConfigurationError, match=match):
+        Chain(ElementFormat.INT8).run(free, SCALE_2, {"x": X}, reset=reset)
