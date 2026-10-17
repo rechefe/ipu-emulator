@@ -13,6 +13,22 @@
 
 const JINJA_OPEN = /\{#|\{%|\{\{/g;
 const JINJA_CLOSE = { '{#': ['comment', '#}'], '{%': ['block', '%}'], '{{': ['variable', '}}'] };
+/** A Jinja name; global, so each user sets `lastIndex` before its `exec` loop. */
+const JINJA_NAME = /[A-Za-z_][A-Za-z0-9_]*/g;
+/** A Jinja string literal, escapes included: blanked before names are read. */
+const JINJA_STRING = /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g;
+
+/** What follows `set` in a `{% set … %}` tag: its targets as written (`a, b`), its expression
+ *  (null for the block form `{% set x %}…{% endset %}`) and, for a single target set to a string
+ *  or integer literal, that value. Null when it is no `set` this reads. */
+function setParts(rest) {
+  const s = /^([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)\s*(?:=\s*([\s\S]*))?$/.exec(rest);
+  if (!s) return null;
+  const expression = s[2] === undefined ? null : s[2].trim();
+  const literal = !s[1].includes(',') && expression && /^(?:"([^"]*)"|'([^']*)'|([+-]?\d+))$/.exec(expression);
+  return { targets: s[1], expression, value: literal ? (literal[1] ?? literal[2] ?? literal[3]) : null };
+}
+
 /** Jinja block tags that open a region closed by `end<tag>`. */
 const JINJA_PAIRED = ['for', 'if', 'macro', 'call', 'filter', 'raw', 'with', 'block'];
 
@@ -198,7 +214,8 @@ class Scanner {
     const { lang, i } = this;
     this.openWord(i);
     lang.tokenRe.lastIndex = i;
-    const end = lang.tokenRe.exec(this.masked) ? lang.tokenRe.lastIndex : i + 1;
+    // A character no token takes is one token of its own: a whole code point, not half a pair.
+    const end = lang.tokenRe.exec(this.masked) ? lang.tokenRe.lastIndex : i + (this.masked.codePointAt(i) > 0xffff ? 2 : 1);
     const token = { text: this.text.slice(i, end), start: i, end, templated: this.isTemplated(i, end) };
     if (this.cursorIn(i, end)) this.capture(token);
     const { instruction } = this;
@@ -755,4 +772,4 @@ class Language {
   }
 }
 
-module.exports = { Language, jinjaRegions };
+module.exports = { Language, jinjaRegions, JINJA_NAME, JINJA_STRING, setParts };

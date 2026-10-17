@@ -7,10 +7,13 @@
 // them; it does not say where in the tag they are, nor how Jinja scopes them. So:
 //
 // - A name's places are its whole-word occurrences inside the tags that define or use it
-//   (strings and attributes `x.name` aside). A keyword argument `f(name=…)` names a parameter:
-//   it is a place of `name` when the file defines a macro parameter of that name, else none.
+//   (strings, attributes `x.name` and filters `| name` aside). A keyword argument `m(name=…)`
+//   names a parameter: it is a place of `name` when `m` is a macro this file defines with that
+//   parameter, else none (`dict(name=…)`, an imported macro's).
 // - A name is one symbol across the file, whatever scope Jinja gives it: renaming it renames
-//   every use, which leaves the program the same, and a clash is any other use of the new name.
+//   every use, which keeps the program the same as long as that reading of the tags holds (the
+//   rename is checked by the assembler before it is applied), and a clash is any other use of
+//   the new name.
 // - The definition in force (for hover, inlay values and completion) is the last one before the
 //   cursor, a definition in a `macro` or `for` body (its parameters, its targets) counting only
 //   inside it: the tags' nesting, by their keywords.
@@ -21,9 +24,9 @@
 //
 // Imports nothing from `vscode`.
 
-const JINJA_NAME = /[A-Za-z_][A-Za-z0-9_]*/g;
-const JINJA_STRING = /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g;
-const LITERAL = /^(?:"([^"]*)"|'([^']*)'|([+-]?\d+))$/;
+const { fallbackOf } = require('./fallback');
+const { JINJA_NAME, JINJA_STRING, setParts } = require('./language');
+
 const KINDS = { set: 'set', for: 'for', import: 'import', from: 'import' };
 
 /** Offsets of one text mapped to another, assuming one contiguous edit between them: what an
@@ -48,6 +51,20 @@ class Shift {
 }
 const SAME = { toOld: (at) => at, toNew: (at) => at };
 
+/** The name of the call whose brackets hold offset `at` of `body`: `m` in `m(a, n=1)`; null
+ *  outside brackets, or for a method or attribute call (`lib.m(…)`). */
+function calleeAt(body, at) {
+  let depth = 0;
+  for (let i = at - 1; i >= 0; i--) {
+    if (body[i] === ')') depth++;
+    else if (body[i] === '(' && depth-- === 0) {
+      const m = /([A-Za-z_][A-Za-z0-9_]*)\s*$/.exec(body.slice(0, i));
+      return m && body[i - m[0].length - 1] !== '.' ? m[1] : null;
+    }
+  }
+  return null;
+}
+
 /** The Jinja names of an answer: each occurrence, with its tag and whether it defines the name. */
 function occurrencesOf(text, regions) {
   const occurrences = [];
@@ -67,12 +84,14 @@ function occurrencesOf(text, regions) {
       const name = m[0];
       if (body[m.index - 1] === '.' || (m.index > 0 && /\w/.test(body[m.index - 1]))) continue;
       const at = r.start + m.index;
-      // `f(name=…)`: a keyword argument, naming the callee's parameter (in a call's brackets; a
-      // macro's own brackets hold its parameters).
       const before = body.slice(0, m.index);
+      // `x | name`: a filter, not a variable.
+      if (/\|\s*$/.test(before)) continue;
+      // `m(name=…)`: a keyword argument, naming the callee's parameter (in a call's brackets; a
+      // macro's own brackets hold its parameters).
       const depth = (before.match(/\(/g) || []).length - (before.match(/\)/g) || []).length;
       if (depth > (keyword === 'macro' ? 1 : 0) && /[(,]\s*$/.test(before) && /^\s*=(?!=)/.test(body.slice(m.index + name.length))) {
-        keywords.push({ name, start: at, end: at + name.length, region: index, def: false, kind: null, keyword: true });
+        keywords.push({ name, start: at, end: at + name.length, region: index, def: false, kind: null, callee: calleeAt(body, m.index) });
         continue;
       }
       if (!names.has(name)) continue;
@@ -86,10 +105,15 @@ function occurrencesOf(text, regions) {
       occurrences.push({ name, start: at, end: at + name.length, region: index, def, kind });
     }
   });
-  // A keyword argument goes with the file's macro parameter of its name; one for a macro defined
-  // elsewhere (imported) names that macro's parameter, which no rename here may change.
-  const params = new Set(occurrences.filter((o) => o.kind === 'param').map((o) => o.name));
-  occurrences.push(...keywords.filter((k) => params.has(k.name)));
+  // A keyword argument goes with the parameter it names, of a macro this file defines; one for
+  // anything else (an imported macro, `dict`) names what no rename here may change.
+  const params = new Map();
+  let macro = null;
+  for (const o of occurrences) {
+    if (o.kind === 'macro') params.set((macro = o.name), new Set());
+    else if (o.kind === 'param' && macro) params.get(macro).add(o.name);
+  }
+  occurrences.push(...keywords.filter((k) => params.has(k.callee) && params.get(k.callee).has(k.name)));
   occurrences.sort((a, b) => a.start - b.start);
   return { occurrences, external };
 }
@@ -119,11 +143,27 @@ function blocksOf(text, regions) {
 /** A `set` tag's expression and literal value for `name`, as its text has them. */
 function setValue(text, region, name) {
   const inner = /^\{%[-+]?\s*set\s+([\s\S]*?)\s*[-+]?%\}$/.exec(text.slice(region.start, region.end));
-  const s = inner && /^([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)\s*(?:=\s*([\s\S]*))?$/.exec(inner[1]);
-  if (!s || !s[1].split(/\s*,\s*/).includes(name)) return { expression: null, value: null };
-  const expression = s[2] === undefined ? null : s[2].trim();
-  const literal = !s[1].includes(',') && expression && LITERAL.exec(expression);
-  return { expression, value: literal ? (literal[1] ?? literal[2] ?? literal[3]) : null };
+  const s = inner && setParts(inner[1]);
+  if (!s || !s.targets.split(/\s*,\s*/).includes(name)) return { expression: null, value: null };
+  return { expression: s.expression, value: s.value };
+}
+
+/** Each answer's names and bodies, worked out once whichever providers ask. */
+const models = new WeakMap();
+function modelOf(answer) {
+  if (!models.has(answer)) {
+    const blocks = blocksOf(answer.text, answer.jinja);
+    const model = { ...occurrencesOf(answer.text, answer.jinja), blocks };
+    // Each definition's body: the innermost one around it, or the one its tag opens.
+    for (const o of model.occurrences) {
+      if (!o.def) continue;
+      const opened = blocks.find((b) => b.open === o.region);
+      o.block = opened && o.kind !== 'macro' ? opened
+        : blocks.filter((b) => b.start <= o.start && o.start < b.end).reduce((a, b) => (a && a.start > b.start ? a : b), null);
+    }
+    models.set(answer, model);
+  }
+  return models.get(answer);
 }
 
 class V2Semantics {
@@ -136,18 +176,7 @@ class V2Semantics {
     this.answer = answer;
     this.text = text;
     this.shift = answer.text === text ? SAME : new Shift(answer.text, text);
-    if (!answer.model) {
-      const blocks = blocksOf(answer.text, answer.jinja);
-      answer.model = { ...occurrencesOf(answer.text, answer.jinja), blocks };
-      // Each definition's body: the innermost one around it, or the one its tag opens.
-      for (const o of answer.model.occurrences) {
-        if (!o.def) continue;
-        const opened = blocks.find((b) => b.open === o.region);
-        o.block = opened && o.kind !== 'macro' ? opened
-          : blocks.filter((b) => b.start <= o.start && o.start < b.end).reduce((a, b) => (a && a.start > b.start ? a : b), null);
-      }
-    }
-    this.model = answer.model;
+    this.model = modelOf(answer);
   }
 
   /** The definition in force at `offset` (answer offsets): the last one before it, a `set` from
@@ -197,7 +226,8 @@ class V2Semantics {
     return out;
   }
 
-  /** Whether `name` is defined or used anywhere in the file's Jinja. */
+  /** Whether `name` is defined or used anywhere in the file's Jinja. (The symbol renamed does
+   *  not matter: a name is one symbol across the file, so any other use of `name` is a clash.) */
   jinjaClash(_sym, name) {
     return this.answer.jinja.some((r) => r.defines.includes(name) || r.uses.includes(name));
   }
@@ -242,11 +272,15 @@ class V2Semantics {
   /** Mnemonics that fit at the cursor (`ctx`: Language.context): the slots the assembler gave the
    *  word's other instructions (pseudo-instructions expanded), less what isa.json says each slot
    *  holds. A word the assembler could not fit (an unknown mnemonic being typed) has no slots;
-   *  its known mnemonics are counted by their slot kind instead. */
+   *  its known mnemonics are counted by their slot kind instead. A source that does not parse or
+   *  render has no words at all: the editor's own rules answer then. */
   mnemonicsFor(ctx, offset) {
     const { lang } = this;
     const all = [...lang.instructions.values()];
     if (!lang.slotFill) return all;
+    if (!this.answer.words.length && this.answer.found.some((d) => d.stage === 'parse' || d.stage === 'template')) {
+      return fallbackOf(lang).mnemonicsFor(ctx.others);
+    }
     const { kinds, wildcards } = lang.slotFill;
     // By where the word starts, or by the cursor: a word that starts with a `{{ }}` starts, for
     // the assembler, at its first token in the source.
@@ -257,14 +291,14 @@ class V2Semantics {
     const mnemonics = word ? [...word.mnemonics] : [];
     // The mnemonic under the cursor is being replaced: it gives its slot back.
     const typed = ctx.kind === 'mnemonic' && ctx.token ? ctx.token.text : null;
-    const replaced = typed && mnemonics.findIndex((m) => m.toLowerCase() === typed.toLowerCase());
+    const replaced = typed ? mnemonics.findIndex((m) => m.toLowerCase() === typed.toLowerCase()) : -1;
     const counted = word && (word.fits || Object.keys(word.slots).length);
     const used = {};
     if (counted) Object.assign(used, word.slots);
     else mnemonics.forEach((m, i) => { if (i !== replaced && kindOf(m) && !wild(m)) used[kindOf(m)] = (used[kindOf(m)] || 0) + 1; });
     const free = Object.fromEntries(Object.entries(lang.isa.slotCount).map(([s, n]) => [s, n - (used[s] || 0)]));
     let total = Object.values(free).reduce((a, n) => a + Math.max(n, 0), 0);
-    if (counted && replaced !== null && replaced >= 0) {
+    if (counted && replaced >= 0) {
       const m = mnemonics[replaced];
       if (wild(m)) total++;
       else if (kindOf(m)) { free[kindOf(m)]++; total++; }

@@ -24,7 +24,7 @@ const { mangle } = require('./mangle');
 
 const [isaPath, corpusPath, outPath, bundlePath = path.join(__dirname, 'fixtures', 'analysis-v2.json')] = process.argv.slice(2);
 if (!outPath) {
-  console.error('usage: rewrites.js <isa.json> <parser-tokens.json> <rewrites.json>');
+  console.error('usage: rewrites.js <isa.json> <parser-tokens.json> <rewrites.json> [analysis bundle]');
   process.exit(2);
 }
 const lang = new Language(JSON.parse(fs.readFileSync(isaPath, 'utf8')));

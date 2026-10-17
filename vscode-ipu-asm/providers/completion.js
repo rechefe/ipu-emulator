@@ -37,7 +37,7 @@ function register(context, { lang, semantics }) {
         return known.jinjaVisible(offset)
           .filter((d) => d.start < offset)
           .map((d) => item(d.name, d.kind === 'macro' ? 'Function' : 'Variable', {
-            detail: d.kind === 'set' && d.expression ? `= ${d.expression}` : d.kind,
+            detail: d.kind === 'set' && d.expression ? `= ${d.expression}` : d.kind === 'header' ? 'template parameter' : d.kind,
           }));
       }
       if (ctx.kind === 'mnemonic') {

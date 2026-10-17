@@ -101,8 +101,9 @@ every provider:
     ipu-as check --json --json-version 2 --tokens --words --jinja --input -
 
 `analysis.js` (`AnalysisClient`) asks each checker command once which contract
-versions it speaks (`ipu-as check --json-versions`), again only after the
-assembler's sources change or the checker is rebuilt. An assembler from before
+versions it speaks (`ipu-as check --json-versions`), per checkout, and again
+only after that checkout's assembler sources change; a probe that runs out of
+time counts as version 1 for a minute. An assembler from before
 versions exits 2 on that option: it is run as version 1, which gives diagnostics
 only, and no error is shown. A checker command of another shape (a configured
 `ipuAsm.checkCommand` that does not end in `check … --json --input`) is run as
@@ -112,13 +113,16 @@ Each document version's answer is kept by document and version and read by
 every provider, so asking for hover, completion, tokens and the outline runs
 nothing more; a rename checks only the renamed text. The contract counts columns
 and offsets in code points; the extension converts them to VS Code's UTF-16
-positions (they differ only past the Basic Multilingual Plane).
+positions (they differ only past the Basic Multilingual Plane). An answer that
+lacks an analysis it was asked for (the analysis failed; an `internal`
+diagnostic says why) shows its diagnostics, and the providers fall back.
 
 | | v2 checkout | v1 checkout, no checkout, Restricted Mode |
 |---|---|---|
 | Diagnostics | the assembler's | the assembler's (v1); none without a checker |
+| Words that do not fit their slots | the assembler's first, as an error; every other, from `words`, as information (`ipu-as (slot fit)`) | the assembler's first only |
 | Semantic tokens (mnemonic, register, enum, number, label, comment) | the assembler's `tokens` | none: the grammar's colours |
-| Mnemonics that fit the word, in completion | the assembler's `words` (slots after pseudo-instructions and `{{ }}` expand) | `fallback/` on `isa.json` |
+| Mnemonics that fit the word, in completion | the assembler's `words` (slots after pseudo-instructions and `{{ }}` expand); `fallback/` while the source does not parse or render | `fallback/` on `isa.json` |
 | Jinja names: completion, rename, definition, references, hover, inlay values, unused, outline | the assembler's `jinja` (names as Jinja's parser reads them, the `ipu:params` header included) | `fallback/` (Jinja scoping written in JS) |
 | Highlighting, operand hints, labels, formatting, word separation, folding | `language.js` (`scan()`) | the same |
 
@@ -132,9 +136,12 @@ for it from the start: the grammar's colours show meanwhile.
 
 The Jinja answer names which names each tag defines and uses, not how Jinja
 scopes them, so with it a name is one symbol across the file: a rename changes
-every use of the name (macro parameters and the keyword arguments that pass
-them included), which leaves the program the same, and refuses a new name used
-anywhere in the file's Jinja. A name only the `ipu:params` header declares
+every use of the name (a macro parameter with the keyword arguments that pass it
+to that macro, not those to other callees such as `dict(x=…)` or an imported
+macro; never a filter `| name` or an attribute `.name`). That keeps the program
+the same as long as that reading of the tags holds, and the assembler checks the
+renamed text before it is applied. It refuses a new name used anywhere in the
+file's Jinja. A name only the `ipu:params` header declares
 belongs to the harness and is not renamed. Which definition is in force (hover,
 inlay values, completion) follows the tags' nesting: a definition inside a
 `macro` or `for` body counts only there.
@@ -142,11 +149,16 @@ inlay values, completion) follows the tags' nesting: a definition inside a
 **Known gaps.** `test/analysis-agreement.js` compares `fallback/` with the
 assembler's answers in both directions; every difference is listed in
 [`test/fixtures/analysis-known-gaps.json`](test/fixtures/analysis-known-gaps.json)
-(on the corpus: 59 in 21 of 112 files, plus the snippets), and an unlisted one,
-or a listed one that no longer happens, fails the test. They are:
+and an unlisted one, or a listed one that no longer happens, fails the test. CI
+runs it on the committed recordings (`test/fixtures/analysis-v2.json`: 12 files
+and 16 snippets, 12 gaps); the list also covers a whole-corpus bundle recorded
+locally with `test/record-analysis.js` (112 files, 59 gaps in 21; at 5 MB it is
+not committed). They are:
 
 - the `ipu:params` header's names, which only the assembler reads;
 - a filter's name (`x | length`), which `fallback/` counts as a use;
+- a keyword argument's name (`m(dest=…)`, `dict(x=…)`), which `fallback/`
+  counts as a use of that name and the assembler as none;
 - a mnemonic glued to a tag (`ACC.ADD{{ suffix }}`), which `fallback/` leaves
   to the template and the assembler reads as written;
 - words in an `{% if %}` branch the render does not take, which only
@@ -155,7 +167,9 @@ or a listed one that no longer happens, fails the test. They are:
 - an unknown mnemonic, which `fallback/` leaves out of the slot fit and the
   assembler counts as not fitting;
 - a source that does not render (a template error, a required `ipu:params`
-  parameter), for which the assembler lists no tokens or words.
+  parameter), for which the assembler lists no tokens or words, and one that
+  renders but does not parse, for which it lists tokens up to the error only,
+  and no words (a character no token takes, such as `😀` outside a comment).
 
 The completion filter counts free slots, as the assembler gave them, rather
 than replaying the fill order: next to a `NOP` it may offer a mnemonic that
@@ -169,7 +183,7 @@ fits only once the `NOP` moves.
 | `test/project.js` | which IPU checkout a file or an open folder belongs to, if any |
 | `test/activation.js` | the extension activated on a stand-in `vscode`: nothing runs in Restricted Mode and trusting the workspace starts it; each checkout's status is its own; a failed check is retried; which checkout an unsaved or non-file document is checked in; activation touches the disk only asynchronously |
 | `test/language.js <isa.json> [parser-tokens.json]` | completion and navigation logic (`language.js`, `fallback/`), and agreement with the parser on the corpus |
-| `test/analysis.js` | the analysis client and each provider on recorded version-2 answers (`fake-checker.js`, `fixtures/analysis-v2.json`): positions in UTF-16, one check per document version, a checker from before versions falling back silently, and no checker |
+| `test/analysis.js` | the analysis client and each provider on recorded version-2 answers (`fake-checker.js`, `fixtures/analysis-v2.json`): positions in UTF-16, one check per document version (on the Bazel path too), every misfit word marked, a checker from before versions falling back silently, and no checker |
 | `test/analysis-agreement.js <isa.json> [bundle.json]` | `fallback/` against the assembler's analysis, both ways, but for the known gaps |
 | `test/runs.js [manifest.json]` | the run, test, debug, benchmark and query commands, against the real manifest; a manifest value that is no label or flag is refused |
 | `test/rewrites.js` + `check_rewrites` | renaming each label and Jinja symbol (with and without the assembler's analysis), and formatting, leaves the assembled binary unchanged |

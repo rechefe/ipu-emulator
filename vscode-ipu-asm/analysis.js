@@ -121,7 +121,7 @@ class Answer {
   get tokens() {
     if (!this.tokensCache) {
       const p = this.positions;
-      this.tokensCache = (this.json.tokens || []).map((t) => {
+      this.tokensCache = this.json.tokens.map((t) => {
         const character = p.column(t.line, t.column);
         return { line: t.line, character, length: p.column(t.line, t.column + t.length) - character, role: t.role, type: t.type };
       });
@@ -129,37 +129,59 @@ class Answer {
     return this.tokensCache;
   }
 
-  /** Each word's slot fit: { start, end (offsets), mnemonics, slots, fits, error }. */
+  /** Each word's slot fit: { start, end (offsets), range (UTF-16 lines and characters),
+   *  mnemonics, slots, fits, error }. */
   get words() {
     if (!this.wordsCache) {
       const p = this.positions;
-      this.wordsCache = (this.json.words || []).map((w) => ({
+      this.wordsCache = this.json.words.map((w) => ({
         start: p.offsetAt(w.range.line, w.range.column),
         end: p.offsetAt(w.range.end_line, w.range.end_column),
+        range: { line: w.range.line, character: p.column(w.range.line, w.range.column), endLine: w.range.end_line, endCharacter: p.column(w.range.end_line, w.range.end_column) },
         mnemonics: w.mnemonics, slots: w.slots, fits: w.fits, error: w.error,
       }));
     }
     return this.wordsCache;
   }
 
-  /** Each Jinja tag: { kind, start, end (offsets), defines, uses }. */
+  /** The words that do not fit their slots and that no diagnostic touches. */
+  misfits() {
+    const p = this.positions;
+    const spans = this.found.map((d) => [p.offsetAt(d.line, d.column), p.offsetAt(d.end_line, d.end_column)]);
+    return this.words.filter((w) => !w.fits && !spans.some(([from, to]) => from <= w.end && to >= w.start));
+  }
+
+  /** Each Jinja tag: { kind, start, end (offsets), defines, uses }. Placed by its `range`, not
+   *  its `start` and `end` offsets: those index the text as the checker read it, which on a
+   *  platform that translates line ends on stdin (Windows) has no `\r` -- lines and columns are
+   *  the same either way. */
   get jinja() {
     if (!this.jinjaCache) {
       const p = this.positions;
-      this.jinjaCache = (this.json.jinja || [])
-        .map((r) => ({ kind: r.kind, start: p.offset(r.start), end: p.offset(r.end), defines: r.defines, uses: r.uses }));
+      this.jinjaCache = this.json.jinja.map((r) => ({
+        kind: r.kind,
+        start: p.offsetAt(r.range.line, r.range.column),
+        end: p.offsetAt(r.range.end_line, r.range.end_column),
+        defines: r.defines, uses: r.uses,
+      }));
     }
     return this.jinjaCache;
   }
 }
 
+/** The keys a version-2 check asks for besides diagnostics (ANALYSES, as JSON keys). */
+const ANALYSIS_KEYS = ANALYSES.map((a) => a.slice(2));
+
 /** What a check printed, as { found (the contract's diagnostics), answer (version 2, else null) }.
+ *  An answer missing an analysis it was asked for (the analysis failed: an `internal`
+ *  diagnostic says why) is no answer: the providers fall back, the diagnostics still show.
  *  Throws when it is not JSON: the caller reports the checker's failure. */
 function parseCheck(stdout, text) {
   const out = JSON.parse(stdout);
   if (Array.isArray(out)) return { found: out, answer: null };
   if (out && out.schemaVersion === CONTRACT_VERSION && Array.isArray(out.diagnostics)) {
-    return { found: out.diagnostics, answer: new Answer(text, out) };
+    const whole = ANALYSIS_KEYS.every((k) => Array.isArray(out[k]));
+    return { found: out.diagnostics, answer: whole ? new Answer(text, out) : null };
   }
   throw new Error(`unrecognised check output (schemaVersion ${out && out.schemaVersion})`);
 }
@@ -167,12 +189,16 @@ function parseCheck(stdout, text) {
 /** Asks each checker its versions once, and keeps each document's latest check: every provider
  *  reads it, so a document version is checked once whatever asks about it. */
 class AnalysisClient {
-  /** `run`: checker.run's signature. `waitMs`: the longest a provider waits for a check. */
-  constructor({ run = checker.run, waitMs = 5000 } = {}) {
+  /** `run`: checker.run's signature. `waitMs`: the longest a provider waits for a check.
+   *  `retryMs`: how long a probe that ran out of time counts as version 1. */
+  constructor({ run = checker.run, waitMs = 5000, retryMs = 60000 } = {}) {
     this.run = run;
     this.waitMs = waitMs;
-    /** Probe command (JSON) -> promise of the versions it speaks. */
+    this.retryMs = retryMs;
+    /** Probe (where it runs, and its command, as JSON) -> promise of the versions it speaks. */
     this.probes = new Map();
+    /** Bumped when the probes are forgotten: a kept check from before was another checker's. */
+    this.epoch = 0;
     /** Document key -> { version, text, found, answer } of its latest successful check. */
     this.entries = new Map();
     /** Document key -> its latest version 2 answer, of whatever version: completion reads it
@@ -185,24 +211,33 @@ class AnalysisClient {
     this.listeners = new Set();
   }
 
-  /** The versions checker `argv` speaks, asked once per command. A probe that could not run or
-   *  ran out of time is asked again next time; the check itself reports why. */
+  /** The versions checker `argv` speaks in `cwd` (a checkout), asked once per command there. A
+   *  probe that could not run is asked again next time (the check itself reports why); one that
+   *  ran out of time counts as version 1 for `retryMs`, so checks do not each wait it out. */
   versions(argv, cwd, seconds) {
     const { probe } = commandsFor(argv);
     if (!probe) return Promise.resolve([1]);
-    const key = JSON.stringify(probe);
+    const key = JSON.stringify([cwd, probe]);
     if (!this.probes.has(key)) {
-      this.probes.set(key, this.run(probe[0], probe.slice(1), cwd, seconds).then((r) => {
-        if (r.spawnError || r.timedOut) this.probes.delete(key);
+      const asked = this.run(probe[0], probe.slice(1), cwd, seconds).then((r) => {
+        const forget = () => this.probes.get(key) === asked && this.probes.delete(key);
+        if (r.spawnError) forget();
+        else if (r.timedOut) {
+          const timer = setTimeout(forget, this.retryMs);
+          if (timer.unref) timer.unref();
+        }
         return versionsFrom(r);
-      }));
+      });
+      this.probes.set(key, asked);
     }
     return this.probes.get(key);
   }
 
-  /** Forget every probe's answer: the checker may have been rebuilt from other sources. */
-  forgetVersions() {
-    this.probes.clear();
+  /** Forget the probes' answers in `cwd`: its checker's sources changed, so it may be rebuilt
+   *  into one that speaks other versions. */
+  forgetVersions(cwd) {
+    for (const key of [...this.probes.keys()]) if (JSON.parse(key)[0] === cwd) this.probes.delete(key);
+    this.epoch++;
   }
 
   /** The argv to check a document with: version 2's when the checker speaks it, else `argv`. */
@@ -214,7 +249,7 @@ class AnalysisClient {
 
   /** Keep a document version's check; `answer` is null from a version-1 checker. */
   store(key, version, text, found, answer) {
-    this.entries.set(key, { version, text, found, answer });
+    this.entries.set(key, { version, text, found, answer, epoch: this.epoch });
     if (answer) this.answers.set(key, answer);
     else this.answers.delete(key);
     for (const listener of this.listeners) listener(key, answer);
@@ -226,10 +261,11 @@ class AnalysisClient {
     return { dispose: () => this.listeners.delete(listener) };
   }
 
-  /** The kept check of `text` at `key`, if its latest check was of that very text. */
+  /** The kept check of `text` at `key`, if its latest check was of that very text, by the
+   *  checker as it is now. */
   cached(key, text) {
     const entry = this.entries.get(key);
-    return entry && entry.text === text ? entry : null;
+    return entry && entry.text === text && entry.epoch === this.epoch ? entry : null;
   }
 
   /** The latest version 2 answer at `key`, possibly for an earlier version of the text. */

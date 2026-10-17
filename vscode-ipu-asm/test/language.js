@@ -321,7 +321,7 @@ if (corpusPath) test('the corpus: parser, completion, formatting and Jinja agree
         mine.set(ins.mnemonic.start, 'MNEMONIC');
         for (const op of ins.operands) mine.set(op.start, 'OPERAND');
       }
-      if (!fb.fits(w.instructions.map((i) => i.mnemonic.text))) fail(`${name}: word at ${w.start} assembles, but language.js says it does not fit its slots`);
+      if (!fb.fits(w.instructions.map((i) => i.mnemonic.text))) fail(`${name}: word at ${w.start} assembles, but fallback/ says it does not fit its slots`);
     }
     const theirs = new Map(entry.tokens.filter((t) => t.role).map((t) => [t.start, t.role]));
     corpusTokens += theirs.size;

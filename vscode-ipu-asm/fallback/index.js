@@ -7,10 +7,7 @@
 // first answer for a document arrives. Everything here reads isa.json (E08-21's data-driven rules)
 // through language.js; nothing restates the ISA.
 
-const { jinjaRegions } = require('../language');
-
-const JINJA_NAME = /[A-Za-z_][A-Za-z0-9_]*/g;
-const JINJA_STRING = /"[^"]*"|'[^']*'/g;
+const { jinjaRegions, JINJA_NAME, JINJA_STRING, setParts } = require('../language');
 
 /** The comma-separated parts of a bracketed list from `open` (just after its `(`) to its `)` or
  *  `limit`: commas inside nested brackets or strings do not split. */
@@ -115,14 +112,10 @@ class Fallback {
         const restStart = r.start + inner + body.slice(inner).indexOf(rest, tag.length);
         if (tag === 'set') {
           // `{% set x = … %}`, `{% set a, b = … %}`, or the block form `{% set x %}…{% endset %}`.
-          const s = /^([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)\s*(?:=\s*([\s\S]*))?$/.exec(rest);
+          const s = setParts(rest);
           if (!s) continue;
-          const expression = s[2] === undefined ? null : s[2].trim();
-          // A literal value only means something for a single target.
-          const literal = !s[1].includes(',') && expression && /^(?:"([^"]*)"|'([^']*)'|([+-]?\d+))$/.exec(expression);
-          const value = literal ? (literal[1] ?? literal[2] ?? literal[3]) : null;
           // `from`: in force from the end of its tag, so `{% set n = n + 1 %}` reads the n before it.
-          names(s[1], restStart, 'set', { value, expression, scope: around(r.start), from: r.end });
+          names(s.targets, restStart, 'set', { value: s.value, expression: s.expression, scope: around(r.start), from: r.end });
         } else if (tag === 'macro') {
           const s = /^([A-Za-z_][A-Za-z0-9_]*)\s*(\()?/.exec(rest);
           if (!s) continue;

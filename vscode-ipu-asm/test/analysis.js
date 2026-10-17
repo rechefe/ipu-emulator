@@ -62,6 +62,14 @@ test('code-point columns and offsets become UTF-16 ones; a text inside the BMP i
   const plain = { line: 0, column: 3, end_line: 0, end_column: 9 };
   assert.strictEqual(new Positions('SET lr0 cr0;;').diagnostic(plain), plain);
   eq(parseCheck('[]', '').answer, null);
+  // An analysis that failed leaves its key out (an internal diagnostic says why): no answer, so
+  // the providers fall back, but its diagnostics show.
+  const failed = parseCheck(JSON.stringify({ schemaVersion: 2, diagnostics: [{ message: 'boom', stage: 'internal' }], tokens: [], words: [] }), '');
+  eq([failed.answer, failed.found.map((d) => d.stage)], [null, ['internal']]);
+  // Jinja tags are placed by their range, whatever offsets a line-end-translating stdin gave.
+  const crlf = parseCheck(JSON.stringify({ schemaVersion: 2, diagnostics: [], tokens: [], words: [],
+    jinja: [{ kind: 'variable', range: { line: 1, column: 0, end_line: 1, end_column: 7 }, defines: [], uses: ['r'], start: 6, end: 13 }] }), 'HALT\r\n{{ r }}');
+  eq(crlf.answer.jinja.map((r) => [r.start, r.end]), [[6, 13]]);
   assert.throws(() => parseCheck('{"schemaVersion": 3}', ''), /unrecognised/);
   assert.throws(() => parseCheck('Traceback', ''));
 });
@@ -76,20 +84,31 @@ test('each command is probed once; a probe that could not run is asked again; wa
     },
   });
   const argv = ['ipu-as', 'check', '--json', '--input'];
-  for (let i = 0; i < 3; i++) eq((await client.plan(argv, '.', 1)).version, 2);
+  for (let i = 0; i < 3; i++) eq((await client.plan(argv, '/a', 1)).version, 2);
   assert.strictEqual(asked.length, 1, 'probed once');
-  await client.plan(['gone', 'check', '--json', '--input'], '.', 1);
-  await client.plan(['gone', 'check', '--json', '--input'], '.', 1);
-  assert.strictEqual(asked.length, 3, 'a probe that did not run is not remembered');
-  client.forgetVersions();
-  await client.plan(argv, '.', 1);
-  assert.strictEqual(asked.length, 4, 'forgotten when the checker may have changed');
+  await client.plan(argv, '/b', 1);
+  assert.strictEqual(asked.length, 2, 'per checkout');
+  await client.plan(['gone', 'check', '--json', '--input'], '/a', 1);
+  await client.plan(['gone', 'check', '--json', '--input'], '/a', 1);
+  assert.strictEqual(asked.length, 4, 'a probe that did not run is not remembered');
+  client.forgetVersions('/a');
+  await client.plan(argv, '/a', 1);
+  await client.plan(argv, '/b', 1);
+  assert.strictEqual(asked.length, 5, 'forgotten in the checkout whose sources changed only');
+  // A probe that ran out of time counts as version 1 for a while: checks do not each wait it out.
+  let slow = 0;
+  const timing = new AnalysisClient({ retryMs: 200, run: async () => (++slow, { code: -1, stdout: '', stderr: 'timed out', timedOut: true }) });
+  for (let i = 0; i < 3; i++) eq((await timing.plan(argv, '/a', 1)).version, 1);
+  assert.strictEqual(slow, 1);
+  await new Promise((r) => setTimeout(r, 300));
+  await timing.plan(argv, '/a', 1);
+  assert.strictEqual(slow, 2, 'then asked again');
   // The first paint, and a document a version-1 checker checks, do not wait.
   assert.strictEqual(await client.current('k', 1, 'HALT;;', { first: false }), null);
   client.store('v1', 1, 'HALT;;', [], null);
   assert.strictEqual(await client.current('v1', 2, 'HALT;; ', { first: false }), null);
   // A provider waits for its version's check; an older one's release does not answer it.
-  const { found, answer } = parseCheck(JSON.stringify({ schemaVersion: 2, diagnostics: [] }), 'HALT;;');
+  const { found, answer } = parseCheck(JSON.stringify({ schemaVersion: 2, diagnostics: [], tokens: [], words: [], jinja: [] }), 'HALT;;');
   const waiting = client.current('k', 2, 'HALT;;');
   client.release('k', 1);
   client.store('k', 2, 'HALT;;', found, answer);
@@ -130,13 +149,14 @@ test('a v2 checker: diagnostics in UTF-16 columns; semantic tokens by role; one 
   const diags = await until(() => diagnosticsOf(ext, doc), 'the diagnostics');
   // `B 😀x;;` on line 3: the assembler's columns 2..3 are UTF-16 columns 2..4.
   eq(diags.map((d) => [span(d.range), d.message, d.source]), [[[3, 2, 3, 4], "unexpected '\u{1F600}'; expected one of: ':', token, ';', ';;'", 'ipu-as (parse)']]);
-  assert(await tokens, 'semantic tokens');
+  // Up to the parse error; the Jinja tags are left to the grammar; `# 😀 x` is 5 code points, 6 units.
+  const legend = ext.log.providers.DocumentSemanticTokens[0].rest[0];
+  const named = (got) => got.map(([line, ch, len, type, mods]) => [line, ch, len, legend.tokenTypes[type], legend.tokenModifiers.filter((_, i) => mods & (1 << i)).join()]);
+  eq(named((await tokens).tokens), [[1, 0, 3, 'keyword', ''], [1, 12, 3, 'variable', 'readonly'], [2, 0, 6, 'comment', ''], [3, 0, 1, 'keyword', '']]);
 
   const labelled = open(snippet('astral-label'));
   const { tokens: got } = await ext.provider('DocumentSemanticTokens').provideDocumentSemanticTokens(labelled);
-  const legend = ext.log.providers.DocumentSemanticTokens[0].rest[0];
-  const named = got.map(([line, ch, len, type, mods]) => [line, ch, len, legend.tokenTypes[type], legend.tokenModifiers.filter((_, i) => mods & (1 << i)).join()]);
-  eq(named, [
+  eq(named(got), [
     [0, 0, 11, 'comment', ''], // `# 😀😀 HALT`: 9 code points, 11 units
     [1, 0, 3, 'function', 'declaration'], [1, 5, 3, 'keyword', ''], [1, 9, 3, 'variable', 'readonly'], [1, 13, 3, 'variable', 'readonly'],
     [1, 19, 4, 'comment', ''],
@@ -217,6 +237,76 @@ test('a v2 checker: completion fits mnemonics to the word as the assembler rende
   for (const m of ['SET', 'ADD', 'NOP']) assert(names.includes(m), `${m} offered`);
   for (const m of ['BEQ', 'HALT', 'B']) assert(!names.includes(m), `${m} offered`);
   ext.deactivate();
+});
+
+test('a v2 checker: every word that does not fit is marked, not only the one the assembler reports', async () => {
+  const { ext, open } = await activated(fakeChecker().argv);
+  const doc = await checked(ext, open(snippet('misfits')));
+  // The assembler stops at the first word's second HALT; the second word gets information.
+  eq(diagnosticsOf(ext, doc).map((d) => [span(d.range), d.severity, d.source]), [
+    [[0, 7, 0, 8], 'DiagnosticSeverity.Error', 'ipu-as (assemble)'],
+    [[1, 0, 1, 18], 'DiagnosticSeverity.Information', 'ipu-as (slot fit)'],
+  ]);
+  assert.match(diagnosticsOf(ext, doc)[1].message, /^Too many instructions of type CondInst \(max 1\) \(this word: B; HALT; HALT\)$/);
+  ext.deactivate();
+});
+
+test('a v2 checker: a rename leaves keyword arguments of other callees and filters alone', async () => {
+  const { ext, open } = await activated(fakeChecker().argv);
+  const rename = ext.provider('Rename');
+  const offsets = async (text, needle, delta) => {
+    const doc = await checked(ext, open(text));
+    const edit = await rename.provideRenameEdits(doc, doc.positionAt(text.indexOf(needle) + delta), 'renamed');
+    return edit.edits.map((e) => doc.offsetAt(e.range.start));
+  };
+  // `x` of m(x) is passed as `m(x=…)`, not as `dict(x=…)`, and `d.x` is an attribute.
+  const kw = snippet('dict-kwarg');
+  eq(await offsets(kw, 'm(x)', 2), [kw.indexOf('m(x)') + 2, kw.indexOf('{{ x }}') + 3, kw.indexOf('m(x=') + 2]);
+  // `length` the variable, not `| length` the filter.
+  const fl = snippet('filter-name');
+  eq(await offsets(fl, 'set length', 4), [fl.indexOf('set length') + 4, fl.indexOf('{{ length') + 3]);
+  ext.deactivate();
+});
+
+test('a source that does not parse has no words: completion fits by the editor\'s own rules', () => {
+  const { Language } = require('../language');
+  const { V2Semantics } = require('../analysis-semantics');
+  const lang = new Language(JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'data', 'isa.json'), 'utf8')));
+  const text = 'HALT ; S\nBEQ lr0, cr0, +1;;\n';
+  const { answer } = parseCheck(JSON.stringify({ schemaVersion: 2, tokens: [], words: [], jinja: [],
+    diagnostics: [{ line: 1, column: 7, end_line: 1, end_column: 8, message: 'unexpected', stage: 'parse', severity: 'error', approximate: false }] }), text);
+  const names = new V2Semantics(lang, answer, text).mnemonicsFor(lang.context(text, 8), 8).map((m) => m.mnemonic);
+  assert(names.includes('SET') && !names.includes('BEQ'), 'cond is taken by HALT');
+});
+
+test('the Bazel path (no prebuilt checker): one probe across edits, one check per version', async () => {
+  // A checkout, and a `bazel` that builds nothing and runs the stand-in checker.
+  const root = fs.mkdtempSync(path.join(temp, 'checkout-'));
+  for (const marker of ['MODULE.bazel', 'src/tools/ipu-as-py/BUILD.bazel']) {
+    fs.mkdirSync(path.dirname(path.join(root, marker)), { recursive: true });
+    fs.writeFileSync(path.join(root, marker), '');
+  }
+  const fc = fakeChecker();
+  const bin = fs.mkdtempSync(path.join(temp, 'bin-'));
+  const [node, script, ...head] = fc.argv.slice(0, 4);
+  fs.writeFileSync(path.join(bin, 'bazel'), `#!/bin/sh\n[ "$1" = run ] || exit 1\nwhile [ "$1" != -- ]; do shift; done\nshift\nexec "${node}" "${script}" ${head.map((a) => `"${a}"`).join(' ')} "$@"\n`, { mode: 0o755 });
+  const PATH = process.env.PATH;
+  process.env.PATH = `${bin}${path.delimiter}${PATH}`;
+  try {
+    const ext = fake.install({ folders: [root] });
+    await ext.activate();
+    const doc = ext.open(fake.Uri.file(path.join(root, 'k.asm')), snippet('labels'));
+    assert(checker.isBazelCommand(checker.bazelCommand()));
+    await until(() => fc.checks(true).length === 1, 'the first check');
+    for (const [n, text] of [[2, snippet('misfits')], [3, snippet('lr-full')], [4, snippet('labels')]]) {
+      ext.edit(doc, text);
+      await until(() => fc.checks(true).length === n, `check ${n}`);
+    }
+    eq([fc.probes().length, fc.checks(true).length, fc.checks(false).length], [1, 4, 0]);
+    ext.deactivate();
+  } finally {
+    process.env.PATH = PATH;
+  }
 });
 
 // --- without a version-2 checker -----------------------------------------------------------------

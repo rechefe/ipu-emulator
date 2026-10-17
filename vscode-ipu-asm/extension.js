@@ -88,7 +88,6 @@ class CheckState {
   invalidate() {
     this.command = undefined;
     this.generation++;
-    if (this.onInvalidate) this.onInvalidate();
   }
 }
 
@@ -141,6 +140,16 @@ function toVscodeDiagnostic(raw) {
   return diagnostic;
 }
 
+/** A word that does not fit its slots and no diagnostic covers: information, not an error,
+ *  since the error is the assembler's to report (and it reports the first). */
+function slotFitDiagnostic(word) {
+  const r = word.range;
+  const diagnostic = new vscode.Diagnostic(new vscode.Range(r.line, r.character, r.endLine, r.endCharacter),
+    `${word.error} (this word: ${word.mnemonics.join('; ')})`, vscode.DiagnosticSeverity.Information);
+  diagnostic.source = 'ipu-as (slot fit)';
+  return diagnostic;
+}
+
 /** The checker, run on documents as they change, with a CheckState per checkout. */
 class Checking {
   constructor(kernelApi) {
@@ -163,8 +172,6 @@ class Checking {
     const key = root || '';
     if (!this.states.has(key)) {
       const state = new CheckState();
-      // A rebuilt or re-picked checker may speak other contract versions: ask again.
-      state.onInvalidate = () => this.analysis.forgetVersions();
       if (root) state.watchers = this.watchSources(root, state);
       this.states.set(key, state);
     }
@@ -178,7 +185,12 @@ class Checking {
     const glob = `**/*{${checker.SOURCE_EXTENSIONS.join(',')}}`;
     return checker.SOURCE_DIRS.map((dir) => {
       const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(vscode.Uri.file(path.join(root, dir)), glob));
-      for (const event of [watcher.onDidCreate, watcher.onDidChange, watcher.onDidDelete]) event(() => state.invalidate());
+      // Changed sources make a checker that may speak other contract versions: ask it again.
+      const changed = () => {
+        state.invalidate();
+        this.analysis.forgetVersions(root);
+      };
+      for (const event of [watcher.onDidCreate, watcher.onDidChange, watcher.onDidDelete]) event(changed);
       return watcher;
     });
   }
@@ -271,9 +283,19 @@ class Checking {
     return this.checkIn(await this.checkoutFor(uri), uri, text, key, token);
   }
 
-  /** runCheckText, in checkout `root` (null: none). With `analyse`, a checker that speaks
-   *  version 2 of the contract is asked for every analysis too (`answer` in the result). */
-  async checkIn(root, uri, text, key, token, analyse = false) {
+  /** runCheckText, in checkout `root` (null: none): diagnostics only. */
+  checkIn(root, uri, text, key, token) {
+    return this.runIn(root, uri, text, key, token, async (argv) => argv);
+  }
+
+  /** checkIn for a document's own text: a checker that speaks version 2 of the contract is
+   *  asked for every analysis too (`answer` in the result). */
+  analyseIn(root, uri, text, key) {
+    return this.runIn(root, uri, text, key, undefined, async (argv, cwd, seconds) => (await this.analysis.plan(argv, cwd, seconds)).argv);
+  }
+
+  /** Run the checker on `text`; `planFor(argv, cwd, seconds)` gives the argv to run it as. */
+  async runIn(root, uri, text, key, token, planFor) {
     // In Restricted Mode the folder's settings and BUILD files would choose what runs.
     if (!trust.mayRun()) return { error: trust.RESTRICTED };
     const folder = vscode.workspace.getWorkspaceFolder(uri);
@@ -283,8 +305,7 @@ class Checking {
     const argv = await this.checkCommand(folder, root);
     if (!argv) return { outside: true };
     if (token && token.isCancellationRequested) return { superseded: true };
-    const plan = analyse ? await this.analysis.plan(argv, cwd, timeoutSeconds(folder)) : { argv };
-    const [command, ...args] = plan.argv;
+    const [command, ...args] = await planFor(argv, cwd, timeoutSeconds(folder));
     const state = this.stateOf(root);
     // The fallback rebuilds on its way to checking, so a run that comes back with
     // diagnostics has also brought the binary up to date with these sources.
@@ -335,7 +356,9 @@ class Checking {
   refresh(document, force = false) {
     const version = document ? document.version : undefined;
     // However it ends, whoever waits for this version's analysis has its answer then.
-    const done = this.refreshOnce(document, force).finally(() => document && this.analysis.release(document.uri.toString(), version));
+    // (Not for a document closed since: forget() has settled it, and must not be undone.)
+    const done = this.refreshOnce(document, force)
+      .finally(() => document && !document.isClosed && this.analysis.release(document.uri.toString(), version));
     if (document) this.latest.set(document.uri.toString(), done);
     return done;
   }
@@ -353,7 +376,7 @@ class Checking {
     if (!force && state.checked.get(key) === version) return;
 
     const text = document.getText();
-    const result = await this.checkIn(root, document.uri, text, key, undefined, true);
+    const result = await this.analyseIn(root, document.uri, text, key);
 
     // A run we cancelled ourselves says nothing about the toolchain or the code,
     // and a file closed while it ran has nothing left to mark.
@@ -385,7 +408,10 @@ class Checking {
       this.analysis.store(key, version, text, result.found, result.answer || null);
       // The contract counts columns in code points, VS Code in UTF-16 units.
       const positions = result.answer ? result.answer.positions : new Positions(text);
-      this.diagnostics.set(document.uri, result.found.map((d) => toVscodeDiagnostic(positions.diagnostic(d))));
+      const shown = result.found.map((d) => toVscodeDiagnostic(positions.diagnostic(d)));
+      // The assembler stops at a word's first misfit; the analysis fits every word.
+      for (const w of result.answer ? result.answer.misfits() : []) shown.push(slotFitDiagnostic(w));
+      this.diagnostics.set(document.uri, shown);
     }
     this.showStatus();
   }

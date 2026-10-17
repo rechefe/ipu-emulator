@@ -11,5 +11,8 @@
   "kwarg": "{% macro m(dest, n=1) %}\nSET {{ dest }} cr{{ n }};;\n{% endmacro %}\n{% set n = 2 %}\n{{ m(dest=\"lr1\", n=n) }}\n",
   "header": "{#- ipu:params\nrows: int = 4    # rows to copy\n-#}\n{% set r = \"lr0\" %}\nSET {{ r }} cr0;;\n{% for i in range(rows) %}\nHALT;;\n{% endfor %}\n",
   "labels": "top:\n    SET lr0 cr0;;\n    BLT.S lr0 cr4 top;;\n    B +1;;\nend: HALT;;\n",
-  "templated-mnemonic": "{% set op = \"HALT\" %}\n{{ op }} ; SET lr0 cr0;;\n"
+  "templated-mnemonic": "{% set op = \"HALT\" %}\n{{ op }} ; SET lr0 cr0;;\n",
+  "misfits": "HALT ; HALT;;\nB +1 ; HALT ; HALT;;\n",
+  "dict-kwarg": "{% macro m(x) %}\nSET {{ x }} cr0;;\n{% endmacro %}\n{% set d = dict(x=\"lr1\") %}\n{{ m(x=d.x) }}\n",
+  "filter-name": "{% set length = 2 %}\n{% set xs = [1] %}\nSET lr0 cr{{ length + (xs | length) }};;\n"
 }

@@ -18,12 +18,14 @@ function register(context, { lang, checkText, semantics }) {
     },
 
     async provideRenameEdits(document, position, newName, token) {
+      // The text the answer is for: an edit while it was awaited makes its spans another text's.
+      const [text, version] = [document.getText(), document.version];
       const { known, offset } = await symbolAt(document, position);
+      if (document.version !== version) return undefined;
       const sym = known.symbolAt(offset);
       if (!sym) return undefined;
       const label = sym.kind === 'label';
       if (!lang.validName(sym.kind, newName)) throw new Error(`"${newName}" is not a valid ${label ? 'label' : 'Jinja name'}.`);
-      const text = document.getText();
       if (label ? lang.labels(text).defs.some((d) => lang.sameLabel(d.name, newName)) : known.jinjaClash(sym, newName)) {
         throw new Error(label
           ? `"${newName}" is already defined in this file.`

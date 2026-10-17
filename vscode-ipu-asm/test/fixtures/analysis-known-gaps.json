@@ -1,9 +1,12 @@
 {
   "snippet:astral-crlf": [
-    "token 4:3 \"\\ud83d\": the scan reads an operand, the assembler nothing",
-    "token 4:4 \"\\ude00\": the scan reads an operand, the assembler nothing",
+    "token 4:3 \"😀\": the scan reads an operand, the assembler nothing",
     "token 4:5 \"x\": the scan reads an operand, the assembler nothing",
     "words: the assembler lists none (2 in the scan)"
+  ],
+  "snippet:dict-kwarg": [
+    "jinja 4:1 \"{% set d = dict(x=\\\"lr1\\\") %}\": uses [dict x] by the fallback, [dict] by the assembler",
+    "jinja 5:1 \"{{ m(x=d.x) }}\": uses [d m x] by the fallback, [d m] by the assembler"
   ],
   "snippet:header": [
     "jinja 1:1 \"{#- ipu:params rows: int = 4 # rows to c…\": defines [] by the fallback, [rows] by the assembler"
