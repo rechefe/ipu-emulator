@@ -58,6 +58,17 @@ def test_matmul_and_unused_parameters():
     assert y.tolist() == [[4.0, 5.0], [10.0, 11.0]]
 
 
+def test_linear_is_a_matmul_then_its_activation():
+    a, b = t([[1, -2], [0.5, 3]]), t([[2, 0], [1, -1]])
+    product = [[0.0, 2.0], [4.0, -3.0]]
+    assert ops.linear(a, b, n_out=2)["y"].tolist() == product
+    silu = ops.linear(a, b, activation="silu")["y"].tolist()
+    expected = [[p / (1 + math.exp(-p)) for p in row] for row in product]
+    assert silu == [pytest.approx(row, rel=1e-12) for row in expected]
+    with pytest.raises(ValueError, match="'relu' is not one of"):
+        ops.linear(a, b, activation="relu")
+
+
 def test_an_axis_op_needs_its_dim():
     # No default axis: a kernel that forgets [params] dim fails, not reduces wrongly.
     with pytest.raises(TypeError, match="dim"):

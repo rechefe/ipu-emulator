@@ -12,7 +12,7 @@ so the kernel declares ``dim`` in ``[params]``, and a missing one is an error,
 not a reduction along the wrong axis.
 
 PyTorch is test-only: this module imports it, and only a comparison against a
-reference imports this module. E07 adds ``linear``, ``conv2d``, ``maxpool2d``
+reference imports this module. E07 adds ``conv2d``, ``maxpool2d``
 and ``residual_add`` as it migrates the families.
 """
 
@@ -20,12 +20,31 @@ from __future__ import annotations
 
 import torch
 
-__all__ = ["layernorm", "matmul", "silu", "softmax"]
+__all__ = ["layernorm", "linear", "matmul", "silu", "softmax"]
 
 
 def matmul(a: torch.Tensor, b: torch.Tensor, **_params: object) -> dict[str, torch.Tensor]:
     """``y = a @ b``."""
     return {"y": a @ b}
+
+
+#: The activations :func:`linear` applies, by the name a kernel's ``activation``
+#: parameter gives.
+_ACTIVATIONS = {"none": lambda y: y, "silu": torch.nn.functional.silu}
+
+
+def linear(
+    a: torch.Tensor, b: torch.Tensor, *, activation: str = "none", **_params: object
+) -> dict[str, torch.Tensor]:
+    """``y = activation(a @ b)``: a projection, with ``activation`` ``"none"``
+    or ``"silu"`` (a kernel's ``activation`` parameter, when it declares one).
+
+    Raises:
+        ValueError: ``activation`` is neither.
+    """
+    if activation not in _ACTIVATIONS:
+        raise ValueError(f"linear: activation {activation!r} is not one of {sorted(_ACTIVATIONS)}")
+    return {"y": _ACTIVATIONS[activation](a @ b)}
 
 
 def silu(x: torch.Tensor, **_params: object) -> dict[str, torch.Tensor]:
