@@ -96,8 +96,9 @@ nav:
       - Getting Started guide (PDF): https://github.com/rechefe/ipu-emulator/releases/download/guide-latest/getting-started.pdf
   - How-to:
       - how-to/index.md
-      - Write a kernel: building-applications.md            # E09-09
-      - Register a kernel: adding-applications.md           # E09-09 merges it
+      - Write a kernel: how-to/write-a-kernel.md            # E06-21
+      - Write an ipu_apps kernel (legacy): building-applications.md   # E07-25 removes it
+      - Register an ipu_apps kernel (legacy): adding-applications.md  # E07-25 removes it
       - Add an instruction: how-to/add-an-instruction.md    # E09-11
       - Debug a kernel: how-to/debug-a-kernel.md            # E09-12
       - Step through a kernel run: debugging-inspector.md   # E08-17; E09 decides its final place
@@ -113,6 +114,7 @@ nav:
           - Assembly syntax: reference/isa/assembly-syntax.md
           - Instruction format: reference/isa/instruction-format.md
           - Programmer's guide: reference/isa/programmer-guide.md
+      - kernel.toml: reference/kernel-toml.md               # E06-21; schema generated (docs/kernel_toml_page.py)
       - Command-line tools: reference/cli.md                # E09-15; option tables generated (docs/cli_reference_page.py)
       - Reference model API: reference/reference-model-api.md   # E09-16; parts generated (docs/reference_api_page.py)
       - Kernels:                                            # E06/E07 generate these

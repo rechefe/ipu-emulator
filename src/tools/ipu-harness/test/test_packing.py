@@ -193,18 +193,12 @@ def scratch_kernel(tmp_path: Path, content: str):
     return directory
 
 
-def test_a_filled_region_is_the_runners_fill(tmp_path):
-    from ipu_harness import runner
+def test_a_filled_region_is_its_fill_in_every_element(tmp_path):
     from ipu_harness.packing import region_fill
-    from ipu_harness.placement import place
 
     m = load_manifest(scratch_kernel(tmp_path, "fill = 1.5"))
-    for fmt in (F.FP32, F.INT8):
-        plan = plan_case(m, {"rows": 2}, fmt)
-        placement = place(plan)
-        mask = m.tensors["mask"]
-        expected = runner._scratch_fill(mask, plan, placement)
-        assert region_fill(mask, plan, placement.region("mask").rows) == expected
+    plan = plan_case(m, {"rows": 2}, F.FP32)
+    assert region_fill(m.tensors["mask"], plan, 2) == np.full(256, 1.5, "<f4").tobytes()
 
 
 def test_a_bytes_region_is_its_functions_bytes(tmp_path):
@@ -220,21 +214,12 @@ def test_a_bytes_region_is_its_functions_bytes(tmp_path):
         region_fill(dataclasses.replace(mask, content="mask.py:short"), plan, 1)
 
 
-def test_bytes_is_refused_until_the_runner_writes_it(tmp_path, monkeypatch):
-    from ipu_harness import runner
-
+def test_a_bytes_region_loads(tmp_path):
     directory = scratch_kernel(tmp_path, 'bytes = "mask.py:mask"')
-    if hasattr(runner, "_scratch_fill"):
-        with pytest.raises(ManifestError, match="the runner does not write a region's bytes yet"):
-            load_manifest(directory)
-        monkeypatch.delattr(runner, "_scratch_fill")
     assert load_manifest(directory).tensors["mask"].content == "mask.py:mask"
 
 
-def test_fill_and_bytes_together_are_refused(tmp_path, monkeypatch):
-    from ipu_harness import runner
-
-    monkeypatch.delattr(runner, "_scratch_fill", raising=False)
+def test_fill_and_bytes_together_are_refused(tmp_path):
     directory = scratch_kernel(tmp_path, 'fill = 1.0\nbytes = "mask.py:mask"')
     with pytest.raises(ManifestError, match="takes 'fill' or 'bytes', not both"):
         load_manifest(directory)

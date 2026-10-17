@@ -34,14 +34,14 @@ from ipu_emu.ipu_state import DEFAULT_CYCLE_LIMIT
 from ipu_emu.reference import ReferenceModel, RunState, Stats
 from ipu_emu.reference import RunResult as ModelRun
 from ipu_emu.trace import EMULATOR_VERSION, TraceWriter
-from ipu_harness._codec import Array, encode
+from ipu_harness._codec import Array
 from ipu_harness.abi import RegisterWrite, apply, check_cr_reads, register_writes
 from ipu_harness.assembly import AssemblyCache, assemble
 from ipu_harness.cases import Case, inputs_for
 from ipu_harness.compare import Comparison, compare, expected_for, tier_for
 from ipu_harness.debug import DebugLaunch, attach_alias_profile, debug_run, new_alias_profile
 from ipu_harness.manifest import KernelManifest, TensorDecl
-from ipu_harness.packing import pack, stored_format, stored_rows, unpack
+from ipu_harness.packing import pack, region_fill, stored_format, stored_rows, unpack
 from ipu_harness.params import CasePlan, plan_case
 from ipu_harness.placement import Placement, check_aaq_spill, place
 from ipu_harness.reference import evaluate, load_reference
@@ -265,16 +265,6 @@ def _read_region(
     return model.read_xmem(region.base_row * _row_bytes(plan), region.rows * _row_bytes(plan))
 
 
-def _scratch_fill(tensor: TensorDecl, plan: CasePlan, placement: Placement) -> bytes:
-    """A scratch region's starting bytes: its ``fill`` in every element of every
-    row it occupies, padding lanes included (not through the pack transform,
-    which pads with zeros)."""
-    fmt = stored_format(tensor, plan.format)
-    region_bytes = placement.region(tensor.name).rows * _row_bytes(plan)
-    elements = region_bytes // FORMATS[fmt].element_bytes
-    return encode(np.full(elements, tensor.fill, dtype=np.float64), fmt)
-
-
 #: A comment runs from ``#`` or ``//`` to the end of the line.
 _COMMENT = re.compile(r"#|//")
 #: A label at the start of a word: ``row_loop:``.
@@ -427,7 +417,8 @@ def _write_tensors(
         elif tensor.role == "input":
             _write_region(model, plan, placement, tensor, pack(tensor, inputs[tensor.name], plan))
         elif tensor.role == "scratch":
-            _write_region(model, plan, placement, tensor, _scratch_fill(tensor, plan, placement))
+            fill = region_fill(tensor, plan, placement.region(tensor.name).rows)
+            _write_region(model, plan, placement, tensor, fill)
     return inputs
 
 
@@ -517,7 +508,7 @@ def stage(
         raise ConfigurationError(f"{manifest.name}: a multi-stage kernel has no one program")
     plan, values, placement = _prepare(manifest, case, fmt, inputs, shared)
     program = assemble(plan, cache)
-    check_cr_reads(manifest, program.rendered)
+    check_cr_reads(plan.manifest, program.rendered)  # the case's bindings (``when``)
     check_aaq_spill(plan, placement, program.rendered)
 
     model = ReferenceModel(fmt) if shared is None else shared.model
