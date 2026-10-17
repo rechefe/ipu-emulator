@@ -16,10 +16,15 @@ import numpy as np
 import pytest
 from scale_kernel import write_scale
 
-from ipu_emu.trace import read_trace
-from ipu_harness import cli
+from ipu_emu.emulator import load_program
+from ipu_emu.execute import decode_instruction_word
+from ipu_emu.ipu_state import IpuState
+from ipu_emu.trace import read_trace, trace_header
+from ipu_harness import cli, runner
+from ipu_harness.assembly import assemble
 from ipu_harness.cases import expand
 from ipu_harness.manifest import load_manifest
+from ipu_harness.params import plan_case
 from ipu_harness.runner import RunOptions, run_kernel
 from ipu_isa.faults import FaultId
 from ipu_isa.formats import ElementFormat as F
@@ -70,13 +75,14 @@ def test_a_scratch_region_starts_with_its_fill(tmp_path):
     directory = write_scale(tmp_path).directory
     toml = (directory / "kernel.toml").read_text()
     toml = toml.replace(
-        "[abi]\n", '[scratch.t]\nshape = ["rows", 128]\nfill = 3\n\n[abi]\nt    = "CR6"\n'
+        "[abi]\n", '[scratch.t]\nshape = ["rows", 100]\nfill = 3\n\n[abi]\nt    = "CR6"\n'
     )
     (directory / "kernel.toml").write_text(toml)
     asm = (directory / "scale.asm").read_text().replace("{{ cr.x }}", "{{ cr.t }}")
     (directory / "scale.asm").write_text(asm)
     manifest = load_manifest(directory)
     result = run_kernel(manifest, _case(manifest, "default"), F.FP32)  # y = t * 2, not x * 2
+    # t is 100 wide: its rows' padding lanes hold the fill too, not zeros.
     np.testing.assert_array_equal(result.outputs["y"], np.full((4, 128), 6.0))
 
 
@@ -86,8 +92,29 @@ def test_the_cycle_limit_is_a_fault_naming_its_word(scale):
     assert result.fault is not None and result.fault.fault is FaultId.F9
     assert result.comparisons == ()
     assert result.describe().startswith("scale/default/int8: FAIL")
-    assert f"fault F-9 at PC {result.fault.pc}" in result.describe()
-    assert result.fault.line is not None and result.fault.line.endswith(";;")
+    # Words 0-2 retire (the SETs, LD.MULT, MULT.VE + ACC.ADD.FIRST); word 3 hits the limit.
+    assert result.fault.pc == 3 and result.fault.line == "ST.ACC LR2 CR3 ;;"
+    assert "fault F-9 at PC 3: ST.ACC LR2 CR3 ;;" in result.describe()
+
+
+@pytest.mark.parametrize(
+    ("rendered", "pc", "line"),
+    [
+        ("loop:\n    SET LR0 CR0 ;;\n    HALT ;;\n", 0, "SET LR0 CR0 ;;"),
+        ("// setup ;; done\nSET LR0 CR0 ;;\nHALT ;;", 0, "SET LR0 CR0 ;;"),
+        ("SET LR0 CR0 ; # a ;; in a comment\nSET LR1 CR0 ;;\nHALT ;;", 1, "HALT ;;"),
+        (
+            "MULT.VE LR0 CR5 0 LR0 CR15 ;\n    ACC.ADD.FIRST ;;\nHALT",
+            0,
+            "MULT.VE LR0 CR5 0 LR0 CR15 ;",
+        ),
+        ("SET LR0 CR0 ;;\nHALT\n", 1, "HALT"),  # the last word may omit ";;"
+        ("SET LR0 CR0 ;; HALT ;;", 1, "SET LR0 CR0 ;; HALT ;;"),
+        ("SET LR0 CR0 ;;\n", 1, None),
+    ],
+)
+def test_the_source_line_of_a_word(rendered, pc, line):
+    assert runner._source_line(rendered, pc) == line
 
 
 def test_the_trace_follows_the_schema(scale, tmp_path):
@@ -96,6 +123,11 @@ def test_the_trace_follows_the_schema(scale, tmp_path):
     header = json.loads(trace.read_text().splitlines()[0])
     jsonschema.validate(header, load_schema("trace"))
     assert header["format"] == "e4"
+    # The header the emulator writes for the same program.
+    state = IpuState(fmt=F.E4)
+    plan = plan_case(scale, _case(scale, "one_row").values, F.E4)
+    load_program(state, [decode_instruction_word(w) for w in assemble(plan).words])
+    assert header == trace_header(state)
     _, records = read_trace(trace)
     assert len(records) == result.cycles
     record_schema = load_schema("commit_record")
@@ -139,6 +171,27 @@ def test_input_overrides_and_outputs_are_written_even_on_failure(scale, tmp_path
     assert code == 1
     assert "FAIL" in capsys.readouterr().out
     np.testing.assert_array_equal(np.load(out / "y.npy"), np.full((2, 128), 2.0))
+
+
+def test_an_input_overrides_the_generator(scale, tmp_path, capsys):
+    x = tmp_path / "x.npy"
+    np.save(x, np.full((4, 128), 3.0))
+    out = tmp_path / "out"
+    assert _cli(scale.directory, "--input", f"x={x}", "--output", out, "--format", "fp32") == 0
+    np.testing.assert_array_equal(np.load(out / "y.npy"), np.full((4, 128), 6.0))
+
+
+def test_a_missing_input_file_exits_1(scale, tmp_path, capsys):
+    assert _cli(scale.directory, "--input", f"x={tmp_path / 'nope.npy'}") == 1
+    err = capsys.readouterr().err
+    assert err.startswith("error:") and "Traceback" not in err
+
+
+def test_an_assembly_error_in_the_kernel_exits_1(tmp_path, capsys):
+    manifest = write_scale(tmp_path, asm="    SET LR0 {{ cr.nope }} ;;\n    HALT ;;\n")
+    assert _cli(manifest.directory) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("error:") and "nope" in err and "Traceback" not in err
 
 
 def test_a_cycle_limit_exits_1_with_the_fault(scale, capsys):

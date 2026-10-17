@@ -10,7 +10,10 @@ their goldens. It drives the model through the stable reference-model API
 A run that faults (a hardware fault F-1 to F-9, the cycle limit F-9 among
 them) returns a result with its :class:`RunFault`; a wrong kernel answer
 returns failed comparisons. Neither raises. A bad request (a parameter, a
-file, the manifest) raises ``ConfigurationError``.
+file, the manifest) raises ``ConfigurationError``; a program that does not
+assemble raises the assembler's error; an instruction the model cannot run in
+the format (``ACTIVATE.QUANTIZE`` in E4) raises ``EmulatorError``, and no
+outputs are written then.
 """
 
 from __future__ import annotations
@@ -26,7 +29,7 @@ import numpy as np
 
 from ipu_emu.reference import ReferenceModel, RunState
 from ipu_emu.trace import EMULATOR_VERSION, TraceWriter
-from ipu_harness._codec import Array
+from ipu_harness._codec import Array, encode
 from ipu_harness.abi import apply, check_cr_reads, register_writes
 from ipu_harness.assembly import AssemblyCache, assemble
 from ipu_harness.cases import Case, inputs_for
@@ -49,7 +52,7 @@ class RunOptions:
     """How to run a case, besides the case itself.
 
     Attributes:
-        max_cycles: The cycle limit; ``None`` keeps the model's.
+        max_cycles: The cycle limit; ``None`` keeps the model's, 0 removes it.
         inputs: Input files that replace the case's inputs, by tensor name
             (``--input x=path.npy``).
         output_dir: Where to write ``<output>.npy`` for each output, failed
@@ -151,23 +154,41 @@ def _read_region(
     return model.read_xmem(region.base_row * _row_bytes(plan), region.rows * _row_bytes(plan))
 
 
-def _scratch_fill(tensor: TensorDecl, plan: CasePlan) -> Array:
-    """A scratch region's starting contents: its ``fill`` in every element."""
-    return np.full(plan.shapes[tensor.name], tensor.fill)
+def _scratch_fill(tensor: TensorDecl, plan: CasePlan, placement: Placement) -> bytes:
+    """A scratch region's starting bytes: its ``fill`` in every element of every
+    row it occupies, padding lanes included (not through the pack transform,
+    which pads with zeros)."""
+    fmt = stored_format(tensor, plan.format)
+    region_bytes = placement.region(tensor.name).rows * _row_bytes(plan)
+    elements = region_bytes // FORMATS[fmt].element_bytes
+    return encode(np.full(elements, tensor.fill, dtype=np.float64), fmt)
 
 
-#: A word ends at ``;;``; a ``#`` starts a comment.
-_WORD_END = re.compile(r";;")
+#: A comment runs from ``#`` or ``//`` to the end of the line.
+_COMMENT = re.compile(r"#|//")
+#: A label at the start of a word: ``row_loop:``.
+_LABEL = re.compile(r"^\s*[A-Za-z_][\w.]*\s*:")
 
 
 def _source_line(rendered: str, pc: int) -> str | None:
-    """The rendered program's line that ends word ``pc``, stripped."""
-    words = 0
-    for line in rendered.splitlines():
-        code = line.split("#", 1)[0]
-        words += len(_WORD_END.findall(code))
-        if words > pc:
-            return line.strip()
+    """The rendered program's line where word ``pc`` starts, stripped.
+
+    A word ends at ``;;`` (the last word may omit it) and may span lines; its
+    first line with an instruction on it names it.
+    """
+    lines = rendered.splitlines()
+    word, first = 0, None
+    for number, line in enumerate(lines):
+        code = _COMMENT.split(line, maxsplit=1)[0]
+        for index, part in enumerate(code.split(";;")):
+            if index:  # a ";;" ended the word
+                if word == pc:
+                    return lines[first if first is not None else number].strip()
+                word, first = word + 1, None
+            if first is None and _LABEL.sub("", part).strip():
+                first = number
+    if word == pc and first is not None:
+        return lines[first].strip()
     return None
 
 
@@ -221,8 +242,11 @@ def run_kernel(
 
     Raises:
         ConfigurationError: The case, its files or the program are wrong for
-            the kernel (``PlanError`` locates it in ``kernel.toml``), or an
-            input or output file cannot be read or written.
+            the kernel (``PlanError`` locates it in ``kernel.toml``).
+        ipu_as.errors.AssemblerError: The program does not render, parse or
+            encode.
+        EmulatorError: An instruction the model cannot run in ``fmt``.
+        OSError: An input, output or trace file cannot be read or written.
     """
     options = options or RunOptions()
     plan = plan_case(manifest, case.values, fmt, case=case.decl)
@@ -238,9 +262,7 @@ def run_kernel(
         if tensor.role == "input":
             _write_region(model, plan, placement, tensor, pack(tensor, inputs[tensor.name], plan))
         elif tensor.role == "scratch":
-            _write_region(
-                model, plan, placement, tensor, pack(tensor, _scratch_fill(tensor, plan), plan)
-            )
+            _write_region(model, plan, placement, tensor, _scratch_fill(tensor, plan, placement))
     apply(model, register_writes(plan, placement))
 
     if options.trace is not None:

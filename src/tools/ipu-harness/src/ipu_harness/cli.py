@@ -7,12 +7,13 @@
 One line per run, from :meth:`RunResult.describe`. Exit codes:
 
 * 0: every run passed.
-* 1: a run failed or faulted, or the request was wrong (``ConfigurationError``,
-  an ``EmulatorError`` the model raised, or ``OSError``: one line, no traceback).
+* 1: a run failed or faulted, or the request was wrong: a ``ConfigurationError``,
+  an assembler error in the kernel's program, an ``EmulatorError`` the model
+  raised, or an ``OSError`` (one line, no traceback).
 * 2: anything else, which is a bug in the harness or the kernel's Python
   (the traceback is printed). A configuration error caused by another
-  exception (a generator, a pack transform or a reference that raised)
-  counts as a bug too.
+  exception (a generator, a pack transform or a reference that raised,
+  or failed to import, torch included) counts as a bug too.
 """
 
 from __future__ import annotations
@@ -24,11 +25,12 @@ import traceback
 from collections.abc import Sequence
 from pathlib import Path
 
-from ipu_emu.errors import ConfigurationError, EmulatorError
+from ipu_emu.errors import ConfigurationError
 from ipu_harness.assembly import AssemblyCache
 from ipu_harness.cases import Case, expand
 from ipu_harness.manifest import KernelManifest, load_manifest
 from ipu_harness.runner import RunOptions, run_kernel
+from ipu_isa.errors import IpuError
 from ipu_isa.formats import ElementFormat
 
 #: The value of ``--format`` that runs every format the case runs in.
@@ -49,6 +51,13 @@ def _input(text: str) -> tuple[str, Path]:
     return name, _caller(Path(path))
 
 
+def _cycles(text: str) -> int:
+    value = int(text)
+    if value < 0:
+        raise argparse.ArgumentTypeError(f"--max-cycles takes 0 or more, not {value}")
+    return value
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="ipu_harness.cli", description=__doc__.splitlines()[0])
     parser.add_argument("kernel", type=Path, help="the kernel's folder (it holds kernel.toml)")
@@ -67,7 +76,9 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--output", type=Path, help="write each output as DIR/<name>.npy")
     parser.add_argument("--trace", type=Path, help="write the run's trace (JSON Lines)")
-    parser.add_argument("--max-cycles", type=int, help="the cycle limit")
+    parser.add_argument(
+        "--max-cycles", type=_cycles, help="the cycle limit (0: no limit; default: the model's)"
+    )
     parser.add_argument("--list-cases", action="store_true", help="list the cases and stop")
     return parser
 
@@ -101,10 +112,11 @@ def _run(args: argparse.Namespace) -> int:
             print(f"{case.name}  ({', '.join(f.value for f in case.formats)})")
         return 0
     case = _case(manifest, args.case)
-    many = len(_formats(case, args.format)) > 1
+    formats = _formats(case, args.format)
+    many = len(formats) > 1
     passed = True
     cache = AssemblyCache()
-    for fmt in _formats(case, args.format):
+    for fmt in formats:
         output = None
         if args.output is not None:
             output = _caller(args.output) / fmt.value if many else _caller(args.output)
@@ -130,9 +142,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         return _run(args)
-    except (EmulatorError, OSError) as error:
+    except (IpuError, OSError) as error:
         cause = error.__cause__
-        if cause is not None and not isinstance(cause, (EmulatorError, OSError)):
+        if cause is not None and not isinstance(cause, (IpuError, OSError)):
             # Python code the harness ran (a generator, a pack transform, a
             # reference) raised: a bug there, so show where.
             traceback.print_exception(error)
