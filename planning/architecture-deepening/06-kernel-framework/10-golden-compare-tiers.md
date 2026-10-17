@@ -53,6 +53,7 @@ class Comparison:
     passed: bool
     max_abs: float
     max_rel: float
+    max_ulps: int | None      # 8-bit float formats; -1 when a value is not a code
     worst_index: tuple[int, ...]
     got: float
     want: float
@@ -61,7 +62,8 @@ def expected_for(case, plan, ref_out: Mapping[str, np.ndarray] | None) -> dict[s
     """User expected file (rounded to the output format) if given, else the reference
     output rounded to the output's format (element format or accumulator format)."""
 
-def compare(got, want, tier) -> Comparison: ...
+def tier_for(plan, tensor) -> Tier: ...
+def compare(output, got, want, tier, fmt) -> Comparison: ...
 ```
 
 Rules:
@@ -74,7 +76,10 @@ Rules:
   inputs. If rounding changed any element, the report says how many. A user
   `expected` file computed from the unrounded inputs then fails in a way that
   can be diagnosed, not mysteriously.
-- The tier comes from `[golden] tolerance[format]`. An unknown tier name is a
+- The tier comes from `[golden] tolerance[format]`, keyed by the format the
+  output is stored in: the element format, or for an accumulator output its
+  accumulator format (FP32 or INT32), which may be named as a key. An override
+  may set only the numbers `compare` reads for that format. An unknown tier name is a
   load-time error (E06-02). A kernel-local override is
   `tolerance = { fp32 = { tier = "FP32_ORDER", rtol = 3e-5, why = "measured on case X" } }`.
   The `why` is required, so no anonymous literal can appear.

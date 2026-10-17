@@ -4,8 +4,17 @@ A cycle fetches the word at the PC and does what that word does: BREAK is
 evaluated against a fresh register snapshot before any side effect, then every
 other slot runs in ``ipu_isa.timing.SLOT_EXECUTION_ORDER``. An empty word (no
 instruction at the PC) is an idle cycle: it counts one idle multiplier cycle and
-advances the PC. Two LR sub-slots writing the same register is an error raised
-before any LR write.
+advances the PC. Two LR sub-slots writing the same register is fault F-3,
+raised before any LR write.
+
+An illegal program faults (E04-19), precisely (E04-20): a fetch at or past
+``program_length`` is F-2; an undefined opcode or a reserved operand code (or
+one past its type's width) F-1, and an LR conflict F-3, are found before any
+slot runs; F-4 to F-6 are found by the check phase after the LR slot, from
+each checked op's ``check_<name>`` predicate, which undoes the LR writes on a
+fault. A faulting word changes nothing but the halt record and the sticky
+flag; the lowest-numbered fault is recorded. Every :class:`EmulatorFault`
+leaving a cycle has first gone through ``IpuState.record_fault``.
 
 :class:`Cycle` owns all of that: the snapshot, the slot order, the idle-word
 path, the LR conflict check and the observers' hooks. It knows nothing
@@ -35,10 +44,11 @@ from collections.abc import Callable, Mapping
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, NamedTuple, Protocol
 
-from ipu_emu.errors import EmulatorError, UndeclaredRead
+from ipu_emu.errors import EmulatorError, EmulatorFault, UndeclaredRead, XMemBoundsError
 from ipu_emu.outcome import CycleOutcome
 from ipu_emu.resolver import FaithfulResolver, OperandResolver, PackedResolver
 from ipu_isa.constants import DStructureConfig, decode_dstructure
+from ipu_isa.faults import FaultId
 from ipu_isa.registers import lrd_pair
 from ipu_isa.slots import Slot
 from ipu_isa.timing import SLOT_EXECUTION_ORDER
@@ -88,6 +98,13 @@ class Schedule(NamedTuple):
             ``slot_ops[lr_position]`` (after the last op when it equals the length).
         lr_conflict: The LR registers the sub-slots write, in sub-slot order,
             when two of them are the same register; ``None`` otherwise.
+        reserved: What makes the word fault F-1 (the first slot with an
+            undefined opcode or a reserved operand code), else ``None``. That
+            slot is a NOP in this schedule: what the word does with F-1
+            disabled (OQ-2's proposal).
+        checks: The ops after LR whose instruction can fault on register
+            values (a ``check_<name>`` predicate, E04-20), in issue order;
+            empty for most words, which then skip the check phase.
     """
 
     break_op: IssuedOp | None
@@ -95,6 +112,8 @@ class Schedule(NamedTuple):
     slot_ops: tuple[IssuedOp, ...]
     lr_position: int
     lr_conflict: tuple[int, ...] | None
+    reserved: str | None = None
+    checks: tuple[IssuedOp, ...] = ()
 
 
 class CycleObserver(Protocol):
@@ -126,18 +145,21 @@ class CycleObserver(Protocol):
     def end(self) -> None: ...
 
 
-def lr_conflict_error(targets: tuple[int, ...]) -> RuntimeError:
-    """The error for two LR sub-slots writing the same register.
+def lr_conflict_error(targets: tuple[int, ...], pc: int) -> EmulatorFault:
+    """Fault F-3: two LR sub-slots write the same register.
 
     Args:
         targets: ``Schedule.lr_conflict`` of the word.
+        pc: The word's PC.
 
     Returns:
-        The exception to raise, before any LR write.
+        The fault to raise, before any LR write.
     """
-    return RuntimeError(
+    return EmulatorFault(
+        FaultId.F3,
+        pc,
         "LR conflict: multiple writes to the same LR register in same cycle "
-        f"(targets: {list(targets)})"
+        f"(targets: {list(targets)})",
     )
 
 
@@ -147,25 +169,56 @@ def _issue_table(order: tuple[Slot, ...]) -> tuple[tuple[str, str, tuple[SlotPla
     return tuple((slot.value, field, plans) for slot in order for field, plans in plans_for(slot))
 
 
-def decode_word(inst: Mapping[str, int]) -> tuple[IssuedOp, ...]:
+def decode_word(inst: Mapping[str, int], *, pc: int) -> tuple[IssuedOp, ...]:
     """Decode every slot of an instruction word, NOPs included.
 
     Args:
         inst: A decoded instruction word (field name to value).
+        pc: Where the word is, for the fault an undecodable word raises.
 
     Returns:
         One op per slot in ``SLOT_EXECUTION_ORDER``; the LR slot gives one op
         per sub-slot.
+
+    Raises:
+        EmulatorFault: F-1, a slot holds an undefined opcode or a reserved
+            operand code.
     """
     # The order is read from the module global on every call, so the ISA
     # package stays the one place it is declared (tests patch it here).
     ops = []
     for slot, field, plans in _issue_table(tuple(SLOT_EXECUTION_ORDER)):
-        plan = plans[inst[field]]
+        plan, reserved = _resolve(slot, field, plans, inst)
+        if reserved is not None:
+            raise EmulatorFault(FaultId.F1, pc, reserved)
         operands = {name: inst[key] for name, key in plan.fields}
         writes = _lr_targets(plan, operands) if slot == "lr" else ()
         ops.append(IssuedOp(slot, plan, operands, writes))
     return tuple(ops)
+
+
+def _resolve(
+    slot: str, field: str, plans: tuple[SlotPlan, ...], inst: Mapping[str, int]
+) -> tuple[SlotPlan, str | None]:
+    """The plan of the opcode in ``inst[field]``, and ``None``; or, when the
+    opcode is undefined or an operand code is reserved or past its type's
+    width (F-1), the slot's NOP and what is wrong."""
+    code = inst[field]
+    if not 0 <= code < len(plans):
+        return _nop(plans), f"{slot} slot: opcode {code} ({field}) is not defined by the ISA"
+    plan = plans[code]
+    fields = dict(plan.fields)
+    for name, capacity, reserved in plan.operand_checks:
+        value = inst[fields[name]]
+        if not 0 <= value < capacity or value in reserved:
+            detail = f"{slot} slot: {plan.inst_name} {name} = {value} is a reserved encoding"
+            return _nop(plans), detail
+    return plan, None
+
+
+def _nop(plans: tuple[SlotPlan, ...]) -> SlotPlan:
+    """A slot's NOP plan."""
+    return next(plan for plan in plans if plan.inst_name == "NOP")
 
 
 def _lr_targets(plan: SlotPlan, operands: Mapping[str, int]) -> tuple[int, ...]:
@@ -195,14 +248,21 @@ def schedule_word(inst: Mapping[str, int], *, skip_idle_nops: bool = False) -> S
 
     Returns:
         The word's schedule, with its LR conflict checked once.
+
+    A slot with an undefined opcode or a reserved operand code is built as
+    its NOP and named in ``Schedule.reserved``; the cycle faults F-1 on it, or
+    runs the word that way with F-1 disabled.
     """
     break_op = None
     lr_ops: list[IssuedOp] = []
     slot_ops: list[IssuedOp] = []
     lr_position = -1
     targets: list[int] = []
+    reserved: str | None = None
     for slot, field, plans in _issue_table(tuple(SLOT_EXECUTION_ORDER)):
-        plan = plans[inst[field]]
+        plan, why = _resolve(slot, field, plans, inst)
+        if why is not None and reserved is None:
+            reserved = why
         if slot == "break":
             if plan.inst_name != "NOP":
                 break_op = IssuedOp(slot, plan, {name: inst[key] for name, key in plan.fields})
@@ -229,6 +289,12 @@ def schedule_word(inst: Mapping[str, int], *, skip_idle_nops: bool = False) -> S
         slot_ops=tuple(slot_ops),
         lr_position=lr_position,
         lr_conflict=tuple(targets) if len(targets) != len(set(targets)) else None,
+        reserved=reserved,
+        checks=tuple(
+            op
+            for op in slot_ops[lr_position:]
+            if op.operands is not None and op.plan.check is not None
+        ),
     )
 
 
@@ -488,12 +554,18 @@ class Cycle:
             ``BREAK`` if the word's BREAK slot fires, else ``RETIRED`` (the word
             is still to be retired with :meth:`retire`).
         """
-        inst, schedule = self._fetch(self.state.program_counter)
-        if schedule is None:
-            return CycleOutcome.RETIRED
-        self._take_snapshot()
-        self._ipu.issuer.observers = self.observers
-        return self._evaluate_break(inst, schedule)
+        pc = self.state.program_counter
+        try:
+            inst, schedule = self._fetch(pc)
+            if schedule is None:
+                return CycleOutcome.RETIRED
+            if schedule.reserved is not None:
+                self._reserved(pc, schedule.reserved)
+            self._take_snapshot()
+            self._ipu.issuer.observers = self.observers
+            return self._evaluate_break(inst, schedule)
+        except (EmulatorFault, XMemBoundsError) as error:
+            raise self._halt_on(error, pc) from None
 
     def retire(self) -> None:
         """Take a fresh snapshot, then run every slot except BREAK, in order.
@@ -503,10 +575,15 @@ class Cycle:
         wrote into IMEM (that write dropped the cached schedule).
         """
         pc = self.state.program_counter
-        inst, schedule = self._fetch(pc)
-        if schedule is not None:
-            self._take_snapshot()
-        self._run(pc, inst, schedule, self.observers)
+        try:
+            inst, schedule = self._fetch(pc)
+            if schedule is not None:
+                if schedule.reserved is not None:
+                    self._reserved(pc, schedule.reserved)
+                self._take_snapshot()
+            self._run(pc, inst, schedule, self.observers)
+        except (EmulatorFault, XMemBoundsError) as error:
+            raise self._halt_on(error, pc) from None
 
     def step(self, *, honour_break: bool = True) -> CycleOutcome:
         """Execute one word: :meth:`evaluate_break`, then :meth:`retire`.
@@ -523,18 +600,23 @@ class Cycle:
             else ``RETIRED``.
         """
         pc = self.state.program_counter
-        entry = self._schedules.get(pc)
-        inst, schedule = self._fetch(pc) if entry is None else entry
-        # Read once per cycle: the state's observers, then this cycle's.
-        observers = self.state.cycle_observers + self._observers
-        if schedule is not None:
-            self._take_snapshot()
-            if honour_break and schedule.break_op is not None:
-                issuer = self._ipu.issuer
-                issuer.observers = observers
-                if issuer.dispatch(schedule.break_op, inst) is CycleOutcome.BREAK:
-                    return CycleOutcome.BREAK
-        self._run(pc, inst, schedule, observers)
+        try:
+            entry = self._schedules.get(pc) if pc < self.state.program_length else None
+            inst, schedule = self._fetch(pc) if entry is None else entry
+            # Read once per cycle: the state's observers, then this cycle's.
+            observers = self.state.cycle_observers + self._observers
+            if schedule is not None:
+                if schedule.reserved is not None:
+                    self._reserved(pc, schedule.reserved)
+                self._take_snapshot()
+                if honour_break and schedule.break_op is not None:
+                    issuer = self._ipu.issuer
+                    issuer.observers = observers
+                    if issuer.dispatch(schedule.break_op, inst) is CycleOutcome.BREAK:
+                        return CycleOutcome.BREAK
+            self._run(pc, inst, schedule, observers)
+        except (EmulatorFault, XMemBoundsError) as error:
+            raise self._halt_on(error, pc) from None
         return CycleOutcome.RETIRED
 
     def reset(self) -> None:
@@ -546,8 +628,59 @@ class Cycle:
         self._source = None
         self._schedules.clear()
 
+    def _halt_on(self, error: EmulatorFault | XMemBoundsError, pc: int) -> EmulatorFault:
+        """Record the halt (and the sticky flag) for a fault in the word at
+        *pc*; an XMEM access beyond the allocation becomes F-6 there."""
+        fault = (
+            error if isinstance(error, EmulatorFault) else EmulatorFault(FaultId.F6, pc, str(error))
+        )
+        self.state.record_fault(fault.fault, fault.pc)
+        return fault
+
+    def _check(self, checks: tuple[IssuedOp, ...]) -> None:
+        """The check phase (E04-20, IPU-FLT-3): evaluate every fault predicate
+        of the word against the forwarded LRs (the LR sub-slots have just
+        written) and the CRs. On a fault, undo the LR writes, which are the
+        only writes so far (BREAK writes nothing), and raise the
+        lowest-numbered fault (IPU-FLT-8): the word has no effect.
+
+        F-1 and F-3 are decided before any slot runs; both number below every
+        fault a predicate finds (F-4 to F-6).
+        """
+        operands_of = self._ipu.issuer.operands_of
+        ipu = self._ipu
+        found = None
+        for op in checks:
+            fault = op.plan.check(ipu, **operands_of(op))
+            if fault is not None and (found is None or fault[0] < found[0]):
+                found = fault
+        if found is not None:
+            snapshot = self._buffer
+            assert snapshot is not None  # taken before the word ran
+            self.state.regfile.mutable("lr")[:] = snapshot.view("lr")
+            raise EmulatorFault(found[0], self.state.program_counter, found[1])
+
+    def _reserved(self, pc: int, detail: str) -> None:
+        """F-1 for the word at *pc*; with F-1 disabled, only its sticky flag
+        (the schedule already holds the slot as a NOP)."""
+        faults = self.state.faults
+        if faults.enable.get(FaultId.F1, True):
+            raise EmulatorFault(FaultId.F1, pc, detail)
+        faults.sticky.add(FaultId.F1)
+
     def _fetch(self, pc: int) -> tuple[Mapping[str, int] | None, Schedule | None]:
-        """The word at *pc* and its schedule, from the cache or built now."""
+        """The word at *pc* and its schedule, from the cache or built now.
+
+        Raises:
+            EmulatorFault: F-2, *pc* is outside the loaded program; F-1, the
+                word holds an undefined opcode or a reserved operand code.
+        """
+        if not 0 <= pc < self.state.program_length:
+            raise EmulatorFault(
+                FaultId.F2,
+                pc,
+                f"fetch outside the program (length {self.state.program_length})",
+            )
         entry = self._schedules.get(pc)
         if entry is not None:
             return entry
@@ -556,10 +689,7 @@ class Cycle:
             inst,
             None if inst is None else schedule_word(inst, skip_idle_nops=self._skip_idle_nops),
         )
-        # The IMEM write observer reports non-negative PCs, so only those are
-        # cached (a negative PC is an error elsewhere, never a hot path).
-        if pc >= 0:
-            self._schedules[pc] = entry
+        self._schedules[pc] = entry
         return entry
 
     def _take_snapshot(self) -> None:
@@ -613,10 +743,12 @@ class Cycle:
             else:
                 dispatch(op, inst)
         if schedule.lr_conflict is not None:
-            raise lr_conflict_error(schedule.lr_conflict)
+            raise lr_conflict_error(schedule.lr_conflict, self.state.program_counter)
         # Every LR sub-slot resolves its reads before any of them writes, in
         # both modes, so a read that raises leaves no LR written.
         issuer.dispatch_all(schedule.lr_ops, inst)
+        if schedule.checks:
+            self._check(schedule.checks)
         for op in slot_ops[lr_position:]:
             if op.operands is None:
                 setattr(stats, op.plan.stat, getattr(stats, op.plan.stat) + 1)

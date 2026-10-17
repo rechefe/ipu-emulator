@@ -4,9 +4,9 @@
 value an LR sub-slot wrote earlier in the same word (GLOSSARY.md). Each test
 runs one minimal probe from ``timing_probes.py`` in faithful mode and asserts
 the one value that tells the two apart. These pin today's behaviour: E04
-refactors must keep every test green, and the two rows decision Q32 changes
-(``test_agg_dest_slot_reads_cycle_start``,
-``test_reshape_source_dest_read_cycle_start``) are flipped by E04-25 alone.
+refactors must keep every test green. E04-25 flipped the two rows decision Q32
+changed (``test_agg_dest_slot_reads_forwarded``,
+``test_reshape_source_dest_read_forwarded``).
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from timing_probes import PROBES, RAISES, ROW, lane, prepare, r_cyclic_element, 
 
 from ipu_emu.errors import DebugOnlyInstructionWarning
 from ipu_emu.execute import Ipu
+from ipu_isa.faults import FaultId
 
 
 def _lr(probe: str, index: int) -> int:
@@ -135,36 +136,38 @@ def test_reshape_mask_lr_reads_forwarded():
 @pytest.mark.parametrize(
     ("op", "value"), [("sum", 128), ("sum_first", 128), ("max", 1), ("max_first", 1)]
 )
-def test_agg_dest_slot_reads_cycle_start(op, value):
-    """AGG.SUM/AGG.MAX(.FIRST) read dest_slot at cycle start: the result goes
-    to lane 0, not lane 5. Q32 makes this forwarded (flipped by E04-25)."""
+def test_agg_dest_slot_reads_forwarded(op, value):
+    """AGG.SUM/AGG.MAX(.FIRST) read dest_slot forwarded (Q32 rule 1, E04-25):
+    the result goes to lane 5, the value the same word's SET wrote, not lane 0."""
     state = run(PROBES[f"agg_dest_slot_{op}"]).state
-    assert (lane(state, "r_acc", 0), lane(state, "r_acc", 5)) == (value, 0)
+    assert (lane(state, "r_acc", 0), lane(state, "r_acc", 5)) == (0, value)
 
 
-@pytest.mark.parametrize("probe", ["reshape_source", "reshape_dest"])
-def test_reshape_source_dest_read_cycle_start(probe):
-    """ACC.RESHAPE reads its source and dest LRD pairs at cycle start: element 7
-    copies MULT_RES[0] (1) to R_ACC[0]. Q32 makes this forwarded (flipped by
-    E04-25)."""
-    assert lane(run(PROBES[probe]).state, "r_acc", 0) == 1
+@pytest.mark.parametrize(
+    ("probe", "dest", "value"), [("reshape_source", 0, 6), ("reshape_dest", 5, 1)]
+)
+def test_reshape_source_dest_read_forwarded(probe, dest, value):
+    """ACC.RESHAPE reads its source and dest LRD pairs forwarded (Q32 rule 1,
+    E04-25): element 7 sees the same word's SET (byte 5), so it copies
+    MULT_RES[5] (6) to R_ACC[0] (source probe) or MULT_RES[0] (1) to R_ACC[5]
+    (dest probe)."""
+    assert lane(run(PROBES[probe]).state, "r_acc", dest) == value
 
 
 @pytest.mark.parametrize("probe", ["lr_conflict_same_lr", "lr_conflict_lrd_overlap"])
 def test_lr_write_conflict_raises(probe):
     """Two LR sub-slots writing one LR (directly, or through an ADDB LRD pair)
-    raise before any LR is written. Becomes fault F-3 in E04-19."""
-    with pytest.raises(RAISES[probe], match="LR conflict"):
+    fault F-3 before any LR is written."""
+    with pytest.raises(RAISES[probe], match="LR conflict") as caught:
         run(PROBES[probe])
+    assert caught.value.fault is FaultId.F3
 
 
 def test_lr_subslot_exception_leaves_no_partial_write():
-    """Faithful mode reads every LR sub-slot's operands before writing any, so
-    when sub-slot 1's read raises, sub-slot 0's write to LR1 has not happened.
-
-    Prototyping mode diverges here today (it runs sub-slots one at a time);
-    E02-08 records that in test_prototyping_equivalence as a strict xfail
-    until E04-07.
+    """A word whose LR sub-slot 1 source is a reserved encoding faults F-1 at
+    fetch, before any slot runs, so sub-slot 0's write to LR1 never happens.
+    (Before E04-19 this word raised in the operand read; no encodable word
+    can make an LR read raise now.)
     """
     state = prepare(PROBES["lr_subslot_exception"])
     with pytest.raises(RAISES["lr_subslot_exception"]):

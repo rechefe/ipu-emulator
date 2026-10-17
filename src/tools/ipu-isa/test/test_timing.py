@@ -157,12 +157,8 @@ def test_every_non_nop_instruction_but_a_branch_writes_something():
 
 def test_known_deviations_are_the_issue_table():
     rows = {(d.mnemonic, d.register, d.via_operand, d.today, d.fixed_by) for d in KNOWN_DEVIATIONS}
-    agg = ("AGG.SUM.FIRST", "AGG.SUM", "AGG.MAX.FIRST", "AGG.MAX")
     mult = ("MULT.RC.VV", "MULT.RC.VE", "MULT.RC.VS", "MULT.VE", "MULT.EE")
     assert rows == {
-        *((m, "lr", "dest_slot", CS, "E04-25") for m in agg),
-        ("ACC.RESHAPE", "lr", "source", CS, "E04-25"),
-        ("ACC.RESHAPE", "lr", "dest", CS, "E04-25"),
         ("ACC.RESHAPE", "mult_res", None, CS, "E04-26"),
         *((m, "r_mask", None, FW, "E04-27") for m in mult),
     }
@@ -204,12 +200,14 @@ def test_a_new_undeclared_deviation_is_rejected():
 
 
 def test_a_stale_deviation_row_is_rejected():
-    """Fixing a deviation (E04-25 flips the read) fails until its row is deleted."""
+    """Fixing a deviation (E04-26 flips the read) fails until its row is deleted."""
     spec = _spec()
-    _operand(spec, "acc", "AGG.SUM", "dest_slot")["read"] = "forwarded"
-    _rejects(spec, r"KNOWN_DEVIATIONS: row\(s\) no longer differ .*AGG\.SUM lr via 'dest_slot'")
+    _implicit_read(spec, "acc", "ACC.RESHAPE", "mult_res")["view"] = "forwarded"
+    _rejects(spec, r"KNOWN_DEVIATIONS: row\(s\) no longer differ .*ACC\.RESHAPE mult_res via None")
     remaining = [
-        d for d in KNOWN_DEVIATIONS if not (d.mnemonic == "AGG.SUM" and d.register == "lr")
+        d
+        for d in KNOWN_DEVIATIONS
+        if not (d.mnemonic == "ACC.RESHAPE" and d.register == "mult_res")
     ]
     validate_timing(spec, SLOTS, remaining)
 

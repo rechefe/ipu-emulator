@@ -13,5 +13,8 @@ dependencies = []
 [tool.setuptools]
 package-dir = {"" = "src"}
 
+[tool.setuptools.package-data]
+ipu_isa = ["schemas/*.json"]
+
 [tool.uv]
 package = true

@@ -24,6 +24,7 @@ from typing import Final, Protocol
 import numpy as np
 import numpy.typing as npt
 
+from ipu_isa.faults import ArithmeticEvent
 from ipu_isa.formats import FORMATS, ElementFormat, FormatInfo, element_values, encode_element
 from ipu_isa.geometry import LANES
 
@@ -107,6 +108,21 @@ class LaneCodec(Protocol):
         """Write ``lanes`` to the start of ``out`` as accumulator elements, rounding once."""
         ...
 
+    def acc_add(self, a: Lanes, b: Lanes) -> Lanes:
+        """:meth:`add` as ACC and AGG compute it, for :meth:`store_acc_events`:
+        an integer sum is not yet wrapped, so the store can see it overflow."""
+        ...
+
+    def acc_sub(self, a: Lanes, b: Lanes) -> Lanes:
+        """:meth:`sub`, likewise."""
+        ...
+
+    def store_acc_events(self, out: Buffer, lanes: Lanes) -> frozenset[ArithmeticEvent]:
+        """:meth:`store_acc` for ACC and AGG (E04-23): store the IEEE result
+        (a float overflow is an infinity, a NaN stays; an integer wraps) and
+        return the arithmetic events it saw, without raising (Q53)."""
+        ...
+
     def acc_min(self) -> np.generic:
         """The least accumulator value, the identity of :meth:`max` (INT32_MIN or -inf)."""
         ...
@@ -114,6 +130,10 @@ class LaneCodec(Protocol):
     def one(self) -> bytes:
         """One element of value 1."""
         ...
+
+
+_NO_EVENTS: frozenset[ArithmeticEvent] = frozenset()
+_OVERFLOW = frozenset({ArithmeticEvent.ACC_OVERFLOW})
 
 
 class _Codec:
@@ -167,6 +187,22 @@ class IntCodec(_Codec):
         """See :meth:`LaneCodec.store_acc`: wraps to int32, so it never fails."""
         raw = (np.asarray(lanes, dtype=np.int64) & _INT32_MASK).astype("<u4").tobytes()
         out[: len(raw)] = raw
+
+    def acc_add(self, a: Lanes, b: Lanes) -> npt.NDArray[np.int64]:
+        """See :meth:`LaneCodec.acc_add`: exact in int64."""
+        return np.asarray(a, dtype=np.int64) + b
+
+    def acc_sub(self, a: Lanes, b: Lanes) -> npt.NDArray[np.int64]:
+        """See :meth:`LaneCodec.acc_sub`: exact in int64."""
+        return np.asarray(a, dtype=np.int64) - b
+
+    def store_acc_events(self, out: Buffer, lanes: Lanes) -> frozenset[ArithmeticEvent]:
+        """See :meth:`LaneCodec.store_acc_events`: ACC_OVERFLOW when a lane wraps."""
+        values = np.asarray(lanes, dtype=np.int64)
+        out[: values.size * 4] = (values & _INT32_MASK).astype("<u4").tobytes()
+        if values.size and (values.min() < -_INT32_SIGN or values.max() >= _INT32_SIGN):
+            return _OVERFLOW
+        return _NO_EVENTS
 
     def acc_min(self) -> np.int64:
         """See :meth:`LaneCodec.acc_min`."""
@@ -235,6 +271,31 @@ class _FloatCodec(_Codec):
             return
         raw = narrowed.tobytes()
         out[: len(raw)] = raw
+
+    def acc_add(self, a: Lanes, b: Lanes) -> npt.NDArray[np.float64]:
+        """See :meth:`LaneCodec.acc_add`: :meth:`add` (rounded once, at the store)."""
+        return self.add(a, b)
+
+    def acc_sub(self, a: Lanes, b: Lanes) -> npt.NDArray[np.float64]:
+        """See :meth:`LaneCodec.acc_sub`: :meth:`sub`."""
+        return self.sub(a, b)
+
+    def store_acc_events(self, out: Buffer, lanes: Lanes) -> frozenset[ArithmeticEvent]:
+        """See :meth:`LaneCodec.store_acc_events`: ACC_OVERFLOW when a finite
+        lane rounds to an infinity, NAN_RESULT when a lane is NaN."""
+        values = np.asarray(lanes, dtype=np.float64)
+        with np.errstate(all="ignore"):
+            narrowed = values.astype("<f4")
+        raw = narrowed.tobytes()
+        out[: len(raw)] = raw
+        if np.isfinite(narrowed).all():
+            return _NO_EVENTS
+        events: set[ArithmeticEvent] = set()
+        if np.any(np.isinf(narrowed) & np.isfinite(values)):
+            events.add(ArithmeticEvent.ACC_OVERFLOW)
+        if np.isnan(narrowed).any():
+            events.add(ArithmeticEvent.NAN_RESULT)
+        return frozenset(events)
 
     def acc_min(self) -> np.float64:
         """See :meth:`LaneCodec.acc_min`."""

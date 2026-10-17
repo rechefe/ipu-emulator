@@ -121,10 +121,10 @@ EXERCISES: dict[str, tuple[Declaration, ...]] = {
     "test_reshape_mask_lr_reads_forwarded": (
         Reads(Slot.ACC, "ACC.RESHAPE", "lr", "reshape_mask", FW),
     ),
-    "test_agg_dest_slot_reads_cycle_start": _reads(Slot.ACC, _AGG, "lr", "dest_slot", CS),
-    "test_reshape_source_dest_read_cycle_start": (
-        Reads(Slot.ACC, "ACC.RESHAPE", "lr", "source", CS),
-        Reads(Slot.ACC, "ACC.RESHAPE", "lr", "dest", CS),
+    "test_agg_dest_slot_reads_forwarded": _reads(Slot.ACC, _AGG, "lr", "dest_slot", FW),
+    "test_reshape_source_dest_read_forwarded": (
+        Reads(Slot.ACC, "ACC.RESHAPE", "lr", "source", FW),
+        Reads(Slot.ACC, "ACC.RESHAPE", "lr", "dest", FW),
     ),
     "test_lr_write_conflict_raises": (
         Writes(Slot.LR, "SET", "lr", "reg"),

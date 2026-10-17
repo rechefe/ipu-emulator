@@ -15,7 +15,7 @@
   "docs/content/isa-alias-catalogue.md": {
     "bundle": 6,
     "simulation-only": 2,
-    "snapshot": 2
+    "snapshot": 1
   },
   "docs/content/prototyping-mode.md": {
     "program counter": 1,
@@ -63,7 +63,7 @@
     "dtype": 2,
     "live value": 1,
     "pre-instruction value": 1,
-    "snapshot": 8
+    "snapshot": 2
   },
   "docs/content/specs/stage-control.md": {
     "VLIW word": 16,

@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ipu_emu.errors import EmulatorError
 from ipu_emu.geometry import lrd_bytes
-from ipu_isa.incr_mod_pow2_k import LR_MOD_POW2_K_ENCODED_MAX, LR_MOD_POW2_K_MIN
+from ipu_isa.incr_mod_pow2_k import LR_MOD_POW2_K_MIN
 from ipu_isa.registers import lrd_pair
 
 if TYPE_CHECKING:
@@ -73,8 +72,6 @@ def execute_lr_inc_modp2(ipu: Ipu, *, dest: int, step: int, k: int) -> None:
     resolved from LcrIdx (snapshot), interpreted as uint32 like ``add``/``sub``.
     ``k`` is the raw encoded field (k_semantic − 1); semantic exponent is k + 1.
     """
-    if k > LR_MOD_POW2_K_ENCODED_MAX:
-        raise EmulatorError(f"INC.MODP2: invalid k encoding {k} (max {LR_MOD_POW2_K_ENCODED_MAX})")
     k_exp = k + LR_MOD_POW2_K_MIN
     cur = ipu._view.lr(dest, "dest")
     step_u = step & 0xFFFFFFFF

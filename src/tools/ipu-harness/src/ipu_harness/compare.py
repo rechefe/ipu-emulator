@@ -39,7 +39,7 @@ class Comparison:
         max_rel: The largest difference relative to the expected value, over
             the elements whose expected value is not zero.
         max_ulps: The largest distance in codes (8-bit float formats), else
-            None; -1 when a value the kernel wrote is not a finite code.
+            None; -1 when either value of an element is not a finite code.
         worst_index: Where the element that is furthest out of tolerance is
             (the largest difference when all pass).
         got: The kernel's value there.
@@ -180,7 +180,8 @@ def compare(output: str, got: Array, want: Array, tier: Tier, fmt: ElementFormat
     Raises:
         ValueError: ``got`` and ``want`` differ in shape.
     """
-    got64, want64 = np.asarray(got, dtype=np.float64), np.asarray(want, dtype=np.float64)
+    got64 = np.atleast_1d(np.asarray(got, dtype=np.float64))
+    want64 = np.atleast_1d(np.asarray(want, dtype=np.float64))
     if got64.shape != want64.shape:
         raise ValueError(f"{output}: got shape {got64.shape}, want {want64.shape}")
     fp8 = FORMATS[fmt].is_float and FORMATS[fmt].element_bits == 8
@@ -191,12 +192,12 @@ def compare(output: str, got: Array, want: Array, tier: Tier, fmt: ElementFormat
         diff = np.abs(got64 - want64)
         diff[~np.isfinite(diff)] = np.inf  # a NaN is as far off as an infinity
         rel = np.divide(diff, np.abs(want64), out=np.zeros_like(diff), where=want64 != 0)
-    ulps: Array | None = None
-    if counts_codes:
-        ulps = _ulps(got64, want64, fmt)
-        excess = ulps - tier.ulps
-    else:
-        excess = diff - (tier.atol + tier.rtol * np.abs(want64))
+        ulps: Array | None = None
+        if counts_codes:
+            ulps = _ulps(got64, want64, fmt)
+            excess = ulps - tier.ulps
+        else:
+            excess = diff - (tier.atol + tier.rtol * np.abs(want64))
     passed = bool(np.all(excess <= 0))
     worst = np.unravel_index(int(np.argmax(excess if not passed else diff)), diff.shape)
     index = tuple(int(i) for i in worst)

@@ -228,7 +228,6 @@ def _deviation(
     return Deviation(slot, mnemonic, register, via_operand, today, contract, fixed_by)
 
 
-_AGG = ("AGG.SUM.FIRST", "AGG.SUM", "AGG.MAX.FIRST", "AGG.MAX")
 _MULT = ("MULT.RC.VV", "MULT.RC.VE", "MULT.RC.VS", "MULT.VE", "MULT.EE")
 
 #: Every read whose declared view (today's emulator) differs from
@@ -236,14 +235,6 @@ _MULT = ("MULT.RC.VV", "MULT.RC.VE", "MULT.RC.VS", "MULT.VE", "MULT.EE")
 #: shrink: :func:`validate_timing` rejects a difference missing from it and a
 #: row whose difference has gone.
 KNOWN_DEVIATIONS: tuple[Deviation, ...] = (
-    # Rule 1: AGG reads dest_slot at cycle start.
-    *(
-        _deviation(Slot.ACC, mnemonic, "lr", "dest_slot", View.CYCLE_START, "E04-25")
-        for mnemonic in _AGG
-    ),
-    # Rule 1: ACC.RESHAPE reads its LRD pairs at cycle start.
-    _deviation(Slot.ACC, "ACC.RESHAPE", "lr", "source", View.CYCLE_START, "E04-25"),
-    _deviation(Slot.ACC, "ACC.RESHAPE", "lr", "dest", View.CYCLE_START, "E04-25"),
     # Rule 3: ACC.RESHAPE reads MULT_RES at cycle start.
     _deviation(Slot.ACC, "ACC.RESHAPE", "mult_res", None, View.CYCLE_START, "E04-26"),
     # Rule 2: MULT reads R_MASK forwarded.

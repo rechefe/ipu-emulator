@@ -18,6 +18,7 @@ from ipu_emu.errors import (
     RegisterKindError,
     RegisterSizeError,
     UndeclaredRead,
+    XMemBoundsError,
 )
 from ipu_emu.ipu import Ipu
 from ipu_emu.ipu_state import IpuState
@@ -35,6 +36,7 @@ __all__ = [
     "RegisterSizeError",
     "RunStats",
     "UndeclaredRead",
+    "XMemBoundsError",
     "load_program",
     "run_until_complete",
 ]

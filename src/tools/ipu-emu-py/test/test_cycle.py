@@ -15,10 +15,12 @@ from emu_support import assemble_program, make_state, new_state
 
 from ipu_emu.cycle import Cycle, CycleOutcome, decode_word, schedule_word
 from ipu_emu.emulator import load_program
+from ipu_emu.errors import EmulatorFault
 from ipu_emu.execute import BreakResult, Ipu
 from ipu_emu.geometry import effective_mult_mask, partition_vector
-from ipu_emu.ipu_state import IpuState
+from ipu_emu.ipu_state import HaltRecord, IpuState
 from ipu_emu.regfile import RegFile
+from ipu_isa.faults import FaultId
 
 # Every slot kind, a BREAK in the middle and a branch back: loads, multiplies,
 # accumulates, aggregation, a store, LR arithmetic and the cond slot.
@@ -389,8 +391,9 @@ def test_issue_facts_carry_lr_writes_and_the_mult_mask():
 
 def test_an_lr_conflict_raises_before_any_lr_write():
     state = make_state("SET LR0 CR8 ; SET LR0 CR9 ; INC LR3 1 ;;\nHALT ;;", cr={8: 5, 9: 6})
-    with pytest.raises(RuntimeError, match=r"LR conflict.*targets: \[0, 0, 3\]"):
+    with pytest.raises(EmulatorFault, match=r"F-3 at PC 0: LR conflict.*targets: \[0, 0, 3\]"):
         _cycle(state).step()
+    assert state.halt == HaltRecord("fault", 0, FaultId.F3)
     assert state.regfile.get_lr(0) == 0
     assert state.regfile.get_lr(3) == 0
 
@@ -408,7 +411,7 @@ def test_schedule_of_a_word():
         "INC",
     ]
     assert [op.slot for op in schedule.slot_ops] == [
-        op.slot for op in decode_word(word) if op.slot not in ("break", "lr")
+        op.slot for op in decode_word(word, pc=0) if op.slot not in ("break", "lr")
     ]
     assert "acc" in {op.slot for op in schedule.slot_ops if op.plan.inst_name != "NOP"}
 
@@ -480,14 +483,13 @@ def test_both_modes_agree_cycle_by_cycle():
 
 
 def test_lr_subslot_exception_atomicity():
-    """A read that raises in LR sub-slot 2 leaves sub-slot 1's target unwritten,
-    in both modes, compared in lockstep."""
-    from ipu_emu.errors import RegisterIndexError
-
+    """A word whose LR sub-slot 2 names a CR past the operand's width faults
+    F-1 (reserved encoding) before any slot runs: sub-slot 1's target stays
+    unwritten, in both modes, compared in lockstep."""
     program = assemble_program("SET LR1 CR2 ; SET LR2 CR3 ; SET LR4 CR5 ;;\nHALT ;;")
     word = program[0]
     # SET's source shares the ADDBI immediate's union column: point sub-slot
-    # 2's source at a CR that does not exist, so its resolver raises.
+    # 2's source at a CR that does not exist (a value the CrIdx width cannot hold).
     source = next(
         name for name in word if name.startswith("lr_inst_1_") and name.endswith("_addbi_immediate")
     )
@@ -497,8 +499,9 @@ def test_lr_subslot_exception_atomicity():
 
     failures = []
     for state, cycle in runs:
-        with pytest.raises(RegisterIndexError) as caught:
+        with pytest.raises(EmulatorFault, match="SET src = 999 is a reserved encoding") as caught:
             cycle.step()
+        assert (caught.value.fault, caught.value.pc) == (FaultId.F1, 0)
         failures.append((type(caught.value), caught.value.args))
         assert state.regfile.get_lr(1) == 0  # sub-slot 1's target
         assert state.regfile.get_lr(4) == 0

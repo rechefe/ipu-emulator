@@ -31,12 +31,13 @@ from ipu_emu.emulator import (
     run_until_complete,
     run_with_debug,
 )
-from ipu_emu.errors import DebugOnlyInstructionWarning
+from ipu_emu.errors import DebugOnlyInstructionWarning, EmulatorFault
 from ipu_emu.execute import BreakResult, decode_instruction_word
 from ipu_emu.ipu import NARROW_MAX_ROW, EmulatorError
-from ipu_emu.ipu_state import IpuState
+from ipu_emu.ipu_state import HaltRecord, IpuState
 from ipu_emu.xmem import XMEM_SIZE_BYTES
 from ipu_isa.constants import PadMode, encode_dstructure
+from ipu_isa.faults import FaultId
 from ipu_isa.formats import encode_element
 
 # ============================================================================
@@ -401,8 +402,9 @@ HALT;;
 
     def test_addb_lrd_conflict_with_overlapping_lr_write(self):
         """ADDBI on LRD0 (LR0/LR1) conflicts with a same-cycle plain write to LR1."""
-        with pytest.raises(RuntimeError, match="LR conflict"):
+        with pytest.raises(EmulatorFault, match="LR conflict") as caught:
             run("ADDBI lrd0 5; INC lr1 3;;\nHALT;;\n")
+        assert (caught.value.fault, caught.value.pc) == (FaultId.F3, 0)
 
     def test_decode_addb_operand_fields(self):
         """``ADDB``'s dest/src_b share the same union fields as INC/SET.
@@ -554,8 +556,6 @@ HALT;;
 
     def test_cyclic_register_load_invalid_index_raises(self):
         """index must be one of the four R_CYCLIC slot boundaries — no implicit wrap."""
-        from ipu_emu.ipu import EmulatorError
-
         state = make_state(
             """\
 SET lr0 cr8;;
@@ -565,8 +565,10 @@ HALT;;
 """,
             cr={8: 160, 9: 64},
         )
-        with pytest.raises(EmulatorError, match="index must be one of"):
+        with pytest.raises(EmulatorFault, match="index must be one of") as caught:
             run_until_complete(state)
+        assert state.halt == HaltRecord("fault", caught.value.pc, caught.value.fault)
+        assert caught.value.fault is FaultId.F4
 
     def test_mask_register_load(self):
         mask_data = bytes([(i + 1) & 0xFF for i in range(128)])
@@ -1789,8 +1791,10 @@ HALT;;
             state.regfile.set_mult_res_word(i, 1000 + i)
         for i in range(100, 108):
             state.regfile.set_r_acc_word(i, 9999)
-        with pytest.raises(EmulatorError, match="RESHAPE element"):
+        with pytest.raises(EmulatorFault, match="RESHAPE element") as caught:
             run_until_complete(state)
+        assert state.halt == HaltRecord("fault", caught.value.pc, caught.value.fault)
+        assert caught.value.fault is FaultId.F5
 
     def test_reshape_raises_on_out_of_range_dest(self):
         """A participating dest[i] >= 128 raises rather than silently skipping."""
@@ -1811,8 +1815,10 @@ HALT;;
             state.regfile.set_mult_res_word(i, 1000 + i)
         for i in range(100, 108):
             state.regfile.set_r_acc_word(i, 9999)
-        with pytest.raises(EmulatorError, match="RESHAPE element"):
+        with pytest.raises(EmulatorFault, match="RESHAPE element") as caught:
             run_until_complete(state)
+        assert state.halt == HaltRecord("fault", caught.value.pc, caught.value.fault)
+        assert caught.value.fault is FaultId.F5
 
     def test_reshape_non_participating_out_of_range_does_not_raise(self):
         """An out-of-range source/dest outside the participation range (masked out) is fine."""
@@ -1938,8 +1944,10 @@ HALT;;
             state.regfile.set_mult_res_word(i, 4000 + i)
         for i in range(100, 108):
             state.regfile.set_r_acc_word(i, 9999)
-        with pytest.raises(EmulatorError, match="reshape_mask"):
+        with pytest.raises(EmulatorFault, match="reshape_mask") as caught:
             run_until_complete(state)
+        assert state.halt == HaltRecord("fault", caught.value.pc, caught.value.fault)
+        assert caught.value.fault is FaultId.F5
 
     def test_reshape_mult_res_reads_from_snapshot(self):
         """MULT_RES is read from the pre-instruction snapshot (not live state)."""
@@ -2159,7 +2167,7 @@ class TestDebuggerStops:
             return DebugAction.QUIT if termination == "quit" else DebugAction.CONTINUE
 
         if termination in ("limit", "error"):
-            with pytest.raises(RuntimeError if termination == "limit" else ValueError):
+            with pytest.raises(EmulatorFault if termination == "limit" else ValueError):
                 run_with_debug(state, callback, max_cycles=1, control=control)
         else:
             run_with_debug(state, callback, control=control)
@@ -3120,8 +3128,10 @@ HALT;;
 """,
             cr={8: NARROW_MAX_ROW},
         )
-        with pytest.raises(EmulatorError, match="out of range for narrow mode"):
+        with pytest.raises(EmulatorFault, match="out of range for narrow mode") as caught:
             run_until_complete(state)
+        assert state.halt == HaltRecord("fault", caught.value.pc, caught.value.fault)
+        assert caught.value.fault is FaultId.F6
 
     def test_narrow_limit_is_fixed_not_derived_from_the_allocation(self):
         """Enlarging XMEM for wide-mode kernels must not widen narrow mode's reach:
@@ -3150,8 +3160,10 @@ HALT;;
 """,
             cr={8: 0xFFFFFFFF},
         )
-        with pytest.raises(EmulatorError, match="out of range for narrow mode"):
+        with pytest.raises(EmulatorFault, match="out of range for narrow mode") as caught:
             run_until_complete(state)
+        assert state.halt == HaltRecord("fault", caught.value.pc, caught.value.fault)
+        assert caught.value.fault is FaultId.F6
 
     def test_debug_mode_reaches_bytes_past_narrow_2mb_bound(self):
         """Debug mode's row size is 4x narrow's, so the same row count reaches 4x the
@@ -3202,8 +3214,10 @@ HALT;;
         encoded = assemble(asm)
         decoded = decode_program(encoded)
         load_program(state, decoded)
-        with pytest.raises(EmulatorError, match="exceeds"):
+        with pytest.raises(EmulatorFault, match="exceeds") as caught:
             run_until_complete(state)
+        assert state.halt == HaltRecord("fault", caught.value.pc, caught.value.fault)
+        assert caught.value.fault is FaultId.F6
 
     def test_ldr_mult_mask_reg_reads_row_start_128_bytes_both_modes(self):
         """LD.MASK translates the row address but always reads 128 B."""
@@ -3240,15 +3254,13 @@ HALT;;
 
 
 class TestNarrowStoreOverflow:
-    """A narrow FP8 accumulate whose float32 store overflows fails lane by lane.
+    """A narrow FP8 accumulate whose float32 store overflows stores +inf and
+    sets the sticky ACC_OVERFLOW flag (E04-23, Q53): an arithmetic event,
+    never an exception."""
 
-    Same contract as the wide-vector case: lanes before the offender written,
-    the offender zeroed (``struct.pack_into`` clears the field before packing),
-    lanes after it untouched, and struct's own OverflowError propagates.
-    """
-
-    def test_acc_add_overflow_leaves_the_lane_by_lane_state(self) -> None:
+    def test_acc_add_overflow_stores_inf_and_sets_the_flag(self) -> None:
         from ipu_emu.ipu import LANES, Ipu
+        from ipu_isa.faults import ArithmeticEvent
 
         state = make_state("ACC.ADD ;;", fmt=ElementFormat.E4)
         k = 7
@@ -3258,11 +3270,11 @@ class TestNarrowStoreOverflow:
         state.regfile.mutable("r_acc")[:] = struct.pack(f"<{LANES}f", *acc)
         state.regfile.mutable("mult_res")[:] = struct.pack(f"<{LANES}f", *mult)
 
-        with pytest.raises(OverflowError, match="float too large to pack with f format"):
-            Ipu(state).execute_vliw_cycle()
+        Ipu(state).execute_vliw_cycle()
 
-        expected = [3.0] * k + [0.0] + [1.0] * (LANES - k - 1)
+        expected = [3.0] * k + [float("inf")] + [3.0] * (LANES - k - 1)
         assert state.regfile.view("r_acc")[:] == struct.pack(f"<{LANES}f", *expected)
+        assert state.arith_flags == {ArithmeticEvent.ACC_OVERFLOW}
 
 
 class TestFirstStoreBitExactness:

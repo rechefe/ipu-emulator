@@ -285,8 +285,9 @@ loop:
     BLT.S LR1 LR5 loop_pre ;;
 ```
 
-A kernel whose `AGG` `dest_slot` reads the snapshot escapes it — no pre-increment
-bundle is needed.
+A kernel whose loop counter is an `AGG` `dest_slot` escapes it: `dest_slot` reads
+the post-LR-write value, so the counter starts one lower and its `INC` co-issues
+with the `AGG` — no pre-increment bundle is needed (the `attn_v_*` kernels).
 
 ### A13 — narrow / `valid_elements`-costed MULT
 

@@ -21,6 +21,7 @@ import pytest
 import ipu_emu.numerics
 from ipu_emu.ipu_math import ipu_add, ipu_mult, ipu_sub
 from ipu_emu.numerics import codec_for
+from ipu_isa.faults import ArithmeticEvent
 from ipu_isa.formats import FORMATS, ElementFormat, decode_element
 from ipu_isa.geometry import LANES
 
@@ -269,6 +270,50 @@ def test_random_float_pairs_overflow_some_rows(float_pairs):
 @pytest.mark.parametrize("fmt", INT_ACC, ids=str)
 def test_int_accumulator_ops_match_scalar(fmt, int_pairs):
     _check_accumulator_ops(fmt, int_pairs)
+
+
+def _acc_rows(codec, op: str, a: np.ndarray, b: np.ndarray):
+    """The ACC path of *op* (E04-23): acc_add/acc_sub, then store_acc_events, row by row."""
+    lanes = codec.acc_sub(np.zeros_like(b), b) if op == "neg" else getattr(codec, "acc_" + op)(a, b)
+    for row in range(_ROWS):
+        out = bytearray(4 * LANES)
+        events = codec.store_acc_events(out, lanes[row * LANES : (row + 1) * LANES])
+        yield row, bytes(out), events
+
+
+@pytest.mark.parametrize("fmt", FLOAT_ACC, ids=str)
+def test_the_acc_store_with_events_matches_scalar_where_it_fits(fmt, float_pairs):
+    # Where struct's lane-by-lane store succeeds, the ACC path stores the same
+    # bits (NaN payloads and quieting included) and reports no overflow; where
+    # it raised, the ACC path reports ACC_OVERFLOW instead (its lanes hold inf).
+    a_raw, b_raw, expected = float_pairs
+    codec = codec_for(fmt)
+    a, b = codec.load_acc(a_raw, _PAIRS), codec.load_acc(b_raw, _PAIRS)
+    for op in ("add", "sub", "neg"):
+        want_bytes, want_failures = expected[op]
+        for row, got, events in _acc_rows(codec, op, a, b):
+            if row in want_failures:
+                assert ArithmeticEvent.ACC_OVERFLOW in events, (op, row)
+                continue
+            assert got == want_bytes[row * 4 * LANES : (row + 1) * 4 * LANES], (op, row)
+            assert ArithmeticEvent.ACC_OVERFLOW not in events, (op, row)
+            nan = bool(np.isnan(np.frombuffer(got, dtype="<f4")).any())
+            assert (ArithmeticEvent.NAN_RESULT in events) == nan, (op, row)
+
+
+@pytest.mark.parametrize("fmt", INT_ACC, ids=str)
+def test_the_int_acc_store_wraps_and_reports_exactly_the_wraps(fmt, int_pairs):
+    a_raw, b_raw, expected = int_pairs
+    codec = codec_for(fmt)
+    a, b = codec.load_acc(a_raw, _PAIRS), codec.load_acc(b_raw, _PAIRS)
+    exact = {"add": a + b, "sub": a - b, "neg": -b}
+    for op in ("add", "sub", "neg"):
+        want_bytes, _ = expected[op]
+        for row, got, events in _acc_rows(codec, op, a, b):
+            assert got == want_bytes[row * 4 * LANES : (row + 1) * 4 * LANES], (op, row)
+            lanes = exact[op][row * LANES : (row + 1) * LANES]
+            wrapped = bool(((lanes < -(2**31)) | (lanes >= 2**31)).any())
+            assert (ArithmeticEvent.ACC_OVERFLOW in events) == wrapped, (op, row)
 
 
 @pytest.mark.parametrize("fmt", INT_ACC, ids=str)

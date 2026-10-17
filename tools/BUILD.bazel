@@ -42,6 +42,8 @@ py_pytest_test(
         "//src/tools/ipu-debug:runtime_deps",
         "//src/tools/ipu-gen:pyproject.toml",
         "//src/tools/ipu-gen:runtime_deps",
+        "//src/tools/ipu-kernels:pyproject.toml",
+        "//src/tools/ipu-kernels:runtime_deps",
         "//src/tools/ipu-isa:pyproject.toml",
         "//src/tools/ipu-isa:runtime_deps",
         "//src/tools/ipu-emu-py:pyproject.toml",
@@ -182,6 +184,37 @@ py_pytest_test(
         "test_rename_mnemonics.py",
     ],
     deps = [requirement("pytest")],
+)
+
+# Same-word register reads whose view (cycle start or forwarded) changes the
+# result, over the whole program corpus (E04-25). Rerun it for every timing
+# flip and put its output in the PR:
+#
+#   bazel run //tools:audit_cross_slot_hazards -- [--all]
+py_binary(
+    name = "audit_cross_slot_hazards",
+    srcs = ["audit_cross_slot_hazards.py"],
+    deps = [
+        "//src/tools/ipu-apps:asm_corpus",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+    ],
+)
+
+# No program of the corpus relies on a read that KNOWN_DEVIATIONS lists.
+py_pytest_test(
+    name = "test_audit_cross_slot_hazards",
+    size = "medium",
+    srcs = [
+        "audit_cross_slot_hazards.py",
+        "test_audit_cross_slot_hazards.py",
+    ],
+    data = ["//src/tools/ipu-apps:asm_corpus_files"],
+    deps = [
+        "//src/tools/ipu-apps:asm_corpus",
+        "//src/tools/ipu-as-py:ipu_as_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+        requirement("pytest"),
+    ],
 )
 
 # The locked ruff (requirements_lock.txt), run in the workspace root:
