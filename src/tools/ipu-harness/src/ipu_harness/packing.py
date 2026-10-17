@@ -11,10 +11,11 @@ FP8, INT32 for INT8), whose vectors span several narrow rows (E06-04).
 A transform reshapes **one** tensor and sees nothing else: no other tensor, no
 XMEM, no CR. That is Q83's rule made structural. :data:`DEFAULT` (row-major:
 the last dimension across the lanes) serves most tensors; ``pack = "<name>"``
-names another, found first in the kernel folder's ``pack.py`` (loaded from
-its file), then in ``ipu_kernels.<family>.pack``, then in ``ipu_kernels.pack``
-(imported by name, as plugins: Q62; the harness has no import of
-``ipu_kernels``).
+names another, found first in the kernel folder's ``pack.py``, then in the
+family folder's ``pack.py`` (``kernels/<family>/pack.py``, shared by the
+family's kernels; both loaded from their files), then in
+``ipu_kernels.<family>.pack``, then in ``ipu_kernels.pack`` (imported by name,
+as plugins: Q62; the harness has no import of ``ipu_kernels``).
 """
 
 from __future__ import annotations
@@ -129,16 +130,21 @@ def transform_for(
         The transform.
 
     Raises:
-        PlanError: Neither the kernel's ``pack.py``, its family's nor the
-            shared library defines it.
+        PlanError: Neither the kernel's ``pack.py``, its family folder's, its
+            family's package nor the shared library defines it.
     """
     if tensor.pack is None:
         return DEFAULT
     family = plan.manifest.directory.parent.name
-    local = plan.manifest.directory / PACK_FILE
     key = f"{tensor.section}.{tensor.name}.pack"
     try:
-        found = _local(local, tensor.pack) if local.is_file() else None
+        found = None
+        for local in (
+            plan.manifest.directory / PACK_FILE,
+            plan.manifest.directory.parent / PACK_FILE,
+        ):
+            if found is None and local.is_file():
+                found = _local(local, tensor.pack)
         for module in (f"{package}.{family}.pack", f"{package}.pack"):
             if found is None:
                 found = _shared(module, tensor.pack)
@@ -150,8 +156,8 @@ def transform_for(
         raise PlanError(
             plan.manifest,
             key,
-            f"no transform {tensor.pack!r} in the kernel's {PACK_FILE}, "
-            f"{package}.{family}.pack or {package}.pack",
+            f"no transform {tensor.pack!r} in the kernel's {PACK_FILE}, the family's "
+            f"{family}/{PACK_FILE}, {package}.{family}.pack or {package}.pack",
         )
     return found
 

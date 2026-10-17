@@ -82,6 +82,40 @@ def test_an_output_names_a_pack_transform_and_unpack_uses_it(tmp_path):
     np.testing.assert_array_equal(unpack(y, raw, plan), values)
 
 
+def _family_kernel(tmp_path: Path, *, own: str | None) -> object:
+    """``copy`` in a family folder with a shared pack.py, and its own if given."""
+    directory = tmp_path / "fam" / "copy"
+    directory.mkdir(parents=True)
+    (directory / "copy.asm").write_text("HALT ;;\n")
+    (directory.parent / "pack.py").write_text(PACK_PY)  # reversed_rows, one spare row
+    if own is not None:
+        (directory / "pack.py").write_text(own)
+    toml = TOML.replace("{x_pack}", "reversed_rows").replace("{y_pack}", "reversed_rows")
+    (directory / "kernel.toml").write_text(toml)
+    return load_manifest(directory)
+
+
+def test_a_familys_pack_py_serves_its_kernels(tmp_path):
+    m = _family_kernel(tmp_path, own=None)
+    plan = plan_case(m, {"rows": 2}, F.FP32)
+    assert stored_rows(m.tensors["y"], plan) == 3  # the family's reversed_rows
+
+
+def test_the_kernels_own_pack_py_wins_over_its_familys(tmp_path):
+    own = PACK_PY.replace("return shape[0] + 1", "return shape[0] + 5")
+    m = _family_kernel(tmp_path, own=own)
+    plan = plan_case(m, {"rows": 2}, F.FP32)
+    assert stored_rows(m.tensors["y"], plan) == 7
+
+
+def test_a_pack_no_file_defines_names_where_it_looked(tmp_path):
+    m = _family_kernel(tmp_path, own=None)
+    (m.directory.parent / "pack.py").write_text("")
+    plan = plan_case(m, {"rows": 2}, F.FP32)
+    with pytest.raises(PlanError, match="the family's fam/pack.py"):
+        stored_rows(m.tensors["y"], plan)
+
+
 # --- a scratch region's starting bytes (E06 gap G2) ----------------------------------------
 
 SCRATCH_TOML = """\
