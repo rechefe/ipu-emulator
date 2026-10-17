@@ -50,6 +50,7 @@ from migration import (
     legacy_case_ids,
     legacy_run,
     new_case,
+    poisoned_shared,
     sha256,
 )
 
@@ -140,7 +141,7 @@ def _stage_programs(
 ) -> tuple[RunResult, list[bytes]]:
     """A multi-stage run, and the distinct programs its stages assembled, in order."""
     own = AssemblyCache()  # this run's programs only
-    result = run_kernel(manifest, case, fmt, cache=own)
+    result = run_kernel(manifest, case, fmt, cache=own, shared=poisoned_shared(manifest, case, fmt))
     return result, [program.to_bin() for program in own.programs]
 
 
@@ -151,7 +152,9 @@ def _new_run(
     if manifest.stages is None:
         staged = stage(manifest, case, fmt, cache=cache)
         return (
-            run_kernel(manifest, case, fmt, cache=cache),
+            run_kernel(
+                manifest, case, fmt, cache=cache, shared=poisoned_shared(manifest, case, fmt)
+            ),
             [staged.program.to_bin()],
             staged.placement,
         )

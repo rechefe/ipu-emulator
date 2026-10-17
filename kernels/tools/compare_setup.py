@@ -36,6 +36,7 @@ from migration import (
     legacy_setup,
     new_case,
     new_kernel,
+    poisoned_shared,
     register_differences,
     written_ranges,
     xmem_differences,
@@ -124,7 +125,8 @@ def compare_setup(
     case = new_case(manifest, case_id, case_map or {})
     with tempfile.TemporaryDirectory(prefix="compare-setup-") as tmp:
         setup = legacy_setup(old_kernel, old_case, Path(tmp))
-    staged = stage(manifest, case, case_format(setup.state, case))
+    fmt = case_format(setup.state, case)
+    staged = stage(manifest, case, fmt, shared=poisoned_shared(manifest, case, fmt))
     ranges = written_ranges(setup, staged)
     shown, total = xmem_differences(setup.state, staged, ranges)
     return SetupReport(

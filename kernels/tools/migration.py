@@ -35,11 +35,15 @@ from ipu_apps.kernel_registry.cases import (
 from ipu_apps.kernel_registry.registry import create_harness, kernel_spec
 from ipu_apps.kernel_registry.spec import KernelSpec
 from ipu_emu.errors import ConfigurationError
+from ipu_emu.ipu_config import DEFAULT_DSTRUCTURE_CR
 from ipu_emu.ipu_state import IpuState
-from ipu_harness.cases import Case, expand
+from ipu_emu.reference import ReferenceModel
+from ipu_harness.cases import Case, expand, inputs_for
 from ipu_harness.manifest import KernelManifest, load_manifest
+from ipu_harness.params import plan_case
 from ipu_harness.registry import Registry, kernel_tree
-from ipu_harness.runner import Staged
+from ipu_harness.runner import SharedModel, Staged
+from ipu_isa.constants import CR_READ_ONLY_INITIAL_VALUES
 from ipu_isa.formats import FORMATS, ElementFormat
 from ipu_isa.registers import REGISTER_DEFINITIONS
 
@@ -49,6 +53,46 @@ ASM_DIGESTS = "src/tools/ipu-apps/test/baselines/asm_digests.json"
 LEGACY_SRC = "src/tools/ipu-apps/src"
 #: How many differences a report lists before it only counts them.
 SHOWN = 10
+
+
+#: What every CR and LR holds before either side's setup, but the hardwired
+#: CR0 and CR1 and CR15 (the runner writes its default dstructure; an old
+#: harness relied on the reset one). A register the old harness wrote and
+#: the new kernel's [abi] does not bind then differs (compare_setup), and a
+#: register the program reads that neither side writes changes the output
+#: (compare_legacy): a kernel run after another on one model inherits its
+#: registers, so the reset values are no contract.
+POISON = 0xA5A5
+
+#: The registers that hold :data:`POISON` before setup, as ``(bank, index)``.
+POISONED: tuple[tuple[str, int], ...] = tuple(
+    (bank, index)
+    for bank in ("cr", "lr")
+    for index in range(REGISTER_DEFINITIONS[bank]["count"])
+    if bank == "lr" or index not in (*CR_READ_ONLY_INITIAL_VALUES, DEFAULT_DSTRUCTURE_CR)
+)
+
+
+def poison_state(state: IpuState) -> None:
+    """Write :data:`POISON` into an old harness's state's :data:`POISONED` registers."""
+    for bank, index in POISONED:
+        state.regfile.set_scalar(bank, index, POISON)
+
+
+def poisoned_model(fmt: ElementFormat) -> ReferenceModel:
+    """A fresh model whose :data:`POISONED` registers hold :data:`POISON`."""
+    model = ReferenceModel(fmt)
+    for bank, index in POISONED:
+        model.write_register(bank, POISON, index)
+    return model
+
+
+def poisoned_shared(manifest: KernelManifest, case: Case, fmt: ElementFormat) -> SharedModel:
+    """``case``'s inputs on a :func:`poisoned_model`, for ``stage`` and
+    ``run_kernel`` (``shared=``), which then write only what the kernel binds."""
+    plan = plan_case(manifest, case.values, fmt, case=case.decl)
+    values = dict(inputs_for(case, plan).tensors)
+    return SharedModel(poisoned_model(fmt), values, {}, check=True)
 
 
 def runfile(path: str) -> Path:
@@ -201,7 +245,7 @@ class LegacySetup:
 def legacy_setup(kernel: str, case: LegacyCase, workspace: Path) -> LegacySetup:
     """Build the old harness through ``create_harness`` and run only its ``setup()``
     on a fresh state (the kernel's own execution config: FP32 for all but the FP8
-    cases of ``fully_connected``)."""
+    cases of ``fully_connected``), its :data:`POISONED` registers poisoned first."""
     spec = kernel_spec(kernel)
     workspace.mkdir(parents=True, exist_ok=True)
     prepared = case.case.prepare(workspace, **case.values)
@@ -209,6 +253,7 @@ def legacy_setup(kernel: str, case: LegacyCase, workspace: Path) -> LegacySetup:
     bindings = {**prepared.bindings, "inst_path": assemble_kernel(kernel, workspace)}
     app = create_harness(kernel, params=prepared.params, bindings=bindings)
     state = app.make_state()
+    poison_state(state)
     setup = LegacySetup(state)
 
     def observe(kind: str, address: int, size: int, data: object) -> None:
