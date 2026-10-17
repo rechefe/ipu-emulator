@@ -137,7 +137,7 @@ bazel run //src/tools/ipu-apps:trace_case -- identity --case single_row --trace 
 With no operation it prints the coverage report.
 
 ```bash
-bazel run //src/tools/ipu-apps:query -- softmax shape=32,300 dim=1
+bazel run //src/tools/ipu-apps:query -- maxpool2d shape=2,8,8 kernel_size=7 stride=1 padding=3
 ```
 
 `NAME=VALUE` parameters go to the registry as given: a value with a comma is

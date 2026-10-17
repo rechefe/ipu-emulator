@@ -215,7 +215,9 @@ The harness rounds the result to the format each output is stored in before
 it compares: the format of the run, or for an accumulator output like `y` its
 accumulator format (FP32, or INT32 in INT8). An operation other kernels share
 has one reference in `ipu_kernels.reference.ops` instead; the kernel names it
-with `[golden] op = "<name>"` and needs no `reference.py`.
+with `[golden] op = "<name>"` and needs no `reference.py`. The second worked
+example, `kernels/reshape/identity/` (`y = x`), does that: its `kernel.toml`
+has `op = "identity"`, and its cases keep their data in a `gen.py` generator.
 
 ## 5. Run its tests
 

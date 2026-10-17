@@ -15,7 +15,12 @@ A variant (GLOSSARY) is a kernel declared as an entry of the registry.
 
 An entry is its template loaded with those values as overrides
 (:func:`ipu_harness.manifest.load_manifest`): each fixed parameter becomes the
-only value its domain allows, which is the old exact-match ``supports``.
+only value its domain allows, which is the old exact-match ``supports``. A
+default the template gives stays: a query that leaves the parameter out means
+it, so an entry fixing another value refuses that query. Without one the
+fixed value stands in; entries that fix it differently then all accept such a
+query, and routing refuses it for leaving that parameter out
+(:meth:`ipu_harness.registry.Registry.resolve`).
 Errors name the line: ``kernels/projections/registry.toml:12: ...``.
 
 A kernel is named by a folder (``kernels/<family>/<name>``) or by an entry

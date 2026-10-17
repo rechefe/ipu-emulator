@@ -123,10 +123,56 @@ def test_resolve_routes_each_exact_query_to_its_entry(tmp_path):
         assert verdict.kernel_name == name, verdict.reason
         assert verdict.label == f"//kernels/projections:{name}"
     # A shape no entry fixes is refused, though the template's domain holds it.
-    # A fixed value is its parameter's default too; another value is refused.
-    assert registry.resolve("proj", k=192, n_out=384).kernel_name == "proj_ffn1_192"
+    # The template's default stays: leaving act out means act = "none", which the
+    # SiLU entry refuses (as the old exact-match supports did) and a "none" entry takes.
+    refused = registry.resolve("proj", k=192, n_out=384)
+    assert not refused and "act = 'none' is not one of ['silu']" in refused.reason
+    assert registry.resolve("proj", k=144, n_out=432).kernel_name == "proj_qkv_144"
     assert not registry.resolve("proj", k=192, n_out=384, act="none")
     assert not registry.resolve("proj", k=100, n_out=100)
+
+
+def test_a_query_leaving_out_what_entries_fix_differently_is_refused_for_it(tmp_path):
+    # n_out has no template default: each entry's fixed value stands in, so a
+    # query without it is accepted by both 192 entries; routing names what is missing.
+    registry_toml = REGISTRY.replace("k = 144, n_out = 432", "k = 192, n_out = 432")
+    family(tmp_path, registry_toml)
+    registry = Registry.load(tmp_path)
+    # act = "none" by the template's default: the SiLU entry refuses it.
+    verdict = registry.resolve("proj", k=192)
+    assert verdict.kernel_name == "proj_qkv_144"
+    toml = registry_toml.replace(
+        'params = { k = 192, n_out = 384, act = "silu" }', "params = { k = 192, n_out = 384 }"
+    )
+    (tmp_path / "projections" / "registry.toml").write_text(toml)
+    verdict = Registry.load(tmp_path).resolve("proj", k=192)
+    assert not verdict
+    assert "each fix n_out, which the query leaves out; give n_out" in verdict.reason
+
+
+def test_a_tie_with_a_kernel_that_is_no_entry_stays_a_configuration_error(tmp_path):
+    family(tmp_path)
+    free = tmp_path / "other" / "free_proj"  # a folder kernel with the template's free domain
+    free.mkdir(parents=True)
+    (free / "free_proj.asm").write_text("HALT ;;\n")
+    (free / "kernel.toml").write_text(TEMPLATE)
+    with pytest.raises(ConfigurationError, match="both accept this proj query at cost 0"):
+        Registry.load(tmp_path).resolve("proj", k=144, n_out=432)
+
+
+def test_a_query_required_parameter_must_be_given_whatever_its_default(tmp_path):
+    family(tmp_path)
+    toml = tmp_path / "projections" / "proj" / "kernel.toml"
+    toml.write_text(
+        toml.read_text().replace('default = "none" }', 'default = "none", query_required = true }')
+    )
+    registry = Registry.load(tmp_path)
+    refused = registry.resolve("proj", k=144, n_out=432)
+    assert not refused and "the query must give act" in refused.reason
+    assert registry.resolve("proj", k=144, n_out=432, act="none").kernel_name == "proj_qkv_144"
+    # Cases are unaffected: they take the default (or the entry's fixed value).
+    (default, *_) = expand(registry.manifests["proj_qkv_144"])
+    assert default.values["act"] == "none"
 
 
 def test_an_entry_chooses_its_template_cases(tmp_path):

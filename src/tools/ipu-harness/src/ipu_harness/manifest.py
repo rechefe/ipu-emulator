@@ -25,7 +25,10 @@ Schema
     ``max`` (int and float), ``multiple_of`` (int, at least 1), ``choices`` (a
     non-empty list, each in the domain), ``default``, and ``unit``: ``count``
     (default), ``rows`` or ``bytes`` (``bytes`` only for a kernel in
-    :data:`BYTE_UNIT_KERNELS`, L16). Floats are finite.
+    :data:`BYTE_UNIT_KERNELS`, L16). Floats are finite. ``query_required``
+    (bool, default false): a routing query that leaves the parameter out is
+    refused at this kernel, naming it, whatever its default; a case takes its
+    own or the default value as before.
 
 ``[inputs.<name>]``, ``[outputs.<name>]``, ``[scratch.<name>]``
     ``shape`` (non-empty list, required): positive ints, or expressions over
@@ -126,7 +129,9 @@ names the closest valid one.
 
 A family ``registry.toml`` entry (E06-17, :mod:`ipu_harness.family`) loads its
 template with ``overrides``: ``name``, ``formats`` (a subset), ``params`` (fixed
-values: each becomes the parameter's only choice and its value in every case)
+values: each becomes the parameter's only choice and its value in every case;
+a default the template gives stays, so a query that leaves the parameter out
+means that default, else the fixed value stands in)
 and ``cases`` (the template cases the entry runs, ``default`` among them).
 """
 
@@ -209,7 +214,7 @@ _SECTIONS = (
 )
 _BENCHMARK_KEYS = ("points", "per", "max_cycles")
 _KERNEL_KEYS = ("op", "formats", "asm", "stages", "cost")
-_PARAM_KEYS = ("type", "min", "max", "multiple_of", "choices", "default", "unit")
+_PARAM_KEYS = ("type", "min", "max", "multiple_of", "choices", "default", "unit", "query_required")
 _TENSOR_KEYS: Mapping[Role, tuple[str, ...]] = {
     "input": ("shape", "row", "after", "when", "pack", "range"),
     "output": ("shape", "row", "after", "when", "pack", "store"),
@@ -253,6 +258,7 @@ class ParamDecl:
         choices: The only values allowed, if given.
         default: The value when a case or query gives none (None: required).
         unit: What an int counts: ``count``, ``rows`` or ``bytes`` (L16).
+        query_required: A routing query must give it (``Registry.resolve``).
     """
 
     name: str
@@ -263,6 +269,7 @@ class ParamDecl:
     choices: tuple[object, ...] | None = None
     default: object | None = None
     unit: Unit = "count"
+    query_required: bool = False
 
 
 @dataclass(frozen=True)
@@ -498,6 +505,9 @@ def _param(r: Reader, name: str, raw: object, kernel: str) -> ParamDecl:
     if unit == "bytes" and kernel not in BYTE_UNIT_KERNELS:
         raise r.fail((*path, "unit"), f"{where(path)} counts bytes; a kernel counts rows (L16)")
     decl = replace(decl, unit=unit)
+    if "query_required" in table:
+        required = r.typed(table["query_required"], bool, (*path, "query_required"))
+        decl = replace(decl, query_required=bool(required))
     if "choices" in table:
         listed = r.typed(table["choices"], list, (*path, "choices"))
         if not listed:
@@ -1130,7 +1140,16 @@ def _fixed(
             fixed[pname] = _value(probe, params[pname], value, ("params", pname))
         except ManifestError as error:
             raise fail(str(error).split(": ", 1)[-1]) from None
-        params[pname] = replace(params[pname], choices=(fixed[pname],), default=fixed[pname])
+        # A default the template gives stays: a query that leaves the parameter
+        # out means it, and an entry fixing another value refuses that query, as
+        # the old exact-match supports did. Without one the fixed value stands
+        # in (a shape the query never names, such as a token count).
+        default = params[pname].default
+        params[pname] = replace(
+            params[pname],
+            choices=(fixed[pname],),
+            default=fixed[pname] if default is None else default,
+        )
     return fixed
 
 

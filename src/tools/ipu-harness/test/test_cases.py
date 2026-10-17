@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 from ipu_emu.errors import ConfigurationError
-from ipu_harness.cases import expand, inputs_for, rng
+from ipu_harness.cases import at_values, expand, inputs_for, rng
 from ipu_harness.manifest import KernelManifest, load_manifest
 from ipu_harness.params import PlanError, plan_case
 from ipu_isa.formats import ElementFormat as F
@@ -122,6 +122,19 @@ def test_a_two_axis_sweep_is_the_cartesian_product_in_order(tmp_path):
 def test_a_value_the_case_does_not_give_takes_its_default(tmp_path):
     m = scale(tmp_path, extra_cases="\n[cases.half]\ns = 0.5\n")
     assert dict(next(c for c in expand(m) if c.name == "half").values) == {"rows": 4, "s": 0.5}
+
+
+def test_a_case_at_other_values_keeps_its_generator_but_not_its_files(tmp_path):
+    default = next(c for c in expand(scale(tmp_path)) if c.name == "default")
+    moved = at_values(default, "probe[rows=9]", {"rows": 9})
+    assert (moved.name, moved.decl.name) == ("probe[rows=9]", "probe[rows=9]")
+    assert dict(moved.values) == {**default.values, "rows": 9}
+    assert (moved.generator, moved.formats, moved.tier) == (
+        default.generator,
+        default.formats,
+        default.tier,
+    )
+    assert not moved.inputs and not moved.expected and not moved.decl.inputs
 
 
 # --- the random streams -------------------------------------------------------------------
