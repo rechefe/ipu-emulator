@@ -77,7 +77,8 @@ Schema
     Parameter values: a scalar, or a non-empty list (a sweep axis). Reserved
     keys: ``formats`` (a non-empty subset of the kernel's), ``inputs`` and
     ``expected`` (tensor name to a user file, Q82), ``generator``
-    (``"file.py:fn"``), ``tier`` (``default`` or ``nightly``, Q73).
+    (``"file.py:fn"``, or ``"../file.py:fn"`` in the family's folder, a
+    generator its kernels share), ``tier`` (``default`` or ``nightly``, Q73).
     ``[cases.default]`` is required.
 
 ``[golden]`` (optional)
@@ -825,7 +826,10 @@ def _case(r: Reader, m: KernelManifest, name: str, raw: object) -> CaseDecl:
         case = replace(case, expected=expected)
     if "generator" in table:
         case = replace(
-            case, generator=r.function(m.directory, table["generator"], (*path, "generator"))
+            case,
+            generator=r.function(
+                m.directory, table["generator"], (*path, "generator"), family=True
+            ),
         )
     if "tier" in table:
         tier = table["tier"]

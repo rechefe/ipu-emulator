@@ -332,9 +332,15 @@ RULES = [
     ),
     (
         "s = 2.0\n\n[cases.one_row]",
-        's = 2.0\ngenerator = "../gen.py:make"\n\n[cases.one_row]',
-        "must be a file path inside",
-        "../gen.py",
+        's = 2.0\ngenerator = "../../gen.py:make"\n\n[cases.one_row]',
+        "must be ../<file> directly in the family's folder",
+        "../../gen.py",
+    ),
+    (
+        "s = 2.0\n\n[cases.one_row]",
+        's = 2.0\ngenerator = "../sub/gen.py:make"\n\n[cases.one_row]',
+        "must be ../<file> directly in the family's folder",
+        "../sub/gen.py",
     ),
     (
         "s = 2.0\n\n[cases.one_row]",

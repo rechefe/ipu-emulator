@@ -147,12 +147,23 @@ class Reader:
             )
         return directory / file
 
-    def function(self, directory: Path, value: object, path: tuple[str, ...]) -> str:
-        """A ``"file.py:function"`` reference to a file in the kernel directory."""
+    def function(
+        self, directory: Path, value: object, path: tuple[str, ...], *, family: bool = False
+    ) -> str:
+        """A ``"file.py:function"`` reference to a file in the kernel directory;
+        with ``family``, also ``"../file.py:function"``, a file directly in the
+        family's folder (shared by its kernels)."""
         text = self.typed(value, str, path)
         file, sep, fn = text.partition(":")
         if not sep or not fn.isidentifier() or not file.endswith(".py"):
             raise self.fail(path, f"{where(path)} {text!r} must be 'file.py:function'")
+        shared = PurePosixPath(file[3:]) if family and file.startswith("../") else None
+        if shared is not None and len(shared.parts) == 1 and shared.name not in ("", ".", ".."):
+            return str(text)
+        if shared is not None:
+            raise self.fail(
+                path, f"{where(path)} {file!r} must be ../<file> directly in the family's folder"
+            )
         self.inside(directory, file, path)
         return str(text)
 
