@@ -303,6 +303,11 @@ class CommitCollector:
         self._pending, self._pre, self._pre_pc, self._broke = None, [], None, False
         return self.records
 
+    def drop_stop(self) -> None:
+        """Forget a BREAK stop whose word never began (a debugger quit at
+        it), so the next word at that PC is recorded as a plain step."""
+        self._pre, self._pre_pc, self._broke = [], None, False
+
     def take(self) -> list[CommitRecord]:
         """Hand over the records made since the last take.
 

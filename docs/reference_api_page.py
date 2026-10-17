@@ -75,15 +75,21 @@ def _public(module: ModuleType, *only: str) -> tuple[tuple[ModuleType, str], ...
     return tuple((module, n) for n in names if f"{module.__name__}.{n}" not in INTERNAL)
 
 
+def reexported(module: ModuleType) -> tuple[str, ...]:
+    """The names of *module*'s ``__all__`` that another module defines."""
+    return tuple(n for n in module.__all__ if not _defined_here(module, n))
+
+
+def _model_intro() -> str:
+    names = " and ".join(f"`{n}`" for n in reexported(ipu_emu.reference))
+    tail = f" ({names}, which it re-exports, are listed with their own module)" if names else ""
+    return f"`ipu_emu.reference`: the names in its `__all__`{tail}."
+
+
 def groups() -> tuple[Group, ...]:
     """The documented symbols: the stable module first, then what it hands out."""
     return (
-        Group(
-            "The model",
-            "`ipu_emu.reference`: the names in its `__all__` (`TraceWriter` and "
-            "`read_trace`, which it re-exports, are listed under Traces).",
-            _public(ipu_emu.reference),
-        ),
+        Group("The model", _model_intro(), _public(ipu_emu.reference)),
         Group(
             "Commit records",
             "`ipu_emu.commit`: what `step()` returns. `to_json()` gives the "
