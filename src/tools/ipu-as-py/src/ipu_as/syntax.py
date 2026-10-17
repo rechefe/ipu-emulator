@@ -12,7 +12,7 @@ import lark
 import ipu_as.ipu_token as ipu_token
 from ipu_as.errors import OperandError
 from ipu_as.symbols import SymbolTable
-from ipu_isa.view import isa
+from ipu_isa.view import isa, mnemonic_key
 
 IPU_INSTR_ADDR_JUMP = 1
 
@@ -38,15 +38,6 @@ def parse_tree(text: str) -> lark.Tree:
     return get_parser().parse(text)
 
 
-def _is_real_instruction_name(name: str) -> bool:
-    upper = name.upper()
-    return any(
-        instruction.mnemonic.upper() == upper
-        for slot in isa().spec_slot_order
-        for instruction in isa().instructions(slot)
-    )
-
-
 def _expand_pseudo_instructions(instructions: list[dict]) -> list[dict]:
     """Expand pseudo-instructions into their real-instruction equivalents.
 
@@ -64,9 +55,9 @@ def _expand_pseudo_instructions(instructions: list[dict]) -> list[dict]:
 
         pseudo = isa().pseudo(opcode_name, len(operands))
         if pseudo is None:
-            if not _is_real_instruction_name(opcode_name):
+            if not isa().has_instruction(opcode_name):
                 for candidate in isa().pseudos():
-                    if candidate.mnemonic.lower() == opcode_name.lower():
+                    if mnemonic_key(candidate.mnemonic) == mnemonic_key(opcode_name):
                         expected_operands = candidate.operands
                         names = ", ".join(op.name for op in expected_operands)
                         raise OperandError(

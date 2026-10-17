@@ -110,7 +110,7 @@ def mnemonic_key(mnemonic: str) -> str:
     return mnemonic.upper()
 
 
-def _by_mnemonic(instructions: tuple[Instruction, ...]) -> Mapping[str, Instruction]:
+def _mnemonic_index(instructions: tuple[Instruction, ...]) -> Mapping[str, Instruction]:
     return MappingProxyType({mnemonic_key(i.mnemonic): i for i in instructions})
 
 
@@ -176,6 +176,11 @@ class Isa:
         if not 0 <= opcode < len(instructions):
             raise IsaLookupError(f"Slot {str(slot)!r} has no opcode {opcode}")
         return instructions[opcode]
+
+    def has_instruction(self, mnemonic: str) -> bool:
+        """True when some slot has an instruction ``mnemonic`` (case-insensitive)."""
+        wanted = mnemonic_key(mnemonic)
+        return any(wanted in by_mnemonic for by_mnemonic in self._by_mnemonic.values())
 
     def find_slot(self, mnemonic: str) -> Slot:
         """The one slot that has an instruction ``mnemonic`` (case-insensitive).
@@ -275,7 +280,7 @@ def load_isa(
             for opcode, (mnemonic, entry) in enumerate(entries.items())
         )
 
-    by_mnemonic = {slot: _by_mnemonic(entries) for slot, entries in instructions.items()}
+    by_mnemonic = {slot: _mnemonic_index(entries) for slot, entries in instructions.items()}
 
     def target(expansion: Mapping[str, Any]) -> Instruction:
         return by_mnemonic[Slot(expansion["slot"])][mnemonic_key(str(expansion["instruction"]))]
