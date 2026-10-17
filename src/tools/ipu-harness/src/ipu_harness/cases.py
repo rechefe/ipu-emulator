@@ -39,7 +39,7 @@ from ipu_harness.manifest import CaseDecl, KernelManifest, Tier
 from ipu_harness.params import CasePlan, PlanError
 from ipu_isa.formats import FORMATS, ElementFormat
 
-__all__ = ["Case", "CaseInputs", "expand", "inputs_for", "rng"]
+__all__ = ["Case", "CaseInputs", "checked_input", "expand", "inputs_for", "rng"]
 
 
 @dataclass(frozen=True)
@@ -175,6 +175,20 @@ def _rounded(values: Array, fmt: ElementFormat) -> tuple[Array, int]:
     in_format = held(values, fmt)
     changed = int(np.count_nonzero(in_format.astype(np.float64) != values.astype(np.float64)))
     return in_format, changed
+
+
+def checked_input(plan: CasePlan, name: str, value: object) -> Array:
+    """``value`` as input ``name`` of ``plan``, checked as an ``--input`` file's
+    tensor is and rounded to the format (a chain step's array, E06-15).
+
+    Raises:
+        ConfigurationError: It is no int or float array of the planned shape,
+            or holds a value that is not finite.
+    """
+    try:
+        return _rounded(_checked(plan, name, value), plan.format)[0]
+    except _Bad as error:
+        raise ConfigurationError(f"{plan.manifest.name}: input {error}") from None
 
 
 def _loaded(plan: CasePlan, name: str, path: Path) -> tuple[Array, int]:

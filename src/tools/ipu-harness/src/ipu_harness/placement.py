@@ -181,7 +181,8 @@ def place(
 
     Raises:
         PlanError: Pins overlap or run past capacity, or the regions do not fit.
-        ValueError: ``row_counts`` names no tensor, or gives one fewer than 1 row.
+        ValueError: ``row_counts`` or ``pins`` names no tensor, or
+            ``row_counts`` gives one fewer than 1 row.
     """
     rows = _row_counts(plan, row_counts)
     capacity = addressable_rows(plan.format)

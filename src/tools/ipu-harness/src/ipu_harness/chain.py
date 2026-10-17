@@ -10,6 +10,10 @@ other regions) instead of packing and writing it. A resident's layout, its
 pack transform and its stored format, must be what the consumer declares, or
 the step fails before it runs.
 
+A step places its own regions by first fit and knows nothing of an earlier
+step's residents but its inputs: a resident the next step does not take may
+be overwritten by it.
+
     chain = Chain(ElementFormat.INT8)
     first = chain.run(scale, {"rows": 2, "s": 2.0}, {"x": x})
     second = chain.run(scale, {"rows": 2, "s": 3.0}, {"x": first.resident["y"]})
@@ -18,15 +22,14 @@ the step fails before it runs.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from types import MappingProxyType
-
-import numpy as np
 
 from ipu_emu.errors import ConfigurationError
 from ipu_emu.reference import ReferenceModel
+from ipu_harness._codec import Array
 from ipu_harness.assembly import AssemblyCache
-from ipu_harness.cases import Case
+from ipu_harness.cases import Case, checked_input
 from ipu_harness.manifest import CaseDecl, KernelManifest
 from ipu_harness.packing import stored_format, stored_rows
 from ipu_harness.params import CasePlan, plan_case
@@ -37,7 +40,7 @@ from ipu_isa.formats import ElementFormat
 __all__ = ["Chain", "ChainStep", "Resident"]
 
 #: The case name a chain step reports.
-STEP_CASE = "chain"
+_STEP_CASE = "chain"
 
 
 @dataclass(frozen=True)
@@ -76,22 +79,42 @@ class Chain:
 
     Args:
         fmt: The element format every step runs in.
-        options: How each step runs (limits, debugger, profile, trace).
+        options: How each step runs (limits, debugger, profile). A trace is
+            written per step, as ``<stem>.<i>.jsonl`` beside ``trace``; the
+            outputs per step, in ``output_dir/<i>``.
+
+    Raises:
+        ConfigurationError: ``options`` gives ``inputs`` (a step's inputs are
+            ``run``'s).
     """
 
     def __init__(self, fmt: ElementFormat, *, options: RunOptions | None = None) -> None:
         self.format = fmt
         self.options = options or RunOptions()
+        if self.options.inputs:
+            raise ConfigurationError("a chain step takes its inputs from Chain.run, not --input")
         self.model = ReferenceModel(fmt)
         self._cache = AssemblyCache()
+        self._steps = 0
+
+    def _step_options(self) -> RunOptions:
+        """The options of the next step: its own trace and output files."""
+        step, options = self._steps, self.options
+        return replace(
+            options,
+            trace=None
+            if options.trace is None
+            else options.trace.with_name(f"{options.trace.stem}.{step}.jsonl"),
+            output_dir=None if options.output_dir is None else options.output_dir / str(step),
+        )
 
     def run(
         self,
         kernel: str | KernelManifest,
         params: Mapping[str, object],
-        inputs: Mapping[str, np.ndarray | Resident],
+        inputs: Mapping[str, Array | Resident],
         *,
-        compare: bool = False,
+        check: bool = False,
     ) -> ChainStep:
         """Run one kernel on the chain's model.
 
@@ -103,51 +126,53 @@ class Chain:
             kernel: A kernel, or its name in the kernel tree.
             params: Its parameter values.
             inputs: Each input, as values or as an earlier step's output.
-            compare: Hold the outputs to their goldens (the kernel's reference,
+            check: Hold the outputs to their goldens (the kernel's reference,
                 over the inputs, resident ones read back); an intermediate step
-                need not.
+                need not, and its result has no comparisons.
 
         Returns:
             The run, and its outputs as ``Resident`` tensors.
 
         Raises:
-            ConfigurationError: An input is missing or names no input; a
+            ConfigurationError: An input is missing or names no input; an
+                array input is not finite numbers of its shape; a
                 ``Resident``'s pack, format or rows differ from what the kernel
-                declares; or the model did not end the last step halted.
+                declares, or it moves an input ``kernel.toml`` pins to a row.
             PlanError: The case is wrong, or a ``Resident`` overlaps another
                 region (placement).
         """
         manifest = default_registry().kernel(kernel) if isinstance(kernel, str) else kernel
-        plan = plan_case(manifest, params, self.format)
-        declared = {t.name for t in manifest.tensors.values() if t.role == "input"}
-        if set(inputs) != declared:
-            raise ConfigurationError(
-                f"{manifest.name} takes inputs {sorted(declared)}, given {sorted(inputs)}"
-            )
+        decl = CaseDecl(_STEP_CASE, MappingProxyType(dict(params)))
+        plan = plan_case(manifest, params, self.format, case=decl)
         pinned: dict[str, int] = {}
-        arrays: dict[str, np.ndarray] = {}
+        arrays: dict[str, Array] = {}
         for name, value in inputs.items():
-            if isinstance(value, Resident):
+            tensor = manifest.tensors.get(name)
+            if tensor is None or tensor.role != "input":
+                # No input of the kernel: the runner names every wrong input.
+                if isinstance(value, Resident):
+                    pinned[name] = value.base_row
+                else:
+                    arrays[name] = value
+            elif isinstance(value, Resident):
                 _check_layout(manifest, name, value, plan)
                 pinned[name] = value.base_row
             else:
-                arrays[name] = value
+                arrays[name] = checked_input(plan, name, value)
         case = Case(
-            name=STEP_CASE,
+            name=_STEP_CASE,
             values=MappingProxyType(dict(params)),
             formats=(self.format,),
             inputs=MappingProxyType({}),
             expected=MappingProxyType({}),
             generator=None,
             tier="default",
-            decl=CaseDecl(STEP_CASE, MappingProxyType(dict(params))),
+            decl=decl,
         )
-        shared = SharedModel(
-            self.model, MappingProxyType(arrays), MappingProxyType(pinned), compare
-        )
-        result = run_kernel(
-            manifest, case, self.format, self.options, cache=self._cache, shared=shared
-        )
+        shared = SharedModel(self.model, MappingProxyType(arrays), MappingProxyType(pinned), check)
+        options = self._step_options()
+        self._steps += 1
+        result = run_kernel(manifest, case, self.format, options, cache=self._cache, shared=shared)
         return ChainStep(result, _resident(manifest, result, plan))
 
 
@@ -155,6 +180,11 @@ def _check_layout(manifest: KernelManifest, name: str, value: Resident, plan: Ca
     tensor = manifest.tensors[name]
     want = (tensor.pack, stored_format(tensor, plan.format), stored_rows(tensor, plan))
     have = (value.pack, value.format, value.rows)
+    if tensor.row is not None and value.base_row != tensor.row:
+        raise ConfigurationError(
+            f"{manifest.name}: input {name} is pinned to row {tensor.row} in kernel.toml; "
+            f"the resident tensor is at row {value.base_row}"
+        )
     if have != want:
         raise ConfigurationError(
             f"{manifest.name}: input {name} is laid out as pack={want[0]!r}, "

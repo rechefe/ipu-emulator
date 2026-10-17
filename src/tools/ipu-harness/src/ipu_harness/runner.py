@@ -91,18 +91,18 @@ class SharedModel:
 
     Attributes:
         model: The model; it keeps its XMEM between runs.
-        inputs: The input tensors to pack and write, by name; each input not
-            here must be in ``pinned``.
+        inputs: The input tensors to pack and write, by name, as the format
+            holds them (``cases.checked_input``).
         pinned: Inputs already in XMEM, by name, at these base rows: placed
-            there, not written.
-        compare: Hold the outputs to their goldens (an intermediate step of a
-            chain need not).
+            there, not written. Every input is in ``inputs`` or here, not both.
+        check: Hold the outputs to their goldens (an intermediate step of a
+            chain need not; its result then has no comparisons).
     """
 
     model: ReferenceModel
     inputs: Mapping[str, Array]
     pinned: Mapping[str, int]
-    compare: bool = True
+    check: bool = False
 
 
 @dataclass(frozen=True)
@@ -366,21 +366,29 @@ def _execute_stages(
     return staged.result, profile, staged.cycles, staged.mac_utilization, rendered, stages
 
 
+def _shared_inputs(plan: CasePlan, shared: SharedModel) -> Mapping[str, Array]:
+    """``shared``'s array inputs, once its inputs are checked to be the kernel's."""
+    manifest = plan.manifest
+    declared = {t.name for t in manifest.tensors.values() if t.role == "input"}
+    given = [*shared.inputs, *shared.pinned]
+    if sorted(given) != sorted(declared):
+        raise ConfigurationError(
+            f"{manifest.name} takes inputs {sorted(declared)}, given {sorted(given)}"
+        )
+    return shared.inputs
+
+
 def _write_tensors(
     model: ReferenceModel,
     plan: CasePlan,
     placement: Placement,
-    case: Case,
-    options: RunOptions,
+    inputs: Mapping[str, Array],
     shared: SharedModel | None,
 ) -> Mapping[str, Array]:
     """Write every input and scratch region but the pinned inputs, which are
     already in XMEM; return every input's values, the pinned ones read back
     (for the goldens)."""
-    if shared is None:
-        inputs = dict(inputs_for(case, plan, overrides=options.inputs).tensors)
-    else:
-        inputs = dict(shared.inputs)
+    inputs = dict(inputs)
     for tensor in plan.manifest.tensors.values():
         if tensor.role == "input" and shared is not None and tensor.name in shared.pinned:
             data = _read_region(model, plan, placement, tensor)
@@ -418,7 +426,8 @@ def run_kernel(
 
     Raises:
         ConfigurationError: The case, its files or the program are wrong for
-            the kernel (``PlanError`` locates it in ``kernel.toml``).
+            the kernel (``PlanError`` locates it in ``kernel.toml``), or
+            ``shared``'s inputs are not the kernel's.
         ipu_as.errors.AssemblerError: The program does not render, parse or
             encode.
         EmulatorError: An instruction the model cannot run in ``fmt``.
@@ -426,6 +435,10 @@ def run_kernel(
     """
     options = options or RunOptions()
     plan = plan_case(manifest, case.values, fmt, case=case.decl)
+    if shared is None:
+        inputs = inputs_for(case, plan, overrides=options.inputs).tensors
+    else:
+        inputs = _shared_inputs(plan, shared)
     tensors = plan.manifest.tensors
     pinned = shared.pinned if shared is not None else {}
     placement = place(
@@ -437,7 +450,7 @@ def run_kernel(
     if program is not None:
         check_cr_reads(manifest, program.rendered)
         model.load_program(program.words)
-    inputs = _write_tensors(model, plan, placement, case, options, shared)
+    inputs = _write_tensors(model, plan, placement, inputs, shared)
     if program is None:
         outcome = _execute_stages(model, plan, placement, case, options, cache)
     else:
@@ -477,7 +490,7 @@ def run_kernel(
     if run.status.state is RunState.FAULTED:
         assert run.status.fault is not None  # a faulted status names its fault
         fault = RunFault(run.status.fault, run.status.pc, _source_line(rendered, run.status.pc))
-    elif shared is None or shared.compare:
+    elif shared is None or shared.check:
         golden = _goldens(case, plan, inputs)
         comparisons = tuple(
             compare(
