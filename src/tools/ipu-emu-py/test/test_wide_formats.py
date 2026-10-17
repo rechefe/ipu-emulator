@@ -1,7 +1,7 @@
-"""Wide-vector debug mode (GitHub issue #33).
+"""The 4-byte element formats FP32 and INT32 (emulator-only; GitHub issue #33).
 
-XMEM transfer sizes stay architectural (128-byte loads for r in normal mode);
-in wide-vector mode ``LD.MULT`` / ``LD.MULT.CYCLIC`` consume 512 bytes
+XMEM transfer sizes stay architectural (128-byte loads for r in an 8-bit
+format); in FP32 and INT32 ``LD.MULT`` / ``LD.MULT.CYCLIC`` consume 512 bytes
 per transfer as 128×32-bit elements. LR/CR are unchanged.
 """
 
@@ -13,9 +13,9 @@ import numpy as np
 import pytest
 from emu_support import ElementFormat, assemble_program, make_state, new_state, run
 
+from ipu_emu.activations import AaqOptions
 from ipu_emu.emulator import load_program, run_until_complete
 from ipu_emu.geometry import (
-    element_format,
     element_width_bytes,
     row_size_bytes,
     xmem_element_width_bytes,
@@ -54,7 +54,7 @@ HALT;;
             assert v == pytest.approx(6.0), f"lane {i}"
 
     def test_activate_quantize_noop_unless_quantize_flag(self) -> None:
-        """ACTIVATE.QUANTIZE without wide_vector_quantize_output leaves POST_AAQ_REG all zero."""
+        """ACTIVATE.QUANTIZE without AaqOptions.quantize_output leaves POST_AAQ_REG all zero."""
         state = run(
             """\
 SET lr0 cr6;;
@@ -74,11 +74,11 @@ HALT;;
         assert state.regfile.get_post_aaq_reg() == bytearray(512)
 
     def test_activate_quantize_fp32_acc_for_comparison(self) -> None:
-        """ACTIVATE.QUANTIZE with wide_vector_quantize_output quantizes FP32 acc elements to INT8."""
+        """ACTIVATE.QUANTIZE with AaqOptions.quantize_output quantizes FP32 acc elements to INT8."""
         # Use exact float product 3.0 so rounding is unambiguous (round-half-even).
         r0 = struct.pack("<128f", *([1.5] * 128))
         rc = struct.pack("<128f", *([2.0] * 128))
-        state = new_state(fmt=ElementFormat.FP32, wide_vector_quantize_output=True)
+        state = new_state(fmt=ElementFormat.FP32, aaq=AaqOptions(quantize_output=True))
         state.xmem.write_address(0x1000, r0)
         state.xmem.write_address(0x2000, rc)
         asm = """\
@@ -440,8 +440,8 @@ class TestElementAndRowSizeHelpers:
     )
     def test_sizes(self, fmt: ElementFormat, element: int, row: int) -> None:
         st = new_state(fmt=fmt)
-        assert xmem_element_width_bytes(st) == element_width_bytes(element_format(st)) == element
-        assert xmem_row_size_bytes(st) == row_size_bytes(element_format(st)) == row
+        assert xmem_element_width_bytes(st) == element_width_bytes(st.fmt) == element
+        assert xmem_row_size_bytes(st) == row_size_bytes(st.fmt) == row
 
     def test_row_size_is_lanes_times_element_width(self) -> None:
         """Row size must track element width, not be independently hardcoded."""
@@ -515,7 +515,7 @@ class TestWindowActivationFp32:
 
     def test_default_bounds_on_fractional_elements(self) -> None:
         """Default bounds [0.0, 0.1): 0.0 and 0.05 are inside; -0.01 and 0.1 are not."""
-        state = new_state(fmt=ElementFormat.FP32, wide_vector_quantize_output=True)
+        state = new_state(fmt=ElementFormat.FP32, aaq=AaqOptions(quantize_output=True))
         state.set_cr_dstructure(4)
         acc = state.regfile.mutable("r_acc")
         for i, x in enumerate((0.0, 0.05, -0.01, 0.1)):
@@ -531,7 +531,7 @@ class TestWindowActivationFp32:
 
     def test_bounds_are_configurable(self) -> None:
         """set_activation_alphas overrides the window bounds for later ACTIVATEs."""
-        state = new_state(fmt=ElementFormat.FP32, wide_vector_quantize_output=True)
+        state = new_state(fmt=ElementFormat.FP32, aaq=AaqOptions(quantize_output=True))
         state.set_activation_alphas(window_a=0.25, window_b=0.75)
         state.set_cr_dstructure(3)
         acc = state.regfile.mutable("r_acc")

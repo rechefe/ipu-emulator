@@ -22,6 +22,7 @@ from ipu_emu.resolver import (
     FaithfulResolver,
     PackedResolver,
 )
+from ipu_isa.formats import ElementFormat
 from ipu_isa.timing import SLOT_EXECUTION_ORDER
 
 ENCODINGS_PER_PLAN = 200
@@ -72,7 +73,7 @@ def test_a_plan_reads_a_mult_stage_register():
 @pytest.mark.parametrize(("key", "plan"), PLANS, ids=[f"{s}.{n}" for (s, n), _ in PLANS])
 def test_both_resolvers_return_equal_operands(key, plan, wide):
     rng = random.Random(f"{key}-{wide}")
-    state = IpuState(wide_vector_debug=wide)
+    state = IpuState(fmt=ElementFormat.FP32 if wide else ElementFormat.INT8)
     _randomise(state.regfile, rng)
     snapshot = state.regfile.snapshot()
     _randomise(snapshot, rng)  # cycle-start and live values differ

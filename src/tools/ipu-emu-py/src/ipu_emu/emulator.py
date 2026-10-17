@@ -21,15 +21,17 @@ from pathlib import Path
 
 import numpy as np
 
+from ipu_emu.activations import ActivationParams
 from ipu_emu.cycle import CycleOutcome
 from ipu_emu.errors import ConfigurationError
 from ipu_emu.execute import (
     Ipu,
     load_binary_instructions,
 )
-from ipu_emu.ipu_math import DType, fp32_to_fp8_bytes
+from ipu_emu.ipu_math import fp32_to_fp8_bytes
 from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
 from ipu_emu.run_control import RunControl
+from ipu_isa.formats import ElementFormat
 
 
 class DebugAction(Enum):
@@ -267,26 +269,26 @@ def load_fp32_as_fp8_to_xmem(
     state: IpuState,
     path: str | Path,
     base_addr: int,
-    dtype: DType = DType.E4,
+    fmt: ElementFormat = ElementFormat.E4,
 ) -> int:
     """Load a FP32 binary file, convert to FP8, and store in XMEM.
 
     Reads N×4-byte float32 values from *path*, converts each to a single
-    FP8 byte using ``ml_dtypes``, and writes the result contiguously into
+    FP8 byte in *fmt*, and writes the result contiguously into
     XMEM starting at *base_addr*.
 
     Args:
         state:     The IPU state (provides ``xmem``).
         path:      Path to a raw FP32 binary file.
         base_addr: Starting XMEM address.
-        dtype:     Target FP8 variant (E4M3 or E5M2).
+        fmt:       Target FP8 format (one of E1..E7).
 
     Returns:
         Number of FP32 values converted.
     """
     raw = Path(path).read_bytes()
     fp32_values = np.frombuffer(raw, dtype=np.float32)
-    fp8_data = fp32_to_fp8_bytes(fp32_values, dtype)
+    fp8_data = fp32_to_fp8_bytes(fp32_values, fmt)
     state.xmem.write_address(base_addr, fp8_data)
     return len(fp32_values)
 
@@ -323,8 +325,7 @@ def run_test(
     called: the program did not finish, so there are no results to collect.
 
     Optional ``elu_alpha``, ``window_a`` and ``window_b`` configure the
-    emulator-only activation parameters (same idea as dtype setup, but not via
-    CR): α for ``elu`` and the ``[a, b)`` bounds of ``window``. They are applied
+    emulator-only activation parameters (not via CR): α for ``elu`` and the ``[a, b)`` bounds of ``window``. They are applied
     when constructing a new ``IpuState``; if *state* is passed, non-``None``
     arguments are forwarded to :meth:`IpuState.set_activation_alphas`.
     ``break_on_entry`` requests an initial stop after setup when a
@@ -332,7 +333,10 @@ def run_test(
     run shares with its debugger frontend (see :func:`run_with_debug`).
     """
     if state is None:
-        state = IpuState(elu_alpha=elu_alpha, window_a=window_a, window_b=window_b)
+        given = {"elu_alpha": elu_alpha, "window_a": window_a, "window_b": window_b}
+        state = IpuState(
+            activation=ActivationParams(**{k: v for k, v in given.items() if v is not None})
+        )
     elif elu_alpha is not None or window_a is not None or window_b is not None:
         state.set_activation_alphas(elu_alpha=elu_alpha, window_a=window_a, window_b=window_b)
     load_program_from_binary(state, inst_path)

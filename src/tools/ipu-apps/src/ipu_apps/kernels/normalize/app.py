@@ -34,6 +34,7 @@ from ipu_apps.kernel_registry import (
     no,
     yes,
 )
+from ipu_isa.formats import ElementFormat
 
 OP = "layernorm"
 LANES = 128  # datapath width; not itself a routing constraint here
@@ -112,5 +113,5 @@ def layernorm_spec(app_class, *, channels: int, tokens: int):
         bundle=lambda **params: layernorm_query(params["shape"]).bundle,
         # Exact-shape match: no padding, no chunking. Cheapest possible claim.
         cost=lambda **params: 0.0,
-        execution=ExecutionConfig(mode="fp32"),
+        execution=ExecutionConfig(fmt=ElementFormat.FP32),
     )

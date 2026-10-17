@@ -142,26 +142,26 @@ storage requirements in `SPEC`, independently of interactive debugging:
 
 ```python
 from ipu_apps.kernel_registry import ExecutionConfig, folder_spec
+from ipu_isa.formats import ElementFormat
 
 SPEC = folder_spec(
     MyApp,
     # op, supports, build, and the other kernel fields ...
-    execution=ExecutionConfig(mode="fp32"),
+    execution=ExecutionConfig(fmt=ElementFormat.FP32),
 )
 ```
 
-Modes are `native` (encoded elements), `fp32`, and `int32` (four-byte vector
-elements). `dtype` defaults to `DType.INT8`; `quantize_output` defaults to
-`False`, matching `IpuState()` defaults. The configuration is immutable and
+`fmt` is the element format the kernel runs in: an 8-bit format (`INT8`,
+`E1`..`E7`) or one of the emulator-only four-byte formats (`FP32`, `INT32`).
+It defaults to `ElementFormat.INT8`; `quantize_output` defaults to `False`,
+matching `IpuState()` defaults. The configuration is immutable and
 never contains mutable emulator state.
 
 For parameter-dependent arithmetic, use a selector receiving the constructed
 harness, for example fully connected's declaration:
 
 ```python
-execution=lambda app: ExecutionConfig(
-    mode="int32" if app.wide_mode else "native", dtype=app.dtype,
-)
+execution=lambda app: ExecutionConfig(fmt=app.fmt)
 ```
 
 The registry's `create_state(app)` builds fresh state; the base harness calls

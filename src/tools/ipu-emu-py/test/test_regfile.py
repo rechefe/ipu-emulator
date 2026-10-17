@@ -412,13 +412,11 @@ class TestIpuState:
         state.program_counter = 1024
         assert state.is_halted
 
-    def test_dtype_attribute(self):
-        from ipu_emu.ipu_math import DType
+    def test_format_attribute(self):
+        from ipu_isa.formats import ElementFormat
 
-        state = IpuState()
-        assert state.dtype == DType.INT8  # default
-        state.dtype = DType.E4
-        assert state.dtype == DType.E4
+        assert IpuState().fmt is ElementFormat.INT8  # default
+        assert IpuState(fmt=ElementFormat.E4).fmt is ElementFormat.E4
 
     def test_cr15_default_dstructure(self):
         state = IpuState()

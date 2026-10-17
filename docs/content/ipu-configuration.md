@@ -8,7 +8,7 @@ harnesses and tests.
 
 | Location | Purpose | How to set it in Python |
 | --- | --- | --- |
-| `IpuState.dtype` | Arithmetic data type used by emulator math paths. It is not stored in a `CR` register. | `state.dtype = DType.INT8` or `IpuState(dtype=DType.INT8)` |
+| `IpuState.fmt` | Element format: element and row bytes, accumulator type and vector registers. It is not stored in a `CR` register, and is read-only after construction. | `IpuState(fmt=ElementFormat.INT8)` or `state.reset(ElementFormat.E4)` |
 | `CR0` | Read-only constant zero. | Already initialized; writes raise `EmulatorError`. |
 | `CR1` | Read-only constant one. | Already initialized; writes raise `EmulatorError`. |
 | `CR2`-`CR14` | Application configuration such as base addresses, strides, loop bounds, and scalar constants. | `state.regfile.set_cr(index, value)` |
@@ -18,33 +18,28 @@ harnesses and tests.
 `LR_CR_SCALAR_VALUE_MASK` when encoding negative or wrapped constants for those
 registers.
 
-## Selecting dtype
+## Selecting the element format
 
-`dtype` is emulator-only state, not a `CR` value. Set it when constructing the
-state or in your app setup hook:
+The element format is emulator configuration, not a `CR` value. Choose it when
+constructing the state, or reset the state into another format:
 
 ```python
-from ipu_emu.ipu_math import DType
 from ipu_emu.ipu_state import IpuState
+from ipu_isa.formats import ElementFormat
 
-state = IpuState(dtype=DType.INT8)
+state = IpuState(fmt=ElementFormat.INT8)
 
-# Or update an existing state before execution.
-state.dtype = DType.E4
+# Or return an existing state to reset, in another format.
+state.reset(ElementFormat.E4)
 ```
 
-For `IpuApp` subclasses, store the selected dtype on the app and copy it into
-the state in `setup()`:
+`INT8` and `E1`-`E7` are the hardware formats; `FP32` and `INT32` are
+emulator-only four-byte formats (see [Wide-Vector Debug Mode](wide-vector-debug-mode.md)).
+`state.fmt` cannot be assigned, and an unknown format raises
+`ConfigurationError` when the state is built, never while a program runs.
 
-```python
-class MyApp(IpuApp):
-    def __init__(self, *, dtype: DType = DType.INT8, **kwargs) -> None:
-        super().__init__(**kwargs)
-        self.dtype = dtype
-
-    def setup(self, state: IpuState) -> None:
-        state.dtype = self.dtype
-```
+For `IpuApp` subclasses, declare the format in the kernel's `SPEC` with
+`ExecutionConfig(fmt=...)`; `app.make_state()` builds the state in it.
 
 ## Selecting element count and partition
 
@@ -108,9 +103,9 @@ Any element deactivated by the mask-and-shift logic above (see
 
 | `pad_mode` | Fill value | Notes |
 | --- | --- | --- |
-| `PadMode.ZERO` (default) | `0` | Matches historical behavior; valid for INT8 and float dtypes. |
-| `PadMode.POS_INF` | `+inf` | Float dtypes only — identity value for `min`-style reductions. |
-| `PadMode.NEG_INF` | `-inf` | Float dtypes only — identity value for `max`-style reductions (e.g. `ACC.MAX`). |
+| `PadMode.ZERO` (default) | `0` | Matches historical behavior; valid for every element format. |
+| `PadMode.POS_INF` | `+inf` | Float formats only — identity value for `min`-style reductions. |
+| `PadMode.NEG_INF` | `-inf` | Float formats only — identity value for `max`-style reductions (e.g. `ACC.MAX`). |
 
 ```python
 from ipu_isa.constants import PadMode
@@ -118,8 +113,8 @@ from ipu_isa.constants import PadMode
 state.set_cr_dstructure(valid_elements=128, partition=0, pad_mode=PadMode.NEG_INF)
 ```
 
-`POS_INF`/`NEG_INF` have no INT8 representation — using them while
-`state.dtype == DType.INT8` raises `EmulatorError`.
+`POS_INF`/`NEG_INF` have no integer representation — using them in INT8 or
+INT32 raises `EmulatorError`.
 
 ## Setting CR application constants
 
@@ -144,7 +139,6 @@ A common app setup combines all configuration in one place:
 
 ```python
 def setup(self, state: IpuState) -> None:
-    state.dtype = self.dtype
     state.set_cr_dstructure(valid_elements=128, partition=0)
 
     state.regfile.set_cr(2, OUTPUT_BASE_ADDR)

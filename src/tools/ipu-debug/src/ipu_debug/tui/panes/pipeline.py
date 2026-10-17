@@ -38,6 +38,7 @@ from ipu_debug.tui.pane import PaneDrawing, Rect, Reply
 from ipu_debug.tui.screen import overlay_style
 from ipu_debug.tui.tabs import TabSet
 from ipu_emu.ipu_state import IpuState
+from ipu_isa.formats import ElementFormat
 
 # The pane's first row is a border, its second the tab bar, its last a border.
 PIPELINE_NON_CONTENT_ROWS = 3
@@ -101,9 +102,14 @@ class PipelineTab:
         return f"{pipeline_spec(self.register_key).label} {self.fmt or 'auto'}"
 
 
+def _is_wide(state: IpuState) -> bool:
+    """*state* runs in a four-byte element format (FP32 or INT32)."""
+    return state.codec.element_bytes != 1
+
+
 def backing(state: IpuState, spec: PipelineRegisterSpec) -> str:
     """The register file entry holding *spec* in *state*'s mode."""
-    if state.wide_vector_debug and spec.wide_backing is not None:
+    if _is_wide(state) and spec.wide_backing is not None:
         return spec.wide_backing
     return spec.backing
 
@@ -117,9 +123,8 @@ def read_register(session: DebugSession, spec: PipelineRegisterSpec) -> bytes:
 
 def auto_format(state: IpuState, spec: PipelineRegisterSpec) -> str:
     """The format of a tab without one: the mode's arithmetic for the wide values."""
-    if state.wide_vector_debug and spec.key in _WIDE_VALUE_REGISTERS:
-        arithmetic = state.wide_vector_arithmetic.value
-        return "f32" if arithmetic == "fp32" else arithmetic
+    if _is_wide(state) and spec.key in _WIDE_VALUE_REGISTERS:
+        return "f32" if state.fmt is ElementFormat.FP32 else "int32"
     if spec.key in _WORD_REGISTERS:
         return "int32"
     return "hex"
@@ -130,14 +135,10 @@ def default_format(state: IpuState, spec: PipelineRegisterSpec) -> str:
     if spec.key == "r_mask":
         return "bits"
     if spec.key == "post_aaq_reg":
-        if state.wide_vector_debug and not state.wide_vector_quantize_output:
-            return "f32" if state.wide_vector_arithmetic.value == "fp32" else "int32"
+        if _is_wide(state) and not state.aaq.quantize_output:
+            return "f32" if state.fmt is ElementFormat.FP32 else "int32"
         return "int8"
-    if (
-        not state.wide_vector_debug
-        and state.dtype.value == 0
-        and spec.key in ("r0", "r1", "r_cyclic")
-    ):
+    if state.fmt is ElementFormat.INT8 and spec.key in ("r0", "r1", "r_cyclic"):
         return "int8"
     return auto_format(state, spec)
 
@@ -176,7 +177,7 @@ def item_spacing(state: IpuState, fmt: str, item_in_line: int) -> int:
         return 0
     if fmt == "cell16":
         return 1 if item_in_line % CELL16_CHARACTERS_PER_GROUP == 0 else 0
-    if fmt == "hex" and state.wide_vector_debug and item_in_line % HEX_BYTES_PER_GROUP == 0:
+    if fmt == "hex" and _is_wide(state) and item_in_line % HEX_BYTES_PER_GROUP == 0:
         return 2
     return 1
 

@@ -20,9 +20,10 @@ from ipu_as.lark_tree import assemble_to_bin_file
 from ipu_emu.cycle import Cycle, CycleOutcome
 from ipu_emu.emulator import load_program_from_binary, run_until_complete
 from ipu_emu.ipu import Ipu
-from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
+from ipu_emu.ipu_state import IpuState
 from ipu_emu.prototyping import build_enabled
 from ipu_isa.constants import encode_dstructure
+from ipu_isa.formats import ElementFormat
 
 _PACKED_ASM = Path(__file__).parent / "asm_packed_residual_add_240x16.asm"
 _N_PACKED_ROWS = 30
@@ -39,8 +40,7 @@ loop:
 
 def _residual_add_state(binary: Path, *, prototyping: bool = False) -> IpuState:
     state = IpuState(
-        wide_vector_debug=True,
-        wide_vector_arithmetic=WideVectorArithmetic.FP32,
+        fmt=ElementFormat.FP32,
         prototyping=prototyping,
     )
     load_program_from_binary(state, binary)

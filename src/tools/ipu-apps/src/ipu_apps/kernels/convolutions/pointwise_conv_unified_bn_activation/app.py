@@ -280,7 +280,7 @@ class PointwiseConvUnifiedBnActivationApp(IpuApp):
         # CR15.valid_elements = 128 to activate the full 128-lane chunk.
         # (Mults use mask_offset 0 / no masking, so partition is irrelevant; CR10
         # holds the bias base, CR15 holds the dstructure config.)
-        # With wide_vector_quantize_output=False, ACTIVATE (relu here, not
+        # With AaqOptions.quantize_output off, ACTIVATE (relu here, not
         # identity) writes FP32 into post_aaq_reg with no INT8 clamp.
         state.set_cr_dstructure(valid_elements=128)
 

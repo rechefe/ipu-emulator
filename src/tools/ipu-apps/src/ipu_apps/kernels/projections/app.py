@@ -73,6 +73,7 @@ from ipu_apps.kernel_registry import (
 )
 from ipu_apps.kernel_registry.base import IpuApp
 from ipu_emu.emulator import dump_xmem_to_binary
+from ipu_isa.formats import ElementFormat
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -390,5 +391,5 @@ def projection_spec(app_class: type[ProjectionP4App], *, activation: str = "none
         # Exact-shape match: no padding, no chunking. Cheapest possible claim;
         # no two projection kernels share a (k, n_out, activation).
         cost=lambda **params: 0.0,
-        execution=ExecutionConfig(mode="fp32"),
+        execution=ExecutionConfig(fmt=ElementFormat.FP32),
     )

@@ -18,8 +18,9 @@ from ipu_apps.kernels.normalize.layernorm_64x192.app import LayerNorm64x192App
 from ipu_as.lark_tree import assemble_to_bin_file
 from ipu_as.session import AssemblySession
 from ipu_emu.emulator import load_program_from_binary, run_until_complete
-from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
+from ipu_emu.ipu_state import IpuState
 from ipu_isa.constants import encode_dstructure
+from ipu_isa.formats import ElementFormat
 
 _PACKED_ASM_SRC = Path(__file__).parent / "asm_packed_layernorm_192x64.asm"
 
@@ -101,7 +102,7 @@ def test_packed_layernorm_correctness_and_cost(tmp_path: Path) -> None:
     rendered = AssemblySession(template_text).render()
     assemble_to_bin_file(rendered, str(packed_bin))
 
-    state = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
+    state = IpuState(fmt=ElementFormat.FP32)
     load_program_from_binary(state, packed_bin)
 
     state.xmem.write_address(DATA_BASE_ROW * ROW_BYTES, bytearray(_pack(X).tobytes()))

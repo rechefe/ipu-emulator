@@ -126,7 +126,9 @@ class FaithfulResolver:
                     source.get_lr(raw) if raw < LR_REG_COUNT else source.get_cr(raw - LR_REG_COUNT)
                 )
             elif code == READ_MULT_STAGE:
-                operands[read.name] = resolve_mult_stage(raw, source, state.wide_vector_debug)
+                operands[read.name] = resolve_mult_stage(
+                    raw, source, state.codec.element_bytes != 1
+                )
         return operands
 
 
@@ -194,5 +196,7 @@ class PackedResolver:
                         source.get_lr(raw) if code == READ_LR else source.get_cr(raw)
                     )
             elif code == READ_MULT_STAGE:
-                operands[read.name] = resolve_mult_stage(raw, source, state.wide_vector_debug)
+                operands[read.name] = resolve_mult_stage(
+                    raw, source, state.codec.element_bytes != 1
+                )
         return operands

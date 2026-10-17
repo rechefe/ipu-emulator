@@ -25,7 +25,8 @@ from ipu_as.lark_tree import assemble
 from ipu_emu.emulator import load_program
 from ipu_emu.errors import RegisterIndexError
 from ipu_emu.execute import BreakResult, Ipu, decode_instruction_word
-from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
+from ipu_emu.ipu_state import IpuState
+from ipu_isa.formats import ElementFormat
 
 #: XMEM row the probes load from and store to.
 ROW = 16
@@ -37,17 +38,12 @@ class Mode(Enum):
     """The element formats a probe runs in."""
 
     NARROW = "narrow"  # INT8 elements, int32 MULT_RES / R_ACC lanes
-    WIDE_FP32 = "wide_fp32"  # wide-vector debug mode, FP32 lanes
+    WIDE_FP32 = "wide_fp32"  # FP32 elements and lanes (emulator-only)
 
 
 def new_state(mode: Mode, *, prototyping: bool = False) -> IpuState:
     if mode is Mode.WIDE_FP32:
-        state = IpuState(
-            wide_vector_debug=True,
-            wide_vector_arithmetic=WideVectorArithmetic.FP32,
-            wide_vector_quantize_output=False,
-            prototyping=prototyping,
-        )
+        state = IpuState(fmt=ElementFormat.FP32, prototyping=prototyping)
     else:
         state = IpuState(prototyping=prototyping)
     state.set_cr_dstructure(valid_elements=LANES)
@@ -58,7 +54,7 @@ def new_state(mode: Mode, *, prototyping: bool = False) -> IpuState:
 
 
 def _wide(state: IpuState) -> bool:
-    return state.wide_vector_debug
+    return state.fmt is ElementFormat.FP32
 
 
 def _element_bytes(state: IpuState, values) -> bytes:

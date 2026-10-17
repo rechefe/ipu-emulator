@@ -56,8 +56,9 @@ from ipu_apps.kernels.softmax.softmax_rows_partial.app import SoftmaxRowsPartial
 from ipu_as.lark_tree import assemble_to_bin_file
 from ipu_as.session import AssemblySession
 from ipu_emu.emulator import load_program_from_binary, run_until_complete
-from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
+from ipu_emu.ipu_state import IpuState
 from ipu_isa.constants import Partition, encode_dstructure
+from ipu_isa.formats import ElementFormat
 
 N_CH = 192
 N_TOK = 64
@@ -618,7 +619,7 @@ def test_full_l4_layer_packed_end_to_end(tmp_path: Path) -> None:
         for slot, n in counts.items():
             total_instrs[slot] = total_instrs.get(slot, 0) + n
 
-    state = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
+    state = IpuState(fmt=ElementFormat.FP32)
     state.xmem.write_address(X_ROW * ROW_BYTES, bytearray(_pack(X).tobytes()))
 
     # ---- layernorm 1 ----

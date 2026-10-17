@@ -45,6 +45,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ipu_apps.kernel_registry import ExecutionConfig, folder_spec, kernel_folder, no, yes
+from ipu_isa.formats import ElementFormat
 
 QUERY_MAJOR = "query-major"
 KEY_MAJOR = "key-major"
@@ -170,5 +171,5 @@ def attention_spec(
         bundle=bundle,
         # Exact-shape match: no padding, no chunking. Cheapest possible claim.
         cost=lambda **params: 0.0,
-        execution=ExecutionConfig(mode="fp32"),
+        execution=ExecutionConfig(fmt=ElementFormat.FP32),
     )

@@ -34,17 +34,18 @@ from ipu_apps.kernel_registry import (
     no,
     yes,
 )
+from ipu_isa.formats import ElementFormat
 
 CONCAT_OP = "concat"
 
 UNFOLD_WIDE_VECTOR_ONLY = (
-    "Wide-vector FP32 debug mode only (wide_vector_debug=True). These apps "
+    "FP32 element format only (fmt=ElementFormat.FP32). These apps "
     "rearrange spatial data via ACC.STRIDE (unfold) or ACC.RESHAPE (fold) over "
     "the FP32 vector path and have no narrow (INT8/FP8) variant."
 )
 
 CONCAT_WIDE_VECTOR_ONLY = (
-    "Wide-vector FP32 debug mode only (wide_vector_debug=True). This app "
+    "FP32 element format only (fmt=ElementFormat.FP32). This app "
     "copies rows via the FP32 vector path (load -> MULT x1.0 -> ACC.ADD.FIRST "
     "-> ACTIVATE.QUANTIZE identity -> store) and has no narrow (INT8/FP8) "
     "variant."
@@ -131,7 +132,7 @@ def unfold_spec(
         bundle=lambda **params: unfold_query(params["shape"]).bundle,
         # Exact-shape match: no two kernels of one op share a triple.
         cost=lambda **params: 0.0,
-        execution=ExecutionConfig(mode="fp32"),
+        execution=ExecutionConfig(fmt=ElementFormat.FP32),
     )
 
 
@@ -204,5 +205,5 @@ def concat_spec(app_class, *, h: int, w: int, c_a: int, c_b: int):
         caveats=lambda **params: (CONCAT_WIDE_VECTOR_ONLY,),
         bundle=lambda **params: concat_query(params["shape"]).bundle,
         cost=lambda **params: 0.0,
-        execution=ExecutionConfig(mode="fp32"),
+        execution=ExecutionConfig(fmt=ElementFormat.FP32),
     )
