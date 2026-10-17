@@ -21,6 +21,15 @@ w = 384                      conv_universal_wide384
 w 385..400                   (not covered)
 ```
 
+`conv_universal` and `conv_universal_bn_activation` run as
+`//kernels/convolutions:conv_universal` and
+`//kernels/convolutions:conv_universal_bn_activation`, two entries of
+`kernels/convolutions/registry.toml` over one program,
+`kernels/convolutions/conv_universal_tpl`, and answer `bazel run //kernels:query`
+with the same eleven parameters, every one required. The `_bn_activation`
+entry takes `apply_relu=True` with or without a bias (a zero one);
+`has_bias=True, apply_relu=False` has no kernel.
+
 `conv_first_layer` covers only `3x256x256 -> 16x128x128`, stride 2, bias+ReLU.
 It runs as `//kernels/convolutions/conv_first_layer` and answers
 `bazel run //kernels:query -- conv2d ...` with the same eleven parameters.

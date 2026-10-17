@@ -1,0 +1,288 @@
+# conv_universal_tpl: the template of the 3x3 stride-1 "same" universal
+# convolution (E07-17), FP32 wide vectors. Its variants are the entries
+# conv_universal and conv_universal_bn_activation in ../registry.toml; the
+# program reads has_bias and apply_relu itself (see the .asm header). Routed
+# in the universal conv2d vocabulary: every one of its 11 parameters must be
+# named by a query, as the ipu_apps router's requires had it.
+[kernel]
+op = "conv2d"
+formats = ["fp32"]
+
+# Declared in the old supports' order (kernel_size, dilation, padding, stride,
+# groups), so a refusal names the parameter it named.
+[params]
+in_channels  = { type = "int", min = 1, query_required = true }
+out_channels = { type = "int", min = 1, query_required = true }
+height       = { type = "int", min = 1, query_required = true }
+width        = { type = "int", min = 1, max = 128, query_required = true }  # wider: conv_universal_wide384
+kernel_size  = { type = "int", choices = [3], query_required = true }
+dilation     = { type = "int", choices = [1], query_required = true }
+padding      = { type = "int", choices = [1], query_required = true }
+stride       = { type = "int", choices = [1], query_required = true }
+groups       = { type = "int", choices = [1], query_required = true }       # depthwise: its own kernels
+has_bias     = { type = "bool", query_required = true }
+apply_relu   = { type = "bool", query_required = true }
+
+[derived]
+# cols: the smallest of 16, 32, 64, 128 at least width (one packed spatial row
+# per mask-partition group); min(1, max(0, width - t)) is 1 when width > t.
+cols        = "16 + 16 * min(1, max(0, width - 16)) + 32 * min(1, max(0, width - 32)) + 64 * min(1, max(0, width - 64))"
+rows        = "max(height, ceil(256 / cols))"                # at least 2 chunks
+num_chunks  = "rows * cols // 128"                           # rounds down, as before (see the .asm header)
+fpb         = "28"                                           # channels per filter super-block
+kernel_rows = "out_channels * ceil(in_channels / 28) * 2"    # filter rows: 2 per super-block
+ring_adv    = "3 * 128"                                      # R_CYCLIC elements
+chunk_limit = "(num_chunks - 1) * in_channels + in_channels" # biased by the headroom stride
+slot_stride = "128"                                          # R_CYCLIC elements
+sb_rows     = "2"                                            # one super-block, in rows
+walk_step   = "3 * 128 - 2 * cols - 2"                       # R_CYCLIC elements
+dstructure  = "dstructure(128, 128 // cols - cols // 128)"   # partition: 128 / cols groups, P0 at 128
+
+# Placed in the old harness's order: input (with its headroom), filters, mask, output.
+[inputs.x]
+shape = ["in_channels", "height", "width"]
+pack = "chunked_guard"
+
+# The weights, then the bias, per filter: one region holds both (Q83), so one
+# tensor. The bias column is read only when the program is seeded.
+[inputs.filters]
+shape = ["out_channels", "in_channels * 9 + 1"]
+pack = "fpb28_filters"
+
+[scratch.border_mask]                                        # the R_MASK blob
+shape = [1, 128]
+after = "filters"
+bytes = "../masks.py:border_mask"
+
+[outputs.y]
+shape = ["out_channels", "height", "width"]
+pack = "chunked"
+
+# Every CR the ipu_apps setup() wrote (CR2-CR15; it wrote no LR).
+[abi]
+y           = "CR2"
+border_mask = "CR3"
+cols        = "CR4"
+filters     = "CR5"
+in_channels = "CR6"     # the group stride: one chunk of every channel is in_channels rows
+fpb         = "CR7"
+kernel_rows = "CR8"
+ring_adv    = "CR9"
+x           = "CR10"    # 0: the region base, headroom included
+chunk_limit = "CR11"
+slot_stride = "CR12"
+sb_rows     = "CR13"
+walk_step   = "CR14"
+dstructure  = "CR15"
+
+[golden]
+reference = "reference.py:reference"   # filters split, then the shared conv2d
+# y is an element output: compared in FP32. Measured on the ipu_apps data:
+# max |err| 5.7e-6 (in_channels 56, K = 504), where FP32_ORDER fails.
+tolerance = { fp32 = "FP32_LONG" }
+
+# The two ipu_apps kernels' cases and test sweeps (each entry chooses its
+# own, ../registry.toml). has_bias and apply_relu are the bias + ReLU twin's;
+# conv_universal's entry fixes both false.
+# A sweep point of one value per axis is named <case>[in_channels=..,...,width=..],
+# its old sweep id.
+
+[cases.default]  # both twins' cases.py DEFAULTS
+in_channels = 16
+out_channels = 4
+height = 16
+width = 16
+kernel_size = 3
+dilation = 1
+padding = 1
+stride = 1
+groups = 1
+has_bias = true
+apply_relu = true
+generator = "../gen.py:legacy_universal"  # the ipu_apps data, for the proof
+
+[cases.negative_outputs]  # conv_universal: weights -1 on input 5, every sum negative (test_conv_universal.py)
+in_channels = 4
+out_channels = 4
+height = 16
+width = 16
+kernel_size = 3
+dilation = 1
+padding = 1
+stride = 1
+groups = 1
+has_bias = true
+apply_relu = true
+generator = "../gen.py:legacy_universal_negative"  # the ipu_apps data, for the proof
+
+[cases.negative_bias]  # conv_universal_bn_activation: zero weights, bias below zero, so ReLU writes zeros (test_conv_universal.py)
+in_channels = 8
+out_channels = 2
+height = 16
+width = 16
+kernel_size = 3
+dilation = 1
+padding = 1
+stride = 1
+groups = 1
+has_bias = true
+apply_relu = true
+generator = "../gen.py:legacy_universal_negative_bias"  # the ipu_apps data, for the proof
+
+[cases.sweep_28x4]  # one full 28-channel super-block
+in_channels = [28]
+out_channels = [4]
+height = [16]
+width = [16]
+kernel_size = 3
+dilation = 1
+padding = 1
+stride = 1
+groups = 1
+has_bias = true
+apply_relu = true
+generator = "../gen.py:legacy_universal"  # the ipu_apps data, for the proof
+
+[cases.sweep_56x4]  # two full super-blocks (the bias is seeded once)
+in_channels = [56]
+out_channels = [4]
+height = [16]
+width = [16]
+kernel_size = 3
+dilation = 1
+padding = 1
+stride = 1
+groups = 1
+has_bias = true
+apply_relu = true
+generator = "../gen.py:legacy_universal"  # the ipu_apps data, for the proof
+
+[cases.sweep_10x4]  # one partial super-block
+in_channels = [10]
+out_channels = [4]
+height = [16]
+width = [16]
+kernel_size = 3
+dilation = 1
+padding = 1
+stride = 1
+groups = 1
+has_bias = true
+apply_relu = true
+generator = "../gen.py:legacy_universal"  # the ipu_apps data, for the proof
+
+[cases.sweep_32x32]  # several chunks, several filters
+in_channels = [16]
+out_channels = [8]
+height = [32]
+width = [32]
+kernel_size = 3
+dilation = 1
+padding = 1
+stride = 1
+groups = 1
+has_bias = true
+apply_relu = true
+generator = "../gen.py:legacy_universal"  # the ipu_apps data, for the proof
+
+[cases.sweep_cols128]  # cols = 128, partition P0
+in_channels = [4]
+out_channels = [2]
+height = [8]
+width = [128]
+kernel_size = 3
+dilation = 1
+padding = 1
+stride = 1
+groups = 1
+has_bias = true
+apply_relu = true
+generator = "../gen.py:legacy_universal"  # the ipu_apps data, for the proof
+
+[cases.sweep_cols128_partial]  # cols = 128, a partial super-block
+in_channels = [16]
+out_channels = [4]
+height = [8]
+width = [128]
+kernel_size = 3
+dilation = 1
+padding = 1
+stride = 1
+groups = 1
+has_bias = true
+apply_relu = true
+generator = "../gen.py:legacy_universal"  # the ipu_apps data, for the proof
+
+[cases.sweep_pad8]  # 8x8 padded to 16x16
+in_channels = [4]
+out_channels = [2]
+height = [8]
+width = [8]
+kernel_size = 3
+dilation = 1
+padding = 1
+stride = 1
+groups = 1
+has_bias = true
+apply_relu = true
+generator = "../gen.py:legacy_universal"  # the ipu_apps data, for the proof
+
+[cases.sweep_pad5]  # 5x5 padded to 16x16
+in_channels = [4]
+out_channels = [2]
+height = [5]
+width = [5]
+kernel_size = 3
+dilation = 1
+padding = 1
+stride = 1
+groups = 1
+has_bias = true
+apply_relu = true
+generator = "../gen.py:legacy_universal"  # the ipu_apps data, for the proof
+
+[cases.sweep_w100]  # conv_universal: width 100 padded to 128
+in_channels = [3]
+out_channels = [4]
+height = [8]
+width = [100]
+kernel_size = 3
+dilation = 1
+padding = 1
+stride = 1
+groups = 1
+has_bias = true
+apply_relu = true
+generator = "../gen.py:legacy_universal"  # the ipu_apps data, for the proof
+
+[cases.sweep_w127]  # conv_universal_bn_activation: width 127
+in_channels = [3]
+out_channels = [5]
+height = [4]
+width = [127]
+kernel_size = 3
+dilation = 1
+padding = 1
+stride = 1
+groups = 1
+has_bias = true
+apply_relu = true
+generator = "../gen.py:legacy_universal"  # the ipu_apps data, for the proof
+
+# The two ipu_apps benchmark.py CONFIGS (10 and 9 points), as one list: each
+# entry times all 11 (max_cycles was MAX_CYCLES).
+[benchmark]
+max_cycles = 50_000_000
+points = [
+    { height = 16, width = 16, in_channels = 28, out_channels = 4 },
+    { height = 16, width = 16, in_channels = 16, out_channels = 4 },
+    { height = 16, width = 16, in_channels = 56, out_channels = 4 },
+    { height = 32, width = 32, in_channels = 28, out_channels = 8 },
+    { height = 32, width = 32, in_channels = 32, out_channels = 16 },
+    { height = 32, width = 32, in_channels = 16, out_channels = 32 },
+    { height = 64, width = 64, in_channels = 32, out_channels = 32 },
+    { height = 64, width = 64, in_channels = 28, out_channels = 28 },
+    { height = 64, width = 64, in_channels = 28, out_channels = 14 },
+    { height = 32, width = 32, in_channels = 64, out_channels = 8 },
+    { height = 16, width = 16, in_channels = 84, out_channels = 4 },
+]

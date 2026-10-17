@@ -7,6 +7,7 @@ load("@rules_python//python:defs.bzl", "py_binary")
 load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
 load("//tools:lint.bzl", "ruff_test")
 load(":defs.bzl", "ipu_kernel_tree")
+load("//kernels/convolutions:registry.bzl", CONVOLUTIONS = "ENTRIES")
 load("//kernels/elementwise:registry.bzl", ELEMENTWISE = "ENTRIES")
 load("//kernels/projections:registry.bzl", PROJECTIONS = "ENTRIES")
 load("//kernels/reshape:registry.bzl", RESHAPE = "ENTRIES")
@@ -25,6 +26,7 @@ exports_files([
 # generated registry.bzl: load("//kernels/<family>:registry.bzl", <FAMILY> =
 # "ENTRIES") above and "<family>": <FAMILY> here. test_kernel_tree checks it.
 REGISTRIES = {
+    "convolutions": CONVOLUTIONS,
     "elementwise": ELEMENTWISE,
     "projections": PROJECTIONS,
     "reshape": RESHAPE,

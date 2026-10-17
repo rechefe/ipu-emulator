@@ -1,9 +1,11 @@
 """Shared code for the convolution kernels: harness bases, host-side packing and SPEC helpers.
 
 The tiled kernels (``conv1x1``, ``conv3x3_relu``, ``conv3x3_relu_cin1``) and
-``conv_first_layer`` moved to ``kernels/convolutions`` (E07-16).
+``conv_first_layer`` moved to ``kernels/convolutions`` (E07-16), and so did
+``conv_universal`` and ``conv_universal_bn_activation`` (E07-17); the old
+``conv_universal`` folder stays, frozen, for the Cycle Inspector (E07-26).
 
-**Universal kernels** -- ``conv_universal``, ``conv_universal_bn_activation``,
+**Universal kernels** -- ``conv_universal`` (the frozen copy),
 ``conv_universal_wide384``, ``depthwise_conv_universal``,
 ``depthwise_conv_universal_bn_activation``, the three
 ``depthwise_conv_stride2_*`` kernels and the two ``pointwise_conv_unified*``
@@ -231,8 +233,9 @@ def build_border_mask_blob(cols: int) -> bytes:
       slot 6 (bottom row) -> ZERO the last packed row (gN section kr=+1 taps)
 
     One blob carries all three; the asm selects slot 3 in g0 and slot 6 in gN,
-    so no mid-program R_MASK reload is needed. Shared by conv_universal,
-    conv_universal_bn_activation and both depthwise_conv_universal kernels.
+    so no mid-program R_MASK reload is needed. Shared by conv_universal and
+    both depthwise_conv_universal kernels (kernels/convolutions/masks.py's
+    border_mask is the new kernels' copy, E07-17).
     """
     rows_per_chunk = 128 // cols
     top_bits = set(range(0, cols))  # row 0

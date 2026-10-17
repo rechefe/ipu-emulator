@@ -195,20 +195,6 @@
   "blank-line-range": "7d0fd7ffb76e1ccdd652800fd46f77d67de40f9cceb4574f1b146f2493f23bd9",
   "mangled/blank-line-range": "0290ae6b98460d0d81ee7d60ad36ada0134d40921b354c6c5505e5602af5aede"
  },
- "src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/conv_universal_bn_activation/conv_universal_bn_activation.asm": {
-  "input": "032c8ce41b865b8ec4209014595605b59b7896fb355f6a2001c6234e070ffaea",
-  "mangled": "504faf9969ba51a94cb671c2f5cb7ea18767aa38a90e9b365b946a55ae41215f",
-  "default": "032c8ce41b865b8ec4209014595605b59b7896fb355f6a2001c6234e070ffaea",
-  "mangled/default": "032c8ce41b865b8ec4209014595605b59b7896fb355f6a2001c6234e070ffaea",
-  "blank-line": "ee0575f981739a7da9c661f5b535843a86f271f7a7f9a8712cb6d22f4f5e9827",
-  "mangled/blank-line": "ee0575f981739a7da9c661f5b535843a86f271f7a7f9a8712cb6d22f4f5e9827",
-  "indent-tab": "4c8645acc01b02154774ac0daa70c044685d919ea1892d742afbbfc119373e8e",
-  "mangled/indent-tab": "4c8645acc01b02154774ac0daa70c044685d919ea1892d742afbbfc119373e8e",
-  "indent-2-range": "f0c863a19cdd7a0edc615c746d14319a7172e6ebdcb9a98d73a800b84de3b994",
-  "mangled/indent-2-range": "39a9b2d835c9dab3330c1ab31262138d81b6d4ced606aab7db298978b7cfdab6",
-  "blank-line-range": "14e425cef3bf13b6877906d625de16c3c658938fdb5044f460a827e6f630e106",
-  "mangled/blank-line-range": "f42ed421e950b8443c44d3b59d7a2966f6304c1a3359db2d7aa48819340b8626"
- },
  "src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/conv_universal_wide384/conv_universal_wide384.asm": {
   "input": "30869c6e79eaa0d45beec60e8466841d1d2f088986cccdb01fd898c339fa67a8",
   "mangled": "c5f76c8817518d7efe1edaceacdbcec57c3df5f3a5010ae291100346c1013d27",

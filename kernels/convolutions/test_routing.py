@@ -6,7 +6,8 @@ Two ``conv2d`` vocabularies share the op. The tiled kernels (``conv1x1``,
 ``width``, ``out_channels``, ``kernel_size``, ``stride``, ``padding`` and
 ``activation``, every one required (``ipu_apps`` named the image ``shape=(c,
 h, w)``, a tuple no ``kernel.toml`` parameter can be). The universal kernels
-(``conv_first_layer`` so far) take the eleven fields of a ``torch.nn.Conv2d``
+(``conv_first_layer``; ``conv_universal`` and ``conv_universal_bn_activation``,
+E07-17) take the eleven fields of a ``torch.nn.Conv2d``
 query, ``dilation``, ``groups``, ``has_bias`` and ``apply_relu`` among them.
 A query in one vocabulary names a parameter the other's kernels lack, so it
 reaches only its own kernels.
@@ -70,11 +71,13 @@ def test_both_conv2d_vocabularies_resolve_to_their_own_kernels(registry):
 
 
 def test_a_universal_query_names_parameters_no_tiled_kernel_takes(registry):
-    # The tiled kernels' shape, asked in the universal vocabulary: refused by name.
+    # The tiled kernels' shape, asked in the universal vocabulary: every tiled
+    # kernel refuses it by name (a universal kernel takes it, E07-17).
     params = tiled(3) | dict(dilation=1, groups=1, has_bias=True, apply_relu=True)
     del params["activation"]
     verdict = registry.resolve("conv2d", **params)
-    assert not verdict
+    assert verdict.kernel_name == "conv_universal_bn_activation", verdict.reason
+    assert not TILED & set(verdict.alternatives)
     for name in TILED:
         assert registry.kernel(name).params.keys().isdisjoint({"dilation", "groups", "has_bias"})
 
@@ -154,3 +157,98 @@ def test_the_query_tool_gives_the_same_answer(registry, params, kernel, capsys):
     assert query.main([*argv, "--json"], registry) == 0
     answer = json.loads(capsys.readouterr().out)
     assert (answer["app"], answer["use"]) == (kernel, f"//kernels/convolutions/{kernel}")
+
+
+# -- the universal 3x3 kernels (E07-17): conv_universal and its bias + ReLU twin
+
+
+def universal(**overrides):
+    """A universal-vocabulary query for the 3x3 stride-1 same-padding kernels."""
+    params = dict(
+        in_channels=3,
+        out_channels=4,
+        kernel_size=3,
+        stride=1,
+        padding=1,
+        dilation=1,
+        groups=1,
+        has_bias=False,
+        apply_relu=False,
+        height=16,
+        width=16,
+    )
+    return params | overrides
+
+
+@pytest.mark.parametrize(
+    "has_bias,apply_relu,kernel",
+    [
+        (False, False, "conv_universal"),
+        (True, True, "conv_universal_bn_activation"),
+        (False, True, "conv_universal_bn_activation"),  # a zero bias
+        (True, False, None),  # no kernel: every bias-capable 3x3 kernel applies ReLU
+    ],
+)
+def test_bias_and_relu_choose_the_universal_kernel(registry, has_bias, apply_relu, kernel):
+    verdict = registry.resolve("conv2d", **universal(has_bias=has_bias, apply_relu=apply_relu))
+    assert verdict.kernel_name == kernel, verdict.reason
+    if kernel is not None:
+        assert verdict.label == f"//kernels/convolutions:{kernel}"
+
+
+@pytest.mark.parametrize("missing", list(universal()))
+def test_a_universal_query_must_name_every_parameter(registry, missing):
+    # As ipu_apps' requires: a parameter left out is refused, not defaulted.
+    params = universal()
+    del params[missing]
+    verdict = registry.resolve("conv2d", **params)
+    assert not verdict
+    assert missing in verdict.reason
+
+
+@pytest.mark.parametrize(
+    "params,reason",
+    [
+        (universal(kernel_size=5, padding=2), "kernel_size"),
+        (universal(dilation=2, padding=2), "dilation"),
+        (universal(padding=0), "padding"),
+        (universal(stride=3), "stride"),
+        (universal(in_channels=4, groups=2), "groups"),
+        (universal(has_bias=True), "apply_relu"),
+        (universal(width=200), "width"),
+        (universal(in_channels=0), "in_channels"),
+    ],
+)
+def test_universal_refusals(registry, params, reason):
+    verdict = registry.resolve("conv2d", **params)
+    assert not verdict
+    assert reason in verdict.reason
+
+
+@pytest.mark.parametrize("width", [1, 16, 17, 100, 127, 128])
+def test_widths_up_to_128_route_to_conv_universal(registry, width):
+    assert registry.resolve("conv2d", **universal(width=width)).kernel_name == "conv_universal"
+
+
+def test_width_129_is_refused(registry):
+    # ipu_apps' conv_universal_wide384 takes some wider images (E07-19).
+    verdict = registry.resolve("conv2d", **universal(width=129))
+    assert not verdict
+    assert "width" in verdict.reason
+
+
+@pytest.mark.parametrize(
+    "params,kernel",
+    [
+        (universal(), "conv_universal"),
+        (universal(has_bias=True, apply_relu=True), "conv_universal_bn_activation"),
+    ],
+)
+def test_the_query_tool_names_the_entry(registry, params, kernel, capsys):
+    argv = [
+        "conv2d",
+        *(f"{k}={str(v).lower() if isinstance(v, bool) else v}" for k, v in params.items()),
+    ]
+    assert query.main([*argv, "--json"], registry) == 0
+    answer = json.loads(capsys.readouterr().out)
+    assert (answer["app"], answer["use"]) == (kernel, f"//kernels/convolutions:{kernel}")
