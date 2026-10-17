@@ -10,11 +10,7 @@ IPU emulator and assembler toolchain implemented in Python. Includes a sample `f
 Python Packages
 ---------------
 
-| Package | Path | Description |
-|---------|------|-------------|
-| `ipu_isa` | `src/tools/ipu-isa/` | Shared types, register schema, instruction spec |
-| `ipu_as` | `src/tools/ipu-as-py/` | IPU assembler (`.asm` → binary) |
-| `ipu_emu` | `src/tools/ipu-emu-py/` | IPU emulator |
+The toolchain is one Python package per directory under `src/tools/`. [Architecture](docs/content/explanation/architecture.md) lists them, what each owns, which way their dependencies point, and where to make a change.
 
 Quick Start
 -----------
@@ -135,13 +131,8 @@ bazel run --config=debug //src/tools/ipu-apps:identity
 bazel run --config=debug //src/tools/ipu-apps:softmax_rows_partial -- --n 32 --rows 8
 ```
 
-This uses the same registry harness and input cases as normal execution,
-opening the TUI after setup and before the first instruction. Kernel code
-needs no debugger imports or special entry point. F8 steps, F5 continues, F9
-toggles a breakpoint, F10 runs to the selected instruction, and F11 maximizes
-the focused pane. `q` or Ctrl-C cancels cleanly without checking partial output.
-The terminal must be interactive; the deprecated CLI is not a TUI fallback.
-
-`--config=debug` is a native repository Bazel configuration. Use full targets
-and normal `test_<kernel>` labels; no custom `bazel debug` command or wrapper
-is installed. See [debugger documentation](docs/content/debugging.md) for all controls.
+The run stops in the debugger before the first instruction word, with the
+same case and options as an ordinary run. An interactive terminal is required.
+[Debug a kernel](docs/content/how-to/debug-a-kernel.md) explains the workflow,
+and the [debugger controls](docs/content/reference/cli.md#debugger) list every
+key.

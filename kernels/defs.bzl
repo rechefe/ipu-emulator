@@ -85,7 +85,7 @@ def _test_deps(family_package):
         requirement("torch"),
     ]
 
-def ipu_kernel(name = None, extra_deps = [], size = "large", shard_count = None):
+def ipu_kernel(name = None, extra_deps = [], size = "large", shard_count = None, uses = []):
     """Declare kernel `name` from its folder.
 
     Args:
@@ -95,6 +95,9 @@ def ipu_kernel(name = None, extra_deps = [], size = "large", shard_count = None)
         shard_count: shards of :<name> and :<name>_nightly; set it for a kernel
             with more than about 60 case x format runs, so a shard keeps inside
             the CI budget (Starlark cannot read kernel.toml to count them).
+        uses: kernels of the same family whose programs this one's stages
+            hook runs (E06-14: `ctx.run_stage("../<kernel>/<any>.asm")`), by
+            folder name; their files become this kernel's data.
     """
     name = name or native.package_name().rpartition("/")[2]
     files = native.glob(
@@ -107,20 +110,18 @@ def ipu_kernel(name = None, extra_deps = [], size = "large", shard_count = None)
         visibility = ["//visibility:public"],
     )
     # The family is the parent package. Its library and files only (E06-18):
-    # editing another family's kernel reruns none of these tests.
+    # editing another family's kernel reruns none of these tests. `uses` adds a
+    # same-family kernel's files (E06-14 stages).
     family = native.package_name().rpartition("/")[0]
+    data = files + ["//" + family + ":files"] + [
+        "//" + family + "/" + used + ":" + used + "_files"
+        for used in uses
+    ]
     # The folder's Python (reference.py, test_*.py), in //kernels:lint.
     ruff_test(name = "ruff", srcs = native.glob(["**/*.py"]))
-    _kernel_targets(
-        name,
-        "$(rootpath kernel.toml)",
-        files + ["//" + family + ":files"],
-        _test_deps(family) + extra_deps,
-        size,
-        shard_count,
-    )
+    _kernel_targets(name, "$(rootpath kernel.toml)", data, _test_deps(family) + extra_deps, size, shard_count)
 
-def ipu_kernel_family(entries = [], kernels_lib = None, extra_deps = []):
+def ipu_kernel_family(entries = [], kernels_lib = None, extra_deps = [], size = "large", shard_count = {}):
     """Declare one family, //kernels/<family> (E06-18), and its registry entries (E06-17).
 
     * :lib: the family's Python, ipu_kernels.<family> (packs, stages, layer
@@ -142,6 +143,9 @@ def ipu_kernel_family(entries = [], kernels_lib = None, extra_deps = []):
             outside kernels/ names the shared one.
         extra_deps: libraries the template folders' Python imports, for the
             entries' tests (as ipu_kernel()'s).
+        size: the test size of each :<entry>, as ipu_kernel()'s.
+        shard_count: shards of :<entry> and :<entry>_nightly, by entry name,
+            for an entry with more than about 60 case x format runs.
     """
     package = native.package_name()
     family = package.rpartition("/")[2]
@@ -188,8 +192,8 @@ def ipu_kernel_family(entries = [], kernels_lib = None, extra_deps = []):
             "$(rootpath registry.toml)::" + name,
             ["registry.toml", ":files", "//%s/%s:%s_files" % (package, template, template)],
             _test_deps(package) + extra_deps,
-            "large",
-            None,
+            size,
+            shard_count.get(name),
         )
 
 def _label(kernel, target):

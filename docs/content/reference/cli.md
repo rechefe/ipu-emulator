@@ -106,7 +106,7 @@ bazel run --config=debug //src/tools/ipu-apps:identity -- --case single_row
 ```
 
 `--config=debug` sets `IPU_DEBUG_TUI=1` (`.bazelrc`). An interactive terminal
-is required. [Debug a kernel](../debugging.md) explains the panes and the tab
+is required. [Debug a kernel](../how-to/debug-a-kernel.md) explains the panes and the tab
 editor. The controls, from the debugger's own key table:
 
 --8<-- "generated/cli/debugger-keys.md"

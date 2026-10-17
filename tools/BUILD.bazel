@@ -6,6 +6,8 @@ load("//tools:lint.bzl", "ruff_test")
 exports_files([
     # Read by //:glossary_adoption_test.
     "glossary_baseline.json",
+    # Read by //docs:architecture_page (the Architecture page's package table).
+    "import_graph.toml",
     "mypy_runner.py",
     "requirements-tools.in",
     "ruff_runner.py",

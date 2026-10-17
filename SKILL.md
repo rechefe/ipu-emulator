@@ -16,12 +16,12 @@ The rules agents must never break are in [CLAUDE.md](CLAUDE.md), under "Key Cons
 | Task or topic | Page |
 |---|---|
 | Build and run tests | [CLAUDE.md](CLAUDE.md), "Build & Test" |
-| Packages and where the code lives | [README.md](README.md), "Python Packages"; kernels: [adding-applications.md](docs/content/adding-applications.md) |
+| Packages, their dependencies and where to change what | [explanation/architecture.md](docs/content/explanation/architecture.md); kernels: [adding-applications.md](docs/content/adding-applications.md) |
 | Write a kernel | [building-applications.md](docs/content/building-applications.md) |
 | Register a kernel (folder contract, Bazel targets) | [adding-applications.md](docs/content/adding-applications.md) |
 | Kernel catalogue | [kernels/index.md](docs/content/kernels/index.md) |
 | Add an instruction or pseudo-instruction | [Add an instruction](docs/content/how-to/add-an-instruction.md) |
-| Debug a kernel | [debugging.md](docs/content/debugging.md) |
+| Debug a kernel | [how-to/debug-a-kernel.md](docs/content/how-to/debug-a-kernel.md) |
 | Instructions, slots and operands | generated [Instructions](https://rechefe.github.io/ipu-emulator/dev/reference/isa/instructions/) and [Operand types](https://rechefe.github.io/ipu-emulator/dev/reference/isa/operand-types/) |
 | Assembly syntax, registers, instruction words | generated [Assembly syntax](https://rechefe.github.io/ipu-emulator/dev/reference/isa/assembly-syntax/) |
 | Bit layout of the instruction word | generated [Instruction format](https://rechefe.github.io/ipu-emulator/dev/reference/isa/instruction-format/) |
@@ -33,9 +33,9 @@ The rules agents must never break are in [CLAUDE.md](CLAUDE.md), under "Key Cons
 | Reference-model API | [reference/reference-model-api.md](docs/content/reference/reference-model-api.md); the decision: [ADR 0004](docs/adr/0004-stable-reference-model-api.md) |
 | Driving the reference model from a cocotb testbench | [how-to/reference-model-cocotb.md](docs/content/how-to/reference-model-cocotb.md) |
 | Conformance suite (cases as data, running them in an RTL testbench) | [src/tools/ipu-isa/conformance/README.md](src/tools/ipu-isa/conformance/README.md) |
-| Architecture | [explanation/architecture.md](docs/content/explanation/architecture.md) (stub, E09-17); meanwhile [docs/adr/](docs/adr/) |
+| Architecture (life of a program, the single source of truth) | [explanation/architecture.md](docs/content/explanation/architecture.md); decisions in [docs/adr/](docs/adr/) |
 | Timing model (cycle-start and forwarded values) | [explanation/timing-model.md](docs/content/explanation/timing-model.md); decision in [ADR 0002](docs/adr/0002-timing-contract.md) |
-| Prototyping mode | [prototyping-mode.md](docs/content/prototyping-mode.md) |
+| Prototyping mode | [explanation/architecture.md](docs/content/explanation/architecture.md), "Faithful and prototyping execution" |
 | ISA idioms and kernel coverage | [isa-alias-catalogue.md](docs/content/isa-alias-catalogue.md), [app-coverage.md](docs/content/app-coverage.md) |
 | Hardware specs and requirements | [specs/](docs/content/specs/), [requirements/index.md](docs/content/requirements/index.md) |
 | Open questions | [requirements/open-questions.md](docs/content/requirements/open-questions.md) |

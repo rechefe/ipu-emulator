@@ -25,6 +25,10 @@ plugins:
         ipu-configuration.md: reference/isa/configuration-registers.md
         # E09-19 folded the emulator-only formats into the element-formats page.
         wide-vector-debug-mode.md: explanation/element-formats.md
+        # E09-12 replaced the debugger page with the debug how-to.
+        debugging.md: how-to/debug-a-kernel.md
+        # E09-17 folded prototyping mode into the architecture page.
+        prototyping-mode.md: explanation/architecture.md
   - git-revision-date-localized:
       enable_creation_date: true
       type: timeago
@@ -95,7 +99,7 @@ nav:
       - Write a kernel: building-applications.md            # E09-09
       - Register a kernel: adding-applications.md           # E09-09 merges it
       - Add an instruction: how-to/add-an-instruction.md    # E09-11
-      - Debug a kernel: debugging.md                        # E09-12; the Cycle Inspector page (E08) goes here
+      - Debug a kernel: how-to/debug-a-kernel.md            # E09-12
       - Step through a kernel run: debugging-inspector.md   # E08-17; E09 decides its final place
       - Cycle Inspector: inspector/index.html               # E08-17: the static viewer page
       - Use the reference model from cocotb: how-to/reference-model-cocotb.md   # E09-13
@@ -124,8 +128,7 @@ nav:
       - Glossary: reference/glossary.md
   - Explanation:
       - explanation/index.md
-      - Architecture: explanation/architecture.md           # placeholder, E09-17
-      - Prototyping mode: prototyping-mode.md               # E09-17 folds it in
+      - Architecture: explanation/architecture.md           # E09-17; package table generated (docs/architecture_page.py)
       - Timing model: explanation/timing-model.md
       - Element formats: explanation/element-formats.md
       - ISA idioms: isa-alias-catalogue.md                  # E09-10

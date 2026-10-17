@@ -43,8 +43,9 @@ from ipu_harness.debug import DebugLaunch, attach_alias_profile, debug_run, new_
 from ipu_harness.manifest import KernelManifest, TensorDecl
 from ipu_harness.packing import pack, stored_format, stored_rows, unpack
 from ipu_harness.params import CasePlan, plan_case
-from ipu_harness.placement import Placement, place
+from ipu_harness.placement import Placement, check_aaq_spill, place
 from ipu_harness.reference import evaluate, load_reference
+from ipu_harness.stages import StageOptions, StagesRun, run_stages
 from ipu_isa.codec.word import word_bytes
 from ipu_isa.faults import FaultId
 from ipu_isa.formats import FORMATS, ElementFormat
@@ -59,6 +60,7 @@ __all__ = [
     "RunFault",
     "RunOptions",
     "RunResult",
+    "SharedModel",
     "Staged",
     "run_kernel",
     "stage",
@@ -135,6 +137,26 @@ Executor = Callable[[RunContext], None]
 
 
 @dataclass(frozen=True)
+class SharedModel:
+    """A run on a model an earlier run left its state in (E06-15's ``Chain``).
+
+    Attributes:
+        model: The model; it keeps its XMEM between runs.
+        inputs: The input tensors to pack and write, by name, as the format
+            holds them (``cases.checked_input``).
+        pinned: Inputs already in XMEM, by name, at these base rows: placed
+            there, not written. Every input is in ``inputs`` or here, not both.
+        check: Hold the outputs to their goldens (an intermediate step of a
+            chain need not; its result then has no comparisons).
+    """
+
+    model: ReferenceModel
+    inputs: Mapping[str, Array]
+    pinned: Mapping[str, int]
+    check: bool = False
+
+
+@dataclass(frozen=True)
 class RunFault:
     """The hardware fault a run stopped on.
 
@@ -174,6 +196,11 @@ class RunResult:
         quit: The user quit the debugger: the run has no result (no outputs,
             no comparisons) and did not pass.
         halted: The run reached ``HALT``.
+        stages: A multi-stage kernel's stages (E06-14), each as its program
+            and the words it retired; ``cycles`` is their sum. Empty for a
+            one-program kernel.
+        placement: Where the case's tensors were in XMEM (E06-15 chains an
+            output region into the next kernel's input).
     """
 
     kernel: str
@@ -188,6 +215,8 @@ class RunResult:
     alias_profile: AliasProfile | None = None
     quit: bool = False
     halted: bool = True
+    stages: tuple[tuple[str, int], ...] = ()
+    placement: Placement | None = None
 
     @property
     def passed(self) -> bool:
@@ -204,6 +233,8 @@ class RunResult:
             f"MAC util={self.mac_utilization * 100:.1f}%"
         )
         parts = [head]
+        if self.stages:
+            parts.append("stages " + " ".join(f"{p}={c}" for p, c in self.stages))
         if self.fault is not None:
             parts.append(f"fault {self.fault.describe()}")
         parts.extend(
@@ -331,6 +362,71 @@ def _execute(
     return model.run(options.max_cycles), profile
 
 
+def _execute_stages(
+    model: ReferenceModel,
+    plan: CasePlan,
+    placement: Placement,
+    case: Case,
+    options: RunOptions,
+    cache: AssemblyCache | None,
+) -> tuple[ModelRun | None, AliasProfile | None, StagesRun]:
+    """Run a multi-stage kernel's hook (E06-14) as ``options`` say: one
+    profile over every stage, each stage in the debugger, a trace per stage."""
+    manifest = plan.manifest
+    profile = None
+    if options.alias_profile:
+        profile = new_alias_profile(kernel=manifest.name, case=case.name, format=plan.format.value)
+        attach_alias_profile(model, profile)
+    debug = options.debug
+    staged = run_stages(
+        plan,
+        placement,
+        model,
+        cache=cache,
+        options=StageOptions(
+            max_cycles=options.max_cycles,
+            debug=debug.hook(manifest.name) if debug is not None else None,
+            break_on_entry=debug.break_on_entry if debug is not None else False,
+            trace=options.trace,
+        ),
+    )
+    return staged.result, profile, staged
+
+
+def _shared_inputs(plan: CasePlan, shared: SharedModel) -> Mapping[str, Array]:
+    """``shared``'s array inputs, once its inputs are checked to be the kernel's."""
+    manifest = plan.manifest
+    declared = {t.name for t in manifest.tensors.values() if t.role == "input"}
+    given = [*shared.inputs, *shared.pinned]
+    if sorted(given) != sorted(declared):
+        raise ConfigurationError(
+            f"{manifest.name} takes inputs {sorted(declared)}, given {sorted(given)}"
+        )
+    return shared.inputs
+
+
+def _write_tensors(
+    model: ReferenceModel,
+    plan: CasePlan,
+    placement: Placement,
+    inputs: Mapping[str, Array],
+    shared: SharedModel | None,
+) -> Mapping[str, Array]:
+    """Write every input and scratch region but the pinned inputs, which are
+    already in XMEM; return every input's values, the pinned ones read back
+    (for the goldens)."""
+    inputs = dict(inputs)
+    for tensor in plan.manifest.tensors.values():
+        if tensor.role == "input" and shared is not None and tensor.name in shared.pinned:
+            data = _read_region(model, plan, placement, tensor)
+            inputs[tensor.name] = unpack(tensor, data, plan)
+        elif tensor.role == "input":
+            _write_region(model, plan, placement, tensor, pack(tensor, inputs[tensor.name], plan))
+        elif tensor.role == "scratch":
+            _write_region(model, plan, placement, tensor, _scratch_fill(tensor, plan, placement))
+    return inputs
+
+
 @dataclass(frozen=True)
 class Staged:
     """A case loaded into a model, every register written, not yet run.
@@ -358,6 +454,28 @@ class Staged:
         return region.base_row * row_bytes, region.rows * row_bytes
 
 
+def _prepare(
+    manifest: KernelManifest,
+    case: Case,
+    fmt: ElementFormat,
+    inputs: Mapping[str, Path] | None,
+    shared: SharedModel | None,
+) -> tuple[CasePlan, Mapping[str, Array], Placement]:
+    """The checked case, its inputs (``shared``'s, when given) and its placement."""
+    plan = plan_case(manifest, case.values, fmt, case=case.decl)
+    if shared is None:
+        values = inputs_for(case, plan, overrides=inputs or {}).tensors
+    else:
+        values = _shared_inputs(plan, shared)
+    tensors = plan.manifest.tensors
+    placement = place(
+        plan,
+        {name: stored_rows(t, plan) for name, t in tensors.items()},
+        pins=None if shared is None else shared.pinned,
+    )
+    return plan, values, placement
+
+
 def stage(
     manifest: KernelManifest,
     case: Case,
@@ -365,6 +483,7 @@ def stage(
     *,
     inputs: Mapping[str, Path] | None = None,
     cache: AssemblyCache | None = None,
+    shared: SharedModel | None = None,
 ) -> Staged:
     """Everything :func:`run_kernel` does before it runs the program.
 
@@ -378,32 +497,106 @@ def stage(
         fmt: The element format.
         inputs: Input files that replace the case's inputs, by tensor name.
         cache: Reuses programs already assembled.
+        shared: Stage on this model, with these inputs, some already in XMEM
+            (E06-15); ``None``: a fresh model and the case's inputs.
 
     Returns:
         The staged model and what went into it.
 
     Raises:
-        ConfigurationError: As for :func:`run_kernel`.
+        ConfigurationError: As for :func:`run_kernel`; or the kernel has a
+            stages hook (E06-14), so no one program to load.
         ipu_as.errors.AssemblerError: The program does not render, parse or
             encode.
     """
-    plan = plan_case(manifest, case.values, fmt, case=case.decl)
-    values = inputs_for(case, plan, overrides=inputs or {}).tensors
-    tensors = plan.manifest.tensors
-    placement = place(plan, {name: stored_rows(t, plan) for name, t in tensors.items()})
+    if manifest.stages is not None:
+        raise ConfigurationError(f"{manifest.name}: a multi-stage kernel has no one program")
+    plan, values, placement = _prepare(manifest, case, fmt, inputs, shared)
     program = assemble(plan, cache)
     check_cr_reads(manifest, program.rendered)
+    check_aaq_spill(plan, placement, program.rendered)
 
-    model = ReferenceModel(fmt)
+    model = ReferenceModel(fmt) if shared is None else shared.model
     model.load_program(program.words)
-    for tensor in tensors.values():
-        if tensor.role == "input":
-            _write_region(model, plan, placement, tensor, pack(tensor, values[tensor.name], plan))
-        elif tensor.role == "scratch":
-            _write_region(model, plan, placement, tensor, _scratch_fill(tensor, plan, placement))
+    values = _write_tensors(model, plan, placement, values, shared)
     writes = tuple(register_writes(plan, placement))
     apply(model, writes)
     return Staged(plan, MappingProxyType(dict(values)), placement, program, writes, model)
+
+
+@dataclass(frozen=True)
+class _Ran:
+    """A case that ran, one program or every stage: what the report needs."""
+
+    plan: CasePlan
+    inputs: Mapping[str, Array]
+    placement: Placement
+    model: ReferenceModel
+    run: ModelRun | None
+    profile: AliasProfile | None
+    cycles: int
+    mac_utilization: float
+    rendered: str
+    stages: tuple[tuple[str, int], ...] = ()
+
+
+def _run_program(
+    manifest: KernelManifest,
+    case: Case,
+    fmt: ElementFormat,
+    options: RunOptions,
+    cache: AssemblyCache | None,
+    shared: SharedModel | None,
+) -> _Ran:
+    """Stage the kernel's one program and run it as ``options`` say."""
+    staged = stage(manifest, case, fmt, inputs=options.inputs, cache=cache, shared=shared)
+    model, program = staged.model, staged.program
+    limit = DEFAULT_CYCLE_LIMIT if options.max_cycles is None else options.max_cycles
+    header = _trace_header(program.words, fmt)
+    context = RunContext(model, program, fmt, staged.plan, staged.placement, header, limit)
+    run, profile = _execute(context, manifest, case, fmt, options)
+    stats = model.stats()
+    cycles = run.cycles if run is not None else stats.cycles
+    return _Ran(
+        staged.plan,
+        staged.inputs,
+        staged.placement,
+        model,
+        run,
+        profile,
+        cycles,
+        stats.effective_mac_utilization,
+        program.rendered,
+    )
+
+
+def _run_staged_kernel(
+    manifest: KernelManifest,
+    case: Case,
+    fmt: ElementFormat,
+    options: RunOptions,
+    cache: AssemblyCache | None,
+    shared: SharedModel | None,
+) -> _Ran:
+    """Write a multi-stage kernel's tensors and run its stages hook (E06-14)."""
+    if options.executor is not None:
+        raise ConfigurationError(f"{manifest.name}: an executor runs one program, not stages")
+    plan, values, placement = _prepare(manifest, case, fmt, options.inputs, shared)
+    model = ReferenceModel(fmt) if shared is None else shared.model
+    values = _write_tensors(model, plan, placement, values, shared)
+    run, profile, staged = _execute_stages(model, plan, placement, case, options, cache)
+    return _Ran(
+        plan,
+        MappingProxyType(dict(values)),
+        placement,
+        model,
+        run,
+        profile,
+        staged.cycles,
+        staged.mac_utilization,
+        staged.stages[-1].rendered,
+        tuple((s.program, s.cycles) for s in staged.stages),
+    )
 
 
 def run_kernel(
@@ -413,6 +606,7 @@ def run_kernel(
     options: RunOptions | None = None,
     *,
     cache: AssemblyCache | None = None,
+    shared: SharedModel | None = None,
 ) -> RunResult:
     """Run ``case`` in ``fmt`` and hold its outputs to their goldens.
 
@@ -422,6 +616,8 @@ def run_kernel(
         fmt: The element format.
         options: Limits, input overrides, output and trace files.
         cache: Reuses programs already assembled (a sweep renders few).
+        shared: Run on this model, with these inputs, some already in XMEM
+            (E06-15); ``None``: a fresh model and the case's inputs.
 
     Returns:
         The result; ``passed`` says whether the run reached ``HALT`` and
@@ -429,42 +625,36 @@ def run_kernel(
 
     Raises:
         ConfigurationError: The case, its files or the program are wrong for
-            the kernel (``PlanError`` locates it in ``kernel.toml``).
+            the kernel (``PlanError`` locates it in ``kernel.toml``), or
+            ``shared``'s inputs are not the kernel's.
         ipu_as.errors.AssemblerError: The program does not render, parse or
             encode.
         EmulatorError: An instruction the model cannot run in ``fmt``.
         OSError: An input, output or trace file cannot be read or written.
     """
     options = options or RunOptions()
-    staged = stage(manifest, case, fmt, inputs=options.inputs, cache=cache)
-    plan, inputs, placement, program, model = (
-        staged.plan,
-        staged.inputs,
-        staged.placement,
-        staged.program,
-        staged.model,
-    )
+    if manifest.stages is None:
+        ran = _run_program(manifest, case, fmt, options, cache, shared)
+    else:
+        ran = _run_staged_kernel(manifest, case, fmt, options, cache, shared)
+    plan, inputs, placement, model, run = ran.plan, ran.inputs, ran.placement, ran.model, ran.run
     tensors = plan.manifest.tensors
-
-    limit = DEFAULT_CYCLE_LIMIT if options.max_cycles is None else options.max_cycles
-    header = _trace_header(program.words, fmt)
-    context = RunContext(model, program, fmt, plan, placement, header, limit)
-    run, profile = _execute(context, manifest, case, fmt, options)
-    mac_utilization = model.stats().effective_mac_utilization
     if run is None:  # the user quit the debugger: no result
         return RunResult(
             kernel=manifest.name,
             case=case.name,
             format=fmt,
-            cycles=model.stats().cycles,
-            mac_utilization=mac_utilization,
+            cycles=ran.cycles,
+            mac_utilization=ran.mac_utilization,
             outputs=MappingProxyType({}),
             raw_outputs=MappingProxyType({}),
             comparisons=(),
             fault=None,
-            alias_profile=profile,
+            alias_profile=ran.profile,
             quit=True,
             halted=False,
+            stages=ran.stages,
+            placement=placement,
         )
 
     raw = {
@@ -482,10 +672,8 @@ def run_kernel(
     comparisons: tuple[Comparison, ...] = ()
     if run.status.state is RunState.FAULTED:
         assert run.status.fault is not None  # a faulted status names its fault
-        fault = RunFault(
-            run.status.fault, run.status.pc, _source_line(program.rendered, run.status.pc)
-        )
-    else:
+        fault = RunFault(run.status.fault, run.status.pc, _source_line(ran.rendered, run.status.pc))
+    elif shared is None or shared.check:
         golden = _goldens(case, plan, inputs)
         comparisons = tuple(
             compare(
@@ -501,12 +689,14 @@ def run_kernel(
         kernel=manifest.name,
         case=case.name,
         format=fmt,
-        cycles=run.cycles,
-        mac_utilization=mac_utilization,
+        cycles=ran.cycles,
+        mac_utilization=ran.mac_utilization,
         outputs=MappingProxyType(outputs),
         raw_outputs=MappingProxyType(raw),
         comparisons=comparisons,
         fault=fault,
-        alias_profile=profile,
+        alias_profile=ran.profile,
         halted=run.status.state is RunState.HALTED,
+        stages=ran.stages,
+        placement=placement,
     )

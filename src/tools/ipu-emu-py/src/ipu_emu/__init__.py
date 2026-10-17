@@ -1,4 +1,5 @@
-"""IPU cycle-functional emulator.
+"""The IPU cycle-functional emulator: machine state, the cycle module, per-slot
+handlers, prototyping mode and the stable reference-model API (``ipu_emu.reference``).
 
 The package root holds the curated entry points (E04-18): the state, the
 engine, the run statistics, loading and running a program, and every class of

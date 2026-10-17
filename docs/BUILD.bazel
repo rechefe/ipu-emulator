@@ -169,6 +169,61 @@ py_pytest_test(
     deps = _CLI_REFERENCE_DEPS + [requirement("pytest")],
 )
 
+# The Architecture page (content/explanation/architecture.md) includes these
+# snippets through pymdownx.snippets: the package table and the dependency
+# diagram, read from tools/import_graph.toml and each package's docstring.
+#   bazel run //docs:architecture_page -- "$PWD/out"
+_PACKAGE_SOURCES = [
+    "//tools:import_graph.toml",
+    "//src/tools/ipu-apps:py_sources",
+    "//src/tools/ipu-as-py:py_sources",
+    "//src/tools/ipu-debug:py_sources",
+    "//src/tools/ipu-emu-py:py_sources",
+    "//src/tools/ipu-gen:py_sources",
+    "//src/tools/ipu-harness:py_sources",
+    "//src/tools/ipu-isa:py_sources",
+    "//src/tools/ipu-kernels:py_sources",
+]
+
+py_binary(
+    name = "architecture_page",
+    srcs = ["architecture_page.py"],
+    data = _PACKAGE_SOURCES,
+    main = "architecture_page.py",
+    python_version = "PY3",
+    deps = [requirement("tomli")],
+)
+
+genrule(
+    name = "generate_architecture_md",
+    srcs = _PACKAGE_SOURCES,
+    outs = [
+        "generated/architecture/dependencies.md",
+        "generated/architecture/packages.md",
+    ],
+    cmd = "$(location :architecture_page) $(RULEDIR)/generated/architecture > /dev/null",
+    tools = [":architecture_page"],
+)
+
+# Every package of the import graph is on the page, a rename changes it, and the
+# page includes both snippets.
+py_pytest_test(
+    name = "test_architecture_page",
+    size = "small",
+    srcs = [
+        "architecture_page.py",
+        "test_architecture_page.py",
+    ],
+    data = _PACKAGE_SOURCES + [
+        "content/explanation/architecture.md",
+        "content/explanation/index.md",
+    ],
+    deps = [
+        requirement("pytest"),
+        requirement("tomli"),
+    ],
+)
+
 genrule(
     name = "generate_instruction_format_md",
     outs = ["instruction-format.md"],
@@ -223,6 +278,7 @@ genrule(
         ":generate_timing_contract_table",
         ":generate_reference_api_md",
         ":generate_cli_reference_md",
+        ":generate_architecture_md",
         "//docs/inspector:inspector_data",
         "//:GLOSSARY.md",
         "examples/test_add_an_instruction.py",
