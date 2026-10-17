@@ -45,7 +45,7 @@ assert ln.N_TOK == mm.N_TOK == 16
 LANES = ln.ROW_BYTES // 4
 
 
-def _run_layernorm_16x240_capture_xmem(x, gamma, beta, tmp_path: Path, tag: str) -> bytes:
+def _run_layernorm_16x240_capture_xmem(x, gamma, beta) -> bytes:
     x_padded = np.zeros((ln.N_CH, LANES), dtype=np.float32)
     x_padded[:, : ln.N_TOK] = x
     return run_layernorm_capture_xmem(
@@ -102,7 +102,7 @@ def test_layernorm_16x240_output_is_not_byte_compatible_with_matmul_240x240_inpu
     """
     x, gamma, beta, W = _inputs(0x5EA5)
 
-    ln_raw = bytearray(_run_layernorm_16x240_capture_xmem(x, gamma, beta, tmp_path, tag="mut"))
+    ln_raw = bytearray(_run_layernorm_16x240_capture_xmem(x, gamma, beta))
     corrupt_row = np.full(LANES, 999.0, dtype=np.float32).tobytes()
     ln_raw[7 * ln.ROW_BYTES : 8 * ln.ROW_BYTES] = corrupt_row
 
@@ -124,7 +124,7 @@ def test_layernorm_16x240_feeds_matmul_240x240_via_direct_xmem_no_file_staging_l
     """
     x, gamma, beta, W = _inputs(0x5EA6)
 
-    ln_raw = _run_layernorm_16x240_capture_xmem(x, gamma, beta, tmp_path, tag="clean")
+    ln_raw = _run_layernorm_16x240_capture_xmem(x, gamma, beta)
     got = _run_matmul_240x240_direct_xmem_handoff(ln_raw, W, tmp_path, tag="clean")
     expected = W.astype(np.float64) @ _layernorm_reference(x, gamma, beta)
 

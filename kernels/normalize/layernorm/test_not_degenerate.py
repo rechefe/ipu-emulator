@@ -61,5 +61,5 @@ def test_the_guard_fails_on_constant_input(kernel, cases):
     _, ins = _default(kernel, cases)
     x = np.full_like(ins["x"], 3.0)
     constant = np.broadcast_to(ins["beta"][:, None], x.shape)  # LayerNorm of x, no eps (Q57)
-    with pytest.raises(AssertionError):  # beta varies, so the unit-variance check fails it
+    with pytest.raises(AssertionError):  # de-scaled, the output is 0: not unit variance
         check_not_degenerate(constant, x, ins["gamma"], ins["beta"])

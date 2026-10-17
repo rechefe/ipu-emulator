@@ -6,8 +6,9 @@ op = "layernorm"
 formats = ["fp32"]
 
 [params]
-# The shapes the program renders for: channels - 128 must be a power of two or
-# 128 minus one (layernorm.asm, build_count), and tokens at most two groups.
+# The values the four entries use. Over 128 channels, channels - 128 must be a
+# power of two or 128 minus a power of two (layernorm.asm, build_count); tokens at most
+# two groups. Only the entries' pairs and the default case are tested.
 channels = { type = "int", choices = [16, 144, 192, 240] }   # the reduction axis, one row each
 tokens   = { type = "int", choices = [16, 64, 128, 256] }    # lanes; over 128 = two token groups
 dim      = { type = "int", choices = [0], default = 0 }      # ops.layernorm reduces dim 0

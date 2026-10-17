@@ -24,7 +24,7 @@ Query vocabulary: ``matmul`` queries carry an optional ``activation``
 ("none"/"silu"). The FFN1 expansion kernels fuse silu into their store, so a
 plain query at an FFN1 shape must refuse and only the ``activation="silu"``
 query may route there (checked below). The projections moved to
-``//kernels/projections`` (E07-02), unfold to ``//kernels/reshape`` (E07-05)
+``//kernels/projections`` (E07-02), unfold to ``//kernels/reshape`` (E07-05),
 the residual adds to ``//kernels/elementwise`` (E07-06) and the LayerNorms to
 ``//kernels/normalize`` (E07-10), whose own tests check their routing.
 """
@@ -46,13 +46,6 @@ def _harness(verdict, params, **bindings):
         params=params,
         bindings={"inst_path": kernel_inst(verdict.kernel.name), **bindings},
     )
-
-
-def _rows(x: np.ndarray) -> np.ndarray:
-    """Zero-pad each row of a 2-D FP32 array out to LANES lanes."""
-    out = np.zeros((x.shape[0], LANES), dtype=np.float32)
-    out[:, : x.shape[1]] = x
-    return out
 
 
 # -- matmul -------------------------------------------------------------

@@ -3,9 +3,9 @@
 
     out[c, n] = x[c, n] / sqrt( SUM_c x[c, n]^2 )
 
-    over a (ROWS x COLS) matrix, where ROWS is the reduction axis. SuperPoint's
-    dense descriptor normalization is this with ROWS = 256 (convDb's channels)
-    and COLS = H*W.
+    over a (channels x columns) matrix, where channels is the reduction axis.
+    SuperPoint's dense descriptor normalization is this with channels = 256
+    (convDb's) and columns = H*W.
 
     WHY REDUCING DOWN COLUMNS NEEDS NO AGG:
       Every column is an INDEPENDENT normalization and the datapath is 128
@@ -32,9 +32,9 @@
       without touching XMEM and without needing a resident zero row.
 
     LAYOUT -- INPUT AND OUTPUT SHARE ONE OFFSET:
-      Both regions are ROWS x TPR rows with row (c, t) at c*TPR + t, so a single
+      Both regions are channels x tiles rows with row (c, t) at c*tiles + t, so a single
       walking register addresses the load (base CR2) and the store (base CR3).
-      TPR = ceil(COLS / 128); columns past COLS are zero, whose square adds
+      tiles = ceil(columns / 128); lanes past columns are zero, whose square adds
       nothing to any real column's sum -- those lanes form their own all-zero
       columns, which rsqrt's guard sends to zero.
 

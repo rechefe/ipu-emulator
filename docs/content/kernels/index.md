@@ -45,9 +45,9 @@ registry.resolve("softmax", rows=32, n=300, dim=1)
 
 Both return a verdict carrying the kernel, its parameters and why that kernel
 was chosen — or, when nothing covers the query, what each candidate objected
-to. The families already migrated to `kernels/` (projections, softmax) answer
-there; the others still answer `//src/tools/ipu-apps:query` until their
-migration.
+to. The families already migrated to `kernels/` (the folders there; the
+[coverage page](../app-coverage.md) lists them) answer there; the others still
+answer `//src/tools/ipu-apps:query` until their migration.
 
 ## Currently registered
 

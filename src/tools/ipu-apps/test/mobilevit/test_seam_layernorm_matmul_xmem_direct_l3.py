@@ -47,7 +47,7 @@ assert ln.N_TPG == mm.N_TOK == 128
 LANES = ln.ROW_BYTES // 4
 
 
-def _run_layernorm_256x144_capture_xmem(x, gamma, beta, tmp_path: Path, tag: str) -> bytes:
+def _run_layernorm_256x144_capture_xmem(x, gamma, beta) -> bytes:
     """x is [N_CH, N_TG, N_TPG]; the input file is one zero-padded 128-lane
     row per (ch, tg), in (ch*N_TG + tg) order (N_TPG == LANES == 128 here so
     no padding is actually needed, but the shape is kept explicit)."""
@@ -114,7 +114,7 @@ def test_layernorm_256x144_output_is_not_byte_compatible_with_matmul_144x144_inp
     """
     x, gamma, beta, W = _inputs(0x1EC3)
 
-    ln_raw = bytearray(_run_layernorm_256x144_capture_xmem(x, gamma, beta, tmp_path, tag="mut"))
+    ln_raw = bytearray(_run_layernorm_256x144_capture_xmem(x, gamma, beta))
     # Corrupt channel 5, tg 1's row (row index 5*N_TG+1 = 11) -- still
     # zero-padding structure preserved, just wrong values.
     row_idx = 5 * ln.N_TG + 1
@@ -138,7 +138,7 @@ def test_layernorm_256x144_feeds_matmul_144x144_via_direct_xmem_no_file_staging_
     """
     x, gamma, beta, W = _inputs(0x1EC4)
 
-    ln_raw = _run_layernorm_256x144_capture_xmem(x, gamma, beta, tmp_path, tag="clean")
+    ln_raw = _run_layernorm_256x144_capture_xmem(x, gamma, beta)
     got = _run_matmul_144x144_direct_xmem_handoff(ln_raw, W, tmp_path, tag="clean")
     expected = _expected(x, gamma, beta, W)
 

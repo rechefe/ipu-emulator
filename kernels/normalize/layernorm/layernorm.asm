@@ -55,8 +55,9 @@
       groups strides the x and y pointers by 2 rows (data_stride) and offsets
       them by the group (tg_off); centered is reused per group.
       channels <= 128 with one group keeps layernorm_128x16's register
-      allocation (row stride in LR7, gamma/beta indices in LR9/LR10, one pass-6
-      loop bounded by LR6); the other shapes use LR12..LR15.
+      allocation (row stride in LR7, gamma/beta indices in LR9/LR10); the
+      other shapes use LR12..LR15. With at most 128 channels pass 6 is one
+      loop, bounded by LR6 (channels).
       Sub-loop B's bound, channels - 128, is built from CR1: by doubling when
       it is a power of two (16, 64), as 128 - 2^k when that is (112). Any
       other bound renders UNSUPPORTED_CHANNEL_COUNT, which does not assemble.

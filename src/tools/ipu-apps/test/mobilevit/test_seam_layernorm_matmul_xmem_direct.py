@@ -25,7 +25,7 @@ as tightly-packed (256 B/channel) regardless of its true layout, so a
 file boundary entirely, writing LayerNorm's raw *XMEM* bytes straight into
 the matmul's DATA region at the correct one-row-per-channel stride. Both are
 true at once: the FILE contract (`_load_data`) is incompatible with
-LayerNorm's full-row file output, while the XMEM CONTENT itself (once placed
+LayerNorm's full-row output rows, while the XMEM CONTENT itself (once placed
 at the right row stride) is exactly what the matmul expects.
 
 Method: run the REAL layernorm_* kernel on a fresh model, capture its raw
@@ -58,7 +58,7 @@ ln4 = layernorm("layernorm_64x192")  # //kernels/normalize (E07-10), through the
 assert ln4.N_CH == mm4.K and ln4.N_TOK == mm4.N_TOK and ln4.ROW_BYTES == mm4.ROW_BYTES
 
 
-def _run_layernorm_64x192_capture_xmem(x, gamma, beta, tmp_path: Path, tag: str) -> bytes:
+def _run_layernorm_64x192_capture_xmem(x, gamma, beta) -> bytes:
     """fixture_normalize writes x's rows to XMEM verbatim, so they are
     pre-padded to one zero-padded 128-lane row per channel."""
     x_padded = np.zeros((ln4.N_CH, ln4.LANES), dtype=np.float32)
@@ -112,7 +112,7 @@ def test_layernorm_output_is_not_byte_compatible_with_matmul_input_when_corrupte
     """
     x, gamma, beta, W = _inputs(0x1EAF)
 
-    ln_raw = bytearray(_run_layernorm_64x192_capture_xmem(x, gamma, beta, tmp_path, tag="mut"))
+    ln_raw = bytearray(_run_layernorm_64x192_capture_xmem(x, gamma, beta))
     # Corrupt channel 5's row (still zero-padding structure preserved, just
     # wrong values) -- a plausible-looking but wrong handoff.
     corrupt_row = np.full(mm4.LANES, 999.0, dtype=np.float32).tobytes()
@@ -137,7 +137,7 @@ def test_layernorm_output_feeds_matmul_via_direct_xmem_no_file_staging_l4(
     """
     x, gamma, beta, W = _inputs(0x1EB0)
 
-    ln_raw = _run_layernorm_64x192_capture_xmem(x, gamma, beta, tmp_path, tag="clean")
+    ln_raw = _run_layernorm_64x192_capture_xmem(x, gamma, beta)
     got = _run_matmul_192x192_direct_xmem_handoff(ln_raw, W, tmp_path, tag="clean")
     expected = W.astype(np.float64) @ _layernorm_reference(x, gamma, beta)
 

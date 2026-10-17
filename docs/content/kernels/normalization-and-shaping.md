@@ -26,8 +26,8 @@ The four kernels are entries of `kernels/normalize/registry.toml` over the
 
 Query: `bazel run //kernels:query -- layernorm channels=C tokens=T`. `x` and
 `y` are one 128-element FP32 row per channel and token group (row
-`ch * ceil(tokens / 128) + g`), tokens in the first lanes and zero padding
-after; `gamma` and `beta` are `channels` FP32 values in zero-padded rows. `x`
+`ch * ceil(tokens / 128) + g`), tokens in the first lanes; `x` is zero past
+them, and `y` holds `beta[ch]` there. `gamma` and `beta` are `channels` FP32 values in zero-padded rows. `x`
 sits at row 0: the program reads its base through `CR0`.
 
 ## `l2_normalize`

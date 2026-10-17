@@ -77,6 +77,7 @@ def run_layernorm_rows(
     beta: np.ndarray,
     *,
     poison: float = 1e3,
+    max_cycles: int = 5_000_000,
 ) -> LayerNormRun:
     """Run ``name`` in FP32 on a fresh model.
 
@@ -87,6 +88,7 @@ def run_layernorm_rows(
         gamma, beta: ``[N_CH]``.
         poison: The output rows hold it before the run; a row still all
             ``poison`` after it fails the run.
+        max_cycles: A run that has not halted by then fails.
     """
     shape = layernorm(name)
     manifest = default_registry().kernel(name)
@@ -106,6 +108,7 @@ def run_layernorm_rows(
         instructions += sum(op.slot != "lr" for op in record.slots)
         if model.status.state is not RunState.RUNNING:
             break
+        assert cycles < max_cycles, f"{name} did not halt in {max_cycles} cycles"
     assert model.status.fault is None, model.status
     rows = np.frombuffer(model.read_xmem(start, size), dtype="<f4").reshape(shape.N_ROWS, LANES)
     assert not np.all(rows == np.float32(poison), axis=1).any(), (
