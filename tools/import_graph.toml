@@ -64,7 +64,8 @@ ipu_apps = ["ipu_isa", "ipu_as", "ipu_emu", "ipu_debug"]
 # importlib.import_module(name)
 # on a name read from registry data. That is plugin loading, not an edge, and
 # this test only sees literal names.
-ipu_harness = ["ipu_isa", "ipu_as", "ipu_emu"]
+# ipu_debug: the TUI callback of a --debug launch, imported only then (E06-12).
+ipu_harness = ["ipu_isa", "ipu_as", "ipu_emu", "ipu_debug"]
 
 # Kernel-side shared code builds on the framework. No other row lists
 # ipu_kernels. Kernel tests and per-kernel .py files under kernels/ are outside

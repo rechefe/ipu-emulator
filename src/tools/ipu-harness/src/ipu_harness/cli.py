@@ -2,7 +2,12 @@
 
     python -m ipu_harness.cli KERNEL_DIR [--case NAME] [--format FMT|all]
         [--input NAME=PATH.npy ...] [--output DIR] [--trace PATH]
-        [--max-cycles N] [--list-cases]
+        [--max-cycles N] [--list-cases] [--debug] [--profile-aliases]
+        [--alias-report PATH]
+
+``--debug``, or ``IPU_DEBUG_TUI=1`` in the environment (the spelling a
+``bazel run`` of a test target passes), stops the run in the debugger TUI.
+This module is the only one in ``ipu_harness`` that reads the environment.
 
 One line per run, from :meth:`RunResult.describe`. Exit codes:
 
@@ -20,14 +25,17 @@ from __future__ import annotations
 
 import argparse
 import os
+import signal
 import sys
 import traceback
-from collections.abc import Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from pathlib import Path
 
 from ipu_emu.errors import ConfigurationError
 from ipu_harness.assembly import AssemblyCache
 from ipu_harness.cases import Case, expand
+from ipu_harness.debug import DebugLaunch
 from ipu_harness.manifest import KernelManifest, load_manifest
 from ipu_harness.runner import RunOptions, run_kernel
 from ipu_isa.errors import IpuError
@@ -80,7 +88,52 @@ def _parser() -> argparse.ArgumentParser:
         "--max-cycles", type=_cycles, help="the cycle limit (0: no limit; default: the model's)"
     )
     parser.add_argument("--list-cases", action="store_true", help="list the cases and stop")
+    parser.add_argument("--debug", action="store_true", help="stop in the debugger TUI")
+    parser.add_argument(
+        "--profile-aliases", action="store_true", help="profile the ISA aliases of the run"
+    )
+    parser.add_argument(
+        "--alias-report", type=Path, help="write the alias profile as JSON (implies profiling)"
+    )
     return parser
+
+
+#: The environment's spelling of ``--debug``.
+DEBUG_ENV = "IPU_DEBUG_TUI"
+
+
+def debug_launch(flag: bool, environ: Mapping[str, str]) -> DebugLaunch | None:
+    """The debug launch ``--debug`` or ``IPU_DEBUG_TUI=1`` asks for, if any."""
+    return DebugLaunch() if flag or environ.get(DEBUG_ENV) == "1" else None
+
+
+@contextmanager
+def _terminal(debugging: bool) -> Iterator[None]:
+    """Hand the terminal to the debugger under ``bazel run`` of a test target.
+
+    Bazel's test-setup.sh tees stdout into a pipe and starts its child in a
+    background process group; curses needs the terminal on stdout and the
+    foreground. Restored on completion, failure and cancellation.
+    """
+    if not debugging or not sys.stdin.isatty() or sys.stdout.isatty():
+        yield
+        return
+    sys.stdout.flush()
+    output_fd = sys.stdout.fileno()
+    input_fd = sys.stdin.fileno()
+    foreground = os.tcgetpgrp(input_fd)
+    saved = os.dup(output_fd)
+    old_signal = signal.signal(signal.SIGTTOU, signal.SIG_IGN)
+    try:
+        os.tcsetpgrp(input_fd, os.getpgrp())
+        os.dup2(input_fd, output_fd)
+        yield
+    finally:
+        sys.stdout.flush()
+        os.dup2(saved, output_fd)
+        os.close(saved)
+        os.tcsetpgrp(input_fd, foreground)
+        signal.signal(signal.SIGTTOU, old_signal)
 
 
 def _case(manifest: KernelManifest, name: str) -> Case:
@@ -112,6 +165,7 @@ def _run(args: argparse.Namespace) -> int:
             print(f"{case.name}  ({', '.join(f.value for f in case.formats)})")
         return 0
     case = _case(manifest, args.case)
+    debug = debug_launch(args.debug, os.environ)
     formats = _formats(case, args.format)
     many = len(formats) > 1
     passed = True
@@ -130,9 +184,17 @@ def _run(args: argparse.Namespace) -> int:
             inputs=dict(args.input),
             output_dir=output,
             trace=trace,
+            debug=debug,
+            alias_profile=args.profile_aliases or args.alias_report is not None,
         )
-        result = run_kernel(manifest, case, fmt, options, cache=cache)
+        with _terminal(debug is not None):
+            result = run_kernel(manifest, case, fmt, options, cache=cache)
         print(result.describe())
+        if args.alias_report is not None and result.alias_profile is not None:
+            report = _caller(args.alias_report)
+            if many:
+                report = report.with_name(f"{report.stem}.{fmt.value}{report.suffix}")
+            report.write_text(result.alias_profile.to_json())
         passed = passed and result.passed
     return 0 if passed else 1
 

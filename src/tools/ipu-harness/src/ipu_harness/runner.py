@@ -24,16 +24,20 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
+from typing import Any
 
 import numpy as np
 
+from ipu_emu.errors import ConfigurationError
 from ipu_emu.reference import ReferenceModel, RunState
+from ipu_emu.reference import RunResult as ModelRun
 from ipu_emu.trace import EMULATOR_VERSION, TraceWriter
 from ipu_harness._codec import Array, encode
 from ipu_harness.abi import apply, check_cr_reads, register_writes
 from ipu_harness.assembly import AssemblyCache, assemble
 from ipu_harness.cases import Case, inputs_for
 from ipu_harness.compare import Comparison, compare, expected_for, tier_for
+from ipu_harness.debug import DebugLaunch, attach_alias_profile, debug_run, new_alias_profile
 from ipu_harness.manifest import KernelManifest, TensorDecl
 from ipu_harness.packing import pack, stored_format, stored_rows, unpack
 from ipu_harness.params import CasePlan, plan_case
@@ -58,13 +62,18 @@ class RunOptions:
         output_dir: Where to write ``<output>.npy`` for each output, failed
             runs included (``--output``).
         trace: Where to write the run's trace (``--trace``), JSON Lines in
-            the E04 trace schema.
+            the E04 trace schema. Not with ``debug``.
+        debug: Stop in the debugger (``--debug``, E06-12).
+        alias_profile: Profile the ISA aliases of this run (``--profile-aliases``):
+            the profile attaches to the one run the case makes.
     """
 
     max_cycles: int | None = None
     inputs: Mapping[str, Path] = field(default_factory=lambda: MappingProxyType({}))
     output_dir: Path | None = None
     trace: Path | None = None
+    debug: DebugLaunch | None = None
+    alias_profile: bool = False
 
 
 @dataclass(frozen=True)
@@ -103,6 +112,7 @@ class RunResult:
         raw_outputs: Each output region's XMEM bytes, before unpacking.
         comparisons: Each output held to its golden; empty without one.
         fault: The fault the run stopped on, if it faulted.
+        alias_profile: The run's ``AliasProfile``, when it was profiled.
     """
 
     kernel: str
@@ -114,6 +124,7 @@ class RunResult:
     raw_outputs: Mapping[str, bytes]
     comparisons: tuple[Comparison, ...]
     fault: RunFault | None
+    alias_profile: Any = None
 
     @property
     def passed(self) -> bool:
@@ -219,6 +230,30 @@ def _goldens(case: Case, plan: CasePlan, inputs: Mapping[str, Array]) -> dict[st
     return expected_for(case, plan, ref_out)
 
 
+def _execute(
+    model: ReferenceModel,
+    manifest: KernelManifest,
+    case: Case,
+    fmt: ElementFormat,
+    words: tuple[int, ...],
+    options: RunOptions,
+) -> tuple[ModelRun, Any]:
+    """Run the loaded model as ``options`` say: profiled, in the debugger, traced."""
+    profile = None
+    if options.alias_profile:
+        profile = new_alias_profile(case.name)
+        attach_alias_profile(model, profile)
+    if options.debug is not None:
+        if options.trace is not None:
+            raise ConfigurationError("--trace and --debug do not combine")
+        callback = options.debug.callback(manifest.name)
+        return debug_run(model, callback, break_on_entry=options.debug.break_on_entry), profile
+    if options.trace is not None:
+        with TraceWriter(options.trace, _trace_header(words, fmt)) as trace:
+            return model.run(options.max_cycles, trace=trace), profile
+    return model.run(options.max_cycles), profile
+
+
 def run_kernel(
     manifest: KernelManifest,
     case: Case,
@@ -265,11 +300,7 @@ def run_kernel(
             _write_region(model, plan, placement, tensor, _scratch_fill(tensor, plan, placement))
     apply(model, register_writes(plan, placement))
 
-    if options.trace is not None:
-        with TraceWriter(options.trace, _trace_header(program.words, fmt)) as trace:
-            run = model.run(options.max_cycles, trace=trace)
-    else:
-        run = model.run(options.max_cycles)
+    run, profile = _execute(model, manifest, case, fmt, program.words, options)
     mac_utilization = model.stats().effective_mac_utilization
 
     raw = {
@@ -312,4 +343,5 @@ def run_kernel(
         raw_outputs=MappingProxyType(raw),
         comparisons=comparisons,
         fault=fault,
+        alias_profile=profile,
     )

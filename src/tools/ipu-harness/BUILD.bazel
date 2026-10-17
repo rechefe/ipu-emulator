@@ -27,6 +27,7 @@ py_library(
     imports = ["src"],
     deps = [
         "//src/tools/ipu-as-py:ipu_as_lib",
+        "//src/tools/ipu-debug:ipu_debug_lib",  # imported only for --debug
         "//src/tools/ipu-emu-py:ipu_emu_lib",
         "//src/tools/ipu-isa:ipu_isa_lib",
         requirement("numpy"),
@@ -209,4 +210,20 @@ py_binary(
     srcs = ["src/ipu_harness/cli.py"],
     main = "src/ipu_harness/cli.py",
     deps = [":ipu_harness_lib"],
+)
+
+# Debugging and alias profiling as run options (E06-12).
+py_pytest_test(
+    name = "test_debug",
+    srcs = ["test/test_debug.py"],
+    data = [
+        ":py_sources",
+        "//src/tools/ipu-kernels:py_sources",
+    ],
+    deps = [
+        ":ipu_harness_lib",
+        ":scale_kernel",
+        requirement("numpy"),
+        requirement("pytest"),
+    ],
 )

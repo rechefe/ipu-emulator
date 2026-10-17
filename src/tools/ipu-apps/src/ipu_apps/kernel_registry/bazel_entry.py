@@ -18,6 +18,8 @@ from contextlib import contextmanager
 @contextmanager
 def app_terminal():
     """Undo test-setup.sh's stdout tee for an interactive debug run only."""
+    # TODO(E07-25): this legacy reader goes with kernel_registry; ipu_harness.cli
+    # is the reader for kernels on the harness (E06-12).
     if os.environ.get("IPU_DEBUG_TUI") != "1" or not sys.stdin.isatty() or sys.stdout.isatty():
         yield
         return
