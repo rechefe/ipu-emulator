@@ -1874,7 +1874,7 @@ The multiplication result (`mult_result`) is forwarded to the ACC stage in the C
 
 **Tag:** `HARDWARE` (implemented by the IPU)
 
-**Reads:** at cycle start `R` via `ra`, `R_CYCLIC`, `CR` via `cr_idx`; forwarded `LR` via `rc_idx`, `LR` via `mask_shift`, `R_MASK`.
+**Reads:** at cycle start `R` via `ra`, `R_CYCLIC`, `R_MASK`, `CR` via `cr_idx`; forwarded `LR` via `rc_idx`, `LR` via `mask_shift`.
 
 **Faults:** F-1 ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -1907,7 +1907,7 @@ MULT.RC.VV LR0 R0 0 LR2 CR15;;
 
 **Tag:** `HARDWARE` (implemented by the IPU)
 
-**Reads:** at cycle start `CR` via `src`, `R`, `R_CYCLIC`, `CR` via `cr_idx`; forwarded `LR` via `rc_idx`, `LR` via `mask_shift`, `LR` via `src`, `R_MASK`.
+**Reads:** at cycle start `CR` via `src`, `R`, `R_CYCLIC`, `R_MASK`, `CR` via `cr_idx`; forwarded `LR` via `rc_idx`, `LR` via `mask_shift`, `LR` via `src`.
 
 **Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -1940,7 +1940,7 @@ MULT.RC.VE LR0 LR3 0 LR2 CR15;;
 
 **Tag:** `HARDWARE` (implemented by the IPU)
 
-**Reads:** at cycle start `R_CYCLIC`, `CR` via `cr_idx`; forwarded `LR` via `rc_idx`, `LR` via `mask_shift`, `R_MASK`.
+**Reads:** at cycle start `R_CYCLIC`, `R_MASK`, `CR` via `cr_idx`; forwarded `LR` via `rc_idx`, `LR` via `mask_shift`.
 
 **Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -1972,7 +1972,7 @@ MULT.RC.VS LR0 0 LR2 CR15;;
 
 **Tag:** `HARDWARE` (implemented by the IPU)
 
-**Reads:** at cycle start `CR` via `cr_idx`, `R`, `CR` via `dstructure_cr_idx`; forwarded `LR` via `ra_idx`, `LR` via `mask_shift`, `R_MASK`.
+**Reads:** at cycle start `CR` via `cr_idx`, `R`, `R_MASK`, `CR` via `dstructure_cr_idx`; forwarded `LR` via `ra_idx`, `LR` via `mask_shift`.
 
 **Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -2005,7 +2005,7 @@ MULT.VE LR0 CR3 0 LR2 CR15;;
 
 **Tag:** `HARDWARE` (implemented by the IPU)
 
-**Reads:** at cycle start `CR` via `cr_idx`, `R`, `CR` via `dstructure_cr_idx`; forwarded `LR` via `ra_idx`, `LR` via `mask_shift`, `R_MASK`.
+**Reads:** at cycle start `CR` via `cr_idx`, `R`, `R_MASK`, `CR` via `dstructure_cr_idx`; forwarded `LR` via `ra_idx`, `LR` via `mask_shift`.
 
 **Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
 
@@ -2312,7 +2312,7 @@ AGG.MAX LR0 CR3;;
 
 **Tag:** `HARDWARE` (implemented by the IPU)
 
-**Reads:** at cycle start `MULT_RES`; forwarded `LR` via `source`, `LR` via `dest`, `LR` via `reshape_mask`.
+**Reads:** forwarded `LR` via `source`, `LR` via `dest`, `LR` via `reshape_mask`, `MULT_RES`.
 
 **Faults:** F-5 ([fault list](../../requirements/faults.md#fault-list)).
 
