@@ -82,14 +82,9 @@
     "arith_events": {
       "type": "array",
       "items": {
-        "enum": [
-          "acc_overflow",
-          "nan_result",
-          "quant_saturation"
-        ]
+        "type": "string"
       },
-      "uniqueItems": true,
-      "description": "Arithmetic events of the word (ipu_isa.faults.ArithmeticEvent), sorted: they set sticky flags and never halt (E04-23)."
+      "description": "Arithmetic events of the word (E04-23); empty until they are modelled."
     }
   },
   "allOf": [

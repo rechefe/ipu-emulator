@@ -290,7 +290,7 @@ class _FloatCodec(_Codec):
         out[: len(raw)] = raw
         if np.isfinite(narrowed).all():
             return _NO_EVENTS
-        events = set()
+        events: set[ArithmeticEvent] = set()
         if np.any(np.isinf(narrowed) & np.isfinite(values)):
             events.add(ArithmeticEvent.ACC_OVERFLOW)
         if np.isnan(narrowed).any():

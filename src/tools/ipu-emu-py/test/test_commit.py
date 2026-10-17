@@ -36,7 +36,7 @@ SNAPSHOT = {
     "trace": "1.0.0",
 }
 SNAPSHOT_SHA256 = {
-    "commit_record": "d6f2a3d6e2933237739108b20a80f7624e608cbbaa7d655363ea26f638823505",
+    "commit_record": "54f5afe5ba2e299a7b392196d727e0ded2e5828baaee47d8cb20068241d3f7f3",
     "trace": "90e26dc04251f4d85de0d750b2cf2a0f9cba7ca1ff97a9c3f10d0e712ff342ee",
 }
 

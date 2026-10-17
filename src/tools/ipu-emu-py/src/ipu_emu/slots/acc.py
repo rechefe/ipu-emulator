@@ -53,7 +53,7 @@ def _operands(ipu: Ipu) -> tuple[LaneCodec, np.ndarray, np.ndarray]:
     return codec, acc, res
 
 
-def _store_events(ipu: Ipu, codec: LaneCodec, out, lanes: np.ndarray) -> None:
+def _store_events(ipu: Ipu, codec: LaneCodec, out: memoryview, lanes: np.ndarray) -> None:
     """Store accumulator lanes into *out*; record the arithmetic events."""
     events = codec.store_acc_events(out, lanes)
     if events:

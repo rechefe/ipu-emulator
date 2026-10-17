@@ -156,7 +156,7 @@ class IpuState:
         self.cycle_observers: tuple[CycleObserver, ...] = ()
         self.fault_observers: tuple[Callable[[HaltRecord], None], ...] = ()
         # Sticky arithmetic flags (E04-23): set by ACC and AGG, never by a
-        # fault, cleared only when the state is built (no run clears them).
+        # fault, cleared only when the state is built or reset (no run clears them).
         self.arith_flags: set[ArithmeticEvent] = set()
         self.arith_observers: tuple[Callable[[frozenset[ArithmeticEvent]], None], ...] = ()
         # Set when a debugger quit the last run before the program finished
@@ -211,10 +211,9 @@ class IpuState:
         Clears the registers (to their reset values, CR15 the default
         dstructure), XMEM, the program counter, the halt record, the run
         statistics and the arithmetic flags, and sets every fault enable bit
-        and clears the sticky fault flags (IPU-FLT-6). The cycle limit and the
-        program length are kept, with the instruction memory. The
-        instruction memory, the activation parameters, the AAQ options, the
-        prototyping mode and the observers are kept.
+        and clears the sticky fault flags (IPU-FLT-6). The instruction memory
+        and program length, the cycle limit, the activation parameters, the
+        AAQ options, the prototyping mode and the observers are kept.
 
         Args:
             fmt: The new element format; the current one if omitted.
