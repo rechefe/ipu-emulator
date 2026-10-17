@@ -1,9 +1,11 @@
-# Concat 8x8x160x160: channel-axis concat of two same-spatial-shape tensors (L5)
+# concat: channel-axis concat of two same-spatial-shape tensors (template)
 #
-# Layer:   L5
+# Layers:  L3, L4, L5 (../registry.toml: concat_32x32x96x96, concat_16x16x128x128,
+#          concat_8x8x160x160)
 # Scope:   single-stream (two independent copy passes into one output buffer)
 # Layout:  unpacked
-# Shape:   two 160-channel inputs, 8x8 spatial -> one 320-channel output
+# Shape:   a (C_A channels) and b (C_B channels), one row each -> C_A + C_B rows;
+#          kernel.toml's [abi] gives the bases and counts (CR2-CR10)
 # Related: MobileViT-S ends every transformer block with
 #          torch.cat((residual, features), dim=channel); this is the general
 #          (non-pre-offset) kernel version -- see header note "WHY A REAL

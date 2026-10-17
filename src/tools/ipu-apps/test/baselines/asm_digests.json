@@ -383,24 +383,6 @@
     "word_fingerprints": "2580f2eae409f8bed84ab69a1e9628ad1a5a073d22c13129034cdfe6d8baf0362770a2b3cbc383018d6d5d340f8f945c6195618e9175aac0378040672758000e2e459ca96c0456ec68177f66",
     "words": 19
   },
-  "src/tools/ipu-apps/src/ipu_apps/kernels/reshape/concat_16x16x128x128/concat_16x16x128x128.asm": {
-    "bin_sha256": "b762282246d3725fcd9a013d19662f6c035df6f37ff65304bec1c68cedf4d02b",
-    "mem_sha256": "38a610f77895cceb36232649b787e90437122c018880dc4554d85a09e90823fd",
-    "word_fingerprints": "a3dea594e098f2ebbcb3d187437d416bf36f6f265712b833419114cd9444acd68fae4f8e4e2a67aae098f2ebbcb3d187437d416bf5849ee929ba6f473ea07428a159886b24f0f8e768177f66",
-    "words": 19
-  },
-  "src/tools/ipu-apps/src/ipu_apps/kernels/reshape/concat_32x32x96x96/concat_32x32x96x96.asm": {
-    "bin_sha256": "b762282246d3725fcd9a013d19662f6c035df6f37ff65304bec1c68cedf4d02b",
-    "mem_sha256": "38a610f77895cceb36232649b787e90437122c018880dc4554d85a09e90823fd",
-    "word_fingerprints": "a3dea594e098f2ebbcb3d187437d416bf36f6f265712b833419114cd9444acd68fae4f8e4e2a67aae098f2ebbcb3d187437d416bf5849ee929ba6f473ea07428a159886b24f0f8e768177f66",
-    "words": 19
-  },
-  "src/tools/ipu-apps/src/ipu_apps/kernels/reshape/concat_8x8x160x160/concat_8x8x160x160.asm": {
-    "bin_sha256": "b762282246d3725fcd9a013d19662f6c035df6f37ff65304bec1c68cedf4d02b",
-    "mem_sha256": "38a610f77895cceb36232649b787e90437122c018880dc4554d85a09e90823fd",
-    "word_fingerprints": "a3dea594e098f2ebbcb3d187437d416bf36f6f265712b833419114cd9444acd68fae4f8e4e2a67aae098f2ebbcb3d187437d416bf5849ee929ba6f473ea07428a159886b24f0f8e768177f66",
-    "words": 19
-  },
   "src/tools/ipu-apps/src/ipu_apps/kernels/reshape/depth_to_space/depth_to_space.asm": {
     "bin_sha256": "cd1e0e2be66c1bf8fd21687bdbbd4b918b0bf3b0af9565ebca20c6bd28161f4a",
     "mem_sha256": "0b3b09edae7d6ec6e5361a56669d8ad87ff59a24b3340f0abd68c0b52b698ce4",

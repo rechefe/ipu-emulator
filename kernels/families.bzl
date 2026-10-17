@@ -12,6 +12,7 @@ names them; //kernels:test_families checks it against the kernel.toml folders.
 KERNELS = {
     "elementwise": ["scale"],
     "projections": ["proj_p4", "proj_p4_2tg", "proj_p4_2tg_silu"],
+    "reshape": ["concat", "depth_to_space", "identity"],
 }
 
 #: The families each family may use: import from (ipu_kernels.<other>) or refer

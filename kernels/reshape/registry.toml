@@ -1,0 +1,22 @@
+# The reshape shape variants (E07-04): the three MobileViT-S concats over the
+# concat template, one per layer (L3/L4/L5), each cat((residual, features),
+# dim=channel). `bazel test //kernels/reshape:concat_8x8x160x160` runs the
+# template's cases at that shape.
+
+[[kernel]]
+name = "concat_8x8x160x160"
+template = "concat"
+params = { h = 8, w = 8, c_a = 160, c_b = 160 }
+doc = "Layer 5: 160 + 160 -> 320 channels"
+
+[[kernel]]
+name = "concat_16x16x128x128"
+template = "concat"
+params = { h = 16, w = 16, c_a = 128, c_b = 128 }
+doc = "Layer 4: 128 + 128 -> 256 channels"
+
+[[kernel]]
+name = "concat_32x32x96x96"
+template = "concat"
+params = { h = 32, w = 32, c_a = 96, c_b = 96 }
+doc = "Layer 3: 96 + 96 -> 192 channels"
