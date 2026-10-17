@@ -230,6 +230,19 @@ py_pytest_test(
     ],
 )
 
+# Benchmarks from [benchmark] (E06-11), with torch for the scale kernel's reference.
+py_pytest_test(
+    name = "test_benchmark",
+    srcs = ["test/test_benchmark.py"],
+    deps = [
+        ":ipu_harness_lib",
+        ":scale_kernel",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+        requirement("pytest"),
+        requirement("torch"),
+    ],
+)
+
 # Multi-stage kernels: several programs on one model (E06-14).
 py_pytest_test(
     name = "test_stages",
