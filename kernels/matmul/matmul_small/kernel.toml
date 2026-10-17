@@ -19,6 +19,7 @@ zero      = "0"                                  # initial offsets, R_CYCLIC slo
 b_startup = "-1"                                 # b row startup
 idx_start = "-1"                                 # fixed_idx startup
 k_last    = "k - 1"                              # inner-loop limit
+rc_slot0  = "0"                                  # LR15: R_CYCLIC slot 0, which the program reads unset
 
 # Placed from row 0: a, b, y (the old XMEM map).
 [inputs.a]                                       # A: one row per matrix row
@@ -43,6 +44,7 @@ b_startup = "CR8"
 idx_start = "CR9"
 k_last    = "CR10"
 b         = "CR11"
+rc_slot0  = "LR15"                               # 0, as at reset: a chain step inherits LRs
 
 [golden]
 op = "matmul"                                    # a @ b, ipu_kernels.reference.ops
