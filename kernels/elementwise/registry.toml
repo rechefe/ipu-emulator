@@ -1,5 +1,6 @@
-# The elementwise shape variants (E07-06): the three MobileViT-S residual adds
-# over the residual_add_rows template, one program (E02 digest c52075db).
+# The elementwise shape variants (E07-06, E07-23): the MobileViT-S residual
+# adds over the residual_add_rows template, one program (E02 digest c52075db),
+# three unpacked and two on the packed layout.
 # `bazel test //kernels/elementwise:residual_add_16x240` runs the template's
 # cases at that shape.
 

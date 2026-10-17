@@ -35,7 +35,7 @@
     once for the whole kernel run) then ACC.ADD for p_out=1..7 accumulates
     into disjoint 16-lane windows of one shared r_acc -- no reset between the
     8 source rows of one packed row, but a genuine reset at the start of
-    each new row's row. An earlier draft used unconditional ACC.ADD at
+    each new packed row. An earlier draft used unconditional ACC.ADD at
     p_out==0 (copying the "loop body always uses ACC.ADD, only the outer peel
     uses .FIRST" shape from packed_layernorm.asm's step 1, where
     the loop genuinely sums ACROSS rows) -- wrong here since this kernel's
@@ -49,9 +49,10 @@
     PREVIOUS iteration (or the kernel's own priming load, for the very
     first). Every iteration therefore ALSO issues its own trailing
     prefetch load for the FOLLOWING row -- including p_out=7, which
-    prefetches the NEXT packed row's p_out=0 row -- except the absolute
-    last iteration of the whole kernel (row 29, p_out=7), which has
-    nothing left to prefetch (240 rows total, all already consumed). An
+    prefetches the NEXT packed row's p_out=0 row -- the absolute last
+    iteration of the whole kernel (row 29, p_out=7) included: its prefetch
+    reads the row after x, whose value is never used (the loop body is the
+    same on every pass; see the note at that load below). An
     earlier draft omitted p_out=7's load unconditionally (treating it like
     "the last unroll slot needs no prefetch," true only for the standalone
     8-wide gather primitive this was adapted from, which reads ONE shared
@@ -84,9 +85,8 @@
 {% set PACKED_BASE   = cr.y  %}
 {% set MASK_BASE     = cr.mask  %}
 {% set DSTRUCT128    = cr.dstruct_row  %}
-{#- cr8-cr15 unused. DSTRUCT16 is not needed: every load here reads a
-    one-channel-per-row source (native 128-lane width;
-    only 16 lanes are;
+{#- CR8-CR15 unused. DSTRUCT16 is not needed: every load here reads a
+    one-channel-per-row source (native 128-lane width; only 16 lanes are
     "valid" data but the MULT reads all 128 regardless of quantize
     windows), and the only STORE is the packed 128-lane output. #}
 
@@ -161,8 +161,7 @@ pack_loop:
         alongside the store (different slot) and this load (different
         slot again) -- mirrors packed_layernorm.asm's identical
         fused closing-word structure. This load prefetches the NEXT
-        packed row's p_out=0 row;
-        on the LAST loop pass (processing;
+        packed row's p_out=0 row; on the LAST loop pass (processing
         row 29) it harmlessly reads one row past the last valid input
         (row 240) -- the same harmless-extra-prefetch pattern
         layernorm.asm (layernorm_16x240)'s own step1 loop has (see that kernel's

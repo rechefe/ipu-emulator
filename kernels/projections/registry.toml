@@ -1,4 +1,5 @@
-# The projections (E07-02): 12 kernels over 3 templates. Each entry fixes its
+# The projections (E07-02): 12 kernels over 3 templates (the packed linears,
+# E07-23, follow at the end). Each entry fixes its
 # template's parameters to one MobileViT layer's shape (144/192/240 = L3/L4/L5)
 # and role. `bazel test //kernels/projections:proj_ffn1_192_p4` runs the
 # template's cases at that shape; `bazel run //kernels:query -- projection

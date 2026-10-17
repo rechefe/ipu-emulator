@@ -46,7 +46,7 @@ seed1        = "CR9"
 
 [golden]
 reference = "reference.py:reference"        # ops.linear on the packed rows
-tolerance = { fp32 = { tier = "FP32_LONG", atol = 5e-5, why = "measured max|err| 2.9e-5 at k = 960 (ffn2), near-zero outputs of a long FP32 sum" } }
+tolerance = { fp32 = { tier = "FP32_LONG", atol = 5e-5, why = "measured max|err| 2.5e-5 at k = 768 (ffn2), near-zero outputs of a long FP32 sum" } }
 
 [cases.default]                             # QKV, OutProj and FFN1's width
 k = 192

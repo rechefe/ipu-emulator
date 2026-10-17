@@ -9,9 +9,8 @@ keeps a short fingerprint per word, used only to name the first word that
 changed.
 
 Render contexts are copied here as literals, not imported, because the tests
-that use them are manual whole-model runs. If one of those tests changes the
-context it renders with, change the matching entry in ``RENDER_CONTEXTS`` in
-the same PR.
+that used them were manual whole-model runs. None is left today (E07-23 moved
+the last such programs to //kernels); the mechanism stays for the next one.
 
 Programs rendered per run by a kernel's own ``app.py`` (``conv_universal_wide384``,
 ``depthwise_conv_stride2_*``) are pinned here only in their standalone form,

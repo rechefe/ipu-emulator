@@ -7,7 +7,7 @@ op = "unpack"
 formats = ["fp32"]
 
 [params]
-channels = { type = "int", min = 1 }                 # a multiple of 128 / tokens
+channels = { type = "int", min = 8, multiple_of = 8 }  # 128 / tokens (2 or 8) channels a row
 tokens   = { type = "int", choices = [16, 64] }      # 8 and 2 channels a row: the MobileViT layers
 
 [derived]

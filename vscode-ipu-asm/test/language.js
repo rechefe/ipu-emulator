@@ -47,7 +47,7 @@ test('the cursor context: mnemonic, operand index, comment or Jinja', () => {
     ['SET {{ lr_row }} |', { index: 1 }], // a {{ }} operand is one operand
     ['SET {{ lr_row\n }} |', { index: 1 }], // even spanning lines
     ['SET {% if a %}lr0{% else %}lr1{% endif %} cr0|;;', { index: 1 }], // alternatives keep their position
-    // asm_packed_output_linear_*.asm: a templated label closed in another iteration.
+    // packed_output_linear.asm (kernels/projections): a templated label closed in another iteration.
     ['{% for w in ws %}\nskip_{{ w }}:\n{% endfor %}\ndone:\n    SET |lr0 cr0;;\n', { mnemonic: 'SET' }],
   ]) {
     const ctx = contextAt(marked);

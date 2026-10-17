@@ -33,7 +33,7 @@
 
       rc_idx = 64*(p_in - p_out) mod 512
 
-    REPLICATION SLOTS -- CONTRADICTS the L5 finding that "1 slot suffices".
+    REPLICATION SLOTS (the L5 kernel replicates into all 4 slots).
     Direct enumeration of all 4 (p_in, p_out) pairs at ps=64 (script-verified):
       p_in=0 p_out=0  rc_idx=0    max_read=63   slot=[0,0]
       p_in=0 p_out=1  rc_idx=448  max_read=511  slot=[3,3]
@@ -42,12 +42,11 @@
     3 of 4 pairs stay in slot 0, but (p_in=0,p_out=1) lands ENTIRELY in slot 3
     (elements 448-511), never touching slots 1 or 2. So this kernel replicates
     the packed row into R_CYCLIC slots 0 and 3 ONLY (2 LD.MULT.CYCLIC
-    calls per packed row) -- not L5's 1-slot optimization, and not the naive
-    4-slot default either.
+    calls per packed row), not all 4 as the L5 kernel does.
 
     Weight layout: 2 rows (one per p_out in this call), each split across
     ceil(K/128) weight-chunks -- same convention as the L5 kernel. K assumed
-    a multiple of 2 (packing group size); L4's real shapes (192, 384) both
+    a multiple of 2 (packing group size); L4's real shapes (192, 768) both
     qualify -- chunk_widths for K=192 are [128, 64], both even.
 
     RUNTIME ROW LOOP / PEELED FIRST ROW: same discipline as

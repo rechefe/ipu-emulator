@@ -19,14 +19,15 @@ const { commandsFor } = require('../analysis');
 const checker = require('../checker');
 
 const REPO = path.resolve(__dirname, '..', '..');
-/** The committed recordings: the extension's own corpus and a kernel each for `for` and `macro`. */
+/** The committed recordings: the extension's own corpus and a kernel with a `for` (the
+ * `macro` kernel, a MobileViT packed program, moved to //kernels, E07-23; the
+ * `macro-param` snippet covers macros). */
 const FILES = [
   'vscode-ipu-asm/test/corpus/edge_cases.asm',
   ...fs.readdirSync(path.join(__dirname, 'corpus', 'negative')).filter((f) => f.endsWith('.asm')).sort()
     .map((f) => `vscode-ipu-asm/test/corpus/negative/${f}`),
   'vscode-ipu-asm/test/integration/fixture/kernels/demo/demo_kernel/demo_kernel.asm',
   'src/tools/ipu-apps/src/ipu_apps/kernels/sampling/sample_descriptors/sample_descriptors.asm',
-  'src/tools/ipu-apps/test/mobilevit/asm_packed_unpack_192x64.asm',
 ];
 const SNIPPETS = path.join(__dirname, 'fixtures', 'analysis-snippets.json');
 const digest = (text) => crypto.createHash('sha256').update(text).digest('hex');

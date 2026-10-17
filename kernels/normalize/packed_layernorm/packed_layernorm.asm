@@ -47,8 +47,8 @@
                         rc_idx=16*p_in, mask_offset=0 (one-hot lanes 0-15),
                         scaled by -1/240 via MULT.RC.VV against an all-lanes
                         -1/240 row loaded into R0 (MULT.RC.VE's CR-scalar path
-                        truncates to a signed BYTE -- ipu.py
-                        _wide_cr_scalar_byte_as_int32 -- so a fractional
+                        decodes the CR's low element-width bits --
+                        LaneCodec.decode_cr_scalar -- so a fractional
                         constant must come from an XMEM row, same as
                         layernorm.asm (layernorm_16x240)'s NEG_INV_N_BASE). ACC.ADD
                         (.FIRST once, at c=0,p_in=0) accumulates all 240
@@ -133,7 +133,7 @@
     lifetime audit. Only ONE 128-wide dstructure register (DSTRUCT128) is
     needed alongside DSTRUCT16: mask_shift is held at 0 throughout (only
     mask_offset, an immediate 0-7 selecting an R_MASK slot, varies -- a
-    different mechanism), and ipu.py's _mult_mask_and_shift only reads
+    different mechanism), and ipu_emu/slots/mult.py's _mult_mask_and_shift only reads
     CR[cr_idx].partition when shift != 0, so `partition` never matters here.
 ========================================================================== -#}
 {%- set n_ch = channels %}
@@ -185,7 +185,7 @@
 {#- R_MASK is a single 1024-bit register (8 x 128-bit slots); LD.MASK
     replaces ALL of it in one call, and there is no default it reverts to
     between calls within a kernel run (only IpuState's own INITIAL value is
-    all-ones -- ipu.py's RegFile.__init__ -- which this kernel's own
+    all-ones, its reset value -- which this kernel's own
     LD.MASK for the one-hot mask overwrites early on). Steps 1/2/
     4a/5 need the one-hot 8-slot mask (MASK_BASE) to select a 16-lane
     gather/scatter window;
@@ -226,7 +226,7 @@
 # -----------------------------------------------------------------------
 # Step 1: -mean[t] = sum over 240 channels of x[ch,t] * (-1/240)
 #
-# Chunk 0 unrolled/peeled outside the loop (the one true ACC.ADD.FIRST
+# Row 0 unrolled/peeled outside the loop (the one true ACC.ADD.FIRST
 # position); a runtime loop then covers rows 1..29.
 # -----------------------------------------------------------------------
 
@@ -319,7 +319,7 @@ step1_loop:
 # -----------------------------------------------------------------------
 # Step 3: centered[c] = x[c] + NEG_MEAN_TILE, partition-local elementwise.
 # NEG_MEAN_TILE loaded once into slot 128 (constant); x[c] cycles slot 0.
-# Chunk 0 peeled; runtime loop covers rows 1..29.
+# Row 0 peeled; runtime loop covers rows 1..29.
 # -----------------------------------------------------------------------
 
     LD.MASK {{ mask_off_lr }} {{ ALLONES_MASK_BASE }};;   # unmasked full-row pass -- see header note on the two mask rows
@@ -501,7 +501,7 @@ step4a_loop:
 # row_idx (the SAME counter driving the loop -- row_idx already equals
 # the current row index at every point BEFORE its own trailing-word
 # increment, so no separate offset register is needed; an earlier draft
-# used a dedicated gb_chunk_off register incremented independently, which
+# used a dedicated gb_row_off register incremented independently, which
 # either needed a 4th "lr" sub-slot in the final word (over the 3-slot
 # budget) or, when moved to an earlier word to make room, incremented
 # too soon and fed the WRONG offset into the very iteration meant to
@@ -521,7 +521,7 @@ step4a_loop:
 #      why the loop counter's ADD and BLT.S must share the closing load's
 #      word -- splitting them causes an extra pass).
 #
-# Chunk 0 peeled (row_idx == 0 throughout the peel, set explicitly before
+# Row 0 peeled (row_idx == 0 throughout the peel, set explicitly before
 # it and only advanced to 1 once entering the loop, so its gamma/beta
 # pointers land exactly at the tile bases); runtime loop covers rows
 # 1..29.
@@ -530,8 +530,7 @@ step4a_loop:
     {#- CORRECTION: normalized[c] = centered[c] * invstd_tile is a genuine
         elementwise TENSOR PRODUCT, not a sum -- an earlier draft computed
         it as two MULT.RC.VE(x1)+ACC.ADD passes (one per operand), which
-        is A+B, not A*B (ACC.ADD always ADDS mult_res into r_acc;
-        there is;
+        is A+B, not A*B (ACC.ADD always ADDS mult_res into r_acc; there is
         no elementwise-multiply accumulate). Caught by comparing r_acc
         directly against the expected product after the first row:
         kernel gave centered[0,0]+invstd[0] = -1.9153+0.5930 = -1.3223,

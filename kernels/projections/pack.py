@@ -43,9 +43,10 @@ Array = npt.NDArray[Any]
 
 
 class WeightChunks:
-    """Output-major weights ``(n_out, k)`` as ``ceil(k / 128)`` chunks of
-    ``n_out`` rows: row ``c * n_out + o`` holds ``a[o, 128 c : 128 c + 128]``,
-    the last chunk zero-padded (packed_output_linear's weight rows)."""
+    """Output-major weights ``(n_out, k)`` as ``ceil(k / 128)`` weight-chunks
+    (128-wide slices of k), ``n_out`` rows each: row ``c * n_out + o`` holds
+    ``a[o, 128 c : 128 c + 128]``, the last weight-chunk zero-padded
+    (packed_output_linear's weight rows)."""
 
     @staticmethod
     def _check(shape: tuple[int, ...]) -> None:

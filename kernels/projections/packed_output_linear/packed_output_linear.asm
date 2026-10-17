@@ -24,7 +24,7 @@
     8 R_MASK slots map 1:1 onto p_out, which is the alignment the construction
     depends on (the 8 R_MASK slots map 1:1 onto the 8 p_out values -- an
     alignment that holds only at P8, which is L5). For N_OUT>8
-    (out-proj=240, FFN1=480, QKV=720) this kernel is called N_OUT/8 times by
+    (out-proj=240, FFN1=960, QKV=720) this kernel is called N_OUT/8 times by
     its caller, each call producing ONE packed row of 8 output channels --
     still zero host-side data conversion: each call's output is a complete,
     valid packed row on its own; nothing converts data BETWEEN calls, only the
@@ -45,24 +45,24 @@
     RUNTIME ROW LOOP (not fully unrolled): a first cut fully unrolled the
     packed-row loop -- at K=240 (30 packed rows) that produced 3130+ static
     instructions, blowing the 1024-instruction program-memory ceiling ~3x
-    over. The 8x8=64 MULT+ACC-per-chunk body (unavoidable: this construction
-    visits each chunk once per OUTPUT partition, not once total, to land all 8
+    over. The 8x8=64 MULT+ACC-per-row body (unavoidable: this construction
+    visits each row once per OUTPUT partition, not once total, to land all 8
     outputs packed -- same 1920 total MULT+ACC ops as path(b)/unpacked at
-    240->8, just organized differently) is small and stays unrolled per chunk;
-    what cannot be unrolled at real K is the outer chunk-count loop itself.
+    240->8, just organized differently) is small and stays unrolled per row;
+    what cannot be unrolled at real K is the outer row-count loop itself.
 
     PEELED FIRST ROW: ACC.ADD.FIRST must fire exactly once for the WHOLE
-    kernel run (chunk 0, p_out=0, p_in=0), not once per chunk -- a runtime
+    kernel run (row 0, p_out=0, p_in=0), not once per row -- a runtime
     loop body re-executes the same static instructions every iteration, so a
     compile-time "p_out==0 and p_in==0" guard inside the loop body would
-    incorrectly re-fire .FIRST (and reset the accumulator) on EVERY chunk.
-    Fixed the way an earlier unpacked linear program handled it ("chunk 0:
+    incorrectly re-fire .FIRST (and reset the accumulator) on EVERY row.
+    Fixed the way an earlier unpacked linear program handled it ("row 0:
     prime + peel"): weight-chunk 0's packed row 0 is statically unrolled
     ONCE outside any loop with .FIRST at its one true first position; TWO
     separate runtime loops then cover everything else -- weight-chunk 0's
     REMAINING packed rows (pc=1..bound0, only entered if bound0>0), then
     weight-chunks 1..W_CHUNKS-1 in full (pc=0..bound_i each). This avoids the
-    awkward "which bound applies, and did we already consume chunk 0"
+    awkward "which bound applies, and did we already consume row 0"
     branching a single merged loop would need.
 
     SEED LOOKUP TABLE (8 CRs, one per p_out) for rc_idx: kernel.toml [derived]
@@ -71,7 +71,7 @@
     Weight layout: 8 rows (one per p_out in this call), each split across
     ceil(K/128) weight-chunks -- same convention as every other linear kernel
     here. K assumed a multiple of 8 (packing group size); the L5 layer's
-    shapes (240, 480) both qualify.
+    shapes (240, 960) both qualify.
 
     CROSS-KERNEL R_MASK HAZARD: this kernel loads a one-hot 8-slot R_MASK
     (one 16-lane window per output partition) via LD.MASK and never
@@ -104,7 +104,7 @@
     draft assigned DATA_BASE=CR1 assuming it was a normal writable CR; the
     host's set_cr(1, data_base_row) silently had NO EFFECT, leaving
     chunk_base permanently seeded at 1 instead of the real data base row --
-    this produced the multi-chunk correctness failures (K=16 err=4.09,
+    this produced the multi-row correctness failures (K=16 err=4.09,
     K=240 err=25.09/18.37) that looked like addressing/loop bugs but were a
     register-allocation mistake. Fixed: only CR0 is used as a genuine
     constant (ZERO); every real per-call value lives in CR2-CR15. #}
@@ -147,7 +147,7 @@
         R0 only ever holds one row, and unlike the unpacked/path(b) kernels
         (which visit a whole weight-chunk's worth of k for ONE output before
         moving on), this construction visits one packed-row's worth of k
-        for ALL 8 outputs before moving to the next chunk. w_row_ptr walks
+        for ALL 8 outputs before moving to the next row. w_row_ptr walks
         the CURRENT weight-chunk's 8 rows (p_out=0..7), reset to w_ptr (this
         weight-chunk's row 0, i.e. output 0's row) at the start of every
         packed row. An earlier draft loaded weights only once per
@@ -221,15 +221,15 @@ wc0_pc_loop_exit:
     SET {{ wc_bound }} {{ ZERO }};;
     INC {{ wc_bound }} {{ chunk_widths | length }};;
     {#- wc_bound = W_CHUNKS (not W_CHUNKS-1): the loop-continue check below
-        is "BLT.S wc_idx wc_bound", testing whether there's still a weight-
-        chunk left to process AFTER incrementing wc_idx post-loop-body, so
+        is "BLT.S wc_idx wc_bound", testing whether there's still a
+        weight-chunk left to process AFTER incrementing wc_idx post-loop-body, so
         it must compare against the total count, not count-1 -- an earlier
         draft used W_CHUNKS-1 (matching a "last valid index" convention that
         doesn't apply to a pre-increment continue-check) and silently
         dropped the LAST weight-chunk (K=480's tail, 12 packed rows)
         entirely: chunk_ctr topped out at 48/59, discovered by tracing the
-        chunk counter directly since the resulting error (9.14) didn't
-        obviously point at a dropped chunk. #}
+        weight-chunk counter directly since the resulting error (9.14) didn't
+        obviously point at a dropped weight-chunk. #}
     {#- wc_bound (a compile-time constant, chunk_widths|length - 1) loaded
         into an LR via INC immediate: BLT.S's reg2 operand is LcrIdx
         (LR/CR-only, no raw immediate), and every CR slot (CR2-CR15) is

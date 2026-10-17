@@ -1,4 +1,5 @@
-# The reshape shape variants (E07-04): the three MobileViT-S concats over the
+# The reshape shape variants (E07-04; the packed seams, E07-23, follow at the
+# end): the three MobileViT-S concats over the
 # concat template, one per layer (L3/L4/L5), each cat((residual, features),
 # dim=channel). `bazel test //kernels/reshape:concat_8x8x160x160` runs the
 # template's cases at that shape.
