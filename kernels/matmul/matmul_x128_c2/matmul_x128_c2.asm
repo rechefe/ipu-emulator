@@ -17,7 +17,7 @@
              matmul_192x384_x128 (FFN2, K=384->192). Consumed by
              proj_outproj_192_p4, which wraps the same arithmetic across all 4
              pixel streams in one invocation.
-    Tests:   //src/tools/ipu-apps:test_matmul_192x192_x128
+    Tests:   //kernels/matmul:matmul_192x192_x128 (the registry entry)
 
     Computes the L4 OutProj matmul: 192 input channels contracted down to 192
     output channels, over 64 tokens (a single token group, since N_TOK=64 fits

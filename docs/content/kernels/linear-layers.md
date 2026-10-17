@@ -91,7 +91,6 @@ Query: `bazel run //kernels:query -- fully_connected`. The shape parameters
 
 ## Data layout
 
-
 `matmul_*` kernels declare their tensors in `kernel.toml` in one of two
 layouts:
 

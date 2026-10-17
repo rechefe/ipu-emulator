@@ -22,17 +22,17 @@ def kernel():
     return Registry.load(kernel_tree(), families=["matmul"]).kernel(NAME)
 
 
-@pytest.mark.parametrize(("tensor", "shape"), [("b", (2, 289, 128)), ("a", (145, 288))])
-def test_an_oversize_input_is_refused_with_both_shapes(kernel, tmp_path, tensor, shape):
+@pytest.mark.parametrize(
+    ("tensor", "shape", "declared"),
+    [("b", (2, 289, 128), (2, 288, 128)), ("a", (145, 288), (144, 288))],
+)
+def test_an_oversize_input_is_refused_with_both_shapes(kernel, tmp_path, tensor, shape, declared):
     path = tmp_path / f"{tensor}.npy"
     np.save(path, np.zeros(shape, dtype=np.float32))
     case = expand(kernel)[0]
     with pytest.raises(ConfigurationError) as error:
         run_kernel(kernel, case, ElementFormat.FP32, RunOptions(inputs={tensor: path}))
-    message = str(error.value)
-    assert tensor in message and str(shape) in message
-    declared = {"b": (2, 288, 128), "a": (144, 288)}[tensor]
-    assert str(declared) in message
+    assert f"{tensor} has shape {shape}, the case's is {declared}" in str(error.value)
 
 
 def test_the_command_line_refuses_it_too(tmp_path, capsys):
@@ -40,6 +40,6 @@ def test_the_command_line_refuses_it_too(tmp_path, capsys):
     path = tmp_path / "b.npy"
     np.save(path, np.zeros((2, 289, 128), dtype=np.float32))
     entry = f"{kernel_tree() / 'matmul' / 'registry.toml'}::{NAME}"
-    assert cli.main([entry, "--input", f"b={path}"]) != 0
+    assert cli.main([entry, "--input", f"b={path}"]) == 1
     err = capsys.readouterr().err
-    assert "(2, 289, 128)" in err and "(2, 288, 128)" in err
+    assert "b has shape (2, 289, 128), the case's is (2, 288, 128)" in err

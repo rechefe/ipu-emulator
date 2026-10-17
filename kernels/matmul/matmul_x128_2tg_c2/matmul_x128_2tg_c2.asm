@@ -17,7 +17,7 @@
              all share this j_loop/k-loop template. Consumed by
              proj_outproj_144_p4, which wraps the same arithmetic across all 4
              pixel streams in one invocation.
-    Tests:   //src/tools/ipu-apps:test_matmul_144x144_x128
+    Tests:   //kernels/matmul:matmul_144x144_x128 (the registry entry)
 
     Computes the L3 OutProj matmul: 144 input channels contracted down to 144
     output channels, over 256 tokens (handled as two 128-token groups, tg=0/1,

@@ -16,7 +16,7 @@
              128-wide chunks per token group instead of two. Consumed by
              proj_ffn2_144_p4 (all 4 streams, one invocation, identity
              activation).
-    Tests:   //src/tools/ipu-apps:test_matmul_144x288_x128
+    Tests:   //kernels/matmul:matmul_144x288_x128 (the registry entry)
 
     Computes the L3 FFN2 matmul: the 288-wide FFN hidden representation
     contracted back down to 144 output channels, over 256 tokens (two

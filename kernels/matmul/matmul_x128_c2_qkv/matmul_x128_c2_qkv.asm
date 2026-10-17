@@ -16,7 +16,7 @@
              by proj_qkv_192_p4 (all 4 streams, one invocation, identity
              activation) and by the seam test test_seam_qkv_matmul_scores_km_64x48
              (this kernel's output feeds attn_scores_km_64x48 via repack).
-    Tests:   //src/tools/ipu-apps:test_matmul_576x192_x128
+    Tests:   //kernels/matmul:matmul_576x192_x128 (the registry entry)
 
     Computes the L4 fused QKV matmul: 192 input channels projected to 576
     output channels (Q, K, V concatenated, 192 each), over 64 tokens (single

@@ -16,7 +16,7 @@
              streams, one invocation, identity activation). Also feeds
              test_seam_layernorm_matmul_xmem_direct (L4 layernorm->matmul seam,
              via matmul_192x192_x128).
-    Tests:   //src/tools/ipu-apps:test_matmul_192x384_x128
+    Tests:   //kernels/matmul:matmul_192x384_x128 (the registry entry)
 
     Computes the L4 FFN2 matmul: the 384-wide FFN hidden representation
     contracted back down to 192 output channels, over 64 tokens (single token

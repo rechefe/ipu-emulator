@@ -15,7 +15,7 @@
              matmul_720x240_x128 (QKV). Consumed by proj_ffn2_240_p4 (all 4
              streams, one invocation, identity activation) and feeds
              residual_add_16x240 downstream (full-row output).
-    Tests:   //src/tools/ipu-apps:test_matmul_240x480_x128
+    Tests:   //kernels/matmul:matmul_240x480_x128 (the registry entry)
 
     Computes the L5 FFN2 matmul: the 480-wide FFN hidden representation
     contracted back down to 240 output channels, over 16 tokens (single token
