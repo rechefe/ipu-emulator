@@ -288,6 +288,17 @@ py_pytest_test(
     ],
 )
 
+# The Cycle Inspector's recorder (E07-26): --trace with --context.
+py_pytest_test(
+    name = "test_inspector",
+    srcs = ["test/test_inspector.py"],
+    deps = [
+        ":ipu_harness_lib",
+        ":scale_kernel",
+        requirement("pytest"),
+    ],
+)
+
 # Runs a kernel's case (E06-11). The per-kernel `bazel run //kernels/<family>/<name>`
 # wraps it; this binary runs any kernel folder by path:
 #   bazel run //src/tools/ipu-harness:run_kernel -- path/to/kernel --case NAME --format all

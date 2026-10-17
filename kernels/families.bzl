@@ -10,7 +10,23 @@ names them; //kernels:test_families checks it against the kernel.toml folders.
 
 #: Each family's kernels, by folder name.
 KERNELS = {
+    "attention": [
+        "attn_scores_km_16x60",
+        "attn_scores_km_256x36",
+        "attn_scores_km_64x48",
+        "qk_scores_16x60",
+        "qk_scores_256x36",
+        "qk_scores_64x48",
+    ],
+    "conformance": ["vector_tour"],
     "elementwise": ["residual_add", "residual_add_rows", "scale"],
+    "linear": ["fully_connected"],
+    "pooling": [
+        "maxpool2d_nms",
+        "maxpool2d_stride2",
+        "maxpool2d_stride2_tail",
+        "maxpool2d_window",
+    ],
     "projections": ["proj_p4", "proj_p4_2tg", "proj_p4_2tg_silu"],
     "reshape": [
         "concat",
@@ -36,4 +52,6 @@ KERNELS = {
 #: to the files of (kernels/<other>/...). A use not listed here fails
 #: //kernels:test_families. E07 adds the edges its migrations need, for
 #: example "attention": ["softmax"].
-FAMILY_DEPS = {}
+FAMILY_DEPS = {
+    "attention": ["softmax"],
+}

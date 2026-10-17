@@ -116,6 +116,11 @@ editor. The controls, from the debugger's own key table:
 
 ## Trace recorder: `trace_case`
 
+A kernel-tree kernel is recorded by the runner itself: `run_kernel` with
+`--trace` and `--context` (above) writes the trace and the
+[Cycle Inspector](../debugging-inspector.md)'s context. `trace_case` does the
+same for a kernel still in `ipu_apps`, until its family migrates (E07).
+
 `trace_case` runs one registered case and records its trace (JSON Lines, the
 [trace schema](reference-model-api.md)) and the context the
 [Cycle Inspector](../debugging-inspector.md) needs beside it.

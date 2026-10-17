@@ -324,6 +324,14 @@ Rows are added by each E07 issue as it deletes the old ipu-apps kernels.
 | `src/tools/ipu-apps/src/ipu_apps/kernels/elementwise/residual_add_256x144/` | E07-06 | The residual add moved onto `ipu_harness`; the three shape copies had one body. The folder (`app.py`, `cases.py`, `test.py`, `__init__.py`, `baseline.json`, the `.asm`) goes. | The entry `residual_add_256x144` of `kernels/elementwise/registry.toml` over the template `kernels/elementwise/residual_add_rows/` (`//kernels/elementwise:residual_add_256x144`); shared reference `ops.residual_add` (`src/tools/ipu-kernels/src/ipu_kernels/reference/ops/residual_add.py`). | `compare_setup`: IDENTICAL (CR0-CR15, LR0-LR15, XMEM). `compare_legacy elementwise`: default case identical in binary, output and cycles (1163/1163). E02 asm digest `c52075dbada345c2` (all three), equal to `:assemble_residual_add_256x144`. |
 | `src/tools/ipu-apps/src/ipu_apps/kernels/elementwise/app.py` | E07-06 | The family's `residual_add_spec` (the `shape=(tokens, channels)` query) for the three shape kernels, all moved. | The template's `[params]` (`tokens`, `channels`) and `kernels/elementwise/test_residual_add.py`. | No user left: only the deleted shape folders imported it. |
 | `src/tools/ipu-apps/src/ipu_apps/kernels/elementwise/cases.py` | E07-06 | The family's `residual_add_cases` for the three shape kernels. | `kernels/elementwise/gen.py` (`legacy_uniform`: each entry's old seed and values); the reference `ops.residual_add`. | compare_setup above: the inputs are byte-identical in XMEM. |
+| `src/tools/ipu-apps/src/ipu_apps/kernels/pooling/` | E07-14 | The 5 pooling kernels moved onto `ipu_harness` as declared-tensor kernels: per-kernel folders (`app.py`, `cases.py`, `test.py`, `__init__.py`, `baseline.json`, the `.asm`; `benchmark.py` and `results.md` for the two stride-2 kernels) and the family's `app.py` (`WindowPoolApp`, `Stride2PoolApp`, `stride2_spec`), `cases.py` (the image builders) and `test.py`. | `kernels/pooling/`: folder kernels `maxpool2d_window`, `maxpool2d_stride2` and `maxpool2d_stride2_tail`, and the `registry.toml` entries `maxpool2d_nms7` and `maxpool2d_nms9` over the template `maxpool2d_nms` (the two programs differed only in K); the family's `pack.py` (`halo_tiled`, `tiled`: the old image layout), `gen.py` (the old data) and `test_routing.py`; shared reference `ops.maxpool2d` (`src/tools/ipu-kernels/src/ipu_kernels/reference/ops/maxpool2d.py`), EXACT; `[benchmark]` tables for the old `CONFIGS` (same cycles and utilization as `results.md`). Targets keep their names: `//kernels/pooling/<kernel>`, `//kernels/pooling:maxpool2d_nms7`/`nms9`. | `compare_setup`: IDENTICAL for all 17 cases (CR0-CR15, LR0-LR15, XMEM). `compare_legacy pooling`: 17/17 cases identical in binary, output and cycles (for example `maxpool2d_window` large_window 33040/33040, `maxpool2d_nms9` tile_boundary 1060/1060). Each `:assemble_<name>.bin` equals its E02 digest: nms7 `09c72540`, nms9 `eab5191e`, stride2 `22500275`, stride2_tail `288d8366`, window `f6a83d7f`. |
+| `src/tools/ipu-apps/test/baselines/disassembly/kernels/pooling/` | E07-14 | The disassembly snapshots of the 5 deleted programs (`tools/update_baselines.sh`: deletions only, with their `asm_digests.json` and format-golden entries). | The `:assemble_<name>` targets under `//kernels/pooling` (the same binaries, E02 digests above). | `tools/update_baselines.sh` after the folders went changed only these deletions. |
+
+Kept until a later issue (the old folder stays frozen, logged here when it goes):
+
+- `src/tools/ipu-apps/src/ipu_apps/kernels/reshape/identity/`: kept until E07-25. E07-04 migrated it (`kernels/reshape/identity`, compare_setup and compare_legacy identical: 17/17 and 7/7 cycles, E02 digest `65e08a2907637a18`), but the old folder is the generic fixture of the old harness's own tests: `src/tools/ipu-apps/test/{test_harness_factory,test_debug_launch,test_bazel_entry,test_kernel_registry,test_kernel_baseline,test_reference_model_kernels,test_asm_digests}.py`, `src/tools/ipu-apps/BUILD.bazel` (data globs), `kernels/tools/test_compare.py`, the Inspector trace `docs/inspector` (`identity`), `docs/test_doc_commands.py`, `tools/bench` (the `kernel/identity/*` series) and the `getting-started.tex` tutorial. E07-25 deletes them with `ipu-apps`.
+- `src/tools/ipu-apps/src/ipu_apps/kernels/reshape/depth_to_space/`: kept until E07-26. E07-04 migrated it (`kernels/reshape/depth_to_space`, identical in all 4 cases, E02 digest `cd1e0e2be66c1bf8`), but the Inspector's curated `depth_to_space` trace is recorded through `//src/tools/ipu-apps:trace_case` (`docs/inspector.bzl`), which E07-26 moves onto the runner.
+- `src/tools/ipu-apps/src/ipu_apps/kernels/elementwise/residual_add/`: kept until E07-26. E07-06 migrated it (`kernels/elementwise/residual_add`, compare_setup IDENTICAL, compare_legacy 4/4 cases with equal cycles 325/485/645/805, E02 digest `9c425573505ca11a`; its benchmark is the kernel's `[benchmark]`), but the Inspector's curated `residual_add` trace is recorded through `//src/tools/ipu-apps:trace_case` and the getting-started guide runs it as `//src/tools/ipu-apps:residual_add`; E07-26 moves the trace (lane E).
 | `src/tools/ipu-apps/src/ipu_apps/kernels/softmax/softmax_rows_long/` | E07-11 (735152d2) | The kernel moved onto `ipu_harness`: `app.py` (`SoftmaxRowsLongApp`: the chunk geometry, CR8-CR14, `SPEC`), `cases.py`, `test.py` (16-point sweep), `benchmark.py`, `results.md`, `baseline.json`, `__init__.py`, and the `.asm` (its header rewritten, so git sees no rename). | `kernels/softmax/softmax_rows_long/`: `softmax_rows_long.asm` (CRs by `[abi]` name, upper case) and `kernel.toml` (`[derived]`, `[abi]`, `cost = 1`, cases `default`, `layout_tail`, `layout_exact` and `sweep_01`..`sweep_16`, `[benchmark]`). `//kernels/softmax/softmax_rows_long` keeps the target name. | `compare_setup` IDENTICAL for all 17 old cases (CR0-CR15, LR0-LR15, XMEM). `compare_legacy softmax`: 17/17 binary and output equal, cycles equal (`default` 570/570). E02 asm `bin_sha256` b6f6c0bfab75…, the default program's. |
 | `src/tools/ipu-apps/src/ipu_apps/kernels/softmax/softmax_columns/` | E07-11 (735152d2) | The kernel moved onto `ipu_harness`: `app.py` (`SoftmaxColumnsApp`: chunk columns, the cpr-row max and rvec regions, CR9-CR13, `SPEC` with the idle-lanes caveat), `cases.py`, `test.py` (16-point sweep), `benchmark.py`, `results.md`, `baseline.json`, `__init__.py`, and the `.asm` (its header rewritten, so git sees no rename). | `kernels/softmax/softmax_columns/`: `softmax_columns.asm` and `kernel.toml` (cases `default`, `layout_pad`, `layout_exact`, `sweep_01`..`sweep_16`, `[benchmark]`). The idle-lanes caveat is in the `kernel.toml` and `.asm` headers (a `Verdict` has no caveats). | `compare_setup` IDENTICAL for all 17 old cases. `compare_legacy softmax`: 17/17 equal (`default` 1239/1239). E02 asm `bin_sha256` 251f37b7eebc…. |
 | `src/tools/ipu-apps/src/ipu_apps/kernels/softmax/test.py` | E07-11 (735152d2) | Family tests: the layout contract, the router, torch's `dim` convention, the docs routing tables. | `kernels/softmax/test_routing.py`, `test_layers.py`, `test_pack.py` and the kernels' `layout*` cases (`//kernels/softmax:tests`); every test is mapped below. | 28 test functions: 23 have a new home, 5 are dropped with their reason (below). |
@@ -337,13 +345,19 @@ Rows are added by each E07 issue as it deletes the old ipu-apps kernels.
 | `src/tools/ipu-apps/test/baselines/disassembly/kernels/softmax/softmax_columns/softmax_columns.txt` | E07-11 (735152d2) | The disassembly snapshot of a deleted `.asm` (`:update_disassembly_snapshots` drops it). | — (the program is `kernels/softmax/softmax_columns/softmax_columns.asm`, pinned by its E02 digest through `compare_legacy`) | Deletion only: `tools/update_baselines.sh` changed nothing else. |
 | `src/tools/ipu-apps/test/baselines/disassembly/kernels/softmax/softmax_rows_long/softmax_rows_long.txt` | E07-11 (735152d2) | As above. | As above (`kernels/softmax/softmax_rows_long/softmax_rows_long.asm`). | As above. |
 
-Kept until a later issue (the old folder stays frozen, logged here when it goes):
-
-- `src/tools/ipu-apps/src/ipu_apps/kernels/reshape/identity/`: kept until E07-25. E07-04 migrated it (`kernels/reshape/identity`, compare_setup and compare_legacy identical: 17/17 and 7/7 cycles, E02 digest `65e08a2907637a18`), but the old folder is the generic fixture of the old harness's own tests: `src/tools/ipu-apps/test/{test_harness_factory,test_debug_launch,test_bazel_entry,test_kernel_registry,test_kernel_baseline,test_reference_model_kernels,test_asm_digests}.py`, `src/tools/ipu-apps/BUILD.bazel` (data globs), `kernels/tools/test_compare.py`, the Inspector trace `docs/inspector` (`identity`), `docs/test_doc_commands.py`, `tools/bench` (the `kernel/identity/*` series) and the `getting-started.tex` tutorial. E07-25 deletes them with `ipu-apps`.
-- `src/tools/ipu-apps/src/ipu_apps/kernels/reshape/depth_to_space/`: kept until E07-26. E07-04 migrated it (`kernels/reshape/depth_to_space`, identical in all 4 cases, E02 digest `cd1e0e2be66c1bf8`), but the Inspector's curated `depth_to_space` trace is recorded through `//src/tools/ipu-apps:trace_case` (`docs/inspector.bzl`), which E07-26 moves onto the runner.
-- `src/tools/ipu-apps/src/ipu_apps/kernels/elementwise/residual_add/`: kept until E07-26. E07-06 migrated it (`kernels/elementwise/residual_add`, compare_setup IDENTICAL, compare_legacy 4/4 cases with equal cycles 325/485/645/805, E02 digest `9c425573505ca11a`; its benchmark is the kernel's `[benchmark]`), but the Inspector's curated `residual_add` trace is recorded through `//src/tools/ipu-apps:trace_case` and the getting-started guide runs it as `//src/tools/ipu-apps:residual_add`; E07-26 moves the trace (lane E).
-
 **Kept until later issues (the softmax shim).** `src/tools/ipu-apps/src/ipu_apps/kernels/softmax/` keeps `__init__.py`, `app.py` (`SoftmaxApp`, `softmax_spec`, and the `Softmax`/`LogSoftmax`/`Softmin` layer adapters of the old registry), `cases.py` (`run_array`), and the folders `softmax_rows/`, `softmax_rows_partial/` and `softmax_columns_packed/` (`app.py`, `cases.py`, `test.py`, `baseline.json`, the `.asm`). They are kept until E07-12 (`attention/test.py` imports `run_array`, `SoftmaxRowsPartialApp` and `SoftmaxColumnsPackedApp`), E07-24 (the MobileViT L4/L5 tests and `fixture_full_layer_chain.py` import the two apps) and E07-26 (the Cycle Inspector's `softmax_rows` trace and `test_harness_factory.py` run `softmax_rows` through `//src/tools/ipu-apps:trace_case` and `load_cases`); the issue that removes the last user deletes them, with rows here. The new kernels are the tested ones; the shim's programs are the old ones, byte for byte (`compare_legacy`). When the shim goes, its `softmax_rows_partial/test.py` takes with it `test_scatter_counts_every_partition`'s `mult_identity_cycles == 2 * rows` assertion, which the reference model's statistics cannot express (the new test keeps the lane counts); that issue's row records it.
+| `src/tools/ipu-apps/src/ipu_apps/kernels/conformance/` | E07-26 | `vector_tour`, the Cycle Inspector's conformance program, moved onto `ipu_harness`: its folder (`app.py`, `cases.py`, `test.py`, `__init__.py`, `baseline.json`; the `.asm` is renamed) and the family's `__init__.py`. | `kernels/conformance/vector_tour/`: `vector_tour.asm`, `kernel.toml` (cases `default`, `int8`, `e4`, `e5`, `e3`, one format each), `gen.py` (the old `default_rng(16)` data and the R_MASK bytes) and `reference.py`. The `tour_*` Inspector traces are recorded through `run_kernel --trace --context`. | `compare_setup`: IDENTICAL for all 5 cases (CR0-CR15, LR0-LR15, 896 XMEM bytes). `compare_legacy conformance`: 5/5 cases identical in binary, output and cycles (INT8 35/35, E4/E5/E3 32/32). The four `tour_*` `trace.jsonl` files are byte-equal; their page JSON differs only in `source_path` and `source`. |
+| `src/tools/ipu-apps/test/baselines/disassembly/kernels/conformance/vector_tour/vector_tour.txt` | E07-26 | The disassembly snapshot of the deleted `ipu_apps` kernel; `update_disassembly_snapshots` covers `ipu_apps` kernels only. | `//kernels/conformance/vector_tour:assemble_vector_tour` (the program's `.bin`); the binary is the E02 asm digest (`compare_legacy`). | Removed by `tools/update_baselines.sh`, with its `asm_digests.json` entry (deletions only). |
+**Kept until later issues (the softmax shim).** `src/tools/ipu-apps/src/ipu_apps/kernels/softmax/` keeps `__init__.py`, `app.py` (`SoftmaxApp`, `softmax_spec`, and the `Softmax`/`LogSoftmax`/`Softmin` layer adapters of the old registry), `cases.py` (`run_array`), and the folders `softmax_rows/`, `softmax_rows_partial/` and `softmax_columns_packed/` (`app.py`, `cases.py`, `test.py`, `baseline.json`, the `.asm`). They are kept until E07-24 (the MobileViT L4/L5 tests and `fixture_full_layer_chain.py` import the two apps) and E07-26 (the Cycle Inspector's `softmax_rows` trace and `test_harness_factory.py` run `softmax_rows` through `//src/tools/ipu-apps:trace_case` and `load_cases`); the issue that removes the last user deletes them, with rows here. The new kernels are the tested ones; the shim's programs are the old ones, byte for byte (`compare_legacy`). When the shim goes, its `softmax_rows_partial/test.py` takes with it `test_scatter_counts_every_partition`'s `mult_identity_cycles == 2 * rows` assertion, which the reference model's statistics cannot express (the new test keeps the lane counts); that issue's row records it.
+
+**E07-12 deletes no file (the score kernels' shim).** The six score kernels moved to `kernels/attention/` (`compare_setup` IDENTICAL for all 8 old cases; `compare_legacy`: 8/8 binary, output and cycles equal). `src/tools/ipu-apps/src/ipu_apps/kernels/attention/` keeps `qk_scores_*` and `attn_scores_km_*` (`app.py`, `cases.py`, `test.py`, `baseline.json`, the `.asm`) and the family `app.py`, `cases.py` (with `agg_fold`/`acc_fold`, now also `ipu_kernels/reference/datapath.py`) and `test.py` until E07-13: the family `test.py`'s seam tests chain the score kernels into the `attn_v*` kernels E07-13 migrates, and E07-13 deletes the family with rows here. Interface changes, both intended: an `attn_scores_km_*` kernel's inputs are now the one scored head (the old harness sliced it from 4-head files; `head` only picks what a case generates), and the registry refuses a query with a name the kernel does not declare (`qk_scores` with `head`, which the old router ignored). Two tests left `src/tools/ipu-apps/src/ipu_apps/kernels/attention/test.py` for the new family:
+
+| Test | Now covered by |
+|---|---|
+| `test_query_major_scores_feed_softmax_rows` | `kernels/attention/test_softmax_feed.py::test_query_major_scores_feed_softmax_rows` (the new `qk_scores_16x60` and `softmax_rows_partial`, the same data) |
+| `test_key_major_scores_feed_softmax_columns` | `kernels/attention/test_softmax_feed.py::test_key_major_scores_feed_softmax_columns` (the new `attn_scores_km_16x60` and `softmax_columns_packed`, the same data) |
+
+With them, `attention/test.py` no longer uses the softmax shim; its other users are as listed above.
 
 ### Tests from `src/tools/ipu-apps/src/ipu_apps/kernels/projections/<kernel>/test.py` (11 files)
 
@@ -369,35 +383,6 @@ Kept until a later issue (the old folder stays frozen, logged here when it goes)
 | Test | Now covered by |
 |---|---|
 | `test_case` (`case_tests(__package__)`: the `default` case of `concat_cases`) | The entry's generated tests, `bazel test //kernels/reshape:concat_<shape>`: the template's `default` case at the entry's shape, the old data (`gen.py:legacy_uniform`, `RandomState(0xC047)`) held EXACT to `ops.concat`. |
-
-### Tests from `src/tools/ipu-apps/src/ipu_apps/kernels/reshape/<fold or unfold kernel>/test.py` (6 files)
-
-| Test | Now covered by |
-|---|---|
-| `test_case` (`case_tests(__package__)`: every case in the folder's `cases.py`) | The kernel's generated tests, `bazel test //kernels/reshape/<kernel>`: the `default` case (and unfold_8x8x240's `garbage_padding`) with the old data (`../gen.py`), held EXACT to `ops.unfold`/`ops.fold`. |
-| `unfold_8x8x240`: `test_output_shape_and_stale_lanes` | `kernels/reshape/test_fold_unfold.py::test_unfold_8x8x240_stores_one_channel_per_row_and_a_zero_tail` |
-| `unfold_8x8x240`: `test_padding_is_inert` | The `garbage_padding` case of `kernels/reshape/unfold_8x8x240/kernel.toml`: its output must equal the reference of the same tensor, as the zero-padded case's does. |
-
-### Tests from `src/tools/ipu-apps/src/ipu_apps/kernels/reshape/test.py`
-
-| Test | Now covered by |
-|---|---|
-| `test_fold_inverts_unfold` (3 layers x plain, poisoned R_ACC) | `kernels/reshape/test_fold_unfold.py::test_fold_inverts_unfold`, same seeds, unfold's output region fed to fold on one model; R_ACC poisoned by a host write between the steps. |
-| `test_fold_and_unfold_share_their_shapes` | `kernels/reshape/test_fold_unfold.py::test_fold_and_unfold_share_their_shapes`, and `kernels/reshape/test_routing.py::test_each_fold_and_unfold_is_routed_by_its_exact_shape` |
-
-### Tests from `src/tools/ipu-apps/src/ipu_apps/kernels/elementwise/residual_add_<shape>/test.py` (3 files)
-
-| Test | Now covered by |
-|---|---|
-| `test_case` (`case_tests(__package__)`: the `default` case of `residual_add_cases`) | The entry's generated tests, `bazel test //kernels/elementwise:residual_add_<shape>`: the template's `default` case at the entry's shape with the old data (`../gen.py`), held EXACT to `ops.residual_add`. |
-| `residual_add_16x240`: `test_one_channel_per_row` | `kernels/elementwise/test_residual_add.py::test_residual_add_16x240_stores_one_channel_per_row` |
-
-### Tests removed from `src/tools/ipu-apps/test/mobilevit/test_kernel_registry_new_families.py` (the file stays)
-
-| Test | Now covered by |
-|---|---|
-| `test_resolved_unfold_computes_the_operation` (E07-05) | `kernels/reshape/test_routing.py::test_each_fold_and_unfold_is_routed_by_its_exact_shape` (routing), and `//kernels/reshape/unfold_16x16x192`'s `default` case, held EXACT to `ops.unfold` (the computation). |
-| `test_resolved_residual_add_computes_the_operation` (E07-06) | `kernels/elementwise/test_residual_add.py::test_each_entry_is_routed_by_its_exact_shape` (routing), and `//kernels/elementwise:residual_add_16x240`'s `default` case, held EXACT to `ops.residual_add` (the computation). |
 ### Tests from `src/tools/ipu-apps/src/ipu_apps/kernels/softmax/test.py`
 
 28 test functions. The family tests run as `//kernels/softmax:tests` against the kernel tree's registry (`Registry.resolve`, `Registry.from_layer`). A legacy verdict "constructs" its app; a harness verdict has no constructor, so "constructs" becomes "plans, places and sets its registers" (`plan_case`, `place`, `register_writes`). Five functions are dropped, each with its reason; three keep their routing half and lose a caveat or note half, because an `ipu_harness` `Verdict` carries no caveats or shape notes.
@@ -491,3 +476,71 @@ The file stays. Its registry-mechanics tests that used softmax as the example no
 | `test_softmax_without_an_explicit_dim_is_refused` | `kernels/softmax/test_layers.py::test_softmax_without_a_dim_is_refused` |
 | `test_resolved_kernel_computes_the_operation` (28 ids) | `kernels/softmax/test_conformance.py::test_the_resolved_kernel_computes_softmax` (the same 14 shapes x 2 dims and data, through `Registry.resolve` and `run_kernel`) |
 | `test_query_rejects_malformed_queries[argv1]` (`dim=5`: the resolver's `ValueError`) | the same test's `r in two parameters` id: an ambiguous `--sweep` raises the `ValueError` the same `except` turns into exit 2 (no `identity` query raises one) |
+
+### Tests from `src/tools/ipu-apps/src/ipu_apps/kernels/reshape/<fold or unfold kernel>/test.py` (6 files)
+
+| Test | Now covered by |
+|---|---|
+| `test_case` (`case_tests(__package__)`: every case in the folder's `cases.py`) | The kernel's generated tests, `bazel test //kernels/reshape/<kernel>`: the `default` case (and unfold_8x8x240's `garbage_padding`) with the old data (`../gen.py`), held EXACT to `ops.unfold`/`ops.fold`. |
+| `unfold_8x8x240`: `test_output_shape_and_stale_lanes` | `kernels/reshape/test_fold_unfold.py::test_unfold_8x8x240_stores_one_channel_per_row_and_a_zero_tail` |
+| `unfold_8x8x240`: `test_padding_is_inert` | The `garbage_padding` case of `kernels/reshape/unfold_8x8x240/kernel.toml`: its output must equal the reference of the same tensor, as the zero-padded case's does. |
+
+### Tests from `src/tools/ipu-apps/src/ipu_apps/kernels/reshape/test.py`
+
+| Test | Now covered by |
+|---|---|
+| `test_fold_inverts_unfold` (3 layers x plain, poisoned R_ACC) | `kernels/reshape/test_fold_unfold.py::test_fold_inverts_unfold`, same seeds, unfold's output region fed to fold on one model; R_ACC poisoned by a host write between the steps. |
+| `test_fold_and_unfold_share_their_shapes` | `kernels/reshape/test_fold_unfold.py::test_fold_and_unfold_share_their_shapes`, and `kernels/reshape/test_routing.py::test_each_fold_and_unfold_is_routed_by_its_exact_shape` |
+### Tests from `src/tools/ipu-apps/src/ipu_apps/kernels/elementwise/residual_add_<shape>/test.py` (3 files)
+
+| Test | Now covered by |
+|---|---|
+| `test_case` (`case_tests(__package__)`: the `default` case of `residual_add_cases`) | The entry's generated tests, `bazel test //kernels/elementwise:residual_add_<shape>`: the template's `default` case at the entry's shape with the old data (`../gen.py`), held EXACT to `ops.residual_add`. |
+| `residual_add_16x240`: `test_one_channel_per_row` | `kernels/elementwise/test_residual_add.py::test_residual_add_16x240_stores_one_channel_per_row` |
+
+### Tests removed from `src/tools/ipu-apps/test/mobilevit/test_kernel_registry_new_families.py` (the file stays)
+
+| Test | Now covered by |
+|---|---|
+| `test_resolved_unfold_computes_the_operation` (E07-05) | `kernels/reshape/test_routing.py::test_each_fold_and_unfold_is_routed_by_its_exact_shape` (routing), and `//kernels/reshape/unfold_16x16x192`'s `default` case, held EXACT to `ops.unfold` (the computation). |
+| `test_resolved_residual_add_computes_the_operation` (E07-06) | `kernels/elementwise/test_residual_add.py::test_each_entry_is_routed_by_its_exact_shape` (routing), and `//kernels/elementwise:residual_add_16x240`'s `default` case, held EXACT to `ops.residual_add` (the computation). |
+
+### Tests from `src/tools/ipu-apps/src/ipu_apps/kernels/conformance/vector_tour/test.py`
+
+| Test | Now covered by |
+|---|---|
+| `test_case` (`case_tests(__package__)`: every case in `cases.py`: `default`, `int8`, `e4`, `e5`, `e3`) | `bazel test //kernels/conformance/vector_tour` (`test_case[<case>-<format>]`, the same five cases on the old data, `gen.py:legacy_steps`), against `reference.py` at `EXACT`. |
+
+### Tests from `src/tools/ipu-apps/src/ipu_apps/kernels/pooling/<kernel>/test.py` (5 files)
+
+| `test_case` (`case_tests(__package__)`: every case in the folder's `cases.py`) | The kernel's generated tests, `bazel test //kernels/pooling/<kernel>` (or `//kernels/pooling:maxpool2d_nms7`/`nms9`): the same cases by name, the old data (`gen.py`, `default_rng(7)`) held EXACT to `ops.maxpool2d`. |
+
+### Tests from `src/tools/ipu-apps/src/ipu_apps/kernels/pooling/test.py`
+
+| `test_registry_resolve_and_run_across_tile_widths` | `kernels/pooling/test_routing.py::test_exactly_one_stride2_kernel_takes_each_width_and_runs_it` (the same 13 shapes: the routed kernel, CR5, CR12, the XMEM read count and the output held EXACT to the reference); the query tool in `test_the_query_tool_gives_the_same_answer`. |
+
+### Tests from `src/tools/ipu-apps/test/` that named pooling kernels (E07-14)
+
+| `test_harness_factory.py::test_memory_harness_rejects_unsupported_geometry[maxpool2d_window-...]`, `[maxpool2d_nms7-...]` | `kernels/pooling/test_routing.py::test_unsupported_geometry_is_refused` (an even window, a padding other than `kernel_size // 2`, and more); the parameters left the old test with the kernels. |
+| `test_kernel_registry.py::test_misplaced_harnesses_fail_with_a_reason` | Kept: its family base class `Stride2PoolApp` is gone, so it constructs `MemoryApp`, also a base class with no `SPEC`. |
+| `test_kernel_registry.py::test_debug_only_detection_reads_the_assembled_words` | Kept: its kernel without debug-only instructions is `identity` instead of `maxpool2d_stride2`. |
+**Kept until later issues (the fully_connected shim, E07-21).** `src/tools/ipu-apps/src/ipu_apps/kernels/linear/fully_connected/` stays, frozen, with its 9 `.bin` files: E07-21 migrated it to `kernels/linear/fully_connected` (compare_setup IDENTICAL for all 4 old cases, CR0-CR15, LR0-LR15 and XMEM; `compare_legacy linear --case-map int8=default --case-map fp8_e4m3=default --case-map fp8_e5m2=default`: 4/4 identical in binary, output and cycles, 2674/2674 each; E02 asm `bin_sha256` 3f8e69652a56…, equal to `:assemble_fully_connected`), but the Cycle Inspector's curated `fc_int8`, `fc_e4`, `fc_e5` and `fully_connected` traces are recorded through `//src/tools/ipu-apps:trace_case` (`docs/inspector/BUILD.bazel`; E07-26 moves them onto the runner), the emulator benchmark runs its `int8` and `fp8_e4m3` cases through `ipu_apps` (`tools/bench/ipu_bench/benchmarks/emulator.py`), and `src/tools/ipu-apps/test/{test_harness_factory,test_kernel_registry}.py` and `docs/content/building-applications.md` use it. So `parse_dtype` and `wide_mode` remain in the shim's `app.py`/`cases.py` until E07-25 deletes it; the new kernel has neither (its formats replace them). The new kernel's `data/{int8,e4,e5}/{x,w,y}.bin` are copies of the shim's `test_data_format/` files, renamed (Q34); E07-22 deletes the new copies. `MissingInputFixture` left the shim's `cases.py` (a missing fixture is a plain `FileNotFoundError`), and two tests left its `test.py` (deleted functions, not files):
+
+### Tests moved out of `src/tools/ipu-apps/src/ipu_apps/kernels/linear/fully_connected/test.py` (E07-21)
+
+| Test | Now covered by |
+|---|---|
+| `test_mac_accounting_and_alias_hits` (4 ids: `default`, `int8`, `fp8_e4m3`, `fp8_e5m2`) | `kernels/linear/fully_connected/test_accounting.py::test_mac_accounting_and_alias_hits` (`int32`, `int8`, `e4`, `e5`): one profiled run per format (E06-12), held to the golden; `mult_lane_ops == mult_active_cycles * 128`, and the profile's `A16_STR_ACC_REG` is 10 verified (the old `alias_hits`); the profile's sequence detectors (A12, A13, A14) are pinned beside it |
+| `test_missing_input_fixture_fails` | `kernels/linear/fully_connected/test_accounting.py::test_a_missing_data_file_fails_the_case` (a missing input, weight or golden `.bin` is a `PlanError` naming it, not a skip); `MissingInputFixture` is gone |
+
+**fully_connected's legacy data (E07-22).** The goldens now come from the reference (Q78), so the `.bin` copies E07-21 made and their decoders go. Before deleting them, every old golden was checked against `ops.linear` on the decoded old inputs: exact in all three sets (INT8: the INT32 sums equal bit for bit; E4 and E5: the float64 reference rounded to FP32, and a sequential FP32 sum in the kernel's order, both equal the 640 FP32 goldens bit for bit). No FP8 input code is at or above `0x78` (the largest magnitude codes are `0x47` in E4, 3.75, and `0x44` in E5, 4.0), so nothing points to OCP E4M3FN; the E4 inputs hold 108 subnormal codes, which the E03 codecs decode to the values the goldens were made from. The shim's own `test_data_format/` files stay with the frozen shim (above) until E07-25.
+
+| Deleted | Issue | Why | Replaced by | Evidence |
+|---|---|---|---|---|
+| `kernels/linear/fully_connected/data/` | E07-22 | `{int8,e4,e5}/{x,w,y}.bin`, the 9 opaque files no code generated (Q78). | Seeded data: the default generator inside each input's per-format `range` (`kernel.toml`) and `gen.py:extremes`/`gen.py:every_code`; the goldens from `ops.linear` through `kernels/linear/fully_connected/reference.py`, rounded to the accumulator format (INT32 `EXACT`, FP32 `FP32_ORDER`). | The old goldens reproduce exactly from `ops.linear` (above). New cases: `default` and `extremes` in all 4 formats, `every_code` in E4/E5, all pass; program unchanged (`:assemble_fully_connected` still the E02 digest `3f8e6965`), so `compare_legacy`'s binary and cycle checks still hold (2674 cycles); its output check no longer applies (the data changed by design). |
+
+### Tests moved out of `kernels/linear/fully_connected/test_accounting.py` (E07-22)
+
+| Test | Now covered by |
+|---|---|
+| `test_a_missing_data_file_fails_the_case` (3 ids: `e4/x.bin`, `int8/w.bin`, `e5/y.bin`) | dropped: the kernel reads no data file any more. A missing case or `--input` file is still an error, not a skip: `src/tools/ipu-harness/test/test_runner.py::test_a_missing_input_file_exits_1` and `compare.expected_for`'s `cannot read` `PlanError` |

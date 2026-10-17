@@ -146,7 +146,7 @@ py_binary(
     deps = [":ipu_apps_lib"],
 )
 
-# `:<family>` (e.g. :pooling, :reshape) runs every kernel in that family plus
+# `:<family>` (e.g. :convolutions, :attention) runs every kernel in that family plus
 # the family's own test.py. Family tests may check the family's docs page.
 ipu_families_from_kernels(
     kernels_root = "src/ipu_apps/kernels",

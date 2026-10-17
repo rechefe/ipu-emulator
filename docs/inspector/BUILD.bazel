@@ -13,10 +13,10 @@ package(default_visibility = ["//visibility:public"])
 # kernel: one entry here, one there. Every target is tagged `docs`: they build
 # with the docs, not in the default CI tier.
 CURATED = [
-    {"name": "tour_int8", "kernel": "vector_tour", "case": "int8"},
-    {"name": "tour_e4", "kernel": "vector_tour", "case": "e4"},
-    {"name": "tour_e5", "kernel": "vector_tour", "case": "e5"},
-    {"name": "tour_e3", "kernel": "vector_tour", "case": "e3"},
+    {"name": "tour_int8", "kernel": "//kernels/conformance/vector_tour", "case": "int8"},
+    {"name": "tour_e4", "kernel": "//kernels/conformance/vector_tour", "case": "e4"},
+    {"name": "tour_e5", "kernel": "//kernels/conformance/vector_tour", "case": "e5"},
+    {"name": "tour_e3", "kernel": "//kernels/conformance/vector_tour", "case": "e3"},
     {"name": "fc_int8", "kernel": "fully_connected", "case": "int8"},
     {"name": "fc_e4", "kernel": "fully_connected", "case": "fp8_e4m3"},
     {"name": "fc_e5", "kernel": "fully_connected", "case": "fp8_e5m2"},
@@ -124,13 +124,17 @@ py_pytest_test(
     name = "test_inspector_replay",
     srcs = ["test_inspector_replay.py"],
     data = [
+        "//kernels/conformance:files",
+        "//kernels/conformance/vector_tour:vector_tour_files",
         "//src/tools/ipu-apps:kernel_data",
         "//src/tools/ipu-apps:kernel_sources",
     ],
     deps = [
         "//src/tools/ipu-apps:ipu_apps_lib",
         "//src/tools/ipu-gen:ipu_gen_lib",
+        "//src/tools/ipu-harness:ipu_harness_lib",
         requirement("pytest"),
+        requirement("torch"),  # vector_tour's reference.py
     ],
 )
 

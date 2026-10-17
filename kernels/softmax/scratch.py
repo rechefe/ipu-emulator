@@ -20,7 +20,7 @@ from ipu_kernels.softmax.pack import partition_size
 LOG2E = math.log2(math.e)
 
 #: One FP32 row.
-ROW_BYTES = LANES * 4
+FP32_ROW_BYTES = LANES * 4
 
 #: The R_MASK image: 8 slots of 16 bytes (128 bits, one per lane).
 MASK_SLOTS = 8
@@ -41,7 +41,7 @@ def rvec_mask(plan) -> bytes:
     for p in range(LANES // slot):
         bits = ((1 << n) - 1) << (p * slot)
         mask[p * SLOT_BYTES : (p + 1) * SLOT_BYTES] = bits.to_bytes(SLOT_BYTES, "little")
-    return bytes(ROW_BYTES) + bytes(mask) + bytes(ROW_BYTES - len(mask))
+    return bytes(FP32_ROW_BYTES) + bytes(mask) + bytes(FP32_ROW_BYTES - len(mask))
 
 
 def log2e_keep(plan) -> bytes:

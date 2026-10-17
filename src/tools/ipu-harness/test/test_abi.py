@@ -121,6 +121,43 @@ def test_a_derived_value_may_read_a_regions_base(tmp_path):
     assert (got["CR6"], got["CR7"]) == (5, 9)  # y at row 4: 4 + 1, then 5 + 4
 
 
+@pytest.mark.parametrize(("fmt", "row", "stride"), [(F.FP32, 256, 1), (F.INT8, 1024, 4)])
+def test_a_pin_and_a_placed_value_may_read_the_formats_row_bytes(tmp_path, fmt, row, stride):
+    """A legacy layout at a fixed byte address in every format (fully_connected, E07-21)."""
+    toml = SCALE.format(unit="").replace(
+        'neg = "-rows"', 'neg = "-rows"\nstride = "512 / row_bytes"'
+    )
+    toml = toml.replace('neg  = "LR3"', 'neg  = "LR3"\nstride = "CR6"')
+    y = '[outputs.y]\nshape = ["rows", 128]'
+    toml = toml.replace(y, f'{y}\nrow = "131072 / row_bytes"')
+    m = kernel(tmp_path, toml)
+    assert m.placed == {"stride": frozenset()}
+    plan = plan_case(m, {"rows": 4, "s": 2.0}, fmt)
+    assert plan.pins["y"] == row and "stride" not in plan.derived
+    got = writes(m, {"rows": 4, "s": 2.0}, fmt)
+    assert (got["CR3"], got["CR6"]) == (row, stride)
+
+
+@pytest.mark.parametrize(
+    ("derived", "where", "match"),
+    [
+        ('row_bytes = "4"', "", "not be cr, lr, format, shapes, row_bytes"),
+        ("", 'shape = ["row_bytes", 128]', "names no parameter or derived value: ['row_bytes']"),
+        (
+            'w = "row_bytes"',
+            'shape = ["w", 128]',
+            "reads ['w'], which read a region's base or row_bytes",
+        ),
+    ],
+)
+def test_only_a_pin_and_abi_read_row_bytes(tmp_path, derived, where, match):
+    toml = SCALE.format(unit="").replace('neg = "-rows"', f'neg = "-rows"\n{derived}')
+    if where:
+        toml = toml.replace('[outputs.y]\nshape = ["rows", 128]', f"[outputs.y]\n{where}")
+    with pytest.raises(ManifestError, match=re.escape(match)):
+        kernel(tmp_path, toml)
+
+
 def test_a_bytes_kernels_base_counts_bytes(tmp_path, monkeypatch):
     monkeypatch.setattr(manifest_module, "BYTE_UNIT_KERNELS", frozenset({"elementwise/scale"}))
     toml = SCALE.format(unit=', unit = "bytes"').replace(
@@ -310,6 +347,41 @@ def test_a_value_that_does_not_fit_a_register_is_located(tmp_path):
     with pytest.raises(PlanError, match="does not fit a 32-bit register") as error:
         register_writes(plan, place(plan))
     assert error.value.key == "abi.huge"
+
+
+# --- one register for two pinned regions (vector_tour's acc and relu, E07-26) -------------
+
+#: ``y2`` is stored right after ``y``'s 4 rows; the program reaches it from CR3.
+TWO_OUTPUTS = (
+    SCALE.format(unit="")
+    .replace(
+        '[outputs.y]\nshape = ["rows", 128]\n',
+        "[outputs.y]\nshape = [4, 128]\nrow = 8\n\n[outputs.y2]\nshape = [4, 128]\nrow = ROW\n",
+    )
+    .replace('y    = "CR3"', 'y    = "CR3"\ny2   = { register = "CR3", offset = -4 }')
+)
+
+
+def test_two_pinned_regions_share_a_register_that_reaches_both(tmp_path):
+    m = kernel(tmp_path, TWO_OUTPUTS.replace("ROW", "12"))
+    assert writes(m, {"rows": 4, "s": 2.0}, F.FP32)["CR3"] == 8
+
+
+@pytest.mark.parametrize(
+    "row",
+    [pytest.param("13", id="row-plus-offset-9-not-8"), pytest.param('"rows + 8"', id="expression")],
+)
+def test_regions_whose_pins_disagree_do_not_share_a_register(tmp_path, row):
+    with pytest.raises(ManifestError, match="y2 and y both bind CR3"):
+        kernel(tmp_path, TWO_OUTPUTS.replace("ROW", row))
+
+
+def test_a_shared_register_a_caller_pin_splits_is_refused(tmp_path):
+    m = kernel(tmp_path, TWO_OUTPUTS.replace("ROW", "12"))
+    plan = plan_case(m, {"rows": 4, "s": 2.0}, F.FP32)
+    with pytest.raises(PlanError, match="y2 .region base -4. = 8, but y .region base. put 16") as e:
+        register_writes(plan, place(plan, pins={"y": 16}))  # a chain places y elsewhere
+    assert e.value.key == "abi.y2"
 
 
 # --- the projections' 13 CRs (guards E07-02) ----------------------------------------------
