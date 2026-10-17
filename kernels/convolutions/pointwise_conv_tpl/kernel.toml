@@ -96,14 +96,18 @@ cyclic_s0           = "LR7"
 
 [golden]
 reference = "reference.py:reference"   # the shared conv2d, the bias only when has_bias
-# y is an element output: compared in FP32. Measured on the ipu_apps data (the
-# proof): max |err| 3.8e-6 (sweep_256, K = 256), and every one of the 18 entry
-# cases passes FP32_ORDER; the old check was max |diff| < 1e-3.
-tolerance = { fp32 = "FP32_ORDER" }
+# y is an element output: compared in FP32. Measured on the harness's seeded
+# data: max |err| 1.5e-5 (sweep_256, K = 256); FP32_ORDER fails 5 of the 18
+# entry cases (in_channels 128 and up), FP32_LONG passes all (on the ipu_apps
+# data of the proof: 3.8e-6, inside FP32_ORDER). The old check was
+# max |diff| < 1e-3.
+tolerance = { fp32 = "FP32_LONG" }
 
 # The two ipu_apps kernels' cases and test sweeps (each entry chooses its own,
 # ../registry.toml). has_bias and apply_relu are the bias + ReLU twin's;
-# pointwise_conv_unified's entry fixes both false. A sweep point of one value
+# pointwise_conv_unified's entry fixes both false. The data is the harness's
+# seeded per-tensor streams, but for negative_bias, whose pattern gen.py makes.
+# A sweep point of one value
 # per axis is named <case>[in_channels=..,...,width=..], its old sweep id.
 
 [cases.default]  # both twins' cases.py DEFAULTS
@@ -118,7 +122,6 @@ stride = 1
 groups = 1
 has_bias = true
 apply_relu = true
-generator = "../gen.py:legacy_pointwise"  # the ipu_apps data, for the proof
 
 [cases.negative_bias]  # pointwise_conv_unified_bn_activation: zero weights, a bias below zero, so ReLU writes zeros (test_pointwise_conv.py)
 in_channels = 8
@@ -132,7 +135,7 @@ stride = 1
 groups = 1
 has_bias = true
 apply_relu = true
-generator = "../gen.py:legacy_pointwise_negative_bias"  # the ipu_apps data, for the proof
+generator = "gen.py:negative_bias"
 
 [cases.relu_no_bias]  # pointwise_conv_unified_bn_activation without a bias: the bias rows must hold 0
 in_channels = 16
@@ -146,7 +149,6 @@ stride = 1
 groups = 1
 has_bias = false
 apply_relu = true
-generator = "../gen.py:legacy_pointwise"  # the ipu_apps data, for the proof
 
 [cases.sweep_128]  # single pass, the 128 boundary
 in_channels = [128]
@@ -160,7 +162,6 @@ stride = 1
 groups = 1
 has_bias = true
 apply_relu = true
-generator = "../gen.py:legacy_pointwise"  # the ipu_apps data, for the proof
 
 [cases.sweep_144]  # multi-pass: 1 full + a tail of 16
 in_channels = [144]
@@ -174,7 +175,6 @@ stride = 1
 groups = 1
 has_bias = true
 apply_relu = true
-generator = "../gen.py:legacy_pointwise"  # the ipu_apps data, for the proof
 
 [cases.sweep_256]  # multi-pass, no tail
 in_channels = [256]
@@ -188,7 +188,6 @@ stride = 1
 groups = 1
 has_bias = true
 apply_relu = true
-generator = "../gen.py:legacy_pointwise"  # the ipu_apps data, for the proof
 
 [cases.sweep_96x32]  # larger spatial and out_channels
 in_channels = [96]
@@ -202,7 +201,6 @@ stride = 1
 groups = 1
 has_bias = true
 apply_relu = true
-generator = "../gen.py:legacy_pointwise"  # the ipu_apps data, for the proof
 
 [cases.sweep_3x5]  # non-power-of-2 spatial: pads to 16 x 8
 in_channels = [144]
@@ -216,7 +214,6 @@ stride = 1
 groups = 1
 has_bias = true
 apply_relu = true
-generator = "../gen.py:legacy_pointwise"  # the ipu_apps data, for the proof
 
 [cases.sweep_1x1]  # degenerate 1x1 spatial: pads to 128 x 1
 in_channels = [8]
@@ -230,7 +227,6 @@ stride = 1
 groups = 1
 has_bias = true
 apply_relu = true
-generator = "../gen.py:legacy_pointwise"  # the ipu_apps data, for the proof
 
 [cases.sweep_layer]  # the end-to-end layer shape
 in_channels = [160]
@@ -244,7 +240,6 @@ stride = 1
 groups = 1
 has_bias = true
 apply_relu = true
-generator = "../gen.py:legacy_pointwise"  # the ipu_apps data, for the proof
 
 # The two ipu_apps benchmark.py CONFIGS (the same 8 points; max_cycles was MAX_CYCLES).
 [benchmark]

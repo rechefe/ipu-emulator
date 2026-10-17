@@ -97,13 +97,16 @@ dstructure  = "CR15"
 
 [golden]
 reference = "reference.py:reference"   # filters split, then the shared conv2d (groups = channels)
-# y is an element output: compared in FP32. Measured on the ipu_apps data (the
-# proof): max |err| 3.6e-7 (c50_64, bias + ReLU), every one of the 22 entry
-# cases inside FP32_ORDER; the old check was max |diff| < 1e-2.
+# y is an element output: compared in FP32. Measured on the harness's seeded
+# data: max |err| 7.2e-7 (c50_64), every one of the 22 entry cases inside
+# FP32_ORDER (on the ipu_apps data of the proof: 3.6e-7). The old check was
+# max |diff| < 1e-2.
 tolerance = { fp32 = "FP32_ORDER" }
 
 # The two ipu_apps kernels' cases and test sweeps (each entry chooses its own,
-# ../registry.toml, at its fixed has_bias, apply_relu and fpb). The old sweep
+# ../registry.toml, at its fixed has_bias, apply_relu and fpb). The data is the
+# harness's seeded per-tensor streams, but for negative_outputs and
+# negative_bias, whose patterns gen.py makes. The old sweep
 # points were named channels=..,height=..,width=..; here c<channels>_<h>[x<w>].
 
 [cases.default]  # both twins' cases.py DEFAULTS
@@ -119,7 +122,6 @@ groups = 4
 has_bias = false
 apply_relu = false
 fpb = 28
-generator = "../gen.py:legacy_depthwise"  # the ipu_apps data, for the proof
 
 [cases.negative_outputs]  # depthwise_conv_universal: weights -1 on an input of 5, every sum negative (test_depthwise_conv.py)
 in_channels = 4
@@ -134,7 +136,7 @@ groups = 4
 has_bias = false
 apply_relu = false
 fpb = 28
-generator = "../gen.py:legacy_depthwise_negative"  # the ipu_apps data, for the proof
+generator = "gen.py:negative_outputs"
 
 [cases.negative_bias]  # depthwise_conv_universal_bn_activation: zero weights, a bias below zero, so ReLU writes zeros (test_depthwise_conv.py)
 in_channels = 4
@@ -149,7 +151,7 @@ groups = 4
 has_bias = true
 apply_relu = true
 fpb = 25
-generator = "../gen.py:legacy_depthwise_negative_bias"  # the ipu_apps data, for the proof
+generator = "gen.py:negative_bias"
 
 [cases.relu_no_bias]  # the template's own: seeded without a bias (no entry routes it), the bias column must read 0
 in_channels = 4
@@ -164,7 +166,6 @@ groups = 4
 has_bias = false
 apply_relu = true
 fpb = 25
-generator = "../gen.py:legacy_depthwise"  # the ipu_apps data, for the proof
 
 [cases.c28_16]  # one full FPB = 28 super-block (plain)
 in_channels = 28
@@ -179,7 +180,6 @@ groups = 28
 has_bias = false
 apply_relu = false
 fpb = 28
-generator = "../gen.py:legacy_depthwise"  # the ipu_apps data, for the proof
 
 [cases.c25_16]  # one full FPB = 25 super-block (bn)
 in_channels = 25
@@ -194,7 +194,6 @@ groups = 25
 has_bias = true
 apply_relu = true
 fpb = 25
-generator = "../gen.py:legacy_depthwise"  # the ipu_apps data, for the proof
 
 [cases.c32_16]  # one full + one partial super-block (both)
 in_channels = 32
@@ -209,7 +208,6 @@ groups = 32
 has_bias = false
 apply_relu = false
 fpb = 28
-generator = "../gen.py:legacy_depthwise"  # the ipu_apps data, for the proof
 
 [cases.c16_32]  # multi-chunk, partial super-block (both)
 in_channels = 16
@@ -224,7 +222,6 @@ groups = 16
 has_bias = false
 apply_relu = false
 fpb = 28
-generator = "../gen.py:legacy_depthwise"  # the ipu_apps data, for the proof
 
 [cases.c50_64]  # two super-blocks, larger spatial (both)
 in_channels = 50
@@ -239,7 +236,6 @@ groups = 50
 has_bias = false
 apply_relu = false
 fpb = 28
-generator = "../gen.py:legacy_depthwise"  # the ipu_apps data, for the proof
 
 [cases.c4_8x128]  # cols = 128, P0 (both)
 in_channels = 4
@@ -254,7 +250,6 @@ groups = 4
 has_bias = false
 apply_relu = false
 fpb = 28
-generator = "../gen.py:legacy_depthwise"  # the ipu_apps data, for the proof
 
 [cases.c30_16x128]  # cols = 128, multi-chunk, block spanning (both)
 in_channels = 30
@@ -269,7 +264,6 @@ groups = 30
 has_bias = false
 apply_relu = false
 fpb = 28
-generator = "../gen.py:legacy_depthwise"  # the ipu_apps data, for the proof
 
 [cases.c4_8x8]  # padding-heavy (both)
 in_channels = 4
@@ -284,7 +278,6 @@ groups = 4
 has_bias = false
 apply_relu = false
 fpb = 28
-generator = "../gen.py:legacy_depthwise"  # the ipu_apps data, for the proof
 
 [cases.c4_5x5]  # padding-heavy (both)
 in_channels = 4
@@ -299,7 +292,6 @@ groups = 4
 has_bias = false
 apply_relu = false
 fpb = 28
-generator = "../gen.py:legacy_depthwise"  # the ipu_apps data, for the proof
 
 [cases.c3_5x128]  # end-to-end layer shape (plain)
 in_channels = 3
@@ -314,7 +306,6 @@ groups = 3
 has_bias = false
 apply_relu = false
 fpb = 28
-generator = "../gen.py:legacy_depthwise"  # the ipu_apps data, for the proof
 
 [cases.c4_6x65]  # end-to-end layer shape, width 65 -> cols 128 (bn)
 in_channels = 4
@@ -329,7 +320,6 @@ groups = 4
 has_bias = true
 apply_relu = true
 fpb = 25
-generator = "../gen.py:legacy_depthwise"  # the ipu_apps data, for the proof
 
 # The two ipu_apps benchmark.py CONFIGS (10 points each, 7 shared) as one list of
 # 13: each entry times all 13 (per was PER = "channels"; max_cycles MAX_CYCLES).
