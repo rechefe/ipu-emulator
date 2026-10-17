@@ -1,7 +1,8 @@
 """``when`` conditions: a tensor or binding that exists only in some cases (E06 gap G6).
 
-A condition names a ``bool`` parameter, or ``not`` one: ``when = "bias"``,
-``when = "not bias"``. :func:`narrowed` gives a case's view of a kernel: only
+A condition names a ``bool`` parameter, or ``not`` one, or joins such terms
+with ``or``: ``when = "bias"``, ``when = "not bias"``, ``when = "has_bias or
+apply_relu"``. :func:`narrowed` gives a case's view of a kernel: only
 the tensors and ``[abi]`` bindings whose condition holds. ``plan_case`` hands
 that view to every later stage, so placement, packing, inputs, goldens,
 registers and the runner see only what exists.
@@ -21,37 +22,55 @@ if TYPE_CHECKING:
 __all__ = ["Condition", "narrowed"]
 
 _NOT = "not "
+_OR = " or "
+
+#: One term: a ``bool`` parameter's name, and whether it is ``not`` it.
+Term = tuple[str, bool]
 
 
 @dataclass(frozen=True)
 class Condition:
-    """``param`` holds (or, ``negated``, does not).
+    """At least one of its terms holds: each a ``bool`` parameter, or ``not`` one.
 
     Attributes:
-        param: A ``bool`` parameter's name.
-        negated: Whether the condition is ``not param``.
+        terms: ``(param, negated)`` pairs, sorted and distinct, so two spellings
+            of one condition (``a or b``, ``b or a``) are equal.
     """
 
-    param: str
-    negated: bool = False
+    terms: tuple[Term, ...]
+
+    @classmethod
+    def of(cls, param: str, negated: bool = False) -> Condition:
+        """The one-term condition ``param`` (or ``not param``)."""
+        return cls(((param, negated),))
 
     @classmethod
     def parse(cls, text: str) -> Condition:
-        """``"bias"`` or ``"not bias"`` (any spacing)."""
-        words = " ".join(text.split())
-        name = words.removeprefix(_NOT)
-        return cls(name, name != words)
+        """``"bias"``, ``"not bias"`` or terms joined by ``or`` (any spacing)."""
+        terms = []
+        for word in " ".join(text.split()).split(_OR):
+            name = word.removeprefix(_NOT)
+            terms.append((name, name != word))
+        return cls(tuple(sorted(set(terms))))
+
+    @property
+    def params(self) -> tuple[str, ...]:
+        """The parameters it reads."""
+        return tuple(dict.fromkeys(param for param, _ in self.terms))
 
     def holds(self, params: Mapping[str, object]) -> bool:
         """Whether it holds for a case's values (defaults filled)."""
-        return bool(params[self.param]) is not self.negated
+        return any(bool(params[param]) is not negated for param, negated in self.terms)
 
     def excludes(self, other: Condition | None) -> bool:
-        """Whether it and ``other`` never hold together."""
-        return other is not None and other.param == self.param and other.negated != self.negated
+        """Whether it and ``other`` never hold together: every term of one
+        contradicts every term of the other (``bias`` and ``not bias``)."""
+        return other is not None and all(
+            p == q and n != m for p, n in self.terms for q, m in other.terms
+        )
 
     def __str__(self) -> str:
-        return _NOT + self.param if self.negated else self.param
+        return _OR.join(_NOT + param if negated else param for param, negated in self.terms)
 
 
 def _holds(condition: Condition | None, params: Mapping[str, object]) -> bool:

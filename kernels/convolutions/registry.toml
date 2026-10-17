@@ -1,0 +1,23 @@
+# The convolution variants (E07-17): kernels that differ from a template only
+# in parameter values. `bazel test //kernels/convolutions:<name>` runs the
+# template's cases the entry chooses, at its fixed values.
+
+[[kernel]]
+name = "conv_universal"
+template = "conv_universal_tpl"
+params = { has_bias = false, apply_relu = false }
+doc = "3x3 stride-1 conv, no bias, no activation (FP32, width <= 128)"
+cases = [
+    "default", "negative_outputs", "sweep_28x4", "sweep_56x4", "sweep_10x4", "sweep_32x32",
+    "sweep_cols128", "sweep_cols128_partial", "sweep_pad8", "sweep_pad5", "sweep_w100",
+]
+
+[[kernel]]
+name = "conv_universal_bn_activation"
+template = "conv_universal_tpl"
+params = { apply_relu = true }      # has_bias either: without one the bias is zero
+doc = "3x3 stride-1 conv + folded batch-norm bias + ReLU (FP32, width <= 128)"
+cases = [
+    "default", "negative_bias", "relu_no_bias", "sweep_28x4", "sweep_56x4", "sweep_10x4", "sweep_32x32",
+    "sweep_cols128", "sweep_cols128_partial", "sweep_pad8", "sweep_pad5", "sweep_w127",
+]

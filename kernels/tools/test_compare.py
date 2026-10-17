@@ -108,6 +108,23 @@ def test_a_planted_wrong_abi_register_is_named(tree):
     assert f"registers: 1 differ\n  CR7: old {POISON}, new 7" in report.describe()
 
 
+@pytest.mark.parametrize(("value", "identical"), [("0", True), ("1", False)])
+def test_binding_a_reset_zero_is_a_bound_reset_value_and_nothing_else(tree, value, identical):
+    # CR7 the old setup never writes: binding it to 0 states the reset value the
+    # old kernel relied on; any other value is a difference.
+    toml = TOML.replace("[inputs.x]", f'[derived]\nzero = "{value}"\n\n[inputs.x]')
+    (_kernel(tree) / "kernel.toml").write_text(
+        toml.replace('rows = "CR4"', 'rows = "CR4"\nzero = "CR7"')
+    )
+    report = setup_report("identity", str(_kernel(tree)))
+    assert report.identical is identical
+    if identical:
+        assert report.bound_resets == ("CR7",) and report.registers == ()
+        assert "bound reset value (0): CR7" in report.describe()
+    else:
+        assert report.bound_resets == () and report.registers == (f"CR7: old {POISON}, new 1",)
+
+
 def test_a_planted_input_lane_is_located_by_region_row_and_lane(tree):
     _plant_input_lane(tree)
     report = setup_report("identity", str(_kernel(tree)))

@@ -1,8 +1,11 @@
 """Convolution family tests, beyond each kernel's own cases and test.py.
 
-* The tiled kernels (``conv1x1``, ``conv3x3_relu*``) and ``conv_first_layer``
-  moved to ``kernels/convolutions`` (E07-16); their routing and the two
-  ``conv2d`` vocabularies are tested there (``test_routing.py``).
+* The tiled kernels (``conv1x1``, ``conv3x3_relu*``), ``conv_first_layer``
+  (E07-16) and ``conv_universal`` / ``conv_universal_bn_activation`` (E07-17)
+  moved to ``kernels/convolutions``; their routing and the two ``conv2d``
+  vocabularies are tested there (``test_routing.py``, ``test_layers.py``).
+  The old ``conv_universal`` folder stays frozen for the Cycle Inspector
+  (E07-26), so the width table below still names it.
 * **Routing** -- framework-free dispatch checks and the width ceiling, as a
   generated boundary table.
 * **The ``Conv2d`` layer adapter** -- refusal cases, driven through
@@ -77,8 +80,6 @@ def query(**overrides):
 @pytest.mark.parametrize(
     "overrides,kernel",
     [
-        (dict(), "conv_universal"),
-        (dict(has_bias=True, apply_relu=True), "conv_universal_bn_activation"),
         (dict(in_channels=4, out_channels=4, groups=4), "depthwise_conv_universal"),
         (
             dict(in_channels=4, out_channels=4, groups=4, has_bias=True, apply_relu=True),
@@ -152,17 +153,6 @@ def test_conv2d_adapter_is_registered():
     assert "Conv2d" in adapters()
 
 
-def test_from_layer_routes_to_conv2d():
-    op, params = from_layer(Conv2d(3, 4, kernel_size=3, padding=1, bias=False), (3, 8, 100))
-    assert op == "conv2d"
-    assert (params["in_channels"], params["out_channels"]) == (3, 4)
-    assert (params["height"], params["width"]) == (8, 100)
-    assert (
-        lookup_layer(Conv2d(3, 4, kernel_size=3, padding=1, bias=False), (3, 8, 100)).app_name
-        == "conv_universal"
-    )
-
-
 def test_relu_twins_are_reached_through_an_explicit_description():
     layer = Conv2d(4, 4, kernel_size=3, padding=1, groups=4, bias=True)
     # The layer alone never implies ReLU, so the bias-capable twins refuse it...
@@ -181,7 +171,6 @@ def test_relu_twins_are_reached_through_an_explicit_description():
         (Conv2d(3, 4, kernel_size=3, padding=1, stride=3), (3, 8, 8), "stride"),
         (Conv2d(4, 4, kernel_size=3, padding=1, groups=2), (4, 8, 8), "groups"),
         (Conv2d(3, 4, kernel_size=3, padding=1, stride=2), (3, 8, 128), "stride"),
-        (Conv2d(3, 4, kernel_size=3, padding=1, bias=True), (3, 8, 8), "apply_relu"),
         # width 200: over 128 and not a multiple of 128 >= 384 for wide384 either.
         (Conv2d(3, 4, kernel_size=3, padding=1, bias=False), (3, 8, 200), "width"),
         # Refused by the pointwise width bound before pointwise_pad_shape is reached.

@@ -14,6 +14,7 @@ from ipu_as.errors import TemplateError
 from ipu_emu.emulator import DebugAction
 from ipu_emu.errors import ConfigurationError
 from ipu_emu.reference import ReferenceModel
+from ipu_harness.abi import register_writes
 from ipu_harness.cases import expand
 from ipu_harness.debug import DebugHook, DebugLaunch
 from ipu_harness.manifest import load_manifest
@@ -150,6 +151,28 @@ def test_two_stages_on_one_model_give_the_expected_output(tmp_path):
     }
     assert result.cycles == sum(cycles for _, cycles in result.stages)
     assert "stages copy.asm=" in result.describe()
+
+
+def test_a_stage_without_its_own_abi_gets_the_kernels_offsets(tmp_path, monkeypatch):
+    from ipu_harness import stages
+
+    directory = _write(tmp_path, 'def run(ctx):\n    ctx.run_stage("copy.asm")\n')
+    toml = directory / "kernel.toml"
+    toml.write_text(
+        toml.read_text().replace('y    = "CR6"', 'y    = { register = "CR6", offset = -1 }')
+    )
+    seen = []
+
+    def recording(*args, **kwargs):
+        writes = register_writes(*args, **kwargs)
+        seen.append({w.register: w.value for w in writes})
+        return writes
+
+    monkeypatch.setattr(stages, "register_writes", recording)
+    manifest = load_manifest(directory)
+    result = run_kernel(manifest, _default(manifest), ElementFormat.INT8)
+    assert len(seen) == 1  # the one stage
+    assert seen[0]["CR6"] == result.placement.region("y").base_row - 1
 
 
 def test_a_kernel_whose_files_are_symlinks_runs_its_stages(tmp_path):

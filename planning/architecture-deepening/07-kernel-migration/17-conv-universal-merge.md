@@ -32,18 +32,23 @@ Paths are under `src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/`.
 
 ## Implementation
 
-- Template `kernels/convolutions/conv_universal/`:
-  - `[params]` includes `bias` (bool) and `activation` (choices `identity`,
-    `relu`);
-  - the program uses `{% if bias %}` for changes 1-2 and `{{ activation }}` for
-    change 3.
+- Template `kernels/convolutions/conv_universal_tpl/` (as landed: a template
+  named `conv_universal` would share its entry's name, which the registry and
+  `ipu_kernel_tree` refuse; `<name>_tpl` is the approved form):
+  - as landed, no separate `bias`/`activation` parameters: the program reads the
+    query's `has_bias` and `apply_relu`, seeded (changes 1-2) when
+    `has_bias or apply_relu`, `relu` (change 3) when `apply_relu`, which renders
+    both binaries for every query their entries accept (IMPLEMENTATION-DECISIONS,
+    E07-17). The sketch was `[params]` `bias` (bool) and `activation` (`identity`,
+    `relu`), `{% if bias %}` for changes 1-2 and `{{ activation }}` for change 3.
 - `registry.toml` entries:
-  - `conv_universal`: `bias = false`, `activation = "identity"`;
-  - `conv_universal_bn_activation`: `bias = true`, `activation = "relu"`.
+  - `conv_universal`: `has_bias = false`, `apply_relu = false` (as landed;
+    the sketch: `bias = false`, `activation = "identity"`);
+  - `conv_universal_bn_activation`: `apply_relu = true` (the sketch:
+    `bias = true`, `activation = "relu"`).
 
-  Today's query semantics are preserved by the fixed parameters: `has_bias`
-  maps to `bias`, and `apply_relu` maps to `activation`. The bn entry still
-  accepts `has_bias = false` with zero bias.
+  Today's query semantics are preserved by the fixed parameters. The bn entry
+  still accepts `has_bias = false` with zero bias.
 - **Weights and bias are one input tensor.** In the program the bias sits
   inside each weight block, in the same region. A pack transform sees one
   tensor (Q83), and every CR is already bound, so the bias cannot be a tensor

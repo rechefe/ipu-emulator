@@ -17,7 +17,9 @@ before its run: plan, place, pack, the input and scratch regions written and
 the registers programmed (``ipu_harness.runner.stage``). Then every CR and
 LR, and the XMEM bytes over the union of what either side wrote, are
 compared. Each difference is named by register, or by the new placement's
-region, row and lane.
+region, row and lane. One case is not a difference: a register the old setup
+left alone (still poisoned) that the new kernel binds to 0, the reset value
+the old program relied on, is listed as a "bound reset value".
 
 Exits 0 when the two are identical, 1 when they differ, 2 on an error.
 Temporary: deleted with ``ipu_apps`` in E07-25.
@@ -60,6 +62,8 @@ class SetupReport:
         new: The new kernel and case.
         format: The format both ran in.
         registers: One line per CR or LR that differs.
+        bound_resets: The registers the old setup left at their reset 0 and the
+            new kernel binds to 0 (identical: reported, not counted).
         xmem: The first differing XMEM elements, located.
         xmem_total: How many XMEM elements differ.
         xmem_bytes: How many XMEM bytes were compared.
@@ -72,6 +76,7 @@ class SetupReport:
     xmem: tuple[str, ...]
     xmem_total: int
     xmem_bytes: int
+    bound_resets: tuple[str, ...] = ()
 
     @property
     def identical(self) -> bool:
@@ -84,6 +89,9 @@ class SetupReport:
             lines.extend(f"  {line}" for line in self.registers)
         else:
             lines.append("registers: CR0-CR15 and LR0-LR15 identical")
+        if self.bound_resets:
+            # Identical: the new kernel binds what the old one took from reset.
+            lines.append(f"  bound reset value (0): {', '.join(self.bound_resets)}")
         if self.xmem_total:
             lines.append(
                 f"xmem: {self.xmem_total} element(s) differ in {self.xmem_bytes} bytes compared"
@@ -132,11 +140,13 @@ def compare_setup(
     staged = stage(manifest, case, fmt, shared=poisoned_shared(manifest, case, fmt))
     ranges = written_ranges(setup, staged)
     shown, total = xmem_differences(setup.state, staged, ranges)
+    registers, resets = register_differences(setup.state, staged)
     return SetupReport(
         old=f"{old_kernel}/{case_id}",
         new=f"{manifest.name}/{case.name}",
         format=staged.plan.format.value,
-        registers=tuple(register_differences(setup.state, staged)),
+        registers=tuple(registers),
+        bound_resets=tuple(resets),
         xmem=tuple(shown),
         xmem_total=total,
         xmem_bytes=sum(size for _, size in ranges),

@@ -30,6 +30,7 @@ KERNELS = {
         "conv3x3_relu",
         "conv3x3_relu_cin1",
         "conv_first_layer",
+        "conv_universal_tpl",
     ],
     "detect": ["channel_peak", "score_threshold"],
     "elementwise": ["residual_add", "residual_add_rows", "scale"],

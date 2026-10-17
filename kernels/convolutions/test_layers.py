@@ -80,3 +80,24 @@ def test_relu_is_reached_only_through_an_explicit_geometry(registry):
 def test_unmodelled_layer_configurations_are_refused(registry, layer, shape, reason):
     with pytest.raises(UnsupportedLayer, match=reason):
         registry.from_layer(layer, shape)
+
+
+def test_from_layer_routes_to_conv_universal(registry):
+    layer = Conv2d(3, 4, kernel_size=3, padding=1, bias=False)
+    op, params = registry.adapters["Conv2d"](layer, (3, 8, 100))
+    assert op == "conv2d"
+    assert (params["in_channels"], params["out_channels"]) == (3, 4)
+    assert (params["height"], params["width"]) == (8, 100)
+    assert registry.from_layer(layer, (3, 8, 100)).kernel_name == "conv_universal"
+
+
+def test_a_biased_layer_needs_an_explicit_relu(registry):
+    # No 3x3 kernel adds a bias without ReLU (E07-20 adds one)...
+    layer = Conv2d(3, 4, kernel_size=3, padding=1, bias=True)
+    verdict = registry.from_layer(layer, (3, 8, 8))
+    assert not verdict
+    assert "apply_relu" in verdict.reason
+    # ...so the bias + ReLU twin is reached through an explicit geometry.
+    geometry = from_torch_conv2d(layer, (3, 8, 8), apply_relu=True)
+    verdict = registry.resolve("conv2d", **geometry.params())
+    assert verdict.kernel_name == "conv_universal_bn_activation"

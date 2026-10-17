@@ -315,9 +315,20 @@ def legacy_run(kernel: str, case: LegacyCase, workspace: Path) -> LegacyRun:
 # --- comparing a state with a staged one --------------------------------------------
 
 
-def register_differences(state: IpuState, staged: Staged) -> list[str]:
-    """Every CR and LR whose value differs, as ``CR7: old 14, new 15``."""
-    lines = []
+def is_bound_reset(bank: str, index: int, old: int, new: int) -> bool:
+    """Whether the new kernel binds a register the old setup left alone to the
+    value the old harness relied on, 0 from reset: old still :data:`POISON`,
+    new 0. That is no difference (the new kernel states what the old one
+    assumed), so :func:`register_differences` reports it apart. "Left alone"
+    is read from the value: an old setup that wrote :data:`POISON` itself
+    would look the same (a value no kernel uses as a parameter)."""
+    return (bank, index) in POISONED and old == POISON and new == 0
+
+
+def register_differences(state: IpuState, staged: Staged) -> tuple[list[str], list[str]]:
+    """Every CR and LR whose value differs, as ``CR7: old 14, new 15``, and
+    apart from them each bound reset value (:func:`is_bound_reset`), as ``LR0``."""
+    lines, resets = [], []
     for bank in ("cr", "lr"):
         raw = state.regfile.raw_readonly(bank)
         count = REGISTER_DEFINITIONS[bank]["count"]
@@ -326,9 +337,11 @@ def register_differences(state: IpuState, staged: Staged) -> list[str]:
             old = int.from_bytes(raw[index * size : (index + 1) * size], "little")
             new = staged.model.read_register(bank, index)
             assert isinstance(new, int)  # an LR or CR reads as an int
-            if old != new:
+            if is_bound_reset(bank, index, old, new):
+                resets.append(f"{bank.upper()}{index}")
+            elif old != new:
                 lines.append(f"{bank.upper()}{index}: old {old}, new {new}")
-    return lines
+    return lines, resets
 
 
 def _merged(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
