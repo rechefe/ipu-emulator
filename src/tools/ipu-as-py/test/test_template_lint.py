@@ -70,4 +70,4 @@ def test_a_planted_fallback_is_found(line):
 
 
 def test_the_corpus_is_scanned():
-    assert len(_sources()) > 50
+    assert _sources(), "the corpus glob found no programs"

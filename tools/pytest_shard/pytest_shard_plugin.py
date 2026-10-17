@@ -3,7 +3,8 @@
 With ``shard_count`` set, the rules_python_pytest shim passes ``--shard-id``
 and ``--num-shards`` (the pytest-shard plugin's options); this plugin accepts
 them and keeps every ``num_shards``-th collected test, starting at
-``shard_id``. The timing probes need it because each probe builds a fresh
+``shard_id``. A kernel family's ``:tests`` loads it when the family sets
+``tests_shard_count`` (``kernels/defs.bzl``). The timing probes need it because each probe builds a fresh
 ``IpuState``, whose 512 MiB XMEM costs about 0.25 s to allocate.
 """
 

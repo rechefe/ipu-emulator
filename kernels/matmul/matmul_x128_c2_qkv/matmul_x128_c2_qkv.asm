@@ -14,8 +14,9 @@
              each 192 wide). Sibling family: matmul_192x192_x128 (OutProj),
              matmul_384x192_x128 (FFN1), matmul_192x384_x128 (FFN2). Consumed
              by proj_qkv_192_p4 (all 4 streams, one invocation, identity
-             activation) and by the seam test test_seam_qkv_matmul_scores_km_64x48
-             (this kernel's output feeds attn_scores_km_64x48 via repack).
+             activation) and by the seam test
+             the mobilevit chains' test_seam_qkv_matmul_to_scores_km.py (this
+             kernel's Q rows feed attn_scores_km_64x48 by row selection).
     Tests:   //kernels/matmul:matmul_576x192_x128 (the registry entry)
 
     Computes the L4 fused QKV matmul: 192 input channels projected to 576

@@ -313,3 +313,13 @@ py_library(
     visibility = ["//visibility:public"],
     deps = [requirement("pytest")],
 )
+
+# Bazel test sharding for pytest (`-p pytest_shard_plugin`): the timing tests
+# (//src/tools/ipu-emu-py) and a kernel family's :tests with tests_shard_count.
+py_library(
+    name = "pytest_shard_plugin",
+    testonly = True,
+    srcs = ["pytest_shard/pytest_shard_plugin.py"],
+    imports = ["pytest_shard"],
+    visibility = ["//visibility:public"],
+)

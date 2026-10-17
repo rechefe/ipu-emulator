@@ -13,9 +13,9 @@
              192). Sibling family: matmul_192x192_x128 (OutProj),
              matmul_384x192_x128 (FFN1, the expansion this kernel reverses),
              matmul_576x192_x128 (QKV). Consumed by proj_ffn2_192_p4 (all 4
-             streams, one invocation, identity activation). Also feeds
-             test_seam_layernorm_matmul_xmem_direct (L4 layernorm->matmul seam,
-             via matmul_192x192_x128).
+             streams, one invocation, identity activation). The L4
+             layernorm->matmul seam (the mobilevit chains' test_seam_layernorm_to_matmul.py)
+             runs its sibling matmul_192x192_x128.
     Tests:   //kernels/matmul:matmul_192x384_x128 (the registry entry)
 
     Computes the L4 FFN2 matmul: the 384-wide FFN hidden representation

@@ -194,10 +194,9 @@ ipu_per_kernel_test(
 )
 
 # The MobileViT suite's shared fixtures, imported by module name (`fixture_*`).
-# fixture_projections, fixture_reshape, fixture_elementwise and
-# fixture_normalize run the projections, unfold, the residual adds and the
-# LayerNorms from //kernels/projections, //kernels/reshape,
-# //kernels/elementwise and //kernels/normalize (E07-02, E07-05, E07-06,
+# fixture_projections, fixture_elementwise and fixture_normalize run the
+# projections, the residual adds and the LayerNorms from //kernels/projections,
+# //kernels/elementwise and //kernels/normalize (E07-02, E07-06,
 # E07-10) until E07-24 ports the chain tests to the harness's chaining API.
 py_library(
     name = "mobilevit_fixtures",
