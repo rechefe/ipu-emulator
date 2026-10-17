@@ -17,7 +17,9 @@ Checks, in order:
 3. Shapes and derived values: every ``[derived]`` value (but a placed one,
    which reads a region's base: ``abi.register_writes`` computes it) and every
    tensor dimension evaluates, in the shape grammar (:mod:`ipu_harness.expressions`),
-   to a whole number; dimensions are positive.
+   to a whole number; dimensions are positive. In :func:`plan_case` (not
+   :func:`check_params`, which routing calls), also every expression ``row``
+   pin, and every scalar ``fill`` expression, exactly (``CasePlan.fills``).
 4. Element scalars: a ``float`` parameter bound in ``[abi]`` is a scalar in the
    active format, so it must encode in ``fmt`` exactly. If it does not, the
    error names the nearest representable values; nothing is rounded silently.
@@ -35,7 +37,7 @@ import numpy as np
 
 from ipu_emu.errors import ConfigurationError
 from ipu_harness.conditions import narrowed
-from ipu_harness.expressions import ExpressionError, evaluate
+from ipu_harness.expressions import ExpressionError, evaluate, evaluate_exact
 from ipu_harness.manifest import TOML_NAME, CaseDecl, KernelManifest, ParamDecl
 from ipu_isa.formats import FORMATS, ElementFormat, element_values
 
@@ -78,6 +80,8 @@ class CasePlan:
         derived: Every ``[derived]`` value but the placed ones (they read a
             region's base: ``abi.register_writes`` computes them).
         pins: The first row of every pinned tensor (``row``), in ints.
+        fills: Each scratch region's ``fill`` expression's value (a number
+            ``fill`` is the tensor's own).
     """
 
     manifest: KernelManifest
@@ -86,6 +90,7 @@ class CasePlan:
     shapes: Mapping[str, tuple[int, ...]]
     derived: Mapping[str, int]
     pins: Mapping[str, int] = field(default_factory=lambda: MappingProxyType({}))
+    fills: Mapping[str, float] = field(default_factory=lambda: MappingProxyType({}))
 
 
 # --- element scalars ----------------------------------------------------------------------
@@ -253,6 +258,25 @@ def _shapes(manifest: KernelManifest, names: Mapping[str, int]) -> dict[str, tup
     return shapes
 
 
+def _fills(
+    manifest: KernelManifest, params: Mapping[str, Value], derived: Mapping[str, int]
+) -> dict[str, float]:
+    """Each scratch region's ``fill`` expression, evaluated exactly over the
+    int and float parameters and the derived values (``"-1 / channels"``)."""
+    numbers = {
+        k: v for k, v in params.items() if isinstance(v, (int, float)) and not isinstance(v, bool)
+    }
+    fills: dict[str, float] = {}
+    for tensor in manifest.tensors.values():
+        if isinstance(tensor.fill, str):
+            try:
+                fills[tensor.name] = float(evaluate_exact(tensor.fill, {**numbers, **derived}))
+            except (ExpressionError, OverflowError) as error:  # too large for a float
+                key = f"{tensor.section}.{tensor.name}.fill"
+                raise PlanError(manifest, key, f"{tensor.fill!r}: {error}") from None
+    return fills
+
+
 def _pins(manifest: KernelManifest, names: Mapping[str, int]) -> dict[str, int]:
     pins: dict[str, int] = {}
     for tensor in manifest.tensors.values():
@@ -359,6 +383,7 @@ def plan_case(
     names = {k: v for k, v in checked.items() if isinstance(v, int) and not isinstance(v, bool)}
     shapes = _shapes(manifest, {**names, **derived})
     pins = _pins(manifest, {**names, **derived})
+    fills = _fills(manifest, checked, derived)
     _check_scalars(manifest, checked, fmt)
     return CasePlan(
         manifest=manifest,
@@ -367,4 +392,5 @@ def plan_case(
         shapes=MappingProxyType(shapes),
         derived=MappingProxyType(derived),
         pins=MappingProxyType(pins),
+        fills=MappingProxyType(fills),
     )
