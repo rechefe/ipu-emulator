@@ -142,7 +142,7 @@ def assemble(
     template_args: TemplateArgs,
     abi_path: str | None,
     target: str,
-):
+) -> None:
     """Assembles the given input file."""
     click.echo(f"Assembling file: {input}")
     if output:
@@ -197,7 +197,7 @@ def _read_abi(path: str) -> dict[str, dict[str, str]]:
     help="Input format; by default bin for a .bin --input, else mem.",
 )
 @_target_option
-def disassemble(input: str, output: str, format: str | None, target: str):
+def disassemble(input: str, output: str, format: str | None, target: str) -> None:
     """Disassembles the given input file."""
     click.echo(f"Disassembling file: {input}")
     if output:

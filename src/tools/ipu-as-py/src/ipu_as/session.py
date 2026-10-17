@@ -52,7 +52,7 @@ class AssemblyResult:
     words: tuple[int, ...]
     symbols: Mapping[str, int]
     rendered: str
-    #: Each warning the encoder raised, as text (simulation-only slots).
+    #: Each warning the encoder raised, as text (emulator-only slots).
     warnings: tuple[str, ...]
     #: Which word ``words`` holds: Tag.EMULATOR or Tag.HARDWARE.
     target: Tag = Tag.EMULATOR
@@ -123,7 +123,7 @@ class AssemblySession:
         return self._rendered
 
     def parse(self) -> list[dict]:
-        """The compound instructions of the rendered source, parsed once.
+        """The instruction words of the rendered source, parsed once.
 
         Raises:
             TemplateError, ParseError, or the LabelError / OperandError found
@@ -156,17 +156,17 @@ class AssemblySession:
         except lark.exceptions.LarkError as error:
             raise ParseError(str(error), location=_lark_location(error)) from error
 
-    def encode(self, parsed: list[dict], target: str = "emulator") -> tuple[int, ...]:
+    def encode(self, parsed: list[dict], target: Tag | str = "emulator") -> tuple[int, ...]:
         """The instruction words of `parsed` (from `parse` or `parse_rendered`).
 
         Args:
-            parsed: The compound instructions.
+            parsed: The parsed instruction words.
             target: `"emulator"` (every slot) or `"hardware"`: each word is then
                 the hardware word, the emulator word's top
                 `word_bits(Tag.HARDWARE)` bits.
 
         Returns:
-            One word per compound instruction.
+            One word per parsed entry.
 
         Raises:
             EncodeError: an operand, slot or label error; for the hardware

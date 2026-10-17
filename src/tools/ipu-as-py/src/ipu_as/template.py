@@ -114,24 +114,21 @@ class ParamSpec:
 
 def _coerce(param: Param, value: object, where: SourceLocation) -> object:
     """`value` as `param.type`, converting a command-line string."""
+    wrong_type = TemplateError(
+        f"define {param.name!r} is {value!r}, not of type {_type_name(param.type)}", location=where
+    )
     if isinstance(value, str) and param.type is not str:
         try:
             return _from_text(param.type, value)
         except ValueError:
-            raise TemplateError(
-                f"define {param.name!r} is {value!r}, not of type {_type_name(param.type)}",
-                location=where,
-            ) from None
+            raise wrong_type from None
     if param.type is tuple and isinstance(value, (list, tuple)):
         value = tuple(value)
     valid = isinstance(value, param.type) and not (param.type is int and isinstance(value, bool))
     if param.type is tuple:
         valid = valid and all(isinstance(v, int) and not isinstance(v, bool) for v in value)
     if not valid:
-        raise TemplateError(
-            f"define {param.name!r} is {value!r}, not of type {_type_name(param.type)}",
-            location=where,
-        )
+        raise wrong_type
     return value
 
 
