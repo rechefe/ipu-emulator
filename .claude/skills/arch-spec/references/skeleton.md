@@ -117,8 +117,8 @@ The opcode enum (`<slot>_inst_opcode_t`, package `ipu_instr_pkg`) is generated
 from [`instruction_spec.py`](../../../src/tools/ipu-common/src/ipu_common/instruction_spec.py)
 by [`gen_codegen.py`](../../../src/tools/ipu-as-py/src/ipu_as/gen_codegen.py).
 
-> **Note:** Each `CR0`-`CR15` register named in the instruction operands is
-> **32 bits** wide. `LR0`-`LR15` operands supply a **16-bit** value.
+> **Note:** Each `CR0`-`CR15` and `LR0`-`LR15` register named in the
+> instruction operands is **32 bits** wide.
 
 **Instructions in this section:**
 
@@ -168,8 +168,8 @@ The Type column links to the [operand type reference](../operand-types.md).
 
 | Name | Type | Used by | Details |
 |------|------|---------|---------|
-| `<operand_a>` | [`<Type>`](../operand-types.md#<type-anchor>) | <Step> | `CR0`-`CR15`. Supplies <what> (section 3.1). |
-| `<operand_b>` | `Imm` | <Step> | `0`-`4`. <meaning>. |
+| `<operand_a>` | [`CrIdx`](../operand-types.md#cridx) | <Step> | `CR0`-`CR15`. Supplies <what> (section 3.1). |
+| `<operand_b>` | `Imm` | <Step> | `0`-`4`, or enum values `off`, `on`. <meaning>. |
 
 (Drop the "Used by" column when the instruction has a single step.)
 

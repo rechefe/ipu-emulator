@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 802 270" width="802" height="270" font-family="Helvetica, Arial, sans-serif" font-size="13">
+  <!-- ACC.RESHAPE example: reshape_mask = 2; source = 5 9 127 100 64 42 33 20; dest = 0 1 18 40 64 90 101 126; one column per k -->
+  <rect width="802" height="270" fill="#ffffff"/>
+  <defs><marker id="ah" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#1a7060"/></marker></defs>
+  <text x="110" y="20" fill="#222" font-weight="bold">reshape_mask = 2: element k copies input_data[source[k]] to R_ACC[dest[k]]</text>
+  <text x="8" y="86.0" fill="#222">input data</text>
+  <text x="8" y="102.0" fill="#666" font-size="11">source[k]</text>
+  <text x="8" y="186.0" fill="#222">R_ACC</text>
+  <text x="8" y="202.0" fill="#666" font-size="11">dest[k]</text>
+  <text x="152.0" y="60" text-anchor="middle" fill="#666" font-size="12">k = 0</text>
+  <rect x="114" y="70" width="76" height="36" fill="#d4d6d6" stroke="#a0a4a4"/>
+  <text x="152.0" y="93.0" text-anchor="middle" fill="#444" font-size="15">5</text>
+  <rect x="114" y="170" width="76" height="36" fill="#d4d6d6" stroke="#a0a4a4"/>
+  <text x="152.0" y="193.0" text-anchor="middle" fill="#444" font-size="15">0</text>
+  <text x="236.0" y="60" text-anchor="middle" fill="#666" font-size="12">k = 1</text>
+  <rect x="198" y="70" width="76" height="36" fill="#d4d6d6" stroke="#a0a4a4"/>
+  <text x="236.0" y="93.0" text-anchor="middle" fill="#444" font-size="15">9</text>
+  <rect x="198" y="170" width="76" height="36" fill="#d4d6d6" stroke="#a0a4a4"/>
+  <text x="236.0" y="193.0" text-anchor="middle" fill="#444" font-size="15">1</text>
+  <text x="320.0" y="60" text-anchor="middle" fill="#666" font-size="12">k = 2</text>
+  <rect x="282" y="70" width="76" height="36" fill="#2e9e8c" stroke="#1a7060"/>
+  <text x="320.0" y="93.0" text-anchor="middle" fill="#fff" font-size="15">127</text>
+  <rect x="282" y="170" width="76" height="36" fill="#2e9e8c" stroke="#1a7060"/>
+  <text x="320.0" y="193.0" text-anchor="middle" fill="#fff" font-size="15">18</text>
+  <line x1="320.0" y1="106" x2="320.0" y2="168" stroke="#1a7060" stroke-width="2" marker-end="url(#ah)"/>
+  <text x="404.0" y="60" text-anchor="middle" fill="#666" font-size="12">k = 3</text>
+  <rect x="366" y="70" width="76" height="36" fill="#2e9e8c" stroke="#1a7060"/>
+  <text x="404.0" y="93.0" text-anchor="middle" fill="#fff" font-size="15">100</text>
+  <rect x="366" y="170" width="76" height="36" fill="#2e9e8c" stroke="#1a7060"/>
+  <text x="404.0" y="193.0" text-anchor="middle" fill="#fff" font-size="15">40</text>
+  <line x1="404.0" y1="106" x2="404.0" y2="168" stroke="#1a7060" stroke-width="2" marker-end="url(#ah)"/>
+  <text x="488.0" y="60" text-anchor="middle" fill="#666" font-size="12">k = 4</text>
+  <rect x="450" y="70" width="76" height="36" fill="#2e9e8c" stroke="#1a7060"/>
+  <text x="488.0" y="93.0" text-anchor="middle" fill="#fff" font-size="15">64</text>
+  <rect x="450" y="170" width="76" height="36" fill="#2e9e8c" stroke="#1a7060"/>
+  <text x="488.0" y="193.0" text-anchor="middle" fill="#fff" font-size="15">64</text>
+  <line x1="488.0" y1="106" x2="488.0" y2="168" stroke="#1a7060" stroke-width="2" marker-end="url(#ah)"/>
+  <text x="572.0" y="60" text-anchor="middle" fill="#666" font-size="12">k = 5</text>
+  <rect x="534" y="70" width="76" height="36" fill="#2e9e8c" stroke="#1a7060"/>
+  <text x="572.0" y="93.0" text-anchor="middle" fill="#fff" font-size="15">42</text>
+  <rect x="534" y="170" width="76" height="36" fill="#2e9e8c" stroke="#1a7060"/>
+  <text x="572.0" y="193.0" text-anchor="middle" fill="#fff" font-size="15">90</text>
+  <line x1="572.0" y1="106" x2="572.0" y2="168" stroke="#1a7060" stroke-width="2" marker-end="url(#ah)"/>
+  <text x="656.0" y="60" text-anchor="middle" fill="#666" font-size="12">k = 6</text>
+  <rect x="618" y="70" width="76" height="36" fill="#2e9e8c" stroke="#1a7060"/>
+  <text x="656.0" y="93.0" text-anchor="middle" fill="#fff" font-size="15">33</text>
+  <rect x="618" y="170" width="76" height="36" fill="#2e9e8c" stroke="#1a7060"/>
+  <text x="656.0" y="193.0" text-anchor="middle" fill="#fff" font-size="15">101</text>
+  <line x1="656.0" y1="106" x2="656.0" y2="168" stroke="#1a7060" stroke-width="2" marker-end="url(#ah)"/>
+  <text x="740.0" y="60" text-anchor="middle" fill="#666" font-size="12">k = 7</text>
+  <rect x="702" y="70" width="76" height="36" fill="#2e9e8c" stroke="#1a7060"/>
+  <text x="740.0" y="93.0" text-anchor="middle" fill="#fff" font-size="15">20</text>
+  <rect x="702" y="170" width="76" height="36" fill="#2e9e8c" stroke="#1a7060"/>
+  <text x="740.0" y="193.0" text-anchor="middle" fill="#fff" font-size="15">126</text>
+  <line x1="740.0" y1="106" x2="740.0" y2="168" stroke="#1a7060" stroke-width="2" marker-end="url(#ah)"/>
+  <rect x="110" y="236" width="12" height="12" fill="#2e9e8c" stroke="#1a7060"/>
+  <text x="128" y="246" fill="#222" font-size="12">copied (k &gt;= 2)</text>
+  <rect x="260" y="236" width="12" height="12" fill="#d4d6d6" stroke="#a0a4a4"/>
+  <text x="278" y="246" fill="#222" font-size="12">skipped (k &lt; 2)</text>
+</svg>

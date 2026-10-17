@@ -95,7 +95,9 @@ nav:
       - Cache Unit Specification: specs/cache-unit.md
       - AaQ Stage MAS: specs/MAS-stage-aaq-str.md
       - AaQ Stage ARCH: specs/ARCH-stage-aaq-str.md
-      - Accumulator Stage Specification: specs/stage-accumulator.md
+      - Accumulator Stage MAS: specs/MAS-stage-accumulator.md
+      - Accumulator Stage ARCH: specs/ARCH-stage-acc.md
+      - Multiply Stage ARCH: specs/ARCH-stage-mult.md
       - Control Stage Specification: specs/stage-control.md
       - RISC-V Host Integration: specs/riscv-host-integration.md
   - Release Log: release-log.md

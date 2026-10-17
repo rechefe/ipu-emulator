@@ -150,8 +150,8 @@ The opcode enum (`aaq_inst_opcode_t`, package `ipu_instr_pkg`) is generated
 from [`instruction_spec.py`](../../../src/tools/ipu-common/src/ipu_common/instruction_spec.py)
 by [`gen_codegen.py`](../../../src/tools/ipu-as-py/src/ipu_as/gen_codegen.py).
 
-> **Note:** Each `CR0`-`CR15` register named in the instruction operands is
-> **32 bits** wide. `LR0`-`LR15` operands supply a **16-bit** value.
+> **Note:** Each `CR0`-`CR15` and `LR0`-`LR15` register named in the
+> instruction operands is **32 bits** wide.
 
 **Instructions in this section:**
 
@@ -318,7 +318,7 @@ The Type column links to the [operand type reference](../operand-types.md).
 | Name | Type | Used by | Details |
 |------|------|---------|---------|
 | `activation_fn` | [`Imm`](../operand-types.md#activationfn) | Activate | Enum that names the activation (see [`activation_fn` Values](#activation_fn-values)). |
-| `dstructure` | [`CrIdx`](../operand-types.md#dstructurecridx) | Quantize | `CR0`-`CR15`. Supplies the structure of the 128-element vector: `valid_partition`, `num_partition`, `valid_elements` (section 3.2). |
+| `dstructure` | [`CrIdx`](../operand-types.md#cridx) | Quantize | `CR0`-`CR15`. Supplies the structure of the 128-element vector: `valid_partition`, `num_partition`, `valid_elements` (section 3.2). |
 | `quantizion_format` | [`CrIdx`](../operand-types.md#cridx) | Quantize | `CR0`-`CR15`. Supplies the quantization format (section 3.1). |
 | `table_id` | [`CrIdx`](../operand-types.md#cridx) | Store | `CR0`-`CR15`. Supplies the ID of the destination table. |
 | `table_offset` | [`LrIdx`](../operand-types.md#lridx) | Store | `LR0`-`LR15`. Supplies the offset in the destination table. |

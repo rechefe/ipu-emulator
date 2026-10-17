@@ -107,9 +107,23 @@ already is one.)
   followed by a Name | Type | Details table. Link the type to its anchor
   (`[`CrIdx`](../operand-types.md#cridx)`). Details start with the legal range
   (`CR0`-`CR15`, `0`-`4`) and then say what the operand supplies, with a
-  section reference. For a multi-step instruction add a **Used by** column
-  naming the step. List only the legal values. Leave out invalid encodings
-  ("`5`-`7` are invalid").
+  section reference.
+
+  **Operand types** (the Type column):
+  - A register operand uses its register type: `LrIdx`, `CrIdx`, `LcrIdx`,
+    `MultStageReg`, `LrdIdx`.
+  - A CR that supplies the data structure (`dstructure`, `cr_idx`) is a plain
+    `CrIdx`. The spec has no `DstructureCrIdx`.
+  - An immediate whose values are an enum (`activation_fn`, `elements_in_row`,
+    `horizontal_stride`, `vertical_stride`, `lut_addr`) is `Imm`, not its enum
+    name. Link `Imm` to the enum's entry in `operand-types.md`
+    (`[`Imm`](../operand-types.md#horizontalstride)`), and list the enum
+    values in Details.
+  The names in `instruction_spec.py` and `operand-types.md` can differ from
+  these. The spec follows these rules.
+
+  For a multi-step instruction add a **Used by** column naming the step. List
+  only the legal values. Leave out invalid encodings ("`5`-`7` are invalid").
 - **Operation:** a `text` pseudocode block with `//` comments that name the
   section where each step is defined. Name the stage's inputs by their
   interface names (`input_data[i]`), never by internal registers (`r_acc`).
