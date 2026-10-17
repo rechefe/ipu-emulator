@@ -209,3 +209,14 @@ def test_both_sides_start_with_the_same_registers_poisoned():
     assert ("lr", 0) in POISONED and ("cr", 2) in POISONED
     model = poisoned_model(ElementFormat.FP32)
     assert all(model.read_register(bank, index) == POISON for bank, index in POISONED)
+
+
+def test_a_read_of_a_register_nothing_writes_fails_the_output(tree):
+    """The program's own SET of its row counter (LR1) is gone: on a fresh model
+    it would still start at 0, on the poisoned one it does not."""
+    asm = _kernel(tree) / "identity.asm"
+    source = asm.read_text()
+    assert source.count("SET {{lr_row}} cr0 ;;") == 1
+    asm.write_text(source.replace("SET {{lr_row}} cr0 ;;", "NOP ;;"))
+    rows = compare_family("reshape", only=["identity"], root=tree)
+    assert all(not row.output_ok for row in rows)

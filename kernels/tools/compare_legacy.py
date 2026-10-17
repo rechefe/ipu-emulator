@@ -12,7 +12,10 @@ kernel of the same name under the checkout's ``kernels/<FAMILY>/``:
   the baseline itself), and the new run's output regions
   (``RunResult.raw_outputs``) hold the same bytes as the old state's XMEM
   at those rows. Comparing regions, not files, makes the check independent of
-  how each old ``teardown`` wrote its file;
+  how each old ``teardown`` wrote its file. The new run starts with
+  CR2-CR14 and LR0-LR15 at ``migration.POISON`` and the old one does not, so
+  a program that reads a register nothing writes (a reset value it relied
+  on) shows up as an output difference;
 * cycles: the same on both sides.
 
 A multi-stage kernel (``[kernel] stages``, E06-14) is compared the same way:

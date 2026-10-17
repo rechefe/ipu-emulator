@@ -9,7 +9,10 @@ name in the checkout's ``kernels/`` tree. ``--case`` names the old case (a
 of the same name runs, or the one ``--case-map OLD=NEW`` names.
 
 The old harness is built through ``create_harness`` and runs only its
-``setup()`` on a fresh state (FP32). The new kernel runs up to the point just
+``setup()`` on a fresh state (FP32). On both sides CR2-CR14 and LR0-LR15
+start at ``migration.POISON`` (CR0/CR1 are hardwired, CR15 holds the default
+dstructure), so a register the old harness wrote and the new ``[abi]`` does
+not bind is a difference. The new kernel runs up to the point just
 before its run: plan, place, pack, the input and scratch regions written and
 the registers programmed (``ipu_harness.runner.stage``). Then every CR and
 LR, and the XMEM bytes over the union of what either side wrote, are
