@@ -5,12 +5,6 @@
     "word_fingerprints": "af88ca1c65493c956543796afaea48497cbbe0e1ed2122372362db83171ac562d139709660e95a37af9b32f2fa2aa84fe2e805c368177f66",
     "words": 14
   },
-  "src/tools/ipu-apps/src/ipu_apps/kernels/attention/attn_scores_km_256x36/attn_scores_km_256x36.asm": {
-    "bin_sha256": "338a5371467bbe09c0b1984661ee87eb46d9d2c85ddf26935c24169419feb13c",
-    "mem_sha256": "b0c0e4a6d29ddc11399412de6579d999a98acb30fc401758a2ddba81057e5ad9",
-    "word_fingerprints": "af88ca1c65493c956543796afaea48497cbbe0e1ed2122372362db83171ac562d139709660e95a37af9b32f2fa2aa84f4b4e28837cbbe0e1ed212237c22a529d9bb687e7d1397096d580a0dcaf9b32f2fa2aa84fe2e805c368177f66",
-    "words": 23
-  },
   "src/tools/ipu-apps/src/ipu_apps/kernels/attention/attn_scores_km_64x48/attn_scores_km_64x48.asm": {
     "bin_sha256": "0c3b3af09612ed10d57fc86f9ced0422bde952c38e352d7730781d2d38af3956",
     "mem_sha256": "acc025f82852c3f21bdb7063eecfba0369144d023fb28a9e297f1637071d0d26",
@@ -22,12 +16,6 @@
     "mem_sha256": "b716b67387c33df24a22f8c4121ddc1521bcb4d830a0a9d268dc5fafc8b50931",
     "word_fingerprints": "bcb3d1874daf97281a5a073d284a3a1c069ddb491218723e1e6a262a5e5a4a17935473708957011b145d115c25e119b4799b26c37404d6d34e0bad0b97bc68567d105b70f92a2c1d1d61bc00be2f42a38c35408489ca018068177f66",
     "words": 23
-  },
-  "src/tools/ipu-apps/src/ipu_apps/kernels/attention/attn_v_256x36/attn_v_256x36.asm": {
-    "bin_sha256": "84201d9bbe0e4630c2025344ae85117056da808bb5a1486f8e9f60e1e74b763c",
-    "mem_sha256": "1ac8a1147ca0443bceafc14a1ef3d16f6b83e08ddba43f35b8ecc249d3757eaa",
-    "word_fingerprints": "bcb3d1874daf97281a5a073d284a3a1c069ddb491218723e1e6a262a5e5a4a17935473708957011b145d115c25e119b4799b26c37404d6d35fc2322b8957011b0b0a37e69ec1824325e119b4799b26c333fc0e20de12678d886a3f1b935473708957011bde1eed609ec1824325e119b4799b26c377cfb35c5fc2322b8957011bde1eed603a05c2259ec1824325e119b4799b26c3c7cd1e1ba0e478da886a3f1b97bc68567d105b70f92a2c1d1d61bc00be2f42a38c35408489ca018068177f66",
-    "words": 48
   },
   "src/tools/ipu-apps/src/ipu_apps/kernels/attention/attn_v_64x48/attn_v_64x48.asm": {
     "bin_sha256": "acc59b4e9e20a7448c1d270d210fa201c771b83a7cbfe0ee47278952e3d6d203",
@@ -58,12 +46,6 @@
     "mem_sha256": "0c144040c13c0025b6719577e6ce6966747a88affc3987ff4d8b32bf3b836ac4",
     "word_fingerprints": "af88ca1c6543796afaea48497cbbe0e1ed212237d8b83fb66846b05cd13970968ce8f921262f6c37fa2aa84f5e1556064252de8468177f66",
     "words": 14
-  },
-  "src/tools/ipu-apps/src/ipu_apps/kernels/attention/qk_scores_256x36/qk_scores_256x36.asm": {
-    "bin_sha256": "80714b5ce69431b3b8e642a07a9aa7eb99028ecf58f4eb46dc69d9a637b9c216",
-    "mem_sha256": "c4befa0ff02f2c5fd277b116a0912bbe3efb24a895b4a0089d2615401e728cab",
-    "word_fingerprints": "af88ca1c6543796afaea48497cbbe0e1ed212237d8b83fb66846b05cd13970968ce8f921262f6c374b4e28837cbbe0e1ed212237cf41522f1d75690bd13970969d861410fc8c8d2efa2aa84f5e1556064252de8468177f66",
-    "words": 22
   },
   "src/tools/ipu-apps/src/ipu_apps/kernels/attention/qk_scores_64x48/qk_scores_64x48.asm": {
     "bin_sha256": "d58dfb7b5f446a22b6f3799fc31e666b6886b8eafb06fc69dd4a9ed88afb0739",

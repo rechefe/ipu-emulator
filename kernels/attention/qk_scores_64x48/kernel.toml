@@ -6,10 +6,10 @@ op = "qk_scores"                            # a separate op per chain stage keep
 formats = ["fp32"]
 
 [params]
-n_tok = { type = "int", choices = [64] }   # fixed: legacy routes on exact (n_tok, d)
-d = { type = "int", choices = [48] }   # fixed: legacy routes on exact (n_tok, d)
-n_block = { type = "int", choices = [16], default = 16 }   # geometry, not in the legacy query: a default keeps (n_tok, d) queries routable
-seed = { type = "int", default = 0x4C0 }   # legacy RandomState seed (0x4C0); generator only
+n_tok = { type = "int", choices = [64] }   # fixed: the kernel takes exactly its layer's (n_tok, d)
+d = { type = "int", choices = [48] }   # fixed: the kernel takes exactly its layer's (n_tok, d)
+n_block = { type = "int", choices = [16], default = 16 }   # geometry, not in a query: the default keeps (n_tok, d) queries routable
+seed = { type = "int", default = 0x4C0 }   # the old RandomState seed (0x4C0); generator only
 pad = { type = "float", default = 0.0 }   # the padding lanes of b (pack "padded"): 0, as the old harness staged them
 
 # Legacy placement: the inputs back to back from row 0 in the order below, then the output; first fit in
@@ -22,6 +22,7 @@ shape = ["n_block", "d", "n_tok"]
 shape = ["n_block", "n_tok", "d"]
 
 [outputs.y]                             # S query-major: row (i, g) holds keys [g*128, g*128+128) -- RowMajor over n_tok keys
+pack = "padded"                    # the row-major rows under the name attn_v's P takes, so a Chain hands the scores over in place
 shape = ["n_block", "n_tok", "n_tok"]
 # ST.AAQ, one row per store, in row order
 

@@ -6,6 +6,10 @@
 data in those lanes, not zeros; a case with ``pad`` != 0 shows the kernel
 neither reads them into a live lane nor stores them (the old ``run_poked``
 probes). At ``pad = 0`` it is the default transform, byte for byte.
+
+The score kernels' outputs take it too (E07-13): unpacking is the row-major
+default's, and a ``Chain`` hands a resident on only when its pack is the one
+the consumer declares, so the scores feed ``attn_v``'s ``P`` in place.
 """
 
 from __future__ import annotations

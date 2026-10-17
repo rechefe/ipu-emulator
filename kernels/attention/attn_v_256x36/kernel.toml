@@ -1,0 +1,63 @@
+# attn_v_256x36: L3 attn@V, query-major P, through AGG: y[h, t, i] = sum_s
+# P[h, i, s] V[h, t, s] for 4 heads, 256 tokens (two 128-key chunks), head_dim
+# 36. Takes the scores of qk_scores_256x36 (the query-major chain).
+[kernel]
+op = "attn_v"                               # a separate op per chain stage keeps the query-major and key-major chains apart
+formats = ["fp32"]
+
+[params]
+n_tok = { type = "int", choices = [256] }   # fixed: the kernel takes exactly its layer's (n_tok, d)
+d = { type = "int", choices = [36] }   # fixed: the kernel takes exactly its layer's (n_tok, d)
+n_head = { type = "int", choices = [4], default = 4 }   # geometry, not in a query: the default keeps (n_tok, d) queries routable
+seed = { type = "int", default = 0xA18 }   # the old RandomState seed (0xA18); generator only
+pad = { type = "float", default = 0.0 }   # the padding lanes of a and b (pack "padded"): 0, as the old harness staged them
+transpose_b = { type = "bool", choices = [true], default = true }   # the golden is a @ b^T: P is stored a row per query
+
+# The old placement: the inputs back to back from row 0 in the order below, then the output; first fit in
+# declaration order reproduces it (compare_setup: IDENTICAL).
+[inputs.b]                         # P QUERY-major: row (h, i) holds the n_tok keys of query i
+pack = "padded"
+shape = ["n_head", "n_tok", "n_tok"]
+
+[inputs.a]                         # V channel-major: row (h, t) holds n_tok keys
+pack = "padded"
+shape = ["n_head", "d", "n_tok"]
+
+[outputs.y]                             # O channel-major: row (h*d + t) holds n_tok queries (2 rows per channel at n_tok = 256)
+shape = ["n_head", "d", "n_tok"]
+# ST.AAQ, one row per store, in row order
+
+[derived]
+pv_stride = "n_tok / 128" # CR5: 2
+chunk_off = "1"          # CR6: second key chunk = next row
+p_group1_off = "n_tok"   # CR7: 256 = 128 queries x 2 rows
+p_head_stride = "2 * n_tok" # CR8: 512
+inner_bound = "126"      # CR9: 126 since E04-25 (was 127)
+out_group_stride = "1"   # CR12
+out_chan_stride = "2"    # CR13
+
+[abi]
+b = "CR2"        # P_BASE
+a = "CR3"        # V_BASE
+y = "CR4"        # OUT_BASE
+pv_stride = "CR5"
+chunk_off = "CR6"
+p_group1_off = "CR7"
+p_head_stride = "CR8"
+inner_bound = "CR9"
+d = "CR10"
+n_head = "CR11"
+out_group_stride = "CR12"
+out_chan_stride = "CR13"
+# CR15 unbound -> default dstructure (valid_elements = 128), as legacy
+
+[golden]
+op = "matmul"                           # y = a @ b^T (transpose_b): V @ P^T, P query-major
+tolerance = { fp32 = "FP32_ORDER" }    # the old check: rtol=1e-6, atol=1e-6 vs agg_fold.
+
+[cases.default]
+n_tok = 256
+d = 36
+n_head = 4
+seed = 0xA18
+generator = "../gen.py:legacy_attn_v"

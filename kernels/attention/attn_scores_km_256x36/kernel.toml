@@ -7,11 +7,11 @@ op = "attn_scores_km"                       # a separate op per chain stage keep
 formats = ["fp32"]
 
 [params]
-n_tok = { type = "int", choices = [256] }   # fixed: legacy routes on exact (n_tok, d)
-d = { type = "int", choices = [36] }   # fixed: legacy routes on exact (n_tok, d)
+n_tok = { type = "int", choices = [256] }   # fixed: the kernel takes exactly its layer's (n_tok, d)
+d = { type = "int", choices = [36] }   # fixed: the kernel takes exactly its layer's (n_tok, d)
 head = { type = "int", min = 0, max = 3, default = 0 }   # generator only: which head of the 4 the case scores; a and b ARE that head
 n_heads = { type = "int", choices = [4], default = 4 }   # heads in the canonical file (generator only)
-seed = { type = "int", default = 0xD00 }   # legacy RandomState seed (0xD00); generator only
+seed = { type = "int", default = 0xD00 }   # the old RandomState seed (0xD00); generator only
 
 # Legacy placement: the inputs back to back from row 0 in the order below, then the output; first fit in
 # declaration order reproduces it (compare_setup: IDENTICAL).
@@ -23,6 +23,7 @@ row = 0
 shape = ["n_tok", "d"]
 
 [outputs.y]                             # S key-major: row (s, g) holds queries [g*128, g*128+128)
+pack = "padded"                    # the row-major rows under the name attn_v's P takes, so a Chain hands the scores over in place
 shape = ["n_tok", "n_tok"]
 # ST.AAQ, one row per store, in row order
 

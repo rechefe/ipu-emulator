@@ -50,3 +50,25 @@ def legacy_km(plan, rng):
         q = _uniform(state, shape)[h * d : (h + 1) * d]
         k = _uniform(state, shape)[h * d : (h + 1) * d]
     return {"b": q, "a": np.ascontiguousarray(np.swapaxes(k, -1, -2))}
+
+
+def legacy_attn_v(plan, rng):
+    """An ``attn_v`` case: P ``(n_head, n_tok, n_tok)`` query-major, then V
+    ``(n_head, d, n_tok)`` channel-major, as the old cases drew them; the
+    golden is ``a @ b^T`` (``transpose_b``). The harness's ``rng`` is ignored."""
+    params = plan.params
+    state = np.random.RandomState(params["seed"])
+    P = _uniform(state, plan.shapes["b"])
+    V = _uniform(state, plan.shapes["a"])
+    return {"b": P, "a": V}
+
+
+def legacy_attn_v_bcast(plan, rng):
+    """An ``attn_v_bcast`` case: P and V drawn as for ``attn_v``, then P staged
+    key-major (``b[h, s, i] = P[h, i, s]``), so ``y = a @ b``. The harness's
+    ``rng`` is ignored."""
+    params = plan.params
+    state = np.random.RandomState(params["seed"])
+    P = _uniform(state, plan.shapes["b"])  # (n_head, n_tok, n_tok): square, query-major
+    V = _uniform(state, plan.shapes["a"])
+    return {"b": np.ascontiguousarray(P.transpose(0, 2, 1)), "a": V}
