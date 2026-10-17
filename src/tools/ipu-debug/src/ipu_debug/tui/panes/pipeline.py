@@ -1,8 +1,8 @@
 """The pipeline-register pane: one vector pipeline register per tab, as values.
 
 A tab names a logical register (R0, R1, R_C, R_MASK, R_ACC, POST_AAQ,
-MULT_RES, MEM_BYPASS) and a format; in wide-vector debug mode R0, R1 and R_C
-read their wide debug storage. The values wrap to the pane's width; R_MASK
+MULT_RES, MEM_BYPASS) and a format; in the FP32 and INT32 element formats R0, R1
+and R_C read their four-byte storage. The values wrap to the pane's width; R_MASK
 keeps each of its 16-byte slots on lines of its own, with a separator line
 between slots. Values changed since the last stop are marked. The pane reads
 through ``DebugSession.register`` and writes only through

@@ -15,6 +15,7 @@
 set -euo pipefail
 
 UPDATE_TARGETS=(
+  //src/tools/ipu-isa:update_isa_baselines
   //src/tools/ipu-apps:update_asm_digests
   //src/tools/ipu-as-py:update_decode_snapshots
   //src/tools/ipu-apps:update_disassembly_snapshots
@@ -25,6 +26,8 @@ UPDATE_TARGETS=(
 KERNEL_TARGET=//src/tools/ipu-apps:update_kernel_baselines
 
 BASELINE_PATHS=(
+  src/tools/ipu-isa/test/fixtures/spec_snapshot.json
+  docs/content/requirements/faults.md
   src/tools/ipu-apps/test/baselines
   src/tools/ipu-as-py/test/baselines
   src/tools/ipu-as-py/test/golden

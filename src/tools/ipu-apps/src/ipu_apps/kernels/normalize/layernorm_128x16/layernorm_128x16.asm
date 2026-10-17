@@ -9,7 +9,7 @@
 #          (those document their differences relative to this kernel)
 # Tests:   test_layernorm_128x16 (src/tools/ipu-apps/BUILD.bazel)
 #
-# Wide-vector debug mode (512 B per row = 128 × FP32).
+# FP32 element format (512 B per row = 128 × FP32).
 #
 # VLIW execution order: LR → XMEM → MULT → ACC → AAQ → COND
 #   r0/r1 snap    : captured before slots fire; MULT sees previous cycle's r0/r1

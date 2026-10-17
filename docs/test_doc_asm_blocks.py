@@ -1,4 +1,5 @@
-"""Every fenced `asm` block in the hand-written docs assembles.
+"""Every fenced `asm` block in the docs assembles: the hand-written pages and
+the generated ISA reference (E09-14), where a failing example is a generator bug.
 
 A block that is deliberately incomplete is marked with
 `<!-- asm-fragment: reason -->` on the line before its fence; it is reported as
@@ -10,13 +11,15 @@ from __future__ import annotations
 import pytest
 
 from docs.doc_blocks import Block, DocBlockError, fenced_blocks
-from docs.doc_files import doc_files
+from docs.doc_files import doc_files, generated_files
 from ipu_as import diagnostics
 
 
 def _cases() -> list:
+    # The generated pages come from the test's data; without them it would check nothing.
+    assert generated_files(), "no generated ISA reference pages in the test data"
     cases = []
-    for path in doc_files():
+    for path in [*doc_files(), *generated_files()]:
         try:
             blocks = fenced_blocks(path, "asm")
         except DocBlockError as error:

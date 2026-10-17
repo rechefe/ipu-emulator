@@ -40,9 +40,9 @@ Reserved encodings for F-1, from the instruction reference:
 
 | Slot | Reserved encodings |
 |---|---|
-| `COND` | One opcode of the 3-bit field |
+| `COND` | One opcode of the 3-bit field. |
 | `LR` | Seven opcodes of the 4-bit field. `k` outside 1 to 9 in `INC.MODP2`. |
-| `LOAD` | `MultStageReg` values other than `R0` and `R1` |
+| `LOAD` | `MultStageReg` values other than `R0` and `R1`. |
 | `MULT` | Two opcodes of the 3-bit field. `MultStageReg` values other than `R0` and `R1`. |
 | `ACC` | Three opcodes of the 4-bit field. Values above 2 of `elements_in_row`, `horizontal_stride` and `vertical_stride`. |
 | `AAQ` | Activation function codes with no named function. The instruction reference treats them as `identity`: [OQ-6](open-questions.md). |

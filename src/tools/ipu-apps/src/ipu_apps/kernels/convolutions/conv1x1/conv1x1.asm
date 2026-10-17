@@ -9,7 +9,7 @@
     channels, with no taps, no border and no mask.
 
     MEMORY (all XMEM operands are ROW numbers; one row = 128 elements = 512 B
-    in wide-vector debug mode -- see issue #179):
+    in the FP32 element format -- see issue #179):
       Input   CR2: channel-major planes. Channel ci occupies PLANE_STRIDE rows
                    at CR2 + ci*PLANE_STRIDE; spatial row y occupies NCT rows at
                    +y*NCT, one row per 128-column tile. A spatial row shorter
