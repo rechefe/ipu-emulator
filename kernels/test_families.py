@@ -8,7 +8,8 @@ an ``{% include %}`` of another family's macro) in any source file. Also checks
 that KERNELS names every kernel folder.
 
 A pack name cannot resolve to another family (a pack is looked up in the
-kernel folder, its own ipu_kernels.<family> and the shared ipu_kernels.pack),
+kernel folder, its family folder's pack.py, its own ipu_kernels.<family> and
+the shared ipu_kernels.pack),
 so such an edge can only be an import or a re-export, which this catches.
 """
 

@@ -84,6 +84,20 @@ def test_the_template_reads_params_format_and_shapes(tmp_path):
     }
 
 
+def test_the_template_reads_derived_values_but_not_placed_ones(tmp_path):
+    directory = tmp_path / "elementwise" / "scale"
+    directory.mkdir(parents=True)
+    toml = TOML.replace("[abi]", '[derived]\nhalf = "rows // 2"\ny1 = "base(y) + 1"\n\n[abi]')
+    (directory / "kernel.toml").write_text(
+        toml.replace('s    = "CR5"', 's    = "CR5"\ny1   = "CR6"')
+    )
+    (directory / "scale.asm").write_text("{% for i in range(half) %}    HALT ;;\n{% endfor %}")
+    m = load_manifest(directory)
+    plan = plan_case(m, {"rows": 6}, F.FP32)
+    assert len(assemble(plan).words) == 3
+    assert template_values(plan)["half"] == 3 and "y1" not in template_values(plan)
+
+
 @pytest.mark.parametrize(
     "line, message",
     [

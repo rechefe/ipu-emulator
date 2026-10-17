@@ -92,7 +92,7 @@ rows = "CR4"
 s    = "CR5"
 
 [golden]
-tolerance = { int8 = "EXACT" }
+tolerance = { int32 = "EXACT" }
 
 [cases.default]
 rows = 3

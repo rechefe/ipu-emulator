@@ -23,7 +23,7 @@ s    = "CR5"
 
 [golden]
 reference = "reference.py:reference"
-tolerance = { fp32 = "EXACT", int8 = "EXACT", e4 = "FP8_ULP" }
+tolerance = { fp32 = "EXACT", int32 = "EXACT" }   # y, an accumulator output, is compared as FP32 (INT32 in INT8)
 
 [cases.default]
 rows = 4

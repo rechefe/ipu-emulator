@@ -29,6 +29,10 @@ plugins:
         debugging.md: how-to/debug-a-kernel.md
         # E09-17 folded prototyping mode into the architecture page.
         prototyping-mode.md: explanation/architecture.md
+        # E09-08 replaced the setup page with Getting started.
+        setup.md: getting-started/index.md
+        # E09-11 moved the instruction how-to under how-to/.
+        adding-instruction.md: how-to/add-an-instruction.md
   - git-revision-date-localized:
       enable_creation_date: true
       type: timeago

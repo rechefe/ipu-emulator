@@ -50,6 +50,16 @@ def test_the_schema_section_is_markdown_headings_and_text() -> None:
         page.schema_section("No schema here.")
 
 
+def test_a_key_counts_as_described_only_in_its_own_tables_section() -> None:
+    schema = {"[kernel]": ("op",), "[abi] table binding": ("op", "name"), "[cases]": ("x",)}
+    # "op" is in [kernel]'s text, not [abi]'s; [abi] writes "<name> = ...", not "name".
+    assert page.undocumented(DOC, schema) == [
+        "[abi] table binding op",
+        "[abi] table binding name",
+        "[cases] (no section)",
+    ]
+
+
 def test_an_undescribed_key_fails_the_generator(monkeypatch: pytest.MonkeyPatch) -> None:
     assert page.undocumented(manifest.__doc__ or "", manifest.SCHEMA_KEYS) == []
     schema = {**manifest.SCHEMA_KEYS, "[kernel]": (*manifest.SCHEMA_KEYS["[kernel]"], "budget")}

@@ -164,6 +164,67 @@ def test_a_stage_abi_may_bind_a_placed_value(tmp_path):
     assert got["CR8"] == 5
 
 
+def test_a_derived_dstructure_binds_any_cr(tmp_path):
+    """dstructure(valid, partition): the word, without its bit layout in the file."""
+    toml = SCALE.format(unit="").replace(
+        'neg = "-rows"', 'neg = "-rows"\ndtok = "dstructure(rows * 16, 8)"'
+    )
+    m = kernel(tmp_path, toml.replace('neg  = "LR3"', 'neg  = "LR3"\ndtok = "CR13"'))
+    got = writes(m, {"rows": 4, "s": 2.0}, F.FP32)
+    assert got["CR13"] == 64 | 8 << 8  # valid elements, then the partition byte
+
+
+@pytest.mark.parametrize(
+    ("expression", "word"),
+    [
+        ("dstructure(128)", "128"),
+        ("dstructure(64, partition=8)", "64 + 8 * 256"),
+        ("dstructure(16, 2, 0)", "16 + 2 * 256"),
+        ("dstructure(16, pad_mode=1)", "16 + 1 * 8192"),  # the pad mode from bit 13
+        ("dstructure(0)", "0"),
+    ],
+)
+def test_a_dstructure_takes_its_last_two_by_position_or_name(tmp_path, expression, word):
+    toml = SCALE.format(unit="").replace(
+        'neg = "-rows"', f'neg = "-rows"\nd = "{expression}"\ne = "{word}"'
+    )
+    toml = toml.replace('neg  = "LR3"', 'neg  = "LR3"\nd    = "CR13"\ne    = "CR14"')
+    got = writes(kernel(tmp_path, toml), {"rows": 4, "s": 2.0}, F.FP32)
+    assert got["CR13"] == got["CR14"]
+
+
+@pytest.mark.parametrize(
+    ("expression", "match"),
+    [
+        ("dstructure(64, 3)", "3 is not a valid Partition"),
+        ("dstructure(64, 0, 3)", "3 is not a valid PadMode"),
+        ("dstructure(rows / 3)", "whole numbers"),
+        ("dstructure(129)", "valid elements must be 0..128"),
+        ("dstructure(-1)", "valid elements must be 0..128"),
+    ],
+)
+def test_a_bad_dstructure_is_located(tmp_path, expression, match):
+    toml = SCALE.format(unit="").replace('neg = "-rows"', f'neg = "-rows"\nd = "{expression}"')
+    m = kernel(tmp_path, toml.replace('neg  = "LR3"', 'neg  = "LR3"\nd    = "CR13"'))
+    with pytest.raises(PlanError, match=match):
+        plan_case(m, {"rows": 4, "s": 2.0}, F.FP32)
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "dstructure(64, 0, 0, 1)",
+        "dstructure()",
+        "dstructure(64, valid=8)",
+        "dstructure(64, 8, partition=2)",
+    ],
+)
+def test_a_misshapen_dstructure_call_is_a_load_error(tmp_path, expression):
+    toml = SCALE.format(unit="").replace('neg = "-rows"', f'neg = "-rows"\nd = "{expression}"')
+    with pytest.raises(ManifestError, match=r"dstructure\(\) (takes|got)"):
+        kernel(tmp_path, toml.replace('neg  = "LR3"', 'neg  = "LR3"\nd    = "CR13"'))
+
+
 def test_a_tensor_pinned_at_row_0_can_be_read_through_cr0(tmp_path):
     toml = SCALE.format(unit="").replace(
         '[inputs.x]\nshape = ["rows", 128]', '[inputs.x]\nshape = ["rows", 128]\nrow = 0'

@@ -52,6 +52,7 @@ def test_the_table_loads(tmp_path):
         ),
         ("[benchmark]\npoints = [{ rows = 1 }]\nmax_cycles = 0\n", "at least 1"),
         ("[benchmark]\npoints = [{ rows = 1 }]\nrepeat = 3\n", "unknown key 'repeat'"),
+        ("[benchmark]\npoints = [{ rows = 1 }, { rows = 1 }]\n", "point 1 repeats point 0"),
     ],
 )
 def test_a_wrong_table_names_its_key(tmp_path, table, match):
