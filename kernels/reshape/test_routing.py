@@ -18,7 +18,7 @@ import pytest
 from ipu_harness import query
 from ipu_harness.registry import default_registry
 
-#: Each concat entry's (h, w, c_a, c_b): the ipu_apps concat_spec lines.
+#: Each concat entry's (h, w, c_a, c_b): the shapes of the deleted ipu_apps concat folders.
 CONCATS = {
     "concat_8x8x160x160": (8, 8, 160, 160),
     "concat_16x16x128x128": (16, 16, 128, 128),

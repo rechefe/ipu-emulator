@@ -1,21 +1,22 @@
 {#- ==========================================================================
-    identity.asm -- minimal FP32 wide-vector application example
+    identity.asm -- the smallest kernel: copies x to y unchanged
 
-    Copies an ROWS x 128 FP32 matrix from CR2 to CR3, one XMEM row at a time.
+    Copies a ROWS x 128 FP32 matrix from CR2 to CR3, one XMEM row at a time.
 
-    CR0 and CR1 are read-only hardware constants. In FP32 wide-vector mode,
-    CR1 supplies the scalar 1.0, so MULT.VE is an identity operation.
+    CR0 and CR1 are read-only hardware constants; CR1 reads as the scalar
+    1.0, so MULT.VE is an identity operation.
 
-      CR2 = input base row
-      CR3 = output base row
-      CR4 = ROWS
+    ABI (kernel.toml [abi]):
+      CR2 = x, the input base row
+      CR3 = y, the output base row
+      CR4 = rows
       CR15.valid_elements = 128
 
-    XMEM operands are row numbers. One FP32 wide-vector row is 512 bytes.
+    XMEM operands are row numbers. One FP32 row is 512 bytes.
 ========================================================================== -#}
 
-{%- set lr_zero = "lr0" -%}
-{%- set lr_row  = "lr1" -%}
+{%- set lr_zero = "LR0" -%}
+{%- set lr_row  = "LR1" -%}
 
     SET {{lr_zero}} CR0 ;
     SET {{lr_row}} CR0 ;;

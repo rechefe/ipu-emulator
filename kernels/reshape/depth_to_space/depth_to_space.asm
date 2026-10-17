@@ -55,7 +55,7 @@
     c', offsetting the plane index by c'*r*r; kernel.toml refuses it rather
     than the kernel silently computing the first channel only.
 
-    CR map (kernel.toml [abi]; CR0/CR1 are READ-ONLY hardware constants).
+    ABI (kernel.toml [abi]; CR0/CR1 are READ-ONLY hardware constants).
     Each output row keeps the input's tile padding: ceil(w/128) * r rows.
 
       CR0  = 0                        CR1  = 1
@@ -84,17 +84,17 @@
     LR uses 3 sub-slots; ";;" ends a VLIW word, ";" separates sub-instructions.
 ========================================================================== -#}
 
-{%- set lr_zero  = "lr0"  -%}  {#- 0: mask_shift and the R_CYCLIC slot-0 index -#}
-{%- set lr_out   = "lr1"  -%}  {#- running OUTPUT row counter (one row per store) -#}
-{%- set lr_hbase = "lr2"  -%}  {#- h * IN_TILES_PER_ROW; also the h-loop bound test -#}
-{%- set lr_pl0   = "lr3"  -%}  {#- hbase + a * r * IN_PLANE_STRIDE: plane r*a+0, row h -#}
-{%- set lr_a     = "lr4"  -%}  {#- sub-row within the cell -#}
-{%- set lr_wt    = "lr5"  -%}  {#- input tile counter -#}
-{%- set lr_addr  = "lr6"  -%}  {#- walking input row address (steps by IN_PLANE_STRIDE) -#}
-{%- set lr_b     = "lr7"  -%}  {#- input plane within the cell -#}
-{%- set lr_k     = "lr8"  -%}  {#- ACC.RESHAPE instruction counter -#}
-{%- set lr_s     = "lr9"  -%}  {#- element offset of this output tile inside the row -#}
-{%- set lr_sub   = "lr10" -%}  {#- sub-tile counter (S = sub * E) -#}
+{%- set lr_zero  = "LR0"  -%}  {#- 0: mask_shift and the R_CYCLIC slot-0 index -#}
+{%- set lr_out   = "LR1"  -%}  {#- running OUTPUT row counter (one row per store) -#}
+{%- set lr_hbase = "LR2"  -%}  {#- h * IN_TILES_PER_ROW; also the h-loop bound test -#}
+{%- set lr_pl0   = "LR3"  -%}  {#- hbase + a * r * IN_PLANE_STRIDE: plane r*a+0, row h -#}
+{%- set lr_a     = "LR4"  -%}  {#- sub-row within the cell -#}
+{%- set lr_wt    = "LR5"  -%}  {#- input tile counter -#}
+{%- set lr_addr  = "LR6"  -%}  {#- walking input row address (steps by IN_PLANE_STRIDE) -#}
+{%- set lr_b     = "LR7"  -%}  {#- input plane within the cell -#}
+{%- set lr_k     = "LR8"  -%}  {#- ACC.RESHAPE instruction counter -#}
+{%- set lr_s     = "LR9"  -%}  {#- element offset of this output tile inside the row -#}
+{%- set lr_sub   = "LR10" -%}  {#- sub-tile counter (S = sub * E) -#}
 
     SET {{lr_zero}}  CR0 ;
     SET {{lr_out}}   CR0 ;

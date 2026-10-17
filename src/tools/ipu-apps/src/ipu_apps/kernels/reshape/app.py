@@ -36,6 +36,7 @@ UNFOLD_WIDE_VECTOR_ONLY = (
     "the FP32 vector path and have no narrow (INT8/FP8) variant."
 )
 
+
 def positive_dims(**dims: int) -> str | None:
     """Return a refusal reason naming the first non-positive extent."""
     for name, value in dims.items():
@@ -118,4 +119,3 @@ def unfold_spec(
         cost=lambda **params: 0.0,
         execution=ExecutionConfig(fmt=ElementFormat.FP32),
     )
-

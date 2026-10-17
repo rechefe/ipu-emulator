@@ -142,4 +142,3 @@ def fold_cases(app, *, seed):
         )
 
     return {"default": KernelCase(prepare, {"seed": seed}, MAX_CYCLES)}
-
