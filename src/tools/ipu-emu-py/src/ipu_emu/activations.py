@@ -8,7 +8,7 @@ given to the :class:`ipu_emu.ipu_state.IpuState` constructor, or with
 :meth:`IpuState.set_activation_alphas` (not CR-visible). :class:`AaqOptions`
 holds the other emulator-only setting of the AAQ stage. The emulator writes
 activated elements into ``POST_AAQ_REG``. See
-``docs/content/building-applications.md#activations-emulator`` for calibration,
+``docs/content/reference/isa/activate-quantize.md`` for calibration,
 ``ST.AAQ`` (store that register to XMEM), and pipeline notes.
 """
 

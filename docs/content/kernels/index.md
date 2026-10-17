@@ -18,7 +18,7 @@ add more.
 | [Attention](attention.md) | The two non-interchangeable QKᵀ / attn·V mappings and their twelve kernels |
 | [MobileViT-S](mobilevit.md) | Kernels per MobileViT-S transformer layer, and chaining rules |
 | [Kernel coverage](../explanation/kernel-coverage.md) | How a computation resolves to a kernel, and every registered kernel (generated) |
-| [Adding applications](../adding-applications.md) | How to contribute a kernel |
+| [Write a kernel](../how-to/write-a-kernel.md) | How to contribute a kernel ([Adding applications](../adding-applications.md) for a legacy `ipu_apps` kernel) |
 
 ## Finding a kernel for a computation
 
@@ -56,5 +56,6 @@ every operation and its kernels, generated from both registries when the docs
 are built. `bazel run //kernels:query` and
 `bazel run //src/tools/ipu-apps:query` print the same lists.
 
-See [Building applications](../building-applications.md) for the structure they
-share.
+[Write a kernel](../how-to/write-a-kernel.md) shows the structure of a kernel
+under `kernels/`; the ones still in `ipu_apps` follow
+[Building applications](../building-applications.md) until E07 migrates them.

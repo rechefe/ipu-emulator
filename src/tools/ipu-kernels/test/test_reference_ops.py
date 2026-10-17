@@ -65,6 +65,32 @@ def test_maxpool2d_pads_with_no_maximum_and_drops_a_partial_window():
     assert ops.maxpool2d(x, kernel_size=2, stride=2, padding=0)["y"].tolist() == [[[3]]]
 
 
+def test_channel_peak_is_the_channel_maximum_then_its_gate():
+    y = ops.channel_peak(t([[1, -2, 0.5], [3, -4, 0.25]]), threshold=0.75, channels=2)["y"]
+    assert y.tolist() == [[3, -2, 0.5], [2.25, 0, 0]]
+
+
+def test_score_threshold_gates_and_soft_counts():
+    y = ops.score_threshold(t([1, -1, 3]), threshold=1.0, temperature=2.0)["y"]
+    sigmoid = [1 / (1 + math.exp(-2 * d)) for d in (0, -2, 2)]
+    assert y[:3].tolist() == [0, 0, 2]
+    assert y[3].item() == pytest.approx(sum(sigmoid))
+
+
+def test_sample_descriptors_reproduces_a_constant_inside_the_map():
+    """Bilinear weights sum to 1 where all four neighbours exist, so a constant
+    map samples to itself away from the border, in both mappings; a band is
+    its rows of the whole map."""
+    x = torch.full((2, 3, 256), 0.5, dtype=torch.float64)
+    inside = torch.full((8, 16, 256), 0.5, dtype=torch.float64)
+    for stock in (False, True):
+        y = ops.sample_descriptors(x, stock=stock, cell_row_start=0, cell_row_count=0)["y"]
+        assert y.shape == (16, 24, 256)
+        assert torch.allclose(y[4:12, 4:20], inside)
+        band = ops.sample_descriptors(x, stock=stock, cell_row_start=1, cell_row_count=1)["y"]
+        assert torch.equal(band, y[8:16])
+
+
 def test_linear_is_a_matmul_then_its_activation():
     a, b = t([[1, -2], [0.5, 3]]), t([[2, 0], [1, -1]])
     product = [[0.0, 2.0], [4.0, -3.0]]

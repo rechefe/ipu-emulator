@@ -4,7 +4,7 @@
 [kernel]
 op = "maxpool2d"
 formats = ["fp32"]
-cost = 1
+cost = 3                                                 # above maxpool2d_nms7/nms9 (0, 1)
 
 [params]
 channels    = { type = "int", min = 1 }

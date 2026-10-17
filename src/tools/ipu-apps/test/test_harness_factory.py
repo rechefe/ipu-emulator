@@ -460,8 +460,6 @@ def test_every_assembly_has_a_registered_case():
 @pytest.mark.parametrize(
     "name,params",
     [
-        ("depth_to_space", dict(shape=(256, 2, 2), upscale_factor=16)),
-        ("depth_to_space", dict(shape=(3, 2, 2), upscale_factor=2)),
         (
             "conv3x3_relu",
             dict(
@@ -485,8 +483,6 @@ def test_every_assembly_has_a_registered_case():
             ),
         ),
         ("l2_normalize_channels", dict(shape=(1, 10**10))),
-        ("channel_peak", dict(shape=(0, 2))),
-        ("score_threshold", dict(shape=(0,))),
     ],
 )
 def test_memory_harness_rejects_unsupported_geometry(name, params):

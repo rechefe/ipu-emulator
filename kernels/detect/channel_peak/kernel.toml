@@ -1,0 +1,61 @@
+# channel_peak: SuperPoint's detector read-out over [channels, columns] FP32
+# logits, cells in lanes (E07-15): y[0] = the maximum over the channels (the
+# confidence), y[1] = relu(y[0] - threshold) (the gate). Was a whole-image
+# (MemoryApp) kernel.
+[kernel]
+op = "channel_peak"
+formats = ["fp32"]
+
+[params]
+channels  = { type = "int", min = 1 }
+columns   = { type = "int", min = 1 }                   # cells
+threshold = { type = "float", default = 0.0 }          # tau, a resident row
+
+[derived]
+tiles  = "ceil(columns / 128)"                         # rows per channel plane
+slot1  = "128"                                         # R_CYCLIC slot 1, where tau lives
+keep   = "base(y) + tiles"                             # y[1]'s first row
+
+# Placed from row 0: x, tau, y (the old image: logits, tau row, output).
+[inputs.x]
+shape = ["channels", "columns"]                        # one row per 128 cells, zero-padded
+
+[scratch.tau]                                          # tau in every lane
+shape = [1, 128]
+fill = "threshold"
+after = "x"
+
+[outputs.y]                                            # confidence rows, then keep rows
+shape = [2, "columns"]
+
+[abi]
+x        = "CR2"
+y        = "CR3"
+keep     = "CR4"
+tau      = "CR5"
+tiles    = "CR6"
+channels = "CR7"
+slot1    = "CR10"
+
+[golden]
+op = "channel_peak"
+tolerance = { fp32 = "EXACT" }
+
+# The ipu_apps cases' data (../gen.py: standard normal, seed 7).
+[cases.default]
+channels = 4
+columns = 16
+threshold = 0.5
+generator = "../gen.py:legacy_normal"
+
+[cases.tile_boundary]
+channels = 3
+columns = 133
+threshold = -0.25
+generator = "../gen.py:legacy_normal"
+
+[cases.single_channel]
+channels = 1
+columns = 129
+threshold = 0.0
+generator = "../gen.py:legacy_normal"

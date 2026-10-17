@@ -19,6 +19,7 @@ KERNELS = {
         "qk_scores_64x48",
     ],
     "conformance": ["vector_tour"],
+    "detect": ["channel_peak", "score_threshold"],
     "elementwise": ["scale"],
     "linear": ["fully_connected"],
     "pooling": [
@@ -39,6 +40,7 @@ KERNELS = {
         "unfold_32x32x144",
         "unfold_8x8x240",
     ],
+    "sampling": ["sample_descriptors", "sample_descriptors_separable"],
     "softmax": [
         "softmax_columns",
         "softmax_columns_packed",
