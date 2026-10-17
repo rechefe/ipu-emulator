@@ -14,7 +14,7 @@ Python Packages
 |---------|------|-------------|
 | `ipu_isa` | `src/tools/ipu-isa/` | Shared types, register schema, instruction spec |
 | `ipu_as` | `src/tools/ipu-as-py/` | IPU assembler (`.asm` → binary) |
-| `ipu_emu` | `src/tools/ipu-emu-py/` | IPU emulator with debug CLI |
+| `ipu_emu` | `src/tools/ipu-emu-py/` | IPU emulator |
 
 Quick Start
 -----------

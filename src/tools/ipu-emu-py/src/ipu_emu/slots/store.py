@@ -60,4 +60,4 @@ def execute_st_aaq(ipu: Ipu, *, offset: int, base: int) -> None:
     modes; only the row address is translated.
     """
     addr = xmem_row_addr(ipu.state, offset + base)
-    ipu.state.xmem.write_address(addr, bytes(ipu._view.read_forgetting_provenance("post_aaq_reg")))
+    ipu.state.xmem.write_address(addr, bytes(ipu._view.read("post_aaq_reg")))
