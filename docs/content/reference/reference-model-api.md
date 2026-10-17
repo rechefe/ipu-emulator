@@ -89,8 +89,9 @@ have.
 for each case a program (`program.asm`, `program.bin`), its starting state
 (`setup.json`, schema `setup.schema.json`) and the trace of its run
 (`expected.trace.jsonl`). An RTL testbench runs each case as the lockstep test
-above does: reset in the case's format, load `program.bin`, write the
-registers and XMEM regions of `setup.json`, set its fault enables, step until
+above does: reset in the case's format, load `program.bin`, zero every
+register and XMEM byte (`CR0` and `CR1` aside), write the registers and XMEM
+regions of `setup.json`, set its fault enables, step until
 `HALT`, a fault or `max_cycles`, and compare each commit record with the
 expected one. It skips the cases marked `emulator_only`. The suite's
 `README.md` has the steps; `bazel test //src/tools/ipu-emu-py:test_conformance`

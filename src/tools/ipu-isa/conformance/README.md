@@ -40,8 +40,8 @@ testbench skips it.
 2. Load `program.bin` into IMEM from word 0; the PC starts at 0. The program
    length is the number of words in the file: fetching at a PC at or past it
    faults F-2.
-3. Start from every register and every XMEM byte zero, except `CR0` (0) and
-   `CR1` (1), the constants. Write each of `registers`, then each `xmem`
+3. After the reset, zero every register and every XMEM byte, except `CR0`
+   (0) and `CR1` (1), the constants. Write each of `registers`, then each `xmem`
    region. A register is named by its bank and `index` (the register within
    the bank, table below); `value` is an `lr` or `cr` register's unsigned
    32-bit value, `hex` a vector register's bytes, lowest address first. A

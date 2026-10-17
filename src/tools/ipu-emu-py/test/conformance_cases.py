@@ -249,7 +249,7 @@ _MODE_FORMAT = {
     timing_probes.Mode.WIDE_FP32: ElementFormat.FP32,
 }
 #: Probes the suite leaves out, and why.
-UNREPRESENTABLE = {
+EXCLUDED_PROBES = {
     "idle_word": "an empty IMEM entry has no program-file encoding",
     "break_ifeq": "the reference API never evaluates BREAK (Q39)",
     "break_resume": "the reference API never evaluates BREAK (Q39)",
@@ -269,10 +269,10 @@ def _probe_state(
 
 
 def probe_cases() -> list[Case]:
-    """Each timing probe in each mode it declares, but UNREPRESENTABLE."""
+    """Each timing probe in each mode it declares, but the EXCLUDED_PROBES."""
     cases = []
     for name, probe in sorted(timing_probes.PROBES.items()):
-        if name in UNREPRESENTABLE:
+        if name in EXCLUDED_PROBES:
             continue
         for mode in probe.modes:
             fmt = _MODE_FORMAT[mode]
