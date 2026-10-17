@@ -13,7 +13,7 @@ separate bias-seed cycle), and ``ACTIVATE.QUANTIZE`` co-issues with tap 9's
 accumulate in one VLIW word, together with the next channel's kr=-1 prefetch
 load. The deferred-store pipeline (store the previous channel's result while
 the current channel computes) is shared with the BN twin. Runs on
-the emulator's wide-vector debug datapath (FP32) -- weights and activations
+the emulator-only FP32 element format -- weights and activations
 are genuine floats, no INT8 quantization anywhere in this kernel.
 
 Kernel super-block layout (FPB=28, 9-element stride, no bias element):

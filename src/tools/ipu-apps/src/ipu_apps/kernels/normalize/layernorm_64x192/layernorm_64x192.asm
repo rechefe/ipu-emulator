@@ -8,7 +8,7 @@
 #          feeds residual_add_64x192
 # Tests:   test_layernorm_64x192 (src/tools/ipu-apps/BUILD.bazel)
 #
-# Wide-vector debug mode (512 B per row = 128 × FP32).
+# FP32 element format (512 B per row = 128 × FP32).
 # Same algorithm and VLIW patterns as layernorm_256x144. Key differences:
 #   - N_CH=192, N_TG=1 → NO outer tg loop; the whole kernel runs once
 #   - One channel per XMEM row: row for ch is DATA_BASE + ch (rows, issue #179),

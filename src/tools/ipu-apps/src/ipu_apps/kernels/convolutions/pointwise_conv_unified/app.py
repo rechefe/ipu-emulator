@@ -1,8 +1,8 @@
 """Unified pointwise (1x1) convolution harness (FP32 wide-vector mode).
 
 A single code path that handles any valid pointwise convolution via a
-multi-pass inner loop. Runs on the emulator's wide-vector debug datapath
-(128 elements of 32-bit FP32 per vector, see
+multi-pass inner loop. Runs in the emulator-only FP32
+element format (128 elements of 32-bit FP32 per vector, see
 docs/content/explanation/element-formats.md) -- weights, activations, and output
 are all genuine floats, no INT8 quantization anywhere in this kernel.
 

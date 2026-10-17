@@ -4,7 +4,7 @@ A single parameterized harness that works for ANY valid standard convolution
 configuration (spatial >= 16x16, in_channels >= 1). Same chunk-interleaved
 internal layout and FPB=28 super-block kernel packing, no bias/activation
 folding (see ``conv_universal_bn_activation`` for the bias+ReLU twin). Runs
-on the emulator's wide-vector debug datapath (see
+in the emulator-only FP32 element format (see
 docs/content/explanation/element-formats.md) -- weights and activations are
 genuine floats, no INT8 quantization anywhere in this kernel.
 
@@ -63,8 +63,8 @@ if TYPE_CHECKING:
 # -- Memory layout -----------------------------------------------------------
 # XMEM instruction operands (``offset + base`` on LDR_*/store) are ROW
 # numbers, not byte addresses: the emulator scales them by the active mode's
-# row size (128 B narrow, 512 B wide-vector debug). This app runs FP32
-# wide-vector only, so ROW_BYTES is always 512.
+# row size (128 B in an 8-bit format, 512 B in FP32). This app runs in
+# FP32 only, so ROW_BYTES is always 512.
 #
 # R_CYCLIC operands (MULT.RC.* ``rc_idx`` reads and LD.MULT.CYCLIC's
 # ``index`` writes) are ELEMENT-indexed and the ring is 512 elements

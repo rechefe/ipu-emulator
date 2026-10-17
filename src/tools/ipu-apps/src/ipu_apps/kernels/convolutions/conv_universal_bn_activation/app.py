@@ -1,7 +1,7 @@
 """Universal standard 3x3 convolution + folded-bias + ReLU harness (FP32).
 
 Bias+ReLU twin of ``conv_universal``. Same chunk-interleaved internal layout and
-FPB=28 super-block kernel packing, on the FP32 wide-vector debug datapath
+FPB=28 super-block kernel packing, in the FP32 element format
 (see docs/content/explanation/element-formats.md), with two additions:
 
   * **Folded bias** — one float32 bias per output filter, injected as a
