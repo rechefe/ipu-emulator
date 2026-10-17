@@ -63,15 +63,16 @@ def test_init_plus_every_delta_is_the_final_state(kernel, case, options, tmp_pat
 
 #: Kernel-tree cases, recorded by the runner's recorder (``--trace --context``):
 #: INT8 and FP8 vector registers, and a loop over FP32 rows.
+#: Each with a word the context's labels name, as (pc, label).
 TREE_CASES = [
-    ("kernels/conformance/vector_tour", "int8"),
-    ("kernels/conformance/vector_tour", "e4"),
-    ("kernels/softmax/softmax_rows", "constant_row"),
+    ("kernels/conformance/vector_tour", "int8", (15, "matvec")),
+    ("kernels/conformance/vector_tour", "e4", (15, "matvec")),
+    ("kernels/softmax/softmax_rows", "constant_row", None),
 ]
 
 
-@pytest.mark.parametrize(("folder", "case_name"), TREE_CASES)
-def test_a_kernel_tree_case_replays_to_its_final_state(folder, case_name, tmp_path):
+@pytest.mark.parametrize(("folder", "case_name", "label"), TREE_CASES)
+def test_a_kernel_tree_case_replays_to_its_final_state(folder, case_name, label, tmp_path):
     manifest = load_kernel(folder)
     case = next(c for c in expand(manifest) if c.name == case_name)
     recorder = inspector.InspectorRecorder(tmp_path / "trace.jsonl")
@@ -90,6 +91,9 @@ def test_a_kernel_tree_case_replays_to_its_final_state(folder, case_name, tmp_pa
     header, records = read_trace(recorder.trace_path)
     document = convert(header, [r.to_json() for r in records], recorder.context(manifest, case))
     assert not document["truncated"]
+    if label is not None:
+        pc, name = label
+        assert document["program"][pc]["label"] == name
     replayed = _replay(document)
     for name in REGISTER_DEFINITIONS:
         assert bytes(replayed[name]) == final[name], name

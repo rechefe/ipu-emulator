@@ -457,6 +457,12 @@ The file stays. Its registry-mechanics tests that used softmax as the example no
 | `test_resolved_kernel_computes_the_operation` (28 ids) | `kernels/softmax/test_conformance.py::test_the_resolved_kernel_computes_softmax` (the same 14 shapes x 2 dims and data, through `Registry.resolve` and `run_kernel`) |
 | `test_query_rejects_malformed_queries[argv1]` (`dim=5`: the resolver's `ValueError`) | the same test's `r in two parameters` id: an ambiguous `--sweep` raises the `ValueError` the same `except` turns into exit 2 (no `identity` query raises one) |
 
+### Tests from `src/tools/ipu-apps/src/ipu_apps/kernels/reshape/depth_to_space/test.py` (E07-26 follow-up)
+
+| Test | Now covered by |
+|---|---|
+| `test_case` (`case_tests(__package__)`: every case in `cases.py`: `default`, `tile_boundary`, `superpoint`, `identity`) | `bazel test //kernels/reshape/depth_to_space` (`test_case[<case>-fp32]`): the same four cases in `kernel.toml` with the same `h`, `w` and `upscale_factor`, data from `gen.py:arange`, at `EXACT` against the shared `depth_to_space` op. |
+
 ### Tests removed from `src/tools/ipu-apps/test/test_harness_factory.py` (E07-26 follow-up)
 
 The file stays. Two ids of `test_memory_harness_rejects_unsupported_geometry` named the deleted `depth_to_space` kernel.

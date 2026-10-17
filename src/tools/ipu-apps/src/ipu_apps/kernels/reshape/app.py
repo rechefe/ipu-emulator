@@ -6,8 +6,8 @@ counts, packing order, loop bounds, register layout -- is baked into the .asm
 and harness), so each ``supports`` is an exact-shape match rather than a
 bound, and there is no flattening or axis convention to normalise the way
 softmax's ``dim`` needs. The query helpers exist so the kernels of one op
-cannot disagree about how a ``shape`` parameter unpacks. ``depth_to_space``
-and ``identity`` keep their own memory-layout specs and use none of this; the
+cannot disagree about how a ``shape`` parameter unpacks. ``identity``
+keeps its own memory-layout spec and uses none of this; the
 concat kernels moved to ``kernels/reshape`` (E07-04).
 
 **Unfold / fold.** The three unfold kernels and the three fold kernels that

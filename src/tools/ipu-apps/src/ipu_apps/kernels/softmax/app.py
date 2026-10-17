@@ -1,9 +1,10 @@
 """Shared code for the softmax kernels: harness base and spec helpers.
 
 A shim since E07-11: the kernels are kernels/softmax/ on ipu_harness. This
-module, cases.py and three of the old kernels stay for the tests and the
-Cycle Inspector trace that still run them (DELETIONS.md, E07-11), until
-E07-12, E07-24 and E07-26.
+module, cases.py and three of the old kernels stay for the tests that still
+run them (DELETIONS.md, E07-11): attention's, the MobileViT chain tests',
+test_harness_factory.py's and test_doc_commands.py's, until E07-12, E07-24
+and E07-25.
 
 The softmax kernels answer the same query -- a 2-D shape plus the axis
 being normalised -- and share one device layout, so the query unpacking, the

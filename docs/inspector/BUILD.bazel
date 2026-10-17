@@ -132,9 +132,9 @@ py_pytest_test(
         "//src/tools/ipu-apps:kernel_sources",
     ],
     deps = [
+        "//kernels/softmax:lib",
         "//src/tools/ipu-apps:ipu_apps_lib",
         "//src/tools/ipu-gen:ipu_gen_lib",
-        "//kernels/softmax:lib",
         "//src/tools/ipu-harness:ipu_harness_lib",
         requirement("pytest"),
         requirement("torch"),  # the kernels' references
