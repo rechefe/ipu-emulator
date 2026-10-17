@@ -196,7 +196,7 @@ def register_writes(
         raise ConfigurationError(
             f"{plan.manifest.name}: the abi binds {cr15} and a dstructure is given for it"
         )
-    writes = []
+    writes: list[RegisterWrite] = []
     for name, register in bindings.items():
         value, source = _value(name, plan, placement, offsets)
         if register == ZERO_REGISTER:
