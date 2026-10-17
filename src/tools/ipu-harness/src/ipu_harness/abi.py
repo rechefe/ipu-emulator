@@ -37,7 +37,7 @@ from ipu_emu.errors import ConfigurationError
 
 # The emulator's dstructure convention (CR15, CLAUDE.md); ipu_isa has no constant for it.
 from ipu_emu.ipu_config import DEFAULT_DSTRUCTURE_CR
-from ipu_emu.ipu_state import IpuState
+from ipu_emu.reference import ReferenceModel
 from ipu_harness._codec import encode
 from ipu_harness.manifest import KernelManifest
 from ipu_harness.params import CasePlan, PlanError
@@ -159,18 +159,19 @@ def template_names(manifest: KernelManifest) -> Mapping[str, Mapping[str, str]]:
     return MappingProxyType({bank: MappingProxyType(names) for bank, names in banks.items()})
 
 
-def apply(state: IpuState, writes: Iterable[RegisterWrite]) -> None:
-    """Write registers through the model's register file, by bank name.
-
-    E04-30's reference-model API (``write_register``) replaces the register
-    file call when it lands.
+def apply(model: ReferenceModel, writes: Iterable[RegisterWrite]) -> None:
+    """Write registers through the reference-model API (E04-30), by bank name.
 
     Args:
-        state: The model.
+        model: The model, halted (after a reset or a program load).
         writes: From :func:`register_writes`.
+
+    Raises:
+        ConfigurationError: The model refuses a write (it is running, or the
+            register is CR0 or CR1).
     """
     for write in writes:
-        state.regfile.set_scalar(write.bank, write.index, write.value)
+        model.write_register(write.bank, write.value, write.index)
 
 
 def _cr_types(view: Isa) -> frozenset[str]:
