@@ -88,8 +88,10 @@ Schema
     but not its files, and may not change a registry entry's fixed
     parameter); ``per``: an int parameter the report divides cycles by;
     ``max_cycles``: each run's limit (the model's by default). It needs a
-    ``[golden]`` reference or op, which each point is held to. ``python -m ipu_harness.cli KERNEL --benchmark`` (``bazel run
-    :<kernel> -- --benchmark``) runs them; :mod:`ipu_harness.benchmark`.
+    ``[golden]`` reference or op, which each point is held to; no two points
+    may be equal. ``python -m ipu_harness.cli KERNEL --benchmark``
+    (``bazel run :<kernel> -- --benchmark``) runs them;
+    :mod:`ipu_harness.benchmark`.
 
 ``[golden]`` (optional)
     ``reference`` (``"file.py:fn"``; default ``reference.py:reference`` when the
@@ -1301,6 +1303,24 @@ def load_manifest(
     return manifest
 
 
+def _point(r: Reader, m: KernelManifest, i: int, raw: object) -> Mapping[str, object]:
+    """Benchmark point ``i``: one value per parameter, none moving a fixed one."""
+    path = ("benchmark", "points", str(i))
+    values = r.table(raw, path)
+    r.known(values, tuple(m.params), path)
+    sweeps = [k for k, v in values.items() if isinstance(v, list)]
+    if sweeps:
+        raise r.fail(path, f"[benchmark] point {i}: {sweeps[0]} is one value, not a list")
+    moved = [k for k, v in values.items() if k in m.fixed and v != m.fixed[k]]
+    if moved:
+        raise r.fail(
+            path,
+            f"[benchmark] point {i}: {moved[0]} is fixed at {m.fixed[moved[0]]!r} "
+            "by the registry entry",
+        )
+    return MappingProxyType(_case_values(r, m, path, values))
+
+
 def _benchmark(r: Reader, m: KernelManifest, raw: object) -> BenchmarkDecl:
     path = ("benchmark",)
     table = r.table(raw, path)
@@ -1317,22 +1337,16 @@ def _benchmark(r: Reader, m: KernelManifest, raw: object) -> BenchmarkDecl:
     listed = r.typed(table.get("points", []), list, (*path, "points"))
     if not listed:
         raise r.fail((*path, "points"), f"{where(path)} needs a non-empty points list")
-    points = []
-    for i, point in enumerate(listed):
-        point_path = (*path, "points", str(i))
-        values = r.table(point, point_path)
-        r.known(values, tuple(m.params), point_path)
-        sweeps = [k for k, v in values.items() if isinstance(v, list)]
-        if sweeps:
-            raise r.fail(point_path, f"[benchmark] point {i}: {sweeps[0]} is one value, not a list")
-        moved = [k for k, v in values.items() if k in m.fixed and v != m.fixed[k]]
-        if moved:
+    points: list[Mapping[str, object]] = []
+    for i, raw_point in enumerate(listed):
+        point = _point(r, m, i, raw_point)
+        if point in points:
+            # Its run, its row and its history name would be an earlier one's.
             raise r.fail(
-                point_path,
-                f"[benchmark] point {i}: {moved[0]} is fixed at {m.fixed[moved[0]]!r} "
-                "by the registry entry",
+                (*path, "points", str(i)),
+                f"[benchmark] point {i} repeats point {points.index(point)}",
             )
-        points.append(MappingProxyType(_case_values(r, m, point_path, values)))
+        points.append(point)
     per = table.get("per")
     if per is not None and r.typed(per, str, (*path, "per")) not in m.params:
         raise r.fail((*path, "per"), f"{where(path)} per {per!r} is no int parameter")
