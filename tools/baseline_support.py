@@ -18,8 +18,16 @@ import pytest
 
 
 def workspace(update_command: str) -> Path | None:
-    """The workspace ``bazel run`` started in, or None (after saying to run
-    ``update_command``) when the updater was run some other way."""
+    """The workspace ``bazel run`` started in.
+
+    Args:
+        update_command: The updater's ``bazel run`` command, printed when it
+            was run some other way.
+
+    Returns:
+        The workspace root; None, after printing ``update_command`` to
+        stderr, outside ``bazel run``.
+    """
     root = os.environ.get("BUILD_WORKSPACE_DIRECTORY")
     if not root:
         print(f"Run this through Bazel: {update_command}", file=sys.stderr)
@@ -45,6 +53,9 @@ def fail_if_changed(
         what: What changed, for the message (``"word_fields.json"``).
         update_command: The command that rewrites the snapshot.
         max_lines: Show at most this many diff lines; None for all.
+
+    Raises:
+        pytest.fail.Exception: ``actual`` differs from ``expected``.
     """
     if actual == expected:
         return
