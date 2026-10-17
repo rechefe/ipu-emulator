@@ -39,11 +39,12 @@ ENTRY_SOURCE = """\
         },
 """
 
-#: The handler, as it is written into the Ipu class.
+#: The handler, as it is written into the LR slot's handler module.
 HANDLER_SOURCE = '''\
-    def execute_testneg(self, *, dest: int, src: int) -> None:
-        """Execute TESTNEG: uint32 ``dest = -src``."""
-        self.state.regfile.set_lr(dest, (-src) & 0xFFFFFFFF)
+def execute_testneg(ipu: Ipu, *, dest: int, src: int) -> None:
+    """Execute TESTNEG: uint32 ``dest = -src``."""
+    ipu.state.regfile.set_lr(dest, (-src) & 0xFFFFFFFF)
+
 
 '''
 
