@@ -58,7 +58,7 @@ retires.
 | `set_fault_enable(fault, enabled)` | A fault's enable bit. F-2 to F-6 cannot be cleared (OQ-2). |
 | `step()` | One word. A `BREAK` slot never stops it: the word retires. A step has no cycle limit. |
 | `run(max_cycles=None, *, trace=None)` | Steps until `HALT`, a fault, or `max_cycles` words (`None` keeps the model's limit, 0 disables it). |
-| `stats()` | A `Stats` snapshot of the run statistics since the last `reset()` or `load_program()` (1.1.0): `cycles`, `mult_active_cycles`, `acc_active_cycles`, `xmem_reads`, `xmem_writes`, `mult_lane_ops`, `mult_identity_lane_ops`, `lane_occupancy` and `effective_mac_utilization` (`(mult_lane_ops - mult_identity_lane_ops) / (cycles * 128)`). They depend on operand values, so no commit record carries them. |
+| `stats()` | A `Stats` copy of the run statistics since the last `reset()` or `load_program()` (1.1.0): `cycles`, `mult_active_cycles`, `acc_active_cycles`, `xmem_reads`, `xmem_writes`, `mult_lane_ops`, `mult_identity_lane_ops`, `lane_occupancy` and `effective_mac_utilization` (`(mult_lane_ops - mult_identity_lane_ops) / (cycles * 128)`). They depend on operand values, so no commit record carries them. |
 | `status` | A `Status`: `state` (`RunState.RUNNING`, `HALTED` or `FAULTED`), `pc` and, when faulted, `fault`. |
 
 `r_wide_debug` and `r_cyclic_wide_debug` are emulator-only banks: they hold
