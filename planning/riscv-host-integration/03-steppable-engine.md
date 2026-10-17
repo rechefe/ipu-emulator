@@ -47,6 +47,11 @@ those are transitional delegates of `Cycle`.
   engine owns `ipu_emu.run_clock.RunClock` (E04-21): the run's cycle count,
   the F-9 cycle limit and the one write of `total_cycles`.
 
+- Consumer: the stable reference-model API, `ipu_emu.reference` (E04-30),
+  runs on `RunClock` and `Cycle` today. When the engine lands, its
+  `ReferenceModel.step`/`run`/`status` delegate to `Engine` without changing
+  their signatures (`API_VERSION` stays `1.0.0`; the contract test pins them).
+
 ## Docs
 
 - Note the engine API in the spec and (briefly) in `debugging.md` since
