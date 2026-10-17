@@ -62,21 +62,22 @@ with the entry's path, such as `lr.TESTNEG.operands[src].read`.
 ## Step 2: the handler
 
 Add `execute_<name>` to the module of the instruction's slot, under
-`src/tools/ipu-emu-py/src/ipu_emu/slots/` (`lr.py` for `lr`; `acc.py` also holds
-AGG and RESHAPE; `store.py` holds `store` and `acc_store`; `brk.py` is `break`).
+`src/tools/ipu-emu-py/src/ipu_emu/slots/` (`lr.py` for `lr`; `store.py` holds
+`store` and `acc_store`; `brk.py` is `break`).
 This is `TESTNEG`'s, in `lr.py`:
 
 ```python
 --8<-- "src/tools/ipu-isa/test/one_edit.py:44:46"
 ```
 
-- After the engine, the parameters are keyword-only (the `*`), and their names
-  are exactly the operand names of the entry. The emulator binds every entry's
+- The first parameter is the engine, `ipu`. The rest are keyword-only (the
+  `*`), and their names are exactly the operand names of the entry. The emulator binds every entry's
   `execute_fn` when it is imported and names any handler that is missing or
   whose parameters differ.
-- An operand with `"read"` arrives resolved: an LR or CR as its 32-bit value, a
-  mult-stage register as its bytes, which the handler decodes. One without, such as the register written,
-  an immediate or a label, arrives as its index or value.
+- An operand with `"read"` arrives resolved: an LR or CR as its 32-bit value,
+  a mult-stage register as its bytes, which the handler decodes. One without,
+  such as the register written, an immediate or a label, arrives as its index
+  or value.
 - A vector handler reads its lanes through the active lane codec (`ipu._codec`,
   from `ipu_emu.numerics`), computes on them, and writes the result back through
   the same codec. It has no branch on the element format. `execute_mult_rc_vv`
@@ -89,10 +90,9 @@ This is `TESTNEG`'s, in `lr.py`:
 
 Add a test with the shared emulator test helpers in
 `src/tools/ipu-emu-py/test/emu_support.py`, next to the tests of the same slot
-(`test_execute.py`, or the slot's own test file). `run` assembles a program,
-runs it to `HALT` and returns the final state; `make_state` stops before
-running, so the test can write XMEM first. A test of `ADD`, the instruction
-`TESTNEG` sits next to:
+in `test_execute.py`. `run` assembles a program, runs it to `HALT` and returns
+the final state; `make_state` stops before running, so the test can write XMEM
+first. A test of `ADD`, an existing `lr` instruction:
 
 ```python
 --8<-- "docs/examples/test_add_an_instruction.py:test-import"
@@ -114,16 +114,18 @@ instruction. Update them; the failing test names what it pins.
   them with the reason, as the [Baselines](../code-conventions.md#baselines)
   rule asks.
 - **Facts written by hand** are edited:
-    - the ISA snapshot, `src/tools/ipu-isa/test/fixtures/spec_snapshot.json`;
+    - the record of every instruction, `src/tools/ipu-isa/test/fixtures/spec_snapshot.json`;
     - the reserved encodings: the per-slot counts in
       `src/tools/ipu-isa/test/test_faults.py`, and the F-1 table in
       [Faults](../requirements/faults.md);
     - for an `lr` instruction, the "one edit" tests' own count of `lr`
       instructions (`test_one_edit.py` in ipu-isa, `test_one_edit_generators.py`
       in ipu-gen).
-- An instruction that fills its slot's opcode field widens the slot, and with
-  it the instruction word. For a HARDWARE slot that is a breaking change to the
-  wire format (`CLAUDE.md`, below).
+- An instruction whose opcode does not fit in its slot's opcode field (a slot of
+  16 instructions getting a 17th) widens the slot, and with it the instruction
+  word. More tests then fail, those that pin widths and the word layout. For a
+  HARDWARE slot it is a breaking change to the wire format (`CLAUDE.md`,
+  below). The list above is for an instruction that fits.
 
 For a HARDWARE instruction, check the generated SystemVerilog package: a
 downstream RTL repository vendors it, and its widths are wire format. Follow
@@ -148,8 +150,10 @@ step 4.
 
 A **new operand type** is the exception: it needs an entry in
 `src/tools/ipu-isa/src/ipu_isa/operand_types.py`, a token class in the
-assembler's `OPERAND_TYPE_MAP` (`src/tools/ipu-as-py/src/ipu_as/inst.py`) and, if
-it is readable, a read code in `src/tools/ipu-emu-py/src/ipu_emu/resolver.py`.
+assembler's `OPERAND_TYPE_MAP` (`src/tools/ipu-as-py/src/ipu_as/inst.py`). The
+emulator picks how a read operand resolves from the register banks its domain
+names (`_READ_BY_BANKS` in `src/tools/ipu-emu-py/src/ipu_emu/ipu.py`); only a
+type over a new bank needs a read code in `ipu_emu/resolver.py`.
 Its `field_suffix` and `sv_typedef` are wire format.
 
 ## Pseudo-instructions
