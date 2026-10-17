@@ -3,7 +3,7 @@
 
     Layers:  L3, L4, L5 (../registry.toml: concat_32x32x96x96, concat_16x16x128x128,
              concat_8x8x160x160)
-    Scope:   single-stream (two independent copy passes into one output buffer)
+    Scope:   single-stream (two independent copy passes into one output region)
     Layout:  unpacked
     Shape:   a (C_A channels) and b (C_B channels), one row each -> C_A + C_B rows;
              kernel.toml's [abi] gives the bases and counts (CR2-CR10)
@@ -17,8 +17,7 @@
 
     A, B: channel-major, ONE CHANNEL PER ROW, same convention every kernel in
       this family uses (fold's output / conv's raw output layout). In
-      wide-vector FP32 debug mode an XMEM row is unconditionally 128 lanes x 4B
-      = 512 bytes; this kernel treats "one row" as the addressable unit (like
+      FP32 an XMEM row is 128 lanes x 4 bytes = 512 bytes; this kernel treats "one row" as the addressable unit (like
       fold/unfold/residual_add) and moves ROWS wholesale -- it never interprets
       what is inside a row, so it is correct for any per-channel spatial
       packing the producer chose to put there (the 8x8=64 spatial elements of a
@@ -37,13 +36,13 @@
       On this ISA, every producer's store address is base_row + walking_offset,
       where base_row is a compile-time/harness constant -- so two producers
       COULD write directly into disjoint channel-offset regions of one shared
-      output buffer with zero data movement, if the caller pre-arranges it.
+      output region with zero data movement, if the caller pre-arranges it.
       That is NOT what this kernel does. This is the general-purpose registry
       kernel: it assumes A and B already live in their own (potentially
       non-adjacent) memory regions with their own base addresses -- the safe
       assumption for a kernel other code can call without assuming its callers
       pre-arranged memory -- and it physically copies both into one contiguous
-      output buffer. A genuine copy, not a no-op.
+      output region. A genuine copy, not a no-op.
 
     There is no direct copy/move instruction in the vector path (same
     constraint residual_add documents): every value must pass through the
@@ -61,25 +60,23 @@
     matching residual_add's per-operand pipeline stage (just without the
     second MULT/ACC.ADD for a second addend).
 
-    MULT SNAPSHOT CONTRACT (issue #157, same as fold/unfold/residual_add):
-    MULT.RC.VE reads its r_cyclic DATA from the start-of-cycle snapshot, so it
-    cannot consume a row loaded by LD.MULT.CYCLIC issued in the SAME
-    bundle -- `;;` ends one VLIW word = one cycle = one snapshot, so a load and
-    a MULT co-issued in one bundle both see that cycle's PRE-load r_cyclic
-    state. Each load therefore runs one bundle ahead of the MULT that consumes
+    MULT START-OF-CYCLE CONTRACT (issue #157, same as fold/unfold/residual_add):
+    MULT.RC.VE reads its r_cyclic DATA as it was at the start of the cycle, so
+    it cannot consume a row loaded by LD.MULT.CYCLIC issued in the SAME
+    instruction word -- `;;` ends one word = one cycle, so a load and a MULT
+    co-issued in one word both see that cycle's PRE-load r_cyclic state. Each
+    load therefore runs one instruction word ahead of the MULT that consumes
     it; verified empirically against this exact kernel before trusting the
     pipelining below.
 
     ST.AAQ reads its offset operand LIVE -- never co-issue an ADD on
-    the store's offset LR in the same bundle as the store itself, or the row
+    the store's offset LR in the same instruction word as the store, or the row
     lands one slot late (same hazard documented in fold_16x16x192.asm and
     residual_add_16x240.asm).
 
     CR0 and CR1 are BOTH read-only hardwired constants (0 and 1 respectively;
-    writes are silently dropped -- CR_READ_ONLY_INITIAL_VALUES). A_BASE_ROW is
-    0 in this kernel's memory map, so naming it cr0 is a harmless no-op (same
-    convention residual_add_16x240 uses); every OTHER nonzero/non-one base or
-    count avoids cr0/cr1.
+    a host write raises, CR_READ_ONLY_INITIAL_VALUES); every base and count
+    is in CR2..CR10, as kernel.toml's [abi] binds them.
 
     Two independent BLT.S-driven loops (NOT hand-unrolled -- C_A/C_B are up to
     160 in this family, unlike fold's small fixed 4x4 structure): loop 1 copies
