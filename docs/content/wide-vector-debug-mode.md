@@ -13,42 +13,38 @@ See [GitHub issue #33](https://github.com/rechefe/ipu-emulator/issues/33) for th
 
 ## Enabling the mode
 
-Construct [`IpuState`](https://github.com/rechefe/ipu-emulator/blob/master/src/tools/ipu-emu-py/src/ipu_emu/ipu_state.py) with keyword arguments:
+Wide-vector mode is the emulator-only element formats **`FP32`** and **`INT32`**.
+Construct [`IpuState`](https://github.com/rechefe/ipu-emulator/blob/master/src/tools/ipu-emu-py/src/ipu_emu/ipu_state.py) in one of them:
 
 | Parameter | Default | Meaning |
 |-----------|---------|---------|
-| `wide_vector_debug` | `False` | Turn wide-vector mode on. |
-| `wide_vector_arithmetic` | `WideVectorArithmetic.FP32` | `FP32` or `INT32` element arithmetic. |
-| `wide_vector_quantize_output` | `False` | If `True`, `ACTIVATE.QUANTIZE` also quantizes the **wide elements it just wrote to `POST_AAQ_REG`** into the **leading 128 bytes** of that register (use **`ACTIVATE.QUANTIZE` … `identity`** to quantize `r_acc` unchanged). If `False`, it stops after writing the wide activated elements. |
+| `fmt` | `ElementFormat.INT8` | `ElementFormat.FP32` or `ElementFormat.INT32` turns wide-vector mode on, with that element arithmetic. Read-only after construction; `state.reset(fmt)` changes it. |
+| `aaq` | `AaqOptions()` | `AaqOptions(quantize_output=True)` makes `ACTIVATE.QUANTIZE` also quantize the **wide elements it just wrote to `POST_AAQ_REG`** into the **leading 128 bytes** of that register (use **`ACTIVATE.QUANTIZE` … `identity`** to quantize `r_acc` unchanged). Off by default: it stops after writing the wide activated elements. |
 
 ```python
-from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
+from ipu_emu.ipu_state import IpuState
 from ipu_emu.emulator import load_program, run_until_complete
-from ipu_emu.execute import decode_instruction_word
-from ipu_as.lark_tree import assemble
+from ipu_isa.formats import ElementFormat
 
-state = IpuState(
-    wide_vector_debug=True,
-    wide_vector_arithmetic=WideVectorArithmetic.FP32,
-    wide_vector_quantize_output=False,
-)
+state = IpuState(fmt=ElementFormat.FP32)
 # load program, set CR15 / XMEM as usual, then:
 run_until_complete(state)
 ```
 
-`WideVectorArithmetic` is in `ipu_emu.ipu_state`, beside `IpuState`:
+`AaqOptions` is in `ipu_emu.activations`; the package root exports `IpuState`:
 
 ```python
-from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
+from ipu_emu import IpuState
+from ipu_emu.activations import AaqOptions
 ```
 
-The high-level helper [`run_test`](https://github.com/rechefe/ipu-emulator/blob/master/src/tools/ipu-emu-py/src/ipu_emu/emulator.py) always builds a default `IpuState()`. To use wide-vector mode with your own harness, create the state as above, then use `load_program_from_binary` / `load_program` and `run_until_complete` or `run_with_debug` the same way tests do.
+The high-level helper [`run_test`](https://github.com/rechefe/ipu-emulator/blob/master/src/tools/ipu-emu-py/src/ipu_emu/emulator.py) builds a default `IpuState()` unless you pass `state=`. To use wide-vector mode with your own harness, create the state as above and pass it, or use `load_program_from_binary` / `load_program` and `run_until_complete` or `run_with_debug` the same way tests do. A kernel harness declares its format in `SPEC` with `ExecutionConfig(fmt=ElementFormat.FP32)`.
 
 ## XMEM layout in wide mode
 
 While **addresses are still byte addresses**, wide mode changes how much data some loads consume per instruction:
 
-- **`LD.MULT`** reads **128 elements** (512 bytes, 128×FP32 or 128×INT32, depending on `wide_vector_arithmetic`) from XMEM into internal staging for **`R0` or `R1` only**. The architectural 128-element `r` register in the regfile is not the source for mult operands in this mode.
+- **`LD.MULT`** reads **128 elements** (512 bytes, 128×FP32 or 128×INT32, depending on the format) from XMEM into internal staging for **`R0` or `R1` only**. The architectural 128-element `r` register in the regfile is not the source for mult operands in this mode.
 - **`LD.MULT.CYCLIC`** reads **128 elements** (512 bytes) into one slot of `r_cyclic` at the given **`index`**. **`index` must be one of the four slot boundaries** — `0`, `128`, `256`, `384`; any other value raises an error. (Same boundaries as normal mode; in wide mode each slot is 512 bytes instead of 128 bytes.)
 
 Prepare XMEM accordingly (e.g. raw `float32` or `int32` little-endian blobs).
@@ -62,14 +58,14 @@ Wide mode unpacks `r_cyclic` as 128 consecutive 32-bit elements starting at a **
 ## Semantics that differ from normal mode
 
 - **Multiply masks** (`mask_offset` immediate slot 0–7 / `mask_shift` LR): mask-and-shift on `mult_res` is **mode-blind** — it runs identically in wide mode as in narrow mode (each of the 128 mask bits gates the corresponding FP32/INT32 element one-for-one, the same lane mapping as narrow mode's per-element gating).
-- **`ACTIVATE.QUANTIZE`**: unless `wide_vector_quantize_output=True`, it **does not quantize** in wide mode — it writes the activated wide elements to **`POST_AAQ_REG`** and the full element results stay in **`R_ACC`**. Use the existing debug-only **`ST.ACC`** instruction (or read `R_ACC` in Python) to dump 128 elements (512 bytes) of accumulator data.
+- **`ACTIVATE.QUANTIZE`**: unless `AaqOptions.quantize_output` is set, it **does not quantize** in wide mode — it writes the activated wide elements to **`POST_AAQ_REG`** and the full element results stay in **`R_ACC`**. Use the existing debug-only **`ST.ACC`** instruction (or read `R_ACC` in Python) to dump 128 elements (512 bytes) of accumulator data.
 - **LR and CR** are **not** widened; scalars such as **`MULT.RC.VE`**'s CR-encoded `src` still use the **low byte** of a CR as a signed value in the wide path.
 
 ## INT32 vs FP32
 
-- **`WideVectorArithmetic.FP32`**: element multiply and accumulate-add use IEEE float; good for spotting FP8/INT8 quantization effects.
-- **`WideVectorArithmetic.INT32`**: element multiply uses 32-bit signed wrap; add matches INT8-mode wrap semantics per element. The **`AGG.*`** aggregation instructions reduce elements as 32-bit signed integers (wrap semantics) when the element format is INT32.
+- **`ElementFormat.FP32`**: element multiply and accumulate-add use IEEE float; good for spotting FP8/INT8 quantization effects.
+- **`ElementFormat.INT32`**: element multiply uses 32-bit signed wrap; add matches INT8-mode wrap semantics per element. The **`AGG.*`** aggregation instructions reduce elements as 32-bit signed integers (wrap semantics) when the element format is INT32.
 
 ## Related documentation
 
-- [Debugging IPU Programs](debugging.md) — interactive **`BREAK`** / `debug_prompt` workflow (orthogonal to wide-vector mode; you can combine them by passing a state created with `wide_vector_debug=True` into `run_with_debug`).
+- [Debugging IPU Programs](debugging.md) — interactive **`BREAK`** / `debug_prompt` workflow (orthogonal to wide-vector mode; you can combine them by passing a state created with `fmt=ElementFormat.FP32` into `run_with_debug`).

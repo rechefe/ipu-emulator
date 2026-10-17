@@ -16,10 +16,10 @@ from typing import TYPE_CHECKING, Any
 
 from ipu_emu.alias_profile import Event
 from ipu_emu.cycle import decode_word
-from ipu_emu.geometry import cr_scalar, element_format, element_width_bytes, row_size_bytes
-from ipu_emu.ipu_math import dtype_one_byte
+from ipu_emu.geometry import cr_scalar, element_width_bytes, row_size_bytes, vector_registers
 from ipu_emu.xmem import XMEM_WIDTH_BYTES
 from ipu_isa.activations import ACTIVATION_IDENTITY
+from ipu_isa.formats import ElementFormat
 from ipu_isa.geometry import LANES
 from ipu_isa.operand_types import OperandType
 from ipu_isa.registers import REGISTER_DEFINITIONS
@@ -61,6 +61,10 @@ class _CycleBinding:
         self._observer.begin(pc)
 
 
+#: The emulator-only 4-byte formats (the profile's ``mode`` names them).
+_WIDE_FORMATS = (ElementFormat.FP32, ElementFormat.INT32)
+
+
 class ExecutionObserver:
     def __init__(self, profile, state):
         self.profile = profile
@@ -68,10 +72,13 @@ class ExecutionObserver:
         # reference back would make every profiled state (and its XMEM) wait
         # for the cyclic garbage collector instead of being freed on release.
         self._state = weakref.ref(state)
+        fmt = state.fmt
+        wide = fmt in _WIDE_FORMATS
         profile.metadata.update(
-            mode=state.wide_vector_arithmetic.value if state.wide_vector_debug else "native",
-            dtype=state.dtype.name,
-            quantize_output=state.wide_vector_quantize_output,
+            mode=fmt.value if wide else "native",
+            # The 8-bit format; FP32 and INT32 report INT8, as before E04-17.
+            dtype=ElementFormat.INT8.name if wide else fmt.name,
+            quantize_output=state.aaq.quantize_output,
         )
         self.next_id = 0
         self.pc = 0
@@ -234,8 +241,7 @@ class ExecutionObserver:
                 declared_width=ds.valid_elements,
                 partition=int(ds.partition),
                 identity=issued.mult_identity.any,
-                wide_fp32=self.state.wide_vector_debug
-                and self.state.wide_vector_arithmetic.value == "fp32",
+                wide_fp32=self.state.fmt is ElementFormat.FP32,
             )
             sources = []
             if "rc_idx" in kwargs:
@@ -272,7 +278,7 @@ class ExecutionObserver:
         if slot == "aaq":
             facts["acc"] = self.acc
             facts["lossy"] = not (
-                self.state.wide_vector_debug and not self.state.wide_vector_quantize_output
+                self.state.fmt in _WIDE_FORMATS and not self.state.aaq.quantize_output
             )
             active = min(LANES, self.state.get_dstructure_for(kwargs["cr_idx"]).valid_elements)
             active_mask = (1 << active) - 1
@@ -378,16 +384,12 @@ class ExecutionObserver:
         capacity = LANES * (4 if bank == "ring" else 2)
         slots = {(start + i) % capacity // LANES for i in range(length)}
         result = []
-        wide = self.state.wide_vector_debug
-        name = (
-            ("r_cyclic_wide_debug" if wide else "r_cyclic")
-            if bank == "ring"
-            else ("r_wide_debug" if wide else "r")
-        )
+        registers = vector_registers(self.state)
+        name = registers.r_cyclic if bank == "ring" else registers.ra
         raw = self.cycle_source().snapshot.raw_readonly(name)
         if self.state.regfile.has_mutable_export(name):
             return []
-        size = row_size_bytes(element_format(self.state))
+        size = row_size_bytes(self.state.fmt)
         for slot in sorted(slots):
             item = self.snapshot_rows.get((bank, slot))
             if item and raw[slot * size : (slot + 1) * size] == item[1]:
@@ -405,30 +407,17 @@ class ExecutionObserver:
                     result.append(dict(props, source=source))
                 continue
             data = source.facts.get("data", b"")
-            element_fmt = element_format(self.state)
+            element_fmt = self.state.fmt
             if len(data) != row_size_bytes(element_fmt):
                 continue
             element = element_width_bytes(element_fmt)
-            one = (
-                struct.pack("<f" if self.state.wide_vector_arithmetic.value == "fp32" else "<i", 1)
-                if self.state.wide_vector_debug
-                else bytes([dtype_one_byte(self.state.dtype)])
-            )
+            codec = self.state.codec
+            one = codec.one()
             zero = bytes(element)
             if data != data[:element] * LANES and data.replace(one, b"").replace(zero, b""):
                 source.facts["constant_properties"] = None
                 continue
-            if self.state.wide_vector_debug:
-                fmt = "<f" if self.state.wide_vector_arithmetic.value == "fp32" else "<i"
-                values = [x[0] for x in struct.iter_unpack(fmt, data)]
-            else:
-                from ipu_emu.ipu_math import DType, fp8_bytes_to_fp32
-
-                values = (
-                    [x if x < 128 else x - 256 for x in data]
-                    if self.state.dtype == DType.INT8
-                    else fp8_bytes_to_fp32(data, self.state.dtype).tolist()
-                )
+            values = codec.decode(data, LANES).tolist()
             if len(values) != LANES or not all(math.isfinite(x) for x in values):
                 continue
             uniform = all(x == values[0] for x in values)
@@ -441,8 +430,7 @@ class ExecutionObserver:
                 "declared": source.facts.get("declared", False),
                 "fractional": uniform and values[0] != int(values[0]),
                 "log2e": uniform and data[:4] == struct.pack("<f", math.log2(math.e))
-                if self.state.wide_vector_debug
-                and self.state.wide_vector_arithmetic.value == "fp32"
+                if self.state.fmt is ElementFormat.FP32
                 else False,
             }
             # Cache scalar properties only (no self-reference).

@@ -14,6 +14,7 @@ from ipu_apps.kernel_registry.base import IpuApp
 from ipu_emu.emulator import dump_xmem_to_binary, load_binary_to_xmem
 from ipu_emu.ipu import LANES, R_ACC_SIZE
 from ipu_emu.xmem import XMEM_SIZE_BYTES
+from ipu_isa.formats import ElementFormat
 
 
 def positive_shape(shape, rank):
@@ -114,7 +115,7 @@ def memory_spec(op, app_class, *, cost=0, **fields):
         caveats=lambda **params: (
             "input includes padding, constants and scratch; output is raw tiled FP32",
         ),
-        execution=ExecutionConfig(mode="fp32"),
+        execution=ExecutionConfig(fmt=ElementFormat.FP32),
         cost=lambda **params: cost,
     )
     return folder_spec(app_class, **(defaults | fields))

@@ -57,12 +57,16 @@ def test_missing_golden_is_not_skipped(monkeypatch, tmp_path):
 
 def test_dtype_default_and_normalization():
     from ipu_apps.kernels.linear.fully_connected.app import FullyConnectedApp
-    from ipu_emu.ipu_math import DType
+    from ipu_isa.formats import ElementFormat
 
     verdict = resolve("fully_connected", shape=(10, 128))
     assert verdict.supported
     bindings = {"inst_path": "unused", "inputs_path": "unused", "weights_path": "unused"}
-    assert create_harness("fully_connected", params={}, bindings=bindings).dtype is DType.INT8
+    assert (
+        create_harness("fully_connected", params={}, bindings=bindings).dtype is ElementFormat.INT8
+    )
     app = FullyConnectedApp(dtype=4, **bindings)
-    assert app.dtype is DType.E4
-    assert app.make_state().dtype is DType.E4
+    assert app.dtype is ElementFormat.E4
+    assert app.make_state().fmt is ElementFormat.E4
+    wide = FullyConnectedApp(dtype="int8", wide_mode=True, **bindings)
+    assert wide.make_state().fmt is ElementFormat.INT32

@@ -40,6 +40,7 @@ from ipu_apps.kernel_registry import (
     no,
     yes,
 )
+from ipu_isa.formats import ElementFormat
 
 RESIDUAL_ADD_OP = "residual_add"
 LANES = 128  # datapath width; not itself a routing constraint here
@@ -113,5 +114,5 @@ def residual_add_spec(app_class, *, tokens: int, channels: int):
         bundle=lambda **params: residual_add_query(params["shape"]).bundle,
         # Exact-shape match: no padding, no chunking. Cheapest possible claim.
         cost=lambda **params: 0.0,
-        execution=ExecutionConfig(mode="fp32"),
+        execution=ExecutionConfig(fmt=ElementFormat.FP32),
     )

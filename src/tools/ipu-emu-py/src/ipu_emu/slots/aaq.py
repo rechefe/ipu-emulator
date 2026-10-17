@@ -10,14 +10,13 @@ import numpy as np
 from ipu_emu.activations import apply_activation
 from ipu_emu.errors import EmulatorError
 from ipu_emu.geometry import agg_lane_count, lane_format
-from ipu_emu.ipu_math import DType
-from ipu_emu.ipu_state import WideVectorArithmetic
 from ipu_isa.activations import (
     ACTIVATION_EXP2,
     ACTIVATION_IDENTITY,
     ACTIVATION_RECIPROCAL,
 )
 from ipu_isa.constants import REGISTER_WORD_VALUE_MASK
+from ipu_isa.formats import AccumulatorType, ElementFormat
 from ipu_isa.geometry import LANES
 
 if TYPE_CHECKING:
@@ -77,12 +76,13 @@ def _execute_prototype_wide_fp32_activation(
 
 def _activate(state: IpuState, fn_id: int, raw: float | int) -> float:
     """The selected activation of one lane, with the state's activation parameters."""
+    params = state.activation
     return apply_activation(
         fn_id,
         float(raw),
-        elu_alpha=state.elu_alpha,
-        window_a=state.window_a,
-        window_b=state.window_b,
+        elu_alpha=params.elu_alpha,
+        window_a=params.window_a,
+        window_b=params.window_b,
     )
 
 
@@ -114,12 +114,12 @@ def _activate_wide(
         # lane-by-lane store left them; a store failure wins, being earlier.
         codec.store_acc(post_buf, activated)
 
-    if not state.wide_vector_quantize_output:
+    if not state.aaq.quantize_output:
         return
 
     result = bytearray(128)
     post = codec.load_acc(post_buf, active).tolist()
-    if state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
+    if state.format_info.accumulator is AccumulatorType.FP32:
         for i, val in enumerate(post):
             result[i] = max(-128, min(127, int(round(val)))) & 0xFF
     else:
@@ -139,9 +139,10 @@ def execute_activate_quantize(ipu: Ipu, *, activation_fn: int, cr_idx: int) -> N
     The active element count comes from ``cr_idx``'s decoded dstructure
     ``valid_elements`` field; the caller must name a CR register explicitly.
 
-    Requires INT8 mode in normal operation. In wide-vector debug mode, activation
-    is always applied; quantization only occurs when ``state.wide_vector_quantize_output``
-    is set (enabling comparison with the real INT8 path).
+    Requires INT8 among the hardware formats. In FP32 and INT32 (emulator-only),
+    activation is always applied; quantization only occurs when
+    ``state.aaq.quantize_output`` is set (enabling comparison with the real INT8
+    path).
     """
     state = ipu.state
     fn_id = int(activation_fn) & REGISTER_WORD_VALUE_MASK
@@ -152,19 +153,19 @@ def execute_activate_quantize(ipu: Ipu, *, activation_fn: int, cr_idx: int) -> N
     acc_buf = ipu._view.read_forgetting_provenance("r_acc")
     post_buf = state.regfile.mutable("post_aaq_reg")
 
-    if state.wide_vector_debug:
+    if codec.element_bytes != 1:
         if (
             ipu._prototyping
             and active == LANES
             and fmt == "<f"
-            and not state.wide_vector_quantize_output
+            and not state.aaq.quantize_output
             and _execute_prototype_wide_fp32_activation(codec, fn_id, acc_buf, post_buf)
         ):
             return
         _activate_wide(state, codec, fn_id, active, acc_buf, post_buf)
         return
 
-    if state.dtype != DType.INT8:
+    if state.fmt is not ElementFormat.INT8:
         raise EmulatorError("ACTIVATE.QUANTIZE instruction requires INT8 mode")
 
     result = bytearray(128)

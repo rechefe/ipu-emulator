@@ -23,11 +23,10 @@ configuration that the assembly program reads. Keep this in the Python
 
 ```python
 from ipu_isa.constants import LR_CR_SCALAR_VALUE_MASK
-from ipu_emu.ipu_math import DType
 
 def setup(self, state: IpuState) -> None:
-    # dtype is emulator-only state, not a CR register.
-    state.dtype = DType.INT8
+    # The element format (state.fmt) is fixed when the state is built
+    # (SPEC.execution); it is emulator configuration, not a CR register.
 
     # CR15 dstructure: configure whichever CR register your AGG.*/ACTIVATE.QUANTIZE
     # instructions name via their mandatory cr_idx operand.
@@ -78,26 +77,27 @@ ACTIVATE.QUANTIZE relu CR15;;
 - **Accumulation** stays in **`R_ACC`** (512 bytes = 128×32-bit elements). The ACC-slot **`AGG.SUM`** / **`AGG.SUM.FIRST`** / **`AGG.MAX`** / **`AGG.MAX.FIRST`** reduce **`R_ACC`** in place, writing a single `R_ACC` slot selected by an LR register; hardware uses the `act_cr_idx` path described in the AAQ spec for activation selection.
 - **`ACTIVATE.QUANTIZE`** (emulator) reads **`R_ACC`**, activates each active element and writes the result into **`POST_AAQ_REG`**; **`R_ACC`** is left unchanged.
 - **`POST_AAQ_REG`** is **temporarily a 512-byte** wide staging register (same element layout as **`R_ACC`**) until end-to-end quantization and export are finalized.
-- Activation and quantization are **one instruction**; there is no separate activate-only or quantize-only opcode. In **INT8 mode** the activated elements are clamped to `[-128, 127]` and written as **128 bytes** into the **leading** bytes of **`POST_AAQ_REG`**, with the remainder zeroed. In **wide-vector debug mode** the activated **32-bit** elements are written wide instead, and are quantized to that same byte prefix only when `wide_vector_quantize_output` is set.
+- Activation and quantization are **one instruction**; there is no separate activate-only or quantize-only opcode. In **INT8 mode** the activated elements are clamped to `[-128, 127]` and written as **128 bytes** into the **leading** bytes of **`POST_AAQ_REG`**, with the remainder zeroed. In the **FP32 and INT32** formats the activated **32-bit** elements are written wide instead, and are quantized to that same byte prefix only when `AaqOptions.quantize_output` is set (`IpuState(aaq=AaqOptions(quantize_output=True))`).
 - **`ST.AAQ`** stores **`POST_AAQ_REG`** — **512 bytes** — to XMEM (whatever wide or quantized layout that buffer holds at issue time).
 
 ### Virtual α and window bounds in the emulator (elu, window)
 
-The stock ISA does not expose α, nor the **`window`** bounds. The emulator reads α from each **`IpuState`** (field `elu_alpha`) and the window bounds from `window_a` / `window_b`. If you do not set them, they are initialized from the default floats in `ipu_emu/activations.py` (`DEFAULT_ELU_ALPHA`, `DEFAULT_WINDOW_A`, `DEFAULT_WINDOW_B`).
+The stock ISA does not expose α, nor the **`window`** bounds. The emulator reads α and the window bounds from each **`IpuState`**'s `activation` field, an `ActivationParams` (`elu_alpha`, `window_a`, `window_b`). If you do not set them, they are initialized from the default floats in `ipu_emu/activations.py` (`DEFAULT_ELU_ALPHA`, `DEFAULT_WINDOW_A`, `DEFAULT_WINDOW_B`).
 
 **`window`** is the rectangular indicator `window(x) = 1` for `a <= x < b`, `0` otherwise (half-open, lower bound inclusive). The defaults are provisional placeholders pending calibration: `a = 0.0`, `b = 0.1`. On hardware it belongs to the LUT-backed `activation` group of [the AaQ spec](specs/stage-aaq-str.md), so `a` and `b` are baked into the loaded LUT contents; the emulator keeps them as the state fields below instead.
 
-Configure these the same way you think about dtype on state — **not via CR**:
+Configure these the same way as the element format — on the state, **not via CR**:
 
 ```python
+from ipu_emu.activations import ActivationParams
 from ipu_emu.ipu_state import IpuState
 from ipu_emu.emulator import run_test
 
-state = IpuState(elu_alpha=1.0, window_a=0.0, window_b=0.1)
+state = IpuState(activation=ActivationParams(elu_alpha=1.0, window_a=0.0, window_b=0.1))
 # or after construction:
 state.set_activation_alphas(elu_alpha=1.0, window_a=0.0, window_b=0.1)
 
-# High-level harness (optional kwargs mirror IpuState):
+# High-level harness (optional kwargs mirror ActivationParams):
 state, cycles = run_test(
     inst_path="prog.bin",
     setup=my_setup,
@@ -415,7 +415,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ipu_isa.constants import LR_CR_SCALAR_VALUE_MASK
-from ipu_emu.ipu_math import DType
+from ipu_isa.formats import ElementFormat
 from ipu_emu.emulator import load_binary_to_xmem, dump_xmem_to_binary
 
 from ipu_apps.kernel_registry.base import IpuApp
@@ -431,12 +431,12 @@ WEIGHTS_BASE_ADDR = 0x20000
 OUTPUT_BASE_ADDR = 0x40000
 OUTPUT_NEURONS = 64
 
-def parse_dtype(dtype_str: str) -> DType:
-    """Parse a dtype string into a DType enum value."""
+def parse_dtype(dtype_str: str) -> ElementFormat:
+    """Parse a dtype string into the element format it names."""
     dtype_map = {
-        "INT8": DType.INT8,
-        "FP8_E4M3": DType.E4,
-        "FP8_E5M2": DType.E5,
+        "INT8": ElementFormat.INT8,
+        "FP8_E4M3": ElementFormat.E4,
+        "FP8_E5M2": ElementFormat.E5,
     }
     dt = dtype_map.get(dtype_str)
     if dt is None:
@@ -478,10 +478,10 @@ class FullyConnectedApp(IpuApp):
         inputs_path:  Path to input activations binary.
         weights_path: Path to weights binary.
         output_path:  Optional path to write output.
-        dtype:        Data type string or DType.
+        dtype:        Data type string or ElementFormat.
     """
 
-    def __init__(self, *, dtype: str | DType = "INT8", **kwargs) -> None:
+    def __init__(self, *, dtype: str | ElementFormat = "INT8", **kwargs) -> None:
         super().__init__(**kwargs)
         self.inputs_path = Path(self.inputs_path)
         self.weights_path = Path(self.weights_path)
@@ -489,7 +489,7 @@ class FullyConnectedApp(IpuApp):
 
     def setup(self, state: "IpuState") -> None:
         """Load inputs and weights, set control registers."""
-        state.dtype = self.dtype
+        # The state is built in self.dtype (SPEC.execution); its format is read-only.
         state.set_cr_dstructure(valid_elements=INPUT_NEURONS, partition=0)
         load_binary_to_xmem(
             state, self.inputs_path, INPUT_BASE_ADDR, INPUT_NEURONS, SAMPLES_NUM
@@ -497,7 +497,7 @@ class FullyConnectedApp(IpuApp):
         _load_and_transpose_weights(state, self.weights_path)
         # CR0 is permanently 0; CR1 is permanently 1. XMEM operands are row
         # numbers, so base addresses are divided by the row size.
-        row_size = 512 if state.wide_vector_debug else 128
+        row_size = state.format_info.row_bytes
         state.regfile.set_cr(2, OUTPUT_BASE_ADDR // row_size)
         state.regfile.set_cr(3, 1)          # one row per input vector
         state.regfile.set_cr(4, 1)

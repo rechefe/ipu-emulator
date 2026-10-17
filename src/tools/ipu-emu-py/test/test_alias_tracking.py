@@ -232,10 +232,8 @@ class TestSummaryRendering:
 
 class TestDeclaredVectorIdentities:
     @staticmethod
-    def prepare(*, wide=False, dtype=None, declared=True, ring=False, tail=""):
-        from ipu_emu.ipu_math import DType
-
-        fmt = ElementFormat.FP32 if wide else ElementFormat[(dtype or DType.INT8).name]
+    def prepare(*, wide=False, fmt=ElementFormat.INT8, declared=True, ring=False, tail=""):
+        fmt = ElementFormat.FP32 if wide else fmt
         state = new_state(fmt=fmt)
         state.write_constant_ones(0)
         size = 512 if wide else 128
@@ -297,12 +295,10 @@ class TestDeclaredVectorIdentities:
         run_until_complete(state)
         assert state.stats.alias_hits == {}
 
-    @pytest.mark.parametrize("dtype_name", ["INT8", "E4", "E5"])
-    def test_declared_ones_are_dtype_correct(self, dtype_name):
-        from ipu_emu.ipu_math import DType
-
+    @pytest.mark.parametrize("fmt", [ElementFormat.INT8, ElementFormat.E4, ElementFormat.E5])
+    def test_declared_ones_are_format_correct(self, fmt):
         state = self.prepare(
-            dtype=getattr(DType, dtype_name),
+            fmt=fmt,
             tail="MULT.RC.VV LR0 R0 0 LR0 CR15 ; ACC.ADD.FIRST ;;\nHALT;;",
         )
         run_until_complete(state)
