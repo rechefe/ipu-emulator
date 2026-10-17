@@ -28,6 +28,9 @@ template folder, an ordinary ipu_kernel() folder (E06-17):
 declares :<entry>, :<entry>_nightly and :assemble_<entry> for each entry, as
 ipu_kernel() does for a folder, and :registry_bzl_test, which fails when
 registry.bzl (written by `bazel run //kernels:update_registry_bzl`) is stale.
+
+A family folder's own test_*.py (cross-kernel conformance, datapath and
+routing tests) run as :tests.
 """
 
 load("@ipu_as_deps//:requirements.bzl", "requirement")
@@ -122,7 +125,15 @@ def ipu_kernel(name = None, extra_deps = [], size = "large", shard_count = None,
     ruff_test(name = "ruff", srcs = native.glob(["**/*.py"]))
     _kernel_targets(name, "$(rootpath kernel.toml)", data, _test_deps(family) + extra_deps, size, shard_count)
 
-def ipu_kernel_family(entries = [], kernels_lib = None, extra_deps = [], size = "large", shard_count = {}):
+def ipu_kernel_family(
+        entries = [],
+        kernels_lib = None,
+        extra_deps = [],
+        size = "large",
+        shard_count = {},
+        tests_tree = False,
+        tests_size = "medium",
+        tests_shard_count = None):
     """Declare one family, //kernels/<family> (E06-18), and its registry entries (E06-17).
 
     * :lib: the family's Python, ipu_kernels.<family> (packs, stages, layer
@@ -133,10 +144,13 @@ def ipu_kernel_family(entries = [], kernels_lib = None, extra_deps = [], size = 
       it uses.
     * :all: every kernel test of the family (the manifest's family suite),
       its entries' and :tests included.
-    * :tests: the family folder's own test_*.py (routing, conformance,
-      datapath tests across its kernels), when it has any: pytest, with the
-      family's :lib and :files, every kernel's and template's files, and the
-      whole kernel tree (//kernels:all_kernels) for a Registry or a query.
+    * :tests: the family folder's own test_*.py (conformance, datapath and
+      routing tests across its kernels), when it has any: pytest, with the
+      family's :lib and :files and every kernel's and template's files, so
+      `Registry.load(kernel_tree(), families=[<family>])` sees the family.
+      With tests_tree, also the whole kernel tree (//kernels:all_kernels), for
+      a test that routes across families or calls ipu_harness.query.main;
+      then an edit to any kernel reruns it.
     * :ruff: lint over its Python.
     * :<entry>, :<entry>_nightly, :assemble_<entry> for each registry entry,
       and :registry_bzl_test when it has entries.
@@ -151,6 +165,9 @@ def ipu_kernel_family(entries = [], kernels_lib = None, extra_deps = [], size = 
         size: the test size of each :<entry>, as ipu_kernel()'s.
         shard_count: shards of :<entry> and :<entry>_nightly, by entry name,
             for an entry with more than about 60 case x format runs.
+        tests_tree: give :tests the whole kernel tree, not only the family's.
+        tests_size: the test size of :tests.
+        tests_shard_count: shards of :tests.
     """
     package = native.package_name()
     family = package.rpartition("/")[2]
@@ -163,22 +180,26 @@ def ipu_kernel_family(entries = [], kernels_lib = None, extra_deps = [], size = 
         ] + ["//kernels/" + other + ":lib" for other in uses],
         visibility = ["//visibility:public"],
     )
-    py = native.glob(["*.py"], allow_empty = True)
+    # The family's own tests are linted, not data: editing one reruns only :tests.
+    family_tests = native.glob(["test_*.py"], allow_empty = True)
+    py = native.glob(["*.py"], exclude = family_tests, allow_empty = True)
     native.filegroup(
         name = "files",
         srcs = native.glob(["*.asm", "*.asm.j2", "registry.toml", "*.npy"], allow_empty = True) + py +
                ["//kernels/" + other + ":files" for other in uses],
         visibility = ["//visibility:public"],
     )
-    family_tests = native.glob(["test_*.py"], allow_empty = True)
     if family_tests:
-        folders = KERNELS.get(family, []) + sorted({e["template"]: None for e in entries}.keys())
+        # A template is also one of the family's KERNELS: list each folder once.
+        folders = {k: None for k in KERNELS.get(family, []) + [e["template"] for e in entries]}
         py_pytest_test(
             name = "tests",
             srcs = family_tests,
-            data = [":files"] + ["//%s/%s:%s_files" % (package, k, k) for k in folders],
-            deps = _test_deps(package) + ["//kernels:all_kernels"] + extra_deps,
-            size = "medium",
+            data = [":files"] + ["//%s/%s:%s_files" % (package, k, k) for k in sorted(folders.keys())],
+            deps = _test_deps(package) + (["//kernels:all_kernels"] if tests_tree else []) + extra_deps,
+            size = tests_size,
+            shard_count = tests_shard_count,
+            legacy_create_init = False,
         )
     native.test_suite(
         name = "all",
@@ -186,7 +207,7 @@ def ipu_kernel_family(entries = [], kernels_lib = None, extra_deps = [], size = 
                 [":" + entry["name"] for entry in entries] + ([":tests"] if family_tests else []),
         visibility = ["//visibility:public"],
     )
-    ruff_test(name = "ruff", srcs = py)
+    ruff_test(name = "ruff", srcs = py + family_tests)
     if not entries:
         return
     templates = sorted({entry["template"]: None for entry in entries}.keys())
