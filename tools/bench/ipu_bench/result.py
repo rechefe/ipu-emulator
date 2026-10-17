@@ -31,7 +31,7 @@ class Result:
     extra: str = ""
     bigger_is_better: bool = False
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if not _NAME.fullmatch(self.name):
             raise ValueError(f"benchmark name {self.name!r} is not <area>/<measurement>")
         if not self.unit:

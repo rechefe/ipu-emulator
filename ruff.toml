@@ -91,9 +91,6 @@ max-args = 6
 "src/tools/ipu-apps/test/mobilevit/test_packed_residual_add_240x16.py" = ["PLR0915"]
 "src/tools/ipu-apps/test/mobilevit/test_seam_proj_qkv_to_scores_km_repack.py" = ["PLR0913"]
 
-# ipu-as-py assembler: removed by E05 (slot codec, assembly session).
-"src/tools/ipu-as-py/src/ipu_as/inst.py" = ["C901"]
-
 # ipu-emu-py emulator core: removed by E04 (cycle module, codecs, alias profiling).
 "src/tools/ipu-emu-py/src/ipu_emu/activations.py" = ["C901", "PLR0912"]
 "src/tools/ipu-emu-py/src/ipu_emu/alias_detectors.py" = ["C901", "PLR0912", "PLR0915"]

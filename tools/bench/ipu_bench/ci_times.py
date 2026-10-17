@@ -20,6 +20,7 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from ipu_bench.result import Result, append_results
 
@@ -56,7 +57,7 @@ def wall_result(jobs: list[dict], spec: tuple[str, str, str], run_ref: str) -> R
     return Result(result_name, "s", step, extra=f"{run_ref}; whole job {job:.0f} s")
 
 
-def _gh_json(*args: str):
+def _gh_json(*args: str) -> Any:
     out = subprocess.run(["gh", *args], capture_output=True, text=True, check=True).stdout
     return json.loads(out)
 

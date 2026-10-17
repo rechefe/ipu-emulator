@@ -10,10 +10,9 @@ it, never restated.
 The element codec of the 8-bit formats is here too (E04-13), so the harness
 and the conformance tooling round and pack values without the emulator:
 :func:`decode_element`, :func:`encode_element` and :func:`element_values`.
-It is pure Python, one element at a time; the emulator's lane codecs
-(``ipu_emu.numerics``) build their vectorised tables from it. The arithmetic
-on accumulators belongs to those codecs, and the numeric questions still open
-to OQ-19.
+It is pure Python, one element at a time; the emulator's lane codecs build
+their vectorised tables from it. The arithmetic on accumulators belongs to
+those codecs, and the numeric questions still open to OQ-19.
 """
 
 from __future__ import annotations
@@ -26,6 +25,7 @@ from enum import Enum
 from types import MappingProxyType
 from typing import Final, TypedDict
 
+from ipu_isa.errors import IsaLookupError, IsaValueError
 from ipu_isa.geometry import LANES, XMEM_BYTES
 from ipu_isa.registers import REGISTER_DEFINITIONS
 from ipu_isa.schema import SpecError
@@ -220,7 +220,7 @@ def register_layout(register: str, fmt: ElementFormat) -> tuple[int, int]:
     """
     info = FORMATS[ElementFormat(fmt)]
     if register not in REGISTER_DEFINITIONS:
-        raise KeyError(f"unknown register {register!r}")
+        raise IsaLookupError(f"unknown register {register!r}")
     size_bytes = REGISTER_DEFINITIONS[register]["size_bytes"]
     if register in _ELEMENT_REGISTERS:
         return size_bytes // _NARROW_ELEMENT_BYTES, info.element_bytes
@@ -228,7 +228,7 @@ def register_layout(register: str, fmt: ElementFormat) -> tuple[int, int]:
         return LANES, info.accumulator_bytes
     if register in _MASK_REGISTERS:
         return size_bytes, 1
-    raise KeyError(f"register {register!r} has no format-dependent element layout")
+    raise IsaLookupError(f"register {register!r} has no format-dependent element layout")
 
 
 def addressable_rows(fmt: ElementFormat) -> int:
@@ -256,7 +256,7 @@ def addressable_rows(fmt: ElementFormat) -> int:
 def _eight_bit_info(fmt: ElementFormat) -> FormatInfo:
     info = FORMATS[ElementFormat(fmt)]
     if info.element_bits != 8:
-        raise ValueError(f"{info.format} is not an 8-bit format")
+        raise IsaValueError(f"{info.format} is not an 8-bit format")
     return info
 
 
@@ -359,7 +359,7 @@ def decode_element(code: int, fmt: ElementFormat) -> float:
     """
     info = _eight_bit_info(fmt)
     if not 0 <= code <= 0xFF:
-        raise ValueError(f"element code {code} is not a byte")
+        raise IsaValueError(f"element code {code} is not a byte")
     if not info.is_float:
         return float(code - 0x100 if code & 0x80 else code)
     return _fp8_decode(code, info.exp_bits)
@@ -388,7 +388,7 @@ def encode_element(value: float, fmt: ElementFormat) -> int:
     if info.is_float:
         return _fp8_encode(float(value), info.exp_bits)
     if math.isnan(value):
-        raise ValueError("NaN has no INT8 encoding")
+        raise IsaValueError("NaN has no INT8 encoding")
     clipped = min(127.0, max(-128.0, float(value)))
     return round(clipped) & 0xFF
 

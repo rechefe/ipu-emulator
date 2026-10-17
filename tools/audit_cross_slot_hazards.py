@@ -39,13 +39,23 @@ from ipu_isa.codec.slot import DecodedSlot, codecs
 from ipu_isa.registers import lrd_pair
 from ipu_isa.reshape_mask import RESHAPE_MASK_LR_OFFSET
 from ipu_isa.slots import Slot
-from ipu_isa.timing import KNOWN_DEVIATIONS, SLOT_EXECUTION_ORDER, View, contract_view
+from ipu_isa.timing import (
+    KNOWN_DEVIATIONS,
+    SLOT_EXECUTION_ORDER,
+    View,
+    contract_view,
+    register_writers,
+)
+from ipu_isa.view import authoring_copies
 
 #: The LR count: an ``LcrIdx`` value below it is an LR, at or above it a CR.
 _LR_COUNT = 16
 
 #: (slot, mnemonic, register, via operand) -> the issue that removes the deviation.
 _FIXED_BY = {(d.slot, d.mnemonic, d.register, d.via_operand): d.fixed_by for d in KNOWN_DEVIATIONS}
+
+#: Each register's writing slots in the repository ISA, as load_isa checks it with.
+_REGISTER_WRITERS = register_writers(authoring_copies()[0])
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,7 +166,7 @@ def word_hazards(program: str, index: int, word: int) -> Iterator[Hazard]:
                 indices=None if indices is None else tuple(sorted(indices)),
                 writers=writers,
                 declared=access.view,
-                contract=contract_view(slot, access.register),
+                contract=contract_view(slot, access.register, _REGISTER_WRITERS),
                 fixed_by=_FIXED_BY.get(
                     (slot, instruction.mnemonic, access.register, access.via_operand), ""
                 ),

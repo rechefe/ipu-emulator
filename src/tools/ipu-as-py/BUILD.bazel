@@ -364,6 +364,7 @@ py_binary(
 # rewrites the golden file; the localparam table is edited by hand.
 py_binary(
     name = "update_sv_golden",
+    testonly = True,
     srcs = ["test/golden/update_sv_golden.py"],
     main = "test/golden/update_sv_golden.py",
     deps = ["//src/tools/ipu-gen:ipu_gen_lib"],

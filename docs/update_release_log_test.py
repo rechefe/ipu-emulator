@@ -147,7 +147,7 @@ def test_latest_picks_greatest_merged_at(monkeypatch):
         return _page_ordered_by_updated()
 
     monkeypatch.setattr(rl, "_get", fake_get)
-    prs = rl.fetch_merged_prs(None, latest_only=True)
+    prs = rl.fetch_merged_prs(None, rl.Fetch.LATEST)
     assert [pr["number"] for pr in prs] == [9]
     assert len(calls) == 1
 

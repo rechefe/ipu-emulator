@@ -3,7 +3,7 @@
     bazel run //src/tools/ipu-as-py:update_decode_snapshots
 
 Run it only in a PR that changes field names, emulator field maps or enum
-descriptors on purpose, and say why in the PR (decision D3).
+descriptors on purpose, and say why in the PR (Code conventions, "Baselines").
 """
 
 from __future__ import annotations

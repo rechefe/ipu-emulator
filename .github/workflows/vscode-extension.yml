@@ -9,8 +9,8 @@ name: VS Code Extension
 # them at build time (by ipu_gen/vscode_data.py). requirements_lock.txt and tools/bootstrap.sh change the
 # build it runs, so pull requests that touch them run it too.
 #
-# Keep these paths in step with the package layout: E03's rename of ipu_isa
-# to ipu_isa and the Q69 package split must update them.
+# Keep these paths in step with the package layout: a package split or rename
+# (Q69) must update them.
 
 on:
   # Master publishes, so only files that can change the packaged .vsix count:

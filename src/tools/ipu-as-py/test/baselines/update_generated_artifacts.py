@@ -3,7 +3,7 @@
     bazel run //src/tools/ipu-as-py:update_generated_artifacts
 
 Run it only in a PR that changes a generated artifact on purpose, and say why
-in the PR (decision D3).
+in the PR (Code conventions, "Baselines").
 """
 
 from __future__ import annotations

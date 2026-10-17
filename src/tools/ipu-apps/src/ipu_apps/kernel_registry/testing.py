@@ -120,7 +120,12 @@ def case_tests(package, sweep=()):
     return test_case
 
 
-def check_baseline(kernel, case_id, record, updated) -> None:
+def check_baseline(
+    kernel: str,
+    case_id: str,
+    record: baseline.CaseRecord | None,
+    updated: dict[str, baseline.CaseRecord | None],
+) -> None:
     """Compare a case's run with its baseline record, or, under the update
     command, collect it into ``updated`` and rewrite the kernel's file."""
     root = baseline.update_root()

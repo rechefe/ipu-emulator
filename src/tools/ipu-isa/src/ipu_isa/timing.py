@@ -35,7 +35,6 @@ from enum import Enum
 from typing import Any
 
 from ipu_isa import schema
-from ipu_isa.instruction_spec import INSTRUCTION_SPEC
 from ipu_isa.slots import Slot
 
 __all__ = [
@@ -181,10 +180,6 @@ def register_writers(
     return {register: frozenset(slots) for register, slots in writers.items()}
 
 
-def _repository_writers() -> dict[str, frozenset[Slot]]:
-    return register_writers(INSTRUCTION_SPEC)
-
-
 # ---------------------------------------------------------------------------
 # The contract
 # ---------------------------------------------------------------------------
@@ -195,13 +190,17 @@ _MULT_CYCLE_START = frozenset({"r", "r_cyclic", "r_mask"})
 _FORWARDED_TO = {("mult_res", Slot.ACC), ("r_acc", Slot.AAQ)}
 
 
-def contract_view(
-    slot: Slot, register: str, writers: Mapping[str, Iterable[Slot]] | None = None
-) -> View:
+def contract_view(slot: Slot, register: str, writers: Mapping[str, Iterable[Slot]]) -> View:
     """The view the contract gives a read of ``register`` by an instruction in ``slot``.
 
-    ``writers`` maps each register to the slots that write it (default: the
-    repository's ISA, :func:`register_writers`).
+    Args:
+        slot: The reading instruction's slot.
+        register: The register read.
+        writers: Each register's writing slots (:func:`register_writers` of the
+            spec being checked).
+
+    Returns:
+        ``View.FORWARDED`` or ``View.CYCLE_START``.
     """
     if slot in CONTROL_SLOTS:  # rules 1 and 4
         return View.CYCLE_START
@@ -211,7 +210,7 @@ def contract_view(
         return View.CYCLE_START
     if (register, slot) in _FORWARDED_TO:  # rule 3
         return View.FORWARDED
-    producers = tuple((_repository_writers() if writers is None else writers).get(register, ()))
+    producers = tuple(writers.get(register, ()))
     if producers and all(_precedes(producer, slot) for producer in producers):
         return View.FORWARDED
     return View.CYCLE_START
