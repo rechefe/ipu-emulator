@@ -360,11 +360,10 @@ def test_instruction_reference_links_each_read_to_the_timing_model(tmp_path: Pat
     docs_pages.generate_instruction_docs(page)
     text = page.read_text()
     entry = text[text.index("### `LD.MULT.CYCLIC` —") :].split("\n### ", 1)[0]
-    assert (
-        "**Register reads:** `offset` (`LR`): [after LR writes](explanation/timing-model.md#rule-1)"
-    ) in entry
+    page_link = docs_pages.TIMING_PAGE  # relative to reference/isa/, where the page is built
+    assert f"**Register reads:** `offset` (`LR`): [after LR writes]({page_link}#rule-1)" in entry
     mult = text[text.index("### `MULT.RC.VS` —") :].split("\n### ", 1)[0]
-    assert "`R_CYCLIC`: [cycle start](explanation/timing-model.md#rule-2)" in mult
+    assert f"`R_CYCLIC`: [cycle start]({page_link}#rule-2)" in mult
     assert "### `HALT` —" in text
     halt = text[text.index("### `HALT` —") :].split("\n### ", 1)[0]
     assert "Register reads" not in halt
