@@ -256,6 +256,28 @@ def _stores_with_aaq(rendered: str) -> bool:
     )
 
 
+def aaq_spill_rows(plan: CasePlan, rendered: str | None) -> int:
+    """The rows past an element output's last row that its stores write.
+
+    ``ST.AAQ`` writes all of ``POST_AAQ_REG`` (OQ-35): more than one row in an
+    8-bit format.
+
+    Args:
+        plan: The checked case.
+        rendered: Its rendered program; ``None`` when there is no one program
+            (a multi-stage kernel, E06-14), which is taken to store with
+            ``ST.AAQ``.
+
+    Returns:
+        0 when the program has no ``ST.AAQ`` or the format's row holds the
+        whole register; else the rows after the last one it writes.
+    """
+    spill = _AAQ_STORE_BYTES // FORMATS[plan.format].row_bytes - 1
+    if spill <= 0 or (rendered is not None and not _stores_with_aaq(rendered)):
+        return 0
+    return spill
+
+
 def check_aaq_spill(plan: CasePlan, placement: Placement, program: str) -> None:
     """Refuse a placement where ``ST.AAQ``'s spill would land on a region.
 
@@ -271,8 +293,8 @@ def check_aaq_spill(plan: CasePlan, placement: Placement, program: str) -> None:
         PlanError: A region is in an output's spill, or the spill runs past
             XMEM.
     """
-    spill = _AAQ_STORE_BYTES // FORMATS[plan.format].row_bytes - 1
-    if spill <= 0 or not _stores_with_aaq(program):
+    spill = aaq_spill_rows(plan, program)
+    if not spill:
         return
     capacity = addressable_rows(plan.format)
     for tensor in plan.manifest.tensors.values():

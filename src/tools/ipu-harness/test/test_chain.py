@@ -286,6 +286,14 @@ def test_at_must_name_a_region_the_step_places(first, second, at, match):
     assert chain.run(second, SCALE_3, {"x": resident}, at={"y": 128}).result.halted
 
 
+def test_an_aaq_spill_makes_the_rows_after_an_output_stale(first, free, second):
+    chain = Chain(ElementFormat.INT8)
+    one = chain.run(first, SCALE_2, {"x": X}).resident["y"]  # rows 64..65
+    chain.run(free, SCALE_2, {"x": X}, at={"y": 62})  # y 62..63, its ST.AAQ spill 64..66
+    with pytest.raises(ConfigurationError, match="no longer in XMEM"):
+        chain.run(second, SCALE_3, {"x": one})
+
+
 def test_a_resident_meets_an_expression_pin(tmp_path, first):
     pinned = load_manifest(_kernel(tmp_path, "expr", x_row='row = "rows * 32"', y_row="row = 128"))
     chain = Chain(ElementFormat.INT8)
@@ -293,12 +301,24 @@ def test_a_resident_meets_an_expression_pin(tmp_path, first):
     assert chain.run(pinned, SCALE_3, {"x": resident}).result.halted
 
 
-def test_an_output_its_case_lacks_is_no_resident(tmp_path):
+def _maybe(tmp_path: Path) -> Path:
+    """free, with an output z only when ``extra``."""
     directory = _kernel(tmp_path, "maybe")
     toml = (directory / "kernel.toml").read_text()
     toml = toml.replace("s    = {", 'extra = { type = "bool", default = false }\ns    = {')
     toml = toml.replace("[abi]", '[outputs.z]\nshape = ["rows", 128]\nwhen = "extra"\n\n[abi]')
     toml = toml.replace('s    = "CR5"', 's    = "CR5"\nz    = "CR6"')
     (directory / "kernel.toml").write_text(toml)
-    step = Chain(ElementFormat.INT8).run(load_manifest(directory), SCALE_2, {"x": X})
+    return directory
+
+
+def test_an_output_its_case_lacks_is_no_resident(tmp_path):
+    step = Chain(ElementFormat.INT8).run(load_manifest(_maybe(tmp_path)), SCALE_2, {"x": X})
     assert set(step.resident) == {"y"}
+
+
+def test_at_cannot_name_an_output_its_case_lacks(tmp_path):
+    with pytest.raises(ConfigurationError, match="'z', which is no tensor of this case"):
+        Chain(ElementFormat.INT8).run(
+            load_manifest(_maybe(tmp_path)), SCALE_2, {"x": X}, at={"z": 0}
+        )
