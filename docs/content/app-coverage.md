@@ -226,8 +226,10 @@ already migrated to `kernels/` (the projections, E07-02; the reshape family,
 E07-04 and E07-05; softmax, E07-11; pooling, E07-14; sampling and detect,
 E07-15) answer
 `bazel run //kernels:query` instead, for example `bazel run //kernels:query --
-maxpool2d channels=C height=H width=W kernel_size=K stride=S padding=P` or
-`bazel run //kernels:query -- channel_peak channels=C columns=N`.
+maxpool2d channels=C height=H width=W kernel_size=K stride=S padding=P`.
+The sampling and detect kernels (E07-15) take `sample_descriptors`
+(`height`, `width`, `channels`, `stock`), `score_threshold` (`count`) and
+`channel_peak` (`channels`, `columns`).
 `ipu_apps` keeps `softmax_rows`, `softmax_rows_partial` and
 `softmax_columns_packed` only for the tests that still run them, until
 E07-12, E07-24 and E07-25.
