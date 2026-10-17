@@ -25,8 +25,6 @@ EXPECTED_LOCALPARAMS = {
     "LOAD_SLOT_T_WIDTH": 14,
     "STORE_SLOT_U_WIDTH": 8,
     "STORE_SLOT_T_WIDTH": 9,
-    "ACC_STORE_SLOT_U_WIDTH": 8,
-    "ACC_STORE_SLOT_T_WIDTH": 9,
     "LR_SLOT_U_WIDTH": 16,
     "LR_SLOT_T_WIDTH": 20,
     "MULT_SLOT_U_WIDTH": 20,
@@ -37,9 +35,7 @@ EXPECTED_LOCALPARAMS = {
     "AAQ_SLOT_T_WIDTH": 9,
     "COND_SLOT_U_WIDTH": 20,
     "COND_SLOT_T_WIDTH": 23,
-    "BREAK_SLOT_U_WIDTH": 20,
-    "BREAK_SLOT_T_WIDTH": 22,
-    "IPU_COMPOUND_INST_WIDTH": 186,
+    "IPU_COMPOUND_INST_WIDTH": 155,  # E03-22: the hardware word (was 186)
 }
 
 _LOCALPARAM = re.compile(r"^\s*localparam\s+int\s+unsigned\s+(\w+)\s*=\s*(\d+)\s*;", re.M)
@@ -98,7 +94,7 @@ def test_change_message_names_each_localparam():
     actual["NEW_WIDTH"] = 1
     assert localparam_changes(EXPECTED_LOCALPARAMS, actual) == [
         "AAQ_SLOT_U_WIDTH: removed (was 8)",
-        "IPU_COMPOUND_INST_WIDTH: 186 -> 187",
+        "IPU_COMPOUND_INST_WIDTH: 155 -> 187",
         "LR_SLOT_T_WIDTH: 20 -> 21",
         "NEW_WIDTH: added (1)",
     ]

@@ -219,7 +219,7 @@ def run_packed_layernorm(
         state.regfile.set_cr(14, encode_dstructure(valid_elements=128))
         state.regfile.set_cr(15, allones_mask_row)
 
-        with count_instructions() as counts:
+        with count_instructions(state) as counts:
             cycles = run_until_complete(state, max_cycles=max_cycles)
     return cycles, dict(counts.by_slot)
 
@@ -246,7 +246,7 @@ def run_unpack(
         state.regfile.set_cr(6, mask_row)
         state.regfile.set_cr(7, encode_dstructure(valid_elements=16))
         state.regfile.set_cr(8, encode_dstructure(valid_elements=128))
-        with count_instructions() as counts:
+        with count_instructions(state) as counts:
             cycles = run_until_complete(state, max_cycles=max_cycles)
     return cycles, dict(counts.by_slot)
 
@@ -272,7 +272,7 @@ def run_pack(
         state.regfile.set_cr(5, packed_base_row)
         state.regfile.set_cr(6, mask_row)
         state.regfile.set_cr(7, encode_dstructure(valid_elements=128))
-        with count_instructions() as counts:
+        with count_instructions(state) as counts:
             cycles = run_until_complete(state, max_cycles=max_cycles)
     return cycles, dict(counts.by_slot)
 
@@ -330,7 +330,7 @@ def run_packed_output_linear(
                 seed = (512 - 16 * p_out - 16) % 512
                 state.regfile.set_cr(8 + p_out, seed)
 
-            with count_instructions() as counts:
+            with count_instructions(state) as counts:
                 cycles = run_until_complete(state, max_cycles=max_cycles)
             total_cycles += cycles
             for slot, n in counts.by_slot.items():
@@ -390,7 +390,7 @@ def run_packed_residual_add(
         state.regfile.set_cr(9, b_base_row)
         state.regfile.set_cr(10, 1)
         state.regfile.set_cr(15, encode_dstructure(valid_elements=128))
-        with count_instructions() as counts:
+        with count_instructions(state) as counts:
             cycles = run_until_complete(state, max_cycles=max_cycles)
     return cycles, dict(counts.by_slot)
 

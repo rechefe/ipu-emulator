@@ -14,6 +14,13 @@ import pytest
 from emu_support import ElementFormat, assemble_program, make_state, new_state, run
 
 from ipu_emu.emulator import load_program, run_until_complete
+from ipu_emu.geometry import (
+    element_format,
+    element_width_bytes,
+    row_size_bytes,
+    xmem_element_width_bytes,
+    xmem_row_size_bytes,
+)
 from ipu_emu.ipu import LANES, EmulatorError, Ipu
 from ipu_emu.ipu_state import IpuState
 
@@ -393,7 +400,7 @@ class TestWideVectorAlignment:
         element_width_bytes(), so any rc_idx value produces a byte offset that is
         always a multiple of 4 in wide-vector debug mode -- misalignment via
         rc_idx is no longer reachable (unlike when rc_idx was a raw byte offset).
-        The 4-byte-aligned guard in _wide_rb_lanes stays as defense-in-depth."""
+        The MULT handlers index R_CYCLIC in elements, so no byte guard is needed."""
         st = new_state(fmt=ElementFormat.FP32)
         st.xmem.write_address(0x1000, struct.pack("<128f", *([1.0] * 128)))
         st.xmem.write_address(0x2000, struct.pack("<128f", *([2.0] * 128)))
@@ -413,46 +420,34 @@ HALT;;
 """
         load_program(st, assemble_program(asm))
         run_until_complete(st)
-        ipu = Ipu(st)
-        # TODO(E04-17): the element format's codec exposes element bytes publicly.
-        assert ipu._rc_element_to_byte_offset(1) % 4 == 0
+        # An r_cyclic element index addresses whole 4-byte elements.
+        assert xmem_element_width_bytes(st) % 4 == 0
 
 
 class TestElementAndRowSizeHelpers:
-    """_element_width_bytes() / _row_size_bytes(): the single source for the
-    one primitive the two modes differ by (1 vs 4 bytes/element), and the
-    row size (LANES elements) derived from it.
-
-    TODO(E04-17): replace these private helpers with the element format's
-    element bytes and row bytes once IpuState(fmt=...) declares them.
+    """``ipu_emu.geometry``: element bytes, the one primitive the two modes
+    differ by (1 vs 4 bytes/element), and the row size (LANES elements) derived
+    from it, by element format and by state.
     """
 
-    def test_element_width_narrow(self) -> None:
-        st = new_state(fmt=ElementFormat.INT8)
-        assert Ipu(st)._element_width_bytes() == 1
-
-    def test_element_width_debug_fp32(self) -> None:
-        st = new_state(fmt=ElementFormat.FP32)
-        assert Ipu(st)._element_width_bytes() == 4
-
-    def test_element_width_debug_int32(self) -> None:
-        st = new_state(fmt=ElementFormat.INT32)
-        assert Ipu(st)._element_width_bytes() == 4
-
-    def test_row_size_narrow(self) -> None:
-        st = new_state(fmt=ElementFormat.INT8)
-        assert Ipu(st)._row_size_bytes() == 128
-
-    def test_row_size_debug(self) -> None:
-        st = new_state(fmt=ElementFormat.FP32)
-        assert Ipu(st)._row_size_bytes() == 512
+    @pytest.mark.parametrize(
+        ("fmt", "element", "row"),
+        [
+            (ElementFormat.INT8, 1, 128),
+            (ElementFormat.FP32, 4, 512),
+            (ElementFormat.INT32, 4, 512),
+        ],
+    )
+    def test_sizes(self, fmt: ElementFormat, element: int, row: int) -> None:
+        st = new_state(fmt=fmt)
+        assert xmem_element_width_bytes(st) == element_width_bytes(element_format(st)) == element
+        assert xmem_row_size_bytes(st) == row_size_bytes(element_format(st)) == row
 
     def test_row_size_is_lanes_times_element_width(self) -> None:
         """Row size must track element width, not be independently hardcoded."""
         for fmt in (ElementFormat.INT8, ElementFormat.FP32, ElementFormat.INT32):
             st = new_state(fmt=fmt)
-            ipu = Ipu(st)
-            assert ipu._row_size_bytes() == LANES * ipu._element_width_bytes()
+            assert xmem_row_size_bytes(st) == LANES * xmem_element_width_bytes(st)
 
 
 class TestWideVectorCyclicFourSlotRing:

@@ -43,6 +43,8 @@ package ipu_instr_pkg;
 {% endfor %}
   // -------------------------------------------------------------------------
   // Compound VLIW instruction (slots MSB → LSB: {{ compound_slot_order }})
+  // This is the hardware word. The emulator word appends the emulator-only
+  // slots ({{ emulator_slots }}) below bit 0 of it; they are not in this package.
   // -------------------------------------------------------------------------
   typedef struct packed {
 {% for member in compound_members %}

@@ -33,13 +33,9 @@ from types import MappingProxyType
 import numpy as np
 
 from ipu_emu.errors import ConfigurationError
-
-# The element codec moves to ipu_isa.formats in E04-13; until then the emulator's
-# public FP8 encode/decode answers "does this value encode exactly".
-from ipu_emu.ipu_math import DType, fp8_bytes_to_fp32
 from ipu_harness.expressions import ExpressionError, evaluate
 from ipu_harness.manifest import TOML_NAME, CaseDecl, KernelManifest, ParamDecl
-from ipu_isa.formats import FORMATS, ElementFormat
+from ipu_isa.formats import FORMATS, ElementFormat, element_values
 
 Value = int | float | bool | str
 
@@ -92,8 +88,8 @@ class CasePlan:
 
 @functools.cache
 def _fp8_values(fmt: ElementFormat) -> tuple[float, ...]:
-    decoded = fp8_bytes_to_fp32(bytes(range(256)), DType(FORMATS[fmt].exp_bits))
-    return tuple(sorted({float(v) for v in decoded if np.isfinite(v)}))
+    # Every code's value (ipu_isa's element codec answers "does this encode exactly").
+    return tuple(sorted({v for v in element_values(fmt) if math.isfinite(v)}))
 
 
 def _neighbours(value: float, values: tuple[float, ...]) -> tuple[float, ...]:

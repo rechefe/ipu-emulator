@@ -8,7 +8,7 @@ advances the PC. Two LR sub-slots writing the same register is an error raised
 before any LR write.
 
 :class:`Cycle` owns all of that: the snapshot, the slot order, the idle-word
-path, the LR conflict check and the observer's begin/end hooks. It knows nothing
+path, the LR conflict check and the observers' hooks. It knows nothing
 about run control: cycle limits, stats totals and debug callbacks belong to its
 callers (``ipu_emu.emulator`` today, the steppable engine later).
 
@@ -22,17 +22,23 @@ What a word does is a :class:`Schedule`, built once per PC by
 Prototyping mode is an adapter on this one cycle: its schedules skip the idle
 NOP slots (``skip_idle_nops=True``) and its reads go through the packed operand
 resolver (:func:`resolver_for`); nothing else differs.
+
+Handlers read registers through :class:`CycleView`, which serves each read from
+the snapshot or the live register file as the instruction's timing
+declaration says (E04-12).
 """
 
 from __future__ import annotations
 
 import weakref
-from collections.abc import Mapping
-from enum import IntEnum
+from collections.abc import Callable, Mapping
 from functools import lru_cache
-from typing import TYPE_CHECKING, NamedTuple, Protocol
+from typing import TYPE_CHECKING, Any, NamedTuple, Protocol
 
+from ipu_emu.errors import EmulatorError, UndeclaredRead
+from ipu_emu.outcome import CycleOutcome
 from ipu_emu.resolver import FaithfulResolver, OperandResolver, PackedResolver
+from ipu_isa.constants import DStructureConfig, decode_dstructure
 from ipu_isa.registers import lrd_pair
 from ipu_isa.slots import Slot
 from ipu_isa.timing import SLOT_EXECUTION_ORDER
@@ -41,20 +47,7 @@ if TYPE_CHECKING:
     from ipu_emu.ipu import Ipu, SlotPlan
     from ipu_emu.ipu_state import IpuState
     from ipu_emu.issue import IssueFacts
-    from ipu_emu.regfile import RegFile
-
-
-class CycleOutcome(IntEnum):
-    """How one call into the cycle ended.
-
-    ``CONTINUE`` is an alias of ``RETIRED``, so code written against the old
-    ``BreakResult`` (an alias of this class until E08 migrates the debuggers)
-    keeps working.
-    """
-
-    RETIRED = 0
-    BREAK = 1
-    CONTINUE = 0
+    from ipu_emu.regfile import RegFile, RegFileReader
 
 
 class IssuedOp(NamedTuple):
@@ -68,11 +61,14 @@ class IssuedOp(NamedTuple):
             marks a skipped NOP that only bumps its counter (``plan.stat``):
             prototyping's schedules keep such a slot in place instead of
             dispatching it.
+        lr_writes: The LRs an LR sub-slot writes (none, one, or an LRD pair),
+            from the word's schedule; empty for every other slot.
     """
 
     slot: str
     plan: SlotPlan
     operands: Mapping[str, int] | None
+    lr_writes: tuple[int, ...] = ()
 
 
 class Schedule(NamedTuple):
@@ -102,15 +98,30 @@ class Schedule(NamedTuple):
 
 
 class CycleObserver(Protocol):
-    """Hooks around the part of a cycle that has side effects.
+    """What an observer of the cycle sees: public fact records, nothing else.
 
     ``begin`` runs before the first slot after BREAK (or before an idle word's
-    PC advance), ``end`` after the last. A cycle stopped by BREAK calls neither.
-    Both modes call it the same way: a schedule that skips idle NOPs still
-    brackets the same words.
+    PC advance), ``end`` after the last. A cycle stopped by BREAK calls
+    neither. ``issued`` runs just before an op's handler, with the op's
+    :class:`~ipu_emu.issue.IssueFacts`, and ``retired`` just after it, with
+    the handler's result; an op whose handler raises is never retired. The
+    BREAK slot's op is issued and retired before ``begin`` (and, when it
+    fires, with no ``begin`` at all).
+
+    Both modes call it the same way and bracket the same words, but a
+    schedule that skips idle NOPs issues no op for a skipped NOP slot: an
+    observer that counts ops ignores NOPs to count the same in both.
+
+    Observers are attached with :meth:`Cycle.add_observer` (one cycle) or
+    :meth:`~ipu_emu.ipu_state.IpuState.add_cycle_observer` (every cycle that
+    drives the state).
     """
 
     def begin(self, pc: int) -> None: ...
+
+    def issued(self, facts: IssueFacts) -> None: ...
+
+    def retired(self, facts: IssueFacts, result: Any) -> None: ...
 
     def end(self) -> None: ...
 
@@ -151,7 +162,9 @@ def decode_word(inst: Mapping[str, int]) -> tuple[IssuedOp, ...]:
     ops = []
     for slot, field, plans in _issue_table(tuple(SLOT_EXECUTION_ORDER)):
         plan = plans[inst[field]]
-        ops.append(IssuedOp(slot, plan, {name: inst[key] for name, key in plan.fields}))
+        operands = {name: inst[key] for name, key in plan.fields}
+        writes = _lr_targets(plan, operands) if slot == "lr" else ()
+        ops.append(IssuedOp(slot, plan, operands, writes))
     return tuple(ops)
 
 
@@ -201,12 +214,13 @@ def schedule_word(inst: Mapping[str, int], *, skip_idle_nops: bool = False) -> S
                 # Kept in place with no operands: issued for its counter alone.
                 slot_ops.append(IssuedOp(slot, plan, None))
             continue
-        op = IssuedOp(slot, plan, {name: inst[key] for name, key in plan.fields})
+        operands = {name: inst[key] for name, key in plan.fields}
         if slot == "lr":
-            lr_ops.append(op)
-            targets.extend(_lr_targets(plan, op.operands))
+            writes = _lr_targets(plan, operands)
+            lr_ops.append(IssuedOp(slot, plan, operands, writes))
+            targets.extend(writes)
         else:
-            slot_ops.append(op)
+            slot_ops.append(IssuedOp(slot, plan, operands))
     if lr_position < 0:  # unreachable while the declared order names LR
         lr_position = len(slot_ops)
     return Schedule(
@@ -216,6 +230,137 @@ def schedule_word(inst: Mapping[str, int], *, skip_idle_nops: bool = False) -> S
         lr_position=lr_position,
         lr_conflict=tuple(targets) if len(targets) != len(set(targets)) else None,
     )
+
+
+#: Emulator-only storage that holds a declared register in wide-vector debug
+#: mode: a read of it has the view declared for that register.
+_DECLARED_AS = {"r_wide_debug": "r", "r_cyclic_wide_debug": "r_cyclic"}
+
+
+class CycleView:
+    """How a handler reads registers: through the view its instruction declares.
+
+    The ISA timing contract (``ipu_isa.timing``, Q32) declares, for every
+    register an instruction reads, which value the read sees: the cycle-start
+    snapshot or the forwarded (live) one. The declaration is the instruction's
+    ``read`` operands and ``implicit_reads``; :attr:`SlotPlan.views
+    <ipu_emu.ipu.SlotPlan>` holds it per plan. A handler names the register
+    (and, where it matters, the operand that selects it) and this class picks
+    the register file, so changing when a read happens is an edit to the spec,
+    not to a handler.
+
+    The issuer sets :attr:`plan` before it issues each op and again before its
+    handler runs; :class:`Cycle` sets :attr:`snapshot` when it takes the
+    cycle's snapshot. Writes never go through here: handlers write the live
+    file (``RegFile.mutable`` and the ``set_*`` accessors).
+
+    Args:
+        state: The machine state whose live register file is read.
+    """
+
+    __slots__ = ("_snapshot", "_state", "plan")
+
+    def __init__(self, state: IpuState) -> None:
+        self._state = state
+        self._snapshot: RegFile | None = None
+        #: The plan of the op being issued or executed; ``None`` before the first.
+        self.plan: SlotPlan | None = None
+
+    @property
+    def snapshot(self) -> RegFile:
+        """The cycle-start register file (read only by handlers).
+
+        Raises:
+            EmulatorError: No cycle has taken a snapshot yet.
+        """
+        snapshot = self._snapshot
+        if snapshot is None:
+            raise EmulatorError("no register snapshot: a handler ran outside a cycle")
+        return snapshot
+
+    @snapshot.setter
+    def snapshot(self, buffer: RegFile) -> None:
+        self._snapshot = buffer
+
+    @property
+    def live(self) -> RegFile:
+        """The register file this cycle writes (the forwarded view)."""
+        return self._state.regfile
+
+    def source(self, register: str, via: str | None = None) -> RegFile:
+        """The register file a read of *register* comes from: snapshot or live.
+
+        Args:
+            register: A ``REGISTER_DEFINITIONS`` name (``"r_mask"``, ``"lr"``,
+                ...); a wide-vector debug register reads as the register it
+                stands in for.
+            via: The operand that selects the register's index, as declared
+                (``"src"``, ``"reshape_mask"``); ``None`` when the
+                instruction's declared reads of *register* all share one view.
+
+        Returns:
+            The cycle-start snapshot or the live register file. Only its read
+            methods may be called.
+
+        Raises:
+            UndeclaredRead: The instruction does not declare this read.
+            EmulatorError: No op is in flight (a handler called outside a
+                cycle), or no cycle has taken a snapshot.
+        """
+        plan = self.plan
+        if plan is None:
+            raise EmulatorError(
+                f"read of {register} with no op issued: a handler ran outside a cycle"
+            )
+        try:
+            from_snapshot = plan.views[_DECLARED_AS.get(register, register), via]
+        except KeyError:
+            raise self._undeclared(plan, register, via) from None
+        return self.snapshot if from_snapshot else self._state.regfile
+
+    def read(self, register: str, via: str | None = None) -> memoryview:
+        """Register *register*'s bytes, read-only, in its declared view.
+
+        Args:
+            register: See :meth:`source`.
+            via: See :meth:`source`.
+
+        Returns:
+            A read-only view of the register's bytes; constant-ones provenance
+            is kept.
+        """
+        return self.source(register, via).view(register)
+
+    def read_forgetting_provenance(self, register: str, via: str | None = None) -> memoryview:
+        """:meth:`read`, and forget the register's constant-ones provenance in
+        the file read. Reading through ``raw()`` used to forget it, and these
+        reads still do, so alias and identity statistics stay as they were
+        until E04-24."""
+        source = self.source(register, via)
+        source.forget_provenance(register)
+        return source.view(register)
+
+    def lr(self, index: int, via: str | None = None) -> int:
+        """LR *index* in the view declared for ``("lr", via)``."""
+        return self.source("lr", via).get_lr(index)
+
+    def cr(self, index: int, via: str | None = None) -> int:
+        """CR *index* in the view declared for ``("cr", via)``."""
+        return self.source("cr", via).get_cr(index)
+
+    def dstructure(self, index: int, via: str | None = None) -> DStructureConfig:
+        """CR *index*'s dstructure configuration, read as :meth:`cr` reads it."""
+        return decode_dstructure(self.cr(index, via))
+
+    @staticmethod
+    def _undeclared(plan: SlotPlan, register: str, via: str | None) -> UndeclaredRead:
+        where = f" via {via!r}" if via is not None else ""
+        declared = sorted(f"{reg} via {op!r}" if op else reg for reg, op in plan.views)
+        return UndeclaredRead(
+            f"{plan.inst_name} reads {register}{where}, which it does not declare "
+            f"(declared reads: {declared}); add it to the instruction's read "
+            "operands or implicit_reads in instruction_spec.py"
+        )
 
 
 def resolver_for(state: IpuState) -> OperandResolver:
@@ -237,7 +382,6 @@ class Cycle:
         state: The machine state the cycle reads and writes.
         ipu: The handlers and slot dispatch the cycle drives. Held as given:
             ``Ipu`` passes a weak proxy of itself, so it is not a reference cycle.
-        observer: Optional begin/end hooks (the alias profiler today).
         skip_idle_nops: Build schedules that skip idle NOP slots. Defaults to
             ``state.prototyping``: prototyping mode is this flag (and its
             operand resolver) and nothing else. Results are identical either
@@ -248,13 +392,14 @@ class Cycle:
         self,
         state: IpuState,
         ipu: Ipu,
-        observer: CycleObserver | None = None,
         *,
         skip_idle_nops: bool | None = None,
     ) -> None:
         self.state = state
         self._ipu = ipu
-        self._observer = observer
+        # This cycle's own observers; the state's (IpuState.add_cycle_observer)
+        # are added to them at the start of every cycle.
+        self._observers: tuple[CycleObserver, ...] = ()
         # Read once: the flag belongs to the run, not to the cycle.
         self._skip_idle_nops = state.prototyping if skip_idle_nops is None else skip_idle_nops
         # PC -> (the word, its schedule); (None, None) for an empty entry. The
@@ -276,8 +421,35 @@ class Cycle:
         # so a debugger may retain it across later cycles.
         self._public_snapshot: RegFile | None = None
 
+    def add_observer(self, observer: CycleObserver) -> Callable[[], None]:
+        """Attach *observer* to this cycle; it sees every later cycle this one runs.
+
+        Observers are called in the order they were added, after this cycle's
+        state's own (:meth:`~ipu_emu.ipu_state.IpuState.add_cycle_observer`).
+
+        Args:
+            observer: The :class:`CycleObserver` to call.
+
+        Returns:
+            A function that detaches it; calling it twice is harmless.
+        """
+        self._observers = self._observers + (observer,)
+        ref = weakref.ref(self)
+
+        def remove() -> None:
+            cycle = ref()
+            if cycle is not None:
+                cycle._observers = tuple(o for o in cycle._observers if o is not observer)
+
+        return remove
+
     @property
-    def snapshot(self) -> RegFile | None:
+    def observers(self) -> tuple[CycleObserver, ...]:
+        """Every observer the next cycle calls: the state's, then this cycle's."""
+        return self.state.cycle_observers + self._observers
+
+    @property
+    def snapshot(self) -> RegFileReader | None:
         """Inspectable, cycle-stable copy of this cycle's register snapshot.
 
         Handlers read the reused buffer, so normal execution does not allocate
@@ -329,6 +501,7 @@ class Cycle:
         if schedule is None:
             return CycleOutcome.RETIRED
         self._take_snapshot()
+        self._ipu.issuer.observers = self.observers
         return self._evaluate_break(inst, schedule)
 
     def retire(self) -> None:
@@ -342,7 +515,7 @@ class Cycle:
         inst, schedule = self._fetch(pc)
         if schedule is not None:
             self._take_snapshot()
-        self._run(pc, inst, schedule)
+        self._run(pc, inst, schedule, self.observers)
 
     def step(self, *, honour_break: bool = True) -> CycleOutcome:
         """Execute one word: :meth:`evaluate_break`, then :meth:`retire`.
@@ -361,15 +534,16 @@ class Cycle:
         pc = self.state.program_counter
         entry = self._schedules.get(pc)
         inst, schedule = self._fetch(pc) if entry is None else entry
+        # Read once per cycle: the state's observers, then this cycle's.
+        observers = self.state.cycle_observers + self._observers
         if schedule is not None:
             self._take_snapshot()
-            if (
-                honour_break
-                and schedule.break_op is not None
-                and self._ipu.issuer.dispatch(schedule.break_op, inst) is CycleOutcome.BREAK
-            ):
-                return CycleOutcome.BREAK
-        self._run(pc, inst, schedule)
+            if honour_break and schedule.break_op is not None:
+                issuer = self._ipu.issuer
+                issuer.observers = observers
+                if issuer.dispatch(schedule.break_op, inst) is CycleOutcome.BREAK:
+                    return CycleOutcome.BREAK
+        self._run(pc, inst, schedule, observers)
         return CycleOutcome.RETIRED
 
     def reset(self) -> None:
@@ -416,10 +590,16 @@ class Cycle:
             return CycleOutcome.RETIRED
         return self._ipu.issuer.dispatch(schedule.break_op, inst)
 
-    def _run(self, pc: int, inst: Mapping[str, int] | None, schedule: Schedule | None) -> None:
-        """Every side effect of one word, between the observer's begin and end."""
-        observer = self._observer
-        if observer is not None:
+    def _run(
+        self,
+        pc: int,
+        inst: Mapping[str, int] | None,
+        schedule: Schedule | None,
+        observers: tuple[CycleObserver, ...],
+    ) -> None:
+        """Every side effect of one word, between the observers' begin and end."""
+        self._ipu.issuer.observers = observers
+        for observer in observers:
             observer.begin(pc)
         if inst is None or schedule is None:
             # An idle word: the multiplier sits idle and the PC advances.
@@ -427,7 +607,7 @@ class Cycle:
             self.state.program_counter += 1
         else:
             self._run_slots(inst, schedule)
-        if observer is not None:
+        for observer in observers:
             observer.end()
 
     def _run_slots(self, inst: Mapping[str, int], schedule: Schedule) -> None:
@@ -456,5 +636,5 @@ class Cycle:
 # ``ipu_emu.ipu`` holds the decode tables (a plan holds its handler function) and
 # builds its ``Cycle`` from this module. Each module imports the other last, so
 # either can be imported first. The Ipu-side edge goes once callers stop
-# entering through Ipu's cycle delegates (E04-11, E08).
+# entering through Ipu's cycle delegates (E08).
 from ipu_emu.ipu import plans_for  # noqa: E402

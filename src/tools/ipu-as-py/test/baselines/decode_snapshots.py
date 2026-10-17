@@ -27,6 +27,8 @@ from pathlib import Path
 from ipu_as.compound_inst import CompoundInst
 from ipu_as.ipu_token import EnumToken
 from ipu_emu import ipu
+from ipu_isa.slots import Slot
+from ipu_isa.timing import SLOT_EXECUTION_ORDER
 
 #: Where the snapshots live, repo-relative.
 SNAPSHOT_DIR = "src/tools/ipu-as-py/test/baselines"
@@ -43,19 +45,18 @@ def word_fields() -> dict:
     }
 
 
-def _slot_instance(key: tuple) -> str:
-    """``("lr", "ADD", 1)`` -> ``"lr[1]"``; ``("mult", "MULT.VE")`` -> ``"mult"``."""
-    return f"{key[0]}[{key[2]}]" if len(key) == 3 else key[0]
-
-
 def emulator_field_maps() -> dict:
-    # The emulator keeps these tables private; pinning them is the point.
+    # Read from the emulator's public decode tables (ipu.plans_for): each plan
+    # holds its (operand name, field name) pairs. Pinning them is the point.
     field_maps: dict[str, dict[str, dict[str, str]]] = {}
-    for key, operand_fields in ipu._INSTRUCTION_FIELD_MAP.items():
-        field_maps.setdefault(_slot_instance(key), {})[key[1]] = dict(operand_fields)
-    opcode_fields = dict(ipu._SLOT_OPCODE_FIELDS)
-    for slot_idx, field in enumerate(ipu._LR_OPCODE_FIELDS):
-        opcode_fields[f"lr[{slot_idx}]"] = field
+    opcode_fields: dict[str, str] = {}
+    for slot in SLOT_EXECUTION_ORDER:
+        positions = ipu.plans_for(slot)
+        for index, (opcode_field, plans) in enumerate(positions):
+            instance = f"{slot.value}[{index}]" if slot is Slot.LR else slot.value
+            opcode_fields[instance] = opcode_field
+            for plan in plans:
+                field_maps.setdefault(instance, {})[plan.inst_name] = dict(plan.fields)
     return {"opcode_fields": opcode_fields, "operand_fields": field_maps}
 
 

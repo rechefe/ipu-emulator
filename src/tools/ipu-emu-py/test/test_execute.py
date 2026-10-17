@@ -38,6 +38,8 @@ from ipu_emu.ipu_math import DType
 from ipu_emu.ipu_state import IpuState
 from ipu_emu.xmem import XMEM_SIZE_BYTES
 from ipu_isa.constants import PadMode, encode_dstructure
+from ipu_isa.formats import ElementFormat as IsaFormat
+from ipu_isa.formats import encode_element
 
 # ============================================================================
 # Basic Register Operations
@@ -2282,11 +2284,8 @@ class TestDecodeRoundtrip:
 class TestFp8:
     def test_fp8_e4m3_mult_ee(self):
         """FP8 E4 (e4m3): 1.0 × 2.0 → 2.0 for every element."""
-        # TODO(E04-13): use the element codec's public encode.
-        from ipu_emu.ipu_math import _float32_to_fp8_scalar
-
-        fp_one_byte = _float32_to_fp8_scalar(1.0, 4)
-        fp_two_byte = _float32_to_fp8_scalar(2.0, 4)
+        fp_one_byte = encode_element(1.0, IsaFormat.E4)
+        fp_two_byte = encode_element(2.0, IsaFormat.E4)
 
         r0_data = bytes([fp_one_byte] * 128)
         cyclic_data = bytes([fp_two_byte] * 512)
@@ -2416,10 +2415,7 @@ HALT;;
 
     def test_mult_rc_ve_cr_fp8e4m3(self):
         """MULT.RC.VE fp8_e4: scalar 1.0 × RC elements 1.0 → result 1.0 each."""
-        # TODO(E04-13): use the element codec's public encode.
-        from ipu_emu.ipu_math import _float32_to_fp8_scalar
-
-        one_fp8 = _float32_to_fp8_scalar(1.0, 4)
+        one_fp8 = encode_element(1.0, IsaFormat.E4)
         cyclic_data = bytes([one_fp8] * 512)
 
         state = make_state(
@@ -2447,11 +2443,8 @@ HALT;;
 
     def test_mult_rc_ve_cr_wraps_fp8e5m2(self):
         """MULT.RC.VE fp8_e5: RC indices wrap modulo 512 (cyclic, no padding)."""
-        # TODO(E04-13): use the element codec's public encode.
-        from ipu_emu.ipu_math import _float32_to_fp8_scalar
-
-        two_fp8 = _float32_to_fp8_scalar(2.0, 5)
-        scalar_fp8 = _float32_to_fp8_scalar(3.0, 5)
+        two_fp8 = encode_element(2.0, IsaFormat.E5)
+        scalar_fp8 = encode_element(3.0, IsaFormat.E5)
 
         state = make_state(
             """\
@@ -3331,23 +3324,20 @@ class TestNarrowStoreOverflow:
 
 class TestFirstStoreBitExactness:
     @pytest.mark.parametrize("fmt", [ElementFormat.E4, ElementFormat.FP32])
-    @pytest.mark.parametrize(
-        "handler_name",
-        ["execute_acc_add_first", "execute_acc_max_first"],
-    )
+    @pytest.mark.parametrize("mnemonic", ["ACC.ADD.FIRST", "ACC.MAX.FIRST"])
     def test_signaling_nan_is_quietened_like_parent_lane_store(
         self,
         fmt: ElementFormat,
-        handler_name: str,
+        mnemonic: str,
     ) -> None:
         from ipu_emu.ipu import Ipu
 
-        state = new_state(fmt=fmt)
+        state = make_state(f"{mnemonic} ;;", fmt=fmt)
         signaling_nan = struct.pack("<I", 0x7F800001)
         quiet_nan = struct.pack("<I", 0x7FC00001)
         state.regfile.mutable("mult_res")[:] = signaling_nan * 128
 
-        getattr(Ipu(state), handler_name)()
+        Ipu(state).execute_vliw_cycle()
 
         assert state.regfile.view("r_acc") == quiet_nan * 128
 
@@ -3394,10 +3384,10 @@ HALT;;
 
 class TestDispatchPlans:
     def test_a_missing_handler_is_reported_by_instruction_name(self) -> None:
-        # _build_plan is the per-opcode plan the per-word schedules hold.
+        # build_plan is the per-opcode plan the per-word schedules hold.
         import dataclasses
 
-        from ipu_emu.ipu import _build_plan
+        from ipu_emu.ipu import build_plan
         from ipu_isa.slots import Slot
         from ipu_isa.view import isa
 
@@ -3407,9 +3397,10 @@ class TestDispatchPlans:
             execute_fn="execute_no_such_handler",
         )
         with pytest.raises(
-            RuntimeError, match=r"mult/FAKE names handler Ipu\.execute_no_such_handler"
+            RuntimeError,
+            match=r"mult/FAKE names handler ipu_emu\.slots\.mult\.execute_no_such_handler",
         ):
-            _build_plan(fake, {})
+            build_plan(fake, {})
 
 
 # ============================================================================

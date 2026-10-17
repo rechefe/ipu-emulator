@@ -22,6 +22,9 @@ The upper-case name of an instruction. Control-stage instructions use plain name
 **Pseudo-instruction**:
 A mnemonic the assembler expands into real instructions (`B`, `BZ`, `BNZ`, `BGT.S`, `BLE.S`). It has no opcode.
 
+**`HALT` instruction**:
+The COND instruction that ends a kernel: the kernel is done when the word that holds it retires. Not the host's `HALT` command, which stops a running kernel in the `HALTED` state.
+
 **Hardware word**:
 The part of the instruction word that real hardware decodes: every slot tagged hardware.
 _Avoid_: RTL word
@@ -57,6 +60,12 @@ _Avoid_: dtype, wide mode, wide-vector debug mode, narrow mode
 
 **Accumulator type**:
 INT32 for the INT8 format, FP32 for every float format. MULT results and R_ACC use it.
+
+**Element codec**:
+The encoding of one 8-bit element and back: decode a code to its value, encode a value with round-to-nearest-even and saturation. It lives in `ipu_isa.formats`.
+
+**Lane codec**:
+The emulator's numerics for one element format (`ipu_emu.numerics`): decodes a row of lanes, multiplies and accumulates, and stores the accumulator with the format's rounding. Handlers are written against it.
 
 **XMEM**:
 The IPU's external memory, addressed in rows.

@@ -5,8 +5,8 @@ This module provides:
 - Binary instruction file loading (load_binary_instructions)
 - Legacy execution functions for backward compatibility
 
-The actual instruction execution is now handled by the Ipu class in ipu.py,
-which uses automatic dispatch based on instruction_spec metadata.
+The actual instruction execution is handled by the handlers of ipu_emu.slots
+(one module per slot), which ipu_emu.ipu binds from instruction_spec metadata.
 
 Instruction format
 ~~~~~~~~~~~~~~~~~~

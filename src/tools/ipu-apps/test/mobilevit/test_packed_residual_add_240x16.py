@@ -81,7 +81,7 @@ def test_packed_residual_add_correctness_and_cost(tmp_path: Path) -> None:
     state.regfile.set_cr(10, 1)
     state.regfile.set_cr(15, encode_dstructure(valid_elements=128))
 
-    with count_instructions() as packed_counts:
+    with count_instructions(state) as packed_counts:
         packed_cycles = run_until_complete(state, max_cycles=100_000)
 
     packed_raw = bytes(state.xmem.read_address(OUT_BASE_ROW * ROW_BYTES, N_PACKED_ROWS * ROW_BYTES))
@@ -112,8 +112,9 @@ def test_packed_residual_add_correctness_and_cost(tmp_path: Path) -> None:
         input_b_path=b_path,
         output_path=out_path,
     )
-    with count_instructions() as unpacked_counts:
-        _, unpacked_cycles = app.run(max_cycles=100_000, state=app.make_state())
+    unpacked_state = app.make_state()
+    with count_instructions(unpacked_state) as unpacked_counts:
+        _, unpacked_cycles = app.run(max_cycles=100_000, state=unpacked_state)
 
     unpacked_out = np.frombuffer(out_path.read_bytes(), dtype=np.float32).reshape(N_CH, N_TOK)
     unpacked_err = float(np.max(np.abs(unpacked_out.astype(np.float64) - expected)))

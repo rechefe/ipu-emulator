@@ -43,7 +43,7 @@ filegroup(
 
 py_library(
     name = "ipu_emu_lib",
-    srcs = glob(["src/ipu_emu/*.py"]) + [":build_flags"],
+    srcs = glob(["src/ipu_emu/**/*.py"]) + [":build_flags"],
     imports = ["src"],
     # The ISA, numpy and the standard library only: the assembler and the
     # debugger build on the emulator, never the other way (E04-18).
@@ -89,6 +89,20 @@ py_pytest_test(
         ":emu_test_support",
         ":ipu_emu_lib",
         requirement("ml-dtypes"),
+        requirement("pytest"),
+    ],
+)
+
+# The lane codecs (E04-13) bit-identical to the scalar arithmetic: exhaustive
+# over every 8-bit byte pair, 10^6 random accumulator pairs per format.
+py_pytest_test(
+    name = "test_numerics",
+    srcs = ["test/test_numerics.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_emu_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+        requirement("numpy"),
         requirement("pytest"),
     ],
 )
@@ -143,6 +157,19 @@ py_pytest_test(
     ],
 )
 
+# One handler module per slot (E04-14): handler binding and module rules.
+py_pytest_test(
+    name = "test_slot_modules",
+    size = "small",
+    srcs = ["test/test_slot_modules.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_emu_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
 py_pytest_test(
     name = "test_execute",
     srcs = ["test/test_execute.py"],
@@ -151,6 +178,21 @@ py_pytest_test(
         ":emu_test_support",
         ":ipu_emu_lib",
         "//src/tools/ipu-as-py:ipu_as_lib",
+        requirement("pytest"),
+    ],
+)
+
+# Every MULT handler under INT8, E4 and FP32 against a numpy model of the
+# format's codec (E04-15).
+py_pytest_test(
+    name = "test_mult_codec",
+    srcs = ["test/test_mult_codec.py"],
+    imports = ["src"],
+    deps = [
+        ":emu_test_support",
+        ":ipu_emu_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+        requirement("numpy"),
         requirement("pytest"),
     ],
 )
@@ -314,6 +356,24 @@ py_pytest_test(
     imports = ["src"],
     deps = [
         ":timing_probes",
+        requirement("pytest"),
+    ],
+)
+
+# Every declared implicit read against the emulator (E04-12): one generated
+# two-bundle probe per (instruction, implicit read), faithful and prototyping.
+py_pytest_test(
+    name = "test_timing_conformance",
+    srcs = ["test/test_timing_conformance.py"],
+    args = ["-p", "pytest_shard_plugin"],
+    shard_count = 4,
+    imports = ["src"],
+    deps = [
+        ":ipu_emu_lib",
+        ":timing_probes",
+        "//src/tools/ipu-as-py:ipu_as_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+        requirement("numpy"),
         requirement("pytest"),
     ],
 )

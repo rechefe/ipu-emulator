@@ -152,9 +152,8 @@ def syntax(mnemonic: str, operand_names: Sequence[str]) -> str:
 
 # The binary layout (each slot's union fields, word widths) is derived from
 # INSTRUCTION_SPEC by ipu_isa.view.load_isa (isa().layout). Slots are
-# tagged HARDWARE or EMULATOR in ipu_isa.slots; until E03-22 the generated SV
-# package still renders every slot, the EMULATOR ones (acc_store, break)
-# included.
+# tagged HARDWARE or EMULATOR in ipu_isa.slots; the generated SV package renders
+# the HARDWARE slots only (E03-22), the emulator binary all of them.
 
 # How many times each slot appears in the VLIW instruction word.
 # Most slots appear once; LR appears three times (three independent sub-instructions).
@@ -1207,10 +1206,16 @@ INSTRUCTION_SPEC = {
         "HALT": {
             "operands": [],
             "doc": InstructionDoc(
-                title="Breakpoint",
-                summary="Conditional breakpoint.",
+                title="Halt",
+                summary="End the kernel after every slot of this word has retired.",
                 operands=[],
-                operation="Halt execution (debugging)",
+                operation="no further fetch; kernel done when this word retires",
+                example="HALT;;",
+                notes=(
+                    "Unconditional. The other slots of the same word retire first; then the "
+                    "kernel is done. To stop for debugging, use **`BREAK`** (emulator-only) "
+                    "instead. Not the host's `HALT` command, which stops a running kernel."
+                ),
             ),
             "execute_fn": "execute_halt",
         },
