@@ -1,7 +1,9 @@
 """The shared transforms, extracted from today's hand-written loaders (E06-05).
 
 Each reshapes one declared tensor into rows of 128 elements and back; the
-harness's codec encodes the rows. A tensor's shape is all a transform sees. A
+harness's codec encodes the rows. A transform sees its tensor and the case's
+plan (its parameters, for a layout whose rows depend on one), never another
+tensor. A
 shape a transform cannot lay out is a ``ValueError``, which packing reports as
 a configuration error located at the tensor's ``pack`` key.
 """
@@ -34,7 +36,7 @@ class ChannelMajor:
         if not 0 < shape[-1] <= LANES:
             raise ValueError(f"channel_major: the width ({shape[-1]}) must fit one row, 1..{LANES}")
 
-    def rows(self, shape: tuple[int, ...], plan: CasePlan | None = None) -> int:
+    def rows(self, shape: tuple[int, ...], plan: CasePlan) -> int:
         """One row per index of every dimension but the width.
 
         Raises:
@@ -85,7 +87,7 @@ class ChunkInterleaved:
             )
         return LANES // cols
 
-    def rows(self, shape: tuple[int, ...], plan: CasePlan | None = None) -> int:
+    def rows(self, shape: tuple[int, ...], plan: CasePlan) -> int:
         """``ceil(rows / (128 // cols))`` chunks of every channel.
 
         Raises:

@@ -57,7 +57,10 @@ class PackTransform(Protocol):
     def rows(self, shape: tuple[int, ...], plan: CasePlan) -> int:
         """The rows a tensor of ``shape`` takes in ``plan`` (a padded or tiled
         layout may depend on a parameter, not only the shape). A transform
-        whose ``rows`` takes the shape only is still called with it."""
+        whose ``rows`` takes the shape only is still called with it; one
+        whose second positional parameter means something else (``rows(shape,
+        scale=1)``) would be given the plan there, so name it ``plan`` or
+        make it keyword-only."""
         ...
 
     def to_rows(self, a: Array, plan: CasePlan) -> Array:
@@ -73,7 +76,7 @@ class RowMajor:
     """The last dimension across the lanes, zero-padded to a whole number of
     rows (``ceil(n / 128)`` rows per index of the other dimensions)."""
 
-    def rows(self, shape: tuple[int, ...], plan: CasePlan | None = None) -> int:
+    def rows(self, shape: tuple[int, ...], plan: CasePlan) -> int:
         """``ceil(n / 128)`` rows for each index of the other dimensions."""
         return math.prod(shape[:-1]) * -(-shape[-1] // LANES)
 
@@ -197,13 +200,27 @@ def _laid_out(
 
 
 def _rows(transform: PackTransform, shape: tuple[int, ...], plan: CasePlan) -> int:
-    """``transform.rows(shape, plan)``, or ``rows(shape)`` for a transform
-    written before it took the plan."""
+    """``transform.rows(shape, plan)``; ``rows(shape)`` for a transform written
+    before ``rows`` took the plan.
+
+    A parameter named ``plan`` (keyword-only, or set by ``functools.partial``)
+    gets it by name; two positional parameters, or ``*args``, get it second;
+    otherwise only the shape is passed. A callable with no signature (a
+    builtin) is given both.
+    """
     try:
-        takes_plan = len(inspect.signature(transform.rows).parameters) >= 2
-    except (TypeError, ValueError):  # a builtin or C callable: no signature
-        takes_plan = True
-    if takes_plan:
+        params = inspect.signature(transform.rows).parameters
+    except (TypeError, ValueError):
+        return transform.rows(shape, plan)
+    if "plan" in params:
+        return int(transform.rows(shape, plan=plan))
+    positional = [
+        p
+        for p in params.values()
+        if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+    ]
+    variadic = any(p.kind is inspect.Parameter.VAR_POSITIONAL for p in params.values())
+    if len(positional) >= 2 or variadic:
         return transform.rows(shape, plan)
     return transform.rows(shape)  # type: ignore[call-arg]
 

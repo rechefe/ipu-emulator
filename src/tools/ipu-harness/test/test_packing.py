@@ -143,6 +143,54 @@ def test_a_transforms_rows_may_read_the_plan_and_one_that_does_not_still_works(t
     assert stored_rows(shape_only.tensors["y"], plan_case(shape_only, {"rows": 3}, F.FP32)) == 4
 
 
+#: The forms a transform's rows may take, each adding a distinct count.
+FORMS_PY = """\
+import numpy as np
+
+
+class _Layout:
+    def to_rows(self, a, plan):
+        return np.vstack([a, np.zeros((self.extra, 128))])
+
+    def from_rows(self, r, plan, shape):
+        return r[: shape[0]]
+
+
+class _Bound(_Layout):
+    extra = 0
+
+    def rows(self, shape):
+        return shape[0] + 2
+
+
+class _KeywordPlan(_Layout):
+    def rows(self, shape, *, plan):
+        return shape[0] + 10 * plan.params["rows"]
+
+
+class _Variadic(_Layout):
+    def rows(self, *args):
+        return args[0][0] + (100 if len(args) == 2 else 0)
+
+
+bound = _Bound()
+keyword_plan = _KeywordPlan()
+variadic = _Variadic()
+"""
+
+
+@pytest.mark.parametrize(
+    ("name", "rows"),
+    [("bound", 2 + 2), ("keyword_plan", 2 + 20), ("variadic", 2 + 100)],
+)
+def test_each_rows_form_gets_the_plan_it_asks_for(tmp_path, name, rows):
+    m = _family_kernel(tmp_path, own=FORMS_PY)
+    toml = (m.directory / "kernel.toml").read_text().replace("reversed_rows", name)
+    (m.directory / "kernel.toml").write_text(toml)
+    m = load_manifest(m.directory)
+    assert stored_rows(m.tensors["y"], plan_case(m, {"rows": 2}, F.FP32)) == rows
+
+
 # --- a scratch region's starting bytes (E06 gap G2) ----------------------------------------
 
 SCRATCH_TOML = """\
