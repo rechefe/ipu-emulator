@@ -28,7 +28,7 @@ __all__ = [
 
 
 def parse(text: str) -> list[dict]:
-    """The compound instructions of `text`. Raises an AssemblerError subclass."""
+    """The parsed instruction words of `text`. Raises an AssemblerError subclass."""
     return session.AssemblySession(text).parse()
 
 
@@ -37,13 +37,31 @@ def assemble(text: str) -> list[int]:
     return list(session.assemble(text).words)
 
 
-def assemble_to_mem_file(text: str, output_path: str):
+def assemble_to_mem_file(text: str, output_path: str) -> None:
+    """Assemble `text` into a `.mem` file: one `0x`-prefixed hex word per line.
+
+    Args:
+        text: The assembly source.
+        output_path: The file to write.
+
+    Raises:
+        AssemblerError: the source does not assemble.
+    """
     result = session.assemble(text)
     with open(output_path, "w") as f:
         f.write(result.to_mem())
 
 
-def assemble_to_bin_file(text: str, output_path: str):
+def assemble_to_bin_file(text: str, output_path: str) -> None:
+    """Assemble `text` into a `.bin` file of little-endian emulator words.
+
+    Args:
+        text: The assembly source.
+        output_path: The file to write.
+
+    Raises:
+        AssemblerError: the source does not assemble.
+    """
     result = session.assemble(text)
     with open(output_path, "wb") as f:
         f.write(result.to_bin())
@@ -62,7 +80,14 @@ def _write_lines(output_path: str, lines: list[str]) -> None:
             f.write(f"{line}\n")
 
 
-def disassemble_from_mem_file(input_path: str, output_path: str, target: str = "emulator"):
+def disassemble_from_mem_file(input_path: str, output_path: str, target: str = "emulator") -> None:
+    """Disassemble a `.mem` file into one text line per word (`disassemble`).
+
+    Args:
+        input_path: The `.mem` file: one hex word per line.
+        output_path: The text file to write.
+        target: Which word the file holds, `"emulator"` or `"hardware"`.
+    """
     with open(input_path) as f:
         program = [int(line.strip(), 0) for line in f.readlines()]
     _write_lines(output_path, disassemble(program, target))
@@ -79,7 +104,14 @@ def _bin_words(data: bytes, target: str) -> list[int]:
     ]
 
 
-def disassemble_from_bin_file(input_path: str, output_path: str, target: str = "emulator"):
+def disassemble_from_bin_file(input_path: str, output_path: str, target: str = "emulator") -> None:
+    """Disassemble a `.bin` file into one text line per word (`disassemble`).
+
+    Args:
+        input_path: The `.bin` file of little-endian `target` words.
+        output_path: The text file to write.
+        target: Which word the file holds, `"emulator"` or `"hardware"`.
+    """
     with open(input_path, "rb") as f:
         program = _bin_words(f.read(), target)
     _write_lines(output_path, disassemble(program, target))

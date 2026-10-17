@@ -3,7 +3,7 @@
 The read-only constant registers CR0 and CR1, register word widths, and the
 layout of a dstructure configuration word: valid elements, partition and pad
 mode, packed into one CR. Which CR holds the dstructure is a convention of the
-programs and the emulator (``ipu_emu.ipu_config.DEFAULT_DSTRUCTURE_CR``), not
+programs and the emulator (its default dstructure CR), not
 an ISA rule: any CR0-CR15 is a valid operand.
 """
 

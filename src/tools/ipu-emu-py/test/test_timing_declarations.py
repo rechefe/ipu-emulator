@@ -141,10 +141,12 @@ EXERCISES: dict[str, tuple[Declaration, ...]] = {
     "test_mult_reads_r_cyclic_at_cycle_start": (
         Reads(Slot.MULT, "MULT.RC.VS", "r_cyclic", None, CS),
     ),
-    "test_mult_reads_r_mask_forwarded": (Reads(Slot.MULT, "MULT.RC.VS", "r_mask", None, FW),),
+    "test_mult_reads_r_mask_at_cycle_start": (Reads(Slot.MULT, "MULT.RC.VS", "r_mask", None, CS),),
     "test_acc_reads_this_cycle_mult_res": _reads(Slot.ACC, _ACC_MULT_RES, "mult_res", None, FW),
     "test_agg_reads_this_cycle_mult_res": _reads(Slot.ACC, _AGG, "mult_res", None, FW),
-    "test_reshape_reads_previous_mult_res": (Reads(Slot.ACC, "ACC.RESHAPE", "mult_res", None, CS),),
+    "test_reshape_reads_this_cycle_mult_res": (
+        Reads(Slot.ACC, "ACC.RESHAPE", "mult_res", None, FW),
+    ),
     "test_acc_reads_old_r_acc_at_cycle_start": (Reads(Slot.ACC, "ACC.ADD", "r_acc", None, CS),),
     "test_activate_reads_this_cycle_r_acc": (
         Reads(Slot.AAQ, "ACTIVATE.QUANTIZE", "r_acc", None, FW),

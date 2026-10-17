@@ -169,6 +169,8 @@ LD.MASK offset, base;;
 
 `offset` is an LR register holding the XMEM byte offset; `base` is a CR register holding the
 base address. The full 1024-bit register is always overwritten in one cycle.
+A multiply reads `R_MASK` at cycle start, so an `LD.MASK` in the same word as a masking multiply
+is not seen by it: that multiply uses the previous `R_MASK`, and the next word sees the new one.
 
 ### Selecting a slot: mask_offset
 
@@ -404,10 +406,11 @@ def timing_section(view: Isa | None = None) -> str:
                 f"| `{instruction.mnemonic}` | `{slot.value.upper()}` | {_accesses(cycle_start)} "
                 f"| {_accesses(forwarded)} | {_accesses(instruction.writes())} |"
             )
+    lines += ["", "### Known deviations", ""]
+    if not KNOWN_DEVIATIONS:
+        lines += ["None: every read in the emulator follows the contract.", ""]
+        return "\n".join(lines)
     lines += [
-        "",
-        "### Known deviations",
-        "",
         "Where the emulator differs from the contract today. Each row is removed by the "
         "issue named in the last column.",
         "",

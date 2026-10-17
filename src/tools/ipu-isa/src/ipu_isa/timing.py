@@ -35,7 +35,6 @@ from enum import Enum
 from typing import Any
 
 from ipu_isa import schema
-from ipu_isa.instruction_spec import INSTRUCTION_SPEC
 from ipu_isa.slots import Slot
 
 __all__ = [
@@ -181,10 +180,6 @@ def register_writers(
     return {register: frozenset(slots) for register, slots in writers.items()}
 
 
-def _repository_writers() -> dict[str, frozenset[Slot]]:
-    return register_writers(INSTRUCTION_SPEC)
-
-
 # ---------------------------------------------------------------------------
 # The contract
 # ---------------------------------------------------------------------------
@@ -195,13 +190,17 @@ _MULT_CYCLE_START = frozenset({"r", "r_cyclic", "r_mask"})
 _FORWARDED_TO = {("mult_res", Slot.ACC), ("r_acc", Slot.AAQ)}
 
 
-def contract_view(
-    slot: Slot, register: str, writers: Mapping[str, Iterable[Slot]] | None = None
-) -> View:
+def contract_view(slot: Slot, register: str, writers: Mapping[str, Iterable[Slot]]) -> View:
     """The view the contract gives a read of ``register`` by an instruction in ``slot``.
 
-    ``writers`` maps each register to the slots that write it (default: the
-    repository's ISA, :func:`register_writers`).
+    Args:
+        slot: The reading instruction's slot.
+        register: The register read.
+        writers: Each register's writing slots (:func:`register_writers` of the
+            spec being checked).
+
+    Returns:
+        ``View.FORWARDED`` or ``View.CYCLE_START``.
     """
     if slot in CONTROL_SLOTS:  # rules 1 and 4
         return View.CYCLE_START
@@ -211,7 +210,7 @@ def contract_view(
         return View.CYCLE_START
     if (register, slot) in _FORWARDED_TO:  # rule 3
         return View.FORWARDED
-    producers = tuple((_repository_writers() if writers is None else writers).get(register, ()))
+    producers = tuple(writers.get(register, ()))
     if producers and all(_precedes(producer, slot) for producer in producers):
         return View.FORWARDED
     return View.CYCLE_START
@@ -222,28 +221,12 @@ def contract_view(
 # ---------------------------------------------------------------------------
 
 
-def _deviation(
-    slot: Slot, mnemonic: str, register: str, via_operand: str | None, today: View, fixed_by: str
-) -> Deviation:
-    contract = View.FORWARDED if today is View.CYCLE_START else View.CYCLE_START
-    return Deviation(slot, mnemonic, register, via_operand, today, contract, fixed_by)
-
-
-_MULT = ("MULT.RC.VV", "MULT.RC.VE", "MULT.RC.VS", "MULT.VE", "MULT.EE")
-
 #: Every read whose declared view (today's emulator) differs from
 #: :func:`contract_view`, with the E04 issue that removes it. The list can only
 #: shrink: :func:`validate_timing` rejects a difference missing from it and a
-#: row whose difference has gone.
-KNOWN_DEVIATIONS: tuple[Deviation, ...] = (
-    # Rule 3: ACC.RESHAPE reads MULT_RES at cycle start.
-    _deviation(Slot.ACC, "ACC.RESHAPE", "mult_res", None, View.CYCLE_START, "E04-26"),
-    # Rule 2: MULT reads R_MASK forwarded.
-    *(
-        _deviation(Slot.MULT, mnemonic, "r_mask", None, View.FORWARDED, "E04-27")
-        for mnemonic in _MULT
-    ),
-)
+#: row whose difference has gone. Empty since E04-27 removed the last rows
+#: (MULT read R_MASK forwarded): the emulator follows the contract everywhere.
+KNOWN_DEVIATIONS: tuple[Deviation, ...] = ()
 
 
 def deviations(

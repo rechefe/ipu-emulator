@@ -79,7 +79,7 @@
             "dest: LRDn register pair (LRD0, LRD2, ..., LRD14) read as dest[0..7] — 8 byte elements, each an R_ACC word index",
             "reshape_mask: immediate 0-7 or an LR register; selects the first participating element index (elements reshape_mask..7 participate; reshape_mask = 0 uses all 8, reshape_mask = 7 uses only element 7). When an LR is given, its full value is used as the mask at runtime."
           ],
-          "operation": "mult_res = MULT_RES (cycle-start value)\nmask = reshape_mask if immediate else LR[reshape_mask]\nif mask > 8: raise error\nfor i in mask..7:\n    if source[i] >= 128 or dest[i] >= 128: raise error\n    R_ACC[dest[i]] = mult_res[source[i]]",
+          "operation": "mult_res = MULT_RES (this cycle's MULT result)\nmask = reshape_mask if immediate else LR[reshape_mask]\nif mask > 8: raise error\nfor i in mask..7:\n    if source[i] >= 128 or dest[i] >= 128: raise error\n    R_ACC[dest[i]] = mult_res[source[i]]",
           "summary": "Scatter MULT_RES elements into R_ACC: for each of the trailing (8 - reshape_mask) byte elements of the source/dest LRDn pairs (indices reshape_mask..7), copy MULT_RES[source[i]] to R_ACC[dest[i]].",
           "syntax": "ACC.RESHAPE source dest reshape_mask",
           "title": "Reshape"

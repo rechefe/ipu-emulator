@@ -442,6 +442,13 @@ PROBES: dict[str, Probe] = {
         setup=_r_cyclic(_THREES),
         modes=(Mode.NARROW, Mode.WIDE_FP32),
     ),
+    # The same load one word before the multiply, which then sees it.
+    "mult_r_mask_next_word": Probe(
+        "LD.MASK LR0 CR2 ;;\nMULT.RC.VS LR0 0 LR0 CR15 ;;\nHALT ;;",
+        cr={2: ROW},
+        setup=_r_cyclic(_THREES),
+        modes=(Mode.NARROW, Mode.WIDE_FP32),
+    ),
     # MULT_RES is 1s at cycle start; the same word's multiply makes it 9s
     # (R_CYCLIC 3s squared).
     **{

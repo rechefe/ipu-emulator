@@ -31,7 +31,10 @@ _SHORT_ROOTS = {
     "src/tools/ipu-apps/test/mobilevit": "mobilevit",
     "vscode-ipu-asm/test": "vscode",
 }
-assert set(_SHORT_ROOTS) == set(asm_corpus.CORPUS_ROOTS)
+if set(_SHORT_ROOTS) != set(asm_corpus.CORPUS_ROOTS):
+    raise RuntimeError(
+        f"_SHORT_ROOTS {sorted(_SHORT_ROOTS)} != CORPUS_ROOTS {sorted(asm_corpus.CORPUS_ROOTS)}"
+    )
 
 
 def snapshot_name(entry: asm_corpus.CorpusEntry) -> str:

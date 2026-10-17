@@ -33,6 +33,7 @@ from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import Any
 
+from ipu_isa.errors import IsaValueError
 from ipu_isa.operand_types import OPERAND_TYPES, OperandType
 from ipu_isa.schema import SpecError
 from ipu_isa.slots import LAYOUT_ORDER, Slot, SlotInfo
@@ -227,7 +228,7 @@ def _pad_slot(su: SlotUnion, target: int | None) -> SlotUnion:
             padded = replace(slot_field, bits=slot_field.bits + deficit)
             fields = tuple(padded if f is slot_field else f for f in su.fields)
             return replace(su, fields=fields)
-    raise ValueError(f"Cannot pad {su.slot} slot to {target} bits (currently {su.bits})")
+    raise IsaValueError(f"Cannot pad {su.slot} slot to {target} bits (currently {su.bits})")
 
 
 @dataclass(frozen=True)

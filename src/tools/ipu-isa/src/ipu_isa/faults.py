@@ -97,6 +97,8 @@ class ArithmeticEvent(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class FaultInfo:
+    """One fault of the fault list (faults.md): what it is and where it is caught."""
+
     id: FaultId
     summary: str  # the "Illegal state" cell of faults.md, verbatim
     detected_in: Detector
