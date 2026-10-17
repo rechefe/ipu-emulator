@@ -23,7 +23,13 @@ filegroup(
 # the package-level import rules.
 py_library(
     name = "ipu_harness_lib",
-    srcs = glob(["src/ipu_harness/**/*.py"]),
+    srcs = glob(
+        ["src/ipu_harness/**/*.py"],
+        exclude = [
+            "src/ipu_harness/kernel_cases.py",
+            "src/ipu_harness/kernel_fixtures.py",
+        ],
+    ),
     imports = ["src"],
     deps = [
         "//src/tools/ipu-as-py:ipu_as_lib",
@@ -224,6 +230,54 @@ py_pytest_test(
         ":ipu_harness_lib",
         ":scale_kernel",
         requirement("numpy"),
+        requirement("pytest"),
+    ],
+)
+
+# What every ipu_kernel() target runs (E06-13, kernels/defs.bzl): the entry, the
+# generated case x format tests and their fixtures (pytest, so not in the library).
+exports_files([
+    "src/ipu_harness/kernel_test.py",
+    "src/ipu_harness/manifest_json.py",
+])
+
+py_library(
+    name = "kernel_test_lib",
+    testonly = True,
+    srcs = [
+        "src/ipu_harness/kernel_cases.py",
+        "src/ipu_harness/kernel_fixtures.py",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_harness_lib",
+        requirement("pytest"),
+    ],
+)
+
+# The ipu_kernel() entry: generated tests, the folder's own tests, tiers, bazel run.
+py_pytest_test(
+    name = "test_kernel_test",
+    srcs = ["test/test_kernel_test.py"],
+    deps = [
+        ":ipu_harness_lib",
+        ":kernel_test_lib",
+        ":scale_kernel",
+        requirement("pytest"),
+    ],
+)
+
+# The kernel list in kernels/BUILD.bazel, //kernels:tree and //kernels:manifest.
+py_pytest_test(
+    name = "test_kernel_tree",
+    srcs = ["test/test_kernel_tree.py"],
+    data = [
+        "//kernels:BUILD.bazel",
+        "//kernels:kernel_targets",
+        "//kernels:tree",
+    ],
+    deps = [
+        ":ipu_harness_lib",
         requirement("pytest"),
     ],
 )

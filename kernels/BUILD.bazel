@@ -2,19 +2,43 @@
 # //kernels/<family>/<name>, declared with ipu_kernel() from kernels/defs.bzl.
 # Kernels move here from src/tools/ipu-apps during E06 and E07.
 
-# Which kernel computes an op, and why (E06-16): the routing registry over the
-# kernel.toml tree, as //src/tools/ipu-apps:query answers over the app tree.
-#   bazel run //kernels:query -- scale rows=7
-# The tree's root in runfiles, for ipu_harness.registry.kernel_tree(): each
-# kernel's own files join it through E06-13's ipu_kernel().
-filegroup(
-    name = "tree",
-    srcs = ["BUILD.bazel"],
-    visibility = ["//visibility:public"],
-)
+load("@rules_python//python:defs.bzl", "py_binary")
+load(":defs.bzl", "ipu_kernel_tree")
 
+exports_files(["BUILD.bazel"])
+
+# Every kernel folder. Add a new kernel here too (Bazel cannot glob into
+# subpackages); //src/tools/ipu-harness:test_kernel_tree checks the list.
+KERNELS = [
+    "elementwise/scale",
+]
+
+# :tree: every kernel's files, for ipu_harness.registry.kernel_tree() (the
+# routing registry, E06-16). :kernel_targets: each kernel's targets.
+ipu_kernel_tree(kernels = KERNELS)
+
+# Which kernel computes an op, and why (E06-16):
+#   bazel run //kernels:query -- scale rows=7
 alias(
     name = "query",
     actual = "//src/tools/ipu-harness:query",
     visibility = ["//visibility:public"],
+)
+
+# Every kernel, its cases and targets, as JSON for tools (E06-13): the same keys
+# as //src/tools/ipu-apps:kernel_manifest.
+#   bazel run //kernels:manifest
+py_binary(
+    name = "manifest",
+    srcs = ["//src/tools/ipu-harness:src/ipu_harness/manifest_json.py"],
+    main = "//src/tools/ipu-harness:src/ipu_harness/manifest_json.py",
+    args = ["$(rootpath :kernel_targets)"],
+    data = [
+        ":kernel_targets",
+        ":tree",
+    ],
+    deps = [
+        "//src/tools/ipu-harness:ipu_harness_lib",
+        "//src/tools/ipu-kernels:ipu_kernels_lib",
+    ],
 )
