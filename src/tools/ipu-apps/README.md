@@ -73,9 +73,9 @@ bazel test //src/tools/ipu-apps:identity
 All 21 assembly kernels have one label supporting both commands:
 
 ```bash
-bazel run //src/tools/ipu-apps:maxpool2d_stride2
-bazel test //src/tools/ipu-apps:maxpool2d_stride2
-bazel run --config=debug //src/tools/ipu-apps:maxpool2d_stride2
+bazel run //src/tools/ipu-apps:identity
+bazel test //src/tools/ipu-apps:identity
+bazel run --config=debug //src/tools/ipu-apps:identity
 bazel test //src/tools/ipu-apps:all
 ```
 

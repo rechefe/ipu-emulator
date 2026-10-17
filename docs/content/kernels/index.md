@@ -64,7 +64,7 @@ the current lists.
 | `residual_add` | 4 — three MobileViT shapes ([Normalization and shaping](normalization-and-shaping.md)) plus CHW `residual_add` ([Convolutions](convolutions.md)) |
 | `unfold`, `fold`, `concat` | 3 each — see [Normalization and shaping](normalization-and-shaping.md) |
 | `qk_scores`, `attn_scores_km`, `attn_v`, `attn_v_bcast` | 3 each — see [Attention](attention.md) |
-| `maxpool2d` | 5 (`maxpool2d_window`, `_nms7`, `_nms9`, `_stride2`, `_stride2_tail`) |
+| `maxpool2d` | 5 in `kernels/pooling/` (`maxpool2d_window`, `_nms7`, `_nms9`, `_stride2`, `_stride2_tail`; `bazel run //kernels:query`) |
 | `sample_descriptors` | 2 (`sample_descriptors`, `sample_descriptors_separable`) |
 | `channel_peak`, `score_threshold`, `l2_normalize`, `depth_to_space`, `identity`, `fully_connected` | 1 each |
 

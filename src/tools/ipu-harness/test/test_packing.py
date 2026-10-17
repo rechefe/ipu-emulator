@@ -82,6 +82,15 @@ def test_an_output_names_a_pack_transform_and_unpack_uses_it(tmp_path):
     np.testing.assert_array_equal(unpack(y, raw, plan), values)
 
 
+def test_a_transform_that_lays_out_more_rows_than_it_declares_fails_at_pack(tmp_path):
+    # Placement sizes the region by rows(): the extra row would land on the next region.
+    m = manifest(tmp_path, "reversed_rows", "reversed_rows")
+    (m.directory / "pack.py").write_text(PACK_PY.replace("shape[0] + 1", "shape[0]"))
+    plan = plan_case(m, {"rows": 2}, F.FP32)
+    with pytest.raises(PlanError, match=r"inputs\.x\.pack.*laid out 384 elements.*gives 2 rows"):
+        pack(m.tensors["x"], np.zeros((2, 128)), plan)
+
+
 def _family_kernel(tmp_path: Path, *, own: str | None) -> KernelManifest:
     """``copy`` in a family folder with a shared pack.py, and its own if given."""
     directory = tmp_path / "fam" / "copy"

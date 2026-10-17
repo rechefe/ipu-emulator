@@ -119,8 +119,8 @@ def ipu_benchmarks_from_kernels(kernels_root, deps):
     benchmark.py only declares configs (CONFIGS); the shared runner in
     kernel_registry/benchmarking.py runs them through the package's cases and
     writes results.md beside it. E.g.
-    `kernels/pooling/maxpool2d_stride2/benchmark.py` becomes
-    `:benchmark_maxpool2d_stride2`, with every .asm in its family as data.
+    `kernels/convolutions/conv_universal/benchmark.py` becomes
+    `:benchmark_conv_universal`, with every .asm in its family as data.
     """
     for benchmark in native.glob([kernels_root + "/**/benchmark.py"]):
         kernel_package = _kernel_package(benchmark)

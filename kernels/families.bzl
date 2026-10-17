@@ -12,8 +12,24 @@ names them; //kernels:test_families checks it against the kernel.toml folders.
 KERNELS = {
     "conformance": ["vector_tour"],
     "elementwise": ["scale"],
+    "pooling": [
+        "maxpool2d_nms",
+        "maxpool2d_stride2",
+        "maxpool2d_stride2_tail",
+        "maxpool2d_window",
+    ],
     "projections": ["proj_p4", "proj_p4_2tg", "proj_p4_2tg_silu"],
-    "reshape": ["concat", "depth_to_space", "identity"],
+    "reshape": [
+        "concat",
+        "depth_to_space",
+        "fold_16x16x192",
+        "fold_32x32x144",
+        "fold_8x8x240",
+        "identity",
+        "unfold_16x16x192",
+        "unfold_32x32x144",
+        "unfold_8x8x240",
+    ],
     "softmax": [
         "softmax_columns",
         "softmax_columns_packed",

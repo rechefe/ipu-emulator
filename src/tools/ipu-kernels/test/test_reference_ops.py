@@ -58,6 +58,13 @@ def test_matmul_and_unused_parameters():
     assert y.tolist() == [[4.0, 5.0], [10.0, 11.0]]
 
 
+def test_maxpool2d_pads_with_no_maximum_and_drops_a_partial_window():
+    x = t([[[1, -5, 2], [-7, 3, -1], [4, -2, -9]]])  # [C=1, H=3, W=3]
+    centred = ops.maxpool2d(x, kernel_size=3, stride=1, padding=1, channels=1)["y"]
+    assert centred.tolist() == [[[3, 3, 3], [4, 4, 3], [4, 4, 3]]]
+    assert ops.maxpool2d(x, kernel_size=2, stride=2, padding=0)["y"].tolist() == [[[3]]]
+
+
 def test_linear_is_a_matmul_then_its_activation():
     a, b = t([[1, -2], [0.5, 3]]), t([[2, 0], [1, -1]])
     product = [[0.0, 2.0], [4.0, -3.0]]

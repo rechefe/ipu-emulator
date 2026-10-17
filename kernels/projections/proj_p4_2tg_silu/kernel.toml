@@ -3,6 +3,11 @@
 # run by itself it is a small shape of the same program.
 [kernel]
 op = "projection"
+# FP32 only (E07-03). INT8 waits for OQ-35: ST.AAQ stores all of POST_AAQ_REG,
+# four rows in an 8-bit format, and this program stores both groups' row j
+# before row j + 1, so the spill of group 0's last rows zeroes group 1's first
+# three, already stored. E4 waits for the AaQ stage (OQ-20), as proj_p4's does.
+# test_formats.py fails when either is answered.
 formats = ["fp32"]
 
 [params]

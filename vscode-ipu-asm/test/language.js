@@ -56,7 +56,7 @@ test('the cursor context: mnemonic, operand index, comment or Jinja', () => {
 });
 
 test('only mnemonics that fit the word\'s free slots are offered; operand types and their values', () => {
-  // maxpool2d_nms*.asm: if / else alternatives are alternatives, not a mnemonic and its operand.
+  // kernels/pooling/maxpool2d_nms: if / else alternatives are alternatives, not a mnemonic and its operand.
   const alternatives = 'MULT.VE lr0 cr1 0 lr0 cr15 ; {% if a %}ACC.MAX.FIRST{% else %}ACC.MAX|{% endif %} ;;';
   for (const [marked, absent, present] of [
     ['SET lr0 cr0; SET lr1 cr0; SET lr2 cr0; |', ['SET'], ['HALT']], // three fill the LR slots
