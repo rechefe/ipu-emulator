@@ -19,11 +19,15 @@ scratch copy of the tree, not through Bazel.
 
 ## State of each draft
 
+All three were re-run at 20:40 UTC on 9df1033f, with that commit's
+`kernels/convolutions` copied into a scratch tree. No Bazel was used, and the
+goldens were not run (the checking interpreter has no torch).
+
 | Issue | Draft state | Proof recorded |
 |---|---|---|
-| E07-18 pointwise/depthwise twins | `pointwise_conv_tpl/`, `depthwise_conv_tpl/` (kernel.toml, `.asm`, BUILD), `convolutions/*_additions.{py,toml}`. Follows E07-17's conventions: one parameter set (programs read `has_bias`/`apply_relu`), every query param `query_required`. | All 39 cases equal E02 digests. compare_setup is IDENTICAL from poisoned registers; pointwise binds LR0 and LR7 as reset-zero presets. compare_legacy gives 39/39 `yes \| yes` with equal cycles. The routing answers are today's. Goldens and tolerances were NOT run (no torch in the check interpreter). |
-| E07-19 wide384, stride-2 stages | `conv_universal_wide384/`, `depthwise_conv_stride2_{narrow,128,16}/` (stage kernels with `stages.py`), `convolutions/pack_additions.py`. | wide384: compare_legacy 4/4 (presets of LR0 and LR2-LR5). Stride-2: 10/10, with the H1 fix, which has now landed (277cc587, `stages.py` keeps the `[abi]` offsets). Routing: 13/13. |
-| E07-20 bias without ReLU | `registry.toml` (3 entries), `_alt_templates/` (cross-check only). | CR expressions checked against 39 baseline records. **Stale:** written against f0fc8e2c with the old `bias`/`activation` program params. Rewrite it to the one-parameter-set form: each entry fixes `has_bias = true, apply_relu = false`, and the bias tensor's `when` is `"has_bias or apply_relu"` (the `or` grammar landed in 237122cb). |
+| E07-18 pointwise/depthwise twins | `pointwise_conv_tpl/`, `depthwise_conv_tpl/` (kernel.toml, `.asm`, `reference.py`, BUILD), `convolutions/*_additions.{py,toml}`. Follows E07-17: one parameter set, every query param `query_required`. The zero-bias fix (trap 1) is applied to `pass0_bias` and `depthwise_filters` and to both references. A `relu_no_bias` (F, T) case is on both templates; the pointwise bn entry runs it, and depthwise keeps (F, T) refused. Pointwise uses a `reference.py`, not `op = "conv2d"`: the op golden would pass the random `b`. | E02 digests 39/39. compare_setup 39/39 IDENTICAL; pointwise's LR0/LR7 presets read as "bound reset value". compare_legacy 39/39 `yes \| yes` with equal cycles. Routing unchanged. **To do:** goldens, tolerances, DELETIONS rows, the in-tree commit and the seeded-generator follow-up. |
+| E07-19 wide384, stride-2 stages | `conv_universal_wide384/`, `depthwise_conv_stride2_{narrow,128,16}/` (stage kernels with `stages.py`), `convolutions/pack_additions.py`. No monkeypatch: the stages fix is in the tree (277cc587). | compare_legacy 14/14 (wide384 4, stride-2 10, summed cycles equal). wide384 compare_setup 4/4 IDENTICAL. Routing 13/13. **To do:** as for E07-18; it lands after E07-18. |
+| E07-20 bias without ReLU | `registry.toml` with 3 entries in the one-parameter-set form: `has_bias = true, apply_relu = false`, all params `query_required`, and depthwise also `fpb = 25`. | `conv_universal_bias` and `depthwise_conv_universal_bias` route (T, F); all 12 cases of each run to HALT, and each renders a new binary. **Blocker (decision needed):** `pointwise_conv_unified_bias` renders the plain program. Its bias region needs `when = "has_bias or apply_relu"`, but CR10's unread `tail_size` binding would then need `not has_bias and not apply_relu`, and the conditions have no `and`. Either add `and`, or drop the unread `tail_size` binding and log the CR10 compare_setup difference. Not checked: goldens, new E02 digest rows, `test_routing.py` edits, the coverage doc. |
 
 ## Traps
 
