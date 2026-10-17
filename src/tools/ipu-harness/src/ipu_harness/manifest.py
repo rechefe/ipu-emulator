@@ -64,7 +64,14 @@ Schema
 
 ``[derived]``
     ``<name> = "<expression>"`` over parameters and earlier derived values,
-    in the shape grammar (E06-06).
+    in the shape grammar (E06-06). An expression may also read
+    ``base(<tensor>)``, the region's base row once placed (in bytes in a
+    ``unit = "bytes"`` kernel, as a tensor's binding): such a value, and any
+    that reads it, is *placed* (:attr:`KernelManifest.placed`), known only
+    when the registers are written, so only ``[abi]`` binds it; a shape, a
+    pin or the cost cannot read it. ``w1 = "base(weights) + 1"`` gives one
+    region several offset registers, which a ``{ register, offset }``
+    binding cannot.
 
 ``[cases.<name>]``
     Parameter values: a scalar, or a non-empty list (a sweep axis). Reserved
@@ -97,6 +104,7 @@ each becomes the parameter's only choice and its value in every case).
 
 from __future__ import annotations
 
+import functools
 import math
 import re
 import sys
@@ -110,7 +118,7 @@ from ipu_emu.errors import ConfigurationError
 from ipu_harness._codec import limits
 from ipu_harness._toml_source import Locator, ManifestError, Reader, decode_error_line, where
 from ipu_harness.conditions import Condition
-from ipu_harness.expressions import ExpressionError, names_in
+from ipu_harness.expressions import BASE, ExpressionError, base_name, names_in
 from ipu_harness.tolerance import TIERS
 from ipu_harness.tolerance import Tier as ToleranceTier
 from ipu_isa.formats import FORMATS, ElementFormat
@@ -304,7 +312,8 @@ class KernelManifest:
         abi_offsets: A tensor's offset from its base row, when ``[abi]`` gives one.
         abi_when: A binding's condition, when it has one (a conditional tensor's
             included).
-        derived: Name to expression.
+        derived: Name to expression; a placed one (:attr:`placed`) reads a
+            region's base.
         cases: The cases, ``default`` among them.
         golden: How outputs are checked.
         stages: ``"stages.py:run"`` for a multi-program pipeline (E06-14).
@@ -329,6 +338,18 @@ class KernelManifest:
     cost: int | float | str = 0
     abi_offsets: Mapping[str, int] = field(default_factory=lambda: MappingProxyType({}))
     abi_when: Mapping[str, Condition] = field(default_factory=lambda: MappingProxyType({}))
+
+    @functools.cached_property
+    def placed(self) -> frozenset[str]:
+        """The ``[derived]`` values that read ``base(<tensor>)``, directly or
+        through another: known once the regions are placed, so only ``[abi]``
+        reads them."""
+        placed: set[str] = set()
+        for name, expression in self.derived.items():
+            reads = names_in(expression)
+            if any(n.startswith(f"{BASE}(") or n in placed for n in reads):
+                placed.add(name)
+        return frozenset(placed)
 
     @property
     def byte_units(self) -> bool:
@@ -979,8 +1000,35 @@ def _derived(r: Reader, raw: object, params: Mapping[str, ParamDecl]) -> dict[st
         if name in params:
             raise r.fail(path, f"[derived] {name} is also a parameter")
         derived[name] = r.text(expression, path)
-        _check_expression(r, derived[name], (*params, *derived), path)
+        bases = [n for n in _names(r, derived[name], path) if n.startswith(f"{BASE}(")]
+        _check_expression(r, derived[name], (*params, *derived, *bases), path)
     return derived
+
+
+def _names(r: Reader, text: str, path: tuple[str, ...]) -> list[str]:
+    try:
+        return names_in(text)
+    except ExpressionError as error:
+        raise r.fail(path, f"{where(path)}: {error}") from None
+
+
+def _declared_tensors(r: Reader, data: Mapping[str, Any]) -> list[str]:
+    """Every tensor name the file declares, before its tables are read."""
+    return [name for section in _ROLES for name in r.table(data.get(section, {}), (section,))]
+
+
+def _placed_derived(r: Reader, derived: Mapping[str, str], tensors: Iterable[str]) -> set[str]:
+    """The derived values that read a region's base; each ``base(x)`` names a tensor."""
+    placed: set[str] = set()
+    for name, expression in derived.items():
+        path = ("derived", name)
+        reads = _names(r, expression, path)
+        for read in reads:
+            if read.startswith(f"{BASE}(") and read not in {base_name(t) for t in tensors}:
+                raise r.fail(path, f"{where(path)} {expression!r}: {read} names no tensor")
+        if any(n.startswith(f"{BASE}(") or n in placed for n in reads):
+            placed.add(name)
+    return placed
 
 
 def _tensors(
@@ -1088,13 +1136,21 @@ def load_manifest(
     params = {name: _param(r, name, raw, family_name) for name, raw in raw_params.items()}
     entry = _overrides(toml, params, kernel.formats, overrides or {}, source)
     derived = _derived(r, data.get("derived", {}), params)
-    scalars = (*params, *derived)
+    # A placed derived value (it reads base(x)) is known only once the regions
+    # are: a shape, a pin or the cost cannot read it, only [abi].
+    placed = _placed_derived(r, derived, _declared_tensors(r, data))
+    unplaced = tuple(d for d in derived if d not in placed)
+    scalars = (*params, *unplaced)
     if isinstance(kernel.cost, str):
         integers = [n for n, p in params.items() if p.type == "int"]
-        _check_expression(r, kernel.cost, (*integers, *derived), ("kernel", "cost"))
+        _check_expression(r, kernel.cost, (*integers, *unplaced), ("kernel", "cost"))
     bools = tuple(n for n, p in params.items() if p.type == "bool")
     tensors = _tensors(r, data, scalars, kernel.formats, bools, directory)
-    abi, abi_offsets, abi_when = _abi(r, data.get("abi", {}), params, {*scalars, *tensors}, tensors)
+    for name in placed & set(tensors):
+        raise r.fail((SECTION_OF[tensors[name].role], name), f"{name!r} is declared twice")
+    abi, abi_offsets, abi_when = _abi(
+        r, data.get("abi", {}), params, {*params, *derived, *tensors}, tensors
+    )
     manifest = KernelManifest(
         name=entry.name or directory.name,
         directory=directory,

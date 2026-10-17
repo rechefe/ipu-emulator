@@ -42,6 +42,7 @@ from ipu_emu.errors import ConfigurationError
 from ipu_emu.ipu_config import DEFAULT_DSTRUCTURE_CR
 from ipu_emu.reference import ReferenceModel
 from ipu_harness._codec import encode
+from ipu_harness.expressions import ExpressionError, base_name, evaluate
 from ipu_harness.manifest import ZERO_REGISTER, KernelManifest
 from ipu_harness.params import CasePlan, PlanError
 from ipu_harness.placement import Placement
@@ -100,6 +101,30 @@ def _element_bits(value: float, plan: CasePlan) -> int:
     return int.from_bytes(encode(np.array([value]), plan.format), "little")
 
 
+def _placed_value(name: str, plan: CasePlan, placement: Placement) -> int:
+    """A placed ``[derived]`` value: its expression over the integer parameters,
+    the other derived values and each region's base (bytes in a ``unit =
+    "bytes"`` kernel, as a tensor's binding)."""
+    manifest = plan.manifest
+    scale = FORMATS[plan.format].row_bytes if manifest.byte_units else 1
+    names: dict[str, int] = {
+        **{k: v for k, v in plan.params.items() if isinstance(v, int) and not isinstance(v, bool)},
+        **plan.derived,
+        **{base_name(r.name): r.base_row * scale for r in placement.regions.values()},
+    }
+    for derived, expression in manifest.derived.items():
+        if derived in manifest.placed:
+            try:
+                names[derived] = evaluate(expression, names)
+            except ExpressionError as error:
+                raise PlanError(
+                    manifest, f"derived.{derived}", f"{expression!r}: {error}"
+                ) from None
+        if derived == name:
+            return names[name]
+    raise KeyError(name)  # the caller passes a placed name
+
+
 def _value(name: str, plan: CasePlan, placement: Placement) -> tuple[int, str]:
     """The bits ``name`` puts in its register, and what they are."""
     manifest = plan.manifest
@@ -111,6 +136,8 @@ def _value(name: str, plan: CasePlan, placement: Placement) -> tuple[int, str]:
             bytes_base = base * FORMATS[plan.format].row_bytes
             return bytes_base + offset, f"{name} (region base, bytes{shown})"
         return base + offset, f"{name} (region base{shown})"
+    if name in manifest.placed:
+        return _placed_value(name, plan, placement), f"{name} (derived, placed)"
     if name in manifest.derived:
         return plan.derived[name], f"{name} (derived)"
     decl = manifest.params[name]

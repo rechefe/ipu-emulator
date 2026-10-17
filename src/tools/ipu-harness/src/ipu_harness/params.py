@@ -221,10 +221,12 @@ def _check_params(manifest: KernelManifest, params: Mapping[str, object]) -> dic
 
 
 def _derived(manifest: KernelManifest, params: Mapping[str, Value]) -> dict[str, int]:
-    """Integer parameters, then every [derived] value, in declaration order."""
+    """Every [derived] value but the placed ones, in declaration order."""
     names = {k: v for k, v in params.items() if isinstance(v, int) and not isinstance(v, bool)}
     derived: dict[str, int] = {}
     for name, expression in manifest.derived.items():
+        if name in manifest.placed:
+            continue  # it reads a region's base: abi.register_writes computes it
         try:
             derived[name] = names[name] = evaluate(expression, names)
         except ExpressionError as error:
