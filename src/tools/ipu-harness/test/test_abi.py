@@ -131,6 +131,11 @@ def test_a_region_may_reach_the_program_only_through_a_derived_value(tmp_path):
     assert got["CR3"] == 8  # y at row 4, plus rows
     with pytest.raises(ManifestError, match="does not bind tensor 'y'"):
         kernel(tmp_path / "unbound", toml.replace('y    = "CR3"\n', ""))
+    # Bound only in some cases: y, which always exists, would lose its base.
+    flagged = toml.replace("[params]\n", '[params]\nflag = { type = "bool", default = true }\n')
+    flagged = flagged.replace('y    = "CR3"', 'yr   = { register = "CR3", when = "flag" }')
+    with pytest.raises(ManifestError, match="does not bind tensor 'y'"):
+        kernel(tmp_path / "conditional", flagged)
 
 
 def test_a_bytes_kernels_base_counts_bytes(tmp_path, monkeypatch):

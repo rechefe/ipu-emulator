@@ -217,6 +217,10 @@ def test_routing_keeps_shared_and_prefers_separable_for_stock(registry):
     assert registry.resolve("sample_descriptors", **query).kernel_name == DIRECT
     assert registry.resolve("sample_descriptors", **query, stock=False).kernel_name == DIRECT
     assert registry.resolve("sample_descriptors", **query, stock=True).kernel_name == SEPARABLE
+    separable = registry.kernel(SEPARABLE)
+    assert not registry.resolve("sample_descriptors", **query, stock=False).alternatives
+    with pytest.raises(PlanError, match="stock"):
+        plan_case(separable, {**query, "stock": False}, FP32)  # stock coordinates only
 
 
 @pytest.mark.parametrize(

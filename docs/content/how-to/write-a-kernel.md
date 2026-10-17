@@ -186,7 +186,8 @@ Section by section:
   FP32 (INT32 in INT8).
 - **`[abi]`**: which register holds each value: a region's base row, an
   integer, or an element scalar. Every region must be bound, since the program
-  can reach it only through a register.
+  can reach it only through a register: by itself, or through a bound
+  `[derived]` value that reads its `base()`.
 - **`[golden]`**: the reference function and the tolerance tier per format
   (step 7).
 - **`[cases.*]`**: named sets of parameter values. `[cases.default]` is

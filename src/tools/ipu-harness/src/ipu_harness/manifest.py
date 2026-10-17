@@ -772,11 +772,19 @@ def _abi(
                 raise r.fail(path, f"[abi] {name} and {other} both bind {register}")
         used.setdefault(register, []).append(name)
         abi[name] = register
+
     # A bound placed value that reads base(x) carries x's base to the program
-    # too (a region bound at a parameter-dependent offset, E07-15).
-    reached = {tensor for name, reads in placed.items() if name in abi for tensor in reads}
+    # too (a region bound at a parameter-dependent offset, E07-15), when it is
+    # bound in every case x exists: unconditionally, or under x's condition.
+    def reaches(tensor: TensorDecl) -> bool:
+        return any(
+            tensor.name in reads and conditions.get(name) in (None, tensor.when)
+            for name, reads in placed.items()
+            if name in abi
+        )
+
     for tensor in tensors.values():
-        if tensor.name not in abi and tensor.name not in reached:
+        if tensor.name not in abi and not reaches(tensor):
             raise r.fail(
                 (tensor.section, tensor.name),
                 f"[abi] does not bind tensor {tensor.name!r}; its base row must reach the program",
