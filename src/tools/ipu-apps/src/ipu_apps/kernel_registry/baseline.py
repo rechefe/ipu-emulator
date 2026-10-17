@@ -5,8 +5,8 @@ result by one ulp passes it. The baseline makes every case also prove
 "bit-identical to the recorded run": for each case, ``<kernel folder>/baseline.json``
 records
 
-* for every program the case runs (most kernels run one; the multi-stage
-  ``depthwise_conv_stride2_*`` kernels run two),
+* for every program the case runs (one each; a kernel that ran two, as the
+  ``depthwise_conv_stride2_*`` kernels did before E07-19, gets one record each),
   the digest of the program as loaded, the CR and LR values right after the
   harness's ``setup``, and the digest of XMEM at that point;
 * the digest of the case's output file, if it has one;

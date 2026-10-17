@@ -17,12 +17,13 @@ from ipu_emu.reference import ReferenceModel
 from ipu_harness.abi import register_writes
 from ipu_harness.cases import expand
 from ipu_harness.debug import DebugHook, DebugLaunch
+from ipu_harness.kernel_bin import default_programs, default_stage_programs
 from ipu_harness.manifest import load_manifest
 from ipu_harness.packing import stored_rows
 from ipu_harness.params import plan_case
 from ipu_harness.placement import place
 from ipu_harness.runner import RunOptions, run_kernel, stage
-from ipu_harness.stages import StageOptions, run_stages
+from ipu_harness.stages import StageOptions, run_stages, stage_programs
 from ipu_isa.constants import DStructureConfig
 from ipu_isa.formats import ElementFormat
 
@@ -360,3 +361,40 @@ def test_a_multi_stage_kernel_has_no_one_program_to_stage_or_execute(kernel):
     options = RunOptions(executor=lambda context: None)
     with pytest.raises(ConfigurationError, match="executor runs one program"):
         run_kernel(kernel, _default(kernel), ElementFormat.INT8, options)
+
+
+def test_stage_programs_assembles_every_stage_and_runs_none(kernel):
+    plan = plan_case(kernel, _default(kernel).values, ElementFormat.INT8)
+    placement = place(plan, {n: stored_rows(t, plan) for n, t in kernel.tensors.items()})
+    programs = stage_programs(plan, placement)
+    assert [name for name, _ in programs] == ["copy.asm", "copy_scale.asm"]
+    assert programs[0][1].words != programs[1][1].words
+    assert all(len(assembled.words) > 0 for _, assembled in programs)
+
+
+def test_the_assemble_target_of_a_multi_stage_kernel_is_its_own_program(kernel):
+    # :assemble_<name> (kernel_bin) writes the stage that runs <name>.asm.
+    own = dict(stage_programs_of(kernel))["copy_scale.asm"]
+    assert default_programs(kernel)[ElementFormat.INT8].words == own.words
+    assert [name for name, _ in default_stage_programs(kernel)[ElementFormat.INT8]] == [
+        "copy.asm",
+        "copy_scale.asm",
+    ]
+
+
+def stage_programs_of(manifest):
+    plan = plan_case(manifest, _default(manifest).values, ElementFormat.INT8)
+    placement = place(plan, {n: stored_rows(t, plan) for n, t in manifest.tensors.items()})
+    return stage_programs(plan, placement)
+
+
+def test_a_multi_stage_run_sums_its_stages_statistics(kernel):
+    # The benchmark's use columns (E06-11) for a multi-stage kernel: each
+    # stage's counts summed, the ratios over the sum (E07-19).
+    result = run_kernel(kernel, _default(kernel), ElementFormat.INT8)
+    stats = result.stats
+    assert stats is not None and result.passed
+    assert stats.cycles == result.cycles == sum(cycles for _, cycles in result.stages)
+    assert stats.mult_active_cycles > 0 and stats.xmem_writes > 0
+    assert stats.lane_occupancy == stats.mult_lane_ops / (stats.cycles * 128)
+    assert stats.effective_mac_utilization == result.mac_utilization

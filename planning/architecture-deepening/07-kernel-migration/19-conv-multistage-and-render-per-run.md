@@ -11,6 +11,18 @@ Migrate the 4 kernels that override `run` today:
 After this issue no kernel assembles in a temp dir, swaps `inst_path` or calls
 `run_test` directly.
 
+As landed: `cpr` is `[derived] cpr = "width / 128"` and the program reads
+`height` for its rows (a `cpr` parameter would be one more every query must
+name; templates see `[derived]` values). The stride-2 kernels' intermediate
+region is `[scratch.y]`, not `stage1_out`, because the shared stage-1 program
+writes `{{ cr.y }}`; their output is `out`. The three stage-2 programs differ in
+structure, so they stay three folder kernels. The family `ipu_apps` `app.py`
+stays frozen with the two old folders still left (`conv_universal` for the
+Inspector trace, `depthwise_conv_universal` for the getting-started guide);
+every user it had among the four kernels is gone (DELETIONS.md, kept list).
+`:assemble_<name>` of a stages kernel is its own program, and a multi-stage
+run's statistics are its stages' summed (IMPLEMENTATION-DECISIONS, E07-19).
+
 ## Background
 
 Paths are under `src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/`.

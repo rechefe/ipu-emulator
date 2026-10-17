@@ -3,14 +3,15 @@
 The tiled kernels (``conv1x1``, ``conv3x3_relu``, ``conv3x3_relu_cin1``) and
 ``conv_first_layer`` moved to ``kernels/convolutions`` (E07-16), and so did
 ``conv_universal`` and ``conv_universal_bn_activation`` (E07-17) and the
-pointwise and depthwise twins (E07-18); the old ``conv_universal`` folder
-stays, frozen, for the Cycle Inspector (E07-26), and the old
-``depthwise_conv_universal`` folder as stage 1 of the stride-2 kernels (E07-19).
+pointwise and depthwise twins (E07-18), and ``conv_universal_wide384`` and the
+three ``depthwise_conv_stride2_*`` kernels (E07-19). Only two frozen folders
+are left here: ``conv_universal``, for the Cycle Inspector's curated trace,
+and ``depthwise_conv_universal``, the getting-started guide's worked example.
+This module stays with them, frozen, until they go.
 
 **Universal kernels** -- ``conv_universal`` and ``depthwise_conv_universal``
-(the frozen copies), ``conv_universal_wide384`` and the three
-``depthwise_conv_stride2_*`` kernels -- run on the wide-vector FP32 datapath and receive exactly the fields
-of :class:`ConvQuery`, all required (``REQUIRES``):
+(the frozen copies) -- run on the wide-vector FP32 datapath and receive
+exactly the fields of :class:`ConvQuery`, all required (``REQUIRES``):
 
 ``in_channels``, ``out_channels``   channel counts
 ``kernel_size``                     3

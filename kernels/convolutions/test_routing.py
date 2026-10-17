@@ -7,7 +7,8 @@ Two ``conv2d`` vocabularies share the op. The tiled kernels (``conv1x1``,
 ``activation``, every one required (``ipu_apps`` named the image ``shape=(c,
 h, w)``, a tuple no ``kernel.toml`` parameter can be). The universal kernels
 (``conv_first_layer``; ``conv_universal`` and ``conv_universal_bn_activation``,
-E07-17; the pointwise and depthwise twins, E07-18) take the eleven fields of a
+E07-17; the pointwise and depthwise twins, E07-18; ``conv_universal_wide384``
+and the ``depthwise_conv_stride2_*`` kernels, E07-19) take the eleven fields of a
 ``torch.nn.Conv2d`` query, ``dilation``, ``groups``, ``has_bias`` and ``apply_relu`` among them.
 A query in one vocabulary names a parameter the other's kernels lack, so it
 reaches only its own kernels.
@@ -20,7 +21,9 @@ import json
 import pytest
 
 from ipu_harness import query
+from ipu_harness.params import plan_case
 from ipu_harness.registry import default_registry
+from ipu_isa.formats import ElementFormat
 
 TILED = {"conv1x1", "conv3x3_relu", "conv3x3_relu_cin1"}
 
@@ -231,7 +234,7 @@ def test_widths_up_to_128_route_to_conv_universal(registry, width):
 
 
 def test_width_129_is_refused(registry):
-    # ipu_apps' conv_universal_wide384 takes some wider images (E07-19).
+    # conv_universal_wide384 takes only multiples of 128 from 384 up.
     verdict = registry.resolve("conv2d", **universal(width=129))
     assert not verdict
     assert "width" in verdict.reason
@@ -355,3 +358,99 @@ def test_the_query_tool_names_the_pointwise_and_depthwise_entries(registry, para
     assert query.main([*argv, "--json"], registry) == 0
     answer = json.loads(capsys.readouterr().out)
     assert (answer["app"], answer["use"]) == (kernel, f"//kernels/convolutions:{kernel}")
+
+
+# -- conv_universal_wide384 and the stride-2 depthwise kernels (E07-19)
+
+
+def stride2(**overrides):
+    """A universal-vocabulary query for the 3x3 stride-2 depthwise kernels."""
+    return universal(in_channels=4, out_channels=4, groups=4, stride=2) | overrides
+
+
+@pytest.mark.parametrize(
+    "params,kernel",
+    [
+        (stride2(height=8, width=128), "depthwise_conv_stride2_128"),
+        (stride2(height=16, width=32), "depthwise_conv_stride2_narrow"),
+        (stride2(height=16, width=16), "depthwise_conv_stride2_16"),
+        (universal(width=384, out_channels=4), "conv_universal_wide384"),
+    ],
+)
+def test_resolve_wide_and_stride2(registry, params, kernel):
+    verdict = registry.resolve("conv2d", **params)
+    assert verdict.kernel_name == kernel, verdict.reason
+    assert verdict.label == f"//kernels/convolutions/{kernel}"
+
+
+def _width_runs(registry, widths, **fixed):
+    """``(first, last, kernel)`` for each run of widths one kernel (or none) takes."""
+    runs: list[list] = []
+    for width in widths:
+        verdict = registry.resolve("conv2d", **(fixed | dict(width=width)))
+        name = verdict.kernel_name if verdict else None
+        if runs and runs[-1][2] == name and runs[-1][1] == width - 1:
+            runs[-1][1] = width
+        else:
+            runs.append([width, width, name])
+    return [tuple(run) for run in runs]
+
+
+def test_width_routing_boundaries(registry):
+    # The ipu_apps router's boundary table: conv_universal up to 128, then
+    # conv_universal_wide384 at each multiple of 128 from 384.
+    assert _width_runs(registry, range(1, 641), **universal(out_channels=4)) == [
+        (1, 128, "conv_universal"),
+        (129, 383, None),
+        (384, 384, "conv_universal_wide384"),
+        (385, 511, None),
+        (512, 512, "conv_universal_wide384"),
+        (513, 639, None),
+        (640, 640, "conv_universal_wide384"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "params,reason",
+    [
+        # depthwise_conv_stride2_narrow: the output groups of 4 chunks must be whole ...
+        (
+            stride2(in_channels=1, out_channels=1, groups=1, height=5, width=64),
+            "is 5/8, not a whole number",
+        ),
+        # ... (width 16: rows_per_chunk 8 needs height % 32 == 0), and
+        # depthwise_conv_stride2_16 packs channels in pairs.
+        (
+            stride2(in_channels=1, out_channels=1, groups=1, height=16, width=16),
+            "is 1/2, not a whole number",
+        ),
+        (
+            stride2(in_channels=3, out_channels=3, groups=3, height=16, width=16),
+            "in_channels = 3 is not a multiple of 2",
+        ),
+        (stride2(height=8, width=48), "width = 48 is not one of [16, 32, 64]"),
+        # depthwise_conv_stride2_128: output rows pair up
+        (
+            stride2(in_channels=1, out_channels=1, groups=1, height=5, width=128),
+            "height = 5 is not a multiple of 4",
+        ),
+        (stride2(has_bias=True, apply_relu=True, height=8, width=128), "has_bias"),
+        # conv_universal_wide384: out_channels in pairs, widths multiples of 128 from 384
+        (
+            universal(in_channels=1, out_channels=3, height=8, width=384),
+            "out_channels = 3 is not a multiple of 2",
+        ),
+        (universal(width=385), "width = 385 is not a multiple of 128"),
+        (universal(width=200), "width"),
+    ],
+)
+def test_wide_and_stride2_refusals(registry, params, reason):
+    verdict = registry.resolve("conv2d", **params)
+    assert not verdict
+    assert reason in verdict.reason, verdict.reason
+
+
+def test_the_stride2_output_shape_is_derived(registry):
+    kernel = registry.kernel("depthwise_conv_stride2_128")
+    plan = plan_case(kernel, stride2(height=8, width=128), ElementFormat.FP32)
+    assert plan.shapes["out"] == (4, 4, 64)

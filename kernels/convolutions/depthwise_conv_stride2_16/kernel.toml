@@ -1,0 +1,166 @@
+# depthwise_conv_stride2_16: a 3x3 stride-2 depthwise conv2d, FP32, on the
+# fixed 16x16 shape (E07-19; MobileViT-S's deepest downsample): a channel's
+# 8x8 output is half a chunk, so stage 2 packs two channels an output chunk
+# (the .asm header).
+
+# Two programs on one machine state (E06-14, stages.py): stage 1 runs
+# depthwise_conv_tpl's program, as depthwise_conv_universal does (no bias, no
+# ReLU), at full resolution into the scratch region y; stage 2 runs this
+# folder's program, depthwise_conv_stride2_16.asm, which decimates y into
+# out. The run's cycles are the stages' sum. Routed in the universal conv2d
+# vocabulary, every query parameter required.
+
+[kernel]
+op = "conv2d"
+formats = ["fp32"]
+stages = "stages.py:run"
+
+[params]
+in_channels  = { type = "int", min = 2, multiple_of = 2, query_required = true }   # channels pack in pairs
+out_channels = { type = "int", min = 1, query_required = true }   # = in_channels ([derived] checks)
+groups       = { type = "int", min = 1, query_required = true }   # = in_channels ([derived] checks)
+height       = { type = "int", choices = [16], query_required = true }
+width        = { type = "int", choices = [16], query_required = true }
+kernel_size  = { type = "int", choices = [3], query_required = true }
+stride       = { type = "int", choices = [2], query_required = true }
+padding      = { type = "int", choices = [1], query_required = true }
+dilation     = { type = "int", choices = [1], query_required = true }
+has_bias     = { type = "bool", choices = [false], query_required = true }
+apply_relu   = { type = "bool", choices = [false], query_required = true }
+# The old cases' data seed, for the proof only (the old defaults: 3, sweeps 7 and 13).
+# The next commit moves the cases to the harness's seeded generators and drops it.
+seed         = { type = "int", min = 0, default = 0 }
+
+[derived]
+# -- stage 1: depthwise_conv_tpl's program. These are the names it reads
+# ({{ cr.<name> }}), with the template's expressions at fpb 28: a kernel cannot
+# share a sibling's [derived], and test_stride2.py holds the copy to the
+# template's values.
+groups_per_in = "groups / in_channels"
+in_per_groups = "in_channels / groups"
+out_per_in    = "out_channels / in_channels"
+in_per_out    = "in_channels / out_channels"
+cols          = "16 + 16 * min(1, max(0, width - 16)) + 32 * min(1, max(0, width - 32)) + 64 * min(1, max(0, width - 64))"
+rows          = "max(height, ceil(256 / cols))"
+num_chunks    = "rows * cols // 128"
+fpb           = "28"
+ring_adv      = "3 * 128"
+chunk_limit   = "(num_chunks - 1) * in_channels + in_channels"
+slot_stride   = "128"
+half_slot     = "256"
+walk_step     = "256 - 2 * cols - 2"
+dstructure    = "dstructure(128, 128 // cols - cols // 128)"
+stage1_rows   = "num_chunks * in_channels"       # stage 1's full-resolution output (2 chunks a channel)
+
+# -- stage 2 --
+num_channel_pairs = "in_channels / 2"       # CR6
+
+# Placed in the old harness's order: stage 1's input (with its headroom),
+# filters, mask and output, then the final output just after it.
+[inputs.x]
+shape = ["in_channels", "height", "width"]
+pack  = "chunked_guard"
+
+[inputs.filters]
+shape = ["in_channels", 10]                  # depthwise_conv_tpl's: the bias (unread here), then the 9 taps
+pack  = "depthwise_filters"
+
+[scratch.border_mask]
+shape = [1, 128]
+after = "filters"
+bytes = "../masks.py:border_mask"
+
+# Stage 1's output, which stage 2 reads; named y because the shared stage-1
+# program writes {{ cr.y }}. Chunk-interleaved, never compared.
+[scratch.y]
+shape = ["stage1_rows", 128]
+after = "border_mask"
+
+[outputs.out]
+shape = ["in_channels", 8, 8]
+pack  = "channel_pairs"
+
+# Stage 1 runs with this table (stages.py passes no abi): depthwise_conv_tpl's
+# [abi] at fpb 28, but for CR8. A stage's own table has no offsets, so stage 1
+# needs this one for y's offset -1, and [abi] must bind every tensor: the final
+# output out is parked on CR8, the template's kernel_rows, which its program
+# writes but never reads (so stage 1's CR8 is base(out), not
+# ceil(C / 28) * 2). Stage 2 binds its own four CRs (stages.py); the others
+# and the LRs carry over from stage 1, as in the old harness.
+[abi]
+y           = { register = "CR2", offset = -1 }   # one row low: the store is one channel late
+border_mask = "CR3"
+cols        = "CR4"
+filters     = "CR5"
+in_channels = "CR6"
+fpb         = "CR7"
+out         = "CR8"     # parked (above)
+ring_adv    = "CR9"
+x           = "CR10"
+chunk_limit = "CR11"
+slot_stride = "CR12"
+half_slot   = "CR13"
+walk_step   = "CR14"
+dstructure  = "CR15"
+
+[golden]
+reference = "reference.py:reference"
+# The old check was max |diff| < 1e-2. 9 taps; the decimation is exact.
+tolerance = { fp32 = "FP32_ORDER" }
+
+# The old cases and test sweep.
+
+[cases.default]  # the old default
+in_channels = 2
+out_channels = 2
+groups = 2
+height = 16
+width = 16
+kernel_size = 3
+dilation = 1
+padding = 1
+stride = 2
+has_bias = false
+apply_relu = false
+seed = 3
+generator = "../gen.py:legacy_depthwise"
+
+[cases.c4]  # two channel pairs
+in_channels = 4
+out_channels = 4
+groups = 4
+height = 16
+width = 16
+kernel_size = 3
+dilation = 1
+padding = 1
+stride = 2
+has_bias = false
+apply_relu = false
+seed = 7
+generator = "../gen.py:legacy_depthwise"
+
+[cases.c320]  # MobileViT-S's stage-5 shape
+in_channels = 320
+out_channels = 320
+groups = 320
+height = 16
+width = 16
+kernel_size = 3
+dilation = 1
+padding = 1
+stride = 2
+has_bias = false
+apply_relu = false
+seed = 13
+generator = "../gen.py:legacy_depthwise"
+
+# The old benchmark.py CONFIGS (per channel).
+[benchmark]
+per = "in_channels"
+max_cycles = 50_000_000
+points = [
+  { in_channels = 2, out_channels = 2, groups = 2 },
+  { in_channels = 16, out_channels = 16, groups = 16 },
+  { in_channels = 320, out_channels = 320, groups = 320 },
+]

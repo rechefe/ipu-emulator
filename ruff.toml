@@ -73,7 +73,6 @@ max-args = 6
 "src/tools/ipu-apps/src/ipu_apps/kernels/attention/app.py" = ["PLR0913"]
 "src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/app.py" = ["PLR0913"]
 "src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/cases.py" = ["C901", "PLR0913"]
-"src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/conv_universal_wide384/app.py" = ["PLR0913"]
 "src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/test.py" = ["PLR0913"]
 "src/tools/ipu-apps/src/ipu_apps/kernels/softmax/app.py" = ["PLR0913"]
 "src/tools/ipu-apps/test/mobilevit/test_full_layer_l4.py" = ["C901", "PLR0912", "PLR0913", "PLR0915"]

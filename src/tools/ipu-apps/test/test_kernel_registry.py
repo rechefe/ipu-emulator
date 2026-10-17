@@ -533,7 +533,9 @@ def _benchmark_modules():
 
 
 def test_benchmark_modules_are_found():
-    assert len(_benchmark_modules()) >= 6
+    # Three are left (conv_universal, depthwise_conv_universal, residual_add):
+    # the migrated kernels' benchmarks are their [benchmark] tables (E06-11).
+    assert len(_benchmark_modules()) >= 3
 
 
 @pytest.mark.parametrize("module", _benchmark_modules(), ids=lambda m: m.__name__)

@@ -11,11 +11,6 @@ changed.
 Render contexts are copied here as literals, not imported, because the tests
 that used them were manual whole-model runs. None is left today (E07-23 moved
 the last such programs to //kernels); the mechanism stays for the next one.
-
-Programs rendered per run by a kernel's own ``app.py`` (``conv_universal_wide384``,
-``depthwise_conv_stride2_*``) are pinned here only in their standalone form,
-with their ``| default(...)`` values; the per-case programs are pinned by the
-kernel case baselines (E02-07).
 """
 
 from __future__ import annotations
@@ -49,22 +44,10 @@ RENDER_CONTEXTS: dict[str, tuple[dict, ...]] = {}
 
 #: Programs that also assemble standalone (from their ``ipu:params`` header
 #: defaults), and the other defines their harness tests assemble them with.
-#: Each set of defines is one more corpus entry. ``conv_universal_wide384``'s
-#: test sweeps rows=16 at width 384 and width 512 (cpr=4) at rows=4;
-#: ``depthwise_conv_stride2_narrow``'s runs cols 64 and 16. (rows=16 assembles
-#: the same words as the default rows=8: rows changes the program only at 1.
-#: The entry records what the harness runs all the same.)
-_CONVOLUTIONS = "src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/"
-HARNESS_DEFINES: dict[str, tuple[dict, ...]] = {
-    _CONVOLUTIONS + "conv_universal_wide384/conv_universal_wide384.asm": (
-        {"cpr": 3, "rows": 16},
-        {"cpr": 4, "rows": 4},
-    ),
-    _CONVOLUTIONS + "depthwise_conv_stride2_narrow/depthwise_conv_stride2_narrow.asm": (
-        {"elements_in_row": 16},
-        {"elements_in_row": 64},
-    ),
-}
+#: Each set of defines is one more corpus entry. None is left: the last two
+#: (``conv_universal_wide384``, ``depthwise_conv_stride2_narrow``) render their
+#: values from each case's parameters as //kernels kernels now (E07-19).
+HARNESS_DEFINES: dict[str, tuple[dict, ...]] = {}
 
 #: Where the digests live, repo-relative.
 MANIFEST_PATH = "src/tools/ipu-apps/test/baselines/asm_digests.json"

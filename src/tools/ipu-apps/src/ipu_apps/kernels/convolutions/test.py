@@ -1,14 +1,14 @@
 """Convolution family tests, beyond each kernel's own cases and test.py.
 
 * The tiled kernels (``conv1x1``, ``conv3x3_relu*``), ``conv_first_layer``
-  (E07-16), ``conv_universal`` / ``conv_universal_bn_activation`` (E07-17)
-  and the pointwise and depthwise twins (E07-18) moved to
+  (E07-16), ``conv_universal`` / ``conv_universal_bn_activation`` (E07-17),
+  the pointwise and depthwise twins (E07-18), ``conv_universal_wide384`` and
+  the ``depthwise_conv_stride2_*`` kernels (E07-19) moved to
   ``kernels/convolutions``; their routing and the two ``conv2d`` vocabularies
   are tested there (``test_routing.py``, ``test_layers.py``). The old
-  ``conv_universal`` folder stays frozen for the Cycle Inspector (E07-26), so
-  the width table below still names it, and the old
-  ``depthwise_conv_universal`` folder as stage 1 of the stride-2 kernels
-  (E07-19).
+  ``conv_universal`` folder stays frozen for the Cycle Inspector, and the old
+  ``depthwise_conv_universal`` folder for the getting-started guide, so the
+  old registry still answers for those two, which the tables below check.
 * **Routing** -- framework-free dispatch checks and the width ceiling, as a
   generated boundary table.
 * **The ``Conv2d`` layer adapter** -- refusal cases, driven through
@@ -78,19 +78,6 @@ def query(**overrides):
     "overrides,kernel",
     [
         (dict(in_channels=4, out_channels=4, groups=4), "depthwise_conv_universal"),
-        (
-            dict(in_channels=4, out_channels=4, groups=4, stride=2, height=8, width=128),
-            "depthwise_conv_stride2_128",
-        ),
-        (
-            dict(in_channels=4, out_channels=4, groups=4, stride=2, height=16, width=32),
-            "depthwise_conv_stride2_narrow",
-        ),
-        (
-            dict(in_channels=4, out_channels=4, groups=4, stride=2, height=16, width=16),
-            "depthwise_conv_stride2_16",
-        ),
-        (dict(width=384, out_channels=4), "conv_universal_wide384"),
     ],
 )
 def test_resolve(overrides, kernel):
@@ -105,21 +92,8 @@ def test_width_routing_boundaries():
     runs = boundaries("conv2d", "width", range(1, 641), **fixed)
     assert [(b.start, b.end, b.kernel) for b in runs] == [
         (1, 128, "conv_universal"),
-        (129, 383, None),
-        (384, 384, "conv_universal_wide384"),
-        (385, 511, None),
-        (512, 512, "conv_universal_wide384"),
-        (513, 639, None),
-        (640, 640, "conv_universal_wide384"),
+        (129, 640, None),  # conv_universal_wide384 is a //kernels kernel (E07-19)
     ]
-
-
-def test_output_shape_is_derived_for_stride2():
-    verdict = resolve(
-        "conv2d", **query(in_channels=4, out_channels=4, groups=4, stride=2, height=8, width=128)
-    )
-    assert verdict.shapes.get("output") == (4, 4, 64)
-    assert "output" in verdict.shapes.derived_roles
 
 
 # -- the Conv2d adapter refusals ------------------------------------------------
@@ -138,7 +112,7 @@ def test_conv2d_adapter_is_registered():
         (Conv2d(3, 4, kernel_size=3, padding=1, stride=3), (3, 8, 8), "stride"),
         (Conv2d(4, 4, kernel_size=3, padding=1, groups=2), (4, 8, 8), "groups"),
         (Conv2d(3, 4, kernel_size=3, padding=1, stride=2), (3, 8, 128), "stride"),
-        # width 200: over 128 and not a multiple of 128 >= 384 for wide384 either.
+        # width 200: over 128.
         (Conv2d(3, 4, kernel_size=3, padding=1, bias=False), (3, 8, 200), "width"),
     ],
 )

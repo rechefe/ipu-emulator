@@ -30,8 +30,9 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Protocol
 
+from ipu_as.session import AssemblyResult
 from ipu_emu.errors import ConfigurationError
-from ipu_emu.reference import ReferenceModel, RunResult, RunState, TraceWriter
+from ipu_emu.reference import ReferenceModel, RunResult, RunState, Stats, TraceWriter
 from ipu_harness._plugins import load_file
 from ipu_harness.abi import apply, check_cr_reads, register_writes
 from ipu_harness.assembly import AssemblyCache, assemble_program
@@ -42,7 +43,15 @@ from ipu_harness.placement import Placement, check_aaq_spill
 from ipu_isa.constants import DStructureConfig
 from ipu_isa.geometry import LANES
 
-__all__ = ["StageContext", "StageOptions", "StageRun", "StagesRun", "load_hook", "run_stages"]
+__all__ = [
+    "StageContext",
+    "StageOptions",
+    "StageRun",
+    "StagesRun",
+    "load_hook",
+    "run_stages",
+    "stage_programs",
+]
 
 
 @dataclass(frozen=True)
@@ -76,6 +85,8 @@ class StageRun:
         mult_identity_lane_ops: The part of ``mult_lane_ops`` that multiplied
             by a constant 1.
         rendered: The program's rendered text, for a fault report.
+        stats: The model's statistics for the stage alone (``load_program``
+            clears them), or ``None`` (a hand-made record).
     """
 
     program: str
@@ -83,6 +94,7 @@ class StageRun:
     mult_lane_ops: int
     mult_identity_lane_ops: int
     rendered: str
+    stats: Stats | None = None
 
 
 @dataclass(frozen=True)
@@ -113,17 +125,46 @@ class StagesRun:
         useful = sum(s.mult_lane_ops - s.mult_identity_lane_ops for s in self.stages)
         return useful / (self.cycles * LANES)
 
+    @property
+    def stats(self) -> Stats | None:
+        """Every stage's statistics summed, the ratios over the sum (what the
+        benchmark reports for the run, as the ipu_apps harness summed its
+        stages'); ``None`` when a stage has none."""
+        per = [s.stats for s in self.stages]
+        if not per or any(st is None for st in per):
+            return None
+        counts = {
+            name: sum(getattr(st, name) for st in per)
+            for name in (
+                "cycles",
+                "mult_active_cycles",
+                "acc_active_cycles",
+                "xmem_reads",
+                "xmem_writes",
+                "mult_lane_ops",
+                "mult_identity_lane_ops",
+            )
+        }
+        peak = counts["cycles"] * LANES
+        return Stats(
+            **counts,
+            lane_occupancy=counts["mult_lane_ops"] / peak if peak else 0.0,
+            effective_mac_utilization=self.mac_utilization,
+        )
+
 
 class StageContext(Protocol):
-    """What a kernel's stages hook gets.
+    """What a kernel's stages hook gets (it reads ``plan`` and ``placement``)."""
 
-    Attributes:
-        plan: The checked case.
-        placement: Its regions, scratch included.
-    """
+    @property
+    def plan(self) -> CasePlan:
+        """The checked case."""
+        ...
 
-    plan: CasePlan
-    placement: Placement
+    @property
+    def placement(self) -> Placement:
+        """Its regions, scratch included."""
+        ...
 
     def run_stage(
         self,
@@ -165,6 +206,42 @@ class _StageStop(BaseException):
     not swallow it."""
 
 
+def _program(manifest: KernelManifest, program: str) -> Path:
+    # Lexical, not resolve(): under Bazel the files are symlinks out of
+    # the runfiles tree (as kernel_test.py keeps them).
+    directory = Path(os.path.abspath(manifest.directory))
+    path = Path(os.path.normpath(directory / program))
+    family = directory.parent
+    if family not in path.parents:
+        raise ConfigurationError(
+            f"{manifest.name}: stage program {program!r} is outside the "
+            f"kernel's family ({family.name}); FAMILY_DEPS (E06-18) is not there yet"
+        )
+    if not path.is_file():
+        raise ConfigurationError(f"{manifest.name}: stage program {program!r} not found")
+    return path
+
+
+def _assemble_stage(
+    plan: CasePlan,
+    placement: Placement | None,
+    cache: AssemblyCache,
+    program: str,
+    *,
+    params: Mapping[str, object],
+    abi: Mapping[str, str] | None,
+) -> tuple[Mapping[str, str], AssemblyResult]:
+    """One stage's register table and checked program (see ``run_stage``)."""
+    manifest = plan.manifest
+    path = _program(manifest, program)
+    bindings = manifest.abi if abi is None else check_abi(manifest, abi, where=f"stage {program}")
+    assembled = assemble_program(plan, path, cache, params=params, abi=bindings)
+    check_cr_reads(manifest, assembled.rendered, abi=bindings, name=path.name)
+    if placement is not None:
+        check_aaq_spill(plan, placement, assembled.rendered)
+    return bindings, assembled
+
+
 @dataclass
 class _Stages:
     manifest: KernelManifest
@@ -178,21 +255,6 @@ class _Stages:
     quit: bool = False
     stopped: bool = False
 
-    def _program(self, program: str) -> Path:
-        # Lexical, not resolve(): under Bazel the files are symlinks out of
-        # the runfiles tree (as kernel_test.py keeps them).
-        directory = Path(os.path.abspath(self.manifest.directory))
-        path = Path(os.path.normpath(directory / program))
-        family = directory.parent
-        if family not in path.parents:
-            raise ConfigurationError(
-                f"{self.manifest.name}: stage program {program!r} is outside the "
-                f"kernel's family ({family.name}); FAMILY_DEPS (E06-18) is not there yet"
-            )
-        if not path.is_file():
-            raise ConfigurationError(f"{self.manifest.name}: stage program {program!r} not found")
-        return path
-
     def run_stage(
         self,
         program: str,
@@ -204,15 +266,9 @@ class _Stages:
     ) -> int:
         if self.stopped:
             raise _StageStop  # an earlier stage ended the run; the hook caught its stop
-        path = self._program(program)
-        bindings = (
-            self.manifest.abi
-            if abi is None
-            else check_abi(self.manifest, abi, where=f"stage {program}")
+        bindings, assembled = _assemble_stage(
+            self.plan, self.placement, self.cache, program, params=params, abi=abi
         )
-        assembled = assemble_program(self.plan, path, self.cache, params=params, abi=bindings)
-        check_cr_reads(self.manifest, assembled.rendered, abi=bindings, name=path.name)
-        check_aaq_spill(self.plan, self.placement, assembled.rendered)
 
         model = self.model
         model.load_program(assembled.words)
@@ -243,6 +299,7 @@ class _Stages:
                 stats.mult_lane_ops,
                 stats.mult_identity_lane_ops,
                 assembled.rendered,
+                stats,
             )
         )
         self.last = result
@@ -311,3 +368,64 @@ def run_stages(
     if not stages.runs:
         raise ConfigurationError(f"{manifest.name}: the stages hook ran no stage")
     return StagesRun(tuple(stages.runs), stages.last)
+
+
+@dataclass
+class _Assembling:
+    """A stages context that assembles each stage and runs none."""
+
+    plan: CasePlan
+    regions: Placement | None
+    cache: AssemblyCache
+    programs: list[tuple[str, AssemblyResult]] = field(default_factory=list)
+
+    @property
+    def placement(self) -> Placement:
+        """The case's regions, when the caller placed it."""
+        if self.regions is None:
+            raise ConfigurationError(
+                f"{self.plan.manifest.name}: the stages hook read the placement of a "
+                "case assembled without one"
+            )
+        return self.regions
+
+    def run_stage(
+        self,
+        program: str,
+        *,
+        params: Mapping[str, object] = MappingProxyType({}),
+        abi: Mapping[str, str] | None = None,
+        dstructure: DStructureConfig | None = None,
+        max_cycles: int | None = None,
+    ) -> int:
+        _, assembled = _assemble_stage(
+            self.plan, self.regions, self.cache, program, params=params, abi=abi
+        )
+        self.programs.append((program, assembled))
+        return 0
+
+
+def stage_programs(
+    plan: CasePlan, placement: Placement | None = None, *, cache: AssemblyCache | None = None
+) -> tuple[tuple[str, AssemblyResult], ...]:
+    """Every program the kernel's stages hook runs for ``plan``, assembled and
+    checked as :meth:`StageContext.run_stage` does, but not run (each stage
+    returns 0 cycles). For ``:assemble_<name>`` and the tree's program checks.
+
+    Args:
+        plan: The checked case of a kernel with a ``stages`` hook.
+        placement: Its regions, for the ``ST.AAQ`` spill check; ``None``
+            skips that check (the programs need no placement to assemble).
+        cache: Reuses programs already assembled.
+
+    Returns:
+        Each stage's program, as the hook named it, and its assembly, in order.
+
+    Raises:
+        ConfigurationError: The hook ran no stage, or a stage's request is wrong.
+    """
+    context = _Assembling(plan, placement, cache or AssemblyCache())
+    load_hook(plan.manifest)(context)
+    if not context.programs:
+        raise ConfigurationError(f"{plan.manifest.name}: the stages hook ran no stage")
+    return tuple(context.programs)

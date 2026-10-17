@@ -49,3 +49,16 @@ def keep_all_mask(plan: CasePlan) -> bytes:
     blob = bytearray(FORMATS[plan.format].row_bytes)
     blob[:16] = b"\xff" * 16
     return bytes(blob)
+
+
+def wide_mask(plan: CasePlan) -> bytes:
+    """``conv_universal_wide384``'s R_MASK blob (E07-19; ``build_wide384_mask_blob``
+    in the old ipu_apps kernel): slot 0 keeps every lane, slot 1 zeros every
+    lane (the vertical border), slot 2 zeros lane 0 (the left edge), slot 3
+    zeros lane 127 (the right edge); the rest of the row zero."""
+    blob = bytearray(FORMATS[plan.format].row_bytes)
+    for slot in (0, 2, 3):
+        blob[slot * 16 : slot * 16 + 16] = b"\xff" * 16
+    blob[2 * 16 + 0] &= ~0x01  # slot 2, lane 0
+    blob[3 * 16 + 15] &= ~0x80  # slot 3, lane 127
+    return bytes(blob)

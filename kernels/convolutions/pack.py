@@ -33,6 +33,12 @@ each filter's weights and bias into 28-channel super-blocks
 (``fpb28_filters``). The pointwise and depthwise templates (E07-18) reuse
 ``chunked``, ``chunked_guard`` and ``conv_weight_groups``, and add
 ``pass0_bias`` (the pointwise bias rows) and ``depthwise_filters``.
+
+``conv_universal_wide384`` (E07-19) stores its input and output
+``row_interleaved`` and its weights ``conv_weight_groups`` (14 input channels a
+row). The stride-2 depthwise kernels' outputs are ``chunk_interleaved``
+(``ipu_kernels.pack``), but ``depthwise_conv_stride2_16``'s, two 8x8 channels a
+row (``channel_pairs``).
 """
 
 from __future__ import annotations
@@ -405,6 +411,39 @@ class DepthwiseFilters:
         return out
 
 
+class ChannelPairs:
+    """``depthwise_conv_stride2_16``'s output (E07-19): ``(channels, h, w)`` with
+    ``2 * h * w == 128`` and even channels, two channels a row: channel ``2p`` in
+    lanes 0..63 of row ``p`` and ``2p + 1`` in lanes 64..127, each ``h x w``
+    row-major. That is the tensor flattened, 128 elements a row."""
+
+    @staticmethod
+    def _check(shape: tuple[int, ...]) -> None:
+        if len(shape) != 3 or shape[0] % 2 or 2 * shape[1] * shape[2] != LANES:
+            raise ValueError(
+                f"channel_pairs lays out (even channels, h, w) with 2 * h * w = {LANES}, not {shape}"
+            )
+
+    def rows(self, shape: tuple[int, ...], plan: CasePlan) -> int:
+        """``channels / 2`` rows.
+
+        Raises:
+            ValueError: Not ``(even channels, h, w)`` with ``2 * h * w == 128``.
+        """
+        self._check(shape)
+        return shape[0] // 2
+
+    def to_rows(self, a: Array, plan: CasePlan) -> Array:
+        """``a`` flattened, 128 elements a row."""
+        self._check(a.shape)
+        return np.asarray(a, dtype=np.float64).reshape(-1, LANES)
+
+    def from_rows(self, r: Array, plan: CasePlan, shape: tuple[int, ...]) -> Array:
+        """The ``shape`` tensor ``r`` holds."""
+        self._check(shape)
+        return r.reshape(shape)
+
+
 tiled_guard = HaloTiled(halo=0, guard=True)
 halo_tiled_guard = HaloTiled(halo=1, guard=True)
 halo_tiled = HaloTiled(halo=1, guard=False)
@@ -417,3 +456,4 @@ chunked = Chunked(guard=False)
 fpb28_filters = Fpb28Filters()
 pass0_bias = Pass0Bias()
 depthwise_filters = DepthwiseFilters()
+channel_pairs = ChannelPairs()

@@ -651,7 +651,7 @@ $ bazel run //src/tools/ipu-apps:query -- conv2d in_channels=32 out_channels=32 
     has_bias=False apply_relu=False height=64 width=64
 \end{termcmdtop}
 \begin{termout}
-NOT SUPPORTED: no conv2d kernel covers this query -- conv_universal, conv_universal_wide384, depthwise_conv_stride2_128, depthwise_conv_stride2_16, depthwise_conv_stride2_narrow, depthwise_conv_universal: handles only kernel_size=3; got 5
+NOT SUPPORTED: no conv2d kernel covers this query -- conv_universal, depthwise_conv_universal: handles only kernel_size=3; got 5
 \end{termout}
 
 \subsection{Sweep a parameter: \texttt{--sweep}}

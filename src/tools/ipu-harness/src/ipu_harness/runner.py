@@ -212,9 +212,9 @@ class RunResult:
             one-program kernel.
         placement: Where the case's tensors were in XMEM (E06-15 chains an
             output region into the next kernel's input).
-        stats: The model's run statistics (reference-model API 1.1.0) for a
-            one-program kernel: busy slots, lanes and MACs, as the benchmark
-            reports them (E06-11). ``None`` for a multi-stage kernel.
+        stats: The model's run statistics (reference-model API 1.1.0): busy
+            slots, lanes and MACs, as the benchmark reports them (E06-11);
+            for a multi-stage kernel its stages' summed (E07-19).
     """
 
     kernel: str
@@ -606,6 +606,7 @@ def _run_staged_kernel(
         staged.mac_utilization,
         staged.stages[-1].rendered,
         tuple((s.program, s.cycles) for s in staged.stages),
+        staged.stats,
     )
 
 

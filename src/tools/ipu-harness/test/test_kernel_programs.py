@@ -5,8 +5,9 @@ The standalone corpus tests in ipu-as-py (``test_assembly_round_trip``,
 ``test_hardware_target``) run these checks on programs that assemble from
 their file. A ``kernels/`` program renders only with a case, so here each
 kernel's and template's default case is rendered in every format it runs in
-(``kernel_bin.default_programs``, the program ``:assemble_<name>`` writes), and
-the same checks (``program_checks``) run on the rendered text and its words.
+(``kernel_bin.default_stage_programs``: the program ``:assemble_<name>``
+writes, and a multi-stage kernel's every stage, E06-14), and the same checks
+(``program_checks``) run on the rendered text and its words.
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ from program_checks import (
 )
 
 from ipu_as.session import AssemblySession
-from ipu_harness.kernel_bin import default_programs
+from ipu_harness.kernel_bin import default_programs, default_stage_programs
 from ipu_harness.registry import Registry, kernel_tree
 
 _REGISTRY = Registry.load(kernel_tree())
@@ -31,11 +32,16 @@ _KERNELS = sorted(
     [*_REGISTRY.manifests.values(), *_REGISTRY.templates.values()], key=lambda m: m.name
 )
 
-#: Each kernel's default case in each of its formats: (id, rendered program).
+#: Each kernel's default case in each of its formats, each stage's program for
+#: a multi-stage kernel: (id, rendered program).
 PROGRAMS = [
-    pytest.param(program, id=f"{manifest.name}-{fmt.value}")
+    pytest.param(
+        program,
+        id=f"{manifest.name}-{fmt.value}" + (f"-{i}" if len(stages) > 1 else ""),
+    )
     for manifest in _KERNELS
-    for fmt, program in default_programs(manifest).items()
+    for fmt, stages in default_stage_programs(manifest).items()
+    for i, (_, program) in enumerate(stages)
 ]
 
 
@@ -44,11 +50,16 @@ def test_the_tree_has_kernels():
     assert len(_KERNELS) > 40 and len(PROGRAMS) > len(_KERNELS)
 
 
-def test_no_kernel_has_programs_this_test_does_not_see():
+def test_a_multi_stage_kernel_contributes_every_stage():
     """A multi-stage kernel (``[kernel] stages``) runs more programs than its
-    default one, which default_programs does not render: the first to land
-    must extend this test to its stage programs."""
-    assert not [m.name for m in _KERNELS if m.stages is not None]
+    default one: each is checked, and ``:assemble_<name>`` writes its own."""
+    staged = [m for m in _KERNELS if m.stages is not None]
+    assert staged
+    for manifest in staged:
+        for fmt, stages in default_stage_programs(manifest).items():
+            assert len(stages) > 1, manifest.name
+            own = [program for name, program in stages if name == manifest.asm.name]
+            assert own and default_programs(manifest)[fmt].words == own[-1].words
 
 
 def test_some_kernel_programs_are_hardware_programs():
