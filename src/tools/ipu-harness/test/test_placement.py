@@ -100,6 +100,26 @@ def test_scratch_is_placed_after_inputs_and_outputs(tmp_path):
     assert placement.region("t").role == "scratch"
 
 
+def test_a_scratch_region_after_the_input_comes_before_the_output(tmp_path):
+    scratch = '[scratch.t]\nshape = [3, 128]\nafter = "x"\n'
+    toml = SCALE.format(x_pin="", y_extra=scratch).replace(
+        's    = "CR5"', 's    = "CR5"\nt    = "CR6"'
+    )
+    m = manifest(tmp_path, toml)
+    assert m.tensors["t"].after == "x"
+    placement = place(plan_case(m, {"rows": 4, "s": 2.0}, F.FP32))
+    assert bases(placement) == {"x": (0, 4), "y": (7, 4), "t": (4, 3)}
+
+
+def test_a_pin_can_be_an_expression_of_the_parameters(tmp_path):
+    toml = SCALE.format(x_pin='row = "rows * 2"', y_extra="")
+    m = manifest(tmp_path, toml)
+    assert m.tensors["x"].row == "rows * 2"
+    plan = plan_case(m, {"rows": 3, "s": 2.0}, F.FP32)
+    assert plan.pins == {"x": 6}
+    assert bases(place(plan)) == {"x": (6, 3), "y": (0, 3)}
+
+
 def test_overlapping_pins_name_both_regions(tmp_path):
     m = manifest(tmp_path, SCALE.format(x_pin="row = 0\n", y_extra="row = 3\n"))
     with pytest.raises(PlanError) as error:

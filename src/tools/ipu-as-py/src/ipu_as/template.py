@@ -387,14 +387,19 @@ def _abi_context(
     return context
 
 
-def abi_namespaces(table: Mapping[str, str]) -> dict[str, dict[str, str]]:
+def abi_namespaces(table: Mapping[str, object]) -> dict[str, dict[str, str]]:
     """Split a flat `name -> register` table (`kernel.toml [abi]`) into the `cr` / `lr` namespaces.
+
+    A binding is a register (`"CR2"`) or a table naming one (`{ register = "CR2",
+    offset = -1 }`, a tensor's base plus an offset); only the register reaches
+    the template.
 
     Raises:
         TemplateError: a value is not a CR or LR register.
     """
     namespaces: dict[str, dict[str, str]] = {namespace: {} for namespace in ABI_NAMESPACES}
-    for name, register in table.items():
+    for name, binding in table.items():
+        register = binding.get("register") if isinstance(binding, Mapping) else binding
         namespace = str(register)[:2].lower()
         if not isinstance(register, str) or namespace not in namespaces:
             raise TemplateError(f"[abi] {name} = {register!r} is not a CR or LR register")
