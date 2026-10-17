@@ -1,0 +1,100 @@
+# attn_scores_km_64x48: L4 K Q^T scores, key-major, the case's head of 4 in
+# each of the 4 streams: y[p, s, i] = sum_c K[p, s, c] Q[p, i, c], 64 tokens,
+# head_dim 48. Pairs with attn_v_bcast_48 (the key-major chain), never with
+# attn_v_64x48.
+[kernel]
+op = "attn_scores_km"                       # a separate op per chain stage keeps the query-major and key-major chains apart
+formats = ["fp32"]
+
+[params]
+n_tok = { type = "int", choices = [64] }   # fixed: legacy routes on exact (n_tok, d)
+d = { type = "int", choices = [48] }   # fixed: legacy routes on exact (n_tok, d)
+p = { type = "int", choices = [4], default = 4 }   # geometry, not in the legacy query: a default keeps (n_tok, d) queries routable
+head = { type = "int", min = 0, max = 3, default = 0 }   # generator only: which head of the 4 the case scores; a and b ARE that head
+n_heads = { type = "int", choices = [4], default = 4 }   # heads in the canonical file (generator only)
+seed = { type = "int", default = 0xD48 }   # legacy RandomState seed (0xD48); generator only
+
+# Legacy placement: the inputs back to back from row 0 in the order below, then the output; first fit in
+# declaration order reproduces it (compare_setup: IDENTICAL).
+[inputs.b]                         # the selected head's Q, channel-major: row (p, c) holds n_tok queries
+shape = ["p", "d", "n_tok"]
+
+[inputs.a]                         # the selected head's K, key-major: row (p, s) holds key s's d channels
+shape = ["p", "n_tok", "d"]
+
+[outputs.y]                             # S key-major: row (s, g) holds queries [g*128, g*128+128)
+shape = ["p", "n_tok", "n_tok"]
+# ST.AAQ, one row per store, in row order
+
+[derived]
+q_start = "-1"           # CR5
+chan_start = "-1"        # CR7
+chan_bound_unread = "d - 2" # CR8: written, never read
+q_stream_rows = "d"      # CR11: Q rows per stream
+k_stream_rows_unread = "n_tok" # CR12: K rows per stream: written, never read
+rc_slot0 = "0"           # LR0
+q_chan_stride = "1"      # LR2
+out_stride = "1"         # LR3
+chan_bound = "d - 2"     # LR6: the contraction bound (the program raises it by one into LR11)
+out_ptr = "0"            # LR7
+key_ptr = "0"            # LR8
+key_index = "0"          # LR9
+key_stride = "1"         # LR12
+q_stream_off = "0"       # LR13
+stream_index = "0"       # LR14
+
+[abi]
+b = "CR3"        # Q_BASE (row 0 via a writable CR)
+a = "CR9"        # K_BASE_KM
+y = "CR2"        # S_BASE
+q_start = "CR5"
+chan_start = "CR7"
+chan_bound_unread = "CR8"
+p = "CR10"
+q_stream_rows = "CR11"
+k_stream_rows_unread = "CR12"
+rc_slot0 = "LR0"
+q_chan_stride = "LR2"
+out_stride = "LR3"
+chan_bound = "LR6"
+out_ptr = "LR7"
+key_ptr = "LR8"
+key_index = "LR9"
+n_tok = "LR10"
+key_stride = "LR12"
+q_stream_off = "LR13"
+stream_index = "LR14"
+# CR15 unbound -> default dstructure (valid_elements = 128), as legacy
+# Zero-valued LR presets are bound on purpose: in a Chain (E06-15) LRs carry over from the previous step.
+
+[golden]
+op = "matmul"                          # y = a @ b in the logical shapes above (batched over the leading dim)
+tolerance = { fp32 = "FP32_ORDER" }    # a short contraction (d terms); the old check: rtol=1e-4, atol=1e-3.
+# The family's test_datapath.py also holds the scores bit for bit to the ACC datapath mirror
+# (ipu_kernels.reference.datapath.acc_fold): a math reference and the mirror (E06-09).
+
+[cases.default]
+n_tok = 64
+d = 48
+p = 4
+head = 2
+seed = 0xD48
+generator = "../gen.py:legacy_km"
+
+# The old sweep: the first and the last head of one input, each against its own block.
+[cases.sweep_01]
+n_tok = 64
+d = 48
+p = 4
+head = [0]
+seed = [0xD49]
+generator = "../gen.py:legacy_km"
+
+[cases.sweep_02]
+n_tok = 64
+d = 48
+p = 4
+head = [3]
+seed = [0xD49]
+generator = "../gen.py:legacy_km"
+

@@ -104,3 +104,15 @@ py_pytest_test(
         requirement("torch"),
     ],
 )
+
+# The datapath mirrors (E07-12): each fold's rounding on hand-made inputs.
+py_pytest_test(
+    name = "test_datapath",
+    size = "small",
+    srcs = ["test/test_datapath.py"],
+    deps = [
+        ":ipu_kernels_lib",
+        requirement("numpy"),
+        requirement("pytest"),
+    ],
+)

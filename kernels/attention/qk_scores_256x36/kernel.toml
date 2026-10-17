@@ -1,0 +1,71 @@
+# qk_scores_256x36: L3 QK^T scores, query-major, one head: y[i, s] = sum_c
+# Q[i, c] K[s, c] for 256 tokens (two 128-key groups) and head_dim 36. Pairs
+# with attn_v_256x36 (the query-major chain), never with attn_v_bcast_36.
+[kernel]
+op = "qk_scores"                            # a separate op per chain stage keeps the query-major and key-major chains apart
+formats = ["fp32"]
+
+[params]
+n_tok = { type = "int", choices = [256] }   # fixed: legacy routes on exact (n_tok, d)
+d = { type = "int", choices = [36] }   # fixed: legacy routes on exact (n_tok, d)
+seed = { type = "int", default = 0x9C0 }   # legacy RandomState seed (0x9C0); generator only
+
+# Legacy placement: the inputs back to back from row 0 in the order below, then the output; first fit in
+# declaration order reproduces it (compare_setup: IDENTICAL).
+[inputs.b]                         # K, channel-major: row c holds the n_tok keys of channel c (2 rows per channel at n_tok = 256)
+shape = ["d", "n_tok"]
+row = 0
+
+[inputs.a]                         # Q staged query-major: row i holds query i's d channels (gen.py transposes the old channel-major draw)
+shape = ["n_tok", "d"]
+
+[outputs.y]                             # S query-major: row (i, g) holds keys [g*128, g*128+128) -- RowMajor over n_tok keys
+shape = ["n_tok", "n_tok"]
+# ST.AAQ, one row per store, in row order
+
+[derived]
+y_g1 = "base(y) + 1"     # CR4: key group 1's first output row
+k_start_g0 = "-2"        # CR5: -K_STRIDE_ROWS
+k_start_g1 = "-1"        # CR6: -K_STRIDE_ROWS + 1
+chan_start = "-1"        # CR7
+chan_bound_unread = "d - 2" # CR8: written, never read
+rc_slot0 = "0"           # LR0
+k_stride = "n_tok / 128" # LR2: 2
+out_stride = "n_tok / 128" # LR3: rows per query: one per key group
+chan_bound = "d - 2"     # LR6: the contraction bound (the program raises it by one into LR11)
+out_ptr = "0"            # LR7
+q_ptr = "0"              # LR8
+q_index = "0"            # LR9
+q_stride = "1"           # LR12
+
+[abi]
+b = "CR0"        # read through the hardwired 0: b is pinned at row 0
+a = "CR9"        # QROW_BASE
+y = "CR3"        # S_BASE_G0
+y_g1 = "CR4"
+k_start_g0 = "CR5"
+k_start_g1 = "CR6"
+chan_start = "CR7"
+chan_bound_unread = "CR8"
+rc_slot0 = "LR0"
+k_stride = "LR2"
+out_stride = "LR3"
+chan_bound = "LR6"
+out_ptr = "LR7"
+q_ptr = "LR8"
+q_index = "LR9"
+n_tok = "LR10"
+q_stride = "LR12"
+# CR15 unbound -> default dstructure (valid_elements = 128), as legacy
+# Zero-valued LR presets are bound on purpose: in a Chain (E06-15) LRs carry over from the previous step.
+
+[golden]
+op = "matmul"                          # y = a @ b in the logical shapes above (batched over the leading dim)
+tolerance = { fp32 = "FP32_ORDER" }    # a short contraction (d terms); the old check: rtol=1e-4, atol=1e-3 vs Q.T @ K.
+
+[cases.default]
+n_tok = 256
+d = 36
+seed = 0x9C0
+generator = "../gen.py:legacy_qk"
+
