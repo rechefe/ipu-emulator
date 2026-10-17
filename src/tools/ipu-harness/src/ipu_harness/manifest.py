@@ -159,7 +159,13 @@ from ipu_emu.errors import ConfigurationError
 from ipu_harness._codec import limits
 from ipu_harness._toml_source import Locator, ManifestError, Reader, decode_error_line, where
 from ipu_harness.conditions import Condition
-from ipu_harness.expressions import ROW_BYTES, ExpressionError, base_tensor, names_in, placed_reads
+from ipu_harness.expressions import (
+    ROW_BYTES_NAME,
+    ExpressionError,
+    base_tensor,
+    names_in,
+    placed_reads,
+)
 from ipu_harness.tolerance import TIERS
 from ipu_harness.tolerance import Tier as ToleranceTier
 from ipu_isa.formats import FORMATS, ElementFormat
@@ -250,7 +256,7 @@ SCHEMA_KEYS: Mapping[str, tuple[str, ...]] = MappingProxyType(
     }
 )
 #: Names a template or a case reserves (E06-07: cr, lr, format, shapes).
-_RESERVED_NAMES = frozenset({"cr", "lr", "format", "shapes", ROW_BYTES, *_CASE_KEYS})
+_RESERVED_NAMES = frozenset({"cr", "lr", "format", "shapes", ROW_BYTES_NAME, *_CASE_KEYS})
 
 
 @dataclass(frozen=True)
@@ -619,7 +625,7 @@ def _placed(
     if "row" in table:
         row = r.typed(table["row"], (int, str), (*path, "row"))
         if isinstance(row, str):
-            _check_expression(r, row, (*names, ROW_BYTES), (*path, "row"))
+            _check_expression(r, row, (*names, ROW_BYTES_NAME), (*path, "row"))
         elif row < 0:
             raise r.fail((*path, "row"), f"{where((*path, 'row'))} {row} must not be negative")
         decl = replace(decl, row=row)
@@ -1204,7 +1210,7 @@ def _derived(r: Reader, raw: object, params: Mapping[str, ParamDecl]) -> dict[st
         derived[name] = r.text(expression, path)
         bases = [n for n in _names(r, derived[name], path) if base_tensor(n) is not None]
         earlier = [d for d in derived if d != name]  # not itself: it would never resolve
-        _check_expression(r, derived[name], (*params, *earlier, *bases, ROW_BYTES), path)
+        _check_expression(r, derived[name], (*params, *earlier, *bases, ROW_BYTES_NAME), path)
     return derived
 
 
