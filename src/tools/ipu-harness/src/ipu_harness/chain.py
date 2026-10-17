@@ -289,8 +289,9 @@ class Chain:
                 output, a scratch region), by name, instead of first fit; or,
                 for an output, a live ``Resident`` (a slice of a
                 :meth:`reserve`'d tensor) to write into, laid out as the
-                output is. That resident, and the tensor it is a slice of,
-                stay live; the step's output is it.
+                output is. The step's output is that resident; it, and the
+                tensor it is a slice of, stay live, unless the step wrote
+                other rows of that tensor: the target then stays on its own.
             reset: Register banks (``r_mask``, ``lr``, ``r_acc``, ... as
                 ``ReferenceModel.read_register`` names them) set to their reset
                 values before the step: every register of each, CR0 and CR1
@@ -357,7 +358,7 @@ class Chain:
             )
         finally:
             # Even when the step raised: it may have written its regions first.
-            self._forget_written(targets, written, spill)
+            self._forget_written(targets, written)
         resident = {**_resident(result, plan, self._steps - 1), **targets}
         if result.placement is None or not result.halted:
             resident = {}
@@ -404,20 +405,16 @@ class Chain:
                 arrays[name] = checked_input(plan, name, value)
         return pinned, arrays
 
-    def _forget_written(
-        self, targets: Mapping[str, Resident], written: list[Region], spill: int
-    ) -> None:
+    def _forget_written(self, targets: Mapping[str, Resident], written: list[Region]) -> None:
         """Drop the live residents a step wrote over. A target written into,
-        and the tensor it is part of, stay, unless the step wrote the rest of
-        that tensor too; a target is then live in its own right."""
-        into = [(t.base_row, t.base_row + t.rows + spill) for t in targets.values()]
-        other = [r for r in written if not any(a <= r.base_row and r.end_row <= b for a, b in into)]
-        kept = [a for t in targets.values() for a in _lineage(t)]
-        self._live = [
-            t
-            for t in self._live
-            if not any(t.overlaps(r) for r in (other if _among(t, kept) else written))
-        ]
+        and the tensor it is part of, stay, unless the step wrote other rows
+        of that tensor; a target is then live in its own right."""
+
+        def kept(t: Resident) -> bool:
+            own = {n for n, target in targets.items() if _among(t, _lineage(target))}
+            return not any(t.overlaps(r) for r in written if r.name not in own)
+
+        self._live = [t for t in self._live if kept(t)]
         self._live.extend(t for t in targets.values() if not self._is_live(t))
 
 
