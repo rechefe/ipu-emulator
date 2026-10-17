@@ -8,6 +8,7 @@ load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
 load("//tools:lint.bzl", "ruff_test")
 load(":defs.bzl", "ipu_kernel_tree")
 load("//kernels/projections:registry.bzl", PROJECTIONS = "ENTRIES")
+load("//kernels/reshape:registry.bzl", RESHAPE = "ENTRIES")
 
 exports_files([
     "BUILD.bazel",
@@ -24,6 +25,7 @@ exports_files([
 # "ENTRIES") above and "<family>": <FAMILY> here. test_kernel_tree checks it.
 REGISTRIES = {
     "projections": PROJECTIONS,
+    "reshape": RESHAPE,
 }
 
 ipu_kernel_tree(registries = REGISTRIES)
