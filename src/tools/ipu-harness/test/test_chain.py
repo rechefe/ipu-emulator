@@ -237,3 +237,68 @@ def test_each_step_writes_its_own_trace(first, second, tmp_path):
 def test_a_chain_takes_no_input_files(tmp_path):
     with pytest.raises(ConfigurationError, match="--input"):
         Chain(ElementFormat.INT8, options=RunOptions(inputs={"x": tmp_path / "x.npy"}))
+
+
+# --- at: a step's own regions where the caller puts them ----------------------------
+
+
+@pytest.fixture
+def free(tmp_path):
+    """Places x and y by first fit."""
+    return load_manifest(_kernel(tmp_path, "free"))
+
+
+def test_at_places_an_output_and_an_array_input(free):
+    chain = Chain(ElementFormat.INT8)
+    step = chain.run(free, SCALE_2, {"x": X}, at={"y": 200, "x": 40})
+    placement = step.result.placement
+    assert placement is not None
+    assert (placement.region("x").base_row, placement.region("y").base_row) == (40, 200)
+    assert step.resident["y"] == Resident(200, 2, None, ElementFormat.INT8)
+    np.testing.assert_array_equal(
+        chain.run(free, SCALE_3, {"x": step.resident["y"]}, check=True).result.outputs["y"],
+        X.astype(np.float64) * 6,
+    )
+
+
+def test_a_region_placed_with_at_makes_what_it_covers_stale(first, free, second):
+    chain = Chain(ElementFormat.INT8)
+    one = chain.run(first, SCALE_2, {"x": X}).resident["y"]  # rows 64..65
+    chain.run(free, SCALE_2, {"x": X}, at={"y": 65})
+    with pytest.raises(ConfigurationError, match="no longer in XMEM"):
+        chain.run(second, SCALE_3, {"x": one})
+
+
+@pytest.mark.parametrize(
+    ("at", "match"),
+    [
+        ({"z": 0}, "at names 'z', which is no tensor"),
+        ({"x": 0}, "at names input x, which is resident"),
+        ({"y": 100}, "pinned to row 128 in kernel.toml; at gives 100"),
+        ({"y": -1}, "not a row"),
+    ],
+)
+def test_at_must_name_a_region_the_step_places(first, second, at, match):
+    chain = Chain(ElementFormat.INT8)
+    resident = chain.run(first, SCALE_2, {"x": X}).resident["y"]
+    with pytest.raises(ConfigurationError, match=match):
+        chain.run(second, SCALE_3, {"x": resident}, at=at)
+    assert chain.run(second, SCALE_3, {"x": resident}, at={"y": 128}).result.halted
+
+
+def test_a_resident_meets_an_expression_pin(tmp_path, first):
+    pinned = load_manifest(_kernel(tmp_path, "expr", x_row='row = "rows * 32"', y_row="row = 128"))
+    chain = Chain(ElementFormat.INT8)
+    resident = chain.run(first, SCALE_2, {"x": X}).resident["y"]  # row 64 == 2 * 32
+    assert chain.run(pinned, SCALE_3, {"x": resident}).result.halted
+
+
+def test_an_output_its_case_lacks_is_no_resident(tmp_path):
+    directory = _kernel(tmp_path, "maybe")
+    toml = (directory / "kernel.toml").read_text()
+    toml = toml.replace("s    = {", 'extra = { type = "bool", default = false }\ns    = {')
+    toml = toml.replace("[abi]", '[outputs.z]\nshape = ["rows", 128]\nwhen = "extra"\n\n[abi]')
+    toml = toml.replace('s    = "CR5"', 's    = "CR5"\nz    = "CR6"')
+    (directory / "kernel.toml").write_text(toml)
+    step = Chain(ElementFormat.INT8).run(load_manifest(directory), SCALE_2, {"x": X})
+    assert set(step.resident) == {"y"}
