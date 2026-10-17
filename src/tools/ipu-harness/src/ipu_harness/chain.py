@@ -10,16 +10,24 @@ other regions) instead of packing and writing it. A resident's layout, its
 pack transform and its stored format, must be what the consumer declares, or
 the step fails before it runs.
 
-A step places its own regions by first fit and knows nothing of an earlier
-step's residents but its inputs, so a step may overwrite a resident it does
+A step places its own regions by first fit, or where ``at`` puts them
+(``chain.run(k, params, inputs, at={"y": 0})``: an output at row 0, for a
+program that reads its base through ``CR0``), and knows nothing of an
+earlier step's residents but its inputs, so a step may overwrite a resident it does
 not take. The chain keeps track: a resident that a later step's placed regions
-cover is stale, and passing it fails. Only the placed regions are tracked: a
-store past its region (``ST.AAQ``'s three-row INT8 spill) is not seen.
+cover is stale, and passing it fails. The rows an ``ST.AAQ`` store spills past
+an output or a scratch region (three in INT8, OQ-35) count as covered. A resident the chain
+*holds* (:meth:`Chain.hold`, until :meth:`Chain.release`) is never covered:
+every later step places around it, and a step that pins a region on it (or
+spills onto it) fails before it runs. Hold a tensor a step several steps on
+reads, such as a residual.
 
 Only XMEM is the chain's state. A step's registers start as the step before
 left them, as on the hardware: ``load_program`` resets the PC, and the step
 writes only its ``[abi]`` registers and CR15; LRs, the vector registers, the
-accumulator and the flags carry over.
+accumulator and the flags carry over. ``reset=("r_mask",)`` puts the named
+register banks back to their reset values first, for a program that assumes
+them (R_MASK all ones: every lane on) after one that left them changed.
 
     chain = Chain(ElementFormat.INT8)
     first = chain.run(scale, {"rows": 2, "s": 2.0}, {"x": x})
@@ -28,22 +36,24 @@ accumulator and the flags carry over.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from types import MappingProxyType
 
 from ipu_emu.errors import ConfigurationError
 from ipu_emu.reference import ReferenceModel
 from ipu_harness._codec import Array
-from ipu_harness.assembly import AssemblyCache
+from ipu_harness.assembly import AssemblyCache, assemble
 from ipu_harness.cases import Case, checked_input
 from ipu_harness.manifest import CaseDecl, KernelManifest
 from ipu_harness.packing import stored_format, stored_rows
 from ipu_harness.params import CasePlan, PlanError, plan_case
-from ipu_harness.placement import Region, place
+from ipu_harness.placement import Region, aaq_spill_rows, place
 from ipu_harness.registry import default_registry
 from ipu_harness.runner import RunOptions, RunResult, SharedModel, run_kernel
+from ipu_isa.constants import CR_READ_ONLY_INITIAL_VALUES
 from ipu_isa.formats import ElementFormat
+from ipu_isa.registers import REGISTER_DEFINITIONS
 
 __all__ = ["Chain", "ChainStep", "Resident"]
 
@@ -119,6 +129,49 @@ class Chain:
         self._cache = AssemblyCache()
         self._steps = 0
         self._live: list[Resident] = []
+        self._held: list[Resident] = []
+        self._fresh: ReferenceModel | None = None  # reset values, for reset=
+
+    def hold(self, resident: Resident) -> Resident:
+        """Keep ``resident`` in XMEM until :meth:`release`: later steps place
+        their regions around it.
+
+        Returns:
+            ``resident``.
+
+        Raises:
+            ConfigurationError: It is stale, or another chain's.
+        """
+        if not _among(resident, self._live):
+            raise ConfigurationError(
+                f"cannot hold rows {_rows(resident)}: the resident tensor is no longer in "
+                "XMEM, or it is not this chain's"
+            )
+        if not _among(resident, self._held):
+            self._held.append(resident)
+        return resident
+
+    def release(self, resident: Resident) -> None:
+        """Let later steps place regions over ``resident`` again.
+
+        Raises:
+            ConfigurationError: The chain does not hold it.
+        """
+        if not _among(resident, self._held):
+            raise ConfigurationError(f"rows {_rows(resident)}: the chain does not hold them")
+        self._held = [t for t in self._held if t is not resident]
+
+    def _reset(self, banks: tuple[str, ...]) -> None:
+        """Write every register of ``banks`` with its reset value: a fresh
+        model's (CR0 and CR1 are hardwired)."""
+        if not banks:
+            return
+        if self._fresh is None:
+            self._fresh = ReferenceModel(self.format)
+        for bank in banks:
+            for index in range(REGISTER_DEFINITIONS[bank]["count"]):
+                if bank != "cr" or index not in CR_READ_ONLY_INITIAL_VALUES:
+                    self.model.write_register(bank, self._fresh.read_register(bank, index), index)
 
     def _step_options(self) -> RunOptions:
         """The options of the next step: its own trace and output files."""
@@ -138,6 +191,8 @@ class Chain:
         inputs: Mapping[str, Array | Resident],
         *,
         check: bool = False,
+        at: Mapping[str, int] | None = None,
+        reset: Iterable[str] = (),
     ) -> ChainStep:
         """Run one kernel on the chain's model.
 
@@ -152,6 +207,13 @@ class Chain:
             check: Hold the outputs to their goldens (the kernel's reference,
                 over the inputs, resident ones read back); an intermediate step
                 need not, and its result has no comparisons.
+            at: Base rows for regions this step writes (an array input, an
+                output, a scratch region), by name, instead of first fit.
+            reset: Register banks (``r_mask``, ``lr``, ``r_acc``, ... as
+                ``ReferenceModel.read_register`` names them) set to their reset
+                values before the step: every register of each, CR0 and CR1
+                aside. Done before the step's placement is checked, so a
+                refused step may have reset them.
 
         Returns:
             The run, and its outputs as ``Resident`` tensors.
@@ -162,17 +224,21 @@ class Chain:
                 ``Resident``'s pack, format or rows differ from what the kernel
                 declares, or it moves an input ``kernel.toml`` pins to a row;
                 or a ``Resident`` is stale (a later step placed a region over
-                it) or another chain's.
-            PlanError: The case is wrong, or a ``Resident`` overlaps another
-                region (placement).
+                it) or another chain's; ``at`` names no tensor of the case (its
+                ``when``), a resident input, or one ``kernel.toml`` pins elsewhere.
+            PlanError: The case is wrong, a ``Resident`` overlaps another
+                region (placement), or a region is pinned on, or would spill
+                onto, a held resident.
         """
         manifest = default_registry().kernel(kernel) if isinstance(kernel, str) else kernel
         decl = CaseDecl(_STEP_CASE, MappingProxyType(dict(params)))
         plan = plan_case(manifest, params, self.format, case=decl)
+        placed = _checked_at(plan, at or {}, inputs)
+        banks = _checked_banks(manifest, reset)
         pinned: dict[str, int] = {}
         arrays: dict[str, Array] = {}
         for name, value in inputs.items():
-            tensor = manifest.tensors.get(name)
+            tensor = plan.manifest.tensors.get(name)
             if tensor is None or tensor.role != "input":
                 # No input of the kernel: the runner names every wrong input.
                 if isinstance(value, Resident):
@@ -180,8 +246,8 @@ class Chain:
                 else:
                     arrays[name] = value
             elif isinstance(value, Resident):
-                _check_layout(manifest, name, value, plan)
-                if not any(value is live for live in self._live):
+                _check_layout(name, value, plan)
+                if not _among(value, self._live):
                     raise ConfigurationError(
                         f"{manifest.name}: input {name}'s resident tensor (rows "
                         f"{value.base_row}..{value.base_row + value.rows - 1}) is no longer "
@@ -200,10 +266,31 @@ class Chain:
             tier="default",
             decl=decl,
         )
-        shared = SharedModel(self.model, MappingProxyType(arrays), MappingProxyType(pinned), check)
+        rendered = None if manifest.stages is not None else assemble(plan, self._cache).rendered
+        spill = aaq_spill_rows(plan, rendered)
+        # A held tensor this step reads stays where it is (pinned); every
+        # other one is off limits, and so are the rows below it a store's
+        # ST.AAQ spill would reach (from an output or a scratch region).
+        reserved = {
+            f"held tensor (rows {_rows(t)})": (
+                max(0, t.base_row - spill),
+                t.rows + min(spill, t.base_row),
+            )
+            for t in self._held
+            if not any(t is v for v in inputs.values())
+        }
+        shared = SharedModel(
+            self.model,
+            MappingProxyType(arrays),
+            MappingProxyType(pinned),
+            check,
+            MappingProxyType(placed),
+            MappingProxyType(reserved),
+        )
+        self._reset(banks)
         options = self._step_options()
         self._steps += 1
-        written = _regions_written(plan, pinned)
+        written = _regions_written(plan, pinned, placed, reserved, spill)
         try:
             result = run_kernel(
                 manifest, case, self.format, options, cache=self._cache, shared=shared
@@ -211,29 +298,98 @@ class Chain:
         finally:
             # Even when the step raised: it may have written its regions first.
             self._live = [t for t in self._live if not any(t.overlaps(r) for r in written)]
-        resident = _resident(manifest, result, plan, self._steps - 1)
+        resident = _resident(result, plan, self._steps - 1)
         self._live.extend(resident.values())
         return ChainStep(result, resident)
 
 
-def _regions_written(plan: CasePlan, pinned: Mapping[str, int]) -> list[Region]:
-    """The regions a step places and may write: all but its resident inputs;
-    none when placement refuses the step, which then fails before it writes."""
+def _checked_at(
+    plan: CasePlan, at: Mapping[str, int], inputs: Mapping[str, Array | Resident]
+) -> dict[str, int]:
+    """``at``, once each name is a region the step writes and each row is a row."""
+    manifest = plan.manifest
+    for name, row in at.items():
+        if name not in manifest.tensors:
+            raise ConfigurationError(
+                f"{manifest.name}: at names {name!r}, which is no tensor of this case "
+                f"(tensors: {', '.join(manifest.tensors)})"
+            )
+        if isinstance(inputs.get(name), Resident):
+            raise ConfigurationError(
+                f"{manifest.name}: at names input {name}, which is resident: it stays where it is"
+            )
+        if not isinstance(row, int) or isinstance(row, bool) or row < 0:
+            raise ConfigurationError(f"{manifest.name}: at {name} = {row!r}, not a row")
+        pin = plan.pins.get(name)
+        if pin is not None and pin != row:
+            raise ConfigurationError(
+                f"{manifest.name}: {name} is pinned to row {pin} in kernel.toml; at gives {row}"
+            )
+    return dict(at)
+
+
+def _checked_banks(manifest: KernelManifest, reset: Iterable[str]) -> tuple[str, ...]:
+    """``reset``, once each is a register bank."""
+    if isinstance(reset, str):
+        raise ConfigurationError(f"{manifest.name}: reset takes bank names, not {reset!r}")
+    banks = tuple(reset)
+    for bank in banks:
+        if bank not in REGISTER_DEFINITIONS:
+            raise ConfigurationError(
+                f"{manifest.name}: reset names {bank!r}, no register bank "
+                f"(banks: {', '.join(sorted(REGISTER_DEFINITIONS))})"
+            )
+    return banks
+
+
+def _among(resident: Resident, residents: list[Resident]) -> bool:
+    """Whether ``resident`` is one of ``residents`` (the object, not an equal one)."""
+    return any(resident is t for t in residents)
+
+
+def _rows(resident: Resident) -> str:
+    return f"{resident.base_row}..{resident.base_row + resident.rows - 1}"
+
+
+def _regions_written(
+    plan: CasePlan,
+    pinned: Mapping[str, int],
+    placed: Mapping[str, int],
+    reserved: Mapping[str, tuple[int, int]],
+    spill: int,
+) -> list[Region]:
+    """The rows a step may write: its regions (placed around the ``reserved``
+    rows) but its resident inputs, each element output and scratch region
+    with the ``spill`` rows after it; none when placement refuses the step,
+    which then fails before it writes."""
     tensors = plan.manifest.tensors
     try:
-        placement = place(plan, {n: stored_rows(t, plan) for n, t in tensors.items()}, pins=pinned)
+        placement = place(
+            plan,
+            {n: stored_rows(t, plan) for n, t in tensors.items()},
+            pins={**pinned, **placed},
+            reserved=reserved,
+        )
     except (ValueError, PlanError):
         return []
-    return [r for r in placement.regions.values() if r.name not in pinned]
+    return [
+        replace(r, rows=r.rows + spill)
+        if r.role == "scratch" or (r.role == "output" and tensors[r.name].store == "element")
+        else r
+        for r in placement.regions.values()
+        if r.name not in pinned
+    ]
 
 
-def _check_layout(manifest: KernelManifest, name: str, value: Resident, plan: CasePlan) -> None:
+def _check_layout(name: str, value: Resident, plan: CasePlan) -> None:
+    manifest = plan.manifest
     tensor = manifest.tensors[name]
     want = (tensor.pack, stored_format(tensor, plan.format), stored_rows(tensor, plan))
     have = (value.pack, value.format, value.rows)
-    if tensor.row is not None and value.base_row != tensor.row:
+    pin = plan.pins.get(name)
+    if pin is not None and value.base_row != pin:
         raise ConfigurationError(
-            f"{manifest.name}: input {name} is pinned to row {tensor.row} in kernel.toml; "
+            f"{manifest.name}: input {name} is pinned to row {pin} in kernel.toml; "
             f"the resident tensor is at row {value.base_row}"
         )
     if have != want:
@@ -244,14 +400,12 @@ def _check_layout(manifest: KernelManifest, name: str, value: Resident, plan: Ca
         )
 
 
-def _resident(
-    manifest: KernelManifest, result: RunResult, plan: CasePlan, step: int
-) -> Mapping[str, Resident]:
-    """Each output of ``result``, where its run left it."""
+def _resident(result: RunResult, plan: CasePlan, step: int) -> Mapping[str, Resident]:
+    """Each output of ``result`` (of its case: ``when``), where its run left it."""
     if result.placement is None or not result.halted:
         return MappingProxyType({})
     out = {}
-    for tensor in manifest.tensors.values():
+    for tensor in plan.manifest.tensors.values():
         if tensor.role == "output":
             region = result.placement.region(tensor.name)
             out[tensor.name] = Resident(

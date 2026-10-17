@@ -237,3 +237,173 @@ def test_each_step_writes_its_own_trace(first, second, tmp_path):
 def test_a_chain_takes_no_input_files(tmp_path):
     with pytest.raises(ConfigurationError, match="--input"):
         Chain(ElementFormat.INT8, options=RunOptions(inputs={"x": tmp_path / "x.npy"}))
+
+
+# --- at: a step's own regions where the caller puts them ----------------------------
+
+
+@pytest.fixture
+def free(tmp_path):
+    """Places x and y by first fit."""
+    return load_manifest(_kernel(tmp_path, "free"))
+
+
+def test_at_places_an_output_and_an_array_input(free):
+    chain = Chain(ElementFormat.INT8)
+    step = chain.run(free, SCALE_2, {"x": X}, at={"y": 200, "x": 40})
+    placement = step.result.placement
+    assert placement is not None
+    assert (placement.region("x").base_row, placement.region("y").base_row) == (40, 200)
+    assert step.resident["y"] == Resident(200, 2, None, ElementFormat.INT8)
+    np.testing.assert_array_equal(
+        chain.run(free, SCALE_3, {"x": step.resident["y"]}, check=True).result.outputs["y"],
+        X.astype(np.float64) * 6,
+    )
+
+
+def test_a_region_placed_with_at_makes_what_it_covers_stale(first, free, second):
+    chain = Chain(ElementFormat.INT8)
+    one = chain.run(first, SCALE_2, {"x": X}).resident["y"]  # rows 64..65
+    chain.run(free, SCALE_2, {"x": X}, at={"y": 65})
+    with pytest.raises(ConfigurationError, match="no longer in XMEM"):
+        chain.run(second, SCALE_3, {"x": one})
+
+
+@pytest.mark.parametrize(
+    ("at", "match"),
+    [
+        ({"z": 0}, "at names 'z', which is no tensor"),
+        ({"x": 0}, "at names input x, which is resident"),
+        ({"y": 100}, "pinned to row 128 in kernel.toml; at gives 100"),
+        ({"y": -1}, "not a row"),
+    ],
+)
+def test_at_must_name_a_region_the_step_places(first, second, at, match):
+    chain = Chain(ElementFormat.INT8)
+    resident = chain.run(first, SCALE_2, {"x": X}).resident["y"]
+    with pytest.raises(ConfigurationError, match=match):
+        chain.run(second, SCALE_3, {"x": resident}, at=at)
+    assert chain.run(second, SCALE_3, {"x": resident}, at={"y": 128}).result.halted
+
+
+def test_an_aaq_spill_makes_the_rows_after_an_output_stale(first, free, second):
+    chain = Chain(ElementFormat.INT8)
+    one = chain.run(first, SCALE_2, {"x": X}).resident["y"]  # rows 64..65
+    chain.run(free, SCALE_2, {"x": X}, at={"y": 62})  # y 62..63, its ST.AAQ spill 64..66
+    with pytest.raises(ConfigurationError, match="no longer in XMEM"):
+        chain.run(second, SCALE_3, {"x": one})
+
+
+def test_a_resident_meets_an_expression_pin(tmp_path, first):
+    pinned = load_manifest(_kernel(tmp_path, "expr", x_row='row = "rows * 32"', y_row="row = 128"))
+    chain = Chain(ElementFormat.INT8)
+    resident = chain.run(first, SCALE_2, {"x": X}).resident["y"]  # row 64 == 2 * 32
+    assert chain.run(pinned, SCALE_3, {"x": resident}).result.halted
+
+
+def _maybe(tmp_path: Path) -> Path:
+    """free, with an output z only when ``extra``."""
+    directory = _kernel(tmp_path, "maybe")
+    toml = (directory / "kernel.toml").read_text()
+    toml = toml.replace("s    = {", 'extra = { type = "bool", default = false }\ns    = {')
+    toml = toml.replace("[abi]", '[outputs.z]\nshape = ["rows", 128]\nwhen = "extra"\n\n[abi]')
+    toml = toml.replace('s    = "CR5"', 's    = "CR5"\nz    = "CR6"')
+    (directory / "kernel.toml").write_text(toml)
+    return directory
+
+
+def test_an_output_its_case_lacks_is_no_resident(tmp_path):
+    step = Chain(ElementFormat.INT8).run(load_manifest(_maybe(tmp_path)), SCALE_2, {"x": X})
+    assert set(step.resident) == {"y"}
+
+
+def test_at_cannot_name_an_output_its_case_lacks(tmp_path):
+    with pytest.raises(ConfigurationError, match="'z', which is no tensor of this case"):
+        Chain(ElementFormat.INT8).run(
+            load_manifest(_maybe(tmp_path)), SCALE_2, {"x": X}, at={"z": 0}
+        )
+
+
+# --- hold: a resident later steps place around ------------------------------------
+
+
+def test_a_held_resident_is_placed_around(free, second):
+    chain = Chain(ElementFormat.INT8)
+    held = chain.hold(chain.run(free, SCALE_2, {"x": X}, at={"y": 0, "x": 10}).resident["y"])
+    step = chain.run(free, SCALE_3, {"x": X})  # first fit would put x on rows 0..1
+    assert step.result.placement is not None
+    assert step.result.placement.region("x").base_row >= 2
+    two = chain.run(second, SCALE_3, {"x": held}, check=True)  # still live; read in place
+    np.testing.assert_array_equal(two.result.outputs["y"], X.astype(np.float64) * 6)
+
+
+def test_first_fit_leaves_room_for_a_spill_below_a_held_resident(free, second):
+    chain = Chain(ElementFormat.INT8)
+    held = chain.hold(chain.run(free, SCALE_2, {"x": X}, at={"y": 4, "x": 10}).resident["y"])
+    step = chain.run(free, SCALE_3, {"x": X})  # y at 2..3 would spill onto rows 4..6
+    assert step.result.placement is not None
+    assert all(
+        r.end_row + 3 <= 4 or r.base_row >= 6 for r in step.result.placement.regions.values()
+    )
+    two = chain.run(second, SCALE_3, {"x": held}, check=True)
+    np.testing.assert_array_equal(two.result.outputs["y"], X.astype(np.float64) * 6)
+
+
+@pytest.mark.parametrize("at", [{"y": 64}, {"y": 62}])  # on it; spilling onto it
+def test_a_step_that_would_write_a_held_resident_fails_before_it_runs(first, free, at):
+    chain = Chain(ElementFormat.INT8)
+    held = chain.hold(chain.run(first, SCALE_2, {"x": X}).resident["y"])  # rows 64..65
+    stats = chain.model.stats()
+    with pytest.raises(PlanError, match=r"held tensor \(rows 64..65\)"):
+        chain.run(free, SCALE_2, {"x": X}, at=at)
+    assert chain.model.stats() == stats
+    chain.release(held)
+    chain.run(free, SCALE_2, {"x": X}, at={"y": 64})
+    with pytest.raises(ConfigurationError, match="cannot hold"):
+        chain.hold(held)  # released, then written over
+
+
+def test_only_a_live_resident_of_the_chain_can_be_held_or_released(first):
+    chain = Chain(ElementFormat.INT8)
+    resident = chain.run(first, SCALE_2, {"x": X}).resident["y"]
+    with pytest.raises(ConfigurationError, match="cannot hold"):
+        chain.hold(Resident(64, 2, None, ElementFormat.INT8))
+    with pytest.raises(ConfigurationError, match="does not hold"):
+        chain.release(resident)
+    assert chain.hold(chain.hold(resident)) is resident
+    chain.release(resident)
+
+
+# --- reset: register banks back to their reset values -------------------------------
+
+ALL_LANES = b"\xff" * 128
+
+
+def test_r_mask_carries_over_unless_the_step_resets_it(free):
+    chain = Chain(ElementFormat.INT8)
+    chain.run(free, SCALE_2, {"x": X})
+    chain.model.write_register("r_mask", bytes(128))  # as a step that masks lanes leaves it
+    chain.run(free, SCALE_2, {"x": X})
+    assert chain.model.read_register("r_mask") == bytes(128)
+    chain.run(free, SCALE_2, {"x": X}, reset=("r_mask",))
+    assert chain.model.read_register("r_mask") == ALL_LANES
+
+
+def test_every_register_of_a_bank_is_reset_but_the_hardwired_crs(free):
+    chain = Chain(ElementFormat.INT8)
+    for index in range(2, 16):
+        chain.model.write_register("cr", 7, index)
+    chain.model.write_register("lr", 7, 9)
+    chain.run(free, SCALE_2, {"x": X}, reset=("cr", "lr"), at={"x": 20})
+    assert chain.model.read_register("cr", 1) == 1  # hardwired, untouched
+    assert chain.model.read_register("cr", 9) == 0  # bound by no [abi]: reset
+    assert chain.model.read_register("cr", 2) == 20  # bound: the step writes x's base after
+    assert chain.model.read_register("lr", 9) == 0  # the program uses LR0 and LR1 only
+
+
+@pytest.mark.parametrize(
+    ("reset", "match"), [(("nope",), "no register bank"), ("r_mask", "bank names")]
+)
+def test_reset_names_register_banks(free, reset, match):
+    with pytest.raises(ConfigurationError, match=match):
+        Chain(ElementFormat.INT8).run(free, SCALE_2, {"x": X}, reset=reset)

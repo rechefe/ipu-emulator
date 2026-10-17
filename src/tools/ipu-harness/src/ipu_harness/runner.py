@@ -148,12 +148,20 @@ class SharedModel:
             there, not written. Every input is in ``inputs`` or here, not both.
         check: Hold the outputs to their goldens (an intermediate step of a
             chain need not; its result then has no comparisons).
+        placed: Base rows the caller fixes for regions the run still writes
+            (an array input, an output, a scratch region), by name: placed
+            there instead of by first fit.
+        reserved: Rows no region of the run may take, as ``(base row, rows)``
+            by a name for messages (``placement.place``): tensors the chain
+            holds.
     """
 
     model: ReferenceModel
     inputs: Mapping[str, Array]
     pinned: Mapping[str, int]
     check: bool = False
+    placed: Mapping[str, int] = field(default_factory=lambda: MappingProxyType({}))
+    reserved: Mapping[str, tuple[int, int]] = field(default_factory=lambda: MappingProxyType({}))
 
 
 @dataclass(frozen=True)
@@ -466,7 +474,8 @@ def _prepare(
     placement = place(
         plan,
         {name: stored_rows(t, plan) for name, t in tensors.items()},
-        pins=None if shared is None else shared.pinned,
+        pins=None if shared is None else {**shared.pinned, **shared.placed},
+        reserved=None if shared is None else shared.reserved,
     )
     return plan, values, placement
 
