@@ -217,6 +217,7 @@ class ReferenceModel:
         _load_program(self._state, decoded)
         self._state.program_counter = 0
         self._state.halt = None
+        self._state.quit_requested = False
         self._state.stats.reset()
         self._new_collector()
         self._started = False
@@ -418,7 +419,9 @@ class ReferenceModel:
             step or run carries on from that PC. A callback that also moves
             the PC past IMEM (``ipu_debug``'s quit) leaves the model
             ``HALTED`` there: the host may write again, and stepping needs
-            :meth:`reset` or :meth:`load_program`.
+            :meth:`reset` or :meth:`load_program`. A callback that moves the
+            PC past IMEM without ``QUIT`` leaves the model ``RUNNING`` there:
+            its next fetch faults F-2.
 
         Raises:
             ConfigurationError: As :meth:`step`.
