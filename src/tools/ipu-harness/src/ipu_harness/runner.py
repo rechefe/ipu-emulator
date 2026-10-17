@@ -31,7 +31,7 @@ import numpy as np
 from ipu_as.session import AssemblyResult
 from ipu_emu.errors import ConfigurationError
 from ipu_emu.ipu_state import DEFAULT_CYCLE_LIMIT
-from ipu_emu.reference import ReferenceModel, RunState
+from ipu_emu.reference import ReferenceModel, RunState, Stats
 from ipu_emu.reference import RunResult as ModelRun
 from ipu_emu.trace import EMULATOR_VERSION, TraceWriter
 from ipu_harness._codec import Array
@@ -201,6 +201,9 @@ class RunResult:
             one-program kernel.
         placement: Where the case's tensors were in XMEM (E06-15 chains an
             output region into the next kernel's input).
+        stats: The model's run statistics (reference-model API 1.1.0) for a
+            one-program kernel: busy slots, lanes and MACs, as the benchmark
+            reports them (E06-11). ``None`` for a multi-stage kernel.
     """
 
     kernel: str
@@ -217,6 +220,7 @@ class RunResult:
     halted: bool = True
     stages: tuple[tuple[str, int], ...] = ()
     placement: Placement | None = None
+    stats: Stats | None = None
 
     @property
     def passed(self) -> bool:
@@ -529,6 +533,7 @@ class _Ran:
     mac_utilization: float
     rendered: str
     stages: tuple[tuple[str, int], ...] = ()
+    stats: Stats | None = None
 
 
 def _run_program(
@@ -558,6 +563,7 @@ def _run_program(
         cycles,
         stats.effective_mac_utilization,
         program.rendered,
+        stats=stats,
     )
 
 
@@ -646,6 +652,7 @@ def run_kernel(
             halted=False,
             stages=ran.stages,
             placement=placement,
+            stats=ran.stats,
         )
 
     raw = {
@@ -690,4 +697,5 @@ def run_kernel(
         halted=run.status.state is RunState.HALTED,
         stages=ran.stages,
         placement=placement,
+        stats=ran.stats,
     )
