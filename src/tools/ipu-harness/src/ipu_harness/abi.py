@@ -45,7 +45,7 @@ from ipu_emu.errors import ConfigurationError
 from ipu_emu.ipu_config import DEFAULT_DSTRUCTURE_CR
 from ipu_emu.reference import ReferenceModel
 from ipu_harness._codec import encode
-from ipu_harness.expressions import ROW_BYTES, ExpressionError, base_tensor, evaluate, names_in
+from ipu_harness.expressions import ROW_BYTES_NAME, ExpressionError, base_tensor, evaluate, names_in
 from ipu_harness.manifest import ZERO_REGISTER, KernelManifest
 from ipu_harness.params import CasePlan, PlanError
 from ipu_harness.placement import Placement
@@ -124,7 +124,7 @@ def _placed_value(name: str, plan: CasePlan, placement: Placement) -> int:
                     f"{expression!r}: {tensor} is not placed in this case (its when is false)",
                 )
             names[read] = placement.regions[tensor].base_row * scale
-        elif read == ROW_BYTES:
+        elif read == ROW_BYTES_NAME:
             names[read] = FORMATS[plan.format].row_bytes
         elif read in manifest.placed:
             names[read] = _placed_value(read, plan, placement)

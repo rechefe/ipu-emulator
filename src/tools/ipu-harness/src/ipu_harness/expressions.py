@@ -10,7 +10,7 @@ CR without the bit layout in its file). Nothing else is evaluated. A
 ``[derived]`` value may also read ``base(<tensor>)``, a region's base once it
 is placed (:func:`base_name`, :func:`placed_reads`): such a value is known
 only when the registers are written, so only ``[abi]`` reads it. So is a
-``[derived]`` value that reads :data:`ROW_BYTES` (``row_bytes``, the bytes of
+``[derived]`` value that reads :data:`ROW_BYTES_NAME` (``row_bytes``, the bytes of
 one XMEM row in the case's format), which a ``row`` pin may also read: a
 legacy layout at fixed byte addresses in every format (``fully_connected``).
 Arithmetic is exact (fractions): ``/`` must end up inside ``ceil`` or divide
@@ -73,7 +73,7 @@ FUNCTIONS = frozenset({*_CALLS, BASE})
 #: element's bytes: 128 in an 8-bit format, 512 in FP32 and INT32). Known only
 #: with the format, so a ``row`` pin and a placed ``[derived]`` value may read
 #: it, and nothing that routing evaluates without a format.
-ROW_BYTES = "row_bytes"
+ROW_BYTES_NAME = "row_bytes"
 
 
 def base_name(tensor: str) -> str:
@@ -90,7 +90,7 @@ def base_tensor(read: str) -> str | None:
 
 
 def placed_reads(derived: Mapping[str, str]) -> dict[str, frozenset[str]]:
-    """Each ``[derived]`` value that reads a region's base or :data:`ROW_BYTES`,
+    """Each ``[derived]`` value that reads a region's base or :data:`ROW_BYTES_NAME`,
     directly or through an earlier such value, with the tensors whose bases it
     reads (none for one that reads only ``row_bytes``).
 
@@ -103,7 +103,7 @@ def placed_reads(derived: Mapping[str, str]) -> dict[str, frozenset[str]]:
         placed = False
         for read in names_in(expression):
             tensor = base_tensor(read)
-            if tensor is not None or read in reads or read == ROW_BYTES:
+            if tensor is not None or read in reads or read == ROW_BYTES_NAME:
                 placed = True
                 if tensor is not None:
                     tensors.add(tensor)
