@@ -30,8 +30,8 @@ const editFor = (document, from, to, formatted) => {
   return formatted === document.getText(range) ? [] : [vscode.TextEdit.replace(range, formatted)];
 };
 
-/** `format(document, options)`: the assembler's { lines }, { refused }, or null (see formatting.js
- *  CheckoutFormatter.format); absent, the editor's rules format everything. */
+/** `format(document, options, token)`: the assembler's { lines }, { refused }, or null (see
+ *  formatting.js CheckoutFormatter.format); absent, the editor's rules format everything. */
 function registerFormatting(context, lang, format = async () => null) {
   /** Lines [from, to] formatted by the editor's rules. */
   const formatLines = (document, options, from, to) =>
@@ -40,12 +40,12 @@ function registerFormatting(context, lang, format = async () => null) {
   /** Lines [from, to] formatted by the assembler if it can, else by the editor's rules. */
   const formatWithAssembler = async (document, options, from, to, token) => {
     const version = document.version;
-    const result = await format(document, formatOptions(document, options, from, to));
-    // Edits for an older text would land in the wrong place.
-    if ((token && token.isCancellationRequested) || document.version !== version) return [];
-    if (!result) return formatLines(document, options, from, to);
+    const result = await format(document, formatOptions(document, options, from, to), token);
+    if (token && token.isCancellationRequested) return [];
+    // Edited while the assembler ran: its answer was for the old text.
+    if (!result || document.version !== version) return formatLines(document, options, from, to);
     if (result.refused) {
-      vscode.window.showWarningMessage(`IPU Assembly: the file was not formatted. ${result.refused}`);
+      vscode.window.showWarningMessage(`IPU Assembly: left as it is, since ${result.refused}`);
       return [];
     }
     return editFor(document, from, to, result.lines);

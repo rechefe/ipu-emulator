@@ -308,14 +308,14 @@ class Checking {
 
   /** A document's lines formatted by its checkout's assembler (formatting.js
    *  CheckoutFormatter.format): null where it cannot be asked, for the editor's rules. */
-  async formatWithChecker(document, options) {
+  async formatWithChecker(document, options, token) {
     if (!trust.mayRun()) return null;
     const { uri } = document;
     const root = await this.checkoutFor(uri);
     const place = placeOf(root, uri);
     const argv = place && await this.checkCommand(place.folder, root);
     if (!argv) return null;
-    return this.formatter.format(argv, place.cwd, timeoutSeconds(place.folder), document.getText(), options);
+    return this.formatter.format(argv, place.cwd, timeoutSeconds(place.folder), document.getText(), options, token);
   }
 
   /** Run the checker on `text`; `planFor(argv, cwd, seconds)` gives the argv to run it as. */
@@ -603,7 +603,7 @@ async function activate(context) {
       semantics: (document, options) => checking.semanticsOf(lang, document, options),
       answer: (document) => checking.analysis.current(document.uri.toString(), document.version, document.getText()),
       onAnswer: (listener) => checking.analysis.onStore(listener),
-      format: (document, options) => checking.formatWithChecker(document, options),
+      format: (document, options, token) => checking.formatWithChecker(document, options, token),
     });
   }
   // For tests: the kernels and editing APIs, and why diagnostics are off (for a document,

@@ -124,7 +124,7 @@ diagnostic says why) shows its diagnostics, and the providers fall back.
 | Semantic tokens (mnemonic, register, enum, number, label, comment) | the assembler's `tokens` | none: the grammar's colours |
 | Mnemonics that fit the word, in completion | the assembler's `words` (slots after pseudo-instructions and `{{ }}` expand); `fallback/` while the source does not parse or render | `fallback/` on `isa.json` |
 | Jinja names: completion, rename, definition, references, hover, inlay values, unused, outline | the assembler's `jinja` (names as Jinja's parser reads them, the `ipu:params` header included) | `fallback/` (Jinja scoping written in JS) |
-| Format Document, Format Selection | the assembler's `ipu-as format` (the same rules, and a check that the result is the same program: a refusal edits nothing and says why), where the assembler has `format`; else `language.js` | `language.js` |
+| Format Document, Format Selection | the assembler's `ipu-as format` (the same rules, and a check that the result is the same program: a refusal edits nothing and says why), where the assembler has `format` and runs directly (the prebuilt binary or `ipuAsm.checkCommand`; not `bazel run`, at about 8s a run) and answers within 10s; else `language.js` | `language.js` |
 | Highlighting, operand hints, labels, formatting as you type, word separation, folding | `language.js` (`scan()`) | the same |
 
 Until a document's first answer arrives (the first paint), and with a version-1

@@ -13,7 +13,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { CheckoutFormatter, assemblerOf, formatArgv, linesOf, spliceLines } = require('../formatting');
+const checker = require('../checker');
+const { CheckoutFormatter, FORMAT_SECONDS, assemblerOf, formatArgv, linesOf, spliceLines } = require('../formatting');
 const { Language } = require('../language');
 const fake = require('./fake-vscode');
 const { test, main } = require('./harness');
@@ -99,6 +100,42 @@ test('a checker is asked once whether it formats; an old one, a failure or anoth
   assert.strictEqual(await new CheckoutFormatter({ run: assert.fail }).format(['sh', '-c', 'x'], temp, 10, MESSY, ALL(MESSY)), null);
 });
 
+test('the bazel run path, a slow run and a cancelled one leave formatting to the editor', async () => {
+  const bazel = new CheckoutFormatter({ run: assert.fail });
+  assert.strictEqual(await bazel.format(checker.bazelCommand(), temp, 300, MESSY, ALL(MESSY)), null, 'nothing runs');
+  // A run past FORMAT_SECONDS: the editor's rules, and no wait on the next format either.
+  let limits = [];
+  const slow = new CheckoutFormatter({
+    retryMs: 60000,
+    run: async (_c, args, _cwd, seconds) => (limits.push(seconds), args.includes('--help')
+      ? { code: 0, stdout: '', stderr: '' } : { code: -1, stdout: '', stderr: 'timed out', timedOut: true }),
+  });
+  const argv = ['/bin/ipu-as', 'check', '--json', '--input'];
+  assert.strictEqual(await slow.format(argv, '/c', 300, MESSY, ALL(MESSY)), null);
+  eq(limits, [FORMAT_SECONDS, FORMAT_SECONDS], 'its own short limit, not timeoutSeconds');
+  assert.strictEqual(await slow.format(argv, '/c', 300, MESSY, ALL(MESSY)), null);
+  eq(limits.length, 2, 'not asked again for a while');
+  slow.forget('/c');
+  await slow.format(argv, '/c', 300, MESSY, ALL(MESSY));
+  eq(limits.length, 4, 'until its sources change (probed again, then run)');
+  // Cancelling stops the run.
+  const stopped = [];
+  let cancel;
+  const token = { isCancellationRequested: false, onCancellationRequested: (f) => ((cancel = f), { dispose() {} }) };
+  const hanging = new CheckoutFormatter({
+    run: async (_c, args, _cwd, _s, { onSpawn } = {}) => {
+      if (args.includes('--help')) return { code: 0, stdout: '', stderr: '' };
+      return new Promise((resolve) => onSpawn({ stop: () => (stopped.push(1), resolve({ code: null, stdout: '', stderr: '' })) }));
+    },
+  });
+  const pending = hanging.format(argv, '/c', 300, MESSY, ALL(MESSY), token);
+  await new Promise((r) => setImmediate(r));
+  token.isCancellationRequested = true;
+  cancel();
+  assert.strictEqual(await pending, null);
+  eq(stopped, [1]);
+});
+
 // --- the provider ------------------------------------------------------------------------------
 
 /** The extension activated in a fresh folder with checker `argv`; the document formatter. */
@@ -125,15 +162,28 @@ test('the provider formats by the assembler where it can, else by the editor; a 
       eq(checker.formats().at(-1).slice(-4), ['--range', '3:3', '--input', '-']);
       const refused = open('REFUSE');
       eq(await formatting.provideDocumentFormattingEdits(refused, OPTIONS), []);
-      assert.match(ext.log.warnings.at(-1), /not formatted.*would change the program/);
-      // An edit while the assembler ran: the edits were for the old text.
+      assert.match(ext.log.warnings.at(-1), /left as it is, since formatting would change the program/);
+      assert.doesNotMatch(ext.log.warnings.at(-1), /Error formatting/);
+      // An edit while the assembler ran: its answer was for the old text, so the editor's rules
+      // format the new one.
       const typed = open(MESSY);
       const pending = formatting.provideDocumentFormattingEdits(typed, OPTIONS);
       ext.edit(typed, `${MESSY}HALT;;\n`);
-      eq(await pending, []);
+      eq(applied(typed, await pending), lang.format(typed.getText(), ALL(typed.getText())));
     }
     ext.deactivate();
   }
+});
+
+test('in Restricted Mode nothing runs: the editor formats', async () => {
+  const cur = standIn();
+  const dir = fs.mkdtempSync(path.join(temp, 'ws-'));
+  const ext = fake.install({ trusted: false, folders: [dir], settings: { checkCommand: cur.argv } });
+  await ext.activate();
+  const doc = ext.open(fake.Uri.file(path.join(dir, 'k.asm')), MESSY);
+  eq(applied(doc, await ext.provider('DocumentFormattingEdit').provideDocumentFormattingEdits(doc, OPTIONS)), lang.format(MESSY, ALL(MESSY)));
+  eq(cur.ran(), [], 'not even the probe');
+  ext.deactivate();
 });
 
 // --- the real assembler ------------------------------------------------------------------------
