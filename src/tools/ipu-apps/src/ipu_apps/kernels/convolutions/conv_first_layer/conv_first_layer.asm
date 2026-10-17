@@ -76,7 +76,7 @@
     MULT.RC.VE's `src` operand is read **LIVE**, not from the snapshot
     (`_mult_resolve_lcr_scalar`, ipu.py:768 -- "the LR holds an INDEX into Ra ->
     read it LIVE"), and the LR slot dispatches BEFORE the MULT slot within a
-    cycle (execute_vliw_cycle).  So an `INC lr4` sharing a word with a MULT is
+    cycle (Cycle.step).  So an `INC lr4` sharing a word with a MULT is
     visible to that MULT: the MULT reads the ALREADY-INCREMENTED value.
 
     That makes the pre-increment form used here exact -- each word bumps lr4 and

@@ -41,8 +41,9 @@ remains an alias). There is no custom Bazel command or repository wrapper.
 
 An interactive input and output terminal is required. Terminal initialization
 failures abort the launch. Plain `bazel run` and `bazel test` remain
-noninteractive when the debug environment flag is absent. For case options,
-use `bazel run //src/tools/ipu-apps:identity -- --help`.
+noninteractive when the debug environment flag is absent. Each kernel's
+case options are listed in [Command-line tools](reference/cli.md#case-options);
+`bazel run //src/tools/ipu-apps:identity -- --help` prints them for one kernel.
 
 ### Deprecated line debugger
 
@@ -212,31 +213,8 @@ The view remains active after stepping and at later breakpoints. `q` quits
 execution, except while the help overlay is open, where it closes the overlay.
 Outside an editor and the help overlay, `Esc` does nothing.
 
-| Key | Action |
-|-----|--------|
-| `F5` | Continue to the next breakpoint |
-| `F8` | Execute one instruction and refresh |
-| `F9` | Toggle a runtime breakpoint at the disassembly cursor |
-| `F10` | Run to the disassembly cursor or the next stop |
-| `e` | Edit the selected LR/CR, pipeline-register, or XMEM value; in disassembly, edit the PC |
-| `q` | Halt execution and exit the debugger (ignored while Help is open) |
-| `Esc` | Close the help overlay or cancel an open editor; otherwise do nothing |
-| `F2` | Add a tab to the focused pane |
-| `F3` | Edit the active tab |
-| `F4` | Close the active tab |
-| `d` / `a` | Select the next/previous tab in the focused pane |
-| `f` | Cycle the active tab's display format |
-| `Tab` | Select the next tab in the focused pane |
-| `Shift-Tab` | Focus the next pane |
-| `1` - `4` | Focus Pipeline Registers, Instructions, XMEM, or CR/LR respectively |
-| Arrow keys | Move the cursor inside the focused pane |
-| `Page Up` / `Page Down` | Move the focused pane's cursor by one page |
-| `Home` / `End` | Jump to the first/last value in the focused pane |
-| `?` | Open the help overlay |
-| `Shift-Left` / `Shift-Right` | Move the split on the focused row |
-| `Shift-Up` / `Shift-Down` | Move the top/bottom split |
-| `=` | Reset every split |
-| Left / Right, Home / End | Move within an open tab editor |
+[Command-line tools](reference/cli.md#debugger) lists every control, generated
+from the debugger's own key table.
 
 Shifted arrow keys depend on the terminal reporting them. `xterm-256color`,
 `screen-256color`, and tmux do; a plain Linux console does not, where those keys

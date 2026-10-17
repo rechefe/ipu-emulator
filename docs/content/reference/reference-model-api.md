@@ -35,7 +35,9 @@ a separate promise.
   something else).
 - **Minor**: an addition that leaves every existing call working, such as a
   new method or a new optional parameter. Version 1.1.0 added `Stats` and
-  `stats()`; nothing of 1.0.0 changed.
+  `stats()`; 1.2.0 added the flag and enable reads (`fault_enabled()`,
+  `fault_flags()`, `arith_flags()`), `trace_header()`, and `TraceWriter` and
+  `read_trace` to `__all__`. Nothing earlier changed.
 
 Each schema carries its own version, at the end of its `$id`. An optional
 field added is a minor bump; a field removed or renamed, or a meaning

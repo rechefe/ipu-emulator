@@ -242,7 +242,7 @@ class RegFile:
     def mark_constant_ones(self, name: str, start: int, size: int) -> None:
         canon = self._resolve(name)
         if start < 0 or size <= 0 or start + size > len(self._storage[canon]):
-            raise ValueError("constant ONES register range out of bounds")
+            raise RegisterIndexError("constant ONES register range out of bounds")
         # A previously handed-out mutable handle can still overwrite this buffer.
         if canon in self._mutable_exports:
             return

@@ -26,6 +26,9 @@ from typing import NamedTuple
 from ipu_emu.errors import ConfigurationError, EmulatorError
 from ipu_emu.geometry import (
     NARROW_MAX_ROW,
+    R_CYCLIC_SIZE,
+    R_CYCLIC_VALID_INDICES,
+    R_REG_SIZE,
     xmem_element_width_bytes,
     xmem_row_size_bytes,
 )
@@ -36,7 +39,6 @@ from ipu_emu.numerics import LaneCodec
 from ipu_emu.regfile import RegFile
 from ipu_emu.resolver import READ_CR, READ_LCR, READ_LR, READ_MULT_STAGE, READ_OTHER
 from ipu_emu.slots import HANDLER_MODULES
-from ipu_emu.slots.load import R_CYCLIC_VALID_INDICES
 from ipu_emu.slots.mult import SCALAR_CR, SCALAR_LCR, SCALAR_NONE
 from ipu_emu.xmem import XMEM_SIZE_BYTES
 from ipu_isa.codec.word import field_name, opcode_field
@@ -62,7 +64,6 @@ __all__ = [
     "R_CYCLIC_VALID_INDICES",
     "R_REG_SIZE",
     "XMEM_ADDRESSABLE_ROWS",
-    "BreakResult",
     "EmulatorError",
     "Ipu",
     "SlotPlan",
@@ -82,8 +83,6 @@ _reg_sizes = get_register_sizes()
 
 # Register dimensions — from REGISTER_DEFINITIONS via get_register_sizes()
 LR_REG_COUNT = _reg_sizes["lr"]["count"]
-R_REG_SIZE = _reg_sizes["r"]["size_bytes"]
-R_CYCLIC_SIZE = _reg_sizes["r_cyclic"]["size_bytes"]
 R_ACC_SIZE = _reg_sizes["r_acc"]["size_bytes"]
 
 # LANES (from ipu_isa.geometry) is the number of vector lanes: 128,
@@ -357,7 +356,7 @@ def build_plan(instruction: Instruction, field_map: dict[str, str]) -> SlotPlan:
     """The :class:`SlotPlan` of one instruction, whose fields sit at *field_map*'s keys.
 
     Raises:
-        RuntimeError: The spec names a handler its slot module does not have,
+        ConfigurationError: The spec names a handler its slot module does not have,
             one whose keyword-only parameters are not the operand names, or
             an LR write target that is not an LR or an LRD pair.
     """
@@ -386,7 +385,9 @@ def build_plan(instruction: Instruction, field_map: dict[str, str]) -> SlotPlan:
                     frozenset({"lr"}),
                     frozenset({None}),
                 ):
-                    raise RuntimeError(f"{slot}/{inst_name}.{op.name}: not an LR or LRD target")
+                    raise ConfigurationError(
+                        f"{slot}/{inst_name}.{op.name}: not an LR or LRD target"
+                    )
                 write_operand, write_is_lrd = op.name, banks == frozenset({None})
                 break
     fn = bind_handler(instruction)
@@ -433,14 +434,14 @@ def bind_handler(instruction: Instruction) -> Callable:
         The handler function.
 
     Raises:
-        RuntimeError: The slot module has no such function, or its parameters
+        ConfigurationError: The slot module has no such function, or its parameters
             are not the engine followed by the operand names, keyword-only.
     """
     module = HANDLER_MODULES[instruction.slot]
     where = f"instruction_spec {instruction.slot}/{instruction.mnemonic} names handler"
     fn = getattr(module, instruction.execute_fn, None)
     if fn is None:
-        raise RuntimeError(
+        raise ConfigurationError(
             f"{where} {module.__name__}.{instruction.execute_fn}, which does not exist "
             "(see CLAUDE.md, 'Adding an Instruction')"
         )
@@ -449,7 +450,7 @@ def bind_handler(instruction: Instruction) -> Callable:
     positional = [p for p in params if p.kind is not inspect.Parameter.KEYWORD_ONLY]
     operands = {op.name for op in instruction.operands}
     if len(positional) != 1 or keyword_only != operands:
-        raise RuntimeError(
+        raise ConfigurationError(
             f"{where} {module.__name__}.{instruction.execute_fn}, whose parameters "
             f"{[p.name for p in params]} are not the engine and then, keyword-only, "
             f"the operands {sorted(operands)}"
@@ -617,22 +618,6 @@ class Ipu:
         self._snapshot_buffer = buffer
         self._view.snapshot = buffer
 
-    # -----------------------------------------------------------------------
-    # VLIW Execution
-    # -----------------------------------------------------------------------
-
-    def check_break(self) -> BreakResult:
-        """Evaluate the current word's BREAK slot before side effects. See :meth:`Cycle.evaluate_break`."""
-        return self.cycle.evaluate_break()
-
-    def execute_vliw_cycle(self) -> BreakResult:
-        """Execute one VLIW cycle, honouring BREAK. See :meth:`Cycle.step`."""
-        return self.cycle.step()
-
-    def execute_vliw_cycle_skip_break(self) -> None:
-        """Retire the current word without evaluating BREAK. See :meth:`Cycle.retire`."""
-        self.cycle.retire()
-
 
 _SLOT_OPCODE_FIELDS, _SLOT_PLANS, _LR_PLANS, _LR_OPCODE_FIELDS = _build_slot_plans()
 
@@ -661,7 +646,7 @@ def _check_execution_order_covers_plans() -> None:
     planned = {Slot(slot) for slot in _SLOT_PLANS} | {Slot.LR}
     declared = set(SLOT_EXECUTION_ORDER)
     if declared != planned:
-        raise ImportError(
+        raise ConfigurationError(
             "ipu_isa.timing.SLOT_EXECUTION_ORDER must name exactly the slots the "
             f"emulator has plans for; missing {sorted(map(str, planned - declared))}, "
             f"unknown {sorted(map(str, declared - planned))}"
@@ -672,9 +657,8 @@ _check_execution_order_covers_plans()
 
 
 # ``Ipu`` builds its ``Cycle``, and the cycle module reads this module's decode
-# tables (``plans_for``). Each module imports the other last, so either can be
-# imported first (see the end of ``ipu_emu.cycle``).
-from ipu_emu.cycle import Cycle, CycleOutcome, CycleView, resolver_for  # noqa: E402
-
-#: The old name of :class:`CycleOutcome`, kept until E08 migrates the debuggers.
-BreakResult = CycleOutcome
+# tables (``plans_for``), so the two modules depend on each other. Each imports
+# the other last, so either can be imported first (see the end of
+# ``ipu_emu.cycle``). Removing the cycle means moving the plan tables to a
+# module of their own.
+from ipu_emu.cycle import Cycle, CycleView, resolver_for  # noqa: E402

@@ -31,6 +31,7 @@ import enum
 import itertools
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from ipu_emu.commit import CommitCollector as _CommitCollector
 from ipu_emu.commit import CommitRecord
@@ -40,18 +41,28 @@ from ipu_emu.ipu import Ipu as _Ipu
 from ipu_emu.ipu_state import INST_MEM_SIZE
 from ipu_emu.ipu_state import IpuState as _IpuState
 from ipu_emu.run_clock import RunClock as _RunClock
-from ipu_emu.trace import TraceWriter
+from ipu_emu.trace import TraceWriter, read_trace
+from ipu_emu.trace import trace_header as _trace_header
 from ipu_isa.codec.word import DecodedWord, unpack_program, word_bytes
 from ipu_isa.constants import CR_READ_ONLY_INITIAL_VALUES
-from ipu_isa.faults import FaultId
+from ipu_isa.faults import ArithmeticEvent, FaultId
 from ipu_isa.formats import ElementFormat
 from ipu_isa.registers import REGISTER_DEFINITIONS, RegisterDefinition
 from ipu_isa.view import isa
 
-__all__ = ["API_VERSION", "ReferenceModel", "RunResult", "RunState", "Stats", "Status"]
+__all__ = [
+    "API_VERSION",
+    "ReferenceModel",
+    "RunResult",
+    "RunState",
+    "Stats",
+    "Status",
+    "TraceWriter",
+    "read_trace",
+]
 
 #: The version of this API (Q11).
-API_VERSION = "1.1.0"
+API_VERSION = "1.2.0"
 
 
 class RunState(str, enum.Enum):
@@ -378,6 +389,51 @@ class ReferenceModel:
             lane_occupancy=stats.lane_occupancy,
             effective_mac_utilization=stats.effective_mac_utilization,
         )
+
+    def fault_enabled(self, fault: FaultId) -> bool:
+        """Whether a fault's enable bit is set (IPU-FLT-5; 1.2.0).
+
+        Args:
+            fault: The fault.
+
+        Returns:
+            True when the bit is set (a modelled fault then halts the IPU).
+
+        Raises:
+            ConfigurationError: *fault* is no ``FaultId``.
+        """
+        if not isinstance(fault, FaultId):
+            raise ConfigurationError(f"{fault!r} is no FaultId")
+        return self._state.faults.enable[fault]
+
+    def fault_flags(self) -> frozenset[FaultId]:
+        """The sticky fault flags (1.2.0): every fault that happened since the
+        last :meth:`reset`, whether it halted or, with its enable bit clear,
+        did not. A run does not clear them.
+
+        Returns:
+            The faults whose flag is set.
+        """
+        return frozenset(self._state.faults.sticky)
+
+    def arith_flags(self) -> frozenset[ArithmeticEvent]:
+        """The sticky arithmetic-event flags (E04-23; 1.2.0), since the last
+        :meth:`reset`.
+
+        Returns:
+            The events whose flag is set.
+        """
+        return frozenset(self._state.arith_flags)
+
+    def trace_header(self) -> dict[str, Any]:
+        """The header of a trace of the loaded program (1.2.0), for
+        :class:`TraceWriter`.
+
+        Returns:
+            The ``trace.v1.json`` header: schema version, ISA digest, element
+            format, program digest and emulator version.
+        """
+        return _trace_header(self._state)
 
     @property
     def status(self) -> Status:

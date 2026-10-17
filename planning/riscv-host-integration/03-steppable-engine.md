@@ -21,9 +21,8 @@ What one VLIW word does is already one module: `ipu_emu.cycle.Cycle`
 LR conflict check, the idle-word path and the observer hooks, and knows nothing
 about run control. Its interface is `step(*, honour_break=True) -> CycleOutcome`
 (`RETIRED` or `BREAK`), `evaluate_break()` and `retire()` (the break-then-resume
-pair a debugger needs) and `reset()`. The engine builds on it and must not
-call `Ipu.execute_vliw_cycle` / `check_break` / `execute_vliw_cycle_skip_break`:
-those are transitional delegates of `Cycle`.
+pair a debugger needs) and `reset()`. The engine builds on it and drives
+`Cycle` directly (the `Ipu` delegates went in the final E04 review).
 
 ## Implementation
 

@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 def execute_break_nop(ipu: Ipu) -> CycleOutcome:
     """Execute NOP in break slot: No operation."""
-    return CycleOutcome.CONTINUE
+    return CycleOutcome.RETIRED
 
 
 def execute_break(ipu: Ipu) -> CycleOutcome:
@@ -24,4 +24,4 @@ def execute_break_ifeq(ipu: Ipu, *, reg: int, value: int) -> CycleOutcome:
     """Execute BREAK.IFEQ: Break if LR register equals immediate."""
     if reg == value:
         return CycleOutcome.BREAK
-    return CycleOutcome.CONTINUE
+    return CycleOutcome.RETIRED

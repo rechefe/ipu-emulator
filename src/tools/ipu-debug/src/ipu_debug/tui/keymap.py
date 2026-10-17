@@ -160,8 +160,8 @@ HELP_SCOPE_TITLES: tuple[tuple[HelpScope, str], ...] = (
     ("help", "This overlay"),
 )
 
-# The footer puts execution controls first. ``docs/content/debugging.md``
-# documents the same controls and is synchronised by hand.
+# The footer puts execution controls first. The docs' Command-line tools page
+# renders this table (docs/cli_reference_page.py), so it documents every row.
 KEY_BINDINGS: tuple[KeyBinding, ...] = (
     KeyBinding(
         ("F2",),

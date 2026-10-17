@@ -18,7 +18,6 @@ with the same :func:`run_case`.
 
 from __future__ import annotations
 
-import hashlib
 import json
 from collections.abc import Iterator, Mapping
 from pathlib import Path
@@ -26,13 +25,12 @@ from typing import Any
 
 from ipu_emu.commit import CommitRecord
 from ipu_emu.reference import ReferenceModel
-from ipu_emu.trace import EMULATOR_VERSION, TraceWriter
+from ipu_emu.trace import TraceWriter
 from ipu_isa.codec.word import opcode_field, unpack_program
 from ipu_isa.errors import IsaLookupError
 from ipu_isa.faults import FaultId
 from ipu_isa.formats import ElementFormat
 from ipu_isa.slots import SLOTS, Slot
-from ipu_isa.trace_schema import SCHEMA_VERSION, isa_digest
 from ipu_isa.view import isa
 
 #: The suite, relative to the repository root (and to the runfiles root).
@@ -67,18 +65,6 @@ def cases(suite: Path) -> list[Path]:
     return sorted(path for path in suite.iterdir() if path.is_dir())
 
 
-def header(case: Path) -> dict[str, Any]:
-    """The trace header of *case*'s run: what the files and the ISA say."""
-    setup = json.loads((case / "setup.json").read_text(encoding="utf-8"))
-    return {
-        "schema_version": SCHEMA_VERSION,
-        "isa_digest": isa_digest(),
-        "format": setup["format"],
-        "program_digest": hashlib.sha256((case / "program.bin").read_bytes()).hexdigest(),
-        "emulator_version": EMULATOR_VERSION,
-    }
-
-
 def load(model: ReferenceModel, case: Path) -> dict[str, Any]:
     """Put *model* in *case*'s starting state, as the suite's README says.
 
@@ -111,7 +97,7 @@ def run_case(case: Path, trace_path: Path) -> None:
     """
     model = ReferenceModel()
     setup = load(model, case)
-    with TraceWriter(trace_path, header(case)) as trace:
+    with TraceWriter(trace_path, model.trace_header()) as trace:
         model.run(setup["max_cycles"], trace=trace)
 
 

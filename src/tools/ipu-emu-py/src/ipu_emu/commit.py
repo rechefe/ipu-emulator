@@ -25,6 +25,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
 from ipu_emu.cycle import CycleOutcome
+from ipu_emu.errors import EmulatorError
+from ipu_emu.geometry import EMULATOR_REGISTERS
 from ipu_isa.faults import ArithmeticEvent
 from ipu_isa.registers import REGISTER_DEFINITIONS
 from ipu_isa.slots import SLOTS, Slot
@@ -92,10 +94,6 @@ class SlotOp:
 
     def __hash__(self) -> int:
         return hash((self.slot, self.mnemonic, tuple(sorted(self.fields.items()))))
-
-
-#: Registers with no hardware equivalent: wide-vector debug mode's copies.
-EMULATOR_REGISTERS = frozenset({"r_wide_debug", "r_cyclic_wide_debug"})
 
 
 @dataclass(frozen=True)
@@ -381,7 +379,8 @@ class CommitCollector:
         """Record the faulting word (or, for a fault before any word began,
         its PC alone): no slots, no writes, as nothing of it retired."""
         self._pending, self._pre, self._pre_pc, self._broke = None, [], None, False
-        assert halt.fault is not None
+        if halt.fault is None:
+            raise EmulatorError(f"a fault halt at PC {halt.pc} names no fault")
         self._emit(
             _Pending(halt.pc),
             self.state.program_counter,

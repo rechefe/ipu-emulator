@@ -16,7 +16,7 @@ from ipu_emu.commit import CommitCollector, CommitRecord, FaultInfo, RegWrite, S
 from ipu_emu.cycle import CycleOutcome
 from ipu_emu.emulator import load_program, run_until_complete
 from ipu_emu.errors import EmulatorFault
-from ipu_emu.execute import Ipu
+from ipu_emu.ipu import Ipu
 from ipu_emu.trace import TraceWriter, read_trace, trace_header
 from ipu_isa.codec.word import DecodedWord, word_bytes
 from ipu_isa.registers import REGISTER_DEFINITIONS

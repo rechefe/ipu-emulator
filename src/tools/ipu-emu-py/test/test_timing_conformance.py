@@ -35,8 +35,8 @@ from ipu_emu import prototyping
 from ipu_emu.cycle import CycleView, IssuedOp, decode_word
 from ipu_emu.emulator import load_program
 from ipu_emu.errors import DebugOnlyInstructionWarning, EmulatorError, UndeclaredRead
-from ipu_emu.execute import Ipu, decode_instruction_word
-from ipu_emu.ipu import read_views
+from ipu_emu.execute import decode_instruction_word
+from ipu_emu.ipu import Ipu, read_views
 from ipu_emu.ipu_state import IpuState
 from ipu_isa.slots import Slot
 from ipu_isa.timing import RegisterAccess, View
@@ -296,7 +296,7 @@ def test_a_handler_reading_an_undeclared_register_raises():
     state = IpuState()
     load_program(state, decoded_program(Probe("ACC.ADD ;;\nHALT ;;")))
     engine = Ipu(state)
-    engine.execute_vliw_cycle()  # a cycle has taken its snapshot
+    engine.cycle.step()  # a cycle has taken its snapshot
 
     def reads_r_mask(self: Ipu) -> None:
         self._view.read("r_mask")
