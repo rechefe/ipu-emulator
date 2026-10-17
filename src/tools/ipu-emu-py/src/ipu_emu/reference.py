@@ -413,8 +413,12 @@ class ReferenceModel:
         Returns:
             The status the run stopped in, the words it retired, and
             ``quit``: whether the callback returned ``QUIT`` or Ctrl-C ended
-            the run (a Ctrl-C at a stop leaves the model between words;
-            during a word, that word may be partly done). A
+            the run. A Ctrl-C at a stop leaves the model between words; one
+            during a word may leave it partly done, and a later step or run
+            re-runs it from the start (its finished part applies twice, and
+            the statistics other than ``cycles`` may already count it), so
+            :meth:`reset` or :meth:`load_program` when results must be
+            exact. A
             ``QUIT`` pauses the model where it stopped (``RUNNING``): a later
             step or run carries on from that PC. A callback that also moves
             the PC past IMEM (``ipu_debug``'s quit) leaves the model
