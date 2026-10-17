@@ -13,6 +13,7 @@ import pytest
 from ipu_apps.kernels.projections.app import ProjectionLayout, ProjectionP4App
 from ipu_emu.errors import ConfigurationError
 from ipu_emu.ipu_state import IpuState
+from ipu_emu.reference import ReferenceModel
 from ipu_harness import manifest as manifest_module
 from ipu_harness.abi import apply, check_cr_reads, register_writes, template_names
 from ipu_harness.manifest import KernelManifest, ManifestError, load_manifest
@@ -116,10 +117,10 @@ def test_template_names_and_apply_through_the_register_file(tmp_path):
     assert dict(names["cr"]) == {"x": "CR2", "y": "CR3", "rows": "CR4", "s": "CR5"}
     assert dict(names["lr"]) == {"neg": "LR3"}
     plan = plan_case(m, {"rows": 4, "s": 2.0}, F.FP32)
-    state = IpuState()
-    apply(state, register_writes(plan, place(plan)))
-    assert [state.regfile.get_cr(i) for i in (2, 3, 4, 5)] == [0, 4, 4, 0x40000000]
-    assert state.regfile.get_lr(3) == 0xFFFFFFFC
+    model = ReferenceModel(F.FP32)
+    apply(model, register_writes(plan, place(plan)))
+    assert [model.read_register("cr", i) for i in (2, 3, 4, 5)] == [0, 4, 4, 0x40000000]
+    assert model.read_register("lr", 3) == 0xFFFFFFFC
 
 
 # --- the CR-read check -----------------------------------------------------------------
