@@ -158,6 +158,8 @@ uv pip install -e .
 ipu-as --help
 ```
 
+[Command-line tools](reference/cli.md) lists every subcommand and option.
+
 ## Building the Documentation
 
 The documentation site is built by Bazel, offline:

@@ -58,7 +58,8 @@ def _cycles(text: str) -> int:
     return value
 
 
-def _parser() -> argparse.ArgumentParser:
+def build_parser() -> argparse.ArgumentParser:
+    """The command line in the module docstring; the docs' CLI reference renders it."""
     parser = argparse.ArgumentParser(prog="ipu_harness.cli", description=__doc__.splitlines()[0])
     parser.add_argument("kernel", type=Path, help="the kernel's folder (it holds kernel.toml)")
     parser.add_argument("--case", default="default", help="a case name, e.g. 'sweep[rows=7]'")
@@ -139,7 +140,7 @@ def _run(args: argparse.Namespace) -> int:
 
 def main(argv: Sequence[str] | None = None) -> int:
     """The command line. Returns the exit code."""
-    args = _parser().parse_args(argv)
+    args = build_parser().parse_args(argv)
     try:
         return _run(args)
     except (IpuError, OSError) as error:

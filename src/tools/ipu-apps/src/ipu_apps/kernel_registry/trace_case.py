@@ -235,11 +235,11 @@ def _option(text: str) -> tuple[str, Any]:
         return name, value
 
 
-def main(argv: list[str] | None = None) -> int:
-    """Record one case: the command line in the module docstring."""
+def build_parser() -> argparse.ArgumentParser:
+    """The command line in the module docstring."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("kernel")
-    parser.add_argument("--case", default="default")
+    parser.add_argument("kernel", help="a registered kernel name")
+    parser.add_argument("--case", default="default", help="the case to record")
     parser.add_argument(
         "--option",
         action="append",
@@ -250,7 +250,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--trace", type=Path, required=True, help="the trace (JSON Lines)")
     parser.add_argument("--context", type=Path, required=True, help="the context (JSON)")
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Record one case: the command line in the module docstring."""
+    args = build_parser().parse_args(argv)
     context = record_case(args.kernel, args.case, args.trace, dict(args.option))
     args.context.write_text(json.dumps(context, separators=(",", ":")) + "\n", encoding="utf-8")
     return 0

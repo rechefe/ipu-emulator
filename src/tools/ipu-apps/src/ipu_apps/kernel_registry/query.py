@@ -73,7 +73,8 @@ def _sweep(op: str, params: dict[str, str], spec: str) -> int:
     return 0 if all(run.kernel for run in runs) else 1
 
 
-def main(argv=None) -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """The command line in the module docstring."""
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -94,6 +95,11 @@ def main(argv=None) -> int:
         action="store_true",
         help="print the verdict as JSON (for tools); needs an operation",
     )
+    return parser
+
+
+def main(argv=None) -> int:
+    parser = build_parser()
     args = parser.parse_args(argv)
     if args.json and (args.op is None or args.sweep):
         parser.error("--json answers one query: give an operation and no --sweep")

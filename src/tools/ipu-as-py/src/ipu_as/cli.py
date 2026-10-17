@@ -117,8 +117,12 @@ def cli():
 
 
 @click.command()
-@click.option("--input", type=click.Path(exists=True), required=True)
-@click.option("--output", type=click.Path(exists=False), required=True)
+@click.option(
+    "--input", type=click.Path(exists=True), required=True, help="The assembly source to assemble."
+)
+@click.option(
+    "--output", type=click.Path(exists=False), required=True, help="The program file to write."
+)
 @click.option(
     "--format",
     type=click.Choice(["mem", "bin"]),
@@ -195,8 +199,12 @@ _RENDERERS: dict[str, lark_tree.Renderer] = {
 
 
 @click.command()
-@click.option("--input", type=click.Path(exists=True), required=True)
-@click.option("--output", type=click.Path(exists=False), required=True)
+@click.option(
+    "--input", type=click.Path(exists=True), required=True, help="The program file to read."
+)
+@click.option(
+    "--output", type=click.Path(exists=False), required=True, help="The text file to write."
+)
 @click.option(
     "--format",
     type=click.Choice(["mem", "bin"]),

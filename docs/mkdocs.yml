@@ -110,7 +110,7 @@ nav:
           - Assembly syntax: reference/isa/assembly-syntax.md
           - Instruction format: reference/isa/instruction-format.md
           - Programmer's guide: reference/isa/programmer-guide.md
-      - Command-line tools: reference/cli.md                # placeholder, E09-15
+      - Command-line tools: reference/cli.md                # E09-15; option tables generated (docs/cli_reference_page.py)
       - Reference model API: reference/reference-model-api.md   # E09-16; parts generated (docs/reference_api_page.py)
       - Kernels:                                            # E06/E07 generate these
           - kernels/index.md
