@@ -12,8 +12,9 @@ the step fails before it runs.
 
 A step places its own regions by first fit and knows nothing of an earlier
 step's residents but its inputs, so a step may overwrite a resident it does
-not take. The chain keeps track: a resident whose rows a later step wrote (or
-any resident, after a step that raised) is stale, and passing it fails.
+not take. The chain keeps track: a resident that a later step's placed regions
+cover is stale, and passing it fails. Only the placed regions are tracked: a
+store past its region (``ST.AAQ``'s three-row INT8 spill) is not seen.
 
 Only XMEM is the chain's state. A step's registers start as the step before
 left them, as on the hardware: ``load_program`` resets the PC, and the step
@@ -38,8 +39,8 @@ from ipu_harness.assembly import AssemblyCache
 from ipu_harness.cases import Case, checked_input
 from ipu_harness.manifest import CaseDecl, KernelManifest
 from ipu_harness.packing import stored_format, stored_rows
-from ipu_harness.params import CasePlan, plan_case
-from ipu_harness.placement import Region
+from ipu_harness.params import CasePlan, PlanError, plan_case
+from ipu_harness.placement import Region, place
 from ipu_harness.registry import default_registry
 from ipu_harness.runner import RunOptions, RunResult, SharedModel, run_kernel
 from ipu_isa.formats import ElementFormat
@@ -117,7 +118,7 @@ class Chain:
         self.model = ReferenceModel(fmt)
         self._cache = AssemblyCache()
         self._steps = 0
-        self._live: set[Resident] = set()
+        self._live: list[Resident] = []
 
     def _step_options(self) -> RunOptions:
         """The options of the next step: its own trace and output files."""
@@ -160,7 +161,8 @@ class Chain:
                 array input is not finite numbers of its shape; a
                 ``Resident``'s pack, format or rows differ from what the kernel
                 declares, or it moves an input ``kernel.toml`` pins to a row;
-                or a ``Resident`` is stale (a later step wrote its rows).
+                or a ``Resident`` is stale (a later step placed a region over
+                it) or another chain's.
             PlanError: The case is wrong, or a ``Resident`` overlaps another
                 region (placement).
         """
@@ -179,7 +181,7 @@ class Chain:
                     arrays[name] = value
             elif isinstance(value, Resident):
                 _check_layout(manifest, name, value, plan)
-                if value not in self._live:
+                if not any(value is live for live in self._live):
                     raise ConfigurationError(
                         f"{manifest.name}: input {name}'s resident tensor (rows "
                         f"{value.base_row}..{value.base_row + value.rows - 1}) is no longer "
@@ -201,25 +203,28 @@ class Chain:
         shared = SharedModel(self.model, MappingProxyType(arrays), MappingProxyType(pinned), check)
         options = self._step_options()
         self._steps += 1
+        written = _regions_written(plan, pinned)
         try:
             result = run_kernel(
                 manifest, case, self.format, options, cache=self._cache, shared=shared
             )
-        except BaseException:
-            self._live.clear()  # what the step wrote before it raised is unknown
-            raise
+        finally:
+            # Even when the step raised: it may have written its regions first.
+            self._live = [t for t in self._live if not any(t.overlaps(r) for r in written)]
         resident = _resident(manifest, result, plan, self._steps - 1)
-        self._track(result, set(pinned), resident)
+        self._live.extend(resident.values())
         return ChainStep(result, resident)
 
-    def _track(self, result: RunResult, pinned: set[str], resident: Mapping[str, Resident]) -> None:
-        """Drop the residents a step wrote over; add its outputs."""
-        if result.placement is None:
-            self._live.clear()
-            return
-        written = [r for r in result.placement.regions.values() if r.name not in pinned]
-        self._live = {t for t in self._live if not any(t.overlaps(r) for r in written)}
-        self._live.update(resident.values())
+
+def _regions_written(plan: CasePlan, pinned: Mapping[str, int]) -> list[Region]:
+    """The regions a step places and may write: all but its resident inputs;
+    none when placement refuses the step, which then fails before it writes."""
+    tensors = plan.manifest.tensors
+    try:
+        placement = place(plan, {n: stored_rows(t, plan) for n, t in tensors.items()}, pins=pinned)
+    except (ValueError, PlanError):
+        return []
+    return [r for r in placement.regions.values() if r.name not in pinned]
 
 
 def _check_layout(manifest: KernelManifest, name: str, value: Resident, plan: CasePlan) -> None:

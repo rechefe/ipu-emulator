@@ -159,11 +159,27 @@ def test_a_resident_a_later_step_wrote_over_is_stale(tmp_path, first, second):
     assert chain.run(first, SCALE_3, {"x": two}).result.halted  # two is still live
 
 
-def test_a_resident_from_elsewhere_is_refused(first):
+def test_a_step_refused_before_it_writes_keeps_the_residents(tmp_path, first, second):
+    clash = load_manifest(_kernel(tmp_path, "clash", y_row="row = 65"))
+    chain = Chain(ElementFormat.INT8)
+    resident = chain.run(first, SCALE_2, {"x": X}).resident["y"]
+    with pytest.raises(PlanError, match="overlaps"):
+        chain.run(clash, SCALE_3, {"x": resident})
+    with pytest.raises(ConfigurationError, match="takes inputs"):
+        chain.run(second, SCALE_3, {"xx": resident})
+    assert chain.run(second, SCALE_3, {"x": resident}).result.halted
+
+
+def test_a_resident_from_elsewhere_is_refused(first, second):
     with pytest.raises(ConfigurationError, match="not this chain's"):
         Chain(ElementFormat.INT8).run(
             first, SCALE_2, {"x": Resident(64, 2, None, ElementFormat.INT8)}
         )
+    theirs = Chain(ElementFormat.INT8).run(first, SCALE_2, {"x": X}).resident["y"]
+    mine = Chain(ElementFormat.INT8)
+    mine.run(first, SCALE_2, {"x": X})  # an equal resident, but this chain's own
+    with pytest.raises(ConfigurationError, match="not this chain's"):
+        mine.run(second, SCALE_3, {"x": theirs})
     with pytest.raises(ConfigurationError, match="rows >= 1"):
         Resident(0, 0, None, ElementFormat.INT8)
 

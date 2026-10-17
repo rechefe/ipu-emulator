@@ -20,7 +20,7 @@ from ipu_harness.manifest import load_manifest
 from ipu_harness.packing import stored_rows
 from ipu_harness.params import plan_case
 from ipu_harness.placement import place
-from ipu_harness.runner import RunOptions, run_kernel
+from ipu_harness.runner import RunOptions, run_kernel, stage
 from ipu_harness.stages import StageOptions, run_stages
 from ipu_isa.constants import DStructureConfig
 from ipu_isa.formats import ElementFormat
@@ -329,3 +329,11 @@ def test_one_alias_profile_covers_every_stage(kernel):
     )
     assert result.passed and result.alias_profile is not None
     assert result.alias_profile.cycles == result.cycles
+
+
+def test_a_multi_stage_kernel_has_no_one_program_to_stage_or_execute(kernel):
+    with pytest.raises(ConfigurationError, match="no one program"):
+        stage(kernel, _default(kernel), ElementFormat.INT8)
+    options = RunOptions(executor=lambda context: None)
+    with pytest.raises(ConfigurationError, match="executor runs one program"):
+        run_kernel(kernel, _default(kernel), ElementFormat.INT8, options)
