@@ -167,7 +167,7 @@ A slot module never imports another slot module. A helper two slots need goes in
   - Use `_MULT_STAGE_MAP[dest]` to get `(reg_name, elem_idx)` from a MultStageReg index
   - Use `ipu.state.regfile.set_register_bytes()` to write to a register
   - Use `ipu.state.dtype` to get the current data type
-  - Read registers through `ipu._view` (`CycleView`), which serves the snapshot or the live value as the instruction declares
+  - Read registers through `ipu._view` (`CycleView`), which serves the cycle-start or the forwarded value as the instruction declares
   - Use `ipu_mult()`, `ipu_add()` from `ipu_emu.ipu_math` for typed arithmetic
 
 **Available helpers:**

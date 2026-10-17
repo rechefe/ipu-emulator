@@ -2,7 +2,7 @@
 
 Copies the ``ipu_isa``, ``ipu_as`` and ``ipu_emu`` sources to a temporary
 directory, makes exactly two edits (the ``TESTNEG`` entry into
-``instruction_spec.py``, its handler into ``Ipu``), then assembles and runs
+``instruction_spec.py``, its handler into the LR slot module ``ipu_emu/slots/lr.py``), then assembles and runs
 ``SET LR0 CR2 ;; TESTNEG LR1 LR0 ;; HALT ;;`` in a fresh interpreter that
 imports the copies. ``KNOWN_MANUAL_EDITS`` lists any further edit adding an
 instruction still needs; it is empty, and a listed edit that is no longer
@@ -29,13 +29,13 @@ import ipu_isa
 KNOWN_MANUAL_EDITS: list[tuple[str, str, str, str]] = []
 
 SPEC = "ipu_isa/instruction_spec.py"
-HANDLERS = "ipu_emu/ipu.py"
+HANDLERS = "ipu_emu/slots/lr.py"
 
 #: Where each edit goes: the end of the spec's "lr" dict, and the start of
 #: the LR handlers.
 _LR_OPEN = '    "lr": {\n'
 _SLOT_CLOSE = "\n    },\n"
-_HANDLER_ANCHOR = "    def execute_lr_add(self"
+_HANDLER_ANCHOR = "def execute_lr_add(ipu"
 
 PROGRAM = "SET LR0 CR2 ;; TESTNEG LR1 LR0 ;; HALT ;;"
 
@@ -121,7 +121,7 @@ def test_without_the_handler_the_emulator_names_the_missing_handler(root: Path):
     _apply_manual_edits(root)
     result = _run(root)
     assert result.returncode != 0
-    assert "names handler Ipu.execute_testneg, which does not exist" in result.stderr
+    assert "names handler ipu_emu.slots.lr.execute_testneg, which does not exist" in result.stderr
 
 
 @pytest.mark.parametrize("index", range(len(KNOWN_MANUAL_EDITS)))
