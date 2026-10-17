@@ -1,10 +1,10 @@
 # Reference model API
 
 `ipu_emu.reference` is the emulator's stable interface for RTL verification
-(API version `1.0.0`). A cocotb testbench resets the model, loads a program,
+(API version `1.1.0`). A cocotb testbench resets the model, loads a program,
 sets registers and XMEM, steps it one word at a time and compares each commit
 record with what the RTL retired. The contract is the module's names
-(`API_VERSION`, `ReferenceModel`, `RunResult`, `RunState` and `Status`) and
+(`API_VERSION`, `ReferenceModel`, `RunResult`, `RunState`, `Stats` and `Status`) and
 the commit records `step()` returns. The rest of `ipu_emu` may change between
 releases; this interface changes only with a version bump, and a breaking
 change bumps the major number.
@@ -58,6 +58,7 @@ retires.
 | `set_fault_enable(fault, enabled)` | A fault's enable bit. F-2 to F-6 cannot be cleared (OQ-2). |
 | `step()` | One word. A `BREAK` slot never stops it: the word retires. A step has no cycle limit. |
 | `run(max_cycles=None, *, trace=None)` | Steps until `HALT`, a fault, or `max_cycles` words (`None` keeps the model's limit, 0 disables it). |
+| `stats()` | A `Stats` snapshot of the run statistics since the last `reset()` or `load_program()` (1.1.0): `cycles`, `mult_active_cycles`, `acc_active_cycles`, `xmem_reads`, `xmem_writes`, `mult_lane_ops`, `mult_identity_lane_ops`, `lane_occupancy` and `effective_mac_utilization` (`(mult_lane_ops - mult_identity_lane_ops) / (cycles * 128)`). They depend on operand values, so no commit record carries them. |
 | `status` | A `Status`: `state` (`RunState.RUNNING`, `HALTED` or `FAULTED`), `pc` and, when faulted, `fault`. |
 
 `r_wide_debug` and `r_cyclic_wide_debug` are emulator-only banks: they hold
@@ -77,8 +78,9 @@ have.
   XMEM writes raise `ConfigurationError` until `reset()` (IPU-FLT-7). After a
   `HALT` word, `step()` and `run()` raise it until `reset()` or
   `load_program()`.
-- No method returns an emulator object: values are ints, bytes, the
+- No method returns an emulator object: values are ints, floats, bytes, the
   dataclasses above and `CommitRecord`.
+- Version 1.1.0 added `Stats` and `stats()`; nothing of 1.0.0 changed.
 - The contract test, `src/tools/ipu-emu-py/test/test_reference_api_contract.py`,
   pins every public name, signature and record field under its version; a
   strict mypy test (`//src/tools/ipu-emu-py:mypy_reference`) types the module.
