@@ -27,7 +27,7 @@ def view():
 def test_it_takes_the_next_free_opcode_and_moves_nothing(view):
     before = {(s, i.mnemonic): i.opcode for s in Slot for i in isa().instructions(s)}
     after = {(s, i.mnemonic): i.opcode for s in Slot for i in view.instructions(s)}
-    assert after.pop((Slot.LR, MNEMONIC)) == 9  # LR had 9 instructions, opcodes 0-8
+    assert after.pop((Slot.LR, MNEMONIC)) == len(isa().instructions(Slot.LR))
     assert after == before
 
 
@@ -61,5 +61,6 @@ def test_the_timing_check_accepts_it(view):
 
 
 def test_it_takes_one_reserved_lr_opcode(view):
-    assert len(reserved_encodings(isa())[Slot.LR].opcodes) == 7
-    assert reserved_encodings(view)[Slot.LR].opcodes == (10, 11, 12, 13, 14, 15)
+    before = reserved_encodings(isa())[Slot.LR].opcodes
+    assert before[0] == view.instruction(Slot.LR, MNEMONIC).opcode
+    assert reserved_encodings(view)[Slot.LR].opcodes == before[1:]
