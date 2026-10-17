@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from ipu_as.session import AssemblyResult
 from ipu_emu.errors import ConfigurationError
 from ipu_emu.reference import ReferenceModel, RunState
 from ipu_emu.reference import RunResult as ModelRun
@@ -51,7 +52,14 @@ from ipu_isa.trace_schema import SCHEMA_VERSION, isa_digest
 if TYPE_CHECKING:
     from ipu_emu.alias_profile import AliasProfile
 
-__all__ = ["RunFault", "RunOptions", "RunResult", "run_kernel"]
+__all__ = [
+    "Executor",
+    "RunContext",
+    "RunFault",
+    "RunOptions",
+    "RunResult",
+    "run_kernel",
+]
 
 
 @dataclass(frozen=True)
@@ -69,6 +77,10 @@ class RunOptions:
         debug: Stop in the debugger (``--debug``, E06-12).
         alias_profile: Profile the ISA aliases of this run (``--profile-aliases``):
             the profile attaches to the one run the case makes.
+        executor: Runs the loaded program in place of ``model.run``: a tool
+            that steps the model itself (the Inspector's curated traces)
+            gets the :class:`RunContext` and returns the model's result.
+            Not with ``debug`` or ``trace``.
     """
 
     max_cycles: int | None = None
@@ -77,10 +89,40 @@ class RunOptions:
     trace: Path | None = None
     debug: DebugLaunch | None = None
     alias_profile: bool = False
+    executor: Executor | None = None
 
     def __post_init__(self) -> None:
         if self.debug is not None and self.trace is not None:
             raise ConfigurationError("--trace and --debug do not combine")
+        if self.executor is not None and (self.debug is not None or self.trace is not None):
+            raise ConfigurationError("an executor runs the program itself: no debug or trace")
+
+
+@dataclass(frozen=True)
+class RunContext:
+    """A case loaded on the model and ready to run, for an :data:`Executor`.
+
+    Attributes:
+        model: The reference model: program loaded, inputs and scratch
+            written, registers programmed, halted at PC 0.
+        program: The assembled program (``words``, ``rendered``, ``symbols``).
+        plan: The checked case.
+        placement: Where each tensor lives in XMEM.
+        max_cycles: The run's cycle limit (``RunOptions.max_cycles``).
+    """
+
+    model: ReferenceModel
+    program: AssemblyResult
+    plan: CasePlan
+    placement: Placement
+    max_cycles: int | None
+
+
+#: Runs a loaded case and returns the model's result: ``model.run`` by default.
+#: A tool steps ``context.model`` itself (``step()`` returns each word's commit
+#: record) and returns ``RunResult(model.status, words)``; the runner then
+#: unpacks and compares as after any run.
+Executor = Callable[[RunContext], ModelRun]
 
 
 @dataclass(frozen=True)
@@ -245,19 +287,20 @@ def _goldens(case: Case, plan: CasePlan, inputs: Mapping[str, Array]) -> dict[st
 
 
 def _execute(
-    model: ReferenceModel,
+    context: RunContext,
     manifest: KernelManifest,
     case: Case,
     fmt: ElementFormat,
-    words: tuple[int, ...],
     options: RunOptions,
 ) -> tuple[ModelRun | None, AliasProfile | None]:
-    """Run the loaded model as ``options`` say: profiled, in the debugger, traced.
+    """Run the loaded model as ``options`` say: profiled, in the debugger, by the
+    executor, traced.
 
     Returns:
         The model's result (``None`` when the user quit the debugger), and the
         profile when the run was profiled.
     """
+    model = context.model
     profile = None
     if options.alias_profile:
         profile = new_alias_profile(kernel=manifest.name, case=case.name, format=fmt.value)
@@ -270,8 +313,10 @@ def _execute(
             max_cycles=options.max_cycles,
         )
         return outcome.run, profile
+    if options.executor is not None:
+        return options.executor(context), profile
     if options.trace is not None:
-        with TraceWriter(options.trace, _trace_header(words, fmt)) as trace:
+        with TraceWriter(options.trace, _trace_header(context.program.words, fmt)) as trace:
             return model.run(options.max_cycles, trace=trace), profile
     return model.run(options.max_cycles), profile
 
@@ -322,7 +367,8 @@ def run_kernel(
             _write_region(model, plan, placement, tensor, _scratch_fill(tensor, plan, placement))
     apply(model, register_writes(plan, placement))
 
-    run, profile = _execute(model, manifest, case, fmt, program.words, options)
+    context = RunContext(model, program, plan, placement, options.max_cycles)
+    run, profile = _execute(context, manifest, case, fmt, options)
     mac_utilization = model.stats().effective_mac_utilization
     if run is None:  # the user quit the debugger: no result
         return RunResult(
