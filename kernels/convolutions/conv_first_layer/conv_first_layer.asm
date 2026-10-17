@@ -43,7 +43,7 @@
         slot 1: r_acc = bias; += taps over slot1 lanes; QUANTIZE identity -> temp1.
         reload temp0, identity-MULT, ACC.STRIDE 64 on off offset 0 -> r_acc[0..63].
         reload temp1, identity-MULT, ACC.STRIDE 64 on off offset 2 -> r_acc[64..127].
-        ACTIVATE.QUANTIZE relu -> ST.AAQ at lr6 (+y).
+        ACTIVATE.QUANTIZE relu -> ST.AAQ at LR6 (+y).
 
     - Two loops:
         EDGE   (output row 0):      kr in {0,+1}    -> 4 loads/ch (row -1 out of bounds).
@@ -67,12 +67,12 @@
       ELEMENT index; kept apart from block_stride because the two units
       diverge under row addressing). CR15 is the default dstructure
       (valid_elements = 128); CR2 is not used.
-    - LR: lr0=0 lr1=1 lr2=+1 lr3=-1 lr4=kern idx lr5=center row-group base
-      lr6=out ptr lr7=filter block base lr8=row counter lr9,lr10,lr14=scratch
-      lr11=128 lr12=scratch.
+    - LR: LR0=0 LR1=1 LR2=+1 LR3=-1 LR4=kern idx LR5=center row-group base
+      LR6=out ptr LR7=filter block base LR8=row counter LR9,LR10,LR14=scratch
+      LR11=128 LR12=scratch.
 -#}
 {#- ============================ MACROS ============================ -#}
-{#- Load channel-row (ch, kr) into both slots.  Center base = lr5. -#}
+{#- Load channel-row (ch, kr) into both slots.  Center base = LR5. -#}
 {%- macro load_ch_kr(ch, kr) %}
 {%-   if kr == -1 %}
     SUB                 LR9 LR5 {{ cr.row_group }};;
@@ -92,20 +92,19 @@
     LD.MULT.CYCLIC LR10 {{ cr.x }} LR11;;
 {%- endmacro -%}
 {#- Emit the 3 kc taps of one (slot, ch, kr).
-    lr4 CONVENTION: on entry lr4 holds (this kr's kc=-1 tap index) - 1, i.e. it
+    LR4 CONVENTION: on entry LR4 holds (this kr's kc=-1 tap index) - 1, i.e. it
     points at the LAST index the previous group consumed.  Each of the 3 tap
-    words carries its own `INC lr4 1` in the SAME word as its MULT.
+    words carries its own `INC LR4 1` in the SAME word as its MULT.
 
     Why that is correct, and why the obvious alternative is NOT:
-    MULT.RC.VE's `src` operand is read **LIVE**, not from the snapshot
-    (`_mult_resolve_lcr_scalar`, ipu.py:768 -- "the LR holds an INDEX into Ra ->
-    read it LIVE"), and the LR slot dispatches BEFORE the MULT slot within a
-    cycle (Cycle.step).  So an `INC lr4` sharing a word with a MULT is
+    MULT.RC.VE's `src` operand is read **LIVE**, not from the snapshot (the
+    LR holds an INDEX into Ra, read when the MULT executes), and the LR slot
+    dispatches BEFORE the MULT slot within a cycle.  So an `INC LR4` sharing a word with a MULT is
     visible to that MULT: the MULT reads the ALREADY-INCREMENTED value.
 
-    That makes the pre-increment form used here exact -- each word bumps lr4 and
+    That makes the pre-increment form used here exact -- each word bumps LR4 and
     then consumes the weight it just moved to.  It also means a
-    trailing standalone `INC lr4 1;;` could NOT simply be merged into
+    trailing standalone `INC LR4 1;;` could NOT simply be merged into
     the third tap's word: that would have made the third MULT see L+3 instead of
     L+2, silently reading the NEXT group's first weight.  (Verified empirically:
     a MULT with a same-word INC reads weight[idx+1], not weight[idx].)
@@ -150,10 +149,10 @@
 {%-   if slot == 0 %}
     LD.MULT        R0 LR7 {{ cr.filters }};;
 {%-   endif %}
-    # Bias tap: MULT.EE reads lr4 live too, so lr4 must be 0 (bias byte index)
-    # in THIS word.  The following `SET lr4 cr0` re-arms it to 0 = "last index
+    # Bias tap: MULT.EE reads LR4 live too, so LR4 must be 0 (bias element index)
+    # in THIS word.  The following `SET LR4 CR0` re-arms it to 0 = "last index
     # consumed" under kc_taps' pre-increment convention, so the first tap's own
-    # `INC lr4 1` lands on weight index 1.  Both fit in one word (2 of 3 LR
+    # `INC LR4 1` lands on weight index 1.  Both fit in one word (2 of 3 LR
     # sub-slots): SET dispatches in the LR phase, and since both SETs write the
     # same value there is no ordering hazard between them.
     SET                 LR4 CR0;
@@ -178,17 +177,17 @@
 {%-   else %}
     ACTIVATE.QUANTIZE   identity CR15;
     # XMEM offset for temp1 = +1 ROW (temp0/temp1 are adjacent 128-byte rows);
-    # lr11 holds 128 in its r_cyclic-ELEMENT role, so use lr1 (=1) here instead.
+    # LR11 holds 128 in its r_cyclic-ELEMENT role, so use LR1 (=1) here instead.
     ST.AAQ    LR1 {{ cr.temp }};;
 {%-   endif %}
 {%- endfor %}
 
     # ---- decimate + relu + store ----
-    ADD                 LR12 LR1 CR1;;               # lr12 = 2 (offset%4=2 -> r_acc start 64)
+    ADD                 LR12 LR1 CR1;;               # LR12 = 2 (offset%4=2 -> r_acc start 64)
     LD.MULT.CYCLIC LR0 {{ cr.temp }} LR0;;
     MULT.RC.VE          LR0 CR1 0 LR0 CR15;;
     ACC.STRIDE          64 on off LR0;;
-    LD.MULT.CYCLIC LR1 {{ cr.temp }} LR0;;   # XMEM offset +1 row (temp1); lr11 stays r_cyclic-ELEMENT-only
+    LD.MULT.CYCLIC LR1 {{ cr.temp }} LR0;;   # XMEM offset +1 row (temp1); LR11 stays r_cyclic-ELEMENT-only
     MULT.RC.VE          LR0 CR1 0 LR0 CR15;;
     # acc.stride (finalizes r_acc), ACTIVATE.QUANTIZE (reads r_acc LIVE), and
     # ST.AAQ (reads post_aaq_reg LIVE; store dispatches after aaq)

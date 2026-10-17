@@ -95,7 +95,7 @@
          holding W[o, 14g : 14g + 14].ravel(), nine per channel (pack
          conv_weight_groups).
       b: one row per output channel, bias[o] in element 0 (pack lane0_rows).
-      y: one row per (o, y, tile), lanes 0..125 valid (pack tiles126).
+      y: one row per (o, y, tile), lanes 0..125 valid (pack halo_tiled_output).
 
     Registers ([abi]): plane_advance = height * tiles is the advance from row
     (y+2, t) of channel c to row (y, t) of channel c+1, (H+2)*TPR - 2*TPR;

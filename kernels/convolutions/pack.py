@@ -11,9 +11,9 @@ The tiled kernels (``conv1x1``, ``conv3x3_relu``, ``conv3x3_relu_cin1``) read
   all-zero channel plane: the plane the pipelined channel loop prefetches
   past the last channel. It belongs to the input's region because the program
   never reads its base.
-* ``tiles126``: the 3x3 kernels' output, one row per (channel, row, tile) with
-  lanes 0..125 holding columns ``t*126 .. t*126 + 125``; the other two lanes
-  are dropped on unpack.
+* ``halo_tiled_output``: the 3x3 kernels' output, one row per (channel, row,
+  tile) with lanes 0..125 holding columns ``t*126 .. t*126 + 125``; the other
+  two lanes are dropped on unpack.
 * ``conv_weight_groups``: ``(out, in, k, k)`` weights, ``ceil(in / g)`` rows
   per output channel with ``g = 128 // k**2`` input channels a row (128 for
   1x1, 14 for 3x3): row ``o*G + gi`` holds ``w[o, gi*g:(gi+1)*g].ravel()``.
@@ -84,10 +84,14 @@ class HaloTiled:
         return t.reshape(c, h, -1)[..., :w]
 
 
-class Tiles126:
-    """``(channels, height, width)`` output rows of 126 valid lanes each."""
+class HaloTiledOutput:
+    """``(channels, height, width)`` output of halo-tiled kernels: one row per
+    (channel, row, tile), the tile's ``128 - 2*halo`` output columns in lanes
+    ``0 .. 127 - 2*halo``; the last ``2*halo`` lanes (what the taps past the
+    tile leave there) are dropped on unpack."""
 
-    columns = LANES - 2
+    def __init__(self, halo: int) -> None:
+        self.columns = LANES - 2 * halo
 
     def rows(self, shape: tuple[int, ...], plan: CasePlan) -> int:
         """One row per (channel, row, tile)."""
@@ -95,7 +99,7 @@ class Tiles126:
         return c * h * _ceil(w, self.columns)
 
     def to_rows(self, a: Array, plan: CasePlan) -> Array:
-        """``a`` as ``(rows, 128)``, lanes 126 and 127 zero."""
+        """``a`` as ``(rows, 128)``, the lanes past the columns zero."""
         c, h, w = a.shape
         tiles = _ceil(w, self.columns)
         wide = np.zeros((c, h, tiles * self.columns), dtype=np.float64)
@@ -105,7 +109,7 @@ class Tiles126:
         return rows.reshape(-1, LANES)
 
     def from_rows(self, r: Array, plan: CasePlan, shape: tuple[int, ...]) -> Array:
-        """The ``shape`` tensor ``r`` holds; lanes 126 and 127 are dropped."""
+        """The ``shape`` tensor ``r`` holds; the lanes past the columns are dropped."""
         c, h, w = shape
         tiles = _ceil(w, self.columns)
         return r.reshape(c, h, tiles, LANES)[..., : self.columns].reshape(c, h, -1)[..., :w]
@@ -199,7 +203,7 @@ class RowInterleaved:
 tiled_guard = HaloTiled(halo=0, guard=True)
 halo_tiled_guard = HaloTiled(halo=1, guard=True)
 halo_tiled = HaloTiled(halo=1, guard=False)
-tiles126 = Tiles126()
+halo_tiled_output = HaloTiledOutput(halo=1)
 conv_weight_groups = ConvWeightGroups()
 lane0_rows = Lane0Rows()
 row_interleaved = RowInterleaved()

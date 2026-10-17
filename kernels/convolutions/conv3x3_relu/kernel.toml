@@ -41,7 +41,7 @@ pack = "lane0_rows"
 
 [outputs.y]                                     # one row per (o, y, tile), 126 lanes valid
 shape = ["out_channels", "height", "width"]
-pack = "tiles126"
+pack = "halo_tiled_output"
 
 [abi]
 x              = "CR2"

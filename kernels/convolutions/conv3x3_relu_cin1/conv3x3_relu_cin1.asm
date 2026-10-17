@@ -58,7 +58,7 @@
       w: one row per output channel, the nine weights W[o, 0].ravel() in
          elements 0..8 (pack conv_weight_groups).
       b: one row per output channel, bias[o] in element 0 (pack lane0_rows).
-      y: one row per (o, y, tile), lanes 0..125 valid (pack tiles126).
+      y: one row per (o, y, tile), lanes 0..125 valid (pack halo_tiled_output).
 
     Registers ([abi]): tiles = ceil(width / 126) is TPR, rows per spatial row
     and the row step; rc_step = 126 is the rc slot-to-slot step; lanes = 128

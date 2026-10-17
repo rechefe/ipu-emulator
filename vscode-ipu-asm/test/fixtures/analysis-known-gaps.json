@@ -17,9 +17,6 @@
   "snippet:unknown-in-word": [
     "word 1:1 [HALT SE]: the fallback says it fits, the assembler that it does not fit"
   ],
-  "src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/conv_first_layer/conv_first_layer.asm": [
-    "word 127:5 [ld.mult]: in the scan only"
-  ],
   "src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/conv_universal_wide384/conv_universal_wide384.asm": [
     "jinja 126:1 \"{#- ipu:params cpr: int = 3 # column chu…\": defines [] by the fallback, [cpr rows] by the assembler"
   ],

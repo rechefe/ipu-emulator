@@ -32,7 +32,7 @@
       ISA, so the reset folds into an ACC.ADD.FIRST. Rather than peel the
       first channel's MAC out of both loops to carry it, the bias supplies it:
 
-        MULT.EE lr_bias CR1 0 lr0 CR15 ; ACC.ADD.FIRST ;;
+        MULT.EE lr_bias CR1 0 LR0 CR15 ; ACC.ADD.FIRST ;;
 
       broadcasts R1[0] (= bias[o]) x CR1 (= 1.0) and overwrites R_ACC with it.
       Every MAC in every group is then a uniform ACC.ADD -- no peel, no
