@@ -39,6 +39,10 @@ def linear(
     """``y = activation(a @ b)``: a projection, with ``activation`` ``"none"``
     or ``"silu"`` (a kernel's ``activation`` parameter, when it declares one).
 
+    ``a`` is the output-major weights ``[n_out, k]`` and ``b`` the
+    channel-major data ``[..., k, n_tok]``, so ``y`` is ``[..., n_out, n_tok]``
+    (``@`` broadcasts the weights over the leading axes).
+
     Raises:
         ValueError: ``activation`` is neither.
     """

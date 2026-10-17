@@ -67,6 +67,12 @@ def test_linear_is_a_matmul_then_its_activation():
     assert silu == [pytest.approx(row, rel=1e-12) for row in expected]
     with pytest.raises(ValueError, match="'relu' is not one of"):
         ops.linear(a, b, activation="relu")
+    # Output-major weights over channel-major data with leading axes.
+    weights, data = (
+        torch.ones(3, 2, dtype=torch.float64),
+        torch.ones(4, 1, 2, 5, dtype=torch.float64),
+    )
+    assert ops.linear(weights, data)["y"].shape == (4, 1, 3, 5)
 
 
 def test_an_axis_op_needs_its_dim():
