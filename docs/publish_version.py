@@ -214,7 +214,8 @@ def _publish_once(
             if push and remote is not None:
                 pushed = _git(repo, "push", remote, f"{commit}:refs/heads/{BRANCH}", check=False)
                 if pushed.returncode != 0:
-                    if "rejected" in pushed.stderr or "fetch first" in pushed.stderr:
+                    # Only a lost race is retried; a protected branch or a hook fails now.
+                    if "fetch first" in pushed.stderr or "non-fast-forward" in pushed.stderr:
                         return None  # another publish won the race: redo on its result
                     raise subprocess.CalledProcessError(
                         pushed.returncode, pushed.args, pushed.stdout, pushed.stderr
