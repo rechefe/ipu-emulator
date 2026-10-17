@@ -257,6 +257,18 @@ py_pytest_test(
     ],
 )
 
+# specs/rtl-migration.md's claims about this branch, against the SV golden.
+py_pytest_test(
+    name = "test_rtl_migration",
+    size = "small",
+    srcs = ["test_rtl_migration.py"],
+    data = [
+        "content/specs/rtl-migration.md",
+        "//src/tools/ipu-as-py:test/golden/ipu_instr_pkg.sv",
+    ],
+    deps = [requirement("pytest")],
+)
+
 py_pytest_test(
     name = "test_history_link",
     size = "small",
