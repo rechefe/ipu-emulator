@@ -14,6 +14,30 @@ package(default_visibility = ["//visibility:public"])
 # CI tier.
 
 kernel_trace(
+    name = "tour_int8",
+    case = "int8",
+    kernel = "vector_tour",
+)
+
+kernel_trace(
+    name = "tour_e4",
+    case = "e4",
+    kernel = "vector_tour",
+)
+
+kernel_trace(
+    name = "tour_e5",
+    case = "e5",
+    kernel = "vector_tour",
+)
+
+kernel_trace(
+    name = "tour_e3",
+    case = "e3",
+    kernel = "vector_tour",
+)
+
+kernel_trace(
     name = "fc_int8",
     case = "int8",
     kernel = "fully_connected",
@@ -69,6 +93,10 @@ kernel_trace(
 
 # Every kernel_trace above, in curated.toml's order.
 TRACES = [
+    ":tour_int8",
+    ":tour_e4",
+    ":tour_e5",
+    ":tour_e3",
     ":fc_int8",
     ":fc_e4",
     ":fc_e5",

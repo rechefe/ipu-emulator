@@ -154,6 +154,10 @@ def test_execution_profiles_and_fresh_state(monkeypatch, fmt, quantize, row_byte
     assert bytes(second.xmem.read_address(0, 7)) == bytes(7)
 
 
+#: Kernels whose default case does not run in the wide-vector FP32 format.
+_DEFAULT_FORMATS = {"fully_connected": "int32", "vector_tour": "int8"}
+
+
 @pytest.mark.parametrize("name", [spec.name for spec in kernels()])
 def test_factory_and_direct_constructor_execution_agree(name, tmp_path):
     case = load_cases(name)["default"]
@@ -165,7 +169,7 @@ def test_factory_and_direct_constructor_execution_agree(name, tmp_path):
     for app in (via_factory, direct):
         state = app.make_state()
         assert not state.aaq.quantize_output
-        assert state.fmt.value == ("int32" if name == "fully_connected" else "fp32")
+        assert state.fmt.value == _DEFAULT_FORMATS.get(name, "fp32")
 
 
 def test_explicit_state_bypasses_execution_selector(monkeypatch):

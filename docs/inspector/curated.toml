@@ -6,6 +6,42 @@
 # emulator-only FP32/INT32). label: the format as the kernel button shows it.
 
 [[kernel]]
+id = "tour_int8"
+group = "native"
+title = "Vector tour"
+label = "INT8"
+description = """The vector_tour conformance program: loads a mask, two R_CYCLIC slots and \
+R0/R1, then runs MULT.VE, MULT.RC.VV/VS/VE and MULT.EE into ACC.ADD/SUB/MAX, masked \
+multiplies, and a 4-row matrix-vector loop with AGG.SUM.FIRST. INT8 lanes multiply into INT32 MULT_RES and R_ACC; the run ends with ACTIVATE.QUANTIZE RELU and a store of POST_AAQ_REG."""
+
+[[kernel]]
+id = "tour_e4"
+group = "native"
+title = "Vector tour"
+label = "FP8 E4M3"
+description = """The vector_tour conformance program: loads a mask, two R_CYCLIC slots and \
+R0/R1, then runs MULT.VE, MULT.RC.VV/VS/VE and MULT.EE into ACC.ADD/SUB/MAX, masked \
+multiplies, and a 4-row matrix-vector loop with AGG.SUM.FIRST. FP8 E4M3 lanes multiply into FP32 MULT_RES and R_ACC. ACTIVATE.QUANTIZE needs INT8, so results leave through stores of R_ACC."""
+
+[[kernel]]
+id = "tour_e5"
+group = "native"
+title = "Vector tour"
+label = "FP8 E5M2"
+description = """The vector_tour conformance program: loads a mask, two R_CYCLIC slots and \
+R0/R1, then runs MULT.VE, MULT.RC.VV/VS/VE and MULT.EE into ACC.ADD/SUB/MAX, masked \
+multiplies, and a 4-row matrix-vector loop with AGG.SUM.FIRST. FP8 E5M2: wider range and 2 mantissa bits, so products round more coarsely than in E4M3."""
+
+[[kernel]]
+id = "tour_e3"
+group = "native"
+title = "Vector tour"
+label = "FP8 E3M4"
+description = """The vector_tour conformance program: loads a mask, two R_CYCLIC slots and \
+R0/R1, then runs MULT.VE, MULT.RC.VV/VS/VE and MULT.EE into ACC.ADD/SUB/MAX, masked \
+multiplies, and a 4-row matrix-vector loop with AGG.SUM.FIRST. FP8 E3M4: 4 mantissa bits, narrow range."""
+
+[[kernel]]
 id = "fc_int8"
 group = "native"
 title = "Fully connected"

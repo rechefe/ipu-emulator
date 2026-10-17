@@ -91,7 +91,9 @@ def test_program_is_decoded_with_the_source_labels():
         {
             "label": None,
             "word": f"{WORDS[2]:x}",
-            "slots": [{"slot": "cond", "instance": 0, "op": "BLT.S", "args": ["LR0", "CR2", "loop"]}],
+            "slots": [
+                {"slot": "cond", "instance": 0, "op": "BLT.S", "args": ["LR0", "CR2", "loop"]}
+            ],
         },
     ]
 
@@ -154,6 +156,16 @@ def test_the_document_validates_against_its_schema():
     assert document["schemaVersion"] == inspector_trace.SCHEMA_VERSION
     assert document["meta"]["format"] == "int8"
     assert document["meta"]["wide"] is False
+    assert document["meta"]["lut"] is None
+
+
+def test_an_fp8_format_carries_its_value_table():
+    meta = convert(dict(HEADER, format="e4"), RECORDS, _context())["meta"]
+    lut = meta["lut"]
+    assert len(lut) == 256
+    assert lut[0] == 0.0
+    assert lut[0x38] == 1.0  # E4M3: exponent 7 = bias, mantissa 0
+    assert lut[0x7F] == "nan"
 
 
 @pytest.mark.parametrize(

@@ -19,7 +19,7 @@
     "meta": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["format", "is_float", "element_bits", "exp_bits", "man_bits", "accumulator", "wide"],
+      "required": ["format", "is_float", "element_bits", "exp_bits", "man_bits", "accumulator", "wide", "lut"],
       "properties": {
         "format": {"type": "string"},
         "is_float": {"type": "boolean"},
@@ -27,7 +27,19 @@
         "exp_bits": {"type": "integer"},
         "man_bits": {"type": "integer"},
         "accumulator": {"type": "string"},
-        "wide": {"type": "boolean", "description": "An emulator-only format (FP32, INT32): wide-vector debug mode."}
+        "wide": {"type": "boolean", "description": "An emulator-only format (FP32, INT32): wide-vector debug mode."},
+        "lut": {
+          "description": "An 8-bit float format's value per code; null for any other format.",
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "array",
+              "minItems": 256,
+              "maxItems": 256,
+              "items": {"oneOf": [{"type": "number"}, {"enum": ["nan", "inf", "-inf"]}]}
+            }
+          ]
+        }
       }
     },
     "trace": {

@@ -11,7 +11,9 @@ The document (``schemas/inspector-trace.schema.json``):
 * ``schemaVersion``: :data:`SCHEMA_VERSION`. The page refuses a version it
   does not know.
 * ``kernel``, ``case``, ``options``, ``source_path``, ``source``: what ran.
-* ``meta``: the element format and its facts (``ipu_isa.formats``).
+* ``meta``: the element format and its facts (``ipu_isa.formats``); for an
+  8-bit float format, ``lut``, each of the 256 codes' values
+  (``"nan"``, ``"inf"`` and ``"-inf"`` as strings), else ``null``.
 * ``trace``: the trace header's provenance (schema version, ISA and program
   digests).
 * ``program``: per word, its label (or ``null``), the word in hex and its
@@ -35,6 +37,7 @@ neither (it records writes), so the recorder takes them from the run.
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -42,7 +45,7 @@ from typing import Any
 from ipu_isa.codec.disasm import operand_text
 from ipu_isa.codec.slot import codecs
 from ipu_isa.codec.word import WORD_LAYOUT
-from ipu_isa.formats import FORMATS, ElementFormat
+from ipu_isa.formats import FORMATS, ElementFormat, decode_element
 from ipu_isa.operand_types import OperandKind
 from ipu_isa.tags import Tag
 from ipu_isa.trace_schema import isa_digest
@@ -112,8 +115,23 @@ def _check(header: Mapping[str, Any], records: Sequence[Mapping], context: Mappi
         raise TraceError(f"{len(records)} records but {len(context['cycles'])} context cycles")
 
 
+def _lut_value(value: float) -> float | str:
+    """A decoded element as JSON: a number, or ``"nan"``, ``"inf"``, ``"-inf"``."""
+    if math.isnan(value):
+        return "nan"
+    if math.isinf(value):
+        return "inf" if value > 0 else "-inf"
+    return value
+
+
 def _meta(fmt: ElementFormat) -> dict[str, Any]:
     info = FORMATS[fmt]
+    # An 8-bit float element's value per code, so the page needs no FP8 decoder.
+    lut = (
+        [_lut_value(decode_element(code, fmt)) for code in range(256)]
+        if info.is_float and info.element_bits == 8
+        else None
+    )
     return {
         "format": fmt.value,
         "is_float": info.is_float,
@@ -123,6 +141,7 @@ def _meta(fmt: ElementFormat) -> dict[str, Any]:
         "accumulator": info.accumulator.value,
         # FP32 and INT32 exist in the emulator only: wide-vector debug mode.
         "wide": info.tag is Tag.EMULATOR,
+        "lut": lut,
     }
 
 
