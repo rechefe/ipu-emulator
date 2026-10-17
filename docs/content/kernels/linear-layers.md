@@ -31,7 +31,7 @@ identity for every other kernel.
 | `matmul_480x240_x128` | 16 | 240 | 480 | silu |
 | `matmul_720x240_x128` | 16 | 240 | 720 | none |
 
-Query: `matmul shape_a=M,K shape_b_t=N,K [activation=silu]`.
+Query (the `_x128` kernels): `matmul shape_a=M,K shape_b_t=N,K [activation=silu]`.
 
 The four row-major kernels (`matmul_64x64x64` and `matmul_128x*`) are
 entries of `kernels/matmul/registry.toml` over one template, `matmul_small`
@@ -68,8 +68,8 @@ whenever the activation matters.
 
 ## Data layout
 
-A `matmul_*` kernel takes `input_path`, `weights_path` and `output_path`. The
-weight file is `[N, K]` float32, output-major, stored verbatim.
+A `matmul_*_x128` kernel takes `input_path`, `weights_path` and `output_path`.
+The weight file is `[N, K]` float32, output-major, stored verbatim.
 
 `matmul_*` kernels use one of two layouts (each kernel's `cases.py` states its
 own):

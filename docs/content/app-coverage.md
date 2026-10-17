@@ -234,6 +234,7 @@ So are the sampling and detect kernels (E07-15): `sample_descriptors`
 (`height`, `width`, `channels`, `stock`), `score_threshold` (`count`) and
 `channel_peak` (`channels`, `columns`); `channel_peak` is also still in
 `ipu_apps` until its Inspector trace moves (E07-26).
+So are the four row-major matmuls (E07-07): `matmul m=M k=K n=N`.
 
 All softmax kernels are wide-vector FP32 only (`fmt=ElementFormat.FP32`); they
 build on `exp2`/reciprocal over an FP32 vector path and have no narrow
