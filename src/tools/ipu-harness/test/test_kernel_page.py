@@ -44,4 +44,9 @@ def test_the_abi_table_names_each_binding_its_kind(tmp_path):
     data = page_data(m)
     assert data["design_notes"].startswith("scale.asm -- y = x * s")
     assert data["params"]["s"] == {"type": "float", "unit": "count"}
-    assert data["tolerance"] == {"fp32": "EXACT", "int8": "EXACT", "e4": "FP8_ULP"}
+    # y is an accumulator output: in E4 it is compared as FP32, at fp32's tier.
+    assert data["tolerance"] == {
+        "fp32": {"y": "EXACT"},
+        "int8": {"y": "EXACT"},
+        "e4": {"y": "EXACT"},
+    }

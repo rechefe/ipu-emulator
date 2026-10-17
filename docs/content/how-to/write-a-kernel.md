@@ -5,7 +5,7 @@ The example is `scale`, which multiplies a matrix by a scalar: `y = x * s`. It
 is the kernel in `kernels/elementwise/scale/`, so every listing below is a file
 you can open. Every command runs from the repository root.
 
-A kernel is a folder with three files the framework reads, plus its Bazel file:
+A kernel is a folder with three files the kernel harness reads, plus its Bazel file:
 
 | File | What it holds |
 |---|---|
@@ -14,7 +14,7 @@ A kernel is a folder with three files the framework reads, plus its Bazel file:
 | `reference.py` | What the outputs should be, in PyTorch. |
 | `BUILD.bazel` | One line, `ipu_kernel()`, which declares the targets. |
 
-The framework does the rest. From `kernel.toml` it checks the parameters,
+The harness does the rest. From `kernel.toml` it checks the parameters,
 places each region in XMEM, writes the inputs in the element format of the
 run, programs the CRs, runs the program and compares the outputs with the
 reference. A kernel has no Python harness and no hand-written CR setup.
@@ -25,7 +25,9 @@ reference. A kernel has no Python harness and no hand-written CR setup.
   family is a folder with a `BUILD.bazel` of
   `load("//kernels:defs.bzl", "ipu_kernel_family")` and `ipu_kernel_family()`.
 - Read the [assembly syntax](../reference/isa/assembly-syntax.md) if you have
-  not written IPU assembly before.
+  not written IPU assembly before, and keep the
+  [instruction reference](../reference/isa/instructions.md) open: step 2 uses
+  nine instructions. Both pages are generated in the docs build.
 
 ## 1. Create the folder
 
@@ -82,6 +84,23 @@ row_loop:
     HALT ;;
 ```
 
+An instruction word is one line ending in `;;`; instructions joined by `;`
+issue together in that word. Line by line:
+
+| Word | What it does |
+|---|---|
+| `SET LR0 CR0 ; SET LR1 CR0 ; SET LR2 CR0` | Zero three loop registers: `LR0` (an offset that stays 0), `LR1` (the row of `x`) and `LR2` (the row of `y`). `CR0` always reads 0. |
+| `LD.MULT R0 LR1 {{ cr.x }}` | Load XMEM row `x + LR1` into `R0`. A row is 128 elements in every format. |
+| `MULT.VE LR0 {{ cr.s }} 0 LR0 CR15 ; ACC.ADD.FIRST` | Multiply `R0`, from element `LR0` (0), by the scalar in `{{ cr.s }}`, with mask slot 0 and no mask shift (every lane, as `R_MASK` resets), and the dstructure in `CR15`. `ACC.ADD.FIRST` in the same word writes that product to the accumulator. |
+| `ST.ACC LR2 {{ cr.y }}` | Store the accumulator to row `y + LR2`. |
+| `ADD LR1 LR1 CR1 ; INC LR2 {{ acc_rows }}` | Step to the next row of `x` (`CR1` always reads 1) and the next accumulator vector of `y`. |
+| `BLT.S LR1 {{ cr.rows }} row_loop` | Loop while `LR1` is less than `rows`. |
+| `HALT` | End the run. |
+
+`LD.MULT` has its own word because the multiply does not see a load from the
+same word; `ACC.ADD.FIRST` does see the same word's product. The
+[timing model](../explanation/timing-model.md) gives every such rule.
+
 Three things make it a kernel program rather than a fixed one:
 
 - **The header** is a `{#- ... -#}` comment: the first line says what the
@@ -93,8 +112,9 @@ Three things make it a kernel program rather than a fixed one:
   that uses it.
 - **Template values**: every parameter (`{{ rows }}`), the element format of
   the run (`format`, such as `"e4"`) and each tensor's shape (`shapes.x`).
-  `scale` uses `format` to step over one accumulator vector, which is one row
-  in FP32 and four rows in an 8-bit format.
+  `scale` uses `format` to step over one accumulator vector: 128 32-bit
+  elements, which is one row in FP32 (512 bytes a row) and four rows in an
+  8-bit format (128 bytes a row).
 
 `CR0` reads 0, `CR1` reads 1 and `CR15` holds the dstructure (by default all
 128 elements are valid). Mnemonics and register names are upper case, and
@@ -155,8 +175,10 @@ Section by section:
   case runs in every one of them unless it narrows the list.
 - **`[params]`**: each parameter's type and domain. A case or a query outside
   the domain is refused before anything runs, with the reason. A `float`
-  parameter is an element scalar: the framework encodes it in the format of
-  the run.
+  parameter bound to a CR is an element scalar: the harness encodes it in the
+  format of the run, and a value that format cannot hold exactly (1.5 in
+  INT8) is an error that names the nearest values. That is why `sweep` lists
+  its own `formats`.
 - **`[inputs.x]` and `[outputs.y]`**: each region's shape, in elements, with
   expressions over parameters (`"rows"`, `"ceil(k / 128)"`). The framework
   places them in XMEM; `row = N` pins one. `store = "accumulator"` says the
@@ -177,7 +199,7 @@ Every key is listed in the [`kernel.toml` reference](../reference/kernel-toml.md
 ## 4. Write the reference
 
 `reference.py` takes the inputs as tensors, already decoded from the format
-of the run, and the parameters as keywords. It returns each output by name:
+of the run, and every parameter as a keyword. It returns each output by name:
 
 ```python
 import torch
@@ -189,10 +211,11 @@ def reference(x: torch.Tensor, *, rows: int, s: float) -> dict[str, torch.Tensor
     return {"y": x * s}
 ```
 
-The framework rounds the result to the format of the run before it compares.
-An operation other kernels share has one reference in `ipu_kernels.reference`
-instead; the kernel names it with `[golden] op = "<name>"` and needs no
-`reference.py`.
+The harness rounds the result to the format each output is stored in before
+it compares: the format of the run, or for an accumulator output like `y` its
+accumulator format (FP32, or INT32 in INT8). An operation other kernels share
+has one reference in `ipu_kernels.reference.ops` instead; the kernel names it
+with `[golden] op = "<name>"` and needs no `reference.py`.
 
 ## 5. Run its tests
 
@@ -210,7 +233,8 @@ the tier it failed at. A case with `tier = "nightly"` runs in
 ## 6. Run one case
 
 `bazel run` on the same target runs one case through the kernel runner and
-prints one line per format:
+prints one report per format: the result, the cycle count and each output's
+comparison.
 
 ```bash
 bazel run //kernels/elementwise/scale -- --case one_row --format e4
@@ -240,8 +264,10 @@ the [command-line reference](../reference/cli.md#kernel-runner-run_kernel), and
 
 ## 7. Choose a tolerance tier
 
-`[golden] tolerance` names the tier each format is compared at. A format not
-listed is compared at `EXACT`:
+`[golden] tolerance` names the tier each format is compared at; a format not
+listed is compared at `EXACT`. The key is the format the output is stored in,
+so an accumulator output in E4 is compared at the `fp32` tier, and `scale`'s
+`e4` tier applies only to an element output:
 
 | Tier | For |
 |---|---|

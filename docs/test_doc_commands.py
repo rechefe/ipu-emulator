@@ -37,8 +37,10 @@ _BAZEL_RUN = re.compile(
 )
 _APPS = "//src/tools/ipu-apps:"
 #: An ipu_kernel() or registry entry target runs the harness CLI with its
-#: kernel filled in (E06-13, E06-17).
+#: kernel filled in (E06-13, E06-17); //kernels/tools holds migration tools,
+#: not kernels.
 _KERNELS = "//kernels/"
+_KERNEL_TOOLS = "//kernels/tools"
 
 
 @dataclass(frozen=True)
@@ -219,10 +221,8 @@ def check_bazel_run(label: str, args: list[str]) -> list[str] | None:
         return _parse(parsers[label](), args)
     if label.startswith(_APPS) and label.removeprefix(_APPS) in _kernel_names():
         return _check_kernel_target(label.removeprefix(_APPS), args)
-    if label.startswith(_KERNELS) and not label.startswith(_KERNELS + "tools"):
-        from ipu_harness import cli as run_kernel
-
-        return _parse(run_kernel.build_parser(), ["kernel", *args])
+    if label.startswith(_KERNELS) and not label.startswith(_KERNEL_TOOLS):
+        return _parse(parsers["//src/tools/ipu-harness:run_kernel"](), ["kernel", *args])
     return None
 
 

@@ -20,10 +20,8 @@ import pytest
 from docs.doc_blocks import Block, DocBlockError, fenced_blocks
 from docs.doc_files import doc_files, generated_files
 from ipu_as import diagnostics
-from ipu_harness.assembly import assemble
-from ipu_harness.cases import expand
+from ipu_harness.kernel_bin import default_programs
 from ipu_harness.manifest import load_manifest
-from ipu_harness.params import plan_case
 from ipu_isa.errors import IpuError
 
 
@@ -42,18 +40,15 @@ def _cases() -> list:
 
 
 def _assemble_as_kernel(case: Block) -> None:
-    """The block as its kernel's program, through the harness (E06-07)."""
+    """The block as its kernel's program: its default case, in every format."""
     manifest = load_manifest(Path(case.kernel or ""))
     with tempfile.TemporaryDirectory() as scratch:
         program = Path(scratch) / manifest.asm.name
         program.write_text(case.body, encoding="utf-8")
-        manifest = dataclasses.replace(manifest, asm=program)
-        default = next(c for c in expand(manifest) if c.decl is manifest.cases["default"])
-        for fmt in default.formats:
-            try:
-                assemble(plan_case(manifest, default.values, fmt, case=default.decl))
-            except IpuError as error:
-                pytest.fail(f"{case.path}:{case.line}: {fmt.value}: {error}", pytrace=False)
+        try:
+            default_programs(dataclasses.replace(manifest, asm=program))
+        except IpuError as error:
+            pytest.fail(f"{case.path}:{case.line}: {error}", pytrace=False)
 
 
 @pytest.mark.parametrize("case", _cases())

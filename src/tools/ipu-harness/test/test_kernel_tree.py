@@ -80,4 +80,4 @@ def test_every_kernel_has_design_notes_and_an_abi_table():
         ("s", "CR5", "element scalar"),
     ]
     assert scale["params"]["rows"] == {"type": "int", "unit": "count", "min": 1, "max": 256}
-    assert scale["tolerance"] == {"fp32": "EXACT", "int8": "EXACT", "e4": "FP8_ULP"}
+    assert scale["tolerance"]["e4"] == {"y": "EXACT"}  # an accumulator output: compared as FP32

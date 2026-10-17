@@ -31,7 +31,14 @@ _ROLE = re.compile(r":(?:func|data|mod|class|meth|attr):`~?([^`]+)`")
 
 
 def markdown(text: str) -> str:
-    """Docstring markup as Markdown: double backticks and roles become code."""
+    """Docstring markup as Markdown.
+
+    Args:
+        text: Text with double backticks and Sphinx roles.
+
+    Returns:
+        The text with each of them as single-backtick code.
+    """
     return _ROLE.sub(r"`\1`", text.replace("``", "`"))
 
 
@@ -100,7 +107,14 @@ def _table(rows: Iterable[tuple[str, str]], header: tuple[str, str]) -> str:
 
 
 def keys_table(schema: Mapping[str, tuple[str, ...]]) -> str:
-    """Every table and its keys, from the loader's own key tuples."""
+    """Every table and its keys, as a Markdown table.
+
+    Args:
+        schema: Table name to its keys (``manifest.SCHEMA_KEYS``).
+
+    Returns:
+        The table.
+    """
     rows = ((f"`{table}`", ", ".join(f"`{key}`" for key in keys)) for table, keys in schema.items())
     return _table(rows, ("Table", "Keys"))
 
@@ -119,7 +133,15 @@ def _example(doc: str) -> str:
 
 
 def undocumented(doc: str, schema: Mapping[str, tuple[str, ...]]) -> list[str]:
-    """``table.key`` for each key of ``schema`` the docstring never names as ````key````."""
+    """The keys of ``schema`` a docstring does not describe.
+
+    Args:
+        doc: The docstring.
+        schema: Table name to its keys.
+
+    Returns:
+        ``"<table> <key>"`` for each key never written as ````key````.
+    """
     return [
         f"{table} {key}"
         for table, keys in schema.items()
@@ -148,13 +170,25 @@ def schema_page() -> str:
 
 
 def registry_page() -> str:
-    """``registry.md``: the ``registry.toml`` example and its entry keys."""
+    """``registry.md``.
+
+    Returns:
+        The ``registry.toml`` example of :mod:`ipu_harness.family`, then its
+        entry keys.
+    """
     keys = ", ".join(f"`{key}`" for key in family.ENTRY_KEYS)
     return _example(family.__doc__ or "") + f"\nA `[[kernel]]` entry takes {keys}.\n"
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Write the snippets into the directory given. Returns the exit code."""
+    """Write the snippets into the directory given.
+
+    Args:
+        argv: ``[OUTPUT_DIR]``; default the command line.
+
+    Returns:
+        The exit code: 0, or 2 for a usage error.
+    """
     args = sys.argv[1:] if argv is None else argv
     if len(args) != 1:
         print("usage: kernel_toml_page.py OUTPUT_DIR", file=sys.stderr)

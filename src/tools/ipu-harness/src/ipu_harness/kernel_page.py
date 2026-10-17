@@ -1,7 +1,7 @@
 """What a kernel's generated docs page shows, as data (E06-21).
 
 ``//kernels:manifest`` adds :func:`page_data` to each kernel; E08 and E09
-render it. Nothing here reads a CR map from a comment: the ABI table comes
+render it. Nothing here reads an ABI from a comment: the ABI table comes
 from ``[abi]``, the design notes from the program's leading ``{#- ... -#}``
 block (Q79), so neither can drift from what runs.
 """
@@ -13,9 +13,10 @@ import textwrap
 from typing import Any
 
 from ipu_harness.manifest import KernelManifest
+from ipu_harness.packing import stored_format
 from ipu_harness.tolerance import DEFAULT_TIER
 
-__all__ = ["abi_table", "design_notes", "page_data"]
+__all__ = ["abi_table", "design_notes", "page_data", "tolerances"]
 
 #: The program's leading Jinja comment: its header (Q79).
 _HEADER = re.compile(r"\A\s*\{#-?(?P<body>.*?)-?#\}", re.DOTALL)
@@ -83,6 +84,29 @@ def _domain(manifest: KernelManifest) -> dict[str, dict[str, Any]]:
     return out
 
 
+def tolerances(manifest: KernelManifest) -> dict[str, dict[str, str]]:
+    """The tier each output is compared at, in each format the kernel runs in.
+
+    An accumulator output is compared in its accumulator format (FP32, or
+    INT32 in INT8), so its tier is that format's (``compare.tier_for``).
+
+    Args:
+        manifest: The kernel.
+
+    Returns:
+        Format name to output name to tier name; ``EXACT`` unless ``[golden]``
+        names a tier.
+    """
+    tolerance = manifest.golden.tolerance
+    outputs = [t for t in manifest.tensors.values() if t.role == "output"]
+    return {
+        fmt.value: {
+            t.name: tolerance.get(stored_format(t, fmt), DEFAULT_TIER).name for t in outputs
+        }
+        for fmt in manifest.formats
+    }
+
+
 def page_data(manifest: KernelManifest) -> dict[str, Any]:
     """What the kernel's page shows besides its cases and targets.
 
@@ -92,13 +116,11 @@ def page_data(manifest: KernelManifest) -> dict[str, Any]:
     Returns:
         ``design_notes`` (:func:`design_notes` of its program), ``abi``
         (:func:`abi_table`), ``params`` (each one's domain) and ``tolerance``
-        (the tier each format is compared at; ``EXACT`` unless ``[golden]``
-        names one).
+        (:func:`tolerances`).
     """
-    tolerance = manifest.golden.tolerance
     return {
         "design_notes": design_notes(manifest.asm.read_text(encoding="utf-8")),
         "abi": abi_table(manifest),
         "params": _domain(manifest),
-        "tolerance": {f.value: tolerance.get(f, DEFAULT_TIER).name for f in manifest.formats},
+        "tolerance": tolerances(manifest),
     }
