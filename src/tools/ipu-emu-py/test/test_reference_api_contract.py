@@ -438,7 +438,9 @@ def test_stats_count_lanes_and_identity_multiplies_over_steps_and_runs():
 
 
 def test_a_faulting_word_adds_no_statistics():
-    model = _model("INC LR0 1 ;;\n" + FAULT)
+    # The faulting word also holds an identity multiply and an ACC op.
+    faulting = "MULT.RC.VE LR0 CR1 0 LR0 CR15 ; ACC.ADD.FIRST ; SET LR0 CR1 ; SET LR0 CR2 ;;"
+    model = _model(f"INC LR0 1 ;;\n{faulting}\nHALT ;;")
     model.run()
     assert model.status.fault is FaultId.F3
     assert model.stats() == Stats(1, 0, 0, 0, 0, 0, 0, 0.0, 0.0)
