@@ -7,7 +7,6 @@ the program and the emulator.
 
 from __future__ import annotations
 
-import hashlib
 import json
 from collections.abc import Iterable
 from pathlib import Path
@@ -15,8 +14,8 @@ from typing import IO, Any
 
 from ipu_emu.commit import CommitRecord
 from ipu_emu.ipu_state import IpuState
-from ipu_isa.codec.word import DecodedWord, word_bytes
-from ipu_isa.trace_schema import SCHEMA_VERSION, isa_digest
+from ipu_isa.codec.word import DecodedWord
+from ipu_isa.trace_schema import SCHEMA_VERSION, isa_digest, program_digest
 
 __all__ = ["EMULATOR_VERSION", "TraceWriter", "read_trace", "trace_header"]
 
@@ -25,14 +24,11 @@ EMULATOR_VERSION = "0.1.0"
 
 
 def _program_digest(state: IpuState) -> str:
-    """SHA-256 of the loaded words, encoded: what any reader of the program
-    file can recompute (trace.v1.json's ``program_digest``)."""
-    width = word_bytes()
-    digest = hashlib.sha256()
-    for word in state.inst_mem[: state.program_length]:
-        value = 0 if word is None else DecodedWord(word).to_word()
-        digest.update(value.to_bytes(width, "little"))
-    return digest.hexdigest()
+    """``program_digest`` of the loaded words, encoded (an empty entry is 0)."""
+    return program_digest(
+        0 if word is None else DecodedWord(word).to_word()
+        for word in state.inst_mem[: state.program_length]
+    )
 
 
 def trace_header(state: IpuState) -> dict[str, Any]:

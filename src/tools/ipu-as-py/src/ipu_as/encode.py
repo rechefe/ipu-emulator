@@ -34,10 +34,8 @@ __all__ = [
     "WILDCARD_OPCODES",
     "Placed",
     "assign_slots",
-    "disassemble_fields",
     "disassemble_word",
     "encode_word",
-    "operation_text",
     "target_tag",
 ]
 
@@ -300,21 +298,3 @@ def disassemble_word(word: int, target: Tag | str = Tag.EMULATOR) -> str:
         ReservedEncoding: A slot holds an opcode no instruction uses.
     """
     return disasm.disassemble(word, target=target)
-
-
-def disassemble_fields(fields: Mapping[str, int], target: Tag | str = Tag.EMULATOR) -> str:
-    """``disassemble_word`` of a word already split into its fields
-    (``ipu_isa.codec.disasm.disassemble_fields``).
-
-    Args:
-        fields: Wire field name -> value; missing is 0, extra bits are dropped.
-        target: Which slots to print: every slot, or the hardware slots.
-
-    Returns:
-        As ``disassemble_word``.
-    """
-    return disasm.disassemble_fields(fields, target=target)
-
-
-#: One slot's instruction in assembly order (``ipu_isa.codec.disasm.operation_text``).
-operation_text = disasm.operation_text
