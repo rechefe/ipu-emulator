@@ -18,11 +18,11 @@ from dataclasses import dataclass
 from types import MappingProxyType
 
 from ipu_isa.codec.word import word_layout
-from ipu_isa.errors import IpuError
+from ipu_isa.errors import IpuError, IsaLookupError
 from ipu_isa.faults import FaultId, reserved_operand_codes
 from ipu_isa.schema import SpecError
 from ipu_isa.slots import Slot
-from ipu_isa.view import Instruction, Isa, isa
+from ipu_isa.view import Instruction, Isa, isa, mnemonic_key
 
 
 def field_code(value: int, bits: int) -> int:
@@ -106,7 +106,7 @@ class SlotCodec:
         "_fields",
         "_opcode_shift",
         "_instructions",
-        "_by_mnemonic",
+        "_view",
         "_operands",
         "_used",
         "_nop",
@@ -125,7 +125,7 @@ class SlotCodec:
         self._fields = tuple(fields)
         self._opcode_shift = self.bits - union.opcode_bits
         self._instructions = view.instructions(slot)
-        self._by_mnemonic = {i.mnemonic.upper(): i for i in self._instructions}
+        self._view = view
         self._operands: dict[str, tuple[_Operand, ...]] = {}
         self._used: dict[str, int] = {}  # mnemonic -> mask of its opcode and operand bits
         opcode_mask = ((1 << union.opcode_bits) - 1) << self._opcode_shift
@@ -167,8 +167,8 @@ class SlotCodec:
             EncodeError: The slot has no such instruction.
         """
         try:
-            return self._by_mnemonic[mnemonic.upper()]
-        except KeyError:
+            return self._view.instruction(self.slot, mnemonic)
+        except IsaLookupError:
             raise EncodeError(f"{self.slot}: no instruction {mnemonic!r}") from None
 
     def encode(self, mnemonic: str, operands: Sequence[int]) -> int:
@@ -348,7 +348,7 @@ def _codecs(view: Isa) -> Codecs:
     opcode_slot: dict[str, Slot] = {}
     for slot in view.layout.layout_order:
         for instruction in view.instructions(slot):
-            mnemonic = instruction.mnemonic.upper()
+            mnemonic = mnemonic_key(instruction.mnemonic)
             if mnemonic == "NOP":
                 continue
             try:
