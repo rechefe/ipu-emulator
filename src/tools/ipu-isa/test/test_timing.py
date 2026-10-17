@@ -15,6 +15,7 @@ from ipu_isa.timing import (
     KNOWN_DEVIATIONS,
     OPERAND_REGISTERS,
     SLOT_EXECUTION_ORDER,
+    Deviation,
     RegisterAccess,
     View,
     contract_view,
@@ -73,39 +74,42 @@ def test_operand_registers_cover_the_readable_operand_types():
 
 # -- contract_view: one test per Q32 rule ---------------------------------------
 
+#: The repository ISA's writers, as load_isa checks it with.
+WRITERS = register_writers(INSTRUCTION_SPEC)
+
 
 @pytest.mark.parametrize("slot", [Slot.LR, Slot.COND, Slot.BREAK])
 def test_rule_1_control_reads_lrs_at_cycle_start(slot):
-    assert contract_view(slot, "lr") is CS
+    assert contract_view(slot, "lr", WRITERS) is CS
 
 
 @pytest.mark.parametrize("slot", [Slot.LOAD, Slot.MULT, Slot.ACC, Slot.STORE, Slot.ACC_STORE])
 def test_rule_1_other_stages_read_lrs_forwarded(slot):
-    assert contract_view(slot, "lr") is FW
+    assert contract_view(slot, "lr", WRITERS) is FW
 
 
 @pytest.mark.parametrize("register", ["r", "r_cyclic", "r_mask"])
 def test_rule_2_mult_reads_its_inputs_at_cycle_start(register):
     """LOAD writes them earlier in the word; MULT still reads cycle start."""
-    assert contract_view(Slot.MULT, register) is CS
+    assert contract_view(Slot.MULT, register, WRITERS) is CS
 
 
 def test_rule_3_mult_res_and_r_acc_are_forwarded():
-    assert contract_view(Slot.ACC, "mult_res") is FW
-    assert contract_view(Slot.AAQ, "r_acc") is FW
+    assert contract_view(Slot.ACC, "mult_res", WRITERS) is FW
+    assert contract_view(Slot.AAQ, "r_acc", WRITERS) is FW
 
 
 def test_rule_4_lr_subslots_read_cycle_start():
-    assert contract_view(Slot.LR, "lr") is CS
+    assert contract_view(Slot.LR, "lr", WRITERS) is CS
 
 
 def test_other_reads_follow_the_producers():
     """Forwarded when every writer runs earlier; cycle start for a same-slot
     writer or a register nothing writes."""
-    assert contract_view(Slot.ACC, "r_acc") is CS  # ACC itself writes it
-    assert contract_view(Slot.ACC_STORE, "r_acc") is FW
-    assert contract_view(Slot.STORE, "post_aaq_reg") is FW
-    assert contract_view(Slot.LOAD, "cr") is CS
+    assert contract_view(Slot.ACC, "r_acc", WRITERS) is CS  # ACC itself writes it
+    assert contract_view(Slot.ACC_STORE, "r_acc", WRITERS) is FW
+    assert contract_view(Slot.STORE, "post_aaq_reg", WRITERS) is FW
+    assert contract_view(Slot.LOAD, "cr", WRITERS) is CS
     writers = {"r_acc": [Slot.ACC, Slot.COND]}  # a later writer: cycle start
     assert contract_view(Slot.ACC_STORE, "r_acc", writers) is CS
 
@@ -153,14 +157,21 @@ def test_every_non_nop_instruction_but_a_branch_writes_something():
 
 
 def test_known_deviations_are_the_issue_table():
-    rows = {(d.mnemonic, d.register, d.via_operand, d.today, d.fixed_by) for d in KNOWN_DEVIATIONS}
-    mult = ("MULT.RC.VV", "MULT.RC.VE", "MULT.RC.VS", "MULT.VE", "MULT.EE")
-    assert rows == {
-        ("ACC.RESHAPE", "mult_res", None, CS, "E04-26"),
-        *((m, "r_mask", None, FW, "E04-27") for m in mult),
-    }
-    assert all(d.contract is not d.today for d in KNOWN_DEVIATIONS)
-    assert set(deviations(INSTRUCTION_SPEC)) == set(KNOWN_DEVIATIONS)
+    """E04-27 removed the last rows: the emulator follows the contract everywhere."""
+    assert KNOWN_DEVIATIONS == ()
+    assert deviations(INSTRUCTION_SPEC) == ()
+
+
+@pytest.mark.parametrize(
+    "mnemonic", ["MULT.RC.VV", "MULT.RC.VE", "MULT.RC.VS", "MULT.VE", "MULT.EE"]
+)
+def test_mult_reads_its_data_inputs_at_cycle_start(mnemonic):
+    """Q20, Q32 rule 2: every MULT data input (R0/R1, R_CYCLIC, R_MASK) is read
+    at cycle start (E04-27 flipped R_MASK)."""
+    reads = {a.register: a.view for a in isa().instruction(Slot.MULT, mnemonic).reads()}
+    assert reads["r_mask"] is CS
+    for register in ("r", "r_cyclic"):
+        assert reads.get(register, CS) is CS
 
 
 # -- each validator rule fails on a planted violation -----------------------------
@@ -168,7 +179,8 @@ def test_known_deviations_are_the_issue_table():
 
 def test_forwarded_read_from_a_later_slot_is_rejected():
     spec = _spec()
-    _implicit_read(spec, "mult", "MULT.RC.VV", "r_mask")["register"] = "post_aaq_reg"
+    read = _implicit_read(spec, "mult", "MULT.RC.VV", "r_mask")
+    read["register"], read["view"] = "post_aaq_reg", "forwarded"
     _rejects(spec, r"mult\.MULT\.RC\.VV: post_aaq_reg: a forwarded read needs every writer")
 
 
@@ -197,16 +209,24 @@ def test_a_new_undeclared_deviation_is_rejected():
 
 
 def test_a_stale_deviation_row_is_rejected():
-    """Fixing a deviation (E04-26 flips the read) fails until its row is deleted."""
+    """A row whose read no longer differs from the contract fails until it is deleted."""
+    stale = Deviation(Slot.MULT, "MULT.EE", "r_mask", None, FW, CS, "E04-27")
+    with pytest.raises(
+        SpecError, match=r"KNOWN_DEVIATIONS: row\(s\) no longer differ .*MULT\.EE r_mask via None"
+    ):
+        validate_timing(INSTRUCTION_SPEC, SLOTS, [stale])
+
+
+def test_a_listed_deviation_is_accepted():
+    """A read that differs from the contract passes once it is listed."""
     spec = _spec()
-    _implicit_read(spec, "acc", "ACC.RESHAPE", "mult_res")["view"] = "forwarded"
-    _rejects(spec, r"KNOWN_DEVIATIONS: row\(s\) no longer differ .*ACC\.RESHAPE mult_res via None")
-    remaining = [
-        d
-        for d in KNOWN_DEVIATIONS
-        if not (d.mnemonic == "ACC.RESHAPE" and d.register == "mult_res")
+    _implicit_read(spec, "mult", "MULT.EE", "r_mask")["view"] = "forwarded"
+    _rejects(spec, r"not in KNOWN_DEVIATIONS: mult\.MULT\.EE r_mask")
+    listed = Deviation(Slot.MULT, "MULT.EE", "r_mask", None, FW, CS, "E04-27")
+    validate_timing(spec, SLOTS, [listed])
+    assert [(d.mnemonic, d.register, d.today, d.contract) for d in deviations(spec)] == [
+        ("MULT.EE", "r_mask", FW, CS)
     ]
-    validate_timing(spec, SLOTS, remaining)
 
 
 def test_lr_write_target_must_be_declared():

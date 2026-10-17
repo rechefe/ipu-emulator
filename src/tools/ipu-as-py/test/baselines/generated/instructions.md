@@ -2330,7 +2330,7 @@ Scatter MULT_RES elements into R_ACC: for each of the trailing (8 - reshape_mask
 > reshape_mask skips the lowest-indexed elements 0..reshape_mask-1; the rest participate. Example: reshape_mask = 2 skips elements 0, 1; elements 2-7 participate. Example: reshape_mask = 5 skips elements 0-4; elements 5-7 participate.
 
 **Pseudo code:**
-`mult_res = MULT_RES (cycle-start value)
+`mult_res = MULT_RES (this cycle's MULT result)
 mask = reshape_mask if immediate else LR[reshape_mask]
 if mask > 8: raise error
 for i in mask..7:

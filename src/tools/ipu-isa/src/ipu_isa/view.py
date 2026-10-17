@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
 
+from ipu_isa.errors import IsaLookupError, IsaValueError
 from ipu_isa.instruction_spec import (
     INSTRUCTION_SPEC,
     PSEUDO_INSTRUCTION_SPEC,
@@ -93,10 +94,15 @@ class Instruction:
         return syntax(self.mnemonic, [operand.name for operand in self.operands])
 
     def operand(self, name: str) -> Operand:
+        """The operand called ``name``.
+
+        Raises:
+            IsaLookupError: the instruction has no such operand.
+        """
         for operand in self.operands:
             if operand.name == name:
                 return operand
-        raise KeyError(f"{self.slot}.{self.mnemonic} has no operand {name!r}")
+        raise IsaLookupError(f"{self.slot}.{self.mnemonic} has no operand {name!r}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,25 +145,34 @@ class Isa:
         return self._instructions[slot]
 
     def instruction(self, slot: Slot, mnemonic: str) -> Instruction:
-        """The instruction ``mnemonic`` of ``slot``, matched case-insensitively."""
+        """The instruction ``mnemonic`` of ``slot``, matched case-insensitively.
+
+        Raises:
+            IsaLookupError: ``slot`` has no such instruction.
+        """
         wanted = mnemonic.upper()
         for instruction in self._instructions[slot]:
             if instruction.mnemonic.upper() == wanted:
                 return instruction
-        raise KeyError(f"Instruction {mnemonic!r} not found in slot {str(slot)!r}")
+        raise IsaLookupError(f"Instruction {mnemonic!r} not found in slot {str(slot)!r}")
 
     def by_opcode(self, slot: Slot, opcode: int) -> Instruction:
-        """The instruction of ``slot`` with opcode ``opcode``."""
+        """The instruction of ``slot`` with opcode ``opcode``.
+
+        Raises:
+            IsaLookupError: ``slot`` has no such opcode.
+        """
         instructions = self._instructions[slot]
         if not 0 <= opcode < len(instructions):
-            raise KeyError(f"Slot {str(slot)!r} has no opcode {opcode}")
+            raise IsaLookupError(f"Slot {str(slot)!r} has no opcode {opcode}")
         return instructions[opcode]
 
     def find_slot(self, mnemonic: str) -> Slot:
         """The one slot that has an instruction ``mnemonic`` (case-insensitive).
 
-        Raises ``KeyError`` if no slot has it and ``ValueError`` if several do
-        (``NOP`` is in every slot).
+        Raises:
+            IsaLookupError: no slot has it (a ``KeyError``).
+            IsaValueError: several do, as ``NOP`` is in every slot (a ``ValueError``).
         """
         wanted = mnemonic.upper()
         found = [
@@ -166,9 +181,9 @@ class Isa:
             if any(instruction.mnemonic.upper() == wanted for instruction in instructions)
         ]
         if not found:
-            raise KeyError(f"No slot has an instruction {mnemonic!r}")
+            raise IsaLookupError(f"No slot has an instruction {mnemonic!r}")
         if len(found) > 1:
-            raise ValueError(f"{mnemonic!r} is in several slots: {[str(s) for s in found]}")
+            raise IsaValueError(f"{mnemonic!r} is in several slots: {[str(s) for s in found]}")
         return found[0]
 
     def pseudos(self) -> tuple[PseudoInstruction, ...]:

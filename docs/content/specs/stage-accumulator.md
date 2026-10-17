@@ -183,10 +183,9 @@ buffer's overall width.
   the Control Stage spec, §9).
 - `ACC.RESHAPE` scatters `MULT_RES` elements into `R_ACC` at LR-pair-selected
   indices, rather than reducing `MULT_RES` elementwise or aggregating them.
-  All of its reads come from the pre-instruction `MULT_RES` snapshot, so
-  scattered elements do not chain within one instruction (an element whose
-  destination equals another element's source resolves to the
-  pre-instruction value). A participating `source[i]`/`dest[i]` outside
+  Like every other ACC-stage operation it reads this cycle's `MULT_RES`
+  (the `mult_res` input, §3.1): a `MULT.*` in the same instruction word is
+  the product it scatters. A participating `source[i]`/`dest[i]` outside
   `[0, 127]`, or a resolved `reshape_mask` greater than `RESHAPE_ELEMENT_COUNT`
   (8), raises an error rather than being silently skipped or clamped.
 
@@ -365,7 +364,7 @@ Per the project's opcode-derivation rule, opcode = position within the
   - `reshape_mask`: immediate 0–7 or an LR register (`LrOrReshapeMaskImmediate`) — selects the first participating element index; elements `reshape_mask..7` participate (`reshape_mask = 0` uses all 8, `reshape_mask = 7` uses only element 7, `reshape_mask = 8` uses none). When an LR is given, its value is used directly as the mask (not truncated).
 - **Operation:**
   ```text
-  mult_res = MULT_RES   // pre-instruction snapshot
+  mult_res = MULT_RES   // this cycle's MULT result
   mask = reshape_mask if immediate else LR[reshape_mask]
   if mask > 8: raise error
   for i in mask..7:

@@ -61,8 +61,7 @@
     "VLIW word": 1,
     "dtype": 2,
     "live value": 1,
-    "pre-instruction value": 1,
-    "snapshot": 2
+    "snapshot": 1
   },
   "docs/content/specs/stage-control.md": {
     "VLIW word": 16,

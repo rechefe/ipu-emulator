@@ -1,10 +1,10 @@
-"""Turn one parsed compound instruction into its word, through the ``ipu_isa`` codec (E05-02).
+"""Turn one parsed instruction word into its bits, through the ``ipu_isa`` codec (E05-02).
 
 The assembler owns text: which slot each instruction takes, what each operand
 token means, and where an error is. The bits are the codec's: each slot value
 comes from ``SLOT_CODECS[slot].encode`` and the word from ``WORD_CODEC.pack``.
 
-    words = [encode_word(compound) for compound in parsed]
+    words = [encode_word(entry) for entry in parsed]
     text = disassemble_word(word)   # ipu_isa.codec.disasm (E03-18)
 """
 
@@ -78,7 +78,7 @@ LEGACY_SLOT_NAME: Mapping[Slot, str] = MappingProxyType(
 
 @dataclass(frozen=True)
 class Placed:
-    """One instruction of a compound, in the slot instance it takes.
+    """One instruction of a parsed word, in the slot instance it takes.
 
     Attributes:
         slot: The slot.
@@ -148,27 +148,27 @@ def _place(instruction: dict, taken: set[tuple[Slot, int]]) -> tuple[Slot, int]:
     return key
 
 
-def _placements(compound: dict) -> Iterator[Placed]:
-    """Each instruction of a parsed compound in the slot instance it takes, in order.
+def _placements(parsed: dict) -> Iterator[Placed]:
+    """Each instruction of a parsed word in the slot instance it takes, in order.
 
     Lazy, so the caller checks one instruction's operands before the next one
     is placed: errors come in source order.
     """
     taken: set[tuple[Slot, int]] = set()
-    for instruction in compound["instructions"]:
+    for instruction in parsed["instructions"]:
         key = _place(instruction, taken)
         taken.add(key)
         yield Placed(*key, instruction)
 
 
-def assign_slots(compound: dict) -> tuple[Placed, ...]:
-    """Each instruction of a parsed compound, in the slot instance it takes.
+def assign_slots(parsed: dict) -> tuple[Placed, ...]:
+    """Each instruction of a parsed word, in the slot instance it takes.
 
     An instruction takes the first free instance of its slot; ``NOP`` takes the
     first free instance of any slot.
 
     Args:
-        compound: One entry of ``ASTBuilder``'s output.
+        parsed: One entry of ``ASTBuilder``'s output.
 
     Returns:
         The placements, in source order.
@@ -177,7 +177,7 @@ def assign_slots(compound: dict) -> tuple[Placed, ...]:
         SlotError: an unknown mnemonic, or more instructions than the slot has
             instances.
     """
-    return tuple(_placements(compound))
+    return tuple(_placements(parsed))
 
 
 def _operand_values(placed: Placed) -> tuple[int, ...]:
@@ -237,7 +237,7 @@ def _encode_slot(slot: Slot, mnemonic: str, operands: tuple[int, ...]) -> int:
     return value
 
 
-def target_tag(target: str) -> Tag:
+def target_tag(target: Tag | str) -> Tag:
     """The word a target assembles to (``ipu_isa.codec.disasm.target_tag``).
 
     Args:
@@ -265,11 +265,11 @@ def _check_target(placed: Placed, target: Tag) -> None:
         )
 
 
-def encode_word(compound: dict, target: str = Tag.EMULATOR) -> int:
-    """The instruction word of one parsed compound.
+def encode_word(parsed: dict, target: Tag | str = Tag.EMULATOR) -> int:
+    """The instruction word of one parsed entry.
 
     Args:
-        compound: One entry of ``ASTBuilder``'s output.
+        parsed: One entry of ``ASTBuilder``'s output.
         target: ``Tag.EMULATOR`` (the default) or ``Tag.HARDWARE``. The word is
             the emulator word either way (``ipu_isa.codec.word.hardware_word``
             takes its hardware part); for the hardware an EMULATOR-tagged
@@ -285,11 +285,11 @@ def encode_word(compound: dict, target: str = Tag.EMULATOR) -> int:
         LabelError: an undefined label.
 
     Warns:
-        UserWarning: an instruction of a simulation-only slot (emulator target).
+        UserWarning: an instruction of an emulator-only slot (emulator target).
     """
     target = target_tag(target)
     values = {}
-    for placed in _placements(compound):
+    for placed in _placements(parsed):
         _check_target(placed, target)
         operands = _operand_values(placed)
         opcode = placed.instruction["opcode"]
@@ -319,7 +319,7 @@ def encode_word(compound: dict, target: str = Tag.EMULATOR) -> int:
 # the assembler's entry points to it.
 
 
-def disassemble_word(word: int, target: str = Tag.EMULATOR) -> str:
+def disassemble_word(word: int, target: Tag | str = Tag.EMULATOR) -> str:
     """The assembly text of one word (``ipu_isa.codec.disasm.disassemble``).
 
     Args:
@@ -338,7 +338,7 @@ def disassemble_word(word: int, target: str = Tag.EMULATOR) -> str:
     return disasm.disassemble(word, target=target)
 
 
-def disassemble_fields(fields: Mapping[str, int], target: str = Tag.EMULATOR) -> str:
+def disassemble_fields(fields: Mapping[str, int], target: Tag | str = Tag.EMULATOR) -> str:
     """``disassemble_word`` of a word already split into its fields
     (``ipu_isa.codec.disasm.disassemble_fields``).
 

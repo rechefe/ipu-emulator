@@ -51,17 +51,30 @@ def test_an_lrd_pair_overlaps_either_of_its_lrs(written, operand):
     assert hazard.indices == ((0, 1) if operand == "source" else (4, 5))
 
 
-def test_a_listed_deviation_is_reported_with_its_issue():
-    hazards = _hazards("MULT.RC.VV LR0 R0 0 LR2 CR15 ; ACC.RESHAPE LRD0 LRD2 0 ;;")
-    (deviating,) = [h for h in hazards if h.deviates]
-    assert (deviating.reader, deviating.register, deviating.fixed_by) == (
-        "acc.ACC.RESHAPE",
-        "mult_res",
-        "E04-26",
+def test_mult_after_ld_mask_is_no_longer_a_deviation():
+    """E04-27: MULT reads R_MASK at cycle start, as the contract says."""
+    hazards = _hazards("LD.MASK LR0 CR0 ; MULT.RC.VS LR0 0 LR0 CR15 ;;")
+    (mask,) = [h for h in hazards if h.register == "r_mask"]
+    assert (mask.reader, mask.writers, mask.fixed_by) == ("mult.MULT.RC.VS", ("load.LD.MASK",), "")
+    assert (mask.declared, mask.contract, mask.deviates) == (
+        View.CYCLE_START,
+        View.CYCLE_START,
+        False,
     )
-    assert (deviating.declared, deviating.contract) == (View.CYCLE_START, View.FORWARDED)
-    assert "1 hazard(s) where the declared view deviates in 1 bundle(s)" in audit.report(
+    assert "0 hazard(s) where the declared view deviates in 0 bundle(s)" in audit.report(
         hazards, show_all=False
+    )
+
+
+def test_reshape_after_mult_is_no_longer_a_deviation():
+    """E04-26: ACC.RESHAPE reads this cycle's MULT_RES, as the contract says."""
+    hazards = _hazards("MULT.RC.VV LR0 R0 0 LR2 CR15 ; ACC.RESHAPE LRD0 LRD2 0 ;;")
+    (reshape,) = [h for h in hazards if h.register == "mult_res"]
+    assert reshape.reader == "acc.ACC.RESHAPE"
+    assert (reshape.declared, reshape.contract, reshape.deviates) == (
+        View.FORWARDED,
+        View.FORWARDED,
+        False,
     )
 
 

@@ -132,11 +132,11 @@ Any other read is forwarded when every slot that writes the register runs earlie
 | `LD.MULT` | `LOAD` | `CR` via `base` | `LR` via `offset` | `R` via `dest` |
 | `LD.MULT.CYCLIC` | `LOAD` | `CR` via `base` | `LR` via `offset`, `LR` via `index` | `R_CYCLIC` |
 | `LD.MASK` | `LOAD` | `CR` via `base` | `LR` via `offset` | `R_MASK` |
-| `MULT.RC.VV` | `MULT` | `R` via `ra`, `R_CYCLIC`, `CR` via `cr_idx` | `LR` via `rc_idx`, `LR` via `mask_shift`, `R_MASK` | `MULT_RES` |
-| `MULT.RC.VE` | `MULT` | `CR` via `src`, `R`, `R_CYCLIC`, `CR` via `cr_idx` | `LR` via `rc_idx`, `LR` via `mask_shift`, `LR` via `src`, `R_MASK` | `MULT_RES` |
-| `MULT.RC.VS` | `MULT` | `R_CYCLIC`, `CR` via `cr_idx` | `LR` via `rc_idx`, `LR` via `mask_shift`, `R_MASK` | `MULT_RES` |
-| `MULT.VE` | `MULT` | `CR` via `cr_idx`, `R`, `CR` via `dstructure_cr_idx` | `LR` via `ra_idx`, `LR` via `mask_shift`, `R_MASK` | `MULT_RES` |
-| `MULT.EE` | `MULT` | `CR` via `cr_idx`, `R`, `CR` via `dstructure_cr_idx` | `LR` via `ra_idx`, `LR` via `mask_shift`, `R_MASK` | `MULT_RES` |
+| `MULT.RC.VV` | `MULT` | `R` via `ra`, `R_CYCLIC`, `R_MASK`, `CR` via `cr_idx` | `LR` via `rc_idx`, `LR` via `mask_shift` | `MULT_RES` |
+| `MULT.RC.VE` | `MULT` | `CR` via `src`, `R`, `R_CYCLIC`, `R_MASK`, `CR` via `cr_idx` | `LR` via `rc_idx`, `LR` via `mask_shift`, `LR` via `src` | `MULT_RES` |
+| `MULT.RC.VS` | `MULT` | `R_CYCLIC`, `R_MASK`, `CR` via `cr_idx` | `LR` via `rc_idx`, `LR` via `mask_shift` | `MULT_RES` |
+| `MULT.VE` | `MULT` | `CR` via `cr_idx`, `R`, `R_MASK`, `CR` via `dstructure_cr_idx` | `LR` via `ra_idx`, `LR` via `mask_shift` | `MULT_RES` |
+| `MULT.EE` | `MULT` | `CR` via `cr_idx`, `R`, `R_MASK`, `CR` via `dstructure_cr_idx` | `LR` via `ra_idx`, `LR` via `mask_shift` | `MULT_RES` |
 | `ACC.ADD` | `ACC` | `R_ACC` | `MULT_RES` | `R_ACC` |
 | `ACC.ADD.FIRST` | `ACC` | — | `MULT_RES` | `R_ACC` |
 | `ACC.MAX` | `ACC` | `R_ACC` | `MULT_RES` | `R_ACC` |
@@ -148,7 +148,7 @@ Any other read is forwarded when every slot that writes the register runs earlie
 | `AGG.SUM` | `ACC` | `CR` via `cr_idx`, `R_ACC` | `LR` via `dest_slot`, `MULT_RES` | `R_ACC` |
 | `AGG.MAX.FIRST` | `ACC` | `CR` via `cr_idx` | `LR` via `dest_slot`, `MULT_RES` | `R_ACC` |
 | `AGG.MAX` | `ACC` | `CR` via `cr_idx`, `R_ACC` | `LR` via `dest_slot`, `MULT_RES` | `R_ACC` |
-| `ACC.RESHAPE` | `ACC` | `MULT_RES` | `LR` via `source`, `LR` via `dest`, `LR` via `reshape_mask` | `R_ACC` |
+| `ACC.RESHAPE` | `ACC` | — | `LR` via `source`, `LR` via `dest`, `LR` via `reshape_mask`, `MULT_RES` | `R_ACC` |
 | `ACTIVATE.QUANTIZE` | `AAQ` | `CR` via `cr_idx` | `R_ACC` | `POST_AAQ_REG` |
 | `ST.AAQ` | `STORE` | `CR` via `base` | `LR` via `offset`, `POST_AAQ_REG` | — |
 | `ST.ACC` | `ACC_STORE` | `CR` via `base` | `LR` via `offset`, `R_ACC` | — |
@@ -161,16 +161,7 @@ Any other read is forwarded when every slot that writes the register runs earlie
 
 ### Known deviations
 
-Where the emulator differs from the contract today. Each row is removed by the issue named in the last column.
-
-| Instruction | Read | Today | Contract | Fixed by |
-|-------------|------|-------|----------|----------|
-| `ACC.RESHAPE` | `MULT_RES` | cycle start | forwarded | E04-26 |
-| `MULT.RC.VV` | `R_MASK` | forwarded | cycle start | E04-27 |
-| `MULT.RC.VE` | `R_MASK` | forwarded | cycle start | E04-27 |
-| `MULT.RC.VS` | `R_MASK` | forwarded | cycle start | E04-27 |
-| `MULT.VE` | `R_MASK` | forwarded | cycle start | E04-27 |
-| `MULT.EE` | `R_MASK` | forwarded | cycle start | E04-27 |
+None: every read in the emulator follows the contract.
 
 ## Masking
 
@@ -191,6 +182,8 @@ LD.MASK offset base;;
 
 `offset` is an LR register holding the XMEM byte offset; `base` is a CR register holding the
 base address. The full 1024-bit register is always overwritten in one cycle.
+A multiply reads `R_MASK` at cycle start, so an `LD.MASK` in the same word as a masking multiply
+is not seen by it: that multiply uses the previous `R_MASK`, and the next word sees the new one.
 
 ### Selecting a slot: mask_offset
 

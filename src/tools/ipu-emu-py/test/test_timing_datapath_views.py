@@ -5,8 +5,8 @@ writes it, and the end-of-word control rules (E02-06).
 probe from ``timing_probes.py`` in faithful mode and asserts the value that
 tells the versions apart. The MULT rows run in the default INT8 format and in
 wide FP32 mode, whose R0/R1/R_CYCLIC reads take their own path. The two rows
-decision Q32 changes are ``test_mult_reads_r_mask_forwarded`` (E04-27) and
-``test_reshape_reads_previous_mult_res`` (E04-26).
+decision Q32 changed are ``test_mult_reads_r_mask_at_cycle_start`` (E04-27) and
+``test_reshape_reads_this_cycle_mult_res`` (E04-26).
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ import struct
 import pytest
 from timing_probes import PROBES, ROW, Mode, lane, prepare, run
 
+from ipu_emu import prototyping as prototyping_mode
 from ipu_emu.errors import DebugOnlyInstructionWarning
 from ipu_emu.execute import BreakResult, Ipu
 from ipu_emu.ipu_state import INST_MEM_SIZE
@@ -44,11 +45,18 @@ def test_mult_reads_r_cyclic_at_cycle_start(mode):
 
 
 @_MODES
-def test_mult_reads_r_mask_forwarded(mode):
-    """MULT reads R_MASK forwarded: a same-word LD.MASK (all zero)
-    masks lane 0, which is padded with 0 instead of holding 3 x 3. Q32 makes
-    this cycle start (flipped by E04-27)."""
-    assert _mult_res("mult_r_mask", mode) == 0
+@pytest.mark.parametrize("prototyping", [False, True], ids=["faithful", "prototyping"])
+def test_mult_reads_r_mask_at_cycle_start(mode, prototyping):
+    """MULT reads R_MASK at cycle start (Q20, flipped by E04-27): a same-word
+    LD.MASK (all zero) is not seen, so lane 0 holds 3 x 3 under the reset
+    all-ones mask. One word later the multiply sees the new mask and pads
+    lane 0 with 0. The prototyping all-ones shortcut reads the same view."""
+    if prototyping and not prototyping_mode.build_enabled():
+        pytest.skip("prototyping needs --config=proto")
+    same_word = run(PROBES["mult_r_mask"], mode, prototyping=prototyping).state
+    next_word = run(PROBES["mult_r_mask_next_word"], mode, prototyping=prototyping).state
+    assert lane(same_word, "mult_res", 0) == 9
+    assert lane(next_word, "mult_res", 0) == 0
 
 
 @_MODES
@@ -78,14 +86,14 @@ def test_agg_reads_this_cycle_mult_res(op, expected):
     assert lane(run(PROBES[f"agg_mult_res_{op}"]).state, "r_acc", 0) == expected
 
 
-def test_reshape_reads_previous_mult_res():
-    """ACC.RESHAPE reads MULT_RES at cycle start: it copies 1, not this cycle's 9.
-    Q32 makes this forwarded (flipped by E04-26).
+def test_reshape_reads_this_cycle_mult_res():
+    """ACC.RESHAPE reads this cycle's MULT_RES (9s, not 1s), like every other
+    ACC-stage op (Q32 rule 3; E04-26 flipped it from cycle start).
 
-    ``test_execute.py``'s ``test_reshape_mult_res_reads_from_snapshot`` pins the
-    same row; E04-26 flips both or deletes the older one.
+    ``test_execute.py``'s ``test_reshape_reads_same_cycle_mult_res`` pins the
+    same row with a scatter of distinct products.
     """
-    assert lane(run(PROBES["reshape_mult_res"]).state, "r_acc", 0) == 1
+    assert lane(run(PROBES["reshape_mult_res"]).state, "r_acc", 0) == 9
 
 
 def test_acc_reads_old_r_acc_at_cycle_start():

@@ -5,7 +5,7 @@
 Runs the named kernels' ``case_tests`` (every kernel if none is named) in
 this process, with the update switch set, so each case's record is written to
 its kernel folder instead of compared. Run it only in a PR that changes a
-kernel's results on purpose, and say why in the PR (decision D3).
+kernel's results on purpose, and say why in the PR (Code conventions, "Baselines").
 """
 
 from __future__ import annotations

@@ -10,7 +10,7 @@ Each rule names what checks it. **Review** means no tool checks it: the reviewer
 |---|---|---|
 | Prefer deep modules: a small interface over a lot of behaviour. | A caller learns little and gets a lot; the module can change inside without breaking callers. | Review |
 | One responsibility per package. | A package with one job has one reason to change. | Review |
-| Dependencies point one way and are declared in the target's Bazel `deps`. | A cycle makes packages impossible to test, build or replace alone. | Bazel `deps` (an import outside them fails in the sandbox); the import-graph test from the package split checks package edges once it lands |
+| Dependencies point one way and are declared in the target's Bazel `deps`. | A cycle makes packages impossible to test, build or replace alone. | Bazel `deps` (an import outside them fails in the sandbox); `//tools:test_import_graph` checks package edges |
 | No function-level imports to dodge an import cycle. | A lazy import hides a cycle instead of removing it. Move the shared code to the lower package instead. | Review |
 | Files stay under about 600 lines. A file over the limit is split along a seam, not by moving code into a `utils` module. | Long files hold several responsibilities; a `utils` module is a second place with no responsibility at all. | Review |
 
@@ -114,7 +114,7 @@ A baseline is a checked-in file that pins today's output. Its test fails on any 
 | Lower the glossary baseline after removing avoided terms from the docs | `bazel run //:glossary_baseline` |
 | Refresh the dependency lock after editing a `pyproject.toml` | `bazel run //tools:update_requirements_lock` |
 
-A commit that only reformats code goes into `.git-blame-ignore-revs`, with a comment naming the change. Runtime dependencies are also listed in the package's `deps.bzl`; `//tools:deps_consistency_test` fails if the two disagree.
+A commit that only reformats code goes into `.git-blame-ignore-revs`, with a comment naming the change; `git config blame.ignoreRevsFile .git-blame-ignore-revs` makes `git blame` skip it. Runtime dependencies are also listed in the package's `deps.bzl`; `//tools:deps_consistency_test` fails if the two disagree.
 
 ## Performance
 

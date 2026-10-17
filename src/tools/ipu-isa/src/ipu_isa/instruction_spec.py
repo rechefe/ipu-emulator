@@ -585,7 +585,7 @@ INSTRUCTION_SPEC = {
             ),
             "implicit_reads": [
                 {"register": "r_cyclic", "view": "cycle_start"},
-                {"register": "r_mask", "view": "forwarded"},
+                {"register": "r_mask", "view": "cycle_start"},
                 {"register": "cr", "via_operand": "cr_idx", "view": "cycle_start"},
             ],
             "implicit_writes": [{"register": "mult_res"}],
@@ -623,7 +623,7 @@ INSTRUCTION_SPEC = {
                 {"register": "cr", "via_operand": "src", "view": "cycle_start"},
                 {"register": "r", "view": "cycle_start"},
                 {"register": "r_cyclic", "view": "cycle_start"},
-                {"register": "r_mask", "view": "forwarded"},
+                {"register": "r_mask", "view": "cycle_start"},
                 {"register": "cr", "via_operand": "cr_idx", "view": "cycle_start"},
             ],
             "implicit_writes": [{"register": "mult_res"}],
@@ -655,7 +655,7 @@ INSTRUCTION_SPEC = {
             ),
             "implicit_reads": [
                 {"register": "r_cyclic", "view": "cycle_start"},
-                {"register": "r_mask", "view": "forwarded"},
+                {"register": "r_mask", "view": "cycle_start"},
                 {"register": "cr", "via_operand": "cr_idx", "view": "cycle_start"},
             ],
             "implicit_writes": [{"register": "mult_res"}],
@@ -699,7 +699,7 @@ INSTRUCTION_SPEC = {
             "implicit_reads": [
                 {"register": "cr", "via_operand": "cr_idx", "view": "cycle_start"},
                 {"register": "r", "view": "cycle_start"},
-                {"register": "r_mask", "view": "forwarded"},
+                {"register": "r_mask", "view": "cycle_start"},
                 {"register": "cr", "via_operand": "dstructure_cr_idx", "view": "cycle_start"},
             ],
             "implicit_writes": [{"register": "mult_res"}],
@@ -734,7 +734,7 @@ INSTRUCTION_SPEC = {
             "implicit_reads": [
                 {"register": "cr", "via_operand": "cr_idx", "view": "cycle_start"},
                 {"register": "r", "view": "cycle_start"},
-                {"register": "r_mask", "view": "forwarded"},
+                {"register": "r_mask", "view": "cycle_start"},
                 {"register": "cr", "via_operand": "dstructure_cr_idx", "view": "cycle_start"},
             ],
             "implicit_writes": [{"register": "mult_res"}],
@@ -1025,7 +1025,7 @@ INSTRUCTION_SPEC = {
                     "reshape_mask: immediate 0-7 or an LR register; selects the first participating element index (elements reshape_mask..7 participate; reshape_mask = 0 uses all 8, reshape_mask = 7 uses only element 7). When an LR is given, its full value is used as the mask at runtime.",
                 ],
                 operation=(
-                    "mult_res = MULT_RES (cycle-start value)\n"
+                    "mult_res = MULT_RES (this cycle's MULT result)\n"
                     "mask = reshape_mask if immediate else LR[reshape_mask]\n"
                     "if mask > 8: raise error\n"
                     "for i in mask..7:\n"
@@ -1042,7 +1042,7 @@ INSTRUCTION_SPEC = {
             ),
             "implicit_reads": [
                 {"register": "lr", "via_operand": "reshape_mask", "view": "forwarded"},
-                {"register": "mult_res", "view": "cycle_start"},
+                {"register": "mult_res", "view": "forwarded"},
             ],
             "implicit_writes": [{"register": "r_acc"}],
             "execute_fn": "execute_acc_reshape",

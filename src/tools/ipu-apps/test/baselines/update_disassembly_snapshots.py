@@ -3,7 +3,7 @@
     bazel run //src/tools/ipu-apps:update_disassembly_snapshots
 
 Run it only in a PR that changes disassembly text on purpose (for example a
-mnemonic rename), and say why in the PR (decision D3).
+mnemonic rename), and say why in the PR (Code conventions, "Baselines").
 """
 
 from __future__ import annotations

@@ -11,7 +11,7 @@ from ipu_isa.instruction_spec import (
     SLOT_METADATA,
 )
 from ipu_isa.schema import SpecError
-from ipu_isa.slots import _SPEC, LAYOUT_ORDER, SLOTS, Slot, _load
+from ipu_isa.slots import LAYOUT_ORDER, SLOTS, Slot, load_slots, slot_spec_copy
 
 
 def test_layout_order_covers_every_slot_once():
@@ -66,20 +66,20 @@ def test_slot_is_its_string():
 
 def test_layout_order_must_list_every_slot_once():
     with pytest.raises(SpecError, match="LAYOUT_ORDER"):
-        _load(_SPEC, LAYOUT_ORDER[:-1] + (Slot.COND,))
+        load_slots(slot_spec_copy(), LAYOUT_ORDER[:-1] + (Slot.COND,))
 
 
 def test_entries_are_key_checked():
-    spec = {slot: dict(entry) for slot, entry in _SPEC.items()}
+    spec = {slot: dict(entry) for slot, entry in slot_spec_copy().items()}
     spec[Slot.MULT]["colour"] = "#000000"
     with pytest.raises(SpecError, match=r"SLOTS\.mult: unknown key\(s\) 'colour'"):
-        _load(spec, LAYOUT_ORDER)
+        load_slots(spec, LAYOUT_ORDER)
 
 
 def test_every_slot_needs_an_entry():
-    spec = {slot: entry for slot, entry in _SPEC.items() if slot is not Slot.AAQ}
+    spec = {slot: entry for slot, entry in slot_spec_copy().items() if slot is not Slot.AAQ}
     with pytest.raises(SpecError, match="SLOTS: entries .* do not match Slot"):
-        _load(spec, LAYOUT_ORDER)
+        load_slots(spec, LAYOUT_ORDER)
 
 
 def test_lr_is_padded_to_20_bits():

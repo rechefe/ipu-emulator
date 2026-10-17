@@ -316,9 +316,10 @@ Consequences:
   responsibility of the STORE stage, not XMEM.
 - XMEM does not sit on the four-bus daisy chain — it is a sideband
   fetch into MULT's input registers.
-- The MULT stage sees XMEM's writes the same cycle the dispatch chain
-  begins; software is responsible for not racing an XMEM load against
-  a MULT op that reads the destination in the same cycle.
+- MULT reads its input registers (`R0`, `R1`, `R_CYCLIC`, `R_MASK`)
+  at cycle start ([ADR 0002](https://github.com/rechefe/ipu-emulator/blob/master/docs/adr/0002-timing-contract.md), rule 2).
+  A load in the same word as a MULT op writes the register for the
+  next word: that MULT op uses the previous value.
 
 ### 7.2 MULT → ACC → AAQ → STORE Path (four-bus serial chain)
 

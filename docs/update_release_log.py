@@ -28,6 +28,7 @@ import os
 import re
 import sys
 from datetime import datetime, timezone
+from enum import Enum
 from pathlib import Path
 from urllib.error import URLError
 from urllib.request import Request, urlopen
@@ -84,17 +85,27 @@ def _fetch_page(page: int, per_page: int, token: str | None) -> list[dict]:
         raise FetchError(str(exc)) from exc
 
 
-def fetch_merged_prs(
-    token: str | None, latest_only: bool = False, first_page_only: bool = False
-) -> list[dict]:
+class Fetch(Enum):
+    """How much of the PR list ``fetch_merged_prs`` reads."""
+
+    #: Every page: the whole history.
+    ALL = "all"
+    #: Every merged PR on the first page (the 100 most recently updated PRs).
+    RECENT = "recent"
+    #: The single PR with the greatest ``merged_at`` on the first page (the page
+    #: is ordered by ``updated``, not by merge time).
+    LATEST = "latest"
+
+
+def fetch_merged_prs(token: str | None, fetch: Fetch = Fetch.ALL) -> list[dict]:
     """Return merged-PR dicts, newest merge first.
 
-    With ``latest_only`` only the first page is fetched and the single PR with
-    the greatest ``merged_at`` on it is returned (the page is ordered by
-    ``updated``, not by merge time). With ``first_page_only`` every merged PR
-    on the first page (the 100 most recently updated PRs) is returned.
+    Args:
+        token: A GitHub token, or None for unauthenticated requests.
+        fetch: How much of the list to read.
 
-    Raises FetchError when the API cannot be reached.
+    Raises:
+        FetchError: the API cannot be reached.
     """
     prs: list[dict] = []
     page = 1
@@ -104,12 +115,12 @@ def fetch_merged_prs(
         if not batch:
             break
         prs.extend(pr for pr in batch if pr.get("merged_at"))
-        if len(batch) < per_page or latest_only or first_page_only:
+        if len(batch) < per_page or fetch is not Fetch.ALL:
             break
         page += 1
 
     prs.sort(key=lambda p: p["merged_at"], reverse=True)
-    return prs[:1] if latest_only else prs
+    return prs[:1] if fetch is Fetch.LATEST else prs
 
 
 def format_row(pr: dict) -> str:
@@ -191,7 +202,8 @@ def main(argv: list[str] | None = None) -> int:
     existing = args.output.exists() if incremental else False
 
     try:
-        prs = fetch_merged_prs(token, latest_only=args.latest, first_page_only=args.recent)
+        fetch = Fetch.LATEST if args.latest else Fetch.RECENT if args.recent else Fetch.ALL
+        prs = fetch_merged_prs(token, fetch)
     except FetchError as exc:
         if existing:
             print(

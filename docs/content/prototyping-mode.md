@@ -55,7 +55,7 @@ At kernel level, every case's baseline record (`baseline.json` beside each
 kernel's `test.py`) is recorded in a default build and checked unchanged in a
 flagged one. So each case's program, setup, output, final state and cycle count
 must be identical in both modes. The record holds no run statistics, so no field
-is exempt (`MODE_DEPENDENT_FIELDS` in `kernel_registry/baseline.py` is empty).
+is exempt.
 
 CI runs the default tier in both modes on every pull request: the `test` job
 builds it as usual, and the `proto` job runs it with the flag and fails if any

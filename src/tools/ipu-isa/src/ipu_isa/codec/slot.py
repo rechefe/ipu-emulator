@@ -72,6 +72,7 @@ class _Operand:
 
     @property
     def mask(self) -> int:
+        """The field's bits within the slot value."""
         return ((1 << self.bits) - 1) << self.field.shift
 
 
@@ -132,14 +133,17 @@ class SlotCodec:
 
     @property
     def slot(self) -> Slot:
+        """The slot this codec encodes."""
         return self._slot
 
     @property
     def instances(self) -> int:
+        """How many instances of the slot a word holds."""
         return self._instances
 
     @property
     def bits(self) -> int:
+        """The slot value's width in bits."""
         return self._bits
 
     def instruction(self, mnemonic: str) -> Instruction:

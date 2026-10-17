@@ -42,6 +42,8 @@ Verified at 694a8a8:
 6. `tools/bootstrap.sh`: remove `--with-uv`; workflows stop passing it. `devcontainer.json`: drop `uv --version`.
 7. Document the refresh command in `README.md` (Development section) and in `src/tools/ipu-common/README.md` in place of the sentence E00-10 left.
 
+*As built:* the lock is compiled with `--python-platform x86_64-unknown-linux-gnu`, not `--universal`. rules_python 0.40 keeps only the last line of a name listed twice, which `--universal` produces for platform markers (`tools/update_requirements_lock.py`). A dependency needed only on another platform would be dropped; none is today.
+
 ## Tests
 
 - [ ] On a machine without `uv` on `PATH`: `bazel clean --expunge && bazel build //... --build_tag_filters=-docs` succeeds.

@@ -43,6 +43,8 @@ Measured at 694a8a8 (full `bazel test //...`, 4 cores, cold cache): 221 test tar
 4. `CLAUDE.md` Build & Test block: add `bazel test --config=full //...  # include the heavy (nightly) tier`.
 5. `.claude/hooks/session-start.sh:64`: warm with `bazel build --config=ci //...`.
 
+*As built:* the session-start hook warms with `bazel fetch --config=ci //...` rather than `bazel build`, to stay inside the session's disk allowance (`.claude/hooks/session-start.sh`). The tests still build on first use.
+
 ## Tests
 
 - [ ] `bazel test //... --nobuild` lists no `test_alias_profile_kernels_*` and no `test_full_*`; `bazel test --config=full //... --nobuild` lists the alias-profile targets and still no `manual` target.
