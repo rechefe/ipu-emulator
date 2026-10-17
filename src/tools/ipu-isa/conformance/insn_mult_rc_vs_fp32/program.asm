@@ -1,0 +1,4 @@
+# insn_mult_rc_vs_fp32: MULT.RC.VS in FP32
+MULT.RC.VS LR0 0 LR2 CR15 ;;
+MULT.RC.VS LR4 1 LR0 CR15 ;;
+HALT ;;

@@ -148,6 +148,7 @@ py_pytest_test(
         "//src/tools/ipu-apps:BUILD.bazel",
         "//src/tools/ipu-as-py:BUILD.bazel",
         "//src/tools/ipu-isa:BUILD.bazel",
+        "//src/tools/ipu-emu-py:BUILD.bazel",
     ],
     deps = [requirement("pytest")],
 )

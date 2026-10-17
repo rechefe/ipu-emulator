@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/rechefe/ipu-emulator/schemas/conformance-setup/1.0.0",
+  "title": "IPU conformance case setup",
+  "description": "A conformance case's starting state and run limits (E04-31). From reset in `format`: load program.bin, write `registers`, then `xmem`, set `fault_enables`, and run until HALT, a fault or `max_cycles` words.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "description",
+    "format",
+    "emulator_only",
+    "max_cycles",
+    "fault_enables",
+    "registers",
+    "xmem"
+  ],
+  "properties": {
+    "description": {
+      "type": "string",
+      "description": "What the case shows, in one line."
+    },
+    "format": {
+      "type": "string",
+      "description": "The element format.",
+      "enum": [
+        "int8",
+        "e1",
+        "e2",
+        "e3",
+        "e4",
+        "e5",
+        "e6",
+        "e7",
+        "fp32",
+        "int32"
+      ]
+    },
+    "emulator_only": {
+      "type": "boolean",
+      "description": "True when the hardware cannot run the case: a wide format (fp32, int32) or an EMULATOR slot's instruction."
+    },
+    "max_cycles": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "The cycle limit (fault F-9); 0 disables it."
+    },
+    "fault_enables": {
+      "type": "object",
+      "description": "Fault enable bits other than the reset value (every fault enabled), by fault label.",
+      "propertyNames": {
+        "pattern": "^F-[1-9]$"
+      },
+      "additionalProperties": {
+        "type": "boolean"
+      }
+    },
+    "registers": {
+      "type": "array",
+      "description": "Every register to write; every other register starts at zero, but CR0 and CR1, the constants 0 and 1. In ipu_isa.registers order. `index` is the register within its bank.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "index"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "enum": [
+              "r",
+              "r_wide_debug",
+              "r_cyclic",
+              "r_cyclic_wide_debug",
+              "r_mask",
+              "r_acc",
+              "post_aaq_reg",
+              "lr",
+              "cr",
+              "mult_res",
+              "mem_bypass"
+            ],
+            "description": "The register bank (the suite README's table)."
+          },
+          "index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "value": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295,
+            "description": "A scalar register (lr, cr): its unsigned 32-bit value."
+          },
+          "hex": {
+            "type": "string",
+            "pattern": "^([0-9a-f]{2})+$",
+            "description": "A vector register: its bytes, lowest address first."
+          }
+        },
+        "oneOf": [
+          {
+            "required": [
+              "value"
+            ]
+          },
+          {
+            "required": [
+              "hex"
+            ]
+          }
+        ]
+      }
+    },
+    "xmem": {
+      "type": "array",
+      "description": "XMEM regions to write; every other byte starts at zero.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "address",
+          "hex"
+        ],
+        "properties": {
+          "address": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "hex": {
+            "type": "string",
+            "pattern": "^([0-9a-f]{2})+$"
+          }
+        }
+      }
+    }
+  }
+}

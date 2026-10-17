@@ -48,10 +48,10 @@ from ipu_isa.formats import ElementFormat
 from ipu_isa.registers import REGISTER_DEFINITIONS, RegisterDefinition
 from ipu_isa.view import isa
 
-__all__ = ["API_VERSION", "ReferenceModel", "RunResult", "RunState", "Status"]
+__all__ = ["API_VERSION", "ReferenceModel", "RunResult", "RunState", "Stats", "Status"]
 
 #: The version of this API (Q11).
-API_VERSION = "1.0.0"
+API_VERSION = "1.1.0"
 
 
 class RunState(str, enum.Enum):
@@ -89,6 +89,44 @@ class RunResult:
 
     status: Status
     cycles: int
+
+
+@dataclass(frozen=True)
+class Stats:
+    """The run statistics since the program started (1.1.0).
+
+    They count every word retired since the last :meth:`ReferenceModel.reset`
+    or :meth:`ReferenceModel.load_program`, stepped or run (a faulting word
+    retires nothing, so it adds nothing). They depend on operand values (a
+    multiply by a constant 1.0 is an identity multiply), so a commit record
+    does not carry them.
+
+    Attributes:
+        cycles: The words retired.
+        mult_active_cycles: Words whose MULT slot was not NOP.
+        acc_active_cycles: Words whose ACC slot was not NOP.
+        xmem_reads: XMEM rows read.
+        xmem_writes: XMEM rows written.
+        mult_lane_ops: Multiplier lanes that carried data (passed the mask
+            and lay within ``valid_elements``), summed over every multiply.
+        mult_identity_lane_ops: The part of ``mult_lane_ops`` that multiplied
+            by a constant 1.0 (data routing, not MACs).
+        lane_occupancy: ``mult_lane_ops / (cycles * LANES)``; 0.0 before the
+            first word.
+        effective_mac_utilization: ``(mult_lane_ops - mult_identity_lane_ops)
+            / (cycles * LANES)``, the fraction of peak MACs retired; 0.0
+            before the first word.
+    """
+
+    cycles: int
+    mult_active_cycles: int
+    acc_active_cycles: int
+    xmem_reads: int
+    xmem_writes: int
+    mult_lane_ops: int
+    mult_identity_lane_ops: int
+    lane_occupancy: float
+    effective_mac_utilization: float
 
 
 class ReferenceModel:
@@ -157,6 +195,7 @@ class ReferenceModel:
         _load_program(self._state, decoded)
         self._state.program_counter = 0
         self._state.halt = None
+        self._state.stats.reset()
         self._new_collector()
         self._started = False
 
@@ -319,6 +358,26 @@ class ReferenceModel:
             self._flush(trace, numbering)
         self._started = True
         return RunResult(self.status, clock.cycles)
+
+    def stats(self) -> Stats:
+        """A snapshot of the run statistics (1.1.0).
+
+        Returns:
+            The counters since the last :meth:`reset` or
+            :meth:`load_program`.
+        """
+        stats = self._state.stats
+        return Stats(
+            cycles=stats.total_cycles,
+            mult_active_cycles=stats.mult_active_cycles,
+            acc_active_cycles=stats.acc_active_cycles,
+            xmem_reads=stats.xmem_reads,
+            xmem_writes=stats.xmem_writes,
+            mult_lane_ops=stats.mult_lane_ops,
+            mult_identity_lane_ops=stats.mult_identity_lane_ops,
+            lane_occupancy=stats.lane_occupancy,
+            effective_mac_utilization=stats.effective_mac_utilization,
+        )
 
     @property
     def status(self) -> Status:

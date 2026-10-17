@@ -97,7 +97,7 @@ nav:
       - Register a kernel: adding-applications.md           # E09-09 merges it
       - Add an instruction: how-to/add-an-instruction.md    # E09-11
       - Debug a kernel: debugging.md                        # E09-12; the Cycle Inspector page (E08) goes here
-      - Use the reference model from cocotb: how-to/reference-model-cocotb.md   # placeholder, E09-13
+      - Use the reference model from cocotb: how-to/reference-model-cocotb.md   # E09-13
   - Reference:
       - reference/index.md
       - ISA:                                                # generated, E09-14
@@ -109,7 +109,7 @@ nav:
           - Instruction format: reference/isa/instruction-format.md
           - Programmer's guide: reference/isa/programmer-guide.md
       - Command-line tools: reference/cli.md                # placeholder, E09-15
-      - Reference model API: reference/reference-model-api.md   # placeholder, E09-16
+      - Reference model API: reference/reference-model-api.md   # E09-16; parts generated (docs/reference_api_page.py)
       - Kernels:                                            # E06/E07 generate these
           - kernels/index.md
           - Softmax: kernels/softmax.md

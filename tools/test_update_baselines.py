@@ -15,7 +15,12 @@ from pathlib import Path
 SCRIPT = Path("tools/update_baselines.sh")
 
 #: The packages with baseline files (docs/content/code-conventions.md, "Baselines").
-BASELINE_PACKAGES = ("src/tools/ipu-apps", "src/tools/ipu-as-py", "src/tools/ipu-isa")
+BASELINE_PACKAGES = (
+    "src/tools/ipu-apps",
+    "src/tools/ipu-as-py",
+    "src/tools/ipu-emu-py",
+    "src/tools/ipu-isa",
+)
 
 _LABEL = re.compile(r"//(?P<package>[\w./-]+):(?P<name>\w+)")
 _UPDATE_RULE = re.compile(r"\bname\s*=\s*\"(?P<name>update_\w+)\"")

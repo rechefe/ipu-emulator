@@ -49,9 +49,11 @@ def trace_header(state: IpuState) -> dict[str, Any]:
 class TraceWriter:
     """Writes a trace to *path*: *header* first, then each record written.
 
+    A context manager: leaving the ``with`` block closes the file.
+
     Args:
         path: The file to write (replaced).
-        header: From :func:`trace_header`.
+        header: The header line's fields (``trace.v1.json``).
     """
 
     def __init__(self, path: str | Path, header: dict[str, Any]) -> None:
@@ -62,13 +64,16 @@ class TraceWriter:
         self._file.write(json.dumps(doc, separators=(",", ":")) + "\n")
 
     def write(self, record: CommitRecord) -> None:
+        """Write *record* as the next line."""
         self._line(record.to_json())
 
     def write_all(self, records: Iterable[CommitRecord]) -> None:
+        """Write each of *records*, in order."""
         for record in records:
             self.write(record)
 
     def close(self) -> None:
+        """Close the file."""
         self._file.close()
 
     def __enter__(self) -> TraceWriter:

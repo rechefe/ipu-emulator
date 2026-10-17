@@ -62,6 +62,58 @@ genrule(
     tools = ["//src/tools/ipu-gen:ipu-gen"],
 )
 
+# The Reference model API page (content/reference/reference-model-api.md) includes
+# these snippets through pymdownx.snippets; the schema files are its downloads.
+#   bazel run //docs:reference_api_page -- "$PWD/out"
+py_binary(
+    name = "reference_api_page",
+    srcs = ["reference_api_page.py"],
+    main = "reference_api_page.py",
+    python_version = "PY3",
+    deps = [
+        "//src/tools/ipu-emu-py:ipu_emu_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+    ],
+)
+
+_REFERENCE_API_FILES = [
+    "version.md",
+    "api.md",
+    "schema.md",
+    "faults.md",
+    "commit_record.v1.json",
+    "trace.v1.json",
+]
+
+genrule(
+    name = "generate_reference_api_md",
+    outs = ["generated/reference-api/" + f for f in _REFERENCE_API_FILES],
+    cmd = "$(location :reference_api_page) $(RULEDIR)/generated/reference-api > /dev/null",
+    tools = [":reference_api_page"],
+)
+
+# The page's generator and its promises: every public symbol and schema field is
+# rendered, a schema change changes the page, and the cocotb how-to links each
+# call it uses.
+py_pytest_test(
+    name = "test_reference_api_page",
+    size = "small",
+    srcs = [
+        "reference_api_page.py",
+        "test_reference_api_page.py",
+    ],
+    data = [
+        "content/how-to/reference-model-cocotb.md",
+        "content/reference/reference-model-api.md",
+        "examples/test_reference_model_cocotb.py",
+    ],
+    deps = [
+        "//src/tools/ipu-emu-py:ipu_emu_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
 genrule(
     name = "generate_instruction_format_md",
     outs = ["instruction-format.md"],
@@ -114,9 +166,11 @@ genrule(
         ":generate_instruction_format_artifacts",
         ":generate_element_format_tables",
         ":generate_timing_contract_table",
+        ":generate_reference_api_md",
         "//:GLOSSARY.md",
         "examples/test_add_an_instruction.py",
         "examples/test_element_formats.py",
+        "examples/test_reference_model_cocotb.py",
         "//src/tools/ipu-isa:test/one_edit.py",
         "hooks/giscus_env.py",
         "hooks/history_link.py",
@@ -172,9 +226,10 @@ genrule(
         # whose base_path ".." is the parent of the temp tree, as the repo root is of docs/.
         ln -sfn "$$ORIGDIR/$(location //:GLOSSARY.md)" "$(@D)/GLOSSARY.md"
 
-        # how-to/add-an-instruction.md includes tested code the same way, at its repo path.
+        # The how-to pages include tested code the same way, at its repo path.
         mkdir -p "$(@D)/docs/examples" "$(@D)/src/tools/ipu-isa/test"
         ln -sfn "$$ORIGDIR/$(location examples/test_add_an_instruction.py)" "$(@D)/docs/examples/test_add_an_instruction.py"
+        ln -sfn "$$ORIGDIR/$(location examples/test_reference_model_cocotb.py)" "$(@D)/docs/examples/test_reference_model_cocotb.py"
         ln -sfn "$$ORIGDIR/$(location //src/tools/ipu-isa:test/one_edit.py)" "$(@D)/src/tools/ipu-isa/test/one_edit.py"
 
         # explanation/element-formats.md includes its tested example the same way, and
@@ -182,6 +237,19 @@ genrule(
         ln -sfn "$$ORIGDIR/$(location examples/test_element_formats.py)" "$(@D)/docs/examples/test_element_formats.py"
         mkdir -p "$(@D)/docs/generated"
         ln -sfn "$$ORIGDIR/$(location :generate_element_format_tables)" "$(@D)/docs/generated/element-format-tables.md"
+        # The reference model API page's schema downloads (its snippets are read
+        # from generated/reference-api/ through the snippets base_path).
+        mkdir -p "$(@D)/docs_temp/content/assets/schemas"
+        for f in $(locations :generate_reference_api_md); do
+          case "$$f" in
+            *.json)
+              dest="$(@D)/docs_temp/content/assets/schemas/$$(basename "$$f")"
+              rm -f "$$dest"
+              cp "$$ORIGDIR/$$f" "$$dest"
+              chmod u+w "$$dest"
+              ;;
+          esac
+        done
 
         # Generated C header and SystemVerilog package (downloadable; not in git)
         mkdir -p "$(@D)/docs_temp/content/assets"
@@ -330,6 +398,21 @@ py_pytest_test(
     ],
 )
 
+# The testbench How-to: use the reference model from cocotb includes (examples/)
+# runs against a second model as the DUT; no simulator.
+py_pytest_test(
+    name = "test_reference_model_cocotb",
+    size = "small",
+    srcs = ["examples/test_reference_model_cocotb.py"],
+    data = ["content/how-to/reference-model-cocotb.md"],
+    deps = [
+        "//src/tools/ipu-as-py:ipu_as_lib",
+        "//src/tools/ipu-emu-py:ipu_emu_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
 # The timing model page's examples run, and assert the values the page claims.
 py_pytest_test(
     name = "test_timing_model",
@@ -380,6 +463,7 @@ py_pytest_test(
         ":adr_sources",
         "//:.github/pull_request_template.md",
         "//:GLOSSARY.md",
+        "//src/tools/ipu-isa:conformance/README.md",
         "//tools/bench:README.md",
     ],
     deps = [requirement("pytest")],

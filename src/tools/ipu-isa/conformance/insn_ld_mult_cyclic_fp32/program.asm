@@ -1,0 +1,4 @@
+# insn_ld_mult_cyclic_fp32: LD.MULT.CYCLIC in FP32
+LD.MULT.CYCLIC LR1 CR3 LR0 ;;
+LD.MULT.CYCLIC LR2 CR3 LR6 ;;
+HALT ;;

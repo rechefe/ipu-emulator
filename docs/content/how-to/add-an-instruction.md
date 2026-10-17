@@ -118,7 +118,8 @@ Some tests pin today's ISA, and fail by design once it has one more
 instruction. Update them; the failing test names what it pins.
 
 - **Baselines** regenerate: run `tools/update_baselines.sh`. For an `lr`
-  instruction it rewrites nine files, among them the generated pages, the
+  instruction it rewrites nine files besides the conformance suite (whose
+  every trace header names the ISA), among them the generated pages, the
   editor's data, the decoded field maps and the SystemVerilog golden. Commit
   them with the reason, as the [Baselines](../code-conventions.md#baselines)
   rule asks.
@@ -130,6 +131,10 @@ instruction. Update them; the failing test names what it pins.
     - for an `lr` instruction, the "one edit" tests' own count of `lr`
       instructions (`test_one_edit.py` in ipu-isa, `test_one_edit_generators.py`
       in ipu-gen).
+    - for a HARDWARE instruction, its conformance program: an entry in
+      `INSTRUCTIONS` in `src/tools/ipu-emu-py/test/conformance_cases.py`
+      (`test_conformance` names an instruction no case runs); run
+      `tools/update_baselines.sh` again to write its cases.
 - An instruction whose opcode does not fit in its slot's opcode field (a slot of
   16 instructions getting a 17th) widens the slot, and with it the instruction
   word. More tests then fail, those that pin widths and the word layout. For a

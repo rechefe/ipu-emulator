@@ -1,13 +1,53 @@
 # Reference model API
 
-`ipu_emu.reference` is the emulator's stable interface for RTL verification
-(API version `1.0.0`). A cocotb testbench resets the model, loads a program,
-sets registers and XMEM, steps it one word at a time and compares each commit
-record with what the RTL retired. The contract is the module's names
-(`API_VERSION`, `ReferenceModel`, `RunResult`, `RunState` and `Status`) and
-the commit records `step()` returns. The rest of `ipu_emu` may change between
-releases; this interface changes only with a version bump, and a breaking
-change bumps the major number.
+`ipu_emu.reference` is the emulator's stable interface for RTL verification.
+A cocotb testbench resets the model, loads a program, sets registers and
+XMEM, steps it one word at a time and compares each commit record with what
+the RTL retired. [How-to: use the reference model from
+cocotb](../how-to/reference-model-cocotb.md) walks through a testbench.
+
+--8<-- "generated/reference-api/version.md"
+
+The [API](#api), [schema](#commit-record-schema) and [fault](#faults) sections
+of this page are generated from the code and the schema files, so they always
+match the version above.
+
+## Compatibility
+
+The contract is:
+
+- the names in `ipu_emu.reference.__all__`, with their signatures, dataclass
+  fields and enum values;
+- the commit records `step()` returns (`ipu_emu.commit`), field by field;
+- the commit record and trace header schemas, which are language-neutral JSON
+  Schema files in `ipu_isa/schemas/`.
+
+Everything else in `ipu_emu` is internal and can change in any release. The
+other symbols on this page (`TraceWriter`, the schema helpers, the argument
+types) are listed because the contract hands them out or takes them, not as
+a separate promise.
+
+`API_VERSION` is a semantic version:
+
+- **Major** (breaking): a public name removed or renamed, a parameter removed
+  or made required, a field removed, renamed or retyped, or a meaning changed
+  (a method that now refuses what it accepted, a field that now counts
+  something else).
+- **Minor**: an addition that leaves every existing call working, such as a
+  new method or a new optional parameter. Version 1.1.0 added `Stats` and
+  `stats()`; nothing of 1.0.0 changed.
+
+Each schema carries its own version, at the end of its `$id`. An optional
+field added is a minor bump; a field removed or renamed, or a meaning
+changed, is a major one. A trace header names the commit record schema's
+version (`schema_version`).
+
+Two tests hold the promise. `src/tools/ipu-emu-py/test/test_reference_api_contract.py`
+pins every public name, signature and record field under the version that
+introduced it, so a surface change fails until a new version's entry matches.
+`src/tools/ipu-emu-py/test/test_commit.py` pins each schema file's bytes to
+its version. A strict mypy test (`//src/tools/ipu-emu-py:mypy_reference`)
+types the module.
 
 ## A lockstep test
 
@@ -34,35 +74,10 @@ async def test_lockstep(dut):
 ```
 
 `step()` returns the word's commit record, the same object a run writes to a
-trace; its JSON form follows `ipu_isa/schemas/commit_record.v1.json`. Its
-`outcome` is `retired`, `halt` or `fault`: the model never stops at a `BREAK`
-slot, so `break` does not occur. A stepped record's `cycle` counts the words
-since the last `reset()` or `load_program()`; in a trace `run()` writes, it
-counts the trace's records, as the schema says.
-
-To run without comparing each word, `run(max_cycles=None, *, trace=None)`
-steps until a `HALT` word, a fault or the cycle limit. It returns a
-`RunResult` with the final `status` and the words retired (`cycles`). Pass a
-`TraceWriter` (`ipu_emu.trace`) as `trace` to write each record as its word
-retires.
-
-## Methods
-
-| Method | What it does |
-|---|---|
-| `reset(fmt)` | Puts registers and XMEM to their reset values (`CR15` holds the default dstructure) and the PC to 0, enables every fault with no sticky flag, and clears the arithmetic flags and the statistics, in element format `fmt`. The program stays. |
-| `load_program(words)` | Loads a program file's bytes or its words as unsigned ints; the PC goes to 0. |
-| `read_register(name, index=0)` | Register `index` of bank `name`, as `ipu_isa.registers` names them (`lr`: `LR0`-`LR15`, `cr`: `CR0`-`CR15`, `r`: `R0`-`R1`, ...). An unsigned int for `lr` and `cr`, the register's bytes for the others. |
-| `write_register(name, value, index=0)` | The same, written; only while halted. |
-| `read_xmem(address, size)` / `write_xmem(address, data)` | XMEM bytes; writes only while halted. |
-| `set_fault_enable(fault, enabled)` | A fault's enable bit. F-2 to F-6 cannot be cleared (OQ-2). |
-| `step()` | One word. A `BREAK` slot never stops it: the word retires. A step has no cycle limit. |
-| `run(max_cycles=None, *, trace=None)` | Steps until `HALT`, a fault, or `max_cycles` words (`None` keeps the model's limit, 0 disables it). |
-| `status` | A `Status`: `state` (`RunState.RUNNING`, `HALTED` or `FAULTED`), `pc` and, when faulted, `fault`. |
-
-`r_wide_debug` and `r_cyclic_wide_debug` are emulator-only banks: they hold
-the operands of the wide formats (FP32, INT32), which the hardware does not
-have.
+trace. Its `outcome` is `retired`, `halt` or `fault`: the model never stops at
+a `BREAK` slot, so `break` does not occur. A stepped record's `cycle` counts
+the words since the last `reset()` or `load_program()`; in a trace `run()`
+writes, it counts the trace's records, as the schema says.
 
 ## Rules
 
@@ -77,8 +92,57 @@ have.
   XMEM writes raise `ConfigurationError` until `reset()` (IPU-FLT-7). After a
   `HALT` word, `step()` and `run()` raise it until `reset()` or
   `load_program()`.
-- No method returns an emulator object: values are ints, bytes, the
-  dataclasses above and `CommitRecord`.
-- The contract test, `src/tools/ipu-emu-py/test/test_reference_api_contract.py`,
-  pins every public name, signature and record field under its version; a
-  strict mypy test (`//src/tools/ipu-emu-py:mypy_reference`) types the module.
+- No method returns an emulator object: values are ints, floats, bytes, the
+  dataclasses below and `CommitRecord`.
+- Registers are named by bank, as `ipu_isa.registers` names them (`lr`:
+  `LR0`-`LR15`, `cr`: `CR0`-`CR15`, `r`: `R0`-`R1`, ...), and `index` picks
+  the register within the bank. `r_wide_debug` and `r_cyclic_wide_debug` are
+  emulator-only banks: they hold the operands of the wide formats (FP32,
+  INT32), which the hardware does not have.
+
+## API
+
+--8<-- "generated/reference-api/api.md"
+
+## Commit record and trace schema { #commit-record-schema }
+
+A commit record's JSON form (`CommitRecord.to_json()`) is a document of the
+commit record schema. A trace is a JSON Lines file: a header line of the trace
+header schema, then one commit record per word. Download the schema files to
+validate either with any JSON Schema (draft 2020-12) validator.
+
+--8<-- "generated/reference-api/schema.md"
+
+## Faults
+
+A faulting word's commit record has `outcome` `fault` and names the fault in
+`fault.id`; `status.fault` is the same fault as a `FaultId`. These are the
+IDs of the [fault list](../requirements/faults.md#fault-list); the
+[emulator section of Faults](../requirements/faults.md#in-the-emulator) says
+what the model checks for each.
+
+--8<-- "generated/reference-api/faults.md"
+
+## Conformance suite
+
+`src/tools/ipu-isa/conformance/` holds the ISA's expected behaviour as data:
+for each case a program (`program.asm`, `program.bin`), its starting state
+(`setup.json`, schema `setup.schema.json`) and the trace of its run
+(`expected.trace.jsonl`). No case contains Python, so another implementation
+(the RTL under cocotb, another model) needs only these files and the schemas.
+
+To run the suite against another implementation, for each case:
+
+1. Skip it if `setup.json` has `"emulator_only": true`.
+2. Reset in the case's `format` and load `program.bin`.
+3. Zero every register and XMEM byte (`CR0` and `CR1` aside), then write the
+   registers and XMEM regions of `setup.json` and set its fault enables.
+4. Run until `HALT`, a fault or `max_cycles`, recording a commit record per
+   word.
+5. Compare the header's `schema_version`, `isa_digest`, `format` and
+   `program_digest` with the expected trace's, then each record, field by
+   field.
+
+The suite's `README.md` has the details of each step.
+`bazel test //src/tools/ipu-emu-py:test_conformance` runs every case through
+this API.

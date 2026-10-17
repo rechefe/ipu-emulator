@@ -19,7 +19,7 @@ from emu_support import ElementFormat, assemble_program
 import ipu_emu.reference as api
 from ipu_emu.commit import CommitRecord, FaultInfo, Outcome, RegWrite, SlotOp, XmemWrite
 from ipu_emu.errors import ConfigurationError
-from ipu_emu.reference import API_VERSION, ReferenceModel, RunResult, RunState, Status
+from ipu_emu.reference import API_VERSION, ReferenceModel, RunResult, RunState, Stats, Status
 from ipu_emu.trace import TraceWriter, read_trace
 from ipu_isa.codec.word import DecodedWord, pack_program, word_bytes
 from ipu_isa.faults import FaultId
@@ -78,6 +78,67 @@ SNAPSHOTS = {
         "XmemWrite": {"address": "int", "data": "bytes"},
         "FaultInfo": {"id": "str", "pc": "int"},
     },
+    "1.1.0": {
+        "__all__": ["API_VERSION", "ReferenceModel", "RunResult", "RunState", "Stats", "Status"],
+        "ReferenceModel": {
+            "__init__": "(self, fmt: 'ElementFormat' = <ElementFormat.INT8: 'int8'>) -> 'None'",
+            "load_program": "(self, words: 'bytes | Sequence[int]') -> 'None'",
+            "read_register": "(self, name: 'str', index: 'int' = 0) -> 'int | bytes'",
+            "read_xmem": "(self, address: 'int', size: 'int') -> 'bytes'",
+            "reset": "(self, fmt: 'ElementFormat') -> 'None'",
+            "run": "(self, max_cycles: 'int | None' = None, *, trace: 'TraceWriter | None' = None)"
+            " -> 'RunResult'",
+            "set_fault_enable": "(self, fault: 'FaultId', enabled: 'bool') -> 'None'",
+            "stats": "(self) -> 'Stats'",
+            "status": "property",
+            "step": "(self) -> 'CommitRecord'",
+            "write_register": "(self, name: 'str', value: 'int | bytes', index: 'int' = 0)"
+            " -> 'None'",
+            "write_xmem": "(self, address: 'int', data: 'bytes') -> 'None'",
+        },
+        "Status": {"state": "RunState", "pc": "int", "fault": "FaultId | None"},
+        "RunResult": {"status": "Status", "cycles": "int"},
+        "Stats": {
+            "cycles": "int",
+            "mult_active_cycles": "int",
+            "acc_active_cycles": "int",
+            "xmem_reads": "int",
+            "xmem_writes": "int",
+            "mult_lane_ops": "int",
+            "mult_identity_lane_ops": "int",
+            "lane_occupancy": "float",
+            "effective_mac_utilization": "float",
+        },
+        "RunState": {"RUNNING": "running", "HALTED": "halted", "FAULTED": "faulted"},
+        # What step() returns (ipu_emu.commit), field by field.
+        "CommitRecord": {
+            "cycle": "int",
+            "pc_before": "int",
+            "pc_after": "int",
+            "slots": "tuple[SlotOp, ...]",
+            "reg_writes": "tuple[RegWrite, ...]",
+            "xmem_writes": "tuple[XmemWrite, ...]",
+            "outcome": "Outcome",
+            "fault": "FaultInfo | None",
+            "arith_events": "tuple[str, ...]",
+        },
+        "Outcome": ["retired", "break", "halt", "fault"],
+        "SlotOp": {
+            "slot": "str",
+            "mnemonic": "str",
+            "fields": "Mapping[str, int]",
+            "emulator_only": "bool",
+        },
+        "RegWrite": {
+            "register": "str",
+            "index": "int | None",
+            "value": "int | None",
+            "offset": "int | None",
+            "data": "bytes | None",
+        },
+        "XmemWrite": {"address": "int", "data": "bytes"},
+        "FaultInfo": {"id": "str", "pc": "int"},
+    },
 }
 
 _RECORD_TYPES = (CommitRecord, SlotOp, RegWrite, XmemWrite, FaultInfo)
@@ -98,6 +159,7 @@ def _surface() -> dict:
         "ReferenceModel": model,
         "Status": _fields(Status),
         "RunResult": _fields(RunResult),
+        "Stats": _fields(Stats),
         "RunState": {s.name: s.value for s in RunState},
         **{cls.__name__: _fields(cls) for cls in _RECORD_TYPES},
         "Outcome": list(typing.get_args(Outcome)),
@@ -314,7 +376,7 @@ def test_xmem_round_trips_and_bounds_are_checked():
         model.write_xmem(1 << 40, b"\x00")
 
 
-_PLAIN = (int, str, bytes, bool, type(None), enum.Enum, tuple, typing.Mapping)
+_PLAIN = (int, float, str, bytes, bool, type(None), enum.Enum, tuple, typing.Mapping)
 _API_MODULES = {"ipu_emu.reference", "ipu_emu.commit"}
 
 
@@ -345,8 +407,40 @@ def test_no_method_returns_an_emulator_object():
         "step": model.step(),
         "run": model.run(),
         "status": model.status,
+        "stats": model.stats(),
     }
     for name, value in returned.items():
         _assert_plain(value, name)
     faulted = _model(FAULT)
     _assert_plain(faulted.step(), "step(fault)")
+
+
+# Word 0: an identity multiply (CR1 is 1) and an ACC op; word 1: a multiply
+# by R0, not an identity. Every lane is valid (CR15's default dstructure).
+_STATS_PROGRAM = (
+    "MULT.RC.VE LR0 CR1 0 LR0 CR15 ; ACC.ADD.FIRST ;;\nMULT.RC.VV LR0 R0 0 LR0 CR15 ;;\nHALT ;;"
+)
+
+
+def test_stats_count_lanes_and_identity_multiplies_over_steps_and_runs():
+    model = _model(_STATS_PROGRAM)
+    assert model.stats() == Stats(0, 0, 0, 0, 0, 0, 0, 0.0, 0.0)
+    model.step()
+    assert model.stats() == Stats(1, 1, 1, 0, 0, 128, 128, 1.0, 0.0)
+    model.run()
+    # 3 words, 256 lanes carried data, 128 of them an identity: 1/3 of peak MACs.
+    assert model.stats() == Stats(3, 2, 1, 0, 0, 256, 128, 2 / 3, 1 / 3)
+    model.load_program(_words(_STATS_PROGRAM))
+    assert model.stats() == Stats(0, 0, 0, 0, 0, 0, 0, 0.0, 0.0)
+    model.run()
+    model.reset(ElementFormat.INT8)
+    assert model.stats() == Stats(0, 0, 0, 0, 0, 0, 0, 0.0, 0.0)
+
+
+def test_a_faulting_word_adds_no_statistics():
+    # The faulting word also holds an identity multiply and an ACC op.
+    faulting = "MULT.RC.VE LR0 CR1 0 LR0 CR15 ; ACC.ADD.FIRST ; SET LR0 CR1 ; SET LR0 CR2 ;;"
+    model = _model(f"INC LR0 1 ;;\n{faulting}\nHALT ;;")
+    model.run()
+    assert model.status.fault is FaultId.F3
+    assert model.stats() == Stats(1, 0, 0, 0, 0, 0, 0, 0.0, 0.0)
