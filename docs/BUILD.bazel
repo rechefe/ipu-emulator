@@ -11,6 +11,10 @@ filegroup(
         "content/**/*.md",
         "content/**/*.svg",
         "content/**/*.csv",
+        # The Cycle Inspector page (E08-17): static HTML, CSS and JS, no bundling (D9).
+        "content/inspector/*.html",
+        "content/inspector/*.css",
+        "content/inspector/*.js",
     ]),
     visibility = ["//visibility:public"],
 )
@@ -93,6 +97,7 @@ genrule(
         ":generate_mkdocs_md",
         ":generate_instruction_format_md",
         ":generate_instruction_format_artifacts",
+        "//docs/inspector:inspector_data",
         "//:GLOSSARY.md",
         "examples/test_add_an_instruction.py",
         "//src/tools/ipu-isa:test/one_edit.py",
@@ -161,6 +166,16 @@ genrule(
           dest="$(@D)/docs_temp/content/assets/$$base"; \
           rm -f "$$dest"; \
           cp "$$ORIGDIR/$$artifact" "$$dest"; \
+          chmod u+w "$$dest"; \
+        done
+
+        # The Cycle Inspector's data (E08-16): every curated trace, kernels.json
+        # and isa.json, regenerated on each build, never checked in.
+        mkdir -p "$(@D)/docs_temp/content/inspector/data"
+        for data in $(locations //docs/inspector:inspector_data); do \
+          dest="$(@D)/docs_temp/content/inspector/data/$$(basename "$$data")"; \
+          rm -f "$$dest"; \
+          cp "$$ORIGDIR/$$data" "$$dest"; \
           chmod u+w "$$dest"; \
         done
 
@@ -294,6 +309,16 @@ py_pytest_test(
         "//:GLOSSARY.md",
         "//tools/bench:README.md",
     ],
+    deps = [requirement("pytest")],
+)
+
+# The built site has the Cycle Inspector page and every curated trace (E08-17).
+#   bazel test //docs:test_inspector_site
+py_pytest_test(
+    name = "test_inspector_site",
+    srcs = ["test_inspector_site.py"],
+    data = [":build_docs"],
+    tags = ["docs"],
     deps = [requirement("pytest")],
 )
 
