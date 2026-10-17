@@ -180,7 +180,8 @@ def test_a_derived_dstructure_binds_any_cr(tmp_path):
         ("dstructure(128)", "128"),
         ("dstructure(64, partition=8)", "64 + 8 * 256"),
         ("dstructure(16, 2, 0)", "16 + 2 * 256"),
-        ("dstructure(16, pad_mode=1)", "dstructure(16, 0, 1)"),
+        ("dstructure(16, pad_mode=1)", "16 + 1 * 8192"),  # the pad mode from bit 13
+        ("dstructure(0)", "0"),
     ],
 )
 def test_a_dstructure_takes_its_last_two_by_position_or_name(tmp_path, expression, word):

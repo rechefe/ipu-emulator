@@ -30,7 +30,6 @@ import numpy as np
 
 from ipu_harness._codec import Array, decode, encode
 from ipu_harness._plugins import import_named, load_file
-from ipu_harness.expressions import ExpressionError, evaluate_exact
 from ipu_harness.manifest import TensorDecl
 from ipu_harness.params import CasePlan, PlanError
 from ipu_isa.formats import FORMATS, ElementFormat
@@ -203,16 +202,17 @@ def _rows(transform: PackTransform, shape: tuple[int, ...], plan: CasePlan) -> i
     """``transform.rows(shape, plan)``; ``rows(shape)`` for a transform written
     before ``rows`` took the plan.
 
-    A parameter named ``plan`` (keyword-only, or set by ``functools.partial``)
-    gets it by name; two positional parameters, or ``*args``, get it second;
+    A parameter named ``plan`` (keyword-only, or set by ``functools.partial``;
+    not a positional-only one) gets it by name; two positional parameters, or ``*args``, get it second;
     otherwise only the shape is passed. A callable with no signature (a
     builtin) is given both.
     """
     try:
         params = inspect.signature(transform.rows).parameters
     except (TypeError, ValueError):
-        return transform.rows(shape, plan)
-    if "plan" in params:
+        return int(transform.rows(shape, plan))
+    named = params.get("plan")
+    if named is not None and named.kind is not inspect.Parameter.POSITIONAL_ONLY:
         return int(transform.rows(shape, plan=plan))
     positional = [
         p
@@ -221,8 +221,8 @@ def _rows(transform: PackTransform, shape: tuple[int, ...], plan: CasePlan) -> i
     ]
     variadic = any(p.kind is inspect.Parameter.VAR_POSITIONAL for p in params.values())
     if len(positional) >= 2 or variadic:
-        return transform.rows(shape, plan)
-    return transform.rows(shape)  # type: ignore[call-arg]
+        return int(transform.rows(shape, plan))
+    return int(transform.rows(shape))  # type: ignore[call-arg]
 
 
 def stored_rows(tensor: TensorDecl, plan: CasePlan, *, package: str = "ipu_kernels") -> int:
@@ -310,19 +310,6 @@ def unpack(
     return _laid_out(tensor, plan, package, lambda t: t.from_rows(rows, plan, shape))
 
 
-def _fill_value(tensor: TensorDecl, plan: CasePlan) -> float:
-    """A scratch region's ``fill``: its number, or its expression evaluated
-    exactly over the case's integer parameters and derived values."""
-    if not isinstance(tensor.fill, str):
-        return float(tensor.fill)
-    ints = {k: v for k, v in plan.params.items() if isinstance(v, int) and not isinstance(v, bool)}
-    try:
-        return float(evaluate_exact(tensor.fill, {**ints, **plan.derived}))
-    except ExpressionError as error:
-        key = f"{tensor.section}.{tensor.name}.fill"
-        raise PlanError(plan.manifest, key, f"{tensor.fill!r}: {error}") from None
-
-
 def region_fill(tensor: TensorDecl, plan: CasePlan, rows: int) -> bytes:
     """A scratch region's starting bytes.
 
@@ -340,14 +327,14 @@ def region_fill(tensor: TensorDecl, plan: CasePlan, rows: int) -> bytes:
         ``rows x row_bytes`` bytes.
 
     Raises:
-        PlanError: The function's result is not bytes of exactly that size, or
-            the ``fill`` expression does not evaluate (division by zero).
+        PlanError: The function's result is not bytes of exactly that size.
     """
     region_bytes = rows * FORMATS[plan.format].row_bytes
     if tensor.content is None:
         fmt = stored_format(tensor, plan.format)
         elements = region_bytes // FORMATS[fmt].element_bytes
-        return encode(np.full(elements, _fill_value(tensor, plan), dtype=np.float64), fmt)
+        fill = plan.fills.get(tensor.name, tensor.fill)  # an expression's value, from the plan
+        return encode(np.full(elements, fill, dtype=np.float64), fmt)
     file, _, name = tensor.content.partition(":")
     data = getattr(load_file(plan.manifest.directory / file), name)(plan)
     key = f"{tensor.section}.{tensor.name}.bytes"

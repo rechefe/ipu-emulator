@@ -41,9 +41,10 @@ Schema
     lays out the stored rows that :func:`ipu_harness.packing.unpack` reads back. ``store`` (outputs):
     ``element`` (default) or ``accumulator``. ``fill`` (scratch): the value the
     region is filled with, default 0: a number, or an expression over
-    parameters and derived values in the shape grammar, evaluated exactly
-    (``"-1 / channels"``, whole or not) and rounded to the format when
-    stored. ``bytes`` (scratch, not with ``fill``):
+    int and float parameters and derived values in the shape grammar,
+    evaluated exactly when the case is planned (``"-1 / channels"``, whole or
+    not; a float parameter is its exact binary value) and rounded to the
+    format when stored. ``bytes`` (scratch, not with ``fill``):
     ``"file.py:fn"``, ``fn(plan)`` returns the region's exact starting bytes,
     format-blind (a lane mask, which no element value can carry). The runner
     writes either through :func:`ipu_harness.packing.region_fill`. Scratch
@@ -637,10 +638,7 @@ def _tensor(
             )
         decl = replace(decl, store=store)
     if "fill" in table:
-        fill = r.typed(table["fill"], (int, float, str), (*path, "fill"))
-        if isinstance(fill, str):
-            _check_expression(r, fill, names, (*path, "fill"))
-        decl = replace(decl, fill=fill)
+        decl = replace(decl, fill=r.typed(table["fill"], (int, float, str), (*path, "fill")))
     if "range" in table:
         ranges = _range(r, table["range"], (*path, "range"), formats)
         decl = replace(decl, value_range=MappingProxyType(ranges))
@@ -1278,6 +1276,11 @@ def load_manifest(
         _check_expression(r, kernel.cost, (*integers, *derived), ("kernel", "cost"))
     bools = tuple(n for n, p in params.items() if p.type == "bool")
     tensors = _tensors(r, data, scalars, kernel.formats, bools, directory)
+    numbers = [n for n, p in params.items() if p.type in ("int", "float")]
+    for tensor in tensors.values():
+        if isinstance(tensor.fill, str):
+            path = (tensor.section, tensor.name, "fill")
+            _check_expression(r, tensor.fill, (*numbers, *derived), path)
     _no_placed_reads(r, placed, tensors, kernel.cost)
     abi, abi_offsets, abi_when = _abi(r, data.get("abi", {}), params, {*scalars, *tensors}, tensors)
     _placed_conditions(r, placed, tensors, abi_when, abi)

@@ -59,7 +59,7 @@ _CALLS: Mapping[str, tuple[int, int | None, Callable[..., Fraction]]] = {
     "ceil": (1, 1, lambda x: Fraction(math.ceil(x))),
     "min": (2, None, min),
     "max": (2, None, max),
-    "dstructure": (1, 3, _dstructure),
+    "dstructure": (1, 3, _dstructure),  # its arguments are checked by _dstructure_call
 }
 #: The call that reads a placed region's base (``base(x)``).
 BASE = "base"
@@ -156,13 +156,7 @@ def _call(node: ast.Call, names: Mapping[str, Fraction] | None) -> Fraction:
     least, most, function = _CALLS[node.func.id]
     count = len(node.args)
     if node.keywords or count < least or (most is not None and count > most):
-        wanted = (
-            f"{least}"
-            if least == most
-            else f"at least {least}"
-            if most is None
-            else f"{least} to {most}"
-        )
+        wanted = f"{least}" if least == most else f"at least {least}"
         raise ExpressionError(f"{node.func.id}() takes {wanted} positional arguments, not {count}")
     values = [_walk(a, names) for a in node.args]
     return function(*values) if names is not None else Fraction(0)
@@ -218,9 +212,9 @@ def names_in(text: str) -> list[str]:
     ]
 
 
-def evaluate_exact(text: str, names: Mapping[str, int]) -> Fraction:
-    """``text`` over integer ``names``, exactly, whole or not (a scratch
-    region's ``fill``: ``"1 / channels"``).
+def evaluate_exact(text: str, names: Mapping[str, int | float]) -> Fraction:
+    """``text`` over ``names``, exactly, whole or not (a scratch region's
+    ``fill``: ``"1 / channels"``; a float name is its exact binary value).
 
     Raises:
         ExpressionError: Outside the grammar, an unknown name or division by
