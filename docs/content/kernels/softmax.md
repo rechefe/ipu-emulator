@@ -191,7 +191,7 @@ From each kernel's benchmark (`[benchmark]` in its `kernel.toml`):
 
 MULT util counts every cycle the multiplier is busy. About 40% of those are
 identity multiplies — data routing the ISA has no other path for (see the
-[ISA alias catalogue](../isa-alias-catalogue.md)) — and narrow rows leave lanes
+[ISA idioms](../explanation/isa-idioms.md)) — and narrow rows leave lanes
 idle, so Effective MAC, the share of peak MACs actually retired, is lower.
 `softmax_rows_partial` at n=16 keeps the multiplier 27% busy but uses only 16
 of its 128 lanes.
@@ -222,4 +222,4 @@ bazel run //kernels/softmax/softmax_rows_long -- --input x=logits.npy --output o
 
 The last replaces the default case's `x` (`(8, 300)` float32) with your own
 array of that shape and writes `out/y.npy`. See
-[Application coverage](../app-coverage.md) for the registry.
+[Kernel coverage](../explanation/kernel-coverage.md) for the registry.

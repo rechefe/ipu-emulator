@@ -9,7 +9,7 @@
     kernels below and then removes this page.
 
 How to contribute a kernel so the registry can find it, route to it, and report
-its coverage accurately. See [Application coverage](app-coverage.md) for why the
+its coverage accurately. See [Kernel coverage](explanation/kernel-coverage.md) for why the
 system is shaped this way.
 
 Adding an application is **purely additive**: you create files inside your own

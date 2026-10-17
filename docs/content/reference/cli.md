@@ -72,7 +72,7 @@ one run (`state.stats` in Python). For example:
 
 A run in which every multiply used all 128 lanes adds a note: occupancy is
 overstated if the kernel pads a narrower row without declaring
-`CR15.valid_elements`. A run that executed an [ISA idiom](../isa-alias-catalogue.md)
+`CR15.valid_elements`. A run that executed an [ISA idiom](../explanation/isa-idioms.md)
 adds a `--- ISA alias hits ---` block, with the count for each idiom, and
 `--profile-aliases` (or `--alias-report FILE`) adds the full idiom
 measurements.

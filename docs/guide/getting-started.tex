@@ -596,7 +596,7 @@ Target & What it does \\
 
 With no arguments, \texttt{query} lists every operation and every kernel. The
 \doc{kernels}{Kernels} pages describe each family, and
-\doc{app-coverage}{Application Coverage} explains how the registry picks a kernel.
+\doc{explanation/kernel-coverage}{Kernel Coverage} explains how the registry picks a kernel.
 
 \begin{termcmdtop}
 $ bazel run //src/tools/ipu-apps:query
@@ -1051,7 +1051,7 @@ them).
 The IPU instruction set has gaps: there is, for example, no instruction that
 adds two vectors. Kernels fill a gap with a sequence of other instructions ---
 to add two vectors, multiply each by 1.0 and accumulate. Such a sequence is an
-\textbf{alias}. The \doc{isa-alias-catalogue}{ISA Alias Catalogue} lists them as
+\textbf{alias}. The \doc{explanation/isa-idioms}{ISA Idioms} lists them as
 A1--A16; counting them shows which new instructions would help most.
 
 \subsection{Alias counts}

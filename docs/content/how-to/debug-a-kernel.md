@@ -180,7 +180,7 @@ line.
     bazel run //kernels/elementwise/scale -- --case default --format fp32 --profile-aliases
     ```
 
-    It prints one line per [ISA idiom](../isa-alias-catalogue.md): how often
+    It prints one line per [ISA idiom](../explanation/isa-idioms.md): how often
     it occurred and how many cycles took part.
 
     ```text
@@ -197,6 +197,25 @@ line.
     write them as JSON with `--alias-report FILE` in place of
     `--profile-aliases`. For a kernel under `kernels/` run with
     `--format all`, each format writes `FILE.<format>.json`.
+
+    The report lists every idiom, with counts per subtype and status,
+    instruction sites, a bounded set of examples, participating instruction
+    words and cycles, elapsed spans, active lanes and XMEM bytes. Each
+    occurrence's figures are **inclusive**: a constant loaded once can take
+    part in many occurrences, so do not sum their costs.
+    `overlap_instruction_groups` and the unique instruction and cycle totals
+    show the shared words. `unique_read_bytes` is the union of the addresses
+    read.
+
+4. To profile a run from Python, attach a profile to the reference model
+    before running it, then read `profile.to_dict()` or `profile.to_json()`:
+
+    ```python
+    from ipu_emu.alias_profile import AliasProfile
+
+    profile = AliasProfile(metadata={"experiment": "hardware-baseline"})
+    model.attach_alias_profile(profile)  # model: an ipu_emu.reference.ReferenceModel
+    ```
 
 ## Look at a recorded run in the browser
 
