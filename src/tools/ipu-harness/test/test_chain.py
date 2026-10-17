@@ -337,6 +337,18 @@ def test_a_held_resident_is_placed_around(free, second):
     np.testing.assert_array_equal(two.result.outputs["y"], X.astype(np.float64) * 6)
 
 
+def test_first_fit_leaves_room_for_a_spill_below_a_held_resident(free, second):
+    chain = Chain(ElementFormat.INT8)
+    held = chain.hold(chain.run(free, SCALE_2, {"x": X}, at={"y": 4, "x": 10}).resident["y"])
+    step = chain.run(free, SCALE_3, {"x": X})  # y at 2..3 would spill onto rows 4..6
+    assert step.result.placement is not None
+    assert all(
+        r.end_row + 3 <= 4 or r.base_row >= 6 for r in step.result.placement.regions.values()
+    )
+    two = chain.run(second, SCALE_3, {"x": held}, check=True)
+    np.testing.assert_array_equal(two.result.outputs["y"], X.astype(np.float64) * 6)
+
+
 @pytest.mark.parametrize("at", [{"y": 64}, {"y": 62}])  # on it; spilling onto it
 def test_a_step_that_would_write_a_held_resident_fails_before_it_runs(first, free, at):
     chain = Chain(ElementFormat.INT8)

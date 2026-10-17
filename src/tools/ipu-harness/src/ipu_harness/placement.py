@@ -303,9 +303,10 @@ def check_aaq_spill(plan: CasePlan, placement: Placement, program: str) -> None:
     format, so a store to an output's last row also writes (zeros to) the
     rows after it (OQ-35). When ``program`` (rendered) stores with
     ``ST.AAQ``, the rows after every element output must be free (of
-    regions and of reserved rows) and inside XMEM. Accumulator outputs (``ST.ACC``) are not checked: their stride
-    already holds a store. Nor is a scratch region a program stores to with
-    ``ST.AAQ`` (a follow-up in OQ-35).
+    regions and of reserved rows) and inside XMEM. Accumulator outputs
+    (``ST.ACC``) are not checked: their stride already holds a store. Nor is
+    a scratch region a program stores to with ``ST.AAQ`` (a follow-up in
+    OQ-35).
 
     Raises:
         PlanError: A region is in an output's spill, or the spill runs past

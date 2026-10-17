@@ -16,7 +16,7 @@ program that reads its base through ``CR0``), and knows nothing of an
 earlier step's residents but its inputs, so a step may overwrite a resident it does
 not take. The chain keeps track: a resident that a later step's placed regions
 cover is stale, and passing it fails. The rows an ``ST.AAQ`` store spills past
-an output (three in INT8, OQ-35) count as covered. A resident the chain
+an output or a scratch region (three in INT8, OQ-35) count as covered. A resident the chain
 *holds* (:meth:`Chain.hold`, until :meth:`Chain.release`) is never covered:
 every later step places around it, and a step that pins a region on it (or
 spills onto it) fails before it runs. Hold a tensor a step several steps on
@@ -203,8 +203,9 @@ class Chain:
                 or a ``Resident`` is stale (a later step placed a region over
                 it) or another chain's; ``at`` names no tensor of the case (its
                 ``when``), a resident input, or one ``kernel.toml`` pins elsewhere.
-            PlanError: The case is wrong, or a ``Resident`` overlaps another
-                region (placement).
+            PlanError: The case is wrong, a ``Resident`` overlaps another
+                region (placement), or a region is pinned on, or would spill
+                onto, a held resident.
         """
         manifest = default_registry().kernel(kernel) if isinstance(kernel, str) else kernel
         decl = CaseDecl(_STEP_CASE, MappingProxyType(dict(params)))
@@ -241,10 +242,16 @@ class Chain:
             tier="default",
             decl=decl,
         )
+        rendered = None if manifest.stages is not None else assemble(plan, self._cache).rendered
+        spill = aaq_spill_rows(plan, rendered)
         # A held tensor this step reads stays where it is (pinned); every
-        # other one is off limits.
+        # other one is off limits, and so are the rows below it a store's
+        # ST.AAQ spill would reach (from an output or a scratch region).
         reserved = {
-            f"held tensor (rows {_rows(t)})": (t.base_row, t.rows)
+            f"held tensor (rows {_rows(t)})": (
+                max(0, t.base_row - spill),
+                t.rows + min(spill, t.base_row),
+            )
             for t in self._held
             if not any(t is v for v in inputs.values())
         }
@@ -258,8 +265,6 @@ class Chain:
         )
         options = self._step_options()
         self._steps += 1
-        rendered = None if manifest.stages is not None else assemble(plan, self._cache).rendered
-        spill = aaq_spill_rows(plan, rendered)
         written = _regions_written(plan, pinned, placed, reserved, spill)
         try:
             result = run_kernel(
@@ -314,9 +319,10 @@ def _regions_written(
     reserved: Mapping[str, tuple[int, int]],
     spill: int,
 ) -> list[Region]:
-    """The rows a step may write: its regions but its resident inputs, each
-    element output with the ``spill`` rows after it; none when placement
-    refuses the step, which then fails before it writes."""
+    """The rows a step may write: its regions (placed around the ``reserved``
+    rows) but its resident inputs, each element output and scratch region
+    with the ``spill`` rows after it; none when placement refuses the step,
+    which then fails before it writes."""
     tensors = plan.manifest.tensors
     try:
         placement = place(
@@ -329,7 +335,7 @@ def _regions_written(
         return []
     return [
         replace(r, rows=r.rows + spill)
-        if r.role == "output" and tensors[r.name].store == "element"
+        if r.role == "scratch" or (r.role == "output" and tensors[r.name].store == "element")
         else r
         for r in placement.regions.values()
         if r.name not in pinned
