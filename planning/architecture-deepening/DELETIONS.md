@@ -351,7 +351,7 @@ With them, `attention/test.py` no longer uses the softmax shim; its other users 
 | `src/tools/ipu-apps/test/baselines/disassembly/kernels/attention/attn_scores_km_256x36/attn_scores_km_256x36.txt` | E07-13 | As above. | As above (`kernels/attention/attn_scores_km_256x36/attn_scores_km_256x36.asm`). | As above. |
 | `src/tools/ipu-apps/test/baselines/disassembly/kernels/attention/attn_v_256x36/attn_v_256x36.txt` | E07-13 | As above. | As above (`kernels/attention/attn_v_256x36/attn_v_256x36.asm`). | As above. |
 
-**Kept until E07-24 (the attention shim).** `src/tools/ipu-apps/src/ipu_apps/kernels/attention/` keeps `__init__.py`, `app.py` (`attention_spec`, the chain table), `cases.py` (the old `agg_fold`/`acc_fold` and the case builders) and nine kernel folders (`app.py`, `cases.py`, `test.py`, `baseline.json`, the `.asm`): `qk_scores_16x60`, `qk_scores_64x48`, `attn_scores_km_16x60`, `attn_scores_km_64x48`, `attn_v_16x60`, `attn_v_64x48`, `attn_v_bcast_36`, `attn_v_bcast_48` and `attn_v_bcast_60`. Their users are the MobileViT tests: `src/tools/ipu-apps/test/mobilevit/{test_full_layer_l4,test_full_layer_l4_packed,test_full_layer_l5,test_full_layer_l5_packed,test_seam_qkv_matmul_scores_km_64x48,test_seam_proj_qkv_to_scores_km_repack,test_kernel_registry_new_families}.py` and `fixture_full_layer_chain.py`, which import the apps and their layout constants. E07-24, which moves those tests, deletes the shim with rows here. The new kernels are the tested ones; the shim's programs are the old ones, byte for byte (`compare_legacy`). Interface change, intended: the registry refuses an `attn_v` or `attn_v_bcast` query with a name the kernel does not declare (`head`, which the old router ignored), as E07-12 recorded for the score kernels. The shim's `agg_fold` keeps a rounding bug the new mirror fixes (E07-13: `AGG.SUM` adds a later chunk's fold unrounded); only the two-chunk L3 kernel showed it, and its shim folder is deleted.
+**Kept until E07-24 (the attention shim).** `src/tools/ipu-apps/src/ipu_apps/kernels/attention/` keeps `__init__.py`, `app.py` (`attention_spec`, the chain table), `cases.py` (the old `agg_fold`/`acc_fold` and the case builders) and nine kernel folders (`app.py`, `cases.py`, `test.py`, `baseline.json`, the `.asm`): `qk_scores_16x60`, `qk_scores_64x48`, `attn_scores_km_16x60`, `attn_scores_km_64x48`, `attn_v_16x60`, `attn_v_64x48`, `attn_v_bcast_36`, `attn_v_bcast_48` and `attn_v_bcast_60`. Their users are the MobileViT tests: `src/tools/ipu-apps/test/mobilevit/{test_full_layer_l4,test_full_layer_l4_packed,test_full_layer_l5,test_full_layer_l5_packed,test_seam_qkv_matmul_scores_km_64x48,test_kernel_registry_new_families}.py` and `fixture_full_layer_chain.py` (E07-24 ported `test_seam_proj_qkv_to_scores_km_repack.py` and the attention tests of `test_kernel_registry_new_families.py`, below), which import the apps and their layout constants. E07-24, which moves those tests, deletes the shim with rows here. The new kernels are the tested ones; the shim's programs are the old ones, byte for byte (`compare_legacy`). Interface change, intended: the registry refuses an `attn_v` or `attn_v_bcast` query with a name the kernel does not declare (`head`, which the old router ignored), as E07-12 recorded for the score kernels. The shim's `agg_fold` keeps a rounding bug the new mirror fixes (E07-13: `AGG.SUM` adds a later chunk's fold unrounded); only the two-chunk L3 kernel showed it, and its shim folder is deleted.
 
 ### Tests from `src/tools/ipu-apps/src/ipu_apps/kernels/projections/<kernel>/test.py` (11 files)
 
@@ -500,3 +500,32 @@ The old seams held each attn@V run to a poisoned output region; the new ones hol
 | Test | Now covered by |
 |---|---|
 | `test_case[default]` (`case_tests(__package__)`: the one case in the folder's `cases.py`) | `bazel test //kernels/attention/<kernel>`, `test_case[default-fp32]` (the same seed, and head 1 for `attn_scores_km_256x36`), and `kernels/attention/test_datapath.py::test_each_kernel_equals_its_datapath_mirror[<kernel>-default]`, which holds each bit for bit to its datapath mirror. The old checks: `qk_scores_256x36` against a float32 `Q.T @ K` at rtol 1e-4, atol 1e-3; `attn_scores_km_256x36` (`acc_fold`) and `attn_v_256x36` (`agg_fold`) against the mirror at rtol = atol = 1e-6. |
+
+## E07-24 MobileViT chain tests
+
+| Deleted | Issue | Why | Replaced by | Evidence |
+|---|---|---|---|---|
+| `src/tools/ipu-apps/test/mobilevit/test_seam_proj_qkv_to_scores_km_repack.py` | E07-24 | The QKV projection into the key-major score kernel through the old `attn_scores_km_*` harnesses (files, `fixture_kernel_support.poison`, the harness's own K transpose). | `kernels/mobilevit/test_seam_qkv_to_scores_km.py` (`//kernels/mobilevit:tests`): the same chain on one `Chain`, the new `attn_scores_km_*`, the same seeds, heads and tolerances. Every test is mapped below. | 5 test functions: 5 have a new home. |
+
+### Tests from `src/tools/ipu-apps/test/mobilevit/test_seam_proj_qkv_to_scores_km_repack.py`
+
+| Test | Now covered by |
+|---|---|
+| `test_repack_is_padding_strip_only_no_permutation` | `kernels/mobilevit/test_seam_qkv_to_scores_km.py::test_repack_moves_each_element_only_where_its_indices_say` (the same encoded data, offset by 1 so no element equals the padding's 0) |
+| `test_repack_control_mismatch_is_detected` | `test_seam_qkv_to_scores_km.py::test_a_wrong_repacked_element_moves_the_scores` (seed 0xBAD5EED, head 2, Q[1, 3, :] = 999, max error > 1, as before) |
+| `test_proj_qkv_192_p4_to_scores_km_64x48_agrees_l4` | `test_seam_qkv_to_scores_km.py::test_proj_qkv_192_p4_feeds_attn_scores_km_64x48` (seed 0xF00D4, head 1, rtol 2e-3, atol 2e-2 against the float64 reference from W and the data; the score output poisoned first, as before) |
+| `test_proj_qkv_240_p4_to_scores_km_16x60_agrees_l5` | `test_seam_qkv_to_scores_km.py::test_proj_qkv_240_p4_feeds_attn_scores_km_16x60` (seed 0xF00D5, head 0, one score step per stream, the same tolerance) |
+| `_repack_one_stream_to_km5_file` (the L5 repack, a helper) | `repack` in the same file: one repack for both layers, taking the stream axis along |
+
+The old repack was a padding strip, and the old harness transposed K while staging it; the new score kernels take K key-major (`a`), so the host repack does both (`np.swapaxes` in `_scores`).
+
+### Tests moved out of `src/tools/ipu-apps/test/mobilevit/test_kernel_registry_new_families.py` (E07-24)
+
+The file stays for its matmul, layernorm, residual_add and unfold tests. Its attention tests ran the old harnesses through the old registry:
+
+| Test | Now covered by |
+|---|---|
+| `test_resolved_qk_scores_computes_the_operation` | `kernels/attention/test_routing.py::test_each_layer_routes_to_its_own_kernel_of_its_own_op[qk_scores]` (the query reaches `qk_scores_16x60`) and `//kernels/attention/qk_scores_16x60`'s `default` case (seed 0x5C0, as the old test; against the matmul reference, bit for bit to `acc_fold` in `test_datapath.py`) |
+| `test_resolved_attn_scores_km_computes_the_operation` | `test_routing.py::test_attn_scores_km_takes_a_head_of_four` (head 3 reaches the kernel; 4 is refused) and `//kernels/attention/attn_scores_km_16x60`'s cases (seed 0xD60 and 0xD61; the old test used seed 0x5C1, head 1) |
+| `test_resolved_attn_v_computes_the_operation` | `test_routing.py::test_each_layer_routes_to_its_own_kernel_of_its_own_op[attn_v]` and `//kernels/attention/attn_v_16x60`'s `default` case (seed 0xA60, as the old test), bit for bit to `agg_fold` (the old test's scalar AGG loop) in `test_datapath.py` |
+| `test_resolved_attn_v_bcast_computes_the_operation` | `test_routing.py::test_attn_v_bcast_takes_n_tok_only_as_its_layers` (`d` alone, and the optional `n_tok`) and `//kernels/attention/attn_v_bcast_36`'s `default` case (seed 0xA17, as the old test), bit for bit to `acc_fold` in `test_datapath.py` |

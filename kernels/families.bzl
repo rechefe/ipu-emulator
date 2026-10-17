@@ -25,6 +25,7 @@ KERNELS = {
         "qk_scores_64x48",
     ],
     "elementwise": ["scale"],
+    "mobilevit": [],  # chain tests only (E07-24): seams and full layers across families
     "projections": ["proj_p4", "proj_p4_2tg", "proj_p4_2tg_silu"],
     "reshape": ["concat", "depth_to_space", "identity"],
     "softmax": [

@@ -1,0 +1,11 @@
+# The MobileViT chains (E07-24): seams and full layers that run kernels of
+# several families on one ipu_harness Chain. A family with no kernels of its
+# own: its tests name the kernels by registry name, so :tests gets the whole
+# kernel tree.
+
+load("//kernels:defs.bzl", "ipu_kernel_family")
+
+ipu_kernel_family(
+    tests_size = "large",
+    tests_tree = True,
+)
