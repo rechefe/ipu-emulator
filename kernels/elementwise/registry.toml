@@ -6,17 +6,33 @@
 [[kernel]]
 name = "residual_add_16x240"
 template = "residual_add_rows"
-params = { tokens = 16, channels = 240 }
+params = { tokens = 16, channels = 240, per_row = 1 }
 doc = "Layer 5: 240 channels x 16 tokens, one channel per row"
 
 [[kernel]]
 name = "residual_add_64x192"
 template = "residual_add_rows"
-params = { tokens = 64, channels = 192 }
+params = { tokens = 64, channels = 192, per_row = 1 }
 doc = "Layer 4: 192 channels x 64 tokens, one channel per row"
 
 [[kernel]]
 name = "residual_add_256x144"
 template = "residual_add_rows"
-params = { tokens = 256, channels = 144 }
+params = { tokens = 256, channels = 144, per_row = 1 }
 doc = "Layer 3: 144 channels x 256 tokens, two rows per channel"
+
+# The MobileViT packed residual adds (E07-23): per_row channels side by side
+# in a row, the same program (the old test/mobilevit/asm_packed_residual_add_*
+# binaries were this one, c52075db).
+
+[[kernel]]
+name = "packed_residual_add_192x64"
+template = "residual_add_rows"
+params = { tokens = 64, channels = 192, per_row = 2 }
+doc = "Layer 4, packed: 192 channels x 64 tokens, 2 channels a row (96 rows)"
+
+[[kernel]]
+name = "packed_residual_add_240x16"
+template = "residual_add_rows"
+params = { tokens = 16, channels = 240, per_row = 8 }
+doc = "Layer 5, packed: 240 channels x 16 tokens, 8 channels a row (30 rows)"

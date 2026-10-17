@@ -9,9 +9,9 @@ keeps a short fingerprint per word, used only to name the first word that
 changed.
 
 Render contexts are copied here as literals, not imported, because the tests
-that use them (``test/mobilevit/test_full_layer_l{4,5}_packed.py``) are manual
-whole-model runs. If one of those tests changes the context it renders with,
-change the matching entry in ``RENDER_CONTEXTS`` in the same PR.
+that use them are manual whole-model runs. If one of those tests changes the
+context it renders with, change the matching entry in ``RENDER_CONTEXTS`` in
+the same PR.
 
 Programs rendered per run by a kernel's own ``app.py`` (``conv_universal_wide384``,
 ``depthwise_conv_stride2_*``) are pinned here only in their standalone form,
@@ -33,7 +33,6 @@ from ipu_as.session import AssemblySession
 #: Repo-relative directories whose `.asm` files (recursively) form the corpus.
 CORPUS_ROOTS = (
     "src/tools/ipu-apps/src/ipu_apps/kernels",
-    "src/tools/ipu-apps/test/mobilevit",
     "vscode-ipu-asm/test",
 )
 
@@ -44,27 +43,10 @@ NOT_PROGRAMS = ("vscode-ipu-asm/test/corpus/negative/",)
 
 #: Programs that only assemble when rendered with a Jinja context, and the
 #: contexts today's tests render them with. Each context is one corpus entry;
-#: these programs have no standalone entry (unrendered, ``chunk_widths`` is
-#: undefined).
-#:
-#: The L4 test (``test_full_layer_l4_packed.py``, ``_chunk_widths`` with
-#: LANES=128) runs the ``_p4`` programs with k = N_CH = 192 and, for the
-#: FFN2 projection, k = 4 * N_CH = 768. The L5 test
-#: (``test_full_layer_l5_packed.py``) runs the others with k = N_CH = 240
-#: and k = 4 * N_CH = 960. Only the identity programs see the FFN2 k.
-_MOBILEVIT = "src/tools/ipu-apps/test/mobilevit/"
-RENDER_CONTEXTS: dict[str, tuple[dict, ...]] = {
-    _MOBILEVIT + "asm_packed_output_linear_generic_p4.asm": (
-        {"chunk_widths": [128, 64]},
-        {"chunk_widths": [128, 128, 128, 128, 128, 128]},
-    ),
-    _MOBILEVIT + "asm_packed_output_linear_silu_p4.asm": ({"chunk_widths": [128, 64]},),
-    _MOBILEVIT + "asm_packed_output_linear_generic.asm": (
-        {"chunk_widths": [128, 112]},
-        {"chunk_widths": [128, 128, 128, 128, 128, 128, 128, 64]},
-    ),
-    _MOBILEVIT + "asm_packed_output_linear_silu.asm": ({"chunk_widths": [128, 112]},),
-}
+#: these programs have no standalone entry. None is left: the MobileViT packed
+#: linears that needed one are //kernels/projections templates now (E07-23),
+#: whose entries' assemble_* targets pin their programs.
+RENDER_CONTEXTS: dict[str, tuple[dict, ...]] = {}
 
 #: Programs that also assemble standalone (from their ``ipu:params`` header
 #: defaults), and the other defines their harness tests assemble them with.

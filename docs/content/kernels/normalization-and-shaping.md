@@ -42,6 +42,29 @@ per column, down the channels. One kernel, `l2_normalize_channels`
 channels=C columns=N`. An all-zero column gives 0, not NaN: the `rsqrt`
 activation maps a non-positive sum to 0.
 
+## The MobileViT packed layout
+
+The Layer 4 and Layer 5 transformer blocks also run in a packed layout:
+`128 / tokens` channels share a row, channel `c`'s tokens at row
+`c / (128 / tokens)`, lanes `(c % (128 / tokens)) * tokens` on (2 channels a
+row at Layer 4, 8 at Layer 5). It is row-major over the flattened
+`(channels, tokens)` tensor, so each kernel declares a packed tensor as its
+rows. The kernels use their own `op` names, so no unpacked query reaches them:
+
+| Kernel | Family | Op | What |
+|---|---|---|---|
+| `packed_layernorm_192x64`, `packed_layernorm_240x16` | `kernels/normalize` | `packed_layernorm` | LayerNorm over the channels, `ops.layernorm` (no eps) |
+| `packed_pack_192x64`, `packed_pack_240x16` | `kernels/reshape` | `pack` | one channel a row → packed |
+| `packed_unpack_192x64`, `packed_unpack_240x16` | `kernels/reshape` | `unpack` | packed → one channel a row (the attention seam) |
+| `packed_output_linear{,_silu}_240`, `packed_output_linear{,_silu}_192` | `kernels/projections` | `packed_linear` | one packed output row of `activation(a @ b)` a call; `k` is a parameter |
+| `packed_residual_add_192x64`, `packed_residual_add_240x16` | `kernels/elementwise` | `residual_add` | the `residual_add_rows` program with `per_row` 2 and 8 |
+
+Each needs an R_MASK row (a scratch region whose bytes the family's `gen.py`
+makes from `ipu_kernels.pack.r_mask`) and leaves R_MASK changed: a kernel
+that relies on R_MASK's all-ones reset value, such as the residual add,
+needs it reloaded first when it runs after one of them. Query, for example:
+`bazel run //kernels:query -- packed_layernorm channels=240 tokens=16`.
+
 ## `residual_add`
 
 Plain elementwise `y = a + b`. The three kernels are entries of

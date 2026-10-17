@@ -75,3 +75,34 @@ name = "proj_ffn2_240_p4"
 template = "proj_p4"
 params = { k = 480, n_out = 240, n_tok = 16, n_tg = 1, activation = "none" }
 doc = "Layer 5 FFN2"
+
+# The MobileViT packed linears (E07-23): one packed output row a call, over
+# the packed_output_linear (Layer 5, 8 outputs a call) and
+# packed_output_linear_p4 (Layer 4, 2 outputs a call) templates. Each entry
+# fixes the activation; k is a case (default: QKV / OutProj / FFN1, ffn2:
+# FFN2). They render the old test/mobilevit/asm_packed_output_linear_*.asm
+# binaries.
+
+[[kernel]]
+name = "packed_output_linear_240"
+template = "packed_output_linear"
+params = { activation = "none" }
+doc = "Layer 5, packed: QKV, OutProj and FFN2 (asm_packed_output_linear_generic)"
+
+[[kernel]]
+name = "packed_output_linear_silu_240"
+template = "packed_output_linear"
+params = { activation = "silu" }
+doc = "Layer 5, packed: FFN1, fused SiLU (asm_packed_output_linear_silu)"
+
+[[kernel]]
+name = "packed_output_linear_192"
+template = "packed_output_linear_p4"
+params = { activation = "none" }
+doc = "Layer 4, packed: QKV, OutProj and FFN2 (asm_packed_output_linear_generic_p4)"
+
+[[kernel]]
+name = "packed_output_linear_silu_192"
+template = "packed_output_linear_p4"
+params = { activation = "silu" }
+doc = "Layer 4, packed: FFN1, fused SiLU (asm_packed_output_linear_silu_p4)"

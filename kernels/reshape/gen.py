@@ -1,4 +1,5 @@
-"""The reshape family's case data (E07-05), shared by the fold and unfold kernels.
+"""The reshape family's case data (E07-05), shared by the fold and unfold
+kernels, and the packed seams' R_MASK row (E07-23).
 
 Each kernel's default case keeps the old ``ipu_apps`` data: a ``[c, h, w]``
 tensor from ``RandomState(seed)``, uniform in [-1, 1), in FP32
@@ -6,6 +7,9 @@ tensor from ``RandomState(seed)``, uniform in [-1, 1), in FP32
 """
 
 import numpy as np
+
+from ipu_isa.formats import FORMATS
+from ipu_kernels.pack import r_mask
 
 #: Each kernel's old seed.
 SEEDS = {
@@ -34,3 +38,8 @@ def phases(plan, rng):
     x = _spatial(plan)
     c = x.shape[0]
     return {"x": np.stack([x[:, i::2, j::2].reshape(c, -1) for i in range(2) for j in range(2)])}
+
+
+def window_mask(plan):
+    """packed_pack's and packed_unpack's R_MASK row: each channel's window in its slot."""
+    return r_mask.window_mask(plan.params["tokens"], FORMATS[plan.format].row_bytes)

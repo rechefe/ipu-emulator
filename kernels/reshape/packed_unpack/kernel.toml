@@ -1,0 +1,44 @@
+# packed_unpack: the packed layout -> one channel per row, the MobileViT packed
+# layout's seam with the unpacked kernels (E07-23). 128 / tokens channels share
+# a packed row: channel c at row c / pack, lanes (c % pack) * tokens on. A
+# template: ../registry.toml fixes its shape for packed_unpack_{192x64,240x16}.
+[kernel]
+op = "unpack"
+formats = ["fp32"]
+
+[params]
+channels = { type = "int", min = 1 }                 # a multiple of 128 / tokens
+tokens   = { type = "int", choices = [16, 64] }      # 8 and 2 channels a row: the MobileViT layers
+
+[derived]
+packed_rows = "channels * tokens / 128"
+row_stride  = "1"
+dstruct_tok = "dstructure(tokens)"
+dstruct_row = "dstructure(128)"
+
+[inputs.x]                                 # the packed rows
+shape = ["packed_rows", 128]
+
+[outputs.y]                               # one channel per row; ST.AAQ stores tokens lanes
+shape = ["channels", "tokens"]
+
+[scratch.mask]                             # R_MASK: each channel's window in its slot
+shape = [1, 128]
+bytes = "../gen.py:window_mask"
+
+[abi]
+x           = "CR2"
+packed_rows = "CR3"
+row_stride  = "CR4"
+y           = "CR5"
+mask        = "CR6"
+dstruct_tok = "CR7"
+dstruct_row = "CR8"
+
+[golden]
+reference = "reference.py:reference"       # a layout change only
+tolerance = { fp32 = "EXACT" }
+
+[cases.default]
+channels = 240
+tokens = 16

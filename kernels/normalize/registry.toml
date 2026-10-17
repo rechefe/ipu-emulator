@@ -26,3 +26,18 @@ name = "layernorm_16x240"
 template = "layernorm"
 params = { channels = 240, tokens = 16 }
 doc = "Layer 5: 240 channels, 16 tokens"
+
+# The MobileViT packed LayerNorms over the packed_layernorm template (E07-23):
+# each renders the old test/mobilevit/asm_packed_layernorm_<shape>.asm binary.
+
+[[kernel]]
+name = "packed_layernorm_192x64"
+template = "packed_layernorm"
+params = { channels = 192, tokens = 64 }
+doc = "Layer 4, packed: 192 channels x 64 tokens, 2 channels a row"
+
+[[kernel]]
+name = "packed_layernorm_240x16"
+template = "packed_layernorm"
+params = { channels = 240, tokens = 16 }
+doc = "Layer 5, packed: 240 channels x 16 tokens, 8 channels a row"

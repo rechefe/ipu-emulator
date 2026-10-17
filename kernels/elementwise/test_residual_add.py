@@ -30,6 +30,23 @@ def registry():
     return loaded
 
 
+#: The packed entries' (tokens, channels, per_row) (E07-23).
+PACKED = {
+    "packed_residual_add_192x64": (64, 192, 2),
+    "packed_residual_add_240x16": (16, 240, 8),
+}
+
+
+@pytest.mark.parametrize("name", sorted(PACKED))
+def test_each_packed_entry_is_routed_by_its_shape_and_packing(registry, name):
+    tokens, channels, per_row = PACKED[name]
+    verdict = registry.resolve("residual_add", tokens=tokens, channels=channels, per_row=per_row)
+    assert verdict.kernel_name == name, verdict.reason
+    assert registry.kernel(name).directory.name == "residual_add_rows"
+    # one channel a row is the unpacked entry, not this one
+    assert registry.resolve("residual_add", tokens=tokens, channels=channels).kernel_name != name
+
+
 @pytest.mark.parametrize("name", sorted(ENTRIES))
 def test_each_entry_is_routed_by_its_exact_shape(registry, name):
     tokens, channels = ENTRIES[name]

@@ -13,4 +13,8 @@ ENTRIES = [
     {"name": "proj_outproj_240_p4", "template": "proj_p4"},
     {"name": "proj_ffn1_240_p4", "template": "proj_p4"},
     {"name": "proj_ffn2_240_p4", "template": "proj_p4"},
+    {"name": "packed_output_linear_240", "template": "packed_output_linear"},
+    {"name": "packed_output_linear_silu_240", "template": "packed_output_linear"},
+    {"name": "packed_output_linear_192", "template": "packed_output_linear_p4"},
+    {"name": "packed_output_linear_silu_192", "template": "packed_output_linear_p4"},
 ]

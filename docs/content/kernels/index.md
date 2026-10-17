@@ -61,7 +61,9 @@ the current lists.
 | `matmul` | 16 — see [Linear layers](linear-layers.md) |
 | `projection` | 12 — see [Linear layers](linear-layers.md) |
 | `layernorm` | 4 — see [Normalization and shaping](normalization-and-shaping.md) |
-| `residual_add` | 4 — three MobileViT shapes ([Normalization and shaping](normalization-and-shaping.md)) plus CHW `residual_add` ([Convolutions](convolutions.md)) |
+| `residual_add` | 6 — three MobileViT shapes and two packed ones ([Normalization and shaping](normalization-and-shaping.md)) plus CHW `residual_add` ([Convolutions](convolutions.md)) |
+| `packed_layernorm`, `pack`, `unpack` | 2 each — the MobileViT packed layout ([Normalization and shaping](normalization-and-shaping.md#the-mobilevit-packed-layout)) |
+| `packed_linear` | 4 — the MobileViT packed layout ([Normalization and shaping](normalization-and-shaping.md#the-mobilevit-packed-layout)) |
 | `unfold`, `fold`, `concat` | 3 each — see [Normalization and shaping](normalization-and-shaping.md) |
 | `qk_scores`, `attn_scores_km`, `attn_v`, `attn_v_bcast` | 3 each — see [Attention](attention.md) |
 | `maxpool2d` | 5 in `kernels/pooling/` (`maxpool2d_window`, `_nms7`, `_nms9`, `_stride2`, `_stride2_tail`; `bazel run //kernels:query`) |

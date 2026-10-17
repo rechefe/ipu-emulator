@@ -1,0 +1,55 @@
+# packed_output_linear_p4: one packed output row of a projection, y = activation(a @ b),
+# in the MobileViT packed layout at tokens = 64 (Layer 4): 2 output channels a
+# call, side by side in one row (E07-23). A template: ../registry.toml fixes
+# its activation for the packed_output_linear{,_silu}_192 entries; k is a case parameter
+# (the QKV / OutProj / FFN1 width and FFN2's 4x).
+[kernel]
+op = "packed_linear"                       # not "projection": its tensors are in the packed layout
+formats = ["fp32"]
+
+[params]
+k          = { type = "int", min = 2, multiple_of = 2 }    # the contraction length
+activation = { type = "str", choices = ["none", "silu"], default = "none" }  # fused at the store
+
+[derived]
+tokens      = "64"
+n_out       = "2"                          # 128 / tokens: one packed row
+dstruct_mult = "dstructure(128, 2)"         # partition P2: one window per output channel
+dstruct_row  = "dstructure(128)"
+# R_CYCLIC index seeds, one per output channel p: (512 - tokens * (p + 1)) % 512
+seed0 = "448"
+seed1 = "384"
+
+[inputs.a]                                  # the call's output-major weights
+shape = ["n_out", "k"]
+pack = "weight_chunks"                      # ../pack.py
+
+[inputs.b]                                  # the (k, tokens) data as its packed rows
+shape = ["k * tokens / 128", 128]
+
+[outputs.y]                                 # (n_out, tokens) as one packed row
+shape = [1, 128]
+
+[scratch.mask]                              # R_MASK: each output channel's window in its slot
+shape = [1, 128]
+bytes = "../gen.py:window_mask"
+
+[abi]
+b            = "CR2"
+a            = "CR3"
+y            = "CR4"
+mask         = "CR5"
+dstruct_mult = "CR6"
+dstruct_row  = "CR7"
+seed0        = "CR8"
+seed1        = "CR9"
+
+[golden]
+reference = "reference.py:reference"        # ops.linear on the packed rows
+tolerance = { fp32 = { tier = "FP32_LONG", atol = 5e-5, why = "measured max|err| 2.9e-5 at k = 960 (ffn2), near-zero outputs of a long FP32 sum" } }
+
+[cases.default]                             # QKV, OutProj and FFN1's width
+k = 192
+
+[cases.ffn2]                                # FFN2: k = 4 * 192
+k = 768

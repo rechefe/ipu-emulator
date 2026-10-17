@@ -1,0 +1,85 @@
+# packed_layernorm: LayerNorm over the channels, per token, in the MobileViT
+# packed layout (E07-23): 128 / tokens channels share a row. A template:
+# ../registry.toml fixes its shape for packed_layernorm_{192x64,240x16}.
+[kernel]
+op = "packed_layernorm"                   # not "layernorm": its tensors are in the packed layout
+formats = ["fp32"]
+
+[params]
+channels = { type = "int", min = 1 }                 # a multiple of 128 / tokens
+tokens   = { type = "int", choices = [16, 64] }      # 8 and 2 channels a row: the MobileViT layers
+
+[derived]
+pack        = "128 / tokens"
+packed_rows = "channels * tokens / 128"
+row_stride  = "1"
+dstruct_tok = "dstructure(tokens)"        # stores of one channel's window
+dstruct_row = "dstructure(128)"
+
+# The packed layout is row-major over the flattened (channels, tokens) tensor:
+# channel c's tokens at row c / pack, lanes (c % pack) * tokens on. A packed
+# tensor is declared as its rows, as every packed kernel declares it, so one
+# kernel's output is the next one's input as it stands.
+[inputs.x]
+shape = ["packed_rows", 128]
+
+[inputs.gamma]
+shape = ["channels"]
+pack = "channel_tile"                     # each value across its channel's window (../pack.py)
+
+[inputs.beta]
+shape = ["channels"]
+pack = "channel_tile"
+
+[outputs.y]
+shape = ["packed_rows", 128]
+
+# -1/channels and 1/channels in every lane: the program reads each as a
+# constant before it overwrites the row with the broadcast -mean and 1/sigma.
+[scratch.neg_mean_tile]
+shape = [1, 128]
+fill = "-1 / channels"
+
+[scratch.invstd_tile]
+shape = [1, 128]
+fill = "1 / channels"
+
+[scratch.scratch_tok]                     # -mean, the sum of squares, 1/sigma in turn
+shape = [1, 128]
+
+[scratch.centered]
+shape = ["packed_rows", 128]
+
+[scratch.mask]                            # R_MASK: each channel's window in its slot
+shape = [1, 128]
+bytes = "../gen.py:window_mask"
+
+[scratch.allones]                         # R_MASK: every bit set
+shape = [1, 128]
+bytes = "../gen.py:all_ones_mask"
+
+[abi]
+x             = "CR2"
+packed_rows   = "CR3"
+row_stride    = "CR4"
+scratch_tok   = "CR5"
+neg_mean_tile = "CR6"
+centered      = "CR7"
+invstd_tile   = "CR8"
+gamma         = "CR9"
+beta          = "CR10"
+y             = "CR11"
+mask          = "CR12"
+dstruct_tok   = "CR13"
+dstruct_row   = "CR14"
+allones       = "CR15"
+
+[golden]
+reference = "reference.py:reference"      # ops.layernorm (no eps, Q57) on the packed rows
+tolerance = { fp32 = "FP32_ORDER" }
+
+# test_packed_layernorm_{192x64,240x16}.py's data (../gen.py).
+[cases.default]
+channels = 240
+tokens = 16
+generator = "../gen.py:legacy_packed"

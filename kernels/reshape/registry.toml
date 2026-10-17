@@ -20,3 +20,31 @@ name = "concat_32x32x96x96"
 template = "concat"
 params = { h = 32, w = 32, c_a = 96, c_b = 96 }
 doc = "Layer 3: 96 + 96 -> 192 channels"
+
+# The MobileViT packed layout's seams (E07-23): packed_pack and packed_unpack,
+# one entry per layer shape, each rendering the old
+# test/mobilevit/asm_packed_{pack,unpack}_<shape>.asm binary.
+
+[[kernel]]
+name = "packed_pack_192x64"
+template = "packed_pack"
+params = { channels = 192, tokens = 64 }
+doc = "Layer 4: 192 channel rows -> 96 packed rows (2 channels a row)"
+
+[[kernel]]
+name = "packed_pack_240x16"
+template = "packed_pack"
+params = { channels = 240, tokens = 16 }
+doc = "Layer 5: 240 channel rows -> 30 packed rows (8 channels a row)"
+
+[[kernel]]
+name = "packed_unpack_192x64"
+template = "packed_unpack"
+params = { channels = 192, tokens = 64 }
+doc = "Layer 4: 96 packed rows -> 192 channel rows"
+
+[[kernel]]
+name = "packed_unpack_240x16"
+template = "packed_unpack"
+params = { channels = 240, tokens = 16 }
+doc = "Layer 5: 30 packed rows -> 240 channel rows"
