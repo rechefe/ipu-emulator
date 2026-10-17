@@ -11,8 +11,11 @@ the same checks (``program_checks``) run on the rendered text and its words.
 
 from __future__ import annotations
 
+import warnings
+
 import pytest
 from program_checks import (
+    assembles_for_hardware,
     check_disassembly_round_trip,
     check_hardware_target,
     check_slot_codec,
@@ -41,10 +44,25 @@ def test_the_tree_has_kernels():
     assert len(_KERNELS) > 40 and len(PROGRAMS) > len(_KERNELS)
 
 
+def test_no_kernel_has_programs_this_test_does_not_see():
+    """A multi-stage kernel (``[kernel] stages``) runs more programs than its
+    default one, which default_programs does not render: the first to land
+    must extend this test to its stage programs."""
+    assert not [m.name for m in _KERNELS if m.stages is not None]
+
+
+def test_some_kernel_programs_are_hardware_programs():
+    hardware = sum(assembles_for_hardware(p.values[0].rendered) for p in PROGRAMS)
+    assert hardware > 10
+
+
 @pytest.mark.parametrize("program", PROGRAMS)
 def test_the_rendered_text_is_the_program(program):
     """The checks below assemble the rendered text: it is the program's words."""
-    assert tuple(AssemblySession(program.rendered).assemble().words) == tuple(program.words)
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message=".*-only .* slot")
+        words = AssemblySession(program.rendered).assemble().words
+    assert tuple(words) == tuple(program.words)
 
 
 @pytest.mark.parametrize("target", ["emulator", "hardware"])
