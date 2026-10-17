@@ -158,6 +158,16 @@ def _variant(key: str) -> str:
     return key.removeprefix("mangled/")
 
 
+#: Where record-format.js finds the kernels (its DEFAULT_DIRS).
+KERNEL_DIRS = ("src/tools/ipu-apps/src/ipu_apps/kernels", "src/tools/ipu-apps/test/mobilevit")
+
+
+def test_every_kernel_is_recorded():
+    # A kernel added, renamed or deleted since the recording: record again.
+    found = {p.relative_to(ROOT).as_posix() for d in KERNEL_DIRS for p in (ROOT / d).rglob("*.asm")}
+    assert found == set(KERNELS), "re-record with `node vscode-ipu-asm/test/record-format.js`"
+
+
 @pytest.mark.parametrize("name", sorted(CORPUS) + sorted(KERNELS))
 def test_the_stripped_copy_is_the_editors(name):
     raw = _raw(name)
