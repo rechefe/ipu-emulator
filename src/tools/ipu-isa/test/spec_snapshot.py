@@ -21,9 +21,8 @@ def _operands(operands) -> list[dict]:
     ]
 
 
-def records(view: Isa, slots=None) -> dict:
-    """Every instruction (slots in ``slots``, default spec order) and pseudo-instruction."""
-    order = view.spec_slot_order if slots is None else slots
+def records(view: Isa) -> dict:
+    """Every instruction, slots in spec order, and every pseudo-instruction."""
     return {
         "instructions": [
             {
@@ -34,7 +33,7 @@ def records(view: Isa, slots=None) -> dict:
                 "tag": i.tag.value,
                 "execute_fn": i.execute_fn,
             }
-            for slot in order
+            for slot in view.spec_slot_order
             for i in view.instructions(slot)
         ],
         "pseudo_instructions": [

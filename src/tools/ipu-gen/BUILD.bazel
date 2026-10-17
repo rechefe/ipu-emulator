@@ -89,6 +89,7 @@ py_pytest_test(
     imports = ["src"],
     deps = [
         ":ipu_gen_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
         "//src/tools/ipu-isa:one_edit",
         requirement("pytest"),
     ],
