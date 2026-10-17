@@ -1,0 +1,15 @@
+{
+ "description": "timing probe break_ifeq in INT8",
+ "format": "int8",
+ "emulator_only": true,
+ "max_cycles": 1000,
+ "fault_enables": {},
+ "registers": [
+  {
+   "name": "cr",
+   "index": 2,
+   "value": 5
+  }
+ ],
+ "xmem": []
+}

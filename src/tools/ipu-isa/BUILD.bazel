@@ -18,6 +18,13 @@ runtime_deps_manifest(
     runtime_deps = RUNTIME_DEPS,
 )
 
+# The conformance suite (E04-31): programs, setups and expected traces, as data
+# any model runs. Written by //src/tools/ipu-emu-py:regen_conformance.
+filegroup(
+    name = "conformance",
+    srcs = glob(["conformance/**"]),
+)
+
 # The package's Python sources, for //tools:test_import_graph.
 filegroup(
     name = "py_sources",

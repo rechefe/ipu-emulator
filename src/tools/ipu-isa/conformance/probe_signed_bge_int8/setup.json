@@ -1,0 +1,25 @@
+{
+ "description": "timing probe signed_bge in INT8",
+ "format": "int8",
+ "emulator_only": false,
+ "max_cycles": 1000,
+ "fault_enables": {},
+ "registers": [
+  {
+   "name": "cr",
+   "index": 2,
+   "value": 4294967295
+  },
+  {
+   "name": "cr",
+   "index": 3,
+   "value": 1
+  },
+  {
+   "name": "cr",
+   "index": 4,
+   "value": 2
+  }
+ ],
+ "xmem": []
+}

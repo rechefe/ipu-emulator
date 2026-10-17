@@ -82,3 +82,16 @@ have.
 - The contract test, `src/tools/ipu-emu-py/test/test_reference_api_contract.py`,
   pins every public name, signature and record field under its version; a
   strict mypy test (`//src/tools/ipu-emu-py:mypy_reference`) types the module.
+
+## Conformance suite
+
+`src/tools/ipu-isa/conformance/` holds the ISA's expected behaviour as data:
+for each case a program (`program.asm`, `program.bin`), its starting state
+(`setup.json`, schema `setup.schema.json`) and the trace of its run
+(`expected.trace.jsonl`). An RTL testbench runs each case as the lockstep test
+above does: reset in the case's format, load `program.bin`, write the
+registers and XMEM regions of `setup.json`, set its fault enables, step until
+`HALT`, a fault or `max_cycles`, and compare each commit record with the
+expected one. It skips the cases marked `emulator_only`. The suite's
+`README.md` has the steps; `bazel test //src/tools/ipu-emu-py:test_conformance`
+runs every case through this API.

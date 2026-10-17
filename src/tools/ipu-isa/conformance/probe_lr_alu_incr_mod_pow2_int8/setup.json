@@ -1,0 +1,20 @@
+{
+ "description": "timing probe lr_alu_incr_mod_pow2 in INT8",
+ "format": "int8",
+ "emulator_only": false,
+ "max_cycles": 1000,
+ "fault_enables": {},
+ "registers": [
+  {
+   "name": "cr",
+   "index": 2,
+   "value": 5
+  },
+  {
+   "name": "cr",
+   "index": 3,
+   "value": 100
+  }
+ ],
+ "xmem": []
+}

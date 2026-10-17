@@ -1,0 +1,9 @@
+{
+ "description": "timing probe lr_conflict_lrd_overlap in INT8",
+ "format": "int8",
+ "emulator_only": false,
+ "max_cycles": 1000,
+ "fault_enables": {},
+ "registers": [],
+ "xmem": []
+}
