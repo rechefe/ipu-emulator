@@ -268,7 +268,7 @@ the [command-line reference](../reference/cli.md#kernel-runner-run_kernel), and
 listed is compared at `EXACT`. The key is the format an output is compared
 in: the format of the run for an element output, its accumulator format for an
 accumulator output. So `scale` names `fp32` and `int32`, and a key no output is
-compared in (`e4` here) is an error that says so:
+compared in (`e4` here) is an error that says so. The tiers:
 
 | Tier | For |
 |---|---|

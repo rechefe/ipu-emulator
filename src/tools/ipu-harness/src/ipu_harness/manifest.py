@@ -34,7 +34,7 @@ Schema
     or an expression like a shape's. ``after`` (``"<tensor>"``): place the region
     right after that tensor's in placement order (by default inputs, then
     outputs, then scratch, each in file order), so scratch can come before an
-    output; not with ``row``. ``when = "<bool param>"`` (or ``"not <bool
+    output; not with ``row``. ``when`` (``"<bool param>"`` or ``"not <bool
     param>"``): the tensor exists only in a case where that holds; otherwise it
     is not placed, generated, passed to the reference or bound.
     ``pack`` (inputs and outputs): a named pack transform (E06-05); an output's
@@ -86,8 +86,8 @@ Schema
     ``reference`` (``"file.py:fn"``; default ``reference.py:reference`` when the
     kernel has a ``reference.py``) or ``op`` (a shared reference in
     ``ipu_kernels.reference``), not both; ``tolerance`` (format to a tier name
-    of :data:`ipu_harness.tolerance.TIERS`, or ``{ tier = ..., rtol = ..., atol =
-    ..., ulps = ..., why = "..." }`` overriding a tier's numbers, ``why`` required;
+    of :data:`ipu_harness.tolerance.TIERS`, or a table overriding a tier's
+    numbers: ``tier`` and ``why`` (required), ``rtol``, ``atol``, ``ulps``;
     a key is a format some output is compared in: a format the kernel runs in
     for an element output, its accumulator format (FP32, INT32) for an
     accumulator output, so a key no output reads is an error; an override may set only what
