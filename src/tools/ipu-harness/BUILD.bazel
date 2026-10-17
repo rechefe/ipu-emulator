@@ -70,6 +70,16 @@ py_pytest_test(
     ],
 )
 
+# Pack transforms on inputs and outputs, and a region's starting bytes (E06-05).
+py_pytest_test(
+    name = "test_packing",
+    srcs = ["test/test_packing.py"],
+    deps = [
+        ":ipu_harness_lib",
+        requirement("pytest"),
+    ],
+)
+
 # Cases, sweeps, seeded generators and user data (E06-08).
 py_pytest_test(
     name = "test_cases",

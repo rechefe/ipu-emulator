@@ -31,7 +31,8 @@ Schema
     ``shape`` (non-empty list, required): positive ints, or expressions over
     parameter and derived names in E06-03's grammar (``"rows * 4"``,
     ``"ceil(k / 128)"``). ``row``: pin the region's first XMEM row (Q81).
-    ``pack`` (inputs): a named pack transform (E06-05). ``store`` (outputs):
+    ``pack`` (inputs and outputs): a named pack transform (E06-05); an output's
+    lays out the stored rows that :func:`ipu_harness.packing.unpack` reads back. ``store`` (outputs):
     ``element`` (default) or ``accumulator``. ``fill`` (scratch): the value the
     region is filled with, default 0. Scratch regions are placed and filled,
     never compared. ``range`` (inputs): ``[lo, hi]`` for the generated values in
@@ -150,7 +151,7 @@ _KERNEL_KEYS = ("op", "formats", "asm", "stages", "cost")
 _PARAM_KEYS = ("type", "min", "max", "multiple_of", "choices", "default", "unit")
 _TENSOR_KEYS: Mapping[Role, tuple[str, ...]] = {
     "input": ("shape", "row", "pack", "range"),
-    "output": ("shape", "row", "store"),
+    "output": ("shape", "row", "pack", "store"),
     "scratch": ("shape", "row", "fill"),
 }
 _CASE_KEYS = ("formats", "inputs", "expected", "generator", "tier")
@@ -194,7 +195,7 @@ class TensorDecl:
         role: ``input``, ``output`` or ``scratch``.
         shape: Ints, or expressions over parameter and derived names (E06-03).
         row: The first XMEM row, if pinned (Q81).
-        pack: The named pack transform of an input (E06-05).
+        pack: The named pack transform of an input or output (E06-05).
         store: How an output is stored: ``element`` or ``accumulator``.
         fill: The value a scratch region is filled with.
         value_range: ``[lo, hi]`` per format for an input's generated values
