@@ -5,7 +5,9 @@ Templates render with StrictUndefined: a value a template needs is a declared
 `is defined` and `is undefined` would bring back the silent fallback.
 
 The check is textual, so a comment that says "is defined" in prose fails it
-too; reword the comment.
+too; reword the comment. It reads every program source in the repo: the kernel
+tree (``kernels/``), the ``ipu_apps`` kernels and MobileViT programs until
+E07-25 retires them, and the editor's corpus.
 """
 
 from __future__ import annotations
@@ -13,10 +15,19 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import asm_corpus
 import pytest
 
 ROOT = Path.cwd()
+
+#: Repo-relative directories whose program sources (recursively) are linted.
+#: Under Bazel only the files in the test's data are there: the editor's
+#: negative corpus (texts that do not assemble) is left out.
+SOURCE_ROOTS = (
+    "kernels",
+    "src/tools/ipu-apps/src/ipu_apps/kernels",
+    "src/tools/ipu-apps/test/mobilevit",
+    "vscode-ipu-asm/test",
+)
 
 #: A Jinja construct that only makes sense when a name may be undefined.
 _FALLBACK = re.compile(r"\|\s*(?:default|d)\b|\bis\s+(?:not\s+)?(?:un)?defined\b")
@@ -30,7 +41,7 @@ def fallbacks(text: str) -> list[int]:
 def _sources() -> list[Path]:
     return sorted(
         path
-        for root in asm_corpus.CORPUS_ROOTS
+        for root in SOURCE_ROOTS
         for pattern in ("*.asm", "*.asm.j2")
         for path in (ROOT / root).rglob(pattern)
     )

@@ -505,3 +505,15 @@ py_pytest_test(
         requirement("pytest"),
     ],
 )
+
+# No `| default` or definedness test in an assembly source (E05-11), over the
+# kernel tree, the ipu_apps programs (until E07-25) and the editor's corpus.
+py_pytest_test(
+    name = "test_template_lint",
+    srcs = ["test/test_template_lint.py"],
+    data = [
+        "//kernels:tree",
+        "//src/tools/ipu-apps:asm_corpus_files",
+    ],
+    deps = [requirement("pytest")],
+)
