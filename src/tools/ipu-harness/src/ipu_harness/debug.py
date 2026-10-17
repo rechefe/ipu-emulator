@@ -9,7 +9,7 @@ hook.
 The reference-model calls these options need are reached through
 :func:`debug_run` and :func:`attach_alias_profile` only: the tool escape hatch
 of the reference-model API (``ReferenceModel.debug_run``) and its profiler
-attachment, API 1.2.0.
+attachment, API 1.3.0.
 """
 
 from __future__ import annotations
@@ -92,51 +92,31 @@ class DebugOutcome:
     quit: bool
 
 
-#: The API version that has the calls below.
-_API = "the reference-model API 1.2.0"
-
-
 def debug_run(
     model: ReferenceModel, hook: DebugHook, *, break_on_entry: bool, max_cycles: int | None
 ) -> DebugOutcome:
     """Run ``model`` to ``HALT``, a fault or a quit, stopping in ``hook``.
 
-    Raises:
-        ConfigurationError: The model has no ``debug_run`` (before API 1.2.0).
+    A quit (the callback returned ``QUIT``, or Ctrl-C) is the model's
+    ``RunResult.quit``; the run then has no result.
     """
-    run = getattr(model, "debug_run", None)
-    if run is None:
-        raise ConfigurationError(f"--debug needs ReferenceModel.debug_run ({_API})")
-    try:
-        result: RunResult = run(
-            hook.callback,
-            control=hook.control,
-            break_on_entry=break_on_entry,
-            max_cycles=max_cycles,
-        )
-    except KeyboardInterrupt:
-        return DebugOutcome(None, quit=True)
-    quit_requested = bool(getattr(result, "quit", False)) or result.status.state.value == "quit"
-    return DebugOutcome(None if quit_requested else result, quit=quit_requested)
+    result = model.debug_run(
+        hook.callback,
+        break_on_entry,
+        max_cycles=max_cycles,
+        control=hook.control,
+    )
+    return DebugOutcome(None if result.quit else result, quit=result.quit)
 
 
 def new_alias_profile(**metadata: str) -> AliasProfile:
     """An empty ``AliasProfile`` for one run, its ``metadata`` naming the run."""
-    from ipu_emu.alias_profile import AliasProfile  # the profile the 1.2.0 API attaches
+    from ipu_emu.alias_profile import AliasProfile
 
     return AliasProfile(metadata=dict(metadata))
 
 
 def attach_alias_profile(model: ReferenceModel, profile: AliasProfile) -> None:
-    """Attach ``profile`` to ``model`` before its run.
-
-    Raises:
-        ConfigurationError: The model has no ``attach_alias_profile`` (before
-            API 1.2.0).
-    """
-    attach = getattr(model, "attach_alias_profile", None)
-    if attach is None:
-        raise ConfigurationError(
-            f"--profile-aliases needs ReferenceModel.attach_alias_profile ({_API})"
-        )
-    attach(profile)
+    """Attach ``profile`` to ``model`` (halted) before its run: it records every
+    word the model then steps or runs."""
+    model.attach_alias_profile(profile)
