@@ -8,7 +8,7 @@ except that a tensor with ``after = "<t>"`` comes right after ``t``. The same
 plan always gives the same bases, so a migrated kernel reproduces its old
 layout (E07 proves it against the E02 digests). Bases reach the program only
 through ``[abi]`` (E06-06); no kernel computes one. Placement only reserves
-rows: the runner writes a scratch region's ``fill`` (E06-11).
+rows: the runner writes a scratch region's ``fill`` or ``bytes`` (E06-11).
 
 Rows, not bytes (Q50): an element tensor needs the same rows in every format,
 because a row is 128 elements wide whatever their size; only the capacity in

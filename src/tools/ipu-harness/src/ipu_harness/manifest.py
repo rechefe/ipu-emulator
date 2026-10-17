@@ -42,9 +42,9 @@ Schema
     ``element`` (default) or ``accumulator``. ``fill`` (scratch): the value the
     region is filled with, default 0. ``bytes`` (scratch, not with ``fill``):
     ``"file.py:fn"``, ``fn(plan)`` returns the region's exact starting bytes,
-    format-blind (a lane mask, which no element value can carry); refused while
-    the runner does not write it (:func:`ipu_harness.packing.region_fill`). Scratch regions are placed and filled,
-    never compared. ``range`` (inputs): ``[lo, hi]`` for the generated values in
+    format-blind (a lane mask, which no element value can carry). The runner
+    writes either through :func:`ipu_harness.packing.region_fill`. Scratch
+    regions are placed and filled, never compared. ``range`` (inputs): ``[lo, hi]`` for the generated values in
     every format, or ``{ int8 = [lo, hi], e4 = [lo, hi] }`` per format (E06-08).
 
 ``[abi]``
@@ -1008,30 +1008,11 @@ def _tensors(
     return tensors
 
 
-def _runner_writes_region_bytes() -> bool:
-    """Whether the runner fills scratch regions through ``packing.region_fill``.
-
-    Until it does (one line in ``runner.run_kernel``), a ``bytes`` region would
-    silently start as zeros, so the loader refuses it. Delete this check with
-    the runner's own ``_scratch_fill``.
-    """
-    from ipu_harness import runner  # runner imports this module: a call-time import
-
-    return not hasattr(runner, "_scratch_fill")
-
-
 def _content(r: Reader, directory: Path, table: Mapping[str, Any], path: tuple[str, ...]) -> str:
     """A scratch region's ``bytes = "file.py:fn"``."""
     if "fill" in table:
         raise r.fail((*path, "bytes"), f"{where(path)} takes 'fill' or 'bytes', not both")
-    content = r.function(directory, table["bytes"], (*path, "bytes"))
-    if not _runner_writes_region_bytes():
-        raise r.fail(
-            (*path, "bytes"),
-            f"{where(path)} bytes: the runner does not write a region's bytes yet "
-            "(it still fills scratch with 'fill' only)",
-        )
-    return content
+    return r.function(directory, table["bytes"], (*path, "bytes"))
 
 
 def _check_after(r: Reader, tensor: TensorDecl, tensors: Mapping[str, TensorDecl]) -> None:
