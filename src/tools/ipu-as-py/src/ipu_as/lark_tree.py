@@ -6,6 +6,8 @@ never print or exit: a bad source raises an `AssemblerError` subclass. Only
 `ipu_as.cli` turns errors into text and exit codes.
 """
 
+from collections.abc import Callable
+
 from ipu_as import encode, session
 from ipu_as.session import instruction_aligned_bytes_len
 from ipu_as.syntax import ASTBuilder, get_parser, parse_tree
@@ -68,28 +70,22 @@ def assemble_to_bin_file(text: str, output_path: str) -> None:
         f.write(result.to_bin())
 
 
-#: How ``disassemble`` writes a program: every field of every slot, by word
-#: index (``fields``), or source the assembler reads back (``assembly``).
-SYNTAXES = ("fields", "assembly")
+#: A program's words (and which word they are) -> its text lines.
+Renderer = Callable[[list[int], str], list[str]]
 
 
-def disassemble(program: list[int], target: str = "emulator", syntax: str = "fields") -> list[str]:
-    """The program as text lines; `target` says which word they are.
-
-    Args:
-        program: The words.
-        target: `"emulator"` or `"hardware"`.
-        syntax: `"fields"`: one `<index>:\t\t<text>` line per word with every
-            field of every slot; `"assembly"`: source that assembles back to
-            `program` (``ipu_isa.codec.disasm.program_text``).
-    """
-    if syntax == "assembly":
-        return program_text(program, target=target).split("\n")
-    if syntax != "fields":
-        raise ValueError(f"syntax must be one of {SYNTAXES}, not {syntax!r}")
+def disassemble(program: list[int], target: str = "emulator") -> list[str]:
+    """One `<index>:\t\t<text>` line per word, with every field of every slot;
+    `target` says which word they are."""
     return [
         f"{i:04x}:\t\t{encode.disassemble_word(word, target)}" for i, word in enumerate(program)
     ]
+
+
+def disassemble_to_source(program: list[int], target: str = "emulator") -> list[str]:
+    """The program as source that assembles back to `program`, one line per word
+    (``ipu_isa.codec.disasm.program_text``)."""
+    return program_text(program, target=target).splitlines()
 
 
 def _write_lines(output_path: str, lines: list[str]) -> None:
@@ -99,7 +95,7 @@ def _write_lines(output_path: str, lines: list[str]) -> None:
 
 
 def disassemble_from_mem_file(
-    input_path: str, output_path: str, target: str = "emulator", syntax: str = "fields"
+    input_path: str, output_path: str, target: str = "emulator", render: Renderer = disassemble
 ) -> None:
     """Disassemble a `.mem` file into one text line per word (`disassemble`).
 
@@ -107,11 +103,11 @@ def disassemble_from_mem_file(
         input_path: The `.mem` file: one hex word per line.
         output_path: The text file to write.
         target: Which word the file holds, `"emulator"` or `"hardware"`.
-        syntax: How to write it (``SYNTAXES``).
+        render: How to write it: `disassemble` or `disassemble_to_source`.
     """
     with open(input_path) as f:
         program = [int(line.strip(), 0) for line in f.readlines()]
-    _write_lines(output_path, disassemble(program, target, syntax))
+    _write_lines(output_path, render(program, target))
 
 
 def _bin_words(data: bytes, target: str) -> list[int]:
@@ -126,7 +122,7 @@ def _bin_words(data: bytes, target: str) -> list[int]:
 
 
 def disassemble_from_bin_file(
-    input_path: str, output_path: str, target: str = "emulator", syntax: str = "fields"
+    input_path: str, output_path: str, target: str = "emulator", render: Renderer = disassemble
 ) -> None:
     """Disassemble a `.bin` file into one text line per word (`disassemble`).
 
@@ -134,8 +130,8 @@ def disassemble_from_bin_file(
         input_path: The `.bin` file of little-endian `target` words.
         output_path: The text file to write.
         target: Which word the file holds, `"emulator"` or `"hardware"`.
-        syntax: How to write it (``SYNTAXES``).
+        render: How to write it: `disassemble` or `disassemble_to_source`.
     """
     with open(input_path, "rb") as f:
         program = _bin_words(f.read(), target)
-    _write_lines(output_path, disassemble(program, target, syntax))
+    _write_lines(output_path, render(program, target))

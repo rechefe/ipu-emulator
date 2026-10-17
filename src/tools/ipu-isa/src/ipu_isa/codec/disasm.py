@@ -197,14 +197,19 @@ def operation_text(decoded: DecodedSlot, *, isa: Isa | None = None) -> str:
     Returns:
         ``"ADD lr0 lr1 lr2"``; a bare ``"NOP"``.
     """
-    view = _view(isa)
+    return " ".join((decoded.instruction.mnemonic, *_operand_texts(decoded, _view(isa))))
+
+
+def _operand_texts(decoded: DecodedSlot, view: Isa) -> list[str]:
+    """Each operand of ``decoded`` as text, in assembly order (its whole field)."""
     bindings = view.layout.unions[decoded.slot].opcode_bindings[decoded.instruction.mnemonic]
     fields = _field_texts(decoded, view)
-    return " ".join((decoded.instruction.mnemonic, *(fields[index] for index, _ in bindings)))
+    return [fields[index] for index, _ in bindings]
 
 
-#: The label ``program_text`` gives the word at a branch target.
-LABEL_FORMAT = "w{:04d}"
+#: The label ``program_text`` gives the word at a branch target: its index in
+#: hex, as the field listing numbers words.
+LABEL_FORMAT = "w{:04x}"
 
 
 def program_text(
@@ -215,8 +220,9 @@ def program_text(
     Each word is one line: its slot instances' instructions in layout order,
     operands in assembly order, ``NOP`` bare. A branch to a word of the program
     names a label defined on that word; a branch past the end is a ``+N``
-    offset. A field the instruction does not use is not written, so a word
-    with stray bits in one does not reassemble to itself.
+    offset. Two kinds of word do not reassemble to themselves: one with stray
+    bits in a field its instructions do not use (they are not written), and
+    one with an illegal register or enum code (written ``<illegal_...>``).
 
     Args:
         words: The program's words, of ``target``.
@@ -243,16 +249,10 @@ def program_text(
     }
 
     def text(d: DecodedSlot, pc: int) -> str:
-        bindings = view.layout.unions[d.slot].opcode_bindings[d.instruction.mnemonic]
-        fields = _field_texts(d, view)
-        operands = []
-        for (index, _), op, value in zip(bindings, d.instruction.operands, d.operands, strict=True):
-            if op.type.kind is not OperandKind.LABEL:
-                operands.append(fields[index])
-            elif value < len(words):
-                operands.append(LABEL_FORMAT.format(value))
-            else:
-                operands.append(f"+{value - pc}")
+        operands = _operand_texts(d, view)
+        for i, (op, value) in enumerate(zip(d.instruction.operands, d.operands, strict=True)):
+            if op.type.kind is OperandKind.LABEL:
+                operands[i] = LABEL_FORMAT.format(value) if value < len(words) else f"+{value - pc}"
         return " ".join((d.instruction.mnemonic, *operands))
 
     return "\n".join(

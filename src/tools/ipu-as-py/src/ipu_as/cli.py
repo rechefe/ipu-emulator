@@ -187,6 +187,13 @@ def _read_abi(path: str) -> dict[str, dict[str, str]]:
         raise click.BadParameter(f"{path}: {error}", param_hint="--abi") from None
 
 
+#: `disassemble --syntax`: how to write the program.
+_RENDERERS: dict[str, lark_tree.Renderer] = {
+    "fields": lark_tree.disassemble,
+    "assembly": lark_tree.disassemble_to_source,
+}
+
+
 @click.command()
 @click.option("--input", type=click.Path(exists=True), required=True)
 @click.option("--output", type=click.Path(exists=False), required=True)
@@ -199,7 +206,7 @@ def _read_abi(path: str) -> dict[str, dict[str, str]]:
 @_target_option
 @click.option(
     "--syntax",
-    type=click.Choice(lark_tree.SYNTAXES),
+    type=click.Choice(list(_RENDERERS)),
     default="fields",
     show_default=True,
     help="fields: every field of every slot, by word; assembly: source that assembles "
@@ -212,9 +219,9 @@ def disassemble(input: str, output: str, format: str | None, target: str, syntax
         click.echo(f"Output will be saved to: {output}")
     try:
         if (format or _format_of(input)) == "bin":
-            lark_tree.disassemble_from_bin_file(input, output, target, syntax)
+            lark_tree.disassemble_from_bin_file(input, output, target, _RENDERERS[syntax])
         else:
-            lark_tree.disassemble_from_mem_file(input, output, target, syntax)
+            lark_tree.disassemble_from_mem_file(input, output, target, _RENDERERS[syntax])
     except AssemblerError as error:
         _exit_with(error)
     except ReservedEncoding:

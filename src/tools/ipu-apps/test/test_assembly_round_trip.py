@@ -33,7 +33,8 @@ def _session(entry: asm_corpus.CorpusEntry) -> AssemblySession:
 @pytest.mark.parametrize("entry", ENTRIES, ids=lambda entry: entry.key)
 def test_the_assembly_text_assembles_to_the_same_words(entry, target):
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore")  # emulator-only slots in the emulator word
+        # An instruction of an emulator-only slot warns when assembled for the emulator.
+        warnings.filterwarnings("ignore", message=".*-only .* slot")
         try:
             words = _session(entry).assemble(target).words
         except SlotError:

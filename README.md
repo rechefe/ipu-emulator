@@ -67,7 +67,7 @@ The nightly workflow (`.github/workflows/nightly.yml`) runs
 `bazel coverage --config=full //...` on master: every non-manual test once,
 with coverage (per-package line coverage in the job summary, the lcov report
 and an HTML report as a 30-day artifact). It also runs the `test_full_*`
-stacks below. A failed nightly run opens a "Nightly failure" issue (label
+stacks below, and the heavy tier again in prototyping mode (`--config=proto`). A failed nightly run opens a "Nightly failure" issue (label
 `nightly`), which the next green run closes. Start it by hand from the
 Actions tab (workflow_dispatch).
 

@@ -214,6 +214,13 @@ class SlotCodec:
         hardware faults (F-1) when it runs. An assembler writes one on purpose
         for fault tests, so it encodes with this method.
 
+        Args:
+            mnemonic: An instruction of this slot (case-insensitive).
+            operands: Encoded operand values, in assembly order.
+
+        Returns:
+            The slot's bits, each reserved code at its operand's field.
+
         Raises:
             EncodeError: As ``encode``, but for a reserved code.
         """
