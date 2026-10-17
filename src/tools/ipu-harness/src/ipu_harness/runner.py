@@ -30,6 +30,7 @@ import numpy as np
 
 from ipu_as.session import AssemblyResult
 from ipu_emu.errors import ConfigurationError
+from ipu_emu.ipu_state import DEFAULT_CYCLE_LIMIT
 from ipu_emu.reference import ReferenceModel, RunState
 from ipu_emu.reference import RunResult as ModelRun
 from ipu_emu.trace import EMULATOR_VERSION, TraceWriter
@@ -79,8 +80,8 @@ class RunOptions:
             the profile attaches to the one run the case makes.
         executor: Runs the loaded program in place of ``model.run``: a tool
             that steps the model itself (the Inspector's curated traces)
-            gets the :class:`RunContext` and returns the model's result.
-            Not with ``debug`` or ``trace``.
+            gets the :class:`RunContext`. The runner then reads the status
+            and the cycles from the model. Not with ``debug`` or ``trace``.
     """
 
     max_cycles: int | None = None
@@ -106,23 +107,29 @@ class RunContext:
         model: The reference model: program loaded, inputs and scratch
             written, registers programmed, halted at PC 0.
         program: The assembled program (``words``, ``rendered``, ``symbols``).
+        format: The element format (``plan.format``).
         plan: The checked case.
         placement: Where each tensor lives in XMEM.
-        max_cycles: The run's cycle limit (``RunOptions.max_cycles``).
+        trace_header: The header of a trace of this run (``trace.v1.json``),
+            for a tool that writes the records ``model.step()`` returns.
+        cycle_limit: The run's cycle limit, resolved (0: none). ``step()`` has
+            none of its own: an executor stops there, or calls ``model.run``.
     """
 
     model: ReferenceModel
     program: AssemblyResult
+    format: ElementFormat
     plan: CasePlan
     placement: Placement
-    max_cycles: int | None
+    trace_header: Mapping[str, str]
+    cycle_limit: int
 
 
-#: Runs a loaded case and returns the model's result: ``model.run`` by default.
-#: A tool steps ``context.model`` itself (``step()`` returns each word's commit
-#: record) and returns ``RunResult(model.status, words)``; the runner then
-#: unpacks and compares as after any run.
-Executor = Callable[[RunContext], ModelRun]
+#: Runs a loaded case in place of ``model.run``: steps ``context.model`` to a
+#: HALT, a fault or ``context.cycle_limit`` (``step()`` returns each word's commit
+#: record). The runner then takes the status and cycles from the model, and
+#: unpacks and compares as after any run; a run left RUNNING does not pass.
+Executor = Callable[[RunContext], None]
 
 
 @dataclass(frozen=True)
@@ -314,9 +321,10 @@ def _execute(
         )
         return outcome.run, profile
     if options.executor is not None:
-        return options.executor(context), profile
+        options.executor(context)
+        return ModelRun(model.status, model.stats().cycles), profile
     if options.trace is not None:
-        with TraceWriter(options.trace, _trace_header(context.program.words, fmt)) as trace:
+        with TraceWriter(options.trace, dict(context.trace_header)) as trace:
             return model.run(options.max_cycles, trace=trace), profile
     return model.run(options.max_cycles), profile
 
@@ -367,7 +375,9 @@ def run_kernel(
             _write_region(model, plan, placement, tensor, _scratch_fill(tensor, plan, placement))
     apply(model, register_writes(plan, placement))
 
-    context = RunContext(model, program, plan, placement, options.max_cycles)
+    limit = DEFAULT_CYCLE_LIMIT if options.max_cycles is None else options.max_cycles
+    header = _trace_header(program.words, fmt)
+    context = RunContext(model, program, fmt, plan, placement, header, limit)
     run, profile = _execute(context, manifest, case, fmt, options)
     mac_utilization = model.stats().effective_mac_utilization
     if run is None:  # the user quit the debugger: no result
