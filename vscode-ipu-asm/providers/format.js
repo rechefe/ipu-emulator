@@ -37,23 +37,27 @@ function registerFormatting(context, lang, format = async () => null) {
   const formatLines = (document, options, from, to) =>
     editFor(document, from, to, lang.format(document.getText(), formatOptions(document, options, from, to)));
 
-  /** Lines [from, to] formatted by the assembler if it can, else by the editor's rules. */
+  /** Lines [from, to] formatted by the assembler if it can, else by the editor's rules. A null
+   *  `to` is the document's last line, whatever it is when the edits are made. */
   const formatWithAssembler = async (document, options, from, to, token) => {
+    const last = () => (to === null ? document.lineCount - 1 : Math.min(to, document.lineCount - 1));
     const version = document.version;
-    const result = await format(document, formatOptions(document, options, from, to), token);
+    const asked = last();
+    const result = await format(document, formatOptions(document, options, from, asked), token);
     if (token && token.isCancellationRequested) return [];
-    // Edited while the assembler ran: its answer was for the old text.
-    if (!result || document.version !== version) return formatLines(document, options, from, to);
+    // Edited while the assembler ran: its answer was for the old text, and the lines may be others.
+    if (!result || document.version !== version) {
+      return from <= last() ? formatLines(document, options, from, last()) : [];
+    }
     if (result.refused) {
       vscode.window.showWarningMessage(`IPU Assembly: left as it is, since ${result.refused}`);
       return [];
     }
-    return editFor(document, from, to, result.lines);
+    return editFor(document, from, asked, result.lines);
   };
 
   const formatting = {
-    provideDocumentFormattingEdits: (document, options, token) =>
-      formatWithAssembler(document, options, 0, document.lineCount - 1, token),
+    provideDocumentFormattingEdits: (document, options, token) => formatWithAssembler(document, options, 0, null, token),
     provideDocumentRangeFormattingEdits: (document, range, options, token) =>
       formatWithAssembler(document, options, range.start.line, range.end.line, token),
   };

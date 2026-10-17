@@ -170,6 +170,18 @@ test('the provider formats by the assembler where it can, else by the editor; a 
       const pending = formatting.provideDocumentFormattingEdits(typed, OPTIONS);
       ext.edit(typed, `${MESSY}HALT;;\n`);
       eq(applied(typed, await pending), lang.format(typed.getText(), ALL(typed.getText())));
+      // Shorter, or longer, by then: the lines formatted are the new text's.
+      for (const after of ['HALT;; HALT;;', `${MESSY}HALT;; HALT;;\nSET lr0 cr0;; HALT;;\n`]) {
+        const changed = open(MESSY);
+        const waiting = formatting.provideDocumentFormattingEdits(changed, OPTIONS);
+        ext.edit(changed, after);
+        eq(applied(changed, await waiting), lang.format(after, ALL(after)), JSON.stringify(after));
+      }
+      // A selection past the new end formats what is left of it.
+      const cut = open(MESSY);
+      const ranged = ext.provider('DocumentRangeFormattingEdit').provideDocumentRangeFormattingEdits(cut, new fake.Range(1, 0, 3, 0), OPTIONS);
+      ext.edit(cut, 'a: HALT;;');
+      eq(await ranged, []);
     }
     ext.deactivate();
   }
