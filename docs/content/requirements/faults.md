@@ -73,6 +73,8 @@ Status: **Proposed**. Owner: Yuval Harary.
 
 Accumulator overflow, NaN results and quantization saturation occur in ACC and AAQ, after the cache agent accepts the word. They are not faults and never halt. Step 0 does not detect them. The fault control registers reserve one sticky flag for each event.
 
+In the emulator, ACC and AGG store the IEEE result (a float overflow is an infinity, a NaN stays, an integer wraps to 32 bits) and set the event's flag in `IpuState.arith_flags` (`ACC_OVERFLOW`, `NAN_RESULT`). Flags are sticky: no run clears them. A commit record lists each word's events. MULT and AAQ do not report events yet: whether a MULT product that overflows float32 is an accumulator event is open, and quantization saturation waits for AaQ ([OQ-20](open-questions.md#emulator-and-isa)).
+
 ## Illegal host accesses
 
 | Access | Response |

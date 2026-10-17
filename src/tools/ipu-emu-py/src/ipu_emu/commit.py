@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
 from ipu_emu.cycle import CycleOutcome
+from ipu_isa.faults import ArithmeticEvent
 from ipu_isa.registers import REGISTER_DEFINITIONS
 from ipu_isa.slots import SLOTS, Slot
 from ipu_isa.tags import Tag
@@ -201,6 +202,7 @@ class _Pending:
     regs: dict[str, list[tuple[int, int]]] = field(default_factory=dict)
     xmem: list[tuple[int, int]] = field(default_factory=list)
     broke: bool = False
+    arith: set[ArithmeticEvent] = field(default_factory=set)
 
 
 class CommitCollector:
@@ -227,6 +229,7 @@ class CommitCollector:
         self._detach: list[Callable[[], None]] = [
             state.add_cycle_observer(self),
             state.add_fault_observer(self._faulted),
+            state.add_arith_observer(self._arith),
             state.regfile.add_observer(self._register_written),
             state.xmem.add_observer(self._memory_event),
         ]
@@ -302,6 +305,10 @@ class CommitCollector:
 
     # -- records ------------------------------------------------------------
 
+    def _arith(self, events: frozenset[ArithmeticEvent]) -> None:
+        if self._pending is not None:
+            self._pending.arith |= events
+
     def _faulted(self, halt: HaltRecord) -> None:
         """Record the faulting word (or, for a fault before any word began,
         its PC alone): no slots, no writes, as nothing of it retired."""
@@ -346,5 +353,6 @@ class CommitCollector:
                 xmem_writes=xmem_writes,
                 outcome=outcome,
                 fault=fault,
+                arith_events=tuple(sorted(e.value for e in pending.arith)),
             )
         )

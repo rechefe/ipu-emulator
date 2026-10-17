@@ -239,6 +239,20 @@ py_pytest_test(
     ],
 )
 
+# Arithmetic events (E04-23): IEEE result plus a sticky flag, never a halt.
+py_pytest_test(
+    name = "test_arith_events",
+    size = "small",
+    srcs = ["test/test_arith_events.py"],
+    imports = ["src"],
+    deps = [
+        ":emu_test_support",
+        ":ipu_emu_lib",
+        requirement("numpy"),
+        requirement("pytest"),
+    ],
+)
+
 # Precise faults (E04-20): a faulting word has no effect; the lowest fault wins.
 # Both modes under --config=proto.
 py_pytest_test(

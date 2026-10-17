@@ -29,7 +29,7 @@ from ipu_isa.constants import (
     decode_dstructure,
     encode_dstructure,
 )
-from ipu_isa.faults import FaultId
+from ipu_isa.faults import ArithmeticEvent, FaultId
 from ipu_isa.geometry import INST_MEM_WORDS
 
 if TYPE_CHECKING:
@@ -138,6 +138,10 @@ class IpuState:
         #: Observers every cycle on this state calls (add_cycle_observer).
         self.cycle_observers: tuple[CycleObserver, ...] = ()
         self.fault_observers: tuple[Callable[[HaltRecord], None], ...] = ()
+        # Sticky arithmetic flags (E04-23): set by ACC and AGG, never by a
+        # fault, cleared only when the state is built (no run clears them).
+        self.arith_flags: set[ArithmeticEvent] = set()
+        self.arith_observers: tuple[Callable[[frozenset[ArithmeticEvent]], None], ...] = ()
         # Set when a debugger quit the last run before the program finished
         # (emulator-only; cleared at the start of every run).
         self.quit_requested: bool = False
@@ -213,6 +217,31 @@ class IpuState:
             state = ref()
             if state is not None:
                 state.fault_observers = tuple(o for o in state.fault_observers if o is not fn)
+
+        return remove
+
+    def record_arith(self, events: frozenset[ArithmeticEvent]) -> None:
+        """Set *events*' sticky flags and tell the arithmetic observers. An
+        event never halts (Q53)."""
+        self.arith_flags |= events
+        for observer in self.arith_observers:
+            observer(events)
+
+    def add_arith_observer(
+        self, fn: Callable[[frozenset[ArithmeticEvent]], None]
+    ) -> Callable[[], None]:
+        """Call ``fn(events)`` each time ACC or AGG reports arithmetic events.
+
+        Returns:
+            A function that detaches it; calling it twice is harmless.
+        """
+        self.arith_observers = self.arith_observers + (fn,)
+        ref = weakref.ref(self)
+
+        def remove() -> None:
+            state = ref()
+            if state is not None:
+                state.arith_observers = tuple(o for o in state.arith_observers if o is not fn)
 
         return remove
 

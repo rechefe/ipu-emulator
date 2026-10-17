@@ -3311,15 +3311,13 @@ HALT;;
 
 
 class TestNarrowStoreOverflow:
-    """A narrow FP8 accumulate whose float32 store overflows fails lane by lane.
+    """A narrow FP8 accumulate whose float32 store overflows stores +inf and
+    sets the sticky ACC_OVERFLOW flag (E04-23, Q53): an arithmetic event,
+    never an exception."""
 
-    Same contract as the wide-vector case: lanes before the offender written,
-    the offender zeroed (``struct.pack_into`` clears the field before packing),
-    lanes after it untouched, and struct's own OverflowError propagates.
-    """
-
-    def test_acc_add_overflow_leaves_the_lane_by_lane_state(self) -> None:
+    def test_acc_add_overflow_stores_inf_and_sets_the_flag(self) -> None:
         from ipu_emu.ipu import LANES, Ipu
+        from ipu_isa.faults import ArithmeticEvent
 
         state = make_state("ACC.ADD ;;", fmt=ElementFormat.E4)
         k = 7
@@ -3329,11 +3327,11 @@ class TestNarrowStoreOverflow:
         state.regfile.mutable("r_acc")[:] = struct.pack(f"<{LANES}f", *acc)
         state.regfile.mutable("mult_res")[:] = struct.pack(f"<{LANES}f", *mult)
 
-        with pytest.raises(OverflowError, match="float too large to pack with f format"):
-            Ipu(state).execute_vliw_cycle()
+        Ipu(state).execute_vliw_cycle()
 
-        expected = [3.0] * k + [0.0] + [1.0] * (LANES - k - 1)
+        expected = [3.0] * k + [float("inf")] + [3.0] * (LANES - k - 1)
         assert state.regfile.view("r_acc")[:] == struct.pack(f"<{LANES}f", *expected)
+        assert state.arith_flags == {ArithmeticEvent.ACC_OVERFLOW}
 
 
 class TestFirstStoreBitExactness:

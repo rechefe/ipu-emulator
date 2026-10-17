@@ -2,8 +2,11 @@
 
 Every handler is one path for every element format (Q43, Q48): it loads
 MULT_RES and R_ACC lanes through the active codec (``ipu._codec``), computes
-with ``codec.add``/``sub``/``max`` and stores with ``codec.store_acc``, which
-rounds once and fails lane by lane exactly as ``struct.pack_into`` did.
+with ``codec.acc_add``/``acc_sub``/``max`` and stores with
+``codec.store_acc_events``, which rounds once and stores the IEEE result (an
+overflow is an infinity, an integer wraps). The events it reports
+(accumulator overflow, NaN result) set the state's sticky arithmetic flags
+and never halt (E04-23, Q53).
 """
 
 from __future__ import annotations
@@ -50,8 +53,15 @@ def _operands(ipu: Ipu) -> tuple[LaneCodec, np.ndarray, np.ndarray]:
     return codec, acc, res
 
 
+def _store_events(ipu: Ipu, codec: LaneCodec, out, lanes: np.ndarray) -> None:
+    """Store accumulator lanes into *out*; record the arithmetic events."""
+    events = codec.store_acc_events(out, lanes)
+    if events:
+        ipu.state.record_arith(events)
+
+
 def _store_acc(ipu: Ipu, codec: LaneCodec, lanes: np.ndarray) -> None:
-    codec.store_acc(ipu.state.regfile.mutable("r_acc"), lanes)
+    _store_events(ipu, codec, ipu.state.regfile.mutable("r_acc"), lanes)
 
 
 def _store_mult_res_in_acc(ipu: Ipu) -> None:
@@ -64,7 +74,7 @@ def _store_mult_res_in_acc(ipu: Ipu) -> None:
 def execute_acc_add(ipu: Ipu) -> None:
     """Execute ACC.ADD: Accumulate mult_res into accumulator (running add)."""
     codec, acc, res = _operands(ipu)
-    _store_acc(ipu, codec, codec.add(acc, res))
+    _store_acc(ipu, codec, codec.acc_add(acc, res))
 
 
 def execute_acc_add_first(ipu: Ipu) -> None:
@@ -86,7 +96,7 @@ def execute_acc_max_first(ipu: Ipu) -> None:
 def execute_acc_sub(ipu: Ipu) -> None:
     """Execute ACC.SUB: Subtract MULT_RES from each R_ACC element (running subtract)."""
     codec, acc, res = _operands(ipu)
-    _store_acc(ipu, codec, codec.sub(acc, res))
+    _store_acc(ipu, codec, codec.acc_sub(acc, res))
 
 
 def execute_acc_sub_first(ipu: Ipu) -> None:
@@ -94,7 +104,7 @@ def execute_acc_sub_first(ipu: Ipu) -> None:
     codec = ipu._codec
     res = codec.load_acc(ipu._view.read_forgetting_provenance("mult_res"))
     # 0 - x, not -x: for x = +0.0 that is +0.0, where negation flips the sign bit.
-    _store_acc(ipu, codec, codec.sub(np.zeros_like(res), res))
+    _store_acc(ipu, codec, codec.acc_sub(np.zeros_like(res), res))
 
 
 # ---------------------------------------------------------------------------
@@ -183,7 +193,7 @@ def execute_acc_stride(
             f"ACC.STRIDE writes {len(values)} elements from lane {base}, "
             f"past the end of R_ACC ({LANES} lanes)"
         )
-    codec.store_acc(acc_buf, values)
+    _store_events(ipu, codec, acc_buf, values)
 
 
 def _reshape_operands(
@@ -267,7 +277,7 @@ def _agg_dest(ipu: Ipu, codec: LaneCodec, dest: int) -> np.ndarray:
 def _store_dest(ipu: Ipu, codec: LaneCodec, dest: int, value: np.ndarray | float | int) -> None:
     """Write one accumulator lane to R_ACC[dest]."""
     out = ipu.state.regfile.mutable("r_acc", dest * _ACC_LANE_BYTES, _ACC_LANE_BYTES)
-    codec.store_acc(out, np.asarray(value).reshape(1))
+    _store_events(ipu, codec, out, np.asarray(value).reshape(1))
 
 
 def _fold_sum(lanes: list) -> float | int:
@@ -301,7 +311,7 @@ def execute_agg_sum(ipu: Ipu, *, dest_slot: int, cr_idx: int) -> None:
     """Execute AGG.SUM: sum active MULT_RES elements and add to R_ACC[dest] (running accumulation)."""
     codec, lanes, dest = _agg_inputs(ipu, cr_idx, dest_slot)
     partial = np.asarray([_fold_sum(lanes)])
-    _store_dest(ipu, codec, dest, codec.add(partial, _agg_dest(ipu, codec, dest)))
+    _store_dest(ipu, codec, dest, codec.acc_add(partial, _agg_dest(ipu, codec, dest)))
 
 
 def execute_agg_max_first(ipu: Ipu, *, dest_slot: int, cr_idx: int) -> None:
