@@ -40,7 +40,10 @@ Schema
     ``pack`` (inputs and outputs): a named pack transform (E06-05); an output's
     lays out the stored rows that :func:`ipu_harness.packing.unpack` reads back. ``store`` (outputs):
     ``element`` (default) or ``accumulator``. ``fill`` (scratch): the value the
-    region is filled with, default 0. Scratch regions are placed and filled,
+    region is filled with, default 0. ``bytes`` (scratch, not with ``fill``):
+    ``"file.py:fn"``, ``fn(plan)`` returns the region's exact starting bytes,
+    format-blind (a lane mask, which no element value can carry); refused while
+    the runner does not write it (:func:`ipu_harness.packing.region_fill`). Scratch regions are placed and filled,
     never compared. ``range`` (inputs): ``[lo, hi]`` for the generated values in
     every format, or ``{ int8 = [lo, hi], e4 = [lo, hi] }`` per format (E06-08).
 
@@ -168,7 +171,7 @@ _PARAM_KEYS = ("type", "min", "max", "multiple_of", "choices", "default", "unit"
 _TENSOR_KEYS: Mapping[Role, tuple[str, ...]] = {
     "input": ("shape", "row", "after", "when", "pack", "range"),
     "output": ("shape", "row", "after", "when", "pack", "store"),
-    "scratch": ("shape", "row", "after", "when", "fill"),
+    "scratch": ("shape", "row", "after", "when", "fill", "bytes"),
 }
 _CASE_KEYS = ("formats", "inputs", "expected", "generator", "tier")
 _GOLDEN_KEYS = ("reference", "op", "tolerance")
@@ -217,6 +220,7 @@ class TensorDecl:
         pack: The named pack transform of an input or output (E06-05).
         store: How an output is stored: ``element`` or ``accumulator``.
         fill: The value a scratch region is filled with.
+        content: ``"file.py:fn"`` giving a scratch region's bytes, if it says.
         value_range: ``[lo, hi]`` per format for an input's generated values
             (``range``, E06-08); a format not listed takes the default.
     """
@@ -230,6 +234,7 @@ class TensorDecl:
     pack: str | None = None
     store: Store = "element"
     fill: int | float = 0
+    content: str | None = None
     value_range: Mapping[ElementFormat, tuple[float, float]] = field(
         default_factory=lambda: MappingProxyType({})
     )
@@ -919,6 +924,7 @@ def _tensors(
     scalars: tuple[str, ...],
     formats: tuple[ElementFormat, ...],
     bools: tuple[str, ...],
+    directory: Path,
 ) -> dict[str, TensorDecl]:
     tensors: dict[str, TensorDecl] = {}
     for section in _ROLES:
@@ -929,10 +935,38 @@ def _tensors(
             if isinstance(raw, dict) and "when" in raw:
                 when = _condition(r, raw["when"], bools, (section, name, "when"))
                 decl = replace(decl, when=when)
+            if isinstance(raw, dict) and "bytes" in raw:
+                decl = replace(decl, content=_content(r, directory, raw, (section, name)))
             tensors[name] = decl
     for tensor in tensors.values():
         _check_after(r, tensor, tensors)
     return tensors
+
+
+def _runner_writes_region_bytes() -> bool:
+    """Whether the runner fills scratch regions through ``packing.region_fill``.
+
+    Until it does (one line in ``runner.run_kernel``), a ``bytes`` region would
+    silently start as zeros, so the loader refuses it. Delete this check with
+    the runner's own ``_scratch_fill``.
+    """
+    from ipu_harness import runner  # runner imports this module: a call-time import
+
+    return not hasattr(runner, "_scratch_fill")
+
+
+def _content(r: Reader, directory: Path, table: Mapping[str, Any], path: tuple[str, ...]) -> str:
+    """A scratch region's ``bytes = "file.py:fn"``."""
+    if "fill" in table:
+        raise r.fail((*path, "bytes"), f"{where(path)} takes 'fill' or 'bytes', not both")
+    content = r.function(directory, table["bytes"], (*path, "bytes"))
+    if not _runner_writes_region_bytes():
+        raise r.fail(
+            (*path, "bytes"),
+            f"{where(path)} bytes: the runner does not write a region's bytes yet "
+            "(it still fills scratch with 'fill' only)",
+        )
+    return content
 
 
 def _check_after(r: Reader, tensor: TensorDecl, tensors: Mapping[str, TensorDecl]) -> None:
@@ -994,7 +1028,7 @@ def load_manifest(
         integers = [n for n, p in params.items() if p.type == "int"]
         _check_expression(r, kernel.cost, (*integers, *derived), ("kernel", "cost"))
     bools = tuple(n for n, p in params.items() if p.type == "bool")
-    tensors = _tensors(r, data, scalars, kernel.formats, bools)
+    tensors = _tensors(r, data, scalars, kernel.formats, bools, directory)
     abi, abi_offsets, abi_when = _abi(r, data.get("abi", {}), params, {*scalars, *tensors}, tensors)
     manifest = KernelManifest(
         name=entry.name or directory.name,

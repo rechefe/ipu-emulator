@@ -38,6 +38,7 @@ __all__ = [
     "PackTransform",
     "RowMajor",
     "pack",
+    "region_fill",
     "stored_format",
     "stored_rows",
     "transform_for",
@@ -268,3 +269,44 @@ def unpack(
         )
     rows = decode(raw, stored).reshape(-1, LANES)
     return _laid_out(tensor, plan, package, lambda t: t.from_rows(rows, plan, shape))
+
+
+def region_fill(tensor: TensorDecl, plan: CasePlan, rows: int) -> bytes:
+    """A scratch region's starting bytes.
+
+    With ``bytes = "file.py:fn"``, what ``fn(plan)`` returns, unchanged (a lane
+    mask no element value can carry). Otherwise its ``fill`` in every element of
+    every row it occupies, padding lanes included (not through the pack
+    transform, which pads with zeros), in its stored format.
+
+    Args:
+        tensor: The scratch tensor.
+        plan: The checked case.
+        rows: The rows its region occupies (``Placement``).
+
+    Returns:
+        ``rows x row_bytes`` bytes.
+
+    Raises:
+        PlanError: The function's result is not bytes of exactly that size.
+    """
+    region_bytes = rows * FORMATS[plan.format].row_bytes
+    if tensor.content is None:
+        fmt = stored_format(tensor, plan.format)
+        elements = region_bytes // FORMATS[fmt].element_bytes
+        return encode(np.full(elements, tensor.fill, dtype=np.float64), fmt)
+    file, _, name = tensor.content.partition(":")
+    data = getattr(load_file(plan.manifest.directory / file), name)(plan)
+    key = f"{tensor.section}.{tensor.name}.bytes"
+    if not isinstance(data, (bytes, bytearray)):
+        raise PlanError(
+            plan.manifest, key, f"{tensor.content} returned {type(data).__name__}, not bytes"
+        )
+    if len(data) != region_bytes:
+        raise PlanError(
+            plan.manifest,
+            key,
+            f"{tensor.content} returned {len(data)} bytes; the region holds {region_bytes} "
+            f"({rows} rows of {plan.format.value})",
+        )
+    return bytes(data)
