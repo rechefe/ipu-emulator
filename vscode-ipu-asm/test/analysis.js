@@ -289,7 +289,7 @@ test('the Bazel path (no prebuilt checker): one probe across edits, one check pe
   const fc = fakeChecker();
   const bin = fs.mkdtempSync(path.join(temp, 'bin-'));
   const [node, script, ...head] = fc.argv.slice(0, 4);
-  fs.writeFileSync(path.join(bin, 'bazel'), `#!/bin/sh\n[ "$1" = run ] || exit 1\nwhile [ "$1" != -- ]; do shift; done\nshift\nexec "${node}" "${script}" ${head.map((a) => `"${a}"`).join(' ')} "$@"\n`, { mode: 0o755 });
+  fs.writeFileSync(path.join(bin, 'bazel'), `#!/bin/sh\n[ "$1" = run ] || exit 1\ncase " $* " in *" -- "*) ;; *) exit 1 ;; esac\nwhile [ "$1" != -- ]; do shift; done\nshift\nexec "${node}" "${script}" ${head.map((a) => `"${a}"`).join(' ')} "$@"\n`, { mode: 0o755 });
   const PATH = process.env.PATH;
   process.env.PATH = `${bin}${path.delimiter}${PATH}`;
   try {

@@ -22,6 +22,9 @@ process.on('exit', () => fs.rmSync(temp, { recursive: true, force: true }));
 
 const BUNDLED = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'data', 'isa.json'), 'utf8'));
 const HALT = Object.keys(BUNDLED.instructions).find((m) => m.toLowerCase() === 'halt');
+/** What hover shows for HALT, whose entry CHECKOUT.ONLY copies: its title, read from the data
+ *  rather than written here, since data/isa.json is generated from the tree being tested. */
+const HALT_TITLE = new RegExp(BUNDLED.instructions[HALT][0].doc.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
 /** A mnemonic the checkout's ISA has and the bundled one does not. */
 const ONLY_HERE = 'CHECKOUT.ONLY';
 
@@ -83,7 +86,7 @@ test("a trusted checkout's own ISA answers once generated; until then the bundle
   const { ext, api, doc, hover } = await opened();
   assert.strictEqual(await hover(), null, 'the bundled ISA has no such instruction');
   await until(() => api.languages.chosen(doc).use === 'checkout', 'the checkout data');
-  assert.match(await hover(), /Halt execution/, "the checkout's entry (a copy of HALT's)");
+  assert.match(await hover(), HALT_TITLE, "the checkout's entry (a copy of HALT's)");
   await until(() => ext.statusItem.text === '$(check) IPU', 'the status without "(bundled ISA)"');
   eq(ran().length, 1, 'generated once');
   // A source change generates it again, the current data answering meanwhile.
@@ -100,7 +103,7 @@ test("a trusted checkout's own ISA answers once generated; until then the bundle
   api.languages.chosen(doc);
   await until(() => ran().length === 3 && !api.languages.entries.get(root).loading, 'the regeneration to fail');
   eq(api.languages.chosen(doc).use, 'checkout');
-  assert.match(await hover(), /Halt execution/);
+  assert.match(await hover(), HALT_TITLE);
   ext.deactivate();
 });
 
