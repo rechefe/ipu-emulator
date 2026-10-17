@@ -1,0 +1,109 @@
+# The projections (E07-02): 12 kernels over 3 templates (the packed linears,
+# E07-23, follow at the end). Each entry fixes its
+# template's parameters to one MobileViT layer's shape (144/192/240 = L3/L4/L5)
+# and role. `bazel test //kernels/projections:proj_ffn1_192_p4` runs the
+# template's cases at that shape; `bazel run //kernels:query -- projection
+# k=192 n_out=384 activation=silu` finds it.
+
+[[kernel]]
+name = "proj_qkv_144_p4"
+template = "proj_p4_2tg"
+params = { k = 144, n_out = 432, n_tok = 128, n_tg = 2, activation = "none" }
+doc = "Layer 3 QKV"
+
+[[kernel]]
+name = "proj_outproj_144_p4"
+template = "proj_p4_2tg"
+params = { k = 144, n_out = 144, n_tok = 128, n_tg = 2, activation = "none" }
+doc = "Layer 3 OutProj"
+
+[[kernel]]
+name = "proj_ffn1_144_p4"
+template = "proj_p4_2tg_silu"
+params = { k = 144, n_out = 288, n_tok = 128, n_tg = 2, activation = "silu" }
+doc = "Layer 3 FFN1 (fused SiLU)"
+
+[[kernel]]
+name = "proj_ffn2_144_p4"
+template = "proj_p4_2tg"
+params = { k = 288, n_out = 144, n_tok = 128, n_tg = 2, activation = "none" }
+doc = "Layer 3 FFN2"
+
+[[kernel]]
+name = "proj_qkv_192_p4"
+template = "proj_p4"
+params = { k = 192, n_out = 576, n_tok = 64, n_tg = 1, activation = "none" }
+doc = "Layer 4 QKV"
+
+[[kernel]]
+name = "proj_outproj_192_p4"
+template = "proj_p4"
+params = { k = 192, n_out = 192, n_tok = 64, n_tg = 1, activation = "none" }
+doc = "Layer 4 OutProj"
+
+[[kernel]]
+name = "proj_ffn1_192_p4"
+template = "proj_p4"
+params = { k = 192, n_out = 384, n_tok = 64, n_tg = 1, activation = "silu" }
+doc = "Layer 4 FFN1 (fused SiLU)"
+
+[[kernel]]
+name = "proj_ffn2_192_p4"
+template = "proj_p4"
+params = { k = 384, n_out = 192, n_tok = 64, n_tg = 1, activation = "none" }
+doc = "Layer 4 FFN2"
+
+[[kernel]]
+name = "proj_qkv_240_p4"
+template = "proj_p4"
+params = { k = 240, n_out = 720, n_tok = 16, n_tg = 1, activation = "none" }
+doc = "Layer 5 QKV"
+
+[[kernel]]
+name = "proj_outproj_240_p4"
+template = "proj_p4"
+params = { k = 240, n_out = 240, n_tok = 16, n_tg = 1, activation = "none" }
+doc = "Layer 5 OutProj"
+
+[[kernel]]
+name = "proj_ffn1_240_p4"
+template = "proj_p4"
+params = { k = 240, n_out = 480, n_tok = 16, n_tg = 1, activation = "silu" }
+doc = "Layer 5 FFN1 (fused SiLU)"
+
+[[kernel]]
+name = "proj_ffn2_240_p4"
+template = "proj_p4"
+params = { k = 480, n_out = 240, n_tok = 16, n_tg = 1, activation = "none" }
+doc = "Layer 5 FFN2"
+
+# The MobileViT packed linears (E07-23): one packed output row a call, over
+# the packed_output_linear (Layer 5, 8 outputs a call) and
+# packed_output_linear_p4 (Layer 4, 2 outputs a call) templates. Each entry
+# fixes the activation; k is a case (default: QKV / OutProj / FFN1, ffn2:
+# FFN2). They render the old test/mobilevit/asm_packed_output_linear_*.asm
+# binaries.
+
+[[kernel]]
+name = "packed_output_linear_240"
+template = "packed_output_linear"
+params = { activation = "none" }
+doc = "Layer 5, packed: QKV, OutProj and FFN2 (asm_packed_output_linear_generic)"
+
+[[kernel]]
+name = "packed_output_linear_silu_240"
+template = "packed_output_linear"
+params = { activation = "silu" }
+doc = "Layer 5, packed: FFN1, fused SiLU (asm_packed_output_linear_silu)"
+
+[[kernel]]
+name = "packed_output_linear_192"
+template = "packed_output_linear_p4"
+params = { activation = "none" }
+doc = "Layer 4, packed: QKV, OutProj and FFN2 (asm_packed_output_linear_generic_p4)"
+
+[[kernel]]
+name = "packed_output_linear_silu_192"
+template = "packed_output_linear_p4"
+params = { activation = "silu" }
+doc = "Layer 4, packed: FFN1, fused SiLU (asm_packed_output_linear_silu_p4)"

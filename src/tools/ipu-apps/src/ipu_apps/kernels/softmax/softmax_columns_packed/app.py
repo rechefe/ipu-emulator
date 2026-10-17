@@ -51,7 +51,7 @@ import numpy as np
 
 from ipu_apps.kernels.softmax.app import LANES, SoftmaxApp, partition_size, softmax_spec
 
-MAX_WIDTH = 64               # real width <= 64 (>= 65 -> softmax_columns)
+MAX_WIDTH = 64  # real width <= 64 (>= 65 -> softmax_columns)
 # Padding fill: loses every max and exp2 underflows to 0 in the sum, so the
 # cross-group fold ignores missing-row groups and width padding for free.
 NEG_PAD = -1.0e30
@@ -74,9 +74,9 @@ class SoftmaxColumnsPackedApp(SoftmaxApp):
         return self.group_width
 
     def _layout_resident(self):
-        self.keep_addr = self._alloc()      # the .asm derives it as CVEC row + 1
+        self.keep_addr = self._alloc()  # the .asm derives it as CVEC row + 1
         super()._layout_resident()
-        self.scratch_addr = self._alloc()   # fold scratch
+        self.scratch_addr = self._alloc()  # fold scratch
 
     def _write_resident(self, state):
         # 1.0 on each group's real columns, 0.0 on its width padding.
@@ -86,25 +86,31 @@ class SoftmaxColumnsPackedApp(SoftmaxApp):
 
     def _crs(self):
         return {
-            9: LANES,                          # fold's duplicate-load element index
-            11: self.device_rows,              # vector loop bound
+            9: LANES,  # fold's duplicate-load element index
+            11: self.device_rows,  # vector loop bound
             12: self.scratch_addr // (LANES * 4),
-            13: self.group_width,              # fold rc_idx step (elements)
-            14: self.rows_per_vec,             # fold step count
+            13: self.group_width,  # fold rc_idx step (elements)
+            14: self.rows_per_vec,  # fold step count
         }
 
 
 def _explain(q):
     w_pad = partition_size(q.width)
-    return (f"width ({q.width}) <= {MAX_WIDTH}: packed column kernel, {LANES // w_pad} rows "
-            f"packed per {LANES}-element vector (padded width {w_pad}).")
+    return (
+        f"width ({q.width}) <= {MAX_WIDTH}: packed column kernel, {LANES // w_pad} rows "
+        f"packed per {LANES}-element vector (padded width {w_pad})."
+    )
 
 
 SPEC = softmax_spec(
-    SoftmaxColumnsPackedApp, along_rows=False,
-    supports=lambda q: (None if q.width <= MAX_WIDTH else
-                        f"packs whole rows into one {LANES}-element vector, so it needs a "
-                        f"width <= {MAX_WIDTH}; this input is {q.width} wide"),
+    SoftmaxColumnsPackedApp,
+    along_rows=False,
+    supports=lambda q: (
+        None
+        if q.width <= MAX_WIDTH
+        else f"packs whole rows into one {LANES}-element vector, so it needs a "
+        f"width <= {MAX_WIDTH}; this input is {q.width} wide"
+    ),
     explain=_explain,
     # Fits several rows per vector, so it beats the general column kernel
     # wherever it applies.

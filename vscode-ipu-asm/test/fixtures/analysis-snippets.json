@@ -1,0 +1,18 @@
+{
+  "astral-crlf": "{% set r = \"lr1\" %}\r\nSET {{ r }} cr0;;\r\n# 😀 x\r\nB 😀x;;\r\n",
+  "astral-label": "# 😀😀 HALT\ntop: SET lr0 cr0;; # 😀\n    BLT.S lr0 cr4 top;;\n",
+  "lr-full": "SET lr0 cr0; SET lr1 cr0; SET lr2 cr0; HALT;;\n",
+  "cond-full": "HALT ; SET lr0 cr0;;\n",
+  "nop-first": "NOP ; HALT;;\n",
+  "unknown-in-word": "HALT ; SE;;\n",
+  "macro-param": "{% set r = \"lr0\" %}\n{% macro m(r) %}\nSET {{ r }} cr0;;\n{% endmacro %}\n{{ m(\"lr2\") }}\nSET {{ r }} cr1;;\n",
+  "loop": "{% set r = \"lr0\" %}\n{% for i in range(2) %}\nSET {{ r }} cr0;;\n{% endfor %}\nHALT;;\n",
+  "hints-unused": "{% set r = \"lr0\" %}\n{% set n = 3 %}\nSET {{ r }} cr0;;\nend:\n    HALT;;\n",
+  "kwarg": "{% macro m(dest, n=1) %}\nSET {{ dest }} cr{{ n }};;\n{% endmacro %}\n{% set n = 2 %}\n{{ m(dest=\"lr1\", n=n) }}\n",
+  "header": "{#- ipu:params\nrows: int = 4    # rows to copy\n-#}\n{% set r = \"lr0\" %}\nSET {{ r }} cr0;;\n{% for i in range(rows) %}\nHALT;;\n{% endfor %}\n",
+  "labels": "top:\n    SET lr0 cr0;;\n    BLT.S lr0 cr4 top;;\n    B +1;;\nend: HALT;;\n",
+  "templated-mnemonic": "{% set op = \"HALT\" %}\n{{ op }} ; SET lr0 cr0;;\n",
+  "misfits": "HALT ; HALT;;\nB +1 ; HALT ; HALT;;\n",
+  "dict-kwarg": "{% macro m(x) %}\nSET {{ x }} cr0;;\n{% endmacro %}\n{% set d = dict(x=\"lr1\") %}\n{{ m(x=d.x) }}\n",
+  "filter-name": "{% set length = 2 %}\n{% set xs = [1] %}\nSET lr0 cr{{ length + (xs | length) }};;\n"
+}

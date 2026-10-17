@@ -19,7 +19,7 @@ The structural differences from L3 are both consequences of N = 64 <= LANES:
   * A query axis fits in ONE row, so the L3 g=0/g=1 query-group split collapses
     to a single group: one ACC chain and one store per (block, channel).
   * All 64 keys of a value channel fit in R0 alone, so the L3 R0++R1 pair
-    (which spanned 256 keys) collapses to a single ``LDR_MULT_REG R0``.
+    (which spanned 256 keys) collapses to a single ``LD.MULT R0``.
 Rows are never shared: each output channel owns a whole 512 B row and the
 teardown crops the valid ``N_TOK``-element prefix.
 
@@ -48,19 +48,19 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernel_registry import ShapeBundle
+from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.attention.app import attention_spec
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
 
-N_TOK   = 64                  # queries == keys, per stream
-D       = 48                  # head_dim
-P       = 4                   # streams / partitions
-N_HEAD  = 4                   # attention heads
-N_BLOCK = P * N_HEAD          # 16 independent (stream, head) blocks
-N_CHAN  = N_BLOCK * D         # 768 value channels total
+N_TOK = 64  # queries == keys, per stream
+D = 48  # head_dim
+P = 4  # streams / partitions
+N_HEAD = 4  # attention heads
+N_BLOCK = P * N_HEAD  # 16 independent (stream, head) blocks
+N_CHAN = N_BLOCK * D  # 768 value channels total
 
 # ---------------------------------------------------------------------------
 # Wide-vector FP32 only. Elements are 4 bytes and an XMEM row is LANES * 4 =
@@ -71,21 +71,21 @@ N_CHAN  = N_BLOCK * D         # 768 value channels total
 # from row counts, not hardcoded bytes: a byte map sized for 1-byte elements
 # overflows 4x at FP32 and silently corrupts results.
 # ---------------------------------------------------------------------------
-ELEM_BYTES = 4                               # FP32
-LANES      = 128                             # elements per XMEM row
-ROW_BYTES  = LANES * ELEM_BYTES              # 512
+ELEM_BYTES = 4  # FP32
+LANES = 128  # elements per XMEM row
+ROW_BYTES = LANES * ELEM_BYTES  # 512
 
 # Row counts are LANE counts -- element-width independent by construction.
 # N_TOK = 64 <= LANES, so a key's score row and a value channel's key column
 # are each ONE whole row (trailing lanes unused).
-PV_STRIDE_ROWS = 1                           # rows per P key row / V channel
-P_BLOCK_ROWS   = N_TOK * PV_STRIDE_ROWS      # 64: P rows per block
-V_BLOCK_ROWS   = D * PV_STRIDE_ROWS          # 48: V rows per block
-O_CHAN_ROWS    = 1                           # one R_ACC store = one row (wide)
+PV_STRIDE_ROWS = 1  # rows per P key row / V channel
+P_BLOCK_ROWS = N_TOK * PV_STRIDE_ROWS  # 64: P rows per block
+V_BLOCK_ROWS = D * PV_STRIDE_ROWS  # 48: V rows per block
+O_CHAN_ROWS = 1  # one R_ACC store = one row (wide)
 
-P_ROWS = N_BLOCK * P_BLOCK_ROWS              # 1024
-V_ROWS = N_CHAN * PV_STRIDE_ROWS             # 768
-O_ROWS = N_CHAN * O_CHAN_ROWS                # 768
+P_ROWS = N_BLOCK * P_BLOCK_ROWS  # 1024
+V_ROWS = N_CHAN * PV_STRIDE_ROWS  # 768
+O_ROWS = N_CHAN * O_CHAN_ROWS  # 768
 
 PBASE_ROW = 0
 VBASE_ROW = PBASE_ROW + P_ROWS
@@ -96,7 +96,7 @@ VBASE = VBASE_ROW * ROW_BYTES
 OBASE = OBASE_ROW * ROW_BYTES
 
 # One store = one whole row; only the first N_TOK lanes hold queries.
-OUTPUT_ROW_BYTES = N_TOK * ELEM_BYTES        # 256 valid bytes per channel row
+OUTPUT_ROW_BYTES = N_TOK * ELEM_BYTES  # 256 valid bytes per channel row
 
 
 class AttnVBcast48App(IpuApp):
@@ -107,7 +107,7 @@ class AttnVBcast48App(IpuApp):
         self.p_path = Path(self.p_path)
         self.v_path = Path(self.v_path)
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         # P and V are staged verbatim (already in the kernel's row layout).
         state.xmem.write_address(PBASE, bytearray(self.p_path.read_bytes()))
         state.xmem.write_address(VBASE, bytearray(self.v_path.read_bytes()))
@@ -117,20 +117,20 @@ class AttnVBcast48App(IpuApp):
         state.regfile.set_cr(2, PBASE_ROW)
         state.regfile.set_cr(3, VBASE_ROW)
         state.regfile.set_cr(4, OBASE_ROW)
-        state.regfile.set_cr(5, -PV_STRIDE_ROWS)    # -1 row: P key startup skew
-        state.regfile.set_cr(6, -1)                 # key fixed_idx startup
-        state.regfile.set_cr(7, P_BLOCK_ROWS)       # 64: P rows per block
+        state.regfile.set_cr(5, -PV_STRIDE_ROWS)  # -1 row: P key startup skew
+        state.regfile.set_cr(6, -1)  # key fixed_idx startup
+        state.regfile.set_cr(7, P_BLOCK_ROWS)  # 64: P rows per block
         # Loop bound is width-2: the load runs a bundle ahead of the MULT that
-        # consumes it, and the .asm raises this by one in-kernel for the BLT.
-        state.regfile.set_cr(8, N_TOK - 2)          # 62: key-loop bound (width 64)
-        state.regfile.set_cr(10, D)                 # 48: channels t per block
-        state.regfile.set_cr(11, N_BLOCK)           # 16: (stream, head) blocks
-        state.regfile.set_cr(12, O_CHAN_ROWS)       # 1: V/O channel stride (rows)
+        # consumes it, and the .asm raises this by one in-kernel for the BLT.S.
+        state.regfile.set_cr(8, N_TOK - 2)  # 62: key-loop bound (width 64)
+        state.regfile.set_cr(10, D)  # 48: channels t per block
+        state.regfile.set_cr(11, N_BLOCK)  # 16: (stream, head) blocks
+        state.regfile.set_cr(12, O_CHAN_ROWS)  # 1: V/O channel stride (rows)
 
-        state.regfile.set_lr(0, 0)                  # R_CYCLIC index / mask_shift
-        state.regfile.set_lr(1, PV_STRIDE_ROWS)     # P key stride (rows)
+        state.regfile.set_lr(0, 0)  # R_CYCLIC index / mask_shift
+        state.regfile.set_lr(1, PV_STRIDE_ROWS)  # P key stride (rows)
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         """Crop each channel's valid N_TOK queries out of its whole 512 B row.
 
         Every store wrote a full row (one output channel per row -- rows are

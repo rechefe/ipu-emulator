@@ -142,13 +142,13 @@ source delivered by [Issue 1](#9-implementation-plan).
 |---------|---------------|--------|-------------|
 | `0x000` | `ID`          | RO     | Magic + version of the control block (sanity check for firmware). |
 | `0x004` | `CTRL`        | RW/W1S | Command bits: `START`, `HALT`, `STEP`, `RESET` (soft, excludes IMEM), `IMEM_SWAP` (bank swap), `CONTINUE`. Self-clearing pulse semantics. |
-| `0x008` | `STATUS`      | RO     | `RUNNING`, `HALTED`, `BREAK` (hit a `BKPT`/`BREAK`), `ERROR`, plus an `ERR_CODE` field. |
+| `0x008` | `STATUS`      | RO     | `RUNNING`, `HALTED`, `BREAK` (hit a `BREAK`; `HALT` ends the kernel instead, see the control spec §10.2.6), `ERROR`, plus an `ERR_CODE` field. |
 | `0x00C` | `PC`          | RW     | Program counter. Read returns the current PC; write sets the next PC (only valid while halted). |
 | `0x010` | `CYCLES`      | RO     | Cycles executed since the last start/reset. |
 | `0x014` | `MAX_CYCLES`  | RW     | Watchdog limit; `0` = use engine default. Guards against runaway programs. |
 | `0x018` | `PROG_LEN`    | RW     | Program length in VLIW words (entries in `inst_mem`). Writable only while halted; used by the engine halt condition (`PC >= PROG_LEN`). |
-| `0x020` | `DTYPE`       | RW     | Arithmetic data type selector (enum mirroring `DType`). |
-| `0x024` | `DSTRUCTURE`  | RW     | `valid_elements[7:0]`, `partition[11:8]` — mirrors `CR15`. |
+| `0x020` | `DTYPE`       | RW     | Arithmetic data type selector (enum mirroring `ElementFormat`). |
+| `0x024` | `DSTRUCTURE`  | RW     | `valid_elements[7:0]`, `partition[12:8]`, `pad_mode[14:13]` — mirrors `CR15`. |
 | `0x028` | `ELU_ALPHA`   | RW     | Activation α (IEEE-754 float bits; emulator-only knob). |
 | `0x040` | `CR[0..15]`   | RW\*   | Application config window. `CR0`/`CR1` are hard-wired (`0`/`1`) and reject writes (`ERROR`); `CR15` aliases `DSTRUCTURE`. `CR2`–`CR14` are writable. |
 
@@ -164,8 +164,7 @@ separate, fully mapped region in the host address space (see below).
 
 - **`IMEM_MAP_SIZE`** = `IMEM_DEPTH × INSTRUCTION_ALIGNED_BYTES`, where
   `INSTRUCTION_ALIGNED_BYTES` is the per-instruction size of the assembler
-  `--format bin` stream (see `instruction_aligned_bytes_len()` /
-  `_instruction_aligned_bytes()`). The emulator uses `INST_MEM_SIZE` (1024) for
+  `--format bin` stream (`ipu_isa.codec.word.word_bytes()`). The emulator uses `INST_MEM_SIZE` (1024) for
   `IMEM_DEPTH`; hardware uses `IMEM_DEPTH = 256` per
   [stage-control.md](stage-control.md) — the SystemRDL parameter drives the
   generated map size.

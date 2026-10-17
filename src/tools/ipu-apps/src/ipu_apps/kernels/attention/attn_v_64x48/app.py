@@ -43,19 +43,19 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernel_registry import ShapeBundle
+from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.attention.app import attention_spec
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
 
-N_TOK   = 64                  # queries == keys, per stream
-D       = 48                  # head_dim
-P       = 4                   # streams / partitions
-N_HEAD  = 4                   # attention heads
-N_BLOCK = P * N_HEAD          # 16 independent (stream, head) blocks
-N_CHAN  = N_BLOCK * D         # 768 value channels total
+N_TOK = 64  # queries == keys, per stream
+D = 48  # head_dim
+P = 4  # streams / partitions
+N_HEAD = 4  # attention heads
+N_BLOCK = P * N_HEAD  # 16 independent (stream, head) blocks
+N_CHAN = N_BLOCK * D  # 768 value channels total
 
 # ---------------------------------------------------------------------------
 # Wide-vector FP32 only. Elements are 4 bytes and an XMEM row is LANES * 4 =
@@ -66,21 +66,21 @@ N_CHAN  = N_BLOCK * D         # 768 value channels total
 # from row counts, not hardcoded bytes: a byte map sized for 1-byte elements
 # overflows 4x at FP32 and silently corrupts results.
 # ---------------------------------------------------------------------------
-ELEM_BYTES = 4                               # FP32
-LANES      = 128                             # elements per XMEM row
-ROW_BYTES  = LANES * ELEM_BYTES              # 512
+ELEM_BYTES = 4  # FP32
+LANES = 128  # elements per XMEM row
+ROW_BYTES = LANES * ELEM_BYTES  # 512
 
 # Row counts are LANE counts -- element-width independent by construction.
 # N_TOK = 64 <= LANES, so a query's score row and a value channel's key column
 # are each ONE whole row (trailing lanes unused).
-PV_STRIDE_ROWS     = 1                       # rows per P query row / V channel
-P_BLOCK_ROWS       = N_TOK * PV_STRIDE_ROWS  # 64: P rows per block
-V_BLOCK_ROWS       = D * PV_STRIDE_ROWS      # 48: V rows per block
-O_CHAN_ROWS        = 1                       # one R_ACC store = one row (wide)
+PV_STRIDE_ROWS = 1  # rows per P query row / V channel
+P_BLOCK_ROWS = N_TOK * PV_STRIDE_ROWS  # 64: P rows per block
+V_BLOCK_ROWS = D * PV_STRIDE_ROWS  # 48: V rows per block
+O_CHAN_ROWS = 1  # one R_ACC store = one row (wide)
 
-P_ROWS = N_BLOCK * P_BLOCK_ROWS              # 1024
-V_ROWS = N_CHAN * PV_STRIDE_ROWS             # 768
-O_ROWS = N_CHAN * O_CHAN_ROWS                # 768
+P_ROWS = N_BLOCK * P_BLOCK_ROWS  # 1024
+V_ROWS = N_CHAN * PV_STRIDE_ROWS  # 768
+O_ROWS = N_CHAN * O_CHAN_ROWS  # 768
 
 PBASE_ROW = 0
 VBASE_ROW = PBASE_ROW + P_ROWS
@@ -91,7 +91,7 @@ VBASE = VBASE_ROW * ROW_BYTES
 OBASE = OBASE_ROW * ROW_BYTES
 
 # One store = one whole row; only the first N_TOK lanes hold queries.
-OUTPUT_ROW_BYTES = N_TOK * ELEM_BYTES        # 256 valid bytes per channel row
+OUTPUT_ROW_BYTES = N_TOK * ELEM_BYTES  # 256 valid bytes per channel row
 
 
 class AttnV64x48App(IpuApp):
@@ -102,7 +102,7 @@ class AttnV64x48App(IpuApp):
         self.p_path = Path(self.p_path)
         self.v_path = Path(self.v_path)
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         # P and V are staged verbatim (already in the kernel's row layout).
         state.xmem.write_address(PBASE, bytearray(self.p_path.read_bytes()))
         state.xmem.write_address(VBASE, bytearray(self.v_path.read_bytes()))
@@ -117,14 +117,16 @@ class AttnV64x48App(IpuApp):
         state.regfile.set_cr(2, PBASE_ROW)
         state.regfile.set_cr(3, VBASE_ROW)
         state.regfile.set_cr(4, OBASE_ROW)
-        state.regfile.set_cr(5, PV_STRIDE_ROWS)     # P query stride (rows)
-        state.regfile.set_cr(8, P_BLOCK_ROWS)       # P rows per block (64)
-        state.regfile.set_cr(9, N_TOK - 1)          # 63: inner bound -> 64 AGG bundles
-        state.regfile.set_cr(10, D)                 # 48: channels t per block
-        state.regfile.set_cr(11, N_BLOCK)           # 16: (stream, head) blocks
-        state.regfile.set_cr(12, O_CHAN_ROWS)       # O channel stride (rows)
+        state.regfile.set_cr(5, PV_STRIDE_ROWS)  # P query stride (rows)
+        state.regfile.set_cr(8, P_BLOCK_ROWS)  # P rows per block (64)
+        # agg_slot starts at -1 (AGG reads it after the co-issued INC); BLT.S
+        # reads the cycle-start value -1..62.
+        state.regfile.set_cr(9, N_TOK - 2)  # 62: inner bound -> 64 AGG bundles
+        state.regfile.set_cr(10, D)  # 48: channels t per block
+        state.regfile.set_cr(11, N_BLOCK)  # 16: (stream, head) blocks
+        state.regfile.set_cr(12, O_CHAN_ROWS)  # O channel stride (rows)
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         """Crop each channel's valid N_TOK queries out of its whole 512 B row.
 
         Every store wrote a full row (one output channel per row -- rows are

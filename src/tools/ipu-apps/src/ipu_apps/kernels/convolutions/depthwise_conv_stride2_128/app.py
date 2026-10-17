@@ -44,25 +44,22 @@ Usage (normally through the registry: ``create_harness(
 
 from __future__ import annotations
 
-import tempfile
+import copy
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ipu_as.lark_tree import assemble_to_bin_file
-from ipu_emu.emulator import run_test
-from ipu_emu.ipu_config import Partition
-
 from ipu_apps.kernel_registry.base import IpuApp
-from ipu_apps.kernels.convolutions.depthwise_conv_universal.app import (
-    DepthwiseConvUniversalApp,
-)
 from ipu_apps.kernels.convolutions.app import (
     CHUNK_ELEMENTS,
-    kernel_asm,
     universal_spec,
 )
+from ipu_apps.kernels.convolutions.depthwise_conv_universal.app import (
+    DepthwiseConvUniversalStage,
+)
+from ipu_emu.emulator import run_test
+from ipu_isa.constants import Partition
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -71,7 +68,7 @@ if TYPE_CHECKING:
 ROW_BYTES = CHUNK_ELEMENTS * 4  # 512 B/row in FP32 wide-vector mode
 
 
-class _Stage1FullWidthApp(DepthwiseConvUniversalApp):
+class _Stage1FullWidthApp(DepthwiseConvUniversalStage):
     """depthwise_conv_universal pinned to the cols=128 (no-packing) case.
 
     At cols=128 there's exactly one packed spatial row per 128-element chunk --
@@ -88,7 +85,7 @@ class _Stage1FullWidthApp(DepthwiseConvUniversalApp):
         # lands on cols=128.
         super().__init__(width=128, **kwargs)
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         super().setup(state)
         # CR15 dstructure: 128 lanes, ONE group (no packing). The base
         # class's cols_to_partition also maps 128 -> Partition.P0; this makes
@@ -124,7 +121,7 @@ class DepthwiseConvStride2_128App(IpuApp):
         *,
         rows: int,
         channels: int,
-        kernel: Optional[np.ndarray] = None,
+        kernel: np.ndarray | None = None,
         **kwargs,
     ) -> None:
         # inst_path is stage 2 (this kernel's own .asm, assembled); stage 1 is
@@ -162,7 +159,7 @@ class DepthwiseConvStride2_128App(IpuApp):
         # ctor) is the single source of truth for where stage 1's output
         # really lands.
         self._stage1_app = _Stage1FullWidthApp(
-            inst_path="depthwise_conv_universal.asm",  # replaced in run()
+            inst_path="depthwise_conv_universal.asm",  # not run: the stage assembles its .asm
             input_path=self.input_path,
             kernel=kernel,
             kernel_path=self.kernel_path,
@@ -176,27 +173,22 @@ class DepthwiseConvStride2_128App(IpuApp):
         # region ends, row-aligned, so it can never overlap stage 1's
         # still-unread tail chunks regardless of rows*channels.
         stage1_output_elements = rows * channels * CHUNK_ELEMENTS
-        self.output_base_addr = (
-            self._stage1_app.output_base_addr + stage1_output_elements * 4
-        )
+        self.output_base_addr = self._stage1_app.output_base_addr + stage1_output_elements * 4
         self.output_base_row = self.output_base_addr // ROW_BYTES
 
-    def run(self, *, max_cycles: int = 2_000_000, **kwargs) -> tuple["IpuState", int]:
-        with tempfile.TemporaryDirectory(prefix="depthwise_stride2_128_") as tmp:
-            stage1_bin_path = Path(tmp) / "stage1.bin"
-            assemble_to_bin_file(kernel_asm("depthwise_conv_universal"), str(stage1_bin_path))
+    def run(self, *, max_cycles: int = 2_000_000, **kwargs) -> tuple[IpuState, int]:
+        stage1_app = self._stage1_app
+        stage1_app.input_path = self.input_path
+        kwargs.setdefault("state", self.make_state())
+        state, cycles1 = stage1_app.run(max_cycles=max_cycles, **kwargs)
+        # Each run's stats cover that run only; keep stage 1's so the
+        # kernel's stats can cover both stages.
+        stage1_stats = copy.copy(state.stats)
 
-            stage1_app = self._stage1_app
-            stage1_app.inst_path = stage1_bin_path
-            stage1_app.input_path = self.input_path
-            kwargs.setdefault("state", self.make_state())
-            state, cycles1 = stage1_app.run(max_cycles=max_cycles, **kwargs)
-
-        def stage2_setup(s: "IpuState") -> None:
-            # Stage 1 left program_counter at its halted sentinel; reset it
-            # so run_until_complete's `while not state.is_halted` loop
-            # actually executes stage 2's freshly loaded program instead of
-            # exiting immediately with 0 cycles.
+        def stage2_setup(s: IpuState) -> None:
+            # Stage 1 left program_counter past IMEM (HALT); reset it so stage
+            # 2's freshly loaded program runs from its start instead of
+            # faulting F-2 at that PC.
             s.program_counter = 0
             s.regfile.set_cr(3, stage1_app.output_base_row)
             s.regfile.set_cr(4, self.channels)
@@ -210,18 +202,20 @@ class DepthwiseConvStride2_128App(IpuApp):
             max_cycles=max_cycles,
             state=state,
         )
+        state2.stats = stage1_stats + state2.stats
 
         if self.output_path is not None:
             total_outputs = self.num_row_pairs * self.channels
             total_elements = total_outputs * CHUNK_ELEMENTS
-            raw = state2.xmem.read_address(
-                self.output_base_row * ROW_BYTES, total_elements * 4
-            )
+            raw = state2.xmem.read_address(self.output_base_row * ROW_BYTES, total_elements * 4)
             # raw is packed [row_pair, channel, 2, 64] -- output_path holds
             # the TRUE [channels, out_rows, 64] tensor (see class docstring's
             # file-layout contract).
             arr = np.frombuffer(raw, dtype=np.float32).reshape(
-                self.num_row_pairs, self.channels, 2, 64,
+                self.num_row_pairs,
+                self.channels,
+                2,
+                64,
             )
             out = np.empty((self.channels, self.out_rows, 64), dtype=np.float32)
             for rp in range(self.num_row_pairs):
@@ -245,16 +239,21 @@ def _supports(q):
     if q.stride != 2:
         return f"handles only stride=2; got {q.stride}"
     if not q.is_depthwise:
-        return (f"handles only depthwise (groups==in_channels); got groups={q.groups}, "
-                f"in_channels={q.in_channels}")
+        return (
+            f"handles only depthwise (groups==in_channels); got groups={q.groups}, "
+            f"in_channels={q.in_channels}"
+        )
     if q.out_channels != q.in_channels:
-        return (f"depthwise requires out_channels==in_channels; got {q.out_channels} "
-                f"vs {q.in_channels}")
+        return (
+            f"depthwise requires out_channels==in_channels; got {q.out_channels} vs {q.in_channels}"
+        )
     if q.apply_relu or q.has_bias:
         return "bias/ReLU are not supported by this kernel"
     if q.width != 128:
-        return (f"handles only width=128 (see depthwise_conv_stride2_narrow for cols in "
-                f"16/32/64); got {q.width}")
+        return (
+            f"handles only width=128 (see depthwise_conv_stride2_narrow for cols in "
+            f"16/32/64); got {q.width}"
+        )
     if q.height < 4 or q.height % 4 != 0:
         return f"height must be a multiple of 4 (>= 4) so out_rows/2 pairs evenly; got {q.height}"
     return None

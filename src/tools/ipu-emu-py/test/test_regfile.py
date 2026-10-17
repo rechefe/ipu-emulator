@@ -1,29 +1,35 @@
 """Tests for ipu_emu.regfile and ipu_emu.ipu_state."""
 
-import copy
+import os
 import struct
+import subprocess
+import sys
 
 import numpy as np
 import pytest
+from emu_support import ElementFormat, new_state
 
-from ipu_emu.descriptors import REGFILE_SCHEMA, RegDescriptor, RegDtype, RegKind
-from ipu_emu.errors import EmulatorError
+from ipu_emu.descriptors import REGFILE_SCHEMA
+from ipu_emu.errors import (
+    EmulatorError,
+    RegisterIndexError,
+    RegisterKindError,
+    RegisterSizeError,
+)
+from ipu_emu.ipu_config import DEFAULT_DSTRUCTURE_CR
+from ipu_emu.ipu_state import IpuState
 from ipu_emu.regfile import RegFile
-from ipu_emu.ipu_config import (
-    CR_DSTRUCTURE_REG_INDEX,
-    DSTRUCTURE_PARTITION_MASK,
+from ipu_isa.constants import (
     DSTRUCTURE_VALID_ELEMENTS_MASK,
     PadMode,
-    Partition,
     decode_dstructure,
     encode_dstructure,
 )
-from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
-
 
 # ---------------------------------------------------------------------------
 # RegFile — scalar (LR / CR) access
 # ---------------------------------------------------------------------------
+
 
 class TestRegFileScalars:
     def test_lr_set_get(self):
@@ -62,13 +68,78 @@ class TestRegFileScalars:
 
     def test_lr_index_out_of_range(self):
         rf = RegFile()
-        with pytest.raises(AssertionError):
+        with pytest.raises(RegisterIndexError):
             rf.set_lr(16, 0)
+
+    def test_lr_negative_index_rejected(self):
+        rf = RegFile()
+        with pytest.raises(RegisterIndexError, match=r"\[-1\] out of range"):
+            rf.set_lr(-1, 0)
+        with pytest.raises(RegisterIndexError):
+            rf.get_lr(-1)
+        assert rf.get_lr(15) == 0  # nothing written to the last LR
+
+    def test_scalar_accessor_on_vector_register(self):
+        rf = RegFile()
+        with pytest.raises(RegisterKindError, match="not a scalar register"):
+            rf.get_scalar("r", 0)
+        with pytest.raises(RegisterKindError):
+            rf.set_scalar("r", 0, 1)
+
+    def test_register_errors_keep_builtin_bases(self):
+        assert issubclass(RegisterIndexError, IndexError)
+        assert issubclass(RegisterSizeError, ValueError)
+        assert issubclass(RegisterKindError, TypeError)
+        for cls in (RegisterIndexError, RegisterSizeError, RegisterKindError):
+            assert issubclass(cls, EmulatorError)
+
+
+class TestRegFileOptimizedMode:
+    """Validation must survive ``python -O`` (which strips ``assert``)."""
+
+    def test_checks_hold_under_python_O(self):
+        script = "import sys\nassert False, 'asserts are enabled'\n"
+        # Sanity: the child really runs with asserts stripped.
+        env = dict(os.environ, PYTHONPATH=os.pathsep.join(p for p in sys.path if p))
+        probe = subprocess.run(
+            [sys.executable, "-O", "-c", script], env=env, capture_output=True, text=True
+        )
+        assert probe.returncode == 0, probe.stderr
+
+        script = """
+import sys
+
+from ipu_emu.errors import RegisterIndexError, RegisterSizeError
+from ipu_emu.regfile import RegFile
+
+rf = RegFile()
+checks = [
+    (RegisterIndexError, lambda: rf.set_lr(-1, 0)),
+    (RegisterIndexError, lambda: rf.get_cr(999)),
+    (RegisterIndexError, lambda: rf.get_r(-1)),
+    (RegisterIndexError, lambda: rf.set_r_acc_word(-1, 0)),
+    (RegisterSizeError, lambda: rf.set_r(0, bytearray(64))),
+    (RegisterSizeError, lambda: rf.set_r_mask(bytearray(64))),
+]
+for expected, call in checks:
+    try:
+        call()
+    except expected:
+        continue
+    sys.exit(f"no {expected.__name__} raised")
+print("ok")
+"""
+        result = subprocess.run(
+            [sys.executable, "-O", "-c", script], env=env, capture_output=True, text=True
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert result.stdout.strip() == "ok"
 
 
 # ---------------------------------------------------------------------------
 # RegFile — R registers (128-byte)
 # ---------------------------------------------------------------------------
+
 
 class TestRegFileRRegs:
     def test_set_get_r0(self):
@@ -93,20 +164,33 @@ class TestRegFileRRegs:
         got[0] = 0x00
         assert rf.get_r(0)[0] == 0xAB  # original unchanged
 
-    def test_r_wrong_size_asserts(self):
+    def test_r_wrong_size_rejected(self):
         rf = RegFile()
-        with pytest.raises(AssertionError):
+        with pytest.raises(RegisterSizeError, match="expected 128 bytes, got 64"):
             rf.set_r(0, bytearray(64))  # too small
+        with pytest.raises(RegisterSizeError):
+            rf.set_r(0, bytearray(129))  # too large
+        assert len(rf.get_r(0)) == 128
+        assert len(rf.view("r")) == 256  # storage not resized
 
     def test_r_index_out_of_range(self):
         rf = RegFile()
-        with pytest.raises(AssertionError):
+        with pytest.raises(RegisterIndexError):
             rf.get_r(2)
+
+    def test_r_negative_index_rejected(self):
+        rf = RegFile()
+        with pytest.raises(RegisterIndexError):
+            rf.get_r(-1)
+        with pytest.raises(RegisterIndexError):
+            rf.set_r(-1, bytearray([0xFF] * 128))
+        assert rf.get_r(1) == bytearray(128)
 
 
 # ---------------------------------------------------------------------------
 # RegFile — R cyclic (512-byte, wraparound)
 # ---------------------------------------------------------------------------
+
 
 class TestRegFileCyclic:
     def test_no_wrap(self):
@@ -142,7 +226,7 @@ class TestRegFileCyclic:
         rf.set_r_cyclic_at(0, full)
 
         # Read 128 bytes starting at 450 — wraps at 512
-        got = rf.get_r_cyclic_at(450)
+        got = rf.get_r_cyclic_at(450, 128)
         expected = full[450:] + full[: 128 - (512 - 450)]
         assert got == expected
 
@@ -159,6 +243,7 @@ class TestRegFileCyclic:
 # RegFile — R mask
 # ---------------------------------------------------------------------------
 
+
 class TestRegFileMask:
     def test_set_get_mask(self):
         rf = RegFile()
@@ -168,13 +253,17 @@ class TestRegFileMask:
 
     def test_mask_wrong_size(self):
         rf = RegFile()
-        with pytest.raises(AssertionError):
+        with pytest.raises(RegisterSizeError, match="expected 128 bytes, got 64"):
             rf.set_r_mask(bytearray(64))
+        with pytest.raises(RegisterSizeError):
+            rf.set_r_mask(bytearray(256))
+        assert len(rf.get_r_mask()) == 128  # storage not resized
 
 
 # ---------------------------------------------------------------------------
 # RegFile — Accumulator
 # ---------------------------------------------------------------------------
+
 
 class TestRegFileAcc:
     def test_acc_bytes(self):
@@ -187,6 +276,23 @@ class TestRegFileAcc:
         rf = RegFile()
         rf.set_r_acc_word(0, 0xDEADBEEF)
         assert rf.get_r_acc_word(0) == 0xDEADBEEF
+
+    def test_acc_word_index_rejected(self):
+        rf = RegFile()
+        n_words = len(rf.get_r_acc_bytes()) // 4
+        for index in (-1, n_words):
+            with pytest.raises(RegisterIndexError, match="word"):
+                rf.set_r_acc_word(index, 0)
+            with pytest.raises(RegisterIndexError):
+                rf.get_r_acc_word(index)
+        assert rf.get_r_acc_word(n_words - 1) == 0
+
+    def test_acc_bytes_wrong_size_rejected(self):
+        rf = RegFile()
+        size = len(rf.get_r_acc_bytes())
+        with pytest.raises(RegisterSizeError):
+            rf.set_r_acc_bytes(bytearray(size - 4))
+        assert len(rf.get_r_acc_bytes()) == size
 
     def test_acc_word_view_numpy(self):
         rf = RegFile()
@@ -207,6 +313,7 @@ class TestRegFileAcc:
 # RegFile — Misc forwarding registers
 # ---------------------------------------------------------------------------
 
+
 class TestRegFileMisc:
     def test_mult_res(self):
         rf = RegFile()
@@ -224,6 +331,7 @@ class TestRegFileMisc:
 # ---------------------------------------------------------------------------
 # RegFile — Generic accessor + aliases
 # ---------------------------------------------------------------------------
+
 
 class TestRegFileGeneric:
     def test_alias_r0(self):
@@ -245,6 +353,7 @@ class TestRegFileGeneric:
 # ---------------------------------------------------------------------------
 # RegFile — Snapshot (deep copy)
 # ---------------------------------------------------------------------------
+
 
 class TestRegFileSnapshot:
     def test_snapshot_is_independent(self):
@@ -271,6 +380,7 @@ class TestRegFileSnapshot:
 # RegFile — Serialisation
 # ---------------------------------------------------------------------------
 
+
 class TestRegFileSerialization:
     def test_to_dict_has_all_keys(self):
         rf = RegFile()
@@ -290,6 +400,7 @@ class TestRegFileSerialization:
 # IpuState
 # ---------------------------------------------------------------------------
 
+
 class TestIpuState:
     def test_init(self):
         state = IpuState()
@@ -301,12 +412,11 @@ class TestIpuState:
         state.program_counter = 1024
         assert state.is_halted
 
-    def test_dtype_attribute(self):
-        from ipu_emu.ipu_math import DType
-        state = IpuState()
-        assert state.dtype == DType.INT8  # default
-        state.dtype = DType.E4
-        assert state.dtype == DType.E4
+    def test_format_attribute(self):
+        from ipu_isa.formats import ElementFormat
+
+        assert IpuState().fmt is ElementFormat.INT8  # default
+        assert IpuState(fmt=ElementFormat.E4).fmt is ElementFormat.E4
 
     def test_cr15_default_dstructure(self):
         state = IpuState()
@@ -323,14 +433,14 @@ class TestIpuState:
 
     def test_set_cr_dstructure_accepts_cr_idx(self):
         state = IpuState()
-        cr15_before = state.regfile.get_cr(CR_DSTRUCTURE_REG_INDEX)
+        cr15_before = state.regfile.get_cr(DEFAULT_DSTRUCTURE_CR)
 
         state.set_cr_dstructure(7, 4, cr_idx=3)
 
         config = state.get_dstructure_for(3)
         assert config.valid_elements == 7
         assert config.partition == 4
-        assert state.regfile.get_cr(CR_DSTRUCTURE_REG_INDEX) == cr15_before
+        assert state.regfile.get_cr(DEFAULT_DSTRUCTURE_CR) == cr15_before
 
     def test_cr_dstructure_masks_valid_elements(self):
         state = IpuState()
@@ -372,7 +482,7 @@ class TestIpuState:
     def test_cr_dstructure_uses_config_register(self):
         state = IpuState()
         state.set_cr_dstructure(7, 4)
-        assert state.regfile.get_cr(CR_DSTRUCTURE_REG_INDEX) == encode_dstructure(
+        assert state.regfile.get_cr(DEFAULT_DSTRUCTURE_CR) == encode_dstructure(
             valid_elements=7,
             partition=4,
         )
@@ -381,7 +491,7 @@ class TestIpuState:
         """Load data into XMEM, then load into R register, verify.
 
         load_r_reg_from_xmem takes a ROW number (narrow row = 128 B), matching
-        LDR_MULT_REG's addressing (#179): row 2 = byte 256.
+        LD.MULT's addressing (#179): row 2 = byte 256.
         """
         state = IpuState()
         data = bytearray(range(128))
@@ -399,8 +509,8 @@ class TestIpuState:
 
     def test_load_r_reg_from_xmem_debug_mode_row_size(self):
         """In debug mode a row is 512 B, not 128, and lands in r_wide_debug --
-        the register LDR_MULT_REG loads in that mode -- not the 128-byte r."""
-        state = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
+        the register LD.MULT loads in that mode -- not the 128-byte r."""
+        state = new_state(fmt=ElementFormat.FP32)
         data = struct.pack("<128f", *([2.5] * 128))
         state.xmem.write_address(3 * 512, data)  # row 3, debug row size = 512 B
         state.load_r_reg_from_xmem(3, 0)
@@ -409,7 +519,7 @@ class TestIpuState:
     def test_store_r_reg_from_xmem_debug_mode_round_trip(self):
         """store_r_reg_to_xmem in debug mode reads back from r_wide_debug,
         mirroring the load helper above."""
-        state = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.INT32)
+        state = new_state(fmt=ElementFormat.INT32)
         state.regfile.set_r_wide_debug(1, struct.pack("<128i", *([7] * 128)))
         state.store_r_reg_to_xmem(2, 1)  # row 2, debug row size = 512 B -> byte 1024
         stored = state.xmem.read_address(2 * 512, 512)
@@ -436,7 +546,7 @@ class TestIpuState:
 
     def test_load_r_cyclic_from_xmem_debug_mode(self):
         """In debug mode, slot_element_idx=128 writes at byte 512 (4 B/element)."""
-        state = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
+        state = new_state(fmt=ElementFormat.FP32)
         data = struct.pack("<128f", *([1.5] * 128))
         state.xmem.write_address(1 * 512, data)  # row 1, debug row size = 512 B
         state.load_r_cyclic_from_xmem(1, slot_element_idx=128)
@@ -461,7 +571,7 @@ class TestIpuState:
         """The mask is 1 bit/lane and does not scale with element width -- the
         row ADDRESS is translated by the debug row size (512 B), but the READ
         stays 128 bytes in both modes."""
-        state = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
+        state = new_state(fmt=ElementFormat.FP32)
         mask_data = bytearray(range(128))
         state.xmem.write_address(2 * 512, mask_data)  # row 2, debug row size = 512 B
         state.load_r_mask_from_xmem(2)
@@ -487,3 +597,92 @@ class TestIpuState:
         d = state.to_dict()
         assert d["program_counter"] == 0
         assert d["regfile"]["lr"][0] == 10
+
+
+def test_regfile_observers_register_and_detach():
+    rf = RegFile()
+    first, second = [], []
+    remove_first = rf.add_observer(lambda *event: first.append(event))
+    rf.add_observer(lambda *event: second.append(event))
+    rf.mutable("r_acc")
+    remove_first()
+    remove_first()  # idempotent
+    rf.mutable("mult_res")
+    assert [name for name, _, _ in first] == ["r_acc"]
+    assert [name for name, _, _ in second] == ["r_acc", "mult_res"]
+
+
+def test_a_scalar_write_is_observed():
+    rf = RegFile()
+    events = []
+    rf.add_observer(lambda *event: events.append(event))
+    rf.set_lr(3, 7)
+    rf.set_cr(4, 9)
+    assert events == [("lr", 12, 4), ("cr", 16, 4)]
+
+
+def test_regfile_snapshot_does_not_inherit_observers():
+    rf = RegFile()
+    events = []
+    rf.add_observer(lambda *event: events.append(event))
+    rf.snapshot().mutable("r_acc")
+    assert events == []
+
+
+class TestReadAndWriteViews:
+    """``view`` reads without side effects; ``mutable`` reports exactly what it hands out."""
+
+    def test_view_tells_no_observer_and_keeps_provenance(self):
+        rf = RegFile()
+        rf.mark_constant_ones("r", 0, 128)
+        events = []
+        rf.add_observer(lambda *event: events.append(event))
+        assert bytes(rf.view("r")[:4]) == bytes(4)
+        assert events == []
+        assert rf.has_constant_ones("r", 0, 128)
+
+    def test_writing_through_a_view_raises(self):
+        rf = RegFile()
+        with pytest.raises(TypeError):
+            rf.view("r_acc")[0] = 1
+        assert not rf.get_r_acc_words().flags.writeable
+
+    def test_mutable_reports_and_forgets_exactly_its_range(self):
+        rf = RegFile()
+        rf.mark_constant_ones("r", 0, 128)
+        events = []
+        rf.add_observer(lambda *event: events.append(event))
+        rf.mutable("r", 16, 8)[:] = bytes(range(8))
+        assert events == [("r", 16, 8)]
+        assert rf.view("r")[16:24] == bytes(range(8))
+        assert not rf.has_constant_ones("r", 16, 8)
+        assert rf.has_constant_ones("r", 0, 16) and rf.has_constant_ones("r", 24, 104)
+        # Unlike raw(), it does not make the register untrustworthy for good.
+        rf.mark_constant_ones("r", 16, 8)
+        assert rf.has_constant_ones("r", 0, 128)
+
+    def test_mutable_range_is_checked(self):
+        rf = RegFile()
+        with pytest.raises(RegisterIndexError):
+            rf.mutable("r_acc", 508, 8)
+
+    def test_set_words_writes_the_whole_register(self):
+        rf = RegFile()
+        rf.set_r_acc_words(np.arange(128, dtype=np.uint32))
+        assert rf.get_r_acc_word(5) == 5
+        with pytest.raises(RegisterSizeError):
+            rf.set_r_acc_words(np.arange(3, dtype=np.uint32))
+
+    def test_descriptor_resolves_aliases(self):
+        rf = RegFile()
+        assert rf.descriptor("r_acc").name == "r_acc"
+        assert rf.descriptor("r0").name == "r"
+
+    def test_raw_is_deprecated_and_still_escapes(self):
+        rf = RegFile()
+        with pytest.deprecated_call():
+            buffer = rf.raw("r")
+        buffer[0] = 7
+        assert rf.view("r")[0] == 7
+        rf.mark_constant_ones("r", 0, 128)
+        assert not rf.has_constant_ones("r", 0, 128), "an escaped buffer is never trusted again"

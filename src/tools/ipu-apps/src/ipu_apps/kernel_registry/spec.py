@@ -15,13 +15,14 @@ width >= 128" long after the real boundary had moved to 65.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from importlib import import_module
-from typing import TYPE_CHECKING, Any, Callable, Literal, Mapping
-
-from ipu_emu.ipu_math import DType
+from typing import TYPE_CHECKING, Any
 
 from ipu_apps.kernel_registry.shapes import ShapeBundle
+from ipu_emu.errors import ConfigurationError
+from ipu_isa.formats import ElementFormat
 
 if TYPE_CHECKING:
     from ipu_apps.kernel_registry.base import IpuApp
@@ -37,19 +38,18 @@ Params = Mapping[str, Any]
 class ExecutionConfig:
     """Arithmetic and storage requirements, independent of the debugger UI.
 
-    Native mode uses encoded elements; fp32/int32 use four-byte vector
-    elements. Defaults match IpuState(), including unquantized wide output.
+    ``fmt`` is the element format the kernel runs in: an 8-bit format (INT8,
+    E1..E7) or one of the emulator-only four-byte formats (FP32, INT32).
+    ``quantize_output`` is the AaQ placeholder option (``AaqOptions``).
+    Defaults match ``IpuState()``, including unquantized FP32/INT32 output.
     """
 
-    mode: Literal["native", "fp32", "int32"] = "native"
-    dtype: DType = DType.INT8
+    fmt: ElementFormat = ElementFormat.INT8
     quantize_output: bool = False
 
     def __post_init__(self):
-        if self.mode not in ("native", "fp32", "int32"):
-            raise ValueError(f"unknown execution mode {self.mode!r}")
-        if not isinstance(self.dtype, DType):
-            raise TypeError("execution dtype must be a DType")
+        if not isinstance(self.fmt, ElementFormat):
+            raise ConfigurationError(f"execution format must be an ElementFormat, got {self.fmt!r}")
 
 
 @dataclass(frozen=True)
@@ -235,10 +235,14 @@ class Verdict:
     def to_dict(self) -> dict[str, Any]:
         """The same answer as :meth:`describe`, for tools (``query --json``)."""
         return {
-            "supported": self.supported, "reason": self.reason, "app": self.app_name, "use": self.app_class,
+            "supported": self.supported,
+            "reason": self.reason,
+            "app": self.app_name,
+            "use": self.app_class,
             "kwargs": {k: repr(v) for k, v in self.kwargs.items()},
             "shapes": self.shapes.describe() if self.shapes is not None else None,
-            "notes": (list(self.shapes.notes) if self.shapes is not None else []) + list(self.caveats),
+            "notes": (list(self.shapes.notes) if self.shapes is not None else [])
+            + list(self.caveats),
             "alternatives": list(self.alternatives),
         }
 
@@ -250,8 +254,7 @@ class Verdict:
             args = ", ".join(f"{k}={v!r}" for k, v in self.kwargs.items())
             lines.append(f"  app:  {self.kernel.name}")
             lines.append(
-                f"  use:  {self.app_class}(inst_path=..., input_path=..., "
-                f"output_path=..., {args})"
+                f"  use:  {self.app_class}(inst_path=..., input_path=..., output_path=..., {args})"
             )
         if self.shapes is not None:
             lines.append(f"  shapes: {self.shapes.describe()}   (* = derived)")

@@ -1,66 +1,217 @@
 name: CI
 
+# Runs the default test tier once per change (Q71, Q73): on every pull request,
+# on every push to master, and on demand. A branch without a PR gets no
+# automatic run; start one from the Actions tab (workflow_dispatch).
+#
+# Two parallel jobs: `test` (the default build) and `proto` (the same tier built
+# with --config=proto, the prototyping fast paths). Both are required checks.
+#
+# Coverage and the heavy (`enormous`) tier run in the nightly workflow (E01-06),
+# which uses no disk cache, so a poisoned cache entry cannot hide there.
+
 on:
-  push:
-    branches: ["**"]
   pull_request:
-    branches: ["**"]
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One run per ref. A newer push supersedes an older run on the same PR branch,
+# but a master run is never cancelled (it saves the cache PRs restore from).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 jobs:
-  build-and-test:
+  test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Set up Python
-        uses: actions/setup-python@v6
+      - name: Install toolchain
+        run: ./tools/bootstrap.sh
+
+      # The repository cache (downloads), the disk cache (action and test
+      # results) and bazelisk's Bazel binary. `--config=ci` points Bazel at the
+      # first two (.bazelrc). The key ends in the commit SHA, so every run
+      # restores the newest cache built from the same toolchain and lock files.
+      # `-default-` keeps the prefix from matching the proto job's caches.
+      - name: Restore Bazel cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
-          python-version: '3.11'
-
-      - name: Install uv
-        run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-
-      - name: Install Bazelisk
-        run: |
-          sudo curl -Lo /usr/local/bin/bazel https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64
-          sudo chmod +x /usr/local/bin/bazel
-
-      - name: Make shell scripts executable
-        run: find . -name "*.sh" -type f -exec chmod +x {} \;
-
-      - name: Build all targets
-        run: bazel build //... --build_tag_filters=-docs
-
-      - name: Run all tests
-        run: bazel test //... --test_output=errors
-
-      - name: Generate coverage
-        run: |
-          bazel coverage //...
-          # Convert coverage to lcov format
-          cp bazel-out/_coverage/_coverage_report.dat coverage.info || true
-
-      - name: Install lcov for HTML report
-        run: sudo apt-get update && sudo apt-get install -y lcov
-
-      - name: Generate HTML coverage report
-        run: |
-          genhtml coverage.info --output-directory coverage-report || true
-
-      - name: Upload coverage artifact
-        uses: actions/upload-artifact@v5
-        with:
-          name: coverage-report
           path: |
-            coverage.info
-            coverage-report
+            ~/.cache/bazel-repo
+            ~/.cache/bazel-disk
+            ~/.cache/bazelisk
+          key: bazel-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'MODULE.bazel.lock', 'requirements_lock.txt') }}-default-${{ github.sha }}
+          restore-keys: |
+            bazel-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'MODULE.bazel.lock', 'requirements_lock.txt') }}-default-
 
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+      # Every tracked .py file is in exactly one ruff_test (tools/lint.bzl) and
+      # //tools:lint lists them all. Needs git, so it runs outside the sandbox.
+      - name: Check ruff_test coverage
+        run: ./tools/check_lint_coverage.sh
+
+      # `bazel test` builds everything it tests; there is no separate build step.
+      # Tests whose inputs are unchanged report "(cached)" in the summary.
+      - name: Run the default test tier
+        run: bazel test --config=ci --profile="$RUNNER_TEMP/bazel-profile.gz" //...
+
+      - name: Upload test logs
+        if: failure()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
-          files: coverage.info
-          flags: unittests
-          fail_ci_if_error: false
+          name: test-logs
+          path: |
+            bazel-testlogs/**/test.log
+            bazel-testlogs/**/test.xml
+          retention-days: 14
+          if-no-files-found: ignore
+
+      # Makes CI time regressions visible in the log. A cached test reports the
+      # duration of the run that produced its cached result.
+      - name: Report critical path and slowest tests
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/bazel-profile.gz" ]; then
+            bazel analyze-profile "$RUNNER_TEMP/bazel-profile.gz" \
+              | sed -n '/Critical path/,$p'
+          fi
+          python3 -I - <<'EOF'
+          import pathlib
+          import xml.etree.ElementTree as ET
+
+          def duration(path):
+              root = ET.parse(path).getroot()
+              if root.get("time"):
+                  return float(root.get("time"))
+              suites = [root] if root.tag == "testsuite" else root.findall("testsuite")
+              total = sum(float(s.get("time") or 0) for s in suites)
+              if total:
+                  return total
+              return sum(float(c.get("duration") or c.get("time") or 0)
+                         for c in root.iter("testcase"))
+
+          def label(directory):
+              parts = list(directory.parts)
+              shard = ""
+              if parts[-1].startswith(("shard_", "run_")):
+                  shard = f" ({parts.pop()})"
+              return "//" + "/".join(parts[:-1]) + ":" + parts[-1] + shard
+
+          logs = pathlib.Path("bazel-testlogs")
+          rows = []
+          for xml in logs.glob("**/test.xml"):
+              try:
+                  rows.append((duration(xml), label(xml.parent.relative_to(logs))))
+              except (ET.ParseError, ValueError):
+                  pass
+          rows.sort(reverse=True)
+          print(f"Slowest {min(20, len(rows))} of {len(rows)} test results:")
+          for seconds, target in rows[:20]:
+              print(f"{seconds:9.1f}s  {target}")
+          EOF
+
+      # Only master saves, so pull requests share master's cache instead of
+      # evicting each other under GitHub's 10 GB per-repository limit. Entries
+      # unread for a week are trimmed first.
+      - name: Trim disk cache
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/master'
+        run: find ~/.cache/bazel-disk -type f -atime +7 -delete
+
+      - name: Save Bazel cache
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/master'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cache/bazel-repo
+            ~/.cache/bazel-disk
+            ~/.cache/bazelisk
+          key: bazel-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'MODULE.bazel.lock', 'requirements_lock.txt') }}-default-${{ github.sha }}
+
+  # The default tier again, built in prototyping mode (--config=proto, that is
+  # --define=ipu_proto=1). A different build configuration, run in parallel: it
+  # runs the prototyping-equivalence cases a default build skips, and every
+  # kernel test through the fast paths against the same goldens (D7).
+  proto:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install toolchain
+        run: ./tools/bootstrap.sh
+
+      # Its own key (suffix -proto): every emulator action differs from the
+      # default build's, so sharing one cache would evict half of each.
+      - name: Restore Bazel cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cache/bazel-repo
+            ~/.cache/bazel-disk
+            ~/.cache/bazelisk
+          key: bazel-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'MODULE.bazel.lock', 'requirements_lock.txt') }}-proto-${{ github.sha }}
+          restore-keys: |
+            bazel-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'MODULE.bazel.lock', 'requirements_lock.txt') }}-proto-
+
+      - name: Run the default test tier in prototyping mode
+        run: bazel test --config=ci --config=proto //...
+
+      # A default build skips the two-mode equivalence cases; in this build none
+      # may skip. A strict expected failure (pytest.xfail) is not a skip.
+      - name: Check the prototyping equivalence tests ran
+        run: |
+          python3 -I - <<'EOF'
+          import pathlib
+          import sys
+          import xml.etree.ElementTree as ET
+
+          xml = pathlib.Path(
+              "bazel-testlogs/src/tools/ipu-emu-py/test_prototyping_equivalence/test.xml"
+          )
+          if not xml.is_file():
+              sys.exit(f"::error::{xml} not found: test_prototyping_equivalence did not run")
+          cases = list(ET.parse(xml).getroot().iter("testcase"))
+          skipped = [
+              f"{c.get('classname')}::{c.get('name')}: {s.get('message')}"
+              for c in cases
+              for s in c.findall("skipped")
+              if s.get("type") != "pytest.xfail"
+          ]
+          print(f"test_prototyping_equivalence: {len(cases)} cases, {len(skipped)} skipped")
+          if not cases:
+              sys.exit("::error::test_prototyping_equivalence reported no test case")
+          if skipped:
+              print("\n".join(skipped))
+              sys.exit("::error::prototyping equivalence cases skipped in the prototyping build")
+          EOF
+
+      - name: Upload test logs
+        if: failure()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: test-logs-proto
+          path: |
+            bazel-testlogs/**/test.log
+            bazel-testlogs/**/test.xml
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Trim disk cache
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/master'
+        run: find ~/.cache/bazel-disk -type f -atime +7 -delete
+
+      - name: Save Bazel cache
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/master'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cache/bazel-repo
+            ~/.cache/bazel-disk
+            ~/.cache/bazelisk
+          key: bazel-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'MODULE.bazel.lock', 'requirements_lock.txt') }}-proto-${{ github.sha }}

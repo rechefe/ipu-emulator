@@ -15,7 +15,8 @@ from __future__ import annotations
 
 import sys
 import threading
-from typing import TYPE_CHECKING, Any, Mapping
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ipu_apps.kernel_registry.base import IpuApp
@@ -43,7 +44,7 @@ def create_harness(
     params: Mapping[str, Any],
     bindings: Mapping[str, Any],
     package: str = "ipu_apps",
-) -> "IpuApp":
+) -> IpuApp:
     """Validate a kernel query and bind its instruction/input/output files.
 
     Parameters follow the same contract as ``resolve``. Bindings are file
@@ -82,23 +83,15 @@ def _harness_spec(app: IpuApp) -> KernelSpec | None:
 
 def create_state(app: IpuApp) -> IpuState:
     """Create fresh state from a harness's declared execution requirements."""
-    from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
+    from ipu_emu.activations import AaqOptions
+    from ipu_emu.ipu_state import IpuState
 
     spec = _harness_spec(app)
     execution = spec.execution if spec is not None else ExecutionConfig()
     config = execution(app) if callable(execution) else execution
     if not isinstance(config, ExecutionConfig):
         raise TypeError("SPEC.execution must produce an ExecutionConfig")
-    arithmetic = (
-        WideVectorArithmetic.INT32 if config.mode == "int32"
-        else WideVectorArithmetic.FP32
-    )
-    return IpuState(
-        wide_vector_debug=config.mode != "native",
-        wide_vector_arithmetic=arithmetic,
-        wide_vector_quantize_output=config.quantize_output,
-        dtype=config.dtype,
-    )
+    return IpuState(fmt=config.fmt, aaq=AaqOptions(quantize_output=config.quantize_output))
 
 
 def load(package: str = "ipu_apps", *, refresh: bool = False) -> Discovered:
@@ -184,8 +177,7 @@ def resolve(op: str, *, package: str = "ipu_apps", **params: Any) -> Verdict:
 
     if not accepted:
         detail = (
-            "; ".join(_distinct(refusals, len(candidates)))
-            if refusals else "no kernel claimed it"
+            "; ".join(_distinct(refusals, len(candidates))) if refusals else "no kernel claimed it"
         )
         return Verdict(False, f"no {op} kernel covers this query -- {detail}")
 

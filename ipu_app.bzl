@@ -19,7 +19,10 @@ def ipu_app(name, kernel_package, deps, data = [], test_deps = []):
     cases in the emulator, which takes minutes for the bigger ones.
     """
     asm_path = kernel_package + "/" + name + ".asm"
-    kernel_data = data + [asm_path]
+    # Templates the family's kernels may {% include %}; the macro and the run
+    # both need them.
+    includes = native.glob([kernel_package.rpartition("/")[0] + "/**/*.asm.j2"], allow_empty = True)
+    kernel_data = data + [asm_path] + includes
     test_file = kernel_package + "/test.py"
     py_test(
         name = name,
@@ -38,6 +41,7 @@ def ipu_app(name, kernel_package, deps, data = [], test_deps = []):
     assemble_asm(
         name = "assemble_" + name,
         src = asm_path,
+        includes = includes,
     )
 
 def _kernel_name(asm_path):
@@ -89,8 +93,9 @@ def ipu_apps_from_kernels(kernels_root, deps, test_deps = []):
     kernel package under kernels_root registers its run/test label without
     editing the calling BUILD file. Each kernel has its own package; any .bin
     fixtures alongside the kernel (e.g. fully_connected's test_data_format/)
-    are pulled in as data automatically, as are its family siblings' .asm
-    files: a multi-stage kernel may run a sibling kernel's program as a stage.
+    are pulled in as data automatically, as are its baseline.json and its
+    family siblings' .asm files: a multi-stage kernel may run a sibling
+    kernel's program as a stage.
     """
     for asm in _kernel_asms(kernels_root):
         kernel_package = _kernel_package(asm)
@@ -100,8 +105,9 @@ def ipu_apps_from_kernels(kernels_root, deps, test_deps = []):
             kernel_package = kernel_package,
             deps = deps,
             test_deps = test_deps,
+            # baseline.json: the per-case records case_tests compares with (E02-07).
             data = native.glob(
-                [family + "/**/*.asm", kernel_package + "/**/*.bin"],
+                [family + "/**/*.asm", kernel_package + "/**/*.bin", kernel_package + "/baseline.json"],
                 exclude = [asm],
                 allow_empty = True,
             ),
@@ -113,8 +119,8 @@ def ipu_benchmarks_from_kernels(kernels_root, deps):
     benchmark.py only declares configs (CONFIGS); the shared runner in
     kernel_registry/benchmarking.py runs them through the package's cases and
     writes results.md beside it. E.g.
-    `kernels/pooling/maxpool2d_stride2/benchmark.py` becomes
-    `:benchmark_maxpool2d_stride2`, with every .asm in its family as data.
+    `kernels/convolutions/conv_universal/benchmark.py` becomes
+    `:benchmark_conv_universal`, with every .asm in its family as data.
     """
     for benchmark in native.glob([kernels_root + "/**/benchmark.py"]):
         kernel_package = _kernel_package(benchmark)
@@ -169,10 +175,13 @@ def ipu_multi_kernel_tests(suites_root, kernels_root, deps):
 
     For tests that run several kernels together (one kernel's output feeding
     the next). Every kernel's ``.asm`` under kernels_root is data, as are the
-    suite's other ``.py`` files (shared fixtures) and ``.asm`` programs. Files named
+    suite's own ``.asm`` programs, if any; shared fixtures are a ``py_library`` in
+    ``deps``. Files named
     ``test_full_*.py`` run whole model stacks and take hours, so they are
-    ``manual``: run them by name, passing pytest options with ``--test_arg``
-    and switches with ``--test_env``.
+    ``manual`` and size ``enormous``: run them by name with ``--config=full``
+    (the default ``--test_size_filters=-enormous`` filters them out even when
+    named), passing pytest options with ``--test_arg`` and switches with
+    ``--test_env``.
     """
     for test in native.glob([suites_root + "/*/test_*.py"]):
         suite, _, filename = test.rpartition("/")
@@ -182,10 +191,7 @@ def ipu_multi_kernel_tests(suites_root, kernels_root, deps):
             size = "enormous" if full else "large",
             tags = ["manual"] if full else [],
             srcs = [test],
-            data = native.glob(
-                [suite + "/*.py", suite + "/*.asm"],
-                exclude = [suite + "/test_*.py"],
-            ) + native.glob([kernels_root + "/**/*.asm"]),
+            data = native.glob([suite + "/*.asm"], allow_empty = True) + native.glob([kernels_root + "/**/*.asm"]),
             imports = ["src"],
             legacy_create_init = False,
             deps = deps,

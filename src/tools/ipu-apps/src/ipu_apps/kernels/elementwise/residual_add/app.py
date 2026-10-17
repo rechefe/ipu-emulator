@@ -1,8 +1,8 @@
 """Universal residual add (wide-vector FP32): FP32 + FP32 -> FP32.
 
 Adds two FP32 tensors element-wise and stores the result as FP32, running the
-emulator in **wide-vector debug mode**. In that mode every lane is FP32, so
-each channel occupies one full XMEM row of 128 FP32 lanes and ``STR_ACC_REG``
+emulator in the **FP32 element format**. In that format every lane is FP32, so
+each channel occupies one full XMEM row of 128 FP32 lanes and ``ST.ACC``
 writes the full 128-lane accumulator.
 
 Layout (per tensor, input and output alike): ``num_channels`` consecutive
@@ -38,6 +38,7 @@ from typing import TYPE_CHECKING
 
 from ipu_apps.kernel_registry import ExecutionConfig, folder_spec, no, yes
 from ipu_apps.kernel_registry.base import IpuApp
+from ipu_isa.formats import ElementFormat
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -49,15 +50,15 @@ WIDE_CHUNK_BYTES = LANES_PER_CHUNK * 4  # 512: one channel, 128 FP32 lanes
 
 # -- Memory layout -----------------------------------------------------------
 #
-# Row-addressed ISA: XMEM offset/base operands on LDR_CYCLIC_MULT_REG
-# (offset+base) / STR_ACC_REG are ROW numbers, not byte addresses. This app
-# runs EXCLUSIVELY in wide-vector debug mode (SPEC.execution) -- there is no
-# narrow-mode variant to preserve -- so its native row size is always
+# Row-addressed ISA: XMEM offset/base operands on LD.MULT.CYCLIC
+# (offset+base) / ST.ACC are ROW numbers, not byte addresses. This app
+# runs EXCLUSIVELY in the FP32 element format (SPEC.execution) -- there is no
+# 8-bit-format variant to preserve -- so its native row size is always
 # WIDE_CHUNK_BYTES (512), and one channel is always exactly one row. *_BASE
 # below stay as byte constants for host-side xmem pokes (write_address/
 # read_address are byte-granular); *_BASE_ROW = *_BASE // WIDE_CHUNK_BYTES
 # feeds the CR registers the asm actually loads/stores through. R_CYCLIC's
-# `index` operand on LDR_CYCLIC_MULT_REG is always LR0 (=0, the single-slot
+# `index` operand on LD.MULT.CYCLIC is always LR0 (=0, the single-slot
 # write index used in wide mode).
 
 INPUT_A_BASE = 0x00000
@@ -74,7 +75,7 @@ MAX_CHANNELS = (INPUT_B_BASE - INPUT_A_BASE) // WIDE_CHUNK_BYTES
 
 
 class ResidualAddApp(IpuApp):
-    """Universal residual add: FP32 + FP32 -> FP32 (wide-vector debug mode).
+    """Universal residual add: FP32 + FP32 -> FP32 (FP32 element format).
 
     Args:
         inst_path:    Path to assembled binary.
@@ -103,7 +104,7 @@ class ResidualAddApp(IpuApp):
         self.total_output_bytes = num_channels * WIDE_CHUNK_BYTES
         self.output_base = OUTPUT_BASE
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         for path, base in ((self.input_a_path, INPUT_A_BASE), (self.input_b_path, INPUT_B_BASE)):
             data = path.read_bytes()
             if len(data) != self.total_input_bytes:
@@ -124,7 +125,7 @@ class ResidualAddApp(IpuApp):
         state.regfile.set_cr(5, 1)  # chunk step: 1 row
         state.regfile.set_cr(6, self.num_channels)  # row count
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         if self.output_path is not None:
             result = state.xmem.read_address(OUTPUT_BASE, self.total_output_bytes)
             Path(self.output_path).write_bytes(bytes(result))
@@ -157,9 +158,9 @@ SPEC = folder_spec(
         "debug datapath (one channel per 512-byte/128-lane chunk)."
     ),
     caveats=lambda **params: (
-        "FP32 wide-vector debug mode only (wide_vector_debug=True). This "
+        "FP32 element format only (fmt=ElementFormat.FP32). This "
         "kernel has no INT8/quantized variant.",
     ),
     cost=lambda **params: 0.0,
-    execution=ExecutionConfig(mode="fp32"),
+    execution=ExecutionConfig(fmt=ElementFormat.FP32),
 )

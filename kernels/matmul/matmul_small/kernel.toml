@@ -1,0 +1,58 @@
+# matmul_small: C = A x W^T in FP32, A (M, K) and C (M, N) row-major, with
+# K <= 128 and N <= 128 (E07-07). registry.toml fixes (m, k, n) for its four
+# entries; run by itself it is the 64x64x64 shape.
+[kernel]
+op = "matmul"
+formats = ["fp32"]
+
+[params]
+m          = { type = "int", min = 1 }                         # rows of A and C
+k          = { type = "int", min = 1, max = 128 }              # one row of A
+n          = { type = "int", min = 1, max = 128 }              # one row of C
+activation = { type = "str", choices = ["none"], default = "none" }  # nothing fused
+
+[derived]
+idx_step  = "1"                                  # fixed_idx step
+row_step  = "1"                                  # a and b row step
+out_step  = "1"                                  # y row step
+zero      = "0"                                  # initial offsets, R_CYCLIC slot 0
+b_startup = "-1"                                 # b row startup
+idx_start = "-1"                                 # fixed_idx startup
+k_last    = "k - 1"                              # inner-loop limit
+rc_slot0  = "0"                                  # LR15: R_CYCLIC slot 0, which the program reads unset
+
+# Placed from row 0: a, b, y (the old XMEM map).
+[inputs.a]                                       # A: one row per matrix row
+shape = ["m", "k"]
+row = 0
+
+[inputs.b]                                       # W^T: row j is column j of W
+shape = ["k", "n"]
+
+[outputs.y]                                      # C: one row per matrix row
+shape = ["m", "n"]
+
+[abi]
+a         = "CR0"
+y         = "CR2"
+idx_step  = "CR3"
+row_step  = "CR4"
+out_step  = "CR5"
+m         = "CR6"
+zero      = "CR7"
+b_startup = "CR8"
+idx_start = "CR9"
+k_last    = "CR10"
+b         = "CR11"
+rc_slot0  = "LR15"                               # 0, as at reset: a chain step inherits LRs
+
+[golden]
+op = "matmul"                                    # a @ b, ipu_kernels.reference.ops
+tolerance = { fp32 = "FP32_LONG" }
+
+# The ipu_apps cases' data (../gen.py: RandomState(0), A then W).
+[cases.default]
+m = 64
+k = 64
+n = 64
+generator = "../gen.py:legacy_uniform"

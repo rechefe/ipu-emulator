@@ -2,31 +2,34 @@
 
 Tracks mult/accumulate stage occupancy and memory access counts over a
 single emulator run.  An instance is held on ``IpuState.stats`` and updated
-by ``Ipu.dispatch_instruction`` during execution.
+by the issue step (``ipu_emu.issue.Issuer``) during execution.
 
 ``mult_active_cycles`` counts *cycles*, which is not the same as MAC work: a
 multiply against a constant 1.0 is how kernels emulate the vector move, add and
 subtract the ISA lacks, and a 16-lane row still occupies all 128 lanes. The
 lane- and identity-aware counters below exist so ``effective_mac_utilization``
 can report what the multiplier actually retired. See
-``docs/content/isa-alias-catalogue.md``.
+``docs/content/explanation/isa-idioms.md``.
 """
 
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import MISSING, dataclass, field, fields
 
-from ipu_common.registers import get_lane_count
-
-# The same constant ipu.LANES uses, from the same accessor, so the denominators
-# here cannot drift from the lane counts accumulated there.
-LANES = get_lane_count()
+# The same constant ipu.LANES is, so the denominators here cannot drift from
+# the lane counts accumulated there.
+from ipu_isa.geometry import LANES
 
 
 @dataclass
 class RunStats:
-    """Counters accumulated during one emulator run."""
+    """Counters accumulated during one emulator run.
+
+    Both runners call :meth:`reset` before the first cycle, so these counters
+    describe exactly one run. A caller that chains runs on one state and wants
+    the whole picture adds them explicitly (``stage1 + stage2``).
+    """
 
     total_cycles: int = 0
     mult_active_cycles: int = 0
@@ -50,6 +53,32 @@ class RunStats:
     alias_hits: Counter[str] = field(default_factory=Counter)
     # Optional independent measurements; overlaps never change MAC accounting.
     alias_profile: object | None = field(default=None, repr=False, compare=False)
+
+    def reset(self) -> None:
+        """Zero every counter and clear ``alias_hits``.
+
+        ``alias_profile`` is an attachment, not a counter: it is set when the
+        state is built and survives. ``alias_hits`` is replaced by a fresh
+        ``Counter``, so a shallow copy taken before the reset keeps its hits.
+        """
+        for f in fields(self):
+            if f.name == "alias_profile":
+                continue
+            if f.default_factory is not MISSING:
+                setattr(self, f.name, f.default_factory())
+            else:
+                setattr(self, f.name, f.default)
+
+    def __add__(self, other: RunStats) -> RunStats:
+        """Sum two runs' counters; the result keeps ``self.alias_profile``."""
+        if not isinstance(other, RunStats):
+            return NotImplemented
+        summed = {
+            f.name: getattr(self, f.name) + getattr(other, f.name)
+            for f in fields(self)
+            if f.name != "alias_profile"
+        }
+        return RunStats(**summed, alias_profile=self.alias_profile)
 
     @property
     def mult_utilization(self) -> float:
@@ -118,12 +147,9 @@ class RunStats:
         ]
         if self.mult_active_cycles and self.mult_lane_ops == self.mult_active_cycles * LANES:
             lines.append(
-                "  note: every multiply used all 128 lanes — if this kernel pads a"
-                " narrower row,"
+                "  note: every multiply used all 128 lanes — if this kernel pads a narrower row,"
             )
-            lines.append(
-                "        occupancy is overstated until it declares CR15.valid_elements."
-            )
+            lines.append("        occupancy is overstated until it declares CR15.valid_elements.")
         if self.alias_hits:
             lines.append("--- ISA alias hits ---")
             for alias_id, count in self.alias_hits.most_common():

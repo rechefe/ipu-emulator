@@ -73,9 +73,9 @@ bazel test //src/tools/ipu-apps:identity
 All 21 assembly kernels have one label supporting both commands:
 
 ```bash
-bazel run //src/tools/ipu-apps:maxpool2d_stride2
-bazel test //src/tools/ipu-apps:maxpool2d_stride2
-bazel run --config=debug //src/tools/ipu-apps:maxpool2d_stride2
+bazel run //src/tools/ipu-apps:identity
+bazel test //src/tools/ipu-apps:identity
+bazel run --config=debug //src/tools/ipu-apps:identity
 bazel test //src/tools/ipu-apps:all
 ```
 
@@ -84,7 +84,7 @@ The old `test_<name>` labels remain compatibility aliases. Tests retain Bazel
 XML reports, `--test_filter`, and pytest options supplied with `--test_arg`.
 The shared launcher uses Bazel's documented `BUILD_WORKING_DIRECTORY` run
 marker to distinguish the commands, and imports pytest only in test mode.
-See the [kernel target list](../../../docs/content/debugging.md#quick-start).
+See [Command-line tools](../../../docs/content/reference/cli.md#kernel-runner-kernel-targets) for the kernel targets.
 Existing softmax
 shape, seed, scale, and cycle-limit defaults are preserved. Fully connected's
 default INT8 case retains wide arithmetic; its named `int8` and FP8 cases
@@ -142,26 +142,26 @@ storage requirements in `SPEC`, independently of interactive debugging:
 
 ```python
 from ipu_apps.kernel_registry import ExecutionConfig, folder_spec
+from ipu_isa.formats import ElementFormat
 
 SPEC = folder_spec(
     MyApp,
     # op, supports, build, and the other kernel fields ...
-    execution=ExecutionConfig(mode="fp32"),
+    execution=ExecutionConfig(fmt=ElementFormat.FP32),
 )
 ```
 
-Modes are `native` (encoded elements), `fp32`, and `int32` (four-byte vector
-elements). `dtype` defaults to `DType.INT8`; `quantize_output` defaults to
-`False`, matching `IpuState()` defaults. The configuration is immutable and
+`fmt` is the element format the kernel runs in: an 8-bit format (`INT8`,
+`E1`..`E7`) or one of the emulator-only four-byte formats (`FP32`, `INT32`).
+It defaults to `ElementFormat.INT8`; `quantize_output` defaults to `False`,
+matching `IpuState()` defaults. The configuration is immutable and
 never contains mutable emulator state.
 
 For parameter-dependent arithmetic, use a selector receiving the constructed
 harness, for example fully connected's declaration:
 
 ```python
-execution=lambda app: ExecutionConfig(
-    mode="int32" if app.wide_mode else "native", dtype=app.dtype,
-)
+execution=lambda app: ExecutionConfig(fmt=app.fmt)
 ```
 
 The registry's `create_state(app)` builds fresh state; the base harness calls
@@ -181,13 +181,9 @@ bazel run --config=debug //src/tools/ipu-apps:identity
 bazel run --config=debug //src/tools/ipu-apps:softmax_rows_partial -- --n 32 --rows 8
 ```
 
-This uses the same registry harness and input cases as normal execution,
-opening the TUI after setup and before the first instruction. Kernel code
-needs no debugger imports or special entry point. F8 steps, F5 continues, F9
-toggles a breakpoint, F10 runs to the selected instruction, and F11 maximizes
-the focused pane. `q` or Ctrl-C cancels cleanly without checking partial output.
-The terminal must be interactive; the deprecated CLI is not a TUI fallback.
-
-`--config=debug` is a native repository Bazel configuration. Use full targets
-for both `bazel run` and `bazel test`; no custom `bazel debug` command or wrapper
-is installed. See [debugger documentation](../../../docs/content/debugging.md) for all controls.
+The run stops in the debugger before the first instruction word, with the
+same case and options as an ordinary run. Kernel code needs no debugger
+imports or special entry point. An interactive terminal is required.
+[Debug a kernel](../../../docs/content/how-to/debug-a-kernel.md) explains the
+workflow, and the [debugger controls](../../../docs/content/reference/cli.md#debugger)
+list every key.

@@ -22,15 +22,27 @@ so this harness does it on the host, where a weight-folding generator would.
 
 from __future__ import annotations
 
+import zlib
 from pathlib import Path
 
 import numpy as np
+from fixture_elementwise import run_residual_add_rows
+from fixture_kernel_support import kernel_inst
+from fixture_normalize import run_layernorm_rows
+from fixture_projections import run_projection
 
 from ipu_emu.ipu_state import IpuState
 
-from fixture_kernel_support import kernel_inst
-
 _POISON = np.float32(1e3)
+
+
+def _stable_seed(*parts: str) -> int:
+    """A 32-bit RNG seed derived from ``parts``, the same in every process.
+
+    ``hash()`` of a string is salted per process (``PYTHONHASHSEED``), so a
+    seed taken from it changes between runs and a failure cannot be replayed.
+    """
+    return zlib.crc32("/".join(parts).encode())
 
 
 def relative_error_stats(got: np.ndarray, expected: np.ndarray) -> dict:
@@ -79,8 +91,10 @@ def relative_error_stats(got: np.ndarray, expected: np.ndarray) -> dict:
 
 def format_relative_error_stats(stats: dict) -> str:
     e = stats["elementwise"]
-    return (f"max_rel={stats['max_rel']:.3e}  "
-            f"elementwise[median={e['median']:.3e} p99={e['p99']:.3e} max={e['max']:.3e}]")
+    return (
+        f"max_rel={stats['max_rel']:.3e}  "
+        f"elementwise[median={e['median']:.3e} p99={e['p99']:.3e} max={e['max']:.3e}]"
+    )
 
 
 def _poison_region(state: IpuState, base: int, n_rows: int, lanes: int) -> None:
@@ -100,91 +114,91 @@ def _assert_no_poison(arr: np.ndarray, tag: str) -> None:
 # LayerNorm
 # ---------------------------------------------------------------------------
 
-def run_layernorm(App, *, inst_bin: Path, x: np.ndarray, gamma: np.ndarray, beta: np.ndarray,
-                   n_ch: int, n_tok: int, row_bytes: int, tmp_path: Path, tag: str,
-                   full_row_output: bool) -> np.ndarray:
-    """Run a real layernorm_*x* kernel. `x` is [n_ch, n_tok] channel-major.
 
-    Returns the valid [n_ch, n_tok] output (cropped here in the test, per the
-    crop convention: this call site is always the final consumer of the raw
-    file, whether or not the kernel's own teardown already cropped).
+def run_layernorm(
+    name: str,
+    *,
+    x: np.ndarray,
+    gamma: np.ndarray,
+    beta: np.ndarray,
+    n_ch: int,
+    n_tok: int,
+    row_bytes: int,
+    tag: str,
+) -> tuple[np.ndarray, int]:
+    """Run a layernorm entry. `x` is [n_ch, n_tok] channel-major.
+
+    ``name`` is the //kernels/normalize entry (E07-10), run through
+    ``fixture_normalize``. Returns the valid [n_ch, n_tok] output (cropped
+    here, per the crop convention: this call site is the final consumer of
+    the output rows) and the cycles.
     """
     lanes = row_bytes // 4
     x_rows = np.zeros((n_ch, lanes), dtype=np.float32)
     x_rows[:, :n_tok] = x
-    input_path = tmp_path / f"ln_x_{tag}.bin"
-    input_path.write_bytes(x_rows.tobytes())
-    gamma_path = tmp_path / f"ln_gamma_{tag}.bin"
-    gamma_path.write_bytes(gamma.astype(np.float32).tobytes())
-    beta_path = tmp_path / f"ln_beta_{tag}.bin"
-    beta_path.write_bytes(beta.astype(np.float32).tobytes())
-    output_path = tmp_path / f"ln_out_{tag}.bin"
-
-    app = App(inst_path=inst_bin, input_path=input_path, gamma_path=gamma_path,
-              beta_path=beta_path, output_path=output_path)
-    state = app.make_state()
-    _, cycles = app.run(max_cycles=20_000_000, state=state)
-    assert cycles > 0
-
-    raw = np.frombuffer(output_path.read_bytes(), dtype=np.float32)
-    if full_row_output:
-        got = raw.reshape(n_ch, lanes)[:, :n_tok]
-    else:
-        got = raw.reshape(n_ch, n_tok)
-    return got, cycles, state
+    run = run_layernorm_rows(name, x_rows, gamma, beta, poison=float(_POISON))
+    assert run.cycles > 0
+    got = run.rows[:, :n_tok]
+    _assert_no_poison(got, f"{tag} layernorm")
+    return got, run.cycles
 
 
 # ---------------------------------------------------------------------------
 # QKV / OutProj / FFN1 / FFN2 projections (proj_*_p4, all 4 streams at once)
 # ---------------------------------------------------------------------------
 
-def run_proj_p4(App, *, inst_bin: Path, d_streams: list[np.ndarray], w: np.ndarray,
-                 k: int, n_out: int, n_tok: int, n_stream: int, row_bytes: int,
-                 tmp_path: Path, tag: str) -> tuple[list[np.ndarray], int, IpuState]:
-    """Run a real proj_*_p4 kernel (QKV / OutProj / FFN1 / FFN2), all 4
-    streams in one invocation. `d_streams[p]` is [k, n_tok] channel-major,
-    tightly packed; the harness takes all streams in ONE input file,
-    (N_STREAM, N_TG=1, k, n_tok) FP32 (see kernels/projections/app.py).
-    `w` is [n_out, k].
+
+def run_proj_p4(
+    name: str,
+    *,
+    d_streams: list[np.ndarray],
+    w: np.ndarray,
+    n_out: int,
+    n_stream: int,
+    row_bytes: int,
+    tag: str,
+    **_unused: object,
+) -> tuple[list[np.ndarray], int, None]:
+    """Run the projection kernel ``name`` (QKV / OutProj / FFN1 / FFN2, from
+    //kernels/projections through fixture_projections), all 4 streams in one
+    invocation. `d_streams[p]` is [k, n_tok] channel-major, tightly packed (the
+    kernel's input b is (N_STREAM, N_TG=1, k, n_tok)). `w` is [n_out, k].
 
     Returns full uncropped [n_out, lanes] output per stream, split out of the
-    harness's single output file of raw rows (N_STREAM, N_TG=1, n_out, lanes)
-    (the kernel's real teardown emits full rows; cropping to n_tok is the
-    caller's job, done explicitly at each call site rather than inside this
-    helper, so a caller staging this output verbatim into the next kernel's
-    XMEM can choose not to crop).
+    kernel's output region of raw rows (N_STREAM, N_TG=1, n_out, lanes)
+    (cropping to n_tok is the caller's job, done explicitly at each call site
+    rather than inside this helper, so a caller staging this output verbatim
+    into the next kernel's XMEM can choose not to crop), the cycles, and None
+    where the ipu_apps harness returned its state.
     """
     lanes = row_bytes // 4
-    input_path = tmp_path / f"proj_{tag}_d.bin"
-    input_path.write_bytes(np.stack(d_streams[:n_stream]).astype(np.float32).tobytes())
-    weights_path = tmp_path / f"proj_{tag}_w.bin"
-    weights_path.write_bytes(w.astype(np.float32).tobytes())
-    output_path = tmp_path / f"proj_{tag}_o.bin"
-
-    app = App(inst_path=inst_bin, input_path=input_path, weights_path=weights_path,
-              output_path=output_path)
-    state = app.make_state()
-    _, cycles = app.run(max_cycles=30_000_000, state=state)
+    d = np.stack(d_streams[:n_stream]).astype(np.float32)[:, None]  # N_TG = 1
+    rows, cycles = run_projection(name, d, w)
     assert cycles > 0
-
-    raw = output_path.read_bytes()
-    assert len(raw) == n_stream * n_out * row_bytes, (
-        f"{tag}: output is {len(raw)} B, expected {n_stream * n_out * row_bytes} B"
-    )
-    rows = np.frombuffer(raw, dtype=np.float32).reshape(n_stream, n_out, lanes)
-    outs = [rows[p] for p in range(n_stream)]
-    return outs, cycles, state
+    assert rows.shape == (n_stream, 1, n_out, lanes), f"{tag}: output rows are {rows.shape}"
+    outs = [rows[p, 0] for p in range(n_stream)]
+    return outs, cycles, None
 
 
 # ---------------------------------------------------------------------------
 # Query-major attention chain: qk_scores_* -> softmax stub -> attn_v_*
 # ---------------------------------------------------------------------------
 
-def run_qk_scores_query_major_all_blocks(App, *, inst_bin: Path, q_blocks: np.ndarray,
-                                          k_blocks: np.ndarray, n_block: int, d: int, n: int,
-                                          row_bytes: int, tmp_path: Path, tag: str,
-                                          poison_base: int | None = None,
-                                          ) -> tuple[np.ndarray, int]:
+
+def run_qk_scores_query_major_all_blocks(
+    App,
+    *,
+    inst_bin: Path,
+    q_blocks: np.ndarray,
+    k_blocks: np.ndarray,
+    n_block: int,
+    d: int,
+    n: int,
+    row_bytes: int,
+    tmp_path: Path,
+    tag: str,
+    poison_base: int | None = None,
+) -> tuple[np.ndarray, int]:
     """L4 shape: ONE qk_scores_64x48 call scores all N_BLOCK (stream, head)
     blocks. q_blocks/k_blocks: [n_block, d, n] channel-major. Returns cropped
     [n_block, n, n] scores (query-major: row i = query i's scores over keys).
@@ -195,8 +209,7 @@ def run_qk_scores_query_major_all_blocks(App, *, inst_bin: Path, q_blocks: np.nd
     key_path.write_bytes(k_blocks.astype(np.float32).tobytes())
     output_path = tmp_path / f"qk_{tag}_s.bin"
 
-    app = App(inst_path=inst_bin, query_path=query_path, key_path=key_path,
-              output_path=output_path)
+    app = App(inst_path=inst_bin, query_path=query_path, key_path=key_path, output_path=output_path)
     state = app.make_state()
     if poison_base is not None:
         _poison_region(state, poison_base, n_block * n, row_bytes // 4)
@@ -209,9 +222,18 @@ def run_qk_scores_query_major_all_blocks(App, *, inst_bin: Path, q_blocks: np.nd
     return got.reshape(n_block, n, n), cycles
 
 
-def run_qk_scores_query_major_one_head(App, *, inst_bin: Path, q_head: np.ndarray,
-                                        k_head: np.ndarray, d: int, n: int, row_bytes: int,
-                                        tmp_path: Path, tag: str) -> tuple[bytes, int]:
+def run_qk_scores_query_major_one_head(
+    App,
+    *,
+    inst_bin: Path,
+    q_head: np.ndarray,
+    k_head: np.ndarray,
+    d: int,
+    n: int,
+    row_bytes: int,
+    tmp_path: Path,
+    tag: str,
+) -> tuple[bytes, int]:
     """L5 shape: qk_scores_16x60 scores exactly ONE (stream, head) block per
     call, and its teardown emits FULL uncropped rows (unlike its L4 sibling).
     q_head/k_head: [d, n] channel-major. Returns the raw output bytes
@@ -224,10 +246,9 @@ def run_qk_scores_query_major_one_head(App, *, inst_bin: Path, q_head: np.ndarra
     key_path.write_bytes(k_head.astype(np.float32).tobytes())
     output_path = tmp_path / f"qk1_{tag}_s.bin"
 
-    from ipu_apps.kernels.attention.qk_scores_16x60.app import S_BASE, OUTPUT_ROW_BYTES, N_TG
+    from ipu_apps.kernels.attention.qk_scores_16x60.app import N_TG, S_BASE
 
-    app = App(inst_path=inst_bin, query_path=query_path, key_path=key_path,
-              output_path=output_path)
+    app = App(inst_path=inst_bin, query_path=query_path, key_path=key_path, output_path=output_path)
     state = app.make_state()
     _poison_region(state, S_BASE, n * N_TG, row_bytes // 4)
     _, cycles = app.run(max_cycles=20_000_000, state=state)
@@ -239,10 +260,19 @@ def run_qk_scores_query_major_one_head(App, *, inst_bin: Path, q_head: np.ndarra
     return raw, cycles
 
 
-def run_attn_v_query_major_all_blocks(App, *, inst_bin: Path, p_blocks: np.ndarray,
-                                       v_blocks: np.ndarray, n_block: int, d: int, n: int,
-                                       row_bytes: int, tmp_path: Path, tag: str,
-                                       ) -> tuple[np.ndarray, int]:
+def run_attn_v_query_major_all_blocks(
+    App,
+    *,
+    inst_bin: Path,
+    p_blocks: np.ndarray,
+    v_blocks: np.ndarray,
+    n_block: int,
+    d: int,
+    n: int,
+    row_bytes: int,
+    tmp_path: Path,
+    tag: str,
+) -> tuple[np.ndarray, int]:
     """L4 shape: attn_v_64x48 consumes all N_BLOCK blocks' P (query-major,
     post-softmax) and V (channel-major) in one call. p_blocks: [n_block, n,
     n] (post-softmax, row i = query i). v_blocks: [n_block, d, n]
@@ -261,7 +291,7 @@ def run_attn_v_query_major_all_blocks(App, *, inst_bin: Path, p_blocks: np.ndarr
 
     output_path = tmp_path / f"av_{tag}_o.bin"
 
-    from ipu_apps.kernels.attention.attn_v_64x48.app import OBASE, OUTPUT_ROW_BYTES as O_ROW_BYTES
+    from ipu_apps.kernels.attention.attn_v_64x48.app import OBASE
 
     app = App(inst_path=inst_bin, p_path=p_path, v_path=v_path, output_path=output_path)
     state = app.make_state()
@@ -275,10 +305,19 @@ def run_attn_v_query_major_all_blocks(App, *, inst_bin: Path, p_blocks: np.ndarr
     return got.reshape(n_block, d, n), cycles
 
 
-def run_attn_v_query_major_one_stream(App, *, inst_bin: Path, p_bytes_per_head: list[bytes],
-                                       v_stream: np.ndarray, n_head: int, d: int, n: int,
-                                       row_bytes: int, tmp_path: Path, tag: str,
-                                       ) -> tuple[np.ndarray, int]:
+def run_attn_v_query_major_one_stream(
+    App,
+    *,
+    inst_bin: Path,
+    p_bytes_per_head: list[bytes],
+    v_stream: np.ndarray,
+    n_head: int,
+    d: int,
+    n: int,
+    row_bytes: int,
+    tmp_path: Path,
+    tag: str,
+) -> tuple[np.ndarray, int]:
     """L5 shape: attn_v_16x60 consumes ONE stream's worth of P (all N_HEAD
     heads concatenated, each head's block built by 16 earlier head-wise qk_scores
     calls) and V (channel-major, all heads). v_stream: [n_head, d,
@@ -296,7 +335,7 @@ def run_attn_v_query_major_one_stream(App, *, inst_bin: Path, p_bytes_per_head: 
 
     output_path = tmp_path / f"av1_{tag}_o.bin"
 
-    from ipu_apps.kernels.attention.attn_v_16x60.app import OBASE, O_CHAN_BYTES, N_CHAN
+    from ipu_apps.kernels.attention.attn_v_16x60.app import N_CHAN, OBASE
 
     app = App(inst_path=inst_bin, p_path=p_path, v_path=v_path, output_path=output_path)
     state = app.make_state()
@@ -314,10 +353,21 @@ def run_attn_v_query_major_one_stream(App, *, inst_bin: Path, p_bytes_per_head: 
 # Key-major attention chain: attn_scores_km_* -> softmax stub -> attn_v_bcast_*
 # ---------------------------------------------------------------------------
 
-def run_attn_scores_km_one_head(App, *, inst_bin: Path, q_all_heads: np.ndarray,
-                                 k_all_heads: np.ndarray, head: int, n_block_or_stream: int,
-                                 d: int, n: int, row_bytes: int, tmp_path: Path, tag: str,
-                                 ) -> tuple[bytes, int]:
+
+def run_attn_scores_km_one_head(
+    App,
+    *,
+    inst_bin: Path,
+    q_all_heads: np.ndarray,
+    k_all_heads: np.ndarray,
+    head: int,
+    n_block_or_stream: int,
+    d: int,
+    n: int,
+    row_bytes: int,
+    tmp_path: Path,
+    tag: str,
+) -> tuple[bytes, int]:
     """Both L4 and L5: attn_scores_km_* scores ONE head per call (L4: across
     all P streams -> P*N key rows; L5: single stream -> N key rows). Returns
     the raw uncropped output bytes (key-major, one key per whole row) --
@@ -329,8 +379,13 @@ def run_attn_scores_km_one_head(App, *, inst_bin: Path, q_all_heads: np.ndarray,
     weights_path.write_bytes(k_all_heads.astype(np.float32).tobytes())
     output_path = tmp_path / f"km_{tag}_h{head}_s.bin"
 
-    app = App(inst_path=inst_bin, input_path=input_path, weights_path=weights_path,
-              output_path=output_path, head=head)
+    app = App(
+        inst_path=inst_bin,
+        input_path=input_path,
+        weights_path=weights_path,
+        output_path=output_path,
+        head=head,
+    )
     state = app.make_state()
     _, cycles = app.run(max_cycles=20_000_000, state=state)
     assert cycles > 0
@@ -341,9 +396,21 @@ def run_attn_scores_km_one_head(App, *, inst_bin: Path, q_all_heads: np.ndarray,
     return raw, cycles
 
 
-def run_attn_v_bcast(App, *, inst_bin: Path, p_bytes: bytes, v_blocks: np.ndarray,
-                      n_block: int, d: int, n: int, row_bytes: int, tmp_path: Path,
-                      tag: str, obase_module, full_row_output: bool) -> tuple[np.ndarray, int]:
+def run_attn_v_bcast(
+    App,
+    *,
+    inst_bin: Path,
+    p_bytes: bytes,
+    v_blocks: np.ndarray,
+    n_block: int,
+    d: int,
+    n: int,
+    row_bytes: int,
+    tmp_path: Path,
+    tag: str,
+    obase_module,
+    full_row_output: bool,
+) -> tuple[np.ndarray, int]:
     """Both L4/L5 shape (attn_v_bcast_48 / attn_v_bcast_60): consumes
     key-major P staged verbatim from attn_scores_km_*'s raw output, plus
     channel-major V. `obase_module` is the imported attn_v_bcast module
@@ -383,33 +450,31 @@ def run_attn_v_bcast(App, *, inst_bin: Path, p_bytes: bytes, v_blocks: np.ndarra
 # Residual add
 # ---------------------------------------------------------------------------
 
-def run_residual_add(App, *, inst_bin: Path, a: np.ndarray, b: np.ndarray, n_ch: int,
-                      n_tok: int, row_bytes: int, tmp_path: Path, tag: str,
-                      full_row_output: bool) -> tuple[np.ndarray, int]:
-    """a, b: [n_ch, n_tok] channel-major. Returns cropped [n_ch, n_tok] sum."""
+
+def run_residual_add(
+    name: str,
+    *,
+    a: np.ndarray,
+    b: np.ndarray,
+    n_ch: int,
+    n_tok: int,
+    row_bytes: int,
+    tag: str,
+) -> tuple[np.ndarray, int]:
+    """a, b: [n_ch, n_tok] channel-major. Returns cropped [n_ch, n_tok] sum.
+
+    ``name`` is the //kernels/elementwise entry (E07-06), run through
+    ``fixture_elementwise``; its output rows are cropped here.
+    """
     lanes = row_bytes // 4
     a_rows = np.zeros((n_ch, lanes), dtype=np.float32)
     a_rows[:, :n_tok] = a
     b_rows = np.zeros((n_ch, lanes), dtype=np.float32)
     b_rows[:, :n_tok] = b
 
-    a_path = tmp_path / f"res_{tag}_a.bin"
-    a_path.write_bytes(a_rows.tobytes())
-    b_path = tmp_path / f"res_{tag}_b.bin"
-    b_path.write_bytes(b_rows.tobytes())
-    output_path = tmp_path / f"res_{tag}_o.bin"
-
-    app = App(inst_path=inst_bin, input_a_path=a_path, input_b_path=b_path,
-              output_path=output_path)
-    state = app.make_state()
-    _, cycles = app.run(max_cycles=5_000_000, state=state)
+    rows, cycles = run_residual_add_rows(name, a_rows, b_rows)
     assert cycles > 0
-
-    raw = np.frombuffer(output_path.read_bytes(), dtype=np.float32)
-    if full_row_output:
-        got = raw.reshape(n_ch, lanes)[:, :n_tok]
-    else:
-        got = raw.reshape(n_ch, n_tok)
+    got = rows[:, :n_tok]
     _assert_no_poison(got, f"{tag} residual_add")
     return got, cycles
 
@@ -447,8 +512,9 @@ def real_softmax_query_major(scores: np.ndarray, *, tmp_path: Path, tag: str) ->
         inp = tmp_path / f"rsm_{tag}_{i}_in.bin"
         outp = tmp_path / f"rsm_{tag}_{i}_out.bin"
         inp.write_bytes(flat[i].tobytes())
-        app = SoftmaxRowsPartialApp(inst_path=inst_path, input_path=inp,
-                                     output_path=outp, n=n, rows=rows)
+        app = SoftmaxRowsPartialApp(
+            inst_path=inst_path, input_path=inp, output_path=outp, n=n, rows=rows
+        )
         app.run(max_cycles=20_000_000)
         out[i] = np.frombuffer(outp.read_bytes(), dtype=np.float32).reshape(rows, n)
 
@@ -477,8 +543,9 @@ def real_softmax_key_major(scores_km: np.ndarray, *, tmp_path: Path, tag: str) -
         inp = tmp_path / f"ksm_{tag}_{i}_in.bin"
         outp = tmp_path / f"ksm_{tag}_{i}_out.bin"
         inp.write_bytes(flat[i].tobytes())
-        app = SoftmaxColumnsPackedApp(inst_path=inst_path, input_path=inp,
-                                       output_path=outp, rows=rows, width=width)
+        app = SoftmaxColumnsPackedApp(
+            inst_path=inst_path, input_path=inp, output_path=outp, rows=rows, width=width
+        )
         app.run(max_cycles=20_000_000)
         out[i] = np.frombuffer(outp.read_bytes(), dtype=np.float32).reshape(rows, width)
 

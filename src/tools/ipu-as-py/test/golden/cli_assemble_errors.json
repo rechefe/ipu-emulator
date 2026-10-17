@@ -1,0 +1,230 @@
+{
+  "test_diagnostics.py: \"{% for c in ''.__class__.__mro__ %}\\nHALT;;\\n{% endfor %}\\n\"": {
+    "exception": "SecurityError",
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
+  },
+  "test_diagnostics.py: \"{{ self.__init__.__globals__.__builtins__.__import__('os').popen('touch MARKER').read() }}HALT;;\\n\"": {
+    "exception": "SecurityError",
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
+  },
+  "test_diagnostics.py: '    ADD lr14 lr14 cr3 ;\\n    ADD lr5  lr5  cr4        {#- note -#}\\n\\n    MULT.RC.VE lr15 lr5 0 lr15 cr15;\\n'": {
+    "exception": null,
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError assembling code: Instruction ADD expects 3 operands, got 8, in Line 2, Column 5.\n"
+  },
+  "test_diagnostics.py: '    SET lr0 cr0 ;;    {#- a trailing note -#}\\n    SET lr1 cr1 ;;\\n    BEQ lr0, cr0, +1;;\\n'": {
+    "exception": null,
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError parsing code: No terminal matches ',' in the current parser context, at line 2 col 12\n\n    BEQ lr0, cr0, +1;;\n           ^\nExpected one of: \n\t* TOKEN\n\t* _SEMI\n\t* _SEMI2\n\nPrevious tokens: Token('TOKEN', 'lr0')\n\n"
+  },
+  "test_diagnostics.py: '  acc.add.first ;;\\n'": {
+    "exception": null,
+    "exit_code": 0,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
+  },
+  "test_diagnostics.py: ''": {
+    "exception": null,
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError parsing code: Unexpected token Token('$END', '') at line 1, column 1.\nExpected one of: \n\t* TOKEN\n\n"
+  },
+  "test_diagnostics.py: 'ADD lr0 lr0 1.5;;\\n'": {
+    "exception": null,
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError assembling code: Invalid token value - 1.5 in token LcrRegField\nIn Line 1, Column 13\nAdditional Information: Value 1.5 not in enum options\nAvailable options: ['lr0', 'lr1', 'lr2', 'lr3', 'lr4', 'lr5', 'lr6', 'lr7', 'lr8', 'lr9', 'lr10', 'lr11', 'lr12', 'lr13', 'lr14', 'lr15', 'cr0', 'cr1', 'cr2', 'cr3', 'cr4', 'cr5', 'cr6', 'cr7', 'cr8', 'cr9', 'cr10', 'cr11', 'cr12', 'cr13', 'cr14', 'cr15']\n"
+  },
+  "test_diagnostics.py: 'BEQ lr0, cr0, +1;;\\n'": {
+    "exception": null,
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError parsing code: No terminal matches ',' in the current parser context, at line 1 col 8\n\nBEQ lr0, cr0, +1;;\n       ^\nExpected one of: \n\t* TOKEN\n\t* _SEMI\n\t* _SEMI2\n\nPrevious tokens: Token('TOKEN', 'lr0')\n\n"
+  },
+  "test_diagnostics.py: 'BGT.S lr0 lr1;;\\n'": {
+    "exception": null,
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError parsing code: Error trying to process rule \"compound_instr_list\":\n\nPseudo-instruction 'BGT.S' expects 3 operand(s) (reg1, reg2, label), got 2\nAt: Line 1, Column 1\n"
+  },
+  "test_diagnostics.py: 'HALT;; mid: HALT;;\\n'": {
+    "exception": null,
+    "exit_code": 0,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
+  },
+  "test_diagnostics.py: 'HALT;;\\nHALT;;\\n{{ 1 + \"a\" }}\\nHALT;;\\n'": {
+    "exception": "TypeError",
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
+  },
+  "test_diagnostics.py: 'HALT;;\\nmac.ee r0;;\\n'": {
+    "exception": null,
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError assembling code: Opcode 'mac.ee' not found in any Inst subclass.\n"
+  },
+  "test_diagnostics.py: 'HALT;;\\n{% for x in %}\\n'": {
+    "exception": "TemplateSyntaxError",
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
+  },
+  "test_diagnostics.py: 'HALT;;\\n{{ 1 / 0 }}\\n'": {
+    "exception": "ZeroDivisionError",
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
+  },
+  "test_diagnostics.py: 'a:\\n  HALT;;\\na:\\n  HALT;;\\n'": {
+    "exception": null,
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError parsing code: Error trying to process rule \"compound_instr_list\":\n\nLabel 'a' is defined for the second time at Line 3, Column 1. Previous definition at Line 1, Column 1.\n"
+  },
+  "test_diagnostics.py: 'add:\\n  HALT;;\\n'": {
+    "exception": null,
+    "exit_code": 0,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
+  },
+  "test_diagnostics.py: 'start:\\n    BNE lr0 lr1 start ;\\n    B start;;\\n'": {
+    "exception": null,
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError assembling code: Too many instructions of type CondInst (max 1)\nAt: Line 3, Column 5\n"
+  },
+  "test_diagnostics.py: 'start:\\n  HALT;;\\n'": {
+    "exception": null,
+    "exit_code": 0,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
+  },
+  "test_diagnostics.py: '{% for i in range(2) %}\\nHALT;;\\n{% endfor %}\\nmac.ee r0;;\\n'": {
+    "exception": null,
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError assembling code: Opcode 'mac.ee' not found in any Inst subclass.\n"
+  },
+  "test_diagnostics.py: '{% for i in range(4) %}\\n    ADD lr0 lr0 1.5;;\\n{% endfor %}\\n'": {
+    "exception": null,
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError assembling code: Invalid token value - 1.5 in token LcrRegField\nIn Line 2, Column 17\nAdditional Information: Value 1.5 not in enum options\nAvailable options: ['lr0', 'lr1', 'lr2', 'lr3', 'lr4', 'lr5', 'lr6', 'lr7', 'lr8', 'lr9', 'lr10', 'lr11', 'lr12', 'lr13', 'lr14', 'lr15', 'cr0', 'cr1', 'cr2', 'cr3', 'cr4', 'cr5', 'cr6', 'cr7', 'cr8', 'cr9', 'cr10', 'cr11', 'cr12', 'cr13', 'cr14', 'cr15']\n"
+  },
+  "test_diagnostics.py: '{% for i in undefined_var %}\\nHALT;;\\n{% endfor %}\\n'": {
+    "exception": "UndefinedError",
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
+  },
+  "test_diagnostics.py: '{%- set a = \"lr0\" -%}\\n    SET {{a}} cr0;;\\n    HALT;;\\n'": {
+    "exception": null,
+    "exit_code": 0,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
+  },
+  "test_diagnostics.py: '{%- set a = \"lr0\" -%}\\n{%- set b = \"lr1\" -%}\\n    SET {{a}} cr0;;\\n    SET {{b}} cr1;;\\n    BEQ lr0, cr0, +1;;\\n'": {
+    "exception": null,
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError parsing code: No terminal matches ',' in the current parser context, at line 3 col 12\n\n    BEQ lr0, cr0, +1;;\n           ^\nExpected one of: \n\t* TOKEN\n\t* _SEMI\n\t* _SEMI2\n\nPrevious tokens: Token('TOKEN', 'lr0')\n\n"
+  },
+  "test_diagnostics.py: '{%- set pad = \"                         \" -%}\\n    ADD lr0 lr0 1.5;;\\n'": {
+    "exception": null,
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError assembling code: Invalid token value - 1.5 in token LcrRegField\nIn Line 1, Column 13\nAdditional Information: Value 1.5 not in enum options\nAvailable options: ['lr0', 'lr1', 'lr2', 'lr3', 'lr4', 'lr5', 'lr6', 'lr7', 'lr8', 'lr9', 'lr10', 'lr11', 'lr12', 'lr13', 'lr14', 'lr15', 'cr0', 'cr1', 'cr2', 'cr3', 'cr4', 'cr5', 'cr6', 'cr7', 'cr8', 'cr9', 'cr10', 'cr11', 'cr12', 'cr13', 'cr14', 'cr15']\n"
+  },
+  "test_diagnostics.py: '{{ (1).missing() }}\\nHALT;;\\n'": {
+    "exception": "UndefinedError",
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
+  },
+  "test_diagnostics.py: '{{ (1).nope() }}\\nHALT;;\\n'": {
+    "exception": "UndefinedError",
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
+  },
+  "test_diagnostics.py: '{{ ({}).__class__.__base__.__subclasses__() }}HALT;;\\n'": {
+    "exception": "SecurityError",
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
+  },
+  "test_diagnostics.py: '{{ 1 + \"a\" }}\\nHALT;;\\n'": {
+    "exception": "TypeError",
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
+  },
+  "test_diagnostics.py: '{{ 1 / 0 }}\\nHALT;;\\n'": {
+    "exception": "ZeroDivisionError",
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
+  },
+  "vscode-ipu-asm/test/corpus/edge_cases.asm": {
+    "exception": null,
+    "exit_code": 0,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
+  },
+  "vscode-ipu-asm/test/corpus/negative/label_shadows_register.asm": {
+    "exception": null,
+    "exit_code": 0,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
+  },
+  "vscode-ipu-asm/test/corpus/negative/label_shadows_register_undefined.asm": {
+    "exception": null,
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError assembling code: Invalid token value - lr1 in token LabelToken\nIn Line 3, Column 7\nAdditional Information: Label lr1 not defined\n"
+  },
+  "vscode-ipu-asm/test/corpus/negative/multi_form_collision.asm": {
+    "exception": null,
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError assembling code: NOP: all slots are already filled\nAt: Line 4, Column 60\n"
+  },
+  "vscode-ipu-asm/test/corpus/negative/overfull_word.asm": {
+    "exception": null,
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError assembling code: Too many instructions of type CondInst (max 1)\nAt: Line 3, Column 11\n"
+  },
+  "vscode-ipu-asm/test/corpus/negative/signed_literals.asm": {
+    "exception": null,
+    "exit_code": 0,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
+  },
+  "vscode-ipu-asm/test/corpus/negative/signed_literals_out_of_range.asm": {
+    "exception": null,
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError assembling code: Invalid token value - -0x1_0000_0000 in token AddbiImmediate\nIn Line 4, Column 16\nAdditional Information: Value -4294967296 out of range [-128, 255] for 8 bits\n"
+  },
+  "vscode-ipu-asm/test/corpus/negative/unbalanced_jinja.asm": {
+    "exception": null,
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError rendering template: Unexpected end of template. Jinja was looking for the following tags: 'elif' or 'else' or 'endif'. The innermost block that needs to be closed is 'if'.\n"
+  },
+  "vscode-ipu-asm/test/corpus/negative/unknown_mnemonic.asm": {
+    "exception": null,
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError assembling code: Opcode 'FROB' not found in any Inst subclass.\n"
+  }
+}

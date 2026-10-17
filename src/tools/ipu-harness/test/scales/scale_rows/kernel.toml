@@ -1,0 +1,34 @@
+# The template of the fixture family (E06-17): //kernels/elementwise/scale
+# without user data, so an entry may fix rows to any value.
+[kernel]
+op = "scale_rows"
+formats = ["fp32", "int8", "e4"]
+
+[params]
+rows = { type = "int", min = 1, max = 256 }
+s    = { type = "float" }
+
+[inputs.x]
+shape = ["rows", 128]
+
+[outputs.y]
+shape = ["rows", 128]
+store = "accumulator"
+
+[abi]
+x    = "CR2"
+y    = "CR3"
+rows = "CR4"
+s    = "CR5"
+
+[golden]
+reference = "reference.py:reference"
+tolerance = { fp32 = "EXACT", int32 = "EXACT" }   # y, an accumulator output, is compared as FP32 (INT32 in INT8)
+
+[cases.default]
+rows = 4
+s = 2.0
+
+[cases.negative]
+rows = 1
+s = -3.0

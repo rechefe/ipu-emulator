@@ -1,28 +1,57 @@
 # Bazel configuration
 
-# C/C++ standards
-build --cxxopt=-std=c++17
-build --conlyopt=-std=c11
-
-# Warnings
-build --copt=-Wall
-build --copt=-Wextra
-build --copt=-Wpedantic
-
 # Stamp generated artifacts (e.g. ipu_instr_pkg.sv) with the source commit
 build --workspace_status_command=tools/workspace_status.sh
 
-# Coverage support
+# Coverage (the nightly workflow runs `bazel coverage --config=full //...`).
+# One combined lcov report at bazel-out/_coverage/_coverage_report.dat.
+# Instrument the libraries, not the test files themselves.
 coverage --combined_report=lcov
-coverage --experimental_generate_llvm_lcov
-coverage --instrument_test_targets
+coverage --instrument_test_targets=false
+coverage --instrumentation_filter=^//src/tools[/:],^//docs[/:],^//tools[/:]
 
 # Test output
 test --test_output=errors
 test --test_summary=detailed
 
-# Forward GITHUB_TOKEN into genrules that need it (e.g. generate_release_log)
-build --action_env=GITHUB_TOKEN
+# Test tiers (README "Test tiers").
+# Default tier: everything but the heavy (enormous) tests.
+test --test_size_filters=-enormous
+
+# CI: default tier, no docs targets.
+build:ci --build_tag_filters=-docs
+test:ci --test_tag_filters=-docs
+test:ci --build_tests_only
+# CI caches (restored and saved by .github/workflows/ci.yml).
+build:ci --repository_cache=~/.cache/bazel-repo
+build:ci --disk_cache=~/.cache/bazel-disk
+
+# Full: every non-manual test, including the heavy tier (run nightly).
+test:full --test_size_filters=
+build:full --build_tag_filters=-docs
+test:full --test_tag_filters=-docs
+
+# Prototyping build: the emulator's opt-in fast paths. Short form of
+# --define=ipu_proto=1, which keeps working. CI runs the default tier in both
+# modes (the `proto` job in .github/workflows/ci.yml), and the nightly
+# workflow's `proto` job the heavy tier.
+build:proto --define=ipu_proto=1
+
+# Docs build: giscus settings for docs/hooks/giscus_env.py. Scoped to
+# --config=docs so they stay out of every other action's cache key.
+# No build action reaches the network or reads GITHUB_TOKEN: the release log is
+# committed (docs/content/release-log.md) and refreshed by a workflow.
+build:docs --action_env=GISCUS_REPO_ID
+build:docs --action_env=GISCUS_CATEGORY_ID
+build:docs --action_env=GISCUS_REPO
+build:docs --action_env=GISCUS_CATEGORY
+build:docs --action_env=GISCUS_MAPPING
+build:docs --action_env=GISCUS_REACTIONS_ENABLED
+build:docs --action_env=GISCUS_EMIT_METADATA
+build:docs --action_env=GISCUS_INPUT_POSITION
+build:docs --action_env=GISCUS_THEME
+build:docs --action_env=GISCUS_LANG
+build:docs --action_env=GISCUS_STRICT
 
 # Launch any IpuApp harness in the TUI after setup, before instruction execution.
 run:debug --run_env=IPU_DEBUG_TUI=1

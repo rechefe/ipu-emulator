@@ -6,7 +6,7 @@ The AaQ (Activation and Quantization) stage applies element-wise activation
 and special functions to the 128-element accumulator and quantizes the
 128-element vector into an 8-bit vector. On `ACTIVATE.QUANTIZE` it produces
 the `POST_AAQ_REG` payload, which is later written to external memory (XMEM)
-by `STR_POST_AAQ_REG`. It produces:
+by `ST.AAQ`. It produces:
 
 - A 128-element vector of 8-bit quantized values.
 - A scale factor.
@@ -89,9 +89,9 @@ flowchart LR
 | `partition` | `input logic [1:0]` | Element partition grouping: enum of `1`/`2`/`4`/`8` (encoded `00`/`01`/`10`/`11`). Exact semantics TBD. |
 | `partition_mask` | `input logic [2:0]` | Count of `partition` groups, counted from the right (highest-indexed group), that are masked out entirely. `0` = all `partition` groups valid; `k` = the rightmost `k` groups are masked — their elements do not participate in activation/quantization and their output elements are forced to 0 (section 6.2). `k` must not exceed `partition - 1` (masking every group is not a supported configuration). Example: `partition = 8` splits the 128 elements into 8 groups of 16 (`elements[0:15] \| elements[16:31] \| ... \| elements[112:127]`); `partition_mask = 2` masks the rightmost 2 groups, i.e. `elements[96:127]`. |
 | `format` | `input logic [8:0]` | Output element format of the destination table, global to the table (not stored per XMEM row). Bits `[7:0]` describe the element encoding; bit `[8]` (`dynamic`) selects static (`0`) or dynamic (`1`) quantization. See section 3.3. |
-| `write_addr` | `input logic [XMEM_ADDR_W-1:0]` | Destination XMEM address for `STR_POST_AAQ_REG` when writing `POST_AAQ_REG` to XMEM (see `XMEM_ADDR_W` in the Control stage spec, section 4). |
+| `write_addr` | `input logic [XMEM_ADDR_W-1:0]` | Destination XMEM address for `ST.AAQ` when writing `POST_AAQ_REG` to XMEM (see `XMEM_ADDR_W` in the Control stage spec, section 4). |
 
-*`op` is sourced from the `opcode` field of the generated `aaq_slot_t` struct, typed `aaq_inst_opcode_t` (package `ipu_instr_pkg`). Generated from [`instruction_spec.py`](../../../src/tools/ipu-common/src/ipu_common/instruction_spec.py) (the AAQ slot's `"aaq"` entry) by [`gen_codegen.py`](../../../src/tools/ipu-as-py/src/ipu_as/gen_codegen.py) via the [`ipu_instr_pkg.sv.j2`](../../../src/tools/ipu-as-py/src/ipu_as/templates/ipu_instr_pkg.sv.j2) template (`bazel run //src/tools/ipu-as-py:ipu-as -- sv-package --output <path>`).*
+*`op` is sourced from the `opcode` field of the generated `aaq_slot_t` struct, typed `aaq_inst_opcode_t` (package `ipu_instr_pkg`). Generated from [`instruction_spec.py`](../../../src/tools/ipu-isa/src/ipu_isa/instruction_spec.py) (the AAQ slot's `"aaq"` entry) by [`sv_package.py`](../../../src/tools/ipu-gen/src/ipu_gen/sv_package.py) via the [`ipu_instr_pkg.sv.j2`](../../../src/tools/ipu-gen/src/ipu_gen/templates/ipu_instr_pkg.sv.j2) template (`bazel run //src/tools/ipu-gen:ipu-gen -- sv-package --output <path>`).*
 
 ### 3.2 Output
 
@@ -106,7 +106,7 @@ produces a single 1033-bit `POST_AAQ_REG` payload:
 
 Total payload: 1024 + 8 + 1 = **1033 bits**.
 
-`STR_POST_AAQ_REG` performs the XMEM write (`Memory[write_addr] =
+`ST.AAQ` performs the XMEM write (`Memory[write_addr] =
 POST_AAQ_REG`) as a separate STORE-slot operation.
 
 The row does **not** contain the `format` field. The format belongs to the
@@ -155,7 +155,7 @@ Example: signed, 2 exponent bits, 8-bit width (`e2m5`) is
 
 - The AaQ slot executes once per VLIW cycle.
 - AaQ is the pipeline's last stage; slot execution order within a VLIW word: CTRL → MULT → ACC → **AaQ**.
-- `ACTIVATE.QUANTIZE` computes the quantized bundle in `POST_AAQ_REG`; `STR_POST_AAQ_REG` performs the XMEM write as a separate STORE-slot operation.
+- `ACTIVATE.QUANTIZE` computes the quantized bundle in `POST_AAQ_REG`; `ST.AAQ` performs the XMEM write as a separate STORE-slot operation.
 - `NOP` performs no state changes.
 
 ## 5. AaQ Operations
@@ -475,8 +475,8 @@ with `r_acc[9][7:0]`.
 
 The opcode enum
 (`aaq_inst_opcode_t`, package `ipu_instr_pkg`) is generated from
-[`instruction_spec.py`](../../../src/tools/ipu-common/src/ipu_common/instruction_spec.py)
-by [`gen_codegen.py`](../../../src/tools/ipu-as-py/src/ipu_as/gen_codegen.py).
+[`instruction_spec.py`](../../../src/tools/ipu-isa/src/ipu_isa/instruction_spec.py)
+by [`sv_package.py`](../../../src/tools/ipu-gen/src/ipu_gen/sv_package.py).
 
 The AaQ slot is resolved by CTRL and forwarded down the pipeline;
 the stage does not read the CR/LR register files itself (see the
@@ -496,7 +496,7 @@ but is never assumed).
 
 ### 6.2 `ACTIVATE.QUANTIZE`: Activate and Quantize
 
-- **Summary:** Apply an element-wise activation function to the active elements of `r_acc`, quantize the result, and write the resulting 8-bit values, scale factor, and `dynamic_exponent` bit to `POST_AAQ_REG`. `STR_POST_AAQ_REG` performs the XMEM write in the STORE slot. Activation functions are pre-configured into the LUT by `LOAD` (section 6.3); naming an activation in `function_type` triggers the corresponding loaded LUT entry. `r_acc` is not modified.
+- **Summary:** Apply an element-wise activation function to the active elements of `r_acc`, quantize the result, and write the resulting 8-bit values, scale factor, and `dynamic_exponent` bit to `POST_AAQ_REG`. `ST.AAQ` performs the XMEM write in the STORE slot. Activation functions are pre-configured into the LUT by `LOAD` (section 6.3); naming an activation in `function_type` triggers the corresponding loaded LUT entry. `r_acc` is not modified.
 - **Syntax:** `ACTIVATE.QUANTIZE function_type, cr_idx`
 - **Operands:**
   - `function_type`: activation/special-function keyword (see section 5.0): `identity`, `relu`, `relu6`, `generic`, `reciprocal`, `rsqrt`, `exp2`.

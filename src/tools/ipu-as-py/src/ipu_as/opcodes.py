@@ -1,16 +1,78 @@
-"""Opcode definitions for IPU assembler — auto-generated from instruction_spec.
+"""Opcode definitions for IPU assembler — auto-generated from the ISA view.
 
-This module re-exports Opcode classes created from ipu_common.instruction_spec
-at runtime. No manual opcode definitions here — everything flows from the
-single source of truth (INSTRUCTION_SPEC).
+This module builds the Opcode token classes from ``ipu_isa.view.isa()`` at
+import. No manual opcode definitions here — everything flows from the single
+source of truth (``instruction_spec.py``).
 
 All opcode values are AUTOMATICALLY DERIVED from instruction position.
-When you add or reorder instructions in INSTRUCTION_SPEC, opcodes update
+When you add or reorder instructions in the spec, opcodes update
 automatically without touching this file.
 """
 
-import lark
-from ipu_common.instruction_spec import create_assembler_opcodes
+import ipu_as.ipu_token as ipu_token
+from ipu_as.errors import SlotError, SourceLocation
+from ipu_isa.slots import SLOTS
+from ipu_isa.view import isa
+
+
+def create_assembler_opcodes() -> dict[str, type]:
+    """Create Opcode classes at runtime (no code generation needed).
+
+    Returns a dict of dynamically created Opcode subclasses:
+        {
+            "LoadInstOpcode": <class>,
+            "LrInstOpcode": <class>,
+            ...
+        }
+
+    Each class has an enum_array() classmethod returning instruction names
+    in order (position = opcode).
+    """
+
+    class Opcode(ipu_token.EnumToken):
+        """Base class for all opcode types."""
+
+        #: Lower-case opcode -> the Opcode subclass that has it, built on first use.
+        _class_by_opcode: dict[str, type["Opcode"]] | None = None
+
+        @classmethod
+        def find_opcode_class(cls, opcode_token) -> type["Opcode"]:
+            if Opcode._class_by_opcode is None:
+                # In subclass order: the shared NOP maps to the first slot's class,
+                # as the scan this replaces did.
+                table: dict[str, type[Opcode]] = {}
+                for subclass in Opcode.__subclasses__():
+                    for name in subclass.enum_array():
+                        table.setdefault(name.lower(), subclass)
+                Opcode._class_by_opcode = table
+            subclass = Opcode._class_by_opcode.get(opcode_token.value.lower())
+            if subclass is not None:
+                return subclass
+            raise SlotError(
+                f"Opcode '{opcode_token.value}' not found in any Opcode subclass",
+                location=SourceLocation.of(opcode_token),
+                token=opcode_token.value,
+            )
+
+    result = {}
+    # Spec order: it fixes the order the token classes are created in, which
+    # the SV package's enum order follows.
+    for slot in isa().spec_slot_order:
+        class_name = SLOTS[slot].asm_opcode_class
+        enum_array = [instruction.mnemonic for instruction in isa().instructions(slot)]
+
+        # Create class dynamically
+        opcode_class = type(
+            class_name,
+            (Opcode,),
+            {
+                "enum_array": classmethod(lambda cls, ea=enum_array: ea),
+            },
+        )
+        result[class_name] = opcode_class
+
+    return result
+
 
 # Create Opcode classes at runtime from instruction_spec
 _opcode_classes = create_assembler_opcodes()

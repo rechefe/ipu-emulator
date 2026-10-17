@@ -7,26 +7,35 @@ attn_v_16x60, or any softmax kernel.
 
 Instruction counting: RunStats (ipu_emu/stats.py) tracks cycles and
 mult/acc-active cycles and XMEM accesses, but NOT a dynamic executed-
-instruction count. Rather than reimplement NOP detection (risk of drifting
-from the real logic and fabricating a number), this monkeypatches
-Ipu.dispatch_instruction -- the exact seam where the emulator itself
-resolves "instruction_name != NOP" (ipu.py:1343, see the mult/acc/load/store
-stats updates a few lines below the lookup) -- to tally every dispatched,
-non-NOP slot across every executed cycle. No ipu.py edit; this only wraps
-the method from outside for the duration of one run() call.
+instruction count. This counts every non-NOP op the cycle issues (LR slots
+aside), the BREAK slot included, as a CycleObserver attached to the state
+(IpuState.add_cycle_observer) for the duration of one `with` block. The cycle
+issues the same non-NOP ops in faithful and prototyping mode (prototyping only
+skips NOP slots), so the counts are identical in both modes. Nothing in Ipu is
+patched.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from typing import Any
 
-from ipu_emu.ipu import Ipu
+from ipu_emu.ipu_state import IpuState
+from ipu_emu.issue import IssueFacts
+from ipu_isa.slots import Slot
+
+#: The slots counted: every slot but LR.
+_COUNTED = frozenset(slot.value for slot in Slot if slot is not Slot.LR)
 
 
 @dataclass
 class InstrCount:
-    """Dynamic executed non-NOP instruction count, broken down by slot."""
+    """Dynamic executed non-NOP instruction count, broken down by slot.
+
+    A :class:`~ipu_emu.cycle.CycleObserver`: it counts ``issued`` events.
+    """
 
     by_slot: dict = field(default_factory=dict)
 
@@ -34,36 +43,30 @@ class InstrCount:
     def total(self) -> int:
         return sum(self.by_slot.values())
 
+    def begin(self, pc: int) -> None:
+        pass
+
+    def issued(self, facts: IssueFacts) -> None:
+        if facts.slot in _COUNTED and facts.plan.inst_name != "NOP":
+            self.by_slot[facts.slot] = self.by_slot.get(facts.slot, 0) + 1
+
+    def retired(self, facts: IssueFacts, result: Any) -> None:
+        pass
+
+    def end(self) -> None:
+        pass
+
 
 @contextmanager
-def count_instructions():
-    """Context manager: yields an InstrCount that fills in as the emulator runs.
+def count_instructions(state: IpuState) -> Iterator[InstrCount]:
+    """Context manager: yields an InstrCount that fills in as *state* runs.
 
-    Wraps Ipu.dispatch_instruction for the duration of the `with` block only;
-    the original method is restored on exit regardless of how the block ends.
+    The count observes every cycle on *state* for the duration of the `with`
+    block only; it is detached on exit regardless of how the block ends.
     """
     counts = InstrCount()
-    original = Ipu.dispatch_instruction
-
-    # We need the resolved instruction_name, which `original` computes
-    # internally but does not return. Re-derive it the same way
-    # dispatch_instruction does (get_instruction_by_opcode), rather than
-    # guessing from the return value -- this stays byte-for-byte aligned
-    # with the emulator's own NOP classification.
-    from ipu_common.instruction_spec import get_instruction_by_opcode
-    from ipu_emu.ipu import _SLOT_FIELD_PREFIX
-
-    def counting_dispatch(self, slot_type, inst):
-        prefix = _SLOT_FIELD_PREFIX[slot_type]
-        opcode_field = f"{prefix}_token_0_{slot_type}_inst_opcode"
-        opcode = inst[opcode_field]
-        instruction_name, _spec = get_instruction_by_opcode(slot_type, opcode)
-        if instruction_name != "NOP":
-            counts.by_slot[slot_type] = counts.by_slot.get(slot_type, 0) + 1
-        return original(self, slot_type, inst)
-
-    Ipu.dispatch_instruction = counting_dispatch
+    remove = state.add_cycle_observer(counts)
     try:
         yield counts
     finally:
-        Ipu.dispatch_instruction = original
+        remove()

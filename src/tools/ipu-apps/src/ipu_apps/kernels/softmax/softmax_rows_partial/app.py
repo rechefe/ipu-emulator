@@ -13,7 +13,7 @@ N elements of each partition contribute (max/sum ignore the padding tail).
 
 Reduction trick (probe-validated): to reduce partition p, ``MULT.RC.VV`` reads
 r_cyclic at ELEMENT offset ``p*ps`` (rc_idx is element-addressed, matching
-``LDR_CYCLIC_MULT_REG``'s index -- issue #182/PR #196) so partition p lands in
+``LD.MULT.CYCLIC``'s index -- issue #182/PR #196) so partition p lands in
 mult_res elements 0..N-1, then a masked ``AGG`` reduces exactly those into r_acc
 slot = row index.
 
@@ -30,11 +30,12 @@ Layout:
 Only Pass 4 re-packs: for partition p, ``MULT.RC.VE`` places row p's product
 at elements ``[p*ps, p*ps+N)`` (same rc_idx trick, reversed), masked via a
 per-partition ``R_MASK`` slot (``mask_offset=p``, built by ``_partition_masks``
-and loaded once per chunk via ``LDR_MULT_MASK_REG``) so every OTHER element is
+and loaded once per chunk via ``LD.MASK``) so every OTHER element is
 zeroed before ``acc.add``/``acc.add.first`` accumulates it into the shared
 r_acc -- this is what lets P separate partitions safely share one accumulator
-without corrupting each other (see STATUS.md's "Pass-4 cross-partition
-contamination" for why this masking is necessary). One ACTIVATE+store then
+without corrupting each other (PASS-4 MASKS in the header of
+kernels/softmax/softmax_rows_partial/softmax_rows_partial.asm says why this
+masking is necessary). One ACTIVATE+store then
 drains the fully assembled packed chunk. ``mask_offset`` is a compile-time
 immediate, so the per-partition instruction sequence is unrolled per P value
 via Jinja in the ``.asm`` (one block each for P=1/2/4/8), with a runtime
@@ -60,7 +61,7 @@ from __future__ import annotations
 from ipu_apps.kernels.softmax.app import LANES, SoftmaxApp, partition_size, softmax_spec
 
 # r_cyclic's full ring: 512 ELEMENTS (MULT.RC's rc_idx is element-addressed,
-# matching LDR_CYCLIC_MULT_REG's index -- issue #182/PR #196). The Pass-4
+# matching LD.MULT.CYCLIC's index -- issue #182/PR #196). The Pass-4
 # repack's reverse slide wraps at this element count.
 RING_ELEMENTS = 512
 
@@ -97,38 +98,44 @@ class SoftmaxRowsPartialApp(SoftmaxApp):
         Slot p (p < P) keeps bits [p*ps, p*ps+N) and zeroes every other bit
         (bit 1 = keep). Each partition's MULT.RC.VE (mask_offset=p) is thereby
         restricted to exactly its own elements, so acc.add never leaks another
-        row's data into a neighbouring partition (see STATUS.md).
+        row's data into a neighbouring partition (the kernels/softmax .asm header).
         """
         buf = bytearray(128)
         for p in range(self.parts_per_chunk):
             bits = ((1 << self.n) - 1) << (p * self.ps)
-            buf[p * 16:(p + 1) * 16] = bits.to_bytes(16, byteorder="little")
+            buf[p * 16 : (p + 1) * 16] = bits.to_bytes(16, byteorder="little")
         return bytes(buf)
 
     def _crs(self):
         return {
-            8: LANES,                              # R1 byte-index base for maxvec select
-            9: self.device_rows,                   # total chunks (group loop bound)
-            11: RING_ELEMENTS,                     # r_cyclic ring size (elements)
-            12: self.ps,                           # partition element stride
-            13: LANES // self.parts_per_chunk,     # chunks in a full group
-            14: self.parts_per_chunk,              # P
+            8: LANES,  # R1 byte-index base for maxvec select
+            9: self.device_rows,  # total chunks (group loop bound)
+            11: RING_ELEMENTS,  # r_cyclic ring size (elements)
+            12: self.ps,  # partition element stride
+            13: LANES // self.parts_per_chunk,  # chunks in a full group
+            14: self.parts_per_chunk,  # P
         }
 
 
 def _explain(q):
     ps = partition_size(q.n)
     p = LANES // ps
-    return (f"n ({q.n}) < {LANES}: packed row kernel, partition size ps={ps}, "
-            f"P={p} logical rows per {LANES}-element chunk, in groups of "
-            f"{LANES // p} chunks.")
+    return (
+        f"n ({q.n}) < {LANES}: packed row kernel, partition size ps={ps}, "
+        f"P={p} logical rows per {LANES}-element chunk, in groups of "
+        f"{LANES // p} chunks."
+    )
 
 
 SPEC = softmax_spec(
-    SoftmaxRowsPartialApp, along_rows=True,
-    supports=lambda q: (None if q.n <= LANES else
-                        f"packs whole rows into one {LANES}-element chunk, so it needs a row "
-                        f"of at most {LANES} elements; this row has {q.n}"),
+    SoftmaxRowsPartialApp,
+    along_rows=True,
+    supports=lambda q: (
+        None
+        if q.n <= LANES
+        else f"packs whole rows into one {LANES}-element chunk, so it needs a row "
+        f"of at most {LANES} elements; this row has {q.n}"
+    ),
     explain=_explain,
     # This kernel also handles n == 128 (P=1), as does softmax_rows. `supports`
     # says what it CAN do; `cost` makes the specialised full-width kernel win

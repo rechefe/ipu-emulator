@@ -4,30 +4,34 @@ name: VS Code Extension
 # with the parser and assembler on a real corpus, tests it in a real VS Code,
 # then packages (and on master, publishes) the .vsix.
 #
-# The paths filters include ipu_as, ipu_common and ipu_emu: the grammar,
+# The paths filters include ipu_as, ipu_isa and ipu_gen: the grammar,
 # instruction set, operand types, case rules and register facts are read from
-# them at build time.
+# them at build time (by ipu_gen/vscode_data.py). requirements_lock.txt and tools/bootstrap.sh change the
+# build it runs, so pull requests that touch them run it too.
+#
+# Keep these paths in step with the package layout: a package split or rename
+# (Q69) must update them.
 
 on:
   # Master publishes, so only files that can change the packaged .vsix count:
   # test/** is excluded by .vscodeignore, and the generator reads nothing from
-  # ipu_emu beyond ipu.py (LRD pairs) and ipu_config.py (fixed CRs).
+  # ipu_emu.
   push:
     branches: [ master ]
     paths:
       - 'vscode-ipu-asm/**'
       - '!vscode-ipu-asm/test/**'
       - 'src/tools/ipu-as-py/src/ipu_as/**'
-      - 'src/tools/ipu-common/src/ipu_common/**'
-      - 'src/tools/ipu-emu-py/src/ipu_emu/ipu.py'
-      - 'src/tools/ipu-emu-py/src/ipu_emu/ipu_config.py'
+      - 'src/tools/ipu-gen/**'
+      - 'src/tools/ipu-isa/src/ipu_isa/**'
       - '.github/workflows/vscode-extension.yml'
   pull_request:
     branches: [ "**" ]
     paths:
       - 'vscode-ipu-asm/**'
       - 'src/tools/ipu-as-py/src/ipu_as/**'
-      - 'src/tools/ipu-common/src/ipu_common/**'
+      - 'src/tools/ipu-gen/**'
+      - 'src/tools/ipu-isa/src/ipu_isa/**'
       - 'src/tools/ipu-emu-py/src/ipu_emu/**'
       - '.github/workflows/vscode-extension.yml'
       # PRs only: the test corpus and the runtime kernel manifest change no
@@ -37,6 +41,9 @@ on:
       - 'src/tools/ipu-apps/src/ipu_apps/kernels/**/*.py'
       - 'src/tools/ipu-apps/BUILD.bazel'
       - 'ipu_app.bzl'
+      # PRs only: they change how the build runs, not what is packaged.
+      - 'requirements_lock.txt'
+      - 'tools/bootstrap.sh'
   workflow_dispatch:
 
 permissions:
@@ -54,27 +61,9 @@ jobs:
         with:
           node-version: '20'
 
-      # Mirrors ci.yml's setup, which is the sequence known to build this repo.
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.11'
-
-      # Required before any bazel invocation: tools/python_deps.bzl shells out
-      # to `uv` to compile requirements from pyproject.toml, so without it the
-      # repository fetch fails with execvp(uv): No such file or directory.
-      # Both PATH entries are added because the installer's location has moved
-      # between releases (~/.cargo/bin historically, ~/.local/bin now).
-      - name: Install uv
-        run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
-
-      - name: Install Bazelisk
-        run: |
-          sudo curl -Lo /usr/local/bin/bazel https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64
-          sudo chmod +x /usr/local/bin/bazel
+      # The same pinned bazelisk as every other workflow.
+      - name: Install toolchain
+        run: ./tools/bootstrap.sh
 
       # Writes syntaxes/ipu-asm.tmLanguage.json and language-configuration.json
       # into the extension directory. Both are build outputs, not committed.
@@ -90,7 +79,7 @@ jobs:
             "$PWD"/src/tools/ipu-apps/src/ipu_apps/**/*.asm \
             "$PWD"/src/tools/ipu-apps/test/**/*.asm \
             "$PWD/vscode-ipu-asm/test/corpus/edge_cases.asm"
-        shell: bash --noprofile --norc -eo pipefail -O globstar {0}
+        shell: bash --noprofile --norc -eo pipefail -O globstar -O nullglob {0}
 
       # The real VS Code tokenizer (Python's re is a different engine, so a
       # misleading oracle) and the VS Code test harness; --no-save keeps them
@@ -113,10 +102,34 @@ jobs:
       - name: Check how checkouts are found
         run: node vscode-ipu-asm/test/project.js
 
+      # The extension activated on a stand-in `vscode`: Restricted Mode runs nothing
+      # (no API grants workspace trust inside VS Code, so the integration test cannot drive it).
+      - name: Check what activation runs, and when
+        run: node vscode-ipu-asm/test/activation.js
+
       - name: Check completion and navigation against the parser
         run: |
           node vscode-ipu-asm/test/language.js \
             vscode-ipu-asm/data/isa.json parser-tokens.json
+
+      - name: Check the v2 analysis client and its providers
+        run: node vscode-ipu-asm/test/analysis.js
+
+      - name: Check the JS fallback against the assembler's v2 analysis
+        run: node vscode-ipu-asm/test/analysis-agreement.js vscode-ipu-asm/data/isa.json
+
+      - name: Check where the language data comes from (a checkout's ISA, else the bundled one)
+        run: |
+          node vscode-ipu-asm/test/language-source.js
+          node vscode-ipu-asm/test/languages.js
+
+      # The format provider over `ipu-as format`, and the assembler formatting the corpus as
+      # the editor's own rules do.
+      - name: Check formatting by the checkout's assembler
+        run: |
+          bazel build //src/tools/ipu-as-py:ipu-as
+          node vscode-ipu-asm/test/formatting.js vscode-ipu-asm/data/isa.json \
+            bazel-bin/src/tools/ipu-as-py/ipu-as
 
       # A correct rename or format leaves the binary byte for byte the same.
       - name: Check renames and formatting leave the program unchanged
@@ -124,6 +137,15 @@ jobs:
           node vscode-ipu-asm/test/rewrites.js \
             vscode-ipu-asm/data/isa.json parser-tokens.json rewrites.json
           bazel run //vscode-ipu-asm:check_rewrites -- "$PWD/rewrites.json"
+
+      # Both directions: the editor accepts a text exactly when the assembler does, over the
+      # corpus, mutations of it and the negative corpus (test/corpus/negative), but for the
+      # reviewed gaps in test/corpus/negative/allowed-gaps.json.
+      - name: Check the editor and the assembler agree on what assembles
+        run: |
+          node vscode-ipu-asm/test/verdicts.js \
+            vscode-ipu-asm/data/isa.json parser-tokens.json verdicts.json
+          bazel run //vscode-ipu-asm:check_verdicts -- "$PWD/verdicts.json"
 
       # Read by the extension at runtime; building it proves Bazel's targets and
       # the registry agree.

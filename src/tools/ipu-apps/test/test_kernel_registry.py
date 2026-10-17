@@ -1,11 +1,10 @@
-"""Registry mechanics, and a generic conformance suite every kernel inherits.
+"""Registry mechanics, and checks every registered kernel inherits.
 
 The registry's whole value is that its answers match reality, so most of these
 tests are consistency checks against the kernels themselves rather than
-assertions about hardcoded strings. Crucially, the conformance tests are
-written against *whatever is registered* -- a newly added kernel is verified
-automatically, and a kernel whose ``supports`` over-claims fails here rather
-than in a user's hands.
+assertions about hardcoded strings. The per-kernel checks (hygiene, every case
+accepted by its own spec and routed) are written against *whatever is
+registered*, so a newly added kernel is checked automatically.
 """
 
 from __future__ import annotations
@@ -27,8 +26,6 @@ import ipu_apps.kernel_registry.manifest as manifest
 import ipu_apps.kernel_registry.query as query
 import ipu_apps.kernel_registry.registry as registry
 import ipu_apps.kernel_registry.runner as runner
-from ipu_apps.kernel_registry.cases import assemble_kernel, case_options, load_cases, package_kernel
-from ipu_apps.kernel_registry.layers import _ADAPTERS
 from ipu_apps.kernel_registry import (
     KernelSpec,
     ShapeBundle,
@@ -42,12 +39,15 @@ from ipu_apps.kernel_registry import (
     kernels,
     load,
     lookup_layer,
+    no,
     operations,
     register_layer,
     report,
     resolve,
     yes,
 )
+from ipu_apps.kernel_registry.cases import case_options, load_cases, package_kernel
+from ipu_apps.kernel_registry.layers import _ADAPTERS
 
 
 @contextlib.contextmanager
@@ -64,18 +64,49 @@ def _registered(*specs: KernelSpec, package: str = "_synthetic"):
         registry._CACHE.pop(package, None)
 
 
+# The mechanics below run on `identity`, the one old kernel kept until E07-25
+# (E07-04), and on synthetic specs. Softmax, their example until E07-11, is
+# routed by kernels/softmax.
+
+#: The identity kernel's query, at 8 rows.
+IDENTITY = ["identity", "shape=8,128"]
+
+
+def _split(*, fits, cost, name):
+    """A synthetic row kernel of ``split_op``: claims lengths where ``fits``."""
+
+    def supports(**params):
+        if params["n"] < 1:
+            return no(f"n ({params['n']}) must be >= 1")
+        return yes() if fits(params["n"]) else no(f"{name} does not take n={params['n']}")
+
+    return KernelSpec(
+        name=name,
+        op="split_op",
+        app_class=object,
+        supports=supports,
+        build=lambda **p: {},
+        explain=lambda **p: name,
+        requires=("n",),
+        cost=lambda **p: cost(p["n"]),
+    )
+
+
+#: Three kernels split by row length, as the softmax row kernels were: the
+#: packed one takes n <= 128 (dearer at 128), the exact one n == 128, the
+#: chunked one n > 128.
+SPLIT = (
+    _split(fits=lambda n: n <= 128, cost=lambda n: 2.0 if n == 128 else 1.0, name="packed"),
+    _split(fits=lambda n: n == 128, cost=lambda n: 0.0, name="exact"),
+    _split(fits=lambda n: n > 128, cost=lambda n: 1.0, name="chunked"),
+)
+
+
 # -- discovery --------------------------------------------------------------
 
 
-def test_discovery_finds_the_softmax_kernels():
-    names = {k.name for k in kernels("softmax")}
-    assert names == {
-        "softmax_rows",
-        "softmax_rows_partial",
-        "softmax_rows_long",
-        "softmax_columns",
-        "softmax_columns_packed",
-    }
+def test_discovery_finds_the_identity_kernel():
+    assert {k.name for k in kernels("identity")} == {"identity"}
 
 
 def test_discovery_reports_nothing_skipped():
@@ -85,7 +116,7 @@ def test_discovery_reports_nothing_skipped():
     assert load().skipped == ()
 
 
-def test_a_broken_family_package_is_reported_not_silently_dropped():
+def test_a_broken_family_package_is_reported_not_silently_dropped(monkeypatch):
     """A family whose __init__ cannot import hides every kernel beneath it, so
     it must appear as skipped -- a coverage hole nobody would otherwise see."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -95,11 +126,10 @@ def test_a_broken_family_package_is_reported_not_silently_dropped():
         (root / "family" / "__init__.py").write_text("import a_dependency_that_is_not_installed\n")
         (root / "family" / "kernel" / "__init__.py").write_text("")
         (root / "family" / "kernel" / "app.py").write_text("")
-        sys.path.insert(0, tmp)
+        monkeypatch.syspath_prepend(tmp)
         try:
             found = discover("broken_family_apps")
         finally:
-            sys.path.remove(tmp)
             for name in [m for m in sys.modules if m.startswith("broken_family_apps")]:
                 del sys.modules[name]
     assert [s.module for s in found.skipped] == ["broken_family_apps.family"]
@@ -107,10 +137,10 @@ def test_a_broken_family_package_is_reported_not_silently_dropped():
 
 
 def test_discovery_is_recursive():
-    """Kernels sit one level below their family package (`softmax`), so
+    """Kernels sit one level below their family package (`reshape`), so
     discovery must not stop at the first level."""
-    found = discover("ipu_apps.kernels.softmax")
-    assert {k.name for k in found.specs} == {k.name for k in kernels("softmax")}
+    found = discover("ipu_apps.kernels.reshape")
+    assert "identity" in {k.name for k in found.specs}
 
 
 def test_every_spec_is_well_formed():
@@ -120,6 +150,7 @@ def test_every_spec_is_well_formed():
         assert isinstance(spec.app_class, type), spec.name
         if spec.asm:
             from importlib.resources import files
+
             assert files(spec.resource_package).joinpath(spec.asm).is_file(), (
                 f"{spec.name} declares a missing asm: {spec.asm}"
             )
@@ -134,14 +165,13 @@ def test_every_kernel_is_named_after_its_folder():
 
 
 def test_misplaced_harnesses_fail_with_a_reason():
-    """A family base class has no SPEC, and a class outside any package has no
+    """A shared base class has no SPEC, and a class outside any package has no
     folder: both used to die with AttributeError on None."""
-    from ipu_apps.kernels.pooling.app import Stride2PoolApp
+    from ipu_apps.kernel_registry.memory import MemoryApp
 
     with pytest.raises(TypeError, match="no SPEC"):
-        Stride2PoolApp(inst_path="x", input_path="y",
-                       params=dict(shape=(1, 2, 256), kernel_size=2, stride=2, padding=0))
-    loose = type("Loose", (), {"__module__": "os"})   # a top-level, non-package module
+        MemoryApp(inst_path="x", input_path="y", params=dict(shape=(1, 128)))
+    loose = type("Loose", (), {"__module__": "os"})  # a top-level, non-package module
     with pytest.raises(ValueError, match="kernel folder"):
         kernel_folder(loose)
 
@@ -165,27 +195,35 @@ def test_unknown_operation_is_refused_with_the_known_list():
 def test_refusal_aggregates_every_kernel_reason():
     """When nothing covers a query the user needs to know what was wrong, not
     merely that it failed."""
-    verdict = resolve("softmax", shape=(0, 8), dim=1)
+    with _registered(*SPLIT) as pkg:
+        verdict = resolve("split_op", package=pkg, n=0)
     assert not verdict
     assert "must be >= 1" in verdict.reason
+    assert not resolve("identity", shape=(0, 128))
 
 
 def test_overlapping_claims_resolve_by_cost_not_discovery_order():
-    """softmax_rows_partial genuinely handles n == 128 (P=1), so both it and
-    softmax_rows claim that width. The specialised kernel must win, and the
-    other must be reported as an alternative rather than silently dropped."""
-    verdict = resolve("softmax", shape=(8, 128), dim=1)
-    assert verdict.app_name == "softmax_rows"
-    assert "softmax_rows_partial" in verdict.alternatives
+    """The packed kernel genuinely handles n == 128, so both it and the exact
+    kernel claim that length. The specialised kernel must win, and the other
+    must be reported as an alternative rather than silently dropped -- in
+    either registration order."""
+    for order in (SPLIT, SPLIT[::-1]):
+        with _registered(*order) as pkg:
+            verdict = resolve("split_op", package=pkg, n=128)
+        assert verdict.app_name == "exact"
+        assert "packed" in verdict.alternatives
 
 
 def test_a_kernels_own_support_reason_reaches_the_verdict():
     """`yes("...")` says something specific about *this* query; a verdict that
     always fell back to `explain` would discard it."""
     spec = KernelSpec(
-        name="reasoned", op="reasoned_op", app_class=object,
+        name="reasoned",
+        op="reasoned_op",
+        app_class=object,
         supports=lambda **p: yes("claimed because the input is already aligned"),
-        build=lambda **p: {}, explain=lambda **p: "generic explanation",
+        build=lambda **p: {},
+        explain=lambda **p: "generic explanation",
     )
     with _registered(spec) as pkg:
         assert resolve("reasoned_op", package=pkg).reason == (
@@ -195,8 +233,11 @@ def test_a_kernels_own_support_reason_reaches_the_verdict():
 
 def test_a_kernel_that_claims_without_a_reason_falls_back_to_explain():
     spec = KernelSpec(
-        name="silent", op="silent_op", app_class=object,
-        supports=lambda **p: yes(), build=lambda **p: {},
+        name="silent",
+        op="silent_op",
+        app_class=object,
+        supports=lambda **p: yes(),
+        build=lambda **p: {},
         explain=lambda **p: "generic explanation",
     )
     with _registered(spec) as pkg:
@@ -207,7 +248,7 @@ def test_a_missing_parameter_is_a_refusal_not_a_crash():
     """Callers branch on the verdict, so an omitted parameter must come back as
     one -- specs index ``**params``, so without a declared contract it would
     escape as a raw KeyError."""
-    verdict = resolve("softmax")
+    verdict = resolve("identity")
     assert not verdict
     assert "needs parameter" in verdict.reason
     assert "shape" in verdict.reason
@@ -234,12 +275,17 @@ def test_every_spec_declares_the_parameters_it_indexes():
 def test_a_kernels_own_keyerror_is_not_reported_as_unsupported():
     """A KeyError raised *inside* a spec is a bug in that kernel. Folding it
     into a refusal would turn it into a silent routing miss."""
+
     def _buggy(**params):
         return {"a": 1}["typo"]
 
     spec = KernelSpec(
-        name="buggy", op="buggy_op", app_class=object, supports=_buggy,
-        build=lambda **p: {}, explain=lambda **p: "ok",
+        name="buggy",
+        op="buggy_op",
+        app_class=object,
+        supports=_buggy,
+        build=lambda **p: {},
+        explain=lambda **p: "ok",
         requires=("shape", "dim"),
     )
     with _registered(spec) as pkg:
@@ -250,9 +296,10 @@ def test_a_kernels_own_keyerror_is_not_reported_as_unsupported():
 def test_identical_refusals_are_reported_once():
     """A query that fails to normalise at all is refused in the same words by
     every kernel; repeating the sentence five times buries it."""
-    verdict = resolve("softmax", shape=(4, 5, 6), dim=1)
+    with _registered(*SPLIT) as pkg:
+        verdict = resolve("split_op", package=pkg, n=-1)
     assert not verdict
-    assert verdict.reason.count("interior axis") == 1
+    assert verdict.reason.count("must be >= 1") == 1
     # ...and the reader is still told it was unanimous, not one kernel's quirk.
     assert "every kernel" in verdict.reason
 
@@ -260,13 +307,18 @@ def test_identical_refusals_are_reported_once():
 def test_a_broken_bundle_is_disclosed_rather_than_swallowed():
     """Everything else here refuses to hide a reinterpretation. A bundle helper
     that raises must not cost the caller that disclosure silently."""
+
     def _explode(**params):
         raise RuntimeError("bundle is broken")
 
     spec = KernelSpec(
-        name="bad_bundle", op="bad_bundle_op", app_class=object,
-        supports=lambda **p: yes(), build=lambda **p: {},
-        explain=lambda **p: "ok", bundle=_explode,
+        name="bad_bundle",
+        op="bad_bundle_op",
+        app_class=object,
+        supports=lambda **p: yes(),
+        build=lambda **p: {},
+        explain=lambda **p: "ok",
+        bundle=_explode,
     )
     with _registered(spec) as pkg:
         verdict = resolve("bad_bundle_op", package=pkg)
@@ -274,15 +326,13 @@ def test_a_broken_bundle_is_disclosed_rather_than_swallowed():
     assert any("NOT disclosed" in c for c in verdict.caveats)
 
 
-@pytest.mark.parametrize("shape,dim,expected", [
-    ((8, 64), 1, "softmax_rows_partial"),
-    ((8, 128), 1, "softmax_rows"),
-    ((8, 300), 1, "softmax_rows_long"),
-    ((8, 32), 0, "softmax_columns_packed"),
-    ((8, 300), 0, "softmax_columns"),
-])
-def test_routing(shape, dim, expected):
-    assert resolve("softmax", shape=shape, dim=dim).app_name == expected
+@pytest.mark.parametrize(
+    "n,expected",
+    [(1, "packed"), (64, "packed"), (128, "exact"), (129, "chunked"), (300, "chunked")],
+)
+def test_routing(n, expected):
+    with _registered(*SPLIT) as pkg:
+        assert resolve("split_op", package=pkg, n=n).app_name == expected
 
 
 # -- shapes: flattening and provenance --------------------------------------
@@ -291,15 +341,31 @@ def test_routing(shape, dim, expected):
 def test_rank3_is_flattened_and_the_reshape_is_disclosed():
     """Flattening is done on the caller's behalf, so it must be stated in the
     verdict -- a silent reshape is the failure mode this guards."""
-    verdict = resolve("softmax", shape=(4, 2, 128), dim=-1)
-    assert verdict.app_name == "softmax_rows"
+
+    def bundle(**params):
+        _, _, note = flatten_to_matrix(params["shape"], params["dim"])
+        return ShapeBundle.of(input=params["shape"]).with_shapes(
+            derived={"output": params["shape"]}, notes=(note,) if note else ()
+        )
+
+    spec = KernelSpec(
+        name="rows_kernel",
+        op="rows_op",
+        app_class=object,
+        supports=lambda **p: yes(),
+        build=lambda **p: {"rows": flatten_to_matrix(p["shape"], p["dim"])[0][0]},
+        explain=lambda **p: "ok",
+        bundle=bundle,
+    )
+    with _registered(spec) as pkg:
+        verdict = resolve("rows_op", package=pkg, shape=(4, 2, 128), dim=-1)
     assert verdict.kwargs["rows"] == 8
     assert any("flattened" in n for n in verdict.shapes.notes)
 
 
 def test_derived_shapes_are_marked_as_derived():
     """A shape the registry computed must not read as one the caller asserted."""
-    verdict = resolve("softmax", shape=(8, 128), dim=1)
+    verdict = resolve("identity", shape=(8, 128))
     assert "output" in verdict.shapes.derived_roles
     assert "input" not in verdict.shapes.derived_roles
     assert "output*" in verdict.shapes.describe()
@@ -328,28 +394,19 @@ def test_shape_bundle_rejects_degenerate_shapes():
 
 
 def test_layer_lookup_matches_the_direct_query():
-    torch = pytest.importorskip("torch")
-    layer = torch.nn.Softmax(dim=1)
-    assert lookup_layer(layer, (32, 300)).app_name == (
-        resolve("softmax", shape=(32, 300), dim=1).app_name
-    )
+    class CopyLayer:
+        pass
 
+    @register_layer("CopyLayer")
+    def _adapt(layer, input_shape):
+        return "identity", {"shape": input_shape}
 
-@pytest.mark.parametrize("layer_name", ["LogSoftmax", "Softmin"])
-def test_softmax_neighbours_are_refused(layer_name):
-    """These share Softmax's signature and sit beside it in torch, so a
-    permissive adapter would route them to a softmax kernel and return
-    confidently wrong numbers."""
-    torch = pytest.importorskip("torch")
-    layer = getattr(torch.nn, layer_name)(dim=1)
-    with pytest.raises(UnsupportedLayer, match="not softmax"):
-        lookup_layer(layer, (8, 64))
-
-
-def test_softmax_without_an_explicit_dim_is_refused():
-    torch = pytest.importorskip("torch")
-    with pytest.raises(UnsupportedLayer, match="does not state which axis"):
-        lookup_layer(torch.nn.Softmax(), (8, 64))
+    try:
+        assert lookup_layer(CopyLayer(), (8, 128)).to_dict() == (
+            resolve("identity", shape=(8, 128)).to_dict()
+        )
+    finally:
+        _ADAPTERS.pop("CopyLayer", None)
 
 
 def test_unknown_layer_names_the_registered_adapters():
@@ -364,21 +421,21 @@ def test_adapter_registration_is_additive():
     """Supporting a new layer type must not require editing the core."""
 
     class MadeUpLayer:
-        dim = 1
+        pass
 
     @register_layer("MadeUpLayer")
     def _adapt(layer, input_shape):
-        return "softmax", {"dim": layer.dim, "shape": input_shape}
+        return "identity", {"shape": input_shape}
 
     try:
-        assert lookup_layer(MadeUpLayer(), (8, 128)).app_name == "softmax_rows"
+        assert lookup_layer(MadeUpLayer(), (8, 128)).app_name == "identity"
     finally:
         # The adapter table is process-global; leaving this behind would let
         # one test change what `adapters()` reports to every later one.
         _ADAPTERS.pop("MadeUpLayer", None)
 
 
-def test_adapter_declared_beside_its_kernel_is_found():
+def test_adapter_declared_beside_its_kernel_is_found(monkeypatch):
     """The documented way to add an adapter must actually work.
 
     Adapters register as an import side effect of the package that declares
@@ -406,12 +463,11 @@ def test_adapter_declared_beside_its_kernel_is_found():
         class ProbeLayer:
             pass
 
-        sys.path.insert(0, tmp)
+        monkeypatch.syspath_prepend(tmp)
         try:
             verdict = lookup_layer(ProbeLayer(), (8, 128), package="adapter_probe_apps")
             assert verdict.app_name == "probe_kernel"
         finally:
-            sys.path.remove(tmp)
             _ADAPTERS.pop("ProbeLayer", None)
             for name in [m for m in sys.modules if m.startswith("adapter_probe_apps")]:
                 del sys.modules[name]
@@ -423,22 +479,18 @@ def test_adapter_declared_beside_its_kernel_is_found():
 def test_boundaries_report_the_real_routing_switchover():
     """Coverage tables are probed from the kernels, so they cannot describe
     behaviour the registry does not have."""
-    runs = boundaries(
-        "softmax", "shape", range(120, 136),
-        build=lambda n: (8, n), dim=1,
-    )
+    with _registered(*SPLIT) as pkg:
+        runs = boundaries("split_op", "n", range(120, 136), package=pkg)
     winner_at = {}
     for run in runs:
         for n in range(run.start, run.end + 1):
             winner_at[n] = run.kernel
 
-    assert winner_at[127] == "softmax_rows_partial"
-    assert winner_at[128] == "softmax_rows"      # exact-width specialisation
-    assert winner_at[129] == "softmax_rows_long"
+    assert winner_at[127] == "packed"
+    assert winner_at[128] == "exact"  # exact-length specialisation
+    assert winner_at[129] == "chunked"
     # Three regimes over this range, collapsed into contiguous runs.
-    assert [r.kernel for r in runs] == [
-        "softmax_rows_partial", "softmax_rows", "softmax_rows_long",
-    ]
+    assert [r.kernel for r in runs] == ["packed", "exact", "chunked"]
 
 
 def test_report_lists_every_kernel():
@@ -450,7 +502,7 @@ def test_report_lists_every_kernel():
 def test_every_case_routes_to_a_kernel(tmp_path):
     """A kernel's cases are configurations it is known to compute, so its own
     spec must accept each one and the registry must route each one somewhere.
-    Unlike the softmax conformance suite below, this covers every kernel."""
+    It covers every kernel."""
     for spec in kernels():
         for name, case in load_cases(spec.name).items():
             workspace = tmp_path / spec.name / name
@@ -470,6 +522,7 @@ def test_every_case_routes_to_a_kernel(tmp_path):
 
 def _benchmark_modules():
     import pkgutil
+
     import ipu_apps.kernels
 
     return [
@@ -496,8 +549,9 @@ def test_benchmark_configs_name_real_case_options(module):
 
 def test_benchmark_runs_configs_through_the_cases():
     module = types.SimpleNamespace(
-        __name__="ipu_apps.kernels.softmax.softmax_rows.benchmark",
-        CONFIGS=[{"rows": 8}], PER="rows",
+        __name__="ipu_apps.kernels.reshape.identity.benchmark",
+        CONFIGS=[{"rows": 8}],
+        PER="rows",
     )
     [row] = benchmarking.run_benchmark(module)
     assert row.label == "rows=8"
@@ -507,9 +561,8 @@ def test_benchmark_runs_configs_through_the_cases():
     table = benchmarking.render_table([row], "rows")
     header = table.splitlines()[0]
     assert "cyc/rows" in header and "effMAC%" in header and "rows=8" in table
-    # The full alias profile, not just the always-on subset: softmax's exp is A9,
-    # which only the profile detects.
-    assert "A9_EXP" in row.aliases
+    # The run's alias profile reaches the row: identity's copy is A1 (MOV_RC).
+    assert "A1_MOV_RC" in row.aliases
     assert "ISA aliases:" in table
     for alias, (verified, _) in row.aliases.items():
         assert alias.replace("_", " ", 1) in table and str(verified) in table
@@ -524,13 +577,13 @@ def test_query_without_arguments_prints_the_report(capsys):
 
 
 def test_query_resolves_name_value_parameters(capsys):
-    assert query.main(["softmax", "shape=32,300", "dim=1"]) == 0
-    assert "app:  softmax_rows_long" in capsys.readouterr().out
+    assert query.main(IDENTITY) == 0
+    assert "app:  identity" in capsys.readouterr().out
 
 
 def test_query_parses_a_trailing_comma_as_a_one_d_shape(capsys):
-    assert query.main(["softmax", "shape=300,", "dim=0"]) == 0
-    assert "softmax_rows_long" in capsys.readouterr().out
+    assert query.main(["identity", "shape=128,"]) == 1
+    assert "got (128,)" in capsys.readouterr().out
 
 
 def test_query_exits_nonzero_when_nothing_covers_it(capsys):
@@ -539,19 +592,23 @@ def test_query_exits_nonzero_when_nothing_covers_it(capsys):
 
 
 def test_query_sweep_prints_the_probed_boundaries(capsys):
-    assert query.main(["softmax", "shape=8,n", "dim=1", "--sweep", "n=120..135"]) == 0
-    expected = boundaries("softmax", "shape", range(120, 136), build=lambda n: (8, n), dim=1)
-    assert capsys.readouterr().out.splitlines() == [run.render("n") for run in expected]
+    assert query.main(["identity", "shape=r,128", "--sweep", "r=0..3"]) == 1  # r=0 is refused
+    expected = boundaries("identity", "shape", range(4), build=lambda r: (r, 128))
+    assert [run.kernel for run in expected] == [None, "identity"]
+    assert capsys.readouterr().out.splitlines() == [run.render("r") for run in expected]
 
 
-@pytest.mark.parametrize("argv", [
-    ["softmax", "shape"],                                    # not NAME=VALUE
-    ["softmax", "shape=8,300", "dim=5"],                     # dim out of range
-    ["softmax", "shape=8,n", "dim=1", "--sweep", "n=1-5"],   # malformed span
-    ["softmax", "shape=8,300", "dim=1", "--sweep", "n=1..5"],  # n not mentioned
-    ["softmax", "shape=8,300", "dim="],                      # empty value
-    ["softmax", "shape=8,n", "dim=1", "--sweep", "n=200..120"],  # reversed span
-])
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["identity", "shape"],  # not NAME=VALUE
+        ["identity", "shape=r,128", "rows=r", "--sweep", "r=1..5"],  # r in two parameters
+        ["identity", "shape=r,128", "--sweep", "r=1-5"],  # malformed span
+        ["identity", "shape=8,128", "--sweep", "r=1..5"],  # r not mentioned
+        ["identity", "shape="],  # empty value
+        ["identity", "shape=r,128", "--sweep", "r=5..1"],  # reversed span
+    ],
+)
 def test_query_rejects_malformed_queries(argv):
     with pytest.raises(SystemExit) as exc:
         query.main(argv)
@@ -561,108 +618,42 @@ def test_query_rejects_malformed_queries(argv):
 def test_query_parses_booleans(capsys):
     """Left as the string "False", a flag would be truthy and flip the answer."""
     assert query._value("False") is False and query._value("true") is True
-    assert query.main(["fully_connected", "shape=10,128", "dtype=fp8_e4m3",
-                       "wide_mode=false"]) == 0
+    assert query.main(["fully_connected", "shape=10,128", "dtype=fp8_e4m3", "wide_mode=false"]) == 0
     assert "SUPPORTED" in capsys.readouterr().out
 
 
-# -- conformance: a kernel must actually do what it claims ------------------
+# -- guards: a constructor must not accept what its spec refuses ------------
 #
-# Sampled across each kernel's own declared domain, so a new kernel inherits
-# this verification by registering, and an over-claiming `supports` fails here.
-
-_CONFORMANCE_SHAPES = [
-    (6, 8), (6, 20), (6, 64), (5, 100), (4, 128),
-    (3, 129), (3, 200), (2, 256), (7, 300),
-    (9, 16), (12, 32), (33, 64), (17, 65), (10, 127),
-]
-
-
-def _reference(x: np.ndarray, axis: int) -> np.ndarray:
-    z = np.exp(x - x.max(axis=axis, keepdims=True))
-    return z / z.sum(axis=axis, keepdims=True)
-
-
-@pytest.mark.parametrize("shape", _CONFORMANCE_SHAPES)
-@pytest.mark.parametrize("dim", [0, 1])
-def test_resolved_kernel_computes_the_operation(shape, dim):
-    """End-to-end: whatever the registry picks must actually compute softmax.
-
-    This is the check that keeps `supports` honest. It runs the kernel the
-    registry chose, on the shape it was asked about, and compares against
-    numpy -- so a kernel cannot claim a domain it mishandles.
-    """
-    verdict = resolve("softmax", shape=shape, dim=dim)
-    assert verdict.supported, verdict.reason
-
-    spec = verdict.kernel
-    x = (np.random.RandomState(sum(shape) + dim).randn(*shape) * 3.0).astype(np.float32)
-
-    with tempfile.TemporaryDirectory() as tmp:
-        inst = assemble_kernel(spec.name, tmp)
-        inp = Path(tmp) / "in.bin"
-        outp = Path(tmp) / "out.bin"
-        inp.write_bytes(x.tobytes())
-
-        spec.app_class(
-            inst_path=inst, input_path=inp, output_path=outp, **verdict.kwargs
-        ).run(max_cycles=20_000_000)
-
-        out = np.frombuffer(outp.read_bytes(), dtype=np.float32)
-
-    # Output layout must equal input layout -- see test_output_file_matches_input_layout
-    # in kernels/softmax/test.py.
-    assert out.size == x.size, f"{spec.name} wrote {out.size} elements for {x.size}"
-    assert np.abs(out.reshape(shape) - _reference(x, dim)).max() < 1e-4
+# The softmax conformance suite (resolve, run, compare) is
+# kernels/softmax/test_conformance.py since E07-11.
 
 
 def test_constructor_guards_reject_what_supports_refuses():
-    """A kernel's ctor must not accept a shape its spec refuses.
+    """A kernel's ctor must not accept a query its spec refuses.
 
     Guards delegate to ``SPEC.guard``, so this pins that they cannot drift back
     apart -- the failure this design exists to prevent.
-
-    The check is one-directional on purpose. Some kernels cannot express the
-    refused case in their constructor at all: ``softmax_rows`` takes only
-    ``rows`` because its 128-element width is fixed by the .asm, so there is no
-    argument on which to reject a 300-wide query. Those are skipped rather than
-    asserted, since "constructs successfully" carries no information there.
     """
-    for spec in kernels("softmax"):
-        for shape in [(8, 8), (8, 64), (8, 128), (8, 300), (200, 16)]:
-            for dim in (0, 1):
-                claimed = spec.check(shape=shape, dim=dim).ok
-                kwargs = spec.build(shape=shape, dim=dim)
-                if any(v is None for v in kwargs.values()):
-                    # This query is on the other axis, so `build` has nothing
-                    # meaningful to produce. `supports` must already have said
-                    # no -- that agreement is the property under test.
-                    assert not claimed, (
-                        f"{spec.name} claims shape={shape} dim={dim} but cannot "
-                        f"build ctor kwargs for it: {kwargs}"
-                    )
-                    continue
-                # Only meaningful when the ctor actually receives the dimension
-                # the spec refused on -- otherwise it has nothing to check.
-                describes_shape = {"n", "width"} & set(kwargs)
-                if claimed or not describes_shape:
-                    continue
-                with pytest.raises(ValueError):
-                    spec.app_class(
-                        inst_path="x", input_path="y", output_path=None, **kwargs
-                    )
+    spec = registry.kernel_spec("identity")
+    for shape in [(8, 128), (0, 128), (8, 64), (8,), (2, 3, 128)]:
+        if spec.check(shape=shape).ok:
+            continue
+        with pytest.raises(ValueError):
+            spec.app_class(inst_path="x", input_path="y", output_path=None, params={"shape": shape})
 
 
 # -- tool output: `query --json` and the kernel manifest -----------------------
 
 
-@pytest.mark.parametrize("argv", [["softmax", "shape=32,300", "dim=1"], ["no_such_op", "shape=8,8"]])
+@pytest.mark.parametrize("argv", [IDENTITY, ["no_such_op", "shape=8,8"]])
 def test_query_json_is_the_text_verdict(argv, capsys):
     code = query.main(argv)
     text = capsys.readouterr().out
     assert query.main([*argv, "--json"]) == code
     data = json.loads(capsys.readouterr().out)
-    assert text.startswith(("SUPPORTED: " if data["supported"] else "NOT SUPPORTED: ") + data["reason"])
+    assert text.startswith(
+        ("SUPPORTED: " if data["supported"] else "NOT SUPPORTED: ") + data["reason"]
+    )
     if data["app"]:
         assert f"  app:  {data['app']}" in text
         assert f"  use:  {data['use']}(" in text
@@ -670,7 +661,9 @@ def test_query_json_is_the_text_verdict(argv, capsys):
         assert f"  note: {note}" in text
 
 
-@pytest.mark.parametrize("argv", [["--json"], ["softmax", "shape=8,n", "dim=1", "--sweep", "n=1..5", "--json"]])
+@pytest.mark.parametrize(
+    "argv", [["--json"], ["identity", "shape=r,128", "--sweep", "r=1..5", "--json"]]
+)
 def test_query_json_needs_exactly_one_query(argv):
     with pytest.raises(SystemExit) as exc:
         query.main(argv)
@@ -695,10 +688,14 @@ def test_manifest_joins_bazel_targets_and_the_registry():
     assert set(built["operations"]) == set(operations())
 
 
-@pytest.mark.parametrize("edit, culprit", [
-    (lambda kernels: {**kernels, "no_such_kernel": kernels["identity"]}, "no_such_kernel"),
-    (lambda kernels: {k: v for k, v in kernels.items() if k != "identity"}, "identity"),
-], ids=["unregistered", "untargeted"])
+@pytest.mark.parametrize(
+    "edit, culprit",
+    [
+        (lambda kernels: {**kernels, "no_such_kernel": kernels["identity"]}, "no_such_kernel"),
+        (lambda kernels: {k: v for k, v in kernels.items() if k != "identity"}, "identity"),
+    ],
+    ids=["unregistered", "untargeted"],
+)
 def test_manifest_refuses_targets_the_registry_does_not_know(edit, culprit):
     targets = _kernel_targets()
     with pytest.raises(ValueError, match=culprit):
@@ -711,9 +708,17 @@ def test_manifest_lists_a_kernel_that_failed_to_import_as_skipped(monkeypatch):
     module = registry.kernel_spec("identity").app_class.__module__  # its package's `app`
     discovered = registry.load()
     broken = SkippedModule(module, "ImportError: broken")
-    monkeypatch.setattr(registry, "load", lambda *a, **k: type(discovered)(
-        tuple(s for s in discovered.specs if s.name != "identity"), (*discovered.skipped, broken)))
-    monkeypatch.setattr(registry, "kernels", lambda *a, **k: tuple(s for s in kernels() if s.name != "identity"))
+    monkeypatch.setattr(
+        registry,
+        "load",
+        lambda *a, **k: type(discovered)(
+            tuple(s for s in discovered.specs if s.name != "identity"),
+            (*discovered.skipped, broken),
+        ),
+    )
+    monkeypatch.setattr(
+        registry, "kernels", lambda *a, **k: tuple(s for s in kernels() if s.name != "identity")
+    )
     built = manifest.build(targets)
     assert set(built["kernels"]) == {spec.name for spec in kernels()} - {"identity"}
     assert {"module": module, "error": "ImportError: broken"} in built["skipped"]
@@ -727,5 +732,157 @@ def test_manifest_flags_are_the_runner_flags(kernel, capsys):
             runner.main(["--kernel", kernel, "--case", case_name, "--help"])
         assert exc.value.code == 0
         help_text = capsys.readouterr().out
-        for flag in [o[k] for o in case_options(case).values() for k in ("flag", "negated_flag") if k in o]:
+        for flag in [
+            o[k] for o in case_options(case).values() for k in ("flag", "negated_flag") if k in o
+        ]:
             assert flag in help_text
+
+
+# --- Test data: one generator per case --------------------------------------
+
+# The first six float32 values of seed 7, as little-endian bytes. Single-tensor
+# cases draw with no generator and must keep exactly these inputs.
+_SEED7_PREFIX = bytes.fromhex("193da13a2df5983ecc5b8cbed4fd63bf9ccae8be8cdc7dbf")
+
+
+def test_random_values_without_a_generator_restarts_seed_7():
+    from ipu_apps.kernel_registry.case_support import random_values
+
+    first, again = random_values((6,)), random_values((2, 3))
+    assert first.dtype == np.dtype("<f4")
+    assert first.tobytes() == _SEED7_PREFIX
+    assert again.tobytes() == _SEED7_PREFIX
+
+
+def test_random_values_with_one_generator_draws_independent_tensors():
+    from ipu_apps.kernel_registry.case_support import random_values
+
+    rng = np.random.default_rng(7)
+    draws = [random_values((6,), rng) for _ in range(3)]
+    assert draws[0].tobytes() == _SEED7_PREFIX
+    for i, a in enumerate(draws):
+        for b in draws[i + 1 :]:
+            assert not np.isin(a[:4], b).any()
+
+
+# -- case_tests and the emulator-only ST.ACC warning ----------------
+
+_TOY_PROGRAMS = {
+    "uses_str_acc_reg": "SET lr0 cr8;;\nST.ACC lr0 cr0;;\nHALT;;",
+    "hardware_only": "SET lr0 cr8;;\nHALT;;",
+}
+
+
+def _toy_case_test(monkeypatch, program, *, run_hook=None):
+    """``case_tests`` for a one-case toy kernel assembled from ``program``.
+
+    The case runs the real emulator on the assembled binary; ``run_hook``
+    wraps that run to inject or suppress the warning.
+    """
+    import ipu_apps.kernel_registry.testing as testing
+    from ipu_as.lark_tree import assemble_to_bin_file
+    from ipu_emu.emulator import load_program_from_binary, run_until_complete
+    from ipu_emu.ipu_state import IpuState
+
+    def assemble(kernel, directory):
+        path = Path(directory) / f"{kernel}.bin"
+        assemble_to_bin_file(_TOY_PROGRAMS[program], str(path))
+        return path
+
+    def run(kernel, case, *, options, inst_path, recorder):
+        state = IpuState()
+        load_program_from_binary(state, inst_path)
+        with run_hook() if run_hook else contextlib.nullcontext():
+            run_until_complete(state)
+        assert state.is_halted
+
+    monkeypatch.setattr(testing, "package_kernel", lambda package: program)
+    monkeypatch.setattr(
+        testing, "load_cases", lambda kernel: {"default": types.SimpleNamespace(defaults={})}
+    )
+    monkeypatch.setattr(testing, "assemble_kernel", assemble)
+    monkeypatch.setattr(testing, "run_case", run)
+    # The toy kernel is not registered, so it has no baseline to compare with.
+    monkeypatch.setattr(testing.baseline, "check", lambda *args: None)
+    return testing.case_tests("toy")
+
+
+#: A request whose config holds no update root: the case test compares.
+_COMPARING = types.SimpleNamespace(config=types.SimpleNamespace(stash={}))
+
+
+def test_case_tests_passes_a_kernel_that_uses_str_acc_reg_when_it_warns(
+    monkeypatch, tmp_path_factory
+):
+    _toy_case_test(monkeypatch, "uses_str_acc_reg")("default", {}, tmp_path_factory, _COMPARING)
+
+
+def test_case_tests_fails_a_kernel_that_uses_str_acc_reg_without_the_warning(
+    monkeypatch, tmp_path_factory
+):
+    import warnings
+
+    @contextlib.contextmanager
+    def silence():
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            yield
+
+    test = _toy_case_test(monkeypatch, "uses_str_acc_reg", run_hook=silence)
+    with pytest.raises(pytest.fail.Exception, match="DID NOT WARN"):
+        test("default", {}, tmp_path_factory, _COMPARING)
+
+
+def test_case_tests_fails_a_hardware_only_kernel_if_the_warning_appears(
+    monkeypatch, tmp_path_factory
+):
+    import warnings
+
+    from ipu_emu.errors import DebugOnlyInstructionWarning
+
+    @contextlib.contextmanager
+    def inject():
+        warnings.warn("[DEBUG ONLY] injected", DebugOnlyInstructionWarning, stacklevel=2)
+        yield
+
+    # Without the injection the hardware-only kernel passes ...
+    _toy_case_test(monkeypatch, "hardware_only")("default", {}, tmp_path_factory, _COMPARING)
+    # ... and with it, the warning is an error.
+    test = _toy_case_test(monkeypatch, "hardware_only", run_hook=inject)
+    with pytest.raises(DebugOnlyInstructionWarning, match="injected"):
+        test("default", {}, tmp_path_factory, _COMPARING)
+
+
+def test_debug_only_detection_reads_the_assembled_words(tmp_path):
+    from ipu_apps.kernel_registry.testing import (
+        kernel_uses_debug_only_instructions,
+        uses_debug_only_instructions,
+    )
+    from ipu_as.lark_tree import assemble_to_bin_file
+
+    for name, program in _TOY_PROGRAMS.items():
+        path = tmp_path / f"{name}.bin"
+        assemble_to_bin_file(program, str(path))
+        assert uses_debug_only_instructions(path) is (name == "uses_str_acc_reg")
+    assert kernel_uses_debug_only_instructions("fully_connected")
+    assert not kernel_uses_debug_only_instructions("identity")
+
+
+def test_runner_reports_a_broken_kernel_source(tmp_path, monkeypatch, capsys):
+    """A kernel whose `.asm` does not assemble is reported by the runner's handler
+    (E05-06: the assembler raises an AssemblerError instead of exiting)."""
+    from ipu_apps.kernel_registry import cases as cases_module
+    from ipu_apps.kernel_registry import runner
+    from ipu_apps.kernel_registry.cases import kernel_spec, load_cases
+
+    spec = kernel_spec("identity")
+    (tmp_path / spec.asm).write_text("NOT_AN_INSTRUCTION LR0;;\n")
+    monkeypatch.setattr(cases_module, "files", lambda package: tmp_path)
+    case = next(iter(load_cases("identity")))
+
+    with pytest.raises(SystemExit) as exc:
+        runner.main(["--kernel", "identity", "--case", case])
+    assert exc.value.code == 1
+    assert capsys.readouterr().err == (
+        "error: Opcode 'NOT_AN_INSTRUCTION' not found in any Inst subclass.\n"
+    )

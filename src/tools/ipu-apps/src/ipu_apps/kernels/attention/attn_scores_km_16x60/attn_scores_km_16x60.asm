@@ -38,7 +38,7 @@
 #   MULT.RC.VE rc_idx=0, src=chan_index (=c → R0[c]) → mult_res[i] = Q[i,c]·K[s,c]
 #   c==0: ACC.ADD.FIRST  else: ACC.ADD  → R_ACC[i] += Q[i,c]·K[s,c]
 #   After 60 channels: R_ACC[i] = S[i,s] for the 16 queries.
-#   ACTIVATE.QUANTIZE identity + STR_POST_AAQ_REG → one key-major score row.
+#   ACTIVATE.QUANTIZE identity + ST.AAQ → one key-major score row.
 #   No AGG.
 #
 # Counts/head: 16 keys × 60 channels = 960 MULT+ACC bundles + 16 stores.
@@ -61,7 +61,7 @@
 {% set q_ptr       = "lr4"  %}  {# row offset into Q, walks head channels c #}
 {% set chan_index  = "lr5"  %}  {# head-channel index c -> selects K[s,c] in r0 #}
 {% set chan_bound  = "lr6"  %}  {# 58 = c-loop bound (first=0, width=60) #}
-{% set chan_last   = "lr11" %}  {# 59 = chan_bound + 1; BLT bound now that chan_index's ADD sits a word ahead of the branch #}
+{% set chan_last   = "lr11" %}  {# 59 = chan_bound + 1; BLT.S bound now that chan_index's ADD sits a word ahead of the branch #}
 {% set out_ptr     = "lr7"  %}  {# row offset into S, += out_stride per store #}
 {% set key_ptr     = "lr8"  %}  {# row offset into key-major K, += key_stride #}
 {% set key_index   = "lr9"  %}  {# key counter s #}
@@ -80,7 +80,7 @@
     # start-of-cycle snapshot (issue #157), so each Q channel column is loaded a
     # bundle before the MULT consuming it and chan_index's ADD moves into the
     # c_loop_pre block (the scalar operand is read LIVE from R0 and must name the
-    # channel just loaded). BLT reads the SNAPSHOT, so with that ADD a word
+    # channel just loaded). BLT.S reads the SNAPSHOT, so with that ADD a word
     # earlier it sees an already-incremented index and needs the higher bound, or
     # the last channel is dropped. Computed in-kernel so the harness's lr6 stays
     # untouched.
@@ -88,23 +88,23 @@
 
 s_loop:
     ADD {{ key_ptr }} {{ key_ptr }} {{ key_stride }};;  # key row offset += 1 (first live = 0)
-    LDR_MULT_REG r0 {{ key_ptr }} {{ K_BASE_KM }};;     # r0[0..127] = K[s, 0:59] + zeros
+    LD.MULT r0 {{ key_ptr }} {{ K_BASE_KM }};;     # r0[0..127] = K[s, 0:59] + zeros
 
     # -- the single query group (queries 0..15) -----------------------------
     SET {{ q_ptr }} {{ Q_START }};;                     # channel-column startup: -Q_CHAN_ROWS
     SET {{ chan_index }} {{ CHAN_START }};;             # fixed_idx c startup: -1
 
     # Prime c=0's Q column (the MULT below consumes it from the snapshot).
-    LDR_CYCLIC_MULT_REG {{ q_ptr }} {{ Q_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ q_ptr }} {{ Q_BASE }} {{ rc_slot0 }};
     ADD {{ q_ptr }} {{ q_ptr }} {{ chan_stride }};
     ADD {{ chan_index }} {{ chan_index }} {{ ONE }};;
 
     # Peeled first channel (c=0): ACC.ADD.FIRST seeds r_acc.
     MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG {{ q_ptr }} {{ Q_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ q_ptr }} {{ Q_BASE }} {{ rc_slot0 }};
     ADD {{ q_ptr }} {{ q_ptr }} {{ chan_stride }};
-    BLT {{ chan_index }} {{ chan_last }} c_loop_pre;;
+    BLT.S {{ chan_index }} {{ chan_last }} c_loop_pre;;
     B after_c;;
 
 c_loop_pre:
@@ -113,17 +113,17 @@ c_loop_pre:
 c_loop:
     MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ q_ptr }} {{ Q_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ q_ptr }} {{ Q_BASE }} {{ rc_slot0 }};
     ADD {{ q_ptr }} {{ q_ptr }} {{ chan_stride }};
-    BLT {{ chan_index }} {{ chan_last }} c_loop_pre;;
+    BLT.S {{ chan_index }} {{ chan_last }} c_loop_pre;;
 
 after_c:
     ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    STR_POST_AAQ_REG {{ out_ptr }} {{ S_BASE }};;  # store S[0:16, s] (key-major row)
+    ST.AAQ {{ out_ptr }} {{ S_BASE }};;  # store S[0:16, s] (key-major row)
     ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;  # output row ptr += OUT_ROWS
 
     ADD {{ key_index }} {{ key_index }} {{ ONE }};
-    BLT {{ key_index }} {{ key_limit }} s_loop;;  # next key
+    BLT.S {{ key_index }} {{ key_limit }} s_loop;;  # next key
 
 end:
-    BKPT;;
+    HALT;;

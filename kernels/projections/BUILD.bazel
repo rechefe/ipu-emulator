@@ -1,0 +1,24 @@
+# The projections (E07-02): three template folders and the 12 entries of
+# registry.toml over them (//kernels/projections:<entry>, as the ipu_apps
+# targets were named). pack.py and gen.py, beside the templates, are their
+# shared pack transform and case generators (data, loaded by path).
+
+load("@ipu_as_deps//:requirements.bzl", "requirement")
+load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
+load("//kernels:defs.bzl", "ipu_kernel_family")
+load(":registry.bzl", "ENTRIES")
+
+ipu_kernel_family(entries = ENTRIES)
+
+# Routing: each entry is found by exactly its (k, n_out, activation), as the
+# ipu_apps router found the old kernels; //kernels:query gives the same answers.
+py_pytest_test(
+    name = "test_routing",
+    size = "small",
+    srcs = ["test_routing.py"],
+    data = ["//kernels:tree"],
+    deps = [
+        "//src/tools/ipu-harness:ipu_harness_lib",
+        requirement("pytest"),
+    ],
+)

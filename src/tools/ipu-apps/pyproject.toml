@@ -10,15 +10,18 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.24.0",
+    "jinja2>=3.1.4",
     "ipu-emu-py",
+    "ipu-debug",
     "ipu-as-py",
-    "ipu-common",
+    "ipu-isa",
 ]
 
 [tool.uv.sources]
 ipu-emu-py = { path = "../ipu-emu-py", editable = true }
+ipu-debug = { path = "../ipu-debug", editable = true }
 ipu-as-py = { path = "../ipu-as-py", editable = true }
-ipu-common = { path = "../ipu-common", editable = true }
+ipu-isa = { path = "../ipu-isa", editable = true }
 
 [project.optional-dependencies]
 dev = [

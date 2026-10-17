@@ -1,0 +1,210 @@
+"""Assemble a kernel's program for one case (E06-07, Q80).
+
+The program is rendered through the assembler's one render path (E05's
+session and sandbox) with the case as template values: every parameter, the
+reserved ``format`` (``"e4"``) and ``shapes`` (each tensor's shape), and the
+``[abi]`` register names as ``{{ cr.x }}`` / ``{{ lr.i }}``. The declared
+parameters are the kernel's: ``kernel.toml`` is the declaration, so the
+program repeats none in an ``ipu:params`` header, and any other name is a
+located error (the sandbox's strict undefined).
+
+An :class:`AssemblyCache` encodes each distinct rendered program once: two
+cases that render alike (a template that does not use ``rows`` renders alike
+for every ``rows``) share one assembly, and an included file is part of what
+renders. The harness imports no ``jinja2``.
+"""
+
+from __future__ import annotations
+
+import hashlib
+from collections.abc import Mapping
+from pathlib import Path
+from types import MappingProxyType
+from typing import get_args
+
+from ipu_as.session import AssemblyResult, AssemblySession
+from ipu_as.template import REQUIRED, Param, ParamSpec
+from ipu_emu.errors import ConfigurationError
+from ipu_harness.abi import template_names
+from ipu_harness.manifest import ParamType
+from ipu_harness.params import CasePlan
+
+__all__ = ["AssemblyCache", "assemble", "assemble_program", "search_path", "template_values"]
+
+_PY_TYPES: Mapping[str, type] = {"int": int, "float": float, "bool": bool, "str": str}
+assert set(_PY_TYPES) == set(get_args(ParamType)), (
+    "a kernel.toml parameter type has no template type"
+)
+
+
+def template_values(plan: CasePlan) -> Mapping[str, object]:
+    """What the program is rendered with, besides the register names.
+
+    Args:
+        plan: The checked case.
+
+    Returns:
+        Every parameter, every ``[derived]`` value but the placed ones (which
+        need the regions; ``[abi]`` binds them), ``format`` (the element
+        format's name) and ``shapes`` (each tensor's shape, as a list of ints).
+    """
+    shapes = {name: list(shape) for name, shape in plan.shapes.items()}
+    return MappingProxyType(
+        {**plan.params, **plan.derived, "format": plan.format.value, "shapes": shapes}
+    )
+
+
+def _declared(plan: CasePlan) -> ParamSpec:
+    """The parameters the program may read: the kernel's, its derived values
+    (ints), ``format`` and ``shapes``.
+
+    Args:
+        plan: The checked case.
+
+    Returns:
+        Their template declarations (a stage adds its own, E06-14).
+    """
+    params = [
+        Param(name, _PY_TYPES[decl.type], REQUIRED) for name, decl in plan.manifest.params.items()
+    ]
+    params += [Param(name, int, REQUIRED) for name in plan.derived]
+    params += [Param("format", str, REQUIRED), Param("shapes", dict, REQUIRED)]
+    return ParamSpec(tuple(params))
+
+
+def search_path(plan: CasePlan, asm_lib: Path | None = None) -> tuple[Path, ...]:
+    """Where ``{% include %}`` and ``{% import %}`` look.
+
+    Args:
+        plan: The checked case.
+        asm_lib: The shared macro library (``ipu_kernels/asm_lib``, ``*.asm.j2``)
+            when the caller has it (Bazel data); none, only the kernel's folders.
+
+    Returns:
+        The kernel's folder, its family's folder, then ``asm_lib``.
+
+    Raises:
+        ConfigurationError: ``asm_lib`` is given but is no directory.
+    """
+    directory = plan.manifest.directory
+    if asm_lib is not None and not asm_lib.is_dir():
+        raise ConfigurationError(f"{asm_lib}: the macro library is not there")
+    return (directory, directory.parent, *(() if asm_lib is None else (asm_lib,)))
+
+
+class AssemblyCache:
+    """Assembled programs by their rendered text: one per distinct render.
+
+    It holds every program it has assembled, unbounded, so it lives as long as
+    one run of a kernel's cases (the runner's, E06-11); without one every call
+    assembles. A hit raises the program's encoding warnings again.
+    """
+
+    def __init__(self) -> None:
+        self._results: dict[str, AssemblyResult] = {}
+        self.assembled = 0  #: how many programs were encoded (not served from the cache)
+
+    @property
+    def programs(self) -> tuple[AssemblyResult, ...]:
+        """Every program it holds, in the order each was first assembled (a
+        multi-stage run's stages, once each: E07's migration tools read them)."""
+        return tuple(self._results.values())
+
+    def get(self, session: AssemblySession) -> AssemblyResult:
+        """The session's program, encoded only if its rendered text is new.
+
+        Args:
+            session: The program's assembly session (rendered here).
+
+        Returns:
+            The assembled program, cached or new.
+        """
+        digest = hashlib.sha256(session.render().encode("utf-8")).hexdigest()
+        cached = self._results.get(digest)
+        if cached is not None:
+            cached.reissue_warnings()
+            return cached
+        result = session.assemble()
+        self.assembled += 1
+        self._results[digest] = result
+        return result
+
+
+def assemble(
+    plan: CasePlan, cache: AssemblyCache | None = None, *, asm_lib: Path | None = None
+) -> AssemblyResult:
+    """The kernel's program for ``plan``: rendered with its values and assembled.
+
+    Args:
+        plan: The checked case; nothing is checked again.
+        cache: Reuses an earlier assembly of the same rendered text.
+        asm_lib: The shared macro library, when the caller has it.
+
+    Returns:
+        The instruction words, labels and rendered text (E05).
+
+    Raises:
+        ipu_as.errors.TemplateError: An undefined name or a bad ``cr.``/``lr.``
+            name in the program, located in its file and line.
+        ipu_as.errors.ParseError: The rendered program does not parse.
+        ipu_as.errors.EncodeError: An instruction does not encode.
+    """
+    return assemble_program(plan, plan.manifest.asm, cache, asm_lib=asm_lib)
+
+
+def _search_path(plan: CasePlan, program: Path, asm_lib: Path | None) -> tuple[Path, ...]:
+    """A stage's folder (a sibling kernel's), then :func:`search_path`; the
+    kernel's own program, wherever in its folder, searches only that."""
+    path = search_path(plan, asm_lib)
+    if program == plan.manifest.asm or program.parent in path:
+        return path
+    return (program.parent, *path)
+
+
+def assemble_program(
+    plan: CasePlan,
+    program: Path,
+    cache: AssemblyCache | None = None,
+    *,
+    params: Mapping[str, object] = MappingProxyType({}),
+    abi: Mapping[str, str] | None = None,
+    asm_lib: Path | None = None,
+) -> AssemblyResult:
+    """``program`` rendered with ``plan``'s values and assembled: the kernel's
+    own program, or one stage of a multi-stage kernel (E06-14).
+
+    Args:
+        plan: The checked case.
+        program: The ``.asm`` file; a stage's folder is searched first.
+        cache: Reuses an earlier assembly of the same rendered text.
+        params: Template values besides the case's (a stage's own), each
+            declared required.
+        abi: The ``cr``/``lr`` names, in place of the kernel's ``[abi]``.
+        asm_lib: The shared macro library, when the caller has it.
+
+    Returns:
+        The instruction words, labels and rendered text (E05).
+
+    Raises:
+        ConfigurationError: A name in ``params`` is already a template value.
+        ipu_as.errors.TemplateError, ParseError, EncodeError: As
+            :func:`assemble`.
+    """
+    defines = template_values(plan)
+    clash = set(params) & set(defines)
+    if clash:
+        raise ConfigurationError(
+            f"{plan.manifest.name}: {program.name} params {sorted(clash)} are already the case's"
+        )
+    declared = ParamSpec(
+        (*_declared(plan).params, *(Param(n, type(v), REQUIRED) for n, v in params.items()))
+    )
+    session = AssemblySession(
+        program.read_text(encoding="utf-8"),
+        defines={**defines, **params},
+        params=declared,
+        search_path=_search_path(plan, program, asm_lib),
+        abi=template_names(plan.manifest, abi),
+        name=program.name,
+    )
+    return (cache or AssemblyCache()).get(session)

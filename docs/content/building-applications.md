@@ -1,12 +1,20 @@
 # Building IPU Applications
 
+!!! note "Legacy: the `ipu_apps` kernel framework"
+    This page describes kernels under `src/tools/ipu-apps`, written as an
+    `IpuApp` subclass that programs the CRs by hand. New kernels go under
+    `kernels/` with a `kernel.toml` and no harness: see
+    [Write a kernel](how-to/write-a-kernel.md) and the
+    [`kernel.toml` reference](reference/kernel-toml.md). E07 migrates the
+    kernels below and then removes this page.
+
 This guide shows how to build a complete IPU application using the fully connected neural network layer as an example. The complete code is in [src/tools/ipu-apps/src/ipu_apps/kernels/linear/fully_connected](https://github.com/rechefe/ipu-emulator/tree/master/src/tools/ipu-apps/src/ipu_apps/kernels/linear/fully_connected).
 
 ## Application Structure
 
 Each IPU application is its own folder, `ipu_apps/kernels/<family>/<app>/`, containing:
 
-1. **Assembly code** (`.asm`) — IPU program with compute operations (see [Assembly Syntax Guide](assembly-syntax.md))
+1. **Assembly code** (`.asm`) — IPU program with compute operations (see [Assembly Syntax Guide](reference/isa/assembly-syntax.md))
 2. **Python app class** (`app.py`) — Subclass of `IpuApp` that implements `setup()` and `teardown()`, with `SPEC` at the bottom
 3. **Reusable cases** (`cases.py`) — Input preparation and output checks without pytest
 4. **Test data** — Input/output binary files for validation
@@ -19,15 +27,14 @@ Everything lives together in one directory. `__init__.py` stays empty.
 Application setup is responsible for loading data and selecting the IPU
 configuration that the assembly program reads. Keep this in the Python
 `setup()` hook so assembly remains focused on compute instructions. See
-[IPU Configuration](ipu-configuration.md) for the full register layout.
+[Configuration registers](reference/isa/configuration-registers.md) for the full register layout.
 
 ```python
-from ipu_emu.ipu_config import LR_CR_SCALAR_VALUE_MASK
-from ipu_emu.ipu_math import DType
+from ipu_isa.constants import LR_CR_SCALAR_VALUE_MASK
 
 def setup(self, state: IpuState) -> None:
-    # dtype is emulator-only state, not a CR register.
-    state.dtype = DType.INT8
+    # The element format (state.fmt) is fixed when the state is built
+    # (SPEC.execution); it is emulator configuration, not a CR register.
 
     # CR15 dstructure: configure whichever CR register your AGG.*/ACTIVATE.QUANTIZE
     # instructions name via their mandatory cr_idx operand.
@@ -43,83 +50,35 @@ def setup(self, state: IpuState) -> None:
     state.regfile.set_cr(9, (-1) & LR_CR_SCALAR_VALUE_MASK)
 ```
 
-In assembly, every `AGG.*`/`ACTIVATE.QUANTIZE` instruction must name its
-dstructure CR register explicitly via a mandatory `cr_idx` operand — there is
-no implicit default:
+Every `AGG.*` and `ACTIVATE.QUANTIZE` instruction names the CR that holds its
+dstructure word; [Configuration registers](reference/isa/configuration-registers.md)
+describes the word, its fields and `set_cr_dstructure`.
 
-```asm
-AGG.SUM LR0, CR15;;
-ACTIVATE.QUANTIZE relu, CR15;;
-AGG.SUM LR0, CR3;;
-ACTIVATE.QUANTIZE relu, CR3;;
-```
+## Element formats
 
-For aggregation (`AGG.SUM`, `AGG.MAX`, etc.) the element count is controlled by the required `cr_idx` operand — it reads `valid_elements` from the named CR register. `CR15` remains a valid choice (it is the dstructure register's conventional home), but it must be written out like any other register.
+A kernel runs in one element format. [Element formats](explanation/element-formats.md) lists them, what each one changes, and how a kernel selects one.
 
-## Wide-vector debug mode (optional)
+## Activations and `ACTIVATE.QUANTIZE`
 
-The emulator can run multiply/accumulate paths with **128×32-bit elements** (FP32 or INT32) instead of 8-bit vectors, for debugging without quantization on that path. XMEM addresses stay the same; load sizes and alignment rules change. See **[Wide-vector debug mode](wide-vector-debug-mode.md)** for how to construct `IpuState`, prepare 512-byte loads, and use `ACTIVATE.QUANTIZE` / **`STR_POST_AAQ_REG`** / `STR_ACC_REG` in that mode.
-
-## Activations, `ACTIVATE.QUANTIZE`, and virtual α (Python emulator) {#activations-emulator}
-
-The [AaQ stage spec](specs/stage-aaq-str.md) describes how **real hardware** wires activation: a function id (for example from `act_cr_idx` and a `CR` read) and **α-like parameters** that are **not** VLIW immediates—they come from implementation-defined configuration (constants, fuses, side-band registers, etc.).
-
-The **Python emulator** in this repository adds a convenience AAQ-slot instruction **`ACTIVATE.QUANTIZE`** so programs can apply the same thirteen activation shapes to elements read from **`R_ACC`**, writing results into **`POST_AAQ_REG`** (without modifying **`R_ACC`**), without modeling the full `act_cr_idx` path:
-
-```asm
-ACTIVATE.QUANTIZE relu, CR15;;
-```
-
-- **Syntax:** `ACTIVATE.QUANTIZE activation_fn, cr_idx`, where *activation_fn* is a **keyword** (`identity`, `relu`, `relu6`, `sigmoid`, `tanh`, `gelu`, `softplus`, `elu`, `exp2`, `reciprocal`, `rsqrt`, `silu`, `window`). The active element count comes from `cr_idx`'s `valid_elements`, the same dstructure field used by the `AGG.*` instructions; `cr_idx` is mandatory (any `CR0`–`CR15`, no implicit default).
-- **Single source of truth:** keyword order and the pure-Python math live in `src/tools/ipu-common/src/ipu_common/activations.py` (`ACTIVATION_FN_NAMES`, `apply_activation`).
-
-### `R_ACC`, `POST_AAQ_REG`, and `STR_POST_AAQ_REG` (staging vs export)
-
-- **Accumulation** stays in **`R_ACC`** (512 bytes = 128×32-bit elements). The ACC-slot **`AGG.SUM`** / **`AGG.SUM.FIRST`** / **`AGG.MAX`** / **`AGG.MAX.FIRST`** reduce **`R_ACC`** in place, writing a single `R_ACC` slot selected by an LR register; hardware uses the `act_cr_idx` path described in the AAQ spec for activation selection.
-- **`ACTIVATE.QUANTIZE`** (emulator) reads **`R_ACC`**, activates each active element and writes the result into **`POST_AAQ_REG`**; **`R_ACC`** is left unchanged.
-- **`POST_AAQ_REG`** is **temporarily a 512-byte** wide staging register (same element layout as **`R_ACC`**) until end-to-end quantization and export are finalized.
-- Activation and quantization are **one instruction**; there is no separate activate-only or quantize-only opcode. In **INT8 mode** the activated elements are clamped to `[-128, 127]` and written as **128 bytes** into the **leading** bytes of **`POST_AAQ_REG`**, with the remainder zeroed. In **wide-vector debug mode** the activated **32-bit** elements are written wide instead, and are quantized to that same byte prefix only when `wide_vector_quantize_output` is set.
-- **`STR_POST_AAQ_REG`** stores **`POST_AAQ_REG`** — **512 bytes** — to XMEM (whatever wide or quantized layout that buffer holds at issue time).
-
-### Virtual α and window bounds in the emulator (elu, window)
-
-The stock ISA does not expose α, nor the **`window`** bounds. The emulator reads α from each **`IpuState`** (field `elu_alpha`) and the window bounds from `window_a` / `window_b`. If you do not set them, they are initialized from the default floats in `ipu_common/activations.py` (`DEFAULT_ELU_ALPHA`, `DEFAULT_WINDOW_A`, `DEFAULT_WINDOW_B`).
-
-**`window`** is the rectangular indicator `window(x) = 1` for `a <= x < b`, `0` otherwise (half-open, lower bound inclusive). The defaults are provisional placeholders pending calibration: `a = 0.0`, `b = 0.1`. On hardware it belongs to the LUT-backed `activation` group of [the AaQ spec](specs/stage-aaq-str.md), so `a` and `b` are baked into the loaded LUT contents; the emulator keeps them as the state fields below instead.
-
-Configure these the same way you think about dtype on state — **not via CR**:
-
-```python
-from ipu_emu.ipu_state import IpuState
-from ipu_emu.emulator import run_test
-
-state = IpuState(elu_alpha=1.0, window_a=0.0, window_b=0.1)
-# or after construction:
-state.set_activation_alphas(elu_alpha=1.0, window_a=0.0, window_b=0.1)
-
-# High-level harness (optional kwargs mirror IpuState):
-state, cycles = run_test(
-    inst_path="prog.bin",
-    setup=my_setup,
-    elu_alpha=1.0,
-    window_a=0.0,
-    window_b=0.1,
-)
-```
-
-Subclassing **`IpuApp`**, you can pass α through **`run(...)`** or store them on the app from **`__init__`** (same names as `run_test`); explicit **`run()`** arguments override stored attributes:
-
-```python
-app = MyApp(inst_path="prog.bin", elu_alpha=1.0, window_a=0.0, window_b=0.1)
-state, cycles = app.run()  # uses 1.0
-state, cycles = app.run(elu_alpha=0.5)  # uses 0.5 for this run
-```
-
-Use a **fresh `IpuState`** (or a new `run_test` call with different α kwargs) when you need different α values in the same process.
+[`ACTIVATE.QUANTIZE` in the emulator](reference/isa/activate-quantize.md) describes the
+instruction, `R_ACC` and `POST_AAQ_REG`, and how to set `elu`'s α and the `window`
+bounds on the state. An `IpuApp` also takes them as keywords of `__init__` or
+`run()` (`elu_alpha`, `window_a`, `window_b`); a `run()` keyword overrides the
+stored value for that run.
 
 ## Step 1: Write the Assembly Program
 
-Create your IPU assembly program (e.g., `fully_connected.asm`). The assembly program contains the compute logic that runs on the IPU. See the [Assembly Syntax Guide](assembly-syntax.md) for details on writing IPU assembly code with Jinja2 preprocessing.
+Create your IPU assembly program (e.g., `fully_connected.asm`). The assembly program contains the compute logic that runs on the IPU. See the [Assembly Syntax Guide](reference/isa/assembly-syntax.md) for details on writing IPU assembly code with Jinja2 preprocessing. To assemble a template from the command line, give each parameter its `ipu:params` header declares with `--define`:
+
+```bash
+bazel run //src/tools/ipu-as-py:ipu-as -- assemble --input "$PWD/kernel.asm" --output "$PWD/kernel.bin" --define rows=8
+```
+
+The `format` subcommand prints a source in the repository's layout; `--check` exits 1 when the source would change, for CI and pre-commit hooks. [Command-line tools](reference/cli.md#assembler-ipu-as) lists every `ipu-as` subcommand and option, including `check`, `disassemble`, `--target hardware` and the `format` exit codes:
+
+```bash
+bazel run //src/tools/ipu-as-py:ipu-as -- format --check --input "$PWD/kernel.asm"
+```
 
 ## Step 2: Define Bazel Build Targets
 
@@ -284,6 +243,15 @@ a parametrized test: `case_tests(__package__, sweep=[dict(rows=8), dict(rows=300
 Tests may pass `inst_path` from a module-scoped fixture to reuse assembly. Use
 `workspace` when a test needs to inspect files.
 
+`ST.ACC` is emulator-only: every execution emits
+`ipu_emu.errors.DebugOnlyInstructionWarning`. `case_tests` reads the assembled
+program and, when it contains the instruction, requires the warning in every
+case; for any other kernel the warning is an error. A test that calls
+`run_case` or `app.run` itself wraps the run in
+`pytest.warns(DebugOnlyInstructionWarning)`, or in
+`debug_only_warning(kernel_uses_debug_only_instructions(kernel))` from
+`ipu_apps.kernel_registry.testing`.
+
 ```bash
 bazel test //src/tools/ipu-apps:my_app
 ```
@@ -293,37 +261,13 @@ suites. Bazel remains the supported build and test workflow.
 
 ## Inspecting Run Statistics
 
-Every run populates `state.stats` (a `RunStats` instance) with counters useful for spotting bottlenecks. They are updated automatically by `run_until_complete` / `run_with_debug` — no opt-in flag is required.
-
-Available fields:
-
-- `total_cycles` — VLIW cycles executed
-- `mult_active_cycles` — cycles whose MULT slot was not `MULT_NOP`
-- `acc_active_cycles` — cycles whose ACC slot was not `ACC_NOP`
-- `xmem_reads` — count of `LDR_MULT_REG`, `LDR_CYCLIC_MULT_REG`, `LDR_MULT_MASK_REG`
-- `xmem_writes` — count of `STR_ACC_REG`, `STR_POST_AAQ_REG`
-- `xmem_accesses` — sum of reads + writes
-- `mult_utilization`, `acc_utilization` — active-cycle fraction (0.0–1.0)
-
-`state.stats.format_summary()` returns a ready-to-print multi-line block:
-
-```text
-=== Run summary ===
-Total cycles:           12847
-Mult active:            10421  (81.1%)
-Acc  active:             9876  (76.9%)
-XMEM reads:              3200
-XMEM writes:              128
-XMEM accesses:           3328
-```
-
-Typical usage from an interactive runner or a test:
+Every run fills `state.stats`, and `state.stats.format_summary()` prints them.
+[Run statistics](reference/cli.md#run-statistics) explains each counter, when
+the counters reset and the cycle limit.
 
 ```python
 state, cycles = app.run(max_cycles=args.max_cycles)
 print(state.stats.format_summary())
-
-# Or pick individual fields for assertions / metrics:
 assert state.stats.mult_utilization > 0.5
 ```
 
@@ -341,40 +285,40 @@ The IPU assembly implements the core computation: activations for the current sa
     SET                 lr2 cr8 ;;
 
 input_loop:
-    LDR_MULT_REG        r0 lr0 cr0;;
+    LD.MULT        r0 lr0 cr0;;
 
     SET                 lr4 cr9 ;;
     SET                 lr5 cr10 ;;
     SET                 lr6 cr11 ;;
     SET                 lr15 cr12 ;;
 
-    LDR_CYCLIC_MULT_REG lr4 cr1 lr15;
+    LD.MULT.CYCLIC lr4 cr1 lr15;
     ADD                 lr4 lr4 cr3;
     ADD                 lr5 lr5 cr4;
     MULT.RC.VE          lr15 lr5 0 lr15 cr15;
-    ACC.FIRST;;
+    ACC.ADD.FIRST;;
     BNE                 lr5 lr6 element_loop;;
     B                   after_element_loop;;
 
 element_loop:
-    LDR_CYCLIC_MULT_REG lr4 cr1 lr15;
+    LD.MULT.CYCLIC lr4 cr1 lr15;
     ADD                 lr4 lr4 cr3;
     ADD                 lr5 lr5 cr4;
     MULT.RC.VE          lr15 lr5 0 lr15 cr15;
-    ACC;;
+    ACC.ADD;;
     BNE                 lr5 lr6 element_loop;;
 
 after_element_loop:
-    STR_ACC_REG         lr7 cr2;;
+    ST.ACC              lr7 cr2;;
     ADD                 lr7 lr7 cr5;
     ADD                 lr0 lr0 cr3;;
 
     BREAK;;
 
-    BLT                 lr0 lr1 input_loop;;
+    BLT.S               lr0 lr1 input_loop;;
 
 end:
-    BKPT;;
+    HALT;;
 ```
 
 ### Python Application Class
@@ -389,8 +333,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ipu_emu.ipu_config import LR_CR_SCALAR_VALUE_MASK
-from ipu_emu.ipu_math import DType
+from ipu_isa.constants import LR_CR_SCALAR_VALUE_MASK
+from ipu_isa.formats import ElementFormat
 from ipu_emu.emulator import load_binary_to_xmem, dump_xmem_to_binary
 
 from ipu_apps.kernel_registry.base import IpuApp
@@ -406,12 +350,12 @@ WEIGHTS_BASE_ADDR = 0x20000
 OUTPUT_BASE_ADDR = 0x40000
 OUTPUT_NEURONS = 64
 
-def parse_dtype(dtype_str: str) -> DType:
-    """Parse a dtype string into a DType enum value."""
+def parse_dtype(dtype_str: str) -> ElementFormat:
+    """Parse a dtype string into the element format it names."""
     dtype_map = {
-        "INT8": DType.INT8,
-        "FP8_E4M3": DType.E4,
-        "FP8_E5M2": DType.E5,
+        "INT8": ElementFormat.INT8,
+        "FP8_E4M3": ElementFormat.E4,
+        "FP8_E5M2": ElementFormat.E5,
     }
     dt = dtype_map.get(dtype_str)
     if dt is None:
@@ -453,10 +397,10 @@ class FullyConnectedApp(IpuApp):
         inputs_path:  Path to input activations binary.
         weights_path: Path to weights binary.
         output_path:  Optional path to write output.
-        dtype:        Data type string or DType.
+        dtype:        Data type string or ElementFormat.
     """
 
-    def __init__(self, *, dtype: str | DType = "INT8", **kwargs) -> None:
+    def __init__(self, *, dtype: str | ElementFormat = "INT8", **kwargs) -> None:
         super().__init__(**kwargs)
         self.inputs_path = Path(self.inputs_path)
         self.weights_path = Path(self.weights_path)
@@ -464,7 +408,7 @@ class FullyConnectedApp(IpuApp):
 
     def setup(self, state: "IpuState") -> None:
         """Load inputs and weights, set control registers."""
-        state.dtype = self.dtype
+        # The state is built in self.dtype (SPEC.execution); its format is read-only.
         state.set_cr_dstructure(valid_elements=INPUT_NEURONS, partition=0)
         load_binary_to_xmem(
             state, self.inputs_path, INPUT_BASE_ADDR, INPUT_NEURONS, SAMPLES_NUM
@@ -472,7 +416,7 @@ class FullyConnectedApp(IpuApp):
         _load_and_transpose_weights(state, self.weights_path)
         # CR0 is permanently 0; CR1 is permanently 1. XMEM operands are row
         # numbers, so base addresses are divided by the row size.
-        row_size = 512 if state.wide_vector_debug else 128
+        row_size = state.format_info.row_bytes
         state.regfile.set_cr(2, OUTPUT_BASE_ADDR // row_size)
         state.regfile.set_cr(3, 1)          # one row per input vector
         state.regfile.set_cr(4, 1)
@@ -511,9 +455,8 @@ completed output before validation, allowing inspection of a failing result;
 a failed check still exits with a nonzero status and a diagnostic. Programs
 that exceed their cycle limit are rejected before export.
 
-The shared CLI runs without an interactive debugger. To debug a harness
-through the Python API, pass `debug_callback=debug_prompt` to `app.run()`;
-see [Debugging](debugging.md) for callback usage.
+To stop a kernel in the debugger, run its target with `--config=debug`; see
+[Debug a kernel](how-to/debug-a-kernel.md).
 
 ## Running and Testing Applications
 
@@ -530,4 +473,4 @@ case plus any kernel-specific pytest coverage. Kernel packages do not need a cus
 - **Emulator Run**: The emulator executes instructions until the program counter exceeds instruction memory
 - **Bazel Integration**: `ipu_app` supplies a single label for run and test, plus `assemble_<name>` for the standalone assembled binary
 
-See the [Assembly Syntax Guide](assembly-syntax.md) for more details on writing IPU programs and the complete fully_connected example at `src/tools/ipu-apps/src/ipu_apps/kernels/linear/fully_connected/` for a real-world implementation.
+See the [Assembly Syntax Guide](reference/isa/assembly-syntax.md) for more details on writing IPU programs and the complete fully_connected example at `src/tools/ipu-apps/src/ipu_apps/kernels/linear/fully_connected/` for a real-world implementation.

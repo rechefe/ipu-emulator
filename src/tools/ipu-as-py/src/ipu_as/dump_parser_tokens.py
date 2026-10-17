@@ -11,21 +11,20 @@ Note the text emitted here is **Jinja-rendered**. ``lark_tree`` renders the
 template away before parsing, so the parser never sees the raw file, and byte
 offsets only line up on the rendered form. The agreement test therefore
 compares on rendered text. The Jinja layer is covered separately, from each
-entry's raw file and Jinja region offsets.
+entry's raw file and Jinja region offsets (`jinja_regions`, from Jinja's own
+lexer through `ipu_as.language_service`).
 """
 
 from __future__ import annotations
 
 import json
-import re
 import sys
-from collections import Counter
 from pathlib import Path
 
-import jinja2
 import lark
 
 import ipu_as.template as template
+from ipu_as import language_service
 from ipu_as.lark_tree import get_parser
 
 #: Parse-tree rule -> role for the token it owns.
@@ -48,32 +47,18 @@ def token_roles(tree: lark.Tree) -> dict[int, str]:
     return roles
 
 
-_JINJA_OPEN = re.compile(r"\{#|\{%|\{\{")
-_JINJA_CLOSE = {"{#": ("comment", "#}"), "{%": ("block", "%}"), "{{": ("variable", "}}")}
+def jinja_regions(raw: str) -> list[dict]:
+    """Offsets of every Jinja comment, block and expression in the raw source.
 
-
-def jinja_regions(raw: str, path: Path) -> list[dict]:
-    """Offsets of every Jinja comment, block and expression in the raw source,
-    scanned directly (Jinja's lexer strips whitespace, losing offsets) and
-    counted per kind against that lexer, so a misread (`{% raw %}`, a closer
-    inside a string) fails instead of lying."""
-    regions, pos = [], 0
-    while (m := _JINJA_OPEN.search(raw, pos)):
-        kind, closer = _JINJA_CLOSE[m.group()]
-        end = raw.find(closer, m.end())
-        if end < 0:
-            raise SystemExit(f"{path}: unclosed {m.group()} at offset {m.start()}")
-        regions.append({"kind": kind, "start": m.start(), "end": end + len(closer)})
-        pos = end + len(closer)
-
-    # Lexing only; nothing is rendered, so no sandbox is needed.
-    lexed = Counter(t for _, t, _ in jinja2.Environment().lex(raw))
-    scanned = Counter(r["kind"] for r in regions)
-    for kind, _ in _JINJA_CLOSE.values():
-        if scanned[kind] != lexed[f"{kind}_begin"]:
-            raise SystemExit(f"{path}: found {scanned[kind]} Jinja {kind} tag(s), "
-                             f"but Jinja's lexer found {lexed[f'{kind}_begin']}.")
-    return regions
+    They come from `ipu_as.language_service`, which reads them with Jinja's own
+    lexer, so the agreement test checks the editor's Jinja regions against
+    Jinja rather than against a copy of the editor's algorithm.
+    """
+    analysis = language_service.analyse(raw, want=frozenset({"jinja"}))
+    return [
+        {"kind": region.kind, "start": region.start, "end": region.end}
+        for region in analysis.jinja or ()
+    ]
 
 
 def describe(path: Path) -> dict:
@@ -102,7 +87,19 @@ def describe(path: Path) -> dict:
             f"test needs total coverage to compare against TextMate."
         )
 
-    return {"file": str(path), "text": text, "tokens": tokens, "raw": raw, "jinja": jinja_regions(raw, path)}
+    return {
+        "file": str(path),
+        "text": text,
+        "tokens": tokens,
+        "raw": raw,
+        "jinja": jinja_regions(raw),
+    }
+
+
+def _needs_defines(path: Path) -> bool:
+    """True when the source declares a parameter with no default."""
+    spec = template.declared_params(path.read_text(encoding="utf-8"), str(path))
+    return spec is not None and any(p.default is template.REQUIRED for p in spec.params)
 
 
 def main(argv: list[str]) -> int:
@@ -116,11 +113,11 @@ def main(argv: list[str]) -> int:
     out = Path(argv[0])
     corpus = []
     for p in argv[1:]:
-        try:
-            corpus.append(describe(Path(p)))
-        except jinja2.exceptions.UndefinedError as exc:
+        if _needs_defines(Path(p)):
             # Renders only with its harness's values: no text of its own.
-            print(f"skipped {p}: {exc}", file=sys.stderr)
+            print(f"skipped {p}: its ipu:params header has a required parameter", file=sys.stderr)
+            continue
+        corpus.append(describe(Path(p)))
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(corpus, indent=2) + "\n", encoding="utf-8")
     return 0

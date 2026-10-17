@@ -1,24 +1,53 @@
 load("@ipu_as_deps//:requirements.bzl", "requirement")
-load("@ipu_apps_pyproject//:deps.bzl", "get_requirements")
 load("@rules_python//python:defs.bzl", "py_binary", "py_library")
 load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
+load("//tools:runtime_deps.bzl", "runtime_deps_manifest")
+load(":deps.bzl", "RUNTIME_DEPS")
 load("//:ipu_app.bzl", "ipu_apps_from_kernels", "ipu_benchmarks_from_kernels", "ipu_families_from_kernels", "ipu_kernel_targets", "ipu_multi_kernel_tests", "ipu_per_kernel_test")
+load("//tools:lint.bzl", "ruff_test")
 
 package(default_visibility = ["//visibility:public"])
 
 exports_files([
+    # Read by //tools:test_update_baselines.
+    "BUILD.bazel",
     "pyproject.toml",
 ])
 
+# RUNTIME_DEPS as JSON, for //tools:deps_consistency_test.
+runtime_deps_manifest(
+    name = "runtime_deps",
+    runtime_deps = RUNTIME_DEPS,
+)
+
+# The package's Python sources, for //tools:test_import_graph.
+filegroup(
+    name = "py_sources",
+    srcs = glob(["src/**/*.py"]),
+)
+
+# The package's test sources, for //tools:test_import_graph's private-name check.
+filegroup(
+    name = "py_test_sources",
+    srcs = glob(["test/**/*.py"], allow_empty = True),
+)
+
 py_library(
     name = "ipu_apps_lib",
-    srcs = glob(["src/ipu_apps/**/*.py"]),
+    # Test modules stay out of the library: each kernel and family target lists
+    # its own test.py, so editing one reruns only the targets that use it.
+    srcs = glob(
+        ["src/ipu_apps/**/*.py"],
+        exclude = ["src/ipu_apps/**/test.py", "src/ipu_apps/**/test_*.py"],
+    ),
     imports = ["src"],
     deps = [
         "//src/tools/ipu-emu-py:ipu_emu_lib",
+        # Debug mode (IPU_DEBUG_TUI=1, `bazel run --config=debug`) launches it.
+        "//src/tools/ipu-debug:ipu_debug_lib",
         "//src/tools/ipu-as-py:ipu_as_lib",
-        "//src/tools/ipu-common:ipu_common_lib",
-    ] + get_requirements(requirement),
+        "//src/tools/ipu-isa:ipu_isa_lib",
+    ] + [requirement(dep) for dep in RUNTIME_DEPS],
 )
 
 # One target per kernel .asm file under kernels/, discovered automatically --
@@ -37,10 +66,10 @@ py_pytest_test(
     deps = [":ipu_apps_lib", requirement("pytest")],
 )
 
-# Kernel registry mechanics, the softmax conformance suite (assembles and runs
-# whichever softmax kernel the registry resolves), and checks over every
-# registered kernel (hygiene, and that each of its cases routes) -- so every
-# .asm and case fixture is data here, and a new kernel needs no edit to this rule.
+# Kernel registry mechanics (on identity and synthetic specs since E07-11 moved
+# softmax to kernels/softmax), and checks over every registered kernel (hygiene, and
+# that each of its cases routes) -- so every .asm and case fixture is data here,
+# and a new kernel needs no edit to this rule.
 py_pytest_test(
     name = "test_kernel_registry",
     srcs = ["test/test_kernel_registry.py"],
@@ -59,12 +88,42 @@ ipu_benchmarks_from_kernels(
     deps = [":ipu_apps_lib"],
 )
 
-# `bazel run :query -- softmax shape=32,300 dim=1`: which kernel handles a
+# Every kernel .asm, for //tools/bench (assemble/all_kernels and the kernel
+# speed cases) and :trace_case.
+filegroup(
+    name = "kernel_sources",
+    srcs = glob(["src/ipu_apps/kernels/**/*.asm"]),
+)
+
+# Every kernel's checked-in input and golden files, for //tools/bench (the
+# emulator module runs the INT8 case of fully_connected) and :trace_case.
+filegroup(
+    name = "kernel_data",
+    srcs = glob(["src/ipu_apps/kernels/**/*.bin"]),
+)
+
+# `bazel run :query -- identity shape=8,128`: which kernel handles a
 # computation, for any operation. With no arguments, the coverage report.
 py_binary(
     name = "query",
     srcs = ["src/ipu_apps/kernel_registry/query.py"],
     main = "src/ipu_apps/kernel_registry/query.py",
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+# Records one registered case as an E04-29 trace plus the Cycle Inspector's
+# context (E08-16); docs/inspector.bzl's kernel_trace runs it.
+#   bazel run //src/tools/ipu-apps:trace_case -- identity --trace "$PWD/t.jsonl" --context "$PWD/c.json"
+py_binary(
+    name = "trace_case",
+    srcs = ["src/ipu_apps/kernel_registry/trace_case.py"],
+    # Which case runs is a run-time argument: every kernel's source and fixtures.
+    data = [
+        ":kernel_data",
+        ":kernel_sources",
+    ],
+    main = "src/ipu_apps/kernel_registry/trace_case.py",
     imports = ["src"],
     deps = [":ipu_apps_lib"],
 )
@@ -87,7 +146,7 @@ py_binary(
     deps = [":ipu_apps_lib"],
 )
 
-# `:<family>` (e.g. :softmax, :pooling) runs every kernel in that family plus
+# `:<family>` (e.g. :convolutions, :attention) runs every kernel in that family plus
 # the family's own test.py. Family tests may check the family's docs page.
 ipu_families_from_kernels(
     kernels_root = "src/ipu_apps/kernels",
@@ -96,12 +155,24 @@ ipu_families_from_kernels(
     data = ["//docs:doc_sources"],
 )
 
+# Debugger launch behaviour on a tiny program and the identity kernel.
 py_pytest_test(
     name = "test_debug_launch",
-    size = "enormous",
+    size = "small",
     srcs = ["test/test_debug_launch.py"],
     data = glob(["src/ipu_apps/**/*.asm", "src/ipu_apps/**/*.bin"]),
     deps = [":ipu_apps_lib", requirement("pytest")],
+)
+
+# Every kernel's default case run to completion under a stubbed debugger: one
+# target per kernel, `enormous` (heavy tier) because the sweep takes minutes.
+ipu_per_kernel_test(
+    name = "test_debug_launch_kernels",
+    src = "test/test_debug_launch_kernels.py",
+    kernels_root = "src/ipu_apps/kernels",
+    data = glob(["src/ipu_apps/**/*.asm", "src/ipu_apps/**/*.bin"]),
+    deps = [":ipu_apps_lib", requirement("pytest")],
+    size = "enormous",
 )
 
 py_pytest_test(
@@ -110,17 +181,176 @@ py_pytest_test(
     deps = [":ipu_apps_lib", requirement("pytest")],
 )
 
+# Profiler consistency: every case of each kernel run twice (baseline and
+# profiled). `enormous` (heavy tier) because it repeats the work of each
+# kernel's own default-tier target and is about 60 % of all test time.
 ipu_per_kernel_test(
     name = "test_alias_profile_kernels",
     src = "test/test_alias_profile_kernels.py",
     kernels_root = "src/ipu_apps/kernels",
     data = glob(["src/ipu_apps/**/*.asm", "src/ipu_apps/**/*.bin"]),
     deps = [":ipu_apps_lib", requirement("pytest")],
+    size = "enormous",
+)
+
+# The MobileViT suite's shared fixtures, imported by module name (`fixture_*`).
+# fixture_projections, fixture_elementwise and fixture_normalize run the
+# projections, the residual adds and the LayerNorms from //kernels/projections,
+# //kernels/elementwise and //kernels/normalize (E07-02, E07-06,
+# E07-10) until E07-24 ports the chain tests to the harness's chaining API.
+py_library(
+    name = "mobilevit_fixtures",
+    srcs = glob(["test/mobilevit/fixture_*.py"]),
+    data = ["//kernels:tree"],
+    imports = ["test/mobilevit"],
+    deps = [
+        ":ipu_apps_lib",
+        "//src/tools/ipu-harness:ipu_harness_lib",
+        "//src/tools/ipu-kernels:ipu_kernels_all",
+    ],
 )
 
 # Tests that run several kernels together: one target per test/<suite>/test_*.py.
 ipu_multi_kernel_tests(
     suites_root = "test",
     kernels_root = "src/ipu_apps/kernels",
+    deps = [":ipu_apps_lib", ":mobilevit_fixtures", requirement("pytest")],
+)
+
+# No test reaches a module through sys.path; it depends on a declared library.
+py_pytest_test(
+    name = "test_no_sys_path_insert",
+    size = "small",
+    srcs = ["test/test_no_sys_path_insert.py"],
+    data = glob(["test/**/*.py"]),
+    deps = [requirement("pytest")],
+)
+
+# Assembled-binary baseline (E02-01): the .bin and .mem digests of every .asm
+# program in the repo, plus each render context today's tests use. The corpus is
+# //src/tools/ipu-as-py:asm_corpus (test/corpus/asm_corpus.py); the manifest
+# stays here until E07-25. `bazel run :update_asm_digests` rewrites it after an
+# intended change.
+_ASM_CORPUS = glob([
+    "src/ipu_apps/kernels/**/*.asm",
+]) + ["//vscode-ipu-asm:asm_fixtures"]
+
+# The corpus and its digest manifest as data, for tools that read the
+# manifest without importing asm_corpus (//src/tools/ipu-as-py:bench_assemble).
+filegroup(
+    name = "asm_corpus_files",
+    srcs = _ASM_CORPUS + ["test/baselines/asm_digests.json"],
+)
+
+# The old kernels' programs, prebuilt binaries and E02 case baselines, for
+# //kernels/tools (compare_setup, compare_legacy; E07-01), which runs the old
+# harnesses beside the new kernels until E07-25 deletes both.
+filegroup(
+    name = "legacy_kernel_files",
+    srcs = glob([
+        "src/ipu_apps/kernels/**/*.asm",
+        "src/ipu_apps/kernels/**/*.bin",
+        "src/ipu_apps/kernels/**/baseline.json",
+    ]),
+)
+
+py_pytest_test(
+    name = "test_asm_digests",
+    srcs = ["test/test_asm_digests.py"],
+    data = _ASM_CORPUS + ["test/baselines/asm_digests.json"],
+    deps = ["//src/tools/ipu-as-py:asm_corpus", requirement("pytest")],
+)
+
+py_binary(
+    name = "update_asm_digests",
+    testonly = True,
+    srcs = ["test/baselines/update_asm_digests.py"],
+    main = "test/baselines/update_asm_digests.py",
+    deps = [
+        "//src/tools/ipu-as-py:asm_corpus",
+        "//tools:baseline_support",
+    ],
+)
+
+# Disassembly snapshots (E02-02): one text file per corpus entry in
+# test/baselines/disassembly/. `bazel run :update_disassembly_snapshots`
+# rewrites them.
+py_library(
+    name = "disassembly_snapshots",
+    srcs = ["test/baselines/disassembly.py"],
+    imports = ["test/baselines"],
+    deps = ["//src/tools/ipu-as-py:asm_corpus"],
+)
+
+py_pytest_test(
+    name = "test_disassembly_snapshots",
+    srcs = ["test/test_disassembly_snapshots.py"],
+    data = _ASM_CORPUS + glob(["test/baselines/disassembly/**/*.txt"]),
+    deps = [
+        ":disassembly_snapshots",
+        "//tools:baseline_support",
+        requirement("pytest"),
+    ],
+)
+
+py_binary(
+    name = "update_disassembly_snapshots",
+    testonly = True,
+    srcs = ["test/baselines/update_disassembly_snapshots.py"],
+    main = "test/baselines/update_disassembly_snapshots.py",
+    deps = [
+        ":disassembly_snapshots",
+        "//tools:baseline_support",
+    ],
+)
+
+# Kernel case baselines (E02-07): `bazel run :update_kernel_baselines --
+# [<kernel> ...]` reruns the kernels' case_tests and rewrites their
+# baseline.json files.
+py_binary(
+    name = "update_kernel_baselines",
+    testonly = True,
+    srcs = ["test/baselines/update_kernel_baselines.py"],
+    main = "test/baselines/update_kernel_baselines.py",
+    data = glob([
+        "src/ipu_apps/**/test.py",
+        "src/ipu_apps/**/*.asm",
+        "src/ipu_apps/**/*.bin",
+        "src/ipu_apps/**/baseline.json",
+    ], allow_empty = True),
+    # As for the kernel tests: pytest must import test.py as ipu_apps.kernels.…
+    legacy_create_init = False,
+    deps = [
+        ":ipu_apps_lib",
+        "//tools:baseline_support",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_kernel_baseline",
+    srcs = ["test/test_kernel_baseline.py"],
+    data = glob(["src/ipu_apps/kernels/reshape/identity/*"]),
+    legacy_create_init = False,
     deps = [":ipu_apps_lib", requirement("pytest")],
+)
+
+# The reference-model API (E04-30) runs three kernels as run_until_complete
+# does, with each case's state set through the API alone.
+py_pytest_test(
+    name = "test_reference_model_kernels",
+    srcs = ["test/test_reference_model_kernels.py"],
+    data = glob([
+        "src/ipu_apps/kernels/reshape/identity/*",
+        "src/ipu_apps/kernels/convolutions/conv_universal/*",
+        "src/ipu_apps/kernels/softmax/softmax_columns_packed/*",
+    ]),
+    legacy_create_init = False,
+    deps = [":ipu_apps_lib", requirement("pytest")],
+)
+
+# Ruff lint and format over this package's Python files (tools/lint.bzl).
+ruff_test(
+    name = "ruff",
+    srcs = glob(["**/*.py"]),
 )

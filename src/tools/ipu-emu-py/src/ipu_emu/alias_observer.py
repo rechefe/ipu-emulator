@@ -1,17 +1,81 @@
-"""Execution-to-profiler adapter. Instruction decoding stays in the dispatcher."""
+"""Execution-to-profiler adapter. Instruction decoding stays in the dispatcher.
+
+The profiler sees the emulator only through public records (E04-11): a
+:class:`~ipu_emu.cycle.CycleObserver` per cycle, one
+:class:`~ipu_emu.issue.IssueFacts` per op, the ranged register and XMEM events,
+the cycle-start snapshot through ``Cycle.snapshot`` and the shared helpers of
+:mod:`ipu_emu.geometry`. It imports nothing private from ``ipu_emu``.
+"""
+
 from __future__ import annotations
 
 import math
 import struct
 import weakref
+from typing import TYPE_CHECKING, Any
 
-from ipu_common.activations import ACTIVATION_IDENTITY
-from ipu_common.registers import get_lane_count
 from ipu_emu.alias_profile import Event
-from ipu_emu.ipu_math import dtype_one_byte
+from ipu_emu.cycle import decode_word
+from ipu_emu.errors import EmulatorFault
+from ipu_emu.geometry import (
+    EMULATOR_REGISTERS,
+    WIDE_REGISTERS,
+    cr_scalar,
+    element_width_bytes,
+    is_wide_format,
+    row_size_bytes,
+    vector_registers,
+)
 from ipu_emu.xmem import XMEM_WIDTH_BYTES
+from ipu_isa.activations import ACTIVATION_IDENTITY
+from ipu_isa.formats import ElementFormat
+from ipu_isa.geometry import LANES
+from ipu_isa.operand_types import OperandType
+from ipu_isa.registers import REGISTER_DEFINITIONS
 
-LANES = get_lane_count()
+if TYPE_CHECKING:
+    from ipu_emu.cycle import Cycle
+    from ipu_emu.issue import IssueFacts
+
+_LR_NAMES = frozenset(REGISTER_DEFINITIONS["lr"]["assembler_values"])
+
+
+def _names_an_lr(operand_type: OperandType, encoded: int) -> bool:
+    """Whether an operand of ``operand_type`` encoded as ``encoded`` names an LR."""
+    members = operand_type.domain.members
+    return 0 <= encoded < len(members) and members[encoded] in _LR_NAMES
+
+
+class _CycleBinding:
+    """An :class:`ExecutionObserver` attached to one cycle.
+
+    One profile observes one state, but every engine built on that state has
+    its own cycle, so each attaches its own binding: ``begin`` points the
+    observer at the cycle whose snapshot it reads, and every other hook goes
+    straight to the observer.
+    """
+
+    __slots__ = ("_cycle", "_observer", "end", "issued", "retired")
+
+    def __init__(self, observer: ExecutionObserver, cycle: Cycle) -> None:
+        self._observer = observer
+        # Weak: the cycle holds this binding.
+        self._cycle = weakref.ref(cycle)
+        self.issued = observer.issued
+        self.retired = observer.retired
+        self.end = observer.end
+
+    def begin(self, pc: int) -> None:
+        self._observer.cycle_source = self._cycle
+        self._observer.begin(pc)
+
+
+#: The vector registers whose rows the profiler tracks, by bank (each with its
+#: 4-byte formats' storage).
+_NARROW_BANKS = {"r": "ra", "r_cyclic": "ring"}
+_BANKS = {**_NARROW_BANKS, **{WIDE_REGISTERS[n]: b for n, b in _NARROW_BANKS.items()}}
+#: Bytes of one element in a 4-byte format's storage.
+_WIDE_ELEMENT_BYTES = element_width_bytes(ElementFormat.FP32)
 
 
 class ExecutionObserver:
@@ -21,8 +85,15 @@ class ExecutionObserver:
         # reference back would make every profiled state (and its XMEM) wait
         # for the cyclic garbage collector instead of being freed on release.
         self._state = weakref.ref(state)
-        profile.metadata.update(mode=state.wide_vector_arithmetic.value if state.wide_vector_debug else "native",
-                                dtype=state.dtype.name, quantize_output=state.wide_vector_quantize_output)
+        fmt = state.fmt
+        # The 4-byte formats are emulator-only (the profile's ``mode`` names them).
+        wide = is_wide_format(fmt)
+        profile.metadata.update(
+            mode=fmt.value if wide else "native",
+            # The run's element format, in every mode.
+            dtype=fmt.name,
+            quantize_output=state.aaq.quantize_output,
+        )
         self.next_id = 0
         self.pc = 0
         self.cycle = 0
@@ -33,6 +104,9 @@ class ExecutionObserver:
         self.stores = {}
         self.memory_versions = {}
         self.memory_epoch = 0
+        # Version of a block absent from memory_versions: 0 (never written)
+        # until a clear() stamps the whole memory at once.
+        self.cleared_epoch = 0
         self.last_reads = {}
         self.acc = None
         self.mult = None
@@ -41,19 +115,34 @@ class ExecutionObserver:
         self.acc_scale = 0
         self.post_scale = 0
         self.cycle_events = []
-        state.xmem._profile_observer = self.memory
-        state.regfile._profile_observer = self.register_write
+        # The cycle being observed (weakly), whose snapshot the operand windows
+        # read; set by the cycle's binding (observing) at each cycle start.
+        self.cycle_source = lambda: None
+        self._removers = (
+            state.xmem.add_observer(self.memory),
+            state.regfile.add_observer(self.register_write),
+        )
+
+    def observing(self, cycle: Cycle) -> _CycleBinding:
+        """This observer as a ``CycleObserver`` of *cycle*, for ``Cycle.add_observer``."""
+        return _CycleBinding(self, cycle)
+
+    def detach(self):
+        """Stop observing the state's XMEM and register file."""
+        for remove in self._removers:
+            remove()
+        self._removers = ()
 
     @property
     def state(self):
         return self._state()
 
     def register_write(self, name, start, size):
-        banks = {"r": "ra", "r_wide_debug": "ra", "r_cyclic": "ring", "r_cyclic_wide_debug": "ring"}
-        if name in banks:
-            width = LANES * (4 if "wide_debug" in name else 1)
+        bank = _BANKS.get(name)
+        if bank is not None:
+            width = LANES * (_WIDE_ELEMENT_BYTES if name in EMULATOR_REGISTERS else 1)
             for index in range(start // width, (start + size - 1) // width + 1):
-                self.rows.pop((banks[name], index), None)
+                self.rows.pop((bank, index), None)
         if self.current is None:
             if name == "r_acc":
                 self.acc = None
@@ -64,44 +153,57 @@ class ExecutionObserver:
             elif name == "mult_res":
                 self.mult = None
 
-    def diamond(self, ipu, plan, kwargs):
+    def diamond(self, plan, kwargs):
         """Prove the canonical two-arm SET diamond from decoded ISA plans."""
-        if plan.inst_name not in ("BEQ", "BNE", "BLT", "BGE"):
+        if plan.inst_name not in ("BEQ", "BNE", "BLT.S", "BGE.S"):
             return None
         if kwargs.get("label") != self.pc + 3:
             return None
-        from ipu_emu.ipu import _SLOT_PLANS, _SLOT_OPCODE_FIELDS, _LR_PLANS, _LR_OPCODE_FIELDS
 
         def operations(pc):
             if pc >= len(self.state.inst_mem) or self.state.inst_mem[pc] is None:
                 return []
-            inst = self.state.inst_mem[pc]
-            result = []
-            for slot, plans in _SLOT_PLANS.items():
-                p = plans[inst[_SLOT_OPCODE_FIELDS[slot]]]
-                if p.inst_name != "NOP":
-                    result.append((slot, p.inst_name, {n: inst[k] for n, k in p.fields}))
-            for i, plans in enumerate(_LR_PLANS):
-                p = plans[inst[_LR_OPCODE_FIELDS[i]]]
-                if p.inst_name != "NOP":
-                    result.append(("lr", p.inst_name, {n: inst[k] for n, k in p.fields}))
-            return result
+            try:
+                ops = decode_word(self.state.inst_mem[pc], pc=pc)
+            except EmulatorFault:
+                return None  # F-1 (it faults, or runs a NOP slot): never a diamond
+            return [
+                (op.slot, op.plan.inst_name, dict(op.operands))
+                for op in ops
+                if op.plan.inst_name != "NOP"
+            ]
 
         a, jump, b = (operations(self.pc + i) for i in (1, 2, 3))
-        if not (len(a) == len(b) == len(jump) == 1):
+        if a is None or jump is None or b is None or not (len(a) == len(b) == len(jump) == 1):
             return None
         if a[0][:2] != ("lr", "SET") or b[0][:2] != ("lr", "SET"):
             return None
         if a[0][2]["reg"] != b[0][2]["reg"]:
             return None
         slot, name, args = jump[0]
-        if slot == "cond" and name == "BEQ" and args["reg1"] == args["reg2"] and args["label"] == self.pc + 4:
+        if (
+            slot == "cond"
+            and name == "BEQ"
+            and args["reg1"] == args["reg2"]
+            and args["label"] == self.pc + 4
+        ):
             return a[0][2]["reg"], self.pc + 4
         return None
 
-    def memory(self, kind, address, data):
-        end = address + len(data)
-        blocks = range(address // XMEM_WIDTH_BYTES, (end + XMEM_WIDTH_BYTES - 1) // XMEM_WIDTH_BYTES)
+    def memory(self, kind, address, size, data):
+        if kind == "clear":
+            # Every block now holds a fresh zero written at this epoch. Drop the
+            # tables and remember the epoch as the version of every untouched
+            # block, instead of stamping each of the 4M blocks.
+            self.memory_epoch += 1
+            self.stores.clear()
+            self.memory_versions.clear()
+            self.cleared_epoch = self.memory_epoch
+            return
+        end = address + size
+        blocks = range(
+            address // XMEM_WIDTH_BYTES, (end + XMEM_WIDTH_BYTES - 1) // XMEM_WIDTH_BYTES
+        )
         origin = None
         if kind == "write":
             self.memory_epoch += 1
@@ -110,91 +212,136 @@ class ExecutionObserver:
                 self.memory_versions[block] = self.memory_epoch
         else:
             first = self.stores.get(address // XMEM_WIDTH_BYTES)
-            if (first and first[0] <= address and end <= first[0] + first[1]
-                    and all(self.stores.get(block) is first for block in blocks)):
+            if (
+                first
+                and first[0] <= address
+                and end <= first[0] + first[1]
+                and all(self.stores.get(block) is first for block in blocks)
+            ):
                 origin = first[2]
         if self.current is not None:
+            if data is None:  # a fill: the event carries the range, not the bytes
+                data = self.state.xmem.snapshot_bytes(address, size)
             self.accesses.append((kind, address, bytes(data), origin))
 
-    def begin(self, ipu):
+    def begin(self, pc):
         self.cycle += 1
         self.profile.cycles += 1
-        self.pc = self.state.program_counter
+        self.pc = pc
         self.snapshot_rows = self.rows.copy()
         self.cycle_events = []
 
-    def start(self, ipu, slot, plan, kwargs, encoded):
-        if plan.inst_name == "NOP":
-            return None
-        facts = {"operands": dict(kwargs), "encoded": encoded, "chain": self.chain}
+    def issued(self, issued: IssueFacts) -> None:
+        """Open the event of one op about to execute, from its ``IssueFacts``."""
+        slot, plan, kwargs, encoded = issued.slot, issued.plan, issued.operands, issued.encoded
+        if plan.inst_name == "NOP" or slot == "break":
+            return
         # Do not serialize resolved vectors; only small execution facts escape.
-        facts["operands"] = {k: v for k, v in kwargs.items() if isinstance(v, int)}
-        facts["lr_reads"] = {read.name: encoded[read.name] for read in plan.reads
-                             if read.op_type == "LrIdx" or
-                             (read.op_type == "LcrIdx" and encoded[read.name] < 16)}
+        facts = {
+            "operands": {k: v for k, v in kwargs.items() if isinstance(v, int)},
+            "encoded": dict(encoded),
+            "chain": self.chain,
+        }
+        facts["lr_reads"] = {
+            read.name: encoded[read.name]
+            for read in plan.reads
+            if _names_an_lr(read.op_type, encoded[read.name])
+        }
         facts["snapshot_reads"] = tuple(read.name for read in plan.reads if read.from_snapshot)
-        if slot == "lr" and plan.write_operand:
-            facts["lr_writes"] = (ipu._lrd_lr_indices(kwargs[plan.write_operand])
-                                   if plan.write_is_lrd else (kwargs[plan.write_operand],))
+        if issued.lr_writes:
+            facts["lr_writes"] = issued.lr_writes
         if slot == "mult":
-            cr = kwargs.get("dstructure_cr_idx", kwargs.get("cr_idx"))
-            mask, ds = ipu._effective_mult_mask(kwargs["mask_offset"], kwargs["mask_shift"], cr)
+            ds = self.state.get_dstructure_for(kwargs[plan.mask_cr_operand])
             width = ds.valid_elements or LANES
-            facts.update(active_lanes=(mask & ((1 << width) - 1)).bit_count(),
-                         mask=mask, declared_width=ds.valid_elements, partition=int(ds.partition),
-                         identity=ipu._mult_identity,
-                         wide_fp32=self.state.wide_vector_debug and self.state.wide_vector_arithmetic.value == "fp32")
+            facts.update(
+                active_lanes=(issued.mask & ((1 << width) - 1)).bit_count(),
+                mask=issued.mask,
+                declared_width=ds.valid_elements,
+                partition=int(ds.partition),
+                identity=issued.mult_identity.any,
+                wide_fp32=self.state.fmt is ElementFormat.FP32,
+            )
             sources = []
             if "rc_idx" in kwargs:
-                sources += self.window(ipu, "ring", kwargs["rc_idx"], LANES)
+                sources += self.window("ring", kwargs["rc_idx"], LANES)
             if "ra" in encoded:
-                sources += self.window(ipu, "ra", encoded["ra"] * LANES, LANES)
+                sources += self.window("ra", encoded["ra"] * LANES, LANES)
             if "ra_idx" in kwargs:
-                sources += self.window(ipu, "ra", kwargs["ra_idx"],
-                                       1 if plan.inst_name == "MULT.EE" else LANES)
+                sources += self.window(
+                    "ra", kwargs["ra_idx"], 1 if plan.inst_name == "MULT.EE" else LANES
+                )
             if plan.inst_name == "MULT.RC.VE" and kwargs["src"] < 16:
-                sources += self.window(ipu, "ra", self.state.regfile.get_lr(kwargs["src"]), 1)
+                sources += self.window("ra", self.state.regfile.get_lr(kwargs["src"]), 1)
                 facts["lr_reads"]["src"] = kwargs["src"]
             facts["sources"] = tuple(sources)
-            complete = [s for s in sources if plan.inst_name == "MULT.RC.VV" and (
-                (s.facts.get("bank") == "ra" and s.facts.get("bank_index") == encoded.get("ra")) or
-                (s.facts.get("bank") == "ring" and kwargs["rc_idx"] % LANES == 0 and
-                 s.facts.get("bank_index") == kwargs["rc_idx"] % (4 * LANES) // LANES))]
-            facts["constants"] = self.constants(ipu, complete)
-            facts["scale_lanes"] = self.mult_scale(ipu, plan.inst_name, kwargs, encoded, facts)
+            complete = [
+                s
+                for s in sources
+                if plan.inst_name == "MULT.RC.VV"
+                and (
+                    (s.facts.get("bank") == "ra" and s.facts.get("bank_index") == encoded.get("ra"))
+                    or (
+                        s.facts.get("bank") == "ring"
+                        and kwargs["rc_idx"] % LANES == 0
+                        and s.facts.get("bank_index") == kwargs["rc_idx"] % (4 * LANES) // LANES
+                    )
+                )
+            ]
+            facts["constants"] = self.constants(complete)
+            facts["scale_lanes"] = self.mult_scale(plan.inst_name, kwargs, encoded, facts)
         if slot == "acc":
             facts["mult"] = self.mult
             facts["previous_acc_id"] = self.acc.id if self.acc else None
-            facts["scale_lanes"] = self.accumulator_scale(ipu, plan.inst_name, kwargs)
+            facts["scale_lanes"] = self.accumulator_scale(plan.inst_name, kwargs)
         if slot == "aaq":
             facts["acc"] = self.acc
-            facts["lossy"] = not (self.state.wide_vector_debug and not self.state.wide_vector_quantize_output)
+            facts["lossy"] = not (
+                is_wide_format(self.state.fmt) and not self.state.aaq.quantize_output
+            )
             active = min(LANES, self.state.get_dstructure_for(kwargs["cr_idx"]).valid_elements)
             active_mask = (1 << active) - 1
-            facts["input_scale_verified"] = bool(active) and self.acc_scale & active_mask == active_mask
-            facts["scale_lanes"] = ((self.post_scale & ~active_mask) | (self.acc_scale & active_mask)
-                                    if kwargs["activation_fn"] == ACTIVATION_IDENTITY and not facts["lossy"] else 0)
+            facts["input_scale_verified"] = (
+                bool(active) and self.acc_scale & active_mask == active_mask
+            )
+            facts["scale_lanes"] = (
+                (self.post_scale & ~active_mask) | (self.acc_scale & active_mask)
+                if kwargs["activation_fn"] == ACTIVATION_IDENTITY and not facts["lossy"]
+                else 0
+            )
         if slot == "store":
             if self.post:
                 # Transfers need the old accumulator version, not its recursive
                 # expression tree. EXP uses the current AAQ event directly.
                 post_facts = self.post.facts.copy()
                 old = post_facts.get("acc")
-                post_facts["acc"] = Event(old.id, old.cycle, old.pc, old.slot, old.instruction) if old else None
-                facts["post"] = Event(self.post.id, self.post.cycle, self.post.pc,
-                                      self.post.slot, self.post.instruction, post_facts)
+                post_facts["acc"] = (
+                    Event(old.id, old.cycle, old.pc, old.slot, old.instruction) if old else None
+                )
+                facts["post"] = Event(
+                    self.post.id,
+                    self.post.cycle,
+                    self.post.pc,
+                    self.post.slot,
+                    self.post.instruction,
+                    post_facts,
+                )
                 facts["scale_lanes"] = self.post_scale
         if slot == "cond":
-            diamond = self.diamond(ipu, plan, kwargs)
+            diamond = self.diamond(plan, kwargs)
             if diamond:
                 facts["diamond"] = diamond
         self.current = (slot, plan.inst_name, facts)
         self.accesses = []
-        return self.current
 
-    def scaled_window(self, ipu, bank, start, length):
+    def retired(self, issued: IssueFacts, result: Any) -> None:
+        """Close the event :meth:`issued` opened for this op."""
+        if issued.plan.inst_name == "NOP" or issued.slot == "break":
+            return
+        self.finish(self.current, issued.alias)
+
+    def scaled_window(self, bank, start, length):
         """Lane provenance follows snapshot loads, never numerical equality alone."""
-        sources = {e.facts["bank_index"]: e for e in self.window(ipu, bank, start, length)}
+        sources = {e.facts["bank_index"]: e for e in self.window(bank, start, length)}
         if not any(e.facts.get("scale_lanes", 0) for e in sources.values()):
             return 0
         capacity = LANES * (4 if bank == "ring" else 2)
@@ -206,7 +353,7 @@ class ExecutionObserver:
                 result |= 1 << i
         return result
 
-    def mult_scale(self, ipu, name, kw, encoded, facts):
+    def mult_scale(self, name, kw, encoded, facts):
         """Prove a common log2(e) factor; unknown operations erase the proof."""
         if not facts["wide_fp32"]:
             return 0
@@ -221,18 +368,20 @@ class ExecutionObserver:
                     source = constant["source"]
                     bank = "ra" if source.facts["bank"] == "ring" else "ring"
                     start = encoded["ra"] * LANES if bank == "ra" else kw["rc_idx"]
-                    scaled = self.scaled_window(ipu, bank, start, LANES)
-        elif name in ("MULT.VE", "MULT.EE") and ipu._wide_cr_scalar_byte_as_int32(kw["cr_idx"]) == 1:
+                    scaled = self.scaled_window(bank, start, LANES)
+        elif name in ("MULT.VE", "MULT.EE") and cr_scalar(self.state, kw["cr_idx"]) == 1:
             length = 1 if name == "MULT.EE" else LANES
-            scaled = self.scaled_window(ipu, "ra", kw["ra_idx"], length)
+            scaled = self.scaled_window("ra", kw["ra_idx"], length)
             if length == 1:
                 scaled = full if scaled else 0
-        elif name == "MULT.RC.VE" and kw["src"] >= 16 and ipu._wide_cr_scalar_byte_as_int32(kw["src"] - 16) == 1:
-            scaled = self.scaled_window(ipu, "ring", kw["rc_idx"], LANES)
+        elif (
+            name == "MULT.RC.VE" and kw["src"] >= 16 and cr_scalar(self.state, kw["src"] - 16) == 1
+        ):
+            scaled = self.scaled_window("ring", kw["rc_idx"], LANES)
         # Mask padding is zero or infinity, both invariant under positive scaling.
         return scaled | (full ^ facts["mask"])
 
-    def accumulator_scale(self, ipu, name, kw):
+    def accumulator_scale(self, name, kw):
         mult = self.mult.facts.get("scale_lanes", 0) if self.mult else 0
         if name in ("ACC.ADD.FIRST", "ACC.SUB.FIRST", "ACC.MAX.FIRST"):
             return mult
@@ -246,24 +395,24 @@ class ExecutionObserver:
             return (self.acc_scale & ~dest) | (dest if proven else 0)
         return 0
 
-    def window(self, ipu, bank, start, length):
+    def window(self, bank, start, length):
         """Associate snapshot operands with loads, including cyclic slot crossings."""
         capacity = LANES * (4 if bank == "ring" else 2)
         slots = {(start + i) % capacity // LANES for i in range(length)}
         result = []
-        wide = self.state.wide_vector_debug
-        name = ("r_cyclic_wide_debug" if wide else "r_cyclic") if bank == "ring" else ("r_wide_debug" if wide else "r")
-        raw = ipu._snapshot_buffer.raw_readonly(name)
-        if name in self.state.regfile._mutable_exports:
+        registers = vector_registers(self.state)
+        name = registers.r_cyclic if bank == "ring" else registers.ra
+        raw = self.cycle_source().snapshot.raw_readonly(name)
+        if self.state.regfile.has_mutable_export(name):
             return []
-        size = ipu._row_size_bytes()
+        size = row_size_bytes(self.state.fmt)
         for slot in sorted(slots):
             item = self.snapshot_rows.get((bank, slot))
-            if item and raw[slot * size:(slot + 1) * size] == item[1]:
+            if item and raw[slot * size : (slot + 1) * size] == item[1]:
                 result.append(item[0])
         return result
 
-    def constants(self, ipu, sources):
+    def constants(self, sources):
         # A property of a complete loaded row. Partial/cross-row operands cannot
         # prove that a complete MULT operand is a broadcast constant.
         result = []
@@ -274,36 +423,40 @@ class ExecutionObserver:
                     result.append(dict(props, source=source))
                 continue
             data = source.facts.get("data", b"")
-            if len(data) != ipu._row_size_bytes():
+            element_fmt = self.state.fmt
+            if len(data) != row_size_bytes(element_fmt):
                 continue
-            element = ipu._element_width_bytes()
-            one = struct.pack("<f" if self.state.wide_vector_arithmetic.value == "fp32" else "<i", 1) if self.state.wide_vector_debug else bytes([dtype_one_byte(self.state.dtype)])
+            element = element_width_bytes(element_fmt)
+            codec = self.state.codec
+            one = codec.one()
             zero = bytes(element)
             if data != data[:element] * LANES and data.replace(one, b"").replace(zero, b""):
                 source.facts["constant_properties"] = None
                 continue
-            if self.state.wide_vector_debug:
-                fmt = "<f" if self.state.wide_vector_arithmetic.value == "fp32" else "<i"
-                values = [x[0] for x in struct.iter_unpack(fmt, data)]
-            else:
-                from ipu_emu.ipu_math import DType, fp8_bytes_to_fp32
-                values = ([x if x < 128 else x - 256 for x in data]
-                          if self.state.dtype == DType.INT8 else fp8_bytes_to_fp32(data, self.state.dtype).tolist())
+            values = codec.decode(data, LANES).tolist()
             if len(values) != LANES or not all(math.isfinite(x) for x in values):
                 continue
             uniform = all(x == values[0] for x in values)
             binary = all(x in (0, 1) for x in values) and 0 in values and 1 in values
-            properties = {"source": source, "uniform": uniform, "value": values[0], "binary": binary,
-                           "declared": source.facts.get("declared", False),
-                           "fractional": uniform and values[0] != int(values[0]),
-                           "log2e": uniform and data[:4] == struct.pack("<f", math.log2(math.e))
-                           if self.state.wide_vector_debug and self.state.wide_vector_arithmetic.value == "fp32" else False}
+            properties = {
+                "source": source,
+                "uniform": uniform,
+                "value": values[0],
+                "binary": binary,
+                "declared": source.facts.get("declared", False),
+                "fractional": uniform and values[0] != int(values[0]),
+                "log2e": uniform and data[:4] == struct.pack("<f", math.log2(math.e))
+                if self.state.fmt is ElementFormat.FP32
+                else False,
+            }
             # Cache scalar properties only (no self-reference).
-            source.facts["constant_properties"] = {k: v for k, v in properties.items() if k != "source"}
+            source.facts["constant_properties"] = {
+                k: v for k, v in properties.items() if k != "source"
+            }
             result.append(properties)
         return tuple(result)
 
-    def finish(self, ipu, token, alias=None):
+    def finish(self, token, alias=None):
         if token is None:
             return
         slot, name, facts = token
@@ -311,12 +464,18 @@ class ExecutionObserver:
             facts["alias"] = alias
         facts["accesses"] = tuple((kind, addr, len(data)) for kind, addr, data, _ in self.accesses)
         facts["read_bytes"] = sum(len(data) for kind, _, data, _ in self.accesses if kind == "read")
-        facts["write_bytes"] = sum(len(data) for kind, _, data, _ in self.accesses if kind == "write")
+        facts["write_bytes"] = sum(
+            len(data) for kind, _, data, _ in self.accesses if kind == "write"
+        )
         if slot == "load" and self.accesses:
             _, address, data, origin = self.accesses[0]
-            blocks = range(address // XMEM_WIDTH_BYTES,
-                           (address + len(data) + XMEM_WIDTH_BYTES - 1) // XMEM_WIDTH_BYTES)
-            versions = tuple(self.memory_versions.get(block, 0) for block in blocks)
+            blocks = range(
+                address // XMEM_WIDTH_BYTES,
+                (address + len(data) + XMEM_WIDTH_BYTES - 1) // XMEM_WIDTH_BYTES,
+            )
+            versions = tuple(
+                self.memory_versions.get(block, self.cleared_epoch) for block in blocks
+            )
             previous = self.last_reads.get((address, len(data)))
             if previous and previous[2] != versions:
                 previous = None
@@ -324,26 +483,36 @@ class ExecutionObserver:
             # for the whole run: that is what makes it a constant. The observer
             # only attaches once execution begins, so an all-zero version tuple
             # means exactly that, and no harness-side declaration is needed.
-            facts.update(address=address, data=data, origin=origin,
-                         previous_read=previous,
-                         declared=not any(versions))
-            if origin and origin.instruction == "STR_POST_AAQ_REG":
+            facts.update(
+                address=address,
+                data=data,
+                origin=origin,
+                previous_read=previous,
+                declared=not any(versions),
+            )
+            if origin and origin.instruction == "ST.AAQ":
                 store_address = origin.facts["accesses"][0][1]
                 if (address - store_address) % 4 == 0:
-                    facts["scale_lanes"] = (origin.facts.get("scale_lanes", 0) >> ((address - store_address) // 4)) & ((1 << (len(data) // 4)) - 1)
-            if name == "LDR_MULT_REG":
+                    facts["scale_lanes"] = (
+                        origin.facts.get("scale_lanes", 0) >> ((address - store_address) // 4)
+                    ) & ((1 << (len(data) // 4)) - 1)
+            if name == "LD.MULT":
                 facts.update(bank="ra", bank_index=facts["operands"]["dest"])
-            elif name == "LDR_CYCLIC_MULT_REG":
+            elif name == "LD.MULT.CYCLIC":
                 facts.update(bank="ring", bank_index=facts["operands"]["index"] // LANES)
         self.next_id += 1
         event = Event(self.next_id, self.cycle, self.pc, slot, name, facts)
         self.current = None
         if slot == "load" and self.accesses:
-            self.last_reads[(facts["address"], len(facts["data"]))] = (event.cycle, self.chain, versions)
+            self.last_reads[(facts["address"], len(facts["data"]))] = (
+                event.cycle,
+                self.chain,
+                versions,
+            )
             kw = facts["operands"]
-            if name == "LDR_MULT_REG":
+            if name == "LD.MULT":
                 self.rows[("ra", kw["dest"])] = (event, facts["data"])
-            elif name == "LDR_CYCLIC_MULT_REG":
+            elif name == "LD.MULT.CYCLIC":
                 self.rows[("ring", kw["index"] // LANES)] = (event, facts["data"])
         elif slot == "mult":
             self.mult = event
@@ -361,15 +530,23 @@ class ExecutionObserver:
         for kind, address, data, _ in self.accesses:
             if kind == "write":
                 stored = (address, len(data), event)
-                for block in range(address // XMEM_WIDTH_BYTES,
-                                   (address + len(data) + XMEM_WIDTH_BYTES - 1) // XMEM_WIDTH_BYTES):
+                for block in range(
+                    address // XMEM_WIDTH_BYTES,
+                    (address + len(data) + XMEM_WIDTH_BYTES - 1) // XMEM_WIDTH_BYTES,
+                ):
                     self.stores[block] = stored
         self.cycle_events.append(event)
         self.profile.emit(event)
 
     def end(self):
         self.next_id += 1
-        event = Event(self.next_id, self.cycle, self.pc, "cycle", "CYCLE",
-                      {"events": tuple(self.cycle_events), "next_pc": self.state.program_counter})
+        event = Event(
+            self.next_id,
+            self.cycle,
+            self.pc,
+            "cycle",
+            "CYCLE",
+            {"events": tuple(self.cycle_events), "next_pc": self.state.program_counter},
+        )
         # Cycle summaries are control evidence, not retired instructions.
         self.profile.observe(event)

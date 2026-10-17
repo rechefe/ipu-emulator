@@ -1,0 +1,97 @@
+# Which first-party packages each package may import (E03-02 follow-up).
+#
+# //tools:test_import_graph reads every Python source under
+# src/tools/*/src/<package>/ and fails on an import of a first-party package
+# that its row does not list. A package imports itself freely. A new package
+# (such as ipu_debug) adds, in the change that creates it, its row here, its
+# :py_sources to the test's data, its name to known-first-party in ruff.toml
+# and its ruff_test to //tools:lint; until then the test fails on a package
+# with sources and no row, and on any import of an ipu_* package it has no
+# sources for. The docs' Architecture page renders its package table and
+# diagram from this file and each package's __init__.py docstring, so the new
+# package also adds its :py_sources to _PACKAGE_SOURCES in docs/BUILD.bazel.
+#
+# "Nothing imports X except Y" is a row matter: list X only in Y's row.
+#
+# A key is a package or a subpackage (a quoted dotted key such as
+# "ipu_kernels.reference", E06-01). A source file follows the longest key that
+# is its module or a parent of it, so a subpackage row replaces its package's
+# row for the files under it; [allowed] and [deferred] are looked up
+# separately. A source imports its own key's subtree freely: a subpackage row
+# must list the rest of its own package if it may import it.
+#
+# Edges marked "temporary" are today's code, not the target design; the
+# issue named beside each one removes it, and that change deletes the edge.
+#
+# [private] names, per module, the names no other package may use; the check
+# also reads each distribution's test/ directory (its :py_test_sources), so a
+# new package adds that filegroup to the test's data too.
+
+[allowed]
+# The ISA is the root: it depends on no other package (Q31, Q62).
+ipu_isa = []
+
+# Artifact generators (E08-13, E08-14, E08-15). Nothing imports ipu_gen. The
+# SV package and the layout SVGs read ipu_isa only.
+ipu_gen = [
+    "ipu_isa",
+    # The VS Code data reads the parser and the token classes; the instruction
+    # reference renders Inst.description() until E05-02.
+    "ipu_as",
+]
+
+ipu_as = ["ipu_isa"]
+
+# E03-16 removed the emulator's last assembler import (decoding moved to the
+# ISA's word codec), so the temporary ipu_as edge is gone ahead of E03-18.
+ipu_emu = ["ipu_isa"]
+
+# The debugger (E08-03): one way onto the emulator and the ISA. Only the
+# runner imports it (ipu_apps today, ipu_harness after E06), so no other row
+# lists ipu_debug.
+ipu_debug = [
+    "ipu_isa",
+    "ipu_emu",
+]
+
+# ipu_isa is allowed but not imported today. ipu_debug: debug mode
+# (IPU_DEBUG_TUI=1) launches the TUI.
+ipu_apps = ["ipu_isa", "ipu_as", "ipu_emu", "ipu_debug"]
+
+# The kernel framework (E06): the ISA, the assembler's session API and the
+# emulator's reference-model API, and ipu_debug for the CLI's --debug launch
+# (E06-12, imported only then). Not ipu_apps. Never ipu_kernels, not
+# even inside a function (Q62): the registry loader (E06-16), the pack lookup
+# (E06-05) and the reference lookup (E06-09) load kernel-side modules with
+# importlib.import_module(name)
+# on a name read from registry data. That is plugin loading, not an edge, and
+# this test only sees literal names.
+ipu_harness = ["ipu_isa", "ipu_as", "ipu_emu", "ipu_debug"]
+
+# Kernel-side shared code builds on the framework. No other row lists
+# ipu_kernels. Kernel tests and per-kernel .py files under kernels/ are outside
+# src/tools and not checked yet; the issue that adds the first one extends the
+# test to them. The ISA too: element formats and geometry (a pack transform's
+# lanes, E06-05) come from ipu_isa, never a local constant.
+ipu_kernels = ["ipu_harness", "ipu_isa"]
+
+# A shared reference never imports the emulator, nor the framework or the rest
+# of ipu_kernels (both reach ipu_emu): one that does is a copy of the code under
+# test. Format codecs come from ipu_isa.
+"ipu_kernels.reference" = ["ipu_isa"]
+
+[deferred]
+# Modules a key's sources may import only inside a function (or under
+# `if TYPE_CHECKING:`), never when the module itself is imported. Any module,
+# first or third party; a first-party one must also be in the key's [allowed]
+# row.
+
+# torch is a test-only dependency: the checker loads the reference lazily (E06-09).
+ipu_harness = ["torch"]
+
+[private]
+# Names a module keeps to its own package: no source or test of another
+# package may import them (or `import *` the module) or read them as an
+# attribute (E03-11). The authoring dicts are
+# read only by ipu_isa's loader; everything else reads the typed view, isa().
+"ipu_isa.instruction_spec" = ["INSTRUCTION_SPEC", "PSEUDO_INSTRUCTION_SPEC"]

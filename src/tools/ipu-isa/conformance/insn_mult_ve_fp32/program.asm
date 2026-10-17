@@ -1,0 +1,4 @@
+# insn_mult_ve_fp32: MULT.VE in FP32
+MULT.VE LR0 CR3 0 LR2 CR15 ;;
+MULT.VE LR1 CR9 1 LR0 CR15 ;;
+HALT ;;

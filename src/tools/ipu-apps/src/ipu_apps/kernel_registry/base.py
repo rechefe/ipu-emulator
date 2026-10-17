@@ -18,10 +18,11 @@ Subclass :class:`IpuApp`, implement :meth:`setup` (and optionally
 from __future__ import annotations
 
 import os
+from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ipu_emu.emulator import DebugCallback, run_test
+from ipu_emu.emulator import DEFAULT_MAX_CYCLES, DebugCallback, run_test
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -53,30 +54,46 @@ class IpuApp:
         for key, value in kwargs.items():
             setattr(self, key, value)
 
-    def make_state(self) -> "IpuState":
+    def make_state(self) -> IpuState:
         """Create fresh state using this harness's registry execution config."""
         from ipu_apps.kernel_registry.registry import create_state
 
         return create_state(self)
 
-    def setup(self, state: "IpuState") -> None:
+    def program(self) -> AbstractContextManager[Path]:
+        """The instruction binary :meth:`run` loads, for as long as the run lasts.
+
+        ``inst_path`` by default. A harness whose program depends on its
+        parameters overrides this to return
+        ``program_file(assemble_program(source, defines=...))``.
+
+        Returns:
+            A context manager whose value is the ``.bin`` path to load.
+        """
+        return nullcontext(self.inst_path)
+
+    def setup(self, state: IpuState) -> None:
         """Prepare the IPU state before execution. Override this."""
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         """Collect results after execution. Override this."""
 
     def run(
         self,
         *,
-        max_cycles: int = 1_000_000,
+        max_cycles: int = DEFAULT_MAX_CYCLES,
         debug_callback: DebugCallback | None = None,
-        state: "IpuState | None" = None,
+        state: IpuState | None = None,
         elu_alpha: float | None = None,
         window_a: float | None = None,
         window_b: float | None = None,
         alias_profile=None,
-    ) -> tuple["IpuState", int]:
+    ) -> tuple[IpuState, int]:
         """Run the app end-to-end. Returns ``(state, cycles)``.
+
+        When the debugger quits (or, in a debug launch, the user interrupts)
+        the run stops early: ``state.quit_requested`` is true and
+        :meth:`teardown` is skipped.
 
         Optional ``elu_alpha``, ``window_a`` and ``window_b`` match
         :func:`ipu_emu.emulator.run_test`: they configure emulator-only activation
@@ -88,37 +105,42 @@ class IpuApp:
         ea = elu_alpha if elu_alpha is not None else getattr(self, "elu_alpha", None)
         wa = window_a if window_a is not None else getattr(self, "window_a", None)
         wb = window_b if window_b is not None else getattr(self, "window_b", None)
+        # TODO(E07-25): this legacy reader goes with kernel_registry; ipu_harness.cli
+        # is the reader for kernels on the harness (E06-12).
         debug_launch = os.environ.get("IPU_DEBUG_TUI") == "1"
+        debug_control = None
         if debug_launch:
-            from ipu_emu.debug_launch import make_tui_debug_callback
-
             from ipu_apps.kernel_registry.registry import _harness_spec
+            from ipu_debug.launch import make_tui_debug_callback
 
             spec = _harness_spec(self)
-            debug_callback = make_tui_debug_callback(
+            debug_callback, debug_control = make_tui_debug_callback(
                 spec.name if spec is not None else type(self).__name__
             )
+        state = state if state is not None else self.make_state()
         try:
-            state = state if state is not None else self.make_state()
             if alias_profile is not None:
                 state.alias_profile = alias_profile
                 state.stats.alias_profile = alias_profile
-            return run_test(
-                inst_path=self.inst_path,
-                setup=self.setup,
-                teardown=self.teardown,
-                max_cycles=max_cycles,
-                debug_callback=debug_callback,
-                break_on_entry=debug_launch,
-                state=state,
-                elu_alpha=ea,
-                window_a=wa,
-                window_b=wb,
-            )
+            with self.program() as inst_path:
+                return run_test(
+                    inst_path=inst_path,
+                    setup=self.setup,
+                    teardown=self.teardown,
+                    max_cycles=max_cycles,
+                    debug_callback=debug_callback,
+                    break_on_entry=debug_launch,
+                    debug_control=debug_control,
+                    state=state,
+                    elu_alpha=ea,
+                    window_a=wa,
+                    window_b=wb,
+                )
         except KeyboardInterrupt:
-            if debug_launch:
-                # F5 restores the terminal before resuming the emulator, so
-                # interrupts between stops must cancel outside curses too.
-                # Unwind case workspaces without checking incomplete output.
-                raise SystemExit(0) from None
-            raise
+            if not debug_launch:
+                raise
+            # F5 restores the terminal before resuming the emulator, so
+            # interrupts between stops must cancel outside curses too: the
+            # same outcome as QUIT, without teardown of incomplete output.
+            state.quit_requested = True
+            return state, state.stats.total_cycles

@@ -5,7 +5,7 @@
 
 L4 shape: 192 channels, N_TOK=64 tokens, N_HEAD=4, HEAD_DIM=48, packing
 factor 2 (partition_size(64)=64 -> 128/64=2, see
-asm_packed_output_linear_generic_p4.asm's header -- vs L5's factor 8).
+packed_output_linear_p4.asm's header -- vs L5's factor 8).
 
 Every handoff between STANDALONE PACKED kernels (layernorm, linear/output,
 residual, pack/unpack) goes through a single shared IpuState's XMEM --
@@ -36,34 +36,29 @@ STANDALONE: does not modify layernorm_64x192, qk_scores_64x48,
 attn_v_64x48, attn_scores_km_64x48, attn_v_bcast_48, residual_add_64x192,
 proj_*_p4, or any softmax kernel. Uses them read-only (their binaries come
 from the kernel registry via fixture_kernel_support.kernel_inst). The packed
-kernels are test-local .asm programs next to this file (asm_packed_*.asm);
-their shared state is a plain FP32 wide-vector IpuState since no registered
-harness describes them.
+kernels are the registered //kernels entries (E07-23,
+fixture_kernel_support.kernel_program); this test still sets their registers
+by hand on one shared FP32 IpuState until E07-24 ports it to the harness's
+chaining API.
 """
 
 from __future__ import annotations
 
-import sys
+import struct
 import tempfile
 from pathlib import Path
 
-import jinja2
 import numpy as np
-
-sys.path.insert(0, str(Path(__file__).parent))
-
-from ipu_as.lark_tree import assemble_to_bin_file
-from ipu_as.label import reset_labels
-from ipu_emu.emulator import load_program_from_binary, run_until_complete
-from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
-from ipu_emu.ipu_config import encode_dstructure, Partition
-
-from fixture_kernel_support import kernel_inst
+from fixture_kernel_support import kernel_inst, kernel_program
 from fixture_packed_l4_measure import count_instructions
 
-from ipu_apps.kernels.attention.qk_scores_64x48.app import QkScores64x48App
 from ipu_apps.kernels.attention.attn_v_64x48.app import AttnV64x48App
+from ipu_apps.kernels.attention.qk_scores_64x48.app import QkScores64x48App
 from ipu_apps.kernels.softmax.softmax_rows_partial.app import SoftmaxRowsPartialApp
+from ipu_emu.emulator import load_program_from_binary, run_until_complete
+from ipu_emu.ipu_state import IpuState
+from ipu_isa.constants import Partition, encode_dstructure
+from ipu_isa.formats import ElementFormat
 
 N_CH = 192
 N_TOK = 64
@@ -77,17 +72,20 @@ PACK = 2
 N_PACKED_ROWS = N_CH // PACK
 assert N_CH % PACK == 0
 
-_PACKED_LAYERNORM_ASM = Path(__file__).parent / "asm_packed_layernorm_192x64.asm"
-_UNPACK_ASM = Path(__file__).parent / "asm_packed_unpack_192x64.asm"
-_PACK_ASM = Path(__file__).parent / "asm_packed_pack_192x64.asm"
-_LINEAR_IDENTITY_ASM = Path(__file__).parent / "asm_packed_output_linear_generic_p4.asm"
-_LINEAR_SILU_ASM = Path(__file__).parent / "asm_packed_output_linear_silu_p4.asm"
-_RESIDUAL_ASM = Path(__file__).parent / "asm_packed_residual_add_192x64.asm"
+# The registered kernels (E07-23) the chain loads: //kernels/normalize,
+# //kernels/reshape, //kernels/projections and //kernels/elementwise entries.
+_PACKED_LAYERNORM = "packed_layernorm_192x64"
+_UNPACK = "packed_unpack_192x64"
+_PACK = "packed_pack_192x64"
+_LINEAR_IDENTITY = "packed_output_linear_192"
+_LINEAR_SILU = "packed_output_linear_silu_192"
+_RESIDUAL = "packed_residual_add_192x64"
 
 
 # ---------------------------------------------------------------------------
 # Packed <-> plain-numpy helpers
 # ---------------------------------------------------------------------------
+
 
 def _pack(x: np.ndarray) -> np.ndarray:
     assert x.shape == (N_CH, N_TOK)
@@ -95,7 +93,7 @@ def _pack(x: np.ndarray) -> np.ndarray:
     for r in range(N_PACKED_ROWS):
         for p in range(PACK):
             ch = r * PACK + p
-            rows[r, p * N_TOK:(p + 1) * N_TOK] = x[ch]
+            rows[r, p * N_TOK : (p + 1) * N_TOK] = x[ch]
     return rows
 
 
@@ -104,7 +102,7 @@ def _unpack_rows(rows: np.ndarray) -> np.ndarray:
     for r in range(N_PACKED_ROWS):
         for p in range(PACK):
             ch = r * PACK + p
-            out[ch] = rows[r, p * N_TOK:(p + 1) * N_TOK]
+            out[ch] = rows[r, p * N_TOK : (p + 1) * N_TOK]
     return out
 
 
@@ -114,7 +112,7 @@ def _replicate_per_channel(vals: np.ndarray) -> np.ndarray:
     for r in range(N_PACKED_ROWS):
         for p in range(PACK):
             ch = r * PACK + p
-            rows[r, p * N_TOK:(p + 1) * N_TOK] = vals[ch]
+            rows[r, p * N_TOK : (p + 1) * N_TOK] = vals[ch]
     return rows
 
 
@@ -123,8 +121,8 @@ def _mask_row_2() -> bytes:
     for p_out in range(PACK):
         bits = 0
         for b in range(N_TOK * p_out, N_TOK * p_out + N_TOK):
-            bits |= (1 << b)
-        mrow[p_out * 16:(p_out + 1) * 16] = bits.to_bytes(16, "little")
+            bits |= 1 << b
+        mrow[p_out * 16 : (p_out + 1) * 16] = bits.to_bytes(16, "little")
     return bytes(mrow)
 
 
@@ -144,7 +142,7 @@ def _chunk_widths(k: int) -> list[int]:
 
 
 def linear_weight_rows(k: int, n_out: int) -> int:
-    """Row count asm_packed_output_linear_*_p4.asm's weight region needs
+    """Row count the packed_output_linear_p4 weight region needs
     for a given (k, n_out) shape: PACK rows per weight-chunk (one per
     p_out), times ceil(k/128) weight-chunks, times n_out/PACK groups. Same
     derivation as the L5 linear_weight_rows, with PACK=2 in place of
@@ -174,9 +172,17 @@ class RowAllocator:
 # Standalone-kernel runners, all operating on ONE shared XMEM region layout.
 # ---------------------------------------------------------------------------
 
-def run_packed_layernorm(state: IpuState, *, data_base_row: int, gamma: np.ndarray,
-                          beta: np.ndarray, output_base_row: int,
-                          scratch_base_row: int, max_cycles: int = 200_000) -> tuple[int, dict]:
+
+def run_packed_layernorm(
+    state: IpuState,
+    *,
+    data_base_row: int,
+    gamma: np.ndarray,
+    beta: np.ndarray,
+    output_base_row: int,
+    scratch_base_row: int,
+    max_cycles: int = 200_000,
+) -> tuple[int, dict]:
     neg_mean_tile_row = scratch_base_row
     centered_base_row = neg_mean_tile_row + 1
     invstd_tile_row = centered_base_row + N_PACKED_ROWS
@@ -186,11 +192,10 @@ def run_packed_layernorm(state: IpuState, *, data_base_row: int, gamma: np.ndarr
     allones_mask_row = mask_row + 1
     scratch64_row = allones_mask_row + 1
 
-    reset_labels()
-    rendered = jinja2.Template(_PACKED_LAYERNORM_ASM.read_text()).render()
+    program = kernel_program(_PACKED_LAYERNORM)
     with tempfile.TemporaryDirectory() as tmpdir:
         bin_path = Path(tmpdir) / "ln.bin"
-        assemble_to_bin_file(rendered, str(bin_path))
+        bin_path.write_bytes(program)
         load_program_from_binary(state, bin_path)
         state.program_counter = 0
 
@@ -220,18 +225,23 @@ def run_packed_layernorm(state: IpuState, *, data_base_row: int, gamma: np.ndarr
         state.regfile.set_cr(14, encode_dstructure(valid_elements=128))
         state.regfile.set_cr(15, allones_mask_row)
 
-        with count_instructions() as counts:
+        with count_instructions(state) as counts:
             cycles = run_until_complete(state, max_cycles=max_cycles)
     return cycles, dict(counts.by_slot)
 
 
-def run_unpack(state: IpuState, *, packed_base_row: int, unpacked_base_row: int,
-               mask_row: int, max_cycles: int = 100_000) -> tuple[int, dict]:
-    reset_labels()
-    rendered = jinja2.Template(_UNPACK_ASM.read_text()).render()
+def run_unpack(
+    state: IpuState,
+    *,
+    packed_base_row: int,
+    unpacked_base_row: int,
+    mask_row: int,
+    max_cycles: int = 100_000,
+) -> tuple[int, dict]:
+    program = kernel_program(_UNPACK)
     with tempfile.TemporaryDirectory() as tmpdir:
         bin_path = Path(tmpdir) / "unpack.bin"
-        assemble_to_bin_file(rendered, str(bin_path))
+        bin_path.write_bytes(program)
         load_program_from_binary(state, bin_path)
         state.program_counter = 0
         state.xmem.write_address(mask_row * ROW_BYTES, _mask_row_2())
@@ -242,18 +252,23 @@ def run_unpack(state: IpuState, *, packed_base_row: int, unpacked_base_row: int,
         state.regfile.set_cr(6, mask_row)
         state.regfile.set_cr(7, encode_dstructure(valid_elements=N_TOK))
         state.regfile.set_cr(8, encode_dstructure(valid_elements=128))
-        with count_instructions() as counts:
+        with count_instructions(state) as counts:
             cycles = run_until_complete(state, max_cycles=max_cycles)
     return cycles, dict(counts.by_slot)
 
 
-def run_pack(state: IpuState, *, unpacked_base_row: int, packed_base_row: int,
-             mask_row: int, max_cycles: int = 100_000) -> tuple[int, dict]:
-    reset_labels()
-    rendered = jinja2.Template(_PACK_ASM.read_text()).render()
+def run_pack(
+    state: IpuState,
+    *,
+    unpacked_base_row: int,
+    packed_base_row: int,
+    mask_row: int,
+    max_cycles: int = 100_000,
+) -> tuple[int, dict]:
+    program = kernel_program(_PACK)
     with tempfile.TemporaryDirectory() as tmpdir:
         bin_path = Path(tmpdir) / "pack.bin"
-        assemble_to_bin_file(rendered, str(bin_path))
+        bin_path.write_bytes(program)
         load_program_from_binary(state, bin_path)
         state.program_counter = 0
         state.xmem.write_address(mask_row * ROW_BYTES, _mask_row_2())
@@ -263,14 +278,23 @@ def run_pack(state: IpuState, *, unpacked_base_row: int, packed_base_row: int,
         state.regfile.set_cr(5, packed_base_row)
         state.regfile.set_cr(6, mask_row)
         state.regfile.set_cr(7, encode_dstructure(valid_elements=128))
-        with count_instructions() as counts:
+        with count_instructions(state) as counts:
             cycles = run_until_complete(state, max_cycles=max_cycles)
     return cycles, dict(counts.by_slot)
 
 
-def run_packed_output_linear(state: IpuState, *, asm_src: Path, data_base_row: int, k: int,
-                              n_out: int, weight_slices: list[np.ndarray], output_base_row: int,
-                              scratch_base_row: int, max_cycles: int = 4_000_000) -> tuple[int, dict]:
+def run_packed_output_linear(
+    state: IpuState,
+    *,
+    kernel: str,
+    data_base_row: int,
+    k: int,
+    n_out: int,
+    weight_slices: list[np.ndarray],
+    output_base_row: int,
+    scratch_base_row: int,
+    max_cycles: int = 4_000_000,
+) -> tuple[int, dict]:
     """weight_slices: list of n_out//PACK arrays, each [PACK, k]. Writes
     n_out//PACK packed output rows starting at output_base_row."""
     widths = _chunk_widths(k)
@@ -278,7 +302,7 @@ def run_packed_output_linear(state: IpuState, *, asm_src: Path, data_base_row: i
     mask_row = scratch_base_row
     weights_base_row = mask_row + 1
 
-    rendered = jinja2.Template(asm_src.read_text()).render(chunk_widths=widths)
+    program = kernel_program(kernel, k=k)
     state.xmem.write_address(mask_row * ROW_BYTES, _mask_row_2())
 
     total_cycles = 0
@@ -289,10 +313,9 @@ def run_packed_output_linear(state: IpuState, *, asm_src: Path, data_base_row: i
         this_weights_base = weights_base_row + group * PACK * w_chunks
         this_output_row = output_base_row + group
 
-        reset_labels()
         with tempfile.TemporaryDirectory() as tmpdir:
             bin_path = Path(tmpdir) / "lin.bin"
-            assemble_to_bin_file(rendered, str(bin_path))
+            bin_path.write_bytes(program)
             load_program_from_binary(state, bin_path)
             state.program_counter = 0
 
@@ -300,7 +323,7 @@ def run_packed_output_linear(state: IpuState, *, asm_src: Path, data_base_row: i
             for c, width in enumerate(widths):
                 off = sum(widths[:c])
                 for p_out in range(PACK):
-                    w_rows[c * PACK + p_out, :width] = W2[p_out, off:off + width]
+                    w_rows[c * PACK + p_out, :width] = W2[p_out, off : off + width]
             state.xmem.write_address(this_weights_base * ROW_BYTES, bytearray(w_rows.tobytes()))
 
             state.regfile.set_cr(2, data_base_row)
@@ -313,7 +336,7 @@ def run_packed_output_linear(state: IpuState, *, asm_src: Path, data_base_row: i
                 seed = (512 - 64 * p_out - 64) % 512
                 state.regfile.set_cr(8 + p_out, seed)
 
-            with count_instructions() as counts:
+            with count_instructions(state) as counts:
                 cycles = run_until_complete(state, max_cycles=max_cycles)
             total_cycles += cycles
             for slot, n in counts.by_slot.items():
@@ -322,21 +345,26 @@ def run_packed_output_linear(state: IpuState, *, asm_src: Path, data_base_row: i
     return total_cycles, total_counts
 
 
-def run_packed_residual_add(state: IpuState, *, a_base_row: int, b_base_row: int,
-                             out_base_row: int, max_cycles: int = 100_000) -> tuple[int, dict]:
-    """asm_packed_residual_add_192x64.asm hardcodes A_BASE=cr0 (hardwired
+def run_packed_residual_add(
+    state: IpuState,
+    *,
+    a_base_row: int,
+    b_base_row: int,
+    out_base_row: int,
+    max_cycles: int = 100_000,
+) -> tuple[int, dict]:
+    """packed_residual_add_192x64 hardcodes A_BASE=cr0 (hardwired
     read-only ZERO), so A's base row MUST be 0 -- same constraint as the L5
     residual-add kernel."""
     assert a_base_row == 0, (
-        "asm_packed_residual_add_192x64.asm hardcodes A_BASE=cr0 (hardwired "
+        "packed_residual_add_192x64 hardcodes A_BASE=cr0 (hardwired "
         "read-only zero) -- the A operand's packed rows must start at XMEM "
         "row 0; relocate the OTHER operand (B) or the output instead."
     )
-    reset_labels()
-    rendered = _RESIDUAL_ASM.read_text()
+    program = kernel_program(_RESIDUAL)
     with tempfile.TemporaryDirectory() as tmpdir:
         bin_path = Path(tmpdir) / "res.bin"
-        assemble_to_bin_file(rendered, str(bin_path))
+        bin_path.write_bytes(program)
         load_program_from_binary(state, bin_path)
         state.program_counter = 0
         # Cross-kernel R_MASK bleed hazard (also present in the L5 chain):
@@ -352,9 +380,9 @@ def run_packed_residual_add(state: IpuState, *, a_base_row: int, b_base_row: int
         state.regfile.set_cr(7, 1)
         state.regfile.set_cr(8, 1)
         state.regfile.set_cr(9, b_base_row)
-        state.regfile.set_cr(10, 1)
+        state.regfile.set_cr(10, struct.unpack("<I", struct.pack("<f", 1.0))[0])  # FP32 1.0 (Q49)
         state.regfile.set_cr(15, encode_dstructure(valid_elements=128))
-        with count_instructions() as counts:
+        with count_instructions(state) as counts:
             cycles = run_until_complete(state, max_cycles=max_cycles)
     return cycles, dict(counts.by_slot)
 
@@ -364,9 +392,15 @@ def run_packed_residual_add(state: IpuState, *, a_base_row: int, b_base_row: int
 # (per block, file-based) -> attn.V (one call, all 16 blocks).
 # ---------------------------------------------------------------------------
 
-def run_attention_query_major(main_state: IpuState, *, q_unpacked_base_row: int,
-                               k_unpacked_base_row: int, v_unpacked_base_row: int,
-                               tmp_path: Path) -> tuple[np.ndarray, int]:
+
+def run_attention_query_major(
+    main_state: IpuState,
+    *,
+    q_unpacked_base_row: int,
+    k_unpacked_base_row: int,
+    v_unpacked_base_row: int,
+    tmp_path: Path,
+) -> tuple[np.ndarray, int]:
     """Q/K/V are staged unpacked, channel-major, N_CH=D_MODEL=192 rows each
     (one real "stream" worth of data, exactly what the packed chain
     computes) in main_state's XMEM. qk_scores_64x48/attn_v_64x48 always
@@ -398,7 +432,9 @@ def run_attention_query_major(main_state: IpuState, *, q_unpacked_base_row: int,
         out = np.zeros((N_BLOCK, HEAD_DIM, N_TOK), dtype=np.float32)
         for b in range(N_HEAD):
             for c in range(HEAD_DIM):
-                row = main_state.xmem.read_address((base_row + b * HEAD_DIM + c) * ROW_BYTES, N_TOK * 4)
+                row = main_state.xmem.read_address(
+                    (base_row + b * HEAD_DIM + c) * ROW_BYTES, N_TOK * 4
+                )
                 out[b, c] = np.frombuffer(bytes(row), dtype=np.float32)
         return out
 
@@ -412,11 +448,17 @@ def run_attention_query_major(main_state: IpuState, *, q_unpacked_base_row: int,
     k_path.write_bytes(k_arr.tobytes())
 
     scores_path = tmp_path / "scores.bin"
-    qk_app = QkScores64x48App(inst_path=kernel_inst("qk_scores_64x48"), query_path=q_path,
-                              key_path=k_path, output_path=scores_path)
+    qk_app = QkScores64x48App(
+        inst_path=kernel_inst("qk_scores_64x48"),
+        query_path=q_path,
+        key_path=k_path,
+        output_path=scores_path,
+    )
     _, qk_cycles = qk_app.run(max_cycles=2_000_000, state=qk_app.make_state())
 
-    scores = np.frombuffer(scores_path.read_bytes(), dtype=np.float32).reshape(N_BLOCK, N_TOK, N_TOK)
+    scores = np.frombuffer(scores_path.read_bytes(), dtype=np.float32).reshape(
+        N_BLOCK, N_TOK, N_TOK
+    )
 
     # ---- softmax, per block (no multi-block batching interface) ----
     probs = np.zeros((N_BLOCK, N_TOK, N_TOK), dtype=np.float64)
@@ -426,8 +468,9 @@ def run_attention_query_major(main_state: IpuState, *, q_unpacked_base_row: int,
             inp = Path(smdir) / "in.bin"
             outp = Path(smdir) / "out.bin"
             inp.write_bytes(scores[b].astype(np.float32).tobytes())
-            sm_app = SoftmaxRowsPartialApp(inst_path=sm_inst, input_path=inp, output_path=outp,
-                                            n=N_TOK, rows=N_TOK)
+            sm_app = SoftmaxRowsPartialApp(
+                inst_path=sm_inst, input_path=inp, output_path=outp, n=N_TOK, rows=N_TOK
+            )
             sm_app.run(max_cycles=20_000_000)
             probs[b] = np.frombuffer(outp.read_bytes(), dtype=np.float32).reshape(N_TOK, N_TOK)
 
@@ -438,9 +481,9 @@ def run_attention_query_major(main_state: IpuState, *, q_unpacked_base_row: int,
         for i in range(N_TOK):
             row = bytearray(av.ROW_BYTES)
             vals = probs[b, i].astype(np.float32).tobytes()
-            row[:len(vals)] = vals
+            row[: len(vals)] = vals
             off = (b * av.P_BLOCK_ROWS + i * av.PV_STRIDE_ROWS) * av.ROW_BYTES
-            p_bytes[off:off + av.ROW_BYTES] = row
+            p_bytes[off : off + av.ROW_BYTES] = row
     p_path = tmp_path / "p.bin"
     p_path.write_bytes(bytes(p_bytes))
 
@@ -450,15 +493,16 @@ def run_attention_query_major(main_state: IpuState, *, q_unpacked_base_row: int,
         for c in range(HEAD_DIM):
             row = bytearray(av.ROW_BYTES)
             vals = v_arr[b, c].tobytes()
-            row[:len(vals)] = vals
+            row[: len(vals)] = vals
             off = (b * HEAD_DIM + c) * av.ROW_BYTES
-            v_bytes[off:off + av.ROW_BYTES] = row
+            v_bytes[off : off + av.ROW_BYTES] = row
     v_path = tmp_path / "v.bin"
     v_path.write_bytes(bytes(v_bytes))
 
     out_path = tmp_path / "attn_out.bin"
-    av_app = AttnV64x48App(inst_path=kernel_inst("attn_v_64x48"), p_path=p_path, v_path=v_path,
-                           output_path=out_path)
+    av_app = AttnV64x48App(
+        inst_path=kernel_inst("attn_v_64x48"), p_path=p_path, v_path=v_path, output_path=out_path
+    )
     _, av_cycles = av_app.run(max_cycles=2_000_000, state=av_app.make_state())
 
     # AttnV64x48App's teardown crops N_CHAN=N_BLOCK*HEAD_DIM=768 rows (one per
@@ -468,7 +512,11 @@ def run_attention_query_major(main_state: IpuState, *, q_unpacked_base_row: int,
     # [N_CH=192, N_TOK], silently dropping 3 of the 4 "stream" blocks'
     # worth of data -- caught by the array-size mismatch, not a numeric
     # near-miss, since 192*64 != 768*64).
-    attn_out = np.frombuffer(out_path.read_bytes(), dtype=np.float32).reshape(N_BLOCK, HEAD_DIM, N_TOK).astype(np.float64)
+    attn_out = (
+        np.frombuffer(out_path.read_bytes(), dtype=np.float32)
+        .reshape(N_BLOCK, HEAD_DIM, N_TOK)
+        .astype(np.float64)
+    )
 
     return attn_out, qk_cycles + av_cycles
 
@@ -476,6 +524,7 @@ def run_attention_query_major(main_state: IpuState, *, q_unpacked_base_row: int,
 # ---------------------------------------------------------------------------
 # Full end-to-end packed L4 layer test
 # ---------------------------------------------------------------------------
+
 
 def test_full_l4_layer_packed_end_to_end(tmp_path: Path) -> None:
     """Full L4 transformer layer, packed end to end, ONE continuous chain
@@ -508,13 +557,13 @@ def test_full_l4_layer_packed_end_to_end(tmp_path: Path) -> None:
     x64 = X.astype(np.float64)
     ln1 = numpy_layernorm(x64, ln1_gamma.astype(np.float64), ln1_beta.astype(np.float64))
     qkv = W_qkv.astype(np.float64) @ ln1
-    Q, K, V = qkv[:N_CH], qkv[N_CH:2 * N_CH], qkv[2 * N_CH:3 * N_CH]
+    Q, K, V = qkv[:N_CH], qkv[N_CH : 2 * N_CH], qkv[2 * N_CH : 3 * N_CH]
     attn_out = np.zeros((N_CH, N_TOK))
     for h in range(N_HEAD):
-        Qh, Kh, Vh = (a[h * HEAD_DIM:(h + 1) * HEAD_DIM] for a in (Q, K, V))
+        Qh, Kh, Vh = (a[h * HEAD_DIM : (h + 1) * HEAD_DIM] for a in (Q, K, V))
         S = Qh.T @ Kh
         P = softmax_np(S)
-        attn_out[h * HEAD_DIM:(h + 1) * HEAD_DIM] = Vh @ P.T
+        attn_out[h * HEAD_DIM : (h + 1) * HEAD_DIM] = Vh @ P.T
     outproj = W_outproj.astype(np.float64) @ attn_out
     resid1 = outproj + x64
     ln2 = numpy_layernorm(resid1, ln2_gamma.astype(np.float64), ln2_beta.astype(np.float64))
@@ -532,7 +581,7 @@ def test_full_l4_layer_packed_end_to_end(tmp_path: Path) -> None:
     # random reference -- only the N_HEAD=4 real blocks are checked below.
     attn_out_full = np.zeros((N_BLOCK, HEAD_DIM, N_TOK))
     for h in range(N_HEAD):
-        attn_out_full[h] = attn_out[h * HEAD_DIM:(h + 1) * HEAD_DIM]
+        attn_out_full[h] = attn_out[h * HEAD_DIM : (h + 1) * HEAD_DIM]
 
     # ---- Row layout ----
     alloc = RowAllocator()
@@ -541,12 +590,12 @@ def test_full_l4_layer_packed_end_to_end(tmp_path: Path) -> None:
     LN1_SCRATCH_ROW = alloc.alloc(1 + N_PACKED_ROWS + 1 + N_PACKED_ROWS + N_PACKED_ROWS + 1 + 1 + 1)
     QKV_MASK_ROW = alloc.alloc(1)
     QKV_N_OUT = 3 * N_CH
-    QKV_WEIGHTS_ROW = alloc.alloc(linear_weight_rows(N_CH, QKV_N_OUT))
+    _QKV_WEIGHTS_ROW = alloc.alloc(linear_weight_rows(N_CH, QKV_N_OUT))
     QKV_OUT_ROW = alloc.alloc(QKV_N_OUT // PACK)
     UNPACK_MASK_ROW = alloc.alloc(1)
     QKV_UNPACKED_ROW = alloc.alloc(3 * N_CH)
     OUTPROJ_MASK_ROW = alloc.alloc(1)
-    OUTPROJ_WEIGHTS_ROW = alloc.alloc(linear_weight_rows(N_CH, N_CH))
+    _OUTPROJ_WEIGHTS_ROW = alloc.alloc(linear_weight_rows(N_CH, N_CH))
     OUTPROJ_OUT_ROW = alloc.alloc(N_PACKED_ROWS)
     UNPACKED_ATTN_ROW = alloc.alloc(N_CH)
     PACK_MASK_ROW = alloc.alloc(1)
@@ -556,10 +605,10 @@ def test_full_l4_layer_packed_end_to_end(tmp_path: Path) -> None:
     LN2_OUT_ROW = alloc.alloc(N_PACKED_ROWS)
     FFN1_MASK_ROW = alloc.alloc(1)
     FFN1_N_OUT = 4 * N_CH
-    FFN1_WEIGHTS_ROW = alloc.alloc(linear_weight_rows(N_CH, FFN1_N_OUT))
+    _FFN1_WEIGHTS_ROW = alloc.alloc(linear_weight_rows(N_CH, FFN1_N_OUT))
     FFN1_OUT_ROW = alloc.alloc(FFN1_N_OUT // PACK)
     FFN2_MASK_ROW = alloc.alloc(1)
-    FFN2_WEIGHTS_ROW = alloc.alloc(linear_weight_rows(FFN1_N_OUT, N_CH))
+    _FFN2_WEIGHTS_ROW = alloc.alloc(linear_weight_rows(FFN1_N_OUT, N_CH))
     FFN2_OUT_ROW = alloc.alloc(N_PACKED_ROWS)
     RESID2_OUT_ROW = alloc.alloc(N_PACKED_ROWS)
 
@@ -572,31 +621,50 @@ def test_full_l4_layer_packed_end_to_end(tmp_path: Path) -> None:
         for slot, n in counts.items():
             total_instrs[slot] = total_instrs.get(slot, 0) + n
 
-    state = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
+    state = IpuState(fmt=ElementFormat.FP32)
     state.xmem.write_address(X_ROW * ROW_BYTES, bytearray(_pack(X).tobytes()))
 
     # ---- layernorm 1 ----
-    c, i = run_packed_layernorm(state, data_base_row=X_ROW, gamma=ln1_gamma, beta=ln1_beta,
-                                 output_base_row=LN1_OUT_ROW, scratch_base_row=LN1_SCRATCH_ROW)
+    c, i = run_packed_layernorm(
+        state,
+        data_base_row=X_ROW,
+        gamma=ln1_gamma,
+        beta=ln1_beta,
+        output_base_row=LN1_OUT_ROW,
+        scratch_base_row=LN1_SCRATCH_ROW,
+    )
     _accumulate(c, i)
     ln1_raw = state.xmem.read_address(LN1_OUT_ROW * ROW_BYTES, N_PACKED_ROWS * ROW_BYTES)
-    ln1_kernel = _unpack_rows(np.frombuffer(bytes(ln1_raw), dtype=np.float32).reshape(N_PACKED_ROWS, LANES))
+    ln1_kernel = _unpack_rows(
+        np.frombuffer(bytes(ln1_raw), dtype=np.float32).reshape(N_PACKED_ROWS, LANES)
+    )
     print(f"FULL layernorm1: cycles={c} err={np.max(np.abs(ln1_kernel - ln1)):.6e}")
 
     # ---- QKV (packed output) ----
-    qkv_weight_slices = [W_qkv[g * PACK:(g + 1) * PACK] for g in range(QKV_N_OUT // PACK)]
-    c, i = run_packed_output_linear(state, asm_src=_LINEAR_IDENTITY_ASM, data_base_row=LN1_OUT_ROW, k=N_CH,
-                                     n_out=QKV_N_OUT, weight_slices=qkv_weight_slices,
-                                     output_base_row=QKV_OUT_ROW, scratch_base_row=QKV_MASK_ROW)
+    qkv_weight_slices = [W_qkv[g * PACK : (g + 1) * PACK] for g in range(QKV_N_OUT // PACK)]
+    c, i = run_packed_output_linear(
+        state,
+        kernel=_LINEAR_IDENTITY,
+        data_base_row=LN1_OUT_ROW,
+        k=N_CH,
+        n_out=QKV_N_OUT,
+        weight_slices=qkv_weight_slices,
+        output_base_row=QKV_OUT_ROW,
+        scratch_base_row=QKV_MASK_ROW,
+    )
     _accumulate(c, i)
     print(f"FULL QKV: cycles={c}")
 
     # ---- unpack Q, K, V (3 separate unpack calls, one per N_CH-channel block) ----
     for j in range(3):
-        c, i = run_unpack(state, packed_base_row=QKV_OUT_ROW + j * N_PACKED_ROWS,
-                           unpacked_base_row=QKV_UNPACKED_ROW + j * N_CH, mask_row=UNPACK_MASK_ROW)
+        c, i = run_unpack(
+            state,
+            packed_base_row=QKV_OUT_ROW + j * N_PACKED_ROWS,
+            unpacked_base_row=QKV_UNPACKED_ROW + j * N_CH,
+            mask_row=UNPACK_MASK_ROW,
+        )
         _accumulate(c, i)
-    print(f"FULL unpack(Q,K,V): 3 calls done")
+    print("FULL unpack(Q,K,V): 3 calls done")
 
     Q_ROW = QKV_UNPACKED_ROW
     K_ROW = QKV_UNPACKED_ROW + N_CH
@@ -604,7 +672,10 @@ def test_full_l4_layer_packed_end_to_end(tmp_path: Path) -> None:
 
     # ---- attention (query-major, one call each for QK^T and attn.V) ----
     attn_kernel, cyc = run_attention_query_major(
-        state, q_unpacked_base_row=Q_ROW, k_unpacked_base_row=K_ROW, v_unpacked_base_row=V_ROW,
+        state,
+        q_unpacked_base_row=Q_ROW,
+        k_unpacked_base_row=K_ROW,
+        v_unpacked_base_row=V_ROW,
         tmp_path=tmp_path,
     )
     total_cycles += cyc
@@ -624,67 +695,111 @@ def test_full_l4_layer_packed_end_to_end(tmp_path: Path) -> None:
     attn_rows = np.zeros((N_CH, LANES), dtype=np.float32)
     attn_rows[:, :N_TOK] = attn_kernel_seq.astype(np.float32)
     state.xmem.write_address(UNPACKED_ATTN_ROW * ROW_BYTES, bytearray(attn_rows.tobytes()))
-    c, i = run_pack(state, unpacked_base_row=UNPACKED_ATTN_ROW, packed_base_row=ATTN_PACKED_ROW,
-                     mask_row=PACK_MASK_ROW)
+    c, i = run_pack(
+        state,
+        unpacked_base_row=UNPACKED_ATTN_ROW,
+        packed_base_row=ATTN_PACKED_ROW,
+        mask_row=PACK_MASK_ROW,
+    )
     _accumulate(c, i)
 
     # ---- out-proj (packed output) ----
-    outproj_weight_slices = [W_outproj[g * PACK:(g + 1) * PACK] for g in range(N_CH // PACK)]
-    c, i = run_packed_output_linear(state, asm_src=_LINEAR_IDENTITY_ASM, data_base_row=ATTN_PACKED_ROW, k=N_CH,
-                                     n_out=N_CH, weight_slices=outproj_weight_slices,
-                                     output_base_row=OUTPROJ_OUT_ROW, scratch_base_row=OUTPROJ_MASK_ROW)
+    outproj_weight_slices = [W_outproj[g * PACK : (g + 1) * PACK] for g in range(N_CH // PACK)]
+    c, i = run_packed_output_linear(
+        state,
+        kernel=_LINEAR_IDENTITY,
+        data_base_row=ATTN_PACKED_ROW,
+        k=N_CH,
+        n_out=N_CH,
+        weight_slices=outproj_weight_slices,
+        output_base_row=OUTPROJ_OUT_ROW,
+        scratch_base_row=OUTPROJ_MASK_ROW,
+    )
     _accumulate(c, i)
     outproj_raw = state.xmem.read_address(OUTPROJ_OUT_ROW * ROW_BYTES, N_PACKED_ROWS * ROW_BYTES)
-    outproj_kernel = _unpack_rows(np.frombuffer(bytes(outproj_raw), dtype=np.float32).reshape(N_PACKED_ROWS, LANES))
+    outproj_kernel = _unpack_rows(
+        np.frombuffer(bytes(outproj_raw), dtype=np.float32).reshape(N_PACKED_ROWS, LANES)
+    )
     print(f"FULL out-proj: cycles={c} err={np.max(np.abs(outproj_kernel - outproj)):.6e}")
 
     # ---- residual 1: X (already at X_ROW=row0) + out-proj output ----
     assert X_ROW == 0
-    c, i = run_packed_residual_add(state, a_base_row=X_ROW, b_base_row=OUTPROJ_OUT_ROW,
-                                    out_base_row=RESID1_OUT_ROW)
+    c, i = run_packed_residual_add(
+        state, a_base_row=X_ROW, b_base_row=OUTPROJ_OUT_ROW, out_base_row=RESID1_OUT_ROW
+    )
     _accumulate(c, i)
     resid1_raw = state.xmem.read_address(RESID1_OUT_ROW * ROW_BYTES, N_PACKED_ROWS * ROW_BYTES)
-    resid1_kernel = _unpack_rows(np.frombuffer(bytes(resid1_raw), dtype=np.float32).reshape(N_PACKED_ROWS, LANES))
+    resid1_kernel = _unpack_rows(
+        np.frombuffer(bytes(resid1_raw), dtype=np.float32).reshape(N_PACKED_ROWS, LANES)
+    )
     print(f"FULL residual1: cycles={c} err={np.max(np.abs(resid1_kernel - resid1)):.6e}")
 
     # ---- layernorm 2 ----
-    c, i = run_packed_layernorm(state, data_base_row=RESID1_OUT_ROW, gamma=ln2_gamma, beta=ln2_beta,
-                                 output_base_row=LN2_OUT_ROW, scratch_base_row=LN2_SCRATCH_ROW)
+    c, i = run_packed_layernorm(
+        state,
+        data_base_row=RESID1_OUT_ROW,
+        gamma=ln2_gamma,
+        beta=ln2_beta,
+        output_base_row=LN2_OUT_ROW,
+        scratch_base_row=LN2_SCRATCH_ROW,
+    )
     _accumulate(c, i)
     ln2_raw = state.xmem.read_address(LN2_OUT_ROW * ROW_BYTES, N_PACKED_ROWS * ROW_BYTES)
-    ln2_kernel = _unpack_rows(np.frombuffer(bytes(ln2_raw), dtype=np.float32).reshape(N_PACKED_ROWS, LANES))
+    ln2_kernel = _unpack_rows(
+        np.frombuffer(bytes(ln2_raw), dtype=np.float32).reshape(N_PACKED_ROWS, LANES)
+    )
     print(f"FULL layernorm2: cycles={c} err={np.max(np.abs(ln2_kernel - ln2)):.6e}")
 
     # ---- FFN1 (silu) ----
-    ffn1_weight_slices = [W_ffn1[g * PACK:(g + 1) * PACK] for g in range(FFN1_N_OUT // PACK)]
-    c, i = run_packed_output_linear(state, asm_src=_LINEAR_SILU_ASM, data_base_row=LN2_OUT_ROW, k=N_CH,
-                                     n_out=FFN1_N_OUT, weight_slices=ffn1_weight_slices,
-                                     output_base_row=FFN1_OUT_ROW, scratch_base_row=FFN1_MASK_ROW)
+    ffn1_weight_slices = [W_ffn1[g * PACK : (g + 1) * PACK] for g in range(FFN1_N_OUT // PACK)]
+    c, i = run_packed_output_linear(
+        state,
+        kernel=_LINEAR_SILU,
+        data_base_row=LN2_OUT_ROW,
+        k=N_CH,
+        n_out=FFN1_N_OUT,
+        weight_slices=ffn1_weight_slices,
+        output_base_row=FFN1_OUT_ROW,
+        scratch_base_row=FFN1_MASK_ROW,
+    )
     _accumulate(c, i)
     print(f"FULL FFN1(silu): cycles={c}")
 
     # ---- FFN2 ----
-    ffn2_weight_slices = [W_ffn2[g * PACK:(g + 1) * PACK] for g in range(N_CH // PACK)]
-    c, i = run_packed_output_linear(state, asm_src=_LINEAR_IDENTITY_ASM, data_base_row=FFN1_OUT_ROW, k=FFN1_N_OUT,
-                                     n_out=N_CH, weight_slices=ffn2_weight_slices,
-                                     output_base_row=FFN2_OUT_ROW, scratch_base_row=FFN2_MASK_ROW)
+    ffn2_weight_slices = [W_ffn2[g * PACK : (g + 1) * PACK] for g in range(N_CH // PACK)]
+    c, i = run_packed_output_linear(
+        state,
+        kernel=_LINEAR_IDENTITY,
+        data_base_row=FFN1_OUT_ROW,
+        k=FFN1_N_OUT,
+        n_out=N_CH,
+        weight_slices=ffn2_weight_slices,
+        output_base_row=FFN2_OUT_ROW,
+        scratch_base_row=FFN2_MASK_ROW,
+    )
     _accumulate(c, i)
     ffn2_raw = state.xmem.read_address(FFN2_OUT_ROW * ROW_BYTES, N_PACKED_ROWS * ROW_BYTES)
-    ffn2_kernel = _unpack_rows(np.frombuffer(bytes(ffn2_raw), dtype=np.float32).reshape(N_PACKED_ROWS, LANES))
+    ffn2_kernel = _unpack_rows(
+        np.frombuffer(bytes(ffn2_raw), dtype=np.float32).reshape(N_PACKED_ROWS, LANES)
+    )
     print(f"FULL FFN2: cycles={c} err={np.max(np.abs(ffn2_kernel - ffn2)):.6e}")
 
     # ---- residual 2: resid1 (move to row 0) + ffn2 output ----
     state.xmem.write_address(0 * ROW_BYTES, bytes(resid1_raw))
-    c, i = run_packed_residual_add(state, a_base_row=0, b_base_row=FFN2_OUT_ROW, out_base_row=RESID2_OUT_ROW)
+    c, i = run_packed_residual_add(
+        state, a_base_row=0, b_base_row=FFN2_OUT_ROW, out_base_row=RESID2_OUT_ROW
+    )
     _accumulate(c, i)
     resid2_raw = state.xmem.read_address(RESID2_OUT_ROW * ROW_BYTES, N_PACKED_ROWS * ROW_BYTES)
-    resid2_kernel = _unpack_rows(np.frombuffer(bytes(resid2_raw), dtype=np.float32).reshape(N_PACKED_ROWS, LANES))
+    resid2_kernel = _unpack_rows(
+        np.frombuffer(bytes(resid2_raw), dtype=np.float32).reshape(N_PACKED_ROWS, LANES)
+    )
     final_err = float(np.max(np.abs(resid2_kernel - final_expected)))
     print(f"FULL residual2 (FINAL OUTPUT): cycles={c} err={final_err:.6e}")
 
     peak_activation_bytes = alloc.high_water_mark * ROW_BYTES
 
-    print(f"=== FULL L4 LAYER PACKED TOTALS ===")
+    print("=== FULL L4 LAYER PACKED TOTALS ===")
     print(f"TOTAL_CYCLES={total_cycles}")
     print(f"TOTAL_INSTRUCTIONS={sum(total_instrs.values())}")
     print(f"TOTAL_INSTRUCTIONS_BY_SLOT={total_instrs}")

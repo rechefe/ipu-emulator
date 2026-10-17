@@ -1,0 +1,105 @@
+{
+ "description": "MULT.RC.VE in E4",
+ "format": "e4",
+ "emulator_only": false,
+ "max_cycles": 1000,
+ "fault_enables": {},
+ "registers": [
+  {
+   "name": "r",
+   "index": 0,
+   "hex": "515c15600752a39b0e79d5431de72fcff9c24aee8dcae9d714dc88b1957ca553a4b848edca04c76e2cfd3f544e9eaccb00883e232bc802946ae242cf05af936dfe460efb633fae7d5eb1a3164ad6e22e44bcb568664cab1edb0484f66f2db99001fc8eeab6e8595a80846b0ecaed548f2a039c6459f0dac218f0bc0012bc9248"
+  },
+  {
+   "name": "r",
+   "index": 1,
+   "hex": "87797a4621d04bb9f2bb1c41f3e197924772691e4cef56a134b7b9366ca68a46d26316d0f26767f20088ed1f1c1d6675d964b463dbf88c73da7b4fd92dda01abbffcf9df3308cd20433b50153a7bcde3966adf3d22c977e4bbecc06aac072b64d08c0efa1b20e62b4dbae77ab420527638564c302120e9939313b13d5461bff7"
+  },
+  {
+   "name": "r_cyclic",
+   "index": 0,
+   "hex": "7957800fae66a8e121a62f762970136bbdcd612728e9ce779700235d49bdb691477c9c4cb22404e4ec65585781171fe906d768343cd36fc90f28ace7e91f2edcf793c63afc8d15d252426506ccb8c0187fa8bf31050422dc272f5c555e9b367bdf535e77f89497271588fcf134cea6374d2e12b953b8825cd0e128d8e3675c2cd52a57944614d6a5f1dcf3adea5f1419fede2e12dc84b2c82457a2cbc916ad0184a9ad112219f6606fa63e18d0c07dc10d0d1a6c8ed233431eb6ca0f692368cf5932dbbc22a2354be6c0bec518e5dd9c147968e8e400d86ea39c6e404d58a833a6031ebff734292b98c7336be20d2e90dff1ee695cac3f58b739356f0da72d14deb6e707372408a767c75f1c908abe78219f300e9ec36c86189caf509f29580a587dfa7d97fc9b260fbec6917c705c491579500f4de148981ee06dfa86506962d6d0a13e2aad66c4ac5568b0b10ea96f20aa35cc6000130d7ce9465729e82d66dcaf4d08847a4a27c17eeabc465c7a2969ebc827c0138152e6768ca1eba3db6a09c4e1a72a7e4db924cb06296f53f3b65a43d187cba0bc535090fbc5b89fe9843624289b2e6b07159869fa5c04d0dd4ef76331fe9853ff35547a424bad1b351e5a6dc87dbaa6d1fcd02b5a8c9e32a0177cef64cd31581ac0d0f9ae7b8604b8848b10c354e8b917e3ac468434576cfdc1aec3a41f4a7b010c02ae6fc0cfe71d1b"
+  },
+  {
+   "name": "r_mask",
+   "index": 0,
+   "hex": "030733b00e71ab180d64468a10de0ee0b338bbdde5414b8c858b59b6c59cdab60ceb54d05c69f2ddb3c6f55b01baaa5d15e7612b2ad32b2e022e0d0612f8ca0f6cd8c9fa769424cab5498af1e458b2f12e1040788956d0c42b16c1701eb98a6bd508c1fc81e349b424413ac5e34be494861842653383871ab362190a17e68b41"
+  },
+  {
+   "name": "lr",
+   "index": 1,
+   "value": 1
+  },
+  {
+   "name": "lr",
+   "index": 2,
+   "value": 2
+  },
+  {
+   "name": "lr",
+   "index": 3,
+   "value": 3
+  },
+  {
+   "name": "lr",
+   "index": 4,
+   "value": 5
+  },
+  {
+   "name": "lr",
+   "index": 6,
+   "value": 128
+  },
+  {
+   "name": "lr",
+   "index": 7,
+   "value": 3
+  },
+  {
+   "name": "cr",
+   "index": 2,
+   "value": 1
+  },
+  {
+   "name": "cr",
+   "index": 3,
+   "value": 4
+  },
+  {
+   "name": "cr",
+   "index": 4,
+   "value": 2
+  },
+  {
+   "name": "cr",
+   "index": 5,
+   "value": 7
+  },
+  {
+   "name": "cr",
+   "index": 6,
+   "value": 128
+  },
+  {
+   "name": "cr",
+   "index": 7,
+   "value": 4294967294
+  },
+  {
+   "name": "cr",
+   "index": 8,
+   "value": 100
+  },
+  {
+   "name": "cr",
+   "index": 9,
+   "value": 3
+  },
+  {
+   "name": "cr",
+   "index": 15,
+   "value": 128
+  }
+ ],
+ "xmem": []
+}

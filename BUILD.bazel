@@ -1,6 +1,17 @@
 # Root BUILD file
 
+load("@ipu_as_deps//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_binary")
+load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
+load("//tools:lint.bzl", "ruff_test")
+
 package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "mypy.ini",
+    "requirements_lock.txt",
+    "ruff.toml",
+])
 
 # Prototyping mode: `bazel test --define=ipu_proto=1 //...` builds the emulator
 # with its opt-in fast paths on. They are bit-exact but are not a faithful model
@@ -9,4 +20,58 @@ package(default_visibility = ["//visibility:public"])
 config_setting(
     name = "prototyping_on",
     values = {"define": "ipu_proto=1"},
+)
+
+# Read by the doc tests and the docs build in //docs.
+exports_files([
+    ".github/pull_request_template.md",
+    "CLAUDE.md",
+    "GLOSSARY.md",
+    "README.md",
+    "SKILL.md",
+])
+
+# Ruff over the Python files that belong to no other package (none today; a new
+# directory without a BUILD.bazel lands here).
+ruff_test(
+    name = "ruff",
+    srcs = glob(
+        ["**/*.py"],
+        allow_empty = True,
+        exclude = [
+            # Bazel's convenience symlinks into the output tree.
+            "bazel-*/**",
+            "**/.venv/**",
+            "playground/**",
+        ],
+    ),
+)
+
+# Glossary adoption check (tools/glossary_check.py): the hand-written docs add no
+# use of a term GLOSSARY.md lists under _Avoid_. Counts per file and term are in
+# tools/glossary_baseline.json and may only go down. Default tier.
+py_pytest_test(
+    name = "glossary_adoption_test",
+    size = "small",
+    srcs = ["glossary_adoption_test.py"],
+    data = [
+        "CLAUDE.md",
+        "GLOSSARY.md",
+        "README.md",
+        "SKILL.md",
+        "//docs:doc_sources",
+        "//tools:glossary_baseline.json",
+    ],
+    deps = [
+        "//tools:glossary_check",
+        requirement("pytest"),
+    ],
+)
+
+# Rewrite tools/glossary_baseline.json from the working tree, after removing
+# uses of avoided terms: `bazel run //:glossary_baseline`.
+py_binary(
+    name = "glossary_baseline",
+    srcs = ["glossary_baseline.py"],
+    deps = ["//tools:glossary_check"],
 )

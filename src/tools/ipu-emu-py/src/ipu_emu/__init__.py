@@ -1,65 +1,43 @@
-"""IPU cycle-functional emulator."""
+"""The IPU cycle-functional emulator: machine state, the cycle module, per-slot
+handlers, prototyping mode and the stable reference-model API (``ipu_emu.reference``).
 
-from ipu_emu.xmem import XMem
-from ipu_emu.descriptors import RegDescriptor, REGFILE_SCHEMA
-from ipu_emu.regfile import RegFile
-from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
-from ipu_emu.ipu_math import DType, ipu_mult, ipu_add, fp32_to_fp8_bytes, fp8_bytes_to_fp32
-from ipu_emu.execute import (
-    decode_instruction_word,
-    load_binary_instructions,
-    execute_next_instruction,
-    BreakResult,
+The package root holds the curated entry points (E04-18): the state, the
+engine, the run statistics, loading and running a program, and every class of
+``ipu_emu.errors``. Everything else is imported from its module
+(``ipu_emu.emulator``, ``ipu_emu.execute``, ``ipu_emu.ipu_math``, ...). The
+emulator imports only ``ipu_isa``, numpy and the standard library; no
+assembler or debugger module.
+"""
+
+from ipu_emu.emulator import load_program, run_until_complete
+from ipu_emu.errors import (
+    ConfigurationError,
+    DebugOnlyInstructionWarning,
+    EmulatorError,
+    EmulatorFault,
+    RegisterIndexError,
+    RegisterKindError,
+    RegisterSizeError,
+    UndeclaredRead,
+    XMemBoundsError,
 )
-from ipu_emu.emulator import (
-    load_program,
-    load_program_from_binary,
-    run_until_complete,
-    run_with_debug,
-    run_test,
-    load_binary_to_xmem,
-    dump_xmem_to_binary,
-    load_fp32_as_fp8_to_xmem,
-    DebugAction,
-)
-from ipu_emu.debug_cli import (
-    debug_prompt,
-    DebugCLI,
-    print_all_registers,
-    state_to_json_dict,
-    save_state_json,
-    disassemble_current,
-)
+from ipu_emu.ipu import Ipu
+from ipu_emu.ipu_state import IpuState
+from ipu_emu.stats import RunStats
 
 __all__ = [
-    "XMem",
-    "RegDescriptor",
-    "REGFILE_SCHEMA",
-    "RegFile",
+    "ConfigurationError",
+    "DebugOnlyInstructionWarning",
+    "EmulatorError",
+    "EmulatorFault",
+    "Ipu",
     "IpuState",
-    "WideVectorArithmetic",
-    "DType",
-    "ipu_mult",
-    "ipu_add",
-    "decode_instruction_word",
-    "load_binary_instructions",
-    "execute_next_instruction",
-    "BreakResult",
+    "RegisterIndexError",
+    "RegisterKindError",
+    "RegisterSizeError",
+    "RunStats",
+    "UndeclaredRead",
+    "XMemBoundsError",
     "load_program",
-    "load_program_from_binary",
     "run_until_complete",
-    "run_with_debug",
-    "run_test",
-    "load_binary_to_xmem",
-    "dump_xmem_to_binary",
-    "load_fp32_as_fp8_to_xmem",
-    "fp32_to_fp8_bytes",
-    "fp8_bytes_to_fp32",
-    "DebugAction",
-    "debug_prompt",
-    "DebugCLI",
-    "print_all_registers",
-    "state_to_json_dict",
-    "save_state_json",
-    "disassemble_current",
 ]

@@ -8,7 +8,7 @@ Computes a numerically stable softmax over each of K rows of 128 FP32 elements
 
 so that ``2^(c * d) == e^d``. All scaling is done on the FP32 *vector* path
 (``MULT.RC.VV`` / ``MULT.RC.VE``) because CR scalars are integer-only even in
-wide mode (see docs/content/wide-vector-debug-mode.md). The constant ``c`` is
+wide mode (see docs/content/explanation/element-formats.md). The constant ``c`` is
 supplied as a resident 128-element vector ``C_VEC``.
 
 Pass structure (see the .asm for the cycle-level layout):
@@ -69,11 +69,15 @@ class SoftmaxRowsApp(SoftmaxApp):
 
 
 SPEC = softmax_spec(
-    SoftmaxRowsApp, along_rows=True,
-    supports=lambda q: (None if q.n == LANES else
-                        f"handles exactly {LANES} elements per row; this row has {q.n}"),
-    explain=lambda q: (f"n == {LANES} exactly: the full-width row kernel. Rows are processed "
-                       f"in groups of at most {LANES}, so any row count works."),
+    SoftmaxRowsApp,
+    along_rows=True,
+    supports=lambda q: (
+        None if q.n == LANES else f"handles exactly {LANES} elements per row; this row has {q.n}"
+    ),
+    explain=lambda q: (
+        f"n == {LANES} exactly: the full-width row kernel. Rows are processed "
+        f"in groups of at most {LANES}, so any row count works."
+    ),
     # Exact-width match: no padding, no chunking. Cheapest possible claim.
     cost=lambda q: 0.0,
 )

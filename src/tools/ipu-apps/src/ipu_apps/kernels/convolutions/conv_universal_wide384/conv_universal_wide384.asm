@@ -29,7 +29,7 @@
       kc= 0: rc_idx = 128  (slot B exactly)
       kc=+1: rc_idx = 129  (slot B's elems 1..127 .. slot C's first elem)
     No cross-boundary wraparound trickery is needed since MULT.RC.VE reads
-    are NOT slot-aligned (only LDR_CYCLIC_MULT_REG writes are); a 128-element
+    are NOT slot-aligned (only LD.MULT.CYCLIC writes are); a 128-element
     read starting at rc_idx=127 legitimately straddles slot A/B.
 
     BORDER MASKING: chosen as an ASSEMBLE-TIME immediate per tap site
@@ -123,10 +123,14 @@
       ISA has no defined behaviour for that) so each word writes lr13 at
       most once.
 -#}
-{#- The harness renders cpr/rows per run; the defaults (width 384, 8 rows)
-    only let the file assemble standalone (`assemble_<kernel>`). -#}
-{%- set CPR = cpr | default(3) -%}
-{%- set ROWS = rows | default(8) -%}
+{#- ipu:params
+cpr:  int = 3    # column chunks per row; the default is width 384
+rows: int = 8
+-#}
+{#- The harness assembles cpr/rows per run; the defaults only let the file
+    assemble standalone (`assemble_<kernel>`). -#}
+{%- set CPR = cpr -%}
+{%- set ROWS = rows -%}
 {#- ======================= shared per-(row,cc) filter body ================ -#}
 {%- macro filter_body(row_id, cc, kr_top_valid, kr_bot_valid) %}
 {%-   set kc_neg_valid = (cc != 0) %}
@@ -139,7 +143,7 @@
     # per-cc working register lr9; the RELOAD path below advances lr9 only,
     # never lr8, so the next cc still starts this filter's walk from block 0.
     ADD                 lr9 lr8 cr0;
-    ldr_mult_reg        r0 lr9 cr3;;
+    ld.mult        r0 lr9 cr3;;
     SET                 lr12 cr0;;                          # kernel channel-in-block ctr = 0
 
     SET                 lr10 cr0;
@@ -155,12 +159,12 @@
                                                               # so the mult sees the FRESH index).
 
 {{ lbl }}_ch_loop:
-    blt                 lr12 cr8 {{ lbl }}_ch_body;;
+    blt.s                 lr12 cr8 {{ lbl }}_ch_body;;
     b                   {{ lbl }}_reload;;
 
 {{ lbl }}_reload:
     add                 lr9 lr9 cr9;
-    ldr_mult_reg        r0 lr9 cr3;
+    ld.mult        r0 lr9 cr3;
     SET                 lr12 cr0;
     SET                 lr10 cr0;;
     DEC                 lr10 1;;                            # re-seed kernel elem idx to -1 for the new block
@@ -193,26 +197,26 @@
     # restored in a separate word (DEC) -- lr13 is never written twice in one
     # VLIW word.
 {%-     if cc == 0 %}
-    ldr_cyclic_mult_reg lr13 cr2 lr3;;
+    ld.mult.cyclic lr13 cr2 lr3;;
 {%-     else %}
     INC                 lr13 {{ cc }};;
-    ldr_cyclic_mult_reg lr13 cr2 lr3;;
+    ld.mult.cyclic lr13 cr2 lr3;;
     DEC                 lr13 {{ cc }};;
 {%-     endif %}
     # slot A: col-chunk cc-1 (dummy at cc==0, that tap is masked anyway)
 {%-     if cc == 0 %}
-    ldr_cyclic_mult_reg lr13 cr2 lr0;;
+    ld.mult.cyclic lr13 cr2 lr0;;
 {%-     else %}
     INC                 lr13 {{ cc - 1 }};;
-    ldr_cyclic_mult_reg lr13 cr2 lr0;;
+    ld.mult.cyclic lr13 cr2 lr0;;
     DEC                 lr13 {{ cc - 1 }};;
 {%-     endif %}
     # slot C: col-chunk cc+1 (dummy at cc==cpr-1, that tap is masked anyway)
 {%-     if cc == CPR - 1 %}
-    ldr_cyclic_mult_reg lr13 cr2 lr5;;
+    ld.mult.cyclic lr13 cr2 lr5;;
 {%-     else %}
     INC                 lr13 {{ cc + 1 }};;
-    ldr_cyclic_mult_reg lr13 cr2 lr5;;
+    ld.mult.cyclic lr13 cr2 lr5;;
     DEC                 lr13 {{ cc + 1 }};;
 {%-     endif %}
 
@@ -253,10 +257,10 @@
     add                 lr15 lr15 cr12;
     INC                 lr11 1;
     INC                 lr12 1;;
-    blt                 lr11 cr6 {{ lbl }}_ch_loop;;
+    blt.s                 lr11 cr6 {{ lbl }}_ch_loop;;
 
     ACTIVATE.QUANTIZE   identity cr15;
-    str_post_aaq_reg    lr14 cr4;;
+    st.aaq    lr14 cr4;;
     INC                 lr14 1;;
 {%- endmacro -%}
 
@@ -278,7 +282,7 @@ r{{ row_id }}_filter_loop:
 {%-   endfor %}
 
     add                 lr8 lr8 cr14;;
-    blt                 lr8 cr13 r{{ row_id }}_filter_loop;;
+    blt.s                 lr8 cr13 r{{ row_id }}_filter_loop;;
 {%- endmacro -%}
 {#- Interior-row body is IDENTICAL for every row 1..ROWS-2 (kr_top_valid=
     kr_bot_valid=true, i.e. no vertical border), so it is emitted ONCE as a
@@ -303,11 +307,11 @@ main_filter_loop:
 {%-   endfor %}
 
     add                 lr8 lr8 cr14;;
-    blt                 lr8 cr13 main_filter_loop;;
+    blt.s                 lr8 cr13 main_filter_loop;;
 
     add                 lr6 lr6 cr11;
     add                 lr7 lr7 cr10;;
-    blt                 lr7 cr7 main_row_loop;;
+    blt.s                 lr7 cr7 main_row_loop;;
 {%- endmacro -%}
 
 # ===========================================================================
@@ -315,7 +319,7 @@ main_filter_loop:
 # ===========================================================================
 
     SET                 lr0 cr0;
-    ldr_mult_mask_reg   lr0 cr5;;
+    ld.mask   lr0 cr5;;
 
     ADD                 lr1 lr0 cr1;;                      # 1
 
@@ -328,7 +332,7 @@ main_filter_loop:
                                                               # twice in one VLIW word.
 
     # row_base/out_row_base are RELATIVE offsets from cr2/cr4 (added explicitly
-    # as `base` by every ldr_cyclic_mult_reg/str_post_aaq_reg below) -- NOT
+    # as `base` by every ld.mult.cyclic/st.aaq below) -- NOT
     # absolute row numbers -- so they start at 0, mirroring lr8 (kernel filter
     # base)'s relative-to-cr3 convention. Seeding them from cr2/cr4 directly
     # would double-count the base at every load/store site.
@@ -355,4 +359,4 @@ main_filter_loop:
 {% endif %}
 
 end:
-    bkpt;;
+    halt;;

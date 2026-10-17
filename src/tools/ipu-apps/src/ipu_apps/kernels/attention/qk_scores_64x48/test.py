@@ -1,10 +1,20 @@
 """qk_scores_64x48: every case in cases.py, plus the stored-extent probe."""
+
 import numpy as np
 
 from ipu_apps.kernel_registry.testing import case_tests
 from ipu_apps.kernels.attention.cases import run_poked
 from ipu_apps.kernels.attention.qk_scores_64x48.app import (
-    ACC_STORE_ROWS, D, ELEM_BYTES, K_BASE, LANES, N, N_BLOCK, N_TG, ROW_BYTES, S_BASE,
+    ACC_STORE_ROWS,
+    ELEM_BYTES,
+    K_BASE,
+    LANES,
+    N_BLOCK,
+    N_TG,
+    ROW_BYTES,
+    S_BASE,
+    D,
+    N,
 )
 
 test_case = case_tests(__package__)
@@ -18,7 +28,7 @@ def test_padding_lanes_not_stored(tmp_path):
 
     What the gate actually controls is the STORED EXTENT: with it in place,
     ACTIVATE.QUANTIZE hard-zeros POST_AAQ_REG lanes N:128 before
-    STR_POST_AAQ_REG writes the whole 512 B row, so those bytes are zero no
+    ST.AAQ writes the whole 512 B row, so those bytes are zero no
     matter what garbage sits in K's padding lanes. Stage non-zero garbage in
     K's lanes N:128 (a real producer in a chained pipeline would leave
     another stream's data there) and assert the RAW stored row -- read
@@ -36,7 +46,7 @@ def test_padding_lanes_not_stored(tmp_path):
     stride = ACC_STORE_ROWS * ROW_BYTES
     for r in range(N_BLOCK * N * N_TG):
         row = state.xmem.read_address(S_BASE + r * stride, ROW_BYTES)
-        tail = np.frombuffer(bytes(row[N * ELEM_BYTES:]), dtype=np.float32)
+        tail = np.frombuffer(bytes(row[N * ELEM_BYTES :]), dtype=np.float32)
         assert np.all(tail == 0.0), (
             f"row {r}: padding lanes N:{LANES} were stored non-zero -- "
             f"valid_elements is not gating the ACTIVATE.QUANTIZE store window"

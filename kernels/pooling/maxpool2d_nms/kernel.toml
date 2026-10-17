@@ -1,0 +1,71 @@
+# maxpool2d_nms: the unrolled KxK centred stride-1 max-pool template (E07-14).
+# registry.toml fixes kernel_size and padding for its two entries,
+# maxpool2d_nms7 (7, 3) and maxpool2d_nms9 (9, 4); run by itself it is the
+# K = 7 program. Was two whole-image (MemoryApp) kernels.
+[kernel]
+op = "maxpool2d"
+formats = ["fp32"]
+# 0 for maxpool2d_nms7, 1 for nms9: both below maxpool2d_window's 3, and
+# apart, so a query that leaves kernel_size out (each entry's fixed value is
+# its default, E06-17) names nms7 instead of tying.
+cost = "(kernel_size - 7) // 2"
+
+[params]
+channels    = { type = "int", min = 1 }
+height      = { type = "int", min = 1 }
+width       = { type = "int", min = 1 }
+kernel_size = { type = "int", choices = [7, 9], default = 7 }   # unrolled into the program
+stride      = { type = "int", choices = [1] }
+padding     = { type = "int", choices = [3, 4], default = 3 }   # kernel_size // 2
+
+[derived]
+# 1 when kernel_size = 2 * padding + 1, else no value (maxpool2d_window's).
+centred     = "1 / (1 - (2 * padding + 1 - kernel_size) * (2 * padding + 1 - kernel_size))"
+slot_stride = "128"                                      # R_CYCLIC slot stride
+tiles       = "ceil(width / (129 - kernel_size))"        # TILES_PER_ROW
+plane       = "(height + kernel_size - 1) * tiles"       # IN_PLANE_STRIDE (rows)
+
+# Placed from row 0: x, y (the old image: input, output).
+[inputs.x]
+shape = ["channels", "height", "width"]
+pack = "halo_tiled"                                      # ../pack.py
+
+[outputs.y]
+shape = ["channels", "height", "width"]
+pack = "tiled"                                           # ../pack.py
+
+[abi]
+x           = "CR2"
+y           = "CR3"
+slot_stride = "CR4"
+tiles       = "CR5"
+plane       = "CR6"
+height      = "CR7"
+channels    = "CR8"
+
+[golden]
+op = "maxpool2d"
+tolerance = { fp32 = "EXACT" }
+
+# The ipu_apps cases' data (../gen.py: standard normal minus 2, seed 7), at
+# each entry's kernel_size.
+[cases.default]
+channels = 1
+height = 4
+width = 16
+stride = 1
+generator = "../gen.py:legacy_window"
+
+[cases.tile_boundary]
+channels = 2
+height = 3
+width = 133
+stride = 1
+generator = "../gen.py:legacy_window"
+
+[cases.single_pixel]
+channels = 1
+height = 1
+width = 1
+stride = 1
+generator = "../gen.py:legacy_window"

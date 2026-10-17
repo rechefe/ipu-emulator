@@ -1,282 +1,139 @@
-import functools
-import os
-import lark
-import ipu_as.compound_inst as compound_inst
-import ipu_as.ipu_token as ipu_token
-import ipu_as.label as ipu_label
-import ipu_as.template as template
-from ipu_common.instruction_spec import (
-    INSTRUCTION_SPEC,
-    PSEUDO_INSTRUCTION_SPEC,
-    find_pseudo_instruction,
-)
+"""File entry points of the assembler, over `ipu_as.session`.
 
-IPU_INSTR_ADDR_JUMP = 1
+The pipeline lives in `ipu_as.session`, and the parser and AST builder in
+`ipu_as.syntax` (re-exported here for existing importers). These functions
+never print or exit: a bad source raises an `AssemblerError` subclass. Only
+`ipu_as.cli` turns errors into text and exit codes.
+"""
 
+from collections.abc import Callable
 
-@functools.lru_cache(maxsize=1)
-def get_parser() -> lark.Lark:
-    """The single parser-construction site, shared by the assembler and tooling.
+from ipu_as import encode, session
+from ipu_as.session import instruction_aligned_bytes_len
+from ipu_as.syntax import ASTBuilder, get_parser, parse_tree
+from ipu_isa.codec.disasm import program_text
+from ipu_isa.codec.word import unpack_words, word_bytes
+from ipu_isa.tags import Tag
 
-    Cached because building a LALR parser is not cheap and `parse()` is called
-    once per assembled file; it used to be rebuilt on every call.
-    """
-    script_dir = os.path.dirname(__file__)
-    return lark.Lark.open(
-        os.path.join(script_dir, "asm_grammar.lark"), start="start", parser="lalr"
-    )
-
-
-def parse_tree(text: str) -> lark.Tree:
-    """Render Jinja, then parse, **raising** `lark.exceptions.LarkError`.
-
-    `parse()` below prints and exits, which suits the CLI but makes failures
-    unobservable to callers. Tooling and tests use this instead.
-    """
-    if template.has_markers(text):
-        text = template.render(text)
-    return get_parser().parse(text)
+__all__ = [
+    "ASTBuilder",
+    "Renderer",
+    "assemble",
+    "assemble_to_bin_file",
+    "assemble_to_mem_file",
+    "disassemble",
+    "disassemble_from_bin_file",
+    "disassemble_from_mem_file",
+    "disassemble_to_source",
+    "get_parser",
+    "instruction_aligned_bytes_len",
+    "parse",
+    "parse_tree",
+]
 
 
-def _is_real_instruction_name(name: str) -> bool:
-    lowered = name.lower()
-    return any(
-        any(real_name.lower() == lowered for real_name in slot_instructions)
-        for slot_instructions in INSTRUCTION_SPEC.values()
-    )
-
-
-def _expand_pseudo_instructions(instructions: list[dict]) -> list[dict]:
-    """Expand pseudo-instructions into their real-instruction equivalents.
-
-    Matched by (opcode name, operand count) via ``find_pseudo_instruction``,
-    so a pseudo-instruction can share a name with a real instruction of a
-    different arity without ambiguity. Pseudo-instructions never reach
-    ``CompoundInst`` — by the time this returns, every instruction is a
-    real one.
-    """
-    expanded = []
-    for instr in instructions:
-        opcode_token = instr["opcode"]
-        operands = instr["operands"]
-        opcode_name = opcode_token.token.value
-
-        pseudo_def = find_pseudo_instruction(opcode_name, len(operands))
-        if pseudo_def is None:
-            if not _is_real_instruction_name(opcode_name):
-                for pseudo_name, candidate in PSEUDO_INSTRUCTION_SPEC.items():
-                    if pseudo_name.lower() == opcode_name.lower():
-                        expected_operands = candidate["operands"]
-                        names = ", ".join(op["name"] for op in expected_operands)
-                        raise ValueError(
-                            f"Pseudo-instruction '{pseudo_name}' expects "
-                            f"{len(expected_operands)} operand(s) ({names}), "
-                            f"got {len(operands)}\n"
-                            f"At: {opcode_token.get_location_string()}"
-                        )
-            expanded.append(instr)
-            continue
-
-        expansion = pseudo_def["expands_to"]
-        operand_by_name = dict(
-            zip((op["name"] for op in pseudo_def["operands"]), operands)
-        )
-        # Borrow the position of the pseudo-instruction being expanded. A bare
-        # lark.Token() carries no line or column, so any later error about the
-        # expansion reported "Line None, Column None" and could not be placed —
-        # `B loop;;` expanding to BEQ is invisible to the diagnostics.
-        real_opcode = ipu_token.AnnotatedToken(
-            token=lark.Token.new_borrow_pos(
-                opcode_token.token.type, expansion["instruction"], opcode_token.token
-            ),
-            instr_id=opcode_token.instr_id,
-        )
-        real_operands = [
-            operand_by_name.get(
-                arg,
-                ipu_token.AnnotatedToken(
-                    token=lark.Token.new_borrow_pos(
-                        opcode_token.token.type, arg, opcode_token.token
-                    ),
-                    instr_id=opcode_token.instr_id,
-                ),
-            )
-            for arg in expansion["args"]
-        ]
-        expanded.append({"opcode": real_opcode, "operands": real_operands})
-    return expanded
-
-
-class ASTBuilder(lark.Transformer):
-    def __init__(self):
-        super().__init__()
-        self.instr_index = 0
-
-    def __default_token__(self, token: lark.Token):
-        return ipu_token.AnnotatedToken(token=token, instr_id=self.instr_index)
-
-    def program(self, items):
-        return items
-
-    def compound_instr_list(self, items):
-        return self.compound_instruction(items)
-
-    def compound_instruction(self, items):
-        label = None
-        instructions = []
-
-        if items and isinstance(items[0], dict) and items[0].get("type") == "label":
-            label = items[0]["name"]
-            if label:
-                ipu_label.ipu_labels.add_label(label)
-            items = items[1:]
-
-        for it in items:
-            if isinstance(it, list):
-                instructions.extend(it)
-            else:
-                instructions.append(it)
-
-        instructions = _expand_pseudo_instructions(instructions)
-
-        self.instr_index += IPU_INSTR_ADDR_JUMP
-        return {
-            "label": label,
-            "instructions": instructions,
-        }
-
-    def instr_list(self, items):
-        return items
-
-    def instruction(self, items):
-        opcode = items[0]
-        operands = [tok for tok in items[1:]]
-        return {"opcode": opcode, "operands": operands}
-
-    def label(self, items):
-        return {"type": "label", "name": items[0]}
-
-    def operand(self, items):
-        return items[0]
-
-
-def parse(text: str) -> list[dict[str, any]]:
-    # Reset the module-global label registry so repeated assemble() calls in a
-    # single process don't raise "label defined for the second time". Each parse
-    # is a self-contained translation unit; the label table must not leak across
-    # calls. (App harnesses, tests, and benchmarks assemble several .asm files in
-    # one process rather than spawning a fresh process per file.)
-    ipu_label.reset_labels()
-    # Render the Jinja layer, if any, before parsing. Sandboxed: see
-    # ipu_as/template.py -- an .asm source is executable input, so an
-    # unsandboxed render makes assembling a file someone sent you the same
-    # thing as running whatever they put in it.
-    if template.has_markers(text):
-        text = template.render(text)
-
-    try:
-        tree = parse_tree(text)
-        ast = ASTBuilder().transform(tree)
-        return ast
-    except lark.exceptions.LarkError as e:
-        print(f"Error parsing code: {e}")
-        exit(1)
+def parse(text: str) -> list[dict]:
+    """The parsed instruction words of `text`. Raises an AssemblerError subclass."""
+    return session.AssemblySession(text).parse()
 
 
 def assemble(text: str) -> list[int]:
-    ast = parse(text)
-    try:
-        program = [compound_inst.CompoundInst(instr).encode() for instr in ast]
-        return program
-    except ValueError as e:
-        print(f"Error assembling code: {e}")
-        exit(1)
+    """The instruction words of `text`. Raises an AssemblerError subclass."""
+    return list(session.assemble(text).words)
 
 
-def assemble_to_mem_file(text: str, output_path: str):
-    program = assemble(text)
-    with open(output_path, "w") as f:
-        for word in program:
-            f.write(f"0x0{word:08x}\n")
+def assemble_to_mem_file(text: str, output_path: str) -> None:
+    """Assemble `text` into a `.mem` file: one `0x`-prefixed hex word per line.
 
+    Args:
+        text: The assembly source.
+        output_path: The file to write.
 
-WORD_SIZE = 32
-
-
-def instruction_aligned_bytes_len() -> int:
-    val = compound_inst.CompoundInst.bits()
-    if val % WORD_SIZE != 0:
-        val += WORD_SIZE - (val % WORD_SIZE)
-    return (val // WORD_SIZE) * 4
-
-
-def assemble_to_bin_file(text: str, output_path: str):
-    program = assemble(text)
-    with open(output_path, "wb") as f:
-        for word in program:
-            f.write(
-                word.to_bytes(
-                    instruction_aligned_bytes_len(),
-                    byteorder="little",
-                )
-            )
-
-
-def disassemble(program: list[int]) -> list[str]:
-    disassembled_instructions = []
-    for i, encoded_inst in enumerate(program):
-        disassembled_instructions.append(
-            f"{i:04x}:\t\t{compound_inst.CompoundInst.decode(encoded_inst)}"
-        )
-    return disassembled_instructions
-
-
-def disassemble_from_mem_file(input_path: str, output_path: str):
-    with open(input_path, "r") as f:
-        program = [int(line.strip(), 0) for line in f.readlines()]
-    with open(output_path, "w") as f:
-        for line in disassemble(program):
-            f.write(f"{line}\n")
-
-
-def disassemble_from_bin_file(input_path: str, output_path: str):
-    with open(input_path, "rb") as f:
-        byte_data = f.read()
-        instruction_size_bytes = instruction_aligned_bytes_len()
-        program = []
-        for i in range(0, len(byte_data), instruction_size_bytes):
-            word_bytes = byte_data[i : i + instruction_size_bytes]
-            word_int = int.from_bytes(word_bytes, byteorder="little")
-            program.append(word_int)
-    with open(output_path, "w") as f:
-        for line in disassemble(program):
-            f.write(f"{line}\n")
-
-
-if __name__ == "__main__":
-    code = """
-# The provided code snippet is a simple assembly-like code written in a custom language. Here's a
-# breakdown of what it does:
-start:
-    beq lr13 lr15 end; 
-    mac.ee rq4 r1 r2;
-    ldr lr3 cr9;                     ;;
-    
-    
-end:
-    mac.ev rq8 r5 r9 lr0; 
-    beq lr0 lr1 +2;
-    add lr2 lr2 15;
-    ;;
-    
-    b start; mac.ev rq0 r3 mem_bypass lr15; ;;
+    Raises:
+        AssemblerError: the source does not assemble.
     """
+    result = session.assemble(text)
+    with open(output_path, "w") as f:
+        f.write(result.to_mem())
 
-    description = compound_inst.CompoundInst.desc()
-    print("\n".join(description))
-    assembled = assemble(code)
-    for line in assembled:
-        print(hex(line))
 
-    for line in disassemble(assembled):
-        print(line)
+def assemble_to_bin_file(text: str, output_path: str) -> None:
+    """Assemble `text` into a `.bin` file of little-endian emulator words.
+
+    Args:
+        text: The assembly source.
+        output_path: The file to write.
+
+    Raises:
+        AssemblerError: the source does not assemble.
+    """
+    result = session.assemble(text)
+    with open(output_path, "wb") as f:
+        f.write(result.to_bin())
+
+
+#: A program's words (and which word they are) -> its text lines.
+Renderer = Callable[[list[int], str], list[str]]
+
+
+def disassemble(program: list[int], target: str = "emulator") -> list[str]:
+    """One `<index>:\t\t<text>` line per word, with every field of every slot;
+    `target` says which word they are."""
+    return [
+        f"{i:04x}:\t\t{encode.disassemble_word(word, target)}" for i, word in enumerate(program)
+    ]
+
+
+def disassemble_to_source(program: list[int], target: str = "emulator") -> list[str]:
+    """The program as source that assembles back to `program`, one line per word
+    (``ipu_isa.codec.disasm.program_text``)."""
+    return program_text(program, target=target).splitlines()
+
+
+def _write_lines(output_path: str, lines: list[str]) -> None:
+    with open(output_path, "w") as f:
+        for line in lines:
+            f.write(f"{line}\n")
+
+
+def disassemble_from_mem_file(
+    input_path: str, output_path: str, target: str = "emulator", render: Renderer = disassemble
+) -> None:
+    """Disassemble a `.mem` file as text lines, written by `render`.
+
+    Args:
+        input_path: The `.mem` file: one hex word per line.
+        output_path: The text file to write.
+        target: Which word the file holds, `"emulator"` or `"hardware"`.
+        render: How to write it: `disassemble` or `disassemble_to_source`.
+    """
+    with open(input_path) as f:
+        program = [int(line.strip(), 0) for line in f.readlines()]
+    _write_lines(output_path, render(program, target))
+
+
+def _bin_words(data: bytes, target: str) -> list[int]:
+    """The words of a `.bin` file of `target` words; a trailing partial word is ignored."""
+    if encode.target_tag(target) is Tag.EMULATOR:
+        return unpack_words(data)
+    width = word_bytes(Tag.HARDWARE)
+    return [
+        int.from_bytes(data[offset : offset + width], "little")
+        for offset in range(0, len(data) - width + 1, width)
+    ]
+
+
+def disassemble_from_bin_file(
+    input_path: str, output_path: str, target: str = "emulator", render: Renderer = disassemble
+) -> None:
+    """Disassemble a `.bin` file as text lines, written by `render`.
+
+    Args:
+        input_path: The `.bin` file of little-endian `target` words.
+        output_path: The text file to write.
+        target: Which word the file holds, `"emulator"` or `"hardware"`.
+        render: How to write it: `disassemble` or `disassemble_to_source`.
+    """
+    with open(input_path, "rb") as f:
+        program = _bin_words(f.read(), target)
+    _write_lines(output_path, render(program, target))

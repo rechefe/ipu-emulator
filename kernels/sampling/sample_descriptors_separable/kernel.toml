@@ -1,0 +1,131 @@
+# sample_descriptors_separable: dense 8x bilinear interpolation of [H, W, 256]
+# FP32 descriptors in SuperPoint's stock coordinates, as a vertical then a
+# horizontal pass over per-axis tables (E07-15). The registry's choice for a
+# stock query (cost -1). Was a whole-image (MemoryApp) kernel.
+[kernel]
+op = "sample_descriptors"
+formats = ["fp32"]
+cost = -1
+
+[params]
+height         = { type = "int", min = 1 }                  # coarse rows H
+width          = { type = "int", min = 1 }                  # coarse columns W
+channels       = { type = "int", choices = [256] }          # HWC, two rows per cell
+stock          = { type = "bool", choices = [true] }        # stock coordinates only; a query names it
+cell_row_start = { type = "int", min = 0, default = 0 }     # first coarse row of the band
+cell_row_count = { type = "int", min = 0, default = 0 }     # coarse rows; 0: to the last row
+amplitude      = { type = "float", min = 1.401298464324817e-45, max = 3.4028234663852886e38, default = 1.0 }  # the generator's: x uniform in [-amplitude, amplitude)
+
+[derived]
+band      = "cell_row_count + (height - cell_row_start) * (1 - min(1, cell_row_count))"
+# 1 when the band ends inside the map, else no value (a division by zero):
+# the shape grammar has no comparison. An empty band is refused by y's shape.
+inside    = "1 / max(0, min(1, height - cell_row_start - band + 1))"
+stride    = "(width + 2) * 2"                               # padded input row stride (rows)
+x_band    = "base(x) + cell_row_start * stride"             # the band's top halo row
+ky_band   = "base(ky) + cell_row_start"                     # the band's first Ky row
+eight     = "8"                                             # fine phases per axis
+two       = "2"                                             # 128-lane tiles per cell
+lanes     = "128"                                           # R_CYCLIC slot step
+two_w     = "2 * width"
+
+# Placed from row 0: x, Ky, Kx, the scratch plane, y (the old image).
+[inputs.x]
+shape = ["height", "width", "channels"]
+pack = "hwc_halo"                                           # ipu_kernels.sampling.pack
+
+[scratch.ky]                                                # Ky[i, dy, a], lanes 0..23
+shape = ["height", 128]
+bytes = "../tables.py:ky"
+after = "x"
+
+[scratch.kx]                                                # Kx[j, dx, b], lanes 0..23
+shape = ["width", 128]
+bytes = "../tables.py:kx"
+after = "ky"
+
+[scratch.t]                                                 # T (8, W + 2, 256), the vertical pass
+shape = ["8 * stride", 128]
+after = "kx"
+
+[outputs.y]
+shape = ["band * 8", "width * 8", "channels"]
+
+[abi]
+x_band  = "CR2"
+y       = "CR3"
+ky_band = "CR4"
+kx      = "CR5"
+t       = "CR6"
+stride  = "CR7"
+width   = "CR8"
+band    = "CR9"
+eight   = "CR10"
+two     = "CR11"
+lanes   = "CR12"
+two_w   = "CR13"
+
+[golden]
+op = "sample_descriptors"
+# Measured over the cases: max|err| 1.2e-7 at amplitude 1, 1.5e-5 at
+# amplitude 100 (large_values), where an output near 0 is a difference of
+# terms near 100. The vertical pass is rounded to FP32 before the horizontal
+# one, so the error scales with |x|, not with the output: FP32_ORDER's atol
+# (1e-6) is too tight for large_values, so atol is 3e-5 (twice the worst;
+# the old cases allowed 1e-5 * amplitude = 1e-3).
+tolerance = { fp32 = { tier = "FP32_ORDER", atol = 3e-5, why = "the vertical pass is rounded before the horizontal: error scales with |x| (1.5e-5 measured at amplitude 100)" } }
+
+# The ipu_apps cases' data (../gen.py: uniform, seed 31).
+[cases.default]
+height = 2
+width = 3
+channels = 256
+stock = true
+generator = "../gen.py:legacy_uniform"
+
+[cases.single_cell]
+height = 1
+width = 1
+channels = 256
+stock = true
+generator = "../gen.py:legacy_uniform"
+
+[cases.single_row]
+height = 1
+width = 5
+channels = 256
+stock = true
+generator = "../gen.py:legacy_uniform"
+
+[cases.single_column]
+height = 5
+width = 1
+channels = 256
+stock = true
+generator = "../gen.py:legacy_uniform"
+
+[cases.interior_band]
+height = 4
+width = 3
+channels = 256
+stock = true
+cell_row_start = 1
+cell_row_count = 2
+generator = "../gen.py:legacy_uniform"
+
+[cases.last_band]
+height = 3
+width = 2
+channels = 256
+stock = true
+cell_row_start = 2
+cell_row_count = 1
+generator = "../gen.py:legacy_uniform"
+
+[cases.large_values]
+height = 2
+width = 3
+channels = 256
+stock = true
+amplitude = 100.0
+generator = "../gen.py:legacy_uniform"

@@ -1,0 +1,15 @@
+# Repository tools that belong to no package. Compiled into
+# requirements_lock.txt together with the five pyproject.toml files; refresh
+# with `bazel run //tools:update_requirements_lock`.
+uv
+# Reads pyproject.toml files in //tools:deps_consistency_test (stdlib tomllib
+# from Python 3.11).
+tomli
+# Lint and format: //tools:ruff and the ruff_test targets (tools/lint.bzl).
+ruff
+# Type checking: the mypy_test targets (tools/typecheck.bzl).
+mypy
+# Docs versions on gh-pages (E09-21): the local `mike` CLI (mike list, alias,
+# delete) and the versions.json reader the publish tool's test checks against.
+# The site itself is always the Bazel build, never `mike deploy`.
+mike

@@ -16,17 +16,21 @@ must never share a golden:
 Expected values are computed inside each case's ``check``, never in
 ``prepare``: routing-only callers (the registry tests) prepare every case.
 """
+
 from __future__ import annotations
 
 import numpy as np
 
-from ipu_emu.emulator import run_test
-from ipu_emu.ipu import LANES
-
 from ipu_apps.kernel_registry.cases import (
-    KernelCase, PreparedCase, assemble_kernel, load_cases, run_case,
+    KernelCase,
+    PreparedCase,
+    assemble_kernel,
+    load_cases,
+    run_case,
 )
 from ipu_apps.kernel_registry.registry import create_harness
+from ipu_emu.emulator import run_test
+from ipu_emu.ipu import LANES
 
 MAX_CYCLES = 20_000_000
 
@@ -51,7 +55,7 @@ def pad_rows(x: np.ndarray, *, width: int = LANES, fill: float = 0.0) -> np.ndar
 def agg_fold(P: np.ndarray, V: np.ndarray) -> np.ndarray:
     """``O[b, t, i] = sum_s P[b, i, s] * V[b, t, s]`` through the AGG datapath.
 
-    ``AGG.SUM.FIRST`` (ipu.py ``_agg_sum_lanes``) left-folds the active
+    ``AGG.SUM.FIRST`` (``ipu_emu/slots/acc.py``) left-folds the active
     MULT_RES lanes starting from a Python float (float64) and rounds the total
     ONCE to float32 on the R_ACC write; the per-lane products themselves are
     float32 (MULT writes ``<f`` lanes). A second 128-key chunk (N_TOK=256) is a
@@ -63,14 +67,18 @@ def agg_fold(P: np.ndarray, V: np.ndarray) -> np.ndarray:
     ``np.cumsum`` over float64 is a strict sequential left-fold, so this is the
     same computation as the scalar Python loop, vectorised.
     """
-    prod = (P[:, None, :, :].astype(np.float32)
-            * V[:, :, None, :].astype(np.float32)).astype(np.float32)  # [b, t, i, s]
+    prod = (P[:, None, :, :].astype(np.float32) * V[:, :, None, :].astype(np.float32)).astype(
+        np.float32
+    )  # [b, t, i, s]
     out = None
     for lo in range(0, prod.shape[-1], LANES):
-        chunk = np.cumsum(prod[..., lo:lo + LANES].astype(np.float64), axis=-1)[..., -1]
+        chunk = np.cumsum(prod[..., lo : lo + LANES].astype(np.float64), axis=-1)[..., -1]
         chunk = chunk.astype(np.float32)
-        out = chunk if out is None else (
-            chunk.astype(np.float64) + out.astype(np.float64)).astype(np.float32)
+        out = (
+            chunk
+            if out is None
+            else (chunk.astype(np.float64) + out.astype(np.float64)).astype(np.float32)
+        )
     return out
 
 
@@ -87,7 +95,7 @@ def acc_fold(P: np.ndarray, V: np.ndarray) -> np.ndarray:
     V = V.astype(np.float32)
     acc = None
     for s in range(P.shape[-1]):
-        prod = (P[:, None, :, s] * V[:, :, None, s]).astype(np.float32)   # [b, t, i]
+        prod = (P[:, None, :, s] * V[:, :, None, s]).astype(np.float32)  # [b, t, i]
         acc = prod if acc is None else (acc + prod).astype(np.float32)
     return acc
 
@@ -115,15 +123,22 @@ def run_poked(kernel: str, workspace, poke, **options):
     case = load_cases(kernel)["default"]
     prepared = case.prepare(workspace, **(dict(case.defaults) | options))
     inst = assemble_kernel(kernel, workspace)
-    app = create_harness(kernel, params=prepared.params,
-                         bindings={**prepared.bindings, "inst_path": inst})
+    app = create_harness(
+        kernel, params=prepared.params, bindings={**prepared.bindings, "inst_path": inst}
+    )
     state = app.make_state()
     app.setup(state)
     poke(state)
-    state, cycles = run_test(inst_path=inst, setup=lambda s: None, teardown=app.teardown,
-                             max_cycles=case.max_cycles, state=state)
+    state, cycles = run_test(
+        inst_path=inst,
+        setup=lambda s: None,
+        teardown=app.teardown,
+        max_cycles=case.max_cycles,
+        state=state,
+    )
     if not state.is_halted or cycles <= 0:
-        raise RuntimeError(f"{kernel} did not complete within {case.max_cycles} cycles")
+        # The cycle limit is fault F-9, raised by the run.
+        raise RuntimeError(f"{kernel} returned before its program halted, or ran no cycles")
     return state
 
 
@@ -156,17 +171,25 @@ def qk_scores_cases(app, *, seed):
         k_path.write_bytes(K.tobytes())
 
         def check():
-            expected = Q.T @ K                      # S[i, s] = sum_c Q[c, i] * K[c, s]
+            expected = Q.T @ K  # S[i, s] = sum_c Q[c, i] * K[c, s]
             # Query-major: one WHOLE row per (query, key group); the first
             # N_TPG lanes are live.
             got = read_fp32(out, N * N_TG * LANES).reshape(N, N_TG, LANES)
             for g in range(N_TG):
                 lo = g * N_TPG
-                assert_close(got[:, g, :N_TPG], expected[:, lo:lo + N_TPG],
-                             rtol=1e-4, atol=1e-3, what=f"QK^T scores for key group {g}")
+                assert_close(
+                    got[:, g, :N_TPG],
+                    expected[:, lo : lo + N_TPG],
+                    rtol=1e-4,
+                    atol=1e-3,
+                    what=f"QK^T scores for key group {g}",
+                )
 
-        return PreparedCase({"n_tok": N, "d": D},
-                            {"query_path": q_path, "key_path": k_path, "output_path": out}, check)
+        return PreparedCase(
+            {"n_tok": N, "d": D},
+            {"query_path": q_path, "key_path": k_path, "output_path": out},
+            check,
+        )
 
     return {"default": KernelCase(prepare, {"seed": seed}, MAX_CYCLES)}
 
@@ -196,11 +219,19 @@ def attn_v_cases(app, *, seed, rtol, atol):
         def check():
             # Channel (h*D + t) occupies O_CHAN_ROWS whole rows; query i is lane i.
             got = read_fp32(out, N_CHAN * out_width).reshape(N_CHAN, out_width)[:, :N_TOK]
-            assert_close(got.reshape(N_HEAD, D, N_TOK), agg_fold(P, V),
-                         rtol=rtol, atol=atol, what="attn@V (query-major + AGG)")
+            assert_close(
+                got.reshape(N_HEAD, D, N_TOK),
+                agg_fold(P, V),
+                rtol=rtol,
+                atol=atol,
+                what="attn@V (query-major + AGG)",
+            )
 
-        return PreparedCase({"n_tok": N_TOK, "d": D},
-                            {"p_path": p_path, "v_path": v_path, "output_path": out}, check)
+        return PreparedCase(
+            {"n_tok": N_TOK, "d": D},
+            {"p_path": p_path, "v_path": v_path, "output_path": out},
+            check,
+        )
 
     return {"default": KernelCase(prepare, {"seed": seed, "pad": 0.0}, MAX_CYCLES)}
 
@@ -227,21 +258,28 @@ def scores_km_cases(app, *, seed, head, reference, rtol, atol):
 
         def check():
             lo = head * D
-            q_head, k_head = Q[lo:lo + D], K[lo:lo + D]        # [D, N_TOK]
+            q_head, k_head = Q[lo : lo + D], K[lo : lo + D]  # [D, N_TOK]
             if reference == "acc":
                 # S[s, i]: lane = query i, key s, fold over channels c.
                 expected = acc_fold(q_head.T[None], k_head.T[None])[0]
             else:
-                expected = (q_head.T @ k_head).T                # [key, query]
+                expected = (q_head.T @ k_head).T  # [key, query]
             got = read_fp32(out, N_TOK * N_TG * LANES).reshape(N_TOK, N_TG, LANES)
             for g in range(N_TG):
                 lo_q = g * N_TPG
-                assert_close(got[:, g, :N_TPG], expected[:, lo_q:lo_q + N_TPG],
-                             rtol=rtol, atol=atol, what=f"key-major scores for query group {g}")
+                assert_close(
+                    got[:, g, :N_TPG],
+                    expected[:, lo_q : lo_q + N_TPG],
+                    rtol=rtol,
+                    atol=atol,
+                    what=f"key-major scores for query group {g}",
+                )
 
-        return PreparedCase({"n_tok": N_TOK, "d": D, "head": head},
-                            {"input_path": q_path, "weights_path": k_path, "output_path": out},
-                            check)
+        return PreparedCase(
+            {"n_tok": N_TOK, "d": D, "head": head},
+            {"input_path": q_path, "weights_path": k_path, "output_path": out},
+            check,
+        )
 
     return {"default": KernelCase(prepare, {"seed": seed, "head": head}, MAX_CYCLES)}
 
@@ -264,18 +302,27 @@ def attn_v_bcast_cases(app, *, seed, rtol, atol):
         V = uniform(rng, (N_HEAD, D, N_TOK))
         p_path, v_path, out = _paths(workspace, "p_fp32", "v_fp32", "output")
         # P is staged KEY-major (row s = all queries for key s), V channel-major.
-        p_path.write_bytes(pad_rows(P.transpose(0, 2, 1).reshape(-1, N_TOK),
-                                    width=width, fill=pad).tobytes())
+        p_path.write_bytes(
+            pad_rows(P.transpose(0, 2, 1).reshape(-1, N_TOK), width=width, fill=pad).tobytes()
+        )
         v_path.write_bytes(pad_rows(V.reshape(-1, N_TOK), width=width, fill=pad).tobytes())
 
         def check():
             # Channel (h*D + t) occupies O_CHAN_ROWS whole rows; query i is lane i.
             got = read_fp32(out, N_CHAN * out_width).reshape(N_CHAN, out_width)[:, :N_TOK]
-            assert_close(got.reshape(N_HEAD, D, N_TOK), acc_fold(P, V),
-                         rtol=rtol, atol=atol, what="attn@V (key-major + broadcast)")
+            assert_close(
+                got.reshape(N_HEAD, D, N_TOK),
+                acc_fold(P, V),
+                rtol=rtol,
+                atol=atol,
+                what="attn@V (key-major + broadcast)",
+            )
 
-        return PreparedCase({"n_tok": N_TOK, "d": D},
-                            {"p_path": p_path, "v_path": v_path, "output_path": out}, check)
+        return PreparedCase(
+            {"n_tok": N_TOK, "d": D},
+            {"p_path": p_path, "v_path": v_path, "output_path": out},
+            check,
+        )
 
     return {"default": KernelCase(prepare, {"seed": seed, "pad": 0.0}, MAX_CYCLES)}
 
@@ -290,6 +337,8 @@ def padded_runs(kernel: str, workspace, pads) -> list[np.ndarray]:
     outputs = []
     for i, pad in enumerate(pads):
         out = workspace / f"output_{i}.bin"
-        run_case(kernel, case, options={"pad": pad}, output_path=out, workspace=workspace / f"run_{i}")
+        run_case(
+            kernel, case, options={"pad": pad}, output_path=out, workspace=workspace / f"run_{i}"
+        )
         outputs.append(np.fromfile(out, dtype="<f4"))
     return outputs

@@ -1,16 +1,20 @@
 """Reusable cases and execution through the kernel registry's harness factory."""
+
 from __future__ import annotations
 
+import re
+from collections.abc import Callable, Mapping
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from importlib import import_module
 from importlib.resources import files
 from pathlib import Path
-import re
 from tempfile import TemporaryDirectory
-from typing import Any, Callable, Mapping
+from typing import Any
 
-from ipu_as.lark_tree import assemble_to_bin_file
+from ipu_apps.kernel_registry.programs import assemble_program
 from ipu_apps.kernel_registry.registry import create_harness, kernel_spec
+from ipu_emu.emulator import DEFAULT_MAX_CYCLES
 
 
 @dataclass(frozen=True)
@@ -27,19 +31,31 @@ class KernelCase:
     Scalar defaults also describe command-line options. Preparation may validate
     richer options; no parser, emulator, or debugger belongs in a case factory.
     """
+
     prepare: Callable[..., PreparedCase]
     defaults: Mapping[str, Any] = field(default_factory=dict)
-    max_cycles: int = 1_000_000
+    max_cycles: int = DEFAULT_MAX_CYCLES
 
     def __post_init__(self):
-        reserved = {"kernel", "case", "list_cases", "max_cycles", "output", "help", "profile_aliases", "alias_report"}
+        reserved = {
+            "kernel",
+            "case",
+            "list_cases",
+            "max_cycles",
+            "output",
+            "help",
+            "profile_aliases",
+            "alias_report",
+        }
         for name, default in self.defaults.items():
             if not isinstance(name, str) or not re.fullmatch(r"[a-z][a-z0-9_]*", name):
                 raise ValueError(f"invalid case option name: {name!r}")
             if name in reserved:
                 raise ValueError(f"case option {name!r} conflicts with a runner option")
             if type(default) not in (str, int, float, bool):
-                raise ValueError(f"case option {name!r} requires a str, int, float, or bool default")
+                raise ValueError(
+                    f"case option {name!r} requires a str, int, float, or bool default"
+                )
 
 
 def case_options(case: KernelCase) -> dict[str, dict[str, Any]]:
@@ -62,7 +78,7 @@ def assemble_kernel(kernel_name: str, directory) -> Path:
         raise ValueError(f"{kernel_name}: SPEC must declare asm")
     inst_path = Path(directory) / f"{kernel_name}.bin"
     source = files(spec.resource_package).joinpath(spec.asm)
-    assemble_to_bin_file(source.read_text(), str(inst_path))
+    inst_path.write_bytes(assemble_program(source).to_bin())
     return inst_path
 
 
@@ -88,8 +104,11 @@ def load_cases(kernel_name: str) -> Mapping[str, KernelCase]:
         cases = import_module(module_name).CASES
     except (ImportError, AttributeError) as exc:
         raise ValueError(f"{kernel_name}: cannot load CASES from {module_name}: {exc}") from exc
-    if (not isinstance(cases, Mapping) or "default" not in cases
-            or not all(isinstance(n, str) and isinstance(c, KernelCase) for n, c in cases.items())):
+    if (
+        not isinstance(cases, Mapping)
+        or "default" not in cases
+        or not all(isinstance(n, str) and isinstance(c, KernelCase) for n, c in cases.items())
+    ):
         raise ValueError(f"{kernel_name}: CASES must declare a default KernelCase")
     return cases
 
@@ -101,19 +120,35 @@ def check_output_bytes(actual_path, expected_path):
         return
     if len(actual) != len(expected):
         raise ValueError(f"output size mismatch: got {len(actual)} bytes, expected {len(expected)}")
-    for offset, (got, want) in enumerate(zip(actual, expected)):
+    for offset, (got, want) in enumerate(zip(actual, expected, strict=True)):
         if got != want:
-            raise ValueError(f"output mismatch at byte {offset}: got 0x{got:02x}, expected 0x{want:02x}")
+            raise ValueError(
+                f"output mismatch at byte {offset}: got 0x{got:02x}, expected 0x{want:02x}"
+            )
 
 
-def run_case(kernel_name: str, case: KernelCase, *, options=None, max_cycles=None,
-             output_path=None, workspace=None, inst_path=None, alias_profile=None):
+def run_case(
+    kernel_name: str,
+    case: KernelCase,
+    *,
+    options=None,
+    max_cycles=None,
+    output_path=None,
+    workspace=None,
+    inst_path=None,
+    alias_profile=None,
+    recorder=None,
+):
     """Assemble, prepare, construct, execute, and check a case.
 
     An optional workspace/instruction binary lets tests reuse assembly and
     inspect output files. Otherwise all temporary files are cleaned on every
     exit, including cancellation. Completed output is exported before checking
     so callers can inspect failed results. Returns the state and cycle count.
+    When the debugger quits, ``state.quit_requested`` is true and the case
+    returns at once: nothing is recorded, exported or checked.
+    An optional :class:`~ipu_apps.kernel_registry.baseline.Recorder` captures
+    the run for the case's baseline record.
     """
     values = dict(case.defaults)
     overrides = dict(options or {})
@@ -126,9 +161,17 @@ def run_case(kernel_name: str, case: KernelCase, *, options=None, max_cycles=Non
         raise ValueError("max_cycles must be positive")
     if workspace is None:
         with TemporaryDirectory(prefix="ipu-case-") as tmp:
-            return run_case(kernel_name, case, options=values, max_cycles=limit,
-                            output_path=output_path, workspace=Path(tmp), inst_path=inst_path,
-                            alias_profile=alias_profile)
+            return run_case(
+                kernel_name,
+                case,
+                options=values,
+                max_cycles=limit,
+                output_path=output_path,
+                workspace=Path(tmp),
+                inst_path=inst_path,
+                alias_profile=alias_profile,
+                recorder=recorder,
+            )
     workspace = Path(workspace)
     workspace.mkdir(parents=True, exist_ok=True)
     prepared = case.prepare(workspace, **values)
@@ -144,9 +187,19 @@ def run_case(kernel_name: str, case: KernelCase, *, options=None, max_cycles=Non
     app = create_harness(kernel_name, params=prepared.params, bindings=bindings)
     if alias_profile is not None:
         alias_profile.metadata.update(kernel=kernel_name, options=values)
-    state, cycles = app.run(max_cycles=limit, **({"alias_profile": alias_profile} if alias_profile is not None else {}))
+    with recorder.watch() if recorder is not None else nullcontext():
+        state, cycles = app.run(
+            max_cycles=limit,
+            **({"alias_profile": alias_profile} if alias_profile is not None else {}),
+        )
+    if state.quit_requested:
+        return state, cycles
+    if recorder is not None:
+        recorder.finish(state, cycles, bindings.get("output_path"))
     if not state.is_halted:
-        raise RuntimeError(f"{kernel_name} did not complete within {limit} cycles")
+        # The cycle limit is fault F-9, raised by the run; this is a harness
+        # that returned before its program halted.
+        raise RuntimeError(f"{kernel_name} returned before its program halted")
     if output_path is not None:
         source = bindings.get("output_path")
         if source is None:

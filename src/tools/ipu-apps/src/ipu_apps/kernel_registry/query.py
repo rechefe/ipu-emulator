@@ -14,6 +14,7 @@ prints where the winning kernel changes (:func:`boundaries`).
 
 Exits 0 when the query is covered (for a sweep: every value), 1 when not.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -30,6 +31,7 @@ def _tokens(text: str) -> list[str]:
 
 def _value(text: str, sweep: str | None = None, at: int | None = None):
     """Parse one parameter value, substituting ``at`` for the ``sweep`` token."""
+
     def scalar(token: str):
         if token == sweep:
             return at
@@ -56,12 +58,13 @@ def _sweep(op: str, params: dict[str, str], spec: str) -> int:
     swept = [param for param, text in params.items() if name in _tokens(text)]
     if len(swept) != 1:
         raise ValueError(
-            f"--sweep {name}: exactly one parameter must mention {name!r}, "
-            f"found {len(swept)}"
+            f"--sweep {name}: exactly one parameter must mention {name!r}, found {len(swept)}"
         )
     template = params.pop(swept[0])
     runs = boundaries(
-        op, swept[0], range(int(start), int(end) + 1),
+        op,
+        swept[0],
+        range(int(start), int(end) + 1),
         build=lambda at: _value(template, name, at),
         **{param: _value(text) for param, text in params.items()},
     )
@@ -70,18 +73,33 @@ def _sweep(op: str, params: dict[str, str], spec: str) -> int:
     return 0 if all(run.kernel for run in runs) else 1
 
 
-def main(argv=None) -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """The command line in the module docstring."""
     parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("op", nargs="?",
-                        help="operation, e.g. softmax (omit for the coverage report)")
-    parser.add_argument("params", nargs="*", metavar="NAME=VALUE",
-                        help="query parameters, e.g. shape=32,300 dim=1")
-    parser.add_argument("--sweep", metavar="NAME=START..END",
-                        help="print the routing table as NAME runs over START..END")
-    parser.add_argument("--json", action="store_true",
-                        help="print the verdict as JSON (for tools); needs an operation")
+    parser.add_argument(
+        "op", nargs="?", help="operation, e.g. softmax (omit for the coverage report)"
+    )
+    parser.add_argument(
+        "params", nargs="*", metavar="NAME=VALUE", help="query parameters, e.g. shape=32,300 dim=1"
+    )
+    parser.add_argument(
+        "--sweep",
+        metavar="NAME=START..END",
+        help="print the routing table as NAME runs over START..END",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="print the verdict as JSON (for tools); needs an operation",
+    )
+    return parser
+
+
+def main(argv=None) -> int:
+    parser = build_parser()
     args = parser.parse_args(argv)
     if args.json and (args.op is None or args.sweep):
         parser.error("--json answers one query: give an operation and no --sweep")

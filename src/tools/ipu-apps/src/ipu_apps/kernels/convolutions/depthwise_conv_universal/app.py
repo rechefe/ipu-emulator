@@ -13,7 +13,7 @@ separate bias-seed cycle), and ``ACTIVATE.QUANTIZE`` co-issues with tap 9's
 accumulate in one VLIW word, together with the next channel's kr=-1 prefetch
 load. The deferred-store pipeline (store the previous channel's result while
 the current channel computes) is shared with the BN twin. Runs on
-the emulator's wide-vector debug datapath (FP32) -- weights and activations
+the emulator-only FP32 element format -- weights and activations
 are genuine floats, no INT8 quantization anywhere in this kernel.
 
 Kernel super-block layout (FPB=28, 9-element stride, no bias element):
@@ -48,12 +48,11 @@ Usage (normally through the registry: ``create_harness(
 from __future__ import annotations
 
 import math
+from contextlib import AbstractContextManager
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import numpy as np
-
-from ipu_emu.ipu_config import Partition
 
 from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.convolutions.app import (
@@ -64,9 +63,11 @@ from ipu_apps.kernels.convolutions.app import (
     next_valid_cols,
     pack_input_chunked,
     padding_caveat,
+    sibling_program,
     universal_spec,
     unpack_output_chunked,
 )
+from ipu_isa.constants import Partition
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -74,12 +75,12 @@ if TYPE_CHECKING:
 # -- Memory layout -----------------------------------------------------------
 #
 # Row-addressed ISA: XMEM offset/base operands on LDR_*/STR_*
-# (including LDR_CYCLIC_MULT_REG's offset/base -- only its `index` is
+# (including LD.MULT.CYCLIC's offset/base -- only its `index` is
 # R_CYCLIC-element-space) are ROW numbers, not byte addresses. This app runs
 # FP32 wide-vector only, so ROW_BYTES is always 512.
 #
 # R_CYCLIC ELEMENT addressing is unaffected by row addressing: LR5 (the
-# LDR_CYCLIC_MULT_REG `index`) and LR3/LR4 (MULT.RC.VE `rc_idx` / read-slot
+# LD.MULT.CYCLIC `index`) and LR3/LR4 (MULT.RC.VE `rc_idx` / read-slot
 # rotation) index a 512-ELEMENT ring in both modes, so CR12/CR13/CR9/CR14 in
 # their R_CYCLIC role (slot-size 128, slot-step 256/384) are unchanged.
 
@@ -87,7 +88,7 @@ ROW_BYTES = CHUNK_ELEMENTS * 4  # 512 B/row in FP32 wide-vector mode
 
 OUTPUT_CHUNK_BYTES = CHUNK_ELEMENTS * 4  # bytes per output channel per chunk (FP32)
 
-FPB = 28           # channels per 256-element super-block (9 taps each, no bias)
+FPB = 28  # channels per 256-element super-block (9 taps each, no bias)
 CH_SLOT_ELEMENTS = 9  # per-channel slot: 9 weight taps, no bias element
 SUPER_BLOCK_ELEMENTS = 256
 SUPER_BLOCK_ROWS = SUPER_BLOCK_ELEMENTS * 4 // ROW_BYTES  # = 2
@@ -115,7 +116,7 @@ def _pack_depthwise_kernel(kernel_raw: np.ndarray, channels: int) -> bytes:
             if ch >= channels:
                 break
             slot = sb_base + s * CH_SLOT_ELEMENTS
-            packed[slot:slot + 9] = kernel_raw[ch]
+            packed[slot : slot + 9] = kernel_raw[ch]
     return packed.tobytes()
 
 
@@ -148,7 +149,7 @@ class DepthwiseConvUniversalApp(IpuApp):
         height: int,
         width: int,
         channels: int,
-        kernel: Optional[np.ndarray] = None,
+        kernel: np.ndarray | None = None,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -204,12 +205,14 @@ class DepthwiseConvUniversalApp(IpuApp):
         data.
         """
         input_region_rows = self.group_stride + self.num_chunks * self.group_stride
-        self._regions = allocate_regions([
-            ("input", input_region_rows * CHUNK_ELEMENTS),
-            ("kernel", self.total_kernel_elements),
-            ("mask", CHUNK_ELEMENTS),
-            ("output", self.num_chunks * self.channels * CHUNK_ELEMENTS),
-        ])
+        self._regions = allocate_regions(
+            [
+                ("input", input_region_rows * CHUNK_ELEMENTS),
+                ("kernel", self.total_kernel_elements),
+                ("mask", CHUNK_ELEMENTS),
+                ("output", self.num_chunks * self.channels * CHUNK_ELEMENTS),
+            ]
+        )
         self.input_base_row = self._regions["input"] // CHUNK_ELEMENTS
         self.kernel_base_row = self._regions["kernel"] // CHUNK_ELEMENTS
         self.mask_base_row = self._regions["mask"] // CHUNK_ELEMENTS
@@ -228,19 +231,17 @@ class DepthwiseConvUniversalApp(IpuApp):
                     f"kernel_path file has {len(raw)} bytes, "
                     f"expected {expected} (channels * 9 * 4 B float32)"
                 )
-            weights = (
-                np.frombuffer(raw, dtype=np.float32).reshape(self.channels, 3, 3)
-            )
+            weights = np.frombuffer(raw, dtype=np.float32).reshape(self.channels, 3, 3)
         w_flat = weights.reshape(self.channels, 9)
         return _pack_depthwise_kernel(w_flat, self.channels)
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         # input_path holds the TRUE (unpadded) [channels, height, width]
         # float32 tensor -- pad + chunk-pack to the on-device layout here.
         input_raw = np.frombuffer(self.input_path.read_bytes(), dtype=np.float32)
         input_chw = input_raw.reshape(self.channels, self.height, self.width)
         padded = np.zeros((self.channels, self.rows, self.cols), dtype=np.float32)
-        padded[:, :self.height, :self.width] = input_chw
+        padded[:, : self.height, : self.width] = input_chw
         input_data = pack_input_chunked(padded, self.cols)
         state.xmem.write_address(self.input_data_row * ROW_BYTES, input_data)
 
@@ -259,9 +260,9 @@ class DepthwiseConvUniversalApp(IpuApp):
         # injects the left/right edge-column zero at each packed-row boundary.
         cols_to_partition = {
             128: Partition.P0,  # 1 group of 128 lanes (one packed row per chunk)
-            64: Partition.P2,   # 2 groups of 64 lanes
-            32: Partition.P4,   # 4 groups of 32 lanes
-            16: Partition.P8,   # 8 groups of 16 lanes
+            64: Partition.P2,  # 2 groups of 64 lanes
+            32: Partition.P4,  # 4 groups of 32 lanes
+            16: Partition.P8,  # 8 groups of 16 lanes
         }
         state.set_cr_dstructure(
             valid_elements=128,
@@ -290,15 +291,16 @@ class DepthwiseConvUniversalApp(IpuApp):
 
         # Parameter CR registers
         state.regfile.set_cr(4, self.cols)
-        # CR6 = group_stride in ROWS (XMEM-space: feeds LDR_CYCLIC_MULT_REG's
+        # CR6 = group_stride in ROWS (XMEM-space: feeds LD.MULT.CYCLIC's
         # offset/base sum via LR2/LR14, and the chunk/loop-limit comparisons).
         state.regfile.set_cr(6, self.group_stride)
-        state.regfile.set_cr(7, FPB)               # channel group inner-loop size, in rows
+        state.regfile.set_cr(7, FPB)  # channel group inner-loop size, in rows
         state.regfile.set_cr(8, self.total_kernel_rows)
         # CR11: chunk-loop limit, biased by the same guard-band group_stride
         # added to CR10/input_data_row above.
         state.regfile.set_cr(
-            11, (self.num_chunks - 1) * self.group_stride + self.group_stride,
+            11,
+            (self.num_chunks - 1) * self.group_stride + self.group_stride,
         )
         # CR12 = 128: R_CYCLIC slot size (ELEMENT-space; index step for LR5).
         # This is NOT the XMEM chunk stride -- that role is CR1
@@ -307,13 +309,24 @@ class DepthwiseConvUniversalApp(IpuApp):
         state.regfile.set_cr(13, 256)  # R_CYCLIC half-slot step, element-space
         state.regfile.set_cr(14, (256 - 2 * self.cols - 2) & 0xFFFFFFFF)
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         if self.output_path is not None:
             total_outputs = self.num_chunks * self.channels
             raw = state.xmem.read_address(self.output_base_addr, total_outputs * ROW_BYTES)
             padded_out = unpack_output_chunked(raw, self.channels, self.rows, self.cols)
-            out = padded_out[:, :self.height, :self.width]
+            out = padded_out[:, : self.height, : self.width]
             self.output_path.write_bytes(out.astype(np.float32).tobytes())
+
+
+class DepthwiseConvUniversalStage(DepthwiseConvUniversalApp):
+    """This kernel run as stage 1 of another: it assembles its own ``.asm``.
+
+    The ``inst_path`` it is given is not run.
+    """
+
+    def program(self) -> AbstractContextManager[Path]:
+        return sibling_program("depthwise_conv_universal")
+
 
 # -- registry declaration ---------------------------------------------------
 # groups == in_channels (depthwise); no bias, no ReLU here.
@@ -325,24 +338,26 @@ def _supports(q):
     if q.dilation != 1:
         return f"handles only dilation=1; got {q.dilation}"
     if q.padding != 1:
-        return f"handles only padding=1 (\"same\" padding for a 3x3 kernel); got {q.padding}"
+        return f'handles only padding=1 ("same" padding for a 3x3 kernel); got {q.padding}'
     if q.stride != 1:
         return f"handles only stride=1; got {q.stride}"
     if not q.is_depthwise:
-        return (f"handles only depthwise (groups==in_channels); got groups={q.groups}, "
-                f"in_channels={q.in_channels}")
+        return (
+            f"handles only depthwise (groups==in_channels); got groups={q.groups}, "
+            f"in_channels={q.in_channels}"
+        )
     if q.out_channels != q.in_channels:
-        return (f"depthwise requires out_channels==in_channels; got {q.out_channels} "
-                f"vs {q.in_channels}")
+        return (
+            f"depthwise requires out_channels==in_channels; got {q.out_channels} vs {q.in_channels}"
+        )
     if q.apply_relu:
-        return "apply_relu=True has no matching app here; see depthwise_conv_universal_bn_activation"
+        return (
+            "apply_relu=True has no matching app here; see depthwise_conv_universal_bn_activation"
+        )
     if q.has_bias:
         return "bias is not supported by this kernel; see depthwise_conv_universal_bn_activation"
     if q.width > 128:
-        return (
-            f"width ({q.width}) exceeds 128, the largest width this app "
-            "supports"
-        )
+        return f"width ({q.width}) exceeds 128, the largest width this app supports"
     return None
 
 

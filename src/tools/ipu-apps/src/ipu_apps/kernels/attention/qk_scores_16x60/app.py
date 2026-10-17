@@ -17,7 +17,7 @@ loop counts differ:
 Inputs Q, K are logically channel-major (head_dim D=60, N=16 tokens). K is
 loaded channel-major verbatim; Q is staged query-major (a gather of its strided
 channels) so one query's 60 head-channels load into R0 with a single
-``LDR_MULT_REG`` — the matmul broadcast template (scalar = Q[i,c] from R0,
+``LD.MULT`` — the matmul broadcast template (scalar = Q[i,c] from R0,
 vector = K's channel-c column in R_CYCLIC, ``MULT.RC.VE``).
 
 ONE CHANNEL PER ROW: N_TOK=16 means each K channel column and each staged Q row
@@ -27,7 +27,7 @@ crops the output to the live lanes. (Packing two channels into one row at a
 16-element stride is a bug — see the N_TOK=16 matmul family.)
 
 The score row goes through the standard quantize boundary
-(``ACTIVATE.QUANTIZE identity`` + ``STR_POST_AAQ_REG``), like every other
+(``ACTIVATE.QUANTIZE identity`` + ``ST.AAQ``), like every other
 kernel. No AGG.
 
 Wide-vector FP32 only: elements are 4-byte FP32 and an XMEM row is 512 B.
@@ -42,19 +42,18 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ipu_emu.emulator import dump_xmem_to_binary
-
-from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernel_registry import ShapeBundle
+from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.attention.app import attention_spec
+from ipu_emu.emulator import dump_xmem_to_binary
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
 
-N    = 16           # tokens (queries = keys) per stream
-D    = 60           # head_dim (contraction width)
-N_TG = 1            # key groups: 16 keys fit in a single 128-lane group
-N_TPG = N          # keys per group
+N = 16  # tokens (queries = keys) per stream
+D = 60  # head_dim (contraction width)
+N_TG = 1  # key groups: 16 keys fit in a single 128-lane group
+N_TPG = N  # keys per group
 
 # ---------------------------------------------------------------------------
 # Wide-vector FP32 only. Elements are 4 bytes and an XMEM row is LANES * 4 =
@@ -64,29 +63,29 @@ N_TPG = N          # keys per group
 # XMEM .asm operands are ROW numbers. Region bases are DERIVED
 # from row counts, not hardcoded bytes.
 # ---------------------------------------------------------------------------
-ELEM_BYTES = 4                               # FP32
-LANES      = 128                             # elements per XMEM row
-ROW_BYTES  = LANES * ELEM_BYTES              # 512
+ELEM_BYTES = 4  # FP32
+LANES = 128  # elements per XMEM row
+ROW_BYTES = LANES * ELEM_BYTES  # 512
 
 # One channel per row: 16 tokens occupy 16 of a row's 128 lanes, and the row is
 # still exclusively that channel's. ceil-div keeps this correct for any N <= 128.
-K_STRIDE_ROWS    = max(1, N // LANES)        # 1: rows per K channel column
-QROW_STRIDE_ROWS = 1                         # one staged query row per query
-ACC_STORE_ROWS   = 1                         # one R_ACC store = one row (wide)
+K_STRIDE_ROWS = max(1, N // LANES)  # 1: rows per K channel column
+QROW_STRIDE_ROWS = 1  # one staged query row per query
+ACC_STORE_ROWS = 1  # one R_ACC store = one row (wide)
 
-K_ROWS    = D * K_STRIDE_ROWS
+K_ROWS = D * K_STRIDE_ROWS
 QROW_ROWS = N * QROW_STRIDE_ROWS
-S_ROWS    = N * N_TG * ACC_STORE_ROWS
+S_ROWS = N * N_TG * ACC_STORE_ROWS
 
-K_BASE_ROW    = 0
+K_BASE_ROW = 0
 QROW_BASE_ROW = K_BASE_ROW + K_ROWS
-S_BASE_ROW    = QROW_BASE_ROW + QROW_ROWS
+S_BASE_ROW = QROW_BASE_ROW + QROW_ROWS
 
-K_BASE      = K_BASE_ROW * ROW_BYTES
-QROW_BASE   = QROW_BASE_ROW * ROW_BYTES
-S_BASE      = S_BASE_ROW * ROW_BYTES
+K_BASE = K_BASE_ROW * ROW_BYTES
+QROW_BASE = QROW_BASE_ROW * ROW_BYTES
+S_BASE = S_BASE_ROW * ROW_BYTES
 
-QROW_STRIDE      = QROW_STRIDE_ROWS * ROW_BYTES
+QROW_STRIDE = QROW_STRIDE_ROWS * ROW_BYTES
 OUTPUT_ROW_BYTES = ROW_BYTES
 
 
@@ -136,7 +135,7 @@ class QkScores16x60App(IpuApp):
 
     # -- staging -------------------------------------------------------------
 
-    def _stage_inputs(self, state: "IpuState") -> None:
+    def _stage_inputs(self, state: IpuState) -> None:
         """Write K channel-major and Q query-major into XMEM.
 
         Input files are stored channel-major: element [token t, channel c] at
@@ -164,7 +163,7 @@ class QkScores16x60App(IpuApp):
                 row[c * ELEM_BYTES : (c + 1) * ELEM_BYTES] = q_raw[src : src + ELEM_BYTES]
             state.xmem.write_address(self.qrow_base + i * QROW_STRIDE, row)
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         self._stage_inputs(state)
 
         # Only N of the 128 lanes carry real keys. valid_elements gates the
@@ -179,31 +178,34 @@ class QkScores16x60App(IpuApp):
         # else raises EmulatorError. self.k_base_row
         # is always K_BASE_ROW=0 (enforced in __init__), so CR0 already holds
         # the correct value without any write. QROW base lives on CR9.
-        state.regfile.set_cr(9, self.qrow_base_row)      # staged query rows
-        state.regfile.set_cr(3, self.s_base_row)         # output base (single key group)
-        state.regfile.set_cr(5, g0_start_rows)           # K-data startup (rows)
-        state.regfile.set_cr(7, -1)                     # channel fixed_idx startup
-        state.regfile.set_cr(8, D - 2)                  # contraction bound (58)
+        state.regfile.set_cr(9, self.qrow_base_row)  # staged query rows
+        state.regfile.set_cr(3, self.s_base_row)  # output base (single key group)
+        state.regfile.set_cr(5, g0_start_rows)  # K-data startup (rows)
+        state.regfile.set_cr(7, -1)  # channel fixed_idx startup
+        state.regfile.set_cr(8, D - 2)  # contraction bound (58)
 
-        state.regfile.set_lr(0, 0)                       # R_CYCLIC write-index / mask_shift
-        state.regfile.set_lr(2, K_STRIDE_ROWS)           # K data stride per channel (rows)
-        state.regfile.set_lr(3, N_TG * ACC_STORE_ROWS)   # output stride per query (rows)
-        state.regfile.set_lr(6, D - 2)                   # contraction BLT bound
-        state.regfile.set_lr(7, 0)                       # output query row offset
-        state.regfile.set_lr(8, 0)                       # Q-row row offset
-        state.regfile.set_lr(9, 0)                       # query counter
-        state.regfile.set_lr(10, N)                      # query-loop limit
-        state.regfile.set_lr(12, QROW_STRIDE_ROWS)       # Q-row stride per query (rows)
+        state.regfile.set_lr(0, 0)  # R_CYCLIC write-index / mask_shift
+        state.regfile.set_lr(2, K_STRIDE_ROWS)  # K data stride per channel (rows)
+        state.regfile.set_lr(3, N_TG * ACC_STORE_ROWS)  # output stride per query (rows)
+        state.regfile.set_lr(6, D - 2)  # contraction BLT.S bound
+        state.regfile.set_lr(7, 0)  # output query row offset
+        state.regfile.set_lr(8, 0)  # Q-row row offset
+        state.regfile.set_lr(9, 0)  # query counter
+        state.regfile.set_lr(10, N)  # query-loop limit
+        state.regfile.set_lr(12, QROW_STRIDE_ROWS)  # Q-row stride per query (rows)
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         if self.output_path is not None:
             # N queries x N_TG groups x one 128-element row, query-major:
             #   row (i, g) at s_base_row + i*N_TG + g, in rows.
             # Each row is WHOLE even though only N of its 128 lanes are live;
             # the consumer crops to [:N].
             dump_xmem_to_binary(
-                state, self.output_path,
-                self.s_base, OUTPUT_ROW_BYTES, N * N_TG,
+                state,
+                self.output_path,
+                self.s_base,
+                OUTPUT_ROW_BYTES,
+                N * N_TG,
             )
 
 

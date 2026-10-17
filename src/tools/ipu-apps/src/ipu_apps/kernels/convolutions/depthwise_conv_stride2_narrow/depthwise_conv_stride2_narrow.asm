@@ -1,6 +1,8 @@
-{#- The harness renders elements_in_row (= cols) per run; the default only
-    lets the file assemble standalone (`assemble_<kernel>`). -#}
-{%- set elements_in_row = elements_in_row | default(32) -%}
+{#- ipu:params
+elements_in_row: int = 32    # = cols
+-#}
+{#- The harness assembles elements_in_row per run; the default only lets the
+    file assemble standalone (`assemble_<kernel>`). -#}
 # Stage 2 of depthwise_conv_stride2_narrow: joint row+col decimation 2x for
 # packed (multi-row-per-chunk) layouts, cols in {16, 32, 64}.
 #
@@ -68,35 +70,35 @@ outgroup_loop:
 ch_loop:
     # --- k=0: load stage1 row-group (lr3 + lr4), ACC.STRIDE offset 0 (writes r_acc[0:32]).
     ADD                 lr5 lr3 lr4;;
-    ldr_mult_reg        r0 lr5 cr3;;
+    ld.mult        r0 lr5 cr3;;
     MULT.VE             lr0 cr1 0 lr0 cr15;;
     acc.stride          {{ elements_in_row }} on on lr9;;
 
     # --- k=1: row-group + channels, offset 1 (writes r_acc[32:64]).
     ADD                 lr5 lr5 cr4;;
-    ldr_mult_reg        r0 lr5 cr3;;
+    ld.mult        r0 lr5 cr3;;
     MULT.VE             lr0 cr1 0 lr0 cr15;;
     acc.stride          {{ elements_in_row }} on on lr10;;
 
     # --- k=2: +channels again, offset 2 (writes r_acc[64:96]).
     ADD                 lr5 lr5 cr4;;
-    ldr_mult_reg        r0 lr5 cr3;;
+    ld.mult        r0 lr5 cr3;;
     MULT.VE             lr0 cr1 0 lr0 cr15;;
     acc.stride          {{ elements_in_row }} on on lr11;;
 
     # --- k=3: +channels again, offset 3 (writes r_acc[96:128]).  Quantize the
     #     full 128-element r_acc (identity, no clamp change) then store.
     ADD                 lr5 lr5 cr4;;
-    ldr_mult_reg        r0 lr5 cr3;;
+    ld.mult        r0 lr5 cr3;;
     MULT.VE             lr0 cr1 0 lr0 cr15;;
     acc.stride          {{ elements_in_row }} on on lr12;
     ACTIVATE.QUANTIZE   identity cr15;;
 
     ADD                 lr5 lr2 lr4;;
-    str_post_aaq_reg    lr5 cr5;;
+    st.aaq    lr5 cr5;;
 
     INC                 lr4 1;
-    blt                 lr4 cr4 ch_loop;;
+    blt.s                 lr4 cr4 ch_loop;;
 
     ADD                 lr2 lr2 cr4;;
     ADD                 lr3 lr3 cr4;;
@@ -105,7 +107,7 @@ ch_loop:
     ADD                 lr3 lr3 cr4;;
 
     INC                 lr1 1;
-    blt                 lr1 cr6 outgroup_loop;;
+    blt.s                 lr1 cr6 outgroup_loop;;
 
 end:
-    bkpt;;
+    halt;;

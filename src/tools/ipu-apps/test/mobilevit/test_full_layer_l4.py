@@ -30,38 +30,32 @@ not real kernels. Head concat needs no repack -- it is pure addressing.
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 
 import numpy as np
+from fixture_full_layer_chain import (
+    _stable_seed,
+    app_inst,
+    format_relative_error_stats,
+    real_softmax_key_major,
+    real_softmax_query_major,
+    relative_error_stats,
+    run_attn_scores_km_one_head,
+    run_attn_v_bcast,
+    run_attn_v_query_major_all_blocks,
+    run_layernorm,
+    run_proj_p4,
+    run_qk_scores_query_major_all_blocks,
+    run_residual_add,
+)
+from fixture_host_softmax_fold_stubs import softmax_key_major, softmax_query_major
+from fixture_projections import projection
 
-# Make this file's own directory importable regardless of whether the test
-# runner treats test/ as a package (bazel auto-generates test/__init__.py,
-# so this module loads as `test.test_full_layer_l4`) or as a flat rootdir
-# (plain `pytest`/`uv run pytest`, no __init__.py, module loads as
-# `test_full_layer_l4`) -- the fixture modules below are siblings in this
-# same directory either way.
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from ipu_apps.kernels.normalize.layernorm_64x192.app import LayerNorm64x192App
-from ipu_apps.kernels.projections.proj_qkv_192_p4.app import ProjQkv192P4App, K as QKV_K, N_OUT as QKV_N_OUT
-from ipu_apps.kernels.attention.qk_scores_64x48.app import QkScores64x48App
+import ipu_apps.kernels.attention.attn_v_bcast_48.app as attn_v_bcast_48_mod
 from ipu_apps.kernels.attention.attn_scores_km_64x48.app import AttnScoresKM64x48App
 from ipu_apps.kernels.attention.attn_v_64x48.app import AttnV64x48App
 from ipu_apps.kernels.attention.attn_v_bcast_48.app import AttnVBcast48App
-import ipu_apps.kernels.attention.attn_v_bcast_48.app as attn_v_bcast_48_mod
-from ipu_apps.kernels.projections.proj_outproj_192_p4.app import ProjOutProj192P4App, K as OUTPROJ_K, N_OUT as OUTPROJ_N_OUT
-from ipu_apps.kernels.elementwise.residual_add_64x192.app import ResidualAdd64x192App
-from ipu_apps.kernels.projections.proj_ffn1_192_p4.app import ProjFFN1192P4App, K as FFN1_K, N_OUT as FFN1_N_OUT
-from ipu_apps.kernels.projections.proj_ffn2_192_p4.app import ProjFFN2192P4App, K as FFN2_K, N_OUT as FFN2_N_OUT
-
-from fixture_host_softmax_fold_stubs import softmax_query_major, softmax_key_major
-from fixture_full_layer_chain import (
-    app_inst, run_layernorm, run_proj_p4, run_qk_scores_query_major_all_blocks,
-    run_attn_v_query_major_all_blocks, run_attn_scores_km_one_head, run_attn_v_bcast,
-    run_residual_add, relative_error_stats, format_relative_error_stats,
-    real_softmax_query_major, real_softmax_key_major,
-)
+from ipu_apps.kernels.attention.qk_scores_64x48.app import QkScores64x48App
 
 # USE_REAL_SOFTMAX=1 routes the chain through the real softmax_rows_partial /
 # softmax_columns_packed kernels instead of the host numpy stub -- see
@@ -83,6 +77,16 @@ N_LAYERS = 4
 ROW_BYTES = 512
 SCALE = 1.0 / np.sqrt(HEAD_DIM)  # 0.144338, per docs/content/kernels/mobilevit.md
 EXPECTED_SCALE_RATIO = 1.0 / SCALE  # unscaled / scaled = sqrt(head_dim) = 6.928...
+
+# The projections' shapes, from //kernels/projections (fixture_projections).
+QKV = projection("proj_qkv_192_p4")
+QKV_K, QKV_N_OUT = QKV.k, QKV.n_out
+OUTPROJ = projection("proj_outproj_192_p4")
+OUTPROJ_K, OUTPROJ_N_OUT = OUTPROJ.k, OUTPROJ.n_out
+FFN1 = projection("proj_ffn1_192_p4")
+FFN1_K, FFN1_N_OUT = FFN1.k, FFN1.n_out
+FFN2 = projection("proj_ffn2_192_p4")
+FFN2_K, FFN2_N_OUT = FFN2.k, FFN2.n_out
 
 assert QKV_K == D_MODEL and QKV_N_OUT == 3 * N_HEAD * HEAD_DIM == 576
 assert OUTPROJ_K == D_MODEL and OUTPROJ_N_OUT == D_MODEL
@@ -111,6 +115,7 @@ def _numpy_layer_reference(x: np.ndarray, w: dict, *, apply_scale: bool) -> np.n
     pass/fail comparison for the raw-bytes test below); apply_scale=True
     matches the real model and is used only by the scale-visibility check.
     """
+
     def layernorm(v, gamma, beta):
         mu = v.mean(axis=0, keepdims=True)
         var = v.var(axis=0, keepdims=True)
@@ -119,23 +124,25 @@ def _numpy_layer_reference(x: np.ndarray, w: dict, *, apply_scale: bool) -> np.n
     def silu(v):
         return v / (1.0 + np.exp(-v))
 
-    h = layernorm(x.astype(np.float64), w["ln1_gamma"].astype(np.float64), w["ln1_beta"].astype(np.float64))
+    h = layernorm(
+        x.astype(np.float64), w["ln1_gamma"].astype(np.float64), w["ln1_beta"].astype(np.float64)
+    )
     qkv = w["w_qkv"].astype(np.float64) @ h  # [576, N_TOK]
-    q_all = qkv[0 * N_HEAD * HEAD_DIM: 1 * N_HEAD * HEAD_DIM]  # [192, N_TOK]
-    k_all = qkv[1 * N_HEAD * HEAD_DIM: 2 * N_HEAD * HEAD_DIM]
-    v_all = qkv[2 * N_HEAD * HEAD_DIM: 3 * N_HEAD * HEAD_DIM]
+    q_all = qkv[0 * N_HEAD * HEAD_DIM : 1 * N_HEAD * HEAD_DIM]  # [192, N_TOK]
+    k_all = qkv[1 * N_HEAD * HEAD_DIM : 2 * N_HEAD * HEAD_DIM]
+    v_all = qkv[2 * N_HEAD * HEAD_DIM : 3 * N_HEAD * HEAD_DIM]
 
     if apply_scale:
         q_all = q_all * SCALE
 
     attn_out = np.zeros((N_HEAD * HEAD_DIM, N_TOK), dtype=np.float64)
     for head in range(N_HEAD):
-        qh = q_all[head * HEAD_DIM:(head + 1) * HEAD_DIM]  # [D, N_TOK]
-        kh = k_all[head * HEAD_DIM:(head + 1) * HEAD_DIM]
-        vh = v_all[head * HEAD_DIM:(head + 1) * HEAD_DIM]
+        qh = q_all[head * HEAD_DIM : (head + 1) * HEAD_DIM]  # [D, N_TOK]
+        kh = k_all[head * HEAD_DIM : (head + 1) * HEAD_DIM]
+        vh = v_all[head * HEAD_DIM : (head + 1) * HEAD_DIM]
         scores = qh.T @ kh  # [query, key]
         probs = softmax_query_major(scores)  # row = query, reduce over key
-        attn_out[head * HEAD_DIM:(head + 1) * HEAD_DIM] = vh @ probs.T  # [D, query]
+        attn_out[head * HEAD_DIM : (head + 1) * HEAD_DIM] = vh @ probs.T  # [D, query]
 
     proj = w["w_outproj"].astype(np.float64) @ attn_out
     resid1 = proj + x.astype(np.float64)
@@ -155,6 +162,7 @@ def _numpy_layer_reference_staged(x: np.ndarray, w: dict, *, apply_scale: bool) 
     Stream 0's Q/K/V only (matches what the real-kernel per-stage runners
     below report for stream 0), so keys are unprefixed by head/stream.
     """
+
     def layernorm(v, gamma, beta):
         mu = v.mean(axis=0, keepdims=True)
         var = v.var(axis=0, keepdims=True)
@@ -164,12 +172,14 @@ def _numpy_layer_reference_staged(x: np.ndarray, w: dict, *, apply_scale: bool) 
         return v / (1.0 + np.exp(-v))
 
     stages: dict = {}
-    h = layernorm(x.astype(np.float64), w["ln1_gamma"].astype(np.float64), w["ln1_beta"].astype(np.float64))
+    h = layernorm(
+        x.astype(np.float64), w["ln1_gamma"].astype(np.float64), w["ln1_beta"].astype(np.float64)
+    )
     stages["ln1"] = h
     qkv = w["w_qkv"].astype(np.float64) @ h
-    q_all = qkv[0 * N_HEAD * HEAD_DIM: 1 * N_HEAD * HEAD_DIM]
-    k_all = qkv[1 * N_HEAD * HEAD_DIM: 2 * N_HEAD * HEAD_DIM]
-    v_all = qkv[2 * N_HEAD * HEAD_DIM: 3 * N_HEAD * HEAD_DIM]
+    q_all = qkv[0 * N_HEAD * HEAD_DIM : 1 * N_HEAD * HEAD_DIM]
+    k_all = qkv[1 * N_HEAD * HEAD_DIM : 2 * N_HEAD * HEAD_DIM]
+    v_all = qkv[2 * N_HEAD * HEAD_DIM : 3 * N_HEAD * HEAD_DIM]
     stages["qkv"] = qkv
 
     if apply_scale:
@@ -179,14 +189,14 @@ def _numpy_layer_reference_staged(x: np.ndarray, w: dict, *, apply_scale: bool) 
     probs_all = np.zeros((N_HEAD, N_TOK, N_TOK), dtype=np.float64)
     attn_out = np.zeros((N_HEAD * HEAD_DIM, N_TOK), dtype=np.float64)
     for head in range(N_HEAD):
-        qh = q_all[head * HEAD_DIM:(head + 1) * HEAD_DIM]
-        kh = k_all[head * HEAD_DIM:(head + 1) * HEAD_DIM]
-        vh = v_all[head * HEAD_DIM:(head + 1) * HEAD_DIM]
+        qh = q_all[head * HEAD_DIM : (head + 1) * HEAD_DIM]
+        kh = k_all[head * HEAD_DIM : (head + 1) * HEAD_DIM]
+        vh = v_all[head * HEAD_DIM : (head + 1) * HEAD_DIM]
         scores = qh.T @ kh
         scores_all[head] = scores
         probs = softmax_query_major(scores)
         probs_all[head] = probs
-        attn_out[head * HEAD_DIM:(head + 1) * HEAD_DIM] = vh @ probs.T
+        attn_out[head * HEAD_DIM : (head + 1) * HEAD_DIM] = vh @ probs.T
     stages["scores"] = scores_all
     stages["softmax"] = probs_all
     stages["attn_v"] = attn_out
@@ -211,9 +221,17 @@ def _numpy_layer_reference_staged(x: np.ndarray, w: dict, *, apply_scale: bool) 
 # Real-kernel per-stage runners for one stream, one layer
 # ---------------------------------------------------------------------------
 
-def _run_layer_query_major(x: np.ndarray, w: dict, tmp_path: Path, tag: str,
-                            profile: list, *, scale_q: bool = False,
-                            stages: dict | None = None) -> np.ndarray:
+
+def _run_layer_query_major(
+    x: np.ndarray,
+    w: dict,
+    tmp_path: Path,
+    tag: str,
+    profile: list,
+    *,
+    scale_q: bool = False,
+    stages: dict | None = None,
+) -> np.ndarray:
     """Run one full layer for ONE stream through the REAL kernels, query-major
     attention chain (qk_scores_64x48 + attn_v_64x48, AGG). x: [D_MODEL, N_TOK].
     Since qk_scores_64x48/attn_v_64x48 process all 16 (stream,head) blocks
@@ -232,22 +250,38 @@ def _run_layer_query_major(x: np.ndarray, w: dict, tmp_path: Path, tag: str,
     used by the per-stage error-instrumentation test to compare against
     _numpy_layer_reference_staged's matching keys.
     """
-    rng = np.random.RandomState(hash((tag, "filler")) & 0xFFFFFFFF)
+    rng = np.random.RandomState(_stable_seed(tag, "filler"))
 
-    ln1, c, _ = run_layernorm(LayerNorm64x192App, inst_bin=app_inst("layernorm_64x192"), x=x,
-                               gamma=w["ln1_gamma"], beta=w["ln1_beta"], n_ch=D_MODEL,
-                               n_tok=N_TOK, row_bytes=ROW_BYTES, tmp_path=tmp_path,
-                               tag=f"{tag}_ln1", full_row_output=True)
+    ln1, c = run_layernorm(
+        "layernorm_64x192",
+        x=x,
+        gamma=w["ln1_gamma"],
+        beta=w["ln1_beta"],
+        n_ch=D_MODEL,
+        n_tok=N_TOK,
+        row_bytes=ROW_BYTES,
+        tag=f"{tag}_ln1",
+    )
     profile.append(("layernorm_64x192", c))
     if stages is not None:
         stages["ln1"] = ln1.astype(np.float64)
 
-    d_streams = [ln1 if p == 0 else rng.uniform(-1, 1, size=(D_MODEL, N_TOK)).astype(np.float32)
-                 for p in range(P_STREAM)]
-    qkv_outs, c, _ = run_proj_p4(ProjQkv192P4App, inst_bin=app_inst("proj_qkv_192_p4"), d_streams=d_streams,
-                                  w=w["w_qkv"], k=D_MODEL, n_out=QKV_N_OUT, n_tok=N_TOK,
-                                  n_stream=P_STREAM, row_bytes=ROW_BYTES, tmp_path=tmp_path,
-                                  tag=f"{tag}_qkv")
+    d_streams = [
+        ln1 if p == 0 else rng.uniform(-1, 1, size=(D_MODEL, N_TOK)).astype(np.float32)
+        for p in range(P_STREAM)
+    ]
+    qkv_outs, c, _ = run_proj_p4(
+        "proj_qkv_192_p4",
+        d_streams=d_streams,
+        w=w["w_qkv"],
+        k=D_MODEL,
+        n_out=QKV_N_OUT,
+        n_tok=N_TOK,
+        n_stream=P_STREAM,
+        row_bytes=ROW_BYTES,
+        tmp_path=tmp_path,
+        tag=f"{tag}_qkv",
+    )
     profile.append(("proj_qkv_192_p4", c))
     if stages is not None:
         stages["qkv"] = qkv_outs[0][:, :N_TOK].astype(np.float64)
@@ -260,9 +294,9 @@ def _run_layer_query_major(x: np.ndarray, w: dict, tmp_path: Path, tag: str,
     v_blocks_all = np.zeros((P_STREAM * N_HEAD, HEAD_DIM, N_TOK), dtype=np.float32)
     for p in range(P_STREAM):
         out = qkv_outs[p][:, :N_TOK]  # [576, N_TOK] cropped padding lanes
-        q_all = out[0 * N_HEAD * HEAD_DIM: 1 * N_HEAD * HEAD_DIM]
-        k_all = out[1 * N_HEAD * HEAD_DIM: 2 * N_HEAD * HEAD_DIM]
-        v_all = out[2 * N_HEAD * HEAD_DIM: 3 * N_HEAD * HEAD_DIM]
+        q_all = out[0 * N_HEAD * HEAD_DIM : 1 * N_HEAD * HEAD_DIM]
+        k_all = out[1 * N_HEAD * HEAD_DIM : 2 * N_HEAD * HEAD_DIM]
+        v_all = out[2 * N_HEAD * HEAD_DIM : 3 * N_HEAD * HEAD_DIM]
         for h in range(N_HEAD):
             b = p * N_HEAD + h
             # scale_q=False (default) matches the kernels' CURRENT unscaled
@@ -271,17 +305,25 @@ def _run_layer_query_major(x: np.ndarray, w: dict, tmp_path: Path, tag: str,
             # separately -- see test_full_l4_attention_scale_is_visible. The
             # scaled-fixture chain tests below pass scale_q=True to probe
             # whether the missing scale explains the error growth.
-            q_block = q_all[h * HEAD_DIM:(h + 1) * HEAD_DIM]
+            q_block = q_all[h * HEAD_DIM : (h + 1) * HEAD_DIM]
             if scale_q:
                 q_block = q_block * SCALE
             q_blocks[b] = q_block
-            k_blocks[b] = k_all[h * HEAD_DIM:(h + 1) * HEAD_DIM]
-            v_blocks_all[b] = v_all[h * HEAD_DIM:(h + 1) * HEAD_DIM]
+            k_blocks[b] = k_all[h * HEAD_DIM : (h + 1) * HEAD_DIM]
+            v_blocks_all[b] = v_all[h * HEAD_DIM : (h + 1) * HEAD_DIM]
 
     scores, c = run_qk_scores_query_major_all_blocks(
-        QkScores64x48App, inst_bin=app_inst("qk_scores_64x48"), q_blocks=q_blocks, k_blocks=k_blocks,
-        n_block=P_STREAM * N_HEAD, d=HEAD_DIM, n=N_TOK, row_bytes=ROW_BYTES,
-        tmp_path=tmp_path, tag=f"{tag}_qk")
+        QkScores64x48App,
+        inst_bin=app_inst("qk_scores_64x48"),
+        q_blocks=q_blocks,
+        k_blocks=k_blocks,
+        n_block=P_STREAM * N_HEAD,
+        d=HEAD_DIM,
+        n=N_TOK,
+        row_bytes=ROW_BYTES,
+        tmp_path=tmp_path,
+        tag=f"{tag}_qk",
+    )
     profile.append(("qk_scores_64x48", c))
     if stages is not None:
         stages["scores"] = scores[0:N_HEAD].astype(np.float64)
@@ -294,9 +336,17 @@ def _run_layer_query_major(x: np.ndarray, w: dict, tmp_path: Path, tag: str,
         stages["softmax"] = probs[0:N_HEAD].astype(np.float64)
 
     attn_out, c = run_attn_v_query_major_all_blocks(
-        AttnV64x48App, inst_bin=app_inst("attn_v_64x48"), p_blocks=probs, v_blocks=v_blocks_all,
-        n_block=P_STREAM * N_HEAD, d=HEAD_DIM, n=N_TOK, row_bytes=ROW_BYTES,
-        tmp_path=tmp_path, tag=f"{tag}_av")
+        AttnV64x48App,
+        inst_bin=app_inst("attn_v_64x48"),
+        p_blocks=probs,
+        v_blocks=v_blocks_all,
+        n_block=P_STREAM * N_HEAD,
+        d=HEAD_DIM,
+        n=N_TOK,
+        row_bytes=ROW_BYTES,
+        tmp_path=tmp_path,
+        tag=f"{tag}_av",
+    )
     profile.append(("attn_v_64x48", c))
 
     # Head concat: pure addressing (no repack) -- stream 0's heads are blocks
@@ -305,57 +355,105 @@ def _run_layer_query_major(x: np.ndarray, w: dict, tmp_path: Path, tag: str,
     if stages is not None:
         stages["attn_v"] = attn_concat.astype(np.float64)
 
-    d_streams_op = [attn_concat if p == 0 else rng.uniform(-1, 1, size=(D_MODEL, N_TOK)).astype(np.float32)
-                    for p in range(P_STREAM)]
-    op_outs, c, _ = run_proj_p4(ProjOutProj192P4App, inst_bin=app_inst("proj_outproj_192_p4"), d_streams=d_streams_op,
-                                 w=w["w_outproj"], k=D_MODEL, n_out=D_MODEL, n_tok=N_TOK,
-                                 n_stream=P_STREAM, row_bytes=ROW_BYTES, tmp_path=tmp_path,
-                                 tag=f"{tag}_op")
+    d_streams_op = [
+        attn_concat if p == 0 else rng.uniform(-1, 1, size=(D_MODEL, N_TOK)).astype(np.float32)
+        for p in range(P_STREAM)
+    ]
+    op_outs, c, _ = run_proj_p4(
+        "proj_outproj_192_p4",
+        d_streams=d_streams_op,
+        w=w["w_outproj"],
+        k=D_MODEL,
+        n_out=D_MODEL,
+        n_tok=N_TOK,
+        n_stream=P_STREAM,
+        row_bytes=ROW_BYTES,
+        tmp_path=tmp_path,
+        tag=f"{tag}_op",
+    )
     profile.append(("proj_outproj_192_p4", c))
     proj = op_outs[0][:, :N_TOK]
     if stages is not None:
         stages["out_proj"] = proj.astype(np.float64)
 
-    resid1, c = run_residual_add(ResidualAdd64x192App, inst_bin=app_inst("residual_add_64x192"), a=proj, b=x,
-                                  n_ch=D_MODEL, n_tok=N_TOK, row_bytes=ROW_BYTES,
-                                  tmp_path=tmp_path, tag=f"{tag}_res1", full_row_output=True)
+    resid1, c = run_residual_add(
+        "residual_add_64x192",
+        a=proj,
+        b=x,
+        n_ch=D_MODEL,
+        n_tok=N_TOK,
+        row_bytes=ROW_BYTES,
+        tag=f"{tag}_res1",
+    )
     profile.append(("residual_add_64x192", c))
     if stages is not None:
         stages["resid1"] = resid1.astype(np.float64)
 
-    ln2, c, _ = run_layernorm(LayerNorm64x192App, inst_bin=app_inst("layernorm_64x192"), x=resid1,
-                               gamma=w["ln2_gamma"], beta=w["ln2_beta"], n_ch=D_MODEL,
-                               n_tok=N_TOK, row_bytes=ROW_BYTES, tmp_path=tmp_path,
-                               tag=f"{tag}_ln2", full_row_output=True)
+    ln2, c = run_layernorm(
+        "layernorm_64x192",
+        x=resid1,
+        gamma=w["ln2_gamma"],
+        beta=w["ln2_beta"],
+        n_ch=D_MODEL,
+        n_tok=N_TOK,
+        row_bytes=ROW_BYTES,
+        tag=f"{tag}_ln2",
+    )
     profile.append(("layernorm_64x192", c))
     if stages is not None:
         stages["ln2"] = ln2.astype(np.float64)
 
-    d_streams_f1 = [ln2 if p == 0 else rng.uniform(-1, 1, size=(D_MODEL, N_TOK)).astype(np.float32)
-                    for p in range(P_STREAM)]
-    ffn1_outs, c, _ = run_proj_p4(ProjFFN1192P4App, inst_bin=app_inst("proj_ffn1_192_p4"), d_streams=d_streams_f1,
-                                   w=w["w_ffn1"], k=D_MODEL, n_out=384, n_tok=N_TOK,
-                                   n_stream=P_STREAM, row_bytes=ROW_BYTES, tmp_path=tmp_path,
-                                   tag=f"{tag}_ffn1")
+    d_streams_f1 = [
+        ln2 if p == 0 else rng.uniform(-1, 1, size=(D_MODEL, N_TOK)).astype(np.float32)
+        for p in range(P_STREAM)
+    ]
+    ffn1_outs, c, _ = run_proj_p4(
+        "proj_ffn1_192_p4",
+        d_streams=d_streams_f1,
+        w=w["w_ffn1"],
+        k=D_MODEL,
+        n_out=384,
+        n_tok=N_TOK,
+        n_stream=P_STREAM,
+        row_bytes=ROW_BYTES,
+        tmp_path=tmp_path,
+        tag=f"{tag}_ffn1",
+    )
     profile.append(("proj_ffn1_192_p4", c))
     ffn1_act = ffn1_outs[0][:, :N_TOK]  # silu already applied at the store boundary
     if stages is not None:
         stages["ffn1"] = ffn1_act.astype(np.float64)
 
-    d_streams_f2 = [ffn1_act if p == 0 else rng.uniform(-1, 1, size=(384, N_TOK)).astype(np.float32)
-                    for p in range(P_STREAM)]
-    ffn2_outs, c, _ = run_proj_p4(ProjFFN2192P4App, inst_bin=app_inst("proj_ffn2_192_p4"), d_streams=d_streams_f2,
-                                   w=w["w_ffn2"], k=384, n_out=D_MODEL, n_tok=N_TOK,
-                                   n_stream=P_STREAM, row_bytes=ROW_BYTES, tmp_path=tmp_path,
-                                   tag=f"{tag}_ffn2")
+    d_streams_f2 = [
+        ffn1_act if p == 0 else rng.uniform(-1, 1, size=(384, N_TOK)).astype(np.float32)
+        for p in range(P_STREAM)
+    ]
+    ffn2_outs, c, _ = run_proj_p4(
+        "proj_ffn2_192_p4",
+        d_streams=d_streams_f2,
+        w=w["w_ffn2"],
+        k=384,
+        n_out=D_MODEL,
+        n_tok=N_TOK,
+        n_stream=P_STREAM,
+        row_bytes=ROW_BYTES,
+        tmp_path=tmp_path,
+        tag=f"{tag}_ffn2",
+    )
     profile.append(("proj_ffn2_192_p4", c))
     ffn2 = ffn2_outs[0][:, :N_TOK]
     if stages is not None:
         stages["ffn2"] = ffn2.astype(np.float64)
 
-    resid2, c = run_residual_add(ResidualAdd64x192App, inst_bin=app_inst("residual_add_64x192"), a=ffn2, b=resid1,
-                                  n_ch=D_MODEL, n_tok=N_TOK, row_bytes=ROW_BYTES,
-                                  tmp_path=tmp_path, tag=f"{tag}_res2", full_row_output=True)
+    resid2, c = run_residual_add(
+        "residual_add_64x192",
+        a=ffn2,
+        b=resid1,
+        n_ch=D_MODEL,
+        n_tok=N_TOK,
+        row_bytes=ROW_BYTES,
+        tag=f"{tag}_res2",
+    )
     profile.append(("residual_add_64x192", c))
     if stages is not None:
         stages["resid2"] = resid2.astype(np.float64)
@@ -363,8 +461,9 @@ def _run_layer_query_major(x: np.ndarray, w: dict, tmp_path: Path, tag: str,
     return resid2
 
 
-def _run_layer_key_major(x: np.ndarray, w: dict, tmp_path: Path, tag: str,
-                          profile: list, *, scale_q: bool = False) -> np.ndarray:
+def _run_layer_key_major(
+    x: np.ndarray, w: dict, tmp_path: Path, tag: str, profile: list, *, scale_q: bool = False
+) -> np.ndarray:
     """Same layer, KEY-MAJOR attention chain (attn_scores_km_64x48 +
     attn_v_bcast_48, ACC.ADD, no AGG). Bit-different from the query-major
     chain by design -- must produce a separate reference comparison, never
@@ -372,20 +471,36 @@ def _run_layer_key_major(x: np.ndarray, w: dict, tmp_path: Path, tag: str,
 
     scale_q: see _run_layer_query_major's matching parameter.
     """
-    rng = np.random.RandomState(hash((tag, "filler_km")) & 0xFFFFFFFF)
+    rng = np.random.RandomState(_stable_seed(tag, "filler_km"))
 
-    ln1, c, _ = run_layernorm(LayerNorm64x192App, inst_bin=app_inst("layernorm_64x192"), x=x,
-                               gamma=w["ln1_gamma"], beta=w["ln1_beta"], n_ch=D_MODEL,
-                               n_tok=N_TOK, row_bytes=ROW_BYTES, tmp_path=tmp_path,
-                               tag=f"{tag}_ln1", full_row_output=True)
+    ln1, c = run_layernorm(
+        "layernorm_64x192",
+        x=x,
+        gamma=w["ln1_gamma"],
+        beta=w["ln1_beta"],
+        n_ch=D_MODEL,
+        n_tok=N_TOK,
+        row_bytes=ROW_BYTES,
+        tag=f"{tag}_ln1",
+    )
     profile.append(("layernorm_64x192", c))
 
-    d_streams = [ln1 if p == 0 else rng.uniform(-1, 1, size=(D_MODEL, N_TOK)).astype(np.float32)
-                 for p in range(P_STREAM)]
-    qkv_outs, c, _ = run_proj_p4(ProjQkv192P4App, inst_bin=app_inst("proj_qkv_192_p4"), d_streams=d_streams,
-                                  w=w["w_qkv"], k=D_MODEL, n_out=QKV_N_OUT, n_tok=N_TOK,
-                                  n_stream=P_STREAM, row_bytes=ROW_BYTES, tmp_path=tmp_path,
-                                  tag=f"{tag}_qkv")
+    d_streams = [
+        ln1 if p == 0 else rng.uniform(-1, 1, size=(D_MODEL, N_TOK)).astype(np.float32)
+        for p in range(P_STREAM)
+    ]
+    qkv_outs, c, _ = run_proj_p4(
+        "proj_qkv_192_p4",
+        d_streams=d_streams,
+        w=w["w_qkv"],
+        k=D_MODEL,
+        n_out=QKV_N_OUT,
+        n_tok=N_TOK,
+        n_stream=P_STREAM,
+        row_bytes=ROW_BYTES,
+        tmp_path=tmp_path,
+        tag=f"{tag}_qkv",
+    )
     profile.append(("proj_qkv_192_p4", c))
 
     # attn_scores_km_64x48's canonical input file is [P, N_HEAD, D, N]
@@ -396,17 +511,17 @@ def _run_layer_key_major(x: np.ndarray, w: dict, tmp_path: Path, tag: str,
     v_blocks_all = np.zeros((P_STREAM * N_HEAD, HEAD_DIM, N_TOK), dtype=np.float32)
     for p in range(P_STREAM):
         out = qkv_outs[p][:, :N_TOK]
-        q_all = out[0 * N_HEAD * HEAD_DIM: 1 * N_HEAD * HEAD_DIM]
-        k_all = out[1 * N_HEAD * HEAD_DIM: 2 * N_HEAD * HEAD_DIM]
-        v_all = out[2 * N_HEAD * HEAD_DIM: 3 * N_HEAD * HEAD_DIM]
+        q_all = out[0 * N_HEAD * HEAD_DIM : 1 * N_HEAD * HEAD_DIM]
+        k_all = out[1 * N_HEAD * HEAD_DIM : 2 * N_HEAD * HEAD_DIM]
+        v_all = out[2 * N_HEAD * HEAD_DIM : 3 * N_HEAD * HEAD_DIM]
         for h in range(N_HEAD):
             # scale_q: see the matching note in _run_layer_query_major above.
-            q_head = q_all[h * HEAD_DIM:(h + 1) * HEAD_DIM]
+            q_head = q_all[h * HEAD_DIM : (h + 1) * HEAD_DIM]
             if scale_q:
                 q_head = q_head * SCALE
             q_canonical[p, h] = q_head
-            k_canonical[p, h] = k_all[h * HEAD_DIM:(h + 1) * HEAD_DIM]
-            v_blocks_all[p * N_HEAD + h] = v_all[h * HEAD_DIM:(h + 1) * HEAD_DIM]
+            k_canonical[p, h] = k_all[h * HEAD_DIM : (h + 1) * HEAD_DIM]
+            v_blocks_all[p * N_HEAD + h] = v_all[h * HEAD_DIM : (h + 1) * HEAD_DIM]
 
     # One attn_scores_km_64x48 call per head (all 4 streams at once); build
     # attn_v_bcast_48's p_path by interleaving the 4 per-head runs at
@@ -414,9 +529,18 @@ def _run_layer_key_major(x: np.ndarray, w: dict, tmp_path: Path, tag: str,
     head_outputs = {}
     for h in range(N_HEAD):
         raw, c = run_attn_scores_km_one_head(
-            AttnScoresKM64x48App, inst_bin=app_inst("attn_scores_km_64x48"), q_all_heads=q_canonical,
-            k_all_heads=k_canonical, head=h, n_block_or_stream=P_STREAM, d=HEAD_DIM,
-            n=N_TOK, row_bytes=ROW_BYTES, tmp_path=tmp_path, tag=f"{tag}_km")
+            AttnScoresKM64x48App,
+            inst_bin=app_inst("attn_scores_km_64x48"),
+            q_all_heads=q_canonical,
+            k_all_heads=k_canonical,
+            head=h,
+            n_block_or_stream=P_STREAM,
+            d=HEAD_DIM,
+            n=N_TOK,
+            row_bytes=ROW_BYTES,
+            tmp_path=tmp_path,
+            tag=f"{tag}_km",
+        )
         profile.append(("attn_scores_km_64x48", c))
         head_outputs[h] = raw
 
@@ -431,7 +555,9 @@ def _run_layer_key_major(x: np.ndarray, w: dict, tmp_path: Path, tag: str,
             # the ROW axis (axis=-2) since row s = key s, column q = query q.
             key_cols = key_rows[:, :N_TOK]  # [key, query], row s = key s
             if USE_REAL_SOFTMAX:
-                probs_km = real_softmax_key_major(key_cols, tmp_path=tmp_path, tag=f"{tag}_sm_h{h}_p{p}")
+                probs_km = real_softmax_key_major(
+                    key_cols, tmp_path=tmp_path, tag=f"{tag}_sm_h{h}_p{p}"
+                )
             else:
                 probs_km = softmax_key_major(key_cols)  # [key, query], row=key
             out_rows = key_rows.copy()
@@ -441,61 +567,120 @@ def _run_layer_key_major(x: np.ndarray, w: dict, tmp_path: Path, tag: str,
             p_bytes[lo:hi] = out_rows.astype(np.float32).tobytes()
 
     attn_out, c = run_attn_v_bcast(
-        AttnVBcast48App, inst_bin=app_inst("attn_v_bcast_48"), p_bytes=bytes(p_bytes), v_blocks=v_blocks_all,
-        n_block=n_block, d=HEAD_DIM, n=N_TOK, row_bytes=ROW_BYTES, tmp_path=tmp_path,
-        tag=f"{tag}_avbc", obase_module=attn_v_bcast_48_mod, full_row_output=False)
+        AttnVBcast48App,
+        inst_bin=app_inst("attn_v_bcast_48"),
+        p_bytes=bytes(p_bytes),
+        v_blocks=v_blocks_all,
+        n_block=n_block,
+        d=HEAD_DIM,
+        n=N_TOK,
+        row_bytes=ROW_BYTES,
+        tmp_path=tmp_path,
+        tag=f"{tag}_avbc",
+        obase_module=attn_v_bcast_48_mod,
+        full_row_output=False,
+    )
     profile.append(("attn_v_bcast_48", c))
 
     attn_concat = attn_out[0:N_HEAD].reshape(N_HEAD * HEAD_DIM, N_TOK)
 
-    d_streams_op = [attn_concat if p == 0 else rng.uniform(-1, 1, size=(D_MODEL, N_TOK)).astype(np.float32)
-                    for p in range(P_STREAM)]
-    op_outs, c, _ = run_proj_p4(ProjOutProj192P4App, inst_bin=app_inst("proj_outproj_192_p4"), d_streams=d_streams_op,
-                                 w=w["w_outproj"], k=D_MODEL, n_out=D_MODEL, n_tok=N_TOK,
-                                 n_stream=P_STREAM, row_bytes=ROW_BYTES, tmp_path=tmp_path,
-                                 tag=f"{tag}_op")
+    d_streams_op = [
+        attn_concat if p == 0 else rng.uniform(-1, 1, size=(D_MODEL, N_TOK)).astype(np.float32)
+        for p in range(P_STREAM)
+    ]
+    op_outs, c, _ = run_proj_p4(
+        "proj_outproj_192_p4",
+        d_streams=d_streams_op,
+        w=w["w_outproj"],
+        k=D_MODEL,
+        n_out=D_MODEL,
+        n_tok=N_TOK,
+        n_stream=P_STREAM,
+        row_bytes=ROW_BYTES,
+        tmp_path=tmp_path,
+        tag=f"{tag}_op",
+    )
     profile.append(("proj_outproj_192_p4", c))
     proj = op_outs[0][:, :N_TOK]
 
-    resid1, c = run_residual_add(ResidualAdd64x192App, inst_bin=app_inst("residual_add_64x192"), a=proj, b=x,
-                                  n_ch=D_MODEL, n_tok=N_TOK, row_bytes=ROW_BYTES,
-                                  tmp_path=tmp_path, tag=f"{tag}_res1", full_row_output=True)
+    resid1, c = run_residual_add(
+        "residual_add_64x192",
+        a=proj,
+        b=x,
+        n_ch=D_MODEL,
+        n_tok=N_TOK,
+        row_bytes=ROW_BYTES,
+        tag=f"{tag}_res1",
+    )
     profile.append(("residual_add_64x192", c))
 
-    ln2, c, _ = run_layernorm(LayerNorm64x192App, inst_bin=app_inst("layernorm_64x192"), x=resid1,
-                               gamma=w["ln2_gamma"], beta=w["ln2_beta"], n_ch=D_MODEL,
-                               n_tok=N_TOK, row_bytes=ROW_BYTES, tmp_path=tmp_path,
-                               tag=f"{tag}_ln2", full_row_output=True)
+    ln2, c = run_layernorm(
+        "layernorm_64x192",
+        x=resid1,
+        gamma=w["ln2_gamma"],
+        beta=w["ln2_beta"],
+        n_ch=D_MODEL,
+        n_tok=N_TOK,
+        row_bytes=ROW_BYTES,
+        tag=f"{tag}_ln2",
+    )
     profile.append(("layernorm_64x192", c))
 
-    d_streams_f1 = [ln2 if p == 0 else rng.uniform(-1, 1, size=(D_MODEL, N_TOK)).astype(np.float32)
-                    for p in range(P_STREAM)]
-    ffn1_outs, c, _ = run_proj_p4(ProjFFN1192P4App, inst_bin=app_inst("proj_ffn1_192_p4"), d_streams=d_streams_f1,
-                                   w=w["w_ffn1"], k=D_MODEL, n_out=384, n_tok=N_TOK,
-                                   n_stream=P_STREAM, row_bytes=ROW_BYTES, tmp_path=tmp_path,
-                                   tag=f"{tag}_ffn1")
+    d_streams_f1 = [
+        ln2 if p == 0 else rng.uniform(-1, 1, size=(D_MODEL, N_TOK)).astype(np.float32)
+        for p in range(P_STREAM)
+    ]
+    ffn1_outs, c, _ = run_proj_p4(
+        "proj_ffn1_192_p4",
+        d_streams=d_streams_f1,
+        w=w["w_ffn1"],
+        k=D_MODEL,
+        n_out=384,
+        n_tok=N_TOK,
+        n_stream=P_STREAM,
+        row_bytes=ROW_BYTES,
+        tmp_path=tmp_path,
+        tag=f"{tag}_ffn1",
+    )
     profile.append(("proj_ffn1_192_p4", c))
     ffn1_act = ffn1_outs[0][:, :N_TOK]
 
-    d_streams_f2 = [ffn1_act if p == 0 else rng.uniform(-1, 1, size=(384, N_TOK)).astype(np.float32)
-                    for p in range(P_STREAM)]
-    ffn2_outs, c, _ = run_proj_p4(ProjFFN2192P4App, inst_bin=app_inst("proj_ffn2_192_p4"), d_streams=d_streams_f2,
-                                   w=w["w_ffn2"], k=384, n_out=D_MODEL, n_tok=N_TOK,
-                                   n_stream=P_STREAM, row_bytes=ROW_BYTES, tmp_path=tmp_path,
-                                   tag=f"{tag}_ffn2")
+    d_streams_f2 = [
+        ffn1_act if p == 0 else rng.uniform(-1, 1, size=(384, N_TOK)).astype(np.float32)
+        for p in range(P_STREAM)
+    ]
+    ffn2_outs, c, _ = run_proj_p4(
+        "proj_ffn2_192_p4",
+        d_streams=d_streams_f2,
+        w=w["w_ffn2"],
+        k=384,
+        n_out=D_MODEL,
+        n_tok=N_TOK,
+        n_stream=P_STREAM,
+        row_bytes=ROW_BYTES,
+        tmp_path=tmp_path,
+        tag=f"{tag}_ffn2",
+    )
     profile.append(("proj_ffn2_192_p4", c))
     ffn2 = ffn2_outs[0][:, :N_TOK]
 
-    resid2, c = run_residual_add(ResidualAdd64x192App, inst_bin=app_inst("residual_add_64x192"), a=ffn2, b=resid1,
-                                  n_ch=D_MODEL, n_tok=N_TOK, row_bytes=ROW_BYTES,
-                                  tmp_path=tmp_path, tag=f"{tag}_res2", full_row_output=True)
+    resid2, c = run_residual_add(
+        "residual_add_64x192",
+        a=ffn2,
+        b=resid1,
+        n_ch=D_MODEL,
+        n_tok=N_TOK,
+        row_bytes=ROW_BYTES,
+        tag=f"{tag}_res2",
+    )
     profile.append(("residual_add_64x192", c))
 
     return resid2
 
 
-def _run_full_l4_layer_stack_agrees(tmp_path: Path, chain_name: str, run_layer_fn, *,
-                                     scale_q: bool = False) -> None:
+def _run_full_l4_layer_stack_agrees(
+    tmp_path: Path, chain_name: str, run_layer_fn, *, scale_q: bool = False
+) -> None:
     """Run all 4 L4 layers back to back with distinct per-layer weights on
     ONE stream, real kernels throughout, and compare per-layer output against
     an independently-built numpy reference of the WHOLE layer (unscaled Q,
@@ -527,8 +712,9 @@ def _run_full_l4_layer_stack_agrees(tmp_path: Path, chain_name: str, run_layer_f
     for layer_idx in range(N_LAYERS):
         w = _make_layer_weights(master_rng)
 
-        got = run_layer_fn(x, w, tmp_path, tag=f"{chain_name}_l{layer_idx}", profile=profile,
-                            scale_q=scale_q)
+        got = run_layer_fn(
+            x, w, tmp_path, tag=f"{chain_name}_l{layer_idx}", profile=profile, scale_q=scale_q
+        )
         expected = _numpy_layer_reference(x_ref, w, apply_scale=scale_q)
 
         max_err = float(np.max(np.abs(got.astype(np.float64) - expected)))
@@ -536,17 +722,22 @@ def _run_full_l4_layer_stack_agrees(tmp_path: Path, chain_name: str, run_layer_f
         per_layer_errors.append(max_err)
         per_layer_stats.append(stats)
         label = "L4 scaled" if scale_q else "L4"
-        print(f"{label} {chain_name} layer {layer_idx}: max abs error = {max_err:.3e}  "
-              f"{format_relative_error_stats(stats)}")
+        print(
+            f"{label} {chain_name} layer {layer_idx}: max abs error = {max_err:.3e}  "
+            f"{format_relative_error_stats(stats)}"
+        )
 
         x = got.astype(np.float32)
         x_ref = expected
 
     label = "L4 scaled" if scale_q else "L4"
-    print(f"{label} {chain_name} per-layer error trace: "
-          f"{['%.3e' % e for e in per_layer_errors]}")
-    print(f"{label} {chain_name} per-layer max_rel trace: "
-          f"{['%.3e' % s['max_rel'] for s in per_layer_stats]}")
+    print(
+        f"{label} {chain_name} per-layer error trace: {[format(e, '.3e') for e in per_layer_errors]}"
+    )
+    print(
+        f"{label} {chain_name} per-layer max_rel trace: "
+        f"{[format(s['max_rel'], '.3e') for s in per_layer_stats]}"
+    )
 
     for layer_idx, err in enumerate(per_layer_errors):
         assert err < 5e-1, (
@@ -558,7 +749,9 @@ def _run_full_l4_layer_stack_agrees(tmp_path: Path, chain_name: str, run_layer_f
     for name, c in profile:
         cycles_by_kernel[name] = cycles_by_kernel.get(name, 0) + c
     total_cycles = sum(cycles_by_kernel.values())
-    print(f"{label} {chain_name} total cycles across the full 4-layer stack (one stream): {total_cycles}")
+    print(
+        f"{label} {chain_name} total cycles across the full 4-layer stack (one stream): {total_cycles}"
+    )
     for name, c in sorted(cycles_by_kernel.items()):
         print(f"  {name:<28}{c:>10} cycles")
 
@@ -601,12 +794,24 @@ def _run_l4_per_stage_error(tmp_path: Path, *, scale_q: bool) -> list[tuple[str,
 
     stages_got: dict = {}
     profile: list = []
-    _run_layer_query_major(x, w, tmp_path, tag="l4_stage_probe", profile=profile,
-                            scale_q=scale_q, stages=stages_got)
+    _run_layer_query_major(
+        x, w, tmp_path, tag="l4_stage_probe", profile=profile, scale_q=scale_q, stages=stages_got
+    )
     stages_expected = _numpy_layer_reference_staged(x, w, apply_scale=scale_q)
 
-    order = ["ln1", "qkv", "scores", "softmax", "attn_v", "out_proj", "resid1",
-             "ln2", "ffn1", "ffn2", "resid2"]
+    order = [
+        "ln1",
+        "qkv",
+        "scores",
+        "softmax",
+        "attn_v",
+        "out_proj",
+        "resid1",
+        "ln2",
+        "ffn1",
+        "ffn2",
+        "resid2",
+    ]
     errors = []
     for name in order:
         got = stages_got[name]
@@ -622,8 +827,10 @@ def _print_l4_per_stage_error(errors: list[tuple[str, float, dict]], label: str)
     prev = None
     for name, err, stats in errors:
         ratio_str = f"  (x{err / prev:.2f})" if prev not in (None, 0.0) else ""
-        print(f"  {name:<10} max abs error = {err:.3e}{ratio_str}  "
-              f"{format_relative_error_stats(stats)}")
+        print(
+            f"  {name:<10} max abs error = {err:.3e}{ratio_str}  "
+            f"{format_relative_error_stats(stats)}"
+        )
         prev = err
 
 
@@ -679,10 +886,13 @@ def test_full_l4_attention_scale_is_visible() -> None:
     def scores_only(apply_scale: bool) -> np.ndarray:
         mu = x.astype(np.float64).mean(axis=0, keepdims=True)
         var = x.astype(np.float64).var(axis=0, keepdims=True)
-        h = w["ln1_gamma"][:, None] * (x.astype(np.float64) - mu) / np.sqrt(var + 1e-5) + w["ln1_beta"][:, None]
+        h = (
+            w["ln1_gamma"][:, None] * (x.astype(np.float64) - mu) / np.sqrt(var + 1e-5)
+            + w["ln1_beta"][:, None]
+        )
         qkv = w["w_qkv"].astype(np.float64) @ h
-        q_all = qkv[0:N_HEAD * HEAD_DIM]
-        k_all = qkv[N_HEAD * HEAD_DIM:2 * N_HEAD * HEAD_DIM]
+        q_all = qkv[0 : N_HEAD * HEAD_DIM]
+        k_all = qkv[N_HEAD * HEAD_DIM : 2 * N_HEAD * HEAD_DIM]
         if apply_scale:
             q_all = q_all * SCALE
         qh = q_all[0:HEAD_DIM]
@@ -695,11 +905,15 @@ def test_full_l4_attention_scale_is_visible() -> None:
     nonzero = np.abs(s_scaled) > 1e-9
     ratio = s_unscaled[nonzero] / s_scaled[nonzero]
 
-    print(f"L4 scale-visibility: measured score ratio = {ratio.mean():.6f}, "
-          f"expected sqrt(head_dim)=sqrt(48) = {EXPECTED_SCALE_RATIO:.6f}")
+    print(
+        f"L4 scale-visibility: measured score ratio = {ratio.mean():.6f}, "
+        f"expected sqrt(head_dim)=sqrt(48) = {EXPECTED_SCALE_RATIO:.6f}"
+    )
 
     np.testing.assert_allclose(
-        ratio, EXPECTED_SCALE_RATIO, rtol=1e-6,
+        ratio,
+        EXPECTED_SCALE_RATIO,
+        rtol=1e-6,
         err_msg=(
             f"L4 unscaled/scaled score ratio does not match sqrt(head_dim)="
             f"{EXPECTED_SCALE_RATIO:.6f} -- the missing attention scale is not "

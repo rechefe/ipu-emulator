@@ -17,8 +17,8 @@ add more.
 | [Normalization and shaping](normalization-and-shaping.md) | LayerNorm, residual add, and spatial unfold / fold / concat kernels |
 | [Attention](attention.md) | The two non-interchangeable QKᵀ / attn·V mappings and their twelve kernels |
 | [MobileViT-S](mobilevit.md) | Kernels per MobileViT-S transformer layer, and chaining rules |
-| [Application coverage](../app-coverage.md) | How the emulator knows which kernel implements a computation |
-| [Adding applications](../adding-applications.md) | How to contribute a kernel |
+| [Kernel coverage](../explanation/kernel-coverage.md) | How a computation resolves to a kernel, and every registered kernel (generated) |
+| [Write a kernel](../how-to/write-a-kernel.md) | How to contribute a kernel ([Adding applications](../adding-applications.md) for a legacy `ipu_apps` kernel) |
 
 ## Finding a kernel for a computation
 
@@ -26,42 +26,36 @@ Rather than reading each kernel's docstring, ask the registry. It answers from
 the kernels themselves, so it cannot drift out of date:
 
 ```bash
-bazel run //src/tools/ipu-apps:query -- softmax shape=32,300 dim=1
-bazel run //src/tools/ipu-apps:query                                 # every op and kernel
+bazel run //kernels:query -- softmax rows=32 n=300 dim=1
+bazel run //kernels:query                                            # the migrated kernels
+bazel run //src/tools/ipu-apps:query                                 # the kernels still in ipu_apps
 ```
 
 ```python
-from ipu_apps.kernel_registry import lookup_layer, resolve
+from ipu_harness.registry import default_registry
+
+registry = default_registry()
 
 # PyTorch-native: the layer plus the shape it will receive
-lookup_layer(nn.Softmax(dim=1), input_shape=(32, 300))
+registry.from_layer(nn.Softmax(dim=1), (32, 300))
 
 # framework-free
-resolve("softmax", shape=(32, 300), dim=1)
+registry.resolve("softmax", rows=32, n=300, dim=1)
 ```
 
-Both return a verdict carrying the app class, its constructor arguments, why
-that kernel was chosen, and any caveats that still apply — or, when nothing
-covers the shape, what each candidate objected to.
+Both return a verdict carrying the kernel, its parameters and why that kernel
+was chosen — or, when nothing covers the query, what each candidate objected
+to. The families already migrated to `kernels/` (the folders there; the
+[coverage page](../app-coverage.md) lists them) answer there; the others still
+answer `//src/tools/ipu-apps:query` until their migration.
 
 ## Currently registered
 
-89 kernels across 21 operations; `bazel run //src/tools/ipu-apps:query` prints
-the current list.
+[Kernel coverage](../explanation/kernel-coverage.md#current-coverage) lists
+every operation and its kernels, generated from both registries when the docs
+are built. `bazel run //kernels:query` and
+`bazel run //src/tools/ipu-apps:query` print the same lists.
 
-| Operation | Kernels |
-|---|---|
-| `softmax` | 5 — see [Softmax](softmax.md) |
-| `conv2d` | 14 — see [Convolutions](convolutions.md) |
-| `matmul` | 16 — see [Linear layers](linear-layers.md) |
-| `projection` | 12 — see [Linear layers](linear-layers.md) |
-| `layernorm` | 4 — see [Normalization and shaping](normalization-and-shaping.md) |
-| `residual_add` | 4 — three MobileViT shapes ([Normalization and shaping](normalization-and-shaping.md)) plus CHW `residual_add` ([Convolutions](convolutions.md)) |
-| `unfold`, `fold`, `concat` | 3 each — see [Normalization and shaping](normalization-and-shaping.md) |
-| `qk_scores`, `attn_scores_km`, `attn_v`, `attn_v_bcast` | 3 each — see [Attention](attention.md) |
-| `maxpool2d` | 5 (`maxpool2d_window`, `_nms7`, `_nms9`, `_stride2`, `_stride2_tail`) |
-| `sample_descriptors` | 2 (`sample_descriptors`, `sample_descriptors_separable`) |
-| `channel_peak`, `score_threshold`, `l2_normalize`, `depth_to_space`, `identity`, `fully_connected` | 1 each |
-
-See [Building applications](../building-applications.md) for the structure they
-share.
+[Write a kernel](../how-to/write-a-kernel.md) shows the structure of a kernel
+under `kernels/`; the ones still in `ipu_apps` follow
+[Building applications](../building-applications.md) until E07 migrates them.

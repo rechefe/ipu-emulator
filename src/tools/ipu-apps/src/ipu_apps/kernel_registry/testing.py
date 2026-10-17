@@ -10,12 +10,66 @@ and adds only the tests that go beyond "each case runs and passes its check".
 A sweep of the default case over other sizes is declared, not written::
 
     test_case = case_tests(__package__, sweep=[dict(rows=8, n=200), ...])
+
+A kernel whose program contains an emulator-only instruction (``ST.ACC``)
+must emit ``DebugOnlyInstructionWarning`` in every case; any other kernel fails
+if the warning appears. Tests that run kernels outside ``case_tests`` say which
+they expect with :func:`debug_only_warning`.
+
+After its check passes, every case is also compared with its record in the
+kernel's ``baseline.json`` (see :mod:`ipu_apps.kernel_registry.baseline`).
 """
+
+import warnings
+from contextlib import contextmanager
+from functools import cache
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
 import pytest
 
+from ipu_apps.kernel_registry import baseline
 from ipu_apps.kernel_registry.cases import (
-    assemble_kernel, load_cases, options_label, package_kernel, run_case,
+    assemble_kernel,
+    load_cases,
+    options_label,
+    package_kernel,
+    run_case,
 )
+from ipu_emu.errors import DebugOnlyInstructionWarning
+from ipu_emu.execute import emulator_only_instructions, load_binary_instructions
+
+
+def uses_debug_only_instructions(inst_path) -> bool:
+    """Whether an assembled program has a non-NOP emulator-only slot.
+
+    Reads the instruction words, not the source, so it survives mnemonic renames.
+    """
+    words = load_binary_instructions(Path(inst_path).read_bytes())
+    return bool(emulator_only_instructions(words))
+
+
+@cache
+def kernel_uses_debug_only_instructions(kernel: str) -> bool:
+    """:func:`uses_debug_only_instructions` for a registered kernel's program."""
+    with TemporaryDirectory(prefix="ipu-debug-only-") as tmp:
+        return uses_debug_only_instructions(assemble_kernel(kernel, tmp))
+
+
+@contextmanager
+def debug_only_warning(expected: bool):
+    """Assert ``DebugOnlyInstructionWarning`` fires inside the block, or never does.
+
+    ``expected`` true wraps the block in ``pytest.warns``; false turns the
+    warning into an error, so an unintended emulator-only instruction fails.
+    """
+    if expected:
+        with pytest.warns(DebugOnlyInstructionWarning):
+            yield
+    else:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DebugOnlyInstructionWarning)
+            yield
 
 
 def case_tests(package, sweep=()):
@@ -24,7 +78,11 @@ def case_tests(package, sweep=()):
     ``sweep`` adds runs of the default case with option overrides -- dicts,
     like a benchmark's ``CONFIGS`` -- each checked by the case exactly as the
     named cases are. The kernel is assembled once and reused. ``run_case``
-    raises if the kernel does not halt or a check fails.
+    raises if the kernel does not halt or a check fails. Each run asserts the
+    ``DebugOnlyInstructionWarning`` exactly when the assembled program uses an
+    emulator-only instruction (see :func:`debug_only_warning`), and is compared
+    with its baseline record, or recorded under the update command
+    (see :class:`UpdateBaselines`).
     """
     kernel = package_kernel(package)
     cases = load_cases(kernel)
@@ -33,16 +91,65 @@ def case_tests(package, sweep=()):
     for options in sweep:
         unknown = set(options) - set(cases["default"].defaults)
         if unknown:
-            raise ValueError(f"{kernel}: sweep options {sorted(unknown)} are not options "
-                             f"of its default case {sorted(cases['default'].defaults)}")
+            raise ValueError(
+                f"{kernel}: sweep options {sorted(unknown)} are not options "
+                f"of its default case {sorted(cases['default'].defaults)}"
+            )
         params.append(("default", dict(options)))
         ids.append(options_label(options))
     assembled = []
+    updated: dict = {}
 
     @pytest.mark.parametrize("case,options", params, ids=[f"{kernel}-{i}" for i in ids])
-    def test_case(case, options, tmp_path_factory):
+    def test_case(case, options, tmp_path_factory, request):
         if not assembled:
-            assembled.append(assemble_kernel(kernel, tmp_path_factory.mktemp(kernel)))
-        run_case(kernel, load_cases(kernel)[case], options=options, inst_path=assembled[0])
+            inst_path = assemble_kernel(kernel, tmp_path_factory.mktemp(kernel))
+            assembled.append((inst_path, uses_debug_only_instructions(inst_path)))
+        inst_path, debug_only = assembled[0]
+        recorder = baseline.Recorder()
+        with debug_only_warning(debug_only):
+            run_case(
+                kernel,
+                load_cases(kernel)[case],
+                options=options,
+                inst_path=inst_path,
+                recorder=recorder,
+            )
+        case_id = options_label(options) if options else case
+        root = request.config.stash.get(UPDATE_ROOT, None)
+        if root is None:
+            baseline.check(kernel, case_id, recorder.record)
+        else:
+            record_baseline(root, kernel, case_id, recorder.record, updated)
 
     return test_case
+
+
+#: The workspace to write baselines into, set by the update command
+#: (``UpdateBaselines``); unset, the case tests compare instead.
+UPDATE_ROOT = pytest.StashKey[Path]()
+
+
+class UpdateBaselines:
+    """A pytest plugin that makes ``case_tests`` record each case's baseline
+    into the kernel folders under ``root`` instead of comparing it:
+    ``pytest.main(args, plugins=[UpdateBaselines(root)])``."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+
+    def pytest_configure(self, config: pytest.Config) -> None:
+        config.stash[UPDATE_ROOT] = self.root
+
+
+def record_baseline(
+    root: Path,
+    kernel: str,
+    case_id: str,
+    record: baseline.CaseRecord | None,
+    updated: dict[str, baseline.CaseRecord | None],
+) -> None:
+    """Collect a case's record into ``updated`` and rewrite the kernel's
+    baseline file under ``root`` with every case collected so far."""
+    updated[case_id] = record
+    baseline.write(baseline.source_path(root, kernel), updated)

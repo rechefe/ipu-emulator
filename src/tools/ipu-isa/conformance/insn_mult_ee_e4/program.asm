@@ -1,0 +1,4 @@
+# insn_mult_ee_e4: MULT.EE in E4
+MULT.EE LR0 CR3 0 LR2 CR15 ;;
+MULT.EE LR1 CR9 1 LR0 CR15 ;;
+HALT ;;

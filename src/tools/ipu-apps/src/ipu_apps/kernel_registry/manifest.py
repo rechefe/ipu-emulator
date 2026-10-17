@@ -8,6 +8,7 @@ cases and options (``case_options``, as the runner parses them). The two must
 name the same kernels, so no target offered is missing; a kernel whose module
 failed to import is listed under ``skipped`` instead.
 """
+
 from __future__ import annotations
 
 import json
@@ -23,9 +24,10 @@ def _was_skipped(asm: str, skipped) -> bool:
     """Whether discovery skipped the kernel whose program is ``asm``: its package
     (its folder, from ``ipu_apps`` down) or one above it failed to import."""
     parts = PurePosixPath(asm).parent.parts
-    package = ".".join(parts[parts.index("ipu_apps"):]) + "." if "ipu_apps" in parts else None
+    package = ".".join(parts[parts.index("ipu_apps") :]) + "." if "ipu_apps" in parts else None
     return package is not None and any(
-        package.startswith(m) or m.startswith(package) for m in (s.module + "." for s in skipped))
+        package.startswith(m) or m.startswith(package) for m in (s.module + "." for s in skipped)
+    )
 
 
 def build(targets: dict) -> dict:
@@ -33,21 +35,26 @@ def build(targets: dict) -> dict:
     discovered = registry.load()
     specs = {spec.name: spec for spec in registry.kernels()}
     declared = {
-        name for name, bazel in targets["kernels"].items()
+        name
+        for name, bazel in targets["kernels"].items()
         if name in specs or not _was_skipped(bazel["asm"], discovered.skipped)
     }
     if declared != set(specs):
         raise ValueError(
             f"Bazel targets and the kernel registry disagree -- targets without a registered kernel: "
-            f"{sorted(declared - set(specs)) or 'none'}; registered kernels without a target: {sorted(set(specs) - declared) or 'none'}")
+            f"{sorted(declared - set(specs)) or 'none'}; registered kernels without a target: {sorted(set(specs) - declared) or 'none'}"
+        )
 
     kernels, operations = {}, {}
     for name, spec in specs.items():
         bazel = targets["kernels"][name]
         operations.setdefault(spec.op, set()).update(spec.requires)
         kernels[name] = {
-            "op": spec.op, "variant": spec.variant, "tags": list(spec.tags),
-            "family": bazel["family"], "asm": bazel["asm"],
+            "op": spec.op,
+            "variant": spec.variant,
+            "tags": list(spec.tags),
+            "family": bazel["family"],
+            "asm": bazel["asm"],
             "targets": {k: bazel[k] for k in ("run", "test", "benchmark") if k in bazel},
             # Loaded after discovery, not during it: case modules import numpy,
             # and discovery must stay cheap (test_harness_factory checks this).

@@ -1,0 +1,431 @@
+"""One retired word as a commit record, and a collector that builds them (E04-29).
+
+:class:`CommitRecord` is a thin layer over ``ipu_isa``'s commit record schema:
+:meth:`~CommitRecord.to_json` gives exactly a schema document, and
+:meth:`~CommitRecord.from_json` reads one back. :class:`CommitCollector`
+watches a state through public events only (its cycle observers, the register
+file's and XMEM's write observers) and builds one record per word. Nothing is
+collected, and nothing costs, unless a collector is attached.
+
+A write is a range the word wrote (what its handlers said they may write),
+with its value at the end of the cycle: a write that leaves a value unchanged
+is still a write. Scalar registers (LR, CR) are recorded per index. A write
+to an emulator-only register (the wide-vector debug copies) carries
+``"tag": "emulator"``. A faulting word is recorded when the fault is (through
+``IpuState.add_fault_observer``), with no slots and no writes: nothing of a
+faulting word retires (E04-20), though observers saw its LR ops run before
+the check phase undid them.
+"""
+
+from __future__ import annotations
+
+import struct
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Literal
+
+from ipu_emu.cycle import CycleOutcome
+from ipu_emu.errors import EmulatorError
+from ipu_emu.geometry import EMULATOR_REGISTERS
+from ipu_isa.faults import ArithmeticEvent
+from ipu_isa.registers import REGISTER_DEFINITIONS
+from ipu_isa.slots import SLOTS, Slot
+from ipu_isa.tags import Tag
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from ipu_emu.ipu_state import HaltRecord, IpuState
+    from ipu_emu.issue import IssueFacts
+
+__all__ = [
+    "CommitCollector",
+    "CommitRecord",
+    "FaultInfo",
+    "Outcome",
+    "RegWrite",
+    "SlotOp",
+    "XmemWrite",
+]
+
+#: How a word ended: ``retired``; ``break`` (its BREAK slot fired: a run that
+#: honours breakpoints stopped before it, and the word retired when the run went
+#: on); ``halt`` (a HALT word retired); ``fault`` (the word faulted).
+Outcome = Literal["retired", "break", "halt", "fault"]
+
+
+@dataclass(frozen=True)
+class SlotOp:
+    """One non-NOP op of the word: its slot, mnemonic and encoded fields.
+
+    Attributes:
+        slot: The slot, as ``ipu_isa.slots`` names it.
+        mnemonic: The op's mnemonic.
+        fields: The encoded operand values, by operand name.
+        emulator_only: The op has no hardware equivalent (an EMULATOR slot);
+            its JSON form carries ``"tag": "emulator"``.
+    """
+
+    slot: str
+    mnemonic: str
+    fields: Mapping[str, int]
+    emulator_only: bool = False
+
+    def to_json(self) -> dict[str, Any]:
+        """The op as a schema ``slot_op`` document."""
+        out: dict[str, Any] = {
+            "slot": self.slot,
+            "mnemonic": self.mnemonic,
+            "fields": dict(self.fields),
+        }
+        if self.emulator_only:
+            out["tag"] = "emulator"
+        return out
+
+    @classmethod
+    def from_json(cls, doc: Mapping[str, Any]) -> SlotOp:
+        """An op from a schema ``slot_op`` document."""
+        return cls(doc["slot"], doc["mnemonic"], dict(doc["fields"]), doc.get("tag") == "emulator")
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, SlotOp):
+            return NotImplemented
+        return self.to_json() == other.to_json()
+
+    def __hash__(self) -> int:
+        return hash((self.slot, self.mnemonic, tuple(sorted(self.fields.items()))))
+
+
+@dataclass(frozen=True)
+class RegWrite:
+    """A register write: ``value`` of a scalar register's ``index``, or
+    ``data`` (bytes) at byte ``offset`` of a vector register.
+
+    A write to an emulator-only register (``r_wide_debug``,
+    ``r_cyclic_wide_debug``) carries ``"tag": "emulator"`` in its JSON form.
+
+    Attributes:
+        register: The bank, as ``ipu_isa.registers`` names it.
+        index: A scalar register (``lr``, ``cr``): the register within the
+            bank; else ``None``.
+        value: A scalar register: its unsigned 32-bit value at the end of the
+            cycle; else ``None``.
+        offset: A vector register: the first byte written, within the bank;
+            else ``None``.
+        data: A vector register: the bytes written, at their end-of-cycle
+            values; else ``None``.
+    """
+
+    register: str
+    index: int | None = None
+    value: int | None = None
+    offset: int | None = None
+    data: bytes | None = None
+
+    def to_json(self) -> dict[str, Any]:
+        """The write as a schema ``reg_write`` document."""
+        out: dict[str, Any]
+        if self.data is None:
+            out = {"register": self.register, "index": self.index, "value": self.value}
+        else:
+            out = {"register": self.register, "offset": self.offset, "data": self.data.hex()}
+        if self.register in EMULATOR_REGISTERS:
+            out["tag"] = "emulator"
+        return out
+
+    @classmethod
+    def from_json(cls, doc: Mapping[str, Any]) -> RegWrite:
+        """A write from a schema ``reg_write`` document."""
+        if "data" in doc:
+            return cls(doc["register"], offset=doc["offset"], data=bytes.fromhex(doc["data"]))
+        return cls(doc["register"], index=doc["index"], value=doc["value"])
+
+
+@dataclass(frozen=True)
+class XmemWrite:
+    """``data`` written at XMEM byte ``address``.
+
+    Attributes:
+        address: The first XMEM byte written.
+        data: The bytes written, at their end-of-cycle values.
+    """
+
+    address: int
+    data: bytes
+
+    def to_json(self) -> dict[str, Any]:
+        """The write as a schema ``xmem_write`` document."""
+        return {"address": self.address, "data": self.data.hex()}
+
+    @classmethod
+    def from_json(cls, doc: Mapping[str, Any]) -> XmemWrite:
+        """A write from a schema ``xmem_write`` document."""
+        return cls(doc["address"], bytes.fromhex(doc["data"]))
+
+
+@dataclass(frozen=True)
+class FaultInfo:
+    """The fault a word raised: its label (``"F-3"``) and PC.
+
+    Attributes:
+        id: The fault ID as the requirements write it (``FaultId.label``).
+        pc: The faulting word's PC.
+    """
+
+    id: str
+    pc: int
+
+
+@dataclass(frozen=True)
+class CommitRecord:
+    """One retired word, as the commit record schema describes it.
+
+    Attributes:
+        cycle: The words before this one since the last reset or program
+            load; in a trace, the records before this one.
+        pc_before: The word's PC.
+        pc_after: The PC of the next word.
+        slots: The word's ops, one per non-NOP slot, in slot order.
+        reg_writes: The registers the word wrote, at their end-of-cycle values.
+        xmem_writes: The XMEM ranges the word wrote.
+        outcome: How the word ended.
+        fault: The fault, when ``outcome`` is ``fault``; else ``None``.
+        arith_events: The arithmetic events the word raised
+            (``ipu_isa.faults.ArithmeticEvent`` values), sorted.
+    """
+
+    cycle: int
+    pc_before: int
+    pc_after: int
+    slots: tuple[SlotOp, ...] = ()
+    reg_writes: tuple[RegWrite, ...] = ()
+    xmem_writes: tuple[XmemWrite, ...] = ()
+    outcome: Outcome = "retired"
+    fault: FaultInfo | None = None
+    arith_events: tuple[str, ...] = ()
+
+    def to_json(self) -> dict[str, Any]:
+        """The record as a schema document (JSON-ready: numbers, strings, lists)."""
+        return {
+            "cycle": self.cycle,
+            "pc_before": self.pc_before,
+            "pc_after": self.pc_after,
+            "slots": [op.to_json() for op in self.slots],
+            "reg_writes": [w.to_json() for w in self.reg_writes],
+            "xmem_writes": [w.to_json() for w in self.xmem_writes],
+            "outcome": self.outcome,
+            "fault": None if self.fault is None else {"id": self.fault.id, "pc": self.fault.pc},
+            "arith_events": list(self.arith_events),
+        }
+
+    @classmethod
+    def from_json(cls, doc: Mapping[str, Any]) -> CommitRecord:
+        """A record from a schema document."""
+        fault = doc["fault"]
+        return cls(
+            cycle=doc["cycle"],
+            pc_before=doc["pc_before"],
+            pc_after=doc["pc_after"],
+            slots=tuple(SlotOp.from_json(op) for op in doc["slots"]),
+            reg_writes=tuple(RegWrite.from_json(w) for w in doc["reg_writes"]),
+            xmem_writes=tuple(XmemWrite.from_json(w) for w in doc["xmem_writes"]),
+            outcome=doc["outcome"],
+            fault=None if fault is None else FaultInfo(fault["id"], fault["pc"]),
+            arith_events=tuple(doc["arith_events"]),
+        )
+
+
+def _merged(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """``(start, end)`` ranges, sorted, overlapping and touching ones joined."""
+    out: list[tuple[int, int]] = []
+    for start, end in sorted(ranges):
+        if out and start <= out[-1][1]:
+            out[-1] = (out[-1][0], max(out[-1][1], end))
+        else:
+            out.append((start, end))
+    return out
+
+
+_EMULATOR_SLOTS = frozenset(slot.value for slot in Slot if SLOTS[slot].tag is Tag.EMULATOR)
+
+
+@dataclass
+class _Pending:
+    pc: int
+    slots: list[SlotOp] = field(default_factory=list)
+    regs: dict[str, list[tuple[int, int]]] = field(default_factory=dict)
+    xmem: list[tuple[int, int]] = field(default_factory=list)
+    broke: bool = False
+    arith: set[ArithmeticEvent] = field(default_factory=set)
+
+
+class CommitCollector:
+    """Builds a :class:`CommitRecord` for every word *state* runs.
+
+    Attach it before a run and :meth:`close` it after (or use it as a context
+    manager). A fault is recorded when it happens, whether before a word
+    began (F-2 at fetch, F-9 at the cycle limit) or inside one.
+
+    Args:
+        state: The machine state to watch.
+    """
+
+    def __init__(self, state: IpuState) -> None:
+        self.state = state
+        self.records: list[CommitRecord] = []
+        self._count = 0  # records made, taken or not: the next record's cycle
+        self._pending: _Pending | None = None
+        # The BREAK slot runs before ``begin``: its op, and whether it fired,
+        # wait for the word at that PC to begin.
+        self._pre: list[SlotOp] = []
+        self._pre_pc: int | None = None
+        self._broke = False
+        self._seen_halt: object = state.halt
+        self._detach: list[Callable[[], None]] = [
+            state.add_cycle_observer(self),
+            state.add_fault_observer(self._faulted),
+            state.add_arith_observer(self._arith),
+            state.regfile.add_observer(self._register_written),
+            state.xmem.add_observer(self._memory_event),
+        ]
+
+    def __enter__(self) -> CommitCollector:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
+    def close(self) -> list[CommitRecord]:
+        """Stop watching. Returns the records."""
+        for detach in self._detach:
+            detach()
+        self._detach = []
+        self._pending, self._pre, self._pre_pc, self._broke = None, [], None, False
+        return self.records
+
+    def drop_stop(self) -> None:
+        """Forget a BREAK stop whose word never began (a debugger quit at
+        it), so the next word at that PC is recorded as a plain step."""
+        self._pre, self._pre_pc, self._broke = [], None, False
+
+    def take(self) -> list[CommitRecord]:
+        """Hand over the records made since the last take.
+
+        The collector then forgets them; record numbering goes on.
+
+        Returns:
+            The records, oldest first.
+        """
+        taken, self.records = self.records, []
+        return taken
+
+    # -- CycleObserver ------------------------------------------------------
+
+    def begin(self, pc: int) -> None:
+        # A word that began and never ended raised an emulator error, not a
+        # fault (a fault is recorded at once): it leaves no record.
+        same_word = self._pre_pc == pc
+        self._pending = _Pending(
+            pc, slots=self._pre if same_word else [], broke=same_word and self._broke
+        )
+        self._pre, self._pre_pc, self._broke = [], None, False
+
+    def issued(self, facts: IssueFacts) -> None:
+        pass
+
+    def retired(self, facts: IssueFacts, result: Any) -> None:
+        op = facts.plan.inst_name
+        if self._pending is None:
+            # The BREAK slot, which runs once per evaluation: this one
+            # replaces any earlier stop's (a rerun at the same PC included).
+            self._pre, self._pre_pc, self._broke = [], self.state.program_counter, False
+        if facts.slot == "break" and result is CycleOutcome.BREAK:
+            self._broke = True
+        if op == "NOP":
+            return
+        slot_op = SlotOp(facts.slot, op, dict(facts.encoded), facts.slot in _EMULATOR_SLOTS)
+        if self._pending is None:
+            self._pre.append(slot_op)  # the BREAK slot runs before ``begin``
+        else:
+            self._pending.slots.append(slot_op)
+
+    def end(self) -> None:
+        pending, self._pending = self._pending, None
+        if pending is None:
+            return
+        halt = self.state.halt
+        outcome: Outcome = "retired"
+        # ``_seen_halt``: a word stepped directly (no run, so no ``begin_run``
+        # to clear ``halt``) after an earlier HALT is no HALT itself.
+        if halt is not None and halt is not self._seen_halt and halt.reason == "halt":
+            outcome = "halt"
+            self._seen_halt = halt
+        elif pending.broke:
+            outcome = "break"
+        self._emit(pending, self.state.program_counter, outcome, None)
+
+    # -- write observers ----------------------------------------------------
+
+    def _register_written(self, name: str, start: int, size: int) -> None:
+        if self._pending is not None and size:
+            self._pending.regs.setdefault(name, []).append((start, start + size))
+
+    def _memory_event(self, kind: str, address: int, size: int, data: object) -> None:
+        if self._pending is not None and kind == "write" and size:
+            self._pending.xmem.append((address, address + size))
+
+    # -- records ------------------------------------------------------------
+
+    def _arith(self, events: frozenset[ArithmeticEvent]) -> None:
+        if self._pending is not None:
+            self._pending.arith |= events
+
+    def _faulted(self, halt: HaltRecord) -> None:
+        """Record the faulting word (or, for a fault before any word began,
+        its PC alone): no slots, no writes, as nothing of it retired."""
+        self._pending, self._pre, self._pre_pc, self._broke = None, [], None, False
+        if halt.fault is None:
+            raise EmulatorError(f"a fault halt at PC {halt.pc} names no fault")
+        self._emit(
+            _Pending(halt.pc),
+            self.state.program_counter,
+            "fault",
+            FaultInfo(halt.fault.label, halt.pc),
+        )
+
+    def _emit(
+        self, pending: _Pending, pc_after: int, outcome: Outcome, fault: FaultInfo | None
+    ) -> None:
+        regfile = self.state.regfile
+        reg_writes: list[RegWrite] = []
+        for name in sorted(pending.regs):
+            current = regfile.view(name)
+            definition = REGISTER_DEFINITIONS.get(name)
+            scalar = definition is not None and not definition["vector"]
+            for start, end in _merged(pending.regs[name]):
+                if scalar:
+                    width = definition["size_bytes"]  # type: ignore[index]
+                    for index in range(start // width, (end + width - 1) // width):
+                        (value,) = struct.unpack_from("<I", current, index * width)
+                        reg_writes.append(RegWrite(name, index=index, value=value))
+                else:
+                    reg_writes.append(RegWrite(name, offset=start, data=bytes(current[start:end])))
+        xmem = self.state.xmem
+        xmem_writes = tuple(
+            XmemWrite(start, xmem.snapshot_bytes(start, end - start))
+            for start, end in _merged(pending.xmem)
+        )
+        self.records.append(
+            CommitRecord(
+                cycle=self._count,
+                pc_before=pending.pc,
+                pc_after=pc_after,
+                slots=tuple(pending.slots),
+                reg_writes=tuple(reg_writes),
+                xmem_writes=xmem_writes,
+                outcome=outcome,
+                fault=fault,
+                arith_events=tuple(sorted(e.value for e in pending.arith)),
+            )
+        )
+        self._count += 1

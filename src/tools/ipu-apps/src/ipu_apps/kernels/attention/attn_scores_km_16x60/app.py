@@ -48,20 +48,19 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ipu_emu.emulator import dump_xmem_to_binary
-
-from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernel_registry import ShapeBundle
+from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.attention.app import attention_spec
+from ipu_emu.emulator import dump_xmem_to_binary
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
 
-N_TOK    = 16           # queries = keys
-D        = 60           # head_dim
-N_TG     = 1            # query groups: 16 queries fit in a single 128-lane group
-N_TPG    = N_TOK        # queries per group
-N_HEADS  = 4            # channels in the canonical input file = N_HEADS * D
+N_TOK = 16  # queries = keys
+D = 60  # head_dim
+N_TG = 1  # query groups: 16 queries fit in a single 128-lane group
+N_TPG = N_TOK  # queries per group
+N_HEADS = 4  # channels in the canonical input file = N_HEADS * D
 
 # ---------------------------------------------------------------------------
 # Wide-vector FP32 only. Elements are 4 bytes and an XMEM row is LANES * 4 =
@@ -71,33 +70,33 @@ N_HEADS  = 4            # channels in the canonical input file = N_HEADS * D
 # XMEM .asm operands are ROW numbers. Region bases are DERIVED
 # from row counts, not hardcoded bytes.
 # ---------------------------------------------------------------------------
-ELEM_BYTES = 4                               # FP32
-LANES      = 128                             # elements per XMEM row
-ROW_BYTES  = LANES * ELEM_BYTES              # 512
+ELEM_BYTES = 4  # FP32
+LANES = 128  # elements per XMEM row
+ROW_BYTES = LANES * ELEM_BYTES  # 512
 
 # One channel per row: 16 tokens live in a WHOLE row (ceil-div, never a
 # sub-row stride).
-Q_CHAN_ROWS   = max(1, N_TOK // LANES)       # 1: rows per Q channel column
-K_STRIDE_ROWS = 1                            # one key-major K row per key
-OUT_ROWS      = 1                            # one R_ACC store = one row (wide)
+Q_CHAN_ROWS = max(1, N_TOK // LANES)  # 1: rows per Q channel column
+K_STRIDE_ROWS = 1  # one key-major K row per key
+OUT_ROWS = 1  # one R_ACC store = one row (wide)
 
 Q_ROWS = D * Q_CHAN_ROWS
 K_ROWS = N_TOK * K_STRIDE_ROWS
 S_ROWS = N_TOK * N_TG * OUT_ROWS
 
-QBASE_ROW    = 0
+QBASE_ROW = 0
 KBASE_KM_ROW = QBASE_ROW + Q_ROWS
-SBASE_ROW    = KBASE_KM_ROW + K_ROWS
+SBASE_ROW = KBASE_KM_ROW + K_ROWS
 
-QBASE    = QBASE_ROW * ROW_BYTES
+QBASE = QBASE_ROW * ROW_BYTES
 KBASE_KM = KBASE_KM_ROW * ROW_BYTES
-SBASE    = SBASE_ROW * ROW_BYTES
+SBASE = SBASE_ROW * ROW_BYTES
 
 K_STRIDE = K_STRIDE_ROWS * ROW_BYTES
-OUTPUT_ROW_BYTES = ROW_BYTES                 # R_ACC store payload
+OUTPUT_ROW_BYTES = ROW_BYTES  # R_ACC store payload
 
 
-def _load_q_channel_major(state: "IpuState", q_path: str | Path, head: int) -> None:
+def _load_q_channel_major(state: IpuState, q_path: str | Path, head: int) -> None:
     """Copy head `head`'s D channel columns of Q into XMEM at QBASE, one per row.
 
     Input file is canonical channel-major: Q[t, h*D+c] at element (h*D+c)*N_TOK + t.
@@ -110,19 +109,15 @@ def _load_q_channel_major(state: "IpuState", q_path: str | Path, head: int) -> N
     base = head * D * N_TOK * ELEM_BYTES
     span = D * N_TOK * ELEM_BYTES
     if len(raw) < base + span:
-        raise ValueError(
-            f"{q_path}: expected >= {base + span} B for head {head}, got {len(raw)}"
-        )
+        raise ValueError(f"{q_path}: expected >= {base + span} B for head {head}, got {len(raw)}")
     q = np.frombuffer(raw[base : base + span], dtype=np.float32).reshape(D, N_TOK)
     for c in range(D):
         row = np.zeros(LANES, dtype=np.float32)
-        row[:N_TOK] = q[c, :]                 # channel c's N_TOK queries
-        state.xmem.write_address(
-            QBASE + c * Q_CHAN_ROWS * ROW_BYTES, bytearray(row.tobytes())
-        )
+        row[:N_TOK] = q[c, :]  # channel c's N_TOK queries
+        state.xmem.write_address(QBASE + c * Q_CHAN_ROWS * ROW_BYTES, bytearray(row.tobytes()))
 
 
-def _load_k_keymajor(state: "IpuState", k_path: str | Path, head: int) -> None:
+def _load_k_keymajor(state: IpuState, k_path: str | Path, head: int) -> None:
     """Rearrange head `head`'s K from channel-major into key-major XMEM scratch.
 
     Source K[s, c] at element (head*D + c)*N_TOK + s.  Destination K[s, :]
@@ -136,12 +131,12 @@ def _load_k_keymajor(state: "IpuState", k_path: str | Path, head: int) -> None:
         raise ValueError(
             f"{k_path}: expected >= {head_base + span} B for head {head}, got {len(raw)}"
         )
-    k = np.frombuffer(
-        raw[head_base : head_base + span], dtype=np.float32
-    ).reshape(D, N_TOK)                       # [channel, key]
+    k = np.frombuffer(raw[head_base : head_base + span], dtype=np.float32).reshape(
+        D, N_TOK
+    )  # [channel, key]
     for s in range(N_TOK):
         row = np.zeros(LANES, dtype=np.float32)
-        row[:D] = k[:, s]                     # key s's D head-channels
+        row[:D] = k[:, s]  # key s's D head-channels
         state.xmem.write_address(KBASE_KM + s * K_STRIDE, bytearray(row.tobytes()))
 
 
@@ -157,7 +152,7 @@ class AttnScoresKM16x60App(IpuApp):
             raise ValueError(f"head must be in [0, {N_HEADS}), got {head}")
         self.head = head
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         _load_q_channel_major(state, self.input_path, self.head)
         _load_k_keymajor(state, self.weights_path, self.head)
 
@@ -173,26 +168,29 @@ class AttnScoresKM16x60App(IpuApp):
         # Startup skews are negative; CRs are 32-bit unsigned, and the kernel
         # only ever ADDs them back to a non-negative pointer, so wraparound is
         # exact modulo 2**32.
-        state.regfile.set_cr(5, -Q_CHAN_ROWS)   # channel-column startup (rows)
-        state.regfile.set_cr(7, -1)          # fixed_idx c startup
-        state.regfile.set_cr(8, D - 2)       # c-loop bound: first=0, width=D → D-2 = 58
+        state.regfile.set_cr(5, -Q_CHAN_ROWS)  # channel-column startup (rows)
+        state.regfile.set_cr(7, -1)  # fixed_idx c startup
+        state.regfile.set_cr(8, D - 2)  # c-loop bound: first=0, width=D → D-2 = 58
 
-        state.regfile.set_lr(0, 0)           # R_CYCLIC index 0
-        state.regfile.set_lr(2, Q_CHAN_ROWS)    # channel stride in Q (rows)
-        state.regfile.set_lr(3, OUT_ROWS)       # output store stride (rows)
-        state.regfile.set_lr(6, D - 2)       # c-loop bound = 58
-        state.regfile.set_lr(7, 0)           # output row pointer
-        state.regfile.set_lr(8, -K_STRIDE_ROWS) # key row offset startup (-1 -> first live 0)
-        state.regfile.set_lr(9, 0)           # key counter
-        state.regfile.set_lr(10, N_TOK)      # key-loop limit
-        state.regfile.set_lr(12, K_STRIDE_ROWS) # key stride into K scratch (rows)
+        state.regfile.set_lr(0, 0)  # R_CYCLIC index 0
+        state.regfile.set_lr(2, Q_CHAN_ROWS)  # channel stride in Q (rows)
+        state.regfile.set_lr(3, OUT_ROWS)  # output store stride (rows)
+        state.regfile.set_lr(6, D - 2)  # c-loop bound = 58
+        state.regfile.set_lr(7, 0)  # output row pointer
+        state.regfile.set_lr(8, -K_STRIDE_ROWS)  # key row offset startup (-1 -> first live 0)
+        state.regfile.set_lr(9, 0)  # key counter
+        state.regfile.set_lr(10, N_TOK)  # key-loop limit
+        state.regfile.set_lr(12, K_STRIDE_ROWS)  # key stride into K scratch (rows)
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         if self.output_path is not None:
             # N_TOK keys x N_TG groups, one WHOLE row each (16 live lanes).
             dump_xmem_to_binary(
-                state, self.output_path,
-                SBASE, OUTPUT_ROW_BYTES, N_TOK * N_TG,
+                state,
+                self.output_path,
+                SBASE,
+                OUTPUT_ROW_BYTES,
+                N_TOK * N_TG,
             )
 
 

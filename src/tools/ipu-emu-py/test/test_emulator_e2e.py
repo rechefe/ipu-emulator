@@ -14,25 +14,16 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from ipu_emu.ipu_state import IpuState
-from ipu_emu.ipu_math import DType, fp32_to_fp8_bytes, fp8_bytes_to_fp32
 from ipu_emu.emulator import (
-    load_binary_to_xmem,
+    DebugAction,
     dump_xmem_to_binary,
+    load_binary_to_xmem,
     load_fp32_as_fp8_to_xmem,
     run_test,
-    DebugAction,
 )
-
-
-@pytest.fixture(autouse=True)
-def _reset_assembler_labels():
-    """Reset the global label registry between tests."""
-    from ipu_as.label import reset_labels
-    reset_labels()
-    yield
-    reset_labels()
-
+from ipu_emu.ipu_math import fp8_bytes_to_fp32, fp32_to_fp8_bytes
+from ipu_emu.ipu_state import IpuState
+from ipu_isa.formats import ElementFormat
 
 # ---------------------------------------------------------------------------
 # Binary I/O unit tests
@@ -60,7 +51,7 @@ class TestLoadBinaryToXmem:
     def test_max_chunks_limit(self, tmp_path: Path) -> None:
         """Respect *max_chunks* even if more data is available."""
         f = tmp_path / "data.bin"
-        f.write_bytes(b"\xAA" * 512)
+        f.write_bytes(b"\xaa" * 512)
 
         state = IpuState()
         loaded = load_binary_to_xmem(state, f, 0, 128, max_chunks=2)
@@ -69,7 +60,7 @@ class TestLoadBinaryToXmem:
     def test_partial_trailing_data_ignored(self, tmp_path: Path) -> None:
         """Trailing bytes smaller than chunk_size are ignored."""
         f = tmp_path / "data.bin"
-        f.write_bytes(b"\xBB" * (128 * 3 + 50))
+        f.write_bytes(b"\xbb" * (128 * 3 + 50))
 
         state = IpuState()
         loaded = load_binary_to_xmem(state, f, 0, 128)
@@ -92,9 +83,7 @@ class TestDumpXmemToBinary:
         state = IpuState()
         pattern = bytes(range(256)) * 2  # 512 bytes = 4 chunks of 128
         for i in range(4):
-            state.xmem.write_address(
-                0x2000 + i * 128, pattern[i * 128 : (i + 1) * 128]
-            )
+            state.xmem.write_address(0x2000 + i * 128, pattern[i * 128 : (i + 1) * 128])
 
         out = tmp_path / "dump.bin"
         written = dump_xmem_to_binary(state, out, 0x2000, 128, 4)
@@ -121,16 +110,16 @@ class TestFP32ToFP8Loading:
     def test_fp32_to_fp8_e4m3_round_trip(self) -> None:
         """Convert FP32 → fp8_e4 → FP32, check values are close."""
         fp32 = np.array([0.0, 1.0, -1.0, 0.5, 2.0], dtype=np.float32)
-        raw = fp32_to_fp8_bytes(fp32, DType.E4)
+        raw = fp32_to_fp8_bytes(fp32, ElementFormat.E4)
         assert len(raw) == 5
-        back = fp8_bytes_to_fp32(raw, DType.E4)
+        back = fp8_bytes_to_fp32(raw, ElementFormat.E4)
         np.testing.assert_allclose(back, fp32, rtol=0.1, atol=0.1)
 
     def test_fp32_to_fp8_e5m2_round_trip(self) -> None:
         fp32 = np.array([0.0, 1.0, -1.0, 0.25], dtype=np.float32)
-        raw = fp32_to_fp8_bytes(fp32, DType.E5)
+        raw = fp32_to_fp8_bytes(fp32, ElementFormat.E5)
         assert len(raw) == 4
-        back = fp8_bytes_to_fp32(raw, DType.E5)
+        back = fp8_bytes_to_fp32(raw, ElementFormat.E5)
         np.testing.assert_allclose(back, fp32, rtol=0.2, atol=0.1)
 
     def test_load_fp32_as_fp8_to_xmem(self, tmp_path: Path) -> None:
@@ -140,20 +129,20 @@ class TestFP32ToFP8Loading:
         f.write_bytes(fp32.tobytes())
 
         state = IpuState()
-        count = load_fp32_as_fp8_to_xmem(state, f, 0x5000, DType.E4)
+        count = load_fp32_as_fp8_to_xmem(state, f, 0x5000, ElementFormat.E4)
         assert count == 128
 
         # Read back and verify
         raw = state.xmem.read_address(0x5000, 128)
-        back = fp8_bytes_to_fp32(bytes(raw), DType.E4)
+        back = fp8_bytes_to_fp32(bytes(raw), ElementFormat.E4)
         # fp8_e4 saturates above ~448, so check representable range
         np.testing.assert_allclose(back[:10], fp32[:10], rtol=0.1, atol=0.5)
 
-    def test_int8_dtype_rejected(self) -> None:
+    def test_int8_format_rejected(self) -> None:
         """INT8 is not valid for FP8 conversion."""
         fp32 = np.array([1.0], dtype=np.float32)
         with pytest.raises(ValueError, match="FP8"):
-            fp32_to_fp8_bytes(fp32, DType.INT8)
+            fp32_to_fp8_bytes(fp32, ElementFormat.INT8)
 
 
 # ---------------------------------------------------------------------------
@@ -168,8 +157,8 @@ class TestRunTest:
         """A program that immediately breaks should run in 1 cycle."""
         from ipu_as.lark_tree import assemble_to_bin_file
 
-        asm = "BKPT;;\n"
-        inst_path = tmp_path / "BKPT.bin"
+        asm = "HALT;;\n"
+        inst_path = tmp_path / "HALT.bin"
         assemble_to_bin_file(asm, str(inst_path))
 
         setup_called = [False]
@@ -189,15 +178,15 @@ class TestRunTest:
 
         assert setup_called[0]
         assert teardown_called[0]
-        # BKPT in run_until_complete skips the break, advances PC
+        # HALT in run_until_complete skips the break, advances PC
         assert cycles >= 1
 
     def test_run_test_with_debug_callback(self, tmp_path: Path) -> None:
         """run_test with debug_callback should invoke it on break."""
         from ipu_as.lark_tree import assemble_to_bin_file
 
-        # Use a BREAK instruction (break slot) followed by BKPT (cond halt)
-        asm = "BREAK;;\nBKPT;;\n"
+        # Use a BREAK instruction (break slot) followed by HALT (cond halt)
+        asm = "BREAK;;\nHALT;;\n"
         inst_path = tmp_path / "break.bin"
         assemble_to_bin_file(asm, str(inst_path))
 
@@ -213,18 +202,48 @@ class TestRunTest:
         )
         assert len(cb_calls) > 0
 
+    def test_quit_is_a_returned_outcome_that_skips_teardown(self, tmp_path: Path) -> None:
+        """QUIT stops the run, sets ``quit_requested`` and skips teardown; a
+        later run on the same state starts with it cleared."""
+        from ipu_as.lark_tree import assemble_to_bin_file
+
+        inst_path = tmp_path / "break.bin"
+        assemble_to_bin_file("BREAK;;\nHALT;;\n", str(inst_path))
+        teardowns = []
+
+        state, cycles = run_test(
+            inst_path=inst_path,
+            teardown=teardowns.append,
+            debug_callback=lambda state, cycle: DebugAction.QUIT,
+        )
+        assert state.quit_requested
+        assert not state.is_halted
+        assert cycles == 0
+        assert teardowns == []
+
+        state.program_counter = 0
+        state, cycles = run_test(
+            inst_path=inst_path,
+            state=state,
+            teardown=teardowns.append,
+            debug_callback=lambda state, cycle: DebugAction.CONTINUE,
+        )
+        assert not state.quit_requested
+        assert state.is_halted
+        assert teardowns == [state]
+
     def test_run_test_passes_activation_alphas_to_state(self, tmp_path: Path) -> None:
         """``run_test`` forwards α kwargs into ``IpuState`` (emulator-only)."""
         from ipu_as.lark_tree import assemble_to_bin_file
 
-        inst_path = tmp_path / "bkpt.bin"
-        assemble_to_bin_file("BKPT;;\n", str(inst_path))
+        inst_path = tmp_path / "halt.bin"
+        assemble_to_bin_file("HALT;;\n", str(inst_path))
 
         state, _ = run_test(
             inst_path=inst_path,
             elu_alpha=1.25,
         )
-        assert state.elu_alpha == pytest.approx(1.25)
+        assert state.activation.elu_alpha == pytest.approx(1.25)
 
 
 # ---------------------------------------------------------------------------
@@ -240,7 +259,7 @@ class TestEndToEnd:
         from ipu_as.lark_tree import assemble_to_bin_file
 
         # Simple program: SET lr0 from cr8 (=42), then breakpoint
-        asm = "SET lr0 cr8;;\nBKPT;;\n"
+        asm = "SET lr0 cr8;;\nHALT;;\n"
         inst_path = tmp_path / "simple.bin"
         assemble_to_bin_file(asm, str(inst_path))
 
@@ -250,4 +269,4 @@ class TestEndToEnd:
         )
 
         assert state.regfile.get_lr(0) == 42
-        assert cycles >= 2  # set + BKPT
+        assert cycles >= 2  # set + HALT

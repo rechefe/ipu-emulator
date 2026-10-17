@@ -1,0 +1,10 @@
+0: NOP 0 lr0 lr0; SET cr0 lr0 lr0; SET cr0 lr2 lr0; NOP 0 lr0 lr0; NOP cr0 lr0 lr0; NOP lr0 cr0 lr0 lr0 0; NOP cr0 lrd0 lr0 off; NOP identity cr0; NOP cr0 lr0; NOP cr0 lr0; NOP 0 lr0;;
+1: NOP 0 lr0 lr0; SET cr0 lr3 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP cr0 lr0 lr0; NOP lr0 cr0 lr0 lr0 0; NOP cr0 lrd0 lr0 off; NOP identity cr0; NOP cr0 lr0; NOP cr0 lr0; NOP 0 lr0;;
+2: NOP 0 lr0 lr0; ADD cr6 lr11 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP cr0 lr0 lr0; NOP lr0 cr0 lr0 lr0 0; NOP cr0 lrd0 lr0 off; NOP identity cr0; NOP cr0 lr0; NOP cr0 lr0; NOP 0 lr0;;
+3: NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; LD.MULT.CYCLIC cr2 lr2 lr0; NOP lr0 cr0 lr0 lr0 0; NOP cr0 lrd0 lr0 off; NOP identity cr0; NOP cr0 lr0; NOP cr0 lr0; NOP 0 lr0;;
+4: NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; LD.MULT.CYCLIC cr3 lr2 lr0; MULT.RC.VE cr1 cr15 lr0 lr0 0; ACC.ADD.FIRST cr0 lrd0 lr0 off; NOP identity cr0; NOP cr0 lr0; NOP cr0 lr0; NOP 0 lr0;;
+5: NOP 0 lr0 lr0; ADD cr5 lr2 lr2; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP cr0 lr0 lr0; NOP lr0 cr0 lr0 lr0 0; NOP cr0 lrd0 lr0 off; NOP identity cr0; NOP cr0 lr0; NOP cr0 lr0; NOP 0 lr0;;
+6: NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; LD.MULT.CYCLIC cr2 lr2 lr0; MULT.RC.VE cr1 cr15 lr0 lr0 0; ACC.ADD cr0 lrd0 lr0 off; NOP identity cr0; NOP cr0 lr0; NOP cr0 lr0; NOP 0 lr0;;
+7: NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP cr0 lr0 lr0; NOP lr0 cr0 lr0 lr0 0; NOP cr0 lrd0 lr0 off; NOP identity cr0; NOP cr0 lr0; ST.ACC cr4 lr3; NOP 0 lr0;;
+8: BLT.S 4 lr2 lr11; ADD cr5 lr3 lr3; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP cr0 lr0 lr0; NOP lr0 cr0 lr0 lr0 0; NOP cr0 lrd0 lr0 off; NOP identity cr0; NOP cr0 lr0; NOP cr0 lr0; NOP 0 lr0;;
+9: HALT 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP cr0 lr0 lr0; NOP lr0 cr0 lr0 lr0 0; NOP cr0 lrd0 lr0 off; NOP identity cr0; NOP cr0 lr0; NOP cr0 lr0; NOP 0 lr0;;

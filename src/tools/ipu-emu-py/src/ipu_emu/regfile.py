@@ -25,18 +25,87 @@ takes an index argument (multi-element) or not (single-element).
 from __future__ import annotations
 
 import struct
-from typing import Any
+import warnings
+import weakref
+from collections.abc import Callable
+from typing import Any, Protocol
 
 import numpy as np
 
-from ipu_emu.descriptors import REGFILE_SCHEMA, RegDescriptor, RegDtype, RegKind
-from ipu_emu.errors import EmulatorError
-from ipu_emu.ipu_config import (
+from ipu_emu.descriptors import REGFILE_SCHEMA, RegDescriptor, RegKind
+from ipu_emu.errors import (
+    EmulatorError,
+    RegisterIndexError,
+    RegisterKindError,
+    RegisterSizeError,
+)
+from ipu_isa.constants import (
     CR_READ_ONLY_INITIAL_VALUES,
     CR_REGISTER_NAME,
     LR_CR_SCALAR_VALUE_MASK,
     REGISTER_WORD_VALUE_MASK,
 )
+
+# -- input validation ------------------------------------------------------
+# Real exceptions, not ``assert``: these checks must hold under ``python -O``.
+# Without them a negative index addresses the end of the backing bytearray and
+# a wrong-length slice assignment resizes a register's storage.
+
+
+def _check_index(name: str, index: int, count: int, *, unit: str | None = None) -> None:
+    if not 0 <= index < count:
+        bound = f"{count} {unit}" if unit else f"count={count}"
+        raise RegisterIndexError(f"{name}[{index}] out of range ({bound})")
+
+
+def _check_size(name: str, data: bytes | bytearray, size: int) -> None:
+    if len(data) != size:
+        raise RegisterSizeError(f"{name}: expected {size} bytes, got {len(data)}")
+
+
+def _check_scalar(name: str, desc: RegDescriptor) -> None:
+    if desc.is_vector:
+        raise RegisterKindError(f"{name} is not a scalar register")
+
+
+#: ``fn(name, start, size)``: register *name* bytes ``[start, start+size)`` may change.
+RegisterObserver = Callable[[str, int, int], None]
+
+
+class RegFileReader(Protocol):
+    """The read-only face of a :class:`RegFile`: what an observer may call on a
+    snapshot (``Cycle.snapshot``). Nothing here writes or forgets provenance."""
+
+    def view(self, name: str) -> memoryview: ...
+
+    def raw_readonly(self, name: str) -> bytes: ...
+
+    def has_constant_ones(self, name: str, start: int, size: int) -> bool: ...
+
+    def get_lr(self, index: int) -> int: ...
+
+    def get_cr(self, index: int) -> int: ...
+
+
+def _remover(owner, fn: Callable) -> Callable[[], None]:
+    """A function that detaches *fn* from *owner*. It holds *owner* weakly, so
+    an observer that keeps its remover does not form a reference cycle."""
+    ref = weakref.ref(owner)
+
+    def remove() -> None:
+        target = ref()
+        if target is not None:
+            target._observers = _without(target._observers, fn)
+
+    return remove
+
+
+def _without(observers: tuple, fn: Callable) -> tuple:
+    """*observers* with the first occurrence of *fn* removed (if any)."""
+    for i, observer in enumerate(observers):
+        if observer is fn:
+            return observers[:i] + observers[i + 1 :]
+    return observers
 
 
 class RegFile:
@@ -56,7 +125,7 @@ class RegFile:
         self._alias_map: dict[str, str] = {}  # alias -> canonical name
         self._constant_one_bytes: dict[str, int] = {}
         self._mutable_exports: set[str] = set()
-        self._profile_observer = None
+        self._observers: tuple[RegisterObserver, ...] = ()
 
         for desc in self._schema:
             total = desc.size_bytes * desc.count
@@ -65,7 +134,7 @@ class RegFile:
             # register aliases
             for alias in desc.debug_aliases:
                 self._alias_map[alias] = desc.name
-        
+
         # Attach dynamically generated accessor methods
         # (eliminates duplication between REGISTER_DEFINITIONS and hard-coded methods).
         # The default schema attaches them to the class once; only a custom
@@ -86,27 +155,85 @@ class RegFile:
         # R_MASK defaults to all-ones: bit=1 means lane active, bit=0 means deactivated.
         self._storage["r_mask"][:] = b"\xff" * len(self._storage["r_mask"])
 
+    # -- observers ----------------------------------------------------------
+
+    def add_observer(self, fn: RegisterObserver) -> Callable[[], None]:
+        """Call ``fn(name, start, size)`` whenever a register range may change.
+
+        ``name`` is the canonical register name and ``start``/``size`` the
+        byte range written (the whole register for a mutable export). Returns
+        a function that detaches ``fn``; calling it twice is harmless.
+        """
+        self._observers = self._observers + (fn,)
+        return _remover(self, fn)
+
     # -- helpers ------------------------------------------------------------
 
     def _resolve(self, name: str) -> str:
         """Resolve an alias to the canonical register name."""
         return self._alias_map.get(name, name)
 
-    def _desc(self, name: str) -> RegDescriptor:
-        canon = self._resolve(name)
-        return self._descriptors[canon]
+    def descriptor(self, name: str) -> RegDescriptor:
+        """The descriptor of register *name* (or of the register it aliases)."""
+        return self._descriptors[self._resolve(name)]
 
-    # -- raw byte access ----------------------------------------------------
+    # -- byte access ----------------------------------------------------------
+
+    def view(self, name: str) -> memoryview:
+        """Register *name*'s bytes, read-only: no observer is told, and
+        constant-ones provenance is kept. Writing through it raises ``TypeError``."""
+        return memoryview(self._storage[self._resolve(name)]).toreadonly()
+
+    def packed_bank(self, name: str) -> memoryview:
+        """Scalar register bank *name* (LR or CR) as packed little-endian uint32
+        words, read-only (see :meth:`view`), for ``struct.unpack_from`` reads
+        (the packed operand resolver), so nothing outside this module touches
+        the storage.
+
+        Raises:
+            RegisterKindError: *name* is not a bank of 4-byte scalar registers.
+        """
+        desc = self.descriptor(name)
+        if desc.is_vector or desc.size_bytes != 4:
+            raise RegisterKindError(f"{name} is not a packed bank of uint32 scalar registers")
+        return self.view(name)
+
+    def mutable(self, name: str, start: int = 0, size: int | None = None) -> memoryview:
+        """Bytes ``[start, start+size)`` of register *name* (to its end when
+        *size* is None), writable. Observers are told that exactly that range
+        may change, and its constant-ones provenance is forgotten."""
+        canon = self._resolve(name)
+        storage = self._storage[canon]
+        if size is None:
+            size = len(storage) - start
+        if start < 0 or size < 0 or start + size > len(storage):
+            raise RegisterIndexError(
+                f"{canon}[{start}:{start + size}] out of range ({len(storage)} bytes)"
+            )
+        self._forget_constant_ones(canon, start, size)
+        return memoryview(storage)[start : start + size]
 
     def raw(self, name: str) -> bytearray:
-        """Return the raw ``bytearray`` backing register *name*."""
+        """Return the ``bytearray`` backing register *name*.
+
+        Deprecated: use :meth:`view` to read and :meth:`mutable` to write. The
+        whole buffer escapes, so its provenance is never trusted again.
+        """
+        warnings.warn(
+            "RegFile.raw() is deprecated: use view() to read or mutable() to write",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         canon = self._resolve(name)
         # A mutable escape may be written without going through an accessor.
-        if self._profile_observer is not None:
-            self._profile_observer(canon, 0, len(self._storage[canon]))
-        self._constant_one_bytes.pop(canon, None)
+        self.mutable(canon)
         self._mutable_exports.add(canon)
         return self._storage[canon]
+
+    def has_mutable_export(self, name: str) -> bool:
+        """Whether register *name*'s whole buffer was handed out by :meth:`raw`,
+        so it may change without any observer being told."""
+        return self._resolve(name) in self._mutable_exports
 
     def raw_readonly(self, name: str) -> bytes:
         """Read storage without handing out a mutable alias or losing provenance."""
@@ -115,11 +242,13 @@ class RegFile:
     def mark_constant_ones(self, name: str, start: int, size: int) -> None:
         canon = self._resolve(name)
         if start < 0 or size <= 0 or start + size > len(self._storage[canon]):
-            raise ValueError("constant ONES register range out of bounds")
+            raise RegisterIndexError("constant ONES register range out of bounds")
         # A previously handed-out mutable handle can still overwrite this buffer.
         if canon in self._mutable_exports:
             return
-        self._constant_one_bytes[canon] = self._constant_one_bytes.get(canon, 0) | (((1 << size) - 1) << start)
+        self._constant_one_bytes[canon] = self._constant_one_bytes.get(canon, 0) | (
+            ((1 << size) - 1) << start
+        )
 
     def has_constant_ones(self, name: str, start: int, size: int) -> bool:
         canon = self._resolve(name)
@@ -135,8 +264,8 @@ class RegFile:
         return bits & mask == mask
 
     def _forget_constant_ones(self, name: str, start: int, size: int) -> None:
-        if self._profile_observer is not None:
-            self._profile_observer(name, start, size)
+        for observer in self._observers:
+            observer(name, start, size)
         if name in self._constant_one_bytes:
             self._constant_one_bytes[name] &= ~(((1 << size) - 1) << start)
             if not self._constant_one_bytes[name]:
@@ -148,8 +277,8 @@ class RegFile:
         """Read a 32-bit scalar register (LR / CR) at *index*."""
         canon = self._resolve(name)
         desc = self._descriptors[canon]
-        assert not desc.is_vector, f"{name} is not a scalar register"
-        assert 0 <= index < desc.count, f"{name}[{index}] out of range (count={desc.count})"
+        _check_scalar(name, desc)
+        _check_index(name, index, desc.count)
         offset = index * desc.size_bytes
         return struct.unpack_from("<I", self._storage[canon], offset)[0]
 
@@ -164,8 +293,8 @@ class RegFile:
         """Write a scalar register (LR / CR) at *index*."""
         canon = self._resolve(name)
         desc = self._descriptors[canon]
-        assert not desc.is_vector, f"{name} is not a scalar register"
-        assert 0 <= index < desc.count, f"{name}[{index}] out of range (count={desc.count})"
+        _check_scalar(name, desc)
+        _check_index(name, index, desc.count)
 
         if self._is_read_only_cr(desc, index) and not allow_read_only:
             raise EmulatorError(f"CR{index} is read-only")
@@ -176,6 +305,9 @@ class RegFile:
             value &= REGISTER_WORD_VALUE_MASK
 
         offset = index * desc.size_bytes
+        if self._observers:  # every write is observable (E04-29); free when none
+            for observer in self._observers:
+                observer(canon, offset, desc.size_bytes)
         struct.pack_into("<I", self._storage[canon], offset, value)
 
     def _is_read_only_cr(self, desc: RegDescriptor, index: int) -> bool:
@@ -196,7 +328,7 @@ class RegFile:
         """Read a register element by canonical or alias name."""
         canon = self._resolve(name)
         desc = self._descriptors[canon]
-        assert 0 <= index < desc.count, f"{name}[{index}] out of range"
+        _check_index(name, index, desc.count)
         start = index * desc.size_bytes
         end = start + desc.size_bytes
         return bytearray(self._storage[canon][start:end])
@@ -205,8 +337,8 @@ class RegFile:
         """Write a register element by canonical or alias name."""
         canon = self._resolve(name)
         desc = self._descriptors[canon]
-        assert 0 <= index < desc.count, f"{name}[{index}] out of range"
-        assert len(data) == desc.size_bytes
+        _check_index(name, index, desc.count)
+        _check_size(name, data, desc.size_bytes)
         start = index * desc.size_bytes
         end = start + desc.size_bytes
         self._forget_constant_ones(canon, start, desc.size_bytes)
@@ -233,7 +365,7 @@ class RegFile:
         new._descriptors = self._descriptors
         new._alias_map = self._alias_map
         new._constant_one_bytes = self._constant_one_bytes.copy()
-        new._profile_observer = None
+        new._observers = ()
         new._mutable_exports = set()
         new._storage = {name: bytearray(buf) for name, buf in self._storage.items()}
         if self._schema is not REGFILE_SCHEMA:
@@ -251,11 +383,14 @@ class RegFile:
         file with this layout; the caller is responsible for that.
         """
         dst = other._storage
-        other._constant_one_bytes = {name: bits for name, bits in self._constant_one_bytes.items()
-                                    if name not in other._mutable_exports}
+        other._constant_one_bytes = {
+            name: bits
+            for name, bits in self._constant_one_bytes.items()
+            if name not in other._mutable_exports
+        }
         for name, buf in self._storage.items():
-            if other._profile_observer is not None:
-                other._profile_observer(name, 0, len(buf))
+            for observer in other._observers:
+                observer(name, 0, len(buf))
             dst[name][:] = buf
 
     # -- iteration (for debug / serialisation) ------------------------------
@@ -355,10 +490,12 @@ def _create_accessor_methods(schema: list[RegDescriptor]) -> dict[str, Any]:
 # Scalar accessors  (e.g. get_lr / set_lr)
 # ---------------------------------------------------------------------------
 
+
 def _add_scalar_accessors(methods: dict, name: str) -> None:
     def _make_get(n: str = name):
         def get_val(self, index: int) -> int:
             return self.get_scalar(n, index)
+
         get_val.__name__ = f"get_{n}"
         get_val.__doc__ = f"Get {n}[index] as a 32-bit integer."
         return get_val
@@ -366,6 +503,7 @@ def _add_scalar_accessors(methods: dict, name: str) -> None:
     def _make_set(n: str = name):
         def set_val(self, index: int, value: int) -> None:
             self.set_scalar(n, index, value)
+
         set_val.__name__ = f"set_{n}"
         set_val.__doc__ = f"Set {n}[index] = value (32-bit)."
         return set_val
@@ -379,19 +517,22 @@ def _add_scalar_accessors(methods: dict, name: str) -> None:
 #                                  or  get_r_acc_bytes / set_r_acc_bytes)
 # ---------------------------------------------------------------------------
 
+
 def _add_blob_accessors(methods: dict, name: str, size: int, *, suffix: str) -> None:
     def _make_get(n: str = name, sz: int = size):
         def get_blob(self) -> bytearray:
             return bytearray(self._storage[n])
+
         get_blob.__name__ = f"get_{n}{suffix}"
         get_blob.__doc__ = f"Return a copy of {n} ({sz} bytes)."
         return get_blob
 
     def _make_set(n: str = name, sz: int = size):
         def set_blob(self, data: bytes | bytearray) -> None:
-            assert len(data) == sz, f"{n}: expected {sz} bytes, got {len(data)}"
+            _check_size(n, data, sz)
             self._forget_constant_ones(n, 0, sz)
             self._storage[n][:] = data
+
         set_blob.__name__ = f"set_{n}{suffix}"
         set_blob.__doc__ = f"Set {n} ({sz} bytes)."
         return set_blob
@@ -404,25 +545,26 @@ def _add_blob_accessors(methods: dict, name: str, size: int, *, suffix: str) -> 
 # Multi-element indexed blob accessors  (e.g. get_r / set_r)
 # ---------------------------------------------------------------------------
 
-def _add_indexed_vector_accessors(
-    methods: dict, name: str, count: int, elem_size: int
-) -> None:
+
+def _add_indexed_vector_accessors(methods: dict, name: str, count: int, elem_size: int) -> None:
     def _make_get(n: str = name, cnt: int = count, esz: int = elem_size):
         def get_elem(self, index: int) -> bytearray:
-            assert 0 <= index < cnt, f"{n}[{index}] out of range (count={cnt})"
+            _check_index(n, index, cnt)
             start = index * esz
             return bytearray(self._storage[n][start : start + esz])
+
         get_elem.__name__ = f"get_{n}"
         get_elem.__doc__ = f"Get {n}[index] ({esz} bytes, {cnt} elements)."
         return get_elem
 
     def _make_set(n: str = name, cnt: int = count, esz: int = elem_size):
         def set_elem(self, index: int, data: bytes | bytearray) -> None:
-            assert 0 <= index < cnt, f"{n}[{index}] out of range (count={cnt})"
-            assert len(data) == esz, f"{n}: expected {esz} bytes, got {len(data)}"
+            _check_index(n, index, cnt)
+            _check_size(n, data, esz)
             start = index * esz
             self._forget_constant_ones(n, start, esz)
             self._storage[n][start : start + esz] = data
+
         set_elem.__name__ = f"set_{n}"
         set_elem.__doc__ = f"Set {n}[index] ({esz} bytes, {cnt} elements)."
         return set_elem
@@ -434,6 +576,7 @@ def _add_indexed_vector_accessors(
 # ---------------------------------------------------------------------------
 # Cyclic (wrapping) accessors  (e.g. get_r_cyclic_at / set_r_cyclic_at)
 # ---------------------------------------------------------------------------
+
 
 def _add_cyclic_accessors(methods: dict, name: str, total_size: int) -> None:
     """Generate wrapping get/set accessors for a cyclic register.
@@ -450,8 +593,9 @@ def _add_cyclic_accessors(methods: dict, name: str, total_size: int) -> None:
     (``total_size``), which is now always the right answer -- nothing in
     ``src/`` overrides it.
     """
+
     def _make_get(n: str = name, default_sz: int = total_size):
-        def get_at(self, start_idx: int, length: int = 128, wrap_size: int | None = None) -> bytearray:
+        def get_at(self, start_idx: int, length: int, wrap_size: int | None = None) -> bytearray:
             buf = self._storage[n]
             sz = default_sz if wrap_size is None else wrap_size
             start_idx %= sz
@@ -460,6 +604,7 @@ def _add_cyclic_accessors(methods: dict, name: str, total_size: int) -> None:
             first = buf[start_idx:sz]
             second = buf[: length - len(first)]
             return bytearray(first + second)
+
         get_at.__name__ = f"get_{n}_at"
         get_at.__doc__ = (
             f"Read *length* bytes from {n} starting at *start_idx*, wrapping at "
@@ -468,7 +613,9 @@ def _add_cyclic_accessors(methods: dict, name: str, total_size: int) -> None:
         return get_at
 
     def _make_set(n: str = name, default_sz: int = total_size):
-        def set_at(self, start_idx: int, data: bytes | bytearray, wrap_size: int | None = None) -> None:
+        def set_at(
+            self, start_idx: int, data: bytes | bytearray, wrap_size: int | None = None
+        ) -> None:
             buf = self._storage[n]
             sz = default_sz if wrap_size is None else wrap_size
             start_idx %= sz
@@ -483,6 +630,7 @@ def _add_cyclic_accessors(methods: dict, name: str, total_size: int) -> None:
                 first_len = sz - start_idx
                 buf[start_idx : start_idx + first_len] = data[:first_len]
                 buf[: length - first_len] = data[first_len:]
+
         set_at.__name__ = f"set_{n}_at"
         set_at.__doc__ = (
             f"Write *data* into {n} at *start_idx*, wrapping at *wrap_size* "
@@ -498,31 +646,41 @@ def _add_cyclic_accessors(methods: dict, name: str, total_size: int) -> None:
 # Word-view accessors  (e.g. get_r_acc_words / get_r_acc_word / set_r_acc_word)
 # ---------------------------------------------------------------------------
 
+
 def _add_word_view_accessors(methods: dict, name: str, size: int) -> None:
     n_words = size // 4
 
     def _make_get_words(n: str = name):
         def get_words(self) -> np.ndarray:
-            if self._profile_observer is not None:
-                self._profile_observer(n, 0, len(self._storage[n]))
-            self._constant_one_bytes.pop(n, None)
-            self._mutable_exports.add(n)
-            return np.frombuffer(self._storage[n], dtype=np.uint32)
+            return np.frombuffer(self.view(n), dtype=np.uint32)
+
         get_words.__name__ = f"get_{n}_words"
-        get_words.__doc__ = f"View {n} as uint32 words ({n_words} words)."
+        get_words.__doc__ = f"View {n} as uint32 words ({n_words} words), read-only."
         return get_words
+
+    def _make_set_words(n: str = name, nw: int = n_words):
+        def set_words(self, words) -> None:
+            data = np.asarray(words, dtype=np.uint32)
+            if data.shape != (nw,):
+                raise RegisterSizeError(f"{n}: expected {nw} words, got {data.size}")
+            self.mutable(n)[:] = data.astype("<u4").tobytes()
+
+        set_words.__name__ = f"set_{n}_words"
+        set_words.__doc__ = f"Set all of {n} from {n_words} uint32 words."
+        return set_words
 
     def _make_get_word(n: str = name, nw: int = n_words):
         def get_word(self, index: int) -> int:
-            assert 0 <= index < nw, f"{n} word[{index}] out of range ({nw} words)"
+            _check_index(f"{n} word", index, nw, unit="words")
             return struct.unpack_from("<I", self._storage[n], index * 4)[0]
+
         get_word.__name__ = f"get_{n}_word"
         get_word.__doc__ = f"Get one uint32 word from {n}."
         return get_word
 
     def _make_set_word(n: str = name, nw: int = n_words):
         def set_word(self, index: int, value: int) -> None:
-            assert 0 <= index < nw, f"{n} word[{index}] out of range ({nw} words)"
+            _check_index(f"{n} word", index, nw, unit="words")
             self._forget_constant_ones(n, index * 4, 4)
             struct.pack_into(
                 "<I",
@@ -530,11 +688,13 @@ def _add_word_view_accessors(methods: dict, name: str, size: int) -> None:
                 index * 4,
                 value & REGISTER_WORD_VALUE_MASK,
             )
+
         set_word.__name__ = f"set_{n}_word"
         set_word.__doc__ = f"Set one uint32 word in {n}."
         return set_word
 
     methods[f"get_{name}_words"] = _make_get_words()
+    methods[f"set_{name}_words"] = _make_set_words()
     methods[f"get_{name}_word"] = _make_get_word()
     methods[f"set_{name}_word"] = _make_set_word()
 
@@ -542,6 +702,7 @@ def _add_word_view_accessors(methods: dict, name: str, size: int) -> None:
 # ---------------------------------------------------------------------------
 # Attach generated accessors to a RegFile instance
 # ---------------------------------------------------------------------------
+
 
 def _attach_dynamic_accessors(regfile_instance: RegFile) -> None:
     """Attach dynamically generated accessor methods to a RegFile instance.

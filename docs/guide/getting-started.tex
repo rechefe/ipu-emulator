@@ -47,7 +47,7 @@
 \setlength{\heavyrulewidth}{1pt}
 \renewcommand{\arraystretch}{1.2}
 \AtBeginEnvironment{tabularx}{\rowcolors{2}{white}{rowbg}}
-\newcommand{\doc}[2]{\href{https://rechefe.github.io/ipu-emulator/#1/}{\textcolor{accent}{#2}}}
+\newcommand{\doc}[2]{\href{https://rechefe.github.io/ipu-emulator/dev/#1/}{\textcolor{accent}{#2}}}
 \definecolor{muted}{HTML}{57606A}
 
 \titleformat{\section}{\LARGE\sffamily\bfseries\color{accent}}{\thesection}{0.7em}{}
@@ -350,7 +350,7 @@ Slot & Does & Instructions \\
 \texttt{aaq} & activate and quantize \texttt{R\_ACC} into \texttt{POST\_AAQ\_REG} & \texttt{ACTIVATE.QUANTIZE} \\
 \texttt{store} & writes \texttt{POST\_AAQ\_REG} to memory & \texttt{STR\_POST\_AAQ\_REG}; simulation only: \texttt{STR\_ACC\_REG} \\
 \texttt{lr} (three) & LR arithmetic: addresses, counters & \texttt{SET}, \texttt{ADD}, \texttt{SUB}, \texttt{INC}, \texttt{DEC}, \texttt{INCR\_MOD\_POW2}, \texttt{ADDB}, \texttt{ADDBI} \\
-\texttt{cond} & branches & \texttt{BEQ}, \texttt{BNE}, \texttt{BLT}, \texttt{BGE}, \texttt{BR}, \texttt{BKPT} \\
+\texttt{cond} & branches & \texttt{BEQ}, \texttt{BNE}, \texttt{BLT.S}, \texttt{BGE.S}, \texttt{BR}, \texttt{HALT} \\
 \texttt{break} & debugger stops & \texttt{BREAK}, \texttt{BREAK.IFEQ} \\
 \bottomrule
 \end{tabularx}
@@ -368,13 +368,13 @@ The loop of the \texttt{identity} kernel, which copies rows:
 
 \begin{pycode}
 row_loop:
-    LDR_MULT_REG r0 lr1 cr2 ;;          # load:  row CR2+LR1 -> R0
+    LD.MULT r0 lr1 cr2 ;;               # load:  row CR2+LR1 -> R0
     MULT.VE lr0 cr1 0 lr0 cr15 ;        # mult:  R0 x 1.0
     ACC.ADD.FIRST ;;                    # acc:   R_ACC = MULT_RES
     ACTIVATE.QUANTIZE identity cr15 ;   # aaq:   pass through
-    STR_POST_AAQ_REG lr1 cr3 ;;         # store: to row CR3+LR1
+    ST.AAQ lr1 cr3 ;;                   # store: to row CR3+LR1
     ADD lr1 lr1 cr1 ;;                  # lr:    next row
-    BLT lr1 cr4 row_loop ;;             # cond:  loop while LR1 < CR4
+    BLT.S lr1 cr4 row_loop ;;           # cond:  loop while LR1 < CR4
 \end{pycode}
 
 Each \texttt{;;} ends an instruction word, so this loop takes five cycles per
@@ -538,7 +538,7 @@ The repository contains the assembler, the emulator and the kernel library:
 src/tools/
   ipu-as-py/             assembler (.asm -> .bin)
   ipu-emu-py/            emulator (runs a .bin cycle by cycle)
-  ipu-common/            instruction set definition shared by both
+  ipu-isa/            instruction set definition shared by both
   ipu-apps/              kernel library
     src/ipu_apps/
       kernel_registry/   finds kernels, runs cases, command-line tools
@@ -596,7 +596,7 @@ Target & What it does \\
 
 With no arguments, \texttt{query} lists every operation and every kernel. The
 \doc{kernels}{Kernels} pages describe each family, and
-\doc{app-coverage}{Application Coverage} explains how the registry picks a kernel.
+\doc{explanation/kernel-coverage}{Kernel Coverage} explains how the registry picks a kernel.
 
 \begin{termcmdtop}
 $ bazel run //src/tools/ipu-apps:query
@@ -606,7 +606,7 @@ Operations: attn_scores_km, attn_v, attn_v_bcast, channel_peak, concat, conv2d, 
 Kernels:    89
 
 ## conv2d
-- **conv1x1** -- `ipu_apps.kernels.convolutions.conv1x1.app`
+- **conv_universal** -- `ipu_apps.kernels.convolutions.conv_universal.app`
 ...
 \end{termout}
 
@@ -651,7 +651,7 @@ $ bazel run //src/tools/ipu-apps:query -- conv2d in_channels=32 out_channels=32 
     has_bias=False apply_relu=False height=64 width=64
 \end{termcmdtop}
 \begin{termout}
-NOT SUPPORTED: no conv2d kernel covers this query -- conv1x1, conv3x3_relu, conv3x3_relu_cin1: needs parameter(s) 'shape', 'activation', which this query does not carry; conv_first_layer, conv_universal, conv_universal_bn_activation, conv_universal_wide384, depthwise_conv_stride2_128, depthwise_conv_stride2_16, depthwise_conv_stride2_narrow, depthwise_conv_universal, depthwise_conv_universal_bn_activation: handles only kernel_size=3; got 5; pointwise_conv_unified, pointwise_conv_unified_bn_activation: handles only kernel_size=1 (pointwise); got 5
+NOT SUPPORTED: no conv2d kernel covers this query -- conv_universal, conv_universal_wide384, depthwise_conv_stride2_128, depthwise_conv_stride2_16, depthwise_conv_stride2_narrow, depthwise_conv_universal: handles only kernel_size=3; got 5
 \end{termout}
 
 \subsection{Sweep a parameter: \texttt{--sweep}}
@@ -746,6 +746,7 @@ options:
   --case CASE           named case (default: default)
   --list-cases          list cases without running
   --max-cycles MAX_CYCLES
+                        the cycle limit for this run (default: the case's)
   --profile-aliases     collect full ISA alias measurements
   --alias-report ALIAS_REPORT
                         write full ISA measurements as JSON (enables
@@ -851,9 +852,8 @@ A whole family:
 $ bazel test //src/tools/ipu-apps:convolutions
 \end{termcmdtop}
 \begin{termout}
-//src/tools/ipu-apps:conv1x1                                             PASSED in 19.2s
 ...
-//src/tools/ipu-apps:pointwise_conv_unified_bn_activation                PASSED in 33.7s
+//src/tools/ipu-apps:depthwise_conv_universal                            PASSED in 33.7s
 
 Test cases: finished with 133 passing, 0 skipped and 0 failing out of 133 test cases
 Executed 15 out of 15 tests: 15 tests pass.
@@ -866,14 +866,15 @@ adapter).
 Other scopes:
 
 \begin{termcmd}
-$ bazel test //src/tools/ipu-apps:test_seam_pipeline_boundaries   # one multi-kernel test
-$ bazel test //...                                                # everything
+$ bazel test //kernels/mobilevit:tests   # the multi-kernel seams
+$ bazel test //...                        # everything
 \end{termcmd}
 
-Tests under \texttt{src/tools/ipu-apps/test/mobilevit/} run several kernels in a
-row on shared memory. The \texttt{test\_full\_*} ones run a whole transformer
-layer and take hours, so \texttt{bazel test //...} skips them; run them by
-name, picking a variant with \texttt{--test\_arg}:
+The seams in \texttt{kernels/mobilevit/} run several kernels in a row on one
+model (an \texttt{ipu\_harness} chain). The \texttt{test\_full\_*} tests under
+\texttt{src/tools/ipu-apps/test/mobilevit/} run a whole transformer layer on
+the old harnesses and take hours, so \texttt{bazel test //...} skips them;
+run them by name, picking a variant with \texttt{--test\_arg}:
 
 \begin{termcmd}
 $ bazel test //src/tools/ipu-apps:test_full_layer_l5 --test_arg=-k \
@@ -957,7 +958,7 @@ Tab & Shows \\
 Press \texttt{2} to focus the Instructions pane, move the cursor with the arrow
 keys, and press \texttt{F9} to toggle a breakpoint (a red \texttt{B}):
 
-\screenshot{ra_bp.png}{Breakpoint set at PC 8 (\texttt{BLT}, the loop's branch).}
+\screenshot{ra_bp.png}{Breakpoint set at PC 8 (\texttt{BLT.S}, the loop's branch).}
 
 \needspace{0.38\textheight}
 \texttt{F5} continues until a breakpoint:
@@ -973,7 +974,7 @@ stops only when \texttt{LR0} is 5.
 \subsection{Registers and memory}
 
 In a pane, \texttt{Tab} selects the next tab and \texttt{f} cycles the number
-format. Press \texttt{F8} once more (\texttt{BLT} branches back to PC 4), then
+format. Press \texttt{F8} once more (\texttt{BLT.S} branches back to PC 4), then
 focus the pipeline pane (\texttt{1}) and press \texttt{Tab} four times to reach
 R\_ACC:
 
@@ -1050,7 +1051,7 @@ them).
 The IPU instruction set has gaps: there is, for example, no instruction that
 adds two vectors. Kernels fill a gap with a sequence of other instructions ---
 to add two vectors, multiply each by 1.0 and accumulate. Such a sequence is an
-\textbf{alias}. The \doc{isa-alias-catalogue}{ISA Alias Catalogue} lists them as
+\textbf{alias}. The \doc{explanation/isa-idioms}{ISA Idioms} lists them as
 A1--A16; counting them shows which new instructions would help most.
 
 \subsection{Alias counts}
@@ -1216,16 +1217,16 @@ becomes the kernel's name and its Bazel target.
     SET {{lr_row}} cr0 ;;
 
 row_loop:
-    LDR_MULT_REG r0 {{lr_row}} cr2 ;;
+    LD.MULT r0 {{lr_row}} cr2 ;;
     MULT.VE {{lr_zero}} cr1 0 {{lr_zero}} cr15 ;
     ACC.ADD.FIRST ;;
     MULT.VE {{lr_zero}} cr1 0 {{lr_zero}} cr15 ;
     ACC.ADD ;;
     ACTIVATE.QUANTIZE identity cr15 ;
-    STR_POST_AAQ_REG {{lr_row}} cr3 ;;
+    ST.AAQ {{lr_row}} cr3 ;;
     ADD {{lr_row}} {{lr_row}} cr1 ;;
-    BLT {{lr_row}} cr4 row_loop ;;
-    BKPT ;;
+    BLT.S {{lr_row}} cr4 row_loop ;;
+    HALT ;;
 \end{pycode}
 
 \begin{itemize}
@@ -1241,8 +1242,8 @@ row_loop:
 \item \texttt{ACTIVATE.QUANTIZE identity cr15 ; STR\_POST\_AAQ\_REG lr1 cr3 ;;}
   --- pass \texttt{R\_ACC} through unchanged and store it at output row
   \texttt{CR3 + LR1}.
-\item \texttt{ADD ... ;; BLT lr1 cr4 row\_loop ;;} --- next row, loop while
-  \texttt{LR1 < CR4}; \texttt{BKPT ;;} halts.
+\item \texttt{ADD ... ;; BLT.S lr1 cr4 row\_loop ;;} --- next row, loop while
+  \texttt{LR1 < CR4}; \texttt{HALT ;;} halts.
 \end{itemize}
 
 \subsection{Harness and SPEC: \texttt{app.py}}
@@ -1378,12 +1379,12 @@ To measure what an alias would save as a real instruction --- for example an
 
 \begin{enumerate}
 \item Add the instruction to
-  \texttt{src/tools/ipu-common/src/ipu\_common/instruction\_spec.py}. Its
+  \texttt{src/tools/ipu-isa/src/ipu\_isa/instruction\_spec.py}. Its
   opcode comes from its position in the file; never assign one.
-\item Add its handler, \texttt{execute\_<name>}, to
-  \texttt{src/tools/ipu-emu-py/src/ipu\_emu/ipu.py}. Its keyword arguments must
-  be named exactly like the operands in the spec
-  (\doc{adding-instruction}{Adding Instructions} walks through both steps).
+\item Add its handler, \texttt{execute\_<name>}, to its slot's module,
+  \texttt{src/tools/ipu-emu-py/src/ipu\_emu/slots/<slot>.py}. Its keyword
+  arguments must be named exactly like the operands in the spec
+  (\doc{how-to/add-an-instruction}{Add an instruction} walks through every step).
 \item Copy the kernel folder under a new name (folder, \texttt{.asm} file and
   name must match, e.g. \texttt{residual\_add\_addvv/residual\_add\_addvv.asm})
   and replace the stand-in sequence with the new instruction. The copy keeps
@@ -1405,7 +1406,7 @@ For long runs, the emulator can skip work that does not change results (empty
 \needspace{5.9cm}
 instruction slots, masks with every lane enabled). Results --- every register,
 every XMEM byte, the cycle count --- are identical to a normal run; only the
-emulator's own run time changes (details: \doc{prototyping-mode}{Prototyping mode}).
+emulator's own run time changes (details: \doc{explanation/architecture}{Architecture}).
 Enable it with a build flag:
 
 \begin{termcmdtop}
@@ -1491,7 +1492,7 @@ below, \texttt{:<target>} stands for \texttt{//src/tools/ipu-apps:<target>}.
 \texttt{\{\%set a="lr1"\%\}} & Jinja name \\
 \texttt{\{\{a\}\}} & use it \\
 \texttt{BREAK;;} & stop in the debugger \\
-\texttt{BKPT;;} & end of program \\
+\texttt{HALT;;} & end of program \\
 \end{tabular}
 
 \medskip\textbf{\sffamily A kernel folder}\par

@@ -1,0 +1,312 @@
+"""Every documented `ipu-as` command uses only options the CLI declares, and so
+does every documented `bazel run` of a kernel target (an `ipu_apps` one or a
+`//kernels/...` one), `run_kernel`, `trace_case` or `query`.
+
+The options are read from the click command and the argparse parsers
+themselves, so the test follows each CLI as it changes.
+"""
+
+from __future__ import annotations
+
+import argparse
+import contextlib
+import io
+import re
+import shlex
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
+
+import click
+import pytest
+
+from docs.doc_files import doc_files
+from ipu_as.cli import cli
+
+# `ipu-as <sub>` or `ipu-as -- <sub>` (as after `bazel run ...:ipu-as`); not
+# `ipu-as-py` or `ipu-asm`.
+_INVOCATION = re.compile(r"\bipu-as(?![\w-])(?:[ \t]+--)?[ \t]+(?P<rest>[a-z].*)$")
+_SHELL_OPERATORS = {"|", "||", "&&", ";", ">", ">>", "<", "&", "2>&1"}
+
+
+# `bazel run [--flag ...] //label [-- args]`; a `//kernels/...` label may leave
+# out its target name (`//kernels/elementwise/scale`).
+_BAZEL_RUN = re.compile(
+    r"\bbazel run(?:[ \t]+--?[\w=.-]+)*[ \t]+"
+    r"(?P<label>//[\w/.-]+:[\w.-]+|//kernels/[\w/.-]+)(?P<rest>.*)$"
+)
+_APPS = "//src/tools/ipu-apps:"
+#: An ipu_kernel() or registry entry target runs the harness CLI with its
+#: kernel filled in (E06-13, E06-17); //kernels/tools holds migration tools,
+#: not kernels.
+_KERNELS = "//kernels/"
+_KERNEL_TOOLS = "//kernels/tools"
+
+
+@dataclass(frozen=True)
+class Command:
+    path: str
+    line: int
+    argv: list[str]
+
+
+def _logical_lines(path: Path) -> list[tuple[int, str]]:
+    """Lines of `path` with backslash continuations joined, as (1-based line, text)."""
+    result: list[tuple[int, str]] = []
+    pending: tuple[int, str] | None = None
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        start, text = pending if pending else (number, "")
+        if line.rstrip().endswith("\\"):
+            pending = (start, text + line.rstrip()[:-1] + " ")
+            continue
+        result.append((start, text + line))
+        pending = None
+    if pending:
+        result.append(pending)
+    return result
+
+
+def _argv(rest: str) -> list[str]:
+    """The arguments in `rest`, up to an inline code span's end or a shell operator."""
+    rest = rest.split("`", 1)[0]
+    try:
+        tokens = shlex.split(rest, comments=True)
+    except ValueError:  # an unbalanced quote in prose after the command
+        tokens = rest.split()
+    argv = []
+    for token in tokens:
+        if token in _SHELL_OPERATORS:
+            break
+        argv.append(token)
+    return argv
+
+
+def _commands(path: Path) -> list[Command]:
+    commands = []
+    for number, text in _logical_lines(path):
+        match = _INVOCATION.search(text)
+        if match:
+            commands.append(Command(str(path), number, _argv(match.group("rest"))))
+    return commands
+
+
+def _bazel_runs(path: Path) -> list[Command]:
+    """Each `bazel run` in `path`, as the label followed by the arguments after `--`."""
+    runs = []
+    for number, text in _logical_lines(path):
+        match = _BAZEL_RUN.search(text)
+        if not match:
+            continue
+        argv = _argv(match.group("rest"))
+        if argv and argv[0] != "--":  # a Bazel option after the label: no tool arguments
+            argv = []
+        runs.append(Command(str(path), number, [match.group("label"), *argv[1:]]))
+    return runs
+
+
+def _options_by_flag(command: click.Command) -> dict[str, click.Option]:
+    """Each option's flags (`--json`, `--text`, ...) mapped to the option."""
+    options: dict[str, click.Option] = {}
+    for param in command.params:
+        if isinstance(param, click.Option):
+            for opt in (*param.opts, *param.secondary_opts):
+                options[opt] = param
+    return options
+
+
+def _check_given(command: click.Command, args: list[str]) -> tuple[list[str], set[str]]:
+    """Problems with the arguments in `args`, and the names of the options given."""
+    options = _options_by_flag(command)
+    takes_arguments = any(isinstance(p, click.Argument) for p in command.params)
+    problems: list[str] = []
+    given: set[str] = set()
+    tokens = iter(args)
+    for token in tokens:
+        if not token.startswith("-") or token == "-":
+            if not takes_arguments:
+                problems.append(f"{command.name} takes no positional argument, got {token!r}")
+            continue
+        opt, eq, value = token.partition("=")
+        param = options.get(opt)
+        if param is None:
+            problems.append(f"{command.name} has no option {opt}")
+            continue
+        given.add(param.name)
+        if param.is_flag or param.count:
+            continue
+        if not eq:
+            value = next(tokens, None)
+            if value is None:
+                problems.append(f"{opt} needs a value")
+                continue
+        if isinstance(param.type, click.Choice) and value not in param.type.choices:
+            problems.append(f"{opt} {value!r} is not one of {', '.join(param.type.choices)}")
+    return problems, given
+
+
+def _check_missing(command: click.Command, given: set[str]) -> list[str]:
+    """Problems with the options `given` leaves out: required ones, and ones that prompt."""
+    problems = []
+    for param in command.params:
+        if not isinstance(param, click.Option) or param.name in given:
+            continue
+        if param.required:
+            problems.append(f"missing required option {param.opts[0]}")
+        elif param.prompt:
+            problems.append(f"{param.opts[0]} is not given, so the command prompts for it")
+    return problems
+
+
+def check_command(argv: list[str]) -> list[str]:
+    """Problems with running `ipu-as` with `argv` non-interactively; empty when it would run."""
+    if not argv:
+        return ["no subcommand"]
+    name, *args = argv
+    command = cli.commands.get(name) if isinstance(cli, click.Group) else None
+    if command is None:
+        return [f"unknown subcommand {name!r} (have: {', '.join(sorted(cli.commands))})"]
+    if "--help" in args:
+        return []
+    problems, given = _check_given(command, args)
+    return problems + _check_missing(command, given)
+
+
+def _parse(parser: argparse.ArgumentParser, args: list[str]) -> list[str]:
+    """argparse's complaint about `args`, or nothing when `parser` accepts them."""
+    errors = io.StringIO()
+    try:
+        with contextlib.redirect_stderr(errors):
+            parser.parse_args(args)
+    except SystemExit:
+        return [errors.getvalue().strip().splitlines()[-1]]
+    return []
+
+
+def _kernel_names() -> set[str]:
+    from ipu_apps.kernel_registry import registry
+
+    registry.load()
+    return {spec.name for spec in registry.kernels()}
+
+
+def _check_kernel_target(kernel: str, args: list[str]) -> list[str]:
+    from ipu_apps.kernel_registry.cases import load_cases
+    from ipu_apps.kernel_registry.runner import build_parser
+
+    selected, _ = build_parser().parse_known_args(args)
+    cases = load_cases(kernel)
+    if selected.case not in cases:
+        return [f"{kernel} has no case {selected.case!r} (have: {', '.join(cases)})"]
+    return _parse(build_parser(cases[selected.case]), ["--kernel", kernel, *args])
+
+
+def _tool_parsers() -> dict[str, Callable[[], argparse.ArgumentParser]]:
+    from ipu_apps.kernel_registry import query, trace_case
+    from ipu_harness import cli as run_kernel
+
+    return {
+        "//src/tools/ipu-harness:run_kernel": run_kernel.build_parser,
+        _APPS + "trace_case": trace_case.build_parser,
+        _APPS + "query": query.build_parser,
+    }
+
+
+def check_bazel_run(label: str, args: list[str]) -> list[str] | None:
+    """Problems with `bazel run label -- args`; None for a label this test does not know."""
+    args = [a for a in args if a != "..."]  # a placeholder for "your options"
+    if "--help" in args or "-h" in args:
+        return []
+    parsers = _tool_parsers()
+    if label in parsers:
+        return _parse(parsers[label](), args)
+    if label.startswith(_APPS) and label.removeprefix(_APPS) in _kernel_names():
+        return _check_kernel_target(label.removeprefix(_APPS), args)
+    if label.startswith(_KERNELS) and not label.startswith(_KERNEL_TOOLS):
+        return _parse(parsers["//src/tools/ipu-harness:run_kernel"](), ["kernel", *args])
+    return None
+
+
+def _cases() -> list:
+    cases = []
+    for path in doc_files():
+        for command in _commands(path):
+            case_id = f"{command.path}:{command.line}"
+            cases.append(pytest.param(command, id=case_id))
+    return cases
+
+
+def _run_cases() -> list:
+    return [
+        pytest.param(command, id=f"{command.path}:{command.line}")
+        for path in doc_files()
+        for command in _bazel_runs(path)
+    ]
+
+
+@pytest.mark.parametrize("command", _cases())
+def test_documented_command_runs(command: Command) -> None:
+    problems = check_command(command.argv)
+    assert not problems, f"{command.path}:{command.line}: " + "; ".join(problems)
+
+
+@pytest.mark.parametrize("command", _run_cases())
+def test_documented_bazel_run_parses(command: Command) -> None:
+    label, *args = command.argv
+    problems = check_bazel_run(label, args)
+    assert not problems, f"{command.path}:{command.line}: " + "; ".join(problems)
+
+
+def test_bazel_runs_are_found() -> None:
+    # Guards the scan: the CLI reference runs every argparse tool it documents.
+    labels = {c.argv[0] for c in _bazel_runs(Path("docs/content/reference/cli.md"))}
+    assert set(_tool_parsers()) <= labels
+    assert _APPS + "softmax_rows" in labels
+
+
+@pytest.mark.parametrize(
+    ("label", "args", "problem"),
+    [
+        ("//src/tools/ipu-harness:run_kernel", ["k", "--inputs", "x=a.npy"], "unrecognized"),
+        ("//src/tools/ipu-harness:run_kernel", ["--case", "default"], "required: kernel"),
+        (_APPS + "trace_case", ["identity", "--trace", "t.jsonl"], "--context"),
+        (_APPS + "identity", ["--rows", "two"], "invalid int value"),
+        (_APPS + "identity", ["--case", "nope"], "no case 'nope'"),
+        (_APPS + "identity", ["--columns", "3"], "unrecognized"),
+        ("//kernels/elementwise/scale", ["--rows", "3"], "unrecognized"),
+    ],
+)
+def test_check_bazel_run_rejects(label: str, args: list[str], problem: str) -> None:
+    assert any(problem in p for p in check_bazel_run(label, args) or [])
+
+
+def test_check_bazel_run_accepts() -> None:
+    assert check_bazel_run(_APPS + "identity", ["--case", "single_row", "--rows", "2"]) == []
+    assert check_bazel_run(_APPS + "query", ["softmax", "shape=8,n", "--sweep", "n=1..9"]) == []
+    assert check_bazel_run("//tools:ruff", ["check", "--fix"]) is None
+    assert check_bazel_run("//kernels/elementwise/scale", ["--case", "one_row", "--debug"]) == []
+
+
+def test_commands_are_found() -> None:
+    # Guards the scan itself: CLAUDE.md documents at least one assemble command.
+    assert any(c.argv[:1] == ["assemble"] for c in _commands(Path("CLAUDE.md")))
+
+
+@pytest.mark.parametrize(
+    ("argv", "problem"),
+    [
+        (["assemble", "--input", "a", "--output", "b", "--format", "hex"], "not one of"),
+        (["assemble", "--input", "a", "--format", "bin"], "missing required option --output"),
+        (["assemble", "--input", "a", "--output", "b", "--defines", "X=1"], "no option --defines"),
+        (["assemble", "--input", "a", "--output", "b", "--format", "bin", "x"], "positional"),
+        (["link"], "unknown subcommand"),
+    ],
+)
+def test_check_command_rejects(argv: list[str], problem: str) -> None:
+    assert any(problem in p for p in check_command(argv))
+
+
+def test_check_command_accepts() -> None:
+    argv = ["assemble", "--input", "a", "--output", "b", "--format=bin"]
+    assert check_command(argv) == []
+    argv = ["assemble", "--input", "a", "--output", "b.bin", "--define", "rows=8", "-I", "lib"]
+    assert check_command(argv) == []

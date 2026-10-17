@@ -120,7 +120,7 @@ Total: 8 bits used (`[7:0]`); `[131:8]` is don't-care.
 
 | Bits | Field | Description |
 |---|---|---|
-| `[6:0]` | `dest_slot` | CTRL-resolved **snapshot** value of the `dest_slot` `LrIdx` operand, truncated to its low 7 bits — `dest_slot % 128` is exactly those 7 bits since 128 is a power of 2. Range 0–127, directly addressing an `R_ACC` word. |
+| `[6:0]` | `dest_slot` | CTRL-resolved **post-LR-write** value of the `dest_slot` `LrIdx` operand, truncated to its low 7 bits — `dest_slot % 128` is exactly those 7 bits since 128 is a power of 2. Range 0–127, directly addressing an `R_ACC` word. |
 | `[14:7]` | `valid_elements` | The `valid_elements` field CTRL decodes out of the `cr_idx` `DstructureCrIdx` operand's `CR` register (8 bits, range 0–128); ACC clamps it to `min(valid_elements, 128)` itself. |
 
 Total: 15 bits used (`[14:0]`); `[131:15]` is don't-care.
@@ -129,8 +129,8 @@ Total: 15 bits used (`[14:0]`); `[131:15]` is don't-care.
 
 | Bits | Field | Description |
 |---|---|---|
-| `[63:0]` | `source` | CTRL-resolved **snapshot** value of the `source` `LrdIdx` operand — the concatenated `LR(n+1):LR(n)` pair, read as 8 byte elements (`source[0..7]`), each a `MULT_RES` word index. |
-| `[127:64]` | `dest` | CTRL-resolved **snapshot** value of the `dest` `LrdIdx` operand — the concatenated `LR(n+1):LR(n)` pair, read as 8 byte elements (`dest[0..7]`), each an `R_ACC` word index. |
+| `[63:0]` | `source` | CTRL-resolved **post-LR-write** value of the `source` `LrdIdx` operand — the concatenated `LR(n+1):LR(n)` pair, read as 8 byte elements (`source[0..7]`), each a `MULT_RES` word index. |
+| `[127:64]` | `dest` | CTRL-resolved **post-LR-write** value of the `dest` `LrdIdx` operand — the concatenated `LR(n+1):LR(n)` pair, read as 8 byte elements (`dest[0..7]`), each an `R_ACC` word index. |
 | `[131:128]` | `reshape_mask` | CTRL-resolved value of the `reshape_mask` `LrOrReshapeMaskImmediate` operand: the immediate value if the encoded field is `< RESHAPE_MASK_LR_OFFSET` (8), otherwise the value of `LR[encoded − RESHAPE_MASK_LR_OFFSET]`. Field width is derived from the shared union field at assembler-build time (currently 4 bits); ACC raises an error if this resolved value exceeds `RESHAPE_ELEMENT_COUNT` (8) rather than clamping it. |
 
 Total: 132 bits used (`[131:0]`) — the widest opcode, so it sets the
@@ -183,10 +183,9 @@ buffer's overall width.
   the Control Stage spec, §9).
 - `ACC.RESHAPE` scatters `MULT_RES` elements into `R_ACC` at LR-pair-selected
   indices, rather than reducing `MULT_RES` elementwise or aggregating them.
-  All of its reads come from the pre-instruction `MULT_RES` snapshot, so
-  scattered elements do not chain within one instruction (an element whose
-  destination equals another element's source resolves to the
-  pre-instruction value). A participating `source[i]`/`dest[i]` outside
+  Like every other ACC-stage operation it reads this cycle's `MULT_RES`
+  (the `mult_res` input, §3.1): a `MULT.*` in the same instruction word is
+  the product it scatters. A participating `source[i]`/`dest[i]` outside
   `[0, 127]`, or a resolved `reshape_mask` greater than `RESHAPE_ELEMENT_COUNT`
   (8), raises an error rather than being silently skipped or clamped.
 
@@ -194,9 +193,9 @@ buffer's overall width.
 
 The opcode enum (`acc_inst_opcode_t`, package `ipu_instr_pkg`) is generated
 from
-[`instruction_spec.py`](../../../src/tools/ipu-common/src/ipu_common/instruction_spec.py)
+[`instruction_spec.py`](../../../src/tools/ipu-isa/src/ipu_isa/instruction_spec.py)
 by
-[`gen_codegen.py`](../../../src/tools/ipu-as-py/src/ipu_as/gen_codegen.py).
+[`sv_package.py`](../../../src/tools/ipu-gen/src/ipu_gen/sv_package.py).
 Per the project's opcode-derivation rule, opcode = position within the
 `"acc"` slot dict — the table below lists mnemonics in that exact order.
 
@@ -305,7 +304,7 @@ Per the project's opcode-derivation rule, opcode = position within the
 - **Summary:** Sum active `MULT_RES` elements and write the result into `R_ACC` at the slot given by `LR[dest_slot]`. The current value at the destination slot is **not** included (clean initialization).
 - **Syntax:** `AGG.SUM.FIRST dest_slot, cr_idx`
 - **Operands:**
-  - `dest_slot`: `LR0`–`LR15` (`LrIdx`, snapshot value) — its value gives the destination slot in `R_ACC` (0–127).
+  - `dest_slot`: `LR0`–`LR15` (`LrIdx`, post-LR-write value) — its value gives the destination slot in `R_ACC` (0–127).
   - `cr_idx`: `CR0`–`CR15` (`DstructureCrIdx`, must be given explicitly) — supplies `valid_elements`.
 - **Operation:**
   ```text
@@ -360,12 +359,12 @@ Per the project's opcode-derivation rule, opcode = position within the
 - **Summary:** Scatter `MULT_RES` elements into `R_ACC`: for each of the trailing `(8 - reshape_mask)` byte elements of the `source`/`dest` `LRDn` pairs (indices `reshape_mask..7`), copy `MULT_RES[source[i]]` to `R_ACC[dest[i]]`.
 - **Syntax:** `ACC.RESHAPE source, dest, reshape_mask`
 - **Operands:**
-  - `source`: `LRD0`, `LRD2`, …, `LRD14` (`LrdIdx`, snapshot value) — read as `source[0..7]`, 8 byte elements, each a `MULT_RES` word index.
-  - `dest`: `LRD0`, `LRD2`, …, `LRD14` (`LrdIdx`, snapshot value) — read as `dest[0..7]`, 8 byte elements, each an `R_ACC` word index.
+  - `source`: `LRD0`, `LRD2`, …, `LRD14` (`LrdIdx`, post-LR-write value) — read as `source[0..7]`, 8 byte elements, each a `MULT_RES` word index.
+  - `dest`: `LRD0`, `LRD2`, …, `LRD14` (`LrdIdx`, post-LR-write value) — read as `dest[0..7]`, 8 byte elements, each an `R_ACC` word index.
   - `reshape_mask`: immediate 0–7 or an LR register (`LrOrReshapeMaskImmediate`) — selects the first participating element index; elements `reshape_mask..7` participate (`reshape_mask = 0` uses all 8, `reshape_mask = 7` uses only element 7, `reshape_mask = 8` uses none). When an LR is given, its value is used directly as the mask (not truncated).
 - **Operation:**
   ```text
-  mult_res = MULT_RES   // pre-instruction snapshot
+  mult_res = MULT_RES   // this cycle's MULT result
   mask = reshape_mask if immediate else LR[reshape_mask]
   if mask > 8: raise error
   for i in mask..7:
