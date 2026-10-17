@@ -143,6 +143,40 @@ def test_step_records_equal_the_records_of_a_run(tmp_path):
     assert all(isinstance(r, CommitRecord) for r in records)
 
 
+def test_a_faulting_run_traces_the_records_of_its_steps(tmp_path):
+    stepped = _model("INC LR0 1 ;;\n" + FAULT)
+    records = [stepped.step(), stepped.step()]
+    path = tmp_path / "t.jsonl"
+    with TraceWriter(path, {"schema_version": "1.0.0"}) as trace:
+        result = _model("INC LR0 1 ;;\n" + FAULT).run(trace=trace)
+    _, traced = read_trace(path)
+    assert result == RunResult(Status(RunState.FAULTED, 1, FaultId.F3), 1)
+    assert [r.outcome for r in records] == ["retired", "fault"]
+    assert [r.to_json() for r in traced] == [r.to_json() for r in records]
+
+
+def test_a_trace_numbers_its_records_from_zero_and_steps_from_the_load(tmp_path):
+    model = _model()
+    assert [model.step().cycle for _ in range(2)] == [0, 1]
+    path = tmp_path / "t.jsonl"
+    with TraceWriter(path, {"schema_version": "1.0.0"}) as trace:
+        model.run(trace=trace)
+    _, traced = read_trace(path)
+    assert [r.cycle for r in traced] == list(range(10))  # the schema's cycle
+    model.load_program(_words(LOOP))
+    assert model.step().cycle == 0
+    model.reset(ElementFormat.INT8)
+    assert model.step().cycle == 0
+
+
+def test_steps_and_runs_add_up_in_the_cycle_count():
+    model = _model()
+    model.step()
+    model.step()
+    assert model.run().cycles == 10
+    assert model._state.stats.total_cycles == 12  # white-box: no API reads statistics
+
+
 def test_a_program_file_loads_as_its_words():
     model = ReferenceModel()
     model.load_program(pack_program(_words(LOOP)))

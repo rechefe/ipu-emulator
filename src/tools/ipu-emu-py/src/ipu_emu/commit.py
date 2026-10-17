@@ -250,8 +250,13 @@ class CommitCollector:
         return self.records
 
     def take(self) -> list[CommitRecord]:
-        """The records made since the last take, which the collector then
-        forgets; record numbering goes on."""
+        """Hand over the records made since the last take.
+
+        The collector then forgets them; record numbering goes on.
+
+        Returns:
+            The records, oldest first.
+        """
         taken, self.records = self.records, []
         return taken
 

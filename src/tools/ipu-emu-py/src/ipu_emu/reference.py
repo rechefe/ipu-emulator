@@ -26,8 +26,10 @@ Until the steppable engine lands, run control is the emulator's own
 
 from __future__ import annotations
 
+import dataclasses
 import enum
-from collections.abc import Sequence
+import itertools
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 
 from ipu_emu.commit import CommitCollector as _CommitCollector
@@ -262,7 +264,8 @@ class ReferenceModel:
 
         Returns:
             The word's commit record; its ``outcome`` is ``retired``, ``halt``
-            or ``fault`` (never ``break``).
+            or ``fault`` (never ``break``), and its ``cycle`` counts the words
+            since the last :meth:`reset` or :meth:`load_program`.
 
         Raises:
             ConfigurationError: The model is faulted (IPU-FLT-7: reset first),
@@ -290,7 +293,8 @@ class ReferenceModel:
             max_cycles: The cycle limit of this run: ``None`` keeps the
                 model's, 0 disables it.
             trace: Where to write each word's commit record, as it retires;
-                ``None`` keeps none.
+                ``None`` keeps none. Its records number from 0 (the schema's
+                ``cycle``: records before this one in the trace).
 
         Returns:
             The status the run stopped in and the words it retired.
@@ -301,17 +305,18 @@ class ReferenceModel:
         self._steppable()
         clock = _RunClock(self._state, max_cycles)
         clock.begin_run(reset_stats=not self._started)
+        numbering = itertools.count()  # the trace's record numbers
         try:
             while self._state.halt is None:
                 clock.admit()
                 self._ipu.cycle.step(honour_break=False)
                 clock.count_cycle()
-                self._flush(trace)
+                self._flush(trace, numbering)
         except EmulatorFault:
             pass  # the fault is in the last record and in ``status``
         finally:
             clock.end_run()
-            self._flush(trace)
+            self._flush(trace, numbering)
         self._started = True
         return RunResult(self.status, clock.cycles)
 
@@ -334,10 +339,11 @@ class ReferenceModel:
         self._collector.close()
         self._collector = _CommitCollector(self._state)
 
-    def _flush(self, trace: TraceWriter | None) -> None:
+    def _flush(self, trace: TraceWriter | None, numbering: Iterator[int]) -> None:
         records = self._collector.take()
         if trace is not None:
-            trace.write_all(records)
+            for record in records:
+                trace.write(dataclasses.replace(record, cycle=next(numbering)))
 
     def _register(self, name: str, index: int) -> tuple[RegisterDefinition, int]:
         definition = REGISTER_DEFINITIONS.get(name)

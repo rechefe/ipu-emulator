@@ -36,7 +36,9 @@ async def test_lockstep(dut):
 `step()` returns the word's commit record, the same object a run writes to a
 trace; its JSON form follows `ipu_isa/schemas/commit_record.v1.json`. Its
 `outcome` is `retired`, `halt` or `fault`: the model never stops at a `BREAK`
-slot, so `break` does not occur.
+slot, so `break` does not occur. A stepped record's `cycle` counts the words
+since the last `reset()` or `load_program()`; in a trace `run()` writes, it
+counts the trace's records, as the schema says.
 
 To run without comparing each word, `run(max_cycles=None, *, trace=None)`
 steps until a `HALT` word, a fault or the cycle limit. It returns a
