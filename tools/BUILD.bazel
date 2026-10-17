@@ -276,6 +276,7 @@ test_suite(
         "//:ruff",
         "//docs:ruff",
         "//docs/inspector:ruff",
+        "//kernels:lint",
         "//kernels/tools:ruff",
         "//src/tools/ipu-apps:ruff",
         "//src/tools/ipu-as-py:ruff",

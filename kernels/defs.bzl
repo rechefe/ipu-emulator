@@ -18,6 +18,7 @@ declares:
 
 load("@ipu_as_deps//:requirements.bzl", "requirement")
 load("@rules_python//python:defs.bzl", "py_test")
+load("//tools:lint.bzl", "ruff_test")
 
 _ENTRY = "//src/tools/ipu-harness:src/ipu_harness/kernel_test.py"
 _PYTEST_SHIM = "@rules_python_pytest//python_pytest:pytest_shim.py"
@@ -50,6 +51,8 @@ def ipu_kernel(name = None, extra_deps = [], size = "large", shard_count = None)
         requirement("pytest"),
         requirement("torch"),
     ] + extra_deps
+    # The folder's Python (reference.py, test_*.py), in //kernels:lint.
+    ruff_test(name = "ruff", srcs = native.glob(["**/*.py"]))
     for target, tier, target_size, tags in [
         (name, "default", size, []),
         (name + "_nightly", "nightly", "enormous", ["nightly"]),
@@ -100,6 +103,8 @@ def ipu_kernel_tree(kernels):
             "test": label,
             "nightly": label + "_nightly",
         }
+    # :lint: every kernel's ruff_test, listed in //tools:lint.
+    native.test_suite(name = "lint", tests = [_label(k, "ruff") for k in kernels], tags = ["lint"])
     # :<family>: every kernel of the family (the manifest's family suite).
     for family, labels in families.items():
         native.test_suite(name = family, tests = labels, visibility = ["//visibility:public"])
