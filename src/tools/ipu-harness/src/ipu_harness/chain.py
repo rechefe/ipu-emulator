@@ -11,8 +11,14 @@ pack transform and its stored format, must be what the consumer declares, or
 the step fails before it runs.
 
 A step places its own regions by first fit and knows nothing of an earlier
-step's residents but its inputs: a resident the next step does not take may
-be overwritten by it.
+step's residents but its inputs, so a step may overwrite a resident it does
+not take. The chain keeps track: a resident whose rows a later step wrote (or
+any resident, after a step that raised) is stale, and passing it fails.
+
+Only XMEM is the chain's state. A step's registers start as the step before
+left them, as on the hardware: ``load_program`` resets the PC, and the step
+writes only its ``[abi]`` registers and CR15; LRs, the vector registers, the
+accumulator and the flags carry over.
 
     chain = Chain(ElementFormat.INT8)
     first = chain.run(scale, {"rows": 2, "s": 2.0}, {"x": x})
@@ -33,6 +39,7 @@ from ipu_harness.cases import Case, checked_input
 from ipu_harness.manifest import CaseDecl, KernelManifest
 from ipu_harness.packing import stored_format, stored_rows
 from ipu_harness.params import CasePlan, plan_case
+from ipu_harness.placement import Region
 from ipu_harness.registry import default_registry
 from ipu_harness.runner import RunOptions, RunResult, SharedModel, run_kernel
 from ipu_isa.formats import ElementFormat
@@ -53,12 +60,26 @@ class Resident:
         pack: The pack transform it was written with (``None``: none).
         format: The element format of its stored elements (an accumulator
             output's is FP32 or INT32).
+        step: The chain step that wrote it (0 for the first), so a later
+            step's output in the same rows is a different tensor.
     """
 
     base_row: int
     rows: int
     pack: str | None
     format: ElementFormat
+    step: int = 0
+
+    def __post_init__(self) -> None:
+        if self.base_row < 0 or self.rows < 1:
+            raise ConfigurationError(
+                f"a resident tensor starts at a row >= 0 and has rows >= 1, "
+                f"not row {self.base_row}, {self.rows} rows"
+            )
+
+    def overlaps(self, region: Region) -> bool:
+        """Whether ``region`` shares a row with this tensor."""
+        return region.base_row < self.base_row + self.rows and self.base_row < region.end_row
 
 
 @dataclass(frozen=True)
@@ -96,6 +117,7 @@ class Chain:
         self.model = ReferenceModel(fmt)
         self._cache = AssemblyCache()
         self._steps = 0
+        self._live: set[Resident] = set()
 
     def _step_options(self) -> RunOptions:
         """The options of the next step: its own trace and output files."""
@@ -137,7 +159,8 @@ class Chain:
             ConfigurationError: An input is missing or names no input; an
                 array input is not finite numbers of its shape; a
                 ``Resident``'s pack, format or rows differ from what the kernel
-                declares, or it moves an input ``kernel.toml`` pins to a row.
+                declares, or it moves an input ``kernel.toml`` pins to a row;
+                or a ``Resident`` is stale (a later step wrote its rows).
             PlanError: The case is wrong, or a ``Resident`` overlaps another
                 region (placement).
         """
@@ -156,6 +179,12 @@ class Chain:
                     arrays[name] = value
             elif isinstance(value, Resident):
                 _check_layout(manifest, name, value, plan)
+                if value not in self._live:
+                    raise ConfigurationError(
+                        f"{manifest.name}: input {name}'s resident tensor (rows "
+                        f"{value.base_row}..{value.base_row + value.rows - 1}) is no longer "
+                        "in XMEM: a later step wrote over it, or it is not this chain's"
+                    )
                 pinned[name] = value.base_row
             else:
                 arrays[name] = checked_input(plan, name, value)
@@ -172,8 +201,25 @@ class Chain:
         shared = SharedModel(self.model, MappingProxyType(arrays), MappingProxyType(pinned), check)
         options = self._step_options()
         self._steps += 1
-        result = run_kernel(manifest, case, self.format, options, cache=self._cache, shared=shared)
-        return ChainStep(result, _resident(manifest, result, plan))
+        try:
+            result = run_kernel(
+                manifest, case, self.format, options, cache=self._cache, shared=shared
+            )
+        except BaseException:
+            self._live.clear()  # what the step wrote before it raised is unknown
+            raise
+        resident = _resident(manifest, result, plan, self._steps - 1)
+        self._track(result, set(pinned), resident)
+        return ChainStep(result, resident)
+
+    def _track(self, result: RunResult, pinned: set[str], resident: Mapping[str, Resident]) -> None:
+        """Drop the residents a step wrote over; add its outputs."""
+        if result.placement is None:
+            self._live.clear()
+            return
+        written = [r for r in result.placement.regions.values() if r.name not in pinned]
+        self._live = {t for t in self._live if not any(t.overlaps(r) for r in written)}
+        self._live.update(resident.values())
 
 
 def _check_layout(manifest: KernelManifest, name: str, value: Resident, plan: CasePlan) -> None:
@@ -194,7 +240,7 @@ def _check_layout(manifest: KernelManifest, name: str, value: Resident, plan: Ca
 
 
 def _resident(
-    manifest: KernelManifest, result: RunResult, plan: CasePlan
+    manifest: KernelManifest, result: RunResult, plan: CasePlan, step: int
 ) -> Mapping[str, Resident]:
     """Each output of ``result``, where its run left it."""
     if result.placement is None or not result.halted:
@@ -204,6 +250,10 @@ def _resident(
         if tensor.role == "output":
             region = result.placement.region(tensor.name)
             out[tensor.name] = Resident(
-                region.base_row, region.rows, tensor.pack, stored_format(tensor, plan.format)
+                region.base_row,
+                region.rows,
+                tensor.pack,
+                stored_format(tensor, plan.format),
+                step,
             )
     return MappingProxyType(out)

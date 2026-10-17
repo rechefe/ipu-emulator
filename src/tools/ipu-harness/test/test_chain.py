@@ -110,6 +110,7 @@ def test_a_scale_chained_into_a_scale(first, second):
     one = chain.run(first, SCALE_2, {"x": X})
     assert one.result.halted and not one.result.comparisons  # not checked
     assert one.resident["y"] == Resident(64, 2, None, ElementFormat.INT8)
+    assert chain.model.read_register("lr", 1) == 2  # registers carry over, as on hardware
     two = chain.run(second, SCALE_3, {"x": one.resident["y"]}, check=True)
     assert two.result.placement is not None and two.result.placement.region("x").base_row == 64
     assert two.result.passed, two.result.describe()
@@ -139,11 +140,32 @@ def test_a_resident_cannot_move_an_input_pinned_in_kernel_toml(tmp_path, first):
         chain.run(pinned, SCALE_3, {"x": resident})
 
 
-def test_a_resident_overlapping_another_region_is_a_placement_error(tmp_path):
-    pinned = load_manifest(_kernel(tmp_path, y_row="row = 0"))
+def test_a_resident_overlapping_another_region_is_a_placement_error(tmp_path, first):
+    clash = load_manifest(_kernel(tmp_path, "clash", y_row="row = 65"))
     chain = Chain(ElementFormat.INT8)
+    resident = chain.run(first, SCALE_2, {"x": X}).resident["y"]  # rows 64..65
     with pytest.raises(PlanError, match="overlaps"):
-        chain.run(pinned, SCALE_3, {"x": Resident(1, 2, None, ElementFormat.INT8)})
+        chain.run(clash, SCALE_3, {"x": resident})
+
+
+def test_a_resident_a_later_step_wrote_over_is_stale(tmp_path, first, second):
+    again = load_manifest(_kernel(tmp_path, "again", y_row="row = 64"))
+    chain = Chain(ElementFormat.INT8)
+    one = chain.run(first, SCALE_2, {"x": X}).resident["y"]  # rows 64..65
+    two = chain.run(second, SCALE_3, {"x": one}).resident["y"]  # one stays live
+    chain.run(again, SCALE_2, {"x": X})  # its y takes rows 64..65 again
+    with pytest.raises(ConfigurationError, match="no longer in XMEM"):
+        chain.run(second, SCALE_3, {"x": one})
+    assert chain.run(first, SCALE_3, {"x": two}).result.halted  # two is still live
+
+
+def test_a_resident_from_elsewhere_is_refused(first):
+    with pytest.raises(ConfigurationError, match="not this chain's"):
+        Chain(ElementFormat.INT8).run(
+            first, SCALE_2, {"x": Resident(64, 2, None, ElementFormat.INT8)}
+        )
+    with pytest.raises(ConfigurationError, match="rows >= 1"):
+        Resident(0, 0, None, ElementFormat.INT8)
 
 
 def _tree(root: Path) -> dict[str, tuple[int, int]]:
