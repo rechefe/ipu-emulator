@@ -7,7 +7,7 @@ test_diagnostics.py checks. A difference fails; if it is intended, it is a
 contract change (see check-json.md), and the new snapshot is written to the
 test's undeclared outputs
 (bazel-testlogs/src/tools/ipu-as-py/test_check_json/test.outputs/) to copy over
-test/golden/check_json_v1.json.
+test/baselines/check_json_v1.json.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from ipu_as.cli import cli
 
 HERE = ROOT / "src" / "tools" / "ipu-as-py" / "test"
 SCHEMAS = ROOT / "vscode-ipu-asm" / "schema"
-GOLDEN = HERE / "golden" / "check_json_v1.json"
+GOLDEN = HERE / "baselines" / "check_json_v1.json"
 
 
 def _check(source: str, *options: str) -> tuple[int, str]:

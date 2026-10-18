@@ -46,7 +46,7 @@ const ALL = (text, extra = {}) => ({ indent: '    ', blankLine: false, fromLine:
 /** The corpus as recorded for the assembler's formatter: [name, text, options] per layout. */
 function corpusCases() {
   const root = path.resolve(__dirname, '..', '..');
-  const recorded = JSON.parse(fs.readFileSync(path.join(root, 'src/tools/ipu-as-py/test/golden/format/corpus.json'), 'utf8'));
+  const recorded = JSON.parse(fs.readFileSync(path.join(root, 'src/tools/ipu-as-py/test/baselines/format/corpus.json'), 'utf8'));
   const middle = (text) => {
     const n = text.split('\n').length;
     return { fromLine: Math.floor(n / 3), toLine: Math.floor((2 * n) / 3) };

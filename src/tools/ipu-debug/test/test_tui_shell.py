@@ -1,7 +1,7 @@
 """The TUI shell: golden screens, ``TabSet``, the keymap and the curses seam.
 
 The golden screens are the proof that the per-pane moves (E08-09 to E08-11)
-change nothing a user sees. Each file under ``golden/tui/`` holds the 24x80
+change nothing a user sees. Each file under ``baselines/tui/`` holds the 24x80
 character grid and the emphasis grid one key sequence leaves on the screen.
 They were recorded from the TUI as it stood before E08-08 (commit 427c18bc),
 through a recording screen patched into the old ``CursesDebugView`` once, and
@@ -46,7 +46,7 @@ from ipu_debug.tui.view import CursesDebugView
 from ipu_emu.emulator import DebugAction, run_with_debug
 
 _PACKAGE = Path(__file__).parent.parent
-GOLDEN = Path(__file__).parent / "golden" / "tui"
+GOLDEN = Path(__file__).parent / "baselines" / "tui"
 
 PROGRAM = "SET lr2 cr1;; SET lr3 cr1;; NOP;; SET lr4 cr1;; NOP;; NOP;; HALT;;"
 # Enough Backspaces to empty any editor's default text.

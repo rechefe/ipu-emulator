@@ -1,6 +1,6 @@
 """`ipu-as assemble` reports a bad source the way it always has (E05-06).
 
-The golden (test/golden/cli_assemble_errors.json) is the CLI's output over the
+The golden (test/baselines/cli_assemble_errors.json) is the CLI's output over the
 check corpus before the assembler library stopped printing and exiting:
 stdout, stderr, exit code, and the exception that escaped, if any. Only the
 template stage changes on purpose: a template error used to escape as a jinja2
@@ -22,7 +22,7 @@ from click.testing import CliRunner
 
 from ipu_as.cli import cli
 
-GOLDEN = HERE / "golden" / "cli_assemble_errors.json"
+GOLDEN = HERE / "baselines" / "cli_assemble_errors.json"
 
 #: lark lists the terminals it expected in set order, which varies between runs.
 _EXPECTED_BLOCK = re.compile(r"(?:\t\* [^\n]*\n)+")

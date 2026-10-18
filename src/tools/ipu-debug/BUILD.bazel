@@ -86,7 +86,7 @@ py_pytest_test(
 py_pytest_test(
     name = "test_tui_shell",
     srcs = ["test/test_tui_shell.py"],
-    data = ["pytest.ini"] + glob(["test/golden/tui/*.txt"]),
+    data = ["pytest.ini"] + glob(["test/baselines/tui/*.txt"]),
     imports = ["src"],
     deps = [
         ":ipu_debug_lib",

@@ -124,7 +124,7 @@ instruction. Update them; the failing test names what it pins.
   them with the reason, as the [Baselines](../code-conventions.md#baselines)
   rule asks.
 - **Facts written by hand** are edited:
-    - the record of every instruction, `src/tools/ipu-isa/test/fixtures/spec_snapshot.json`;
+    - the record of every instruction, `src/tools/ipu-isa/test/baselines/spec_snapshot.json`;
     - the reserved encodings: the per-slot counts in
       `src/tools/ipu-isa/test/test_faults.py`, and the F-1 table in
       [Faults](../requirements/faults.md);

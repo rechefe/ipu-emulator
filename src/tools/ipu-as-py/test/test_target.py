@@ -29,7 +29,7 @@ HALT;;
 #: (word_fields.json), worked out by hand once; every other bit is 0.
 HARDWARE_NOP = 0x600000800008000080000C00180000300000100
 
-SV_GOLDEN = Path("src/tools/ipu-as-py/test/golden/ipu_instr_pkg.sv")
+SV_GOLDEN = Path("src/tools/ipu-as-py/test/baselines/ipu_instr_pkg.sv")
 
 
 def _emulator_words(source: str) -> tuple[int, ...]:

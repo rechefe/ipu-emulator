@@ -75,17 +75,21 @@ The [PR template](https://github.com/rechefe/ipu-emulator/blob/master/.github/pu
 
 ## Baselines
 
-A baseline is a checked-in file that pins today's output. Its test fails on any change. The baselines are how a refactor PR proves it changes no output:
+A baseline is a checked-in file that pins today's output. Its test fails on any change. The baselines are how a refactor PR proves it changes no output. A package keeps its baselines in `test/baselines/`, with the scripts that rewrite them beside them:
 
 | Baseline | Location | Update target |
 |---|---|---|
 | Assembled-program digests | `src/tools/ipu-as-py/test/baselines/asm_digests.json` | `//src/tools/ipu-as-py:update_asm_digests` |
 | Field names, emulator field maps, enum descriptors | `src/tools/ipu-as-py/test/baselines/*.json` | `//src/tools/ipu-as-py:update_decode_snapshots` |
 | Disassembly text | `src/tools/ipu-as-py/test/baselines/disassembly/` | `//src/tools/ipu-as-py:update_disassembly_snapshots` |
-| SV package golden | `src/tools/ipu-as-py/test/golden/ipu_instr_pkg.sv`, plus the `EXPECTED_LOCALPARAMS` table in `test_sv_package_golden.py` (edited by hand) | `//src/tools/ipu-as-py:update_sv_golden` |
+| SV package golden | `src/tools/ipu-as-py/test/baselines/ipu_instr_pkg.sv`, plus the `EXPECTED_LOCALPARAMS` table in `test_sv_package_golden.py` (edited by hand) | `//src/tools/ipu-as-py:update_sv_golden` |
 | Generated artifacts | `src/tools/ipu-as-py/test/baselines/generated/` | `//src/tools/ipu-as-py:update_generated_artifacts` |
-| The ISA view as JSON, and the F-1 table of the faults requirements page | `src/tools/ipu-isa/test/fixtures/spec_snapshot.json`, `docs/content/requirements/faults.md` | `//src/tools/ipu-isa:update_isa_baselines` |
+| The ISA view as JSON, and the F-1 table of the faults requirements page | `src/tools/ipu-isa/test/baselines/spec_snapshot.json`, `docs/content/requirements/faults.md` | `//src/tools/ipu-isa:update_isa_baselines` |
 | Conformance suite (programs, setups, expected traces) | `src/tools/ipu-isa/conformance/` | `//src/tools/ipu-emu-py:update_conformance` (also `:regen_conformance`) |
+| `ipu-as check --json` v1 output, the VS Code extension's contract | `src/tools/ipu-as-py/test/baselines/check_json_v1.json` | none: a difference is a contract change; the test writes the new file to its undeclared outputs to copy over |
+| `ipu-as assemble` error output over the check corpus | `src/tools/ipu-as-py/test/baselines/cli_assemble_errors.json` | none: the test writes the new file to its undeclared outputs to copy over |
+| Formatter output (the extension's corpus in full, every kernel as digests) | `src/tools/ipu-as-py/test/baselines/format/` | `node vscode-ipu-asm/test/record-format.js` |
+| Debugger TUI screens | `src/tools/ipu-debug/test/baselines/tui/` | none: recorded once, before E08-08; edited by hand |
 
 `tools/update_baselines.sh` runs every update target and then lists the baseline files that changed. A kernel of `kernels/` has no baseline file: its tests hold every case to its golden (`kernel.toml`, `[golden]`), and its `:assemble_<name>` writes its program. The timing tests have no baseline file: their expected values are code, changed by hand in the behaviour PR that changes the timing rule.
 

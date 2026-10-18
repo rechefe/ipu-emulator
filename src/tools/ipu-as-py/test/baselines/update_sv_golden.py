@@ -15,7 +15,7 @@ import baseline_support
 
 from ipu_gen import sv_package
 
-GOLDEN_PATH = "src/tools/ipu-as-py/test/golden/ipu_instr_pkg.sv"
+GOLDEN_PATH = "src/tools/ipu-as-py/test/baselines/ipu_instr_pkg.sv"
 UPDATE_COMMAND = "bazel run //src/tools/ipu-as-py:update_sv_golden"
 
 

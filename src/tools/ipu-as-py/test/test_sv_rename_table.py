@@ -21,7 +21,7 @@ import pytest
 
 ROOT = Path.cwd()
 TABLE = ROOT / "docs/content/specs/mnemonic-rename.md"
-GOLDEN = ROOT / "src/tools/ipu-as-py/test/golden/ipu_instr_pkg.sv"
+GOLDEN = ROOT / "src/tools/ipu-as-py/test/baselines/ipu_instr_pkg.sv"
 
 
 def _rows() -> list[list[str]]:

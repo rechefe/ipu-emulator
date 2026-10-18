@@ -15,7 +15,7 @@ exports_files([
     # Read by //src/tools/ipu-isa:test_word_codec (E03-16).
     "test/baselines/word_fields.json",
     # Read by //src/tools/ipu-gen:test_one_edit_generators (E03-24).
-    "test/golden/ipu_instr_pkg.sv",
+    "test/baselines/ipu_instr_pkg.sv",
 ])
 
 # RUNTIME_DEPS as JSON, for //tools:deps_consistency_test.
@@ -111,7 +111,7 @@ py_pytest_test(
 py_pytest_test(
     name = "test_target",
     srcs = ["test/test_target.py"],
-    data = ["test/golden/ipu_instr_pkg.sv"],
+    data = ["test/baselines/ipu_instr_pkg.sv"],
     imports = ["src"],
     deps = [
         ":ipu_as_lib",
@@ -251,7 +251,7 @@ py_pytest_test(
         "test/test_check_json.py",
     ],
     data = [
-        "test/golden/check_json_v1.json",
+        "test/baselines/check_json_v1.json",
         "test/test_diagnostics.py",
         "//vscode-ipu-asm:check_json_contract",
         "//vscode-ipu-asm:corpus",
@@ -317,7 +317,7 @@ py_pytest_test(
         "test/test_cli_errors.py",
     ],
     data = [
-        "test/golden/cli_assemble_errors.json",
+        "test/baselines/cli_assemble_errors.json",
         "test/test_diagnostics.py",
         "//vscode-ipu-asm:corpus",
     ],
@@ -373,8 +373,8 @@ py_binary(
 py_binary(
     name = "update_sv_golden",
     testonly = True,
-    srcs = ["test/golden/update_sv_golden.py"],
-    main = "test/golden/update_sv_golden.py",
+    srcs = ["test/baselines/update_sv_golden.py"],
+    main = "test/baselines/update_sv_golden.py",
     deps = [
         "//src/tools/ipu-gen:ipu_gen_lib",
         "//tools:baseline_support",
@@ -384,11 +384,11 @@ py_binary(
 py_pytest_test(
     name = "test_sv_package_golden",
     srcs = [
-        "test/golden/update_sv_golden.py",
+        "test/baselines/update_sv_golden.py",
         "test/test_sv_package_golden.py",
     ],
-    data = ["test/golden/ipu_instr_pkg.sv"],
-    imports = ["test/golden"],
+    data = ["test/baselines/ipu_instr_pkg.sv"],
+    imports = ["test/baselines"],
     deps = [
         "//src/tools/ipu-gen:ipu_gen_lib",
         "//tools:baseline_support",
@@ -401,7 +401,7 @@ py_pytest_test(
     name = "test_sv_rename_table",
     srcs = ["test/test_sv_rename_table.py"],
     data = [
-        "test/golden/ipu_instr_pkg.sv",
+        "test/baselines/ipu_instr_pkg.sv",
         "//docs:doc_sources",
     ],
     deps = [requirement("pytest")],
@@ -472,13 +472,13 @@ ruff_test(
 )
 
 # `ipu-as format` (E08-24): the editor's formatter's recorded output on its
-# corpus and on every kernel (test/golden/format/, from
+# corpus and on every kernel (test/baselines/format/, from
 # vscode-ipu-asm/test/record-format.js), idempotence, the safety check, the CLI.
 py_pytest_test(
     name = "test_format",
     size = "medium",
     srcs = ["test/test_format.py"],
-    data = glob(["test/golden/format/*.json"]) + [
+    data = glob(["test/baselines/format/*.json"]) + [
         "//kernels:tree",
         "//vscode-ipu-asm:corpus",
     ],

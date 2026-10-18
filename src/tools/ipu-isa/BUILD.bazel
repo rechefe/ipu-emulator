@@ -192,7 +192,7 @@ py_pytest_test(
 py_pytest_test(
     name = "test_view",
     srcs = ["test/test_view.py"],
-    data = ["test/fixtures/spec_snapshot.json"],
+    data = ["test/baselines/spec_snapshot.json"],
     imports = ["src"],
     deps = [
         ":ipu_isa_lib",
@@ -238,10 +238,10 @@ py_library(
     name = "isa_baselines",
     testonly = True,
     srcs = [
-        "test/faults_table.py",
-        "test/spec_snapshot.py",
+        "test/baselines/faults_table.py",
+        "test/baselines/spec_snapshot.py",
     ],
-    imports = ["test"],
+    imports = ["test/baselines"],
     deps = [":ipu_isa_lib"],
 )
 
@@ -249,8 +249,8 @@ py_library(
 py_binary(
     name = "update_isa_baselines",
     testonly = True,
-    srcs = ["test/update_isa_baselines.py"],
-    main = "test/update_isa_baselines.py",
+    srcs = ["test/baselines/update_isa_baselines.py"],
+    main = "test/baselines/update_isa_baselines.py",
     deps = [
         ":ipu_isa_lib",
         ":isa_baselines",

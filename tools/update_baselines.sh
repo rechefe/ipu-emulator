@@ -24,10 +24,10 @@ UPDATE_TARGETS=(
 )
 
 BASELINE_PATHS=(
-  src/tools/ipu-isa/test/fixtures/spec_snapshot.json
+  src/tools/ipu-isa/test/baselines
   docs/content/requirements/faults.md
   src/tools/ipu-as-py/test/baselines
-  src/tools/ipu-as-py/test/golden
+  src/tools/ipu-debug/test/baselines
   src/tools/ipu-isa/conformance
 )
 

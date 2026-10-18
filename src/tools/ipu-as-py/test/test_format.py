@@ -2,7 +2,7 @@
 
 The expected outputs are the editor's formatter's (vscode-ipu-asm/language.js
 `format`), recorded once by vscode-ipu-asm/test/record-format.js into
-test/golden/format/: in full for the extension's corpus, as SHA-256 digests for
+test/baselines/format/: in full for the extension's corpus, as SHA-256 digests for
 the kernels. The small cases below are the editor's own unit cases
 (vscode-ipu-asm/test/language.js), each written out by hand.
 
@@ -33,7 +33,7 @@ from ipu_as.jinja_tags import tag_spans
 
 # The workspace root: the runfiles tree under Bazel, the checkout under plain pytest.
 ROOT = Path(__file__).parents[4]
-GOLDEN = ROOT / "src" / "tools" / "ipu-as-py" / "test" / "golden" / "format"
+GOLDEN = ROOT / "src" / "tools" / "ipu-as-py" / "test" / "baselines" / "format"
 CORPUS = json.loads((GOLDEN / "corpus.json").read_text(encoding="utf-8"))
 KERNELS = json.loads((GOLDEN / "kernels.json").read_text(encoding="utf-8"))
 

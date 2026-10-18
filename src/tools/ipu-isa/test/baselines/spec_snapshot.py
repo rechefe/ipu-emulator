@@ -1,4 +1,4 @@
-"""The ISA view as a JSON snapshot, ``test/fixtures/spec_snapshot.json`` (E03-09).
+"""The ISA view as a JSON snapshot, ``test/baselines/spec_snapshot.json`` (E03-09).
 
 ``test_view`` checks the view reproduces the snapshot; adding or changing an
 instruction changes it, and ``//src/tools/ipu-isa:update_isa_baselines`` (run
@@ -11,7 +11,7 @@ import json
 
 from ipu_isa.view import Isa
 
-SNAPSHOT_PATH = "src/tools/ipu-isa/test/fixtures/spec_snapshot.json"
+SNAPSHOT_PATH = "src/tools/ipu-isa/test/baselines/spec_snapshot.json"
 
 
 def _operands(operands) -> list[dict]:

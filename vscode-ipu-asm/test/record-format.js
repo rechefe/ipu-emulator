@@ -6,7 +6,7 @@
 // it was recorded; the recorded outputs are then the specification.
 //
 //   bazel run //vscode-ipu-asm:gen_vscode               # writes vscode-ipu-asm/data/isa.json
-//   node vscode-ipu-asm/test/record-format.js            # every file below, into test/golden/format
+//   node vscode-ipu-asm/test/record-format.js            # every file below, into test/baselines/format
 //   node vscode-ipu-asm/test/record-format.js <isa.json> <out-dir> <file.asm>...
 //
 // It is not an update_* target in tools/update_baselines.sh: Bazel has no node toolchain here.
@@ -51,7 +51,7 @@ const [isaPath, outDir, ...files] = args.length
   ? args
   : [
       path.join(root, 'vscode-ipu-asm/data/isa.json'),
-      path.join(root, 'src/tools/ipu-as-py/test/golden/format'),
+      path.join(root, 'src/tools/ipu-as-py/test/baselines/format'),
       ...DEFAULT_DIRS.flatMap((d) => asmUnder(path.join(root, d))),
     ];
 const lang = new Language(JSON.parse(fs.readFileSync(isaPath, 'utf8')));

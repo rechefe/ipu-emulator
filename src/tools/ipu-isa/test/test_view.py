@@ -23,7 +23,7 @@ from ipu_isa.view import (
     load_isa,
 )
 
-SNAPSHOT = Path(__file__).parent / "fixtures" / "spec_snapshot.json"
+SNAPSHOT = Path(__file__).parent / "baselines" / "spec_snapshot.json"
 
 
 def _load(spec=INSTRUCTION_SPEC, pseudo=PSEUDO_INSTRUCTION_SPEC) -> Isa:

@@ -17,7 +17,7 @@ from ipu_gen import docs_pages, sv_package, vscode_data
 from ipu_isa.slots import Slot
 from ipu_isa.view import isa
 
-GOLDEN = Path.cwd() / "src/tools/ipu-as-py/test/golden/ipu_instr_pkg.sv"
+GOLDEN = Path.cwd() / "src/tools/ipu-as-py/test/baselines/ipu_instr_pkg.sv"
 _LOCALPARAM = re.compile(r"localparam int unsigned (\w+) = (\d+);")
 
 
