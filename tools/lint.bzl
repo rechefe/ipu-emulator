@@ -6,7 +6,7 @@ the repository exactly once. tools/check_lint_coverage.sh enforces that, and
 //tools:lint is the suite of all of them.
 """
 
-load("@ipu_as_deps//:requirements.bzl", "data_requirement", "requirement")
+load("@ipu_deps//:requirements.bzl", "data_requirement", "requirement")
 load("@rules_python//python:defs.bzl", "py_test")
 
 def ruff_test(name, srcs, tags = [], **kwargs):

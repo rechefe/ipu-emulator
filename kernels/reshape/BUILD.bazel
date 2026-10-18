@@ -2,7 +2,7 @@
 # entries over the concat template (//kernels/reshape:<entry>, as the
 # old targets were named).
 
-load("@ipu_as_deps//:requirements.bzl", "requirement")
+load("@ipu_deps//:requirements.bzl", "requirement")
 load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
 load("//kernels:defs.bzl", "ipu_kernel_family")
 load(":registry.bzl", "ENTRIES")

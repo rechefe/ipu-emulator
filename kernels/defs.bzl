@@ -33,7 +33,7 @@ A family folder's own test_*.py (cross-kernel conformance, datapath and
 routing tests) run as :tests.
 """
 
-load("@ipu_as_deps//:requirements.bzl", "requirement")
+load("@ipu_deps//:requirements.bzl", "requirement")
 load("@rules_python//python:defs.bzl", "py_library", "py_test")
 load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
 load("//tools:lint.bzl", "ruff_test")

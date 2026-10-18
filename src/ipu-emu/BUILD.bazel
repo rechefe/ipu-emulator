@@ -1,5 +1,5 @@
 load("//tools:typecheck.bzl", "mypy_test")
-load("@ipu_as_deps//:requirements.bzl", "requirement")
+load("@ipu_deps//:requirements.bzl", "requirement")
 load("@rules_python//python:defs.bzl", "py_binary", "py_library")
 load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
 load("//tools:runtime_deps.bzl", "runtime_deps_manifest")

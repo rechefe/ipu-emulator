@@ -12,7 +12,7 @@ third-party packages resolve from the same runfiles as the library itself.
 Shared settings live in the root mypy.ini; strictness is per target.
 """
 
-load("@ipu_as_deps//:requirements.bzl", "requirement")
+load("@ipu_deps//:requirements.bzl", "requirement")
 load("@rules_python//python:defs.bzl", "PyInfo", "py_test")
 
 def _mypy_manifest_impl(ctx):

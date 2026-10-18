@@ -1,4 +1,4 @@
-load("@ipu_as_deps//:requirements.bzl", "data_requirement", "requirement")
+load("@ipu_deps//:requirements.bzl", "data_requirement", "requirement")
 load("@rules_python//python:defs.bzl", "py_binary", "py_library")
 load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
 load("//tools:lint.bzl", "ruff_test")

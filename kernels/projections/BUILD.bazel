@@ -3,7 +3,7 @@
 # targets were named). pack.py and gen.py, beside the templates, are their
 # shared pack transform and case generators (data, loaded by path).
 
-load("@ipu_as_deps//:requirements.bzl", "requirement")
+load("@ipu_deps//:requirements.bzl", "requirement")
 load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
 load("//kernels:defs.bzl", "ipu_kernel_family")
 load(":registry.bzl", "ENTRIES")

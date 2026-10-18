@@ -5,7 +5,7 @@
 # to two minutes. The full layers (test_full_*.py) are :tests_nightly, a
 # layer taking minutes in the emulator; sharded so each shard runs one or two.
 
-load("@ipu_as_deps//:requirements.bzl", "requirement")
+load("@ipu_deps//:requirements.bzl", "requirement")
 load("@rules_python//python:defs.bzl", "py_library")
 load("//kernels:defs.bzl", "ipu_kernel_family")
 
