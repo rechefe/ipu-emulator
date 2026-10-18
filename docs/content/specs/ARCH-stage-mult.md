@@ -19,6 +19,7 @@ The MULT (Multiply) stage performs the following tasks:
 3. [Interfaces](#3-interfaces)
     - 3.1 [`dstructure` Layout](#31-dstructure-layout)
     - 3.2 [Element Format](#32-element-format)
+        - 3.2.1 [NX8 to FP32](#321-nx8-to-fp32)
     - 3.3 [Operand Addressing](#33-operand-addressing)
     - 3.4 [Element Masking](#34-element-masking)
 4. [Multiply ISA](#4-multiply-isa)
@@ -37,7 +38,7 @@ block-beta
     space:6 INSTR["Instruction"] space FMT["quantizion_format"] space:2
     block:INS:1
         columns 1
-        LD_DATA["load data<br>128 x 8-bit"]
+        LD_DATA["load data<br>128 x 8-bit<br>+ metadata"]
         LD_TGT["load target"]
     end
     space
@@ -85,7 +86,7 @@ block-beta
 
 | Name | Direction | Description |
 |------|-----------|-------------|
-| load data | Input | One XMEM row from the LOAD slot: 128 8-bit elements (128 B). |
+| load data | Input | One XMEM row from the LOAD slot: 128 8-bit elements (128 B) and the vector metadata (section 3.2.1). |
 | load target | Input | The register that the load data goes into: `R0` or `R1` (`LDR_MULT_REG`), one 128-element slot of `R_CYCLIC` at element `0`, `128`, `256` or `384` (`LDR_CYCLIC_MULT_REG`), or `R_MASK` (`LDR_MULT_MASK_REG`). |
 | Instruction | Input | The operation that the stage does on its registers. |
 | `quantizion_format` | Input | The NX8 format of the input elements (section 3.2). |
@@ -137,6 +138,52 @@ Each MULT instruction (except `NOP`) names the format in its
 | `[15:8]` | `nx_format` | Exponent format. `0` = dynamic, `1`-`7` = `e1`-`e7` (fixed exponent width `fe`). |
 | `[7:0]` | `num_bits` | Total element width `W`: `1`-`8`. `0` is reserved/invalid. |
 
+#### 3.2.1 NX8 to FP32
+
+Every MULT instruction converts each NX8 input element to FP32 before it
+multiplies. The conversion uses the element `x` (8 bits), the vector scale `s`
+(8-bit `e8m0`) and the exponent width `fe`.
+
+**Exponent width `fe`:**
+
+| `nx_format` | `fe` |
+|-------------|------|
+| `1`-`7` | The `nx_format` value. |
+| `0` (dynamic) | `1` if `dynamic_exponent = 0`, `2` if `dynamic_exponent = 1`. Dynamic elements are signed and 8 bits wide. |
+
+**Fields.** An element is packed from the high end as `{S, Exp, M, 0-pad}`:
+
+```text
+fm   = num_bits - fe - sign                // mantissa bits
+S    = (sign == 1) ? x[7] : 0
+Exp  = x[7 - sign -: fe]                   // fe bits after S
+M    = x[7 - sign - fe -: fm]              // fm bits after Exp, 0 when fm = 0
+Emax = 2^fe - 1
+```
+
+**Value:**
+
+```text
+if Exp < Emax:                                            // direct
+    fp32 = (-1)^S x 2^(s - 127 - Exp) x (1 + M / 2^fm)
+else:                                                     // clamp, Exp = Emax
+    fp32 = (-1)^S x 2^(s - 127 - (Emax - 1)) x (M / 2^fm)
+```
+
+> **TBD - ask Jacob:** an NX8 element that is `NaN`, `inf` or `-inf`: which FP32
+> value does it convert to?
+
+**Vector metadata.** Each vector is loaded and saved with its metadata:
+
+| Metadata | Size | Description |
+|----------|------|-------------|
+| `Scale` (`s`) | 8 bits | Scale shared by the whole vector. |
+| `dynamic_static` | 1 bit | Dynamic or static quantization. |
+| `dynamic_exponent` | 1 bit | `e1` or `e2`: the exponent width chosen in dynamic quantization. `0` in static quantization. |
+
+`R0`, `R1` and each 128-element slot of `R_CYCLIC` keep the metadata of the
+vector loaded into them. Each element uses the metadata of the register or
+slot that holds it.
 
 ### 3.3 Operand Addressing
 
@@ -227,9 +274,8 @@ by [`gen_codegen.py`](../../../src/tools/ipu-as-py/src/ipu_as/gen_codegen.py).
 | [`MULT.VE`](#45-multve-ra-vector-x-cr-scalar) | `Ra` vector x a `CR` scalar. |
 | [`MULT.EE`](#46-multee-ra-element-x-cr-scalar-broadcast) | One `Ra` element x a `CR` scalar, broadcast to all 128 elements. |
 
-In every Operation below, `x` is the multiply of section 3.2, with the input
-elements in the NX8 format that `quantizion_format` sets. `apply_mask` is
-section 3.4.
+In every Operation below, `x` converts both NX8 operands to FP32 (section
+3.2.1) and multiplies them. `apply_mask` is section 3.4.
 
 ---
 
