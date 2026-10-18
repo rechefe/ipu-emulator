@@ -5,10 +5,10 @@
 ```bash
 bazel test //...                                          # run the default test tier
 bazel test --config=full //...                            # include the heavy (nightly) tier
-bazel test //src/tools/ipu-emu-py:test_execute           # emulator tests only
-bazel test //src/tools/ipu-as-py:test_assemble           # assembler tests only
+bazel test //src/tools/ipu-emu:test_execute           # emulator tests only
+bazel test //src/tools/ipu-as:test_assemble           # assembler tests only
 bazel test //kernels/linear/fully_connected               # one kernel's tests
-bazel run //src/tools/ipu-as-py:ipu-as -- assemble --input "$PWD/prog.asm" --output "$PWD/prog.bin"  # format from the suffix; --define KEY=VALUE, -I DIR
+bazel run //src/tools/ipu-as:ipu-as -- assemble --input "$PWD/prog.asm" --output "$PWD/prog.bin"  # format from the suffix; --define KEY=VALUE, -I DIR
 bazel test --config=proto //...                          # prototyping mode (= --define=ipu_proto=1); CI runs both modes
 bazel build --config=docs //docs:build_docs              # docs site, offline (bazel-bin/docs/site.tar)
 bazel test //tools:lint                                  # ruff lint + format check (ruff.toml)
@@ -37,10 +37,10 @@ The steps, with examples: [Add an instruction](docs/content/how-to/add-an-instru
 0. Choose the slot (its tag, HARDWARE or EMULATOR, comes with it) and a mnemonic under the standard (`GLOSSARY.md`, Mnemonic). An existing instruction under another name or operand order is a pseudo-instruction: one `PSEUDO_INSTRUCTION_SPEC` entry, nothing else.
 1. Append the entry to its slot in `instruction_spec.py` (no opcode: position determines it).
 2. Add `execute_<name>(ipu, *, ...)` to `ipu_emu/slots/<slot>.py`, keyword-only args named exactly as the operands.
-3. Write a test with `run()` from `ipu-emu-py/test/emu_support.py`.
+3. Write a test with `run()` from `ipu-emu/test/emu_support.py`.
 4. Run `bazel test //...`. Tests that pin today's ISA fail by design: run `tools/update_baselines.sh`, then edit the hand-pinned facts the failing tests name (the page lists them). HARDWARE: check the generated SystemVerilog package (below). EMULATOR: `assemble --target hardware` rejects it.
 
-The "one edit" tests prove these steps are enough: `//src/tools/ipu-emu-py:test_one_edit_end_to_end` adds a dummy instruction with one spec entry and one handler and runs it; `//src/tools/ipu-isa:test_one_edit` and `//src/tools/ipu-gen:test_one_edit_generators` check every derived artifact. The end-to-end test's `KNOWN_MANUAL_EDITS` (empty) names any other edit still needed.
+The "one edit" tests prove these steps are enough: `//src/tools/ipu-emu:test_one_edit_end_to_end` adds a dummy instruction with one spec entry and one handler and runs it; `//src/tools/ipu-isa:test_one_edit` and `//src/tools/ipu-gen:test_one_edit_generators` check every derived artifact. The end-to-end test's `KNOWN_MANUAL_EDITS` (empty) names any other edit still needed.
 
 ## Generated SystemVerilog Package
 
@@ -48,12 +48,12 @@ A downstream RTL repo vendors `ipu_instr_pkg.sv` verbatim. After changing `instr
 
 ```bash
 bazel test //src/tools/ipu-gen:test_sv_package_compiles     # slang elaborates it with zero diagnostics
-bazel test //src/tools/ipu-as-py:test_sv_package_golden     # text golden + every *_WIDTH pinned by name
+bazel test //src/tools/ipu-as:test_sv_package_golden     # text golden + every *_WIDTH pinned by name
 bazel build //docs:generate_instruction_format_artifacts    # writes bazel-bin/docs/ipu_instr_pkg.sv
 tools/sv_localparam_diff.sh <base-ref>                      # diff localparam lines vs the base commit
 ```
 
-`sv_localparam_diff.sh` prints nothing and exits 0 when the localparams are identical. After an intended change to the package, regenerate the golden with `bazel run //src/tools/ipu-as-py:update_sv_golden`; a width change also needs a hand edit of `EXPECTED_LOCALPARAMS` in `test_sv_package_golden.py`. Every `*_WIDTH` is wire format: keep each one identical, or call the change out in the PR as breaking. Operand `"name"` fields become SV field names (`<name>_<column>`), so renaming an operand renames a downstream field.
+`sv_localparam_diff.sh` prints nothing and exits 0 when the localparams are identical. After an intended change to the package, regenerate the golden with `bazel run //src/tools/ipu-as:update_sv_golden`; a width change also needs a hand edit of `EXPECTED_LOCALPARAMS` in `test_sv_package_golden.py`. Every `*_WIDTH` is wire format: keep each one identical, or call the change out in the PR as breaking. Operand `"name"` fields become SV field names (`<name>_<column>`), so renaming an operand renames a downstream field.
 
 ## Project Knowledge
 

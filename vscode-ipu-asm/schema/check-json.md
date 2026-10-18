@@ -85,7 +85,7 @@ assignment and render, and from Jinja's own lexer and parser:
 ## Rules
 
 - Version 1 is the bare array, and it never changes: a snapshot test
-  (`//src/tools/ipu-as-py:test_check_json`) fails on any difference.
+  (`//src/tools/ipu-as:test_check_json`) fails on any difference.
 - A new version may only add fields. Nothing a version prints is removed or
   changes meaning in a later one. Each version has a schema of its own: a
   version that adds a field to each diagnostic defines its own diagnostic,

@@ -34,8 +34,8 @@ py_pytest_test(
     data = [
         "requirements-tools.in",
         "//:requirements_lock.txt",
-        "//src/tools/ipu-as-py:pyproject.toml",
-        "//src/tools/ipu-as-py:runtime_deps",
+        "//src/tools/ipu-as:pyproject.toml",
+        "//src/tools/ipu-as:runtime_deps",
         "//src/tools/ipu-debug:pyproject.toml",
         "//src/tools/ipu-debug:runtime_deps",
         "//src/tools/ipu-gen:pyproject.toml",
@@ -46,8 +46,8 @@ py_pytest_test(
         "//src/tools/ipu-kernels:runtime_deps",
         "//src/tools/ipu-isa:pyproject.toml",
         "//src/tools/ipu-isa:runtime_deps",
-        "//src/tools/ipu-emu-py:pyproject.toml",
-        "//src/tools/ipu-emu-py:runtime_deps",
+        "//src/tools/ipu-emu:pyproject.toml",
+        "//src/tools/ipu-emu:runtime_deps",
     ],
     deps = [
         requirement("pytest"),
@@ -98,12 +98,12 @@ py_pytest_test(
     srcs = ["test_import_graph.py"],
     data = [
         "import_graph.toml",
-        "//src/tools/ipu-as-py:py_sources",
-        "//src/tools/ipu-as-py:py_test_sources",
+        "//src/tools/ipu-as:py_sources",
+        "//src/tools/ipu-as:py_test_sources",
         "//src/tools/ipu-debug:py_sources",
         "//src/tools/ipu-debug:py_test_sources",
-        "//src/tools/ipu-emu-py:py_sources",
-        "//src/tools/ipu-emu-py:py_test_sources",
+        "//src/tools/ipu-emu:py_sources",
+        "//src/tools/ipu-emu:py_test_sources",
         "//src/tools/ipu-gen:py_sources",
         "//src/tools/ipu-gen:py_test_sources",
         "//src/tools/ipu-harness:py_sources",
@@ -125,12 +125,12 @@ py_pytest_test(
     size = "small",
     srcs = ["test_engine_privates.py"],
     data = [
-        "//src/tools/ipu-as-py:py_sources",
-        "//src/tools/ipu-as-py:py_test_sources",
+        "//src/tools/ipu-as:py_sources",
+        "//src/tools/ipu-as:py_test_sources",
         "//src/tools/ipu-debug:py_sources",
         "//src/tools/ipu-debug:py_test_sources",
-        "//src/tools/ipu-emu-py:py_sources",
-        "//src/tools/ipu-emu-py:py_test_sources",
+        "//src/tools/ipu-emu:py_sources",
+        "//src/tools/ipu-emu:py_test_sources",
         "//src/tools/ipu-gen:py_sources",
         "//src/tools/ipu-gen:py_test_sources",
         "//src/tools/ipu-harness:py_sources",
@@ -180,9 +180,9 @@ py_pytest_test(
     srcs = ["test_update_baselines.py"],
     data = [
         "update_baselines.sh",
-        "//src/tools/ipu-as-py:BUILD.bazel",
+        "//src/tools/ipu-as:BUILD.bazel",
         "//src/tools/ipu-isa:BUILD.bazel",
-        "//src/tools/ipu-emu-py:BUILD.bazel",
+        "//src/tools/ipu-emu:BUILD.bazel",
     ],
     deps = [requirement("pytest")],
 )
@@ -231,7 +231,7 @@ py_binary(
     name = "upper_mnemonics",
     srcs = ["upper_mnemonics.py"],
     deps = [
-        "//src/tools/ipu-as-py:ipu_as_lib",
+        "//src/tools/ipu-as:ipu_as_lib",
         "//src/tools/ipu-isa:ipu_isa_lib",
     ],
 )
@@ -247,12 +247,12 @@ py_pytest_test(
     ],
     data = [
         "//kernels:tree",
-        "//src/tools/ipu-as-py:asm_corpus_files",
+        "//src/tools/ipu-as:asm_corpus_files",
     ],
     imports = ["."],
     deps = [
-        "//src/tools/ipu-as-py:asm_corpus",
-        "//src/tools/ipu-as-py:ipu_as_lib",
+        "//src/tools/ipu-as:asm_corpus",
+        "//src/tools/ipu-as:ipu_as_lib",
         "//src/tools/ipu-isa:ipu_isa_lib",
         requirement("pytest"),
     ],
@@ -267,7 +267,7 @@ py_binary(
     name = "audit_cross_slot_hazards",
     srcs = ["audit_cross_slot_hazards.py"],
     deps = [
-        "//src/tools/ipu-as-py:asm_corpus",
+        "//src/tools/ipu-as:asm_corpus",
         "//src/tools/ipu-isa:ipu_isa_lib",
     ],
 )
@@ -280,11 +280,11 @@ py_pytest_test(
         "audit_cross_slot_hazards.py",
         "test_audit_cross_slot_hazards.py",
     ],
-    data = ["//src/tools/ipu-as-py:asm_corpus_files"],
+    data = ["//src/tools/ipu-as:asm_corpus_files"],
     imports = ["."],
     deps = [
-        "//src/tools/ipu-as-py:asm_corpus",
-        "//src/tools/ipu-as-py:ipu_as_lib",
+        "//src/tools/ipu-as:asm_corpus",
+        "//src/tools/ipu-as:ipu_as_lib",
         "//src/tools/ipu-isa:ipu_isa_lib",
         requirement("pytest"),
     ],
@@ -316,9 +316,9 @@ test_suite(
         "//docs:ruff",
         "//docs/inspector:ruff",
         "//kernels:lint",
-        "//src/tools/ipu-as-py:ruff",
+        "//src/tools/ipu-as:ruff",
         "//src/tools/ipu-debug:ruff",
-        "//src/tools/ipu-emu-py:ruff",
+        "//src/tools/ipu-emu:ruff",
         "//src/tools/ipu-gen:ruff",
         "//src/tools/ipu-harness:ruff",
         "//src/tools/ipu-harness/test/scales:ruff",
@@ -350,7 +350,7 @@ py_library(
 )
 
 # Bazel test sharding for pytest (`-p pytest_shard_plugin`): the timing tests
-# (//src/tools/ipu-emu-py) and a kernel family's :tests with tests_shard_count.
+# (//src/tools/ipu-emu) and a kernel family's :tests with tests_shard_count.
 py_library(
     name = "pytest_shard_plugin",
     testonly = True,

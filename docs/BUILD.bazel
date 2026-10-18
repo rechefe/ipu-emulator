@@ -75,15 +75,15 @@ py_binary(
     main = "reference_api_page.py",
     python_version = "PY3",
     deps = [
-        "//src/tools/ipu-emu-py:ipu_emu_lib",
+        "//src/tools/ipu-emu:ipu_emu_lib",
         "//src/tools/ipu-isa:ipu_isa_lib",
     ],
 )
 
 _CLI_REFERENCE_DEPS = [
-    "//src/tools/ipu-as-py:ipu_as_lib",
+    "//src/tools/ipu-as:ipu_as_lib",
     "//src/tools/ipu-debug:ipu_debug_lib",
-    "//src/tools/ipu-emu-py:ipu_emu_lib",
+    "//src/tools/ipu-emu:ipu_emu_lib",
     "//src/tools/ipu-harness:ipu_harness_lib",
     requirement("click"),
 ]
@@ -120,7 +120,7 @@ py_pytest_test(
         "examples/test_reference_model_cocotb.py",
     ],
     deps = [
-        "//src/tools/ipu-emu-py:ipu_emu_lib",
+        "//src/tools/ipu-emu:ipu_emu_lib",
         "//src/tools/ipu-isa:ipu_isa_lib",
         requirement("pytest"),
     ],
@@ -176,9 +176,9 @@ py_pytest_test(
 #   bazel run //docs:architecture_page -- "$PWD/out"
 _PACKAGE_SOURCES = [
     "//tools:import_graph.toml",
-    "//src/tools/ipu-as-py:py_sources",
+    "//src/tools/ipu-as:py_sources",
     "//src/tools/ipu-debug:py_sources",
-    "//src/tools/ipu-emu-py:py_sources",
+    "//src/tools/ipu-emu:py_sources",
     "//src/tools/ipu-gen:py_sources",
     "//src/tools/ipu-harness:py_sources",
     "//src/tools/ipu-isa:py_sources",
@@ -567,7 +567,7 @@ py_pytest_test(
     ],
     deps = [
         ":doc_blocks",
-        "//src/tools/ipu-as-py:ipu_as_lib",
+        "//src/tools/ipu-as:ipu_as_lib",
         "//src/tools/ipu-harness:ipu_harness_lib",
         requirement("pytest"),
     ],
@@ -580,7 +580,7 @@ py_pytest_test(
     data = _DOC_TEST_DATA,
     deps = [
         ":doc_blocks",
-        "//src/tools/ipu-as-py:ipu_as_lib",
+        "//src/tools/ipu-as:ipu_as_lib",
         "//src/tools/ipu-harness:ipu_harness_lib",
         requirement("pytest"),
     ],
@@ -597,9 +597,9 @@ py_pytest_test(
         "//src/tools/ipu-isa:one_edit",
     ],
     deps = [
-        "//src/tools/ipu-as-py:ipu_as_lib",
-        "//src/tools/ipu-emu-py:emu_test_support",
-        "//src/tools/ipu-emu-py:ipu_emu_lib",
+        "//src/tools/ipu-as:ipu_as_lib",
+        "//src/tools/ipu-emu:emu_test_support",
+        "//src/tools/ipu-emu:ipu_emu_lib",
         "//src/tools/ipu-isa:ipu_isa_lib",
         "//src/tools/ipu-isa:one_edit",
         requirement("pytest"),
@@ -613,9 +613,9 @@ py_pytest_test(
     size = "small",
     srcs = ["examples/test_element_formats.py"],
     deps = [
-        "//src/tools/ipu-as-py:ipu_as_lib",
-        "//src/tools/ipu-emu-py:emu_test_support",
-        "//src/tools/ipu-emu-py:ipu_emu_lib",
+        "//src/tools/ipu-as:ipu_as_lib",
+        "//src/tools/ipu-emu:emu_test_support",
+        "//src/tools/ipu-emu:ipu_emu_lib",
         "//src/tools/ipu-isa:ipu_isa_lib",
         requirement("pytest"),
     ],
@@ -629,8 +629,8 @@ py_pytest_test(
     srcs = ["examples/test_reference_model_cocotb.py"],
     data = ["content/how-to/reference-model-cocotb.md"],
     deps = [
-        "//src/tools/ipu-as-py:ipu_as_lib",
-        "//src/tools/ipu-emu-py:ipu_emu_lib",
+        "//src/tools/ipu-as:ipu_as_lib",
+        "//src/tools/ipu-emu:ipu_emu_lib",
         "//src/tools/ipu-isa:ipu_isa_lib",
         requirement("pytest"),
     ],
@@ -644,9 +644,9 @@ py_pytest_test(
     data = ["content/explanation/timing-model.md"],
     deps = [
         ":doc_blocks",
-        "//src/tools/ipu-as-py:ipu_as_lib",
-        "//src/tools/ipu-emu-py:emu_test_support",
-        "//src/tools/ipu-emu-py:ipu_emu_lib",
+        "//src/tools/ipu-as:ipu_as_lib",
+        "//src/tools/ipu-emu:emu_test_support",
+        "//src/tools/ipu-emu:ipu_emu_lib",
         requirement("pytest"),
     ],
 )
@@ -658,7 +658,7 @@ py_pytest_test(
     srcs = ["test_rtl_migration.py"],
     data = [
         "content/specs/rtl-migration.md",
-        "//src/tools/ipu-as-py:test/baselines/ipu_instr_pkg.sv",
+        "//src/tools/ipu-as:test/baselines/ipu_instr_pkg.sv",
     ],
     deps = [requirement("pytest")],
 )

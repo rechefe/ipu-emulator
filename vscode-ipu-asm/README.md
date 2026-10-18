@@ -6,7 +6,7 @@ assembler diagnostics, plus Run/Debug/Test buttons and an IPU sidebar for the
 kernel library.
 
 Anything that runs a process needs an IPU checkout: the nearest Bazel workspace
-above the file holding `src/tools/ipu-as-py`, with the open folder at, inside,
+above the file holding `src/tools/ipu-as`, with the open folder at, inside,
 or up to three levels above it; switching checkouts is picked up live.
 Elsewhere a `.asm` is only coloured.
 
@@ -226,7 +226,7 @@ after it, it records a bundle of those instead, such as the whole corpus for
 
 ```bash
 node vscode-ipu-asm/test/record-analysis.js vscode-ipu-asm/test/fixtures/analysis-v2.json \
-  '["bazel", "run", "--ui_event_filters=-info,-stdout,-stderr", "--noshow_progress", "//src/tools/ipu-as-py:ipu-as", "--", "check", "--json", "--input"]'
+  '["bazel", "run", "--ui_event_filters=-info,-stdout,-stderr", "--noshow_progress", "//src/tools/ipu-as:ipu-as", "--", "check", "--json", "--input"]'
 node vscode-ipu-asm/test/analysis-agreement.js vscode-ipu-asm/data/isa.json --write-gaps   # after review only
 ```
 
@@ -365,7 +365,7 @@ It shells out to `ipu-as check --json` rather than speaking LSP, which keeps the
 extension dependency-free — no `vscode-languageclient`, no bundled
 `node_modules`, and the vsix stays a few kilobytes.
 
-By default the extension builds `//src/tools/ipu-as-py:ipu-as` in the background
+By default the extension builds `//src/tools/ipu-as:ipu-as` in the background
 when the workspace opens, then runs the resulting binary directly. This avoids
 Bazel's client startup and workspace lock while typing. It compares the binary
 with the assembler sources, and compares again only once a file watcher reports

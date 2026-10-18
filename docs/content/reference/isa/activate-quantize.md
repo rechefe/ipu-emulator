@@ -25,7 +25,7 @@ ACTIVATE.QUANTIZE relu CR15;;
 - **Where it is defined:** the keyword order is the ISA's `ActivationFn`
   operand, `ACTIVATION_FN_NAMES` in `src/tools/ipu-isa/src/ipu_isa/activations.py`.
   The math is the emulator's `apply_activation` in
-  `src/tools/ipu-emu-py/src/ipu_emu/activations.py`.
+  `src/tools/ipu-emu/src/ipu_emu/activations.py`.
 
 ## `R_ACC`, `POST_AAQ_REG` and `ST.AAQ`
 

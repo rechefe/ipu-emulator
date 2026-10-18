@@ -32,8 +32,8 @@ LOCK = Path("requirements_lock.txt")
 
 # Paths of the runtime_deps.json manifests in runfiles, one per package.
 MANIFESTS = (
-    Path("src/tools/ipu-as-py/runtime_deps.json"),
-    Path("src/tools/ipu-emu-py/runtime_deps.json"),
+    Path("src/tools/ipu-as/runtime_deps.json"),
+    Path("src/tools/ipu-emu/runtime_deps.json"),
     Path("src/tools/ipu-isa/runtime_deps.json"),
     Path("src/tools/ipu-debug/runtime_deps.json"),
     Path("src/tools/ipu-gen/runtime_deps.json"),
@@ -211,7 +211,7 @@ def test_runtime_deps_match_pyproject(manifest):
         ("Jinja2 != 3.0.0", "jinja2"),
         ("pkg[extra,other]>=1; python_version < '3.11'", "pkg"),
         ("zope.interface", "zope-interface"),
-        ("ipu-as-py", "ipu-as-py"),
+        ("ipu-as", "ipu-as"),
     ],
 )
 def test_requirement_name(spec, name):

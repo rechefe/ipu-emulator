@@ -57,7 +57,7 @@ The "one edit" test proves it. It adds a dummy instruction, `TESTNEG`, as one
 spec entry and one handler, and checks that every artifact follows:
 `//src/tools/ipu-isa:test_one_edit` for the ISA's own artifacts,
 `src/tools/ipu-gen/test/test_one_edit_generators.py` for the generators, and
-`src/tools/ipu-emu-py/test/test_one_edit_end_to_end.py` for an assembled program
+`src/tools/ipu-emu/test/test_one_edit_end_to_end.py` for an assembled program
 running on the emulator. Its list of manual edits beyond the entry and the
 handler, `KNOWN_MANUAL_EDITS`, is empty.
 [How-to: add an instruction](../how-to/add-an-instruction.md) walks through
@@ -134,11 +134,11 @@ the pc.
 
 The state after every cycle is bit-identical to the faithful path: every
 register, all of XMEM, the cycle count and the run statistics.
-`src/tools/ipu-emu-py/test/test_prototyping_equivalence.py` runs each program
+`src/tools/ipu-emu/test/test_prototyping_equivalence.py` runs each program
 in lockstep, once per mode, and compares every register, all 512 MiB of XMEM,
 cycle outcomes, the cycle-start register values and run statistics after
 every cycle. It also runs every register-timing probe
-(`src/tools/ipu-emu-py/test/timing_probes.py`, one minimal program per row of
+(`src/tools/ipu-emu/test/timing_probes.py`, one minimal program per row of
 the timing tables) in every element format the probe covers.
 
 At kernel level, each case's baseline record (`baseline.json` beside each
@@ -213,7 +213,7 @@ RTL testbench.
 |---|---|---|
 | Add or change an instruction, operand type or register | `ipu_isa`, then a handler in `ipu_emu` | [How-to: add an instruction](../how-to/add-an-instruction.md) |
 | Change the instruction word layout or the program file format | `ipu_isa` (`codec`) | `CLAUDE.md`, "Generated SystemVerilog Package": widths are wire format |
-| Change the assembly syntax, diagnostics or formatter | `ipu_as` | `src/tools/ipu-as-py/src/ipu_as/asm_grammar.lark`, `session.py` |
+| Change the assembly syntax, diagnostics or formatter | `ipu_as` | `src/tools/ipu-as/src/ipu_as/asm_grammar.lark`, `session.py` |
 | Change what an instruction does in a cycle | `ipu_emu` (`slots/`, `cycle.py`) | [Timing model](timing-model.md) |
 | Change the stable API for RTL verification | `ipu_emu` (`reference.py`) | [Reference model API](../reference/reference-model-api.md) |
 | Change the debugger | `ipu_debug` | [How-to: debug a kernel](../how-to/debug-a-kernel.md) |

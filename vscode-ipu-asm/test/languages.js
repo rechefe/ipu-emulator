@@ -62,7 +62,7 @@ let n = 0;
 async function opened({ trusted = true, settings = {} } = {}) {
   fs.rmSync(generations, { force: true });
   const root = path.join(temp, `checkout-${++n}`);
-  for (const marker of ['MODULE.bazel', 'src/tools/ipu-as-py/BUILD.bazel', 'src/tools/ipu-isa/src/spec.py']) {
+  for (const marker of ['MODULE.bazel', 'src/tools/ipu-as/BUILD.bazel', 'src/tools/ipu-isa/src/spec.py']) {
     fs.mkdirSync(path.dirname(path.join(root, marker)), { recursive: true });
     fs.writeFileSync(path.join(root, marker), '');
   }

@@ -49,7 +49,7 @@ max-args = 6
 
 [lint.per-file-ignores]
 # The one module that renders assembly templates.
-"src/tools/ipu-as-py/src/ipu_as/template.py" = ["TID251"]
+"src/tools/ipu-as/src/ipu_as/template.py" = ["TID251"]
 # The SystemVerilog package generator renders its own (non-assembly) template.
 "src/tools/ipu-gen/src/ipu_gen/sv_package.py" = ["TID251"]
 
@@ -61,13 +61,13 @@ max-args = 6
 "docs/doc_blocks.py" = ["C901"]
 "docs/test_doc_commands.py" = ["C901", "PLR0912"]
 
-# ipu-emu-py emulator core: these outlived E04 (cycle module, codecs, alias
+# ipu-emu emulator core: these outlived E04 (cycle module, codecs, alias
 # profiling) and are tracked as a follow-up.
-"src/tools/ipu-emu-py/src/ipu_emu/activations.py" = ["C901", "PLR0912"]
-"src/tools/ipu-emu-py/src/ipu_emu/alias_detectors.py" = ["C901", "PLR0912", "PLR0915"]
-"src/tools/ipu-emu-py/src/ipu_emu/alias_observer.py" = ["C901", "PLR0912"]
-"src/tools/ipu-emu-py/src/ipu_emu/emulator.py" = ["PLR0913"]
-"src/tools/ipu-emu-py/src/ipu_emu/isa_alias_spec.py" = ["C901", "PLR0912", "PLR0915"]
+"src/tools/ipu-emu/src/ipu_emu/activations.py" = ["C901", "PLR0912"]
+"src/tools/ipu-emu/src/ipu_emu/alias_detectors.py" = ["C901", "PLR0912", "PLR0915"]
+"src/tools/ipu-emu/src/ipu_emu/alias_observer.py" = ["C901", "PLR0912"]
+"src/tools/ipu-emu/src/ipu_emu/emulator.py" = ["PLR0913"]
+"src/tools/ipu-emu/src/ipu_emu/isa_alias_spec.py" = ["C901", "PLR0912", "PLR0915"]
 
 # ipu-debug debugger: removed by E08.
 "src/tools/ipu-debug/src/ipu_debug/cli.py" = ["C901", "PLR0912"]

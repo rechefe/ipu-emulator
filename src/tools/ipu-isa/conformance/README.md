@@ -77,17 +77,17 @@ The register banks:
 The `_wide_debug` banks hold the wide formats' operands (emulator only).
 
 The Python emulator's runner is
-`src/tools/ipu-emu-py/test/conformance.py`, through the reference-model API
-(`ipu_emu.reference`); `bazel test //src/tools/ipu-emu-py:test_conformance`
+`src/tools/ipu-emu/test/conformance.py`, through the reference-model API
+(`ipu_emu.reference`); `bazel test //src/tools/ipu-emu:test_conformance`
 runs every case and names the first differing cycle and field.
 
 ## Regenerating
 
 ```bash
-bazel run //src/tools/ipu-emu-py:regen_conformance
+bazel run //src/tools/ipu-emu:regen_conformance
 ```
 
-It rewrites every case from `src/tools/ipu-emu-py/test/conformance_cases.py`
+It rewrites every case from `src/tools/ipu-emu/test/conformance_cases.py`
 and removes the folders of cases no longer listed. Review the diff as a
 golden's: a behaviour-change PR regenerates only the traces it changes and
 says why each changed. A change to the ISA changes every trace header's

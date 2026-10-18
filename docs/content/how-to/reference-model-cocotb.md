@@ -22,14 +22,14 @@ model as the DUT, so the code shown here runs as written.
 The model is pure Python. It needs `ipu_emu`, `ipu_isa` and numpy. It does not
 need the assembler, a simulator or a build step.
 
-- **Bazel testbench.** Depend on `//src/tools/ipu-emu-py:ipu_emu_lib`. It
+- **Bazel testbench.** Depend on `//src/tools/ipu-emu:ipu_emu_lib`. It
   brings in `//src/tools/ipu-isa:ipu_isa_lib`.
 - **Any other cocotb flow** (a Makefile, a CI script). No wheel is published.
   Check out this repository at a fixed commit and add its two source
   directories to `PYTHONPATH`, in the environment that runs the simulator:
 
   ```bash
-  export PYTHONPATH="$IPU_EMULATOR/src/tools/ipu-emu-py/src:$IPU_EMULATOR/src/tools/ipu-isa/src:$PYTHONPATH"
+  export PYTHONPATH="$IPU_EMULATOR/src/tools/ipu-emu/src:$IPU_EMULATOR/src/tools/ipu-isa/src:$PYTHONPATH"
   pip install numpy
   ```
 
@@ -39,7 +39,7 @@ need the assembler, a simulator or a build step.
 Assemble the program the RTL runs into a program file:
 
 ```bash
-bazel run //src/tools/ipu-as-py:ipu-as -- assemble --input "$PWD/prog.asm" --output "$PWD/prog.bin"
+bazel run //src/tools/ipu-as:ipu-as -- assemble --input "$PWD/prog.asm" --output "$PWD/prog.bin"
 ```
 
 ## Step 2: give the model and the RTL the same starting state

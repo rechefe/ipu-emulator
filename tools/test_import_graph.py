@@ -461,7 +461,7 @@ def test_the_emulator_importing_the_debugger_is_reported(tmp_path, text):
     packages = _plant(
         tmp_path,
         {
-            "ipu-emu-py/src/ipu_emu/emulator.py": text,
+            "ipu-emu/src/ipu_emu/emulator.py": text,
             "ipu-debug/src/ipu_debug/__init__.py": "import ipu_emu\n",
         },
     )

@@ -8,7 +8,7 @@ completion, and the SystemVerilog package.
 
 The "one edit" test proves it. It adds a dummy instruction, `TESTNEG`, to copies
 of the sources with only the first two edits, then assembles and runs a program
-that uses it (`src/tools/ipu-emu-py/test/test_one_edit_end_to_end.py`). The examples
+that uses it (`src/tools/ipu-emu/test/test_one_edit_end_to_end.py`). The examples
 below are that test's own entry and handler.
 
 ## Before you start
@@ -62,7 +62,7 @@ with the entry's path, such as `lr.TESTNEG.operands[src].read`.
 ## Step 2: the handler
 
 Add `execute_<name>` to the module of the instruction's slot, under
-`src/tools/ipu-emu-py/src/ipu_emu/slots/` (`lr.py` for `lr`; `store.py` holds
+`src/tools/ipu-emu/src/ipu_emu/slots/` (`lr.py` for `lr`; `store.py` holds
 `store` and `acc_store`; `brk.py` is `break`).
 This is `TESTNEG`'s, in `lr.py`:
 
@@ -98,7 +98,7 @@ This is `TESTNEG`'s, in `lr.py`:
 ## Step 3: the test
 
 Add a test with the shared emulator test helpers in
-`src/tools/ipu-emu-py/test/emu_support.py`, next to the tests of the same slot
+`src/tools/ipu-emu/test/emu_support.py`, next to the tests of the same slot
 in `test_execute.py`. `run` assembles a program, runs it to `HALT` and returns
 the final state; `make_state` stops before running, so the test can write XMEM
 first. A test of `ADD`, an existing `lr` instruction:
@@ -132,7 +132,7 @@ instruction. Update them; the failing test names what it pins.
       instructions (`test_one_edit.py` in ipu-isa, `test_one_edit_generators.py`
       in ipu-gen).
     - for a HARDWARE instruction, its conformance program: an entry in
-      `INSTRUCTIONS` in `src/tools/ipu-emu-py/test/conformance_cases.py`
+      `INSTRUCTIONS` in `src/tools/ipu-emu/test/conformance_cases.py`
       (`test_conformance` names an instruction no case runs); run
       `tools/update_baselines.sh` again to write its cases.
 - An instruction whose opcode does not fit in its slot's opcode field (a slot of
@@ -150,7 +150,7 @@ For an EMULATOR instruction, check that a program using it is rejected for the
 hardware:
 
 ```bash
-bazel run //src/tools/ipu-as-py:ipu-as -- assemble --target hardware --input "$PWD/prog.asm" --output "$PWD/prog.bin"
+bazel run //src/tools/ipu-as:ipu-as -- assemble --target hardware --input "$PWD/prog.asm" --output "$PWD/prog.bin"
 ```
 
 ## What you do not edit
@@ -164,9 +164,9 @@ step 4.
 
 A **new operand type** is the exception: it needs an entry in
 `src/tools/ipu-isa/src/ipu_isa/operand_types.py`, a token class in the
-assembler's `OPERAND_TYPE_MAP` (`src/tools/ipu-as-py/src/ipu_as/inst.py`). The
+assembler's `OPERAND_TYPE_MAP` (`src/tools/ipu-as/src/ipu_as/inst.py`). The
 emulator picks how a read operand resolves from the register banks its domain
-names (`_READ_BY_BANKS` in `src/tools/ipu-emu-py/src/ipu_emu/ipu.py`); only a
+names (`_READ_BY_BANKS` in `src/tools/ipu-emu/src/ipu_emu/ipu.py`); only a
 type over a new bank needs a read code in `ipu_emu/resolver.py`.
 Its `field_suffix` and `sv_typedef` are wire format.
 
@@ -187,7 +187,7 @@ It has no `execute_fn`, no opcode and no handler, since the emulator never sees
 it. The assembler picks a pseudo-instruction by name and operand count, so one
 may share a name with an instruction of another arity. Its test checks it
 assembles to the same words as its expansion (in
-`src/tools/ipu-as-py/test/test_assemble.py`):
+`src/tools/ipu-as/test/test_assemble.py`):
 
 ```python
 --8<-- "docs/examples/test_add_an_instruction.py:pseudo-import"

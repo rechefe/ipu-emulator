@@ -16,8 +16,8 @@ SCRIPT = Path("tools/update_baselines.sh")
 
 #: The packages with baseline files (docs/content/code-conventions.md, "Baselines").
 BASELINE_PACKAGES = (
-    "src/tools/ipu-as-py",
-    "src/tools/ipu-emu-py",
+    "src/tools/ipu-as",
+    "src/tools/ipu-emu",
     "src/tools/ipu-isa",
 )
 

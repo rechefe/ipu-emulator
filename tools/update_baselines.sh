@@ -15,18 +15,18 @@ set -euo pipefail
 
 UPDATE_TARGETS=(
   //src/tools/ipu-isa:update_isa_baselines
-  //src/tools/ipu-as-py:update_asm_digests
-  //src/tools/ipu-as-py:update_decode_snapshots
-  //src/tools/ipu-as-py:update_disassembly_snapshots
-  //src/tools/ipu-as-py:update_sv_golden
-  //src/tools/ipu-as-py:update_generated_artifacts
-  //src/tools/ipu-emu-py:update_conformance
+  //src/tools/ipu-as:update_asm_digests
+  //src/tools/ipu-as:update_decode_snapshots
+  //src/tools/ipu-as:update_disassembly_snapshots
+  //src/tools/ipu-as:update_sv_golden
+  //src/tools/ipu-as:update_generated_artifacts
+  //src/tools/ipu-emu:update_conformance
 )
 
 BASELINE_PATHS=(
   src/tools/ipu-isa/test/baselines
   docs/content/requirements/faults.md
-  src/tools/ipu-as-py/test/baselines
+  src/tools/ipu-as/test/baselines
   src/tools/ipu-debug/test/baselines
   src/tools/ipu-isa/conformance
 )

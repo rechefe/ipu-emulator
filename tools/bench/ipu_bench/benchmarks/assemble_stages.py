@@ -2,7 +2,7 @@
 
 Over every kernel's default program (rendered by the harness, so the render
 stage is the Jinja pass over text with no template left) and every program in
-the E02-01 digest manifest, as ``bazel run //src/tools/ipu-as-py:bench_assemble``
+the E02-01 digest manifest, as ``bazel run //src/tools/ipu-as:bench_assemble``
 measures it (E05-01): the parser built and the tables warm first, best of 3
 runs (1 with ``--quick``).
 """

@@ -43,9 +43,9 @@ py_library(
     ),
     imports = ["src"],
     deps = [
-        "//src/tools/ipu-as-py:ipu_as_lib",
+        "//src/tools/ipu-as:ipu_as_lib",
         "//src/tools/ipu-debug:ipu_debug_lib",  # imported only for --debug
-        "//src/tools/ipu-emu-py:ipu_emu_lib",
+        "//src/tools/ipu-emu:ipu_emu_lib",
         "//src/tools/ipu-isa:ipu_isa_lib",
     ] + [requirement(dep) for dep in RUNTIME_DEPS],
 )
@@ -251,8 +251,8 @@ py_pytest_test(
     srcs = ["test/test_stages.py"],
     deps = [
         ":ipu_harness_lib",
-        "//src/tools/ipu-as-py:ipu_as_lib",
-        "//src/tools/ipu-emu-py:ipu_emu_lib",
+        "//src/tools/ipu-as:ipu_as_lib",
+        "//src/tools/ipu-emu:ipu_emu_lib",
         "//src/tools/ipu-isa:ipu_isa_lib",
         requirement("numpy"),
         requirement("pytest"),
@@ -265,7 +265,7 @@ py_pytest_test(
     srcs = ["test/test_chain.py"],
     deps = [
         ":ipu_harness_lib",
-        "//src/tools/ipu-emu-py:ipu_emu_lib",
+        "//src/tools/ipu-emu:ipu_emu_lib",
         "//src/tools/ipu-isa:ipu_isa_lib",
         requirement("numpy"),
         requirement("pytest"),
@@ -438,7 +438,7 @@ py_pytest_test(
     deps = [
         ":ipu_harness_lib",
         "//kernels:all_kernels",
-        "//src/tools/ipu-emu-py:ipu_emu_lib",
+        "//src/tools/ipu-emu:ipu_emu_lib",
         "//src/tools/ipu-isa:ipu_isa_lib",
         requirement("pytest"),
     ],
@@ -457,7 +457,7 @@ py_pytest_test(
     deps = [
         ":ipu_harness_lib",
         "//kernels:all_kernels",
-        "//src/tools/ipu-emu-py:ipu_emu_lib",
+        "//src/tools/ipu-emu:ipu_emu_lib",
         "//src/tools/ipu-kernels:ipu_kernels_all",
         "//tools:pytest_shard_plugin",
         requirement("pytest"),
@@ -467,7 +467,7 @@ py_pytest_test(
 
 # The ISA-wide program checks (round trip, slot and word codec, hardware
 # target) over every kernel's rendered default programs (E07-25): the kernel
-# tree's half of ipu-as-py's corpus tests.
+# tree's half of ipu-as's corpus tests.
 py_pytest_test(
     name = "test_kernel_programs",
     size = "medium",
@@ -475,7 +475,7 @@ py_pytest_test(
     deps = [
         ":ipu_harness_lib",
         "//kernels:all_kernels",
-        "//src/tools/ipu-as-py:program_checks",
+        "//src/tools/ipu-as:program_checks",
         requirement("pytest"),
     ],
 )

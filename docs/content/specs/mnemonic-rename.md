@@ -34,5 +34,5 @@ assembler rejects them as "reserved, not implemented".
 
 The `ACC_STORE` slot is emulator-only; since E03-22 the SV package leaves it out, so its two names above no longer appear there.
 
-`//src/tools/ipu-as-py:test_sv_rename_table` checks this table against the SV
+`//src/tools/ipu-as:test_sv_rename_table` checks this table against the SV
 golden.

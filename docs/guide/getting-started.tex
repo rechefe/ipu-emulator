@@ -544,8 +544,8 @@ the kernels:
 \begin{filetree}
 src/tools/
   ipu-isa/               instruction set definition shared by all
-  ipu-as-py/             assembler (.asm -> .bin)
-  ipu-emu-py/            emulator (runs a .bin cycle by cycle)
+  ipu-as/             assembler (.asm -> .bin)
+  ipu-emu/            emulator (runs a .bin cycle by cycle)
   ipu-harness/           runs kernels: cases, goldens, the registry, tools
   ipu-kernels/           shared kernel code: references, pack transforms
 kernels/                 one folder per kernel, grouped by family
@@ -1183,11 +1183,11 @@ runs it inside Bazel's own directory, so give \textbf{absolute} paths
 (\texttt{\$PWD/...}); and pass \texttt{--format bin}, or it asks:
 
 \begin{termcmd}
-$ bazel run //src/tools/ipu-as-py:ipu-as -- assemble --format bin \
+$ bazel run //src/tools/ipu-as:ipu-as -- assemble --format bin \
     --input $PWD/prog.asm --output $PWD/prog.bin
 $ ls -l prog.bin
-$ bazel run //src/tools/ipu-as-py:ipu-as -- check --input $PWD/prog.asm
-$ bazel run //src/tools/ipu-as-py:ipu-as -- check --input $PWD/bad.asm
+$ bazel run //src/tools/ipu-as:ipu-as -- check --input $PWD/prog.asm
+$ bazel run //src/tools/ipu-as:ipu-as -- check --input $PWD/bad.asm
 \end{termcmd}
 
 \texttt{bad.asm} contains \texttt{BEQ lr0, cr0, +1}:
@@ -1390,7 +1390,7 @@ To measure what an alias would save as a real instruction --- for example an
   \texttt{src/tools/ipu-isa/src/ipu\_isa/instruction\_spec.py}. Its
   opcode comes from its position in the file; never assign one.
 \item Add its handler, \texttt{execute\_<name>}, to its slot's module,
-  \texttt{src/tools/ipu-emu-py/src/ipu\_emu/slots/<slot>.py}. Its keyword
+  \texttt{src/tools/ipu-emu/src/ipu\_emu/slots/<slot>.py}. Its keyword
   arguments must be named exactly like the operands in the spec
   (\doc{how-to/add-an-instruction}{Add an instruction} walks through every step).
 \item Copy the kernel folder under a new name (folder, \texttt{.asm} file and
@@ -1466,11 +1466,11 @@ Below, \texttt{<kernel>} stands for a kernel's target,
 \medskip\textbf{\sffamily Build and assemble}\par
 \texttt{bazel build //kernels/<family>/<name>:\textbackslash}\par
 \texttt{\ \ assemble\_<name>}\par
-\texttt{bazel run //src/tools/ipu-as-py:ipu-as \textbackslash}\par
+\texttt{bazel run //src/tools/ipu-as:ipu-as \textbackslash}\par
 \texttt{\ \ -- assemble --format bin \textbackslash}\par
 \texttt{\ \ --input \$PWD/a.asm \textbackslash}\par
 \texttt{\ \ --output \$PWD/a.bin}\par
-\texttt{bazel run //src/tools/ipu-as-py:ipu-as \textbackslash}\par
+\texttt{bazel run //src/tools/ipu-as:ipu-as \textbackslash}\par
 \texttt{\ \ -- check --input \$PWD/a.asm}\par
 
 \medskip\textbf{\sffamily Aliases and speed}\par

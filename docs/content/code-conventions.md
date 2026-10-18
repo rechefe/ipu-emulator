@@ -79,16 +79,16 @@ A baseline is a checked-in file that pins today's output. Its test fails on any 
 
 | Baseline | Location | Update target |
 |---|---|---|
-| Assembled-program digests | `src/tools/ipu-as-py/test/baselines/asm_digests.json` | `//src/tools/ipu-as-py:update_asm_digests` |
-| Field names, emulator field maps, enum descriptors | `src/tools/ipu-as-py/test/baselines/*.json` | `//src/tools/ipu-as-py:update_decode_snapshots` |
-| Disassembly text | `src/tools/ipu-as-py/test/baselines/disassembly/` | `//src/tools/ipu-as-py:update_disassembly_snapshots` |
-| SV package golden | `src/tools/ipu-as-py/test/baselines/ipu_instr_pkg.sv`, plus the `EXPECTED_LOCALPARAMS` table in `test_sv_package_golden.py` (edited by hand) | `//src/tools/ipu-as-py:update_sv_golden` |
-| Generated artifacts | `src/tools/ipu-as-py/test/baselines/generated/` | `//src/tools/ipu-as-py:update_generated_artifacts` |
+| Assembled-program digests | `src/tools/ipu-as/test/baselines/asm_digests.json` | `//src/tools/ipu-as:update_asm_digests` |
+| Field names, emulator field maps, enum descriptors | `src/tools/ipu-as/test/baselines/*.json` | `//src/tools/ipu-as:update_decode_snapshots` |
+| Disassembly text | `src/tools/ipu-as/test/baselines/disassembly/` | `//src/tools/ipu-as:update_disassembly_snapshots` |
+| SV package golden | `src/tools/ipu-as/test/baselines/ipu_instr_pkg.sv`, plus the `EXPECTED_LOCALPARAMS` table in `test_sv_package_golden.py` (edited by hand) | `//src/tools/ipu-as:update_sv_golden` |
+| Generated artifacts | `src/tools/ipu-as/test/baselines/generated/` | `//src/tools/ipu-as:update_generated_artifacts` |
 | The ISA view as JSON, and the F-1 table of the faults requirements page | `src/tools/ipu-isa/test/baselines/spec_snapshot.json`, `docs/content/requirements/faults.md` | `//src/tools/ipu-isa:update_isa_baselines` |
-| Conformance suite (programs, setups, expected traces) | `src/tools/ipu-isa/conformance/` | `//src/tools/ipu-emu-py:update_conformance` (also `:regen_conformance`) |
-| The check command's JSON output (v1), the VS Code extension's contract | `src/tools/ipu-as-py/test/baselines/check_json_v1.json` | none: a difference is a contract change; the test writes the new file to its undeclared outputs to copy over |
-| The assemble command's error output over the check corpus | `src/tools/ipu-as-py/test/baselines/cli_assemble_errors.json` | none: the test writes the new file to its undeclared outputs to copy over |
-| Formatter output (the extension's corpus in full, every kernel as digests) | `src/tools/ipu-as-py/test/baselines/format/` | `node vscode-ipu-asm/test/record-format.js` |
+| Conformance suite (programs, setups, expected traces) | `src/tools/ipu-isa/conformance/` | `//src/tools/ipu-emu:update_conformance` (also `:regen_conformance`) |
+| The check command's JSON output (v1), the VS Code extension's contract | `src/tools/ipu-as/test/baselines/check_json_v1.json` | none: a difference is a contract change; the test writes the new file to its undeclared outputs to copy over |
+| The assemble command's error output over the check corpus | `src/tools/ipu-as/test/baselines/cli_assemble_errors.json` | none: the test writes the new file to its undeclared outputs to copy over |
+| Formatter output (the extension's corpus in full, every kernel as digests) | `src/tools/ipu-as/test/baselines/format/` | `node vscode-ipu-asm/test/record-format.js` |
 | Debugger TUI screens | `src/tools/ipu-debug/test/baselines/tui/` | none: recorded once, before E08-08; edited by hand |
 
 `tools/update_baselines.sh` runs every update target and then lists the baseline files that changed. A kernel of `kernels/` has no baseline file: its tests hold every case to its golden (`kernel.toml`, `[golden]`), and its `:assemble_<name>` writes its program. The timing tests have no baseline file: their expected values are code, changed by hand in the behaviour PR that changes the timing rule.
@@ -97,7 +97,7 @@ A baseline is a checked-in file that pins today's output. Its test fails on any 
 |---|---|---|
 | A PR labelled refactor modifies no baseline file. | An unchanged baseline is the proof that the refactor changes no output. Regenerating a baseline to make a refactor pass hides the change it was there to catch. | Review; the PR template asks for it |
 | A PR labelled `behaviour change` regenerates only the baselines it means to change. Its description says why each one changed, in one sentence. | The reviewer reads each baseline diff as the effect of the change. | Review; the PR template asks for the list |
-| Every `*_WIDTH` localparam of the SV package stays identical to the base, or the PR calls the change out as breaking. `tools/sv_localparam_diff.sh <base-ref>` prints nothing when they are identical. | Each width is wire format for the downstream RTL repository (`CLAUDE.md`, "Generated SystemVerilog Package"). | `//src/tools/ipu-as-py:test_sv_package_golden`; the diff script; Review |
+| Every `*_WIDTH` localparam of the SV package stays identical to the base, or the PR calls the change out as breaking. `tools/sv_localparam_diff.sh <base-ref>` prints nothing when they are identical. | Each width is wire format for the downstream RTL repository (`CLAUDE.md`, "Generated SystemVerilog Package"). | `//src/tools/ipu-as:test_sv_package_golden`; the diff script; Review |
 | A new update target is added to `tools/update_baselines.sh`. | One command must regenerate every baseline. | `//tools:test_update_baselines` |
 
 ## Words
@@ -125,4 +125,4 @@ A commit that only reformats code goes into `.git-blame-ignore-revs`, with a com
 | Rule | Why | Checked by |
 |---|---|---|
 | Pure Python and numpy. Speed comes from vectorising and from better data structures, not from compiled extensions. | Every contributor can read, debug and build the code. | Review |
-| A PR that claims a speed change pastes the `bazel run //tools/bench:bench -- --quick` table from before and after the change; a PR that changes only the emulator may paste the `bazel run //src/tools/ipu-emu-py:bench_emulator -- --quick` table instead (the PR template's Performance section). | A speed-up without numbers cannot be checked or kept. The nightly history (`tools/bench/README.md`) shows slow drift. | Review |
+| A PR that claims a speed change pastes the `bazel run //tools/bench:bench -- --quick` table from before and after the change; a PR that changes only the emulator may paste the `bazel run //src/tools/ipu-emu:bench_emulator -- --quick` table instead (the PR template's Performance section). | A speed-up without numbers cannot be checked or kept. The nightly history (`tools/bench/README.md`) shows slow drift. | Review |

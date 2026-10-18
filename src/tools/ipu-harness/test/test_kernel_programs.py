@@ -1,6 +1,6 @@
 """The ISA-wide program checks over every kernel of the kernel tree (E07-25).
 
-The standalone corpus tests in ipu-as-py (``test_assembly_round_trip``,
+The standalone corpus tests in ipu-as (``test_assembly_round_trip``,
 ``test_slot_codec_corpus``, ``test_word_codec_corpus``,
 ``test_hardware_target``) run these checks on programs that assemble from
 their file. A ``kernels/`` program renders only with a case, so here each

@@ -19,8 +19,8 @@ from uv import find_uv_bin
 
 # Inputs, relative to the workspace root. The order is part of the lock header.
 INPUTS = (
-    "src/tools/ipu-as-py/pyproject.toml",
-    "src/tools/ipu-emu-py/pyproject.toml",
+    "src/tools/ipu-as/pyproject.toml",
+    "src/tools/ipu-emu/pyproject.toml",
     "src/tools/ipu-isa/pyproject.toml",
     "src/tools/ipu-debug/pyproject.toml",
     "src/tools/ipu-gen/pyproject.toml",
@@ -31,8 +31,8 @@ INPUTS = (
 
 # The repository's own packages: Bazel wires them as py_library targets.
 LOCAL_PACKAGES = (
-    "ipu-as-py",
-    "ipu-emu-py",
+    "ipu-as",
+    "ipu-emu",
     "ipu-isa",
     "ipu-debug",
     "ipu-gen",

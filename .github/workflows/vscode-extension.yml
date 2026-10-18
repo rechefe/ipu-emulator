@@ -21,7 +21,7 @@ on:
     paths:
       - 'vscode-ipu-asm/**'
       - '!vscode-ipu-asm/test/**'
-      - 'src/tools/ipu-as-py/src/ipu_as/**'
+      - 'src/tools/ipu-as/src/ipu_as/**'
       - 'src/tools/ipu-gen/**'
       - 'src/tools/ipu-isa/src/ipu_isa/**'
       - '.github/workflows/vscode-extension.yml'
@@ -29,10 +29,10 @@ on:
     branches: [ "**" ]
     paths:
       - 'vscode-ipu-asm/**'
-      - 'src/tools/ipu-as-py/src/ipu_as/**'
+      - 'src/tools/ipu-as/src/ipu_as/**'
       - 'src/tools/ipu-gen/**'
       - 'src/tools/ipu-isa/src/ipu_isa/**'
-      - 'src/tools/ipu-emu-py/src/ipu_emu/**'
+      - 'src/tools/ipu-emu/src/ipu_emu/**'
       - '.github/workflows/vscode-extension.yml'
       # PRs only: the test corpus and the runtime kernel manifest change no
       # bundled file, so on master they must not republish the extension.
@@ -125,9 +125,9 @@ jobs:
       # the editor's own rules do.
       - name: Check formatting by the checkout's assembler
         run: |
-          bazel build //src/tools/ipu-as-py:ipu-as
+          bazel build //src/tools/ipu-as:ipu-as
           node vscode-ipu-asm/test/formatting.js vscode-ipu-asm/data/isa.json \
-            bazel-bin/src/tools/ipu-as-py/ipu-as
+            bazel-bin/src/tools/ipu-as/ipu-as
 
       # A correct rename or format leaves the binary byte for byte the same.
       - name: Check renames and formatting leave the program unchanged
@@ -158,8 +158,8 @@ jobs:
       # The VS Code version is pinned in run.js; diagnostics use the built checker.
       - name: Test the extension in VS Code
         run: |
-          bazel build //src/tools/ipu-as-py:ipu-as
-          checker="$(bazel info bazel-bin)/src/tools/ipu-as-py/ipu-as"
+          bazel build //src/tools/ipu-as:ipu-as
+          checker="$(bazel info bazel-bin)/src/tools/ipu-as/ipu-as"
           export IPU_TEST_CHECK_COMMAND="[\"$checker\", \"check\", \"--json\", \"--input\"]"
           xvfb-run -a node vscode-ipu-asm/test/integration/run.js
 

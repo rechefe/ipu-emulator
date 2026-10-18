@@ -36,7 +36,7 @@ py_library(
     data = glob(["src/ipu_gen/templates/*.j2", "src/ipu_gen/schemas/*.json"]),
     imports = ["src"],
     deps = [
-        "//src/tools/ipu-as-py:ipu_as_lib",
+        "//src/tools/ipu-as:ipu_as_lib",
         "//src/tools/ipu-isa:ipu_isa_lib",
     ] + [requirement(dep) for dep in RUNTIME_DEPS],
 )
@@ -64,7 +64,7 @@ py_pytest_test(
     imports = ["src"],
     deps = [
         ":ipu_gen_lib",
-        "//src/tools/ipu-as-py:ipu_as_lib",
+        "//src/tools/ipu-as:ipu_as_lib",
         requirement("pytest"),
     ],
 )
@@ -76,7 +76,7 @@ py_pytest_test(
     imports = ["src"],
     deps = [
         ":ipu_gen_lib",
-        "//src/tools/ipu-as-py:ipu_as_lib",
+        "//src/tools/ipu-as:ipu_as_lib",
         requirement("jsonschema"),
         requirement("pytest"),
     ],
@@ -109,7 +109,7 @@ py_pytest_test(
 py_pytest_test(
     name = "test_one_edit_generators",
     srcs = ["test/test_one_edit_generators.py"],
-    data = ["//src/tools/ipu-as-py:test/baselines/ipu_instr_pkg.sv"],
+    data = ["//src/tools/ipu-as:test/baselines/ipu_instr_pkg.sv"],
     imports = ["src"],
     deps = [
         ":ipu_gen_lib",
@@ -159,7 +159,7 @@ py_pytest_test(
     imports = ["src"],
     deps = [
         ":ipu_gen_lib",
-        "//src/tools/ipu-as-py:ipu_as_lib",
+        "//src/tools/ipu-as:ipu_as_lib",
         requirement("pytest"),
     ],
 )
@@ -182,7 +182,7 @@ py_pytest_test(
     imports = ["src"],
     deps = [
         ":ipu_gen_lib",
-        "//src/tools/ipu-as-py:ipu_as_lib",
+        "//src/tools/ipu-as:ipu_as_lib",
         requirement("lark"),
         requirement("pytest"),
     ],

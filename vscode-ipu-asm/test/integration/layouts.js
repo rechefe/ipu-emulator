@@ -81,7 +81,7 @@ if (layout === 'old') {
 
 if (layout === 'switch') {
   const kernelFile = path.join(workspace, kernelPath);
-  const assembler = path.join(workspace, 'src', 'tools', 'ipu-as-py');
+  const assembler = path.join(workspace, 'src', 'tools', 'ipu-as');
   const manifest = path.join(workspace, 'manifest.json');
   const saved = fs.readFileSync(manifest, 'utf8');
   const index = () => api().kernels.indexes.get(workspace);

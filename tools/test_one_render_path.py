@@ -46,6 +46,4 @@ def test_a_planted_render_fails_the_lint(tmp_path, source):
 
 def test_the_template_module_may_render(tmp_path):
     source = "from jinja2.sandbox import SandboxedEnvironment\n\nSandboxedEnvironment()\n"
-    assert "TID251" not in _ruff_output(
-        tmp_path, "src/tools/ipu-as-py/src/ipu_as/template.py", source
-    )
+    assert "TID251" not in _ruff_output(tmp_path, "src/tools/ipu-as/src/ipu_as/template.py", source)

@@ -286,7 +286,7 @@ def create_assembler_reg_enums() -> dict[str, list[str]]:
     """Generate assembler register enum definitions from master definitions.
 
     Returns a dict mapping encoding_class names to their enum values.
-    Used to generate EnumToken subclasses in ipu-as-py.
+    Used to generate EnumToken subclasses in ipu-as.
 
     Example:
         {

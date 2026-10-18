@@ -11,7 +11,7 @@
   with ``--define=ipu_proto=1``, also in prototyping mode; ``--tiny`` runs
   INT8 only.
 
-``bazel run //src/tools/ipu-emu-py:bench_emulator`` runs only this module.
+``bazel run //src/tools/ipu-emu:bench_emulator`` runs only this module.
 """
 
 from __future__ import annotations

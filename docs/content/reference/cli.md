@@ -14,7 +14,7 @@ can be a Jinja2 template: `--define` gives the values its `ipu:params` header
 declares, and `-I` adds include directories after the source's own one.
 
 ```bash
-bazel run //src/tools/ipu-as-py:ipu-as -- assemble --input "$PWD/prog.asm" --output "$PWD/prog.bin" --define rows=8
+bazel run //src/tools/ipu-as:ipu-as -- assemble --input "$PWD/prog.asm" --output "$PWD/prog.bin" --define rows=8
 ```
 
 `assemble` writes `bin` for an `--output` ending in `.bin` and `mem`

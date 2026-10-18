@@ -603,7 +603,7 @@ def test_only_the_loader_and_ipu_as_abi_read_kernel_toml():
         pytest.skip("needs the workspace sources")
     allowed = {
         "src/tools/ipu-harness/src/ipu_harness/manifest.py",
-        "src/tools/ipu-as-py/src/ipu_as/cli.py",
+        "src/tools/ipu-as/src/ipu_as/cli.py",
         "src/tools/ipu-harness/src/ipu_harness/family.py",
     }
     readers = []

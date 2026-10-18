@@ -82,7 +82,7 @@ test("a checkout's data is generated once, and again when its sources change", a
   await c.source(cache).load();
   eq(c.runs.length, 2, 'a source newer than the data: generated again');
   // The assembler's sources too: the generator reads its grammar and slot rules.
-  c.touch(Date.now() + 120000, path.join(c.root, 'src', 'tools', 'ipu-as-py', 'src', 'ipu_as', 'ipu_token.py'));
+  c.touch(Date.now() + 120000, path.join(c.root, 'src', 'tools', 'ipu-as', 'src', 'ipu_as', 'ipu_token.py'));
   await c.source(cache).load();
   eq(c.runs.length, 3, 'an assembler source newer than the data: generated again');
   eq(fs.readdirSync(cache).filter((f) => f.includes('.new-')), [], 'no generation directory left behind');

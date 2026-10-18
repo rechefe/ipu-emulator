@@ -9,13 +9,13 @@ description = "Generators that render artifacts (the SystemVerilog package, ...)
 requires-python = ">=3.10"
 dependencies = [
     "click>=8.3.1",
-    "ipu-as-py",
+    "ipu-as",
     "ipu-isa",
     "jinja2>=3.1.4",
 ]
 
 [tool.uv.sources]
-ipu-as-py = { path = "../ipu-as-py", editable = true }
+ipu-as = { path = "../ipu-as", editable = true }
 ipu-isa = { path = "../ipu-isa", editable = true }
 
 [project.optional-dependencies]

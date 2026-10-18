@@ -23,7 +23,7 @@ runtime_deps_manifest(
 )
 
 # The conformance suite (E04-31): programs, setups and expected traces, as data
-# any model runs. Written by //src/tools/ipu-emu-py:regen_conformance.
+# any model runs. Written by //src/tools/ipu-emu:regen_conformance.
 filegroup(
     name = "conformance",
     srcs = glob(["conformance/**"]),
@@ -204,7 +204,7 @@ py_pytest_test(
 py_pytest_test(
     name = "test_word_codec",
     srcs = ["test/test_word_codec.py"],
-    data = ["//src/tools/ipu-as-py:test/baselines/word_fields.json"],
+    data = ["//src/tools/ipu-as:test/baselines/word_fields.json"],
     imports = ["src"],
     deps = [
         ":ipu_isa_lib",
@@ -258,7 +258,7 @@ py_binary(
 )
 
 # The "one edit" test's dummy instruction (E03-24), shared with the generator
-# and end-to-end halves in ipu-gen and ipu-emu-py.
+# and end-to-end halves in ipu-gen and ipu-emu.
 py_library(
     name = "one_edit",
     testonly = True,

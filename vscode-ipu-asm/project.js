@@ -13,7 +13,7 @@ const path = require('path');
 
 const WORKSPACE_FILES = ['MODULE.bazel', 'WORKSPACE.bazel', 'WORKSPACE'];
 /** What makes a workspace an IPU checkout: the package the checker is built from. */
-const IPU_PACKAGE = path.join('src', 'tools', 'ipu-as-py');
+const IPU_PACKAGE = path.join('src', 'tools', 'ipu-as');
 /** How deep below an open folder to look for checkouts. */
 const SEARCH_DEPTH = 3;
 const SKIP = /^(\.|node_modules$|bazel-)/;

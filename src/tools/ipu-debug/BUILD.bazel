@@ -37,7 +37,7 @@ py_library(
     srcs = glob(["src/ipu_debug/**/*.py"]),
     imports = ["src"],
     deps = [
-        "//src/tools/ipu-emu-py:ipu_emu_lib",
+        "//src/tools/ipu-emu:ipu_emu_lib",
         "//src/tools/ipu-isa:ipu_isa_lib",
     ] + [requirement(dep) for dep in RUNTIME_DEPS],
 )
@@ -51,7 +51,7 @@ py_pytest_test(
     imports = ["src"],
     deps = [
         ":ipu_debug_lib",
-        "//src/tools/ipu-emu-py:emu_test_support",
+        "//src/tools/ipu-emu:emu_test_support",
         requirement("pytest"),
     ],
 )
@@ -64,7 +64,7 @@ py_pytest_test(
     imports = ["src"],
     deps = [
         ":ipu_debug_lib",
-        "//src/tools/ipu-as-py:ipu_as_lib",  # assembles the programs it views
+        "//src/tools/ipu-as:ipu_as_lib",  # assembles the programs it views
         requirement("pytest"),
     ],
 )
@@ -76,7 +76,7 @@ py_pytest_test(
     imports = ["src"],
     deps = [
         ":ipu_debug_lib",
-        "//src/tools/ipu-emu-py:emu_test_support",
+        "//src/tools/ipu-emu:emu_test_support",
         requirement("pytest"),
     ],
 )
@@ -90,7 +90,7 @@ py_pytest_test(
     imports = ["src"],
     deps = [
         ":ipu_debug_lib",
-        "//src/tools/ipu-emu-py:emu_test_support",
+        "//src/tools/ipu-emu:emu_test_support",
         requirement("pytest"),
     ],
 )
@@ -115,7 +115,7 @@ py_pytest_test(
     imports = ["src"],
     deps = [
         ":ipu_debug_lib",
-        "//src/tools/ipu-emu-py:emu_test_support",
+        "//src/tools/ipu-emu:emu_test_support",
         requirement("pytest"),
     ],
 )
@@ -128,7 +128,7 @@ py_pytest_test(
     imports = ["src"],
     deps = [
         ":ipu_debug_lib",
-        "//src/tools/ipu-emu-py:emu_test_support",
+        "//src/tools/ipu-emu:emu_test_support",
         requirement("pytest"),
     ],
 )
@@ -141,7 +141,7 @@ py_pytest_test(
     imports = ["src"],
     deps = [
         ":ipu_debug_lib",
-        "//src/tools/ipu-emu-py:emu_test_support",
+        "//src/tools/ipu-emu:emu_test_support",
         requirement("pytest"),
     ],
 )
@@ -154,7 +154,7 @@ py_pytest_test(
     imports = ["src"],
     deps = [
         ":ipu_debug_lib",
-        "//src/tools/ipu-emu-py:emu_test_support",
+        "//src/tools/ipu-emu:emu_test_support",
         requirement("pytest"),
     ],
 )

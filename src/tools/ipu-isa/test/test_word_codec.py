@@ -24,7 +24,7 @@ from ipu_isa.tags import Tag
 from ipu_isa.view import isa
 
 #: E02-02's snapshot of the assembler's word fields, LSB first.
-WORD_FIELDS = Path("src/tools/ipu-as-py/test/baselines/word_fields.json")
+WORD_FIELDS = Path("src/tools/ipu-as/test/baselines/word_fields.json")
 
 _WORDS = [0, (1 << 186) - 1, *(random.Random(3).getrandbits(186) for _ in range(64))]
 

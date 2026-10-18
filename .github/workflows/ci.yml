@@ -172,7 +172,7 @@ jobs:
           import xml.etree.ElementTree as ET
 
           xml = pathlib.Path(
-              "bazel-testlogs/src/tools/ipu-emu-py/test_prototyping_equivalence/test.xml"
+              "bazel-testlogs/src/tools/ipu-emu/test_prototyping_equivalence/test.xml"
           )
           if not xml.is_file():
               sys.exit(f"::error::{xml} not found: test_prototyping_equivalence did not run")
