@@ -42,7 +42,7 @@ page's format, so the page always matches the current ISA and kernels:
    instruction reference the editor extension also reads. The docs build copies
    them to `inspector/data/`.
 
-The `kernel_trace` macro in `docs/inspector.bzl` does steps 1 and 2 for one
+The `kernel_trace` macro in `docs/inspector/defs.bzl` does steps 1 and 2 for one
 case. To record a trace by hand:
 
 ```bash

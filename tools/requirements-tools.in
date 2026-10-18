@@ -2,7 +2,7 @@
 # requirements_lock.txt together with the five pyproject.toml files; refresh
 # with `bazel run //tools:update_requirements_lock`.
 uv
-# Reads pyproject.toml files in //tools:deps_consistency_test (stdlib tomllib
+# Reads pyproject.toml files in //tools:test_deps_consistency (stdlib tomllib
 # from Python 3.11).
 tomli
 # Lint and format: //tools:ruff and the ruff_test targets (tools/lint.bzl).

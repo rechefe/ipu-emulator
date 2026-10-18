@@ -329,10 +329,10 @@ py_binary(
 
 # Default tier (not tagged "docs"): runs offline, _get is monkeypatched.
 py_pytest_test(
-    name = "update_release_log_test",
+    name = "test_update_release_log",
     srcs = [
         "update_release_log.py",
-        "update_release_log_test.py",
+        "test_update_release_log.py",
     ],
     deps = [requirement("pytest")],
 )
@@ -507,11 +507,11 @@ py_binary(
 )
 
 py_pytest_test(
-    name = "publish_version_test",
+    name = "test_publish_version",
     size = "small",
     srcs = [
         "publish_version.py",
-        "publish_version_test.py",
+        "test_publish_version.py",
     ],
     deps = [
         requirement("mike"),
@@ -539,9 +539,9 @@ py_library(
 )
 
 py_pytest_test(
-    name = "doc_blocks_test",
+    name = "test_doc_blocks",
     size = "small",
-    srcs = ["doc_blocks_test.py"],
+    srcs = ["test_doc_blocks.py"],
     deps = [
         ":doc_blocks",
         requirement("pytest"),

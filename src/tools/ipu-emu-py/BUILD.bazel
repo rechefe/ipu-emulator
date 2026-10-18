@@ -14,7 +14,7 @@ exports_files([
     "pyproject.toml",
 ])
 
-# RUNTIME_DEPS as JSON, for //tools:deps_consistency_test.
+# RUNTIME_DEPS as JSON, for //tools:test_deps_consistency.
 runtime_deps_manifest(
     name = "runtime_deps",
     runtime_deps = RUNTIME_DEPS,
@@ -502,7 +502,7 @@ py_pytest_test(
 
 # The Q71 emulator benchmarks (E04-02): IpuState() construction, matmul cycles/s
 # (FP32, INT8 and E4; prototyping too with --config=proto). A `bazel run`
-# target, not a test: //tools/bench:bench_smoke_test keeps it from rotting.
+# target, not a test: //tools/bench:test_bench_smoke keeps it from rotting.
 # tools/bench/README.md.
 # E04-02 names this label; the code lives in //tools/bench as its `emulator`
 # module, so the nightly runner tracks it too.

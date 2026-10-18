@@ -3,7 +3,7 @@
 Each package keeps its list as `RUNTIME_DEPS` in a `deps.bzl` beside its
 `BUILD.bazel`. The package's `py_library` maps it through `requirement()`, and
 `runtime_deps_manifest` writes it to `runtime_deps.json` so
-`//tools:deps_consistency_test` can check it against `pyproject.toml` and the
+`//tools:test_deps_consistency` can check it against `pyproject.toml` and the
 lock. Test and docs packages are not runtime dependencies: the test and docs
 targets that need them list them themselves.
 """

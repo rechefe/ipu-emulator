@@ -6,8 +6,8 @@ hand-written Markdown (outside code), and compares the counts with
 `tools/glossary_baseline.json`. A count may go down but never up; a lower count
 must be written back to the baseline so it ratchets.
 
-Run as a program (`bazel run //:glossary_baseline`) it rewrites the baseline
-from the working tree. The test is `//:glossary_adoption_test`.
+Run as a program (`bazel run //tools:glossary_baseline`) it rewrites the baseline
+from the working tree. The test is `//tools:test_glossary_adoption`.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from pathlib import Path
 
 GLOSSARY = Path("GLOSSARY.md")
 BASELINE = Path("tools/glossary_baseline.json")
-BASELINE_COMMAND = "bazel run //:glossary_baseline"
+BASELINE_COMMAND = "bazel run //tools:glossary_baseline"
 
 # Root files checked besides docs/content/**/*.md (the same set as the doc tests).
 ROOT_FILES = ("README.md", "SKILL.md", "CLAUDE.md")

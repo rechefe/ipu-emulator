@@ -4,8 +4,6 @@ load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
 load("//tools:lint.bzl", "ruff_test")
 
 exports_files([
-    # Read by //:glossary_adoption_test.
-    "glossary_baseline.json",
     # Read by //docs:architecture_page (the Architecture page's package table).
     "import_graph.toml",
     "mypy_runner.py",
@@ -13,7 +11,7 @@ exports_files([
     "ruff_runner.py",
 ])
 
-# Refresh //:requirements_lock.txt from the six pyproject.toml files and
+# Refresh //:requirements_lock.txt from the seven pyproject.toml files and
 # tools/requirements-tools.in. Runs uv from the lock itself, so no host tool is
 # needed. Extra arguments go to `uv pip compile`:
 #
@@ -30,9 +28,9 @@ py_binary(
 # pinned in the lock, and each package's deps.bzl RUNTIME_DEPS (its py_library's
 # third-party deps) equals its [project].dependencies minus ipu-* packages.
 py_pytest_test(
-    name = "deps_consistency_test",
+    name = "test_deps_consistency",
     size = "small",
-    srcs = ["deps_consistency_test.py"],
+    srcs = ["test_deps_consistency.py"],
     data = [
         "requirements-tools.in",
         "//:requirements_lock.txt",
@@ -57,12 +55,38 @@ py_pytest_test(
     ],
 )
 
-# The glossary adoption check; the test and the baseline writer are in the root
-# package (//:glossary_adoption_test, //:glossary_baseline).
+# Glossary adoption check (glossary_check.py): the hand-written docs add no use
+# of a term GLOSSARY.md lists under _Avoid_. Counts per file and term are in
+# glossary_baseline.json and may only go down. Default tier.
 py_library(
     name = "glossary_check",
     srcs = ["glossary_check.py"],
-    visibility = ["//:__pkg__"],
+)
+
+py_pytest_test(
+    name = "test_glossary_adoption",
+    size = "small",
+    srcs = ["test_glossary_adoption.py"],
+    data = [
+        "glossary_baseline.json",
+        "//:CLAUDE.md",
+        "//:GLOSSARY.md",
+        "//:README.md",
+        "//:SKILL.md",
+        "//docs:doc_sources",
+    ],
+    deps = [
+        ":glossary_check",
+        requirement("pytest"),
+    ],
+)
+
+# Rewrite glossary_baseline.json from the working tree, after removing uses of
+# avoided terms: `bazel run //tools:glossary_baseline`.
+py_binary(
+    name = "glossary_baseline",
+    srcs = ["glossary_baseline.py"],
+    deps = [":glossary_check"],
 )
 
 # Each first-party package imports only the packages its row in
@@ -171,11 +195,11 @@ py_binary(
 )
 
 py_pytest_test(
-    name = "coverage_summary_test",
+    name = "test_coverage_summary",
     size = "small",
     srcs = [
         "coverage_summary.py",
-        "coverage_summary_test.py",
+        "test_coverage_summary.py",
     ],
     deps = [requirement("pytest")],
 )

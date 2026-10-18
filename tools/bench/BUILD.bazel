@@ -48,9 +48,9 @@ py_binary(
 # Every benchmark module on the TINY budget (`--tiny`), so none can rot;
 # plus the result format and the CI wall-time parsing.
 py_pytest_test(
-    name = "bench_smoke_test",
+    name = "test_bench_smoke",
     size = "small",
-    srcs = ["bench_smoke_test.py"],
+    srcs = ["test_bench_smoke.py"],
     deps = [
         ":ipu_bench",
         requirement("pytest"),

@@ -4,7 +4,7 @@ load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
 load("//tools:runtime_deps.bzl", "runtime_deps_manifest")
 load(":deps.bzl", "RUNTIME_DEPS")
 load("//tools:lint.bzl", "ruff_test")
-load("//:asm_rules.bzl", "assemble_asm")
+load(":defs.bzl", "assemble_asm")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -18,7 +18,7 @@ exports_files([
     "test/baselines/ipu_instr_pkg.sv",
 ])
 
-# RUNTIME_DEPS as JSON, for //tools:deps_consistency_test.
+# RUNTIME_DEPS as JSON, for //tools:test_deps_consistency.
 runtime_deps_manifest(
     name = "runtime_deps",
     runtime_deps = RUNTIME_DEPS,

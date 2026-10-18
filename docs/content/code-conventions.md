@@ -86,8 +86,8 @@ A baseline is a checked-in file that pins today's output. Its test fails on any 
 | Generated artifacts | `src/tools/ipu-as-py/test/baselines/generated/` | `//src/tools/ipu-as-py:update_generated_artifacts` |
 | The ISA view as JSON, and the F-1 table of the faults requirements page | `src/tools/ipu-isa/test/baselines/spec_snapshot.json`, `docs/content/requirements/faults.md` | `//src/tools/ipu-isa:update_isa_baselines` |
 | Conformance suite (programs, setups, expected traces) | `src/tools/ipu-isa/conformance/` | `//src/tools/ipu-emu-py:update_conformance` (also `:regen_conformance`) |
-| `ipu-as check --json` v1 output, the VS Code extension's contract | `src/tools/ipu-as-py/test/baselines/check_json_v1.json` | none: a difference is a contract change; the test writes the new file to its undeclared outputs to copy over |
-| `ipu-as assemble` error output over the check corpus | `src/tools/ipu-as-py/test/baselines/cli_assemble_errors.json` | none: the test writes the new file to its undeclared outputs to copy over |
+| The check command's JSON output (v1), the VS Code extension's contract | `src/tools/ipu-as-py/test/baselines/check_json_v1.json` | none: a difference is a contract change; the test writes the new file to its undeclared outputs to copy over |
+| The assemble command's error output over the check corpus | `src/tools/ipu-as-py/test/baselines/cli_assemble_errors.json` | none: the test writes the new file to its undeclared outputs to copy over |
 | Formatter output (the extension's corpus in full, every kernel as digests) | `src/tools/ipu-as-py/test/baselines/format/` | `node vscode-ipu-asm/test/record-format.js` |
 | Debugger TUI screens | `src/tools/ipu-debug/test/baselines/tui/` | none: recorded once, before E08-08; edited by hand |
 
@@ -104,7 +104,7 @@ A baseline is a checked-in file that pins today's output. Its test fails on any 
 
 | Rule | Why | Checked by |
 |---|---|---|
-| Use the terms in the [Glossary](reference/glossary.md) (`GLOSSARY.md`). Avoid the alternatives it lists, in new code and in docs. | One name per concept; a different word makes a reader look for a different thing. | `//:glossary_adoption_test` for the hand-written docs (avoided terms outside code; counts in `tools/glossary_baseline.json` may only go down); review for code |
+| Use the terms in the [Glossary](reference/glossary.md) (`GLOSSARY.md`). Avoid the alternatives it lists, in new code and in docs. | One name per concept; a different word makes a reader look for a different thing. | `//tools:test_glossary_adoption` for the hand-written docs (avoided terms outside code; counts in `tools/glossary_baseline.json` may only go down); review for code |
 | Architecture decisions live in [`docs/adr/`](https://github.com/rechefe/ipu-emulator/tree/master/docs/adr). Code does not contradict an accepted ADR; a change of decision is a new ADR. | Decisions stay findable and are not re-argued in every PR. | Review |
 
 ## Tooling
@@ -115,10 +115,10 @@ A baseline is a checked-in file that pins today's output. Its test fails on any 
 | Fix lint automatically | `bazel run //tools:ruff -- check --fix` |
 | Check lint and format | `bazel test --test_tag_filters=lint //...` (or `bazel test //tools:lint`) |
 | Type-check | `bazel test --test_tag_filters=typecheck //...` |
-| Lower the glossary baseline after removing avoided terms from the docs | `bazel run //:glossary_baseline` |
+| Lower the glossary baseline after removing avoided terms from the docs | `bazel run //tools:glossary_baseline` |
 | Refresh the dependency lock after editing a `pyproject.toml` | `bazel run //tools:update_requirements_lock` |
 
-A commit that only reformats code goes into `.git-blame-ignore-revs`, with a comment naming the change; `git config blame.ignoreRevsFile .git-blame-ignore-revs` makes `git blame` skip it. Runtime dependencies are also listed in the package's `deps.bzl`; `//tools:deps_consistency_test` fails if the two disagree.
+A commit that only reformats code goes into `.git-blame-ignore-revs`, with a comment naming the change; `git config blame.ignoreRevsFile .git-blame-ignore-revs` makes `git blame` skip it. Runtime dependencies are also listed in the package's `deps.bzl`; `//tools:test_deps_consistency` fails if the two disagree.
 
 ## Performance
 

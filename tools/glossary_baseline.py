@@ -1,4 +1,4 @@
-"""Rewrite tools/glossary_baseline.json: `bazel run //:glossary_baseline`."""
+"""Rewrite tools/glossary_baseline.json: `bazel run //tools:glossary_baseline`."""
 
 import sys
 

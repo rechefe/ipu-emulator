@@ -57,7 +57,7 @@ bazel build //src/tools/ipu-isa:ipu_isa_lib
 Python dependencies are declared in `pyproject.toml` and pinned, with hashes, in
 the repository-root `requirements_lock.txt`. Runtime dependencies are also listed
 as `RUNTIME_DEPS` in the package's `deps.bzl`, which its `py_library` uses. After
-changing a dependency, refresh the lock (`//tools:deps_consistency_test` checks
+changing a dependency, refresh the lock (`//tools:test_deps_consistency` checks
 all three agree):
 
 ```bash

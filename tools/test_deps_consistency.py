@@ -164,7 +164,7 @@ def _declared_by_source() -> dict[str, list[str]]:
 def test_every_lock_input_is_available():
     """Each file the lock is compiled from is in this test's data."""
     missing = [p for p in lock_inputs(LOCK.read_text()) if not Path(p).is_file()]
-    assert not missing, f"add to //tools:deps_consistency_test data: {missing}"
+    assert not missing, f"add to //tools:test_deps_consistency data: {missing}"
 
 
 def test_every_declared_requirement_is_locked():

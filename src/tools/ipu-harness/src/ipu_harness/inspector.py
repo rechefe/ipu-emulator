@@ -16,7 +16,7 @@ keeps what the page needs. Two files come out:
   (``ReferenceModel.observe_xmem_reads``).
 
 ``ipu-gen inspector-trace`` turns the two into the page's JSON
-(``docs/inspector.bzl``'s ``kernel_trace``).
+(``docs/inspector/defs.bzl``'s ``kernel_trace``).
 """
 
 from __future__ import annotations

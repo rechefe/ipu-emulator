@@ -372,7 +372,7 @@ With `[abi]` `data_base = "CR2"` and `data_ptr = "LR0"`, this renders `SET LR0 C
 bazel run //src/tools/ipu-as-py:ipu-as -- assemble --input prog.asm --output prog.bin
 ```
 
-**In Bazel build rules:** a kernel's `:assemble_<name>` target writes its program (see [Write a kernel](../../how-to/write-a-kernel.md)); `assemble_asm` in `asm_rules.bzl` assembles any other source.
+**In Bazel build rules:** a kernel's `:assemble_<name>` target writes its program (see [Write a kernel](../../how-to/write-a-kernel.md)); `assemble_asm` in `src/tools/ipu-as-py/defs.bzl` assembles any other source.
 
 ## Further reading
 

@@ -9,7 +9,7 @@ package(default_visibility = ["//visibility:public"])
 
 exports_files(["pyproject.toml"])
 
-# RUNTIME_DEPS as JSON, for //tools:deps_consistency_test.
+# RUNTIME_DEPS as JSON, for //tools:test_deps_consistency.
 runtime_deps_manifest(
     name = "runtime_deps",
     runtime_deps = RUNTIME_DEPS,

@@ -1,7 +1,7 @@
 load("@ipu_as_deps//:requirements.bzl", "requirement")
 load("@rules_python//python:defs.bzl", "py_binary")
 load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
-load("//docs:inspector.bzl", "kernel_trace")
+load(":defs.bzl", "kernel_trace")
 load("//tools:lint.bzl", "ruff_test")
 
 package(default_visibility = ["//visibility:public"])

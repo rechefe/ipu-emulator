@@ -2,7 +2,7 @@
 
 The trace (``ipu_isa/schemas``: a header line, then one commit record per
 retired word) is the contract; this file is one presentation of it, for the
-docs page's trace viewer. ``kernel_trace`` (``docs/inspector.bzl``) records
+docs page's trace viewer. ``kernel_trace`` (``docs/inspector/defs.bzl``) records
 the trace and its context with ``run_kernel --trace --context``, then runs
 ``ipu-gen inspector-trace`` on them.
 

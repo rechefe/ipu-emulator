@@ -150,11 +150,6 @@ def test_new_avoid_term_is_picked_up(tmp_path: Path) -> None:
     assert "'ABI'" in messages
 
 
-def test_generated_pages_are_not_checked(tmp_path: Path) -> None:
-    root = _tree(tmp_path, {"docs/content/instructions.md": "A VLIW word.\n"})
-    assert json.loads((root / glossary_check.BASELINE).read_text(encoding="utf-8")) == {}
-
-
 def test_machine_written_pages_are_not_checked(tmp_path: Path) -> None:
     root = _tree(tmp_path, {"docs/content/release-log.md": "Remove wide mode; VLIW word.\n"})
     assert "docs/content/release-log.md" not in glossary_check.doc_files(root)

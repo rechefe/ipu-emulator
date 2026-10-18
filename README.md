@@ -109,7 +109,7 @@ Each package's `py_library` carries only its runtime packages, the
 and `docs` extras) go on the test and docs targets that use them, as
 `requirement("pytest")`. Changing a runtime dependency means editing both
 `pyproject.toml` and `deps.bzl`, then refreshing the lock;
-`//tools:deps_consistency_test` fails if either step is missed.
+`//tools:test_deps_consistency` fails if either step is missed.
 
 PyTorch is test-only (the shared kernel references, `ipu-kernels`' `dev`
 extra). It is the CPU wheel from PyTorch's own index: `ipu-kernels`'
