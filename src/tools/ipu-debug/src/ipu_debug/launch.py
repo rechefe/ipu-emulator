@@ -37,7 +37,7 @@ def make_tui_debug_callback(kernel_name: str | None = None) -> tuple[DebugCallba
             debug = DebugSession(state, control, kernel_name=kernel_name)
             view = debug_tui.new_debug_view_session(state)
         # Call curses directly so initialization failures never fall through
-        # into an unattended run or the deprecated line debugger.
+        # into an unattended run.
         return debug_tui.run_debug_tui(state, cycle, control=control, session=view, debug=debug)
 
     return callback, control

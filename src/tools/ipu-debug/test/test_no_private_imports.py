@@ -1,7 +1,7 @@
 """No module imports a ``_``-prefixed name from another ``ipu_debug`` module (Q66).
 
-The debugger frontends share code through public modules (``ipu_debug.session``,
-``ipu_debug.format``); reaching into ``ipu_debug.cli`` or ``ipu_debug.tui`` for a
+The debugger's modules share code through public names (``ipu_debug.session``,
+``ipu_debug.format``); reaching into ``ipu_debug.tui`` or another module for a
 private helper is what this test stops.
 """
 
@@ -64,9 +64,9 @@ def test_no_private_cross_module_imports():
 @pytest.mark.parametrize(
     "planted",
     [
-        "from ipu_debug.cli import _parse_int\n",
+        "from ipu_debug.format import _format_item\n",
         "from ipu_debug.tui import _resolved_key\n",
-        "def f():\n    from ipu_debug.cli import (\n        VISIBLE_ALPHABET,\n        _tokenize,\n    )\n",
+        "def f():\n    from ipu_debug.format import (\n        VISIBLE_ALPHABET,\n        _tokenize_line,\n    )\n",
     ],
 )
 def test_a_planted_private_import_is_reported(planted):
@@ -76,8 +76,8 @@ def test_a_planted_private_import_is_reported(planted):
 @pytest.mark.parametrize(
     ("source", "module"),
     [
-        ("from ipu_debug.cli import DebugCLI\n", None),
-        ("from ipu_debug.cli import _parse_int\n", "ipu_debug.cli"),
+        ("from ipu_debug.format import tokenize_xmem\n", None),
+        ("from ipu_debug.format import _format_item\n", "ipu_debug.format"),
         ("from ipu_debug.session import __all__\n", None),
         ("from ipu_emu.ipu import _private\n", None),
     ],

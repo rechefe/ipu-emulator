@@ -1,14 +1,14 @@
-"""The debugger core both frontends sit on: parse, resolve, read, mutate, disassemble.
+"""The debugger core the TUI sits on: parse, resolve, read, mutate, disassemble.
 
-``DebugSession`` has no curses, no ``cmd`` and no stream writes. It turns user
+``DebugSession`` has no curses and no stream writes. It turns user
 text into requests, reads registers and XMEM windows from an ``IpuState`` and
 disassembles instruction memory, returning values. It is also the only place a
 debugger changes anything: register and memory writes, the PC, breakpoints and
 run-until all go through its methods, each of which bumps ``generation`` so
 views can tell their cached reads are stale. Every user-facing failure
 is a ``DebugError`` whose message is the text a frontend shows. How values are
-laid out on screen stays in each adapter (``ipu_debug.cli``, ``ipu_debug.tui``)
-and in the shared display helpers of ``ipu_debug.format``.
+laid out on screen stays in the TUI (``ipu_debug.tui``) and in the display
+helpers of ``ipu_debug.format``.
 """
 
 from __future__ import annotations

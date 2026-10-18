@@ -231,6 +231,7 @@ class TestSetRegister:
             ("bogus", 1, "Unknown register: bogus"),
             ("r0", 1, "Cannot set byte-array register 'r0' with a scalar value"),
             ("cr0", 1, "CR0 is read-only"),
+            ("cr1", 1, "CR1 is read-only"),
         ],
     )
     def test_rejects_with_the_frontend_text_and_changes_nothing(
@@ -241,6 +242,7 @@ class TestSetRegister:
             session.set_register(name, value)
         assert session.state.program_counter == pc
         assert session.state.regfile.get_cr(0) == 0
+        assert session.state.regfile.get_cr(1) == 1
         assert session.generation == 0
 
 
@@ -258,6 +260,11 @@ class TestBreakpointsAndRunUntil:
         session.clear_breakpoints()
         assert session.control.breakpoints == frozenset()
         assert session.generation == 7
+
+    def test_breakpoints_change_only_through_the_session(self, session):
+        with pytest.raises(AttributeError):
+            session.control.breakpoints.add(3)
+        assert not session.control.breakpoints
 
     @pytest.mark.parametrize(
         "method", ["add_breakpoint", "remove_breakpoint", "toggle_breakpoint", "run_until"]

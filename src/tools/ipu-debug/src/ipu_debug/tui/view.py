@@ -1,10 +1,8 @@
 """The TUI's shell over the ``Screen`` seam: layout, focus, status, help, main loop.
 
-The TUI is the application debugger. The deprecated line debugger is a
-separate compatibility API and cannot be entered from this interface. The
-terminal is reached only through ``ipu_debug.tui.screen``; keys reach their
-handlers through ``ipu_debug.tui.keymap``. What each pane shows and does is
-its own module's (``ipu_debug.tui.panes``); the view lays the panes out,
+The TUI is the application debugger. The terminal is reached only through
+``ipu_debug.tui.screen``; keys reach their handlers through
+``ipu_debug.tui.keymap``. What each pane shows and does is its own module's (``ipu_debug.tui.panes``); the view lays the panes out,
 frames them, routes each key to the focused one and draws the header, the
 footer and the overlays around them.
 """

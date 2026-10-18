@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ipu-debug"
 version = "0.1.0"
-description = "The IPU emulator's interactive debugger (line CLI and curses TUI)"
+description = "The IPU emulator's interactive debugger (a curses TUI)"
 requires-python = ">=3.10"
 dependencies = [
     "ipu-emu",

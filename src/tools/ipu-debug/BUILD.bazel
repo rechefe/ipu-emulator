@@ -29,7 +29,7 @@ filegroup(
     srcs = glob(["test/**/*.py"], allow_empty = True),
 )
 
-# The interactive debugger (line CLI and curses TUI) over the emulator's one
+# The interactive debugger (a curses TUI) over the emulator's one
 # debug seam, run_with_debug(..., control=...). The dependency is one way:
 # ipu_emu_lib does not depend on this library (Q62, tools/import_graph.toml).
 py_library(
@@ -42,21 +42,8 @@ py_library(
     ] + [requirement(dep) for dep in RUNTIME_DEPS],
 )
 
-# pytest.ini (warning filters) reaches pytest through the runfiles tree, so it
-# is data, not a test src.
-py_pytest_test(
-    name = "test_debug_cli",
-    srcs = ["test/test_debug_cli.py"],
-    data = ["pytest.ini"],
-    imports = ["src"],
-    deps = [
-        ":ipu_debug_lib",
-        "//src/tools/ipu-emu:emu_test_support",
-        requirement("pytest"),
-    ],
-)
-
-# The stage view from the decoded word (E08-07).
+# The stage view from the decoded word (E08-07). pytest.ini (warning filters)
+# reaches each test through the runfiles tree, so it is data, not a test src.
 py_pytest_test(
     name = "test_pipeline",
     srcs = ["test/test_pipeline.py"],
@@ -137,6 +124,19 @@ py_pytest_test(
 py_pytest_test(
     name = "test_tui_pipeline_pane",
     srcs = ["test/test_tui_pipeline_pane.py"],
+    data = ["pytest.ini"],
+    imports = ["src"],
+    deps = [
+        ":ipu_debug_lib",
+        "//src/tools/ipu-emu:emu_test_support",
+        requirement("pytest"),
+    ],
+)
+
+# The XMEM display tokens of ipu_debug.format, read through DebugSession.
+py_pytest_test(
+    name = "test_format",
+    srcs = ["test/test_format.py"],
     data = ["pytest.ini"],
     imports = ["src"],
     deps = [

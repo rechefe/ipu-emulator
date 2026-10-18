@@ -1,8 +1,8 @@
-"""Display helpers shared by the debugger frontends.
+"""Display helpers for the debugger's panes.
 
 Field widths, the 16-bit character/colour cell layout, the visible alphabet
-and the XMEM tokenizer live here so the line CLI and the curses TUI lay values
-out the same way without reaching into each other.
+and the XMEM tokenizer live here, apart from curses, so every pane lays values
+out the same way without reaching into another pane's module.
 """
 
 from __future__ import annotations
@@ -29,10 +29,7 @@ __all__ = [
     "XMEM_VALUES_PER_LINE",
     "XmemDisplayLine",
     "XmemDisplayToken",
-    "ansi_colored_character",
     "decode_16bit_cell",
-    "encode_16bit_cell",
-    "format_xmem",
     "tokenize_xmem",
 ]
 
@@ -57,11 +54,6 @@ CELL16_CHARACTER_MASK = 0xFF
 CELL16_COLOR_MASK = 0xF
 CELL16_FOREGROUND_SHIFT = 8
 CELL16_BACKGROUND_SHIFT = 12
-_ANSI_STANDARD_COLOR_COUNT = 8
-_ANSI_STANDARD_FG_BASE = 30
-_ANSI_BRIGHT_FG_BASE = 90
-_ANSI_STANDARD_BG_BASE = 40
-_ANSI_BRIGHT_BG_BASE = 100
 
 # A control-free character for every possible 8-bit cell value. The ASCII and
 # Latin-1 ranges provide 188 entries; Latin Extended-A supplies the remaining
@@ -91,29 +83,6 @@ class XmemDisplayLine:
 
     prefix: str
     tokens: tuple[XmemDisplayToken, ...] = ()
-
-
-def encode_16bit_cell(char_byte: int, fg_4bit: int, bg_4bit: int) -> str:
-    """Render one character/color cell as an ANSI terminal string."""
-    char = VISIBLE_ALPHABET[char_byte & CELL16_CHARACTER_MASK]
-    return ansi_colored_character(char, fg_4bit, bg_4bit)
-
-
-def ansi_colored_character(char: str, fg_4bit: int, bg_4bit: int) -> str:
-    """Apply the debugger's 16-color ANSI mapping to a visible character."""
-    fg = fg_4bit & CELL16_COLOR_MASK
-    bg = bg_4bit & CELL16_COLOR_MASK
-    ansi_fg = (
-        _ANSI_STANDARD_FG_BASE + fg
-        if fg < _ANSI_STANDARD_COLOR_COUNT
-        else _ANSI_BRIGHT_FG_BASE + (fg - _ANSI_STANDARD_COLOR_COUNT)
-    )
-    ansi_bg = (
-        _ANSI_STANDARD_BG_BASE + bg
-        if bg < _ANSI_STANDARD_COLOR_COUNT
-        else _ANSI_BRIGHT_BG_BASE + (bg - _ANSI_STANDARD_COLOR_COUNT)
-    )
-    return f"\033[{ansi_fg};{ansi_bg}m{char}\033[0m"
 
 
 def decode_16bit_cell(char_code: int, fg_4bit: int, bg_4bit: int) -> tuple[str, int, int]:
@@ -165,7 +134,7 @@ def _tokenize_line(
 def tokenize_xmem(
     data: bytes | bytearray, byte_address: int, fmt: str, row_size: int
 ) -> list[XmemDisplayLine]:
-    """Tokenize validated XMEM data for ANSI or curses rendering."""
+    """Tokenize validated XMEM data for curses rendering."""
     values_per_line = XMEM_VALUES_PER_LINE[fmt]
     item_size = XMEM_FORMAT_ITEM_SIZE_BYTES[fmt]
     lines: list[XmemDisplayLine] = []
@@ -189,17 +158,3 @@ def tokenize_xmem(
         start += count
 
     return lines
-
-
-def format_xmem(data: bytes | bytearray, byte_address: int, fmt: str, row_size: int) -> str:
-    """Format an already-validated XMEM range as ANSI text."""
-    rendered: list[str] = []
-    for line in tokenize_xmem(data, byte_address, fmt, row_size):
-        text = line.prefix
-        for token in line.tokens:
-            value = token.text
-            if token.fg is not None and token.bg is not None:
-                value = ansi_colored_character(value, token.fg, token.bg)
-            text += token.leading + value
-        rendered.append(text)
-    return "\n".join(rendered)
