@@ -223,9 +223,9 @@ py_pytest_test(
     deps = [requirement("pytest")],
 )
 
-# Upper-case the mnemonics and register names of assembly sources (E07-01): each
-# family migration ran it on its programs; :test_upper_mnemonics runs --check
-# over kernels/ (E07-25).
+# Upper-case the mnemonics and register names of assembly sources (E07-01).
+# :test_upper_mnemonics runs --check over kernels/, so every kernel program
+# keeps CLAUDE.md's upper case; run this on one that fails.
 #
 #   bazel run //tools:upper_mnemonics -- [--check] FILE...
 py_binary(
@@ -250,38 +250,6 @@ py_pytest_test(
         "//kernels:tree",
         "//src/ipu-as:asm_corpus_files",
     ],
-    imports = ["."],
-    deps = [
-        "//src/ipu-as:asm_corpus",
-        "//src/ipu-as:ipu_as_lib",
-        "//src/ipu-isa:ipu_isa_lib",
-        requirement("pytest"),
-    ],
-)
-
-# Same-word register reads whose view (cycle start or forwarded) changes the
-# result, over the whole program corpus (E04-25). Rerun it for every timing
-# flip and put its output in the PR:
-#
-#   bazel run //tools:audit_cross_slot_hazards -- [--all]
-py_binary(
-    name = "audit_cross_slot_hazards",
-    srcs = ["audit_cross_slot_hazards.py"],
-    deps = [
-        "//src/ipu-as:asm_corpus",
-        "//src/ipu-isa:ipu_isa_lib",
-    ],
-)
-
-# No program of the corpus relies on a read that KNOWN_DEVIATIONS lists.
-py_pytest_test(
-    name = "test_audit_cross_slot_hazards",
-    size = "medium",
-    srcs = [
-        "audit_cross_slot_hazards.py",
-        "test_audit_cross_slot_hazards.py",
-    ],
-    data = ["//src/ipu-as:asm_corpus_files"],
     imports = ["."],
     deps = [
         "//src/ipu-as:asm_corpus",

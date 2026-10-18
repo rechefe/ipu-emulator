@@ -3,10 +3,10 @@
     bazel run //tools:upper_mnemonics -- [--check] FILE...
 
 CLAUDE.md writes mnemonics and register names in upper case; the assembler
-accepts any case, so the rewrite is binary-identical (each family's migration
-proves it with the E02 asm digests). Each family migration runs this on its
-``.asm`` and ``.asm.j2`` files; E07-25 runs ``--check`` over all of
-``kernels/``.
+accepts any case, so the rewrite is binary-identical (its test holds every
+program of the E02 asm corpus to its digest). ``//tools:test_upper_mnemonics``
+runs ``--check`` over every ``.asm`` and ``.asm.j2`` of ``kernels/``, so a
+kernel written in lower case fails there; run this on it to fix it.
 
 The source is read the way the assembler reads it: Jinja tags come from
 Jinja's own lexer (``ipu_as.jinja_tags``), and the text between them is cut
