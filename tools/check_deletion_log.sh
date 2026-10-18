@@ -6,15 +6,28 @@
 # Usage: tools/check_deletion_log.sh [base-ref]   (default: origin/master)
 # The rename limit is raised: the branch deletes and renames over a thousand
 # files, past which git stops detecting renames and lists them as deletions.
+# A file under a moved directory (DIR_MOVES, "old/=new/") that this branch also
+# rewrote past git's rename threshold still exists at its new path: a rename.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 base=$(git merge-base "${1:-origin/master}" HEAD)
 log=planning/architecture-deepening/DELETIONS.md
 # The first column of each table row, without its backticks.
 mapfile -t logged < <(grep -oE '^\| `[^`]+`' "$log" | sed -E 's/^\| `//; s/`$//')
+DIR_MOVES=(
+  "src/tools/ipu-as-py/=src/tools/ipu-as/"
+  "src/tools/ipu-emu-py/=src/tools/ipu-emu/"
+)
 missing=0
 while IFS= read -r path; do
   covered=0
+  for move in "${DIR_MOVES[@]}"; do
+    old=${move%%=*}; new=${move#*=}
+    if [ "${path#"$old"}" != "$path" ] && git cat-file -e "HEAD:$new${path#"$old"}" 2>/dev/null; then
+      covered=1; break
+    fi
+  done
+  if [ $covered = 1 ]; then continue; fi
   for entry in "${logged[@]}"; do
     if [ "$path" = "$entry" ] || { [ "${entry%/}" != "$entry" ] && [ "${path#"$entry"}" != "$path" ]; }; then
       covered=1; break
