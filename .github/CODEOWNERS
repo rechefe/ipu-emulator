@@ -1,0 +1,27 @@
+# Code owners: GitHub requests review from the owners of every path a pull
+# request touches. The last matching pattern wins, so rules run from general
+# to specific. Owners are the E09-20 proposal (commit history and the
+# planning decisions), pending the repository owner's confirmation.
+
+# Default
+*                                   @rechefe
+
+# ISA definition and generated wire format (the SystemVerilog package is
+# vendored by a downstream RTL repo)
+/src/tools/ipu-isa/                 @YuvalHarary @rechefe
+/src/tools/ipu-gen/                 @YuvalHarary
+
+# Toolchain
+/src/tools/ipu-common/              @YuvalHarary @DavidShenzi
+/src/tools/ipu-as-py/               @YuvalHarary
+/src/tools/ipu-emu-py/              @DavidShenzi @YuvalHarary
+/src/tools/ipu-debug/               @DavidShenzi @yarden-carmi
+/src/tools/ipu-harness/             @yarden-carmi @DavidShenzi
+/src/tools/ipu-kernels/             @yarden-carmi
+/kernels/                           @yarden-carmi
+
+# Editor, docs, CI
+/vscode-ipu-asm/                    @yarden-carmi
+/docs/                              @YuvalHarary @yarden-carmi
+/docs/content/requirements/         @YuvalHarary
+/.github/                           @rechefe @yarden-carmi

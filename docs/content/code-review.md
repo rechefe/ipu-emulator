@@ -23,6 +23,8 @@ Every pull request uses the template in `.github/pull_request_template.md`, whic
 
 ## Reviewer
 
+GitHub requests review from the owners of each path the PR touches, as listed in `.github/CODEOWNERS`.
+
 Check the PR against the [Code conventions](code-conventions.md) and the issue's acceptance criteria. Leave what CI checks to CI: a formatting or lint remark is not a review comment.
 
 | CI checks (not review comments) | The reviewer checks |
