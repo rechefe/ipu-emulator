@@ -1,26 +1,23 @@
 # Code owners: GitHub requests review from the owners of every path a pull
 # request touches. The last matching pattern wins, so rules run from general
-# to specific. Owners are the E09-20 proposal (commit history and the
-# planning decisions), pending the repository owner's confirmation.
+# to specific.
 
-# Default
-*                                   @rechefe
-
-# ISA definition and generated wire format (the SystemVerilog package is
-# vendored by a downstream RTL repo)
-/src/ipu-isa/                 @YuvalHarary @rechefe
-/src/ipu-gen/                 @YuvalHarary
-
-# Toolchain
-/src/ipu-as/                  @YuvalHarary
-/src/ipu-emu/                 @DavidShenzi @YuvalHarary
-/src/ipu-debug/               @DavidShenzi @yarden-carmi
-/src/ipu-harness/             @yarden-carmi @DavidShenzi
-/src/ipu-kernels/             @yarden-carmi
-/kernels/                           @yarden-carmi
-
-# Editor, docs, CI
-/vscode-ipu-asm/                    @yarden-carmi
-/docs/                              @YuvalHarary @yarden-carmi
-/docs/content/requirements/         @YuvalHarary
-/.github/                           @rechefe @yarden-carmi
+*                                          @rechefe
+/src/                                      @rechefe
+/src/ipu-debug/                            @yarden-carmi
+/vscode-ipu-asm/                           @yarden-carmi
+/kernels/                                  @DavidShenzi
+# Kernels Yarden wrote, before commit 3a1fe1d5 ported David's kernels.
+/kernels/detect/                           @yarden-carmi
+/kernels/pooling/                          @yarden-carmi
+/kernels/sampling/                         @yarden-carmi
+/kernels/convolutions/conv1x1/             @yarden-carmi
+/kernels/convolutions/conv3x3_relu/        @yarden-carmi
+/kernels/convolutions/conv3x3_relu_cin1/   @yarden-carmi
+/kernels/normalize/l2_normalize_channels/  @yarden-carmi
+/kernels/reshape/depth_to_space/           @yarden-carmi
+/kernels/reshape/identity/                 @yarden-carmi
+/docs/                                     @rechefe
+/docs/content/kernels/                     @DavidShenzi
+/docs/content/specs/                       @YuvalHarary
+/docs/content/requirements/                @YuvalHarary
