@@ -1209,3 +1209,9 @@ Nothing imports `ipu_apps` or loads `//:ipu_app.bzl` any more (grep, outside `pl
 | `src/tools/ipu-isa/pytest.ini` | pre-merge sweep | No Bazel target read it (`testpaths = test` served a plain `pytest` run). | — (each `py_pytest_test` names its sources) | As above: `ipu-isa/BUILD.bazel` never names it. |
 | `src/tools/ipu-common/pytest.ini` | pre-merge sweep | E03-01 renamed it to `src/tools/ipu-isa/pytest.ini`, which the row above deletes; with the rename target gone, git lists the base file as a deletion. | — (as above) | The base file held only `testpaths = test`, the same as the renamed one. |
 | `asm_rules.bzl` | pre-merge sweep | Moved, not dropped: the only `.bzl` at the root, loaded only by ipu-as-py, now sits in that package as `kernels/defs.bzl` does. Git lists it as a deletion because this branch grew it from 22 to 54 lines before the `git mv`. | `src/tools/ipu-as-py/defs.bzl` (`assemble_asm`, unchanged) | `git grep //:asm_rules.bzl` found only the `load` in `src/tools/ipu-as-py/BUILD.bazel`, now `load(":defs.bzl", ...)`; the assembly-syntax page's prose names the new path. |
+
+### Tests removed from `glossary_adoption_test.py` (now `tools/test_glossary_adoption.py`)
+
+| Test | Now covered by |
+|---|---|
+| `test_generated_pages_are_not_checked` | dropped with `glossary_check.GENERATED_PAGES`: it pinned the exclusion of four `docs/content/` paths that no build writes any more (the genrules write the ISA pages to `bazel-bin/docs/`). `test_machine_written_pages_are_not_checked` still covers the one exclusion that remains |
