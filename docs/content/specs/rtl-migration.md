@@ -97,27 +97,22 @@ assembler and emulator also lost their `-py` suffix (`src/tools/ipu-as-py` is
 now `src/ipu-as`, `src/tools/ipu-emu-py` is now `src/ipu-emu`), so every label
 under them changed. The Python import names `ipu_as` and `ipu_emu` did not.
 The test that elaborates the package with slang moved to `ipu-gen` (E08-13),
-with the generator. A CI job in the RTL repository that calls one of master's
-labels needs the new one:
+with the generator; the package's golden, the tests that read it and its
+update target are in `ipu-gen` too. A CI job in the RTL repository that calls
+one of master's labels needs the new one; the rows without a master label are
+new since master:
 
-| Master label | Label now |
+| Master label or path | Label or path now |
 |---|---|
 | `//src/tools/ipu-as-py:ipu-as` | `//src/ipu-as:ipu-as` |
 | `//src/tools/ipu-as-py:test_sv_package_compiles` | `//src/ipu-gen:test_sv_package_compiles` |
 | `//src/tools/ipu-as-py:<target>` | `//src/ipu-as:<target>` |
 | `//src/tools/ipu-emu-py:<target>` | `//src/ipu-emu:<target>` |
-
-New since master:
-
-- `//src/ipu-as:test_sv_package_golden`: a checked-in golden of the
-  package, and every `*_WIDTH` pinned by name;
-- `//src/ipu-as:update_sv_golden`: regenerates that golden;
-- `//src/ipu-as:test_sv_rename_table`: the [Mnemonic rename](mnemonic-rename.md)
-  table checked against that golden;
-- `tools/sv_localparam_diff.sh <base-ref>`: the `localparam` lines of the
-  package against those of another commit.
-
-The golden is at `src/ipu-as/test/baselines/ipu_instr_pkg.sv`.
+| none | `src/ipu-gen/test/baselines/ipu_instr_pkg.sv`: a checked-in golden of the package |
+| none | `//src/ipu-gen:test_sv_package_golden`: the package against the golden, and every `*_WIDTH` pinned by name |
+| none | `//src/ipu-gen:update_sv_golden`: regenerates the golden |
+| none | `//src/ipu-gen:test_sv_rename_table`: the [Mnemonic rename](mnemonic-rename.md) table checked against the golden |
+| none | `tools/sv_localparam_diff.sh <base-ref>`: the `localparam` lines of the package against those of another commit |
 
 ## How to update
 

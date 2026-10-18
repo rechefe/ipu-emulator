@@ -181,6 +181,7 @@ py_pytest_test(
     data = [
         "update_baselines.sh",
         "//src/ipu-as:BUILD.bazel",
+        "//src/ipu-gen:BUILD.bazel",
         "//src/ipu-isa:BUILD.bazel",
         "//src/ipu-emu:BUILD.bazel",
     ],

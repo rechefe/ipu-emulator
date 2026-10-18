@@ -48,12 +48,12 @@ A downstream RTL repo vendors `ipu_instr_pkg.sv` verbatim. After changing `instr
 
 ```bash
 bazel test //src/ipu-gen:test_sv_package_compiles     # slang elaborates it with zero diagnostics
-bazel test //src/ipu-as:test_sv_package_golden     # text golden + every *_WIDTH pinned by name
+bazel test //src/ipu-gen:test_sv_package_golden     # text golden + every *_WIDTH pinned by name
 bazel build //docs:generate_instruction_format_artifacts    # writes bazel-bin/docs/ipu_instr_pkg.sv
 tools/sv_localparam_diff.sh <base-ref>                      # diff localparam lines vs the base commit
 ```
 
-`sv_localparam_diff.sh` prints nothing and exits 0 when the localparams are identical. After an intended change to the package, regenerate the golden with `bazel run //src/ipu-as:update_sv_golden`; a width change also needs a hand edit of `EXPECTED_LOCALPARAMS` in `test_sv_package_golden.py`. Every `*_WIDTH` is wire format: keep each one identical, or call the change out in the PR as breaking. Operand `"name"` fields become SV field names (`<name>_<column>`), so renaming an operand renames a downstream field.
+`sv_localparam_diff.sh` prints nothing and exits 0 when the localparams are identical. After an intended change to the package, regenerate the golden with `bazel run //src/ipu-gen:update_sv_golden`; a width change also needs a hand edit of `EXPECTED_LOCALPARAMS` in `test_sv_package_golden.py`. Every `*_WIDTH` is wire format: keep each one identical, or call the change out in the PR as breaking. Operand `"name"` fields become SV field names (`<name>_<column>`), so renaming an operand renames a downstream field.
 
 ## Project Knowledge
 

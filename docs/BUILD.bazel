@@ -658,7 +658,7 @@ py_pytest_test(
     srcs = ["test_rtl_migration.py"],
     data = [
         "content/specs/rtl-migration.md",
-        "//src/ipu-as:test/baselines/ipu_instr_pkg.sv",
+        "//src/ipu-gen:test/baselines/ipu_instr_pkg.sv",
     ],
     deps = [requirement("pytest")],
 )

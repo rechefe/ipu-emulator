@@ -82,8 +82,8 @@ A baseline is a checked-in file that pins today's output. Its test fails on any 
 | Assembled-program digests | `src/ipu-as/test/baselines/asm_digests.json` | `//src/ipu-as:update_asm_digests` |
 | Field names, emulator field maps, enum descriptors | `src/ipu-as/test/baselines/*.json` | `//src/ipu-as:update_decode_snapshots` |
 | Disassembly text | `src/ipu-as/test/baselines/disassembly/` | `//src/ipu-as:update_disassembly_snapshots` |
-| SV package golden | `src/ipu-as/test/baselines/ipu_instr_pkg.sv`, plus the `EXPECTED_LOCALPARAMS` table in `test_sv_package_golden.py` (edited by hand) | `//src/ipu-as:update_sv_golden` |
-| Generated artifacts | `src/ipu-as/test/baselines/generated/` | `//src/ipu-as:update_generated_artifacts` |
+| SV package golden | `src/ipu-gen/test/baselines/ipu_instr_pkg.sv`, plus the `EXPECTED_LOCALPARAMS` table in `test_sv_package_golden.py` (edited by hand) | `//src/ipu-gen:update_sv_golden` |
+| Generated artifacts | `src/ipu-gen/test/baselines/generated/` | `//src/ipu-gen:update_generated_artifacts` |
 | The ISA view as JSON, and the F-1 table of the faults requirements page | `src/ipu-isa/test/baselines/spec_snapshot.json`, `docs/content/requirements/faults.md` | `//src/ipu-isa:update_isa_baselines` |
 | Conformance suite (programs, setups, expected traces) | `src/ipu-isa/conformance/` | `//src/ipu-emu:update_conformance` (also `:regen_conformance`) |
 | The check command's JSON output (v1), the VS Code extension's contract | `src/ipu-as/test/baselines/check_json_v1.json` | none: a difference is a contract change; the test writes the new file to its undeclared outputs to copy over |
@@ -97,7 +97,7 @@ A baseline is a checked-in file that pins today's output. Its test fails on any 
 |---|---|---|
 | A PR labelled refactor modifies no baseline file. | An unchanged baseline is the proof that the refactor changes no output. Regenerating a baseline to make a refactor pass hides the change it was there to catch. | Review; the PR template asks for it |
 | A PR labelled `behaviour change` regenerates only the baselines it means to change. Its description says why each one changed, in one sentence. | The reviewer reads each baseline diff as the effect of the change. | Review; the PR template asks for the list |
-| Every `*_WIDTH` localparam of the SV package stays identical to the base, or the PR calls the change out as breaking. `tools/sv_localparam_diff.sh <base-ref>` prints nothing when they are identical. | Each width is wire format for the downstream RTL repository (`CLAUDE.md`, "Generated SystemVerilog Package"). | `//src/ipu-as:test_sv_package_golden`; the diff script; Review |
+| Every `*_WIDTH` localparam of the SV package stays identical to the base, or the PR calls the change out as breaking. `tools/sv_localparam_diff.sh <base-ref>` prints nothing when they are identical. | Each width is wire format for the downstream RTL repository (`CLAUDE.md`, "Generated SystemVerilog Package"). | `//src/ipu-gen:test_sv_package_golden`; the diff script; Review |
 | A new update target is added to `tools/update_baselines.sh`. | One command must regenerate every baseline. | `//tools:test_update_baselines` |
 
 ## Words

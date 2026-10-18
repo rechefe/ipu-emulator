@@ -18,8 +18,8 @@ UPDATE_TARGETS=(
   //src/ipu-as:update_asm_digests
   //src/ipu-as:update_decode_snapshots
   //src/ipu-as:update_disassembly_snapshots
-  //src/ipu-as:update_sv_golden
-  //src/ipu-as:update_generated_artifacts
+  //src/ipu-gen:update_sv_golden
+  //src/ipu-gen:update_generated_artifacts
   //src/ipu-emu:update_conformance
 )
 
@@ -27,6 +27,7 @@ BASELINE_PATHS=(
   src/ipu-isa/test/baselines
   docs/content/requirements/faults.md
   src/ipu-as/test/baselines
+  src/ipu-gen/test/baselines
   src/ipu-debug/test/baselines
   src/ipu-isa/conformance
 )

@@ -7,7 +7,7 @@ generators embed no timestamps or paths today, so no normalization is applied;
 if one starts to, normalize it here and list it in ``NORMALIZATIONS``.
 
 ``test_generated_artifacts`` compares them byte for byte;
-``bazel run //src/ipu-as:update_generated_artifacts`` rewrites them.
+``bazel run //src/ipu-gen:update_generated_artifacts`` rewrites them.
 """
 
 from __future__ import annotations
@@ -20,10 +20,10 @@ from pathlib import Path
 from ipu_gen import docs_pages, layout_svg, vscode_data
 
 #: Where the snapshots live, repo-relative.
-SNAPSHOT_DIR = "src/ipu-as/test/baselines/generated"
+SNAPSHOT_DIR = "src/ipu-gen/test/baselines/generated"
 
 #: The one command that rewrites them from the current code.
-UPDATE_COMMAND = "bazel run //src/ipu-as:update_generated_artifacts"
+UPDATE_COMMAND = "bazel run //src/ipu-gen:update_generated_artifacts"
 
 #: Text substitutions applied before comparing. None are needed today.
 NORMALIZATIONS: tuple[tuple[str, str], ...] = ()

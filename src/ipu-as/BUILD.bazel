@@ -14,8 +14,6 @@ exports_files([
     "pyproject.toml",
     # Read by //src/ipu-isa:test_word_codec (E03-16).
     "test/baselines/word_fields.json",
-    # Read by //src/ipu-gen:test_one_edit_generators (E03-24).
-    "test/baselines/ipu_instr_pkg.sv",
 ])
 
 # RUNTIME_DEPS as JSON, for //tools:test_deps_consistency.
@@ -111,7 +109,7 @@ py_pytest_test(
 py_pytest_test(
     name = "test_target",
     srcs = ["test/test_target.py"],
-    data = ["test/baselines/ipu_instr_pkg.sv"],
+    data = ["//src/ipu-gen:test/baselines/ipu_instr_pkg.sv"],
     imports = ["src"],
     deps = [
         ":ipu_as_lib",
@@ -363,82 +361,6 @@ py_binary(
     main = "test/baselines/update_decode_snapshots.py",
     deps = [
         ":decode_snapshots",
-        "//tools:baseline_support",
-    ],
-)
-
-# SV package golden (E02-03): the rendered ipu_instr_pkg.sv
-# and every *_WIDTH localparam pinned by name. `bazel run :update_sv_golden`
-# rewrites the golden file; the localparam table is edited by hand.
-py_binary(
-    name = "update_sv_golden",
-    testonly = True,
-    srcs = ["test/baselines/update_sv_golden.py"],
-    main = "test/baselines/update_sv_golden.py",
-    deps = [
-        "//src/ipu-gen:ipu_gen_lib",
-        "//tools:baseline_support",
-    ],
-)
-
-py_pytest_test(
-    name = "test_sv_package_golden",
-    srcs = [
-        "test/baselines/update_sv_golden.py",
-        "test/test_sv_package_golden.py",
-    ],
-    data = ["test/baselines/ipu_instr_pkg.sv"],
-    imports = ["test/baselines"],
-    deps = [
-        "//src/ipu-gen:ipu_gen_lib",
-        "//tools:baseline_support",
-        requirement("pytest"),
-    ],
-)
-
-# The SV rename table published for the downstream RTL repo (E03-19).
-py_pytest_test(
-    name = "test_sv_rename_table",
-    srcs = ["test/test_sv_rename_table.py"],
-    data = [
-        "test/baselines/ipu_instr_pkg.sv",
-        "//docs:doc_sources",
-    ],
-    deps = [requirement("pytest")],
-)
-
-# Generated-artifact snapshots (E02-04): the docs pages, the TextMate grammar,
-# isa.json and the union layout SVG, regenerated in-process and compared byte
-# for byte. `bazel run :update_generated_artifacts` rewrites them.
-py_library(
-    name = "generated_artifacts",
-    testonly = True,
-    srcs = ["test/baselines/generated_artifacts.py"],
-    imports = ["test/baselines"],
-    deps = [
-        ":ipu_as_lib",
-        "//src/ipu-gen:ipu_gen_lib",
-    ],
-)
-
-py_pytest_test(
-    name = "test_generated_artifacts",
-    srcs = ["test/test_generated_artifacts.py"],
-    data = glob(["test/baselines/generated/**"]),
-    deps = [
-        ":generated_artifacts",
-        "//tools:baseline_support",
-        requirement("pytest"),
-    ],
-)
-
-py_binary(
-    name = "update_generated_artifacts",
-    testonly = True,
-    srcs = ["test/baselines/update_generated_artifacts.py"],
-    main = "test/baselines/update_generated_artifacts.py",
-    deps = [
-        ":generated_artifacts",
         "//tools:baseline_support",
     ],
 )

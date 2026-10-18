@@ -1,6 +1,6 @@
 """Rewrite the generated-artifact snapshots from the current code.
 
-    bazel run //src/ipu-as:update_generated_artifacts
+    bazel run //src/ipu-gen:update_generated_artifacts
 
 Run it only in a PR that changes a generated artifact on purpose, and say why
 in the PR (Code conventions, "Baselines").

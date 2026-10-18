@@ -18,6 +18,7 @@ SCRIPT = Path("tools/update_baselines.sh")
 BASELINE_PACKAGES = (
     "src/ipu-as",
     "src/ipu-emu",
+    "src/ipu-gen",
     "src/ipu-isa",
 )
 
