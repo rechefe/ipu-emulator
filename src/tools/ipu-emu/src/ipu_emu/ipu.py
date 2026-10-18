@@ -25,7 +25,7 @@ from typing import NamedTuple
 
 from ipu_emu.errors import ConfigurationError, EmulatorError
 from ipu_emu.geometry import (
-    NARROW_MAX_ROW,
+    EIGHT_BIT_ROWS,
     R_CYCLIC_SIZE,
     R_CYCLIC_VALID_INDICES,
     R_REG_SIZE,
@@ -56,9 +56,9 @@ from ipu_isa.view import Instruction, Read, isa
 
 # Re-exported: callers read row geometry and register sizes from here.
 __all__ = [
+    "EIGHT_BIT_ROWS",
     "LANES",
     "LR_REG_COUNT",
-    "NARROW_MAX_ROW",
     "R_ACC_SIZE",
     "R_CYCLIC_SIZE",
     "R_CYCLIC_VALID_INDICES",
@@ -93,7 +93,7 @@ R_ACC_SIZE = _reg_sizes["r_acc"]["size_bytes"]
 # coincides with LANES only in an 8-bit format.
 
 # XMEM row geometry (``xmem_element_width_bytes``, ``xmem_row_size_bytes``,
-# ``NARROW_MAX_ROW``, ``xmem_row_addr``) lives in ``ipu_emu.geometry``, shared
+# ``EIGHT_BIT_ROWS``, ``xmem_row_addr``) lives in ``ipu_emu.geometry``, shared
 # by the handlers and the observers; the first three are re-exported here.
 # The FP32/INT32 formats reach the whole allocation in 512-byte rows.
 XMEM_ADDRESSABLE_ROWS = XMEM_SIZE_BYTES // (LANES * 4)
@@ -101,7 +101,7 @@ XMEM_ADDRESSABLE_ROWS = XMEM_SIZE_BYTES // (LANES * 4)
 
 def addressable_rows(state: IpuState) -> int:
     """Return how many XMEM rows ``.asm`` may address in the active mode."""
-    return XMEM_ADDRESSABLE_ROWS if xmem_element_width_bytes(state) != 1 else NARROW_MAX_ROW
+    return XMEM_ADDRESSABLE_ROWS if xmem_element_width_bytes(state) != 1 else EIGHT_BIT_ROWS
 
 
 # ---------------------------------------------------------------------------

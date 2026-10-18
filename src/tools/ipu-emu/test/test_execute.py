@@ -32,7 +32,7 @@ from ipu_emu.emulator import (
     run_with_debug,
 )
 from ipu_emu.errors import ConfigurationError, DebugOnlyInstructionWarning, EmulatorFault
-from ipu_emu.ipu import NARROW_MAX_ROW, EmulatorError, Ipu
+from ipu_emu.ipu import EIGHT_BIT_ROWS, EmulatorError, Ipu
 from ipu_emu.ipu_state import HaltRecord, IpuState
 from ipu_emu.outcome import CycleOutcome
 from ipu_emu.xmem import XMEM_SIZE_BYTES
@@ -3076,7 +3076,7 @@ HALT;;
 # XMEM row addressing: .asm XMEM operands (offset + base) are row numbers,
 # translated to byte addresses via the active format's row size. XMEM is
 # allocated at XMEM_SIZE_BYTES unconditionally; an 8-bit format may only address
-# its first NARROW_MAX_ROW (16384) rows -- 2 MB -- whatever the allocation size.
+# its first EIGHT_BIT_ROWS (16384) rows -- 2 MB -- whatever the allocation size.
 # ============================================================================
 
 
@@ -3099,7 +3099,7 @@ HALT;;
 
     def test_narrow_row_near_2mb_bound_reads_correct_bytes(self):
         """The last valid narrow-mode row (16383, byte 2097024) round-trips."""
-        row = NARROW_MAX_ROW - 1
+        row = EIGHT_BIT_ROWS - 1
         test_data = bytes(range(128))
         state = make_state(
             """\
@@ -3121,7 +3121,7 @@ SET lr13 cr8;;
 LD.MULT r1 lr13 cr0;;
 HALT;;
 """,
-            cr={8: NARROW_MAX_ROW},
+            cr={8: EIGHT_BIT_ROWS},
         )
         with pytest.raises(
             EmulatorFault, match="out of range in an 8-bit element format"
@@ -3133,14 +3133,14 @@ HALT;;
     def test_narrow_limit_is_fixed_not_derived_from_the_allocation(self):
         """Enlarging XMEM for wide-mode kernels must not widen narrow mode's reach:
         a byte address mistaken for a row number still has to fail."""
-        assert NARROW_MAX_ROW == 16384
-        assert XMEM_SIZE_BYTES // 128 > NARROW_MAX_ROW
+        assert EIGHT_BIT_ROWS == 16384
+        assert XMEM_SIZE_BYTES // 128 > EIGHT_BIT_ROWS
 
     def test_debug_mode_accepts_rows_past_the_narrow_limit(self):
         """The first row narrow mode rejects is an ordinary row in debug mode,
         which is bounded by the allocation instead."""
         state = new_state(fmt=ElementFormat.FP32)
-        state.regfile.set_cr(8, NARROW_MAX_ROW)
+        state.regfile.set_cr(8, EIGHT_BIT_ROWS)
         encoded = assemble("SET lr13 cr8;;\nLD.MULT r1 lr13 cr0;;\nHALT;;\n")
         load_program(state, decode_program(encoded))
         run_until_complete(state)
@@ -3166,10 +3166,10 @@ HALT;;
 
     def test_debug_mode_reaches_bytes_past_narrow_2mb_bound(self):
         """Debug mode's row size is 4x narrow's, so the same row count reaches 4x the
-        bytes: row (NARROW_MAX_ROW - 1) narrow tops out just under 2 MB, but the same
+        bytes: row (EIGHT_BIT_ROWS - 1) narrow tops out just under 2 MB, but the same
         row number in debug mode addresses a byte well past 2 MB, deep into the
         allocation narrow mode can never reach at any row number."""
-        row = NARROW_MAX_ROW - 2  # leaves room for a second row (cyclic data) right after
+        row = EIGHT_BIT_ROWS - 2  # leaves room for a second row (cyclic data) right after
         byte_addr = row * 512
         assert byte_addr > (1 << 21), "row's debug byte address must exceed narrow's 2 MB reach"
         r0 = struct.pack("<128f", *([2.0] * 128))

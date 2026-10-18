@@ -54,8 +54,8 @@ if TYPE_CHECKING:
     from ipu_isa.constants import DStructureConfig
 
 __all__ = [
+    "EIGHT_BIT_ROWS",
     "EMULATOR_REGISTERS",
-    "NARROW_MAX_ROW",
     "R_CYCLIC_SIZE",
     "R_CYCLIC_VALID_INDICES",
     "R_REG_SIZE",
@@ -82,7 +82,7 @@ __all__ = [
 
 _REG_SIZES = get_register_sizes()
 
-#: Bytes of one R register (one narrow row) and of the R_CYCLIC ring, from
+#: Bytes of one R register (one row in an 8-bit format) and of the R_CYCLIC ring, from
 #: ``REGISTER_DEFINITIONS`` via ``get_register_sizes()``.
 R_REG_SIZE = _REG_SIZES["r"]["size_bytes"]
 R_CYCLIC_SIZE = _REG_SIZES["r_cyclic"]["size_bytes"]
@@ -96,7 +96,7 @@ R_CYCLIC_VALID_INDICES = tuple(range(0, R_CYCLIC_SIZE, R_REG_SIZE))
 # derived from the allocation, so enlarging XMEM for the FP32/INT32 kernels
 # does not silently widen what 8-bit programs can reach. The FP32/INT32 formats
 # reach the whole allocation (XMEM_ADDRESSABLE_ROWS rows of 512 B).
-NARROW_MAX_ROW = 16384
+EIGHT_BIT_ROWS = 16384
 
 #: All 128 lanes active.
 _ALL_LANES = (1 << LANES) - 1
@@ -105,7 +105,7 @@ _ALL_LANES = (1 << LANES) - 1
 _MASK_SLOT_BYTES = LANES // 8
 _MASK_SLOTS = LANES // _MASK_SLOT_BYTES
 
-_NARROW_ELEMENT_BYTES = FORMATS[ElementFormat.INT8].element_bytes
+_EIGHT_BIT_ELEMENT_BYTES = FORMATS[ElementFormat.INT8].element_bytes
 
 #: The name suffix of a register's emulator-only 4-byte storage (``ipu_isa.registers``).
 _WIDE_SUFFIX = "_wide_debug"
@@ -138,12 +138,12 @@ class _RegisterReader(Protocol):
 
 def is_wide_format(fmt: ElementFormat) -> bool:
     """*fmt* is a 4-byte element format (FP32 or INT32, emulator-only)."""
-    return FORMATS[fmt].element_bytes != _NARROW_ELEMENT_BYTES
+    return FORMATS[fmt].element_bytes != _EIGHT_BIT_ELEMENT_BYTES
 
 
 def _is_wide(state: IpuState) -> bool:
     """*state* runs in a 4-byte element format (FP32 or INT32, emulator-only)."""
-    return state.codec.element_bytes != _NARROW_ELEMENT_BYTES
+    return state.codec.element_bytes != _EIGHT_BIT_ELEMENT_BYTES
 
 
 class VectorRegisters(NamedTuple):
@@ -155,9 +155,10 @@ class VectorRegisters(NamedTuple):
     r_cyclic: str
 
 
-_NARROW_REGISTERS = VectorRegisters(ra="r", r_cyclic="r_cyclic")
+_EIGHT_BIT_REGISTERS = VectorRegisters(ra="r", r_cyclic="r_cyclic")
 _WIDE_REGISTERS = VectorRegisters(
-    ra=WIDE_REGISTERS[_NARROW_REGISTERS.ra], r_cyclic=WIDE_REGISTERS[_NARROW_REGISTERS.r_cyclic]
+    ra=WIDE_REGISTERS[_EIGHT_BIT_REGISTERS.ra],
+    r_cyclic=WIDE_REGISTERS[_EIGHT_BIT_REGISTERS.r_cyclic],
 )
 
 
@@ -168,7 +169,7 @@ def vector_registers(state: IpuState) -> VectorRegisters:
     (``r_wide_debug``, ``r_cyclic_wide_debug``); both layouts hold the same
     number of elements, so a handler indexes either in elements.
     """
-    return _WIDE_REGISTERS if _is_wide(state) else _NARROW_REGISTERS
+    return _WIDE_REGISTERS if _is_wide(state) else _EIGHT_BIT_REGISTERS
 
 
 def element_width_bytes(fmt: ElementFormat) -> int:
@@ -288,11 +289,11 @@ def xmem_row_fault(state: IpuState, row: int) -> str | None:
     """
     if row < 0:
         return f"XMEM row must be non-negative; got {row}"
-    if not _is_wide(state) and row >= NARROW_MAX_ROW:
+    if not _is_wide(state) and row >= EIGHT_BIT_ROWS:
         return (
             f"XMEM row {row} is out of range in an 8-bit element format "
-            f"(rows 0..{NARROW_MAX_ROW - 1}, the first "
-            f"{NARROW_MAX_ROW * xmem_row_size_bytes(state) >> 20} MB of XMEM)"
+            f"(rows 0..{EIGHT_BIT_ROWS - 1}, the first "
+            f"{EIGHT_BIT_ROWS * xmem_row_size_bytes(state) >> 20} MB of XMEM)"
         )
     addr = row * xmem_row_size_bytes(state)
     if addr >= XMEM_SIZE_BYTES:
@@ -316,7 +317,7 @@ def xmem_row_addr(state: IpuState, row: int) -> int:
     addresses — one row is LANES elements, so the same row number reaches
     the same logical row in every format at different byte offsets. XMEM is
     allocated at XMEM_SIZE_BYTES unconditionally; an 8-bit format may only
-    *address* the first NARROW_MAX_ROW rows (2 MB) of that allocation.
+    *address* the first EIGHT_BIT_ROWS rows (2 MB) of that allocation.
 
     This only translates and range-checks the row itself; the resulting
     address's actual payload (which may span more than one row's worth of

@@ -27,7 +27,7 @@ import conformance
 import timing_probes
 
 from ipu_as.lark_tree import assemble
-from ipu_emu.geometry import NARROW_MAX_ROW
+from ipu_emu.geometry import EIGHT_BIT_ROWS
 from ipu_emu.ipu_state import IpuState
 from ipu_isa.codec.word import DecodedWord, pack_program
 from ipu_isa.constants import CR_READ_ONLY_INITIAL_VALUES
@@ -375,10 +375,10 @@ def fault_cases() -> list[Case]:
         ),
         Case(
             "fault_f6_xmem_row",
-            f"F-6: XMEM row {NARROW_MAX_ROW}, past the narrow formats' rows",
+            f"F-6: XMEM row {EIGHT_BIT_ROWS}, past the narrow formats' rows",
             "LD.MULT R0 LR0 CR10 ;;\nHALT ;;\n",
             int8,
-            _with_cr(10, NARROW_MAX_ROW),
+            _with_cr(10, EIGHT_BIT_ROWS),
         ),
         Case("fault_f9_cycle_limit", "F-9: the cycle limit", _LOOP, int8, scalars, max_cycles=20),
         Case(

@@ -208,7 +208,7 @@ validate_formats(FORMATS)
 _ELEMENT_REGISTERS: Final = frozenset({"r", "r_cyclic", "mem_bypass"})
 _ACCUMULATOR_REGISTERS: Final = frozenset({"mult_res", "r_acc"})
 _MASK_REGISTERS: Final = frozenset({"r_mask"})
-_NARROW_ELEMENT_BYTES: Final = 1
+_EIGHT_BIT_ELEMENT_BYTES: Final = 1
 
 
 def register_layout(register: str, fmt: ElementFormat) -> tuple[int, int]:
@@ -223,7 +223,7 @@ def register_layout(register: str, fmt: ElementFormat) -> tuple[int, int]:
         raise IsaLookupError(f"unknown register {register!r}")
     size_bytes = REGISTER_DEFINITIONS[register]["size_bytes"]
     if register in _ELEMENT_REGISTERS:
-        return size_bytes // _NARROW_ELEMENT_BYTES, info.element_bytes
+        return size_bytes // _EIGHT_BIT_ELEMENT_BYTES, info.element_bytes
     if register in _ACCUMULATOR_REGISTERS:
         return LANES, info.accumulator_bytes
     if register in _MASK_REGISTERS:

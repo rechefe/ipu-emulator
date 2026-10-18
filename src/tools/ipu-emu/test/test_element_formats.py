@@ -18,7 +18,7 @@ from ipu_emu.geometry import (
     xmem_element_width_bytes,
     xmem_row_size_bytes,
 )
-from ipu_emu.ipu import NARROW_MAX_ROW, XMEM_ADDRESSABLE_ROWS, addressable_rows
+from ipu_emu.ipu import EIGHT_BIT_ROWS, XMEM_ADDRESSABLE_ROWS, addressable_rows
 from ipu_emu.ipu_state import IpuState
 from ipu_isa.formats import FORMATS, AccumulatorType, ElementFormat, register_layout
 from ipu_isa.formats import addressable_rows as isa_addressable_rows
@@ -61,7 +61,7 @@ def test_format_sets_addressable_rows(fmt):
     # emulator's 16384-row limit (``ipu_isa`` declares the full space).
     rows = addressable_rows(IpuState(fmt=fmt))
     if FORMATS[fmt].element_bytes == 1:
-        assert rows == NARROW_MAX_ROW <= isa_addressable_rows(fmt)
+        assert rows == EIGHT_BIT_ROWS <= isa_addressable_rows(fmt)
     else:
         assert rows == XMEM_ADDRESSABLE_ROWS == isa_addressable_rows(fmt)
 
