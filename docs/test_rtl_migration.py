@@ -16,9 +16,9 @@ import pytest
 
 ROOT = Path(__file__).parents[1]
 PAGE = (ROOT / "docs" / "content" / "specs" / "rtl-migration.md").read_text(encoding="utf-8")
-GOLDEN = (ROOT / "src" / "tools" / "ipu-as-py" / "test" / "baselines" / "ipu_instr_pkg.sv").read_text(
-    encoding="utf-8"
-)
+GOLDEN = (
+    ROOT / "src" / "tools" / "ipu-as-py" / "test" / "baselines" / "ipu_instr_pkg.sv"
+).read_text(encoding="utf-8")
 
 #: | `old enum` | `new enum` | `old union` | `new union` | `value` |
 _ROW = re.compile(r"^\| `(\w+)` \| `(\w+)` \| `(\w+)` \| `(\w+)` \| `(\d+'d\d+)` \|$", re.M)
