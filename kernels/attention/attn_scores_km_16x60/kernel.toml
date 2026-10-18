@@ -14,7 +14,7 @@ seed = { type = "int", default = 0xD60 }   # the old RandomState seed (0xD60); g
 pad = { type = "float", default = 0.0 }   # the padding lanes of b (pack "padded"): 0, as the old harness staged them
 
 # The old placement: the inputs back to back from row 0 in the order below, then the output; first fit in
-# declaration order reproduces it (compare_setup: IDENTICAL).
+# declaration order reproduces it (E07-12/13).
 [inputs.b]                         # the selected head's Q, channel-major: row c holds n_tok queries
 pack = "padded"
 shape = ["d", "n_tok"]

@@ -72,8 +72,8 @@ def test_raw_outputs_are_the_region_bytes(scale):
 
 
 def test_stage_is_the_run_up_to_its_first_word(scale):
-    """``stage`` (E07-01's compare_setup reads it) leaves the model halted at PC 0
-    with the inputs packed and the registers written; the run continues from it."""
+    """``stage`` leaves the model halted at PC 0 with the inputs packed and the
+    registers written; the run continues from it."""
     case = _case(scale, "default")
     staged = runner.stage(scale, case, F.FP32)
     assert staged.model.status.pc == 0

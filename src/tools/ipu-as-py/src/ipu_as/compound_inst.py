@@ -2,9 +2,8 @@
 
 A thin shim over ``ipu_as.encode`` and the ``ipu_isa`` codec (E05-02): the
 encoding, the field layout and the disassembly text (``ipu_isa.codec.disasm``)
-all come from there. The
-debugger, the emulator tests and the generators still call these names; E08
-moves the generators onto the codec directly.
+all come from there. Only tests still call these names; the debugger and the
+generators use the codec directly (E08).
 """
 
 import functools

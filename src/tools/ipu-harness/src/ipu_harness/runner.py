@@ -497,7 +497,7 @@ def stage(
 
     It plans the case, makes its inputs, places and packs its tensors,
     assembles and loads the program, writes the input and scratch regions and
-    programs the registers. ``compare_setup`` (E07-01) reads the result.
+    programs the registers.
 
     Args:
         manifest: The kernel.

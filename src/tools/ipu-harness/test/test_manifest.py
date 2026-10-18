@@ -513,7 +513,7 @@ def test_golden_is_optional(tmp_path):
 
 
 def test_formats_come_from_the_isa_enum(tmp_path):
-    # Every ElementFormat is accepted by name, so manifest.py keeps no list of its own.
+    # Every ElementFormat is accepted by name, so the manifest loader keeps no list of its own.
     toml = SCALE.replace(
         'formats = ["fp32", "int8", "e4"]', f"formats = {[f.value for f in ElementFormat]}"
     )

@@ -12,7 +12,7 @@ seed = { type = "int", default = 0x5C0 }   # the old RandomState seed (0x5C0); g
 pad = { type = "float", default = 0.0 }   # the padding lanes of b (pack "padded"): 0, as the old harness staged them
 
 # The old placement: the inputs back to back from row 0 in the order below, then the output; first fit in
-# declaration order reproduces it (compare_setup: IDENTICAL).
+# declaration order reproduces it (E07-12/13).
 [inputs.b]                         # K, channel-major: row c holds the n_tok keys of channel c
 pack = "padded"
 shape = ["d", "n_tok"]
@@ -29,7 +29,7 @@ shape = ["n_tok", "n_tok"]
 [derived]
 k_start = "-1"           # CR5: -K_STRIDE_ROWS
 chan_start = "-1"        # CR7
-chan_bound_unread = "d - 2" # CR8: written by the harness, read by no instruction: bind it only so compare_setup is IDENTICAL
+chan_bound_unread = "d - 2" # CR8: written by the harness, read by no instruction: bound so the registers match the old setup (E07-12/13)
 rc_slot0 = "0"           # LR0
 k_stride = "1"           # LR2: K_STRIDE_ROWS
 out_stride = "1"         # LR3: N_TG * 1

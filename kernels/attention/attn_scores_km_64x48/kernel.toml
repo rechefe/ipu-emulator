@@ -15,7 +15,7 @@ n_heads = { type = "int", choices = [4], default = 4 }   # heads in the canonica
 seed = { type = "int", default = 0xD48 }   # the old RandomState seed (0xD48); generator only
 
 # The old placement: the inputs back to back from row 0 in the order below, then the output; first fit in
-# declaration order reproduces it (compare_setup: IDENTICAL).
+# declaration order reproduces it (E07-12/13).
 [inputs.b]                         # the selected head's Q, channel-major: row (p, c) holds n_tok queries
 shape = ["p", "d", "n_tok"]
 
