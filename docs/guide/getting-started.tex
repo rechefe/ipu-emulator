@@ -329,7 +329,7 @@ Register & Holds & Role \\
 \texttt{R\_ACC} & 128 $\times$ 32-bit & accumulator \\
 \texttt{POST\_AAQ\_REG} & 128 $\times$ 32-bit & activated result \\
 \texttt{LR0}--\texttt{LR15} & 16 $\times$ 32-bit & loop registers, changed by the program \\
-\texttt{CR0}--\texttt{CR15} & 16 $\times$ 32-bit & control registers, set before the run \\
+\texttt{CR0}--\texttt{CR15} & 16 $\times$ 32-bit & configuration registers, set before the run \\
 \bottomrule
 \end{tabularx}
 \end{center}
@@ -573,7 +573,7 @@ residual_add/
 \end{filetree}
 
 \texttt{kernel.toml} says everything the harness needs: which tensors the
-kernel reads and writes and their shapes, which control register holds each
+kernel reads and writes and their shapes, which configuration register holds each
 region and parameter (\texttt{[abi]}), the reference and its tolerance
 (\texttt{[golden]}), and the named cases. The harness places the tensors in
 XMEM, writes them and the registers, runs the program and compares each output
@@ -1250,7 +1250,7 @@ row_loop:
 \end{pycode}
 
 \begin{itemize}
-\item \texttt{\{\{ cr.x \}\}} --- the control register \texttt{kernel.toml}'s
+\item \texttt{\{\{ cr.x \}\}} --- the configuration register \texttt{kernel.toml}'s
   \texttt{[abi]} binds to \texttt{x} (here \texttt{CR2}); the harness writes
   the region's first row into it.
 \item \texttt{SET LR0 CR0 ; SET LR1 CR0 ;;} --- one word, two \texttt{LR}
@@ -1303,7 +1303,7 @@ rows = [1, 64]
 \texttt{[params]} declares the parameters and their domains; a query outside
 them is refused. \texttt{[inputs]} and \texttt{[outputs]} declare the tensors,
 their shapes in terms of the parameters; the harness places them in XMEM.
-\texttt{[abi]} names the control register of each region and parameter.
+\texttt{[abi]} names the configuration register of each region and parameter.
 \texttt{[golden]} names the reference and the tolerance each format is held
 to. Each \texttt{[cases.<name>]} is a set of values; the inputs come from the
 harness's seeded generator unless the case names its own.
