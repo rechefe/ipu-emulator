@@ -8,9 +8,9 @@ The MULT (Multiply) stage performs the following tasks:
   `R0`/`R1`, `R_CYCLIC` or a scalar. Each product is an FP32 value.
 - **Mask:** Replaces the products of masked elements with a pad value. The mask
   comes from `R_MASK`, shifted within element groups.
-
-> **Note:** XMEM loads write the stage's input registers (`R0`, `R1`,
-> `R_CYCLIC`, `R_MASK`). The LOAD slot issues the loads.
+- **Load:** Writes the load data from XMEM into one of the stage registers:
+  `R0`, `R1`, one slot of `R_CYCLIC` or `R_MASK`. The LOAD slot issues the
+  loads and calculates the XMEM address.
 
 ## Table of Contents
 
@@ -18,7 +18,7 @@ The MULT (Multiply) stage performs the following tasks:
 2. [Block Diagram](#2-block-diagram)
 3. [Interfaces](#3-interfaces)
     - 3.1 [`dstructure` Layout](#31-dstructure-layout)
-    - 3.2 [Element Data Types](#32-element-data-types)
+    - 3.2 [Element Format](#32-element-format)
     - 3.3 [Operand Addressing](#33-operand-addressing)
     - 3.4 [Element Masking](#34-element-masking)
 4. [Multiply ISA](#4-multiply-isa)
@@ -33,19 +33,21 @@ The MULT (Multiply) stage performs the following tasks:
 
 ```mermaid
 block-beta
-    columns 7
+    columns 11
+    space:6 INSTR["Instruction"] space FMT["quantizion_format"] space:2
     block:INS:1
         columns 1
-        RA["R0 / R1<br>2 x 128 x 8-bit"]
-        RC["R_CYCLIC<br>512 x 8-bit"]
-        RMASK["R_MASK<br>8 x 128-bit"]
-        INSTR["Instruction"]
+        LD_DATA["load data<br>128 x 8-bit"]
+        LD_TGT["load target"]
     end
     space
-    block:STAGE:3
-        columns 3
-        TITLE["MULT Stage"] space:2
-        SEL["Operand<br>Select"] MUL["Multiply"] MASK["Mask"]
+    block:STAGE:7
+        columns 7
+        TITLE["MULT Stage"] space:6
+        space:2 RA["R0 / R1<br>2 x 128 x 8-bit"] space:4
+        LDW["Load<br>Registers"] space RC["R_CYCLIC<br>512 x 8-bit"] space SEL["Operand<br>Select"] space MUL["Multiply"]
+        space:7
+        space:2 RMASK["R_MASK<br>8 x 128-bit"] space:3 MASK["Mask"]
     end
     space
     block:OUTS:1
@@ -53,9 +55,15 @@ block-beta
         OUT_DATA["output data<br>MULT_RES<br>128 x 32-bit"]
     end
 
+    LD_DATA --> LDW
+    LD_TGT --> LDW
+    LDW --> RA
+    LDW --> RC
+    LDW --> RMASK
     RA --> SEL
     RC --> SEL
     INSTR --> SEL
+    FMT --> MUL
     SEL --> MUL
     MUL --> MASK
     RMASK --> MASK
@@ -64,27 +72,28 @@ block-beta
     classDef io fill:none,stroke:none
     classDef blk fill:#2e9e8c,stroke:#1a7060,color:#fff
     classDef title fill:none,stroke:none,font-weight:bold
-    class RA,RC,RMASK,INSTR,OUT_DATA,INS,OUTS io
-    class SEL,MUL,MASK blk
+    class LD_DATA,LD_TGT,INSTR,FMT,OUT_DATA,INS,OUTS io
+    class LDW,RA,RC,RMASK,SEL,MUL,MASK blk
     class TITLE title
     style STAGE fill:none,stroke:#888,stroke-width:2px
 ```
+
+> **TBD - ask Aviv:** do we show the VLIW instruction word as an input that
+> goes through this stage to the next stages?
 
 ## 3. Interfaces
 
 | Name | Direction | Description |
 |------|-----------|-------------|
-| `R0`, `R1` | Input | Two registers of 128 8-bit elements. Together they form `Ra` (section 3.3). |
-| `R_CYCLIC` | Input | A ring of 512 8-bit elements. |
-| `R_MASK` | Input | 8 mask slots of 128 bits (section 3.4). |
-| Instruction | Input | The operation that the stage does on its input registers. |
+| load data | Input | One XMEM row from the LOAD slot: 128 8-bit elements (128 B). |
+| load target | Input | The register that the load data goes into: `R0` or `R1` (`LDR_MULT_REG`), one 128-element slot of `R_CYCLIC` at element `0`, `128`, `256` or `384` (`LDR_CYCLIC_MULT_REG`), or `R_MASK` (`LDR_MULT_MASK_REG`). |
+| Instruction | Input | The operation that the stage does on its registers. |
+| `quantizion_format` | Input | The NX8 format of the input elements (section 3.2). |
 | output data | Output | `MULT_RES`: 128 FP32 elements, to the ACC stage. |
 
-> **Note:** The stage reads `R0`, `R1` and `R_CYCLIC` as they were at the start
-> of the cycle. A load into them in the same cycle is visible in the next cycle.
-
-> **TBD:** whether a same-cycle load into `R_MASK` is visible to the multiply.
-> The emulator makes it visible.
+> **Note:** The stage reads `R0`, `R1`, `R_CYCLIC` and `R_MASK` as they were at
+> the start of the cycle. A load into them in the same cycle is visible in the
+> next cycle.
 
 ### 3.1 `dstructure` Layout
 
@@ -113,31 +122,31 @@ The stage also reads `pad_mode`, the value written into masked elements
 > **TBD - ask Jacob:** whether `pad_mode` `1` and `2` can be used. They write
 > `+inf` and `-inf`, and FP32 elements are never `inf` or `-inf`.
 
-### 3.2 Element Data Types
+### 3.2 Element Format
 
-Input elements are FP8 `eX`, `X` = `1`-`7`: 1 sign bit, `X` exponent bits and
-`7 - X` mantissa bits. One `X` applies to all elements. Each product
-(`MULT_RES` element) is FP32.
+Input elements are in the NX8 format. One format applies to all elements. Each
+product (`MULT_RES` element) is FP32.
 
-**FP8 encoding:**
+Each MULT instruction (except `NOP`) names the format in its
+`quantizion_format` operand, a 32-bit `CR`. It has four 8-bit fields:
 
-| Rule | Value |
-|------|-------|
-| Exponent bias | `2^(X-1) - 1` |
-| Exponent all ones | NaN |
-| Exponent zero | Subnormal |
+| Bits | Field | Description |
+|------|-------|-------------|
+| `[31:24]` | `N/A` | Not used. |
+| `[23:16]` | `sign` | `0` = unsigned, `1` = signed. |
+| `[15:8]` | `nx_format` | Exponent format. `0` = dynamic, `1`-`7` = `e1`-`e7` (fixed exponent width `fe`). |
+| `[7:0]` | `num_bits` | Total element width `W`: `1`-`8`. `0` is reserved/invalid. |
 
-> **TBD:** which register or configuration selects `X`.
 
 ### 3.3 Operand Addressing
 
 | Operand source | Element `j` | Range of `j` |
 |----------------|-------------|--------------|
-| `Ra` | `R0[j]` for `j < 128`, `R1[j - 128]` for `j >= 128` | `0`-`255`, cyclic: index `j % 256` |
-| `R_CYCLIC` | `R_CYCLIC[j]` | `0`-`511`, cyclic: index `j % 512` |
+| `Ra` | `R0[j]` for `j < 128`, `R1[j - 128]` for `j >= 128` | `0`-`255` |
+| `R_CYCLIC` | `R_CYCLIC[j]` | `0`-`511` |
 
 A vector operand is 128 consecutive elements from a start index: element `i`
-of the operand is `Ra[(start + i) % 256]` or `R_CYCLIC[(start + i) % 512]`.
+of the operand is `Ra[start + i]` or `R_CYCLIC[start + i]`.
 
 ### 3.4 Element Masking
 
@@ -212,8 +221,9 @@ by [`gen_codegen.py`](../../../src/tools/ipu-as-py/src/ipu_as/gen_codegen.py).
 | [`MULT.VE`](#45-multve-ra-vector-x-cr-scalar) | `Ra` vector x a `CR` scalar. |
 | [`MULT.EE`](#46-multee-ra-element-x-cr-scalar-broadcast) | One `Ra` element x a `CR` scalar, broadcast to all 128 elements. |
 
-In every Operation below, `x` is the multiply of section 3.2, and
-`apply_mask` is section 3.4.
+In every Operation below, `x` is the multiply of section 3.2, with the input
+elements in the NX8 format that `quantizion_format` sets. `apply_mask` is
+section 3.4.
 
 ---
 
@@ -247,7 +257,7 @@ element.
 #### Syntax
 
 ```text
-MULT.RC.VV rc_idx, ra, mask_offset, mask_shift, cr_idx
+MULT.RC.VV rc_idx, ra, mask_offset, mask_shift, cr_idx, quantizion_format
 ```
 
 #### Operands
@@ -261,19 +271,20 @@ The Type column links to the [operand type reference](../operand-types.md).
 | `mask_offset` | [`Imm`](../operand-types.md#multmaskoffsetimmediate) | `0`-`7`. `R_MASK` slot (section 3.4). |
 | `mask_shift` | [`LrIdx`](../operand-types.md#lridx) | `LR0`-`LR15`. Mask shift, `-3`-`+3` (section 3.4). |
 | `cr_idx` | [`CrIdx`](../operand-types.md#cridx) | `CR0`-`CR15`. Supplies `num_partition` and `pad_mode` (section 3.1). |
+| `quantizion_format` | [`CrIdx`](../operand-types.md#cridx) | `CR0`-`CR15`. Supplies the NX8 format of the input elements (section 3.2). |
 
 #### Operation
 
 ```text
 for i in 0..127:
-    MULT_RES[i] = R_CYCLIC[(rc_idx + i) % 512] x ra[i]
+    MULT_RES[i] = R_CYCLIC[rc_idx + i] x ra[i]
 apply_mask(mask_offset, mask_shift, cr_idx)
 ```
 
 #### Example
 
 ```text
-MULT.RC.VV LR0, R0, 0, LR2, CR15;;
+MULT.RC.VV LR0, R0, 0, LR2, CR15, CR14;;
 ```
 
 ---
@@ -286,7 +297,7 @@ element of `Ra` or the low byte of a `CR`.
 #### Syntax
 
 ```text
-MULT.RC.VE rc_idx, src, mask_offset, mask_shift, cr_idx
+MULT.RC.VE rc_idx, src, mask_offset, mask_shift, cr_idx, quantizion_format
 ```
 
 #### Operands
@@ -296,24 +307,25 @@ The Type column links to the [operand type reference](../operand-types.md).
 | Name | Type | Details |
 |------|------|---------|
 | `rc_idx` | [`LrIdx`](../operand-types.md#lridx) | `LR0`-`LR15`. Start element of the `R_CYCLIC` window (section 3.3). |
-| `src` | [`LcrIdx`](../operand-types.md#lcridx) | `LR0`-`LR15` or `CR0`-`CR15`. An `LR`'s value selects the scalar `Ra[src % 256]`. A `CR` supplies the scalar in bits `[7:0]`. |
+| `src` | [`LcrIdx`](../operand-types.md#lcridx) | `LR0`-`LR15` or `CR0`-`CR15`. An `LR`'s value selects the scalar `Ra[src]`. A `CR` supplies the scalar in bits `[7:0]`. |
 | `mask_offset` | [`Imm`](../operand-types.md#multmaskoffsetimmediate) | `0`-`7`. `R_MASK` slot (section 3.4). |
 | `mask_shift` | [`LrIdx`](../operand-types.md#lridx) | `LR0`-`LR15`. Mask shift, `-3`-`+3` (section 3.4). |
 | `cr_idx` | [`CrIdx`](../operand-types.md#cridx) | `CR0`-`CR15`. Supplies `num_partition` and `pad_mode` (section 3.1). |
+| `quantizion_format` | [`CrIdx`](../operand-types.md#cridx) | `CR0`-`CR15`. Supplies the NX8 format of the input elements (section 3.2). |
 
 #### Operation
 
 ```text
-scalar = (src is an LR) ? Ra[src % 256] : src[7:0]
+scalar = (src is an LR) ? Ra[src] : src[7:0]
 for i in 0..127:
-    MULT_RES[i] = R_CYCLIC[(rc_idx + i) % 512] x scalar
+    MULT_RES[i] = R_CYCLIC[rc_idx + i] x scalar
 apply_mask(mask_offset, mask_shift, cr_idx)
 ```
 
 #### Example
 
 ```text
-MULT.RC.VE LR0, LR3, 0, LR2, CR15;;      // scalar = Ra[LR3 % 256]
+MULT.RC.VE LR0, LR3, 0, LR2, CR15, CR14;;      // scalar = Ra[LR3]
 ```
 
 ---
@@ -325,7 +337,7 @@ Multiplies a 128-element window of `R_CYCLIC` by itself, element by element.
 #### Syntax
 
 ```text
-MULT.RC.VS rc_idx, mask_offset, mask_shift, cr_idx
+MULT.RC.VS rc_idx, mask_offset, mask_shift, cr_idx, quantizion_format
 ```
 
 #### Operands
@@ -338,12 +350,13 @@ The Type column links to the [operand type reference](../operand-types.md).
 | `mask_offset` | [`Imm`](../operand-types.md#multmaskoffsetimmediate) | `0`-`7`. `R_MASK` slot (section 3.4). |
 | `mask_shift` | [`LrIdx`](../operand-types.md#lridx) | `LR0`-`LR15`. Mask shift, `-3`-`+3` (section 3.4). |
 | `cr_idx` | [`CrIdx`](../operand-types.md#cridx) | `CR0`-`CR15`. Supplies `num_partition` and `pad_mode` (section 3.1). |
+| `quantizion_format` | [`CrIdx`](../operand-types.md#cridx) | `CR0`-`CR15`. Supplies the NX8 format of the input elements (section 3.2). |
 
 #### Operation
 
 ```text
 for i in 0..127:
-    element     = R_CYCLIC[(rc_idx + i) % 512]
+    element     = R_CYCLIC[rc_idx + i]
     MULT_RES[i] = element x element
 apply_mask(mask_offset, mask_shift, cr_idx)
 ```
@@ -351,7 +364,7 @@ apply_mask(mask_offset, mask_shift, cr_idx)
 #### Example
 
 ```text
-MULT.RC.VS LR0, 0, LR2, CR15;;
+MULT.RC.VS LR0, 0, LR2, CR15, CR14;;
 ```
 
 ---
@@ -363,7 +376,7 @@ Multiplies a 128-element window of `Ra` by the low byte of a `CR`.
 #### Syntax
 
 ```text
-MULT.VE ra_idx, cr_idx, mask_offset, mask_shift, dstructure_cr_idx
+MULT.VE ra_idx, cr_idx, mask_offset, mask_shift, dstructure_cr_idx, quantizion_format
 ```
 
 #### Operands
@@ -377,19 +390,20 @@ The Type column links to the [operand type reference](../operand-types.md).
 | `mask_offset` | [`Imm`](../operand-types.md#multmaskoffsetimmediate) | `0`-`7`. `R_MASK` slot (section 3.4). |
 | `mask_shift` | [`LrIdx`](../operand-types.md#lridx) | `LR0`-`LR15`. Mask shift, `-3`-`+3` (section 3.4). |
 | `dstructure_cr_idx` | [`CrIdx`](../operand-types.md#cridx) | `CR0`-`CR15`. Supplies `num_partition` and `pad_mode` (section 3.1). |
+| `quantizion_format` | [`CrIdx`](../operand-types.md#cridx) | `CR0`-`CR15`. Supplies the NX8 format of the input elements (section 3.2). |
 
 #### Operation
 
 ```text
 for i in 0..127:
-    MULT_RES[i] = Ra[(ra_idx + i) % 256] x cr_idx[7:0]
+    MULT_RES[i] = Ra[ra_idx + i] x cr_idx[7:0]
 apply_mask(mask_offset, mask_shift, dstructure_cr_idx)
 ```
 
 #### Example
 
 ```text
-MULT.VE LR0, CR3, 0, LR2, CR15;;
+MULT.VE LR0, CR3, 0, LR2, CR15, CR14;;
 ```
 
 ---
@@ -402,7 +416,7 @@ product to all 128 elements.
 #### Syntax
 
 ```text
-MULT.EE ra_idx, cr_idx, mask_offset, mask_shift, dstructure_cr_idx
+MULT.EE ra_idx, cr_idx, mask_offset, mask_shift, dstructure_cr_idx, quantizion_format
 ```
 
 #### Operands
@@ -411,16 +425,17 @@ The Type column links to the [operand type reference](../operand-types.md).
 
 | Name | Type | Details |
 |------|------|---------|
-| `ra_idx` | [`LrIdx`](../operand-types.md#lridx) | `LR0`-`LR15`. The `Ra` element, `Ra[ra_idx % 256]` (section 3.3). |
+| `ra_idx` | [`LrIdx`](../operand-types.md#lridx) | `LR0`-`LR15`. The `Ra` element, `Ra[ra_idx]` (section 3.3). |
 | `cr_idx` | [`CrIdx`](../operand-types.md#cridx) | `CR0`-`CR15`. Supplies the scalar in bits `[7:0]`. |
 | `mask_offset` | [`Imm`](../operand-types.md#multmaskoffsetimmediate) | `0`-`7`. `R_MASK` slot (section 3.4). |
 | `mask_shift` | [`LrIdx`](../operand-types.md#lridx) | `LR0`-`LR15`. Mask shift, `-3`-`+3` (section 3.4). |
 | `dstructure_cr_idx` | [`CrIdx`](../operand-types.md#cridx) | `CR0`-`CR15`. Supplies `num_partition` and `pad_mode` (section 3.1). |
+| `quantizion_format` | [`CrIdx`](../operand-types.md#cridx) | `CR0`-`CR15`. Supplies the NX8 format of the input elements (section 3.2). |
 
 #### Operation
 
 ```text
-product = Ra[ra_idx % 256] x cr_idx[7:0]
+product = Ra[ra_idx] x cr_idx[7:0]
 for i in 0..127:
     MULT_RES[i] = product
 apply_mask(mask_offset, mask_shift, dstructure_cr_idx)
@@ -429,5 +444,5 @@ apply_mask(mask_offset, mask_shift, dstructure_cr_idx)
 #### Example
 
 ```text
-MULT.EE LR0, CR3, 0, LR2, CR15;;
+MULT.EE LR0, CR3, 0, LR2, CR15, CR14;;
 ```
