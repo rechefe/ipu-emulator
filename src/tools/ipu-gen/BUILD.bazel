@@ -29,8 +29,7 @@ filegroup(
 
 # Generators that render artifacts from the ISA: the SystemVerilog package
 # (E08-13), the docs pages and layout SVGs (E08-14), and the VS Code language
-# data (E08-15). ipu_as: the VS Code data reads the parser and token classes,
-# and the instruction reference renders Inst.description() until E05-02.
+# data (E08-15). ipu_as: the VS Code data reads the parser and token classes.
 py_library(
     name = "ipu_gen_lib",
     srcs = glob(["src/ipu_gen/*.py"]),

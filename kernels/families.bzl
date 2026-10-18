@@ -90,8 +90,8 @@ KERNELS = {
 
 #: The families each family may use: import from (ipu_kernels.<other>) or refer
 #: to the files of (kernels/<other>/...). A use not listed here fails
-#: //kernels:test_families. E07 adds the edges its migrations need, for
-#: example "attention": ["softmax"].
+#: //kernels:test_families. A family adds an edge here when it needs one, for
+#: example attention uses softmax's layouts.
 FAMILY_DEPS = {
     "attention": ["softmax"],
 }

@@ -1,4 +1,5 @@
-"""Direct TUI launch for applications selected by ``bazel run --config=debug``."""
+"""The curses debugger as the hook of a kernel run: ``--debug``, or
+``bazel run --config=debug`` (see ``ipu_harness.debug.DebugHook``)."""
 
 from __future__ import annotations
 
@@ -10,8 +11,8 @@ from ipu_emu.emulator import DebugCallback
 
 
 def make_tui_debug_callback(kernel_name: str | None = None) -> tuple[DebugCallback, DebugControl]:
-    """The curses debugger as a ``run_with_debug`` callback, with the control
-    to pass to that run (``run_test(..., debug_control=...)``).
+    """The curses debugger as a debug callback, with the control the run must
+    honour (``ipu_harness.debug`` wraps the pair in a ``DebugHook``).
 
     The callback builds one ``DebugSession`` (named *kernel_name*) and one
     view at the first stop and keeps them between stops. It returns the

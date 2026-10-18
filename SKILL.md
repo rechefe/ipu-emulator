@@ -28,7 +28,7 @@ The rules agents must never break are in [CLAUDE.md](CLAUDE.md), under "Key Cons
 | Registers | generated [Registers](https://rechefe.github.io/ipu-emulator/dev/reference/isa/registers/) |
 | CR constants, dstructure | generated [Configuration registers](https://rechefe.github.io/ipu-emulator/dev/reference/isa/configuration-registers/) |
 | Element formats | [element-formats.md](docs/content/explanation/element-formats.md) |
-| Command-line tools | [reference/cli.md](docs/content/reference/cli.md) (stub, E09-15); meanwhile `bazel run //src/tools/ipu-as-py:ipu-as -- --help` |
+| Command-line tools | [reference/cli.md](docs/content/reference/cli.md) |
 | Reference-model API | [reference/reference-model-api.md](docs/content/reference/reference-model-api.md); the decision: [ADR 0004](docs/adr/0004-stable-reference-model-api.md) |
 | Driving the reference model from a cocotb testbench | [how-to/reference-model-cocotb.md](docs/content/how-to/reference-model-cocotb.md) |
 | Conformance suite (cases as data, running them in an RTL testbench) | [src/tools/ipu-isa/conformance/README.md](src/tools/ipu-isa/conformance/README.md) |

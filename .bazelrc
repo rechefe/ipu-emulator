@@ -53,7 +53,7 @@ build:docs --action_env=GISCUS_THEME
 build:docs --action_env=GISCUS_LANG
 build:docs --action_env=GISCUS_STRICT
 
-# Launch any IpuApp harness in the TUI after setup, before instruction execution.
+# Launch a kernel run (ipu_harness) in the debugger TUI before the first instruction word.
 run:debug --run_env=IPU_DEBUG_TUI=1
 # Executable test targets receive the test environment under bazel run.
 run:debug --test_env=IPU_DEBUG_TUI=1

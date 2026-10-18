@@ -5,7 +5,7 @@ IPU Development
 [![Documentation](https://github.com/rechefe/ipu-emulator/actions/workflows/docs.yml/badge.svg)](https://github.com/rechefe/ipu-emulator/actions/workflows/docs.yml)
 [![GitHub Pages](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://rechefe.github.io/ipu-emulator/)
 
-IPU emulator and assembler toolchain implemented in Python. Includes a sample `fully_connected` app and comprehensive test suite.
+IPU emulator and assembler toolchain implemented in Python. Includes the kernels in `kernels/` (for example `linear/fully_connected`) and the test suite.
 
 Python Packages
 ---------------
@@ -124,8 +124,8 @@ Notes
 - Kernels live in `kernels/<family>/<name>/` — each kernel's program, `kernel.toml` and optional `reference.py` together ([Write a kernel](docs/content/how-to/write-a-kernel.md)); `ipu_harness` runs them.
 - Bazel uses hermetic builds with automatic caching and parallelization.
 
-
-## Debug a registered kernel
+Debug a registered kernel
+-------------------------
 
 ```bash
 bazel run --config=debug //kernels/reshape/identity

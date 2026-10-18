@@ -50,9 +50,8 @@ py_library(
     ] + [requirement(dep) for dep in RUNTIME_DEPS],
 )
 
-# //kernels:query (E06-16). With ipu_kernels for the families' layer adapters.
-# Each kernel's files reach its runfiles once E06-13's ipu_kernel() exports
-# them; until then the tree it routes over is empty.
+# //kernels:query (E06-16). With ipu_kernels for the families' layer adapters,
+# and //kernels:tree: every kernel's files.
 py_binary(
     name = "query",
     srcs = ["src/ipu_harness/query.py"],

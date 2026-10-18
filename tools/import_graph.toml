@@ -35,8 +35,7 @@ ipu_isa = []
 # SV package and the layout SVGs read ipu_isa only.
 ipu_gen = [
     "ipu_isa",
-    # The VS Code data reads the parser and the token classes; the instruction
-    # reference renders Inst.description() until E05-02.
+    # The VS Code data reads the parser and the token classes.
     "ipu_as",
 ]
 

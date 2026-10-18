@@ -5,7 +5,7 @@ site_author: IPU Development Team
 docs_dir: content
 repo_url: https://github.com/rechefe/ipu-emulator
 repo_name: rechefe/ipu-emulator
-edit_uri: edit/master/docs/
+edit_uri: edit/master/docs/content/
 
 hooks:
   - hooks/giscus_env.py

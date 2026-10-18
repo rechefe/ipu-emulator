@@ -1,8 +1,10 @@
 # Kernels
 
-A **kernel** is one assembly program plus the Python harness that feeds it: an
-`.asm` file, an `IpuApp` subclass that lays out XMEM and reads results back, and
-a declaration saying which computations it handles.
+A **kernel** is one assembly program and its declaration: an `.asm` file, a
+`kernel.toml` that names its parameters, XMEM regions, cases and the
+computations it handles, and an optional `reference.py` for the expected
+results ([ADR 0006](https://github.com/rechefe/ipu-emulator/blob/master/docs/adr/0006-kernels-are-assembly-plus-declaration.md)).
+`ipu_harness` lays out XMEM, runs it and checks the results.
 
 This section covers what exists, how the emulator knows what exists, and how to
 add more.

@@ -110,13 +110,9 @@ state.reset(ElementFormat.E4)
 `state.fmt` cannot be assigned. An unknown format raises `ConfigurationError`
 when the state is built, never while a program runs.
 
-A kernel declares its formats:
-
-- **A kernel with a `kernel.toml`** lists them in `[kernel] formats`. A case
-  can list a subset in its own `formats`; otherwise it runs in each of the
-  kernel's formats.
-- **An `IpuApp` kernel** declares one format in its `SPEC` with
-  `ExecutionConfig(fmt=...)`, and `app.make_state()` builds the state in it.
+A kernel lists its formats in its `kernel.toml`'s `[kernel] formats`. A case
+can list a subset in its own `formats`; otherwise it runs in each of the
+kernel's formats.
 
 ## XMEM layout per format
 
