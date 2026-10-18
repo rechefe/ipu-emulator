@@ -55,7 +55,7 @@ class DetectorRegistry:
 
     def register(self, definition: AliasDefinition, factory: Callable[[], Detector]):
         if not definition.id or definition.id in self.entries:
-            raise ValueError(f"duplicate or empty alias id: {definition.id!r}")
+            raise ConfigurationError(f"duplicate or empty alias id: {definition.id!r}")
         if not callable(factory):
             raise TypeError("detector factory must be callable")
         self.entries[definition.id] = (definition, factory)
@@ -87,7 +87,7 @@ class AliasProfile:
 
             registry = default_registry()
         if examples < 0:
-            raise ValueError("examples must be nonnegative")
+            raise ConfigurationError("examples must be nonnegative")
         self.registry = registry.copy()
         self.detectors = [(key, factory()) for key, (_, factory) in self.registry.entries.items()]
         self.listeners = {}

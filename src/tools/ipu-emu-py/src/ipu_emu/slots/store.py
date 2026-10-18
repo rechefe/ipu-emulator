@@ -38,7 +38,7 @@ def execute_st_acc(ipu: Ipu, *, offset: int, base: int) -> None:
     width) unconditionally in both modes -- R_ACC's width does not scale
     with the active element width, so "all of R_ACC" is already the
     mode-blind statement. Only the row address is translated; this spans
-    4 rows in narrow mode and 1 row in debug mode, which is accepted
+    4 rows in an 8-bit format and 1 row in FP32/INT32, which is accepted
     since this is a debug-only instruction by nature (see warning above).
     """
     warnings.warn(

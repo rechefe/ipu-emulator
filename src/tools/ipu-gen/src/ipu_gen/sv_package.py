@@ -12,14 +12,13 @@ assembler cannot rename a downstream RTL type. Reads ``ipu_isa`` only.
 from __future__ import annotations
 
 import hashlib
-import re
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
 import jinja2
 
-from ipu_isa.operand_types import OPERAND_TYPES, OperandType
+from ipu_isa.operand_types import OPERAND_TYPES, OperandType, snake_name
 from ipu_isa.slots import Slot
 from ipu_isa.tags import Tag
 from ipu_isa.union_layout import SlotUnion
@@ -109,12 +108,6 @@ OPERAND_ENUM_ORDER = (
 )
 
 
-def _snake_case(name: str) -> str:
-    """``LrIdx`` -> ``lr_idx``: SV field names from ISA operand-type names."""
-    s1 = re.sub("(.)([A-Z][a-z]+)", r"\1_\2", name)
-    return re.sub("([a-z0-9])([A-Z])", r"\1_\2", s1).lower()
-
-
 def _sanitize_enum_member(name: str) -> str:
     return name.upper().replace(".", "_").replace("-", "_")
 
@@ -127,7 +120,7 @@ def _sv_logic_type(canonical_type: str, bits: int) -> str:
 
 
 def _canonical_field_name(canonical_type: str, field_index: int) -> str:
-    base = _snake_case(canonical_type)
+    base = snake_name(canonical_type)
     return f"{base}_{field_index}"
 
 

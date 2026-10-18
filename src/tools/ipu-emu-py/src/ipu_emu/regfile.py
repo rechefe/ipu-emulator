@@ -588,7 +588,7 @@ def _add_cyclic_accessors(methods: dict, name: str, total_size: int) -> None:
     differs.
 
     ``wrap_size`` predates that split, when a single 2048 B ``r_cyclic`` had to
-    wrap at 512 B in narrow mode and the mode-aware caller (``Ipu``) supplied
+    wrap at 512 B in an 8-bit format and the format-aware caller (``Ipu``) supplied
     the size on every call. It defaults to the register's full allocation
     (``total_size``), which is now always the right answer -- nothing in
     ``src/`` overrides it.

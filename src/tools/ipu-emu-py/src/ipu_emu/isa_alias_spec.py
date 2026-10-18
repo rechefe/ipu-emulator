@@ -27,8 +27,8 @@ Structure:
 Constraint vocabulary for ``where`` (a closed set — extend deliberately):
 
     {"operand": "src", "scalar_is": 1}
-        That operand supplies a constant 1.0 from a CR. Dtype-aware: the
-        emulator compares against the dtype's own encoding of 1.0. Only 1 is
+        That operand supplies a constant 1.0 from a CR. Format-aware: the
+        emulator compares against the element format's own encoding of 1.0. Only 1 is
         expressible — see ``_SCALAR_VALUES``. An operand naming an LR selects
         an element of R0/R1, which is *data*, and never matches: a quantized
         weight that happens to equal 1 is a real MAC, not a pass-through.
@@ -75,12 +75,13 @@ overlapping tallies.
 
 from __future__ import annotations
 
+from ipu_emu.errors import ConfigurationError
 from ipu_isa.slots import SLOTS, Slot
 from ipu_isa.view import Instruction, isa
 
 # Only 1 is implementable today: the emulator tests a multiplicand against the
-# dtype's encoding of 1.0, which is the whole point of the table. Widening this
-# means teaching the emulator to encode other constants per dtype.
+# element format's encoding of 1.0, which is the whole point of the table.
+# Widening this means teaching the emulator to encode other constants per format.
 _SCALAR_VALUES = (1,)
 
 _CONSTRAINT_KEYS = {
@@ -215,17 +216,17 @@ def validate_isa_alias_spec() -> None:
     for alias_id, entry in ISA_ALIAS_SPEC.items():
         for required in ("missing_op", "summary", "matches"):
             if required not in entry:
-                raise ValueError(f"alias {alias_id!r} is missing {required!r}")
+                raise ConfigurationError(f"alias {alias_id!r} is missing {required!r}")
         if not entry["matches"]:
-            raise ValueError(f"alias {alias_id!r} declares no matches")
+            raise ConfigurationError(f"alias {alias_id!r} declares no matches")
 
         for match in entry["matches"]:
             slot, instruction = match.get("slot"), match.get("instruction")
             if slot not in _SLOT_NAMES:
-                raise ValueError(f"alias {alias_id!r} names unknown slot {slot!r}")
+                raise ConfigurationError(f"alias {alias_id!r} names unknown slot {slot!r}")
             target = _instruction(slot, instruction)
             if target is None:
-                raise ValueError(
+                raise ConfigurationError(
                     f"alias {alias_id!r} names unknown instruction {instruction!r} in slot {slot!r}"
                 )
             operands = {op.name for op in target.operands}
@@ -239,7 +240,7 @@ def validate_isa_alias_spec() -> None:
                 if "scalar_is" in c or c.get("hardware_only") or "vector_ones" in c
             )
             if gates != 1:
-                raise ValueError(
+                raise ConfigurationError(
                     f"alias {alias_id!r} match on {slot}/{instruction} must carry "
                     "exactly one of scalar_is, vector_ones or hardware_only "
                     f"(found {gates})"
@@ -249,36 +250,42 @@ def validate_isa_alias_spec() -> None:
             for constraint in match["where"]:
                 keys = frozenset(constraint)
                 if keys not in _CONSTRAINT_KEYS:
-                    raise ValueError(
+                    raise ConfigurationError(
                         f"alias {alias_id!r} uses unsupported constraint "
                         f"{sorted(keys)}; supported: "
                         f"{[sorted(k) for k in _CONSTRAINT_KEYS]}"
                     )
                 if keys in seen_keys:
-                    raise ValueError(f"alias {alias_id!r} repeats constraint kind {sorted(keys)}")
+                    raise ConfigurationError(
+                        f"alias {alias_id!r} repeats constraint kind {sorted(keys)}"
+                    )
                 seen_keys.add(keys)
                 if "vector_ones" in constraint and (
                     constraint["vector_ones"] is not True
                     or slot != "mult"
                     or instruction not in VECTOR_IDENTITY_MULTS
                 ):
-                    raise ValueError(f"alias {alias_id!r}: unsupported vector_ones constraint")
+                    raise ConfigurationError(
+                        f"alias {alias_id!r}: unsupported vector_ones constraint"
+                    )
                 if "masked_window" in constraint and (
                     constraint["masked_window"] is not True
                     or slot != "mult"
                     or not {"mask_offset", "mask_shift", "cr_idx"} <= operands
                 ):
-                    raise ValueError(f"alias {alias_id!r}: unsupported masked_window constraint")
+                    raise ConfigurationError(
+                        f"alias {alias_id!r}: unsupported masked_window constraint"
+                    )
                 if "hardware_only" in constraint and (
                     constraint["hardware_only"] is not True or len(match["where"]) != 1
                 ):
-                    raise ValueError(
+                    raise ConfigurationError(
                         f"alias {alias_id!r}: hardware_only must be True and stand alone"
                     )
                 if "operand" in constraint:
                     name = constraint["operand"]
                     if name not in operands:
-                        raise ValueError(
+                        raise ConfigurationError(
                             f"alias {alias_id!r}: {instruction} has no operand "
                             f"{name!r} (has {sorted(operands)})"
                         )
@@ -288,33 +295,35 @@ def validate_isa_alias_spec() -> None:
                         # scalar multiplies. Require its spec type, not just
                         # the absence of a read: CR indices also lack reads.
                         if operand.type.name != "MultMaskOffsetImmediate" or operand.read:
-                            raise ValueError(
+                            raise ConfigurationError(
                                 f"alias {alias_id!r}: {slot}/{instruction}.{name} "
                                 "is not a supported raw immediate operand"
                             )
                     if "scalar_is" in constraint and (
                         slot != "mult" or name != SCALAR_MULT_OPERANDS.get(instruction)
                     ):
-                        raise ValueError(
+                        raise ConfigurationError(
                             f"alias {alias_id!r}: {slot}/{instruction}.{name} "
                             "is not a supported scalar multiplicand"
                         )
                     if "scalar_is" in constraint and constraint["scalar_is"] not in _SCALAR_VALUES:
-                        raise ValueError(
+                        raise ConfigurationError(
                             f"alias {alias_id!r}: scalar_is must be one of {_SCALAR_VALUES}"
                         )
                 if "co_slot" in constraint:
                     co_slot = constraint["co_slot"]
                     if co_slot not in _SLOT_NAMES:
-                        raise ValueError(f"alias {alias_id!r} names unknown co_slot {co_slot!r}")
+                        raise ConfigurationError(
+                            f"alias {alias_id!r} names unknown co_slot {co_slot!r}"
+                        )
                     for name in constraint["instruction_in"]:
                         if _instruction(co_slot, name) is None:
-                            raise ValueError(
+                            raise ConfigurationError(
                                 f"alias {alias_id!r} names unknown instruction "
                                 f"{name!r} in co_slot {co_slot!r}"
                             )
                 if constraint.get("hardware_only") and not SLOTS[Slot(slot)].debug_only:
-                    raise ValueError(
+                    raise ConfigurationError(
                         f"alias {alias_id!r} uses hardware_only on slot {slot!r}, "
                         "which is not debug-only"
                     )
@@ -331,7 +340,7 @@ def validate_isa_alias_spec() -> None:
                 ),
             )
             if signature in signatures:
-                raise ValueError(f"alias {alias_id!r} repeats an identical match")
+                raise ConfigurationError(f"alias {alias_id!r} repeats an identical match")
             signatures.add(signature)
 
 

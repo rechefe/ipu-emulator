@@ -15,10 +15,9 @@ import ipu_as.opcodes as opcodes  # noqa: F401 - registers the opcode enums firs
 import ipu_as.ipu_token as ipu_token
 import ipu_as.reg as reg
 import ipu_as.immediate as immediate
-import ipu_as.utils as utils
 
 # isort: on
-from ipu_isa.operand_types import OPERAND_TYPES, OperandType
+from ipu_isa.operand_types import OPERAND_TYPES, OperandType, snake_name
 
 # ===========================================================================
 # Operand Type Resolution
@@ -81,7 +80,7 @@ def _check_token_class(
         )
     # Decoded field names and SV typedefs are derived from the token class
     # name today; they must be the wire names the registry writes out.
-    suffix = utils.camel_case_to_snake_case(token_class.__name__)
+    suffix = snake_name(token_class.__name__)
     if suffix != record.field_suffix:
         raise ValueError(
             f"{name}: token class {token_class.__name__} yields field suffix "

@@ -70,7 +70,7 @@ def check_mult_stage(raw: int) -> None:
 
 def resolve_mult_stage(raw: int, source: RegFile, wide: bool) -> bytearray:
     """A mult-stage operand's value: R0 or R1's bytes (``r_wide_debug``'s
-    4-byte elements in wide-vector mode), so a handler decodes it in the
+    4-byte elements in FP32 and INT32), so a handler decodes it in the
     active element format either way."""
     check_mult_stage(raw)
     reg_name, elem_idx = _MULT_STAGE_MAP[raw]

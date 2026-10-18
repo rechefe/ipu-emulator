@@ -85,17 +85,17 @@ _reg_sizes = get_register_sizes()
 LR_REG_COUNT = _reg_sizes["lr"]["count"]
 R_ACC_SIZE = _reg_sizes["r_acc"]["size_bytes"]
 
-# LANES (from ipu_isa.geometry) is the number of vector lanes: 128,
-# mode-invariant. An element is 1 byte in narrow mode and 4 bytes in
-# wide-vector debug mode, so LANES must never be confused with a byte count —
-# use it for lane loop bounds, mask bit-widths, and lane-indexed lists/tuples
-# in both modes. R_REG_SIZE remains a byte count (the "r" register's size); it
-# coincides with LANES only in narrow mode.
+# LANES (from ipu_isa.geometry) is the number of vector lanes: 128 in every
+# element format. An element is 1 byte in an 8-bit format and 4 bytes in FP32
+# and INT32, so LANES must never be confused with a byte count — use it for
+# lane loop bounds, mask bit-widths, and lane-indexed lists/tuples in every
+# format. R_REG_SIZE remains a byte count (the "r" register's size); it
+# coincides with LANES only in an 8-bit format.
 
 # XMEM row geometry (``xmem_element_width_bytes``, ``xmem_row_size_bytes``,
 # ``NARROW_MAX_ROW``, ``xmem_row_addr``) lives in ``ipu_emu.geometry``, shared
 # by the handlers and the observers; the first three are re-exported here.
-# Debug mode reaches the whole allocation in 512-byte rows.
+# The FP32/INT32 formats reach the whole allocation in 512-byte rows.
 XMEM_ADDRESSABLE_ROWS = XMEM_SIZE_BYTES // (LANES * 4)
 
 

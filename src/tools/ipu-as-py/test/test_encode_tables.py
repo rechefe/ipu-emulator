@@ -10,10 +10,10 @@ import lark
 import pytest
 
 import ipu_as.ipu_token as ipu_token
-import ipu_as.utils as utils
 from ipu_as.compound_inst import CompoundInst
 from ipu_as.opcodes import Opcode
 from ipu_as.session import AssemblySession
+from ipu_isa.operand_types import snake_name
 from ipu_isa.slots import LAYOUT_ORDER, SLOTS
 from ipu_isa.view import isa
 
@@ -71,7 +71,7 @@ def _enum_classes() -> dict[str, type[ipu_token.EnumToken]]:
             cls.enum_array()
         except NotImplementedError:
             continue
-        classes[utils.camel_case_to_snake_case(cls.__name__)] = cls
+        classes[snake_name(cls.__name__)] = cls
     return classes
 
 

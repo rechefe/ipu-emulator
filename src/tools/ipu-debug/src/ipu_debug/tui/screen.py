@@ -22,6 +22,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol, TypeVar
 
+from ipu_debug.errors import TerminalUnavailableError
+
 try:  # pragma: no cover - import availability is platform-dependent
     import curses
 except ImportError:  # pragma: no cover
@@ -295,7 +297,7 @@ class CursesScreen:
 
     def __init__(self, window: object) -> None:
         if curses is None:  # pragma: no cover
-            raise RuntimeError("curses is not available on this platform")
+            raise TerminalUnavailableError("curses is not available on this platform")
         self._window = window
         self._pairs: dict[tuple[int, int], int] = {}
         self._colors = False
@@ -521,7 +523,7 @@ T = TypeVar("T")
 def run_in_terminal(body: Callable[[Screen], T]) -> T:
     """Enter curses, run *body* on a :class:`CursesScreen` and restore the terminal."""
     if curses is None:
-        raise RuntimeError("curses is not available on this platform")
+        raise TerminalUnavailableError("curses is not available on this platform")
     return curses.wrapper(lambda window: body(CursesScreen(window)))
 
 

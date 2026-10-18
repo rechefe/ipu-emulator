@@ -5,12 +5,12 @@ from typing import TYPE_CHECKING
 
 import lark
 
-import ipu_as.utils as utils
 from ipu_as.errors import LabelError, OperandError, SourceLocation
 from ipu_as.symbols import is_local_reference
 from ipu_isa.codec.slot import field_code
+from ipu_isa.errors import IsaValueError
 from ipu_isa.geometry import INST_MEM_WORDS
-from ipu_isa.operand_types import code_bits, operand_type
+from ipu_isa.operand_types import code_bits, operand_type, snake_name
 
 if TYPE_CHECKING:
     from ipu_as.symbols import SymbolTable
@@ -146,10 +146,11 @@ class EnumToken(IpuToken):
 
     @classmethod
     def bits(cls) -> int:
-        assert len(cls.enum_array()) > 1, (
-            "EnumToken must have at least two values, check if you really need an Enum here if its "
-            "just the one, consider adding 'nop' instruction instead."
-        )
+        if len(cls.enum_array()) < 2:
+            raise IsaValueError(
+                f"{cls.__name__}: an EnumToken needs at least two values; for just one, "
+                "drop the enum (or add a 'nop' value)"
+            )
         return code_bits(len(cls.enum_array()))
 
     def encode(self) -> int:
@@ -166,7 +167,7 @@ class EnumToken(IpuToken):
         return reverse
 
     @classmethod
-    def get_all_enum_descriptors(cls) -> dict[str, any]:
+    def get_all_enum_descriptors(cls) -> dict[str, list[tuple[int, str]]]:
         enums = dict()
 
         def get_all_subclasses(base_class):
@@ -180,7 +181,7 @@ class EnumToken(IpuToken):
         for subclass in get_all_subclasses(cls):
             try:
                 if issubclass(subclass, EnumToken):
-                    enums[utils.camel_case_to_snake_case(subclass.__name__)] = [
+                    enums[snake_name(subclass.__name__)] = [
                         (idx, value.upper().replace(".", "_"))
                         for idx, value in enumerate(subclass.enum_array())
                     ]

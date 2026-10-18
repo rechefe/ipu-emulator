@@ -810,7 +810,7 @@ HALT;;
             run_until_complete(state)
 
     def test_mask_affects_multiplication_fp32(self):
-        """Same program as test_mask_affects_multiplication, run in FP32: masking must be honored identically to narrow mode — first 64
+        """Same program as test_mask_affects_multiplication, run in FP32: masking must be honored identically to INT8 — first 64
         elements active, last 64 masked to the pad value (ZERO)."""
         r0_data = struct.pack("<128f", *([2.0] * 128))
         cyclic_data = struct.pack("<128f", *([3.0] * 128))
@@ -3083,8 +3083,8 @@ HALT;;
 
 # ============================================================================
 # XMEM row addressing: .asm XMEM operands (offset + base) are row numbers,
-# translated to byte addresses via the active mode's row size. XMEM is
-# allocated at XMEM_SIZE_BYTES unconditionally; narrow mode may only address
+# translated to byte addresses via the active format's row size. XMEM is
+# allocated at XMEM_SIZE_BYTES unconditionally; an 8-bit format may only address
 # its first NARROW_MAX_ROW (16384) rows -- 2 MB -- whatever the allocation size.
 # ============================================================================
 
@@ -3132,7 +3132,9 @@ HALT;;
 """,
             cr={8: NARROW_MAX_ROW},
         )
-        with pytest.raises(EmulatorFault, match="out of range for narrow mode") as caught:
+        with pytest.raises(
+            EmulatorFault, match="out of range in an 8-bit element format"
+        ) as caught:
             run_until_complete(state)
         assert state.halt == HaltRecord("fault", caught.value.pc, caught.value.fault)
         assert caught.value.fault is FaultId.F6
@@ -3164,7 +3166,9 @@ HALT;;
 """,
             cr={8: 0xFFFFFFFF},
         )
-        with pytest.raises(EmulatorFault, match="out of range for narrow mode") as caught:
+        with pytest.raises(
+            EmulatorFault, match="out of range in an 8-bit element format"
+        ) as caught:
             run_until_complete(state)
         assert state.halt == HaltRecord("fault", caught.value.pc, caught.value.fault)
         assert caught.value.fault is FaultId.F6

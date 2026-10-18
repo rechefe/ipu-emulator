@@ -21,6 +21,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping, Sequence
 
+from ipu_isa.operand_types import snake_name
 from ipu_isa.slots import SLOTS, Slot
 from ipu_isa.union_layout import SlotUnion
 from ipu_isa.view import Isa, isa
@@ -205,17 +206,12 @@ def _word_slots(view: Isa, slots: Sequence[Slot] | None = None) -> list[Slot]:
     return [slot for slot in _shown(view, slots) for _ in range(view.slots[slot].count)]
 
 
-def _snake_case(name: str) -> str:
-    s1 = re.sub("(.)([A-Z][a-z]+)", r"\1_\2", name)
-    return re.sub("([a-z0-9])([A-Z])", r"\1_\2", s1).lower()
-
-
 def _slot_tokens(view: Isa, slot: Slot) -> list[tuple[str, int]]:
     """``(snake_case token name, bits)`` of a slot's opcode, then its union fields."""
     union = view.layout.unions[slot]
     tokens = [(view.slots[slot].asm_opcode_class, union.opcode_bits)]
     tokens += [(view.operand_types[f.canonical_type].token_class, f.bits) for f in union.fields]
-    return [(_snake_case(name), bits) for name, bits in tokens]
+    return [(snake_name(name), bits) for name, bits in tokens]
 
 
 def union_layout_svg(view: Isa | None = None, slots: Sequence[Slot] | None = None) -> str:

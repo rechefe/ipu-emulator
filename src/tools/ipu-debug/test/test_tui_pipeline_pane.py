@@ -153,7 +153,7 @@ def test_cell16_keeps_each_cells_colours_and_groups_characters():
     assert [line.style for line in characters[1:3]] == [1 << 20, 1 << 20]
 
 
-def test_wide_mode_reads_the_wide_storage_in_the_arithmetic_format():
+def test_fp32_reads_the_wide_storage_in_the_arithmetic_format():
     state = new_state(fmt=ElementFormat.FP32)
     state.regfile.mutable("r")[0] = 0xFF
     state.regfile.mutable("r_wide_debug")[:4] = struct.pack("<f", 1.5)

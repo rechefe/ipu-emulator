@@ -91,11 +91,11 @@ R_CYCLIC_SIZE = _REG_SIZES["r_cyclic"]["size_bytes"]
 #: land exactly on a slot boundary (no implicit wraparound).
 R_CYCLIC_VALID_INDICES = tuple(range(0, R_CYCLIC_SIZE, R_REG_SIZE))
 
-# XMEM is allocated at XMEM_SIZE_BYTES always (mode-independent). Narrow mode
-# may address only its first 16384 rows of 128 B (2 MB) -- a fixed limit, not
-# derived from the allocation, so enlarging XMEM for wide-mode kernels does not
-# silently widen what narrow-mode programs can reach. Debug mode reaches the
-# whole allocation (XMEM_ADDRESSABLE_ROWS rows of 512 B).
+# XMEM is allocated at XMEM_SIZE_BYTES in every element format. An 8-bit format
+# may address only the first 16384 rows of 128 B (2 MB) -- a fixed limit, not
+# derived from the allocation, so enlarging XMEM for the FP32/INT32 kernels
+# does not silently widen what 8-bit programs can reach. The FP32/INT32 formats
+# reach the whole allocation (XMEM_ADDRESSABLE_ROWS rows of 512 B).
 NARROW_MAX_ROW = 16384
 
 #: All 128 lanes active.
@@ -290,7 +290,7 @@ def xmem_row_fault(state: IpuState, row: int) -> str | None:
         return f"XMEM row must be non-negative; got {row}"
     if not _is_wide(state) and row >= NARROW_MAX_ROW:
         return (
-            f"XMEM row {row} is out of range for narrow mode "
+            f"XMEM row {row} is out of range in an 8-bit element format "
             f"(rows 0..{NARROW_MAX_ROW - 1}, the first "
             f"{NARROW_MAX_ROW * xmem_row_size_bytes(state) >> 20} MB of XMEM)"
         )
@@ -310,12 +310,12 @@ def xmem_row_check(state: IpuState, row: int) -> tuple[FaultId, str] | None:
 
 
 def xmem_row_addr(state: IpuState, row: int) -> int:
-    """Translate an XMEM row number to a byte address in the active mode.
+    """Translate an XMEM row number to a byte address in the active element format.
 
     ``.asm`` XMEM operands (``offset + base``) are row numbers, not byte
     addresses — one row is LANES elements, so the same row number reaches
-    the same logical row in both modes at different byte offsets. XMEM is
-    allocated at XMEM_SIZE_BYTES unconditionally; narrow mode may only
+    the same logical row in every format at different byte offsets. XMEM is
+    allocated at XMEM_SIZE_BYTES unconditionally; an 8-bit format may only
     *address* the first NARROW_MAX_ROW rows (2 MB) of that allocation.
 
     This only translates and range-checks the row itself; the resulting

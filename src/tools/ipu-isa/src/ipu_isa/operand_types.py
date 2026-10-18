@@ -19,6 +19,7 @@ change (CLAUDE.md).
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
@@ -120,6 +121,14 @@ def code_bits(count: int) -> int:
     assembler's enum tokens (E05-02: bit layouts are computed in ``ipu_isa``).
     """
     return (count - 1).bit_length()
+
+
+def snake_name(name: str) -> str:
+    """``LrIdx`` -> ``lr_idx``: a CamelCase name (a token class, an operand
+    type) as snake_case, as the assembler's field names and the SV package's
+    field names spell it."""
+    s1 = re.sub("(.)([A-Z][a-z]+)", r"\1_\2", name)
+    return re.sub("([a-z0-9])([A-Z])", r"\1_\2", s1).lower()
 
 
 def _members(bank: str) -> tuple[str, ...]:

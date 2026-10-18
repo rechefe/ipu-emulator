@@ -221,7 +221,7 @@ class TestXmemCommand:
         assert "byte address 0x00000100" in output
         assert "12 34 ab cd" in output
 
-    def test_wide_mode_hex_groups_every_four_bytes(self):
+    def test_fp32_hex_groups_every_four_bytes(self):
         state = new_state(fmt=ElementFormat.FP32)
         state.xmem.write_address(0, bytes(range(8)))
 
@@ -301,7 +301,7 @@ class TestXmemCommand:
         assert "1.00000012" in output
         assert "1.00000024" in output
 
-    def test_row_address_uses_512_bytes_in_wide_mode(self):
+    def test_row_address_uses_512_bytes_in_fp32(self):
         state = new_state(fmt=ElementFormat.FP32)
         state.xmem.write_address(2 * 512, struct.pack("<2I", 1, 0xDEADBEEF))
         _, output = _run_cli(state, "xmem row 1 1 2 u32\ncontinue\n")

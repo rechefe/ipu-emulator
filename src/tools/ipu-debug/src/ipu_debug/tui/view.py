@@ -19,6 +19,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from ipu_debug.control import DebugControl
+from ipu_debug.errors import TerminalUnavailableError
 from ipu_debug.session import DebugSession
 from ipu_debug.tui.chrome import (
     Frames,
@@ -465,7 +466,7 @@ def run_debug_tui(
     shows); when given, its control is the one used.
     """
     if not terminal_available():
-        raise RuntimeError("curses is not available on this platform")
+        raise TerminalUnavailableError("curses is not available on this platform")
     if session is None:
         session = new_debug_view_session(state)
     session.ensure_default_tab(state)
