@@ -12,7 +12,6 @@
 /src/tools/ipu-gen/                 @YuvalHarary
 
 # Toolchain
-/src/tools/ipu-common/              @YuvalHarary @DavidShenzi
 /src/tools/ipu-as-py/               @YuvalHarary
 /src/tools/ipu-emu-py/              @DavidShenzi @YuvalHarary
 /src/tools/ipu-debug/               @DavidShenzi @yarden-carmi
