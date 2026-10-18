@@ -2504,7 +2504,7 @@
 {
 "name": "kernels/sampling/sample_descriptors/sample_descriptors.asm",
 "file": "kernels/sampling/sample_descriptors/sample_descriptors.asm",
-"sha256": "e0789089c68be8f3e1c1c2c130190326eac536392ebe617ef169b14dbcf4c920",
+"sha256": "a7762aa5dcaea71cea4d8a89d6ed2189edebbf3a38d1ef8d94b2b06822ad67b5",
 "answer": {
 "schemaVersion": 2,
 "diagnostics": [],
@@ -2561,7 +2561,7 @@
 {
 "line": 9,
 "column": 0,
-"length": 44,
+"length": 29,
 "type": "comment",
 "role": "jinja"
 },
@@ -4258,7 +4258,7 @@
 "defines": [],
 "uses": [],
 "start": 0,
-"end": 1852
+"end": 1837
 },
 {
 "kind": "block",
@@ -4274,8 +4274,8 @@
 "uses": [
 "range"
 ],
-"start": 2210,
-"end": 2235
+"start": 2195,
+"end": 2220
 },
 {
 "kind": "variable",
@@ -4289,8 +4289,8 @@
 "uses": [
 "tap"
 ],
-"start": 2254,
-"end": 2292
+"start": 2239,
+"end": 2277
 },
 {
 "kind": "variable",
@@ -4304,8 +4304,8 @@
 "uses": [
 "tap"
 ],
-"start": 2385,
-"end": 2433
+"start": 2370,
+"end": 2418
 },
 {
 "kind": "block",
@@ -4317,8 +4317,8 @@
 },
 "defines": [],
 "uses": [],
-"start": 2472,
-"end": 2484
+"start": 2457,
+"end": 2469
 }
 ]
 }

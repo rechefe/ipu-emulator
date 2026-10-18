@@ -282,10 +282,8 @@ test('a source that does not parse has no words: completion fits by the editor\'
 test('the Bazel path (no prebuilt checker): one probe across edits, one check per version', async () => {
   // A checkout, and a `bazel` that builds nothing and runs the stand-in checker.
   const root = fs.mkdtempSync(path.join(temp, 'checkout-'));
-  for (const marker of ['MODULE.bazel', 'src/tools/ipu-as/BUILD.bazel']) {
-    fs.mkdirSync(path.dirname(path.join(root, marker)), { recursive: true });
-    fs.writeFileSync(path.join(root, marker), '');
-  }
+  fs.writeFileSync(path.join(root, 'MODULE.bazel'), '');
+  fs.mkdirSync(path.join(root, 'src/tools/ipu-as/src/ipu_as'), { recursive: true });
   const fc = fakeChecker();
   const bin = fs.mkdtempSync(path.join(temp, 'bin-'));
   const [node, script, ...head] = fc.argv.slice(0, 4);

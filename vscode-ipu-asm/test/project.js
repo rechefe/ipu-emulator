@@ -20,7 +20,7 @@ function tree(base, files) {
   }
   return base;
 }
-const checkout = (base) => tree(base, ['MODULE.bazel', 'src/tools/ipu-as/BUILD.bazel', 'kernels/demo/k/k.asm']);
+const checkout = (base) => tree(base, ['MODULE.bazel', 'src/tools/ipu-as/src/ipu_as/__init__.py', 'kernels/demo/k/k.asm']);
 
 test('a file inside a checkout belongs to it, however deep; a subfolder stands for it', async () => {
   const repo = checkout(path.join(tmp, 'a', 'repo'));
@@ -33,7 +33,7 @@ test('a folder holding checkouts stands for each of them', async () => {
   const parent = path.join(tmp, 'c');
   const one = checkout(path.join(parent, 'one'));
   const two = checkout(path.join(parent, 'work', 'two'));
-  tree(parent, ['node_modules/x/MODULE.bazel', 'node_modules/x/src/tools/ipu-as/']);
+  tree(parent, ['node_modules/x/MODULE.bazel', 'node_modules/x/src/tools/ipu-as/src/ipu_as/']);
   assert.deepStrictEqual(await project.checkoutsFor(parent), [one, two]);
 });
 

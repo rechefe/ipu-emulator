@@ -35,7 +35,7 @@ for (const name of ['spawn', 'execFile']) {
 /** An IPU checkout (a Bazel workspace holding the assembler's package) with one kernel. */
 function checkout(parent, name) {
   const dir = path.join(parent, name);
-  for (const [file, text] of [['MODULE.bazel', ''], ['src/tools/ipu-as/BUILD.bazel', ''], ['k/demo/demo.asm', 'HALT;;\n']]) {
+  for (const [file, text] of [['MODULE.bazel', ''], ['src/tools/ipu-as/src/ipu_as/__init__.py', ''], ['k/demo/demo.asm', 'HALT;;\n']]) {
     fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
     fs.writeFileSync(path.join(dir, file), text);
   }
