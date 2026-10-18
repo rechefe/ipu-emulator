@@ -3,7 +3,7 @@
 # planning/architecture-deepening/DELETIONS.md: as a row's path, or under a row's
 # directory (a path ending in "/"). Prints the missing ones and exits 1; prints nothing
 # and exits 0 when the log covers every deletion.
-# Usage: tools/check_deletion_log.sh [base-ref]   (default: origin/master)
+# Usage: planning/architecture-deepening/check_deletion_log.sh [base-ref]   (default: origin/master)
 # The rename limit is raised: the branch deletes and renames over a thousand
 # files, past which git stops detecting renames and lists them as deletions.
 # A file under a moved directory (DIR_MOVES, "old/=new/") that this branch also

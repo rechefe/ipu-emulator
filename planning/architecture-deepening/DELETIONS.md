@@ -1,6 +1,6 @@
 # Deletions in the architecture-deepening PR
 
-Every file the PR deletes (renames excluded), why, and what replaced it. `tools/check_deletion_log.sh` fails while a deleted file is missing here. Kernel-migration (E07) rows also give the equivalence evidence: the `compare_legacy` result and the E02 baseline digest.
+Every file the PR deletes (renames excluded), why, and what replaced it. `check_deletion_log.sh` (next to this file) fails while a deleted file is missing here. Kernel-migration (E07) rows also give the equivalence evidence: the `compare_legacy` result and the E02 baseline digest.
 
 ## E00 Verified fixes
 
