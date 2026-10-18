@@ -110,8 +110,8 @@ if (layout === 'switch') {
     await until(() => api().kernels.indexes.size === 0, 'the index to go', 20000);
     assert.deepStrictEqual(api().kernels.editorContext.kernelFiles, []);
     await sidebarSays(/No IPU checkout is open/);
-    fs.mkdirSync(assembler, { recursive: true });
-    fs.writeFileSync(path.join(assembler, 'BUILD.bazel'), '');
+    fs.mkdirSync(path.join(assembler, 'src', 'ipu_as'), { recursive: true });
+    fs.writeFileSync(path.join(assembler, 'src', 'ipu_as', '__init__.py'), '');
     await until(kernelShown, 'the kernels to load', 20000);
   });
 }
