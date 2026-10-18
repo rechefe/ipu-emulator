@@ -4,8 +4,8 @@
 
 joins the targets file ``ipu_kernel_tree()`` writes (kernels/defs.bzl) with the
 routing registry (E06-16) and prints one JSON document for tools (the editor
-extension's kernel buttons and sidebar read it), with the keys the old
-harness's kernel manifest had. The two must name the same kernels, so no target offered is missing; a ``kernel.toml`` that fails to load
+extension's kernel buttons and sidebar read it). The two must name the same
+kernels, so no target offered is missing; a ``kernel.toml`` that fails to load
 is listed under ``skipped``. Each kernel also carries its page's data
 (:func:`ipu_harness.kernel_page.page_data`: design notes, ABI table, parameter
 domain, tolerance tier per format; E06-21).
@@ -67,7 +67,6 @@ def build(targets: Mapping[str, Any], registry: Registry) -> dict[str, Any]:
         kernels[name] = {
             "op": manifest.op,
             "variant": name,
-            "tags": [],
             "family": bazel["family"],
             # E06-17: routing skips a template (its entries are routed);
             # an entry names its template and may carry a one-line doc.
@@ -79,13 +78,9 @@ def build(targets: Mapping[str, Any], registry: Registry) -> dict[str, Any]:
             "formats": [f.value for f in manifest.formats],
             # The kernel page's data (E06-21): design notes, ABI, domain, tiers.
             **page_data(manifest),
-            # "options" are the command-line flags a case adds (the legacy
-            # manifest's descriptors): a harness case adds none, its values are
-            # fixed by its name. "values" are those values.
+            # A case's values are fixed by its name; "values" lists them.
             "cases": {
                 case.name: {
-                    "options": {},
-                    "max_cycles": None,
                     "values": dict(case.values),
                     "tier": case.tier,
                 }

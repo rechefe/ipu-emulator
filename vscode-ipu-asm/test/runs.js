@@ -13,11 +13,12 @@ const runs = require('../runs');
 const { test, main } = require('./harness');
 
 const kernel = {
-  op: 'identity', variant: '', tags: [], family: 'reshape',
+  op: 'identity', variant: '', family: 'reshape',
   asm: 'kernels/reshape/identity/identity.asm',
   targets: { run: '//kernels/reshape/identity:identity', test: '//kernels/reshape/identity:identity' },
   cases: {
-    default: { max_cycles: 1000, options: {
+    // A case listing options (//kernels:manifest lists none: a case's values are fixed by its name).
+    default: { options: {
       rows: { flag: '--rows', default: 4, type: 'int' },
       label: { flag: '--label', default: "it's", type: 'str' },
       wide: { flag: '--wide', default: false, type: 'bool', negated_flag: '--no-wide' },
@@ -56,6 +57,8 @@ test('a manifest value that is no Bazel label or flag is refused, not sent to th
   }
   assert.throws(() => runs.familyCommand({ suite: evil }), /family suite/);
   assert.throws(() => runs.familyCommand({}), /family suite/);
+  assert.strictEqual(runs.optionArgs({ values: {} }), '');
+  assert.strictEqual(runs.invalidValues({ values: {} }, {}), null);
   const badFlag = { options: { rows: { flag: '--rows;id', default: 1, type: 'int' } } };
   assert.throws(() => runs.optionArgs(badFlag), /flag of option rows "--rows;id" is not a valid flag/);
   const badNegated = { options: { wide: { flag: '--wide', negated_flag: '`id`', default: false, type: 'bool' } } };

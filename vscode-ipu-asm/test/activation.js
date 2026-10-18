@@ -40,7 +40,7 @@ function checkout(parent, name) {
     fs.writeFileSync(path.join(dir, file), text);
   }
   const manifest = {
-    kernels: { demo: { op: 'demo', variant: '', tags: [], family: 'f', asm: 'k/demo/demo.asm', targets: { run: '//k:demo' }, cases: { default: { max_cycles: 1, options: {} } } } },
+    kernels: { demo: { op: 'demo', variant: '', family: 'f', asm: 'k/demo/demo.asm', targets: { run: '//k:demo' }, cases: { default: { values: {} } } } },
     families: { f: { suite: '//k:f', kernels: ['demo'] } }, operations: {}, query: '//k:query', skipped: [],
   };
   fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(manifest));

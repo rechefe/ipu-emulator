@@ -26,7 +26,7 @@ function state(index, kernelName) {
   const cases = runs.kernelCases(kernel, savedCases(index)[kernelName]);
   const view = (c) => ({
     base: c.base, saved: Boolean(c.saved), builtIn: c.builtIn,
-    options: Object.entries(c.entry.options).map(([name, o]) => ({
+    options: Object.entries(c.entry.options || {}).map(([name, o]) => ({
       name, flag: o.flag, type: runs.optionType(o), default: o.default, value: Object.hasOwn(c.values, name) ? c.values[name] : o.default,
     })),
   });

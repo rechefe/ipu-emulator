@@ -16,9 +16,10 @@ TARGETS = Path.cwd() / "kernels" / "kernel_targets.json"
 #: The checkout's kernels/ (the BUILD file is a symlink into it).
 SOURCE = (Path.cwd() / "kernels" / "BUILD.bazel").resolve().parent
 
-#: The old harness's kernel-manifest keys, which tools (the editor extension) read.
-LEGACY_KEYS = {"kernels", "families", "operations", "query", "skipped"}
-LEGACY_KERNEL_KEYS = {"op", "variant", "tags", "family", "asm", "targets", "cases"}
+#: The kernel-manifest keys tools (the editor extension) read.
+MANIFEST_KEYS = {"kernels", "families", "operations", "query", "skipped"}
+KERNEL_KEYS = {"op", "variant", "family", "asm", "targets", "cases"}
+CASE_KEYS = {"values", "tier"}
 
 
 def _targets() -> dict:
@@ -46,11 +47,11 @@ def test_the_tree_holds_every_kernels_files():
     assert {*registry.manifests, *registry.templates} == set(_targets()["kernels"])
 
 
-def test_the_manifest_has_the_legacy_keys():
+def test_the_manifest_has_the_keys_tools_read():
     manifest = build(_targets(), Registry.load(kernel_tree()))
-    assert set(manifest) == LEGACY_KEYS
+    assert set(manifest) == MANIFEST_KEYS
     scale = manifest["kernels"]["scale"]
-    assert LEGACY_KERNEL_KEYS <= set(scale)
+    assert KERNEL_KEYS <= set(scale)
     assert scale["targets"] == {
         "run": "//kernels/elementwise/scale:scale",
         "test": "//kernels/elementwise/scale:scale",
@@ -58,9 +59,8 @@ def test_the_manifest_has_the_legacy_keys():
     }
     assert scale["asm"] == "kernels/elementwise/scale/scale.asm"
     assert list(scale["cases"])[:2] == ["default", "one_row"]
-    # The legacy shapes tools read: option descriptors (none: a case's values are
-    # fixed by its name) and a family's suite label.
-    assert scale["cases"]["default"]["options"] == {}
+    # A case's values, fixed by its name, and a family's suite label.
+    assert set(scale["cases"]["default"]) == CASE_KEYS
     assert scale["cases"]["default"]["values"] == {"rows": 4, "s": 2.0}
     assert manifest["families"]["elementwise"] == {"suite": "//kernels/elementwise:all"}
     # A registry entry (E07-02's projections) is a kernel of its family's package.

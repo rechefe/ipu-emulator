@@ -68,11 +68,11 @@ function describeOptions(c) {
 function kernelNode(index, name, parent) {
   const kernel = index.manifest.kernels[name];
   const resourceUri = vscode.Uri.file(path.join(index.workspace, kernel.asm));
-  const about = [`**${name}**`, `operation \`${kernel.op}\``, kernel.tags.length && `tags: ${kernel.tags.join(', ')}`, `\`${kernel.asm}\``];
+  const about = [`**${name}**`, `operation \`${kernel.op}\``, `\`${kernel.asm}\``];
   const row = node(name, 'circuit-board', {
     id: `${parent.item.id}|${name}`,
     description: kernel.variant ? `${kernel.op} · ${kernel.variant}` : kernel.op,
-    tooltip: new vscode.MarkdownString(about.filter(Boolean).join('\n\n')),
+    tooltip: new vscode.MarkdownString(about.join('\n\n')),
     contextValue: kernel.targets.benchmark ? 'ipuKernel ipuBenchmark' : 'ipuKernel',
     resourceUri,
     command: { command: 'vscode.open', title: 'Open', arguments: [resourceUri] },
@@ -83,7 +83,7 @@ function kernelNode(index, name, parent) {
     children: () => Object.entries(runs.kernelCases(kernel, caseform.savedCases(index)[name])).map(([caseName, c]) => node(caseName, c.saved ? 'symbol-property' : 'symbol-event', {
       id: `${row.item.id}|${caseName}`,
       description: describeOptions(c),
-      tooltip: [c.saved && `saved in ipuAsm.cases${c.base === caseName ? '' : `, from ${c.base}`}`, `max cycles ${c.entry.max_cycles}`].filter(Boolean).join('; '),
+      ...(c.saved && { tooltip: `saved in ipuAsm.cases${c.base === caseName ? '' : `, from ${c.base}`}` }),
       contextValue: 'ipuCase',
     }, { kernel: name, caseName, folder: index.root, parent: row })),
   });

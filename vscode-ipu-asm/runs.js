@@ -43,7 +43,9 @@ function requireShape(value, shape, what) {
 const optionType = (o) => o.type || (typeof o.default === 'boolean' ? 'bool'
   : typeof o.default === 'number' ? (Number.isInteger(o.default) ? 'int' : 'float') : 'str');
 
-/** A case's option arguments, `values` over its defaults, e.g. `--rows 4 --no-wide`. */
+/** A case's option arguments, `values` over its defaults, e.g. `--rows 4 --no-wide`. A case
+ *  without `options` (every case //kernels:manifest lists: its values are fixed by its name)
+ *  has none. */
 function optionArgs(caseEntry, values = {}) {
   return Object.entries((caseEntry && caseEntry.options) || {}).flatMap(([name, o]) => {
     const value = Object.hasOwn(values, name) ? values[name] : o.default;
@@ -55,7 +57,7 @@ function optionArgs(caseEntry, values = {}) {
 /** Why `values` do not fit a case's options, or null. */
 function invalidValues(caseEntry, values) {
   const fits = { bool: (v) => typeof v === 'boolean', int: Number.isInteger, float: Number.isFinite, str: (v) => typeof v === 'string' };
-  const bad = Object.entries(caseEntry.options).find(([name, o]) => Object.hasOwn(values, name) && !fits[optionType(o)](values[name]));
+  const bad = Object.entries(caseEntry.options || {}).find(([name, o]) => Object.hasOwn(values, name) && !fits[optionType(o)](values[name]));
   return bad ? `${bad[0]} must be ${{ bool: 'on or off', int: 'a whole number', float: 'a number', str: 'text' }[optionType(bad[1])]}` : null;
 }
 
