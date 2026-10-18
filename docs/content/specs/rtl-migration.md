@@ -83,7 +83,7 @@ in `.bin` and `0x` plus 40 hex digits per line in `.mem`, and an emulator-only
 instruction is an error.
 
 ```bash
-bazel run //src/tools/ipu-as:ipu-as -- assemble --target hardware --input "$PWD/prog.asm" --output "$PWD/prog.mem"
+bazel run //src/ipu-as:ipu-as -- assemble --target hardware --input "$PWD/prog.asm" --output "$PWD/prog.mem"
 ```
 
 `--format` is now optional: by default an `--output` ending in `.bin` gives
@@ -92,33 +92,32 @@ not given.
 
 ## In the IPU emulator repository
 
-The test that elaborates the package with slang moved from
-`//src/tools/ipu-as-py:test_sv_package_compiles` to
-`//src/tools/ipu-gen:test_sv_package_compiles` (E08-13), with the generator.
+The packages moved from `src/tools/<package>` to `src/<package>`, and the
+assembler and emulator also lost their `-py` suffix (`src/tools/ipu-as-py` is
+now `src/ipu-as`, `src/tools/ipu-emu-py` is now `src/ipu-emu`), so every label
+under them changed. The Python import names `ipu_as` and `ipu_emu` did not.
+The test that elaborates the package with slang moved to `ipu-gen` (E08-13),
+with the generator. A CI job in the RTL repository that calls one of master's
+labels needs the new one:
+
+| Master label | Label now |
+|---|---|
+| `//src/tools/ipu-as-py:ipu-as` | `//src/ipu-as:ipu-as` |
+| `//src/tools/ipu-as-py:test_sv_package_compiles` | `//src/ipu-gen:test_sv_package_compiles` |
+| `//src/tools/ipu-as-py:<target>` | `//src/ipu-as:<target>` |
+| `//src/tools/ipu-emu-py:<target>` | `//src/ipu-emu:<target>` |
+
 New since master:
 
-- `//src/tools/ipu-as:test_sv_package_golden`: a checked-in golden of the
+- `//src/ipu-as:test_sv_package_golden`: a checked-in golden of the
   package, and every `*_WIDTH` pinned by name;
-- `//src/tools/ipu-as:test_sv_rename_table`: the [Mnemonic rename](mnemonic-rename.md)
+- `//src/ipu-as:update_sv_golden`: regenerates that golden;
+- `//src/ipu-as:test_sv_rename_table`: the [Mnemonic rename](mnemonic-rename.md)
   table checked against that golden;
 - `tools/sv_localparam_diff.sh <base-ref>`: the `localparam` lines of the
   package against those of another commit.
 
-The assembler and emulator packages moved from `src/tools/ipu-as-py` to
-`src/tools/ipu-as` and from `src/tools/ipu-emu-py` to `src/tools/ipu-emu`, so
-every label under them changed. The Python import names `ipu_as` and
-`ipu_emu` did not. A CI job in the RTL repository that calls one of these
-labels needs the new one:
-
-| Old label | New label |
-|---|---|
-| `//src/tools/ipu-as-py:ipu-as` | `//src/tools/ipu-as:ipu-as` |
-| `//src/tools/ipu-as-py:test_sv_package_golden` | `//src/tools/ipu-as:test_sv_package_golden` |
-| `//src/tools/ipu-as-py:update_sv_golden` | `//src/tools/ipu-as:update_sv_golden` |
-| `//src/tools/ipu-as-py:test_sv_rename_table` | `//src/tools/ipu-as:test_sv_rename_table` |
-| `//src/tools/ipu-emu-py:<target>` | `//src/tools/ipu-emu:<target>` |
-
-The golden itself is now at `src/tools/ipu-as/test/baselines/ipu_instr_pkg.sv`.
+The golden is at `src/ipu-as/test/baselines/ipu_instr_pkg.sv`.
 
 ## How to update
 

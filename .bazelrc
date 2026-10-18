@@ -8,7 +8,7 @@ build --workspace_status_command=tools/workspace_status.sh
 # Instrument the libraries, not the test files themselves.
 coverage --combined_report=lcov
 coverage --instrument_test_targets=false
-coverage --instrumentation_filter=^//src/tools[/:],^//docs[/:],^//tools[/:]
+coverage --instrumentation_filter=^//src[/:],^//docs[/:],^//tools[/:]
 
 # Test output
 test --test_output=errors

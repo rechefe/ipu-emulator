@@ -11,20 +11,20 @@ py_library(
     name = "ipu_bench",
     srcs = glob(["ipu_bench/**/*.py"]),
     imports = ["."],
-    # //src/tools/ipu-emu:bench_emulator runs its `emulator` module.
-    visibility = ["//src/tools/ipu-emu:__pkg__"],
+    # //src/ipu-emu:bench_emulator runs its `emulator` module.
+    visibility = ["//src/ipu-emu:__pkg__"],
     deps = [
         # The kernel tree and every family's library: the kernel and emulator
         # modules run its cases, assemble/* assembles its default programs.
         "//kernels:all_kernels",
-        "//src/tools/ipu-harness:ipu_harness_lib",
+        "//src/ipu-harness:ipu_harness_lib",
         # The kernels' references (the goldens of each checked run).
-        "//src/tools/ipu-kernels:ipu_kernels_all",
+        "//src/ipu-kernels:ipu_kernels_all",
         requirement("torch"),
         # assemble/{render,parse,encode}_s, over the digest corpus (E05-01).
-        "//src/tools/ipu-as:bench_assemble_lib",
-        "//src/tools/ipu-as:ipu_as_lib",
-        "//src/tools/ipu-emu:ipu_emu_lib",
+        "//src/ipu-as:bench_assemble_lib",
+        "//src/ipu-as:ipu_as_lib",
+        "//src/ipu-emu:ipu_emu_lib",
     ],
 )
 

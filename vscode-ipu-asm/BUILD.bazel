@@ -1,7 +1,7 @@
 # VS Code extension for IPU assembly.
 #
 # The grammar is GENERATED from the assembler's own parser (see
-# //src/tools/ipu-gen: ipu_gen/vscode_data.py), so it cannot drift from the
+# //src/ipu-gen: ipu_gen/vscode_data.py), so it cannot drift from the
 # language the assembler accepts.
 #
 # Node/npm is deliberately NOT wired into Bazel. Bazel's involvement is the
@@ -20,7 +20,7 @@ exports_files([
 ])
 
 # The `ipu-as check --json` contract (schema/check-json.md), and the corpus its
-# snapshot runs over: //src/tools/ipu-as:test_check_json.
+# snapshot runs over: //src/ipu-as:test_check_json.
 filegroup(
     name = "check_json_contract",
     srcs = glob(["schema/*"]),
@@ -32,7 +32,7 @@ filegroup(
 )
 
 # The assembly fixtures, for the assembled-binary baseline in
-# //src/tools/ipu-as:test_asm_digests. Not the negative corpus: texts the
+# //src/ipu-as:test_asm_digests. Not the negative corpus: texts the
 # editor and the assembler judge (check_verdicts), most of which do not assemble
 # (asm_corpus.NOT_PROGRAMS leaves it out of a checkout's corpus too).
 filegroup(
@@ -49,14 +49,14 @@ filegroup(
 #   bazel build //vscode-ipu-asm:generate_grammar  -> into bazel-out
 alias(
     name = "gen_vscode",
-    actual = "//src/tools/ipu-gen:vscode_data",
+    actual = "//src/ipu-gen:vscode_data",
 )
 
 # Ground truth for the agreement test: the parser's own tokenization of the
 # corpus, including each token's structural role.
 alias(
     name = "dump_parser_tokens",
-    actual = "//src/tools/ipu-as:dump_parser_tokens",
+    actual = "//src/ipu-as:dump_parser_tokens",
 )
 
 # Judges test/verdicts.js: the editor's verdict on each text against the
@@ -68,7 +68,7 @@ py_binary(
     data = ["test/corpus/negative/allowed-gaps.json"],
     main = "check_verdicts.py",
     python_version = "PY3",
-    deps = ["//src/tools/ipu-as:ipu_as_lib"],
+    deps = ["//src/ipu-as:ipu_as_lib"],
 )
 
 # Judges test/rewrites.js: every rename and format the editor could apply to
@@ -79,7 +79,7 @@ py_binary(
     srcs = ["check_rewrites.py"],
     main = "check_rewrites.py",
     python_version = "PY3",
-    deps = ["//src/tools/ipu-as:ipu_as_lib"],
+    deps = ["//src/ipu-as:ipu_as_lib"],
 )
 
 genrule(
@@ -91,8 +91,8 @@ genrule(
         # was silently missing rather than a build error.
         "generated/data/isa.json",
     ],
-    cmd = "$(location //src/tools/ipu-gen:ipu-gen) vscode-data $(RULEDIR)/generated",
-    tools = ["//src/tools/ipu-gen:ipu-gen"],
+    cmd = "$(location //src/ipu-gen:ipu-gen) vscode-data $(RULEDIR)/generated",
+    tools = ["//src/ipu-gen:ipu-gen"],
 )
 
 # The corpus is passed on the command line rather than declared as srcs:

@@ -8,16 +8,16 @@ sys.path.insert(0, str(Path(__file__).parent))
 import coverage_summary as cs  # noqa: E402
 
 _REPORT = """\
-SF:src/tools/ipu-emu/src/ipu_emu/ipu.py
+SF:src/ipu-emu/src/ipu_emu/ipu.py
 DA:1,1
 DA:2,0
 DA:3,4
 end_of_record
-SF:src/tools/ipu-emu/src/ipu_emu/ipu.py
+SF:src/ipu-emu/src/ipu_emu/ipu.py
 DA:2,1
 DA:5,0
 end_of_record
-SF:src/tools/ipu-as/src/ipu_as/lark_tree.py
+SF:src/ipu-as/src/ipu_as/lark_tree.py
 DA:10,0
 LH:0
 LF:1
@@ -30,16 +30,16 @@ end_of_record
 
 
 def test_package_of():
-    assert cs.package_of("src/tools/ipu-emu/src/ipu_emu/ipu.py") == "ipu_emu"
-    assert cs.package_of("/x/execroot/_main/src/tools/ipu-isa/src/ipu_isa/a/b.py") == "ipu_isa"
-    assert cs.package_of("src/tools/ipu-harness/test/conftest.py") == "src/tools/ipu-harness"
+    assert cs.package_of("src/ipu-emu/src/ipu_emu/ipu.py") == "ipu_emu"
+    assert cs.package_of("/x/execroot/_main/src/ipu-isa/src/ipu_isa/a/b.py") == "ipu_isa"
+    assert cs.package_of("src/ipu-harness/test/conftest.py") == "src/ipu-harness"
     assert cs.package_of("docs/update_release_log.py") == "docs"
     assert cs.package_of("setup.py") == "(root)"
 
 
 def test_records_for_one_file_are_merged_by_line():
     per_file = cs.parse_lcov(_REPORT)
-    ipu = per_file["src/tools/ipu-emu/src/ipu_emu/ipu.py"]
+    ipu = per_file["src/ipu-emu/src/ipu_emu/ipu.py"]
     # Lines 1, 2, 3, 5; line 2 is hit by the second record only.
     assert (ipu.hit, ipu.found) == (3, 4)
 
@@ -49,7 +49,7 @@ def test_lh_lf_used_without_da():
     log = per_file["docs/update_release_log.py"]
     assert (log.hit, log.found) == (3, 4)
     # DA records take precedence over LH/LF in the same record.
-    lark = per_file["src/tools/ipu-as/src/ipu_as/lark_tree.py"]
+    lark = per_file["src/ipu-as/src/ipu_as/lark_tree.py"]
     assert (lark.hit, lark.found) == (0, 1)
 
 

@@ -1,6 +1,6 @@
 """Run the locked mypy over one py_library, for a mypy_test (tools/typecheck.bzl).
 
-    bazel test //src/tools/ipu-isa:mypy
+    bazel test //src/ipu-isa:mypy
 
 Arguments (supplied by the macro):
 
@@ -29,7 +29,7 @@ def mypy_args(config: str, manifest: dict, strict: bool, cache_dir: str) -> list
     if strict:
         args.append("--strict")
     # Sources stay relative to the workspace root (the test's working
-    # directory) so errors read `src/tools/<pkg>/...py:<line>: error: ...`.
+    # directory) so errors read `src/<pkg>/...py:<line>: error: ...`.
     return args + list(manifest["sources"])
 
 

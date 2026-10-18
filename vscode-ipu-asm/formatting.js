@@ -15,7 +15,7 @@ const checker = require('./checker');
 const { Probes } = require('./analysis');
 
 /** `format`'s exit code when it refuses (the result would be another program) or cannot read
- *  the input (src/tools/ipu-as/src/ipu_as/cli.py `_CANNOT_FORMAT`). */
+ *  the input (src/ipu-as/src/ipu_as/cli.py `_CANNOT_FORMAT`). */
 const CANNOT_FORMAT = 3;
 
 /** The longest a format may take: the prebuilt binary answers in well under a second. */

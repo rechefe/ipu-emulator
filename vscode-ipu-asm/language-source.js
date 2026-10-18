@@ -5,7 +5,7 @@
 // that changes the ISA they agree with its assembler's diagnostics; else the isa.json bundled
 // with the extension, built from master.
 //
-//   CheckoutLanguageSource(root)  `bazel run //src/tools/ipu-gen:ipu-gen -- vscode-data <cache>`,
+//   CheckoutLanguageSource(root)  `bazel run //src/ipu-gen:ipu-gen -- vscode-data <cache>`,
 //                                 once per checkout and source change
 //   BundledLanguageSource         data/isa.json shipped with the extension
 //
@@ -25,11 +25,11 @@ const { Language } = require('./language');
 const SUPPORTED_SCHEMA = 1;
 
 /** The language data generator. */
-const GENERATOR_TARGET = '//src/tools/ipu-gen:ipu-gen';
+const GENERATOR_TARGET = '//src/ipu-gen:ipu-gen';
 
 /** What the language data is generated from: the ISA and the assembler (the generator reads
  *  its grammar, operand types and slot rules), and the generator itself. */
-const LANGUAGE_SOURCE_DIRS = [...checker.SOURCE_DIRS, path.join('src', 'tools', 'ipu-gen', 'src')];
+const LANGUAGE_SOURCE_DIRS = [...checker.SOURCE_DIRS, path.join('src', 'ipu-gen', 'src')];
 
 /** The settings `ipuAsm.languageSource` takes. */
 const SETTINGS = ['auto', 'checkout', 'bundled'];

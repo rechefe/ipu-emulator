@@ -40,7 +40,7 @@ const fs = require("fs"), path = require("path");
 const args = process.argv.slice(1);
 if (!args.includes("vscode-data")) process.exit(1);
 fs.appendFileSync(${JSON.stringify(generations)}, args.join(" ") + "\\n");
-if (!process.env.GENERATED) { process.stderr.write("ERROR: //src/tools/ipu-gen:ipu-gen failed to build\\n"); process.exit(1); }
+if (!process.env.GENERATED) { process.stderr.write("ERROR: //src/ipu-gen:ipu-gen failed to build\\n"); process.exit(1); }
 const out = args[args.length - 1];
 fs.mkdirSync(path.join(out, "data"), { recursive: true });
 fs.copyFileSync(process.env.GENERATED, path.join(out, "data", "isa.json"));
@@ -62,7 +62,7 @@ let n = 0;
 async function opened({ trusted = true, settings = {} } = {}) {
   fs.rmSync(generations, { force: true });
   const root = path.join(temp, `checkout-${++n}`);
-  for (const marker of ['MODULE.bazel', 'src/tools/ipu-as/src/ipu_as/__init__.py', 'src/tools/ipu-isa/src/spec.py']) {
+  for (const marker of ['MODULE.bazel', 'src/ipu-as/src/ipu_as/__init__.py', 'src/ipu-isa/src/spec.py']) {
     fs.mkdirSync(path.dirname(path.join(root, marker)), { recursive: true });
     fs.writeFileSync(path.join(root, marker), '');
   }
@@ -92,13 +92,13 @@ test("a trusted checkout's own ISA answers once generated; until then the bundle
   // A source change generates it again, the current data answering meanwhile.
   const [root] = api.languages.entries.keys();
   const later = new Date(Date.now() + 60000);
-  fs.utimesSync(path.join(root, 'src/tools/ipu-isa/src/spec.py'), later, later);
+  fs.utimesSync(path.join(root, 'src/ipu-isa/src/spec.py'), later, later);
   api.languages.invalidate(root);
   assert.strictEqual(api.languages.chosen(doc).use, 'checkout');
   await until(() => ran().length === 2 && !api.languages.entries.values().next().value.loading, 'generated again');
   // A failed regeneration (sources mid-edit) keeps the data it had.
   delete process.env.GENERATED;
-  fs.utimesSync(path.join(root, 'src/tools/ipu-isa/src/spec.py'), new Date(Date.now() + 120000), new Date(Date.now() + 120000));
+  fs.utimesSync(path.join(root, 'src/ipu-isa/src/spec.py'), new Date(Date.now() + 120000), new Date(Date.now() + 120000));
   api.languages.invalidate(root);
   api.languages.chosen(doc);
   await until(() => ran().length === 3 && !api.languages.entries.get(root).loading, 'the regeneration to fail');

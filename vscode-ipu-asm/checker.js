@@ -2,7 +2,7 @@
 
 // Which checker to run, and whether the fast one is still telling the truth.
 //
-// `bazel run //src/tools/ipu-as:ipu-as` costs about 250ms of client startup
+// `bazel run //src/ipu-as:ipu-as` costs about 250ms of client startup
 // before the checker even begins, and it takes the workspace lock, so a check
 // queues behind whatever build is running in a terminal. That is the stall
 // people notice: not the checking, which is under a millisecond on a small file
@@ -30,10 +30,10 @@ const fs = require('fs').promises;
 const path = require('path');
 
 /** The assembler target the extension checks with. */
-const CHECKER_TARGET = '//src/tools/ipu-as:ipu-as';
+const CHECKER_TARGET = '//src/ipu-as:ipu-as';
 
 /** Path of that target's binary under bazel-bin. */
-const CHECKER_BINARY_PATH = path.join('src', 'tools', 'ipu-as', 'ipu-as');
+const CHECKER_BINARY_PATH = path.join('src', 'ipu-as', 'ipu-as');
 
 /** Sources the checker is built from, relative to the workspace root.
  *
@@ -41,8 +41,8 @@ const CHECKER_BINARY_PATH = path.join('src', 'tools', 'ipu-as', 'ipu-as');
  *  the day it is added, where a list of filenames would silently stop being
  *  the whole story. */
 const SOURCE_DIRS = [
-  path.join('src', 'tools', 'ipu-as', 'src'),
-  path.join('src', 'tools', 'ipu-isa', 'src'),
+  path.join('src', 'ipu-as', 'src'),
+  path.join('src', 'ipu-isa', 'src'),
 ];
 
 const SOURCE_EXTENSIONS = ['.py', '.lark', '.j2'];

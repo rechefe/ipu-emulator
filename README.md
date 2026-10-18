@@ -10,7 +10,7 @@ IPU emulator and assembler toolchain implemented in Python. Includes the kernels
 Python Packages
 ---------------
 
-The toolchain is one Python package per directory under `src/tools/`. [Architecture](docs/content/explanation/architecture.md) lists them, what each owns, which way their dependencies point, and where to make a change.
+The toolchain is one Python package per directory under `src/`. [Architecture](docs/content/explanation/architecture.md) lists them, what each owns, which way their dependencies point, and where to make a change.
 
 Quick Start
 -----------
@@ -115,7 +115,7 @@ PyTorch is test-only (the shared kernel references, `ipu-kernels`' `dev`
 extra). It is the CPU wheel from PyTorch's own index: `ipu-kernels`'
 `pyproject.toml` names the index for `uv`, and `pip.parse` in `MODULE.bazel`
 adds it as an extra index. Only targets with `requirement("torch")` fetch it,
-but `//src/tools/ipu-kernels:test_reference_ops` is one of them and is in the
+but `//src/ipu-kernels:test_reference_ops` is one of them and is in the
 default tier, so a cold `bazel test //...` downloads the ~200 MB wheel once.
 
 Notes

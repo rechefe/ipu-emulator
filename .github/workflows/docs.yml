@@ -21,7 +21,7 @@ on:
     paths:
       - "docs/**" # includes docs/mkdocs.yml and docs/content/release-log.md
       - "GLOSSARY.md"
-      - "src/tools/**" # the generated reference pages, the CLI tables, the inspector traces
+      - "src/**" # the generated reference pages, the CLI tables, the inspector traces
       - "vscode-ipu-asm/**" # the inspector's isa.json
       - "kernels/**" # the kernel pages, the coverage page and the Cycle Inspector's traces
       - ".github/workflows/docs.yml"

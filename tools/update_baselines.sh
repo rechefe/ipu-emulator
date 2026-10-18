@@ -14,21 +14,21 @@
 set -euo pipefail
 
 UPDATE_TARGETS=(
-  //src/tools/ipu-isa:update_isa_baselines
-  //src/tools/ipu-as:update_asm_digests
-  //src/tools/ipu-as:update_decode_snapshots
-  //src/tools/ipu-as:update_disassembly_snapshots
-  //src/tools/ipu-as:update_sv_golden
-  //src/tools/ipu-as:update_generated_artifacts
-  //src/tools/ipu-emu:update_conformance
+  //src/ipu-isa:update_isa_baselines
+  //src/ipu-as:update_asm_digests
+  //src/ipu-as:update_decode_snapshots
+  //src/ipu-as:update_disassembly_snapshots
+  //src/ipu-as:update_sv_golden
+  //src/ipu-as:update_generated_artifacts
+  //src/ipu-emu:update_conformance
 )
 
 BASELINE_PATHS=(
-  src/tools/ipu-isa/test/baselines
+  src/ipu-isa/test/baselines
   docs/content/requirements/faults.md
-  src/tools/ipu-as/test/baselines
-  src/tools/ipu-debug/test/baselines
-  src/tools/ipu-isa/conformance
+  src/ipu-as/test/baselines
+  src/ipu-debug/test/baselines
+  src/ipu-isa/conformance
 )
 
 usage() {

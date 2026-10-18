@@ -25,7 +25,7 @@ select = ["E4", "E7", "E9", "F", "I", "UP", "B", "C901", "PLR0912", "PLR0913", "
 "jinja2.Environment".msg = "render assembly through ipu_as; only the SV generator builds its own"
 
 [lint.isort]
-# The repository's own packages (src/tools/*/src/<name>). Named explicitly so
+# The repository's own packages (src/*/src/<name>). Named explicitly so
 # import grouping is the same in the workspace and in a ruff_test sandbox,
 # where the other packages' directories are absent.
 known-first-party = [
@@ -49,9 +49,9 @@ max-args = 6
 
 [lint.per-file-ignores]
 # The one module that renders assembly templates.
-"src/tools/ipu-as/src/ipu_as/template.py" = ["TID251"]
+"src/ipu-as/src/ipu_as/template.py" = ["TID251"]
 # The SystemVerilog package generator renders its own (non-assembly) template.
-"src/tools/ipu-gen/src/ipu_gen/sv_package.py" = ["TID251"]
+"src/ipu-gen/src/ipu_gen/sv_package.py" = ["TID251"]
 
 # Baseline: existing offenders, removed as each refactor epic reaches the file.
 # Complexity rules only (C901, PLR0912, PLR0913, PLR0915), one file per line,
@@ -63,11 +63,11 @@ max-args = 6
 
 # ipu-emu emulator core: these outlived E04 (cycle module, codecs, alias
 # profiling) and are tracked as a follow-up.
-"src/tools/ipu-emu/src/ipu_emu/activations.py" = ["C901", "PLR0912"]
-"src/tools/ipu-emu/src/ipu_emu/alias_detectors.py" = ["C901", "PLR0912", "PLR0915"]
-"src/tools/ipu-emu/src/ipu_emu/alias_observer.py" = ["C901", "PLR0912"]
-"src/tools/ipu-emu/src/ipu_emu/emulator.py" = ["PLR0913"]
-"src/tools/ipu-emu/src/ipu_emu/isa_alias_spec.py" = ["C901", "PLR0912", "PLR0915"]
+"src/ipu-emu/src/ipu_emu/activations.py" = ["C901", "PLR0912"]
+"src/ipu-emu/src/ipu_emu/alias_detectors.py" = ["C901", "PLR0912", "PLR0915"]
+"src/ipu-emu/src/ipu_emu/alias_observer.py" = ["C901", "PLR0912"]
+"src/ipu-emu/src/ipu_emu/emulator.py" = ["PLR0913"]
+"src/ipu-emu/src/ipu_emu/isa_alias_spec.py" = ["C901", "PLR0912", "PLR0915"]
 
 # ipu-isa layout solver: removed by E03 (immutable derived layout).
-"src/tools/ipu-isa/src/ipu_isa/union_layout.py" = ["C901", "PLR0912"]
+"src/ipu-isa/src/ipu_isa/union_layout.py" = ["C901", "PLR0912"]

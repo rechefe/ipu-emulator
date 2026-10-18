@@ -11,8 +11,8 @@ moved; read trends, not single points (shared runners vary by about 10 %).
 bazel run //tools/bench:bench -- --quick                  # about 30 s; files in bench-results/
 bazel run //tools/bench:bench -- --quick --only kernels   # one module
 bazel run -c opt //tools/bench:bench -- --out /tmp/bench  # what the nightly job runs
-bazel run //src/tools/ipu-emu:bench_emulator -- --quick                 # the emulator module only (E04-02)
-bazel run --config=proto //src/tools/ipu-emu:bench_emulator -- --quick  # adds prototyping mode
+bazel run //src/ipu-emu:bench_emulator -- --quick                 # the emulator module only (E04-02)
+bazel run --config=proto //src/ipu-emu:bench_emulator -- --quick  # adds prototyping mode
 ```
 
 A PR that claims a speed change pastes the `--quick` table from before and
@@ -25,7 +25,7 @@ after the change (see the code-conventions page).
 | `import/ipu_as`, `import/ipu_emu`, `import/ipu_harness` | s | lower | `python -c "import <module>"` in a fresh interpreter, startup included, best of 5 (2 with `--quick`). |
 | `assemble/all_kernels` | s | lower | Every kernel's default program (rendered by the harness, as `:assemble_<name>` writes it) assembled once with `ipu_as.lark_tree.assemble`, parser construction included. |
 | `assemble/words_per_s` | words/s | higher | Instruction words of that run per second. |
-| `assemble/render_s`, `assemble/parse_s`, `assemble/encode_s` | s | lower | Every kernel's default program and every program in the assembled-binary digest manifest, split by pipeline stage, best of 3 (1 with `--quick`); parser built and tables warm first. Also `bazel run //src/tools/ipu-as:bench_assemble`. |
+| `assemble/render_s`, `assemble/parse_s`, `assemble/encode_s` | s | lower | Every kernel's default program and every program in the assembled-binary digest manifest, split by pipeline stage, best of 3 (1 with `--quick`); parser built and tables warm first. Also `bazel run //src/ipu-as:bench_assemble`. |
 | `kernel/<k>/cycles_per_s` | cycles/s | higher | The `default` case of `identity` (small) and `matmul_720x240_x128` (large), kernel-tree cases run through the harness runner and checked as the tests do; only the emulated run is timed. |
 | `kernel/<k>/peak_rss_mb` | MB | lower | `ru_maxrss` of the process that ran the case. |
 | `emulator/ipu_state_construct_ms` | ms | lower | `timeit(IpuState, number=20) / 20`. Q71 target: < 5 ms. |
@@ -36,7 +36,7 @@ after the change (see the code-conventions page).
 
 The third Q71 target, emulator unit tests under 30 s, is not measured here:
 an emulator PR records the wall time of
-`bazel test //src/tools/ipu-emu/... --nocache_test_results` by hand, and the
+`bazel test //src/ipu-emu/... --nocache_test_results` by hand, and the
 nightly `ci/*` entries track the whole suites. The nightly job does not build
 with `--config=proto`, so `emulator/prototyping/*` is local only. The 30 s
 bound on `bench_emulator -- --quick` is for the default build; the

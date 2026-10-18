@@ -121,7 +121,7 @@
             "type": "string"
           },
           "default": [],
-          "markdownDescription": "Command used to check a file, as an argv array; the file path is appended. Empty builds `//src/tools/ipu-as:ipu-as` once and runs that binary directly, falling back to `bazel run` whenever the assembler's sources are newer than it. Set this to point at a virtualenv to bypass Bazel entirely."
+          "markdownDescription": "Command used to check a file, as an argv array; the file path is appended. Empty builds `//src/ipu-as:ipu-as` once and runs that binary directly, falling back to `bazel run` whenever the assembler's sources are newer than it. Set this to point at a virtualenv to bypass Bazel entirely."
         },
         "ipuAsm.languageSource": {
           "type": "string",
@@ -131,7 +131,7 @@
             "bundled"
           ],
           "enumDescriptions": [
-            "The open checkout's ISA, generated from it (`bazel run //src/tools/ipu-gen:ipu-gen -- vscode-data`) once per source change; the bundled ISA until it is ready, or when it cannot be.",
+            "The open checkout's ISA, generated from it (`bazel run //src/ipu-gen:ipu-gen -- vscode-data`) once per source change; the bundled ISA until it is ready, or when it cannot be.",
             "As `auto`, but a warning says why when the checkout's ISA cannot be used.",
             "Always the ISA bundled with the extension (built from master)."
           ],

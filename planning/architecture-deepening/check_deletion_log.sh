@@ -15,8 +15,9 @@ log=planning/architecture-deepening/DELETIONS.md
 # The first column of each table row, without its backticks.
 mapfile -t logged < <(grep -oE '^\| `[^`]+`' "$log" | sed -E 's/^\| `//; s/`$//')
 DIR_MOVES=(
-  "src/tools/ipu-as-py/=src/tools/ipu-as/"
-  "src/tools/ipu-emu-py/=src/tools/ipu-emu/"
+  "src/tools/ipu-as-py/=src/ipu-as/"
+  "src/tools/ipu-emu-py/=src/ipu-emu/"
+  "src/tools/=src/"
 )
 missing=0
 while IFS= read -r path; do

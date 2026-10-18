@@ -91,7 +91,7 @@ flowchart LR
 | `format` | `input logic [8:0]` | Output element format of the destination table, global to the table (not stored per XMEM row). Bits `[7:0]` describe the element encoding; bit `[8]` (`dynamic`) selects static (`0`) or dynamic (`1`) quantization. See section 3.3. |
 | `write_addr` | `input logic [XMEM_ADDR_W-1:0]` | Destination XMEM address for `ST.AAQ` when writing `POST_AAQ_REG` to XMEM (see `XMEM_ADDR_W` in the Control stage spec, section 4). |
 
-*`op` is sourced from the `opcode` field of the generated `aaq_slot_t` struct, typed `aaq_inst_opcode_t` (package `ipu_instr_pkg`). Generated from [`instruction_spec.py`](../../../src/tools/ipu-isa/src/ipu_isa/instruction_spec.py) (the AAQ slot's `"aaq"` entry) by [`sv_package.py`](../../../src/tools/ipu-gen/src/ipu_gen/sv_package.py) via the [`ipu_instr_pkg.sv.j2`](../../../src/tools/ipu-gen/src/ipu_gen/templates/ipu_instr_pkg.sv.j2) template (`bazel run //src/tools/ipu-gen:ipu-gen -- sv-package --output <path>`).*
+*`op` is sourced from the `opcode` field of the generated `aaq_slot_t` struct, typed `aaq_inst_opcode_t` (package `ipu_instr_pkg`). Generated from [`instruction_spec.py`](../../../src/ipu-isa/src/ipu_isa/instruction_spec.py) (the AAQ slot's `"aaq"` entry) by [`sv_package.py`](../../../src/ipu-gen/src/ipu_gen/sv_package.py) via the [`ipu_instr_pkg.sv.j2`](../../../src/ipu-gen/src/ipu_gen/templates/ipu_instr_pkg.sv.j2) template (`bazel run //src/ipu-gen:ipu-gen -- sv-package --output <path>`).*
 
 ### 3.2 Output
 
@@ -475,8 +475,8 @@ with `r_acc[9][7:0]`.
 
 The opcode enum
 (`aaq_inst_opcode_t`, package `ipu_instr_pkg`) is generated from
-[`instruction_spec.py`](../../../src/tools/ipu-isa/src/ipu_isa/instruction_spec.py)
-by [`sv_package.py`](../../../src/tools/ipu-gen/src/ipu_gen/sv_package.py).
+[`instruction_spec.py`](../../../src/ipu-isa/src/ipu_isa/instruction_spec.py)
+by [`sv_package.py`](../../../src/ipu-gen/src/ipu_gen/sv_package.py).
 
 The AaQ slot is resolved by CTRL and forwarded down the pipeline;
 the stage does not read the CR/LR register files itself (see the

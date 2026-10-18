@@ -1,7 +1,7 @@
 """The examples of How-to: add an instruction (docs/content/how-to/add-an-instruction.md).
 
 The page includes the sections between the ``--8<--`` markers below, and the ISA entry and
-handler of the "one edit" test's TESTNEG (src/tools/ipu-isa/test/one_edit.py) by line range.
+handler of the "one edit" test's TESTNEG (src/ipu-isa/test/one_edit.py) by line range.
 These tests run the sections, and check that each line range still holds exactly that entry
 and that handler, so the page shows only code that runs.
 """
@@ -56,7 +56,7 @@ def _ranges() -> dict[str, str]:
     """The text each line-range include of the page shows, by first included line."""
     found = {}
     for m in _RANGE.finditer(PAGE.read_text(encoding="utf-8")):
-        assert m["file"] == "src/tools/ipu-isa/test/one_edit.py", m[0]
+        assert m["file"] == "src/ipu-isa/test/one_edit.py", m[0]
         lines = (ROOT / m["file"]).read_text(encoding="utf-8").split("\n")
         found[m[0]] = "\n".join(lines[int(m["first"]) - 1 : int(m["last"])]) + "\n"
     return found

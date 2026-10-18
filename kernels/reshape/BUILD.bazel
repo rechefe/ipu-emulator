@@ -17,7 +17,7 @@ py_pytest_test(
     srcs = ["test_routing.py"],
     data = ["//kernels:tree"],
     deps = [
-        "//src/tools/ipu-harness:ipu_harness_lib",
+        "//src/ipu-harness:ipu_harness_lib",
         requirement("pytest"),
     ],
 )
@@ -30,8 +30,8 @@ py_pytest_test(
     srcs = ["test_fold_unfold.py"],
     data = ["//kernels:tree"],
     deps = [
-        "//src/tools/ipu-harness:ipu_harness_lib",
-        "//src/tools/ipu-isa:ipu_isa_lib",
+        "//src/ipu-harness:ipu_harness_lib",
+        "//src/ipu-isa:ipu_isa_lib",
         requirement("numpy"),
         requirement("pytest"),
     ],

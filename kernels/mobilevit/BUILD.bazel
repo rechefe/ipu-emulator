@@ -18,8 +18,8 @@ py_library(
     ],
     imports = ["."],
     deps = [
-        "//src/tools/ipu-harness:ipu_harness_lib",
-        "//src/tools/ipu-kernels:ipu_kernels_all",
+        "//src/ipu-harness:ipu_harness_lib",
+        "//src/ipu-kernels:ipu_kernels_all",
         requirement("numpy"),
         requirement("torch"),
     ],

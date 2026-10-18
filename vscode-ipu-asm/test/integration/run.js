@@ -24,7 +24,7 @@ function write(file, text, mode) {
  *  also has ISA sources, so the extension generates its language data (the stand-in `bazel`). */
 function makeCheckout(dir, { isa = false } = {}) {
   fs.cpSync(path.join(__dirname, 'fixture'), dir, { recursive: true });
-  const markers = ['MODULE.bazel', 'src/tools/ipu-as/src/ipu_as/__init__.py', ...(isa ? ['src/tools/ipu-isa/src/spec.py'] : [])];
+  const markers = ['MODULE.bazel', 'src/ipu-as/src/ipu_as/__init__.py', ...(isa ? ['src/ipu-isa/src/spec.py'] : [])];
   for (const marker of markers) write(path.join(dir, marker), '');
   return dir;
 }

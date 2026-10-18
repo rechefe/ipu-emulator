@@ -19,13 +19,13 @@ from uv import find_uv_bin
 
 # Inputs, relative to the workspace root. The order is part of the lock header.
 INPUTS = (
-    "src/tools/ipu-as/pyproject.toml",
-    "src/tools/ipu-emu/pyproject.toml",
-    "src/tools/ipu-isa/pyproject.toml",
-    "src/tools/ipu-debug/pyproject.toml",
-    "src/tools/ipu-gen/pyproject.toml",
-    "src/tools/ipu-kernels/pyproject.toml",
-    "src/tools/ipu-harness/pyproject.toml",
+    "src/ipu-as/pyproject.toml",
+    "src/ipu-emu/pyproject.toml",
+    "src/ipu-isa/pyproject.toml",
+    "src/ipu-debug/pyproject.toml",
+    "src/ipu-gen/pyproject.toml",
+    "src/ipu-kernels/pyproject.toml",
+    "src/ipu-harness/pyproject.toml",
     "tools/requirements-tools.in",
 )
 

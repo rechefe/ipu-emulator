@@ -1,7 +1,7 @@
 # Which first-party packages each package may import (E03-02 follow-up).
 #
 # //tools:test_import_graph reads every Python source under
-# src/tools/*/src/<package>/ and fails on an import of a first-party package
+# src/*/src/<package>/ and fails on an import of a first-party package
 # that its row does not list. A package imports itself freely. A new package
 # (such as ipu_debug) adds, in the change that creates it, its row here, its
 # :py_sources to the test's data, its name to known-first-party in ruff.toml
@@ -64,7 +64,7 @@ ipu_harness = ["ipu_isa", "ipu_as", "ipu_emu", "ipu_debug"]
 
 # Kernel-side shared code builds on the framework. No other row lists
 # ipu_kernels. Kernel tests and per-kernel .py files under kernels/ are outside
-# src/tools and not checked yet; the issue that adds the first one extends the
+# src/ and not checked yet; the issue that adds the first one extends the
 # test to them. The ISA too: element formats and geometry (a pack transform's
 # lanes, E06-05) come from ipu_isa, never a local constant.
 ipu_kernels = ["ipu_harness", "ipu_isa"]

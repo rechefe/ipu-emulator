@@ -193,9 +193,9 @@ buffer's overall width.
 
 The opcode enum (`acc_inst_opcode_t`, package `ipu_instr_pkg`) is generated
 from
-[`instruction_spec.py`](../../../src/tools/ipu-isa/src/ipu_isa/instruction_spec.py)
+[`instruction_spec.py`](../../../src/ipu-isa/src/ipu_isa/instruction_spec.py)
 by
-[`sv_package.py`](../../../src/tools/ipu-gen/src/ipu_gen/sv_package.py).
+[`sv_package.py`](../../../src/ipu-gen/src/ipu_gen/sv_package.py).
 Per the project's opcode-derivation rule, opcode = position within the
 `"acc"` slot dict — the table below lists mnemonics in that exact order.
 

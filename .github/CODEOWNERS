@@ -8,15 +8,15 @@
 
 # ISA definition and generated wire format (the SystemVerilog package is
 # vendored by a downstream RTL repo)
-/src/tools/ipu-isa/                 @YuvalHarary @rechefe
-/src/tools/ipu-gen/                 @YuvalHarary
+/src/ipu-isa/                 @YuvalHarary @rechefe
+/src/ipu-gen/                 @YuvalHarary
 
 # Toolchain
-/src/tools/ipu-as/                  @YuvalHarary
-/src/tools/ipu-emu/                 @DavidShenzi @YuvalHarary
-/src/tools/ipu-debug/               @DavidShenzi @yarden-carmi
-/src/tools/ipu-harness/             @yarden-carmi @DavidShenzi
-/src/tools/ipu-kernels/             @yarden-carmi
+/src/ipu-as/                  @YuvalHarary
+/src/ipu-emu/                 @DavidShenzi @YuvalHarary
+/src/ipu-debug/               @DavidShenzi @yarden-carmi
+/src/ipu-harness/             @yarden-carmi @DavidShenzi
+/src/ipu-kernels/             @yarden-carmi
 /kernels/                           @yarden-carmi
 
 # Editor, docs, CI

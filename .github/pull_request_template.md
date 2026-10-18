@@ -22,13 +22,13 @@ Code rules: docs/content/reference/code-conventions.md.
 - [ ] `bazel test --config=full //...` passed (all tests, including the nightly tier)
 - [ ] `bazel test --config=proto //...` passed (if the emulator changed)
 - [ ] `bazel test --test_tag_filters=lint //...` passed
-- [ ] ISA change: `bazel test //src/tools/ipu-as:test_sv_package_golden` passed and `tools/sv_localparam_diff.sh <base-ref>` prints nothing (the `*_WIDTH` localparams of `ipu_instr_pkg.sv` are identical to the base), or the change is called out below as breaking
+- [ ] ISA change: `bazel test //src/ipu-as:test_sv_package_golden` passed and `tools/sv_localparam_diff.sh <base-ref>` prints nothing (the `*_WIDTH` localparams of `ipu_instr_pkg.sv` are identical to the base), or the change is called out below as breaking
 
 ## Performance
 <!-- Emulator speed or memory changes, or any PR that claims a speed-up:
-paste the `bazel run //src/tools/ipu-emu:bench_emulator -- --quick` table from before and after
+paste the `bazel run //src/ipu-emu:bench_emulator -- --quick` table from before and after
 (add `--config=proto` if the prototyping path changed), and the wall time of
-`bazel test //src/tools/ipu-emu/... --nocache_test_results`. Otherwise write "n/a". -->
+`bazel test //src/ipu-emu/... --nocache_test_results`. Otherwise write "n/a". -->
 
 ## Notes for reviewers
 <!-- Anything surprising: golden updates, follow-ups, SV renames or width changes for the downstream RTL repository. -->

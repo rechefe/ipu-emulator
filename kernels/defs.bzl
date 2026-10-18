@@ -39,10 +39,10 @@ load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
 load("//tools:lint.bzl", "ruff_test")
 load(":families.bzl", "FAMILY_DEPS", "KERNELS")
 
-_ENTRY = "//src/tools/ipu-harness:src/ipu_harness/kernel_test.py"
+_ENTRY = "//src/ipu-harness:src/ipu_harness/kernel_test.py"
 _PYTEST_SHIM = "@rules_python_pytest//python_pytest:pytest_shim.py"
-_REGISTRY_BZL = "//src/tools/ipu-harness:src/ipu_harness/registry_bzl.py"
-_KERNEL_BIN = "//src/tools/ipu-harness:kernel_bin"
+_REGISTRY_BZL = "//src/ipu-harness:src/ipu_harness/registry_bzl.py"
+_KERNEL_BIN = "//src/ipu-harness:kernel_bin"
 
 def _kernel_targets(name, kernel, data, deps, size, shard_count):
     """:<name> (the default tier), :<name>_nightly and :assemble_<name>.
@@ -84,7 +84,7 @@ def _kernel_targets(name, kernel, data, deps, size, shard_count):
 def _test_deps(family_package):
     return [
         "//" + family_package + ":lib",
-        "//src/tools/ipu-harness:kernel_test_lib",
+        "//src/ipu-harness:kernel_test_lib",
         requirement("pytest"),
         requirement("torch"),
     ]
@@ -140,7 +140,7 @@ def ipu_kernel_family(
     """Declare one family, //kernels/<family> (E06-18), and its registry entries (E06-17).
 
     * :lib: the family's Python, ipu_kernels.<family> (packs, stages, layer
-      adapters: //src/tools/ipu-kernels:ipu_kernels_<family>), on the harness,
+      adapters: //src/ipu-kernels:ipu_kernels_<family>), on the harness,
       the shared ipu_kernels code and the :lib of each family FAMILY_DEPS lists.
     * :files: its shared files (*.asm, *.asm.j2 macros, registry.toml, *.npy,
       and any *.py the harness loads by path), with the :files of each family
@@ -165,7 +165,7 @@ def ipu_kernel_family(
     Args:
         entries: ENTRIES of the family's registry.bzl ({"name", "template"} each).
         kernels_lib: the family's ipu_kernels library; default
-            //src/tools/ipu-kernels:ipu_kernels_<family>. A fixture family
+            //src/ipu-kernels:ipu_kernels_<family>. A fixture family
             outside kernels/ names the shared one.
         extra_deps: libraries the template folders' Python imports, for the
             entries' tests (as ipu_kernel()'s), and the family's :tests.
@@ -184,8 +184,8 @@ def ipu_kernel_family(
     py_library(
         name = "lib",
         deps = [
-            "//src/tools/ipu-harness:ipu_harness_lib",
-            kernels_lib or "//src/tools/ipu-kernels:ipu_kernels_" + family,
+            "//src/ipu-harness:ipu_harness_lib",
+            kernels_lib or "//src/ipu-kernels:ipu_kernels_" + family,
         ] + ["//kernels/" + other + ":lib" for other in uses],
         visibility = ["//visibility:public"],
     )
@@ -237,7 +237,7 @@ def ipu_kernel_family(
         main = _REGISTRY_BZL,
         args = ["check", "$(rootpath registry.toml)", "$(rootpath registry.bzl)"],
         data = ["registry.toml", "registry.bzl"] + ["//%s/%s:%s_files" % (package, t, t) for t in templates],
-        deps = ["//src/tools/ipu-harness:ipu_harness_lib"],
+        deps = ["//src/ipu-harness:ipu_harness_lib"],
         legacy_create_init = False,
         size = "small",
     )
@@ -270,7 +270,7 @@ def ipu_kernel_tree(registries = {}):
 
     Args:
         registries: ENTRIES of each family's registry.bzl, by family name
-            (E06-17); //src/tools/ipu-harness:test_kernel_tree checks it names
+            (E06-17); //src/ipu-harness:test_kernel_tree checks it names
             every registry.toml and its entries.
     """
     kernels = [family + "/" + name for family in KERNELS for name in KERNELS[family]]

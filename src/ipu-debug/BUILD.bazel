@@ -1,0 +1,179 @@
+load("@ipu_as_deps//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_library")
+load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
+load("//tools:runtime_deps.bzl", "runtime_deps_manifest")
+load(":deps.bzl", "RUNTIME_DEPS")
+load("//tools:lint.bzl", "ruff_test")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "pyproject.toml",
+])
+
+# RUNTIME_DEPS as JSON, for //tools:test_deps_consistency.
+runtime_deps_manifest(
+    name = "runtime_deps",
+    runtime_deps = RUNTIME_DEPS,
+)
+
+# The package's Python sources, for //tools:test_import_graph.
+filegroup(
+    name = "py_sources",
+    srcs = glob(["src/**/*.py"]),
+)
+
+# The package's test sources, for //tools:test_import_graph's private-name check.
+filegroup(
+    name = "py_test_sources",
+    srcs = glob(["test/**/*.py"], allow_empty = True),
+)
+
+# The interactive debugger (a curses TUI) over the emulator's one
+# debug seam, run_with_debug(..., control=...). The dependency is one way:
+# ipu_emu_lib does not depend on this library (Q62, tools/import_graph.toml).
+py_library(
+    name = "ipu_debug_lib",
+    srcs = glob(["src/ipu_debug/**/*.py"]),
+    imports = ["src"],
+    deps = [
+        "//src/ipu-emu:ipu_emu_lib",
+        "//src/ipu-isa:ipu_isa_lib",
+    ] + [requirement(dep) for dep in RUNTIME_DEPS],
+)
+
+# The stage view from the decoded word (E08-07). pytest.ini (warning filters)
+# reaches each test through the runfiles tree, so it is data, not a test src.
+py_pytest_test(
+    name = "test_pipeline",
+    srcs = ["test/test_pipeline.py"],
+    data = ["pytest.ini"],
+    imports = ["src"],
+    deps = [
+        ":ipu_debug_lib",
+        "//src/ipu-as:ipu_as_lib",  # assembles the programs it views
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_debug_tui",
+    srcs = ["test/test_debug_tui.py"],
+    data = ["pytest.ini"],
+    imports = ["src"],
+    deps = [
+        ":ipu_debug_lib",
+        "//src/ipu-emu:emu_test_support",
+        requirement("pytest"),
+    ],
+)
+
+# The TUI shell: golden screen tests over FakeScreen, TabSet and keymap unit
+# tests, and the check that only tui/screen.py imports curses.
+py_pytest_test(
+    name = "test_tui_shell",
+    srcs = ["test/test_tui_shell.py"],
+    data = ["pytest.ini"] + glob(["test/baselines/tui/*.txt"]),
+    imports = ["src"],
+    deps = [
+        ":ipu_debug_lib",
+        "//src/ipu-emu:emu_test_support",
+        requirement("pytest"),
+    ],
+)
+
+# The XMEM pane rendered on its own: no screen, no view (E08-09).
+py_pytest_test(
+    name = "test_tui_xmem_pane",
+    srcs = ["test/test_tui_xmem_pane.py"],
+    data = ["pytest.ini"],
+    imports = ["src"],
+    deps = [
+        ":ipu_debug_lib",
+        requirement("pytest"),
+    ],
+)
+
+# The registers pane rendered on its own: no screen, no view (E08-10).
+py_pytest_test(
+    name = "test_tui_registers_pane",
+    srcs = ["test/test_tui_registers_pane.py"],
+    data = ["pytest.ini"],
+    imports = ["src"],
+    deps = [
+        ":ipu_debug_lib",
+        "//src/ipu-emu:emu_test_support",
+        requirement("pytest"),
+    ],
+)
+
+# The disassembly pane rendered on its own: no screen, no view (E08-11).
+py_pytest_test(
+    name = "test_tui_disassembly_pane",
+    srcs = ["test/test_tui_disassembly_pane.py"],
+    data = ["pytest.ini"],
+    imports = ["src"],
+    deps = [
+        ":ipu_debug_lib",
+        "//src/ipu-emu:emu_test_support",
+        requirement("pytest"),
+    ],
+)
+
+# The pipeline-register pane rendered on its own: no screen, no view (E08-11).
+py_pytest_test(
+    name = "test_tui_pipeline_pane",
+    srcs = ["test/test_tui_pipeline_pane.py"],
+    data = ["pytest.ini"],
+    imports = ["src"],
+    deps = [
+        ":ipu_debug_lib",
+        "//src/ipu-emu:emu_test_support",
+        requirement("pytest"),
+    ],
+)
+
+# The XMEM display tokens of ipu_debug.format, read through DebugSession.
+py_pytest_test(
+    name = "test_format",
+    srcs = ["test/test_format.py"],
+    data = ["pytest.ini"],
+    imports = ["src"],
+    deps = [
+        ":ipu_debug_lib",
+        "//src/ipu-emu:emu_test_support",
+        requirement("pytest"),
+    ],
+)
+
+# DebugSession on real states: parse, resolve, read and disassemble.
+py_pytest_test(
+    name = "test_session",
+    srcs = ["test/test_session.py"],
+    data = ["pytest.ini"],
+    imports = ["src"],
+    deps = [
+        ":ipu_debug_lib",
+        "//src/ipu-emu:emu_test_support",
+        requirement("pytest"),
+    ],
+)
+
+# No module imports a _-prefixed name from another ipu_debug module (Q66). It
+# reads this package's sources and tests and the harness that launches the debugger.
+py_pytest_test(
+    name = "test_no_private_imports",
+    srcs = ["test/test_no_private_imports.py"],
+    data = [
+        "pytest.ini",
+        ":py_sources",
+        "//src/ipu-harness:py_sources",
+    ] + glob(["test/*.py"]),
+    deps = [requirement("pytest")],
+)
+
+# Ruff lint and format over this package's Python files (tools/lint.bzl).
+ruff_test(
+    name = "ruff",
+    srcs = glob(["**/*.py"]),
+)

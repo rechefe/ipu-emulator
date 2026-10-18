@@ -6,7 +6,7 @@ assembler diagnostics, plus Run/Debug/Test buttons and an IPU sidebar for the
 kernel library.
 
 Anything that runs a process needs an IPU checkout: the nearest Bazel workspace
-above the file holding `src/tools/ipu-as`, with the open folder at, inside,
+above the file holding `src/ipu-as`, with the open folder at, inside,
 or up to three levels above it; switching checkouts is picked up live.
 Elsewhere a `.asm` is only coloured.
 
@@ -37,7 +37,7 @@ On a branch that changes the ISA, the bundled `data/isa.json` (built from
 master) would disagree with the checkout's assembler: hover would call an
 instruction unknown that assembles cleanly. So in a trusted workspace a
 checkout's own ISA is used. It is generated with `bazel run
-//src/tools/ipu-gen:ipu-gen -- vscode-data <cache>` (`language-source.js`) the
+//src/ipu-gen:ipu-gen -- vscode-data <cache>` (`language-source.js`) the
 first time a file of that checkout is opened, and again after the sources it
 is generated from change (the ISA, the assembler and the generator). The cache lives in the extension's global storage, so
 the next window reads it at once. The bundled data answers until the
@@ -226,7 +226,7 @@ after it, it records a bundle of those instead, such as the whole corpus for
 
 ```bash
 node vscode-ipu-asm/test/record-analysis.js vscode-ipu-asm/test/fixtures/analysis-v2.json \
-  '["bazel", "run", "--ui_event_filters=-info,-stdout,-stderr", "--noshow_progress", "//src/tools/ipu-as:ipu-as", "--", "check", "--json", "--input"]'
+  '["bazel", "run", "--ui_event_filters=-info,-stdout,-stderr", "--noshow_progress", "//src/ipu-as:ipu-as", "--", "check", "--json", "--input"]'
 node vscode-ipu-asm/test/analysis-agreement.js vscode-ipu-asm/data/isa.json --write-gaps   # after review only
 ```
 
@@ -365,7 +365,7 @@ It shells out to `ipu-as check --json` rather than speaking LSP, which keeps the
 extension dependency-free — no `vscode-languageclient`, no bundled
 `node_modules`, and the vsix stays a few kilobytes.
 
-By default the extension builds `//src/tools/ipu-as:ipu-as` in the background
+By default the extension builds `//src/ipu-as:ipu-as` in the background
 when the workspace opens, then runs the resulting binary directly. This avoids
 Bazel's client startup and workspace lock while typing. It compares the binary
 with the assembler sources, and compares again only once a file watcher reports

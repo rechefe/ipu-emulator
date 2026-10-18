@@ -1,0 +1,633 @@
+load("//tools:typecheck.bzl", "mypy_test")
+load("@ipu_as_deps//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
+load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
+load("//tools:runtime_deps.bzl", "runtime_deps_manifest")
+load(":deps.bzl", "RUNTIME_DEPS")
+load("//tools:lint.bzl", "ruff_test")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    # Read by //tools:test_update_baselines.
+    "BUILD.bazel",
+    "pyproject.toml",
+])
+
+# RUNTIME_DEPS as JSON, for //tools:test_deps_consistency.
+runtime_deps_manifest(
+    name = "runtime_deps",
+    runtime_deps = RUNTIME_DEPS,
+)
+
+# Carries the --define=ipu_proto flag into the package. `prototyping.py` imports
+# this defensively, so a plain (non-Bazel) checkout still works with the fast
+# paths off.
+genrule(
+    name = "build_flags",
+    outs = ["src/ipu_emu/_build_flags.py"],
+    cmd = select({
+        "//:prototyping_on": "echo 'PROTOTYPING = True' > $@",
+        "//conditions:default": "echo 'PROTOTYPING = False' > $@",
+    }),
+)
+
+# The package's Python sources, for //tools:test_import_graph.
+filegroup(
+    name = "py_sources",
+    srcs = glob(["src/**/*.py"]),
+)
+
+# The package's test sources, for //tools:test_import_graph's private-name check.
+filegroup(
+    name = "py_test_sources",
+    srcs = glob(["test/**/*.py"], allow_empty = True),
+)
+
+py_library(
+    name = "ipu_emu_lib",
+    srcs = glob(["src/ipu_emu/**/*.py"]) + [":build_flags"],
+    imports = ["src"],
+    # The ISA, numpy and the standard library only: the assembler and the
+    # debugger build on the emulator, never the other way (E04-18).
+    deps = [
+        "//src/ipu-isa:ipu_isa_lib",
+    ] + [requirement(dep) for dep in RUNTIME_DEPS],
+)
+
+# Shared by every emulator test: the assemble-load-run helpers and pytest.ini
+# (warning filters). pytest finds pytest.ini through the runfiles tree, so it is
+# not a test src: rules_python_pytest passes every src to pytest as a file to
+# collect.
+py_library(
+    name = "emu_test_support",
+    testonly = True,
+    srcs = ["test/emu_support.py"],
+    data = ["pytest.ini"],
+    imports = ["test"],
+    deps = [
+        ":ipu_emu_lib",
+        "//src/ipu-as:ipu_as_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_xmem",
+    srcs = ["test/test_xmem.py"],
+    imports = ["src"],
+    deps = [
+        ":emu_test_support",
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
+)
+
+# FP8 codec checked against an independent Fraction reference and ml_dtypes.
+py_pytest_test(
+    name = "test_ipu_math",
+    srcs = ["test/test_ipu_math.py"],
+    imports = ["src"],
+    deps = [
+        ":emu_test_support",
+        ":ipu_emu_lib",
+        requirement("ml-dtypes"),
+        requirement("pytest"),
+    ],
+)
+
+# The lane codecs (E04-13) bit-identical to the scalar arithmetic: exhaustive
+# over every 8-bit byte pair, 10^6 random accumulator pairs per format.
+py_pytest_test(
+    name = "test_numerics",
+    srcs = ["test/test_numerics.py"],
+    data = ["pytest.ini"],
+    imports = ["src"],
+    deps = [
+        ":ipu_emu_lib",
+        "//src/ipu-isa:ipu_isa_lib",
+        requirement("numpy"),
+        requirement("pytest"),
+    ],
+)
+
+# IpuState(fmt=...) configures everything format-dependent (E04-17).
+py_pytest_test(
+    name = "test_element_formats",
+    srcs = ["test/test_element_formats.py"],
+    data = ["pytest.ini"],
+    imports = ["src"],
+    deps = [
+        ":ipu_emu_lib",
+        "//src/ipu-isa:ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_regfile",
+    srcs = ["test/test_regfile.py"],
+    imports = ["src"],
+    deps = [
+        ":emu_test_support",
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
+)
+
+# test_regfile again with assert statements compiled out of the emulator (python
+# -O; pytest still rewrites the test's own asserts): the register file's checks
+# must hold without asserts.
+py_pytest_test(
+    name = "test_regfile_optimized",
+    srcs = ["test/test_regfile.py"],
+    env = {"PYTHONOPTIMIZE": "1"},
+    imports = ["src"],
+    deps = [
+        ":emu_test_support",
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_errors",
+    size = "small",
+    srcs = ["test/test_errors.py"],
+    imports = ["src"],
+    deps = [
+        ":emu_test_support",
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
+)
+
+# The package root (E04-18): its curated exports, and no assembler or debugger
+# module reachable from `import ipu_emu`.
+py_pytest_test(
+    name = "test_package_root",
+    size = "small",
+    srcs = ["test/test_package_root.py"],
+    data = ["pytest.ini"],
+    imports = ["src"],
+    deps = [
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
+)
+
+# One handler module per slot (E04-14): handler binding and module rules.
+py_pytest_test(
+    name = "test_slot_modules",
+    size = "small",
+    srcs = ["test/test_slot_modules.py"],
+    data = ["pytest.ini"],
+    imports = ["src"],
+    deps = [
+        ":ipu_emu_lib",
+        "//src/ipu-isa:ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_execute",
+    srcs = ["test/test_execute.py"],
+    imports = ["src"],
+    deps = [
+        ":emu_test_support",
+        ":ipu_emu_lib",
+        "//src/ipu-as:ipu_as_lib",
+        requirement("pytest"),
+    ],
+)
+
+# Every MULT handler under INT8, E4 and FP32 against a numpy model of the
+# format's codec (E04-15).
+py_pytest_test(
+    name = "test_mult_codec",
+    srcs = ["test/test_mult_codec.py"],
+    imports = ["src"],
+    deps = [
+        ":emu_test_support",
+        ":ipu_emu_lib",
+        "//src/ipu-isa:ipu_isa_lib",
+        requirement("numpy"),
+        requirement("pytest"),
+    ],
+)
+
+# ACC, AGG and the load/store helpers under INT8, E4, FP32 and INT32 against
+# the scalar arithmetic they replaced; no format branch in the slot modules (E04-16).
+py_pytest_test(
+    name = "test_acc_codec",
+    srcs = ["test/test_acc_codec.py"],
+    imports = ["src"],
+    deps = [
+        ":emu_test_support",
+        ":ipu_emu_lib",
+        "//src/ipu-isa:ipu_isa_lib",
+        requirement("numpy"),
+        requirement("pytest"),
+    ],
+)
+
+# The Cycle module (E04-07): step = evaluate_break + retire, no side effects
+# before BREAK, the idle word, re-snapshot on resume.
+py_pytest_test(
+    name = "test_cycle",
+    srcs = ["test/test_cycle.py"],
+    imports = ["src"],
+    deps = [
+        ":emu_test_support",
+        ":ipu_emu_lib",
+        requirement("numpy"),
+        requirement("pytest"),
+    ],
+)
+
+# A cycle observer counts the same ops in faithful and prototyping mode (E04-11).
+py_pytest_test(
+    name = "test_observer_counts",
+    srcs = ["test/test_observer_counts.py"],
+    imports = ["src"],
+    deps = [
+        ":emu_test_support",
+        ":ipu_emu_lib",
+        requirement("numpy"),
+        requirement("pytest"),
+    ],
+)
+
+# The fault model (E04-19): fault IDs, the faulting PC and the halt record.
+py_pytest_test(
+    name = "test_faults",
+    size = "small",
+    srcs = ["test/test_faults.py"],
+    imports = ["src"],
+    deps = [
+        ":emu_test_support",
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
+)
+
+# Arithmetic events (E04-23): IEEE result plus a sticky flag, never a halt.
+py_pytest_test(
+    name = "test_arith_events",
+    size = "small",
+    srcs = ["test/test_arith_events.py"],
+    imports = ["src"],
+    deps = [
+        ":emu_test_support",
+        ":ipu_emu_lib",
+        requirement("numpy"),
+        requirement("pytest"),
+    ],
+)
+
+# Precise faults (E04-20): a faulting word has no effect; the lowest fault wins.
+# Both modes under --config=proto.
+py_pytest_test(
+    name = "test_precise_faults",
+    size = "small",
+    srcs = ["test/test_precise_faults.py"],
+    imports = ["src"],
+    deps = [
+        ":emu_test_support",
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_wide_formats",
+    srcs = ["test/test_wide_formats.py"],
+    imports = ["src"],
+    deps = [
+        ":emu_test_support",
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
+)
+
+# The MAC-alias catalogue (ipu_emu/isa_alias_spec.py) against the ISA view (isa()).
+py_pytest_test(
+    name = "test_isa_alias_spec",
+    srcs = ["test/test_isa_alias_spec.py"],
+    data = ["pytest.ini"],
+    imports = ["src"],
+    deps = [
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
+)
+
+# In a flagged build, runs every program through faithful and prototyping
+# engines in lockstep and compares complete state after every cycle. In a
+# default build, verifies that runtime controls cannot bypass the build gate.
+py_pytest_test(
+    name = "test_prototyping_equivalence",
+    srcs = ["test/test_prototyping_equivalence.py"],
+    imports = ["src"],
+    deps = [
+        ":emu_test_support",
+        ":ipu_emu_lib",
+        ":timing_probes",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_alias_tracking",
+    srcs = ["test/test_alias_tracking.py"],
+    imports = ["src"],
+    deps = [
+        ":emu_test_support",
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_issue",
+    srcs = ["test/test_issue.py"],
+    imports = ["src"],
+    deps = [
+        ":emu_test_support",
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
+)
+
+# Faithful and packed operand resolvers agree on every plan (E04-10).
+py_pytest_test(
+    name = "test_resolver",
+    srcs = ["test/test_resolver.py"],
+    imports = ["src"],
+    deps = [
+        ":emu_test_support",
+        ":ipu_emu_lib",
+        "//src/ipu-isa:ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_stats",
+    srcs = ["test/test_stats.py"],
+    imports = ["src"],
+    deps = [
+        ":emu_test_support",
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_alias_profile",
+    srcs = ["test/test_alias_profile.py"],
+    imports = ["src"],
+    deps = [
+        ":emu_test_support",
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
+)
+
+# Register-timing characterization (E02-05, E02-06): minimal probe programs in
+# test/timing_probes.py, shared with test_prototyping_equivalence (E02-08).
+# Each probe allocates a fresh IpuState (512 MiB XMEM, about 0.25 s), so the
+# timing tests are sharded to stay under 5 s per shard; pytest_shard_plugin
+# (//tools:pytest_shard_plugin) reads the shim's --shard-id/--num-shards.
+py_library(
+    name = "timing_probes",
+    testonly = True,
+    srcs = ["test/timing_probes.py"],
+    imports = ["test"],
+    deps = [
+        ":ipu_emu_lib",
+        "//src/ipu-as:ipu_as_lib",
+        "//tools:pytest_shard_plugin",
+    ],
+)
+
+py_pytest_test(
+    name = "test_timing_lr_views",
+    srcs = ["test/test_timing_lr_views.py"],
+    data = ["pytest.ini"],
+    args = ["-p", "pytest_shard_plugin"],
+    shard_count = 6,
+    imports = ["src"],
+    deps = [
+        ":timing_probes",
+        requirement("pytest"),
+    ],
+)
+
+# Commit records and traces (E04-29): the schema contract (validated with
+# jsonschema, test-only), the collector against the state, the trace file.
+py_pytest_test(
+    name = "test_commit",
+    srcs = ["test/test_commit.py"],
+    imports = ["src"],
+    deps = [
+        ":emu_test_support",
+        ":timing_probes",
+        requirement("jsonschema"),
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_timing_datapath_views",
+    srcs = ["test/test_timing_datapath_views.py"],
+    data = ["pytest.ini"],
+    args = ["-p", "pytest_shard_plugin"],
+    shard_count = 6,
+    imports = ["src"],
+    deps = [
+        ":timing_probes",
+        requirement("pytest"),
+    ],
+)
+
+# Every declared implicit read against the emulator (E04-12): one generated
+# two-bundle probe per (instruction, implicit read), faithful and prototyping.
+py_pytest_test(
+    name = "test_timing_conformance",
+    srcs = ["test/test_timing_conformance.py"],
+    data = ["pytest.ini"],
+    args = ["-p", "pytest_shard_plugin"],
+    shard_count = 4,
+    imports = ["src"],
+    deps = [
+        ":ipu_emu_lib",
+        ":timing_probes",
+        "//src/ipu-as:ipu_as_lib",
+        "//src/ipu-isa:ipu_isa_lib",
+        requirement("numpy"),
+        requirement("pytest"),
+    ],
+)
+
+# The ISA's timing declarations against the two files above (E03-14). It
+# reads the timing tests' source, so they are data, not imported.
+py_pytest_test(
+    name = "test_timing_declarations",
+    srcs = ["test/test_timing_declarations.py"],
+    data = [
+        "pytest.ini",
+        "test/test_timing_datapath_views.py",
+        "test/test_timing_lr_views.py",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
+)
+
+# The Q71 emulator benchmarks (E04-02): IpuState() construction, matmul cycles/s
+# (FP32, INT8 and E4; prototyping too with --config=proto). A `bazel run`
+# target, not a test: //tools/bench:test_bench_smoke keeps it from rotting.
+# tools/bench/README.md.
+# E04-02 names this label; the code lives in //tools/bench as its `emulator`
+# module, so the nightly runner tracks it too.
+py_binary(
+    name = "bench_emulator",
+    srcs = ["bench/bench_emulator.py"],
+    main = "bench/bench_emulator.py",
+    deps = ["//tools/bench:ipu_bench"],
+)
+
+# Ruff lint and format over this package's Python files (tools/lint.bzl).
+ruff_test(
+    name = "ruff",
+    srcs = glob(["**/*.py"]),
+)
+
+# The stable reference-model API (E04-30), type-checked strictly on its own
+# (Q65): the library holds only its module; the rest of ipu_emu, not yet
+# strict-clean, is on the path as data so imports resolve. For mypy only:
+# its deps are incomplete, so users depend on ipu_emu_lib, which also holds
+# the module.
+py_library(
+    name = "reference_lib",
+    srcs = ["src/ipu_emu/reference.py"],
+    imports = ["src"],
+    visibility = ["//visibility:private"],
+    deps = ["//src/ipu-isa:ipu_isa_lib"] + [requirement(dep) for dep in RUNTIME_DEPS],
+)
+
+mypy_test(
+    name = "mypy_reference",
+    data = [":ipu_emu_lib"],
+    lib = ":reference_lib",
+    strict = True,
+)
+
+# The reference-model API's contract (E04-30): its public surface against a
+# committed snapshot, and each method's behaviour.
+py_pytest_test(
+    name = "test_reference_api_contract",
+    size = "small",
+    srcs = ["test/test_reference_api_contract.py"],
+    imports = ["src"],
+    deps = [
+        ":emu_test_support",
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
+)
+
+# The conformance suite (E04-31). The runner reads only the case files
+# (//src/ipu-isa:conformance) through the reference-model API; the
+# catalog and the generator build them. `bazel run :regen_conformance`
+# rewrites the suite (tools/update_baselines.sh runs it as update_conformance).
+py_library(
+    name = "conformance_support",
+    testonly = True,
+    srcs = ["test/conformance.py"],
+    imports = ["test"],
+    deps = [
+        ":ipu_emu_lib",
+        "//src/ipu-isa:ipu_isa_lib",
+    ],
+)
+
+py_library(
+    name = "conformance_cases",
+    testonly = True,
+    srcs = ["test/conformance_cases.py"],
+    imports = ["test"],
+    deps = [
+        ":conformance_support",
+        ":ipu_emu_lib",
+        ":timing_probes",
+        "//src/ipu-as:ipu_as_lib",
+        "//src/ipu-isa:ipu_isa_lib",
+    ],
+)
+
+py_binary(
+    name = "update_conformance",
+    testonly = True,
+    srcs = ["test/regen_conformance.py"],
+    main = "test/regen_conformance.py",
+    deps = [
+        ":conformance_cases",
+        ":conformance_support",
+        ":ipu_emu_lib",
+    ],
+)
+
+alias(
+    name = "regen_conformance",
+    actual = ":update_conformance",
+)
+
+py_pytest_test(
+    name = "test_conformance",
+    size = "small",
+    srcs = ["test/test_conformance.py"],
+    data = [
+        "pytest.ini",
+        "//src/ipu-isa:conformance",
+    ],
+    imports = ["src"],
+    deps = [
+        ":conformance_cases",
+        ":conformance_support",
+        ":ipu_emu_lib",
+        "//src/ipu-isa:ipu_isa_lib",
+        requirement("jsonschema"),
+        requirement("pytest"),
+    ],
+)
+
+# E03-12: no ipu_emu module copies the lane count or R_CYCLIC's size.
+py_pytest_test(
+    name = "test_isa_constants_not_copied",
+    size = "small",
+    srcs = ["test/test_isa_constants_not_copied.py"],
+    data = ["pytest.ini"],
+    imports = ["src"],
+    deps = [
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
+)
+
+# One ISA entry and one handler are enough, end to end in a subprocess (E03-24).
+py_pytest_test(
+    name = "test_one_edit_end_to_end",
+    srcs = ["test/test_one_edit_end_to_end.py"],
+    deps = [
+        "//src/ipu-as:ipu_as_lib",
+        ":ipu_emu_lib",
+        "//src/ipu-isa:ipu_isa_lib",
+        "//src/ipu-isa:one_edit",
+        requirement("pytest"),
+    ],
+)

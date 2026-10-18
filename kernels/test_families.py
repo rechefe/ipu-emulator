@@ -24,7 +24,7 @@ from pathlib import Path
 #: the checkout, which is where a folder missing from KERNELS would be.
 ROOT = Path.cwd()
 KERNELS_DIR = (ROOT / "kernels" / "families.bzl").resolve().parent
-IPU_KERNELS = KERNELS_DIR.parent / "src" / "tools" / "ipu-kernels" / "src" / "ipu_kernels"
+IPU_KERNELS = KERNELS_DIR.parent / "src" / "ipu-kernels" / "src" / "ipu_kernels"
 
 #: The files a family's use of another can be in.
 _SOURCES = ("*.py", "*.toml", "*.asm", "*.asm.j2")

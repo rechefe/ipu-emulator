@@ -29,8 +29,8 @@ genrule(
         "registers.md",
         "configuration-registers.md",
     ],
-    cmd = "$(location //src/tools/ipu-gen:ipu-gen) docs-pages $(RULEDIR) > /dev/null",
-    tools = ["//src/tools/ipu-gen:ipu-gen"],
+    cmd = "$(location //src/ipu-gen:ipu-gen) docs-pages $(RULEDIR) > /dev/null",
+    tools = ["//src/ipu-gen:ipu-gen"],
 )
 
 # Not stamped: the package's header names a hash of its own content, so its
@@ -38,23 +38,23 @@ genrule(
 genrule(
     name = "generate_instruction_format_artifacts",
     outs = ["ipu_instr_pkg.sv"],
-    cmd = "$(location //src/tools/ipu-gen:ipu-gen) sv-package --output $(location ipu_instr_pkg.sv) > /dev/null",
-    tools = ["//src/tools/ipu-gen:ipu-gen"],
+    cmd = "$(location //src/ipu-gen:ipu-gen) sv-package --output $(location ipu_instr_pkg.sv) > /dev/null",
+    tools = ["//src/ipu-gen:ipu-gen"],
 )
 
 # Checks a vendored copy of the package against the hash in its header:
 #   bazel run //docs:verify_sv_package -- path/to/ipu_instr_pkg.sv
 alias(
     name = "verify_sv_package",
-    actual = "//src/tools/ipu-gen:verify_sv_package",
+    actual = "//src/ipu-gen:verify_sv_package",
 )
 
 # The tables explanation/element-formats.md includes (E09-19).
 genrule(
     name = "generate_element_format_tables",
     outs = ["element-format-tables.md"],
-    cmd = "$(location //src/tools/ipu-gen:ipu-gen) element-format-tables $@ > /dev/null",
-    tools = ["//src/tools/ipu-gen:ipu-gen"],
+    cmd = "$(location //src/ipu-gen:ipu-gen) element-format-tables $@ > /dev/null",
+    tools = ["//src/ipu-gen:ipu-gen"],
 )
 
 # The timing model page (content/explanation/timing-model.md) includes this table
@@ -62,8 +62,8 @@ genrule(
 genrule(
     name = "generate_timing_contract_table",
     outs = ["generated/timing-contract-table.md"],
-    cmd = "$(location //src/tools/ipu-gen:ipu-gen) timing-table $@ > /dev/null",
-    tools = ["//src/tools/ipu-gen:ipu-gen"],
+    cmd = "$(location //src/ipu-gen:ipu-gen) timing-table $@ > /dev/null",
+    tools = ["//src/ipu-gen:ipu-gen"],
 )
 
 # The Reference model API page (content/reference/reference-model-api.md) includes
@@ -75,16 +75,16 @@ py_binary(
     main = "reference_api_page.py",
     python_version = "PY3",
     deps = [
-        "//src/tools/ipu-emu:ipu_emu_lib",
-        "//src/tools/ipu-isa:ipu_isa_lib",
+        "//src/ipu-emu:ipu_emu_lib",
+        "//src/ipu-isa:ipu_isa_lib",
     ],
 )
 
 _CLI_REFERENCE_DEPS = [
-    "//src/tools/ipu-as:ipu_as_lib",
-    "//src/tools/ipu-debug:ipu_debug_lib",
-    "//src/tools/ipu-emu:ipu_emu_lib",
-    "//src/tools/ipu-harness:ipu_harness_lib",
+    "//src/ipu-as:ipu_as_lib",
+    "//src/ipu-debug:ipu_debug_lib",
+    "//src/ipu-emu:ipu_emu_lib",
+    "//src/ipu-harness:ipu_harness_lib",
     requirement("click"),
 ]
 
@@ -120,8 +120,8 @@ py_pytest_test(
         "examples/test_reference_model_cocotb.py",
     ],
     deps = [
-        "//src/tools/ipu-emu:ipu_emu_lib",
-        "//src/tools/ipu-isa:ipu_isa_lib",
+        "//src/ipu-emu:ipu_emu_lib",
+        "//src/ipu-isa:ipu_isa_lib",
         requirement("pytest"),
     ],
 )
@@ -176,13 +176,13 @@ py_pytest_test(
 #   bazel run //docs:architecture_page -- "$PWD/out"
 _PACKAGE_SOURCES = [
     "//tools:import_graph.toml",
-    "//src/tools/ipu-as:py_sources",
-    "//src/tools/ipu-debug:py_sources",
-    "//src/tools/ipu-emu:py_sources",
-    "//src/tools/ipu-gen:py_sources",
-    "//src/tools/ipu-harness:py_sources",
-    "//src/tools/ipu-isa:py_sources",
-    "//src/tools/ipu-kernels:py_sources",
+    "//src/ipu-as:py_sources",
+    "//src/ipu-debug:py_sources",
+    "//src/ipu-emu:py_sources",
+    "//src/ipu-gen:py_sources",
+    "//src/ipu-harness:py_sources",
+    "//src/ipu-isa:py_sources",
+    "//src/ipu-kernels:py_sources",
 ]
 
 py_binary(
@@ -233,7 +233,7 @@ py_binary(
     srcs = ["kernel_toml_page.py"],
     main = "kernel_toml_page.py",
     python_version = "PY3",
-    deps = ["//src/tools/ipu-harness:ipu_harness_lib"],
+    deps = ["//src/ipu-harness:ipu_harness_lib"],
 )
 
 genrule(
@@ -262,7 +262,7 @@ py_pytest_test(
     ],
     deps = [
         ":doc_blocks",
-        "//src/tools/ipu-harness:ipu_harness_lib",
+        "//src/ipu-harness:ipu_harness_lib",
         requirement("pytest"),
     ],
 )
@@ -272,7 +272,7 @@ py_pytest_test(
 # kernels, read from the registry itself (E09-10).
 #   bazel run //docs:kernel_coverage_page -- "$PWD/out"
 _KERNEL_COVERAGE_DEPS = [
-    "//src/tools/ipu-harness:ipu_harness_lib",
+    "//src/ipu-harness:ipu_harness_lib",
 ]
 
 py_binary(
@@ -311,8 +311,8 @@ py_pytest_test(
 genrule(
     name = "generate_instruction_format_md",
     outs = ["instruction-format.md"],
-    cmd = "$(location //src/tools/ipu-gen:ipu-gen) instruction-format-md $@ > /dev/null",
-    tools = ["//src/tools/ipu-gen:ipu-gen"],
+    cmd = "$(location //src/ipu-gen:ipu-gen) instruction-format-md $@ > /dev/null",
+    tools = ["//src/ipu-gen:ipu-gen"],
 )
 
 # Refreshes the committed docs/content/release-log.md from the GitHub API. Not
@@ -371,7 +371,7 @@ genrule(
         "examples/test_add_an_instruction.py",
         "examples/test_element_formats.py",
         "examples/test_reference_model_cocotb.py",
-        "//src/tools/ipu-isa:test/one_edit.py",
+        "//src/ipu-isa:test/one_edit.py",
         "hooks/giscus_env.py",
         "hooks/history_link.py",
         "overrides/main.html",
@@ -436,10 +436,10 @@ genrule(
         done
 
         # The how-to pages include tested code the same way, at its repo path.
-        mkdir -p "$(@D)/docs/examples" "$(@D)/src/tools/ipu-isa/test"
+        mkdir -p "$(@D)/docs/examples" "$(@D)/src/ipu-isa/test"
         ln -sfn "$$ORIGDIR/$(location examples/test_add_an_instruction.py)" "$(@D)/docs/examples/test_add_an_instruction.py"
         ln -sfn "$$ORIGDIR/$(location examples/test_reference_model_cocotb.py)" "$(@D)/docs/examples/test_reference_model_cocotb.py"
-        ln -sfn "$$ORIGDIR/$(location //src/tools/ipu-isa:test/one_edit.py)" "$(@D)/src/tools/ipu-isa/test/one_edit.py"
+        ln -sfn "$$ORIGDIR/$(location //src/ipu-isa:test/one_edit.py)" "$(@D)/src/ipu-isa/test/one_edit.py"
 
         # explanation/element-formats.md includes its tested example the same way, and
         # its generated tables from docs/generated/.
@@ -567,8 +567,8 @@ py_pytest_test(
     ],
     deps = [
         ":doc_blocks",
-        "//src/tools/ipu-as:ipu_as_lib",
-        "//src/tools/ipu-harness:ipu_harness_lib",
+        "//src/ipu-as:ipu_as_lib",
+        "//src/ipu-harness:ipu_harness_lib",
         requirement("pytest"),
     ],
 )
@@ -580,8 +580,8 @@ py_pytest_test(
     data = _DOC_TEST_DATA,
     deps = [
         ":doc_blocks",
-        "//src/tools/ipu-as:ipu_as_lib",
-        "//src/tools/ipu-harness:ipu_harness_lib",
+        "//src/ipu-as:ipu_as_lib",
+        "//src/ipu-harness:ipu_harness_lib",
         requirement("pytest"),
     ],
 )
@@ -594,14 +594,14 @@ py_pytest_test(
     srcs = ["examples/test_add_an_instruction.py"],
     data = [
         "content/how-to/add-an-instruction.md",
-        "//src/tools/ipu-isa:one_edit",
+        "//src/ipu-isa:one_edit",
     ],
     deps = [
-        "//src/tools/ipu-as:ipu_as_lib",
-        "//src/tools/ipu-emu:emu_test_support",
-        "//src/tools/ipu-emu:ipu_emu_lib",
-        "//src/tools/ipu-isa:ipu_isa_lib",
-        "//src/tools/ipu-isa:one_edit",
+        "//src/ipu-as:ipu_as_lib",
+        "//src/ipu-emu:emu_test_support",
+        "//src/ipu-emu:ipu_emu_lib",
+        "//src/ipu-isa:ipu_isa_lib",
+        "//src/ipu-isa:one_edit",
         requirement("pytest"),
     ],
 )
@@ -613,10 +613,10 @@ py_pytest_test(
     size = "small",
     srcs = ["examples/test_element_formats.py"],
     deps = [
-        "//src/tools/ipu-as:ipu_as_lib",
-        "//src/tools/ipu-emu:emu_test_support",
-        "//src/tools/ipu-emu:ipu_emu_lib",
-        "//src/tools/ipu-isa:ipu_isa_lib",
+        "//src/ipu-as:ipu_as_lib",
+        "//src/ipu-emu:emu_test_support",
+        "//src/ipu-emu:ipu_emu_lib",
+        "//src/ipu-isa:ipu_isa_lib",
         requirement("pytest"),
     ],
 )
@@ -629,9 +629,9 @@ py_pytest_test(
     srcs = ["examples/test_reference_model_cocotb.py"],
     data = ["content/how-to/reference-model-cocotb.md"],
     deps = [
-        "//src/tools/ipu-as:ipu_as_lib",
-        "//src/tools/ipu-emu:ipu_emu_lib",
-        "//src/tools/ipu-isa:ipu_isa_lib",
+        "//src/ipu-as:ipu_as_lib",
+        "//src/ipu-emu:ipu_emu_lib",
+        "//src/ipu-isa:ipu_isa_lib",
         requirement("pytest"),
     ],
 )
@@ -644,9 +644,9 @@ py_pytest_test(
     data = ["content/explanation/timing-model.md"],
     deps = [
         ":doc_blocks",
-        "//src/tools/ipu-as:ipu_as_lib",
-        "//src/tools/ipu-emu:emu_test_support",
-        "//src/tools/ipu-emu:ipu_emu_lib",
+        "//src/ipu-as:ipu_as_lib",
+        "//src/ipu-emu:emu_test_support",
+        "//src/ipu-emu:ipu_emu_lib",
         requirement("pytest"),
     ],
 )
@@ -658,7 +658,7 @@ py_pytest_test(
     srcs = ["test_rtl_migration.py"],
     data = [
         "content/specs/rtl-migration.md",
-        "//src/tools/ipu-as:test/baselines/ipu_instr_pkg.sv",
+        "//src/ipu-as:test/baselines/ipu_instr_pkg.sv",
     ],
     deps = [requirement("pytest")],
 )
@@ -687,7 +687,7 @@ py_pytest_test(
         ":adr_sources",
         "//:.github/pull_request_template.md",
         "//:GLOSSARY.md",
-        "//src/tools/ipu-isa:conformance/README.md",
+        "//src/ipu-isa:conformance/README.md",
         "//tools/bench:README.md",
     ],
     deps = [requirement("pytest")],
@@ -701,7 +701,7 @@ py_pytest_test(
     data = [":build_docs"],
     tags = ["docs"],
     deps = [
-        "//src/tools/ipu-gen:ipu_gen_lib",
+        "//src/ipu-gen:ipu_gen_lib",
         requirement("pytest"),
     ],
 )

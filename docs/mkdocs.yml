@@ -214,13 +214,13 @@ extra:
   # "history" link (hooks/history_link.py) goes to the generator instead. This map is the
   # one place to update when a generator or a generated page moves.
   generated_pages:
-    reference/isa/instructions.md: src/tools/ipu-gen/src/ipu_gen/docs_pages.py
-    reference/isa/operand-types.md: src/tools/ipu-gen/src/ipu_gen/docs_pages.py
-    reference/isa/assembly-syntax.md: src/tools/ipu-gen/src/ipu_gen/docs_pages.py
-    reference/isa/programmer-guide.md: src/tools/ipu-gen/src/ipu_gen/docs_pages.py
-    reference/isa/instruction-format.md: src/tools/ipu-gen/src/ipu_gen/docs_pages.py
-    reference/isa/registers.md: src/tools/ipu-gen/src/ipu_gen/docs_pages.py
-    reference/isa/configuration-registers.md: src/tools/ipu-gen/src/ipu_gen/docs_pages.py
+    reference/isa/instructions.md: src/ipu-gen/src/ipu_gen/docs_pages.py
+    reference/isa/operand-types.md: src/ipu-gen/src/ipu_gen/docs_pages.py
+    reference/isa/assembly-syntax.md: src/ipu-gen/src/ipu_gen/docs_pages.py
+    reference/isa/programmer-guide.md: src/ipu-gen/src/ipu_gen/docs_pages.py
+    reference/isa/instruction-format.md: src/ipu-gen/src/ipu_gen/docs_pages.py
+    reference/isa/registers.md: src/ipu-gen/src/ipu_gen/docs_pages.py
+    reference/isa/configuration-registers.md: src/ipu-gen/src/ipu_gen/docs_pages.py
   # giscus IDs are public (they are rendered into every page), so they are committed
   # here (IMPLEMENTATION-DECISIONS.md, E00-06). Values come from https://giscus.app,
   # or GraphQL: repository.id and repository.discussionCategories[].id.

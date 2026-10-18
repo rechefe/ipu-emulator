@@ -14,7 +14,7 @@ can be a Jinja2 template: `--define` gives the values its `ipu:params` header
 declares, and `-I` adds include directories after the source's own one.
 
 ```bash
-bazel run //src/tools/ipu-as:ipu-as -- assemble --input "$PWD/prog.asm" --output "$PWD/prog.bin" --define rows=8
+bazel run //src/ipu-as:ipu-as -- assemble --input "$PWD/prog.asm" --output "$PWD/prog.bin" --define rows=8
 ```
 
 `assemble` writes `bin` for an `--output` ending in `.bin` and `mem`
@@ -36,7 +36,7 @@ kernel's folder instead, for a kernel outside the tree.
 
 ```bash
 bazel run //kernels/softmax/softmax_rows -- --case constant_row --profile-aliases
-bazel run //src/tools/ipu-harness:run_kernel -- path/to/kernel --case default --format all
+bazel run //src/ipu-harness:run_kernel -- path/to/kernel --case default --format all
 ```
 
 Each run prints `KERNEL/CASE/FORMAT: PASS  cycles=N  MAC util=P%`, then the

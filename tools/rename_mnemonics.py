@@ -73,7 +73,7 @@ SKIPPED_FILES = {
     "tools/rename_mnemonics.py",
     "tools/test_rename_mnemonics.py",
     "docs/content/specs/mnemonic-rename.md",  # the rename table itself
-    "src/tools/ipu-as/test/test_sv_rename_table.py",
+    "src/ipu-as/test/test_sv_rename_table.py",
 }
 SKIPPED_PARTS = ("/test/baselines/", "/test/golden/", "/test/fixtures/")
 

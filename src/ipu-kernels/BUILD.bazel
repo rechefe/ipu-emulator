@@ -1,0 +1,116 @@
+load("@ipu_as_deps//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_library")
+load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
+load("//tools:lint.bzl", "ruff_test")
+load("//tools:runtime_deps.bzl", "runtime_deps_manifest")
+load(":deps.bzl", "RUNTIME_DEPS")
+load("//kernels:families.bzl", "KERNELS")
+load("//tools:typecheck.bzl", "mypy_test")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files(["pyproject.toml"])
+
+# RUNTIME_DEPS as JSON, for //tools:test_deps_consistency.
+runtime_deps_manifest(
+    name = "runtime_deps",
+    runtime_deps = RUNTIME_DEPS,
+)
+
+# The package's Python sources, for //tools:test_import_graph.
+filegroup(
+    name = "py_sources",
+    srcs = glob(["src/**/*.py"]),
+)
+
+# The package's test sources, for //tools:test_import_graph's private-name check.
+filegroup(
+    name = "py_test_sources",
+    srcs = glob(["test/**/*.py"], allow_empty = True),
+)
+
+# Kernel-side Python shared by every family (E06): references, pack transforms.
+# A family's own code, ipu_kernels/<family>/, is its own library below (E06-18),
+# so editing it reruns only that family's tests. tools/import_graph.toml holds
+# the import rules; kernels/families.bzl the families.
+py_library(
+    name = "ipu_kernels_lib",
+    srcs = glob(
+        ["src/ipu_kernels/**/*.py"],
+        exclude = ["src/ipu_kernels/%s/**" % family for family in KERNELS],
+    ),
+    imports = ["src"],
+    deps = [
+        "//src/ipu-harness:ipu_harness_lib",
+        "//src/ipu-isa:ipu_isa_lib",
+    ] + [requirement(name) for name in RUNTIME_DEPS],
+)
+
+# ipu_kernels.<family>: one library per family (packs, stages, layer adapters),
+# which //kernels/<family>:lib depends on.
+[
+    py_library(
+        name = "ipu_kernels_" + family,
+        srcs = glob(["src/ipu_kernels/%s/**/*.py" % family], allow_empty = True),
+        imports = ["src"],
+        deps = [":ipu_kernels_lib"],
+    )
+    for family in KERNELS
+]
+
+# Everything, for mypy and the registry-wide users.
+py_library(
+    name = "ipu_kernels_all",
+    deps = [":ipu_kernels_lib"] + [":ipu_kernels_" + family for family in KERNELS],
+)
+
+mypy_test(
+    name = "mypy",
+    lib = ":ipu_kernels_lib",
+)
+
+# Ruff lint and format over this package's Python files (tools/lint.bzl).
+ruff_test(
+    name = "ruff",
+    srcs = glob(["**/*.py"]),
+)
+
+# Packing with the shared transforms (E06-05). The old loaders the transforms
+# were extracted from are byte goldens since their kernels were deleted
+# (E07-02, E07-25).
+py_pytest_test(
+    name = "test_pack",
+    srcs = ["test/test_pack.py"],
+    deps = [
+        ":ipu_kernels_lib",
+        "//src/ipu-harness:ipu_harness_lib",
+        requirement("numpy"),
+        requirement("pytest"),
+    ],
+)
+
+# The shared references (E06-09). torch is test-only (Q74b): only targets that
+# run a reference depend on it, never ipu_kernels_lib.
+py_pytest_test(
+    name = "test_reference_ops",
+    srcs = ["test/test_reference_ops.py"],
+    deps = [
+        ":ipu_kernels_lib",
+        "//src/ipu-harness:ipu_harness_lib",
+        requirement("numpy"),
+        requirement("pytest"),
+        requirement("torch"),
+    ],
+)
+
+# The datapath mirrors (E07-12): each fold's rounding on hand-made inputs.
+py_pytest_test(
+    name = "test_datapath",
+    size = "small",
+    srcs = ["test/test_datapath.py"],
+    deps = [
+        ":ipu_kernels_lib",
+        requirement("numpy"),
+        requirement("pytest"),
+    ],
+)

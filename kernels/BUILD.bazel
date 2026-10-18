@@ -44,10 +44,10 @@ ipu_kernel_tree(registries = REGISTRIES)
 #   bazel run //kernels:update_registry_bzl [-- DIR ...]
 py_binary(
     name = "update_registry_bzl",
-    srcs = ["//src/tools/ipu-harness:src/ipu_harness/registry_bzl.py"],
-    main = "//src/tools/ipu-harness:src/ipu_harness/registry_bzl.py",
+    srcs = ["//src/ipu-harness:src/ipu_harness/registry_bzl.py"],
+    main = "//src/ipu-harness:src/ipu_harness/registry_bzl.py",
     args = ["update"],
-    deps = ["//src/tools/ipu-harness:ipu_harness_lib"],
+    deps = ["//src/ipu-harness:ipu_harness_lib"],
 )
 
 # Cross-family use is declared in FAMILY_DEPS only (E06-18); KERNELS names
@@ -59,7 +59,7 @@ py_pytest_test(
     srcs = ["test_families.py"],
     data = [
         "families.bzl",
-        "//src/tools/ipu-kernels:py_sources",
+        "//src/ipu-kernels:py_sources",
         ":tree",
     ],
     tags = ["external"],
@@ -75,7 +75,7 @@ ruff_test(
 #   bazel run //kernels:query -- scale rows=7
 alias(
     name = "query",
-    actual = "//src/tools/ipu-harness:query",
+    actual = "//src/ipu-harness:query",
     visibility = ["//visibility:public"],
 )
 
@@ -84,12 +84,12 @@ alias(
 #   bazel run //kernels:rendered_programs -- "$PWD/rendered"
 py_binary(
     name = "rendered_programs",
-    srcs = ["//src/tools/ipu-harness:src/ipu_harness/rendered_programs.py"],
-    main = "//src/tools/ipu-harness:src/ipu_harness/rendered_programs.py",
+    srcs = ["//src/ipu-harness:src/ipu_harness/rendered_programs.py"],
+    main = "//src/ipu-harness:src/ipu_harness/rendered_programs.py",
     data = [":tree"],
     deps = [
         ":all_kernels",
-        "//src/tools/ipu-harness:ipu_harness_lib",
+        "//src/ipu-harness:ipu_harness_lib",
     ],
 )
 
@@ -98,12 +98,12 @@ py_binary(
 #   bazel run //kernels:manifest
 py_binary(
     name = "manifest",
-    srcs = ["//src/tools/ipu-harness:src/ipu_harness/manifest_json.py"],
-    main = "//src/tools/ipu-harness:src/ipu_harness/manifest_json.py",
+    srcs = ["//src/ipu-harness:src/ipu_harness/manifest_json.py"],
+    main = "//src/ipu-harness:src/ipu_harness/manifest_json.py",
     args = ["$(rootpath :kernel_targets)"],
     data = [":kernel_targets"],
     deps = [
         ":all_kernels",
-        "//src/tools/ipu-harness:ipu_harness_lib",
+        "//src/ipu-harness:ipu_harness_lib",
     ],
 )

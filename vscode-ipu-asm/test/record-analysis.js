@@ -5,7 +5,7 @@
 //
 //   node test/record-analysis.js <out.json> '<checker argv>' [file.asm ...]
 //
-// The argv is JSON and ends like the extension's: `["bazel", "run", "//src/tools/ipu-as:ipu-as",
+// The argv is JSON and ends like the extension's: `["bazel", "run", "//src/ipu-as:ipu-as",
 // "--", "check", "--json", "--input"]`. Without files it records the committed set (FILES below and
 // fixtures/analysis-snippets.json) to <out.json>; re-record test/fixtures/analysis-v2.json with it
 // when the assembler's answers or those files change. With files, each is recorded by its path

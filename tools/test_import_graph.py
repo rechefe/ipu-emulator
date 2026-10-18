@@ -1,6 +1,6 @@
 """First-party packages import only what ``import_graph.toml`` allows.
 
-Reads every Python source of every package under ``src/tools/*/src/<package>/``
+Reads every Python source of every package under ``src/*/src/<package>/``
 and collects the modules each one imports: ``import x``, ``from x import y``
 and ``importlib.import_module("x...")`` with a literal name, at any depth (a
 function-level import counts). Each first-party one must be the package itself
@@ -14,7 +14,7 @@ a source follows the longest key that is its module or a parent of it, in
 each table separately (E06-01).
 
 The check is static, so it sees an import whatever the Bazel deps of the test
-happen to be. ``//src/tools/ipu-isa:test_purity`` keeps the complementary
+happen to be. ``//src/ipu-isa:test_purity`` keeps the complementary
 run-time check for ``ipu_isa``: its modules import with only ``ipu_isa_lib`` on
 the path.
 """
@@ -35,7 +35,7 @@ else:
     import tomli as tomllib
 
 TABLE = Path("tools/import_graph.toml")
-SOURCE_ROOT = Path("src/tools")
+SOURCE_ROOT = Path("src")
 
 #: Top-level modules with this prefix are first party, whether or not their
 #: sources are in this test's data.

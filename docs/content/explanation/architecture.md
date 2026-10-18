@@ -1,6 +1,6 @@
 # Architecture
 
-The toolchain is eight Python packages under `src/tools/`, one directory each.
+The toolchain is seven Python packages under `src/`, one directory each.
 Each package has one responsibility, and dependencies point one way: towards
 `ipu_isa`, the instruction set, which imports no other package. Terms such as
 instruction word, slot, commit record and harness are defined in the
@@ -37,7 +37,7 @@ data, as plugins.
 
 ## One source of truth
 
-`src/tools/ipu-isa/src/ipu_isa/instruction_spec.py` defines every instruction:
+`src/ipu-isa/src/ipu_isa/instruction_spec.py` defines every instruction:
 its slot, operands, timing declaration, documentation and handler name. An
 instruction's opcode is its position in its slot's table, never a number
 written by hand. Every other package reads the ISA through the typed view
@@ -55,9 +55,9 @@ written by hand. Every other package reads the ISA through the typed view
 
 The "one edit" test proves it. It adds a dummy instruction, `TESTNEG`, as one
 spec entry and one handler, and checks that every artifact follows:
-`//src/tools/ipu-isa:test_one_edit` for the ISA's own artifacts,
-`src/tools/ipu-gen/test/test_one_edit_generators.py` for the generators, and
-`src/tools/ipu-emu/test/test_one_edit_end_to_end.py` for an assembled program
+`//src/ipu-isa:test_one_edit` for the ISA's own artifacts,
+`src/ipu-gen/test/test_one_edit_generators.py` for the generators, and
+`src/ipu-emu/test/test_one_edit_end_to_end.py` for an assembled program
 running on the emulator. Its list of manual edits beyond the entry and the
 handler, `KNOWN_MANUAL_EDITS`, is empty.
 [How-to: add an instruction](../how-to/add-an-instruction.md) walks through
@@ -134,11 +134,11 @@ the pc.
 
 The state after every cycle is bit-identical to the faithful path: every
 register, all of XMEM, the cycle count and the run statistics.
-`src/tools/ipu-emu/test/test_prototyping_equivalence.py` runs each program
+`src/ipu-emu/test/test_prototyping_equivalence.py` runs each program
 in lockstep, once per mode, and compares every register, all 512 MiB of XMEM,
 cycle outcomes, the cycle-start register values and run statistics after
 every cycle. It also runs every register-timing probe
-(`src/tools/ipu-emu/test/timing_probes.py`, one minimal program per row of
+(`src/ipu-emu/test/timing_probes.py`, one minimal program per row of
 the timing tables) in every element format the probe covers.
 
 At kernel level, each case's baseline record (`baseline.json` beside each
@@ -213,11 +213,11 @@ RTL testbench.
 |---|---|---|
 | Add or change an instruction, operand type or register | `ipu_isa`, then a handler in `ipu_emu` | [How-to: add an instruction](../how-to/add-an-instruction.md) |
 | Change the instruction word layout or the program file format | `ipu_isa` (`codec`) | `CLAUDE.md`, "Generated SystemVerilog Package": widths are wire format |
-| Change the assembly syntax, diagnostics or formatter | `ipu_as` | `src/tools/ipu-as/src/ipu_as/asm_grammar.lark`, `session.py` |
+| Change the assembly syntax, diagnostics or formatter | `ipu_as` | `src/ipu-as/src/ipu_as/asm_grammar.lark`, `session.py` |
 | Change what an instruction does in a cycle | `ipu_emu` (`slots/`, `cycle.py`) | [Timing model](timing-model.md) |
 | Change the stable API for RTL verification | `ipu_emu` (`reference.py`) | [Reference model API](../reference/reference-model-api.md) |
 | Change the debugger | `ipu_debug` | [How-to: debug a kernel](../how-to/debug-a-kernel.md) |
-| Change a generated artifact (SV package, ISA pages, VS Code data) | `ipu_gen` | `src/tools/ipu-gen/src/ipu_gen/cli.py` |
+| Change a generated artifact (SV package, ISA pages, VS Code data) | `ipu_gen` | `src/ipu-gen/src/ipu_gen/cli.py` |
 | Change how kernels are declared, placed, packed, run or compared | `ipu_harness` | [ADR 0006](https://github.com/rechefe/ipu-emulator/blob/master/docs/adr/0006-kernels-are-assembly-plus-declaration.md) |
-| Share a reference or pack transform between kernels | `ipu_kernels` | `src/tools/ipu-kernels/src/ipu_kernels/__init__.py` |
+| Share a reference or pack transform between kernels | `ipu_kernels` | `src/ipu-kernels/src/ipu_kernels/__init__.py` |
 | Add a package or an edge between packages | `tools/import_graph.toml` | Its header lists every registration a new package needs |

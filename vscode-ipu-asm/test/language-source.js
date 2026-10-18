@@ -45,7 +45,7 @@ test('a trusted checkout with readable data uses it; anything else uses the bund
 /** A checkout with one ISA source, and a stand-in generator writing `isa` into its out dir. */
 function checkout(isa) {
   const root = fs.mkdtempSync(path.join(temp, 'checkout-'));
-  const source = path.join(root, 'src', 'tools', 'ipu-isa', 'src', 'spec.py');
+  const source = path.join(root, 'src', 'ipu-isa', 'src', 'spec.py');
   fs.mkdirSync(path.dirname(source), { recursive: true });
   fs.writeFileSync(source, '# the ISA\n');
   const runs = [];
@@ -82,7 +82,7 @@ test("a checkout's data is generated once, and again when its sources change", a
   await c.source(cache).load();
   eq(c.runs.length, 2, 'a source newer than the data: generated again');
   // The assembler's sources too: the generator reads its grammar and slot rules.
-  c.touch(Date.now() + 120000, path.join(c.root, 'src', 'tools', 'ipu-as', 'src', 'ipu_as', 'ipu_token.py'));
+  c.touch(Date.now() + 120000, path.join(c.root, 'src', 'ipu-as', 'src', 'ipu_as', 'ipu_token.py'));
   await c.source(cache).load();
   eq(c.runs.length, 3, 'an assembler source newer than the data: generated again');
   eq(fs.readdirSync(cache).filter((f) => f.includes('.new-')), [], 'no generation directory left behind');

@@ -7,7 +7,7 @@ coverage of `bazel coverage --config=full //...` into the job summary:
         "$PWD/bazel-out/_coverage/_coverage_report.dat" \
         --require ipu_emu --require ipu_as --require ipu_isa
 
-A source file ``src/tools/<dir>/src/<module>/...`` counts towards ``<module>``;
+A source file ``src/<dir>/src/<module>/...`` counts towards ``<module>``;
 any other file counts towards its directory (``docs``, ``tools``, ...).
 
 Exits non-zero when the report is missing or empty, when it measures no line
@@ -42,13 +42,13 @@ def package_of(source: str) -> str:
     parts = PurePosixPath(source).parts
     # Absolute paths (some coverage tools record them): keep the repo-relative tail.
     for i in range(len(parts) - 1):
-        if parts[i : i + 2] == ("src", "tools"):
+        if parts[i] == "src" and parts[i + 1].startswith("ipu-"):
             parts = parts[i:]
             break
-    if len(parts) >= 6 and parts[:2] == ("src", "tools") and parts[3] == "src":
-        return parts[4]
-    if len(parts) >= 4 and parts[:2] == ("src", "tools"):
-        return "/".join(parts[:3])
+    if len(parts) >= 5 and parts[0] == "src" and parts[2] == "src":
+        return parts[3]
+    if len(parts) >= 3 and parts[0] == "src":
+        return "/".join(parts[:2])
     return parts[0] if len(parts) > 1 else "(root)"
 
 

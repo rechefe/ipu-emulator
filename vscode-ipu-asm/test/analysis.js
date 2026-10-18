@@ -283,7 +283,7 @@ test('the Bazel path (no prebuilt checker): one probe across edits, one check pe
   // A checkout, and a `bazel` that builds nothing and runs the stand-in checker.
   const root = fs.mkdtempSync(path.join(temp, 'checkout-'));
   fs.writeFileSync(path.join(root, 'MODULE.bazel'), '');
-  fs.mkdirSync(path.join(root, 'src/tools/ipu-as/src/ipu_as'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'src/ipu-as/src/ipu_as'), { recursive: true });
   const fc = fakeChecker();
   const bin = fs.mkdtempSync(path.join(temp, 'bin-'));
   const [node, script, ...head] = fc.argv.slice(0, 4);

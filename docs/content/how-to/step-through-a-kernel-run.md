@@ -28,7 +28,7 @@ Every trace is a build output; none is checked in. The docs build records each
 curated case with the reference model's trace writer and converts it to the
 page's format, so the page always matches the current ISA and kernels:
 
-1. The kernel runner (`//src/tools/ipu-harness:run_kernel` with `--trace` and
+1. The kernel runner (`//src/ipu-harness:run_kernel` with `--trace` and
    `--context`) runs a kernel-tree case exactly as its test runs it. It writes
    the case's trace (one commit record per retired word; the schemas are in
    `ipu_isa/schemas/`) and a context file: the kernel's source and labels, the
@@ -46,8 +46,8 @@ The `kernel_trace` macro in `docs/inspector/defs.bzl` does steps 1 and 2 for one
 case. To record a trace by hand:
 
 ```bash
-bazel run //src/tools/ipu-harness:run_kernel -- kernels/conformance/vector_tour --case e4 --trace "$PWD/trace.jsonl" --context "$PWD/context.json"
-bazel run //src/tools/ipu-gen:ipu-gen -- inspector-trace "$PWD/trace.jsonl" "$PWD/context.json" "$PWD/tour_e4.json"
+bazel run //src/ipu-harness:run_kernel -- kernels/conformance/vector_tour --case e4 --trace "$PWD/trace.jsonl" --context "$PWD/context.json"
+bazel run //src/ipu-gen:ipu-gen -- inspector-trace "$PWD/trace.jsonl" "$PWD/context.json" "$PWD/tour_e4.json"
 ```
 
 ## Add a kernel

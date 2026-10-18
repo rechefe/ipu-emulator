@@ -35,7 +35,7 @@ for (const name of ['spawn', 'execFile']) {
 /** An IPU checkout (a Bazel workspace holding the assembler's package) with one kernel. */
 function checkout(parent, name) {
   const dir = path.join(parent, name);
-  for (const [file, text] of [['MODULE.bazel', ''], ['src/tools/ipu-as/src/ipu_as/__init__.py', ''], ['k/demo/demo.asm', 'HALT;;\n']]) {
+  for (const [file, text] of [['MODULE.bazel', ''], ['src/ipu-as/src/ipu_as/__init__.py', ''], ['k/demo/demo.asm', 'HALT;;\n']]) {
     fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
     fs.writeFileSync(path.join(dir, file), text);
   }
@@ -199,7 +199,7 @@ test('activating, finding the checkout, loading its kernels and the first check 
 test('the checker binary is used while its sources are unchanged; a change to them, in a checkout opened by a subfolder, goes back through Bazel', async () => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'ipu-activation-'));
   const root = checkout(temp, 'repo');
-  const source = path.join(root, 'src/tools/ipu-as/src/ipu_as/parser.py');
+  const source = path.join(root, 'src/ipu-as/src/ipu_as/parser.py');
   fs.mkdirSync(path.dirname(source), { recursive: true });
   fs.writeFileSync(source, '');
   fs.utimesSync(source, new Date(Date.now() - 60000), new Date(Date.now() - 60000));
@@ -209,7 +209,7 @@ test('the checker binary is used while its sources are unchanged; a change to th
   const probes = path.join(temp, 'probes.log');
   const old = (name) => `case "$*" in *--json-version*) echo ${name} >> ${probes}; exit 2 ;; esac\n`;
   const bazelBin = path.join(temp, 'bazel-bin');
-  const binary = path.join(bazelBin, 'src/tools/ipu-as/ipu-as');
+  const binary = path.join(bazelBin, 'src/ipu-as/ipu-as');
   fs.mkdirSync(path.dirname(binary), { recursive: true });
   fs.writeFileSync(binary, `#!/bin/sh\n${old('direct')}echo direct >> ${log}\nprintf '[]'\n`, { mode: 0o755 });
   const standIn = path.join(bin, 'bazel');
@@ -232,7 +232,7 @@ test('the checker binary is used while its sources are unchanged; a change to th
     const before = ran().length;
     fs.utimesSync(source, new Date(), new Date()); // an edit, after that build
     assert.strictEqual(await check(before + 1), 'direct', 'until a watcher reports it, the answer is remembered');
-    const watcher = ext.log.watchers.find((w) => w.pattern.baseUri && w.pattern.baseUri.fsPath === path.join(root, 'src/tools/ipu-as/src'));
+    const watcher = ext.log.watchers.find((w) => w.pattern.baseUri && w.pattern.baseUri.fsPath === path.join(root, 'src/ipu-as/src'));
     assert(watcher, 'the checkout\'s own sources are watched, though they are outside the open folder');
     watcher.fire('Change', fake.Uri.file(source));
     assert.strictEqual(await check(before + 2), 'bazel-run', 'the changed source sends the check through Bazel');

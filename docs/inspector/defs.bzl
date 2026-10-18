@@ -7,10 +7,10 @@ a stale kernel.
 
 The kernel is one of the kernel tree (`//kernels/<family>/<name>`, or a
 registry entry `//kernels/<family>:<name>`), recorded through the harness
-runner (`//src/tools/ipu-harness:run_kernel --trace --context`, E07-26).
+runner (`//src/ipu-harness:run_kernel --trace --context`, E07-26).
 """
 
-_RUN_KERNEL = "//src/tools/ipu-harness:run_kernel"
+_RUN_KERNEL = "//src/ipu-harness:run_kernel"
 _KERNELS = "//kernels/"
 
 def _shell_word(text):
@@ -56,11 +56,11 @@ def kernel_trace(name, kernel, case = "default", format = None, max_cycles = 500
             "TMP=$$(mktemp -d)",
             "trap 'rm -rf \"$$TMP\"' EXIT",
             record,
-            "$(location //src/tools/ipu-gen:ipu-gen) inspector-trace $$TMP/trace.jsonl $$TMP/context.json $@ --max-cycles %d" % max_cycles,
+            "$(location //src/ipu-gen:ipu-gen) inspector-trace $$TMP/trace.jsonl $$TMP/context.json $@ --max-cycles %d" % max_cycles,
         ]),
         tools = [
             _RUN_KERNEL,
-            "//src/tools/ipu-gen:ipu-gen",
+            "//src/ipu-gen:ipu-gen",
         ],
         # Built with the docs, not in the default CI tier (E01).
         tags = ["docs"],

@@ -23,9 +23,9 @@ ACTIVATE.QUANTIZE relu CR15;;
   ([Configuration registers](configuration-registers.md)). `cr_idx` is
   required: any of `CR0`–`CR15`, with no default.
 - **Where it is defined:** the keyword order is the ISA's `ActivationFn`
-  operand, `ACTIVATION_FN_NAMES` in `src/tools/ipu-isa/src/ipu_isa/activations.py`.
+  operand, `ACTIVATION_FN_NAMES` in `src/ipu-isa/src/ipu_isa/activations.py`.
   The math is the emulator's `apply_activation` in
-  `src/tools/ipu-emu/src/ipu_emu/activations.py`.
+  `src/ipu-emu/src/ipu_emu/activations.py`.
 
 ## `R_ACC`, `POST_AAQ_REG` and `ST.AAQ`
 

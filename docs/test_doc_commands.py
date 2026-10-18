@@ -38,7 +38,7 @@ _BAZEL_RUN = re.compile(
 #: An ipu_kernel() or registry entry target runs the harness CLI with its
 #: kernel filled in (E06-13, E06-17).
 _KERNELS = "//kernels/"
-_RUN_KERNEL = "//src/tools/ipu-harness:run_kernel"
+_RUN_KERNEL = "//src/ipu-harness:run_kernel"
 
 
 @dataclass(frozen=True)

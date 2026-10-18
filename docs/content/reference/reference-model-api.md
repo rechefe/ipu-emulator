@@ -54,11 +54,11 @@ field added is a minor bump; a field removed or renamed, or a meaning
 changed, is a major one. A trace header names the commit record schema's
 version (`schema_version`).
 
-Two tests hold the promise. `src/tools/ipu-emu/test/test_reference_api_contract.py`
+Two tests hold the promise. `src/ipu-emu/test/test_reference_api_contract.py`
 pins every public name, signature and record field under the version that
 introduced it, so a surface change fails until a new version's entry matches.
-`src/tools/ipu-emu/test/test_commit.py` pins each schema file's bytes to
-its version. A strict mypy test (`//src/tools/ipu-emu:mypy_reference`)
+`src/ipu-emu/test/test_commit.py` pins each schema file's bytes to
+its version. A strict mypy test (`//src/ipu-emu:mypy_reference`)
 types the module.
 
 ## A lockstep test
@@ -137,7 +137,7 @@ what the model checks for each.
 
 ## Conformance suite
 
-`src/tools/ipu-isa/conformance/` holds the ISA's expected behaviour as data:
+`src/ipu-isa/conformance/` holds the ISA's expected behaviour as data:
 for each case a program (`program.asm`, `program.bin`), its starting state
 (`setup.json`, schema `setup.schema.json`) and the trace of its run
 (`expected.trace.jsonl`). No case contains Python, so another implementation
@@ -156,5 +156,5 @@ To run the suite against another implementation, for each case:
    field.
 
 The suite's `README.md` has the details of each step.
-`bazel test //src/tools/ipu-emu:test_conformance` runs every case through
+`bazel test //src/ipu-emu:test_conformance` runs every case through
 this API.

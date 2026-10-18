@@ -16,9 +16,9 @@ SCRIPT = Path("tools/update_baselines.sh")
 
 #: The packages with baseline files (docs/content/reference/code-conventions.md, "Baselines").
 BASELINE_PACKAGES = (
-    "src/tools/ipu-as",
-    "src/tools/ipu-emu",
-    "src/tools/ipu-isa",
+    "src/ipu-as",
+    "src/ipu-emu",
+    "src/ipu-isa",
 )
 
 _LABEL = re.compile(r"//(?P<package>[\w./-]+):(?P<name>\w+)")

@@ -1,7 +1,7 @@
 'use strict';
 
 // Records what the editor's formatter (language.js `format`) makes of the corpus, as the expected
-// values of the assembler's own formatter (src/tools/ipu-as/test/test_format.py). Run once when
+// values of the assembler's own formatter (src/ipu-as/test/test_format.py). Run once when
 // the formatter's rules change on purpose, or when test_format.py skips a kernel that changed since
 // it was recorded; the recorded outputs are then the specification.
 //
@@ -51,7 +51,7 @@ const [isaPath, outDir, ...files] = args.length
   ? args
   : [
       path.join(root, 'vscode-ipu-asm/data/isa.json'),
-      path.join(root, 'src/tools/ipu-as/test/baselines/format'),
+      path.join(root, 'src/ipu-as/test/baselines/format'),
       ...DEFAULT_DIRS.flatMap((d) => asmUnder(path.join(root, d))),
     ];
 const lang = new Language(JSON.parse(fs.readFileSync(isaPath, 'utf8')));

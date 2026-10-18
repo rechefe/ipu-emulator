@@ -32,13 +32,13 @@ LOCK = Path("requirements_lock.txt")
 
 # Paths of the runtime_deps.json manifests in runfiles, one per package.
 MANIFESTS = (
-    Path("src/tools/ipu-as/runtime_deps.json"),
-    Path("src/tools/ipu-emu/runtime_deps.json"),
-    Path("src/tools/ipu-isa/runtime_deps.json"),
-    Path("src/tools/ipu-debug/runtime_deps.json"),
-    Path("src/tools/ipu-gen/runtime_deps.json"),
-    Path("src/tools/ipu-kernels/runtime_deps.json"),
-    Path("src/tools/ipu-harness/runtime_deps.json"),
+    Path("src/ipu-as/runtime_deps.json"),
+    Path("src/ipu-emu/runtime_deps.json"),
+    Path("src/ipu-isa/runtime_deps.json"),
+    Path("src/ipu-debug/runtime_deps.json"),
+    Path("src/ipu-gen/runtime_deps.json"),
+    Path("src/ipu-kernels/runtime_deps.json"),
+    Path("src/ipu-harness/runtime_deps.json"),
 )
 
 # The repository's own distributions: Bazel wires them as py_library targets.

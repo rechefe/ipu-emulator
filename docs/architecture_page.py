@@ -33,7 +33,7 @@ else:
     import tomli as tomllib
 
 TABLE = Path("tools/import_graph.toml")
-SOURCE_ROOT = Path("src/tools")
+SOURCE_ROOT = Path("src")
 
 
 @dataclass(frozen=True)

@@ -78,7 +78,7 @@ py_pytest_test(
     data = [":inspector_data"],
     tags = ["docs"],
     deps = [
-        "//src/tools/ipu-gen:ipu_gen_lib",
+        "//src/ipu-gen:ipu_gen_lib",
         requirement("jsonschema"),
         requirement("pytest"),
     ],
@@ -113,7 +113,7 @@ py_pytest_test(
     data = ["//docs:doc_sources"],
     imports = ["."],
     deps = [
-        "//src/tools/ipu-gen:ipu_gen_lib",
+        "//src/ipu-gen:ipu_gen_lib",
         requirement("pytest"),
         requirement("tomli"),
     ],
@@ -134,8 +134,8 @@ py_pytest_test(
     deps = [
         "//kernels/reshape:lib",
         "//kernels/softmax:lib",
-        "//src/tools/ipu-gen:ipu_gen_lib",
-        "//src/tools/ipu-harness:ipu_harness_lib",
+        "//src/ipu-gen:ipu_gen_lib",
+        "//src/ipu-harness:ipu_harness_lib",
         requirement("pytest"),
         requirement("torch"),  # the kernels' references
     ],

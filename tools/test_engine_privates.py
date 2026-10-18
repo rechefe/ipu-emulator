@@ -8,7 +8,7 @@ and ``ipu_emu.geometry``. This gate fails on either of:
 - ``ipu._name`` or ``Ipu._name`` (an attribute starting with one underscore
   read off a name ``ipu`` or ``Ipu``: an engine, the module or the class);
 
-in any Python source or test under ``src/tools/``, except the engine's own
+in any Python source or test under ``src/``, except the engine's own
 modules: ``ipu.py`` and the modules it is split into (the issuer, the cycle
 and the slot handler modules of ``ipu_emu.slots``, E04-14).
 """
@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-SOURCE_ROOT = Path("src/tools")
+SOURCE_ROOT = Path("src")
 
 #: The engine itself, repo-relative: free to use its own privates.
 ENGINE_MODULES = frozenset(
@@ -65,7 +65,7 @@ def _python_files() -> list[Path]:
     files = sorted(
         path
         for path in SOURCE_ROOT.glob("*/**/*.py")
-        if path.parts[3] in ("src", "test") and path not in ENGINE_MODULES
+        if path.parts[2] in ("src", "test") and path not in ENGINE_MODULES
     )
     assert files, f"no sources found under {SOURCE_ROOT}"
     return files

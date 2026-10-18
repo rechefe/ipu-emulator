@@ -1,0 +1,205 @@
+load("@ipu_as_deps//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
+load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
+load("//tools:runtime_deps.bzl", "runtime_deps_manifest")
+load(":deps.bzl", "RUNTIME_DEPS")
+load("//tools:lint.bzl", "ruff_test")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files(["pyproject.toml"])
+
+# RUNTIME_DEPS as JSON, for //tools:test_deps_consistency.
+runtime_deps_manifest(
+    name = "runtime_deps",
+    runtime_deps = RUNTIME_DEPS,
+)
+
+# The package's Python sources, for //tools:test_import_graph.
+filegroup(
+    name = "py_sources",
+    srcs = glob(["src/**/*.py"]),
+)
+
+# The package's test sources, for //tools:test_import_graph's private-name check.
+filegroup(
+    name = "py_test_sources",
+    srcs = glob(["test/**/*.py"], allow_empty = True),
+)
+
+# Generators that render artifacts from the ISA: the SystemVerilog package
+# (E08-13), the docs pages and layout SVGs (E08-14), and the VS Code language
+# data (E08-15). ipu_as: the VS Code data reads the parser and token classes.
+py_library(
+    name = "ipu_gen_lib",
+    srcs = glob(["src/ipu_gen/*.py"]),
+    data = glob(["src/ipu_gen/templates/*.j2", "src/ipu_gen/schemas/*.json"]),
+    imports = ["src"],
+    deps = [
+        "//src/ipu-as:ipu_as_lib",
+        "//src/ipu-isa:ipu_isa_lib",
+    ] + [requirement(dep) for dep in RUNTIME_DEPS],
+)
+
+#   bazel run //src/ipu-gen:ipu-gen -- sv-package --output /tmp/ipu_instr_pkg.sv
+#   bazel run //src/ipu-gen:ipu-gen -- docs-pages /tmp/docs
+#   bazel run //src/ipu-gen:ipu-gen -- instruction-format-md /tmp/instruction-format.md
+#   bazel run //src/ipu-gen:ipu-gen -- union-layout-svg /tmp/union_layout.svg
+#   bazel run //src/ipu-gen:ipu-gen -- vscode-data [OUT_DIR]
+#   bazel run //src/ipu-gen:ipu-gen -- verify-sv-package path/to/ipu_instr_pkg.sv
+py_binary(
+    name = "ipu-gen",
+    srcs = ["src/ipu_gen/cli.py"],
+    imports = ["src"],
+    main = "src/ipu_gen/cli.py",
+    deps = [":ipu_gen_lib"],
+)
+
+# The SV package's structure and the ipu-gen CLI. Needs ipu_as_lib: the word
+# width is cross-checked against CompoundInst, the enums against the
+# assembler's token classes, and the rename test renames those classes.
+py_pytest_test(
+    name = "test_gen_codegen",
+    srcs = ["test/test_gen_codegen.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_gen_lib",
+        "//src/ipu-as:ipu_as_lib",
+        requirement("pytest"),
+    ],
+)
+
+# The Cycle Inspector adapter on a hand-written trace (E08-16).
+py_pytest_test(
+    name = "test_inspector_trace",
+    srcs = ["test/test_inspector_trace.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_gen_lib",
+        "//src/ipu-as:ipu_as_lib",
+        requirement("jsonschema"),
+        requirement("pytest"),
+    ],
+)
+
+# The generated ISA reference follows the CLAUDE.md conventions (E09-14).
+py_pytest_test(
+    name = "test_reference_conventions",
+    srcs = ["test/test_reference_conventions.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_gen_lib",
+        requirement("pytest"),
+    ],
+)
+
+# The element-format tables follow ipu_isa.formats; CR scalar operands link to the page (E09-19).
+py_pytest_test(
+    name = "test_element_format_tables",
+    srcs = ["test/test_element_format_tables.py"],
+    data = ["//docs:doc_sources"],
+    imports = ["src"],
+    deps = [
+        ":ipu_gen_lib",
+        requirement("pytest"),
+    ],
+)
+
+# One ISA entry is enough for the generators (E03-24).
+py_pytest_test(
+    name = "test_one_edit_generators",
+    srcs = ["test/test_one_edit_generators.py"],
+    data = ["//src/ipu-as:test/baselines/ipu_instr_pkg.sv"],
+    imports = ["src"],
+    deps = [
+        ":ipu_gen_lib",
+        "//src/ipu-isa:ipu_isa_lib",
+        "//src/ipu-isa:one_edit",
+        requirement("pytest"),
+    ],
+)
+
+# slang elaborates the package with zero diagnostics.
+py_pytest_test(
+    name = "test_sv_package_compiles",
+    srcs = ["test/test_sv_package_compiles.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_gen_lib",
+        requirement("pytest"),
+        requirement("pyslang"),
+    ],
+)
+
+# The labels other packages keep (//vscode-ipu-asm:gen_vscode, //docs:verify_sv_package)
+# are aliases to these: ipu-gen with its subcommand fixed. `bazel run` passes args.
+py_binary(
+    name = "vscode_data",
+    srcs = ["src/ipu_gen/cli.py"],
+    args = ["vscode-data"],
+    imports = ["src"],
+    main = "src/ipu_gen/cli.py",
+    deps = [":ipu_gen_lib"],
+)
+
+py_binary(
+    name = "verify_sv_package",
+    srcs = ["src/ipu_gen/cli.py"],
+    args = ["verify-sv-package"],
+    imports = ["src"],
+    main = "src/ipu_gen/cli.py",
+    deps = [":ipu_gen_lib"],
+)
+
+# isa.json (hover and completion data) against the assembler's own parser and
+# token constructors.
+py_pytest_test(
+    name = "test_hover_data",
+    srcs = ["test/test_hover_data.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_gen_lib",
+        "//src/ipu-as:ipu_as_lib",
+        requirement("pytest"),
+    ],
+)
+
+# Each generator renders the ISA it is given (E03-11).
+py_pytest_test(
+    name = "test_generators_take_a_view",
+    srcs = ["test/test_generators_take_a_view.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_gen_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_isa_data",
+    srcs = ["test/test_isa_data.py"],
+    data = ["//vscode-ipu-asm:corpus"],
+    imports = ["src"],
+    deps = [
+        ":ipu_gen_lib",
+        "//src/ipu-as:ipu_as_lib",
+        requirement("lark"),
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_union_layout_svg",
+    srcs = ["test/test_union_layout_svg.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_gen_lib",
+        requirement("pytest"),
+    ],
+)
+
+# Ruff lint and format over this package's Python files (tools/lint.bzl).
+ruff_test(
+    name = "ruff",
+    srcs = glob(["**/*.py"]),
+)
