@@ -1,4 +1,4 @@
-"""High-level emulator runner: load a program, run it, move data in and out.
+"""High-level emulator runner: load a program and run it.
 
 Provides two modes:
   * ``run_until_complete`` — runs the program silently, ignoring break-
@@ -19,20 +19,13 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from enum import Enum, auto
-from pathlib import Path
 
-import numpy as np
-
-from ipu_emu.activations import ActivationParams
 from ipu_emu.cycle import CycleOutcome
 from ipu_emu.errors import ConfigurationError, EmulatorFault
-from ipu_emu.execute import load_binary_instructions
 from ipu_emu.ipu import Ipu
-from ipu_emu.ipu_math import fp32_to_fp8_bytes
 from ipu_emu.ipu_state import DEFAULT_CYCLE_LIMIT, INST_MEM_SIZE, IpuState
 from ipu_emu.run_clock import RunClock
 from ipu_emu.run_control import RunControl
-from ipu_isa.formats import ElementFormat
 
 
 class DebugAction(Enum):
@@ -69,13 +62,6 @@ def load_program(state: IpuState, instructions: list[dict[str, int]]) -> None:
     for i, inst in enumerate(instructions):
         state.inst_mem[i] = inst
     state.program_length = len(instructions)
-
-
-def load_program_from_binary(state: IpuState, path: str | Path) -> None:
-    """Load a binary file produced by ``ipu-as assemble --format bin``."""
-    data = Path(path).read_bytes()
-    instructions = load_binary_instructions(data)
-    load_program(state, instructions)
 
 
 def run_until_complete(
@@ -208,171 +194,3 @@ def run_with_debug(
         control.run_target = None
         clock.end_run()
     return clock.cycles
-
-
-# ---------------------------------------------------------------------------
-# Binary I/O: files into and out of XMEM
-# ---------------------------------------------------------------------------
-
-
-def load_binary_to_xmem(
-    state: IpuState,
-    path: str | Path,
-    base_addr: int,
-    chunk_size: int,
-    max_chunks: int = 0,
-) -> int:
-    """Load a binary file into XMEM in chunks.
-
-    Reads *chunk_size* bytes at a time from *path* and writes them
-    sequentially into XMEM starting at *base_addr*.
-
-    Args:
-        state:      The IPU state (provides ``xmem``).
-        path:       Path to the binary file.
-        base_addr:  Starting XMEM address.
-        chunk_size: Bytes per chunk (typically 128 for one R-register row).
-        max_chunks: Stop after this many chunks (0 = read until EOF).
-
-    Returns:
-        Number of chunks loaded.
-    """
-    data = Path(path).read_bytes()
-    addr = base_addr
-    chunks_loaded = 0
-    offset = 0
-
-    while offset + chunk_size <= len(data):
-        state.xmem.write_address(addr, data[offset : offset + chunk_size])
-        addr += chunk_size
-        offset += chunk_size
-        chunks_loaded += 1
-        if max_chunks > 0 and chunks_loaded >= max_chunks:
-            break
-
-    return chunks_loaded
-
-
-def dump_xmem_to_binary(
-    state: IpuState,
-    path: str | Path,
-    base_addr: int,
-    chunk_size: int,
-    num_chunks: int,
-) -> int:
-    """Dump XMEM contents to a binary file in chunks.
-
-    Args:
-        state:      The IPU state (provides ``xmem``).
-        path:       Output file path.
-        base_addr:  Starting XMEM address.
-        chunk_size: Bytes per chunk.
-        num_chunks: Number of chunks to write.
-
-    Returns:
-        Number of chunks written.
-    """
-    parts: list[bytes] = []
-    addr = base_addr
-    for _ in range(num_chunks):
-        parts.append(bytes(state.xmem.read_address(addr, chunk_size)))
-        addr += chunk_size
-
-    Path(path).write_bytes(b"".join(parts))
-    return num_chunks
-
-
-def load_fp32_as_fp8_to_xmem(
-    state: IpuState,
-    path: str | Path,
-    base_addr: int,
-    fmt: ElementFormat = ElementFormat.E4,
-) -> int:
-    """Load a FP32 binary file, convert to FP8, and store in XMEM.
-
-    Reads N×4-byte float32 values from *path*, converts each to a single
-    FP8 byte in *fmt*, and writes the result contiguously into
-    XMEM starting at *base_addr*.
-
-    Args:
-        state:     The IPU state (provides ``xmem``).
-        path:      Path to a raw FP32 binary file.
-        base_addr: Starting XMEM address.
-        fmt:       Target FP8 format (one of E1..E7).
-
-    Returns:
-        Number of FP32 values converted.
-    """
-    raw = Path(path).read_bytes()
-    fp32_values = np.frombuffer(raw, dtype=np.float32)
-    fp8_data = fp32_to_fp8_bytes(fp32_values, fmt)
-    state.xmem.write_address(base_addr, fp8_data)
-    return len(fp32_values)
-
-
-# ---------------------------------------------------------------------------
-# run_test: load, set up, run, tear down
-# ---------------------------------------------------------------------------
-
-
-def run_test(
-    *,
-    inst_path: str | Path,
-    setup: Callable[[IpuState], None] | None = None,
-    teardown: Callable[[IpuState], None] | None = None,
-    max_cycles: int | None = None,
-    debug_callback: DebugCallback | None = None,
-    break_on_entry: bool = False,
-    debug_control: RunControl | None = None,
-    state: IpuState | None = None,
-    elu_alpha: float | None = None,
-    window_a: float | None = None,
-    window_b: float | None = None,
-) -> tuple[IpuState, int]:
-    """Load a binary, set up XMEM, run it, then collect results.
-
-    1. Creates a fresh :class:`IpuState` (unless *state* is provided).
-    2. Loads the instruction binary.
-    3. Calls *setup(state)* (e.g. to load data into XMEM).
-    4. Runs the program.
-    5. Calls *teardown(state)* (e.g. to dump XMEM results).
-
-    Returns ``(state, cycles)`` so callers can inspect final state. When the
-    debugger quits, ``state.quit_requested`` is true and *teardown* is not
-    called: the program did not finish, so there are no results to collect.
-
-    Optional ``elu_alpha``, ``window_a`` and ``window_b`` configure the
-    emulator-only activation parameters (not via CR): α for ``elu`` and the ``[a, b)`` bounds of ``window``. They are applied
-    when constructing a new ``IpuState``; if *state* is passed, non-``None``
-    arguments are forwarded to :meth:`IpuState.set_activation_alphas`.
-    ``break_on_entry`` requests an initial stop after setup when a
-    ``debug_callback`` is supplied, and ``debug_control`` is the control that
-    run shares with its debugger frontend (see :func:`run_with_debug`).
-    """
-    if state is None:
-        given = {"elu_alpha": elu_alpha, "window_a": window_a, "window_b": window_b}
-        state = IpuState(
-            activation=ActivationParams(**{k: v for k, v in given.items() if v is not None})
-        )
-    elif elu_alpha is not None or window_a is not None or window_b is not None:
-        state.set_activation_alphas(elu_alpha=elu_alpha, window_a=window_a, window_b=window_b)
-    load_program_from_binary(state, inst_path)
-
-    if setup is not None:
-        setup(state)
-
-    if debug_callback is not None:
-        cycles = run_with_debug(
-            state,
-            debug_callback,
-            max_cycles,
-            control=debug_control,
-            break_on_entry=break_on_entry,
-        )
-    else:
-        cycles = run_until_complete(state, max_cycles)
-
-    if teardown is not None and not state.quit_requested:
-        teardown(state)
-
-    return state, cycles

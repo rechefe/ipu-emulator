@@ -16,12 +16,12 @@ from typing import Any
 from ipu_as.lark_tree import assemble
 from ipu_emu.emulator import DEFAULT_MAX_CYCLES, load_program, run_until_complete
 from ipu_emu.errors import ConfigurationError
-from ipu_emu.execute import decode_instruction_word
 from ipu_emu.geometry import R_CYCLIC_VALID_INDICES, R_REG_SIZE, vector_registers
 from ipu_emu.ipu import Ipu
 from ipu_emu.ipu_state import IpuState
 from ipu_emu.outcome import CycleOutcome
 from ipu_emu.run_control import RunControl
+from ipu_isa.codec.word import DecodedWord
 from ipu_isa.formats import ElementFormat
 from ipu_isa.geometry import LANES
 
@@ -58,7 +58,7 @@ class BreakpointRunControl(RunControl):
 
 def decode_program(words: Iterable[int]) -> list[dict[str, int]]:
     """Decode encoded instruction words into the dicts ``load_program`` takes."""
-    return [decode_instruction_word(word) for word in words]
+    return [DecodedWord.from_word(word) for word in words]
 
 
 def assemble_program(asm: str) -> list[dict[str, int]]:

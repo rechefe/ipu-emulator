@@ -171,8 +171,8 @@ separate, fully mapped region in the host address space (see below).
 - **Contents.** The mapped region is a verbatim image of the assembled binary:
   each VLIW occupies `INSTRUCTION_ALIGNED_BYTES` bytes, 32-bit-word-aligned. On
   **write**, the bridge decodes the affected instruction word(s) with
-  `decode_instruction_word` and updates `inst_mem` (same semantics as
-  `load_program_from_binary`). On **read**, the bridge returns the stored encoded
+  `DecodedWord.from_word` (`ipu_isa.codec.word`) and updates `inst_mem` (same
+  semantics as `load_program`). On **read**, the bridge returns the stored encoded
   bytes (unprogrammed slots read as zero).
 - **Halt-only access.** Instruction memory is **not** reachable while the IPU is
   executing. Any read or write to `[IMEM_BASE, IMEM_BASE + IMEM_MAP_SIZE)` when
@@ -199,7 +199,7 @@ actions as follows.
 |-----------|-----------------|------------------|
 | **Start execution** | write `CTRL.START` | Run from the current `PC` until halt, breakpoint, or `MAX_CYCLES`. Sets `STATUS.RUNNING`, then `STATUS.HALTED` on completion. |
 | **Halt execution** | write `CTRL.HALT` | Stop the engine at an instruction boundary; clear `RUNNING`, set `HALTED`. Cooperative when the run is driven inside the MMIO callback; preemptive when driven step-by-step. |
-| **Single step** | write `CTRL.STEP` | Execute exactly one VLIW cycle, then re-enter halted state. Mirrors the existing debug-CLI `step`. |
+| **Single step** | write `CTRL.STEP` | Execute exactly one VLIW cycle, then re-enter halted state. Mirrors the debugger's step. |
 | **Reprogram IMEM** | read/write `IMEM_BASE` region (+ `PROG_LEN`) | Copy or memset the assembled `--format bin` image into the mapped IMEM window while halted; writes decode into `inst_mem`. Set `PROG_LEN` to the number of VLIW words. Rejected with `ERROR` while `RUNNING`. |
 | **Read PC** | read `PC` | Returns `IpuState.program_counter`. |
 | **Write PC** | write `PC` | Sets `IpuState.program_counter` (only honored while halted; otherwise `ERROR`). |

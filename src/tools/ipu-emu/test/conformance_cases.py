@@ -27,7 +27,6 @@ import conformance
 import timing_probes
 
 from ipu_as.lark_tree import assemble
-from ipu_emu.execute import decode_instruction_word
 from ipu_emu.geometry import NARROW_MAX_ROW
 from ipu_emu.ipu_state import IpuState
 from ipu_isa.codec.word import DecodedWord, pack_program
@@ -74,7 +73,7 @@ class Case:
 
     def words(self) -> list[int]:
         """The program's words, edited."""
-        program = [decode_instruction_word(word) for word in assemble(self.asm)]
+        program = [DecodedWord.from_word(word) for word in assemble(self.asm)]
         if self.edit is not None:
             self.edit(program)
         return [DecodedWord(word).to_word() for word in program]

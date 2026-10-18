@@ -12,7 +12,6 @@ from ipu_emu import ipu_state
 from ipu_emu.emulator import (
     DEFAULT_MAX_CYCLES,
     DebugAction,
-    run_test,
     run_until_complete,
     run_with_debug,
 )
@@ -350,6 +349,19 @@ def test_every_runner_defaults_to_one_cycle_limit():
     # The runners default to the state's limit, which defaults to the one constant.
     assert DEFAULT_MAX_CYCLES == ipu_state.DEFAULT_CYCLE_LIMIT == 1_000_000
     assert IpuState().cycle_limit == DEFAULT_MAX_CYCLES
-    for fn in (run_until_complete, run_with_debug, run_test):
+    for fn in (run_until_complete, run_with_debug):
         default = inspect.signature(fn).parameters["max_cycles"].default
         assert default is None, fn.__name__
+
+
+def test_a_debugger_quit_is_returned_and_cleared_by_the_next_run():
+    """QUIT stops the run and sets ``quit_requested``; the next run clears it."""
+    state = make_state("BREAK;;\nHALT;;")
+    assert run_with_debug(state, lambda state, cycle: DebugAction.QUIT) == 0
+    assert state.quit_requested
+    assert not state.is_halted
+
+    state.program_counter = 0
+    run_with_debug(state, lambda state, cycle: DebugAction.CONTINUE)
+    assert not state.quit_requested
+    assert state.is_halted

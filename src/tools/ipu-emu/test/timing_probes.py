@@ -24,10 +24,10 @@ from enum import Enum
 from ipu_as.lark_tree import assemble
 from ipu_emu.emulator import load_program
 from ipu_emu.errors import EmulatorFault
-from ipu_emu.execute import decode_instruction_word
 from ipu_emu.ipu import Ipu
 from ipu_emu.ipu_state import IpuState
 from ipu_emu.outcome import CycleOutcome
+from ipu_isa.codec.word import DecodedWord
 from ipu_isa.formats import ElementFormat
 
 #: XMEM row the probes load from and store to.
@@ -147,7 +147,7 @@ class Run:
 
 
 def decoded_program(probe: Probe) -> list:
-    program: list = [decode_instruction_word(word) for word in assemble(probe.asm)]
+    program: list = [DecodedWord.from_word(word) for word in assemble(probe.asm)]
     if probe.edit is not None:
         probe.edit(program)
     return program

@@ -301,18 +301,6 @@ py_pytest_test(
 )
 
 py_pytest_test(
-    name = "test_emulator_e2e",
-    srcs = ["test/test_emulator_e2e.py"],
-    imports = ["src"],
-    deps = [
-        ":emu_test_support",
-        ":ipu_emu_lib",
-        "//src/tools/ipu-as:ipu_as_lib",
-        requirement("pytest"),
-    ],
-)
-
-py_pytest_test(
     name = "test_wide_formats",
     srcs = ["test/test_wide_formats.py"],
     imports = ["src"],

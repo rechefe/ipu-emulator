@@ -35,9 +35,9 @@ from ipu_emu import prototyping
 from ipu_emu.cycle import CycleView, IssuedOp, decode_word
 from ipu_emu.emulator import load_program
 from ipu_emu.errors import DebugOnlyInstructionWarning, EmulatorError, UndeclaredRead
-from ipu_emu.execute import decode_instruction_word
 from ipu_emu.ipu import Ipu, read_views
 from ipu_emu.ipu_state import IpuState
+from ipu_isa.codec.word import DecodedWord
 from ipu_isa.slots import Slot
 from ipu_isa.timing import RegisterAccess, View
 from ipu_isa.view import Instruction, isa
@@ -275,7 +275,7 @@ def test_implicit_read_honours_its_declared_view(case, mode, prototyping_on):
 
 def _plan(slot: Slot, mnemonic: str):
     """The plan the emulator dispatches for *mnemonic* (from its READERS word)."""
-    word = decode_instruction_word(assemble(f"{READERS[mnemonic]} ;;")[0])
+    word = DecodedWord.from_word(assemble(f"{READERS[mnemonic]} ;;")[0])
     return next(op.plan for op in decode_word(word, pc=0) if op.slot == slot.value)
 
 

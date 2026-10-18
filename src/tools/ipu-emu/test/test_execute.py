@@ -32,11 +32,11 @@ from ipu_emu.emulator import (
     run_with_debug,
 )
 from ipu_emu.errors import ConfigurationError, DebugOnlyInstructionWarning, EmulatorFault
-from ipu_emu.execute import decode_instruction_word
 from ipu_emu.ipu import NARROW_MAX_ROW, EmulatorError, Ipu
 from ipu_emu.ipu_state import HaltRecord, IpuState
 from ipu_emu.outcome import CycleOutcome
 from ipu_emu.xmem import XMEM_SIZE_BYTES
+from ipu_isa.codec.word import DecodedWord
 from ipu_isa.constants import PadMode, encode_dstructure
 from ipu_isa.faults import FaultId
 from ipu_isa.formats import encode_element
@@ -225,7 +225,7 @@ HALT;;
     def test_k_encoded_four_bits(self):
         """k operand uses 4 bits: semantic k=9 encodes as 8 in the instruction word."""
         encoded = assemble("INC.MODP2 lr0 lr1 9;; HALT;;")
-        d = decode_instruction_word(encoded[0])
+        d = DecodedWord.from_word(encoded[0])
         assert d["lr_inst_0_token_3_lr_reg_field"] == 8
 
     def test_assembler_rejects_k_out_of_range(self):
@@ -290,7 +290,7 @@ HALT;;
     def test_decode_inc_imm_operand_field(self):
         """``INC`` immediate uses the union-derived LrIncDecImmediate field."""
         encoded = assemble("INC lr2 7;; HALT;;")
-        d = decode_instruction_word(encoded[0])
+        d = DecodedWord.from_word(encoded[0])
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 4  # inc
         assert d["lr_inst_0_token_2_lr_reg_field"] == 2
         assert (
@@ -413,7 +413,7 @@ HALT;;
         ``lrd4`` is the 3rd pair (LR4/LR5), so it encodes as index 2.
         """
         encoded = assemble("ADDB lrd4 lr5;; HALT;;")
-        d = decode_instruction_word(encoded[0])
+        d = DecodedWord.from_word(encoded[0])
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 6  # addb
         assert d["lr_inst_0_token_2_lr_reg_field"] == 2  # dest = lrd4 (pair index 2)
         assert d["lr_inst_0_token_1_addbi_immediate"] == 5  # src_b = lr5
@@ -424,7 +424,7 @@ HALT;;
         ``lrd8`` is the 5th pair (LR8/LR9), so it encodes as index 4.
         """
         encoded = assemble("ADDBI lrd8 200;; HALT;;")
-        d = decode_instruction_word(encoded[0])
+        d = DecodedWord.from_word(encoded[0])
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 7  # addbi
         assert d["lr_inst_0_token_2_lr_reg_field"] == 4  # dest = lrd8 (pair index 4)
         assert d["lr_inst_0_token_1_addbi_immediate"] == 200
@@ -461,7 +461,7 @@ HALT;;
         """Assemble → decode exposes lr_inst_0, lr_inst_1, lr_inst_2."""
         encoded = assemble("SET lr4 cr8; SET lr5 cr9; SET lr6 cr10;;\nHALT;;")
         assert len(encoded) == 2
-        d = decode_instruction_word(encoded[0])
+        d = DecodedWord.from_word(encoded[0])
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 0  # set
         assert d["lr_inst_0_token_2_lr_reg_field"] == 4  # reg = lr4
         assert d["lr_inst_0_token_1_addbi_immediate"] == 8  # src = cr8
@@ -476,7 +476,7 @@ HALT;;
     def test_decode_add_lcr_operand_field(self):
         """``ADD`` third operand uses LcrRegField (register-only), sharing a field with AddbiImmediate."""
         encoded = assemble("ADD lr2 lr1 cr7;; HALT;;")
-        d = decode_instruction_word(encoded[0])
+        d = DecodedWord.from_word(encoded[0])
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 1  # add
         assert d["lr_inst_0_token_2_lr_reg_field"] == 2  # dest = lr2
         assert d["lr_inst_0_token_3_lr_reg_field"] == 1  # src_a = lr1
@@ -2244,7 +2244,7 @@ class TestDebuggerStops:
 class TestDecodeRoundtrip:
     def test_nop_decodes(self):
         """An all-NOP instruction should decode without error."""
-        fields = decode_instruction_word(0)
+        fields = DecodedWord.from_word(0)
         assert isinstance(fields, dict)
         assert len(fields) > 0
 
@@ -2252,7 +2252,7 @@ class TestDecodeRoundtrip:
         """Assemble → decode → verify known fields."""
         encoded = assemble("SET lr13 cr8;;\nHALT;;")
         assert len(encoded) == 2
-        d = decode_instruction_word(encoded[0])
+        d = DecodedWord.from_word(encoded[0])
         # LR opcode should be 'set' = index 0
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 0  # set
         assert d["lr_inst_0_token_2_lr_reg_field"] == 13  # reg = lr13
@@ -3070,15 +3070,6 @@ HALT;;
         with pytest.warns(DebugOnlyInstructionWarning, match="DEBUG ONLY") as record:
             run_until_complete(state)
         assert all(issubclass(w.category, UserWarning) for w in record)
-
-    def test_emulator_only_instructions_reads_the_acc_store_slot(self):
-        """A program is flagged by its non-NOP acc_store words, not its text."""
-        from ipu_emu.execute import emulator_only_instructions
-
-        uses = decode_program(assemble("ST.ACC lr0 cr0;;\nHALT;;"))
-        plain = decode_program(assemble("SET lr0 cr8;;\nLD.MULT r0 lr0 cr0;;\nHALT;;"))
-        assert emulator_only_instructions(uses) == {"ST.ACC"}
-        assert emulator_only_instructions(plain) == set()
 
 
 # ============================================================================

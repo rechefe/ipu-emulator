@@ -1210,9 +1210,33 @@ Nothing imports `ipu_apps` or loads `//:ipu_app.bzl` any more (grep, outside `pl
 | `src/tools/ipu-common/pytest.ini` | pre-merge sweep | E03-01 renamed it to `src/tools/ipu-isa/pytest.ini`, which the row above deletes; with the rename target gone, git lists the base file as a deletion. | — (as above) | The base file held only `testpaths = test`, the same as the renamed one. |
 | `asm_rules.bzl` | pre-merge sweep | Moved, not dropped: the only `.bzl` at the root, loaded only by ipu-as-py, now sits in that package as `kernels/defs.bzl` does. Git lists it as a deletion because this branch grew it from 22 to 54 lines before the `git mv`. | `src/tools/ipu-as-py/defs.bzl` (`assemble_asm`, unchanged) | `git grep //:asm_rules.bzl` found only the `load` in `src/tools/ipu-as-py/BUILD.bazel`, now `load(":defs.bzl", ...)`; the assembly-syntax page's prose names the new path. |
 | `src/tools/ipu-as-py/src/ipu_as/utils.py` | pre-merge sweep | A `utils` module (the Modules rule names it as a place with no responsibility) holding one function, `camel_case_to_snake_case`, whose regex `ipu_gen` repeated twice as a private `_snake_case`. | `ipu_isa.operand_types.snake_name`, imported by `ipu_as.inst`, `ipu_as.ipu_token`, `ipu_gen.layout_svg`, `ipu_gen.sv_package` and `test_encode_tables.py` | On HEAD before the sweep `git grep ipu_as.utils` found `inst.py:18`, `ipu_token.py:8` and `test/test_encode_tables.py:13`; `layout_svg.py:208` and `sv_package.py:112` held the same two `re.sub` lines. |
+| `src/tools/ipu-emu-py/src/ipu_emu/execute.py` | pre-merge sweep | The "legacy execution API" module, renamed with its package to `src/tools/ipu-emu/src/ipu_emu/execute.py` and then deleted. By the sweep it held two aliases of `ipu_isa` codec functions (`decode_instruction_word = DecodedWord.from_word`, `load_binary_instructions = unpack_program`) and `emulator_only_instructions`, which only its own test called once the ipu-apps harness was gone. | `ipu_isa.codec.word.DecodedWord.from_word` (every caller: `emu_support.py`, `conformance_cases.py`, `test_execute.py`, `test_one_edit_end_to_end.py`, `test_timing_conformance.py`, `timing_probes.py`, ipu-harness `test_runner.py`); `ipu_isa.codec.word.unpack_program`. `emulator_only_instructions`: nothing (the hardware-target check of `ipu_as.encode` is the live rule for emulator-only instructions) | Before the sweep `git grep "ipu_emu.execute"` found only `emulator.py` (for `load_program_from_binary`, deleted in the same commit) and the test files above; `git grep emulator_only_instructions -- src` found only `test_execute.py`. |
+| `src/tools/ipu-emu-py/test/test_emulator_e2e.py` | pre-merge sweep | Tested the ipu-apps-era harness API of `ipu_emu.emulator` (`run_test`, `load_binary_to_xmem`, `dump_xmem_to_binary`, `load_fp32_as_fp8_to_xmem`), deleted in the same commit with `load_program_from_binary`: after E07-25 retired ipu-apps nothing outside this test called them. Renamed with its package to `src/tools/ipu-emu/test/` before the deletion. | The tests that cover live behaviour moved; see "Tests from `src/tools/ipu-emu-py/test/test_emulator_e2e.py`" | Before the sweep `git grep -w run_test -- src kernels docs` found only this file and `test_stats.py` (a signature check, trimmed); the XMEM file helpers had no caller but this file. |
 
 ### Tests removed from `glossary_adoption_test.py` (now `tools/test_glossary_adoption.py`)
 
 | Test | Now covered by |
 |---|---|
 | `test_generated_pages_are_not_checked` | dropped with `glossary_check.GENERATED_PAGES`: it pinned the exclusion of four `docs/content/` paths that no build writes any more (the genrules write the ISA pages to `bazel-bin/docs/`). `test_machine_written_pages_are_not_checked` still covers the one exclusion that remains |
+
+### Tests from `src/tools/ipu-emu-py/test/test_emulator_e2e.py`
+
+| Test | Now covered by |
+|---|---|
+| `TestLoadBinaryToXmem::test_load_exact_chunks`, `::test_max_chunks_limit`, `::test_partial_trailing_data_ignored`, `::test_empty_file` | dropped: `load_binary_to_xmem` is deleted (no caller after ipu-apps; kernels load XMEM through `ipu_harness`) |
+| `TestDumpXmemToBinary::test_round_trip`, `::test_load_dump_round_trip` | dropped: `dump_xmem_to_binary` is deleted, as above |
+| `TestFP32ToFP8Loading::test_fp32_to_fp8_e4m3_round_trip`, `::test_fp32_to_fp8_e5m2_round_trip` | `src/tools/ipu-emu/test/test_ipu_math.py::test_encode_round_trip` (every FP8 format, exhaustively) |
+| `TestFP32ToFP8Loading::test_load_fp32_as_fp8_to_xmem` | dropped: `load_fp32_as_fp8_to_xmem` is deleted; the conversion it wrapped is `test_ipu_math.py`'s |
+| `TestFP32ToFP8Loading::test_int8_format_rejected` | `src/tools/ipu-emu/test/test_ipu_math.py::test_a_non_fp8_format_is_rejected` (INT8 and FP32, both directions) |
+| `TestRunTest::test_run_test_with_bkpt_program` | dropped: `run_test` (setup/teardown around a run) is deleted; `run_until_complete` on a `HALT` program is every `emu_support.run` test |
+| `TestRunTest::test_run_test_with_debug_callback` | `src/tools/ipu-debug/test/test_debug_tui.py::test_trace_tracks_actual_branch_pc_and_does_not_record_stops` and the `run_with_debug` stops of `test_tui_registers_pane.py` / `test_tui_shell.py` |
+| `TestRunTest::test_quit_is_a_returned_outcome_that_skips_teardown` | `src/tools/ipu-emu/test/test_stats.py::test_a_debugger_quit_is_returned_and_cleared_by_the_next_run` (the teardown half went with `run_test`) |
+| `TestRunTest::test_run_test_passes_activation_alphas_to_state` | dropped: the forwarding was `run_test`'s; `IpuState(activation=ActivationParams(elu_alpha=...))` is `test_execute.py`'s activation tests |
+| `TestEndToEnd::test_simple_program_end_to_end` | every `emu_support.run` test (assemble, load, run, read registers), e.g. `test_execute.py` |
+
+### Tests removed from `src/tools/ipu-emu/test/test_execute.py` and `test_stats.py`
+
+| Test | Now covered by |
+|---|---|
+| `test_execute.py::TestPostAaqReg::test_emulator_only_instructions_reads_the_acc_store_slot` | dropped with `emulator_only_instructions` (no caller); `src/tools/ipu-as/test/test_target.py::test_check_reports_emulator_only_instructions_for_the_hardware` tests the live rule |
+| `test_stats.py::test_every_runner_defaults_to_one_cycle_limit` (its `run_test` case) | the test stays for `run_until_complete` and `run_with_debug`; the `run_test` case went with `run_test` |

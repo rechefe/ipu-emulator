@@ -18,7 +18,6 @@ from scale_kernel import write_scale
 
 from ipu_emu.emulator import load_program
 from ipu_emu.errors import ConfigurationError
-from ipu_emu.execute import decode_instruction_word
 from ipu_emu.ipu_state import IpuState
 from ipu_emu.trace import read_trace, trace_header
 from ipu_harness import cli, runner
@@ -27,6 +26,7 @@ from ipu_harness.cases import expand
 from ipu_harness.manifest import load_manifest
 from ipu_harness.params import plan_case
 from ipu_harness.runner import RunOptions, run_kernel
+from ipu_isa.codec.word import DecodedWord
 from ipu_isa.faults import FaultId
 from ipu_isa.formats import ElementFormat as F
 from ipu_isa.trace_schema import load_schema
@@ -203,7 +203,7 @@ def test_the_trace_follows_the_schema(scale, tmp_path):
     # The header the emulator writes for the same program.
     state = IpuState(fmt=F.E4)
     plan = plan_case(scale, _case(scale, "one_row").values, F.E4)
-    load_program(state, [decode_instruction_word(w) for w in assemble(plan).words])
+    load_program(state, [DecodedWord.from_word(w) for w in assemble(plan).words])
     assert header == trace_header(state)
     _, records = read_trace(trace)
     assert len(records) == result.cycles

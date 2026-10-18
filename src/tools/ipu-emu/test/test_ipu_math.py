@@ -19,6 +19,7 @@ import ml_dtypes
 import numpy as np
 import pytest
 
+from ipu_emu.errors import ConfigurationError
 from ipu_emu.ipu_math import (
     _float32_to_fp8_scalar,
     fp8_bytes_to_fp32,
@@ -324,3 +325,11 @@ def test_ml_dtypes_cross_check(dtype, ml_type):
     ours = fp8_bytes_to_fp32(bytes(codes), dtype)
     theirs = np.array(codes, dtype=np.uint8).view(ml_type).astype(np.float32)
     np.testing.assert_array_equal(ours.view(np.uint32), theirs.view(np.uint32))
+
+
+@pytest.mark.parametrize("dtype", [ElementFormat.INT8, ElementFormat.FP32])
+def test_a_non_fp8_format_is_rejected(dtype):
+    with pytest.raises(ConfigurationError, match="FP8"):
+        fp32_to_fp8_bytes(np.array([1.0], dtype=np.float32), dtype)
+    with pytest.raises(ConfigurationError, match="FP8"):
+        fp8_bytes_to_fp32(b"\x00", dtype)

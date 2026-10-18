@@ -45,14 +45,14 @@ import ipu_emu
 import ipu_isa
 from ipu_as.lark_tree import assemble
 from ipu_emu.emulator import load_program, run_until_complete
-from ipu_emu.execute import decode_instruction_word
 from ipu_emu.ipu_state import IpuState
+from ipu_isa.codec.word import DecodedWord
 
 for package in (ipu_isa, ipu_as, ipu_emu):
     assert package.__file__.startswith({{root!r}}), package.__file__
 state = IpuState()
 state.regfile.set_cr(2, 5)
-load_program(state, [decode_instruction_word(word) for word in assemble({PROGRAM!r})])
+load_program(state, [DecodedWord.from_word(word) for word in assemble({PROGRAM!r})])
 run_until_complete(state)
 print(state.regfile.get_lr(1))
 """
