@@ -109,8 +109,8 @@ nav:
       - Write a kernel: how-to/write-a-kernel.md
       - Add an instruction: how-to/add-an-instruction.md
       - Debug a kernel: how-to/debug-a-kernel.md
-      - Step through a kernel run: debugging-inspector.md
-      - Cycle Inspector: inspector/index.html               # the static viewer page
+      - Step through a kernel run: how-to/step-through-a-kernel-run.md
+      - Cycle Inspector: how-to/inspector/index.html             # the static viewer page
       - Use the reference model from cocotb: how-to/reference-model-cocotb.md
   - Reference:
       - reference/index.md
@@ -134,8 +134,8 @@ nav:
           - Normalization and shaping: kernels/normalization-and-shaping.md
           - Attention: kernels/attention.md
           - MobileViT-S: kernels/mobilevit.md
-      - Code conventions: code-conventions.md
-      - Code review: code-review.md
+      - Code conventions: reference/code-conventions.md
+      - Code review: reference/code-review.md
       - Glossary: reference/glossary.md
   - Explanation:
       - explanation/index.md

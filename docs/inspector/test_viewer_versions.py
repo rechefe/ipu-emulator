@@ -1,6 +1,6 @@
 """The Cycle Inspector page reads the versions the docs build writes (E08 final review).
 
-The page (docs/content/inspector/inspector.js) refuses a trace or kernel list
+The page (docs/content/how-to/inspector/inspector.js) refuses a trace or kernel list
 whose ``schemaVersion`` is not its own. Bumping a writer's version without the
 page, or back, would pass every other test and break the page.
 """
@@ -15,7 +15,7 @@ import pytest
 
 from ipu_gen import inspector_trace
 
-VIEWER = Path("docs/content/inspector/inspector.js").read_text(encoding="utf-8")
+VIEWER = Path("docs/content/how-to/inspector/inspector.js").read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize(

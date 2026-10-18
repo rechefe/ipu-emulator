@@ -215,6 +215,6 @@ The debugger also closes on a fault and prints this line.
 
 ## Look at a recorded run in the browser
 
-The [Cycle Inspector](../debugging-inspector.md) replays a recorded run cycle
+The [Cycle Inspector](step-through-a-kernel-run.md) replays a recorded run cycle
 by cycle, forward and back, with no terminal. It holds traces of a curated set
 of kernels, and explains how to record a trace of your own case.

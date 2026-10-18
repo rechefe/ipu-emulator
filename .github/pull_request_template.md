@@ -1,7 +1,7 @@
 <!--
 Fill in every section. What reviewers check, and what CI already checks:
-docs/content/code-review.md (https://rechefe.github.io/ipu-emulator/dev/code-review/).
-Code rules: docs/content/code-conventions.md.
+docs/content/reference/code-review.md (https://rechefe.github.io/ipu-emulator/dev/reference/code-review/).
+Code rules: docs/content/reference/code-conventions.md.
 -->
 
 ## What and why
@@ -13,7 +13,7 @@ Code rules: docs/content/code-conventions.md.
 - [ ] Docs / build / CI only
 
 ## Baselines
-<!-- Rule: docs/content/code-conventions.md, "Baselines". Regenerate with tools/update_baselines.sh. Tick one. -->
+<!-- Rule: docs/content/reference/code-conventions.md, "Baselines". Regenerate with tools/update_baselines.sh. Tick one. -->
 - [ ] No baseline file changed
 - [ ] Baselines changed: <!-- each file --> because <!-- one sentence per file -->
 

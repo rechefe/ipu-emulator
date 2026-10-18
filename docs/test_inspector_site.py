@@ -34,20 +34,20 @@ def _json(path: Path):
 
 
 def test_the_page_and_its_assets_are_there(site):
-    page = (site / "inspector" / "index.html").read_text(encoding="utf-8")
+    page = (site / "how-to" / "inspector" / "index.html").read_text(encoding="utf-8")
     assert "inspector.js" in page and "inspector.css" in page
-    assert (site / "inspector" / "inspector.js").is_file()
-    assert (site / "inspector" / "inspector.css").is_file()
+    assert (site / "how-to" / "inspector" / "inspector.js").is_file()
+    assert (site / "how-to" / "inspector" / "inspector.css").is_file()
 
 
 def test_the_page_makes_no_third_party_request(site):
     for name in ("index.html", "inspector.css", "inspector.js"):
-        text = (site / "inspector" / name).read_text(encoding="utf-8")
+        text = (site / "how-to" / "inspector" / name).read_text(encoding="utf-8")
         assert not re.search(r"https?://", text), f"{name} names an external URL"
 
 
 def test_every_listed_trace_exists_and_parses(site):
-    data = site / "inspector" / "data"
+    data = site / "how-to" / "inspector" / "data"
     kernels = _json(data / "kernels.json")["kernels"]
     assert kernels
     for entry in kernels:
@@ -57,10 +57,12 @@ def test_every_listed_trace_exists_and_parses(site):
 
 
 def test_the_isa_reference_is_there(site):
-    isa = _json(site / "inspector" / "data" / "isa.json")
+    isa = _json(site / "how-to" / "inspector" / "data" / "isa.json")
     assert isa["instructions"] and isa["slotOrder"]
 
 
 def test_the_intro_page_links_the_viewer(site):
-    page = (site / "debugging-inspector" / "index.html").read_text(encoding="utf-8")
+    page = (site / "how-to" / "step-through-a-kernel-run" / "index.html").read_text(
+        encoding="utf-8"
+    )
     assert "inspector/" in page

@@ -106,7 +106,7 @@ editor. The controls, from the debugger's own key table:
 
 The kernel runner records a case itself: `--trace` writes its trace (JSON
 Lines, the [trace schema](reference-model-api.md)), and `--context` adds the
-context the [Cycle Inspector](../debugging-inspector.md) needs beside it.
+context the [Cycle Inspector](../how-to/step-through-a-kernel-run.md) needs beside it.
 
 ```bash
 bazel run //kernels/reshape/identity -- --case single_row --trace "$PWD/trace.jsonl" --context "$PWD/context.json"

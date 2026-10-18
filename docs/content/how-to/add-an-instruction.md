@@ -121,7 +121,7 @@ instruction. Update them; the failing test names what it pins.
   instruction it rewrites nine files besides the conformance suite (whose
   every trace header names the ISA), among them the generated pages, the
   editor's data, the decoded field maps and the SystemVerilog golden. Commit
-  them with the reason, as the [Baselines](../code-conventions.md#baselines)
+  them with the reason, as the [Baselines](../reference/code-conventions.md#baselines)
   rule asks.
 - **Facts written by hand** are edited:
     - the record of every instruction, `src/tools/ipu-isa/test/baselines/spec_snapshot.json`;

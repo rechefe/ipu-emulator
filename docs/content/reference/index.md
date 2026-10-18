@@ -15,6 +15,6 @@ These pages are for looking things up: instructions, operands, commands and term
 | [Command-line tools](cli.md) | Every command-line tool (`ipu-as`, the kernel runner and the debugger), with its subcommands and options. |
 | [Reference model API](reference-model-api.md) | The stable emulator API and the trace schema. |
 | [Kernels](../kernels/index.md) | The kernel catalogue, by family. |
-| [Code conventions](../code-conventions.md) | How code in this repository is written, and what checks each rule. |
-| [Code review](../code-review.md) | What a PR author states and runs, and what reviewers check beyond CI. |
+| [Code conventions](code-conventions.md) | How code in this repository is written, and what checks each rule. |
+| [Code review](code-review.md) | What a PR author states and runs, and what reviewers check beyond CI. |
 | [Glossary](glossary.md) | The terms these docs use. |

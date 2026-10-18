@@ -12,9 +12,9 @@ filegroup(
         "content/**/*.svg",
         "content/**/*.csv",
         # The Cycle Inspector page (E08-17): static HTML, CSS and JS, no bundling (D9).
-        "content/inspector/*.html",
-        "content/inspector/*.css",
-        "content/inspector/*.js",
+        "content/how-to/inspector/*.html",
+        "content/how-to/inspector/*.css",
+        "content/how-to/inspector/*.js",
     ]),
     visibility = ["//visibility:public"],
 )
@@ -472,9 +472,9 @@ genrule(
 
         # The Cycle Inspector's data (E08-16): every curated trace, kernels.json
         # and isa.json, regenerated on each build, never checked in.
-        mkdir -p "$(@D)/docs_temp/content/inspector/data"
+        mkdir -p "$(@D)/docs_temp/content/how-to/inspector/data"
         for data in $(locations //docs/inspector:inspector_data); do \
-          dest="$(@D)/docs_temp/content/inspector/data/$$(basename "$$data")"; \
+          dest="$(@D)/docs_temp/content/how-to/inspector/data/$$(basename "$$data")"; \
           rm -f "$$dest"; \
           cp "$$ORIGDIR/$$data" "$$dest"; \
           chmod u+w "$$dest"; \

@@ -84,7 +84,7 @@ proj_qkv_144_p4/default/fp32: PASS  cycles=572006  MAC util=87.0%  y: max|err|=8
 
 The [Getting Started guide (PDF)](https://github.com/rechefe/ipu-emulator/releases/download/guide-latest/getting-started.pdf)
 is a printable introduction to the IPU, its assembly language and the emulator.
-Contributors read [Code conventions](../code-conventions.md) before writing code.
+Contributors read [Code conventions](../reference/code-conventions.md) before writing code.
 
 ## Other environments
 

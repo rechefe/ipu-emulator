@@ -14,7 +14,7 @@ from pathlib import Path
 
 SCRIPT = Path("tools/update_baselines.sh")
 
-#: The packages with baseline files (docs/content/code-conventions.md, "Baselines").
+#: The packages with baseline files (docs/content/reference/code-conventions.md, "Baselines").
 BASELINE_PACKAGES = (
     "src/tools/ipu-as",
     "src/tools/ipu-emu",

@@ -173,7 +173,7 @@ py_pytest_test(
 )
 
 # tools/update_baselines.sh runs every update_* target of the packages that
-# hold baselines (docs/content/code-conventions.md, "Baselines").
+# hold baselines (docs/content/reference/code-conventions.md, "Baselines").
 py_pytest_test(
     name = "test_update_baselines",
     size = "small",

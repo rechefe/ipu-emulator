@@ -43,7 +43,7 @@ Files that broke a complexity rule before the rules existed are listed under `[l
 
 | Rule | Why | Checked by |
 |---|---|---|
-| Two kinds of error. A hardware fault (F-1 to F-9, see [Faults](requirements/faults.md)) carries a fault ID and has an enable bit. A configuration error is raised at setup time only, never while a program runs. Both derive from `IpuError`. | Callers tell a faulting program from a wrong setup by type alone. | Review |
+| Two kinds of error. A hardware fault (F-1 to F-9, see [Faults](../requirements/faults.md)) carries a fault ID and has an enable bit. A configuration error is raised at setup time only, never while a program runs. Both derive from `IpuError`. | Callers tell a faulting program from a wrong setup by type alone. | Review |
 | No `assert` for input validation. Raise an exception. | `python -O` removes every `assert`. | Review |
 | No bare `except Exception: pass`. | It hides the fault the test or the user needs to see. | Review |
 
@@ -104,7 +104,7 @@ A baseline is a checked-in file that pins today's output. Its test fails on any 
 
 | Rule | Why | Checked by |
 |---|---|---|
-| Use the terms in the [Glossary](reference/glossary.md) (`GLOSSARY.md`). Avoid the alternatives it lists, in new code and in docs. | One name per concept; a different word makes a reader look for a different thing. | `//tools:test_glossary_adoption` for the hand-written docs (avoided terms outside code; counts in `tools/glossary_baseline.json` may only go down); review for code |
+| Use the terms in the [Glossary](glossary.md) (`GLOSSARY.md`). Avoid the alternatives it lists, in new code and in docs. | One name per concept; a different word makes a reader look for a different thing. | `//tools:test_glossary_adoption` for the hand-written docs (avoided terms outside code; counts in `tools/glossary_baseline.json` may only go down); review for code |
 | Architecture decisions live in [`docs/adr/`](https://github.com/rechefe/ipu-emulator/tree/master/docs/adr). Code does not contradict an accepted ADR; a change of decision is a new ADR. | Decisions stay findable and are not re-argued in every PR. | Review |
 
 ## Tooling

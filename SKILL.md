@@ -40,6 +40,6 @@ The rules agents must never break are in [CLAUDE.md](CLAUDE.md), under "Key Cons
 | Open questions | [requirements/open-questions.md](docs/content/requirements/open-questions.md) |
 | Terms | [GLOSSARY.md](GLOSSARY.md) |
 | Design decisions | [docs/adr/](docs/adr/) |
-| Code conventions | [code-conventions.md](docs/content/code-conventions.md) |
+| Code conventions | [code-conventions.md](docs/content/reference/code-conventions.md) |
 | Benchmarks (speed, memory, CI time) | [tools/bench/README.md](tools/bench/README.md) |
-| Open or review a PR | [code-review.md](docs/content/code-review.md), [PR template](.github/pull_request_template.md) |
+| Open or review a PR | [code-review.md](docs/content/reference/code-review.md), [PR template](.github/pull_request_template.md) |

@@ -7,7 +7,7 @@ instruction word, slot, commit record and harness are defined in the
 [glossary](../reference/glossary.md); the decisions behind the design are the
 [architecture decision records](https://github.com/rechefe/ipu-emulator/tree/master/docs/adr)
 in `docs/adr/`; the rules for writing code in these packages are the
-[code conventions](../code-conventions.md).
+[code conventions](../reference/code-conventions.md).
 
 ## Packages
 

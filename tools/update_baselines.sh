@@ -6,7 +6,7 @@
 #
 # Run it only in a behaviour-change PR, and commit only the baselines that PR
 # means to change, with one sentence of reason each (the rule is in
-# docs/content/code-conventions.md, "Baselines"). A refactor PR changes no
+# docs/content/reference/code-conventions.md, "Baselines"). A refactor PR changes no
 # baseline file. The timing tests have no baseline file: their expected values
 # are code, edited by hand. The *_WIDTH table in test_sv_package_golden.py is
 # also edited by hand. //tools:test_update_baselines checks that UPDATE_TARGETS

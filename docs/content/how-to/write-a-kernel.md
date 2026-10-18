@@ -247,7 +247,7 @@ When an output is wrong, run the failing case with `--debug`: the debugger
 stops before the first word, and you step through the program watching the
 registers, the accumulator and XMEM, with the source line of each word.
 [Debug a kernel](debug-a-kernel.md) walks through it, and the
-[Cycle Inspector](../debugging-inspector.md) shows a recorded run in the browser.
+[Cycle Inspector](step-through-a-kernel-run.md) shows a recorded run in the browser.
 
 ## 7. Choose a tolerance tier
 
