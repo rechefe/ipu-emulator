@@ -81,7 +81,7 @@ def _job(name, step, start, end, conclusion="success"):
 
 def test_ci_wall_time_from_job_list():
     jobs = [
-        _job("stacks", "other", "2026-10-16T02:00:00Z", "2026-10-16T02:01:00Z"),
+        _job("proto", "other", "2026-10-16T02:00:00Z", "2026-10-16T02:01:00Z"),
         _job(*ci_times.FULL[:2], "2026-10-16T02:10:00Z", "2026-10-16T02:40:30Z"),
     ]
     result = ci_times.wall_result(jobs, ci_times.FULL, "nightly run 1")

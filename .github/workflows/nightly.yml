@@ -5,10 +5,9 @@ name: Nightly
 # - `full`: every non-manual test (`--config=full`, including the `enormous`
 #   tier) exactly once, under coverage instrumentation. No disk cache, so every
 #   test really runs and a non-hermetic test cannot hide behind a cached result.
-#   Coverage is collected here only; ci.yml does not run `bazel coverage`.
-# - `stacks`: the `manual` MobileViT whole-model stacks (`test_full_*`), which
-#   take hours each and are never part of `//...` (IMPLEMENTATION-DECISIONS.md:
-#   they run in the nightly heavy tier instead of a weekly schedule).
+#   Coverage is collected here only; ci.yml does not run `bazel coverage`. The
+#   MobileViT full-layer chains (`//kernels/mobilevit:tests_nightly`, size
+#   `enormous`) run here, so they need no job of their own.
 # - `proto`: the heavy tier (the `enormous` tests) again in prototyping mode
 #   (`--config=proto`, E02-08). The default tier already runs in that mode on
 #   every pull request (ci.yml `proto`), so only the heavy tier is repeated.
@@ -131,60 +130,6 @@ jobs:
             ~/.cache/bazel-repo
             ~/.cache/bazelisk
           key: bazel-repo-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'MODULE.bazel.lock', 'requirements_lock.txt') }}
-
-  stacks:
-    runs-on: ubuntu-latest
-    # GitHub's limit for one job is 6 hours.
-    timeout-minutes: 350
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Install toolchain
-        run: ./tools/bootstrap.sh
-
-      - name: Restore repository cache
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: |
-            ~/.cache/bazel-repo
-            ~/.cache/bazelisk
-          key: bazel-repo-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'MODULE.bazel.lock', 'requirements_lock.txt') }}
-
-      # `manual` targets are skipped by `//...`, so they are named explicitly.
-      # They run in parallel; the per-test timeout stays inside the job limit.
-      - name: Run the MobileViT whole-model stacks
-        shell: bash
-        run: |
-          set -o pipefail
-          mapfile -t targets < <(bazel query --repository_cache=~/.cache/bazel-repo \
-            'attr(name, "^test_full_", tests(//...))')
-          test "${#targets[@]}" -gt 0 || { echo "::error::no test_full_* targets found"; exit 1; }
-          printf 'Running %s\n' "${targets[@]}"
-          bazel test --config=full --repository_cache=~/.cache/bazel-repo \
-            --test_timeout=19800 "${targets[@]}" 2>&1 | tee "$RUNNER_TEMP/bazel.log"
-
-      - name: List failed targets
-        if: failure()
-        shell: bash
-        run: |
-          grep -E '^//[^ ]+ +.*(FAILED|TIMEOUT|NO STATUS|INCOMPLETE|FAILED TO BUILD)' \
-            "$RUNNER_TEMP/bazel.log" > failed-targets-stacks.txt \
-            || echo "(no failed test target in the log: the build failed or the job timed out; see the run)" \
-               > failed-targets-stacks.txt
-          cat failed-targets-stacks.txt
-
-      - name: Upload failed targets and test logs
-        if: failure()
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
-        with:
-          name: failed-stacks
-          path: |
-            failed-targets-stacks.txt
-            bazel-testlogs/**/test.log
-            bazel-testlogs/**/test.xml
-          retention-days: 14
-          if-no-files-found: ignore
 
   proto:
     runs-on: ubuntu-latest
@@ -332,7 +277,7 @@ jobs:
           summary-always: true
 
   report:
-    needs: [full, stacks, proto]
+    needs: [full, proto]
     if: always() && (github.event_name == 'schedule' || inputs.report_issue)
     runs-on: ubuntu-latest
     permissions:
@@ -340,7 +285,7 @@ jobs:
       issues: write
     steps:
       - name: Download failed-target lists
-        if: needs.full.result != 'success' || needs.stacks.result != 'success' || needs.proto.result != 'success'
+        if: needs.full.result != 'success' || needs.proto.result != 'success'
         uses: actions/download-artifact@v5
         with:
           pattern: failed-*
@@ -353,7 +298,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           FULL: ${{ needs.full.result }}
-          STACKS: ${{ needs.stacks.result }}
           PROTO: ${{ needs.proto.result }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         shell: bash
@@ -361,7 +305,7 @@ jobs:
           title="Nightly failure"
           number=$(gh issue list --state open --label nightly --search "\"$title\" in:title" \
                      --json number,title --jq ".[] | select(.title == \"$title\") | .number" | head -n1)
-          if [ "$FULL" = success ] && [ "$STACKS" = success ] && [ "$PROTO" = success ]; then
+          if [ "$FULL" = success ] && [ "$PROTO" = success ]; then
             if [ -n "$number" ]; then
               gh issue close "$number" --comment "Fixed: nightly run $RUN_URL passed."
             fi
@@ -373,7 +317,6 @@ jobs:
             echo "| Job | Result |"
             echo "|---|---|"
             echo "| full (every non-manual test, with coverage) | $FULL |"
-            echo "| stacks (\`test_full_*\`) | $STACKS |"
             echo "| proto (heavy tier, \`--config=proto\`) | $PROTO |"
             echo
             echo "Failed targets:"
