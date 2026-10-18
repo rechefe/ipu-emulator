@@ -1,5 +1,4 @@
-"""The full Layer 4 layer in the packed layout on one ``Chain`` (E07-24, from
-the old harness's ``test/mobilevit/test_full_layer_l4_packed.py``): 192
+"""The full Layer 4 layer in the packed layout on one ``Chain`` (E07-24): 192
 channels, 64 tokens, 2 channels a packed row, 4 heads of 48.
 
     packed LayerNorm -> QKV -> unpack -> attention -> pack -> OutProj

@@ -1,5 +1,4 @@
-"""Profiling keeps every kernel case's results and accounting (moved from
-ipu-apps, E07-25).
+"""Profiling keeps every kernel case's results and accounting (E07-25).
 
 Every case of every kernel of the tree runs twice in its first format, plain
 and with an alias profile (``RunOptions(alias_profile=True)``): the two runs

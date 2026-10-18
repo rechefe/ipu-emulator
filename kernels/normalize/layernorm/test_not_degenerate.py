@@ -1,6 +1,5 @@
-"""LayerNorm outputs that a broken kernel could not produce (was the old
-``normalize/cases.py`` ``check_not_degenerate``, applied to layernorm_16x240
-only; it holds for every entry, so each one runs it on its own data).
+"""LayerNorm outputs that a broken kernel could not produce (every entry runs
+the checks on its own data).
 
 The golden comparison alone passes a kernel whose output matches a reference
 that is itself trivial on the data; these checks fail a constant output, a

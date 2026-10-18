@@ -26,20 +26,7 @@ from ipu_harness.params import plan_case
 from ipu_harness.registry import default_registry
 from ipu_harness.runner import run_kernel
 from ipu_isa.formats import ElementFormat
-from ipu_kernels.reference.datapath import acc_fold, agg_fold
-
-
-def acc_mirror(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    """``a @ b`` as the ACC datapath rounds it, batched over leading axes."""
-    a3, b3 = a.reshape(-1, *a.shape[-2:]), b.reshape(-1, *b.shape[-2:])
-    return acc_fold(np.swapaxes(b3, -1, -2), a3).reshape(*a.shape[:-1], b.shape[-1])
-
-
-def agg_mirror(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    """``a @ b^T`` as the AGG datapath rounds it: ``P = b`` ``[.., i, s]``, ``V = a`` ``[.., t, s]``."""
-    a3, b3 = a.reshape(-1, *a.shape[-2:]), b.reshape(-1, *b.shape[-2:])
-    return agg_fold(b3, a3).reshape(*a.shape[:-1], b.shape[-2])
-
+from ipu_kernels.reference.datapath import acc_mirror, agg_mirror
 
 #: Each kernel's datapath mirror.
 KERNELS = {

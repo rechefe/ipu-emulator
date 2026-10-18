@@ -4,8 +4,7 @@
 with ``in_features <= 128``, out as one XMEM row per input feature: row ``i``
 holds column ``i`` of ``w`` in its first ``out_features`` lanes, zeros after.
 ``fully_connected`` loads row ``i`` into R_CYCLIC and multiplies it by input
-element ``i``, so the accumulator collects ``y[s, :] = w @ x[s, :]``. It is
-what the old harness's ``_load_and_transpose_weights`` wrote.
+element ``i``, so the accumulator collects ``y[s, :] = w @ x[s, :]``.
 """
 
 import numpy as np

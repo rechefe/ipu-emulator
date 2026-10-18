@@ -9,10 +9,10 @@
 op = "conv2d"
 formats = ["fp32"]
 
-# Declared in the old supports' order (conv_universal/app.py): the extents,
-# then kernel_size, dilation, padding, stride, groups, apply_relu, has_bias,
-# and width last, as its 128 ceiling was the last check, so a refusal names
-# the parameter it named (only width's lower bound, an extent, moves later).
+# Declared in the order the refusals check them: the extents, then
+# kernel_size, dilation, padding, stride, groups, apply_relu, has_bias, and
+# width last, so its 128 ceiling is the last check and a refusal names the
+# first parameter out of range.
 [params]
 in_channels  = { type = "int", min = 1, query_required = true }
 out_channels = { type = "int", min = 1, query_required = true }
@@ -93,7 +93,7 @@ tolerance = { fp32 = "FP32_LONG" }
 # patterns gen.py makes. A sweep point of one value per axis is named
 # <case>[in_channels=..,...,width=..], its old sweep id.
 
-[cases.default]  # both twins' cases.py DEFAULTS
+[cases.default]  # the default shape every entry shares
 in_channels = 16
 out_channels = 4
 height = 16
@@ -277,8 +277,7 @@ groups = 1
 has_bias = true
 apply_relu = true
 
-# The two old benchmark.py CONFIGS (10 and 9 points), as one list: each
-# entry times all 11 (max_cycles was MAX_CYCLES).
+# The benchmark points, 11 shapes; each entry times all of them.
 [benchmark]
 max_cycles = 50_000_000
 points = [

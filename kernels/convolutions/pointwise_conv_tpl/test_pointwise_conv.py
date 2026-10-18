@@ -1,5 +1,4 @@
-"""What the old cases checked beyond the tolerance (convolutions/cases.py,
-conv2d_case's ``check``): with ReLU a negative bias over zero weights writes
+"""Checks beyond the tolerance: with ReLU a negative bias over zero weights writes
 exact zeros; the bias + ReLU twin asked without a bias ignores ``b``; and the
 bias kernel (E07-20) writes a negative bias as it is. Each runs the template's
 case at the entry's fixed values."""

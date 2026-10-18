@@ -23,8 +23,7 @@ params = { tokens = 256, channels = 144, per_row = 1 }
 doc = "Layer 3: 144 channels x 256 tokens, two rows per channel"
 
 # The MobileViT packed residual adds (E07-23): per_row channels side by side
-# in a row, the same program (the old test/mobilevit/asm_packed_residual_add_*
-# binaries were this one, c52075db).
+# in a row, the same program as the entries above.
 
 [[kernel]]
 name = "packed_residual_add_192x64"

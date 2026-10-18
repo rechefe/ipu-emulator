@@ -1,7 +1,6 @@
 {#- ==========================================================================
     packed_pack.asm -- one channel per row -> the MobileViT packed layout, FP32.
-    The template of packed_pack_{192x64,240x16} (../registry.toml, E07-23),
-    the old test/mobilevit/asm_packed_pack_<shape>.asm programs (E02 digests).
+    The template of packed_pack_{192x64,240x16} (../registry.toml, E07-23).
 
     PACK = 128 // tokens channels share a packed row: channel c's tokens land
     at row c // PACK, lanes (c % PACK) * tokens on. The notes below give the

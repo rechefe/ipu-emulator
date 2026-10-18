@@ -7,8 +7,7 @@ rows per table, phases ``8 * a + b`` in lanes 0..63. Shared mode has one table
 for every cell; stock mode one per cell, ``K[i, j]`` from SuperPoint's
 ``align_corners=True`` grid. ``ky`` and ``kx`` are
 ``sample_descriptors_separable``'s per-axis tables: one row per coarse row
-(column), ``[tap, phase]`` in lanes 0..23. The arithmetic is the old
-``sampling/cases.py``'s, in FP32.
+(column), ``[tap, phase]`` in lanes 0..23, computed in FP32.
 """
 
 import numpy as np

@@ -1,8 +1,7 @@
 {#- ==========================================================================
     packed_layernorm.asm -- LayerNorm over the channels, per token, in the
     MobileViT packed layout, FP32. The template of
-    packed_layernorm_{192x64,240x16} (../registry.toml, E07-23), the old
-    test/mobilevit/asm_packed_layernorm_<shape>.asm programs (E02 digests).
+    packed_layernorm_{192x64,240x16} (../registry.toml, E07-23).
 
     y[ch, t] = gamma[ch] * (x[ch, t] - mu[t]) * rsqrt(var[t]) + beta[ch], no eps
     (Q57): mu and var reduce over the channels.

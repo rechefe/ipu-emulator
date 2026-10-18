@@ -55,7 +55,7 @@ complete   = "CR12"
 op = "maxpool2d"
 tolerance = { fp32 = "EXACT" }
 
-# The legacy benchmark.py CONFIGS and MAX_CYCLES (bazel run
+# The benchmark points and cycle limit (bazel run
 # :maxpool2d_stride2_tail -- --benchmark).
 [benchmark]
 points = [

@@ -16,9 +16,9 @@ contracted over ``s``:
 * :func:`acc_fold`, ``MULT.RC.VE`` + ``ACC.ADD[.FIRST]``: a float32 running
   sum per lane, rounded at every step.
 
-Copied from the old harness's attention ``cases.py``, then fixed (E07-13): the
-old ``agg_fold`` rounded a later chunk's fold before ``AGG.SUM`` added it,
-which its ``rtol = 1e-6`` check hid. The old copy went with the attention shim.
+:func:`agg_fold` adds a later chunk's fold to the partial unrounded, as
+``AGG.SUM`` does (E07-13); rounding it first is a bug an ``rtol = 1e-6`` check
+hides.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ import numpy as np
 
 from ipu_isa.geometry import LANES
 
-__all__ = ["acc_fold", "agg_fold"]
+__all__ = ["acc_fold", "acc_mirror", "agg_fold", "agg_mirror"]
 
 
 def agg_fold(P: np.ndarray, V: np.ndarray) -> np.ndarray:
@@ -90,3 +90,24 @@ def acc_fold(P: np.ndarray, V: np.ndarray) -> np.ndarray:
     if acc is None:
         raise ValueError("acc_fold: an empty contraction (no s)")
     return acc
+
+
+def acc_mirror(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """``a @ b`` as the ACC datapath rounds it, batched over leading axes.
+
+    ``a`` is ``[..., rows, k]`` and ``b`` ``[..., k, lanes]``: lane ``l`` of row
+    ``r`` folds ``b[c, l] * a[r, c]`` over ``c``, i.e. :func:`acc_fold` with
+    ``P = b`` transposed and ``V = a`` (the score kernels, ``attn_v_bcast_*``).
+    """
+    a3, b3 = a.reshape(-1, *a.shape[-2:]), b.reshape(-1, *b.shape[-2:])
+    return acc_fold(np.swapaxes(b3, -1, -2), a3).reshape(*a.shape[:-1], b.shape[-1])
+
+
+def agg_mirror(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """``a @ b^T`` as the AGG datapath rounds it, batched over leading axes.
+
+    ``b`` is P ``[..., i, s]`` and ``a`` is V ``[..., t, s]``:
+    :func:`agg_fold` ``(P = b, V = a)`` (``attn_v_*``).
+    """
+    a3, b3 = a.reshape(-1, *a.shape[-2:]), b.reshape(-1, *b.shape[-2:])
+    return agg_fold(b3, a3).reshape(*a.shape[:-1], b.shape[-2])

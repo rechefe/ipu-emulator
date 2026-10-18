@@ -1,14 +1,13 @@
-"""The old matmul cases' data (E07-07, E07-08), shared by the family.
+"""The matmul cases' data (E07-07, E07-08), shared by the family.
 
-``legacy_uniform`` draws as the old ``matmul/cases.py`` did: from
-``RandomState(seed)``, A ``(tokens, k)`` then W ``(n, k)``, uniform in
-``[-1, 1)``, FP32, so the migration's outputs compare bit for bit with the old
-harness's. A template lays them out as its tensors take them.
+``legacy_uniform`` draws from ``RandomState(SEED)``, A ``(tokens, k)`` then W
+``(n, k)``, uniform in ``[-1, 1)``, FP32, so the outputs match the recorded
+ones bit for bit. A template lays them out as its tensors take them.
 """
 
 import numpy as np
 
-#: The old default case's seed.
+#: The default case's seed.
 SEED = 0
 
 

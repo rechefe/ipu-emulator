@@ -1,16 +1,15 @@
 """Benchmarks: a kernel timed at the sizes its ``[benchmark]`` lists (E06-11).
 
-``[benchmark] points`` replaces a legacy ``benchmark.py``'s ``CONFIGS``: each
-point is a set of parameter values over the default case's, run once per
-format through :func:`ipu_harness.runner.run_kernel`, with an alias profile,
-and held to its golden like any case, so a benchmark cannot report a fast
-wrong answer (so a ``[benchmark]`` needs a reference or op: a point's shapes
-are its own, so no expected file fits it). ``per`` (``PER``) adds a
-cycles-per column and ``max_cycles`` (``MAX_CYCLES``) sets the limit (the
-model's by default). A point that is wrong for one of the formats asked for
-stops the run with its error.
+Each of ``[benchmark] points`` is a set of parameter values over the default
+case's, run once per format through :func:`ipu_harness.runner.run_kernel`,
+with an alias profile, and held to its golden like any case, so a benchmark
+cannot report a fast wrong answer (so a ``[benchmark]`` needs a reference or
+op: a point's shapes are its own, so no expected file fits it). ``per`` adds a
+cycles-per column and ``max_cycles`` sets the limit (the model's by default).
+A point that is wrong for one of the formats asked for stops the run with its
+error.
 
-The report has the legacy columns: cycles, ``cyc/<per>``, the MULT and ACC
+The report's columns: cycles, ``cyc/<per>``, the MULT and ACC
 slots' busy cycles, the multiplier lanes that carried data, the part of those
 that multiplied by a constant 1 (data routing, not MACs) and the peak MACs
 retired, from the model's statistics (reference-model API 1.1.0); then the ISA

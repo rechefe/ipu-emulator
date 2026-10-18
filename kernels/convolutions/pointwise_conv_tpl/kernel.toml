@@ -8,9 +8,9 @@
 op = "conv2d"
 formats = ["fp32"]
 
-# Declared in the old supports' order (pointwise_conv_unified/app.py): height,
-# then kernel_size, dilation, padding, stride, groups, the channel multiples,
-# width, apply_relu and has_bias, so a refusal names the parameter it named.
+# Declared in the order the refusals check them: height, then kernel_size,
+# dilation, padding, stride, groups, the channel multiples, width, apply_relu
+# and has_bias, so a refusal names the first parameter out of range.
 [params]
 height       = { type = "int", min = 1, query_required = true }
 kernel_size  = { type = "int", choices = [1], query_required = true }
@@ -110,7 +110,7 @@ tolerance = { fp32 = "FP32_LONG" }
 # A sweep point of one value
 # per axis is named <case>[in_channels=..,...,width=..], its old sweep id.
 
-[cases.default]  # both twins' cases.py DEFAULTS
+[cases.default]  # the default shape every entry shares
 in_channels = 16
 out_channels = 8
 height = 16
@@ -241,7 +241,7 @@ groups = 1
 has_bias = true
 apply_relu = true
 
-# The two old benchmark.py CONFIGS (the same 8 points; max_cycles was MAX_CYCLES).
+# The benchmark points, 8 shapes.
 [benchmark]
 max_cycles = 200_000_000
 points = [

@@ -23,8 +23,7 @@ params = { h = 32, w = 32, c_a = 96, c_b = 96 }
 doc = "Layer 3: 96 + 96 -> 192 channels"
 
 # The MobileViT packed layout's seams (E07-23): packed_pack and packed_unpack,
-# one entry per layer shape, each rendering the old
-# test/mobilevit/asm_packed_{pack,unpack}_<shape>.asm binary.
+# one entry per layer shape.
 
 [[kernel]]
 name = "packed_pack_192x64"

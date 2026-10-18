@@ -2,10 +2,9 @@
     fully_connected.asm -- a fully connected layer: y[s, :] = w @ x[s, :]
 
     10 samples of 128 inputs, 64 outputs; the shapes are fixed by the loops
-    (kernel.toml's samples, in_features, out_features). It began as a port
-    of the C harness fully_connected.c. The same program runs in INT8, INT32
-    (the emulator-only wide-integer format: INT8 data in 32-bit elements, the
-    old harness's wide_mode) and E4/E5; only the CR values differ, because a
+    (kernel.toml's samples, in_features, out_features). The same program runs
+    in INT8, INT32 (the emulator-only wide-integer format: INT8 data in 32-bit
+    elements) and E4/E5; only the CR values differ, because a
     row is 128 bytes in an 8-bit format and 512 bytes in INT32.
 
     Data layout (rows; the regions sit at the old harness's byte addresses,

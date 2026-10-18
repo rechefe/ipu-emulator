@@ -1,11 +1,11 @@
 """Case generators shared by the projections' templates (E07-02).
 
-``legacy_uniform`` keeps the old cases' data (``cases.py``) in FP32,
-so the FP32 outputs compare bit for bit with the old harness's (E02 digests).
+``legacy_uniform`` draws each case's data in FP32 from its seed, so the FP32
+outputs match the recorded ones bit for bit.
 In every other format it makes nothing, and the harness's default generator
 fills the inputs from their ``range`` (E07-03): the legacy data, uniform in
 [-1, 1), would round to {-1, 0, 1} in INT8. ``weight_rows`` is the
-weight-pointer check that the old harness's slow ``test.py`` test ran.
+weight-pointer check.
 ``window_mask`` is the packed linear's R_MASK row (E07-23).
 """
 

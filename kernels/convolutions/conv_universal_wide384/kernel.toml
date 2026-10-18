@@ -144,7 +144,7 @@ groups = 1
 has_bias = false
 apply_relu = false
 
-# The old benchmark.py CONFIGS.
+# The benchmark points.
 [benchmark]
 max_cycles = 50_000_000
 points = [

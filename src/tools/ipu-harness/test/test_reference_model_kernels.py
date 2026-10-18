@@ -1,5 +1,5 @@
 """The reference-model API (E04-30) runs kernels as ``run_until_complete``
-does (moved from ipu-apps, E07-25).
+does (E07-25).
 
 Each kernel's default case is staged on a ``ReferenceModel`` by the harness
 (everything ``run_kernel`` does before the run), copied into an emulator

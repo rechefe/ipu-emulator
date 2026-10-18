@@ -70,8 +70,8 @@ slot1          = "CR14"
 reference = "reference.py:reference"                   # filters split, then the shared conv2d
 tolerance = { fp32 = "FP32_ORDER" }               # measured: max |err| 2.4e-6 over the cases
 
-# The old case's shape (conv_first_layer/cases.py); the data is the harness's
-# seeded per-tensor streams (E06-08).
+# The first layer's shape, 3x256x256 to 16 channels at stride 2; the data is
+# the harness's seeded per-tensor streams (E06-08).
 [cases.default]
 in_channels = 3
 out_channels = 16
@@ -85,7 +85,7 @@ apply_relu = true
 height = 256
 width = 256
 
-# The old benchmark.py: the default case, one run.
+# The benchmark: the default case, one run.
 [benchmark]
 points = [{}]
 max_cycles = 50_000_000

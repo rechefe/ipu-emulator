@@ -17,9 +17,9 @@ formats = ["fp32"]
 # cost would be a tie, an error).
 cost = 1
 
-# Declared in the old supports' order (depthwise_conv_universal/app.py): the
-# extents, then kernel_size, dilation, padding, stride, groups, apply_relu,
-# has_bias, and width last.
+# Declared in the order the refusals check them: the extents, then
+# kernel_size, dilation, padding, stride, groups, apply_relu, has_bias, and
+# width last.
 [params]
 in_channels  = { type = "int", min = 1, query_required = true }
 out_channels = { type = "int", min = 1, query_required = true }               # = in_channels ([derived] checks)
@@ -110,7 +110,7 @@ tolerance = { fp32 = "FP32_ORDER" }
 # negative_bias, whose patterns gen.py makes. The old sweep
 # points were named channels=..,height=..,width=..; here c<channels>_<h>[x<w>].
 
-[cases.default]  # both twins' cases.py DEFAULTS
+[cases.default]  # the default shape every entry shares
 in_channels = 4
 out_channels = 4
 height = 16
@@ -322,8 +322,8 @@ has_bias = true
 apply_relu = true
 fpb = 25
 
-# The two old benchmark.py CONFIGS (10 points each, 7 shared) as one list of
-# 13: each entry times all 13 (per was PER = "channels"; max_cycles MAX_CYCLES).
+# The benchmark points, 13 shapes; each entry times all of them, cycles
+# reported per channel.
 [benchmark]
 per = "in_channels"
 max_cycles = 50_000_000

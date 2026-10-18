@@ -1,5 +1,4 @@
-"""What the old cases checked beyond the tolerance (convolutions/cases.py,
-conv2d_case's ``check``): without ReLU a negative sum stays negative; with
+"""Checks beyond the tolerance: without ReLU a negative sum stays negative; with
 ReLU a negative bias over zero weights writes exact zeros; and a seeded
 program asked without a bias ignores the bias column; and the bias kernel
 (E07-20) writes a negative sum and a negative bias as they are. Each runs the

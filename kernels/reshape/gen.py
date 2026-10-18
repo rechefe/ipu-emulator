@@ -1,9 +1,8 @@
 """The reshape family's case data (E07-05), shared by the fold and unfold
 kernels, and the packed seams' R_MASK row (E07-23).
 
-Each kernel's default case keeps the old data: a ``[c, h, w]``
-tensor from ``RandomState(seed)``, uniform in [-1, 1), in FP32
-(``reshape/cases.py:spatial_tensor``), with the old seed per kernel.
+Each kernel's default case draws a ``[c, h, w]`` tensor from
+``RandomState(seed)``, uniform in [-1, 1), in FP32, with the kernel's seed.
 """
 
 import numpy as np
@@ -11,7 +10,7 @@ import numpy as np
 from ipu_isa.formats import FORMATS
 from ipu_kernels.pack import r_mask
 
-#: Each kernel's old seed.
+#: Each kernel's seed.
 SEEDS = {
     "unfold_8x8x240": 0x058,
     "unfold_16x16x192": 0x016,

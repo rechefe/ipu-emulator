@@ -1,8 +1,7 @@
 {#- ==========================================================================
     packed_unpack.asm -- the MobileViT packed layout -> one channel per row,
     FP32. The template of packed_unpack_{192x64,240x16} (../registry.toml,
-    E07-23), the old test/mobilevit/asm_packed_unpack_<shape>.asm programs
-    (E02 digests).
+    E07-23).
 
     An attention-seam converter: the scores, softmax and attn.V kernels stay
     unpacked (the scores have no channel axis), so a packed producer's output

@@ -25,8 +25,7 @@ def first_layer_mask(plan: CasePlan) -> bytes:
 
 
 def border_mask(plan: CasePlan) -> bytes:
-    """The universal 3x3 kernels' R_MASK blob (E07-17; ``build_border_mask_blob``
-    in the old family ``app.py``). ``128 // cols`` packed spatial rows share
+    """The universal 3x3 kernels' R_MASK blob (E07-17). ``128 // cols`` packed spatial rows share
     the 128 lanes. Slot 0 keeps every lane (interior taps), slot 3 zeros packed
     row 0 (the top border's kr = -1 taps), slot 6 zeros the last packed row (the
     bottom border's kr = +1 taps); left and right edges are mask shifts, not

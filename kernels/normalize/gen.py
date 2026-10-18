@@ -1,13 +1,11 @@
 """The normalize family's case data (E07-10): each kernel's old values, and the
 packed LayerNorm's R_MASK rows (E07-23).
 
-Each layernorm entry drew x, gamma and beta from ``numpy.random.RandomState``
-with its own seed and recipe (the old ``normalize/cases.py``), over
-``(channels, groups, tokens per group)``; keeping them keeps the outputs equal
-to the old ones. ``l2_normalize_channels`` drew x from ``default_rng(7)``
-(``case_support.random_values``) and zeroed column 0, so every case has an
-all-zero column. The packed LayerNorms keep ``test_packed_layernorm_*.py``'s
-``RandomState(11)`` data.
+Each layernorm entry draws x, gamma and beta from ``numpy.random.RandomState``
+with its own seed and recipe, over ``(channels, groups, tokens per group)``,
+so the outputs match the recorded ones. ``l2_normalize_channels`` draws x
+standard normal from ``default_rng(7)`` and zeroes column 0, so every case has
+an all-zero column. The packed LayerNorms draw from ``RandomState(11)``.
 """
 
 import numpy as np

@@ -1,5 +1,4 @@
-"""The full Layer 5 layer in the packed layout on one ``Chain`` (E07-24, from
-the old harness's ``test/mobilevit/test_full_layer_l5_packed.py``): 240
+"""The full Layer 5 layer in the packed layout on one ``Chain`` (E07-24): 240
 channels, 16 tokens, 8 channels a packed row, 4 heads of 60.
 
     packed LayerNorm -> QKV -> unpack -> attention -> pack -> OutProj

@@ -1,15 +1,14 @@
 """The elementwise family's case data (E07-06), shared by the residual_add_rows entries.
 
-Each entry's default case keeps the old data: ``RandomState(seed)`` with the
-entry's old seed, ``a`` then ``b``, uniform in [-bound, bound) in FP32 over the
-logical ``(channels, tokens)`` tensor, laid out ``per_row`` channels a row. The
-bound is 1 for the old kernels and 3 for the packed entries (the old
-``test/mobilevit/test_packed_residual_add_*.py``, E07-23).
+Each entry's default case draws ``RandomState(seed)`` with the entry's seed,
+``a`` then ``b``, uniform in [-bound, bound) in FP32 over the logical
+``(channels, tokens)`` tensor, laid out ``per_row`` channels a row. The bound
+is 1 for the unpacked entries and 3 for the packed ones (E07-23).
 """
 
 import numpy as np
 
-#: Each kernel's old seed (the template's own default case takes 0).
+#: Each entry's seed (the template's own default case takes 0).
 SEEDS = {
     "residual_add_16x240": 0x5ADD,
     "residual_add_64x192": 0x64192,
@@ -18,7 +17,7 @@ SEEDS = {
     "packed_residual_add_240x16": 7,
 }
 
-#: Each kernel's old bound, where it is not 1.
+#: Each entry's bound, where it is not 1.
 BOUNDS = {
     "packed_residual_add_192x64": 3.0,
     "packed_residual_add_240x16": 3.0,

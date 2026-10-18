@@ -6,8 +6,7 @@ the kernels' ``ST.AAQ`` rows: grouped channel-major, row ``(p, tg, j)`` at
 ``p * n_tg * n_out + tg * n_out + j``, the first ``n_tok`` lanes valid. On
 unpack the lanes past ``n_tok`` (what the store leaves there) are dropped.
 That is the row-major default over the logical shape; it is named here so
-``kernel.toml`` says what the store writes, as the old harness's ``teardown`` and
-``read_output`` did.
+``kernel.toml`` says what the store writes.
 """
 
 import math

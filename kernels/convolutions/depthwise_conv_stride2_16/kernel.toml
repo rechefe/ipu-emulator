@@ -148,7 +148,7 @@ stride = 2
 has_bias = false
 apply_relu = false
 
-# The old benchmark.py CONFIGS (per channel).
+# The benchmark points (cycles reported per channel).
 [benchmark]
 per = "in_channels"
 max_cycles = 50_000_000

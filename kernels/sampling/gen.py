@@ -1,13 +1,12 @@
-"""The old sampling cases' data (E07-15), shared by both kernels.
+"""The sampling cases' data (E07-15), shared by both kernels.
 
-``x`` is drawn as the old ``sampling/cases.py`` did: uniform in
-``[-amplitude, amplitude)`` from ``default_rng(31)``, in FP32, so the
-migration's outputs compare bit for bit with the old harness's.
+``x`` is uniform in ``[-amplitude, amplitude)`` from ``default_rng(31)``, in
+FP32, so the outputs match the recorded ones bit for bit.
 """
 
 import numpy as np
 
-#: The old cases' seed.
+#: The cases' seed.
 SEED = 31
 
 

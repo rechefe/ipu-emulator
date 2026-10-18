@@ -147,8 +147,7 @@ def test_a_profiled_run_equals_a_plain_one(scale, fmt):
     np.testing.assert_array_equal(profiled.outputs["y"], plain.outputs["y"])
 
 
-# The terminal hand-over under `bazel run` of a test target (moved from the old
-# harness's test_bazel_entry.py, E07-25).
+# The terminal hand-over under `bazel run` of a test target (E07-25).
 
 
 class _Stream:
@@ -227,8 +226,7 @@ def test_a_debug_launch_without_a_terminal_is_refused_before_the_run(monkeypatch
 
 def test_relative_paths_follow_the_bazel_run_directory(scale, monkeypatch, tmp_path):
     """``bazel run`` executes in the runfiles; a relative ``--output`` or
-    ``--alias-report`` lands where the user ran the command (moved from the
-    old harness's test_harness_factory.py, E07-25)."""
+    ``--alias-report`` lands where the user ran the command (E07-25)."""
     caller = tmp_path / "caller"
     caller.mkdir()
     monkeypatch.setenv("BUILD_WORKING_DIRECTORY", str(caller))

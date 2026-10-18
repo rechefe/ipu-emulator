@@ -44,7 +44,7 @@ from ipu_harness.registry import default_registry
 from ipu_isa.formats import ElementFormat
 from ipu_isa.geometry import LANES
 from ipu_kernels.reference import ops
-from ipu_kernels.reference.datapath import acc_fold, agg_fold
+from ipu_kernels.reference.datapath import acc_mirror, agg_mirror
 
 FP32 = ElementFormat.FP32
 POISON = 1e3
@@ -157,18 +157,6 @@ def weights(
 
 
 # -- chain plumbing --------------------------------------------------------------
-
-
-def acc_mirror(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    """``a @ b`` as the ACC datapath rounds it (the score kernels, ``attn_v_bcast_*``)."""
-    a3, b3 = a.reshape(-1, *a.shape[-2:]), b.reshape(-1, *b.shape[-2:])
-    return acc_fold(np.swapaxes(b3, -1, -2), a3).reshape(*a.shape[:-1], b.shape[-1])
-
-
-def agg_mirror(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    """``a @ b^T`` as the AGG datapath rounds it (``attn_v_*``: ``b`` = P, ``a`` = V)."""
-    a3, b3 = a.reshape(-1, *a.shape[-2:]), b.reshape(-1, *b.shape[-2:])
-    return agg_fold(b3, a3).reshape(*a.shape[:-1], b.shape[-2])
 
 
 def fixed(name: str) -> dict:

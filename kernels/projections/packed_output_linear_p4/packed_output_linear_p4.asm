@@ -2,12 +2,9 @@
     packed_output_linear_p4.asm -- one packed output row of a projection,
     y = activation(a @ b), in the MobileViT packed layout at tokens = 64, FP32.
     The template of packed_output_linear{,_silu}_192 (../registry.toml,
-    E07-23): activation none renders the old
-    test/mobilevit/asm_packed_output_linear_generic_p4.asm, silu the old
-    asm_packed_output_linear_silu_p4.asm (they differed only in the final
-    ACTIVATE.QUANTIZE); E02 digests at k = 192 and 768. chunk_widths, which the
-    old program took as a define, is computed here from k: 128 a weight-chunk,
-    the last one k % 128.
+    E07-23): the activation selects the final ACTIVATE.QUANTIZE (none or
+    silu); E02 digests at k = 192 and 768. chunk_widths is computed here from
+    k: 128 a weight-chunk, the last one k % 128.
 
     ABI (kernel.toml's [abi]; cr.<name> below):
       b             the (k, 64) data as its packed rows, 2 channels a row

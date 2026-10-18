@@ -1,7 +1,7 @@
-"""vector_tour's data: the old cases' inputs, and the R_MASK slots.
+"""vector_tour's data: the cases' inputs, and the R_MASK slots.
 
-``legacy_steps`` replays the old cases' ``default_rng(16)`` draws, so the
-migration's outputs compare bit for bit with the old harness's.
+``legacy_steps`` draws from ``default_rng(16)``, so the outputs match the
+recorded ones bit for bit.
 """
 
 import numpy as np

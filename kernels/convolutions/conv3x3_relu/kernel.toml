@@ -62,8 +62,8 @@ rc_step        = "CR14"
 op = "conv2d"
 tolerance = { fp32 = "FP32_ORDER" }               # measured: max |err| 4.8e-7 over the cases
 
-# The old cases' shapes (convolutions/cases.py make_cases); the data is the
-# harness's seeded per-tensor streams (E06-08).
+# The cases' shapes cover the small, partial-group and multi-group layouts;
+# the data is the harness's seeded per-tensor streams (E06-08).
 [cases.default]
 in_channels = 3
 height = 3

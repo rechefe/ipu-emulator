@@ -1,14 +1,13 @@
-"""The old pooling cases' data (E07-14), shared by the family's kernels.
+"""The pooling cases' data (E07-14), shared by the family's kernels.
 
-Both draw ``x`` as ``case_support.random_values`` did: standard normal FP32
-from ``default_rng(7)``, so the migration's outputs compare bit for bit with
-the old harness's. Moving to the harness's seeded generator is a separate
-change.
+Both draw ``x`` standard normal FP32 from ``default_rng(7)``, so the outputs
+match the recorded ones bit for bit. Moving to the harness's seeded generator
+is a separate change.
 """
 
 import numpy as np
 
-#: The old cases' seed.
+#: The cases' seed.
 SEED = 7
 
 

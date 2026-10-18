@@ -53,7 +53,7 @@ plane      = "CR11"
 op = "maxpool2d"
 tolerance = { fp32 = "EXACT" }
 
-# The legacy benchmark.py CONFIGS (bazel run :maxpool2d_stride2 -- --benchmark).
+# The benchmark points (bazel run :maxpool2d_stride2 -- --benchmark).
 [benchmark]
 points = [
     { channels = 1, height = 2, width = 256 },
