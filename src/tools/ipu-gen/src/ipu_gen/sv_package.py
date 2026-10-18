@@ -472,17 +472,6 @@ def render_template(template_name: str, context: dict[str, Any] | None = None) -
     return _template_env().get_template(template_name).render(**ctx)
 
 
-def write_generated_file(
-    template_name: str,
-    output_path: str | Path,
-    context: dict[str, Any] | None = None,
-) -> None:
-    """Render *template_name* and write to *output_path*."""
-    path = Path(output_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(render_template(template_name, context), encoding="utf-8")
-
-
 def _content_line(body: str) -> str:
     return f"// Content: sha256:{hashlib.sha256(body.encode('utf-8')).hexdigest()}\n"
 

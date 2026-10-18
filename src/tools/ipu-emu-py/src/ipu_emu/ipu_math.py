@@ -1,4 +1,4 @@
-"""IPU math operations — Python port of ipu_math.c.
+"""IPU math operations: scalar multiply, add and subtract, and the FP8 conversions.
 
 Scalar adapters over the element formats of ``ipu_isa.formats``: the element
 codec lives there and the lane codecs in ``ipu_emu.numerics`` (E04-13).
@@ -90,8 +90,8 @@ def _is_integer(fmt: ElementFormat) -> bool:
 def ipu_mult(a_byte: int, b_byte: int, fmt: ElementFormat) -> int | float:
     """Multiply two bytes in the 8-bit format *fmt*, returning int32 or float.
 
-    Mirrors ``ipu_math__mult`` from C: the two elements decoded (the lane
-    codec's table, as Python ints or floats) and multiplied as Python numbers.
+    The two elements are decoded (the lane codec's table, as Python ints or
+    floats) and multiplied as Python numbers.
     ``ipu_emu.numerics`` is the vectorised form; ``test_numerics`` holds the
     two bit-identical.
     """
@@ -100,10 +100,7 @@ def ipu_mult(a_byte: int, b_byte: int, fmt: ElementFormat) -> int | float:
 
 
 def ipu_add(a_word: int | float, b_word: int | float, fmt: ElementFormat) -> int | float:
-    """Add two accumulator-width values in the accumulator of *fmt*.
-
-    Mirrors ``ipu_math__add`` from C.
-    """
+    """Add two accumulator-width values in the accumulator of *fmt*."""
     if _is_integer(fmt):
         # Both are int32 — wrap to 32 bits with two's complement
         result = (a_word + b_word) & 0xFFFFFFFF

@@ -15,22 +15,30 @@ from typing import Any
 
 from ipu_as.lark_tree import assemble
 from ipu_emu.emulator import DEFAULT_MAX_CYCLES, load_program, run_until_complete
+from ipu_emu.errors import ConfigurationError
 from ipu_emu.execute import decode_instruction_word
+from ipu_emu.geometry import R_CYCLIC_VALID_INDICES, R_REG_SIZE, vector_registers
 from ipu_emu.ipu import Ipu
 from ipu_emu.ipu_state import IpuState
 from ipu_emu.outcome import CycleOutcome
 from ipu_emu.run_control import RunControl
 from ipu_isa.formats import ElementFormat
+from ipu_isa.geometry import LANES
 
 __all__ = [
     "BreakpointRunControl",
     "ElementFormat",
     "decode_program",
     "assemble_program",
+    "load_r_cyclic_from_xmem",
+    "load_r_mask_from_xmem",
+    "load_r_reg_from_xmem",
     "new_state",
     "make_state",
     "run",
     "run_both",
+    "store_acc_to_xmem",
+    "store_r_reg_to_xmem",
 ]
 
 
@@ -155,3 +163,67 @@ def run_both(
     for state in states:
         state.stats.total_cycles = cycles
     return states
+
+
+# -- XMEM <-> register transfers ------------------------------------------
+# Test conveniences, not on any instruction execution path. Each takes a ROW
+# number and does what its instruction does in the state's element format:
+# LD.MULT, LD.MULT.CYCLIC, ST.ACC, LD.MASK. A row is LANES elements of the
+# state's codec; the registers are the format's (``vector_registers``).
+
+
+def _row_bytes(state: IpuState) -> int:
+    return state.codec.element_bytes * LANES
+
+
+def _row_address(state: IpuState, xmem_row: int) -> int:
+    return xmem_row * _row_bytes(state)
+
+
+def load_r_reg_from_xmem(state: IpuState, xmem_row: int, r_index: int) -> None:
+    """Load one row from XMEM into R register *r_index* (0=R0, 1=R1)."""
+    addr = _row_address(state, xmem_row)
+    data = state.xmem.read_address(addr, _row_bytes(state))
+    name = vector_registers(state).ra
+    state.regfile.set_register_bytes(name, r_index, data)
+    if state.xmem.is_constant_ones(addr, data):
+        state.regfile.mark_constant_ones(name, r_index * len(data), len(data))
+
+
+def store_r_reg_to_xmem(state: IpuState, xmem_row: int, r_index: int) -> None:
+    """Store R register *r_index* (one row) to XMEM."""
+    name = vector_registers(state).ra
+    state.xmem.write_address(
+        _row_address(state, xmem_row), state.regfile.get_register_bytes(name, r_index)
+    )
+
+
+def load_r_cyclic_from_xmem(state: IpuState, xmem_row: int, slot_element_idx: int = 0) -> None:
+    """Load one row from XMEM into r_cyclic at *slot_element_idx*.
+
+    An element index on a slot boundary (``R_CYCLIC_VALID_INDICES``), as
+    for LD.MULT.CYCLIC. Defaults to slot 0.
+    """
+    if slot_element_idx not in R_CYCLIC_VALID_INDICES:
+        raise ConfigurationError(
+            f"slot_element_idx must be one of {R_CYCLIC_VALID_INDICES}; got {slot_element_idx}"
+        )
+    addr = _row_address(state, xmem_row)
+    row_bytes = _row_bytes(state)
+    data = state.xmem.read_address(addr, row_bytes)
+    byte_idx = slot_element_idx * state.codec.element_bytes
+    name = vector_registers(state).r_cyclic
+    # A slot never wraps the ring, so this is the ring's own slot write.
+    state.regfile.mutable(name, byte_idx, row_bytes)[:] = data
+    if state.xmem.is_constant_ones(addr, data):
+        state.regfile.mark_constant_ones(name, byte_idx, len(data))
+
+
+def store_acc_to_xmem(state: IpuState, xmem_row: int) -> None:
+    """Store the whole accumulator (R_ACC_SIZE bytes in every format) to XMEM."""
+    state.xmem.write_address(_row_address(state, xmem_row), state.regfile.get_r_acc_bytes())
+
+
+def load_r_mask_from_xmem(state: IpuState, xmem_row: int) -> None:
+    """Load the mask register (R_REG_SIZE bytes in every format: 1 bit per lane)."""
+    state.regfile.set_r_mask(state.xmem.read_address(_row_address(state, xmem_row), R_REG_SIZE))

@@ -1447,11 +1447,6 @@ PSEUDO_INSTRUCTION_SPEC: dict[str, dict[str, Any]] = {
 _OPERAND_NAME = re.compile(r"[a-z][a-z0-9_]*")
 _DOC_OPERAND_NAME = re.compile(r"\s*`?([A-Za-z_][A-Za-z0-9_]*)`?\s*:")
 
-#: Operand types a ``read`` key is allowed on: the readable register types.
-READABLE_OPERAND_TYPES = frozenset(
-    name for name, operand_type in OPERAND_TYPES.items() if operand_type.readable
-)
-
 
 def _check_operands(path: str, operands: object, operand_types: Mapping[str, OperandType]) -> None:
     """Keys, name, type and ``read`` of each operand; names unique."""

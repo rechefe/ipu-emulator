@@ -1,8 +1,9 @@
-"""High-level emulator runner — Python equivalent of emulator.c.
+"""High-level emulator runner: load a program, run it, move data in and out.
 
 Provides two modes:
   * ``run_until_complete`` — runs the program silently, ignoring break-
-    points, until the PC falls off the end of instruction memory.
+    points, until a HALT word retires or a word faults. Fetching past the
+    loaded program faults F-2; reaching the cycle limit faults F-9.
   * ``run_with_debug``   — honours breakpoints.  On break, invokes a
     user-supplied callback that decides whether to step, continue, or
     quit.
@@ -210,7 +211,7 @@ def run_with_debug(
 
 
 # ---------------------------------------------------------------------------
-# Binary I/O — mirrors emulator__load_binary_to_xmem / dump_xmem_to_binary
+# Binary I/O: files into and out of XMEM
 # ---------------------------------------------------------------------------
 
 
@@ -310,7 +311,7 @@ def load_fp32_as_fp8_to_xmem(
 
 
 # ---------------------------------------------------------------------------
-# run_test — high-level test orchestrator (mirrors emulator__run_test)
+# run_test: load, set up, run, tear down
 # ---------------------------------------------------------------------------
 
 
@@ -328,7 +329,7 @@ def run_test(
     window_a: float | None = None,
     window_b: float | None = None,
 ) -> tuple[IpuState, int]:
-    """Full test harness matching the C ``emulator__run_test`` pattern.
+    """Load a binary, set up XMEM, run it, then collect results.
 
     1. Creates a fresh :class:`IpuState` (unless *state* is provided).
     2. Loads the instruction binary.

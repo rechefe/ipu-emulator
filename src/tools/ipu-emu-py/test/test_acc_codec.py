@@ -15,11 +15,19 @@ import ast
 import inspect
 import random
 import struct
+import textwrap
 from pathlib import Path
 
+import emu_support
 import numpy as np
 import pytest
-from emu_support import ElementFormat, make_state
+from emu_support import (
+    ElementFormat,
+    load_r_cyclic_from_xmem,
+    load_r_reg_from_xmem,
+    make_state,
+    store_r_reg_to_xmem,
+)
 
 import ipu_emu
 from ipu_emu.emulator import run_until_complete
@@ -184,13 +192,13 @@ def test_state_helpers_move_one_row_of_the_format(fmt):
     state.write_constant_ones(row)  # XMEM row 1
     assert state.xmem.read_address(row, row + 1) == ones + b"\x00"
 
-    state.load_r_reg_from_xmem(1, 1)
+    load_r_reg_from_xmem(state, 1, 1)
     assert state.regfile.get_register_bytes(ra, 1) == ones
     assert state.regfile.has_constant_ones(ra, row, row)
-    state.store_r_reg_to_xmem(2, 1)
+    store_r_reg_to_xmem(state, 2, 1)
     assert state.xmem.read_address(2 * row, row) == ones
 
-    state.load_r_cyclic_from_xmem(1, 256)
+    load_r_cyclic_from_xmem(state, 1, 256)
     start = 256 * element_bytes
     assert bytes(state.regfile.view(ring)[start : start + row]) == ones
     assert state.regfile.has_constant_ones(ring, start, row)
@@ -216,5 +224,6 @@ def test_slot_modules_have_no_format_branch(module):
 
 @pytest.mark.parametrize("helper", _STATE_HELPERS)
 def test_state_load_store_helpers_have_no_format_branch(helper):
-    source = inspect.getsource(getattr(IpuState, helper))
-    assert _source_names(source.replace("\n    ", "\n").lstrip()).isdisjoint(_FORMAT_BRANCH_NAMES)
+    fn = getattr(IpuState, helper, None) or getattr(emu_support, helper)
+    source = textwrap.dedent(inspect.getsource(fn))
+    assert _source_names(source).isdisjoint(_FORMAT_BRANCH_NAMES)

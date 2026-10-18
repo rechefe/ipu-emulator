@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ipu_debug.errors import DebugError
-from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
+from ipu_emu.ipu_state import INST_MEM_SIZE
 from ipu_emu.run_control import RunControl
 
 
@@ -45,11 +45,6 @@ class DebugControl(RunControl):
         enabled = pc not in self._breakpoints
         self._breakpoints = self._breakpoints ^ {pc}
         return enabled
-
-    @staticmethod
-    def set_pc(state: IpuState, pc: int) -> None:
-        """Move *state* to a user-chosen *pc*, which must be in instruction memory."""
-        state.program_counter = validate_pc(pc)
 
     def run_until(self, pc: int, current_pc: int) -> bool:
         """Arm a one-stop target; return whether execution should resume."""

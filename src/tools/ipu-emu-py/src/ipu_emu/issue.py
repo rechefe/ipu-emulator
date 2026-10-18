@@ -134,9 +134,9 @@ class Issuer:
         """
         ipu = self._ipu()
         plan = op.plan
-        ipu._view.plan = plan
+        ipu.view.plan = plan
         operands = (
-            self._resolve(plan, op.operands, ipu._snapshot_buffer)
+            self._resolve(plan, op.operands, ipu.snapshot_buffer)
             if plan.reads
             else dict(op.operands)
         )
@@ -159,8 +159,8 @@ class Issuer:
         identity = mask = None
         if plan.mask_cr_operand is not None:
             # Read now, before the handler, which applies this same mask, in
-            # the views the instruction declares (ipu._view's plan is this op's).
-            view = ipu._view
+            # the views the instruction declares (ipu.view's plan is this op's).
+            view = ipu.view
             mask = effective_mult_mask(
                 view.source("r_mask"),
                 decode_dstructure(view.cr(operands[plan.mask_cr_operand], plan.mask_cr_operand)),
@@ -189,9 +189,9 @@ class Issuer:
         Also points the cycle view at *op*'s plan, as issuing does."""
         ipu = self._ipu()
         plan = op.plan
-        ipu._view.plan = plan
+        ipu.view.plan = plan
         if plan.reads:
-            return self._resolve(plan, op.operands, ipu._snapshot_buffer)
+            return self._resolve(plan, op.operands, ipu.snapshot_buffer)
         return dict(op.operands)
 
     def dispatch(self, op: IssuedOp, inst: Mapping[str, int]) -> Any:
@@ -208,10 +208,10 @@ class Issuer:
         """
         ipu = self._ipu()
         plan = op.plan
-        ipu._view.plan = plan
+        ipu.view.plan = plan
         encoded = op.operands
         operands = (
-            self._resolve(plan, encoded, ipu._snapshot_buffer) if plan.reads else dict(encoded)
+            self._resolve(plan, encoded, ipu.snapshot_buffer) if plan.reads else dict(encoded)
         )
         stat = plan.stat
         if stat is not None:
@@ -252,7 +252,7 @@ class Issuer:
             inst: The whole word.
         """
         ipu = self._ipu()
-        view = ipu._view
+        view = ipu.view
         resolve = self._resolve
         issued = []
         for op in ops:
@@ -263,7 +263,7 @@ class Issuer:
             # The LR sub-slots' hot path: just the reads (as issue() does).
             view.plan = plan
             encoded = op.operands
-            operands = resolve(plan, encoded, ipu._snapshot_buffer) if plan.reads else dict(encoded)
+            operands = resolve(plan, encoded, ipu.snapshot_buffer) if plan.reads else dict(encoded)
             issued.append(
                 _new_facts(
                     _IssueFacts,
@@ -290,7 +290,7 @@ class Issuer:
         """
         ipu = self._ipu()
         self.current = facts
-        ipu._view.plan = facts.plan
+        ipu.view.plan = facts.plan
         if self.observers:
             return self._observed(ipu, facts, self.observers)
         return facts.plan.fn(ipu, **facts.operands)

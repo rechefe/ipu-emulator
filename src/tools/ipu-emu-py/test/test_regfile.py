@@ -7,7 +7,15 @@ import sys
 
 import numpy as np
 import pytest
-from emu_support import ElementFormat, new_state
+from emu_support import (
+    ElementFormat,
+    load_r_cyclic_from_xmem,
+    load_r_mask_from_xmem,
+    load_r_reg_from_xmem,
+    new_state,
+    store_acc_to_xmem,
+    store_r_reg_to_xmem,
+)
 
 from ipu_emu.descriptors import REGFILE_SCHEMA
 from ipu_emu.errors import (
@@ -420,14 +428,14 @@ class TestIpuState:
 
     def test_cr15_default_dstructure(self):
         state = IpuState()
-        valid_elements, partition = state.get_cr_dstructure()
+        valid_elements, partition = state.get_dstructure_for(DEFAULT_DSTRUCTURE_CR)
         assert valid_elements == 128
         assert partition == 0
 
     def test_set_cr_dstructure(self):
         state = IpuState()
         state.set_cr_dstructure(64, 2)
-        config = state.get_cr_dstructure()
+        config = state.get_dstructure_for(DEFAULT_DSTRUCTURE_CR)
         assert config.valid_elements == 64
         assert config.partition == 2
 
@@ -445,7 +453,7 @@ class TestIpuState:
     def test_cr_dstructure_masks_valid_elements(self):
         state = IpuState()
         state.set_cr_dstructure(valid_elements=DSTRUCTURE_VALID_ELEMENTS_MASK + 1)
-        assert state.get_cr_dstructure().valid_elements == 0
+        assert state.get_dstructure_for(DEFAULT_DSTRUCTURE_CR).valid_elements == 0
 
     def test_cr_dstructure_invalid_partition_raises(self):
         with pytest.raises(ValueError, match="not a valid Partition"):
@@ -458,7 +466,7 @@ class TestIpuState:
         assert decoded.partition == 4
 
     def test_dstructure_pad_mode_defaults_to_zero(self):
-        assert IpuState().get_cr_dstructure().pad_mode == PadMode.ZERO
+        assert IpuState().get_dstructure_for(DEFAULT_DSTRUCTURE_CR).pad_mode == PadMode.ZERO
 
     def test_dstructure_pad_mode_codec_round_trip(self):
         raw = encode_dstructure(valid_elements=17, partition=4, pad_mode=PadMode.NEG_INF)
@@ -474,7 +482,7 @@ class TestIpuState:
     def test_set_cr_dstructure_accepts_pad_mode(self):
         state = IpuState()
         state.set_cr_dstructure(valid_elements=64, partition=2, pad_mode=PadMode.POS_INF)
-        config = state.get_cr_dstructure()
+        config = state.get_dstructure_for(DEFAULT_DSTRUCTURE_CR)
         assert config.valid_elements == 64
         assert config.partition == 2
         assert config.pad_mode == PadMode.POS_INF
@@ -496,7 +504,7 @@ class TestIpuState:
         state = IpuState()
         data = bytearray(range(128))
         state.xmem.write_address(256, data)
-        state.load_r_reg_from_xmem(2, 0)
+        load_r_reg_from_xmem(state, 2, 0)
         assert state.regfile.get_r(0) == data
 
     def test_store_r_reg_to_xmem(self):
@@ -504,7 +512,7 @@ class TestIpuState:
         state = IpuState()
         data = bytearray([0xAB] * 128)
         state.regfile.set_r(1, data)
-        state.store_r_reg_to_xmem(4, 1)
+        store_r_reg_to_xmem(state, 4, 1)
         assert state.xmem.read_address(512, 128) == data
 
     def test_load_r_reg_from_xmem_debug_mode_row_size(self):
@@ -513,7 +521,7 @@ class TestIpuState:
         state = new_state(fmt=ElementFormat.FP32)
         data = struct.pack("<128f", *([2.5] * 128))
         state.xmem.write_address(3 * 512, data)  # row 3, debug row size = 512 B
-        state.load_r_reg_from_xmem(3, 0)
+        load_r_reg_from_xmem(state, 3, 0)
         assert state.regfile.get_r_wide_debug(0) == bytearray(data)
 
     def test_store_r_reg_from_xmem_debug_mode_round_trip(self):
@@ -521,7 +529,7 @@ class TestIpuState:
         mirroring the load helper above."""
         state = new_state(fmt=ElementFormat.INT32)
         state.regfile.set_r_wide_debug(1, struct.pack("<128i", *([7] * 128)))
-        state.store_r_reg_to_xmem(2, 1)  # row 2, debug row size = 512 B -> byte 1024
+        store_r_reg_to_xmem(state, 2, 1)  # row 2, debug row size = 512 B -> byte 1024
         stored = state.xmem.read_address(2 * 512, 512)
         assert struct.unpack("<128i", stored) == tuple([7] * 128)
 
@@ -529,7 +537,7 @@ class TestIpuState:
         state = IpuState()
         data = bytearray(range(128))
         state.xmem.write_address(256, data)  # row 2, narrow row size = 128 B
-        state.load_r_cyclic_from_xmem(2)
+        load_r_cyclic_from_xmem(state, 2)
         assert state.regfile.get_r_cyclic_at(0, 128, wrap_size=512) == data
 
     def test_load_r_cyclic_from_xmem_targets_nonzero_slot(self):
@@ -538,7 +546,7 @@ class TestIpuState:
         state = IpuState()
         data = bytearray(range(128))
         state.xmem.write_address(256, data)
-        state.load_r_cyclic_from_xmem(2, slot_element_idx=256)
+        load_r_cyclic_from_xmem(state, 2, slot_element_idx=256)
         written = state.regfile.get_r_cyclic_at(256, 128, wrap_size=512)
         assert written == data
         # slot 0 must be untouched
@@ -549,7 +557,7 @@ class TestIpuState:
         state = new_state(fmt=ElementFormat.FP32)
         data = struct.pack("<128f", *([1.5] * 128))
         state.xmem.write_address(1 * 512, data)  # row 1, debug row size = 512 B
-        state.load_r_cyclic_from_xmem(1, slot_element_idx=128)
+        load_r_cyclic_from_xmem(state, 1, slot_element_idx=128)
         written = state.regfile.get_r_cyclic_wide_debug_at(128 * 4, 512)  # byte 512
         assert written == bytearray(data)
 
@@ -557,14 +565,14 @@ class TestIpuState:
         state = IpuState()
         data = bytearray([0x07] * 512)
         state.regfile.set_r_acc_bytes(data)
-        state.store_acc_to_xmem(5)  # row 5, narrow row size = 128 B -> byte 640
+        store_acc_to_xmem(state, 5)  # row 5, narrow row size = 128 B -> byte 640
         assert state.xmem.read_address(640, 512) == data
 
     def test_load_r_mask_from_xmem_row_addressed(self):
         state = IpuState()
         mask_data = bytearray(range(128))
         state.xmem.write_address(384, mask_data)  # row 3, narrow row size = 128 B
-        state.load_r_mask_from_xmem(3)
+        load_r_mask_from_xmem(state, 3)
         assert state.regfile.get_r_mask() == mask_data
 
     def test_load_r_mask_from_xmem_debug_mode_still_reads_128_bytes(self):
@@ -574,7 +582,7 @@ class TestIpuState:
         state = new_state(fmt=ElementFormat.FP32)
         mask_data = bytearray(range(128))
         state.xmem.write_address(2 * 512, mask_data)  # row 2, debug row size = 512 B
-        state.load_r_mask_from_xmem(2)
+        load_r_mask_from_xmem(state, 2)
         assert state.regfile.get_r_mask() == mask_data
 
     def test_post_aaq_reg_debug_alias_aaq_result(self):
@@ -584,10 +592,10 @@ class TestIpuState:
         state.regfile.set_post_aaq_reg(data)
         assert state.regfile.get_register_bytes("aaq_result") == bytearray(data)
 
-    def test_snapshot_regfile(self):
+    def test_regfile_snapshot(self):
         state = IpuState()
         state.regfile.set_lr(3, 77)
-        snap = state.snapshot_regfile()
+        snap = state.regfile.snapshot()
         state.regfile.set_lr(3, 0)
         assert snap.get_lr(3) == 77
 

@@ -48,7 +48,7 @@ def execute_st_acc(ipu: Ipu, *, offset: int, base: int) -> None:
         stacklevel=2,
     )
     addr = xmem_row_addr(ipu.state, offset + base)
-    acc_data = bytearray(ipu._view.read("r_acc"))
+    acc_data = bytearray(ipu.view.read("r_acc"))
     ipu.state.xmem.write_address(addr, acc_data)
 
 
@@ -60,4 +60,4 @@ def execute_st_aaq(ipu: Ipu, *, offset: int, base: int) -> None:
     modes; only the row address is translated.
     """
     addr = xmem_row_addr(ipu.state, offset + base)
-    ipu.state.xmem.write_address(addr, bytes(ipu._view.read("post_aaq_reg")))
+    ipu.state.xmem.write_address(addr, bytes(ipu.view.read("post_aaq_reg")))

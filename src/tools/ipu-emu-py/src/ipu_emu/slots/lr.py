@@ -29,13 +29,13 @@ def execute_lr_sub(ipu: Ipu, *, dest: int, src_a: int, src_b: int) -> None:
 
 def execute_lr_inc(ipu: Ipu, *, dest: int, imm: int) -> None:
     """Execute INC: uint32 ``dest = dest + imm`` (read-modify-write)."""
-    cur = ipu._view.lr(dest, "dest")
+    cur = ipu.view.lr(dest, "dest")
     ipu.state.regfile.set_lr(dest, (cur + imm) & 0xFFFFFFFF)
 
 
 def execute_lr_dec(ipu: Ipu, *, dest: int, imm: int) -> None:
     """Execute DEC: uint32 ``dest = dest - imm`` (read-modify-write)."""
-    cur = ipu._view.lr(dest, "dest")
+    cur = ipu.view.lr(dest, "dest")
     ipu.state.regfile.set_lr(dest, (cur - imm) & 0xFFFFFFFF)
 
 
@@ -48,7 +48,7 @@ def _set_lrd_bytes(ipu: Ipu, n: int, lanes: bytes | bytearray) -> None:
 
 def _addb_broadcast(ipu: Ipu, dest: int, byte_val: int) -> None:
     """Broadcast-add a signed byte to all 8 elements of LRDn = LR(2n+1):LR(2n), clamped to [0, 255]."""
-    lanes = bytearray(lrd_bytes(ipu._view.source("lr", "dest"), dest))
+    lanes = bytearray(lrd_bytes(ipu.view.source("lr", "dest"), dest))
     signed = byte_val - 256 if byte_val >= 128 else byte_val
     for i in range(8):
         lanes[i] = max(0, min(255, lanes[i] + signed))
@@ -73,7 +73,7 @@ def execute_lr_inc_modp2(ipu: Ipu, *, dest: int, step: int, k: int) -> None:
     ``k`` is the raw encoded field (k_semantic − 1); semantic exponent is k + 1.
     """
     k_exp = k + LR_MOD_POW2_K_MIN
-    cur = ipu._view.lr(dest, "dest")
+    cur = ipu.view.lr(dest, "dest")
     step_u = step & 0xFFFFFFFF
     mask = (1 << k_exp) - 1
     ipu.state.regfile.set_lr(dest, ((cur + step_u) & 0xFFFFFFFF) & mask)

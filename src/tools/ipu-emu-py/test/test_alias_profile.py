@@ -551,7 +551,7 @@ def test_xmem_clear_under_profiler_is_constant_size():
     state = run("HALT;;")
     # white-box: the observer's version tables have no public reader; the
     # constant-size claim is about them.
-    observer = state.alias_profile._bridge
+    observer = state.alias_profile.observer
     state.xmem.write_address(0, bytes(range(256)))
     assert len(observer.memory_versions) == 2
     state.xmem.clear()

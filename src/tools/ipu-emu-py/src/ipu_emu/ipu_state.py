@@ -1,7 +1,7 @@
 """Top-level IPU state container.
 
 Combines the register file, external memory, program counter, and instruction
-memory into a single object — the Python equivalent of ``ipu__obj_t``.
+memory into a single object — the state an :class:`~ipu_emu.ipu.Ipu` engine runs on.
 """
 
 from __future__ import annotations
@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING, Any, Literal
 from ipu_emu.activations import AaqOptions, ActivationParams
 from ipu_emu.errors import ConfigurationError
 from ipu_emu.fault_control import FaultControl
-from ipu_emu.geometry import R_CYCLIC_VALID_INDICES, R_REG_SIZE, vector_registers
 from ipu_emu.inst_mem import InstMem
 from ipu_emu.ipu_config import DEFAULT_DSTRUCTURE_CR
 from ipu_emu.numerics import LaneCodec, codec_for
@@ -296,10 +295,6 @@ class IpuState:
 
     # -- CR dstructure convenience (CR15 = valid_elements[7:0] | partition[12:8] | pad_mode[14:13]) --
 
-    def get_cr_dstructure(self) -> DStructureConfig:
-        """Read CR15 as decoded dstructure configuration fields."""
-        return decode_dstructure(self.regfile.get_cr(DEFAULT_DSTRUCTURE_CR))
-
     def get_dstructure_for(self, cr_idx: int) -> DStructureConfig:
         """Decode the dstructure configuration from an arbitrary CR register.
 
@@ -350,13 +345,7 @@ class IpuState:
             },
         )
 
-    # -- register file snapshot (for VLIW dispatch) -------------------------
-
-    def snapshot_regfile(self) -> RegFile:
-        """Deep-copy the register file for VLIW read-before-write semantics."""
-        return self.regfile.snapshot()
-
-    # -- XMEM ↔ register transfers (mirrors ipu__load_r_reg / ipu__store_r_reg) --
+    # -- XMEM constants ----------------------------------------------------
 
     def write_constant_ones(self, xmem_addr: int) -> None:
         """Write a LANES-element ONES row in the active format, with alias provenance.
@@ -367,61 +356,6 @@ class IpuState:
         data = self._codec.one() * LANES
         self.xmem.write_address(xmem_addr, data)
         self.xmem.mark_constant_ones(xmem_addr, data)
-
-    # Debug/test conveniences, not on any instruction execution path. Each
-    # takes a ROW number and mirrors its instruction in the active format:
-    # LD.MULT, LD.MULT.CYCLIC, ST.ACC, LD.MASK. A row is LANES elements of
-    # the active codec; the registers are the format's (``vector_registers``).
-
-    def _row_bytes(self) -> int:
-        return self._codec.element_bytes * LANES
-
-    def _row_address(self, xmem_row: int) -> int:
-        return xmem_row * self._row_bytes()
-
-    def load_r_reg_from_xmem(self, xmem_row: int, r_index: int) -> None:
-        """Load one row from XMEM into R register *r_index* (0=R0, 1=R1)."""
-        addr = self._row_address(xmem_row)
-        data = self.xmem.read_address(addr, self._row_bytes())
-        name = vector_registers(self).ra
-        self.regfile.set_register_bytes(name, r_index, data)
-        if self.xmem.is_constant_ones(addr, data):
-            self.regfile.mark_constant_ones(name, r_index * len(data), len(data))
-
-    def store_r_reg_to_xmem(self, xmem_row: int, r_index: int) -> None:
-        """Store R register *r_index* (one row) to XMEM."""
-        name = vector_registers(self).ra
-        self.xmem.write_address(
-            self._row_address(xmem_row), self.regfile.get_register_bytes(name, r_index)
-        )
-
-    def load_r_cyclic_from_xmem(self, xmem_row: int, slot_element_idx: int = 0) -> None:
-        """Load one row from XMEM into r_cyclic at *slot_element_idx*.
-
-        An element index on a slot boundary (``R_CYCLIC_VALID_INDICES``), as
-        for LD.MULT.CYCLIC. Defaults to slot 0.
-        """
-        if slot_element_idx not in R_CYCLIC_VALID_INDICES:
-            raise ConfigurationError(
-                f"slot_element_idx must be one of {R_CYCLIC_VALID_INDICES}; got {slot_element_idx}"
-            )
-        addr = self._row_address(xmem_row)
-        row_bytes = self._row_bytes()
-        data = self.xmem.read_address(addr, row_bytes)
-        byte_idx = slot_element_idx * self._codec.element_bytes
-        name = vector_registers(self).r_cyclic
-        # A slot never wraps the ring, so this is the ring's own slot write.
-        self.regfile.mutable(name, byte_idx, row_bytes)[:] = data
-        if self.xmem.is_constant_ones(addr, data):
-            self.regfile.mark_constant_ones(name, byte_idx, len(data))
-
-    def store_acc_to_xmem(self, xmem_row: int) -> None:
-        """Store the whole accumulator (R_ACC_SIZE bytes in both modes) to XMEM."""
-        self.xmem.write_address(self._row_address(xmem_row), self.regfile.get_r_acc_bytes())
-
-    def load_r_mask_from_xmem(self, xmem_row: int) -> None:
-        """Load the mask register (R_REG_SIZE bytes in both modes: 1 bit per lane)."""
-        self.regfile.set_r_mask(self.xmem.read_address(self._row_address(xmem_row), R_REG_SIZE))
 
     # -- state queries ------------------------------------------------------
 

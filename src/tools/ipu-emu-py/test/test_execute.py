@@ -1,4 +1,4 @@
-"""Tests for the VLIW execution engine — Python port of test_ipu_emulator.cpp.
+"""Tests for the VLIW execution engine.
 
 These tests use the assembler (``ipu_as.lark_tree.assemble``) to turn
 inline assembly into encoded instruction words, load them into an

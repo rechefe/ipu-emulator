@@ -77,7 +77,7 @@ def execute_ld_mult_cyclic(ipu: Ipu, *, offset: int, base: int, index: int) -> N
     state = ipu.state
     addr = xmem_row_addr(state, offset + base)
     row_bytes = _row_bytes(ipu)
-    byte_idx = index * ipu._codec.element_bytes
+    byte_idx = index * ipu.codec.element_bytes
     data = state.xmem.read_address(addr, row_bytes)
     name = vector_registers(state).r_cyclic
     # A slot never wraps the ring, so this is the ring's own slot write.

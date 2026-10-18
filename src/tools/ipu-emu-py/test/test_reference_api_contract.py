@@ -845,7 +845,7 @@ def test_attaching_another_profile_detaches_the_one_before():
     first, second = AliasProfile(), AliasProfile()
     model.attach_alias_profile(first)
     model.attach_alias_profile(second)
-    assert first._bridge is None  # white-box: it no longer watches the model
+    assert first.observer is None  # it no longer watches the model
     model.run()
     assert first.cycles == 0 and second.cycles == 12
     _model().attach_alias_profile(first)  # free again

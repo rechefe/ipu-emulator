@@ -13,6 +13,8 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Protocol
 
+from ipu_emu.errors import ConfigurationError
+
 
 @dataclass(frozen=True)
 class AliasDefinition:
@@ -104,6 +106,32 @@ class AliasProfile:
         self.write_bytes = 0
         self.read_regions = set()
         self._bridge = None
+
+    @property
+    def observer(self):
+        """The ``ExecutionObserver`` recording a state for this profile, or ``None``."""
+        return self._bridge
+
+    def bind(self, state):
+        """The observer that records *state* for this profile, made on first use.
+
+        Raises:
+            ConfigurationError: The profile already records another state.
+        """
+        if self._bridge is None:
+            from ipu_emu.alias_observer import ExecutionObserver
+
+            self._bridge = ExecutionObserver(self, state)
+        elif self._bridge.state is not state:
+            raise ConfigurationError("an AliasProfile belongs to a single IpuState")
+        return self._bridge
+
+    def detach(self) -> None:
+        """Stop recording: the observer stops watching its state, and the
+        profile is free to :meth:`bind` another."""
+        if self._bridge is not None:
+            self._bridge.detach()
+            self._bridge = None
 
     def emit(self, event: Event):
         self.events += 1

@@ -1,13 +1,13 @@
 """External memory (XMEM) model.
 
-A flat 512 MiB byte-addressable memory with the C ``xmem__obj_t`` interface.
-Supports 128-byte word alignment helpers and bulk load utilities. Storage is
-sparse: only pages that have been written are allocated.
+A flat 512 MiB byte-addressable memory: address reads and writes, observer
+events, and constant-ONES provenance. Storage is sparse: only pages that have
+been written are allocated.
 
-The address space is mode-independent: XMEM is always 512 MiB, in both narrow and
-wide-vector debug mode. Which of it is *reachable* depends on the active
-mode's row size and is enforced by the caller (``ipu_emu.geometry.xmem_row_addr``),
-not here — this class has no notion of "mode".
+The address space is the same in every element format: XMEM is always 512 MiB.
+Which of it is *reachable* depends on the active format's row size and is
+enforced by the caller (``ipu_emu.geometry.xmem_row_addr``), not here — this
+class has no notion of element format.
 """
 
 from __future__ import annotations
@@ -27,24 +27,12 @@ MemoryObserver = Callable[[str, int, int, "bytes | bytearray | None"], None]
 
 XMEM_SIZE_BYTES = XMEM_BYTES  # 512 MiB; full-resolution FP32 descriptors fit
 XMEM_WIDTH_BYTES = FORMATS[ElementFormat.INT8].row_bytes  # one "word": the narrow row
-XMEM_DEPTH_WORDS = XMEM_SIZE_BYTES // XMEM_WIDTH_BYTES
 
-# Storage granule. A multiple of the widest row (512 bytes in wide-vector
-# mode), so an aligned row access never crosses a page.
+# Storage granule. A multiple of the widest row (512 bytes in the FP32/INT32
+# formats), so an aligned row access never crosses a page.
 PAGE_BYTES = 1 << 16
 _ZERO_PAGE = bytes(PAGE_BYTES)
 _ZERO_PAGE_VIEW = memoryview(_ZERO_PAGE)
-
-
-def align_addr(addr: int) -> int:
-    """Round *addr* up to the next XMEM_WIDTH_BYTES boundary (no-op if already aligned)."""
-    rem = addr % XMEM_WIDTH_BYTES
-    return addr if rem == 0 else addr + XMEM_WIDTH_BYTES - rem
-
-
-def words_needed_for_bytes(n: int) -> int:
-    """Number of XMEM_WIDTH_BYTES words required to hold *n* bytes."""
-    return align_addr(n) // XMEM_WIDTH_BYTES
 
 
 def _contiguous_range(idx: slice) -> tuple[int, int]:
@@ -239,29 +227,6 @@ class XMem:
         return True
 
     __hash__ = None  # mutable
-
-    # -- bulk helpers (mirror C API) ----------------------------------------
-
-    def load_array_to(self, array: bytes | bytearray, start_address: int) -> None:
-        """Copy *array* into XMEM starting at *start_address*."""
-        self.write_address(start_address, array)
-
-    def load_matrix_to(
-        self,
-        matrix: bytes | bytearray,
-        rows: int,
-        cols: int,
-        start_address: int,
-    ) -> None:
-        """Load a row-major matrix with each row aligned to 128-byte boundary.
-
-        Mirrors ``xmem__load_matrix_to`` from the C implementation.
-        """
-        for i in range(rows):
-            row_start = i * cols
-            row_data = matrix[row_start : row_start + cols]
-            addr_offset = align_addr(i * cols)
-            self.load_array_to(row_data, start_address + addr_offset)
 
     # -- convenience --------------------------------------------------------
 

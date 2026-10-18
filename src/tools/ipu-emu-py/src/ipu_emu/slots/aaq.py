@@ -149,16 +149,16 @@ def execute_activate_quantize(ipu: Ipu, *, activation_fn: int, cr_idx: int) -> N
     """
     state = ipu.state
     fn_id = int(activation_fn) & REGISTER_WORD_VALUE_MASK
-    valid_elements = ipu._view.dstructure(cr_idx, "cr_idx").valid_elements
+    valid_elements = ipu.view.dstructure(cr_idx, "cr_idx").valid_elements
     active = agg_lane_count(valid_elements)
     fmt = lane_format(state)
-    codec = ipu._codec
-    acc_buf = ipu._view.read("r_acc")
+    codec = ipu.codec
+    acc_buf = ipu.view.read("r_acc")
     post_buf = state.regfile.mutable("post_aaq_reg")
 
     if codec.element_bytes != 1:
         if (
-            ipu._prototyping
+            ipu.prototyping
             and active == LANES
             and fmt == "<f"
             and not state.aaq.quantize_output

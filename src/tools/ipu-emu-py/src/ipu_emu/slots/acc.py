@@ -1,7 +1,7 @@
 """ACC slot handlers: accumulate (ACC.*), reduce (AGG.*), ACC.STRIDE and ACC.RESHAPE.
 
 Every handler is one path for every element format (Q43, Q48): it loads
-MULT_RES and R_ACC lanes through the active codec (``ipu._codec``), computes
+MULT_RES and R_ACC lanes through the active codec (``ipu.codec``), computes
 with ``codec.acc_add``/``acc_sub``/``max`` and stores with
 ``codec.store_acc_events``, which rounds once and stores the IEEE result (an
 overflow is an infinity, an integer wraps). The events it reports
@@ -47,9 +47,9 @@ def execute_acc_nop(ipu: Ipu) -> None:
 
 def _operands(ipu: Ipu) -> tuple[LaneCodec, np.ndarray, np.ndarray]:
     """The codec, R_ACC (this cycle's snapshot) and MULT_RES, as accumulator lanes."""
-    codec = ipu._codec
-    acc = codec.load_acc(ipu._view.read("r_acc"))
-    res = codec.load_acc(ipu._view.read("mult_res"))
+    codec = ipu.codec
+    acc = codec.load_acc(ipu.view.read("r_acc"))
+    res = codec.load_acc(ipu.view.read("mult_res"))
     return codec, acc, res
 
 
@@ -66,8 +66,8 @@ def _store_acc(ipu: Ipu, codec: LaneCodec, lanes: np.ndarray) -> None:
 
 def _store_mult_res_in_acc(ipu: Ipu) -> None:
     """R_ACC = MULT_RES, through the accumulator load and store (a NaN is quietened)."""
-    codec = ipu._codec
-    res = codec.load_acc(ipu._view.read("mult_res"))
+    codec = ipu.codec
+    res = codec.load_acc(ipu.view.read("mult_res"))
     _store_acc(ipu, codec, res)
 
 
@@ -101,8 +101,8 @@ def execute_acc_sub(ipu: Ipu) -> None:
 
 def execute_acc_sub_first(ipu: Ipu) -> None:
     """Execute ACC.SUB.FIRST: Set each R_ACC element to negated MULT_RES (clean init for subtract)."""
-    codec = ipu._codec
-    res = codec.load_acc(ipu._view.read("mult_res"))
+    codec = ipu.codec
+    res = codec.load_acc(ipu.view.read("mult_res"))
     # 0 - x, not -x: for x = +0.0 that is +0.0, where negation flips the sign bit.
     _store_acc(ipu, codec, codec.acc_sub(np.zeros_like(res), res))
 
@@ -180,8 +180,8 @@ def execute_acc_stride(
     """
     indices, pad = _stride_gather(elements_in_row, horizontal_stride, vertical_stride)
     base = (offset % 4) * 32
-    codec = ipu._codec
-    res = codec.load_acc(ipu._view.read("mult_res"))
+    codec = ipu.codec
+    res = codec.load_acc(ipu.view.read("mult_res"))
     values = np.where(pad, np.zeros_like(res[:1]), res[indices])
     fit = LANES - base
     if len(values) > fit:
@@ -202,10 +202,10 @@ def _reshape_operands(
 ) -> tuple[bytes, bytes, int]:
     """ACC.RESHAPE's source and destination index bytes and its mask, read
     through the view the instruction declares."""
-    src_bytes = lrd_bytes(ipu._view.source("lr", "source"), source)
-    dst_bytes = lrd_bytes(ipu._view.source("lr", "dest"), dest)
+    src_bytes = lrd_bytes(ipu.view.source("lr", "source"), source)
+    dst_bytes = lrd_bytes(ipu.view.source("lr", "dest"), dest)
     if reshape_mask >= RESHAPE_MASK_LR_OFFSET:
-        mask = ipu._view.lr(reshape_mask - RESHAPE_MASK_LR_OFFSET, "reshape_mask")
+        mask = ipu.view.lr(reshape_mask - RESHAPE_MASK_LR_OFFSET, "reshape_mask")
     else:
         mask = reshape_mask
     return src_bytes, dst_bytes, mask
@@ -248,7 +248,7 @@ def execute_acc_reshape(ipu: Ipu, *, source: int, dest: int, reshape_mask: int) 
     (forwarded, Q32 rule 3), as for every other ACC-stage op.
     """
     src_bytes, dst_bytes, mask = _reshape_operands(ipu, source, dest, reshape_mask)
-    mult_res = ipu._view.read("mult_res")
+    mult_res = ipu.view.read("mult_res")
     writes = []
     for i in range(mask, RESHAPE_ELEMENT_COUNT):
         writes.append((dst_bytes[i], struct.unpack_from("<I", mult_res, src_bytes[i] * 4)[0]))
@@ -263,16 +263,16 @@ def execute_acc_reshape(ipu: Ipu, *, source: int, dest: int, reshape_mask: int) 
 
 def _agg_inputs(ipu: Ipu, cr_idx: int, dest_slot: int) -> tuple[LaneCodec, list, int]:
     """The codec, the active MULT_RES lanes (Python numbers) and the R_ACC lane written."""
-    valid_elements = ipu._view.dstructure(cr_idx, "cr_idx").valid_elements
-    codec = ipu._codec
+    valid_elements = ipu.view.dstructure(cr_idx, "cr_idx").valid_elements
+    codec = ipu.codec
     active = agg_lane_count(valid_elements)
-    lanes = codec.load_acc(ipu._view.read("mult_res"), active).tolist()
+    lanes = codec.load_acc(ipu.view.read("mult_res"), active).tolist()
     return codec, lanes, int(dest_slot) % LANES
 
 
 def _agg_dest(ipu: Ipu, codec: LaneCodec, dest: int) -> np.ndarray:
     """R_ACC[dest] from this cycle's snapshot, as one accumulator lane."""
-    snap = ipu._view.read("r_acc")
+    snap = ipu.view.read("r_acc")
     return codec.load_acc(snap[dest * _ACC_LANE_BYTES :], 1)
 
 

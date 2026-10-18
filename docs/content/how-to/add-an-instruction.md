@@ -78,7 +78,7 @@ This is `TESTNEG`'s, in `lr.py`:
   a mult-stage register as its bytes, which the handler decodes. One without,
   such as the register written, an immediate or a label, arrives as its index
   or value.
-- A vector handler reads its lanes through the active lane codec (`ipu._codec`,
+- A vector handler reads its lanes through the active lane codec (`ipu.codec`,
   from `ipu_emu.numerics`), computes on them, and writes the result back through
   the same codec. It has no branch on the element format. `execute_mult_rc_vv`
   in `mult.py` is a short example.

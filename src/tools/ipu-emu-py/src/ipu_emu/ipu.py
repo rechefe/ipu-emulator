@@ -556,18 +556,12 @@ class Ipu:
         self._prototyping: bool = state.prototyping
         bridge = None
         if state.alias_profile is not None:
-            from ipu_emu.alias_observer import ExecutionObserver
-
             profile = state.alias_profile
-            if profile._bridge is None:
-                profile._bridge = ExecutionObserver(profile, state)
-            elif profile._bridge.state is not state:
-                raise ConfigurationError("an AliasProfile belongs to a single IpuState")
-            bridge = profile._bridge
+            bridge = profile.bind(state)
             state.stats.alias_profile = profile
         # The cycle's register snapshot. The Cycle owns it (bind_snapshot);
         # the issuer resolves cycle-start operands from it, and handlers read
-        # it only through ``_view``.
+        # it only through ``view``.
         self._snapshot_buffer: RegFile | None = None
         # Every register read a handler makes goes through this view, which
         # serves it from the snapshot or the live file as the instruction
@@ -601,7 +595,25 @@ class Ipu:
         return self.cycle.snapshot
 
     @property
-    def _codec(self) -> LaneCodec:
+    def view(self) -> CycleView:
+        """The view every handler reads registers through: the cycle-start
+        snapshot or the live file, as the instruction in flight declares."""
+        return self._view
+
+    @property
+    def snapshot_buffer(self) -> RegFile | None:
+        """The cycle's register snapshot itself (not a copy; see :attr:`snapshot`).
+        The issuer resolves cycle-start operands from it."""
+        return self._snapshot_buffer
+
+    @property
+    def prototyping(self) -> bool:
+        """Whether this engine takes prototyping mode's shortcuts (read once,
+        when the engine is built)."""
+        return self._prototyping
+
+    @property
+    def codec(self) -> LaneCodec:
         """The state's lane codec (``IpuState.codec``, of ``IpuState.fmt``).
 
         The handlers decode, compute and store through it, so none branches on

@@ -153,7 +153,7 @@ def format_register(
 
 
 # ---------------------------------------------------------------------------
-# Register summary printers (mirror the C print_* functions)
+# Register summary printers
 # ---------------------------------------------------------------------------
 
 
@@ -184,7 +184,7 @@ def _print_byte_register(state: IpuState, name: str, out: TextIO, preview_bytes:
 
 
 def print_all_registers(state: IpuState, out: TextIO | None = None) -> str:
-    """Print all registers, matching C ``cmd_regs`` output format.
+    """Print the PC and every register-file register, one group per register.
 
     Returns the formatted string (also writes to *out* if given).
     """
@@ -204,15 +204,16 @@ def print_all_registers(state: IpuState, out: TextIO | None = None) -> str:
 
 
 # ---------------------------------------------------------------------------
-# JSON export (matches C save_registers_to_json output)
+# JSON export
 # ---------------------------------------------------------------------------
 
 
 def state_to_json_dict(state: IpuState) -> dict[str, Any]:
     """Serialise all IPU state to a JSON-compatible dict.
 
-    The output structure matches the C ``save_registers_to_json`` format:
-    ``pc``, ``lr``, ``cr``, ``r_regs``, ``r_cyclic``, ``r_mask``, ``acc``.
+    The keys are ``pc`` and one per register-file register (``REGFILE_SCHEMA``):
+    a list of values for a scalar group, a list of byte lists for a
+    multi-entry vector register, a byte list otherwise.
     """
     d: dict[str, Any] = {"pc": state.program_counter}
 
@@ -684,7 +685,7 @@ def debug_prompt(
     cycle : int
         Current cycle count (passed by ``run_with_debug``, informational).
     level : int
-        Debug verbosity level (0–2), matching C ``ipu_debug__level_t``.
+        Debug verbosity level (0–2).
     control : DebugControl, optional
         The control passed to ``run_with_debug``, so ``break`` and ``until``
         reach the run; without it they last for this prompt only.

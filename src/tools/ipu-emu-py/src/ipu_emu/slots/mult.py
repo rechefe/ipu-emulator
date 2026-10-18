@@ -109,7 +109,7 @@ def _active_lane_count(mask_int: int, valid_elements: int) -> int:
 
 def _ra_lanes(ipu: Ipu, codec: LaneCodec) -> Lanes:
     """Ra (R0 ++ R1) as one 256-lane array in the compute domain, from its declared view."""
-    return codec.decode(ipu._view.read(vector_registers(ipu.state).ra), _RA_LANES)
+    return codec.decode(ipu.view.read(vector_registers(ipu.state).ra), _RA_LANES)
 
 
 def _r_cyclic_window(ipu: Ipu, codec: LaneCodec, rc_idx: int) -> Lanes:
@@ -119,7 +119,7 @@ def _r_cyclic_window(ipu: Ipu, codec: LaneCodec, rc_idx: int) -> Lanes:
     ``LD.MULT.CYCLIC``'s ``index`` operand does, so reads and writes share one
     unit in every element width.
     """
-    buf = ipu._view.read(vector_registers(ipu.state).r_cyclic)
+    buf = ipu.view.read(vector_registers(ipu.state).r_cyclic)
     start = rc_idx % _RING_LANES
     if start + LANES <= _RING_LANES:
         return codec.decode(buf[start * codec.element_bytes :], LANES)
@@ -158,21 +158,21 @@ def _mult_mask_and_shift(ipu: Ipu, mask_idx: int, shift: int, cr_idx: int) -> No
     128 four-byte elements in both narrow and wide-vector debug mode, so the
     same code drives both.
     """
-    if ipu._prototyping and shift == 0:
+    if ipu.prototyping and shift == 0:
         # Prototyping shortcut: an unshifted all-ones mask slot deactivates
         # no lane, so the whole mask pipeline below leaves MULT_RES exactly
         # as the multiply wrote it. The hardware still applies the mask.
         # Lane statistics are still recorded: prototyping mode is only
         # allowed to skip work, never to change what a run reports.
         slot = (mask_idx % (LANES // 16)) * 16
-        if ipu._view.read("r_mask")[slot : slot + 16] == _ALL_ONES_MASK_SLOT:
-            _count_mult_lanes(ipu, _ALL_ONES_MASK_INT, ipu._view.dstructure(cr_idx))
+        if ipu.view.read("r_mask")[slot : slot + 16] == _ALL_ONES_MASK_SLOT:
+            _count_mult_lanes(ipu, _ALL_ONES_MASK_INT, ipu.view.dstructure(cr_idx))
             return
 
     facts = ipu.issuer.current
     if facts is not None and facts.mask is not None:
         # The mask the issue step read for this op (IssueFacts.mask).
-        mask_int, dstructure = facts.mask, ipu._view.dstructure(cr_idx)
+        mask_int, dstructure = facts.mask, ipu.view.dstructure(cr_idx)
     else:
         mask_int, dstructure = _effective_mult_mask(ipu, mask_idx, shift, cr_idx)
     _count_mult_lanes(ipu, mask_int, dstructure)
@@ -201,8 +201,8 @@ def _effective_mult_mask(
     ipu: Ipu, mask_idx: int, shift: int, cr_idx: int
 ) -> tuple[int, DStructureConfig]:
     """The mask :func:`~ipu_emu.geometry.effective_mult_mask` gives, and CR *cr_idx*'s dstructure."""
-    dstructure = ipu._view.dstructure(cr_idx)
-    return effective_mult_mask(ipu._view.source("r_mask"), dstructure, mask_idx, shift), dstructure
+    dstructure = ipu.view.dstructure(cr_idx)
+    return effective_mult_mask(ipu.view.source("r_mask"), dstructure, mask_idx, shift), dstructure
 
 
 def _mult_pad_lane_bytes(ipu: Ipu, pad_mode: PadMode) -> bytes:
@@ -214,7 +214,7 @@ def _mult_pad_lane_bytes(ipu: Ipu, pad_mode: PadMode) -> bytes:
     """
     if pad_mode == PadMode.ZERO:
         return b"\x00\x00\x00\x00"
-    acc_dtype = ipu._codec.acc_dtype
+    acc_dtype = ipu.codec.acc_dtype
     if acc_dtype.kind != "f":
         raise EmulatorError(
             f"dstructure pad_mode {pad_mode.name} requires floating-point lanes; "
@@ -246,16 +246,16 @@ def _mult_resolve_lcr_scalar(ipu: Ipu, codec: LaneCodec, src: int, via: str = "s
     """
     if src < LR_REG_COUNT:
         # The LR holds an INDEX into Ra; the Ra DATA is a separate read.
-        return _ra_lanes(ipu, codec)[ipu._view.lr(src, via) % _RA_LANES]
+        return _ra_lanes(ipu, codec)[ipu.view.lr(src, via) % _RA_LANES]
     cr_idx = src - LR_REG_COUNT
-    return codec.decode_cr_scalar(cr_idx, ipu._view.cr(cr_idx, via))
+    return codec.decode_cr_scalar(cr_idx, ipu.view.cr(cr_idx, via))
 
 
 def execute_mult_rc_vv(
     ipu: Ipu, *, rc_idx: int, ra: bytearray, mask_offset: int, mask_shift: int, cr_idx: int
 ) -> None:
     """Execute MULT.RC.VV: R_CYCLIC vector × Ra (R0/R1) vector, element-wise."""
-    codec = ipu._codec
+    codec = ipu.codec
     rc = _r_cyclic_window(ipu, codec, rc_idx)
     _store_mult_res(ipu, codec, codec.mult(rc, codec.decode(ra)))
     _mult_mask_and_shift(ipu, mask_offset, mask_shift, cr_idx)
@@ -265,7 +265,7 @@ def execute_mult_rc_ve(
     ipu: Ipu, *, rc_idx: int, src: int, mask_offset: int, mask_shift: int, cr_idx: int
 ) -> None:
     """Execute MULT.RC.VE: R_CYCLIC vector × scalar (R0/R1 element or CR value)."""
-    codec = ipu._codec
+    codec = ipu.codec
     scalar = _mult_resolve_lcr_scalar(ipu, codec, src)
     rc = _r_cyclic_window(ipu, codec, rc_idx)
     _store_mult_res(ipu, codec, codec.mult(rc, scalar))
@@ -276,7 +276,7 @@ def execute_mult_rc_vs(
     ipu: Ipu, *, rc_idx: int, mask_offset: int, mask_shift: int, cr_idx: int
 ) -> None:
     """Execute MULT.RC.VS: R_CYCLIC vector self-multiply (square), element-wise."""
-    codec = ipu._codec
+    codec = ipu.codec
     rc = _r_cyclic_window(ipu, codec, rc_idx)
     _store_mult_res(ipu, codec, codec.mult(rc, rc))
     _mult_mask_and_shift(ipu, mask_offset, mask_shift, cr_idx)
@@ -286,8 +286,8 @@ def execute_mult_ve(
     ipu: Ipu, *, ra_idx: int, cr_idx: int, mask_offset: int, mask_shift: int, dstructure_cr_idx: int
 ) -> None:
     """Execute MULT.VE: Ra (combined R0/R1) vector × CR scalar, element-wise."""
-    codec = ipu._codec
-    scalar = codec.decode_cr_scalar(cr_idx, ipu._view.cr(cr_idx, "cr_idx"))
+    codec = ipu.codec
+    scalar = codec.decode_cr_scalar(cr_idx, ipu.view.cr(cr_idx, "cr_idx"))
     # Ra is the R0 ++ R1 pair read as one 256-lane cyclic window.
     window = _ra_lanes(ipu, codec)[(ra_idx + _LANE_INDEX) % _RA_LANES]
     _store_mult_res(ipu, codec, codec.mult(window, scalar))
@@ -298,8 +298,8 @@ def execute_mult_ee(
     ipu: Ipu, *, ra_idx: int, cr_idx: int, mask_offset: int, mask_shift: int, dstructure_cr_idx: int
 ) -> None:
     """Execute MULT.EE: single Ra element × CR scalar, broadcast to all 128 elements."""
-    codec = ipu._codec
-    scalar = codec.decode_cr_scalar(cr_idx, ipu._view.cr(cr_idx, "cr_idx"))
+    codec = ipu.codec
+    scalar = codec.decode_cr_scalar(cr_idx, ipu.view.cr(cr_idx, "cr_idx"))
     pos = ra_idx % _RA_LANES
     # One product, broadcast to every lane.
     product = codec.mult(_ra_lanes(ipu, codec)[pos : pos + 1], scalar)
@@ -328,12 +328,12 @@ def vector_is_one(
     """
     if name not in VECTOR_IDENTITY_MULTS:
         return False
-    codec = ipu._codec
+    codec = ipu.codec
     registers = vector_registers(ipu.state)
     size = xmem_row_size_bytes(ipu.state)
     ring = registers.r_cyclic
     start = kwargs["rc_idx"] * codec.element_bytes
-    source = ipu._view.source(ring)
+    source = ipu.view.source(ring)
     if source.has_constant_ones(ring, start, size) and _is_ones_row(
         codec, _cyclic_bytes(source.view(ring), start, size)
     ):
@@ -342,7 +342,7 @@ def vector_is_one(
         # ra is already resolved to bytes; the issuer kept its index.
         index = _MULT_STAGE_MAP[encoded["ra"]][1]
         reg = registers.ra
-        snap = ipu._view.source(reg, "ra")
+        snap = ipu.view.source(reg, "ra")
         if snap.has_constant_ones(reg, index * size, size):
             return _is_ones_row(codec, snap.get_register_bytes(reg, index))
     return False
@@ -406,4 +406,4 @@ def scalar_is_one(ipu: Ipu, kind: int, raw: int, operand: str) -> bool:
     lcr = raw if kind == SCALAR_LCR else raw + LR_REG_COUNT
     if lcr < LR_REG_COUNT:
         return False
-    return bool(_mult_resolve_lcr_scalar(ipu, ipu._codec, lcr, operand) == 1)
+    return bool(_mult_resolve_lcr_scalar(ipu, ipu.codec, lcr, operand) == 1)

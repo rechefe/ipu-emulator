@@ -1,34 +1,11 @@
-"""Tests for ipu_emu.xmem — mirrors test/test_xmem.cpp."""
+"""Tests for ipu_emu.xmem."""
 
 import pytest
 
-from ipu_emu.xmem import XMEM_SIZE_BYTES, XMem, align_addr, words_needed_for_bytes
+from ipu_emu.xmem import XMEM_SIZE_BYTES, XMem
 
 # ---------------------------------------------------------------------------
-# align_addr / words_needed_for_bytes helpers
-# ---------------------------------------------------------------------------
-
-
-class TestAlignAddr:
-    def test_already_aligned(self):
-        assert align_addr(0) == 0
-        assert align_addr(128) == 128
-        assert align_addr(256) == 256
-
-    def test_rounds_up(self):
-        assert align_addr(1) == 128
-        assert align_addr(127) == 128
-        assert align_addr(129) == 256
-
-    def test_words_needed(self):
-        assert words_needed_for_bytes(0) == 0
-        assert words_needed_for_bytes(1) == 1
-        assert words_needed_for_bytes(128) == 1
-        assert words_needed_for_bytes(129) == 2
-
-
-# ---------------------------------------------------------------------------
-# XMem — port of test_xmem.cpp tests
+# XMem
 # ---------------------------------------------------------------------------
 
 
@@ -46,32 +23,6 @@ class TestXMem:
         xmem.write_address(10, data)
         out = xmem.read_address(10, 4)
         assert out == data
-
-    def test_load_array(self):
-        """XmemLoadArray.LoadsCorrectly"""
-        xmem = XMem()
-        arr = bytearray([10, 11, 12, 13, 14])
-        start = 200
-        xmem.load_array_to(arr, start)
-        out = xmem.read_address(start, 5)
-        assert out == arr
-
-    def test_load_matrix_row_alignment(self):
-        """XmemLoadMatrix.RowAlignmentBehavior"""
-        xmem = XMem()
-        rows, cols = 2, 3
-        matrix = bytearray(range(1, rows * cols + 1))
-        start = 0
-        xmem.load_matrix_to(matrix, rows, cols, start)
-
-        # First row at start + align(0) = 0
-        out0 = xmem.read_address(start + align_addr(0), cols)
-        assert out0 == matrix[:cols]
-
-        # Second row at start + align(3) = 128
-        offset1 = align_addr(3)
-        out1 = xmem.read_address(start + offset1, cols)
-        assert out1 == matrix[cols:]
 
     def test_last_byte_access(self):
         """XmemBounds.LastByteAccess"""

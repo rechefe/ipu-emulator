@@ -492,15 +492,14 @@ class ReferenceModel:
         self._writable()
         if not isinstance(profile, AliasProfile):
             raise ConfigurationError(f"{profile!r} is no AliasProfile")
-        bridge = getattr(profile, "_bridge", None)
+        bridge = profile.observer
         if bridge is not None and bridge.state is not None and bridge.state is not self._state:
             raise ConfigurationError("an AliasProfile belongs to a single model")
         if bridge is not None and bridge.state is None:
-            profile._bridge = None  # its model is gone (collected): the profile is free again
+            profile.detach()  # its model is gone (collected): the profile is free again
         old = self._state.alias_profile
-        if old is not None and old is not profile and old._bridge is not None:
-            old._bridge.detach()  # the replaced profile stops watching this model
-            old._bridge = None
+        if old is not None and old is not profile:
+            old.detach()  # the replaced profile stops watching this model
         self._state.alias_profile = profile
         self._state.stats.alias_profile = profile
         self._ipu = _Ipu(self._state)  # the engine binds the profile's observer when built
