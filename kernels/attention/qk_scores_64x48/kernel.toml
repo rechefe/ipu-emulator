@@ -12,20 +12,6 @@ n_block = { type = "int", choices = [16], default = 16 }   # geometry, not in a 
 seed = { type = "int", default = 0x4C0 }   # the old RandomState seed (0x4C0); generator only
 pad = { type = "float", default = 0.0 }   # the padding lanes of b (pack "padded"): 0, as the old harness staged them
 
-# The old placement: the inputs back to back from row 0 in the order below, then the output; first fit in
-# declaration order reproduces it (E07-12/13).
-[inputs.b]                         # K, channel-major: row (blk, c) holds the n_tok keys of channel c
-pack = "padded"
-shape = ["n_block", "d", "n_tok"]
-
-[inputs.a]                         # Q staged query-major: row (blk, i) holds query i's d channels (gen.py transposes the old channel-major draw)
-shape = ["n_block", "n_tok", "d"]
-
-[outputs.y]                             # S query-major: row (i, g) holds keys [g*128, g*128+128) -- RowMajor over n_tok keys
-pack = "padded"                    # the row-major rows under the name attn_v's P takes, so a Chain hands the scores over in place
-shape = ["n_block", "n_tok", "n_tok"]
-# ST.AAQ, one row per store, in row order
-
 [derived]
 k_start = "-1"           # CR5
 chan_start = "-1"        # CR7
@@ -42,6 +28,20 @@ q_stride = "1"           # LR12
 k_block_off = "0"        # LR13
 block_index = "0"        # LR14
 dstruct = "dstructure(n_tok)" # CR15: valid_elements = n_tok
+
+# The old placement: the inputs back to back from row 0 in the order below, then the output; first fit in
+# declaration order reproduces it (E07-12/13).
+[inputs.b]                         # K, channel-major: row (blk, c) holds the n_tok keys of channel c
+pack = "padded"
+shape = ["n_block", "d", "n_tok"]
+
+[inputs.a]                         # Q staged query-major: row (blk, i) holds query i's d channels (gen.py transposes the old channel-major draw)
+shape = ["n_block", "n_tok", "d"]
+
+[outputs.y]                             # S query-major: row (i, g) holds keys [g*128, g*128+128) -- RowMajor over n_tok keys
+pack = "padded"                    # the row-major rows under the name attn_v's P takes, so a Chain hands the scores over in place
+shape = ["n_block", "n_tok", "n_tok"]
+# ST.AAQ, one row per store, in row order
 
 [abi]
 b = "CR2"        # K_BASE (= row 0, but through a writable CR: no CR0 problem)
@@ -75,7 +75,7 @@ n_tok = 64
 d = 48
 n_block = 16
 seed = 0x4C0
-generator = "../gen.py:legacy_qk"
+generator = "../gen.py:seeded_uniform_qk"
 
 # Garbage (1e3) in K's padding lanes, as a chained producer leaves another
 # stream's data there: the stored rows stay zero past n_tok (the old
@@ -86,4 +86,4 @@ d = 48
 n_block = 16
 seed = 0x4C1
 pad = 1000.0
-generator = "../gen.py:legacy_qk"
+generator = "../gen.py:seeded_uniform_qk"

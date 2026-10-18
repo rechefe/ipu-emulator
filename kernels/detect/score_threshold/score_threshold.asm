@@ -28,7 +28,7 @@
       NOT zero -- padding would inflate the count. The harness fills them with
       tau - 800/T, so T*(pad - tau) = -800 exactly and sigmoid underflows to a
       true zero. relu of the same value is zero too, so the padding costs
-      nothing in either output (ipu_kernels.detect.pack, padded_scores).
+      nothing in either output (../pack.py, padded_scores).
 
     PASS STRUCTURE:
       Pass 1   per row: the gate and the staged sigmoid plane   (8 words/row)

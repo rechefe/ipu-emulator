@@ -54,18 +54,18 @@ channels = 1
 height = 4
 width = 16
 stride = 1
-generator = "../gen.py:legacy_window"
+generator = "../gen.py:seeded_normal_minus_2"
 
 [cases.tile_boundary]
 channels = 2
 height = 3
 width = 133
 stride = 1
-generator = "../gen.py:legacy_window"
+generator = "../gen.py:seeded_normal_minus_2"
 
 [cases.single_pixel]
 channels = 1
 height = 1
 width = 1
 stride = 1
-generator = "../gen.py:legacy_window"
+generator = "../gen.py:seeded_normal_minus_2"

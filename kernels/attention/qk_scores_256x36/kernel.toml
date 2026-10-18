@@ -10,20 +10,6 @@ n_tok = { type = "int", choices = [256] }   # fixed: the kernel takes exactly it
 d = { type = "int", choices = [36] }   # fixed: the kernel takes exactly its layer's (n_tok, d)
 seed = { type = "int", default = 0x9C0 }   # the old RandomState seed (0x9C0); generator only
 
-# The old placement: the inputs back to back from row 0 in the order below, then the output; first fit in
-# declaration order reproduces it (E07-12/13).
-[inputs.b]                         # K, channel-major: row c holds the n_tok keys of channel c (2 rows per channel at n_tok = 256)
-shape = ["d", "n_tok"]
-row = 0
-
-[inputs.a]                         # Q staged query-major: row i holds query i's d channels (gen.py transposes the old channel-major draw)
-shape = ["n_tok", "d"]
-
-[outputs.y]                             # S query-major: row (i, g) holds keys [g*128, g*128+128) -- RowMajor over n_tok keys
-pack = "padded"                    # the row-major rows under the name attn_v's P takes, so a Chain hands the scores over in place
-shape = ["n_tok", "n_tok"]
-# ST.AAQ, one row per store, in row order
-
 [derived]
 y_g1 = "base(y) + 1"     # CR4: key group 1's first output row
 k_start_g0 = "-2"        # CR5: -K_STRIDE_ROWS
@@ -38,6 +24,20 @@ out_ptr = "0"            # LR7
 q_ptr = "0"              # LR8
 q_index = "0"            # LR9
 q_stride = "1"           # LR12
+
+# The old placement: the inputs back to back from row 0 in the order below, then the output; first fit in
+# declaration order reproduces it (E07-12/13).
+[inputs.b]                         # K, channel-major: row c holds the n_tok keys of channel c (2 rows per channel at n_tok = 256)
+shape = ["d", "n_tok"]
+row = 0
+
+[inputs.a]                         # Q staged query-major: row i holds query i's d channels (gen.py transposes the old channel-major draw)
+shape = ["n_tok", "d"]
+
+[outputs.y]                             # S query-major: row (i, g) holds keys [g*128, g*128+128) -- RowMajor over n_tok keys
+pack = "padded"                    # the row-major rows under the name attn_v's P takes, so a Chain hands the scores over in place
+shape = ["n_tok", "n_tok"]
+# ST.AAQ, one row per store, in row order
 
 [abi]
 b = "CR0"        # read through the hardwired 0: b is pinned at row 0
@@ -57,7 +57,7 @@ q_ptr = "LR8"
 q_index = "LR9"
 n_tok = "LR10"
 q_stride = "LR12"
-# CR15 unbound -> default dstructure (valid_elements = 128), as legacy
+# CR15 unbound -> default dstructure (valid_elements = 128), as the recorded cases ran
 # Zero-valued LR presets are bound on purpose: in a Chain (E06-15) LRs carry over from the previous step.
 
 [golden]
@@ -68,5 +68,4 @@ tolerance = { fp32 = "FP32_ORDER" }    # a short contraction (d terms); the old 
 n_tok = 256
 d = 36
 seed = 0x9C0
-generator = "../gen.py:legacy_qk"
-
+generator = "../gen.py:seeded_uniform_qk"

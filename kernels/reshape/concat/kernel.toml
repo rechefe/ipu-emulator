@@ -50,4 +50,4 @@ h = 2
 w = 2
 c_a = 3
 c_b = 5
-generator = "gen.py:legacy_uniform"
+generator = "gen.py:seeded_uniform"

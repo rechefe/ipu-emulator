@@ -51,14 +51,14 @@ pack  = "row_interleaved"                  # (c, h, w) stored (h, c, w): row (r 
 shape = ["out_channels", "in_channels", 3, 3]
 pack  = "conv_weight_groups"               # 14 input channels a row, then zeros
 
+[outputs.y]
+shape = ["out_channels", "height", "width"]
+pack  = "row_interleaved"                  # the old teardown's transpose back to (c, h, w)
+
 [scratch.mask]                             # the R_MASK blob: 4 slots (masks.py)
 shape = [1, 128]
 after = "w"
 bytes = "../masks.py:wide_mask"
-
-[outputs.y]
-shape = ["out_channels", "height", "width"]
-pack  = "row_interleaved"                  # the old teardown's transpose back to (c, h, w)
 
 # Every CR the old setup() wrote (CR2-CR14; CR15 the default dstructure), and
 # the LRs the program reads at their reset value.

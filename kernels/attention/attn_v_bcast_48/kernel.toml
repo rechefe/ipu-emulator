@@ -12,6 +12,15 @@ n_head = { type = "int", choices = [16], default = 16 }   # the 16 (stream, head
 seed = { type = "int", default = 0xB48 }   # the old RandomState seed (0xB48); generator only
 pad = { type = "float", default = 0.0 }   # the padding lanes of a and b (pack "padded"): 0, as the old harness staged them
 
+[derived]
+p_start = "-1"           # CR5: -PV_STRIDE_ROWS
+key_start = "-1"         # CR6
+p_block = "n_tok"        # CR7: 64
+key_bound = "n_tok - 2"  # CR8: 62
+chan_stride = "1"        # CR12
+rc_slot0 = "0"           # LR0
+pv_stride = "1"          # LR1
+
 # The old placement: the inputs back to back from row 0 in the order below, then the output; first fit in
 # declaration order reproduces it (E07-12/13).
 [inputs.b]                         # P KEY-major: row (h, s) holds the n_tok queries of key s
@@ -26,15 +35,6 @@ shape = ["n_head", "d", "n_tok"]
 shape = ["n_head", "d", "n_tok"]
 # ST.AAQ, one row per store, in row order
 
-[derived]
-p_start = "-1"           # CR5: -PV_STRIDE_ROWS
-key_start = "-1"         # CR6
-p_block = "n_tok"        # CR7: 64
-key_bound = "n_tok - 2"  # CR8: 62
-chan_stride = "1"        # CR12
-rc_slot0 = "0"           # LR0
-pv_stride = "1"          # LR1
-
 [abi]
 b = "CR2"        # P_BASE
 a = "CR3"        # V_BASE
@@ -48,7 +48,7 @@ n_head = "CR11"
 chan_stride = "CR12"
 rc_slot0 = "LR0"
 pv_stride = "LR1"
-# CR15 unbound -> default dstructure (valid_elements = 128), as legacy
+# CR15 unbound -> default dstructure (valid_elements = 128), as the recorded cases ran
 # Zero-valued LR presets are bound on purpose: in a Chain (E06-15) LRs carry over from the previous step.
 
 [golden]
@@ -60,7 +60,7 @@ n_tok = 64
 d = 48
 n_head = 16
 seed = 0xB48
-generator = "../gen.py:legacy_attn_v_bcast"
+generator = "../gen.py:seeded_uniform_attn_v_bcast"
 
 # Garbage (1e3) in the padding lanes of P and V, as a chained producer leaves
 # another stream's data there: the output is still the golden's, and
@@ -72,4 +72,4 @@ d = 48
 n_head = 16
 seed = 0xB48
 pad = 1000.0
-generator = "../gen.py:legacy_attn_v_bcast"
+generator = "../gen.py:seeded_uniform_attn_v_bcast"

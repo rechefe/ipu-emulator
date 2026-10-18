@@ -1,7 +1,10 @@
 """The softmax family's slot-packed layouts (E07-11).
 
 ``kernel.toml`` names them (``pack = "row_slots"``); the harness finds them in
-``ipu_kernels.softmax.pack``.
+``ipu_kernels.softmax.pack``. They are a module, not ``kernels/softmax/pack.py``
+as other families' transforms are, because ``kernels/softmax/scratch.py`` imports
+``partition_size`` by name: the harness loads a folder's files by path, so one
+cannot import another.
 
 ``softmax_rows_partial`` and ``softmax_columns_packed`` give each logical row
 of a ``(rows, cols)`` tensor a slot of ``partition_size(cols)`` lanes (the next

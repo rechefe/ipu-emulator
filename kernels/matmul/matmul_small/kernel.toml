@@ -55,4 +55,4 @@ tolerance = { fp32 = "FP32_LONG" }
 m = 64
 k = 64
 n = 64
-generator = "../gen.py:legacy_uniform"
+generator = "../gen.py:seeded_uniform"

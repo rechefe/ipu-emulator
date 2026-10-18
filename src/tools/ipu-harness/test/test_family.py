@@ -184,7 +184,7 @@ def test_an_entry_chooses_its_template_cases(tmp_path):
 
 def test_an_entrys_cases_may_use_the_familys_shared_generator(tmp_path):
     """``generator = "../gen.py:fn"`` from a template is the family's file
-    (beside registry.toml), as E07-02's gen.py:legacy_uniform."""
+    (beside registry.toml), as E07-02's gen.py:seeded_uniform."""
     path = family(tmp_path)
     toml = TEMPLATE.replace(
         "[cases.edge]",

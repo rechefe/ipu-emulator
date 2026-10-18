@@ -15,6 +15,16 @@ dim   = { type = "int", choices = [0], default = 0 } # down each column
 scale = { type = "float", default = 5.0 }            # the generator's: x = randn * scale
 seed  = { type = "int", default = 0 }                # the generator's
 
+[derived]
+# gw = partition_size(width): the next power of two >= width in 16..128 (the
+# grammar has no log2, so a sum of steps).
+gw          = "16 + 16 * min(1, max(0, width - 16)) + 32 * min(1, max(0, width - 32)) + 64 * min(1, max(0, width - 64))"
+rpv         = "128 / gw"                             # rows per XMEM row: the fold's step count
+device_rows = "ceil(rows * gw / 128)"                # XMEM rows, the last filled up with padding slots
+step        = "128 * ceil(device_rows / 128)"
+row_stride  = "1"                                    # one XMEM row per vector
+dup_index   = "128"                                  # the fold's duplicate-load element index
+
 # The regions sit where the old harness put them: from row 128, the
 # input, the numerators and the output back to back, each rounded up to a
 # multiple of 128 rows (step), then the resident rows. Every region is pinned:
@@ -53,16 +63,6 @@ row = "128 + 3 * step + 3"
 shape = [1, 128]
 row = "128 + 3 * step + 4"
 
-[derived]
-# gw = partition_size(width): the next power of two >= width in 16..128 (the
-# grammar has no log2, so a sum of steps).
-gw          = "16 + 16 * min(1, max(0, width - 16)) + 32 * min(1, max(0, width - 32)) + 64 * min(1, max(0, width - 64))"
-rpv         = "128 / gw"                             # rows per XMEM row: the fold's step count
-device_rows = "ceil(rows * gw / 128)"                # XMEM rows, the last filled up with padding slots
-step        = "128 * ceil(device_rows / 128)"
-row_stride  = "1"                                    # one XMEM row per vector
-dup_index   = "128"                                  # the fold's duplicate-load element index
-
 [abi]
 y           = "CR2"
 log2e       = "CR3"
@@ -82,13 +82,13 @@ rpv         = "CR14"
 op = "softmax"
 tolerance = { fp32 = "TRANSCENDENT" }
 
-# The old cases' data (gen.py:legacy_randn: the old seeds).
+# The old cases' data (gen.py:seeded_normal: the old seeds).
 [cases.default]
 rows = 64
 width = 16
 scale = 3.0
 seed = 0
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 # The output reads back in the input's (rows, width) layout (the old family
 # layout test: seed = rows + width): width not a power of two and rows not a
@@ -98,14 +98,14 @@ rows = 10
 width = 20
 scale = 3.0
 seed = 30
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 [cases.layout_exact]
 rows = 8
 width = 32
 scale = 3.0
 seed = 40
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 # The old sweep, one case per point: a one-element list puts the old case
 # id in the case's name (sweep_01[rows=16,width=64,scale=3.0,seed=0]).
@@ -114,63 +114,63 @@ rows = [16]
 width = [64]
 scale = [3.0]
 seed = [0]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 [cases.sweep_02]  # 4 rows/vec
 rows = [64]
 width = [32]
 scale = [4.0]
 seed = [1]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 [cases.sweep_03]  # 8 rows/vec, rows not a multiple of rpv (tail)
 rows = [100]
 width = [16]
 scale = [3.0]
 seed = [2]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 [cases.sweep_04]  # 8 rows/vec, 33 rows -> 5 vectors (tail of 1)
 rows = [33]
 width = [16]
 scale = [5.0]
 seed = [3]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 [cases.sweep_05]  # width 33 -> pad to 64 (intra-group padding)
 rows = [16]
 width = [33]
 scale = [3.0]
 seed = [4]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 [cases.sweep_06]  # width 20 -> pad to 32
 rows = [32]
 width = [20]
 scale = [4.0]
 seed = [5]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 [cases.sweep_07]  # width 15 -> pad to 16, large |x| (stability)
 rows = [16]
 width = [15]
 scale = [50.0]
 seed = [6]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 [cases.sweep_08]  # width 10 -> pad to 16, near-uniform
 rows = [8]
 width = [10]
 scale = [0.01]
 seed = [7]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 [cases.sweep_09]  # single row -> softmax all 1.0
 rows = [1]
 width = [64]
 scale = [3.0]
 seed = [8]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 # The old benchmark configs (bazel run //kernels/softmax/softmax_columns_packed -- --benchmark).
 [benchmark]

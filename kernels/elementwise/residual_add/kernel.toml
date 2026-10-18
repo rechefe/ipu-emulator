@@ -37,11 +37,11 @@ tolerance = { fp32 = "EXACT" }
 
 [cases.default]
 num_channels = 64
-generator = "gen.py:legacy_uniform_42"
+generator = "gen.py:seeded_uniform"
 
 [cases.sweep]                       # MobileViT-S residual stages: sweep[num_channels=96], ...
 num_channels = [96, 128, 160]
-generator = "gen.py:legacy_uniform_42"
+generator = "gen.py:seeded_uniform"
 
 # The MobileViT-S residual channel counts (the old benchmark CONFIGS):
 # `bazel run //kernels/elementwise/residual_add -- --benchmark`.

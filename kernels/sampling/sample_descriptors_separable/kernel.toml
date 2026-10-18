@@ -32,7 +32,10 @@ two_w     = "2 * width"
 # Placed from row 0: x, Ky, Kx, the scratch plane, y (the old image).
 [inputs.x]
 shape = ["height", "width", "channels"]
-pack = "hwc_halo"                                           # ipu_kernels.sampling.pack
+pack = "hwc_halo"                                           # ../pack.py
+
+[outputs.y]
+shape = ["band * 8", "width * 8", "channels"]
 
 [scratch.ky]                                                # Ky[i, dy, a], lanes 0..23
 shape = ["height", 128]
@@ -47,9 +50,6 @@ after = "ky"
 [scratch.t]                                                 # T (8, W + 2, 256), the vertical pass
 shape = ["8 * stride", 128]
 after = "kx"
-
-[outputs.y]
-shape = ["band * 8", "width * 8", "channels"]
 
 [abi]
 x_band  = "CR2"
@@ -81,28 +81,28 @@ height = 2
 width = 3
 channels = 256
 stock = true
-generator = "../gen.py:legacy_uniform"
+generator = "../gen.py:seeded_uniform"
 
 [cases.single_cell]
 height = 1
 width = 1
 channels = 256
 stock = true
-generator = "../gen.py:legacy_uniform"
+generator = "../gen.py:seeded_uniform"
 
 [cases.single_row]
 height = 1
 width = 5
 channels = 256
 stock = true
-generator = "../gen.py:legacy_uniform"
+generator = "../gen.py:seeded_uniform"
 
 [cases.single_column]
 height = 5
 width = 1
 channels = 256
 stock = true
-generator = "../gen.py:legacy_uniform"
+generator = "../gen.py:seeded_uniform"
 
 [cases.interior_band]
 height = 4
@@ -111,7 +111,7 @@ channels = 256
 stock = true
 cell_row_start = 1
 cell_row_count = 2
-generator = "../gen.py:legacy_uniform"
+generator = "../gen.py:seeded_uniform"
 
 [cases.last_band]
 height = 3
@@ -120,7 +120,7 @@ channels = 256
 stock = true
 cell_row_start = 2
 cell_row_count = 1
-generator = "../gen.py:legacy_uniform"
+generator = "../gen.py:seeded_uniform"
 
 [cases.large_values]
 height = 2
@@ -128,4 +128,4 @@ width = 3
 channels = 256
 stock = true
 amplitude = 100.0
-generator = "../gen.py:legacy_uniform"
+generator = "../gen.py:seeded_uniform"

@@ -82,4 +82,4 @@ tolerance = { fp32 = "FP32_ORDER" }
 [cases.default]
 channels = 240
 tokens = 16
-generator = "../gen.py:legacy_packed"
+generator = "../gen.py:seeded_uniform_packed"

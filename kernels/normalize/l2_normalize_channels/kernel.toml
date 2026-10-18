@@ -35,14 +35,14 @@ tolerance = { fp32 = "FP32_LONG" }        # a sum of squares and rsqrt; FP32_ORD
 [cases.default]
 channels = 4
 columns = 16
-generator = "../gen.py:legacy_l2"
+generator = "../gen.py:seeded_normal_zero_column"
 
 [cases.tile_boundary]
 channels = 3
 columns = 133
-generator = "../gen.py:legacy_l2"
+generator = "../gen.py:seeded_normal_zero_column"
 
 [cases.single_channel]
 channels = 1
 columns = 129
-generator = "../gen.py:legacy_l2"
+generator = "../gen.py:seeded_normal_zero_column"

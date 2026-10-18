@@ -16,6 +16,13 @@ dim   = { type = "int", choices = [0], default = 0 } # down each column
 scale = { type = "float", default = 5.0 }            # the generator's: x = randn * scale
 seed  = { type = "int", default = 0 }                # the generator's
 
+[derived]
+cpr               = "ceil(width / 128)"              # chunk columns
+device_rows       = "rows * cpr"
+step              = "128 * ceil(device_rows / 128)"
+row_stride        = "1"                              # one XMEM row per chunk
+row_stride_chunks = "cpr"                            # XMEM rows per matrix row (a second name: one register each)
+
 # The regions sit where the old harness put them: from row 128, the
 # input, the numerators and the output back to back, each rounded up to a
 # multiple of 128 rows (step), then the resident rows. Every region is pinned:
@@ -45,13 +52,6 @@ row = "128 + 3 * step + 1"
 shape = ["cpr", 128]
 row = "128 + 3 * step + 1 + cpr"
 
-[derived]
-cpr               = "ceil(width / 128)"              # chunk columns
-device_rows       = "rows * cpr"
-step              = "128 * ceil(device_rows / 128)"
-row_stride        = "1"                              # one XMEM row per chunk
-row_stride_chunks = "cpr"                            # XMEM rows per matrix row (a second name: one register each)
-
 [abi]
 y                 = "CR2"
 log2e             = "CR3"
@@ -69,13 +69,13 @@ cpr               = "CR13"
 op = "softmax"
 tolerance = { fp32 = "TRANSCENDENT" }
 
-# The old cases' data (gen.py:legacy_randn: the old seeds).
+# The old cases' data (gen.py:seeded_normal: the old seeds).
 [cases.default]
 rows = 64
 width = 128
 scale = 5.0
 seed = 0
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 # The output reads back in the input's (rows, width) layout (the old family
 # layout test: seed = rows + width), with padding lanes and without.
@@ -84,14 +84,14 @@ rows = 9
 width = 200
 scale = 3.0
 seed = 209
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 [cases.layout_exact]
 rows = 9
 width = 128
 scale = 3.0
 seed = 137
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 # The old sweep, one case per point: a one-element list puts the old case
 # id in the case's name (sweep_01[rows=8,width=128,scale=3.0,seed=0]).
@@ -100,84 +100,84 @@ rows = [8]
 width = [128]
 scale = [3.0]
 seed = [0]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 [cases.sweep_02]  # square 64x128
 rows = [64]
 width = [128]
 scale = [4.0]
 seed = [1]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 [cases.sweep_03]  # single row -> softmax is all 1.0
 rows = [1]
 width = [128]
 scale = [5.0]
 seed = [2]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 [cases.sweep_04]  # width 130 -> padded to 256 (2 chunks)
 rows = [16]
 width = [130]
 scale = [3.0]
 seed = [3]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 [cases.sweep_05]  # width 200 -> padded to 256
 rows = [32]
 width = [200]
 scale = [4.0]
 seed = [4]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 [cases.sweep_06]  # full 2-chunk width, many rows
 rows = [128]
 width = [256]
 scale = [3.0]
 seed = [5]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 [cases.sweep_07]  # large |x| (stability), 192 -> 256
 rows = [64]
 width = [192]
 scale = [50.0]
 seed = [6]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 [cases.sweep_08]  # near-uniform, 129 -> 256
 rows = [10]
 width = [129]
 scale = [0.01]
 seed = [7]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 [cases.sweep_09]  # 256 rows (no row-group cap)
 rows = [256]
 width = [256]
 scale = [3.0]
 seed = [8]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 [cases.sweep_10]  # width 300 -> padded to 384 (3 chunks)
 rows = [32]
 width = [300]
 scale = [4.0]
 seed = [9]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 [cases.sweep_11]  # width 460 -> padded to 512 (4 chunks)
 rows = [16]
 width = [460]
 scale = [3.0]
 seed = [10]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 [cases.sweep_12]  # exact 3-chunk width, large |x|
 rows = [8]
 width = [384]
 scale = [50.0]
 seed = [11]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 # Sub-128 widths (65..127): one chunk, mostly padding. Correct because each
 # element is an INDEPENDENT column -- padding elements are their own (all-zero)
@@ -188,28 +188,28 @@ rows = [32]
 width = [65]
 scale = [4.0]
 seed = [12]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 [cases.sweep_14]
 rows = [32]
 width = [96]
 scale = [3.0]
 seed = [13]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 [cases.sweep_15]  # widest sub-128 width
 rows = [32]
 width = [127]
 scale = [5.0]
 seed = [14]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 [cases.sweep_16]  # sub-128 + large |x| (stability)
 rows = [16]
 width = [100]
 scale = [50.0]
 seed = [15]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 # The old benchmark configs (bazel run //kernels/softmax/softmax_columns -- --benchmark).
 [benchmark]

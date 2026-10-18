@@ -65,7 +65,7 @@ tolerance = { fp32 = "FP32_LONG", int8 = "INT8_LSB" }  # INT8 measured exact (E0
 # FP32: the data of the old cases, RandomState(0xC0FFEE), b per stream
 # then a. INT8: the default generator, in each input's range.
 [cases.default]
-generator = "gen.py:legacy_uniform"
+generator = "gen.py:seeded_uniform"
 k = 192
 n_out = 8
 n_tok = 64

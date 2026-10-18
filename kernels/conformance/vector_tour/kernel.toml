@@ -59,23 +59,23 @@ tolerance = { int32 = "EXACT", fp32 = "EXACT" } # acc, an accumulator output; re
 
 # The old cases' data: default_rng(16), a then w then c.
 [cases.default]
-generator = "gen.py:legacy_steps"
+generator = "gen.py:seeded_steps"
 int8_tail = true
 formats = ["int8"]
 
 [cases.int8]
-generator = "gen.py:legacy_steps"
+generator = "gen.py:seeded_steps"
 int8_tail = true
 formats = ["int8"]
 
 [cases.e4]
-generator = "gen.py:legacy_steps"
+generator = "gen.py:seeded_steps"
 formats = ["e4"]
 
 [cases.e5]
-generator = "gen.py:legacy_steps"
+generator = "gen.py:seeded_steps"
 formats = ["e5"]
 
 [cases.e3]
-generator = "gen.py:legacy_steps"
+generator = "gen.py:seeded_steps"
 formats = ["e3"]

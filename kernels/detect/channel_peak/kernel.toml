@@ -20,13 +20,13 @@ keep   = "base(y) + tiles"                             # y[1]'s first row
 [inputs.x]
 shape = ["channels", "columns"]                        # one row per 128 cells, zero-padded
 
+[outputs.y]                                            # confidence rows, then keep rows
+shape = [2, "columns"]
+
 [scratch.tau]                                          # tau in every lane
 shape = [1, 128]
 fill = "threshold"
 after = "x"
-
-[outputs.y]                                            # confidence rows, then keep rows
-shape = [2, "columns"]
 
 [abi]
 x        = "CR2"
@@ -46,16 +46,16 @@ tolerance = { fp32 = "EXACT" }
 channels = 4
 columns = 16
 threshold = 0.5
-generator = "../gen.py:legacy_normal"
+generator = "../gen.py:seeded_normal"
 
 [cases.tile_boundary]
 channels = 3
 columns = 133
 threshold = -0.25
-generator = "../gen.py:legacy_normal"
+generator = "../gen.py:seeded_normal"
 
 [cases.single_channel]
 channels = 1
 columns = 129
 threshold = 0.0
-generator = "../gen.py:legacy_normal"
+generator = "../gen.py:seeded_normal"

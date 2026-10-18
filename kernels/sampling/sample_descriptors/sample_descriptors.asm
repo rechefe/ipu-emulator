@@ -7,7 +7,7 @@
 
     XMEM addresses are ROWS (128 FP32 elements = 512 bytes).
     Input: zero-padded (H+2,W+2,256), two rows per descriptor
-      (ipu_kernels.sampling.pack, hwc_halo).
+      (../pack.py, hwc_halo).
     Weights: nine rows per table, dy/dx order, phases 8*a+b in lanes 0..63
       (../tables.py): one table (scratch k, stock = false) or one per cell
       (k_cells, stock = true); CR13 steps the table per cell.

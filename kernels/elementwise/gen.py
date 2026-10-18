@@ -24,7 +24,7 @@ BOUNDS = {
 }
 
 
-def legacy_uniform(plan, rng):
+def seeded_uniform(plan, rng):
     p = plan.params
     channels, tokens, per_row = p["channels"], p["tokens"], p["per_row"]
     old = np.random.RandomState(SEEDS.get(plan.manifest.name, 0))

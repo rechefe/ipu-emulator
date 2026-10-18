@@ -4,7 +4,7 @@
 import numpy as np
 
 
-def legacy_uniform_42(plan, rng):
+def seeded_uniform(plan, rng):
     n = plan.params["num_channels"]
     old = np.random.RandomState(42)
     a = old.uniform(-4.0, 4.0, size=(n, 128)).astype(np.float32)

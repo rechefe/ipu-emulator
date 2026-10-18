@@ -12,6 +12,15 @@ n_head = { type = "int", choices = [4], default = 4 }   # geometry, not in a que
 seed = { type = "int", default = 0xA18 }   # the old RandomState seed (0xA18); generator only
 pad = { type = "float", default = 0.0 }   # the padding lanes of a and b (pack "padded"): 0, as the old harness staged them
 
+[derived]
+pv_stride = "n_tok / 128" # CR5: 2
+chunk_off = "1"          # CR6: second key chunk = next row
+p_group1_off = "n_tok"   # CR7: 256 = 128 queries x 2 rows
+p_head_stride = "2 * n_tok" # CR8: 512
+inner_bound = "126"      # CR9: 126 since E04-25 (was 127)
+out_group_stride = "1"   # CR12
+out_chan_stride = "2"    # CR13
+
 # The old placement: the inputs back to back from row 0 in the order below, then the output; first fit in
 # declaration order reproduces it (E07-12/13).
 [inputs.b]                         # P QUERY-major: row (h, i) holds the n_tok keys of query i
@@ -26,15 +35,6 @@ shape = ["n_head", "d", "n_tok"]
 shape = ["n_head", "d", "n_tok"]
 # ST.AAQ, one row per store, in row order
 
-[derived]
-pv_stride = "n_tok / 128" # CR5: 2
-chunk_off = "1"          # CR6: second key chunk = next row
-p_group1_off = "n_tok"   # CR7: 256 = 128 queries x 2 rows
-p_head_stride = "2 * n_tok" # CR8: 512
-inner_bound = "126"      # CR9: 126 since E04-25 (was 127)
-out_group_stride = "1"   # CR12
-out_chan_stride = "2"    # CR13
-
 [abi]
 b = "CR2"        # P_BASE
 a = "CR3"        # V_BASE
@@ -48,7 +48,7 @@ d = "CR10"
 n_head = "CR11"
 out_group_stride = "CR12"
 out_chan_stride = "CR13"
-# CR15 unbound -> default dstructure (valid_elements = 128), as legacy
+# CR15 unbound -> default dstructure (valid_elements = 128), as the recorded cases ran
 
 [golden]
 op = "matmul_nt"                        # y = a @ b^T: V @ P^T, P query-major
@@ -59,4 +59,4 @@ n_tok = 256
 d = 36
 n_head = 4
 seed = 0xA18
-generator = "../gen.py:legacy_attn_v"
+generator = "../gen.py:seeded_uniform_attn_v"

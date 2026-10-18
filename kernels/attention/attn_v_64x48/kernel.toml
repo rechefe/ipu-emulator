@@ -12,6 +12,13 @@ n_head = { type = "int", choices = [16], default = 16 }   # the 16 (stream, head
 seed = { type = "int", default = 0xA48 }   # the old RandomState seed (0xA48); generator only
 pad = { type = "float", default = 0.0 }   # the padding lanes of a and b (pack "padded"): 0, as the old harness staged them
 
+[derived]
+pv_stride = "1"          # CR5
+p_block_rows = "n_tok"   # CR8: 64
+inner_bound = "n_tok - 2" # CR9: 62 since E04-25 (was 63)
+out_chan_stride = "1"    # CR12
+dstruct = "dstructure(n_tok)" # CR15: valid_elements = n_tok
+
 # The old placement: the inputs back to back from row 0 in the order below, then the output; first fit in
 # declaration order reproduces it (E07-12/13).
 [inputs.b]                         # P QUERY-major: row (h, i) holds the n_tok keys of query i
@@ -25,13 +32,6 @@ shape = ["n_head", "d", "n_tok"]
 [outputs.y]                             # O channel-major: row (h*d + t) holds n_tok queries
 shape = ["n_head", "d", "n_tok"]
 # ST.AAQ, one row per store, in row order
-
-[derived]
-pv_stride = "1"          # CR5
-p_block_rows = "n_tok"   # CR8: 64
-inner_bound = "n_tok - 2" # CR9: 62 since E04-25 (was 63)
-out_chan_stride = "1"    # CR12
-dstruct = "dstructure(n_tok)" # CR15: valid_elements = n_tok
 
 [abi]
 b = "CR2"        # P_BASE
@@ -54,7 +54,7 @@ n_tok = 64
 d = 48
 n_head = 16
 seed = 0xA48
-generator = "../gen.py:legacy_attn_v"
+generator = "../gen.py:seeded_uniform_attn_v"
 
 # Garbage (1e3) in the padding lanes of P and V, as a chained producer leaves
 # another stream's data there: the output is still the golden's, and
@@ -66,4 +66,4 @@ d = 48
 n_head = 16
 seed = 0xA48
 pad = 1000.0
-generator = "../gen.py:legacy_attn_v"
+generator = "../gen.py:seeded_uniform_attn_v"

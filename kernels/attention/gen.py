@@ -14,7 +14,7 @@ def _uniform(state: np.random.RandomState, shape: tuple[int, ...]) -> np.ndarray
     return state.uniform(-1.0, 1.0, size=shape).astype(np.float32)
 
 
-def legacy_qk(plan, rng):
+def seeded_uniform_qk(plan, rng):
     """A ``qk_scores`` case: Q and K channel-major ``([n_block,] d, n_tok)``,
     ignoring the harness's ``rng`` (the old seed, the old draw).
 
@@ -28,7 +28,7 @@ def legacy_qk(plan, rng):
     return {"a": np.ascontiguousarray(np.swapaxes(q, -1, -2)), "b": k}
 
 
-def legacy_km(plan, rng):
+def seeded_uniform_km(plan, rng):
     """An ``attn_scores_km`` case: the old canonical files hold every head
     (``(n_heads * d, n_tok)``, or ``(p, n_heads, d, n_tok)`` with streams), Q
     then K; the kernel scores the one ``head`` (``a`` and ``b`` are that
@@ -51,7 +51,7 @@ def legacy_km(plan, rng):
     return {"b": q, "a": np.ascontiguousarray(np.swapaxes(k, -1, -2))}
 
 
-def legacy_attn_v(plan, rng):
+def seeded_uniform_attn_v(plan, rng):
     """An ``attn_v`` case: P ``(n_head, n_tok, n_tok)`` query-major, then V
     ``(n_head, d, n_tok)`` channel-major, as the old cases drew them; the
     golden is ``a @ b^T`` (``matmul_nt``). The harness's ``rng`` is ignored."""
@@ -62,7 +62,7 @@ def legacy_attn_v(plan, rng):
     return {"b": p, "a": v}
 
 
-def legacy_attn_v_bcast(plan, rng):
+def seeded_uniform_attn_v_bcast(plan, rng):
     """An ``attn_v_bcast`` case: P and V drawn as for ``attn_v``, then P staged
     key-major (``b[h, s, i] = P[h, i, s]``), so ``y = a @ b``. The harness's
     ``rng`` is ignored."""

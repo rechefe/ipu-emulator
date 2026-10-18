@@ -289,7 +289,7 @@ The worked example is the projections (`kernels/projections/`), whose
    generator makes those inputs. The projections' `gen.py`:
 
    ```python
-   def legacy_uniform(plan, rng):
+   def seeded_uniform(plan, rng):
        if plan.format is not ElementFormat.FP32:
            return {}
        ...
@@ -324,7 +324,7 @@ The worked example is the projections (`kernels/projections/`), whose
 
 | The kernel needs | Use |
 |---|---|
-| An input or output in a layout other than row-major, such as channel-major data or packed weights | A pack transform: `pack = "<name>"` on the tensor, defined in the folder's `pack.py`, the family's `ipu_kernels.<family>.pack`, or the shared `ipu_kernels.pack`. |
+| An input or output in a layout other than row-major, such as channel-major data or packed weights | A pack transform: `pack = "<name>"` on the tensor, defined in the kernel folder's `pack.py` (one kernel's), the family folder's `kernels/<family>/pack.py` (shared by the family's kernels), or the shared `ipu_kernels.pack` (every family's). A family's transforms go in `kernels/<family>/pack.py`. Only when other Python imports names from them does the family put them in `ipu_kernels.<family>.pack` instead: the harness loads a folder's `.py` files by path, so one cannot import another (softmax's `scratch.py` imports `partition_size`). |
 | A test the generated cases cannot express, such as a property over many runs | A `test_*.py` in the folder. `bazel test` runs it too, with the fixtures `kernel`, `cases` and `run_case`. |
 | Several programs that run one after another on the same XMEM | A stages hook: `[kernel] stages = "stages.py:run"`. |
 | The same program at other shapes | A variant: a [`registry.toml` entry](../reference/kernel-toml.md#registrytoml) of four lines, not a new folder. |

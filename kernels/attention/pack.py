@@ -1,5 +1,4 @@
-"""The attention family's pack transform (E07-12), found by name as
-``ipu_kernels.attention.pack``.
+"""The attention family's pack transform (E07-12), shared by its kernels.
 
 ``padded`` is the row-major default with the padding lanes set to the case's
 ``pad`` parameter instead of 0. A chained producer leaves another stream's

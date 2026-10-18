@@ -56,4 +56,4 @@ tolerance = { fp32 = "EXACT" }      # one FP32 add, rounded once: as the referen
 [cases.default]
 tokens = 16
 channels = 8
-generator = "../gen.py:legacy_uniform"
+generator = "../gen.py:seeded_uniform"

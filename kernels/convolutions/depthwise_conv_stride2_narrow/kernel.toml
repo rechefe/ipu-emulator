@@ -66,6 +66,10 @@ pack  = "chunked_guard"
 shape = ["in_channels", 10]                  # depthwise_conv_tpl's: the bias (unread here), then the 9 taps
 pack  = "depthwise_filters"
 
+[outputs.out]
+shape = ["in_channels", "height / 2", "width / 2"]
+pack  = "chunk_interleaved"
+
 [scratch.border_mask]
 shape = [1, 128]
 after = "filters"
@@ -76,10 +80,6 @@ bytes = "../masks.py:border_mask"
 [scratch.y]
 shape = ["stage1_rows", 128]
 after = "border_mask"
-
-[outputs.out]
-shape = ["in_channels", "height / 2", "width / 2"]
-pack  = "chunk_interleaved"
 
 # Stage 1 runs with this table (stages.py passes no abi): depthwise_conv_tpl's
 # [abi] at fpb 28, but for CR8. A stage's own table has no offsets, so stage 1

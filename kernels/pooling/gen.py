@@ -15,11 +15,11 @@ def _normal(plan):
     return np.random.default_rng(SEED).standard_normal(plan.shapes["x"]).astype(np.float32)
 
 
-def legacy_normal(plan, rng):
+def seeded_normal(plan, rng):
     """``x`` standard normal: the stride-2 kernels' cases."""
     return {"x": _normal(plan)}
 
 
-def legacy_window(plan, rng):
+def seeded_normal_minus_2(plan, rng):
     """``x`` standard normal minus 2, in FP32: the window kernels' cases."""
     return {"x": _normal(plan) - np.float32(2)}

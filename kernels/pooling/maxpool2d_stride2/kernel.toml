@@ -53,13 +53,6 @@ plane      = "CR11"
 op = "maxpool2d"
 tolerance = { fp32 = "EXACT" }
 
-# The benchmark points (bazel run :maxpool2d_stride2 -- --benchmark).
-[benchmark]
-points = [
-    { channels = 1, height = 2, width = 256 },
-    { channels = 64, height = 2, width = 256 },
-]
-
 # The old cases' data (../gen.py: standard normal, seed 7).
 [cases.default]
 channels = 1
@@ -68,7 +61,7 @@ width = 256
 kernel_size = 2
 stride = 2
 padding = 0
-generator = "../gen.py:legacy_normal"
+generator = "../gen.py:seeded_normal"
 
 [cases.tile_boundary]
 channels = 2
@@ -77,4 +70,11 @@ width = 511
 kernel_size = 2
 stride = 2
 padding = 0
-generator = "../gen.py:legacy_normal"
+generator = "../gen.py:seeded_normal"
+
+# The benchmark points (bazel run :maxpool2d_stride2 -- --benchmark).
+[benchmark]
+points = [
+    { channels = 1, height = 2, width = 256 },
+    { channels = 64, height = 2, width = 256 },
+]

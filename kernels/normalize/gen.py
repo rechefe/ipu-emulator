@@ -41,7 +41,7 @@ def _uniform(rng, channels, shape):
     return x, gamma, beta
 
 
-def legacy_layernorm(plan, rng):
+def seeded_layernorm(plan, rng):
     recipe, seed = LAYERNORM.get(plan.manifest.name, LAYERNORM["layernorm_64x192"])
     channels, tokens = plan.params["channels"], plan.params["tokens"]
     groups = -(-tokens // LANES)
@@ -51,14 +51,14 @@ def legacy_layernorm(plan, rng):
     return {"x": x.reshape(channels, tokens), "gamma": gamma, "beta": beta}
 
 
-def legacy_l2(plan, rng):
+def seeded_normal_zero_column(plan, rng):
     shape = (plan.params["channels"], plan.params["columns"])
     x = np.random.default_rng(7).standard_normal(shape).astype("<f4")
     x[:, 0] = 0
     return {"x": x}
 
 
-def legacy_packed(plan, rng):
+def seeded_uniform_packed(plan, rng):
     """test_packed_layernorm_*.py's data: RandomState(11), x uniform(-3, 3),
     gamma uniform(0.5, 1.5), beta uniform(-0.5, 0.5); x as its packed rows."""
     channels, tokens = plan.params["channels"], plan.params["tokens"]

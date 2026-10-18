@@ -1,15 +1,27 @@
-"""The family's pack transform (``ipu_kernels.attention.pack``): ``padded`` is
+"""The family's pack transform (``pack.py``, beside this file): ``padded`` is
 the default row-major layout with the padding lanes set to ``pad``."""
 
 from __future__ import annotations
 
+import importlib.util
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 from ipu_harness.packing import DEFAULT
-from ipu_kernels.attention.pack import padded
+
+
+def _load_pack():
+    path = Path(__file__).with_name("pack.py")
+    spec = importlib.util.spec_from_file_location("attention_pack", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+padded = _load_pack().padded
 
 
 @pytest.mark.parametrize("shape", [(3, 16), (2, 5, 64), (4, 256), (2, 200)])

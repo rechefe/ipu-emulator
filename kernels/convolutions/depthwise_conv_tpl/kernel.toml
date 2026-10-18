@@ -69,14 +69,14 @@ pack = "chunked_guard"
 shape = ["in_channels", 10]
 pack = "depthwise_filters"
 
+[outputs.y]
+shape = ["out_channels", "height", "width"]
+pack = "chunked"
+
 [scratch.border_mask]                                        # the R_MASK blob
 shape = [1, 128]
 after = "filters"
 bytes = "../masks.py:border_mask"
-
-[outputs.y]
-shape = ["out_channels", "height", "width"]
-pack = "chunked"
 
 # Every CR the old setup() wrote (CR2-CR15; it wrote no LR, and the
 # program reads none before it writes it).

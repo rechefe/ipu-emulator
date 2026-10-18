@@ -29,14 +29,14 @@ dx_bound  = "kernel_size - 1"                            # pre-increment bound
 shape = ["channels", "height", "width"]
 pack = "halo_tiled"                                      # ../pack.py
 
+[outputs.y]
+shape = ["channels", "height", "width"]
+pack = "tiled"                                           # ../pack.py
+
 [scratch.seed]                                           # resident -FLT_MAX row
 shape = [1, 128]
 fill = -3.4028234663852886e38
 after = "x"
-
-[outputs.y]
-shape = ["channels", "height", "width"]
-pack = "tiled"                                           # ../pack.py
 
 [abi]
 x           = "CR2"
@@ -62,7 +62,7 @@ width = 16
 kernel_size = 3
 stride = 1
 padding = 1
-generator = "../gen.py:legacy_window"
+generator = "../gen.py:seeded_normal_minus_2"
 
 [cases.tile_boundary]
 channels = 2
@@ -71,7 +71,7 @@ width = 133
 kernel_size = 3
 stride = 1
 padding = 1
-generator = "../gen.py:legacy_window"
+generator = "../gen.py:seeded_normal_minus_2"
 
 [cases.single_pixel]
 channels = 1
@@ -80,7 +80,7 @@ width = 1
 kernel_size = 3
 stride = 1
 padding = 1
-generator = "../gen.py:legacy_window"
+generator = "../gen.py:seeded_normal_minus_2"
 
 [cases.identity_window]
 channels = 2
@@ -89,7 +89,7 @@ width = 129
 kernel_size = 1
 stride = 1
 padding = 0
-generator = "../gen.py:legacy_window"
+generator = "../gen.py:seeded_normal_minus_2"
 
 [cases.large_window]
 channels = 1
@@ -98,7 +98,7 @@ width = 3
 kernel_size = 127
 stride = 1
 padding = 63
-generator = "../gen.py:legacy_window"
+generator = "../gen.py:seeded_normal_minus_2"
 
 [cases.nms7]
 channels = 1
@@ -107,7 +107,7 @@ width = 125
 kernel_size = 7
 stride = 1
 padding = 3
-generator = "../gen.py:legacy_window"
+generator = "../gen.py:seeded_normal_minus_2"
 
 [cases.nms9]
 channels = 1
@@ -116,4 +116,4 @@ width = 123
 kernel_size = 9
 stride = 1
 padding = 4
-generator = "../gen.py:legacy_window"
+generator = "../gen.py:seeded_normal_minus_2"

@@ -11,6 +11,6 @@ import numpy as np
 SEED = 7
 
 
-def legacy_normal(plan, rng):
+def seeded_normal(plan, rng):
     """``x`` standard normal FP32."""
     return {"x": np.random.default_rng(SEED).standard_normal(plan.shapes["x"]).astype(np.float32)}

@@ -11,6 +11,17 @@ samples      = { type = "int", choices = [10], default = 10 }   # the program's 
 in_features  = { type = "int", choices = [128], default = 128 } # one row of inputs
 out_features = { type = "int", choices = [64], default = 64 }   # lanes of the accumulator used
 
+[derived]
+row_step      = "1"                  # LR0 (sample) and LR14 (weight row) step one row
+element_step  = "1"                  # LR5 (input element) steps by one
+y_stride      = "512 / row_bytes"    # rows one accumulator vector spans: 4 (8-bit), 1 (INT32)
+first_sample  = "0"                  # LR0's start
+lr2_start     = "0"                  # LR2's start (the program never reads LR2)
+weight_start  = "-1"                 # LR14's start, one step before weight row 0
+element_start = "-1"                 # LR5's start, one step before element 0
+last_element  = "in_features - 1"    # the element loop's exit (BNE)
+cyclic_index  = "0"                  # LR15: R_CYCLIC index and mask shift
+
 # The regions sit where the old harness put them, at fixed byte
 # addresses in every format: x at 0x0, w at 0x20000, y at 0x40000. A row is
 # 128 bytes in INT8, E4 and E5 and 512 bytes in INT32, so the rows differ.
@@ -29,17 +40,6 @@ range = { int8 = [-128, 127], int32 = [-2048, 2048], e4 = [-4, 4], e5 = [-4, 4] 
 shape = ["samples", "out_features"]
 store = "accumulator"                             # ST.ACC: 512 B per sample, 4 rows in 8-bit formats
 row = "262144 / row_bytes"                        # byte 0x40000
-
-[derived]
-row_step      = "1"                  # LR0 (sample) and LR14 (weight row) step one row
-element_step  = "1"                  # LR5 (input element) steps by one
-y_stride      = "512 / row_bytes"    # rows one accumulator vector spans: 4 (8-bit), 1 (INT32)
-first_sample  = "0"                  # LR0's start
-lr2_start     = "0"                  # LR2's start (the program never reads LR2)
-weight_start  = "-1"                 # LR14's start, one step before weight row 0
-element_start = "-1"                 # LR5's start, one step before element 0
-last_element  = "in_features - 1"    # the element loop's exit (BNE)
-cyclic_index  = "0"                  # LR15: R_CYCLIC index and mask shift
 
 [abi]
 x             = "CR0"                # pinned at row 0: the hardwired 0

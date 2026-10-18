@@ -74,4 +74,4 @@ tolerance = { fp32 = "FP32_LONG" }
 m = 256
 k = 288
 n = 144
-generator = "../gen.py:legacy_channel_major"
+generator = "../gen.py:seeded_uniform_channel_major"

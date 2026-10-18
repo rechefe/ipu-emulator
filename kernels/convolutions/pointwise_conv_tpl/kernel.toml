@@ -60,14 +60,14 @@ shape = ["out_channels"]
 pack = "pass0_bias"
 when = "has_bias or apply_relu"
 
+[outputs.y]
+shape = ["out_channels", "height", "width"]
+pack = "chunked"
+
 [scratch.mask]                               # slot 0 keeps every lane; the program never masks
 shape = [1, 128]
 after = "w"
 bytes = "../masks.py:keep_all_mask"
-
-[outputs.y]
-shape = ["out_channels", "height", "width"]
-pack = "chunked"
 
 # Every CR the old setup() wrote (CR2-CR14; CR0 is x's base, CR15 the
 # default dstructure), and the two LRs the program reads before it writes them.

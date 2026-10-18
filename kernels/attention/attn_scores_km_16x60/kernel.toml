@@ -13,6 +13,20 @@ n_heads = { type = "int", choices = [4], default = 4 }   # heads in the canonica
 seed = { type = "int", default = 0xD60 }   # the old RandomState seed (0xD60); generator only
 pad = { type = "float", default = 0.0 }   # the padding lanes of b (pack "padded"): 0, as the old harness staged them
 
+[derived]
+q_start = "-1"           # CR5: -Q_CHAN_ROWS
+chan_start = "-1"        # CR7
+chan_bound_unread = "d - 2" # CR8: written, never read
+rc_slot0 = "0"           # LR0
+q_chan_stride = "1"      # LR2
+out_stride = "1"         # LR3
+chan_bound = "d - 2"     # LR6: the contraction bound (the program raises it by one into LR11)
+out_ptr = "0"            # LR7
+key_ptr = "-1"           # LR8: -K_STRIDE_ROWS
+key_index = "0"          # LR9
+key_stride = "1"         # LR12
+dstruct = "dstructure(n_tok)" # CR15: valid_elements = n_tok
+
 # The old placement: the inputs back to back from row 0 in the order below, then the output; first fit in
 # declaration order reproduces it (E07-12/13).
 [inputs.b]                         # the selected head's Q, channel-major: row c holds n_tok queries
@@ -27,20 +41,6 @@ shape = ["n_tok", "d"]
 pack = "padded"                    # the row-major rows under the name attn_v_bcast's P takes, so a Chain hands the scores over in place
 shape = ["n_tok", "n_tok"]
 # ST.AAQ, one row per store, in row order
-
-[derived]
-q_start = "-1"           # CR5: -Q_CHAN_ROWS
-chan_start = "-1"        # CR7
-chan_bound_unread = "d - 2" # CR8: written, never read
-rc_slot0 = "0"           # LR0
-q_chan_stride = "1"      # LR2
-out_stride = "1"         # LR3
-chan_bound = "d - 2"     # LR6: the contraction bound (the program raises it by one into LR11)
-out_ptr = "0"            # LR7
-key_ptr = "-1"           # LR8: -K_STRIDE_ROWS
-key_index = "0"          # LR9
-key_stride = "1"         # LR12
-dstruct = "dstructure(n_tok)" # CR15: valid_elements = n_tok
 
 [abi]
 b = "CR0"        # read through the hardwired 0: b is pinned at row 0
@@ -72,7 +72,7 @@ n_tok = 16
 d = 60
 head = 1
 seed = 0xD60
-generator = "../gen.py:legacy_km"
+generator = "../gen.py:seeded_uniform_km"
 
 # Garbage (1e3) in Q's padding lanes, as a chained producer leaves another
 # stream's data there: the stored rows stay zero past n_tok (the old
@@ -83,4 +83,4 @@ d = 60
 head = 1
 seed = 0xD61
 pad = 1000.0
-generator = "../gen.py:legacy_km"
+generator = "../gen.py:seeded_uniform_km"

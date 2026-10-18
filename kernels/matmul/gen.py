@@ -1,6 +1,6 @@
 """The matmul cases' data (E07-07, E07-08), shared by the family.
 
-``legacy_uniform`` draws from ``RandomState(SEED)``, A ``(tokens, k)`` then W
+``seeded_uniform`` draws from ``RandomState(SEED)``, A ``(tokens, k)`` then W
 ``(n, k)``, uniform in ``[-1, 1)``, FP32, so the outputs match the recorded
 ones bit for bit. A template lays them out as its tensors take them.
 """
@@ -18,7 +18,7 @@ def _draw(tokens, k, n):
     return a, w
 
 
-def legacy_uniform(plan, rng):
+def seeded_uniform(plan, rng):
     """Row-major kernels: ``a`` is A ``(m, k)``, ``b`` is W^T ``(k, n)``."""
     m, k = plan.shapes["a"]
     n = plan.shapes["b"][1]
@@ -26,7 +26,7 @@ def legacy_uniform(plan, rng):
     return {"a": a, "b": np.ascontiguousarray(w.T)}
 
 
-def legacy_channel_major(plan, rng):
+def seeded_uniform_channel_major(plan, rng):
     """The ``*_x128`` kernels: ``b`` is the data D = A^T, ``(n_tg, k, n_tok)``
     (token ``t`` of A is token ``t % n_tok`` of group ``t // n_tok``), and ``a``
     is W ``(n, k)``."""

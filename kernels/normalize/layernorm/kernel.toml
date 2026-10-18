@@ -79,4 +79,4 @@ tolerance = { fp32 = "FP32_LONG" }        # the rsqrt chain; FP32_ORDER also pas
 [cases.default]
 channels = 192
 tokens = 64
-generator = "../gen.py:legacy_layernorm"
+generator = "../gen.py:seeded_layernorm"

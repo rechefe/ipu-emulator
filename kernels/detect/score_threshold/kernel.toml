@@ -19,7 +19,11 @@ count_row = "base(y) + rows"                           # partial sums, then the 
 # Placed from row 0: x, staged, tau, ttau, tvec, y (the old image).
 [inputs.x]                                             # padding lanes tau - 800 / T
 shape = ["count"]
-pack = "padded_scores"                                 # ipu_kernels.detect.pack
+pack = "padded_scores"                                 # ../pack.py
+
+[outputs.y]                                            # selected rows, then the count row
+shape = ["count + 1"]
+pack = "gate_and_count"                                # ../pack.py
 
 [scratch.staged]                                       # the sigmoid plane
 shape = ["rows", 128]
@@ -39,10 +43,6 @@ after = "tau"
 shape = [1, 128]
 fill = "temperature"
 after = "ttau"
-
-[outputs.y]                                            # selected rows, then the count row
-shape = ["count + 1"]
-pack = "gate_and_count"                                # ipu_kernels.detect.pack
 
 [abi]
 x         = "CR2"
@@ -68,16 +68,16 @@ tolerance = { fp32 = "FP32_ORDER" }
 count = 16
 threshold = 0.5
 temperature = 4.0
-generator = "../gen.py:legacy_normal"
+generator = "../gen.py:seeded_normal"
 
 [cases.tile_boundary]
 count = 259
 threshold = -0.25
 temperature = 2.0
-generator = "../gen.py:legacy_normal"
+generator = "../gen.py:seeded_normal"
 
 [cases.single_score]
 count = 1
 threshold = 0.0
 temperature = 1.0
-generator = "../gen.py:legacy_normal"
+generator = "../gen.py:seeded_normal"

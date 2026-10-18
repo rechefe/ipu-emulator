@@ -1,6 +1,6 @@
 # The detect family (E07-15): folder kernels channel_peak and score_threshold.
 # gen.py, beside them, is their shared case generator (data, loaded by path);
-# the pack transforms are ipu_kernels.detect.pack.
+# pack.py, beside them, holds their pack transforms (loaded by path).
 
 load("//kernels:defs.bzl", "ipu_kernel_family")
 

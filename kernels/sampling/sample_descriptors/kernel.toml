@@ -36,7 +36,10 @@ cell_step = "9"                                             # table step per cel
 # Placed from row 0: x, the table, y (the old image).
 [inputs.x]
 shape = ["height", "width", "channels"]
-pack = "hwc_halo"                                           # ipu_kernels.sampling.pack
+pack = "hwc_halo"                                           # ../pack.py
+
+[outputs.y]
+shape = ["band * 8", "width * 8", "channels"]
 
 [scratch.k]                                                 # K[dy, dx, a, b]
 shape = [9, 128]
@@ -49,9 +52,6 @@ shape = ["height * width * 9", 128]
 bytes = "../tables.py:stock"
 when = "stock"
 after = "x"
-
-[outputs.y]
-shape = ["band * 8", "width * 8", "channels"]
 
 [abi]
 x_band     = "CR2"
@@ -80,24 +80,24 @@ tolerance = { fp32 = "FP32_ORDER" }
 height = 2
 width = 3
 channels = 256
-generator = "../gen.py:legacy_uniform"
+generator = "../gen.py:seeded_uniform"
 
 [cases.stock]
 height = 2
 width = 3
 channels = 256
 stock = true
-generator = "../gen.py:legacy_uniform"
+generator = "../gen.py:seeded_uniform"
 
 [cases.single_cell]
 height = 1
 width = 1
 channels = 256
-generator = "../gen.py:legacy_uniform"
+generator = "../gen.py:seeded_uniform"
 
 [cases.stock_single_cell]
 height = 1
 width = 1
 channels = 256
 stock = true
-generator = "../gen.py:legacy_uniform"
+generator = "../gen.py:seeded_uniform"

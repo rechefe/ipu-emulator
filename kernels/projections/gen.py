@@ -1,9 +1,9 @@
 """Case generators shared by the projections' templates (E07-02).
 
-``legacy_uniform`` draws each case's data in FP32 from its seed, so the FP32
+``seeded_uniform`` draws each case's data in FP32 from its seed, so the FP32
 outputs match the recorded ones bit for bit.
 In every other format it makes nothing, and the harness's default generator
-fills the inputs from their ``range`` (E07-03): the legacy data, uniform in
+fills the inputs from their ``range`` (E07-03): the seeded data, uniform in
 [-1, 1), would round to {-1, 0, 1} in INT8. ``weight_rows`` is the
 weight-pointer check.
 ``window_mask`` is the packed linear's R_MASK row (E07-23).
@@ -21,7 +21,7 @@ SEED = 0xC0FFEE
 SCALE = 0.01
 
 
-def legacy_uniform(plan, rng):
+def seeded_uniform(plan, rng):
     """In FP32, b per stream, then a, uniform in [-1, 1) from ``RandomState(SEED)``.
 
     In another format, nothing: the default generator makes b and a.

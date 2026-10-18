@@ -13,20 +13,6 @@ head = { type = "int", min = 0, max = 3, default = 0 }   # generator only: which
 n_heads = { type = "int", choices = [4], default = 4 }   # heads in the canonical file (generator only)
 seed = { type = "int", default = 0xD00 }   # the old RandomState seed (0xD00); generator only
 
-# The old placement: the inputs back to back from row 0 in the order below, then the output; first fit in
-# declaration order reproduces it (E07-12/13).
-[inputs.b]                         # the selected head's Q, channel-major: row c holds n_tok queries
-shape = ["d", "n_tok"]
-row = 0
-
-[inputs.a]                         # the selected head's K, key-major: row s holds key s's d channels
-shape = ["n_tok", "d"]
-
-[outputs.y]                             # S key-major: row (s, g) holds queries [g*128, g*128+128)
-pack = "padded"                    # the row-major rows under the name attn_v_bcast's P takes, so a Chain hands the scores over in place
-shape = ["n_tok", "n_tok"]
-# ST.AAQ, one row per store, in row order
-
 [derived]
 q_start_g0 = "-2"        # CR5: -Q_CHAN_ROWS
 q_start_g1 = "-1"        # CR6: -Q_CHAN_ROWS + 1
@@ -40,6 +26,20 @@ out_ptr = "0"            # LR7
 key_ptr = "-1"           # LR8
 key_index = "0"          # LR9
 key_stride = "1"         # LR12
+
+# The old placement: the inputs back to back from row 0 in the order below, then the output; first fit in
+# declaration order reproduces it (E07-12/13).
+[inputs.b]                         # the selected head's Q, channel-major: row c holds n_tok queries
+shape = ["d", "n_tok"]
+row = 0
+
+[inputs.a]                         # the selected head's K, key-major: row s holds key s's d channels
+shape = ["n_tok", "d"]
+
+[outputs.y]                             # S key-major: row (s, g) holds queries [g*128, g*128+128)
+pack = "padded"                    # the row-major rows under the name attn_v_bcast's P takes, so a Chain hands the scores over in place
+shape = ["n_tok", "n_tok"]
+# ST.AAQ, one row per store, in row order
 
 [abi]
 b = "CR0"        # read through the hardwired 0: b is pinned at row 0
@@ -58,7 +58,7 @@ key_ptr = "LR8"
 key_index = "LR9"
 n_tok = "LR10"
 key_stride = "LR12"
-# CR15 unbound -> default dstructure (valid_elements = 128), as legacy
+# CR15 unbound -> default dstructure (valid_elements = 128), as the recorded cases ran
 # Zero-valued LR presets are bound on purpose: in a Chain (E06-15) LRs carry over from the previous step.
 
 [golden]
@@ -72,5 +72,4 @@ n_tok = 256
 d = 36
 head = 1
 seed = 0xD00
-generator = "../gen.py:legacy_km"
-
+generator = "../gen.py:seeded_uniform_km"

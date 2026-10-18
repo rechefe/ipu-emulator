@@ -1,6 +1,6 @@
 """vector_tour's data: the cases' inputs, and the R_MASK slots.
 
-``legacy_steps`` draws from ``default_rng(16)``, so the outputs match the
+``seeded_steps`` draws from ``default_rng(16)``, so the outputs match the
 recorded ones bit for bit.
 """
 
@@ -15,7 +15,7 @@ MASK_SLOTS = (b"\xff" * 16, b"\x55" * 16, b"\xff" * 8 + b"\x00" * 8)
 MASK_IMAGE_BYTES = 128
 
 
-def legacy_steps(plan, rng):
+def seeded_steps(plan, rng):
     """a, w, c: integers in [-8, 8] in INT8, those times 0.25 in a float format."""
     state = np.random.default_rng(SEED)
     step = 1.0 if plan.format.value == "int8" else 0.25

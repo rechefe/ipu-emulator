@@ -55,6 +55,25 @@ complete   = "CR12"
 op = "maxpool2d"
 tolerance = { fp32 = "EXACT" }
 
+# The old cases' data (../gen.py: standard normal, seed 7).
+[cases.default]
+channels = 1
+height = 4
+width = 16
+kernel_size = 2
+stride = 2
+padding = 0
+generator = "../gen.py:seeded_normal"
+
+[cases.tile_boundary]
+channels = 2
+height = 5
+width = 260
+kernel_size = 2
+stride = 2
+padding = 0
+generator = "../gen.py:seeded_normal"
+
 # The benchmark points and cycle limit (bazel run
 # :maxpool2d_stride2_tail -- --benchmark).
 [benchmark]
@@ -65,22 +84,3 @@ points = [
     { channels = 64, height = 480, width = 640 },
 ]
 max_cycles = 20_000_000
-
-# The old cases' data (../gen.py: standard normal, seed 7).
-[cases.default]
-channels = 1
-height = 4
-width = 16
-kernel_size = 2
-stride = 2
-padding = 0
-generator = "../gen.py:legacy_normal"
-
-[cases.tile_boundary]
-channels = 2
-height = 5
-width = 260
-kernel_size = 2
-stride = 2
-padding = 0
-generator = "../gen.py:legacy_normal"

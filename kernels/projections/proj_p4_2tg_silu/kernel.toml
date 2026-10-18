@@ -65,7 +65,7 @@ tolerance = { fp32 = "FP32_LONG" }
 
 # The data of the old cases: RandomState(0xC0FFEE), b per stream then a.
 [cases.default]
-generator = "gen.py:legacy_uniform"
+generator = "gen.py:seeded_uniform"
 k = 144
 n_out = 4
 n_tok = 128

@@ -9,7 +9,7 @@
 
     MEMORY (all addresses are 128-FP32/512-byte XMEM rows):
       Input: (H+2,W+2,256), one zero halo cell on every side
-          (ipu_kernels.sampling.pack, hwc_halo).
+          (../pack.py, hwc_halo).
       Ky: H rows, Kx: W rows. Each packs [tap,phase] in lanes 0..23;
           remaining lanes are zero (../tables.py). The full-size tables
           occupy 70 KiB.

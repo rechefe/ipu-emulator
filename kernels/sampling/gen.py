@@ -10,7 +10,7 @@ import numpy as np
 SEED = 31
 
 
-def legacy_uniform(plan, rng):
+def seeded_uniform(plan, rng):
     """``x`` uniform in ``[-amplitude, amplitude)``, FP32."""
     amplitude = plan.params["amplitude"]
     state = np.random.default_rng(SEED)

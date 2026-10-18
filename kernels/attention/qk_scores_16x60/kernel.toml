@@ -11,6 +11,20 @@ d = { type = "int", choices = [60] }   # fixed: the kernel takes exactly its lay
 seed = { type = "int", default = 0x5C0 }   # the old RandomState seed (0x5C0); generator only
 pad = { type = "float", default = 0.0 }   # the padding lanes of b (pack "padded"): 0, as the old harness staged them
 
+[derived]
+k_start = "-1"           # CR5: -K_STRIDE_ROWS
+chan_start = "-1"        # CR7
+chan_bound_unread = "d - 2" # CR8: written by the harness, read by no instruction: bound so the registers match the old setup (E07-12/13)
+rc_slot0 = "0"           # LR0
+k_stride = "1"           # LR2: K_STRIDE_ROWS
+out_stride = "1"         # LR3: N_TG * 1
+chan_bound = "d - 2"     # LR6: the contraction bound (the program raises it by one into LR11)
+out_ptr = "0"            # LR7
+q_ptr = "0"              # LR8
+q_index = "0"            # LR9
+q_stride = "1"           # LR12
+dstruct = "dstructure(n_tok)" # CR15: valid_elements = n_tok
+
 # The old placement: the inputs back to back from row 0 in the order below, then the output; first fit in
 # declaration order reproduces it (E07-12/13).
 [inputs.b]                         # K, channel-major: row c holds the n_tok keys of channel c
@@ -25,20 +39,6 @@ shape = ["n_tok", "d"]
 pack = "padded"                    # the row-major rows under the name attn_v's P takes, so a Chain hands the scores over in place
 shape = ["n_tok", "n_tok"]
 # ST.AAQ, one row per store, in row order
-
-[derived]
-k_start = "-1"           # CR5: -K_STRIDE_ROWS
-chan_start = "-1"        # CR7
-chan_bound_unread = "d - 2" # CR8: written by the harness, read by no instruction: bound so the registers match the old setup (E07-12/13)
-rc_slot0 = "0"           # LR0
-k_stride = "1"           # LR2: K_STRIDE_ROWS
-out_stride = "1"         # LR3: N_TG * 1
-chan_bound = "d - 2"     # LR6: the contraction bound (the program raises it by one into LR11)
-out_ptr = "0"            # LR7
-q_ptr = "0"              # LR8
-q_index = "0"            # LR9
-q_stride = "1"           # LR12
-dstruct = "dstructure(n_tok)" # CR15: valid_elements = n_tok
 
 [abi]
 b = "CR0"        # read through the hardwired 0: b is pinned at row 0
@@ -67,7 +67,7 @@ tolerance = { fp32 = "FP32_ORDER" }    # a short contraction (d terms); the old 
 n_tok = 16
 d = 60
 seed = 0x5C0
-generator = "../gen.py:legacy_qk"
+generator = "../gen.py:seeded_uniform_qk"
 
 # Garbage (1e3) in K's padding lanes, as a chained producer leaves another
 # stream's data there: the stored rows stay zero past n_tok (the old
@@ -77,4 +77,4 @@ n_tok = 16
 d = 60
 seed = 0x5C1
 pad = 1000.0
-generator = "../gen.py:legacy_qk"
+generator = "../gen.py:seeded_uniform_qk"

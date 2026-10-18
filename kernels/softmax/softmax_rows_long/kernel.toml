@@ -14,6 +14,16 @@ dim   = { type = "int", choices = [1], default = 1 } # along each row
 scale = { type = "float", default = 5.0 }            # the generator's: x = randn * scale
 seed  = { type = "int", default = 0 }                # the generator's
 
+[derived]
+cpr               = "ceil(n / 128)"                  # chunks per row
+full_chunks       = "n // 128"
+device_rows       = "rows * cpr"
+step              = "128 * ceil(device_rows / 128)"
+row_stride        = "1"                              # one XMEM row per chunk
+tail              = "dstructure(n % 128)"            # the tail block's valid elements: 0 makes it a no-op
+group_cap         = "128"                            # maxvec's R1 index base
+row_stride_chunks = "cpr"                            # XMEM rows per matrix row (a second name: one register each)
+
 # The regions sit where the old harness put them: from row 128, the
 # input, the numerators and the output back to back, each rounded up to a
 # multiple of 128 rows (step), then the resident rows. Every region is pinned:
@@ -43,16 +53,6 @@ row = "128 + 3 * step + 1"
 shape = [1, 128]
 row = "128 + 3 * step + 2"
 
-[derived]
-cpr               = "ceil(n / 128)"                  # chunks per row
-full_chunks       = "n // 128"
-device_rows       = "rows * cpr"
-step              = "128 * ceil(device_rows / 128)"
-row_stride        = "1"                              # one XMEM row per chunk
-tail              = "dstructure(n % 128)"            # the tail block's valid elements: 0 makes it a no-op
-group_cap         = "128"                            # maxvec's R1 index base
-row_stride_chunks = "cpr"                            # XMEM rows per matrix row (a second name: one register each)
-
 [abi]
 y                 = "CR2"
 log2e             = "CR3"
@@ -73,13 +73,13 @@ row_stride_chunks = "CR14"
 op = "softmax"
 tolerance = { fp32 = "TRANSCENDENT" }
 
-# The old cases' data (gen.py:legacy_randn: the old seeds).
+# The old cases' data (gen.py:seeded_normal: the old seeds).
 [cases.default]
 rows = 8
 n = 300
 scale = 5.0
 seed = 0
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 # The output reads back in the input's (rows, n) layout (the old family layout
 # test: seed = rows + n), with a tail chunk and without one.
@@ -88,14 +88,14 @@ rows = 5
 n = 300
 scale = 3.0
 seed = 305
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 [cases.layout_exact]
 rows = 3
 n = 256
 scale = 3.0
 seed = 259
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 # The old sweep, one case per point: a one-element list puts the old case
 # id in the case's name (sweep_01[rows=1,n=129,scale=3.0,seed=0]).
@@ -104,56 +104,56 @@ rows = [1]
 n = [129]
 scale = [3.0]
 seed = [0]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 [cases.sweep_02]  # 1 full + 72 tail
 rows = [4]
 n = [200]
 scale = [4.0]
 seed = [1]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 [cases.sweep_03]  # 2 full + 1 tail
 rows = [8]
 n = [257]
 scale = [3.0]
 seed = [2]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 [cases.sweep_04]  # 2 full + 44 tail
 rows = [8]
 n = [300]
 scale = [5.0]
 seed = [3]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 [cases.sweep_05]  # numerical stability (large |x|)
 rows = [16]
 n = [130]
 scale = [50.0]
 seed = [4]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 [cases.sweep_06]  # near-uniform
 rows = [8]
 n = [300]
 scale = [0.01]
 seed = [5]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 [cases.sweep_07]  # 3 full + 17 tail
 rows = [32]
 n = [401]
 scale = [3.0]
 seed = [6]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 [cases.sweep_08]  # max rows in one group
 rows = [128]
 n = [129]
 scale = [4.0]
 seed = [7]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 # n % 128 == 0: exactly full_chunks whole chunks, NO tail chunk. The tail
 # block still executes with valid_elements=0 (CR8), which makes its running
@@ -163,28 +163,28 @@ rows = [6]
 n = [256]
 scale = [5.0]
 seed = [8]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 [cases.sweep_10]  # 3 full chunks, no tail
 rows = [6]
 n = [384]
 scale = [5.0]
 seed = [9]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 [cases.sweep_11]  # 4 full chunks, no tail
 rows = [4]
 n = [512]
 scale = [3.0]
 seed = [10]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 [cases.sweep_12]  # 8 full chunks, no tail
 rows = [2]
 n = [1024]
 scale = [4.0]
 seed = [11]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 # >128 rows: maxvec/rvec hold one slot per row in a single 128-element vector,
 # so the kernel runs groups of <=128 rows (all four passes per group). Row
@@ -195,28 +195,28 @@ rows = [129]
 n = [129]
 scale = [3.0]
 seed = [12]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 [cases.sweep_14]
 rows = [200]
 n = [200]
 scale = [4.0]
 seed = [13]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 [cases.sweep_15]  # exactly two full groups
 rows = [256]
 n = [130]
 scale = [3.0]
 seed = [14]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 [cases.sweep_16]  # two full groups + a short one
 rows = [300]
 n = [129]
 scale = [5.0]
 seed = [15]
-generator = "../gen.py:legacy_randn"
+generator = "../gen.py:seeded_normal"
 
 # The old benchmark configs (bazel run //kernels/softmax/softmax_rows_long -- --benchmark).
 [benchmark]

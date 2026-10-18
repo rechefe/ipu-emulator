@@ -14,19 +14,6 @@ head = { type = "int", min = 0, max = 3, default = 0 }   # generator only: which
 n_heads = { type = "int", choices = [4], default = 4 }   # heads in the canonical file (generator only)
 seed = { type = "int", default = 0xD48 }   # the old RandomState seed (0xD48); generator only
 
-# The old placement: the inputs back to back from row 0 in the order below, then the output; first fit in
-# declaration order reproduces it (E07-12/13).
-[inputs.b]                         # the selected head's Q, channel-major: row (p, c) holds n_tok queries
-shape = ["p", "d", "n_tok"]
-
-[inputs.a]                         # the selected head's K, key-major: row (p, s) holds key s's d channels
-shape = ["p", "n_tok", "d"]
-
-[outputs.y]                             # S key-major: row (s, g) holds queries [g*128, g*128+128)
-pack = "padded"                    # the row-major rows under the name attn_v_bcast's P takes, so a Chain hands the scores over in place
-shape = ["p", "n_tok", "n_tok"]
-# ST.AAQ, one row per store, in row order
-
 [derived]
 q_start = "-1"           # CR5
 chan_start = "-1"        # CR7
@@ -43,6 +30,19 @@ key_index = "0"          # LR9
 key_stride = "1"         # LR12
 q_stream_off = "0"       # LR13
 stream_index = "0"       # LR14
+
+# The old placement: the inputs back to back from row 0 in the order below, then the output; first fit in
+# declaration order reproduces it (E07-12/13).
+[inputs.b]                         # the selected head's Q, channel-major: row (p, c) holds n_tok queries
+shape = ["p", "d", "n_tok"]
+
+[inputs.a]                         # the selected head's K, key-major: row (p, s) holds key s's d channels
+shape = ["p", "n_tok", "d"]
+
+[outputs.y]                             # S key-major: row (s, g) holds queries [g*128, g*128+128)
+pack = "padded"                    # the row-major rows under the name attn_v_bcast's P takes, so a Chain hands the scores over in place
+shape = ["p", "n_tok", "n_tok"]
+# ST.AAQ, one row per store, in row order
 
 [abi]
 b = "CR3"        # Q_BASE (row 0 via a writable CR)
@@ -65,7 +65,7 @@ n_tok = "LR10"
 key_stride = "LR12"
 q_stream_off = "LR13"
 stream_index = "LR14"
-# CR15 unbound -> default dstructure (valid_elements = 128), as legacy
+# CR15 unbound -> default dstructure (valid_elements = 128), as the recorded cases ran
 # Zero-valued LR presets are bound on purpose: in a Chain (E06-15) LRs carry over from the previous step.
 
 [golden]
@@ -80,7 +80,7 @@ d = 48
 p = 4
 head = 2
 seed = 0xD48
-generator = "../gen.py:legacy_km"
+generator = "../gen.py:seeded_uniform_km"
 
 # The old sweep: the first and the last head of one input, each against its own block.
 [cases.sweep_01]
@@ -89,7 +89,7 @@ d = 48
 p = 4
 head = [0]
 seed = [0xD49]
-generator = "../gen.py:legacy_km"
+generator = "../gen.py:seeded_uniform_km"
 
 [cases.sweep_02]
 n_tok = 64
@@ -97,5 +97,4 @@ d = 48
 p = 4
 head = [3]
 seed = [0xD49]
-generator = "../gen.py:legacy_km"
-
+generator = "../gen.py:seeded_uniform_km"
