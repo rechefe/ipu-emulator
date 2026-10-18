@@ -1,7 +1,7 @@
 # maxpool2d_stride2: 2x2 stride-2 max-pool of [C, H, W], FP32, for a width
 # whose every output XMEM row has two input XMEM rows behind it (E07-14).
 # maxpool2d_stride2_tail takes the other widths. Was a whole-image
-# (MemoryApp) kernel.
+# kernel.
 [kernel]
 op = "maxpool2d"
 formats = ["fp32"]

@@ -133,6 +133,17 @@ py_pytest_test(
     ],
 )
 
+# No name of the deleted whole-image kernel path outside planning/ and the ADRs
+# (E06-20). Walks the checkout, so it is not cached.
+py_pytest_test(
+    name = "test_no_whole_image_path",
+    size = "small",
+    srcs = ["test_no_whole_image_path.py"],
+    data = ["//:ruff.toml"],
+    tags = ["external"],
+    deps = [requirement("pytest")],
+)
+
 # tools/update_baselines.sh runs every update_* target of the packages that
 # hold baselines (docs/content/code-conventions.md, "Baselines").
 py_pytest_test(

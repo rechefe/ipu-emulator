@@ -1,7 +1,7 @@
 # maxpool2d_nms: the unrolled KxK centred stride-1 max-pool template (E07-14).
 # registry.toml fixes kernel_size and padding for its two entries,
 # maxpool2d_nms7 (7, 3) and maxpool2d_nms9 (9, 4); run by itself it is the
-# K = 7 program. Was two whole-image (MemoryApp) kernels.
+# K = 7 program. Was two whole-image kernels.
 [kernel]
 op = "maxpool2d"
 formats = ["fp32"]

@@ -1,7 +1,7 @@
 # channel_peak: SuperPoint's detector read-out over [channels, columns] FP32
 # logits, cells in lanes (E07-15): y[0] = the maximum over the channels (the
 # confidence), y[1] = relu(y[0] - threshold) (the gate). Was a whole-image
-# (MemoryApp) kernel.
+# kernel.
 [kernel]
 op = "channel_peak"
 formats = ["fp32"]

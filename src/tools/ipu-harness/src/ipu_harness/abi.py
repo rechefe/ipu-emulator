@@ -26,7 +26,7 @@ a ``[derived]`` value  the integer (``-1``, ``"k - 128 * (ceil(k / 128) - 1) - 2
 
 Values are raw register bits: a negative integer is its two's complement in
 the register's width. Unless ``[abi]`` binds ``CR15``, it holds the default
-dstructure (``valid_elements = 128``), as ``MemoryApp`` set it.
+dstructure (``valid_elements = 128``), as the old whole-image harness set it.
 """
 
 from __future__ import annotations

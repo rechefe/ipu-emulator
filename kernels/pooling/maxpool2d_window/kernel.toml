@@ -1,5 +1,5 @@
 # maxpool2d_window: centred stride-1 KxK max-pool of [C, H, W], FP32, with K a
-# run-time loop bound (E07-14). Was a whole-image (MemoryApp) kernel. The
+# run-time loop bound (E07-14). Was a whole-image kernel. The
 # unrolled maxpool2d_nms7/nms9 entries take K = 7 and 9 at a lower cost.
 [kernel]
 op = "maxpool2d"

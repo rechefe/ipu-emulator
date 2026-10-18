@@ -18,6 +18,10 @@ The harness does the rest. From `kernel.toml` it checks the parameters,
 places each region in XMEM, writes the inputs in the element format of the
 run, programs the CRs, runs the program and compares the outputs with the
 reference. A kernel has no Python harness and no hand-written CR setup.
+Every input is a tensor declared in `kernel.toml`: a kernel never supplies
+its XMEM contents ready-made. To see the raw rows a run lays out, open the run
+in the debugger and read the XMEM pane ([Debug a kernel](debug-a-kernel.md),
+step 5).
 
 ## Before you start
 

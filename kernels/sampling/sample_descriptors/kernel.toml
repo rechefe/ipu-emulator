@@ -1,7 +1,7 @@
 # sample_descriptors: dense 8x bilinear interpolation of [H, W, 256] FP32
 # descriptors, HWC, over a band of coarse rows (E07-15); the 3x3 neighbour
 # weights of each fine phase are a table in XMEM. Was a whole-image
-# (MemoryApp) kernel. sample_descriptors_separable takes stock queries at a
+# kernel. sample_descriptors_separable takes stock queries at a
 # lower cost.
 [kernel]
 op = "sample_descriptors"

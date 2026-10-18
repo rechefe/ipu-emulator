@@ -1,7 +1,7 @@
 # score_threshold: SuperPoint's keypoint selection over [count] FP32 scores
 # (E07-15): y[:count] = relu(x - threshold), y[count] = the soft survivor
 # count sum(sigmoid(temperature * (x - threshold))). Was a whole-image
-# (MemoryApp) kernel.
+# kernel.
 [kernel]
 op = "score_threshold"
 formats = ["fp32"]

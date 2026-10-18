@@ -1,5 +1,5 @@
 # depth_to_space: pixel shuffle to one output channel, [r * r, h, w] ->
-# [h * r, w * r] (E07-04). Was a whole-image (MemoryApp) kernel.
+# [h * r, w * r] (E07-04). Was a whole-image kernel.
 [kernel]
 op = "depth_to_space"
 formats = ["fp32"]

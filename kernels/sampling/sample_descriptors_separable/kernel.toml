@@ -1,7 +1,7 @@
 # sample_descriptors_separable: dense 8x bilinear interpolation of [H, W, 256]
 # FP32 descriptors in SuperPoint's stock coordinates, as a vertical then a
 # horizontal pass over per-axis tables (E07-15). The registry's choice for a
-# stock query (cost -1). Was a whole-image (MemoryApp) kernel.
+# stock query (cost -1). Was a whole-image kernel.
 [kernel]
 op = "sample_descriptors"
 formats = ["fp32"]
