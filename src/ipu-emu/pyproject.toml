@@ -9,7 +9,6 @@ description = "IPU cycle-functional emulator in Python"
 requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.24.0",
-    "ipu-as",
     "ipu-isa",
 ]
 
@@ -20,6 +19,8 @@ ipu-isa = { path = "../ipu-isa", editable = true }
 [project.optional-dependencies]
 dev = [
     "pytest>=9.0.1",
+    # The tests assemble their programs; the emulator never imports the assembler.
+    "ipu-as",
     # test_ipu_math cross-checks the FP8 codec; the emulator does not import it.
     "ml-dtypes>=0.5.0",
 ]
