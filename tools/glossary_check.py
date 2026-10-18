@@ -27,17 +27,6 @@ BASELINE_COMMAND = "bazel run //:glossary_baseline"
 # Root files checked besides docs/content/**/*.md (the same set as the doc tests).
 ROOT_FILES = ("README.md", "SKILL.md", "CLAUDE.md")
 
-# Pages //docs:generate_mkdocs_md writes into docs/content/ (git-ignored). They
-# are not hand-written; E08 (ipu_gen) owns their wording.
-GENERATED_PAGES = frozenset(
-    {
-        "docs/content/instructions.md",
-        "docs/content/operand-types.md",
-        "docs/content/assembly-syntax.md",
-        "docs/content/programmer-guide.md",
-    }
-)
-
 # Committed pages a workflow rewrites, not a person. .github/workflows/release-log.yml
 # rebuilds the release log from merged pull request titles and pushes it to
 # master without touching the baseline; the titles are historical records that
@@ -178,11 +167,7 @@ def doc_files(root: Path) -> list[str]:
     content = sorted(
         path.relative_to(root).as_posix() for path in (root / "docs/content").rglob("*.md")
     )
-    content = [
-        path
-        for path in content
-        if path not in GENERATED_PAGES and path not in MACHINE_WRITTEN_PAGES
-    ]
+    content = [path for path in content if path not in MACHINE_WRITTEN_PAGES]
     return content + [name for name in ROOT_FILES if (root / name).is_file()]
 
 

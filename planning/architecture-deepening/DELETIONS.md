@@ -737,20 +737,6 @@ The file stays. Its registry-mechanics tests that used softmax as the example no
 | `test_fold_inverts_unfold` (3 layers x plain, poisoned R_ACC) | `kernels/reshape/test_fold_unfold.py::test_fold_inverts_unfold`, same seeds, unfold's output region fed to fold on one model; R_ACC poisoned by a host write between the steps. |
 | `test_fold_and_unfold_share_their_shapes` | `kernels/reshape/test_fold_unfold.py::test_fold_and_unfold_share_their_shapes`, and `kernels/reshape/test_routing.py::test_each_fold_and_unfold_is_routed_by_its_exact_shape` |
 
-### Tests from `src/tools/ipu-apps/src/ipu_apps/kernels/elementwise/residual_add_<shape>/test.py` (3 files)
-
-| Test | Now covered by |
-|---|---|
-| `test_case` (`case_tests(__package__)`: the `default` case of `residual_add_cases`) | The entry's generated tests, `bazel test //kernels/elementwise:residual_add_<shape>`: the template's `default` case at the entry's shape with the old data (`../gen.py`), held EXACT to `ops.residual_add`. |
-| `residual_add_16x240`: `test_one_channel_per_row` | `kernels/elementwise/test_residual_add.py::test_residual_add_16x240_stores_one_channel_per_row` |
-
-### Tests removed from `src/tools/ipu-apps/test/mobilevit/test_kernel_registry_new_families.py` (the file stays)
-
-| Test | Now covered by |
-|---|---|
-| `test_resolved_unfold_computes_the_operation` (E07-05) | `kernels/reshape/test_routing.py::test_each_fold_and_unfold_is_routed_by_its_exact_shape` (routing), and `//kernels/reshape/unfold_16x16x192`'s `default` case, held EXACT to `ops.unfold` (the computation). |
-| `test_resolved_residual_add_computes_the_operation` (E07-06) | `kernels/elementwise/test_residual_add.py::test_each_entry_is_routed_by_its_exact_shape` (routing), and `//kernels/elementwise:residual_add_16x240`'s `default` case, held EXACT to `ops.residual_add` (the computation). |
-
 ### Tests from `src/tools/ipu-apps/src/ipu_apps/kernels/normalize/<kernel>/test.py` (5 files)
 
 | Test | Now covered by |
@@ -1206,3 +1192,18 @@ Nothing imports `ipu_apps` or loads `//:ipu_app.bzl` any more (grep, outside `pl
 | `linear/fully_connected/test.py::test_missing_output_is_not_skipped`, `::test_missing_golden_is_not_skipped`, `::test_dtype_default_and_normalization` | E07-21/E07-22's tables above (the goldens are generated; the formats are `kernel.toml`'s) |
 | `elementwise/residual_add/test.py::test_channel_count_is_bounded_by_the_xmem_regions` | `kernels/elementwise/residual_add/kernel.toml` `[params]` (the channel bound) and `kernels/elementwise/test_residual_add.py` |
 | `convolutions/test.py::test_resolve[...]`, `::test_width_routing_boundaries`, `::test_conv2d_adapter_is_registered`, `::test_refusals[...]`, `::test_unmodelled_layer_configurations_are_refused[...]` | `kernels/convolutions/test_routing.py` (E07-16..E07-20: the same queries, boundaries, refusals and the `Conv2d` adapter) |
+
+## Pre-merge sweep
+
+| Deleted | Issue | Why | Replaced by | Evidence |
+|---|---|---|---|---|
+| `docs/guide/images/install_first_test.png` | pre-merge sweep | Unused. The getting-started rewrite in this PR dropped the `\terminal` figure that showed it. | — (nothing: the guide no longer has the figure) | At the merge-base `docs/guide/getting-started.tex:490` used it; `git grep install_first_test` on HEAD finds nothing. |
+| `docs/guide/images/ex_run.png` | pre-merge sweep | Unused, as above. | — (nothing) | At the merge-base `getting-started.tex:1332` used it; `git grep ex_run.png` on HEAD finds nothing. |
+| `docs/guide/images/ex_test.png` | pre-merge sweep | Unused, as above. | — (nothing) | At the merge-base `getting-started.tex:1345` used it; `git grep ex_test.png` on HEAD finds nothing. |
+| `docs/guide/images/ex_steps.png` | pre-merge sweep | Unused, as above. | — (nothing) | At the merge-base `getting-started.tex:1354` used it; `git grep ex_steps.png` on HEAD finds nothing. |
+| `src/tools/ipu-as-py/test/program_example.s` | pre-merge sweep | An example program nothing read, in the pre-rename lower-case syntax (`beq`, `mac.ee`, `ldr`); the only `.s` file in a repository that uses `.asm`. | — (nothing: the assembler's corpus is `//vscode-ipu-asm:asm_fixtures` and the kernels' programs) | `git grep program_example` finds nothing; no BUILD glob matches `.s`. Last touched in bac7f881 (PR #106). |
+| `src/tools/ipu-as-py/README.md` | pre-merge sweep | Empty (0 bytes) since before this PR. | — (the package is described by `ipu_as/__init__.py`, which the Architecture page renders) | `wc -c` gave 0; no doc linked it. The `readme` key of `pyproject.toml` that named it went with it. |
+| `src/tools/ipu-as-py/.python-version` | pre-merge sweep | A pyenv pin (`3.10`) from before the Bazel move; `MODULE.bazel` pins the interpreter. | `MODULE.bazel` (`python.toolchain`) | No other package has one; nothing read it (`git grep python-version` finds only uv's `--python-version` flag). |
+| `src/tools/ipu-as-py/.gitignore` | pre-merge sweep | A per-package ignore list (`.venv`, egg-info, `__pycache__`, `build`, `.pytest_cache`, `.vscode`) from before the Bazel move. | the root `.gitignore` | The only per-package `.gitignore` in the repository; the root file covers the generated entries. |
+| `src/tools/ipu-as-py/pytest.ini` | pre-merge sweep | No Bazel target read it (`pythonpath = src` served a plain `pytest` run, which `CLAUDE.md` rules out). | — (each target's `imports = ["src"]`) | `git grep pytest.ini` hits only `ipu-emu-py/BUILD.bazel` and `ipu-debug/BUILD.bazel`, which pass their own file as `data`. |
+| `src/tools/ipu-isa/pytest.ini` | pre-merge sweep | No Bazel target read it (`testpaths = test` served a plain `pytest` run). | — (each `py_pytest_test` names its sources) | As above: `ipu-isa/BUILD.bazel` never names it. |
