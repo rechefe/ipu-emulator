@@ -12,12 +12,12 @@ from pathlib import Path
 
 import pytest
 
-# Sources scanned: this package (library and tests) and the apps that launch it.
+# Sources scanned: this package (library and tests) and the harness that launches it.
 _PACKAGE = Path(__file__).parent.parent
 _SCANNED = (
     _PACKAGE / "src",
     _PACKAGE / "test",
-    _PACKAGE.parent / "ipu-apps" / "src",
+    _PACKAGE.parent / "ipu-harness" / "src",
 )
 
 

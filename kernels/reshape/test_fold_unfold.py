@@ -29,7 +29,7 @@ from ipu_isa.formats import ElementFormat
 from ipu_isa.registers import REGISTER_DEFINITIONS
 
 #: Each layer's (unfold kernel, fold kernel, seed of the plain round trip,
-#: seed of the poisoned one): the ipu_apps family test's.
+#: seed of the poisoned one): the old family test's.
 LAYERS = {
     "l3": ("unfold_32x32x144", "fold_32x32x144", 0x032, 0x033),
     "l4": ("unfold_16x16x192", "fold_16x16x192", 0x016, 0x017),

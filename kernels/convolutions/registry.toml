@@ -68,7 +68,7 @@ cases = [
 # fpb (CR7, channels per filter super-block) follows the seed, but a bool
 # cannot enter [derived], so each depthwise entry fixes it (the pack refuses a
 # mismatch). Unlike the pointwise and conv_universal twins, the bias + ReLU
-# depthwise kernel requires the bias, as the ipu_apps one did; a ReLU query
+# depthwise kernel requires the bias, as the old one did; a ReLU query
 # without one routes to depthwise_conv_universal_relu (E07-20), the same
 # seeded program over a zero bias, so the bn entry's routing is unchanged.
 [[kernel]]

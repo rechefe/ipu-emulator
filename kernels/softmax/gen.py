@@ -1,6 +1,6 @@
 """The softmax family's case generators (E07-11).
 
-``legacy_randn`` keeps the ``ipu_apps`` cases' data (``softmax/cases.py``,
+``legacy_randn`` keeps the old cases' data (``softmax/cases.py``,
 ``random_case``): ``RandomState(seed).randn(rows, cols) * scale`` in FP32, so
 the migration's outputs compare bit for bit with the old harness's. ``cols``
 is the kernel's row length: ``n`` for the row kernels, ``width`` for the

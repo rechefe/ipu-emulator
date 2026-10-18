@@ -33,8 +33,7 @@ page's format, so the page always matches the current ISA and kernels:
    the case's trace (one commit record per retired word; the schemas are in
    `ipu_isa/schemas/`) and a context file: the kernel's source and labels, the
    starting registers, and per word the multiplier lanes used and the XMEM
-   ranges read. A kernel still in `ipu_apps` is recorded the same way by
-   `//src/tools/ipu-apps:trace_case` until its family migrates (E07).
+   ranges read.
 2. `ipu-gen inspector-trace` converts the two files into the page's JSON
    (`ipu_gen/schemas/inspector-trace.schema.json`). It keeps the first 5000
    cycles of a long run and marks the trace as truncated.
@@ -62,13 +61,11 @@ bazel run //src/tools/ipu-gen:ipu-gen -- inspector-trace "$PWD/trace.jsonl" "$PW
     ```
 
     `kernel` is a kernel-tree label (`//kernels/conformance/vector_tour`, or
-    `//kernels/<family>:<entry>` for a registry entry) or an `ipu_apps` kernel
-    name. `case` picks one of the kernel's cases (`default` unless given). A
-    kernel-tree case runs in its first format unless `format` names another,
-    as `fc_e4` does: `{"name": "fc_e4", "kernel":
-    "//kernels/linear/fully_connected", "format": "e4"}`. `options` overrides
-    an `ipu_apps` kernel's options; a kernel-tree kernel takes none (add a
-    case instead).
+    `//kernels/<family>:<entry>` for a registry entry). `case` picks one of
+    the kernel's cases (`default` unless given); to record other values, add a
+    case to the kernel. The case runs in its first format unless `format`
+    names another, as `fc_e4` does: `{"name": "fc_e4", "kernel":
+    "//kernels/linear/fully_connected", "format": "e4"}`.
 
 2. Add a `[[kernel]]` entry with the same `id`, at the same place, to
    `docs/inspector/curated.toml`, with its `group` (`hardware` for the 8-bit hardware element formats, `emulator`

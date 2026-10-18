@@ -69,7 +69,7 @@ w_stride   = "LR12"
 op = "linear"                                    # activation(a @ b), ipu_kernels.reference.ops
 tolerance = { fp32 = "FP32_LONG" }
 
-# The ipu_apps cases' data (../gen.py: RandomState(0), A then W).
+# The old cases' data (../gen.py: RandomState(0), A then W).
 [cases.default]
 m = 256
 k = 144

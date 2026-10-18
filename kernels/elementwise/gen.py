@@ -3,7 +3,7 @@
 Each entry's default case keeps the old data: ``RandomState(seed)`` with the
 entry's old seed, ``a`` then ``b``, uniform in [-bound, bound) in FP32 over the
 logical ``(channels, tokens)`` tensor, laid out ``per_row`` channels a row. The
-bound is 1 for the ``ipu_apps`` kernels and 3 for the packed entries (the old
+bound is 1 for the old kernels and 3 for the packed entries (the old
 ``test/mobilevit/test_packed_residual_add_*.py``, E07-23).
 """
 

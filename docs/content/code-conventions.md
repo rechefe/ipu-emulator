@@ -79,16 +79,15 @@ A baseline is a checked-in file that pins today's output. Its test fails on any 
 
 | Baseline | Location | Update target |
 |---|---|---|
-| Assembled-program digests | `src/tools/ipu-apps/test/baselines/asm_digests.json` | `//src/tools/ipu-apps:update_asm_digests` |
+| Assembled-program digests | `src/tools/ipu-as-py/test/baselines/asm_digests.json` | `//src/tools/ipu-as-py:update_asm_digests` |
 | Field names, emulator field maps, enum descriptors | `src/tools/ipu-as-py/test/baselines/*.json` | `//src/tools/ipu-as-py:update_decode_snapshots` |
-| Disassembly text | `src/tools/ipu-apps/test/baselines/disassembly/` | `//src/tools/ipu-apps:update_disassembly_snapshots` |
+| Disassembly text | `src/tools/ipu-as-py/test/baselines/disassembly/` | `//src/tools/ipu-as-py:update_disassembly_snapshots` |
 | SV package golden | `src/tools/ipu-as-py/test/golden/ipu_instr_pkg.sv`, plus the `EXPECTED_LOCALPARAMS` table in `test_sv_package_golden.py` (edited by hand) | `//src/tools/ipu-as-py:update_sv_golden` |
 | Generated artifacts | `src/tools/ipu-as-py/test/baselines/generated/` | `//src/tools/ipu-as-py:update_generated_artifacts` |
-| Kernel case records | `baseline.json` in each kernel folder | `//src/tools/ipu-apps:update_kernel_baselines` |
 | The ISA view as JSON, and the F-1 table of the faults requirements page | `src/tools/ipu-isa/test/fixtures/spec_snapshot.json`, `docs/content/requirements/faults.md` | `//src/tools/ipu-isa:update_isa_baselines` |
 | Conformance suite (programs, setups, expected traces) | `src/tools/ipu-isa/conformance/` | `//src/tools/ipu-emu-py:update_conformance` (also `:regen_conformance`) |
 
-`tools/update_baselines.sh` runs every update target and then lists the baseline files that changed. The kernel target takes minutes, so it runs only with `--with-kernels`. The timing tests have no baseline file: their expected values are code, changed by hand in the behaviour PR that changes the timing rule.
+`tools/update_baselines.sh` runs every update target and then lists the baseline files that changed. A kernel of `kernels/` has no baseline file: its tests hold every case to its golden (`kernel.toml`, `[golden]`), and its `:assemble_<name>` writes its program. The timing tests have no baseline file: their expected values are code, changed by hand in the behaviour PR that changes the timing rule.
 
 | Rule | Why | Checked by |
 |---|---|---|

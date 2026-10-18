@@ -62,7 +62,7 @@ rc_slot0        = "LR1"
 op = "linear"                                      # activation(a @ b), ipu_kernels.reference.ops
 tolerance = { fp32 = "FP32_LONG", int8 = "INT8_LSB" }  # INT8 measured exact (E07-03)
 
-# FP32: the data of the ipu_apps cases, RandomState(0xC0FFEE), b per stream
+# FP32: the data of the old cases, RandomState(0xC0FFEE), b per stream
 # then a. INT8: the default generator, in each input's range.
 [cases.default]
 generator = "gen.py:legacy_uniform"

@@ -3,7 +3,7 @@ layer and its input shape as a ``conv2d`` query in the universal vocabulary.
 
 ``Registry.from_layer`` finds it through ``LAYER_ADAPTERS``. The layer is
 matched by its attributes, so torch is never imported. :class:`Conv2dGeometry`
-is the query's eleven fields (``ipu_apps``' ``ConvQuery`` and
+is the query's eleven fields (the old harness's ``ConvQuery`` and
 ``Conv2dDescription`` declared the same ones twice). ``apply_relu`` has no
 ``torch.nn.Conv2d`` equivalent: a layer alone never implies an activation, so
 the adapter asks for none, and a caller that wants the ReLU kernels builds the

@@ -31,7 +31,7 @@ const { mangle } = require('./mangle');
 const root = path.resolve(__dirname, '..', '..');
 const DEFAULT_DIRS = [
   'vscode-ipu-asm/test/corpus',
-  'src/tools/ipu-apps/src/ipu_apps/kernels',
+  'kernels',
 ];
 
 /** Every .asm file under dir, recursively. */

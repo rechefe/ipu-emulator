@@ -4,7 +4,7 @@
     bazel run //src/tools/ipu-as-py:bench_assemble -- --repeat 5 --json
 
 Assembles every program the E02-01 digest manifest
-(``src/tools/ipu-apps/test/baselines/asm_digests.json``) lists, and splits the
+(``src/tools/ipu-as-py/test/baselines/asm_digests.json``) lists, and splits the
 wall time into the three stages of ``ipu_as.session.AssemblySession``:
 
 - render: the Jinja layer (a manifest entry's render context is passed as
@@ -35,7 +35,7 @@ from pathlib import Path
 from ipu_as.session import AssemblySession
 
 #: The E02-01 digest manifest, repo-relative.
-MANIFEST_PATH = "src/tools/ipu-apps/test/baselines/asm_digests.json"
+MANIFEST_PATH = "src/tools/ipu-as-py/test/baselines/asm_digests.json"
 
 STAGES = ("render", "parse", "encode")
 

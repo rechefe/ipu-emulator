@@ -7,7 +7,7 @@
 of a ``(rows, cols)`` tensor a slot of ``partition_size(cols)`` lanes (the next
 power of two in 16..128), so ``128 / slot`` rows share one XMEM row. The last
 XMEM row is filled up with whole padding slots, and the lanes past ``cols`` in
-each slot are padding too, as the ``ipu_apps`` harness laid them out
+each slot are padding too, as the old harness laid them out
 (``SoftmaxApp.setup``). On unpack the padding is dropped.
 
 ``row_slots`` pads with 0.0 (the row kernel masks the padding off);

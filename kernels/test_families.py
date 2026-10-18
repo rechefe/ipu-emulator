@@ -178,7 +178,7 @@ def test_an_undeclared_file_use_is_reported(tmp_path):
             "kernels/attention/qk/stages.py": 'ctx.run_stage("../../softmax/rows/rows.asm")\n',
             "kernels/attention/qk/notes.toml": 'source = "kernels/softmax/rows"\n',
             # Not uses: a sibling kernel of the same family, and a provenance note.
-            "kernels/attention/qk/qk.asm": "# from src/ipu_apps/kernels/softmax/rows.asm\n",
+            "kernels/attention/qk/qk.asm": "# from an old harness folder, softmax/rows/rows.asm\n",
             "kernels/attention/qk/more.py": 'ctx.run_stage("../softmax/x.asm")\n',
         },
     )

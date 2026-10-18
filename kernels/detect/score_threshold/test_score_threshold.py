@@ -1,4 +1,4 @@
-"""score_threshold's padding lanes (E07-15): the ``ipu_apps`` cases' second
+"""score_threshold's padding lanes (E07-15): the old cases' second
 check. The lanes past ``count`` in the selected rows hold ``tau - 800 / T``
 on the way in; both outputs must suppress them, so the selected rows' padding
 lanes read back 0 (``gate_and_count`` drops them, so this reads the raw

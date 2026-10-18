@@ -41,7 +41,7 @@ slot1    = "CR10"
 op = "channel_peak"
 tolerance = { fp32 = "EXACT" }
 
-# The ipu_apps cases' data (../gen.py: standard normal, seed 7).
+# The old cases' data (../gen.py: standard normal, seed 7).
 [cases.default]
 channels = 4
 columns = 16

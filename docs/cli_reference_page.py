@@ -129,24 +129,26 @@ def argparse_reference(
     return f"```text\n{usage}\n```\n\n" + _table(rows)
 
 
-def _case_option(option: dict) -> str:
-    """One case option and its default, as the runner parses it."""
-    if isinstance(option["default"], bool):
-        return f"{_code(option['flag'])} / {_code(option['negated_flag'])} (default {'on' if option['default'] else 'off'})"
-    return _code(f"{option['flag']} {option['default']}")
+def _case_values(values: dict) -> str:
+    """A case's parameter values; a tuple is a sweep axis."""
+    if not values:
+        return "none"
+    return ", ".join(_code(f"{name}={value}") for name, value in values.items())
 
 
-def case_options_reference() -> str:
-    """Each registered kernel's cases and the options each case adds."""
-    from ipu_apps.kernel_registry import registry
-    from ipu_apps.kernel_registry.cases import case_options, load_cases
+def kernel_cases_reference() -> str:
+    """Each kernel's cases (``kernel.toml`` ``[cases]``): values and formats."""
+    from ipu_harness.registry import default_registry
 
-    registry.load()
-    lines = ["| Kernel | Case | Options |", "|---|---|---|"]
-    for spec in sorted(registry.kernels(), key=lambda s: s.name):
-        for name, case in load_cases(spec.name).items():
-            listed = ", ".join(_case_option(o) for o in case_options(case).values()) or "none"
-            lines.append(f"| `{spec.name}` | `{name}` | {listed} |")
+    lines = ["| Kernel | Case | Values | Formats |", "|---|---|---|---|"]
+    registry = default_registry()
+    for name, manifest in sorted(registry.manifests.items()):
+        for case in manifest.cases.values():
+            formats = case.formats or manifest.formats
+            listed = ", ".join(f.value for f in formats)
+            lines.append(
+                f"| `{name}` | `{case.name}` | {_case_values(dict(case.values))} | {listed} |"
+            )
     return "\n".join(lines) + "\n"
 
 
@@ -169,35 +171,10 @@ def debugger_keys_reference() -> str:
     return "\n".join(parts)
 
 
-def run_summary_example() -> str:
-    """What a run prints after it passes, for a made-up run."""
-    from ipu_emu.stats import RunStats
-
-    stats = RunStats(
-        total_cycles=12847,
-        mult_active_cycles=10421,
-        acc_active_cycles=9876,
-        xmem_reads=3200,
-        xmem_writes=128,
-        mult_lane_ops=1166208,
-        mult_identity_cycles=512,
-        mult_identity_lane_ops=65536,
-        mult_idle_cycles=2426,
-    )
-    return f"```text\n{stats.format_summary()}\n```\n"
-
-
 def _ipu_as() -> str:
     from ipu_as.cli import cli
 
     return click_reference(cli, "ipu-as")
-
-
-def _kernel_targets() -> str:
-    from ipu_apps.kernel_registry.runner import build_parser
-
-    usage = "bazel run //src/tools/ipu-apps:KERNEL -- [OPTIONS] [CASE OPTIONS]"
-    return argparse_reference(build_parser(), "KERNEL", usage=usage, skip=("--kernel",))
 
 
 def _run_kernel() -> str:
@@ -206,14 +183,8 @@ def _run_kernel() -> str:
     return argparse_reference(build_parser(), "run_kernel")
 
 
-def _trace_case() -> str:
-    from ipu_apps.kernel_registry.trace_case import build_parser
-
-    return argparse_reference(build_parser(), "trace_case")
-
-
 def _query() -> str:
-    from ipu_apps.kernel_registry.query import build_parser
+    from ipu_harness.query import build_parser
 
     return argparse_reference(build_parser(), "query")
 
@@ -221,11 +192,8 @@ def _query() -> str:
 #: Each snippet file and the function that renders it.
 SNIPPETS: dict[str, Callable[[], str]] = {
     "ipu-as.md": _ipu_as,
-    "kernel-targets.md": _kernel_targets,
-    "case-options.md": case_options_reference,
-    "run-summary.md": run_summary_example,
     "run-kernel.md": _run_kernel,
-    "trace-case.md": _trace_case,
+    "kernel-cases.md": kernel_cases_reference,
     "query.md": _query,
     "debugger-keys.md": debugger_keys_reference,
 }

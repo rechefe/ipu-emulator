@@ -6,8 +6,7 @@ import json
 
 import pytest
 
-from ipu_apps.kernel_registry.cases import load_cases
-from ipu_bench import bench, ci_times
+from ipu_bench import bench, ci_times, kernel_runs
 from ipu_bench.benchmarks import emulator
 from ipu_bench.result import BIGGER_FILE, SMALLER_FILE, Budget, Result, append_results
 
@@ -23,7 +22,7 @@ def test_every_module_runs_and_writes_valid_files(tmp_path):
     for name in (
         "import/ipu_as",
         "import/ipu_emu",
-        "import/ipu_apps",
+        "import/ipu_harness",
         "assemble/all_kernels",
         "assemble/render_s",
         "assemble/parse_s",
@@ -50,8 +49,8 @@ def test_every_module_runs_and_writes_valid_files(tmp_path):
 
 def test_emulator_kernels_exist():
     # The tiny budget skips the matmul and E4 runs; a renamed kernel or case still fails here.
-    for kernel, case_name in (emulator.MATMUL, emulator.INT8, emulator.E4):
-        assert case_name in load_cases(kernel), (kernel, case_name)
+    for kernel, case_name, fmt, _ in (emulator.MATMUL, emulator.INT8, emulator.E4):
+        assert kernel_runs.has_case(kernel, case_name, fmt), (kernel, case_name, fmt)
 
 
 def test_result_rejects_bad_entries():

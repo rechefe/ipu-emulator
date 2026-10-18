@@ -75,7 +75,7 @@ op = "sample_descriptors"
 # products summed in another order than the reference's.
 tolerance = { fp32 = "FP32_ORDER" }
 
-# The ipu_apps cases' data (../gen.py: uniform, seed 31).
+# The old cases' data (../gen.py: uniform, seed 31).
 [cases.default]
 height = 2
 width = 3

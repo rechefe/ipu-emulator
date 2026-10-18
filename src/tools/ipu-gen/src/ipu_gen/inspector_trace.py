@@ -3,7 +3,7 @@
 The trace (``ipu_isa/schemas``: a header line, then one commit record per
 retired word) is the contract; this file is one presentation of it, for the
 docs page's trace viewer. ``kernel_trace`` (``docs/inspector.bzl``) records
-the trace and its context with ``//src/tools/ipu-apps:trace_case``, then runs
+the trace and its context with ``run_kernel --trace --context``, then runs
 ``ipu-gen inspector-trace`` on them.
 
 The document (``schemas/inspector-trace.schema.json``):
@@ -66,7 +66,7 @@ SCHEMA_VERSION = 1
 #: The commit record schema major version this adapter reads.
 TRACE_MAJOR = 1
 
-#: The ``trace_case`` context layout this adapter reads.
+#: The recorder's context layout (``ipu_harness.inspector``) this adapter reads.
 CONTEXT_VERSION = 1
 
 #: Cycles kept per trace unless the caller says otherwise: enough for every
@@ -224,7 +224,7 @@ def convert(
     Args:
         header: The trace's header line.
         records: Its commit records, in order.
-        context: The recorder's context document (``trace_case``).
+        context: The recorder's context document (``run_kernel --context``).
         max_cycles: Keep at most this many cycles (``truncated`` says so).
 
     Returns:

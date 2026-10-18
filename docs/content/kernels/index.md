@@ -18,7 +18,7 @@ add more.
 | [Attention](attention.md) | The two non-interchangeable QKᵀ / attn·V mappings and their twelve kernels |
 | [MobileViT-S](mobilevit.md) | Kernels per MobileViT-S transformer layer, and chaining rules |
 | [Kernel coverage](../explanation/kernel-coverage.md) | How a computation resolves to a kernel, and every registered kernel (generated) |
-| [Write a kernel](../how-to/write-a-kernel.md) | How to contribute a kernel ([Adding applications](../adding-applications.md) for a legacy `ipu_apps` kernel) |
+| [Write a kernel](../how-to/write-a-kernel.md) | How to contribute a kernel |
 
 ## Finding a kernel for a computation
 
@@ -27,8 +27,7 @@ the kernels themselves, so it cannot drift out of date:
 
 ```bash
 bazel run //kernels:query -- softmax rows=32 n=300 dim=1
-bazel run //kernels:query                                            # the migrated kernels
-bazel run //src/tools/ipu-apps:query                                 # the kernels still in ipu_apps
+bazel run //kernels:query                                            # the coverage report
 ```
 
 ```python
@@ -45,17 +44,14 @@ registry.resolve("softmax", rows=32, n=300, dim=1)
 
 Both return a verdict carrying the kernel, its parameters and why that kernel
 was chosen — or, when nothing covers the query, what each candidate objected
-to. The families already migrated to `kernels/` (the folders there; the
-[coverage page](../app-coverage.md) lists them) answer there; the others still
-answer `//src/tools/ipu-apps:query` until their migration.
+to. Every family is a folder of `kernels/`; the
+[coverage page](../explanation/kernel-coverage.md) lists them.
 
 ## Currently registered
 
 [Kernel coverage](../explanation/kernel-coverage.md#current-coverage) lists
-every operation and its kernels, generated from both registries when the docs
-are built. `bazel run //kernels:query` and
-`bazel run //src/tools/ipu-apps:query` print the same lists.
+every operation and its kernels, generated from the registry when the docs
+are built. `bazel run //kernels:query` prints the same list.
 
 [Write a kernel](../how-to/write-a-kernel.md) shows the structure of a kernel
-under `kernels/`; the ones still in `ipu_apps` follow
-[Building applications](../building-applications.md) until E07 migrates them.
+under `kernels/`.

@@ -1,6 +1,6 @@
 # The kernel tree (ADR 0006, E06): one Bazel package per kernel,
 # //kernels/<family>/<name>, declared with ipu_kernel() from kernels/defs.bzl.
-# Kernels move here from src/tools/ipu-apps during E06 and E07.
+# Kernels moved here from the old Python harness during E06 and E07.
 
 load("@ipu_as_deps//:requirements.bzl", "requirement")
 load("@rules_python//python:defs.bzl", "py_binary")
@@ -79,8 +79,22 @@ alias(
     visibility = ["//visibility:public"],
 )
 
-# Every kernel, its cases and targets, as JSON for tools (E06-13): the same keys
-# as //src/tools/ipu-apps:kernel_manifest.
+# Every kernel's default program, rendered, as .asm files, for tools that read
+# program text without the harness (the editor's grammar agreement, E07-25):
+#   bazel run //kernels:rendered_programs -- "$PWD/rendered"
+py_binary(
+    name = "rendered_programs",
+    srcs = ["//src/tools/ipu-harness:src/ipu_harness/rendered_programs.py"],
+    main = "//src/tools/ipu-harness:src/ipu_harness/rendered_programs.py",
+    data = [":tree"],
+    deps = [
+        ":all_kernels",
+        "//src/tools/ipu-harness:ipu_harness_lib",
+    ],
+)
+
+# Every kernel, its cases and targets, as JSON for tools (E06-13): what the
+# editor extension's kernel buttons and sidebar read.
 #   bazel run //kernels:manifest
 py_binary(
     name = "manifest",

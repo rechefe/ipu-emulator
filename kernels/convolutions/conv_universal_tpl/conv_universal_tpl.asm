@@ -104,7 +104,7 @@
     of every channel, so a shape with rows * cols not a multiple of 128
     (height 17 at width 16, height 9 at width 32, height 5 at width 64)
     computes only num_chunks chunks (its last rows are never written), and
-    the old ipu_apps harness, which sized the input region for num_chunks,
+    the old harness, which sized the input region for num_chunks,
     overran it into the filters. No case uses such a shape.
 -#}
 {%- set lr_zero = "LR0" -%}

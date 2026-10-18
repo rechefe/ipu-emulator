@@ -372,14 +372,14 @@ With `[abi]` `data_base = "CR2"` and `data_ptr = "LR0"`, this renders `SET LR0 C
 bazel run //src/tools/ipu-as-py:ipu-as -- assemble --input prog.asm --output prog.bin
 ```
 
-**In Bazel build rules:** use the project’s `ipu_asm` rule (see [Building Applications](../../building-applications.md)).
+**In Bazel build rules:** a kernel's `:assemble_<name>` target writes its program (see [Write a kernel](../../how-to/write-a-kernel.md)); `assemble_asm` in `asm_rules.bzl` assembles any other source.
 
 ## Further reading
 
 - [Operand types](operand-types.md) — field types used in `instruction_spec`
 - [Instruction reference](instructions.md) — per-opcode documentation
 - [Adding instructions](../../how-to/add-an-instruction.md)
-- [Building applications](../../building-applications.md)
+- [Write a kernel](../../how-to/write-a-kernel.md)
 """
     output_path.write_text(main + timing_section() + masking_section + jinja_tail)
     print(f"Generated assembly syntax page at {output_path}")

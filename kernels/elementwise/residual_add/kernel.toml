@@ -1,6 +1,6 @@
 # residual_add: y = a + b over num_channels rows of 128 elements, the CHW
 # residual of the convolution stages (E07-06). Its regions are at fixed rows,
-# 1024 apart, as the ipu_apps harness put them.
+# 1024 apart, as the old harness put them.
 [kernel]
 op = "residual_add"
 formats = ["fp32"]
@@ -43,7 +43,7 @@ generator = "gen.py:legacy_uniform"
 num_channels = [96, 128, 160]
 generator = "gen.py:legacy_uniform"
 
-# The MobileViT-S residual channel counts (the ipu_apps benchmark CONFIGS):
+# The MobileViT-S residual channel counts (the old benchmark CONFIGS):
 # `bazel run //kernels/elementwise/residual_add -- --benchmark`.
 [benchmark]
 points = [{ num_channels = 64 }, { num_channels = 96 }, { num_channels = 128 }, { num_channels = 160 }]

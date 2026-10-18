@@ -1,4 +1,4 @@
-"""The ipu_apps residual_add cases' data: ``RandomState(42)``, ``a`` uniform in
+"""The old residual_add cases' data: ``RandomState(42)``, ``a`` uniform in
 [-4, 4), then ``b`` in [-6, 6), FP32, one channel per 128-element row."""
 
 import numpy as np

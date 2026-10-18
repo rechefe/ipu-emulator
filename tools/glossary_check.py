@@ -53,7 +53,7 @@ SKIPPED_TERMS: Mapping[str, str] = {
     "op": "an `op` field and a binary op are real code names; the avoid is for prose",
     "inst": "a short code identifier; in prose it is almost always a variable name left unquoted",
     "instr": "a short code identifier; in prose it is almost always a variable name left unquoted",
-    "app": "app names the legacy ipu-apps package and directory",
+    "app": "app is a key of the registry verdict's JSON, which tools read",
     "application": "ordinary English (an application of a rule)",
     "harness": "the Harness is itself a glossary term; only its use for a kernel is avoided",
     "buffer": "ordinary English and a host-side buffer, not only an XMEM region",

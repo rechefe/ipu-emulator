@@ -51,7 +51,7 @@ one        = "CR10"
 op = "residual_add"
 tolerance = { fp32 = "EXACT" }      # one FP32 add, rounded once: as the reference rounds it
 
-# The ipu_apps cases' data: RandomState(seed), a then b, uniform [-1, 1)
+# The old cases' data: RandomState(seed), a then b, uniform [-1, 1)
 # (../gen.py: each entry's old seed).
 [cases.default]
 tokens = 16

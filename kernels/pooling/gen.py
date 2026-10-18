@@ -1,4 +1,4 @@
-"""The ``ipu_apps`` pooling cases' data (E07-14), shared by the family's kernels.
+"""The old pooling cases' data (E07-14), shared by the family's kernels.
 
 Both draw ``x`` as ``case_support.random_values`` did: standard normal FP32
 from ``default_rng(7)``, so the migration's outputs compare bit for bit with
@@ -8,7 +8,7 @@ change.
 
 import numpy as np
 
-#: The ``ipu_apps`` cases' seed.
+#: The old cases' seed.
 SEED = 7
 
 

@@ -1,4 +1,4 @@
-"""Routing of the softmax family (E07-11): the ``ipu_apps`` router tests, on
+"""Routing of the softmax family (E07-11): the old router tests, on
 the kernel tree's registry, and the routing tables of the docs page.
 
 A query is ``softmax`` with ``rows``, ``dim`` and the row length: ``n`` along

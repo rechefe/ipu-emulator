@@ -1,7 +1,7 @@
 # conv_first_layer: the network's first layer, 3x256x256 -> 16x128x128, a 3x3
 # stride-2 pad-1 FP32 convolution plus bias, then ReLU (E07-16). One fixed
 # shape, routed in the universal conv2d vocabulary: every one of its 11
-# parameters is required, as the ipu_apps query's were.
+# parameters is required, as the old query's were.
 [kernel]
 op = "conv2d"
 formats = ["fp32"]
@@ -28,7 +28,7 @@ out_rows       = "height / stride"                     # the output-row loop bou
 filter_rows    = "out_channels"                        # the filter-block loop bound
 slot1          = "128"                                 # R_CYCLIC slot 1's element index
 
-# Pinned at the ipu_apps harness's addresses (byte address / 512).
+# Pinned at the old harness's addresses (byte address / 512).
 [inputs.x]                                             # row-interleaved by channel
 shape = ["in_channels", "height", "width"]
 row = 0
@@ -70,7 +70,7 @@ slot1          = "CR14"
 reference = "reference.py:reference"                   # filters split, then the shared conv2d
 tolerance = { fp32 = "FP32_ORDER" }               # measured: max |err| 2.4e-6 over the cases
 
-# The ipu_apps case's shape (conv_first_layer/cases.py); the data is the harness's
+# The old case's shape (conv_first_layer/cases.py); the data is the harness's
 # seeded per-tensor streams (E06-08).
 [cases.default]
 in_channels = 3
@@ -85,7 +85,7 @@ apply_relu = true
 height = 256
 width = 256
 
-# The ipu_apps benchmark.py: the default case, one run.
+# The old benchmark.py: the default case, one run.
 [benchmark]
 points = [{}]
 max_cycles = 50_000_000

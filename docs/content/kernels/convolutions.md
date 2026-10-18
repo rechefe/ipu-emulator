@@ -108,8 +108,8 @@ h = 64                       depthwise_conv_stride2_narrow
 ```
 
 At width 16 `depthwise_conv_stride2_narrow` needs a height that is a multiple
-of 32. The `ipu_apps` router also answered it for heights 4 and 36, which its
-kernel then refused to build.
+of 32. The old kernel registry (before E07) also answered it for heights 4
+and 36, which its kernel then refused to build.
 
 `kernel_size` is 1 or 3, `groups` is 1 or `in_channels`, `dilation` is 1.
 

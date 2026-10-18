@@ -16,9 +16,8 @@ The rules agents must never break are in [CLAUDE.md](CLAUDE.md), under "Key Cons
 | Task or topic | Page |
 |---|---|
 | Build and run tests | [CLAUDE.md](CLAUDE.md), "Build & Test" |
-| Packages, their dependencies and where to change what | [explanation/architecture.md](docs/content/explanation/architecture.md); kernels: [how-to/write-a-kernel.md](docs/content/how-to/write-a-kernel.md) (legacy `ipu_apps`: [adding-applications.md](docs/content/adding-applications.md)) |
+| Packages, their dependencies and where to change what | [explanation/architecture.md](docs/content/explanation/architecture.md); kernels: [how-to/write-a-kernel.md](docs/content/how-to/write-a-kernel.md) |
 | Write a kernel (`kernels/`, `kernel.toml`) | [how-to/write-a-kernel.md](docs/content/how-to/write-a-kernel.md); every key: [reference/kernel-toml.md](docs/content/reference/kernel-toml.md) |
-| Write or register a legacy `ipu_apps` kernel (E07 retires them) | [building-applications.md](docs/content/building-applications.md), [adding-applications.md](docs/content/adding-applications.md) |
 | Kernel catalogue | [kernels/index.md](docs/content/kernels/index.md) |
 | Add an instruction or pseudo-instruction | [Add an instruction](docs/content/how-to/add-an-instruction.md) |
 | Debug a kernel | [how-to/debug-a-kernel.md](docs/content/how-to/debug-a-kernel.md) |

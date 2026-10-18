@@ -1062,3 +1062,147 @@ The MobileViT users of the softmax shim are gone with the files above. The shim 
 | `test_case` (each of the nine: `case_tests(__package__)`) | `bazel test //kernels/attention/<kernel>`: the kernel's cases, the old seeds, against the matmul reference, and `kernels/attention/test_datapath.py::test_each_kernel_equals_its_datapath_mirror` bit for bit |
 | `qk_scores_16x60/test.py::test_padding_lanes_not_stored`, `qk_scores_64x48/test.py::test_padding_lanes_not_stored`, `attn_scores_km_16x60/test.py::test_padding_lanes_not_stored` | `kernels/attention/test_padding.py::test_padding_lanes_are_not_stored` (each kernel's `padding_not_stored` case) |
 | `attn_v_16x60/test.py::test_padding_is_inert`, `attn_v_64x48/test.py::test_padding_is_inert`, `attn_v_bcast_48/test.py::test_padding_is_inert`, `attn_v_bcast_60/test.py::test_padding_is_inert` | Each kernel's `padding_is_inert` case, held to the golden, and `test_datapath.py` to the mirror |
+
+## E07-25 Retire ipu-apps
+
+Nothing imports `ipu_apps` or loads `//:ipu_app.bzl` any more (grep, outside `planning/`). The last users moved first: the Cycle Inspector's `conv_universal` trace (`//kernels/convolutions:conv_universal`, through `run_kernel --trace --context`), `tools/bench` (kernel-tree cases through `ipu_harness.runner`), the docs generators and tests, the editor extension (`//kernels:manifest`, `//kernels:rendered_programs`), and the baselines (`asm_digests.json` and the disassembly snapshots moved to `src/tools/ipu-as-py/test/baselines/` with `git mv`). The evidence for each frozen kernel folder below was re-run at the parent commit (bc231b53) with `compare_legacy` (poisoned CR2-CR14 and LR0-LR15 on the new side).
+
+| Deleted | Issue | Why | Replaced by | Evidence |
+|---|---|---|---|---|
+| `src/tools/ipu-apps/src/ipu_apps/kernels/reshape/identity/` | E07-25 | The frozen `identity` folder (`app.py`, `cases.py`, `test.py`, `baseline.json`, `__init__.py`, the `.asm`), the generic fixture of the old harness's own tests, which go with it. | `//kernels/reshape/identity` (E07-04) | `compare_legacy reshape`: 2/2 cases identical in binary, output and cycles (`default` 17/17, `single_row` 7/7). E02 digest `65e08a2907637a18`. |
+| `src/tools/ipu-apps/src/ipu_apps/kernels/reshape/__init__.py` | E07-25 | The old family package. | `kernels/reshape/` | No module left in it. |
+| `src/tools/ipu-apps/src/ipu_apps/kernels/elementwise/` | E07-25 | The frozen `residual_add` folder and the family `__init__.py`, kept for the getting-started guide, which now runs `//kernels/elementwise/residual_add`. | `//kernels/elementwise/residual_add` (E07-06) | `compare_legacy elementwise`: 4/4 identical (325/325, 485/485, 645/645, 805/805). E02 digest `9c425573505ca11a`. |
+| `src/tools/ipu-apps/src/ipu_apps/kernels/softmax/` | E07-25 | The softmax shim: the family `app.py`, `cases.py`, `__init__.py` and the frozen `softmax_rows`, `softmax_rows_partial`, `softmax_columns_packed` folders, kept for `test_reference_model_kernels.py`, `test_alias_profile_kernels.py`, the README's debugger command and the editor's analysis fixture. Its `softmax_rows_partial/test.py` takes `test_scatter_counts_every_partition`'s `mult_identity_cycles == 2 * rows` assertion with it (the reference model's statistics cannot express it; the new test keeps the lane counts). | `//kernels/softmax/softmax_rows`, `softmax_rows_partial`, `softmax_columns_packed` (E07-11) | `compare_legacy softmax`: 55/55 cases identical in binary, output and cycles (e.g. `softmax_rows/default` 2323/2323, `softmax_rows_partial/n=20,rows=2000` 40854/40854, `softmax_columns_packed/default` 234/234). E02 digests `9f8a5a279f7c04ae`, `7763591d2f3dafb6`, `d1d81bd314b2ff7a`. |
+| `src/tools/ipu-apps/src/ipu_apps/kernels/matmul/` | E07-25 | The two frozen x128 folders `tools/bench` ran (`matmul_384x192_x128`, `matmul_720x240_x128`) and the family `app.py`, `cases.py`, `__init__.py`; their `raw[:expected]` truncation (L15) goes with them. | `//kernels/matmul:matmul_384x192_x128`, `:matmul_720x240_x128` (E07-08); `tools/bench` runs them | `compare_legacy matmul`: 2/2 identical (77185/77185, 179281/179281). E02 digests `c5c746f6b86c2774`, `68fa57301e0938b9`. |
+| `src/tools/ipu-apps/src/ipu_apps/kernels/linear/` | E07-25 | The frozen `fully_connected` folder (with its `test_data_format/` `.bin` copies) and the family `__init__.py`, kept for `tools/bench`. | `//kernels/linear/fully_connected` (E07-21, E07-22) | `compare_legacy linear`: the program is the E02 one (binary ok, `default` 2674/2674 cycles); the outputs differ since E07-22 replaced the data with the reference's goldens (Q78), as logged there. E07-21: compare_setup IDENTICAL and compare_legacy identical in all 4 old cases. E02 digest `3f8e69652a5657a3`. |
+| `src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/` | E07-25 | The frozen `conv_universal` and `depthwise_conv_universal` folders and the family `app.py`, `cases.py`, `test.py`, `__init__.py`. Their last users: the Inspector's `conv_universal` trace (now `//kernels/convolutions:conv_universal`: program, layout, init registers and 1266 cycles equal, the cycles' deltas differ with the input data, which E07-17 moved to the seeded generators), `test_reference_model_kernels.py`, and the getting-started guide. | `//kernels/convolutions:conv_universal` (E07-17), `:depthwise_conv_universal` (E07-18) | `compare_legacy convolutions` (case-mapped): every program the E02 one, every case's cycles equal (`conv_universal` 11/11, e.g. `default` 1266/1266; `depthwise_conv_universal` 11/11, e.g. `channels=50,height=64,width=64` 15270/15270); outputs equal where the data is the old (`negative_outputs`), the rest on the seeded generators since E07-17/E07-18 (their rows give the bit-identical proof on the old data). E02 digests `21dc8baccdfcc961`, `dfa4f6967f4b4840`. |
+| `src/tools/ipu-apps/src/ipu_apps/kernels/__init__.py` | E07-25 | The old kernels package. | `kernels/` | No family left in it. |
+| `src/tools/ipu-apps/src/ipu_apps/__init__.py` | E07-25 | The package root. | `ipu_harness`, `ipu_kernels` | Nothing imports `ipu_apps` (grep). |
+| `src/tools/ipu-apps/src/ipu_apps/kernel_registry/` | E07-25 | The old harness framework (21 modules: `base`, `baseline`, `bazel_entry`, `benchmarking`, `case_support`, `cases`, `coverage`, `discovery`, `layers`, `manifest`, `memory`, `programs`, `query`, `registry`, `runner`, `shapes`, `spec`, `testing`, `trace_case`, `__init__`). | `ipu_harness` (`manifest`, `cases`, `runner`, `registry`, `query`, `manifest_json`, `benchmark`, `inspector`, `kernel_test`), ADR 0006 | No importer left (grep). Its kernels are all in `kernels/` (E07-02..E07-26). |
+| `src/tools/ipu-apps/BUILD.bazel` | E07-25 | The package's targets: the per-kernel and family macros' output, `:query`, `:trace_case`, `:kernel_manifest`, `:kernel_targets`, the corpus and legacy filegroups, the tests below. | `//kernels/...` (`ipu_kernel`, `ipu_kernel_family`), `//kernels:query`, `//kernels:manifest`, `run_kernel --trace --context`; `//src/tools/ipu-as-py:asm_corpus_files`, `:test_asm_digests`, `:test_disassembly_snapshots` | No label `//src/tools/ipu-apps` left outside `planning/` (grep). |
+| `src/tools/ipu-apps/README.md` | E07-25 | The package README. | `docs/content/how-to/write-a-kernel.md` | — |
+| `src/tools/ipu-apps/deps.bzl` | E07-25 | `RUNTIME_DEPS` of the package. | — (the package is gone; `//tools:deps_consistency_test` lists the others) | — |
+| `src/tools/ipu-apps/pyproject.toml` | E07-25 | The distribution `ipu-apps`. | — | Dropped from `tools/update_requirements_lock.py`'s inputs and the lock header; the lock's `# via ipu-apps` lines removed by hand (every package it named stays, via other packages). |
+| `src/tools/ipu-apps/test/baselines/update_kernel_baselines.py` | E07-25 | The E02-07 per-case `baseline.json` writer of the old kernels; `tools/update_baselines.sh --with-kernels` ran it. | A kernel-tree case holds its outputs to the golden (`kernel.toml`) | No `baseline.json` left. |
+| `src/tools/ipu-apps/test/baselines/disassembly/kernels/` | E07-25 | The disassembly snapshots of the ten frozen programs above; the corpus is the editor's fixtures now. | Each kernel's `:assemble_<name>`, held to its E02 digest by its migration | Removed by `update_disassembly_snapshots` (deletions only), with their `asm_digests.json` entries. |
+| `src/tools/ipu-apps/test/test_kernel_registry.py` | E07-25 | The old registry's mechanics. | `src/tools/ipu-harness/test/` (below) | 60 test functions: mapped below. |
+| `src/tools/ipu-apps/test/test_harness_factory.py` | E07-25 | The old `create_harness` factory, frontend and case mechanics. | `src/tools/ipu-harness/test/` (below) | Mapped below. |
+| `src/tools/ipu-apps/test/test_alias_profile_kernels.py` | E07-25 | Profiling consistency over every old case. | `src/tools/ipu-harness/test/test_alias_profile_kernels.py` (`//src/tools/ipu-harness:test_alias_profile_kernels`, nightly) over every kernel-tree case | Mapped below. |
+| `src/tools/ipu-apps/test/test_debug_launch.py` | E07-25 | The old harness's debugger launch (`IpuApp.run` and `run_case` under `IPU_DEBUG_TUI`). | `src/tools/ipu-harness/test/test_debug.py`, `src/tools/ipu-emu-py/test/test_reference_api_contract.py` | Mapped below. |
+| `src/tools/ipu-apps/test/test_debug_launch_kernels.py` | E07-25 | Every old kernel's default case under a stubbed debugger (heavy tier). | `src/tools/ipu-harness/test/test_debug.py::test_the_runner_passes_the_hook_and_stops_at_entry` (the runner's one debug path, which every kernel takes) | Mapped below. |
+| `src/tools/ipu-apps/test/test_bazel_entry.py` | E07-25 | The old `bazel_entry` (`bazel run` / `bazel test` of one target) and its terminal hand-over. | `src/tools/ipu-harness/test/test_kernel_test.py`, `test_debug.py` | Mapped below. |
+| `src/tools/ipu-apps/test/test_kernel_baseline.py` | E07-25 | The E02-07 per-case records (`baseline.json`). | A kernel-tree case's golden comparison | Mapped below. |
+| `src/tools/ipu-apps/test/test_reference_model_kernels.py` | E07-25 | The reference-model API run against `run_until_complete` on three old kernels. | `src/tools/ipu-harness/test/test_reference_model_kernels.py` (`//src/tools/ipu-harness:test_reference_model_kernels`) on the same three kernels of the tree | Mapped below. |
+| `src/tools/ipu-apps/test/test_no_sys_path_insert.py` | E07-25 | It scanned the ipu-apps tests for `sys.path.insert`. | — | Mapped below. |
+| `ipu_app.bzl` | E07-25 | The `ipu_app`, `ipu_apps_from_kernels`, `ipu_benchmarks_from_kernels`, `ipu_families_from_kernels`, `ipu_per_kernel_test` and `ipu_kernel_targets` macros (`ipu_multi_kernel_tests` went in E07-24). | `kernels/defs.bzl` (`ipu_kernel`, `ipu_kernel_family`, `ipu_kernel_tree`) | No `load("//:ipu_app.bzl", ...)` left (grep). |
+| `kernels/tools/` | E07-25 | The temporary migration tools (E07-01): `compare_setup`, `compare_legacy`, `migration.py`, `test_compare.py`, `BUILD.bazel`. They run the old harnesses, which are gone. | — (`//tools:upper_mnemonics` stays; `:test_upper_mnemonics` now runs `--check` over `kernels/`) | Their last run is the evidence column of this table. |
+| `docs/content/building-applications.md` | E07-25 | The legacy how-to (write an `ipu_apps` kernel). | `docs/content/how-to/write-a-kernel.md` (E06-21); `mkdocs.yml` redirects the old URL there | — |
+| `docs/content/adding-applications.md` | E07-25 | The legacy how-to (register an `ipu_apps` kernel). | `docs/content/how-to/write-a-kernel.md`; redirected | — |
+
+### Tests from `src/tools/ipu-apps/test/test_kernel_registry.py`
+
+| Test | Now covered by |
+|---|---|
+| `test_discovery_finds_the_identity_kernel`, `test_discovery_is_recursive`, `test_report_lists_every_kernel` | `src/tools/ipu-harness/test/test_registry.py::test_load_reads_the_tree_keeps_invalid_tomls_and_scopes_to_families`; `test_kernel_tree.py::test_the_tree_holds_every_kernels_files` |
+| `test_discovery_reports_nothing_skipped`, `test_a_broken_family_package_is_reported_not_silently_dropped`, `test_a_broken_bundle_is_disclosed_rather_than_swallowed` | `test_registry.py::test_load_reads_the_tree_keeps_invalid_tomls_and_scopes_to_families` (a broken `kernel.toml` is kept in `invalid`), `test_a_broken_layers_module_is_a_configuration_error_raised_once`; `test_kernel_programs.py::test_the_tree_has_kernels` (nothing invalid) |
+| `test_every_spec_is_well_formed`, `test_every_spec_declares_the_parameters_it_indexes`, `test_constructor_guards_reject_what_supports_refuses` | `test_manifest.py::test_each_rule_names_the_file_line_and_key` (every `kernel.toml` loads only well formed); `test_params.py::test_each_check_names_the_key_and_the_value` (the parameters' declared domains are the one check, so no second guard can disagree) |
+| `test_every_kernel_is_named_after_its_folder`, `test_misplaced_harnesses_fail_with_a_reason`, `test_kernel_names_are_unique` | `test_registry.py::test_two_kernels_of_one_name_are_an_error`; `ipu_harness.family.invalid_name` through `test_kernel_tree.py` and `//kernels:test_families` |
+| `test_unknown_operation_is_refused_with_the_known_list`, `test_refusal_aggregates_every_kernel_reason`, `test_identical_refusals_are_reported_once`, `test_a_kernels_own_support_reason_reaches_the_verdict`, `test_a_kernel_that_claims_without_a_reason_falls_back_to_explain` | `test_registry.py::test_a_query_no_kernel_takes_is_a_refusal_naming_each_reason` |
+| `test_overlapping_claims_resolve_by_cost_not_discovery_order` | `test_registry.py::test_resolve_picks_the_cheapest_accepting_kernel_whatever_the_order`, `test_equal_lowest_costs_on_a_query_are_an_error_never_a_choice_by_name` |
+| `test_a_missing_parameter_is_a_refusal_not_a_crash`, `test_a_kernels_own_keyerror_is_not_reported_as_unsupported` | `test_registry.py::test_a_query_no_kernel_takes_is_a_refusal_naming_each_reason`, `test_a_cost_expression_is_evaluated_and_a_crash_in_it_propagates` |
+| `test_routing[...]` (identity, 1 to 129 rows) | `kernels/reshape/test_routing.py` (the identity routing facts, E07-04) |
+| `test_rank3_is_flattened_and_the_reshape_is_disclosed`, `test_derived_shapes_are_marked_as_derived`, `test_interior_axis_is_refused_rather_than_transposed`, `test_1d_input_is_a_single_row`, `test_shape_bundle_rejects_degenerate_shapes` | dropped: shape bundles were the old registry's query form; a `kernel.toml` kernel is queried by its named parameters (`test_params.py::test_a_shape_that_is_not_positive_is_an_error` for degenerate values) |
+| `test_layer_lookup_matches_the_direct_query`, `test_unknown_layer_names_the_registered_adapters`, `test_adapter_registration_is_additive`, `test_adapter_declared_beside_its_kernel_is_found` | `test_registry.py::test_layer_adapters_are_imported_by_name_and_only_when_used`, `test_a_layer_without_an_adapter_names_the_known_ones`, `test_one_layer_adapted_by_two_families_is_an_error_naming_both` |
+| `test_boundaries_report_the_real_routing_switchover`, `test_query_sweep_prints_the_probed_boundaries` | `test_registry.py::test_query_answers_a_query_a_sweep_and_the_report`; the families' `test_routing.py` boundary tables |
+| `test_every_case_routes_to_a_kernel` | each family's `kernels/<family>/test_routing.py` (every entry routes by exactly its parameters) |
+| `test_benchmark_modules_are_found`, `test_benchmark_configs_name_real_case_options`, `test_benchmark_runs_configs_through_the_cases` | `test_benchmark.py::test_the_table_loads`, `test_a_wrong_table_names_its_key`, `test_each_point_is_the_default_case_with_its_values`, `test_every_point_runs_passes_and_is_reported` |
+| `test_query_without_arguments_prints_the_report`, `test_query_resolves_name_value_parameters`, `test_query_parses_a_trailing_comma_as_a_one_d_shape`, `test_query_exits_nonzero_when_nothing_covers_it`, `test_query_parses_booleans`, `test_query_json_is_the_text_verdict[...]` | `test_registry.py::test_query_answers_a_query_a_sweep_and_the_report` |
+| `test_query_rejects_malformed_queries[...]`, `test_query_json_needs_exactly_one_query[...]` | `test_registry.py::test_query_reports_its_own_usage_errors_and_lets_kernel_bugs_through` |
+| `test_manifest_joins_bazel_targets_and_the_registry`, `test_manifest_refuses_targets_the_registry_does_not_know[...]`, `test_manifest_lists_a_kernel_that_failed_to_import_as_skipped`, `test_manifest_flags_are_the_runner_flags[...]` | `test_kernel_tree.py::test_the_manifest_has_the_legacy_keys`, `test_the_registries_name_every_registry_toml_and_its_entries`; `vscode-ipu-asm/test/runs.js` over the real `//kernels:manifest` (CI) |
+| `test_random_values_without_a_generator_restarts_seed_7`, `test_random_values_with_one_generator_draws_independent_tensors` | `test_cases.py::test_rng_is_stable_across_processes_and_independent_per_tensor`, `test_generated_inputs_are_in_the_format_and_reproducible` |
+| `test_case_tests_passes_a_kernel_that_uses_str_acc_reg_when_it_warns`, `test_case_tests_fails_a_kernel_that_uses_str_acc_reg_without_the_warning`, `test_case_tests_fails_a_hardware_only_kernel_if_the_warning_appears`, `test_debug_only_detection_reads_the_assembled_words` | dropped: the old `case_tests` required the debug-only warning per kernel; the harness lets the assembler warn (`test_assembly.py::test_a_cache_hit_raises_the_programs_warnings_again`), and `test_kernel_programs.py::test_some_kernel_programs_are_hardware_programs` checks which programs are hardware programs |
+| `test_runner_reports_a_broken_kernel_source` | `test_runner.py::test_an_assembly_error_in_the_kernel_exits_1` |
+
+### Tests from `src/tools/ipu-apps/test/test_harness_factory.py`
+
+| Test | Now covered by |
+|---|---|
+| `test_exact_selection_and_bindings`, `test_resolved_kernel_uses_same_factory`, `test_state_factory_only_when_needed`, `test_explicit_state_bypasses_execution_selector`, `test_unregistered_harness_defaults_and_direct_subclass`, `test_factory_and_direct_constructor_execution_agree[...]` | dropped: there is no harness class or factory; `ipu_harness.runner.run_kernel` is the one way a case runs (`test_runner.py::test_every_case_and_format_passes`, `test_stage_is_the_run_up_to_its_first_word`) |
+| `test_case_execution_and_export` | `test_runner.py::test_input_overrides_and_outputs_are_written_even_on_failure` |
+| `test_failure_cleanup` | dropped: a kernel-tree run writes no workspace files (`test_chain.py::test_no_tensor_file_is_written_or_read_between_steps`) |
+| `test_discovery_does_not_import_cases`, `test_cases_do_not_import_pytest` | `test_registry.py::test_the_default_registry_reads_the_kernel_tree_once_and_imports_no_kernel_module` (cases are TOML) |
+| `test_frontend`, `test_frontend_help_and_case_listing` | `test_runner.py::test_the_cli_runs_a_case_in_every_format`, `test_the_cli_lists_the_cases` |
+| `test_execution_profiles_and_fresh_state[...]`, `test_execution_config_is_immutable_and_rejects_bad_formats` | `test_manifest.py::test_formats_come_from_the_isa_enum`, `test_the_view_is_immutable`; `test_runner.py::test_every_case_and_format_passes` (a fresh model per run) |
+| `test_invalid_case_option_declarations[...]`, `test_frontend_boolean_options_and_collisions`, `test_missing_case_declaration_is_actionable` | `test_manifest.py::test_each_rule_names_the_file_line_and_key` (a case's values are checked when `kernel.toml` loads; there are no case options); `test_runner.py::test_a_bad_request_exits_1_in_one_line` |
+| `test_failed_output_is_exported_with_diagnostics` | `test_runner.py::test_input_overrides_and_outputs_are_written_even_on_failure` |
+| `test_relative_output_paths_follow_the_bazel_run_directory` | `src/tools/ipu-harness/test/test_debug.py::test_relative_paths_follow_the_bazel_run_directory` (new) |
+| `test_runtime_checks_survive_optimization` | dropped: the old cases' `assert` checks; the harness compares outputs with `ipu_harness.compare`, not `assert` |
+| `test_cases_and_assembly_follow_package_not_class_module`, `test_pytest_config_collects_adjacent_suites` | `test_kernel_test.py::test_the_folders_own_tests_run_in_the_default_target`; `test_assembly.py::test_includes_resolve_in_the_kernel_and_family_folders` |
+| `test_frontend_alias_report` | `test_debug.py::test_the_profile_attaches_to_the_one_run` (`--alias-report`) |
+| `test_every_assembly_has_a_registered_case` | `test_kernel_tree.py::test_the_tree_holds_every_kernels_files`; `test_kernel_programs.py` (every kernel's default case renders and assembles) |
+| `test_memory_harness_rejects_truncated_image` | dropped with `MemoryApp` (E06-20); `kernels/matmul/test_input_size.py` refuses a wrong-sized input (L15) |
+
+### Tests from `src/tools/ipu-apps/test/test_alias_profile_kernels.py`
+
+| Test | Now covered by |
+|---|---|
+| `test_profile_kernel[<kernel>-<case>]` (every old case) | `src/tools/ipu-harness/test/test_alias_profile_kernels.py::test_a_profiled_case_equals_a_plain_one[<kernel>-<case>]`: every case of every kernel of the tree, in its first format; the same cycles, output bytes and statistics, every detector reported, unique reads within reads, and the softmax kernels' `A9_EXP` verified. The per-alias count against `stats.alias_hits` is dropped: the reference model's `Stats` has no alias counts (the profile is the one count). |
+| `test_profile_packed_tail_mask[17]`, `[50]` | `test_the_packed_softmax_tail_mask_profiles_the_same[17]`, `[50]` (`softmax_columns_packed` at 17 rows) |
+
+### Tests from `src/tools/ipu-apps/test/test_debug_launch.py`
+
+| Test | Now covered by |
+|---|---|
+| `test_entry_is_after_setup_and_before_side_effects`, `test_entry_uses_prepared_pc_and_combines_break_causes` | `src/tools/ipu-harness/test/test_debug.py::test_the_runner_passes_the_hook_and_stops_at_entry` (the model is staged, then stops before its first word) |
+| `test_tui_steps_and_breakpoints_reopen_without_the_cli` | `src/tools/ipu-emu-py/test/test_reference_api_contract.py::test_debug_run_stops_for_the_callback_and_continues` |
+| `test_quit_returns_without_teardown`, `test_interrupt_after_continue_cancels_without_teardown`, `test_registry_case_cancel_skips_check_and_cleans_workspace[...]`, `test_runner_quit_exits_zero_without_pass[...]` | `test_debug.py::test_quitting_the_debugger_ends_with_no_result`; `test_reference_api_contract.py::test_debug_run_quit_pauses_where_it_stopped`, `test_ctrl_c_in_a_debug_run_ends_it_as_a_quit` |
+| `test_curses_failure_does_not_fall_back_or_execute`, `test_noninteractive_debug_is_rejected_before_setup` | `test_debug.py::test_a_debug_launch_without_a_terminal_is_refused_before_the_run` (new) |
+| `test_terminal_interrupt_cancels_without_entering_cli` | `test_reference_api_contract.py::test_ctrl_c_in_a_debug_run_ends_it_as_a_quit` |
+| `test_normal_run_never_selects_debugger`, `test_normal_run_interrupt_still_propagates[...]` | `test_debug.py::test_a_plain_run_imports_no_debugger`, `test_only_the_cli_reads_the_debug_environment` |
+| `test_explicit_callback_keeps_normal_behavior` | `test_debug.py::test_the_runner_passes_the_hook_and_stops_at_entry` (a `DebugLaunch` with its own hook factory) |
+| `test_registry_case_completion_checks_and_exports` | `test_debug.py::test_the_runner_passes_the_hook_and_stops_at_entry` (a debug run that reaches `HALT` is compared as any run) |
+
+### Tests from `src/tools/ipu-apps/test/test_debug_launch_kernels.py`
+
+| Test | Now covered by |
+|---|---|
+| `test_every_kernel_enters_debugger_and_completes[<kernel>]` | `src/tools/ipu-harness/test/test_debug.py::test_the_runner_passes_the_hook_and_stops_at_entry`: the runner has one debug path (`ReferenceModel.debug_run`) for every kernel, so the per-kernel sweep is dropped |
+
+### Tests from `src/tools/ipu-apps/test/test_bazel_entry.py`
+
+| Test | Now covered by |
+|---|---|
+| `test_run_selects_app_even_with_bazel_test_environment[...]` | `src/tools/ipu-harness/test/test_kernel_test.py::test_bazel_run_runs_the_cli`, `test_bazel_run_of_an_entry_runs_the_cli` |
+| `test_test_selects_pytest_and_preserves_status[...]` | `test_kernel_test.py::test_every_case_in_every_format`, `test_a_wrong_program_names_the_case_format_index_and_tier` |
+| `test_debug_terminal_restored_on_completion_and_cancellation[...]` | `src/tools/ipu-harness/test/test_debug.py::test_the_debug_terminal_is_restored_on_completion_and_cancellation[...]` (new, on `ipu_harness.cli._terminal`) |
+| `test_noninteractive_debug_does_not_reopen_a_terminal` | `test_debug.py::test_no_terminal_is_reopened_without_an_interactive_debug_run[...]` (new) |
+
+### Tests from `src/tools/ipu-apps/test/test_kernel_baseline.py`
+
+| Test | Now covered by |
+|---|---|
+| `test_the_recorded_run_matches`, `test_a_changed_cr_fails_naming_the_register`, `test_a_changed_input_fails_the_setup_digest`, `test_a_case_without_a_record_names_the_update_command`, `test_differences_list_each_field`, `test_the_update_command_writes_the_kernel_folder`, `test_a_run_outside_run_until_complete_is_refused` | dropped with the E02-07 `baseline.json` records: no kernel has one. A kernel-tree case compares its outputs with the golden (`test_kernel_test.py::test_a_wrong_program_names_the_case_format_index_and_tier`), and `:assemble_<name>` pins the program |
+
+### Tests from `src/tools/ipu-apps/test/test_reference_model_kernels.py`
+
+| Test | Now covered by |
+|---|---|
+| `test_a_kernel_runs_the_same_through_the_api[identity-default]`, `[conv_universal-default]`, `[softmax_columns_packed-default]` | `src/tools/ipu-harness/test/test_reference_model_kernels.py::test_a_kernel_runs_the_same_through_the_api[identity]`, `[conv_universal]`, `[softmax_columns_packed]`: the staged model copied into an `IpuState` through the API's reads, run both ways (registers, XMEM, cycles equal), and the stepped records equal the traced run's |
+
+### Tests from `src/tools/ipu-apps/test/test_no_sys_path_insert.py`
+
+| Test | Now covered by |
+|---|---|
+| `test_no_test_inserts_into_sys_path` | dropped: it scanned only the ipu-apps tests, which are gone |
+
+### Tests from the frozen kernel folders' `test.py` files
+
+| Test | Now covered by |
+|---|---|
+| `test_case` of each frozen folder (`identity`, `residual_add`, `softmax_rows`, `softmax_rows_partial`, `softmax_columns_packed`, `matmul_384x192_x128`, `matmul_720x240_x128`, `fully_connected`, `conv_universal`, `depthwise_conv_universal`) | `bazel test` of the kernel's target (its cases in every format); the rows above for each family's migration |
+| `reshape/identity/test.py::test_registry_example_loads_runs_and_reads_memory` | `src/tools/ipu-harness/test/test_reference_model_kernels.py[identity]`; `kernels/reshape/test_routing.py` |
+| `softmax/softmax_rows/test.py::test_constant_row_is_uniform`, `::test_argmax_preserved` | `kernels/softmax/softmax_rows` cases `constant_row` (held to the uniform golden) and the reference comparison of every case (E07-11) |
+| `softmax/softmax_rows_partial/test.py::test_scatter_counts_every_partition[...]` | `kernels/softmax/softmax_rows_partial/test_softmax_rows_partial.py` (the lane counts); the `mult_identity_cycles == 2 * rows` assertion is dropped (see the shim's row) |
+| `linear/fully_connected/test.py::test_missing_output_is_not_skipped`, `::test_missing_golden_is_not_skipped`, `::test_dtype_default_and_normalization` | E07-21/E07-22's tables above (the goldens are generated; the formats are `kernel.toml`'s) |
+| `elementwise/residual_add/test.py::test_channel_count_is_bounded_by_the_xmem_regions` | `kernels/elementwise/residual_add/kernel.toml` `[params]` (the channel bound) and `kernels/elementwise/test_residual_add.py` |
+| `convolutions/test.py::test_resolve[...]`, `::test_width_routing_boundaries`, `::test_conv2d_adapter_is_registered`, `::test_refusals[...]`, `::test_unmodelled_layer_configurations_are_refused[...]` | `kernels/convolutions/test_routing.py` (E07-16..E07-20: the same queries, boundaries, refusals and the `Conv2d` adapter) |

@@ -63,7 +63,7 @@ rc_slot0        = "LR1"
 op = "linear"                                      # activation(a @ b), ipu_kernels.reference.ops
 tolerance = { fp32 = "FP32_LONG" }
 
-# The data of the ipu_apps cases: RandomState(0xC0FFEE), b per stream then a.
+# The data of the old cases: RandomState(0xC0FFEE), b per stream then a.
 [cases.default]
 generator = "gen.py:legacy_uniform"
 k = 144

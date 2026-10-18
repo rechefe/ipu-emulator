@@ -1,7 +1,7 @@
 """softmax_rows_partial's multiplier counts: every partition is multiplied,
 its shifted Pass-4 write included (the stats_* cases).
 
-The ``ipu_apps`` test also counted identity-multiply cycles (2 per row); the
+The old test also counted identity-multiply cycles (2 per row); the
 reference model's statistics count identity lanes, not cycles, and the lane
 count below pins the same multiplies."""
 

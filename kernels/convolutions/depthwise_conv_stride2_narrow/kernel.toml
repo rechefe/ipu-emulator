@@ -107,7 +107,7 @@ dstructure  = "CR15"
 [golden]
 reference = "reference.py:reference"
 # Measured on the harness's seeded data: max |err| 4.8e-7 over the three
-# stride-2 kernels (2.4e-7 on the ipu_apps data of the proof); the decimation is
+# stride-2 kernels (2.4e-7 on the old data of the proof); the decimation is
 # exact. The old check was max |diff| < 1e-2.
 tolerance = { fp32 = "FP32_ORDER" }
 

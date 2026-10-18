@@ -52,7 +52,7 @@ def test_a_plain_run_imports_no_debugger(scale):
 
 
 def test_only_the_cli_reads_the_debug_environment():
-    """In ipu_harness and ipu_kernels; the legacy ipu_apps readers go in E07-25."""
+    """In ipu_harness and ipu_kernels; no other package reads it."""
     scanned = {root: sorted(root.rglob("*.py")) for root in (HARNESS, KERNELS)}
     assert all(scanned.values()), "no sources found to scan"
     readers = sorted(
@@ -145,3 +145,93 @@ def test_a_profiled_run_equals_a_plain_one(scale, fmt):
     assert profiled.cycles == plain.cycles == profiled.alias_profile.cycles
     assert profiled.raw_outputs == plain.raw_outputs
     np.testing.assert_array_equal(profiled.outputs["y"], plain.outputs["y"])
+
+
+# The terminal hand-over under `bazel run` of a test target (moved from the old
+# harness's test_bazel_entry.py, E07-25).
+
+
+class _Stream:
+    def __init__(self, fd, tty):
+        self.fd, self.tty = fd, tty
+
+    def fileno(self):
+        return self.fd
+
+    def isatty(self):
+        return self.tty
+
+    def flush(self):
+        pass
+
+
+@pytest.mark.parametrize("cancel", [False, True])
+def test_the_debug_terminal_is_restored_on_completion_and_cancellation(monkeypatch, cancel):
+    monkeypatch.setattr(sys, "stdin", _Stream(0, True))
+    monkeypatch.setattr(sys, "stdout", _Stream(1, False))
+    foreground = [200]
+    descriptors = {0: "terminal", 1: "pipe"}
+    signals = []
+    monkeypatch.setattr(cli.os, "tcgetpgrp", lambda fd: foreground[0])
+    monkeypatch.setattr(cli.os, "tcsetpgrp", lambda fd, group: foreground.__setitem__(0, group))
+    monkeypatch.setattr(cli.os, "getpgrp", lambda: 100)
+    monkeypatch.setattr(
+        cli.os, "dup", lambda fd: descriptors.__setitem__(77, descriptors[fd]) or 77
+    )
+    monkeypatch.setattr(
+        cli.os, "dup2", lambda src, dst: descriptors.__setitem__(dst, descriptors[src])
+    )
+    monkeypatch.setattr(cli.os, "close", lambda fd: descriptors.pop(fd))
+    monkeypatch.setattr(
+        cli.signal, "signal", lambda sig, handler: signals.append(handler) or "original"
+    )
+    try:
+        with cli._terminal(True):
+            assert foreground[0] == 100
+            assert descriptors[1] == "terminal"
+            if cancel:
+                raise SystemExit(0)
+    except SystemExit as exc:
+        assert cancel and exc.code == 0
+    assert foreground[0] == 200
+    assert descriptors == {0: "terminal", 1: "pipe"}
+    assert signals == [cli.signal.SIG_IGN, "original"]
+
+
+@pytest.mark.parametrize(("debugging", "stdin_tty"), [(True, False), (False, True)])
+def test_no_terminal_is_reopened_without_an_interactive_debug_run(
+    monkeypatch, debugging, stdin_tty
+):
+    monkeypatch.setattr(sys, "stdin", _Stream(0, stdin_tty))
+    monkeypatch.setattr(sys, "stdout", _Stream(1, False))
+    monkeypatch.setattr(cli.os, "dup", lambda fd: pytest.fail("redirected a stream"))
+    with cli._terminal(debugging):
+        pass
+
+
+def test_a_debug_launch_without_a_terminal_is_refused_before_the_run(monkeypatch):
+    """The TUI cannot start (curses, no terminal): a configuration error, no
+    fallback to a run without the debugger."""
+    import types
+
+    launch = types.ModuleType("ipu_debug.launch")
+
+    def no_terminal(kernel):
+        raise RuntimeError("stdin is not a terminal")
+
+    launch.make_tui_debug_callback = no_terminal
+    monkeypatch.setitem(sys.modules, "ipu_debug.launch", launch)
+    with pytest.raises(ConfigurationError, match="--debug needs an interactive terminal"):
+        DebugLaunch().hook("scale")
+
+
+def test_relative_paths_follow_the_bazel_run_directory(scale, monkeypatch, tmp_path):
+    """``bazel run`` executes in the runfiles; a relative ``--output`` or
+    ``--alias-report`` lands where the user ran the command (moved from the
+    old harness's test_harness_factory.py, E07-25)."""
+    caller = tmp_path / "caller"
+    caller.mkdir()
+    monkeypatch.setenv("BUILD_WORKING_DIRECTORY", str(caller))
+    assert cli.main([str(scale.directory), "--output", "out", "--alias-report", "a.json"]) == 0
+    assert (caller / "out" / "y.npy").is_file()
+    assert (caller / "a.json").is_file()

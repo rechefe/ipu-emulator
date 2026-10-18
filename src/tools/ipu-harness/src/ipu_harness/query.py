@@ -7,18 +7,15 @@ Usage::
     bazel run //kernels:query -- scale rows=n --sweep n=1..200
     bazel run //kernels:query -- scale rows=7 --json
 
-The arguments of ``//src/tools/ipu-apps:query``, over the ``kernel.toml`` tree
-(:func:`~ipu_harness.registry.default_registry`), and its output layout, with
-what a kernel query has instead of an app's: the reason is the routing
-decision, ``use`` the kernel's Bazel label with its parameters, a note its
-formats, and no shapes (IMPLEMENTATION-DECISIONS, "Routing registry").
-Parameters are ``NAME=VALUE``: a value with a comma is a tuple (``shape=300,``
+It answers over the ``kernel.toml`` tree
+(:func:`~ipu_harness.registry.default_registry`): the reason is the routing
+decision, ``use`` the kernel's Bazel label with its parameters, and a note its
+formats (IMPLEMENTATION-DECISIONS, "Routing registry"). Parameters are ``NAME=VALUE``: a value with a comma is a tuple (``shape=300,``
 is 1-D), an integer is an int, a number with a point a float, ``true``/
 ``false`` a bool, anything else a string; ``format=e4`` limits the answer to one
 element format. ``--sweep NAME=START..END`` substitutes each integer for
 ``NAME`` in the one parameter that mentions it and prints where the winning
-kernel changes. ``Boundary`` and ``boundaries`` repeat ``ipu_apps``' coverage
-helpers, which go with that registry in E07.
+kernel changes (``Boundary``, ``boundaries``).
 
 Exits 0 when the query is covered (for a sweep: every value), 1 when not.
 """
@@ -158,8 +155,8 @@ def _sweep(registry: Registry, op: str, params: dict[str, str], spec: str) -> in
     return 0 if all(run.kernel for run in runs) else 1
 
 
-def main(argv: Sequence[str] | None = None, registry: Registry | None = None) -> int:
-    """The command line; ``registry`` replaces the default one (for tests)."""
+def build_parser() -> argparse.ArgumentParser:
+    """The command line's parser (the docs' option table reads it)."""
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
@@ -169,6 +166,12 @@ def main(argv: Sequence[str] | None = None, registry: Registry | None = None) ->
     parser.add_argument("params", nargs="*", metavar="NAME=VALUE", help="kernel parameters")
     parser.add_argument("--sweep", metavar="NAME=START..END", help="the routing table as NAME runs")
     parser.add_argument("--json", action="store_true", help="print the verdict as JSON (one query)")
+    return parser
+
+
+def main(argv: Sequence[str] | None = None, registry: Registry | None = None) -> int:
+    """The command line; ``registry`` replaces the default one (for tests)."""
+    parser = build_parser()
     args = parser.parse_args(argv)
     if args.json and (args.op is None or args.sweep):
         parser.error("--json answers one query: give an operation and no --sweep")

@@ -36,6 +36,9 @@ plugins:
         # E09-10 rewrote the idiom and coverage pages under explanation/.
         isa-alias-catalogue.md: explanation/isa-idioms.md
         app-coverage.md: explanation/kernel-coverage.md
+        # E07-25 retired the old kernel harness and its two pages.
+        building-applications.md: how-to/write-a-kernel.md
+        adding-applications.md: how-to/write-a-kernel.md
   - git-revision-date-localized:
       enable_creation_date: true
       type: timeago
@@ -104,8 +107,6 @@ nav:
   - How-to:
       - how-to/index.md
       - Write a kernel: how-to/write-a-kernel.md            # E06-21
-      - Write an ipu_apps kernel (legacy): building-applications.md   # E07-25 removes it
-      - Register an ipu_apps kernel (legacy): adding-applications.md  # E07-25 removes it
       - Add an instruction: how-to/add-an-instruction.md    # E09-11
       - Debug a kernel: how-to/debug-a-kernel.md            # E09-12
       - Step through a kernel run: debugging-inspector.md   # E08-17; E09 decides its final place

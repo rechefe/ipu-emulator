@@ -3,9 +3,9 @@
     bazel run //kernels:manifest
 
 joins the targets file ``ipu_kernel_tree()`` writes (kernels/defs.bzl) with the
-routing registry (E06-16) and prints one JSON document for tools, with the same
-keys as ``//src/tools/ipu-apps:kernel_manifest``. The two must name the same
-kernels, so no target offered is missing; a ``kernel.toml`` that fails to load
+routing registry (E06-16) and prints one JSON document for tools (the editor
+extension's kernel buttons and sidebar read it), with the keys the old
+harness's kernel manifest had. The two must name the same kernels, so no target offered is missing; a ``kernel.toml`` that fails to load
 is listed under ``skipped``. Each kernel also carries its page's data
 (:func:`ipu_harness.kernel_page.page_data`: design notes, ABI table, parameter
 domain, tolerance tier per format; E06-21).

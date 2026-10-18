@@ -34,7 +34,6 @@ LOCK = Path("requirements_lock.txt")
 MANIFESTS = (
     Path("src/tools/ipu-as-py/runtime_deps.json"),
     Path("src/tools/ipu-emu-py/runtime_deps.json"),
-    Path("src/tools/ipu-apps/runtime_deps.json"),
     Path("src/tools/ipu-isa/runtime_deps.json"),
     Path("src/tools/ipu-debug/runtime_deps.json"),
     Path("src/tools/ipu-gen/runtime_deps.json"),

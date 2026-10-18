@@ -50,7 +50,7 @@ rc_slot0  = "LR15"                               # 0, as at reset: a chain step 
 op = "matmul"                                    # a @ b, ipu_kernels.reference.ops
 tolerance = { fp32 = "FP32_LONG" }
 
-# The ipu_apps cases' data (../gen.py: RandomState(0), A then W).
+# The old cases' data (../gen.py: RandomState(0), A then W).
 [cases.default]
 m = 64
 k = 64

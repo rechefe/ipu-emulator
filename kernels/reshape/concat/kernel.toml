@@ -19,7 +19,7 @@ ptr_start  = "-1"                          # the source pointer starts a row bef
 row_stride = "1"
 y_b        = "base(y) + c_a"               # where b's rows go: y's second part
 
-# Placed in this order from row 0: a, b, y (the ipu_apps memory map).
+# Placed in this order from row 0: a, b, y (the old memory map).
 [inputs.a]
 shape = ["c_a", 128]
 
@@ -44,7 +44,7 @@ c_b        = "CR10"
 op = "concat"
 tolerance = { fp32 = "EXACT" }
 
-# The ipu_apps cases' data: RandomState(0xC047), a then b, uniform [-1, 1).
+# The old cases' data: RandomState(0xC047), a then b, uniform [-1, 1).
 [cases.default]
 h = 2
 w = 2

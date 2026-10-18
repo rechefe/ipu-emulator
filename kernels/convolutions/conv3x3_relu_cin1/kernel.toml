@@ -1,7 +1,7 @@
 # conv3x3_relu_cin1: conv3x3_relu specialised on one input channel (E07-16).
 # The tiled query vocabulary: a query names in_channels, height, width,
 # out_channels, kernel_size, stride, padding and activation, all required, as
-# the ipu_apps ConvApp's did; a universal conv2d query (dilation, groups,
+# the old ConvApp's did; a universal conv2d query (dilation, groups,
 # has_bias, apply_relu) names parameters this kernel does not take.
 [kernel]
 op = "conv2d"
@@ -57,7 +57,7 @@ tiles_last   = "CR11"
 op = "conv2d"
 tolerance = { fp32 = "FP32_ORDER" }               # measured: max |err| 2.4e-7 over the cases
 
-# The ipu_apps cases' shapes (convolutions/cases.py make_cases); the data is the
+# The old cases' shapes (convolutions/cases.py make_cases); the data is the
 # harness's seeded per-tensor streams (E06-08).
 [cases.default]
 in_channels = 1

@@ -7,7 +7,7 @@ ignores; everything else is the same cycle. A default build drives the
 prototyping schedule through ``Cycle(..., skip_idle_nops=True)``; a
 ``--config=proto`` build also runs the real prototyping mode end to end.
 
-(Moved from ``src/tools/ipu-apps/test/mobilevit/test_count_instructions_modes.py``
+(Moved from the old harness's ``test/mobilevit/test_count_instructions_modes.py``
 in E07-24, which deleted the MobileViT counting fixture it ran through.)
 """
 

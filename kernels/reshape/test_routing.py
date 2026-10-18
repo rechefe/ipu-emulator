@@ -1,4 +1,4 @@
-"""Routing of the reshape kernels (E07-04, E07-05): the ``ipu_apps`` routing
+"""Routing of the reshape kernels (E07-04, E07-05): the old routing
 facts, on the kernel tree's registry and ``//kernels:query``.
 
 The old router took a ``shape`` tuple; the kernels now take named parameters.
@@ -19,7 +19,7 @@ import pytest
 from ipu_harness import query
 from ipu_harness.registry import default_registry
 
-#: Each concat entry's (h, w, c_a, c_b): the shapes of the deleted ipu_apps concat folders.
+#: Each concat entry's (h, w, c_a, c_b): the shapes of the deleted old concat folders.
 CONCATS = {
     "concat_8x8x160x160": (8, 8, 160, 160),
     "concat_16x16x128x128": (16, 16, 128, 128),

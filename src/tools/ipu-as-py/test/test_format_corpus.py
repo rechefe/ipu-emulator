@@ -24,11 +24,7 @@ from ipu_as.session import AssemblySession
 
 # The workspace root: the runfiles tree under Bazel, the checkout under plain pytest.
 ROOT = Path(__file__).parents[4]
-APPS = ROOT / "src" / "tools" / "ipu-apps"
-# The old tree shrinks as E07 migrates its kernels into kernels/, so both count.
-KERNELS = sorted(APPS.glob("src/ipu_apps/kernels/**/*.asm")) + sorted(
-    (ROOT / "kernels").glob("**/*.asm")
-)
+KERNELS = sorted((ROOT / "kernels").glob("**/*.asm"))
 OPTIONS = {"default": {}, "blank-line": {"blank_line": True}}
 
 

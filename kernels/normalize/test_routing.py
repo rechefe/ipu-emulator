@@ -12,7 +12,7 @@ import pytest
 
 from ipu_harness.registry import default_registry
 
-#: Each entry's (channels, tokens): the ipu_apps kernels' N_CH and tokens.
+#: Each entry's (channels, tokens): the old kernels' N_CH and tokens.
 ENTRIES = {
     "layernorm_128x16": (16, 128),
     "layernorm_256x144": (144, 256),

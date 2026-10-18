@@ -1,4 +1,4 @@
-"""vector_tour's data: the ``ipu_apps`` cases' inputs, and the R_MASK slots.
+"""vector_tour's data: the old cases' inputs, and the R_MASK slots.
 
 ``legacy_steps`` replays the old cases' ``default_rng(16)`` draws, so the
 migration's outputs compare bit for bit with the old harness's.
@@ -6,7 +6,7 @@ migration's outputs compare bit for bit with the old harness's.
 
 import numpy as np
 
-#: The ``ipu_apps`` cases' seed.
+#: The old cases' seed.
 SEED = 16
 
 #: R_MASK slots, 16 bytes each, bit i = lane i: all lanes, even lanes, lower half.

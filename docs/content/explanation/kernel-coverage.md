@@ -158,13 +158,4 @@ Generated from `default_registry()` when the docs are built; it is the report
 
 --8<-- "generated/kernel-coverage/kernels.md"
 
-### Kernels still in `ipu_apps`
-
-The kernels not yet moved to `kernels/` answer
-`bazel run //src/tools/ipu-apps:query` through the `ipu_apps.kernel_registry`
-registry, where each kernel's `app.py` declares a `SPEC` with a `supports`
-function in place of `[params]`. Generated from that registry:
-
---8<-- "generated/kernel-coverage/ipu-apps.md"
-
 To add a kernel, see [Write a kernel](../how-to/write-a-kernel.md).

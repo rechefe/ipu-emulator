@@ -21,7 +21,6 @@ from uv import find_uv_bin
 INPUTS = (
     "src/tools/ipu-as-py/pyproject.toml",
     "src/tools/ipu-emu-py/pyproject.toml",
-    "src/tools/ipu-apps/pyproject.toml",
     "src/tools/ipu-isa/pyproject.toml",
     "src/tools/ipu-debug/pyproject.toml",
     "src/tools/ipu-gen/pyproject.toml",
@@ -33,7 +32,6 @@ INPUTS = (
 LOCAL_PACKAGES = (
     "ipu-as-py",
     "ipu-emu-py",
-    "ipu-apps",
     "ipu-isa",
     "ipu-debug",
     "ipu-gen",

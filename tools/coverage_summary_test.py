@@ -32,7 +32,7 @@ end_of_record
 def test_package_of():
     assert cs.package_of("src/tools/ipu-emu-py/src/ipu_emu/ipu.py") == "ipu_emu"
     assert cs.package_of("/x/execroot/_main/src/tools/ipu-isa/src/ipu_isa/a/b.py") == "ipu_isa"
-    assert cs.package_of("src/tools/ipu-apps/test/conftest.py") == "src/tools/ipu-apps"
+    assert cs.package_of("src/tools/ipu-harness/test/conftest.py") == "src/tools/ipu-harness"
     assert cs.package_of("docs/update_release_log.py") == "docs"
     assert cs.package_of("setup.py") == "(root)"
 

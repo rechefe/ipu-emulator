@@ -23,4 +23,6 @@ def test_some_corpus_programs_are_hardware_programs():
     hardware = sum(
         assembles_for_hardware((ROOT / entry.path).read_text(), entry.context) for entry in ENTRIES
     )
-    assert hardware > 10
+    # The editor's corpus; the kernel tree's count is
+    # //src/tools/ipu-harness:test_kernel_programs.
+    assert hardware >= 1

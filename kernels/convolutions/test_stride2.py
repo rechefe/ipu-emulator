@@ -49,7 +49,7 @@ def test_stages_add_up(registry, name):
 
 @pytest.mark.parametrize("name", STRIDE2)
 def test_debug_stops_in_stage_2(registry, name):
-    # The ipu_apps harness gave stage 2 no debug callback; a stage now gets the
+    # The old harness gave stage 2 no debug callback; a stage now gets the
     # run's hook, so a debug launch stops on entry to each stage.
     kernel = registry.kernel(name)
     stops = []

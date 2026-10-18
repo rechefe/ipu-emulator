@@ -1,4 +1,4 @@
-"""What the ipu_apps cases checked beyond the tolerance (convolutions/cases.py,
+"""What the old cases checked beyond the tolerance (convolutions/cases.py,
 conv2d_case's ``check``): without ReLU a negative sum stays negative; with
 ReLU a negative bias over zero weights writes exact zeros; and the bias + ReLU
 twin asked without a bias ignores the bias column; and the bias kernel

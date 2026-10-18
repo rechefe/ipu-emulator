@@ -1,4 +1,4 @@
-"""The sampling family's tests (E07-15): the ``ipu_apps`` ``sampling/test.py``
+"""The sampling family's tests (E07-15): the old ``sampling/test.py``
 numerics, routing and memory checks, on the kernel tree.
 
 Each run is held to ``ops.sample_descriptors`` (the explicit-indexing

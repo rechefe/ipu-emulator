@@ -1,5 +1,5 @@
 """The full Layer 5 transformer layer on one ``Chain`` (E07-24, from
-``src/tools/ipu-apps/test/mobilevit/test_full_layer_l5.py``): d = 240, 16
+the old harness's ``test/mobilevit/test_full_layer_l5.py``): d = 240, 16
 tokens a stream, 4 streams, 4 heads of 60, 3 layers.
 
 A seam test sees two kernels; this runs the whole layer, three times with

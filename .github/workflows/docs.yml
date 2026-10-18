@@ -24,7 +24,8 @@ on:
       - "src/tools/ipu-as-py/src/**"
       - "src/tools/ipu-isa/src/**"
       - "src/tools/ipu-gen/src/**"
-      - "src/tools/ipu-apps/src/ipu_apps/kernels/**/*.md"
+      - "src/tools/ipu-harness/src/**"
+      - "kernels/**" # the kernel pages, the coverage page and the Cycle Inspector's traces
       - ".github/workflows/docs.yml"
       - "requirements_lock.txt"
       - ".bazelrc"

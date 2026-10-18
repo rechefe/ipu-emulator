@@ -481,14 +481,20 @@ $ grep PRETTY_NAME /etc/os-release
 \begin{termcmd}
 $ git clone https://github.com/rechefe/ipu-emulator.git
 $ cd ipu-emulator
-$ bazel test //src/tools/ipu-apps:identity
+$ bazel test //kernels/reshape/identity
 \end{termcmd}
 
 The first build downloads Bazel's dependencies and Python packages, which
-takes a few minutes; later builds reuse them.
+takes a few minutes; later builds reuse them. The \texttt{identity} kernel
+copies a matrix; its test runs each of its cases and checks the copy:
 
-\terminal{install_first_test.png}{The first test passing: the \texttt{identity}
-kernel copies a matrix and checks the copy.}
+\begin{termout}
+//kernels/reshape/identity:identity                                      PASSED in 4.3s
+    PASSED  ...test_case[default-fp32] (2.8s)
+    PASSED  ...test_case[single_row-fp32] (0.0s)
+Test cases: finished with 2 passing, 0 skipped and 0 failing out of 2 test cases
+Executed 1 out of 1 test: 1 test passes.
+\end{termout}
 
 \needspace{10\baselineskip}
 \subsection{VS Code extension (optional)}\label{sec:vscode}
@@ -532,59 +538,64 @@ Name & Use \\
 %======================================================================
 \section{How the repository is organised}
 
-The repository contains the assembler, the emulator and the kernel library:
+The repository contains the assembler, the emulator, the kernel harness and
+the kernels:
 
 \begin{filetree}
 src/tools/
+  ipu-isa/               instruction set definition shared by all
   ipu-as-py/             assembler (.asm -> .bin)
   ipu-emu-py/            emulator (runs a .bin cycle by cycle)
-  ipu-isa/            instruction set definition shared by both
-  ipu-apps/              kernel library
-    src/ipu_apps/
-      kernel_registry/   finds kernels, runs cases, command-line tools
-      kernels/           one folder per kernel, grouped by family
-        convolutions/  matmul/  attention/  softmax/  reshape/  ...
-    test/                tests that run several kernels together
+  ipu-harness/           runs kernels: cases, goldens, the registry, tools
+  ipu-kernels/           shared kernel code: references, pack transforms
+kernels/                 one folder per kernel, grouped by family
+  convolutions/  matmul/  attention/  softmax/  reshape/  ...
+  mobilevit/             tests that run several kernels in a row
 docs/                    documentation site (mkdocs)
 \end{filetree}
 
 \subsection{A kernel folder}
 
-Every kernel lives in its own folder under
-\texttt{src/tools/ipu-apps/src/ipu\_apps/kernels/}. The folder name is the
-kernel's name: its name in \texttt{query}, its Bazel target and its
-\texttt{.asm} file name. For example \texttt{kernels/elementwise/residual\_add/}:
+Every kernel lives in its own folder, \texttt{kernels/<family>/<name>/}. The
+folder name is the kernel's name: its name in \texttt{query}, its Bazel target
+and its \texttt{.asm} file name. For example
+\texttt{kernels/elementwise/residual\_add/}:
 
 \begin{filetree}
 residual_add/
   residual_add.asm   the IPU program
-  app.py             the harness: loads XMEM, sets registers, reads output;
-                     and SPEC: which computations this kernel handles
-  cases.py           named inputs for the kernel, each with a NumPy check
-  test.py            runs every case (and any extra tests)
-  benchmark.py       optional: sizes to benchmark
+  kernel.toml        tensors, parameters, register ABI, golden, cases
+  gen.py             optional: a case's input generator
+  reference.py       optional: the reference (else a shared op)
+  BUILD.bazel        one line, ipu_kernel(): the kernel's targets
 \end{filetree}
 
-The arguments of each case's \texttt{prepare} function become command-line
-options of the kernel (section~\ref{sec:args}). Section~\ref{sec:newkernel}
-builds a complete kernel, file by file.
+\texttt{kernel.toml} says everything the harness needs: which tensors the
+kernel reads and writes and their shapes, which control register holds each
+region and parameter (\texttt{[abi]}), the reference and its tolerance
+(\texttt{[golden]}), and the named cases. The harness places the tensors in
+XMEM, writes them and the registers, runs the program and compares each output
+with the reference. A family can also hold one \emph{template} program with
+several \emph{entries} in its \texttt{registry.toml}, one per shape (the
+matmuls, for example); an entry is a kernel like any other.
+Section~\ref{sec:newkernel} builds a complete kernel, file by file.
 
 \subsection{Families and Bazel targets}
 
 Folders that group kernels (\texttt{convolutions/}, \texttt{matmul/},
-\ldots) are \emph{families}. Bazel targets are generated automatically from the
-folders; you never edit a BUILD file to add a kernel.
+\ldots) are \emph{families}. Each kernel folder's \texttt{BUILD.bazel} declares
+its targets; a family's entries are targets of the family package.
 
 \begin{center}
 \begin{tabularx}{\linewidth}{lX}
 \toprule
 Target & What it does \\
 \midrule
-\texttt{:<kernel>} & \texttt{bazel run}: runs a case; \texttt{bazel test}: runs every case and \texttt{test.py} \\
-\texttt{:<family>} & \texttt{bazel test}: every kernel in the family plus the family's own \texttt{test.py} \\
-\texttt{:assemble\_<kernel>} & builds the kernel's \texttt{.bin} \\
-\texttt{:benchmark\_<kernel>} & runs the kernel's benchmark sizes, writes \texttt{results.md} \\
-\texttt{:query} & asks the registry which kernel handles a computation \\
+\texttt{//kernels/<family>/<name>} & \texttt{bazel run}: runs a case; \texttt{bazel test}: runs every case in every format \\
+\texttt{//kernels/<family>:<entry>} & the same, for a registry entry \\
+\texttt{//kernels/<family>:all} & \texttt{bazel test}: every kernel in the family plus the family's own tests \\
+\texttt{:assemble\_<name>} & builds the kernel's \texttt{.bin} (its default case) \\
+\texttt{//kernels:query} & asks the registry which kernel computes an operation \\
 \bottomrule
 \end{tabularx}
 \end{center}
@@ -599,14 +610,19 @@ With no arguments, \texttt{query} lists every operation and every kernel. The
 \doc{explanation/kernel-coverage}{Kernel Coverage} explains how the registry picks a kernel.
 
 \begin{termcmdtop}
-$ bazel run //src/tools/ipu-apps:query
+$ bazel run //kernels:query
 \end{termcmdtop}
 \begin{termout}
-Operations: attn_scores_km, attn_v, attn_v_bcast, channel_peak, concat, conv2d, depth_to_space, fold, fully_connected, identity, l2_normalize, layernorm, matmul, maxpool2d, projection, qk_scores, residual_add, sample_descriptors, score_threshold, softmax, unfold
-Kernels:    89
-
-## conv2d
-- **conv_universal** -- `ipu_apps.kernels.convolutions.conv_universal.app`
+Operations: attn_scores_km, attn_v, attn_v_bcast, channel_peak, concat, conv2d, depth_to_space, fold, fully_connected, identity, l2_normalize, layernorm, matmul, maxpool2d, pack, packed_layernorm, packed_linear, projection, qk_scores, residual_add, sample_descriptors, scale, score_threshold, softmax, unfold, unpack, vector_tour
+Kernels:    107
+## attn_scores_km
+- **attn_scores_km_16x60** -- `//kernels/attention/attn_scores_km_16x60`
+- **attn_scores_km_256x36** -- `//kernels/attention/attn_scores_km_256x36`
+- **attn_scores_km_64x48** -- `//kernels/attention/attn_scores_km_64x48`
+## attn_v
+- **attn_v_16x60** -- `//kernels/attention/attn_v_16x60`
+- **attn_v_256x36** -- `//kernels/attention/attn_v_256x36`
+- **attn_v_64x48** -- `//kernels/attention/attn_v_64x48`
 ...
 \end{termout}
 
@@ -616,15 +632,18 @@ Give the operation and its parameters as \texttt{key=value}. A 3x3 depthwise
 convolution over 32 channels of 64x64:
 
 \begin{termcmdtop}
-$ bazel run //src/tools/ipu-apps:query -- conv2d in_channels=32 out_channels=32 \
+$ bazel run //kernels:query -- conv2d in_channels=32 out_channels=32 \
     kernel_size=3 stride=1 padding=1 dilation=1 groups=32 \
-    has_bias=False apply_relu=False height=64 width=64
+    has_bias=false apply_relu=false height=64 width=64
 \end{termcmdtop}
 \begin{termout}
-SUPPORTED: kernel_size=3, groups=in_channels (depthwise), stride=1, padding=1: the universal depthwise 3x3 conv kernel (FP32). 64x64 pads internally to 64x64.
+SUPPORTED: depthwise_conv_universal accepts it, at cost 1
   app:  depthwise_conv_universal
-  use:  ipu_apps.kernels.convolutions.depthwise_conv_universal.app.DepthwiseConvUniversalApp(inst_path=..., input_path=..., output_path=..., height=64, width=64, channels=32)
-  shapes: input=(32, 64, 64), output*=(32, 64, 64), weight=(32, 1, 3, 3)   (* = derived)
+  use:  //kernels/convolutions:depthwise_conv_universal (in_channels=32,
+        out_channels=32, height=64, kernel_size=3, dilation=1, padding=1,
+        stride=1, groups=32, apply_relu=False, has_bias=False, width=64, fpb=28)
+  note: 3x3 stride-1 depthwise conv2d, no bias, no activation (FP32, width <= 128)
+  note: runs in fp32
 \end{termout}
 
 \begin{center}
@@ -633,9 +652,9 @@ SUPPORTED: kernel_size=3, groups=in_channels (depthwise), stride=1, padding=1: t
 Line & Meaning \\
 \midrule
 \texttt{SUPPORTED:} & why this kernel was chosen \\
-\texttt{app:} & the kernel's name --- use it as the Bazel target \\
-\texttt{use:} & the Python class and arguments, for calling it from code \\
-\texttt{shapes:} & every tensor involved; \texttt{*} marks shapes the registry computed (here the output) \\
+\texttt{app:} & the kernel's name \\
+\texttt{use:} & its Bazel target, and the parameters the query fixed \\
+\texttt{note:} & what the kernel computes, and the element formats it runs in \\
 \bottomrule
 \end{tabularx}
 \end{center}
@@ -646,12 +665,23 @@ Line & Meaning \\
 Every candidate kernel says why it declined. A 5x5 convolution:
 
 \begin{termcmdtop}
-$ bazel run //src/tools/ipu-apps:query -- conv2d in_channels=32 out_channels=32 \
+$ bazel run //kernels:query -- conv2d in_channels=32 out_channels=32 \
     kernel_size=5 stride=1 padding=2 dilation=1 groups=32 \
-    has_bias=False apply_relu=False height=64 width=64
+    has_bias=false apply_relu=false height=64 width=64
 \end{termcmdtop}
 \begin{termout}
-NOT SUPPORTED: no conv2d kernel covers this query -- conv_universal, depthwise_conv_universal: handles only kernel_size=3; got 5
+NOT SUPPORTED: no conv2d kernel covers this query --
+  conv1x1, conv3x3_relu, conv3x3_relu_cin1: apply_relu = False is no parameter;
+  conv_first_layer: in_channels = 32 is not one of [3];
+  conv_universal, conv_universal_bias, conv_universal_bn_activation,
+  depthwise_conv_stride2_narrow, depthwise_conv_universal,
+  depthwise_conv_universal_bias, depthwise_conv_universal_bn_activation,
+  depthwise_conv_universal_relu: kernel_size = 5 is not one of [3];
+  conv_universal_wide384: width = 64 is below its min 384;
+  depthwise_conv_stride2_128: width = 64 is not one of [128];
+  depthwise_conv_stride2_16: height = 64 is not one of [16];
+  pointwise_conv_unified, pointwise_conv_unified_bias,
+  pointwise_conv_unified_bn_activation: kernel_size = 5 is not one of [1]
 \end{termout}
 
 \subsection{Sweep a parameter: \texttt{--sweep}}
@@ -659,9 +689,9 @@ NOT SUPPORTED: no conv2d kernel covers this query -- conv_universal, depthwise_c
 Replace one value by a name and sweep it over a range:
 
 \begin{termcmdtop}
-$ bazel run //src/tools/ipu-apps:query -- conv2d in_channels=8 out_channels=8 \
+$ bazel run //kernels:query -- conv2d in_channels=8 out_channels=8 \
     kernel_size=3 stride=1 padding=1 dilation=1 groups=8 \
-    has_bias=False apply_relu=False height=64 width=w --sweep w=1..200
+    has_bias=false apply_relu=false height=64 width=w --sweep w=1..200
 \end{termcmdtop}
 \begin{termout}
 w 1..128                     depthwise_conv_universal
@@ -675,41 +705,28 @@ w 129..200                   (not covered)
 Run the kernel's default case:
 
 \begin{termcmdtop}
-$ bazel run //src/tools/ipu-apps:depthwise_conv_universal
+$ bazel run //kernels/convolutions:depthwise_conv_universal
 \end{termcmdtop}
 \begin{termout}
-depthwise_conv_universal/default: PASS (108 cycles)
-=== Run summary ===
-Total cycles:             108
-Mult active:               72  (66.7%)
-Acc  active:               72  (66.7%)
-XMEM reads:                34
-XMEM writes:                9
-XMEM accesses:             43
---- MAC accounting ---
-Mult idle:                 36
-Identity mult:              0  (0.0% of active)
-Lane ops:                8464  (61.2% occupancy)
-Effective MAC:          61.2%
+depthwise_conv_universal/default/fp32: PASS  cycles=108  MAC util=61.2%
+  y: max|err|=4.76837e-07 (FP32_ORDER)
 \end{termout}
 
-A run assembles the \texttt{.asm}; the case writes its input files; the harness
-copies them into XMEM and sets the control registers; the emulator runs the
-program until it halts; the harness reads the output rows back; the case checks
-them against its NumPy reference. \texttt{PASS} means the output matched.
+A run plans the case (its parameter values and element format), makes its
+inputs, places the tensors in XMEM and writes them, sets the control
+registers, assembles and loads the program, and runs the emulator until the
+program halts; then it reads each output back and compares it with the
+reference. \texttt{PASS} means every output is within its tolerance.
 
 \begin{center}
 \begin{tabularx}{\linewidth}{lX}
 \toprule
-Line & Meaning \\
+Field & Meaning \\
 \midrule
-\texttt{Total cycles} & cycles until the program halted \\
-\texttt{Mult / Acc active} & cycles in which the multiply / accumulate stage did work \\
-\texttt{XMEM reads / writes} & external-memory row transfers \\
-\texttt{Mult idle} & cycles in which the multiplier did nothing \\
-\texttt{Identity mult} & multiplies by 1.0 --- data movement, not arithmetic \\
-\texttt{Lane ops} & multiplier lanes that carried data, summed over cycles \\
-\texttt{Effective MAC} & share of the peak multiply-accumulate rate actually used \\
+\texttt{KERNEL/CASE/FORMAT} & what ran: here the \texttt{default} case in FP32 \\
+\texttt{cycles} & cycles until the program halted \\
+\texttt{MAC util} & share of the peak multiply-accumulate rate that was real arithmetic (multiplies by 1.0 only move data and do not count) \\
+\texttt{y: max|err|=...} & the output's largest error and the tolerance tier it was held to \\
 \bottomrule
 \end{tabularx}
 \end{center}
@@ -718,14 +735,24 @@ Line & Meaning \\
 
 \needspace{3.5cm}
 \begin{termcmdtop}
-$ bazel run //src/tools/ipu-apps:depthwise_conv_universal -- --list-cases
+$ bazel run //kernels/convolutions:depthwise_conv_universal -- --list-cases
 \end{termcmdtop}
 \begin{termout}
-default
-negative_outputs
+default  (fp32)
+negative_outputs  (fp32)
+c28_16  (fp32)
+c32_16  (fp32)
+c16_32  (fp32)
+c50_64  (fp32)
+c4_8x128  (fp32)
+c30_16x128  (fp32)
+c4_8x8  (fp32)
+c4_5x5  (fp32)
+c3_5x128  (fp32)
 \end{termout}
 
-\texttt{--case negative\_outputs} runs the second one.
+\texttt{--case c50\_64} runs that one. A case is a named set of parameter
+values in \texttt{kernel.toml}; to run other values, add a case.
 
 %======================================================================
 \section{Passing arguments}\label{sec:args}
@@ -735,131 +762,132 @@ Arguments before \texttt{--} are for Bazel; everything after \texttt{--} goes to
 the kernel.
 \end{note}
 
-\texttt{--help} lists the general options and this kernel's case options:
+\texttt{--help} lists the options, the same for every kernel:
 
 \begin{termcmdtop}
-$ bazel run //src/tools/ipu-apps:depthwise_conv_universal -- --help
+$ bazel run //kernels/convolutions:depthwise_conv_universal -- --help
 \end{termcmdtop}
 \begin{termout}
 options:
-  --kernel KERNEL       registered kernel name
-  --case CASE           named case (default: default)
-  --list-cases          list cases without running
+  --case CASE           a case name, e.g. 'sweep[rows=7]'
+  --format FORMAT       an element format, or 'all' (default: the first of the
+                        case's formats)
+  --input NAME=PATH.npy
+                        replace an input (repeatable)
+  --output OUTPUT       write each output as DIR/<name>.npy
+  --trace TRACE         write the run's trace (JSON Lines)
+  --context CONTEXT     with --trace, also write the Cycle Inspector's context
+                        (JSON): the source, the starting registers, and each
+                        word's lanes and XMEM reads
   --max-cycles MAX_CYCLES
-                        the cycle limit for this run (default: the case's)
-  --profile-aliases     collect full ISA alias measurements
+                        the cycle limit (0: no limit; default: the model's)
+  --list-cases          list the cases and stop
+  --benchmark           run the [benchmark] points and print their table
+  --markdown MARKDOWN   with --benchmark, write the table here
+  --json JSON           with --benchmark, write the rows as JSON here
+  --debug               stop in the debugger TUI
+  --profile-aliases     profile the ISA aliases of the run and print the
+                        summary
   --alias-report ALIAS_REPORT
-                        write full ISA measurements as JSON (enables
-                        profiling)
-  --output OUTPUT       export completed output, including output that fails
-                        validation
-  --channels CHANNELS
-  --height HEIGHT
-  --width WIDTH
-  --seed SEED
+                        write the alias profile as JSON instead (implies
+                        profiling; with --format all, PATH.<format>.json each)
 \end{termout}
-
-\texttt{--channels}, \texttt{--height}, \texttt{--width} and \texttt{--seed}
-come from this kernel's \texttt{cases.py}; other kernels have their own.
 
 \subsection{Problem size}
 
 \begin{termcmdtop}
-$ bazel run //src/tools/ipu-apps:depthwise_conv_universal -- --channels 32 \
-    --height 64 --width 64
+$ bazel run //kernels/convolutions:depthwise_conv_universal -- --case c50_64
 \end{termcmdtop}
 \begin{termout}
-depthwise_conv_universal/default: PASS (10086 cycles)
-=== Run summary ===
-Total cycles:           10086
-Mult active:             9216  (91.4%)
-...
-Effective MAC:          89.5%
+depthwise_conv_universal/c50_64/fp32: PASS  cycles=15270  MAC util=92.3%
+  y: max|err|=4.76837e-07 (FP32_ORDER)
 \end{termout}
 
-A larger problem keeps the pipeline busier: effective MAC rises from 61\,\%
-to 89.5\,\%.
+A larger problem keeps the pipeline busier, so the MAC utilisation rises.
 
 \needspace{7cm}
 \subsection{Save the output}
 
-\texttt{--output} copies the kernel's output file out of the temporary
-workspace. A relative path is relative to where you ran \texttt{bazel}.
+\texttt{--output DIR} writes each output as \texttt{DIR/<name>.npy}, even when
+the comparison fails. A relative path is relative to where you ran
+\texttt{bazel}.
 
 \begin{termcmdtop}
-$ bazel run //src/tools/ipu-apps:depthwise_conv_universal -- \
-    --channels 8 --height 32 --width 32 --output out.bin
-$ ls -l out.bin
+$ bazel run //kernels/convolutions:depthwise_conv_universal -- \
+    --case c16_32 --output out
+$ python3 -c "import numpy; print(numpy.load('out/y.npy').shape)"
 \end{termcmdtop}
 \begin{termout}
-depthwise_conv_universal/default: PASS (702 cycles)
-...
--rw-r--r-- 1 user user 32768 Sep 23 15:31 out.bin
+depthwise_conv_universal/c16_32/fp32: PASS  cycles=1278  MAC util=86.4%
+  y: max|err|=4.76837e-07 (FP32_ORDER)
+(16, 32, 32)
 \end{termout}
-
-32768 bytes = 8 channels $\times$ 32 $\times$ 32 FP32 values, in
-\texttt{[channels, height, width]} order.
 
 \subsection{Errors}
 
-A shape the kernel does not support is refused before anything runs:
+A wrong request is refused before anything runs:
 
 \begin{termcmdtop}
-$ bazel run //src/tools/ipu-apps:depthwise_conv_universal -- --channels 3 --width 200
+$ bazel run //kernels/convolutions:depthwise_conv_universal -- --case big
 \end{termcmdtop}
 \begin{termout}
-error: width (200) exceeds 128, the largest width this app supports
+error: depthwise_conv_universal has no case 'big';
+  its cases: default, negative_outputs, c28_16, c32_16, c16_32, c50_64, c4_8x128, c30_16x128, c4_8x8, c4_5x5, c3_5x128
 \end{termout}
 
 \texttt{--max-cycles} stops a run that takes too long (useful for a program
 that never halts):
 
 \begin{termcmdtop}
-$ bazel run //src/tools/ipu-apps:depthwise_conv_universal -- --max-cycles 50
+$ bazel run //kernels/convolutions:depthwise_conv_universal -- --max-cycles 50
 \end{termcmdtop}
 \begin{termout}
-error: Exceeded 50 cycles — possible infinite loop (PC=24)
+depthwise_conv_universal/default/fp32: FAIL cycles=50 MAC util=64.2%
+  fault F-9 at PC 24: INC LR3 1;
 \end{termout}
 
 %======================================================================
 \section{Testing}
 
-\texttt{bazel test} on a kernel runs every case and every test in its
-\texttt{test.py}:
+\texttt{bazel test} on a kernel runs every case in every format it declares,
+and any test file in the kernel's folder:
 
 \needspace{6.0cm}
 \begin{termcmdtop}
-$ bazel test //src/tools/ipu-apps:depthwise_conv_universal
+$ bazel test //kernels/convolutions:depthwise_conv_universal
 \end{termcmdtop}
 \begin{termout}
-    PASSED  ...test_case[depthwise_conv_universal-default] (0.7s)
-    PASSED  ...test_case[depthwise_conv_universal-negative_outputs] (0.6s)
-    PASSED  ...test_case[depthwise_conv_universal-channels=28,height=16,width=16] (0.6s)
-    ...
-    PASSED  ...test_case[depthwise_conv_universal-channels=3,height=5,width=128] (0.6s)
+//kernels/convolutions:depthwise_conv_universal                          PASSED in 8.7s
+    PASSED  ...test_case[default-fp32] (2.7s)
+    PASSED  ...test_case[negative_outputs-fp32] (0.1s)
+    PASSED  ...test_case[c28_16-fp32] (0.1s)
+    PASSED  ...test_case[c32_16-fp32] (0.1s)
+    PASSED  ...test_case[c16_32-fp32] (0.3s)
+    PASSED  ...test_case[c50_64-fp32] (2.7s)
+    PASSED  ...test_case[c4_8x128-fp32] (0.1s)
+    PASSED  ...test_case[c30_16x128-fp32] (0.8s)
+    PASSED  ...test_case[c4_8x8-fp32] (0.1s)
+    PASSED  ...test_case[c4_5x5-fp32] (0.1s)
+    PASSED  ...test_case[c3_5x128-fp32] (0.1s)
 Test cases: finished with 11 passing, 0 skipped and 0 failing out of 11 test cases
-
 Executed 1 out of 1 test: 1 test passes.
 \end{termout}
-
-The two named cases run first, then the extra sizes listed in the kernel's
-\texttt{test.py}.
 
 \needspace{5.6cm}
 A whole family:
 
 \begin{termcmdtop}
-$ bazel test //src/tools/ipu-apps:convolutions
+$ bazel test //kernels/convolutions:all
 \end{termcmdtop}
 \begin{termout}
 ...
-//src/tools/ipu-apps:depthwise_conv_universal                            PASSED in 33.7s
-
-Test cases: finished with 133 passing, 0 skipped and 0 failing out of 133 test cases
-Executed 15 out of 15 tests: 15 tests pass.
+//kernels/convolutions:depthwise_conv_universal                          PASSED in 8.7s
+...
+//kernels/convolutions:tests                                             PASSED
+...
 \end{termout}
 
-\texttt{convolutions\_test} is the family's own \texttt{test.py}: checks that
+\texttt{//kernels/convolutions:tests} is the family's own tests: checks that
 span several kernels (routing between them, the \texttt{Conv2d} layer
 adapter).
 
@@ -897,7 +925,7 @@ better.
 Start it on \texttt{residual\_add}, which adds two tensors:
 
 \begin{termcmd}
-$ bazel run --config=debug //src/tools/ipu-apps:residual_add
+$ bazel run --config=debug //kernels/elementwise/residual_add
 \end{termcmd}
 
 \screenshot{ra_start.png}{Just launched: paused at PC 0, cycle 0.}
@@ -1058,24 +1086,25 @@ A1--A16; counting them shows which new instructions would help most.
 \subsection{Alias counts}
 
 \begin{termcmdtop}
-$ bazel run //src/tools/ipu-apps:residual_add
+$ bazel run //kernels/elementwise/residual_add -- --profile-aliases
 \end{termcmdtop}
 \begin{termout}
-residual_add/default: PASS (325 cycles)
-...
-Identity mult:            128  (100.0% of active)
-Effective MAC:           0.0%
---- ISA alias hits ---
-A1_MOV_RC:                 64
-A2_ADD_VV:                 64
-A16_STR_ACC_REG:           64
+residual_add/default/fp32: PASS  cycles=325  MAC util=0.0%
+  y: max|err|=0 (EXACT)
+--- Full ISA measurements (overlapping; no savings estimates) ---
+A2_ADD_VV/default: 64 occurrences (verified), 64 participating cycles
+A1_MOV_RC/default: 64 occurrences (verified), 64 participating cycles
+A16_STR_ACC_REG/default: 64 occurrences (verified), 64 participating cycles
+A12_ADDRESSING/load_to_mult: 128 occurrences (verified), 256 participating cycles
+A12_ADDRESSING/address_update: 64 occurrences (verified), 128 participating cycles
+A13_NARROW_MULT/lanes_128: 128 occurrences (verified), 128 participating cycles
 \end{termout}
 
-Every multiply is a multiply by 1.0 (\texttt{Identity mult: 100\%}), so no
-real arithmetic happens in the multiplier (\texttt{Effective MAC: 0.0\%}).
-Per channel (64 channels): one \texttt{A1\_MOV\_RC} (move A into the
-accumulator), one \texttt{A2\_ADD\_VV} (add B) and one
-\texttt{A16\_STR\_ACC\_REG} (store with a simulation-only instruction).
+Every multiply is a multiply by 1.0, so no real arithmetic happens in the
+multiplier (\texttt{MAC util=0.0\%}). Per channel (64 channels): one
+\texttt{A1\_MOV\_RC} (move A into the accumulator), one \texttt{A2\_ADD\_VV}
+(add B) and one \texttt{A16\_STR\_ACC\_REG} (store with a simulation-only
+instruction).
 
 \subsection{Aliases in the debugger}
 
@@ -1087,25 +1116,12 @@ vector (A2).
 \needspace{6cm}
 \subsection{Alias report}
 
-\begin{termcmdtop}
-$ bazel run //src/tools/ipu-apps:residual_add -- --profile-aliases
-\end{termcmdtop}
-\begin{termout}
---- Full ISA measurements (overlapping; no savings estimates) ---
-A2_ADD_VV/default: 64 occurrences (verified), 64 participating cycles
-A1_MOV_RC/default: 64 occurrences (verified), 64 participating cycles
-A16_STR_ACC_REG/default: 64 occurrences (verified), 64 participating cycles
-A12_ADDRESSING/load_to_mult: 128 occurrences (verified), 256 participating cycles
-A12_ADDRESSING/address_update: 64 occurrences (verified), 128 participating cycles
-A13_NARROW_MULT/lanes_128: 128 occurrences (verified), 128 participating cycles
-\end{termout}
-
 \texttt{--alias-report FILE} writes the same as JSON, including where each
 alias occurs (\texttt{sites}: program counter $\rightarrow$ count) and
 examples:
 
 \begin{termcmdtop}
-$ bazel run //src/tools/ipu-apps:residual_add -- --alias-report aliases.json
+$ bazel run //kernels/elementwise/residual_add -- --alias-report aliases.json
 \end{termcmdtop}
 \begin{termout}
 "A2_ADD_VV": {
@@ -1118,29 +1134,29 @@ $ bazel run //src/tools/ipu-apps:residual_add -- --alias-report aliases.json
 
 \subsection{Benchmarks}
 
-A kernel with a \texttt{benchmark.py} runs its benchmark sizes and prints the
-statistics and alias counts per size:
+A kernel whose \texttt{kernel.toml} has a \texttt{[benchmark]} table runs its
+benchmark sizes with \texttt{--benchmark} and prints the statistics per size
+(\texttt{--markdown FILE} writes the table too):
 
 \begin{termcmdtop}
-$ bazel run //src/tools/ipu-apps:benchmark_depthwise_conv_universal
+$ bazel run //kernels/convolutions:depthwise_conv_universal -- --benchmark
 \end{termcmdtop}
 \begin{termout}
-=== depthwise_conv_universal benchmark ===
-config                            cycles  cyc/channels  mult%   acc%  lanes%  ident%  effMAC%
----------------------------------------------------------------------------------------------
-height=16,width=16,channels=8        180         22.50  80.0%  80.0%   73.5%    0.0%    73.5%
-height=64,width=64,channels=64     19686        307.59  93.6%  93.6%   91.7%    0.0%    91.7%
+| point | format | result | cycles | cyc/in_channels | mult% | acc% | lanes% | ident% | effMAC% |
+|---|---|---|---|---|---|---|---|---|---|
+| h=16 w=16 c=8 o=8 g=8 | fp32 | pass | 180 | 22.50 | 80.0% | 80.0% | 73.5% | 0.0% | 73.5% |
+| h=16 w=16 c=25 o=25 g=25 | fp32 | pass | 486 | 19.44 | 92.6% | 92.6% | 85.0% | 0.0% | 85.0% |
+| h=16 w=16 c=26 o=26 g=26 | fp32 | pass | 504 | 19.38 | 92.9% | 92.9% | 85.3% | 0.0% | 85.3% |
 ...
-ISA aliases: A7 REDUCE_SEG  A12 ADDRESSING  A13 NARROW_MULT  A14 MULTIPLE_ACC
-config                                  A7   A12    A13   A14
--------------------------------------------------------------
-height=16,width=16,channels=8        0+93?    50    144    32
-height=64,width=64,channels=64    0+10238?  6396  18432  4504
-...
-wrote .../kernels/convolutions/depthwise_conv_universal/results.md
-\end{termout}
 
-\texttt{0+93?} means 0 verified and 93 unverified candidate occurrences.
+ISA aliases
+
+| point | A7_REDUCE_SEG | A12_ADDRESSING | A13_NARROW_MULT | A14_MULTIPLE_ACC |
+|---|---|---|---|---|
+| h=16 w=16 c=8 o=8 g=8 (fp32) | 0 +93? | 50 | 144 | 32 |
+| h=16 w=16 c=25 o=25 g=25 (fp32) | 0 +297? | 154 | 450 | 83 |
+...
+\end{termout}
 
 %======================================================================
 \section{Assembling a kernel}\label{sec:asm}
@@ -1149,14 +1165,16 @@ wrote .../kernels/convolutions/depthwise_conv_universal/results.md
 To get the binary without running it:
 
 \begin{termcmdtop}
-$ bazel build //src/tools/ipu-apps:assemble_depthwise_conv_universal
+$ bazel build //kernels/convolutions:assemble_depthwise_conv_universal
 \end{termcmdtop}
 \begin{termout}
-Assembling file: src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/depthwise_conv_universal/depthwise_conv_universal.asm
-Output will be saved to: bazel-out/k8-fastbuild/bin/src/tools/ipu-apps/assemble_depthwise_conv_universal.bin
-Target //src/tools/ipu-apps:assemble_depthwise_conv_universal up-to-date:
-  bazel-bin/src/tools/ipu-apps/assemble_depthwise_conv_universal.bin
+Target //kernels/convolutions:assemble_depthwise_conv_universal up-to-date:
+  bazel-bin/kernels/convolutions/depthwise_conv_universal.bin
 \end{termout}
+
+The program is rendered with the default case's values first: a
+\texttt{kernels/} source is a template that names its registers through
+\texttt{\{\{ cr.<name> \}\}} and reads its parameters.
 
 \subsection{Standalone assembler}
 
@@ -1194,179 +1212,168 @@ Command & Does \\
 A complete example kernel, \texttt{double\_rows}: $y = 2x$ for a matrix of
 128-element FP32 rows, built from the smallest existing kernel,
 \texttt{kernels/reshape/identity/}, which copies rows.
+\doc{how-to/write-a-kernel}{Write a kernel} explains every step and every
+\texttt{kernel.toml} key.
 
 \subsection{Create the folder}
 
 \begin{termcmd}
-$ cd src/tools/ipu-apps/src/ipu_apps/kernels
-$ mkdir -p examples/double_rows
-$ touch examples/__init__.py examples/double_rows/__init__.py
+$ mkdir kernels/elementwise/double_rows
+$ echo 'load("//kernels:defs.bzl", "ipu_kernel")' > kernels/elementwise/double_rows/BUILD.bazel
+$ echo 'ipu_kernel()' >> kernels/elementwise/double_rows/BUILD.bazel
 \end{termcmd}
 
-\texttt{examples/} is a new family. The empty \texttt{\_\_init\_\_.py} files
-mark the folders as Python packages. The folder name, \texttt{double\_rows},
-becomes the kernel's name and its Bazel target.
+Then add \texttt{"double\_rows"} to the \texttt{elementwise} list in
+\texttt{kernels/families.bzl}. The folder name, \texttt{double\_rows}, becomes
+the kernel's name and its Bazel target, \texttt{//kernels/elementwise/double\_rows}.
 
 \subsection{Program: \texttt{double\_rows.asm}}
 
 \begin{pycode}
-{# y = 2x. CR2 = input row, CR3 = output row, CR4 = row count #}
-{%- set lr_zero = "lr0" -%}
-{%- set lr_row  = "lr1" -%}
-
-    SET {{lr_zero}} cr0 ;
-    SET {{lr_row}} cr0 ;;
+{#- double_rows.asm -- y = 2x, one XMEM row (128 FP32 elements) at a time. -#}
+    SET LR0 CR0 ;
+    SET LR1 CR0 ;;
 
 row_loop:
-    LD.MULT r0 {{lr_row}} cr2 ;;
-    MULT.VE {{lr_zero}} cr1 0 {{lr_zero}} cr15 ;
+    LD.MULT R0 LR1 {{ cr.x }} ;;
+    MULT.VE LR0 CR1 0 LR0 CR15 ;
     ACC.ADD.FIRST ;;
-    MULT.VE {{lr_zero}} cr1 0 {{lr_zero}} cr15 ;
+    MULT.VE LR0 CR1 0 LR0 CR15 ;
     ACC.ADD ;;
-    ACTIVATE.QUANTIZE identity cr15 ;
-    ST.AAQ {{lr_row}} cr3 ;;
-    ADD {{lr_row}} {{lr_row}} cr1 ;;
-    BLT.S {{lr_row}} cr4 row_loop ;;
+    ACTIVATE.QUANTIZE identity CR15 ;
+    ST.AAQ LR1 {{ cr.y }} ;;
+    ADD LR1 LR1 CR1 ;;
+    BLT.S LR1 {{ cr.rows }} row_loop ;;
     HALT ;;
 \end{pycode}
 
 \begin{itemize}
-\item \texttt{\{\% set lr\_row = "lr1" \%\}} --- Jinja names for registers.
-\item \texttt{SET lr0 cr0 ; SET lr1 cr0 ;;} --- one word, two \texttt{lr}
+\item \texttt{\{\{ cr.x \}\}} --- the control register \texttt{kernel.toml}'s
+  \texttt{[abi]} binds to \texttt{x} (here \texttt{CR2}); the harness writes
+  the region's first row into it.
+\item \texttt{SET LR0 CR0 ; SET LR1 CR0 ;;} --- one word, two \texttt{LR}
   slots: both start at 0.
-\item \texttt{LDR\_MULT\_REG r0 lr1 cr2 ;;} --- load row \texttt{CR2 + LR1}
-  (the current input row) into \texttt{R0}.
-\item \texttt{MULT.VE ... cr1 ... ; ACC.ADD.FIRST ;;} --- multiply \texttt{R0}
+\item \texttt{LD.MULT R0 LR1 \{\{ cr.x \}\} ;;} --- load input row
+  \texttt{LR1} into \texttt{R0}.
+\item \texttt{MULT.VE ... CR1 ... ; ACC.ADD.FIRST ;;} --- multiply \texttt{R0}
   by \texttt{CR1} (= 1.0) and start the accumulator with it.
 \item \texttt{MULT.VE ... ; ACC.ADD ;;} --- the same again, added on top:
   \texttt{R\_ACC} = $x + x = 2x$.
-\item \texttt{ACTIVATE.QUANTIZE identity cr15 ; STR\_POST\_AAQ\_REG lr1 cr3 ;;}
+\item \texttt{ACTIVATE.QUANTIZE identity CR15 ; ST.AAQ LR1 \{\{ cr.y \}\} ;;}
   --- pass \texttt{R\_ACC} through unchanged and store it at output row
-  \texttt{CR3 + LR1}.
-\item \texttt{ADD ... ;; BLT.S lr1 cr4 row\_loop ;;} --- next row, loop while
-  \texttt{LR1 < CR4}; \texttt{HALT ;;} halts.
+  \texttt{LR1}.
+\item \texttt{ADD ... ;; BLT.S LR1 \{\{ cr.rows \}\} row\_loop ;;} --- next
+  row, loop while \texttt{LR1} is below the row count; \texttt{HALT ;;} halts.
 \end{itemize}
 
-\subsection{Harness and SPEC: \texttt{app.py}}
+\subsection{Description: \texttt{kernel.toml}}
 
 \begin{pycode}
-from ipu_emu.ipu import LANES
+[kernel]
+op = "double"
+formats = ["fp32"]
 
-from ipu_apps.kernel_registry.memory import MemoryApp, MemoryLayout, memory_spec
+[params]
+rows = { type = "int", min = 1, max = 256 }
 
-class DoubleRowsApp(MemoryApp):
-    @classmethod
-    def memory_layout(cls, *, shape):
-        rows, columns = tuple(shape)
-        if rows < 1:
-            raise ValueError(f"needs at least one row; got {rows}")
-        if columns != LANES:
-            raise ValueError(f"expects {LANES} columns; got {columns}")
-        return MemoryLayout(rows, rows, {2: 0, 3: rows, 4: rows})
+[inputs.x]
+shape = ["rows", 128]
 
-SPEC = memory_spec(
-    "double", DoubleRowsApp,
-    explain=lambda **params: "each element is multiplied by 2",
-    caveats=lambda **params: (),
-)
+[outputs.y]
+shape = ["rows", 128]
+
+[abi]
+x    = "CR2"
+y    = "CR3"
+rows = "CR4"
+
+[golden]
+reference = "reference.py:reference"
+tolerance = { fp32 = "EXACT" }
+
+[cases.default]
+rows = 4
+
+[cases.sweep]
+rows = [1, 64]
 \end{pycode}
 
-\texttt{MemoryApp} does the loading and unloading: the input file is copied to
-XMEM from row 0, the output is read from the rows after it. Your code only
-states the layout: \texttt{MemoryLayout(input\_rows, output\_rows, crs)}, with
-the control registers the program reads (\texttt{CR2} input row,
-\texttt{CR3} output row, \texttt{CR4} row count). A \texttt{ValueError} there
-becomes a refusal in \texttt{query}. \texttt{memory\_spec("double", ...)}
-registers the kernel under the operation \texttt{double}.
+\texttt{[params]} declares the parameters and their domains; a query outside
+them is refused. \texttt{[inputs]} and \texttt{[outputs]} declare the tensors,
+their shapes in terms of the parameters; the harness places them in XMEM.
+\texttt{[abi]} names the control register of each region and parameter.
+\texttt{[golden]} names the reference and the tolerance each format is held
+to. Each \texttt{[cases.<name>]} is a set of values; the inputs come from the
+harness's seeded generator unless the case names its own.
 
-\subsection{Cases: \texttt{cases.py}}
+\subsection{Reference: \texttt{reference.py}}
 
 \begin{pycode}
-import numpy as np
+import torch
 
-from ipu_emu.ipu import LANES
-from ipu_apps.kernel_registry.cases import KernelCase, PreparedCase
 
-def prepare(workspace, *, rows, seed):
-    x = np.random.RandomState(seed).uniform(-10, 10, (rows, LANES)).astype("<f4")
-    inp, out = workspace / "input.bin", workspace / "output.bin"
-    inp.write_bytes(x.tobytes())
-
-    def check():
-        y = np.fromfile(out, dtype="<f4").reshape(rows, LANES)
-        np.testing.assert_array_equal(y, 2 * x)
-
-    return PreparedCase({"shape": (rows, LANES)},
-                        {"input_path": inp, "output_path": out}, check)
-
-CASES = {
-    "default": KernelCase(prepare, {"rows": 4, "seed": 0}),
-}
+def reference(x: torch.Tensor, *, rows: int) -> dict[str, torch.Tensor]:
+    """y = 2x."""
+    return {"y": 2 * x}
 \end{pycode}
 
-\texttt{prepare} receives the case options (\texttt{rows}, \texttt{seed}), which
-become the kernel's command-line options. It writes the input file and returns
-the query parameters, the file paths, and \texttt{check}, which raises if the
-output is wrong.
-
-\subsection{Test: \texttt{test.py}}
-
-\begin{pycode}
-"""double_rows: every case, plus two more sizes."""
-from ipu_apps.kernel_registry.testing import case_tests
-
-test_case = case_tests(__package__, sweep=[dict(rows=1, seed=1), dict(rows=64, seed=2)])
-\end{pycode}
-
-\texttt{case\_tests} runs every case, plus the default case again with each
-\texttt{sweep} override.
+The harness passes the inputs (decoded from the element format) and the
+parameters, and holds each output to the reference's.
 
 \needspace{0.42\textheight}
 \subsection{Run it}
 
-No BUILD file changes: the targets exist as soon as the \texttt{.asm} does.
-
 \begin{termcmd}
-$ bazel run //src/tools/ipu-apps:query -- double shape=4,128
-$ bazel run //src/tools/ipu-apps:double_rows
+$ bazel run //kernels:query -- double rows=4
+$ bazel run //kernels/elementwise/double_rows
 \end{termcmd}
+\begin{termout}
+SUPPORTED: double_rows accepts it, at cost 0
+  app:  double_rows
+  use:  //kernels/elementwise/double_rows (rows=4)
+  note: runs in fp32
+double_rows/default/fp32: PASS  cycles=26  MAC util=0.0%
+  y: max|err|=0 (EXACT)
+\end{termout}
 
-\terminal{ex_run.png}{The registry finds the new kernel, and the default case passes.}
-
-\texttt{Identity mult: 100\%} and the aliases \texttt{A1\_MOV\_RC} /
-\texttt{A2\_ADD\_VV}: doubling by adding a row to itself spends the multiplier
-on data movement.
+\texttt{MAC util=0.0\%}: doubling by adding a row to itself spends the
+multiplier on data movement.
 
 \needspace{0.3\textheight}
 \subsection{Test it}
 
 \begin{termcmd}
-$ bazel test //src/tools/ipu-apps:double_rows
+$ bazel test //kernels/elementwise/double_rows
 \end{termcmd}
+\begin{termout}
+//kernels/elementwise/double_rows:double_rows                           PASSED in 4.7s
+    PASSED  ...test_case[default-fp32] (3.2s)
+    PASSED  ...test_case[sweep[rows=1]-fp32] (0.0s)
+    PASSED  ...test_case[sweep[rows=64]-fp32] (0.0s)
+Test cases: finished with 3 passing, 0 skipped and 0 failing out of 3 test cases
+Executed 1 out of 1 test: 1 test passes.
+\end{termout}
 
-\terminal{ex_test.png}{The default case and the two sweep sizes pass.}
-
-\needspace{0.45\textheight}
+\needspace{0.2\textheight}
 \subsection{Debug it}
 
 \begin{termcmd}
-$ bazel run --config=debug //src/tools/ipu-apps:double_rows
+$ bazel run --config=debug //kernels/elementwise/double_rows
 \end{termcmd}
-
-\screenshot{ex_steps.png}{After three \texttt{F8}: \texttt{R0} holds the first
-input row (pane 1); PC 3 is about to add it a second time.}
 
 \subsection{Checklist}
 
 \begin{itemize}
-\item Folder, \texttt{.asm} file and target share one name.
-\item \texttt{app.py} defines the harness and \texttt{SPEC}; \texttt{cases.py}
-  defines \texttt{CASES} with a \texttt{"default"}; \texttt{test.py} calls
-  \texttt{case\_tests}.
-\item \texttt{bazel test //src/tools/ipu-apps:test\_kernel\_registry} checks
-  that the new kernel is registered correctly.
-\item \doc{adding-applications}{Adding Applications} covers kernels whose
-  harness prepares its own memory layout, and \texttt{benchmark.py}.
+\item Folder, \texttt{.asm} file and target share one name; the folder is
+  listed in \texttt{kernels/families.bzl}.
+\item \texttt{kernel.toml} declares every tensor, binds every register the
+  program reads in \texttt{[abi]}, and has a \texttt{default} case.
+\item \texttt{bazel test //kernels:test\_families} and
+  \texttt{bazel test //src/tools/ipu-harness:test\_kernel\_tree} check that the
+  new kernel is registered correctly.
+\item \doc{how-to/write-a-kernel}{Write a kernel} covers templates and
+  registry entries, pack transforms, multi-stage kernels and
+  \texttt{[benchmark]}.
 \end{itemize}
 
 %======================================================================
@@ -1387,18 +1394,19 @@ To measure what an alias would save as a real instruction --- for example an
   arguments must be named exactly like the operands in the spec
   (\doc{how-to/add-an-instruction}{Add an instruction} walks through every step).
 \item Copy the kernel folder under a new name (folder, \texttt{.asm} file and
-  name must match, e.g. \texttt{residual\_add\_addvv/residual\_add\_addvv.asm})
-  and replace the stand-in sequence with the new instruction. The copy keeps
-  the same \texttt{cases.py}, so it is checked against the same reference.
+  name must match, e.g. \texttt{residual\_add\_addvv/residual\_add\_addvv.asm}),
+  add it to its family in \texttt{kernels/families.bzl}, and replace the
+  stand-in sequence with the new instruction. The copy keeps the same
+  \texttt{kernel.toml}, so it is checked against the same reference.
 \item Compare the two:
 \end{enumerate}
 
 \begin{termcmd}
-$ bazel run //src/tools/ipu-apps:residual_add       -- --alias-report before.json
-$ bazel run //src/tools/ipu-apps:residual_add_addvv -- --alias-report after.json
+$ bazel run //kernels/elementwise/residual_add       -- --alias-report before.json
+$ bazel run //kernels/elementwise/residual_add_addvv -- --alias-report after.json
 \end{termcmd}
 
-Compare \texttt{Total cycles}, \texttt{Identity mult}, \texttt{Effective MAC}
+Compare the \texttt{cycles} and \texttt{MAC util} of the two result lines
 and the \texttt{A2\_ADD\_VV} count. Both runs must still print \texttt{PASS}.
 
 \subsection{Prototyping mode}
@@ -1411,12 +1419,13 @@ emulator's own run time changes (details: \doc{explanation/architecture}{Archite
 Enable it with a build flag:
 
 \begin{termcmdtop}
-$ bazel run --define=ipu_proto=1 //src/tools/ipu-apps:depthwise_conv_universal -- \
-    --channels 128 --height 64 --width 64
+$ bazel run --define=ipu_proto=1 //kernels/convolutions:depthwise_conv_universal -- \
+    --case c50_64
 $ bazel test --define=ipu_proto=1 //...
 \end{termcmdtop}
 \begin{termout}
-depthwise_conv_universal/default: PASS (38886 cycles)
+depthwise_conv_universal/c50_64/fp32: PASS  cycles=15270  MAC util=92.3%
+  y: max|err|=4.76837e-07 (FP32_ORDER)
 \end{termout}
 
 The skipped work still takes time on the real chip; use normal mode for any
@@ -1429,33 +1438,34 @@ question about hardware cost.
 \begin{tcolorbox}[enhanced, colback=white, colframe=muted, boxrule=0.8pt, arc=4pt,
   left=10pt, right=10pt, top=8pt, bottom=6pt]
 {\small
-All targets are in \texttt{//src/tools/ipu-apps} unless written in full;
-below, \texttt{:<target>} stands for \texttt{//src/tools/ipu-apps:<target>}.
+Below, \texttt{<kernel>} stands for a kernel's target,
+\texttt{//kernels/<family>/<name>} (or \texttt{//kernels/<family>:<entry>}).
 
 \begin{multicols}{2}
 \raggedright
 \textbf{\sffamily Find}\par
-\texttt{bazel run :query}\par
-\texttt{bazel run :query -- <op> k=v ...}\par
+\texttt{bazel run //kernels:query}\par
+\texttt{bazel run //kernels:query -- <op> k=v ...}\par
 \texttt{... k=x --sweep x=1..200}\par
 
 \medskip\textbf{\sffamily Run}\par
-\texttt{bazel run :<kernel>}\par
-\texttt{bazel run :<kernel> -- --help}\par
+\texttt{bazel run <kernel>}\par
+\texttt{bazel run <kernel> -- --help}\par
 \texttt{... -- --list-cases}\par
-\texttt{... -- --case <name> --<opt> <v>}\par
-\texttt{... -- --output out.bin}\par
+\texttt{... -- --case <name> --format e4}\par
+\texttt{... -- --output out}\par
 \texttt{... -- --max-cycles N}\par
 
 \medskip\textbf{\sffamily Test}\par
-\texttt{bazel test :<kernel>}\par
-\texttt{bazel test :<family>}\par
+\texttt{bazel test <kernel>}\par
+\texttt{bazel test //kernels/<family>:all}\par
 \texttt{bazel test //...}\par
-\texttt{bazel test :test\_full\_<...>}\par
-\texttt{\ \ --test\_arg=-k --test\_arg=<expr>}\par
+\texttt{bazel test --config=full \textbackslash}\par
+\texttt{\ \ //kernels/mobilevit:tests\_nightly}\par
 
 \medskip\textbf{\sffamily Build and assemble}\par
-\texttt{bazel build :assemble\_<kernel>}\par
+\texttt{bazel build //kernels/<family>/<name>:\textbackslash}\par
+\texttt{\ \ assemble\_<name>}\par
 \texttt{bazel run //src/tools/ipu-as-py:ipu-as \textbackslash}\par
 \texttt{\ \ -- assemble --format bin \textbackslash}\par
 \texttt{\ \ --input \$PWD/a.asm \textbackslash}\par
@@ -1466,13 +1476,13 @@ below, \texttt{:<target>} stands for \texttt{//src/tools/ipu-apps:<target>}.
 \medskip\textbf{\sffamily Aliases and speed}\par
 \texttt{... -- --profile-aliases}\par
 \texttt{... -- --alias-report a.json}\par
-\texttt{bazel run :benchmark\_<kernel>}\par
+\texttt{... -- --benchmark}\par
 \texttt{bazel run --define=ipu\_proto=1 \textbackslash}\par
-\texttt{\ \ :<kernel>}\par
+\texttt{\ \ <kernel>}\par
 
 \columnbreak
 \textbf{\sffamily Debug}\par
-\texttt{bazel run --config=debug :<kernel>}\par\smallskip
+\texttt{bazel run --config=debug <kernel>}\par\smallskip
 \begin{tabular}{@{}ll@{}}
 \texttt{F8} & step \\
 \texttt{F5} & continue \\
@@ -1499,16 +1509,16 @@ below, \texttt{:<target>} stands for \texttt{//src/tools/ipu-apps:<target>}.
 \medskip\textbf{\sffamily A kernel folder}\par
 \begin{tabular}{@{}ll@{}}
 \texttt{<name>.asm} & program \\
-\texttt{app.py} & harness and \texttt{SPEC} \\
-\texttt{cases.py} & \texttt{CASES}, with \texttt{"default"} \\
-\texttt{test.py} & \texttt{case\_tests(\_\_package\_\_)} \\
-\texttt{benchmark.py} & \texttt{CONFIGS} (optional) \\
+\texttt{kernel.toml} & tensors, \texttt{[abi]}, \texttt{[golden]}, cases \\
+\texttt{reference.py} & the reference (optional) \\
+\texttt{gen.py} & input generators (optional) \\
+\texttt{BUILD.bazel} & \texttt{ipu\_kernel()} \\
 \end{tabular}
 
 \medskip\textbf{\sffamily Registers}\par
 \begin{tabular}{@{}ll@{}}
 \texttt{CR0} = 0, \texttt{CR1} = 1 & fixed \\
-\texttt{CR2}, \ldots & set by the harness \\
+\texttt{CR2}, \ldots & set from \texttt{[abi]} \\
 \texttt{LR0}--\texttt{LR15} & the program's counters \\
 \texttt{R\_ACC} & accumulator \\
 \end{tabular}

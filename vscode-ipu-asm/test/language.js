@@ -365,17 +365,14 @@ if (corpusPath) test('the corpus: parser, completion, formatting and Jinja agree
     const raw = entry.raw;
     if (raw === undefined) continue;
     audit(`${name} (raw)`, raw);
-    // Formatting: every kernel is already in the house layout, so without the blank lines formatting
-    // changes nothing but trailing whitespace; it is idempotent; and a copy with its layout stripped
-    // formats back to the same.
-    const kernel = entry.file.includes('/src/tools/ipu-apps/');
-    const untrailed = raw.split('\n').map((l) => l.replace(/[ \t]+$/, '')).join('\n');
+    // Formatting: it is idempotent, and a copy with its layout stripped formats back to the same.
+    // (The corpus's kernels are rendered programs, //kernels:rendered_programs, so not in the house
+    // layout; test_format_corpus.py reports the kernel sources formatting would change.)
     for (const blankLine of [false, true]) {
       const once = lang.format(raw, { blankLine });
       corpusFormats++;
       if (lang.format(once, { blankLine }) !== once) fail(`${name}: formatting twice differs from once (blankLine ${blankLine})`);
       if (lang.format(mangle(lang, raw), { blankLine }) !== once) fail(`${name}: a copy with its layout stripped does not format back (blankLine ${blankLine})`);
-      if (kernel && !blankLine && once !== untrailed) fail(`${name}: formatting changes a kernel already in the house layout`);
     }
     // The raw file's Jinja regions, as the agreement test's oracle found them.
     const regions = (list) => list.map((r) => `${r.kind}:${r.start}:${r.end}`).join();

@@ -9,12 +9,12 @@ kernel, loads its inputs and CRs, and stops at cycle 0, before the first
 instruction word runs. It takes the same options as an ordinary run:
 
 ```bash
-bazel run --config=debug //src/tools/ipu-apps:identity -- --case single_row
+bazel run --config=debug //kernels/reshape/identity -- --case single_row
 bazel run --config=debug //kernels/elementwise/scale -- --case one_row --format e4
 ```
 
-A kernel with a `kernel.toml` (under `kernels/`) also takes `--debug` in place
-of `--config=debug`. The debugger needs an interactive terminal.
+A kernel target also takes `--debug` in place of `--config=debug`. The
+debugger needs an interactive terminal.
 
 Every key and mouse action is listed in the
 [debugger controls](../reference/cli.md#debugger), generated from the
@@ -115,9 +115,8 @@ largest error.
 
 6. Compare the values with the reference. To get the whole output as a file,
     run the case without the debugger and add `--output`. It writes the output
-    even when the comparison fails: `--output DIR` writes `DIR/<name>.npy` for
-    a kernel under `kernels/`, and `--output FILE` writes one file for a kernel
-    target under `src/tools/ipu-apps`.
+    even when the comparison fails: `--output DIR` writes `DIR/<name>.npy`
+    for each output.
 
 7. To test a fix without editing the source, press `e` on a value to change
     it, then continue. In Instructions, `e` sets the PC. `CR0` and `CR1` are
@@ -135,9 +134,7 @@ A fault stops the run at the faulting word and prints its code and PC:
 scale/one_row/e4: FAIL  cycles=6  MAC util=16.7%  fault F-2 at PC 6
 ```
 
-A kernel target under `src/tools/ipu-apps` prints the same fault as
-`error: F-2 at PC 6: ...`. The debugger also closes on a fault and prints this
-line.
+The debugger also closes on a fault and prints this line.
 
 1. Look up the code in the [fault list](../requirements/faults.md#fault-list).
     [In the emulator](../requirements/faults.md#in-the-emulator) says what the
@@ -160,10 +157,9 @@ line.
 
 ## The kernel is too slow
 
-1. Read the run's statistics. A kernel target under `src/tools/ipu-apps`
-    prints the [run statistics](../reference/cli.md#run-statistics) after
-    `PASS`. A kernel under `kernels/` prints its cycle count and MAC
-    utilisation on the result line:
+1. Read the run's statistics. A kernel prints its cycle count and MAC
+    utilisation on the result line (the
+    [run statistics](../reference/cli.md#run-statistics) say what they count):
 
     ```text
     scale/default/fp32: PASS  cycles=22  MAC util=18.2%  y: max|err|=0 (EXACT)

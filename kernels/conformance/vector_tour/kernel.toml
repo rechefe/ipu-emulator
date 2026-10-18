@@ -57,7 +57,7 @@ int8_tail = "CR12"
 reference = "reference.py:reference"
 tolerance = { int32 = "EXACT", fp32 = "EXACT" } # acc, an accumulator output; relu is INT8, EXACT too
 
-# The ipu_apps cases' data: default_rng(16), a then w then c.
+# The old cases' data: default_rng(16), a then w then c.
 [cases.default]
 generator = "gen.py:legacy_steps"
 int8_tail = true

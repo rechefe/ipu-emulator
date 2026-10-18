@@ -90,10 +90,8 @@ def test_every_ipu_as_option_is_listed(snippets: dict[str, str]) -> None:
 @pytest.mark.parametrize(
     ("snippet", "module"),
     [
-        ("kernel-targets.md", "ipu_apps.kernel_registry.runner"),
         ("run-kernel.md", "ipu_harness.cli"),
-        ("trace-case.md", "ipu_apps.kernel_registry.trace_case"),
-        ("query.md", "ipu_apps.kernel_registry.query"),
+        ("query.md", "ipu_harness.query"),
     ],
 )
 def test_every_argparse_option_is_listed(
@@ -110,14 +108,14 @@ def test_every_argparse_option_is_listed(
 
 
 def test_every_kernel_case_is_listed(snippets: dict[str, str]) -> None:
-    from ipu_apps.kernel_registry import registry
-    from ipu_apps.kernel_registry.cases import load_cases
+    from ipu_harness.registry import default_registry
 
-    registry.load()
-    text = snippets["case-options.md"]
-    for spec in registry.kernels():
-        for case in load_cases(spec.name):
-            assert f"| `{spec.name}` | `{case}` |" in text
+    text = snippets["kernel-cases.md"]
+    manifests = default_registry().manifests
+    assert manifests, "the kernel tree is missing from the test data"
+    for name, manifest in manifests.items():
+        for case in manifest.cases:
+            assert f"| `{name}` | `{case}` |" in text
 
 
 def test_every_debugger_control_is_listed(snippets: dict[str, str]) -> None:
@@ -128,12 +126,6 @@ def test_every_debugger_control_is_listed(snippets: dict[str, str]) -> None:
         assert page._cell(binding.description) in text
 
 
-def test_the_run_summary_is_what_a_run_prints(snippets: dict[str, str]) -> None:
-    text = snippets["run-summary.md"]
-    assert text.startswith("```text\n=== Run summary ===\n")
-    assert "Effective MAC:" in text
-
-
 def test_the_page_includes_every_snippet() -> None:
     text = CLI_PAGE.read_text(encoding="utf-8")
     included = re.findall(r'^--8<-- "generated/cli/([^"]+)"$', text, flags=re.M)
@@ -142,7 +134,7 @@ def test_the_page_includes_every_snippet() -> None:
 
 def test_each_tool_section_has_an_example() -> None:
     sections = re.split(r"^## ", CLI_PAGE.read_text(encoding="utf-8"), flags=re.M)[1:]
-    assert len(sections) >= 6
+    assert len(sections) >= 4
     for section in sections:
         assert "```bash\nbazel run " in section, section.splitlines()[0]
 

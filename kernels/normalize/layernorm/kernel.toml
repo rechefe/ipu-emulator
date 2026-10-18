@@ -75,7 +75,7 @@ lanes      = "CR14"
 op = "layernorm"                          # ipu_kernels.reference.ops.layernorm: no eps (Q57)
 tolerance = { fp32 = "FP32_LONG" }        # the rsqrt chain; FP32_ORDER also passes the 4 entries' data
 
-# Each entry's default case keeps its old ipu_apps data (../gen.py).
+# Each entry's default case keeps its old data (../gen.py).
 [cases.default]
 channels = 192
 tokens = 64

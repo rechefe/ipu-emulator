@@ -6,13 +6,13 @@
 # ../registry.toml; the program reads has_bias and apply_relu itself (see the
 # .asm header). Its program is also stage 1 of the depthwise_conv_stride2_*
 # kernels (E07-19). Routed in the universal conv2d vocabulary: every one of its
-# 11 query parameters must be named by a query, as the ipu_apps router's
+# 11 query parameters must be named by a query, as the old router's
 # requires had it.
 [kernel]
 op = "conv2d"
 formats = ["fp32"]
 # At in_channels = out_channels = groups = 1 a depthwise 3x3 is also a plain
-# one, which the ipu_apps router answered with conv_universal (this kernel an
+# one, which the old router answered with conv_universal (this kernel an
 # alternative): so this costs more than the conv_universal entries (an equal
 # cost would be a tie, an error).
 cost = 1
@@ -78,7 +78,7 @@ bytes = "../masks.py:border_mask"
 shape = ["out_channels", "height", "width"]
 pack = "chunked"
 
-# Every CR the ipu_apps setup() wrote (CR2-CR15; it wrote no LR, and the
+# Every CR the old setup() wrote (CR2-CR15; it wrote no LR, and the
 # program reads none before it writes it).
 [abi]
 y           = { register = "CR2", offset = -1 }   # one row low: the store is one channel late
@@ -100,11 +100,11 @@ dstructure  = "CR15"
 reference = "reference.py:reference"   # filters split, then the shared conv2d (groups = channels)
 # y is an element output: compared in FP32. Measured on the harness's seeded
 # data: max |err| 7.2e-7 (c50_64), every one of the 22 entry cases inside
-# FP32_ORDER (on the ipu_apps data of the proof: 3.6e-7). The old check was
+# FP32_ORDER (on the old data of the proof: 3.6e-7). The old check was
 # max |diff| < 1e-2.
 tolerance = { fp32 = "FP32_ORDER" }
 
-# The two ipu_apps kernels' cases and test sweeps (each entry chooses its own,
+# The two old kernels' cases and test sweeps (each entry chooses its own,
 # ../registry.toml, at its fixed has_bias, apply_relu and fpb). The data is the
 # harness's seeded per-tensor streams, but for negative_outputs and
 # negative_bias, whose patterns gen.py makes. The old sweep
@@ -322,7 +322,7 @@ has_bias = true
 apply_relu = true
 fpb = 25
 
-# The two ipu_apps benchmark.py CONFIGS (10 points each, 7 shared) as one list of
+# The two old benchmark.py CONFIGS (10 points each, 7 shared) as one list of
 # 13: each entry times all 13 (per was PER = "channels"; max_cycles MAX_CYCLES).
 [benchmark]
 per = "in_channels"

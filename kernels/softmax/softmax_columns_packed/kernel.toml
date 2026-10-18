@@ -15,7 +15,7 @@ dim   = { type = "int", choices = [0], default = 0 } # down each column
 scale = { type = "float", default = 5.0 }            # the generator's: x = randn * scale
 seed  = { type = "int", default = 0 }                # the generator's
 
-# The regions sit where the ipu_apps harness put them: from row 128, the
+# The regions sit where the old harness put them: from row 128, the
 # input, the numerators and the output back to back, each rounded up to a
 # multiple of 128 rows (step), then the resident rows. Every region is pinned:
 # first fit in declaration order would put y right after x.
@@ -82,7 +82,7 @@ rpv         = "CR14"
 op = "softmax"
 tolerance = { fp32 = "TRANSCENDENT" }
 
-# The ipu_apps cases' data (gen.py:legacy_randn: the old seeds).
+# The old cases' data (gen.py:legacy_randn: the old seeds).
 [cases.default]
 rows = 64
 width = 16
@@ -107,7 +107,7 @@ scale = 3.0
 seed = 40
 generator = "../gen.py:legacy_randn"
 
-# The ipu_apps sweep, one case per point: a one-element list puts the old case
+# The old sweep, one case per point: a one-element list puts the old case
 # id in the case's name (sweep_01[rows=16,width=64,scale=3.0,seed=0]).
 [cases.sweep_01]  # 2 rows/vec, clean width
 rows = [16]
@@ -172,7 +172,7 @@ scale = [3.0]
 seed = [8]
 generator = "../gen.py:legacy_randn"
 
-# The ipu_apps benchmark configs (bazel run //kernels/softmax/softmax_columns_packed -- --benchmark).
+# The old benchmark configs (bazel run //kernels/softmax/softmax_columns_packed -- --benchmark).
 [benchmark]
 points = [{ rows = 64, width = 8 }, { rows = 64, width = 16 }, { rows = 100, width = 32 }, { rows = 128, width = 64 }]
 per = "rows"

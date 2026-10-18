@@ -2,7 +2,7 @@
 # FP32, for widths that are multiples of 128 from 384 up (E07-19). Unoptimized
 # (see the .asm header). The program is rendered for each case from its
 # template values: the [derived] cpr (column chunks a row) and the parameter
-# height; the ipu_apps harness assembled it per run in a temporary folder.
+# height; the old harness assembled it per run in a temporary folder.
 # Routed in the universal conv2d vocabulary, every parameter required.
 
 [kernel]
@@ -85,7 +85,7 @@ lr5_start         = "LR5"
 [golden]
 op = "conv2d"                          # x, w [out, in, 3, 3]; no bias, no ReLU
 # Measured on the harness's seeded data: max |err| 1.4e-6 (c3x4; 3.6e-7 on the
-# ipu_apps data of the proof). The old check was max |diff| < 1e-2.
+# old data of the proof). The old check was max |diff| < 1e-2.
 tolerance = { fp32 = "FP32_ORDER" }
 
 # The old default (the .asm's standalone defaults cpr = 3, rows = 8) and the

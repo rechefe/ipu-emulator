@@ -60,7 +60,7 @@ points = [
     { channels = 64, height = 2, width = 256 },
 ]
 
-# The ipu_apps cases' data (../gen.py: standard normal, seed 7).
+# The old cases' data (../gen.py: standard normal, seed 7).
 [cases.default]
 channels = 1
 height = 4

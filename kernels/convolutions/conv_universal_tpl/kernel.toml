@@ -4,7 +4,7 @@
 # (E07-20) in ../registry.toml; the
 # program reads has_bias and apply_relu itself (see the .asm header). Routed
 # in the universal conv2d vocabulary: every one of its 11 parameters must be
-# named by a query, as the ipu_apps router's requires had it.
+# named by a query, as the old router's requires had it.
 [kernel]
 op = "conv2d"
 formats = ["fp32"]
@@ -62,7 +62,7 @@ bytes = "../masks.py:border_mask"
 shape = ["out_channels", "height", "width"]
 pack = "chunked"
 
-# Every CR the ipu_apps setup() wrote (CR2-CR15; it wrote no LR).
+# Every CR the old setup() wrote (CR2-CR15; it wrote no LR).
 [abi]
 y           = "CR2"
 border_mask = "CR3"
@@ -86,7 +86,7 @@ reference = "reference.py:reference"   # filters split, then the shared conv2d
 # 22 entry cases (in_channels 16 and up), FP32_LONG passes all.
 tolerance = { fp32 = "FP32_LONG" }
 
-# The two ipu_apps kernels' cases and test sweeps (each entry chooses its
+# The two old kernels' cases and test sweeps (each entry chooses its
 # own, ../registry.toml). has_bias and apply_relu are the bias + ReLU twin's;
 # conv_universal's entry fixes both false. The data is the harness's seeded
 # per-tensor streams, but for negative_outputs and negative_bias, whose
@@ -277,7 +277,7 @@ groups = 1
 has_bias = true
 apply_relu = true
 
-# The two ipu_apps benchmark.py CONFIGS (10 and 9 points), as one list: each
+# The two old benchmark.py CONFIGS (10 and 9 points), as one list: each
 # entry times all 11 (max_cycles was MAX_CYCLES).
 [benchmark]
 max_cycles = 50_000_000

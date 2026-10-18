@@ -1,7 +1,7 @@
 """The convolutions' pack transforms (E07-16), shared by the family's kernels.
 
 The tiled kernels (``conv1x1``, ``conv3x3_relu``, ``conv3x3_relu_cin1``) read
-``ipu_apps``' tiled fixture layout, now laid out one tensor at a time:
+the old harness's tiled fixture layout, now laid out one tensor at a time:
 
 * ``tiled_guard``, ``halo_tiled_guard``, ``halo_tiled``: the input,
   ``(channels, height, width)`` cut into tiles of ``128 - 2*halo`` columns,

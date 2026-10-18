@@ -31,7 +31,7 @@ from ipu_as.syntax import get_parser, parse_tree
 from ipu_isa.view import isa
 
 EDGE_CASES = ROOT / "vscode-ipu-asm" / "test" / "corpus" / "edge_cases.asm"
-KERNELS = ROOT / "src" / "tools" / "ipu-apps" / "src" / "ipu_apps" / "kernels"
+KERNELS = ROOT / "kernels"
 SCHEMAS = ROOT / "vscode-ipu-asm" / "schema"
 ALL = frozenset(FEATURES)
 
@@ -49,10 +49,10 @@ def _renders_alone(path: Path) -> bool:
 
 
 def _corpus() -> list[Path]:
-    """Every kernel source and the extension's assembling fixtures that render without defines."""
-    paths = sorted(KERNELS.rglob("*.asm")) + sorted(
-        (ROOT / "src" / "tools" / "ipu-apps" / "test").rglob("*.asm")
-    )
+    """Every kernel source (``kernels/``, as the editor shows it: a template the
+    harness renders) and the extension's assembling fixtures that render
+    without defines."""
+    paths = sorted(KERNELS.rglob("*.asm"))
     paths += [
         p
         for p in sorted((ROOT / "vscode-ipu-asm" / "test").rglob("*.asm"))
@@ -542,6 +542,22 @@ def _scanned(raw: str) -> list[dict]:
     return regions
 
 
+#: What the harness renders a kernel-tree program with besides the kernel's own
+#: parameters and derived values (``ipu_harness.assembly.template_values`` and
+#: the register maps).
+HARNESS_NAMES = frozenset({"cr", "lr", "format", "shapes"})
+
+
+def _provided(path: Path) -> set[str]:
+    """The names a kernel-tree program may use undefined: the harness's and
+    every name its folder's ``kernel.toml`` mentions (parameters, derived
+    values, a stage's template values)."""
+    manifest = path.parent / "kernel.toml"
+    if not manifest.is_file():
+        return set()
+    return HARNESS_NAMES | set(re.findall(r"\w+", manifest.read_text(encoding="utf-8")))
+
+
 @pytest.mark.parametrize("path", CORPUS, ids=_id)
 def test_kernel_regions_and_names(path):
     raw = path.read_text(encoding="utf-8")
@@ -549,7 +565,7 @@ def test_kernel_regions_and_names(path):
     regions = _analysed(path).jinja
     defined = {name for region in regions for name in region.defines}
     used = {name for region in regions for name in region.uses}
-    assert used - defined <= {"range", "loop"}
+    assert used - defined <= {"range", "loop", "namespace"} | _provided(path)
 
 
 # --- The CLI (check --json --json-version 2) ---
@@ -586,7 +602,15 @@ def test_v2_with_every_analysis_matches_its_schema_and_v1(name):
     assert set(output) == {"schemaVersion", "diagnostics", "tokens", "words", "jinja"}
 
 
-@pytest.mark.parametrize("path", [CORPUS[0], max(CORPUS, key=lambda p: p.stat().st_size)], ids=_id)
+def _assembles_alone(path: Path) -> bool:
+    """A kernel-tree program renders only with a case's values (the harness's)."""
+    return not _analysed(path).diagnostics
+
+
+_ALONE = [p for p in CORPUS if _assembles_alone(p)]
+
+
+@pytest.mark.parametrize("path", [_ALONE[0], max(_ALONE, key=lambda p: p.stat().st_size)], ids=_id)
 def test_v2_of_a_kernel_matches_its_schema(path):
     output = json.loads(_check(path.read_text("utf-8"), "--json-version", "2", *ANALYSES).stdout)
     _validate_v2(output)

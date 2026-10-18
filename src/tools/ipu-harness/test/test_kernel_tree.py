@@ -16,7 +16,7 @@ TARGETS = Path.cwd() / "kernels" / "kernel_targets.json"
 #: The checkout's kernels/ (the BUILD file is a symlink into it).
 SOURCE = (Path.cwd() / "kernels" / "BUILD.bazel").resolve().parent
 
-#: //src/tools/ipu-apps:kernel_manifest's keys, which tools read.
+#: The old harness's kernel-manifest keys, which tools (the editor extension) read.
 LEGACY_KEYS = {"kernels", "families", "operations", "query", "skipped"}
 LEGACY_KERNEL_KEYS = {"op", "variant", "tags", "family", "asm", "targets", "cases"}
 

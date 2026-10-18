@@ -1,6 +1,6 @@
 """The attention family's case generators (E07-12, E07-13).
 
-They keep the ``ipu_apps`` cases' data (``attention/cases.py`` and each
+They keep the old cases' data (``attention/cases.py`` and each
 kernel's ``cases.py``): ``RandomState(seed).uniform(-1, 1)`` in FP32, Q drawn
 before K, so the migration's outputs compare bit for bit with the old
 harness's. Moving to the harness's seeded generator is a separate change.

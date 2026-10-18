@@ -47,7 +47,7 @@ channels    = "CR8"
 op = "maxpool2d"
 tolerance = { fp32 = "EXACT" }
 
-# The ipu_apps cases' data (../gen.py: standard normal minus 2, seed 7), at
+# The old cases' data (../gen.py: standard normal minus 2, seed 7), at
 # each entry's kernel_size.
 [cases.default]
 channels = 1

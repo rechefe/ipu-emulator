@@ -15,7 +15,7 @@ from ipu_harness.chain import Chain
 from ipu_harness.registry import default_registry
 from ipu_isa.formats import ElementFormat
 
-#: Each entry's (tokens, channels): the ipu_apps kernels' N_TOK and N_CH.
+#: Each entry's (tokens, channels): the old kernels' N_TOK and N_CH.
 ENTRIES = {
     "residual_add_16x240": (16, 240),
     "residual_add_64x192": (64, 192),

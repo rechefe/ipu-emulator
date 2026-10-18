@@ -1,4 +1,4 @@
-"""Routing of the linear family (E07-21): the ``ipu_apps`` routing facts of
+"""Routing of the linear family (E07-21): the old routing facts of
 ``fully_connected``, on the family's registry.
 
 The old router took ``shape=(10, 128)``, ``weight_shape=(64, 128)``, a

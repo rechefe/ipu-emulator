@@ -1,11 +1,11 @@
 """Case generators shared by the projections' templates (E07-02).
 
-``legacy_uniform`` keeps the ``ipu_apps`` cases' data (``cases.py``) in FP32,
+``legacy_uniform`` keeps the old cases' data (``cases.py``) in FP32,
 so the FP32 outputs compare bit for bit with the old harness's (E02 digests).
 In every other format it makes nothing, and the harness's default generator
 fills the inputs from their ``range`` (E07-03): the legacy data, uniform in
 [-1, 1), would round to {-1, 0, 1} in INT8. ``weight_rows`` is the
-weight-pointer check that ``ipu_apps``' slow ``test.py`` test ran.
+weight-pointer check that the old harness's slow ``test.py`` test ran.
 ``window_mask`` is the packed linear's R_MASK row (E07-23).
 """
 
@@ -14,7 +14,7 @@ import numpy as np
 from ipu_isa.formats import FORMATS, ElementFormat
 from ipu_kernels.pack import r_mask
 
-#: The ``ipu_apps`` cases' seed.
+#: The old cases' seed.
 SEED = 0xC0FFEE
 
 #: weight_rows: output channel j's weights are (j + 1) * SCALE.

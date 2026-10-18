@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import importlib
 import re
 from pathlib import Path
 
@@ -143,11 +142,17 @@ def test_packed_sizes_follow_the_format(tmp_path):
 
 
 def test_chunk_interleaved_matches_the_convolutions_packing(tmp_path):
-    conv = importlib.import_module("ipu_apps.kernels.convolutions.app")
+    # The SHA-256 of what the old convolutions harness's pack_input_chunked
+    # wrote for this input (frozen in E07-25, which deleted it): 3 channels of
+    # 7 rows of 32, four rows a 128-element chunk, so 2 chunks of 3 rows.
     m = manifest(tmp_path, pack='pack = "chunk_interleaved"\n')
     plan = plan_case(m, {"c": 3, "h": 7, "w": 32}, F.FP32)
     x = values(F.FP32, (3, 7, 32)).astype(np.float32)
-    assert pack(m.tensors["x"], x, plan) == conv.pack_input_chunked(x, 32)
+    packed = pack(m.tensors["x"], x, plan)
+    assert len(packed) == 2 * 3 * 128 * 4
+    assert hashlib.sha256(packed).hexdigest() == (
+        "9a0e4559806eba149ebe3119ba81dbe2e1e5da97cbcc83b6941f9a45e5e288fc"
+    )
 
 
 def test_an_accumulator_output_is_read_in_the_accumulator_format(tmp_path):
@@ -266,7 +271,7 @@ out     = "CR4"
 """
 
 #: Each projection's (k, n_out, n_tok, n_tg), today's (E02) data/weights/output
-#: base rows, and the SHA-256 of the bytes the ipu_apps loaders (``_load_data``,
+#: base rows, and the SHA-256 of the bytes the old loaders (``_load_data``,
 #: ``_load_weights``) wrote for ``values(FP32, ...)``: frozen in E07-02 before
 #: the loaders were deleted.
 PROJECTIONS = {

@@ -379,7 +379,7 @@ _PACKAGES = {
     "harness/src/ipu_harness/__init__.py": "",
     "kernels/src/ipu_kernels/__init__.py": "",
     "kernels/src/ipu_kernels/reference/__init__.py": "",
-    "apps/src/ipu_apps/__init__.py": "",
+    "gen/src/ipu_gen/__init__.py": "",
     "emu/src/ipu_emu/__init__.py": "",
     "isa/src/ipu_isa/__init__.py": "",
     "as/src/ipu_as/__init__.py": "",
@@ -389,7 +389,7 @@ _PACKAGES = {
 @pytest.mark.parametrize(
     ("file", "text", "message"),
     [
-        ("harness/src/ipu_harness/runner.py", "import ipu_apps\n", "imports ipu_apps"),
+        ("harness/src/ipu_harness/runner.py", "import ipu_gen\n", "imports ipu_gen"),
         ("harness/src/ipu_harness/registry.py", "import ipu_kernels\n", "imports ipu_kernels"),
         # Not even inside a function (Q62): no cycle-dodging lazy imports.
         (
@@ -445,7 +445,7 @@ def test_e06_01_rules_accept(tmp_path):
 # Rules of the real table, checked on planted packages.
 
 #: The only packages that may import the debugger: the runner (Q62, E08-03).
-DEBUGGER_IMPORTERS = frozenset({"ipu_apps", "ipu_harness"})
+DEBUGGER_IMPORTERS = frozenset({"ipu_harness"})
 
 
 def test_only_the_runner_may_import_the_debugger():

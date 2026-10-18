@@ -124,7 +124,7 @@ def vscode_data_command(out_dir: Path | None) -> None:
 def inspector_trace_command(trace: Path, context: Path, output: Path, max_cycles: int) -> None:
     """Write the Cycle Inspector's JSON for one recorded case (E08-16).
 
-    TRACE and CONTEXT are what //src/tools/ipu-apps:trace_case wrote.
+    TRACE and CONTEXT are what a kernel run's --trace and --context wrote.
     """
     try:
         header, records, ctx = inspector_trace.read_inputs(

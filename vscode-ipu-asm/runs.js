@@ -9,11 +9,11 @@ const path = require('path');
 const { QUIET } = require('./checker');
 
 /** The one label the extension has to know (as checker.js knows the assembler's). */
-const MANIFEST_TARGET = '//src/tools/ipu-apps:kernel_manifest';
+const MANIFEST_TARGET = '//kernels:manifest';
 
 /** Whether the manifest command failed for want of the target: a checkout predating it. */
 function manifestMissing(stderr) {
-  return /no such (target|package)[^\n]*(kernel_manifest|ipu-apps)|'kernel_manifest' not declared/.test(String(stderr || ''));
+  return /no such (target|package)[^\n]*\/\/kernels:manifest|no such package 'kernels'|target 'manifest' not declared in package 'kernels'/.test(String(stderr || ''));
 }
 
 const manifestCommand = () => ['bazel', 'run', ...QUIET, MANIFEST_TARGET];

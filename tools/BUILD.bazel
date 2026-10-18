@@ -36,8 +36,6 @@ py_pytest_test(
     data = [
         "requirements-tools.in",
         "//:requirements_lock.txt",
-        "//src/tools/ipu-apps:pyproject.toml",
-        "//src/tools/ipu-apps:runtime_deps",
         "//src/tools/ipu-as-py:pyproject.toml",
         "//src/tools/ipu-as-py:runtime_deps",
         "//src/tools/ipu-debug:pyproject.toml",
@@ -74,8 +72,6 @@ py_pytest_test(
     srcs = ["test_import_graph.py"],
     data = [
         "import_graph.toml",
-        "//src/tools/ipu-apps:py_sources",
-        "//src/tools/ipu-apps:py_test_sources",
         "//src/tools/ipu-as-py:py_sources",
         "//src/tools/ipu-as-py:py_test_sources",
         "//src/tools/ipu-debug:py_sources",
@@ -102,8 +98,6 @@ py_pytest_test(
     size = "small",
     srcs = ["test_engine_privates.py"],
     data = [
-        "//src/tools/ipu-apps:py_sources",
-        "//src/tools/ipu-apps:py_test_sources",
         "//src/tools/ipu-as-py:py_sources",
         "//src/tools/ipu-as-py:py_test_sources",
         "//src/tools/ipu-debug:py_sources",
@@ -147,7 +141,6 @@ py_pytest_test(
     srcs = ["test_update_baselines.py"],
     data = [
         "update_baselines.sh",
-        "//src/tools/ipu-apps:BUILD.bazel",
         "//src/tools/ipu-as-py:BUILD.bazel",
         "//src/tools/ipu-isa:BUILD.bazel",
         "//src/tools/ipu-emu-py:BUILD.bazel",
@@ -191,7 +184,8 @@ py_pytest_test(
 )
 
 # Upper-case the mnemonics and register names of assembly sources (E07-01): each
-# family migration runs it on its programs; E07-25 adds --check over kernels/.
+# family migration ran it on its programs; :test_upper_mnemonics runs --check
+# over kernels/ (E07-25).
 #
 #   bazel run //tools:upper_mnemonics -- [--check] FILE...
 py_binary(
@@ -204,14 +198,18 @@ py_binary(
 )
 
 # Rewrites every program of the E02 asm corpus (a dry run in a temporary tree)
-# and holds each to its recorded binary digest.
+# and holds each to its recorded binary digest; every kernels/ source is
+# already upper case (--check).
 py_pytest_test(
     name = "test_upper_mnemonics",
     srcs = [
         "test_upper_mnemonics.py",
         "upper_mnemonics.py",
     ],
-    data = ["//src/tools/ipu-apps:asm_corpus_files"],
+    data = [
+        "//kernels:tree",
+        "//src/tools/ipu-as-py:asm_corpus_files",
+    ],
     imports = ["."],
     deps = [
         "//src/tools/ipu-as-py:asm_corpus",
@@ -243,7 +241,7 @@ py_pytest_test(
         "audit_cross_slot_hazards.py",
         "test_audit_cross_slot_hazards.py",
     ],
-    data = ["//src/tools/ipu-apps:asm_corpus_files"],
+    data = ["//src/tools/ipu-as-py:asm_corpus_files"],
     imports = ["."],
     deps = [
         "//src/tools/ipu-as-py:asm_corpus",
@@ -279,8 +277,6 @@ test_suite(
         "//docs:ruff",
         "//docs/inspector:ruff",
         "//kernels:lint",
-        "//kernels/tools:ruff",
-        "//src/tools/ipu-apps:ruff",
         "//src/tools/ipu-as-py:ruff",
         "//src/tools/ipu-debug:ruff",
         "//src/tools/ipu-emu-py:ruff",

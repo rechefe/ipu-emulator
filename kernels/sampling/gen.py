@@ -1,4 +1,4 @@
-"""The ``ipu_apps`` sampling cases' data (E07-15), shared by both kernels.
+"""The old sampling cases' data (E07-15), shared by both kernels.
 
 ``x`` is drawn as the old ``sampling/cases.py`` did: uniform in
 ``[-amplitude, amplitude)`` from ``default_rng(31)``, in FP32, so the
@@ -7,7 +7,7 @@ migration's outputs compare bit for bit with the old harness's.
 
 import numpy as np
 
-#: The ``ipu_apps`` cases' seed.
+#: The old cases' seed.
 SEED = 31
 
 

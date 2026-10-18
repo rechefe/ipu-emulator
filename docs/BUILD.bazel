@@ -81,7 +81,6 @@ py_binary(
 )
 
 _CLI_REFERENCE_DEPS = [
-    "//src/tools/ipu-apps:ipu_apps_lib",
     "//src/tools/ipu-as-py:ipu_as_lib",
     "//src/tools/ipu-debug:ipu_debug_lib",
     "//src/tools/ipu-emu-py:ipu_emu_lib",
@@ -133,6 +132,8 @@ py_pytest_test(
 py_binary(
     name = "cli_reference_page",
     srcs = ["cli_reference_page.py"],
+    # The kernel tree, for the kernels' cases.
+    data = ["//kernels:tree"],
     main = "cli_reference_page.py",
     python_version = "PY3",
     deps = _CLI_REFERENCE_DEPS,
@@ -140,11 +141,8 @@ py_binary(
 
 _CLI_REFERENCE_FILES = [
     "ipu-as.md",
-    "kernel-targets.md",
-    "case-options.md",
-    "run-summary.md",
     "run-kernel.md",
-    "trace-case.md",
+    "kernel-cases.md",
     "query.md",
     "debugger-keys.md",
 ]
@@ -165,7 +163,10 @@ py_pytest_test(
         "cli_reference_page.py",
         "test_cli_reference_page.py",
     ],
-    data = ["content/reference/cli.md"],
+    data = [
+        "content/reference/cli.md",
+        "//kernels:tree",
+    ],
     deps = _CLI_REFERENCE_DEPS + [requirement("pytest")],
 )
 
@@ -175,7 +176,6 @@ py_pytest_test(
 #   bazel run //docs:architecture_page -- "$PWD/out"
 _PACKAGE_SOURCES = [
     "//tools:import_graph.toml",
-    "//src/tools/ipu-apps:py_sources",
     "//src/tools/ipu-as-py:py_sources",
     "//src/tools/ipu-debug:py_sources",
     "//src/tools/ipu-emu-py:py_sources",
@@ -268,11 +268,10 @@ py_pytest_test(
 )
 
 # The Kernel coverage page (content/explanation/kernel-coverage.md) includes
-# these snippets through pymdownx.snippets: each registry's operations and
-# kernels, read from the registries themselves (E09-10).
+# this snippet through pymdownx.snippets: the registry's operations and
+# kernels, read from the registry itself (E09-10).
 #   bazel run //docs:kernel_coverage_page -- "$PWD/out"
 _KERNEL_COVERAGE_DEPS = [
-    "//src/tools/ipu-apps:ipu_apps_lib",
     "//src/tools/ipu-harness:ipu_harness_lib",
 ]
 
@@ -287,16 +286,13 @@ py_binary(
 
 genrule(
     name = "generate_kernel_coverage_md",
-    outs = [
-        "generated/kernel-coverage/ipu-apps.md",
-        "generated/kernel-coverage/kernels.md",
-    ],
+    outs = ["generated/kernel-coverage/kernels.md"],
     cmd = "$(location :kernel_coverage_page) $(RULEDIR)/generated/kernel-coverage > /dev/null",
     tools = [":kernel_coverage_page"],
 )
 
-# Every kernel of both registries is on the page, a kernel that does not load
-# is listed, and the page includes both snippets.
+# Every kernel of the registry is on the page, a kernel that does not load is
+# listed, and the page includes the snippet.
 py_pytest_test(
     name = "test_kernel_coverage_page",
     size = "small",
@@ -584,7 +580,6 @@ py_pytest_test(
     data = _DOC_TEST_DATA,
     deps = [
         ":doc_blocks",
-        "//src/tools/ipu-apps:ipu_apps_lib",
         "//src/tools/ipu-as-py:ipu_as_lib",
         "//src/tools/ipu-harness:ipu_harness_lib",
         requirement("pytest"),

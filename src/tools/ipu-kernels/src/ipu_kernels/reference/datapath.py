@@ -16,9 +16,9 @@ contracted over ``s``:
 * :func:`acc_fold`, ``MULT.RC.VE`` + ``ACC.ADD[.FIRST]``: a float32 running
   sum per lane, rounded at every step.
 
-Copied from ``ipu_apps.kernels.attention.cases``, then fixed (E07-13): the old
-``agg_fold`` rounded a later chunk's fold before ``AGG.SUM`` added it, which
-its ``rtol = 1e-6`` check hid. The old copy goes with the attention shim.
+Copied from the old harness's attention ``cases.py``, then fixed (E07-13): the
+old ``agg_fold`` rounded a later chunk's fold before ``AGG.SUM`` added it,
+which its ``rtol = 1e-6`` check hid. The old copy went with the attention shim.
 """
 
 from __future__ import annotations

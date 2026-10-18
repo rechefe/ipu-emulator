@@ -38,7 +38,7 @@ pack  = "phase_rows"
 [scratch.ones]                # R_CYCLIC's pass-through multiplier row
 shape = [1, 128]
 fill  = 1.0
-after = "x"                   # between x and y, as the ipu_apps map
+after = "x"                   # between x and y, as the old map
 
 [abi]
 x        = "CR0"
@@ -61,6 +61,6 @@ channel    = "LR10"
 op = "unfold"
 tolerance = { fp32 = "EXACT" }
 
-# The ipu_apps case data: RandomState(0x16), uniform [-1, 1) (../gen.py).
+# The old case data: RandomState(0x16), uniform [-1, 1) (../gen.py).
 [cases.default]
 generator = "../gen.py:spatial"

@@ -181,7 +181,7 @@
             "type": "string"
           },
           "default": [],
-          "markdownDescription": "Command that prints the kernel manifest (JSON), as an argv array. Empty runs `bazel run //src/tools/ipu-apps:kernel_manifest`. The kernel buttons and the IPU sidebar are built from it."
+          "markdownDescription": "Command that prints the kernel manifest (JSON), as an argv array. Empty runs `bazel run //kernels:manifest`. The kernel buttons and the IPU sidebar are built from it."
         },
         "ipuAsm.queryCommand": {
           "type": "array",

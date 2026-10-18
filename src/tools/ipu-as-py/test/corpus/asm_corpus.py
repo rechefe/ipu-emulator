@@ -8,6 +8,11 @@ every digest proves the encoded programs are byte-identical. Each record also
 keeps a short fingerprint per word, used only to name the first word that
 changed.
 
+The kernel tree's programs are not in it: a ``kernels/`` program renders only
+with a case, so ``//src/tools/ipu-harness:test_kernel_programs`` runs the same
+program checks on each kernel's rendered default programs, and each kernel's
+``:assemble_<name>`` writes its program.
+
 Render contexts are copied here as literals, not imported, because the tests
 that used them were manual whole-model runs. None is left today (E07-23 moved
 the last such programs to //kernels); the mechanism stays for the next one.
@@ -25,10 +30,7 @@ from ipu_as import lark_tree
 from ipu_as.session import AssemblySession
 
 #: Repo-relative directories whose `.asm` files (recursively) form the corpus.
-CORPUS_ROOTS = (
-    "src/tools/ipu-apps/src/ipu_apps/kernels",
-    "vscode-ipu-asm/test",
-)
+CORPUS_ROOTS = ("vscode-ipu-asm/test",)
 
 #: Directories under a corpus root that hold no programs: the editor's negative
 #: corpus, texts most of which do not assemble (vscode-ipu-asm check_verdicts;
@@ -50,10 +52,10 @@ RENDER_CONTEXTS: dict[str, tuple[dict, ...]] = {}
 HARNESS_DEFINES: dict[str, tuple[dict, ...]] = {}
 
 #: Where the digests live, repo-relative.
-MANIFEST_PATH = "src/tools/ipu-apps/test/baselines/asm_digests.json"
+MANIFEST_PATH = "src/tools/ipu-as-py/test/baselines/asm_digests.json"
 
 #: The one command that rewrites the manifest from the current tree.
-UPDATE_COMMAND = "bazel run //src/tools/ipu-apps:update_asm_digests"
+UPDATE_COMMAND = "bazel run //src/tools/ipu-as-py:update_asm_digests"
 
 
 @dataclass(frozen=True)

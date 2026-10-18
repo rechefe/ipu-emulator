@@ -357,6 +357,7 @@ exports_files([
     "src/ipu_harness/kernel_test.py",
     "src/ipu_harness/manifest_json.py",
     "src/ipu_harness/registry_bzl.py",
+    "src/ipu_harness/rendered_programs.py",
 ])
 
 py_library(
@@ -419,6 +420,41 @@ py_pytest_test(
     deps = [
         ":ipu_harness_lib",
         requirement("pytest"),
+    ],
+)
+
+# The reference-model API runs three kernels as run_until_complete does, and
+# their steps are their traced runs' records (E04-30; moved here in E07-25).
+py_pytest_test(
+    name = "test_reference_model_kernels",
+    srcs = ["test/test_reference_model_kernels.py"],
+    deps = [
+        ":ipu_harness_lib",
+        "//kernels:all_kernels",
+        "//src/tools/ipu-emu-py:ipu_emu_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+# Profiling keeps every kernel case's results and accounting (moved here in
+# E07-25): `enormous` and tagged nightly (the heavy tier, --config=full), since
+# it reruns every kernel's cases twice.
+py_pytest_test(
+    name = "test_alias_profile_kernels",
+    size = "enormous",
+    srcs = ["test/test_alias_profile_kernels.py"],
+    args = ["-p", "pytest_shard_plugin"],
+    shard_count = 16,
+    tags = ["nightly"],
+    deps = [
+        ":ipu_harness_lib",
+        "//kernels:all_kernels",
+        "//src/tools/ipu-emu-py:ipu_emu_lib",
+        "//src/tools/ipu-kernels:ipu_kernels_all",
+        "//tools:pytest_shard_plugin",
+        requirement("pytest"),
+        requirement("torch"),
     ],
 )
 

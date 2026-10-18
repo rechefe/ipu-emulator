@@ -47,20 +47,15 @@ ipu_as = ["ipu_isa"]
 ipu_emu = ["ipu_isa"]
 
 # The debugger (E08-03): one way onto the emulator and the ISA. Only the
-# runner imports it (ipu_apps today, ipu_harness after E06), so no other row
-# lists ipu_debug.
+# runner (ipu_harness) imports it, so no other row lists ipu_debug.
 ipu_debug = [
     "ipu_isa",
     "ipu_emu",
 ]
 
-# ipu_isa is allowed but not imported today. ipu_debug: debug mode
-# (IPU_DEBUG_TUI=1) launches the TUI.
-ipu_apps = ["ipu_isa", "ipu_as", "ipu_emu", "ipu_debug"]
-
 # The kernel framework (E06): the ISA, the assembler's session API and the
 # emulator's reference-model API, and ipu_debug for the CLI's --debug launch
-# (E06-12, imported only then). Not ipu_apps. Never ipu_kernels, not
+# (E06-12, imported only then). Never ipu_kernels, not
 # even inside a function (Q62): the registry loader (E06-16), the pack lookup
 # (E06-05) and the reference lookup (E06-09) load kernel-side modules with
 # importlib.import_module(name)

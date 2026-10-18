@@ -1,4 +1,4 @@
-"""The ipu_apps depth_to_space cases' values: ``arange`` over ``[r * r, h, w]``."""
+"""The old depth_to_space cases' values: ``arange`` over ``[r * r, h, w]``."""
 
 import numpy as np
 

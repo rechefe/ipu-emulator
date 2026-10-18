@@ -31,7 +31,7 @@ channels = "CR6"
 reference = "reference.py:reference"
 tolerance = { fp32 = "FP32_LONG" }        # a sum of squares and rsqrt; FP32_ORDER also passes these cases
 
-# The old ipu_apps cases and values (../gen.py).
+# The old cases and values (../gen.py).
 [cases.default]
 channels = 4
 columns = 16

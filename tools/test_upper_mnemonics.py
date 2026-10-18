@@ -85,6 +85,17 @@ def test_check_reports_and_writes_nothing(tmp_path, capsys):
     assert "1 file(s) would change" in capsys.readouterr().out
 
 
+# --- the kernel tree: every program already in upper case (E07-25) ---------------
+
+
+def test_every_kernel_source_is_upper_case(capsys):
+    sources = sorted((ROOT / "kernels").rglob("*.asm")) + sorted(
+        (ROOT / "kernels").rglob("*.asm.j2")
+    )
+    assert len(sources) > 40, "the kernel tree is missing from the test data"
+    assert upper_mnemonics.main(["--check", *map(str, sources)]) == 0, capsys.readouterr().out
+
+
 # --- the whole corpus: a dry run, nothing written to the tree ----------------------
 
 
@@ -99,9 +110,10 @@ def rewritten(tmp_path_factory) -> Path:
     return root
 
 
-def test_the_rewrite_changes_the_lower_case_kernels(rewritten):
+def test_the_rewrite_changes_the_lower_case_programs(rewritten):
+    # The editor's corpus keeps lower-case programs (the assembler accepts any case).
     changed = [p for p in PATHS if (ROOT / p).read_text() != (rewritten / p).read_text()]
-    assert any("/convolutions/" in p for p in changed)
+    assert changed
 
 
 @pytest.mark.parametrize("path", PATHS)

@@ -75,7 +75,7 @@ op = "sample_descriptors"
 # the old cases allowed 1e-5 * amplitude = 1e-3).
 tolerance = { fp32 = { tier = "FP32_ORDER", atol = 3e-5, why = "the vertical pass is rounded before the horizontal: error scales with |x| (1.5e-5 measured at amplitude 100)" } }
 
-# The ipu_apps cases' data (../gen.py: uniform, seed 31).
+# The old cases' data (../gen.py: uniform, seed 31).
 [cases.default]
 height = 2
 width = 3

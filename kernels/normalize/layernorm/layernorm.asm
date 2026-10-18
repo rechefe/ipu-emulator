@@ -1,7 +1,7 @@
 {#- ==========================================================================
     layernorm.asm -- LayerNorm over the channel axis, FP32. The template of
     layernorm_{128x16,16x240,64x192,256x144} (../registry.toml, E07-10); each
-    entry renders to its old ipu_apps binary (E02 digests).
+    entry renders to its old binary (E02 digests).
 
     y[ch, t] = gamma[ch] * (x[ch, t] - mu[t]) * rsqrt(var[t]) + beta[ch]
 

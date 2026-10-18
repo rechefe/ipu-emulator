@@ -23,7 +23,7 @@ rows = "CR4"
 op = "identity"
 tolerance = { fp32 = "EXACT" }
 
-# The ipu_apps cases' data: arange(rows * 128) - 128.
+# The old cases' data: arange(rows * 128) - 128.
 [cases.default]
 rows = 3
 generator = "gen.py:arange"

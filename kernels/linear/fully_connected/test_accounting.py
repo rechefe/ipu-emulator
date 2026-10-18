@@ -12,7 +12,7 @@ from ipu_harness.runner import RunOptions
 
 #: What the profile sees in every format, as (verified, candidate) counts.
 #: A16: each of the 10 samples is stored with the emulator-only ST.ACC (the
-#: one ISA alias the ipu_apps test counted, ``alias_hits``). The profile's
+#: one ISA alias the old test counted, ``alias_hits``). The profile's
 #: sequence detectors also report post-increment addressing (A12), a narrow
 #: MULT (A13: 64 outputs on 128 lanes) and multiple accumulators (A14); see
 #: docs/content/explanation/isa-idioms.md.

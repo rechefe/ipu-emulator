@@ -19,8 +19,8 @@ Elsewhere a `.asm` is only coloured.
 | What each register is; `CR0`/`CR1` fixed values | `ipu_isa.registers`, `ipu_isa.constants` | extension build |
 | What each operand type accepts (registers, enums, ranges) | the assembler's token classes, `completion_domain()` | extension build |
 | Which names ignore case | probe programs run through the assembler | extension build |
-| Kernels, families and their Bazel targets | `ipu_app.bzl` (`:kernel_targets`) | runtime, from the workspace |
-| Cases, options, operations | the kernel registry (`:kernel_manifest`) | runtime, from the workspace |
+| Kernels, families and their Bazel targets | `kernels/defs.bzl` (`//kernels:kernel_targets`) | runtime, from the workspace |
+| Cases, options, operations | the kernel registry (`//kernels:manifest`) | runtime, from the workspace |
 | Which kernel handles a computation | `query --json` | runtime, from the workspace |
 | Whether a program assembles | `ipu-as check` | runtime, from the workspace |
 | Each token's role, each word's slot fit, each Jinja tag's names | `ipu-as check --json --json-version 2` ([analysis](#analysis-from-the-checkout)) | runtime, from the workspace |
@@ -293,11 +293,11 @@ code --install-extension ipu-asm.vsix
   reused only when its shell is idle.
 - **Cases**, in the sidebar (a case's pencil, a kernel's +): a form with a
   field per option, typed as the runner parses it, to run or debug a case with other values, edit a registry case, or add one that
-  starts from a registry case. Saved cases go to `ipuAsm.cases`; `cases.py` is
+  starts from a registry case. Saved cases go to `ipuAsm.cases`; `kernel.toml` is
   never written.
 - **IPU sidebar**: family, kernel and case with the same actions, and a query
   that asks the registry which kernel handles an operation. Both read
-  `//src/tools/ipu-apps:kernel_manifest`, which joins Bazel's targets with the
+  `//kernels:manifest`, which joins Bazel's targets with the
   registry's cases and refuses if they disagree; it reloads when kernels or
   build files change. With several checkouts, each row acts on its own. While
   it is open, it selects the kernel whose `.asm` is in the editor.

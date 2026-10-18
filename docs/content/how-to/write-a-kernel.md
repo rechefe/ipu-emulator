@@ -237,7 +237,7 @@ bazel run //kernels/elementwise/scale -- --case one_row --format e4 --debug
 ```
 
 Relative paths are read from where you run the command. Every option is in
-the [command-line reference](../reference/cli.md#kernel-runner-run_kernel).
+the [command-line reference](../reference/cli.md#kernel-runner-kernel-targets-and-run_kernel).
 
 When an output is wrong, run the failing case with `--debug`: the debugger
 stops before the first word, and you step through the program watching the
@@ -269,8 +269,8 @@ stored in E4 (an element output):
 
 ## Add a format to a migrated kernel
 
-A kernel moved from `ipu_apps` runs in FP32 first, on its old data, so its
-outputs match the old harness's. Adding a format afterwards is its own change.
+A kernel migrated from the old Python harness (E07) ran in FP32 first, on its
+old data, so its outputs matched the old harness's. Adding a format afterwards is its own change.
 The worked example is the projections (`kernels/projections/`), whose
 `proj_p4` template runs in FP32 and INT8:
 

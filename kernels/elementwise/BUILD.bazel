@@ -1,6 +1,6 @@
 # The elementwise family: scale (the how-to's example, E06-13), residual_add
 # (E07-06), and the registry.toml entries over the residual_add_rows template
-# (//kernels/elementwise:<entry>, as the ipu_apps targets were named).
+# (//kernels/elementwise:<entry>, as the old targets were named).
 
 load("@ipu_as_deps//:requirements.bzl", "requirement")
 load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")

@@ -1,6 +1,6 @@
 # fully_connected: y[s, :] = w @ x[s, :] for 10 samples of 128 inputs and 64
 # outputs, in INT8, in INT32 (the emulator-only wide-integer format that
-# replaces ipu_apps' wide_mode, Q47), and in E4 and E5 (FP32 accumulation).
+# replaces the old harness's wide_mode, Q47), and in E4 and E5 (FP32 accumulation).
 # The shapes are fixed by the program (the .asm header has the design notes).
 [kernel]
 op = "fully_connected"
@@ -11,7 +11,7 @@ samples      = { type = "int", choices = [10], default = 10 }   # the program's 
 in_features  = { type = "int", choices = [128], default = 128 } # one row of inputs
 out_features = { type = "int", choices = [64], default = 64 }   # lanes of the accumulator used
 
-# The regions sit where the ipu_apps harness put them, at fixed byte
+# The regions sit where the old harness put them, at fixed byte
 # addresses in every format: x at 0x0, w at 0x20000, y at 0x40000. A row is
 # 128 bytes in INT8, E4 and E5 and 512 bytes in INT32, so the rows differ.
 [inputs.x]

@@ -282,7 +282,7 @@ def test_place_takes_the_plan_as_checked(tmp_path):
 
 
 #: Each projection's (k, n_out, n_tg) and its data, weights and output base rows
-#: under the ipu_apps ProjectionLayout (E02 baselines; frozen in E07-02, which
+#: under the old ProjectionLayout (E02 baselines; frozen in E07-02, which
 #: deleted it).
 PROJECTIONS = {
     "proj_qkv_144_p4": (144, 432, 2, (0, 1152, 2016)),

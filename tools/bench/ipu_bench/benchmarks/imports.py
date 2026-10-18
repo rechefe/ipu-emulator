@@ -1,7 +1,7 @@
 """``import/<package>``: wall time of ``python -c "import <module>"``, best of 5.
 
 Each package is measured through the module its users import first: a bare
-``import ipu_as`` or ``import ipu_apps`` loads an empty ``__init__``.
+``import ipu_as`` loads an empty ``__init__``.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from ipu_bench.result import Budget, Result
 MODULES = {
     "import/ipu_as": "ipu_as.lark_tree",
     "import/ipu_emu": "ipu_emu",
-    "import/ipu_apps": "ipu_apps.kernel_registry.registry",
+    "import/ipu_harness": "ipu_harness.runner",
 }
 
 

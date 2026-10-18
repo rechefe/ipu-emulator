@@ -1,4 +1,4 @@
-"""The ipu_apps concat cases' values: ``RandomState(0xC047)``, a then b, uniform [-1, 1) in FP32."""
+"""The old concat cases' values: ``RandomState(0xC047)``, a then b, uniform [-1, 1) in FP32."""
 
 import numpy as np
 

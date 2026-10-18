@@ -1,4 +1,4 @@
-"""The ``ipu_apps`` matmul cases' data (E07-07, E07-08), shared by the family.
+"""The old matmul cases' data (E07-07, E07-08), shared by the family.
 
 ``legacy_uniform`` draws as the old ``matmul/cases.py`` did: from
 ``RandomState(seed)``, A ``(tokens, k)`` then W ``(n, k)``, uniform in
@@ -8,7 +8,7 @@ harness's. A template lays them out as its tensors take them.
 
 import numpy as np
 
-#: The ``ipu_apps`` default case's seed.
+#: The old default case's seed.
 SEED = 0
 
 

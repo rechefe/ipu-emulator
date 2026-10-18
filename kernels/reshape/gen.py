@@ -1,7 +1,7 @@
 """The reshape family's case data (E07-05), shared by the fold and unfold
 kernels, and the packed seams' R_MASK row (E07-23).
 
-Each kernel's default case keeps the old ``ipu_apps`` data: a ``[c, h, w]``
+Each kernel's default case keeps the old data: a ``[c, h, w]``
 tensor from ``RandomState(seed)``, uniform in [-1, 1), in FP32
 (``reshape/cases.py:spatial_tensor``), with the old seed per kernel.
 """

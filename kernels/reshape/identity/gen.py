@@ -1,4 +1,4 @@
-"""The ipu_apps identity cases' values: ``arange(rows * 128) - 128``, row-major."""
+"""The old identity cases' values: ``arange(rows * 128) - 128``, row-major."""
 
 import numpy as np
 

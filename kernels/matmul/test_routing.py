@@ -1,4 +1,4 @@
-"""Routing of the matmul family (E07-07, E07-08): the ``ipu_apps`` matmul
+"""Routing of the matmul family (E07-07, E07-08): the old matmul
 router's facts on the kernel tree's registry and ``//kernels:query``.
 
 The old query named ``shape_a=(M, K)`` and ``shape_b_t=(N, K)``; a query now

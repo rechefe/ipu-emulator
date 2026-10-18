@@ -36,11 +36,8 @@ on:
       - '.github/workflows/vscode-extension.yml'
       # PRs only: the test corpus and the runtime kernel manifest change no
       # bundled file, so on master they must not republish the extension.
-      - 'src/tools/ipu-apps/**/*.asm'
-      - 'src/tools/ipu-apps/src/ipu_apps/kernel_registry/**'
-      - 'src/tools/ipu-apps/src/ipu_apps/kernels/**/*.py'
-      - 'src/tools/ipu-apps/BUILD.bazel'
-      - 'ipu_app.bzl'
+      - 'kernels/**'
+      - 'src/tools/ipu-harness/**'
       # PRs only: they change how the build runs, not what is packaged.
       - 'requirements_lock.txt'
       - 'tools/bootstrap.sh'
@@ -70,14 +67,15 @@ jobs:
       - name: Generate grammar from the parser
         run: bazel run //vscode-ipu-asm:gen_vscode
 
-      # Passed as arguments rather than declared as Bazel srcs, so the app
-      # package needs no filegroup existing solely for this tool.
+      # Passed as arguments rather than declared as Bazel srcs. A kernels/
+      # source renders only with a case, so the corpus is every kernel's
+      # rendered default program (//kernels:rendered_programs).
       - name: Dump the parser's tokenization of the corpus
         run: |
+          bazel run //kernels:rendered_programs -- "$PWD/rendered-kernels"
           bazel run //vscode-ipu-asm:dump_parser_tokens -- \
             "$PWD/parser-tokens.json" \
-            "$PWD"/src/tools/ipu-apps/src/ipu_apps/**/*.asm \
-            "$PWD"/src/tools/ipu-apps/test/**/*.asm \
+            "$PWD"/rendered-kernels/**/*.asm \
             "$PWD/vscode-ipu-asm/test/corpus/edge_cases.asm"
         shell: bash --noprofile --norc -eo pipefail -O globstar -O nullglob {0}
 
@@ -152,7 +150,7 @@ jobs:
       - name: Build the kernel manifest
         run: |
           bazel run --ui_event_filters=-info,-stdout,-stderr --noshow_progress \
-            //src/tools/ipu-apps:kernel_manifest > kernel-manifest.json
+            //kernels:manifest > kernel-manifest.json
 
       - name: Check the run commands against the manifest
         run: node vscode-ipu-asm/test/runs.js kernel-manifest.json

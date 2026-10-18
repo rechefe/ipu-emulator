@@ -1,10 +1,10 @@
-"""Routing of the projections (E07-02): the ``ipu_apps`` router tests, on the
+"""Routing of the projections (E07-02): the old router tests, on the
 kernel tree's registry and ``//kernels:query``.
 
 Each entry is found by exactly its ``(k, n_out, activation)``: a query for an
 FFN1 shape with ``activation=none`` never reaches the kernel whose store fuses
 SiLU, and no identity kernel accepts a SiLU query. A query that leaves
-``activation`` out means ``none``, as for the ``ipu_apps`` router: it reaches
+``activation`` out means ``none``, as for the old router: it reaches
 an identity kernel, and every FFN1 kernel refuses it (the SiLU-only template
 declares ``activation`` ``query_required``; the others default it to none).
 """
@@ -18,7 +18,7 @@ import pytest
 from ipu_harness import query
 from ipu_harness.registry import default_registry
 
-#: Each kernel's (k, n_out, activation): the ipu_apps ProjectionLayout lines.
+#: Each kernel's (k, n_out, activation): the old ProjectionLayout lines.
 KERNELS = {
     "proj_qkv_144_p4": (144, 432, "none"),
     "proj_outproj_144_p4": (144, 144, "none"),
@@ -103,7 +103,7 @@ def test_a_query_without_activation_means_none(registry, name):
     verdict = registry.resolve("projection", k=k, n_out=n_out)
     if activation == "none":
         assert verdict.kernel_name == name, verdict.reason
-    else:  # FFN1: refused, as ipu_apps refused it
+    else:  # FFN1: refused, as the old harness refused it
         assert not verdict, verdict.describe()
         assert "activation" in verdict.reason
 

@@ -128,7 +128,7 @@ class StagesRun:
     @property
     def stats(self) -> Stats | None:
         """Every stage's statistics summed, the ratios over the sum (what the
-        benchmark reports for the run, as the ipu_apps harness summed its
+        benchmark reports for the run, as the old harness summed its
         stages'); ``None`` when a stage has none."""
         per = [s.stats for s in self.stages]
         if not per or any(st is None for st in per):

@@ -22,15 +22,15 @@ after the change (see the code-conventions page).
 
 | Name | Unit | Better | How |
 |---|---|---|---|
-| `import/ipu_as`, `import/ipu_emu`, `import/ipu_apps` | s | lower | `python -c "import <module>"` in a fresh interpreter, startup included, best of 5 (2 with `--quick`). |
-| `assemble/all_kernels` | s | lower | Every kernel `.asm` assembled once with `ipu_as.lark_tree.assemble`, parser construction included. |
+| `import/ipu_as`, `import/ipu_emu`, `import/ipu_harness` | s | lower | `python -c "import <module>"` in a fresh interpreter, startup included, best of 5 (2 with `--quick`). |
+| `assemble/all_kernels` | s | lower | Every kernel's default program (rendered by the harness, as `:assemble_<name>` writes it) assembled once with `ipu_as.lark_tree.assemble`, parser construction included. |
 | `assemble/words_per_s` | words/s | higher | Instruction words of that run per second. |
-| `assemble/render_s`, `assemble/parse_s`, `assemble/encode_s` | s | lower | Every program in the assembled-binary digest manifest, split by pipeline stage, best of 3 (1 with `--quick`); parser built and tables warm first. Also `bazel run //src/tools/ipu-as-py:bench_assemble`. |
-| `kernel/<k>/cycles_per_s` | cycles/s | higher | The `default` case of `identity` (small) and `matmul_720x240_x128` (large), run and checked as the tests do; only the emulated run is timed. |
+| `assemble/render_s`, `assemble/parse_s`, `assemble/encode_s` | s | lower | Every kernel's default program and every program in the assembled-binary digest manifest, split by pipeline stage, best of 3 (1 with `--quick`); parser built and tables warm first. Also `bazel run //src/tools/ipu-as-py:bench_assemble`. |
+| `kernel/<k>/cycles_per_s` | cycles/s | higher | The `default` case of `identity` (small) and `matmul_720x240_x128` (large), kernel-tree cases run through the harness runner and checked as the tests do; only the emulated run is timed. |
 | `kernel/<k>/peak_rss_mb` | MB | lower | `ru_maxrss` of the process that ran the case. |
 | `emulator/ipu_state_construct_ms` | ms | lower | `timeit(IpuState, number=20) / 20`. Q71 target: < 5 ms. |
 | `emulator/ipu_state_tracemalloc_peak_mb`, `emulator/ipu_state_rss_delta_mb` | MB | lower | The first `IpuState()` in a fresh interpreter: `tracemalloc` peak, and growth of `ru_maxrss` (0 when construction does not raise the process's peak). Q71 target: < 5 MB. |
-| `emulator/<mode>/<kernel>.<case>/cycles_per_s` | cycles/s | higher | `matmul_384x192_x128.default` (FP32), `fully_connected.int8` and `fully_connected.fp8_e4m3` (E4; `--tiny` runs only `fully_connected.int8`), run to `HALT` and checked, best of 5 (1 with `--quick`); only the emulated run is timed. `<mode>` is `faithful`, plus `prototyping` in a `--config=proto` build. Q71 target: >= 50k cycles/s. |
+| `emulator/<mode>/<kernel>.<case>/cycles_per_s` | cycles/s | higher | `matmul_384x192_x128.default` (FP32), `fully_connected.int8` and `fully_connected.e4` (the `default` case in INT8 and E4; `--tiny` runs only `fully_connected.int8`), run to `HALT` and checked, best of 5 (1 with `--quick`); only the emulated run is timed. `<mode>` is `faithful`, plus `prototyping` in a `--config=proto` build. Q71 target: >= 50k cycles/s. |
 | `ci/full_suite_wall_s` | s | lower | Nightly only: the coverage step of the nightly `full` job. |
 | `ci/default_tier_wall_s` | s | lower | Nightly only: the test step of the latest successful `ci.yml` run on master. |
 

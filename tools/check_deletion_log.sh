@@ -4,6 +4,8 @@
 # directory (a path ending in "/"). Prints the missing ones and exits 1; prints nothing
 # and exits 0 when the log covers every deletion.
 # Usage: tools/check_deletion_log.sh [base-ref]   (default: origin/master)
+# The rename limit is raised: the branch deletes and renames over a thousand
+# files, past which git stops detecting renames and lists them as deletions.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 base=$(git merge-base "${1:-origin/master}" HEAD)
@@ -19,5 +21,5 @@ while IFS= read -r path; do
     fi
   done
   if [ $covered = 0 ]; then echo "not in $log: $path"; missing=1; fi
-done < <(git diff -M --diff-filter=D --name-only "$base" HEAD)
+done < <(git -c diff.renameLimit=32767 diff -M --diff-filter=D --name-only "$base" HEAD)
 exit $missing

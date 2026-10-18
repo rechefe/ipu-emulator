@@ -6,8 +6,7 @@ Templates render with StrictUndefined: a value a template needs is a declared
 
 The check is textual, so a comment that says "is defined" in prose fails it
 too; reword the comment. It reads every program source in the repo: the kernel
-tree (``kernels/``), the ``ipu_apps`` kernels and MobileViT programs until
-E07-25 retires them, and the editor's corpus.
+tree (``kernels/``) and the editor's corpus.
 """
 
 from __future__ import annotations
@@ -24,7 +23,6 @@ ROOT = Path.cwd()
 #: negative corpus (texts that do not assemble) is left out.
 SOURCE_ROOTS = (
     "kernels",
-    "src/tools/ipu-apps/src/ipu_apps/kernels",
     "vscode-ipu-asm/test",
 )
 

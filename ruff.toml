@@ -29,7 +29,6 @@ select = ["E4", "E7", "E9", "F", "I", "UP", "B", "C901", "PLR0912", "PLR0913", "
 # import grouping is the same in the workspace and in a ruff_test sandbox,
 # where the other packages' directories are absent.
 known-first-party = [
-    "ipu_apps",
     "ipu_as",
     "ipu_bench",
     "ipu_debug",
@@ -61,17 +60,6 @@ max-args = 6
 # docs: doc drift tests, restructured by E09.
 "docs/doc_blocks.py" = ["C901"]
 "docs/test_doc_commands.py" = ["C901", "PLR0912"]
-
-# ipu-apps kernel framework: removed by E06.
-"src/tools/ipu-apps/src/ipu_apps/kernel_registry/base.py" = ["PLR0913"]
-"src/tools/ipu-apps/src/ipu_apps/kernel_registry/case_support.py" = ["PLR0913"]
-"src/tools/ipu-apps/src/ipu_apps/kernel_registry/cases.py" = ["C901", "PLR0913"]
-
-# ipu-apps kernel harnesses: removed by E07.
-"src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/app.py" = ["PLR0913"]
-"src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/cases.py" = ["C901", "PLR0913"]
-"src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/test.py" = ["PLR0913"]
-"src/tools/ipu-apps/src/ipu_apps/kernels/softmax/app.py" = ["PLR0913"]
 
 # ipu-emu-py emulator core: these outlived E04 (cycle module, codecs, alias
 # profiling) and are tracked as a follow-up.

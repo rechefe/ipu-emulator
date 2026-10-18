@@ -280,7 +280,8 @@ py_pytest_test(
     ],
     data = [
         "test/test_diagnostics.py",
-        "//src/tools/ipu-apps:asm_corpus_files",
+        ":asm_corpus_files",
+        "//kernels:tree",
         "//vscode-ipu-asm:check_json_contract",
         "//vscode-ipu-asm:corpus",
     ],
@@ -449,7 +450,7 @@ py_binary(
 py_library(
     name = "bench_assemble_lib",
     srcs = ["bench/bench_assemble.py"],
-    data = ["//src/tools/ipu-apps:asm_corpus_files"],
+    data = [":asm_corpus_files"],
     imports = ["bench"],
     deps = [
         ":ipu_as_lib",
@@ -478,7 +479,7 @@ py_pytest_test(
     size = "medium",
     srcs = ["test/test_format.py"],
     data = glob(["test/golden/format/*.json"]) + [
-        "//src/tools/ipu-apps:asm_corpus_files",
+        "//kernels:tree",
         "//vscode-ipu-asm:corpus",
     ],
     imports = ["src"],
@@ -495,10 +496,7 @@ py_pytest_test(
 py_pytest_test(
     name = "test_format_corpus",
     srcs = ["test/test_format_corpus.py"],
-    data = [
-        "//kernels:all_kernels",
-        "//src/tools/ipu-apps:asm_corpus_files",
-    ],
+    data = ["//kernels:all_kernels"],
     imports = ["src"],
     deps = [
         ":ipu_as_lib",
@@ -507,20 +505,21 @@ py_pytest_test(
 )
 
 # No `| default` or definedness test in an assembly source (E05-11), over the
-# kernel tree, the ipu_apps programs (until E07-25) and the editor's corpus.
+# kernel tree and the editor's corpus.
 py_pytest_test(
     name = "test_template_lint",
     srcs = ["test/test_template_lint.py"],
     data = [
         "//kernels:tree",
-        "//src/tools/ipu-apps:asm_corpus_files",
+        ":asm_corpus_files",
     ],
     deps = [requirement("pytest")],
 )
 
-# Every assembly program in the repo, assembled as its users assemble it: the
-# corpus the E02 digests pin and the ISA-wide corpus tests read (E07-25 moves
-# it here from ipu-apps; the digest manifest stays there until then).
+# Every standalone assembly program in the repo, assembled as its users
+# assemble it: the corpus the E02 digests pin and the ISA-wide corpus tests
+# read. The kernel tree's programs render only with a case:
+# //src/tools/ipu-harness:test_kernel_programs checks those.
 py_library(
     name = "asm_corpus",
     srcs = ["test/corpus/asm_corpus.py"],
@@ -528,6 +527,76 @@ py_library(
     deps = [
         ":ipu_as_lib",
         requirement("jinja2"),
+    ],
+)
+
+_ASM_CORPUS = ["//vscode-ipu-asm:asm_fixtures"]
+
+# The corpus and its digest manifest as data, for the corpus tests and for
+# tools that read the manifest without importing asm_corpus (:bench_assemble).
+filegroup(
+    name = "asm_corpus_files",
+    srcs = _ASM_CORPUS + ["test/baselines/asm_digests.json"],
+)
+
+# Assembled-binary baseline (E02-01): the .bin and .mem digests of every corpus
+# program, plus each render context a test uses (test/corpus/asm_corpus.py).
+# `bazel run :update_asm_digests` rewrites the manifest after an intended change.
+py_pytest_test(
+    name = "test_asm_digests",
+    srcs = ["test/test_asm_digests.py"],
+    data = [":asm_corpus_files"],
+    deps = [
+        ":asm_corpus",
+        requirement("pytest"),
+    ],
+)
+
+py_binary(
+    name = "update_asm_digests",
+    testonly = True,
+    srcs = ["test/baselines/update_asm_digests.py"],
+    main = "test/baselines/update_asm_digests.py",
+    deps = [
+        ":asm_corpus",
+        "//tools:baseline_support",
+    ],
+)
+
+# Disassembly snapshots (E02-02): one text file per corpus entry in
+# test/baselines/disassembly/. `bazel run :update_disassembly_snapshots`
+# rewrites them.
+py_library(
+    name = "disassembly_snapshots",
+    testonly = True,
+    srcs = ["test/baselines/disassembly.py"],
+    imports = ["test/baselines"],
+    deps = [
+        ":asm_corpus",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+    ],
+)
+
+py_pytest_test(
+    name = "test_disassembly_snapshots",
+    srcs = ["test/test_disassembly_snapshots.py"],
+    data = _ASM_CORPUS + glob(["test/baselines/disassembly/**/*.txt"]),
+    deps = [
+        ":asm_corpus",
+        ":disassembly_snapshots",
+        "//tools:baseline_support",
+        requirement("pytest"),
+    ],
+)
+
+py_binary(
+    name = "update_disassembly_snapshots",
+    testonly = True,
+    srcs = ["test/baselines/update_disassembly_snapshots.py"],
+    main = "test/baselines/update_disassembly_snapshots.py",
+    deps = [
+        ":disassembly_snapshots",
+        "//tools:baseline_support",
     ],
 )
 
@@ -550,7 +619,7 @@ py_library(
 py_pytest_test(
     name = "test_assembly_round_trip",
     srcs = ["test/test_assembly_round_trip.py"],
-    data = ["//src/tools/ipu-apps:asm_corpus_files"],
+    data = [":asm_corpus_files"],
     deps = [
         ":asm_corpus",
         ":program_checks",
@@ -564,7 +633,7 @@ py_pytest_test(
 py_pytest_test(
     name = "test_slot_codec_corpus",
     srcs = ["test/test_slot_codec_corpus.py"],
-    data = ["//src/tools/ipu-apps:asm_corpus_files"],
+    data = [":asm_corpus_files"],
     deps = [
         ":asm_corpus",
         ":program_checks",
@@ -578,7 +647,7 @@ py_pytest_test(
 py_pytest_test(
     name = "test_word_codec_corpus",
     srcs = ["test/test_word_codec_corpus.py"],
-    data = ["//src/tools/ipu-apps:asm_corpus_files"],
+    data = [":asm_corpus_files"],
     deps = [
         ":asm_corpus",
         ":program_checks",
@@ -591,7 +660,7 @@ py_pytest_test(
 py_pytest_test(
     name = "test_hardware_target",
     srcs = ["test/test_hardware_target.py"],
-    data = ["//src/tools/ipu-apps:asm_corpus_files"],
+    data = [":asm_corpus_files"],
     deps = [
         ":asm_corpus",
         ":program_checks",
@@ -604,7 +673,7 @@ py_pytest_test(
 py_pytest_test(
     name = "test_session_outputs",
     srcs = ["test/test_session_outputs.py"],
-    data = ["//src/tools/ipu-apps:asm_corpus_files"],
+    data = [":asm_corpus_files"],
     deps = [
         ":asm_corpus",
         ":ipu_as_lib",

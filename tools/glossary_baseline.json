@@ -1,7 +1,4 @@
 {
-  "docs/content/building-applications.md": {
-    "program counter": 1
-  },
   "docs/content/requirements/architecture.md": {
     "DRAM": 2,
     "VLIW word": 1

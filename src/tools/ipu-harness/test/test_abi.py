@@ -454,8 +454,8 @@ stream_count    = "CR14"
 [cases.default]
 """
 
-#: Each projection's (k, n_out, n_tok, n_tg) and the CR2..CR15 the ipu_apps
-#: harness's setup() wrote (E02 baselines; frozen in E07-02, which deleted it).
+#: Each projection's (k, n_out, n_tok, n_tg) and the CR2..CR15 the old harness's
+#: setup() wrote (E02 baselines; frozen in E07-02, which deleted it).
 PROJECTIONS = {
     "proj_qkv_144_p4": (144, 432, 128, 2, (0, 1152, 2016, -1, 126, 14, 2, 432, 2, 1, 288, 864, 4)),
     "proj_outproj_144_p4": (

@@ -3,7 +3,7 @@
 # pointwise_conv_unified_bn_activation in ../registry.toml; the program reads
 # apply_relu itself (the bias seed and ReLU; see the .asm header). Routed in the
 # universal conv2d vocabulary: every one of its 11 parameters must be named by a
-# query, as the ipu_apps router's requires had it.
+# query, as the old router's requires had it.
 [kernel]
 op = "conv2d"
 formats = ["fp32"]
@@ -69,7 +69,7 @@ bytes = "../masks.py:keep_all_mask"
 shape = ["out_channels", "height", "width"]
 pack = "chunked"
 
-# Every CR the ipu_apps setup() wrote (CR2-CR14; CR0 is x's base, CR15 the
+# Every CR the old setup() wrote (CR2-CR14; CR0 is x's base, CR15 the
 # default dstructure), and the two LRs the program reads before it writes them.
 [abi]
 x                   = "CR0"
@@ -98,12 +98,12 @@ cyclic_s0           = "LR7"
 reference = "reference.py:reference"   # the shared conv2d, the bias only when has_bias
 # y is an element output: compared in FP32. Measured on the harness's seeded
 # data: max |err| 1.5e-5 (sweep_256, K = 256); FP32_ORDER fails 5 of the 18
-# entry cases (in_channels 128 and up), FP32_LONG passes all (on the ipu_apps
+# entry cases (in_channels 128 and up), FP32_LONG passes all (on the old
 # data of the proof: 3.8e-6, inside FP32_ORDER). The old check was
 # max |diff| < 1e-3.
 tolerance = { fp32 = "FP32_LONG" }
 
-# The two ipu_apps kernels' cases and test sweeps (each entry chooses its own,
+# The two old kernels' cases and test sweeps (each entry chooses its own,
 # ../registry.toml). has_bias and apply_relu are the bias + ReLU twin's;
 # pointwise_conv_unified's entry fixes both false. The data is the harness's
 # seeded per-tensor streams, but for negative_bias, whose pattern gen.py makes.
@@ -241,7 +241,7 @@ groups = 1
 has_bias = true
 apply_relu = true
 
-# The two ipu_apps benchmark.py CONFIGS (the same 8 points; max_cycles was MAX_CYCLES).
+# The two old benchmark.py CONFIGS (the same 8 points; max_cycles was MAX_CYCLES).
 [benchmark]
 max_cycles = 200_000_000
 points = [

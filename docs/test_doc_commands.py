@@ -1,6 +1,6 @@
 """Every documented `ipu-as` command uses only options the CLI declares, and so
-does every documented `bazel run` of a kernel target (an `ipu_apps` one or a
-`//kernels/...` one), `run_kernel`, `trace_case` or `query`.
+does every documented `bazel run` of a kernel target (`//kernels/...`),
+`run_kernel` or `query`.
 
 The options are read from the click command and the argparse parsers
 themselves, so the test follows each CLI as it changes.
@@ -35,12 +35,10 @@ _BAZEL_RUN = re.compile(
     r"\bbazel run(?:[ \t]+--?[\w=.-]+)*[ \t]+"
     r"(?P<label>//[\w/.-]+:[\w.-]+|//kernels/[\w/.-]+)(?P<rest>.*)$"
 )
-_APPS = "//src/tools/ipu-apps:"
 #: An ipu_kernel() or registry entry target runs the harness CLI with its
-#: kernel filled in (E06-13, E06-17); //kernels/tools holds migration tools,
-#: not kernels.
+#: kernel filled in (E06-13, E06-17).
 _KERNELS = "//kernels/"
-_KERNEL_TOOLS = "//kernels/tools"
+_RUN_KERNEL = "//src/tools/ipu-harness:run_kernel"
 
 
 @dataclass(frozen=True)
@@ -182,32 +180,13 @@ def _parse(parser: argparse.ArgumentParser, args: list[str]) -> list[str]:
     return []
 
 
-def _kernel_names() -> set[str]:
-    from ipu_apps.kernel_registry import registry
-
-    registry.load()
-    return {spec.name for spec in registry.kernels()}
-
-
-def _check_kernel_target(kernel: str, args: list[str]) -> list[str]:
-    from ipu_apps.kernel_registry.cases import load_cases
-    from ipu_apps.kernel_registry.runner import build_parser
-
-    selected, _ = build_parser().parse_known_args(args)
-    cases = load_cases(kernel)
-    if selected.case not in cases:
-        return [f"{kernel} has no case {selected.case!r} (have: {', '.join(cases)})"]
-    return _parse(build_parser(cases[selected.case]), ["--kernel", kernel, *args])
-
-
 def _tool_parsers() -> dict[str, Callable[[], argparse.ArgumentParser]]:
-    from ipu_apps.kernel_registry import query, trace_case
     from ipu_harness import cli as run_kernel
+    from ipu_harness import query
 
     return {
-        "//src/tools/ipu-harness:run_kernel": run_kernel.build_parser,
-        _APPS + "trace_case": trace_case.build_parser,
-        _APPS + "query": query.build_parser,
+        _RUN_KERNEL: run_kernel.build_parser,
+        "//kernels:query": query.build_parser,
     }
 
 
@@ -219,10 +198,8 @@ def check_bazel_run(label: str, args: list[str]) -> list[str] | None:
     parsers = _tool_parsers()
     if label in parsers:
         return _parse(parsers[label](), args)
-    if label.startswith(_APPS) and label.removeprefix(_APPS) in _kernel_names():
-        return _check_kernel_target(label.removeprefix(_APPS), args)
-    if label.startswith(_KERNELS) and not label.startswith(_KERNEL_TOOLS):
-        return _parse(parsers["//src/tools/ipu-harness:run_kernel"](), ["kernel", *args])
+    if label.startswith(_KERNELS):
+        return _parse(parsers[_RUN_KERNEL](), ["kernel", *args])
     return None
 
 
@@ -260,18 +237,16 @@ def test_bazel_runs_are_found() -> None:
     # Guards the scan: the CLI reference runs every argparse tool it documents.
     labels = {c.argv[0] for c in _bazel_runs(Path("docs/content/reference/cli.md"))}
     assert set(_tool_parsers()) <= labels
-    assert _APPS + "softmax_rows" in labels
+    assert "//kernels/softmax/softmax_rows" in labels
 
 
 @pytest.mark.parametrize(
     ("label", "args", "problem"),
     [
-        ("//src/tools/ipu-harness:run_kernel", ["k", "--inputs", "x=a.npy"], "unrecognized"),
-        ("//src/tools/ipu-harness:run_kernel", ["--case", "default"], "required: kernel"),
-        (_APPS + "trace_case", ["identity", "--trace", "t.jsonl"], "--context"),
-        (_APPS + "identity", ["--rows", "two"], "invalid int value"),
-        (_APPS + "identity", ["--case", "nope"], "no case 'nope'"),
-        (_APPS + "identity", ["--columns", "3"], "unrecognized"),
+        (_RUN_KERNEL, ["k", "--inputs", "x=a.npy"], "unrecognized"),
+        (_RUN_KERNEL, ["--case", "default"], "required: kernel"),
+        (_RUN_KERNEL, ["k", "--max-cycles", "two"], "--max-cycles"),
+        ("//kernels:query", ["scale", "--sweeps", "n=1..9"], "unrecognized"),
         ("//kernels/elementwise/scale", ["--rows", "3"], "unrecognized"),
     ],
 )
@@ -280,8 +255,8 @@ def test_check_bazel_run_rejects(label: str, args: list[str], problem: str) -> N
 
 
 def test_check_bazel_run_accepts() -> None:
-    assert check_bazel_run(_APPS + "identity", ["--case", "single_row", "--rows", "2"]) == []
-    assert check_bazel_run(_APPS + "query", ["softmax", "shape=8,n", "--sweep", "n=1..9"]) == []
+    assert check_bazel_run("//kernels/reshape/identity", ["--case", "single_row"]) == []
+    assert check_bazel_run("//kernels:query", ["scale", "rows=n", "--sweep", "n=1..9"]) == []
     assert check_bazel_run("//tools:ruff", ["check", "--fix"]) is None
     assert check_bazel_run("//kernels/elementwise/scale", ["--case", "one_row", "--debug"]) == []
 

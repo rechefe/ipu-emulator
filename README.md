@@ -43,7 +43,7 @@ bazel test //...
 bazel test --config=full //...
 
 # Assemble an IPU program
-bazel build //src/tools/ipu-apps:assemble_fully_connected
+bazel build //kernels/linear/fully_connected:assemble_fully_connected
 ```
 
 Test tiers
@@ -55,7 +55,7 @@ Tests are split into two tiers by Bazel test size. The named configs in
 | Tier | Holds | Command |
 |------|-------|---------|
 | Default | Every test except size `enormous`: what a change must pass before review. CI runs it on every pull request and every push to master. | `bazel test //...` (CI: `bazel test --config=ci //...`, which also skips `docs` targets and uses the CI caches) |
-| Heavy | Size `enormous` tests, such as the per-kernel `test_alias_profile_kernels_*` and `test_debug_launch_kernels_*` sweeps. Runs nightly. | `bazel test --config=full //...` |
+| Heavy | Size `enormous` tests, such as each kernel's `:<name>_nightly` cases, the MobileViT full layers and the `test_alias_profile_kernels` sweep. Runs nightly. | `bazel test --config=full //...` |
 
 The nightly workflow (`.github/workflows/nightly.yml`) runs
 `bazel coverage --config=full //...` on master: every non-manual test once,
@@ -121,15 +121,15 @@ default tier, so a cold `bazel test //...` downloads the ~200 MB wheel once.
 Notes
 -----
 - The assembler and emulator share a single source of truth via `ipu_isa` (instruction spec, register schema).
-- Applications live in `src/tools/ipu-apps/` — each app is a subpackage under `ipu_apps/` with its assembly, test data, and Python harness together.
+- Kernels live in `kernels/<family>/<name>/` — each kernel's program, `kernel.toml` and optional `reference.py` together ([Write a kernel](docs/content/how-to/write-a-kernel.md)); `ipu_harness` runs them.
 - Bazel uses hermetic builds with automatic caching and parallelization.
 
 
 ## Debug a registered kernel
 
 ```bash
-bazel run --config=debug //src/tools/ipu-apps:identity
-bazel run --config=debug //src/tools/ipu-apps:softmax_rows_partial -- --n 32 --rows 8
+bazel run --config=debug //kernels/reshape/identity
+bazel run --config=debug //kernels/softmax/softmax_rows_partial -- --case default
 ```
 
 The run stops in the debugger before the first instruction word, with the

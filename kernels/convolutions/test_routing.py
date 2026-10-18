@@ -1,10 +1,10 @@
-"""Routing of the convolutions (E07-16): the ``ipu_apps`` router tests for the
+"""Routing of the convolutions (E07-16): the old router tests for the
 kernels migrated so far, on the kernel tree's registry and ``//kernels:query``.
 
 Two ``conv2d`` vocabularies share the op. The tiled kernels (``conv1x1``,
 ``conv3x3_relu``, ``conv3x3_relu_cin1``) take ``in_channels``, ``height``,
 ``width``, ``out_channels``, ``kernel_size``, ``stride``, ``padding`` and
-``activation``, every one required (``ipu_apps`` named the image ``shape=(c,
+``activation``, every one required (the old harness named the image ``shape=(c,
 h, w)``, a tuple no ``kernel.toml`` parameter can be). The universal kernels
 (``conv_first_layer``; ``conv_universal`` and ``conv_universal_bn_activation``,
 E07-17; the pointwise and depthwise twins, E07-18; ``conv_universal_wide384``
@@ -111,7 +111,7 @@ def test_one_input_channel_prefers_the_cin1_kernel(registry):
 
 @pytest.mark.parametrize("missing", ["kernel_size", "stride", "padding", "activation"])
 def test_a_tiled_query_must_name_every_parameter(registry, missing):
-    # As ipu_apps' requires: a parameter left out is refused, not defaulted.
+    # As the old harness's requires: a parameter left out is refused, not defaulted.
     params = tiled(3)
     del params[missing]
     verdict = registry.resolve("conv2d", **params)
@@ -202,7 +202,7 @@ def test_bias_and_relu_choose_the_universal_kernel(registry, has_bias, apply_rel
 
 @pytest.mark.parametrize("missing", list(universal()))
 def test_a_universal_query_must_name_every_parameter(registry, missing):
-    # As ipu_apps' requires: a parameter left out is refused, not defaulted.
+    # As the old harness's requires: a parameter left out is refused, not defaulted.
     params = universal()
     del params[missing]
     verdict = registry.resolve("conv2d", **params)
@@ -424,7 +424,7 @@ def _width_runs(registry, widths, **fixed):
 
 
 def test_width_routing_boundaries(registry):
-    # The ipu_apps router's boundary table: conv_universal up to 128, then
+    # The old router's boundary table: conv_universal up to 128, then
     # conv_universal_wide384 at each multiple of 128 from 384.
     assert _width_runs(registry, range(1, 641), **universal(out_channels=4)) == [
         (1, 128, "conv_universal"),

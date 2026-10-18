@@ -17,18 +17,6 @@
   "snippet:unknown-in-word": [
     "word 1:1 [HALT SE]: the fallback says it fits, the assembler that it does not fit"
   ],
-  "src/tools/ipu-apps/src/ipu_apps/kernels/reshape/fold_32x32x144/fold_32x32x144.asm": [
-    "word 231:5 [SET SET]: in the assembler's answer only"
-  ],
-  "src/tools/ipu-apps/src/ipu_apps/kernels/reshape/fold_8x8x240/fold_8x8x240.asm": [
-    "word 195:5 [SET SET]: in the assembler's answer only"
-  ],
-  "src/tools/ipu-apps/src/ipu_apps/kernels/reshape/unfold_32x32x144/unfold_32x32x144.asm": [
-    "word 159:5 [ADD]: in the assembler's answer only"
-  ],
-  "src/tools/ipu-apps/src/ipu_apps/kernels/softmax/softmax_rows_partial/softmax_rows_partial.asm": [
-    "word 180:5 [MULT.RC.VE acc.add.first]: in the scan only"
-  ],
   "vscode-ipu-asm/test/corpus/negative/unbalanced_jinja.asm": [
     "tokens: the assembler lists no assembly tokens (1 in the scan)",
     "words: the assembler lists none (1 in the scan)"

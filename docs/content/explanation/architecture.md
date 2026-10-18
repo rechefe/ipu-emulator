@@ -35,9 +35,6 @@ and the assembler's parser and writes files. `ipu_harness` never imports `ipu_ke
 and reference lookups load kernel-side modules by a name read from registry
 data, as plugins.
 
-`ipu_apps` is the legacy kernel runner. `ipu_harness` and `ipu_kernels`
-replace it in E07, which deletes the package and its row.
-
 ## One source of truth
 
 `src/tools/ipu-isa/src/ipu_isa/instruction_spec.py` defines every instruction:

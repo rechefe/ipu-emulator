@@ -1,31 +1,33 @@
-"""``assemble/*``: assemble every kernel ``.asm`` once through the library API."""
+"""``assemble/*``: assemble every kernel's default program once through the library API.
+
+The programs are the kernel tree's, rendered for each kernel's default case
+(the program ``:assemble_<name>`` writes); only ``lark_tree.assemble`` is timed.
+"""
 
 from __future__ import annotations
 
 import time
-from pathlib import Path
 
 from ipu_bench.isolated import call
 from ipu_bench.result import Budget, Result
 
 
-def kernel_sources() -> list[Path]:
-    import ipu_apps.kernels
-
-    root = Path(next(iter(ipu_apps.kernels.__path__)))
-    return sorted(root.rglob("*.asm"))
-
-
 def measure(limit: int | None = None) -> dict:
-    """In a fresh interpreter: parser construction included, file reading excluded."""
-    from ipu_as.lark_tree import assemble
+    """In a fresh interpreter: parser construction included, rendering excluded."""
+    import warnings
 
-    texts = [path.read_text() for path in kernel_sources()[:limit]]
+    from ipu_as.lark_tree import assemble
+    from ipu_bench.kernel_runs import default_programs
+
+    texts = [text for _, text, _ in default_programs()[:limit]]
     if not texts:
-        raise RuntimeError("no kernel .asm files found (are they in the runfiles?)")
-    start = time.perf_counter()
-    words = sum(len(assemble(text)) for text in texts)
-    return {"files": len(texts), "words": words, "seconds": time.perf_counter() - start}
+        raise RuntimeError("no kernel programs found (is the kernel tree in the runfiles?)")
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message=".*-only .* slot")
+        start = time.perf_counter()
+        words = sum(len(assemble(text)) for text in texts)
+        seconds = time.perf_counter() - start
+    return {"files": len(texts), "words": words, "seconds": seconds}
 
 
 def run(budget: Budget) -> list[Result]:

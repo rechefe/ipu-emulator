@@ -1,4 +1,4 @@
-"""Routing of the detect family (E07-15): the ``ipu_apps`` queries
+"""Routing of the detect family (E07-15): the old queries
 ``channel_peak shape=(C, N)`` and ``score_threshold shape=(N,)``, as named
 parameters on the kernel tree's registry and ``//kernels:query``. The
 threshold, temperature and the cases' data are not part of a query: they

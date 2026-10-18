@@ -54,7 +54,7 @@ dx_bound    = "CR11"
 op = "maxpool2d"
 tolerance = { fp32 = "EXACT" }
 
-# The ipu_apps cases' data (../gen.py: standard normal minus 2, seed 7).
+# The old cases' data (../gen.py: standard normal minus 2, seed 7).
 [cases.default]
 channels = 1
 height = 4

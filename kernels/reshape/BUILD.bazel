@@ -1,6 +1,6 @@
 # The reshape family (E07-04, E07-05): folder kernels, and the registry.toml
 # entries over the concat template (//kernels/reshape:<entry>, as the
-# ipu_apps targets were named).
+# old targets were named).
 
 load("@ipu_as_deps//:requirements.bzl", "requirement")
 load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
@@ -10,7 +10,7 @@ load(":registry.bzl", "ENTRIES")
 ipu_kernel_family(entries = ENTRIES)
 
 # Routing: each concat entry is found by exactly its (h, w, c_a, c_b), and the
-# folder kernels by their parameters, as the ipu_apps router found them.
+# folder kernels by their parameters, as the old router found them.
 py_pytest_test(
     name = "test_routing",
     size = "small",
@@ -23,7 +23,7 @@ py_pytest_test(
 )
 
 # fold(unfold(x)) == x on one model (ipu_harness.chain), plain and with R_ACC
-# poisoned before fold: the ipu_apps family test.py.
+# poisoned before fold: the old family test.py.
 py_pytest_test(
     name = "test_fold_unfold",
     size = "medium",

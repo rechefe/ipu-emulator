@@ -1,5 +1,5 @@
-"""The family's slot layouts (``ipu_kernels.softmax.pack``): what the ``ipu_apps``
-harness wrote and read back, at the old family layout test's shapes."""
+"""The family's slot layouts (``ipu_kernels.softmax.pack``): what the old harness
+wrote and read back, at the old family layout test's shapes."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Routing of the pooling family (E07-14): the ``ipu_apps`` router facts, on the
+"""Routing of the pooling family (E07-14): the old router facts, on the
 kernel tree's registry and ``//kernels:query``.
 
 A ``maxpool2d`` query names ``channels``, ``height``, ``width`` (the old

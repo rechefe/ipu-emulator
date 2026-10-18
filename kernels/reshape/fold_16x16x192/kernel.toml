@@ -30,7 +30,7 @@ dst_hi     = "235670024"               # [8, 10, 12, 14]
 src_stride = "1"                      # LR7: rows per channel of a phase
 dst_stride = "1"                       # LR9
 
-# Placed in this order from row 0: x, y, ones (the ipu_apps map).
+# Placed in this order from row 0: x, y, ones (the old map).
 [inputs.x]                    # the phases (0,0), (0,1), (1,0), (1,1); lanes past the tokens NaN
 shape = [4, "c", 64]
 pack  = "phase_rows"
@@ -67,6 +67,6 @@ channel    = "LR10"
 op = "fold"
 tolerance = { fp32 = "EXACT" }
 
-# The ipu_apps case data: the phases of RandomState(0x18)'s tensor (../gen.py).
+# The old case data: the phases of RandomState(0x18)'s tensor (../gen.py).
 [cases.default]
 generator = "../gen.py:phases"

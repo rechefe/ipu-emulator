@@ -16,7 +16,6 @@ SCRIPT = Path("tools/update_baselines.sh")
 
 #: The packages with baseline files (docs/content/code-conventions.md, "Baselines").
 BASELINE_PACKAGES = (
-    "src/tools/ipu-apps",
     "src/tools/ipu-as-py",
     "src/tools/ipu-emu-py",
     "src/tools/ipu-isa",
@@ -32,15 +31,9 @@ def _script_array(text: str, name: str) -> list[str]:
     return match.group("body").split()
 
 
-def _script_variable(text: str, name: str) -> str:
-    match = re.search(rf"^{name}=(?P<value>\S+)$", text, re.MULTILINE)
-    assert match, f"{SCRIPT} has no {name}= line"
-    return match.group("value")
-
-
 def script_targets() -> list[str]:
     text = SCRIPT.read_text(encoding="utf-8")
-    return [*_script_array(text, "UPDATE_TARGETS"), _script_variable(text, "KERNEL_TARGET")]
+    return _script_array(text, "UPDATE_TARGETS")
 
 
 def build_targets() -> set[str]:

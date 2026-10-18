@@ -51,7 +51,7 @@ const recorder = (marker, then) => node(`require('fs').appendFileSync(${JSON.str
 // The fixture's manifest: this tests the extension's handling of one; the Python tests test producing it.
 const MANIFEST = node("process.stdout.write(require('fs').readFileSync('manifest.json', 'utf8'))");
 // What Bazel says in a checkout from before the kernel manifest.
-const FAIL_NO_TARGET = `process.stderr.write(${JSON.stringify("ERROR: Skipping '//src/tools/ipu-apps:kernel_manifest': no such target '//src/tools/ipu-apps:kernel_manifest': target 'kernel_manifest' not declared in package 'src/tools/ipu-apps'")}); process.exit(1);`;
+const FAIL_NO_TARGET = `process.stderr.write(${JSON.stringify("ERROR: Skipping '//kernels:manifest': no such target '//kernels:manifest': target 'manifest' not declared in package 'kernels'")}); process.exit(1);`;
 
 const extension = path.resolve(__dirname, '..', '..');
 const launch = (workspace, suite, env) => runTests({

@@ -1,6 +1,6 @@
 # The four LayerNorm shapes over the layernorm template (E07-10; the packed
 # LayerNorms, E07-23, follow at the end), one template
-# rendering each old ipu_apps binary (E02 digests).
+# rendering each old binary (E02 digests).
 # `bazel test //kernels/normalize:layernorm_64x192` runs the template's cases
 # at that shape.
 
