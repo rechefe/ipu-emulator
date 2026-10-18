@@ -246,6 +246,19 @@ py_pytest_test(
     ],
 )
 
+# A cycle observer counts the same ops in faithful and prototyping mode (E04-11).
+py_pytest_test(
+    name = "test_observer_counts",
+    srcs = ["test/test_observer_counts.py"],
+    imports = ["src"],
+    deps = [
+        ":emu_test_support",
+        ":ipu_emu_lib",
+        requirement("numpy"),
+        requirement("pytest"),
+    ],
+)
+
 # The fault model (E04-19): fault IDs, the faulting PC and the halt record.
 py_pytest_test(
     name = "test_faults",

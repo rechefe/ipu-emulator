@@ -1,11 +1,33 @@
 # The MobileViT chains (E07-24): seams and full layers that run kernels of
 # several families on one ipu_harness Chain. A family with no kernels of its
 # own: its tests name the kernels by registry name, so :tests gets the whole
-# kernel tree. Sharded: a seam takes up to two minutes.
+# kernel tree. :tests (the seams, the reference) is sharded: a seam takes up
+# to two minutes. The full layers (test_full_*.py) are :tests_nightly, a
+# layer taking minutes in the emulator; sharded so each shard runs one or two.
 
+load("@ipu_as_deps//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_library")
 load("//kernels:defs.bzl", "ipu_kernel_family")
 
+# The layer steps and their float64 reference, shared by the full-layer tests.
+py_library(
+    name = "layers",
+    srcs = [
+        "mobilevit_layer.py",
+        "mobilevit_packed.py",
+    ],
+    imports = ["."],
+    deps = [
+        "//src/tools/ipu-harness:ipu_harness_lib",
+        "//src/tools/ipu-kernels:ipu_kernels_all",
+        requirement("numpy"),
+        requirement("torch"),
+    ],
+)
+
 ipu_kernel_family(
+    extra_deps = [":layers"],
+    tests_nightly_shard_count = 9,
     tests_shard_count = 6,
     tests_size = "large",
     tests_tree = True,

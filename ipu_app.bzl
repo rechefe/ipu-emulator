@@ -170,33 +170,6 @@ def ipu_families_from_kernels(kernels_root, deps, test_deps = [], data = []):
             tests = tests + [":" + _family_test_target(family)]
         native.test_suite(name = family, tests = sorted(tests))
 
-def ipu_multi_kernel_tests(suites_root, kernels_root, deps):
-    """Declare one test per ``<suites_root>/<suite>/test_*.py``, named after the file.
-
-    For tests that run several kernels together (one kernel's output feeding
-    the next). Every kernel's ``.asm`` under kernels_root is data, as are the
-    suite's own ``.asm`` programs, if any; shared fixtures are a ``py_library`` in
-    ``deps``. Files named
-    ``test_full_*.py`` run whole model stacks and take hours, so they are
-    ``manual`` and size ``enormous``: run them by name with ``--config=full``
-    (the default ``--test_size_filters=-enormous`` filters them out even when
-    named), passing pytest options with ``--test_arg`` and switches with
-    ``--test_env``.
-    """
-    for test in native.glob([suites_root + "/*/test_*.py"]):
-        suite, _, filename = test.rpartition("/")
-        full = filename.startswith("test_full_")
-        py_pytest_test(
-            name = filename[:-len(".py")],
-            size = "enormous" if full else "large",
-            tags = ["manual"] if full else [],
-            srcs = [test],
-            data = native.glob([suite + "/*.asm"], allow_empty = True) + native.glob([kernels_root + "/**/*.asm"]),
-            imports = ["src"],
-            legacy_create_init = False,
-            deps = deps,
-        )
-
 def ipu_per_kernel_test(name, src, kernels_root, deps, data = [], size = "large"):
     """Run the test file ``src`` once per kernel, each as its own target.
 

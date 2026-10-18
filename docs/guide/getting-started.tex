@@ -871,14 +871,15 @@ $ bazel test //...                        # everything
 \end{termcmd}
 
 The seams in \texttt{kernels/mobilevit/} run several kernels in a row on one
-model (an \texttt{ipu\_harness} chain). The \texttt{test\_full\_*} tests under
-\texttt{src/tools/ipu-apps/test/mobilevit/} run a whole transformer layer on
-the old harnesses and take hours, so \texttt{bazel test //...} skips them;
-run them by name, picking a variant with \texttt{--test\_arg}:
+model (an \texttt{ipu\_harness} chain). Its \texttt{test\_full\_*} tests run
+whole transformer layers the same way and take minutes each, so they are the
+nightly tier, \texttt{:tests\_nightly}, which \texttt{bazel test //...} skips;
+run them with \texttt{--config=full}, picking a variant with
+\texttt{--test\_filter}:
 
 \begin{termcmd}
-$ bazel test //src/tools/ipu-apps:test_full_layer_l5 --test_arg=-k \
-    --test_arg=query_major
+$ bazel test --config=full //kernels/mobilevit:tests_nightly \
+    --test_filter=test_full_l5_per_stage_error
 \end{termcmd}
 
 %======================================================================

@@ -3,7 +3,7 @@ load("@rules_python//python:defs.bzl", "py_binary", "py_library")
 load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
 load("//tools:runtime_deps.bzl", "runtime_deps_manifest")
 load(":deps.bzl", "RUNTIME_DEPS")
-load("//:ipu_app.bzl", "ipu_apps_from_kernels", "ipu_benchmarks_from_kernels", "ipu_families_from_kernels", "ipu_kernel_targets", "ipu_multi_kernel_tests", "ipu_per_kernel_test")
+load("//:ipu_app.bzl", "ipu_apps_from_kernels", "ipu_benchmarks_from_kernels", "ipu_families_from_kernels", "ipu_kernel_targets", "ipu_per_kernel_test")
 load("//tools:lint.bzl", "ruff_test")
 
 package(default_visibility = ["//visibility:public"])
@@ -146,7 +146,7 @@ py_binary(
     deps = [":ipu_apps_lib"],
 )
 
-# `:<family>` (e.g. :convolutions, :attention) runs every kernel in that family plus
+# `:<family>` (e.g. :convolutions, :softmax) runs every kernel in that family plus
 # the family's own test.py. Family tests may check the family's docs page.
 ipu_families_from_kernels(
     kernels_root = "src/ipu_apps/kernels",
@@ -191,30 +191,6 @@ ipu_per_kernel_test(
     data = glob(["src/ipu_apps/**/*.asm", "src/ipu_apps/**/*.bin"]),
     deps = [":ipu_apps_lib", requirement("pytest")],
     size = "enormous",
-)
-
-# The MobileViT suite's shared fixtures, imported by module name (`fixture_*`).
-# fixture_projections, fixture_elementwise and fixture_normalize run the
-# projections, the residual adds and the LayerNorms from //kernels/projections,
-# //kernels/elementwise and //kernels/normalize (E07-02, E07-06,
-# E07-10) until E07-24 ports the chain tests to the harness's chaining API.
-py_library(
-    name = "mobilevit_fixtures",
-    srcs = glob(["test/mobilevit/fixture_*.py"]),
-    data = ["//kernels:tree"],
-    imports = ["test/mobilevit"],
-    deps = [
-        ":ipu_apps_lib",
-        "//src/tools/ipu-harness:ipu_harness_lib",
-        "//src/tools/ipu-kernels:ipu_kernels_all",
-    ],
-)
-
-# Tests that run several kernels together: one target per test/<suite>/test_*.py.
-ipu_multi_kernel_tests(
-    suites_root = "test",
-    kernels_root = "src/ipu_apps/kernels",
-    deps = [":ipu_apps_lib", ":mobilevit_fixtures", requirement("pytest")],
 )
 
 # No test reaches a module through sys.path; it depends on a declared library.

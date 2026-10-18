@@ -72,10 +72,11 @@ time, emulator cycles/s, peak memory and CI wall times on the
 `bazel run //tools/bench:bench -- --quick`; see
 [tools/bench/README.md](tools/bench/README.md).
 
-`manual` targets (for example the `test_full_*` MobileViT stacks) are in
-neither tier. Run them by name with `--config=full`, for example
-`bazel test --config=full //src/tools/ipu-apps:test_full_layer_l4`. The same
-goes for any heavy-tier target named on the command line: the default
+The MobileViT full-layer chains (`kernels/mobilevit/test_full_*.py`,
+`//kernels/mobilevit:tests_nightly`) are in the heavy tier. `manual` targets
+are in neither tier; run them by name with `--config=full`. The same
+goes for any heavy-tier target named on the command line, for example
+`bazel test --config=full //kernels/mobilevit:tests_nightly`: the default
 `--test_size_filters=-enormous` applies to named targets too, so without
 `--config=full` Bazel finds no test to run.
 

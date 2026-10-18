@@ -1,7 +1,6 @@
 """Tests import what Bazel declares: no test edits `sys.path` to find a module.
 
-A shared fixture is a `py_library` (the MobileViT ones are
-`:mobilevit_fixtures`), so Bazel knows it is a dependency.
+A shared fixture is a `py_library`, so Bazel knows it is a dependency.
 """
 
 from pathlib import Path

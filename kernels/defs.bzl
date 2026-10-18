@@ -135,6 +135,7 @@ def ipu_kernel_family(
         tests_tree = False,
         tests_size = "medium",
         tests_shard_count = None,
+        tests_nightly_shard_count = None,
         tests_data = []):
     """Declare one family, //kernels/<family> (E06-18), and its registry entries (E06-17).
 
@@ -154,6 +155,9 @@ def ipu_kernel_family(
       a test that routes across families or calls ipu_harness.query.main;
       then an edit to any kernel reruns it. tests_data adds files it reads
       (a docs page whose tables it checks).
+    * :tests_nightly: the family folder's test_full_*.py (whole model layers,
+      minutes each), as :tests but size enormous and tagged nightly, so the
+      default tier skips them and `--config=full` (the nightly run) runs them.
     * :ruff: lint over its Python.
     * :<entry>, :<entry>_nightly, :assemble_<entry> for each registry entry,
       and :registry_bzl_test when it has entries.
@@ -171,6 +175,7 @@ def ipu_kernel_family(
         tests_tree: give :tests the whole kernel tree, not only the family's.
         tests_size: the test size of :tests.
         tests_shard_count: shards of :tests (pytest_shard_plugin splits the collected tests).
+        tests_nightly_shard_count: shards of :tests_nightly.
         tests_data: more data of :tests.
     """
     package = native.package_name()
@@ -185,26 +190,35 @@ def ipu_kernel_family(
         visibility = ["//visibility:public"],
     )
     # The family's own tests are linted, not data: editing one reruns only :tests.
-    family_tests = native.glob(["test_*.py"], allow_empty = True)
-    py = native.glob(["*.py"], exclude = family_tests, allow_empty = True)
+    # test_full_*.py run whole model layers and take minutes each: the nightly
+    # tier's :tests_nightly.
+    full_tests = native.glob(["test_full_*.py"], allow_empty = True)
+    family_tests = native.glob(["test_*.py"], exclude = full_tests, allow_empty = True)
+    py = native.glob(["*.py"], exclude = family_tests + full_tests, allow_empty = True)
     native.filegroup(
         name = "files",
         srcs = native.glob(["*.asm", "*.asm.j2", "registry.toml", "*.npy"], allow_empty = True) + py +
                ["//kernels/" + other + ":files" for other in uses],
         visibility = ["//visibility:public"],
     )
-    if family_tests:
-        # A template is also one of the family's KERNELS: list each folder once.
-        folders = {k: None for k in KERNELS.get(family, []) + [e["template"] for e in entries]}
+    # A template is also one of the family's KERNELS: list each folder once.
+    folders = {k: None for k in KERNELS.get(family, []) + [e["template"] for e in entries]}
+    for target, srcs, size, shards, tags in [
+        ("tests", family_tests, tests_size, tests_shard_count, []),
+        ("tests_nightly", full_tests, "enormous", tests_nightly_shard_count, ["nightly"]),
+    ]:
+        if not srcs:
+            continue
         py_pytest_test(
-            name = "tests",
-            srcs = family_tests,
+            name = target,
+            srcs = srcs,
             data = [":files"] + ["//%s/%s:%s_files" % (package, k, k) for k in sorted(folders.keys())] + tests_data,
             deps = _test_deps(package) + (["//kernels:all_kernels"] if tests_tree else []) + extra_deps +
-                   (["//tools:pytest_shard_plugin"] if tests_shard_count else []),
-            args = ["-p", "pytest_shard_plugin"] if tests_shard_count else [],
-            size = tests_size,
-            shard_count = tests_shard_count,
+                   (["//tools:pytest_shard_plugin"] if shards else []),
+            args = ["-p", "pytest_shard_plugin"] if shards else [],
+            size = size,
+            shard_count = shards,
+            tags = tags,
             legacy_create_init = False,
         )
     native.test_suite(
@@ -213,7 +227,7 @@ def ipu_kernel_family(
                 [":" + entry["name"] for entry in entries] + ([":tests"] if family_tests else []),
         visibility = ["//visibility:public"],
     )
-    ruff_test(name = "ruff", srcs = py + family_tests)
+    ruff_test(name = "ruff", srcs = py + family_tests + full_tests)
     if not entries:
         return
     templates = sorted({entry["template"]: None for entry in entries}.keys())
