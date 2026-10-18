@@ -35,6 +35,12 @@ filegroup(
     srcs = glob(["src/**/*.py"]),
 )
 
+# The package's test sources, for //tools:test_import_graph's private-name check.
+filegroup(
+    name = "py_test_sources",
+    srcs = glob(["test/**/*.py"]),
+)
+
 py_library(
     name = "ipu_isa_lib",
     srcs = glob([
