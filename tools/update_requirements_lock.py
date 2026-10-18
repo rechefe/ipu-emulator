@@ -25,6 +25,7 @@ INPUTS = (
     "src/tools/ipu-debug/pyproject.toml",
     "src/tools/ipu-gen/pyproject.toml",
     "src/tools/ipu-kernels/pyproject.toml",
+    "src/tools/ipu-harness/pyproject.toml",
     "tools/requirements-tools.in",
 )
 
@@ -36,6 +37,7 @@ LOCAL_PACKAGES = (
     "ipu-debug",
     "ipu-gen",
     "ipu-kernels",
+    "ipu-harness",
 )
 
 LOCK = "requirements_lock.txt"

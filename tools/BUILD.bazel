@@ -42,6 +42,8 @@ py_pytest_test(
         "//src/tools/ipu-debug:runtime_deps",
         "//src/tools/ipu-gen:pyproject.toml",
         "//src/tools/ipu-gen:runtime_deps",
+        "//src/tools/ipu-harness:pyproject.toml",
+        "//src/tools/ipu-harness:runtime_deps",
         "//src/tools/ipu-kernels:pyproject.toml",
         "//src/tools/ipu-kernels:runtime_deps",
         "//src/tools/ipu-isa:pyproject.toml",
