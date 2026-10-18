@@ -68,6 +68,11 @@ jobs:
           # No GITHUB_TOKEN: nothing in the build calls the GitHub API.
           bazel build --config=docs //docs:build_docs
 
+      - name: Run the docs tests
+        # The tests tagged docs (the built site's Cycle Inspector and its trace
+        # data): ci.yml's test:ci and nightly's test:full leave them out (.bazelrc).
+        run: bazel test --test_tag_filters=docs //...
+
       - name: Check giscus widget is rendered
         id: giscus
         run: |

@@ -173,7 +173,7 @@
               }
             }
           },
-          "markdownDescription": "Cases saved from the case form (**IPU: Kernel Cases…**), by kernel: `{ \"identity\": { \"tall\": { \"base\": \"default\", \"options\": { \"rows\": 64 } } } }`. Each runs as `--case <base>` with its options. The registry's `cases.py` is never written."
+          "markdownDescription": "Cases saved from the case form (**IPU: Kernel Cases…**), by kernel: `{ \"identity\": { \"tall\": { \"base\": \"default\", \"options\": { \"rows\": 64 } } } }`. Each runs as `--case <base>` with its options. The kernel's `kernel.toml` (its `[cases.*]` tables) is never written."
         },
         "ipuAsm.manifestCommand": {
           "type": "array",

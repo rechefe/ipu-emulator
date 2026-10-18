@@ -2,8 +2,9 @@
 
 // The case form: a kernel's cases in a webview, one field per option (typed as the runner
 // parses it), to run or debug with, save, or add to. Saved cases go to ipuAsm.cases in the
-// folder's settings, as { kernel: { case: { base, options } } }: the registry's cases.py is
-// never written, and a saved case with a registry case's name is that case edited.
+// folder's settings, as { kernel: { case: { base, options } } }: the kernel's kernel.toml (its
+// [cases.*] tables) is never written, and a saved case with a registry case's name is that case
+// edited.
 
 const crypto = require('crypto');
 const vscode = require('vscode');
