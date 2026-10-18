@@ -683,6 +683,7 @@ py_pytest_test(
     size = "small",
     srcs = ["test_doc_links.py"],
     data = _DOC_TEST_DATA + [
+        "mkdocs.yml",
         ":adr_sources",
         "//:.github/pull_request_template.md",
         "//:GLOSSARY.md",

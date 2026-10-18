@@ -31,7 +31,7 @@ operand names. `R` is the `R0`/`R1` pair.
 
 --8<-- "generated/timing-contract-table.md"
 
-The [instruction reference](../instructions.md) lists the same read points for
+The [instruction reference](../reference/isa/instructions.md) lists the same read points for
 each instruction, under **Register reads**.
 
 ## Examples
