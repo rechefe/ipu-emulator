@@ -23,7 +23,6 @@ from ipu_emu.errors import ConfigurationError
 from ipu_emu.ipu_math import (
     _float32_to_fp8_scalar,
     fp8_bytes_to_fp32,
-    fp32_to_fp8_bytes,
 )
 from ipu_isa.formats import FORMATS as FORMAT_INFO
 from ipu_isa.formats import ElementFormat
@@ -263,26 +262,6 @@ def test_e1_carry_saturates():
     assert _float32_to_fp8_scalar(-1.99, 1) == 0xBF
 
 
-def _all_scalar_inputs(e: int) -> list[float]:
-    max_mag = float(_TABLES[e][-1][0])
-    vals = [float(ref_decode(c, e)) for c in range(256) if not ref_is_nan(c, e)]
-    vals += [0.0, -0.0, math.inf, -math.inf, math.nan]
-    vals += [_f32(max_mag * 1.01), -_f32(max_mag * 1.01)]
-    vals += _midpoint_inputs(e)
-    return vals
-
-
-@pytest.mark.parametrize("dtype", FORMATS, ids=lambda d: d.name)
-def test_array_path_matches_scalar(dtype):
-    e = FORMAT_INFO[dtype].exp_bits
-    vals = _all_scalar_inputs(e)
-    got = fp32_to_fp8_bytes(np.array(vals, dtype=np.float32), dtype)
-    want = bytes(_float32_to_fp8_scalar(v, e) for v in vals)
-    assert got == want
-    for x in vals:
-        _check_encode(x, e)
-
-
 # ---------------------------------------------------------------------------
 # Cross-check against ml_dtypes (finite encodings identical for E3, E4, E5)
 # ---------------------------------------------------------------------------
@@ -292,6 +271,10 @@ _ML_DTYPES = [
     (ElementFormat.E4, ml_dtypes.float8_e4m3),
     (ElementFormat.E5, ml_dtypes.float8_e5m2),
 ]
+
+
+def _encode(xs: np.ndarray, e: int) -> bytes:
+    return bytes(_float32_to_fp8_scalar(float(x), e) for x in xs)
 
 
 def _ml_encode(xs: np.ndarray, ml_type) -> bytes:
@@ -304,7 +287,7 @@ def test_ml_dtypes_cross_check(dtype, ml_type):
     max_mag = float(_TABLES[e][-1][0])
 
     mids = np.array(_midpoint_inputs(e), dtype=np.float32)
-    assert fp32_to_fp8_bytes(mids, dtype) == _ml_encode(mids, ml_type)
+    assert _encode(mids, e) == _ml_encode(mids, ml_type)
 
     rng = np.random.default_rng(0xE0001)
     n = 100_000
@@ -315,7 +298,7 @@ def test_ml_dtypes_cross_check(dtype, ml_type):
     mags = np.exp2(rng.uniform(lo_exp, math.log2(max_mag), n))
     signs = rng.choice([-1.0, 1.0], n)
     xs = np.clip((signs * mags).astype(np.float32), -max_mag, max_mag)
-    got = fp32_to_fp8_bytes(xs, dtype)
+    got = _encode(xs, e)
     want = _ml_encode(xs, ml_type)
     if got != want:
         bad = next(i for i in range(n) if got[i] != want[i])
@@ -329,7 +312,5 @@ def test_ml_dtypes_cross_check(dtype, ml_type):
 
 @pytest.mark.parametrize("dtype", [ElementFormat.INT8, ElementFormat.FP32])
 def test_a_non_fp8_format_is_rejected(dtype):
-    with pytest.raises(ConfigurationError, match="FP8"):
-        fp32_to_fp8_bytes(np.array([1.0], dtype=np.float32), dtype)
     with pytest.raises(ConfigurationError, match="FP8"):
         fp8_bytes_to_fp32(b"\x00", dtype)

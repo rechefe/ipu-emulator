@@ -1281,3 +1281,13 @@ Nothing imports `ipu_apps` or loads `//:ipu_app.bzl` any more (grep, outside `pl
 | `TestRuntimeControls::test_until_current_pc_stays_paused` | `test_session.py::TestBreakpointsAndRunUntil::test_run_until_resumes_only_away_from_the_current_pc` |
 | `TestRuntimeControls::test_read_only_set_reports_error_without_exiting[cr0]`, `[cr1]` | `test_session.py::TestSetRegister::test_rejects_with_the_frontend_text_and_changes_nothing[cr0-...]`, `[cr1-...]` (the `cr1` case is new) |
 | `test_cli_commands_leave_the_same_state_as_session_calls[...]`, `test_cli_set_bumps_generation_so_cached_views_refresh` | dropped: the line debugger is deleted (they checked the CLI forwarded to `DebugSession`); the session calls and their `generation` bumps are `test_session.py::TestSetRegister` and `::TestBreakpointsAndRunUntil` |
+
+### Tests removed from `src/ipu-emu/test/test_ipu_math.py` (with `ipu_math.fp32_to_fp8_bytes`)
+
+`fp32_to_fp8_bytes` lost its last callers when 43946717 deleted the ipu-apps-era harness API (`ipu_emu.emulator.load_fp32_as_fp8_to_xmem`) and its tests; no doc named it. The file stays; the encoder of record is `ipu_isa.formats.encode_element`, which `_float32_to_fp8_scalar` wraps.
+
+| Test | Now covered by |
+|---|---|
+| `test_array_path_matches_scalar[...]` | dropped with the array path; its `_check_encode` over every code, the midpoints, ±inf, NaN and the saturating inputs is `test_encode_round_trip`, `test_encode_midpoints` and `test_encode_saturation_and_nan` |
+| `test_ml_dtypes_cross_check[...]` (its encoder) | the same test, encoding through `_float32_to_fp8_scalar` |
+| `test_a_non_fp8_format_is_rejected[...]` (its `fp32_to_fp8_bytes` half) | the same test, for `fp8_bytes_to_fp32` |

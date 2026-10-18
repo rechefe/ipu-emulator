@@ -60,18 +60,6 @@ def _element_values(fmt: ElementFormat) -> tuple[int | float, ...]:
     return tuple(codec_for(fmt).decode(bytes(range(256)), 256).tolist())
 
 
-def fp32_to_fp8_bytes(fp32_values: np.ndarray, fmt: ElementFormat) -> bytes:
-    """Convert an array of FP32 values to FP8 bytes in *fmt* (one of E1..E7).
-
-    Raises:
-        ConfigurationError: *fmt* is not an FP8 format.
-    """
-    fmt = _check_fp8(fmt, "fp32_to_fp8_bytes")
-    arr = fp32_values.astype(np.float32)
-    # NOTE: scalar Python loop — adequate for emulator use but not vectorized.
-    return bytes(encode_element(float(v), fmt) for v in arr)
-
-
 def fp8_bytes_to_fp32(raw: bytes, fmt: ElementFormat) -> np.ndarray:
     """Convert raw FP8 bytes in *fmt* (one of E1..E7) back to an FP32 numpy array.
 
