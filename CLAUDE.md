@@ -5,16 +5,16 @@
 ```bash
 bazel test //...                                          # run the default test tier
 bazel test --config=full //...                            # include the heavy (nightly) tier
-bazel test //src/ipu-emu:test_execute           # emulator tests only
-bazel test //src/ipu-as:test_assemble           # assembler tests only
+bazel test //src/ipu-emu:test_execute                     # emulator tests only
+bazel test //src/ipu-as:test_assemble                     # assembler tests only
 bazel test //kernels/linear/fully_connected               # one kernel's tests
 bazel run //src/ipu-as:ipu-as -- assemble --input "$PWD/prog.asm" --output "$PWD/prog.bin"  # format from the suffix; --define KEY=VALUE, -I DIR
-bazel test --config=proto //...                          # prototyping mode (= --define=ipu_proto=1); CI runs both modes
-bazel build --config=docs //docs:build_docs              # docs site, offline (bazel-bin/docs/site.tar)
-bazel test //tools:lint                                  # ruff lint + format check (ruff.toml)
-bazel test --test_tag_filters=typecheck //...            # every mypy_test (tools/typecheck.bzl, mypy.ini)
-bazel run //tools:ruff -- check --fix                    # auto-fix lint with the locked ruff
-bazel run //tools:ruff -- format                         # format with the locked ruff
+bazel test --config=proto //...                           # prototyping mode (= --define=ipu_proto=1); CI runs both modes
+bazel build --config=docs //docs:build_docs               # docs site, offline (bazel-bin/docs/site.tar)
+bazel test //tools:lint                                   # ruff lint + format check (ruff.toml)
+bazel test --test_tag_filters=typecheck //...             # every mypy_test (tools/typecheck.bzl, mypy.ini)
+bazel run //tools:ruff -- check --fix                     # auto-fix lint with the locked ruff
+bazel run //tools:ruff -- format                          # format with the locked ruff
 tools/update_baselines.sh                                 # regenerate every baseline, list the changed files
 ```
 
@@ -37,7 +37,7 @@ The steps, with examples: [Add an instruction](docs/content/how-to/add-an-instru
 0. Choose the slot (its tag, HARDWARE or EMULATOR, comes with it) and a mnemonic under the standard (`GLOSSARY.md`, Mnemonic). An existing instruction under another name or operand order is a pseudo-instruction: one `PSEUDO_INSTRUCTION_SPEC` entry, nothing else.
 1. Append the entry to its slot in `instruction_spec.py` (no opcode: position determines it).
 2. Add `execute_<name>(ipu, *, ...)` to `ipu_emu/slots/<slot>.py`, keyword-only args named exactly as the operands.
-3. Write a test with `run()` from `ipu-emu/test/emu_support.py`.
+3. Write a test with `run()` from `src/ipu-emu/test/emu_support.py`.
 4. Run `bazel test //...`. Tests that pin today's ISA fail by design: run `tools/update_baselines.sh`, then edit the hand-pinned facts the failing tests name (the page lists them). HARDWARE: check the generated SystemVerilog package (below). EMULATOR: `assemble --target hardware` rejects it.
 
 The "one edit" tests prove these steps are enough: `//src/ipu-emu:test_one_edit_end_to_end` adds a dummy instruction with one spec entry and one handler and runs it; `//src/ipu-isa:test_one_edit` and `//src/ipu-gen:test_one_edit_generators` check every derived artifact. The end-to-end test's `KNOWN_MANUAL_EDITS` (empty) names any other edit still needed.
@@ -47,8 +47,8 @@ The "one edit" tests prove these steps are enough: `//src/ipu-emu:test_one_edit_
 A downstream RTL repo vendors `ipu_instr_pkg.sv` verbatim. After changing `instruction_spec.py`, `union_layout.py`, `ipu_gen/sv_package.py` or `ipu_instr_pkg.sv.j2`:
 
 ```bash
-bazel test //src/ipu-gen:test_sv_package_compiles     # slang elaborates it with zero diagnostics
-bazel test //src/ipu-gen:test_sv_package_golden     # text golden + every *_WIDTH pinned by name
+bazel test //src/ipu-gen:test_sv_package_compiles           # slang elaborates it with zero diagnostics
+bazel test //src/ipu-gen:test_sv_package_golden             # text golden + every *_WIDTH pinned by name
 bazel build //docs:generate_instruction_format_artifacts    # writes bazel-bin/docs/ipu_instr_pkg.sv
 tools/sv_localparam_diff.sh <base-ref>                      # diff localparam lines vs the base commit
 ```
