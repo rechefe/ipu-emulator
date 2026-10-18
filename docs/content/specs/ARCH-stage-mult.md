@@ -161,6 +161,8 @@ The mask is built in two steps:
    one-element shift, the mask is ANDed with a partition vector, so mask bits
    never cross a group boundary.
 
+![Element masking: mask_offset selects an R_MASK slot, two shift chains make every shift, mask_shift selects one](assets/mult-masking.svg)
+
 ```text
 shift = clamp(mask_shift, -3, 3)                       // mask_shift is two's complement
 mask  = R_MASK.slot[mask_offset]                        // 128 bits
@@ -172,29 +174,33 @@ for i in 0..127:
     if mask[i] == 0: MULT_RES[i] = pad_value
 ```
 
-**Partition vectors.** The 128 elements form `num_partition` groups of
-`128 / num_partition` elements (section 3.1):
+**Partitions.** The 128 elements form `num_partition` partitions (groups) of
+`128 / num_partition` elements (section 3.1). Partition `p` holds elements
+`p * (128 / num_partition)` to `(p + 1) * (128 / num_partition) - 1`.
+
+**Partition vectors.** Two 128-bit vectors mark the partition boundaries:
 
 | Vector | Bits that are `0` | Used by |
 |--------|-------------------|---------|
-| `partition_vector` | The first element of each group | `mask_shift > 0` |
-| `inverse_partition_vector` | The last element of each group | `mask_shift < 0` |
+| `partition_vector` | The first element of each partition | `mask_shift > 0` |
+| `inverse_partition_vector` | The last element of each partition | `mask_shift < 0` |
 
-All other bits are `1`.
+All other bits are `1`. The vectors for each `num_partition`, element `0` first
+(`1^n` is `n` ones):
 
-**Example:** `num_partition = 8` (groups of 16). The slot mask has ones at
-elements `13`-`18`, which cross the boundary between group 0 and group 1.
-
-| `mask_shift` | Ones at elements | Blocked bit |
-|--------------|------------------|-------------|
-| `0` | `13`-`18` | |
-| `+1` | `14`, `15`, `17`, `18`, `19` | Element 15's bit stops at the boundary: element 16 is `0`. |
-| `-1` | `12`, `13`, `14`, `16`, `17` | Element 16's bit stops at the boundary: element 15 is `0`. |
-
-![Mask shift example: group boundary blocks the bit that would cross it](assets/mult-mask-shift.svg)
+| `num_partition` | Elements per partition | `partition_vector` | `inverse_partition_vector` |
+|-----------------|------------------------|--------------------|----------------------------|
+| `1` | `128` | `1^128` | `1^128` |
+| `2` | `64` | `0 1^63 0 1^63` | `1^63 0 1^63 0` |
+| `4` | `32` | `(0 1^31)` x 4 | `(1^31 0)` x 4 |
+| `8` | `16` | `(0 1^15)` x 8 | `(1^15 0)` x 8 |
 
 > **Note:** After reset, every bit of `R_MASK` is `1`: every element keeps its
 > product.
+
+> **TBD - ask Aviv:** the default value of `R_MASK`.
+
+> **TBD - ask Aviv:** do we add masking examples?
 
 ## 4. Multiply ISA
 
@@ -267,7 +273,7 @@ The Type column links to the [operand type reference](../operand-types.md).
 | Name | Type | Details |
 |------|------|---------|
 | `rc_idx` | [`LrIdx`](../operand-types.md#lridx) | `LR0`-`LR15`. Start element of the `R_CYCLIC` window (section 3.3). |
-| `ra` | [`MultStageReg`](../operand-types.md#multstagereg) | `R0` or `R1`. |
+| `ra` | [`Imm`](../operand-types.md#multstagereg) | `R0` or `R1`. |
 | `mask_offset` | [`Imm`](../operand-types.md#multmaskoffsetimmediate) | `0`-`7`. `R_MASK` slot (section 3.4). |
 | `mask_shift` | [`LrIdx`](../operand-types.md#lridx) | `LR0`-`LR15`. Mask shift, `-3`-`+3` (section 3.4). |
 | `cr_idx` | [`CrIdx`](../operand-types.md#cridx) | `CR0`-`CR15`. Supplies `num_partition` and `pad_mode` (section 3.1). |
