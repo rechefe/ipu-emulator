@@ -37,3 +37,4 @@ bazel-testlogs/
 
 # macOS Finder metadata
 .DS_Store
+.claude/worktrees/
