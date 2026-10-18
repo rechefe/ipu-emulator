@@ -1793,102 +1793,102 @@
   },
   "registerDocs": {
     "cr0": {
-      "about": "Control-register file (cr0-cr15)",
+      "about": "Configuration registers (cr0-cr15)",
       "fixed": 0
     },
     "cr1": {
-      "about": "Control-register file (cr0-cr15)",
+      "about": "Configuration registers (cr0-cr15)",
       "fixed": 1
     },
     "cr10": {
-      "about": "Control-register file (cr0-cr15)"
+      "about": "Configuration registers (cr0-cr15)"
     },
     "cr11": {
-      "about": "Control-register file (cr0-cr15)"
+      "about": "Configuration registers (cr0-cr15)"
     },
     "cr12": {
-      "about": "Control-register file (cr0-cr15)"
+      "about": "Configuration registers (cr0-cr15)"
     },
     "cr13": {
-      "about": "Control-register file (cr0-cr15)"
+      "about": "Configuration registers (cr0-cr15)"
     },
     "cr14": {
-      "about": "Control-register file (cr0-cr15)"
+      "about": "Configuration registers (cr0-cr15)"
     },
     "cr15": {
-      "about": "Control-register file (cr0-cr15)"
+      "about": "Configuration registers (cr0-cr15)"
     },
     "cr2": {
-      "about": "Control-register file (cr0-cr15)"
+      "about": "Configuration registers (cr0-cr15)"
     },
     "cr3": {
-      "about": "Control-register file (cr0-cr15)"
+      "about": "Configuration registers (cr0-cr15)"
     },
     "cr4": {
-      "about": "Control-register file (cr0-cr15)"
+      "about": "Configuration registers (cr0-cr15)"
     },
     "cr5": {
-      "about": "Control-register file (cr0-cr15)"
+      "about": "Configuration registers (cr0-cr15)"
     },
     "cr6": {
-      "about": "Control-register file (cr0-cr15)"
+      "about": "Configuration registers (cr0-cr15)"
     },
     "cr7": {
-      "about": "Control-register file (cr0-cr15)"
+      "about": "Configuration registers (cr0-cr15)"
     },
     "cr8": {
-      "about": "Control-register file (cr0-cr15)"
+      "about": "Configuration registers (cr0-cr15)"
     },
     "cr9": {
-      "about": "Control-register file (cr0-cr15)"
+      "about": "Configuration registers (cr0-cr15)"
     },
     "lr0": {
-      "about": "Long-register file (lr0-lr15)"
+      "about": "Loop registers (lr0-lr15)"
     },
     "lr1": {
-      "about": "Long-register file (lr0-lr15)"
+      "about": "Loop registers (lr0-lr15)"
     },
     "lr10": {
-      "about": "Long-register file (lr0-lr15)"
+      "about": "Loop registers (lr0-lr15)"
     },
     "lr11": {
-      "about": "Long-register file (lr0-lr15)"
+      "about": "Loop registers (lr0-lr15)"
     },
     "lr12": {
-      "about": "Long-register file (lr0-lr15)"
+      "about": "Loop registers (lr0-lr15)"
     },
     "lr13": {
-      "about": "Long-register file (lr0-lr15)"
+      "about": "Loop registers (lr0-lr15)"
     },
     "lr14": {
-      "about": "Long-register file (lr0-lr15)"
+      "about": "Loop registers (lr0-lr15)"
     },
     "lr15": {
-      "about": "Long-register file (lr0-lr15)"
+      "about": "Loop registers (lr0-lr15)"
     },
     "lr2": {
-      "about": "Long-register file (lr0-lr15)"
+      "about": "Loop registers (lr0-lr15)"
     },
     "lr3": {
-      "about": "Long-register file (lr0-lr15)"
+      "about": "Loop registers (lr0-lr15)"
     },
     "lr4": {
-      "about": "Long-register file (lr0-lr15)"
+      "about": "Loop registers (lr0-lr15)"
     },
     "lr5": {
-      "about": "Long-register file (lr0-lr15)"
+      "about": "Loop registers (lr0-lr15)"
     },
     "lr6": {
-      "about": "Long-register file (lr0-lr15)"
+      "about": "Loop registers (lr0-lr15)"
     },
     "lr7": {
-      "about": "Long-register file (lr0-lr15)"
+      "about": "Loop registers (lr0-lr15)"
     },
     "lr8": {
-      "about": "Long-register file (lr0-lr15)"
+      "about": "Loop registers (lr0-lr15)"
     },
     "lr9": {
-      "about": "Long-register file (lr0-lr15)"
+      "about": "Loop registers (lr0-lr15)"
     },
     "lrd0": {
       "about": "LRD0, LRD2, LRD4, ..., LRD14: register-pair alias over LR, named after the lower register in the pair (LRDn = LR(n+1):LR(n), n even).",
