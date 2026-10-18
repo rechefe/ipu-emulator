@@ -106,15 +106,15 @@ nav:
       - Getting Started guide (PDF): https://github.com/rechefe/ipu-emulator/releases/download/guide-latest/getting-started.pdf
   - How-to:
       - how-to/index.md
-      - Write a kernel: how-to/write-a-kernel.md            # E06-21
-      - Add an instruction: how-to/add-an-instruction.md    # E09-11
-      - Debug a kernel: how-to/debug-a-kernel.md            # E09-12
-      - Step through a kernel run: debugging-inspector.md   # E08-17; E09 decides its final place
-      - Cycle Inspector: inspector/index.html               # E08-17: the static viewer page
-      - Use the reference model from cocotb: how-to/reference-model-cocotb.md   # E09-13
+      - Write a kernel: how-to/write-a-kernel.md
+      - Add an instruction: how-to/add-an-instruction.md
+      - Debug a kernel: how-to/debug-a-kernel.md
+      - Step through a kernel run: debugging-inspector.md
+      - Cycle Inspector: inspector/index.html               # the static viewer page
+      - Use the reference model from cocotb: how-to/reference-model-cocotb.md
   - Reference:
       - reference/index.md
-      - ISA:                                                # generated, E09-14
+      - ISA:                                                # generated (docs/BUILD.bazel, ipu_gen)
           - Instructions: reference/isa/instructions.md
           - Operand types: reference/isa/operand-types.md
           - Registers: reference/isa/registers.md
@@ -123,10 +123,10 @@ nav:
           - Assembly syntax: reference/isa/assembly-syntax.md
           - Instruction format: reference/isa/instruction-format.md
           - Programmer's guide: reference/isa/programmer-guide.md
-      - kernel.toml: reference/kernel-toml.md               # E06-21; schema generated (docs/kernel_toml_page.py)
-      - Command-line tools: reference/cli.md                # E09-15; option tables generated (docs/cli_reference_page.py)
-      - Reference model API: reference/reference-model-api.md   # E09-16; parts generated (docs/reference_api_page.py)
-      - Kernels:                                            # E06/E07 generate these
+      - kernel.toml: reference/kernel-toml.md               # schema generated (docs/kernel_toml_page.py)
+      - Command-line tools: reference/cli.md                # option tables generated (docs/cli_reference_page.py)
+      - Reference model API: reference/reference-model-api.md   # parts generated (docs/reference_api_page.py)
+      - Kernels:
           - kernels/index.md
           - Softmax: kernels/softmax.md
           - Convolutions: kernels/convolutions.md
@@ -134,12 +134,12 @@ nav:
           - Normalization and shaping: kernels/normalization-and-shaping.md
           - Attention: kernels/attention.md
           - MobileViT-S: kernels/mobilevit.md
-      - Code conventions: code-conventions.md               # E01-12
-      - Code review: code-review.md                         # E01-13
+      - Code conventions: code-conventions.md
+      - Code review: code-review.md
       - Glossary: reference/glossary.md
   - Explanation:
       - explanation/index.md
-      - Architecture: explanation/architecture.md           # E09-17; package table generated (docs/architecture_page.py)
+      - Architecture: explanation/architecture.md           # package table generated (docs/architecture_page.py)
       - Timing model: explanation/timing-model.md
       - Element formats: explanation/element-formats.md
       - ISA idioms: explanation/isa-idioms.md
