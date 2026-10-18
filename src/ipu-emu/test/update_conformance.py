@@ -1,6 +1,12 @@
 """Rewrite the conformance suite from its cases (E04-31).
 
-    bazel run //src/ipu-emu:regen_conformance
+    bazel run //src/ipu-emu:update_conformance
+
+It writes into ``src/ipu-isa/conformance/`` but lives here, with the catalog
+(``conformance_cases.py``) and the runner (``conformance.py``): writing a case
+assembles its program and runs it through the reference model, and ipu_isa
+imports no other package (``tools/import_graph.toml``), so neither can sit in
+``src/ipu-isa/``.
 
 For each case of ``conformance_cases.all_cases()`` it writes ``program.asm``,
 ``program.bin`` and ``setup.json``, then runs the case from those files

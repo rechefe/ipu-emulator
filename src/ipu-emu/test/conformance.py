@@ -12,7 +12,7 @@ A case is a folder under ``src/ipu-isa/conformance/``:
 This module is one consumer of those files: it runs them through
 ``ipu_emu.reference`` and reads traces with ``ipu_emu.trace``; from
 ``ipu_isa`` it takes the trace header's fields and the decoding of a program
-file. The generator (``regen_conformance.py``) writes the files and runs them
+file. The generator (``update_conformance.py``) writes the files and runs them
 with the same :func:`run_case`.
 """
 
@@ -36,7 +36,7 @@ from ipu_isa.view import isa
 #: The suite, relative to the repository root (and to the runfiles root).
 SUITE = Path("src/ipu-isa/conformance")
 SETUP_SCHEMA = "setup.schema.json"
-UPDATE_COMMAND = "bazel run //src/ipu-emu:regen_conformance"
+UPDATE_COMMAND = "bazel run //src/ipu-emu:update_conformance"
 FILES = ("program.asm", "program.bin", "setup.json", "expected.trace.jsonl")
 #: Header fields that name the producer, not the behaviour: not compared.
 PRODUCER_FIELDS = ("emulator_version",)

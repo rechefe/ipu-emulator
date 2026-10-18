@@ -23,7 +23,7 @@ runtime_deps_manifest(
 )
 
 # The conformance suite (E04-31): programs, setups and expected traces, as data
-# any model runs. Written by //src/ipu-emu:regen_conformance.
+# any model runs. Written by //src/ipu-emu:update_conformance.
 filegroup(
     name = "conformance",
     srcs = glob(["conformance/**"]),

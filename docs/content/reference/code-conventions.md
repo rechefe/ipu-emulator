@@ -85,7 +85,7 @@ A baseline is a checked-in file that pins today's output. Its test fails on any 
 | SV package golden | `src/ipu-gen/test/baselines/ipu_instr_pkg.sv`, plus the `EXPECTED_LOCALPARAMS` table in `test_sv_package_golden.py` (edited by hand) | `//src/ipu-gen:update_sv_golden` |
 | Generated artifacts | `src/ipu-gen/test/baselines/generated/` | `//src/ipu-gen:update_generated_artifacts` |
 | The ISA view as JSON, and the F-1 table of the faults requirements page | `src/ipu-isa/test/baselines/spec_snapshot.json`, `docs/content/requirements/faults.md` | `//src/ipu-isa:update_isa_baselines` |
-| Conformance suite (programs, setups, expected traces) | `src/ipu-isa/conformance/` | `//src/ipu-emu:update_conformance` (also `:regen_conformance`) |
+| Conformance suite (programs, setups, expected traces) | `src/ipu-isa/conformance/` | `//src/ipu-emu:update_conformance` |
 | The check command's JSON output (v1), the VS Code extension's contract | `src/ipu-as/test/baselines/check_json_v1.json` | none: a difference is a contract change; the test writes the new file to its undeclared outputs to copy over |
 | The assemble command's error output over the check corpus | `src/ipu-as/test/baselines/cli_assemble_errors.json` | none: the test writes the new file to its undeclared outputs to copy over |
 | Formatter output (the extension's corpus in full, every kernel as digests) | `src/ipu-as/test/baselines/format/` | `node vscode-ipu-asm/test/record-format.js` |

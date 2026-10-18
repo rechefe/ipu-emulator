@@ -84,7 +84,7 @@ runs every case and names the first differing cycle and field.
 ## Regenerating
 
 ```bash
-bazel run //src/ipu-emu:regen_conformance
+bazel run //src/ipu-emu:update_conformance
 ```
 
 It rewrites every case from `src/ipu-emu/test/conformance_cases.py`

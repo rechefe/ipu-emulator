@@ -543,8 +543,8 @@ py_pytest_test(
 
 # The conformance suite (E04-31). The runner reads only the case files
 # (//src/ipu-isa:conformance) through the reference-model API; the
-# catalog and the generator build them. `bazel run :regen_conformance`
-# rewrites the suite (tools/update_baselines.sh runs it as update_conformance).
+# catalog and the generator build them. `bazel run :update_conformance`
+# rewrites the suite.
 py_library(
     name = "conformance_support",
     testonly = True,
@@ -573,18 +573,13 @@ py_library(
 py_binary(
     name = "update_conformance",
     testonly = True,
-    srcs = ["test/regen_conformance.py"],
-    main = "test/regen_conformance.py",
+    srcs = ["test/update_conformance.py"],
+    main = "test/update_conformance.py",
     deps = [
         ":conformance_cases",
         ":conformance_support",
         ":ipu_emu_lib",
     ],
-)
-
-alias(
-    name = "regen_conformance",
-    actual = ":update_conformance",
 )
 
 py_pytest_test(

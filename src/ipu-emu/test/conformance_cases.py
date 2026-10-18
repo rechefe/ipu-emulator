@@ -2,7 +2,7 @@
 
 Each case is a program, the element format it runs in and a starting state.
 :func:`all_cases` lists them and :func:`files_of` gives each one's input
-files; ``regen_conformance.py`` writes those and the trace a run of them
+files; ``update_conformance.py`` writes those and the trace a run of them
 gives. The cases are:
 
 * every HARDWARE instruction (Q17), in INT8 and E4, and in FP32 too when its
