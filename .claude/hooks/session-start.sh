@@ -41,7 +41,7 @@ fi
 #   --lockfile_mode : the mirror URL differs from the one recorded in
 #                     MODULE.bazel.lock, so leave the committed lockfile alone.
 #   --nobuild_runfile_links : do not materialise runfiles trees at build time.
-#                     Each ipu-apps target links ~84 MB of runfiles, and
+#                     Each kernel test target links large runfiles, and
 #                     `//...` alone fills the session's disk allowance.
 BAZELRC_MARKER="# claude-code-on-the-web session-start hook"
 if ! grep -qF "$BAZELRC_MARKER" "$HOME/.bazelrc" 2>/dev/null; then

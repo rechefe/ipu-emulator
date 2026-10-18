@@ -7,7 +7,7 @@ bazel test //...                                          # run the default test
 bazel test --config=full //...                            # include the heavy (nightly) tier
 bazel test //src/tools/ipu-emu-py:test_execute           # emulator tests only
 bazel test //src/tools/ipu-as-py:test_assemble           # assembler tests only
-bazel test //src/tools/ipu-apps:test_fully_connected     # app tests only
+bazel test //kernels/linear/fully_connected               # one kernel's tests
 bazel run //src/tools/ipu-as-py:ipu-as -- assemble --input "$PWD/prog.asm" --output "$PWD/prog.bin"  # format from the suffix; --define KEY=VALUE, -I DIR
 bazel test --config=proto //...                          # prototyping mode (= --define=ipu_proto=1); CI runs both modes
 bazel build --config=docs //docs:build_docs              # docs site, offline (bazel-bin/docs/site.tar)
@@ -15,7 +15,7 @@ bazel test //tools:lint                                  # ruff lint + format ch
 bazel test --test_tag_filters=typecheck //...            # every mypy_test (tools/typecheck.bzl, mypy.ini)
 bazel run //tools:ruff -- check --fix                    # auto-fix lint with the locked ruff
 bazel run //tools:ruff -- format                         # format with the locked ruff
-tools/update_baselines.sh [--with-kernels]               # regenerate every baseline, list the changed files
+tools/update_baselines.sh                                 # regenerate every baseline, list the changed files
 ```
 
 Baselines: a refactor PR changes no baseline file; a behaviour-change PR regenerates only the baselines it changes and says why each changed ([Code conventions, Baselines](docs/content/code-conventions.md#baselines)).

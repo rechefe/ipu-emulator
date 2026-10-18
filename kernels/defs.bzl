@@ -203,7 +203,7 @@ def ipu_kernel_family(
     )
     # A template is also one of the family's KERNELS: list each folder once.
     folders = {k: None for k in KERNELS.get(family, []) + [e["template"] for e in entries]}
-    for target, srcs, size, shards, tags in [
+    for target, srcs, test_size, shards, tags in [
         ("tests", family_tests, tests_size, tests_shard_count, []),
         ("tests_nightly", full_tests, "enormous", tests_nightly_shard_count, ["nightly"]),
     ]:
@@ -216,7 +216,7 @@ def ipu_kernel_family(
             deps = _test_deps(package) + (["//kernels:all_kernels"] if tests_tree else []) + extra_deps +
                    (["//tools:pytest_shard_plugin"] if shards else []),
             args = ["-p", "pytest_shard_plugin"] if shards else [],
-            size = size,
+            size = test_size,
             shard_count = shards,
             tags = tags,
             legacy_create_init = False,
