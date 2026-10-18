@@ -97,18 +97,14 @@ class Verdict:
         """The same answer as :meth:`describe`, for tools (``query --json``).
 
         Returns:
-            The keys of the old harness's verdict, so a tool reads both: ``app`` is
-            the kernel's name, ``use`` its Bazel label, ``kwargs`` its
-            parameters; ``shapes`` is always None (a kernel query has no shape
-            bundle) and ``notes`` names the formats.
+            ``app`` is the kernel's name (the VS Code extension reads it),
+            ``use`` its Bazel label, and ``notes`` names the formats.
         """
         return {
             "supported": self.supported,
             "reason": self.reason,
             "app": self.kernel_name,
             "use": self.label,
-            "kwargs": {k: repr(v) for k, v in self.params.items()},
-            "shapes": None,
             "notes": self._notes(),
             "alternatives": list(self.alternatives),
         }

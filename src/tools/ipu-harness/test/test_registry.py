@@ -281,8 +281,6 @@ def test_query_answers_a_query_a_sweep_and_the_report(tmp_path, capsys):
         "reason",
         "app",
         "use",
-        "kwargs",
-        "shapes",
         "notes",
         "alternatives",
     }
