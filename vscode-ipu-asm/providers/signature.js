@@ -4,7 +4,7 @@
 
 const vscode = require('vscode');
 
-const { provide } = require('./shared');
+const { provide, switched } = require('./shared');
 
 /** One line summarising what an operand type accepts. */
 function describeDomain(domain) {
@@ -21,7 +21,7 @@ function describeDomain(domain) {
 }
 
 function register(context, { langOf }) {
-  provide(context, 'SignatureHelp', {
+  provide(context, 'SignatureHelp', switched('operandHints', {
     provideSignatureHelp(document, position) {
       const lang = langOf(document);
       const ctx = lang.context(document.getText(), document.offsetAt(position));
@@ -47,7 +47,7 @@ function register(context, { langOf }) {
       help.activeParameter = Math.min(ctx.index, help.signatures[0].parameters.length - 1);
       return help;
     },
-  }, { triggerCharacters: [' '], retriggerCharacters: [' '] });
+  }), { triggerCharacters: [' '], retriggerCharacters: [' '] });
 }
 
 module.exports = { register };

@@ -42,6 +42,10 @@ async function activate(context) {
     vscode.workspace.onDidChangeTextDocument((e) => e.contentChanges.length && checking.scheduleRefresh(e.document)),
     vscode.workspace.onDidCloseTextDocument((d) => checking.forget(d)),
     vscode.window.onDidChangeActiveTextEditor(() => checking.showStatus()),
+    // Diagnostics switched on or off: every open document checked afresh, or cleared.
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('ipuAsm.diagnostics')) vscode.workspace.textDocuments.forEach((d) => checking.refresh(d, true));
+    }),
     // Resolves once the check is done, so a caller (a test) can wait on it.
     vscode.commands.registerCommand('ipuAsm.check', () => {
       const editor = vscode.window.activeTextEditor;

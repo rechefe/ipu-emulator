@@ -249,4 +249,34 @@ test('the checker binary is used while its sources are unchanged; a change to th
   }
 });
 
+test('a feature switched off answers nothing; diagnostics switched off run no check and clear what was shown', async () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'ipu-activation-'));
+  const root = checkout(temp, 'repo');
+  const checks = path.join(temp, 'checks.log');
+  const switches = {
+    ...settings,
+    checkCommand: node(`require('fs').appendFileSync(${JSON.stringify(checks)}, 'x'); process.stdout.write(JSON.stringify([{ line: 1, col: 1, severity: 'error', message: 'bad' }]))`),
+  };
+  const ext = fake.install({ folders: [root], settings: switches });
+  const api = await ext.activate();
+  const doc = ext.open(fake.Uri.file(path.join(root, 'k/demo/demo.asm')), 'HALT;;\n');
+  const checked = () => (fs.existsSync(checks) ? fs.readFileSync(checks, 'utf8').length : 0);
+  await until(() => checked(), 'the first check');
+  if (api.editing) {
+    const hover = () => ext.provider('Hover').provideHover(doc, new fake.Position(0, 1));
+    assert(await hover(), 'hover answers while on');
+    switches.hover = false;
+    assert.strictEqual(await hover(), undefined, 'hover answers nothing while off');
+    switches.navigation = false;
+    await assert.rejects(async () => ext.provider('Rename').prepareRename(doc, new fake.Position(0, 1)), /ipuAsm\.navigation/);
+  }
+  switches.diagnostics = false;
+  const before = checked();
+  await ext.vscode.commands.executeCommand('ipuAsm.check');
+  assert.strictEqual(checked(), before, 'no check runs while diagnostics are off');
+  assert(!ext.statusItem.visible, 'and the status item is hidden');
+  ext.deactivate();
+  fs.rmSync(temp, { recursive: true, force: true });
+});
+
 main((n) => `activation.js: ${n} cases pass.`);

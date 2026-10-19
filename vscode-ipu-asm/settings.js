@@ -13,7 +13,13 @@ function setting(folder, key, fallback) {
   return (Array.isArray(fallback) ? Array.isArray(value) : typeof value === typeof fallback) ? value : fallback;
 }
 
+/** A feature's on/off switch (ipuAsm.`key`), as set for the folder of the document at `uri`. */
+function featureOn(uri, key) {
+  const value = vscode.workspace.getConfiguration('ipuAsm', uri).get(key);
+  return typeof value === 'boolean' ? value : true;
+}
+
 /** ipuAsm.timeoutSeconds for `folder`: the longest a checker, manifest or query run may take. */
 const timeoutSeconds = (folder) => setting(folder, 'timeoutSeconds', DEFAULT_TIMEOUT_SECONDS);
 
-module.exports = { setting, timeoutSeconds, DEFAULT_TIMEOUT_SECONDS };
+module.exports = { setting, featureOn, timeoutSeconds, DEFAULT_TIMEOUT_SECONDS };

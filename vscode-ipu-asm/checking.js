@@ -25,7 +25,7 @@ const checker = require('./checker');
 const { fallbackOf } = require('./fallback');
 const project = require('./project');
 const { LANGUAGE_ID } = require('./providers/shared');
-const { setting, timeoutSeconds } = require('./settings');
+const { featureOn, setting, timeoutSeconds } = require('./settings');
 const trust = require('./trust');
 
 /** Debounce so a burst of keystrokes runs the checker once. */
@@ -380,6 +380,11 @@ class Checking {
       this.showStatus();
       return;
     }
+    if (!featureOn(document.uri, 'diagnostics')) {
+      this.switchedOff(document);
+      this.showStatus();
+      return;
+    }
     const key = document.uri.toString();
     const version = document.version;
     const root = await this.checkoutFor(document.uri);
@@ -390,8 +395,8 @@ class Checking {
     const result = await this.analyseIn(root, document.uri, text, key);
 
     // A run we cancelled ourselves says nothing about the toolchain or the code,
-    // and a file closed while it ran has nothing left to mark.
-    if (document.isClosed) return;
+    // and a file closed, or its diagnostics switched off, while it ran has nothing left to mark.
+    if (document.isClosed || !featureOn(document.uri, 'diagnostics')) return;
     if (result.superseded) {
       await this.latest.get(key);
       return;
@@ -456,6 +461,15 @@ class Checking {
     this.diagnostics.delete(document.uri);
   }
 
+  /** Diagnostics switched off (ipuAsm.diagnostics) for a document: its checks are dropped, so
+   *  the editing help reads the editor's own rules, and the next check after switching them
+   *  back on runs afresh. */
+  switchedOff(document) {
+    for (const state of this.states.values()) state.checked.delete(document.uri.toString());
+    this.analysis.forget(document.uri.toString());
+    this.diagnostics.delete(document.uri);
+  }
+
   /** The kept check of `text` as the document at `uri`, if its latest check was of that very
    *  text: a rename compares against it rather than checking the same text again. */
   keptCheck(uri, text) {
@@ -484,6 +498,10 @@ class Checking {
     }
     const editor = vscode.window.activeTextEditor;
     if (!editor || editor.document.languageId !== LANGUAGE_ID) return;
+    if (!featureOn(editor.document.uri, 'diagnostics')) {
+      this.status.hide();
+      return;
+    }
     const state = this.states.get(this.knownCheckout(editor.document.uri) || '');
     // Hover, completion and the other editing help: the checkout's ISA, or the bundled one.
     const chosen = this.languages && this.languages.chosen(editor.document);

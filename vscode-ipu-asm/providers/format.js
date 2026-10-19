@@ -8,7 +8,7 @@
 
 const vscode = require('vscode');
 
-const { LANGUAGE_ID, provide } = require('./shared');
+const { LANGUAGE_ID, provide, switched } = require('./shared');
 
 /** How words are set apart (ipuAsm.wordSeparation): space on screen, an
  *  empty line in the file, a line drawn on screen, or nothing. */
@@ -61,12 +61,12 @@ function registerFormatting(context, langOf, format = async () => null) {
     provideDocumentRangeFormattingEdits: (document, range, options, token) =>
       formatWithAssembler(document, options, range.start.line, range.end.line, token),
   };
-  provide(context, 'DocumentFormattingEdit', formatting);
-  provide(context, 'DocumentRangeFormattingEdit', formatting);
+  provide(context, 'DocumentFormattingEdit', switched('formatting', formatting));
+  provide(context, 'DocumentRangeFormattingEdit', switched('formatting', formatting));
 
   // As you type: `;` and `:` tidy the current line (its indent, a label to column 0, a second
   // word after `;;` onto its own line); Enter after a `;;` leaves the empty line between words.
-  provide(context, 'OnTypeFormattingEdit', {
+  provide(context, 'OnTypeFormattingEdit', switched('formatting', {
     provideOnTypeFormattingEdits(document, position, ch, options) {
       if (ch !== '\n') return formatLines(document, options, position.line, position.line);
       const line = position.line;
@@ -79,7 +79,7 @@ function registerFormatting(context, langOf, format = async () => null) {
       }
       return edits;
     },
-  }, '\n', ';', ':');
+  }), '\n', ';', ':');
 }
 
 /** wordSeparation "line" and "space", drawn on screen; for tests, the lines each puts them at. */

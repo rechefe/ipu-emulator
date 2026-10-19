@@ -7,7 +7,7 @@
 
 const vscode = require('vscode');
 
-const { provide } = require('./shared');
+const { provide, switched } = require('./shared');
 const { renderInstruction, renderRegister } = require('./hover');
 
 const item = (label, kind, props) => Object.assign(new vscode.CompletionItem(label, vscode.CompletionItemKind[kind]), props);
@@ -22,7 +22,7 @@ function register(context, { langOf, semantics }) {
     return docs.get(mnemonic);
   };
   // --- Completion ---
-  provide(context, 'CompletionItem', {
+  provide(context, 'CompletionItem', switched('completion', {
     async provideCompletionItems(document, position, _token, completionContext) {
       const lang = langOf(document);
       const text = document.getText();
@@ -95,7 +95,7 @@ function register(context, { langOf, semantics }) {
       }
       return items;
     },
-  }, ' ');
+  }), ' ');
 }
 
 module.exports = { register };

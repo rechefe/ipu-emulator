@@ -5,7 +5,7 @@
 
 const vscode = require('vscode');
 
-const { provide, rangeOf } = require('./shared');
+const { provide, rangeOf, switched } = require('./shared');
 
 function describeSlot(lang, slot) {
   const meta = (lang.isa.slots || {})[slot];
@@ -69,7 +69,7 @@ function register(context, { langOf, semantics }) {
     if (!patterns.has(lang)) patterns.set(lang, new RegExp(lang.isa.lexical.token));
     return patterns.get(lang);
   };
-  provide(context, 'Hover', {
+  provide(context, 'Hover', switched('hover', {
     provideHover(document, position) {
       const lang = langOf(document);
       const range = document.getWordRangeAtPosition(position, wordPattern(lang));
@@ -80,14 +80,14 @@ function register(context, { langOf, semantics }) {
         : lang.registers.has(key) ? renderRegister(lang, key) : null;
       return text ? new vscode.Hover(new vscode.MarkdownString(text), range) : undefined;
     },
-  });
-  provide(context, 'Hover', {
+  }));
+  provide(context, 'Hover', switched('hover', {
     async provideHover(document, position) {
       const sym = (await semantics(document)).symbolAt(document.offsetAt(position));
       if (!sym || sym.kind !== 'jinja') return undefined;
       return new vscode.Hover(new vscode.MarkdownString(renderJinja(langOf(document), sym)), rangeOf(document, sym.range));
     },
-  });
+  }));
 }
 
 module.exports = { register, renderInstruction, renderRegister };

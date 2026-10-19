@@ -5,11 +5,11 @@
 
 const vscode = require('vscode');
 
-const { provide, rangeOf } = require('./shared');
+const { provide, rangeOf, switched } = require('./shared');
 
 function register(context, { langOf, checkText, semantics }) {
   const symbolAt = async (document, position) => ({ known: await semantics(document), offset: document.offsetAt(position) });
-  provide(context, 'Rename', {
+  provide(context, 'Rename', switched('navigation', {
     async prepareRename(document, position) {
       const { known, offset } = await symbolAt(document, position);
       const sym = known.symbolAt(offset);
@@ -52,7 +52,7 @@ function register(context, { langOf, checkText, semantics }) {
       for (const s of sym.refs) edit.replace(document.uri, rangeOf(document, s), newName);
       return edit;
     },
-  });
+  }));
 }
 
 module.exports = { register };
