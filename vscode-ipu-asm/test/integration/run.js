@@ -4,13 +4,14 @@
 // fixture/ and run suite.js, then layouts.js per layout. Needs the generated files (`bazel run
 // //vscode-ipu-asm:gen_vscode`), `@vscode/test-electron` installed without saving, and a display
 // (else `xvfb-run -a`). IPU_TEST_CHECK_COMMAND, a JSON argv such as the built ipu-as plus
-// `check --json --input`, adds the checker-backed checks.
+// `check --json --input`, adds the checker-backed checks. `--download-only` fetches the pinned
+// VS Code into the cache and runs nothing (the cloud session start hook warms it this way).
 
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { runTests } = require('@vscode/test-electron');
+const { downloadAndUnzipVSCode, runTests } = require('@vscode/test-electron');
 
 const VSCODE_VERSION = '1.139.0'; // pinned so a run is reproducible; IPU_TEST_VSCODE_VERSION overrides it
 
@@ -54,10 +55,12 @@ const MANIFEST = node("process.stdout.write(require('fs').readFileSync('manifest
 const FAIL_NO_TARGET = `process.stderr.write(${JSON.stringify("ERROR: Skipping '//kernels:manifest': no such target '//kernels:manifest': target 'manifest' not declared in package 'kernels'")}); process.exit(1);`;
 
 const extension = path.resolve(__dirname, '..', '..');
+const version = process.env.IPU_TEST_VSCODE_VERSION || VSCODE_VERSION;
+// .vscode-test/ is ignored by git and by the vsix.
+const cachePath = process.env.IPU_TEST_VSCODE_CACHE || path.join(extension, '.vscode-test');
 const launch = (workspace, suite, env) => runTests({
-  version: process.env.IPU_TEST_VSCODE_VERSION || VSCODE_VERSION,
-  // .vscode-test/ is ignored by git and by the vsix.
-  cachePath: process.env.IPU_TEST_VSCODE_CACHE || path.join(extension, '.vscode-test'),
+  version,
+  cachePath,
   extensionDevelopmentPath: extension,
   extensionTestsPath: path.join(__dirname, suite),
   launchArgs: [workspace, '--disable-extensions', '--disable-workspace-trust'],
@@ -65,6 +68,10 @@ const launch = (workspace, suite, env) => runTests({
 });
 
 async function main() {
+  if (process.argv.includes('--download-only')) {
+    console.log(`VS Code ${version} is at ${await downloadAndUnzipVSCode({ version, cachePath })}`);
+    return;
+  }
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'ipu-asm-it-'));
   // Terminals inherit this PATH, so the kernel buttons' `bazel ...` reaches a
   // stand-in and no real Bazel server starts in a temporary folder.

@@ -66,6 +66,24 @@ cd "$PROJECT_DIR"
 bazel version
 bazel fetch --config=ci //... || true
 
+# The VS Code extension's tests (see .github/workflows/vscode-extension.yml):
+# its npm test dependencies, pinned as in that workflow (keep them in step), a
+# headless VS Code at the version run.js pins, and Xvfb for its display. Best
+# effort: a failure here leaves Bazel work unaffected. The checker the
+# integration test runs needs its runfiles tree, which the
+# --nobuild_runfile_links above leaves out, so build it with
+#   bazel build --build_runfile_links //src/ipu-as:ipu-as
+(
+  cd "$PROJECT_DIR/vscode-ipu-asm"
+  npm install --no-save --no-package-lock --no-audit --no-fund \
+    vscode-textmate@9.3.2 vscode-oniguruma@2.0.1 @vscode/test-electron@2.5.2
+  node test/integration/run.js --download-only
+) || echo "VS Code extension test setup failed; its integration test will not run." >&2
+if ! command -v xvfb-run >/dev/null 2>&1 && command -v apt-get >/dev/null 2>&1; then
+  { apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xvfb; } \
+    || echo "Installing xvfb failed; run the integration test with a display." >&2
+fi
+
 # Persist the settings the rest of the session needs.
 if [ -n "${CLAUDE_ENV_FILE:-}" ] && ! grep -q "^export BAZELISK_BASE_URL=" "$CLAUDE_ENV_FILE" 2>/dev/null; then
   {
