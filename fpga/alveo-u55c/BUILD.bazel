@@ -1,0 +1,53 @@
+load("@ipu_deps//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_binary")
+load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
+load("//tools:lint.bzl", "ruff_test")
+
+package(default_visibility = ["//visibility:public"])
+
+# Linked from SKILL.md (//docs:test_doc_links).
+exports_files(["README.md"])
+
+# The platform RTL and its file list (fpga-prototype.md, "Files").
+filegroup(
+    name = "rtl",
+    srcs = glob(["rtl/*.sv", "rtl/*.f"]),
+)
+
+# slang elaborates the kernel, the stub IPU and the generated register blocks.
+py_pytest_test(
+    name = "test_rtl_elaborates",
+    srcs = ["test/test_rtl_elaborates.py"],
+    data = [
+        ":rtl",
+        "//src/ipu-host:register_blocks",
+    ],
+    deps = [
+        requirement("pytest"),
+        requirement("pyslang"),
+    ],
+)
+
+# Ruff lint and format over the host scripts and the test (tools/lint.bzl).
+ruff_test(
+    name = "ruff",
+    srcs = glob(["**/*.py"]),
+)
+
+# Run a program in flat mode on the model (default) or, with --xclbin, on the
+# card. On the card, pyxrt comes from the XRT install (PYTHONPATH after
+# `source /opt/xilinx/xrt/setup.sh`), not from Bazel.
+py_binary(
+    name = "run_flat",
+    srcs = [
+        "host/run_flat.py",
+        "host/xrt_device.py",
+    ],
+    imports = ["host"],
+    main = "host/run_flat.py",
+    deps = [
+        "//src/ipu-emu:ipu_emu_lib",
+        "//src/ipu-host:ipu_host_lib",
+        "//src/ipu-isa:ipu_isa_lib",
+    ],
+)

@@ -1,6 +1,6 @@
 # Host registers
 
-The host reaches the IPU through the host port, one AXI4 slave. The IPU block specification assigns register offsets and field layouts.
+The host reaches the IPU through the host port, one AXI4 slave. The IPU block specification assigns register offsets and field layouts. Until it does, the FPGA prototype's map, `src/ipu-host/src/ipu_host/rdl/ipu_host.rdl`, is the proposal ([FPGA prototype, The IPU host port](../specs/fpga-prototype.md#the-ipu-host-port)).
 
 ## Address spaces
 

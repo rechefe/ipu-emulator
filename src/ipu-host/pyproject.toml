@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ipu-host"
+version = "0.1.0"
+description = "The IPU host register map (SystemRDL), its generators, and the host driver"
+requires-python = ">=3.10"
+dependencies = [
+    "click>=8.3.1",
+    "peakrdl-regblock>=1.1.0",
+    "systemrdl-compiler>=1.29.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0.1",
+    "pyslang>=11.0.0",
+]
+
+[project.scripts]
+ipu-host = "ipu_host.cli:cli"
+
+[tool.setuptools.package-data]
+ipu_host = ["rdl/*.rdl"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.uv]
+package = true

@@ -1,0 +1,129 @@
+load("@ipu_deps//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
+load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
+load("//tools:lint.bzl", "ruff_test")
+load("//tools:runtime_deps.bzl", "runtime_deps_manifest")
+load("//tools:typecheck.bzl", "mypy_test")
+load(":deps.bzl", "RUNTIME_DEPS")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "BUILD.bazel",
+    "pyproject.toml",
+])
+
+# RUNTIME_DEPS as JSON, for //tools:test_deps_consistency.
+runtime_deps_manifest(
+    name = "runtime_deps",
+    runtime_deps = RUNTIME_DEPS,
+)
+
+# The package's Python sources, for //tools:test_import_graph.
+filegroup(
+    name = "py_sources",
+    srcs = glob(["src/**/*.py"]),
+)
+
+# The package's test sources, for //tools:test_import_graph's private-name check.
+filegroup(
+    name = "py_test_sources",
+    srcs = glob(["test/**/*.py"], allow_empty = True),
+)
+
+# The SystemRDL sources: the single source of every register offset and field.
+filegroup(
+    name = "rdl",
+    srcs = glob(["src/ipu_host/rdl/*.rdl"]),
+)
+
+py_library(
+    name = "ipu_host_lib",
+    srcs = glob(["src/ipu_host/*.py"]),
+    data = [":rdl"],
+    imports = ["src"],
+    deps = [
+        "//src/ipu-emu:ipu_emu_lib",
+        "//src/ipu-isa:ipu_isa_lib",
+    ] + [requirement(dep) for dep in RUNTIME_DEPS],
+)
+
+#   bazel run //src/ipu-host:ipu-host -- sv OUT_DIR
+#   bazel run //src/ipu-host:ipu-host -- docs OUT.md
+py_binary(
+    name = "ipu-host",
+    srcs = ["src/ipu_host/cli.py"],
+    imports = ["src"],
+    main = "src/ipu_host/cli.py",
+    deps = [":ipu_host_lib"],
+)
+
+# The generated register blocks, for the FPGA platform and the RTL repository.
+genrule(
+    name = "register_blocks",
+    outs = [
+        "ipu_host_addr_pkg.sv",
+        "ipu_host_regs.sv",
+        "ipu_host_regs_pkg.sv",
+        "proto_platform_addr_pkg.sv",
+        "proto_platform_regs.sv",
+        "proto_platform_regs_pkg.sv",
+    ],
+    cmd = "$(location :ipu-host) sv $(RULEDIR) > /dev/null",
+    tools = [":ipu-host"],
+)
+
+# The register tables, for the docs site.
+genrule(
+    name = "register_map_md",
+    outs = ["register-map.md"],
+    cmd = "$(location :ipu-host) docs $@ > /dev/null",
+    tools = [":ipu-host"],
+)
+
+py_pytest_test(
+    name = "test_regmap",
+    srcs = ["test/test_regmap.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_host_lib",
+        requirement("pytest"),
+    ],
+)
+
+# slang elaborates both generated register blocks with zero diagnostics.
+py_pytest_test(
+    name = "test_register_blocks_compile",
+    srcs = ["test/test_register_blocks_compile.py"],
+    data = [":register_blocks"],
+    imports = ["src"],
+    deps = [
+        ":ipu_host_lib",
+        requirement("pytest"),
+        requirement("pyslang"),
+    ],
+)
+
+# Host software on the modelled card, against direct reference-model runs.
+py_pytest_test(
+    name = "test_model_device",
+    srcs = ["test/test_model_device.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_host_lib",
+        "//src/ipu-as:ipu_as_lib",
+        "//src/ipu-emu:ipu_emu_lib",
+        requirement("pytest"),
+    ],
+)
+
+mypy_test(
+    name = "mypy",
+    lib = ":ipu_host_lib",
+)
+
+# Ruff lint and format over this package's Python files (tools/lint.bzl).
+ruff_test(
+    name = "ruff",
+    srcs = glob(["**/*.py"]),
+)

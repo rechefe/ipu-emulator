@@ -16,6 +16,8 @@ bazel test --test_tag_filters=typecheck //...             # every mypy_test (too
 bazel run //tools:ruff -- check --fix                     # auto-fix lint with the locked ruff
 bazel run //tools:ruff -- format                          # format with the locked ruff
 tools/update_baselines.sh                                 # regenerate every baseline, list the changed files
+bazel test //src/ipu-host:all //fpga/alveo-u55c:all       # host register maps, host driver, FPGA platform RTL
+fpga/alveo-u55c/sim/run.sh                                # FPGA platform simulation (needs Verilator 5; not in CI)
 ```
 
 Baselines: a refactor PR changes no baseline file; a behaviour-change PR regenerates only the baselines it changes and says why each changed ([Code conventions, Baselines](docs/content/reference/code-conventions.md#baselines)).
@@ -54,6 +56,10 @@ tools/sv_localparam_diff.sh <base-ref>                      # diff localparam li
 ```
 
 `sv_localparam_diff.sh` prints nothing and exits 0 when the localparams are identical. After an intended change to the package, regenerate the golden with `bazel run //src/ipu-gen:update_sv_golden`; a width change also needs a hand edit of `EXPECTED_LOCALPARAMS` in `test_sv_package_golden.py`. Every `*_WIDTH` is wire format: keep each one identical, or call the change out in the PR as breaking. Operand `"name"` fields become SV field names (`<name>_<column>`), so renaming an operand renames a downstream field.
+
+## Host Register Maps
+
+`src/ipu-host/src/ipu_host/rdl/*.rdl` (SystemRDL) is the single source of every host register offset and field ([ADR 0007](docs/adr/0007-fpga-prototype-on-alveo-u55c.md)). Never hand-edit the generated `*_regs.sv`, `*_regs_pkg.sv` or `*_addr_pkg.sv` (`bazel build //src/ipu-host:register_blocks`). `ipu_host.rdl` is the IPU's host port, which the RTL implements: changing an offset or a field there is a wire-format change, like a `*_WIDTH` above. Update the pins in `src/ipu-host/test/test_regmap.py` and call the change out in the PR.
 
 ## Project Knowledge
 

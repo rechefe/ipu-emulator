@@ -160,3 +160,20 @@ The sequence of commit records of one run.
 
 **Prototyping mode**:
 An opt-in emulator mode that skips work proven not to change results, for faster runs.
+
+## FPGA prototype
+
+**FPGA prototype**:
+The IPU RTL running on an Alveo U55C inside a platform this repository provides ([FPGA prototype](docs/content/specs/fpga-prototype.md)). Not prototyping mode, which is an emulator mode.
+
+**Socket**:
+The port list between `ipu_top` and the platform around it: the ports of External interfaces, with the types of `ipu_socket_pkg`.
+
+**Stub**:
+The stand-in `ipu_top` that fills the socket until the IPU RTL exists. It holds the host registers and runs an empty kernel; it executes no word.
+
+**Flat mode**:
+One `scratch_pad` table over all 16 XMEM banks, so that emulator row `r` is bank `r >> 10`, row `r & 1023` and an emulator program runs on the prototype unchanged.
+
+**Socket exerciser**:
+Platform registers that drive the cache unit's IPU-side ports in place of the IPU, to test the cache unit and reach XMEM from the host.

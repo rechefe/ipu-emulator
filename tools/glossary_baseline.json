@@ -21,8 +21,7 @@
     "slot name": 1
   },
   "docs/content/requirements/open-questions.md": {
-    "DRAM": 1,
-    "VLIW word": 1
+    "DRAM": 1
   },
   "docs/content/specs/cache-unit.md": {
     "DRAM": 18

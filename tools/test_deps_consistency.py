@@ -39,6 +39,7 @@ MANIFESTS = (
     Path("src/ipu-gen/runtime_deps.json"),
     Path("src/ipu-kernels/runtime_deps.json"),
     Path("src/ipu-harness/runtime_deps.json"),
+    Path("src/ipu-host/runtime_deps.json"),
 )
 
 # The repository's own distributions: Bazel wires them as py_library targets.

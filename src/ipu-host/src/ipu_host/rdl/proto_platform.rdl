@@ -1,0 +1,193 @@
+// The FPGA prototype platform: the registers of everything around the IPU on
+// the Alveo U55C (docs/content/specs/fpga-prototype.md). The platform maps
+// this block after the IPU host port in the kernel's control address space.
+//
+// Status: prototype only. The cache unit's real host interface belongs to the
+// cache unit owner (cache-unit.md, riscv_cfg_bus); this is the prototype
+// cache unit's.
+
+addrmap proto_platform {
+    name = "FPGA prototype platform";
+    desc = "Platform control, the prototype cache unit's table sets and status, and the socket exerciser.";
+
+    default regwidth = 32;
+    default accesswidth = 32;
+
+    reg id_t {
+        field { sw = r; hw = na; desc = "ASCII \"IPUP\"."; } MAGIC[31:0] = 0x49505550;
+    };
+
+    reg version_t {
+        field { sw = r; hw = na; } MINOR[7:0] = 1;
+        field { sw = r; hw = na; } MAJOR[15:8] = 0;
+    };
+
+    reg build_t {
+        desc = "Set at build time.";
+        field { sw = r; hw = w; } VALUE[31:0];
+    };
+
+    reg ctrl_t {
+        name = "Platform control";
+        field { sw = rw; hw = r; desc = "1 holds the IPU in reset (rst_n low)."; } IPU_RESET[0:0] = 0;
+        field { sw = rw; hw = r; desc = "1 holds the cache unit in reset: every bank free, tables_valid 0 (CU-4)."; } CU_RESET[1:1] = 0;
+        field { sw = rw; hw = r; desc = "1 connects the socket exerciser, not the IPU, to the cache unit's IPU-side ports. Change it only while the IPU is IDLE or in reset."; } EXERCISER[2:2] = 0;
+    };
+
+    reg status_t {
+        name = "Platform status";
+        field { sw = r; hw = w; desc = "The IPU's irq output."; } IPU_IRQ[0:0];
+        field { sw = r; hw = w; desc = "The DMA is filling a bank."; } FILL_BUSY[1:1];
+        field { sw = r; hw = w; desc = "The DMA is draining a bank."; } DRAIN_BUSY[2:2];
+        field { sw = r; hw = w; desc = "A DMA transfer returned an AXI error. Cleared by CU_RESET."; } DMA_ERR[3:3];
+    };
+
+    reg commit_t {
+        name = "Table set commit";
+        desc = "Write 1 to bit k to commit table set k (CU-11). The cache unit copies the set into its working copy, raises tables_valid[k] and starts filling the read banks. A commit while ctx_locked[k] is high or while the outputs of the last kernel of context k are not yet drained is ignored and sets COMMIT_ERR.";
+        field { sw = rw; hw = r; singlepulse; } SET0[0:0] = 0;
+        field { sw = rw; hw = r; singlepulse; } SET1[1:1] = 0;
+    };
+
+    reg cu_status_t {
+        name = "Cache unit status";
+        field { sw = r; hw = w; desc = "Bit k: table set k is committed."; } TABLES_VALID[1:0];
+        field { sw = r; hw = w; desc = "Bit k: every written bank of the last kernel of context k is in DRAM (CU-18). Cleared by a commit of set k."; } DRAINED[3:2];
+        field { sw = r; hw = w; desc = "The last commit was refused."; } COMMIT_ERR[4:4];
+        field { sw = r; hw = w; desc = "A committed table claims a bank another committed table claims, or more than 16 banks."; } CONFIG_ERR[5:5];
+    };
+
+    enum bank_state_e {
+        FREE = 0;
+        FILLING = 1;
+        VALID = 2;
+        DRAINING = 3;
+    };
+
+    reg bank_t {
+        desc = "One XMEM bank, as the cache unit holds it.";
+        field { sw = r; hw = w; encode = bank_state_e; } STATE[1:0];
+        field { sw = r; hw = w; desc = "The IPU stored to the bank since it was claimed."; } DIRTY[2:2];
+        field { sw = r; hw = w; desc = "The tag the bank holds: {ctx, table_id[3:0], page[9:0]}. Meaningful while the bank is not FREE."; } TAG[30:16];
+    };
+
+    // ---- Socket exerciser ---------------------------------------------------
+
+    reg ex_cmd_t {
+        name = "Exerciser command";
+        desc = "Write 1 to one bit: the exerciser drives that event for one cycle on the cache unit's IPU-side ports, with the arguments below. Needs CTRL.EXERCISER = 1.";
+        field { sw = rw; hw = r; singlepulse; desc = "ld_valid at EX_ADDR; ld_data and ld_meta land in EX_DATA and EX_META."; } LOAD[0:0] = 0;
+        field { sw = rw; hw = r; singlepulse; desc = "st_valid at EX_ADDR with EX_DATA and EX_META."; } STORE[1:1] = 0;
+        field { sw = rw; hw = r; singlepulse; desc = "bank_req with EX_TAG and EX_ADDR.WRITE."; } BANK_REQ[2:2] = 0;
+        field { sw = rw; hw = r; singlepulse; desc = "bank_release of EX_ADDR.BANK."; } RELEASE[3:3] = 0;
+        field { sw = rw; hw = r; singlepulse; desc = "bank_flush of EX_ADDR.BANK."; } FLUSH[4:4] = 0;
+        field { sw = rw; hw = r; singlepulse; desc = "kernel_done (with kernel_start if EX_CTX.START is set)."; } KERNEL_DONE[5:5] = 0;
+        field { sw = rw; hw = r; singlepulse; } KERNEL_ABORT[6:6] = 0;
+        field { sw = rw; hw = r; singlepulse; } KERNEL_START[7:7] = 0;
+    };
+
+    reg ex_addr_t {
+        field { sw = rw; hw = r; } BANK[3:0] = 0;
+        field { sw = rw; hw = r; } ROW[13:4] = 0;
+        field { sw = rw; hw = r; desc = "bank_req_write."; } WRITE[16:16] = 0;
+    };
+
+    reg ex_ctx_t {
+        desc = "Levels the exerciser drives while CTRL.EXERCISER = 1.";
+        field { sw = rw; hw = r; } ACTIVE_CTX[0:0] = 0;
+        field { sw = rw; hw = r; } CTX_LOCKED[5:4] = 0;
+    };
+
+    reg ex_tag_t {
+        field { sw = rw; hw = r; desc = "{ctx, table_id[3:0], page[9:0]}."; } TAG[14:0] = 0;
+    };
+
+    reg ex_meta_t {
+        field { sw = rw; hw = rw; we; } META[15:0] = 0;
+    };
+
+    reg ex_data_t {
+        desc = "One 32-bit slice of the 1024-bit row: EX_DATA[i] is bits 32*i+31:32*i.";
+        field { sw = rw; hw = rw; we; } VALUE[31:0] = 0;
+    };
+
+    reg ex_events_t {
+        name = "Exerciser events";
+        desc = "Sticky copies of the cache unit's events, for the host to check. Write 1 to clear.";
+        field { sw = rw; hw = na; onwrite = woclr; hwset; } BANK_PUB[0:0] = 0;
+        field { sw = rw; hw = na; onwrite = woclr; hwset; } BANK_FREE[1:1] = 0;
+    };
+
+    reg ex_last_t {
+        desc = "The last bank_pub and bank_free events.";
+        field { sw = r; hw = w; } PUB_ID[3:0];
+        field { sw = r; hw = w; } PUB_TAG[18:4];
+        field { sw = r; hw = w; } FREE_ID[23:20];
+    };
+
+    // ---- Table sets ---------------------------------------------------------
+
+    enum table_type_e {
+        READ_ONLY = 0;
+        WRITE_ONLY = 1;
+        READ_AFTER_WRITE = 2;
+        SCRATCH_PAD = 3;
+    };
+
+    reg table_cfg_t {
+        field { sw = rw; hw = r; desc = "The table exists."; } ENABLE[0:0] = 0;
+        field { sw = rw; hw = r; encode = table_type_e; } TYPE[2:1] = 0;
+        field { sw = rw; hw = r; desc = "Output element format of an AaQ destination table: format[8] dynamic flag, format[7:0] encoding (cache-unit.md, section 5)."; } FORMAT[16:8] = 0;
+    };
+
+    reg table_banks_t {
+        desc = "Prototype mapping: page p of the table is XMEM bank FIRST_BANK + p. FIRST_BANK + SIZE must not exceed 16.";
+        field { sw = rw; hw = r; } FIRST_BANK[3:0] = 0;
+    };
+
+    reg table_word_t {
+        field { sw = rw; hw = r; } VALUE[31:0] = 0;
+    };
+
+    reg table_half_t {
+        field { sw = rw; hw = r; } VALUE[15:0] = 0;
+    };
+
+    regfile table_t {
+        table_cfg_t CFG @ 0x00;
+        table_banks_t BANKS @ 0x04;
+        table_word_t DRAM_LO @ 0x08;
+        DRAM_LO->desc = "Byte address of page 0 in device memory (HBM), bits 31:0. 4 KiB aligned. Page p is at DRAM + p * 128 KiB.";
+        table_word_t DRAM_HI @ 0x0C;
+        DRAM_HI->desc = "Bits 63:32 of the byte address.";
+        table_half_t SIZE @ 0x10;
+        SIZE->desc = "Pages (banks) in the table. Rows beyond SIZE * 1024 fault F-6.";
+        table_half_t JUMP_BACK @ 0x14;
+        JUMP_BACK->desc = "cache-unit.md, sections 9.1 and 9.2. 0: no bank is released or flushed before kernel done.";
+        table_half_t REPETITIONS @ 0x18;
+    };
+
+    regfile table_set_t {
+        table_t TABLE[16] @ 0x0 += 0x20;
+    };
+
+    id_t ID @ 0x000;
+    version_t VERSION @ 0x004;
+    build_t BUILD_ID @ 0x008;
+    build_t CLK_KHZ @ 0x00C;
+    CLK_KHZ->desc = "The kernel clock in kHz.";
+    ctrl_t CTRL @ 0x010;
+    status_t STATUS @ 0x014;
+    commit_t COMMIT @ 0x020;
+    cu_status_t CU_STATUS @ 0x024;
+    bank_t BANK[16] @ 0x040 += 0x4;
+    ex_cmd_t EX_CMD @ 0x100;
+    ex_addr_t EX_ADDR @ 0x104;
+    ex_ctx_t EX_CTX @ 0x108;
+    ex_tag_t EX_TAG @ 0x10C;
+    ex_meta_t EX_META @ 0x110;
+    ex_events_t EX_EVENTS @ 0x114;
+    ex_last_t EX_LAST @ 0x118;
+    ex_data_t EX_DATA[32] @ 0x180 += 0x4;
+    table_set_t TABLE_SET[2] @ 0x1000 += 0x200;
+};

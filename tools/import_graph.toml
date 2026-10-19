@@ -69,6 +69,11 @@ ipu_harness = ["ipu_isa", "ipu_as", "ipu_emu", "ipu_debug"]
 # lanes, E06-05) come from ipu_isa, never a local constant.
 ipu_kernels = ["ipu_harness", "ipu_isa"]
 
+# The host register maps, the host driver and the model of the FPGA prototype
+# card (ADR 0007). The model runs kernels on the reference model. Nothing
+# imports ipu_host; the FPGA host scripts (fpga/alveo-u55c/host) use it.
+ipu_host = ["ipu_isa", "ipu_emu"]
+
 # A shared reference never imports the emulator, nor the framework or the rest
 # of ipu_kernels (both reach ipu_emu): one that does is a copy of the code under
 # test. Format codecs come from ipu_isa.

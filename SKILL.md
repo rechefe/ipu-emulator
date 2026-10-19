@@ -36,6 +36,7 @@ The rules agents must never break are in [CLAUDE.md](CLAUDE.md), under "Key Cons
 | Timing model (cycle-start and forwarded values) | [explanation/timing-model.md](docs/content/explanation/timing-model.md); decision in [ADR 0002](docs/adr/0002-timing-contract.md) |
 | Prototyping mode | [explanation/architecture.md](docs/content/explanation/architecture.md), "Faithful and prototyping execution" |
 | ISA idioms and kernel coverage | [isa-idioms.md](docs/content/explanation/isa-idioms.md), [kernel-coverage.md](docs/content/explanation/kernel-coverage.md) |
+| FPGA prototype (Alveo U55C), host register maps (SystemRDL), host driver | [specs/fpga-prototype.md](docs/content/specs/fpga-prototype.md); the decision: [ADR 0007](docs/adr/0007-fpga-prototype-on-alveo-u55c.md); files: [fpga/alveo-u55c/README.md](fpga/alveo-u55c/README.md) |
 | Hardware specs and requirements | [specs/](docs/content/specs/), [requirements/index.md](docs/content/requirements/index.md) |
 | Open questions | [requirements/open-questions.md](docs/content/requirements/open-questions.md) |
 | Terms | [GLOSSARY.md](GLOSSARY.md) |

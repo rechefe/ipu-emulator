@@ -151,6 +151,7 @@ nav:
           - Accumulator Stage Specification: specs/stage-accumulator.md
           - Control Stage Specification: specs/stage-control.md
           - RISC-V Host Integration: specs/riscv-host-integration.md
+          - FPGA prototype (Alveo U55C): specs/fpga-prototype.md
           - Mnemonic rename (SV names): specs/mnemonic-rename.md
           - RTL migration (SV package): specs/rtl-migration.md
       - HW requirements:

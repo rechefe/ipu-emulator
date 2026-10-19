@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The prototype as a Vitis user-managed RTL kernel (fpga-prototype.md, "Shell").
+     XRT never starts it: the host drives its control space with xrt::ip.
+     The one argument exists so that v++ can connect m_axi_hbm to HBM (sp=);
+     its offset is in the platform's reserved space and nothing reads it. -->
+<root versionMajor="1" versionMinor="6">
+  <kernel name="ipu_proto_kernel" language="ip_c" vlnv="ipu.proto:kernel:ipu_proto_kernel:1.0"
+          attributes="" preferredWorkGroupSizeMultiple="0" workGroupSize="1" interrupt="false"
+          hwControlProtocol="user_managed">
+    <ports>
+      <port name="s_axi_control" mode="slave" range="0x40000" dataWidth="32" portType="addressable" base="0x0"/>
+      <port name="m_axi_hbm" mode="master" range="0xFFFFFFFFFFFFFFFF" dataWidth="512" portType="addressable" base="0x0"/>
+    </ports>
+    <args>
+      <arg name="hbm" addressQualifier="1" id="0" port="m_axi_hbm" size="0x8" offset="0x30000"
+           type="void*" hostOffset="0x0" hostSize="0x8"/>
+    </args>
+  </kernel>
+</root>

@@ -181,6 +181,7 @@ _PACKAGE_SOURCES = [
     "//src/ipu-emu:py_sources",
     "//src/ipu-gen:py_sources",
     "//src/ipu-harness:py_sources",
+    "//src/ipu-host:py_sources",
     "//src/ipu-isa:py_sources",
     "//src/ipu-kernels:py_sources",
 ]
@@ -688,6 +689,7 @@ py_pytest_test(
         "//:.github/pull_request_template.md",
         "//:GLOSSARY.md",
         "//src/ipu-isa:conformance/README.md",
+        "//fpga/alveo-u55c:README.md",
         "//tools/bench:README.md",
     ],
     deps = [requirement("pytest")],

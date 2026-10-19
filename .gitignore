@@ -25,3 +25,6 @@
 
 # Local benchmark results (bazel run //tools/bench:bench)
 bench-results/
+
+# FPGA prototype build outputs (fpga/alveo-u55c/Makefile)
+fpga/alveo-u55c/build/

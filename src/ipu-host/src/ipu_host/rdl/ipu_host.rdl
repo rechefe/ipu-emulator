@@ -1,0 +1,263 @@
+// The IPU host port: the address map of the IPU's AXI4 slave.
+//
+// Requirements: docs/content/requirements/host-registers.md, execution-flow.md,
+// faults.md and debug.md. Decisions: docs/adr/0007-fpga-prototype-on-alveo-u55c.md.
+// This file is the single source of the offsets and fields; PeakRDL generates
+// the SystemVerilog register block, the Python map and the docs page from it.
+//
+// Status: prototype default. The IPU block specification (level 2) adopts or
+// replaces it. Changing an offset or a field changes the RTL: call it out in
+// the PR, as for a *_WIDTH of ipu_instr_pkg.sv.
+//
+// Registers marked `external` have side effects or access rules (locked
+// contexts, run states) that the IPU implements itself: the generated block
+// forwards their accesses on its hwif, and the IPU answers with an AXI error
+// (SLVERR) for an illegal access (IPU-HOST-5).
+
+addrmap ipu_host {
+    name = "IPU host port";
+    desc = "Two IMEM windows and the register file, on one AXI4 slave with 32-bit data (IPU-HOST-1, IPU-HOST-2).";
+
+    default regwidth = 32;
+    default accesswidth = 32;
+
+    // ---- IMEM windows -------------------------------------------------------
+
+    mem imem_window_t {
+        desc = "One IMEM bank, one instruction word per 32 bytes. Word i is at byte 32*i. Beats 0 to 4 hold bits 31:0 to 159:128 of the 160-bit padded hardware word (the 155-bit word, zero-padded). Beats 5 to 7 read 0 and ignore writes. Writable while the context is not locked (IPU-EXEC-6); readable in every state except a running state with this context active.";
+        mementries = 8192;
+        memwidth = 32;
+        sw = rw;
+    };
+
+    external imem_window_t IMEM0 @ 0x00000;
+    IMEM0->name = "IMEM window 0";
+    external imem_window_t IMEM1 @ 0x08000;
+    IMEM1->name = "IMEM window 1";
+
+    // ---- Register file ------------------------------------------------------
+
+    reg id_t {
+        name = "Identification";
+        field { sw = r; hw = na; desc = "ASCII \"IPUH\"."; } MAGIC[31:0] = 0x49505548;
+    };
+
+    reg version_t {
+        name = "Register map version";
+        desc = "Major changes when an existing offset or field changes; minor when one is added.";
+        field { sw = r; hw = na; } MINOR[7:0] = 1;
+        field { sw = r; hw = na; } MAJOR[15:8] = 0;
+    };
+
+    reg isa_digest_t {
+        name = "ISA digest";
+        desc = "The first 32 bits of the ISA digest the RTL was built from (ipu_isa isa_digest(), first 8 hex digits, as an integer). The host refuses a program assembled against another ISA.";
+        field { sw = r; hw = w; } VALUE[31:0];
+    };
+
+    reg params_t {
+        name = "Parameters";
+        field { sw = r; hw = w; desc = "log2 of the IMEM bank depth in words (10: 1024 words, OQ-4)."; } IMEM_DEPTH_LOG2[4:0];
+        field { sw = r; hw = w; desc = "Number of PC breakpoints (IPU-DBG-9)."; } BREAKPOINTS[11:8];
+        field { sw = r; hw = w; desc = "SIMD lanes."; } LANES[23:16];
+    };
+
+    reg command_t {
+        name = "Command";
+        desc = "Write 1 to exactly one bit to issue a command (execution-flow.md, Commands). A command the run state does not accept, ARM while tables_valid of the inactive context is low (IPU-EXEC-2), or a write with more than one bit set (IPU-EXEC-29) has no effect and returns an AXI error. Reads return 0.";
+        field { sw = w; hw = r; } ARM[0:0];
+        field { sw = w; hw = r; } DISARM[1:1];
+        field { sw = w; hw = r; } HALT[2:2];
+        field { sw = w; hw = r; } STEP[3:3];
+        field { sw = w; hw = r; } RESUME[4:4];
+        field { sw = w; hw = r; } ABORT[5:5];
+    };
+
+    enum run_state_e {
+        IDLE = 0;
+        RUNNING_UNARMED = 1;
+        RUNNING_ARMED = 2;
+        HALTED = 3;
+    };
+
+    enum halt_cause_e {
+        NONE = 0 { desc = "Not HALTED."; };
+        HALT_REQUEST = 1;
+        STEP_DONE = 2;
+        BREAKPOINT = 3;
+        FAULT = 4;
+    };
+
+    reg status_t {
+        name = "Status";
+        field { sw = r; hw = w; encode = run_state_e; } RUN_STATE[1:0];
+        field { sw = r; hw = w; } ACTIVE_CTX[2:2];
+        field { sw = r; hw = w; } ARMED[3:3];
+        field { sw = r; hw = w; desc = "Bit k: table set k is committed (from the cache unit)."; } TABLES_VALID[5:4];
+        field { sw = r; hw = w; desc = "Bit k: context k is locked."; } CTX_LOCKED[7:6];
+        field { sw = r; hw = w; encode = halt_cause_e; } HALT_CAUSE[10:8];
+        field { sw = r; hw = w; desc = "The breakpoint that halted, when HALT_CAUSE is BREAKPOINT."; } BP_INDEX[15:12];
+        field { sw = r; hw = w; desc = "The fault number n of F-n, when HALT_CAUSE is FAULT (IPU-FLT-4, IPU-FLT-8)."; } FAULT_CODE[19:16];
+        field { sw = r; hw = w; desc = "A word is stalled on a miss."; } STALLED[20:20];
+    };
+
+    reg fault_pc_t {
+        name = "Fault PC";
+        field { sw = r; hw = w; desc = "PC of the faulting word (IPU-FLT-4)."; } PC[9:0];
+    };
+
+    reg int_t {
+        field { sw = rw; hw = r; onwrite = woclr; hwset; desc = "A kernel started."; } KERNEL_START[0:0] = 0;
+        field { sw = rw; hw = r; onwrite = woclr; hwset; desc = "A kernel is done."; } KERNEL_DONE[1:1] = 0;
+        field { sw = rw; hw = r; onwrite = woclr; hwset; desc = "The IPU entered HALTED."; } HALTED[2:2] = 0;
+        field { sw = rw; hw = r; onwrite = woclr; hwset; desc = "The IPU rejected a host access."; } HOST_ERR[3:3] = 0;
+    };
+
+    reg int_enable_t {
+        name = "Interrupt enable";
+        desc = "irq is high while a status bit with its enable bit set is high (IPU-HOST-7).";
+        field { sw = rw; hw = r; } KERNEL_START[0:0] = 0;
+        field { sw = rw; hw = r; } KERNEL_DONE[1:1] = 0;
+        field { sw = rw; hw = r; } HALTED[2:2] = 0;
+        field { sw = rw; hw = r; } HOST_ERR[3:3] = 0;
+    };
+
+    reg prog_len_t {
+        desc = "Program length in words, for fault F-2 (Proposed). Writable while the context is not locked.";
+        field { sw = rw; hw = r; } WORDS[10:0] = 0;
+    };
+
+    enum element_format_e {
+        INT8 = 0;
+        E1 = 1;
+        E2 = 2;
+        E3 = 3;
+        E4 = 4;
+        E5 = 5;
+        E6 = 6;
+        E7 = 7;
+    };
+
+    reg format_t {
+        desc = "The element format a context's kernel runs in (element-formats.md). The emulator takes it as configuration; the IPU reads it from here at kernel start. Writable while the context is not locked. Prototype default: no requirement names it yet.";
+        field { sw = rw; hw = r; encode = element_format_e; } FMT[3:0] = 0;
+    };
+
+    reg fault_enable_t {
+        name = "Fault enable";
+        desc = "Bit n enables fault F-n: an enabled fault halts, a disabled one only sets its flag (IPU-FLT-5). All set after reset (IPU-FLT-6).";
+        field { sw = rw; hw = r; } F1[1:1] = 1;
+        field { sw = rw; hw = r; } F2[2:2] = 1;
+        field { sw = rw; hw = r; } F3[3:3] = 1;
+        field { sw = rw; hw = r; } F4[4:4] = 1;
+        field { sw = rw; hw = r; } F5[5:5] = 1;
+        field { sw = rw; hw = r; } F6[6:6] = 1;
+        field { sw = rw; hw = r; } F7[7:7] = 1;
+        field { sw = rw; hw = r; } F8[8:8] = 1;
+        field { sw = rw; hw = r; } F9[9:9] = 1;
+    };
+
+    reg fault_flags_t {
+        name = "Fault and event flags";
+        desc = "Sticky. Bit n is set when fault F-n is raised, enabled or not. Bits 16 and up are the arithmetic events (faults.md, Arithmetic events). Write 1 to clear.";
+        field { sw = rw; hw = na; onwrite = woclr; hwset; } F1[1:1] = 0;
+        field { sw = rw; hw = na; onwrite = woclr; hwset; } F2[2:2] = 0;
+        field { sw = rw; hw = na; onwrite = woclr; hwset; } F3[3:3] = 0;
+        field { sw = rw; hw = na; onwrite = woclr; hwset; } F4[4:4] = 0;
+        field { sw = rw; hw = na; onwrite = woclr; hwset; } F5[5:5] = 0;
+        field { sw = rw; hw = na; onwrite = woclr; hwset; } F6[6:6] = 0;
+        field { sw = rw; hw = na; onwrite = woclr; hwset; } F7[7:7] = 0;
+        field { sw = rw; hw = na; onwrite = woclr; hwset; } F8[8:8] = 0;
+        field { sw = rw; hw = na; onwrite = woclr; hwset; } F9[9:9] = 0;
+        field { sw = rw; hw = na; onwrite = woclr; hwset; } ACC_OVERFLOW[16:16] = 0;
+        field { sw = rw; hw = na; onwrite = woclr; hwset; } NAN_RESULT[17:17] = 0;
+        field { sw = rw; hw = na; onwrite = woclr; hwset; } QUANT_SATURATION[18:18] = 0;
+    };
+
+    reg limit_t {
+        desc = "0 disables the check.";
+        field { sw = rw; hw = r; } VALUE[31:0] = 0;
+    };
+
+    reg counter_t {
+        desc = "Counts from the last kernel start. Wraps.";
+        field { sw = r; hw = w; } VALUE[31:0];
+    };
+
+    reg cr_t {
+        desc = "CR0 reads 0 and CR1 reads 1; writing either returns an AXI error. Other CRs: writable while the context is not locked (IPU-EXEC-6).";
+        field { sw = rw; hw = r; } VALUE[31:0];
+    };
+
+    reg dbg_cap_t {
+        name = "Debug capability";
+        desc = "IPU-DBG-21.";
+        field { sw = r; hw = na; desc = "Step 0."; } VERSION[7:0] = 0;
+        field { sw = r; hw = w; } BREAKPOINTS[11:8];
+        field { sw = r; hw = na; desc = "One bit per debug feature beyond step 0. None yet."; } FEATURES[31:16] = 0;
+    };
+
+    reg pc_t {
+        name = "Program counter";
+        desc = "Readable in every state (IPU-DBG-13). Writable in HALTED with a debug cause only (IPU-DBG-14, IPU-FLT-7).";
+        field { sw = rw; hw = r; } PC[9:0];
+    };
+
+    reg lr_t {
+        desc = "Read-only to the host (IPU-DBG-16).";
+        field { sw = r; hw = w; } VALUE[31:0];
+    };
+
+    reg bp_t {
+        desc = "PC breakpoint (IPU-DBG-10, IPU-DBG-11). Reset clears the enables (IPU-IF-4).";
+        field { sw = rw; hw = r; } ENABLE[0:0] = 0;
+        field { sw = rw; hw = r; } CTX[1:1] = 0;
+        field { sw = rw; hw = r; } PC[25:16] = 0;
+    };
+
+    regfile cr_bank_t {
+        external cr_t CR[16] @ 0x0 += 0x4;
+    };
+
+    regfile debug_t {
+        name = "Debug window";
+        desc = "IPU-DBG-20: capability, PC, LR read-out and breakpoints.";
+        dbg_cap_t DBG_CAP @ 0x00;
+        external pc_t PC @ 0x04;
+        lr_t LR[16] @ 0x40 += 0x4;
+        bp_t BP[4] @ 0x80 += 0x4;
+    };
+
+    regfile regs_t {
+        name = "Register file";
+        id_t ID @ 0x000;
+        version_t VERSION @ 0x004;
+        isa_digest_t ISA_DIGEST @ 0x008;
+        params_t PARAMS @ 0x00C;
+        external command_t COMMAND @ 0x010;
+        status_t STATUS @ 0x014;
+        fault_pc_t FAULT_PC @ 0x018;
+        int_t INT_STATUS @ 0x020;
+        INT_STATUS->name = "Interrupt status";
+        INT_STATUS->desc = "One bit per interrupt event. Write 1 to clear (IPU-HOST-8).";
+        int_enable_t INT_ENABLE @ 0x024;
+        external prog_len_t PROG_LEN[2] @ 0x030 += 0x4;
+        external format_t FORMAT[2] @ 0x038 += 0x4;
+        fault_enable_t FAULT_ENABLE @ 0x040;
+        fault_flags_t FAULT_FLAGS @ 0x044;
+        limit_t STALL_LIMIT @ 0x050;
+        STALL_LIMIT->desc = "Word stall limit in cycles, for F-8 (Proposed). 0 disables the check.";
+        limit_t CYCLE_LIMIT @ 0x054;
+        CYCLE_LIMIT->desc = "Kernel cycle limit, for F-9 (Proposed). 0 disables the check.";
+        counter_t KERNEL_CYCLES @ 0x060;
+        KERNEL_CYCLES->desc = "Clock cycles since the last kernel start (prototype).";
+        counter_t RETIRED_WORDS @ 0x064;
+        RETIRED_WORDS->desc = "Words retired since the last kernel start: compare with the reference model's cycle count (prototype).";
+        counter_t STALL_CYCLES @ 0x068;
+        STALL_CYCLES->desc = "Cycles a word stalled on a miss since the last kernel start (prototype).";
+        cr_bank_t CR_BANK[2] @ 0x100 += 0x40;
+        debug_t DEBUG @ 0x800;
+    };
+
+    regs_t REGS @ 0x10000;
+};

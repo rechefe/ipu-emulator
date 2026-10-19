@@ -26,6 +26,7 @@ INPUTS = (
     "src/ipu-gen/pyproject.toml",
     "src/ipu-kernels/pyproject.toml",
     "src/ipu-harness/pyproject.toml",
+    "src/ipu-host/pyproject.toml",
     "tools/requirements-tools.in",
 )
 
@@ -38,6 +39,7 @@ LOCAL_PACKAGES = (
     "ipu-gen",
     "ipu-kernels",
     "ipu-harness",
+    "ipu-host",
 )
 
 LOCK = "requirements_lock.txt"

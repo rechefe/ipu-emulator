@@ -35,6 +35,7 @@ known-first-party = [
     "ipu_emu",
     "ipu_gen",
     "ipu_harness",
+    "ipu_host",
     "ipu_isa",
     "ipu_kernels",
 ]
