@@ -1,0 +1,334 @@
+name: Nightly
+
+# The heavy tier, once a night (Q71, Q73):
+#
+# - `full`: every non-manual test (`--config=full`, including the `enormous`
+#   tier) exactly once, under coverage instrumentation. No disk cache, so every
+#   test really runs and a non-hermetic test cannot hide behind a cached result.
+#   Coverage is collected here only; ci.yml does not run `bazel coverage`. The
+#   MobileViT full-layer chains (`//kernels/mobilevit:tests_nightly`, size
+#   `enormous`) run here, so they need no job of their own.
+# - `proto`: the heavy tier (the `enormous` tests) again in prototyping mode
+#   (`--config=proto`, E02-08). The default tier already runs in that mode on
+#   every pull request (ci.yml `proto`), so only the heavy tier is repeated.
+# - `benchmarks`: after `full` (so test load does not disturb the timings),
+#   host-side benchmarks and CI wall times (E01-14, tools/bench/README.md),
+#   uploaded as an artifact and appended to the `benchmark-data` branch. No
+#   gate: an alert above 120 % only shows in the job summary.
+# - `report`: on a scheduled run (or a dispatch with `report_issue`), opens or
+#   updates the "Nightly failure" issue when a job failed, and closes it when
+#   every job passed.
+
+on:
+  schedule:
+    - cron: "17 2 * * *" # 02:17 UTC, off the hour
+  workflow_dispatch:
+    inputs:
+      report_issue:
+        description: Open, update or close the "Nightly failure" issue for this run
+        type: boolean
+        default: false
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  full:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      # Scheduled runs check out the default branch (master); a dispatch checks
+      # out the branch it was started from.
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install toolchain
+        run: ./tools/bootstrap.sh
+
+      - name: Install lcov
+        run: sudo apt-get update && sudo apt-get install -y lcov
+
+      # Downloads only (repository cache and bazelisk's Bazel binary). There is
+      # deliberately no disk cache: nightly results must come from real runs.
+      - name: Restore repository cache
+        id: repo-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cache/bazel-repo
+            ~/.cache/bazelisk
+          key: bazel-repo-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'MODULE.bazel.lock', 'requirements_lock.txt') }}
+
+      # Every non-manual test once; writes the combined lcov report to
+      # bazel-out/_coverage/_coverage_report.dat (.bazelrc `coverage` flags).
+      - name: Run every non-manual test with coverage
+        shell: bash
+        run: |
+          set -o pipefail
+          bazel coverage --config=full --repository_cache=~/.cache/bazel-repo //... \
+            2>&1 | tee "$RUNNER_TEMP/bazel.log"
+
+      - name: Publish coverage summary
+        shell: bash
+        run: |
+          report=bazel-out/_coverage/_coverage_report.dat
+          test -s "$report" || { echo "::error::coverage report $report is missing or empty"; exit 1; }
+          mkdir -p coverage
+          cp "$report" coverage/coverage.dat
+          {
+            bazel run --ui_event_filters=-info,-stdout,-stderr --noshow_progress \
+              --repository_cache=~/.cache/bazel-repo //tools:coverage_summary -- \
+              "$PWD/coverage/coverage.dat" \
+              --require ipu_emu --require ipu_as --require ipu_isa
+            echo
+            echo '```'
+            lcov --summary coverage/coverage.dat 2>&1
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          test "${PIPESTATUS[0]}" -eq 0
+          genhtml --output-directory coverage/html coverage/coverage.dat
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: coverage
+          path: coverage
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: List failed targets
+        if: failure()
+        shell: bash
+        run: |
+          grep -E '^//[^ ]+ +.*(FAILED|TIMEOUT|NO STATUS|INCOMPLETE|FAILED TO BUILD)' \
+            "$RUNNER_TEMP/bazel.log" > failed-targets-full.txt \
+            || echo "(no failed test target in the log: the build or coverage step failed; see the run)" \
+               > failed-targets-full.txt
+          cat failed-targets-full.txt
+
+      - name: Upload failed targets and test logs
+        if: failure()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: failed-full
+          path: |
+            failed-targets-full.txt
+            bazel-testlogs/**/test.log
+            bazel-testlogs/**/test.xml
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Save repository cache
+        if: success() && steps.repo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cache/bazel-repo
+            ~/.cache/bazelisk
+          key: bazel-repo-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'MODULE.bazel.lock', 'requirements_lock.txt') }}
+
+  proto:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install toolchain
+        run: ./tools/bootstrap.sh
+
+      - name: Restore repository cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cache/bazel-repo
+            ~/.cache/bazelisk
+          key: bazel-repo-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'MODULE.bazel.lock', 'requirements_lock.txt') }}
+
+      - name: Run the heavy tier in prototyping mode
+        shell: bash
+        run: |
+          set -o pipefail
+          bazel test --config=full --config=proto --test_size_filters=enormous \
+            --repository_cache=~/.cache/bazel-repo //... 2>&1 | tee "$RUNNER_TEMP/bazel.log"
+
+      - name: List failed targets
+        if: failure()
+        shell: bash
+        run: |
+          grep -E '^//[^ ]+ +.*(FAILED|TIMEOUT|NO STATUS|INCOMPLETE|FAILED TO BUILD)' \
+            "$RUNNER_TEMP/bazel.log" > failed-targets-proto.txt \
+            || echo "(no failed test target in the log: the build failed or the job timed out; see the run)" \
+               > failed-targets-proto.txt
+          cat failed-targets-proto.txt
+
+      - name: Upload failed targets and test logs
+        if: failure()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: failed-proto
+          path: |
+            failed-targets-proto.txt
+            bazel-testlogs/**/test.log
+            bazel-testlogs/**/test.xml
+          retention-days: 14
+          if-no-files-found: ignore
+
+  benchmarks:
+    needs: full
+    # Also after a failed `full`: the benchmarks do not depend on its result.
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write # append to the benchmark-data branch
+      actions: read # job timings of this run and of ci.yml
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install toolchain
+        run: ./tools/bootstrap.sh
+
+      - name: Restore repository cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cache/bazel-repo
+            ~/.cache/bazelisk
+          key: bazel-repo-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'MODULE.bazel.lock', 'requirements_lock.txt') }}
+
+      - name: Run the benchmarks
+        run: |
+          bazel run -c opt --repository_cache=~/.cache/bazel-repo //tools/bench:bench -- \
+            --out "$RUNNER_TEMP/bench"
+
+      # ci/full_suite_wall_s (this run's `full` job) and ci/default_tier_wall_s
+      # (the latest successful ci.yml run on master). Skips what is missing.
+      - name: Record CI wall times
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          bazel run -c opt --repository_cache=~/.cache/bazel-repo //tools/bench:ci_times -- \
+            --out "$RUNNER_TEMP/bench" --run-id "${{ github.run_id }}"
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: benchmarks
+          path: ${{ runner.temp }}/bench/bench-*.json
+          retention-days: 90
+          if-no-files-found: error
+
+      # github-action-benchmark appends to an existing branch; create it once.
+      - name: Create the benchmark-data branch if missing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if git ls-remote --exit-code --heads origin benchmark-data >/dev/null; then
+            exit 0
+          fi
+          dir=$(mktemp -d)
+          git -C "$dir" init -q -b benchmark-data
+          printf '%s\n' "# Benchmark history" "" \
+            "Written by the nightly workflow (tools/bench/README.md). Chart: dev/bench/index.html." \
+            > "$dir/README.md"
+          git -C "$dir" add README.md
+          git -C "$dir" -c user.name="github-actions[bot]" \
+            -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "Start the benchmark history"
+          git -C "$dir" push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            benchmark-data
+
+      - name: Store times and memory (smaller is better)
+        uses: benchmark-action/github-action-benchmark@4322e5726e6334590d251fc4f92bec0efafc45dc # v1.22.2
+        with:
+          name: Times and memory (smaller is better)
+          tool: customSmallerIsBetter
+          output-file-path: ${{ runner.temp }}/bench/bench-smaller.json
+          gh-pages-branch: benchmark-data
+          benchmark-data-dir-path: dev/bench
+          github-token: ${{ github.token }}
+          auto-push: true
+          alert-threshold: "120%"
+          comment-on-alert: false
+          fail-on-alert: false
+          summary-always: true
+
+      - name: Store rates (bigger is better)
+        uses: benchmark-action/github-action-benchmark@4322e5726e6334590d251fc4f92bec0efafc45dc # v1.22.2
+        with:
+          name: Rates (bigger is better)
+          tool: customBiggerIsBetter
+          output-file-path: ${{ runner.temp }}/bench/bench-bigger.json
+          gh-pages-branch: benchmark-data
+          benchmark-data-dir-path: dev/bench
+          github-token: ${{ github.token }}
+          auto-push: true
+          alert-threshold: "120%"
+          comment-on-alert: false
+          fail-on-alert: false
+          summary-always: true
+
+  report:
+    needs: [full, proto]
+    if: always() && (github.event_name == 'schedule' || inputs.report_issue)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Download failed-target lists
+        if: needs.full.result != 'success' || needs.proto.result != 'success'
+        uses: actions/download-artifact@v5
+        with:
+          pattern: failed-*
+          path: failed
+          merge-multiple: true
+        continue-on-error: true
+
+      - name: Open, update or close the "Nightly failure" issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          FULL: ${{ needs.full.result }}
+          PROTO: ${{ needs.proto.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: bash
+        run: |
+          title="Nightly failure"
+          number=$(gh issue list --state open --label nightly --search "\"$title\" in:title" \
+                     --json number,title --jq ".[] | select(.title == \"$title\") | .number" | head -n1)
+          if [ "$FULL" = success ] && [ "$PROTO" = success ]; then
+            if [ -n "$number" ]; then
+              gh issue close "$number" --comment "Fixed: nightly run $RUN_URL passed."
+            fi
+            exit 0
+          fi
+          {
+            echo "Nightly run on \`${GITHUB_REF_NAME}\` (${GITHUB_SHA}) failed: $RUN_URL"
+            echo
+            echo "| Job | Result |"
+            echo "|---|---|"
+            echo "| full (every non-manual test, with coverage) | $FULL |"
+            echo "| proto (heavy tier, \`--config=proto\`) | $PROTO |"
+            echo
+            echo "Failed targets:"
+            echo
+            echo '```'
+            cat failed/failed-targets-*.txt 2>/dev/null || echo "(not recorded; see the run)"
+            echo '```'
+          } > body.md
+          gh label create nightly --force --color B60205 \
+            --description "Nightly workflow failures"
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --body-file body.md
+          else
+            gh issue create --title "$title" --label nightly --body-file body.md
+          fi

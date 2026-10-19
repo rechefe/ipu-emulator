@@ -1,0 +1,202 @@
+{
+  "aaq_inst_opcode": [
+    [0, "NOP"],
+    [1, "ACTIVATE_QUANTIZE"]
+  ],
+  "acc_inst_opcode": [
+    [0, "ACC_ADD"],
+    [1, "ACC_ADD_FIRST"],
+    [2, "ACC_MAX"],
+    [3, "ACC_MAX_FIRST"],
+    [4, "ACC_SUB"],
+    [5, "ACC_SUB_FIRST"],
+    [6, "NOP"],
+    [7, "ACC_STRIDE"],
+    [8, "AGG_SUM_FIRST"],
+    [9, "AGG_SUM"],
+    [10, "AGG_MAX_FIRST"],
+    [11, "AGG_MAX"],
+    [12, "ACC_RESHAPE"]
+  ],
+  "acc_store_inst_opcode": [
+    [0, "ST_ACC"],
+    [1, "NOP"]
+  ],
+  "activation_fn_field": [
+    [0, "IDENTITY"],
+    [1, "RELU"],
+    [2, "RELU6"],
+    [3, "SIGMOID"],
+    [4, "TANH"],
+    [5, "GELU"],
+    [6, "SOFTPLUS"],
+    [7, "ELU"],
+    [8, "EXP2"],
+    [9, "RECIPROCAL"],
+    [10, "RSQRT"],
+    [11, "SILU"],
+    [12, "WINDOW"]
+  ],
+  "break_inst_opcode": [
+    [0, "BREAK"],
+    [1, "BREAK_IFEQ"],
+    [2, "NOP"]
+  ],
+  "cond_inst_opcode": [
+    [0, "BEQ"],
+    [1, "BNE"],
+    [2, "BLT_S"],
+    [3, "BGE_S"],
+    [4, "BR"],
+    [5, "HALT"],
+    [6, "NOP"]
+  ],
+  "cr_reg_field": [
+    [0, "CR0"],
+    [1, "CR1"],
+    [2, "CR2"],
+    [3, "CR3"],
+    [4, "CR4"],
+    [5, "CR5"],
+    [6, "CR6"],
+    [7, "CR7"],
+    [8, "CR8"],
+    [9, "CR9"],
+    [10, "CR10"],
+    [11, "CR11"],
+    [12, "CR12"],
+    [13, "CR13"],
+    [14, "CR14"],
+    [15, "CR15"]
+  ],
+  "dstructure_cr_reg_field": [
+    [0, "CR0"],
+    [1, "CR1"],
+    [2, "CR2"],
+    [3, "CR3"],
+    [4, "CR4"],
+    [5, "CR5"],
+    [6, "CR6"],
+    [7, "CR7"],
+    [8, "CR8"],
+    [9, "CR9"],
+    [10, "CR10"],
+    [11, "CR11"],
+    [12, "CR12"],
+    [13, "CR13"],
+    [14, "CR14"],
+    [15, "CR15"]
+  ],
+  "elements_in_row_field": [
+    [0, "16"],
+    [1, "32"],
+    [2, "64"]
+  ],
+  "horizontal_stride_field": [
+    [0, "OFF"],
+    [1, "ON"],
+    [2, "ON_INV"],
+    [3, "RESERVED3"]
+  ],
+  "lcr_reg_field": [
+    [0, "LR0"],
+    [1, "LR1"],
+    [2, "LR2"],
+    [3, "LR3"],
+    [4, "LR4"],
+    [5, "LR5"],
+    [6, "LR6"],
+    [7, "LR7"],
+    [8, "LR8"],
+    [9, "LR9"],
+    [10, "LR10"],
+    [11, "LR11"],
+    [12, "LR12"],
+    [13, "LR13"],
+    [14, "LR14"],
+    [15, "LR15"],
+    [16, "CR0"],
+    [17, "CR1"],
+    [18, "CR2"],
+    [19, "CR3"],
+    [20, "CR4"],
+    [21, "CR5"],
+    [22, "CR6"],
+    [23, "CR7"],
+    [24, "CR8"],
+    [25, "CR9"],
+    [26, "CR10"],
+    [27, "CR11"],
+    [28, "CR12"],
+    [29, "CR13"],
+    [30, "CR14"],
+    [31, "CR15"]
+  ],
+  "load_inst_opcode": [
+    [0, "LD_MULT"],
+    [1, "LD_MULT_CYCLIC"],
+    [2, "LD_MASK"],
+    [3, "NOP"]
+  ],
+  "lr_inst_opcode": [
+    [0, "SET"],
+    [1, "ADD"],
+    [2, "SUB"],
+    [3, "INC_MODP2"],
+    [4, "INC"],
+    [5, "DEC"],
+    [6, "ADDB"],
+    [7, "ADDBI"],
+    [8, "NOP"]
+  ],
+  "lr_reg_field": [
+    [0, "LR0"],
+    [1, "LR1"],
+    [2, "LR2"],
+    [3, "LR3"],
+    [4, "LR4"],
+    [5, "LR5"],
+    [6, "LR6"],
+    [7, "LR7"],
+    [8, "LR8"],
+    [9, "LR9"],
+    [10, "LR10"],
+    [11, "LR11"],
+    [12, "LR12"],
+    [13, "LR13"],
+    [14, "LR14"],
+    [15, "LR15"]
+  ],
+  "lrd_reg_field": [
+    [0, "LRD0"],
+    [1, "LRD2"],
+    [2, "LRD4"],
+    [3, "LRD6"],
+    [4, "LRD8"],
+    [5, "LRD10"],
+    [6, "LRD12"],
+    [7, "LRD14"]
+  ],
+  "mult_inst_opcode": [
+    [0, "MULT_RC_VV"],
+    [1, "MULT_RC_VE"],
+    [2, "MULT_RC_VS"],
+    [3, "NOP"],
+    [4, "MULT_VE"],
+    [5, "MULT_EE"]
+  ],
+  "mult_stage_reg_field": [
+    [0, "R0"],
+    [1, "R1"]
+  ],
+  "store_inst_opcode": [
+    [0, "ST_AAQ"],
+    [1, "NOP"]
+  ],
+  "vertical_stride_field": [
+    [0, "OFF"],
+    [1, "ON"],
+    [2, "ON_INV"],
+    [3, "RESERVED3"]
+  ]
+}

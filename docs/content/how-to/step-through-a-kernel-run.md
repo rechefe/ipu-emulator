@@ -1,0 +1,78 @@
+# Cycle Inspector
+
+The [Cycle Inspector](inspector/index.html) replays a recorded kernel run cycle
+by cycle, in the browser, with nothing to install. Pick a kernel, then step
+forward and back, run to a breakpoint, or drag the timeline. For each cycle it
+shows:
+
+- the program listing, with the instruction word that just ran highlighted and how often
+  each word ran;
+- the instruction word: each slot's instruction and the word's bit fields, MSB
+  first;
+- the register file after the cycle (LR, CR and the vector registers), with the
+  cells the cycle changed outlined;
+- the hardware pipeline: which blocks the word used, or each word's stage
+  timing;
+- the XMEM traffic and the multiplier lanes in use.
+
+The **Assembly source** tab shows the kernel's `.asm` file as written, before
+Jinja rendering. The **ISA reference** tab lists every instruction of each
+slot; select one for its full description.
+
+The page is static HTML and JavaScript. It makes no request outside the docs
+site and uses system fonts.
+
+## Where the traces come from
+
+Every trace is a build output; none is checked in. The docs build records each
+curated case with the reference model's trace writer and converts it to the
+page's format, so the page always matches the current ISA and kernels:
+
+1. The kernel runner (`//src/ipu-harness:run_kernel` with `--trace` and
+   `--context`) runs a kernel-tree case exactly as its test runs it. It writes
+   the case's trace (one commit record per retired word; the schemas are in
+   `ipu_isa/schemas/`) and a context file: the kernel's source and labels, the
+   starting registers, and per word the multiplier lanes used and the XMEM
+   ranges read.
+2. `ipu-gen inspector-trace` converts the two files into the page's JSON
+   (`ipu_gen/schemas/inspector-trace.schema.json`). It keeps the first 5000
+   cycles of a long run and marks the trace as truncated.
+3. `//docs/inspector:inspector_data` gathers every trace, the kernel list
+   (`kernels.json`, from `docs/inspector/curated.toml`) and `isa.json`, the
+   instruction reference the editor extension also reads. The docs build copies
+   them to `inspector/data/`.
+
+The `kernel_trace` macro in `docs/inspector/defs.bzl` does steps 1 and 2 for one
+case. To record a trace by hand:
+
+```bash
+bazel run //src/ipu-harness:run_kernel -- kernels/conformance/vector_tour --case e4 --trace "$PWD/trace.jsonl" --context "$PWD/context.json"
+bazel run //src/ipu-gen:ipu-gen -- inspector-trace "$PWD/trace.jsonl" "$PWD/context.json" "$PWD/tour_e4.json"
+```
+
+## Add a kernel
+
+1. Add an entry to `CURATED` in `docs/inspector/BUILD.bazel`, where the page's
+   order is kept. Each entry becomes one `kernel_trace` target, and its name is
+   the kernel's id on the page:
+
+    ```python
+    {"name": "tour_e4", "kernel": "//kernels/conformance/vector_tour", "case": "e4"},
+    ```
+
+    `kernel` is a kernel-tree label (`//kernels/conformance/vector_tour`, or
+    `//kernels/<family>:<entry>` for a registry entry). `case` picks one of
+    the kernel's cases (`default` unless given); to record other values, add a
+    case to the kernel. The case runs in its first format unless `format`
+    names another, as `fc_e4` does: `{"name": "fc_e4", "kernel":
+    "//kernels/linear/fully_connected", "format": "e4"}`.
+
+2. Add a `[[kernel]]` entry with the same `id`, at the same place, to
+   `docs/inspector/curated.toml`, with its `group` (`hardware` for the 8-bit hardware element formats, `emulator`
+   for the emulator-only FP32 and INT32),
+   `title`, `label` and `description`.
+
+`bazel test //docs/inspector:test_kernels` fails when the two lists disagree.
+`bazel build --config=docs //docs:build_docs` then rebuilds the site, and
+`bazel test //docs:test_inspector_site` checks that the page and every trace are
+in it.

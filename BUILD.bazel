@@ -1,12 +1,45 @@
 # Root BUILD file
 
+load("//tools:lint.bzl", "ruff_test")
+
 package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "mypy.ini",
+    "requirements_lock.txt",
+    "ruff.toml",
+])
 
 # Prototyping mode: `bazel test --define=ipu_proto=1 //...` builds the emulator
 # with its opt-in fast paths on. They are bit-exact but are not a faithful model
-# of the chip (see src/tools/ipu-emu-py/src/ipu_emu/prototyping.py), so the
+# of the chip (see src/ipu-emu/src/ipu_emu/prototyping.py), so the
 # default build leaves them off.
 config_setting(
     name = "prototyping_on",
     values = {"define": "ipu_proto=1"},
+)
+
+# Read by the doc tests and the docs build in //docs.
+exports_files([
+    ".github/pull_request_template.md",
+    "CLAUDE.md",
+    "GLOSSARY.md",
+    "README.md",
+    "SKILL.md",
+])
+
+# Ruff over the Python files that belong to no other package (none today; a new
+# directory without a BUILD.bazel lands here).
+ruff_test(
+    name = "ruff",
+    srcs = glob(
+        ["**/*.py"],
+        allow_empty = True,
+        exclude = [
+            # Bazel's convenience symlinks into the output tree.
+            "bazel-*/**",
+            "**/.venv/**",
+            "playground/**",
+        ],
+    ),
 )

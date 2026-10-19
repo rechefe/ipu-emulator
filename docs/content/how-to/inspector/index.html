@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>IPU Cycle Inspector</title>
+<link rel="stylesheet" href="inspector.css">
+<script src="inspector.js" defer></script>
+</head>
+<body>
+
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <h1>IPU <span>Cycle</span> Inspector</h1>
+      <p>Step through traces recorded from the Python IPU emulator. Each step runs one instruction word; the register file shows exactly what it changed. <a href="../step-through-a-kernel-run/">About this page</a> · <a href="../../">Documentation</a></p>
+    </div>
+    <nav class="kernels" id="kernels" role="tablist" aria-label="Kernel"></nav>
+  </header>
+
+  <section class="kinfo" id="kinfo"></section>
+
+  <section class="transport" aria-label="Playback">
+    <div class="tgroup">
+      <button class="tb" id="b-reset" title="Reset to cycle 0 (Home)"><svg viewBox="0 0 16 16"><path d="M3 2h2v12H3zM14 2v12L6 8z"/></svg></button>
+      <button class="tb" id="b-back" title="Step back one cycle (←)"><svg viewBox="0 0 16 16"><path d="M12 2v12L4 8z"/></svg></button>
+      <button class="tb primary" id="b-run" title="Run / pause (Space)"><svg viewBox="0 0 16 16" id="runicon"><path d="M4 2v12l10-6z"/></svg><span id="runlbl">Run</span></button>
+      <button class="tb" id="b-step" title="Step one cycle (→)"><svg viewBox="0 0 16 16"><path d="M4 2v12l8-6z"/></svg></button>
+      <button class="tb" id="b-end" title="Jump to end of trace (End)"><svg viewBox="0 0 16 16"><path d="M2 2v12l8-6zM11 2h2v12h-2z"/></svg></button>
+    </div>
+    <div class="tgroup">
+      <button class="tb" id="b-branch" title="Run until the next taken branch">Next branch</button>
+      <button class="tb" id="b-store" title="Run until the next cycle that writes external memory">Next store</button>
+    </div>
+    <label class="speed" for="speed">Speed <input type="range" id="speed" min="0" max="100" value="45"> <span class="mono" id="speedlbl"></span></label>
+    <div class="readout">
+      <div><span class="eyebrow">Cycle</span><span class="v" id="r-cycle">0</span></div>
+      <div><span class="eyebrow">Next PC</span><span class="v" id="r-pc">0x0000</span></div>
+      <div><span class="eyebrow">Mem traffic</span><span class="v" id="r-mem">0</span></div>
+      <div title="Multiplier lanes used so far, out of 128 per cycle"><span class="eyebrow">MAC utilization</span><span class="v" id="r-mac">0%</span></div>
+    </div>
+  </section>
+
+  <section class="timeline" aria-label="Slot occupancy timeline">
+    <div class="tl-head">
+      <span class="eyebrow">Slot occupancy over time · click or drag to seek</span>
+      <span class="hint">Keys: <kbd>←</kbd> <kbd>→</kbd> step · <kbd>Space</kbd> run · click a program row to run to it · click its dot for a breakpoint</span>
+    </div>
+    <div class="tl-wrap">
+      <div class="tl-labels" id="tl-labels"></div>
+      <canvas id="tl"></canvas>
+    </div>
+    <div class="trunc" id="trunc" hidden></div>
+  </section>
+
+  <nav class="tabs" role="tablist" aria-label="View">
+    <button class="tab" role="tab" data-view="inspector" aria-selected="true">Inspector</button>
+    <button class="tab" role="tab" data-view="source" aria-selected="false">Assembly source</button>
+    <button class="tab" role="tab" data-view="isa" aria-selected="false">ISA reference</button>
+  </nav>
+
+  <main class="inspector" id="view-inspector">
+    <section class="panel listing">
+      <header><h2>Program</h2><span class="eyebrow" id="lst-meta"></span></header>
+      <ol id="listing"><li class="loading">Loading trace…</li></ol>
+    </section>
+    <div class="col">
+      <section class="panel">
+        <header><h2>Hardware pipeline</h2>
+          <span class="vmode pv" role="group" aria-label="Pipeline view">
+            <button data-pv="datapath" aria-pressed="true">Datapath</button><button data-pv="timing" aria-pressed="false">Stage timing</button>
+          </span></header>
+        <div class="pbody">
+          <div id="pv-datapath">
+            <div class="dp-wrap"><svg id="dp" viewBox="0 0 1000 332" role="img" aria-label="IPU datapath for the executed word"></svg></div>
+            <div class="hint">Blocks and paths lit in a slot's colour are used by the word just executed. Register chips turn yellow when the word wrote them. Block layout follows <span class="mono">docs/content/requirements/architecture.md</span>.</div>
+          </div>
+          <div id="pv-timing" hidden>
+            <div class="stages" id="stages"></div>
+            <div class="pchart-wrap"><div class="pchart" id="pchart"></div></div>
+            <div class="hint">Timing model: each word enters CTRL one clock after the previous one and spends one clock per stage, with no cache stalls. The spec fixes each stage's latency but does not yet give the values (IPU-ARCH-12). The emulator executes every word atomically; pipelining changes timing only, never results (IPU-ARCH-13). Hollow cells are bubbles: the word has no operation for that stage.</div>
+          </div>
+        </div>
+      </section>
+      <section class="panel">
+        <header><h2 id="vliw-title">Instruction word</h2><span class="eyebrow" id="vliw-sub"></span></header>
+        <div class="pbody">
+          <div class="lanes" id="lanes"></div>
+          <div class="bits-wrap"><div class="bits" id="bits"></div></div>
+          <div class="bitsnote"><span>Encoding, MSB → LSB. Filled cells are non-zero fields; hover for name and value.</span><span class="word" id="word"></span></div>
+          <div class="effects">
+            <div><h3 class="eyebrow">Registers written</h3><div class="eff-list" id="eff-regs"></div></div>
+            <div><h3 class="eyebrow">External memory (XMEM)</h3><div class="eff-list" id="eff-mem"></div></div>
+          </div>
+        </div>
+      </section>
+      <section class="panel">
+        <header><h2>Register file</h2><span class="eyebrow">State after the highlighted cycle · changed cells outlined</span></header>
+        <div class="pbody">
+          <div class="scal">
+            <div><span class="eyebrow">LR0–LR15 · loop registers</span><div class="sgrid" id="g-lr"></div></div>
+            <div><span class="eyebrow">CR0–CR15 · configuration</span><div class="sgrid" id="g-cr"></div></div>
+          </div>
+          <div class="vecs" id="vecs"></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <main id="view-source" hidden>
+    <section class="panel"><header><h2 id="src-title">Source</h2><span class="eyebrow">As written, before Jinja rendering</span></header><pre class="src" id="src"></pre></section>
+  </main>
+
+  <main id="view-isa" hidden>
+    <div class="isa" id="isa"></div>
+  </main>
+</div>
+
+<div class="scrim" id="scrim" hidden></div>
+<aside class="drawer" id="drawer" hidden aria-label="Instruction details"></aside>
+<div class="tip" id="tip" hidden></div>
+
+</body>
+</html>

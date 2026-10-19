@@ -1,14 +1,16 @@
 # VS Code extension for IPU assembly.
 #
 # The grammar is GENERATED from the assembler's own parser (see
-# //src/tools/ipu-as-py:ipu_as_lib -> gen_vscode.py), so it cannot drift from
-# the language the assembler accepts.
+# //src/ipu-gen: ipu_gen/vscode_data.py), so it cannot drift from the
+# language the assembler accepts.
 #
-# Node/npm is deliberately NOT wired into Bazel. Bazel's involvement is the two
-# Python binaries below; the agreement test and the .vsix build both run in
+# Node/npm is deliberately NOT wired into Bazel. Bazel's involvement is the
+# Python targets below (gen_vscode, dump_parser_tokens, check_rewrites,
+# check_verdicts); the JS tests and the .vsix build run in
 # .github/workflows/vscode-extension.yml. Please do not add a JS ruleset here.
 
 load("@rules_python//python:defs.bzl", "py_binary")
+load("//tools:lint.bzl", "ruff_test")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -17,39 +19,56 @@ exports_files([
     ".vscodeignore",
 ])
 
+# The `ipu-as check --json` contract (schema/check-json.md), and the corpus its
+# snapshot runs over: //src/ipu-as:test_check_json.
 filegroup(
-    name = "agreement_test_srcs",
-    srcs = [
-        "test/agreement.js",
-        "test/checker.js",
-        "test/harness.js",
-        "test/language.js",
-        "test/mangle.js",
-        "test/project.js",
-        "test/rewrites.js",
-        "test/runs.js",
-    ],
+    name = "check_json_contract",
+    srcs = glob(["schema/*"]),
 )
 
-# Writes syntaxes/ipu-asm.tmLanguage.json and language-configuration.json.
+filegroup(
+    name = "corpus",
+    srcs = glob(["test/corpus/**/*.asm"]),
+)
+
+# The assembly fixtures, for the assembled-binary baseline in
+# //src/ipu-as:test_asm_digests. Not the negative corpus: texts the
+# editor and the assembler judge (check_verdicts), most of which do not assemble
+# (asm_corpus.NOT_PROGRAMS leaves it out of a checkout's corpus too).
+filegroup(
+    name = "asm_fixtures",
+    srcs = glob(
+        ["test/**/*.asm"],
+        exclude = ["test/corpus/negative/**"],
+    ),
+)
+
+# Writes syntaxes/ipu-asm.tmLanguage.json, language-configuration.json and data/isa.json
+# (`ipu-gen vscode-data`).
 #   bazel run //vscode-ipu-asm:gen_vscode          -> into the source tree
 #   bazel build //vscode-ipu-asm:generate_grammar  -> into bazel-out
-py_binary(
+alias(
     name = "gen_vscode",
-    srcs = ["gen_vscode_wrapper.py"],
-    main = "gen_vscode_wrapper.py",
-    python_version = "PY3",
-    deps = ["//src/tools/ipu-as-py:ipu_as_lib", "//src/tools/ipu-emu-py:ipu_emu_lib"],
+    actual = "//src/ipu-gen:vscode_data",
 )
 
 # Ground truth for the agreement test: the parser's own tokenization of the
 # corpus, including each token's structural role.
-py_binary(
+alias(
     name = "dump_parser_tokens",
-    srcs = ["dump_parser_tokens_wrapper.py"],
-    main = "dump_parser_tokens_wrapper.py",
+    actual = "//src/ipu-as:dump_parser_tokens",
+)
+
+# Judges test/verdicts.js: the editor's verdict on each text against the
+# assembler's (ipu_as.diagnostics.check, what `ipu-as check --json` prints).
+#   bazel run //vscode-ipu-asm:check_verdicts -- <verdicts.json>
+py_binary(
+    name = "check_verdicts",
+    srcs = ["check_verdicts.py"],
+    data = ["test/corpus/negative/allowed-gaps.json"],
+    main = "check_verdicts.py",
     python_version = "PY3",
-    deps = ["//src/tools/ipu-as-py:ipu_as_lib"],
+    deps = ["//src/ipu-as:ipu_as_lib"],
 )
 
 # Judges test/rewrites.js: every rename and format the editor could apply to
@@ -60,7 +79,7 @@ py_binary(
     srcs = ["check_rewrites.py"],
     main = "check_rewrites.py",
     python_version = "PY3",
-    deps = ["//src/tools/ipu-as-py:ipu_as_lib"],
+    deps = ["//src/ipu-as:ipu_as_lib"],
 )
 
 genrule(
@@ -72,8 +91,8 @@ genrule(
         # was silently missing rather than a build error.
         "generated/data/isa.json",
     ],
-    cmd = "$(location :gen_vscode) $(RULEDIR)/generated",
-    tools = [":gen_vscode"],
+    cmd = "$(location //src/ipu-gen:ipu-gen) vscode-data $(RULEDIR)/generated",
+    tools = ["//src/ipu-gen:ipu-gen"],
 )
 
 # The corpus is passed on the command line rather than declared as srcs:
@@ -82,3 +101,9 @@ genrule(
 #
 # `bazel run` needs no declared inputs, which keeps the app package free of a
 # filegroup that exists only for this tool. See the workflow for the invocation.
+
+# Ruff lint and format over this package's Python files (tools/lint.bzl).
+ruff_test(
+    name = "ruff",
+    srcs = glob(["**/*.py"]),
+)

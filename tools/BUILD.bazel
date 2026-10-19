@@ -1,0 +1,329 @@
+load("@ipu_deps//:requirements.bzl", "data_requirement", "requirement")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
+load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
+load("//tools:lint.bzl", "ruff_test")
+
+exports_files([
+    # Read by //docs:architecture_page (the Architecture page's package table).
+    "import_graph.toml",
+    "mypy_runner.py",
+    "requirements-tools.in",
+    "ruff_runner.py",
+])
+
+# Refresh //:requirements_lock.txt from the seven pyproject.toml files and
+# tools/requirements-tools.in. Runs uv from the lock itself, so no host tool is
+# needed. Extra arguments go to `uv pip compile`:
+#
+#   bazel run //tools:update_requirements_lock
+#   bazel run //tools:update_requirements_lock -- --upgrade-package numpy
+#   bazel run //tools:update_requirements_lock -- --upgrade
+py_binary(
+    name = "update_requirements_lock",
+    srcs = ["update_requirements_lock.py"],
+    deps = [requirement("uv")],
+)
+
+# Every requirement in the pyproject.toml files and requirements-tools.in is
+# pinned in the lock, and each package's deps.bzl RUNTIME_DEPS (its py_library's
+# third-party deps) equals its [project].dependencies minus ipu-* packages.
+py_pytest_test(
+    name = "test_deps_consistency",
+    size = "small",
+    srcs = ["test_deps_consistency.py"],
+    data = [
+        "requirements-tools.in",
+        "//:requirements_lock.txt",
+        "//src/ipu-as:pyproject.toml",
+        "//src/ipu-as:runtime_deps",
+        "//src/ipu-debug:pyproject.toml",
+        "//src/ipu-debug:runtime_deps",
+        "//src/ipu-gen:pyproject.toml",
+        "//src/ipu-gen:runtime_deps",
+        "//src/ipu-harness:pyproject.toml",
+        "//src/ipu-harness:runtime_deps",
+        "//src/ipu-kernels:pyproject.toml",
+        "//src/ipu-kernels:runtime_deps",
+        "//src/ipu-isa:pyproject.toml",
+        "//src/ipu-isa:runtime_deps",
+        "//src/ipu-emu:pyproject.toml",
+        "//src/ipu-emu:runtime_deps",
+    ],
+    deps = [
+        requirement("pytest"),
+        requirement("tomli"),
+    ],
+)
+
+# Glossary adoption check (glossary_check.py): the hand-written docs add no use
+# of a term GLOSSARY.md lists under _Avoid_. Counts per file and term are in
+# glossary_baseline.json and may only go down. Default tier.
+py_library(
+    name = "glossary_check",
+    srcs = ["glossary_check.py"],
+)
+
+py_pytest_test(
+    name = "test_glossary_adoption",
+    size = "small",
+    srcs = ["test_glossary_adoption.py"],
+    data = [
+        "glossary_baseline.json",
+        "//:CLAUDE.md",
+        "//:GLOSSARY.md",
+        "//:README.md",
+        "//:SKILL.md",
+        "//docs:doc_sources",
+    ],
+    deps = [
+        ":glossary_check",
+        requirement("pytest"),
+    ],
+)
+
+# Rewrite glossary_baseline.json from the working tree, after removing uses of
+# avoided terms: `bazel run //tools:glossary_baseline`.
+py_binary(
+    name = "glossary_baseline",
+    srcs = ["glossary_baseline.py"],
+    deps = [":glossary_check"],
+)
+
+# Each first-party package imports only the packages its row in
+# import_graph.toml allows. A new package adds its row there and its
+# :py_sources here (import_graph.toml lists the other registrations).
+py_pytest_test(
+    name = "test_import_graph",
+    size = "small",
+    srcs = ["test_import_graph.py"],
+    data = [
+        "import_graph.toml",
+        "//src/ipu-as:py_sources",
+        "//src/ipu-as:py_test_sources",
+        "//src/ipu-debug:py_sources",
+        "//src/ipu-debug:py_test_sources",
+        "//src/ipu-emu:py_sources",
+        "//src/ipu-emu:py_test_sources",
+        "//src/ipu-gen:py_sources",
+        "//src/ipu-gen:py_test_sources",
+        "//src/ipu-harness:py_sources",
+        "//src/ipu-harness:py_test_sources",
+        "//src/ipu-isa:py_sources",
+        "//src/ipu-isa:py_test_sources",
+        "//src/ipu-kernels:py_sources",
+        "//src/ipu-kernels:py_test_sources",
+    ],
+    deps = [
+        requirement("pytest"),
+        requirement("tomli"),
+    ],
+)
+
+# No source or test outside the engine uses an Ipu private (E04-11).
+py_pytest_test(
+    name = "test_engine_privates",
+    size = "small",
+    srcs = ["test_engine_privates.py"],
+    data = [
+        "//src/ipu-as:py_sources",
+        "//src/ipu-as:py_test_sources",
+        "//src/ipu-debug:py_sources",
+        "//src/ipu-debug:py_test_sources",
+        "//src/ipu-emu:py_sources",
+        "//src/ipu-emu:py_test_sources",
+        "//src/ipu-gen:py_sources",
+        "//src/ipu-gen:py_test_sources",
+        "//src/ipu-harness:py_sources",
+        "//src/ipu-harness:py_test_sources",
+        "//src/ipu-isa:py_sources",
+        "//src/ipu-isa:py_test_sources",
+        "//src/ipu-kernels:py_sources",
+        "//src/ipu-kernels:py_test_sources",
+    ],
+    deps = [requirement("pytest")],
+)
+
+# ruff.toml bans a second assembly render path (E05-12).
+py_pytest_test(
+    name = "test_one_render_path",
+    size = "small",
+    srcs = [
+        "ruff_runner.py",
+        "test_one_render_path.py",
+    ],
+    data = [
+        "//:ruff.toml",
+        data_requirement("ruff"),
+    ],
+    deps = [
+        requirement("pytest"),
+        requirement("ruff"),
+    ],
+)
+
+# No name of the deleted whole-image kernel path outside planning/ and the ADRs
+# (E06-20). Walks the checkout, so it is not cached.
+py_pytest_test(
+    name = "test_no_whole_image_path",
+    size = "small",
+    srcs = ["test_no_whole_image_path.py"],
+    data = ["//:ruff.toml"],
+    tags = ["external"],
+    deps = [requirement("pytest")],
+)
+
+# tools/update_baselines.sh runs every update_* target of the packages that
+# hold baselines (docs/content/reference/code-conventions.md, "Baselines").
+py_pytest_test(
+    name = "test_update_baselines",
+    size = "small",
+    srcs = ["test_update_baselines.py"],
+    data = [
+        "update_baselines.sh",
+        "//src/ipu-as:BUILD.bazel",
+        "//src/ipu-gen:BUILD.bazel",
+        "//src/ipu-isa:BUILD.bazel",
+        "//src/ipu-emu:BUILD.bazel",
+    ],
+    deps = [requirement("pytest")],
+)
+
+# Per-package line coverage of a combined lcov report, as a Markdown table.
+# Run by the nightly workflow after `bazel coverage --config=full //...`.
+py_binary(
+    name = "coverage_summary",
+    srcs = ["coverage_summary.py"],
+)
+
+py_pytest_test(
+    name = "test_coverage_summary",
+    size = "small",
+    srcs = [
+        "coverage_summary.py",
+        "test_coverage_summary.py",
+    ],
+    deps = [requirement("pytest")],
+)
+
+# The mnemonic rename (E03-19), kept for open branches and downstream users:
+#
+#   bazel run //tools:rename_mnemonics -- [--check] [ROOT]
+py_binary(
+    name = "rename_mnemonics",
+    srcs = ["rename_mnemonics.py"],
+)
+
+py_pytest_test(
+    name = "test_rename_mnemonics",
+    size = "small",
+    srcs = [
+        "rename_mnemonics.py",
+        "test_rename_mnemonics.py",
+    ],
+    deps = [requirement("pytest")],
+)
+
+# Upper-case the mnemonics and register names of assembly sources (E07-01).
+# :test_upper_mnemonics runs --check over kernels/, so every kernel program
+# keeps CLAUDE.md's upper case; run this on one that fails.
+#
+#   bazel run //tools:upper_mnemonics -- [--check] FILE...
+py_binary(
+    name = "upper_mnemonics",
+    srcs = ["upper_mnemonics.py"],
+    deps = [
+        "//src/ipu-as:ipu_as_lib",
+        "//src/ipu-isa:ipu_isa_lib",
+    ],
+)
+
+# Rewrites every program of the E02 asm corpus (a dry run in a temporary tree)
+# and holds each to its recorded binary digest; every kernels/ source is
+# already upper case (--check).
+py_pytest_test(
+    name = "test_upper_mnemonics",
+    srcs = [
+        "test_upper_mnemonics.py",
+        "upper_mnemonics.py",
+    ],
+    data = [
+        "//kernels:tree",
+        "//src/ipu-as:asm_corpus_files",
+    ],
+    imports = ["."],
+    deps = [
+        "//src/ipu-as:asm_corpus",
+        "//src/ipu-as:ipu_as_lib",
+        "//src/ipu-isa:ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+# The locked ruff (requirements_lock.txt), run in the workspace root:
+#
+#   bazel run //tools:ruff -- check --fix
+#   bazel run //tools:ruff -- format
+#   bazel run //tools:ruff -- --version
+py_binary(
+    name = "ruff",
+    srcs = ["ruff_runner.py"],
+    data = [data_requirement("ruff")],
+    main = "ruff_runner.py",
+    deps = [requirement("ruff")],
+)
+
+# Every ruff_test in the repository (tools/lint.bzl), one per package:
+# `bazel test //tools:lint`. The ruff tests also run in the default tier
+# (`bazel test //...`) and carry the `lint` tag
+# (`bazel test --test_tag_filters=lint //...`). Listed explicitly;
+# tools/check_lint_coverage.sh checks that this list matches the ruff_test
+# targets.
+test_suite(
+    name = "lint",
+    tests = [
+        "//:ruff",
+        "//docs:ruff",
+        "//docs/inspector:ruff",
+        "//kernels:lint",
+        "//src/ipu-as:ruff",
+        "//src/ipu-debug:ruff",
+        "//src/ipu-emu:ruff",
+        "//src/ipu-gen:ruff",
+        "//src/ipu-harness:ruff",
+        "//src/ipu-harness/test/scales:ruff",
+        "//src/ipu-harness/test/scales/scale_rows:ruff",
+        "//src/ipu-isa:ruff",
+        "//src/ipu-kernels:ruff",
+        "//tools:ruff_lint",
+        "//tools/bench:ruff",
+        "//vscode-ipu-asm:ruff",
+    ],
+)
+
+# Ruff over this package's Python files (tools/lint.bzl). Named ruff_lint, not
+# ruff, because //tools:ruff is the runnable ruff above.
+ruff_test(
+    name = "ruff_lint",
+    srcs = glob(["**/*.py"]),
+)
+
+# What every baseline updater and baseline test shares: the workspace an
+# update_* target writes into, and the snapshot diff a test fails with.
+py_library(
+    name = "baseline_support",
+    testonly = True,
+    srcs = ["baseline_support.py"],
+    imports = ["."],
+    visibility = ["//visibility:public"],
+    deps = [requirement("pytest")],
+)
+
+# Bazel test sharding for pytest (`-p pytest_shard_plugin`): the timing tests
+# (//src/ipu-emu) and a kernel family's :tests with tests_shard_count.
+py_library(
+    name = "pytest_shard_plugin",
+    testonly = True,
+    srcs = ["pytest_shard/pytest_shard_plugin.py"],
+    imports = ["pytest_shard"],
+    visibility = ["//visibility:public"],
+)

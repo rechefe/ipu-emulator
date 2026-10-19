@@ -1,0 +1,90 @@
+# conv3x3_relu_cin1: conv3x3_relu specialised on one input channel (E07-16).
+# The tiled query vocabulary: a query names in_channels, height, width,
+# out_channels, kernel_size, stride, padding and activation, all required, as
+# the old ConvApp's did; a universal conv2d query (dilation, groups,
+# has_bias, apply_relu) names parameters this kernel does not take.
+[kernel]
+op = "conv2d"
+formats = ["fp32"]
+cost = 0                                        # preferred over conv3x3_relu at in_channels = 1
+
+[params]
+in_channels  = { type = "int", choices = [1] }
+height       = { type = "int", min = 1 }
+width        = { type = "int", min = 1 }
+out_channels = { type = "int", min = 1 }
+kernel_size  = { type = "int", choices = [3] }
+stride       = { type = "int", choices = [1] }
+padding      = { type = "int", choices = [1] }
+activation   = { type = "str", choices = ["relu"] }
+
+[derived]
+tiles      = "ceil(width / 126)"                # 126-column halo tiles per spatial row
+rc_step    = "126"                              # the R_CYCLIC read index step between rows
+lanes      = "128"                              # R_CYCLIC slot 1; R1[0]'s element index
+tiles_last = "ceil(width / 126) - 1"            # the tile branch reads its counter pre-increment
+
+# Placed in this order from row 0: x (no guard plane: there is no next channel), w, b, y.
+[inputs.x]
+shape = ["in_channels", "height", "width"]
+pack = "halo_tiled"
+
+[inputs.w]
+shape = ["out_channels", "in_channels", 3, 3]
+pack = "conv_weight_groups"
+
+[inputs.b]
+shape = ["out_channels"]
+pack = "lane0_rows"
+
+[outputs.y]                                     # one row per (o, y, tile), 126 lanes valid
+shape = ["out_channels", "height", "width"]
+pack = "halo_tiled_output"
+
+[abi]
+x            = "CR2"
+y            = "CR3"
+w            = "CR4"
+b            = "CR5"
+tiles        = "CR6"
+height       = "CR7"
+out_channels = "CR8"
+rc_step      = "CR9"
+lanes        = "CR10"
+tiles_last   = "CR11"
+
+[golden]
+op = "conv2d"
+tolerance = { fp32 = "FP32_ORDER" }               # measured: max |err| 2.4e-7 over the cases
+
+# The cases' shapes cover the small, partial-group and multi-group layouts;
+# the data is the harness's seeded per-tensor streams (E06-08).
+[cases.default]
+in_channels = 1
+height = 3
+width = 8
+out_channels = 2
+kernel_size = 3
+stride = 1
+padding = 1
+activation = "relu"
+
+[cases.tile_boundary]                           # two column tiles
+in_channels = 1
+height = 2
+width = 133
+out_channels = 2
+kernel_size = 3
+stride = 1
+padding = 1
+activation = "relu"
+
+[cases.single_pixel]
+in_channels = 1
+height = 1
+width = 1
+out_channels = 1
+kernel_size = 3
+stride = 1
+padding = 1
+activation = "relu"

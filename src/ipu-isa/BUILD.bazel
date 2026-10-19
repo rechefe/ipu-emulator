@@ -1,0 +1,293 @@
+load("@ipu_deps//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
+load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
+load("//tools:runtime_deps.bzl", "runtime_deps_manifest")
+load(":deps.bzl", "RUNTIME_DEPS")
+load("//tools:lint.bzl", "ruff_test")
+load("//tools:typecheck.bzl", "mypy_test")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    # Read by //tools:test_update_baselines.
+    "BUILD.bazel",
+    # Linked from SKILL.md (//docs:test_doc_links).
+    "conformance/README.md",
+    "pyproject.toml",
+])
+
+# RUNTIME_DEPS as JSON, for //tools:test_deps_consistency.
+runtime_deps_manifest(
+    name = "runtime_deps",
+    runtime_deps = RUNTIME_DEPS,
+)
+
+# The conformance suite (E04-31): programs, setups and expected traces, as data
+# any model runs. Written by //src/ipu-emu:update_conformance.
+filegroup(
+    name = "conformance",
+    srcs = glob(["conformance/**"]),
+)
+
+# The package's Python sources, for //tools:test_import_graph.
+filegroup(
+    name = "py_sources",
+    srcs = glob(["src/**/*.py"]),
+)
+
+# The package's test sources, for //tools:test_import_graph's private-name check.
+filegroup(
+    name = "py_test_sources",
+    srcs = glob(["test/**/*.py"]),
+)
+
+py_library(
+    name = "ipu_isa_lib",
+    srcs = glob([
+        "src/ipu_isa/**/*.py",
+    ]),
+    # The commit record and trace schemas (E04-29), read by ipu_isa.trace_schema.
+    data = glob(["src/ipu_isa/schemas/*.json"]),
+    imports = ["src"],
+    deps = [requirement(dep) for dep in RUNTIME_DEPS],
+)
+
+py_pytest_test(
+    name = "test_union_layout",
+    srcs = ["test/test_union_layout.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+
+# ipu_isa imports nothing from the other IPU packages (E03-02). Depends on
+# ipu_isa_lib alone, so Bazel enforces the rule as well.
+py_pytest_test(
+    name = "test_purity",
+    srcs = ["test/test_purity.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_schema",
+    srcs = ["test/test_schema.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_syntax",
+    srcs = ["test/test_syntax.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_operand_types",
+    srcs = ["test/test_operand_types.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_slots",
+    srcs = ["test/test_slots.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_tags",
+    srcs = ["test/test_tags.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_layout",
+    srcs = ["test/test_layout.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_constants",
+    srcs = ["test/test_constants.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_formats",
+    srcs = ["test/test_formats.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_timing",
+    srcs = ["test/test_timing.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_faults",
+    srcs = ["test/test_faults.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+# The hand-written requirements page agrees with ipu_isa.faults (E03-15).
+py_pytest_test(
+    name = "test_faults_docs",
+    srcs = ["test/test_faults_docs.py"],
+    data = ["//docs:doc_sources"],
+    imports = ["src"],
+    deps = [
+        ":ipu_isa_lib",
+        ":isa_baselines",
+        ":one_edit",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_view",
+    srcs = ["test/test_view.py"],
+    data = ["test/baselines/spec_snapshot.json"],
+    imports = ["src"],
+    deps = [
+        ":ipu_isa_lib",
+        ":isa_baselines",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_word_codec",
+    srcs = ["test/test_word_codec.py"],
+    data = ["//src/ipu-as:test/baselines/word_fields.json"],
+    imports = ["src"],
+    deps = [
+        ":ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_slot_codec",
+    srcs = ["test/test_slot_codec.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_disasm",
+    srcs = ["test/test_disasm.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+# The files derived from ipu_isa that are kept in the tree: the view snapshot
+# and the F-1 table of the faults requirements page.
+py_library(
+    name = "isa_baselines",
+    testonly = True,
+    srcs = [
+        "test/baselines/faults_table.py",
+        "test/baselines/spec_snapshot.py",
+    ],
+    imports = ["test/baselines"],
+    deps = [":ipu_isa_lib"],
+)
+
+# Rewrites them; tools/update_baselines.sh runs it.
+py_binary(
+    name = "update_isa_baselines",
+    testonly = True,
+    srcs = ["test/baselines/update_isa_baselines.py"],
+    main = "test/baselines/update_isa_baselines.py",
+    deps = [
+        ":ipu_isa_lib",
+        ":isa_baselines",
+    ],
+)
+
+# The "one edit" test's dummy instruction (E03-24), shared with the generator
+# and end-to-end halves in ipu-gen and ipu-emu.
+py_library(
+    name = "one_edit",
+    testonly = True,
+    srcs = ["test/one_edit.py"],
+    imports = ["test"],
+    visibility = ["//visibility:public"],
+    deps = [":ipu_isa_lib"],
+)
+
+py_pytest_test(
+    name = "test_one_edit",
+    srcs = ["test/test_one_edit.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_isa_lib",
+        ":one_edit",
+        requirement("pytest"),
+    ],
+)
+
+# mypy over ipu_isa_lib with the locked mypy and //:mypy.ini (tools/typecheck.bzl).
+mypy_test(
+    name = "mypy",
+    lib = ":ipu_isa_lib",
+    strict = True,
+)
+
+# Ruff lint and format over this package's Python files (tools/lint.bzl).
+ruff_test(
+    name = "ruff",
+    srcs = glob(["**/*.py"]),
+)

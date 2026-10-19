@@ -1,0 +1,23 @@
+# Code owners: GitHub requests review from the owners of every path a pull
+# request touches. The last matching pattern wins, so rules run from general
+# to specific.
+
+*                                          @rechefe
+/src/                                      @rechefe
+/src/ipu-debug/                            @yarden-carmi
+/vscode-ipu-asm/                           @yarden-carmi
+/kernels/                                  @DavidShenzi
+# Kernels Yarden wrote, before commit 3a1fe1d5 ported David's kernels.
+/kernels/detect/                           @yarden-carmi
+/kernels/pooling/                          @yarden-carmi
+/kernels/sampling/                         @yarden-carmi
+/kernels/convolutions/conv1x1/             @yarden-carmi
+/kernels/convolutions/conv3x3_relu/        @yarden-carmi
+/kernels/convolutions/conv3x3_relu_cin1/   @yarden-carmi
+/kernels/normalize/l2_normalize_channels/  @yarden-carmi
+/kernels/reshape/depth_to_space/           @yarden-carmi
+/kernels/reshape/identity/                 @yarden-carmi
+/docs/                                     @rechefe
+/docs/content/kernels/                     @DavidShenzi
+/docs/content/specs/                       @YuvalHarary
+/docs/content/requirements/                @YuvalHarary

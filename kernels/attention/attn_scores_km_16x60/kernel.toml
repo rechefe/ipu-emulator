@@ -1,0 +1,86 @@
+# attn_scores_km_16x60: L5 K Q^T scores, key-major, the case's head of 4:
+# y[s, i] = sum_c K[s, c] Q[i, c] for 16 tokens and head_dim 60. Pairs with
+# attn_v_bcast_60 (the key-major chain), never with attn_v_16x60.
+[kernel]
+op = "attn_scores_km"                       # a separate op per chain stage keeps the query-major and key-major chains apart
+formats = ["fp32"]
+
+[params]
+n_tok = { type = "int", choices = [16] }   # fixed: the kernel takes exactly its layer's (n_tok, d)
+d = { type = "int", choices = [60] }   # fixed: the kernel takes exactly its layer's (n_tok, d)
+head = { type = "int", min = 0, max = 3, default = 0 }   # generator only: which head of the 4 the case scores; a and b ARE that head
+n_heads = { type = "int", choices = [4], default = 4 }   # heads in the canonical file (generator only)
+seed = { type = "int", default = 0xD60 }   # the old RandomState seed (0xD60); generator only
+pad = { type = "float", default = 0.0 }   # the padding lanes of b (pack "padded"): 0, as the old harness staged them
+
+[derived]
+q_start = "-1"           # CR5: -Q_CHAN_ROWS
+chan_start = "-1"        # CR7
+chan_bound_unread = "d - 2" # CR8: written, never read
+rc_slot0 = "0"           # LR0
+q_chan_stride = "1"      # LR2
+out_stride = "1"         # LR3
+chan_bound = "d - 2"     # LR6: the contraction bound (the program raises it by one into LR11)
+out_ptr = "0"            # LR7
+key_ptr = "-1"           # LR8: -K_STRIDE_ROWS
+key_index = "0"          # LR9
+key_stride = "1"         # LR12
+dstruct = "dstructure(n_tok)" # CR15: valid_elements = n_tok
+
+# The old placement: the inputs back to back from row 0 in the order below, then the output; first fit in
+# declaration order reproduces it (E07-12/13).
+[inputs.b]                         # the selected head's Q, channel-major: row c holds n_tok queries
+pack = "padded"
+shape = ["d", "n_tok"]
+row = 0
+
+[inputs.a]                         # the selected head's K, key-major: row s holds key s's d channels
+shape = ["n_tok", "d"]
+
+[outputs.y]                             # S key-major: row (s, g) holds queries [g*128, g*128+128)
+pack = "padded"                    # the row-major rows under the name attn_v_bcast's P takes, so a Chain hands the scores over in place
+shape = ["n_tok", "n_tok"]
+# ST.AAQ, one row per store, in row order
+
+[abi]
+b = "CR0"        # read through the hardwired 0: b is pinned at row 0
+a = "CR9"        # K_BASE_KM
+y = "CR2"        # S_BASE
+q_start = "CR5"
+chan_start = "CR7"
+chan_bound_unread = "CR8"
+rc_slot0 = "LR0"
+q_chan_stride = "LR2"
+out_stride = "LR3"
+chan_bound = "LR6"
+out_ptr = "LR7"
+key_ptr = "LR8"
+key_index = "LR9"
+n_tok = "LR10"
+key_stride = "LR12"
+dstruct = "CR15"
+# Zero-valued LR presets are bound on purpose: in a Chain (E06-15) LRs carry over from the previous step.
+
+[golden]
+op = "matmul"                          # y = a @ b in the logical shapes above (batched over the leading dim)
+tolerance = { fp32 = "FP32_ORDER" }    # a short contraction (d terms); the old check: rtol=1e-4, atol=1e-3.
+# The family's test_datapath.py also holds the scores bit for bit to the ACC datapath mirror
+# (ipu_kernels.reference.datapath.acc_fold): a math reference and the mirror (E06-09).
+
+[cases.default]
+n_tok = 16
+d = 60
+head = 1
+seed = 0xD60
+generator = "../gen.py:seeded_uniform_km"
+
+# Garbage (1e3) in Q's padding lanes, as a chained producer leaves another
+# stream's data there: the stored rows stay zero past n_tok (the old
+# stored-extent probe; test_padding.py reads the raw rows).
+[cases.padding_not_stored]
+n_tok = 16
+d = 60
+head = 1
+seed = 0xD61
+pad = 1000.0
+generator = "../gen.py:seeded_uniform_km"

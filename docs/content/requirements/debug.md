@@ -13,7 +13,7 @@ The host debugs the IPU through the host port. Step 0 is the debug feature set o
 | IPU-DBG-5 | When one word meets several halt causes, the IPU shall record the first of: fault, breakpoint, halt request. |
 | IPU-DBG-6 | `STEP` shall execute exactly one word, wait for it to retire, and enter `HALTED` with cause "step done". |
 | IPU-DBG-7 | During a step the run state shall be `RUNNING_UNARMED` or `RUNNING_ARMED`. The IPU accepts `HALT` and `ABORT`. |
-| IPU-DBG-8 | When the stepped word holds `END`, the kernel is done. After a handoff, the IPU shall enter `HALTED` at PC 0 of the next kernel. |
+| IPU-DBG-8 | When the stepped word holds the `HALT` instruction, the kernel is done. After a handoff, the IPU shall enter `HALTED` at PC 0 of the next kernel. |
 | IPU-DBG-9 | The IPU shall provide PC breakpoints. The number of breakpoints is a parameter with default 4. |
 | IPU-DBG-10 | Each breakpoint shall hold an enable bit, a context and a PC. |
 | IPU-DBG-11 | When the PC and `active_ctx` match an enabled breakpoint, the IPU shall halt before the matched word executes. |

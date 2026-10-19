@@ -14,6 +14,18 @@
   "categories": [
     "Programming Languages"
   ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "In Restricted Mode, IPU assembly highlighting and hover work; checking, kernel runs and manifest queries are disabled.",
+      "restrictedConfigurations": [
+        "ipuAsm.checkCommand",
+        "ipuAsm.manifestCommand",
+        "ipuAsm.queryCommand",
+        "ipuAsm.bazelFlags"
+      ]
+    }
+  },
   "contributes": {
     "languages": [
       {
@@ -109,7 +121,22 @@
             "type": "string"
           },
           "default": [],
-          "markdownDescription": "Command used to check a file, as an argv array; the file path is appended. Empty builds `//src/tools/ipu-as-py:ipu-as` once and runs that binary directly, falling back to `bazel run` whenever the assembler's sources are newer than it. Set this to point at a virtualenv to bypass Bazel entirely."
+          "markdownDescription": "Command used to check a file, as an argv array; the file path is appended. Empty builds `//src/ipu-as:ipu-as` once and runs that binary directly, falling back to `bazel run` whenever the assembler's sources are newer than it. Set this to point at a virtualenv to bypass Bazel entirely."
+        },
+        "ipuAsm.languageSource": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "checkout",
+            "bundled"
+          ],
+          "enumDescriptions": [
+            "The open checkout's ISA, generated from it (`bazel run //src/ipu-gen:ipu-gen -- vscode-data`) once per source change; the bundled ISA until it is ready, or when it cannot be.",
+            "As `auto`, but a warning says why when the checkout's ISA cannot be used.",
+            "Always the ISA bundled with the extension (built from master)."
+          ],
+          "default": "auto",
+          "markdownDescription": "Where hover, completion, signature help, slot fit and formatting read the ISA from. The status bar shows `(bundled ISA)` while the bundled one is in use."
         },
         "ipuAsm.bazelFlags": {
           "type": "array",
@@ -146,7 +173,7 @@
               }
             }
           },
-          "markdownDescription": "Cases saved from the case form (**IPU: Kernel Cases…**), by kernel: `{ \"identity\": { \"tall\": { \"base\": \"default\", \"options\": { \"rows\": 64 } } } }`. Each runs as `--case <base>` with its options. The registry's `cases.py` is never written."
+          "markdownDescription": "Cases saved from the case form (**IPU: Kernel Cases…**), by kernel: `{ \"identity\": { \"tall\": { \"base\": \"default\", \"options\": { \"rows\": 64 } } } }`. Each runs as `--case <base>` with its options. The kernel's `kernel.toml` (its `[cases.*]` tables) is never written."
         },
         "ipuAsm.manifestCommand": {
           "type": "array",
@@ -154,7 +181,7 @@
             "type": "string"
           },
           "default": [],
-          "markdownDescription": "Command that prints the kernel manifest (JSON), as an argv array. Empty runs `bazel run //src/tools/ipu-apps:kernel_manifest`. The kernel buttons and the IPU sidebar are built from it."
+          "markdownDescription": "Command that prints the kernel manifest (JSON), as an argv array. Empty runs `bazel run //kernels:manifest`. The kernel buttons and the IPU sidebar are built from it."
         },
         "ipuAsm.queryCommand": {
           "type": "array",

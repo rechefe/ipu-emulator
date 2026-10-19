@@ -1,0 +1,25 @@
+# The elementwise family: scale (the how-to's example, E06-13), residual_add
+# (E07-06), and the registry.toml entries over the residual_add_rows template
+# (//kernels/elementwise:<entry>, as the old targets were named).
+
+load("@ipu_deps//:requirements.bzl", "requirement")
+load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
+load("//kernels:defs.bzl", "ipu_kernel_family")
+load(":registry.bzl", "ENTRIES")
+
+ipu_kernel_family(entries = ENTRIES)
+
+# Routing (each entry by exactly its (tokens, channels), the generic kernel by
+# num_channels) and residual_add_16x240's row contract.
+py_pytest_test(
+    name = "test_residual_add",
+    size = "small",
+    srcs = ["test_residual_add.py"],
+    data = ["//kernels:tree"],
+    deps = [
+        "//src/ipu-harness:ipu_harness_lib",
+        "//src/ipu-isa:ipu_isa_lib",
+        requirement("numpy"),
+        requirement("pytest"),
+    ],
+)

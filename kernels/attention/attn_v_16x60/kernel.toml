@@ -1,0 +1,69 @@
+# attn_v_16x60: L5 attn@V, query-major P, through AGG: y[h, t, i] = sum_s
+# P[h, i, s] V[h, t, s] for 4 heads, 16 tokens, head_dim 60. Takes the scores of
+# qk_scores_16x60 (the query-major chain), never attn_scores_km_16x60's.
+[kernel]
+op = "attn_v"                               # a separate op per chain stage keeps the query-major and key-major chains apart
+formats = ["fp32"]
+
+[params]
+n_tok = { type = "int", choices = [16] }   # fixed: the kernel takes exactly its layer's (n_tok, d)
+d = { type = "int", choices = [60] }   # fixed: the kernel takes exactly its layer's (n_tok, d)
+n_head = { type = "int", choices = [4], default = 4 }   # geometry, not in a query: the default keeps (n_tok, d) queries routable
+seed = { type = "int", default = 0xA60 }   # the old RandomState seed (0xA60); generator only
+pad = { type = "float", default = 0.0 }   # the padding lanes of a and b (pack "padded"): 0, as the old harness staged them
+
+[derived]
+pv_stride = "1"          # CR5: P query / V channel stride (rows)
+p_head_stride = "n_tok"  # CR8: P head stride (rows)
+inner_bound = "n_tok - 2" # CR9: 14 since E04-25 (was 15)
+out_chan_stride = "1"    # CR13
+dstruct = "dstructure(n_tok)" # CR15: valid_elements = n_tok
+
+# The old placement: the inputs back to back from row 0 in the order below, then the output; first fit in
+# declaration order reproduces it (E07-12/13).
+[inputs.b]                         # P QUERY-major: row (h, i) holds the n_tok keys of query i
+pack = "padded"
+shape = ["n_head", "n_tok", "n_tok"]
+
+[inputs.a]                         # V channel-major: row (h, t) holds n_tok keys
+pack = "padded"
+shape = ["n_head", "d", "n_tok"]
+
+[outputs.y]                             # O channel-major: row (h*d + t) holds n_tok queries
+shape = ["n_head", "d", "n_tok"]
+# ST.AAQ, one row per store, in row order
+
+[abi]
+b = "CR2"        # P_BASE
+a = "CR3"        # V_BASE
+y = "CR4"        # OUT_BASE
+pv_stride = "CR5"
+p_head_stride = "CR8"
+inner_bound = "CR9"
+d = "CR10"
+n_head = "CR11"
+out_chan_stride = "CR13"
+dstruct = "CR15"
+
+[golden]
+op = "matmul_nt"                        # y = a @ b^T: V @ P^T, P query-major
+tolerance = { fp32 = "FP32_ORDER" }    # the old check: rtol=1e-4, atol=1e-3 vs agg_fold.
+
+[cases.default]
+n_tok = 16
+d = 60
+n_head = 4
+seed = 0xA60
+generator = "../gen.py:seeded_uniform_attn_v"
+
+# Garbage (1e3) in the padding lanes of P and V, as a chained producer leaves
+# another stream's data there: the output is still the golden's, and
+# test_datapath.py holds it to the same mirror as the zero-padded default
+# (the old padding-isolation test).
+[cases.padding_is_inert]
+n_tok = 16
+d = 60
+n_head = 4
+seed = 0xA60
+pad = 1000.0
+generator = "../gen.py:seeded_uniform_attn_v"

@@ -1,0 +1,44 @@
+# The four LayerNorm shapes over the layernorm template (E07-10; the packed
+# LayerNorms, E07-23, follow at the end), one template
+# rendering each old binary (E02 digests).
+# `bazel test //kernels/normalize:layernorm_64x192` runs the template's cases
+# at that shape.
+
+[[kernel]]
+name = "layernorm_128x16"
+template = "layernorm"
+params = { channels = 16, tokens = 128 }
+doc = "16 channels over 128 tokens (not a MobileViT layer shape)"
+
+[[kernel]]
+name = "layernorm_256x144"
+template = "layernorm"
+params = { channels = 144, tokens = 256 }
+doc = "Layer 3: 144 channels, 256 tokens in two groups of 128"
+
+[[kernel]]
+name = "layernorm_64x192"
+template = "layernorm"
+params = { channels = 192, tokens = 64 }
+doc = "Layer 4: 192 channels, 64 tokens"
+
+[[kernel]]
+name = "layernorm_16x240"
+template = "layernorm"
+params = { channels = 240, tokens = 16 }
+doc = "Layer 5: 240 channels, 16 tokens"
+
+# The MobileViT packed LayerNorms over the packed_layernorm template (E07-23),
+# one entry per layer shape.
+
+[[kernel]]
+name = "packed_layernorm_192x64"
+template = "packed_layernorm"
+params = { channels = 192, tokens = 64 }
+doc = "Layer 4, packed: 192 channels x 64 tokens, 2 channels a row"
+
+[[kernel]]
+name = "packed_layernorm_240x16"
+template = "packed_layernorm"
+params = { channels = 240, tokens = 16 }
+doc = "Layer 5, packed: 240 channels x 16 tokens, 8 channels a row"

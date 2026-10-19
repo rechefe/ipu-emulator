@@ -1,0 +1,33 @@
+# identity: copies a rows x 128 matrix unchanged (E07-04). The smallest
+# kernel.toml kernel, and the second worked example of the how-to beside
+# elementwise/scale.
+[kernel]
+op = "identity"
+formats = ["fp32"]
+
+[params]
+rows = { type = "int", min = 1 }
+
+[inputs.x]
+shape = ["rows", 128]
+
+[outputs.y]
+shape = ["rows", 128]
+
+[abi]
+x    = "CR2"
+y    = "CR3"
+rows = "CR4"
+
+[golden]
+op = "identity"
+tolerance = { fp32 = "EXACT" }
+
+# The old cases' data: arange(rows * 128) - 128.
+[cases.default]
+rows = 3
+generator = "gen.py:arange"
+
+[cases.single_row]
+rows = 1
+generator = "gen.py:arange"

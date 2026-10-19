@@ -1,0 +1,156 @@
+# conv_universal_wide384: y = conv2d(x, w), 3x3, stride 1, padding 1, no bias,
+# FP32, for widths that are multiples of 128 from 384 up (E07-19). Unoptimized
+# (see the .asm header). The program is rendered for each case from its
+# template values: the [derived] cpr (column chunks a row) and the parameter
+# height; the old harness assembled it per run in a temporary folder.
+# Routed in the universal conv2d vocabulary, every parameter required.
+
+[kernel]
+op = "conv2d"
+formats = ["fp32"]
+cost = 1                                   # an unoptimized fallback; no width overlaps conv_universal's (<= 128)
+
+[params]
+in_channels  = { type = "int", min = 1, query_required = true }
+out_channels = { type = "int", min = 2, multiple_of = 2, query_required = true }     # filters in pairs (the .asm)
+height       = { type = "int", min = 1, query_required = true }                      # the program's rows
+width        = { type = "int", min = 384, multiple_of = 128, query_required = true }
+kernel_size  = { type = "int", choices = [3], query_required = true }
+stride       = { type = "int", choices = [1], query_required = true }
+padding      = { type = "int", choices = [1], query_required = true }
+dilation     = { type = "int", choices = [1], query_required = true }
+groups       = { type = "int", choices = [1], query_required = true }
+has_bias     = { type = "bool", choices = [false], query_required = true }
+apply_relu   = { type = "bool", choices = [false], query_required = true }
+
+[derived]
+cpr               = "width / 128"                        # column chunks a row; also the template's CPR
+fpb               = "14"                                 # input channels a weight row: 128 // 9
+blocks_per_filter = "ceil(in_channels / 14)"             # weight rows a filter
+total_kernel_rows = "out_channels * blocks_per_filter"
+kernel_row_stride = "1"                                  # rows; the per-block weight reload advance
+row_limit         = "(height - 1) * out_channels * cpr"  # the last row's output row, relative to y (the row loop's bound)
+out_row_stride    = "out_channels * cpr"
+in_row_stride     = "in_channels * cpr"
+# The LRs the init reads before writing them, on their reset 0 (the old
+# setup() wrote none, so it relied on the reset): LR0 (LD.MASK in the word
+# that SETs it), and LR2-LR5, built by INC from 0. Bound to 0, so a run after
+# another kernel on the same model starts from the same state.
+lr0_start = "0"
+lr2_start = "0"
+lr3_start = "0"
+lr4_start = "0"
+lr5_start = "0"
+
+# Placed in the old harness's order: input, weights, mask, output.
+[inputs.x]
+shape = ["in_channels", "height", "width"]
+pack  = "row_interleaved"                  # (c, h, w) stored (h, c, w): row (r * C + c) * cpr + cc
+
+[inputs.w]
+shape = ["out_channels", "in_channels", 3, 3]
+pack  = "conv_weight_groups"               # 14 input channels a row, then zeros
+
+[outputs.y]
+shape = ["out_channels", "height", "width"]
+pack  = "row_interleaved"                  # the old teardown's transpose back to (c, h, w)
+
+[scratch.mask]                             # the R_MASK blob: 4 slots (masks.py)
+shape = [1, 128]
+after = "w"
+bytes = "../masks.py:wide_mask"
+
+# Every CR the old setup() wrote (CR2-CR14; CR15 the default dstructure), and
+# the LRs the program reads at their reset value.
+[abi]
+x                 = "CR2"
+w                 = "CR3"
+y                 = "CR4"
+mask              = "CR5"
+in_channels       = "CR6"
+row_limit         = "CR7"
+fpb               = "CR8"
+kernel_row_stride = "CR9"
+out_row_stride    = "CR10"
+in_row_stride     = "CR11"
+cpr               = "CR12"
+total_kernel_rows = "CR13"
+blocks_per_filter = "CR14"
+lr0_start         = "LR0"
+lr2_start         = "LR2"
+lr3_start         = "LR3"
+lr4_start         = "LR4"
+lr5_start         = "LR5"
+
+[golden]
+op = "conv2d"                          # x, w [out, in, 3, 3]; no bias, no ReLU
+# Measured on the harness's seeded data: max |err| 1.4e-6 (c3x4; 3.6e-7 on the
+# old data of the proof). The old check was max |diff| < 1e-2.
+tolerance = { fp32 = "FP32_ORDER" }
+
+# The old default (the .asm's standalone defaults cpr = 3, rows = 8) and the
+# old test sweep. Programs by (cpr, height): (3, 8), (3, 16), (3, 8), (4, 4);
+# (3, 8) and (3, 16) assemble to the same words (height changes them only at
+# 1 and 2).
+[cases.default]
+in_channels = 1
+out_channels = 2
+height = 8
+width = 384
+kernel_size = 3
+dilation = 1
+padding = 1
+stride = 1
+groups = 1
+has_bias = false
+apply_relu = false
+
+[cases.c2_h16]
+in_channels = 2
+out_channels = 2
+height = 16
+width = 384
+kernel_size = 3
+dilation = 1
+padding = 1
+stride = 1
+groups = 1
+has_bias = false
+apply_relu = false
+
+[cases.c3x4]
+in_channels = 3
+out_channels = 4
+height = 8
+width = 384
+kernel_size = 3
+dilation = 1
+padding = 1
+stride = 1
+groups = 1
+has_bias = false
+apply_relu = false
+
+[cases.w512]                               # cpr = 4
+in_channels = 1
+out_channels = 2
+height = 4
+width = 512
+kernel_size = 3
+dilation = 1
+padding = 1
+stride = 1
+groups = 1
+has_bias = false
+apply_relu = false
+
+# The benchmark points.
+[benchmark]
+max_cycles = 50_000_000
+points = [
+  { width = 384, height = 8,  in_channels = 1,  out_channels = 2 },   # minimal, cpr = 3
+  { width = 384, height = 16, in_channels = 3,  out_channels = 4 },   # moderate spatial + channels
+  { width = 512, height = 8,  in_channels = 2,  out_channels = 4 },   # cpr = 4
+  { width = 384, height = 8,  in_channels = 16, out_channels = 4 },   # in_channels > 14: the reload path
+  { width = 640, height = 4,  in_channels = 1,  out_channels = 2 },   # cpr = 5
+]

@@ -1,0 +1,382 @@
+# softmax_rows_partial: row softmax of a (rows, n) FP32 matrix with n <= 128,
+# slot-packed: each row sits in a ps-lane slot (ps = the next power of two of
+# n, at least 16), P = 128 / ps rows per XMEM row. Rows run in groups of up to
+# 128 (the .asm header has the passes). At n = 128 (P = 1) softmax_rows is
+# cheaper, so the cost is 2 there and 1 below.
+[kernel]
+op = "softmax"
+formats = ["fp32"]                                   # exp2/reciprocal on the FP32 vector path only
+cost = "1 + min(1, max(0, n - 127))"
+
+[params]
+rows  = { type = "int", min = 1 }
+n     = { type = "int", min = 1, max = 128 }
+dim   = { type = "int", choices = [1], default = 1 } # along each row
+scale = { type = "float", default = 5.0 }            # the generator's: x = randn * scale
+seed  = { type = "int", default = 0 }                # the generator's
+
+[derived]
+# ps = partition_size(n): the next power of two >= n in 16..128 (the grammar
+# has no log2, so a sum of steps).
+ps           = "16 + 16 * min(1, max(0, n - 16)) + 32 * min(1, max(0, n - 32)) + 64 * min(1, max(0, n - 64))"
+parts        = "128 / ps"                            # P: rows per XMEM row
+device_rows  = "ceil(rows * ps / 128)"               # XMEM rows, the last filled up with padding slots
+step         = "128 * ceil(device_rows / 128)"
+row_stride   = "1"                                   # one XMEM row per chunk
+maxvec_base  = "dstructure(128)"                     # maxvec's R1 index base, and the full-row dstructure
+ring         = "512"                                 # r_cyclic's ring, in elements
+group_chunks = "ps"                                  # chunks in a full group: 128 / P = ps (one register per name)
+dstruct      = "dstructure(n)"                       # every AGG and ACTIVATE sees the first n elements
+
+# The regions sit where the old harness put them: from row 128, the
+# input, the numerators and the output back to back, each rounded up to a
+# multiple of 128 rows (step), then the resident rows. Every region is pinned:
+# first fit in declaration order would put y right after x.
+[inputs.x]                                           # ps-lane slots, 0.0 padding (ipu_kernels.softmax.pack)
+shape = ["rows", "n"]
+pack = "row_slots"
+row = 128
+
+[outputs.y]
+shape = ["rows", "n"]
+pack = "row_slots"
+row = "128 + 2 * step"
+
+[scratch.num]                                        # numerators 2^(c * (x - max))
+shape = ["device_rows", 128]
+row = "128 + step"
+
+[scratch.log2e]                                      # C_VEC: c = log2(e) in every lane
+shape = [1, 128]
+fill = 1.4426950408889634
+row = "128 + 3 * step"
+
+[scratch.max]                                        # maxvec: one row max per lane
+shape = [1, 128]
+row = "128 + 3 * step + 1"
+
+# rvec (1 / sum, one per lane), then the Pass-4 R_MASK image, which the .asm
+# reads as rvec's row + 1 through no register of its own: one 2-row region.
+[scratch.rvec]
+shape = [2, 128]
+bytes = "../scratch.py:rvec_mask"
+row = "128 + 3 * step + 2"
+
+[abi]
+y            = "CR2"
+log2e        = "CR3"
+num          = "CR4"
+max          = "CR5"
+rvec         = "CR6"
+row_stride   = "CR7"
+maxvec_base  = "CR8"
+device_rows  = "CR9"
+x            = "CR10"
+ring         = "CR11"
+ps           = "CR12"
+group_chunks = "CR13"
+parts        = "CR14"
+dstruct      = "CR15"
+
+[golden]
+op = "softmax"
+tolerance = { fp32 = "TRANSCENDENT" }
+
+# The old cases' data (gen.py:seeded_normal: the old seeds).
+[cases.default]
+n = 32
+rows = 8
+seed = 0
+scale = 5.0
+generator = "../gen.py:seeded_normal"
+
+# The output reads back in the input's (rows, n) layout (the old family layout
+# test: seed = rows + n): n < ps and rows not a multiple of P, both padding
+# kinds at once; no padding at all; P = 8.
+[cases.layout_pad]
+n = 20
+rows = 10
+seed = 30
+scale = 3.0
+generator = "../gen.py:seeded_normal"
+
+[cases.layout_exact]
+n = 32
+rows = 8
+seed = 40
+scale = 3.0
+generator = "../gen.py:seeded_normal"
+
+[cases.layout_p8]
+n = 5
+rows = 7
+seed = 12
+scale = 3.0
+generator = "../gen.py:seeded_normal"
+
+# Five multiplies per row, each partition's shifted final write included
+# (test_softmax_rows_partial.py counts them in the run's statistics).
+[cases.stats_n16]
+n = 16
+rows = 8
+generator = "../gen.py:seeded_normal"
+
+[cases.stats_n32]
+n = 32
+rows = 8
+generator = "../gen.py:seeded_normal"
+
+[cases.stats_n50]
+n = 50
+rows = 4
+generator = "../gen.py:seeded_normal"
+
+[cases.stats_n100]
+n = 100
+rows = 2
+generator = "../gen.py:seeded_normal"
+
+# The old sweep, one case per point: a one-element list puts the old case
+# id in the case's name (sweep_01[n=128,rows=4,seed=0,scale=3.0]).
+# P=1 (N 65..128)
+[cases.sweep_01]
+n = [128]
+rows = [4]
+seed = [0]
+scale = [3.0]
+generator = "../gen.py:seeded_normal"
+
+[cases.sweep_02]
+n = [100]
+rows = [6]
+seed = [1]
+scale = [3.0]
+generator = "../gen.py:seeded_normal"
+
+[cases.sweep_03]
+n = [65]
+rows = [3]
+seed = [2]
+scale = [3.0]
+generator = "../gen.py:seeded_normal"
+
+# P=2 (N 33..64)
+[cases.sweep_04]
+n = [64]
+rows = [4]
+seed = [3]
+scale = [3.0]
+generator = "../gen.py:seeded_normal"
+
+[cases.sweep_05]
+n = [50]
+rows = [10]
+seed = [4]
+scale = [3.0]
+generator = "../gen.py:seeded_normal"
+
+[cases.sweep_06]
+n = [33]
+rows = [8]
+seed = [5]
+scale = [3.0]
+generator = "../gen.py:seeded_normal"
+
+# P=4 (N 17..32), incl. multi-chunk
+[cases.sweep_07]
+n = [32]
+rows = [8]
+seed = [6]
+scale = [3.0]
+generator = "../gen.py:seeded_normal"
+
+[cases.sweep_08]
+n = [32]
+rows = [12]
+seed = [7]
+scale = [3.0]
+generator = "../gen.py:seeded_normal"
+
+[cases.sweep_09]
+n = [20]
+rows = [12]
+seed = [8]
+scale = [3.0]
+generator = "../gen.py:seeded_normal"
+
+[cases.sweep_10]
+n = [17]
+rows = [16]
+seed = [9]
+scale = [3.0]
+generator = "../gen.py:seeded_normal"
+
+# P=8 (N 1..16), up to 2 chunks
+[cases.sweep_11]
+n = [16]
+rows = [8]
+seed = [10]
+scale = [3.0]
+generator = "../gen.py:seeded_normal"
+
+[cases.sweep_12]
+n = [16]
+rows = [16]
+seed = [11]
+scale = [3.0]
+generator = "../gen.py:seeded_normal"
+
+[cases.sweep_13]
+n = [8]
+rows = [8]
+seed = [12]
+scale = [3.0]
+generator = "../gen.py:seeded_normal"
+
+[cases.sweep_14]
+n = [8]
+rows = [16]
+seed = [13]
+scale = [3.0]
+generator = "../gen.py:seeded_normal"
+
+[cases.sweep_15]
+n = [1]
+rows = [8]
+seed = [14]
+scale = [3.0]
+generator = "../gen.py:seeded_normal"
+
+# Rows not a multiple of P are zero-padded internally (P=4, padded to 8).
+[cases.sweep_16]
+n = [32]
+rows = [6]
+seed = [20]
+scale = [3.0]
+generator = "../gen.py:seeded_normal"
+
+# High chunk counts that used to trigger Pass-4 cross-partition
+# contamination: each partition's MULT.RC.VE produces a full 128-lane result
+# where only [p*ps, p*ps+N) is that partition's own data -- the rest is real
+# (not zero) data from OTHER rows via the rc_idx wraparound trick.
+# ACC.ADD/ACC.ADD.FIRST used to write/accumulate all 128 lanes unmasked, so
+# this leaked data corrupted neighboring partitions' slots once chunk count
+# was high enough for the leaked values to exceed tolerance. Fixed via a
+# per-partition R_MASK slot (mask_offset=p) that restricts each MULT.RC.VE
+# to exactly its own lane range -- see scratch.py:rvec_mask and the .asm's
+# p4_run_p* blocks.
+[cases.sweep_17]  # P=2, num_chunks=35 -- broke before the fix
+n = [64]
+rows = [70]
+seed = [0]
+scale = [5.0]
+generator = "../gen.py:seeded_normal"
+
+[cases.sweep_18]  # P=4, num_chunks=9  -- broke before the fix
+n = [32]
+rows = [36]
+seed = [0]
+scale = [5.0]
+generator = "../gen.py:seeded_normal"
+
+[cases.sweep_19]  # P=8, num_chunks=3  -- the originally-documented case
+n = [8]
+rows = [24]
+seed = [0]
+scale = [5.0]
+generator = "../gen.py:seeded_normal"
+
+[cases.sweep_20]  # P=8, num_chunks=8
+n = [8]
+rows = [64]
+seed = [0]
+scale = [5.0]
+generator = "../gen.py:seeded_normal"
+
+[cases.sweep_21]  # P=8 (n=16), num_chunks=5
+n = [16]
+rows = [40]
+seed = [0]
+scale = [5.0]
+generator = "../gen.py:seeded_normal"
+
+# Rows beyond 128 used to silently corrupt: lr_row feeds MULT.RC.VE's `src`
+# scalar-select and AGG's dest slot, both of which index R0 for 0..127 and
+# switch to the never-loaded R1 at 128 (see the .asm header's row-count
+# overflow). The kernel now processes groups of at most 128/P chunks
+# (= 128 logical rows), restarting lr_row each group, so the index can't
+# reach 128. These configs all cross at least one group boundary.
+[cases.sweep_22]  # P=1: one row past a full group
+n = [128]
+rows = [129]
+seed = [129]
+scale = [3.0]
+generator = "../gen.py:seeded_normal"
+
+[cases.sweep_23]  # P=1: two full groups + a short one
+n = [128]
+rows = [300]
+seed = [300]
+scale = [3.0]
+generator = "../gen.py:seeded_normal"
+
+[cases.sweep_24]  # P=1, N<ps
+n = [100]
+rows = [257]
+seed = [257]
+scale = [3.0]
+generator = "../gen.py:seeded_normal"
+
+[cases.sweep_25]  # P=2: one row past a full group
+n = [64]
+rows = [130]
+seed = [130]
+scale = [3.0]
+generator = "../gen.py:seeded_normal"
+
+[cases.sweep_26]  # P=2, many groups
+n = [64]
+rows = [1000]
+seed = [1000]
+scale = [3.0]
+generator = "../gen.py:seeded_normal"
+
+[cases.sweep_27]  # P=4
+n = [32]
+rows = [300]
+seed = [300]
+scale = [3.0]
+generator = "../gen.py:seeded_normal"
+
+[cases.sweep_28]  # P=8
+n = [16]
+rows = [500]
+seed = [500]
+scale = [3.0]
+generator = "../gen.py:seeded_normal"
+
+[cases.sweep_29]  # P=8: exactly 129 chunks -> group boundary + short group
+n = [8]
+rows = [1032]
+seed = [1032]
+scale = [3.0]
+generator = "../gen.py:seeded_normal"
+
+[cases.sweep_30]  # P=4, many groups
+n = [20]
+rows = [2000]
+seed = [2000]
+scale = [3.0]
+generator = "../gen.py:seeded_normal"
+
+[cases.sweep_31]  # P=8, degenerate N=1 (every row softmaxes to 1.0)
+n = [1]
+rows = [600]
+seed = [600]
+scale = [3.0]
+generator = "../gen.py:seeded_normal"
+
+# The old benchmark configs (bazel run //kernels/softmax/softmax_rows_partial -- --benchmark).
+[benchmark]
+points = [{ n = 8, rows = 16 }, { n = 16, rows = 16 }, { n = 32, rows = 40 }, { n = 64, rows = 50 }, { n = 128, rows = 50 }, { n = 16, rows = 512 }, { n = 64, rows = 300 }, { n = 128, rows = 300 }]
+per = "rows"

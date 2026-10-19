@@ -4,7 +4,7 @@
 //
 // The previous grammar was hand-written from reading asm_grammar.lark, and it
 // drifted: it coloured `BEQ lr0, cr0, +1;;` as valid (it is a lex error) and
-// failed to see `end:` in `BKPT;; end: BKPT;;` as a label. Nothing detected
+// failed to see `end:` in `HALT;; end: HALT;;` as a label. Nothing detected
 // either, because nothing compared the two.
 //
 // This tokenizes the same text twice — once with the parser (via
@@ -184,7 +184,7 @@ async function main() {
     if (failures.length > 25) console.error(`  … and ${failures.length - 25} more`);
     console.error(
       '\nThe TextMate grammar is generated from the parser, so a mismatch means ' +
-        'gen_vscode.py mapped a terminal (or a Jinja rule) wrongly.'
+        'ipu_gen/vscode_data.py mapped a terminal (or a Jinja rule) wrongly.'
     );
     process.exit(1);
   }
