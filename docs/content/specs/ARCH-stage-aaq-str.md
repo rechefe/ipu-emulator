@@ -26,13 +26,13 @@ The AaQ (Activation and Quantization) stage perfome the following tasks:
     - 4.2 [`LOAD_LUT`: Load Function Estimation LUT Segment](#42-load_lut-load-function-estimation-lut-segment)
         - 4.2.1 [Function Estimation LUT](#421-function-estimation-lut)
         - 4.2.2 [Metadata Block](#422-metadata-block)
+        - 4.2.3 [LUT Addressing](#423-lut-addressing)
     - 4.3 [`ACTIVATE.QUANTIZE`: Activate and Quantize](#43-activatequantize-activate-and-quantize)
         - 4.3.1 [Activate](#431-activate)
         - 4.3.2 [Quantize](#432-quantize)
-            - 4.3.2.1 [Element Format](#4321-element-format)
-            - 4.3.2.2 [Block Scale and Exponent Distance](#4322-block-scale-and-exponent-distance)
-            - 4.3.2.3 [Exponent and Mantissa Encoding](#4323-exponent-and-mantissa-encoding)
-            - 4.3.2.4 [Dynamic Exponent Selection](#4324-dynamic-exponent-selection-fe-1-or-fe-2)
+            - 4.3.2.1 [Block Scale and Exponent Distance](#4321-block-scale-and-exponent-distance)
+            - 4.3.2.2 [Exponent and Mantissa Encoding](#4322-exponent-and-mantissa-encoding)
+            - 4.3.2.3 [Dynamic Exponent Selection](#4323-dynamic-exponent-selection-fe-1-or-fe-2)
         - 4.3.3 [Store](#433-store)
 
 ## 2. Block Diagram
@@ -92,7 +92,7 @@ format. It has four 8-bit fields:
 
 | Bits | Field | Description |
 |------|-------|-------------|
-| `[31:24]` | `dynamic_static` | `0` = static, `1` = dynamic. |
+| `[31:24]` | `dynamic_static` | `0` = static, `1` = dynamic. In dynamic mode, the exponent format is `e1` or `e2` (section 4.3.2.3). |
 | `[23:16]` | `sign` | `0` = unsigned, `1` = signed. |
 | `[15:8]` | `num_bits` | Total element width `W`: `1`-`8`. `0` is reserved/invalid. |
 | `[7:0]` | `exponent_format` | Exponent width `fe` in static mode: `1`-`7` = `e1`-`e7`. |
@@ -197,8 +197,6 @@ LOAD_LUT lut_addr table_id table_offset
 
 #### Operands
 
-The Type column links to the [operand type reference](../operand-types.md).
-
 | Name | Type | Details |
 |------|------|---------|
 | `lut_addr` | `Imm` | `0`-`4`. LUT segment index: `0`-`3` = table slices, `4` = last table bits + metadata. |
@@ -264,6 +262,36 @@ payload.
 | `1` | Version 2 | 256 entries for negative `x`. | `-2^max_exp_num < x <= 0` |
 | `2` | Version 3 | 128 entries for negative `x` and 128 entries for positive `x`. | `-2^max_exp_num < x < 2^max_exp_num` |
 
+#### 4.2.3 LUT Addressing
+
+The LUT entries are at linear intervals in the LUT range, with
+`step = 2^max_exp_num / 256`:
+
+| Version | Interval | Entry points |
+|---------|----------|--------------|
+| Version 1 | `step` | `0, step, 2*step, ..., 2^max_exp_num - step` |
+| Version 2 | `step` | `0, -step, -2*step, ..., -(2^max_exp_num - step)` |
+| Version 3 | `2*step` | `-(2^max_exp_num - 2*step), ..., -2*step, -0` and `+0, 2*step, ..., 2^max_exp_num - 2*step` |
+
+Version 3 has 128 entries for each side, so the interval is `2*step`.
+
+Version 3 has two entries at zero: `-0` is the last negative entry and `+0` is
+the first positive entry.
+
+**Example, Version 1.** The LUT range is `0` to `4` (`2^max_exp_num = 4`).
+`step = 4/256`. The entry points are:
+
+```text
+0, 4/256, 8/256, ..., 4 - 4/256
+```
+
+**Example, Version 3.** The LUT range is `-2` to `2` (`2^max_exp_num = 2`).
+`step = 2/256`. The interval is `2*step = 4/256`. The entry points are:
+
+```text
+-2 + 4/256, ..., -4/256, -0, +0, 4/256, ..., 2 - 4/256
+```
+
 ---
 
 ### 4.3 `ACTIVATE.QUANTIZE`: Activate and Quantize
@@ -286,8 +314,6 @@ ACTIVATE.QUANTIZE activation_fn, dstructure, quantizion_format, table_id, table_
 
 #### Operands
 
-The Type column links to the [operand type reference](../operand-types.md).
-
 | Name | Type | Used by | Details |
 |------|------|---------|---------|
 | `activation_fn` | [`Imm`](../operand-types.md#activationfn) | Activate | Enum that names the activation (see [`activation_fn` Values](#activation_fn-values)). |
@@ -308,9 +334,8 @@ for i in 0..127:                                            // active[i]: sectio
     else:
         aaq_out.elements[i] = NaN
 
-aaq_out.scale            = s                            // section 4.3.2.2
-aaq_out.dynamic_static   = dynamic_static               // dynamic or static
-aaq_out.dynamic_exponent = dynamic_static ? (fe == 2) : 0     // section 4.3.2.4
+aaq_out.scale            = scale                        // section 4.3.2.1
+aaq_out.dynamic_exponent = dynamic_static ? (fe == 2) : 0     // section 4.3.2.3
 XMEM[table_id, table_offset] = aaq_out                  // 4.3.3: store
 ```
 
@@ -361,11 +386,6 @@ functions, load the matching function before `ACTIVATE.QUANTIZE`.
 | `rsqrt` | negative | `NaN` |
 | `exp2` | `-inf` | `0` |
 | `exp2` | positive | not supported (input must be non-positive) |
-| `generic` | `x` inside the LUT range (up to `2^max_exp_num`) | `LUT(x)` |
-| `generic` | `x` beyond `2^max_exp_num` | `pos_mode` and `neg_mode` select `x` (identity) or a constant (`pos_c`, `neg_c`) |
-
-`max_exp_num`, `pos_c`, `neg_c`, `range_mode`, `pos_mode` and `neg_mode` are
-in the LUT metadata (section 4.2.2). The three LUT versions of `generic` are below.
 
 #### The `generic` Function: LUT Versions
 
@@ -429,55 +449,36 @@ $$
 
 #### 4.3.2 Quantize
 
-Converts each activated fp32 element into the NX8 format set by
+Converts each activated fp32 element (IEEE-754 single precision: sign `S`,
+8-bit exponent `e`, 23-bit mantissa) into the NX8 format set by
 `quantizion_format` (section 3.1).
-
-The 128 elements of one `ACTIVATE.QUANTIZE` form one **block**. A block has one
-shared scale `s` and one exponent width `fe`, both computed over its active
-elements (section 3.2).
-
-| `dynamic_static` | Mode | Exponent width `fe` |
-|------------------|------|---------------------|
-| `0` | Static | The `exponent_format` value (`e1`-`e7`). |
-| `1` | Dynamic | `1` or `2`, chosen per block (section 4.3.2.4). |
 
 **Outputs:**
 
 | Output | Description |
 |--------|-------------|
-| Elements | One 8-bit quantized element per input element. Elements that are not active output `NaN`. |
-| `Scale` (`s`) | One 8-bit scale shared by the whole block. |
-| `dynamic_static` | Dynamic or static quantization. |
-| `dynamic_exponent` | `e1` or `e2`: the exponent width chosen in dynamic quantization. Written as `0` in static quantization; readers ignore it. |
+| Elements | One 8-bit element per input element. Elements that are not active output `NaN`. |
+| `scale` | One 8-bit scale shared by the whole block. |
+| `dynamic_exponent` | `e1` or `e2`: the exponent width chosen in dynamic quantization. |
 
-#### 4.3.2.1 Element Format
-
-**Input:** an fp32 value (IEEE-754 single precision) with sign `S`, 8-bit
-exponent `e` and 23-bit mantissa. It is never `inf` or `-inf`. It is treated as
-normalized: `1.M`, with an implicit leading 1.
-
-**Output:** 8 bits, packed from the high end as `{S?, Exp, M, 0-pad}`:
+**Element format.** Each element is packed from the MSB as
+`{S?, Exp, M, 0-pad}`:
 
 | Field | Width | Present when | Value |
 |-------|-------|--------------|-------|
 | `S` | 1 bit | `sign = 1` (signed) | The input sign, passed through. |
-| `Exp` | `fe` bits (`fe >= 1`) | always | Section 4.3.2.3. |
-| `M` | `fm` bits (`fm >= 0`) | always | Section 4.3.2.3. |
+| `Exp` | `fe` bits (`fe >= 1`) | always | Section 4.3.2.2. |
+| `M` | `fm = W - fe - sign` bits (`fm >= 0`) | always | Section 4.3.2.2. |
 | `0-pad` | the rest of the 8 bits | `W < 8` | `0` |
 
-The mantissa takes the bits that are left of the element width:
+#### 4.3.2.1 Block Scale and Exponent Distance
 
-```text
-fm = W - fe - sign_bit        // W = num_bits, sign_bit = sign
-```
-
-#### 4.3.2.2 Block Scale and Exponent Distance
-
-**Scale.** `s` is an 8-bit `e8m0` value (exponent only). It is the largest raw
+**Scale.** `scale` is an 8-bit `e8m0` value (exponent only). It is the largest raw
 exponent among the active elements:
 
 ```text
-s = max(e[i] for i in 0..127 if active[i] and not is_inf_nx8[i])   // is_inf_nx8: inf or -inf
+scale = max(e[i] for i in 0..127 if active[i] and not is_inf_nx8[i] and not is_nan[i])
+    // is_inf_nx8: inf or -inf; is_nan: NaN
 ```
 
 > **Note:** An element that quantizes to `inf` or `-inf` in the NX8 format is
@@ -486,13 +487,13 @@ s = max(e[i] for i in 0..127 if active[i] and not is_inf_nx8[i])   // is_inf_nx8
 **Exponent distance.** Each element is encoded by its distance from the scale:
 
 ```text
-E = s - e
+E = scale - e
 ```
 
 `E >= 0` for every element. `E = 0` at the element(s) with the block maximum,
 and `E` grows as the element gets smaller relative to that maximum.
 
-#### 4.3.2.3 Exponent and Mantissa Encoding
+#### 4.3.2.2 Exponent and Mantissa Encoding
 
 `RTN` is round to nearest. An exact half rounds **up** (away from zero in
 magnitude): `0.5 -> 1`, `1.5 -> 2`, `2.5 -> 3`.
@@ -513,7 +514,7 @@ result is corrected:
 | Direct, `E = 0` | `Exp = 0`, `M = 2^fm - 1` | There is no binade above the scale, so the element saturates at the largest value. |
 | Clamp | `Exp = 2^fe - 2`, `M = 0` | `0.11...1` rounded up to `1.00...0`: the smallest directly-encoded value. |
 
-#### 4.3.2.4 Dynamic Exponent Selection (`fe = 1` or `fe = 2`)
+#### 4.3.2.3 Dynamic Exponent Selection (`fe = 1` or `fe = 2`)
 
 Applies when `dynamic_static = 1` (dynamic). Dynamic mode supports two formats,
 both signed and 8 bits wide (`sign = 1`, `num_bits = 8`):
@@ -525,8 +526,8 @@ both signed and 8 bits wide (`sign = 1`, `num_bits = 8`):
 
 | Split | Exponent bits | Mantissa bits | Encodable `E` | Step at `E` |
 |---|---|---|---|---|
-| `fe1` | 1 | `fm1` | 0, 1 | `2^(s - E - fm1)`, clamped at `E >= 1` |
-| `fe2` | 2 | `fm1 - 1` | 0, 1, 2, 3 | `2^(s - E - fm1 + 1)`, clamped at `E >= 3` |
+| `fe1` | 1 | `fm1` | 0, 1 | `2^(scale - E - fm1)`, clamped at `E >= 1` |
+| `fe2` | 2 | `fm1 - 1` | 0, 1, 2, 3 | `2^(scale - E - fm1 + 1)`, clamped at `E >= 3` |
 
 - `fe1` is one bit finer near the top of the block.
 - `fe2` reaches two binades further down before it clamps.
@@ -582,7 +583,7 @@ the sums, with no drift toward either format as the block grows.
 
 ##### Worked example
 
-A block of ten values, with `s = 0` and `fm1 = 4` (signed, `W = 6`):
+A block of ten values, with `scale = 0` and `fm1 = 4` (signed, `W = 6`):
 
 - A multiplier: `2^8 = 256`.
 - B multiplier: `2^10 = 1024`.
@@ -613,9 +614,7 @@ and `table_offset`.
 | Written | Size | Description |
 |---------|------|-------------|
 | Quantized elements | 128 x 8 bits | The quantized vector. |
-| `Scale` (`s`) | 8 bits | Scale shared by the whole vector. |
-| `dynamic_static` | 1 bit | Dynamic or static quantization. |
-| `dynamic_exponent` | 1 bit | `e1` or `e2`: the exponent width chosen in dynamic quantization. Written as `0` in static quantization; readers ignore it. |
+| `scale` | 8 bits | Scale shared by the whole vector. |
+| `dynamic_exponent` | 1 bit | `e1` or `e2`: the exponent width chosen in dynamic quantization. |
 
-> **Note:** The AaQ-Str stage gets the XMEM write address explicitly, from the
-> `table_id` and `table_offset` operands.
+> **Note:** The AaQ-Str stage gets the XMEM write address explicitly.
