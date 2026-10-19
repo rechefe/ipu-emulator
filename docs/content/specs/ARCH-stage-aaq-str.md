@@ -25,8 +25,7 @@ The AaQ (Activation and Quantization) stage perfome the following tasks:
     - 4.1 [`NOP`: No Operation](#41-nop-no-operation)
     - 4.2 [`LOAD_LUT`: Load Function Estimation LUT Segment](#42-load_lut-load-function-estimation-lut-segment)
         - 4.2.1 [Function Estimation LUT](#421-function-estimation-lut)
-        - 4.2.2 [Segment Transfer](#422-segment-transfer)
-        - 4.2.3 [Metadata Block](#423-metadata-block)
+        - 4.2.2 [Metadata Block](#422-metadata-block)
     - 4.3 [`ACTIVATE.QUANTIZE`: Activate and Quantize](#43-activatequantize-activate-and-quantize)
         - 4.3.1 [Activate](#431-activate)
         - 4.3.2 [Quantize](#432-quantize)
@@ -93,17 +92,10 @@ format. It has four 8-bit fields:
 
 | Bits | Field | Description |
 |------|-------|-------------|
-| `[31:24]` | `N/A` | Not used. |
+| `[31:24]` | `dynamic_static` | `0` = static, `1` = dynamic. |
 | `[23:16]` | `sign` | `0` = unsigned, `1` = signed. |
-| `[15:8]` | `nx_format` | Exponent format. `0` = dynamic, `1`-`7` = `e1`-`e7` (fixed exponent width `fe`). |
-| `[7:0]` | `num_bits` | Total element width `W`: `1`-`8`. `0` is reserved/invalid. |
-
-`nx_format` encoding:
-
-| Value | Meaning |
-|-------|---------|
-| `0` | Dynamic. The quantizer chooses the exponent width `fe` per block (section 4.3.2.4) and records it in `dynamic_exponent`. |
-| `1`-`7` | `e1`-`e7`. The exponent width `fe` is the value. |
+| `[15:8]` | `num_bits` | Total element width `W`: `1`-`8`. `0` is reserved/invalid. |
+| `[7:0]` | `exponent_format` | Exponent width `fe` in static mode: `1`-`7` = `e1`-`e7`. |
 
 ### 3.2 Active Elements
 
@@ -194,13 +186,13 @@ NOP;;
 
 | `lut_addr` | What it loads |
 |------------|---------------|
-| `0`-`3` | One 1024-bit slice of the table (section 4.2.2). |
-| `4` | The last 256 bits of the table, plus the metadata block (section 4.2.3). |
+| `0`-`3` | One 1024-bit slice of the table. |
+| `4` | The last 256 bits of the table, plus the metadata block (section 4.2.2). |
 
 #### Syntax
 
 ```text
-LOAD_LUT lut_addr
+LOAD_LUT lut_addr table_id table_offset
 ```
 
 #### Operands
@@ -210,6 +202,8 @@ The Type column links to the [operand type reference](../operand-types.md).
 | Name | Type | Details |
 |------|------|---------|
 | `lut_addr` | `Imm` | `0`-`4`. LUT segment index: `0`-`3` = table slices, `4` = last table bits + metadata. |
+| `table_id` | [`CrIdx`](../operand-types.md#cridx) | `CR0`-`CR15`. Supplies the table ID. |
+| `table_offset` | [`LrIdx`](../operand-types.md#lridx) | `LR0`-`LR15`. Supplies the offset in the table. |
 
 #### Operation
 
@@ -217,18 +211,18 @@ The Type column links to the [operand type reference](../operand-types.md).
 payload[1023:0] = {input_data[31], ..., input_data[0]}     // 32 words x 32 bits
 
 if lut_addr <= 3:                                          // full table slice
-    TABLE_BITS[1024*lut_addr +: 1024] = payload            // section 4.2.2
+    TABLE_BITS[1024*lut_addr +: 1024] = payload
 
 else if lut_addr == 4:                                     // last table bits + metadata
     TABLE_BITS[4351:4096] = payload[255:0]
-    {range_mode, asymetric, pos_c, neg_c, max_exp_num} = payload[330:256]
-    // field layout in section 4.2.3
+    {pos_mode, neg_mode, range_mode, pos_c, neg_c, max_exp_num} = payload[301:256]
+    // field layout in section 4.2.2
 ```
 
 #### Example
 
 ```text
-LOAD_LUT 4;;      // load the metadata block
+LOAD_LUT 4 CR13 LR0;;      // load the metadata block
 ```
 
 ---
@@ -240,56 +234,35 @@ The stage holds one function estimation LUT. It has two parts:
 | Part | Size | Purpose |
 |------|------|---------|
 | Table | 256 entries x 17 bits = **4,352 bits** | The function values. |
-| Metadata block | **75 bits** | Configures range handling. |
+| Metadata block | **46 bits** | Configures range handling. |
 
 Both parts are filled by `LOAD_LUT`, one segment per instruction. The 3-bit
 `lut_addr` selects the segment. Five `LOAD_LUT` instructions (`lut_addr`
 `0`-`4`) program the whole LUT.
 
-#### 4.2.2 Segment Transfer
+#### 4.2.2 Metadata Block
 
-**Source.** A segment is **1024 bits**. It comes from the **lower 32 words** of
-`input data`, `input_data[31:0]` (32 words x 32 bits). The upper words
-`input_data[127:32]` are ignored by `LOAD_LUT`.
-
-**Payload.** The 1024-bit payload is the little-endian concatenation of those
-words:
-
-```text
-payload[1023:0] = {input_data[31], input_data[30], ..., input_data[1], input_data[0]}
-                                          // payload[32*j +: 32] == input_data[j]
-```
-
-**Table layout.** The table is one **4,352-bit flat bitstream**. Each `LOAD_LUT` transfers one 1024-bit slice of it.
-
-**Segments.** `lut_addr` selects which slice is written:
-
-| `lut_addr` | Contents | Details |
-|------------|----------|---------|
-| `0` | Table bits `[1023:0]` | 1st slice. |
-| `1` | Table bits `[2047:1024]` | 2nd slice. |
-| `2` | Table bits `[3071:2048]` | 3rd slice. |
-| `3` | Table bits `[4095:3072]` | 4th slice. The table's first 4,096 bits are now fully loaded. |
-| `4` | Table bits `[4351:4096]` + metadata | **Mixed.** `payload[255:0]` = the table's last 256 bits. `payload[330:256]` = the 75-bit metadata block (section 4.2.3). |
-
-#### 4.2.3 Metadata Block
-
-**Where it lives.** The metadata is in bits `[330:256]` of the `lut_addr = 4`
+**Where it lives.** The metadata is in bits `[301:256]` of the `lut_addr = 4`
 payload.
 
 **Fields.**
 
-| Local bits | Name | Consumed by | Meaning |
-|------------|------|-------------|---------|
-| `[7:0]` | `max_exp_num` | `Quantactivation` | Largest **biased** FP32 exponent still inside the LUT range. `exp > max_exp_num` flags the lane as out-of-range. |
-| `[39:8]` | `neg_c` | `pack_lutout_activ` | FP32 constant substituted for negative out-of-range lanes. |
-| `[71:40]` | `pos_c` | `pack_lutout_activ` | FP32 constant substituted for positive out-of-range lanes. |
-| `[72]` | `asymetric` | `Quantactivation` | Table domain + address form. |
-| `[74:73]` | `range_mode` | `pack_lutout_activ` | Out-of-range policy. |
+| Local bits | Name | Meaning |
+|------------|------|---------|
+| `[7:0]` | `max_exp_num` | Largest **biased** FP32 exponent still inside the LUT range. `exp > max_exp_num` flags the element as out-of-range. |
+| `[24:8]` | `neg_c` | 17-bit constant substituted for negative out-of-range elements. |
+| `[41:25]` | `pos_c` | 17-bit constant substituted for positive out-of-range elements. |
+| `[43:42]` | `range_mode` | LUT version. See the `range_mode` table. |
+| `[44]` | `neg_mode` | Result for negative out-of-range elements: `0` = `x` (identity), `1` = `neg_c`. |
+| `[45]` | `pos_mode` | Result for positive out-of-range elements: `0` = `x` (identity), `1` = `pos_c`. |
 
-> **TBD - ask Jacob:** the encodings of `asymetric` (which table domain and
-> address form each value selects) and of `range_mode` (which out-of-range
-> policy each of the 4 values selects) are not yet specified.
+**`range_mode`.**
+
+| Value | Version | LUT entries | LUT range |
+|-------|---------|-------------|-----------|
+| `0` | Version 1 | 256 entries for positive `x`. | `0 <= x < 2^max_exp_num` |
+| `1` | Version 2 | 256 entries for negative `x`. | `-2^max_exp_num < x <= 0` |
+| `2` | Version 3 | 128 entries for negative `x` and 128 entries for positive `x`. | `-2^max_exp_num < x < 2^max_exp_num` |
 
 ---
 
@@ -336,8 +309,8 @@ for i in 0..127:                                            // active[i]: sectio
         aaq_out.elements[i] = NaN
 
 aaq_out.scale            = s                            // section 4.3.2.2
-aaq_out.dynamic_static   = (nx_format == 0)             // dynamic or static
-aaq_out.dynamic_exponent = (nx_format == 0) ? (fe == 2) : 0   // section 4.3.2.4
+aaq_out.dynamic_static   = dynamic_static               // dynamic or static
+aaq_out.dynamic_exponent = dynamic_static ? (fe == 2) : 0     // section 4.3.2.4
 XMEM[table_id, table_offset] = aaq_out                  // 4.3.3: store
 ```
 
@@ -389,24 +362,24 @@ functions, load the matching function before `ACTIVATE.QUANTIZE`.
 | `exp2` | `-inf` | `0` |
 | `exp2` | positive | not supported (input must be non-positive) |
 | `generic` | `x` inside the LUT range (up to `2^max_exp_num`) | `LUT(x)` |
-| `generic` | `x` beyond `2^max_exp_num` | `range_mode` selects `x` (identity) or a constant (`pos_c`, `neg_c`) |
+| `generic` | `x` beyond `2^max_exp_num` | `pos_mode` and `neg_mode` select `x` (identity) or a constant (`pos_c`, `neg_c`) |
 
-`max_exp_num`, `pos_c`, `neg_c` and `range_mode` are in the LUT metadata
-(section 4.2.3). The three LUT versions of `generic` are below.
+`max_exp_num`, `pos_c`, `neg_c`, `range_mode`, `pos_mode` and `neg_mode` are
+in the LUT metadata (section 4.2.2). The three LUT versions of `generic` are below.
 
 #### The `generic` Function: LUT Versions
 
-The LUT for `generic` has three versions. The drawings that follow are a
-reference for each version.
+The LUT for `generic` has three versions. `range_mode` selects the version.
+The drawings that follow are a reference for each version.
 
 > **Note:** `pos_c` is the constant for the positive side of the x axis.
 > `neg_c` is the constant for the negative side of the x axis. The value of each
 > constant can be positive or negative.
 
-##### Version 1
+##### Version 1 (`range_mode = 0`)
 
-All 256 LUT entries are for positive `x`. Out of the LUT range, `range_mode`
-selects the result: `x` (identity) or a constant.
+All 256 LUT entries are for positive `x`. Out of the LUT range, `pos_mode`
+and `neg_mode` select the result: `x` (identity) or a constant.
 
 $$
 f(x) =
@@ -419,10 +392,10 @@ $$
 
 ![Reference drawing of the generic activation function, version 1](assets/aaq-generic-activation.svg)
 
-##### Version 2
+##### Version 2 (`range_mode = 1`)
 
-All 256 LUT entries are for negative `x`. Out of the LUT range, `range_mode`
-selects the result: `x` (identity) or a constant.
+All 256 LUT entries are for negative `x`. Out of the LUT range, `pos_mode`
+and `neg_mode` select the result: `x` (identity) or a constant.
 
 $$
 f(x) =
@@ -435,11 +408,11 @@ $$
 
 ![Reference drawing of the generic activation function, version 2](assets/aaq-generic-activation-v2.svg)
 
-##### Version 3
+##### Version 3 (`range_mode = 2`)
 
 The LUT entries are divided into 128 entries for negative `x` and 128 entries
-for positive `x`. Out of the LUT range, `range_mode` selects the result: `x`
-(identity) or a constant.
+for positive `x`. Out of the LUT range, `pos_mode` and `neg_mode` select the
+result: `x` (identity) or a constant.
 
 $$
 f(x) =
@@ -463,16 +436,16 @@ The 128 elements of one `ACTIVATE.QUANTIZE` form one **block**. A block has one
 shared scale `s` and one exponent width `fe`, both computed over its active
 elements (section 3.2).
 
-| `nx_format` | Mode | Exponent width `fe` |
-|-------------|------|---------------------|
-| `1`-`7` | Static | The `nx_format` value (`e1`-`e7`). |
-| `0` | Dynamic | `1` or `2`, chosen per block (section 4.3.2.4). |
+| `dynamic_static` | Mode | Exponent width `fe` |
+|------------------|------|---------------------|
+| `0` | Static | The `exponent_format` value (`e1`-`e7`). |
+| `1` | Dynamic | `1` or `2`, chosen per block (section 4.3.2.4). |
 
 **Outputs:**
 
 | Output | Description |
 |--------|-------------|
-| Elements | One 8-bit quantized element per lane. Lanes that are not active output `NaN`. |
+| Elements | One 8-bit quantized element per input element. Elements that are not active output `NaN`. |
 | `Scale` (`s`) | One 8-bit scale shared by the whole block. |
 | `dynamic_static` | Dynamic or static quantization. |
 | `dynamic_exponent` | `e1` or `e2`: the exponent width chosen in dynamic quantization. Written as `0` in static quantization; readers ignore it. |
@@ -542,7 +515,7 @@ result is corrected:
 
 #### 4.3.2.4 Dynamic Exponent Selection (`fe = 1` or `fe = 2`)
 
-Applies when `nx_format = 0` (dynamic). Dynamic mode supports two formats,
+Applies when `dynamic_static = 1` (dynamic). Dynamic mode supports two formats,
 both signed and 8 bits wide (`sign = 1`, `num_bits = 8`):
 
 | Format | `fe` | `fm` | `dynamic_exponent` |
