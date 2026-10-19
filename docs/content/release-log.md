@@ -5,6 +5,7 @@ first.  A workflow refreshes it on `master` after every merge.
 
 | # | Title | Merged at (UTC) |
 |---|-------|----------------|
+| [#255](https://github.com/rechefe/ipu-emulator/pull/255) | Architecture deepening: ISA package, emulator core, assembler, kernel framework, tooling and docs (E00–E09) | 2026-10-19 04:35 |
 | [#252](https://github.com/rechefe/ipu-emulator/pull/252) | Add IPU hardware requirements documentation | 2026-10-04 17:39 |
 | [#249](https://github.com/rechefe/ipu-emulator/pull/249) | Vscode extension update | 2026-09-28 10:55 |
 | [#250](https://github.com/rechefe/ipu-emulator/pull/250) | codegen: declare SV union operands at their own width, type and name | 2026-09-27 15:48 |
@@ -44,8 +45,8 @@ first.  A workflow refreshes it on `master` after every merge.
 | [#172](https://github.com/rechefe/ipu-emulator/pull/172) | fix(emu): MULT reads Ra/Rc DATA from snapshot (issue #157) | 2026-07-27 18:35 |
 | [#170](https://github.com/rechefe/ipu-emulator/pull/170) | Add pad_mode option to dstructure config for masked lane fill value | 2026-07-14 03:05 |
 | [#168](https://github.com/rechefe/ipu-emulator/pull/168) | Update execute_activate_quantize to read live r_acc register  | 2026-07-08 18:29 |
-| [#162](https://github.com/rechefe/ipu-emulator/pull/162) | Refactor AAQ instruction to ACTIVATE.QUANTIZE with INT8 quantization | 2026-06-28 18:43 |
 | [#166](https://github.com/rechefe/ipu-emulator/pull/166) | Merge ACTIVATE and AAQ into single ACTIVATE.QUANTIZE instruction | 2026-06-28 18:43 |
+| [#162](https://github.com/rechefe/ipu-emulator/pull/162) | Refactor AAQ instruction to ACTIVATE.QUANTIZE with INT8 quantization | 2026-06-28 18:43 |
 | [#165](https://github.com/rechefe/ipu-emulator/pull/165) | Add support for Sigmoid Linear Unit (SiLU) activation function | 2026-06-28 18:32 |
 | [#161](https://github.com/rechefe/ipu-emulator/pull/161) | Make dstructure CR index mandatory for masking multiply instructions | 2026-06-27 18:31 |
 | [#155](https://github.com/rechefe/ipu-emulator/pull/155) | Allow per-command CR register for dstructure in mult/acc/aaq stages (#130) | 2026-06-26 12:54 |
@@ -63,8 +64,8 @@ first.  A workflow refreshes it on `master` after every merge.
 | [#140](https://github.com/rechefe/ipu-emulator/pull/140) | LR instruction slot documented three times | 2026-06-17 19:52 |
 | [#126](https://github.com/rechefe/ipu-emulator/pull/126) | AAQ: interim direct INT8 clamp instead of >>24 truncation | 2026-06-15 13:49 |
 | [#125](https://github.com/rechefe/ipu-emulator/pull/125) | docs: update documentation and tests to clarify lane masking behavior | 2026-06-13 17:12 |
-| [#121](https://github.com/rechefe/ipu-emulator/pull/121) | Refactor and enhance AGG instruction tests in ipu-emu-py | 2026-06-13 13:38 |
 | [#123](https://github.com/rechefe/ipu-emulator/pull/123) | Move aggregation (SUM/MAX) from AAQ stage to ACC slot | 2026-06-13 13:38 |
+| [#121](https://github.com/rechefe/ipu-emulator/pull/121) | Refactor and enhance AGG instruction tests in ipu-emu-py | 2026-06-13 13:38 |
 | [#120](https://github.com/rechefe/ipu-emulator/pull/120) | ACC Slot Redesign: AAQ Operations  | 2026-06-09 19:24 |
 | [#118](https://github.com/rechefe/ipu-emulator/pull/118) | Split xmem slot into load, store, and debug pipeline slots (#113) | 2026-06-09 19:17 |
 | [#106](https://github.com/rechefe/ipu-emulator/pull/106) | docs: update mask_shift documentation and add sequential shift-and-AN… | 2026-06-08 19:10 |
@@ -119,12 +120,12 @@ first.  A workflow refreshes it on `master` after every merge.
 | [#11](https://github.com/rechefe/ipu-emulator/pull/11) | [emulator] Fixed multiplier instruction ev and ve | 2026-01-30 10:32 |
 | [#10](https://github.com/rechefe/ipu-emulator/pull/10) | Doc/adding mult acc | 2026-01-26 19:49 |
 | [#8](https://github.com/rechefe/ipu-emulator/pull/8) | [docs] Add new documentat regarding how to add new instructions to as… | 2026-01-12 15:05 |
-| [#5](https://github.com/rechefe/ipu-emulator/pull/5) | [data_formats] WIP - start adding new data formats | 2026-01-09 14:47 |
 | [#7](https://github.com/rechefe/ipu-emulator/pull/7) | Reset command | 2026-01-09 14:47 |
+| [#5](https://github.com/rechefe/ipu-emulator/pull/5) | [data_formats] WIP - start adding new data formats | 2026-01-09 14:47 |
 | [#6](https://github.com/rechefe/ipu-emulator/pull/6) | Add zero_rq instruction and update opcode handling | 2025-12-30 19:35 |
 | [#4](https://github.com/rechefe/ipu-emulator/pull/4) | Docs | 2025-12-22 20:55 |
 | [#3](https://github.com/rechefe/ipu-emulator/pull/3) | Docs | 2025-12-22 20:12 |
 | [#2](https://github.com/rechefe/ipu-emulator/pull/2) | [preprocessor] Add preprocessing capabilities to assembly syntax | 2025-12-22 16:29 |
 | [#1](https://github.com/rechefe/ipu-emulator/pull/1) | Dockerfile | 2025-12-22 16:01 |
 
-*Last updated: 2026-10-16 09:57 UTC*
+*Last updated: 2026-10-19 08:24 UTC*
