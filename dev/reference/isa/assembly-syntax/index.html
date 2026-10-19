@@ -1,0 +1,3648 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Documentation for IPU emulator and assembly language">
+      
+      
+        <meta name="author" content="IPU Development Team">
+      
+      
+      
+        <link rel="prev" href="../activate-quantize/">
+      
+      
+        <link rel="next" href="../instruction-format/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Assembly syntax - IPU Emulator</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../../css/timeago.css">
+    
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="deep-purple" data-md-color-accent="purple">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#assembly-language-syntax" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../.." title="IPU Emulator" class="md-header__button md-logo" aria-label="IPU Emulator" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            IPU Emulator
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Assembly syntax
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="deep-purple" data-md-color-accent="purple"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="deep-purple" data-md-color-accent="purple"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/rechefe/ipu-emulator" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    rechefe/ipu-emulator
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../getting-started/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Getting started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../how-to/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  How-to
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../../" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../explanation/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Explanation
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../specs/cache-unit/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Specs and requirements
+
+        </a>
+      </li>
+    
+  
+
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../../requirements/open-questions/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Open questions
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../../release-log/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Release log
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--lifted md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../.." title="IPU Emulator" class="md-nav__button md-logo" aria-label="IPU Emulator" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    IPU Emulator
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/rechefe/ipu-emulator" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    rechefe/ipu-emulator
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../getting-started/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="https://github.com/rechefe/ipu-emulator/releases/download/guide-latest/getting-started.pdf" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started guide (PDF)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../how-to/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How-to
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    How-to
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../how-to/write-a-kernel/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Write a kernel
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../how-to/add-an-instruction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Add an instruction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../how-to/debug-a-kernel/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Debug a kernel
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../how-to/step-through-a-kernel-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Step through a kernel run
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../how-to/inspector/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cycle Inspector
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../how-to/reference-model-cocotb/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Use the reference model from cocotb
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ISA
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    ISA
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../instructions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Instructions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../operand-types/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operand types
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../registers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Registers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration-registers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration registers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../activate-quantize/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ACTIVATE.QUANTIZE in the emulator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Assembly syntax
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Assembly syntax
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Features
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#basic-syntax" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Basic Syntax
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#compound-instructions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Compound instructions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#register-names" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Register names
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#labels-and-branches" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Labels and branches
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Labels and branches">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#local-labels" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Local labels
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#execution-order-and-timing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Execution order and timing
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Execution order and timing">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#register-reads-and-writes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Register reads and writes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#known-deviations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Known deviations
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#masking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Masking
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Masking">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#r_mask-register" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        R_MASK register
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#selecting-a-slot-mask_offset" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Selecting a slot: mask_offset
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deriving-the-active-mask-mask_shift" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deriving the active mask: mask_shift
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#partition-vectors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Partition vectors
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#worked-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Worked examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#jinja2-preprocessing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Jinja2 preprocessing
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Jinja2 preprocessing">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#abi-names" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ABI names
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#running-the-assembler" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running the assembler
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#further-reading" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Further reading
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../instruction-format/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Instruction format
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../programmer-guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Programmer's guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../kernel-toml/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    kernel.toml
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command-line tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference-model-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference model API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../kernels/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Kernels
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4_6" id="__nav_4_6_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Kernels
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../kernels/softmax/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Softmax
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../kernels/convolutions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Convolutions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../kernels/linear-layers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Linear layers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../kernels/normalization-and-shaping/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Normalization and shaping
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../kernels/attention/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Attention
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../kernels/mobilevit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MobileViT-S
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code-conventions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Code conventions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code-review/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Code review
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../glossary/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Glossary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../explanation/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Explanation
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Explanation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../explanation/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../explanation/timing-model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Timing model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../explanation/element-formats/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Element formats
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../explanation/isa-idioms/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ISA idioms
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../explanation/kernel-coverage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Kernel coverage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Specs and requirements
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Specs and requirements
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_6_1" id="__nav_6_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Specs
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Specs
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../specs/cache-unit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cache Unit Specification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../specs/stage-aaq-str/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AaQ Stage Specification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../specs/stage-accumulator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Accumulator Stage Specification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../specs/stage-control/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Control Stage Specification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../specs/riscv-host-integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RISC-V Host Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../specs/mnemonic-rename/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Mnemonic rename (SV names)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../specs/rtl-migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RTL migration (SV package)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../requirements/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HW requirements
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_2" id="__nav_6_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    HW requirements
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../requirements/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture and pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../requirements/interfaces/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    External interfaces
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../requirements/execution-flow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Execution flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../requirements/memory-access/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Memory access
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../requirements/faults/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Faults
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../requirements/debug/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Debug
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../requirements/host-registers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Host registers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../requirements/open-questions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Open questions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../release-log/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Release log
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+  
+                  
+
+
+  
+    <a href="https://github.com/rechefe/ipu-emulator/edit/master/docs/content/reference/isa/assembly-syntax.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+    
+      
+    
+    <a href="https://github.com/rechefe/ipu-emulator/raw/master/docs/content/reference/isa/assembly-syntax.md" title="View source of this page" class="md-content__button md-icon">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17 18c.56 0 1 .44 1 1s-.44 1-1 1-1-.44-1-1 .44-1 1-1m0-3c-2.73 0-5.06 1.66-6 4 .94 2.34 3.27 4 6 4s5.06-1.66 6-4c-.94-2.34-3.27-4-6-4m0 6.5a2.5 2.5 0 0 1-2.5-2.5 2.5 2.5 0 0 1 2.5-2.5 2.5 2.5 0 0 1 2.5 2.5 2.5 2.5 0 0 1-2.5 2.5M9.27 20H6V4h7v5h5v4.07c.7.08 1.36.25 2 .49V8l-6-6H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h4.5a8.2 8.2 0 0 1-1.23-2"/></svg>
+    </a>
+  
+
+
+<h1 id="assembly-language-syntax">Assembly Language Syntax<a class="headerlink" href="#assembly-language-syntax" title="Permanent link">&para;</a></h1>
+<p>The IPU assembler is a Python-based tool that turns assembly source into binary VLIW instructions for the emulator. Instruction names, operands, and encoding are driven by <code>instruction_spec.py</code> in <code>ipu_isa</code>; the <a href="../instructions/">Instruction reference</a> and <a href="../operand-types/">Operand types</a> are generated from that same toolchain.</p>
+<h2 id="features">Features<a class="headerlink" href="#features" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Jinja2 preprocessing</strong> — templates and macros for generated assembly</li>
+<li><strong>Label resolution</strong> — forward and backward references</li>
+<li><strong>VLIW compounds</strong> — multiple pipeline slots per cycle (<code>COND</code>, <code>LR</code>×3, <code>LOAD</code>, <code>MULT</code>, <code>ACC</code>, <code>AAQ</code>, <code>STORE</code>; emulator-only: <code>ACC_STORE</code>, <code>BREAK</code>)</li>
+<li><strong>Syntax validation</strong> — Lark-based parser with detailed errors</li>
+</ul>
+<h2 id="basic-syntax">Basic Syntax<a class="headerlink" href="#basic-syntax" title="Permanent link">&para;</a></h2>
+<p>Assembly is line-oriented. One <strong>compound instruction</strong> may contain several <strong>slot</strong> instructions separated by <code>;</code>, terminated by <code>;;</code>.</p>
+<div class="language-asm highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Comments start with # or //</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nl">label:</span><span class="w">                          </span><span class="c1"># Labels end with a colon</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span><span class="nf">LD.MULT</span><span class="w"> </span><span class="no">R0</span><span class="w"> </span><span class="no">LR0</span><span class="w"> </span><span class="no">CR0</span><span class="c1">;           # LOAD: load into mult stage R0</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">    </span><span class="nf">MULT.RC.VV</span><span class="w"> </span><span class="no">LR1</span><span class="w"> </span><span class="no">R0</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="no">LR3</span><span class="w"> </span><span class="no">CR15</span><span class="c1">; # MULT: element-wise multiply</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">    </span><span class="nf">ACC.ADD</span><span class="c1">;                      # ACC: accumulate</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">    </span><span class="nf">INC</span><span class="w"> </span><span class="no">LR0</span><span class="w"> </span><span class="mi">1</span><span class="c1">;                    # LR: bump address (increment via INC)</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">    </span><span class="nf">BNE</span><span class="w"> </span><span class="no">LR0</span><span class="w"> </span><span class="no">LR1</span><span class="w"> </span><span class="no">next</span><span class="c1">;             # COND: branch</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">    </span><span class="c1">;;</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="nl">next:</span>
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">    </span><span class="nf">HALT</span><span class="c1">;;</span>
+</span></code></pre></div>
+<p>By convention, <strong>instruction mnemonics are written in upper case</strong> in documentation and examples (e.g. <code>MULT.RC.VV</code>, <code>LD.MULT</code>). <strong>Register names</strong> are written in <strong>upper case</strong> (<code>LR0</code>, <code>R0</code>, <code>CR0</code>); operand placeholders such as <code>dest</code> are lower case. The assembler accepts <strong>any case</strong> for mnemonics and register tokens.</p>
+<h2 id="compound-instructions">Compound instructions<a class="headerlink" href="#compound-instructions" title="Permanent link">&para;</a></h2>
+<p>A full IPU instruction is one <strong>compound</strong> word: several slots execute in parallel in a single cycle.</p>
+<p><strong>Pattern:</strong></p>
+<!-- asm-fragment: one placeholder per slot, not real instructions -->
+<div class="language-asm highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nf">load_inst</span><span class="c1">; mult_inst; acc_inst; aaq_inst; store_inst; acc_store_inst; lr_inst_a; lr_inst_b; lr_inst_c; cond_inst; break_inst;;</span>
+</span></code></pre></div>
+<p><strong>Rules:</strong></p>
+<ul>
+<li>Each slot appears a fixed number of times (see <code>SLOT_COUNT</code> in <code>instruction_spec.py</code>); unused slots are filled with that slot’s <strong>NOP</strong> by the assembler.</li>
+<li>Slot order in the binary word (MSB → LSB) is defined by the toolchain: <code>cond</code>, three <code>lr</code> sub-slots, <code>load</code>, <code>mult</code>, <code>acc</code>, <code>aaq</code>, <code>store</code>, <code>acc_store</code>, <code>break</code> (see the layout diagram on the <a href="../instructions/#compound-instruction-layout">Instruction reference</a>).</li>
+<li>The slots of one word execute in a fixed order, and each register read sees either the value at cycle start or the value forwarded from an earlier slot of the same word: see <a href="#execution-order-and-timing">Execution order and timing</a>.</li>
+<li>The emulator-only slots (<code>ACC_STORE</code>, <code>BREAK</code>) are not implemented in real IPU hardware: see the <a href="../instruction-format/">instruction format</a>.</li>
+</ul>
+<p><strong>Example (parallel slots):</strong></p>
+<div class="language-asm highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nl">loop:</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="nf">LD.MULT</span><span class="w"> </span><span class="no">R0</span><span class="w"> </span><span class="no">LR0</span><span class="w"> </span><span class="no">CR0</span><span class="c1">; MULT.RC.VV LR1 R0 0 LR3 CR15; ACC.ADD; INC LR0 1; BNE LR0 LR1 loop;;</span>
+</span></code></pre></div>
+<h2 id="register-names">Register names<a class="headerlink" href="#register-names" title="Permanent link">&para;</a></h2>
+<p>The mult-stage and scalar register <strong>tokens</strong> below are derived from <code>REGISTER_DEFINITIONS</code> in <code>ipu_isa.registers</code> (same source as the assembler).</p>
+<table>
+<thead>
+<tr>
+<th>Kind</th>
+<th>Assembler tokens</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Mult stage</td>
+<td><code>R0</code>, <code>R1</code></td>
+<td>128-byte vectors; 2-bit mult-stage field (<code>2</code> reserved). See <a href="../operand-types/#multstagereg">MultStageReg</a>.</td>
+</tr>
+<tr>
+<td>Cyclic / mask</td>
+<td><em>(architectural)</em></td>
+<td>Cyclic (<strong>RC</strong>) and mask (<strong>RM</strong>) register files are documented per instruction in the reference; operands pass <strong>byte offsets</strong> via <code>LR</code> values.</td>
+</tr>
+<tr>
+<td>Loop / scalar</td>
+<td><code>LR0</code>–<code>LR15</code></td>
+<td>General-purpose; <strong>read/write</strong>. See <a href="../operand-types/#lridx">LrIdx</a>.</td>
+</tr>
+<tr>
+<td>Constant</td>
+<td><code>CR0</code>–<code>CR15</code></td>
+<td><strong>Read-only</strong> in assembly; the host writes <code>CR2</code>–<code>CR15</code> before a kernel runs. <strong><code>CR0</code></strong> and <strong><code>CR1</code></strong> are the read-only constants 0 and 1 (see <a href="../configuration-registers/">Configuration registers</a>). <strong><code>CR15</code></strong> conventionally holds dstructure configuration (see <a href="../operand-types/#dstructurecridx">DstructureCrIdx</a>) but is a valid <code>CrIdx</code>/<code>LcrIdx</code> operand like any other CR. See <a href="../operand-types/#cridx">CrIdx</a>.</td>
+</tr>
+</tbody>
+</table>
+<p>The <strong><code>mem_bypass</code></strong> vector may still exist in the <strong>emulator regfile</strong> for debugging, but it is <strong>not</strong> a valid mult-stage assembly operand.</p>
+<p><strong>LR slot:</strong> <strong><code>SET</code></strong> copies from a <strong><code>CR</code></strong> register (see <a href="../operand-types/#cridx">CrIdx</a>); <strong><code>ADD</code></strong>/<strong><code>SUB</code></strong>'s <strong><code>src_b</code></strong> is register-only (see <a href="../operand-types/#lcridx">LcrIdx</a>) — use <strong><code>INC</code></strong>/<strong><code>DEC</code></strong> for an immediate operand instead (see <a href="../operand-types/#lrincdecimmediate">LrIncDecImmediate</a>); <strong><code>INC.MODP2</code></strong> uses a dedicated <strong>k</strong> immediate (see <a href="../operand-types/#lrmodpow2kimmediate">LrModPow2KImmediate</a>).</p>
+<h2 id="labels-and-branches">Labels and branches<a class="headerlink" href="#labels-and-branches" title="Permanent link">&para;</a></h2>
+<div class="language-asm highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nl">start:</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">    </span><span class="nf">SET</span><span class="w"> </span><span class="no">LR0</span><span class="w"> </span><span class="no">CR0</span><span class="c1">;;</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="nl">loop:</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span><span class="nf">INC</span><span class="w"> </span><span class="no">LR0</span><span class="w"> </span><span class="mi">1</span><span class="c1">;;</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">    </span><span class="nf">BNE</span><span class="w"> </span><span class="no">LR0</span><span class="w"> </span><span class="no">LR1</span><span class="w"> </span><span class="no">loop</span><span class="c1">;;</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">    </span><span class="nf">HALT</span><span class="c1">;;</span>
+</span></code></pre></div>
+<p>Relative labels such as <code>B +5</code> / <code>B -2</code> are supported where the grammar accepts a <strong>label</strong> token (see cond-slot instructions in the reference).</p>
+<h3 id="local-labels">Local labels<a class="headerlink" href="#local-labels" title="Permanent link">&para;</a></h3>
+<p>A label made of decimal digits only, such as <code>1:</code>, is a <strong>local label</strong> (the GNU assembler's numeric labels). It may be defined any number of times. <code>1f</code> refers to the next <code>1:</code> after the current instruction word, and <code>1b</code> to the nearest <code>1:</code> at or before it, so a word may branch to its own label with <code>1b</code>. A bare <code>1</code> as a branch target is an error. Local labels let a macro or a loop body use one short label in every expansion:</p>
+<div class="language-asm highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="err">{%</span><span class="w"> </span><span class="nf">macro</span><span class="w"> </span><span class="no">count_to</span><span class="p">(</span><span class="no">limit_cr</span><span class="p">)</span><span class="w"> </span><span class="err">%</span><span class="p">}</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">    </span><span class="nf">SET</span><span class="w"> </span><span class="no">LR0</span><span class="w"> </span><span class="no">CR0</span><span class="c1">;;</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="err">1:</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">    </span><span class="nf">INC</span><span class="w"> </span><span class="no">LR0</span><span class="w"> </span><span class="mi">1</span><span class="c1">;;</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">    </span><span class="nf">BNE</span><span class="w"> </span><span class="no">LR0</span><span class="w"> </span><span class="p">{{</span><span class="w"> </span><span class="no">limit_cr</span><span class="w"> </span><span class="p">}}</span><span class="w"> </span><span class="mi">1</span><span class="no">b</span><span class="c1">;;</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="err">{%</span><span class="w"> </span><span class="nf">endmacro</span><span class="w"> </span><span class="err">%</span><span class="p">}</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="err">{{</span><span class="w"> </span><span class="nf">count_to</span><span class="p">(</span><span class="err">"</span><span class="no">CR2</span><span class="err">"</span><span class="p">)</span><span class="w"> </span><span class="p">}}</span>
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="err">{{</span><span class="w"> </span><span class="nf">count_to</span><span class="p">(</span><span class="err">"</span><span class="no">CR3</span><span class="err">"</span><span class="p">)</span><span class="w"> </span><span class="p">}}</span>
+</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="w">    </span><span class="nf">HALT</span><span class="c1">;;</span>
+</span></code></pre></div>
+<h2 id="execution-order-and-timing">Execution order and timing<a class="headerlink" href="#execution-order-and-timing" title="Permanent link">&para;</a></h2>
+<p>This section is <strong>generated</strong> from <code>ipu_isa.timing</code> and the register accesses each instruction declares in <code>instruction_spec.py</code>.</p>
+<p>The slots of one instruction word execute in this order: <strong>BREAK</strong> → <strong>LR</strong> → <strong>LOAD</strong> → <strong>MULT</strong> → <strong>ACC</strong> → <strong>AAQ</strong> → <strong>STORE</strong> → <strong>ACC_STORE</strong> → <strong>COND</strong>. <strong>BREAK</strong> is evaluated before any slot writes (it may halt the word); the <strong>LR</strong> sub-slots all read before any of them writes.</p>
+<p>A register read sees one of two values: the value at <strong>cycle start</strong> (when the word began), or the <strong>forwarded</strong> value (after the writes of earlier slots of the same word). The timing contract is four rules:</p>
+<ol>
+<li>The Control stage (<strong>LR</strong>, <strong>COND</strong>) reads LRs at cycle start; every other stage reads LRs after the LR writes of the same word.</li>
+<li><strong>MULT</strong> reads <code>R0</code>, <code>R1</code>, <code>R_CYCLIC</code> and <code>R_MASK</code> at cycle start.</li>
+<li><code>MULT_RES</code> is forwarded to <strong>ACC</strong> (including AGG and RESHAPE); <code>R_ACC</code> is forwarded to <strong>AAQ</strong>.</li>
+<li>LR sub-slots read cycle-start values.</li>
+</ol>
+<p>Any other read is forwarded when every slot that writes the register runs earlier in the word, and at cycle start otherwise. CRs are never written during a run, so CR reads are at cycle start.</p>
+<p>The <a href="../../../explanation/timing-model/">timing model</a> explains the rules, with an example of each.</p>
+<h3 id="register-reads-and-writes">Register reads and writes<a class="headerlink" href="#register-reads-and-writes" title="Permanent link">&para;</a></h3>
+<p><code>R</code> is the <code>R0</code>/<code>R1</code> pair. An operand of type <code>LcrIdx</code> reads an LR or a CR.</p>
+<table>
+<thead>
+<tr>
+<th>Instruction</th>
+<th>Slot</th>
+<th>Reads at cycle start</th>
+<th>Reads forwarded</th>
+<th>Writes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>BREAK</code></td>
+<td><code>BREAK</code></td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>BREAK.IFEQ</code></td>
+<td><code>BREAK</code></td>
+<td><code>LR</code> via <code>reg</code></td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>SET</code></td>
+<td><code>LR</code></td>
+<td><code>CR</code> via <code>src</code></td>
+<td>—</td>
+<td><code>LR</code> via <code>reg</code></td>
+</tr>
+<tr>
+<td><code>ADD</code></td>
+<td><code>LR</code></td>
+<td><code>LR</code> via <code>src_a</code>, <code>LR</code> via <code>src_b</code>, <code>CR</code> via <code>src_b</code></td>
+<td>—</td>
+<td><code>LR</code> via <code>dest</code></td>
+</tr>
+<tr>
+<td><code>SUB</code></td>
+<td><code>LR</code></td>
+<td><code>LR</code> via <code>src_a</code>, <code>LR</code> via <code>src_b</code>, <code>CR</code> via <code>src_b</code></td>
+<td>—</td>
+<td><code>LR</code> via <code>dest</code></td>
+</tr>
+<tr>
+<td><code>INC.MODP2</code></td>
+<td><code>LR</code></td>
+<td><code>LR</code> via <code>step</code>, <code>CR</code> via <code>step</code>, <code>LR</code> via <code>dest</code></td>
+<td>—</td>
+<td><code>LR</code> via <code>dest</code></td>
+</tr>
+<tr>
+<td><code>INC</code></td>
+<td><code>LR</code></td>
+<td><code>LR</code> via <code>dest</code></td>
+<td>—</td>
+<td><code>LR</code> via <code>dest</code></td>
+</tr>
+<tr>
+<td><code>DEC</code></td>
+<td><code>LR</code></td>
+<td><code>LR</code> via <code>dest</code></td>
+<td>—</td>
+<td><code>LR</code> via <code>dest</code></td>
+</tr>
+<tr>
+<td><code>ADDB</code></td>
+<td><code>LR</code></td>
+<td><code>LR</code> via <code>src_b</code>, <code>CR</code> via <code>src_b</code>, <code>LR</code> via <code>dest</code></td>
+<td>—</td>
+<td><code>LR</code> via <code>dest</code></td>
+</tr>
+<tr>
+<td><code>ADDBI</code></td>
+<td><code>LR</code></td>
+<td><code>LR</code> via <code>dest</code></td>
+<td>—</td>
+<td><code>LR</code> via <code>dest</code></td>
+</tr>
+<tr>
+<td><code>LD.MULT</code></td>
+<td><code>LOAD</code></td>
+<td><code>CR</code> via <code>base</code></td>
+<td><code>LR</code> via <code>offset</code></td>
+<td><code>R</code> via <code>dest</code></td>
+</tr>
+<tr>
+<td><code>LD.MULT.CYCLIC</code></td>
+<td><code>LOAD</code></td>
+<td><code>CR</code> via <code>base</code></td>
+<td><code>LR</code> via <code>offset</code>, <code>LR</code> via <code>index</code></td>
+<td><code>R_CYCLIC</code></td>
+</tr>
+<tr>
+<td><code>LD.MASK</code></td>
+<td><code>LOAD</code></td>
+<td><code>CR</code> via <code>base</code></td>
+<td><code>LR</code> via <code>offset</code></td>
+<td><code>R_MASK</code></td>
+</tr>
+<tr>
+<td><code>MULT.RC.VV</code></td>
+<td><code>MULT</code></td>
+<td><code>R</code> via <code>ra</code>, <code>R_CYCLIC</code>, <code>R_MASK</code>, <code>CR</code> via <code>cr_idx</code></td>
+<td><code>LR</code> via <code>rc_idx</code>, <code>LR</code> via <code>mask_shift</code></td>
+<td><code>MULT_RES</code></td>
+</tr>
+<tr>
+<td><code>MULT.RC.VE</code></td>
+<td><code>MULT</code></td>
+<td><code>CR</code> via <code>src</code>, <code>R</code>, <code>R_CYCLIC</code>, <code>R_MASK</code>, <code>CR</code> via <code>cr_idx</code></td>
+<td><code>LR</code> via <code>rc_idx</code>, <code>LR</code> via <code>mask_shift</code>, <code>LR</code> via <code>src</code></td>
+<td><code>MULT_RES</code></td>
+</tr>
+<tr>
+<td><code>MULT.RC.VS</code></td>
+<td><code>MULT</code></td>
+<td><code>R_CYCLIC</code>, <code>R_MASK</code>, <code>CR</code> via <code>cr_idx</code></td>
+<td><code>LR</code> via <code>rc_idx</code>, <code>LR</code> via <code>mask_shift</code></td>
+<td><code>MULT_RES</code></td>
+</tr>
+<tr>
+<td><code>MULT.VE</code></td>
+<td><code>MULT</code></td>
+<td><code>CR</code> via <code>cr_idx</code>, <code>R</code>, <code>R_MASK</code>, <code>CR</code> via <code>dstructure_cr_idx</code></td>
+<td><code>LR</code> via <code>ra_idx</code>, <code>LR</code> via <code>mask_shift</code></td>
+<td><code>MULT_RES</code></td>
+</tr>
+<tr>
+<td><code>MULT.EE</code></td>
+<td><code>MULT</code></td>
+<td><code>CR</code> via <code>cr_idx</code>, <code>R</code>, <code>R_MASK</code>, <code>CR</code> via <code>dstructure_cr_idx</code></td>
+<td><code>LR</code> via <code>ra_idx</code>, <code>LR</code> via <code>mask_shift</code></td>
+<td><code>MULT_RES</code></td>
+</tr>
+<tr>
+<td><code>ACC.ADD</code></td>
+<td><code>ACC</code></td>
+<td><code>R_ACC</code></td>
+<td><code>MULT_RES</code></td>
+<td><code>R_ACC</code></td>
+</tr>
+<tr>
+<td><code>ACC.ADD.FIRST</code></td>
+<td><code>ACC</code></td>
+<td>—</td>
+<td><code>MULT_RES</code></td>
+<td><code>R_ACC</code></td>
+</tr>
+<tr>
+<td><code>ACC.MAX</code></td>
+<td><code>ACC</code></td>
+<td><code>R_ACC</code></td>
+<td><code>MULT_RES</code></td>
+<td><code>R_ACC</code></td>
+</tr>
+<tr>
+<td><code>ACC.MAX.FIRST</code></td>
+<td><code>ACC</code></td>
+<td>—</td>
+<td><code>MULT_RES</code></td>
+<td><code>R_ACC</code></td>
+</tr>
+<tr>
+<td><code>ACC.SUB</code></td>
+<td><code>ACC</code></td>
+<td><code>R_ACC</code></td>
+<td><code>MULT_RES</code></td>
+<td><code>R_ACC</code></td>
+</tr>
+<tr>
+<td><code>ACC.SUB.FIRST</code></td>
+<td><code>ACC</code></td>
+<td>—</td>
+<td><code>MULT_RES</code></td>
+<td><code>R_ACC</code></td>
+</tr>
+<tr>
+<td><code>ACC.STRIDE</code></td>
+<td><code>ACC</code></td>
+<td>—</td>
+<td><code>LR</code> via <code>offset</code>, <code>MULT_RES</code></td>
+<td><code>R_ACC</code></td>
+</tr>
+<tr>
+<td><code>AGG.SUM.FIRST</code></td>
+<td><code>ACC</code></td>
+<td><code>CR</code> via <code>cr_idx</code></td>
+<td><code>LR</code> via <code>dest_slot</code>, <code>MULT_RES</code></td>
+<td><code>R_ACC</code></td>
+</tr>
+<tr>
+<td><code>AGG.SUM</code></td>
+<td><code>ACC</code></td>
+<td><code>CR</code> via <code>cr_idx</code>, <code>R_ACC</code></td>
+<td><code>LR</code> via <code>dest_slot</code>, <code>MULT_RES</code></td>
+<td><code>R_ACC</code></td>
+</tr>
+<tr>
+<td><code>AGG.MAX.FIRST</code></td>
+<td><code>ACC</code></td>
+<td><code>CR</code> via <code>cr_idx</code></td>
+<td><code>LR</code> via <code>dest_slot</code>, <code>MULT_RES</code></td>
+<td><code>R_ACC</code></td>
+</tr>
+<tr>
+<td><code>AGG.MAX</code></td>
+<td><code>ACC</code></td>
+<td><code>CR</code> via <code>cr_idx</code>, <code>R_ACC</code></td>
+<td><code>LR</code> via <code>dest_slot</code>, <code>MULT_RES</code></td>
+<td><code>R_ACC</code></td>
+</tr>
+<tr>
+<td><code>ACC.RESHAPE</code></td>
+<td><code>ACC</code></td>
+<td>—</td>
+<td><code>LR</code> via <code>source</code>, <code>LR</code> via <code>dest</code>, <code>LR</code> via <code>reshape_mask</code>, <code>MULT_RES</code></td>
+<td><code>R_ACC</code></td>
+</tr>
+<tr>
+<td><code>ACTIVATE.QUANTIZE</code></td>
+<td><code>AAQ</code></td>
+<td><code>CR</code> via <code>cr_idx</code></td>
+<td><code>R_ACC</code></td>
+<td><code>POST_AAQ_REG</code></td>
+</tr>
+<tr>
+<td><code>ST.AAQ</code></td>
+<td><code>STORE</code></td>
+<td><code>CR</code> via <code>base</code></td>
+<td><code>LR</code> via <code>offset</code>, <code>POST_AAQ_REG</code></td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>ST.ACC</code></td>
+<td><code>ACC_STORE</code></td>
+<td><code>CR</code> via <code>base</code></td>
+<td><code>LR</code> via <code>offset</code>, <code>R_ACC</code></td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>BEQ</code></td>
+<td><code>COND</code></td>
+<td><code>LR</code> via <code>reg1</code>, <code>CR</code> via <code>reg1</code>, <code>LR</code> via <code>reg2</code>, <code>CR</code> via <code>reg2</code></td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>BNE</code></td>
+<td><code>COND</code></td>
+<td><code>LR</code> via <code>reg1</code>, <code>CR</code> via <code>reg1</code>, <code>LR</code> via <code>reg2</code>, <code>CR</code> via <code>reg2</code></td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>BLT.S</code></td>
+<td><code>COND</code></td>
+<td><code>LR</code> via <code>reg1</code>, <code>CR</code> via <code>reg1</code>, <code>LR</code> via <code>reg2</code>, <code>CR</code> via <code>reg2</code></td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>BGE.S</code></td>
+<td><code>COND</code></td>
+<td><code>LR</code> via <code>reg1</code>, <code>CR</code> via <code>reg1</code>, <code>LR</code> via <code>reg2</code>, <code>CR</code> via <code>reg2</code></td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>BR</code></td>
+<td><code>COND</code></td>
+<td><code>LR</code> via <code>reg</code>, <code>CR</code> via <code>reg</code></td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>HALT</code></td>
+<td><code>COND</code></td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<h3 id="known-deviations">Known deviations<a class="headerlink" href="#known-deviations" title="Permanent link">&para;</a></h3>
+<p>None: every read in the emulator follows the contract.</p>
+<h2 id="masking">Masking<a class="headerlink" href="#masking" title="Permanent link">&para;</a></h2>
+<p>Multiply instructions (<code>MULT.RC.VV</code>, <code>MULT.RC.VE</code>, <code>MULT.RC.VS</code>, <code>MULT.VE</code>, <code>MULT.EE</code>) support <strong>element masking</strong>: after the multiply, elements in <code>MULT_RES</code> whose
+corresponding mask bit is <strong>1</strong> are <strong>active</strong> and pass through to accumulation; elements whose bit is
+<strong>0</strong> are <strong>zeroed</strong> (deactivated). A mask of all-ones leaves every element active (the reset default);
+a mask of all-zeros deactivates every element.</p>
+<h3 id="r_mask-register">R_MASK register<a class="headerlink" href="#r_mask-register" title="Permanent link">&para;</a></h3>
+<p><code>R_MASK</code> is a 128-byte register packed as <strong>8 independent 128-bit slots</strong> (slots 0–7). Load it
+from XMEM with:</p>
+<!-- asm-fragment: operand placeholders -->
+<div class="language-asm highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nf">LD.MASK</span><span class="w"> </span><span class="no">offset</span><span class="w"> </span><span class="no">base</span><span class="c1">;;</span>
+</span></code></pre></div>
+<p><code>offset</code> is an LR register holding the XMEM byte offset; <code>base</code> is a CR register holding the
+base address. The full 1024-bit register is always overwritten in one cycle.
+A multiply reads <code>R_MASK</code> at cycle start, so an <code>LD.MASK</code> in the same word as a masking multiply
+is not seen by it: that multiply uses the previous <code>R_MASK</code>, and the next word sees the new one.</p>
+<h3 id="selecting-a-slot-mask_offset">Selecting a slot: mask_offset<a class="headerlink" href="#selecting-a-slot-mask_offset" title="Permanent link">&para;</a></h3>
+<p>Each masking multiply instruction carries a <strong>3-bit <code>mask_offset</code> immediate</strong> (0–7) that selects
+which 128-bit slot of <code>R_MASK</code> is used for that cycle. Eight slots can co-exist in a single loaded
+<code>R_MASK</code> value, so one load can serve eight different mask patterns per kernel.</p>
+<h3 id="deriving-the-active-mask-mask_shift">Deriving the active mask: mask_shift<a class="headerlink" href="#deriving-the-active-mask-mask_shift" title="Permanent link">&para;</a></h3>
+<p>Rather than using the slot mask directly, <code>mask_shift</code> selects from <strong>7 derived masks</strong> generated
+by sequentially shifting the selected slot one bit at a time and ANDing with a partition vector
+after each step. Let <code>M</code> be the 128-bit value in the selected slot. Positive and negative shifts
+use <strong>different</strong> partition vectors:</p>
+<table>
+<thead>
+<tr>
+<th><code>mask_shift</code></th>
+<th>Derived mask</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>0</code></td>
+<td><code>M</code> (slot mask, unmodified)</td>
+</tr>
+<tr>
+<td><code>+1</code></td>
+<td><code>(M &lt;&lt; 1) &amp; partition_vector</code></td>
+</tr>
+<tr>
+<td><code>+2</code></td>
+<td><code>(derived[+1] &lt;&lt; 1) &amp; partition_vector</code></td>
+</tr>
+<tr>
+<td><code>+3</code></td>
+<td><code>(derived[+2] &lt;&lt; 1) &amp; partition_vector</code></td>
+</tr>
+<tr>
+<td><code>−1</code></td>
+<td><code>(M &gt;&gt; 1) &amp; inverse_partition_vector</code></td>
+</tr>
+<tr>
+<td><code>−2</code></td>
+<td><code>(derived[−1] &gt;&gt; 1) &amp; inverse_partition_vector</code></td>
+</tr>
+<tr>
+<td><code>−3</code></td>
+<td><code>(derived[−2] &gt;&gt; 1) &amp; inverse_partition_vector</code></td>
+</tr>
+</tbody>
+</table>
+<p><code>mask_shift</code> names an LR register. The <strong>ctrl stage</strong> reads that register each cycle and forwards
+the value through the pipeline to the mult stage — the mult stage itself does not access LR
+registers directly. LR registers are 32-bit; negative values use 32-bit two's complement. Values
+outside [−3, +3] <strong>clamp</strong> to ±3.</p>
+<h3 id="partition-vectors">Partition vectors<a class="headerlink" href="#partition-vectors" title="Permanent link">&para;</a></h3>
+<p>Each masking multiply instruction takes a mandatory CR-index operand (<code>cr_idx</code> on <code>MULT.RC.VV</code> /
+<code>MULT.RC.VE</code> / <code>MULT.RC.VS</code>; <code>dstructure_cr_idx</code> on <code>MULT.VE</code> / <code>MULT.EE</code>, since those two already
+use <code>cr_idx</code> for the scalar multiplier) naming the CR register that supplies the dstructure
+configuration — there is no implicit default. Both vectors are derived from that named register's
+<code>partition</code> field (see <a href="../operand-types/#dstructurecridx">DstructureCrIdx</a>). The valid values of P
+are <strong>{0, 2, 4, 8, 16}</strong>.
+With <code>partition = 0</code> both vectors are all-ones (no boundaries). With <code>partition = P</code> the 128 elements
+are split into <code>P</code> equal groups of <code>128 / P</code> elements:</p>
+<table>
+<thead>
+<tr>
+<th>Vector</th>
+<th>0-bit positions</th>
+<th>Used by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>partition_vector</code></td>
+<td><strong>first</strong> element of each group</td>
+<td>positive shifts (+1, +2, +3)</td>
+</tr>
+<tr>
+<td><code>inverse_partition_vector</code></td>
+<td><strong>last</strong> element of each group</td>
+<td>negative shifts (−1, −2, −3)</td>
+</tr>
+</tbody>
+</table>
+<p>For <code>partition = 2</code> (groups of 64):</p>
+<ul>
+<li><code>partition_vector</code> = <code>0 1</code>⁶³<code>0 1</code>⁶³ — 0 at element 0 and element 64</li>
+<li><code>inverse_partition_vector</code> = <code>1</code>⁶³<code>0 1</code>⁶³<code>0</code> — 0 at element 63 and element 127</li>
+</ul>
+<p>For <code>partition = 4</code> (groups of 32):</p>
+<ul>
+<li><code>partition_vector</code> = <code>0 1</code>³¹<code>0 1</code>³¹<code>0 1</code>³¹<code>0 1</code>³¹ — 0 at elements 0, 32, 64, 96</li>
+<li><code>inverse_partition_vector</code> = <code>1</code>³¹<code>0 1</code>³¹<code>0 1</code>³¹<code>0 1</code>³¹<code>0</code> — 0 at elements 31, 63, 95, 127</li>
+</ul>
+<p>The AND at each step prevents mask bits from crossing the group boundary in either shift direction.</p>
+<p><code>CR15</code> remains the conventional dstructure register and is set by the host harness, but it must
+still be named explicitly via the instruction's CR-index operand — there is no implicit fallback to
+<code>CR15</code> (see <a href="../operand-types/#dstructurecridx">DstructureCrIdx</a>).</p>
+<h3 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h3>
+<div class="language-asm highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># LR1 = XMEM byte offset of mask data; CR2 = XMEM base address</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="nf">LD.MASK</span><span class="w"> </span><span class="no">LR1</span><span class="w"> </span><span class="no">CR2</span><span class="c1">;;</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="c1"># Load a vector into R0, load cyclic data into R_CYCLIC</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="nf">LD.MULT</span><span class="w"> </span><span class="no">R0</span><span class="w"> </span><span class="no">LR0</span><span class="w"> </span><span class="no">CR0</span><span class="c1">;;</span>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="nf">LD.MULT.CYCLIC</span><span class="w"> </span><span class="no">LR2</span><span class="w"> </span><span class="no">CR0</span><span class="w"> </span><span class="no">LR5</span><span class="c1">;;</span>
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="c1"># Multiply R0 element-wise vs R_CYCLIC using slot 3, shift index in LR4, accumulate</span>
+</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="nf">MULT.RC.VV</span><span class="w"> </span><span class="no">LR2</span><span class="w"> </span><span class="no">R0</span><span class="w"> </span><span class="mi">3</span><span class="w"> </span><span class="no">LR4</span><span class="w"> </span><span class="no">CR15</span><span class="c1">; ACC.ADD;;</span>
+</span></code></pre></div>
+<p><code>3</code> is the <code>mask_offset</code> (slot 3 of <code>R_MASK</code>); <code>LR4</code> holds the <code>mask_shift</code> index; <code>CR15</code> is the
+dstructure register supplying <code>partition</code> (any <code>CR0</code>–<code>CR15</code> may be named explicitly).</p>
+<h3 id="worked-examples">Worked examples<a class="headerlink" href="#worked-examples" title="Permanent link">&para;</a></h3>
+<p>Both examples load <strong>all-ones</strong> (<code>0xFF…FF</code>, 128 bits) into the selected <code>R_MASK</code> slot. At
+<code>mask_shift = 0</code> every mask bit is 1, so every element is active. Each shift step clears one
+boundary bit to <strong>0</strong>, deactivating one element at a time.</p>
+<p>The tables show <strong>active elements</strong> — those whose derived mask bit is <strong>1</strong> and therefore contribute
+to accumulation.</p>
+<h4 id="example-1-no-partitioning-partition-0">Example 1 — no partitioning (<code>partition = 0</code>)<a class="headerlink" href="#example-1-no-partitioning-partition-0" title="Permanent link">&para;</a></h4>
+<p>With <code>partition = 0</code> the partition vector is all-ones, so shifts slide freely across all 128 elements.</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: center;"><code>mask_shift</code></th>
+<th>Active elements (mask bit = 1)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: center;"><code>−3</code></td>
+<td>0–124</td>
+</tr>
+<tr>
+<td style="text-align: center;"><code>−2</code></td>
+<td>0–125</td>
+</tr>
+<tr>
+<td style="text-align: center;"><code>−1</code></td>
+<td>0–126</td>
+</tr>
+<tr>
+<td style="text-align: center;"><code>0</code></td>
+<td>0–127 <em>(all active)</em></td>
+</tr>
+<tr>
+<td style="text-align: center;"><code>+1</code></td>
+<td>1–127</td>
+</tr>
+<tr>
+<td style="text-align: center;"><code>+2</code></td>
+<td>2–127</td>
+</tr>
+<tr>
+<td style="text-align: center;"><code>+3</code></td>
+<td>3–127</td>
+</tr>
+</tbody>
+</table>
+<p>Positive shifts deactivate elements from the low end (element 0 first); negative shifts deactivate elements
+from the high end (element 127 first). Each step removes exactly one active element.</p>
+<h4 id="example-2-two-partitions-of-64-elements-each-partition-2">Example 2 — two partitions of 64 elements each (<code>partition = 2</code>)<a class="headerlink" href="#example-2-two-partitions-of-64-elements-each-partition-2" title="Permanent link">&para;</a></h4>
+<p>With <code>partition = 2</code> the 128 elements are split into <strong>group 0</strong> (elements 0–63) and <strong>group 1</strong>
+(elements 64–127). Each group evolves independently and symmetrically:</p>
+<ul>
+<li><code>partition_vector</code> has <strong>0</strong> at element 0 and element 64 (used for positive shifts).</li>
+<li><code>inverse_partition_vector</code> has <strong>0</strong> at element 63 and element 127 (used for negative shifts).</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th style="text-align: center;"><code>mask_shift</code></th>
+<th>Group 0 active (elements 0–63)</th>
+<th>Group 1 active (elements 64–127)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: center;"><code>−3</code></td>
+<td>0–60</td>
+<td>64–124</td>
+</tr>
+<tr>
+<td style="text-align: center;"><code>−2</code></td>
+<td>0–61</td>
+<td>64–125</td>
+</tr>
+<tr>
+<td style="text-align: center;"><code>−1</code></td>
+<td>0–62</td>
+<td>64–126</td>
+</tr>
+<tr>
+<td style="text-align: center;"><code>0</code></td>
+<td>0–63 <em>(all)</em></td>
+<td>64–127 <em>(all)</em></td>
+</tr>
+<tr>
+<td style="text-align: center;"><code>+1</code></td>
+<td>1–63</td>
+<td>65–127</td>
+</tr>
+<tr>
+<td style="text-align: center;"><code>+2</code></td>
+<td>2–63</td>
+<td>66–127</td>
+</tr>
+<tr>
+<td style="text-align: center;"><code>+3</code></td>
+<td>3–63</td>
+<td>67–127</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Positive shifts</strong> deactivate elements from the <strong>start</strong> of each group (element 0 and element 64).
+<strong>Negative shifts</strong> deactivate elements from the <strong>end</strong> of each group (element 63 and element 127).
+Each step removes exactly one element per group — a perfectly symmetric sliding window.</p>
+<h2 id="jinja2-preprocessing">Jinja2 preprocessing<a class="headerlink" href="#jinja2-preprocessing" title="Permanent link">&para;</a></h2>
+<p>The assembler runs Jinja2 on the source when <code>{{</code>, <code>{%</code>, and <code>{#</code> appear.</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>{% set off_reg = 6 %}
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>SET LR0 CR{{ off_reg }};;
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>LD.MULT R0 LR0 CR0;;
+</span></code></pre></div>
+<p>The harness must initialize <strong><code>CR6</code></strong> (here: the memory offset) before this program runs.</p>
+<h3 id="abi-names">ABI names<a class="headerlink" href="#abi-names" title="Permanent link">&para;</a></h3>
+<p>A kernel can name its registers by role instead of by number. The assembler takes a name → register mapping (from the kernel's <code>kernel.toml</code> <code>[abi]</code> table, or <code>ipu-as assemble --abi kernel.toml</code>) and exposes it as two read-only namespaces: <code>{{ cr.&lt;name&gt; }}</code> renders a <code>CR</code> register and <code>{{ lr.&lt;name&gt; }}</code> an <code>LR</code> register. An unknown name is a template error at its line, and a mapping whose value is not a register of its namespace is rejected before rendering. <code>cr</code> and <code>lr</code> cannot be used as parameter or define names.</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>SET {{ lr.data_ptr }} {{ cr.data_base }};;
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>LD.MULT R0 {{ lr.data_ptr }} CR0;;
+</span></code></pre></div>
+<p>With <code>[abi]</code> <code>data_base = "CR2"</code> and <code>data_ptr = "LR0"</code>, this renders <code>SET LR0 CR2;;</code>.</p>
+<h2 id="running-the-assembler">Running the assembler<a class="headerlink" href="#running-the-assembler" title="Permanent link">&para;</a></h2>
+<p><strong>Command line (Bazel):</strong></p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>bazel<span class="w"> </span>run<span class="w"> </span>//src/ipu-as:ipu-as<span class="w"> </span>--<span class="w"> </span>assemble<span class="w"> </span>--input<span class="w"> </span>prog.asm<span class="w"> </span>--output<span class="w"> </span>prog.bin
+</span></code></pre></div>
+<p><strong>In Bazel build rules:</strong> a kernel's <code>:assemble_&lt;name&gt;</code> target writes its program (see <a href="../../../how-to/write-a-kernel/">Write a kernel</a>); <code>assemble_asm</code> in <code>src/ipu-as/defs.bzl</code> assembles any other source.</p>
+<h2 id="further-reading">Further reading<a class="headerlink" href="#further-reading" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="../operand-types/">Operand types</a> — field types used in <code>instruction_spec</code></li>
+<li><a href="../instructions/">Instruction reference</a> — per-opcode documentation</li>
+<li><a href="../../../how-to/add-an-instruction/">Adding instructions</a></li>
+<li><a href="../../../how-to/write-a-kernel/">Write a kernel</a></li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+  
+  <p class="md-typeset" style="margin-top: 2em;">
+    <a href="https://github.com/rechefe/ipu-emulator/commits/master/src/ipu-gen/src/ipu_gen/docs_pages.py">View commit history for this page on GitHub</a>
+  </p>
+  
+  
+
+
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/rechefe/ipu-emulator" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.indexes", "navigation.expand", "navigation.top", "navigation.tracking", "search.suggest", "search.highlight", "search.share", "toc.integrate", "toc.follow", "content.code.copy", "content.code.annotate", "content.action.edit", "content.action.view"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../../../js/timeago.min.js"></script>
+      
+        <script src="../../../js/timeago_mkdocs_material.js"></script>
+      
+    
+  </body>
+</html>

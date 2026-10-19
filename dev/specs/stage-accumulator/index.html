@@ -1,0 +1,3597 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Documentation for IPU emulator and assembly language">
+      
+      
+        <meta name="author" content="IPU Development Team">
+      
+      
+      
+        <link rel="prev" href="../stage-aaq-str/">
+      
+      
+        <link rel="next" href="../stage-control/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Accumulator Stage Specification - IPU Emulator</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../css/timeago.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="deep-purple" data-md-color-accent="purple">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#accumulator-stage" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="IPU Emulator" class="md-header__button md-logo" aria-label="IPU Emulator" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            IPU Emulator
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Accumulator Stage Specification
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="deep-purple" data-md-color-accent="purple"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="deep-purple" data-md-color-accent="purple"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/rechefe/ipu-emulator" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    rechefe/ipu-emulator
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting-started/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Getting started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../how-to/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  How-to
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../reference/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../explanation/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Explanation
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../cache-unit/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Specs and requirements
+
+        </a>
+      </li>
+    
+  
+
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../requirements/open-questions/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Open questions
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../release-log/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Release log
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--lifted md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="IPU Emulator" class="md-nav__button md-logo" aria-label="IPU Emulator" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    IPU Emulator
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/rechefe/ipu-emulator" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    rechefe/ipu-emulator
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../getting-started/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="https://github.com/rechefe/ipu-emulator/releases/download/guide-latest/getting-started.pdf" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started guide (PDF)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../how-to/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How-to
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    How-to
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/write-a-kernel/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Write a kernel
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/add-an-instruction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Add an instruction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/debug-a-kernel/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Debug a kernel
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/step-through-a-kernel-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Step through a kernel run
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/inspector/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cycle Inspector
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/reference-model-cocotb/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Use the reference model from cocotb
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../reference/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ISA
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    ISA
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/isa/instructions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Instructions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/isa/operand-types/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operand types
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/isa/registers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Registers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/isa/configuration-registers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration registers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/isa/activate-quantize/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ACTIVATE.QUANTIZE in the emulator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/isa/assembly-syntax/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Assembly syntax
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/isa/instruction-format/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Instruction format
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/isa/programmer-guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Programmer's guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/kernel-toml/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    kernel.toml
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command-line tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/reference-model-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference model API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../kernels/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Kernels
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4_6" id="__nav_4_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Kernels
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../kernels/softmax/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Softmax
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../kernels/convolutions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Convolutions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../kernels/linear-layers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Linear layers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../kernels/normalization-and-shaping/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Normalization and shaping
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../kernels/attention/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Attention
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../kernels/mobilevit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MobileViT-S
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/code-conventions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Code conventions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/code-review/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Code review
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/glossary/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Glossary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../explanation/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Explanation
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Explanation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanation/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanation/timing-model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Timing model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanation/element-formats/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Element formats
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanation/isa-idioms/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ISA idioms
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanation/kernel-coverage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Kernel coverage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Specs and requirements
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Specs and requirements
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_6_1" id="__nav_6_1_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Specs
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_1_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_6_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Specs
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cache-unit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cache Unit Specification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../stage-aaq-str/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AaQ Stage Specification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Accumulator Stage Specification
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Accumulator Stage Specification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-purpose" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Purpose
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-block-diagram" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Block Diagram
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-interfaces" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Interfaces
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Interfaces">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#30-black-box-diagram" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.0 Black Box Diagram
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#31-inputs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 Inputs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32-outputs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 Outputs
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-disclaimers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Disclaimers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-data-and-register-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Data and Register Model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-isa-instruction-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. ISA: Instruction Reference
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. ISA: Instruction Reference">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#61-accadd-opcode-0-accumulate-add" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.1 ACC.ADD (opcode 0): Accumulate Add
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#62-accaddfirst-opcode-1-accumulate-add-first" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.2 ACC.ADD.FIRST (opcode 1): Accumulate Add (First)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#63-accmax-opcode-2-accumulate-max" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3 ACC.MAX (opcode 2): Accumulate Max
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#64-accmaxfirst-opcode-3-accumulate-max-first" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.4 ACC.MAX.FIRST (opcode 3): Accumulate Max (First)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#65-accsub-opcode-4-accumulate-subtract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.5 ACC.SUB (opcode 4): Accumulate Subtract
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#66-accsubfirst-opcode-5-accumulate-subtract-first" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.6 ACC.SUB.FIRST (opcode 5): Accumulate Subtract (First)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#67-nop-opcode-6-no-operation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.7 NOP (opcode 6): No Operation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#68-accstride-opcode-7-accumulator-stride" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.8 ACC.STRIDE (opcode 7): Accumulator Stride
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#69-aggsumfirst-opcode-8-aggregate-sum-first" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.9 AGG.SUM.FIRST (opcode 8): Aggregate Sum (First)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#610-aggsum-opcode-9-aggregate-sum" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.10 AGG.SUM (opcode 9): Aggregate Sum
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#611-aggmaxfirst-opcode-10-aggregate-max-first" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.11 AGG.MAX.FIRST (opcode 10): Aggregate Max (First)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#612-aggmax-opcode-11-aggregate-max" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.12 AGG.MAX (opcode 11): Aggregate Max
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#613-accreshape-opcode-12-reshape" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.13 ACC.RESHAPE (opcode 12): Reshape
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#614-summary-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.14 Summary Table
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../stage-control/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Control Stage Specification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../riscv-host-integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RISC-V Host Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mnemonic-rename/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Mnemonic rename (SV names)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rtl-migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RTL migration (SV package)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../requirements/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HW requirements
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_2" id="__nav_6_2_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    HW requirements
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../requirements/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture and pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../requirements/interfaces/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    External interfaces
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../requirements/execution-flow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Execution flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../requirements/memory-access/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Memory access
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../requirements/faults/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Faults
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../requirements/debug/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Debug
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../requirements/host-registers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Host registers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../requirements/open-questions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Open questions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../release-log/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Release log
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+  
+                  
+
+
+  
+    <a href="https://github.com/rechefe/ipu-emulator/edit/master/docs/content/specs/stage-accumulator.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+    
+      
+    
+    <a href="https://github.com/rechefe/ipu-emulator/raw/master/docs/content/specs/stage-accumulator.md" title="View source of this page" class="md-content__button md-icon">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17 18c.56 0 1 .44 1 1s-.44 1-1 1-1-.44-1-1 .44-1 1-1m0-3c-2.73 0-5.06 1.66-6 4 .94 2.34 3.27 4 6 4s5.06-1.66 6-4c-.94-2.34-3.27-4-6-4m0 6.5a2.5 2.5 0 0 1-2.5-2.5 2.5 2.5 0 0 1 2.5-2.5 2.5 2.5 0 0 1 2.5 2.5 2.5 2.5 0 0 1-2.5 2.5M9.27 20H6V4h7v5h5v4.07c.7.08 1.36.25 2 .49V8l-6-6H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h4.5a8.2 8.2 0 0 1-1.23-2"/></svg>
+    </a>
+  
+
+
+<h1 id="accumulator-stage">Accumulator Stage<a class="headerlink" href="#accumulator-stage" title="Permanent link">&para;</a></h1>
+<h2 id="1-purpose">1. Purpose<a class="headerlink" href="#1-purpose" title="Permanent link">&para;</a></h2>
+<p>The Accumulator (ACC) stage owns <code>R_ACC</code>, the 128-element accumulator
+register, and combines each cycle's multiply result (<code>MULT_RES</code>, produced by
+the MULT stage) into it. It is the third stage in the execute chain
+(CTRL → MULT → <strong>ACC</strong> → AAQ → STORE) and produces:</p>
+<ul>
+<li>The updated 128-element <code>R_ACC</code>, forwarded to the AaQ stage.</li>
+<li><code>aaq_vliw_bus</code> and <code>str_vliw_bus</code>, forwarded unchanged to the AAQ stage
+  (see the Control Stage spec, §7.2).</li>
+</ul>
+<p>Depending on the mnemonic, ACC either runs a per-element elementwise
+reduction against <code>MULT_RES</code> (<code>ACC.ADD</code>/<code>MAX</code>/<code>SUB</code>), decimates and
+reorders <code>MULT_RES</code> into a sub-range of <code>R_ACC</code> (<code>ACC.STRIDE</code>), reduces
+all active <code>MULT_RES</code> elements to a single <code>R_ACC</code> word (<code>AGG.SUM</code>/<code>AGG.MAX</code>),
+or scatters <code>MULT_RES</code> elements into <code>R_ACC</code> via <code>LRDn</code> index pairs (<code>ACC.RESHAPE</code>).</p>
+<h2 id="2-block-diagram">2. Block Diagram<a class="headerlink" href="#2-block-diagram" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>flowchart LR
+    mult_stage:::blue
+    acc_stage:::blue
+    aaq_stage:::blue
+    MULTRES(["mult_res 128x32bit"]):::yellow
+    OP(["acc_vliw_bus (op + resolved operands)"]):::yellow
+    RACC[("R_ACC 128x32bit")]:::purple
+    OUT(["r_acc 128x32bit"]):::red
+
+    mult_stage --&gt;|128x32| MULTRES
+    MULTRES --&gt; RACC
+    OP --&gt; RACC
+    RACC --&gt;|read-modify-write| RACC
+    RACC --&gt; OUT
+    OUT --&gt; aaq_stage
+    mult_stage --&gt;|aaq_vliw_bus, str_vliw_bus| acc_stage
+    acc_stage --&gt;|aaq_vliw_bus, str_vliw_bus| aaq_stage
+
+    subgraph LEGEND["Legend"]
+        L_blue["Stages"]:::blue
+        L_purple[("ACC Internal State")]:::purple
+        L_yellow(["Input Data"]):::yellow
+        L_red(["Output Data"]):::red
+    end
+
+    classDef blue fill:#4a80c4,stroke:#2a5090,color:#fff
+    classDef purple fill:#7b5ea7,stroke:#5a3d8a,color:#fff
+    classDef yellow fill:#e6b800,stroke:#b38a00,color:#000
+    classDef red fill:#c0392b,stroke:#922b21,color:#fff</code></pre>
+<h2 id="3-interfaces">3. Interfaces<a class="headerlink" href="#3-interfaces" title="Permanent link">&para;</a></h2>
+<p><code>R_ACC</code> is <strong>internal</strong> to the ACC stage (owned register, read-modify-write
+each cycle), analogous to how CR/LR are internal to CTRL. It is not
+directly writable from outside ACC; the only way to set it is via an
+ACC-slot instruction.</p>
+<h3 id="30-black-box-diagram">3.0 Black Box Diagram<a class="headerlink" href="#30-black-box-diagram" title="Permanent link">&para;</a></h3>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>                         ┌──────────────────────────────────────┐
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>              clk  ─────&gt;│                                      │
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>              rst  ─────&gt;│                                      │
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>               op  ─────&gt;│                                      │
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>         mult_res  ─────&gt;│                                      │
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>  acc_vliw_bus operands ─&gt;│             ACC Stage                ├────&gt; r_acc            [127:0][31:0]
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>                         │      (owns R_ACC, 128x32bit)          │
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>     aaq_vliw_bus  ─────&gt;│                                      ├────&gt; aaq_vliw_bus      [AAQ_BUS_W-1:0]
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>      str_vliw_bus  ─────&gt;│                                      ├────&gt; str_vliw_bus      [STR_BUS_W-1:0]
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>                         └──────────────────────────────────────┘
+</span></code></pre></div>
+<p><code>aaq_vliw_bus</code> and <code>str_vliw_bus</code> arrive from the MULT stage and are
+forwarded unchanged to the AaQ stage (see the Control Stage spec, §7.2);
+ACC does not read or modify their contents.</p>
+<h3 id="31-inputs">3.1 Inputs<a class="headerlink" href="#31-inputs" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type and Direction</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>clk</code></td>
+<td><code>input logic</code></td>
+<td>Clock signal.</td>
+</tr>
+<tr>
+<td><code>rst</code></td>
+<td><code>input logic</code></td>
+<td>Synchronous reset. Clears <code>R_ACC</code> to 0.</td>
+</tr>
+<tr>
+<td><code>op</code></td>
+<td><code>input logic [3:0]</code></td>
+<td>Selects the ACC operation: <code>ACC_INST_OPCODE_ACC_ADD</code> = 0, <code>ACC_INST_OPCODE_ACC_ADD_FIRST</code> = 1, <code>ACC_INST_OPCODE_ACC_MAX</code> = 2, <code>ACC_INST_OPCODE_ACC_MAX_FIRST</code> = 3, <code>ACC_INST_OPCODE_ACC_SUB</code> = 4, <code>ACC_INST_OPCODE_ACC_SUB_FIRST</code> = 5, <code>ACC_INST_OPCODE_NOP</code> = 6, <code>ACC_INST_OPCODE_ACC_STRIDE</code> = 7, <code>ACC_INST_OPCODE_AGG_SUM_FIRST</code> = 8, <code>ACC_INST_OPCODE_AGG_SUM</code> = 9, <code>ACC_INST_OPCODE_AGG_MAX_FIRST</code> = 10, <code>ACC_INST_OPCODE_AGG_MAX</code> = 11, <code>ACC_INST_OPCODE_ACC_RESHAPE</code> = 12 (see §6 for the full opcode table; opcode = position in <code>instruction_spec.py</code>'s <code>"acc"</code> slot).</td>
+</tr>
+<tr>
+<td><code>mult_res</code></td>
+<td><code>input logic [127:0][31:0]</code></td>
+<td>This cycle's multiply result from the MULT stage: 128 elements, each INT32 or FP32 depending on the active element dtype (INT8-mode multiplies produce INT32 products; FP8-mode multiplies produce FP32 products — see the MULT stage).</td>
+</tr>
+<tr>
+<td><code>resolved_operands</code></td>
+<td><code>input logic [131:0]</code></td>
+<td>Opcode-dependent union payload packed onto <code>acc_vliw_bus</code> alongside <code>op</code>. CTRL resolves every CR/LR operand this instruction needs (see §5) and packs it in here before dispatch; ACC never reads the CR/LR register files itself. Width is sized to the opcode with the largest operand set (<code>ACC_INST_OPCODE_ACC_RESHAPE</code>, 132 bits); other opcodes use only their low bits, and the rest are don't-care. Layout per opcode is in §3.1.1.</td>
+</tr>
+<tr>
+<td><code>aaq_vliw_bus</code></td>
+<td><code>input logic [AAQ_BUS_W-1:0]</code></td>
+<td>AAQ-slot bus, forwarded from MULT. Passed through unchanged (see Control Stage spec §7.2).</td>
+</tr>
+<tr>
+<td><code>str_vliw_bus</code></td>
+<td><code>input logic [STR_BUS_W-1:0]</code></td>
+<td>STORE-slot bus, forwarded from MULT. Passed through unchanged.</td>
+</tr>
+</tbody>
+</table>
+<h4 id="311-resolved_operands-layout-parsed-relative-to-op">3.1.1 <code>resolved_operands</code> Layout (parsed relative to <code>op</code>)<a class="headerlink" href="#311-resolved_operands-layout-parsed-relative-to-op" title="Permanent link">&para;</a></h4>
+<p><code>resolved_operands</code> is a <strong>union</strong>, not a struct: since ACC executes exactly
+one opcode per cycle, each opcode's operands are packed starting at bit 0
+and reuse the same physical bits as every other opcode's operands would.
+ACC parses the buffer using the field layout for the value of <code>op</code>
+(see §6 for the opcode table); bits above a given opcode's own fields are
+don't-care for that opcode.</p>
+<h5 id="no-operands">No operands<a class="headerlink" href="#no-operands" title="Permanent link">&para;</a></h5>
+<p><code>ACC_INST_OPCODE_ACC_ADD</code>, <code>ACC_INST_OPCODE_ACC_ADD_FIRST</code>,
+<code>ACC_INST_OPCODE_ACC_MAX</code>, <code>ACC_INST_OPCODE_ACC_MAX_FIRST</code>,
+<code>ACC_INST_OPCODE_ACC_SUB</code>, <code>ACC_INST_OPCODE_ACC_SUB_FIRST</code>,
+<code>ACC_INST_OPCODE_NOP</code> — entire buffer is don't-care.</p>
+<h5 id="acc_inst_opcode_acc_stride"><code>ACC_INST_OPCODE_ACC_STRIDE</code><a class="headerlink" href="#acc_inst_opcode_acc_stride" title="Permanent link">&para;</a></h5>
+<table>
+<thead>
+<tr>
+<th>Bits</th>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>[1:0]</code></td>
+<td><code>elements_in_row</code></td>
+<td>Encoded row-width selector (0/1/2 → 16/32/64 elements per row); an immediate slot field, not CR/LR-resolved.</td>
+</tr>
+<tr>
+<td><code>[3:2]</code></td>
+<td><code>horizontal_stride</code></td>
+<td>Encoded column-decimation mode (0/1/2 → off/on/on_inv); an immediate slot field, not CR/LR-resolved.</td>
+</tr>
+<tr>
+<td><code>[5:4]</code></td>
+<td><code>vertical_stride</code></td>
+<td>Encoded row-decimation mode (0/1/2 → off/on/on_inv); an immediate slot field, not CR/LR-resolved.</td>
+</tr>
+<tr>
+<td><code>[7:6]</code></td>
+<td><code>offset</code></td>
+<td>CTRL-resolved <strong>live</strong> value of the <code>offset</code> <code>LrIdx</code> operand, truncated to its low 2 bits — <code>offset % 4</code> is exactly those 2 bits since 4 is a power of 2, so no arithmetic is needed to derive them from the 32-bit <code>LR</code> register. 4 possible values; ACC multiplies by 32 (a shift) to get the <code>R_ACC</code> start index: <code>0</code>, <code>32</code>, <code>64</code>, or <code>96</code>.</td>
+</tr>
+</tbody>
+</table>
+<p>Total: 8 bits used (<code>[7:0]</code>); <code>[131:8]</code> is don't-care.</p>
+<h5 id="acc_inst_opcode_agg_sum_first-acc_inst_opcode_agg_sum-acc_inst_opcode_agg_max_first-acc_inst_opcode_agg_max"><code>ACC_INST_OPCODE_AGG_SUM_FIRST</code>, <code>ACC_INST_OPCODE_AGG_SUM</code>, <code>ACC_INST_OPCODE_AGG_MAX_FIRST</code>, <code>ACC_INST_OPCODE_AGG_MAX</code><a class="headerlink" href="#acc_inst_opcode_agg_sum_first-acc_inst_opcode_agg_sum-acc_inst_opcode_agg_max_first-acc_inst_opcode_agg_max" title="Permanent link">&para;</a></h5>
+<table>
+<thead>
+<tr>
+<th>Bits</th>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>[6:0]</code></td>
+<td><code>dest_slot</code></td>
+<td>CTRL-resolved <strong>post-LR-write</strong> value of the <code>dest_slot</code> <code>LrIdx</code> operand, truncated to its low 7 bits — <code>dest_slot % 128</code> is exactly those 7 bits since 128 is a power of 2. Range 0–127, directly addressing an <code>R_ACC</code> word.</td>
+</tr>
+<tr>
+<td><code>[14:7]</code></td>
+<td><code>valid_elements</code></td>
+<td>The <code>valid_elements</code> field CTRL decodes out of the <code>cr_idx</code> <code>DstructureCrIdx</code> operand's <code>CR</code> register (8 bits, range 0–128); ACC clamps it to <code>min(valid_elements, 128)</code> itself.</td>
+</tr>
+</tbody>
+</table>
+<p>Total: 15 bits used (<code>[14:0]</code>); <code>[131:15]</code> is don't-care.</p>
+<h5 id="acc_inst_opcode_acc_reshape"><code>ACC_INST_OPCODE_ACC_RESHAPE</code><a class="headerlink" href="#acc_inst_opcode_acc_reshape" title="Permanent link">&para;</a></h5>
+<table>
+<thead>
+<tr>
+<th>Bits</th>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>[63:0]</code></td>
+<td><code>source</code></td>
+<td>CTRL-resolved <strong>post-LR-write</strong> value of the <code>source</code> <code>LrdIdx</code> operand — the concatenated <code>LR(n+1):LR(n)</code> pair, read as 8 byte elements (<code>source[0..7]</code>), each a <code>MULT_RES</code> word index.</td>
+</tr>
+<tr>
+<td><code>[127:64]</code></td>
+<td><code>dest</code></td>
+<td>CTRL-resolved <strong>post-LR-write</strong> value of the <code>dest</code> <code>LrdIdx</code> operand — the concatenated <code>LR(n+1):LR(n)</code> pair, read as 8 byte elements (<code>dest[0..7]</code>), each an <code>R_ACC</code> word index.</td>
+</tr>
+<tr>
+<td><code>[131:128]</code></td>
+<td><code>reshape_mask</code></td>
+<td>CTRL-resolved value of the <code>reshape_mask</code> <code>LrOrReshapeMaskImmediate</code> operand: the immediate value if the encoded field is <code>&lt; RESHAPE_MASK_LR_OFFSET</code> (8), otherwise the value of <code>LR[encoded − RESHAPE_MASK_LR_OFFSET]</code>. Field width is derived from the shared union field at assembler-build time (currently 4 bits); ACC raises an error if this resolved value exceeds <code>RESHAPE_ELEMENT_COUNT</code> (8) rather than clamping it.</td>
+</tr>
+</tbody>
+</table>
+<p>Total: 132 bits used (<code>[131:0]</code>) — the widest opcode, so it sets the
+buffer's overall width.</p>
+<h3 id="32-outputs">3.2 Outputs<a class="headerlink" href="#32-outputs" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type and Direction</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>r_acc</code></td>
+<td><code>output logic [127:0][31:0]</code></td>
+<td>The updated 128-element accumulator, driven to the AaQ stage every cycle (see the AaQ spec, §3.1).</td>
+</tr>
+<tr>
+<td><code>aaq_vliw_bus</code></td>
+<td><code>output logic [AAQ_BUS_W-1:0]</code></td>
+<td>Forwarded unchanged to the AaQ stage.</td>
+</tr>
+<tr>
+<td><code>str_vliw_bus</code></td>
+<td><code>output logic [STR_BUS_W-1:0]</code></td>
+<td>Forwarded unchanged to the AaQ stage (AaQ forwards it again to STORE).</td>
+</tr>
+</tbody>
+</table>
+<h2 id="4-disclaimers">4. Disclaimers<a class="headerlink" href="#4-disclaimers" title="Permanent link">&para;</a></h2>
+<ul>
+<li>The ACC slot executes once per VLIW cycle.</li>
+<li>Slot execution order within a VLIW word: CTRL → MULT → <strong>ACC</strong> → AaQ → STR.</li>
+<li><code>NOP</code> performs no state changes (<code>R_ACC</code> unchanged).</li>
+<li>ACC never reads the CR/LR register files directly — every CR/LR-derived
+  operand value (<code>valid_elements</code>, <code>partition</code>, resolved LR values, etc.)
+  arrives pre-resolved on <code>acc_vliw_bus</code> from CTRL.</li>
+</ul>
+<h2 id="5-data-and-register-model">5. Data and Register Model<a class="headerlink" href="#5-data-and-register-model" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>R_ACC</code> is <strong>128 elements × 32 bits</strong>, matching <code>MULT_RES</code>'s width and element
+  count. (The hardware parameter for this count is named <code>LANES</code>.)</li>
+<li>Each element's numeric interpretation (INT32 vs FP32) tracks whatever format
+  <code>MULT_RES</code> was produced in that cycle — ACC's ALU does not carry an
+  independent dtype selector of its own.</li>
+<li><strong>No dedicated clear/reset instruction.</strong> Initialization is done purely
+  through the <code>.FIRST</code> mnemonic variants:</li>
+<li><code>X</code> (no suffix) — running accumulation: combines <code>MULT_RES</code> with the
+    <strong>previous</strong> <code>R_ACC</code> value (read from the pre-cycle snapshot, so it does
+    not see this same cycle's in-flight write).</li>
+<li><code>X.FIRST</code> — clean-init: overwrites <code>R_ACC</code> with a value derived purely
+    from <code>MULT_RES</code>, ignoring whatever was previously in <code>R_ACC</code>.</li>
+<li>This pairing applies to <code>ACC.ADD</code>/<code>ACC.ADD.FIRST</code>, <code>ACC.MAX</code>/<code>ACC.MAX.FIRST</code>,
+    <code>ACC.SUB</code>/<code>ACC.SUB.FIRST</code>, and <code>AGG.SUM</code>/<code>AGG.SUM.FIRST</code>,
+    <code>AGG.MAX</code>/<code>AGG.MAX.FIRST</code>.</li>
+<li><code>AGG.SUM</code>/<code>AGG.MAX</code> (and their <code>.FIRST</code> variants) reduce <strong>all active
+  elements of <code>MULT_RES</code></strong> — not <code>R_ACC</code> — down to a single scalar, written
+  into one <code>R_ACC</code> word at an LR-selected index. The active element count
+  (<code>valid_elements</code>) and <code>partition</code> come from a <code>DstructureCrIdx</code> operand
+  (<code>cr_idx</code>: any <code>CR0</code>–<code>CR15</code>, must be given explicitly; <code>CR15</code>
+  conventionally holds dstructure config but is not an implicit default —
+  see the CLAUDE.md project directives).</li>
+<li><strong>Historical note:</strong> cross-element aggregation (<code>AGG.*</code>) was moved into the
+  ACC slot specifically to remove a RAW hazard that existed when it lived
+  in a separate AAQ-writable scalar register file consumed by MULT/ACC (see
+  the Control Stage spec, §9).</li>
+<li><code>ACC.RESHAPE</code> scatters <code>MULT_RES</code> elements into <code>R_ACC</code> at LR-pair-selected
+  indices, rather than reducing <code>MULT_RES</code> elementwise or aggregating them.
+  Like every other ACC-stage operation it reads this cycle's <code>MULT_RES</code>
+  (the <code>mult_res</code> input, §3.1): a <code>MULT.*</code> in the same instruction word is
+  the product it scatters. A participating <code>source[i]</code>/<code>dest[i]</code> outside
+  <code>[0, 127]</code>, or a resolved <code>reshape_mask</code> greater than <code>RESHAPE_ELEMENT_COUNT</code>
+  (8), raises an error rather than being silently skipped or clamped.</li>
+</ul>
+<h2 id="6-isa-instruction-reference">6. ISA: Instruction Reference<a class="headerlink" href="#6-isa-instruction-reference" title="Permanent link">&para;</a></h2>
+<p>The opcode enum (<code>acc_inst_opcode_t</code>, package <code>ipu_instr_pkg</code>) is generated
+from
+<a href="../../../src/ipu-isa/src/ipu_isa/instruction_spec.py"><code>instruction_spec.py</code></a>
+by
+<a href="../../../src/ipu-gen/src/ipu_gen/sv_package.py"><code>sv_package.py</code></a>.
+Per the project's opcode-derivation rule, opcode = position within the
+<code>"acc"</code> slot dict — the table below lists mnemonics in that exact order.</p>
+<h3 id="61-accadd-opcode-0-accumulate-add">6.1 <code>ACC.ADD</code> (opcode 0): Accumulate Add<a class="headerlink" href="#61-accadd-opcode-0-accumulate-add" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Summary:</strong> Running add accumulation: add the multiply result into each <code>R_ACC</code> element.</li>
+<li><strong>Syntax:</strong> <code>ACC.ADD</code></li>
+<li><strong>Operands:</strong> none.</li>
+<li><strong>Operation:</strong>
+  <div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>for i in 0..127:
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>    R_ACC[i] += MULT_RES[i]
+</span></code></pre></div></li>
+<li><strong>Example:</strong> <code>ACC.ADD;;</code></li>
+</ul>
+<h3 id="62-accaddfirst-opcode-1-accumulate-add-first">6.2 <code>ACC.ADD.FIRST</code> (opcode 1): Accumulate Add (First)<a class="headerlink" href="#62-accaddfirst-opcode-1-accumulate-add-first" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Summary:</strong> Clean-init add: overwrite each <code>R_ACC</code> element with the multiply result, ignoring the previous <code>R_ACC</code>.</li>
+<li><strong>Syntax:</strong> <code>ACC.ADD.FIRST</code></li>
+<li><strong>Operands:</strong> none.</li>
+<li><strong>Operation:</strong>
+  <div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>for i in 0..127:
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>    R_ACC[i] = MULT_RES[i]
+</span></code></pre></div></li>
+<li><strong>Example:</strong> <code>ACC.ADD.FIRST;;</code></li>
+</ul>
+<h3 id="63-accmax-opcode-2-accumulate-max">6.3 <code>ACC.MAX</code> (opcode 2): Accumulate Max<a class="headerlink" href="#63-accmax-opcode-2-accumulate-max" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Summary:</strong> Running max accumulation: each <code>R_ACC</code> element takes the max of its current value and the multiply result.</li>
+<li><strong>Syntax:</strong> <code>ACC.MAX</code></li>
+<li><strong>Operands:</strong> none.</li>
+<li><strong>Operation:</strong>
+  <div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>for i in 0..127:
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>    R_ACC[i] = max(R_ACC[i], MULT_RES[i])
+</span></code></pre></div></li>
+<li><strong>Example:</strong> <code>ACC.MAX;;</code></li>
+</ul>
+<h3 id="64-accmaxfirst-opcode-3-accumulate-max-first">6.4 <code>ACC.MAX.FIRST</code> (opcode 3): Accumulate Max (First)<a class="headerlink" href="#64-accmaxfirst-opcode-3-accumulate-max-first" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Summary:</strong> Clean-init max: overwrite each <code>R_ACC</code> element unconditionally with the multiply result.</li>
+<li><strong>Syntax:</strong> <code>ACC.MAX.FIRST</code></li>
+<li><strong>Operands:</strong> none.</li>
+<li><strong>Operation:</strong>
+  <div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>for i in 0..127:
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>    R_ACC[i] = MULT_RES[i]   // unconditional overwrite
+</span></code></pre></div></li>
+<li><strong>Example:</strong> <code>ACC.MAX.FIRST;;</code></li>
+</ul>
+<h3 id="65-accsub-opcode-4-accumulate-subtract">6.5 <code>ACC.SUB</code> (opcode 4): Accumulate Subtract<a class="headerlink" href="#65-accsub-opcode-4-accumulate-subtract" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Summary:</strong> Running subtract accumulation: subtract the multiply result from each <code>R_ACC</code> element.</li>
+<li><strong>Syntax:</strong> <code>ACC.SUB</code></li>
+<li><strong>Operands:</strong> none.</li>
+<li><strong>Operation:</strong>
+  <div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>for i in 0..127:
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>    R_ACC[i] -= MULT_RES[i]
+</span></code></pre></div></li>
+<li><strong>Example:</strong> <code>ACC.SUB;;</code></li>
+</ul>
+<h3 id="66-accsubfirst-opcode-5-accumulate-subtract-first">6.6 <code>ACC.SUB.FIRST</code> (opcode 5): Accumulate Subtract (First)<a class="headerlink" href="#66-accsubfirst-opcode-5-accumulate-subtract-first" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Summary:</strong> Clean-init subtract: set each <code>R_ACC</code> element to the negated multiply result.</li>
+<li><strong>Syntax:</strong> <code>ACC.SUB.FIRST</code></li>
+<li><strong>Operands:</strong> none.</li>
+<li><strong>Operation:</strong>
+  <div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>for i in 0..127:
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>    R_ACC[i] = -MULT_RES[i]
+</span></code></pre></div></li>
+<li><strong>Example:</strong> <code>ACC.SUB.FIRST;;</code></li>
+</ul>
+<h3 id="67-nop-opcode-6-no-operation">6.7 <code>NOP</code> (opcode 6): No Operation<a class="headerlink" href="#67-nop-opcode-6-no-operation" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Summary:</strong> No operation for the ACC slot; <code>R_ACC</code> unchanged.</li>
+<li><strong>Syntax:</strong> <code>NOP</code></li>
+<li><strong>Operands:</strong> none.</li>
+</ul>
+<h3 id="68-accstride-opcode-7-accumulator-stride">6.8 <code>ACC.STRIDE</code> (opcode 7): Accumulator Stride<a class="headerlink" href="#68-accstride-opcode-7-accumulator-stride" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Summary:</strong> Reorder <code>MULT_RES</code> into <code>R_ACC</code> using horizontal/vertical stride decimation. Only the written <code>R_ACC</code> indices change; the rest of <code>R_ACC</code> is left unchanged.</li>
+<li><strong>Syntax:</strong> <code>ACC.STRIDE elements_in_row, horizontal_stride, vertical_stride, offset</code></li>
+<li><strong>Operands:</strong></li>
+<li><code>elements_in_row</code>: elements per row viewed over the 128-element <code>MULT_RES</code> — encoded 0/1/2 → 16/32/64 elements (<code>elements_per_row</code>, minimum 16).</li>
+<li><code>horizontal_stride</code>: column decimation mode — encoded 0/1/2 → <code>off</code>/<code>on</code>/<code>on_inv</code> (<code>on</code> keeps even-indexed columns per row, <code>on_inv</code> keeps odd-indexed columns).</li>
+<li><code>vertical_stride</code>: row decimation mode — encoded 0/1/2 → <code>off</code>/<code>on</code>/<code>on_inv</code> (<code>on</code> keeps even-indexed rows, <code>on_inv</code> keeps odd-indexed rows).</li>
+<li><code>offset</code>: <code>LR0</code>–<code>LR15</code> (<code>LrIdx</code>, live value); <code>(offset % 4) * 32</code> gives the start index in <code>R_ACC</code> (0, 32, 64, or 96).</li>
+<li><strong>Operation:</strong>
+  <div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>rows = 128 / elements_per_row
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>view MULT_RES as [rows][elements_per_row]
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>if horizontal_stride enabled: keep every 2nd column per row (parity per on/on_inv)
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>if vertical_stride enabled:   keep every 2nd row (parity per on/on_inv)
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>N = 128 &gt;&gt; (horizontal_stride_enabled + vertical_stride_enabled)   // 128, 64, or 32
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>start = (offset % 4) * 32
+</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>R_ACC[start : start + N] = decimated MULT_RES, row-major
+</span></code></pre></div></li>
+<li><strong>Example:</strong> <code>ACC.STRIDE 16, off, off, LR0;;</code></li>
+<li><strong>Notes:</strong> when a data structure has fewer than 8 elements, hardware pads to 16 automatically (not programmable).</li>
+</ul>
+<h3 id="69-aggsumfirst-opcode-8-aggregate-sum-first">6.9 <code>AGG.SUM.FIRST</code> (opcode 8): Aggregate Sum (First)<a class="headerlink" href="#69-aggsumfirst-opcode-8-aggregate-sum-first" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Summary:</strong> Sum active <code>MULT_RES</code> elements and write the result into <code>R_ACC</code> at the slot given by <code>LR[dest_slot]</code>. The current value at the destination slot is <strong>not</strong> included (clean initialization).</li>
+<li><strong>Syntax:</strong> <code>AGG.SUM.FIRST dest_slot, cr_idx</code></li>
+<li><strong>Operands:</strong></li>
+<li><code>dest_slot</code>: <code>LR0</code>–<code>LR15</code> (<code>LrIdx</code>, post-LR-write value) — its value gives the destination slot in <code>R_ACC</code> (0–127).</li>
+<li><code>cr_idx</code>: <code>CR0</code>–<code>CR15</code> (<code>DstructureCrIdx</code>, must be given explicitly) — supplies <code>valid_elements</code>.</li>
+<li><strong>Operation:</strong>
+  <div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>n = min(CR[cr_idx].valid_elements, 128)
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>dest = LR[dest_slot] % 128
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>R_ACC[dest] = sum(MULT_RES[0..n-1])
+</span></code></pre></div></li>
+<li><strong>Example:</strong> <code>AGG.SUM.FIRST LR0, CR3;;</code></li>
+</ul>
+<h3 id="610-aggsum-opcode-9-aggregate-sum">6.10 <code>AGG.SUM</code> (opcode 9): Aggregate Sum<a class="headerlink" href="#610-aggsum-opcode-9-aggregate-sum" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Summary:</strong> Sum active <code>MULT_RES</code> elements and add the result to <code>R_ACC</code> at the slot given by <code>LR[dest_slot]</code> (running cross-cycle accumulation).</li>
+<li><strong>Syntax:</strong> <code>AGG.SUM dest_slot, cr_idx</code></li>
+<li><strong>Operands:</strong> identical to <code>AGG.SUM.FIRST</code>.</li>
+<li><strong>Operation:</strong>
+  <div class="language-text highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>n = min(CR[cr_idx].valid_elements, 128)
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>dest = LR[dest_slot] % 128
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>R_ACC[dest] = sum(MULT_RES[0..n-1]) + R_ACC[dest]
+</span></code></pre></div></li>
+<li><strong>Example:</strong> <code>AGG.SUM LR0, CR3;;</code></li>
+</ul>
+<h3 id="611-aggmaxfirst-opcode-10-aggregate-max-first">6.11 <code>AGG.MAX.FIRST</code> (opcode 10): Aggregate Max (First)<a class="headerlink" href="#611-aggmaxfirst-opcode-10-aggregate-max-first" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Summary:</strong> Find the maximum of active <code>MULT_RES</code> elements and write it into <code>R_ACC</code> at the slot given by <code>LR[dest_slot]</code>. The current destination value is <strong>not</strong> used as a seed.</li>
+<li><strong>Syntax:</strong> <code>AGG.MAX.FIRST dest_slot, cr_idx</code></li>
+<li><strong>Operands:</strong> identical to <code>AGG.SUM.FIRST</code>.</li>
+<li><strong>Operation:</strong>
+  <div class="language-text highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>n = min(CR[cr_idx].valid_elements, 128)
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>dest = LR[dest_slot] % 128
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>R_ACC[dest] = max(MULT_RES[0..n-1])
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>// when n = 0: identity seed (INT32_MIN for integer elements, -inf for float elements)
+</span></code></pre></div></li>
+<li><strong>Example:</strong> <code>AGG.MAX.FIRST LR0, CR3;;</code></li>
+</ul>
+<h3 id="612-aggmax-opcode-11-aggregate-max">6.12 <code>AGG.MAX</code> (opcode 11): Aggregate Max<a class="headerlink" href="#612-aggmax-opcode-11-aggregate-max" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Summary:</strong> Find the maximum of active <code>MULT_RES</code> elements seeded with the current destination slot value (running cross-cycle max).</li>
+<li><strong>Syntax:</strong> <code>AGG.MAX dest_slot, cr_idx</code></li>
+<li><strong>Operands:</strong> identical to <code>AGG.SUM.FIRST</code>.</li>
+<li><strong>Operation:</strong>
+  <div class="language-text highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>n = min(CR[cr_idx].valid_elements, 128)
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>dest = LR[dest_slot] % 128
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>R_ACC[dest] = max(MULT_RES[0..n-1], R_ACC[dest])
+</span></code></pre></div></li>
+<li><strong>Example:</strong> <code>AGG.MAX LR0, CR3;;</code></li>
+</ul>
+<h3 id="613-accreshape-opcode-12-reshape">6.13 <code>ACC.RESHAPE</code> (opcode 12): Reshape<a class="headerlink" href="#613-accreshape-opcode-12-reshape" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Summary:</strong> Scatter <code>MULT_RES</code> elements into <code>R_ACC</code>: for each of the trailing <code>(8 - reshape_mask)</code> byte elements of the <code>source</code>/<code>dest</code> <code>LRDn</code> pairs (indices <code>reshape_mask..7</code>), copy <code>MULT_RES[source[i]]</code> to <code>R_ACC[dest[i]]</code>.</li>
+<li><strong>Syntax:</strong> <code>ACC.RESHAPE source, dest, reshape_mask</code></li>
+<li><strong>Operands:</strong></li>
+<li><code>source</code>: <code>LRD0</code>, <code>LRD2</code>, …, <code>LRD14</code> (<code>LrdIdx</code>, post-LR-write value) — read as <code>source[0..7]</code>, 8 byte elements, each a <code>MULT_RES</code> word index.</li>
+<li><code>dest</code>: <code>LRD0</code>, <code>LRD2</code>, …, <code>LRD14</code> (<code>LrdIdx</code>, post-LR-write value) — read as <code>dest[0..7]</code>, 8 byte elements, each an <code>R_ACC</code> word index.</li>
+<li><code>reshape_mask</code>: immediate 0–7 or an LR register (<code>LrOrReshapeMaskImmediate</code>) — selects the first participating element index; elements <code>reshape_mask..7</code> participate (<code>reshape_mask = 0</code> uses all 8, <code>reshape_mask = 7</code> uses only element 7, <code>reshape_mask = 8</code> uses none). When an LR is given, its value is used directly as the mask (not truncated).</li>
+<li><strong>Operation:</strong>
+  <div class="language-text highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>mult_res = MULT_RES   // this cycle's MULT result
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>mask = reshape_mask if immediate else LR[reshape_mask]
+</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>if mask &gt; 8: raise error
+</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>for i in mask..7:
+</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>    if source[i] &gt;= 128 or dest[i] &gt;= 128: raise error
+</span><span id="__span-12-6"><a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a>    R_ACC[dest[i]] = mult_res[source[i]]
+</span></code></pre></div></li>
+<li><strong>Example:</strong> <code>ACC.RESHAPE LRD0, LRD2, 0;;</code></li>
+<li><strong>Notes:</strong> <code>reshape_mask</code> skips the lowest-indexed elements <code>0..reshape_mask-1</code>; the rest participate. <strong>Example:</strong> <code>reshape_mask = 2</code> skips elements 0, 1; elements 2-7 participate. <strong>Example:</strong> <code>reshape_mask = 5</code> skips elements 0-4; elements 5-7 participate.</li>
+</ul>
+<h3 id="614-summary-table">6.14 Summary Table<a class="headerlink" href="#614-summary-table" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Opcode</th>
+<th>Mnemonic</th>
+<th>Operands</th>
+<th>One-line Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td><code>ACC.ADD</code></td>
+<td>-</td>
+<td><code>R_ACC[i] += MULT_RES[i]</code></td>
+</tr>
+<tr>
+<td>1</td>
+<td><code>ACC.ADD.FIRST</code></td>
+<td>-</td>
+<td><code>R_ACC[i] = MULT_RES[i]</code></td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>ACC.MAX</code></td>
+<td>-</td>
+<td><code>R_ACC[i] = max(R_ACC[i], MULT_RES[i])</code></td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>ACC.MAX.FIRST</code></td>
+<td>-</td>
+<td><code>R_ACC[i] = MULT_RES[i]</code> (unconditional)</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>ACC.SUB</code></td>
+<td>-</td>
+<td><code>R_ACC[i] -= MULT_RES[i]</code></td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>ACC.SUB.FIRST</code></td>
+<td>-</td>
+<td><code>R_ACC[i] = -MULT_RES[i]</code></td>
+</tr>
+<tr>
+<td>6</td>
+<td><code>NOP</code></td>
+<td>-</td>
+<td>no state change</td>
+</tr>
+<tr>
+<td>7</td>
+<td><code>ACC.STRIDE</code></td>
+<td><code>elements_in_row, horizontal_stride, vertical_stride, offset</code></td>
+<td>decimate <code>MULT_RES</code> into <code>R_ACC[start:start+N]</code></td>
+</tr>
+<tr>
+<td>8</td>
+<td><code>AGG.SUM.FIRST</code></td>
+<td><code>dest_slot, cr_idx</code></td>
+<td><code>R_ACC[dest] = sum(MULT_RES[0..n-1])</code></td>
+</tr>
+<tr>
+<td>9</td>
+<td><code>AGG.SUM</code></td>
+<td><code>dest_slot, cr_idx</code></td>
+<td><code>R_ACC[dest] += sum(MULT_RES[0..n-1])</code></td>
+</tr>
+<tr>
+<td>10</td>
+<td><code>AGG.MAX.FIRST</code></td>
+<td><code>dest_slot, cr_idx</code></td>
+<td><code>R_ACC[dest] = max(MULT_RES[0..n-1])</code></td>
+</tr>
+<tr>
+<td>11</td>
+<td><code>AGG.MAX</code></td>
+<td><code>dest_slot, cr_idx</code></td>
+<td><code>R_ACC[dest] = max(MULT_RES[0..n-1], R_ACC[dest])</code></td>
+</tr>
+<tr>
+<td>12</td>
+<td><code>ACC.RESHAPE</code></td>
+<td><code>source, dest, reshape_mask</code></td>
+<td>scatter <code>MULT_RES</code> elements into <code>R_ACC</code> per <code>LRDn</code> index pairs</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+  
+    
+  
+  
+    
+  
+
+
+  <aside class="md-source-file">
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Last update">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 18, 2026 21:48:18 UTC"><span class="timeago" datetime="2026-10-18T21:48:18+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 18, 2026 21:48:18 UTC">2026-10-18</span>
+  </span>
+
+    
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Created">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="August 8, 2026 18:20:45 UTC"><span class="timeago" datetime="2026-08-08T18:20:45+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="August 8, 2026 18:20:45 UTC">2026-08-08</span>
+  </span>
+
+    
+    
+    
+  </aside>
+
+
+
+
+
+                
+  
+  <p class="md-typeset" style="margin-top: 2em;">
+    <a href="https://github.com/rechefe/ipu-emulator/commits/master/docs/content/specs/stage-accumulator.md">View commit history for this page on GitHub</a>
+  </p>
+  
+  
+
+
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/rechefe/ipu-emulator" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.indexes", "navigation.expand", "navigation.top", "navigation.tracking", "search.suggest", "search.highlight", "search.share", "toc.integrate", "toc.follow", "content.code.copy", "content.code.annotate", "content.action.edit", "content.action.view"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../../js/timeago.min.js"></script>
+      
+        <script src="../../js/timeago_mkdocs_material.js"></script>
+      
+    
+  </body>
+</html>

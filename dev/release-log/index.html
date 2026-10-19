@@ -1,0 +1,3358 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Documentation for IPU emulator and assembly language">
+      
+      
+        <meta name="author" content="IPU Development Team">
+      
+      
+      
+        <link rel="prev" href="../requirements/open-questions/">
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Release log - IPU Emulator</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../css/timeago.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="deep-purple" data-md-color-accent="purple">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#release-log" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="IPU Emulator" class="md-header__button md-logo" aria-label="IPU Emulator" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            IPU Emulator
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Release log
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="deep-purple" data-md-color-accent="purple"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="deep-purple" data-md-color-accent="purple"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/rechefe/ipu-emulator" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    rechefe/ipu-emulator
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../getting-started/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Getting started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../how-to/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  How-to
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../reference/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../explanation/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Explanation
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../specs/cache-unit/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Specs and requirements
+
+        </a>
+      </li>
+    
+  
+
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../requirements/open-questions/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Open questions
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="./" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Release log
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--lifted md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="IPU Emulator" class="md-nav__button md-logo" aria-label="IPU Emulator" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    IPU Emulator
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/rechefe/ipu-emulator" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    rechefe/ipu-emulator
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../getting-started/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="https://github.com/rechefe/ipu-emulator/releases/download/guide-latest/getting-started.pdf" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started guide (PDF)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../how-to/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How-to
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    How-to
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../how-to/write-a-kernel/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Write a kernel
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../how-to/add-an-instruction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Add an instruction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../how-to/debug-a-kernel/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Debug a kernel
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../how-to/step-through-a-kernel-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Step through a kernel run
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../how-to/inspector/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cycle Inspector
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../how-to/reference-model-cocotb/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Use the reference model from cocotb
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../reference/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ISA
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    ISA
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/isa/instructions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Instructions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/isa/operand-types/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operand types
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/isa/registers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Registers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/isa/configuration-registers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration registers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/isa/activate-quantize/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ACTIVATE.QUANTIZE in the emulator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/isa/assembly-syntax/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Assembly syntax
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/isa/instruction-format/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Instruction format
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/isa/programmer-guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Programmer's guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/kernel-toml/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    kernel.toml
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command-line tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/reference-model-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference model API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../kernels/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Kernels
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4_6" id="__nav_4_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Kernels
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../kernels/softmax/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Softmax
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../kernels/convolutions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Convolutions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../kernels/linear-layers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Linear layers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../kernels/normalization-and-shaping/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Normalization and shaping
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../kernels/attention/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Attention
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../kernels/mobilevit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MobileViT-S
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/code-conventions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Code conventions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/code-review/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Code review
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/glossary/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Glossary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../explanation/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Explanation
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Explanation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../explanation/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../explanation/timing-model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Timing model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../explanation/element-formats/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Element formats
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../explanation/isa-idioms/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ISA idioms
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../explanation/kernel-coverage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Kernel coverage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Specs and requirements
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Specs and requirements
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_6_1" id="__nav_6_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Specs
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Specs
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../specs/cache-unit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cache Unit Specification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../specs/stage-aaq-str/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AaQ Stage Specification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../specs/stage-accumulator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Accumulator Stage Specification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../specs/stage-control/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Control Stage Specification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../specs/riscv-host-integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RISC-V Host Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../specs/mnemonic-rename/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Mnemonic rename (SV names)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../specs/rtl-migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RTL migration (SV package)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../requirements/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HW requirements
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_2" id="__nav_6_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    HW requirements
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../requirements/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture and pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../requirements/interfaces/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    External interfaces
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../requirements/execution-flow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Execution flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../requirements/memory-access/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Memory access
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../requirements/faults/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Faults
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../requirements/debug/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Debug
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../requirements/host-registers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Host registers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../requirements/open-questions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Open questions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Release log
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+  
+                  
+
+
+  
+    <a href="https://github.com/rechefe/ipu-emulator/edit/master/docs/content/release-log.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+    
+      
+    
+    <a href="https://github.com/rechefe/ipu-emulator/raw/master/docs/content/release-log.md" title="View source of this page" class="md-content__button md-icon">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17 18c.56 0 1 .44 1 1s-.44 1-1 1-1-.44-1-1 .44-1 1-1m0-3c-2.73 0-5.06 1.66-6 4 .94 2.34 3.27 4 6 4s5.06-1.66 6-4c-.94-2.34-3.27-4-6-4m0 6.5a2.5 2.5 0 0 1-2.5-2.5 2.5 2.5 0 0 1 2.5-2.5 2.5 2.5 0 0 1 2.5 2.5 2.5 2.5 0 0 1-2.5 2.5M9.27 20H6V4h7v5h5v4.07c.7.08 1.36.25 2 .49V8l-6-6H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h4.5a8.2 8.2 0 0 1-1.23-2"/></svg>
+    </a>
+  
+
+
+<h1 id="release-log">Release Log<a class="headerlink" href="#release-log" title="Permanent link">&para;</a></h1>
+<p>This page lists every pull request that has been merged into <code>master</code>, newest
+first.  A workflow refreshes it on <code>master</code> after every merge.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Title</th>
+<th>Merged at (UTC)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/252">#252</a></td>
+<td>Add IPU hardware requirements documentation</td>
+<td>2026-10-04 17:39</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/249">#249</a></td>
+<td>Vscode extension update</td>
+<td>2026-09-28 10:55</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/250">#250</a></td>
+<td>codegen: declare SV union operands at their own width, type and name</td>
+<td>2026-09-27 15:48</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/237">#237</a></td>
+<td>perf(emu): add prototyping mode</td>
+<td>2026-09-24 18:33</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/235">#235</a></td>
+<td>Add window activation</td>
+<td>2026-09-24 18:33</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/217">#217</a></td>
+<td>Add a VS Code extension for IPU assembly</td>
+<td>2026-09-24 18:33</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/246">#246</a></td>
+<td>Yarden&amp;david merge</td>
+<td>2026-09-24 18:32</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/247">#247</a></td>
+<td>fix: update AaQ stage documentation to clarify dynamic_exponent and f…</td>
+<td>2026-09-24 11:29</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/244">#244</a></td>
+<td>Aa q spec fix</td>
+<td>2026-09-14 17:52</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/236">#236</a></td>
+<td>Sandbox Jinja</td>
+<td>2026-09-03 12:37</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/234">#234</a></td>
+<td>performance improvement. optimize per-cycle execution</td>
+<td>2026-09-03 12:36</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/233">#233</a></td>
+<td>enhance debugging documentation and add XMEM inspection features</td>
+<td>2026-09-03 12:28</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/231">#231</a></td>
+<td>implement EmulatorError for handling invalid operations and update CR…</td>
+<td>2026-09-03 12:27</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/229">#229</a></td>
+<td>extend dstructure configuration handling from CR15 only to all CRs</td>
+<td>2026-09-03 12:25</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/222">#222</a></td>
+<td>feat: add identity kernel example with Python harness and assembly</td>
+<td>2026-09-03 12:24</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/219">#219</a></td>
+<td>Correct two r_cyclic docstrings left stale by #180</td>
+<td>2026-09-03 12:23</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/206">#206</a></td>
+<td>kernel registry: kernels declare themselves, coverage is generated</td>
+<td>2026-08-23 19:27</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/205">#205</a></td>
+<td>softmax: benchmarks and a layout contract test</td>
+<td>2026-08-19 14:18</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/204">#204</a></td>
+<td>softmax: five FP32 wide-vector kernels</td>
+<td>2026-08-19 14:16</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/215">#215</a></td>
+<td>Fixes issue #210: <code>ACC.RESHAPE</code> (previously <code>RESHAPE</code>) had three bugs and a missing feature.</td>
+<td>2026-08-16 20:14</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/216">#216</a></td>
+<td>Adds <code>partition_mask</code>, a new 3-bit input signal to the AaQ stage, to the stage specification (<code>docs/content/specs/stage-aaq-str.md</code>). It lets the caller mask off whole partition groups from the right, so their elements are excluded from activation/quantization instead of being processed.</td>
+<td>2026-08-16 20:13</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/214">#214</a></td>
+<td>Refactor documentation and comments to replace "lane" with "element"</td>
+<td>2026-08-15 19:02</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/209">#209</a></td>
+<td>docs: add Accumulator Stage Specification to navigation</td>
+<td>2026-08-12 19:36</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/208">#208</a></td>
+<td>New spec cache</td>
+<td>2026-08-08 18:54</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/196">#196</a></td>
+<td>mode-blindness: make r_cyclic's rc_idx element-addressed</td>
+<td>2026-08-04 15:34</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/195">#195</a></td>
+<td>mode-blindness: minor cleanups in acc/agg handlers</td>
+<td>2026-08-04 15:33</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/194">#194</a></td>
+<td>New spec for aa q str</td>
+<td>2026-08-01 09:02</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/193">#193</a></td>
+<td>Add RESHAPE instruction to acc slot (issue #192)</td>
+<td>2026-07-30 17:22</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/189">#189</a></td>
+<td>mode-blindness: r_cyclic holds 512 elements with a mode-dependent wrap</td>
+<td>2026-07-30 13:55</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/188">#188</a></td>
+<td>mode-blindness: XMEM row addressing and fixed 8 MB allocation</td>
+<td>2026-07-30 13:26</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/191">#191</a></td>
+<td>Mb/177 lanes</td>
+<td>2026-07-30 13:13</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/186">#186</a></td>
+<td>mode-blindness: separate LANES from R_REG_SIZE</td>
+<td>2026-07-29 18:27</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/174">#174</a></td>
+<td>Enhance instruction set and register handling for ADDB and ADDBI oper…</td>
+<td>2026-07-29 18:08</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/185">#185</a></td>
+<td>mode-blindness: test coverage for verified-correct debug-mode paths</td>
+<td>2026-07-28 17:29</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/184">#184</a></td>
+<td>mode-blindness: honor masking and pad_mode in wide-vector debug mode</td>
+<td>2026-07-28 17:28</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/112">#112</a></td>
+<td>Generate SystemVerilog package for instruction format (issue #110)</td>
+<td>2026-07-27 19:53</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/172">#172</a></td>
+<td>fix(emu): MULT reads Ra/Rc DATA from snapshot (issue #157)</td>
+<td>2026-07-27 18:35</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/170">#170</a></td>
+<td>Add pad_mode option to dstructure config for masked lane fill value</td>
+<td>2026-07-14 03:05</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/168">#168</a></td>
+<td>Update execute_activate_quantize to read live r_acc register</td>
+<td>2026-07-08 18:29</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/162">#162</a></td>
+<td>Refactor AAQ instruction to ACTIVATE.QUANTIZE with INT8 quantization</td>
+<td>2026-06-28 18:43</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/166">#166</a></td>
+<td>Merge ACTIVATE and AAQ into single ACTIVATE.QUANTIZE instruction</td>
+<td>2026-06-28 18:43</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/165">#165</a></td>
+<td>Add support for Sigmoid Linear Unit (SiLU) activation function</td>
+<td>2026-06-28 18:32</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/161">#161</a></td>
+<td>Make dstructure CR index mandatory for masking multiply instructions</td>
+<td>2026-06-27 18:31</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/155">#155</a></td>
+<td>Allow per-command CR register for dstructure in mult/acc/aaq stages (#130)</td>
+<td>2026-06-26 12:54</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/159">#159</a></td>
+<td>Expand ACC slot with ADD/MAX/SUB operations (fixes #158)</td>
+<td>2026-06-24 18:46</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/156">#156</a></td>
+<td>Update documentation to reference MULT_RES lanes instead of R_ACC</td>
+<td>2026-06-24 18:38</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/154">#154</a></td>
+<td>Resolve conflicts: Unify per-slot NOP variants (was #150)</td>
+<td>2026-06-22 19:41</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/153">#153</a></td>
+<td>Update AGG instruction references to use MULT_RES lanes</td>
+<td>2026-06-22 10:01</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/149">#149</a></td>
+<td>Remove ElementsInRow=8 and expand variants from ACC.STRIDE</td>
+<td>2026-06-21 18:44</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/148">#148</a></td>
+<td>Remove RESET_ACC instruction</td>
+<td>2026-06-21 18:35</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/151">#151</a></td>
+<td>Fix BLT/BGE sign-extension at 20-bit register width</td>
+<td>2026-06-21 18:34</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/147">#147</a></td>
+<td>Refactor multiply instructions: consolidate MULT.EE/VE variants into RC-based API</td>
+<td>2026-06-20 14:01</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/146">#146</a></td>
+<td>Add pseudo-instruction support (BGT, BLE, BZ, BNZ) and BGE real instruction</td>
+<td>2026-06-20 12:24</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/145">#145</a></td>
+<td>Validate LDR_CYCLIC_MULT_REG index instead of silently wrapping mod 512</td>
+<td>2026-06-20 11:22</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/141">#141</a></td>
+<td>Add INC/DEC to LR slot; remove AddSubSrcB from ADD/SUB (fixes #132)</td>
+<td>2026-06-17 20:09</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/140">#140</a></td>
+<td>LR instruction slot documented three times</td>
+<td>2026-06-17 19:52</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/126">#126</a></td>
+<td>AAQ: interim direct INT8 clamp instead of &gt;&gt;24 truncation</td>
+<td>2026-06-15 13:49</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/125">#125</a></td>
+<td>docs: update documentation and tests to clarify lane masking behavior</td>
+<td>2026-06-13 17:12</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/121">#121</a></td>
+<td>Refactor and enhance AGG instruction tests in ipu-emu-py</td>
+<td>2026-06-13 13:38</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/123">#123</a></td>
+<td>Move aggregation (SUM/MAX) from AAQ stage to ACC slot</td>
+<td>2026-06-13 13:38</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/120">#120</a></td>
+<td>ACC Slot Redesign: AAQ Operations</td>
+<td>2026-06-09 19:24</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/118">#118</a></td>
+<td>Split xmem slot into load, store, and debug pipeline slots (#113)</td>
+<td>2026-06-09 19:17</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/106">#106</a></td>
+<td>docs: update mask_shift documentation and add sequential shift-and-AN…</td>
+<td>2026-06-08 19:10</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/111">#111</a></td>
+<td>Reorder compound instruction layout (issue #107) and gitignore generated docs</td>
+<td>2026-06-05 07:38</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/104">#104</a></td>
+<td>Plan: RISC-V host integration (SystemRDL control regfile + Unicorn + Rust firmware)</td>
+<td>2026-06-01 20:24</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/103">#103</a></td>
+<td>Add FullXmemRow support to instruction set and documentation</td>
+<td>2026-06-01 19:57</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/101">#101</a></td>
+<td>Update documentation and code to restrict usage of CR15 as an ISA ope…</td>
+<td>2026-05-29 16:28</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/100">#100</a></td>
+<td>Changes in IPU configuration registers (Issue #98)</td>
+<td>2026-05-29 14:13</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/97">#97</a></td>
+<td>Add reciprocal and rsqrt activation functions; update related specs a…</td>
+<td>2026-05-29 07:05</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/94">#94</a></td>
+<td>Remove Spec and AAQ Support for leaky_relu, prelu, silu/swish Activations</td>
+<td>2026-05-26 19:01</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/79">#79</a></td>
+<td>Issue #77: Configure activation α on IpuState (no CR)</td>
+<td>2026-05-23 18:52</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/92">#92</a></td>
+<td>feat(isa): union layout solver for bitfield sharing across opcodes</td>
+<td>2026-05-23 16:31</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/90">#90</a></td>
+<td>docs: enhance Control Stage documentation with detailed descriptions …</td>
+<td>2026-05-23 14:03</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/89">#89</a></td>
+<td>feat(mult): add MULT.EE.RR multi-element execution (issue #86)</td>
+<td>2026-05-17 17:43</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/88">#88</a></td>
+<td>docs: update ISA section with detailed instruction references for AAQ…</td>
+<td>2026-05-16 15:02</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/81">#81</a></td>
+<td>Control stage spec</td>
+<td>2026-05-15 15:11</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/85">#85</a></td>
+<td>Add execution statistics tracking (issue #84)</td>
+<td>2026-05-14 10:45</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/83">#83</a></td>
+<td>LR SET: copy from CR register; remove 16-bit immediate (#82)</td>
+<td>2026-05-14 08:50</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/80">#80</a></td>
+<td>Standardize instruction syntax and register naming conventions</td>
+<td>2026-05-12 20:27</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/78">#78</a></td>
+<td>Fix LR conflict detection for INCR_MOD_POW2 instructions</td>
+<td>2026-05-12 20:14</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/72">#72</a></td>
+<td>Standardize upper-case instruction mnemonics and lower-case operand names</td>
+<td>2026-05-09 19:12</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/71">#71</a></td>
+<td>Issue #51: valid_elements operand for agg / agg.first</td>
+<td>2026-05-09 17:32</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/67">#67</a></td>
+<td>Fix #46: immediate multiply mask slot (0–7); shift stays LR</td>
+<td>2026-05-09 17:22</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/70">#70</a></td>
+<td>Fix mult.ve cyclic RC access and add 128-element padding flag (closes #44)</td>
+<td>2026-05-09 17:15</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/68">#68</a></td>
+<td>Fix #64: add/sub ISA — LR src_a, LR|CR|IMM5 src_b</td>
+<td>2026-05-09 17:05</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/69">#69</a></td>
+<td>Close #52, #65, #66: ISA cleanup (remove mult.ev, mult.ee R0/R1 only) and docs</td>
+<td>2026-05-09 16:05</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/62">#62</a></td>
+<td>AAQ spec: rename Post-Function “Edge case” column to “Corner case”</td>
+<td>2026-05-08 13:21</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/60">#60</a></td>
+<td>MkDocs: git revision dates, history links, giscus (issue #59)</td>
+<td>2026-05-06 20:38</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/58">#58</a></td>
+<td>Rename "IPU Specification" to "AAQ Stage Specification" in mkdocs nav</td>
+<td>2026-05-06 20:04</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/56">#56</a></td>
+<td>Fix MkDocs build: nested docs paths, stage spec filename, Mermaid fences</td>
+<td>2026-05-06 19:50</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/54">#54</a></td>
+<td>Specs added for cache unit and AAQ stage</td>
+<td>2026-05-06 19:25</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/50">#50</a></td>
+<td>Encode incr_mod_pow2 k in 4 bits (k − 1)</td>
+<td>2026-05-05 20:29</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/49">#49</a></td>
+<td>Add incr_mod_pow2 LR instruction (Issue #47)</td>
+<td>2026-05-05 20:06</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/48">#48</a></td>
+<td>Allow three LR sub-instructions per VLIW word (issue #45)</td>
+<td>2026-05-04 19:52</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/43">#43</a></td>
+<td>Wide-vector debug mode (32-bit lanes, issue #33)</td>
+<td>2026-05-03 20:11</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/42">#42</a></td>
+<td>Add agg.first instruction to fix RF register noise (fixes #32)</td>
+<td>2026-05-03 17:31</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/41">#41</a></td>
+<td>Implements shared fixed_idx (0–255) for mult.ve</td>
+<td>2026-05-02 18:45</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/40">#40</a></td>
+<td>Support CR registers as operands in conditional branch and br instructions</td>
+<td>2026-05-02 16:12</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/37">#37</a></td>
+<td>fix: mult.ve boundary padding parity with mult.ve.cr / mult.ve.aaq</td>
+<td>2026-04-27 19:20</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/35">#35</a></td>
+<td>Add auto-updating Release Log documentation page</td>
+<td>2026-04-26 18:36</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/30">#30</a></td>
+<td>Replace bitwise stride decoding with lookup tables</td>
+<td>2026-04-03 08:07</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/28">#28</a></td>
+<td>Generalize FP8 support to all e(x)m(8-x) format - closes #19</td>
+<td>2026-03-27 13:29</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/26">#26</a></td>
+<td>Fix duplicated legend in SVG generator</td>
+<td>2026-03-24 20:34</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/27">#27</a></td>
+<td>Add aaq quantization instruction and xmem.store_aaq_result (closes #24)</td>
+<td>2026-03-24 20:31</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/23">#23</a></td>
+<td>Add mult.ve.cr and mult.ve.aaq instructions (closes #17)</td>
+<td>2026-03-23 20:30</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/22">#22</a></td>
+<td>[skill] Add AI Assistant Skill Reference for IPU Emulator &amp; Assembler</td>
+<td>2026-03-23 19:50</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/16">#16</a></td>
+<td>Refactor new instructions</td>
+<td>2026-03-07 16:05</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/15">#15</a></td>
+<td>[doc] Update docs - detailed example of fully connected layer impleme…</td>
+<td>2026-03-02 18:18</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/14">#14</a></td>
+<td>Python refactor</td>
+<td>2026-02-16 16:51</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/13">#13</a></td>
+<td>Feature/debug</td>
+<td>2026-01-30 15:40</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/12">#12</a></td>
+<td>[emulator] Implemented add and sub instructions for LR and CR registe…</td>
+<td>2026-01-30 10:57</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/11">#11</a></td>
+<td>[emulator] Fixed multiplier instruction ev and ve</td>
+<td>2026-01-30 10:32</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/10">#10</a></td>
+<td>Doc/adding mult acc</td>
+<td>2026-01-26 19:49</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/8">#8</a></td>
+<td>[docs] Add new documentat regarding how to add new instructions to as…</td>
+<td>2026-01-12 15:05</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/5">#5</a></td>
+<td>[data_formats] WIP - start adding new data formats</td>
+<td>2026-01-09 14:47</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/7">#7</a></td>
+<td>Reset command</td>
+<td>2026-01-09 14:47</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/6">#6</a></td>
+<td>Add zero_rq instruction and update opcode handling</td>
+<td>2025-12-30 19:35</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/4">#4</a></td>
+<td>Docs</td>
+<td>2025-12-22 20:55</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/3">#3</a></td>
+<td>Docs</td>
+<td>2025-12-22 20:12</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/2">#2</a></td>
+<td>[preprocessor] Add preprocessing capabilities to assembly syntax</td>
+<td>2025-12-22 16:29</td>
+</tr>
+<tr>
+<td><a href="https://github.com/rechefe/ipu-emulator/pull/1">#1</a></td>
+<td>Dockerfile</td>
+<td>2025-12-22 16:01</td>
+</tr>
+</tbody>
+</table>
+<p><em>Last updated: 2026-10-16 09:57 UTC</em></p>
+
+
+
+
+
+
+
+  
+    
+  
+  
+    
+  
+
+
+  <aside class="md-source-file">
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Last update">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 16, 2026 10:00:50 UTC"><span class="timeago" datetime="2026-10-16T10:00:50+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 16, 2026 10:00:50 UTC">2026-10-16</span>
+  </span>
+
+    
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Created">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="May 29, 2026 19:20:36 UTC"><span class="timeago" datetime="2026-05-29T19:20:36+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="May 29, 2026 19:20:36 UTC">2026-05-29</span>
+  </span>
+
+    
+    
+    
+  </aside>
+
+
+
+
+
+                
+  
+  <p class="md-typeset" style="margin-top: 2em;">
+    <a href="https://github.com/rechefe/ipu-emulator/commits/master/docs/content/release-log.md">View commit history for this page on GitHub</a>
+  </p>
+  
+  
+
+
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/rechefe/ipu-emulator" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.indexes", "navigation.expand", "navigation.top", "navigation.tracking", "search.suggest", "search.highlight", "search.share", "toc.integrate", "toc.follow", "content.code.copy", "content.code.annotate", "content.action.edit", "content.action.view"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../js/timeago.min.js"></script>
+      
+        <script src="../js/timeago_mkdocs_material.js"></script>
+      
+    
+  </body>
+</html>
