@@ -1,0 +1,100 @@
+# The matmul family's registry entries (E07-07, E07-08): each fixes its
+# template's shape. `bazel test //kernels/matmul:matmul_128x128` runs the
+# template's cases at that shape; `bazel run //kernels:query -- matmul m=128
+# k=128 n=128` finds it.
+
+[[kernel]]
+name = "matmul_64x64x64"
+template = "matmul_small"
+params = { m = 64, k = 64, n = 64 }
+doc = "Generic 64x64x64 matmul"
+
+[[kernel]]
+name = "matmul_128x64x64"
+template = "matmul_small"
+params = { m = 128, k = 64, n = 64 }
+doc = "Generic 128x64x64 matmul"
+
+[[kernel]]
+name = "matmul_128x64x128"
+template = "matmul_small"
+params = { m = 128, k = 64, n = 128 }
+doc = "Generic 128x64x128 matmul"
+
+[[kernel]]
+name = "matmul_128x128"
+template = "matmul_small"
+params = { m = 128, k = 128, n = 128 }
+doc = "Generic 128x128x128 matmul"
+
+[[kernel]]
+name = "matmul_144x144_x128"
+template = "matmul_x128_2tg_c2"
+params = { m = 256, k = 144, n = 144, activation = "none" }
+doc = "Layer 3 OutProj"
+
+[[kernel]]
+name = "matmul_432x144_x128"
+template = "matmul_x128_2tg_c2"
+params = { m = 256, k = 144, n = 432, activation = "none" }
+doc = "Layer 3 QKV"
+
+[[kernel]]
+name = "matmul_288x144_x128"
+template = "matmul_x128_2tg_c2"
+params = { m = 256, k = 144, n = 288, activation = "silu" }
+doc = "Layer 3 FFN1 (fused SiLU)"
+
+[[kernel]]
+name = "matmul_144x288_x128"
+template = "matmul_x128_2tg_c3"
+params = { m = 256, k = 288, n = 144, activation = "none" }
+doc = "Layer 3 FFN2"
+
+[[kernel]]
+name = "matmul_192x192_x128"
+template = "matmul_x128_c2"
+params = { m = 64, k = 192, n = 192, activation = "none" }
+doc = "Layer 4 OutProj"
+
+[[kernel]]
+name = "matmul_384x192_x128"
+template = "matmul_x128_c2"
+params = { m = 64, k = 192, n = 384, activation = "silu" }
+doc = "Layer 4 FFN1 (fused SiLU)"
+
+[[kernel]]
+name = "matmul_240x240_x128"
+template = "matmul_x128_c2"
+params = { m = 16, k = 240, n = 240, activation = "none" }
+doc = "Layer 5 OutProj"
+
+[[kernel]]
+name = "matmul_480x240_x128"
+template = "matmul_x128_c2"
+params = { m = 16, k = 240, n = 480, activation = "silu" }
+doc = "Layer 5 FFN1 (fused SiLU)"
+
+[[kernel]]
+name = "matmul_720x240_x128"
+template = "matmul_x128_c2"
+params = { m = 16, k = 240, n = 720, activation = "none" }
+doc = "Layer 5 QKV"
+
+[[kernel]]
+name = "matmul_576x192_x128"
+template = "matmul_x128_c2_qkv"
+params = { m = 64, k = 192, n = 576, activation = "none" }
+doc = "Layer 4 QKV"
+
+[[kernel]]
+name = "matmul_192x384_x128"
+template = "matmul_x128_c3"
+params = { m = 64, k = 384, n = 192, activation = "none" }
+doc = "Layer 4 FFN2"
+
+[[kernel]]
+name = "matmul_240x480_x128"
+template = "matmul_x128_c4"
+params = { m = 16, k = 480, n = 240, activation = "none" }
+doc = "Layer 5 FFN2"

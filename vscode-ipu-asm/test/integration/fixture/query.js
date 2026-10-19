@@ -5,5 +5,5 @@ if (flag !== '--json') process.exit(2);
 const supported = op === 'identity' && params.includes('shape=4,128');
 const reason = supported ? 'rows of 128 elements' : `no ${op} kernel covers ${params.join(' ')}`;
 process.stdout.write(JSON.stringify({ supported, reason, app: supported ? 'demo_kernel' : null,
-  use: null, kwargs: {}, shapes: null, notes: [], alternatives: [] }));
+  use: null, notes: [], alternatives: [] }));
 process.exit(supported ? 0 : 1);

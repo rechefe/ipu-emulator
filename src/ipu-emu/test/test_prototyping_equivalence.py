@@ -1,0 +1,529 @@
+"""Prototyping mode must change speed and nothing else.
+
+Its shortcuts (schedules that skip idle NOP slots, direct LR/CR operand reads,
+short-circuiting an all-ones multiply mask) are only defensible if the state they leave behind is
+*identical* to the faithful path's — not close, identical. In a flagged build,
+every program runs through faithful and prototype engines in lockstep; every
+register, all 512 MiB of XMEM, snapshots, cycle outcomes and run statistics are
+compared after every cycle.
+
+The Bazel flag is also a capability boundary. A default build verifies that the
+fast paths cannot be selected; only a flagged build executes the two-mode cases.
+"""
+
+from __future__ import annotations
+
+import contextlib
+
+import numpy as np
+import pytest
+import timing_probes
+from emu_support import ElementFormat, assemble_program, make_state, new_state, run_both
+
+from ipu_emu.emulator import load_program, run_until_complete
+from ipu_emu.errors import DebugOnlyInstructionWarning, EmulatorFault
+from ipu_emu.ipu import Ipu
+from ipu_emu.ipu_state import HaltRecord, IpuState
+from ipu_emu.outcome import CycleOutcome
+from ipu_emu.prototyping import build_enabled, default_enabled, env_requests_prototyping
+from ipu_isa.faults import FaultId
+
+_REQUIRES_PROTO_BUILD = pytest.mark.skipif(
+    not build_enabled(), reason="requires --define=ipu_proto=1"
+)
+
+
+# Programs chosen for what they make the two paths do differently: NOP-heavy
+# slots, branches (the cond slot's NOP advances the PC), an explicitly loaded
+# mask, all three LR sub-slots at once, and both wide arithmetic modes.
+PROGRAMS = {
+    "mult_acc_agg": """
+        SET LR0 CR0 ; SET LR1 CR1 ;;
+        LD.MULT R0 LR0 CR2 ;;
+        LD.MULT.CYCLIC LR0 CR3 LR0 ;;
+        MULT.RC.VV LR0 R0 0 LR0 CR15 ; ACC.ADD.FIRST ;;
+        MULT.RC.VE LR0 CR1 0 LR0 CR15 ; ACC.ADD ;;
+        MULT.RC.VS LR0 0 LR0 CR15 ; ACC.MAX ;;
+        MULT.VE LR0 CR1 0 LR0 CR15 ; ACC.SUB ;;
+        MULT.EE LR0 CR1 0 LR0 CR15 ; AGG.SUM.FIRST LR1 CR15 ;;
+        MULT.RC.VV LR0 R0 0 LR0 CR15 ; AGG.MAX LR1 CR15 ;;
+        ACTIVATE.QUANTIZE relu CR15 ; ST.AAQ LR1 CR4 ;;
+        HALT ;;
+    """,
+    "masked": """
+        SET LR0 CR0 ; SET LR2 CR1 ;;
+        LD.MASK LR0 CR6 ;;
+        LD.MULT.CYCLIC LR0 CR3 LR0 ;;
+        MULT.RC.VS LR0 0 LR2 CR15 ; ACC.ADD.FIRST ;;
+        MULT.RC.VS LR0 1 LR0 CR15 ; ACC.ADD ;;
+        ACTIVATE.QUANTIZE identity CR15 ; ST.AAQ LR0 CR4 ;;
+        HALT ;;
+    """,
+    "loop_and_lr_ops": """
+        SET LR0 CR0 ; SET LR1 CR1 ; SET LR3 CR7 ;;
+        INC LR0 1 ; DEC LR3 1 ; INC.MODP2 LR1 CR1 3 ;;
+        ADDB LRD4 LR1 ;;
+        ADDBI LRD6 3 ;;
+    loop:
+        ADD LR0 LR0 CR1 ; SUB LR3 LR3 CR1 ;;
+        BLT.S LR0 CR7 loop ;;
+        BEQ LR0 CR7 done ;;
+        SET LR0 CR0 ;;
+    done:
+        HALT ;;
+    """,
+}
+
+
+def _seed(fmt: ElementFormat, seed: int):
+    """Return a setup callback that fills XMEM and the CRs the programs read."""
+    wide = fmt in (ElementFormat.FP32, ElementFormat.INT32)
+
+    def setup(state: IpuState) -> None:
+        rng = np.random.RandomState(seed)
+        row = 512 if wide else 128
+        if fmt == ElementFormat.FP32:
+            payload = rng.randn(128 * 6).astype(np.float32).tobytes()
+        elif wide:
+            payload = rng.randint(-2000, 2000, 128 * 6).astype(np.int32).tobytes()
+        else:
+            payload = bytes(rng.randint(0, 256, 128 * 6, dtype=np.uint8))
+        state.xmem.write_address(0x10000, payload)
+
+        state.regfile.set_cr(2, 0x10000 // row)  # R0 source row
+        state.regfile.set_cr(3, 0x10000 // row + 1)  # cyclic source row
+        state.regfile.set_cr(4, 0x30000 // row)  # post-AAQ store row
+        state.regfile.set_cr(6, 0x10000 // row + 2)  # mask row
+        state.regfile.set_cr(7, 5)  # loop bound
+        state.set_cr_dstructure(valid_elements=128, partition=4)
+
+    return setup
+
+
+def _regfile_bytes(regfile) -> dict[str, bytes]:
+    return {name: regfile.raw_readonly(name) for name in regfile.register_names}
+
+
+def _assert_regfiles_identical(regfile_a, regfile_b) -> None:
+    assert _regfile_bytes(regfile_a) == _regfile_bytes(regfile_b)
+
+
+def _assert_states_identical(state_a: IpuState, state_b: IpuState) -> None:
+    assert state_a.program_counter == state_b.program_counter
+    _assert_regfiles_identical(state_a.regfile, state_b.regfile)
+    assert state_a.xmem == state_b.xmem
+    assert state_a.stats == state_b.stats
+
+
+def _cycle_comparer():
+    """An ``on_cycle`` callback for ``run_both``: the two states must be
+    identical after every cycle, and a snapshot handed out by the prototyping
+    engine must stay unchanged by later cycles."""
+    retained = {}
+
+    def compare(engines) -> None:
+        _assert_states_identical(*(engine.state for engine in engines))
+        snapshots = [engine.snapshot for engine in engines]
+        assert (snapshots[0] is None) == (snapshots[1] is None)
+        if snapshots[0] is None:
+            return
+        _assert_regfiles_identical(*snapshots)
+        if not retained:
+            retained["snapshot"] = snapshots[1]
+            retained["bytes"] = _regfile_bytes(snapshots[1])
+        else:
+            assert _regfile_bytes(retained["snapshot"]) == retained["bytes"]
+
+    return compare
+
+
+def _run_equivalence(asm: str, *, fmt: ElementFormat = ElementFormat.INT8, seed: int = 5):
+    """Run *asm* faithful and prototyping in lockstep; compare after every cycle."""
+    faithful, fast = run_both(asm, fmt=fmt, setup=_seed(fmt, seed), on_cycle=_cycle_comparer())
+    _assert_states_identical(faithful, fast)
+    return faithful, fast
+
+
+@_REQUIRES_PROTO_BUILD
+@pytest.mark.parametrize("name", sorted(PROGRAMS))
+def test_narrow_int8_programs_are_identical(name):
+    _run_equivalence(PROGRAMS[name])
+
+
+@_REQUIRES_PROTO_BUILD
+@pytest.mark.parametrize("name", sorted(PROGRAMS))
+@pytest.mark.parametrize("fmt", [ElementFormat.FP32, ElementFormat.INT32])
+def test_wide_vector_programs_are_identical(name, fmt):
+    _run_equivalence(PROGRAMS[name], fmt=fmt)
+
+
+# The timing probes (E02-05, E02-06): one minimal program per row of the
+# register-timing table, each in every element format it is meaningful in.
+_PROBE_RUNS = [
+    pytest.param(name, mode, id=f"{name}-{mode.value}")
+    for name, probe in timing_probes.PROBES.items()
+    if name not in timing_probes.RAISES
+    for mode in probe.modes
+]
+
+
+_PROBE_FORMATS = {
+    timing_probes.Mode.NARROW: ElementFormat.INT8,
+    timing_probes.Mode.WIDE_FP32: ElementFormat.FP32,
+}
+
+
+def _probe_states(name: str, mode) -> list[IpuState]:
+    return [
+        timing_probes.prepare(timing_probes.PROBES[name], mode, prototyping=prototyping)
+        for prototyping in (False, True)
+    ]
+
+
+def _probe_setup(probe):
+    def setup(state: IpuState) -> None:
+        for index, value in probe.cr.items():
+            state.regfile.set_cr(index, value)
+        probe.setup(state)
+
+    return setup
+
+
+@_REQUIRES_PROTO_BUILD
+@pytest.mark.parametrize(("name", "mode"), _PROBE_RUNS)
+def test_timing_probes_are_identical(name, mode):
+    probe = timing_probes.PROBES[name]
+    # ST.ACC is emulator-only and says so on every run.
+    expected = (
+        pytest.warns(DebugOnlyInstructionWarning)
+        if "ST.ACC" in probe.asm
+        else contextlib.nullcontext()
+    )
+    with expected:
+        faithful, fast = run_both(
+            program=timing_probes.decoded_program(probe),
+            fmt=_PROBE_FORMATS[mode],
+            dstructure={"valid_elements": timing_probes.LANES},
+            setup=_probe_setup(probe),
+            on_cycle=_cycle_comparer(),
+        )
+    _assert_states_identical(faithful, fast)
+
+
+def _run_until_raise(name: str):
+    """Run a probe that raises in both modes; return each mode's exception and
+    final state."""
+    (mode,) = timing_probes.PROBES[name].modes
+    states = _probe_states(name, mode)
+    exceptions = []
+    for state in states:
+        engine = Ipu(state)
+        with pytest.raises(timing_probes.RAISES[name]) as caught:
+            for _ in range(timing_probes.MAX_CYCLES):
+                engine.cycle.step()
+        exceptions.append(caught.value)
+    return states, exceptions
+
+
+@_REQUIRES_PROTO_BUILD
+@pytest.mark.parametrize("name", sorted(timing_probes.RAISES))
+def test_raising_timing_probes_are_identical(name):
+    states, exceptions = _run_until_raise(name)
+    assert type(exceptions[0]) is type(exceptions[1])
+    assert exceptions[0].args == exceptions[1].args
+    _assert_states_identical(*states)
+
+
+@_REQUIRES_PROTO_BUILD
+def test_lr_subslot_exception_partial_state_matches():
+    """A word with a reserved LR sub-slot operand faults F-1 at fetch in both
+    modes, before any LR is written (it raised in the operand read before
+    E04-19)."""
+    states, _ = _run_until_raise("lr_subslot_exception")
+    _assert_states_identical(*states)
+
+
+@_REQUIRES_PROTO_BUILD
+def test_the_cond_slots_nop_still_advances_the_pc():
+    """The one NOP that is not a no-op.
+
+    Skipping it would leave the PC parked on the same instruction forever, so a
+    program with no branch at all is the sharpest check that prototyping mode
+    does not skip it.
+    """
+    asm = "SET LR0 CR1 ;;\nADD LR0 LR0 CR1 ;;\nHALT ;;"
+    _, fast = _run_equivalence(asm)
+    assert fast.stats.total_cycles == 3
+
+
+def _wide_fp32_activation_state(
+    activation: str, payload: bytes, prototyping: bool
+) -> tuple[IpuState, Ipu]:
+    state = make_state(
+        f"ACTIVATE.QUANTIZE {activation} CR15 ;;\n",
+        fmt=ElementFormat.FP32,
+        dstructure={"valid_elements": 128},
+        prototyping=prototyping,
+    )
+    state.regfile.mutable("r_acc")[:] = payload
+    state.regfile.mutable("post_aaq_reg")[:] = b"\xa5" * 512
+    return state, Ipu(state)
+
+
+@_REQUIRES_PROTO_BUILD
+@pytest.mark.parametrize("activation", ["identity", "exp2", "reciprocal"])
+def test_full_row_fp32_activation_fast_path_is_bit_exact(activation):
+    rng = np.random.RandomState(37)
+    lanes = rng.uniform(-20.0, 20.0, 128).astype(np.float32)
+    bits = lanes.view(np.uint32)
+    bits[:8] = np.array(
+        [
+            0x00000000,  # +0
+            0x80000000,  # -0
+            0x7F800000,  # +inf
+            0xFF800000,  # -inf
+            0x7FC00001,  # quiet NaN with payload
+            0x7F800001,  # signaling NaN with payload
+            0x3F800000,  # +1
+            0xBF800000,  # -1
+        ],
+        dtype=np.uint32,
+    )
+    payload = bits.tobytes()
+    states = []
+    outcomes = []
+
+    for prototyping in (False, True):
+        state, ipu = _wide_fp32_activation_state(activation, payload, prototyping)
+        outcomes.append(ipu.cycle.step())
+        states.append(state)
+
+    assert outcomes[0] == outcomes[1]
+    _assert_states_identical(*states)
+
+
+@_REQUIRES_PROTO_BUILD
+@pytest.mark.parametrize(
+    ("activation", "overflow_bits"),
+    [
+        ("exp2", 0x447A0000),  # 1000.0: math.exp overflows
+        ("reciprocal", 0x00000001),  # reciprocal cannot narrow to float32
+    ],
+)
+def test_full_row_fp32_activation_exception_state_is_bit_exact(activation, overflow_bits):
+    bits = np.full(128, 0x3F800000, dtype=np.uint32)
+    bits[2] = overflow_bits
+    payload = bits.tobytes()
+    states = []
+    exceptions = []
+
+    for prototyping in (False, True):
+        state, ipu = _wide_fp32_activation_state(activation, payload, prototyping)
+        with pytest.raises(OverflowError) as caught:
+            ipu.cycle.step()
+        states.append(state)
+        exceptions.append(caught.value)
+
+    assert type(exceptions[0]) is type(exceptions[1])
+    assert exceptions[0].args == exceptions[1].args
+    _assert_states_identical(*states)
+
+
+@_REQUIRES_PROTO_BUILD
+def test_cached_scalar_read_invalid_index_exception_is_bit_exact():
+    inst = assemble_program("SET LR0 CR1 ;;\n")[0]
+    cr_field = next(
+        name for name in inst if name.startswith("lr_inst_0_") and name.endswith("_addbi_immediate")
+    )
+    inst[cr_field] = 999
+    states = []
+    exceptions = []
+
+    for prototyping in (False, True):
+        state = new_state(prototyping=prototyping)
+        load_program(state, [dict(inst)])
+        with pytest.raises(EmulatorFault, match="reserved encoding") as caught:
+            engine = Ipu(state)
+            engine.cycle.step()
+        states.append(state)
+        exceptions.append(caught.value)
+
+    assert type(exceptions[0]) is type(exceptions[1])
+    assert exceptions[0].args == exceptions[1].args
+    _assert_states_identical(*states)
+
+
+@_REQUIRES_PROTO_BUILD
+def test_an_lr_conflict_still_raises():
+    """Conflict detection is precomputed per PC; it must still fire every time."""
+    asm = "SET LR0 CR1 ; SET LR0 CR2 ;;\nHALT ;;"
+    states = []
+    exceptions = []
+    for prototyping in (False, True):
+        state = make_state(asm, prototyping=prototyping)
+        with pytest.raises(EmulatorFault, match="LR conflict") as caught:
+            engine = Ipu(state)
+            engine.cycle.step()
+        states.append(state)
+        exceptions.append(caught.value)
+
+    assert type(exceptions[0]) is type(exceptions[1])
+    assert exceptions[0].args == exceptions[1].args
+    assert states[0].halt == states[1].halt == HaltRecord("fault", 0, FaultId.F3)
+    _assert_states_identical(*states)
+
+
+@_REQUIRES_PROTO_BUILD
+@pytest.mark.parametrize(
+    ("asm", "fault", "pc"),
+    [
+        ("INC LR0 1 ;;\nINC LR0 1 ;;", FaultId.F2, 2),
+        ("NOP ;;\nACC.RESHAPE LRD0 LRD2 LR4 ;;\nHALT ;;", FaultId.F5, 1),
+        # The mask is written by the faulting word itself (forwarded), and
+        # that LR write is undone: precise in both modes (E04-20).
+        ("SET LR4 CR9 ; INC LR6 1 ; ACC.RESHAPE LRD0 LRD2 LR4 ;;\nHALT ;;", FaultId.F5, 0),
+    ],
+)
+def test_both_modes_raise_the_same_fault_at_the_same_pc(asm, fault, pc):
+    states = []
+    for prototyping in (False, True):
+        state = make_state(asm, prototyping=prototyping)
+        state.regfile.set_lr(4, 9)
+        state.regfile.set_cr(9, 9)
+        lrs = bytes(state.regfile.view("lr"))
+        with pytest.raises(EmulatorFault) as caught:
+            run_until_complete(state)
+        if pc == 0:
+            assert bytes(state.regfile.view("lr")) == lrs  # no LR write survived
+        assert (caught.value.fault, caught.value.pc) == (fault, pc)
+        states.append(state)
+    assert states[0].halt == states[1].halt == HaltRecord("fault", pc, fault)
+    _assert_states_identical(*states)
+
+
+@_REQUIRES_PROTO_BUILD
+def test_a_disabled_f1_runs_the_same_nop_in_both_modes():
+    # A reserved activation code in the AAQ slot: with F-1 disabled the slot
+    # is a NOP in both modes, and the LR slot retires.
+    word = dict(assemble_program("INC LR0 1 ; ACTIVATE.QUANTIZE relu CR15 ;;")[0])
+    aaq = next(name for name in word if name.startswith("aaq_") and "activation_fn" in name)
+    word[aaq] = 15
+    states = []
+    for prototyping in (False, True):
+        state = new_state(prototyping=prototyping)
+        load_program(state, [word, assemble_program("HALT ;;")[0]])
+        state.faults.set_enabled(FaultId.F1, False)
+        run_until_complete(state)
+        assert state.faults.sticky == {FaultId.F1}
+        states.append(state)
+    _assert_states_identical(*states)
+    assert states[0].stats == states[1].stats
+
+
+def test_bazel_flag_is_a_mandatory_capability(monkeypatch):
+    monkeypatch.delenv("IPU_EMU_PROTOTYPING", raising=False)
+    assert IpuState(prototyping=False).prototyping is False
+    assert IpuState().prototyping == default_enabled()
+
+    if build_enabled():
+        assert IpuState().prototyping is True
+        assert IpuState(prototyping=True).prototyping is True
+        monkeypatch.setenv("IPU_EMU_PROTOTYPING", "0")
+        assert IpuState().prototyping is False
+        monkeypatch.setenv("IPU_EMU_PROTOTYPING", "FALSE")
+        assert IpuState().prototyping is False
+        monkeypatch.setenv("IPU_EMU_PROTOTYPING", "1")
+        assert IpuState().prototyping is True
+    else:
+        assert IpuState().prototyping is False
+        with pytest.raises(ValueError, match="--define=ipu_proto=1"):
+            IpuState(prototyping=True)
+        monkeypatch.setenv("IPU_EMU_PROTOTYPING", "FALSE")
+        assert IpuState().prototyping is False
+        monkeypatch.setenv("IPU_EMU_PROTOTYPING", "1")
+        with pytest.raises(ValueError, match="--define=ipu_proto=1"):
+            IpuState()
+
+
+@pytest.mark.parametrize("raw", ["FALSE", "False", "false", "NO", "Off", " 0 ", ""])
+def test_env_false_values_are_case_insensitive(raw):
+    assert env_requests_prototyping(raw) is False
+
+
+@pytest.mark.parametrize("raw", ["1", "true", "YES", "on", " On "])
+def test_env_true_values_are_case_insensitive(raw):
+    assert env_requests_prototyping(raw) is True
+
+
+@pytest.mark.parametrize("raw", ["maybe", "2", "enable"])
+def test_env_unrecognised_value_raises(raw, monkeypatch):
+    with pytest.raises(ValueError, match="IPU_EMU_PROTOTYPING"):
+        env_requests_prototyping(raw)
+    monkeypatch.setenv("IPU_EMU_PROTOTYPING", raw)
+    with pytest.raises(ValueError, match="IPU_EMU_PROTOTYPING"):
+        IpuState()
+
+
+@_REQUIRES_PROTO_BUILD
+def test_debug_instruction_patch_invalidates_cached_plan():
+    """Continuing from BREAK must execute the debugger's current instruction."""
+    break_inst = assemble_program("BREAK ;;\n")[0]
+    replacement = assemble_program("SET LR0 CR2 ;;\n")[0]
+    states = []
+
+    for prototyping in (False, True):
+        state = new_state(prototyping=prototyping, cr={2: 99})
+        state.inst_mem[0] = dict(break_inst)
+        ipu = Ipu(state)
+
+        assert ipu.cycle.step() == CycleOutcome.BREAK
+        retained = ipu.snapshot
+        assert retained is not None
+        retained_bytes = _regfile_bytes(retained)
+
+        # A fetched word is frozen: an in-place edit cannot slip past the
+        # cached schedule. The debugger writes a new word instead.
+        with pytest.raises((TypeError, AttributeError)):
+            state.inst_mem[0].clear()
+        state.inst_mem[0] = dict(replacement)
+
+        ipu.cycle.retire()
+        assert state.regfile.get_lr(0) == 99
+        assert state.program_counter == 1
+        assert _regfile_bytes(retained) == retained_bytes
+        states.append(state)
+
+    _assert_states_identical(*states)
+
+
+def _profiled_run(asm: str, prototyping: bool, seed: int = 5):
+    from ipu_emu.alias_profile import AliasProfile
+
+    state = new_state(
+        prototyping=prototyping,
+        alias_profile=AliasProfile(),
+        setup=_seed(ElementFormat.INT8, seed),
+    )
+    load_program(state, assemble_program(asm))
+    return state, Ipu(state)
+
+
+@_REQUIRES_PROTO_BUILD
+@pytest.mark.parametrize("name", sorted(PROGRAMS))
+def test_profiled_runs_give_identical_profiles(name):
+    """The profiler observes prototyping runs too (E04-08). Skipped NOP slots
+    are idle in both profiles, so the two reports are identical."""
+    runs = [_profiled_run(PROGRAMS[name], prototyping) for prototyping in (False, True)]
+    states = [state for state, _ in runs]
+    while not states[0].is_halted:
+        outcomes = [engine.cycle.step() for _, engine in runs]
+        assert outcomes[0] == outcomes[1]
+        if outcomes[0] == CycleOutcome.BREAK:
+            for _, engine in runs:
+                engine.cycle.retire()
+        _assert_states_identical(*states)
+    assert states[1].is_halted
+    reports = [state.alias_profile.to_dict() for state in states]
+    assert reports[0]["totals"]["cycles"] > 0
+    assert reports[0] == reports[1]
+    assert states[0].stats.format_summary() == states[1].stats.format_summary()

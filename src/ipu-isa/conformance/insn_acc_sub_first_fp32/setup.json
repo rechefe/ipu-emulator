@@ -1,0 +1,95 @@
+{
+ "description": "ACC.SUB.FIRST in FP32",
+ "format": "fp32",
+ "emulator_only": true,
+ "max_cycles": 1000,
+ "fault_enables": {},
+ "registers": [
+  {
+   "name": "r_mask",
+   "index": 0,
+   "hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  {
+   "name": "lr",
+   "index": 1,
+   "value": 1
+  },
+  {
+   "name": "lr",
+   "index": 2,
+   "value": 2
+  },
+  {
+   "name": "lr",
+   "index": 3,
+   "value": 3
+  },
+  {
+   "name": "lr",
+   "index": 4,
+   "value": 5
+  },
+  {
+   "name": "lr",
+   "index": 6,
+   "value": 128
+  },
+  {
+   "name": "lr",
+   "index": 7,
+   "value": 3
+  },
+  {
+   "name": "cr",
+   "index": 2,
+   "value": 1
+  },
+  {
+   "name": "cr",
+   "index": 3,
+   "value": 4
+  },
+  {
+   "name": "cr",
+   "index": 4,
+   "value": 2
+  },
+  {
+   "name": "cr",
+   "index": 5,
+   "value": 7
+  },
+  {
+   "name": "cr",
+   "index": 6,
+   "value": 128
+  },
+  {
+   "name": "cr",
+   "index": 7,
+   "value": 4294967294
+  },
+  {
+   "name": "cr",
+   "index": 8,
+   "value": 100
+  },
+  {
+   "name": "cr",
+   "index": 9,
+   "value": 3
+  },
+  {
+   "name": "cr",
+   "index": 15,
+   "value": 128
+  },
+  {
+   "name": "mult_res",
+   "index": 0,
+   "hex": "0d91d2c08fd910c0d458b2c0b51699c03b447bc00decb54042f58dc04f9c81c0c41bd7bf19561dbf8cac6bc00782eb402f6ade3f357d9ac0cb578fbef3d68d3ef638723f8073fac072cf4240ef9f97409f2cfd403d389bc05db275404b20c73facbd6ac042c8a73d14817b40353fc3c03eb33040e4e545c00e62a8bf8a5b5a3f6e46544036fcd3402af4d2c00e6ad0c011aac5c08711c3bf979bf54005330dc0f0ec37404927c240735e2dc0f4eac2bffa4ebd4017a76ec0be544fc0d0f34bc04fb6bac0d951f1bf5adc8ac05fa9c9c0b95f2a40cda4f2c01304c13fc108eb403a5d0fbe0f88c0404a27b9bfbab306c0b2a3adbfed7ff63de3eef33f8234d1c0586ba8c07c31e13f48f547bf79d8173eb547ebbf4d5ad4c0489fd8c014d71b3f618a67404ae1ff402a2b86c0d754d1bfc78af83fc4fbc2401893993f6b05eb403794bbc0d340b0bf003eb540bf789d3fa659603fb7d366407015c93f0047894016b7c3c07a6a08c048e8083fcbf042c043161240a5beadc0e7856d409f590bc0a907eb3f29ff94401d4262402e1cc9c07fb04fc001040bbf00ba9540b60f9f40d94565c08e2bc2404c2f11c0483b08bc86a1a5409b336cbfd6f3d33fb1ddf1c09b08d93fdf868b40a7e63340c564ac3fb4b83e3eac1d83c06bceb3c0c565fe400864fa40d2999abf4feea83d898bc94045e588c06388e1c0574747c0663c9340"
+  }
+ ],
+ "xmem": []
+}

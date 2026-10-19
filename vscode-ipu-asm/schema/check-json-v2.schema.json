@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "check-json-v2.schema.json",
+  "title": "ipu-as check --json --json-version 2",
+  "description": "Version 2 wraps version 1's diagnostics in an object that names its version, so later versions can add fields beside them. `--tokens`, `--words` and `--jinja` each add the key of the same name; without the option the key is absent. Positions are 0-based; a column counts code points, not UTF-16 code units. See check-json.md.",
+  "type": "object",
+  "required": ["schemaVersion", "diagnostics"],
+  "properties": {
+    "schemaVersion": { "const": 2 },
+    "diagnostics": { "$ref": "check-json-v1.schema.json" },
+    "tokens": {
+      "description": "Semantic tokens of the source (--tokens), sorted by line and column; none overlap and none spans a line end (nor includes the \\r of a \\r\\n). An assembly token produced by a {{ }} expression is not listed: the Jinja region over it is. Only the Jinja tokens are listed when the source does not render (a template diagnostic), or when its render cannot be mapped back to source lines and it has a block tag other than set, import, from, include and raw, or a carriage return (see check-json.md).",
+      "type": "array",
+      "items": { "$ref": "#/$defs/token" }
+    },
+    "words": {
+      "description": "Each word's slot fit (--words). A word that loops render several times is listed once, by its range (the first rendering that does not fit, else the first); words with no token in the source are told apart by their order on their rendered line. Empty when the source does not render or parse (see the diagnostics); a word with no token in the source is omitted when the render cannot be mapped back to source lines (see check-json.md).",
+      "type": "array",
+      "items": { "$ref": "#/$defs/word" }
+    },
+    "jinja": {
+      "description": "Every Jinja tag of the source (--jinja), in order, as Jinja's own lexer reads them.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/jinjaRegion" }
+    }
+  },
+  "$defs": {
+    "count": { "type": "integer", "minimum": 0 },
+    "range": {
+      "type": "object",
+      "required": ["line", "column", "end_line", "end_column"],
+      "additionalProperties": false,
+      "properties": {
+        "line": { "$ref": "#/$defs/count" },
+        "column": { "$ref": "#/$defs/count" },
+        "end_line": { "$ref": "#/$defs/count" },
+        "end_column": { "$ref": "#/$defs/count" }
+      }
+    },
+    "names": { "type": "array", "items": { "type": "string" } },
+    "token": {
+      "type": "object",
+      "required": ["line", "column", "length", "type", "role"],
+      "additionalProperties": false,
+      "properties": {
+        "line": { "$ref": "#/$defs/count" },
+        "column": { "$ref": "#/$defs/count" },
+        "length": { "type": "integer", "minimum": 1 },
+        "type": {
+          "description": "The grammar's terminal for an assembly token; the region kind for a Jinja one.",
+          "enum": ["TOKEN", "COMMENT_HASH", "COMMENT_LINE", "comment", "block", "variable"]
+        },
+        "role": {
+          "enum": ["mnemonic", "register", "enum", "number", "label-def", "label-ref", "comment", "jinja"]
+        }
+      }
+    },
+    "word": {
+      "type": "object",
+      "required": ["range", "mnemonics", "slots", "fits", "error"],
+      "additionalProperties": false,
+      "properties": {
+        "range": { "$ref": "#/$defs/range" },
+        "mnemonics": { "$ref": "#/$defs/names" },
+        "slots": {
+          "description": "Slot -> instructions in it; for a word that does not fit, the slots its instructions ask for.",
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 1 }
+        },
+        "fits": { "type": "boolean" },
+        "error": { "type": ["string", "null"] }
+      }
+    },
+    "jinjaRegion": {
+      "type": "object",
+      "required": ["kind", "range", "defines", "uses", "start", "end"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "enum": ["comment", "block", "variable"] },
+        "range": { "$ref": "#/$defs/range" },
+        "defines": { "$ref": "#/$defs/names" },
+        "uses": { "$ref": "#/$defs/names" },
+        "start": { "$ref": "#/$defs/count" },
+        "end": { "$ref": "#/$defs/count" }
+      }
+    }
+  }
+}

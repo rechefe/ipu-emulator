@@ -9,11 +9,11 @@ const path = require('path');
 const { QUIET } = require('./checker');
 
 /** The one label the extension has to know (as checker.js knows the assembler's). */
-const MANIFEST_TARGET = '//src/tools/ipu-apps:kernel_manifest';
+const MANIFEST_TARGET = '//kernels:manifest';
 
 /** Whether the manifest command failed for want of the target: a checkout predating it. */
 function manifestMissing(stderr) {
-  return /no such (target|package)[^\n]*(kernel_manifest|ipu-apps)|'kernel_manifest' not declared/.test(String(stderr || ''));
+  return /no such (target|package)[^\n]*\/\/kernels:manifest|no such package 'kernels'|target 'manifest' not declared in package 'kernels'/.test(String(stderr || ''));
 }
 
 const manifestCommand = () => ['bazel', 'run', ...QUIET, MANIFEST_TARGET];
@@ -23,23 +23,41 @@ function shellQuote(arg) {
   return /^[A-Za-z0-9_@%+=:,./-]+$/.test(arg) ? arg : `'${String(arg).replace(/'/g, "'\\''")}'`;
 }
 
+/** A Bazel label, as a manifest names a target: anything else could carry shell text into
+ *  the terminal it is sent to. */
+const LABEL = { kind: 'Bazel label', pattern: /^@?[A-Za-z0-9_./-]*\/\/[A-Za-z0-9_./-]*(:[A-Za-z0-9_./+=-]+)?$/ };
+/** A command-line flag, as a manifest names an option's. */
+const FLAG = { kind: 'flag', pattern: /^--?[A-Za-z0-9][A-Za-z0-9_-]*$/ };
+
+/** `value` (the manifest's `what`), quoted, if it has `shape` (LABEL or FLAG); else an error
+ *  the user is shown, since a manifest that fails this was not written by the kernel registry. */
+function requireShape(value, shape, what) {
+  if (typeof value !== 'string' || !shape.pattern.test(value)) {
+    throw new Error(`the kernel manifest's ${what} ${JSON.stringify(value)} is not a valid ${shape.kind}; nothing was run.`);
+  }
+  return shellQuote(value);
+}
+
 /** An option's type as the runner parses it: bool, int, float or str. A manifest from
  *  before `type` was listed is read from the default. */
 const optionType = (o) => o.type || (typeof o.default === 'boolean' ? 'bool'
   : typeof o.default === 'number' ? (Number.isInteger(o.default) ? 'int' : 'float') : 'str');
 
-/** A case's option arguments, `values` over its defaults, e.g. `--rows 4 --no-wide`. */
+/** A case's option arguments, `values` over its defaults, e.g. `--rows 4 --no-wide`. A case
+ *  without `options` (every case //kernels:manifest lists: its values are fixed by its name)
+ *  has none. */
 function optionArgs(caseEntry, values = {}) {
   return Object.entries((caseEntry && caseEntry.options) || {}).flatMap(([name, o]) => {
     const value = Object.hasOwn(values, name) ? values[name] : o.default;
-    return optionType(o) === 'bool' ? [value ? o.flag : o.negated_flag] : [o.flag, shellQuote(String(value))];
+    const flag = (f) => requireShape(f, FLAG, `flag of option ${name}`);
+    return optionType(o) === 'bool' ? [flag(value ? o.flag : o.negated_flag)] : [flag(o.flag), shellQuote(String(value))];
   }).join(' ');
 }
 
 /** Why `values` do not fit a case's options, or null. */
 function invalidValues(caseEntry, values) {
   const fits = { bool: (v) => typeof v === 'boolean', int: Number.isInteger, float: Number.isFinite, str: (v) => typeof v === 'string' };
-  const bad = Object.entries(caseEntry.options).find(([name, o]) => Object.hasOwn(values, name) && !fits[optionType(o)](values[name]));
+  const bad = Object.entries(caseEntry.options || {}).find(([name, o]) => Object.hasOwn(values, name) && !fits[optionType(o)](values[name]));
   return bad ? `${bad[0]} must be ${{ bool: 'on or off', int: 'a whole number', float: 'a number', str: 'text' }[optionType(bad[1])]}` : null;
 }
 
@@ -61,11 +79,11 @@ function kernelCases(kernel, saved = {}) {
 
 /** The shell command to run, debug, test or benchmark a kernel, or null with no target
  *  for it. `options` is shell text the user saw and may have edited, so it is passed as
- *  typed; `flags` are ipuAsm.bazelFlags. */
+ *  typed; `flags` are ipuAsm.bazelFlags. Throws when the target is no Bazel label. */
 function kernelCommand(kernel, action, { caseName, options = '', flags = [] } = {}) {
   const targets = kernel.targets || {};
   const bazel = (verb, target, ...tail) =>
-    target ? ['bazel', verb, ...flags.map(shellQuote), target, ...tail].join(' ') : null;
+    target ? ['bazel', verb, ...flags.map(shellQuote), requireShape(target, LABEL, `${action} target`), ...tail].join(' ') : null;
   const passCase = ['--', '--case', shellQuote(caseName || 'default'), options].filter(Boolean).join(' ');
   const actions = {
     run: ['run', targets.run, passCase],
@@ -78,7 +96,9 @@ function kernelCommand(kernel, action, { caseName, options = '', flags = [] } = 
   return bazel(...actions[action]);
 }
 
-const familyCommand = (family, { flags = [] } = {}) => ['bazel', 'test', ...flags.map(shellQuote), family.suite].join(' ');
+/** The shell command to test a family; throws when its suite is no Bazel label. */
+const familyCommand = (family, { flags = [] } = {}) =>
+  ['bazel', 'test', ...flags.map(shellQuote), requireShape(family.suite, LABEL, 'family suite')].join(' ');
 
 /** The query argv for `op` and its `name=value` params. `configured` (ipuAsm.queryCommand,
  *  e.g. a virtualenv's script) replaces `bazel run` of the manifest's query target. */

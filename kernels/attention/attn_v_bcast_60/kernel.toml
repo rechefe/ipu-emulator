@@ -1,0 +1,76 @@
+# attn_v_bcast_60: L5 attn@V, key-major P, a per-lane ACC.ADD fold (no AGG):
+# y[h, t, i] = sum_s P[h, s, i] V[h, t, s] for 4 heads, 16 tokens, head_dim 60.
+# Takes the scores of attn_scores_km_16x60 (the key-major chain).
+[kernel]
+op = "attn_v_bcast"                         # a separate op per chain stage keeps the query-major and key-major chains apart
+formats = ["fp32"]
+
+[params]
+n_tok = { type = "int", choices = [16], default = 16 }   # fixed; a query may leave it out (the kernel is named by d) or must give this value
+d = { type = "int", choices = [60] }   # fixed: the kernel takes exactly its layer's (n_tok, d)
+n_head = { type = "int", choices = [4], default = 4 }   # geometry, not in a query: the default keeps (n_tok, d) queries routable
+seed = { type = "int", default = 0xB60 }   # the old RandomState seed (0xB60); generator only
+pad = { type = "float", default = 0.0 }   # the padding lanes of a and b (pack "padded"): 0, as the old harness staged them
+
+[derived]
+key_start = "-1"         # CR6
+p_head_stride = "n_tok"  # CR7: 16
+key_bound = "n_tok - 2"  # CR8: 14
+chan_bound = "d - 1"     # CR9: 59
+head_bound = "n_head - 1" # CR10: 3
+rc_slot0 = "0"           # LR0
+pv_stride = "1"          # LR1
+out_row_stride = "1"     # LR2
+dstruct = "dstructure(n_tok)" # CR15: valid_elements = n_tok
+
+# The old placement: the inputs back to back from row 0 in the order below, then the output; first fit in
+# declaration order reproduces it (E07-12/13).
+[inputs.b]                         # P KEY-major: row (h, s) holds the n_tok queries of key s
+pack = "padded"
+shape = ["n_head", "n_tok", "n_tok"]
+
+[inputs.a]                         # V channel-major: row (h, t) holds n_tok keys
+pack = "padded"
+shape = ["n_head", "d", "n_tok"]
+
+[outputs.y]                             # O channel-major: row (h*d + t) holds n_tok queries
+shape = ["n_head", "d", "n_tok"]
+# ST.AAQ, one row per store, in row order
+
+[abi]
+b = "CR2"        # P_BASE
+a = "CR3"        # V_BASE
+y = "CR4"        # OUT_BASE
+key_start = "CR6"
+p_head_stride = "CR7"
+key_bound = "CR8"
+chan_bound = "CR9"
+head_bound = "CR10"
+rc_slot0 = "LR0"
+pv_stride = "LR1"
+out_row_stride = "LR2"
+dstruct = "CR15"
+# Zero-valued LR presets are bound on purpose: in a Chain (E06-15) LRs carry over from the previous step.
+
+[golden]
+op = "matmul"                          # y = a @ b in the logical shapes above (batched over the leading dim)
+tolerance = { fp32 = "FP32_ORDER" }    # the old check: rtol=1e-4, atol=1e-3 vs acc_fold.
+
+[cases.default]
+n_tok = 16
+d = 60
+n_head = 4
+seed = 0xB60
+generator = "../gen.py:seeded_uniform_attn_v_bcast"
+
+# Garbage (1e3) in the padding lanes of P and V, as a chained producer leaves
+# another stream's data there: the output is still the golden's, and
+# test_datapath.py holds it to the same mirror as the zero-padded default
+# (the old padding-isolation test).
+[cases.padding_is_inert]
+n_tok = 16
+d = 60
+n_head = 4
+seed = 0xB60
+pad = 1000.0
+generator = "../gen.py:seeded_uniform_attn_v_bcast"

@@ -1,0 +1,80 @@
+# maxpool2d_stride2: 2x2 stride-2 max-pool of [C, H, W], FP32, for a width
+# whose every output XMEM row has two input XMEM rows behind it (E07-14).
+# maxpool2d_stride2_tail takes the other widths. Was a whole-image
+# kernel.
+[kernel]
+op = "maxpool2d"
+formats = ["fp32"]
+
+[params]
+channels    = { type = "int", min = 1 }
+height      = { type = "int", min = 2 }
+width       = { type = "int", min = 2 }
+kernel_size = { type = "int", choices = [2] }
+stride      = { type = "int", choices = [2] }
+padding     = { type = "int", choices = [0] }
+
+[derived]
+in_tiles   = "ceil(width / 128)"                         # IN_ROW_STRIDE
+out_tiles  = "ceil((width // 2) / 128)"                  # OUT_TILES_PER_ROW
+# 1 when every output XMEM row has two input XMEM rows, else no value (a
+# division by zero): the shape grammar has no comparison.
+full_pairs = "1 / max(0, min(1, in_tiles - 2 * out_tiles + 1))"
+row_step2  = "2 * in_tiles"                              # spatial row 2y to 2(y+1)
+out_height = "height // 2"
+lanes      = "128"                                       # R_CYCLIC slot-1 index
+plane      = "height * in_tiles"                         # IN_PLANE_STRIDE (rows)
+
+# Placed from row 0: x, y, stage (the old image: input, output, scratch).
+[inputs.x]
+shape = ["channels", "height", "width"]
+pack = "halo_tiled"                                      # ../pack.py, no halo
+
+[outputs.y]
+shape = ["channels", "height // 2", "width // 2"]
+pack = "tiled"                                           # ../pack.py
+
+[scratch.stage]                                          # the decimation round trip
+shape = [2, 128]
+
+[abi]
+x          = "CR2"
+y          = "CR3"
+stage      = "CR4"
+in_tiles   = "CR5"
+row_step2  = "CR6"
+out_tiles  = "CR7"
+out_height = "CR8"
+channels   = "CR9"
+lanes      = "CR10"
+plane      = "CR11"
+
+[golden]
+op = "maxpool2d"
+tolerance = { fp32 = "EXACT" }
+
+# The old cases' data (../gen.py: standard normal, seed 7).
+[cases.default]
+channels = 1
+height = 4
+width = 256
+kernel_size = 2
+stride = 2
+padding = 0
+generator = "../gen.py:seeded_normal"
+
+[cases.tile_boundary]
+channels = 2
+height = 5
+width = 511
+kernel_size = 2
+stride = 2
+padding = 0
+generator = "../gen.py:seeded_normal"
+
+# The benchmark points (bazel run :maxpool2d_stride2 -- --benchmark).
+[benchmark]
+points = [
+    { channels = 1, height = 2, width = 256 },
+    { channels = 64, height = 2, width = 256 },
+]

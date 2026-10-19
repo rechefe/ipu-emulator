@@ -142,13 +142,13 @@ source delivered by [Issue 1](#9-implementation-plan).
 |---------|---------------|--------|-------------|
 | `0x000` | `ID`          | RO     | Magic + version of the control block (sanity check for firmware). |
 | `0x004` | `CTRL`        | RW/W1S | Command bits: `START`, `HALT`, `STEP`, `RESET` (soft, excludes IMEM), `IMEM_SWAP` (bank swap), `CONTINUE`. Self-clearing pulse semantics. |
-| `0x008` | `STATUS`      | RO     | `RUNNING`, `HALTED`, `BREAK` (hit a `BKPT`/`BREAK`), `ERROR`, plus an `ERR_CODE` field. |
+| `0x008` | `STATUS`      | RO     | `RUNNING`, `HALTED`, `BREAK` (hit a `BREAK`; `HALT` ends the kernel instead, see the control spec §10.2.6), `ERROR`, plus an `ERR_CODE` field. |
 | `0x00C` | `PC`          | RW     | Program counter. Read returns the current PC; write sets the next PC (only valid while halted). |
 | `0x010` | `CYCLES`      | RO     | Cycles executed since the last start/reset. |
 | `0x014` | `MAX_CYCLES`  | RW     | Watchdog limit; `0` = use engine default. Guards against runaway programs. |
 | `0x018` | `PROG_LEN`    | RW     | Program length in VLIW words (entries in `inst_mem`). Writable only while halted; used by the engine halt condition (`PC >= PROG_LEN`). |
-| `0x020` | `DTYPE`       | RW     | Arithmetic data type selector (enum mirroring `DType`). |
-| `0x024` | `DSTRUCTURE`  | RW     | `valid_elements[7:0]`, `partition[11:8]` — mirrors `CR15`. |
+| `0x020` | `DTYPE`       | RW     | Arithmetic data type selector (enum mirroring `ElementFormat`). |
+| `0x024` | `DSTRUCTURE`  | RW     | `valid_elements[7:0]`, `partition[12:8]`, `pad_mode[14:13]` — mirrors `CR15`. |
 | `0x028` | `ELU_ALPHA`   | RW     | Activation α (IEEE-754 float bits; emulator-only knob). |
 | `0x040` | `CR[0..15]`   | RW\*   | Application config window. `CR0`/`CR1` are hard-wired (`0`/`1`) and reject writes (`ERROR`); `CR15` aliases `DSTRUCTURE`. `CR2`–`CR14` are writable. |
 
@@ -164,16 +164,15 @@ separate, fully mapped region in the host address space (see below).
 
 - **`IMEM_MAP_SIZE`** = `IMEM_DEPTH × INSTRUCTION_ALIGNED_BYTES`, where
   `INSTRUCTION_ALIGNED_BYTES` is the per-instruction size of the assembler
-  `--format bin` stream (see `instruction_aligned_bytes_len()` /
-  `_instruction_aligned_bytes()`). The emulator uses `INST_MEM_SIZE` (1024) for
+  `--format bin` stream (`ipu_isa.codec.word.word_bytes()`). The emulator uses `INST_MEM_SIZE` (1024) for
   `IMEM_DEPTH`; hardware uses `IMEM_DEPTH = 256` per
   [stage-control.md](stage-control.md) — the SystemRDL parameter drives the
   generated map size.
 - **Contents.** The mapped region is a verbatim image of the assembled binary:
   each VLIW occupies `INSTRUCTION_ALIGNED_BYTES` bytes, 32-bit-word-aligned. On
   **write**, the bridge decodes the affected instruction word(s) with
-  `decode_instruction_word` and updates `inst_mem` (same semantics as
-  `load_program_from_binary`). On **read**, the bridge returns the stored encoded
+  `DecodedWord.from_word` (`ipu_isa.codec.word`) and updates `inst_mem` (same
+  semantics as `load_program`). On **read**, the bridge returns the stored encoded
   bytes (unprogrammed slots read as zero).
 - **Halt-only access.** Instruction memory is **not** reachable while the IPU is
   executing. Any read or write to `[IMEM_BASE, IMEM_BASE + IMEM_MAP_SIZE)` when
@@ -200,7 +199,7 @@ actions as follows.
 |-----------|-----------------|------------------|
 | **Start execution** | write `CTRL.START` | Run from the current `PC` until halt, breakpoint, or `MAX_CYCLES`. Sets `STATUS.RUNNING`, then `STATUS.HALTED` on completion. |
 | **Halt execution** | write `CTRL.HALT` | Stop the engine at an instruction boundary; clear `RUNNING`, set `HALTED`. Cooperative when the run is driven inside the MMIO callback; preemptive when driven step-by-step. |
-| **Single step** | write `CTRL.STEP` | Execute exactly one VLIW cycle, then re-enter halted state. Mirrors the existing debug-CLI `step`. |
+| **Single step** | write `CTRL.STEP` | Execute exactly one VLIW cycle, then re-enter halted state. Mirrors the debugger's step. |
 | **Reprogram IMEM** | read/write `IMEM_BASE` region (+ `PROG_LEN`) | Copy or memset the assembled `--format bin` image into the mapped IMEM window while halted; writes decode into `inst_mem`. Set `PROG_LEN` to the number of VLIW words. Rejected with `ERROR` while `RUNNING`. |
 | **Read PC** | read `PC` | Returns `IpuState.program_counter`. |
 | **Write PC** | write `PC` | Sets `IpuState.program_counter` (only honored while halted; otherwise `ERROR`). |

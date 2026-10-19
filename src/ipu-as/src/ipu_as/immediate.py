@@ -1,0 +1,289 @@
+import functools
+
+import lark
+
+import ipu_as.ipu_token as ipu_token
+from ipu_isa.acc_stride_enums import (
+    ELEMENTS_IN_ROW_NAMES,
+    HORIZONTAL_STRIDE_NAMES,
+    VERTICAL_STRIDE_NAMES,
+    decodable_horizontal_stride_names,
+    decodable_vertical_stride_names,
+)
+from ipu_isa.activations import ACTIVATION_FN_NAMES
+from ipu_isa.incr_mod_pow2_k import (
+    LR_MOD_POW2_K_FIELD_BITS,
+    LR_MOD_POW2_K_MAX,
+    LR_MOD_POW2_K_MIN,
+)
+from ipu_isa.lr_inc_dec_imm import lr_inc_dec_imm_bits, lr_inc_dec_imm_max
+from ipu_isa.mult_mask_offset import (
+    MULT_MASK_OFFSET_FIELD_BITS,
+    MULT_MASK_SLOT_COUNT,
+)
+from ipu_isa.operand_types import operand_type
+from ipu_isa.reshape_mask import (
+    RESHAPE_MASK_LR_OFFSET,
+    reshape_mask_field_bits,
+    reshape_mask_field_max,
+)
+from ipu_isa.slots import LAYOUT_ORDER
+from ipu_isa.view import isa
+
+
+@functools.cache
+def _operand_of(type_name: str) -> str:
+    """``"<MNEMONIC> <operand> operand"``: the instruction(s) and operand of a type, from the ISA.
+
+    Error messages name them this way, so a renamed mnemonic needs no edit here.
+    """
+    uses = sorted(
+        {
+            (instruction.mnemonic, op.name)
+            for slot in LAYOUT_ORDER
+            for instruction in isa().instructions(slot)
+            for op in instruction.operands
+            if op.type.name == type_name
+        }
+    )
+    names = " / ".join(f"{mnemonic} {name}" for mnemonic, name in uses) or type_name
+    return f"{names} operand"
+
+
+class LrModPow2KImmediate(ipu_token.IpuToken):
+    """Semantic k ∈ [LR_MOD_POW2_K_MIN, LR_MOD_POW2_K_MAX]; encoded as (k−1) in LR_MOD_POW2_K_FIELD_BITS bits."""
+
+    @classmethod
+    def bits(cls) -> int:
+        return LR_MOD_POW2_K_FIELD_BITS
+
+    @classmethod
+    def default(cls) -> "ipu_token.IpuToken":
+        return cls(ipu_token.AnnotatedToken(lark.Token("NUMBER", str(LR_MOD_POW2_K_MIN)), 0))
+
+    @classmethod
+    def value_range(cls) -> tuple[int, int]:
+        return LR_MOD_POW2_K_MIN, LR_MOD_POW2_K_MAX
+
+    def __init__(self, token: ipu_token.AnnotatedToken):
+        super().__init__(token)
+        try:
+            self.int = int(token.token.value, 0)
+        except ValueError:
+            self._raise_error(f"Value {self.token.value} is not a valid integer")
+        low, high = self.value_range()
+        if not (low <= self.int <= high):
+            operand = _operand_of("LrModPow2KImmediate")
+            self._raise_error(f"Value {self.int} out of range [{low}, {high}] for {operand}")
+
+    def encode(self) -> int:
+        return self.int - LR_MOD_POW2_K_MIN
+
+
+class BreakImmediateType(ipu_token.NumberToken):
+    """Immediate value for break.ifeq condition comparison."""
+
+    @classmethod
+    def bits(cls) -> int:
+        return operand_type("BreakImmediate").bits
+
+
+class AddbiImmediate(ipu_token.NumberToken):
+    """Byte immediate for ADDBI: 0-255 (or an equivalent signed -128..127 literal,
+    encoded to the same bit pattern), reinterpreted as a signed int8 for the add.
+    """
+
+    @classmethod
+    def bits(cls) -> int:
+        return operand_type("AddbiImmediate").bits
+
+
+class MultMaskOffsetImmediate(ipu_token.IpuToken):
+    """Select one of eight 128-bit mask slots in ``r_mask`` (values 0 .. 7)."""
+
+    @classmethod
+    def bits(cls) -> int:
+        return MULT_MASK_OFFSET_FIELD_BITS
+
+    @classmethod
+    def default(cls) -> "ipu_token.IpuToken":
+        return cls(
+            ipu_token.AnnotatedToken(
+                lark.Token("NUMBER", "0"),
+                0,
+            )
+        )
+
+    @classmethod
+    def value_range(cls) -> tuple[int, int]:
+        return 0, MULT_MASK_SLOT_COUNT - 1
+
+    def __init__(self, token: ipu_token.AnnotatedToken):
+        super().__init__(token)
+        try:
+            self.int = int(token.token.value, 0)
+        except ValueError:
+            self._raise_error(f"Value {self.token.value} is not a valid integer")
+        low, high = self.value_range()
+        if not (low <= self.int <= high):
+            self._raise_error(
+                f"Value {self.int} out of range [{low}, {high}] for mult mask slot selector"
+            )
+
+    def encode(self) -> int:
+        return self.int
+
+
+class LrOrReshapeMaskImmediate(ipu_token.IpuToken):
+    """ACC.RESHAPE element-start index: immediate 0–7 or an LR register.
+
+    Encoding (width auto-derived, see reshape_mask_field_bits()):
+      - Immediate  0–7 → encoded as the value itself (0–7).
+      - LRn            → encoded as LR_index + RESHAPE_MASK_LR_OFFSET; the
+        number of LR registers encodable is however much room remains above
+        RESHAPE_MASK_LR_OFFSET in the derived field width.
+
+    At runtime the emulator uses the encoded value to decide:
+      encoded < RESHAPE_MASK_LR_OFFSET → immediate mask.
+      encoded >= RESHAPE_MASK_LR_OFFSET → read LR[encoded - offset] as the
+        mask value (full register value — the emulator raises if it exceeds
+        RESHAPE_ELEMENT_COUNT rather than clamping it).
+    """
+
+    @classmethod
+    def bits(cls) -> int:
+        return reshape_mask_field_bits()
+
+    @classmethod
+    def default(cls) -> "ipu_token.IpuToken":
+        return cls(ipu_token.AnnotatedToken(lark.Token("NUMBER", "0"), 0))
+
+    @classmethod
+    def value_range(cls) -> tuple[int, int]:
+        """Range of the immediate form."""
+        return 0, RESHAPE_MASK_LR_OFFSET - 1
+
+    @classmethod
+    def max_lr_index(cls) -> int:
+        """Highest LR the field can encode above the immediates."""
+        return reshape_mask_field_max() - RESHAPE_MASK_LR_OFFSET
+
+    @classmethod
+    def completion_domain(cls) -> dict:
+        values = [f"lr{i}" for i in range(cls.max_lr_index() + 1)]
+        return {**super().completion_domain(), "kind": "mixed", "values": values}
+
+    def __init__(self, token: ipu_token.AnnotatedToken):
+        super().__init__(token)
+        val = token.token.value.lower()
+        if val.startswith("lr"):
+            try:
+                lr_idx = int(val[2:])
+            except ValueError:
+                self._raise_error(
+                    f"Invalid LR register '{token.token.value}' for ACC.RESHAPE reshape_mask"
+                )
+            max_lr_index = self.max_lr_index()
+            if not (0 <= lr_idx <= max_lr_index):
+                self._raise_error(
+                    f"LR{lr_idx} out of range for ACC.RESHAPE reshape_mask; "
+                    f"only LR0–LR{max_lr_index} are supported"
+                )
+            self.int = lr_idx + RESHAPE_MASK_LR_OFFSET
+        else:
+            try:
+                imm = int(val, 0)
+            except ValueError:
+                self._raise_error(
+                    f"Value '{token.token.value}' is not a valid immediate or LR register "
+                    "for ACC.RESHAPE reshape_mask"
+                )
+            low, high = self.value_range()
+            if not (low <= imm <= high):
+                self._raise_error(
+                    f"Immediate {imm} out of range [{low}, {high}] for ACC.RESHAPE reshape_mask"
+                )
+            self.int = imm
+
+    def encode(self) -> int:
+        return self.int
+
+
+class ActivationFnField(ipu_token.EnumToken):
+    """Activation keyword for ``ACTIVATE`` (names from ``ACTIVATION_FN_NAMES``)."""
+
+    @classmethod
+    def enum_array(cls) -> list[str]:
+        return list(ACTIVATION_FN_NAMES)
+
+
+class LrIncDecImmediate(ipu_token.IpuToken):
+    """Unsigned immediate for ``INC`` / ``DEC`` in the LR slot.
+
+    Bit width is derived from the LR slot union layout (see ``lr_inc_dec_imm``).
+    """
+
+    @classmethod
+    def bits(cls) -> int:
+        return lr_inc_dec_imm_bits()
+
+    @classmethod
+    def default(cls) -> "ipu_token.IpuToken":
+        return cls(ipu_token.AnnotatedToken(lark.Token("NUMBER", "0"), 0))
+
+    @classmethod
+    def value_range(cls) -> tuple[int, int]:
+        return 0, lr_inc_dec_imm_max()
+
+    def __init__(self, token: ipu_token.AnnotatedToken):
+        super().__init__(token)
+        try:
+            self.int = int(token.token.value, 0)
+        except ValueError:
+            self._raise_error(f"Value {self.token.value} is not a valid integer")
+        low, high = self.value_range()
+        if not (low <= self.int <= high):
+            self._raise_error(
+                f"Value {self.int} out of range [{low}, {high}] for INC/DEC immediate operand"
+            )
+
+    def encode(self) -> int:
+        return self.int
+
+
+# ---------------------------------------------------------------------------
+# acc.stride operand enums (instruction-specific, not registers)
+# Single source of truth: ipu_isa.acc_stride_enums
+# ---------------------------------------------------------------------------
+
+
+class ElementsInRowField(ipu_token.EnumToken):
+    """Elements per row: 16, 32, or 64."""
+
+    @classmethod
+    def enum_array(cls) -> list[str]:
+        return list(ELEMENTS_IN_ROW_NAMES)
+
+
+class HorizontalStrideField(ipu_token.EnumToken):
+    """Horizontal stride: off, on, or on_inv."""
+
+    @classmethod
+    def enum_array(cls) -> list[str]:
+        return list(HORIZONTAL_STRIDE_NAMES)
+
+    @classmethod
+    def completion_values(cls) -> list[str]:
+        return list(decodable_horizontal_stride_names())
+
+
+class VerticalStrideField(ipu_token.EnumToken):
+    """Vertical stride: enabled(1), inverted(2). Bits 0..1."""
+
+    @classmethod
+    def enum_array(cls) -> list[str]:
+        return list(VERTICAL_STRIDE_NAMES)
+
+    @classmethod
+    def completion_values(cls) -> list[str]:
+        return list(decodable_vertical_stride_names())

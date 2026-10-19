@@ -1,0 +1,4 @@
+load("//kernels:defs.bzl", "ipu_kernel")
+
+# Stage 1 runs ../depthwise_conv_tpl/depthwise_conv_tpl.asm (stages.py): its files are this kernel's data.
+ipu_kernel(uses = ["depthwise_conv_tpl"])

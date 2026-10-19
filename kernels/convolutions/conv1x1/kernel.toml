@@ -1,0 +1,110 @@
+# conv1x1: pointwise FP32 convolution plus bias, every output channel (E07-16).
+# The tiled query vocabulary: a query names in_channels, height, width,
+# out_channels, kernel_size, stride, padding and activation, all required, as
+# the old ConvApp's did; a universal conv2d query (dilation, groups,
+# has_bias, apply_relu) names parameters this kernel does not take.
+[kernel]
+op = "conv2d"
+formats = ["fp32"]
+cost = 1
+
+[params]
+in_channels  = { type = "int", min = 1 }
+height       = { type = "int", min = 1 }
+width        = { type = "int", min = 1 }
+out_channels = { type = "int", min = 1 }
+kernel_size  = { type = "int", choices = [1] }
+stride       = { type = "int", choices = [1] }
+padding      = { type = "int", choices = [0] }
+activation   = { type = "str", choices = ["none"] }
+
+[derived]
+tiles          = "ceil(width / 128)"            # 128-column tiles per spatial row
+plane_stride   = "height * ceil(width / 128)"   # rows per channel plane, input and output
+channel_groups = "ceil(in_channels / 128)"      # weight rows per output channel
+lanes          = "128"                          # the group cap; R1[0]'s element index
+
+# Placed in this order from row 0: x (with its guard plane), w, b, y.
+[inputs.x]
+shape = ["in_channels", "height", "width"]
+pack = "tiled_guard"
+
+[inputs.w]
+shape = ["out_channels", "in_channels", 1, 1]
+pack = "conv_weight_groups"
+
+[inputs.b]
+shape = ["out_channels"]
+pack = "lane0_rows"
+
+[outputs.y]                                     # row-major: one row per (o, y, tile)
+shape = ["out_channels", "height", "width"]
+
+[abi]
+x              = "CR2"
+y              = "CR3"
+w              = "CR4"
+b              = "CR5"
+plane_stride   = "CR6"
+tiles          = "CR7"
+height         = "CR8"
+in_channels    = "CR9"
+out_channels   = "CR10"
+channel_groups = "CR11"
+lanes          = "CR12"
+
+[golden]
+op = "conv2d"
+tolerance = { fp32 = "FP32_ORDER" }               # measured: max |err| 1.9e-6 (partial_group, 129 channels) over the cases
+
+# The cases' shapes cover the small, partial-group and multi-group layouts;
+# the data is the harness's seeded per-tensor streams (E06-08).
+[cases.default]
+in_channels = 3
+height = 3
+width = 8
+out_channels = 2
+kernel_size = 1
+stride = 1
+padding = 0
+activation = "none"
+
+[cases.tile_boundary]                           # two column tiles
+in_channels = 2
+height = 2
+width = 133
+out_channels = 2
+kernel_size = 1
+stride = 1
+padding = 0
+activation = "none"
+
+[cases.single_pixel]
+in_channels = 1
+height = 1
+width = 1
+out_channels = 1
+kernel_size = 1
+stride = 1
+padding = 0
+activation = "none"
+
+[cases.full_group]                              # exactly one 128-channel group
+in_channels = 128
+height = 1
+width = 2
+out_channels = 1
+kernel_size = 1
+stride = 1
+padding = 0
+activation = "none"
+
+[cases.partial_group]                           # 128 channels, then 1
+in_channels = 129
+height = 1
+width = 2
+out_channels = 2
+kernel_size = 1
+stride = 1
+padding = 0
+activation = "none"

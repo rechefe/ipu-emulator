@@ -1,0 +1,27 @@
+{
+  "snippet:astral-crlf": [
+    "token 4:3 \"😀\": the scan reads an operand, the assembler nothing",
+    "token 4:5 \"x\": the scan reads an operand, the assembler nothing",
+    "words: the assembler lists none (2 in the scan)"
+  ],
+  "snippet:dict-kwarg": [
+    "jinja 4:1 \"{% set d = dict(x=\\\"lr1\\\") %}\": uses [dict x] by the fallback, [dict] by the assembler",
+    "jinja 5:1 \"{{ m(x=d.x) }}\": uses [d m x] by the fallback, [d m] by the assembler"
+  ],
+  "snippet:header": [
+    "jinja 1:1 \"{#- ipu:params rows: int = 4 # rows to c…\": defines [] by the fallback, [rows] by the assembler"
+  ],
+  "snippet:kwarg": [
+    "jinja 5:1 \"{{ m(dest=\\\"lr1\\\", n=n) }}\": uses [dest m n] by the fallback, [m n] by the assembler"
+  ],
+  "snippet:unknown-in-word": [
+    "word 1:1 [HALT SE]: the fallback says it fits, the assembler that it does not fit"
+  ],
+  "vscode-ipu-asm/test/corpus/negative/unbalanced_jinja.asm": [
+    "tokens: the assembler lists no assembly tokens (1 in the scan)",
+    "words: the assembler lists none (1 in the scan)"
+  ],
+  "vscode-ipu-asm/test/corpus/negative/unknown_mnemonic.asm": [
+    "word 2:5 [FROB]: the fallback says it fits, the assembler that it does not fit"
+  ]
+}

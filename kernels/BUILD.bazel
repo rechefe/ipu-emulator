@@ -1,0 +1,109 @@
+# The kernel tree (ADR 0006, E06): one Bazel package per kernel,
+# //kernels/<family>/<name>, declared with ipu_kernel() from kernels/defs.bzl.
+# Kernels moved here from the old Python harness during E06 and E07.
+
+load("@ipu_deps//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_binary")
+load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
+load("//tools:lint.bzl", "ruff_test")
+load(":defs.bzl", "ipu_kernel_tree")
+load("//kernels/convolutions:registry.bzl", CONVOLUTIONS = "ENTRIES")
+load("//kernels/elementwise:registry.bzl", ELEMENTWISE = "ENTRIES")
+load("//kernels/matmul:registry.bzl", MATMUL = "ENTRIES")
+load("//kernels/normalize:registry.bzl", NORMALIZE = "ENTRIES")
+load("//kernels/pooling:registry.bzl", POOLING = "ENTRIES")
+load("//kernels/projections:registry.bzl", PROJECTIONS = "ENTRIES")
+load("//kernels/reshape:registry.bzl", RESHAPE = "ENTRIES")
+
+exports_files([
+    "BUILD.bazel",
+    "families.bzl",
+])
+
+# :tree: every family's and kernel's files, for ipu_harness.registry.kernel_tree()
+# (the routing registry, E06-16); :all_kernels: the tree with every family's
+# library; :kernel_targets; :lint. The families and their kernels are in
+# families.bzl (KERNELS, FAMILY_DEPS).
+#
+# REGISTRIES: each family with a registry.toml (E06-17), its entries from its
+# generated registry.bzl: load("//kernels/<family>:registry.bzl", <FAMILY> =
+# "ENTRIES") above and "<family>": <FAMILY> here. test_kernel_tree checks it.
+REGISTRIES = {
+    "convolutions": CONVOLUTIONS,
+    "elementwise": ELEMENTWISE,
+    "matmul": MATMUL,
+    "normalize": NORMALIZE,
+    "pooling": POOLING,
+    "projections": PROJECTIONS,
+    "reshape": RESHAPE,
+}
+
+ipu_kernel_tree(registries = REGISTRIES)
+
+# Rewrite every family's stale registry.bzl from its registry.toml (E06-17):
+#   bazel run //kernels:update_registry_bzl [-- DIR ...]
+py_binary(
+    name = "update_registry_bzl",
+    srcs = ["//src/ipu-harness:src/ipu_harness/registry_bzl.py"],
+    main = "//src/ipu-harness:src/ipu_harness/registry_bzl.py",
+    args = ["update"],
+    deps = ["//src/ipu-harness:ipu_harness_lib"],
+)
+
+# Cross-family use is declared in FAMILY_DEPS only (E06-18); KERNELS names
+# every kernel folder. It reads the checkout's kernels/ (a folder missing from
+# KERNELS is no input of the test), so it is not cached.
+py_pytest_test(
+    name = "test_families",
+    size = "small",
+    srcs = ["test_families.py"],
+    data = [
+        "families.bzl",
+        "//src/ipu-kernels:py_sources",
+        ":tree",
+    ],
+    tags = ["external"],
+    deps = [requirement("pytest")],
+)
+
+ruff_test(
+    name = "ruff",
+    srcs = glob(["*.py"]),
+)
+
+# Which kernel computes an op, and why (E06-16):
+#   bazel run //kernels:query -- scale rows=7
+alias(
+    name = "query",
+    actual = "//src/ipu-harness:query",
+    visibility = ["//visibility:public"],
+)
+
+# Every kernel's default program, rendered, as .asm files, for tools that read
+# program text without the harness (the editor's grammar agreement, E07-25):
+#   bazel run //kernels:rendered_programs -- "$PWD/rendered"
+py_binary(
+    name = "rendered_programs",
+    srcs = ["//src/ipu-harness:src/ipu_harness/rendered_programs.py"],
+    main = "//src/ipu-harness:src/ipu_harness/rendered_programs.py",
+    data = [":tree"],
+    deps = [
+        ":all_kernels",
+        "//src/ipu-harness:ipu_harness_lib",
+    ],
+)
+
+# Every kernel, its cases and targets, as JSON for tools (E06-13): what the
+# editor extension's kernel buttons and sidebar read.
+#   bazel run //kernels:manifest
+py_binary(
+    name = "manifest",
+    srcs = ["//src/ipu-harness:src/ipu_harness/manifest_json.py"],
+    main = "//src/ipu-harness:src/ipu_harness/manifest_json.py",
+    args = ["$(rootpath :kernel_targets)"],
+    data = [":kernel_targets"],
+    deps = [
+        ":all_kernels",
+        "//src/ipu-harness:ipu_harness_lib",
+    ],
+)

@@ -1,0 +1,83 @@
+# score_threshold: SuperPoint's keypoint selection over [count] FP32 scores
+# (E07-15): y[:count] = relu(x - threshold), y[count] = the soft survivor
+# count sum(sigmoid(temperature * (x - threshold))). Was a whole-image
+# kernel.
+[kernel]
+op = "score_threshold"
+formats = ["fp32"]
+
+[params]
+count       = { type = "int", min = 1 }
+threshold   = { type = "float", default = 0.0 }        # tau
+temperature = { type = "float", min = 1.401298464324817e-45, default = 1.0 }  # T > 0
+
+[derived]
+rows      = "ceil(count / 128)"
+slot1     = "128"                                      # R_CYCLIC slot 1, where tau lives
+count_row = "base(y) + rows"                           # partial sums, then the total in lane 0
+
+# Placed from row 0: x, staged, tau, ttau, tvec, y (the old image).
+[inputs.x]                                             # padding lanes tau - 800 / T
+shape = ["count"]
+pack = "padded_scores"                                 # ../pack.py
+
+[outputs.y]                                            # selected rows, then the count row
+shape = ["count + 1"]
+pack = "gate_and_count"                                # ../pack.py
+
+[scratch.staged]                                       # the sigmoid plane
+shape = ["rows", 128]
+after = "x"
+
+[scratch.tau]
+shape = [1, 128]
+fill = "threshold"
+after = "staged"
+
+[scratch.ttau]                                         # T * tau, an FP32 product
+shape = [1, 128]
+bytes = "scratch.py:ttau"
+after = "tau"
+
+[scratch.tvec]                                         # T in every lane, loaded into R0
+shape = [1, 128]
+fill = "temperature"
+after = "ttau"
+
+[abi]
+x         = "CR2"
+y         = "CR3"
+staged    = "CR4"
+count_row = "CR5"
+tau       = "CR6"
+ttau      = "CR7"
+tvec      = "CR8"
+rows      = "CR9"
+slot1     = "CR10"
+
+[golden]
+op = "score_threshold"
+# Measured: max|err| = 0 on all three cases. The count is an FP32 reduction in
+# another order than the reference's (128 lane sums, then AGG.SUM), which is
+# what FP32_ORDER covers; the selected values are one correctly rounded
+# subtraction each.
+tolerance = { fp32 = "FP32_ORDER" }
+
+# The old cases' data (../gen.py: standard normal, seed 7).
+[cases.default]
+count = 16
+threshold = 0.5
+temperature = 4.0
+generator = "../gen.py:seeded_normal"
+
+[cases.tile_boundary]
+count = 259
+threshold = -0.25
+temperature = 2.0
+generator = "../gen.py:seeded_normal"
+
+[cases.single_score]
+count = 1
+threshold = 0.0
+temperature = 1.0
+generator = "../gen.py:seeded_normal"

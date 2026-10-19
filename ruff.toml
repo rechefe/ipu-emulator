@@ -1,0 +1,73 @@
+# The one ruff configuration for every Python file in the repository (Q65).
+# Checked by the ruff_test targets (tools/lint.bzl); run the locked ruff with
+# `bazel run //tools:ruff -- <args>`. No package carries its own ruff config.
+target-version = "py310"
+line-length = 100
+# Python lives in .py files only. Ruff also formats ```python blocks in
+# Markdown; those are prose examples (often deliberately partial), and the
+# ruff_test targets glob **/*.py, so exclude Markdown to keep a workspace
+# `ruff format --check` in agreement with the Bazel tests.
+extend-exclude = ["*.md"]
+
+[lint]
+# E4/E7/E9/F: ruff's defaults. I: import order. UP: pyupgrade. B: bugbear.
+# C901/PLR0912/PLR0913/PLR0915: function size and complexity (Q66, about
+# 60-line functions); PLR0913 backs the "no flag arguments" convention.
+# TID251: the banned APIs below.
+select = ["E4", "E7", "E9", "F", "I", "UP", "B", "C901", "PLR0912", "PLR0913", "PLR0915", "TID251"]
+
+# One render path (E05-12): an assembly template is rendered only by
+# ipu_as.template, through AssemblySession or the CLI.
+[lint.flake8-tidy-imports.banned-api]
+"jinja2.Template".msg = "render assembly through ipu_as (AssemblySession(text, defines=...))"
+"jinja2.environment.Template".msg = "render assembly through ipu_as (AssemblySession(text, defines=...))"
+"jinja2.sandbox.SandboxedEnvironment".msg = "only ipu_as.template builds the sandbox"
+"jinja2.Environment".msg = "render assembly through ipu_as; only the SV generator builds its own"
+
+[lint.isort]
+# The repository's own packages (src/*/src/<name>). Named explicitly so
+# import grouping is the same in the workspace and in a ruff_test sandbox,
+# where the other packages' directories are absent.
+known-first-party = [
+    "ipu_as",
+    "ipu_bench",
+    "ipu_debug",
+    "ipu_emu",
+    "ipu_gen",
+    "ipu_harness",
+    "ipu_isa",
+    "ipu_kernels",
+]
+
+[lint.mccabe]
+max-complexity = 10
+
+[lint.pylint]
+max-branches = 12
+max-statements = 50
+max-args = 6
+
+[lint.per-file-ignores]
+# The one module that renders assembly templates.
+"src/ipu-as/src/ipu_as/template.py" = ["TID251"]
+# The SystemVerilog package generator renders its own (non-assembly) template.
+"src/ipu-gen/src/ipu_gen/sv_package.py" = ["TID251"]
+
+# Baseline: existing offenders, removed as each refactor epic reaches the file.
+# Complexity rules only (C901, PLR0912, PLR0913, PLR0915), one file per line,
+# grouped by the epic that removes them. Do not add entries; fix the code instead.
+
+# docs: doc drift tests, restructured by E09.
+"docs/doc_blocks.py" = ["C901"]
+"docs/test_doc_commands.py" = ["C901", "PLR0912"]
+
+# ipu-emu emulator core: these outlived E04 (cycle module, codecs, alias
+# profiling) and are tracked as a follow-up.
+"src/ipu-emu/src/ipu_emu/activations.py" = ["C901", "PLR0912"]
+"src/ipu-emu/src/ipu_emu/alias_detectors.py" = ["C901", "PLR0912", "PLR0915"]
+"src/ipu-emu/src/ipu_emu/alias_observer.py" = ["C901", "PLR0912"]
+"src/ipu-emu/src/ipu_emu/emulator.py" = ["PLR0913"]
+"src/ipu-emu/src/ipu_emu/isa_alias_spec.py" = ["C901", "PLR0912", "PLR0915"]
+
+# ipu-isa layout solver: removed by E03 (immutable derived layout).
+"src/ipu-isa/src/ipu_isa/union_layout.py" = ["C901", "PLR0912"]

@@ -1,48 +1,61 @@
 name: Documentation
 
+# Builds the site on master pushes and release tags (and publishes it), on pull
+# requests that touch the docs or the code that generates pages, and on demand.
+# Publishing (E09-21) writes the Bazel-built site into the gh-pages branch in
+# mike's layout with //docs:publish_version: a master push updates dev/, a tag
+# vX.Y publishes vX.Y/ and moves the alias latest to it. Pages serves the branch
+# (Settings -> Pages -> Deploy from a branch: gh-pages). The build is offline:
+# the release log is committed (docs/content/release-log.md) and refreshed by
+# release-log.yml, which dispatches this workflow after committing a new entry.
+#
+# Keep the paths in step with the inputs of //docs:build_docs: a move or a new
+# input outside these paths must update them.
+
 on:
   push:
-    branches: [ "**" ]
+    branches: [master]
+    # Releases only: vX.Y (the publish tool refuses any other version name).
+    tags: ["v[0-9]+.[0-9]+"]
   pull_request:
-    branches: [ "**" ]
+    paths:
+      - "docs/**" # includes docs/mkdocs.yml and docs/content/release-log.md
+      - "GLOSSARY.md"
+      - "src/**" # the generated reference pages, the CLI tables, the inspector traces
+      - "vscode-ipu-asm/**" # the inspector's isa.json
+      - "kernels/**" # the kernel pages, the coverage page and the Cycle Inspector's traces
+      - ".github/workflows/docs.yml"
+      - "requirements_lock.txt"
+      - ".bazelrc"
+      - "MODULE.bazel"
+      - "tools/**" # tools/bootstrap.sh, tools/bench/README.md
+  workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
-# Allow one concurrent deployment
+# One run per ref. A newer push supersedes an older run on the same branch,
+# but a master or tag build-and-publish is never cancelled.
 concurrency:
-  group: "pages"
-  cancel-in-progress: true
+  group: docs-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
+    outputs:
+      giscus_rendered: ${{ steps.giscus.outputs.rendered }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.10'
+      - name: Install toolchain
+        run: ./tools/bootstrap.sh
 
-      - name: Install uv
-        run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-          
-      - name: Install Bazelisk
-        run: |
-          wget https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64
-          chmod +x bazelisk-linux-amd64
-          sudo mv bazelisk-linux-amd64 /usr/local/bin/bazel
-      
       - name: Build documentation with Bazel
         env:
-          # From giscus.app — add as repository Secrets (Settings → Secrets and variables → Actions).
+          # Optional overrides of the IDs committed in docs/mkdocs.yml extra.giscus.
           GISCUS_REPO_ID: ${{ secrets.GISCUS_REPO_ID }}
           GISCUS_CATEGORY_ID: ${{ secrets.GISCUS_CATEGORY_ID }}
           GISCUS_REPO: ${{ vars.GISCUS_REPO }}
@@ -51,23 +64,83 @@ jobs:
           GISCUS_THEME: ${{ vars.GISCUS_THEME }}
           GISCUS_LANG: ${{ vars.GISCUS_LANG }}
         run: |
-          bazel build //docs:build_docs
-          mkdir -p site
-          tar -xf bazel-bin/docs/site.tar -C site
-      
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v4
-        with:
-          path: ./site
+          # --config=docs forwards the GISCUS_* variables into the build (.bazelrc).
+          # No GITHUB_TOKEN: nothing in the build calls the GitHub API.
+          bazel build --config=docs //docs:build_docs
 
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      - name: Run the docs tests
+        # The tests tagged docs (the built site's Cycle Inspector and its trace
+        # data): ci.yml's test:ci and nightly's test:full leave them out (.bazelrc).
+        run: bazel test --test_tag_filters=docs //...
+
+      - name: Check giscus widget is rendered
+        id: giscus
+        run: |
+          if tar -xOf bazel-bin/docs/site.tar ./index.html | grep -q 'data-repo-id="[^"]'; then
+            echo "rendered=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "rendered=false" >> "$GITHUB_OUTPUT"
+          fi
+      
+      - name: Upload the site
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master')
+        uses: actions/upload-artifact@v4
+        with:
+          name: site
+          path: bazel-bin/docs/site.tar
+          if-no-files-found: error
+
+  # Writes the site into gh-pages: dev from master (a push, or a manual run such
+  # as release-log.yml's dispatch), vX.Y from a tag. Only this job pushes to that
+  # branch. Runs of different refs may overlap (the workflow's per-ref group): a
+  # shared group would let a queued master run cancel a pending tag publish. The
+  # tool never forces its push and redoes a push that lost a race.
+  publish:
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Install toolchain
+        run: ./tools/bootstrap.sh
+
+      - name: Download the site
+        uses: actions/download-artifact@v4
+        with:
+          name: site
+          path: ${{ runner.temp }}/site
+
+      - name: Publish the version
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ "$REF_TYPE" = tag ]; then
+            # latest moves only if this is the newest release (the tool checks).
+            set -- --version "$REF_NAME" --alias latest
+          else
+            set -- --version dev
+          fi
+          bazel run //docs:publish_version -- --repo "$GITHUB_WORKSPACE" \
+            --site "$RUNNER_TEMP/site/site.tar" "$@" --push
+
+  # Fails the master run when the giscus widget is missing, without blocking the
+  # publish job, so a missing ID makes the run red but the site still updates.
+  check-giscus:
     runs-on: ubuntu-latest
     needs: build
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v5
+      - name: Require giscus widget on master
+        run: |
+          if [ "${{ needs.build.outputs.giscus_rendered }}" != "true" ]; then
+            echo "::error::index.html has no giscus widget; set repo_id/category_id in docs/mkdocs.yml (or GISCUS_* overrides) and build with --config=docs. See planning/architecture-deepening/00-verified-fixes/13-giscus-category-id.md."
+            exit 1
+          fi

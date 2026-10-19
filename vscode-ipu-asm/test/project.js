@@ -20,48 +20,48 @@ function tree(base, files) {
   }
   return base;
 }
-const checkout = (base) => tree(base, ['MODULE.bazel', 'src/tools/ipu-as-py/BUILD.bazel', 'kernels/demo/k/k.asm']);
+const checkout = (base) => tree(base, ['MODULE.bazel', 'src/ipu-as/src/ipu_as/__init__.py', 'kernels/demo/k/k.asm']);
 
-test('a file inside a checkout belongs to it, however deep; a subfolder stands for it', () => {
+test('a file inside a checkout belongs to it, however deep; a subfolder stands for it', async () => {
   const repo = checkout(path.join(tmp, 'a', 'repo'));
-  assert.strictEqual(project.checkoutOf(path.join(repo, 'kernels/demo/k/k.asm')), repo);
-  assert.strictEqual(project.checkoutOf(repo), repo);
-  assert.deepStrictEqual(project.checkoutsFor(path.join(repo, 'kernels')), [repo]);
+  assert.strictEqual(await project.checkoutOf(path.join(repo, 'kernels/demo/k/k.asm')), repo);
+  assert.strictEqual(await project.checkoutOf(repo), repo);
+  assert.deepStrictEqual(await project.checkoutsFor(path.join(repo, 'kernels')), [repo]);
 });
 
-test('a folder holding checkouts stands for each of them', () => {
+test('a folder holding checkouts stands for each of them', async () => {
   const parent = path.join(tmp, 'c');
   const one = checkout(path.join(parent, 'one'));
   const two = checkout(path.join(parent, 'work', 'two'));
-  tree(parent, ['node_modules/x/MODULE.bazel', 'node_modules/x/src/tools/ipu-as-py/']);
-  assert.deepStrictEqual(project.checkoutsFor(parent), [one, two]);
+  tree(parent, ['node_modules/x/MODULE.bazel', 'node_modules/x/src/ipu-as/src/ipu_as/']);
+  assert.deepStrictEqual(await project.checkoutsFor(parent), [one, two]);
 });
 
-test('a checkout linked into a folder is found through the link', () => {
+test('a checkout linked into a folder is found through the link', async () => {
   const repo = checkout(path.join(tmp, 'g', 'real', 'repo'));
   const parent = path.join(tmp, 'g', 'parent');
   fs.mkdirSync(parent, { recursive: true });
   fs.symlinkSync(repo, path.join(parent, 'linked'));
   fs.symlinkSync(parent, path.join(parent, 'loop'));
-  assert.deepStrictEqual(project.checkoutsFor(parent), [path.join(parent, 'linked')]);
+  assert.deepStrictEqual(await project.checkoutsFor(parent), [path.join(parent, 'linked')]);
 });
 
-test('an unrelated project, even a Bazel one with .asm files, or a version before the Python assembler is no checkout', () => {
+test('an unrelated project, even a Bazel one with .asm files, or a version before the Python assembler is no checkout', async () => {
   for (const [dir, files, asm] of [
     ['x86', ['MODULE.bazel', 'boot/start.asm', 'lib/crt0.s'], 'boot/start.asm'],
     ['plain', ['main.asm'], 'main.asm'],
     ['old', ['WORKSPACE', 'src/tools/ipu-as/', 'app.asm'], 'app.asm'],
   ]) {
     const root = tree(path.join(tmp, 'd', dir), files);
-    assert.strictEqual(project.checkoutOf(path.join(root, asm)), null, dir);
-    assert.deepStrictEqual(project.checkoutsFor(root), [], dir);
+    assert.strictEqual(await project.checkoutOf(path.join(root, asm)), null, dir);
+    assert.deepStrictEqual(await project.checkoutsFor(root), [], dir);
   }
 });
 
-test('a checkout too deep below the open folder is not searched for; this repository is a checkout', () => {
+test('a checkout too deep below the open folder is not searched for; this repository is a checkout', async () => {
   checkout(path.join(tmp, 'f', '1', '2', '3', 'repo'));
-  assert.deepStrictEqual(project.checkoutsFor(path.join(tmp, 'f')), []);
-  assert.strictEqual(project.checkoutOf(__filename), path.resolve(__dirname, '..', '..'));
+  assert.deepStrictEqual(await project.checkoutsFor(path.join(tmp, 'f')), []);
+  assert.strictEqual(await project.checkoutOf(__filename), path.resolve(__dirname, '..', '..'));
 });
 
 test('(clean up)', () => fs.rmSync(tmp, { recursive: true, force: true }));

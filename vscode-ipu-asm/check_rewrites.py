@@ -47,12 +47,16 @@ def main(argv):
             checked += 1
             words, error = assemble(v["text"])
             if error or words != expected:
-                failures.append(f"{what} ({v['uses']} uses) {'breaks assembly: ' + error if error else 'changes the binary'}")
+                failures.append(
+                    f"{what} ({v['uses']} uses) {'breaks assembly: ' + error if error else 'changes the binary'}"
+                )
     if failures:
         head = f"{len(failures)} rewrite(s) would change the program:"
         print(head, *("  " + f for f in failures[:25]), sep="\n", file=sys.stderr)
         return 1
-    print(f"Every rewrite leaves the program unchanged: {checked} rewrites across {len(files)} files.")
+    print(
+        f"Every rewrite leaves the program unchanged: {checked} rewrites across {len(files)} files."
+    )
     return 0
 
 
