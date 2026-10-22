@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792669523409,
+  "lastUpdate": 1792669526195,
   "repoUrl": "https://github.com/rechefe/ipu-emulator",
   "entries": {
     "Times and memory (smaller is better)": [
@@ -418,6 +418,64 @@ window.BENCHMARK_DATA = {
             "value": 4971.913711,
             "unit": "cycles/s",
             "extra": "default case; cycles=179281 run=36.059 s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eyal Rechef",
+            "username": "rechefe",
+            "email": "103856782+rechefe@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "c5c04f7cc1ee37599b165d287ec50178ef4b130d",
+          "message": "Merge pull request #251 from yarden-carmi/master\n\nIPU vscode extension - leftovers settings",
+          "timestamp": "2026-10-19T13:23:08Z",
+          "url": "https://github.com/rechefe/ipu-emulator/commit/c5c04f7cc1ee37599b165d287ec50178ef4b130d"
+        },
+        "date": 1792669525516,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "assemble/words_per_s",
+            "value": 9810.363406,
+            "unit": "words/s",
+            "extra": "files=129 words=8256"
+          },
+          {
+            "name": "emulator/faithful/matmul_384x192_x128.default/cycles_per_s",
+            "value": 5218.94965,
+            "unit": "cycles/s",
+            "extra": "cycles=77185 best of 5: 14.789 s"
+          },
+          {
+            "name": "emulator/faithful/fully_connected.int8/cycles_per_s",
+            "value": 9587.708492,
+            "unit": "cycles/s",
+            "extra": "cycles=2674 best of 5: 0.279 s"
+          },
+          {
+            "name": "emulator/faithful/fully_connected.e4/cycles_per_s",
+            "value": 8753.638059,
+            "unit": "cycles/s",
+            "extra": "cycles=2674 best of 5: 0.305 s"
+          },
+          {
+            "name": "kernel/identity/cycles_per_s",
+            "value": 7559.005822,
+            "unit": "cycles/s",
+            "extra": "default case; cycles=17 run=0.002 s"
+          },
+          {
+            "name": "kernel/matmul_720x240_x128/cycles_per_s",
+            "value": 5187.977,
+            "unit": "cycles/s",
+            "extra": "default case; cycles=179281 run=34.557 s"
           }
         ]
       }
