@@ -4,13 +4,15 @@
 
 The MULT (Multiply) stage performs the following tasks:
 
-- **Multiply:** Multiplies 128 pairs of 8-bit elements. The operands come from
+- **Dequantize:** Converts each NX8 input element to FP32, with the format
+  from `quantizion_format` and the vector scale.
+- **Multiply:** Multiplies 128 pairs of FP32 elements. The operands come from
   `R0`/`R1`, `R_CYCLIC` or a scalar. Each product is an FP32 value.
 - **Mask:** Replaces the products of masked elements with a pad value. The mask
-  comes from `R_MASK`, shifted within element groups.
-- **Load:** Writes the load data from XMEM into one of the stage registers:
-  `R0`, `R1`, one slot of `R_CYCLIC` or `R_MASK`. The LOAD slot issues the
-  loads and calculates the XMEM address.
+  comes from `R_MASK`.
+- **Load:** Owns the load instructions (`LDR_MULT_REG`, `LDR_CYCLIC_MULT_REG`,
+  `LDR_MULT_MASK_REG`). Writes the load data from XMEM into one of the stage
+  registers: `R0`, `R1`, one slot of `R_CYCLIC` or `R_MASK`.
 
 ## Table of Contents
 
@@ -24,11 +26,14 @@ The MULT (Multiply) stage performs the following tasks:
     - 3.4 [Element Masking](#34-element-masking)
 4. [Multiply ISA](#4-multiply-isa)
     - 4.1 [`NOP`: No Operation](#41-nop-no-operation)
-    - 4.2 [`MULT.RC.VV`: R_CYCLIC Vector x Ra Vector](#42-multrcvv-r_cyclic-vector-x-ra-vector)
-    - 4.3 [`MULT.RC.VE`: R_CYCLIC Vector x Scalar](#43-multrcve-r_cyclic-vector-x-scalar)
-    - 4.4 [`MULT.RC.VS`: R_CYCLIC Vector Square](#44-multrcvs-r_cyclic-vector-square)
-    - 4.5 [`MULT.VE`: Ra Vector x CR Scalar](#45-multve-ra-vector-x-cr-scalar)
-    - 4.6 [`MULT.EE`: Ra Element x CR Scalar, Broadcast](#46-multee-ra-element-x-cr-scalar-broadcast)
+    - 4.2 [`LDR_MULT_REG`: Load R0 or R1](#42-ldr_mult_reg-load-r0-or-r1)
+    - 4.3 [`LDR_CYCLIC_MULT_REG`: Load an R_CYCLIC Slot](#43-ldr_cyclic_mult_reg-load-an-r_cyclic-slot)
+    - 4.4 [`LDR_MULT_MASK_REG`: Load R_MASK](#44-ldr_mult_mask_reg-load-r_mask)
+    - 4.5 [`MULT.RC.VV`: R_CYCLIC Vector x Ra Vector](#45-multrcvv-r_cyclic-vector-x-ra-vector)
+    - 4.6 [`MULT.RC.VE`: R_CYCLIC Vector x Scalar](#46-multrcve-r_cyclic-vector-x-scalar)
+    - 4.7 [`MULT.RC.VS`: R_CYCLIC Vector Square](#47-multrcvs-r_cyclic-vector-square)
+    - 4.8 [`MULT.VE`: Ra Vector x CR Scalar](#48-multve-ra-vector-x-cr-scalar)
+    - 4.9 [`MULT.EE`: Ra Element x CR Scalar, Broadcast](#49-multee-ra-element-x-cr-scalar-broadcast)
 
 ## 2. Block Diagram
 
@@ -39,7 +44,6 @@ block-beta
     block:INS:1
         columns 1
         LD_DATA["load data<br>128 x 8-bit<br>+ metadata"]
-        LD_TGT["load target"]
     end
     space
     block:STAGE:7
@@ -57,7 +61,6 @@ block-beta
     end
 
     LD_DATA --> LDW
-    LD_TGT --> LDW
     LDW --> RA
     LDW --> RC
     LDW --> RMASK
@@ -73,21 +76,18 @@ block-beta
     classDef io fill:none,stroke:none
     classDef blk fill:#2e9e8c,stroke:#1a7060,color:#fff
     classDef title fill:none,stroke:none,font-weight:bold
-    class LD_DATA,LD_TGT,INSTR,FMT,OUT_DATA,INS,OUTS io
+    class LD_DATA,INSTR,FMT,OUT_DATA,INS,OUTS io
     class LDW,RA,RC,RMASK,SEL,MUL,MASK blk
     class TITLE title
     style STAGE fill:none,stroke:#888,stroke-width:2px
 ```
 
-> **TBD - ask Aviv:** do we show the VLIW instruction word as an input that
-> goes through this stage to the next stages?
-
 ## 3. Interfaces
 
 | Name | Direction | Description |
 |------|-----------|-------------|
-| load data | Input | One XMEM row from the LOAD slot: 128 8-bit elements (128 B) and the vector metadata (section 3.2.1). |
-| load target | Input | The register that the load data goes into: `R0` or `R1` (`LDR_MULT_REG`), one 128-element slot of `R_CYCLIC` at element `0`, `128`, `256` or `384` (`LDR_CYCLIC_MULT_REG`), or `R_MASK` (`LDR_MULT_MASK_REG`). |
+| XMEM read address | Output | The XMEM row that a load instruction reads: `offset + base`. |
+| load data | Input | One XMEM row: 128 8-bit elements (128 B) and the vector metadata (section 3.2.1). |
 | Instruction | Input | The operation that the stage does on its registers. |
 | `quantizion_format` | Input | The NX8 format of the input elements (section 3.2). |
 | output data | Output | `MULT_RES`: 128 FP32 elements, to the ACC stage. |
@@ -251,7 +251,7 @@ All other bits are `1`. The vectors for each `num_partition`, element `0` first
 
 ## 4. Multiply ISA
 
-The MULT slot is resolved by CTRL and forwarded down the pipeline. The stage
+The MULT and LOAD slots are resolved by CTRL and forwarded down the pipeline. The stage
 does not read the CR/LR register files itself (see the Control Stage spec,
 section 5).
 
@@ -268,13 +268,16 @@ by [`gen_codegen.py`](../../../src/tools/ipu-as-py/src/ipu_as/gen_codegen.py).
 | Instruction | Purpose |
 |-------------|---------|
 | [`NOP`](#41-nop-no-operation) | Do nothing. |
-| [`MULT.RC.VV`](#42-multrcvv-r_cyclic-vector-x-ra-vector) | `R_CYCLIC` vector x `R0` or `R1`. |
-| [`MULT.RC.VE`](#43-multrcve-r_cyclic-vector-x-scalar) | `R_CYCLIC` vector x a scalar from `Ra` or a `CR`. |
-| [`MULT.RC.VS`](#44-multrcvs-r_cyclic-vector-square) | `R_CYCLIC` vector x itself. |
-| [`MULT.VE`](#45-multve-ra-vector-x-cr-scalar) | `Ra` vector x a `CR` scalar. |
-| [`MULT.EE`](#46-multee-ra-element-x-cr-scalar-broadcast) | One `Ra` element x a `CR` scalar, broadcast to all 128 elements. |
+| [`LDR_MULT_REG`](#42-ldr_mult_reg-load-r0-or-r1) | Load one XMEM row into `R0` or `R1`. |
+| [`LDR_CYCLIC_MULT_REG`](#43-ldr_cyclic_mult_reg-load-an-r_cyclic-slot) | Load one XMEM row into one slot of `R_CYCLIC`. |
+| [`LDR_MULT_MASK_REG`](#44-ldr_mult_mask_reg-load-r_mask) | Load one XMEM row into `R_MASK`. |
+| [`MULT.RC.VV`](#45-multrcvv-r_cyclic-vector-x-ra-vector) | `R_CYCLIC` vector x `R0` or `R1`. |
+| [`MULT.RC.VE`](#46-multrcve-r_cyclic-vector-x-scalar) | `R_CYCLIC` vector x a scalar from `Ra` or a `CR`. |
+| [`MULT.RC.VS`](#47-multrcvs-r_cyclic-vector-square) | `R_CYCLIC` vector x itself. |
+| [`MULT.VE`](#48-multve-ra-vector-x-cr-scalar) | `Ra` vector x a `CR` scalar. |
+| [`MULT.EE`](#49-multee-ra-element-x-cr-scalar-broadcast) | One `Ra` element x a `CR` scalar, broadcast to all 128 elements. |
 
-In every Operation below, `x` converts both NX8 operands to FP32 (section
+In every `MULT` Operation below, `x` converts both NX8 operands to FP32 (section
 3.2.1) and multiplies them. `apply_mask` is section 3.4.
 
 ---
@@ -301,7 +304,103 @@ NOP;;
 
 ---
 
-### 4.2 `MULT.RC.VV`: R_CYCLIC Vector x Ra Vector
+### 4.2 `LDR_MULT_REG`: Load R0 or R1
+
+Loads one XMEM row into `R0` or `R1`, with its vector metadata.
+
+#### Syntax
+
+```text
+LDR_MULT_REG dest, offset, base
+```
+
+#### Operands
+
+| Name | Type | Details |
+|------|------|---------|
+| `dest` | [`Imm`](../operand-types.md#multstagereg) | `R0` or `R1`. The register that is written. |
+| `offset` | [`LrIdx`](../operand-types.md#lridx) | `LR0`-`LR15`. Row offset in XMEM. |
+| `base` | [`CrIdx`](../operand-types.md#cridx) | `CR0`-`CR15`. Base row in XMEM. |
+
+#### Operation
+
+```text
+dest = XMEM[offset + base]      // 128 elements + metadata (section 3.2.1)
+```
+
+#### Example
+
+```text
+LDR_MULT_REG R0, LR0, CR0;;
+```
+
+---
+
+### 4.3 `LDR_CYCLIC_MULT_REG`: Load an R_CYCLIC Slot
+
+Loads one XMEM row into one 128-element slot of `R_CYCLIC`, with its vector
+metadata. The other slots keep their values.
+
+#### Syntax
+
+```text
+LDR_CYCLIC_MULT_REG offset, base, index
+```
+
+#### Operands
+
+| Name | Type | Details |
+|------|------|---------|
+| `offset` | [`LrIdx`](../operand-types.md#lridx) | `LR0`-`LR15`. Row offset in XMEM. |
+| `base` | [`CrIdx`](../operand-types.md#cridx) | `CR0`-`CR15`. Base row in XMEM. |
+| `index` | [`LrIdx`](../operand-types.md#lridx) | `LR0`-`LR15` whose value is `0`, `128`, `256` or `384`. The first element of the written slot. |
+
+#### Operation
+
+```text
+R_CYCLIC[index .. index + 127] = XMEM[offset + base]   // 128 elements + metadata (section 3.2.1)
+```
+
+#### Example
+
+```text
+LDR_CYCLIC_MULT_REG LR0, CR0, LR1;;
+```
+
+---
+
+### 4.4 `LDR_MULT_MASK_REG`: Load R_MASK
+
+Loads one XMEM row into `R_MASK` (8 slots of 128 bits, section 3.4).
+
+#### Syntax
+
+```text
+LDR_MULT_MASK_REG offset, base
+```
+
+#### Operands
+
+| Name | Type | Details |
+|------|------|---------|
+| `offset` | [`LrIdx`](../operand-types.md#lridx) | `LR0`-`LR15`. Row offset in XMEM. |
+| `base` | [`CrIdx`](../operand-types.md#cridx) | `CR0`-`CR15`. Base row in XMEM. |
+
+#### Operation
+
+```text
+R_MASK = XMEM[offset + base]    // 128 B = 8 x 128 bits
+```
+
+#### Example
+
+```text
+LDR_MULT_MASK_REG LR0, CR0;;
+```
+
+---
+
+### 4.5 `MULT.RC.VV`: R_CYCLIC Vector x Ra Vector
 
 Multiplies a 128-element window of `R_CYCLIC` by `R0` or `R1`, element by
 element.
@@ -341,7 +440,7 @@ MULT.RC.VV LR0, R0, 0, LR2, CR15, CR14;;
 
 ---
 
-### 4.3 `MULT.RC.VE`: R_CYCLIC Vector x Scalar
+### 4.6 `MULT.RC.VE`: R_CYCLIC Vector x Scalar
 
 Multiplies a 128-element window of `R_CYCLIC` by one scalar. The scalar is an
 element of `Ra` or the low byte of a `CR`.
@@ -382,7 +481,7 @@ MULT.RC.VE LR0, LR3, 0, LR2, CR15, CR14;;      // scalar = Ra[LR3]
 
 ---
 
-### 4.4 `MULT.RC.VS`: R_CYCLIC Vector Square
+### 4.7 `MULT.RC.VS`: R_CYCLIC Vector Square
 
 Multiplies a 128-element window of `R_CYCLIC` by itself, element by element.
 
@@ -421,7 +520,7 @@ MULT.RC.VS LR0, 0, LR2, CR15, CR14;;
 
 ---
 
-### 4.5 `MULT.VE`: Ra Vector x CR Scalar
+### 4.8 `MULT.VE`: Ra Vector x CR Scalar
 
 Multiplies a 128-element window of `Ra` by the low byte of a `CR`.
 
@@ -460,7 +559,7 @@ MULT.VE LR0, CR3, 0, LR2, CR15, CR14;;
 
 ---
 
-### 4.6 `MULT.EE`: Ra Element x CR Scalar, Broadcast
+### 4.9 `MULT.EE`: Ra Element x CR Scalar, Broadcast
 
 Multiplies one element of `Ra` by the low byte of a `CR` and writes the
 product to all 128 elements.
