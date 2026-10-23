@@ -70,7 +70,7 @@ j_loop:
     ADD LR4 LR4 LR2;
     ADD LR5 LR5 CR1;;
 
-    MULT.RC.VE LR0 LR5 0 LR0 CR15;
+    MULT.RC.VE LR0 LR5 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.ADD.FIRST;
     LD.MULT.CYCLIC LR4 CR0 LR0;
     ADD LR4 LR4 LR2;
@@ -79,7 +79,7 @@ j_loop:
     B after_chunk0;;
 
 k_chunk0:
-    MULT.RC.VE LR0 LR5 0 LR0 CR15;
+    MULT.RC.VE LR0 LR5 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.ADD;
     LD.MULT.CYCLIC LR4 CR0 LR0;
     ADD LR4 LR4 LR2;
@@ -92,7 +92,7 @@ after_chunk0:
     LD.MULT R0 LR8 CR2;;  # chunk1 startup; R0 = W[j, chunk1]
 
 k_chunk1:
-    MULT.RC.VE LR0 LR5 0 LR0 CR15;
+    MULT.RC.VE LR0 LR5 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.ADD;
     LD.MULT.CYCLIC LR4 CR0 LR0;
     ADD LR4 LR4 LR2;
@@ -103,7 +103,7 @@ k_chunk1:
     LD.MULT R0 LR8 CR3;;  # chunk2 startup; R0 = W[j, chunk2]
 
 k_chunk2:
-    MULT.RC.VE LR0 LR5 0 LR0 CR15;
+    MULT.RC.VE LR0 LR5 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.ADD;
     LD.MULT.CYCLIC LR4 CR0 LR0;
     ADD LR4 LR4 LR2;
@@ -114,20 +114,17 @@ k_chunk2:
     LD.MULT R0 LR8 CR4;;  # chunk3 startup; R0 = W[j, chunk3]
 
 k_chunk3:
-    MULT.RC.VE LR0 LR5 0 LR0 CR15;
+    MULT.RC.VE LR0 LR5 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.ADD;
     LD.MULT.CYCLIC LR4 CR0 LR0;
     ADD LR4 LR4 LR2;
     ADD LR5 LR5 CR1;
     BLT.S LR5 LR11 k_chunk3;;
 
-    # Hardware store path (see docs/content/specs/MAS-stage-aaq-str.md section 7.0):
-    # AaQ and STR are consecutive pipeline stages WITHIN one VLIW word
-    # (CTRL -> MULT -> ACC -> AaQ -> STR), so STR consumes this cycle's AaQ
-    # result and the store is free. `identity` + valid_elements=128 (the CR
-    # default) makes it a lane-for-lane FP32 copy of r_acc in wide mode.
-    ACTIVATE.QUANTIZE identity CR15;
-    ST.AAQ LR7 CR5;;  # store 512B -> OUTPUT[j] (first 64B valid)
+    # Store (ADR 0007): ACTIVATE.EXACT activates R_ACC's active lanes and
+    # stores the row as 128 FP32 values in the same word; the DS half
+    # (ds(128), every lane) makes `identity` a lane-for-lane copy of r_acc.
+    ACTIVATE.EXACT identity CR15.L CR5 LR7;;  # store 512B -> OUTPUT[j] (first 64B valid)
     ADD LR7 LR7 LR3;;                        # advance output ptr (packed)
 
     ADD LR8 LR8 LR12;

@@ -64,7 +64,7 @@ row_loop:
     ADD                 LR5 LR5 LR12;;            # LR4 -> k=1's offset; LR5 -> 0
 
     # Peeled first iteration (k=0): ACC.FIRST seeds the accumulator (replaces RESET_ACC).
-    MULT.RC.VE          LR15 LR5 0 LR15 CR15;
+    MULT.RC.VE          LR15 LR5 0 LR15 CR15.L {{ cr.qf }}.L;
     ACC.ADD.FIRST;
     LD.MULT.CYCLIC LR4 CR11 LR15;
     BNE                 LR5 LR6 k_loop_pre;;
@@ -75,14 +75,13 @@ k_loop_pre:
     ADD                 LR5 LR5 LR12;;            # LR4 -> next load offset; LR5 -> k just loaded
 
 k_loop:
-    MULT.RC.VE          LR15 LR5 0 LR15 CR15;
+    MULT.RC.VE          LR15 LR5 0 LR15 CR15.L {{ cr.qf }}.L;
     ACC.ADD;
     LD.MULT.CYCLIC LR4 CR11 LR15;
     BNE                 LR5 LR6 k_loop_pre;;
 
 after_k_loop:
-    ACTIVATE.QUANTIZE identity CR15;
-    ST.AAQ         LR7 CR2;;
+    ACTIVATE.EXACT identity CR15.L CR2 LR7;;
     ADD                 LR7 LR7 LR14;
     ADD                 LR0 LR0 LR13;;
 

@@ -87,7 +87,8 @@
 {% set DATA_START_TG1 = "CR7"  %}  {# -128 startup skew #}
 {% set K_START        = "CR8"  %}  {# -1 -> first live k = 0 (per chunk) #}
 {% set W_BASE_CHUNK0  = "CR9"  %}  {# WEIGHTS_BASE (W[j,0..127]) #}
-{% set DSTRUCT        = "CR15" %}  {# reserved dstructure register #}
+{% set DSTRUCT        = "CR15.L" %}  {# the default DS half (ds(128)) #}
+{% set QF             = cr.qf ~ ".L" %}  {# the QF half (case_qf; FP32 ignores it) #}
 
 j_loop:
     SET {{ data_ptr }} {{ DATA_START_TG0 }};
@@ -104,7 +105,7 @@ j_loop:
     ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
     ADD {{ k_index }} {{ k_index }} {{ ONE }};;
 
-    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ QF }};
     ACC.ADD.FIRST;
     LD.MULT.CYCLIC {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
@@ -113,7 +114,7 @@ j_loop:
     B after_chunk0_tg0;;
 
 k_chunk0_tg0:
-    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ QF }};
     ACC.ADD;
     LD.MULT.CYCLIC {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
@@ -126,7 +127,7 @@ after_chunk0_tg0:
     LD.MULT R0 {{ w_ptr }} {{ W_BASE_CHUNK1 }};;  # chunk1 startup; R0 = W[j, 128..255]
 
 k_chunk1_tg0:
-    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ QF }};
     ACC.ADD;
     LD.MULT.CYCLIC {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
@@ -137,20 +138,17 @@ k_chunk1_tg0:
     LD.MULT R0 {{ w_ptr }} {{ W_BASE_CHUNK2 }};;  # chunk2 startup; R0 = W[j, 256..287]+zeros
 
 k_chunk2_tg0:
-    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ QF }};
     ACC.ADD;
     LD.MULT.CYCLIC {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
     ADD {{ k_index }} {{ k_index }} {{ ONE }};
     BLT.S {{ k_index }} {{ k_bound_tail }} k_chunk2_tg0;;
 
-    # Hardware store path (see docs/content/specs/MAS-stage-aaq-str.md section 7.0):
-    # AaQ and STR are consecutive pipeline stages WITHIN one VLIW word
-    # (CTRL -> MULT -> ACC -> AaQ -> STR), so STR consumes this cycle's AaQ
-    # result and the store is free. `identity` + valid_elements=128 (the CR
-    # default) makes it a lane-for-lane FP32 copy of r_acc in wide mode.
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    ST.AAQ {{ out_ptr }} {{ OUT_BASE_TG0 }};;  # store 512B → OUTPUT[j, tg=0]
+    # Store (ADR 0007): ACTIVATE.EXACT activates R_ACC's active lanes and
+    # stores the row as 128 FP32 values in the same word; the DS half
+    # (ds(128), every lane) makes `identity` a lane-for-lane copy of r_acc.
+    ACTIVATE.EXACT identity {{ DSTRUCT }} {{ OUT_BASE_TG0 }} {{ out_ptr }};;  # store 512B → OUTPUT[j, tg=0]
 
     SET {{ data_ptr }} {{ DATA_START_TG1 }};
     LD.MULT R0 {{ w_ptr }} {{ W_BASE_CHUNK0 }};;  # tg=1 startup; R0 = W[j, 0..127]
@@ -166,7 +164,7 @@ k_chunk2_tg0:
     ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
     ADD {{ k_index }} {{ k_index }} {{ ONE }};;
 
-    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ QF }};
     ACC.ADD.FIRST;
     LD.MULT.CYCLIC {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
@@ -175,7 +173,7 @@ k_chunk2_tg0:
     B after_chunk0_tg1;;
 
 k_chunk0_tg1:
-    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ QF }};
     ACC.ADD;
     LD.MULT.CYCLIC {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
@@ -188,7 +186,7 @@ after_chunk0_tg1:
     LD.MULT R0 {{ w_ptr }} {{ W_BASE_CHUNK1 }};;
 
 k_chunk1_tg1:
-    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ QF }};
     ACC.ADD;
     LD.MULT.CYCLIC {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
@@ -199,20 +197,17 @@ k_chunk1_tg1:
     LD.MULT R0 {{ w_ptr }} {{ W_BASE_CHUNK2 }};;
 
 k_chunk2_tg1:
-    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ QF }};
     ACC.ADD;
     LD.MULT.CYCLIC {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
     ADD {{ k_index }} {{ k_index }} {{ ONE }};
     BLT.S {{ k_index }} {{ k_bound_tail }} k_chunk2_tg1;;
 
-    # Hardware store path (see docs/content/specs/MAS-stage-aaq-str.md section 7.0):
-    # AaQ and STR are consecutive pipeline stages WITHIN one VLIW word
-    # (CTRL -> MULT -> ACC -> AaQ -> STR), so STR consumes this cycle's AaQ
-    # result and the store is free. `identity` + valid_elements=128 (the CR
-    # default) makes it a lane-for-lane FP32 copy of r_acc in wide mode.
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    ST.AAQ {{ out_ptr }} {{ OUT_BASE_TG1 }};;  # store 512B → OUTPUT[j, tg=1]
+    # Store (ADR 0007): ACTIVATE.EXACT activates R_ACC's active lanes and
+    # stores the row as 128 FP32 values in the same word; the DS half
+    # (ds(128), every lane) makes `identity` a lane-for-lane copy of r_acc.
+    ACTIVATE.EXACT identity {{ DSTRUCT }} {{ OUT_BASE_TG1 }} {{ out_ptr }};;  # store 512B → OUTPUT[j, tg=1]
     ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;                                          # advance output ptr
 
     ADD {{ w_ptr }} {{ w_ptr }} {{ w_stride }};

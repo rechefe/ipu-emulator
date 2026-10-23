@@ -9,7 +9,7 @@
     verbatim, no transpose) is applied to each of the 4 pixel-streams' data
     blocks b[p] (channel-major [k, n_tok]) in one invocation, instead of 4
     host round-trips through the single-stream matmul_*_x128 kernels it is
-    built from. act is the activation parameter, applied by ACTIVATE.QUANTIZE
+    built from. act is the activation parameter, applied by ACTIVATE.EXACT
     at the store: none (identity; QKV, OutProj, FFN2) or silu (FFN1). The
     activation is part of the routing query: a plain projection query must
     never reach a kernel that fuses silu.
@@ -75,8 +75,8 @@
 
     - The registers are named below ({% set %}), a pure source-level rename:
       the binary is the same as with the raw register names. The CR names are
-      the [abi] bindings ({{ cr.<name> }}); CR15 holds the harness's default
-      dstructure (128 valid elements).
+      the [abi] bindings ({{ cr.<name> }}); cr.ds_qf (CR15) holds the DS
+      (ds(128), every lane) in .L and the case's QF in .H.
 -#}
 
 # ---------------------------------------------------------------------------
@@ -110,7 +110,8 @@
 {% set DATA_STREAM_STR  = cr.data_stream_str %}  {# K: D row stride between streams #}
 {% set OUT_STREAM_STR   = cr.out_stream_str %}  {# N_OUT: C row stride between streams #}
 {% set STREAM_COUNT     = cr.stream_count %}  {# 4: number of pixel-streams #}
-{% set DSTRUCT          = "CR15" %}  {# reserved dstructure register #}
+{% set DSTRUCT          = cr.ds_qf ~ ".L" %}  {# the DS half: ds(128) #}
+{% set QF               = cr.ds_qf ~ ".H" %}  {# the QF half (case_qf; FP32 ignores it) #}
 
     SET {{ stream_idx }} {{ ZERO }};;                              # p = 0
     SET {{ stream_data_base }} {{ DATA_BASE }};;                    # stream 0 D base
@@ -138,7 +139,7 @@ j_loop:
     ADD {{ k_idx }} {{ k_idx }} {{ ONE }};;
 
     # Peeled first k-iter (k=0): ACC.FIRST seeds r_acc (replaces RESET_ACC).
-    MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ QF }};
     ACC.ADD.FIRST;
     LD.MULT.CYCLIC {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ ONE }};
@@ -147,7 +148,7 @@ j_loop:
     B after_chunk0;;
 
 k_chunk0:
-    MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ QF }};
     ACC.ADD;
     LD.MULT.CYCLIC {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ ONE }};
@@ -176,7 +177,7 @@ use_full_bound:
     SET {{ bound }} {{ FULL_BOUND }};;
 
 chunk_body:
-    MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ QF }};
     ACC.ADD;
     LD.MULT.CYCLIC {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ ONE }};
@@ -187,8 +188,7 @@ chunk_body:
     BLT.S {{ chunk_idx }} {{ CHUNK_COUNT }} chunk_loop;;
 
 store_out:
-    ACTIVATE.QUANTIZE {{ "identity" if activation == "none" else activation }} {{ DSTRUCT }};
-    ST.AAQ {{ out_ptr }} {{ ZERO }};;  # y[p,0,j,:] = act(R_ACC)
+    ACTIVATE.EXACT {{ "identity" if activation == "none" else activation }} {{ DSTRUCT }} {{ ZERO }} {{ out_ptr }};;  # y[p,0,j,:] = act(R_ACC)
     ADD {{ out_ptr }} {{ out_ptr }} {{ ONE }};;                     # advance output ptr, packed (1 row/j)
 
     ADD {{ weight_row_off }} {{ weight_row_off }} {{ W_STRIDE }};

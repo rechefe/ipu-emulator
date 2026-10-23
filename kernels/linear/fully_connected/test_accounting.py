@@ -1,6 +1,6 @@
 """fully_connected beyond its golden: its multiplier and alias accounting (E07-21).
 
-Each format runs once, profiled (E06-12): the profiled run is held to the
+Each variant runs once, profiled (E06-12): the profiled run is held to the
 golden too, so the counts are those of a correct run.
 """
 
@@ -10,14 +10,13 @@ import pytest
 
 from ipu_harness.runner import RunOptions
 
-#: What the profile sees in every format, as (verified, candidate) counts.
-#: A16: each of the 10 samples is stored with the emulator-only ST.ACC (the
-#: one ISA alias the old test counted, ``alias_hits``). The profile's
-#: sequence detectors also report post-increment addressing (A12), a narrow
-#: MULT (A13: 64 outputs on 128 lanes) and multiple accumulators (A14); see
-#: docs/content/explanation/isa-idioms.md.
+#: What the profile sees in every variant, as (verified, candidate) counts.
+#: The samples are stored with ACTIVATE.QUANTIZE (ADR 0007), so the
+#: emulator-only ST.ACC alias the old test counted (A16_STR_ACC_REG, once per
+#: sample) is gone. The profile's sequence detectors report post-increment
+#: addressing (A12), a narrow MULT (A13: 64 outputs on 128 lanes) and multiple
+#: accumulators (A14); see docs/content/explanation/isa-idioms.md.
 ALIASES = {
-    "A16_STR_ACC_REG": (10, 0),
     "A12_ADDRESSING": (3869, 0),
     "A13_NARROW_MULT": (1280, 0),
     "A14_MULTIPLE_ACC": (1161, 0),
@@ -30,7 +29,7 @@ def default(cases):
     return case
 
 
-@pytest.mark.parametrize("fmt", ["int8", "int32", "e4", "e5"])
+@pytest.mark.parametrize("fmt", ["e4", "e5", "dynamic"])
 def test_mac_accounting_and_alias_hits(kernel, default, run_case, fmt):
     (format_,) = [f for f in default.formats if f.value == fmt]
     result = run_case(default, format_, RunOptions(alias_profile=True))

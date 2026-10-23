@@ -14,8 +14,8 @@ activation = { type = "str", choices = ["none", "silu"], default = "none" }  # f
 [derived]
 tokens      = "16"
 n_out       = "8"                          # 128 / tokens: one packed row
-dstruct_mult = "dstructure(128, 8)"         # partition P8: one window per output channel
-dstruct_row  = "dstructure(128)"
+dstruct_mult = "ds(16, 8, 8)"              # .L: partition P8, one window per output channel
+ds_qf        = "halves(ds(128), case_qf)"  # .L: the store's DS (every lane); .H: the QF (0 in FP32)
 # R_CYCLIC index seeds, one per output channel p: (512 - tokens * (p + 1)) % 512
 seed0 = "496"
 seed1 = "480"
@@ -46,7 +46,7 @@ a            = "CR3"
 y            = "CR4"
 mask         = "CR5"
 dstruct_mult = "CR6"
-dstruct_row  = "CR7"
+ds_qf        = "CR7"
 seed0        = "CR8"
 seed1        = "CR9"
 seed2        = "CR10"

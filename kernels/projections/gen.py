@@ -1,17 +1,14 @@
 """Case generators shared by the projections' templates (E07-02).
 
 ``seeded_uniform`` draws each case's data in FP32 from its seed, so the FP32
-outputs match the recorded ones bit for bit.
-In every other format it makes nothing, and the harness's default generator
-fills the inputs from their ``range`` (E07-03): the seeded data, uniform in
-[-1, 1), would round to {-1, 0, 1} in INT8. ``weight_rows`` is the
-weight-pointer check.
+outputs match the recorded ones bit for bit (the projections run in FP32
+only). ``weight_rows`` is the weight-pointer check.
 ``window_mask`` is the packed linear's R_MASK row (E07-23).
 """
 
 import numpy as np
 
-from ipu_isa.formats import FORMATS, ElementFormat
+from ipu_isa.formats import ElementFormat
 from ipu_kernels.pack import r_mask
 
 #: The old cases' seed.
@@ -24,9 +21,9 @@ SCALE = 0.01
 def seeded_uniform(plan, rng):
     """In FP32, b per stream, then a, uniform in [-1, 1) from ``RandomState(SEED)``.
 
-    In another format, nothing: the default generator makes b and a.
+    In NX8, nothing: the default generator makes b and a.
     """
-    if plan.format is not ElementFormat.FP32:
+    if plan.format.mode is not ElementFormat.FP32:
         return {}
     streams, n_tg, k, n_tok = plan.shapes["b"]
     n_out = plan.shapes["a"][0]
@@ -54,4 +51,4 @@ def weight_rows(plan, rng):
 
 def window_mask(plan):
     """packed_output_linear's R_MASK row: each output channel's window in its slot."""
-    return r_mask.window_mask(plan.derived["tokens"], FORMATS[plan.format].row_bytes)
+    return r_mask.window_mask(plan.derived["tokens"], plan.format.row_bytes)
