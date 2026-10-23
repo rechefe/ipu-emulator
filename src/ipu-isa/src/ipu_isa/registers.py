@@ -60,7 +60,7 @@ REGISTER_DEFINITIONS: dict[str, RegisterDefinition] = {
         "encoding_class": "MultStageRegField",
     },
     # The FP32 run mode's counterpart to "r": same r0/r1 pair, but each
-    # element widened to LANES(128) x 4 B = 512 B (float32/int32 lanes instead
+    # element widened to LANES(128) x 4 B = 512 B (float32 lanes instead
     # of the 8-bit formats' 1 B/lane). Mirrors r_cyclic's approach of a mode-independent
     # allocation sized for the wider mode, so the RegFile-native snapshot()
     # covers it automatically instead of a hand-rolled shadow dict on IpuState.
@@ -86,7 +86,7 @@ REGISTER_DEFINITIONS: dict[str, RegisterDefinition] = {
         "debug_aliases": ("rcyclic",),
     },
     # The FP32 run mode's counterpart to "r_cyclic": same 512-element ring,
-    # but each element widened to 4 B (float32/int32 lanes instead of narrow's
+    # but each element widened to 4 B (float32 lanes instead of narrow's
     # 1 B/lane) -- mirrors the r/r_wide_debug split (#180). Emulator/debug
     # storage only -- not encodable as an assembly operand.
     "r_cyclic_wide_debug": {

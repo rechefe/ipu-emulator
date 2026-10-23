@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/rechefe/ipu-emulator/schemas/conformance-setup/2.1.0",
+  "$id": "https://github.com/rechefe/ipu-emulator/schemas/conformance-setup/2.0.0",
   "title": "IPU conformance case setup",
   "description": "A conformance case's starting state and run limits (E04-31). From reset in `format`: load program.bin, write `registers`, then `xmem`, then `xmem_metadata`, set `fault_enables`, and run until HALT, a fault or `max_cycles` words.",
   "type": "object",
@@ -130,7 +130,7 @@
     },
     "xmem_metadata": {
       "type": "array",
-      "description": "Optional (2.1.0): XMEM row metadata words to write (NX8: scale[7:0], dynamic_exponent[8]); every other row's word starts at zero. Listed only when one is not zero.",
+      "description": "Optional: XMEM row metadata words to write (NX8: scale[7:0], dynamic_exponent[8]); every other row's word starts at zero. Listed only when one is not zero.",
       "items": {
         "type": "object",
         "additionalProperties": false,

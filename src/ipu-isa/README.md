@@ -15,9 +15,17 @@ catalogue live in `ipu_emu`, and generators live in `ipu_gen`.
 - **Instruction word** (`codec/word.py`): `WORD_LAYOUT` (every field, its wire name
   and bit position), `DecodedWord`, `word_bytes`, `hardware_word`, and the program
   file layout (`pack_program`, `unpack_program`)
-- **Element formats** (`formats.py`): `ElementFormat` (`int8`, `e1`..`e7`, and the
-  emulator-only `fp32`, `int32`) with the element bytes, row bytes, accumulator
-  type and register element layout derived from each
+- **Run modes** (`formats.py`): `ElementFormat` (`nx8`, the hardware mode, and
+  the emulator-only `fp32`, ADR 0007) with the element bytes, row bytes,
+  accumulator type and register element layout derived from each
+- **NX8** (`nx8.py`): the quantizer and expansion of the AaQ and MULT specs
+  (`encode_row`, `decode_element`, the dynamic-exponent rule) and the row
+  metadata word
+- **CR contents** (`cr_halves.py`): the QF and DS half layouts, the MULT
+  constant layout and the half-CR operand codes
+- **AaQ LUT** (`lut.py`): the LUT's bit layout, its five segments and
+  `lut_image`, which builds the rows that load a function (entry format
+  provisional, OQ-47)
 - **Timing contract** (`timing.py`): `SLOT_EXECUTION_ORDER`, the cycle-start /
   forwarded rules (`contract_view`), and `KNOWN_DEVIATIONS`, the reads where the
   emulator differs from the contract today; each instruction declares its

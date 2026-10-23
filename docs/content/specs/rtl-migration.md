@@ -13,7 +13,7 @@ the header line, and the operational AaQ stage of ADR 0007, which removes the
 STORE slot and changes widths and opcode values (section 4: a breaking
 change). The comment above `ipu_compound_inst_t` changes with the second.
 
-### 1. Eight instructions' enum and union members are renamed (E03-19)
+### 1. Seven instructions' enum and union members are renamed (E03-19)
 
 The mnemonic standard renamed nine instructions. Their opcode values are the
 same; only the SV names change. The full table, with the old and new

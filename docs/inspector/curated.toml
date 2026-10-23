@@ -46,7 +46,7 @@ description = """The vector_tour conformance program: loads a mask, two R_CYCLIC
 R0/R1, then runs MULT.VE, MULT.RC.VV/VS/VE and MULT.EE into ACC.ADD/SUB/MAX, masked \
 multiplies, and a 4-row matrix-vector loop with AGG.SUM.FIRST. Dynamic NX8: each \
 ACTIVATE.QUANTIZE store picks the exponent width of its row from the data and records it in \
-the row's metadata (dynamic_exponent), which the next MULT reads back."""
+the row's metadata (dynamic_exponent), which a MULT that later loads the row reads back."""
 
 [[kernel]]
 id = "fc_e4"
