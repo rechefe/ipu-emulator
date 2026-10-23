@@ -59,7 +59,7 @@ is halted, which it is after a reset or a program load.
 
 Write the same values into the RTL, over AXI or by backdoor. `CR0` and `CR1`
 are constants and cannot be written. A register is named by its bank, as
-`ipu_isa.registers` names them (`lr`, `cr`, `r`, `r_acc`, `post_aaq_reg`, ...),
+`ipu_isa.registers` names them (`lr`, `cr`, `r`, `r_meta`, `r_cyclic_meta`, `r_acc`, `aaq_lut`, ...),
 and an `index` within the bank. `lr` and `cr` take and return unsigned 32-bit
 ints; the other banks take and return bytes.
 

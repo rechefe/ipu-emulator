@@ -35,8 +35,7 @@ NX8 at full precision, so its result can be compared with a reference such as
 PyTorch. The assembly and its XMEM row numbers are the same as in NX8; each
 element takes four bytes instead of one.
 
-INT8, INT32 and the emulator's former biased E1–E7 formats are gone. "E4" now
-means the NX8 type e4.
+FP32 and NX8 are the only element formats. "E4" means the NX8 type e4.
 
 ## How NX8 encodes values
 

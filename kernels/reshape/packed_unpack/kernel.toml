@@ -20,7 +20,7 @@ qf          = "case_qf"                     # the case's QF half (0: FP32 ignore
 [inputs.x]                                 # the packed rows
 shape = ["packed_rows", 128]
 
-[outputs.y]                               # one channel per row; ST.AAQ stores tokens lanes
+[outputs.y]                               # one channel per row; ACTIVATE.EXACT stores tokens lanes
 shape = ["channels", "tokens"]
 
 [scratch.mask]                             # R_MASK: each channel's window in its slot

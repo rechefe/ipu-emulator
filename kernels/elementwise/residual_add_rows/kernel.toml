@@ -35,7 +35,7 @@ row = 0                             # the program reads a's base through CR0
 shape = ["channels / per_row", "per_row * tokens"]
 
 [outputs.y]
-shape = ["channels / per_row", "per_row * tokens"]   # ST.AAQ: element store
+shape = ["channels / per_row", "per_row * tokens"]   # ACTIVATE.EXACT identity: FP32 row store
 
 [abi]
 a          = "CR0"                  # hardwired 0: a is pinned at row 0 (E06 gap G5)

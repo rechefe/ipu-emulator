@@ -65,11 +65,14 @@ NaN, which NX8 cannot hold
 
 **What is an error.** ±inf saturates to the largest magnitude and is left out
 of the scale; a saturation sets the `QUANT_SATURATION`
-[arithmetic event](../../requirements/faults.md#arithmetic-events). A NaN to
-quantize (for example `rsqrt` of a negative input), `exp2` of a positive
-input, an invalid DS or QF half, and `generic` with no declared function are
-emulator errors, raised in the word's check phase. A row outside XMEM is fault
-F-6.
+[arithmetic event](../../requirements/faults.md#arithmetic-events). An invalid DS or
+QF half is a configuration error, raised in the word's check phase: the word
+leaves the state as a fault does. A row outside XMEM is fault F-6, found in
+the same phase. A NaN to quantize in NX8 (for example `rsqrt` of a negative
+input), `exp2` of a positive input, and `generic` with no declared function
+depend on `R_ACC`, which the same word's ACC forwards. They are emulator
+errors raised when `ACTIVATE.QUANTIZE` executes, after the word's LR, LOAD,
+MULT and ACC writes have landed.
 
 **The LUT and `generic`.** The hardware evaluates `generic` through the LUT
 that five `LD.LUT` loads fill. The 17-bit entry format and the interpolation

@@ -1,6 +1,6 @@
 # IPU hardware requirements
 
-The Inference Processing Unit (IPU) is a VLIW vector processor that runs neural-network kernels. Each VLIW word operates on 128-element vectors through a load, multiply, accumulate, activate-and-quantize, and store chain.
+The Inference Processing Unit (IPU) is a VLIW vector processor that runs neural-network kernels. Each VLIW word operates on 128-element vectors through a load, multiply, accumulate, and activate-quantize-and-store chain.
 
 The requirements define what the IPU does and what it expects from the blocks around it. The IPU block specification and the sub-block specifications derive from the requirements.
 
@@ -10,7 +10,7 @@ The requirements define what the IPU does and what it expects from the blocks ar
 |---|---|---|
 | 1. Requirements | Goals, interfaces, main flows, faults, debug | Draft |
 | 2. IPU block specification | Ports, registers and timing of the IPU top | Not started |
-| 3. Sub-block specifications | CTRL, cache agent, MULT, ACC, AAQ, STORE, host register block | Not started |
+| 3. Sub-block specifications | CTRL, cache agent, MULT, ACC, AAQ, host register block | Not started |
 
 ## Goals
 
@@ -29,11 +29,11 @@ The kernel library is the throughput benchmark. Area and power are not constrain
 
 | Item | In scope |
 |---|---|
-| CTRL, cache agent, MULT, ACC, AAQ and STORE stages | Yes |
+| CTRL, cache agent, MULT, ACC and AAQ stages | Yes |
 | Host register block and debug | Yes |
 | Cache unit (CRM, XMEM, DMA) | Interface and expected behaviour only |
 | RISC-V host | Interface and expected software flow only |
-| `ACC_STORE` and `BREAK` ISA slots | No. These slots exist in the emulator only. |
+| `AAQ_EXACT` and `BREAK` ISA slots | No. These slots exist in the emulator only. |
 
 ## Requirement conventions
 
@@ -50,7 +50,7 @@ The kernel library is the throughput benchmark. Area and power are not constrain
 | Term | Meaning |
 |---|---|
 | VLIW word | One instruction word. It holds one sub-instruction per slot. |
-| Slot | A field of the VLIW word executed by one stage: `COND`, `LR` (three lanes), `LOAD`, `MULT`, `ACC`, `AAQ`, `STORE`. |
+| Slot | A field of the VLIW word executed by one stage: `COND`, `LR` (three lanes), `LOAD`, `MULT`, `ACC`, `AAQ`. |
 | Kernel | A program in one IMEM bank, with its CR bank and its table set. |
 | Context | Context 0 or context 1. A context holds one IMEM bank, one CR bank and one table set. |
 | Active context | The context the running kernel uses. The other context is the inactive context. |
@@ -76,7 +76,7 @@ The kernel library is the throughput benchmark. Area and power are not constrain
 | [Instruction reference](../reference/isa/instructions.md) | Instruction semantics and encodings |
 | [Control stage specification](../specs/stage-control.md) | CTRL behaviour |
 | [Accumulator stage specification](../specs/MAS-stage-accumulator.md) | ACC behaviour |
-| [AaQ and store stage specification](../specs/MAS-stage-aaq-str.md) | AAQ and STORE behaviour |
+| [AaQ and store stage specification](../specs/MAS-stage-aaq-str.md) | AAQ behaviour, including the store |
 | [Cache unit specification](../specs/cache-unit.md) | CRM, XMEM and DMA behaviour |
 
 [Open questions](open-questions.md) lists the conflicts between these documents.

@@ -4,7 +4,7 @@ The IPU reads and writes XMEM rows. The cache unit fills XMEM banks from DRAM an
 
 ## Address
 
-A `LOAD` or `STORE` slot names a base register (CR) and an offset register (LR). CTRL computes the row address:
+Every XMEM access names a base register (CR) and an offset register (LR): the loads of the `LOAD` slot, and `LD.LUT`, `ACTIVATE.QUANTIZE` and `ACTIVATE.EXACT` in the `AAQ` and `AAQ_EXACT` slots. CTRL computes the row address:
 
 ```
 row_address = CR[base] + LR[offset]      // LR value after the LR writes of the same word
@@ -34,7 +34,7 @@ Each table has a `jump_back` parameter. When an access reaches row `jump_back` o
 
 | ID | Requirement |
 |---|---|
-| IPU-MEM-1 | The cache agent shall decide hit or miss for the `LOAD` and the `STORE` of a word in the cycle CTRL presents the word. See [OQ-16](open-questions.md). |
+| IPU-MEM-1 | The cache agent shall decide hit or miss for the load and the store of a word in the cycle CTRL presents the word. See [OQ-16](open-questions.md). |
 | IPU-MEM-2 | The cache agent shall decide from state it holds: the table view of the active context and the state and tag of each XMEM bank. |
 | IPU-MEM-3 | The cache agent shall accept a word only when every memory access of the word hits and the word raises no fault. |
 | IPU-MEM-4 | The cache agent shall accept a word that has no memory access without delay. |

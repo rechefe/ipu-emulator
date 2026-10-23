@@ -32,7 +32,18 @@ a separate promise.
 - **Major** (breaking): a public name removed or renamed, a parameter removed
   or made required, a field removed, renamed or retyped, or a meaning changed
   (a method that now refuses what it accepted, a field that now counts
-  something else).
+  something else). Version 2.0.0 is the run modes of
+  [ADR 0007](https://github.com/rechefe/ipu-emulator/blob/master/docs/adr/0007-operational-aaq-and-nx8.md):
+  `ElementFormat` keeps `FP32` and `NX8` (value `"nx8"`) and loses `INT8`,
+  `E1`–`E7` and `INT32`, so the constructor and `reset()` take one of the two
+  modes, and the constructor defaults to `NX8` instead of `INT8`;
+  `load_program()` refuses a program that uses the FP32-only
+  `ACTIVATE.EXACT` when the model runs in NX8 mode; the `post_aaq_reg`
+  register bank is removed, and `read_register()` and `write_register()`
+  take the `r_meta`, `r_cyclic_meta` and `aaq_lut` banks as bytes; and a
+  commit record's slots no longer include `store` or `acc_store`, and can
+  include `aaq_exact`. The method signatures and the commit record fields
+  are 1.5.0's.
 - **Minor**: an addition that leaves every existing call working, such as a
   new method, a new optional parameter or a new dataclass field with a
   default. Version 1.1.0 added `Stats` and
