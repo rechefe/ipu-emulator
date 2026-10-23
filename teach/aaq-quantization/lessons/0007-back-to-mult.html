@@ -56,7 +56,7 @@
 
 <section style="display:grid;gap:0.75rem">
   <p>MULT then decodes each operand with the run's one element format and writes 128 products to <code>MULT_RES</code>, rounded once to the accumulator type: FP32 for every float format, INT32 for INT8.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/src/ipu-emu/src/ipu_emu/slots/mult.py">[slots/mult.py]</a> <a href="https://github.com/rechefe/ipu-emulator/blob/master/src/ipu-isa/src/ipu_isa/formats.py">[formats.py]</a></span> The decode is the emulator's biased Ex from lesson 3. Nothing reads a scale.</p>
-  <p>The accumulator spec says FP8 multiplies "produce FP32 products — see the MULT stage".<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/stage-accumulator.md">[ACC spec]</a></span> There is no MULT-stage spec in <code>docs/content/specs/</code>.</p>
+  <p>The accumulator spec says FP8 multiplies "produce FP32 products — see the MULT stage".<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-accumulator.md">[ACC spec]</a></span> There is no MULT-stage spec in <code>docs/content/specs/</code>.</p>
 </section>
 
 <section style="display:grid;gap:0.75rem">

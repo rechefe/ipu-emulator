@@ -23,8 +23,8 @@
 
 <section style="display:grid;gap:0.75rem">
   <h2>The job of the scale</h2>
-  <p>AaQ takes 128 FP32 values from <code>R_ACC</code> and writes 128 bytes. One byte cannot cover FP32's range, so the 128 elements share one exponent, the row's <strong>scale</strong> <code>s</code>. Each element then stores only how far it sits below that scale, plus a few mantissa bits.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/stage-aaq-str.md#51-quantization-algorithm">[AaQ §5.1]</a></span></p>
-  <p>AaQ computes <code>s</code> as the largest raw FP32 exponent in the row and stores it as <code>e8m0</code>: an 8-bit exponent, a power of two with no mantissa.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/stage-aaq-str.md#51-quantization-algorithm">[AaQ §5.1]</a></span></p>
+  <p>AaQ takes 128 FP32 values from <code>R_ACC</code> and writes 128 bytes. One byte cannot cover FP32's range, so the 128 elements share one exponent, the row's <strong>scale</strong> <code>s</code>. Each element then stores only how far it sits below that scale, plus a few mantissa bits.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#51-quantization-algorithm">[AaQ §5.1]</a></span></p>
+  <p>AaQ computes <code>s</code> as the largest raw FP32 exponent in the row and stores it as <code>e8m0</code>: an 8-bit exponent, a power of two with no mantissa.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#51-quantization-algorithm">[AaQ §5.1]</a></span></p>
   <p>The industry calls this <em>block scaling</em>. The OCP Microscaling (MX) standard shares one <code>E8M0</code> scale across 32 elements;<span class="cite"><a href="https://docs.nvidia.com/cutlass/latest/media/docs/operators/tutorials/006_block_scaled_gemm.html">[CUTLASS]</a> <a href="https://awsdocs-neuron.readthedocs-hosted.com/en/latest/compiler/error-codes/EVRF039.html">[AWS Neuron]</a></span> AaQ shares one across a whole 128-element row.</p>
 </section>
 
@@ -50,7 +50,7 @@
       <span class="mono">format[8:0] = { dynamic, sign, fe[2:0], W[3:0] }</span>
       <span class="bitlegend">Set once per table by the RISC-V host. Shared by every row of the table, across all its banks.</span>
     </div>
-    <figcaption>One AaQ-written row. Sources: <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/cache-unit.md#6-memory-and-tag-model">cache unit §6</a> (metadata), <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/cache-unit.md#5-tables">cache unit §5</a> and <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/stage-aaq-str.md#33-format-field-layout">AaQ §3.3</a> (format).</figcaption>
+    <figcaption>One AaQ-written row. Sources: <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/cache-unit.md#6-memory-and-tag-model">cache unit §6</a> (metadata), <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/cache-unit.md#5-tables">cache unit §5</a> and <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#33-format-field-layout">AaQ §3.3</a> (format).</figcaption>
   </figure>
 
   <div class="table-wrap">
@@ -81,7 +81,7 @@
 
 <section style="display:grid;gap:0.75rem">
   <p>The scale says <em>where</em> the row's values are. The table's <code>fe</code> says <em>how to split each byte</em>. A reader needs both, and they come from different places.</p>
-  <p><strong>Exception, dynamic tables.</strong> When <code>format[8] = 1</code>, the table fixes only "signed, 8 bits". AaQ picks E1M6 or E2M5 for each row and records the choice in that row's <code>dynamic_exponent</code> bit. So in a dynamic table, <code>fe</code> comes from the metadata word instead.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/stage-aaq-str.md#511-dynamic-exponent-field-selection-fe--1-vs-fe--2">[AaQ §5.1.1]</a></span></p>
+  <p><strong>Exception, dynamic tables.</strong> When <code>format[8] = 1</code>, the table fixes only "signed, 8 bits". AaQ picks E1M6 or E2M5 for each row and records the choice in that row's <code>dynamic_exponent</code> bit. So in a dynamic table, <code>fe</code> comes from the metadata word instead.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#511-dynamic-exponent-field-selection-fe--1-vs-fe--2">[AaQ §5.1.1]</a></span></p>
 </section>
 
 <section class="wide" style="display:grid;gap:0.75rem">
@@ -144,7 +144,7 @@
 
 <aside class="callout source">
   <span class="label">Read next</span>
-  <p><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/stage-aaq-str.md#32-output">AaQ spec §3.2–3.3</a> (one page), then <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/cache-unit.md#5-tables">cache unit spec §5–6</a>. For the industry background, the <a href="https://www.opencompute.org/blog/amd-arm-intel-meta-microsoft-nvidia-and-qualcomm-standardize-next-generation-narrow-precision-data-formats-for-ai">OCP MX announcement</a>.</p>
+  <p><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#32-output">AaQ spec §3.2–3.3</a> (one page), then <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/cache-unit.md#5-tables">cache unit spec §5–6</a>. For the industry background, the <a href="https://www.opencompute.org/blog/amd-arm-intel-meta-microsoft-nvidia-and-qualcomm-standardize-next-generation-narrow-precision-data-formats-for-ai">OCP MX announcement</a>.</p>
 </aside>
 
 <aside class="callout ask">

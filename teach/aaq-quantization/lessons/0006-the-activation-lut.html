@@ -24,7 +24,7 @@
 
 <section style="display:grid;gap:0.75rem">
   <h2>Direct functions and LUT functions</h2>
-  <p><code>function_type</code> is 3 bits and names seven types.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/stage-aaq-str.md#50-activate-and-quantize-activatequantize">[AaQ §5.0]</a></span></p>
+  <p><code>function_type</code> is 3 bits and names seven types.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#50-activate-and-quantize-activatequantize">[AaQ §5.0]</a></span></p>
   <div class="table-wrap"><table>
     <thead><tr><th class="num">Code</th><th>Type</th><th>Evaluated by</th></tr></thead>
     <tbody>
@@ -42,7 +42,7 @@
 
 <section style="display:grid;gap:0.75rem">
   <h2>What the LUT holds</h2>
-  <p>The stage keeps <strong>256 entries of 17 bits</strong> (4352 bits) plus a <strong>75-bit LUT metadata block</strong> that sets how inputs outside the table's range are handled.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/stage-aaq-str.md#52-function-estimation-lut">[AaQ §5.2]</a></span> This LUT metadata is unrelated to a row's 16-bit metadata word.</p>
+  <p>The stage keeps <strong>256 entries of 17 bits</strong> (4352 bits) plus a <strong>75-bit LUT metadata block</strong> that sets how inputs outside the table's range are handled.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#52-function-estimation-lut">[AaQ §5.2]</a></span> This LUT metadata is unrelated to a row's 16-bit metadata word.</p>
   <div class="table-wrap"><table>
     <thead><tr><th class="num">Bits</th><th>Field</th><th>Meaning</th></tr></thead>
     <tbody>
@@ -53,12 +53,12 @@
       <tr><td class="num">[74:73]</td><td><code>range_mode</code></td><td>Out-of-range policy. Encoding TBD.</td></tr>
     </tbody>
   </table></div>
-  <p style="max-width:var(--measure)">Source: <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/stage-aaq-str.md#522-metadata-block">AaQ §5.2.2</a>.</p>
+  <p style="max-width:var(--measure)">Source: <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#522-metadata-block">AaQ §5.2.2</a>.</p>
 </section>
 
 <section style="display:grid;gap:0.75rem">
   <h2>Filling it: five LUT loads</h2>
-  <p>The spec's instruction is <code>LOAD lut_addr</code>, in the AAQ slot. Each one copies a 1024-bit <strong>segment</strong> from <code>R_ACC</code> words 0–31 (32 × 32 bits) into the LUT. <code>lut_addr</code> 0–4 are used; 5–7 are reserved.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/stage-aaq-str.md#521-segment-transfer">[AaQ §5.2.1]</a></span> The LUT load writes no XMEM and leaves <code>R_ACC</code> unchanged.</p>
+  <p>The spec's instruction is <code>LOAD lut_addr</code>, in the AAQ slot. Each one copies a 1024-bit <strong>segment</strong> from <code>R_ACC</code> words 0–31 (32 × 32 bits) into the LUT. <code>lut_addr</code> 0–4 are used; 5–7 are reserved.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#521-segment-transfer">[AaQ §5.2.1]</a></span> The LUT load writes no XMEM and leaves <code>R_ACC</code> unchanged.</p>
   <p>The spec then describes the segment layout twice, and the two descriptions disagree:</p>
   <div class="table-wrap"><table>
     <thead><tr><th></th><th>§5.2.1 and §5.2.2</th><th>§6.3 pseudocode</th></tr></thead>
@@ -69,7 +69,7 @@
       <tr><td>Segment 4</td><td>Last 256 table bits, then LUT metadata at <code>payload[330:256]</code></td><td>LUT metadata only, at <code>payload[74:0]</code></td></tr>
     </tbody>
   </table></div>
-  <p>Only the flat reading fills all 256 entries with five loads, and only it matches the worked example in §5.2.2 (<code>max_exp_num</code> = <code>r_acc[8][7:0]</code>). The §6.3 pseudocode and summary table need correcting.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/stage-aaq-str.md#63-load-load-function-estimation-lut-segment">[AaQ §6.3]</a></span></p>
+  <p>Only the flat reading fills all 256 entries with five loads, and only it matches the worked example in §5.2.2 (<code>max_exp_num</code> = <code>r_acc[8][7:0]</code>). The §6.3 pseudocode and summary table need correcting.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#63-load-load-function-estimation-lut-segment">[AaQ §6.3]</a></span></p>
 </section>
 
 <div class="panel wide">
@@ -163,7 +163,7 @@
 
 <aside class="callout source">
   <span class="label">Read next</span>
-  <p><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/stage-aaq-str.md#52-function-estimation-lut">AaQ spec §5.2</a> and <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/stage-aaq-str.md#63-load-load-function-estimation-lut-segment">§6.3</a>, side by side; then OQ-24 to OQ-26 on the <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/requirements/open-questions.md">open-questions page</a>.</p>
+  <p><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#52-function-estimation-lut">AaQ spec §5.2</a> and <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#63-load-load-function-estimation-lut-segment">§6.3</a>, side by side; then OQ-24 to OQ-26 on the <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/requirements/open-questions.md">open-questions page</a>.</p>
 </aside>
 
 <aside class="callout ask">

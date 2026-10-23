@@ -24,8 +24,8 @@
 
 <section style="display:grid;gap:0.75rem">
   <h2>What a dynamic table fixes</h2>
-  <p>A table format with <code>format[8] = 1</code> fixes only "signed, 8 bits wide". Its <code>fe</code> field is ignored. The two legal splits are E1M6 (<code>fe = 1</code>) and E2M5 (<code>fe = 2</code>).<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/stage-aaq-str.md#33-format-field-layout">[AaQ §3.3]</a> <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/stage-aaq-str.md#51-quantization-algorithm">[§5.1 note]</a></span></p>
-  <p>AaQ computes the scale <code>s</code> exactly as for a static table: the largest raw exponent in the row. Only the split changes. The <span class="role meta">metadata word</span> records it: <code>dynamic_exponent = 0</code> for E1M6, <code>1</code> for E2M5.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/stage-aaq-str.md#32-output">[AaQ §3.2]</a></span></p>
+  <p>A table format with <code>format[8] = 1</code> fixes only "signed, 8 bits wide". Its <code>fe</code> field is ignored. The two legal splits are E1M6 (<code>fe = 1</code>) and E2M5 (<code>fe = 2</code>).<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#33-format-field-layout">[AaQ §3.3]</a> <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#51-quantization-algorithm">[§5.1 note]</a></span></p>
+  <p>AaQ computes the scale <code>s</code> exactly as for a static table: the largest raw exponent in the row. Only the split changes. The <span class="role meta">metadata word</span> records it: <code>dynamic_exponent = 0</code> for E1M6, <code>1</code> for E2M5.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#32-output">[AaQ §3.2]</a></span></p>
 </section>
 
 <section style="display:grid;gap:0.75rem">
@@ -45,7 +45,7 @@
 
 <section style="display:grid;gap:0.75rem">
   <h2>The rule</h2>
-  <p>AaQ scores the row with two integer sums.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/stage-aaq-str.md#511-dynamic-exponent-field-selection-fe--1-vs-fe--2">[AaQ §5.1.1]</a></span> <code>fm1 = W − 2</code> is E1M6's mantissa width (6 for <code>W = 8</code>); <code>err1</code> and <code>err2</code> are an element's truncation errors under each split.</p>
+  <p>AaQ scores the row with two integer sums.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#511-dynamic-exponent-field-selection-fe--1-vs-fe--2">[AaQ §5.1.1]</a></span> <code>fm1 = W − 2</code> is E1M6's mantissa width (6 for <code>W = 8</code>); <code>err1</code> and <code>err2</code> are an element's truncation errors under each split.</p>
   <div class="table-wrap"><table>
     <thead><tr><th>Element</th><th>Adds to</th><th>Term</th></tr></thead>
     <tbody>
@@ -147,7 +147,7 @@
 
 <aside class="callout source">
   <span class="label">Read next</span>
-  <p><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/stage-aaq-str.md#511-dynamic-exponent-field-selection-fe--1-vs-fe--2">AaQ spec §5.1.1</a>: the classification table, the terms, the decision and the unbiasedness argument. Compare its step table with the clamp branch of §5.1.</p>
+  <p><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#511-dynamic-exponent-field-selection-fe--1-vs-fe--2">AaQ spec §5.1.1</a>: the classification table, the terms, the decision and the unbiasedness argument. Compare its step table with the clamp branch of §5.1.</p>
 </aside>
 
 <aside class="callout ask">

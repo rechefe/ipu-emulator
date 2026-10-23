@@ -1,4 +1,4 @@
-// Side-by-side reading of one byte: the emulator's Ex (biased exponent,
+// Side-by-side reading of one byte: the old emulator Ex (being retired) (biased exponent,
 // src/ipu-isa/src/ipu_isa/formats.py _fp8_decode) and AaQ's scale-relative
 // ExM(7-x) (decoder.js, inverted from stage-aaq-str.md §5.1). Needs decoder.js first.
 // Markup: <div class="decoder" data-compare data-byte="1D" data-x="4" data-scale="128"></div>
@@ -36,8 +36,8 @@
       bitsEl.innerHTML = html;
       var emu = emuDecode(b, x), aaq = window.aaqDecode(b, x, s);
       tbody.innerHTML =
-        '<tr><td>Emulator E' + x + '</td><td class="num"><strong>' + fmt(emu.value) + '</strong></td><td class="mono">' + emu.how + "</td></tr>" +
-        '<tr><td>AaQ E' + x + "M" + (7 - x) + ", s = " + s + '</td><td class="num"><strong>' + fmt(aaq.value) + '</strong></td><td class="mono">' + aaq.formula + "</td></tr>";
+        '<tr><td>Old emulator E' + x + ' (retired)</td><td class="num"><strong>' + fmt(emu.value) + '</strong></td><td class="mono">' + emu.how + "</td></tr>" +
+        '<tr><td>NX8 e' + x + ", s = " + s + '</td><td class="num"><strong>' + fmt(aaq.value) + '</strong></td><td class="mono">' + aaq.formula + "</td></tr>";
     }
     [bIn, sel, sIn].forEach(function (el) { el.addEventListener("input", render); });
     render();

@@ -24,7 +24,7 @@
 
 <section style="display:grid;gap:0.75rem">
   <h2>The five steps</h2>
-  <p>All steps work on the FP32 bits of each activated element: sign <code>S</code>, raw (biased) exponent <code>e</code>, and the 23-bit mantissa with its implicit leading 1.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/stage-aaq-str.md#51-quantization-algorithm">[AaQ §5.1]</a></span></p>
+  <p>All steps work on the FP32 bits of each activated element: sign <code>S</code>, raw (biased) exponent <code>e</code>, and the 23-bit mantissa with its implicit leading 1.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#51-quantization-algorithm">[AaQ §5.1]</a></span></p>
   <ol>
     <li><strong>Pick the scale.</strong> <code>s = max(e)</code> over the row's elements. The scale is the raw exponent of the largest element, stored as <code>e8m0</code>.</li>
     <li><strong>Measure the distance.</strong> <code>E = s − e</code> for each element. <code>E ≥ 0</code> always; <code>E = 0</code> for the element(s) that set the scale.</li>
@@ -152,7 +152,7 @@
 
 <aside class="callout source">
   <span class="label">Read next</span>
-  <p><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/stage-aaq-str.md#51-quantization-algorithm">AaQ spec §5.1</a>, read with the quantizer above open beside it. Lesson 5 covers §5.1.1, dynamic tables.</p>
+  <p><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#51-quantization-algorithm">AaQ spec §5.1</a>, read with the quantizer above open beside it. Lesson 5 covers §5.1.1, dynamic tables.</p>
 </aside>
 
 <aside class="callout ask">

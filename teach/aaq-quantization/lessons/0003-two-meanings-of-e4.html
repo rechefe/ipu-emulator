@@ -38,7 +38,7 @@
 
 <section style="display:grid;gap:0.75rem">
   <h2>AaQ's E4M3: a range that follows the row</h2>
-  <p>AaQ stores <code>Exp = s − e</code>, the number of binades an element sits <em>below</em> its row's scale.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/stage-aaq-str.md#51-quantization-algorithm">[AaQ §5.1]</a></span> A larger field means a smaller value.</p>
+  <p>AaQ stores <code>Exp = s − e</code>, the number of binades an element sits <em>below</em> its row's scale.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#51-quantization-algorithm">[AaQ §5.1]</a></span> A larger field means a smaller value.</p>
   <div class="table-wrap"><table>
     <thead><tr><th>Exponent field</th><th>Value (E4M3, row scale s)</th></tr></thead>
     <tbody>
@@ -170,7 +170,7 @@
 
 <aside class="callout source">
   <span class="label">Read next</span>
-  <p><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/stage-aaq-str.md#51-quantization-algorithm">AaQ spec §5.1</a>, the quantization pseudocode, and the 8-bit codec in <a href="https://github.com/rechefe/ipu-emulator/blob/master/src/ipu-isa/src/ipu_isa/formats.py">src/ipu-isa/src/ipu_isa/formats.py</a> (search for "the 8-bit element codec"). Lesson 4 walks through §5.1 line by line.</p>
+  <p><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#51-quantization-algorithm">AaQ spec §5.1</a>, the quantization pseudocode, and the 8-bit codec in <a href="https://github.com/rechefe/ipu-emulator/blob/master/src/ipu-isa/src/ipu_isa/formats.py">src/ipu-isa/src/ipu_isa/formats.py</a> (search for "the 8-bit element codec"). Lesson 4 walks through §5.1 line by line.</p>
 </aside>
 
 <aside class="callout ask">
