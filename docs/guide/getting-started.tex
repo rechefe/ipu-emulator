@@ -461,7 +461,8 @@ row_loop:
 Each \texttt{;;} ends an instruction word, so this loop takes five cycles per
 row. \texttt{identity} runs in the FP32 mode only, so it stores with
 \texttt{ACTIVATE.EXACT}. A kernel that runs on the hardware stores with
-\texttt{ACTIVATE.QUANTIZE} instead, as \texttt{fully\_connected} does:
+\texttt{ACTIVATE.QUANTIZE} instead (the NX8 kernels, such as
+\texttt{fully\_connected}, store this way); the loop's store becomes:
 
 \begin{pycode}
     ACTIVATE.QUANTIZE identity CR15.L CR14.L CR3 LR1 ;;
@@ -1304,7 +1305,7 @@ Output will be saved to: /home/user/ipu-emulator/prog.bin
 \texttt{check} reports every error with its line and column. A comma between
 operands is one (operands are separated by spaces), and so is a bare CR where
 a DS or QF half is expected. Line 2 of \texttt{bad.asm} is
-\texttt{BEQ LR0, CR0, loop ;;}:
+\texttt{BEQ LR0, CR0, loop ;;}, indented four spaces:
 
 \begin{termcmdtop}
 $ bazel run //src/ipu-as:ipu-as -- check --input $PWD/bad.asm
@@ -1325,6 +1326,7 @@ Command & Does \\
 \texttt{assemble} & \texttt{.asm} $\rightarrow$ binary (\texttt{.bin}) or memory image; \texttt{--target hardware} for the hardware word \\
 \texttt{check} & reports every error with line and column; exit code 1 on errors; \texttt{--json} for tools \\
 \texttt{disassemble} & binary $\rightarrow$ assembly text \\
+\texttt{format} & prints a source in the repository's layout (the editor's formatter) \\
 \bottomrule
 \end{tabularx}
 \end{center}
