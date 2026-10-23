@@ -2509,7 +2509,7 @@ LD.LUT 0 CR4 LR0;;
 **General description:**
 Activate the forwarded R_ACC (this cycle's ACC result), quantize the active elements to one NX8 row in the format the QF half `qf` names, and store the 128-byte row and its metadata (scale, dynamic exponent) at XMEM row CR[table_id] + LR[table_offset]. Inactive elements are written 0. In FP32 mode the activated row is stored as 512 bytes of FP32, inactive lanes 0, and `qf` is ignored. R_ACC is not modified.
 
-> Special cases follow the architecture spec: reciprocal and rsqrt of a subnormal input add the smallest normal; rsqrt of a negative input is NaN, which cannot be quantized (emulator error); exp2 of a positive input is an emulator error. ±inf saturates to the largest magnitude; a saturation sets QUANT_SATURATION. `generic` computes the function the test declares as loaded with `LD.LUT`.
+> Special cases follow the architecture spec: reciprocal and rsqrt of a subnormal input add epsilon = 2^-127 with the input's sign; rsqrt of a negative input is NaN, which cannot be quantized (emulator error); exp2 of a positive input is an emulator error. ±inf saturates to the largest magnitude; a saturation sets QUANT_SATURATION. `generic` computes the function the test declares as loaded with `LD.LUT`.
 
 **Pseudo code:**
 `y[i] = activation(R_ACC[i]) for the active elements i of DS[ds]

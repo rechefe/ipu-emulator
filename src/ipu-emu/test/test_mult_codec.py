@@ -194,6 +194,16 @@ def test_nx8_constant_layout_by_hand():
     np.testing.assert_array_equal(got, model.mult_res(window * 1.5))
 
 
+def test_an_nx8_product_beyond_fp32_is_an_infinity():
+    """Row scales put NX8 products past FP32's range: MULT stores the IEEE infinity (OQ-18)."""
+    word = constant(0x00, 254, 4)  # 2^127
+    model, got, ops = _run(MODES[0], "MULT.VE LR0 CR3 0 LR2 CR15.L CR14.L", RA_IDX, "big", word)
+    window = ops["ra"][(RA_IDX + np.arange(LANES)) % (2 * LANES)]
+    expected = model.mult_res(window * ops["cr"])
+    assert np.isinf(expected).any() and np.isfinite(expected).any()
+    np.testing.assert_array_equal(got, expected)
+
+
 @pytest.mark.parametrize(
     ("word", "value"),
     [

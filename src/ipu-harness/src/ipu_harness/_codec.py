@@ -8,9 +8,10 @@ every per-mode branch is here, none in the callers (ADR 0007).
   (``scale``, ``dynamic_exponent``). The scale is chosen per row from the
   row's largest value (``ipu_isa.nx8.encode_row``, the AaQ quantizer), so how
   a value is held depends on the other values of its row: the harness rounds
-  rows, never single values. Zero-padded lanes do not change the scale and
-  read back 0, except in a row that is all zeros: its scale is 0 and each
-  zero reads back as 2^-127, as the spec's quantizer gives (OQ-46).
+  rows, never single values. Zero-padded lanes do not change the scale. A
+  zero value reads back 0 only when the row scale (biased) is at least
+  ``2^fe + fm``; below that, and in a row of zeros, it reads back as a tiny
+  nonzero value, as the spec's quantizer gives (OQ-46).
 """
 
 from __future__ import annotations
@@ -126,12 +127,15 @@ def row_grid(v: Variant, metadata: int) -> Array:
 @cache
 def _nx8_constants(fe: int, sign: int) -> dict[float, tuple[int, int]]:
     """Every value a MULT constant of type (``fe``, ``sign``) holds, to its
-    (code, scale): the smallest scale and then code that hold it."""
+    (code, scale): the smallest scale and then code that hold it. A value
+    is expanded to FP32 as the emulator reads a constant (an underflow reads
+    0, an overflow an infinity, which no parameter can be)."""
     fmt = Nx8Format(sign=sign, exp_format=fe, num_bits=8)
     out: dict[float, tuple[int, int]] = {}
     for scale in range(256):
         for code in range(256):
-            value = decode_element(code, fmt, scale)
+            with np.errstate(all="ignore"):
+                value = float(np.float32(decode_element(code, fmt, scale)))
             if math.isfinite(value):
                 out.setdefault(value, (code, scale))
     return out

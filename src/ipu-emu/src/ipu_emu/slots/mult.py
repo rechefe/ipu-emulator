@@ -175,8 +175,13 @@ def _r_cyclic_window(ipu: Ipu, codec: LaneCodec, rc_idx: int, nx8: Nx8Format | N
 
 
 def _store_mult_res(ipu: Ipu, codec: LaneCodec, product: Lanes) -> None:
-    """Write LANES products to MULT_RES, rounded once to the accumulator type."""
-    codec.store_acc(ipu.state.regfile.mutable("mult_res"), product)
+    """Write LANES products to MULT_RES, rounded once to the accumulator type.
+
+    The IEEE result is stored: a product beyond FP32's range is an infinity
+    (NX8 elements reach that range through their row scale). MULT reports no
+    arithmetic event; whether an overflow there is one is open (OQ-18).
+    """
+    codec.store_acc_events(ipu.state.regfile.mutable("mult_res"), product)
 
 
 # ---------------------------------------------------------------------------

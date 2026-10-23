@@ -1117,7 +1117,7 @@ INSTRUCTION_SPEC = {
                 example="ACTIVATE.QUANTIZE relu CR15.L CR14.L CR2 LR0;;",
                 notes=(
                     "Special cases follow the architecture spec: reciprocal and rsqrt of a subnormal "
-                    "input add the smallest normal; rsqrt of a negative input is NaN, which cannot be "
+                    "input add epsilon = 2^-127 with the input's sign; rsqrt of a negative input is NaN, which cannot be "
                     "quantized (emulator error); exp2 of a positive input is an emulator error. ±inf "
                     "saturates to the largest magnitude; a saturation sets QUANT_SATURATION. "
                     "`generic` computes the function the test declares as loaded with `LD.LUT`."

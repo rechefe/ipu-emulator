@@ -132,7 +132,7 @@ _Avoid_: exception, trap, illegal program error
 Accumulator overflow, a NaN result or quantization saturation. It never halts; it sets a sticky flag.
 
 **Configuration error**:
-A mistake detected before the first cycle, such as an unsupported element format or invalid kernel parameters, or in a word's check phase, such as an invalid QF or DS half or `ACTIVATE.EXACT` in NX8 (ADR 0007). It is not a fault.
+A mistake detected before the first cycle, such as an unsupported element format, invalid kernel parameters or `ACTIVATE.EXACT` in an NX8 program (refused at load), or in a word's check phase, such as an invalid QF or DS half (ADR 0007). It is not a fault.
 
 ## Kernels
 

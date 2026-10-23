@@ -43,7 +43,7 @@ Files that broke a complexity rule before the rules existed are listed under `[l
 
 | Rule | Why | Checked by |
 |---|---|---|
-| Two kinds of error. A hardware fault (F-1 to F-9, see [Faults](../requirements/faults.md)) carries a fault ID and has an enable bit. A configuration error is raised at setup time only, never while a program runs. Both derive from `IpuError`. | Callers tell a faulting program from a wrong setup by type alone. | Review |
+| Two kinds of error. A hardware fault (F-1 to F-9, see [Faults](../requirements/faults.md)) carries a fault ID and has an enable bit. A configuration error is raised at setup time, or, for a CR content no layout allows, in the check phase of the word that reads it, before any of its writes ([ADR 0007](https://github.com/rechefe/ipu-emulator/blob/master/docs/adr/0007-operational-aaq-and-nx8.md)). Both derive from `IpuError`. | Callers tell a faulting program from a wrong setup by type alone. | Review |
 | No `assert` for input validation. Raise an exception. | `python -O` removes every `assert`. | Review |
 | No bare `except Exception: pass`. | It hides the fault the test or the user needs to see. | Review |
 

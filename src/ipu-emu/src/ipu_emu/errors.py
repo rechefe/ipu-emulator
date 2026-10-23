@@ -1,7 +1,9 @@
 """Exceptions raised by the IPU emulator, all under ``ipu_isa.errors.IpuError``.
 
 Two kinds: an :class:`EmulatorFault` is the hardware faulting while a program
-runs; a :class:`ConfigurationError` is a bad setup, raised before any cycle.
+runs; a :class:`ConfigurationError` is a bad setup, raised before any cycle,
+or a CR content no layout allows (:class:`CrContentError`), raised in the
+check phase of the word that reads it, before any of its writes (ADR 0007).
 """
 
 from ipu_isa.errors import IpuError
@@ -46,8 +48,9 @@ class UndeclaredRead(EmulatorError):
 
 class ConfigurationError(EmulatorError, ValueError):
     """A bad setup: the element format, the program size, prototyping without
-    its build flag, or invalid API arguments. Raised at setup time, never
-    mid-run. Also a ``ValueError``, as these checks raised before."""
+    its build flag, or invalid API arguments. Raised at setup time, except
+    :class:`CrContentError`, raised in a word's check phase. Also a
+    ``ValueError``, as these checks raised before."""
 
 
 class CrContentError(ConfigurationError):

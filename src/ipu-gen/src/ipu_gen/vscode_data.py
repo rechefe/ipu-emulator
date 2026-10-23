@@ -522,8 +522,8 @@ def build_hover_data(facts: dict | None = None, view: Isa | None = None) -> dict
         },
         "registers": _registers(),
         "registerDocs": _register_docs(facts),
-        # "hardware" is false for the debug-only slot (acc_store) only, as
-        # before the slot tags; E08 regenerates the editor data from them.
+        # "hardware" is false for a debug-only slot (none today: ADR 0007
+        # removed ACC_STORE; see SlotInfo.debug_only).
         "slots": {
             slot.value: {"description": info.description, "hardware": not info.debug_only}
             for slot, info in view.slots.items()
