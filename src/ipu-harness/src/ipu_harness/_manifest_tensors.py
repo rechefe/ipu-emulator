@@ -4,7 +4,6 @@ and the placed derived values that read a region's base (for
 
 from __future__ import annotations
 
-import math
 from collections.abc import Iterable, Mapping
 from dataclasses import replace
 from pathlib import Path
@@ -21,7 +20,7 @@ from ipu_harness._manifest_params import (
 )
 from ipu_harness._toml_source import Reader, where
 from ipu_harness.expressions import ROW_BYTES_NAME, base_tensor, placed_reads
-from ipu_isa.formats import FORMATS, ElementFormat
+from ipu_harness.variants import MODE_KEYS, Variant
 
 
 def _shape(
@@ -51,34 +50,42 @@ def _pair(r: Reader, raw: object, path: tuple[str, ...]) -> tuple[float, float]:
     return float(lo), float(hi)
 
 
-def _fits(
-    r: Reader, bounds: tuple[float, float], fmt: ElementFormat, path: tuple[str, ...]
-) -> None:
-    """``bounds`` lie in what ``fmt`` holds, and hold an integer if ``fmt`` is one."""
+def _fits(r: Reader, bounds: tuple[float, float], fmt: Variant, path: tuple[str, ...]) -> None:
+    """``bounds`` lie in what ``fmt`` holds."""
     lo, hi = bounds
     least, most = limits(fmt)
     if lo < least or hi > most:
         raise r.fail(
             path, f"{where(path)} [{lo:g}, {hi:g}] is outside {fmt.value}'s [{least:g}, {most:g}]"
         )
-    if not FORMATS[fmt].is_float and math.ceil(lo) > math.floor(hi):
-        raise r.fail(path, f"{where(path)} [{lo:g}, {hi:g}] holds no {fmt.value} value")
 
 
 def _range(
-    r: Reader, raw: object, path: tuple[str, ...], formats: tuple[ElementFormat, ...]
-) -> dict[ElementFormat, tuple[float, float]]:
-    """``range = [lo, hi]`` for every format, or ``{ int8 = [lo, hi], ... }`` per format."""
+    r: Reader, raw: object, path: tuple[str, ...], formats: tuple[Variant, ...]
+) -> dict[Variant, tuple[float, float]]:
+    """``range = [lo, hi]`` for every variant, or ``{ e4 = [lo, hi], nx8 = [lo, hi] }``
+    per variant or per mode (``nx8``, ``fp32``: every variant of the mode that
+    has no entry of its own)."""
     if isinstance(raw, list):
         bounds = _pair(r, raw, path)
         for fmt in formats:
             _fits(r, bounds, fmt, path)
         return dict.fromkeys(formats, bounds)
-    out: dict[ElementFormat, tuple[float, float]] = {}
-    for key, value in r.table(raw, path).items():
+    out: dict[Variant, tuple[float, float]] = {}
+    table = r.table(raw, path)
+    for key, value in table.items():
+        if key in MODE_KEYS and key != "fp32":  # a whole mode; "fp32" is a variant too
+            bounds = _pair(r, value, (*path, key))
+            covered = [f for f in formats if f.mode is MODE_KEYS[key] and f.name not in table]
+            if not any(f.mode is MODE_KEYS[key] for f in formats):
+                raise r.fail((*path, key), f"range for {key}, a mode the kernel does not run in")
+            for fmt in covered:
+                _fits(r, bounds, fmt, (*path, key))
+                out[fmt] = bounds
+            continue
         fmt = r.format(key, (*path, key))
         if fmt not in formats:
-            raise r.fail((*path, key), f"range for {key}, a format the kernel does not run in")
+            raise r.fail((*path, key), f"range for {key}, a variant the kernel does not run in")
         out[fmt] = _pair(r, value, (*path, key))
         _fits(r, out[fmt], fmt, (*path, key))
     return out
@@ -112,7 +119,7 @@ def _tensor(
     name: str,
     raw: object,
     names: Iterable[str],
-    formats: tuple[ElementFormat, ...],
+    formats: tuple[Variant, ...],
 ) -> TensorDecl:
     role = ROLES[section]
     path = (section, name)
@@ -127,11 +134,14 @@ def _tensor(
         decl = replace(decl, pack=r.text(table["pack"], (*path, "pack")))
     if "store" in table:
         store = table["store"]
-        if store not in ("element", "accumulator"):
+        if store == "accumulator":
             raise r.fail(
                 (*path, "store"),
-                f"{where((*path, 'store'))} {store!r} must be element or accumulator",
+                f"{where((*path, 'store'))} 'accumulator' was removed with ST.ACC (ADR 0007): "
+                "ACTIVATE.EXACT (FP32) and ACTIVATE.QUANTIZE (NX8) store element rows",
             )
+        if store != "element":
+            raise r.fail((*path, "store"), f"{where((*path, 'store'))} {store!r} must be element")
         decl = replace(decl, store=store)
     if "fill" in table:
         decl = replace(decl, fill=r.typed(table["fill"], (int, float, str), (*path, "fill")))
@@ -145,7 +155,7 @@ def read_tensors(
     r: Reader,
     data: Mapping[str, Any],
     scalars: tuple[str, ...],
-    formats: tuple[ElementFormat, ...],
+    formats: tuple[Variant, ...],
     bools: tuple[str, ...],
     directory: Path,
 ) -> dict[str, TensorDecl]:

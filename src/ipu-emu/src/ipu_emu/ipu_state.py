@@ -6,6 +6,7 @@ memory into a single object — the state an :class:`~ipu_emu.ipu.Ipu` engine ru
 
 from __future__ import annotations
 
+import struct
 import weakref
 from collections.abc import Callable
 from dataclasses import dataclass, replace
@@ -15,23 +16,17 @@ from ipu_emu.activations import AaqOptions, ActivationParams
 from ipu_emu.errors import ConfigurationError
 from ipu_emu.fault_control import FaultControl
 from ipu_emu.inst_mem import InstMem
-from ipu_emu.ipu_config import DEFAULT_DSTRUCTURE_CR
+from ipu_emu.ipu_config import DEFAULT_DS_CR, DEFAULT_DS_HIGH
 from ipu_emu.numerics import LaneCodec, codec_for
 from ipu_emu.prototyping import resolve_enabled as _resolve_prototyping
 from ipu_emu.regfile import RegFile
 from ipu_emu.stats import RunStats
 from ipu_emu.xmem import XMem
-from ipu_isa.constants import (
-    DEFAULT_DSTRUCTURE,
-    DStructureConfig,
-    PadMode,
-    Partition,
-    decode_dstructure,
-    encode_dstructure,
-)
+from ipu_isa.cr_halves import DEFAULT_DS, HALF_BITS, HALF_MASK
 from ipu_isa.faults import ArithmeticEvent, FaultId
 from ipu_isa.formats import FORMATS, ElementFormat, FormatInfo
 from ipu_isa.geometry import INST_MEM_WORDS, LANES
+from ipu_isa.nx8 import Nx8Format, encode_row
 
 if TYPE_CHECKING:
     from ipu_emu.cycle import CycleObserver
@@ -99,7 +94,7 @@ class IpuState:
     def __init__(
         self,
         *,
-        fmt: ElementFormat = ElementFormat.INT8,
+        fmt: ElementFormat = ElementFormat.NX8,
         activation: ActivationParams | None = None,
         aaq: AaqOptions | None = None,
         prototyping: bool | None = None,
@@ -108,9 +103,10 @@ class IpuState:
         """Build a state at reset in element format *fmt*.
 
         Args:
-            fmt: The element format (Q47). It sets the element and row bytes,
-                the accumulator type and the vector registers; it is fixed
-                for the state's life, except through :meth:`reset`.
+            fmt: The run mode's element format (ADR 0007): ``NX8`` (the
+                hardware, the default) or ``FP32`` (emulator-only). It sets the
+                element and row bytes and the vector registers; it is fixed for
+                the state's life, except through :meth:`reset`.
             activation: The activation parameters; the module defaults if omitted.
             aaq: The AAQ stage's options; :class:`AaqOptions` defaults if omitted.
             prototyping: Select the opt-in fast paths (see ``ipu_emu.prototyping``).
@@ -143,10 +139,7 @@ class IpuState:
         # (emulator-only; cleared at the start of every run).
         self.quit_requested: bool = False
 
-        self.set_cr_dstructure(
-            valid_elements=DEFAULT_DSTRUCTURE.valid_elements,
-            partition=DEFAULT_DSTRUCTURE.partition,
-        )
+        self.set_cr_half(DEFAULT_DS_CR, DEFAULT_DS_HIGH, DEFAULT_DS)
 
         # --- Prototyping mode (emulator-only; see ipu_emu/prototyping.py) --------
         # Opt-in fast paths that produce bit-identical state while skipping work
@@ -188,8 +181,8 @@ class IpuState:
     def reset(self, fmt: ElementFormat | None = None) -> None:
         """Return to the reset state, in element format *fmt* if given.
 
-        Clears the registers (to their reset values, CR15 the default
-        dstructure), XMEM, the program counter, the halt record, the run
+        Clears the registers (to their reset values, ``CR15.L`` the default
+        DS), XMEM, the program counter, the halt record, the run
         statistics and the arithmetic flags, and sets every fault enable bit
         and clears the sticky fault flags (IPU-FLT-6). The instruction memory
         and program length, the cycle limit, the activation parameters, the
@@ -204,10 +197,7 @@ class IpuState:
         if fmt is not None:
             self._set_format(fmt)
         RegFile().copy_into(self.regfile)
-        self.set_cr_dstructure(
-            valid_elements=DEFAULT_DSTRUCTURE.valid_elements,
-            partition=DEFAULT_DSTRUCTURE.partition,
-        )
+        self.set_cr_half(DEFAULT_DS_CR, DEFAULT_DS_HIGH, DEFAULT_DS)
         self.xmem.clear()
         self.program_counter = 0
         self.halt = None
@@ -293,31 +283,22 @@ class IpuState:
             observer(self.halt)
         return self.halt
 
-    # -- CR dstructure convenience (CR15 = valid_elements[7:0] | partition[12:8] | pad_mode[14:13]) --
+    # -- CR halves (ADR 0007): DS and QF live in one 16-bit half of a CR ------
 
-    def get_dstructure_for(self, cr_idx: int) -> DStructureConfig:
-        """Decode the dstructure configuration from an arbitrary CR register.
+    def set_cr_half(self, cr_idx: int, high: bool, value: int) -> None:
+        """Write *value* into the LOW or HIGH 16-bit half of CR *cr_idx*.
 
-        Lets mult/acc/aaq stage instructions select which CR supplies their
-        valid element mask and dstructure info, instead of being hard-coded to CR15.
+        The other half keeps its value. ``CR15.L`` holds the default DS after
+        construction and reset (``ipu_isa.cr_halves.DEFAULT_DS``).
+
+        Raises:
+            ConfigurationError: *value* is not a 16-bit unsigned int.
         """
-        return decode_dstructure(self.regfile.get_cr(cr_idx))
-
-    def set_cr_dstructure(
-        self,
-        valid_elements: int = DEFAULT_DSTRUCTURE.valid_elements,
-        partition: Partition | int = DEFAULT_DSTRUCTURE.partition,
-        pad_mode: PadMode | int = DEFAULT_DSTRUCTURE.pad_mode,
-        *,
-        cr_idx: int = DEFAULT_DSTRUCTURE_CR,
-    ) -> None:
-        """Write dstructure configuration fields to ``cr_idx`` (CR15 by default)."""
-        self.regfile.set_cr(
-            cr_idx,
-            encode_dstructure(
-                valid_elements=valid_elements, partition=partition, pad_mode=pad_mode
-            ),
-        )
+        if not 0 <= value <= HALF_MASK:
+            raise ConfigurationError(f"a CR half is 16 bits; got {value!r}")
+        shift = HALF_BITS if high else 0
+        word = self.regfile.get_cr(cr_idx) & ~(HALF_MASK << shift) & 0xFFFFFFFF
+        self.regfile.set_cr(cr_idx, word | (value << shift))
 
     def set_activation_alphas(
         self,
@@ -347,13 +328,26 @@ class IpuState:
 
     # -- XMEM constants ----------------------------------------------------
 
-    def write_constant_ones(self, xmem_addr: int) -> None:
-        """Write a LANES-element ONES row in the active format, with alias provenance.
+    def write_constant_ones(self, xmem_addr: int, qf: Nx8Format | None = None) -> None:
+        """Write a LANES-element ONES row in the active mode, with alias provenance.
+
+        FP32 writes 128 float32 ones. NX8 writes the row ``encode_row`` makes
+        of 128 ones in format *qf*, and its metadata.
 
         Use only for intentional identity constants, never ordinary inputs or
         weights. Any subsequent XMEM write overlapping this row revokes it.
+
+        Raises:
+            ConfigurationError: NX8 mode and no *qf*.
         """
-        data = self._codec.one() * LANES
+        if self._fmt is ElementFormat.FP32:
+            data = struct.pack("<f", 1.0) * LANES
+        else:
+            if qf is None:
+                raise ConfigurationError("an NX8 ONES row needs its QF format")
+            row = encode_row([1.0] * LANES, qf)
+            data = row.elements
+            self.xmem.write_metadata(xmem_addr, row.metadata)
         self.xmem.write_address(xmem_addr, data)
         self.xmem.mark_constant_ones(xmem_addr, data)
 

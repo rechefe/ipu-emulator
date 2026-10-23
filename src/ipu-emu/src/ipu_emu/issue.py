@@ -24,7 +24,6 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 
 from ipu_emu.geometry import effective_mult_mask
 from ipu_emu.slots import mult
-from ipu_isa.constants import decode_dstructure
 
 if TYPE_CHECKING:
     from ipu_emu.cycle import CycleObserver, IssuedOp
@@ -163,7 +162,7 @@ class Issuer:
             view = ipu.view
             mask = effective_mult_mask(
                 view.source("r_mask"),
-                decode_dstructure(view.cr(operands[plan.mask_cr_operand], plan.mask_cr_operand)),
+                view.ds(operands[plan.mask_cr_operand], plan.mask_cr_operand),
                 operands["mask_offset"],
                 operands["mask_shift"],
             )

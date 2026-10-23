@@ -1,0 +1,2 @@
+{"schema_version":"1.1.0","isa_digest":"b2c6f0be6d069626fb447e271b7ccbf5eadf3579eef718a10f824f16cb7f8599","format":"nx8","program_digest":"2184539955635eed6f50617131c6af1524ab363f115df0bdbdf60c94d7fa8d33","emulator_version":"0.1.0"}
+{"cycle":0,"pc_before":0,"pc_after":0,"slots":[],"reg_writes":[],"xmem_writes":[],"outcome":"fault","fault":{"id":"F-3","pc":0},"arith_events":[]}

@@ -26,6 +26,10 @@ from ipu_emu.ipu import Ipu
 from ipu_emu.ipu_state import DEFAULT_CYCLE_LIMIT, INST_MEM_SIZE, IpuState
 from ipu_emu.run_clock import RunClock
 from ipu_emu.run_control import RunControl
+from ipu_isa.codec.word import opcode_field
+from ipu_isa.formats import ElementFormat
+from ipu_isa.slots import Slot
+from ipu_isa.view import isa
 
 
 class DebugAction(Enum):
@@ -50,15 +54,47 @@ def _word_at(state: IpuState, pc: int):
     return state.inst_mem[pc] if 0 <= pc < len(state.inst_mem) else None
 
 
+#: Instructions valid in FP32 mode only (ADR 0007): (opcode field, opcode, mnemonic).
+_FP32_ONLY = tuple(
+    (opcode_field(slot), isa().instruction(slot, mnemonic).opcode, mnemonic)
+    for slot, mnemonic in ((Slot.AAQ_EXACT, "ACTIVATE.EXACT"),)
+)
+
+
+def check_program_mode(fmt: ElementFormat, instructions: list[dict[str, int] | None]) -> None:
+    """Refuse a program that uses an FP32-only instruction in an NX8-mode state.
+
+    ``ACTIVATE.EXACT`` stores an FP32 row, which NX8 has no room for; the
+    check runs once, when the program is loaded (ADR 0007).
+
+    Raises:
+        ConfigurationError: *fmt* is NX8 and a word holds ``ACTIVATE.EXACT``.
+    """
+    if fmt is not ElementFormat.NX8:
+        return
+    for pc, inst in enumerate(instructions):
+        for field, opcode, mnemonic in _FP32_ONLY:
+            if inst is not None and inst.get(field) == opcode:
+                raise ConfigurationError(
+                    f"word {pc} uses {mnemonic}, which is valid in FP32 mode only; "
+                    "this state runs in NX8 mode (ADR 0007)"
+                )
+
+
 def load_program(state: IpuState, instructions: list[dict[str, int]]) -> None:
     """Load decoded instruction dicts into the state's instruction memory.
 
     Sets ``state.program_length``: fetching past the last word is fault F-2.
+
+    Raises:
+        ConfigurationError: The program is too large, or uses an FP32-only
+            instruction (``ACTIVATE.EXACT``) in an NX8-mode state.
     """
     if len(instructions) > INST_MEM_SIZE:
         raise ConfigurationError(
             f"Program too large: {len(instructions)} instructions (max {INST_MEM_SIZE})"
         )
+    check_program_mode(state.fmt, instructions)
     for i, inst in enumerate(instructions):
         state.inst_mem[i] = inst
     state.program_length = len(instructions)

@@ -1,137 +1,185 @@
-"""Element values as a format holds them: its range, rounding into it, its bytes.
+"""Element values as a variant holds them: its range, its rows' bytes and metadata.
 
-One place for the harness (the manifest's ``range`` check, case inputs,
-packing): every per-format branch is here, none in the callers. FP8 goes
-through the element codec in ``ipu_isa.formats`` (E04-13), which rounds to
-nearest and saturates.
+One place for the harness (the manifest's ``range`` check, packing, goldens):
+every per-mode branch is here, none in the callers (ADR 0007).
+
+* FP32: a row is 128 IEEE binary32 values (512 bytes), no metadata.
+* NX8: a row is 128 elements of the variant's type plus one metadata word
+  (``scale``, ``dynamic_exponent``). The scale is chosen per row from the
+  row's largest value (``ipu_isa.nx8.encode_row``, the AaQ quantizer), so how
+  a value is held depends on the other values of its row: the harness rounds
+  rows, never single values. Zero-padded lanes hold the value 0 and do not
+  change the scale.
 """
 
 from __future__ import annotations
 
-import functools
+import math
+from functools import cache
 from typing import Any
 
 import numpy as np
 import numpy.typing as npt
 
-from ipu_isa.formats import FORMATS, ElementFormat, element_values, encode_element
+from ipu_harness.variants import Variant
+from ipu_isa import cr_halves
+from ipu_isa.geometry import LANES
+from ipu_isa.nx8 import Nx8Format, decode_element, decode_row, encode_row, split_metadata
 
 Array = npt.NDArray[Any]
 
 _FP32_MAX = float(np.finfo(np.float32).max)
 
+__all__ = [
+    "Array",
+    "decode_rows",
+    "encode_rows",
+    "held_rows",
+    "limits",
+    "row_grid",
+    "scalar_neighbours",
+    "scalar_word",
+]
 
-@functools.cache
-def limits(fmt: ElementFormat) -> tuple[float, float]:
-    """The lowest and highest finite value ``fmt`` holds.
 
-    Args:
-        fmt: The element format.
+def limits(v: Variant) -> tuple[float, float]:
+    """The lowest and highest finite value ``v`` holds.
+
+    NX8 scales each row, so its range is FP32's (an unsigned type: from 0).
+    """
+    if v.qf is not None and not v.qf.sign:
+        return 0.0, _FP32_MAX
+    return -_FP32_MAX, _FP32_MAX
+
+
+def _as_rows(rows: Array) -> Array:
+    out = np.asarray(rows, dtype=np.float64)
+    if out.ndim != 2 or out.shape[1] != LANES:
+        out = out.reshape(-1, LANES)
+    return out
+
+
+def encode_rows(rows: Array, v: Variant) -> tuple[bytes, tuple[int, ...] | None]:
+    """``rows`` (``(n, 128)``, finite) as ``v`` stores them.
 
     Returns:
-        ``(lowest, highest)``.
+        The rows' bytes, and each row's metadata word (NX8) or ``None`` (FP32).
+        Values beyond FP32's range saturate to the largest float32.
     """
-    info = FORMATS[fmt]
-    if not info.is_float:
-        half = 1 << (info.element_bits - 1)
-        return float(-half), float(half - 1)
-    if fmt is ElementFormat.FP32:
-        return -_FP32_MAX, _FP32_MAX
-    top = float(codes(fmt)[-1])
-    return -top, top
+    rows = _as_rows(rows)
+    # FP32's range only: NX8 encodes a negative value of an unsigned type as 0
+    # and saturates past the row's scale itself (ipu_isa.nx8.encode_row), as
+    # ACTIVATE.QUANTIZE does.
+    clipped = np.clip(rows, -_FP32_MAX, _FP32_MAX)
+    if v.qf is None:
+        return clipped.astype("<f4").tobytes(), None
+    data = bytearray()
+    metadata = []
+    for row in clipped.astype(np.float32).astype(np.float64):
+        encoded = encode_row(row.tolist(), v.qf)
+        data += encoded.elements
+        metadata.append(encoded.metadata)
+    return bytes(data), tuple(metadata)
 
 
-@functools.cache
-def codes(fmt: ElementFormat) -> Array:
-    """Every finite value of an 8-bit float format, ascending: a value's index
-    is its place in code order (for distances in codes).
+def decode_rows(raw: bytes, v: Variant, metadata: tuple[int, ...] | None) -> Array:
+    """The ``(n, 128)`` values ``raw`` holds (inverse of :func:`encode_rows`).
 
     Args:
-        fmt: An 8-bit float format.
-
-    Returns:
-        The values, as a float64 array without duplicates (+0 and -0 are one).
+        raw: Whole rows of ``v``.
+        v: The variant.
+        metadata: Each row's metadata word (NX8; ``None`` reads as 0).
     """
-    decoded = np.array(element_values(fmt), dtype=np.float32)
-    values: Array = np.unique(decoded[np.isfinite(decoded)].astype(np.float64))
-    values.flags.writeable = False  # cached: shared by every caller
-    return values
+    if v.qf is None:
+        return np.frombuffer(raw, dtype="<f4").astype(np.float64).reshape(-1, LANES)
+    count = len(raw) // LANES
+    words = metadata if metadata is not None else (0,) * count
+    out = np.empty((count, LANES), dtype=np.float64)
+    for index in range(count):
+        scale, dyn = split_metadata(words[index])
+        out[index] = decode_row(raw[index * LANES : (index + 1) * LANES], v.qf, scale, dyn)
+    return out
 
 
-def held(values: Array, fmt: ElementFormat) -> Array:
-    """``values`` as ``fmt`` holds them: rounded to nearest, saturated to its range.
+def held_rows(rows: Array, v: Variant) -> Array:
+    """``rows`` as ``v`` holds them: encoded and decoded, row by row."""
+    data, metadata = encode_rows(rows, v)
+    return decode_rows(data, v, metadata)
 
-    Args:
-        values: Finite numbers (the caller checks; NaN has no defined result).
-        fmt: The element format.
 
-    Returns:
-        An int8 or int32 array for an integer format, else float32.
+def row_grid(v: Variant, metadata: int) -> Array:
+    """Every finite value one NX8 row with ``metadata`` holds, ascending (its
+    steps: the "one NX8 step" tolerance measures distances on it)."""
+    if v.qf is None:
+        raise ValueError("an FP32 row has no NX8 grid")
+    scale, dyn = split_metadata(metadata)
+    codes = bytes(range(256))
+    values = np.asarray(decode_row(codes, v.qf, scale, dyn), dtype=np.float64)
+    grid: Array = np.unique(values[np.isfinite(values)])
+    return grid
+
+
+# --- element scalars: a float parameter bound to a CR --------------------------------------
+
+
+@cache
+def _nx8_constants(fe: int, sign: int) -> dict[float, tuple[int, int]]:
+    """Every value a MULT constant of type (``fe``, ``sign``) holds, to its
+    (code, scale): the smallest scale and then code that hold it."""
+    fmt = Nx8Format(sign=sign, exp_format=fe, num_bits=8)
+    out: dict[float, tuple[int, int]] = {}
+    for scale in range(256):
+        for code in range(256):
+            value = decode_element(code, fmt, scale)
+            if math.isfinite(value):
+                out.setdefault(value, (code, scale))
+    return out
+
+
+def _constant_types(v: Variant) -> list[tuple[int, int]]:
+    """The constant types tried for ``v``: its own (``fe``, ``sign``) first
+    (a dynamic variant: ``fe`` 2, then 1), then every other signed one."""
+    own: list[tuple[int, int]] = []
+    if v.qf is not None:
+        own = [(2, 1), (1, 1)] if v.qf.dynamic else [(v.qf.exp_format, v.qf.sign)]
+    every = [(fe, 1) for fe in range(1, 8)]
+    return [*own, *(t for t in every if t not in own)]
+
+
+def scalar_word(value: float, v: Variant) -> int | None:
+    """The CR word a MULT reads as ``value`` in ``v``'s mode, or ``None``.
+
+    FP32: the IEEE float32 bits, when ``value`` is a float32. NX8: the MULT
+    constant layout (``ipu_isa.cr_halves.constant``): an 8-bit element of the
+    variant's type if one holds ``value`` exactly, else of another signed type
+    (ADR 0007). ``CR0`` and ``CR1`` read 0.0 and 1.0 without a word.
     """
-    info = FORMATS[fmt]
-    lo, hi = limits(fmt)
-    clipped = np.clip(np.asarray(values, dtype=np.float64), lo, hi)
-    if not info.is_float:
-        return np.rint(clipped).astype(np.int8 if info.element_bits == 8 else np.int32)
-    as_fp32 = clipped.astype(np.float32)
-    if fmt is ElementFormat.FP32:
-        return as_fp32
-    flat: Array = _fp8_decode(_fp8_encode(as_fp32.ravel(), fmt), fmt)
-    return np.reshape(flat, as_fp32.shape)
-
-
-def _fp8_encode(values: Array, fmt: ElementFormat) -> bytes:
-    """float32 ``values`` as 8-bit float codes, one element at a time."""
-    return bytes(encode_element(float(v), fmt) for v in values.astype(np.float32))
-
-
-def _fp8_decode(raw: bytes, fmt: ElementFormat) -> Array:
-    """8-bit float codes as float32 values (a table lookup)."""
-    table = np.array(element_values(fmt), dtype=np.float32)
-    decoded: Array = table[np.frombuffer(raw, dtype=np.uint8)]
-    return decoded
-
-
-def _numpy_dtype(fmt: ElementFormat) -> str | None:
-    """The little-endian NumPy type of a format NumPy holds natively, else None (FP8)."""
-    info = FORMATS[fmt]
-    if fmt is ElementFormat.FP32:
-        return "<f4"
-    if not info.is_float:
-        return {8: "<i1", 32: "<i4"}[info.element_bits]
+    if not math.isfinite(value):
+        return None
+    if v.qf is None:
+        if abs(value) > _FP32_MAX or float(np.float32(value)) != value:
+            return None
+        return int(np.float32(value).view("<u4"))
+    for fe, sign in _constant_types(v):
+        found = _nx8_constants(fe, sign).get(value)
+        if found is not None:
+            code, scale = found
+            return cr_halves.constant(code, scale, fe, sign)
     return None
 
 
-def encode(values: Array, fmt: ElementFormat) -> bytes:
-    """``values`` as ``fmt``'s bytes, element after element.
-
-    Args:
-        values: Finite numbers; rounded to the format first (:func:`held`).
-        fmt: The element format.
-
-    Returns:
-        ``values.size * element_bytes(fmt)`` bytes, little-endian.
-    """
-    native = _numpy_dtype(fmt)
-    if native is not None:
-        return held(values, fmt).ravel().astype(native).tobytes()
-    # FP8: clipped as held() clips, so the bytes are held()'s values; the encoder rounds.
-    lo, hi = limits(fmt)
-    clipped = np.clip(np.asarray(values, dtype=np.float64), lo, hi).ravel()
-    return _fp8_encode(clipped.astype(np.float32), fmt)
-
-
-def decode(raw: bytes, fmt: ElementFormat) -> Array:
-    """``fmt``'s bytes as float64 values, element after element (inverse of :func:`encode`).
-
-    Args:
-        raw: A whole number of ``fmt`` elements.
-        fmt: The element format.
-
-    Returns:
-        A flat float64 array.
-    """
-    native = _numpy_dtype(fmt)
-    if native is not None:
-        return np.frombuffer(raw, dtype=native).astype(np.float64)
-    return _fp8_decode(raw, fmt).astype(np.float64)
+def scalar_neighbours(value: float, v: Variant) -> tuple[float, ...]:
+    """The values nearest ``value`` that :func:`scalar_word` encodes, below
+    and above (one at the edge of the range)."""
+    if v.qf is None:
+        if abs(value) > _FP32_MAX:
+            return (math.copysign(_FP32_MAX, value),)
+        rounded = np.float32(value)
+        if float(rounded) < value:
+            return (float(rounded), float(np.nextafter(rounded, np.float32(np.inf))))
+        return (float(np.nextafter(rounded, np.float32(-np.inf))), float(rounded))
+    fe, sign = _constant_types(v)[0]
+    values = sorted(_nx8_constants(fe, sign))
+    below = [x for x in values if x < value][-1:]
+    above = [x for x in values if x > value][:1]
+    return (*below, *above)

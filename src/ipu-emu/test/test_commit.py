@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import struct
 from importlib import resources
 
 import pytest
@@ -30,7 +31,7 @@ from ipu_isa.codec.word import DecodedWord, word_bytes
 from ipu_isa.registers import REGISTER_DEFINITIONS
 from ipu_isa.trace_schema import SCHEMA_VERSION, load_schema
 
-# The probes include ST.ACC, the emulator-only store: its warning is expected.
+# No probe is debug-only since ADR 0007; the marker stays harmless.
 _DEBUG_ONLY = pytest.mark.filterwarnings("ignore::ipu_emu.errors.DebugOnlyInstructionWarning")
 
 RECORD = Draft202012Validator(load_schema("commit_record"))
@@ -307,14 +308,23 @@ def test_a_schema_change_bumps_its_version(name):
         pytest.fail(f"{name} is now {version}: update SNAPSHOT and SNAPSHOT_SHA256 here")
 
 
-@_DEBUG_ONLY
 def test_an_emulator_only_op_is_tagged():
-    probes = [p for p in timing_probes.PROBES.values() if "ST.ACC" in p.asm]
+    probes = [p for p in timing_probes.PROBES.values() if "ACTIVATE.EXACT" in p.asm]
     assert probes
     state = timing_probes.prepare(probes[0], probes[0].modes[0])
-    ops = [op for r in _collect(state) for op in r.slots if op.slot == "acc_store"]
+    ops = [op for r in _collect(state) for op in r.slots if op.slot == "aaq_exact"]
     assert ops and all(op.emulator_only for op in ops)
     assert all(op.to_json()["tag"] == "emulator" for op in ops)
+
+
+def test_an_aaq_store_records_its_metadata_write():
+    """ACTIVATE.QUANTIZE writes a row and its metadata word: both are in the record."""
+    state = make_state("ACTIVATE.QUANTIZE identity CR15.L CR14.L CR2 LR0 ;;\nHALT ;;", cr={2: 30})
+    state.regfile.set_r_acc_bytes(struct.pack("<128f", *([2.0] * 128)))
+    (record, _halt) = _collect(state)
+    assert [w.address for w in record.xmem_writes] == [30 * 128]
+    assert [(w.address, w.value) for w in record.xmem_meta_writes] == [(30 * 128, 128)]
+    RECORD.validate(record.to_json())
 
 
 def test_a_fault_is_recorded_when_it_happens():

@@ -1,23 +1,38 @@
-"""Element-wise activation math the emulator applies in the AAQ stage.
+"""Element-wise activation math the emulator applies in the AaQ stages (ADR 0007).
 
-The activation ids and names are the ISA's ``ActivationFn`` operand
-(:mod:`ipu_isa.activations`). α for ``elu`` defaults to ``DEFAULT_ELU_ALPHA``
-below, and the ``window`` bounds ``[a, b)`` default to ``DEFAULT_WINDOW_A`` /
-``DEFAULT_WINDOW_B``; override per run with an :class:`ActivationParams`
-given to the :class:`ipu_emu.ipu_state.IpuState` constructor, or with
-:meth:`IpuState.set_activation_alphas` (not CR-visible). :class:`AaqOptions`
-holds the other emulator-only setting of the AAQ stage. The emulator writes
-activated elements into ``POST_AAQ_REG``. See
-``docs/content/reference/isa/activate-quantize.md`` for calibration,
-``ST.AAQ`` (store that register to XMEM), and pipeline notes.
+Two sets of functions:
+
+* :func:`apply_aaq_activation` -- ``ACTIVATE.QUANTIZE``'s seven functions in
+  the ``ARCH-stage-aaq-str.md`` encoding (``AaqActivationFn``), with the
+  architecture's special cases (§4.3.1). The LUT functions are computed
+  exactly for now (ADR 0007); ``generic`` computes the function a test
+  declares as loaded (:attr:`AaqOptions.generic`).
+* :func:`apply_activation` -- the emulator-only ``ACTIVATE.EXACT``'s
+  thirteen functions (``ActivationFn``). α for ``elu`` defaults to
+  ``DEFAULT_ELU_ALPHA`` below, and the ``window`` bounds ``[a, b)`` default to
+  ``DEFAULT_WINDOW_A`` / ``DEFAULT_WINDOW_B``; override per run with an
+  :class:`ActivationParams` given to the :class:`ipu_emu.ipu_state.IpuState`
+  constructor, or with :meth:`IpuState.set_activation_alphas` (not CR-visible).
+
+See ``docs/content/reference/isa/activate-quantize.md`` for calibration and
+pipeline notes.
 """
 
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from ipu_emu.errors import EmulatorError
 from ipu_isa.activations import (
+    AAQ_EXP2,
+    AAQ_GENERIC,
+    AAQ_IDENTITY,
+    AAQ_RECIPROCAL,
+    AAQ_RELU,
+    AAQ_RELU6,
+    AAQ_RSQRT,
     ACTIVATION_COUNT,
     ACTIVATION_ELU,
     ACTIVATION_EXP2,
@@ -80,18 +95,16 @@ class ActivationParams:
 
 @dataclass(frozen=True, slots=True)
 class AaqOptions:
-    """Emulator-only options of the AAQ stage (``ACTIVATE.QUANTIZE``).
-
-    A placeholder for the AaQ stage model, which is out of scope (Q35): only
-    the AAQ handler reads it.
+    """Emulator-only options of the AaQ stage (``ACTIVATE.QUANTIZE``).
 
     Attributes:
-        quantize_output: In FP32 and INT32, also quantize the activated lanes
-            to INT8 into ``POST_AAQ_REG``, as the hardware path does. Off by
-            default, so the activated values stay unquantized for analysis.
+        generic: The function ``generic`` computes: the one the test declares
+            it loaded into the LUT with ``LD.LUT`` (ADR 0007). ``None``: a
+            ``generic`` activation is an emulator error. The bit-exact LUT
+            evaluator replaces it once the LUT entry format is published.
     """
 
-    quantize_output: bool = False
+    generic: Callable[[float], float] | None = None
 
 
 def _sigmoid(x: float) -> float:
@@ -167,3 +180,76 @@ def apply_activation(
         # Rectangular window: 1 inside the half-open range [a, b), 0 elsewhere.
         return 1.0 if wa <= x < wb else 0.0
     return x
+
+
+#: The ARCH special-case epsilon of ``reciprocal`` and ``rsqrt`` (§4.3.1).
+AAQ_EPSILON = 2.0**-127
+#: Below this magnitude an FP32 value is subnormal (or zero).
+_SMALLEST_NORMAL = 2.0**-126
+
+
+def _is_subnormal(x: float) -> bool:
+    return abs(x) < _SMALLEST_NORMAL
+
+
+def _reciprocal(x: float) -> float:
+    if math.isinf(x):
+        return 0.0
+    if _is_subnormal(x):
+        x = x - AAQ_EPSILON if math.copysign(1.0, x) < 0 else x + AAQ_EPSILON
+    return 1.0 / x
+
+
+def _rsqrt(x: float) -> float:
+    if math.isinf(x) and x > 0:
+        return 0.0
+    if x < 0:
+        return math.nan  # quantizing it raises: NX8 has no NaN (ADR 0007)
+    if _is_subnormal(x):
+        x += AAQ_EPSILON
+    return 1.0 / math.sqrt(x)
+
+
+def _exp2(x: float) -> float:
+    if x > 0:
+        raise EmulatorError(f"exp2 of a positive input ({x!r}) is not supported (ARCH §4.3.1)")
+    if math.isinf(x):
+        return 0.0
+    return 2.0**x
+
+
+def apply_aaq_activation(fn_id: int, x: float, options: AaqOptions | None = None) -> float:
+    """``ACTIVATE.QUANTIZE``'s activation ``fn_id`` (``AaqActivationFn``) of *x*.
+
+    ``ARCH-stage-aaq-str.md`` §4.3.1, special cases included: ``reciprocal``
+    and ``rsqrt`` of a subnormal (or zero) add ``epsilon = 2^-127`` with the
+    input's sign; of ``inf`` they are 0; ``rsqrt`` of a negative input is NaN;
+    ``exp2(-inf)`` is 0. A NaN input stays NaN (quantizing it raises).
+
+    Raises:
+        EmulatorError: ``exp2`` of a positive input; ``generic`` with no
+            declared function; an encoding with no function (7).
+    """
+    if math.isnan(x):
+        return x
+    if fn_id == AAQ_IDENTITY:
+        return x
+    if fn_id == AAQ_RELU:
+        return x if x > 0.0 else 0.0
+    if fn_id == AAQ_RELU6:
+        return min(max(x, 0.0), 6.0)
+    if fn_id == AAQ_RECIPROCAL:
+        return _reciprocal(x)
+    if fn_id == AAQ_RSQRT:
+        return _rsqrt(x)
+    if fn_id == AAQ_EXP2:
+        return _exp2(x)
+    if fn_id == AAQ_GENERIC:
+        generic = None if options is None else options.generic
+        if generic is None:
+            raise EmulatorError(
+                "ACTIVATE.QUANTIZE generic: no function is declared as loaded "
+                "(IpuState.aaq = AaqOptions(generic=...))"
+            )
+        return float(generic(x))
+    raise EmulatorError(f"ACTIVATE.QUANTIZE activation_fn {fn_id} names no function")

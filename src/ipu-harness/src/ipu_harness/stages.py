@@ -39,8 +39,7 @@ from ipu_harness.assembly import AssemblyCache, assemble_program
 from ipu_harness.debug import DebugHook, debug_run
 from ipu_harness.manifest import KernelManifest, check_abi
 from ipu_harness.params import CasePlan
-from ipu_harness.placement import Placement, check_aaq_spill
-from ipu_isa.constants import DStructureConfig
+from ipu_harness.placement import Placement
 from ipu_isa.geometry import LANES
 
 __all__ = [
@@ -172,7 +171,7 @@ class StageContext(Protocol):
         *,
         params: Mapping[str, object] = MappingProxyType({}),
         abi: Mapping[str, str] | None = None,
-        dstructure: DStructureConfig | None = None,
+        ds: int | None = None,
         max_cycles: int | None = None,
     ) -> int:
         """Run one program to ``HALT`` on the model the stages share.
@@ -186,8 +185,8 @@ class StageContext(Protocol):
                 (``{"x": "CR2"}``): each name is a tensor (its region base),
                 a parameter or a derived value. ``None``: the kernel's
                 ``[abi]``.
-            dstructure: ``CR15``'s dstructure, unless ``abi`` binds ``CR15``;
-                ``None``: the default (128 valid elements).
+            ds: ``CR15.L``'s DS half (``ipu_isa.cr_halves.ds``), unless
+                ``abi`` binds ``CR15``; ``None``: the default (``ds(128)``).
             max_cycles: The stage's cycle limit; ``None``: the run's.
 
         Returns:
@@ -237,8 +236,6 @@ def _assemble_stage(
     bindings = manifest.abi if abi is None else check_abi(manifest, abi, where=f"stage {program}")
     assembled = assemble_program(plan, path, cache, params=params, abi=bindings)
     check_cr_reads(manifest, assembled.rendered, abi=bindings, name=path.name)
-    if placement is not None:
-        check_aaq_spill(plan, placement, assembled.rendered)
     return bindings, assembled
 
 
@@ -261,7 +258,7 @@ class _Stages:
         *,
         params: Mapping[str, object] = MappingProxyType({}),
         abi: Mapping[str, str] | None = None,
-        dstructure: DStructureConfig | None = None,
+        ds: int | None = None,
         max_cycles: int | None = None,
     ) -> int:
         if self.stopped:
@@ -275,7 +272,7 @@ class _Stages:
         # No table of its own: the kernel's [abi], offsets included (register_writes
         # applies a tensor's [abi] offset only to the kernel's own bindings).
         own = None if abi is None else bindings
-        apply(model, register_writes(self.plan, self.placement, abi=own, dstructure=dstructure))
+        apply(model, register_writes(self.plan, self.placement, abi=own, ds=ds))
 
         options = self.options
         limit = options.max_cycles if max_cycles is None else max_cycles
@@ -395,7 +392,7 @@ class _Assembling:
         *,
         params: Mapping[str, object] = MappingProxyType({}),
         abi: Mapping[str, str] | None = None,
-        dstructure: DStructureConfig | None = None,
+        ds: int | None = None,
         max_cycles: int | None = None,
     ) -> int:
         _, assembled = _assemble_stage(

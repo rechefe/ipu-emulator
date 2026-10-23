@@ -1,0 +1,105 @@
+{
+ "description": "ACC.RESHAPE in NX8",
+ "format": "nx8",
+ "emulator_only": false,
+ "max_cycles": 1000,
+ "fault_enables": {},
+ "registers": [
+  {
+   "name": "r_mask",
+   "index": 0,
+   "hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  {
+   "name": "lr",
+   "index": 1,
+   "value": 1
+  },
+  {
+   "name": "lr",
+   "index": 2,
+   "value": 2
+  },
+  {
+   "name": "lr",
+   "index": 3,
+   "value": 3
+  },
+  {
+   "name": "lr",
+   "index": 4,
+   "value": 5
+  },
+  {
+   "name": "lr",
+   "index": 6,
+   "value": 128
+  },
+  {
+   "name": "lr",
+   "index": 7,
+   "value": 3
+  },
+  {
+   "name": "cr",
+   "index": 2,
+   "value": 1
+  },
+  {
+   "name": "cr",
+   "index": 3,
+   "value": 4
+  },
+  {
+   "name": "cr",
+   "index": 4,
+   "value": 2
+  },
+  {
+   "name": "cr",
+   "index": 5,
+   "value": 7
+  },
+  {
+   "name": "cr",
+   "index": 6,
+   "value": 128
+  },
+  {
+   "name": "cr",
+   "index": 7,
+   "value": 4294967294
+  },
+  {
+   "name": "cr",
+   "index": 8,
+   "value": 100
+  },
+  {
+   "name": "cr",
+   "index": 9,
+   "value": 3
+  },
+  {
+   "name": "cr",
+   "index": 11,
+   "value": 1345076
+  },
+  {
+   "name": "cr",
+   "index": 14,
+   "value": 328
+  },
+  {
+   "name": "cr",
+   "index": 15,
+   "value": 4224
+  },
+  {
+   "name": "mult_res",
+   "index": 0,
+   "hex": "f1ae07c0d85f70401bd0c5c0d1679bc0bbc930c02016c7c0fe9f8cc09fde73405bd595c0426eb1bff40ec440cca7eb40974ffd408e108240afe1133fd1f42cc0eeaf9840c5bdf5407a482cc006244b3d87e16a40016c0240eb1a7c400d1bac4058bbacc085d5fb408cdb033fc19a33c0b7cd3f409809093e9553d93f29fcb3c0de3ff3407793e740f3a5e1c0d154dfc0828c4340d3279b4053cb60c02b9cc5c03d35f1c019b21cc06544fc40abb27040aeef27c0eb5d0440b302a3bf474cd740ccc1b9c09d727440b780d140a98dc2c01b235440b580b13ec73ec940cb52e4c01134f5c0960664c078fadbbff664374077403bbf07dd53c0b96bfb3f6936a340b9339c401ece84c051a386bfde0fc340bf0659400f408c40881fc33f2e1a00bfeb56923fe9e3f4c0159e19c01a3551c0657eda40bde664401c80173ff08efb40a4f13cc0aaa425c04004a5c0e359e6c0aad394c0d6748e3fbcb50e40aeb980bf0278ce40415caebfcf6b71401154ca40e062ccc061fffd3c53d7d240c7cce140ea5750be2663a8c05073a93ec76dc84051c0cfc0d7a2e340f30ac13f0d734240a70aadc05456a2bf3847a8bf1f0ec2c0e0beac40f1ecfbc04f7cbac04ebe47be3872ee3ebe8d70bfbf2b95c040eb14bfb1a51d40a3009a401e18c640f2c0af40400c85c06599974098ee0740198aea3f540a723f1f7a4f40a9877fc0500b18c0"
+  }
+ ],
+ "xmem": []
+}

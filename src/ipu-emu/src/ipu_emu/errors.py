@@ -50,6 +50,20 @@ class ConfigurationError(EmulatorError, ValueError):
     mid-run. Also a ``ValueError``, as these checks raised before."""
 
 
+class CrContentError(ConfigurationError):
+    """A CR holds an invalid QF half, DS half or MULT constant (ADR 0007).
+
+    The architects' layouts (``ipu_isa.cr_halves``) leave some contents
+    meaningless: a QF with ``num_bits`` 0, a DS with ``valid_partitions`` 0 or
+    ``mask_type`` NaN, a constant with ``fe`` 0. The hardware's behaviour for
+    them is undefined, so the emulator refuses them. A configuration error
+    (ADR 0005's kind, amended by ADR 0007), raised in the word's check phase,
+    so the faulting word leaves the state as a fault would: nothing of it
+    retires. The same contents are also refused before a run starts by
+    tools that check a setup.
+    """
+
+
 class XMemBoundsError(ConfigurationError):
     """An XMEM access beyond the allocation. Outside a cycle (loading inputs,
     reading results) it is a setup error; inside one the cycle reports it as
@@ -74,9 +88,10 @@ class RegisterKindError(EmulatorError, TypeError):
 
 
 class DebugOnlyInstructionWarning(UserWarning, IpuError):
-    """An emulator-only instruction (no hardware equivalent) was executed.
+    """A debug-only instruction (no hardware equivalent) was executed.
 
-    Emitted by ``ST.ACC`` (the ``acc_store`` slot). Tests that run such a
-    program assert it with ``pytest.warns``; every other test turns it into an
-    error, so a kernel cannot start relying on it by accident.
+    Emitted by an instruction of a debug-only slot (``SlotInfo.debug_only``).
+    No slot is debug-only since ADR 0007 removed ``ST.ACC``; the class stays
+    for the next one. Tests turn it into an error, so a kernel cannot start
+    relying on such an instruction by accident.
     """

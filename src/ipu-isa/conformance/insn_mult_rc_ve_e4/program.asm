@@ -1,4 +1,0 @@
-# insn_mult_rc_ve_e4: MULT.RC.VE in E4
-MULT.RC.VE LR0 LR3 0 LR2 CR15 ;;
-MULT.RC.VE LR1 CR5 1 LR0 CR15 ;;
-HALT ;;

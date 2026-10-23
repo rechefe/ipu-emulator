@@ -1,4 +1,4 @@
-"""The stable reference-model API, v1 (E04-30, D5, Q10, Q11).
+"""The stable reference-model API, v2 (E04-30, D5, Q10, Q11, ADR 0007).
 
 A small, fixed interface for RTL verification: a testbench resets the model,
 loads a program, sets registers and XMEM while the model is halted, steps it
@@ -13,8 +13,8 @@ Register names are ``ipu_isa``'s (``ipu_isa.registers.REGISTER_DEFINITIONS``),
 and ``index`` picks the register within its bank (``lr``: LR0-LR15, ``cr``:
 CR0-CR15, ``r``: R0-R1). ``lr`` and ``cr`` read and write as unsigned 32-bit
 ints, the others as bytes. ``r_wide_debug`` and ``r_cyclic_wide_debug`` are
-emulator-only: they hold the operands of the wide formats (FP32, INT32), which
-the hardware does not have. ``r_meta``, ``r_cyclic_meta`` and ``aaq_lut`` hold
+emulator-only: they hold the operands of the FP32 mode, which the hardware
+does not have. ``r_meta``, ``r_cyclic_meta`` and ``aaq_lut`` hold
 row metadata and the AaQ LUT (ADR 0007), as bytes. No method returns an emulator object.
 
 A host access the IPU refuses with an AXI error (faults.md, "Illegal host
@@ -69,7 +69,7 @@ __all__ = [
 ]
 
 #: The version of this API (Q11).
-API_VERSION = "1.5.0"
+API_VERSION = "2.0.0"
 
 
 class RunState(str, enum.Enum):
@@ -156,10 +156,12 @@ class ReferenceModel:
     """One IPU, as the RTL verification sees it.
 
     Args:
-        fmt: The element format to start in (:meth:`reset` changes it).
+        fmt: The run mode's element format to start in, ``NX8`` (the
+            default) or ``FP32`` (:meth:`reset` changes it; 2.0.0 removed the
+            other formats, ADR 0007).
     """
 
-    def __init__(self, fmt: ElementFormat = ElementFormat.INT8) -> None:
+    def __init__(self, fmt: ElementFormat = ElementFormat.NX8) -> None:
         self._state = _IpuState(fmt=fmt)
         self._ipu = _Ipu(self._state)
         self._collector = _CommitCollector(self._state)
@@ -170,8 +172,8 @@ class ReferenceModel:
     def reset(self, fmt: ElementFormat) -> None:
         """Reset the model. The loaded program stays.
 
-        Registers and XMEM go to their reset values (CR15 holds the default
-        dstructure), the PC to 0, every fault is enabled with no sticky flag,
+        Registers and XMEM go to their reset values (``CR15.L`` holds the
+        default DS), the PC to 0, every fault is enabled with no sticky flag,
         and the arithmetic flags and the statistics clear. Record numbering
         restarts at 0.
 
@@ -197,8 +199,9 @@ class ReferenceModel:
         Raises:
             ConfigurationError: The model is running or faulted (after a
                 fault, :meth:`reset` first); the bytes are not whole words; a
-                word is wider than the instruction word; or the program is
-                larger than IMEM.
+                word is wider than the instruction word; the program is
+                larger than IMEM; or the model runs in NX8 mode and the
+                program uses the FP32-only ``ACTIVATE.EXACT`` (2.0.0).
         """
         self._writable()
         decoded: list[dict[str, int]]

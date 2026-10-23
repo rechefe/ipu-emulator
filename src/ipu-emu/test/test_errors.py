@@ -48,10 +48,10 @@ def test_prototyping_without_its_build_flag_is_a_configuration_error():
 
 def test_an_alias_profile_on_a_second_state_is_a_configuration_error():
     profile = AliasProfile()
-    first = new_state(fmt=ElementFormat.INT8)
+    first = new_state(fmt=ElementFormat.NX8)
     first.alias_profile = profile
     Ipu(first)
-    second = new_state(fmt=ElementFormat.INT8)
+    second = new_state(fmt=ElementFormat.NX8)
     second.alias_profile = profile
     with pytest.raises(ConfigurationError, match="single IpuState"):
         Ipu(second)
@@ -62,6 +62,8 @@ def test_a_handler_outside_a_cycle_raises_a_typed_error():
         lr.execute_lr_inc(Ipu(IpuState()), dest=0, imm=1)
 
 
-def test_a_partition_that_is_not_the_enum_is_a_typed_error():
-    with pytest.raises(EmulatorError, match="Partition"):
-        partition_vector(4)
+def test_a_partition_count_off_the_ds_list_is_a_typed_error():
+    """``num_partitions`` is 1, 2, 4 or 8 (the DS layout, ADR 0007)."""
+    assert partition_vector(4) != partition_vector(1)
+    with pytest.raises(EmulatorError, match="num_partitions"):
+        partition_vector(3)

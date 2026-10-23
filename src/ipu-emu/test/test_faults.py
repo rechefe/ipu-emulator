@@ -104,8 +104,15 @@ def with_operand(asm: str, slot: Slot, mnemonic: str, operand: str, value: int) 
         ("LD.MULT R0 LR0 CR2 ;;", Slot.LOAD, "LD.MULT", "dest", 2),
         ("INC.MODP2 LR0 LR1 4 ;;", Slot.LR, "INC.MODP2", "k", 9),
         ("ACC.STRIDE 16 off off LR0 ;;", Slot.ACC, "ACC.STRIDE", "elements_in_row", 3),
-        ("ACTIVATE.QUANTIZE relu CR15 ;;", Slot.AAQ, "ACTIVATE.QUANTIZE", "activation_fn", 15),
-        # SET's source shares a column wider than CrIdx: a code past CR15.
+        (
+            "ACTIVATE.QUANTIZE relu CR15.L CR14.L CR2 LR0 ;;",
+            Slot.AAQ,
+            "ACTIVATE.QUANTIZE",
+            "activation_fn",
+            7,
+        ),
+        ("LD.LUT 0 CR2 LR0 ;;", Slot.AAQ, "LD.LUT", "lut_addr", 5),
+        # SET's source shares a column wider than LcrHalfIdx: a code past CR15.H.
         ("SET LR0 CR1 ;;", Slot.LR, "SET", "src", 200),
     ],
 )
@@ -189,11 +196,11 @@ def test_an_enabled_fault_is_sticky_too():
 def test_f1_disabled_runs_the_slot_as_nop_and_the_word_retires():
     # INC in the LR slot and a reserved activation code in the AAQ slot.
     word = with_operand(
-        "INC LR0 1 ; ACTIVATE.QUANTIZE relu CR15 ;;",
+        "INC LR0 1 ; ACTIVATE.QUANTIZE relu CR15.L CR14.L CR2 LR0 ;;",
         Slot.AAQ,
         "ACTIVATE.QUANTIZE",
         "activation_fn",
-        15,
+        7,
     )
     state = new_state()
     load_program(state, [word, assemble_program("HALT ;;")[0]])
@@ -245,7 +252,7 @@ def test_fault_state_survives_a_step():
 
 
 def _slot_fields():
-    """(slot, opcode field, plans) of every HARDWARE slot, each LR sub-slot."""
+    """(slot, opcode field, plans) of every HARDWARE slot (and BREAK), each LR sub-slot."""
     return [
         (slot, field, plans)
         for slot in (
@@ -255,7 +262,6 @@ def _slot_fields():
             Slot.MULT,
             Slot.ACC,
             Slot.AAQ,
-            Slot.STORE,
             Slot.COND,
         )
         for field, plans in plans_for(slot)
@@ -285,11 +291,11 @@ def test_f1_disabled_cond_slot_still_advances_the_pc():
 
 def test_f1_disabled_word_retires_once_after_a_debugger_stop():
     word = with_operand(
-        "INC LR0 1 ; ACTIVATE.QUANTIZE relu CR15 ;;",
+        "INC LR0 1 ; ACTIVATE.QUANTIZE relu CR15.L CR14.L CR2 LR0 ;;",
         Slot.AAQ,
         "ACTIVATE.QUANTIZE",
         "activation_fn",
-        15,
+        7,
     )
     state = new_state()
     load_program(state, [word, assemble_program("HALT ;;")[0]])

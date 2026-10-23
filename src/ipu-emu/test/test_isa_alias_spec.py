@@ -139,9 +139,24 @@ class TestValidatorRejectsMistakes:
         )
 
     def test_hardware_gate_cannot_ignore_other_constraints(self):
+        # No alias uses hardware_only since ADR 0007 removed ST.ACC: plant one.
         self._validate_with(
-            lambda spec: spec["A16_STR_ACC_REG"]["matches"][0]["where"].append(
-                {"co_slot": "acc", "instruction_in": ["ACC.ADD"]}
+            lambda spec: spec.__setitem__(
+                "BOGUS",
+                {
+                    "missing_op": "x",
+                    "summary": "x",
+                    "matches": [
+                        {
+                            "slot": "aaq_exact",
+                            "instruction": "ACTIVATE.EXACT",
+                            "where": [
+                                {"hardware_only": True},
+                                {"co_slot": "acc", "instruction_in": ["ACC.ADD"]},
+                            ],
+                        }
+                    ],
+                },
             )
         )
 
@@ -155,7 +170,7 @@ class TestValidatorRejectsMistakes:
         self._validate_with(duplicate)
 
     def test_hardware_only_on_a_real_hardware_slot(self):
-        # 'store' is real hardware, so hardware_only makes no sense there.
+        # 'aaq' is real hardware, so hardware_only makes no sense there.
         self._validate_with(
             lambda spec: spec.__setitem__(
                 "BOGUS",
@@ -164,8 +179,8 @@ class TestValidatorRejectsMistakes:
                     "summary": "x",
                     "matches": [
                         {
-                            "slot": "store",
-                            "instruction": "ST.AAQ",
+                            "slot": "aaq",
+                            "instruction": "ACTIVATE.QUANTIZE",
                             "where": [{"hardware_only": True}],
                         }
                     ],

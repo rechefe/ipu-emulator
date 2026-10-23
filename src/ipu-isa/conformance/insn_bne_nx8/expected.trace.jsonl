@@ -1,0 +1,5 @@
+{"schema_version":"1.1.0","isa_digest":"b2c6f0be6d069626fb447e271b7ccbf5eadf3579eef718a10f824f16cb7f8599","format":"nx8","program_digest":"4b1a6b4b30a8726c55dfe29221a2c7b39f9f81102f4a6de30f02e700a2c109bc","emulator_version":"0.1.0"}
+{"cycle":0,"pc_before":0,"pc_after":1,"slots":[{"slot":"cond","mnemonic":"BNE","fields":{"reg1":0,"reg2":16,"label":2}}],"reg_writes":[],"xmem_writes":[],"outcome":"retired","fault":null,"arith_events":[]}
+{"cycle":1,"pc_before":1,"pc_after":2,"slots":[{"slot":"lr","mnemonic":"INC","fields":{"dest":5,"imm":1}}],"reg_writes":[{"register":"lr","index":5,"value":1}],"xmem_writes":[],"outcome":"retired","fault":null,"arith_events":[]}
+{"cycle":2,"pc_before":2,"pc_after":4,"slots":[{"slot":"cond","mnemonic":"BNE","fields":{"reg1":0,"reg2":1,"label":4}}],"reg_writes":[],"xmem_writes":[],"outcome":"retired","fault":null,"arith_events":[]}
+{"cycle":3,"pc_before":4,"pc_after":1024,"slots":[{"slot":"cond","mnemonic":"HALT","fields":{}}],"reg_writes":[],"xmem_writes":[],"outcome":"halt","fault":null,"arith_events":[]}

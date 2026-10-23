@@ -1,0 +1,4 @@
+# insn_ld_mult_cyclic_nx8: LD.MULT.CYCLIC in NX8
+LD.MULT.CYCLIC LR1 CR3 LR0 ;;
+LD.MULT.CYCLIC LR2 CR3 LR6 ;;
+HALT ;;

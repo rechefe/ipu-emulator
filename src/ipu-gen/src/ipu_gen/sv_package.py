@@ -98,10 +98,12 @@ OPERAND_ENUM_ORDER = (
     "MultStageReg",
     "LrIdx",
     "CrIdx",
-    "DstructureCrIdx",
+    "HalfCrIdx",  # ADR 0007: in DstructureCrIdx's place
     "LcrIdx",
+    "LcrHalfIdx",
     "LrdIdx",
     "ActivationFn",
+    "AaqActivationFn",
     "ElementsInRow",
     "HorizontalStride",
     "VerticalStride",

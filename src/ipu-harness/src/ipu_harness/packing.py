@@ -1,12 +1,12 @@
-"""Logical tensors to XMEM bytes for the active format, and back (E06-05, Q83).
+"""Logical tensors to XMEM rows for the case's variant, and back (E06-05, Q83).
 
-:func:`pack` turns a declared tensor's array into the bytes of its region:
-the exact shape is checked (L15: no truncation, no padding of the input), a
-:class:`PackTransform` lays it out in rows of 128 elements, and the codec
-rounds and encodes the elements for ``plan.format``. :func:`unpack` reverses
-it for an output: an ``element`` output decodes in the format, an
-``accumulator`` output in the format's accumulator format (FP32 for FP32 and
-FP8, INT32 for INT8), whose vectors span several narrow rows (E06-04).
+:func:`pack` turns a declared tensor's array into the bytes of its region
+(and, in NX8, each row's metadata word): the exact shape is checked (L15: no
+truncation, no padding of the input), a :class:`PackTransform` lays it out in
+rows of 128 elements, and the codec rounds and encodes the rows for the case's
+variant (NX8: each row quantized with its own scale, ADR 0007).
+:func:`unpack` reverses it for an output, reading each row with its metadata.
+:func:`held` is the two together: a tensor as the variant holds it.
 
 A transform reshapes **one** tensor and sees nothing else: no other tensor, no
 XMEM, no CR. That is Q83's rule made structural. :data:`DEFAULT` (row-major:
@@ -23,25 +23,27 @@ from __future__ import annotations
 import inspect
 import math
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, TypeVar, cast
 
 import numpy as np
 
-from ipu_harness._codec import Array, decode, encode
+from ipu_harness._codec import Array, decode_rows, encode_rows
 from ipu_harness._plugins import import_named, load_file
 from ipu_harness.manifest import TensorDecl
 from ipu_harness.params import CasePlan, PlanError
-from ipu_isa.formats import FORMATS, ElementFormat
 from ipu_isa.geometry import LANES
 
 __all__ = [
     "DEFAULT",
     "PackTransform",
+    "Packed",
     "RowMajor",
+    "held",
+    "logical",
     "pack",
     "region_fill",
-    "stored_format",
     "stored_rows",
     "transform_for",
     "unpack",
@@ -171,20 +173,18 @@ def transform_for(
 # --- pack and unpack ----------------------------------------------------------------------
 
 
-def stored_format(tensor: TensorDecl, fmt: ElementFormat) -> ElementFormat:
-    """The format a tensor's bytes are in.
+@dataclass(frozen=True)
+class Packed:
+    """A region's contents: its rows' bytes and, in NX8, each row's metadata.
 
-    Args:
-        tensor: The declared tensor.
-        fmt: The case's element format.
-
-    Returns:
-        Its accumulator format (FP32 or INT32) for an ``accumulator`` output,
-        else ``fmt``.
+    Attributes:
+        data: ``rows x row_bytes`` bytes.
+        metadata: Each row's metadata word (NX8), or ``None`` (FP32, or bytes
+            a scratch function gave: their rows' metadata is left 0).
     """
-    if tensor.store == "accumulator":
-        return ElementFormat(FORMATS[fmt].accumulator.value)
-    return fmt
+
+    data: bytes
+    metadata: tuple[int, ...] | None = None
 
 
 def _laid_out(
@@ -226,7 +226,7 @@ def _rows(transform: PackTransform, shape: tuple[int, ...], plan: CasePlan) -> i
 
 
 def stored_rows(tensor: TensorDecl, plan: CasePlan, *, package: str = "ipu_kernels") -> int:
-    """The XMEM rows ``tensor`` takes as stored (E06-04's row counts).
+    """The XMEM rows ``tensor`` takes (E06-04's row counts).
 
     Args:
         tensor: The declared tensor.
@@ -234,20 +234,17 @@ def stored_rows(tensor: TensorDecl, plan: CasePlan, *, package: str = "ipu_kerne
         package: Where family and shared transforms live.
 
     Returns:
-        Its transform's rows, times the accumulator stride for an
-        ``accumulator`` output.
+        Its transform's rows.
 
     Raises:
         PlanError: The transform is unknown or cannot lay out the planned shape.
     """
     shape = plan.shapes[tensor.name]
-    rows = _laid_out(tensor, plan, package, lambda t: _rows(t, shape, plan))
-    stored = FORMATS[stored_format(tensor, plan.format)].element_bytes
-    return rows * stored // FORMATS[plan.format].element_bytes
+    return _laid_out(tensor, plan, package, lambda t: _rows(t, shape, plan))
 
 
-def pack(tensor: TensorDecl, a: Array, plan: CasePlan, *, package: str = "ipu_kernels") -> bytes:
-    """The bytes of ``tensor``'s region holding ``a``, for ``plan.format``.
+def pack(tensor: TensorDecl, a: Array, plan: CasePlan, *, package: str = "ipu_kernels") -> Packed:
+    """The contents of ``tensor``'s region holding ``a``, for ``plan.format``.
 
     Args:
         tensor: The declared tensor.
@@ -256,8 +253,8 @@ def pack(tensor: TensorDecl, a: Array, plan: CasePlan, *, package: str = "ipu_ke
         package: Where family and shared transforms live.
 
     Returns:
-        ``stored_rows x row_bytes`` bytes: the transform's rows, each value
-        rounded to the stored format and encoded.
+        ``stored_rows`` rows: the transform's rows, rounded to the variant and
+        encoded (NX8: with each row's metadata word).
 
     Raises:
         PlanError: ``a``'s shape is not the planned one (oversize included), or
@@ -273,7 +270,29 @@ def pack(tensor: TensorDecl, a: Array, plan: CasePlan, *, package: str = "ipu_ke
         )
     values = np.asarray(a, dtype=np.float64)
     rows = _laid_out(tensor, plan, package, lambda t: _to_rows(t, values, plan))
-    return encode(rows, stored_format(tensor, plan.format))
+    return Packed(*encode_rows(rows.reshape(-1, LANES), plan.format))
+
+
+def logical(
+    tensor: TensorDecl, rows: Array, plan: CasePlan, *, package: str = "ipu_kernels"
+) -> Array:
+    """The planned-shape tensor that ``rows`` (``(stored_rows, 128)``, any
+    per-element values) lay out, by ``tensor``'s transform."""
+    shape = plan.shapes[tensor.name]
+    grid = np.asarray(rows, dtype=np.float64).reshape(-1, LANES)
+    return _laid_out(tensor, plan, package, lambda t: t.from_rows(grid, plan, shape))
+
+
+def held(tensor: TensorDecl, a: Array, plan: CasePlan, *, package: str = "ipu_kernels") -> Array:
+    """``a`` as ``tensor``'s region holds it in ``plan.format``: packed and
+    unpacked (NX8: each row quantized with its own scale, so a value depends on
+    its row's other values; FP32: rounded to float32).
+
+    Raises:
+        PlanError: As :func:`pack`.
+    """
+    packed = pack(tensor, a, plan, package=package)
+    return unpack(tensor, packed.data, plan, packed.metadata, package=package)
 
 
 def _to_rows(transform: PackTransform, a: Array, plan: CasePlan) -> Array:
@@ -296,47 +315,52 @@ def _to_rows(transform: PackTransform, a: Array, plan: CasePlan) -> Array:
 
 
 def unpack(
-    tensor: TensorDecl, raw: bytes, plan: CasePlan, *, package: str = "ipu_kernels"
+    tensor: TensorDecl,
+    raw: bytes,
+    plan: CasePlan,
+    metadata: tuple[int, ...] | None = None,
+    *,
+    package: str = "ipu_kernels",
 ) -> Array:
     """The logical values ``tensor``'s region holds (inverse of :func:`pack`).
-
-    An ``accumulator`` output is read in the accumulator format: one vector of
-    128 accumulator elements spans ``accumulator_bytes x 128 / row_bytes``
-    narrow rows, the stride placement allocated (E06-04, :func:`stored_rows`).
 
     Args:
         tensor: The declared tensor.
         raw: The region's bytes, exactly ``stored_rows x row_bytes``.
         plan: The checked case.
+        metadata: Each row's metadata word, read with the bytes (NX8; ``None``
+            reads every row's as 0).
         package: Where family and shared transforms live.
 
     Returns:
         A float64 array of the planned shape.
 
     Raises:
-        PlanError: ``raw`` is not the region's size, or the transform is
-            unknown or cannot lay the shape out.
+        PlanError: ``raw`` (or ``metadata``) is not the region's size, or the
+            transform is unknown or cannot lay the shape out.
     """
     shape = plan.shapes[tensor.name]
-    want = stored_rows(tensor, plan, package=package) * FORMATS[plan.format].row_bytes
-    stored = stored_format(tensor, plan.format)
-    if len(raw) != want:
+    rows = stored_rows(tensor, plan, package=package)
+    want = rows * plan.format.row_bytes
+    if len(raw) != want or (metadata is not None and len(metadata) != rows):
         raise PlanError(
             plan.manifest,
             f"{tensor.section}.{tensor.name}.size",
-            f"{tensor.name}'s region holds {want} bytes in {stored.value}, given {len(raw)}",
+            f"{tensor.name}'s region holds {want} bytes ({rows} rows) in "
+            f"{plan.format.value}, given {len(raw)}",
         )
-    rows = decode(raw, stored).reshape(-1, LANES)
-    return _laid_out(tensor, plan, package, lambda t: t.from_rows(rows, plan, shape))
+    values = decode_rows(raw, plan.format, metadata)
+    return _laid_out(tensor, plan, package, lambda t: t.from_rows(values, plan, shape))
 
 
-def region_fill(tensor: TensorDecl, plan: CasePlan, rows: int) -> bytes:
-    """A scratch region's starting bytes.
+def region_fill(tensor: TensorDecl, plan: CasePlan, rows: int) -> Packed:
+    """A scratch region's starting contents.
 
     With ``bytes = "file.py:fn"``, what ``fn(plan)`` returns, unchanged (a lane
-    mask no element value can carry). Otherwise its ``fill`` in every element of
-    every row it occupies, padding lanes included (not through the pack
-    transform, which pads with zeros), in its stored format.
+    mask no element value can carry), its rows' metadata left 0. Otherwise its
+    ``fill`` in every element of every row it occupies, padding lanes included
+    (not through the pack transform, which pads with zeros), held by the
+    variant (NX8: with each row's metadata).
 
     Args:
         tensor: The scratch tensor.
@@ -344,17 +368,15 @@ def region_fill(tensor: TensorDecl, plan: CasePlan, rows: int) -> bytes:
         rows: The rows its region occupies (``Placement``).
 
     Returns:
-        ``rows x row_bytes`` bytes.
+        ``rows x row_bytes`` bytes, and the rows' metadata.
 
     Raises:
         PlanError: The function's result is not bytes of exactly that size.
     """
-    region_bytes = rows * FORMATS[plan.format].row_bytes
+    region_bytes = rows * plan.format.row_bytes
     if tensor.content is None:
-        fmt = stored_format(tensor, plan.format)
-        elements = region_bytes // FORMATS[fmt].element_bytes
         fill = plan.fills.get(tensor.name, tensor.fill)  # an expression's value, from the plan
-        return encode(np.full(elements, fill, dtype=np.float64), fmt)
+        return Packed(*encode_rows(np.full((rows, LANES), fill, dtype=np.float64), plan.format))
     file, _, name = tensor.content.partition(":")
     data = getattr(load_file(plan.manifest.directory / file), name)(plan)
     key = f"{tensor.section}.{tensor.name}.bytes"
@@ -369,4 +391,4 @@ def region_fill(tensor: TensorDecl, plan: CasePlan, rows: int) -> bytes:
             f"{tensor.content} returned {len(data)} bytes; the region holds {region_bytes} "
             f"({rows} rows of {plan.format.value})",
         )
-    return bytes(data)
+    return Packed(bytes(data))

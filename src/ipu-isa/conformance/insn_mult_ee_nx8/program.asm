@@ -1,0 +1,4 @@
+# insn_mult_ee_nx8: MULT.EE in NX8
+MULT.EE LR0 CR11 0 LR2 CR15.L CR14.L ;;
+MULT.EE LR1 CR1 1 LR0 CR15.L CR14.L ;;
+HALT ;;

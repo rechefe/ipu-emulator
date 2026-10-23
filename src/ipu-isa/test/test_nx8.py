@@ -25,7 +25,7 @@ def test_worked_row_direct_branch_edge1_and_zero():
     row = encode_row([3.2, 0.4, -1.99, 0.0], E4M3)
     assert row.scale == 128
     assert list(row.elements[:4]) == [0x05, 0x1D, 0x80, 0x78]
-    assert row.elements[4:] == bytes(124)
+    assert row.elements[4:] == bytes([0x78]) * 124  # the missing tail: the value 0
     assert not row.saturated
     assert decode_row(row.elements[:4], E4M3, row.scale) == [3.25, 0.40625, -2.0, 0.0]
 
@@ -58,8 +58,11 @@ def test_ties_round_half_up():
 def test_inactive_elements_are_zero_and_leave_the_scale():
     row = encode_row([100.0, 1.5], E4M3, active=[False, True])
     assert row.scale == 127
-    assert row.elements[0] == 0
+    # The value 0: clamp exponent 0b1111, mantissa 0 (not byte 0, which is 2^0 here).
+    assert row.elements[0] == 0b0_1111_000
+    assert decode_element(row.elements[0], E4M3, row.scale) == 0.0
     assert decode_element(row.elements[1], E4M3, row.scale) == 1.5
+    assert decode_element(row.elements[2], E4M3, row.scale) == 0.0  # the missing tail
 
 
 def test_infinity_saturates_and_leaves_the_scale():
@@ -137,3 +140,13 @@ def test_row_scale_uses_active_finite_elements():
 def test_invalid_formats_raise(fields):
     with pytest.raises(IsaValueError):
         Nx8Format(**fields)
+
+
+def test_metadata_word_layout():
+    from ipu_isa.nx8 import metadata_word, split_metadata
+
+    assert metadata_word(0x85, 1) == 0x185
+    assert split_metadata(0x185) == (0x85, 1)
+    assert split_metadata(0xFE7F) == (0x7F, 0)  # bits above 8 are not metadata
+    with pytest.raises(IsaValueError):
+        metadata_word(256)

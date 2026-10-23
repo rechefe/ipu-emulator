@@ -16,9 +16,8 @@ observer never reaches into ``Ipu`` for a helper (E04-11):
   and :func:`xmem_row_size_bytes` are the same for a state, on the hot path;
 - :func:`lrd_lr_indices` names the two LRs behind an ``LrdIdx`` operand;
 - :func:`effective_mult_mask` is the 128-bit lane mask a MULT applies;
-- :func:`cr_scalar` is a CR as an element scalar of the state's format,
-  through :meth:`~ipu_emu.numerics.LaneCodec.decode_cr_scalar` (the alias
-  observer's identity check; the MULT handlers decode the same way);
+- :func:`cr_scalar` is a CR as a MULT constant in the state's mode (the
+  MULT handlers' scalar and the alias observer's identity check);
 - :func:`xmem_row_addr` turns an assembly row number into a byte address;
 - :func:`lrd_bytes` reads the eight byte elements of an LRD pair;
 - :func:`lane_format` is the struct format of one 4-byte accumulator lane
@@ -33,25 +32,25 @@ other (E04-14).
 
 from __future__ import annotations
 
-from functools import lru_cache
+from functools import cache
 from types import MappingProxyType
 from typing import TYPE_CHECKING, NamedTuple, Protocol
 
+from ipu_emu.cr_contents import constant_value, fp32_constant_value
 from ipu_emu.errors import EmulatorError
 from ipu_emu.xmem import XMEM_SIZE_BYTES
-from ipu_isa.constants import LR_CR_SCALAR_BITS, Partition
+from ipu_isa.constants import LR_CR_SCALAR_BITS
+from ipu_isa.cr_halves import PARTITIONS
 from ipu_isa.faults import FaultId
-from ipu_isa.formats import FORMATS, AccumulatorType, ElementFormat
+from ipu_isa.formats import FORMATS, ElementFormat
 from ipu_isa.geometry import LANES
 from ipu_isa.registers import REGISTER_DEFINITIONS, get_register_sizes, lrd_pair
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    import numpy as np
-
     from ipu_emu.ipu_state import IpuState
-    from ipu_isa.constants import DStructureConfig
+    from ipu_isa.cr_halves import DataStructure
 
 __all__ = [
     "EIGHT_BIT_ROWS",
@@ -65,6 +64,7 @@ __all__ = [
     "cr_scalar",
     "effective_mult_mask",
     "element_width_bytes",
+    "fp32_mode",
     "inverse_partition_vector",
     "is_wide_format",
     "lane_format",
@@ -91,11 +91,11 @@ R_CYCLIC_SIZE = _REG_SIZES["r_cyclic"]["size_bytes"]
 #: land exactly on a slot boundary (no implicit wraparound).
 R_CYCLIC_VALID_INDICES = tuple(range(0, R_CYCLIC_SIZE, R_REG_SIZE))
 
-# XMEM is allocated at XMEM_SIZE_BYTES in every element format. An 8-bit format
-# may address only the first 16384 rows of 128 B (2 MB) -- a fixed limit, not
-# derived from the allocation, so enlarging XMEM for the FP32/INT32 kernels
-# does not silently widen what 8-bit programs can reach. The FP32/INT32 formats
-# reach the whole allocation (XMEM_ADDRESSABLE_ROWS rows of 512 B).
+# XMEM is allocated at XMEM_SIZE_BYTES in both modes. NX8 may address only the
+# first 16384 rows of 128 B (2 MB) -- a fixed limit, not derived from the
+# allocation, so enlarging XMEM for the FP32 kernels does not silently widen
+# what NX8 programs can reach. FP32 reaches the whole allocation
+# (XMEM_ADDRESSABLE_ROWS rows of 512 B).
 EIGHT_BIT_ROWS = 16384
 
 #: All 128 lanes active.
@@ -105,13 +105,13 @@ _ALL_LANES = (1 << LANES) - 1
 _MASK_SLOT_BYTES = LANES // 8
 _MASK_SLOTS = LANES // _MASK_SLOT_BYTES
 
-_EIGHT_BIT_ELEMENT_BYTES = FORMATS[ElementFormat.INT8].element_bytes
+_EIGHT_BIT_ELEMENT_BYTES = FORMATS[ElementFormat.NX8].element_bytes
 
 #: The name suffix of a register's emulator-only 4-byte storage (``ipu_isa.registers``).
 _WIDE_SUFFIX = "_wide_debug"
 
-#: Declared register -> the emulator-only register that holds it in a 4-byte
-#: element format (FP32, INT32): ``r`` -> ``r_wide_debug``, ``r_cyclic`` ->
+#: Declared register -> the emulator-only register that holds it in the FP32
+#: mode: ``r`` -> ``r_wide_debug``, ``r_cyclic`` ->
 #: ``r_cyclic_wide_debug``. Derived from ``REGISTER_DEFINITIONS``; the one
 #: place in ``ipu_emu`` that names these registers.
 WIDE_REGISTERS: Mapping[str, str] = MappingProxyType(
@@ -122,7 +122,7 @@ WIDE_REGISTERS: Mapping[str, str] = MappingProxyType(
     }
 )
 
-#: Registers with no hardware equivalent: the 4-byte formats' storage.
+#: Registers with no hardware equivalent: the FP32 mode's storage.
 EMULATOR_REGISTERS: frozenset[str] = frozenset(WIDE_REGISTERS.values())
 
 
@@ -137,13 +137,20 @@ class _RegisterReader(Protocol):
 
 
 def is_wide_format(fmt: ElementFormat) -> bool:
-    """*fmt* is a 4-byte element format (FP32 or INT32, emulator-only)."""
+    """*fmt* is the 4-byte element format (FP32, emulator-only)."""
     return FORMATS[fmt].element_bytes != _EIGHT_BIT_ELEMENT_BYTES
 
 
 def _is_wide(state: IpuState) -> bool:
-    """*state* runs in a 4-byte element format (FP32 or INT32, emulator-only)."""
+    """*state* runs in the 4-byte element format (FP32, emulator-only)."""
     return state.codec.element_bytes != _EIGHT_BIT_ELEMENT_BYTES
+
+
+def fp32_mode(state: IpuState) -> bool:
+    """*state* runs in FP32 mode (emulator-only): rows of 512 B, no metadata,
+    no quantization, QF ignored (ADR 0007). The one mode test the slot
+    handlers make."""
+    return _is_wide(state)
 
 
 class VectorRegisters(NamedTuple):
@@ -165,7 +172,7 @@ _WIDE_REGISTERS = VectorRegisters(
 def vector_registers(state: IpuState) -> VectorRegisters:
     """Where Ra and R_CYCLIC live in *state*'s element width.
 
-    A 4-byte format (FP32, INT32) keeps its elements in their own registers
+    The FP32 mode keeps its elements in their own registers
     (``r_wide_debug``, ``r_cyclic_wide_debug``); both layouts hold the same
     number of elements, so a handler indexes either in elements.
     """
@@ -173,7 +180,7 @@ def vector_registers(state: IpuState) -> VectorRegisters:
 
 
 def element_width_bytes(fmt: ElementFormat) -> int:
-    """Bytes of one element in *fmt*: 1 for an 8-bit format, 4 for FP32 and INT32."""
+    """Bytes of one element in *fmt*: 1 for NX8, 4 for FP32."""
     return FORMATS[fmt].element_bytes
 
 
@@ -199,56 +206,56 @@ def lrd_lr_indices(n: int) -> tuple[int, int]:
 
 def _check_partition(num_partitions: object) -> None:
     # Reached mid-run from the MULT mask path: an internal invariant, not a setup error.
-    if not isinstance(num_partitions, Partition):
-        raise EmulatorError(f"partition must be a Partition enum value, got {num_partitions!r}")
+    if isinstance(num_partitions, bool) or num_partitions not in PARTITIONS:
+        raise EmulatorError(f"num_partitions must be one of {PARTITIONS}, got {num_partitions!r}")
 
 
-@lru_cache(maxsize=None, typed=True)  # typed: a plain int must still raise
-def partition_vector(num_partitions: Partition) -> int:
+@cache
+def partition_vector(num_partitions: int) -> int:
     """The left-shift partition vector: 0 at the START of each group.
 
-    Used for positive mask shifts (+1, +2, +3). ``Partition`` 0 is all ones (no
+    Used for positive mask shifts (+1, +2, +3). One group is all ones (no
     boundaries); P groups of LANES/P elements have bit 0 of each group clear.
 
     Raises:
-        EmulatorError: *num_partitions* is not a ``Partition``.
+        EmulatorError: *num_partitions* is not 1, 2, 4 or 8.
     """
     _check_partition(num_partitions)
-    if num_partitions == 0:
+    if num_partitions == 1:
         return _ALL_LANES
     step = LANES // num_partitions
     return sum(1 << i for i in range(LANES) if i % step != 0)
 
 
-@lru_cache(maxsize=None, typed=True)  # typed: a plain int must still raise
-def inverse_partition_vector(num_partitions: Partition) -> int:
+@cache
+def inverse_partition_vector(num_partitions: int) -> int:
     """The right-shift partition vector: 0 at the END of each group.
 
-    Used for negative mask shifts (-1, -2, -3). ``Partition`` 0 is all ones.
+    Used for negative mask shifts (-1, -2, -3). One group is all ones.
 
     Raises:
-        EmulatorError: *num_partitions* is not a ``Partition``.
+        EmulatorError: *num_partitions* is not 1, 2, 4 or 8.
     """
     _check_partition(num_partitions)
-    if num_partitions == 0:
+    if num_partitions == 1:
         return _ALL_LANES
     step = LANES // num_partitions
     return sum(1 << i for i in range(LANES) if i % step != step - 1)
 
 
 def effective_mult_mask(
-    regfile: _RegisterReader, dstructure: DStructureConfig, mask_idx: int, shift: int
+    regfile: _RegisterReader, shape: DataStructure, mask_idx: int, shift: int
 ) -> int:
     """The lane mask a MULT applies: an R_MASK slot, shifted within partitions.
 
     The slot is ``mask_idx`` modulo the eight slots. ``shift`` is an LR value,
     sign-extended from ``LR_CR_SCALAR_BITS`` and clamped to [-3, +3]; each step
     shifts by one lane and ANDs with the partition vector of
-    ``dstructure.partition`` (the inverse vector for right shifts).
+    ``shape.num_partitions`` (the inverse vector for right shifts).
 
     Args:
         regfile: The register file whose R_MASK is read.
-        dstructure: The MULT's dstructure configuration.
+        shape: The MULT's DS.
         mask_idx: The ``mask_offset`` operand.
         shift: The ``mask_shift`` operand's LR value.
 
@@ -262,23 +269,37 @@ def effective_mult_mask(
     mask_bytes = regfile.get_r_mask()
     mask = int.from_bytes(mask_bytes[offset : offset + _MASK_SLOT_BYTES], "little") & _ALL_LANES
     if shift < 0:
-        pv = inverse_partition_vector(dstructure.partition)
+        pv = inverse_partition_vector(shape.num_partitions)
         for _ in range(-shift):
             mask = (mask >> 1) & pv
     elif shift > 0:
-        pv = partition_vector(dstructure.partition)
+        pv = partition_vector(shape.num_partitions)
         for _ in range(shift):
             mask = (mask << 1) & pv & _ALL_LANES
     return mask
 
 
-def cr_scalar(state: IpuState, cr_idx: int) -> np.generic:
-    """CR *cr_idx* as an element scalar of *state*'s format (Q49).
+def cr_scalar(state: IpuState, cr_idx: int, word: int | None = None) -> float:
+    """CR *cr_idx* as a MULT constant in *state*'s mode (ADR 0007).
 
-    The CR's low element-width bits decoded in the active format, CR1 read as
-    1: what a MULT with this CR as its scalar operand multiplies by.
+    ``CR0`` is 0.0 and ``CR1`` 1.0 in both modes. Any other CR is, in NX8,
+    one NX8 element in the constant layout (``ipu_isa.cr_halves``) and, in
+    FP32, its IEEE float32 bits: what a MULT with this CR as its scalar
+    operand multiplies by.
+
+    Args:
+        state: The state, for its mode.
+        cr_idx: The CR.
+        word: The CR's value as the reading instruction sees it; the live
+            register when omitted.
+
+    Raises:
+        CrContentError: NX8 mode and the CR holds no valid constant.
     """
-    return state.codec.decode_cr_scalar(cr_idx, state.regfile.get_cr(cr_idx))
+    value = state.regfile.get_cr(cr_idx) if word is None else word
+    if _is_wide(state):
+        return fp32_constant_value(cr_idx, value)
+    return constant_value(cr_idx, value)
 
 
 def xmem_row_fault(state: IpuState, row: int) -> str | None:
@@ -291,7 +312,7 @@ def xmem_row_fault(state: IpuState, row: int) -> str | None:
         return f"XMEM row must be non-negative; got {row}"
     if not _is_wide(state) and row >= EIGHT_BIT_ROWS:
         return (
-            f"XMEM row {row} is out of range in an 8-bit element format "
+            f"XMEM row {row} is out of range in NX8 mode "
             f"(rows 0..{EIGHT_BIT_ROWS - 1}, the first "
             f"{EIGHT_BIT_ROWS * xmem_row_size_bytes(state) >> 20} MB of XMEM)"
         )
@@ -320,8 +341,7 @@ def xmem_row_addr(state: IpuState, row: int) -> int:
     *address* the first EIGHT_BIT_ROWS rows (2 MB) of that allocation.
 
     This only translates and range-checks the row itself; the resulting
-    address's actual payload (which may span more than one row's worth of
-    bytes, e.g. ST.ACC's fixed 512-byte R_ACC) is bounds-checked by
+    address's actual payload is bounds-checked by
     ``XMem.read_address``/``write_address`` against the allocation.
 
     The row is legal: the word's check phase faulted F-6 on any other
@@ -349,8 +369,8 @@ def lrd_bytes(regfile: _RegisterReader, n: int) -> bytes:
 
 
 def lane_format(state: IpuState) -> str:
-    """Struct format of one 4-byte R_ACC / MULT_RES / AGG lane: the format's accumulator."""
-    return "<f" if state.format_info.accumulator is AccumulatorType.FP32 else "<i"
+    """Struct format of one 4-byte R_ACC / MULT_RES / AGG lane: FP32 in both modes."""
+    return "<f"
 
 
 def agg_lane_count(valid_elements: int) -> int:

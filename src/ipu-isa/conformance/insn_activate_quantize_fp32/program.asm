@@ -1,3 +1,3 @@
 # insn_activate_quantize_fp32: ACTIVATE.QUANTIZE in FP32
-ACTIVATE.QUANTIZE relu CR15 ;;
+ACTIVATE.QUANTIZE relu CR15.L CR14.L CR3 LR1 ;;
 HALT ;;

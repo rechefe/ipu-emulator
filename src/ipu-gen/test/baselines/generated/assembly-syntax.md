@@ -6,7 +6,7 @@ The IPU assembler is a Python-based tool that turns assembly source into binary 
 
 - **Jinja2 preprocessing** — templates and macros for generated assembly
 - **Label resolution** — forward and backward references
-- **VLIW compounds** — multiple pipeline slots per cycle (`COND`, `LR`×3, `LOAD`, `MULT`, `ACC`, `AAQ`, `STORE`; emulator-only: `ACC_STORE`, `BREAK`)
+- **VLIW compounds** — multiple pipeline slots per cycle (`COND`, `LR`×3, `LOAD`, `MULT`, `ACC`, `AAQ`; emulator-only: `AAQ_EXACT`, `BREAK`)
 - **Syntax validation** — Lark-based parser with detailed errors
 
 ## Basic Syntax
@@ -44,7 +44,7 @@ load_inst; mult_inst; acc_inst; aaq_inst; store_inst; acc_store_inst; lr_inst_a;
 - Each slot appears a fixed number of times (see `SLOT_COUNT` in `instruction_spec.py`); unused slots are filled with that slot’s **NOP** by the assembler.
 - Slot order in the binary word (MSB → LSB) is defined by the toolchain: `cond`, three `lr` sub-slots, `load`, `mult`, `acc`, `aaq`, `store`, `acc_store`, `break` (see the layout diagram on the [Instruction reference](instructions.md#compound-instruction-layout)).
 - The slots of one word execute in a fixed order, and each register read sees either the value at cycle start or the value forwarded from an earlier slot of the same word: see [Execution order and timing](#execution-order-and-timing).
-- The emulator-only slots (`ACC_STORE`, `BREAK`) are not implemented in real IPU hardware: see the [instruction format](instruction-format.md).
+- The emulator-only slots (`AAQ_EXACT`, `BREAK`) are not implemented in real IPU hardware: see the [instruction format](instruction-format.md).
 
 **Example (parallel slots):**
 
@@ -102,7 +102,7 @@ A label made of decimal digits only, such as `1:`, is a **local label** (the GNU
 
 This section is **generated** from `ipu_isa.timing` and the register accesses each instruction declares in `instruction_spec.py`.
 
-The slots of one instruction word execute in this order: **BREAK** → **LR** → **LOAD** → **MULT** → **ACC** → **AAQ** → **STORE** → **ACC_STORE** → **COND**. **BREAK** is evaluated before any slot writes (it may halt the word); the **LR** sub-slots all read before any of them writes.
+The slots of one instruction word execute in this order: **BREAK** → **LR** → **LOAD** → **MULT** → **ACC** → **AAQ** → **AAQ_EXACT** → **COND**. **BREAK** is evaluated before any slot writes (it may halt the word); the **LR** sub-slots all read before any of them writes.
 
 A register read sees one of two values: the value at **cycle start** (when the word began), or the **forwarded** value (after the writes of earlier slots of the same word). The timing contract is four rules:
 
@@ -123,7 +123,7 @@ The [timing model](../../explanation/timing-model.md) explains the rules, with a
 |-------------|------|----------------------|-----------------|--------|
 | `BREAK` | `BREAK` | — | — | — |
 | `BREAK.IFEQ` | `BREAK` | `LR` via `reg` | — | — |
-| `SET` | `LR` | `CR` via `src` | — | `LR` via `reg` |
+| `SET` | `LR` | `LR` via `src`, `CR` via `src` | — | `LR` via `reg` |
 | `ADD` | `LR` | `LR` via `src_a`, `LR` via `src_b`, `CR` via `src_b` | — | `LR` via `dest` |
 | `SUB` | `LR` | `LR` via `src_a`, `LR` via `src_b`, `CR` via `src_b` | — | `LR` via `dest` |
 | `INC.MODP2` | `LR` | `LR` via `step`, `CR` via `step`, `LR` via `dest` | — | `LR` via `dest` |
@@ -131,14 +131,14 @@ The [timing model](../../explanation/timing-model.md) explains the rules, with a
 | `DEC` | `LR` | `LR` via `dest` | — | `LR` via `dest` |
 | `ADDB` | `LR` | `LR` via `src_b`, `CR` via `src_b`, `LR` via `dest` | — | `LR` via `dest` |
 | `ADDBI` | `LR` | `LR` via `dest` | — | `LR` via `dest` |
-| `LD.MULT` | `LOAD` | `CR` via `base` | `LR` via `offset` | `R` via `dest` |
-| `LD.MULT.CYCLIC` | `LOAD` | `CR` via `base` | `LR` via `offset`, `LR` via `index` | `R_CYCLIC` |
+| `LD.MULT` | `LOAD` | `CR` via `base` | `LR` via `offset` | `R` via `dest`, `R_META` via `dest` |
+| `LD.MULT.CYCLIC` | `LOAD` | `CR` via `base` | `LR` via `offset`, `LR` via `index` | `R_CYCLIC`, `R_CYCLIC_META` |
 | `LD.MASK` | `LOAD` | `CR` via `base` | `LR` via `offset` | `R_MASK` |
-| `MULT.RC.VV` | `MULT` | `R` via `ra`, `R_CYCLIC`, `R_MASK`, `CR` via `cr_idx` | `LR` via `rc_idx`, `LR` via `mask_shift` | `MULT_RES` |
-| `MULT.RC.VE` | `MULT` | `CR` via `src`, `R`, `R_CYCLIC`, `R_MASK`, `CR` via `cr_idx` | `LR` via `rc_idx`, `LR` via `mask_shift`, `LR` via `src` | `MULT_RES` |
-| `MULT.RC.VS` | `MULT` | `R_CYCLIC`, `R_MASK`, `CR` via `cr_idx` | `LR` via `rc_idx`, `LR` via `mask_shift` | `MULT_RES` |
-| `MULT.VE` | `MULT` | `CR` via `cr_idx`, `R`, `R_MASK`, `CR` via `dstructure_cr_idx` | `LR` via `ra_idx`, `LR` via `mask_shift` | `MULT_RES` |
-| `MULT.EE` | `MULT` | `CR` via `cr_idx`, `R`, `R_MASK`, `CR` via `dstructure_cr_idx` | `LR` via `ra_idx`, `LR` via `mask_shift` | `MULT_RES` |
+| `MULT.RC.VV` | `MULT` | `R` via `ra`, `R_CYCLIC`, `R_CYCLIC_META`, `R_META`, `R_MASK`, `CR` via `ds`, `CR` via `qf` | `LR` via `rc_idx`, `LR` via `mask_shift` | `MULT_RES` |
+| `MULT.RC.VE` | `MULT` | `CR` via `src`, `R`, `R_META`, `R_CYCLIC`, `R_CYCLIC_META`, `R_MASK`, `CR` via `ds`, `CR` via `qf` | `LR` via `rc_idx`, `LR` via `mask_shift`, `LR` via `src` | `MULT_RES` |
+| `MULT.RC.VS` | `MULT` | `R_CYCLIC`, `R_CYCLIC_META`, `R_MASK`, `CR` via `ds`, `CR` via `qf` | `LR` via `rc_idx`, `LR` via `mask_shift` | `MULT_RES` |
+| `MULT.VE` | `MULT` | `CR` via `cr_idx`, `R`, `R_META`, `R_MASK`, `CR` via `ds`, `CR` via `qf` | `LR` via `ra_idx`, `LR` via `mask_shift` | `MULT_RES` |
+| `MULT.EE` | `MULT` | `CR` via `cr_idx`, `R`, `R_META`, `R_MASK`, `CR` via `ds`, `CR` via `qf` | `LR` via `ra_idx`, `LR` via `mask_shift` | `MULT_RES` |
 | `ACC.ADD` | `ACC` | `R_ACC` | `MULT_RES` | `R_ACC` |
 | `ACC.ADD.FIRST` | `ACC` | — | `MULT_RES` | `R_ACC` |
 | `ACC.MAX` | `ACC` | `R_ACC` | `MULT_RES` | `R_ACC` |
@@ -146,14 +146,14 @@ The [timing model](../../explanation/timing-model.md) explains the rules, with a
 | `ACC.SUB` | `ACC` | `R_ACC` | `MULT_RES` | `R_ACC` |
 | `ACC.SUB.FIRST` | `ACC` | — | `MULT_RES` | `R_ACC` |
 | `ACC.STRIDE` | `ACC` | — | `LR` via `offset`, `MULT_RES` | `R_ACC` |
-| `AGG.SUM.FIRST` | `ACC` | `CR` via `cr_idx` | `LR` via `dest_slot`, `MULT_RES` | `R_ACC` |
-| `AGG.SUM` | `ACC` | `CR` via `cr_idx`, `R_ACC` | `LR` via `dest_slot`, `MULT_RES` | `R_ACC` |
-| `AGG.MAX.FIRST` | `ACC` | `CR` via `cr_idx` | `LR` via `dest_slot`, `MULT_RES` | `R_ACC` |
-| `AGG.MAX` | `ACC` | `CR` via `cr_idx`, `R_ACC` | `LR` via `dest_slot`, `MULT_RES` | `R_ACC` |
+| `AGG.SUM.FIRST` | `ACC` | `CR` via `ds` | `LR` via `dest_slot`, `MULT_RES` | `R_ACC` |
+| `AGG.SUM` | `ACC` | `CR` via `ds`, `R_ACC` | `LR` via `dest_slot`, `MULT_RES` | `R_ACC` |
+| `AGG.MAX.FIRST` | `ACC` | `CR` via `ds` | `LR` via `dest_slot`, `MULT_RES` | `R_ACC` |
+| `AGG.MAX` | `ACC` | `CR` via `ds`, `R_ACC` | `LR` via `dest_slot`, `MULT_RES` | `R_ACC` |
 | `ACC.RESHAPE` | `ACC` | — | `LR` via `source`, `LR` via `dest`, `LR` via `reshape_mask`, `MULT_RES` | `R_ACC` |
-| `ACTIVATE.QUANTIZE` | `AAQ` | `CR` via `cr_idx` | `R_ACC` | `POST_AAQ_REG` |
-| `ST.AAQ` | `STORE` | `CR` via `base` | `LR` via `offset`, `POST_AAQ_REG` | — |
-| `ST.ACC` | `ACC_STORE` | `CR` via `base` | `LR` via `offset`, `R_ACC` | — |
+| `LD.LUT` | `AAQ` | `CR` via `table_id` | `LR` via `table_offset` | `AAQ_LUT` |
+| `ACTIVATE.QUANTIZE` | `AAQ` | `CR` via `table_id`, `CR` via `ds`, `CR` via `qf`, `AAQ_LUT` | `LR` via `table_offset`, `R_ACC` | — |
+| `ACTIVATE.EXACT` | `AAQ_EXACT` | `CR` via `table_id`, `CR` via `ds` | `LR` via `table_offset`, `R_ACC` | — |
 | `BEQ` | `COND` | `LR` via `reg1`, `CR` via `reg1`, `LR` via `reg2`, `CR` via `reg2` | — | — |
 | `BNE` | `COND` | `LR` via `reg1`, `CR` via `reg1`, `LR` via `reg2`, `CR` via `reg2` | — | — |
 | `BLT.S` | `COND` | `LR` via `reg1`, `CR` via `reg1`, `LR` via `reg2`, `CR` via `reg2` | — | — |

@@ -18,8 +18,9 @@ nowhere else:
    :func:`ipu_emu.cycle.resolver_for`);
 3. a MULT with no mask shift whose R_MASK slot is all ones skips the mask
    pipeline (``ipu_emu.slots.mult``); and
-4. an FP32 ``ACTIVATE.QUANTIZE`` over all LANES lanes without output
-   quantization runs as one batched row (``ipu_emu.slots.aaq``).
+4. an ``ACTIVATE.EXACT`` (FP32 mode) of ``identity``, ``exp2`` or
+   ``reciprocal`` over all LANES lanes runs as one batched row
+   (``ipu_emu.slots.aaq_exact``).
 
 These shortcuts are:
 

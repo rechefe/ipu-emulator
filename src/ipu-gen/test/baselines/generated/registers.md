@@ -12,7 +12,6 @@ This page is **generated** from `REGISTER_DEFINITIONS` in `ipu_isa.registers`. A
 | `R_CYCLIC_META` | MULT | 4 | 2 | yes | — |
 | `R_MASK` | MULT | 1 | 128 | yes | — |
 | `R_ACC` | ACC | 1 | 512 | yes | — |
-| `POST_AAQ_REG` | AAQ | 1 | 512 | yes | — |
 | `AAQ_LUT` | AAQ | 1 | 550 | yes | — |
 | `LR` | LR | 16 | 4 | no | `LR0`–`LR15` |
 | `CR` | CR | 16 | 4 | no | `CR0`–`CR15` |

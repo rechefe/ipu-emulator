@@ -1,0 +1,4 @@
+{"schema_version":"1.1.0","isa_digest":"b2c6f0be6d069626fb447e271b7ccbf5eadf3579eef718a10f824f16cb7f8599","format":"nx8","program_digest":"978b69ae6fa4806189a3057c664196a257948fcc3ae89a824ec23d1daab4f426","emulator_version":"0.1.0"}
+{"cycle":0,"pc_before":0,"pc_after":1,"slots":[{"slot":"lr","mnemonic":"SET","fields":{"reg":0,"src":18}},{"slot":"cond","mnemonic":"BNE","fields":{"reg1":0,"reg2":16,"label":3}}],"reg_writes":[{"register":"lr","index":0,"value":5}],"xmem_writes":[],"outcome":"retired","fault":null,"arith_events":[]}
+{"cycle":1,"pc_before":1,"pc_after":2,"slots":[{"slot":"lr","mnemonic":"SET","fields":{"reg":7,"src":19}}],"reg_writes":[{"register":"lr","index":7,"value":1}],"xmem_writes":[],"outcome":"retired","fault":null,"arith_events":[]}
+{"cycle":2,"pc_before":2,"pc_after":1024,"slots":[{"slot":"cond","mnemonic":"HALT","fields":{}}],"reg_writes":[],"xmem_writes":[],"outcome":"halt","fault":null,"arith_events":[]}

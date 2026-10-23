@@ -23,7 +23,6 @@ hand-picked probes; E04-25 flipped their two Q32 rows with the spec.
 from __future__ import annotations
 
 import struct
-import warnings
 from collections.abc import Callable
 
 import numpy as np
@@ -32,9 +31,10 @@ from timing_probes import ROW, Mode, Probe, decoded_program, run
 
 from ipu_as.lark_tree import assemble
 from ipu_emu import prototyping
-from ipu_emu.cycle import CycleView, IssuedOp, decode_word
+from ipu_emu.cycle import IssuedOp, decode_word
+from ipu_emu.cycle_view import CycleView
 from ipu_emu.emulator import load_program
-from ipu_emu.errors import DebugOnlyInstructionWarning, EmulatorError, UndeclaredRead
+from ipu_emu.errors import EmulatorError, UndeclaredRead
 from ipu_emu.ipu import Ipu, read_views
 from ipu_emu.ipu_state import IpuState
 from ipu_isa.codec.word import DecodedWord
@@ -54,18 +54,16 @@ CRS = {2: ROW, 3: LR_PRODUCED, 4: STORE_ROW, 5: 3}
 #: LR_PRODUCED once the LR producer writes it); loads read row CR2, stores
 #: write row CR4.
 READERS: dict[str, str] = {
-    "ST.AAQ": "ST.AAQ LR0 CR4",
-    "ST.ACC": "ST.ACC LR0 CR4",
     "INC.MODP2": "INC.MODP2 LR1 LR0 4",
     "INC": "INC LR1 1",
     "DEC": "DEC LR1 1",
     "ADDB": "ADDB LRD2 CR5",
     "ADDBI": "ADDBI LRD2 3",
-    "MULT.RC.VV": "MULT.RC.VV LR0 R0 0 LR0 CR15",
-    "MULT.RC.VE": "MULT.RC.VE LR0 LR6 0 LR0 CR15",
-    "MULT.RC.VS": "MULT.RC.VS LR0 0 LR0 CR15",
-    "MULT.VE": "MULT.VE LR0 CR5 0 LR0 CR15",
-    "MULT.EE": "MULT.EE LR0 CR5 0 LR0 CR15",
+    "MULT.RC.VV": "MULT.RC.VV LR0 R0 0 LR0 CR15.L CR14.L",
+    "MULT.RC.VE": "MULT.RC.VE LR0 LR6 0 LR0 CR15.L CR14.L",
+    "MULT.RC.VS": "MULT.RC.VS LR0 0 LR0 CR15.L CR14.L",
+    "MULT.VE": "MULT.VE LR0 CR1 0 LR0 CR15.L CR14.L",
+    "MULT.EE": "MULT.EE LR0 CR1 0 LR0 CR15.L CR14.L",
     "ACC.ADD": "ACC.ADD",
     "ACC.ADD.FIRST": "ACC.ADD.FIRST",
     "ACC.MAX": "ACC.MAX",
@@ -73,13 +71,17 @@ READERS: dict[str, str] = {
     "ACC.SUB": "ACC.SUB",
     "ACC.SUB.FIRST": "ACC.SUB.FIRST",
     "ACC.STRIDE": "ACC.STRIDE 16 off off LR0",
-    "AGG.SUM.FIRST": "AGG.SUM.FIRST LR0 CR15",
-    "AGG.SUM": "AGG.SUM LR0 CR15",
-    "AGG.MAX.FIRST": "AGG.MAX.FIRST LR0 CR15",
-    "AGG.MAX": "AGG.MAX LR0 CR15",
+    "AGG.SUM.FIRST": "AGG.SUM.FIRST LR0 CR15.L",
+    "AGG.SUM": "AGG.SUM LR0 CR15.L",
+    "AGG.MAX.FIRST": "AGG.MAX.FIRST LR0 CR15.L",
+    "AGG.MAX": "AGG.MAX LR0 CR15.L",
     "ACC.RESHAPE": "ACC.RESHAPE LRD0 LRD2 LR6",
-    "ACTIVATE.QUANTIZE": "ACTIVATE.QUANTIZE identity CR15",
+    "ACTIVATE.QUANTIZE": "ACTIVATE.QUANTIZE identity CR15.L CR14.L CR4 LR0",
+    "ACTIVATE.EXACT": "ACTIVATE.EXACT identity CR15.L CR4 LR0",
 }
+
+#: Readers valid in FP32 mode only (ADR 0007): refused when loaded in NX8 mode.
+FP32_ONLY = frozenset({"ACTIVATE.EXACT"})
 
 #: For each register a reader reads, an instruction of another slot that writes
 #: it to a value different from the start state's: (slot, instruction).
@@ -87,9 +89,10 @@ PRODUCERS: dict[str, tuple[Slot, str]] = {
     "r": (Slot.LOAD, "LD.MULT R0 LR0 CR2"),
     "r_cyclic": (Slot.LOAD, "LD.MULT.CYCLIC LR0 CR2 LR0"),
     "r_mask": (Slot.LOAD, "LD.MASK LR0 CR2"),
-    "mult_res": (Slot.MULT, "MULT.RC.VS LR1 0 LR1 CR15"),
+    "mult_res": (Slot.MULT, "MULT.RC.VS LR1 0 LR1 CR15.L CR14.L"),
     "r_acc": (Slot.ACC, "ACC.ADD.FIRST"),
-    "post_aaq_reg": (Slot.AAQ, "ACTIVATE.QUANTIZE identity CR15"),
+    "r_meta": (Slot.LOAD, "LD.MULT R0 LR0 CR2"),
+    "r_cyclic_meta": (Slot.LOAD, "LD.MULT.CYCLIC LR0 CR2 LR0"),
     "lr": (Slot.LR, "SET LR6 CR3"),
 }
 
@@ -147,31 +150,31 @@ def _start_state(mode: Mode) -> Callable[[IpuState], None]:
     def setup(state: IpuState) -> None:
         rng = np.random.default_rng(12)
         regfile = state.regfile
+
+        def floats(n: int) -> bytes:
+            return struct.pack(f"<{n}f", *(rng.integers(-16, 17, n) / 4.0))
+
+        # MULT_RES and R_ACC start negative, so a max over them differs from
+        # a max over the small positive products the NX8 producer writes.
+        regfile.mutable("mult_res")[:] = struct.pack(
+            f"<{LANES}f", *(rng.integers(-16, 0, LANES) / 4.0)
+        )
+        regfile.mutable("r_acc")[:] = struct.pack(
+            f"<{LANES}f", *(rng.integers(-16, 0, LANES) / 4.0)
+        )
         if mode is Mode.WIDE_FP32:
-
-            def elements(n: int) -> bytes:
-                return struct.pack(f"<{n}f", *(rng.integers(-16, 17, n) / 4.0))
-
-            regfile.mutable("r_wide_debug")[:] = elements(2 * LANES)
-            regfile.mutable("r_cyclic_wide_debug")[:] = elements(4 * LANES)
-            regfile.mutable("mult_res")[:] = elements(LANES)
-            regfile.mutable("r_acc")[:] = elements(LANES)
-            row = elements(LANES)
+            regfile.mutable("r_wide_debug")[:] = floats(2 * LANES)
+            regfile.mutable("r_cyclic_wide_debug")[:] = floats(4 * LANES)
+            row = floats(LANES)
         else:
-
-            def lanes(n: int) -> bytes:
-                return struct.pack(f"<{n}i", *rng.integers(-60, 61, n).tolist())
-
             regfile.mutable("r")[:] = rng.integers(0, 256, 2 * LANES, dtype=np.uint8).tobytes()
             regfile.mutable("r_cyclic")[:] = rng.integers(
                 0, 256, 4 * LANES, dtype=np.uint8
             ).tobytes()
-            regfile.mutable("mult_res")[:] = lanes(LANES)
-            regfile.mutable("r_acc")[:] = lanes(LANES)
+            regfile.mutable("r_meta")[:] = bytes([120, 0, 125, 0])
+            regfile.mutable("r_cyclic_meta")[:] = bytes([121, 0, 122, 0, 123, 0, 124, 0])
             row = rng.integers(0, 256, LANES, dtype=np.uint8).tobytes()
-        regfile.mutable("post_aaq_reg")[:] = rng.integers(
-            0, 256, 4 * LANES, dtype=np.uint8
-        ).tobytes()
+            state.xmem.write_metadata(ROW * LANES, 130)  # a load changes the metadata too
         state.xmem.write_address(ROW * len(row), row)
 
     return setup
@@ -191,18 +194,16 @@ def _outputs(state: IpuState, instruction: Instruction, mode: Mode) -> tuple[byt
         )
         for access in instruction.writes()
     ]
-    if instruction.slot in (Slot.STORE, Slot.ACC_STORE):
+    if instruction.slot in (Slot.AAQ, Slot.AAQ_EXACT):
         row_bytes = LANES * (4 if wide else 1)
-        out.append(bytes(state.xmem.read_address(STORE_ROW * row_bytes, 4 * LANES)))
+        out.append(bytes(state.xmem.read_address(STORE_ROW * row_bytes, row_bytes)))
+        out.append(state.xmem.read_metadata(STORE_ROW * row_bytes).to_bytes(2, "little"))
     return tuple(out)
 
 
 def _run_outputs(asm: str, instruction: Instruction, mode: Mode, prototyping_on: bool):
     probe = Probe(asm, cr=CRS, setup=_start_state(mode), modes=(mode,))
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DebugOnlyInstructionWarning)
-        warnings.filterwarnings("ignore", message=".*simulation-only acc_store slot")
-        result = run(probe, mode, prototyping=prototyping_on)
+    result = run(probe, mode, prototyping=prototyping_on)
     return _outputs(result.state, instruction, mode)
 
 
@@ -232,12 +233,14 @@ def test_there_is_a_case_for_every_declared_implicit_read():
 
 
 @pytest.mark.parametrize("prototyping_on", [False, True], ids=["faithful", "prototyping"])
-@pytest.mark.parametrize("mode", [Mode.NARROW, Mode.WIDE_FP32], ids=lambda m: m.value)
+@pytest.mark.parametrize("mode", [Mode.NX8, Mode.WIDE_FP32], ids=lambda m: m.value)
 @pytest.mark.parametrize("case", CASES, ids=[_case_id(case) for case in CASES])
 def test_implicit_read_honours_its_declared_view(case, mode, prototyping_on):
     instruction, access = case
     if prototyping_on and not prototyping.build_enabled():
         pytest.skip("prototyping needs --config=proto")
+    if mode is Mode.NX8 and instruction.mnemonic in FP32_ONLY:
+        pytest.skip(f"{instruction.mnemonic} is valid in FP32 mode only")
     # The plan the emulator dispatches carries the declared view.
     views = read_views(instruction)
     assert views[access.register, access.via_operand] is (access.view is View.CYCLE_START)

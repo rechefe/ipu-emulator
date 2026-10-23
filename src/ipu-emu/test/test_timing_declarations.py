@@ -107,9 +107,10 @@ EXERCISES: dict[str, tuple[Declaration, ...]] = {
         Reads(Slot.LOAD, "LD.MULT.CYCLIC", "lr", "index", FW),
         Reads(Slot.LOAD, "LD.MASK", "lr", "offset", FW),
     ),
-    "test_store_offsets_read_forwarded": (
-        Reads(Slot.STORE, "ST.AAQ", "lr", "offset", FW),
-        Reads(Slot.ACC_STORE, "ST.ACC", "lr", "offset", FW),
+    "test_aaq_offsets_read_forwarded": (
+        Reads(Slot.AAQ, "ACTIVATE.QUANTIZE", "lr", "table_offset", FW),
+        Reads(Slot.AAQ_EXACT, "ACTIVATE.EXACT", "lr", "table_offset", FW),
+        Reads(Slot.AAQ, "LD.LUT", "lr", "table_offset", FW),
     ),
     "test_mult_lr_operands_read_forwarded": (
         Reads(Slot.MULT, "MULT.RC.VS", "lr", "rc_idx", FW),
@@ -137,9 +138,12 @@ EXERCISES: dict[str, tuple[Declaration, ...]] = {
     "test_mult_reads_r0_r1_at_cycle_start": (
         Reads(Slot.MULT, "MULT.RC.VV", "r", "ra", CS),
         Reads(Slot.MULT, "MULT.VE", "r", None, CS),
+        Reads(Slot.MULT, "MULT.RC.VV", "r_meta", None, CS),
+        Reads(Slot.MULT, "MULT.VE", "r_meta", None, CS),
     ),
     "test_mult_reads_r_cyclic_at_cycle_start": (
         Reads(Slot.MULT, "MULT.RC.VS", "r_cyclic", None, CS),
+        Reads(Slot.MULT, "MULT.RC.VS", "r_cyclic_meta", None, CS),
     ),
     "test_mult_reads_r_mask_at_cycle_start": (Reads(Slot.MULT, "MULT.RC.VS", "r_mask", None, CS),),
     "test_acc_reads_this_cycle_mult_res": _reads(Slot.ACC, _ACC_MULT_RES, "mult_res", None, FW),
@@ -151,10 +155,9 @@ EXERCISES: dict[str, tuple[Declaration, ...]] = {
     "test_activate_reads_this_cycle_r_acc": (
         Reads(Slot.AAQ, "ACTIVATE.QUANTIZE", "r_acc", None, FW),
     ),
-    "test_store_reads_this_cycle_post_aaq": (
-        Reads(Slot.STORE, "ST.AAQ", "post_aaq_reg", None, FW),
+    "test_activate_exact_reads_this_cycle_r_acc": (
+        Reads(Slot.AAQ_EXACT, "ACTIVATE.EXACT", "r_acc", None, FW),
     ),
-    "test_acc_store_reads_this_cycle_r_acc": (Reads(Slot.ACC_STORE, "ST.ACC", "r_acc", None, FW),),
     "test_bkpt_halts_after_whole_word_retires": (Position(Slot.COND, -1),),
     "test_branches_compare_signed": (NotTiming("branch comparison semantics"),),
     "test_break_has_no_side_effects_and_resume_rereads": (Position(Slot.BREAK, 0),),

@@ -5,7 +5,7 @@ from __future__ import annotations
 import dataclasses
 
 import pytest
-from emu_support import ElementFormat, assemble_program, new_state
+from emu_support import E4, ElementFormat, assemble_program, new_state
 
 from ipu_emu.emulator import load_program
 from ipu_emu.ipu import LANES, Ipu
@@ -27,13 +27,13 @@ class _NoInstMem:
 
 def _engine_at_vv_multiply():
     """An engine stopped (snapshot taken) at a ``MULT.RC.VV`` whose R0 holds declared ones."""
-    state = new_state(fmt=ElementFormat.INT8)
-    state.write_constant_ones(0)
+    state = new_state(fmt=ElementFormat.NX8)
+    state.write_constant_ones(0, E4)
     state.regfile.set_cr(2, 1)
     code = (
         "LD.MULT R0 LR0 CR0;;\n"
         "LD.MULT.CYCLIC LR0 CR2 LR0;;\n"
-        "MULT.RC.VV LR0 R0 0 LR0 CR15 ; ACC.ADD ;;\n"
+        "MULT.RC.VV LR0 R0 0 LR0 CR15.L CR14.L ; ACC.ADD ;;\n"
         "HALT;;"
     )
     load_program(state, assemble_program(code))

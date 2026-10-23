@@ -8,21 +8,31 @@ import weakref
 
 import emu_support
 import pytest
-from emu_support import ElementFormat, assemble_program, new_state
+from emu_support import E4, ElementFormat, assemble_program, new_state
 
 from ipu_emu.alias_detectors import default_registry
 from ipu_emu.alias_profile import AliasDefinition, AliasProfile, DetectorRegistry, Event, Match
 from ipu_emu.emulator import load_program, run_until_complete
-from ipu_emu.errors import DebugOnlyInstructionWarning
 from ipu_emu.ipu_state import IpuState
+from ipu_isa.cr_halves import ds
+from ipu_isa.nx8 import encode_row
+
+#: The row ACTIVATE.EXACT exp2 stores to (CR13): one no test reads.
+EXP_STORE_ROW = 100
 
 
 def run(code, *, enabled=True, setup=None, wide=False):
     """Run *code* with a fresh alias profile attached (unless *enabled* is false)."""
+
+    def prepare(state):
+        state.regfile.set_cr(13, EXP_STORE_ROW)
+        if setup is not None:
+            setup(state)
+
     return emu_support.run(
         code,
         alias_profile=AliasProfile() if enabled else None,
-        setup=setup,
+        setup=prepare,
         fmt=ElementFormat.FP32 if wide else None,
     )
 
@@ -43,7 +53,7 @@ def test_profiled_state_is_freed_without_the_cycle_collector():
     """state -> profile -> observer must not point back at the state: a
     reference cycle would keep every profiled state's XMEM alive until the
     cyclic garbage collector happens to run."""
-    state = run("MULT.RC.VE LR0 CR1 0 LR0 CR15; ACC.ADD.FIRST;;\nHALT;;")
+    state = run("MULT.RC.VE LR0 CR1 0 LR0 CR15.L CR14.L; ACC.ADD.FIRST;;\nHALT;;")
     profile = state.alias_profile
     released = weakref.ref(state)
     gc.disable()
@@ -62,12 +72,14 @@ def test_registry_extension_needs_no_emulator_changes():
                 yield Match("custom_move", (event,), metrics={"observed": 1})
 
     registry = default_registry().copy().register(AliasDefinition("custom_move", "Custom"), Custom)
-    state = IpuState(alias_profile=AliasProfile(registry))
-    load_program(state, assemble_program("MULT.RC.VE LR0 CR1 0 LR0 CR15; ACC.ADD.FIRST;;\nHALT;;"))
+    state = new_state(alias_profile=AliasProfile(registry))
+    load_program(
+        state, assemble_program("MULT.RC.VE LR0 CR1 0 LR0 CR15.L CR14.L; ACC.ADD.FIRST;;\nHALT;;")
+    )
     run_until_complete(state)
     assert count(state, "custom_move") == 1
     assert "custom_move" not in default_registry().entries
-    assert {f"A{i}" for i in range(1, 17)} <= {
+    assert {f"A{i}" for i in range(1, 16)} <= {
         key.split("_")[0] for key in default_registry().entries
     }
     with pytest.raises(ValueError):
@@ -75,7 +87,7 @@ def test_registry_extension_needs_no_emulator_changes():
 
 
 def test_profile_preserves_architecture_and_identity_accounting():
-    code = "MULT.RC.VE LR0 CR1 0 LR0 CR15; ACC.ADD.FIRST;;\nHALT;;"
+    code = "MULT.RC.VE LR0 CR1 0 LR0 CR15.L CR14.L; ACC.ADD.FIRST;;\nHALT;;"
     on, off = run(code), run(code, enabled=False)
     for field in (
         "total_cycles",
@@ -96,10 +108,10 @@ def test_profile_preserves_architecture_and_identity_accounting():
 
 
 TRANSFER = """
-MULT.RC.VE LR0 CR1 0 LR0 CR15; ACC.ADD.FIRST;;
-ACTIVATE.QUANTIZE identity CR15; ST.AAQ LR0 CR0;;
+MULT.RC.VE LR0 CR1 0 LR0 CR15.L CR14.L; ACC.ADD.FIRST;;
+ACTIVATE.QUANTIZE identity CR15.L CR14.L CR0 LR0;;
 LD.MULT.CYCLIC LR0 CR0 LR0;;
-MULT.RC.VV LR0 R0 0 LR0 CR15; ACC.ADD.FIRST;;
+MULT.RC.VV LR0 R0 0 LR0 CR15.L CR14.L; ACC.ADD.FIRST;;
 HALT;;
 """
 
@@ -134,8 +146,8 @@ def test_constant_exp_and_fractional():
     state = run(
         """
 LD.MULT R0 LR0 CR0;;
-MULT.RC.VV LR0 R0 0 LR0 CR15; ACC.ADD.FIRST;;
-ACTIVATE.QUANTIZE exp2 CR15;;
+MULT.RC.VV LR0 R0 0 LR0 CR15.L CR14.L; ACC.ADD.FIRST;;
+ACTIVATE.EXACT exp2 CR15.L CR13 LR0;;
 HALT;;
 """,
         setup=setup,
@@ -163,12 +175,12 @@ def test_program_written_row_is_not_an_automatic_constant():
     state = run(
         """
 LD.MULT.CYCLIC LR1 CR0 LR0;;
-MULT.RC.VE LR0 CR1 0 LR0 CR15; ACC.ADD.FIRST;;
-ACTIVATE.QUANTIZE identity CR15; ST.AAQ LR0 CR2;;
+MULT.RC.VE LR0 CR1 0 LR0 CR15.L CR14.L; ACC.ADD.FIRST;;
+ACTIVATE.QUANTIZE identity CR15.L CR14.L CR2 LR0;;
 LD.MULT R0 LR0 CR0;;
 LD.MULT.CYCLIC LR0 CR0 LR0;;
-MULT.RC.VV LR0 R0 0 LR0 CR15; ACC.ADD.FIRST;;
-ACTIVATE.QUANTIZE exp2 CR15;;
+MULT.RC.VV LR0 R0 0 LR0 CR15.L CR14.L; ACC.ADD.FIRST;;
+ACTIVATE.EXACT exp2 CR15.L CR13 LR0;;
 HALT;;
 """,
         setup=setup,
@@ -182,28 +194,29 @@ def test_repeated_reads_and_write_invalidation():
     state = run("""
 LD.MULT R0 LR0 CR0;;
 LD.MULT R1 LR0 CR0;;
-ST.AAQ LR0 CR0;;
+ACTIVATE.QUANTIZE identity CR15.L CR14.L CR0 LR0;;
 LD.MULT R0 LR0 CR0;;
 HALT;;
 """)
     assert count(state, "A14_MULTIPLE_ACC") == 1
     assert state.alias_profile.read_bytes == 384
-    assert state.alias_profile.write_bytes == 512
+    assert state.alias_profile.write_bytes == 128  # one NX8 row (the metadata is not counted)
 
 
 def test_mask_and_scalar_add_subtypes():
     def setup(state):
-        state.xmem.write_address(0, bytes([0, 1]) * 64)
+        state.xmem.write_address(0, struct.pack("<2f", 0.0, 1.0) * 64)
 
     state = run(
         """
 LD.MULT R0 LR0 CR0;;
-MULT.RC.VV LR0 R0 0 LR0 CR15; ACC.ADD.FIRST;;
+MULT.RC.VV LR0 R0 0 LR0 CR15.L CR14.L; ACC.ADD.FIRST;;
 ADD LR6 LR6 LR7;;
 ADD LR6 LR6 LR7;;
 HALT;;
 """,
         setup=setup,
+        wide=True,
     )
     assert count(state, "A15_SELECT", subtype="vector_mask") == 1
     assert count(state, "A15_SELECT", subtype="scalar_add_chain") == 1
@@ -213,7 +226,7 @@ def test_address_update_dependency():
     state = run("""
 ADD LR2 LR2 CR1;;
 LD.MULT R0 LR2 CR0;;
-MULT.RC.VV LR0 R0 0 LR0 CR15; ACC.ADD.FIRST;;
+MULT.RC.VV LR0 R0 0 LR0 CR15.L CR14.L; ACC.ADD.FIRST;;
 HALT;;
 """)
     assert count(state, "A12_ADDRESSING", subtype="address_update") == 1
@@ -242,18 +255,18 @@ def test_overlap_and_bounded_examples():
 
 def test_segmented_fold_geometry():
     def setup(state):
-        state.set_cr_dstructure(valid_elements=64, partition=2)
+        state.set_cr_half(15, False, ds(valid_elements=64, num_partitions=2))
         state.regfile.set_r_mask(((1 << 64) - 1).to_bytes(16, "little") + bytes(112))
         state.regfile.set_cr(2, 64)
 
     state = run(
         """
-MULT.RC.VE LR0 CR1 0 LR0 CR15; ACC.ADD.FIRST;;
-ACTIVATE.QUANTIZE identity CR15; ST.AAQ LR0 CR0;;
+MULT.RC.VE LR0 CR1 0 LR0 CR15.L CR14.L; ACC.ADD.FIRST;;
+ACTIVATE.QUANTIZE identity CR15.L CR14.L CR0 LR0;;
 LD.MULT.CYCLIC LR0 CR0 LR0;;
-MULT.RC.VE LR0 CR1 0 LR0 CR15; ACC.ADD.FIRST;;
+MULT.RC.VE LR0 CR1 0 LR0 CR15.L CR14.L; ACC.ADD.FIRST;;
 SET LR3 CR2;;
-MULT.RC.VE LR3 CR1 0 LR0 CR15; ACC.ADD;;
+MULT.RC.VE LR3 CR1 0 LR0 CR15.L CR14.L; ACC.ADD;;
 HALT;;
 """,
         setup=setup,
@@ -302,11 +315,11 @@ def test_empty_cycles_and_break_resume_count_once():
     from ipu_emu.ipu import Ipu
     from ipu_emu.outcome import CycleOutcome
 
-    state = IpuState(alias_profile=AliasProfile())
+    state = new_state(alias_profile=AliasProfile())
     engine = Ipu(state)
     engine.cycle.step()
     assert state.alias_profile.cycles == 1
-    load_program(state, assemble_program("BREAK; MULT.RC.VE LR0 CR1 0 LR0 CR15;;"))
+    load_program(state, assemble_program("BREAK; MULT.RC.VE LR0 CR1 0 LR0 CR15.L CR14.L;;"))
     state.program_counter = 0
     assert engine.cycle.step() == CycleOutcome.BREAK
     assert state.alias_profile.cycles == 1
@@ -317,14 +330,14 @@ def test_empty_cycles_and_break_resume_count_once():
 
 def test_rotating_fold_requires_complete_duplicated_input():
     code = """
-MULT.RC.VE LR0 CR1 0 LR0 CR15; ACC.ADD.FIRST;;
-ACTIVATE.QUANTIZE identity CR15; ST.AAQ LR0 CR0;;
+MULT.RC.VE LR0 CR1 0 LR0 CR15.L CR14.L; ACC.ADD.FIRST;;
+ACTIVATE.QUANTIZE identity CR15.L CR14.L CR0 LR0;;
 LD.MULT.CYCLIC LR0 CR0 LR0;;
 SET LR3 CR2;;
 LD.MULT.CYCLIC LR0 CR0 LR3;;
-MULT.RC.VE LR0 CR1 0 LR0 CR15; ACC.MAX.FIRST;;
+MULT.RC.VE LR0 CR1 0 LR0 CR15.L CR14.L; ACC.MAX.FIRST;;
 SET LR3 CR3;;
-MULT.RC.VE LR3 CR1 0 LR0 CR15; ACC.MAX;;
+MULT.RC.VE LR3 CR1 0 LR0 CR15.L CR14.L; ACC.MAX;;
 HALT;;
 """
 
@@ -340,20 +353,15 @@ HALT;;
 
 @pytest.mark.parametrize("fmt", list(ElementFormat))
 def test_the_profile_names_the_runs_element_format(fmt):
-    """An FP32 run's profile says FP32, not INT8 (mode=fp32)."""
+    """An FP32 run's profile says FP32, not NX8 (mode=fp32)."""
     state = emu_support.run("HALT;;", alias_profile=AliasProfile(), fmt=fmt)
     metadata = state.alias_profile.to_dict()["metadata"]
     assert metadata["dtype"] == fmt.name
-    assert metadata["mode"] == (
-        fmt.value if fmt in (ElementFormat.FP32, ElementFormat.INT32) else "native"
-    )
+    assert metadata["mode"] == ("fp32" if fmt is ElementFormat.FP32 else "native")
 
 
-def test_hardware_only_alias_and_dtype_support():
-    with pytest.warns(DebugOnlyInstructionWarning):
-        state = run("ST.ACC LR0 CR0;;\nHALT;;")
-    assert count(state, "A16_STR_ACC_REG") == 1
-    assert rows(state, "A16_STR_ACC_REG")[0]["metrics"]["write_bytes"] == 512
+def test_fp32_only_alias_is_unsupported_in_nx8():
+    state = run("HALT;;")
     assert (
         state.alias_profile.to_dict()["aliases"]["A10_FRACTIONAL_SCALAR"]["status"]
         == "unsupported_mode"
@@ -374,9 +382,9 @@ def test_exp_rebase_with_offset_is_candidate_until_offset_is_proven():
     state = run(
         """
 LD.MULT R0 LR0 CR0;;
-MULT.RC.VV LR0 R0 0 LR0 CR15; ACC.ADD.FIRST;;
-MULT.EE LR0 CR1 0 LR0 CR15; ACC.SUB;;
-ACTIVATE.QUANTIZE exp2 CR15;;
+MULT.RC.VV LR0 R0 0 LR0 CR15.L CR14.L; ACC.ADD.FIRST;;
+MULT.EE LR0 CR1 0 LR0 CR15.L CR14.L; ACC.SUB;;
+ACTIVATE.EXACT exp2 CR15.L CR13 LR0;;
 HALT;;
 """,
         setup=setup,
@@ -398,12 +406,12 @@ def test_exp_offset_traces_packed_reduction_and_memory(slot, activation, verifie
     state = run(
         f"""
 LD.MULT R0 LR0 CR0;;
-MULT.RC.VV LR0 R0 0 LR0 CR15; AGG.MAX.FIRST LR0 CR15;;
-ACTIVATE.QUANTIZE {activation} CR15; ST.AAQ LR0 CR2;;
+MULT.RC.VV LR0 R0 0 LR0 CR15.L CR14.L; AGG.MAX.FIRST LR0 CR15.L;;
+ACTIVATE.QUANTIZE {activation} CR15.L CR14.L CR2 LR0;;
 LD.MULT R1 LR0 CR2;;
-MULT.RC.VV LR0 R0 0 LR0 CR15; ACC.ADD.FIRST;;
-MULT.EE LR1 CR1 0 LR0 CR15; ACC.SUB;;
-ACTIVATE.QUANTIZE exp2 CR15;;
+MULT.RC.VV LR0 R0 0 LR0 CR15.L CR14.L; ACC.ADD.FIRST;;
+MULT.EE LR1 CR1 0 LR0 CR15.L CR14.L; ACC.SUB;;
+ACTIVATE.EXACT exp2 CR15.L CR13 LR0;;
 HALT;;
 """,
         setup=setup,
@@ -416,7 +424,7 @@ HALT;;
 def test_exp_offset_same_bytes_do_not_preserve_overwritten_provenance(overwrite):
     from ipu_emu.ipu import Ipu
 
-    state = new_state(alias_profile=AliasProfile(), fmt=ElementFormat.FP32)
+    state = new_state(alias_profile=AliasProfile(), fmt=ElementFormat.FP32, cr={13: EXP_STORE_ROW})
     state.xmem.write_address(0, struct.pack("<f", math.log2(math.e)) * 128)
     state.regfile.set_lr(1, 128)
     state.regfile.set_cr(2, 1)
@@ -424,12 +432,12 @@ def test_exp_offset_same_bytes_do_not_preserve_overwritten_provenance(overwrite)
         state,
         assemble_program("""
 LD.MULT R0 LR0 CR0;;
-MULT.RC.VV LR0 R0 0 LR0 CR15; AGG.MAX.FIRST LR0 CR15;;
-ACTIVATE.QUANTIZE identity CR15; ST.AAQ LR0 CR2;;
+MULT.RC.VV LR0 R0 0 LR0 CR15.L CR14.L; AGG.MAX.FIRST LR0 CR15.L;;
+ACTIVATE.QUANTIZE identity CR15.L CR14.L CR2 LR0;;
 LD.MULT R1 LR0 CR2;;
-MULT.RC.VV LR0 R0 0 LR0 CR15; ACC.ADD.FIRST;;
-MULT.EE LR1 CR1 0 LR0 CR15; ACC.SUB;;
-ACTIVATE.QUANTIZE exp2 CR15;;
+MULT.RC.VV LR0 R0 0 LR0 CR15.L CR14.L; ACC.ADD.FIRST;;
+MULT.EE LR1 CR1 0 LR0 CR15.L CR14.L; ACC.SUB;;
+ACTIVATE.EXACT exp2 CR15.L CR13 LR0;;
 HALT;;
 """),
     )
@@ -447,20 +455,30 @@ HALT;;
     assert count(state, "A9_EXP", "verified" if overwrite == "none" else "candidate") == 1
 
 
-@pytest.mark.parametrize("fmt", ["int8", "e4", "e5"])
-def test_binary_vector_mask_uses_active_format(fmt):
-    state = IpuState(fmt=fmt, alias_profile=AliasProfile())
-    state.xmem.write_address(0, (bytes(1) + state.codec.one()) * 64)
+@pytest.mark.parametrize("fmt", list(ElementFormat))
+def test_binary_vector_mask_is_measured_in_fp32_only(fmt):
+    """A row of 0.0 and 1.0 is a vector mask in FP32. An NX8 row's values
+    depend on the QF and metadata it is read with, so the observer proves no
+    constant property of one (``AliasObserver.constants``)."""
+    state = new_state(fmt=fmt, alias_profile=AliasProfile())
+    if fmt is ElementFormat.FP32:
+        state.xmem.write_address(0, struct.pack("<2f", 0.0, 1.0) * 64)
+    else:
+        encoded = encode_row([1.0], E4)  # element 0 is 1.0; the tail is the 0.0 code
+        one, zero = encoded.elements[0], encoded.elements[1]
+        state.xmem.write_address(0, bytes([zero, one]) * 64)
+        state.xmem.write_metadata(0, encoded.metadata)
     load_program(
         state,
         assemble_program("""
 LD.MULT R0 LR0 CR0;;
-MULT.RC.VV LR0 R0 0 LR0 CR15;;
+MULT.RC.VV LR0 R0 0 LR0 CR15.L CR14.L;;
 HALT;;
 """),
     )
     run_until_complete(state)
-    assert count(state, "A15_SELECT", subtype="vector_mask") == 1
+    expected = 1 if fmt is ElementFormat.FP32 else 0
+    assert count(state, "A15_SELECT", subtype="vector_mask") == expected
 
 
 def test_address_update_overwritten_before_live_read_is_not_a_dependency():
@@ -475,7 +493,7 @@ HALT;;
 def test_mask_shift_update_is_not_address_arithmetic():
     state = run("""
 ADD LR2 LR2 CR1;;
-MULT.RC.VE LR0 CR1 0 LR2 CR15;;
+MULT.RC.VE LR0 CR1 0 LR2 CR15.L CR14.L;;
 HALT;;
 """)
     assert count(state, "A12_ADDRESSING", subtype="address_update") == 0
@@ -504,12 +522,12 @@ HALT;;
 @pytest.mark.parametrize(
     "instruction, expected",
     [
-        ("MULT.RC.VE LR0 CR1 0 LR0 CR15; ACC.ADD.FIRST", "A1_MOV_RC"),
-        ("MULT.RC.VE LR0 CR1 0 LR0 CR15; ACC.ADD", "A2_ADD_VV"),
-        ("MULT.RC.VE LR0 CR1 0 LR0 CR15; ACC.SUB", "A3_SUB_VV"),
-        ("MULT.RC.VE LR0 CR1 0 LR0 CR15; AGG.SUM.FIRST LR3 CR15", "A4_AGG_RC"),
-        ("MULT.EE LR0 CR1 0 LR0 CR15; ACC.ADD.FIRST", "A5_BCAST"),
-        ("MULT.RC.VE LR0 CR1 1 LR0 CR15; ACC.ADD.FIRST", "A6_GATHER_SCATTER"),
+        ("MULT.RC.VE LR0 CR1 0 LR0 CR15.L CR14.L; ACC.ADD.FIRST", "A1_MOV_RC"),
+        ("MULT.RC.VE LR0 CR1 0 LR0 CR15.L CR14.L; ACC.ADD", "A2_ADD_VV"),
+        ("MULT.RC.VE LR0 CR1 0 LR0 CR15.L CR14.L; ACC.SUB", "A3_SUB_VV"),
+        ("MULT.RC.VE LR0 CR1 0 LR0 CR15.L CR14.L; AGG.SUM.FIRST LR3 CR15.L", "A4_AGG_RC"),
+        ("MULT.EE LR0 CR1 0 LR0 CR15.L CR14.L; ACC.ADD.FIRST", "A5_BCAST"),
+        ("MULT.RC.VE LR0 CR1 1 LR0 CR15.L CR14.L; ACC.ADD.FIRST", "A6_GATHER_SCATTER"),
     ],
 )
 def test_legacy_alias_profile_includes_coissued_consumer(instruction, expected):
@@ -526,17 +544,17 @@ def test_rotation_cannot_mix_accumulator_memory_versions():
 
     state = run(
         """
-MULT.RC.VE LR0 CR1 0 LR0 CR15; ACC.ADD.FIRST;;
-ACTIVATE.QUANTIZE identity CR15; ST.AAQ LR0 CR0;;
+MULT.RC.VE LR0 CR1 0 LR0 CR15.L CR14.L; ACC.ADD.FIRST;;
+ACTIVATE.QUANTIZE identity CR15.L CR14.L CR0 LR0;;
 LD.MULT.CYCLIC LR0 CR0 LR0;;
 SET LR3 CR2;;
 LD.MULT.CYCLIC LR0 CR0 LR3;;
-MULT.RC.VE LR0 CR1 0 LR0 CR15; ACC.MAX.FIRST;;
-ACTIVATE.QUANTIZE identity CR15; ST.AAQ LR0 CR0;;
+MULT.RC.VE LR0 CR1 0 LR0 CR15.L CR14.L; ACC.MAX.FIRST;;
+ACTIVATE.QUANTIZE identity CR15.L CR14.L CR0 LR0;;
 LD.MULT.CYCLIC LR0 CR0 LR0;;
 LD.MULT.CYCLIC LR0 CR0 LR3;;
 SET LR3 CR3;;
-MULT.RC.VE LR3 CR1 0 LR0 CR15; ACC.MAX;;
+MULT.RC.VE LR3 CR1 0 LR0 CR15.L CR14.L; ACC.MAX;;
 HALT;;
 """,
         setup=setup,

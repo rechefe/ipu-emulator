@@ -1,10 +1,12 @@
 """ACC slot handlers: accumulate (ACC.*), reduce (AGG.*), ACC.STRIDE and ACC.RESHAPE.
 
-Every handler is one path for every element format (Q43, Q48): it loads
-MULT_RES and R_ACC lanes through the active codec (``ipu.codec``), computes
+Every handler is one path for both modes (Q43, Q48): it loads MULT_RES and
+R_ACC lanes (FP32 in both) through the active codec (``ipu.codec``), computes
 with ``codec.acc_add``/``acc_sub``/``max`` and stores with
 ``codec.store_acc_events``, which rounds once and stores the IEEE result (an
-overflow is an infinity, an integer wraps). The events it reports
+overflow is an infinity). AGG.* reads the first ``valid_elements`` elements
+of its DS half (``ARCH-stage-acc.md``); the whole DS must be valid, checked in
+the word's check phase (ADR 0007). The events it reports
 (accumulator overflow, NaN result) set the state's sticky arithmetic flags
 and never halt (E04-23, Q53).
 """
@@ -32,7 +34,7 @@ if TYPE_CHECKING:
     from ipu_emu.ipu import Ipu
     from ipu_emu.numerics import LaneCodec
 
-#: Bytes of one accumulator lane (int32 or float32) in every format.
+#: Bytes of one accumulator lane (float32) in both modes.
 _ACC_LANE_BYTES = 4
 
 
@@ -261,9 +263,35 @@ def execute_acc_reshape(ipu: Ipu, *, source: int, dest: int, reshape_mask: int) 
 # ---------------------------------------------------------------------------
 
 
-def _agg_inputs(ipu: Ipu, cr_idx: int, dest_slot: int) -> tuple[LaneCodec, list, int]:
-    """The codec, the active MULT_RES lanes (Python numbers) and the R_ACC lane written."""
-    valid_elements = ipu.view.dstructure(cr_idx, "cr_idx").valid_elements
+def _check_agg(ipu: Ipu, ds: int) -> None:
+    """Raise ``CrContentError`` unless the DS half *ds* is valid (ADR 0007)."""
+    ipu.view.ds(ds)
+
+
+def check_agg_sum_first(ipu: Ipu, *, dest_slot: int, ds: int) -> None:
+    """AGG.SUM.FIRST faults on nothing; its DS must be valid."""
+    _check_agg(ipu, ds)
+
+
+def check_agg_sum(ipu: Ipu, *, dest_slot: int, ds: int) -> None:
+    """AGG.SUM faults on nothing; its DS must be valid."""
+    _check_agg(ipu, ds)
+
+
+def check_agg_max_first(ipu: Ipu, *, dest_slot: int, ds: int) -> None:
+    """AGG.MAX.FIRST faults on nothing; its DS must be valid."""
+    _check_agg(ipu, ds)
+
+
+def check_agg_max(ipu: Ipu, *, dest_slot: int, ds: int) -> None:
+    """AGG.MAX faults on nothing; its DS must be valid."""
+    _check_agg(ipu, ds)
+
+
+def _agg_inputs(ipu: Ipu, ds: int, dest_slot: int) -> tuple[LaneCodec, list, int]:
+    """The codec, the first ``valid_elements`` MULT_RES lanes (Python numbers)
+    and the R_ACC lane written."""
+    valid_elements = ipu.view.ds(ds).valid_elements
     codec = ipu.codec
     active = agg_lane_count(valid_elements)
     lanes = codec.load_acc(ipu.view.read("mult_res"), active).tolist()
@@ -285,7 +313,7 @@ def _store_dest(ipu: Ipu, codec: LaneCodec, dest: int, value: np.ndarray | float
 def _fold_sum(lanes: list) -> float | int:
     # Summed in lane order, one lane at a time, in Python numbers: floating-
     # point addition is not associative, so a pairwise (numpy) sum would give
-    # a different answer. Integer sums are exact; the store wraps them to int32.
+    # a different answer.
     # (An int 0 start adds exactly as 0.0 to a float lane.)
     total: float | int = 0
     for value in lanes:
@@ -303,31 +331,31 @@ def _fold_max(lanes: list, seed: float | int) -> float | int:
     return best
 
 
-def execute_agg_sum_first(ipu: Ipu, *, dest_slot: int, cr_idx: int) -> None:
+def execute_agg_sum_first(ipu: Ipu, *, dest_slot: int, ds: int) -> None:
     """Execute AGG.SUM.FIRST: sum active MULT_RES elements, write to R_ACC[dest] (clean init)."""
-    codec, lanes, dest = _agg_inputs(ipu, cr_idx, dest_slot)
+    codec, lanes, dest = _agg_inputs(ipu, ds, dest_slot)
     _store_dest(ipu, codec, dest, _fold_sum(lanes))
 
 
-def execute_agg_sum(ipu: Ipu, *, dest_slot: int, cr_idx: int) -> None:
+def execute_agg_sum(ipu: Ipu, *, dest_slot: int, ds: int) -> None:
     """Execute AGG.SUM: sum active MULT_RES elements and add to R_ACC[dest] (running accumulation)."""
-    codec, lanes, dest = _agg_inputs(ipu, cr_idx, dest_slot)
+    codec, lanes, dest = _agg_inputs(ipu, ds, dest_slot)
     partial = np.asarray([_fold_sum(lanes)])
     _store_dest(ipu, codec, dest, codec.acc_add(partial, _agg_dest(ipu, codec, dest)))
 
 
-def execute_agg_max_first(ipu: Ipu, *, dest_slot: int, cr_idx: int) -> None:
+def execute_agg_max_first(ipu: Ipu, *, dest_slot: int, ds: int) -> None:
     """Execute AGG.MAX.FIRST: max of active MULT_RES elements, write to R_ACC[dest] (no seed).
 
     When no elements are active (valid_elements=0) the identity seed
-    (``codec.acc_min()``: INT32_MIN or -inf) is written, so the destination is always defined.
+    (``codec.acc_min()``: -inf) is written, so the destination is always defined.
     """
-    codec, lanes, dest = _agg_inputs(ipu, cr_idx, dest_slot)
+    codec, lanes, dest = _agg_inputs(ipu, ds, dest_slot)
     _store_dest(ipu, codec, dest, _fold_max(lanes, codec.acc_min().item()))
 
 
-def execute_agg_max(ipu: Ipu, *, dest_slot: int, cr_idx: int) -> None:
+def execute_agg_max(ipu: Ipu, *, dest_slot: int, ds: int) -> None:
     """Execute AGG.MAX: max of active MULT_RES elements seeded with R_ACC[dest] (running max)."""
-    codec, lanes, dest = _agg_inputs(ipu, cr_idx, dest_slot)
+    codec, lanes, dest = _agg_inputs(ipu, ds, dest_slot)
     seed = _agg_dest(ipu, codec, dest)[0].item()
     _store_dest(ipu, codec, dest, _fold_max(lanes, seed))

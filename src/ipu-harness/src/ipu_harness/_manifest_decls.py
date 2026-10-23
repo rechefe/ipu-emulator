@@ -17,12 +17,12 @@ from typing import Literal
 from ipu_harness.conditions import Condition
 from ipu_harness.expressions import placed_reads
 from ipu_harness.tolerance import Tier as ToleranceTier
-from ipu_isa.formats import ElementFormat
+from ipu_harness.variants import Variant
 
 ParamType = Literal["int", "float", "bool", "str"]
 Unit = Literal["count", "rows", "bytes"]
 Role = Literal["input", "output", "scratch"]
-Store = Literal["element", "accumulator"]
+Store = Literal["element"]
 Tier = Literal["default", "nightly"]
 
 ROLES: Mapping[str, Role] = {"inputs": "input", "outputs": "output", "scratch": "scratch"}
@@ -85,7 +85,8 @@ class TensorDecl:
         after: The tensor this region is placed right after, if it says.
         when: The condition it exists under (``when = "bias"``), if any.
         pack: The named pack transform of an input or output (E06-05).
-        store: How an output is stored: ``element`` or ``accumulator``.
+        store: How an output is stored: ``element`` (``accumulator`` left with
+            ST.ACC, ADR 0007).
         fill: The value a scratch region is filled with: a number, or an
             expression over parameters and derived values, evaluated exactly
             (``"1 / channels"``) and rounded to the format when stored.
@@ -104,7 +105,7 @@ class TensorDecl:
     store: Store = "element"
     fill: int | float | str = 0
     content: str | None = None
-    value_range: Mapping[ElementFormat, tuple[float, float]] = field(
+    value_range: Mapping[Variant, tuple[float, float]] = field(
         default_factory=lambda: MappingProxyType({})
     )
 
@@ -131,7 +132,7 @@ class CaseDecl:
 
     name: str
     values: Mapping[str, object]
-    formats: tuple[ElementFormat, ...] | None = None
+    formats: tuple[Variant, ...] | None = None
     inputs: Mapping[str, Path] = field(default_factory=lambda: MappingProxyType({}))
     expected: Mapping[str, Path | str] = field(default_factory=lambda: MappingProxyType({}))
     generator: str | None = None
@@ -166,9 +167,7 @@ class GoldenDecl:
 
     reference: str | None = None
     op: str | None = None
-    tolerance: Mapping[ElementFormat, ToleranceTier] = field(
-        default_factory=lambda: MappingProxyType({})
-    )
+    tolerance: Mapping[Variant, ToleranceTier] = field(default_factory=lambda: MappingProxyType({}))
 
 
 @dataclass(frozen=True, eq=False)
@@ -204,7 +203,7 @@ class KernelManifest:
     directory: Path
     asm: Path
     op: str
-    formats: tuple[ElementFormat, ...]
+    formats: tuple[Variant, ...]
     params: Mapping[str, ParamDecl]
     tensors: Mapping[str, TensorDecl]
     abi: Mapping[str, str]

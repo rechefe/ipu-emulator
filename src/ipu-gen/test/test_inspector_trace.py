@@ -31,7 +31,7 @@ WORDS = session.assemble(SOURCE).words
 HEADER = {
     "schema_version": "1.0.0",
     "isa_digest": isa_digest(),
-    "format": "int8",
+    "format": "nx8",
     "program_digest": hashlib.sha256(
         b"".join(word.to_bytes(word_bytes(), "little") for word in WORDS)
     ).hexdigest(),
@@ -158,18 +158,18 @@ def test_the_document_validates_against_its_schema():
     document = convert(HEADER, RECORDS, _context())
     jsonschema.validate(document, inspector_trace.schema())
     assert document["schemaVersion"] == inspector_trace.SCHEMA_VERSION
-    assert document["meta"]["format"] == "int8"
+    assert document["meta"]["format"] == "nx8"
     assert document["meta"]["emulator_only"] is False
     assert document["meta"]["lut"] is None
 
 
-def test_an_fp8_format_carries_its_value_table():
-    meta = convert(dict(HEADER, format="e4"), RECORDS, _context())["meta"]
-    lut = meta["lut"]
-    assert len(lut) == 256
-    assert lut[0] == 0.0
-    assert lut[0x38] == 1.0  # E4M3: exponent 7 = bias, mantissa 0
-    assert lut[0x7F] == "nan"
+def test_an_fp32_trace_is_emulator_only_and_carries_no_value_table():
+    """NX8 and FP32 carry no per-code table: an NX8 element's type is named per
+    instruction by a QF half (ADR 0007)."""
+    meta = convert(dict(HEADER, format="fp32"), RECORDS, _context())["meta"]
+    assert meta["emulator_only"] is True
+    assert (meta["exp_bits"], meta["man_bits"]) == (8, 23)
+    assert meta["lut"] is None
 
 
 @pytest.mark.parametrize(

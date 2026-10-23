@@ -33,7 +33,7 @@ from ipu_isa.geometry import LANES, XMEM_BYTES
 MemoryObserver = Callable[[str, int, int, "bytes | bytearray | None"], None]
 
 XMEM_SIZE_BYTES = XMEM_BYTES  # 512 MiB; full-resolution FP32 descriptors fit
-XMEM_WIDTH_BYTES = FORMATS[ElementFormat.INT8].row_bytes  # one "word": the narrow row
+XMEM_WIDTH_BYTES = FORMATS[ElementFormat.NX8].row_bytes  # one "word": the NX8 row
 
 #: The XMEM bytes one metadata word describes: one NX8 row of LANES one-byte
 #: elements (ADR 0007).
@@ -42,7 +42,7 @@ METADATA_UNIT_BYTES = LANES
 METADATA_WORD_BYTES = 2
 _METADATA_WORD_MAX = (1 << (8 * METADATA_WORD_BYTES)) - 1
 
-# Storage granule. A multiple of the widest row (512 bytes in the FP32/INT32
+# Storage granule. A multiple of the widest row (512 bytes in the FP32
 # formats), so an aligned row access never crosses a page.
 PAGE_BYTES = 1 << 16
 _ZERO_PAGE = bytes(PAGE_BYTES)

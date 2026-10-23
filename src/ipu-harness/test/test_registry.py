@@ -43,7 +43,7 @@ rows = {lo}
 def kernel(root: Path, name: str, *, family: str = "elementwise", **fields: object) -> Path:
     """Write kernel ``name`` under ``root/family``; ``fields`` override op, lo,
     hi, cost (absent: none) and formats in :data:`TOML`."""
-    values = {"op": "scale", "lo": 1, "hi": 256, "formats": '["fp32", "int8"]', **fields}
+    values = {"op": "scale", "lo": 1, "hi": 256, "formats": '["fp32", "e4"]', **fields}
     cost = values.pop("cost", None)
     values["cost"] = "" if cost is None else f"cost = {cost!r}\n".replace("'", '"')
     directory = root / family / name
@@ -92,10 +92,11 @@ def test_a_query_no_kernel_takes_is_a_refusal_naming_each_reason(tmp_path):
 
 def test_a_format_in_the_query_must_be_one_the_kernel_takes_the_values_in(tmp_path):
     registry = Registry.of(manifests(tmp_path))
-    # s = 1.5 has no INT8 encoding: every kernel takes it in FP32 only.
-    assert registry.resolve("scale", rows=4, s=1.5).formats == ("fp32",)
-    refused = registry.resolve("scale", rows=4, s=1.5, format="int8")
-    assert not refused and "does not take these parameters in int8" in refused.reason
+    # s = 1 + 2^-7 has no NX8 constant encoding (it needs 7 mantissa bits):
+    # every kernel takes it in FP32 only.
+    assert registry.resolve("scale", rows=4, s=1.0078125).formats == ("fp32",)
+    refused = registry.resolve("scale", rows=4, s=1.0078125, format="e4")
+    assert not refused and "does not take these parameters in e4" in refused.reason
 
 
 def test_a_cost_expression_is_evaluated_and_a_crash_in_it_propagates(tmp_path):

@@ -1,21 +1,19 @@
 """Named tolerance tiers: how close a kernel's output must be, and why (E06-10).
 
-A kernel picks a tier per format in ``[golden] tolerance``, by name, or
+A kernel picks a tier per variant in ``[golden] tolerance``, by name, or
 overrides one with its own numbers and a required ``why``
 (``{ tier = "FP32_ORDER", rtol = 3e-5, why = "measured on case X" }``), so no
 tolerance literal goes unexplained.
 
-The six tiers are the set (E07-03 settles E06-10's question). What the
-projections pilot (E07-03, the 8 ``proj_p4`` entries, K = 192 to 480)
-measured against ``ops.linear`` rounded to the output format:
+What the projections pilot (E07-03, the 8 ``proj_p4`` entries, K = 192 to
+480) measured against ``ops.linear`` rounded to the output format:
+``FP32_LONG``: FP32, largest error 8.6e-6 on the template's default case
+(K = 192, SiLU); the entries pass it too.
 
-* ``FP32_LONG``: FP32, largest error 8.6e-6 on the template's default case
-  (K = 192, SiLU); the entries pass it too.
-* ``INT8_LSB``: INT8, error 0 in every entry, identity and SiLU alike: the
-  INT32 sum is exact and the store rounds once, as the reference does. The
-  tier keeps its one LSB for SiLU, whose AaQ model is a placeholder (Q25, Q35).
-* ``FP8_ULP``: not measured, so still provisional. No projection runs in E4:
-  ``ACTIVATE.QUANTIZE`` refuses an 8-bit float format (OQ-20).
+ADR 0007 removed ``INT8_LSB`` and ``FP8_ULP`` with their formats and added
+``NX8_STEP``: an NX8 output may be one step of its row's grid away from the
+golden (the golden is quantized the same way, row by row, but a row's scale
+follows its largest value, which the kernel's accumulation order can move).
 """
 
 from __future__ import annotations
@@ -31,8 +29,9 @@ class Tier(NamedTuple):
     Attributes:
         name: The tier's name (a kernel's override keeps the tier it starts from).
         rtol: Relative tolerance.
-        atol: Absolute tolerance, in output units (LSBs for INT8).
-        ulps: For an 8-bit float format, the allowed distance in codes; else None.
+        atol: Absolute tolerance, in output units.
+        ulps: In NX8, the allowed distance in steps of the golden row's grid
+            (``NX8_STEP``); else None.
         why: What the tier is for, or why a kernel overrides it.
     """
 
@@ -41,6 +40,12 @@ class Tier(NamedTuple):
     atol: float
     ulps: int | None
     why: str
+
+    @property
+    def counts_steps(self) -> bool:
+        """True when the tier allows NX8 steps (``ulps`` of 1 or more); EXACT's
+        0 means no difference at all, in either mode."""
+        return bool(self.ulps)
 
 
 TIERS: dict[str, Tier] = {
@@ -54,10 +59,9 @@ TIERS: dict[str, Tier] = {
         Tier(
             "TRANSCENDENT", 1e-3, 1e-4, None, "libm vs future AaQ LUT headroom (Q25: provisional)"
         ),
-        Tier("INT8_LSB", 0, 1, None, "one LSB after round-to-nearest (measured 0, E07-03)"),
-        Tier("FP8_ULP", 0, 0, 1, "one code step in the 8-bit float format (provisional)"),
+        Tier("NX8_STEP", 0, 0, 1, "one step of the NX8 row's grid (ADR 0007)"),
     )
 }
 
-#: The tier of a format ``[golden] tolerance`` does not name: the strictest.
+#: The tier of a variant ``[golden] tolerance`` does not name: the strictest.
 DEFAULT_TIER = TIERS["EXACT"]

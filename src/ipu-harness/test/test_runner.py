@@ -26,10 +26,13 @@ from ipu_harness.cases import expand
 from ipu_harness.manifest import load_manifest
 from ipu_harness.params import plan_case
 from ipu_harness.runner import RunOptions, run_kernel
+from ipu_harness.variants import variant
 from ipu_isa.codec.word import DecodedWord
 from ipu_isa.faults import FaultId
-from ipu_isa.formats import ElementFormat as F
+from ipu_isa.formats import ElementFormat
 from ipu_isa.trace_schema import load_schema
+
+FP32, E4 = variant("fp32"), variant("e4")
 
 
 @pytest.fixture
@@ -51,11 +54,11 @@ def test_every_case_and_format_passes(scale):
             assert 0 < result.mac_utilization <= 1
             assert [c.output for c in result.comparisons] == ["y"]
             runs += 1
-    assert runs == 9  # 3 cases x 3 formats
+    assert runs == 6  # 3 cases x 2 variants
 
 
 def test_the_report_line(scale):
-    result = run_kernel(scale, _case(scale, "one_row"), F.E4)
+    result = run_kernel(scale, _case(scale, "one_row"), E4)
     assert re.fullmatch(
         r"scale/one_row/e4: PASS  cycles=\d+  MAC util=\d+\.\d%  y: max\|err\|=0 \(EXACT\)",
         result.describe(),
@@ -63,7 +66,7 @@ def test_the_report_line(scale):
 
 
 def test_raw_outputs_are_the_region_bytes(scale):
-    result = run_kernel(scale, _case(scale, "one_row"), F.FP32)
+    result = run_kernel(scale, _case(scale, "one_row"), FP32)
     raw = result.raw_outputs["y"]
     assert len(raw) == 128 * 4  # one FP32 row
     np.testing.assert_array_equal(
@@ -75,7 +78,7 @@ def test_stage_is_the_run_up_to_its_first_word(scale):
     """``stage`` leaves the model halted at PC 0 with the inputs packed and the
     registers written; the run continues from it."""
     case = _case(scale, "default")
-    staged = runner.stage(scale, case, F.FP32)
+    staged = runner.stage(scale, case, FP32)
     assert staged.model.status.pc == 0
     for write in staged.writes:
         bank, index = write.register[:2].lower(), int(write.register[2:])
@@ -85,7 +88,7 @@ def test_stage_is_the_run_up_to_its_first_word(scale):
     x = np.frombuffer(staged.model.read_xmem(start, size), dtype="<f4").reshape(4, 128)
     np.testing.assert_array_equal(x, staged.inputs["x"])
     run = staged.model.run()
-    assert run.cycles == run_kernel(scale, case, F.FP32).cycles
+    assert run.cycles == run_kernel(scale, case, FP32).cycles
 
 
 def test_a_scratch_region_starts_with_its_fill(tmp_path):
@@ -93,13 +96,13 @@ def test_a_scratch_region_starts_with_its_fill(tmp_path):
     directory = write_scale(tmp_path).directory
     toml = (directory / "kernel.toml").read_text()
     toml = toml.replace(
-        "[abi]\n", '[scratch.t]\nshape = ["rows", 100]\nfill = 3\n\n[abi]\nt    = "CR6"\n'
+        "[abi]\n", '[scratch.t]\nshape = ["rows", 100]\nfill = 3\n\n[abi]\nt    = "CR7"\n'
     )
     (directory / "kernel.toml").write_text(toml)
     asm = (directory / "scale.asm").read_text().replace("{{ cr.x }}", "{{ cr.t }}")
     (directory / "scale.asm").write_text(asm)
     manifest = load_manifest(directory)
-    result = run_kernel(manifest, _case(manifest, "default"), F.FP32)  # y = t * 2, not x * 2
+    result = run_kernel(manifest, _case(manifest, "default"), FP32)  # y = t * 2, not x * 2
     # t is 100 wide: its rows' padding lanes hold the fill too, not zeros.
     np.testing.assert_array_equal(result.outputs["y"], np.full((4, 128), 6.0))
 
@@ -111,11 +114,11 @@ def test_a_bytes_region_starts_with_its_functions_bytes(tmp_path):
     )
     toml = (directory / "kernel.toml").read_text()
     toml = toml.replace(
-        "[abi]\n", '[scratch.m]\nshape = [1, 128]\nbytes = "mask.py:mask"\n\n[abi]\nm    = "CR6"\n'
+        "[abi]\n", '[scratch.m]\nshape = [1, 128]\nbytes = "mask.py:mask"\n\n[abi]\nm    = "CR7"\n'
     )
     (directory / "kernel.toml").write_text(toml)
     manifest = load_manifest(directory)
-    staged = runner.stage(manifest, _case(manifest, "default"), F.FP32)
+    staged = runner.stage(manifest, _case(manifest, "default"), FP32)
     assert staged.model.read_xmem(*staged.region_bytes("m")) == bytes(range(256)) * 2
 
 
@@ -158,20 +161,21 @@ def test_a_cr_bound_only_under_another_cases_condition_is_an_unbound_read(tmp_pa
     (directory / "kernel.toml").write_text(CONDITIONAL_TOML)
     manifest = load_manifest(directory)
     cases = {case.values["bias"]: case for case in expand(manifest)}
-    runner.stage(manifest, cases[True], F.FP32)
+    runner.stage(manifest, cases[True], FP32)
     with pytest.raises(ConfigurationError, match="reads CR10"):
-        runner.stage(manifest, cases[False], F.FP32)
+        runner.stage(manifest, cases[False], FP32)
 
 
 def test_the_cycle_limit_is_a_fault_naming_its_word(scale):
-    result = run_kernel(scale, _case(scale, "default"), F.INT8, RunOptions(max_cycles=3))
+    result = run_kernel(scale, _case(scale, "default"), E4, RunOptions(max_cycles=3))
     assert not result.passed
     assert result.fault is not None and result.fault.fault is FaultId.F9
     assert result.comparisons == ()
-    assert result.describe().startswith("scale/default/int8: FAIL")
+    assert result.describe().startswith("scale/default/e4: FAIL")
     # Words 0-2 retire (the SETs, LD.MULT, MULT.VE + ACC.ADD.FIRST); word 3 hits the limit.
-    assert result.fault.pc == 3 and result.fault.line == "ST.ACC LR2 CR3 ;;"
-    assert "fault F-9 at PC 3: ST.ACC LR2 CR3 ;;" in result.describe()
+    store = "ACTIVATE.QUANTIZE identity CR15.L CR6.L CR3 LR2 ;;"
+    assert result.fault.pc == 3 and result.fault.line == store
+    assert f"fault F-9 at PC 3: {store}" in result.describe()
 
 
 @pytest.mark.parametrize(
@@ -181,9 +185,9 @@ def test_the_cycle_limit_is_a_fault_naming_its_word(scale):
         ("// setup ;; done\nSET LR0 CR0 ;;\nHALT ;;", 0, "SET LR0 CR0 ;;"),
         ("SET LR0 CR0 ; # a ;; in a comment\nSET LR1 CR0 ;;\nHALT ;;", 1, "HALT ;;"),
         (
-            "MULT.VE LR0 CR5 0 LR0 CR15 ;\n    ACC.ADD.FIRST ;;\nHALT",
+            "MULT.VE LR0 CR5 0 LR0 CR15.L CR14.L ;\n    ACC.ADD.FIRST ;;\nHALT",
             0,
-            "MULT.VE LR0 CR5 0 LR0 CR15 ;",
+            "MULT.VE LR0 CR5 0 LR0 CR15.L CR14.L ;",
         ),
         ("SET LR0 CR0 ;;\nHALT\n", 1, "HALT"),  # the last word may omit ";;"
         ("SET LR0 CR0 ;; HALT ;;", 1, "SET LR0 CR0 ;; HALT ;;"),
@@ -196,13 +200,13 @@ def test_the_source_line_of_a_word(rendered, pc, line):
 
 def test_the_trace_follows_the_schema(scale, tmp_path):
     trace = tmp_path / "run.jsonl"
-    result = run_kernel(scale, _case(scale, "one_row"), F.E4, RunOptions(trace=trace))
+    result = run_kernel(scale, _case(scale, "one_row"), E4, RunOptions(trace=trace))
     header = json.loads(trace.read_text().splitlines()[0])
     jsonschema.validate(header, load_schema("trace"))
-    assert header["format"] == "e4"
+    assert header["format"] == "nx8"  # the run mode (the variant is the harness's)
     # The header the emulator writes for the same program.
-    state = IpuState(fmt=F.E4)
-    plan = plan_case(scale, _case(scale, "one_row").values, F.E4)
+    state = IpuState(fmt=ElementFormat.NX8)
+    plan = plan_case(scale, _case(scale, "one_row").values, E4)
     load_program(state, [DecodedWord.from_word(w) for w in assemble(plan).words])
     assert header == trace_header(state)
     _, records = read_trace(trace)
@@ -225,7 +229,6 @@ def test_the_cli_runs_a_case_in_every_format(scale, capsys):
     lines = capsys.readouterr().out.splitlines()
     assert [line.split(":")[0] for line in lines] == [
         "scale/default/fp32",
-        "scale/default/int8",
         "scale/default/e4",
     ]
 
@@ -233,9 +236,9 @@ def test_the_cli_runs_a_case_in_every_format(scale, capsys):
 def test_the_cli_lists_the_cases(scale, capsys):
     assert _cli(scale.directory, "--list-cases") == 0
     assert capsys.readouterr().out.splitlines() == [
-        "default  (fp32, int8, e4)",
-        "one_row  (fp32, int8, e4)",
-        "mine  (fp32, int8, e4)",
+        "default  (fp32, e4)",
+        "one_row  (fp32, e4)",
+        "mine  (fp32, e4)",
     ]
 
 
@@ -292,3 +295,38 @@ def test_a_bug_in_a_generator_exits_2_with_a_traceback(scale, capsys):
     assert _cli(directory, "--case", "planted") == 2
     err = capsys.readouterr().err
     assert "Traceback" in err and "AttributeError" in err
+
+
+def test_activate_exact_is_refused_in_an_nx8_case_and_runs_in_fp32(tmp_path):
+    """ADR 0007: ACTIVATE.EXACT stores an FP32 row; an NX8 case refuses the
+    program when the model loads it, before anything runs."""
+    directory = write_scale(tmp_path).directory
+    asm = (directory / "scale.asm").read_text()
+    (directory / "scale.asm").write_text(
+        asm.replace(
+            "ACTIVATE.QUANTIZE identity CR15.L {{ cr.qf }}.L {{ cr.y }} LR2",
+            "ACTIVATE.EXACT identity CR15.L {{ cr.y }} LR2",
+        )
+    )
+    manifest = load_manifest(directory)
+    case = _case(manifest, "default")
+    with pytest.raises(ConfigurationError, match="valid in FP32 mode only"):
+        run_kernel(manifest, case, E4)
+    assert run_kernel(manifest, case, FP32).passed
+
+
+@pytest.mark.parametrize("name", ["e2", "e5", "dynamic", "s0e3w6"])
+def test_scale_passes_exactly_in_other_nx8_variants(tmp_path, name):
+    """Inputs quantized row by row (a dynamic row picks its exponent split; an
+    unsigned type stores a negative as 0), the golden quantized the same way."""
+    directory = write_scale(tmp_path).directory
+    toml = directory / "kernel.toml"
+    toml.write_text(
+        toml.read_text()
+        .replace('formats = ["fp32", "e4"]', f'formats = ["fp32", "e4", "{name}"]')
+        .replace('e4 = "EXACT"', f'e4 = "EXACT", {name} = "EXACT"')
+    )
+    manifest = load_manifest(directory)
+    for case in expand(manifest):
+        result = run_kernel(manifest, case, variant(name))
+        assert result.passed, result.describe()

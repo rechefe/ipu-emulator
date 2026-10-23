@@ -1,0 +1,110 @@
+{
+ "description": "ACTIVATE.QUANTIZE in NX8",
+ "format": "nx8",
+ "emulator_only": false,
+ "max_cycles": 1000,
+ "fault_enables": {},
+ "registers": [
+  {
+   "name": "r_mask",
+   "index": 0,
+   "hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  {
+   "name": "r_acc",
+   "index": 0,
+   "hex": "1547acc05984ce3fa384a340f6578bc0cbbbfabd2d42213f29959cbf19575140879b8b408ec8eec0689641c0e8f1bc403c1ebb40c204cb40f2d566c0ebcefac06c50eebf0659bb4083e78d400f77a840dbdbef409f78e74076c4f74046bd4f40d56cbec0c0b740c00919eb3f2fb6c13f919184403556b440130cccc0d4881f3f83f5d1407e4be4404882b3c0aa27bbc070468ac07e61f8be5510b3402647df40723cf0c0d92238c09aefcd4088604fc00f38bdc09296d2c0c95471c0996adbbf4cc88bbd172935c0f9f2e540694cb3c0e70027be8f1fb3c028af8dc031cb203f0e5ea940b676ee407a538bc010d464c018b5d2bf4d0adac0c4e57840bf27e940880c4bc0b8b9e2c0ee3dedc0b84e4e3f8c95fb407bc4bbc0bd1c94409d9de54049bf80c04711a640365c6ac07c88f1c0d8da4f40c5d0b4405a5084c0dd24cec0736685c010d9b3408f133ac0246ebc40ab489840f3f5a1bf981e0440b5b1fdc0cef2acc092372ec0a92d89bff20954c081c8f73f65c502be929db04048adcabc2a9a17bffa36e5c00ac9cb3f6667dbbf8d7095406e5bffc0cba89fc0376fc7c05b7fcec05a8bd04035990fc055d097c0beeb04c09fcca13ec55d6dc09eceadc01f53e4c0aa3750bf2e7882c01de59dc0850b30c09b24c840220f80c023f181c0e679c73d6a9c85c03e169d3f3cf8dc40892429bf199090bfaa32fd40f9eb9bc0"
+  },
+  {
+   "name": "aaq_lut",
+   "index": 0,
+   "hex": "5bf5d87ca0d8b7ce6c43b5ccda18354ae374638292c64808fff22f3805d4761acf9a0889b408c5d040a24936e2b21fee5208546b684084a52ddd9bc2879002a1e53da2360b8183b6fa5d7c2d57d3d8cc02929da8aad770e57a649fde62d2249a4c874d2a4185b51f58dce1bc30a3e115cee0229e588e238de8d7503563b17bde3d91c77dfef1b6327467e46f6f226090bf979ebbaa7406585b1b0bdecb88dd70f3a01d0859f5e28aaf357df3ec71e25dbb4b1af02a56fbc093a0a01d475efd96aecc3832e33d1167bd43205ae436ab83c1a58b847dc96177f4ae9db6dbcc1d5b158fae6500aaa91107d9efd94697f868cc10727dd0a366b5e07662ae3d9f1b01aff3ca881da72fa590da862d13e4413da4591546149691cfc3498421f15802b78ad06199771d28420b7bc9d5ac6cfd704be8d732d40154027a93079edc34f76aae4f423055fe6f5d6e529fac63f96fcd85afe53c600e52c4a38e7e746f3b85e14ded522a839a1ff8d1b949ec0e8cdc4a7bc63e394ef27e6fc153653713dec18e459ff610daa9f9ca89e1f5f7e1e896b19316806b074f9322d85a3997c18c4a04460bd2bf2a3304882415f4b6366649070bdfc0ef13ca1123c30700c57b24de935c22f68de420df08cda99f6f0fbf3eb688159ee15635d4c21b81ef8f040de3756e802e80c75202140f5e4523456f380f3977ebcfcc2fc0f75f0abbc14350c92398e743abd63d373f133f6eb43e5228fd1d9584a26983f5c57ca66240a3be1583b4420e40b117"
+  },
+  {
+   "name": "lr",
+   "index": 1,
+   "value": 1
+  },
+  {
+   "name": "lr",
+   "index": 2,
+   "value": 2
+  },
+  {
+   "name": "lr",
+   "index": 3,
+   "value": 3
+  },
+  {
+   "name": "lr",
+   "index": 4,
+   "value": 5
+  },
+  {
+   "name": "lr",
+   "index": 6,
+   "value": 128
+  },
+  {
+   "name": "lr",
+   "index": 7,
+   "value": 3
+  },
+  {
+   "name": "cr",
+   "index": 2,
+   "value": 1
+  },
+  {
+   "name": "cr",
+   "index": 3,
+   "value": 4
+  },
+  {
+   "name": "cr",
+   "index": 4,
+   "value": 2
+  },
+  {
+   "name": "cr",
+   "index": 5,
+   "value": 7
+  },
+  {
+   "name": "cr",
+   "index": 6,
+   "value": 128
+  },
+  {
+   "name": "cr",
+   "index": 7,
+   "value": 4294967294
+  },
+  {
+   "name": "cr",
+   "index": 8,
+   "value": 100
+  },
+  {
+   "name": "cr",
+   "index": 9,
+   "value": 3
+  },
+  {
+   "name": "cr",
+   "index": 11,
+   "value": 1345076
+  },
+  {
+   "name": "cr",
+   "index": 14,
+   "value": 328
+  },
+  {
+   "name": "cr",
+   "index": 15,
+   "value": 4224
+  }
+ ],
+ "xmem": []
+}

@@ -27,7 +27,7 @@ from ipu_isa.formats import ElementFormat
 TEMPLATE = """\
 [kernel]
 op = "proj"
-formats = ["fp32", "int8"]
+formats = ["fp32", "e3"]
 
 [params]
 k     = { type = "int", min = 1, max = 512 }

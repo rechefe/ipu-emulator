@@ -11,12 +11,20 @@ changed (``test_agg_dest_slot_reads_forwarded``,
 
 from __future__ import annotations
 
-import struct
-
 import pytest
-from timing_probes import PROBES, RAISES, ROW, lane, prepare, r_cyclic_element, ra_element, run
+from timing_probes import (
+    PROBES,
+    RAISES,
+    ROW,
+    Mode,
+    lane,
+    prepare,
+    r_cyclic_element,
+    ra_element,
+    run,
+    stored_element,
+)
 
-from ipu_emu.errors import DebugOnlyInstructionWarning
 from ipu_emu.ipu import Ipu
 from ipu_isa.faults import FaultId
 
@@ -37,7 +45,7 @@ def _lr(probe: str, index: int) -> int:
 def test_lr_alu_sources_read_cycle_start(probe, expected):
     """ADD, SUB, INC.MODP2 and ADDB read their LR sources at cycle start.
 
-    SET reads only a CR, and no instruction writes a CR, so it has no probe.
+    SET's source is pinned by ADD's: both are LcrHalfIdx reads in the LR slot.
     The ADDB probe's dest is LRD2, the pair LR2:LR3; LR2 is checked.
     """
     assert _lr(probe, 2) == expected
@@ -83,22 +91,22 @@ def test_load_offset_and_index_read_forwarded():
     assert ra_element(run(PROBES["load_mult_offset"]).state, 0) == 2
     assert r_cyclic_element(run(PROBES["load_cyclic_offset"]).state, 0) == 2
     state = run(PROBES["load_cyclic_index"]).state
-    assert (r_cyclic_element(state, 0), r_cyclic_element(state, 128)) == (0, 1)
+    # Slot 0 is untouched (its bytes stay 0); slot 1 (element 128) got the row.
+    assert (state.regfile.view("r_cyclic")[0], r_cyclic_element(state, 128)) == (0, 1)
     assert run(PROBES["load_mask_offset"]).state.regfile.view("r_mask")[0] == 0x22
 
 
-def test_store_offsets_read_forwarded():
-    """ST.AAQ and ST.ACC read their offset LR forwarded: the data
-    lands at row ROW + 8, not ROW."""
-    state = run(PROBES["store_post_aaq_offset"]).state
-    assert (state.xmem.read_address(ROW * 128, 1), state.xmem.read_address((ROW + 8) * 128, 1)) == (
-        b"\x00",
-        b"\x07",
-    )
-    with pytest.warns(DebugOnlyInstructionWarning):
-        state = run(PROBES["store_acc_offset"]).state
-    assert state.xmem.read_address(ROW * 128, 4) == bytes(4)
-    assert struct.unpack("<i", state.xmem.read_address((ROW + 8) * 128, 4))[0] == 7
+def test_aaq_offsets_read_forwarded():
+    """ACTIVATE.QUANTIZE, ACTIVATE.EXACT and LD.LUT read their table_offset LR
+    forwarded: the row lands at (or is read from) ROW + 8 / ROW + 1, not ROW."""
+    state = run(PROBES["aaq_store_offset"]).state
+    assert state.xmem.snapshot_bytes(ROW * 128, 128) == bytes(128)
+    assert stored_element(state, ROW + 8, 0) == 7
+    state = run(PROBES["exact_store_offset"], Mode.WIDE_FP32).state
+    assert state.xmem.snapshot_bytes(ROW * 512, 4) == bytes(4)
+    assert stored_element(state, ROW + 8, 0) == 7
+    state = run(PROBES["ld_lut_offset"]).state
+    assert state.regfile.view("aaq_lut")[0] == 2
 
 
 @pytest.mark.parametrize(

@@ -25,8 +25,10 @@ def test_snapshot_matches(name):
     )
 
 
-def test_word_is_186_bits():
-    assert decode_snapshots.word_fields()["total_bits"] == 186
+def test_word_is_209_bits():
+    assert (
+        decode_snapshots.word_fields()["total_bits"] == 209
+    )  # ADR 0007: half-CR operands, the aaq and aaq_exact slots
 
 
 def test_renaming_a_token_class_leaves_the_word_fields():

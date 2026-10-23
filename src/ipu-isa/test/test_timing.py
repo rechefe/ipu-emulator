@@ -208,13 +208,13 @@ def test_known_deviations_are_the_issue_table():
     "mnemonic", ["MULT.RC.VV", "MULT.RC.VE", "MULT.RC.VS", "MULT.VE", "MULT.EE"]
 )
 def test_mult_reads_its_data_inputs_at_cycle_start(mnemonic):
-    """Q20, Q32 rule 2: every MULT data input (R0/R1, R_CYCLIC, R_MASK) is read
+    """Q20, Q32 rule 2: every MULT data input (R0/R1, R_CYCLIC, R_MASK and the metadata) is read
     at cycle start (E04-27 flipped R_MASK)."""
     reads = {a.register: a.view for a in isa().instruction(Slot.MULT, mnemonic).reads()}
     assert reads["r_mask"] is CS
     for register in ("r", "r_cyclic", "r_meta", "r_cyclic_meta"):
         assert reads.get(register, CS) is CS
-    assert reads["r_meta"] is CS or reads["r_cyclic_meta"] is CS
+    assert CS in (reads.get("r_meta"), reads.get("r_cyclic_meta"))  # a data row's metadata
 
 
 # -- each validator rule fails on a planted violation -----------------------------

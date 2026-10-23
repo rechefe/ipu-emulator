@@ -8,6 +8,7 @@ parameter removed, a meaning changed).
 
 from __future__ import annotations
 
+import copy
 import dataclasses
 import enum
 import hashlib
@@ -16,7 +17,7 @@ import struct
 import typing
 
 import pytest
-from emu_support import ElementFormat, assemble_program
+from emu_support import QF_E4, ElementFormat, assemble_program
 
 import ipu_emu.reference as api
 from ipu_emu.alias_profile import AliasProfile
@@ -45,7 +46,7 @@ SNAPSHOTS = {
     "1.0.0": {
         "__all__": ["API_VERSION", "ReferenceModel", "RunResult", "RunState", "Status"],
         "ReferenceModel": {
-            "__init__": "(self, fmt: 'ElementFormat' = <ElementFormat.INT8: 'int8'>) -> 'None'",
+            "__init__": "(self, fmt: 'ElementFormat' = <ElementFormat.NX8: 'int8'>) -> 'None'",
             "load_program": "(self, words: 'bytes | Sequence[int]') -> 'None'",
             "read_register": "(self, name: 'str', index: 'int' = 0) -> 'int | bytes'",
             "read_xmem": "(self, address: 'int', size: 'int') -> 'bytes'",
@@ -94,7 +95,7 @@ SNAPSHOTS = {
     "1.1.0": {
         "__all__": ["API_VERSION", "ReferenceModel", "RunResult", "RunState", "Stats", "Status"],
         "ReferenceModel": {
-            "__init__": "(self, fmt: 'ElementFormat' = <ElementFormat.INT8: 'int8'>) -> 'None'",
+            "__init__": "(self, fmt: 'ElementFormat' = <ElementFormat.NX8: 'int8'>) -> 'None'",
             "load_program": "(self, words: 'bytes | Sequence[int]') -> 'None'",
             "read_register": "(self, name: 'str', index: 'int' = 0) -> 'int | bytes'",
             "read_xmem": "(self, address: 'int', size: 'int') -> 'bytes'",
@@ -164,7 +165,7 @@ SNAPSHOTS = {
             "read_trace",
         ],
         "ReferenceModel": {
-            "__init__": "(self, fmt: 'ElementFormat' = <ElementFormat.INT8: 'int8'>) -> 'None'",
+            "__init__": "(self, fmt: 'ElementFormat' = <ElementFormat.NX8: 'int8'>) -> 'None'",
             "arith_flags": "(self) -> 'frozenset[ArithmeticEvent]'",
             "fault_enabled": "(self, fault: 'FaultId') -> 'bool'",
             "fault_flags": "(self) -> 'frozenset[FaultId]'",
@@ -245,7 +246,7 @@ SNAPSHOTS = {
             "read_trace",
         ],
         "ReferenceModel": {
-            "__init__": "(self, fmt: 'ElementFormat' = <ElementFormat.INT8: 'int8'>) -> 'None'",
+            "__init__": "(self, fmt: 'ElementFormat' = <ElementFormat.NX8: 'int8'>) -> 'None'",
             "alias_profile": "(self) -> 'AliasProfile | None'",
             "arith_flags": "(self) -> 'frozenset[ArithmeticEvent]'",
             "attach_alias_profile": "(self, profile: 'AliasProfile') -> 'None'",
@@ -331,7 +332,7 @@ SNAPSHOTS = {
             "read_trace",
         ],
         "ReferenceModel": {
-            "__init__": "(self, fmt: 'ElementFormat' = <ElementFormat.INT8: 'int8'>) -> 'None'",
+            "__init__": "(self, fmt: 'ElementFormat' = <ElementFormat.NX8: 'int8'>) -> 'None'",
             "alias_profile": "(self) -> 'AliasProfile | None'",
             "arith_flags": "(self) -> 'frozenset[ArithmeticEvent]'",
             "attach_alias_profile": "(self, profile: 'AliasProfile') -> 'None'",
@@ -419,7 +420,7 @@ SNAPSHOTS = {
             "read_trace",
         ],
         "ReferenceModel": {
-            "__init__": "(self, fmt: 'ElementFormat' = <ElementFormat.INT8: 'int8'>) -> 'None'",
+            "__init__": "(self, fmt: 'ElementFormat' = <ElementFormat.NX8: 'int8'>) -> 'None'",
             "alias_profile": "(self) -> 'AliasProfile | None'",
             "arith_flags": "(self) -> 'frozenset[ArithmeticEvent]'",
             "attach_alias_profile": "(self, profile: 'AliasProfile') -> 'None'",
@@ -501,6 +502,14 @@ SNAPSHOTS = {
     },
 }
 
+# 2.0.0 (ADR 0007): the run modes are NX8 and FP32. The signatures are 1.5.0's,
+# but ElementFormat lost INT8, FP8 and the wide formats and NX8's value is
+# "nx8", so a caller that named a removed format breaks: a major bump.
+SNAPSHOTS["2.0.0"] = copy.deepcopy(SNAPSHOTS["1.5.0"])
+SNAPSHOTS["2.0.0"]["ReferenceModel"]["__init__"] = (
+    "(self, fmt: 'ElementFormat' = <ElementFormat.NX8: 'nx8'>) -> 'None'"
+)
+
 _RECORD_TYPES = (CommitRecord, SlotOp, RegWrite, XmemWrite, XmemMetaWrite, FaultInfo)
 
 
@@ -549,6 +558,7 @@ FAULT = "SET LR0 CR1 ; SET LR0 CR2 ;;\nHALT ;;"  # two writes of LR0: F-3
 def _model(asm: str = LOOP, cr: dict | None = None) -> ReferenceModel:
     model = ReferenceModel()
     model.load_program(_words(asm))
+    model.write_register("cr", QF_E4, 14)  # CR14.L: the programs' QF half
     for index, value in (cr or {2: 5}).items():
         model.write_register("cr", value, index)
     return model
@@ -592,7 +602,7 @@ def test_a_trace_numbers_its_records_from_zero_and_steps_from_the_load(tmp_path)
     assert [r.cycle for r in traced] == list(range(10))  # the schema's cycle
     model.load_program(_words(LOOP))
     assert model.step().cycle == 0
-    model.reset(ElementFormat.INT8)
+    model.reset(ElementFormat.NX8)
     assert model.step().cycle == 0
 
 
@@ -699,7 +709,7 @@ def test_a_faulted_model_refuses_steps_and_writes_until_reset():
     ):
         with pytest.raises(ConfigurationError, match="faulted"):
             refused()
-    model.reset(ElementFormat.INT8)
+    model.reset(ElementFormat.NX8)
     assert model.status.state is RunState.HALTED
     model.load_program(_words("HALT ;;"))
     assert model.run().status == Status(RunState.HALTED, 0)
@@ -722,7 +732,7 @@ def test_the_cycle_limit_and_fault_enables():
     result = model.run(max_cycles=10)
     # SET, then INC/BNE alternate: after 10 words the next is BNE, word 2.
     assert result.status == Status(RunState.FAULTED, 2, FaultId.F9) and result.cycles == 10
-    model.reset(ElementFormat.INT8)
+    model.reset(ElementFormat.NX8)
     model.load_program(_words(LOOP))
     model.write_register("cr", 100, 2)
     model.set_fault_enable(FaultId.F9, False)
@@ -755,7 +765,7 @@ def test_xmem_metadata_round_trips_and_is_checked():
     model.step()
     with pytest.raises(ConfigurationError, match="halted"):
         model.write_xmem_metadata(0, 1)
-    model.reset(ElementFormat.INT8)
+    model.reset(ElementFormat.NX8)
     assert model.read_xmem_metadata(256) == 0
 
 
@@ -770,7 +780,7 @@ def test_the_metadata_registers_read_as_bytes_and_reset_to_zero():
     assert model.read_register("r_cyclic_meta", 3) == b"\x05\x00"
     with pytest.raises(ConfigurationError, match="2 bytes"):
         model.write_register("r_meta", b"\x00", 0)
-    model.reset(ElementFormat.INT8)
+    model.reset(ElementFormat.NX8)
     assert model.read_register("r_meta", 1) == bytes(2)
 
 
@@ -829,9 +839,7 @@ def test_no_method_returns_an_emulator_object():
 
 # Word 0: an identity multiply (CR1 is 1) and an ACC op; word 1: a multiply
 # by R0, not an identity. Every lane is valid (CR15's default dstructure).
-_STATS_PROGRAM = (
-    "MULT.RC.VE LR0 CR1 0 LR0 CR15 ; ACC.ADD.FIRST ;;\nMULT.RC.VV LR0 R0 0 LR0 CR15 ;;\nHALT ;;"
-)
+_STATS_PROGRAM = "MULT.RC.VE LR0 CR1 0 LR0 CR15.L CR14.L ; ACC.ADD.FIRST ;;\nMULT.RC.VV LR0 R0 0 LR0 CR15.L CR14.L ;;\nHALT ;;"
 
 
 def test_stats_count_lanes_and_identity_multiplies_over_steps_and_runs():
@@ -845,13 +853,15 @@ def test_stats_count_lanes_and_identity_multiplies_over_steps_and_runs():
     model.load_program(_words(_STATS_PROGRAM))
     assert model.stats() == Stats(0, 0, 0, 0, 0, 0, 0, 0.0, 0.0)
     model.run()
-    model.reset(ElementFormat.INT8)
+    model.reset(ElementFormat.NX8)
     assert model.stats() == Stats(0, 0, 0, 0, 0, 0, 0, 0.0, 0.0)
 
 
 def test_a_faulting_word_adds_no_statistics():
     # The faulting word also holds an identity multiply and an ACC op.
-    faulting = "MULT.RC.VE LR0 CR1 0 LR0 CR15 ; ACC.ADD.FIRST ; SET LR0 CR1 ; SET LR0 CR2 ;;"
+    faulting = (
+        "MULT.RC.VE LR0 CR1 0 LR0 CR15.L CR14.L ; ACC.ADD.FIRST ; SET LR0 CR1 ; SET LR0 CR2 ;;"
+    )
     model = _model(f"INC LR0 1 ;;\n{faulting}\nHALT ;;")
     model.run()
     assert model.status.fault is FaultId.F3
@@ -866,7 +876,7 @@ def test_the_sticky_fault_and_arithmetic_flags_and_enable_bits():
     assert model.run(max_cycles=10).status.state is RunState.HALTED
     # F-9 disabled: no halt, but the flag is set (IPU-FLT-5).
     assert model.fault_flags() == frozenset({FaultId.F9})
-    model.reset(ElementFormat.INT8)
+    model.reset(ElementFormat.NX8)
     assert model.fault_flags() == frozenset() and model.fault_enabled(FaultId.F9)
     assert model.arith_flags() == frozenset()
 
@@ -886,7 +896,7 @@ def test_the_trace_header_names_the_loaded_program(tmp_path):
     header = model.trace_header()
     words = pack_program(_words(LOOP))
     assert header["program_digest"] == hashlib.sha256(words).hexdigest()
-    assert header["format"] == "int8"
+    assert header["format"] == "nx8"
     path = tmp_path / "t.jsonl"
     with api.TraceWriter(path, header) as trace:
         model.run(trace=trace)
@@ -931,7 +941,7 @@ def test_debug_run_reports_a_fault():
 
 
 def test_an_alias_profile_records_the_runs_after_it_is_attached():
-    model = _model("MULT.RC.VE LR0 CR1 0 LR0 CR15 ; ACC.ADD.FIRST ;;\nHALT ;;")
+    model = _model("MULT.RC.VE LR0 CR1 0 LR0 CR15.L CR14.L ; ACC.ADD.FIRST ;;\nHALT ;;")
     assert model.alias_profile() is None
     profile = AliasProfile()
     model.attach_alias_profile(profile)

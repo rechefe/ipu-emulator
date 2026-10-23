@@ -220,7 +220,8 @@ _QF_DOC = (
 _CONSTANT_DOC = (
     "`cr_idx`: **`CR0`**…**`CR15`** — the scalar: a MULT constant (NX8: `value[7:0]`, "
     "`scale[15:8]`, `fe[19:16]`, `sign[23:20]`, decoded with its own scale; FP32: float32 bits). "
-    "CR0 reads as 0.0 and CR1 as 1.0 in both modes (see `CrIdx`)."
+    "CR0 reads as 0.0 and CR1 as 1.0 in both modes (see `CrIdx` and "
+    "[CR scalars](../../explanation/element-formats.md#cr-scalars))."
 )
 _MASK_NOTES = (
     "Element masking via `mask_offset` and `mask_shift` fills elements whose derived mask bit is "
@@ -579,7 +580,7 @@ INSTRUCTION_SPEC = {
                 ),
                 operands=[
                     "`rc_idx`: **`LR0`**…**`LR15`** — base ELEMENT index into **`R_CYCLIC`** (cyclic, mod 512 elements; same unit as `LD.MULT.CYCLIC`'s `index`).",
-                    "`src`: **`LR0`**…**`LR15`** | **`CR0`**…**`CR15`** — if an LR, its stored value selects the scalar from R0/R1 (0..127 → `R0[idx]`, 128..255 → `R1[idx - 128]`, decoded with `qf` and that row's metadata); if a CR, the CR is a MULT constant (NX8: the constant layout, with its own scale and type; FP32: float32 bits; CR0 = 0.0, CR1 = 1.0; see `CrIdx`).",
+                    "`src`: **`LR0`**…**`LR15`** | **`CR0`**…**`CR15`** — if an LR, its stored value selects the scalar from R0/R1 (0..127 → `R0[idx]`, 128..255 → `R1[idx - 128]`, decoded with `qf` and that row's metadata); if a CR, the CR is a MULT constant (NX8: the constant layout, with its own scale and type; FP32: float32 bits; CR0 = 0.0, CR1 = 1.0; see `CrIdx` and [CR scalars](../../explanation/element-formats.md#cr-scalars)).",
                     "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**.",
                     _MASK_SHIFT_DOC,
                     _DS_DOC,

@@ -3,8 +3,11 @@
 Every emulator test that needs a program goes through this module, so a change
 to how state is built or how a program runs is made here once.
 
-``fmt`` names the element format a state runs in (``IpuState(fmt=...)``,
-E04-17); ``ElementFormat`` is re-exported from ``ipu_isa.formats``.
+``fmt`` names the run mode a state runs in (``IpuState(fmt=...)``: NX8, the
+default, or FP32; ADR 0007); ``ElementFormat`` is re-exported from
+``ipu_isa.formats``. ``halves`` presets CR halves by their assembly names
+(``{"cr14.l": qf(E4)}``); :data:`E4` and :data:`QF_E4` are a common NX8 format
+and its QF half, which the programs here keep in ``CR14.L``.
 """
 
 from __future__ import annotations
@@ -22,12 +25,17 @@ from ipu_emu.ipu_state import IpuState
 from ipu_emu.outcome import CycleOutcome
 from ipu_emu.run_control import RunControl
 from ipu_isa.codec.word import DecodedWord
+from ipu_isa.cr_halves import qf
 from ipu_isa.formats import ElementFormat
 from ipu_isa.geometry import LANES
+from ipu_isa.nx8 import Nx8Format, encode_row
 
 __all__ = [
+    "E4",
+    "QF_E4",
     "BreakpointRunControl",
     "ElementFormat",
+    "write_nx8_row",
     "decode_program",
     "assemble_program",
     "load_r_cyclic_from_xmem",
@@ -66,33 +74,64 @@ def assemble_program(asm: str) -> list[dict[str, int]]:
     return decode_program(assemble(asm))
 
 
+#: A common NX8 format (signed, fe 4, 8 bits) and its QF half.
+E4 = Nx8Format(sign=1, exp_format=4, num_bits=8)
+QF_E4 = qf(E4)
+
+
+def _half_name(name: str) -> tuple[int, bool]:
+    """``"cr14.l"`` -> ``(14, False)``."""
+    bank, _, which = name.lower().partition(".")
+    if not bank.startswith("cr") or which not in ("l", "h"):
+        raise ConfigurationError(f"{name!r} is not a CR half (CR0.L .. CR15.H)")
+    return int(bank[2:]), which == "h"
+
+
 def new_state(
     *,
     cr: Mapping[int, int] | None = None,
     fmt: ElementFormat | None = None,
-    dstructure: Mapping[str, Any] | None = None,
+    ds: int | None = None,
+    halves: Mapping[str, int] | None = None,
     setup: Callable[[IpuState], None] | None = None,
     **state_kw: Any,
 ) -> IpuState:
     """Build an ``IpuState`` with no program loaded.
 
-    *fmt* selects the element format. *dstructure* is passed to
-    ``set_cr_dstructure`` before *cr* presets the configuration registers, so a
-    ``cr`` entry for CR15 wins. *setup* then runs on the state (XMEM contents,
-    register presets). Other keywords go to ``IpuState``.
+    *fmt* selects the run mode. *ds* is written into ``CR15.L`` (the default
+    DS half) and *halves* into the halves they name (``{"cr14.l": QF_E4}``),
+    before *cr* presets whole configuration registers, so a ``cr`` entry wins.
+    ``CR14.L`` holds :data:`QF_E4` unless *halves* or *cr* say otherwise.
+    *setup* then runs on the state (XMEM contents, register presets). Other
+    keywords go to ``IpuState``.
     """
     kwargs = dict(state_kw)
     if fmt is not None:
         kwargs["fmt"] = fmt
     state = IpuState(**kwargs)
-    if dstructure:
-        state.set_cr_dstructure(**dstructure)
+    state.set_cr_half(14, False, QF_E4)
+    if ds is not None:
+        state.set_cr_half(15, False, ds)
+    for name, value in (halves or {}).items():
+        state.set_cr_half(*_half_name(name), value)
     if cr:
         for idx, val in cr.items():
             state.regfile.set_cr(idx, val)
     if setup is not None:
         setup(state)
     return state
+
+
+def write_nx8_row(
+    state: IpuState, xmem_row: int, values: Sequence[float], fmt: Nx8Format = E4
+) -> bytes:
+    """Quantize *values* to one NX8 row (``nx8.encode_row``) and write it and
+    its metadata at *xmem_row*; returns the row's bytes."""
+    row = encode_row(list(values), fmt)
+    addr = xmem_row * LANES
+    state.xmem.write_address(addr, row.elements)
+    state.xmem.write_metadata(addr, row.metadata)
+    return row.elements
 
 
 def make_state(
@@ -167,9 +206,10 @@ def run_both(
 
 # -- XMEM <-> register transfers ------------------------------------------
 # Test conveniences, not on any instruction execution path. Each takes a ROW
-# number and does what its instruction does in the state's element format:
-# LD.MULT, LD.MULT.CYCLIC, ST.ACC, LD.MASK. A row is LANES elements of the
-# state's codec; the registers are the format's (``vector_registers``).
+# number and moves the row's bytes in the state's element format: LD.MULT,
+# LD.MULT.CYCLIC and LD.MASK without the metadata, and a plain R_ACC dump. A
+# row is LANES elements of the state's codec; the registers are the format's
+# (``vector_registers``).
 
 
 def _row_bytes(state: IpuState) -> int:
@@ -220,7 +260,7 @@ def load_r_cyclic_from_xmem(state: IpuState, xmem_row: int, slot_element_idx: in
 
 
 def store_acc_to_xmem(state: IpuState, xmem_row: int) -> None:
-    """Store the whole accumulator (R_ACC_SIZE bytes in every format) to XMEM."""
+    """Dump the whole accumulator (R_ACC_SIZE bytes in every format) to XMEM (a test aid)."""
     state.xmem.write_address(_row_address(state, xmem_row), state.regfile.get_r_acc_bytes())
 
 

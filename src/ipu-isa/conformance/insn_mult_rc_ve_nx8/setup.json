@@ -1,0 +1,145 @@
+{
+ "description": "MULT.RC.VE in NX8",
+ "format": "nx8",
+ "emulator_only": false,
+ "max_cycles": 1000,
+ "fault_enables": {},
+ "registers": [
+  {
+   "name": "r",
+   "index": 0,
+   "hex": "5f674fe577c57f953acd408c049539fa5ea3760622b2acd7bec7341866570c2e2cbf015a83af3c268e842bbcff8f2032e9be8e1bb2ddd208419648e9bb258829111a4fd123b113280d2da310bb5cc10dc1a5bab63d06504469584a59d6e5ce38f21d637c0116dd4a009f3a5c53b4189e662b4d906013b691b59f50aeeb207d5c"
+  },
+  {
+   "name": "r",
+   "index": 1,
+   "hex": "fa0869bb5089bd25030b2a66675d22920866f5f427289d24f508347a18ea236c2cc5c484c8ca6e18e1d772c87f99a7e43920f220a99c05ea7aaaea3e978968340b44085c5c660965821306afef14b85b513ed84ba255d2cf9e7c5c818609860ab940fc05ecbd1270eda7fb305da7125c1b8b1871fe30584580cea071890c3a51"
+  },
+  {
+   "name": "r_cyclic",
+   "index": 0,
+   "hex": "c9805407b52c7379d5c57cdb2dcefe0a8aeaff8df4076d6e65f73b45fa13b9e892cc916570f9606f7e60722e68c28f6e392892d84c0abcf76d5182eb17f8aa0528fdce2fe76f2c8047b0bfbb2f456eb6b49d6ceb88d25b624b9742cf16d0e6d961144bca54fff0cc7f0ec99f6533e94ded2cb9a552da995f8806897cc154be487ac7d559248aada5a9d3128ae8612a2ae403d9f3aa600ad765e506cd4481505a420aee4f71809f3895871bdc7abe7c7bb4e0c0e5ed371039bb23229557a3d6953a4dd7fdd678047a4ebc8e2acb32a85701b5d2497787ba4d366f182a26c62f93c44578f303eaa80bbd2f3ee0b4508fc712412ad1ccb7e26128c2491405cd669b24b8dbfa8924b57ebe883d96d385e66c18eb0cb4cad2c8dc2d555a3e267a4e85c2e9bcc4175c0ba51c3cb9a032e0fd391947559c6b48b72fa3ab66e5b9661d171438828b21d7235d82f9f7dc24b800b375b723c8d67d5d2483f3ffe4973031fbf7176b80b7662862e49f73affbb6d33394c07b7e918b0778c383309a48c07c1c8c434f6e3714ad580aca96b51ba9caacfcb5e51a3eabd9da923182096a0bbc2a8da35693a31288e39d64f91f5617eb48f3c761cbe7a19a34503879db7535771245bd6cfa9956178d2dd9586ec08cc9636a9cbdb8c597c061d5089713d75a47f556e9bfce79b3cf94307c9b6737a7caf9b158d039f4b8c9d51802507953b6cf97"
+  },
+  {
+   "name": "r_meta",
+   "index": 0,
+   "hex": "7b00"
+  },
+  {
+   "name": "r_meta",
+   "index": 1,
+   "hex": "8200"
+  },
+  {
+   "name": "r_cyclic_meta",
+   "index": 0,
+   "hex": "8300"
+  },
+  {
+   "name": "r_cyclic_meta",
+   "index": 1,
+   "hex": "8600"
+  },
+  {
+   "name": "r_cyclic_meta",
+   "index": 2,
+   "hex": "8000"
+  },
+  {
+   "name": "r_cyclic_meta",
+   "index": 3,
+   "hex": "8000"
+  },
+  {
+   "name": "r_mask",
+   "index": 0,
+   "hex": "8f84337a9fd8ff9e7a8eed6aca304280059466af5bc9723100d987fb148890c90f774a74a18a92cae8a07d18d053a6ee0e0de1042b549011fd9ad0e9afdf27245cbb53f7cf6b240bd4d08f61d100265e9a9c7a7436b932e2807245cdedb62e398b2e020e6e932b75af899e35a8af2acbf888b40253a8648d851ee100a99e6dd8"
+  },
+  {
+   "name": "lr",
+   "index": 1,
+   "value": 1
+  },
+  {
+   "name": "lr",
+   "index": 2,
+   "value": 2
+  },
+  {
+   "name": "lr",
+   "index": 3,
+   "value": 3
+  },
+  {
+   "name": "lr",
+   "index": 4,
+   "value": 5
+  },
+  {
+   "name": "lr",
+   "index": 6,
+   "value": 128
+  },
+  {
+   "name": "lr",
+   "index": 7,
+   "value": 3
+  },
+  {
+   "name": "cr",
+   "index": 2,
+   "value": 1
+  },
+  {
+   "name": "cr",
+   "index": 3,
+   "value": 4
+  },
+  {
+   "name": "cr",
+   "index": 4,
+   "value": 2
+  },
+  {
+   "name": "cr",
+   "index": 5,
+   "value": 7
+  },
+  {
+   "name": "cr",
+   "index": 6,
+   "value": 128
+  },
+  {
+   "name": "cr",
+   "index": 7,
+   "value": 4294967294
+  },
+  {
+   "name": "cr",
+   "index": 8,
+   "value": 100
+  },
+  {
+   "name": "cr",
+   "index": 9,
+   "value": 3
+  },
+  {
+   "name": "cr",
+   "index": 11,
+   "value": 1345076
+  },
+  {
+   "name": "cr",
+   "index": 14,
+   "value": 328
+  },
+  {
+   "name": "cr",
+   "index": 15,
+   "value": 4224
+  }
+ ],
+ "xmem": []
+}

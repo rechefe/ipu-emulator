@@ -1,22 +1,38 @@
 {
   "opcode_fields": {
     "aaq": "aaq_inst_token_0_aaq_inst_opcode",
+    "aaq_exact": "aaq_exact_inst_token_0_aaq_exact_inst_opcode",
     "acc": "acc_inst_token_0_acc_inst_opcode",
-    "acc_store": "acc_store_inst_token_0_acc_store_inst_opcode",
     "break": "break_inst_token_0_break_inst_opcode",
     "cond": "cond_inst_token_0_cond_inst_opcode",
     "load": "load_inst_token_0_load_inst_opcode",
     "lr[0]": "lr_inst_0_token_0_lr_inst_opcode",
     "lr[1]": "lr_inst_1_token_0_lr_inst_opcode",
     "lr[2]": "lr_inst_2_token_0_lr_inst_opcode",
-    "mult": "mult_inst_token_0_mult_inst_opcode",
-    "store": "store_inst_token_0_store_inst_opcode"
+    "mult": "mult_inst_token_0_mult_inst_opcode"
   },
   "operand_fields": {
     "aaq": {
       "ACTIVATE.QUANTIZE": {
-        "activation_fn": "aaq_inst_token_1_activation_fn_field",
-        "cr_idx": "aaq_inst_token_2_dstructure_cr_reg_field"
+        "activation_fn": "aaq_inst_token_1_aaq_activation_fn_field",
+        "ds": "aaq_inst_token_3_half_cr_reg_field",
+        "qf": "aaq_inst_token_4_half_cr_reg_field",
+        "table_id": "aaq_inst_token_2_cr_reg_field",
+        "table_offset": "aaq_inst_token_5_lr_reg_field"
+      },
+      "LD.LUT": {
+        "lut_addr": "aaq_inst_token_1_aaq_activation_fn_field",
+        "table_id": "aaq_inst_token_2_cr_reg_field",
+        "table_offset": "aaq_inst_token_5_lr_reg_field"
+      },
+      "NOP": {}
+    },
+    "aaq_exact": {
+      "ACTIVATE.EXACT": {
+        "activation_fn": "aaq_exact_inst_token_1_activation_fn_field",
+        "ds": "aaq_exact_inst_token_3_half_cr_reg_field",
+        "table_id": "aaq_exact_inst_token_2_cr_reg_field",
+        "table_offset": "aaq_exact_inst_token_4_lr_reg_field"
       },
       "NOP": {}
     },
@@ -27,11 +43,11 @@
       "ACC.MAX.FIRST": {},
       "ACC.RESHAPE": {
         "dest": "acc_inst_token_3_lr_reg_field",
-        "reshape_mask": "acc_inst_token_1_dstructure_cr_reg_field",
+        "reshape_mask": "acc_inst_token_1_half_cr_reg_field",
         "source": "acc_inst_token_2_lrd_reg_field"
       },
       "ACC.STRIDE": {
-        "elements_in_row": "acc_inst_token_1_dstructure_cr_reg_field",
+        "elements_in_row": "acc_inst_token_1_half_cr_reg_field",
         "horizontal_stride": "acc_inst_token_2_lrd_reg_field",
         "offset": "acc_inst_token_3_lr_reg_field",
         "vertical_stride": "acc_inst_token_4_vertical_stride_field"
@@ -39,29 +55,22 @@
       "ACC.SUB": {},
       "ACC.SUB.FIRST": {},
       "AGG.MAX": {
-        "cr_idx": "acc_inst_token_1_dstructure_cr_reg_field",
-        "dest_slot": "acc_inst_token_3_lr_reg_field"
+        "dest_slot": "acc_inst_token_3_lr_reg_field",
+        "ds": "acc_inst_token_1_half_cr_reg_field"
       },
       "AGG.MAX.FIRST": {
-        "cr_idx": "acc_inst_token_1_dstructure_cr_reg_field",
-        "dest_slot": "acc_inst_token_3_lr_reg_field"
+        "dest_slot": "acc_inst_token_3_lr_reg_field",
+        "ds": "acc_inst_token_1_half_cr_reg_field"
       },
       "AGG.SUM": {
-        "cr_idx": "acc_inst_token_1_dstructure_cr_reg_field",
-        "dest_slot": "acc_inst_token_3_lr_reg_field"
+        "dest_slot": "acc_inst_token_3_lr_reg_field",
+        "ds": "acc_inst_token_1_half_cr_reg_field"
       },
       "AGG.SUM.FIRST": {
-        "cr_idx": "acc_inst_token_1_dstructure_cr_reg_field",
-        "dest_slot": "acc_inst_token_3_lr_reg_field"
+        "dest_slot": "acc_inst_token_3_lr_reg_field",
+        "ds": "acc_inst_token_1_half_cr_reg_field"
       },
       "NOP": {}
-    },
-    "acc_store": {
-      "NOP": {},
-      "ST.ACC": {
-        "base": "acc_store_inst_token_1_cr_reg_field",
-        "offset": "acc_store_inst_token_2_lr_reg_field"
-      }
     },
     "break": {
       "BREAK": {},
@@ -74,26 +83,26 @@
     "cond": {
       "BEQ": {
         "label": "cond_inst_token_1_label_token",
-        "reg1": "cond_inst_token_2_lcr_reg_field",
-        "reg2": "cond_inst_token_3_lcr_reg_field"
+        "reg1": "cond_inst_token_2_lcr_half_reg_field",
+        "reg2": "cond_inst_token_3_lcr_half_reg_field"
       },
       "BGE.S": {
         "label": "cond_inst_token_1_label_token",
-        "reg1": "cond_inst_token_2_lcr_reg_field",
-        "reg2": "cond_inst_token_3_lcr_reg_field"
+        "reg1": "cond_inst_token_2_lcr_half_reg_field",
+        "reg2": "cond_inst_token_3_lcr_half_reg_field"
       },
       "BLT.S": {
         "label": "cond_inst_token_1_label_token",
-        "reg1": "cond_inst_token_2_lcr_reg_field",
-        "reg2": "cond_inst_token_3_lcr_reg_field"
+        "reg1": "cond_inst_token_2_lcr_half_reg_field",
+        "reg2": "cond_inst_token_3_lcr_half_reg_field"
       },
       "BNE": {
         "label": "cond_inst_token_1_label_token",
-        "reg1": "cond_inst_token_2_lcr_reg_field",
-        "reg2": "cond_inst_token_3_lcr_reg_field"
+        "reg1": "cond_inst_token_2_lcr_half_reg_field",
+        "reg2": "cond_inst_token_3_lcr_half_reg_field"
       },
       "BR": {
-        "reg": "cond_inst_token_2_lcr_reg_field"
+        "reg": "cond_inst_token_2_lcr_half_reg_field"
       },
       "HALT": {},
       "NOP": {}
@@ -232,46 +241,44 @@
     "mult": {
       "MULT.EE": {
         "cr_idx": "mult_inst_token_1_lcr_reg_field",
-        "dstructure_cr_idx": "mult_inst_token_2_dstructure_cr_reg_field",
-        "mask_offset": "mult_inst_token_5_mult_mask_offset_immediate",
-        "mask_shift": "mult_inst_token_4_lr_reg_field",
-        "ra_idx": "mult_inst_token_3_lr_reg_field"
+        "ds": "mult_inst_token_2_half_cr_reg_field",
+        "mask_offset": "mult_inst_token_6_mult_mask_offset_immediate",
+        "mask_shift": "mult_inst_token_5_lr_reg_field",
+        "qf": "mult_inst_token_3_half_cr_reg_field",
+        "ra_idx": "mult_inst_token_4_lr_reg_field"
       },
       "MULT.RC.VE": {
-        "cr_idx": "mult_inst_token_2_dstructure_cr_reg_field",
-        "mask_offset": "mult_inst_token_5_mult_mask_offset_immediate",
-        "mask_shift": "mult_inst_token_4_lr_reg_field",
-        "rc_idx": "mult_inst_token_3_lr_reg_field",
+        "ds": "mult_inst_token_2_half_cr_reg_field",
+        "mask_offset": "mult_inst_token_6_mult_mask_offset_immediate",
+        "mask_shift": "mult_inst_token_5_lr_reg_field",
+        "qf": "mult_inst_token_3_half_cr_reg_field",
+        "rc_idx": "mult_inst_token_4_lr_reg_field",
         "src": "mult_inst_token_1_lcr_reg_field"
       },
       "MULT.RC.VS": {
-        "cr_idx": "mult_inst_token_2_dstructure_cr_reg_field",
-        "mask_offset": "mult_inst_token_5_mult_mask_offset_immediate",
-        "mask_shift": "mult_inst_token_4_lr_reg_field",
-        "rc_idx": "mult_inst_token_3_lr_reg_field"
+        "ds": "mult_inst_token_2_half_cr_reg_field",
+        "mask_offset": "mult_inst_token_6_mult_mask_offset_immediate",
+        "mask_shift": "mult_inst_token_5_lr_reg_field",
+        "qf": "mult_inst_token_3_half_cr_reg_field",
+        "rc_idx": "mult_inst_token_4_lr_reg_field"
       },
       "MULT.RC.VV": {
-        "cr_idx": "mult_inst_token_2_dstructure_cr_reg_field",
-        "mask_offset": "mult_inst_token_5_mult_mask_offset_immediate",
-        "mask_shift": "mult_inst_token_4_lr_reg_field",
+        "ds": "mult_inst_token_2_half_cr_reg_field",
+        "mask_offset": "mult_inst_token_6_mult_mask_offset_immediate",
+        "mask_shift": "mult_inst_token_5_lr_reg_field",
+        "qf": "mult_inst_token_3_half_cr_reg_field",
         "ra": "mult_inst_token_1_lcr_reg_field",
-        "rc_idx": "mult_inst_token_3_lr_reg_field"
+        "rc_idx": "mult_inst_token_4_lr_reg_field"
       },
       "MULT.VE": {
         "cr_idx": "mult_inst_token_1_lcr_reg_field",
-        "dstructure_cr_idx": "mult_inst_token_2_dstructure_cr_reg_field",
-        "mask_offset": "mult_inst_token_5_mult_mask_offset_immediate",
-        "mask_shift": "mult_inst_token_4_lr_reg_field",
-        "ra_idx": "mult_inst_token_3_lr_reg_field"
+        "ds": "mult_inst_token_2_half_cr_reg_field",
+        "mask_offset": "mult_inst_token_6_mult_mask_offset_immediate",
+        "mask_shift": "mult_inst_token_5_lr_reg_field",
+        "qf": "mult_inst_token_3_half_cr_reg_field",
+        "ra_idx": "mult_inst_token_4_lr_reg_field"
       },
       "NOP": {}
-    },
-    "store": {
-      "NOP": {},
-      "ST.AAQ": {
-        "base": "store_inst_token_1_cr_reg_field",
-        "offset": "store_inst_token_2_lr_reg_field"
-      }
     }
   }
 }

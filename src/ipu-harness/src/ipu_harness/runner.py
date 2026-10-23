@@ -12,8 +12,8 @@ them) returns a result with its :class:`RunFault`; a wrong kernel answer
 returns failed comparisons. Neither raises. A bad request (a parameter, a
 file, the manifest) raises ``ConfigurationError``; a program that does not
 assemble raises the assembler's error; an instruction the model cannot run in
-the format (``ACTIVATE.QUANTIZE`` in E4) raises ``EmulatorError``, and no
-outputs are written then.
+the mode (``ACTIVATE.EXACT`` in NX8, refused at load) raises
+``EmulatorError``, and no outputs are written then.
 """
 
 from __future__ import annotations
@@ -38,17 +38,17 @@ from ipu_harness._codec import Array
 from ipu_harness.abi import RegisterWrite, apply, check_cr_reads, register_writes
 from ipu_harness.assembly import AssemblyCache, assemble
 from ipu_harness.cases import Case, inputs_for
-from ipu_harness.compare import Comparison, compare, expected_for, tier_for
+from ipu_harness.compare import Comparison, compare, expected_for, nx8_steps, tier_for
 from ipu_harness.debug import DebugLaunch, attach_alias_profile, debug_run, new_alias_profile
 from ipu_harness.manifest import KernelManifest, TensorDecl
-from ipu_harness.packing import pack, region_fill, stored_format, stored_rows, unpack
+from ipu_harness.packing import Packed, pack, region_fill, stored_rows, unpack
 from ipu_harness.params import CasePlan, plan_case
-from ipu_harness.placement import Placement, check_aaq_spill, place
+from ipu_harness.placement import Placement, place
 from ipu_harness.reference import evaluate, load_reference
 from ipu_harness.stages import StageOptions, StagesRun, run_stages
+from ipu_harness.variants import Variant, as_variant
 from ipu_isa.codec.word import word_bytes
 from ipu_isa.faults import FaultId
-from ipu_isa.formats import FORMATS, ElementFormat
 from ipu_isa.trace_schema import SCHEMA_VERSION, isa_digest
 
 if TYPE_CHECKING:
@@ -122,7 +122,7 @@ class RunContext:
 
     model: ReferenceModel
     program: AssemblyResult
-    format: ElementFormat
+    format: Variant
     plan: CasePlan
     placement: Placement
     trace_header: Mapping[str, str]
@@ -219,7 +219,7 @@ class RunResult:
 
     kernel: str
     case: str
-    format: ElementFormat
+    format: Variant
     cycles: int
     mac_utilization: float
     outputs: Mapping[str, Array]
@@ -260,20 +260,33 @@ class RunResult:
 
 
 def _row_bytes(plan: CasePlan) -> int:
-    return FORMATS[plan.format].row_bytes
+    return plan.format.row_bytes
 
 
-def _write_region(
-    model: ReferenceModel, plan: CasePlan, placement: Placement, tensor: TensorDecl, data: bytes
+def write_region(
+    model: ReferenceModel, plan: CasePlan, placement: Placement, tensor: TensorDecl, data: Packed
 ) -> None:
-    model.write_xmem(placement.region(tensor.name).base_row * _row_bytes(plan), data)
+    """Write a region's rows and, in NX8, each row's metadata word."""
+    base = placement.region(tensor.name).base_row * _row_bytes(plan)
+    model.write_xmem(base, data.data)
+    for index, word in enumerate(data.metadata or ()):
+        model.write_xmem_metadata(base + index * _row_bytes(plan), word)
 
 
-def _read_region(
+def read_region(
     model: ReferenceModel, plan: CasePlan, placement: Placement, tensor: TensorDecl
-) -> bytes:
+) -> Packed:
+    """A region's rows and, in NX8, each row's metadata word."""
     region = placement.region(tensor.name)
-    return model.read_xmem(region.base_row * _row_bytes(plan), region.rows * _row_bytes(plan))
+    row_bytes = _row_bytes(plan)
+    data = model.read_xmem(region.base_row * row_bytes, region.rows * row_bytes)
+    if not plan.format.nx8:
+        return Packed(data)
+    metadata = tuple(
+        model.read_xmem_metadata((region.base_row + index) * row_bytes)
+        for index in range(region.rows)
+    )
+    return Packed(data, metadata)
 
 
 #: A comment runs from ``#`` or ``//`` to the end of the line.
@@ -304,8 +317,8 @@ def _source_line(rendered: str, pc: int) -> str | None:
     return None
 
 
-def _trace_header(words: tuple[int, ...], fmt: ElementFormat) -> dict[str, str]:
-    """The trace header (``trace.v1.json``) of ``words`` run in ``fmt``."""
+def _trace_header(words: tuple[int, ...], fmt: Variant) -> dict[str, str]:
+    """The trace header (``trace.v1.json``) of ``words`` run in ``fmt``'s mode."""
     width = word_bytes()
     digest = hashlib.sha256()
     for word in words:
@@ -313,7 +326,7 @@ def _trace_header(words: tuple[int, ...], fmt: ElementFormat) -> dict[str, str]:
     return {
         "schema_version": SCHEMA_VERSION,
         "isa_digest": isa_digest(),
-        "format": fmt.value,
+        "format": fmt.mode.value,
         "program_digest": digest.hexdigest(),
         "emulator_version": EMULATOR_VERSION,
     }
@@ -331,11 +344,20 @@ def _goldens(case: Case, plan: CasePlan, inputs: Mapping[str, Array]) -> dict[st
     return expected_for(case, plan, ref_out)
 
 
+def _compared(name: str, got: Array, want: Array, plan: CasePlan) -> Comparison:
+    """Output ``name`` held to its golden at its tier (in NX8 steps when the
+    tier counts them)."""
+    tensor = plan.manifest.tensors[name]
+    tier = tier_for(plan, tensor)
+    steps = nx8_steps(tensor, want, plan) if tier.counts_steps and plan.format.nx8 else None
+    return compare(name, got, want, tier, plan.format, steps)
+
+
 def _execute(
     context: RunContext,
     manifest: KernelManifest,
     case: Case,
-    fmt: ElementFormat,
+    fmt: Variant,
     options: RunOptions,
 ) -> tuple[ModelRun | None, AliasProfile | None]:
     """Run the loaded model as ``options`` say: profiled, in the debugger, by the
@@ -418,18 +440,22 @@ def _write_tensors(
     shared: SharedModel | None,
 ) -> Mapping[str, Array]:
     """Write every input and scratch region but the pinned inputs, which are
-    already in XMEM; return every input's values, the pinned ones read back
-    (for the goldens)."""
+    already in XMEM; return every input's values as XMEM holds them, the pinned
+    ones read back (for the goldens)."""
     inputs = dict(inputs)
     for tensor in plan.manifest.tensors.values():
         if tensor.role == "input" and shared is not None and tensor.name in shared.pinned:
-            data = _read_region(model, plan, placement, tensor)
-            inputs[tensor.name] = unpack(tensor, data, plan)
+            data = read_region(model, plan, placement, tensor)
+            inputs[tensor.name] = unpack(tensor, data.data, plan, data.metadata)
         elif tensor.role == "input":
-            _write_region(model, plan, placement, tensor, pack(tensor, inputs[tensor.name], plan))
+            packed = pack(tensor, inputs[tensor.name], plan)
+            write_region(model, plan, placement, tensor, packed)
+            # The goldens see what XMEM holds: an NX8 row re-quantized from held
+            # values may choose another dynamic exponent (the rule is not idempotent).
+            inputs[tensor.name] = unpack(tensor, packed.data, plan, packed.metadata)
         elif tensor.role == "scratch":
             fill = region_fill(tensor, plan, placement.region(tensor.name).rows)
-            _write_region(model, plan, placement, tensor, fill)
+            write_region(model, plan, placement, tensor, fill)
     return inputs
 
 
@@ -442,7 +468,7 @@ class Staged:
         inputs: Each input's values, rounded to the format.
         placement: Where each tensor sits in XMEM.
         program: The assembled program, loaded into ``model``.
-        writes: The register writes applied (``[abi]`` and the dstructure).
+        writes: The register writes applied (``[abi]`` and the default DS).
         model: The model, halted at PC 0, its XMEM and registers set up.
     """
 
@@ -463,7 +489,7 @@ class Staged:
 def _prepare(
     manifest: KernelManifest,
     case: Case,
-    fmt: ElementFormat,
+    fmt: Variant,
     inputs: Mapping[str, Path] | None,
     shared: SharedModel | None,
 ) -> tuple[CasePlan, Mapping[str, Array], Placement]:
@@ -487,7 +513,7 @@ def _prepare(
 def stage(
     manifest: KernelManifest,
     case: Case,
-    fmt: ElementFormat,
+    fmt: Variant,
     *,
     inputs: Mapping[str, Path] | None = None,
     cache: AssemblyCache | None = None,
@@ -519,12 +545,12 @@ def stage(
     """
     if manifest.stages is not None:
         raise ConfigurationError(f"{manifest.name}: a multi-stage kernel has no one program")
+    fmt = as_variant(fmt)
     plan, values, placement = _prepare(manifest, case, fmt, inputs, shared)
     program = assemble(plan, cache)
     check_cr_reads(plan.manifest, program.rendered)  # the case's bindings (``when``)
-    check_aaq_spill(plan, placement, program.rendered)
 
-    model = ReferenceModel(fmt) if shared is None else shared.model
+    model = ReferenceModel(fmt.mode) if shared is None else shared.model
     model.load_program(program.words)
     values = _write_tensors(model, plan, placement, values, shared)
     writes = tuple(register_writes(plan, placement))
@@ -552,7 +578,7 @@ class _Ran:
 def _run_program(
     manifest: KernelManifest,
     case: Case,
-    fmt: ElementFormat,
+    fmt: Variant,
     options: RunOptions,
     cache: AssemblyCache | None,
     shared: SharedModel | None,
@@ -583,7 +609,7 @@ def _run_program(
 def _run_staged_kernel(
     manifest: KernelManifest,
     case: Case,
-    fmt: ElementFormat,
+    fmt: Variant,
     options: RunOptions,
     cache: AssemblyCache | None,
     shared: SharedModel | None,
@@ -592,7 +618,7 @@ def _run_staged_kernel(
     if options.executor is not None:
         raise ConfigurationError(f"{manifest.name}: an executor runs one program, not stages")
     plan, values, placement = _prepare(manifest, case, fmt, options.inputs, shared)
-    model = ReferenceModel(fmt) if shared is None else shared.model
+    model = ReferenceModel(fmt.mode) if shared is None else shared.model
     values = _write_tensors(model, plan, placement, values, shared)
     run, profile, staged = _execute_stages(model, plan, placement, case, options, cache)
     return _Ran(
@@ -613,7 +639,7 @@ def _run_staged_kernel(
 def run_kernel(
     manifest: KernelManifest,
     case: Case,
-    fmt: ElementFormat,
+    fmt: Variant,
     options: RunOptions | None = None,
     *,
     cache: AssemblyCache | None = None,
@@ -644,6 +670,7 @@ def run_kernel(
         OSError: An input, output or trace file cannot be read or written.
     """
     options = options or RunOptions()
+    fmt = as_variant(fmt)
     if manifest.stages is None:
         ran = _run_program(manifest, case, fmt, options, cache, shared)
     else:
@@ -669,12 +696,16 @@ def run_kernel(
             stats=ran.stats,
         )
 
-    raw = {
-        t.name: _read_region(model, plan, placement, t)
+    regions = {
+        t.name: read_region(model, plan, placement, t)
         for t in tensors.values()
         if t.role == "output"
     }
-    outputs = {name: unpack(tensors[name], data, plan) for name, data in raw.items()}
+    raw = {name: data.data for name, data in regions.items()}
+    outputs = {
+        name: unpack(tensors[name], data.data, plan, data.metadata)
+        for name, data in regions.items()
+    }
     if options.output_dir is not None:
         options.output_dir.mkdir(parents=True, exist_ok=True)
         for name, values in outputs.items():
@@ -688,14 +719,7 @@ def run_kernel(
     elif shared is None or shared.check:
         golden = _goldens(case, plan, inputs)
         comparisons = tuple(
-            compare(
-                name,
-                outputs[name],
-                want,
-                tier_for(plan, tensors[name]),
-                stored_format(tensors[name], fmt),  # an accumulator output is FP32 or INT32
-            )
-            for name, want in golden.items()
+            _compared(name, outputs[name], want, plan) for name, want in golden.items()
         )
     return RunResult(
         kernel=manifest.name,

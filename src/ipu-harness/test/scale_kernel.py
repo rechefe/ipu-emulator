@@ -12,23 +12,21 @@ import numpy as np
 
 from ipu_harness.manifest import KernelManifest, load_manifest
 
-#: The epic's program stores y through ACTIVATE.QUANTIZE and ST.AAQ, which the
-#: emulator runs in INT8, FP32 and INT32 only (the AaQ stage is a placeholder,
-#: OQ-20). This one stores the accumulator (ST.ACC), so it runs in E4 too: y is
-#: an ``accumulator`` output, one accumulator vector per row of x.
+#: y = x * s, stored by ACTIVATE.QUANTIZE (identity), which runs in both modes
+#: (ADR 0007): NX8 quantizes the row to the case's QF (``case_qf``, bound to
+#: CR6), FP32 stores the 128 values exactly. One row per iteration in both.
 ASM = """\
 {#- scale.asm -- y = x * s, one XMEM row (128 elements) per iteration. -#}
-{%- set acc_rows = 1 if format in ("fp32", "int32") else 4 %}
     SET LR0 CR0 ;
     SET LR1 CR0 ;
     SET LR2 CR0 ;;
 row_loop:
     LD.MULT R0 LR1 {{ cr.x }} ;;
-    MULT.VE LR0 {{ cr.s }} 0 LR0 CR15 ;
+    MULT.VE LR0 {{ cr.s }} 0 LR0 CR15.L {{ cr.qf }}.L ;
     ACC.ADD.FIRST ;;
-    ST.ACC LR2 {{ cr.y }} ;;
+    ACTIVATE.QUANTIZE identity CR15.L {{ cr.qf }}.L {{ cr.y }} LR2 ;;
     ADD LR1 LR1 CR1 ;
-    INC LR2 {{ acc_rows }} ;;
+    INC LR2 1 ;;
     BLT.S LR1 {{ cr.rows }} row_loop ;;
     HALT ;;
 """
@@ -36,7 +34,7 @@ row_loop:
 TOML = """\
 [kernel]
 op = "scale"
-formats = ["fp32", "int8", "e4"]
+formats = ["fp32", "e4"]
 
 [params]
 rows = {{ type = "int", min = 1, max = 256 }}
@@ -47,16 +45,19 @@ shape = ["rows", 128]
 
 [outputs.y]
 shape = ["rows", 128]
-store = "accumulator"
+
+[derived]
+qf = "case_qf"
 
 [abi]
 x    = "CR2"
 y    = "CR3"
 rows = "CR4"
 s    = "CR5"
+qf   = "CR6"
 
 [golden]
-{reference}tolerance = {{ fp32 = "EXACT", int32 = "EXACT" }}
+{reference}tolerance = {{ fp32 = "EXACT", e4 = "EXACT" }}
 
 [cases.default]
 rows = 4
@@ -84,7 +85,8 @@ def reference(x: torch.Tensor, *, rows: int, s: float) -> dict[str, torch.Tensor
 
 
 def _files(name: str, rows: int, s: float, directory: Path) -> str:
-    """An inputs/expected pair for a case, small integers exact in every format."""
+    """An inputs/expected pair for a case, small integers exact in every variant
+    (the expected values are held by the variant: NX8 quantizes them)."""
     x = np.arange(rows * 128, dtype=np.float64).reshape(rows, 128) % 17 - 8
     np.save(directory / "data" / f"{name}_x.npy", x)
     np.save(directory / "data" / f"{name}_y.npy", x * s)

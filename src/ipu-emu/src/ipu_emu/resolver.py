@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from ipu_emu.errors import EmulatorError
 from ipu_emu.geometry import WIDE_REGISTERS
+from ipu_isa.cr_halves import lcr_half_code, lcr_half_value
 from ipu_isa.registers import get_mult_stage_map, get_register_sizes
 
 if TYPE_CHECKING:
@@ -43,6 +44,7 @@ READ_CR = 1
 READ_LCR = 2  # an LR below LR_REG_COUNT, else CR (index - LR_REG_COUNT)
 READ_MULT_STAGE = 3  # R0 or R1 (MultStageReg)
 READ_OTHER = 4  # passed through unchanged
+READ_LCR_HALF = 5  # an LR, a CR or a sign-extended CR half (LcrHalfIdx, ADR 0007)
 
 _SIZES = get_register_sizes()
 LR_REG_COUNT: int = _SIZES["lr"]["count"]
@@ -68,10 +70,19 @@ def check_mult_stage(raw: int) -> None:
         raise EmulatorError(f"Mult-stage operand must encode r0 (0) or r1 (1); got {raw}")
 
 
+def resolve_lcr_half(raw: int, source: RegFile) -> int:
+    """An ``LcrHalfIdx`` operand's value: the LR or CR word, or a CR half
+    sign-extended to 32 bits (returned unsigned), as the LR and COND
+    instructions read it (ADR 0007)."""
+    operand = lcr_half_code(raw)
+    word = source.get_lr(operand.index) if operand.bank == "lr" else source.get_cr(operand.index)
+    return lcr_half_value(operand, word)
+
+
 def resolve_mult_stage(raw: int, source: RegFile, wide: bool) -> bytearray:
     """A mult-stage operand's value: R0 or R1's bytes (``r_wide_debug``'s
-    4-byte elements in FP32 and INT32), so a handler decodes it in the
-    active element format either way."""
+    4-byte elements in FP32), so a handler decodes it in the active element
+    format either way."""
     check_mult_stage(raw)
     reg_name, elem_idx = _MULT_STAGE_MAP[raw]
     return source.get_register_bytes(_WIDE_RA if wide else reg_name, elem_idx)
@@ -128,6 +139,8 @@ class FaithfulResolver:
                 operands[read.name] = (
                     source.get_lr(raw) if raw < LR_REG_COUNT else source.get_cr(raw - LR_REG_COUNT)
                 )
+            elif code == READ_LCR_HALF:
+                operands[read.name] = resolve_lcr_half(raw, source)
             elif code == READ_MULT_STAGE:
                 operands[read.name] = resolve_mult_stage(
                     raw, source, state.codec.element_bytes != 1
@@ -198,6 +211,8 @@ class PackedResolver:
                     operands[read.name] = (
                         source.get_lr(raw) if code == READ_LR else source.get_cr(raw)
                     )
+            elif code == READ_LCR_HALF:
+                operands[read.name] = resolve_lcr_half(raw, source)
             elif code == READ_MULT_STAGE:
                 operands[read.name] = resolve_mult_stage(
                     raw, source, state.codec.element_bytes != 1

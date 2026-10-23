@@ -13,7 +13,6 @@ import textwrap
 from typing import Any
 
 from ipu_harness.manifest import KernelManifest
-from ipu_harness.packing import stored_format
 from ipu_harness.tolerance import DEFAULT_TIER
 
 __all__ = ["abi_table", "design_notes", "page_data", "tolerances"]
@@ -87,24 +86,20 @@ def _domain(manifest: KernelManifest) -> dict[str, dict[str, Any]]:
 
 
 def tolerances(manifest: KernelManifest) -> dict[str, dict[str, str]]:
-    """The tier each output is compared at, in each format the kernel runs in.
-
-    An accumulator output is compared in its accumulator format (FP32, or
-    INT32 in INT8), so its tier is that format's (``compare.tier_for``).
+    """The tier each output is compared at, in each variant the kernel runs in
+    (``compare.tier_for``).
 
     Args:
         manifest: The kernel.
 
     Returns:
-        Format name to output name to tier name; ``EXACT`` unless ``[golden]``
+        Variant name to output name to tier name; ``EXACT`` unless ``[golden]``
         names a tier.
     """
     tolerance = manifest.golden.tolerance
     outputs = [t for t in manifest.tensors.values() if t.role == "output"]
     return {
-        fmt.value: {
-            t.name: tolerance.get(stored_format(t, fmt), DEFAULT_TIER).name for t in outputs
-        }
+        fmt.value: {t.name: tolerance.get(fmt, DEFAULT_TIER).name for t in outputs}
         for fmt in manifest.formats
     }
 

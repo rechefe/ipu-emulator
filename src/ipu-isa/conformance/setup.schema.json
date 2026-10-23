@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/rechefe/ipu-emulator/schemas/conformance-setup/1.1.0",
+  "$id": "https://github.com/rechefe/ipu-emulator/schemas/conformance-setup/2.0.0",
   "title": "IPU conformance case setup",
   "description": "A conformance case's starting state and run limits (E04-31). From reset in `format`: load program.bin, write `registers`, then `xmem`, set `fault_enables`, and run until HALT, a fault or `max_cycles` words.",
   "type": "object",
@@ -21,23 +21,15 @@
     },
     "format": {
       "type": "string",
-      "description": "The element format.",
+      "description": "The run mode, by its element format (ADR 0007).",
       "enum": [
-        "int8",
-        "e1",
-        "e2",
-        "e3",
-        "e4",
-        "e5",
-        "e6",
-        "e7",
         "fp32",
-        "int32"
+        "nx8"
       ]
     },
     "emulator_only": {
       "type": "boolean",
-      "description": "True when the hardware cannot run the case: a wide format (fp32, int32) or an EMULATOR slot's instruction."
+      "description": "True when the hardware cannot run the case: FP32 mode or an EMULATOR slot's instruction."
     },
     "max_cycles": {
       "type": "integer",
@@ -76,7 +68,6 @@
               "r_cyclic_meta",
               "r_mask",
               "r_acc",
-              "post_aaq_reg",
               "aaq_lut",
               "lr",
               "cr",

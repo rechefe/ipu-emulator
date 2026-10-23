@@ -11,15 +11,16 @@ import pytest
 from ipu_harness.cases import expand
 from ipu_harness.manifest import KernelManifest, load_manifest
 from ipu_harness.params import PlanError, plan_case
-from ipu_harness.placement import Placement, check_aaq_spill, default_rows, place
-from ipu_harness.runner import run_kernel
+from ipu_harness.placement import Placement, default_rows, place
+from ipu_harness.runner import stage
+from ipu_harness.variants import variant
 from ipu_isa.formats import ElementFormat as F
 from ipu_isa.formats import addressable_rows
 
 SCALE = """\
 [kernel]
 op = "scale"
-formats = ["fp32", "int8", "e4"]
+formats = ["fp32", "e3", "e4"]
 
 [params]
 rows = {{ type = "int", min = 1 }}
@@ -71,8 +72,8 @@ def test_a_pinned_region_keeps_its_row_and_the_rest_fill_around_it(tmp_path):
 
 def test_placement_is_deterministic(tmp_path):
     toml = SCALE.format(x_pin="row = 7\n", y_extra="")
-    first = plan_case(manifest(tmp_path, toml, "a"), {"rows": 5, "s": 2.0}, F.INT8)
-    second = plan_case(manifest(tmp_path, toml, "b"), {"rows": 5, "s": 2.0}, F.INT8)
+    first = plan_case(manifest(tmp_path, toml, "a"), {"rows": 5, "s": 2.0}, variant("e3"))
+    second = plan_case(manifest(tmp_path, toml, "b"), {"rows": 5, "s": 2.0}, variant("e3"))
     assert bases(place(first)) == bases(place(second)) == {"x": (7, 5), "y": (0, 5)}
 
 
@@ -159,51 +160,23 @@ def test_avoided_rows_are_left_by_first_fit_but_may_be_pinned(tmp_path):
     assert bases(place(plan, pins={"x": 1}, avoid=[(0, 3)])) == {"x": (1, 2), "y": (3, 2)}
 
 
-def test_st_aaq_spill_onto_reserved_rows_is_an_error(tmp_path):
-    m = manifest(tmp_path, SCALE.format(x_pin="row = 10\n", y_extra="row = 0\n"))
-    plan = plan_case(m, {"rows": 2, "s": 2.0}, F.INT8)
-    placement = place(plan, reserved={"held": (3, 1)})  # y 0..1 spills onto 2..4
-    with pytest.raises(PlanError, match="which hold region held"):
-        check_aaq_spill(plan, placement, "ST.AAQ LR0 CR3 ;;\nHALT ;;\n")
-
-
-def test_st_aaq_spill_onto_a_region_is_an_error_in_an_8_bit_format(tmp_path):
-    """ST.AAQ writes 512 bytes: four INT8 rows, one FP32 row (OQ-35)."""
-    m = manifest(tmp_path, SCALE.format(x_pin="", y_extra="row = 0\n"))
-    program = "ST.AAQ LR0 CR3 ;;\nHALT ;;\n"
-    plan = plan_case(m, {"rows": 2, "s": 2.0}, F.INT8)
-    placement = place(plan)  # y at rows 0..1, x at 2..3: in y's spill
-    with pytest.raises(PlanError, match=r"rows 2\.\.4, which hold region x \(OQ-35\)"):
-        check_aaq_spill(plan, placement, program)
-    check_aaq_spill(plan, placement, "ST.ACC LR0 CR3 ;;\n")  # no ST.AAQ
-    check_aaq_spill(plan, placement, "// ST.AAQ LR0 CR3 ;;\nHALT ;;\n")  # only a comment
-    fp32 = plan_case(m, {"rows": 2, "s": 2.0}, F.FP32)
-    check_aaq_spill(fp32, place(fp32), program)  # one row per store
-    clear = plan_case(
-        manifest(tmp_path, SCALE.format(x_pin="row = 8\n", y_extra="row = 0\n"), "clear"),
-        {"rows": 2, "s": 2.0},
-        F.INT8,
+def test_an_aaq_store_writes_only_its_row_so_the_next_region_is_untouched(tmp_path):
+    """ADR 0007: ACTIVATE.QUANTIZE stores exactly one row (ST.AAQ's 512-byte
+    spill past an output, OQ-35, left with it), so x may follow y directly."""
+    toml = SCALE.format(x_pin="", y_extra="row = 0\n").replace(
+        "[abi]\n", '[derived]\nqf = "case_qf"\n\n[abi]\nqf   = "CR6"\n'
     )
-    check_aaq_spill(clear, place(clear), program)  # rows 2..4 free
-
-
-@pytest.mark.parametrize("staged", [False, True])
-def test_a_run_refuses_an_st_aaq_spill_before_it_writes(tmp_path, staged):
-    """The guard runs after assembly, for the kernel's program and each stage's."""
-    toml = SCALE.format(x_pin="", y_extra="row = 0\n")
-    if staged:
-        toml = toml.replace(
-            'formats = ["fp32", "int8", "e4"]',
-            'formats = ["fp32", "int8", "e4"]\nstages = "stages.py:run"',
-        )
     m = manifest(tmp_path, toml)
-    store = "ST.AAQ LR0 {{ cr.y }} ;;\nHALT ;;\n"
-    (m.directory / ("spill.asm" if staged else "scale.asm")).write_text(store)
-    (m.directory / "stages.py").write_text('def run(ctx):\n    ctx.run_stage("spill.asm")\n')
-    m = load_manifest(m.directory)
+    (m.directory / "scale.asm").write_text(
+        "ACTIVATE.QUANTIZE identity CR15.L {{ cr.qf }}.L {{ cr.y }} LR0 ;;\nHALT ;;\n"
+    )
     case = next(c for c in expand(m) if c.name == "default")
-    with pytest.raises(PlanError, match="OQ-35"):
-        run_kernel(m, case, F.INT8)
+    staged = stage(m, case, variant("e4"))
+    start, size = staged.region_bytes("x")
+    assert staged.placement.region("y").end_row == staged.placement.region("x").base_row
+    before = staged.model.read_xmem(start, size)
+    staged.model.run()
+    assert staged.model.read_xmem(start, size) == before
 
 
 CAPACITY = addressable_rows(F.FP32)
@@ -242,17 +215,9 @@ def test_a_pin_at_the_end_of_xmem_pushes_a_free_region_past_capacity(tmp_path):
 def test_rows_are_the_same_in_every_format_while_capacity_differs(tmp_path):
     m = manifest(tmp_path, SCALE.format(x_pin="", y_extra=""))
     fp32 = place(plan_case(m, {"rows": 6, "s": 2.0}, F.FP32))
-    e4 = place(plan_case(m, {"rows": 6, "s": 2.0}, F.E4))
+    e4 = place(plan_case(m, {"rows": 6, "s": 2.0}, variant("e4")))
     assert bases(fp32) == bases(e4)
     assert e4.capacity == 4 * fp32.capacity
-
-
-def test_an_accumulator_output_takes_more_rows_in_int8(tmp_path):
-    m = manifest(tmp_path, SCALE.format(x_pin="", y_extra='store = "accumulator"\n'))
-    fp32 = place(plan_case(m, {"rows": 2, "s": 2.0}, F.FP32))
-    int8 = place(plan_case(m, {"rows": 2, "s": 2.0}, F.INT8))
-    assert fp32.region("y").rows == 2 and int8.region("y").rows == 8
-    assert int8.region("x").rows == 2
 
 
 def test_row_counts_from_packing_win_and_must_name_tensors(tmp_path):

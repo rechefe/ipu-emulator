@@ -21,13 +21,10 @@ from __future__ import annotations
 import os
 import shutil
 import sys
-import warnings
 from pathlib import Path
 
 import conformance
 from conformance_cases import Case, all_cases, files_of
-
-from ipu_emu.errors import DebugOnlyInstructionWarning
 
 
 def write_case(suite: Path, case: Case) -> None:
@@ -50,8 +47,6 @@ def main() -> int:
     if not workspace:
         print(f"Run this through Bazel: {conformance.UPDATE_COMMAND}", file=sys.stderr)
         return 2
-    # The probes include ST.ACC, the emulator-only store: its warning is expected.
-    warnings.filterwarnings("ignore", category=DebugOnlyInstructionWarning)
     suite = Path(workspace) / conformance.SUITE
     cases = all_cases()
     names = {case.name for case in cases}

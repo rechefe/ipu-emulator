@@ -1,0 +1,3 @@
+# insn_activate_quantize_nx8: ACTIVATE.QUANTIZE in NX8
+ACTIVATE.QUANTIZE relu CR15.L CR14.L CR3 LR1 ;;
+HALT ;;

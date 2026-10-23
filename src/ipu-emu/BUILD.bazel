@@ -83,19 +83,6 @@ py_pytest_test(
     ],
 )
 
-# FP8 codec checked against an independent Fraction reference and ml_dtypes.
-py_pytest_test(
-    name = "test_ipu_math",
-    srcs = ["test/test_ipu_math.py"],
-    imports = ["src"],
-    deps = [
-        ":emu_test_support",
-        ":ipu_emu_lib",
-        requirement("ml-dtypes"),
-        requirement("pytest"),
-    ],
-)
-
 # The lane codecs (E04-13) bit-identical to the scalar arithmetic: exhaustive
 # over every 8-bit byte pair, 10^6 random accumulator pairs per format.
 py_pytest_test(
@@ -118,6 +105,7 @@ py_pytest_test(
     data = ["pytest.ini"],
     imports = ["src"],
     deps = [
+        ":emu_test_support",
         ":ipu_emu_lib",
         "//src/ipu-isa:ipu_isa_lib",
         requirement("pytest"),

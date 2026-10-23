@@ -1,0 +1,120 @@
+{
+ "description": "MULT.EE in NX8",
+ "format": "nx8",
+ "emulator_only": false,
+ "max_cycles": 1000,
+ "fault_enables": {},
+ "registers": [
+  {
+   "name": "r",
+   "index": 0,
+   "hex": "ebd0013826813ca292a1502c17549705df7919704238ba16dabd61a448283a623190982befcd30ecfd25a48055457dc67fcc2dff0434d43b18b04fcd870f17a3c6a918b685b9416a2d22549cb8ef9a300b235cba4105b189eb6b015b76d246100c837209dc1090bd55e081eef20059b5ace638e1bfc51cea7b268518171e396c"
+  },
+  {
+   "name": "r",
+   "index": 1,
+   "hex": "a118b811a2b788b22fb3669e4740ed7eb6169e6dcc9cd425fe3a6cf5a7634cb6836af3988b7ac67c3d7f8427cc15c73427f56958861cbac77306b6c0f9ff75ccc981e10f5e6b4b574a64b42e493f9b583c856adfd72658847e111ba51f87b60260da985bc5b97165591aaada3737d54db90da3a4c83bcaad7cb76d62bc574b37"
+  },
+  {
+   "name": "r_meta",
+   "index": 0,
+   "hex": "7d00"
+  },
+  {
+   "name": "r_meta",
+   "index": 1,
+   "hex": "7e00"
+  },
+  {
+   "name": "r_mask",
+   "index": 0,
+   "hex": "98607e436bbf411db030c889aac46e77d6c88be6f698611790cbe1cfa3eca872f4cb67fa62a04e3c139609f143134fb23db9ac4646791fed946d7b55a6405269b81dd46d181b8c52af752bb771bde667d9cbdbd20b3e64b07044ec576dd6b82095a91cf93072419340e2f9e89ac3e79f75a1711ad190cc5d698e66be1f0ff5c0"
+  },
+  {
+   "name": "lr",
+   "index": 1,
+   "value": 1
+  },
+  {
+   "name": "lr",
+   "index": 2,
+   "value": 2
+  },
+  {
+   "name": "lr",
+   "index": 3,
+   "value": 3
+  },
+  {
+   "name": "lr",
+   "index": 4,
+   "value": 5
+  },
+  {
+   "name": "lr",
+   "index": 6,
+   "value": 128
+  },
+  {
+   "name": "lr",
+   "index": 7,
+   "value": 3
+  },
+  {
+   "name": "cr",
+   "index": 2,
+   "value": 1
+  },
+  {
+   "name": "cr",
+   "index": 3,
+   "value": 4
+  },
+  {
+   "name": "cr",
+   "index": 4,
+   "value": 2
+  },
+  {
+   "name": "cr",
+   "index": 5,
+   "value": 7
+  },
+  {
+   "name": "cr",
+   "index": 6,
+   "value": 128
+  },
+  {
+   "name": "cr",
+   "index": 7,
+   "value": 4294967294
+  },
+  {
+   "name": "cr",
+   "index": 8,
+   "value": 100
+  },
+  {
+   "name": "cr",
+   "index": 9,
+   "value": 3
+  },
+  {
+   "name": "cr",
+   "index": 11,
+   "value": 1345076
+  },
+  {
+   "name": "cr",
+   "index": 14,
+   "value": 328
+  },
+  {
+   "name": "cr",
+   "index": 15,
+   "value": 4224
+  }
+ ],
+ "xmem": []
+}

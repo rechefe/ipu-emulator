@@ -1,0 +1,4 @@
+# insn_mult_rc_vs_nx8: MULT.RC.VS in NX8
+MULT.RC.VS LR0 0 LR2 CR15.L CR14.L ;;
+MULT.RC.VS LR4 1 LR0 CR15.L CR14.L ;;
+HALT ;;

@@ -3,29 +3,26 @@ writes it, and the end-of-word control rules (E02-06).
 
 "Cycle start" and "forwarded" are as in GLOSSARY.md. Each test runs one minimal
 probe from ``timing_probes.py`` in faithful mode and asserts the value that
-tells the versions apart. The MULT rows run in the default INT8 format and in
-wide FP32 mode, whose R0/R1/R_CYCLIC reads take their own path. The two rows
+tells the versions apart. The MULT rows run in NX8 mode and in FP32 mode,
+whose R0/R1/R_CYCLIC reads take their own path. The two rows
 decision Q32 changed are ``test_mult_reads_r_mask_at_cycle_start`` (E04-27) and
 ``test_reshape_reads_this_cycle_mult_res`` (E04-26).
 """
 
 from __future__ import annotations
 
-import struct
-
 import pytest
-from timing_probes import PROBES, ROW, Mode, lane, prepare, run
+from timing_probes import PROBES, ROW, Mode, lane, prepare, run, stored_element
 
 from ipu_emu import prototyping as prototyping_mode
-from ipu_emu.errors import DebugOnlyInstructionWarning
 from ipu_emu.ipu import Ipu
 from ipu_emu.ipu_state import INST_MEM_SIZE
 from ipu_emu.outcome import CycleOutcome
 
-_MODES = pytest.mark.parametrize("mode", [Mode.NARROW, Mode.WIDE_FP32], ids=lambda m: m.value)
+_MODES = pytest.mark.parametrize("mode", [Mode.NX8, Mode.WIDE_FP32], ids=lambda m: m.value)
 
 
-def _mult_res(probe: str, mode: Mode = Mode.NARROW):
+def _mult_res(probe: str, mode: Mode = Mode.NX8):
     return lane(run(PROBES[probe], mode).state, "mult_res", 0)
 
 
@@ -112,33 +109,26 @@ def test_activate_reads_this_cycle_r_acc(op, expected):
     case; this one covers ACC.ADD(.FIRST).
     """
     state = run(PROBES[f"activate_r_acc_{op}"]).state
-    assert state.regfile.view("post_aaq_reg")[0] == expected
+    assert stored_element(state, ROW, 0) == expected
 
 
-def test_store_reads_this_cycle_post_aaq():
-    """ST.AAQ stores this cycle's POST_AAQ_REG (7, not 1)."""
-    state = run(PROBES["store_post_aaq"]).state
-    assert state.xmem.read_address(ROW * 128, 1) == b"\x07"
-
-
-def test_acc_store_reads_this_cycle_r_acc():
-    """ST.ACC stores this cycle's R_ACC (7, not 1)."""
-    with pytest.warns(DebugOnlyInstructionWarning):
-        state = run(PROBES["acc_store_r_acc"]).state
-    assert struct.unpack("<i", state.xmem.read_address(ROW * 128, 4))[0] == 7
+def test_activate_exact_reads_this_cycle_r_acc():
+    """ACTIVATE.EXACT (FP32 mode) stores this cycle's R_ACC (7, not 1)."""
+    state = run(PROBES["exact_r_acc"], Mode.WIDE_FP32).state
+    assert stored_element(state, ROW, 0) == 7
 
 
 def test_bkpt_halts_after_whole_word_retires():
     """HALT halts after every other slot of its word has run: the LR write and
-    the store land, and the next word does not run. (HALT becomes HALT in E03.)"""
+    the AaQ store land, and the next word does not run."""
     result = run(PROBES["halt"])
     state = result.state
     assert (
         result.cycles,
         state.program_counter,
         state.regfile.get_lr(0),
-        state.xmem.read_address(ROW * 128, 1),
-    ) == (1, INST_MEM_SIZE, 5, b"\x07")
+        stored_element(state, ROW, 0),
+    ) == (1, INST_MEM_SIZE, 5, 7)
 
 
 @pytest.mark.parametrize(("probe", "marker"), [("signed_blt", 2), ("signed_bge", 1)])

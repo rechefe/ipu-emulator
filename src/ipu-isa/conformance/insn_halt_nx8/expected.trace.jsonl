@@ -1,0 +1,2 @@
+{"schema_version":"1.1.0","isa_digest":"b2c6f0be6d069626fb447e271b7ccbf5eadf3579eef718a10f824f16cb7f8599","format":"nx8","program_digest":"64fe3224d55def2e561bc0840316642845729d685ec853c8b9519734658b476f","emulator_version":"0.1.0"}
+{"cycle":0,"pc_before":0,"pc_after":1024,"slots":[{"slot":"cond","mnemonic":"HALT","fields":{}}],"reg_writes":[],"xmem_writes":[],"outcome":"halt","fault":null,"arith_events":[]}

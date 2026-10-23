@@ -1,4 +1,0 @@
-# insn_inc_modp2_e4: INC.MODP2 in E4
-INC.MODP2 LR2 LR3 2 ;;
-INC.MODP2 LR4 CR5 3 ;;
-HALT ;;

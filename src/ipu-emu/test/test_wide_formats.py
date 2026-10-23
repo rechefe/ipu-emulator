@@ -1,8 +1,9 @@
-"""The 4-byte element formats FP32 and INT32 (emulator-only; GitHub issue #33).
+"""The FP32 run mode (emulator-only; GitHub issue #33, ADR 0007).
 
-XMEM transfer sizes stay architectural (128-byte loads for r in an 8-bit
-format); in FP32 and INT32 ``LD.MULT`` / ``LD.MULT.CYCLIC`` consume 512 bytes
-per transfer as 128×32-bit elements. LR/CR are unchanged.
+XMEM transfer sizes stay architectural in NX8 (128-byte rows plus metadata);
+in FP32 ``LD.MULT`` / ``LD.MULT.CYCLIC`` consume 512 bytes per transfer as
+128×32-bit elements, and the AaQ stores write 512-byte rows. LR/CR are
+unchanged.
 """
 
 from __future__ import annotations
@@ -13,7 +14,6 @@ import numpy as np
 import pytest
 from emu_support import ElementFormat, assemble_program, make_state, new_state, run
 
-from ipu_emu.activations import AaqOptions
 from ipu_emu.emulator import load_program, run_until_complete
 from ipu_emu.geometry import (
     element_width_bytes,
@@ -23,6 +23,7 @@ from ipu_emu.geometry import (
 )
 from ipu_emu.ipu import LANES, EmulatorError, Ipu
 from ipu_emu.ipu_state import IpuState
+from ipu_isa.cr_halves import ds
 
 
 def _f32_bits(value: float) -> int:
@@ -44,7 +45,7 @@ SET lr1 cr7;;
 SET lr2 cr8;;
 LD.MULT r0 lr0 cr0;;
 LD.MULT.CYCLIC lr1 cr0 lr2;;
-MULT.RC.VV lr2 r0 0 lr2 cr15;;
+MULT.RC.VV lr2 r0 0 lr2 cr15.l cr14.l;;
 acc.add.first;;
 HALT;;
 """
@@ -58,8 +59,8 @@ HALT;;
             v = struct.unpack_from("<f", acc, i * 4)[0]
             assert v == pytest.approx(6.0), f"lane {i}"
 
-    def test_activate_quantize_noop_unless_quantize_flag(self) -> None:
-        """ACTIVATE.QUANTIZE without AaqOptions.quantize_output leaves POST_AAQ_REG all zero."""
+    def test_activate_quantize_fp32_stores_the_activated_row(self) -> None:
+        """In FP32 mode ACTIVATE.QUANTIZE stores 128 FP32 values (512 B): no quantization."""
         state = run(
             """\
 SET lr0 cr6;;
@@ -67,77 +68,33 @@ SET lr1 cr7;;
 SET lr2 cr8;;
 LD.MULT r0 lr0 cr0;;
 LD.MULT.CYCLIC lr1 cr0 lr2;;
-MULT.RC.VV lr2 r0 0 lr2 cr15;;
+MULT.RC.VV lr2 r0 0 lr2 cr15.l cr14.l;;
 acc.add.first;;
-SET lr0 cr9;;
-ACTIVATE.QUANTIZE identity cr15;;
+ACTIVATE.QUANTIZE relu cr15.l cr14.l cr9 lr2;;
 HALT;;
 """,
-            cr={6: 0x1000 // 512, 7: 0x2000 // 512, 8: 0, 9: 128},
+            cr={6: 0x1000 // 512, 7: 0x2000 // 512, 8: 0, 9: 20},
             fmt=ElementFormat.FP32,
+            setup=lambda st: (
+                st.xmem.write_address(0x1000, struct.pack("<128f", *([1.5] * 64 + [-1.5] * 64))),
+                st.xmem.write_address(0x2000, struct.pack("<128f", *([2.0] * 128))),
+            ),
         )
-        assert state.regfile.get_post_aaq_reg() == bytearray(512)
+        stored = struct.unpack("<128f", state.xmem.read_address(20 * 512, 512))
+        assert stored == (3.0,) * 64 + (0.0,) * 64  # relu(-3.0) = 0
+        assert state.xmem.read_metadata(20 * 512) == 0  # an FP32 row has no metadata
 
-    def test_activate_quantize_fp32_acc_for_comparison(self) -> None:
-        """ACTIVATE.QUANTIZE with AaqOptions.quantize_output quantizes FP32 acc elements to INT8."""
-        # Use exact float product 3.0 so rounding is unambiguous (round-half-even).
-        r0 = struct.pack("<128f", *([1.5] * 128))
-        rc = struct.pack("<128f", *([2.0] * 128))
-        state = new_state(fmt=ElementFormat.FP32, aaq=AaqOptions(quantize_output=True))
-        state.xmem.write_address(0x1000, r0)
-        state.xmem.write_address(0x2000, rc)
-        asm = """\
-SET lr0 cr6;;
-SET lr1 cr7;;
-SET lr2 cr8;;
-LD.MULT r0 lr0 cr0;;
-LD.MULT.CYCLIC lr1 cr0 lr2;;
-MULT.RC.VV lr2 r0 0 lr2 cr15;;
-acc.add.first;;
-SET lr0 cr9;;
-ACTIVATE.QUANTIZE identity cr15;;
-HALT;;
-"""
-        state.regfile.set_cr(6, 0x1000 // 512)  # row number (debug row = 512 B)
-        state.regfile.set_cr(7, 0x2000 // 512)
-        state.regfile.set_cr(8, 0)
-        state.regfile.set_cr(9, 128)
-        load_program(state, assemble_program(asm))
+    def test_activate_exact_stores_inactive_lanes_as_zero(self) -> None:
+        """ACTIVATE.EXACT writes the DS's active lanes and 0 elsewhere (ADR 0007)."""
+        state = new_state(fmt=ElementFormat.FP32, ds=ds(5))
+        state.regfile.mutable("r_acc")[:] = struct.pack("<128f", *([2.0] * 128))
+        state.regfile.set_cr(2, 7)
+        load_program(
+            state, assemble_program("ACTIVATE.EXACT reciprocal CR15.L CR2 LR0;;\nHALT;;\n")
+        )
         run_until_complete(state)
-        out = state.regfile.get_post_aaq_reg()
-        assert all(b == 3 for b in out[:128])
-        assert out[128:] == bytearray(384)
-
-
-class TestWideVectorInt32:
-    def test_mult_ee_int32_wrap_multiply(self) -> None:
-        r0 = struct.pack("<128i", *([70000] * 128))
-        rc = struct.pack("<128i", *([70000] * 128))
-        state = new_state(fmt=ElementFormat.INT32)
-        state.xmem.write_address(0x1000, r0)
-        state.xmem.write_address(0x2000, rc)
-        asm = """\
-SET lr0 cr6;;
-SET lr1 cr7;;
-SET lr2 cr8;;
-LD.MULT r0 lr0 cr0;;
-LD.MULT.CYCLIC lr1 cr0 lr2;;
-MULT.RC.VV lr2 r0 0 lr2 cr15;;
-acc.add.first;;
-HALT;;
-"""
-        state.regfile.set_cr(6, 0x1000 // 512)  # row number (debug row = 512 B)
-        state.regfile.set_cr(7, 0x2000 // 512)
-        state.regfile.set_cr(8, 0)
-        load_program(state, assemble_program(asm))
-        run_until_complete(state)
-        acc = state.regfile.mutable("r_acc")
-        expected = (70000 * 70000) & 0xFFFFFFFF
-        if expected >= 0x80000000:
-            expected -= 0x100000000
-        for i in range(128):
-            v = struct.unpack_from("<i", acc, i * 4)[0]
-            assert v == expected, f"lane {i}"
+        stored = struct.unpack("<128f", state.xmem.read_address(7 * 512, 512))
+        assert stored == (0.5,) * 5 + (0.0,) * 123
 
 
 class TestWideVectorR0R1Isolation:
@@ -167,7 +124,7 @@ SET lr3 cr9;;
 LD.MULT r0 lr0 cr0;;
 LD.MULT r1 lr1 cr0;;
 LD.MULT.CYCLIC lr2 cr0 lr3;;
-MULT.RC.VV lr3 {which} 0 lr3 cr15;;
+MULT.RC.VV lr3 {which} 0 lr3 cr15.l cr14.l;;
 acc.add.first;;
 HALT;;
 """
@@ -246,7 +203,7 @@ class TestWideVectorWrap:
         asm = """\
 SET lr0 cr6;;
 SET lr2 cr7;;
-MULT.RC.VE lr0 cr2 0 lr2 cr15;;
+MULT.RC.VE lr0 cr2 0 lr2 cr15.l cr14.l;;
 acc.add.first;;
 HALT;;
 """
@@ -278,7 +235,7 @@ LD.MULT r0 lr4 cr0;;
 SET lr0 cr6;;
 SET lr2 cr7;;
 SET lr3 cr8;;
-MULT.RC.VE lr0 lr2 0 lr3 cr15;;
+MULT.RC.VE lr0 lr2 0 lr3 cr15.l cr14.l;;
 acc.add.first;;
 HALT;;
 """
@@ -313,7 +270,7 @@ class TestWideVectorRcIdxElementAddressing:
         st.regfile.set_cr(6, RING_ELEMENTS - k)  # rc_idx in ELEMENTS
         asm = """\
 SET lr0 cr6;;
-MULT.RC.VE lr0 cr1 0 lr0 cr15;;
+MULT.RC.VE lr0 cr1 0 lr0 cr15.l cr14.l;;
 HALT;;
 """
         load_program(st, assemble_program(asm))
@@ -338,7 +295,7 @@ HALT;;
         st.regfile.set_cr(6, 0)
         asm = """\
 SET lr0 cr6;;
-MULT.RC.VE lr0 cr1 0 lr0 cr15;;
+MULT.RC.VE lr0 cr1 0 lr0 cr15.l cr14.l;;
 HALT;;
 """
         load_program(st, assemble_program(asm))
@@ -354,47 +311,37 @@ class TestWideVectorAgg:
     def _run_agg(self, asm: str, fmt: ElementFormat, mult_res: bytearray) -> IpuState:
         def setup(st: IpuState) -> None:
             st.regfile.set_mult_res_bytes(mult_res)
-            st.set_cr_dstructure(128)
             st.regfile.set_lr(0, 127)  # dest = r_acc lane 127
 
         return run(asm, fmt=fmt, setup=setup)
-
-    def test_agg_sum_first_int32_wide(self) -> None:
-        """AGG.SUM.FIRST with INT32 wide elements: 128×4 = 512 written to dest element."""
-        mult_res = bytearray(512)
-        struct.pack_into("<128i", mult_res, 0, *([4] * 128))
-        st = self._run_agg("AGG.SUM.FIRST LR0 cr15;;\nHALT;;\n", ElementFormat.INT32, mult_res)
-        raw = st.regfile.mutable("r_acc")
-        assert struct.unpack_from("<i", raw, 127 * 4)[0] == 512
 
     def test_agg_sum_first_fp32_wide(self) -> None:
         """AGG.SUM.FIRST with FP32 wide elements: 128×0.5 = 64.0 written to dest element."""
         mult_res = bytearray(512)
         struct.pack_into("<128f", mult_res, 0, *([0.5] * 128))
-        st = self._run_agg("AGG.SUM.FIRST LR0 cr15;;\nHALT;;\n", ElementFormat.FP32, mult_res)
+        st = self._run_agg("AGG.SUM.FIRST LR0 cr15.l;;\nHALT;;\n", ElementFormat.FP32, mult_res)
         raw = st.regfile.mutable("r_acc")
         assert struct.unpack_from("<f", raw, 127 * 4)[0] == pytest.approx(64.0)
 
-    def test_agg_sum_int32_wide_running(self) -> None:
-        """AGG.SUM with INT32 wide elements adds onto the existing r_acc[dest] (issue #182)."""
+    def test_agg_sum_fp32_wide_running(self) -> None:
+        """AGG.SUM adds onto the existing r_acc[dest] (issue #182)."""
         mult_res = bytearray(512)
-        struct.pack_into("<128i", mult_res, 0, *([4] * 128))
-        st = new_state(fmt=ElementFormat.INT32)
+        struct.pack_into("<128f", mult_res, 0, *([4.0] * 128))
+        st = new_state(fmt=ElementFormat.FP32)
         st.regfile.set_mult_res_bytes(mult_res)
-        st.set_cr_dstructure(128)
         st.regfile.set_lr(0, 127)  # dest = r_acc lane 127
-        struct.pack_into("<i", st.regfile.mutable("r_acc"), 127 * 4, 1000)
-        load_program(st, assemble_program("AGG.SUM LR0 cr15;;\nHALT;;\n"))
+        struct.pack_into("<f", st.regfile.mutable("r_acc"), 127 * 4, 1000.0)
+        load_program(st, assemble_program("AGG.SUM LR0 cr15.l;;\nHALT;;\n"))
         run_until_complete(st)
         raw = st.regfile.mutable("r_acc")
-        assert struct.unpack_from("<i", raw, 127 * 4)[0] == 1512
+        assert struct.unpack_from("<f", raw, 127 * 4)[0] == 1512.0
 
     def test_agg_max_first_fp32_wide(self) -> None:
         """AGG.MAX.FIRST with FP32 wide elements picks the largest element."""
         mult_res = bytearray(512)
         struct.pack_into("<128f", mult_res, 0, *([1.0] * 128))
         struct.pack_into("<f", mult_res, 3 * 4, 7.5)
-        st = self._run_agg("AGG.MAX.FIRST LR0 cr15;;\nHALT;;\n", ElementFormat.FP32, mult_res)
+        st = self._run_agg("AGG.MAX.FIRST LR0 cr15.l;;\nHALT;;\n", ElementFormat.FP32, mult_res)
         raw = st.regfile.mutable("r_acc")
         assert struct.unpack_from("<f", raw, 127 * 4)[0] == pytest.approx(7.5)
 
@@ -420,7 +367,7 @@ SET lr2 cr8;;
 LD.MULT r0 lr0 cr0;;
 LD.MULT.CYCLIC lr1 cr0 lr2;;
 SET lr3 cr9;;
-MULT.RC.VV lr3 r0 0 lr3 cr15;;
+MULT.RC.VV lr3 r0 0 lr3 cr15.l cr14.l;;
 HALT;;
 """
         load_program(st, assemble_program(asm))
@@ -438,9 +385,8 @@ class TestElementAndRowSizeHelpers:
     @pytest.mark.parametrize(
         ("fmt", "element", "row"),
         [
-            (ElementFormat.INT8, 1, 128),
+            (ElementFormat.NX8, 1, 128),
             (ElementFormat.FP32, 4, 512),
-            (ElementFormat.INT32, 4, 512),
         ],
     )
     def test_sizes(self, fmt: ElementFormat, element: int, row: int) -> None:
@@ -450,7 +396,7 @@ class TestElementAndRowSizeHelpers:
 
     def test_row_size_is_lanes_times_element_width(self) -> None:
         """Row size must track element width, not be independently hardcoded."""
-        for fmt in (ElementFormat.INT8, ElementFormat.FP32, ElementFormat.INT32):
+        for fmt in (ElementFormat.NX8, ElementFormat.FP32):
             st = new_state(fmt=fmt)
             assert xmem_row_size_bytes(st) == LANES * xmem_element_width_bytes(st)
 
@@ -516,39 +462,31 @@ HALT;;
 
 
 class TestWindowActivationFp32:
-    """The ``window`` indicator on fractional FP32 accumulator elements."""
+    """The ``window`` indicator of ACTIVATE.EXACT on fractional FP32 accumulator elements."""
+
+    @staticmethod
+    def _window(state: IpuState, values) -> tuple[float, ...]:
+        acc = state.regfile.mutable("r_acc")
+        for i, x in enumerate(values):
+            struct.pack_into("<f", acc, i * 4, x)
+        state.regfile.set_cr(2, 3)
+        asm = "ACTIVATE.EXACT window CR15.L CR2 LR0;;\nHALT;;\n"
+        load_program(state, assemble_program(asm))
+        run_until_complete(state)
+        return struct.unpack(f"<{len(values)}f", state.xmem.read_address(3 * 512, 4 * len(values)))
 
     def test_default_bounds_on_fractional_elements(self) -> None:
         """Default bounds [0.0, 0.1): 0.0 and 0.05 are inside; -0.01 and 0.1 are not."""
-        state = new_state(fmt=ElementFormat.FP32, aaq=AaqOptions(quantize_output=True))
-        state.set_cr_dstructure(4)
-        acc = state.regfile.mutable("r_acc")
-        for i, x in enumerate((0.0, 0.05, -0.01, 0.1)):
-            struct.pack_into("<f", acc, i * 4, x)
-        load_program(state, assemble_program("ACTIVATE.QUANTIZE window cr15;;\nHALT;;\n"))
-        run_until_complete(state)
-
-        result = state.regfile.get_post_aaq_reg()
-        assert result[0] == 1, "window(0.0) = 1 (a is inclusive)"
-        assert result[1] == 1, "window(0.05) = 1"
-        assert result[2] == 0, "window(-0.01) = 0 (below a)"
-        assert result[3] == 0, "window(0.1) = 0 (b is exclusive)"
+        state = new_state(fmt=ElementFormat.FP32, ds=ds(4))
+        result = self._window(state, (0.0, 0.05, -0.01, 0.1))
+        assert result == (1.0, 1.0, 0.0, 0.0)
 
     def test_bounds_are_configurable(self) -> None:
         """set_activation_alphas overrides the window bounds for later ACTIVATEs."""
-        state = new_state(fmt=ElementFormat.FP32, aaq=AaqOptions(quantize_output=True))
+        state = new_state(fmt=ElementFormat.FP32, ds=ds(3))
         state.set_activation_alphas(window_a=0.25, window_b=0.75)
-        state.set_cr_dstructure(3)
-        acc = state.regfile.mutable("r_acc")
-        for i, x in enumerate((0.2, 0.25, 0.75)):
-            struct.pack_into("<f", acc, i * 4, x)
-        load_program(state, assemble_program("ACTIVATE.QUANTIZE window cr15;;\nHALT;;\n"))
-        run_until_complete(state)
-
-        result = state.regfile.get_post_aaq_reg()
-        assert result[0] == 0, "window(0.2) = 0 (below a = 0.25)"
-        assert result[1] == 1, "window(0.25) = 1 (a is inclusive)"
-        assert result[2] == 0, "window(0.75) = 0 (b is exclusive)"
+        result = self._window(state, (0.2, 0.25, 0.75))
+        assert result == (0.0, 1.0, 0.0)
 
 
 class TestWideVectorStoreOverflow:
@@ -592,7 +530,7 @@ class TestWideVectorNumpyErrorPolicy:
 
     def test_mult_invalid_ignores_caller_seterr(self) -> None:
         # LR0 is 0 at reset: rc index 0, mask shift 0.
-        state = make_state("MULT.RC.VV LR0 R0 0 LR0 CR15 ;;", fmt=ElementFormat.FP32)
+        state = make_state("MULT.RC.VV LR0 R0 0 LR0 CR15.l cr14.l ;;", fmt=ElementFormat.FP32)
         state.regfile.mutable("r_wide_debug")[: LANES * 4] = struct.pack(
             f"<{LANES}f", *([0.0] * LANES)
         )

@@ -1,5 +1,6 @@
 """The ``[golden]`` table of a ``kernel.toml``: the reference and the tolerance
-tier per format (for :mod:`ipu_harness.manifest`)."""
+tier per variant, or per mode (``nx8``) for every variant of it without its
+own (for :mod:`ipu_harness.manifest`)."""
 
 from __future__ import annotations
 
@@ -12,7 +13,7 @@ from ipu_harness._manifest_decls import GOLDEN_KEYS, TIER_KEYS, GoldenDecl, Tens
 from ipu_harness._toml_source import Reader, where
 from ipu_harness.tolerance import TIERS
 from ipu_harness.tolerance import Tier as ToleranceTier
-from ipu_isa.formats import FORMATS, ElementFormat
+from ipu_harness.variants import MODE_KEYS, Variant
 
 
 def _named_tier(r: Reader, raw: object, path: tuple[str, ...]) -> ToleranceTier:
@@ -22,12 +23,12 @@ def _named_tier(r: Reader, raw: object, path: tuple[str, ...]) -> ToleranceTier:
     return TIERS[name]
 
 
-def _tier(r: Reader, raw: object, fmt: ElementFormat, path: tuple[str, ...]) -> ToleranceTier:
+def _tier(r: Reader, raw: object, fmt: Variant, path: tuple[str, ...]) -> ToleranceTier:
     """A tier by name, or a table overriding one's numbers with a ``why``.
 
     An override may set only the numbers ``compare`` reads for ``fmt``:
-    ``ulps`` only for an 8-bit float format, and there not ``rtol`` or ``atol``
-    when the tier counts codes.
+    ``ulps`` (NX8 steps) only in NX8, and there not ``rtol`` or ``atol``
+    when the tier counts steps.
     """
     if not isinstance(raw, dict):
         return _named_tier(r, raw, path)
@@ -35,9 +36,8 @@ def _tier(r: Reader, raw: object, fmt: ElementFormat, path: tuple[str, ...]) -> 
     if "tier" not in raw or "why" not in raw:
         raise r.fail(path, f"{where(path)} overrides a tier: it needs 'tier' and a 'why'")
     base = _named_tier(r, raw["tier"], (*path, "tier"))
-    fp8 = FORMATS[fmt].is_float and FORMATS[fmt].element_bits == 8
-    unread = ["ulps"] if not fp8 else []
-    if fp8 and (base.ulps is not None or "ulps" in raw):
+    unread = ["ulps"] if not fmt.nx8 else []
+    if fmt.nx8 and (base.counts_steps or "ulps" in raw):
         unread = ["rtol", "atol"]
     for key in unread:
         if key in raw:
@@ -71,27 +71,32 @@ def _non_negative(
     return float(value)
 
 
-def _read_formats(
-    formats: tuple[ElementFormat, ...], tensors: Mapping[str, TensorDecl]
-) -> set[ElementFormat]:
-    """The formats some output is compared in: a run's format for an element
-    output, its accumulator format (FP32, INT32) for an accumulator output
-    (as ``packing.stored_format``, which this module cannot import)."""
-    read = set()
-    for tensor in tensors.values():
-        if tensor.role != "output":
+def _tolerances(
+    r: Reader, tiers: Mapping[str, object], formats: tuple[Variant, ...]
+) -> dict[Variant, ToleranceTier]:
+    """Each variant's tier: its own key, else its mode's (``nx8``)."""
+    tolerance: dict[Variant, ToleranceTier] = {}
+    for key, tier in tiers.items():
+        path = ("golden", "tolerance", key)
+        if key in MODE_KEYS and key != "fp32":  # a whole mode; "fp32" is a variant too
+            if not any(f.mode is MODE_KEYS[key] for f in formats):
+                raise r.fail(path, f"tolerance for {key}, a mode the kernel does not run in")
+            for fmt in formats:
+                if fmt.mode is MODE_KEYS[key] and fmt.name not in tiers:
+                    tolerance[fmt] = _tier(r, tier, fmt, path)
             continue
-        for fmt in formats:
-            accumulated = ElementFormat(FORMATS[fmt].accumulator.value)
-            read.add(accumulated if tensor.store == "accumulator" else fmt)
-    return read
+        fmt = r.format(key, path)
+        if fmt not in formats:
+            raise r.fail(path, f"tolerance for {key}, a variant the kernel does not run in")
+        tolerance[fmt] = _tier(r, tier, fmt, path)
+    return tolerance
 
 
 def read_golden(
     r: Reader,
     directory: Path,
     raw: object,
-    formats: tuple[ElementFormat, ...],
+    formats: tuple[Variant, ...],
     tensors: Mapping[str, TensorDecl],
 ) -> GoldenDecl:
     table = r.table(raw, ("golden",))
@@ -104,27 +109,10 @@ def read_golden(
     elif "op" not in table and (directory / "reference.py").is_file():
         reference = "reference.py:reference"
     op = r.text(table["op"], ("golden", "op")) if "op" in table else None
-    tolerance: dict[ElementFormat, ToleranceTier] = {}
+    tolerance: dict[Variant, ToleranceTier] = {}
     if "tolerance" in table:
+        if not any(t.role == "output" for t in tensors.values()):
+            raise r.fail(("golden", "tolerance"), "a tolerance is never read: no output")
         tiers = r.table(table["tolerance"], ("golden", "tolerance"))
-        # An accumulator output is compared in its accumulator format (FP32 or INT32).
-        accumulated = {ElementFormat(FORMATS[f].accumulator.value) for f in formats}
-        read = _read_formats(formats, tensors)
-        for fmt, tier in tiers.items():
-            path = ("golden", "tolerance", fmt)
-            key = r.format(fmt, path)
-            if key not in formats and key not in accumulated:
-                raise r.fail(
-                    path,
-                    f"tolerance for {fmt}, a format the kernel does not run in or accumulate in",
-                )
-            if key not in read:
-                compared = ", ".join(sorted(f.value for f in read)) or "none"
-                raise r.fail(
-                    path,
-                    f"tolerance for {fmt} is never read: no output is compared in {fmt} "
-                    f"(an accumulator output is compared in its accumulator format; "
-                    f"outputs are compared in: {compared})",
-                )
-            tolerance[key] = _tier(r, tier, key, path)
+        tolerance = _tolerances(r, tiers, formats)
     return GoldenDecl(reference, op, MappingProxyType(tolerance))

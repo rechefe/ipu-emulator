@@ -25,6 +25,7 @@ from ipu_emu.ipu import Ipu
 from ipu_emu.ipu_state import IpuState
 from ipu_emu.issue import IssueFacts
 from ipu_emu.prototyping import build_enabled
+from ipu_isa.cr_halves import ds
 from ipu_isa.slots import Slot
 
 #: The slots counted: every slot but LR.
@@ -37,10 +38,10 @@ _ALL_SLOTS_ASM = """
     LD.MULT R0 LR0 CR2 ;;
     LD.MULT.CYCLIC LR0 CR3 LR0 ;;
 loop:
-    MULT.RC.VV LR0 R0 0 LR0 CR15 ; ACC.ADD.FIRST ;;
-    MULT.RC.VE LR0 CR1 0 LR0 CR15 ; ACC.ADD ; BREAK ;;
-    MULT.EE LR0 CR1 0 LR0 CR15 ; AGG.SUM.FIRST LR1 CR15 ;;
-    ACTIVATE.QUANTIZE relu CR15 ; ST.AAQ LR1 CR4 ; INC LR2 1 ;;
+    MULT.RC.VV LR0 R0 0 LR0 CR15.L CR14.L ; ACC.ADD.FIRST ;;
+    MULT.RC.VE LR0 CR1 0 LR0 CR15.L CR14.L ; ACC.ADD ; BREAK ;;
+    MULT.EE LR0 CR1 0 LR0 CR15.L CR14.L ; AGG.SUM.FIRST LR1 CR15.L ;;
+    ACTIVATE.QUANTIZE relu CR15.L CR14.L CR4 LR1 ; INC LR2 1 ;;
     BLT.S LR2 CR7 loop ;;
     HALT ;;
 """
@@ -61,7 +62,9 @@ def _all_slots_setup(state: IpuState) -> None:
     state.regfile.set_cr(3, 0x10000 // 128 + 1)  # the cyclic source row
     state.regfile.set_cr(4, 0x30000 // 128)  # the store row
     state.regfile.set_cr(7, 3)  # the loop bound
-    state.set_cr_dstructure(valid_elements=128, partition=4)
+    state.set_cr_half(15, False, ds(32, 4))  # four groups of 32, all active
+    for unit in (0x10000, 0x10080):
+        state.xmem.write_metadata(unit, 127)  # the source rows' scale
 
 
 def _breaking_setup(state: IpuState) -> None:

@@ -14,8 +14,8 @@ Pseudo-instructions are assembly mnemonics that the assembler expands into a rea
 
 | Name | Type | Details |
 |------|------|---------|
-| `reg1` | [`LcrIdx`](operand-types.md#lcridx) | reg1: First register to compare (LR0–LR15 or CR0–CR15) |
-| `reg2` | [`LcrIdx`](operand-types.md#lcridx) | reg2: Second register to compare (LR0–LR15 or CR0–CR15) |
+| `reg1` | [`LcrHalfIdx`](operand-types.md#lcrhalfidx) | reg1: First register to compare (LR0–LR15, CR0–CR15, or a sign-extended half CR0.L–CR15.H) |
+| `reg2` | [`LcrHalfIdx`](operand-types.md#lcrhalfidx) | reg2: Second register to compare (LR0–LR15, CR0–CR15, or a sign-extended half CR0.L–CR15.H) |
 | `label` | [`Label`](operand-types.md#label) | label: Branch target label |
 
 **General description:**
@@ -49,8 +49,8 @@ HALT;;
 
 | Name | Type | Details |
 |------|------|---------|
-| `reg1` | [`LcrIdx`](operand-types.md#lcridx) | reg1: First register to compare (LR0–LR15 or CR0–CR15) |
-| `reg2` | [`LcrIdx`](operand-types.md#lcridx) | reg2: Second register to compare (LR0–LR15 or CR0–CR15) |
+| `reg1` | [`LcrHalfIdx`](operand-types.md#lcrhalfidx) | reg1: First register to compare (LR0–LR15, CR0–CR15, or a sign-extended half CR0.L–CR15.H) |
+| `reg2` | [`LcrHalfIdx`](operand-types.md#lcrhalfidx) | reg2: Second register to compare (LR0–LR15, CR0–CR15, or a sign-extended half CR0.L–CR15.H) |
 | `label` | [`Label`](operand-types.md#label) | label: Branch target label |
 
 **General description:**
@@ -84,7 +84,7 @@ HALT;;
 
 | Name | Type | Details |
 |------|------|---------|
-| `reg` | [`LcrIdx`](operand-types.md#lcridx) | reg: Register to test (LR0–LR15 or CR0–CR15) |
+| `reg` | [`LcrHalfIdx`](operand-types.md#lcrhalfidx) | reg: Register to test (LR0–LR15, CR0–CR15, or a sign-extended half CR0.L–CR15.H) |
 | `label` | [`Label`](operand-types.md#label) | label: Branch target label |
 
 **General description:**
@@ -118,7 +118,7 @@ HALT;;
 
 | Name | Type | Details |
 |------|------|---------|
-| `reg` | [`LcrIdx`](operand-types.md#lcridx) | reg: Register to test (LR0–LR15 or CR0–CR15) |
+| `reg` | [`LcrHalfIdx`](operand-types.md#lcrhalfidx) | reg: Register to test (LR0–LR15, CR0–CR15, or a sign-extended half CR0.L–CR15.H) |
 | `label` | [`Label`](operand-types.md#label) | label: Branch target label |
 
 **General description:**

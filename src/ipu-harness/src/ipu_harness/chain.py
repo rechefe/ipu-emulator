@@ -15,33 +15,33 @@ A step places its own regions by first fit, or where ``at`` puts them
 program that reads its base through ``CR0``), and knows nothing of an
 earlier step's residents but its inputs, so a step may overwrite a resident it does
 not take. The chain keeps track: a resident that a later step's placed regions
-cover is stale, and passing it fails. The rows an ``ST.AAQ`` store spills past
-an output or a scratch region (three in INT8, OQ-35) count as covered. A resident the chain
+cover is stale, and passing it fails. A resident the chain
 *holds* (:meth:`Chain.hold`, until :meth:`Chain.release`) is never covered:
-every later step places around it, and a step that pins a region on it (or
-spills onto it) fails before it runs. Hold a tensor a step several steps on
+every later step places around it, and a step that pins a region on it fails
+before it runs. Hold a tensor a step several steps on
 reads, such as a residual.
 
 A tensor's rows can be used in parts: :meth:`Resident.slice` is a part of a
 resident, an input of a step that reads only it (one third of a QKV output).
 :meth:`Chain.reserve` holds free rows for steps to write into, a slice each
 (``at={"y": whole.slice(g, 1)}``), such as one tensor many one-row steps
-fill; write the slices in row order, as each ``ST.AAQ`` spill lands on the
-next rows.
+fill (each AaQ store writes exactly its row, ADR 0007).
 
 Between steps the host reads and writes rows: :meth:`Chain.read` gives a
-resident's rows as values, :meth:`Chain.write` puts rows in XMEM (a copy to
+resident's rows as values (NX8: decoded with each row's metadata),
+:meth:`Chain.write` puts rows in XMEM (NX8: quantized row by row, metadata
+written) (a copy to
 row 0, a repack the host computes, a mutation in place) and returns them as
 a resident; what a write covers goes stale, as after a step.
 
 Only XMEM is the chain's state. A step's registers start as the step before
 left them, as on the hardware: ``load_program`` resets the PC, and the step
-writes only its ``[abi]`` registers and CR15; LRs, the vector registers, the
+writes only its ``[abi]`` registers and CR15 (the default DS); LRs, the vector registers, the
 accumulator and the flags carry over. ``reset=("r_mask",)`` puts the named
 register banks back to their reset values first, for a program that assumes
 them (R_MASK all ones: every lane on) after one that left them changed.
 
-    chain = Chain(ElementFormat.INT8)
+    chain = Chain(variant("e4"))
     first = chain.run(scale, {"rows": 2, "s": 2.0}, {"x": x})
     second = chain.run(scale, {"rows": 2, "s": 3.0}, {"x": first.resident["y"]})
 """
@@ -56,17 +56,19 @@ import numpy as np
 
 from ipu_emu.errors import ConfigurationError
 from ipu_emu.reference import ReferenceModel
-from ipu_harness._codec import Array, decode, encode
+from ipu_harness._codec import Array, decode_rows, encode_rows
 from ipu_harness.assembly import AssemblyCache, assemble
 from ipu_harness.cases import Case, checked_input
 from ipu_harness.manifest import CaseDecl, KernelManifest
-from ipu_harness.packing import stored_format, stored_rows
+from ipu_harness.packing import stored_rows
 from ipu_harness.params import CasePlan, PlanError, plan_case
-from ipu_harness.placement import Region, aaq_spill_rows, place
+from ipu_harness.placement import Region, place
 from ipu_harness.registry import default_registry
 from ipu_harness.runner import RunOptions, RunResult, SharedModel, run_kernel
+from ipu_harness.variants import Variant, as_variant
 from ipu_isa.constants import CR_READ_ONLY_INITIAL_VALUES
-from ipu_isa.formats import FORMATS, ElementFormat, addressable_rows
+from ipu_isa.formats import addressable_rows
+from ipu_isa.geometry import LANES
 from ipu_isa.registers import REGISTER_DEFINITIONS
 
 __all__ = ["Chain", "ChainStep", "Resident"]
@@ -83,8 +85,8 @@ class Resident:
         base_row: Its first row.
         rows: The rows it occupies.
         pack: The pack transform it was written with (``None``: none).
-        format: The element format of its stored elements (an accumulator
-            output's is FP32 or INT32).
+        format: The variant its rows are stored in (the chain's mode; in
+            NX8, the element type its rows were quantized to).
         step: What wrote it, counted over the chain's steps, host writes and
             reserves in order (0 for the first), so a later output in the
             same rows is a different tensor.
@@ -95,7 +97,7 @@ class Resident:
     base_row: int
     rows: int
     pack: str | None
-    format: ElementFormat
+    format: Variant
     step: int = 0
     parent: Resident | None = field(default=None, compare=False, repr=False)
 
@@ -150,7 +152,7 @@ class Chain:
     """Kernels run in turn on one model.
 
     Args:
-        fmt: The element format every step runs in.
+        fmt: The variant every step runs in.
         options: How each step runs (limits, debugger, profile). A trace is
             written per step, as ``<stem>.<i>.jsonl`` beside ``trace``; the
             outputs per step, in ``output_dir/<i>``.
@@ -160,12 +162,13 @@ class Chain:
             ``run``'s).
     """
 
-    def __init__(self, fmt: ElementFormat, *, options: RunOptions | None = None) -> None:
-        self.format = fmt
+    def __init__(self, fmt: Variant | str, *, options: RunOptions | None = None) -> None:
+        self.format = as_variant(fmt)
+        fmt = self.format
         self.options = options or RunOptions()
         if self.options.inputs:
             raise ConfigurationError("a chain step takes its inputs from Chain.run, not --input")
-        self.model = ReferenceModel(fmt)
+        self.model = ReferenceModel(fmt.mode)
         self._cache = AssemblyCache()
         self._steps = 0
         self._writers = 0  # steps, host writes and reserves: Resident.step
@@ -195,7 +198,7 @@ class Chain:
         return resident
 
     def reserve(
-        self, rows: int, *, pack: str | None = None, fmt: ElementFormat | None = None
+        self, rows: int, *, pack: str | None = None, fmt: Variant | None = None
     ) -> Resident:
         """Hold ``rows`` free rows, placed by first fit around the live
         residents, for steps to write into (``at`` with its :meth:`Resident.slice`
@@ -205,12 +208,13 @@ class Chain:
         Args:
             rows: The rows.
             pack: The pack transform its writers lay it out with.
-            fmt: Its stored elements' format; the chain's by default.
+            fmt: The variant its rows are stored in; the chain's by default.
 
         Raises:
-            ConfigurationError: ``rows`` is under 1, or they do not fit in XMEM.
+            ConfigurationError: ``rows`` is under 1, or they do not fit in XMEM,
+                or ``fmt`` is of another mode than the chain's.
         """
-        fmt = self.format if fmt is None else fmt
+        fmt = self._same_mode(fmt, "reserve")
         if not isinstance(rows, int) or isinstance(rows, bool) or rows < 1:
             raise ConfigurationError(f"reserve takes rows >= 1, not {rows!r}")
         resident = Resident(self._first_free("reserve", rows), rows, pack, fmt, self._writer())
@@ -222,9 +226,8 @@ class Chain:
         """A live resident's rows, as the host sees them between steps.
 
         Returns:
-            A ``(rows, elements per row)`` float64 array: each row's elements
-            decoded in the resident's format (an accumulator format's row
-            holds fewer).
+            A ``(rows, 128)`` float64 array: each row's elements decoded in
+            the resident's variant (NX8: with the row's metadata).
 
         Raises:
             ConfigurationError: The resident is stale, or another chain's.
@@ -234,9 +237,15 @@ class Chain:
                 f"read: the resident tensor (rows {_rows(resident)}) is no longer in XMEM, "
                 "or it is not this chain's"
             )
-        row_bytes = FORMATS[self.format].row_bytes
+        row_bytes = self.format.row_bytes
         raw = self.model.read_xmem(resident.base_row * row_bytes, resident.rows * row_bytes)
-        return decode(raw, resident.format).reshape(resident.rows, -1)
+        metadata = None
+        if resident.format.nx8:
+            metadata = tuple(
+                self.model.read_xmem_metadata((resident.base_row + i) * row_bytes)
+                for i in range(resident.rows)
+            )
+        return decode_rows(raw, resident.format, metadata)
 
     def write(
         self,
@@ -244,29 +253,29 @@ class Chain:
         *,
         at: int | Resident | None = None,
         pack: str | None = None,
-        fmt: ElementFormat | None = None,
+        fmt: Variant | None = None,
     ) -> Resident:
         """Write rows from the host between steps: a copy, a repack, a
         mutation of a tensor in place. The residents the rows cover go stale,
         as after a step.
 
         Args:
-            values: ``(rows, elements per row)`` finite numbers, rounded to
-                the format (as :meth:`read` gives them).
+            values: ``(rows, 128)`` finite numbers, held by the variant
+                (NX8: quantized row by row; as :meth:`read` gives them).
             at: The first row; or a live ``Resident`` to write over in place
                 (it, and the tensor it is part of, stay live), whose pack
                 and format the rows take; or ``None``: first fit around the
                 live residents.
             pack: The pack transform the rows are laid out as.
-            fmt: Their elements' format; the chain's by default.
+            fmt: The variant they are stored in; the chain's by default.
 
         Returns:
             The rows written, as a live resident (``at`` itself, when a
             ``Resident``).
 
         Raises:
-            ConfigurationError: The values are not finite or not whole rows
-                of the format; ``at`` is stale, of other rows or laid out
+            ConfigurationError: The values are not finite or not whole rows,
+                or ``fmt`` is of another mode than the chain's; ``at`` is stale, of other rows or laid out
                 otherwise than ``pack``/``fmt`` say, or the rows reach a held
                 tensor ``at`` is not part of; they do not fit; or the model
                 faulted (it takes no write then).
@@ -285,8 +294,8 @@ class Chain:
                     f"format={target.format.value}: leave them out to write it in place"
                 )
             pack, fmt = target.pack, target.format
-        fmt = self.format if fmt is None else fmt
-        array = _host_values(values, self.format, fmt)
+        fmt = self._same_mode(fmt, "write")
+        array = _host_values(values, fmt)
         rows = array.shape[0]
         if target is not None and target.rows != rows:
             raise ConfigurationError(
@@ -302,7 +311,11 @@ class Chain:
             raise ConfigurationError(f"write: at = {at!r}, not a row or a resident tensor")
         region = Region("host write", "output", base, rows)
         self._check_host_write(region, target)
-        self.model.write_xmem(base * FORMATS[self.format].row_bytes, encode(array, fmt))
+        data, metadata = encode_rows(array, fmt)
+        row_bytes = self.format.row_bytes
+        self.model.write_xmem(base * row_bytes, data)
+        for index, word in enumerate(metadata or ()):
+            self.model.write_xmem_metadata((base + index) * row_bytes, word)
         self._forget_written({region.name: target} if target is not None else {}, [region])
         if target is not None:
             return target
@@ -310,9 +323,19 @@ class Chain:
         self._live.append(resident)
         return resident
 
+    def _same_mode(self, fmt: Variant | None, what: str) -> Variant:
+        """``fmt``, or the chain's variant; refused when of another mode."""
+        if fmt is None:
+            return self.format
+        if fmt.mode is not self.format.mode:
+            raise ConfigurationError(
+                f"{what}: {fmt.value} is not a variant of the chain's mode ({self.format.mode.value})"
+            )
+        return fmt
+
     def _check_host_write(self, region: Region, target: Resident | None) -> None:
         """Refuse a host write past XMEM, or onto a held tensor ``target`` is not part of."""
-        capacity = addressable_rows(self.format)
+        capacity = addressable_rows(self.format.mode)
         if region.end_row > capacity:
             raise ConfigurationError(
                 f"write: rows {region.base_row}..{region.end_row - 1} run past XMEM "
@@ -337,7 +360,7 @@ class Chain:
             if base + rows <= t.base_row:
                 break
             base = max(base, t.base_row + t.rows)
-        capacity = addressable_rows(self.format)  # rows are the chain format's
+        capacity = addressable_rows(self.format.mode)
         if base + rows > capacity:
             raise ConfigurationError(
                 f"{what}: {rows} rows do not fit in XMEM ({capacity} "
@@ -370,7 +393,7 @@ class Chain:
         if not banks:
             return
         if self._fresh is None:
-            self._fresh = ReferenceModel(self.format)
+            self._fresh = ReferenceModel(self.format.mode)
         for bank in banks:
             for index in range(REGISTER_DEFINITIONS[bank]["count"]):
                 if bank != "cr" or index not in CR_READ_ONLY_INITIAL_VALUES:
@@ -435,8 +458,7 @@ class Chain:
                 it) or another chain's; ``at`` names no tensor of the case (its
                 ``when``), a resident input, or one ``kernel.toml`` pins elsewhere.
             PlanError: The case is wrong, a ``Resident`` overlaps another
-                region (placement), or a region is pinned on, or would spill
-                onto, a held resident.
+                region (placement), or a region is pinned on a held resident.
         """
         manifest = default_registry().kernel(kernel) if isinstance(kernel, str) else kernel
         decl = CaseDecl(_STEP_CASE, MappingProxyType(dict(params)))
@@ -459,11 +481,11 @@ class Chain:
             tier="default",
             decl=decl,
         )
-        rendered = None if manifest.stages is not None else assemble(plan, self._cache).rendered
-        spill = aaq_spill_rows(plan, rendered)
-        reserved = _reserved(self._held, inputs, targets, spill)
-        avoid = _avoid(reserved, targets, spill)
-        written = _regions_written(plan, pinned, placed, reserved, avoid, spill)
+        if manifest.stages is None:
+            assemble(plan, self._cache)  # a program that does not assemble fails here
+        reserved = _reserved(self._held, inputs, targets)
+        avoid: tuple[tuple[int, int], ...] = ()
+        written = _regions_written(plan, pinned, placed, reserved)
         _check_reserved(plan, written, reserved)
         shared = SharedModel(
             self.model,
@@ -587,21 +609,19 @@ def _reserved(
     held: list[Resident],
     inputs: Mapping[str, Array | Resident],
     targets: Mapping[str, Resident],
-    spill: int,
 ) -> dict[str, tuple[int, int]]:
-    """The rows of the held tensors a step may not place a region on, nor
-    spill onto: all of each, but the parts the step reads (its resident
-    inputs) and writes (its ``at`` targets, with the rows their ``ST.AAQ``
-    spill reaches, rewritten when slices are written in row order)."""
-    used = [(v, 0) for v in inputs.values() if isinstance(v, Resident)]
-    used += [(t, spill) for t in targets.values()]
+    """The rows of the held tensors a step may not place a region on: all of
+    each, but the parts the step reads (its resident inputs) and writes (its
+    ``at`` targets)."""
+    used = [v for v in inputs.values() if isinstance(v, Resident)]
+    used += list(targets.values())
     out: dict[str, tuple[int, int]] = {}
     for tensor in held:
         parts = [(tensor.base_row, tensor.base_row + tensor.rows)]
-        for v, extra in used:
+        for v in used:
             if not _related(tensor, v):
                 continue
-            lo, hi = v.base_row, v.base_row + v.rows + extra
+            lo, hi = v.base_row, v.base_row + v.rows
             parts = [
                 piece
                 for a, b in parts
@@ -613,21 +633,10 @@ def _reserved(
     return out
 
 
-def _avoid(
-    reserved: Mapping[str, tuple[int, int]], targets: Mapping[str, Resident], spill: int
-) -> tuple[tuple[int, int], ...]:
-    """Rows first fit leaves for a store's spill: below each reserved range,
-    and after each target (its own tensor's rows)."""
-    avoid = [(max(0, base - spill), min(spill, base)) for base, _ in reserved.values()]
-    avoid += [(t.base_row + t.rows, spill) for t in targets.values()]
-    return tuple(a for a in avoid if a[1] > 0)
-
-
 def _check_reserved(
     plan: CasePlan, written: list[Region], reserved: Mapping[str, tuple[int, int]]
 ) -> None:
-    """Refuse a step whose writes reach a held tensor: a pinned region, or
-    its spill (a scratch region's is no placement error)."""
+    """Refuse a step whose writes reach a held tensor: a pinned region."""
     for region in written:
         for name, (base, rows) in reserved.items():
             if region.base_row < base + rows and base < region.end_row:
@@ -635,15 +644,15 @@ def _check_reserved(
                 raise PlanError(
                     plan.manifest,
                     f"{tensor.section}.{tensor.name}.row",
-                    f"{region.name} (rows {region.base_row}..{region.end_row - 1}, with "
-                    f"its ST.AAQ spill) would write the {name}",
+                    f"{region.name} (rows {region.base_row}..{region.end_row - 1}) "
+                    f"would write the {name}",
                 )
 
 
-def _host_values(values: Array, chain_format: ElementFormat, fmt: ElementFormat) -> Array:
-    """``values`` as whole rows of ``fmt`` elements (a ``chain_format`` row's bytes), finite."""
+def _host_values(values: Array, fmt: Variant) -> Array:
+    """``values`` as whole rows of 128 elements, finite."""
     array = np.asarray(values, dtype=np.float64)
-    per_row = FORMATS[chain_format].row_bytes // FORMATS[fmt].element_bytes
+    per_row = LANES
     if array.ndim != 2 or array.shape[0] < 1 or array.shape[1] != per_row:
         raise ConfigurationError(
             f"write: values of shape {array.shape}; rows of {per_row} {fmt.value} elements "
@@ -687,12 +696,9 @@ def _regions_written(
     pinned: Mapping[str, int],
     placed: Mapping[str, int],
     reserved: Mapping[str, tuple[int, int]],
-    avoid: tuple[tuple[int, int], ...],
-    spill: int,
 ) -> list[Region]:
     """The rows a step may write: its regions (placed around the ``reserved``
-    rows) but its resident inputs, each element output and scratch region
-    with the ``spill`` rows after it; none when placement refuses the step,
+    rows) but its resident inputs; none when placement refuses the step,
     which then fails before it writes."""
     tensors = plan.manifest.tensors
     try:
@@ -701,17 +707,10 @@ def _regions_written(
             {n: stored_rows(t, plan) for n, t in tensors.items()},
             pins={**pinned, **placed},
             reserved=reserved,
-            avoid=avoid,
         )
     except (ValueError, PlanError):
         return []
-    return [
-        replace(r, rows=r.rows + spill)
-        if r.role == "scratch" or (r.role == "output" and tensors[r.name].store == "element")
-        else r
-        for r in placement.regions.values()
-        if r.name not in pinned
-    ]
+    return [r for r in placement.regions.values() if r.name not in pinned]
 
 
 def _check_layout(name: str, value: Resident, plan: CasePlan, role: str = "input") -> None:
@@ -722,7 +721,7 @@ def _check_layout(name: str, value: Resident, plan: CasePlan, role: str = "input
             f"{manifest.name}: at {name} is a resident tensor, so {name} must be an output "
             "of this case, to write into it"
         )
-    want = (tensor.pack, stored_format(tensor, plan.format), stored_rows(tensor, plan))
+    want = (tensor.pack, plan.format, stored_rows(tensor, plan))
     have = (value.pack, value.format, value.rows)
     pin = plan.pins.get(name)
     if pin is not None and value.base_row != pin:
@@ -750,7 +749,7 @@ def _resident(result: RunResult, plan: CasePlan, step: int) -> Mapping[str, Resi
                 region.base_row,
                 region.rows,
                 tensor.pack,
-                stored_format(tensor, plan.format),
+                plan.format,
                 step,
             )
     return MappingProxyType(out)

@@ -35,8 +35,9 @@ def _rows() -> list[list[str]]:
 
 ROWS = _rows()
 
-#: New mnemonics of the table whose slot is emulator-only (ACC_STORE).
-EMULATOR_ONLY = {"ST.ACC"}
+#: New mnemonics of the table not in the package: ST.ACC's slot was
+#: emulator-only (E03-22), and ADR 0007 removed ST.ACC and ST.AAQ.
+NOT_IN_PACKAGE = {"ST.ACC", "ST.AAQ"}
 
 
 def test_the_table_has_every_renamed_instruction():
@@ -49,7 +50,7 @@ def test_each_row_matches_the_package(row):
     package = GOLDEN.read_text(encoding="utf-8")
     assert not re.search(rf"\b{old_enum}\b", package)
     assert not re.search(rf"}} {old_member};", package)
-    if row[1] in EMULATOR_ONLY:  # its slot is not in the package (E03-22)
+    if row[1] in NOT_IN_PACKAGE:
         assert not re.search(rf"\b{new_enum}\b", package)
         assert not re.search(rf"}} {new_member};", package)
         return

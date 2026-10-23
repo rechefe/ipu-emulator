@@ -23,7 +23,9 @@ from ipu_harness import cli
 from ipu_harness.cases import expand
 from ipu_harness.debug import DebugHook, DebugLaunch
 from ipu_harness.runner import RunOptions, run_kernel
-from ipu_isa.formats import ElementFormat as F
+from ipu_harness.variants import variant
+
+FP32, E4 = variant("fp32"), variant("e4")
 
 HARNESS = Path(__file__).resolve().parents[1] / "src"
 KERNELS = Path(__file__).resolve().parents[2] / "ipu-kernels" / "src"
@@ -47,7 +49,7 @@ def test_debug_and_the_environment_both_make_a_launch():
 
 def test_a_plain_run_imports_no_debugger(scale):
     before = set(sys.modules)
-    assert run_kernel(scale, _default(scale), F.INT8).passed
+    assert run_kernel(scale, _default(scale), E4).passed
     assert not {"curses", "ipu_debug"} & (set(sys.modules) - before)
 
 
@@ -93,7 +95,7 @@ def test_the_runner_passes_the_hook_and_stops_at_entry(scale, monkeypatch):
     callback = _callback(DebugAction.CONTINUE)
     control = RunControl()  # the debugger's own: its breakpoints live here
     launch = DebugLaunch(factory=lambda kernel: DebugHook(callback, control))
-    result = run_kernel(scale, _default(scale), F.E4, RunOptions(debug=launch, max_cycles=500))
+    result = run_kernel(scale, _default(scale), E4, RunOptions(debug=launch, max_cycles=500))
     assert result.passed, result.describe()
     assert calls == [(callback, control, True, 500)]
     assert callback.stops[0] == 0  # the entry stop, before the first word
@@ -101,9 +103,9 @@ def test_the_runner_passes_the_hook_and_stops_at_entry(scale, monkeypatch):
 
 def test_quitting_the_debugger_ends_with_no_result(scale, monkeypatch, tmp_path, capsys):
     launch = DebugLaunch(factory=lambda kernel: DebugHook(_callback(DebugAction.QUIT)))
-    result = run_kernel(scale, _default(scale), F.INT8, RunOptions(debug=launch))
+    result = run_kernel(scale, _default(scale), E4, RunOptions(debug=launch))
     assert result.quit and not result.passed and result.comparisons == () and not result.outputs
-    assert result.describe() == "scale/default/int8: QUIT  (no result)"
+    assert result.describe() == "scale/default/e4: QUIT  (no result)"
     # The CLI stops there, with exit code 0, before the next format.
     monkeypatch.setattr(cli, "DebugLaunch", lambda: launch)
     out = tmp_path / "out"
@@ -126,7 +128,7 @@ def test_the_profile_attaches_to_the_one_run(scale, monkeypatch, tmp_path, capsy
         real(model, profile)
 
     monkeypatch.setattr(ReferenceModel, "attach_alias_profile", attach)
-    result = run_kernel(scale, _default(scale), F.INT8, RunOptions(alias_profile=True))
+    result = run_kernel(scale, _default(scale), E4, RunOptions(alias_profile=True))
     assert attached == [result.alias_profile]
     report = tmp_path / "aliases.json"
     # --alias-report alone profiles, and writes the run's profile.
@@ -137,7 +139,7 @@ def test_the_profile_attaches_to_the_one_run(scale, monkeypatch, tmp_path, capsy
     assert metadata.items() >= {"kernel": "scale", "case": "default", "format": "fp32"}.items()
 
 
-@pytest.mark.parametrize("fmt", [F.FP32, F.INT8, F.E4])
+@pytest.mark.parametrize("fmt", [FP32, E4])
 def test_a_profiled_run_equals_a_plain_one(scale, fmt):
     case = _default(scale)
     plain = run_kernel(scale, case, fmt)

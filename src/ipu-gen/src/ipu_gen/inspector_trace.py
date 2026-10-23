@@ -37,7 +37,6 @@ neither (it records writes), so the recorder takes them from the run.
 from __future__ import annotations
 
 import json
-import math
 from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -45,7 +44,7 @@ from typing import Any
 from ipu_isa.codec.disasm import operand_text
 from ipu_isa.codec.slot import codecs
 from ipu_isa.codec.word import WORD_LAYOUT
-from ipu_isa.formats import FORMATS, ElementFormat, decode_element
+from ipu_isa.formats import FORMATS, ElementFormat
 from ipu_isa.operand_types import OperandKind
 from ipu_isa.tags import Tag
 from ipu_isa.trace_schema import isa_digest, program_digest
@@ -117,33 +116,25 @@ def _check(header: Mapping[str, Any], records: Sequence[Mapping], context: Mappi
         raise TraceError(f"{len(records)} records but {len(context['cycles'])} context cycles")
 
 
-def _lut_value(value: float) -> float | str:
-    """A decoded element as JSON: a number, or ``"nan"``, ``"inf"``, ``"-inf"``."""
-    if math.isnan(value):
-        return "nan"
-    if math.isinf(value):
-        return "inf" if value > 0 else "-inf"
-    return value
+#: (exponent bits, mantissa bits) of each mode's element. An NX8 element's
+#: type is named per instruction by a QF half, so the trace states none (0, 0)
+#: and no per-code LUT (ADR 0007; the inspector's NX8 view is Phase C work).
+_ELEMENT_BITS = {ElementFormat.FP32: (8, 23), ElementFormat.NX8: (0, 0)}
 
 
 def _meta(fmt: ElementFormat) -> dict[str, Any]:
     info = FORMATS[fmt]
-    # An 8-bit float element's value per code, so the page needs no FP8 decoder.
-    lut = (
-        [_lut_value(decode_element(code, fmt)) for code in range(256)]
-        if info.is_float and info.element_bits == 8
-        else None
-    )
+    exp_bits, man_bits = _ELEMENT_BITS[fmt]
     return {
         "format": fmt.value,
-        "is_float": info.is_float,
+        "is_float": True,
         "element_bits": info.element_bits,
-        "exp_bits": info.exp_bits,
-        "man_bits": info.man_bits,
+        "exp_bits": exp_bits,
+        "man_bits": man_bits,
         "accumulator": info.accumulator.value,
-        # FP32 and INT32 exist in the emulator only.
+        # FP32 exists in the emulator only.
         "emulator_only": info.tag is Tag.EMULATOR,
-        "lut": lut,
+        "lut": None,
     }
 
 

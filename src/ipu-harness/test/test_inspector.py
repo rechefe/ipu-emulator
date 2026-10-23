@@ -42,7 +42,7 @@ def test_the_recorded_trace_is_the_plain_runs_trace(scale, tmp_path):
 
 
 def test_the_context_describes_the_program_and_each_word(scale, tmp_path):
-    _, context = _recorded(scale, tmp_path, "--format", "int8")
+    _, context = _recorded(scale, tmp_path, "--format", "e4")
     _, records = read_trace(tmp_path / "t.jsonl")
     assert context["context_version"] == CONTEXT_VERSION
     assert (context["kernel"], context["case"], context["options"]) == ("scale", "one_row", {})
@@ -54,7 +54,7 @@ def test_the_context_describes_the_program_and_each_word(scale, tmp_path):
     cr = bytes.fromhex(context["init"]["cr"])
     assert len(cr) == 16 * 4 and int.from_bytes(cr[4:8], "little") == 1  # CR1, the constant 1
     assert len(context["cycles"]) == len(records)
-    # Word 1 (LD.MULT of x's one row, row 0 in INT8) reads 128 bytes; word 2 multiplies 128 lanes.
+    # Word 1 (LD.MULT of x's one row, row 0 in NX8) reads 128 bytes; word 2 multiplies 128 lanes.
     by_pc = {r.pc_before: facts for r, facts in zip(records, context["cycles"], strict=True)}
     assert by_pc[1] == {"lanes": 0, "xmem_reads": [[0, 128]]}
     assert by_pc[2] == {"lanes": 128, "xmem_reads": []}

@@ -1,0 +1,3 @@
+# probe_acc_mult_res_stride_nx8: timing probe acc_mult_res_stride in NX8
+MULT.RC.VS LR0 0 LR0 CR15.L CR14.L ; ACC.STRIDE 16 off off LR0 ;;
+HALT ;;

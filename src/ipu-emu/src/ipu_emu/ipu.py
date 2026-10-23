@@ -37,14 +37,21 @@ from ipu_emu.isa_alias_spec import SCALAR_MULT_OPERANDS, aliases_for
 from ipu_emu.issue import Issuer
 from ipu_emu.numerics import LaneCodec
 from ipu_emu.regfile import RegFile
-from ipu_emu.resolver import READ_CR, READ_LCR, READ_LR, READ_MULT_STAGE, READ_OTHER
+from ipu_emu.resolver import (
+    READ_CR,
+    READ_LCR,
+    READ_LCR_HALF,
+    READ_LR,
+    READ_MULT_STAGE,
+    READ_OTHER,
+)
 from ipu_emu.slots import HANDLER_MODULES
 from ipu_emu.slots.mult import SCALAR_CR, SCALAR_LCR, SCALAR_NONE
 from ipu_emu.xmem import XMEM_SIZE_BYTES
 from ipu_isa.codec.word import field_name, opcode_field
 from ipu_isa.faults import reserved_operand_codes
 from ipu_isa.geometry import LANES
-from ipu_isa.operand_types import OPERAND_TYPES, OperandKind, OperandType
+from ipu_isa.operand_types import LCR_HALF_NAMES, OPERAND_TYPES, OperandKind, OperandType
 from ipu_isa.registers import (
     REGISTER_DEFINITIONS,
     get_register_sizes,
@@ -85,17 +92,16 @@ _reg_sizes = get_register_sizes()
 LR_REG_COUNT = _reg_sizes["lr"]["count"]
 R_ACC_SIZE = _reg_sizes["r_acc"]["size_bytes"]
 
-# LANES (from ipu_isa.geometry) is the number of vector lanes: 128 in every
-# element format. An element is 1 byte in an 8-bit format and 4 bytes in FP32
-# and INT32, so LANES must never be confused with a byte count — use it for
-# lane loop bounds, mask bit-widths, and lane-indexed lists/tuples in every
-# format. R_REG_SIZE remains a byte count (the "r" register's size); it
-# coincides with LANES only in an 8-bit format.
+# LANES (from ipu_isa.geometry) is the number of vector lanes: 128 in both
+# modes. An element is 1 byte in NX8 and 4 bytes in FP32, so LANES must never
+# be confused with a byte count — use it for lane loop bounds, mask bit-widths,
+# and lane-indexed lists/tuples in every mode. R_REG_SIZE remains a byte count
+# (the "r" register's size); it coincides with LANES only in NX8.
 
 # XMEM row geometry (``xmem_element_width_bytes``, ``xmem_row_size_bytes``,
 # ``EIGHT_BIT_ROWS``, ``xmem_row_addr``) lives in ``ipu_emu.geometry``, shared
 # by the handlers and the observers; the first three are re-exported here.
-# The FP32/INT32 formats reach the whole allocation in 512-byte rows.
+# FP32 reaches the whole allocation in 512-byte rows.
 XMEM_ADDRESSABLE_ROWS = XMEM_SIZE_BYTES // (LANES * 4)
 
 
@@ -216,11 +222,17 @@ _READ_BY_BANKS = {
     frozenset({"r"}): READ_MULT_STAGE,
 }
 
+
+def _read_code(operand_type: OperandType) -> int:
+    """How a read of *operand_type* resolves: by its banks, or the LR/CR-half
+    domain (``LcrHalfIdx``, whose half names belong to no bank)."""
+    if operand_type.domain.members == LCR_HALF_NAMES:
+        return READ_LCR_HALF
+    return _READ_BY_BANKS.get(_banks(operand_type), READ_OTHER)
+
+
 # Read code of every operand type, from its domain in the operand-type registry.
-_READ_CODES = {
-    name: _READ_BY_BANKS.get(_banks(operand_type), READ_OTHER)
-    for name, operand_type in OPERAND_TYPES.items()
-}
+_READ_CODES = {name: _read_code(operand_type) for name, operand_type in OPERAND_TYPES.items()}
 
 
 class _OperandRead(NamedTuple):
@@ -268,7 +280,7 @@ class SlotPlan(NamedTuple):
     scalar_operand: str | None  # mult slot: scalar multiplicand
     scalar_kind: int  # ...and how it is addressed
     alias_checks: tuple[_AliasCheck, ...]  # empty for almost every plan
-    mask_cr_operand: str | None  # mult slot: the CR whose dstructure the lane mask uses
+    mask_cr_operand: str | None  # mult slot: the DS half-CR operand the lane mask uses
     # Every register the instruction reads, by (register, via operand), to
     # whether the read sees the cycle-start snapshot (else the live file).
     # From its ``read`` operands and ``implicit_reads``; a register whose
@@ -295,14 +307,16 @@ def _operand_checks(instruction: Instruction) -> tuple[tuple[str, int, frozenset
     return tuple(checks)
 
 
-# Which RunStats counter a non-NOP instruction in each slot bumps.
+# Which RunStats counter a non-NOP instruction in each slot bumps. The AaQ
+# stores write one XMEM row; LD.LUT, in the AAQ slot, reads one.
 _SLOT_STAT = {
     Slot.MULT: "mult_active_cycles",
     Slot.ACC: "acc_active_cycles",
     Slot.LOAD: "xmem_reads",
-    Slot.STORE: "xmem_writes",
-    Slot.ACC_STORE: "xmem_writes",
+    Slot.AAQ: "xmem_writes",
+    Slot.AAQ_EXACT: "xmem_writes",
 }
+_INSTRUCTION_STAT = {"LD.LUT": "xmem_reads"}
 
 
 def _compile_alias_checks(slot_type: str, inst_name: str) -> tuple[_AliasCheck, ...]:
@@ -403,7 +417,7 @@ def build_plan(instruction: Instruction, field_map: dict[str, str]) -> SlotPlan:
         reads=reads,
         stat=("mult_idle_cycles" if slot is Slot.MULT else None)
         if inst_name == "NOP"
-        else _SLOT_STAT.get(slot),
+        else _INSTRUCTION_STAT.get(inst_name, _SLOT_STAT.get(slot)),
         write_operand=write_operand,
         write_is_lrd=write_is_lrd,
         is_mult=(slot is Slot.MULT and inst_name != "NOP"),
@@ -485,17 +499,16 @@ def read_views(instruction: Instruction) -> Mapping[tuple[str, str | None], bool
 
 
 def _mask_cr_operand(instruction: Instruction) -> str | None:
-    """The operand naming the CR a MULT's lane mask partitions by, or ``None``.
+    """The DS operand a MULT's lane mask partitions by, or ``None``.
 
-    A MULT with a ``mask_offset`` operand masks its lanes: it reads the
-    dstructure of ``dstructure_cr_idx`` when it has one, else of ``cr_idx``.
+    A MULT with a ``mask_offset`` operand masks its lanes by its ``ds`` half.
     """
     if instruction.slot is not Slot.MULT or instruction.mnemonic == "NOP":
         return None
     names = {op.name for op in instruction.operands}
     if "mask_offset" not in names:
         return None
-    return "dstructure_cr_idx" if "dstructure_cr_idx" in names else "cr_idx"
+    return "ds"
 
 
 def _build_slot_plans():
@@ -673,4 +686,5 @@ _check_execution_order_covers_plans()
 # the other last, so either can be imported first (see the end of
 # ``ipu_emu.cycle``). Removing the cycle means moving the plan tables to a
 # module of their own.
-from ipu_emu.cycle import Cycle, CycleView, resolver_for  # noqa: E402
+from ipu_emu.cycle import Cycle, resolver_for  # noqa: E402
+from ipu_emu.cycle_view import CycleView  # noqa: E402

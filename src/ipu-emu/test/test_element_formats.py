@@ -1,16 +1,20 @@
-"""One element format configures a state (E04-17, Q47).
+"""One run mode configures a state (E04-17, Q47, ADR 0007).
 
-``IpuState(fmt=...)`` takes an ``ipu_isa.formats.ElementFormat``; everything
-format-dependent (element and row bytes, the accumulator type, the vector
-registers, the XMEM rows a program may address) follows from it as
-``ipu_isa`` declares. The format is configuration: an unknown one is a
-``ConfigurationError`` at setup, and it never changes mid-run.
+``IpuState(fmt=...)`` takes an ``ipu_isa.formats.ElementFormat``: ``NX8`` (the
+hardware, the default) or ``FP32`` (emulator-only). Everything mode-dependent
+(element and row bytes, the vector registers, the XMEM rows a program may
+address) follows from it as ``ipu_isa`` declares. The mode is configuration:
+an unknown one is a ``ConfigurationError`` at setup, and it never changes
+mid-run. A program that uses the FP32-only ``ACTIVATE.EXACT`` is refused when
+it is loaded into an NX8 state.
 """
 
 from __future__ import annotations
 
 import pytest
+from emu_support import assemble_program
 
+from ipu_emu.emulator import load_program
 from ipu_emu.errors import ConfigurationError
 from ipu_emu.geometry import (
     lane_format,
@@ -40,10 +44,10 @@ def test_format_sets_element_and_row_bytes(fmt):
 @pytest.mark.parametrize("fmt", ALL_FORMATS, ids=str)
 def test_format_sets_accumulator_type(fmt):
     state = IpuState(fmt=fmt)
-    accumulator = FORMATS[fmt].accumulator
-    assert lane_format(state) == ("<f" if accumulator is AccumulatorType.FP32 else "<i")
+    assert FORMATS[fmt].accumulator is AccumulatorType.FP32
+    assert lane_format(state) == "<f"
     assert state.codec.acc_dtype.itemsize == FORMATS[fmt].accumulator_bytes
-    assert state.codec.acc_dtype.kind == ("f" if accumulator is AccumulatorType.FP32 else "i")
+    assert state.codec.acc_dtype.kind == "f"
 
 
 @pytest.mark.parametrize("fmt", ALL_FORMATS, ids=str)
@@ -57,8 +61,8 @@ def test_format_sets_vector_registers(fmt):
 
 @pytest.mark.parametrize("fmt", ALL_FORMATS, ids=str)
 def test_format_sets_addressable_rows(fmt):
-    # The 4-byte formats address the whole of XMEM; the 8-bit formats keep the
-    # emulator's 16384-row limit (``ipu_isa`` declares the full space).
+    # FP32 addresses the whole of XMEM; NX8 keeps the emulator's 16384-row
+    # limit (``ipu_isa`` declares the full space).
     rows = addressable_rows(IpuState(fmt=fmt))
     if FORMATS[fmt].element_bytes == 1:
         assert rows == EIGHT_BIT_ROWS <= isa_addressable_rows(fmt)
@@ -66,22 +70,22 @@ def test_format_sets_addressable_rows(fmt):
         assert rows == XMEM_ADDRESSABLE_ROWS == isa_addressable_rows(fmt)
 
 
-def test_default_format_is_int8():
-    assert IpuState().fmt is ElementFormat.INT8
+def test_default_format_is_nx8():
+    assert IpuState().fmt is ElementFormat.NX8
 
 
 def test_format_value_string_is_accepted():
-    assert IpuState(fmt="e4").fmt is ElementFormat.E4
+    assert IpuState(fmt="fp32").fmt is ElementFormat.FP32
 
 
 def test_format_is_read_only():
     state = IpuState()
     with pytest.raises(AttributeError):
-        state.fmt = ElementFormat.E4  # type: ignore[misc]
-    assert state.fmt is ElementFormat.INT8
+        state.fmt = ElementFormat.FP32  # type: ignore[misc]
+    assert state.fmt is ElementFormat.NX8
 
 
-@pytest.mark.parametrize("bogus", ["bogus", 4, None, "INT8"])
+@pytest.mark.parametrize("bogus", ["bogus", 4, None, "int8", "e4", "int32"])
 def test_unknown_format_is_a_configuration_error(bogus):
     with pytest.raises(ConfigurationError, match="unknown element format"):
         IpuState(fmt=bogus)
@@ -113,15 +117,22 @@ def test_reset_changes_format_and_clears_state():
 
 
 def test_reset_keeps_format_when_none_given():
-    state = IpuState(fmt=ElementFormat.E5)
+    state = IpuState(fmt=ElementFormat.FP32)
     state.reset()
-    assert state.fmt is ElementFormat.E5
+    assert state.fmt is ElementFormat.FP32
 
 
 def test_reset_to_unknown_format_changes_nothing():
-    state = IpuState(fmt=ElementFormat.E4)
+    state = IpuState(fmt=ElementFormat.FP32)
     state.regfile.set_cr(3, 7)
     with pytest.raises(ConfigurationError):
         state.reset("bogus")  # type: ignore[arg-type]
-    assert state.fmt is ElementFormat.E4
+    assert state.fmt is ElementFormat.FP32
     assert state.regfile.get_cr(3) == 7
+
+
+def test_activate_exact_is_refused_at_load_in_nx8_mode():
+    program = assemble_program("NOP;;\nACTIVATE.EXACT relu CR15.L CR2 LR0;;\nHALT;;\n")
+    with pytest.raises(ConfigurationError, match="word 1 uses ACTIVATE.EXACT"):
+        load_program(IpuState(fmt=ElementFormat.NX8), program)
+    load_program(IpuState(fmt=ElementFormat.FP32), program)  # FP32 mode takes it

@@ -18,9 +18,9 @@ UNIONS = isa().layout.unions
 
 def test_build_context_width_is_the_hardware_word():
     ctx = sv_package.build_codegen_context()
-    assert ctx["compound_width"] == word_bits(Tag.HARDWARE) == 155
+    assert ctx["compound_width"] == word_bits(Tag.HARDWARE) == 169
     # The emulator word appends the emulator-only slots below it (Q41).
-    assert CompoundInst.bits() == 186
+    assert CompoundInst.bits() == 209
 
 
 def test_slot_union_struct_bit_widths():
@@ -36,7 +36,7 @@ def test_compound_members_follow_slot_order():
     ctx = sv_package.build_codegen_context()
     names = [m["name"] for m in ctx["compound_members"]]
     assert names[0].startswith("cond_slot")
-    assert names[-1].startswith("store_slot")
+    assert names[-1].startswith("aaq_slot")
     assert sum(1 for n in names if n.startswith("lr_slot")) == 3
 
 
@@ -51,9 +51,9 @@ def test_generate_sv_package_is_proper_systemverilog(tmp_path: Path):
     assert "typedef union packed" in text
     assert "load_slot_t" in text
     assert "load_slot_u" in text
-    assert "store_slot_t" in text
+    assert "aaq_slot_t" in text
     assert "ipu_compound_inst_t" in text
-    assert "IPU_COMPOUND_INST_WIDTH = 155;" in text
+    assert "IPU_COMPOUND_INST_WIDTH = 169;" in text
     assert "opcode_t opcode;" in text
     assert "slot_u operands;" in text
     # Typedefs use _t suffix; enum literals are sized (e.g. 3'd5)
@@ -92,12 +92,12 @@ def test_unused_union_columns_named_padding(tmp_path: Path):
     sv_package.generate_sv_package(out)
     text = out.read_text(encoding="utf-8")
     # COND BR: reg in column 1; columns 0 and 2 unused → padding_0, padding_2
-    marker = "} br;\n    struct packed {\n      logic [19:0] padding"
+    marker = "} br;\n    struct packed {\n      logic [21:0] padding"
     pos = text.index(marker)
     start = text.rindex("struct packed {", 0, pos)
     br = text[start:pos]
     assert "padding_0; // padding" in br
-    assert "lcr_reg_field_t reg_1; // LcrIdx" in br
+    assert "lcr_half_reg_field_t reg_1; // LcrHalfIdx" in br
     assert "padding_2; // padding" in br
     assert "label_0" not in br
     # LD.MULT: every column used; the 1-bit dest pads the rest of column 2
@@ -112,7 +112,7 @@ def test_union_members_exclude_opcode(tmp_path: Path):
     sv_package.generate_sv_package(out)
     text = out.read_text(encoding="utf-8")
     # Opcode is outside the union; union members are operand payload only.
-    assert "COND_SLOT_U_WIDTH = 20" in text
+    assert "COND_SLOT_U_WIDTH = 22" in text
     start = text.index("// Operand payload only (opcode is in cond_slot_t.opcode")
     end = text.index("} cond_slot_u;", start)
     union = text[start:end]
@@ -120,7 +120,7 @@ def test_union_members_exclude_opcode(tmp_path: Path):
     nop_start = union.rindex("struct packed {", 0, union.index("} nop;"))
     nop = union[nop_start : union.index("} nop;")]
     assert "opcode" not in nop
-    assert "logic [19:0] padding" in nop
+    assert "logic [21:0] padding" in nop
     assert "label_0" not in nop
 
 
@@ -135,15 +135,14 @@ def test_nop_union_members_use_single_padding_field(tmp_path: Path):
         r"struct packed \{\n      logic \[(\d+):0\] padding; // padding\n    \} nop;",
         text,
     )
-    assert len(nop_blocks) == 7
+    assert len(nop_blocks) == 6
     widths_by_slot = {
         "load_slot_u": 12,
-        "store_slot_u": 8,
         "lr_slot_u": 16,
-        "mult_slot_u": 20,
-        "acc_slot_u": 13,
-        "aaq_slot_u": 8,
-        "cond_slot_u": 20,
+        "mult_slot_u": 26,
+        "acc_slot_u": 14,
+        "aaq_slot_u": 21,
+        "cond_slot_u": 22,
     }
     for slot_u, width in widths_by_slot.items():
         localparam = f"localparam int unsigned {slot_u.upper()}_WIDTH = {width};"
@@ -178,26 +177,26 @@ def test_verify_accepts_the_package_and_rejects_any_edit():
 
 def test_compound_comment_lists_the_layout_order():
     text = sv_package.render_sv_package()
-    assert "slots MSB → LSB: cond, lr×3, load, mult, acc, aaq, store)" in text
-    assert "emulator-only\n  // slots (acc_store, break) below bit 0" in text
+    assert "slots MSB → LSB: cond, lr×3, load, mult, acc, aaq)" in text
+    assert "emulator-only\n  // slots (aaq_exact, break) below bit 0" in text
 
 
 def test_no_emulator_only_slot_or_instruction_in_the_package():
-    # By hand: the names the ACC_STORE and BREAK slots had in the 186-bit package.
+    # By hand: the names the AAQ_EXACT and BREAK slots would have in the package.
     text = sv_package.render_sv_package()
     for name in (
-        "acc_store_slot_t",
-        "acc_store_slot_u",
+        "aaq_exact_slot_t",
+        "aaq_exact_slot_u",
         "break_slot_t",
         "break_slot_u",
-        "acc_store_inst_opcode_t",
+        "aaq_exact_inst_opcode_t",
         "break_inst_opcode_t",
-        "ACC_STORE_INST_OPCODE_",
+        "AAQ_EXACT_INST_OPCODE_",
         "BREAK_INST_OPCODE_",
-        "} st_acc;",
+        "} activate_exact;",
         "} break_inst;",
         "} break_ifeq;",
-        "acc_store_slot;",
+        "aaq_exact_slot;",
         "break_slot;",
     ):
         assert name not in text, name
@@ -232,10 +231,13 @@ def test_enums_match_the_assembler():
     """The SV enums are the assembler's, by name, member and order (an
     independent source: the assembler derives them from its class names)."""
     emulator_opcodes = {SLOTS[slot].opcode_enum for slot in slots_with_tag(Tag.EMULATOR)}
+    # By hand: ActivationFn is the operand of ACTIVATE.EXACT only, an
+    # emulator-only instruction (ADR 0007), so the package has no enum for it.
+    emulator_only_operands = {"activation_fn_field"}
     assembler = {
         name: members
         for name, members in EnumToken.get_all_enum_descriptors().items()
-        if name not in emulator_opcodes
+        if name not in emulator_opcodes | emulator_only_operands
     }
     assert sv_package.enum_descriptors() == assembler
 
@@ -263,7 +265,7 @@ def test_cli_writes_the_docs_pages_and_the_union_svg(tmp_path: Path):
     assert svg.read_text() == layout_svg.union_layout_svg()
     page = tmp_path / "instruction-format.md"
     assert CliRunner().invoke(cli, ["instruction-format-md", str(page)]).exit_code == 0
-    assert "## Hardware word (155 bits)" in page.read_text()
+    assert "## Hardware word (169 bits)" in page.read_text()
 
 
 def test_format_page_shows_the_hardware_word_first_then_the_emulator_word(tmp_path: Path):
@@ -272,20 +274,20 @@ def test_format_page_shows_the_hardware_word_first_then_the_emulator_word(tmp_pa
     page = tmp_path / "instruction-format.md"
     docs_pages.generate_instruction_format_md(page)
     text = page.read_text()
-    # By hand: the hardware word is 155 bits, the emulator word 186 (Q41).
-    hardware = text.index("## Hardware word (155 bits)")
-    emulator = text.index("## Emulator word (186 bits)")
+    # By hand: the hardware word is 169 bits, the emulator word 209 (ADR 0007).
+    hardware = text.index("## Hardware word (169 bits)")
+    emulator = text.index("## Emulator word (209 bits)")
     assert hardware < emulator
-    assert word_bits(Tag.HARDWARE) == 155 and word_bits() == 186
-    assert "Hardware word Layout - 155 total bits" in text[hardware:emulator]
-    assert "Emulator word Layout - 186 total bits" in text[emulator:]
-    # By hand, from the SV golden: STORE is the hardware word's lowest slot
-    # (9 bits, opcode at bit 8) and COND its highest (opcode at bits 154:152).
-    assert ">[8:8]<" in text[hardware:emulator] and ">[154:152]<" in text[hardware:emulator]
+    assert word_bits(Tag.HARDWARE) == 169 and word_bits() == 209
+    assert "Hardware word Layout - 169 total bits" in text[hardware:emulator]
+    assert "Emulator word Layout - 209 total bits" in text[emulator:]
+    # By hand, from the SV golden: AAQ is the hardware word's lowest slot
+    # (23 bits, opcode at bits 22:21) and COND its highest (opcode at bits 168:166).
+    assert ">[22:21]<" in text[hardware:emulator] and ">[168:166]<" in text[hardware:emulator]
     # The emulator-only slots are drawn only in the emulator-word section.
     hardware_part = text[hardware:emulator]
-    assert "AccStoreInst" not in hardware_part and "BreakInst" not in hardware_part
-    assert "(`ACC_STORE`, `BREAK`) below its bit 0" in text
+    assert "AaqExactInst" not in hardware_part and "BreakInst" not in hardware_part
+    assert "(`AAQ_EXACT`, `BREAK`) below its bit 0" in text
 
 
 def test_instruction_reference_tags_every_instruction(tmp_path: Path):
@@ -295,9 +297,9 @@ def test_instruction_reference_tags_every_instruction(tmp_path: Path):
     docs_pages.generate_instruction_docs(page)
     text = page.read_text()
     assert "### `HALT` — Halt\n\n**Syntax:** `HALT`\n\n**Tag:** `HARDWARE`" in text
-    assert "### `ST.ACC` —" in text
-    st_acc = text[text.index("### `ST.ACC` —") :]
-    assert "**Tag:** `EMULATOR`" in st_acc.split("###", 2)[1]
+    assert "### `ACTIVATE.EXACT` —" in text
+    exact = text[text.index("### `ACTIVATE.EXACT` —") :]
+    assert "**Tag:** `EMULATOR`" in exact.split("###", 2)[1]
     assert "**Tag:** `EMULATOR`" in text[text.index("### `BREAK` —") :].split("###", 2)[1]
     documented = text.count("\n### `")  # NOP's one global entry included
     assert text.count("**Tag:** `") == documented

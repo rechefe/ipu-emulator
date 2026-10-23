@@ -81,6 +81,23 @@ class Nx8Format:
         return self.num_bits - self.exp_bits(dynamic_exponent) - self.sign
 
 
+#: Row metadata word (ADR 0007): ``scale[7:0]``, ``dynamic_exponent[8]``.
+_SCALE_MASK: Final = 0xFF
+_DYNAMIC_EXPONENT_SHIFT: Final = 8
+
+
+def metadata_word(scale: int, dynamic_exponent: int = 0) -> int:
+    """The 16-bit metadata word of a row: ``scale[7:0]``, ``dynamic_exponent[8]``."""
+    if not 0 <= scale <= _SCALE_MASK or dynamic_exponent not in (0, 1):
+        raise IsaValueError(f"metadata scale {scale} / dynamic_exponent {dynamic_exponent}")
+    return scale | (dynamic_exponent << _DYNAMIC_EXPONENT_SHIFT)
+
+
+def split_metadata(word: int) -> tuple[int, int]:
+    """``(scale, dynamic_exponent)`` of a metadata word; other bits are ignored."""
+    return word & _SCALE_MASK, (word >> _DYNAMIC_EXPONENT_SHIFT) & 1
+
+
 @dataclass(frozen=True)
 class EncodedRow:
     """One quantized row: 128 element bytes and its metadata fields."""
@@ -91,6 +108,11 @@ class EncodedRow:
     #: True when any element saturated (±inf, edge 1 at E = 0, or a negative
     #: input to an unsigned format): the ``QUANT_SATURATION`` event.
     saturated: bool
+
+    @property
+    def metadata(self) -> int:
+        """The row's metadata word (:func:`metadata_word`)."""
+        return metadata_word(self.scale, self.dynamic_exponent)
 
 
 @dataclass(frozen=True)
@@ -223,8 +245,10 @@ def encode_row(
 ) -> EncodedRow:
     """Quantize up to 128 FP32 values to one NX8 row (§4.3.2).
 
-    Inactive elements (and the missing tail of a short row) are written as 0
-    (OQ-36). Values are rounded to FP32 first, as they come from ``R_ACC``.
+    Inactive elements (and the missing tail of a short row) are written as the
+    value 0 (OQ-36): the code with the clamp exponent and a zero mantissa,
+    which :func:`decode_element` reads as 0.0 at any scale. Values are rounded
+    to FP32 first, as they come from ``R_ACC``.
     """
     if len(values) > ROW_ELEMENTS:
         raise IsaValueError(f"an NX8 row holds {ROW_ELEMENTS} elements, got {len(values)}")
@@ -233,7 +257,10 @@ def encode_row(
     scale = max((p.exp for p, on in zip(fields, flags, strict=True) if on and not p.inf), default=0)
     dyn = choose_dynamic_exponent(values, active) if fmt.dynamic else 0
     fe, fm = fmt.exp_bits(dyn), fmt.man_bits(dyn)
-    out = bytearray(ROW_ELEMENTS)
+    # Inactive elements and the tail hold the value 0 (OQ-36): the clamp
+    # exponent with a zero mantissa. Byte 0 would decode as 2^(scale-127).
+    zero = _pack(0, (1 << fe) - 1, 0, fmt, fe, fm)
+    out = bytearray([zero]) * ROW_ELEMENTS
     saturated = False
     for i, (p, on) in enumerate(zip(fields, flags, strict=True)):
         if not on:

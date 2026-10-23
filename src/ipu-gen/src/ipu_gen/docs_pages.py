@@ -18,22 +18,22 @@ from ipu_isa.constants import (
     CR_ONE_REG_VALUE,
     CR_ZERO_REG_INDEX,
     CR_ZERO_REG_VALUE,
-    DEFAULT_PAD_MODE,
-    DEFAULT_PARTITION,
-    DEFAULT_VALID_ELEMENTS,
-    DSTRUCTURE_PAD_MODE_BITS,
-    DSTRUCTURE_PAD_MODE_SHIFT,
-    DSTRUCTURE_PARTITION_BITS,
-    DSTRUCTURE_PARTITION_SHIFT,
-    DSTRUCTURE_VALID_ELEMENTS_BITS,
     LR_CR_SCALAR_BITS,
-    PadMode,
-    Partition,
+)
+from ipu_isa.cr_halves import (
+    CONSTANT_LAYOUT,
+    DEFAULT_DS,
+    DS_LAYOUT,
+    PARTITIONS,
+    QF_LAYOUT,
+    Field,
+    MaskType,
 )
 from ipu_isa.faults import FaultId, instruction_faults
-from ipu_isa.formats import FORMATS, ElementFormat, FormatInfo, element_values
+from ipu_isa.formats import FORMATS, ElementFormat, FormatInfo
 from ipu_isa.geometry import LANES
 from ipu_isa.instruction_spec import InstructionDoc, syntax
+from ipu_isa.nx8 import SCALE_BIAS, Nx8Format, decode_element
 from ipu_isa.registers import REGISTER_DEFINITIONS, create_assembler_reg_enums
 from ipu_isa.slots import Slot
 from ipu_isa.tags import Tag
@@ -692,52 +692,66 @@ def _section(name: str, lines: list[str]) -> list[str]:
 
 def _formats_table(formats: Mapping[ElementFormat, FormatInfo]) -> list[str]:
     lines = [
-        "| Format | Tag | Element bits | Exponent bits | Mantissa bits | Row bytes | Accumulator |",
-        "|--------|-----|-------------:|--------------:|--------------:|----------:|-------------|",
+        "| Format | Tag | Element bits | Metadata bits | Row bytes | Accumulator |",
+        "|--------|-----|-------------:|--------------:|----------:|-------------|",
     ]
     for fmt, info in formats.items():
         lines.append(
-            f"| `{fmt.name}` | `{info.tag.name}` | {info.element_bits} | {info.exp_bits} | "
-            f"{info.man_bits} | {info.row_bytes} | `{info.accumulator.name}` |"
+            f"| `{fmt.name}` | `{info.tag.name}` | {info.element_bits} | {info.metadata_bits} | "
+            f"{info.row_bytes} | `{info.accumulator.name}` |"
         )
     return lines
+
+
+#: The NX8 element types the encodings table lists: signed, 8 bits, each ``fe``.
+NX8_TABLE_TYPES = tuple(Nx8Format(sign=1, exp_format=fe, num_bits=8) for fe in range(1, 8))
 
 
 def _encodings_table(formats: Mapping[ElementFormat, FormatInfo]) -> list[str]:
-    """One row per 8-bit float format, from the element codec's decode table."""
+    """One row per signed 8-bit NX8 type (QF ``fe`` 1-7) at scale 127 (2^0).
+
+    A row's metadata ``scale`` multiplies every value by 2^(scale - 127). The
+    table is listed only when the formats include NX8.
+    """
     lines = [
-        "| Format | Bias | Largest finite | Smallest normal | Smallest subnormal | NaN codes |",
-        "|--------|-----:|---------------:|----------------:|-------------------:|----------:|",
+        "| Type | Exponent bits | Mantissa bits | Largest | Smallest normal | Smallest nonzero |",
+        "|------|--------------:|--------------:|--------:|----------------:|-----------------:|",
     ]
-    for fmt, info in formats.items():
-        if not info.is_float or info.element_bits != 8:
-            continue
-        exponents = [(code >> info.man_bits) & ((1 << info.exp_bits) - 1) for code in range(256)]
-        values = element_values(fmt)
-        positive = [(v, e) for v, e in zip(values, exponents, strict=True) if v > 0]
-        normal = [v for v, e in positive if e]
-        subnormal = [v for v, e in positive if not e]
-        nans = sum(math.isnan(v) for v in values)
+    if ElementFormat.NX8 not in formats:
+        return lines
+    for nx8 in NX8_TABLE_TYPES:
+        fe, fm = nx8.exp_bits(), nx8.man_bits()
+        clamp = (1 << fe) - 1
+        codes = range(1 << (fe + fm))  # the positive codes (sign 0), right-aligned
+        values = [
+            (decode_element(c << (8 - nx8.num_bits), nx8, SCALE_BIAS), c >> fm) for c in codes
+        ]
+        normal = [v for v, e in values if e < clamp]
+        nonzero = [v for v, _ in values if v > 0]
         lines.append(
-            f"| `{fmt.name}` | {(1 << (info.exp_bits - 1)) - 1} | "
-            f"{_value_text(max(v for v, _ in positive))} | "
-            f"{_value_text(min(normal)) if normal else 'none'} | "
-            f"{_value_text(min(subnormal)) if subnormal else 'none'} | {nans} |"
+            f"| `E{fe}` | {fe} | {fm} | {_value_text(max(nonzero))} | "
+            f"{_value_text(min(normal)) if normal else 'none'} | {_value_text(min(nonzero))} |"
         )
     return lines
 
 
-def _cr_scalar_table(formats: Mapping[ElementFormat, FormatInfo]) -> list[str]:
-    """Which CR bits a scalar operand reads, and how they are decoded, per format.
+#: How a MULT constant operand reads its CR in each mode (ADR 0007).
+_CR_SCALAR_DECODE = {
+    ElementFormat.NX8: (
+        "`[31:0]`",
+        "one NX8 element with its own scale and type (the constant layout); "
+        "`CR0` is 0.0 and `CR1` 1.0",
+    ),
+    ElementFormat.FP32: ("`[31:0]`", "an IEEE binary32 value; `CR0` is 0.0 and `CR1` 1.0"),
+}
 
-    The rule of Q49 (E04-28): the CR's low element-width bits, decoded as an
-    element of the active format. CR1 is the exception the page states.
-    """
+
+def _cr_scalar_table(formats: Mapping[ElementFormat, FormatInfo]) -> list[str]:
+    """Which CR bits a MULT constant operand reads, and how they are decoded, per mode."""
     lines = ["| Format | CR bits | Decoded as |", "|--------|---------|------------|"]
-    for fmt, info in formats.items():
-        bits = info.element_bits
-        decoded = f"an `{fmt.name}` element" if info.is_float else f"a signed {bits}-bit integer"
-        lines.append(f"| `{fmt.name}` | `[{bits - 1}:0]` | {decoded} |")
+    for fmt in formats:
+        bits, decoded = _CR_SCALAR_DECODE[fmt]
+        lines.append(f"| `{fmt.name}` | {bits} | {decoded} |")
     return lines
 
 
@@ -1090,92 +1104,141 @@ def generate_registers_md(output_path: Path) -> None:
     print(f"Generated register reference at {output_path}")
 
 
-#: What each pad mode writes into a deactivated element.
-_PAD_FILL = {PadMode.ZERO: "`0`", PadMode.POS_INF: "`+inf`", PadMode.NEG_INF: "`-inf`"}
+#: What each DS ``mask_type`` writes into a masked-out MULT_RES element.
+_MASK_FILL = {
+    MaskType.ZERO: "`0`",
+    MaskType.POS_INF: "`+inf`",
+    MaskType.NEG_INF: "`-inf`",
+    MaskType.NAN: "refused (`CrContentError`)",
+}
 
 
 def _bits(shift: int, width: int) -> str:
     return f"`[{shift + width - 1}:{shift}]`"
 
 
-def generate_configuration_registers_md(output_path: Path, view: Isa | None = None) -> None:
-    """Write the configuration-register reference from ``ipu_isa.constants`` (E09-14)."""
-    view = isa() if view is None else view
+def _field_rows(layout: Mapping[str, Field], notes: Mapping[str, str]) -> str:
+    return "\n".join(
+        f"| `{name}` | {_bits(field.lsb, field.width)} | {notes[name]} |"
+        for name, field in layout.items()
+    )
+
+
+def _half_users(view: Isa, operand: str) -> str:
     users = sorted(
         {
             instruction.mnemonic
             for slot in view.layout.layout_order
             for instruction in view.instructions(slot)
-            if any(op.type.name == "DstructureCrIdx" for op in instruction.operands)
+            if any(
+                op.name == operand and op.type.name == "HalfCrIdx" for op in instruction.operands
+            )
         }
     )
-    partitions = ", ".join(f"`{p.value}`" for p in Partition)
-    pad_rows = "\n".join(
-        f"| `{mode.name}` | `{mode.value}` | {_PAD_FILL[mode]} |" for mode in PadMode
+    return ", ".join(f"`{m}`" for m in users)
+
+
+_DS_NOTES = {
+    "valid_elements": f"active elements per partition (`0`–`{LANES}`)",
+    "num_partitions": ", ".join(f"`{i}`: {p}" for i, p in enumerate(PARTITIONS))
+    + " partitions (groups of elements)",
+    "mask_type": "the fill of a masked-out element (below)",
+    "valid_partitions": "how many partitions are active (`1`–`num_partitions`)",
+}
+_QF_NOTES = {
+    "num_bits": "element width (`1`–`8`)",
+    "exp_format": "exponent bits `fe` (`1`–`7`)",
+    "sign": "`1`: signed",
+    "dynamic": "`1`: dynamic exponent (signed 8-bit only)",
+}
+_CONSTANT_NOTES = {
+    "value": "the NX8 element code",
+    "scale": "its scale (2<sup>scale − 127</sup>)",
+    "exp_format": "its exponent bits `fe`",
+    "sign": "`1`: signed",
+}
+
+
+def generate_configuration_registers_md(output_path: Path, view: Isa | None = None) -> None:
+    """Write the configuration-register reference from ``ipu_isa.cr_halves`` (ADR 0007)."""
+    view = isa() if view is None else view
+    mask_rows = "\n".join(
+        f"| `{mode.name}` | `{mode.value}` | {_MASK_FILL[mode]} |" for mode in MaskType
     )
     content = f"""# Configuration registers
 
-This page is **generated** from `ipu_isa.constants`. The host writes the CRs before a
-kernel runs; a kernel only reads them.
+This page is **generated** from `ipu_isa.constants` and `ipu_isa.cr_halves`. The host
+writes the CRs before a kernel runs; a kernel only reads them.
 
 ## The CRs
 
 | Register | Value | Notes |
 |----------|-------|-------|
-| `CR{CR_ZERO_REG_INDEX}` | `{CR_ZERO_REG_VALUE}` | Read-only constant. |
-| `CR{CR_ONE_REG_INDEX}` | `{CR_ONE_REG_VALUE}` | Read-only constant. As a scalar element it reads as 1 in every format (see [CR scalars](../../explanation/element-formats.md#cr-scalars)). |
-| `CR2`–`CR15` | set by the host | Base addresses, strides, loop bounds, scalar constants and dstructure words. By convention `CR15` holds the dstructure word, but any CR is a valid operand. |
+| `CR{CR_ZERO_REG_INDEX}` | `{CR_ZERO_REG_VALUE}` | Read-only constant. As a MULT constant it reads 0.0. |
+| `CR{CR_ONE_REG_INDEX}` | `{CR_ONE_REG_VALUE}` | Read-only constant. As a MULT constant it reads 1.0 in both modes (see [CR scalars](../../explanation/element-formats.md#cr-scalars)). |
+| `CR2`–`CR15` | set by the host | Base addresses, strides, loop bounds, MULT constants, DS and QF halves. By convention `CR15.L` holds the default DS, but any CR half is a valid operand. |
 
 Each LR and CR holds a {LR_CR_SCALAR_BITS}-bit scalar. A negative constant is stored as its
-{LR_CR_SCALAR_BITS}-bit two's complement (`value & LR_CR_SCALAR_VALUE_MASK`). The element format a
-kernel computes in is not a CR: see [Element formats](../../explanation/element-formats.md).
+{LR_CR_SCALAR_BITS}-bit two's complement (`value & LR_CR_SCALAR_VALUE_MASK`). A CR also holds two
+16-bit halves, `CRn.L` (bits 15:0) and `CRn.H` (bits 31:16); an LR or COND operand that names a
+half reads it sign-extended. The run mode (NX8 or FP32) is not a CR: see
+[Element formats](../../explanation/element-formats.md).
 
-## Dstructure word
+## DS half
 
-A dstructure word in a CR describes the active elements of a vector. The instructions that
-name a dstructure CR operand (`DstructureCrIdx`) read it: {", ".join(f"`{m}`" for m in users)}.
+A DS half describes the active elements of a 128-element vector. The instructions with a `ds`
+operand read it: {_half_users(view, "ds")}.
 
-| Field | Bits | Values | Default |
-|-------|------|--------|---------|
-| `valid_elements` | {_bits(0, DSTRUCTURE_VALID_ELEMENTS_BITS)} | `0`–`{LANES}`: how many elements are active | `{DEFAULT_VALID_ELEMENTS}` |
-| `partition` | {_bits(DSTRUCTURE_PARTITION_SHIFT, DSTRUCTURE_PARTITION_BITS)} | {partitions}: groups of elements the MULT mask shifts within (`0` is one group) | `{DEFAULT_PARTITION.value}` |
-| `pad_mode` | {_bits(DSTRUCTURE_PAD_MODE_SHIFT, DSTRUCTURE_PAD_MODE_BITS)} | see below | `{DEFAULT_PAD_MODE.name}` |
+| Field | Bits | Values |
+|-------|------|--------|
+{_field_rows(DS_LAYOUT, _DS_NOTES)}
 
-The defaults are the emulator's initial `CR15`. Any other CR starts at 0, which
-decodes to `valid_elements = 0`.
+The emulator's initial `CR15.L` is `{DEFAULT_DS:#06x}`: every element active, one partition.
+Any other CR starts at 0, which is no valid DS (`valid_partitions` 0): an instruction that
+reads it is refused.
 
-`AGG.*` and `ACTIVATE.QUANTIZE` read `valid_elements`; the MULT masking instructions read
-`partition` and `pad_mode`.
+### `mask_type`
 
-### `pad_mode`
-
-The value a MULT masking instruction writes into the elements its mask deactivates.
-
-| Mode | Code | Fill value |
+| Type | Code | Fill value |
 |------|------|------------|
-{pad_rows}
+{mask_rows}
 
-`POS_INF` and `NEG_INF` exist only in float element formats; they are the identity
-values of `min`- and `max`-style reductions (`ACC.MAX`). In INT8 or INT32 the emulator
-raises `EmulatorError` for them.
+## QF half
+
+A QF half names the NX8 type a row is read or quantized in. The instructions with a `qf`
+operand read it in NX8 mode: {_half_users(view, "qf")}.
+
+| Field | Bits | Values |
+|-------|------|--------|
+{_field_rows(QF_LAYOUT, _QF_NOTES)}
+
+## MULT constant
+
+A MULT constant operand reads a whole CR as one NX8 element with its own scale and type
+(FP32 mode: its IEEE binary32 bits).
+
+| Field | Bits | Values |
+|-------|------|--------|
+{_field_rows(CONSTANT_LAYOUT, _CONSTANT_NOTES)}
 
 ```asm
-AGG.SUM LR0 CR15;;
-ACTIVATE.QUANTIZE relu CR3;;
-MULT.RC.VV LR2 R0 0 LR4 CR15;;
+AGG.SUM LR0 CR15.L;;
+ACTIVATE.QUANTIZE relu CR15.L CR14.L CR3 LR0;;
+MULT.RC.VV LR2 R0 0 LR4 CR15.L CR14.L;;
 ```
 
 ## From the emulator
 
 ```python
-from ipu_isa.constants import LR_CR_SCALAR_VALUE_MASK, PadMode
+from ipu_isa.constants import LR_CR_SCALAR_VALUE_MASK
+from ipu_isa.cr_halves import ds, qf
+from ipu_isa.nx8 import Nx8Format
 
-state.regfile.set_cr(2, 0x40000)                       # a base address
+state.regfile.set_cr(2, 0x40000)                           # a base address
 state.regfile.set_cr(9, (-128) & LR_CR_SCALAR_VALUE_MASK)  # a negative constant
-state.set_cr_dstructure(valid_elements=64, partition=0, pad_mode=PadMode.NEG_INF, cr_idx=3)
+state.set_cr_half(3, False, ds(valid_elements=64))         # CR3.L: a DS
+state.set_cr_half(14, False, qf(Nx8Format(sign=1, exp_format=4, num_bits=8)))  # CR14.L: E4
 ```
-
-`set_cr_dstructure` writes `CR15` when `cr_idx` is omitted.
 """
     output_path.write_text(content)
     print(f"Generated configuration-register reference at {output_path}")
