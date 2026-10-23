@@ -18,8 +18,17 @@
 <header style="display:grid;gap:0.5rem">
   <p class="eyebrow">Lesson 1 · about 10 minutes</p>
   <h1>Where a row's format lives</h1>
-  <p class="lede">An XMEM row written by AaQ is 128 bytes of elements plus a 16-bit metadata word. To turn those bytes back into numbers, a reader needs a third thing that is in neither: the table's <code>format</code>.</p>
+  <p class="lede">An XMEM row written by AaQ is 128 bytes of elements plus a 16-bit metadata word. To turn those bytes back into numbers, a reader needs a third thing that is in neither: the <code>format</code>, which says how each byte splits into exponent and mantissa bits.</p>
 </header>
+
+<aside class="callout gap">
+  <span class="label">Spec update (master 0511213)</span>
+  <ul>
+    <li>The architecture specs name the format in a <code>quantizion_format</code> CR operand of <code>ACTIVATE.QUANTIZE</code> and of every MULT instruction. The microarchitecture spec and the cache-unit spec still make it a table property. The course follows the architecture specs (<a href="../reference/spec-audit.html">spec audit</a> #3, #19).</li>
+    <li>In the architecture spec <code>ACTIVATE.QUANTIZE</code> also stores the row; the microarchitecture spec keeps a separate <code>ST.AAQ</code> (audit #1).</li>
+    <li>The MULT architecture spec now specifies the decode used below.</li>
+  </ul>
+</aside>
 
 <section style="display:grid;gap:0.75rem">
   <h2>The job of the scale</h2>
@@ -46,21 +55,21 @@
       </div>
     </div>
     <div class="tablecard">
-      <span class="fig-label">Table configuration (in the cache unit, not in XMEM)</span>
-      <span class="mono">format[8:0] = { dynamic, sign, fe[2:0], W[3:0] }</span>
-      <span class="bitlegend">Set once per table by the RISC-V host. Shared by every row of the table, across all its banks.</span>
+      <span class="fig-label">Format (not in XMEM)</span>
+      <span class="mono">quantizion_format CR = { dynamic_static[31:24], sign[23:16], num_bits[15:8], exponent_format[7:0] }</span>
+      <span class="bitlegend">Architecture spec: a CR the instruction names. Microarchitecture and cache-unit specs: the 9-bit <code>format</code> of the destination table, <code>{dynamic, sign, fe, W}</code>.</span>
     </div>
-    <figcaption>One AaQ-written row. Sources: <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/cache-unit.md#6-memory-and-tag-model">cache unit §6</a> (metadata), <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/cache-unit.md#5-tables">cache unit §5</a> and <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#33-format-field-layout">AaQ §3.3</a> (format).</figcaption>
+    <figcaption>One AaQ-written row. Sources: <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/cache-unit.md#6-memory-and-tag-model">cache unit §6</a> (metadata), <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/cache-unit.md#5-tables">cache unit §5</a> <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/ARCH-stage-aaq-str.md#31-quantizion_format-layout">ARCH AaQ §3.1</a> and <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#33-format-field-layout">MAS AaQ §3.3</a> (format).</figcaption>
   </figure>
 
   <div class="table-wrap">
     <table>
       <thead><tr><th>Information</th><th>Lives in</th><th>Written by</th><th>Changes</th></tr></thead>
       <tbody>
-        <tr><td>128 elements: sign, exponent field, mantissa</td><td><span class="role data">data bytes</span></td><td>AaQ, then <code>ST.AAQ</code></td><td>per element</td></tr>
-        <tr><td><code>scale</code>, the shared exponent</td><td><span class="role meta">metadata word</span></td><td>AaQ, then <code>ST.AAQ</code></td><td>per row</td></tr>
-        <tr><td><code>dynamic_exponent</code>: E1M6 or E2M5</td><td><span class="role meta">metadata word</span></td><td>AaQ, then <code>ST.AAQ</code></td><td>per row, dynamic tables only</td></tr>
-        <tr><td><code>format</code>: signed, <code>fe</code>, <code>W</code>, static or dynamic</td><td><span class="role table">table configuration</span></td><td>RISC-V host</td><td>per table</td></tr>
+        <tr><td>128 elements: sign, exponent field, mantissa</td><td><span class="role data">data bytes</span></td><td><code>ACTIVATE.QUANTIZE</code></td><td>per element</td></tr>
+        <tr><td><code>scale</code>, the shared exponent</td><td><span class="role meta">metadata word</span></td><td><code>ACTIVATE.QUANTIZE</code></td><td>per row</td></tr>
+        <tr><td><code>dynamic_exponent</code>: E1M6 or E2M5</td><td><span class="role meta">metadata word</span></td><td><code>ACTIVATE.QUANTIZE</code></td><td>per row, dynamic format only</td></tr>
+        <tr><td><code>format</code>: signed, <code>fe</code>, <code>W</code>, static or dynamic</td><td><span class="role table">format CR</span> (ARCH); table configuration (MAS)</td><td>The kernel sets the CR; the host sets the table</td><td>per instruction (ARCH); per table (MAS)</td></tr>
         <tr><td>Activation LUT contents</td><td><span class="role aaq">AaQ stage</span></td><td>AaQ LUT load from <code>R_ACC</code></td><td>when reloaded</td></tr>
       </tbody>
     </table>
@@ -70,7 +79,7 @@
 <section style="display:grid;gap:0.75rem">
   <h2>Why the metadata alone is not enough</h2>
   <p>Take a row whose largest value is 3.2. In FP32, 3.2 = 1.6 × 2<sup>1</sup>, a biased exponent of 128, so <code>s = 128</code>. One element is 0.4 = 1.6 × 2<sup>−2</sup>, biased exponent 125, which sits <code>E = 128 − 125 = 3</code> binades below the scale.</p>
-  <p>In an E4M3 table (<code>fe = 4</code>), AaQ stores exponent field 3 and rounds 0.6 to 3 mantissa bits (5/8). The byte is <code>0 0011 101</code> = <code>0x1D</code>, which decodes to 1.625 × 2<sup>128−127−3</sup> = 0.40625.</p>
+  <p>With format e4 (<code>fe = 4</code>), AaQ stores exponent field 3 and rounds 0.6 to 3 mantissa bits (5/8). The byte is <code>0 0011 101</code> = <code>0x1D</code>, which decodes to 1.625 × 2<sup>128−127−3</sup> = 0.40625.</p>
   <p>Now read the same byte with the same scale but <code>fe = 2</code>. The bits split differently and give 3.8125. Change <code>fe</code> below and watch the violet field move.</p>
 </section>
 
@@ -80,8 +89,8 @@
 </div>
 
 <section style="display:grid;gap:0.75rem">
-  <p>The scale says <em>where</em> the row's values are. The table's <code>fe</code> says <em>how to split each byte</em>. A reader needs both, and they come from different places.</p>
-  <p><strong>Exception, dynamic tables.</strong> When <code>format[8] = 1</code>, the table fixes only "signed, 8 bits". AaQ picks E1M6 or E2M5 for each row and records the choice in that row's <code>dynamic_exponent</code> bit. So in a dynamic table, <code>fe</code> comes from the metadata word instead.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#511-dynamic-exponent-field-selection-fe--1-vs-fe--2">[AaQ §5.1.1]</a></span></p>
+  <p>The scale says <em>where</em> the row's values are. The format's <code>fe</code> says <em>how to split each byte</em>. A reader needs both, and they come from different places.</p>
+  <p><strong>Exception, dynamic format.</strong> When the format is dynamic (<code>dynamic_static = 1</code>), it fixes only "signed, 8 bits". AaQ picks E1M6 or E2M5 for each row and records the choice in that row's <code>dynamic_exponent</code> bit. So for dynamic data, <code>fe</code> comes from the metadata word instead.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#511-dynamic-exponent-field-selection-fe--1-vs-fe--2">[AaQ §5.1.1]</a></span></p>
 </section>
 
 <section class="wide" style="display:grid;gap:0.75rem">
@@ -90,29 +99,29 @@
   <div class="panel" data-quiz="quiz1"></div>
 </section>
 <script type="application/json" id="quiz1">[
-  {"prompt": "A static E4M3 table. Where is the number 4 (the exponent width) recorded?",
-   "options": ["In the data bytes", "In the metadata word", "In the table configuration", "Inside the AaQ stage"], "answer": 2,
-   "why": "fe is a table property (format[6:4]). Every row of a static table uses the same split."},
+  {"prompt": "Static format e4. Where is the number 4 (the exponent width) recorded?",
+   "options": ["In the data bytes", "In the metadata word", "In the format CR", "Inside the AaQ stage"], "answer": 2,
+   "why": "exponent_format [7:0] of the quantizion_format CR (ARCH). The microarchitecture spec keeps it in the table's format."},
   {"prompt": "Where is a row's shared exponent s recorded?",
-   "options": ["In the data bytes", "In the metadata word", "In the table configuration", "Inside the AaQ stage"], "answer": 1,
+   "options": ["In the data bytes", "In the metadata word", "In the format CR", "Inside the AaQ stage"], "answer": 1,
    "why": "scale[7:0] of the 16-bit metadata word beside the row."},
-  {"prompt": "A dynamic table. Where is it recorded that this row used E2M5?",
-   "options": ["In the data bytes", "In the metadata word", "In the table configuration", "Inside the AaQ stage"], "answer": 1,
+  {"prompt": "Dynamic format. Where is it recorded that this row used E2M5?",
+   "options": ["In the data bytes", "In the metadata word", "In the format CR", "Inside the AaQ stage"], "answer": 1,
    "why": "dynamic_exponent, bit 8 of the metadata word: 0 = E1M6, 1 = E2M5."},
-  {"prompt": "Where is it recorded whether a table is static or dynamic?",
-   "options": ["In the data bytes", "In the metadata word", "In the table configuration", "Inside the AaQ stage"], "answer": 2,
-   "why": "format[8], the dynamic bit, part of the table's 9-bit format."},
+  {"prompt": "Where is it recorded whether quantization is static or dynamic?",
+   "options": ["In the data bytes", "In the metadata word", "In the format CR", "Inside the AaQ stage"], "answer": 2,
+   "why": "dynamic_static [31:24] of the quantizion_format CR (ARCH); format[8] of the table in the microarchitecture spec."},
   {"prompt": "Where is element 17's sign bit recorded?",
-   "options": ["In the data bytes", "In the metadata word", "In the table configuration", "Inside the AaQ stage"], "answer": 0,
+   "options": ["In the data bytes", "In the metadata word", "In the format CR", "Inside the AaQ stage"], "answer": 0,
    "why": "Each element's byte holds its own sign, exponent field and mantissa."},
   {"prompt": "Where is the shape of the sigmoid that ACTIVATE.QUANTIZE applies recorded?",
-   "options": ["In the data bytes", "In the metadata word", "In the table configuration", "Inside the AaQ stage"], "answer": 3,
+   "options": ["In the data bytes", "In the metadata word", "In the format CR", "Inside the AaQ stage"], "answer": 3,
    "why": "The 256 × 17-bit LUT inside the AaQ stage, filled by the LUT load. It is never written to XMEM."},
   {"prompt": "Who computes a row's scale?",
    "options": ["The RISC-V host, per table", "The AaQ quantizer, per row", "The cache unit, per bank", "The MULT stage, per load"], "answer": 1,
    "why": "AaQ takes the largest raw FP32 exponent among the row's elements."},
   {"prompt": "You hold byte 0x1D and its row's scale, 128. What else must you know to get its value?",
-   "options": ["The row's XMEM address", "The previous row's scale", "The table's exponent width", "The LUT's activation function"], "answer": 2,
+   "options": ["The row's XMEM address", "The previous row's scale", "The format's exponent width", "The LUT's activation function"], "answer": 2,
    "why": "fe decides where the exponent field ends and the mantissa starts: 0.40625 with fe = 4, 3.8125 with fe = 2."}
 ]</script>
 
@@ -122,29 +131,33 @@
   <label for="explain1" class="eyebrow">Your answer</label>
   <textarea id="explain1"></textarea>
   <button type="button" data-reveal="model1">Show a model answer</button>
-  <p id="model1" hidden>The metadata gives the row's scale, which says where its values sit, but not how each byte splits into exponent and mantissa bits. That split, <code>fe</code>, belongs to the table's <code>format</code>; only a dynamic table moves it into the row, through <code>dynamic_exponent</code>.</p>
+  <p id="model1" hidden>The metadata gives the row's scale, which says where its values sit, but not how each byte splits into exponent and mantissa bits. That split, <code>fe</code>, belongs to the format: a <code>quantizion_format</code> CR in the architecture specs, a table property in the microarchitecture spec. Only dynamic quantization moves it into the row, through <code>dynamic_exponent</code>.</p>
 </section>
 
 <section style="display:grid;gap:0.75rem">
   <h2>What this means for the emulator</h2>
-  <p>Today the emulator's XMEM is a flat byte array, and one element format applies to the whole run (<a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/adr/0003-element-formats-replace-wide-mode.md">ADR 0003</a>). Matching the specs needs at least these pieces. All of them are still open in the design session:</p>
+  <p>Today the emulator's XMEM is a flat byte array, and one element format applies to the whole run (<a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/adr/0003-element-formats-replace-wide-mode.md">ADR 0003</a>). Matching the specs needs at least these pieces:</p>
   <ul>
     <li><strong>XMEM:</strong> a 16-bit <span class="role meta">metadata word</span> beside every 128-byte row.</li>
-    <li><strong>Configuration:</strong> a <span class="role table">table format</span> for each input and output region, since the emulator has no cache tables.</li>
+    <li><strong>Format operand:</strong> <code>ACTIVATE.QUANTIZE</code> and every MULT instruction read a <span class="role table">quantizion_format</span> CR, as the architecture specs define.</li>
     <li><strong>AaQ:</strong> the spec's <code>ACTIVATE.QUANTIZE</code> (scale, encoding, dynamic choice) and the LUT load. Today's version moves to an emulator-only slot so old kernels keep working.</li>
-    <li><strong><code>POST_AAQ_REG</code> and <code>ST.AAQ</code>:</strong> 128 bytes plus the metadata word, written together.</li>
+    <li><strong>Store:</strong> <code>ACTIVATE.QUANTIZE</code> writes 128 bytes plus the metadata word to <code>table_id</code>, <code>table_offset</code> itself. The microarchitecture spec keeps a separate <code>ST.AAQ</code> (audit #1).</li>
     <li><strong>LD and MULT:</strong> carry each row's metadata into the registers and expand the elements to FP32 before multiplying.</li>
   </ul>
 </section>
 
 <aside class="callout gap">
   <span class="label">Where the spec stops</span>
-  <p>No document defines how MULT expands a scaled row to FP32. The decoder on this page inverts the quantizer of AaQ §5.1; treat it as a proposal. The spec also contradicts itself on <code>fe = 0</code> (an INT8-like table): §3.3 allows it, §5.1 says <code>fe</code> is at least 1.</p>
+  <ul>
+    <li>Where the format comes from differs between the architecture and microarchitecture specs, and the AaQ and MULT architecture specs lay out the <code>quantizion_format</code> CR differently (<a href="../reference/spec-audit.html">audit</a> #3, #17).</li>
+    <li>The MULT architecture spec lists a third metadata item, <code>dynamic_static</code>, that nothing writes (audit #18).</li>
+  </ul>
+  <p>Settled since the first version of this lesson: the decode is specified (<a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/ARCH-stage-mult.md#321-nx8-to-fp32">ARCH MULT §3.2.1</a>), and <code>fe = 0</code> is invalid.</p>
 </aside>
 
 <aside class="callout source">
   <span class="label">Read next</span>
-  <p><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#32-output">AaQ spec §3.2–3.3</a> (one page), then <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/cache-unit.md#5-tables">cache unit spec §5–6</a>. For the industry background, the <a href="https://www.opencompute.org/blog/amd-arm-intel-meta-microsoft-nvidia-and-qualcomm-standardize-next-generation-narrow-precision-data-formats-for-ai">OCP MX announcement</a>.</p>
+  <p><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/ARCH-stage-aaq-str.md#31-quantizion_format-layout">ARCH AaQ §3.1</a> and <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/ARCH-stage-aaq-str.md#433-store">§4.3.3</a>, <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#32-output">MAS AaQ §3.2–3.3</a>, then <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/cache-unit.md#5-tables">cache unit spec §5–6</a>. For the industry background, the <a href="https://www.opencompute.org/blog/amd-arm-intel-meta-microsoft-nvidia-and-qualcomm-standardize-next-generation-narrow-precision-data-formats-for-ai">OCP MX announcement</a>.</p>
 </aside>
 
 <aside class="callout ask">

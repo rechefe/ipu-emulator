@@ -1,4 +1,4 @@
-// LUT segment unpacker for the AaQ LUT load (stage-aaq-str.md §5.2, §6.3).
+// LUT segment unpacker for the AaQ LUT load (MAS-stage-aaq-str.md §5.2, §6.3).
 // One segment = payload[1023:0] = {r_acc[31], ..., r_acc[0]} (payload[32j +: 32] = r_acc[j]).
 // Two readings of the same payload, because the spec gives two:
 //   §5.2.1 flat: the table is one 4352-bit stream (256 entries x 17 bits); segment k is

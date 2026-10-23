@@ -1,4 +1,4 @@
-// AaQ dynamic exponent-field selection: stage-aaq-str.md §5.1.1, signed.
+// AaQ dynamic exponent-field selection: MAS-stage-aaq-str.md §5.1.1, signed.
 // The decision follows §5.1.1 as written, which reproduces its worked example:
 //   err = truncation error (|x| - floor(|x| / step) * step), with the §5.1.1 table's steps:
 //     fe1: 2^(S - min(E, 1) - fm1)        fe2: 2^(S - min(E, 3) - fm1 + 1)      (S = s - 127)

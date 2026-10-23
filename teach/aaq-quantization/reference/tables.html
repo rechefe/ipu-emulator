@@ -47,13 +47,13 @@
       <tr><td><code>xmem_num_of_banks</code></td><td class="num">4</td><td>Length of the bank list</td></tr>
       <tr><td><code>jump_back</code></td><td class="num">16</td><td>Row in a bank past which the previous bank is no longer needed</td></tr>
       <tr><td><code>repetitions</code></td><td class="num">16</td><td>Passes over the table</td></tr>
-      <tr><td><code>format</code></td><td class="num">9</td><td>AaQ element format of every row (see <a href="row-anatomy.html">row anatomy</a>)</td></tr>
+      <tr><td><code>format</code></td><td class="num">9</td><td>Element format of every row, in the cache-unit and microarchitecture specs only. The architecture specs take the format from a <code>quantizion_format</code> CR operand instead (<a href="spec-audit.html">audit</a> #19; see <a href="row-anatomy.html">row anatomy</a>)</td></tr>
     </tbody>
   </table></div>
 </section>
 
 <section class="wide" style="display:grid;gap:0.75rem">
-  <h2>Row address (OQ-8 proposal)</h2>
+  <h2>Row address of a load (OQ-8 proposal)</h2>
   <p class="mono" style="overflow-x:auto">CR[base] + LR[offset] = { table_id[23:20], page[19:10], row[9:0] }</p>
   <div class="table-wrap"><table>
     <tbody>
@@ -62,6 +62,7 @@
       <tr><td>Example</td><td><code>CR3 = 0x200000</code>, <code>LR = 1029</code> → table 2, page 1, row 5</td></tr>
     </tbody>
   </table></div>
+  <p style="max-width:var(--measure)">A store names its table differently in the AaQ architecture spec: <code>ACTIVATE.QUANTIZE … table_id table_offset</code> takes the table id from its own CR operand and the offset from an LR, and writes <code>XMEM[table_id, table_offset]</code>. No spec relates this form to <code>CR[base] + LR[offset]</code>.</p>
 </section>
 
 <section class="wide" style="display:grid;gap:0.75rem">

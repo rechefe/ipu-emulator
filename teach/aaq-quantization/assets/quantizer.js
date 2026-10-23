@@ -1,6 +1,6 @@
-// AaQ row quantizer: stage-aaq-str.md §5.1, signed, W = 8, static fe.
+// AaQ row quantizer: MAS-stage-aaq-str.md §5.1, signed, W = 8, static fe.
 // Integer arithmetic on the FP32 bits, so the result is exact.
-// RTN ties: §5.1 does not state the tie rule; this rounds half up (as §5.1.1 does).
+// RTN ties round half up, as MAS §5.1 and ARCH AaQ §4.3.2.2 now state.
 //
 // window.aaqQuantizeRow(values, fe) -> { s, elements: [{ x, f32, e, E, branch, edge, exp, man, byte, decoded, err }] }
 // Widget markup: <div class="decoder" data-quantizer data-values="3.2, 0.4, -1.99" data-fe="4"></div>

@@ -19,23 +19,31 @@
 <header style="display:grid;gap:0.5rem">
   <p class="eyebrow">Lesson 7 · about 12 minutes</p>
   <h1>Back from XMEM: LD, MULT and expansion to FP32</h1>
-  <p class="lede">The next layer reads AaQ's rows back. A load copies a row into a MULT register; MULT turns each byte into an FP32 value using the row's scale and the table's <code>fe</code>, then multiplies. No spec defines that expansion yet. This lesson proposes one and shows where it gets hard.</p>
+  <p class="lede">The next layer reads AaQ's rows back. A load copies a row into a MULT register; MULT turns each byte into an FP32 value using the row's scale and the <code>fe</code> its <code>quantizion_format</code> CR names, then multiplies. The MULT architecture spec specifies that expansion; this lesson walks through it and shows where it still gets hard.</p>
 </header>
+
+<aside class="callout gap">
+  <span class="label">Spec update (master 0511213)</span>
+  <ul>
+    <li>A MULT spec exists: <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/ARCH-stage-mult.md">ARCH-stage-mult.md</a>. §3.2.1 specifies the NX8-to-FP32 decode this lesson first proposed, and that each <code>R0</code>, <code>R1</code> and <code>R_CYCLIC</code> slot keeps its own metadata.</li>
+    <li>Every MULT instruction gains a <code>quantizion_format</code> CR operand. Its layout differs from the AaQ one (<a href="../reference/spec-audit.html">spec audit</a> #17).</li>
+    <li>MULT's metadata lists <code>dynamic_static</code>, which no spec writes (audit #18). <code>ACTIVATE.QUANTIZE</code> now stores the row itself (audit #1).</li>
+  </ul>
+</aside>
 
 <section class="wide" style="display:grid;gap:0.75rem">
   <h2>The round trip</h2>
   <div class="flow" aria-label="data path">
-    <span class="node aaq">AaQ quantizes</span><span class="arrow">→</span>
-    <span class="node">ST.AAQ</span><span class="arrow">→</span>
+    <span class="node aaq">ACTIVATE.QUANTIZE quantizes and stores</span><span class="arrow">→</span>
     <span class="node meta">XMEM row + metadata word</span><span class="arrow">→</span>
     <span class="node">DRAM (optional)</span><span class="arrow">→</span>
     <span class="node">LD.MULT</span><span class="arrow">→</span>
     <span class="node meta">register + metadata</span><span class="arrow">→</span>
-    <span class="node gapnode">MULT expands</span><span class="arrow">→</span>
+    <span class="node">MULT expands</span><span class="arrow">→</span>
     <span class="node">MULT_RES, FP32</span><span class="arrow">→</span>
     <span class="node">ACC</span>
   </div>
-  <p style="max-width:var(--measure)">The metadata word stays with its row the whole way. The cache unit moves it to and from DRAM with the data (<code>dram_rd_metadata</code>, <code>dram_wr_metadata</code>).<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/cache-unit.md#3-interfaces">[cache unit §3]</a></span> The dashed step is the one no spec covers.</p>
+  <p style="max-width:var(--measure)">The metadata word stays with its row the whole way. The cache unit moves it to and from DRAM with the data (<code>dram_rd_metadata</code>, <code>dram_wr_metadata</code>).<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/cache-unit.md#3-interfaces">[cache unit §3]</a></span></p>
 </section>
 
 <section style="display:grid;gap:0.75rem">
@@ -55,13 +63,13 @@
 </div>
 
 <section style="display:grid;gap:0.75rem">
-  <p>MULT then decodes each operand with the run's one element format and writes 128 products to <code>MULT_RES</code>, rounded once to the accumulator type: FP32 for every float format, INT32 for INT8.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/src/ipu-emu/src/ipu_emu/slots/mult.py">[slots/mult.py]</a> <a href="https://github.com/rechefe/ipu-emulator/blob/master/src/ipu-isa/src/ipu_isa/formats.py">[formats.py]</a></span> The decode is the emulator's biased Ex from lesson 3. Nothing reads a scale.</p>
-  <p>The accumulator spec says FP8 multiplies "produce FP32 products — see the MULT stage".<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-accumulator.md">[ACC spec]</a></span> There is no MULT-stage spec in <code>docs/content/specs/</code>.</p>
+  <p>MULT then decodes each operand with the run's one element format and writes 128 products to <code>MULT_RES</code>, rounded once to the accumulator type: FP32 for every float format, INT32 for INT8.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/src/ipu-emu/src/ipu_emu/slots/mult.py">[slots/mult.py]</a> <a href="https://github.com/rechefe/ipu-emulator/blob/master/src/ipu-isa/src/ipu_isa/formats.py">[formats.py]</a></span> The decode is the old emulator Ex that lesson 3 retires. Nothing reads a scale.</p>
+  <p>The MULT architecture spec defines the hardware: dequantize each NX8 element to FP32 with the format from <code>quantizion_format</code> and the vector scale, multiply, then mask.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/ARCH-stage-mult.md#1-overview">[ARCH MULT §1]</a></span></p>
 </section>
 
 <section style="display:grid;gap:0.75rem">
-  <h2>The proposed expansion</h2>
-  <p>Expansion is the lesson 1 decode, applied per element with the scale of the row the element came from:</p>
+  <h2>The specified expansion</h2>
+  <p>ARCH MULT §3.2.1 specifies the lesson 1 decode, applied per element with the scale of the row the element came from:<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/ARCH-stage-mult.md#321-nx8-to-fp32">[ARCH MULT §3.2.1]</a></span></p>
   <div class="table-wrap"><table>
     <thead><tr><th>Exponent field</th><th>Expanded FP32 value</th></tr></thead>
     <tbody>
@@ -71,7 +79,7 @@
   </table></div>
   <ul>
     <li><span class="role meta">s</span> comes from the row's metadata word, so the register must keep it.</li>
-    <li><span class="role table">fe</span> comes from the table format; in a dynamic table it comes from the row's <code>dynamic_exponent</code> bit instead (1 = E2M5, 0 = E1M6).</li>
+    <li><span class="role table">fe</span> comes from the <code>quantizion_format</code> CR operand: <code>nx_format</code> 1–7. <code>nx_format = 0</code> means dynamic, and then <code>fe</code> comes from the row's <code>dynamic_exponent</code> bit (1 = E2M5, 0 = E1M6).</li>
     <li>For <code>fe ≤ 4</code>, every expanded value is exact in FP32. For <code>fe</code> 5 or 6 and a small scale, the lowest binades fall below FP32's smallest subnormal, 2<sup>−149</sup>.</li>
   </ul>
 </section>
@@ -94,14 +102,14 @@
 
 <section style="display:grid;gap:0.75rem">
   <h2>Registers must carry metadata</h2>
-  <p>If MULT expands, each register loaded from XMEM must keep the metadata word and the table format of every row it holds: one for each of <code>R0</code> and <code>R1</code>, four for <code>R_CYCLIC</code>, one per quarter.</p>
-  <p>Windows make this hard. <code>MULT.RC.*</code> reads 128 elements from any offset, so a window can span two quarters loaded from different rows, with different scales. <code>MULT.VE</code> has the same problem across <code>R0</code> and <code>R1</code>. Three options:</p>
+  <p>The spec says <code>R0</code>, <code>R1</code> and each 128-element slot of <code>R_CYCLIC</code> keep the metadata of the vector loaded into them: one word for each of <code>R0</code> and <code>R1</code>, four for <code>R_CYCLIC</code>, one per quarter.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/ARCH-stage-mult.md#321-nx8-to-fp32">[ARCH MULT §3.2.1]</a></span></p>
+  <p>Windows make this hard. <code>MULT.RC.*</code> reads 128 elements from any offset, so a window can span two quarters loaded from different rows, with different scales. <code>MULT.VE</code> has the same problem across <code>R0</code> and <code>R1</code>. Three rules were possible; the spec picks the first ("each element uses the metadata of the register or slot that holds it"):</p>
   <ul>
     <li><strong>Per element:</strong> each element uses the scale of the quarter it came from. Exact, and existing access patterns keep working. Costs RTL a scale mux per element.</li>
     <li><strong>Fault on mismatch:</strong> a window spanning quarters with different metadata raises a fault. Cheap; restricts kernels.</li>
     <li><strong>One scale wins:</strong> the first quarter's scale applies to the whole window. Cheap, and silently wrong for the other part.</li>
   </ul>
-  <p>The per-element rule is the recommendation, with its RTL cost logged as an open question.</p>
+  <p>The per-element rule costs RTL a scale mux per element.</p>
 </section>
 
 <div class="panel wide">
@@ -114,7 +122,7 @@
   <h2>Scalar operands</h2>
   <ul>
     <li><code>MULT.RC.VE</code> with an LR source multiplies by one element of Ra. That element has a row, so it has a scale: its register's metadata.</li>
-    <li><code>MULT.VE</code>, <code>MULT.EE</code>, and <code>MULT.RC.VE</code> with a CR source decode the CR's low element bits in the run's format.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/src/ipu-emu/src/ipu_emu/numerics/codecs.py">[codecs.py, decode_cr_scalar]</a></span> A CR has no metadata word, so a scaled CR scalar has no scale. It could hold an FP32 value, an emulator-style Ex byte, or a byte plus a scale. Nothing decides this yet.</li>
+    <li><code>MULT.VE</code>, <code>MULT.EE</code>, and <code>MULT.RC.VE</code> with a CR source decode the CR's low element bits in the run's format.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/src/ipu-emu/src/ipu_emu/numerics/codecs.py">[codecs.py, decode_cr_scalar]</a></span> The spec takes a CR scalar from bits <code>[7:0]</code> and decodes it as NX8, but a CR has no metadata word, so the scalar has no defined scale.</li>
   </ul>
 </section>
 
@@ -125,8 +133,8 @@
 </section>
 <script type="application/json" id="quiz7">[
   {"prompt": "Which spec defines how MULT expands a scaled row?",
-   "options": ["The AaQ stage spec", "The accumulator stage spec", "The cache unit spec", "No spec defines it"], "answer": 3,
-   "why": "The ACC spec points to a MULT-stage spec that does not exist. The expansion here is a proposal."},
+   "options": ["The AaQ stage spec", "The accumulator stage spec", "The cache unit spec", "The MULT architecture spec"], "answer": 3,
+   "why": "ARCH-stage-mult §3.2.1, NX8 to FP32."},
   {"prompt": "LD.MULT loads a row into R0. What must R0 also keep?",
    "options": ["The row's metadata word", "The row's XMEM address", "The previous row's bytes", "The AaQ LUT contents"], "answer": 0,
    "why": "MULT needs the row's scale (and dynamic_exponent) to expand R0's bytes."},
@@ -144,47 +152,49 @@
    "why": "Each expanded element has ≤ 7 significant bits; FP32 has a 24-bit significand."},
   {"prompt": "MULT.VE multiplies by a CR scalar. What scale does the CR have?",
    "options": ["The row scale of R0", "The scale stored in CR15", "None: no spec gives it", "The table's format field scale"], "answer": 2,
-   "why": "A CR has no metadata word. How a scaled CR scalar is encoded is undecided."},
-  {"prompt": "A dynamic table. Which condition makes AaQ pick E1M6?",
+   "why": "The spec reads the scalar from CR bits [7:0]; a CR has no metadata word, so no scale is defined."},
+  {"prompt": "Dynamic format. Which condition makes AaQ pick E1M6?",
    "options": ["sum(A) − 4·sum(B) < 0", "sum(B) − 4·sum(A) < 0", "sum(B) − 4·sum(A) ≥ 0", "sum(A) + sum(B) > 0"], "answer": 1,
    "why": "AaQ §5.1.1: if sum(B) − 4·sum(A) < 0 choose fe = 1 (E1M6), else fe = 2 (E2M5)."},
   {"prompt": "How many LUT loads program the whole LUT and its metadata?",
    "options": ["Three loads, lut_addr 0–2", "Eight loads, lut_addr 0–7", "One load, lut_addr 4", "Five loads, lut_addr 0–4"], "answer": 3,
-   "why": "AaQ §5.2.1: four full table segments (0–3), then segment 4 with the last 256 table bits and the 75-bit metadata."}
+   "why": "AaQ §5.2.1: four full table segments (0–3), then segment 4 with the last 256 table bits and the LUT metadata (75 bits in MAS, 46 in ARCH)."}
 ]</script>
 
 <section class="panel">
   <h3>Explain it back</h3>
-  <p>In three sentences, describe what happens to an AaQ row between <code>ST.AAQ</code> and <code>MULT_RES</code>, naming where the scale and <code>fe</code> travel.</p>
+  <p>In three sentences, describe what happens to an AaQ row between <code>ACTIVATE.QUANTIZE</code> and <code>MULT_RES</code>, naming where the scale and <code>fe</code> travel.</p>
   <label for="explain7" class="eyebrow">Your answer</label>
   <textarea id="explain7"></textarea>
   <button type="button" data-reveal="model7">Show a model answer</button>
-  <p id="model7" hidden><code>ST.AAQ</code> writes the 128 bytes and the metadata word (scale, <code>dynamic_exponent</code>) to an XMEM row; the cache unit keeps them together, through DRAM if the table goes there. A load copies the row into <code>R0</code>, <code>R1</code> or one <code>R_CYCLIC</code> quarter, and the register keeps the metadata word and the table's format, found from the load's table id. MULT expands each element with its own row's scale and <code>fe</code>, multiplies exactly in FP32, and writes <code>MULT_RES</code> for ACC.</p>
+  <p id="model7" hidden><code>ACTIVATE.QUANTIZE</code> writes the 128 bytes and the metadata word (scale, <code>dynamic_exponent</code>) to an XMEM row; the cache unit keeps them together, through DRAM if the table goes there. A load copies the row into <code>R0</code>, <code>R1</code> or one <code>R_CYCLIC</code> quarter, and the register keeps the metadata word. MULT takes <code>fe</code> from its <code>quantizion_format</code> CR (or from <code>dynamic_exponent</code> when the format is dynamic), expands each element with its own row's scale, multiplies exactly in FP32, and writes <code>MULT_RES</code> for ACC.</p>
 </section>
 
 <section style="display:grid;gap:0.75rem">
   <h2>What this means for the emulator</h2>
   <ul>
-    <li><strong>Registers gain metadata.</strong> <code>R0</code>, <code>R1</code> and each <code>R_CYCLIC</code> quarter store a metadata word and a table format beside their bytes; the loads fill them.</li>
-    <li><strong>A second decode path.</strong> MULT expands rows from AaQ tables with the scale-relative decode, and keeps today's codec for everything else, so legacy kernels and their goldens stay the same.</li>
+    <li><strong>Registers gain metadata.</strong> <code>R0</code>, <code>R1</code> and each <code>R_CYCLIC</code> quarter store a metadata word beside their bytes; the loads fill them.</li>
+    <li><strong>One decode path.</strong> MULT decodes NX8 per ARCH MULT §3.2.1. The old emulator Ex goes (lesson 3); the 3 kernels that used it get new goldens.</li>
+    <li><strong>A format operand.</strong> Every MULT instruction names a <code>quantizion_format</code> CR, so every kernel's MULT lines change mechanically.</li>
     <li><strong>Windows decode per element.</strong> <code>_r_cyclic_window</code> and <code>_ra_lanes</code> in <code>slots/mult.py</code> pick each element's scale from the quarter or register it came from.</li>
-    <li><strong>Decisions to settle:</strong> the window rule, how a CR scalar is scaled, and what an <code>fe</code> 5–6 underflow does.</li>
+    <li><strong>Decisions to settle:</strong> how a CR scalar is scaled, what an <code>fe</code> 5–6 underflow does, which <code>quantizion_format</code> layout wins (audit #17), and whether metadata carries <code>dynamic_static</code> (audit #18).</li>
   </ul>
 </section>
 
 <aside class="callout gap">
   <span class="label">Where the spec stops</span>
   <ul>
-    <li>No MULT-stage spec: the expansion, the register metadata and the products are all undefined.</li>
-    <li>No rule for a window that spans rows with different scales (<code>R_CYCLIC</code> quarters, or <code>R0</code>/<code>R1</code> in Ra).</li>
-    <li>No encoding for a scaled CR scalar.</li>
+    <li>The <code>quantizion_format</code> layout differs between the AaQ and MULT architecture specs (<a href="../reference/spec-audit.html">audit</a> #17).</li>
+    <li>MULT's metadata has a <code>dynamic_static</code> bit no spec writes (audit #18).</li>
+    <li>A CR scalar is an NX8 byte with no scale.</li>
+    <li>NX8 <code>NaN</code> and <code>inf</code>: "TBD - ask Jacob" (audit #22).</li>
     <li>No behaviour for products that overflow or underflow FP32, or for expanded values below 2<sup>−149</sup>.</li>
   </ul>
 </aside>
 
 <aside class="callout source">
   <span class="label">Read next</span>
-  <p>The MULT handlers in <a href="https://github.com/rechefe/ipu-emulator/blob/master/src/ipu-emu/src/ipu_emu/slots/mult.py">src/ipu-emu/src/ipu_emu/slots/mult.py</a> (<code>_ra_lanes</code>, <code>_r_cyclic_window</code>) and the loads in <a href="https://github.com/rechefe/ipu-emulator/blob/master/src/ipu-emu/src/ipu_emu/slots/load.py">slots/load.py</a>. For how industry hardware consumes block-scaled data, the <a href="https://docs.nvidia.com/cutlass/latest/media/docs/operators/tutorials/006_block_scaled_gemm.html">CUTLASS block-scaled GEMM tutorial</a>.</p>
+  <p><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/ARCH-stage-mult.md#32-element-format">ARCH MULT §3.2</a> (element format and NX8 to FP32). Then the MULT handlers in <a href="https://github.com/rechefe/ipu-emulator/blob/master/src/ipu-emu/src/ipu_emu/slots/mult.py">src/ipu-emu/src/ipu_emu/slots/mult.py</a> (<code>_ra_lanes</code>, <code>_r_cyclic_window</code>) and the loads in <a href="https://github.com/rechefe/ipu-emulator/blob/master/src/ipu-emu/src/ipu_emu/slots/load.py">slots/load.py</a>. For how industry hardware consumes block-scaled data, the <a href="https://docs.nvidia.com/cutlass/latest/media/docs/operators/tutorials/006_block_scaled_gemm.html">CUTLASS block-scaled GEMM tutorial</a>.</p>
 </aside>
 
 <aside class="callout ask">

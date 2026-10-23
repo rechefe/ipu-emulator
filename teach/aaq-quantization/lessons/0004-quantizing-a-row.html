@@ -24,9 +24,9 @@
 
 <section style="display:grid;gap:0.75rem">
   <h2>The five steps</h2>
-  <p>All steps work on the FP32 bits of each activated element: sign <code>S</code>, raw (biased) exponent <code>e</code>, and the 23-bit mantissa with its implicit leading 1.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#51-quantization-algorithm">[AaQ §5.1]</a></span></p>
+  <p>All steps work on the FP32 bits of each activated element: sign <code>S</code>, raw (biased) exponent <code>e</code>, and the 23-bit mantissa with its implicit leading 1.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/ARCH-stage-aaq-str.md#432-quantize">[ARCH §4.3.2]</a> <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#51-quantization-algorithm">[MAS §5.1]</a></span> Both specs give the same quantizer.</p>
   <ol>
-    <li><strong>Pick the scale.</strong> <code>s = max(e)</code> over the row's elements. The scale is the raw exponent of the largest element, stored as <code>e8m0</code>.</li>
+    <li><strong>Pick the scale.</strong> <code>s = max(e)</code> over the row's <em>active</em> elements (<code>dstructure</code>); inactive elements do not count. The scale is the raw exponent of the largest element, stored as <code>e8m0</code>.</li>
     <li><strong>Measure the distance.</strong> <code>E = s − e</code> for each element. <code>E ≥ 0</code> always; <code>E = 0</code> for the element(s) that set the scale.</li>
     <li><strong>Choose the branch.</strong> If <code>E &lt; 2<sup>fe</sup> − 1</code>, the <em>direct</em> branch stores <code>Exp = E</code>. Otherwise the <em>clamp</em> branch stores <code>Exp = 2<sup>fe</sup> − 1</code>, the all-ones field.</li>
     <li><strong>Round the mantissa</strong> to <code>fm</code> bits, round to nearest. The clamp branch first shifts <code>1.M</code> right by <code>E − (2<sup>fe</sup> − 1) + 1</code>, so small elements keep their magnitude instead of flushing to zero.</li>
@@ -66,7 +66,7 @@
 <div class="panel wide">
   <h3>Quantize a row</h3>
   <div class="decoder" data-quantizer data-values="3.2, 0.4, -1.99, 0, 3.99, 0.001" data-fe="4"></div>
-  <p class="bitlegend">Try <code>3.99</code> alone, then <code>3.99, 4</code>. Try <code>fe = 2</code> with <code>3.2, 0.4975</code>. Ties round half up here; §5.1 does not state the tie rule.</p>
+  <p class="bitlegend">Try <code>3.99</code> alone, then <code>3.99, 4</code>. Try <code>fe = 2</code> with <code>3.2, 0.4975</code>. Ties round half up, as both specs state.</p>
 </div>
 
 <section class="wide" style="display:grid;gap:0.75rem">
@@ -135,16 +135,15 @@
   <ul>
     <li><strong>Bit-exact integer arithmetic.</strong> The quantizer works on the FP32 bit fields (<code>struct</code> packing in Python), not on doubles. The emulator's AaQ path today uses Python <code>round()</code> on doubles (<code>src/ipu-emu/src/ipu_emu/slots/aaq.py</code>), which rounds ties to even.</li>
     <li><strong>One unit test per rule.</strong> Each branch, both edges, zero, and the worked example above become tests with exact expected bytes.</li>
-    <li><strong>Decisions before conformance.</strong> The tie rule, ±inf and NaN (OQ-22), and FP32 subnormals must match the RTL; agree them with the AaQ spec owner first.</li>
+    <li><strong>Decisions before conformance.</strong> ±inf and NaN inputs, the NX8 NaN that ARCH writes for inactive elements, and FP32 subnormals must match the RTL; agree them with the AaQ spec owner first (<a href="../reference/spec-audit.html">audit</a> #6, #13, #22).</li>
+    <li><strong>Inactive elements.</strong> ARCH writes NaN, MAS writes 0 (audit #6). The emulator follows ARCH once NX8 defines a NaN code.</li>
   </ul>
 </section>
 
 <aside class="callout gap">
   <span class="label">Where the spec stops</span>
   <ul>
-    <li>§5.1 writes <code>s = max(e[i] for i in 0..254)</code> for a 128-element row; read it as the 128 elements (OQ-25 notes it).</li>
-    <li>The spec does not say whether elements beyond <code>valid_elements</code>, or masked by <code>partition_mask</code>, count toward <code>s</code>. §3.1 says masked elements "do not participate".</li>
-    <li>"Round to nearest" has no tie rule.</li>
+    <li>ARCH leaves out of the scale any element that quantizes to NX8 <code>inf</code> or <code>NaN</code>, but NX8 has no defined <code>inf</code> or <code>NaN</code> code (audit #13, #22).</li>
     <li>FP32 subnormals are "always treated as normalized": a subnormal input gets an implicit 1 it does not have.</li>
     <li>Edge 1 at <code>E = 0</code> saturates rather than raising the scale; worth confirming this is intended.</li>
   </ul>

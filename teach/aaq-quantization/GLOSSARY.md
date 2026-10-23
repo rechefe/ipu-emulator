@@ -24,12 +24,19 @@ Sharing one scale across a block of elements so each element stores only its off
 
 ## Tables
 
+**NX8**:
+The hardware's 8-bit element family `e1`–`e7`: each element stores its distance below the row's scale. "E4" always means NX8 e4; the emulator's old biased E1–E7 are retired.
+_Avoid_: AaQ E4M3, scaled E4
+
+**`quantizion_format`**:
+The CR operand that names the NX8 format (sign, `fe`, width, static or dynamic) in the architecture specs, on `ACTIVATE.QUANTIZE` and every MULT instruction. The AaQ and MULT layouts differ.
+
 **Table format**:
-The 9-bit `format` property of a table: `{dynamic, sign, fe, W}`. Shared by every row of the table and never written to XMEM.
-_Avoid_: row format, element type (for AaQ tables)
+The microarchitecture and cache-unit view: a 9-bit `format` property of a table, `{dynamic, sign, fe, W}`, shared by every row. The architecture specs use `quantizion_format` instead.
+_Avoid_: row format
 
 **`fe`**:
-The number of exponent bits in an element, from the table format (or from `dynamic_exponent` in a dynamic table).
+The number of exponent bits in an element, 1–7: from `quantizion_format` (the table format in the microarchitecture view), or from `dynamic_exponent` when the format is dynamic.
 
 **Table set**:
 The tables of one kernel, at most 16, held by the cache unit. There are two, one per context.
