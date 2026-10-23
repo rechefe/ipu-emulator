@@ -1,6 +1,6 @@
 # Element formats replace wide-vector mode
 
-_Status: accepted (2026-10-15). Implementation is planned in `planning/architecture-deepening/`._
+_Status: accepted (2026-10-15). The format list (INT8, E1–E7, INT32) and the single per-run format are superseded by [ADR 0007](0007-operational-aaq-and-nx8.md); "one codec per format, no `if wide:` branches" still holds._
 
 One element-format setting selects how lanes are encoded: INT8 and E1–E7 on hardware, FP32 and INT32 in the emulator only. Element width, row width and accumulator type derive from it. Every instruction is written once as decode → compute → encode through the format's codec, with no `if wide:` branches. "Wide mode" is simply the FP32 format, in which XMEM rows are four times wider while vectors keep 128 elements.
 
