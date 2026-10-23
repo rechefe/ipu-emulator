@@ -8,7 +8,7 @@ AAQ-slot keyword on **`ACTIVATE.QUANTIZE`**: **identity** (0), **relu** (1), **r
 
 ## `ActivationFn` {: #activationfn }
 
-Keyword on the emulator-only **`ACTIVATE.EXACT`**: one of **identity**, **relu**, **relu6**, **sigmoid**, **tanh**, **gelu**, **softplus**, **elu**, **exp2**, **reciprocal**, **rsqrt**, **silu**, **window** (see ``ACTIVATION_FN_NAMES`` in ``ipu_isa.activations``). Emulator-only calibration (including α and the **window** bounds a, b) is described in **`ACTIVATE.QUANTIZE` in the emulator** (`docs/content/reference/isa/activate-quantize.md`).
+Keyword on the emulator-only **`ACTIVATE.EXACT`**: one of **identity**, **relu**, **relu6**, **sigmoid**, **tanh**, **gelu**, **softplus**, **elu**, **exp2**, **reciprocal**, **rsqrt**, **silu**, **window** (see ``ACTIVATION_FN_NAMES`` in ``ipu_isa.activations``). Emulator-only calibration (including α and the **window** bounds a, b) is described in the **`ACTIVATE.EXACT`** section of `docs/content/reference/isa/activate-quantize.md`.
 
 ## `AddbiImmediate` {: #addbiimmediate }
 

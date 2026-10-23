@@ -188,8 +188,9 @@ def row_scale(values: Sequence[float], active: Sequence[bool] | None = None) -> 
     return max(exps, default=0)
 
 
-def _magnitude(p: _Fp32) -> Fraction:
-    return Fraction(p.sig) * Fraction(2) ** (p.exp - SCALE_BIAS - _FP32_MANTISSA_BITS)
+def _relative_magnitude(p: _Fp32, scale: int) -> Fraction:
+    """``|v| / 2^(scale - 127)``: the element in units of its row's scale."""
+    return Fraction(p.sig) * Fraction(2) ** (p.exp - scale - _FP32_MANTISSA_BITS)
 
 
 def _truncation_error(mag: Fraction, step: Fraction) -> Fraction:
@@ -207,13 +208,16 @@ def dynamic_scores(
 
     ``num_bits`` is a parameter only so the spec's worked example (``W = 6``)
     can be checked; a dynamic format itself is 8 bits wide (OQ-43). Errors are
-    truncation errors with the steps of the §4.3.2.3 table, as the example uses.
+    truncation errors with the steps of the §4.3.2.3 table, as the example uses,
+    measured in units of the row's scale (``2^(scale - 127)``), so a row's
+    choice does not change when every element is scaled by a power of two:
+    the reading under which the spec's "both estimators are unbiased" holds,
+    and the only one its scale-0 example cannot tell apart (OQ-49).
     """
     fm1 = num_bits - 2
     flags = _active_list(active, len(values))
     fields = [_fp32_fields(v) for v in values]
     scale = max((p.exp for p, on in zip(fields, flags, strict=True) if on and not p.inf), default=0)
-    unbiased = scale - SCALE_BIAS
     two = Fraction(2)
     sum_a = sum_b = 0
     for p, on in zip(fields, flags, strict=True):
@@ -226,9 +230,9 @@ def dynamic_scores(
             weight = two ** (2 * (fm1 + 1))
         else:
             continue
-        mag = _magnitude(p)
-        err1 = _truncation_error(mag, two ** (unbiased - min(distance, 1) - fm1))
-        err2 = _truncation_error(mag, two ** (unbiased - min(distance, 3) - fm1 + 1))
+        mag = _relative_magnitude(p, scale)
+        err1 = _truncation_error(mag, two ** (-min(distance, 1) - fm1))
+        err2 = _truncation_error(mag, two ** (-min(distance, 3) - fm1 + 1))
         term = _rtn(abs(err2 * err2 - err1 * err1) * weight)
         if distance == 0:
             sum_a += term

@@ -321,8 +321,8 @@ _SPEC: dict[str, dict[str, Any]] = {
         "**sigmoid**, **tanh**, **gelu**, **softplus**, **elu**, **exp2**, **reciprocal**, **rsqrt**, **silu**, **window** "
         "(see ``ACTIVATION_FN_NAMES`` in ``ipu_isa.activations``). Emulator-only calibration (including α and the "
         "**window** bounds a, b) "
-        "is described in **`ACTIVATE.QUANTIZE` in the emulator** "
-        "(`docs/content/reference/isa/activate-quantize.md`).",
+        "is described in the **`ACTIVATE.EXACT`** section of "
+        "`docs/content/reference/isa/activate-quantize.md`.",
     },
     "AaqActivationFn": {
         "kind": OperandKind.ENUM,

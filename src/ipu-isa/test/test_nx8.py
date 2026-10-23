@@ -105,6 +105,19 @@ def test_dynamic_worked_example_scores():
     assert dynamic_scores(values, num_bits=6) == (5, 2)
 
 
+@pytest.mark.parametrize("k", [-8, -4, -1, 0, 1, 5])
+def test_dynamic_rule_ignores_a_power_of_two_scaling(k):
+    # Errors are measured in units of the row's scale (OQ-49): scaling the
+    # worked example by 2^k leaves its scores, and so its choice, unchanged.
+    values = [1.83, 1.21, 1.57, 0.94, 0.67, 0.41, 0.2345, 0.1780, 0.0920, 0.0555]
+    assert dynamic_scores([math.ldexp(v, k) for v in values], num_bits=6) == (5, 2)
+
+
+def test_small_rows_can_choose_e1m6():
+    values = [0.125 * (1 + i / 128) for i in range(128)]  # one binade: E = 0 everywhere
+    assert choose_dynamic_exponent(values) == 0
+
+
 def test_dynamic_row_records_its_split():
     fmt = Nx8Format(sign=1, exp_format=0, num_bits=8, dynamic=True)
     values = [1.0, 0.24, 0.12, 0.06, 0.03]  # mostly far below the scale: E2M5 wins
