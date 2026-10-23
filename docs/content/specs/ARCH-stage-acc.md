@@ -231,9 +231,9 @@ ACC.STRIDE cr_idx, horizontal_stride, vertical_stride, offset
 
 | Name | Type | Details |
 |------|------|---------|
-| `dstructure` | [`CrIdx`](../operand-types.md#cridx) | `CR0`-`CR15`. Supplies `num_partition` (section 3.1): the number of rows of `input data`. |
-| `horizontal_stride` | [`Imm`](../operand-types.md#horizontalstride) | `off`, `on` or `on_inv`. Column pattern. |
-| `vertical_stride` | [`Imm`](../operand-types.md#verticalstride) | `off`, `on` or `on_inv`. Row pattern. |
+| `dstructure` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | `CR0`-`CR15`. Supplies `num_partition` (section 3.1): the number of rows of `input data`. |
+| `horizontal_stride` | [`Imm`](../reference/isa/operand-types.md#horizontalstride) | `off`, `on` or `on_inv`. Column pattern. |
+| `vertical_stride` | [`Imm`](../reference/isa/operand-types.md#verticalstride) | `off`, `on` or `on_inv`. Row pattern. |
 | `offset` | `Imm` | `0`, `16`, `32`, `48`, `64`, `80`, `96` or `112`. The first written `R_ACC` element. |
 
 **Pattern modes:**
@@ -305,8 +305,8 @@ AGG.MAX.FIRST dest_slot, cr_idx
 
 | Name | Type | Details |
 |------|------|---------|
-| `dest_slot` | [`LrIdx`](../operand-types.md#lridx) | `LR0`-`LR15`. selects the written element. |
-| `dstrcture` | [`CrIdx`](../operand-types.md#cridx) | `CR0`-`CR15`. Supplies `valid_elements` (section 3.1). |
+| `dest_slot` | [`LrIdx`](../reference/isa/operand-types.md#lridx) | `LR0`-`LR15`. selects the written element. |
+| `dstrcture` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | `CR0`-`CR15`. Supplies `valid_elements` (section 3.1). |
 
 #### Operation
 

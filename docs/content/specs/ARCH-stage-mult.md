@@ -318,9 +318,9 @@ LDR_MULT_REG dest, offset, base
 
 | Name | Type | Details |
 |------|------|---------|
-| `dest` | [`Imm`](../operand-types.md#multstagereg) | `R0` or `R1`. The register that is written. |
-| `offset` | [`LrIdx`](../operand-types.md#lridx) | `LR0`-`LR15`. Row offset in XMEM. |
-| `base` | [`CrIdx`](../operand-types.md#cridx) | `CR0`-`CR15`. Base row in XMEM. |
+| `dest` | [`Imm`](../reference/isa/operand-types.md#multstagereg) | `R0` or `R1`. The register that is written. |
+| `offset` | [`LrIdx`](../reference/isa/operand-types.md#lridx) | `LR0`-`LR15`. Row offset in XMEM. |
+| `base` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | `CR0`-`CR15`. Base row in XMEM. |
 
 #### Operation
 
@@ -351,9 +351,9 @@ LDR_CYCLIC_MULT_REG offset, base, index
 
 | Name | Type | Details |
 |------|------|---------|
-| `offset` | [`LrIdx`](../operand-types.md#lridx) | `LR0`-`LR15`. Row offset in XMEM. |
-| `base` | [`CrIdx`](../operand-types.md#cridx) | `CR0`-`CR15`. Base row in XMEM. |
-| `index` | [`LrIdx`](../operand-types.md#lridx) | `LR0`-`LR15` whose value is `0`, `128`, `256` or `384`. The first element of the written slot. |
+| `offset` | [`LrIdx`](../reference/isa/operand-types.md#lridx) | `LR0`-`LR15`. Row offset in XMEM. |
+| `base` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | `CR0`-`CR15`. Base row in XMEM. |
+| `index` | [`LrIdx`](../reference/isa/operand-types.md#lridx) | `LR0`-`LR15` whose value is `0`, `128`, `256` or `384`. The first element of the written slot. |
 
 #### Operation
 
@@ -383,8 +383,8 @@ LDR_MULT_MASK_REG offset, base
 
 | Name | Type | Details |
 |------|------|---------|
-| `offset` | [`LrIdx`](../operand-types.md#lridx) | `LR0`-`LR15`. Row offset in XMEM. |
-| `base` | [`CrIdx`](../operand-types.md#cridx) | `CR0`-`CR15`. Base row in XMEM. |
+| `offset` | [`LrIdx`](../reference/isa/operand-types.md#lridx) | `LR0`-`LR15`. Row offset in XMEM. |
+| `base` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | `CR0`-`CR15`. Base row in XMEM. |
 
 #### Operation
 
@@ -413,16 +413,16 @@ MULT.RC.VV rc_idx, ra, mask_offset, mask_shift, cr_idx, quantizion_format
 
 #### Operands
 
-The Type column links to the [operand type reference](../operand-types.md).
+The Type column links to the [operand type reference](../reference/isa/operand-types.md).
 
 | Name | Type | Details |
 |------|------|---------|
-| `rc_idx` | [`LrIdx`](../operand-types.md#lridx) | `LR0`-`LR15`. Start element of the `R_CYCLIC` window (section 3.3). |
-| `ra` | [`Imm`](../operand-types.md#multstagereg) | `R0` or `R1`. |
-| `mask_offset` | [`Imm`](../operand-types.md#multmaskoffsetimmediate) | `0`-`7`. `R_MASK` slot (section 3.4). |
-| `mask_shift` | [`LrIdx`](../operand-types.md#lridx) | `LR0`-`LR15`. Mask shift, `-3`-`+3` (section 3.4). |
-| `cr_idx` | [`CrIdx`](../operand-types.md#cridx) | `CR0`-`CR15`. Supplies `num_partition` and `pad_mode` (section 3.1). |
-| `quantizion_format` | [`CrIdx`](../operand-types.md#cridx) | `CR0`-`CR15`. Supplies the NX8 format of the input elements (section 3.2). |
+| `rc_idx` | [`LrIdx`](../reference/isa/operand-types.md#lridx) | `LR0`-`LR15`. Start element of the `R_CYCLIC` window (section 3.3). |
+| `ra` | [`Imm`](../reference/isa/operand-types.md#multstagereg) | `R0` or `R1`. |
+| `mask_offset` | [`Imm`](../reference/isa/operand-types.md#multmaskoffsetimmediate) | `0`-`7`. `R_MASK` slot (section 3.4). |
+| `mask_shift` | [`LrIdx`](../reference/isa/operand-types.md#lridx) | `LR0`-`LR15`. Mask shift, `-3`-`+3` (section 3.4). |
+| `cr_idx` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | `CR0`-`CR15`. Supplies `num_partition` and `pad_mode` (section 3.1). |
+| `quantizion_format` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | `CR0`-`CR15`. Supplies the NX8 format of the input elements (section 3.2). |
 
 #### Operation
 
@@ -453,16 +453,16 @@ MULT.RC.VE rc_idx, src, mask_offset, mask_shift, cr_idx, quantizion_format
 
 #### Operands
 
-The Type column links to the [operand type reference](../operand-types.md).
+The Type column links to the [operand type reference](../reference/isa/operand-types.md).
 
 | Name | Type | Details |
 |------|------|---------|
-| `rc_idx` | [`LrIdx`](../operand-types.md#lridx) | `LR0`-`LR15`. Start element of the `R_CYCLIC` window (section 3.3). |
-| `src` | [`LcrIdx`](../operand-types.md#lcridx) | `LR0`-`LR15` or `CR0`-`CR15`. An `LR`'s value selects the scalar `Ra[src]`. A `CR` supplies the scalar in bits `[7:0]`. |
-| `mask_offset` | [`Imm`](../operand-types.md#multmaskoffsetimmediate) | `0`-`7`. `R_MASK` slot (section 3.4). |
-| `mask_shift` | [`LrIdx`](../operand-types.md#lridx) | `LR0`-`LR15`. Mask shift, `-3`-`+3` (section 3.4). |
-| `cr_idx` | [`CrIdx`](../operand-types.md#cridx) | `CR0`-`CR15`. Supplies `num_partition` and `pad_mode` (section 3.1). |
-| `quantizion_format` | [`CrIdx`](../operand-types.md#cridx) | `CR0`-`CR15`. Supplies the NX8 format of the input elements (section 3.2). |
+| `rc_idx` | [`LrIdx`](../reference/isa/operand-types.md#lridx) | `LR0`-`LR15`. Start element of the `R_CYCLIC` window (section 3.3). |
+| `src` | [`LcrIdx`](../reference/isa/operand-types.md#lcridx) | `LR0`-`LR15` or `CR0`-`CR15`. An `LR`'s value selects the scalar `Ra[src]`. A `CR` supplies the scalar in bits `[7:0]`. |
+| `mask_offset` | [`Imm`](../reference/isa/operand-types.md#multmaskoffsetimmediate) | `0`-`7`. `R_MASK` slot (section 3.4). |
+| `mask_shift` | [`LrIdx`](../reference/isa/operand-types.md#lridx) | `LR0`-`LR15`. Mask shift, `-3`-`+3` (section 3.4). |
+| `cr_idx` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | `CR0`-`CR15`. Supplies `num_partition` and `pad_mode` (section 3.1). |
+| `quantizion_format` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | `CR0`-`CR15`. Supplies the NX8 format of the input elements (section 3.2). |
 
 #### Operation
 
@@ -493,15 +493,15 @@ MULT.RC.VS rc_idx, mask_offset, mask_shift, cr_idx, quantizion_format
 
 #### Operands
 
-The Type column links to the [operand type reference](../operand-types.md).
+The Type column links to the [operand type reference](../reference/isa/operand-types.md).
 
 | Name | Type | Details |
 |------|------|---------|
-| `rc_idx` | [`LrIdx`](../operand-types.md#lridx) | `LR0`-`LR15`. Start element of the `R_CYCLIC` window (section 3.3). |
-| `mask_offset` | [`Imm`](../operand-types.md#multmaskoffsetimmediate) | `0`-`7`. `R_MASK` slot (section 3.4). |
-| `mask_shift` | [`LrIdx`](../operand-types.md#lridx) | `LR0`-`LR15`. Mask shift, `-3`-`+3` (section 3.4). |
-| `cr_idx` | [`CrIdx`](../operand-types.md#cridx) | `CR0`-`CR15`. Supplies `num_partition` and `pad_mode` (section 3.1). |
-| `quantizion_format` | [`CrIdx`](../operand-types.md#cridx) | `CR0`-`CR15`. Supplies the NX8 format of the input elements (section 3.2). |
+| `rc_idx` | [`LrIdx`](../reference/isa/operand-types.md#lridx) | `LR0`-`LR15`. Start element of the `R_CYCLIC` window (section 3.3). |
+| `mask_offset` | [`Imm`](../reference/isa/operand-types.md#multmaskoffsetimmediate) | `0`-`7`. `R_MASK` slot (section 3.4). |
+| `mask_shift` | [`LrIdx`](../reference/isa/operand-types.md#lridx) | `LR0`-`LR15`. Mask shift, `-3`-`+3` (section 3.4). |
+| `cr_idx` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | `CR0`-`CR15`. Supplies `num_partition` and `pad_mode` (section 3.1). |
+| `quantizion_format` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | `CR0`-`CR15`. Supplies the NX8 format of the input elements (section 3.2). |
 
 #### Operation
 
@@ -532,16 +532,16 @@ MULT.VE ra_idx, cr_idx, mask_offset, mask_shift, dstructure_cr_idx, quantizion_f
 
 #### Operands
 
-The Type column links to the [operand type reference](../operand-types.md).
+The Type column links to the [operand type reference](../reference/isa/operand-types.md).
 
 | Name | Type | Details |
 |------|------|---------|
-| `ra_idx` | [`LrIdx`](../operand-types.md#lridx) | `LR0`-`LR15`. Start element of the `Ra` window (section 3.3). |
-| `cr_idx` | [`CrIdx`](../operand-types.md#cridx) | `CR0`-`CR15`. Supplies the scalar in bits `[7:0]`. |
-| `mask_offset` | [`Imm`](../operand-types.md#multmaskoffsetimmediate) | `0`-`7`. `R_MASK` slot (section 3.4). |
-| `mask_shift` | [`LrIdx`](../operand-types.md#lridx) | `LR0`-`LR15`. Mask shift, `-3`-`+3` (section 3.4). |
-| `dstructure_cr_idx` | [`CrIdx`](../operand-types.md#cridx) | `CR0`-`CR15`. Supplies `num_partition` and `pad_mode` (section 3.1). |
-| `quantizion_format` | [`CrIdx`](../operand-types.md#cridx) | `CR0`-`CR15`. Supplies the NX8 format of the input elements (section 3.2). |
+| `ra_idx` | [`LrIdx`](../reference/isa/operand-types.md#lridx) | `LR0`-`LR15`. Start element of the `Ra` window (section 3.3). |
+| `cr_idx` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | `CR0`-`CR15`. Supplies the scalar in bits `[7:0]`. |
+| `mask_offset` | [`Imm`](../reference/isa/operand-types.md#multmaskoffsetimmediate) | `0`-`7`. `R_MASK` slot (section 3.4). |
+| `mask_shift` | [`LrIdx`](../reference/isa/operand-types.md#lridx) | `LR0`-`LR15`. Mask shift, `-3`-`+3` (section 3.4). |
+| `dstructure_cr_idx` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | `CR0`-`CR15`. Supplies `num_partition` and `pad_mode` (section 3.1). |
+| `quantizion_format` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | `CR0`-`CR15`. Supplies the NX8 format of the input elements (section 3.2). |
 
 #### Operation
 
@@ -572,16 +572,16 @@ MULT.EE ra_idx, cr_idx, mask_offset, mask_shift, dstructure_cr_idx, quantizion_f
 
 #### Operands
 
-The Type column links to the [operand type reference](../operand-types.md).
+The Type column links to the [operand type reference](../reference/isa/operand-types.md).
 
 | Name | Type | Details |
 |------|------|---------|
-| `ra_idx` | [`LrIdx`](../operand-types.md#lridx) | `LR0`-`LR15`. The `Ra` element, `Ra[ra_idx]` (section 3.3). |
-| `cr_idx` | [`CrIdx`](../operand-types.md#cridx) | `CR0`-`CR15`. Supplies the scalar in bits `[7:0]`. |
-| `mask_offset` | [`Imm`](../operand-types.md#multmaskoffsetimmediate) | `0`-`7`. `R_MASK` slot (section 3.4). |
-| `mask_shift` | [`LrIdx`](../operand-types.md#lridx) | `LR0`-`LR15`. Mask shift, `-3`-`+3` (section 3.4). |
-| `dstructure_cr_idx` | [`CrIdx`](../operand-types.md#cridx) | `CR0`-`CR15`. Supplies `num_partition` and `pad_mode` (section 3.1). |
-| `quantizion_format` | [`CrIdx`](../operand-types.md#cridx) | `CR0`-`CR15`. Supplies the NX8 format of the input elements (section 3.2). |
+| `ra_idx` | [`LrIdx`](../reference/isa/operand-types.md#lridx) | `LR0`-`LR15`. The `Ra` element, `Ra[ra_idx]` (section 3.3). |
+| `cr_idx` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | `CR0`-`CR15`. Supplies the scalar in bits `[7:0]`. |
+| `mask_offset` | [`Imm`](../reference/isa/operand-types.md#multmaskoffsetimmediate) | `0`-`7`. `R_MASK` slot (section 3.4). |
+| `mask_shift` | [`LrIdx`](../reference/isa/operand-types.md#lridx) | `LR0`-`LR15`. Mask shift, `-3`-`+3` (section 3.4). |
+| `dstructure_cr_idx` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | `CR0`-`CR15`. Supplies `num_partition` and `pad_mode` (section 3.1). |
+| `quantizion_format` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | `CR0`-`CR15`. Supplies the NX8 format of the input elements (section 3.2). |
 
 #### Operation
 

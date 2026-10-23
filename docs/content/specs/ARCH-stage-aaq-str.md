@@ -200,8 +200,8 @@ LOAD_LUT lut_addr table_id table_offset
 | Name | Type | Details |
 |------|------|---------|
 | `lut_addr` | `Imm` | `0`-`4`. LUT segment index: `0`-`3` = table slices, `4` = last table bits + metadata. |
-| `table_id` | [`CrIdx`](../operand-types.md#cridx) | `CR0`-`CR15`. Supplies the table ID. |
-| `table_offset` | [`LrIdx`](../operand-types.md#lridx) | `LR0`-`LR15`. Supplies the offset in the table. |
+| `table_id` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | `CR0`-`CR15`. Supplies the table ID. |
+| `table_offset` | [`LrIdx`](../reference/isa/operand-types.md#lridx) | `LR0`-`LR15`. Supplies the offset in the table. |
 
 #### Operation
 
@@ -316,11 +316,11 @@ ACTIVATE.QUANTIZE activation_fn, dstructure, quantizion_format, table_id, table_
 
 | Name | Type | Used by | Details |
 |------|------|---------|---------|
-| `activation_fn` | [`Imm`](../operand-types.md#activationfn) | Activate | Enum that names the activation (see [`activation_fn` Values](#activation_fn-values)). |
-| `dstructure` | [`CrIdx`](../operand-types.md#cridx) | Quantize | `CR0`-`CR15`. Supplies the structure of the 128-element vector: `valid_partition`, `num_partition`, `valid_elements` (section 3.2). |
-| `quantizion_format` | [`CrIdx`](../operand-types.md#cridx) | Quantize | `CR0`-`CR15`. Supplies the quantization format (section 3.1). |
-| `table_id` | [`CrIdx`](../operand-types.md#cridx) | Store | `CR0`-`CR15`. Supplies the ID of the destination table. |
-| `table_offset` | [`LrIdx`](../operand-types.md#lridx) | Store | `LR0`-`LR15`. Supplies the offset in the destination table. |
+| `activation_fn` | [`Imm`](../reference/isa/operand-types.md#activationfn) | Activate | Enum that names the activation (see [`activation_fn` Values](#activation_fn-values)). |
+| `dstructure` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | Quantize | `CR0`-`CR15`. Supplies the structure of the 128-element vector: `valid_partition`, `num_partition`, `valid_elements` (section 3.2). |
+| `quantizion_format` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | Quantize | `CR0`-`CR15`. Supplies the quantization format (section 3.1). |
+| `table_id` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | Store | `CR0`-`CR15`. Supplies the ID of the destination table. |
+| `table_offset` | [`LrIdx`](../reference/isa/operand-types.md#lridx) | Store | `LR0`-`LR15`. Supplies the offset in the destination table. |
 
 #### Operation
 
