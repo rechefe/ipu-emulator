@@ -23,5 +23,5 @@
 | Format | CR bits | Decoded as |
 |--------|---------|------------|
 | `FP32` | `[31:0]` | an IEEE binary32 value; `CR0` is 0.0 and `CR1` 1.0 |
-| `NX8` | `[31:0]` | one NX8 element with its own scale and type (the constant layout); `CR0` is 0.0 and `CR1` 1.0 |
+| `NX8` | `[23:0]` (bits 31:24 ignored) | one NX8 element with its own scale and type (the constant layout); `CR0` is 0.0 and `CR1` 1.0 |
 <!-- --8<-- [end:cr-scalars] -->

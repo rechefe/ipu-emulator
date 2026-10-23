@@ -59,7 +59,7 @@ def _collect(state):
     return collector.records
 
 
-# Every probe in every mode it declares (the FP32/INT32 modes write the
+# Every probe in every mode it declares (the FP32 mode writes the
 # emulator-only registers).
 PROBE_RUNS = [
     (name, mode) for name, probe in sorted(timing_probes.PROBES.items()) for mode in probe.modes

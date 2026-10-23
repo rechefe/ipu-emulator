@@ -739,7 +739,7 @@ def _encodings_table(formats: Mapping[ElementFormat, FormatInfo]) -> list[str]:
 #: How a MULT constant operand reads its CR in each mode (ADR 0007).
 _CR_SCALAR_DECODE = {
     ElementFormat.NX8: (
-        "`[31:0]`",
+        "`[23:0]` (bits 31:24 ignored)",
         "one NX8 element with its own scale and type (the constant layout); "
         "`CR0` is 0.0 and `CR1` 1.0",
     ),

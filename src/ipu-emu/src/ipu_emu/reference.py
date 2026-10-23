@@ -181,7 +181,9 @@ class ReferenceModel:
             fmt: The element format to run in.
 
         Raises:
-            ConfigurationError: *fmt* is no element format.
+            ConfigurationError: *fmt* is no element format, or it is NX8 and
+                the loaded program uses ``ACTIVATE.EXACT`` (FP32 only). The
+                model is left as it was.
         """
         self._state.reset(fmt)
         self._ipu.cycle.reset()
@@ -323,7 +325,7 @@ class ReferenceModel:
 
     def read_xmem_metadata(self, address: int) -> int:
         """The 16-bit metadata word of the 128-byte XMEM unit at *address*
-        (1.5.0, ADR 0007).
+        (2.0.0, ADR 0007).
 
         Args:
             address: The unit's first byte, a multiple of 128.
@@ -338,7 +340,7 @@ class ReferenceModel:
 
     def write_xmem_metadata(self, address: int, word: int) -> None:
         """Write the metadata word of the 128-byte XMEM unit at *address*,
-        only while halted (1.5.0, ADR 0007). The unit's bytes are unchanged.
+        only while halted (2.0.0, ADR 0007). The unit's bytes are unchanged.
 
         Args:
             address: The unit's first byte, a multiple of 128.

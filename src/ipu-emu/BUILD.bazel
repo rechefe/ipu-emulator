@@ -205,7 +205,7 @@ py_pytest_test(
     ],
 )
 
-# ACC, AGG and the load/store helpers under INT8, E4, FP32 and INT32 against
+# ACC, AGG and the load/store helpers under NX8 and FP32 against
 # the scalar arithmetic they replaced; no format branch in the slot modules (E04-16).
 py_pytest_test(
     name = "test_acc_codec",

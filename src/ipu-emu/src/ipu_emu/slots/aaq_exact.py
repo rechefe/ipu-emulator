@@ -83,7 +83,8 @@ def execute_activate_exact(
 
     Raises:
         EmulatorError: The state is in NX8 mode (a program loaded through
-            ``load_program`` never gets here: it is refused at load).
+            ``load_program``, or a state reset to NX8, never gets here: both
+            refuse a program that uses ACTIVATE.EXACT).
     """
     state = ipu.state
     if not fp32_mode(state):

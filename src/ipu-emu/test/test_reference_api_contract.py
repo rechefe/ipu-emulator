@@ -8,7 +8,6 @@ parameter removed, a meaning changed).
 
 from __future__ import annotations
 
-import copy
 import dataclasses
 import enum
 import hashlib
@@ -46,7 +45,7 @@ SNAPSHOTS = {
     "1.0.0": {
         "__all__": ["API_VERSION", "ReferenceModel", "RunResult", "RunState", "Status"],
         "ReferenceModel": {
-            "__init__": "(self, fmt: 'ElementFormat' = <ElementFormat.NX8: 'int8'>) -> 'None'",
+            "__init__": "(self, fmt: 'ElementFormat' = <ElementFormat.INT8: 'int8'>) -> 'None'",
             "load_program": "(self, words: 'bytes | Sequence[int]') -> 'None'",
             "read_register": "(self, name: 'str', index: 'int' = 0) -> 'int | bytes'",
             "read_xmem": "(self, address: 'int', size: 'int') -> 'bytes'",
@@ -95,7 +94,7 @@ SNAPSHOTS = {
     "1.1.0": {
         "__all__": ["API_VERSION", "ReferenceModel", "RunResult", "RunState", "Stats", "Status"],
         "ReferenceModel": {
-            "__init__": "(self, fmt: 'ElementFormat' = <ElementFormat.NX8: 'int8'>) -> 'None'",
+            "__init__": "(self, fmt: 'ElementFormat' = <ElementFormat.INT8: 'int8'>) -> 'None'",
             "load_program": "(self, words: 'bytes | Sequence[int]') -> 'None'",
             "read_register": "(self, name: 'str', index: 'int' = 0) -> 'int | bytes'",
             "read_xmem": "(self, address: 'int', size: 'int') -> 'bytes'",
@@ -165,7 +164,7 @@ SNAPSHOTS = {
             "read_trace",
         ],
         "ReferenceModel": {
-            "__init__": "(self, fmt: 'ElementFormat' = <ElementFormat.NX8: 'int8'>) -> 'None'",
+            "__init__": "(self, fmt: 'ElementFormat' = <ElementFormat.INT8: 'int8'>) -> 'None'",
             "arith_flags": "(self) -> 'frozenset[ArithmeticEvent]'",
             "fault_enabled": "(self, fault: 'FaultId') -> 'bool'",
             "fault_flags": "(self) -> 'frozenset[FaultId]'",
@@ -246,7 +245,7 @@ SNAPSHOTS = {
             "read_trace",
         ],
         "ReferenceModel": {
-            "__init__": "(self, fmt: 'ElementFormat' = <ElementFormat.NX8: 'int8'>) -> 'None'",
+            "__init__": "(self, fmt: 'ElementFormat' = <ElementFormat.INT8: 'int8'>) -> 'None'",
             "alias_profile": "(self) -> 'AliasProfile | None'",
             "arith_flags": "(self) -> 'frozenset[ArithmeticEvent]'",
             "attach_alias_profile": "(self, profile: 'AliasProfile') -> 'None'",
@@ -332,7 +331,7 @@ SNAPSHOTS = {
             "read_trace",
         ],
         "ReferenceModel": {
-            "__init__": "(self, fmt: 'ElementFormat' = <ElementFormat.NX8: 'int8'>) -> 'None'",
+            "__init__": "(self, fmt: 'ElementFormat' = <ElementFormat.INT8: 'int8'>) -> 'None'",
             "alias_profile": "(self) -> 'AliasProfile | None'",
             "arith_flags": "(self) -> 'frozenset[ArithmeticEvent]'",
             "attach_alias_profile": "(self, profile: 'AliasProfile') -> 'None'",
@@ -408,7 +407,11 @@ SNAPSHOTS = {
         "read_trace": "(path: 'str | Path') -> 'tuple[dict[str, Any], list[CommitRecord]]'",
         "FaultInfo": {"id": "str", "pc": "int"},
     },
-    "1.5.0": {
+    # 2.0.0 (ADR 0007): the run modes are NX8 and FP32. ElementFormat lost INT8,
+    # E1-E7 and INT32 and NX8's value is "nx8", so a caller that named a removed
+    # format breaks: a major bump. It also adds the XMEM metadata accessors and
+    # CommitRecord.xmem_meta_writes.
+    "2.0.0": {
         "__all__": [
             "API_VERSION",
             "ReferenceModel",
@@ -420,7 +423,7 @@ SNAPSHOTS = {
             "read_trace",
         ],
         "ReferenceModel": {
-            "__init__": "(self, fmt: 'ElementFormat' = <ElementFormat.NX8: 'int8'>) -> 'None'",
+            "__init__": "(self, fmt: 'ElementFormat' = <ElementFormat.NX8: 'nx8'>) -> 'None'",
             "alias_profile": "(self) -> 'AliasProfile | None'",
             "arith_flags": "(self) -> 'frozenset[ArithmeticEvent]'",
             "attach_alias_profile": "(self, profile: 'AliasProfile') -> 'None'",
@@ -501,14 +504,6 @@ SNAPSHOTS = {
         "FaultInfo": {"id": "str", "pc": "int"},
     },
 }
-
-# 2.0.0 (ADR 0007): the run modes are NX8 and FP32. The signatures are 1.5.0's,
-# but ElementFormat lost INT8, FP8 and the wide formats and NX8's value is
-# "nx8", so a caller that named a removed format breaks: a major bump.
-SNAPSHOTS["2.0.0"] = copy.deepcopy(SNAPSHOTS["1.5.0"])
-SNAPSHOTS["2.0.0"]["ReferenceModel"]["__init__"] = (
-    "(self, fmt: 'ElementFormat' = <ElementFormat.NX8: 'nx8'>) -> 'None'"
-)
 
 _RECORD_TYPES = (CommitRecord, SlotOp, RegWrite, XmemWrite, XmemMetaWrite, FaultInfo)
 

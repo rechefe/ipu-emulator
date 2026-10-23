@@ -6,7 +6,7 @@ hardware, the default) or ``FP32`` (emulator-only). Everything mode-dependent
 address) follows from it as ``ipu_isa`` declares. The mode is configuration:
 an unknown one is a ``ConfigurationError`` at setup, and it never changes
 mid-run. A program that uses the FP32-only ``ACTIVATE.EXACT`` is refused when
-it is loaded into an NX8 state.
+it is loaded into an NX8 state, and when a state holding it is reset to NX8.
 """
 
 from __future__ import annotations
@@ -136,3 +136,15 @@ def test_activate_exact_is_refused_at_load_in_nx8_mode():
     with pytest.raises(ConfigurationError, match="word 1 uses ACTIVATE.EXACT"):
         load_program(IpuState(fmt=ElementFormat.NX8), program)
     load_program(IpuState(fmt=ElementFormat.FP32), program)  # FP32 mode takes it
+
+
+def test_reset_to_nx8_refuses_a_loaded_activate_exact_and_changes_nothing():
+    program = assemble_program("NOP;;\nACTIVATE.EXACT relu CR15.L CR2 LR0;;\nHALT;;\n")
+    state = IpuState(fmt=ElementFormat.FP32)
+    load_program(state, program)
+    state.regfile.set_cr(3, 7)
+    with pytest.raises(ConfigurationError, match="word 1 uses ACTIVATE.EXACT"):
+        state.reset(ElementFormat.NX8)
+    assert state.fmt is ElementFormat.FP32
+    assert state.regfile.get_cr(3) == 7
+    state.reset(ElementFormat.FP32)  # the program's own mode is fine

@@ -38,12 +38,16 @@ a separate promise.
   `E1`–`E7` and `INT32`, so the constructor and `reset()` take one of the two
   modes, and the constructor defaults to `NX8` instead of `INT8`;
   `load_program()` refuses a program that uses the FP32-only
-  `ACTIVATE.EXACT` when the model runs in NX8 mode; the `post_aaq_reg`
+  `ACTIVATE.EXACT` when the model runs in NX8 mode, and `reset()` refuses to
+  switch a model holding such a program to NX8; the `post_aaq_reg`
   register bank is removed, and `read_register()` and `write_register()`
   take the `r_meta`, `r_cyclic_meta` and `aaq_lut` banks as bytes; and a
   commit record's slots no longer include `store` or `acc_store`, and can
-  include `aaq_exact`. The method signatures and the commit record fields
-  are 1.5.0's.
+  include `aaq_exact`. It also adds the XMEM metadata side store:
+  `read_xmem_metadata()`, `write_xmem_metadata()` and the
+  `CommitRecord.xmem_meta_writes` field (default empty), with the commit
+  record schema's optional `xmem_meta_writes` (schema 1.1.0). The other
+  method signatures and commit record fields are 1.4.0's.
 - **Minor**: an addition that leaves every existing call working, such as a
   new method, a new optional parameter or a new dataclass field with a
   default. Version 1.1.0 added `Stats` and
@@ -53,11 +57,7 @@ a separate promise.
   `attach_alias_profile()`, `alias_profile()` and the `RunResult.quit`
   field (default `False`); 1.4.0 added `observe_xmem_reads()`, which reports
   each XMEM read the program makes (a commit record carries writes only; the
-  Cycle Inspector's recorder shows the reads); 1.5.0 added
-  `read_xmem_metadata()`, `write_xmem_metadata()` and the
-  `CommitRecord.xmem_meta_writes` field (default empty), the XMEM metadata
-  side store of ADR 0007, with the commit record schema's optional
-  `xmem_meta_writes` (schema 1.1.0). Nothing earlier changed.
+  Cycle Inspector's recorder shows the reads). Nothing earlier changed.
 
 `debug_run()` is the one escape hatch for tools such as the debugger: its
 callback receives the emulator's internal state, and that argument's type,

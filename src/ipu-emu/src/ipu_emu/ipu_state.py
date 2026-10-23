@@ -18,6 +18,7 @@ from ipu_emu.fault_control import FaultControl
 from ipu_emu.inst_mem import InstMem
 from ipu_emu.ipu_config import DEFAULT_DS_CR, DEFAULT_DS_HIGH
 from ipu_emu.numerics import LaneCodec, codec_for
+from ipu_emu.program_mode import check_program_mode
 from ipu_emu.prototyping import resolve_enabled as _resolve_prototyping
 from ipu_emu.regfile import RegFile
 from ipu_emu.stats import RunStats
@@ -192,10 +193,14 @@ class IpuState:
             fmt: The new element format; the current one if omitted.
 
         Raises:
-            ConfigurationError: *fmt* is no element format. Nothing is reset.
+            ConfigurationError: *fmt* is no element format, or it is NX8 and
+                the loaded program uses ``ACTIVATE.EXACT`` (FP32 only, ADR
+                0007). Nothing is reset.
         """
         if fmt is not None:
-            self._set_format(fmt)
+            checked = _check_format(fmt)
+            check_program_mode(checked, self.inst_mem[: self.program_length])
+            self._set_format(checked)
         RegFile().copy_into(self.regfile)
         self.set_cr_half(DEFAULT_DS_CR, DEFAULT_DS_HIGH, DEFAULT_DS)
         self.xmem.clear()
