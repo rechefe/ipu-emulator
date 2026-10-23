@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>AaQ Course Glossary</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<main class="page">
+
+<nav class="crumbs" aria-label="Course">
+  <a href="../index.html">Course home</a>
+  <a href="row-anatomy.html">Row anatomy</a>
+  <a href="tables.html">Tables</a>
+</nav>
+
+<header style="display:grid;gap:0.5rem">
+  <p class="eyebrow">Reference</p>
+  <h1>Glossary</h1>
+  <p class="lede">The terms this course uses, named as in the repo specs. A term joins this list once you have shown you can use it.</p>
+</header>
+
+<section class="wide" style="display:grid;gap:0.75rem">
+  <h2>Rows</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Term</th><th>Definition</th><th>Avoid</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Row</strong></td><td>128 elements of 8 bits (1024 bits) at one XMEM row address, plus its metadata word.</td><td>line, word</td></tr>
+      <tr><td><span class="role meta">Metadata word</span></td><td>The 16 bits stored beside every row: <code>scale[7:0]</code>, <code>dynamic_exponent[8]</code>, reserved <code>[15:9]</code>.</td><td>header, sideband</td></tr>
+      <tr><td><strong>Scale</strong></td><td>The row's shared exponent <code>s</code>, <code>e8m0</code> with bias 127: the largest raw FP32 exponent among the row's elements.</td><td>scale factor, for the exponent itself</td></tr>
+      <tr><td><code>dynamic_exponent</code></td><td>Metadata bit 8: the split AaQ chose for a row of a dynamic table, 0 = E1M6, 1 = E2M5.</td><td></td></tr>
+      <tr><td><strong>Block scaling</strong></td><td>Sharing one scale across a block of elements so each element stores only its offset from it. AaQ's block is one row; OCP MX uses 32 elements.</td><td></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section class="wide" style="display:grid;gap:0.75rem">
+  <h2>Tables</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Term</th><th>Definition</th><th>Avoid</th></tr></thead>
+    <tbody>
+      <tr><td><span class="role table">Table format</span></td><td>The 9-bit <code>format</code> of a table, <code>{dynamic, sign, fe, W}</code>. Shared by every row of the table and never written to XMEM.</td><td>row format</td></tr>
+      <tr><td><code>fe</code></td><td>The number of exponent bits in an element: from the table format, or from <code>dynamic_exponent</code> in a dynamic table.</td><td></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+</main>
+</body>
+</html>

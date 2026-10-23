@@ -8,6 +8,12 @@
   XMEM banks, rows, the 16-bit per-row metadata (§4, §6) and table properties including `format` (§5). Use for: where a row's metadata and format live.
 - [Open questions (`docs/content/requirements/open-questions.md`)](https://github.com/rechefe/ipu-emulator/blob/master/docs/content/requirements/open-questions.md)
   OQ-6, OQ-7, OQ-20 to OQ-27 list what the AaQ spec leaves undecided. Use for: the gaps.
+- [Requirements: memory access](https://github.com/rechefe/ipu-emulator/blob/master/docs/content/requirements/memory-access.md)
+  Row address fields, bank states, the cache agent's IPU-MEM requirements. Use for: how a load or store finds its table and bank.
+- [Requirements: execution flow](https://github.com/rechefe/ipu-emulator/blob/master/docs/content/requirements/execution-flow.md)
+  Contexts, table sets, ARM and commit, CU-10 to CU-18. Use for: how many table sets exist and who writes them.
+- [Requirements: interfaces](https://github.com/rechefe/ipu-emulator/blob/master/docs/content/requirements/interfaces.md)
+  IPU ports to the cache unit: `tbl_view`, `tables_valid`, `bank_req`. Use for: what the IPU sees of the tables.
 - [ADR 0003: Element formats replace wide mode](https://github.com/rechefe/ipu-emulator/blob/master/docs/adr/0003-element-formats-replace-wide-mode.md)
   How the emulator models INT8, E1–E7, FP32 today: one global format per run. Use for: contrast with per-table AaQ formats.
 - [OCP announcement: Microscaling (MX) Formats Specification v1.0](https://www.opencompute.org/blog/amd-arm-intel-meta-microsoft-nvidia-and-qualcomm-standardize-next-generation-narrow-precision-data-formats-for-ai)
