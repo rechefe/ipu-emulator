@@ -13,85 +13,108 @@
 <nav class="crumbs" aria-label="Course">
   <a href="../index.html">Course home</a>
   <a href="0005-dynamic-tables.html">← Lesson 5</a>
-  <a href="../reference/row-anatomy.html">Cheat sheet: row anatomy</a>
+  <a href="../reference/spec-audit.html">Spec audit</a>
 </nav>
 
 <header style="display:grid;gap:0.5rem">
-  <p class="eyebrow">Lesson 6 · about 12 minutes</p>
-  <h1>The activation LUT and the LUT load</h1>
-  <p class="lede">AaQ computes three activations directly and the other four through a lookup table inside the stage. The kernel fills that table itself, with five LUT loads that copy the low 32 words of <code>R_ACC</code> into it.</p>
+  <p class="eyebrow">Lesson 6 · about 12 minutes · updated for the specs on master</p>
+  <h1>The activation LUT and <code>LOAD_LUT</code></h1>
+  <p class="lede">AaQ computes three activations directly and four through one lookup table inside the stage. The kernel fills that table with five <code>LOAD_LUT</code> instructions, each copying the low 32 words of <code>R_ACC</code>.</p>
 </header>
+
+<aside class="callout gap">
+  <span class="label">Spec update (master 0511213)</span>
+  <p>The architecture spec (<code>ARCH-stage-aaq-str.md</code> §4.2–4.3.1) now defines the LUT load, a 46-bit LUT metadata block, the entry points and the special cases. It disagrees with the microarchitecture spec on the encodings, the special values and the LUT metadata (<a href="../reference/spec-audit.html">audit #5, #7–#12</a>). This lesson follows the architecture spec.</p>
+</aside>
 
 <section style="display:grid;gap:0.75rem">
   <h2>Direct functions and LUT functions</h2>
-  <p><code>function_type</code> is 3 bits and names seven types.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#50-activate-and-quantize-activatequantize">[AaQ §5.0]</a></span></p>
+  <p><code>activation_fn</code> names seven types.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/ARCH-stage-aaq-str.md#activation_fn-values">[ARCH AaQ §4.3.1]</a></span></p>
   <div class="table-wrap"><table>
-    <thead><tr><th class="num">Code</th><th>Type</th><th>Evaluated by</th></tr></thead>
+    <thead><tr><th class="num">Code</th><th>Type</th><th>Computed by</th></tr></thead>
     <tbody>
-      <tr><td class="num">1</td><td><code>identity</code></td><td>Direct</td></tr>
-      <tr><td class="num">2</td><td><code>relu</code></td><td>Direct</td></tr>
-      <tr><td class="num">3</td><td><code>relu6</code></td><td>Direct</td></tr>
-      <tr><td class="num">4</td><td><code>generic</code></td><td>LUT: sigmoid, tanh, gelu, softplus, elu, silu or window, whichever is loaded</td></tr>
-      <tr><td class="num">5</td><td><code>reciprocal</code></td><td>LUT, with a guard for <code>x = 0</code></td></tr>
-      <tr><td class="num">6</td><td><code>rsqrt</code></td><td>LUT, with guards for <code>x = 0</code> and <code>x &lt; 0</code></td></tr>
-      <tr><td class="num">7</td><td><code>exp2</code></td><td>LUT</td></tr>
+      <tr><td class="num">0</td><td><code>identity</code></td><td>Direct</td></tr>
+      <tr><td class="num">1</td><td><code>relu</code></td><td>Direct</td></tr>
+      <tr><td class="num">2</td><td><code>relu6</code></td><td>Direct</td></tr>
+      <tr><td class="num">3</td><td><code>reciprocal</code></td><td>LUT + dedicated logic</td></tr>
+      <tr><td class="num">4</td><td><code>rsqrt</code></td><td>LUT + dedicated logic</td></tr>
+      <tr><td class="num">5</td><td><code>exp2</code></td><td>LUT + dedicated logic</td></tr>
+      <tr><td class="num">6</td><td><code>generic</code></td><td>LUT + dedicated logic: whichever function is loaded</td></tr>
     </tbody>
   </table></div>
-  <p><code>generic</code> is one code for seven functions. The encoding does not say which one runs; the table contents do.</p>
+  <p>There is one LUT, holding one function at a time. <code>generic</code> is one code for any loaded function; the table contents decide what it computes. The microarchitecture spec numbers the same types 1–7 in a different order (<a href="../reference/spec-audit.html">audit #5</a>).</p>
+</section>
+
+<section style="display:grid;gap:0.75rem">
+  <h2>Special cases</h2>
+  <p>The dedicated logic around the LUT handles these inputs. <code>ε = 2<sup>−127</sup></code>.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/ARCH-stage-aaq-str.md#special-cases">[ARCH AaQ, Special Cases]</a></span></p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Function</th><th>Input</th><th>ARCH result</th><th>MAS result</th></tr></thead>
+    <tbody>
+      <tr><td><code>reciprocal</code></td><td>subnormal ≥ 0</td><td class="mono">1/(x + ε)</td><td class="mono">FP32_MAX at x = 0</td></tr>
+      <tr><td><code>reciprocal</code></td><td>subnormal &lt; 0</td><td class="mono">1/(x − ε)</td><td>not listed</td></tr>
+      <tr><td><code>reciprocal</code>, <code>rsqrt</code></td><td><code>inf</code></td><td class="mono">0</td><td>not listed</td></tr>
+      <tr><td><code>rsqrt</code></td><td>subnormal ≥ 0</td><td class="mono">1/√(x + ε)</td><td class="mono">FP32_MAX at x = 0</td></tr>
+      <tr><td><code>rsqrt</code></td><td>negative</td><td class="mono">NaN</td><td class="mono">0</td></tr>
+      <tr><td><code>exp2</code></td><td><code>−inf</code></td><td class="mono">0</td><td>not listed</td></tr>
+      <tr><td><code>exp2</code></td><td>positive</td><td>not supported</td><td>no restriction</td></tr>
+    </tbody>
+  </table></div>
+  <p>ARCH does not list zero itself. If zero counts as subnormal, <code>reciprocal(0) = 2<sup>127</sup></code>, not <code>FP32_MAX</code> (<a href="../reference/spec-audit.html">audit #7–#9</a>).</p>
 </section>
 
 <section style="display:grid;gap:0.75rem">
   <h2>What the LUT holds</h2>
-  <p>The stage keeps <strong>256 entries of 17 bits</strong> (4352 bits) plus a <strong>75-bit LUT metadata block</strong> that sets how inputs outside the table's range are handled.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#52-function-estimation-lut">[AaQ §5.2]</a></span> This LUT metadata is unrelated to a row's 16-bit metadata word.</p>
+  <p>The stage keeps <strong>256 entries of 17 bits</strong> (4352 bits) and a <strong>46-bit LUT metadata block</strong> that sets the table's range and what happens outside it.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/ARCH-stage-aaq-str.md#422-metadata-block">[ARCH AaQ §4.2.2]</a></span> LUT metadata is unrelated to a row's 16-bit metadata word.</p>
   <div class="table-wrap"><table>
     <thead><tr><th class="num">Bits</th><th>Field</th><th>Meaning</th></tr></thead>
     <tbody>
-      <tr><td class="num">[7:0]</td><td><code>max_exp_num</code></td><td>Largest biased FP32 exponent inside the table's range; larger inputs are out of range.</td></tr>
-      <tr><td class="num">[39:8]</td><td><code>neg_c</code></td><td>FP32 result for negative out-of-range inputs.</td></tr>
-      <tr><td class="num">[71:40]</td><td><code>pos_c</code></td><td>FP32 result for positive out-of-range inputs.</td></tr>
-      <tr><td class="num">[72]</td><td><code>asymetric</code></td><td>Table domain and address form. Encoding TBD.</td></tr>
-      <tr><td class="num">[74:73]</td><td><code>range_mode</code></td><td>Out-of-range policy. Encoding TBD.</td></tr>
+      <tr><td class="num">[7:0]</td><td><code>max_exp_num</code></td><td>Sets the table's range, <code>2<sup>max_exp_num</sup></code>; larger inputs are out of range.</td></tr>
+      <tr><td class="num">[24:8]</td><td><code>neg_c</code></td><td>17-bit constant for negative out-of-range inputs.</td></tr>
+      <tr><td class="num">[41:25]</td><td><code>pos_c</code></td><td>17-bit constant for positive out-of-range inputs.</td></tr>
+      <tr><td class="num">[43:42]</td><td><code>range_mode</code></td><td>LUT version: 0 = positive <code>x</code>, 1 = negative <code>x</code>, 2 = 128 entries each side.</td></tr>
+      <tr><td class="num">[44]</td><td><code>neg_mode</code></td><td>Negative out-of-range result: 0 = <code>x</code>, 1 = <code>neg_c</code>.</td></tr>
+      <tr><td class="num">[45]</td><td><code>pos_mode</code></td><td>Positive out-of-range result: 0 = <code>x</code>, 1 = <code>pos_c</code>.</td></tr>
     </tbody>
   </table></div>
-  <p style="max-width:var(--measure)">Source: <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#522-metadata-block">AaQ §5.2.2</a>.</p>
+  <p>Entries sit at linear steps across the range: <code>step = 2<sup>max_exp_num</sup> / 256</code>. Version 3 uses <code>2 × step</code> and has two entries at zero, <code>−0</code> and <code>+0</code>.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/ARCH-stage-aaq-str.md#423-lut-addressing">[ARCH AaQ §4.2.3]</a></span> The microarchitecture spec still has a 75-bit block with FP32 constants (<a href="../reference/spec-audit.html">audit #10</a>).</p>
 </section>
 
 <section style="display:grid;gap:0.75rem">
-  <h2>Filling it: five LUT loads</h2>
-  <p>The spec's instruction is <code>LOAD lut_addr</code>, in the AAQ slot. Each one copies a 1024-bit <strong>segment</strong> from <code>R_ACC</code> words 0–31 (32 × 32 bits) into the LUT. <code>lut_addr</code> 0–4 are used; 5–7 are reserved.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#521-segment-transfer">[AaQ §5.2.1]</a></span> The LUT load writes no XMEM and leaves <code>R_ACC</code> unchanged.</p>
-  <p>The spec then describes the segment layout twice, and the two descriptions disagree:</p>
+  <h2>Filling it: five <code>LOAD_LUT</code>s</h2>
+  <p><code>LOAD_LUT lut_addr table_id table_offset</code> copies one 1024-bit <strong>segment</strong> from <code>R_ACC</code> words 0–31 (<code>payload[32j +: 32] = R_ACC[j]</code>).<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/ARCH-stage-aaq-str.md#42-load_lut-load-function-estimation-lut-segment">[ARCH AaQ §4.2]</a></span> The table is one flat 4352-bit stream:</p>
   <div class="table-wrap"><table>
-    <thead><tr><th></th><th>§5.2.1 and §5.2.2</th><th>§6.3 pseudocode</th></tr></thead>
+    <thead><tr><th class="num"><code>lut_addr</code></th><th>Loads</th></tr></thead>
     <tbody>
-      <tr><td>Table layout</td><td>One flat 4352-bit stream; entry <code>i</code> is stream bits <code>[17i+16 : 17i]</code></td><td><code>LUT[32k + j] = r_acc[j][16:0]</code></td></tr>
-      <tr><td>Entries per table segment</td><td>About 60; entries straddle segment boundaries</td><td>32; word bits [31:17] ignored</td></tr>
-      <tr><td>Entries after segments 0–3</td><td>240 complete, entry 240 split</td><td>128: half the table</td></tr>
-      <tr><td>Segment 4</td><td>Last 256 table bits, then LUT metadata at <code>payload[330:256]</code></td><td>LUT metadata only, at <code>payload[74:0]</code></td></tr>
+      <tr><td class="num">0–3</td><td>Table bits <code>[1024k + 1023 : 1024k]</code>; entries straddle segment boundaries</td></tr>
+      <tr><td class="num">4</td><td>Table bits <code>[4351:4096]</code> in <code>payload[255:0]</code>, LUT metadata in <code>payload[301:256]</code></td></tr>
+      <tr><td class="num">5–7</td><td>Invalid</td></tr>
     </tbody>
   </table></div>
-  <p>Only the flat reading fills all 256 entries with five loads, and only it matches the worked example in §5.2.2 (<code>max_exp_num</code> = <code>r_acc[8][7:0]</code>). The §6.3 pseudocode and summary table need correcting.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#63-load-load-function-estimation-lut-segment">[AaQ §6.3]</a></span></p>
+  <p>The operation never uses <code>table_id</code> or <code>table_offset</code> (<a href="../reference/spec-audit.html">audit #11</a>). Operands that name a table and an offset usually mean an XMEM access.</p>
 </section>
 
 <div class="panel wide">
-  <h3>Unpack a segment both ways</h3>
-  <p class="bitlegend">The example words are built for the flat reading: entry <code>i</code> = <code>(i × 0x101 + 0x40) &amp; 0x1FFFF</code>, and segment 4 carries <code>max_exp_num = 133</code>, <code>neg_c = −1</code>, <code>pos_c = 1</code>, <code>range_mode = 1</code>. Pick <code>lut_addr</code> 4 and compare the two LUT metadata lines.</p>
+  <h3>Unpack a segment</h3>
+  <p class="bitlegend">Example: entry <code>i</code> = <code>(i × 0x101 + 0x40) &amp; 0x1FFFF</code>; segment 4 carries <code>max_exp_num = 2</code>, <code>range_mode = 2</code>, <code>neg_mode = pos_mode = 1</code>. The last column assumes version 3 entries run from the most negative point up; the spec does not give the index order.</p>
   <div class="decoder" data-lutpack data-seg="4"></div>
 </div>
 
 <section style="display:grid;gap:0.75rem">
   <h2>Ordering hazards</h2>
-  <p>You noted earlier that the LUT load must not run at the same time as other loads. The spec states no rule, so here is what can collide:</p>
+  <p>You noted earlier that the LUT load must not run at the same time as other loads. The specs state no rule. What can collide:</p>
   <ul>
     <li><strong>With <code>ACTIVATE.QUANTIZE</code> in the same word:</strong> impossible. Both sit in the AAQ slot, and a word has one instruction per slot.</li>
-    <li><strong>With <code>ACTIVATE.QUANTIZE</code> between loads:</strong> a LUT function that runs after segments 0–2 reads a half-new, half-old table. The spec says nothing about it; the emulator needs a fault or a documented software rule.</li>
-    <li><strong>With <code>LD.*</code> in the LOAD slot:</strong> no shared XMEM port. The LUT load reads <code>R_ACC</code>, not XMEM. The name clashes, though: the mnemonic standard is <code>UNIT.OP</code> and the LOAD slot is already called LOAD, so the proposal is <code>AAQ.LUT.LD</code>.</li>
-    <li><strong>With ACC:</strong> AAQ sees the forwarded <code>R_ACC</code>, the ACC result of the same word (glossary: forwarded value). An ACC write in the same word changes what the LUT load copies.</li>
+    <li><strong>With <code>ACTIVATE.QUANTIZE</code> between loads:</strong> a LUT function that runs after segments 0–2 reads a half-new table. The emulator needs a fault or a documented software rule.</li>
+    <li><strong>With <code>LD.*</code> in the LOAD slot:</strong> the operation reads <code>R_ACC</code>, so it needs no XMEM port. If <code>table_id</code> and <code>table_offset</code> mean an XMEM read, <code>LOAD_LUT</code> would compete with the LOAD slot for the read port. That may be the conflict you meant.</li>
+    <li><strong>With ACC:</strong> AAQ sees the forwarded <code>R_ACC</code>, the ACC result of the same word. An ACC write in the same word changes what the LUT load copies.</li>
   </ul>
+  <p>The name <code>LOAD_LUT</code> breaks the repo's mnemonic standard (<code>UNIT.OP</code>, no underscores); the repo-style name is <code>AAQ.LUT.LD</code> (<a href="../reference/spec-audit.html">audit #20</a>).</p>
 </section>
 
 <section style="display:grid;gap:0.75rem">
-  <h2>The opcode costs a bit</h2>
-  <p>The ISA's AAQ opcode is 1 bit today: <code>NOP</code> and <code>ACTIVATE.QUANTIZE</code>. A third instruction needs 2 bits. <code>AAQ_SLOT_T_WIDTH</code> goes from 9 to 10, and the whole VLIW word grows. That is a breaking change for the downstream RTL repo, which vendors the generated SystemVerilog package.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/requirements/open-questions.md">[OQ-26]</a></span></p>
+  <h2>The cost in the instruction word</h2>
+  <p>The ISA's AAQ opcode is 1 bit today. A third instruction needs 2 bits; by position, <code>NOP</code> = 0, <code>LOAD_LUT</code> = 1, <code>ACTIVATE.QUANTIZE</code> = 2, unlike the microarchitecture spec's order (<a href="../reference/spec-audit.html">audit #12</a>). With the architecture spec's operands, the AAQ slot grows from 9 bits to about 21 (lesson 8). Either change breaks the SystemVerilog package the downstream RTL repo vendors.</p>
 </section>
 
 <section class="wide" style="display:grid;gap:0.75rem">
@@ -101,50 +124,51 @@
 </section>
 <script type="application/json" id="quiz6">[
   {"prompt": "Which function types does AaQ compute without the LUT?",
-   "options": ["exp2, rsqrt and reciprocal", "sigmoid, tanh and gelu", "identity, relu and relu6", "generic, silu and elu"], "answer": 2,
-   "why": "§5.0: identity, relu and relu6 are computed directly; the other four types read the LUT."},
+   "options": ["identity, relu and relu6", "exp2, rsqrt and reciprocal", "sigmoid, tanh and gelu", "generic, silu and elu"], "answer": 0,
+   "why": "§4.3.1: identity, relu and relu6 are direct; the other four go through the LUT plus dedicated logic."},
   {"prompt": "What decides which function generic computes?",
-   "options": ["The function_type field's low bits", "The table format's exponent width", "The row's metadata reserved bits", "Whatever function the LUT holds"], "answer": 3,
-   "why": "generic is one encoding for seven functions; the loaded table decides."},
-  {"prompt": "How many LUT loads program the whole LUT and its LUT metadata?",
+   "options": ["The activation_fn field's low bits", "The format CR's exponent width", "The row's metadata reserved bits", "Whatever function the LUT holds"], "answer": 3,
+   "why": "One LUT holds one function at a time; generic computes whatever was loaded."},
+  {"prompt": "How many LOAD_LUT instructions program the whole LUT?",
    "options": ["Four", "Five", "Eight", "Sixteen"], "answer": 1,
-   "why": "lut_addr 0 to 4. 5 to 7 are reserved."},
-  {"prompt": "Where does a LUT load take its data from?",
-   "options": ["The LOAD slot's XMEM row", "POST_AAQ_REG from the previous word", "R_ACC words 0 to 31", "The CR bank's sixteen registers"], "answer": 2,
-   "why": "payload[32j +: 32] = r_acc[j] for j = 0 to 31. No XMEM access."},
-  {"prompt": "Under the §6.3 pseudocode, how many entries do segments 0 to 3 fill?",
-   "options": ["256", "4352", "64", "128"], "answer": 3,
-   "why": "32 entries per segment, one per word, × 4 segments = 128: half of the 256-entry table."},
-  {"prompt": "Why does adding the LUT load change the wire format?",
-   "options": ["The AAQ opcode needs a bit", "The LUT data enters the word", "The STORE slot gains an operand", "The row metadata widens by one"], "answer": 0,
-   "why": "Three AAQ instructions need a 2-bit opcode; AAQ_SLOT_T_WIDTH goes from 9 to 10 (OQ-26)."},
-  {"prompt": "A generic activation runs after LUT loads 0 to 2 only. What does the spec say happens?",
-   "options": ["The IPU raises a fault", "The spec does not say", "The word stalls until ready", "Missing entries read as zero"], "answer": 1,
-   "why": "No ordering rule exists. The emulator must pick one: a fault or a documented software rule."},
-  {"prompt": "In §5.1, how does AaQ pick a row's scale?",
-   "options": ["Average exponent of the row", "Set by the table format", "Largest raw exponent in row", "Exponent of the first element"], "answer": 2,
-   "why": "s is the maximum raw FP32 exponent among the row's elements."},
-  {"prompt": "In a dynamic table, which splits can a row use?",
+   "why": "lut_addr 0 to 4. 5 to 7 are invalid."},
+  {"prompt": "How wide is the LUT metadata block in the architecture spec?",
+   "options": ["75 bits", "17 bits", "46 bits", "256 bits"], "answer": 2,
+   "why": "ARCH §4.2.2: 46 bits at payload[301:256]. 75 bits is the microarchitecture spec (audit #10)."},
+  {"prompt": "range_mode = 2. Which inputs does the table cover?",
+   "options": ["Positive inputs only, 256 entries", "Negative inputs only, 256 entries", "Out-of-range inputs only, constants used", "Both sides, 128 entries each"], "answer": 3,
+   "why": "Version 3: 128 entries for negative x and 128 for positive x, at interval 2 × step."},
+  {"prompt": "Where does LOAD_LUT take its table bits from?",
+   "options": ["R_ACC words 0 to 31", "The LOAD slot's XMEM row", "POST_AAQ_REG from the previous word", "The CR bank's sixteen registers"], "answer": 0,
+   "why": "payload[32j +: 32] = R_ACC[j] for j = 0 to 31. table_id and table_offset are unused by the operation."},
+  {"prompt": "What does the architecture spec say rsqrt returns for a negative input?",
+   "options": ["Zero", "FP32_MAX", "NaN", "Infinity"], "answer": 2,
+   "why": "ARCH special cases: NaN. The microarchitecture spec says 0 (audit #8)."},
+  {"prompt": "fe = 4. Which values of E take the direct branch?",
+   "options": ["E from 1 to 15", "E from 0 to 14", "E from 0 to 15", "E from 0 to 7"], "answer": 1,
+   "why": "Lesson 4: direct when E < 2^fe − 1 = 15."},
+  {"prompt": "In dynamic mode, which splits can a block use?",
    "options": ["E4M3 or E5M2", "E2M5 or E3M4", "INT8 or E1M6", "E1M6 or E2M5"], "answer": 3,
-   "why": "§5.1.1 picks fe = 1 or fe = 2 per row and records it in dynamic_exponent."}
+   "why": "Lesson 5: fe = 1 or fe = 2 per block, recorded in dynamic_exponent."}
 ]</script>
 
 <section class="panel">
   <h3>Explain it back</h3>
-  <p>In three sentences, tell the AaQ spec owner why the emulator cannot implement the LUT load bit-exactly from today's spec.</p>
+  <p>In three sentences, tell the AaQ spec owner why the emulator cannot evaluate the LUT bit-exactly yet, even though the layout is now settled.</p>
   <label for="explain6" class="eyebrow">Your answer</label>
   <textarea id="explain6"></textarea>
   <button type="button" data-reveal="model6">Show a model answer</button>
-  <p id="model6" hidden>§5.2.1 packs the table as one flat 4352-bit stream with the LUT metadata at payload[330:256], while the §6.3 pseudocode takes the low 17 bits of each word (only 128 entries) and the LUT metadata from payload[74:0]. Even with the layout fixed, the spec does not say how an FP32 input selects an entry, nor what <code>asymetric</code> and <code>range_mode</code> mean (OQ-25). It also gives no ordering rule for an activation that runs between LUT loads.</p>
+  <p id="model6" hidden>The spec gives where each entry sits and which x it stands for, but not the 17-bit entry's number format or how a value between two entry points is computed. It also calls <code>max_exp_num</code> a biased FP32 exponent while §4.2.3 uses it directly as 2<sup>max_exp_num</sup>, and it does not say which index holds which point in version 3. Until those are fixed, the emulator stores the loaded bits exactly and evaluates the declared function with exact math.</p>
 </section>
 
 <section style="display:grid;gap:0.75rem">
   <h2>What this means for the emulator</h2>
-  <p>Today <code>ACTIVATE.QUANTIZE</code> has a 4-bit selector with 13 named functions (<code>identity</code> = 0 … <code>window</code> = 12), each computed with exact Python math, with α and the window bounds stored on the state.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/src/ipu-isa/src/ipu_isa/activations.py">[ipu_isa/activations.py]</a> <a href="https://github.com/rechefe/ipu-emulator/blob/master/src/ipu-emu/src/ipu_emu/activations.py">[ipu_emu/activations.py]</a></span> The spec's codes start at 1 and use 3 bits, so the two encodings differ even for <code>identity</code>. The plan agreed in the design session:</p>
+  <p>Today's <code>ACTIVATE.QUANTIZE</code> has a 4-bit selector with 13 named functions (<code>identity</code> = 0 … <code>window</code> = 12), computed with exact Python math.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/src/ipu-isa/src/ipu_isa/activations.py">[ipu_isa/activations.py]</a> <a href="https://github.com/rechefe/ipu-emulator/blob/master/src/ipu-emu/src/ipu_emu/activations.py">[ipu_emu/activations.py]</a></span></p>
   <ul>
-    <li><strong>The LUT load stores bits exactly.</strong> The emulator keeps the 4352 table bits and the 75 LUT metadata bits as loaded, using the flat reading.</li>
-    <li><strong>LUT functions use exact math for now.</strong> The kernel or harness declares which function is loaded, and <code>generic</code>, <code>exp2</code>, <code>reciprocal</code> and <code>rsqrt</code> evaluate it exactly. A bit-exact evaluator replaces this behind the same interface once indexing is specified.</li>
-    <li><strong>Today's instruction stays for old kernels</strong>, in an emulator-only slot, with its 13 functions and 4-bit selector unchanged.</li>
+    <li><strong><code>LOAD_LUT</code> stores bits exactly:</strong> the 4352 table bits and the 46 LUT metadata bits, using the flat layout.</li>
+    <li><strong>LUT functions use exact math for now.</strong> The kernel or harness declares which function is loaded. A bit-exact evaluator replaces this behind the same interface once the entry format and interpolation are defined (<a href="../reference/spec-audit.html">audit #23</a>).</li>
+    <li><strong>The hardware instruction uses the architecture encodings 0–6</strong> and its special cases.</li>
+    <li><strong>The old instruction stays for old kernels</strong>, in an emulator-only slot, with its 13 functions and 4-bit selector unchanged.</li>
     <li><strong>An ordering rule is needed</strong> for activations between LUT loads; a fault is the safest default.</li>
   </ul>
 </section>
@@ -152,23 +176,24 @@
 <aside class="callout gap">
   <span class="label">Where the spec stops</span>
   <ul>
-    <li>§5.2.1 and §6.3 disagree on the table layout and on where the LUT metadata sits.</li>
-    <li>How an FP32 input becomes a LUT address, and the <code>asymetric</code> and <code>range_mode</code> encodings: TBD (OQ-25).</li>
-    <li>One 256-entry LUT serves four types, yet §5.0 writes <code>LUT[function_type]</code>. It is unclear whether <code>exp2</code> and <code>generic</code> can be loaded together.</li>
-    <li><code>reciprocal(0)</code> and <code>rsqrt(0)</code>: the pseudocode returns inf, the table returns 0 (OQ-24).</li>
-    <li>How exact LUT bit patterns get into <code>R_ACC</code> is not described. They must pass through LD, MULT and ACC first.</li>
-    <li><code>lut_addr</code> is described as selecting "8 segments"; only 5 exist.</li>
+    <li>The 17-bit entry format and the interpolation between entry points are not defined (<a href="../reference/spec-audit.html">audit #23</a>).</li>
+    <li>§4.2.2 calls <code>max_exp_num</code> a biased FP32 exponent; §4.2.3 and its examples use it as an unbiased power, <code>2<sup>max_exp_num</sup></code>.</li>
+    <li>The format of the 17-bit <code>neg_c</code> and <code>pos_c</code> is not defined, nor <code>range_mode = 3</code>.</li>
+    <li>Which entry index holds which point in version 3 is not stated.</li>
+    <li><code>LOAD_LUT</code>'s <code>table_id</code> and <code>table_offset</code> have no effect in its operation (audit #11).</li>
+    <li>No ordering rule for an activation between LUT loads, and no description of how exact LUT bit patterns reach <code>R_ACC</code>.</li>
+    <li>Encodings, special values and the LUT metadata differ from the microarchitecture spec (audit #5, #7–#10, #12).</li>
   </ul>
 </aside>
 
 <aside class="callout source">
   <span class="label">Read next</span>
-  <p><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#52-function-estimation-lut">AaQ spec §5.2</a> and <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#63-load-load-function-estimation-lut-segment">§6.3</a>, side by side; then OQ-24 to OQ-26 on the <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/requirements/open-questions.md">open-questions page</a>.</p>
+  <p><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/ARCH-stage-aaq-str.md#42-load_lut-load-function-estimation-lut-segment">ARCH AaQ §4.2</a> and <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/ARCH-stage-aaq-str.md#431-activate">§4.3.1</a>, including the three <code>generic</code> version drawings; then the <a href="../reference/spec-audit.html">spec audit</a>.</p>
 </aside>
 
 <aside class="callout ask">
   <span class="label">Ask</span>
-  <p>Ask in the chat about anything unclear, and tell me what you meant by "must not run at the same time" if none of the four cases above covers it.</p>
+  <p>Ask in the chat about anything unclear, and tell me what you meant by "must not run at the same time" if the XMEM-port case above is not it.</p>
 </aside>
 
 <nav class="crumbs" aria-label="Next">

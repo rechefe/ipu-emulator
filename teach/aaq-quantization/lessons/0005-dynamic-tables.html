@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="claude:viewport-fit-sides" content="cover">
-<title>Dynamic Tables</title>
+<title>Dynamic Quantization</title>
 <link rel="stylesheet" href="../assets/course.css">
 </head>
 <body>
@@ -14,18 +14,24 @@
   <a href="../index.html">Course home</a>
   <a href="0004-quantizing-a-row.html">← Lesson 4</a>
   <a href="../reference/row-anatomy.html">Cheat sheet: row anatomy</a>
+  <a href="../reference/spec-audit.html">Spec audit</a>
 </nav>
 
 <header style="display:grid;gap:0.5rem">
-  <p class="eyebrow">Lesson 5 · about 12 minutes</p>
-  <h1>Dynamic tables: E1M6 or E2M5 per row</h1>
-  <p class="lede">In a dynamic table, AaQ chooses one of two splits for each row: E1M6, finer near the row's scale, or E2M5, finer below it. It writes the choice to the row's <code>dynamic_exponent</code> bit, and a reader takes <code>fe</code> from there.</p>
+  <p class="eyebrow">Lesson 5 · about 12 minutes · updated for the specs on master</p>
+  <h1>Dynamic quantization: E1M6 or E2M5 per row</h1>
+  <p class="lede">In dynamic mode, AaQ chooses one of two splits for each row: E1M6, finer near the row's scale, or E2M5, finer below it. It writes the choice to the row's <code>dynamic_exponent</code> bit, and a reader takes <code>fe</code> from there.</p>
 </header>
 
+<aside class="callout gap">
+  <span class="label">Spec update (master 0511213)</span>
+  <p>The architecture spec (<code>ARCH-stage-aaq-str.md</code> §4.3.2.3) keeps the dynamic rule, its step table and its worked example unchanged. What moved is where "dynamic" is set: in the <code>quantizion_format</code> CR that <code>ACTIVATE.QUANTIZE</code> names, not in a table property. The MULT spec marks a dynamic input with <code>nx_format = 0</code> in its own format CR, which has a different layout (<a href="../reference/spec-audit.html">audit #17</a>).</p>
+</aside>
+
 <section style="display:grid;gap:0.75rem">
-  <h2>What a dynamic table fixes</h2>
-  <p>A table format with <code>format[8] = 1</code> fixes only "signed, 8 bits wide". Its <code>fe</code> field is ignored. The two legal splits are E1M6 (<code>fe = 1</code>) and E2M5 (<code>fe = 2</code>).<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#33-format-field-layout">[AaQ §3.3]</a> <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#51-quantization-algorithm">[§5.1 note]</a></span></p>
-  <p>AaQ computes the scale <code>s</code> exactly as for a static table: the largest raw exponent in the row. Only the split changes. The <span class="role meta">metadata word</span> records it: <code>dynamic_exponent = 0</code> for E1M6, <code>1</code> for E2M5.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#32-output">[AaQ §3.2]</a></span></p>
+  <h2>What dynamic mode fixes</h2>
+  <p><code>dynamic_static = 1</code> (bits [31:24] of the AaQ format CR) fixes only "signed, 8 bits wide": <code>sign = 1</code>, <code>num_bits = 8</code>. The CR's <code>exponent_format</code> field is ignored. The two legal splits are E1M6 (<code>fe = 1</code>) and E2M5 (<code>fe = 2</code>).<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/ARCH-stage-aaq-str.md#31-quantizion_format-layout">[ARCH AaQ §3.1]</a> <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/ARCH-stage-aaq-str.md#4323-dynamic-exponent-selection-fe--1-or-fe--2">[§4.3.2.3]</a></span> The microarchitecture and cache-unit specs hold the same flag as <code>format[8]</code> of the destination table (<a href="../reference/spec-audit.html">audit #3, #19</a>).</p>
+  <p>AaQ computes the scale <code>s</code> exactly as in static mode: the largest raw exponent among the active elements.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/ARCH-stage-aaq-str.md#4321-block-scale-and-exponent-distance">[§4.3.2.1]</a></span> Only the split changes. The <span class="role meta">metadata word</span> records it: <code>dynamic_exponent = 0</code> for E1M6, <code>1</code> for E2M5.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/ARCH-stage-aaq-str.md#433-store">[§4.3.3]</a></span></p>
 </section>
 
 <section style="display:grid;gap:0.75rem">
@@ -40,12 +46,12 @@
       <tr><td class="num">≥ 3</td><td class="num">2<sup>S−6</sup> (clamp)</td><td class="num">2<sup>S−7</sup> (clamp)</td><td>E2M5</td></tr>
     </tbody>
   </table></div>
-  <p>E1M6 has one step everywhere: under §5.1 it is a sign plus a 7-bit magnitude times 2<sup>S−6</sup>, block-scaled fixed point. E2M5 gives up one bit in the top binade to gain one bit in every binade from <code>E = 2</code> down. A row whose values crowd near its maximum prefers E1M6; a row with many small values prefers E2M5.</p>
+  <p>E1M6 has one step everywhere: under the quantizer (ARCH §4.3.2.2) it is a sign plus a 7-bit magnitude times 2<sup>S−6</sup>, block-scaled fixed point. E2M5 gives up one bit in the top binade to gain one bit in every binade from <code>E = 2</code> down. A row whose values crowd near its maximum prefers E1M6; a row with many small values prefers E2M5.</p>
 </section>
 
 <section style="display:grid;gap:0.75rem">
   <h2>The rule</h2>
-  <p>AaQ scores the row with two integer sums.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#511-dynamic-exponent-field-selection-fe--1-vs-fe--2">[AaQ §5.1.1]</a></span> <code>fm1 = W − 2</code> is E1M6's mantissa width (6 for <code>W = 8</code>); <code>err1</code> and <code>err2</code> are an element's truncation errors under each split.</p>
+  <p>AaQ scores the row with two integer sums.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/ARCH-stage-aaq-str.md#4323-dynamic-exponent-selection-fe--1-or-fe--2">[ARCH AaQ §4.3.2.3]</a> <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#511-dynamic-exponent-field-selection-fe--1-vs-fe--2">[MAS §5.1.1]</a></span> <code>fm1 = W − 2</code> is E1M6's mantissa width (6 for <code>W = 8</code>); <code>err1</code> and <code>err2</code> are an element's truncation errors under each split.</p>
   <div class="table-wrap"><table>
     <thead><tr><th>Element</th><th>Adds to</th><th>Term</th></tr></thead>
     <tbody>
@@ -61,13 +67,13 @@
 
 <div class="panel wide">
   <h3>The spec's worked example</h3>
-  <p class="bitlegend">Ten values, <code>s</code> unbiased 0, signed <code>W = 6</code> (<code>fm1 = 4</code>). The spec gets sum(A) = 5, sum(B) = 2, so 2 − 20 = −18 and E1M6. The widget reproduces every term. The last two columns quantize each value with §5.1 under each split.</p>
+  <p class="bitlegend">Ten values, <code>s</code> unbiased 0, signed <code>W = 6</code> (<code>fm1 = 4</code>). The spec gets sum(A) = 5, sum(B) = 2, so 2 − 20 = −18 and E1M6. The widget reproduces every term. The last two columns quantize each value with the quantizer under each split.</p>
   <div class="decoder" data-dynamic data-values="1.83, 1.21, 1.57, 0.94, 0.67, 0.41, 0.2345, 0.1780, 0.0920, 0.0555" data-w="6"></div>
 </div>
 
 <section style="display:grid;gap:0.75rem">
   <h2>Does the rule pick the better split?</h2>
-  <p>The rule estimates which split loses less precision; it does not quantize the row twice. On the worked example both agree: E1M6 has the lower §5.1 squared error. The row below, at <code>W = 8</code>, scores −7 and picks E1M6, but E2M5 quantizes it with less than half the squared error (6.4e-5 against 1.4e-4).</p>
+  <p>The rule estimates which split loses less precision; it does not quantize the row twice. On the worked example both agree: E1M6 has the lower quantized squared error. The row below, at <code>W = 8</code>, scores −7 and picks E1M6, but E2M5 quantizes it with less than half the squared error (6.4e-5 against 1.4e-4).</p>
 </section>
 
 <div class="panel wide">
@@ -77,7 +83,7 @@
 </div>
 
 <section style="display:grid;gap:0.75rem">
-  <p>In a quick test, 2000 random 16-element rows with magnitudes spread over 8 binades, the rule disagreed with the split of lower §5.1 squared error on 1058 rows. It disagreed with its own unrounded terms on 238. The numbers depend on the data; they show the rule is an estimate built on its own error model, described under "Where the spec stops".</p>
+  <p>In a quick test, 2000 random 16-element rows with magnitudes spread over 8 binades, the rule disagreed with the split of lower quantized squared error on 1058 rows. It disagreed with its own unrounded terms on 238. The numbers depend on the data; they show the rule is an estimate built on its own error model, described under "Where the spec stops".</p>
 </section>
 
 <section class="wide" style="display:grid;gap:0.75rem">
@@ -86,42 +92,42 @@
   <div class="panel" data-quiz="quiz5"></div>
 </section>
 <script type="application/json" id="quiz5">[
-  {"prompt": "In a dynamic table, what does the table format fix?",
-   "options": ["The exponent width fe", "Signed, 8 bits wide", "The row's shared scale", "One split per table"], "answer": 1,
-   "why": "format[8] = 1 restricts the table to signed W = 8 and ignores format[6:4]."},
-  {"prompt": "Where does a reader of a dynamic table get fe?",
-   "options": ["From the table format", "From the row address", "From dynamic_exponent, bit 8", "From the scale field"], "answer": 2,
-   "why": "Bit 8 of the row's metadata word: 0 = E1M6, 1 = E2M5."},
+  {"prompt": "In dynamic mode, what does the format CR fix?",
+   "options": ["The exponent width fe", "Signed, 8 bits wide", "The row's shared scale", "One split per kernel"], "answer": 1,
+   "why": "dynamic_static = 1 requires sign = 1 and num_bits = 8; exponent_format is ignored."},
+  {"prompt": "Where does MULT get fe for a dynamic row?",
+   "options": ["From the format CR", "From the row address", "From dynamic_exponent, bit 8", "From the scale field"], "answer": 2,
+   "why": "nx_format = 0 in MULT's format CR says dynamic; fe then comes from the dynamic_exponent bit kept with the register's metadata."},
   {"prompt": "Which split is finer in the row's top binade (E = 0)?",
    "options": ["E1M6, by one bit", "E2M5, by one bit", "Both splits are equal", "Neither can encode it"], "answer": 0,
    "why": "Step 2^(S−6) against 2^(S−5)."},
   {"prompt": "Elements with E = 1 add to which sum?",
    "options": ["Accumulator A only", "Accumulator B only", "A and B", "Neither: don't care"], "answer": 3,
-   "why": "Under §5.1 both splits have step 2^(S−6) there, so E = 1 cannot tell them apart."},
+   "why": "Under the quantizer both splits have step 2^(S−6) there, so E = 1 cannot tell them apart."},
   {"prompt": "sum(A) = 3 and sum(B) = 10. What does AaQ write?",
    "options": ["E2M5, dynamic_exponent = 1", "E2M5, dynamic_exponent = 0", "E1M6, dynamic_exponent = 0", "E1M6, dynamic_exponent = 1"], "answer": 2,
    "why": "10 − 4 · 3 = −2, negative, so E1M6, written as 0."},
   {"prompt": "Why does the rule multiply sum(A) by 4?",
    "options": ["It is a tuning knob", "B's multiplier is 4× A's", "Rows hold four times more", "Ties should favour E2M5 splits"], "answer": 1,
    "why": "2^(2·(fm1+1)) = 4 · 2^(2·fm1): the factor returns both sums to one unit."},
-  {"prompt": "Under §5.1's decode, what is E1M6?",
-   "options": ["A float with NaN codes", "The emulator's E1 format exactly", "A format with no zero", "A 7-bit magnitude times 2^(S−6)"], "answer": 3,
+  {"prompt": "Under the NX8 decode, what is E1M6?",
+   "options": ["A float with NaN codes", "The old emulator E1 format", "A format with no zero", "A 7-bit magnitude times 2^(S−6)"], "answer": 3,
    "why": "Direct (64 + M) · 2^(S−6), clamp M · 2^(S−6): one step everywhere."},
   {"prompt": "An element at E = 0 rounds up to 2.0 · 2^S. What does AaQ store?",
    "options": ["Exponent one, mantissa zero", "Zero, the clamp code", "The largest representable value", "A NaN code instead"], "answer": 2,
    "why": "Lesson 4, edge 1 at E = 0: no binade above the scale, so Exp = 0 and M all ones."},
-  {"prompt": "In the emulator's E4, what is byte 0x78?",
-   "options": ["Zero", "NaN", "240", "Two"], "answer": 1,
-   "why": "Lesson 3: exponent field all ones is NaN in the emulator's Ex. In AaQ E4M3 it encodes 0."}
+  {"prompt": "In NX8 e4, which value does byte 0x78 encode?",
+   "options": ["Zero", "NaN", "240", "Two"], "answer": 0,
+   "why": "Lesson 3: exponent field all ones with M = 0 is the clamp branch at zero. The old emulator E4 read it as NaN."}
 ]</script>
 
 <section class="panel">
   <h3>Explain it back</h3>
-  <p>In three sentences, explain to an RTL engineer what AaQ decides for a dynamic row, from which elements, and where the answer goes.</p>
+  <p>In three sentences, explain to an RTL engineer what AaQ decides for a row in dynamic mode, from which elements, and where the answer goes.</p>
   <label for="explain5" class="eyebrow">Your answer</label>
   <textarea id="explain5"></textarea>
   <button type="button" data-reveal="model5">Show a model answer</button>
-  <p id="model5" hidden>For each row of a dynamic table, AaQ picks E1M6 or E2M5 with the same scale it would use for a static table. Elements at the scale (E = 0) add to A, the precision E2M5 would lose; elements from E = 2 to fm1 + 2 add to B, the precision E1M6 would lose; E1M6 wins when sum(B) − 4 · sum(A) is negative. The choice goes to bit 8 of the row's metadata word, where every reader takes <code>fe</code> from.</p>
+  <p id="model5" hidden>For each row quantized in dynamic mode, AaQ picks E1M6 or E2M5 with the same scale it would use in static mode. Elements at the scale (E = 0) add to A, the precision E2M5 would lose; elements from E = 2 to fm1 + 2 add to B, the precision E1M6 would lose; E1M6 wins when sum(B) − 4 · sum(A) is negative. The choice goes to bit 8 of the row's metadata word, where every reader takes <code>fe</code> from (MULT does so when its format CR says <code>nx_format = 0</code>).</p>
 </section>
 
 <section style="display:grid;gap:0.75rem">
@@ -129,25 +135,28 @@
   <ul>
     <li><strong>The selection runs per row</strong>, inside the hardware <code>ACTIVATE.QUANTIZE</code>, before the elements are encoded with the chosen <code>fe</code>.</li>
     <li><strong>Bit-exact integer arithmetic.</strong> The terms are integers after RTN, so the emulator can match RTL exactly, once the error model below is settled.</li>
-    <li><strong>The metadata word carries the choice.</strong> <code>ST.AAQ</code> writes <code>dynamic_exponent</code> to bit 8; static tables write 0. A reader of a dynamic table takes <code>fe</code> from bit 8 instead of the table format.</li>
+    <li><strong>The metadata word carries the choice.</strong> <code>ACTIVATE.QUANTIZE</code> writes <code>dynamic_exponent</code> to bit 8 when it stores the row; static mode writes 0. A MULT instruction whose format CR has <code>nx_format = 0</code> takes <code>fe</code> from that bit, kept with each register's metadata.</li>
+    <li><strong>One flag, two CR layouts.</strong> AaQ reads <code>dynamic_static</code> from bits [31:24] of its format CR, MULT reads <code>nx_format = 0</code> from bits [15:8] of its own. MULT's metadata list also names a <code>dynamic_static</code> bit that nobody writes (<a href="../reference/spec-audit.html">audit #17, #18</a>).</li>
     <li><strong>A first test exists.</strong> The spec's worked example (sum(A) = 5, sum(B) = 2, E1M6) is a ready-made unit test.</li>
   </ul>
 </section>
 
 <aside class="callout gap">
   <span class="label">Where the spec stops</span>
+  <p>ARCH §4.3.2.3 repeats MAS §5.1.1 word for word on these points, so each holds for both specs.</p>
   <ul>
-    <li><strong>Two step models.</strong> The §5.1.1 table and its worked example use E1M6 step 2<sup>S−min(E,1)−fm1</sup> and E2M5 step 2<sup>S−min(E,3)−fm1+1</sup>. §5.1's clamp branch is one bit coarser: 2<sup>S−fm1</sup> and 2<sup>S−fm1−1</sup>. Under the table's model E = 1 is not a tie: the example's 0.67 has err1 = 0.01375 and err2 = 0.045.</li>
+    <li><strong>Two step models.</strong> The dynamic-selection step table and its worked example use E1M6 step 2<sup>S−min(E,1)−fm1</sup> and E2M5 step 2<sup>S−min(E,3)−fm1+1</sup>. The quantizer's clamp branch (ARCH §4.3.2.2) is one bit coarser: 2<sup>S−fm1</sup> and 2<sup>S−fm1−1</sup>. Under the table's model E = 1 is not a tie: the example's 0.67 has err1 = 0.01375 and err2 = 0.045.</li>
     <li><strong>Truncation against rounding.</strong> The rule scores truncation errors; the quantizer it chooses for rounds to nearest.</li>
     <li><strong>Absolute value.</strong> <code>|err2² − err1²|</code> drops the sign, so an element where the "worse" split happens to be closer still adds cost.</li>
-    <li><strong>W in the example.</strong> The example uses <code>W = 6</code>; the §5.1 note allows dynamic tables only at signed <code>W = 8</code>.</li>
+    <li><strong>W in the example.</strong> The example uses <code>W = 6</code>; dynamic mode allows only signed <code>W = 8</code> (ARCH §4.3.2.3, MAS §5.1 note).</li>
     <li><strong>Inputs.</strong> The spec does not say whether errors come from the FP32 value or its magnitude for negative elements. The widget uses the FP32 magnitude.</li>
+    <li><strong>Where the flag lives.</strong> A CR field in ARCH, a table property in MAS and the cache unit; and the AaQ and MULT format CRs disagree on layout (<a href="../reference/spec-audit.html">audit #3, #17, #19</a>).</li>
   </ul>
 </aside>
 
 <aside class="callout source">
   <span class="label">Read next</span>
-  <p><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/MAS-stage-aaq-str.md#511-dynamic-exponent-field-selection-fe--1-vs-fe--2">AaQ spec §5.1.1</a>: the classification table, the terms, the decision and the unbiasedness argument. Compare its step table with the clamp branch of §5.1.</p>
+  <p><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/ARCH-stage-aaq-str.md#4323-dynamic-exponent-selection-fe--1-or-fe--2">ARCH AaQ §4.3.2.3</a>: the classification table, the terms, the decision and the unbiasedness argument. Compare its step table with the clamp branch of <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/ARCH-stage-aaq-str.md#4322-exponent-and-mantissa-encoding">§4.3.2.2</a>.</p>
 </aside>
 
 <aside class="callout ask">
