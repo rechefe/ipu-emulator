@@ -31,5 +31,11 @@
    "value": 4224
   }
  ],
- "xmem": []
+ "xmem": [],
+ "xmem_metadata": [
+  {
+   "row": 16,
+   "word": "007f"
+  }
+ ]
 }

@@ -42,18 +42,22 @@ testbench skips it.
    faults F-2.
 3. After the reset, zero every register and every XMEM byte, except `CR0`
    (0) and `CR1` (1), the constants. Write each of `registers`, then each `xmem`
-   region. A register is named by its bank and `index` (the register within
+   region, then each `xmem_metadata` word (an optional field, listed only
+   when a word is not zero). A register is named by its bank and `index` (the register within
    the bank, table below); `value` is an `lr` or `cr` register's unsigned
    32-bit value, `hex` a vector register's bytes, lowest address first. A
    register whose reset value is not zero, such as `CR15` (its low
-   half is the default DS) or `r_mask`, is always listed.
+   half is the default DS) or `r_mask`, is always listed. An `xmem_metadata` entry's `row` is the 128-byte XMEM
+   unit (an NX8 row) whose metadata word it sets, `word` the word's value in
+   four hex digits, most significant first (`0185`: scale `0x85`, dynamic
+   exponent 1); a trace shows the word's bytes lowest first (`8501` in
+   `r_meta`). Every other row's metadata word is 0.
 4. Set each of `fault_enables` (every other fault stays enabled).
 5. Run until a `HALT` word, a fault, or the cycle limit: after `max_cycles`
    words, the next word faults F-9 before it runs (its record lists no
    slots); 0 disables the limit. A `BREAK` slot never stops the run. The
    activation parameters keep their defaults, and in FP32 mode
    `ACTIVATE.QUANTIZE` stores the activated row as FP32 without quantizing.
-   XMEM row metadata starts at 0: `setup.json` does not list it yet.
 6. Compare the trace: the header's `schema_version`, `isa_digest`, `format`
    and `program_digest` (SHA-256 of `program.bin`), not `emulator_version`;
    then every record, field by field. A record's `cycle` counts the records

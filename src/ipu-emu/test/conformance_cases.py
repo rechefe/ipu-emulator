@@ -45,6 +45,9 @@ from ipu_isa.view import isa
 MAX_CYCLES = 1_000
 #: XMEM rows the load cases fill (their rows are CR3 + LR1 and CR3 + LR2).
 ROWS = 8
+#: The NX8 metadata word of XMEM row k in the cases whose load copies it:
+#: dynamic exponent 1 and scale 0x80 + k (rows 5 and 6 read 0x0185 and 0x0186).
+ROW_METADATA = 0x0180
 
 
 @dataclass(frozen=True)
@@ -134,12 +137,16 @@ def _fill(rng: random.Random, fmt: ElementFormat, register: str) -> bytes:
     return rng.randbytes(definition["size_bytes"])
 
 
-def random_state(seed: str, reads: frozenset[str], xmem: bool) -> Callable[[IpuState], None]:
+def random_state(
+    seed: str, reads: frozenset[str], xmem: bool, metadata: bool = False
+) -> Callable[[IpuState], None]:
     """An instruction case's starting state: CRS and LRS, the vector
     registers in *reads* and, when *xmem*, the first ROWS XMEM rows, filled
     from a generator seeded by *seed*. The registers the instruction does not
-    read keep their reset values, which keeps the suite small. XMEM row
-    metadata stays 0 (``setup.json`` has no metadata field yet)."""
+    read keep their reset values, which keeps the suite small. When
+    *metadata* (a load that copies row metadata) and in NX8, those rows'
+    metadata words are ROW_METADATA + row, nonzero so a trace shows the copy;
+    otherwise XMEM row metadata stays 0."""
 
     def prepare(state: IpuState) -> None:
         rng = random.Random(seed)
@@ -154,6 +161,9 @@ def random_state(seed: str, reads: frozenset[str], xmem: bool) -> Callable[[IpuS
             state.regfile.mutable(name)[:] = _fill(rng, fmt, register)
         if xmem:
             state.xmem.write_address(0, _elements(rng, fmt, ROWS * LANES))
+        if metadata and fmt is ElementFormat.NX8:
+            for row in range(ROWS):
+                state.xmem.write_metadata(row * LANES, ROW_METADATA + row)
 
     return prepare
 
@@ -254,12 +264,20 @@ def instruction_cases() -> list[Case]:
     reads = {i.mnemonic: frozenset(a.register for a in i.reads()) for i in every}
     # The instructions that read XMEM: the LOAD slot's and LD.LUT.
     loads = {i.mnemonic for i in every if i.slot is Slot.LOAD or i.mnemonic == "LD.LUT"}
+    # The loads that copy a row's metadata word (into r_meta or r_cyclic_meta).
+    copies_metadata = {
+        i.mnemonic
+        for i in every
+        if i.mnemonic in loads and {w.register for w in i.writes()} & {"r_meta", "r_cyclic_meta"}
+    }
     cases = []
     for mnemonic, (body, formats) in INSTRUCTIONS.items():
         for fmt in formats:
             name = f"insn_{_slug(mnemonic)}_{fmt.value}"
             asm = f"{body}\nHALT ;;\n" if body else "HALT ;;\n"
-            state = random_state(name, reads[mnemonic], mnemonic in loads)
+            state = random_state(
+                name, reads[mnemonic], mnemonic in loads, mnemonic in copies_metadata
+            )
             cases.append(Case(name, f"{mnemonic} in {fmt.value.upper()}", asm, fmt, state))
     return cases
 
@@ -286,6 +304,8 @@ def _probe_state(
         prepared.regfile.copy_into(state.regfile)
         for base, page in prepared.xmem.touched_pages():
             state.xmem.write_address(base, bytes(page))
+        for address, word in prepared.xmem.touched_metadata():
+            state.xmem.write_metadata(address, word)
 
     return prepare
 
@@ -513,12 +533,22 @@ def _emulator_only(case: Case, data: bytes) -> bool:
     return any(slot in emulator and op != "NOP" for slot, op in conformance.slot_ops(data))
 
 
+def _xmem_metadata(state: IpuState) -> list[dict[str, Any]]:
+    """The XMEM row metadata words that are not zero, by row: the word's
+    value in four hex digits, most significant first."""
+    return [
+        {"row": address // LANES, "word": f"{word:04x}"}
+        for address, word in state.xmem.touched_metadata()
+    ]
+
+
 def setup_of(case: Case, data: bytes) -> dict[str, Any]:
-    """The ``setup.json`` of *case*: its starting state, every register and
-    XMEM byte not listed being zero."""
+    """The ``setup.json`` of *case*: its starting state, every register,
+    XMEM byte and XMEM row metadata word not listed being zero
+    (``xmem_metadata`` only when one is not)."""
     state, fresh = IpuState(fmt=case.fmt), IpuState(fmt=case.fmt)
     case.prepare(state)
-    return {
+    setup = {
         "description": case.description,
         "format": case.fmt.value,
         "emulator_only": _emulator_only(case, data),
@@ -527,6 +557,10 @@ def setup_of(case: Case, data: bytes) -> dict[str, Any]:
         "registers": _registers(state, fresh),
         "xmem": _xmem(state),
     }
+    metadata = _xmem_metadata(state)
+    if metadata:
+        setup["xmem_metadata"] = metadata
+    return setup
 
 
 def source_of(case: Case) -> str:

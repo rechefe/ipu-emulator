@@ -153,7 +153,8 @@ To run the suite against another implementation, for each case:
 1. Skip it if `setup.json` has `"emulator_only": true`.
 2. Reset in the case's `format` and load `program.bin`.
 3. Zero every register and XMEM byte (`CR0` and `CR1` aside), then write the
-   registers and XMEM regions of `setup.json` and set its fault enables.
+   registers, XMEM regions and XMEM row metadata words of `setup.json` and
+   set its fault enables.
 4. Run until `HALT`, a fault or `max_cycles`, recording a commit record per
    word.
 5. Compare the header's `schema_version`, `isa_digest`, `format` and
