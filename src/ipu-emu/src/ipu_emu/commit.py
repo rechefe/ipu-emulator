@@ -14,7 +14,9 @@ to an emulator-only register (the wide-vector debug copies) carries
 ``"tag": "emulator"``. A faulting word is recorded when the fault is (through
 ``IpuState.add_fault_observer``), with no slots and no writes: nothing of a
 faulting word retires (E04-20), though observers saw its LR ops run before
-the check phase undid them.
+the check phase undid them. A write to XMEM's metadata side store (ADR 0007)
+is recorded per 128-byte unit, with the word's end-of-cycle value; a record
+with none leaves the optional ``xmem_meta_writes`` field out of its JSON.
 """
 
 from __future__ import annotations
@@ -45,6 +47,7 @@ __all__ = [
     "Outcome",
     "RegWrite",
     "SlotOp",
+    "XmemMetaWrite",
     "XmemWrite",
 ]
 
@@ -164,6 +167,29 @@ class XmemWrite:
 
 
 @dataclass(frozen=True)
+class XmemMetaWrite:
+    """Metadata word ``value`` written for the 128-byte XMEM unit at ``address``
+    (commit record schema 1.1.0).
+
+    Attributes:
+        address: The unit's first XMEM byte.
+        value: The unsigned 16-bit metadata word, at its end-of-cycle value.
+    """
+
+    address: int
+    value: int
+
+    def to_json(self) -> dict[str, Any]:
+        """The write as a schema ``xmem_meta_write`` document."""
+        return {"address": self.address, "value": self.value}
+
+    @classmethod
+    def from_json(cls, doc: Mapping[str, Any]) -> XmemMetaWrite:
+        """A write from a schema ``xmem_meta_write`` document."""
+        return cls(doc["address"], doc["value"])
+
+
+@dataclass(frozen=True)
 class FaultInfo:
     """The fault a word raised: its label (``"F-3"``) and PC.
 
@@ -192,6 +218,8 @@ class CommitRecord:
         fault: The fault, when ``outcome`` is ``fault``; else ``None``.
         arith_events: The arithmetic events the word raised
             (``ipu_isa.faults.ArithmeticEvent`` values), sorted.
+        xmem_meta_writes: The XMEM metadata words the word wrote, by unit
+            address (1.1.0; omitted from the JSON when empty).
     """
 
     cycle: int
@@ -203,10 +231,11 @@ class CommitRecord:
     outcome: Outcome = "retired"
     fault: FaultInfo | None = None
     arith_events: tuple[str, ...] = ()
+    xmem_meta_writes: tuple[XmemMetaWrite, ...] = ()
 
     def to_json(self) -> dict[str, Any]:
         """The record as a schema document (JSON-ready: numbers, strings, lists)."""
-        return {
+        doc: dict[str, Any] = {
             "cycle": self.cycle,
             "pc_before": self.pc_before,
             "pc_after": self.pc_after,
@@ -217,6 +246,9 @@ class CommitRecord:
             "fault": None if self.fault is None else {"id": self.fault.id, "pc": self.fault.pc},
             "arith_events": list(self.arith_events),
         }
+        if self.xmem_meta_writes:
+            doc["xmem_meta_writes"] = [w.to_json() for w in self.xmem_meta_writes]
+        return doc
 
     @classmethod
     def from_json(cls, doc: Mapping[str, Any]) -> CommitRecord:
@@ -232,6 +264,9 @@ class CommitRecord:
             outcome=doc["outcome"],
             fault=None if fault is None else FaultInfo(fault["id"], fault["pc"]),
             arith_events=tuple(doc["arith_events"]),
+            xmem_meta_writes=tuple(
+                XmemMetaWrite.from_json(w) for w in doc.get("xmem_meta_writes", ())
+            ),
         )
 
 
@@ -255,6 +290,7 @@ class _Pending:
     slots: list[SlotOp] = field(default_factory=list)
     regs: dict[str, list[tuple[int, int]]] = field(default_factory=dict)
     xmem: list[tuple[int, int]] = field(default_factory=list)
+    meta: set[int] = field(default_factory=set)
     broke: bool = False
     arith: set[ArithmeticEvent] = field(default_factory=set)
 
@@ -371,8 +407,12 @@ class CommitCollector:
             self._pending.regs.setdefault(name, []).append((start, start + size))
 
     def _memory_event(self, kind: str, address: int, size: int, data: object) -> None:
-        if self._pending is not None and kind == "write" and size:
+        if self._pending is None:
+            return
+        if kind == "write" and size:
             self._pending.xmem.append((address, address + size))
+        elif kind == "meta_write":
+            self._pending.meta.add(address)
 
     # -- records ------------------------------------------------------------
 
@@ -415,6 +455,10 @@ class CommitCollector:
             XmemWrite(start, xmem.snapshot_bytes(start, end - start))
             for start, end in _merged(pending.xmem)
         )
+        meta_writes = tuple(
+            XmemMetaWrite(address, xmem.snapshot_metadata(address))
+            for address in sorted(pending.meta)
+        )
         self.records.append(
             CommitRecord(
                 cycle=self._count,
@@ -426,6 +470,7 @@ class CommitCollector:
                 outcome=outcome,
                 fault=fault,
                 arith_events=tuple(sorted(e.value for e in pending.arith)),
+                xmem_meta_writes=meta_writes,
             )
         )
         self._count += 1

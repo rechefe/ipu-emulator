@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/rechefe/ipu-emulator/schemas/commit_record/1.0.0",
+  "$id": "https://github.com/rechefe/ipu-emulator/schemas/commit_record/1.1.0",
   "title": "IPU commit record",
   "description": "One retired VLIW word (E04-29). Integers up to 32 bits are JSON numbers; wider data are lowercase hex strings, little-endian. Register names are ipu_isa's. NOP slots are omitted. A write is a range the word wrote, with its value at the end of the cycle. A faulting word has no effect (precise faults), so a fault record has no writes.",
   "type": "object",
@@ -85,6 +85,13 @@
         "type": "string"
       },
       "description": "Arithmetic events of the word (E04-23); empty until they are modelled."
+    },
+    "xmem_meta_writes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/xmem_meta_write"
+      },
+      "description": "Optional (1.1.0): the XMEM metadata words the word wrote, one per 128-byte unit, at their end-of-cycle values. A record with none may leave the field out."
     }
   },
   "allOf": [
@@ -105,6 +112,9 @@
             "maxItems": 0
           },
           "xmem_writes": {
+            "maxItems": 0
+          },
+          "xmem_meta_writes": {
             "maxItems": 0
           }
         }
@@ -222,6 +232,27 @@
         },
         "data": {
           "$ref": "#/$defs/hex"
+        }
+      }
+    },
+    "xmem_meta_write": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "address",
+        "value"
+      ],
+      "properties": {
+        "address": {
+          "$ref": "#/$defs/u32",
+          "multipleOf": 128,
+          "description": "The first byte of the 128-byte XMEM unit the word describes."
+        },
+        "value": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "The unit's 16-bit metadata word (ADR 0007: scale[7:0], dynamic_exponent[8])."
         }
       }
     }

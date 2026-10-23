@@ -384,6 +384,33 @@ class TestRegFileSnapshot:
         assert rf.get_r(0) == bytearray(128)
 
 
+    def test_snapshot_and_copy_into_carry_the_metadata_registers(self):
+        # ADR 0007: R0/R1 and the four R_CYCLIC slots each hold a 16-bit
+        # metadata word; the AaQ LUT holds 4352 table + 46 metadata bits.
+        rf = RegFile()
+        rf.set_r_meta(1, b"\x7f\x01")
+        rf.set_r_cyclic_meta(3, b"\x05\x01")
+        rf.set_aaq_lut(bytes(range(256)) * 2 + bytes(38))
+        snap = rf.snapshot()
+        rf.set_r_meta(1, bytes(2))
+        assert snap.get_r_meta(1) == b"\x7f\x01" and rf.get_r_meta(1) == bytes(2)
+        assert snap.get_r_cyclic_meta(3) == b"\x05\x01"
+        assert snap.get_aaq_lut()[:256] == bytes(range(256))
+        fresh = RegFile().snapshot()
+        snap.copy_into(fresh)
+        assert fresh.get_r_meta(1) == b"\x7f\x01" and fresh.get_aaq_lut() == snap.get_aaq_lut()
+
+    def test_metadata_registers_reset_to_zero_with_their_sizes(self):
+        rf = RegFile()
+        assert [rf.get_r_meta(i) for i in range(2)] == [bytes(2)] * 2
+        assert [rf.get_r_cyclic_meta(i) for i in range(4)] == [bytes(2)] * 4
+        assert rf.get_aaq_lut() == bytes((4352 + 46 + 7) // 8)
+        with pytest.raises(RegisterIndexError):
+            rf.get_r_cyclic_meta(4)
+        with pytest.raises(RegisterSizeError):
+            rf.set_r_meta(0, b"\x00")
+
+
 # ---------------------------------------------------------------------------
 # RegFile — Serialisation
 # ---------------------------------------------------------------------------

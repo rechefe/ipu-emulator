@@ -14,7 +14,8 @@ and ``index`` picks the register within its bank (``lr``: LR0-LR15, ``cr``:
 CR0-CR15, ``r``: R0-R1). ``lr`` and ``cr`` read and write as unsigned 32-bit
 ints, the others as bytes. ``r_wide_debug`` and ``r_cyclic_wide_debug`` are
 emulator-only: they hold the operands of the wide formats (FP32, INT32), which
-the hardware does not have. No method returns an emulator object.
+the hardware does not have. ``r_meta``, ``r_cyclic_meta`` and ``aaq_lut`` hold
+row metadata and the AaQ LUT (ADR 0007), as bytes. No method returns an emulator object.
 
 A host access the IPU refuses with an AXI error (faults.md, "Illegal host
 accesses", IPU-FLT-7) raises :class:`~ipu_emu.errors.ConfigurationError`:
@@ -68,7 +69,7 @@ __all__ = [
 ]
 
 #: The version of this API (Q11).
-API_VERSION = "1.4.0"
+API_VERSION = "1.5.0"
 
 
 class RunState(str, enum.Enum):
@@ -316,6 +317,26 @@ class ReferenceModel:
         """
         self._writable()
         self._state.xmem.write_address(address, bytes(data))
+
+    def read_xmem_metadata(self, address: int) -> int:
+        """The 16-bit metadata word of the 128-byte XMEM unit at *address*
+        (1.5.0, ADR 0007); 0 when never written.
+
+        Raises:
+            ConfigurationError: *address* is outside XMEM or not unit-aligned.
+        """
+        return self._state.xmem.snapshot_metadata(address)
+
+    def write_xmem_metadata(self, address: int, word: int) -> None:
+        """Write the metadata word of the 128-byte XMEM unit at *address*,
+        only while halted (1.5.0, ADR 0007).
+
+        Raises:
+            ConfigurationError: The model is running or faulted; *address* is
+                outside XMEM or not unit-aligned; *word* is not 16-bit unsigned.
+        """
+        self._writable()
+        self._state.xmem.write_metadata(address, word)
 
     # -- running -------------------------------------------------------------
 

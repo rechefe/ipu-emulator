@@ -191,6 +191,8 @@ class ExecutionObserver:
         return None
 
     def memory(self, kind, address, size, data):
+        if kind not in ("read", "write", "clear"):
+            return  # the metadata side store: no aliasing to prove
         if kind == "clear":
             # Every block now holds a fresh zero written at this epoch. Drop the
             # tables and remember the epoch as the version of every untouched

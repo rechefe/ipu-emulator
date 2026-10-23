@@ -220,3 +220,88 @@ class TestXMemPaged:
         xmem = XMem()
         with pytest.raises(ValueError, match="touched_pages"):
             xmem[:]
+
+
+# ---------------------------------------------------------------------------
+# Metadata side store (ADR 0007): one 16-bit word per 128-byte unit
+# ---------------------------------------------------------------------------
+
+
+class TestXMemMetadata:
+    def test_unwritten_metadata_reads_zero(self):
+        xmem = XMem()
+        assert xmem.read_metadata(0) == 0
+        assert xmem.read_metadata(XMEM_SIZE_BYTES - 128) == 0
+        assert list(xmem.touched_metadata()) == []
+
+    def test_write_then_read_per_unit(self):
+        xmem = XMem()
+        xmem.write_metadata(256, 0x1FF)
+        xmem.write_metadata(XMEM_SIZE_BYTES - 128, 0xFFFF)
+        assert xmem.read_metadata(256) == 0x1FF
+        assert xmem.read_metadata(128) == 0 and xmem.read_metadata(384) == 0
+        assert xmem.snapshot_metadata(XMEM_SIZE_BYTES - 128) == 0xFFFF
+        assert list(xmem.touched_metadata()) == [(256, 0x1FF), (XMEM_SIZE_BYTES - 128, 0xFFFF)]
+
+    def test_metadata_and_bytes_are_independent(self):
+        xmem = XMem()
+        xmem.write_address(128, b"\x07" * 128)
+        assert xmem.read_metadata(128) == 0
+        xmem.write_metadata(128, 3)
+        assert xmem.read_address(128, 128) == b"\x07" * 128
+        assert list(xmem.touched_pages())  # bytes stored; the metadata write added none
+
+    def test_writing_zero_forgets_the_word(self):
+        xmem = XMem()
+        xmem.write_metadata(0, 5)
+        xmem.write_metadata(0, 0)
+        assert list(xmem.touched_metadata()) == []
+
+    @pytest.mark.parametrize("address", [1, 64, -128, XMEM_SIZE_BYTES])
+    def test_an_unaligned_or_out_of_range_unit_raises(self, address):
+        xmem = XMem()
+        with pytest.raises(ValueError):
+            xmem.write_metadata(address, 1)
+        with pytest.raises(ValueError):
+            xmem.read_metadata(address)
+
+    @pytest.mark.parametrize("word", [-1, 0x10000, True, 1.0])
+    def test_a_word_that_is_not_16_bit_unsigned_raises(self, word):
+        with pytest.raises(ValueError):
+            XMem().write_metadata(0, word)
+
+    def test_clear_drops_metadata(self):
+        xmem = XMem()
+        xmem.write_metadata(128, 9)
+        xmem.clear()
+        assert xmem.read_metadata(128) == 0
+        assert list(xmem.touched_metadata()) == []
+
+    def test_fill_leaves_metadata(self):
+        xmem = XMem()
+        xmem.write_metadata(0, 9)
+        xmem.fill(0, PAGE_BYTES)
+        assert xmem.read_metadata(0) == 9
+
+    def test_eq_compares_metadata(self):
+        a, b = XMem(), XMem()
+        a.write_metadata(128, 4)
+        assert a != b
+        b.write_metadata(128, 4)
+        assert a == b
+        a.write_metadata(128, 0)  # zero equals never written
+        b.write_metadata(128, 0)
+        a.write_metadata(256, 0)
+        assert a == b
+
+    def test_observers_see_distinct_metadata_events(self):
+        xmem = XMem()
+        events = []
+        xmem.add_observer(lambda *event: events.append(event))
+        xmem.write_metadata(384, 0x0102)
+        assert xmem.read_metadata(384) == 0x0102
+        assert xmem.snapshot_metadata(384) == 0x0102  # no event
+        assert events == [
+            ("meta_write", 384, 2, b"\x02\x01"),
+            ("meta_read", 384, 2, b"\x02\x01"),
+        ]

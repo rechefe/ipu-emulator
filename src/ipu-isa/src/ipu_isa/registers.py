@@ -98,6 +98,25 @@ REGISTER_DEFINITIONS: dict[str, RegisterDefinition] = {
         "dtype": RegDtype.UINT8,
         "debug_aliases": ("rcyclic_wide_debug",),
     },
+    # Row metadata (ADR 0007): one 16-bit word (scale[7:0],
+    # dynamic_exponent[8]) per multiply operand row, copied from XMEM's
+    # metadata side store with the row. "r_meta" index 0/1 belongs to R0/R1;
+    # "r_cyclic_meta" index k to the k-th 128-element slot of R_CYCLIC.
+    # Not encodable as an assembly operand.
+    "r_meta": {
+        "kind": RegKind.MULT,
+        "vector": True,
+        "size_bytes": 2,
+        "count": 2,
+        "dtype": RegDtype.UINT8,
+    },
+    "r_cyclic_meta": {
+        "kind": RegKind.MULT,
+        "vector": True,
+        "size_bytes": 2,
+        "count": 4,
+        "dtype": RegDtype.UINT8,
+    },
     "r_mask": {
         "kind": RegKind.MULT,
         "vector": True,
@@ -131,6 +150,17 @@ REGISTER_DEFINITIONS: dict[str, RegisterDefinition] = {
         "count": 1,
         "dtype": RegDtype.UINT8,
         "debug_aliases": ("aaq_result",),
+    },
+    # The AaQ stage's LUT state (ADR 0007, ARCH-stage-aaq-str): five LD.LUT
+    # segments concatenated, little-endian bit order -- table bits [4351:0]
+    # then the 46-bit LUT metadata [4397:4352], in 550 whole bytes (the top
+    # two bits are always 0). Not encodable as an assembly operand.
+    "aaq_lut": {
+        "kind": RegKind.AAQ,
+        "vector": True,
+        "size_bytes": 550,
+        "count": 1,
+        "dtype": RegDtype.UINT8,
     },
     # -----------------------------------------------------------------------
     # LR / CR scalar registers

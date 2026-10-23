@@ -20,7 +20,15 @@ from emu_support import ElementFormat, assemble_program
 
 import ipu_emu.reference as api
 from ipu_emu.alias_profile import AliasProfile
-from ipu_emu.commit import CommitRecord, FaultInfo, Outcome, RegWrite, SlotOp, XmemWrite
+from ipu_emu.commit import (
+    CommitRecord,
+    FaultInfo,
+    Outcome,
+    RegWrite,
+    SlotOp,
+    XmemMetaWrite,
+    XmemWrite,
+)
 from ipu_emu.emulator import DebugAction
 from ipu_emu.errors import ConfigurationError
 from ipu_emu.ipu_state import INST_MEM_SIZE
@@ -399,9 +407,101 @@ SNAPSHOTS = {
         "read_trace": "(path: 'str | Path') -> 'tuple[dict[str, Any], list[CommitRecord]]'",
         "FaultInfo": {"id": "str", "pc": "int"},
     },
+    "1.5.0": {
+        "__all__": [
+            "API_VERSION",
+            "ReferenceModel",
+            "RunResult",
+            "RunState",
+            "Stats",
+            "Status",
+            "TraceWriter",
+            "read_trace",
+        ],
+        "ReferenceModel": {
+            "__init__": "(self, fmt: 'ElementFormat' = <ElementFormat.INT8: 'int8'>) -> 'None'",
+            "alias_profile": "(self) -> 'AliasProfile | None'",
+            "arith_flags": "(self) -> 'frozenset[ArithmeticEvent]'",
+            "attach_alias_profile": "(self, profile: 'AliasProfile') -> 'None'",
+            "debug_run": "(self, callback: 'DebugCallback', break_on_entry: 'bool' = False, *, "
+            "max_cycles: 'int | None' = None, control: 'RunControl | None' = None)"
+            " -> 'RunResult'",
+            "fault_enabled": "(self, fault: 'FaultId') -> 'bool'",
+            "fault_flags": "(self) -> 'frozenset[FaultId]'",
+            "load_program": "(self, words: 'bytes | Sequence[int]') -> 'None'",
+            "observe_xmem_reads": "(self, callback: 'Callable[[int, int], None]')"
+            " -> 'Callable[[], None]'",
+            "read_register": "(self, name: 'str', index: 'int' = 0) -> 'int | bytes'",
+            "read_xmem": "(self, address: 'int', size: 'int') -> 'bytes'",
+            "read_xmem_metadata": "(self, address: 'int') -> 'int'",
+            "reset": "(self, fmt: 'ElementFormat') -> 'None'",
+            "run": "(self, max_cycles: 'int | None' = None, *, trace: 'TraceWriter | None' = None)"
+            " -> 'RunResult'",
+            "set_fault_enable": "(self, fault: 'FaultId', enabled: 'bool') -> 'None'",
+            "stats": "(self) -> 'Stats'",
+            "status": "property",
+            "step": "(self) -> 'CommitRecord'",
+            "trace_header": "(self) -> 'dict[str, Any]'",
+            "write_register": "(self, name: 'str', value: 'int | bytes', index: 'int' = 0)"
+            " -> 'None'",
+            "write_xmem": "(self, address: 'int', data: 'bytes') -> 'None'",
+            "write_xmem_metadata": "(self, address: 'int', word: 'int') -> 'None'",
+        },
+        "Status": {"state": "RunState", "pc": "int", "fault": "FaultId | None"},
+        "RunResult": {"status": "Status", "cycles": "int", "quit": "bool"},
+        "Stats": {
+            "cycles": "int",
+            "mult_active_cycles": "int",
+            "acc_active_cycles": "int",
+            "xmem_reads": "int",
+            "xmem_writes": "int",
+            "mult_lane_ops": "int",
+            "mult_identity_lane_ops": "int",
+            "lane_occupancy": "float",
+            "effective_mac_utilization": "float",
+        },
+        "RunState": {"RUNNING": "running", "HALTED": "halted", "FAULTED": "faulted"},
+        # What step() returns (ipu_emu.commit), field by field.
+        "CommitRecord": {
+            "cycle": "int",
+            "pc_before": "int",
+            "pc_after": "int",
+            "slots": "tuple[SlotOp, ...]",
+            "reg_writes": "tuple[RegWrite, ...]",
+            "xmem_writes": "tuple[XmemWrite, ...]",
+            "outcome": "Outcome",
+            "fault": "FaultInfo | None",
+            "arith_events": "tuple[str, ...]",
+            "xmem_meta_writes": "tuple[XmemMetaWrite, ...]",
+        },
+        "Outcome": ["retired", "break", "halt", "fault"],
+        "SlotOp": {
+            "slot": "str",
+            "mnemonic": "str",
+            "fields": "Mapping[str, int]",
+            "emulator_only": "bool",
+        },
+        "RegWrite": {
+            "register": "str",
+            "index": "int | None",
+            "value": "int | None",
+            "offset": "int | None",
+            "data": "bytes | None",
+        },
+        "XmemWrite": {"address": "int", "data": "bytes"},
+        "XmemMetaWrite": {"address": "int", "value": "int"},
+        "TraceWriter": {
+            "__init__": "(self, path: 'str | Path', header: 'dict[str, Any]') -> 'None'",
+            "close": "(self) -> 'None'",
+            "write": "(self, record: 'CommitRecord') -> 'None'",
+            "write_all": "(self, records: 'Iterable[CommitRecord]') -> 'None'",
+        },
+        "read_trace": "(path: 'str | Path') -> 'tuple[dict[str, Any], list[CommitRecord]]'",
+        "FaultInfo": {"id": "str", "pc": "int"},
+    },
 }
 
-_RECORD_TYPES = (CommitRecord, SlotOp, RegWrite, XmemWrite, FaultInfo)
+_RECORD_TYPES = (CommitRecord, SlotOp, RegWrite, XmemWrite, XmemMetaWrite, FaultInfo)
 
 
 def _fields(cls: type) -> dict[str, str]:
@@ -641,6 +741,39 @@ def test_xmem_round_trips_and_bounds_are_checked():
         model.write_xmem(1 << 40, b"\x00")
 
 
+def test_xmem_metadata_round_trips_and_is_checked():
+    model = _model()
+    assert model.read_xmem_metadata(256) == 0  # never written
+    model.write_xmem_metadata(256, 0x1AB)
+    assert model.read_xmem_metadata(256) == 0x1AB
+    assert model.read_xmem_metadata(128) == 0 and model.read_xmem(256, 4) == bytes(4)
+    for address, word in ((100, 1), (1 << 40, 1), (0, 1 << 16), (0, -1)):
+        with pytest.raises(ConfigurationError):
+            model.write_xmem_metadata(address, word)
+    with pytest.raises(ConfigurationError):
+        model.read_xmem_metadata(64)
+    model.step()
+    with pytest.raises(ConfigurationError, match="halted"):
+        model.write_xmem_metadata(0, 1)
+    model.reset(ElementFormat.INT8)
+    assert model.read_xmem_metadata(256) == 0
+
+
+def test_the_metadata_registers_read_as_bytes_and_reset_to_zero():
+    model = _model()
+    for name, count, size in (("r_meta", 2, 2), ("r_cyclic_meta", 4, 2), ("aaq_lut", 1, 550)):
+        for index in range(count):
+            assert model.read_register(name, index) == bytes(size), (name, index)
+    model.write_register("r_meta", b"\x7f\x01", 1)
+    model.write_register("r_cyclic_meta", b"\x05\x00", 3)
+    assert model.read_register("r_meta", 1) == b"\x7f\x01"
+    assert model.read_register("r_cyclic_meta", 3) == b"\x05\x00"
+    with pytest.raises(ConfigurationError, match="2 bytes"):
+        model.write_register("r_meta", b"\x00", 0)
+    model.reset(ElementFormat.INT8)
+    assert model.read_register("r_meta", 1) == bytes(2)
+
+
 def test_observe_xmem_reads_reports_the_programs_reads_until_stopped():
     model = _model("LD.MULT R0 LR0 CR2 ;;\nLD.MULT R1 LR0 CR2 ;;\nHALT ;;")
     model.write_register("cr", 2, index=2)  # row 2: byte 256 in INT8
@@ -682,6 +815,7 @@ def test_no_method_returns_an_emulator_object():
         "read_register(lr)": model.read_register("lr", 0),
         "read_register(r)": model.read_register("r", 0),
         "read_xmem": model.read_xmem(0, 4),
+        "read_xmem_metadata": model.read_xmem_metadata(0),
         "step": model.step(),
         "run": model.run(),
         "status": model.status,

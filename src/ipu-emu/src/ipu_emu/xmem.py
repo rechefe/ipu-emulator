@@ -4,6 +4,10 @@ A flat 512 MiB byte-addressable memory: address reads and writes, observer
 events, and constant-ONES provenance. Storage is sparse: only pages that have
 been written are allocated.
 
+Beside the bytes, XMEM keeps one 16-bit metadata word per 128-byte unit (an
+NX8 row's ``scale`` and ``dynamic_exponent``, ADR 0007). The side store is
+sparse too: a unit whose metadata was never written reads 0.
+
 The address space is the same in every element format: XMEM is always 512 MiB.
 Which of it is *reachable* depends on the active format's row size and is
 enforced by the caller (``ipu_emu.geometry.xmem_row_addr``), not here — this
@@ -23,10 +27,19 @@ from ipu_isa.geometry import XMEM_BYTES
 #: ``"write"`` or ``"clear"``. The event covers exactly the bytes
 #: ``[address, address + size)`` the operation touched. *data* holds those
 #: bytes for reads and writes, and is ``None`` for ``"clear"`` and ``fill``.
+#: The metadata side store reports ``"meta_read"`` and ``"meta_write"``:
+#: *address* is the unit's first byte, *size* is ``METADATA_WORD_BYTES`` and
+#: *data* the word, little-endian. An observer ignores kinds it does not know.
 MemoryObserver = Callable[[str, int, int, "bytes | bytearray | None"], None]
 
 XMEM_SIZE_BYTES = XMEM_BYTES  # 512 MiB; full-resolution FP32 descriptors fit
 XMEM_WIDTH_BYTES = FORMATS[ElementFormat.INT8].row_bytes  # one "word": the narrow row
+
+#: The XMEM bytes one metadata word describes: one NX8 row (ADR 0007).
+METADATA_UNIT_BYTES = 128
+#: The size of one metadata word.
+METADATA_WORD_BYTES = 2
+_METADATA_WORD_MAX = (1 << (8 * METADATA_WORD_BYTES)) - 1
 
 # Storage granule. A multiple of the widest row (512 bytes in the FP32/INT32
 # formats), so an aligned row access never crosses a page.
@@ -41,6 +54,11 @@ def _contiguous_range(idx: slice) -> tuple[int, int]:
         raise TypeError(f"XMEM slices must be contiguous (step 1), got step {idx.step}")
     start, stop, _ = idx.indices(XMEM_SIZE_BYTES)
     return start, max(start, stop)
+
+
+def _word_bytes(word: int) -> bytes:
+    """A metadata word as an observer event's data: little-endian bytes."""
+    return word.to_bytes(METADATA_WORD_BYTES, "little")
 
 
 def _remover(owner, fn: Callable) -> Callable[[], None]:
@@ -78,6 +96,9 @@ class XMem:
     def __init__(self) -> None:
         self._pages: dict[int, bytearray] = {}
         self._constant_ones: dict[int, bytes] = {}
+        # Metadata word by unit index (address // METADATA_UNIT_BYTES); a
+        # zero word is never stored, so equal memories hold equal dicts.
+        self._metadata: dict[int, int] = {}
         self._observers: tuple[MemoryObserver, ...] = ()
 
     def add_observer(self, fn: MemoryObserver) -> Callable[[], None]:
@@ -197,6 +218,52 @@ class XMem:
             pos += n
         self._notify("write", address, size, None)
 
+    # -- metadata side store ------------------------------------------------
+
+    @staticmethod
+    def _metadata_unit(address: int) -> int:
+        XMem._check_bounds("metadata access", address, METADATA_UNIT_BYTES)
+        if address % METADATA_UNIT_BYTES:
+            raise ConfigurationError(
+                f"XMEM metadata address {address} is not aligned to a "
+                f"{METADATA_UNIT_BYTES}-byte unit"
+            )
+        return address // METADATA_UNIT_BYTES
+
+    def read_metadata(self, address: int) -> int:
+        """The metadata word of the 128-byte unit at *address* (aligned); 0
+        when it was never written. Observers see a ``"meta_read"`` event."""
+        word = self._metadata.get(self._metadata_unit(address), 0)
+        self._notify("meta_read", address, METADATA_WORD_BYTES, _word_bytes(word))
+        return word
+
+    def write_metadata(self, address: int, word: int) -> None:
+        """Set the metadata word of the 128-byte unit at *address* (aligned).
+        Observers see a ``"meta_write"`` event; the unit's bytes are untouched.
+
+        Raises:
+            ConfigurationError: *address* is out of bounds or unaligned, or
+                *word* is not an unsigned 16-bit int.
+        """
+        unit = self._metadata_unit(address)
+        if isinstance(word, bool) or not isinstance(word, int) or not 0 <= word <= _METADATA_WORD_MAX:
+            raise ConfigurationError(f"XMEM metadata takes an unsigned 16-bit int, got {word!r}")
+        if word:
+            self._metadata[unit] = word
+        else:
+            self._metadata.pop(unit, None)
+        self._notify("meta_write", address, METADATA_WORD_BYTES, _word_bytes(word))
+
+    def snapshot_metadata(self, address: int) -> int:
+        """:meth:`read_metadata` without an observer event (for tools)."""
+        return self._metadata.get(self._metadata_unit(address), 0)
+
+    def touched_metadata(self) -> Iterator[tuple[int, int]]:
+        """Yield ``(unit address, word)`` per nonzero metadata word, in address
+        order. Every other unit's metadata is 0."""
+        for unit in sorted(self._metadata):
+            yield unit * METADATA_UNIT_BYTES, self._metadata[unit]
+
     # -- inspection (no observer events) ------------------------------------
 
     def snapshot_bytes(self, address: int, size: int) -> bytes:
@@ -215,9 +282,12 @@ class XMem:
             yield page * PAGE_BYTES, memoryview(self._pages[page]).toreadonly()
 
     def __eq__(self, other: object) -> bool:
-        """Same bytes everywhere; an absent page equals a page of zeros."""
+        """Same bytes and metadata everywhere; an absent page equals a page of
+        zeros, and unwritten metadata equals a zero word."""
         if not isinstance(other, XMem):
             return NotImplemented
+        if self._metadata != other._metadata:
+            return False
         mine, theirs = self._pages, other._pages
         for page in mine.keys() | theirs.keys():
             a = mine.get(page, _ZERO_PAGE)
@@ -235,9 +305,10 @@ class XMem:
         return XMEM_SIZE_BYTES
 
     def clear(self) -> None:
-        """Zero the entire memory by dropping every page."""
+        """Zero the entire memory, metadata included, by dropping every page."""
         self._constant_ones.clear()
         self._pages.clear()
+        self._metadata.clear()
         self._notify("clear", 0, XMEM_SIZE_BYTES, None)
 
     def __getitem__(self, idx: int | slice) -> int | bytearray:
