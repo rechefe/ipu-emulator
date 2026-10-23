@@ -192,3 +192,8 @@ textarea { width: 100%; min-height: 6rem; font-family: var(--font-body); }
 .party.ipu { border-color: var(--aaq); }
 .party .who { font-family: var(--font-head); font-size: 0.8rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-soft); }
 @media (max-width: 680px) { .parties { grid-template-columns: minmax(0, 1fr); } }
+
+/* Long code, paths and grid children wrap instead of widening the page. */
+.callout, .party, .panel, .q, .callout > *, .party > *, .panel > * { min-width: 0; }
+code, p.mono, .mono { overflow-wrap: anywhere; }
+.party > div:not(.table-wrap) { overflow-x: auto; }

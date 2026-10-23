@@ -111,7 +111,7 @@
    "options": ["0x88", "0xF8", "0x80", "0x08"], "answer": 2,
    "why": "Edge 1 with E = 1: Exp = 0, M = 0, sign 1, which is −2."},
   {"prompt": "Why can the largest element lose the most accuracy?",
-   "options": ["Its exponent field always overflows", "Edge 1 saturates instead of carrying", "Large values skip the rounding", "The scale ignores the largest"], "answer": 1,
+   "options": ["Its exponent field always overflows", "The top carry saturates instead", "Large values skip the rounding", "The scale ignores the largest"], "answer": 1,
    "why": "3.99 alone stores 3.75: the carry has no binade to move into."},
   {"prompt": "AaQ E4M3: what does exponent field 15 mean?",
    "options": ["Not a number (NaN)", "Subnormal values near zero", "The row's largest binade", "The clamp branch values"], "answer": 3,

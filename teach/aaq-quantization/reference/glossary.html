@@ -50,6 +50,29 @@
   </table></div>
 </section>
 
+<section class="wide" style="display:grid;gap:0.75rem">
+  <h2>Introduced in lessons 4–8</h2>
+  <p style="max-width:var(--measure)">These join the lists above once you have practised them.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Term</th><th>Definition</th><th>Lesson</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Direct branch</strong></td><td>Quantizer path for <code>E &lt; 2<sup>fe</sup> − 1</code>: <code>Exp = E</code>, mantissa rounded to <code>fm</code> bits.</td><td>4</td></tr>
+      <tr><td><strong>Clamp branch</strong></td><td>Quantizer path for larger <code>E</code>: exponent field all ones, mantissa shifted right so small values keep their magnitude.</td><td>4</td></tr>
+      <tr><td><strong>Edge 1, edge 2</strong></td><td>Rounding that carries out of the mantissa, in the direct branch (edge 1) or the clamp branch (edge 2).</td><td>4</td></tr>
+      <tr><td><strong>Dynamic table</strong></td><td>A table with <code>dynamic = 1</code>: signed, <code>W = 8</code>, and AaQ picks E1M6 or E2M5 for each row.</td><td>5</td></tr>
+      <tr><td><strong>Split</strong></td><td>One division of an element's bits between exponent and mantissa at a fixed width, such as E1M6 or E2M5.</td><td>5</td></tr>
+      <tr><td><strong>Accumulators A and B</strong></td><td>The §5.1.1 integer sums: A estimates what E2M5 loses at the scale, B what E1M6 loses from <code>E = 2</code> down.</td><td>5</td></tr>
+      <tr><td><span class="role aaq">LUT</span></td><td>The AaQ stage's 256 × 17-bit lookup table for <code>generic</code>, <code>exp2</code>, <code>reciprocal</code> and <code>rsqrt</code>.</td><td>6</td></tr>
+      <tr><td><strong>LUT metadata</strong></td><td>The 75-bit block loaded with the LUT that sets out-of-range handling. Unrelated to a row's metadata word.</td><td>6</td></tr>
+      <tr><td><strong>LUT load</strong></td><td>The AAQ-slot instruction (proposed <code>AAQ.LUT.LD</code>) that copies one 1024-bit segment from <code>R_ACC</code> words 0–31 into the LUT.</td><td>6</td></tr>
+      <tr><td><strong>Expansion</strong></td><td>Turning a stored byte back into its FP32 value from the row's scale and the table's <code>fe</code>.</td><td>7</td></tr>
+      <tr><td><strong>Window straddle</strong></td><td>A 128-element read window that covers rows with different metadata words.</td><td>7</td></tr>
+      <tr><td><strong>Golden</strong></td><td>A kernel case's expected output, held by its test. Distinct from a baseline, a checked-in snapshot file.</td><td>8</td></tr>
+      <tr><td><strong>Legacy AaQ</strong></td><td>Today's <code>ACTIVATE.QUANTIZE</code>, moved to an EMULATOR-tagged slot so old kernels keep their goldens.</td><td>8</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
 </main>
 </body>
 </html>
