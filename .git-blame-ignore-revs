@@ -1,0 +1,10 @@
+# Commits that only reformat code, skipped by `git blame`. GitHub reads this
+# file automatically; locally, run once per clone:
+#
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+#
+# Add a full commit hash, with a comment naming the change, for each
+# formatting-only commit.
+
+# E01-10: Ruff fix-up: format the repository (`ruff format`)
+81ff3f36ffbf6486f3f4c35fbf02922d3b135666

@@ -4,7 +4,7 @@
 set -euo pipefail
 
 # Only needed in the remote (web) environment. Local checkouts use the
-# devcontainer image, which already ships bazelisk and uv.
+# devcontainer image, which already ships bazelisk.
 if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ]; then
   exit 0
 fi
@@ -12,9 +12,9 @@ fi
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 
 # The sandbox egress policy allows github.com but not releases.bazel.build or
-# bcr.bazel.build, so bazelisk, the Bazel binary and the module registry are all
-# pointed at the equivalent GitHub-hosted sources.
-BAZELISK_URL="https://github.com/bazelbuild/bazelisk/releases/download/v1.27.0/bazelisk-linux-amd64"
+# bcr.bazel.build, so the Bazel binary and the module registry are pointed at
+# the equivalent GitHub-hosted sources (bootstrap.sh already fetches bazelisk
+# from GitHub releases).
 export BAZELISK_BASE_URL="https://github.com/bazelbuild/bazel/releases/download"
 
 if [ -w /usr/local/bin ]; then
@@ -24,12 +24,8 @@ else
 fi
 mkdir -p "$BIN_DIR"
 
-# Idempotent: skip the download when a working bazel is already on PATH.
-if ! command -v bazel >/dev/null 2>&1; then
-  echo "Installing bazelisk into $BIN_DIR ..."
-  curl -fsSL -o "$BIN_DIR/bazel" "$BAZELISK_URL"
-  chmod +x "$BIN_DIR/bazel"
-fi
+# Pinned, checksummed bazelisk from the shared bootstrap script (idempotent).
+BIN_DIR="$BIN_DIR" "$PROJECT_DIR/tools/bootstrap.sh"
 export PATH="$BIN_DIR:$PATH"
 
 # bazelisk keys its download cache by base URL, so persist the override in the
@@ -44,6 +40,9 @@ fi
 #   --registry      : bcr.bazel.build is blocked; use the GitHub mirror.
 #   --lockfile_mode : the mirror URL differs from the one recorded in
 #                     MODULE.bazel.lock, so leave the committed lockfile alone.
+#   --nobuild_runfile_links : do not materialise runfiles trees at build time.
+#                     Each kernel test target links large runfiles, and
+#                     `//...` alone fills the session's disk allowance.
 BAZELRC_MARKER="# claude-code-on-the-web session-start hook"
 if ! grep -qF "$BAZELRC_MARKER" "$HOME/.bazelrc" 2>/dev/null; then
   cat >> "$HOME/.bazelrc" << RC
@@ -53,15 +52,19 @@ common --registry=https://raw.githubusercontent.com/bazelbuild/bazel-central-reg
 common --lockfile_mode=off
 RC
 fi
+if ! grep -q "^build --nobuild_runfile_links" "$HOME/.bazelrc" 2>/dev/null; then
+  echo "build --nobuild_runfile_links" >> "$HOME/.bazelrc"
+fi
 
 # Bazel actions run repository shell scripts; keep them executable.
 find "$PROJECT_DIR" -type f -name "*.sh" -exec chmod +x {} + 2>/dev/null || true
 
 # Warm the container: download Bazel itself plus every external dependency
 # (module registry entries and pip wheels) while the image is still being built.
+# Fetch only; a full build here costs tens of GB of disk before work starts.
 cd "$PROJECT_DIR"
 bazel version
-bazel build //... --build_tag_filters=-docs || true
+bazel fetch --config=ci //... || true
 
 # Persist the settings the rest of the session needs.
 if [ -n "${CLAUDE_ENV_FILE:-}" ] && ! grep -q "^export BAZELISK_BASE_URL=" "$CLAUDE_ENV_FILE" 2>/dev/null; then

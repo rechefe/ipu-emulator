@@ -1,0 +1,71 @@
+# proj_p4_2tg_silu: the two-token-group projection template (E07-02), SiLU at
+# the store. registry.toml fixes its parameters for the L3 FFN1 entry (proj_ffn1_144_p4);
+# run by itself it is a small shape of the same program.
+[kernel]
+op = "projection"
+# FP32 only (E07-03). INT8 waits for OQ-35: ST.AAQ stores all of POST_AAQ_REG,
+# four rows in an 8-bit format, and this program stores both groups' row j
+# before row j + 1, so the spill of group 0's last rows zeroes group 1's first
+# three, already stored. E4 waits for the AaQ stage (OQ-20), as proj_p4's does.
+# test_formats.py fails when either is answered.
+formats = ["fp32"]
+
+[params]
+k          = { type = "int", min = 128, multiple_of = 16 }  # input channels; chunk 0 is a full 128
+n_out      = { type = "int", min = 1 }                       # output channels
+n_tok      = { type = "int", min = 1, max = 128 }            # tokens per group: one row
+n_tg       = { type = "int", choices = [2], default = 2 }    # token groups (hand-duplicated)
+n_streams  = { type = "int", choices = [4], default = 4 }    # pixel-streams per invocation
+activation = { type = "str", choices = ["silu"], default = "silu", query_required = true }  # fused at the store
+
+[derived]
+rc_slot0        = "0"                              # LR1 start value: the R_CYCLIC slot-0 index the program reads
+neg_one         = "-1"                             # data-pointer and fixed_idx startup
+full_bound      = "126"                            # inner-loop bound of a 128-wide chunk
+chunk_count     = "ceil(k / 128)"
+w_stride        = "chunk_count"                    # weight rows per output channel
+last_chunk_idx  = "chunk_count - 1"
+tail_bound      = "k - 128 * (chunk_count - 1) - 2"  # the last chunk's width - 2
+data_stream_str = "k * n_tg"                       # b rows per stream
+out_stream_str  = "n_tg * n_out"                   # y rows per stream
+stream_count    = "n_streams"
+
+# Placed in this order from row 0: b, a, y (today's XMEM map).
+[inputs.b]                                         # the data D, channel-major per stream
+shape = ["n_streams", "n_tg", "k", "n_tok"]
+pack = "channel_major"
+
+[inputs.a]                                         # the shared weights W, output-major
+shape = ["n_out", "k"]
+pack = "output_major_weights"
+
+[outputs.y]                                        # ST.AAQ rows, n_tok lanes valid
+shape = ["n_streams", "n_tg", "n_out", "n_tok"]
+pack = "projection_output"
+
+[abi]
+b               = "CR2"
+a               = "CR3"
+y               = "CR4"
+neg_one         = "CR5"
+full_bound      = "CR6"
+tail_bound      = "CR7"
+w_stride        = "CR8"
+n_out           = "CR9"
+chunk_count     = "CR10"
+last_chunk_idx  = "CR11"
+data_stream_str = "CR12"
+out_stream_str  = "CR13"
+stream_count    = "CR14"
+rc_slot0        = "LR1"
+
+[golden]
+op = "linear"                                      # activation(a @ b), ipu_kernels.reference.ops
+tolerance = { fp32 = "FP32_LONG" }
+
+# The data of the old cases: RandomState(0xC0FFEE), b per stream then a.
+[cases.default]
+generator = "gen.py:seeded_uniform"
+k = 144
+n_out = 4
+n_tok = 128

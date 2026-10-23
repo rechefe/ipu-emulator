@@ -1,0 +1,77 @@
+# depth_to_space: pixel shuffle to one output channel, [r * r, h, w] ->
+# [h * r, w * r] (E07-04). Was a whole-image kernel.
+[kernel]
+op = "depth_to_space"
+formats = ["fp32"]
+
+[params]
+h              = { type = "int", min = 1 }
+w              = { type = "int", min = 1 }
+upscale_factor = { type = "int", choices = [1, 2, 4, 8] }   # 8 * r must fit a signed byte (ADDB)
+
+[derived]
+r          = "upscale_factor"
+tiles      = "ceil(w / 128)"                  # input tiles per spatial row
+plane      = "h * tiles"                      # IN_PLANE_STRIDE (rows), also the h-loop bound
+plane_step = "r * plane"                      # a-loop step
+e          = "128 // r"                       # E: input columns per output tile
+dst_step   = "8 * r"                          # ADDB step of the destination index array
+k_bound    = "16 // r - 1"                    # E/8 - 1 (pre-increment bound)
+# Packed byte-index arrays for ACC.RESHAPE (four little-endian bytes per CR).
+# These are lane indices, not byte addresses: no unit = "bytes" (L16) applies.
+dst_hi     = "4 * r + 5 * r * 256 + 6 * r * 65536 + 7 * r * 16777216"   # [4r, 5r, 6r, 7r]
+src_lo     = "50462976"                       # [0, 1, 2, 3]
+src_hi     = "117835012"                      # [4, 5, 6, 7]
+dst_lo     = "r * 256 + 2 * r * 65536 + 3 * r * 16777216"                # [0, r, 2r, 3r]
+
+[inputs.x]
+shape = ["r * r", "h", "w"]                   # [C = r^2, H, W]; row-major: one row per 128-column tile
+
+# Each output row keeps the input's tile padding: tiles * r whole rows, the
+# first w * r lanes valid (../pack.py, tile_padded).
+[outputs.y]
+shape = ["h * r", "w * r"]
+pack = "tile_padded"
+
+[abi]
+x          = "CR2"
+y          = "CR3"
+plane      = "CR4"
+plane_step = "CR5"
+tiles      = "CR6"
+dst_hi     = "CR7"
+r          = "CR8"
+e          = "CR9"
+dst_step   = "CR10"
+k_bound    = "CR11"
+src_lo     = "CR12"
+src_hi     = "CR13"
+dst_lo     = "CR14"
+
+[golden]
+op = "depth_to_space"
+tolerance = { fp32 = "EXACT" }
+
+[cases.default]
+h = 2
+w = 8
+upscale_factor = 2
+generator = "gen.py:arange"
+
+[cases.tile_boundary]
+h = 2
+w = 129
+upscale_factor = 4
+generator = "gen.py:arange"
+
+[cases.superpoint]
+h = 1
+w = 17
+upscale_factor = 8
+generator = "gen.py:arange"
+
+[cases.identity]
+h = 1
+w = 129
+upscale_factor = 1
+generator = "gen.py:arange"

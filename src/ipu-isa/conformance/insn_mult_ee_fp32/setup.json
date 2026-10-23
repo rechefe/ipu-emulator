@@ -1,0 +1,100 @@
+{
+ "description": "MULT.EE in FP32",
+ "format": "fp32",
+ "emulator_only": true,
+ "max_cycles": 1000,
+ "fault_enables": {},
+ "registers": [
+  {
+   "name": "r_wide_debug",
+   "index": 0,
+   "hex": "d2e3c74059678fc06c3e3340af4ede409d0785bf22d604c00e2048402166edc09cc2d2c00d0c4f409fa877c00065423f8f45abc084581bc0ebebcbc00cb40e40692a9a40eaee2d3f06cb61c049e963c0a4832cbd7238fcc0b856cc40882e90c02fc7fec0a9df14c0b147b33f3471a1c0451792c0a9839e3f742ddc3f994f4a40534de8c06eac2fc0ba2ddabf3cebb14079abc13ff34704c0e4c946c02d48f3401f3dd14034f1de40d84cf3c09994af40e5b645c09a04a7401a0558c08e37b7c0680695bfc636fa409b87b74011c26bc05c61e5c003f08240d969b7c0699fb1403f7a13c076f4c2c00b5598403aa140400253cc3f6318d7bf7e381dc0038ee2c035f89f40533af74004e4aabe0657c740d157cfc0218984c02676d33f1bd365c093f3dc3f9464e23fc4538bc081dcbdbfc454d040962bc540420cce401ebcd9c0b354a34038dc4f40c765a23fe8628dc029f41cc02824a03f8a7c933f4f81abc068dcabc0c7c7a3c022bdca3c8fbc2fbfd8f909c0f7f303c01f0cbabe56a11640630490405a9159bf6d74a73f94d6c24044c86cc0087ad7bd9751bf40bb4d7dc0bb1d9940ea68823f34d86bbf9dbcb0c07c1a43409450dcbf3aee43c0e7864bbff49923bec5d4d74016f6acc0132879bf9454acc05ade8840e23094c01a10ccc0fe29c5c0cb3dfc406fc6aa40855ab5c01625fcbf555ddbc063e4af40b1712f40"
+  },
+  {
+   "name": "r_wide_debug",
+   "index": 1,
+   "hex": "b119b6c051ddd73f73fb8ebea19cbac0c649ebc080348cc0bf600a40f4edbc3f36951140fd9b56c0ecbda7c083fda140cd0ef0bfe75293c00f17dbc0ab08bf4076d6b8c0053eb640d0ed97bf8b462cbf0802a640a97002c026446e401dfa93c0a6c5bbc042b9e9c05c3cc240993092c08ea0cd4016fbf4c064b7a4c0f967a4c0fe80a3c00ed7a240fdb5e53f6c608d3fd99edc40c955ae40d67b20402bf363c0c90ff1c05cf1a440895ce2c072f995c0b46cce40884e8fc0ce05f6404c2dc0c04170c13f4fc8b43fb0b8bfc0f21fce402846ac40d86191bf1eeeeb3f414a83c0fd08c94043d51dc08195edbf6701f2bf1c92dcc0ed2f3f407bdb40bf44de63bdbdce9c4077cfe4bf42f7e1bf0cb4e7c0fc440a406e756a40ceddb5407d75dcc04929b6c09004f640848e62c024430ec00ee182c0e398894054ee63c07e3a57c0d72a4840b699d4c03c6ff6403660bb3f621d5c40c71891c0080ba6bf4038a9bf768da0c0871bf5401dc49abfdaade740be300cc0fb8e9f40c73f783f69673bbfc1af4cc0b7212440f9b4f9bf485e94c0e0735440808fd6c0f727a840a8c67dbe55656dc05ac996bf3e53a2c0f1f55440e15bec40bb54b4be8718a540e7cd83bf5f097e406600adc0ccd4b540e81ef5c08cba9540c6a206408cdf87c07263f540d3b3a8c0ad481c40152ee8c0155269bf9f51d9407e157bc0dcde4740d99ec9c0"
+  },
+  {
+   "name": "r_mask",
+   "index": 0,
+   "hex": "27cffa8302a28d09f03612d3bd2b6323827b1271634291337727cfba4cf39c8892e119e467303fe6d022f96a50332e1770efe62e657707c75878e379723361975ee662d007b1b296f542af8920b14752147ac8c0f73d19d0994b8ee695aa89c18e755920fbfeebd6e55ec41c8f9c3e77a2d629695a20cddd810e12bb4513de74"
+  },
+  {
+   "name": "lr",
+   "index": 1,
+   "value": 1
+  },
+  {
+   "name": "lr",
+   "index": 2,
+   "value": 2
+  },
+  {
+   "name": "lr",
+   "index": 3,
+   "value": 3
+  },
+  {
+   "name": "lr",
+   "index": 4,
+   "value": 5
+  },
+  {
+   "name": "lr",
+   "index": 6,
+   "value": 128
+  },
+  {
+   "name": "lr",
+   "index": 7,
+   "value": 3
+  },
+  {
+   "name": "cr",
+   "index": 2,
+   "value": 1
+  },
+  {
+   "name": "cr",
+   "index": 3,
+   "value": 4
+  },
+  {
+   "name": "cr",
+   "index": 4,
+   "value": 2
+  },
+  {
+   "name": "cr",
+   "index": 5,
+   "value": 7
+  },
+  {
+   "name": "cr",
+   "index": 6,
+   "value": 128
+  },
+  {
+   "name": "cr",
+   "index": 7,
+   "value": 4294967294
+  },
+  {
+   "name": "cr",
+   "index": 8,
+   "value": 100
+  },
+  {
+   "name": "cr",
+   "index": 9,
+   "value": 3
+  },
+  {
+   "name": "cr",
+   "index": 15,
+   "value": 128
+  }
+ ],
+ "xmem": []
+}

@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ipu-harness"
+version = "0.1.0"
+description = "The kernel framework: a kernel's kernel.toml declaration to a checked run on the emulator"
+requires-python = ">=3.10"
+dependencies = [
+    "ipu-as",
+    "ipu-debug",
+    "ipu-emu",
+    "ipu-isa",
+    "numpy>=1.24.0",
+    "tomli>=2.0",
+]
+
+[tool.uv.sources]
+ipu-as = { path = "../ipu-as", editable = true }
+ipu-debug = { path = "../ipu-debug", editable = true }
+ipu-emu = { path = "../ipu-emu", editable = true }
+ipu-isa = { path = "../ipu-isa", editable = true }
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[project.optional-dependencies]
+# PyTorch is test-only (Q74b): the runner loads a kernel's reference lazily
+# (tools/import_graph.toml, [deferred]); no library imports it at load time.
+dev = [
+    "jsonschema>=4.0",
+    "pytest>=9.0.1",
+    "torch==2.14.1",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.uv]
+package = true

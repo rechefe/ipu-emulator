@@ -1,0 +1,181 @@
+"""Assembly with the case as template values (E06-07)."""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+import pytest
+
+from ipu_as.errors import TemplateError
+from ipu_emu.errors import ConfigurationError
+from ipu_harness.assembly import AssemblyCache, assemble, template_values
+from ipu_harness.manifest import KernelManifest, load_manifest
+from ipu_harness.params import plan_case
+from ipu_isa.formats import ElementFormat as F
+
+HARNESS = Path(__file__).resolve().parents[1] / "src" / "ipu_harness"
+KERNELS = Path(__file__).resolve().parents[2] / "ipu-kernels" / "src" / "ipu_kernels"
+
+TOML = """\
+[kernel]
+op = "scale"
+formats = ["fp32", "int8", "e4"]
+
+[params]
+rows = { type = "int", min = 1, default = 4 }
+s    = { type = "float", default = 2.0 }
+
+[inputs.x]
+shape = ["rows", 128]
+
+[outputs.y]
+shape = ["rows", 128]
+
+[abi]
+x    = "CR2"
+y    = "CR3"
+rows = "CR4"
+s    = "CR5"
+
+[cases.default]
+"""
+
+#: The program reads its registers by [abi] name and nothing else.
+SCALE_ASM = """\
+    SET lr0 {{ cr.x }} ;;
+    SET lr1 {{ cr.y }} ;;
+    SET lr2 {{ cr.rows }} ;;
+    HALT ;;
+"""
+
+
+def kernel(tmp_path: Path, asm: str, name: str = "scale") -> KernelManifest:
+    directory = tmp_path / "elementwise" / name
+    directory.mkdir(parents=True)
+    (directory / f"{name}.asm").write_text(asm)
+    (directory / "kernel.toml").write_text(TOML)
+    return load_manifest(directory)
+
+
+def test_cr_names_render_and_the_program_is_the_same_in_every_format(tmp_path):
+    m = kernel(tmp_path, SCALE_ASM)
+    results = [assemble(plan_case(m, {}, fmt)) for fmt in (F.FP32, F.INT8, F.E4)]
+    assert "SET lr0 CR2 ;;" in results[0].rendered and "SET lr2 CR4 ;;" in results[0].rendered
+    assert results[0].words == results[1].words == results[2].words
+    assert len(results[0].words) == 4
+
+
+def test_the_template_reads_params_format_and_shapes(tmp_path):
+    asm = (
+        "{% for i in range(rows) %}    HALT ;;\n{% endfor %}"
+        "{% if format == 'e4' %}    HALT ;;\n{% endif %}"
+        "{% if shapes['x'] == [rows, 128] %}    HALT ;;\n{% endif %}"
+    )
+    m = kernel(tmp_path, asm)
+    assert len(assemble(plan_case(m, {"rows": 2}, F.FP32)).words) == 3
+    assert len(assemble(plan_case(m, {"rows": 2}, F.E4)).words) == 4
+    values = template_values(plan_case(m, {"rows": 2}, F.E4))
+    assert dict(values) == {
+        "rows": 2,
+        "s": 2.0,
+        "format": "e4",
+        "shapes": {"x": [2, 128], "y": [2, 128]},
+    }
+
+
+def test_the_template_reads_derived_values_but_not_placed_ones(tmp_path):
+    directory = tmp_path / "elementwise" / "scale"
+    directory.mkdir(parents=True)
+    toml = TOML.replace("[abi]", '[derived]\nhalf = "rows // 2"\ny1 = "base(y) + 1"\n\n[abi]')
+    (directory / "kernel.toml").write_text(
+        toml.replace('s    = "CR5"', 's    = "CR5"\ny1   = "CR6"')
+    )
+    (directory / "scale.asm").write_text("{% for i in range(half) %}    HALT ;;\n{% endfor %}")
+    m = load_manifest(directory)
+    plan = plan_case(m, {"rows": 6}, F.FP32)
+    assert len(assemble(plan).words) == 3
+    assert template_values(plan)["half"] == 3 and "y1" not in template_values(plan)
+
+
+@pytest.mark.parametrize(
+    "line, message",
+    [
+        ("    SET lr0 {{ cols }} ;;\n", "'cols' is undefined"),
+        ("    SET lr0 {{ cr.z }} ;;\n", "unknown ABI name cr.z"),
+    ],
+)
+def test_an_undefined_name_is_located_in_the_program(tmp_path, line, message):
+    m = kernel(tmp_path, "    HALT ;;\n" + line)
+    with pytest.raises(TemplateError, match=message) as error:
+        assemble(plan_case(m, {}, F.FP32))
+    assert error.value.location is not None and error.value.location.line == 2
+    assert error.value.location.source == "scale.asm"
+
+
+def test_a_program_cannot_declare_parameters_of_its_own(tmp_path):
+    # kernel.toml is the declaration: an ipu:params header is not read, so a
+    # name it declares is undefined.
+    asm = "{# ipu:params\nextra: int = 3\n#}\n    SET lr0 {{ cr.x }} ;;\n{% if extra %}    HALT ;;\n{% endif %}"
+    m = kernel(tmp_path, asm)
+    with pytest.raises(TemplateError, match="'extra' is undefined") as error:
+        assemble(plan_case(m, {}, F.FP32))
+    assert error.value.location is not None and error.value.location.source == "scale.asm"
+    assert error.value.location.line == 5
+
+
+def test_the_cache_encodes_each_distinct_rendered_program_once(tmp_path):
+    cache = AssemblyCache()
+    m = kernel(tmp_path, SCALE_ASM)
+    first = assemble(plan_case(m, {"rows": 4}, F.FP32), cache)
+    assert assemble(plan_case(m, {"rows": 4}, F.INT8), cache) is first
+    # The program does not use rows: another rows renders alike, so no new assembly.
+    assert assemble(plan_case(m, {"rows": 9}, F.FP32), cache) is first
+    assert cache.assembled == 1
+    uses_rows = kernel(tmp_path, "{% for i in range(rows) %}    HALT ;;\n{% endfor %}", "loop")
+    assemble(plan_case(uses_rows, {"rows": 2}, F.FP32), cache)
+    assemble(plan_case(uses_rows, {"rows": 3}, F.FP32), cache)
+    assemble(plan_case(uses_rows, {"rows": 2}, F.E4), cache)
+    assert cache.assembled == 3
+
+
+def test_includes_resolve_in_the_kernel_and_family_folders(tmp_path):
+    m = kernel(tmp_path, '{% include "family_tail.asm.j2" %}\n{% include "local.asm.j2" %}\n')
+    (m.directory.parent / "family_tail.asm.j2").write_text("    HALT ;;\n")
+    (m.directory / "local.asm.j2").write_text("    SET lr0 {{ cr.x }} ;;\n")
+    result = assemble(plan_case(m, {}, F.FP32))
+    assert result.rendered.splitlines() == ["    HALT ;;", "    SET lr0 CR2 ;;"]
+
+
+def test_neither_the_harness_nor_the_kernel_library_imports_jinja2():
+    imports = re.compile(r"^\s*(import|from)\s+jinja2\b", re.MULTILINE)
+    for root in (HARNESS, KERNELS):
+        for path in sorted(root.rglob("*.py")):
+            assert not imports.search(path.read_text(encoding="utf-8")), path
+
+
+def test_a_float_parameter_renders_as_its_value(tmp_path):
+    m = kernel(tmp_path, "{# s is {{ s }} #}    SET lr0 {{ cr.x }} ;; # s = {{ s }}\n")
+    assert "# s = 2.5" in assemble(plan_case(m, {"s": 2.5}, F.FP32)).rendered
+
+
+def test_the_macro_library_is_searched_when_given_and_must_exist(tmp_path):
+    lib = tmp_path / "asm_lib"
+    lib.mkdir()
+    (lib / "halt.asm.j2").write_text("    HALT ;;\n")
+    m = kernel(tmp_path, '{% include "halt.asm.j2" %}\n')
+    assert assemble(plan_case(m, {}, F.FP32), asm_lib=lib).rendered.strip() == "HALT ;;"
+    with pytest.raises(TemplateError, match="halt.asm.j2"):
+        assemble(plan_case(m, {}, F.FP32))  # not given: not searched
+    with pytest.raises(ConfigurationError, match="the macro library is not there"):
+        assemble(plan_case(m, {}, F.FP32), asm_lib=tmp_path / "missing")
+
+
+def test_a_cache_hit_raises_the_programs_warnings_again(tmp_path):
+    # ST.ACC is in the simulation-only acc_store slot: encoding warns.
+    m = kernel(tmp_path, "    ST.ACC lr0 cr0 ;;\n    HALT ;;\n")
+    cache = AssemblyCache()
+    for _ in range(2):
+        with pytest.warns(UserWarning, match="simulation-only"):
+            assemble(plan_case(m, {}, F.FP32), cache)
+    assert cache.assembled == 1

@@ -1,0 +1,63 @@
+load("@ipu_deps//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
+load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
+load("//tools:lint.bzl", "ruff_test")
+
+exports_files(["README.md"])
+
+# Host-side benchmarks (E01-14): import time, assemble time, emulator cycles/s
+# and peak memory, tracked nightly with history and no gate. README.md.
+py_library(
+    name = "ipu_bench",
+    srcs = glob(["ipu_bench/**/*.py"]),
+    imports = ["."],
+    # //src/ipu-emu:bench_emulator runs its `emulator` module.
+    visibility = ["//src/ipu-emu:__pkg__"],
+    deps = [
+        # The kernel tree and every family's library: the kernel and emulator
+        # modules run its cases, assemble/* assembles its default programs.
+        "//kernels:all_kernels",
+        "//src/ipu-harness:ipu_harness_lib",
+        # The kernels' references (the goldens of each checked run).
+        "//src/ipu-kernels:ipu_kernels_all",
+        requirement("torch"),
+        # assemble/{render,parse,encode}_s, over the digest corpus (E05-01).
+        "//src/ipu-as:bench_assemble_lib",
+        "//src/ipu-as:ipu_as_lib",
+        "//src/ipu-emu:ipu_emu_lib",
+    ],
+)
+
+#   bazel run //tools/bench:bench -- --quick             # before/after numbers for a PR
+#   bazel run -c opt //tools/bench:bench -- --out DIR    # the nightly `benchmarks` job
+py_binary(
+    name = "bench",
+    srcs = ["ipu_bench/bench.py"],
+    main = "ipu_bench/bench.py",
+    deps = [":ipu_bench"],
+)
+
+# Adds the CI wall times to the nightly result files (needs gh, GH_TOKEN, GH_REPO).
+py_binary(
+    name = "ci_times",
+    srcs = ["ipu_bench/ci_times.py"],
+    main = "ipu_bench/ci_times.py",
+    deps = [":ipu_bench"],
+)
+
+# Every benchmark module on the TINY budget (`--tiny`), so none can rot;
+# plus the result format and the CI wall-time parsing.
+py_pytest_test(
+    name = "test_bench_smoke",
+    size = "small",
+    srcs = ["test_bench_smoke.py"],
+    deps = [
+        ":ipu_bench",
+        requirement("pytest"),
+    ],
+)
+
+ruff_test(
+    name = "ruff",
+    srcs = glob(["**/*.py"]),
+)

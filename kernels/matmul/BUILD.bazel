@@ -1,0 +1,8 @@
+# The matmul family (E07-07, E07-08): the registry.toml entries over its
+# templates (//kernels/matmul:<entry>, as the old targets were named).
+# gen.py, beside them, is their shared case generator (data, loaded by path).
+
+load("//kernels:defs.bzl", "ipu_kernel_family")
+load(":registry.bzl", "ENTRIES")
+
+ipu_kernel_family(entries = ENTRIES)

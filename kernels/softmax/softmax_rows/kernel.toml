@@ -1,0 +1,172 @@
+# softmax_rows: row softmax of a (rows, 128) FP32 matrix, any row count, in
+# groups of up to 128 rows (the .asm header has the passes). The registry's
+# choice at exactly n = 128 (cost 0); softmax_rows_partial also takes n = 128,
+# at a higher cost.
+[kernel]
+op = "softmax"
+formats = ["fp32"]                                   # exp2/reciprocal on the FP32 vector path only
+cost = 0
+
+[params]
+rows  = { type = "int", min = 1 }
+n     = { type = "int", choices = [128], default = 128 }  # the row length the .asm is written for
+dim   = { type = "int", choices = [1], default = 1 }      # along each row
+scale = { type = "float", default = 5.0 }                 # the generator's: x = randn * scale
+seed  = { type = "int", default = 0 }                     # the generator's
+
+[derived]
+step       = "128 * ceil(rows / 128)"
+row_stride = "1"                                     # one XMEM row per row
+group_cap  = "128"                                   # rows per group, and maxvec's R1 index base
+
+# The regions sit where the old harness put them: from row 128, the
+# input, the numerators and the output back to back, each rounded up to a
+# multiple of 128 rows (step), then the resident rows. Every region is pinned:
+# first fit in declaration order would put y right after x.
+[inputs.x]
+shape = ["rows", "n"]
+row = 128
+
+[outputs.y]
+shape = ["rows", "n"]
+row = "128 + 2 * step"
+
+[scratch.num]                                        # numerators 2^(c * (x - max))
+shape = ["rows", 128]
+row = "128 + step"
+
+[scratch.log2e]                                      # C_VEC: c = log2(e) in every lane
+shape = [1, 128]
+fill = 1.4426950408889634
+row = "128 + 3 * step"
+
+[scratch.max]                                        # maxvec: one row max per lane
+shape = [1, 128]
+row = "128 + 3 * step + 1"
+
+[scratch.rvec]                                       # 1 / sum: one per lane
+shape = [1, 128]
+row = "128 + 3 * step + 2"
+
+[abi]
+y          = "CR2"
+log2e      = "CR3"
+num        = "CR4"
+max        = "CR5"
+rvec       = "CR6"
+row_stride = "CR7"
+group_cap  = "CR9"
+x          = "CR10"
+rows       = "CR13"
+# CR15: the default dstructure (128 valid elements).
+
+[golden]
+op = "softmax"
+tolerance = { fp32 = "TRANSCENDENT" }
+
+# The old cases' data (gen.py:seeded_normal: the old seeds).
+[cases.default]
+rows = 128
+scale = 5.0
+seed = 0
+generator = "../gen.py:seeded_normal"
+
+# The output reads back in the input's (rows, 128) layout (the old family
+# layout test: seed = rows + n).
+[cases.layout]
+rows = 6
+scale = 3.0
+seed = 134
+generator = "../gen.py:seeded_normal"
+
+# Identical logits: every probability is 1/128 (test_softmax_rows.py).
+[cases.constant_row]
+rows = 2
+scale = 3.7
+generator = "../gen.py:constant"
+
+# The largest logit of each row stays the largest probability (test_softmax_rows.py).
+[cases.argmax]
+rows = 16
+scale = 4.0
+seed = 7
+generator = "../gen.py:seeded_normal"
+
+# The old sweep, one case per point: a one-element list puts the old case
+# id in the case's name (sweep_05[rows=128,scale=5.0,seed=3]).
+[cases.sweep_01]
+rows = [1]
+scale = [3.0]
+seed = [0]
+generator = "../gen.py:seeded_normal"
+
+[cases.sweep_02]
+rows = [4]
+scale = [3.0]
+seed = [0]
+generator = "../gen.py:seeded_normal"
+
+[cases.sweep_03]
+rows = [8]
+scale = [5.0]
+seed = [1]
+generator = "../gen.py:seeded_normal"
+
+[cases.sweep_04]
+rows = [32]
+scale = [5.0]
+seed = [2]
+generator = "../gen.py:seeded_normal"
+
+[cases.sweep_05]  # one full group (the original target case)
+rows = [128]
+scale = [5.0]
+seed = [3]
+generator = "../gen.py:seeded_normal"
+
+[cases.sweep_06]  # numerical-stability: large magnitudes
+rows = [8]
+scale = [50.0]
+seed = [4]
+generator = "../gen.py:seeded_normal"
+
+[cases.sweep_07]  # near-uniform logits
+rows = [8]
+scale = [0.01]
+seed = [5]
+generator = "../gen.py:seeded_normal"
+
+[cases.sweep_08]  # K>128: 2 groups, last group 1 real row (rest padded)
+rows = [129]
+scale = [3.0]
+seed = [6]
+generator = "../gen.py:seeded_normal"
+
+[cases.sweep_09]  # 2 groups, partial last group
+rows = [200]
+scale = [4.0]
+seed = [7]
+generator = "../gen.py:seeded_normal"
+
+[cases.sweep_10]  # exactly 2 full groups
+rows = [256]
+scale = [3.0]
+seed = [8]
+generator = "../gen.py:seeded_normal"
+
+[cases.sweep_11]  # 3 full groups
+rows = [384]
+scale = [5.0]
+seed = [9]
+generator = "../gen.py:seeded_normal"
+
+[cases.sweep_12]  # 4 groups, partial last group
+rows = [500]
+scale = [3.0]
+seed = [10]
+generator = "../gen.py:seeded_normal"
+
+# The old benchmark configs (bazel run //kernels/softmax/softmax_rows -- --benchmark).
+[benchmark]
+points = [{ rows = 8 }, { rows = 32 }, { rows = 128 }, { rows = 256 }, { rows = 500 }]
+per = "rows"

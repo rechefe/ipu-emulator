@@ -1,0 +1,14 @@
+# The attention family (E07-12, E07-13): one folder kernel per stage and
+# MobileViT layer. The two chains, query-major (qk_scores_* -> attn_v_*) and
+# key-major (attn_scores_km_* -> attn_v_bcast_*), are four ops, so the registry
+# never hands one chain's scores to the other chain's consumer. gen.py, beside the
+# kernels, is their shared case generator (data, loaded by path). The family
+# tests use the softmax family's kernels (FAMILY_DEPS), so :tests routes
+# through the whole tree.
+
+load("//kernels:defs.bzl", "ipu_kernel_family")
+
+ipu_kernel_family(
+    tests_size = "large",
+    tests_tree = True,
+)

@@ -170,8 +170,9 @@ XMEM read-address port, and the APB slave.
 | `LR_REG_COUNT` | `16` | `LR0`–`LR15`. |
 | `LRD_REG_COUNT` | `8` | `LRD0`, `LRD2`, …, `LRD14`: register-pair aliases over `LR`, named after the lower register (`LRDn` = `LR(n+1)`:`LR(n)`); no separate storage. |
 | `CR_REG_COUNT` | `16` | `CR0`–`CR15` per bank. |
-| `BRANCH_COND_COUNT` | `5` | `BEQ`, `BNE`, `BLT`, `BGE`, `BR`. `BGT`, `BLE`, `BNZ`, `BZ`, `B` are assembler-level pseudo-instructions (no opcode of their own) — see the Programmer's Guide. |
-| `LR_OP_COUNT` | `8` | `SET`, `ADD`, `SUB`, `INCR_MOD_POW2`, `INC`, `DEC`, `ADDB`, `ADDBI`. |
+| `BRANCH_COND_COUNT` | `5` | `BEQ`, `BNE`, `BLT.S`, `BGE.S`, `BR`. `BGT.S`, `BLE.S`, `BNZ`, `BZ`, `B` are assembler-level pseudo-instructions (no opcode of their own) — see the Programmer's Guide. |
+| `COND_OP_COUNT` | `6` | Every non-`NOP` COND instruction: the five branches above plus `HALT` (§10.2.6). |
+| `LR_OP_COUNT` | `8` | `SET`, `ADD`, `SUB`, `INC.MODP2`, `INC`, `DEC`, `ADDB`, `ADDBI`. |
 | `SET_IMM_BITS` | `5` | Combined `src5` operand: bit 4 selects mode; bits [3:0] are a CR index *or* a signed 4-bit immediate. |
 | `XMEM_ADDR_W` | *impl* | Width of `xmem_read_addr`. Sized to address the external XMEM address space (= log2 of XMEM word count). |
 | `APB_ADDR_W` | `32` | APB byte-address width on `apb_paddr`. |
@@ -186,7 +187,7 @@ XMEM read-address port, and the APB slave.
 - For each instruction in the MULT, ACC, AAQ, and STORE stages, **CTRL** resolves the CR/LR operand value(s) from the register files (by the indices carried in that stage's slot fields) and **forwards** them on the dispatch bus. The downstream stages **never** read the register files and CR/LR are **not visible** to them — the operand value(s) arrive already resolved. CTRL evaluates its three LR-ALU lanes before forwarding, so a downstream stage sees this cycle's **post-LR-write** value (it reflects any LR write this same VLIW performs).
 - **XMEM is not a pipeline stage** and is **read-only**. CTRL pre-resolves the XMEM address from CR + LR and forwards only the computed **read address** to XMEM (there is no XMEM opcode; every XMEM access is a memory load). XMEM accesses external memory and **writes the returned data directly into the MULT stage's input registers** (e.g. `R0`/`R1`/`R_CYCLIC`/`R_MASK`). It has no CR/LR read port and does not appear on the MULT → ACC → AAQ → STORE chain. Writes back to external memory are the responsibility of the STORE stage.
 - The **prior-cycle snapshot** (read-before-write) applies **only to CTRL's own register reads**: the three LR-ALU lane source operands and the branch/COND operands. These see the values committed at end of cycle N−1 — an LR write generated in cycle N is **not** visible to CTRL's own reads in cycle N (it becomes visible to them only starting cycle N+1). The CR/LR operand values CTRL **forwards** to MULT/ACC/AAQ/STORE/XMEM are **not** the snapshot: CTRL evaluates its LR-ALU lanes first, then forwards the resulting **post-write** values for this cycle. So a downstream stage sees this cycle's LR writes, while CTRL's own LR-ALU/branch reads do not.
-- `LR0`–`LR15` are **32-bit** local registers. They are written **only** by the LR-slot ops (`SET`, `ADD`, `SUB`, `INCR_MOD_POW2`, `INC`, `DEC`, `ADDB`, `ADDBI`). The RISC-V host cannot write LR.
+- `LR0`–`LR15` are **32-bit** local registers. They are written **only** by the LR-slot ops (`SET`, `ADD`, `SUB`, `INC.MODP2`, `INC`, `DEC`, `ADDB`, `ADDBI`). The RISC-V host cannot write LR.
 - `CR0`–`CR15` are **32-bit** configuration registers, read-only to the program. The RISC-V host populates the inactive bank and triggers a swap externally; there is no ISA instruction for the swap.
 - **`CR0` is hard-wired to `0` (zero register)** and **`CR1` is hard-wired to `1` (one register)**. These two values are guaranteed by hardware and are the canonical operands for clearing or incrementing an LR via `ADD`/`SUB`.
 - `CR15` conventionally holds the dstructure register (`valid_elements` and `partition`) for `DstructureCrIdx` operands (`AGG.*`, `ACTIVATE.QUANTIZE`, the masking `MULT.*` instructions), but it is never an implicit default — every such operand must name a CR register explicitly, and `CR0`–`CR14` are equally valid choices. `CR15` is not blocked as a general-purpose `CrIdx`/`LcrIdx` operand elsewhere.
@@ -237,9 +238,9 @@ The CTRL stage owns the entire fetch path: the bulk instruction memory
   ```text
   target_pc = (cond.op == BR) ? reg_value : label
   next_PC   = taken ? target_pc : (PC + 1)
-  PC      <= next_PC                       // every cycle
+  PC      <= next_PC                       // every cycle, except after HALT (§6.4)
   ```
-  On non-branch cycles `taken = 0` always, so `PC <= PC + 1`. On a branch cycle the cond evaluator's `taken` selects either the branch target `target_pc` (label target for `BEQ`/`BNE`/`BLT`/`BGE`, register target for `BR`) or the fall-through `PC + 1`. Either way, by the next clock edge `PC` points at exactly the instruction that `inst_vliw` now carries.
+  On non-branch cycles `taken = 0` always, so `PC <= PC + 1`. After a `HALT` word, `PC` holds (§6.4). On a branch cycle the cond evaluator's `taken` selects either the branch target `target_pc` (label target for `BEQ`/`BNE`/`BLT.S`/`BGE.S`, register target for `BR`) or the fall-through `PC + 1`. Either way, by the next clock edge `PC` points at exactly the instruction that `inst_vliw` now carries.
 - **Reset:** `rst` initialises `PC` to 0.
 - **Not externally visible:** `PC` is internal state of the controller-logic block; no CTRL port carries it. Externally, the *effect* of `PC` is seen on `imem_read_addr_a` (which is always `PC + 1`) and on `imem_read_addr_b` (which is the computed branch target on branch cycles, don't-care otherwise).
 
@@ -251,9 +252,15 @@ Per cycle CTRL resolves the *next-cycle* value of `inst_vliw`:
 // Cycle N: inst_vliw carries the VLIW at the current PC and is being executed.
 // CTRL runs in parallel:
 
-is_branch = inst_vliw.cond.op is one of {BEQ, BNE, BLT, BGE, BR}
+is_branch = inst_vliw.cond.op is one of {BEQ, BNE, BLT.S, BGE.S, BR}
 
-if is_branch:
+if inst_vliw.cond.op == HALT:
+    // The last word of the kernel (IPU-EXEC-10): fetch stops. PC and inst_vliw
+    // hold and no further word issues. This word's other slots go down the
+    // chain as usual; kernel_done rises when the word retires at the end of
+    // the chain (IPU-EXEC-11), not here.
+    fetch_stopped <= 1   // cleared when the next kernel starts at PC 0 (IPU-EXEC-13)
+elif is_branch:
     // Issue BOTH speculative reads in parallel this cycle
     imem_read_a = PC + 1                        // fall-through candidate
     branch_target = (inst_vliw.cond.op == BR) ? reg_target_from_cond_slot : label_from_cond_slot
@@ -269,7 +276,7 @@ else:
 inst_vliw = imem_rd_sel ? imem_b : imem_a
 ```
 
-The instruction at the new PC is **always ready on `inst_vliw` at the start of cycle N+1**, so the controller logic never sees a stall or bubble caused by a branch.
+Except after a `HALT` word, the instruction at the new PC is **always ready on `inst_vliw` at the start of cycle N+1**, so the controller logic never sees a stall or bubble caused by a branch.
 
 ## 7. Dispatch Buses
 
@@ -308,9 +315,10 @@ Consequences:
   responsibility of the STORE stage, not XMEM.
 - XMEM does not sit on the four-bus daisy chain — it is a sideband
   fetch into MULT's input registers.
-- The MULT stage sees XMEM's writes the same cycle the dispatch chain
-  begins; software is responsible for not racing an XMEM load against
-  a MULT op that reads the destination in the same cycle.
+- MULT reads its input registers (`R0`, `R1`, `R_CYCLIC`, `R_MASK`)
+  at cycle start ([ADR 0002](https://github.com/rechefe/ipu-emulator/blob/master/docs/adr/0002-timing-contract.md), rule 2).
+  A load in the same word as a MULT op writes the register for the
+  next word: that MULT op uses the previous value.
 
 ### 7.2 MULT → ACC → AAQ → STORE Path (four-bus serial chain)
 
@@ -368,7 +376,7 @@ the execute pipeline; `apb_pready` is gated only by the APB slave's
 own write-port throughput, not by IPU activity.
 
 The LR file is **not** APB-writable — it is only updated by the LR
-ALU lanes (`SET`/`ADD`/`SUB`/`INCR_MOD_POW2`); see §5.
+ALU lanes (`SET`/`ADD`/`SUB`/`INC.MODP2`); see §5.
 
 ## 9. Hazards
 
@@ -390,7 +398,7 @@ no hazard interlocks.
 The CTRL stage executes **11 mnemonics** across two slots: four local-register
 ops in the **LR slot** (replicated ×3 lanes per VLIW word) and seven branches
 in the **COND slot** (one per VLIW word). Detailed binary encoding is
-maintained in `SLOT_BINARY_LAYOUT` in `src/tools/ipu-common/src/ipu_common/instruction_spec.py` and is not duplicated here.
+derived as `isa().layout.unions` (`src/ipu-isa/src/ipu_isa/view.py`) and is not duplicated here.
 
 An LR write performed in cycle N is **not** visible to **CTRL's own**
 reads in the same cycle — the LR-ALU lane source operands and the
@@ -453,10 +461,10 @@ destination LR from two lanes in the same VLIW word (see §10).
   ```
 - **Examples:** `SUB LR0 LR1 LR2;;`, `SUB LR3 LR1 CR5;;`.
 
-#### 10.1.4 `INCR_MOD_POW2` — Increment Local Register Modulo Power of Two
+#### 10.1.4 `INC.MODP2` — Increment Local Register Modulo Power of Two
 
 - **Summary:** Add a step into the destination LR, then mask to `k` low bits.
-- **Syntax:** `INCR_MOD_POW2 dst step k`
+- **Syntax:** `INC.MODP2 dst step k`
 - **Operands:**
   - `dst` — destination local register, `LR0`–`LR15` (read and written).
   - `step` — signed 32-bit increment from `LR0`–`LR15` or `CR0`–`CR15` (`LcrIdx`).
@@ -465,7 +473,7 @@ destination LR from two lanes in the same VLIW word (see §10).
   ```text
   dst = (dst + step) & ((1 << k) - 1)          // mask to k low bits (mod 2^k)
   ```
-- **Example:** `INCR_MOD_POW2 LR2 LR3 4;;` — advance `LR2` by `LR3` and wrap modulo 16.
+- **Example:** `INC.MODP2 LR2 LR3 4;;` — advance `LR2` by `LR3` and wrap modulo 16.
 
 #### 10.1.5 `INC` — Increment by Immediate
 
@@ -523,7 +531,7 @@ destination LR from two lanes in the same VLIW word (see §10).
 
 A single cond slot appears per VLIW word.
 
-Shared evaluation pseudo-code (applies to every cond mnemonic):
+Shared evaluation pseudo-code (applies to every branch; `HALT`, §10.2.6, is not a branch):
 
 ```text
 // All operands read from {LR | CR}
@@ -544,7 +552,7 @@ branch_taken = taken
 `reg`, `reg1`, `reg2` are `LcrIdx` operands — any of `LR0`–`LR15` or
 `CR0`–`CR15`. `label` is a relative offset resolved by the assembler.
 
-> **Assembler pseudo-instructions.** `BGT`, `BLE`, `BZ`, `BNZ`, and `B` are
+> **Assembler pseudo-instructions.** `BGT.S`, `BLE.S`, `BZ`, `BNZ`, and `B` are
 > not real hardware opcodes — the assembler expands them into one of the
 > opcodes below (operand-swapped or with a register hard-coded to `CR0`)
 > at compile time, so they cost nothing at runtime and never appear in the
@@ -569,21 +577,21 @@ branch_taken = taken
 - **Operation:** `if (reg1 != reg2) pc ← label else pc ← pc + 1`.
 - **Example:** `BNE LR0 CR0 loop;;`.
 
-#### 10.2.3 `BLT` — Branch if Less Than
+#### 10.2.3 `BLT.S` — Branch if Less Than
 
 - **Summary:** Signed less-than comparison; branch to `label` if `reg1 < reg2`.
-- **Syntax:** `BLT reg1 reg2 label`
+- **Syntax:** `BLT.S reg1 reg2 label`
 - **Operands:** identical to `BEQ`.
 - **Operation:** `if (signed(reg1) < signed(reg2)) pc ← label else pc ← pc + 1`.
-- **Example:** `BLT LR0 CR1 smaller;;`.
+- **Example:** `BLT.S LR0 CR1 smaller;;`.
 
-#### 10.2.4 `BGE` — Branch if Greater or Equal
+#### 10.2.4 `BGE.S` — Branch if Greater or Equal
 
 - **Summary:** Signed greater-or-equal comparison; branch to `label` if `reg1 >= reg2`.
-- **Syntax:** `BGE reg1 reg2 label`
+- **Syntax:** `BGE.S reg1 reg2 label`
 - **Operands:** identical to `BEQ`.
 - **Operation:** `if (signed(reg1) >= signed(reg2)) pc ← label else pc ← pc + 1`.
-- **Example:** `BGE LR0 CR1 ge;;`.
+- **Example:** `BGE.S LR0 CR1 ge;;`.
 
 #### 10.2.5 `BR` — Branch Register
 
@@ -594,6 +602,15 @@ branch_taken = taken
 - **Operation:** `pc ← reg` (low `PC_W` bits used as the new PC).
 - **Example:** `BR LR0;;`.
 
+#### 10.2.6 `HALT` — Halt
+
+- **Summary:** End the kernel after every slot of this word has retired.
+- **Syntax:** `HALT`
+- **Operands:** none.
+- **Operation:** unconditional. CTRL fetches no word after it (§6.4). Every other slot of the word goes down the chain and retires as usual; the kernel is done when the word retires (IPU-ARCH-5, IPU-EXEC-10, IPU-EXEC-11, IPU-DBG-8). `HALT` uses the COND opcode the instruction reference assigns it (`3'd5`, `COND_INST_OPCODE_HALT`).
+- **Not for debugging:** to stop for inspection, use `BREAK` (emulator-only BREAK slot).
+- **Example:** `HALT;;`.
+
 ### 10.3 Summary Table
 
 | Slot | Mnemonic | Operands | One-line Effect |
@@ -601,13 +618,14 @@ branch_taken = taken
 | LR   | `SET`            | `dest src5`              | `dest = CR[src5[3:0]]` or signed-4 imm |
 | LR   | `ADD`            | `dest src_a src_b`       | `dest = (src_a + src_b)[31:0]` |
 | LR   | `SUB`            | `dest src_a src_b`       | `dest = (src_a - src_b)[31:0]` |
-| LR   | `INCR_MOD_POW2`  | `dst step k`             | `dst = (dst + step) & ((1<<k) - 1)` |
+| LR   | `INC.MODP2`      | `dst step k`             | `dst = (dst + step) & ((1<<k) - 1)` |
 | LR   | `INC`            | `dest imm`               | `dest = (dest + imm)[31:0]` |
 | LR   | `DEC`            | `dest imm`               | `dest = (dest - imm)[31:0]` |
 | LR   | `ADDB`           | `dest src_b`             | broadcast-add signed `src_b[7:0]` to `dest`'s 8 elements, clamp [0,255] |
 | LR   | `ADDBI`          | `dest imm`               | broadcast-add signed `imm` to `dest`'s 8 elements, clamp [0,255] |
 | COND | `BEQ`            | `reg1 reg2 label`        | branch if `reg1 == reg2` |
 | COND | `BNE`            | `reg1 reg2 label`        | branch if `reg1 != reg2` |
-| COND | `BLT`            | `reg1 reg2 label`        | branch if `signed(reg1) < signed(reg2)` |
-| COND | `BGE`            | `reg1 reg2 label`        | branch if `signed(reg1) >= signed(reg2)` |
+| COND | `BLT.S`          | `reg1 reg2 label`        | branch if `signed(reg1) < signed(reg2)` |
+| COND | `BGE.S`          | `reg1 reg2 label`        | branch if `signed(reg1) >= signed(reg2)` |
 | COND | `BR`             | `reg`                    | unconditional `pc ← reg` |
+| COND | `HALT`           | —                        | end the kernel after this word retires |

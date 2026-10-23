@@ -3,6 +3,8 @@
 
 # Text files that always use LF
 *.py text eol=lf
+*.sv text eol=lf
+*.txt text eol=lf
 *.bzl text eol=lf
 *.bazel text eol=lf
 .bazelrc text eol=lf

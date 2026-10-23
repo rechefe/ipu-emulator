@@ -1,0 +1,4 @@
+# insn_mult_rc_vv_e4: MULT.RC.VV in E4
+MULT.RC.VV LR0 R0 0 LR2 CR15 ;;
+MULT.RC.VV LR4 R1 1 LR0 CR15 ;;
+HALT ;;

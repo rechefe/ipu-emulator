@@ -1,0 +1,100 @@
+{
+ "description": "ACC.SUB in FP32",
+ "format": "fp32",
+ "emulator_only": true,
+ "max_cycles": 1000,
+ "fault_enables": {},
+ "registers": [
+  {
+   "name": "r_mask",
+   "index": 0,
+   "hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  {
+   "name": "r_acc",
+   "index": 0,
+   "hex": "bd3398404bc7a2403ad1aa408b27f9bf2359e73f8556b14002b46b3ffb7da340ff26a34016fea9bfd5d57e40f4fc1440d719f240efef70407457fc40200587409025bac08439d9c03dacfec0ba0cda404c4d643e17778cc098715ec0a18d20c0d77eb13e87addcc01709b93d9c40fcc0d04ed94029f4fac0c92ecc40fbb2f73d914f48c0bb53bc409a21c240d10acac028e3e2c03fc00d4061ecb6c0395ed3be023c753fcb885240100234be17939cc0ae400d4034a82d4035928e40c09ddb4032877240de64d2c0b5832540ec242d4096422e400fd2d1c04c78d7be358e1ec006628c40d3971e3f91cad83f99e6d8c07111bd40b30710c068508340def3c7c0542fa4c0e6d4d33f262c08c039fc13c02e2364c007091e403cddcbc06c6086c08315f4be00d5963d9857bbc044ba00bf16f2894066f8fa40ed2cdcc0df2bc9c0464b0740f915f9403222e340aa33aabe6e1da5c03a2fb240f471a83f11c27b3f4c7b99c078065d40a342d640a0f7e9c0ba89c64088f0f34027803240c8d0f83e5aca013f9f167ec0c65253406c91f6bfd08dcbbea5fdd7bf3ca18b40da5a2a403b5cc440e691bf4071d7c5bffc9f6040c574ad40c8a125c091ecb1c083ae0f40d7cf9e3e48b7cfbf91374340f6ace7c08cb6eb405dbb573f8f87ce40208144400c8214c05424c0c0f414d9c0caf6cc40b723f9402092f1405059ba40d9a6ea40"
+  },
+  {
+   "name": "lr",
+   "index": 1,
+   "value": 1
+  },
+  {
+   "name": "lr",
+   "index": 2,
+   "value": 2
+  },
+  {
+   "name": "lr",
+   "index": 3,
+   "value": 3
+  },
+  {
+   "name": "lr",
+   "index": 4,
+   "value": 5
+  },
+  {
+   "name": "lr",
+   "index": 6,
+   "value": 128
+  },
+  {
+   "name": "lr",
+   "index": 7,
+   "value": 3
+  },
+  {
+   "name": "cr",
+   "index": 2,
+   "value": 1
+  },
+  {
+   "name": "cr",
+   "index": 3,
+   "value": 4
+  },
+  {
+   "name": "cr",
+   "index": 4,
+   "value": 2
+  },
+  {
+   "name": "cr",
+   "index": 5,
+   "value": 7
+  },
+  {
+   "name": "cr",
+   "index": 6,
+   "value": 128
+  },
+  {
+   "name": "cr",
+   "index": 7,
+   "value": 4294967294
+  },
+  {
+   "name": "cr",
+   "index": 8,
+   "value": 100
+  },
+  {
+   "name": "cr",
+   "index": 9,
+   "value": 3
+  },
+  {
+   "name": "cr",
+   "index": 15,
+   "value": 128
+  },
+  {
+   "name": "mult_res",
+   "index": 0,
+   "hex": "4bd3c6405ac4944062b3b8c00d97f6bf54bb7c4027993ebfb572d83ed123d2bf030dc9be48249fc0723a7540da36a4c0287488c01deebc40f68aba3fbaa8d940785515c0a4955ac04d99bdc03176dabd2d04bbc05d5656c071e266c0aa4bf1c00bd9c94013a632408443e2c078bffc40f95b7fc0adcbb5c0f4a58ebf8b3f98c079922cc0dca253404a405b3fa51bfb40e4e188400aad3cc0dd3f7cc02d23db401d05f240f59c0540067aa6c09e9ea6c08d8f05c0aa60aec06cc688c0347fe0405840c6bec159b43fa67b7c406a94533e0e80c9bf227d07406ae1fd40731966c0dbaceb3f1f3e0440d09761c04c06fac005a4d4c0cb30d140d94197c0e197aac066f455c0bdd817c023fe0fc0957edac01df59240a66a14401975abc052b4c8bfc4fdd540827cfa3f1100c9402897ba403c8f4740cddc103e368c124034ed054040068f40bb866540dd661240ba9efe407dd568c08934a740f6b954403081a640b5415040e8a56b3f019658c0ab5a2a40e9d1fbc0706c9f4085d79cc0a1d8004085999f40452eae4040d8fa403d478bc035c7ff4038d2efbf1cc4ccc05c93be401182e1c0dc50dd40a7cdfb407d3cc9c00b8885c002c9173dbeb3ad4004fc2640526a90c062e2eb3ff400e64017842fc01bafe240fdeeb440f715b9c09cac45c0f6999bc0d03f0f3f69098a408f27a4404e6c5340539ae2c06121953f9fcbcc40"
+  }
+ ],
+ "xmem": []
+}

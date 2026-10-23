@@ -1,0 +1,8 @@
+# The dev container bind-mounts the workspace (devcontainer.json), so the image
+# only needs the sources; keep build outputs and local state out of the context.
+bazel-*
+**/node_modules
+**/__pycache__
+*.vsix
+site/
+.git

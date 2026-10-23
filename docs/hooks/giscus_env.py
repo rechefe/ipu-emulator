@@ -1,7 +1,9 @@
 """MkDocs hook: merge giscus settings from environment (CI / local).
 
 Set in GitHub Actions (repository secrets or variables), or export before
-`mkdocs build` / `bazel build //docs:build_docs`. See docs/mkdocs.yml extra.giscus.
+`mkdocs build` / `bazel build --config=docs //docs:build_docs`. Bazel hides the
+client environment from actions: only `--config=docs` forwards the GISCUS_*
+variables (see .bazelrc). See docs/mkdocs.yml extra.giscus.
 """
 
 from __future__ import annotations

@@ -1,22 +1,22 @@
-load("@rules_python//python:defs.bzl", "py_binary")
-load("@ipu_as_deps//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
+load("@rules_python//python/entry_points:py_console_script_binary.bzl", "py_console_script_binary")
+load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
+load("@ipu_deps//:requirements.bzl", "requirement")
+load("//tools:lint.bzl", "ruff_test")
 
-# All checked-in Markdown and SVG figures under docs/content/ (MkDocs docs_dir).
+# All checked-in Markdown and static assets under docs/content/ (MkDocs docs_dir).
 filegroup(
     name = "doc_sources",
     srcs = glob([
         "content/**/*.md",
         "content/**/*.svg",
+        "content/**/*.csv",
+        # The Cycle Inspector page (E08-17): static HTML, CSS and JS, no bundling (D9).
+        "content/how-to/inspector/*.html",
+        "content/how-to/inspector/*.css",
+        "content/how-to/inspector/*.js",
     ]),
     visibility = ["//visibility:public"],
-)
-
-py_binary(
-    name = "gen_docs",
-    srcs = ["gen_docs_wrapper.py"],
-    main = "gen_docs_wrapper.py",
-    deps = ["//src/tools/ipu-as-py:ipu_as_lib"],
-    python_version = "PY3",
 )
 
 genrule(
@@ -26,44 +26,300 @@ genrule(
         "operand-types.md",
         "assembly-syntax.md",
         "programmer-guide.md",
+        "registers.md",
+        "configuration-registers.md",
     ],
-    cmd = "$(location :gen_docs) $(location instructions.md) $(location operand-types.md) $(location assembly-syntax.md) $(location programmer-guide.md)",
-    tools = [":gen_docs"],
+    cmd = "$(location //src/ipu-gen:ipu-gen) docs-pages $(RULEDIR) > /dev/null",
+    tools = ["//src/ipu-gen:ipu-gen"],
 )
 
-py_binary(
-    name = "gen_codegen",
-    srcs = ["gen_codegen_wrapper.py"],
-    main = "gen_codegen_wrapper.py",
-    deps = ["//src/tools/ipu-as-py:ipu_as_lib"],
-    python_version = "PY3",
-)
-
+# Not stamped: the package's header names a hash of its own content, so its
+# bytes, and this action's cache key, depend only on the instruction set.
 genrule(
     name = "generate_instruction_format_artifacts",
     outs = ["ipu_instr_pkg.sv"],
-    # stamp = 1 exposes bazel-out/stable-status.txt, whose STABLE_GIT_COMMIT
-    # (tools/workspace_status.sh) is part of this action's key.
-    cmd = "$(location :gen_codegen) $(location ipu_instr_pkg.sv) bazel-out/stable-status.txt",
-    stamp = 1,
-    tools = [":gen_codegen"],
+    cmd = "$(location //src/ipu-gen:ipu-gen) sv-package --output $(location ipu_instr_pkg.sv) > /dev/null",
+    tools = ["//src/ipu-gen:ipu-gen"],
 )
 
+# Checks a vendored copy of the package against the hash in its header:
+#   bazel run //docs:verify_sv_package -- path/to/ipu_instr_pkg.sv
+alias(
+    name = "verify_sv_package",
+    actual = "//src/ipu-gen:verify_sv_package",
+)
+
+# The tables explanation/element-formats.md includes (E09-19).
+genrule(
+    name = "generate_element_format_tables",
+    outs = ["element-format-tables.md"],
+    cmd = "$(location //src/ipu-gen:ipu-gen) element-format-tables $@ > /dev/null",
+    tools = ["//src/ipu-gen:ipu-gen"],
+)
+
+# The timing model page (content/explanation/timing-model.md) includes this table
+# through pymdownx.snippets: build_docs's output directory is the snippets base_path.
+genrule(
+    name = "generate_timing_contract_table",
+    outs = ["generated/timing-contract-table.md"],
+    cmd = "$(location //src/ipu-gen:ipu-gen) timing-table $@ > /dev/null",
+    tools = ["//src/ipu-gen:ipu-gen"],
+)
+
+# The Reference model API page (content/reference/reference-model-api.md) includes
+# these snippets through pymdownx.snippets; the schema files are its downloads.
+#   bazel run //docs:reference_api_page -- "$PWD/out"
 py_binary(
-    name = "gen_instruction_format_md",
-    srcs = ["gen_instruction_format_md_wrapper.py"],
-    main = "gen_instruction_format_md_wrapper.py",
-    deps = ["//src/tools/ipu-as-py:ipu_as_lib"],
+    name = "reference_api_page",
+    srcs = ["reference_api_page.py"],
+    main = "reference_api_page.py",
     python_version = "PY3",
+    deps = [
+        "//src/ipu-emu:ipu_emu_lib",
+        "//src/ipu-isa:ipu_isa_lib",
+    ],
+)
+
+_CLI_REFERENCE_DEPS = [
+    "//src/ipu-as:ipu_as_lib",
+    "//src/ipu-debug:ipu_debug_lib",
+    "//src/ipu-emu:ipu_emu_lib",
+    "//src/ipu-harness:ipu_harness_lib",
+    requirement("click"),
+]
+
+_REFERENCE_API_FILES = [
+    "version.md",
+    "api.md",
+    "schema.md",
+    "faults.md",
+    "commit_record.v1.json",
+    "trace.v1.json",
+]
+
+genrule(
+    name = "generate_reference_api_md",
+    outs = ["generated/reference-api/" + f for f in _REFERENCE_API_FILES],
+    cmd = "$(location :reference_api_page) $(RULEDIR)/generated/reference-api > /dev/null",
+    tools = [":reference_api_page"],
+)
+
+# The page's generator and its promises: every public symbol and schema field is
+# rendered, a schema change changes the page, and the cocotb how-to links each
+# call it uses.
+py_pytest_test(
+    name = "test_reference_api_page",
+    size = "small",
+    srcs = [
+        "reference_api_page.py",
+        "test_reference_api_page.py",
+    ],
+    data = [
+        "content/how-to/reference-model-cocotb.md",
+        "content/reference/reference-model-api.md",
+        "examples/test_reference_model_cocotb.py",
+    ],
+    deps = [
+        "//src/ipu-emu:ipu_emu_lib",
+        "//src/ipu-isa:ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+# The Command-line tools page (content/reference/cli.md) includes these snippets
+# through pymdownx.snippets: each tool's options, read from its own parser.
+#   bazel run //docs:cli_reference_page -- "$PWD/out"
+py_binary(
+    name = "cli_reference_page",
+    srcs = ["cli_reference_page.py"],
+    # The kernel tree, for the kernels' cases.
+    data = ["//kernels:tree"],
+    main = "cli_reference_page.py",
+    python_version = "PY3",
+    deps = _CLI_REFERENCE_DEPS,
+)
+
+_CLI_REFERENCE_FILES = [
+    "ipu-as.md",
+    "run-kernel.md",
+    "kernel-cases.md",
+    "query.md",
+    "debugger-keys.md",
+]
+
+genrule(
+    name = "generate_cli_reference_md",
+    outs = ["generated/cli/" + f for f in _CLI_REFERENCE_FILES],
+    cmd = "$(location :cli_reference_page) $(RULEDIR)/generated/cli > /dev/null",
+    tools = [":cli_reference_page"],
+)
+
+# The generator's promise (an option added to a parser shows up on the page),
+# and that the page includes every snippet and runs each tool's example.
+py_pytest_test(
+    name = "test_cli_reference_page",
+    size = "small",
+    srcs = [
+        "cli_reference_page.py",
+        "test_cli_reference_page.py",
+    ],
+    data = [
+        "content/reference/cli.md",
+        "//kernels:tree",
+    ],
+    deps = _CLI_REFERENCE_DEPS + [requirement("pytest")],
+)
+
+# The Architecture page (content/explanation/architecture.md) includes these
+# snippets through pymdownx.snippets: the package table and the dependency
+# diagram, read from tools/import_graph.toml and each package's docstring.
+#   bazel run //docs:architecture_page -- "$PWD/out"
+_PACKAGE_SOURCES = [
+    "//tools:import_graph.toml",
+    "//src/ipu-as:py_sources",
+    "//src/ipu-debug:py_sources",
+    "//src/ipu-emu:py_sources",
+    "//src/ipu-gen:py_sources",
+    "//src/ipu-harness:py_sources",
+    "//src/ipu-isa:py_sources",
+    "//src/ipu-kernels:py_sources",
+]
+
+py_binary(
+    name = "architecture_page",
+    srcs = ["architecture_page.py"],
+    data = _PACKAGE_SOURCES,
+    main = "architecture_page.py",
+    python_version = "PY3",
+    deps = [requirement("tomli")],
+)
+
+genrule(
+    name = "generate_architecture_md",
+    srcs = _PACKAGE_SOURCES,
+    outs = [
+        "generated/architecture/dependencies.md",
+        "generated/architecture/packages.md",
+    ],
+    cmd = "$(location :architecture_page) $(RULEDIR)/generated/architecture > /dev/null",
+    tools = [":architecture_page"],
+)
+
+# Every package of the import graph is on the page, a rename changes it, and the
+# page includes both snippets.
+py_pytest_test(
+    name = "test_architecture_page",
+    size = "small",
+    srcs = [
+        "architecture_page.py",
+        "test_architecture_page.py",
+    ],
+    data = _PACKAGE_SOURCES + [
+        "content/explanation/architecture.md",
+        "content/explanation/index.md",
+    ],
+    deps = [
+        requirement("pytest"),
+        requirement("tomli"),
+    ],
+)
+
+# The kernel.toml reference page (content/reference/kernel-toml.md) includes these
+# snippets through pymdownx.snippets: the schema from the ipu_harness.manifest
+# docstring and key tuples, and the registry.toml example (E06-21).
+#   bazel run //docs:kernel_toml_page -- "$PWD/out"
+py_binary(
+    name = "kernel_toml_page",
+    srcs = ["kernel_toml_page.py"],
+    main = "kernel_toml_page.py",
+    python_version = "PY3",
+    deps = ["//src/ipu-harness:ipu_harness_lib"],
+)
+
+genrule(
+    name = "generate_kernel_toml_md",
+    outs = [
+        "generated/kernel-toml/registry.md",
+        "generated/kernel-toml/schema.md",
+    ],
+    cmd = "$(location :kernel_toml_page) $(RULEDIR)/generated/kernel-toml > /dev/null",
+    tools = [":kernel_toml_page"],
+)
+
+# Every key the loader accepts is on the page, and the page includes both
+# snippets; the how-to's listings are the scale kernel's files.
+py_pytest_test(
+    name = "test_kernel_toml_page",
+    size = "small",
+    srcs = [
+        "kernel_toml_page.py",
+        "test_kernel_toml_page.py",
+    ],
+    data = [
+        "content/how-to/write-a-kernel.md",
+        "content/reference/kernel-toml.md",
+        "//kernels/elementwise/scale:scale_files",
+    ],
+    deps = [
+        ":doc_blocks",
+        "//src/ipu-harness:ipu_harness_lib",
+        requirement("pytest"),
+    ],
+)
+
+# The Kernel coverage page (content/explanation/kernel-coverage.md) includes
+# this snippet through pymdownx.snippets: the registry's operations and
+# kernels, read from the registry itself (E09-10).
+#   bazel run //docs:kernel_coverage_page -- "$PWD/out"
+_KERNEL_COVERAGE_DEPS = [
+    "//src/ipu-harness:ipu_harness_lib",
+]
+
+py_binary(
+    name = "kernel_coverage_page",
+    srcs = ["kernel_coverage_page.py"],
+    data = ["//kernels:tree"],
+    main = "kernel_coverage_page.py",
+    python_version = "PY3",
+    deps = _KERNEL_COVERAGE_DEPS,
+)
+
+genrule(
+    name = "generate_kernel_coverage_md",
+    outs = ["generated/kernel-coverage/kernels.md"],
+    cmd = "$(location :kernel_coverage_page) $(RULEDIR)/generated/kernel-coverage > /dev/null",
+    tools = [":kernel_coverage_page"],
+)
+
+# Every kernel of the registry is on the page, a kernel that does not load is
+# listed, and the page includes the snippet.
+py_pytest_test(
+    name = "test_kernel_coverage_page",
+    size = "small",
+    srcs = [
+        "kernel_coverage_page.py",
+        "test_kernel_coverage_page.py",
+    ],
+    data = [
+        "content/explanation/kernel-coverage.md",
+        "content/kernels/index.md",
+        "//kernels:tree",
+    ],
+    deps = _KERNEL_COVERAGE_DEPS + [requirement("pytest")],
 )
 
 genrule(
     name = "generate_instruction_format_md",
     outs = ["instruction-format.md"],
-    cmd = "$(location :gen_instruction_format_md) $(location instruction-format.md)",
-    tools = [":gen_instruction_format_md"],
+    cmd = "$(location //src/ipu-gen:ipu-gen) instruction-format-md $@ > /dev/null",
+    tools = ["//src/ipu-gen:ipu-gen"],
 )
 
+# Refreshes the committed docs/content/release-log.md from the GitHub API. Not
+# part of any build: the docs build stays offline, and the release-log workflow
+# (.github/workflows/release-log.yml) runs this on master after every merge.
+#
+#   bazel run //docs:update_release_log -- --output "$PWD/docs/content/release-log.md"
 py_binary(
     name = "update_release_log",
     srcs = ["update_release_log.py"],
@@ -71,22 +327,25 @@ py_binary(
     python_version = "PY3",
 )
 
-genrule(
-    name = "generate_release_log",
-    outs = ["release-log.md"],
-    cmd = "$(location :update_release_log) --output $@",
-    tags = ["no-sandbox"],
-    tools = [":update_release_log"],
+# Default tier (not tagged "docs"): runs offline, _get is monkeypatched.
+py_pytest_test(
+    name = "test_update_release_log",
+    srcs = [
+        "update_release_log.py",
+        "test_update_release_log.py",
+    ],
+    deps = [requirement("pytest")],
 )
 
-py_binary(
+# mkdocs's own console script; the plugins are found through their entry points.
+py_console_script_binary(
     name = "mkdocs",
-    srcs = ["mkdocs_wrapper.py"],
-    main = "mkdocs_wrapper.py",
+    pkg = requirement("mkdocs"),
+    script = "mkdocs",
     deps = [
-        requirement("mkdocs"),
         requirement("mkdocs-material"),
         requirement("mkdocs-git-revision-date-localized-plugin"),
+        requirement("mkdocs-redirects"),
     ],
     python_version = "PY3",
 )
@@ -99,7 +358,20 @@ genrule(
         ":generate_mkdocs_md",
         ":generate_instruction_format_md",
         ":generate_instruction_format_artifacts",
-        ":generate_release_log",
+        ":generate_element_format_tables",
+        ":generate_timing_contract_table",
+        ":generate_reference_api_md",
+        ":generate_cli_reference_md",
+        ":generate_kernel_toml_md",
+        ":generate_kernel_coverage_md",
+        ":generate_architecture_md",
+        "//docs/inspector:inspector_data",
+        "//:GLOSSARY.md",
+        "//kernels/elementwise/scale:scale_files",
+        "examples/test_add_an_instruction.py",
+        "examples/test_element_formats.py",
+        "examples/test_reference_model_cocotb.py",
+        "//src/ipu-isa:test/one_edit.py",
         "hooks/giscus_env.py",
         "hooks/history_link.py",
         "overrides/main.html",
@@ -141,15 +413,52 @@ genrule(
             ln -sfn "$$abssrc" "$(@D)/docs_temp/content/$$rel"
         done
 
-        # Generated pages (instructions, operand types, assembly syntax, instruction format)
+        # Generated ISA reference pages, under reference/isa/ (E09-14)
+        mkdir -p "$(@D)/docs_temp/content/reference/isa"
         for out in $(locations :generate_mkdocs_md); do \
           base=$$(basename "$$out"); \
-          ln -sfn "$$ORIGDIR/$$out" "$(@D)/docs_temp/content/$$base"; \
+          ln -sfn "$$ORIGDIR/$$out" "$(@D)/docs_temp/content/reference/isa/$$base"; \
         done
 
-        ln -sfn "$$ORIGDIR/$(location :generate_instruction_format_md)" "$(@D)/docs_temp/content/instruction-format.md"
+        ln -sfn "$$ORIGDIR/$(location :generate_instruction_format_md)" "$(@D)/docs_temp/content/reference/isa/instruction-format.md"
 
-        ln -sfn "$$ORIGDIR/$(location :generate_release_log)" "$(@D)/docs_temp/content/release-log.md"
+        # reference/glossary.md includes the root GLOSSARY.md through pymdownx.snippets,
+        # whose base_path ".." is the parent of the temp tree, as the repo root is of docs/.
+        ln -sfn "$$ORIGDIR/$(location //:GLOSSARY.md)" "$(@D)/GLOSSARY.md"
+
+        # how-to/write-a-kernel.md includes the scale kernel's kernel.toml and
+        # reference.py the same way, at their repo paths.
+        mkdir -p "$(@D)/kernels/elementwise/scale"
+        for f in $(locations //kernels/elementwise/scale:scale_files); do
+          case "$$f" in
+            */kernel.toml|*/reference.py) ln -sfn "$$ORIGDIR/$$f" "$(@D)/kernels/elementwise/scale/$$(basename "$$f")" ;;
+          esac
+        done
+
+        # The how-to pages include tested code the same way, at its repo path.
+        mkdir -p "$(@D)/docs/examples" "$(@D)/src/ipu-isa/test"
+        ln -sfn "$$ORIGDIR/$(location examples/test_add_an_instruction.py)" "$(@D)/docs/examples/test_add_an_instruction.py"
+        ln -sfn "$$ORIGDIR/$(location examples/test_reference_model_cocotb.py)" "$(@D)/docs/examples/test_reference_model_cocotb.py"
+        ln -sfn "$$ORIGDIR/$(location //src/ipu-isa:test/one_edit.py)" "$(@D)/src/ipu-isa/test/one_edit.py"
+
+        # explanation/element-formats.md includes its tested example the same way, and
+        # its generated tables from docs/generated/.
+        ln -sfn "$$ORIGDIR/$(location examples/test_element_formats.py)" "$(@D)/docs/examples/test_element_formats.py"
+        mkdir -p "$(@D)/docs/generated"
+        ln -sfn "$$ORIGDIR/$(location :generate_element_format_tables)" "$(@D)/docs/generated/element-format-tables.md"
+        # The reference model API page's schema downloads (its snippets are read
+        # from generated/reference-api/ through the snippets base_path).
+        mkdir -p "$(@D)/docs_temp/content/assets/schemas"
+        for f in $(locations :generate_reference_api_md); do
+          case "$$f" in
+            *.json)
+              dest="$(@D)/docs_temp/content/assets/schemas/$$(basename "$$f")"
+              rm -f "$$dest"
+              cp "$$ORIGDIR/$$f" "$$dest"
+              chmod u+w "$$dest"
+              ;;
+          esac
+        done
 
         # Generated C header and SystemVerilog package (downloadable; not in git)
         mkdir -p "$(@D)/docs_temp/content/assets"
@@ -161,22 +470,244 @@ genrule(
           chmod u+w "$$dest"; \
         done
 
+        # The Cycle Inspector's data (E08-16): every curated trace, kernels.json
+        # and isa.json, regenerated on each build, never checked in.
+        mkdir -p "$(@D)/docs_temp/content/how-to/inspector/data"
+        for data in $(locations //docs/inspector:inspector_data); do \
+          dest="$(@D)/docs_temp/content/how-to/inspector/data/$$(basename "$$data")"; \
+          rm -f "$$dest"; \
+          cp "$$ORIGDIR/$$data" "$$dest"; \
+          chmod u+w "$$dest"; \
+        done
+
         # Build with mkdocs (execroot must retain .git; use no-sandbox on this genrule).
         cd $(@D)/docs_temp
         $$ORIGDIR/$(location :mkdocs) build --site-dir $$ORIGDIR/$(@D)/site_output
         cd $$ORIGDIR
 
-        # Package output
-        tar -cf $@ -C $(@D)/site_output .
+        # Package output. Sorted names, fixed mtimes and owners: two builds of the
+        # same commit give the same site.tar.
+        tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
+            -cf $@ -C $(@D)/site_output .
     """,
     tools = [":mkdocs"],
 )
 
+# Publishes a built site.tar as one docs version on gh-pages, in mike's layout
+# (E09-21). CI runs it (.github/workflows/docs.yml); nobody else pushes there.
+#
+# CI only:
+#   bazel run //docs:publish_version -- --repo "$GITHUB_WORKSPACE" \
+#       --site bazel-bin/docs/site.tar --version dev --push
+py_binary(
+    name = "publish_version",
+    srcs = ["publish_version.py"],
+    main = "publish_version.py",
+    python_version = "PY3",
+)
+
+py_pytest_test(
+    name = "test_publish_version",
+    size = "small",
+    srcs = [
+        "publish_version.py",
+        "test_publish_version.py",
+    ],
+    deps = [
+        requirement("mike"),
+        requirement("pytest"),
+    ],
+)
+
 py_binary(
     name = "serve_docs",
-    srcs = ["serve_docs_wrapper.py"],
+    srcs = ["serve_docs.py"],
     args = ["$(location :build_docs)"],
     data = [":build_docs"],
-    main = "serve_docs_wrapper.py",
+    main = "serve_docs.py",
     python_version = "PY3",
+)
+
+# Doc tests: every `asm` block in the hand-written docs assembles, and every
+# documented `ipu-as` command uses only declared options. Default tier.
+py_library(
+    name = "doc_blocks",
+    srcs = [
+        "doc_blocks.py",
+        "doc_files.py",
+    ],
+)
+
+py_pytest_test(
+    name = "test_doc_blocks",
+    size = "small",
+    srcs = ["test_doc_blocks.py"],
+    deps = [
+        ":doc_blocks",
+        requirement("pytest"),
+    ],
+)
+
+_DOC_TEST_DATA = [
+    ":doc_sources",
+    "//:CLAUDE.md",
+    "//:README.md",
+    "//:SKILL.md",
+]
+
+py_pytest_test(
+    name = "test_doc_asm_blocks",
+    size = "small",
+    srcs = ["test_doc_asm_blocks.py"],
+    data = _DOC_TEST_DATA + [
+        ":generate_instruction_format_md",
+        ":generate_mkdocs_md",
+        # The kernels an asm-kernel marker names (the how-to's listing).
+        "//kernels/elementwise/scale:scale_files",
+    ],
+    deps = [
+        ":doc_blocks",
+        "//src/ipu-as:ipu_as_lib",
+        "//src/ipu-harness:ipu_harness_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_doc_commands",
+    size = "small",
+    srcs = ["test_doc_commands.py"],
+    data = _DOC_TEST_DATA,
+    deps = [
+        ":doc_blocks",
+        "//src/ipu-as:ipu_as_lib",
+        "//src/ipu-harness:ipu_harness_lib",
+        requirement("pytest"),
+    ],
+)
+
+# The examples How-to: add an instruction includes (examples/), run, and its
+# line-range includes of the "one edit" test's entry and handler kept exact.
+py_pytest_test(
+    name = "test_add_an_instruction",
+    size = "small",
+    srcs = ["examples/test_add_an_instruction.py"],
+    data = [
+        "content/how-to/add-an-instruction.md",
+        "//src/ipu-isa:one_edit",
+    ],
+    deps = [
+        "//src/ipu-as:ipu_as_lib",
+        "//src/ipu-emu:emu_test_support",
+        "//src/ipu-emu:ipu_emu_lib",
+        "//src/ipu-isa:ipu_isa_lib",
+        "//src/ipu-isa:one_edit",
+        requirement("pytest"),
+    ],
+)
+
+# The CR scalar example Explanation: element formats includes (examples/), run in
+# each format (E09-19).
+py_pytest_test(
+    name = "test_element_formats",
+    size = "small",
+    srcs = ["examples/test_element_formats.py"],
+    deps = [
+        "//src/ipu-as:ipu_as_lib",
+        "//src/ipu-emu:emu_test_support",
+        "//src/ipu-emu:ipu_emu_lib",
+        "//src/ipu-isa:ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+# The testbench How-to: use the reference model from cocotb includes (examples/)
+# runs against a second model as the DUT; no simulator.
+py_pytest_test(
+    name = "test_reference_model_cocotb",
+    size = "small",
+    srcs = ["examples/test_reference_model_cocotb.py"],
+    data = ["content/how-to/reference-model-cocotb.md"],
+    deps = [
+        "//src/ipu-as:ipu_as_lib",
+        "//src/ipu-emu:ipu_emu_lib",
+        "//src/ipu-isa:ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+# The timing model page's examples run, and assert the values the page claims.
+py_pytest_test(
+    name = "test_timing_model",
+    size = "small",
+    srcs = ["examples/test_timing_model.py"],
+    data = ["content/explanation/timing-model.md"],
+    deps = [
+        ":doc_blocks",
+        "//src/ipu-as:ipu_as_lib",
+        "//src/ipu-emu:emu_test_support",
+        "//src/ipu-emu:ipu_emu_lib",
+        requirement("pytest"),
+    ],
+)
+
+# specs/rtl-migration.md's claims about this branch, against the SV golden.
+py_pytest_test(
+    name = "test_rtl_migration",
+    size = "small",
+    srcs = ["test_rtl_migration.py"],
+    data = [
+        "content/specs/rtl-migration.md",
+        "//src/ipu-gen:test/baselines/ipu_instr_pkg.sv",
+    ],
+    deps = [requirement("pytest")],
+)
+
+py_pytest_test(
+    name = "test_history_link",
+    size = "small",
+    srcs = [
+        "hooks/history_link.py",
+        "hooks/test_history_link.py",
+    ],
+    deps = [requirement("pytest")],
+)
+
+filegroup(
+    name = "adr_sources",
+    srcs = glob(["adr/*.md"]),
+)
+
+py_pytest_test(
+    name = "test_doc_links",
+    size = "small",
+    srcs = ["test_doc_links.py"],
+    data = _DOC_TEST_DATA + [
+        "mkdocs.yml",
+        ":adr_sources",
+        "//:.github/pull_request_template.md",
+        "//:GLOSSARY.md",
+        "//src/ipu-isa:conformance/README.md",
+        "//tools/bench:README.md",
+    ],
+    deps = [requirement("pytest")],
+)
+
+# The built site has the Cycle Inspector page and every curated trace (E08-17).
+#   bazel test //docs:test_inspector_site
+py_pytest_test(
+    name = "test_inspector_site",
+    srcs = ["test_inspector_site.py"],
+    data = [":build_docs"],
+    tags = ["docs"],
+    deps = [
+        "//src/ipu-gen:ipu_gen_lib",
+        requirement("pytest"),
+    ],
+)
+
+# Ruff lint and format over this package's Python files (tools/lint.bzl).
+ruff_test(
+    name = "ruff",
+    srcs = glob(["**/*.py"]),
 )

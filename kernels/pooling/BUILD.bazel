@@ -1,0 +1,11 @@
+# The pooling family (E07-14): folder kernels maxpool2d_window,
+# maxpool2d_stride2 and maxpool2d_stride2_tail, and the registry.toml entries
+# maxpool2d_nms7 and maxpool2d_nms9 over the maxpool2d_nms template
+# (//kernels/pooling:<entry>, as the old targets were named). pack.py and
+# gen.py, beside the kernels, are their shared pack transforms and case
+# generators (data, loaded by path). The routing facts are test_routing.py.
+
+load("//kernels:defs.bzl", "ipu_kernel_family")
+load(":registry.bzl", "ENTRIES")
+
+ipu_kernel_family(entries = ENTRIES)

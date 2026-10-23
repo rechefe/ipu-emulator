@@ -1,0 +1,6 @@
+# The linear family (E07-21): fully_connected, a folder kernel. pack.py,
+# beside it, holds the weights' transpose (data, loaded by path).
+
+load("//kernels:defs.bzl", "ipu_kernel_family")
+
+ipu_kernel_family()

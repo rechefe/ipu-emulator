@@ -1,0 +1,53 @@
+# concat: y = cat((a, b), dim=0), one channel per row (E07-04). A template:
+# ../registry.toml fixes its shape for the MobileViT entries
+# concat_{8x8x160x160,16x16x128x128,32x32x96x96}; run by itself it is a small
+# concat of the same program. h and w only route (the program copies whole
+# rows and never reads them).
+[kernel]
+op = "concat"
+formats = ["fp32"]
+
+[params]
+h   = { type = "int", min = 1 }            # spatial height: routing only
+w   = { type = "int", min = 1 }            # spatial width: routing only
+c_a = { type = "int", min = 1 }            # channels of a, one row each
+c_b = { type = "int", min = 1 }            # channels of b
+one = { type = "float", choices = [1.0], default = 1.0 }   # the pass-through multiplier
+
+[derived]
+ptr_start  = "-1"                          # the source pointer starts a row before the base
+row_stride = "1"
+y_b        = "base(y) + c_a"               # where b's rows go: y's second part
+
+# Placed in this order from row 0: a, b, y (the old memory map).
+[inputs.a]
+shape = ["c_a", 128]
+
+[inputs.b]
+shape = ["c_b", 128]
+
+[outputs.y]
+shape = ["c_a + c_b", 128]
+
+[abi]
+ptr_start  = "CR2"
+row_stride = "CR3"
+one        = "CR4"
+a          = "CR5"
+b          = "CR6"
+y          = "CR7"
+y_b        = "CR8"
+c_a        = "CR9"
+c_b        = "CR10"
+
+[golden]
+op = "concat"
+tolerance = { fp32 = "EXACT" }
+
+# The old cases' data: RandomState(0xC047), a then b, uniform [-1, 1).
+[cases.default]
+h = 2
+w = 2
+c_a = 3
+c_b = 5
+generator = "gen.py:seeded_uniform"

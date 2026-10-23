@@ -9,7 +9,7 @@ const vscode = require('vscode');
 
 const runs = require('../../runs');
 const isa = require('../../data/isa.json');
-const { test, sleep, until, runAll } = require('../harness');
+const { test, until, runAll } = require('../harness');
 
 const workspace = process.env.IPU_TEST_WORKSPACE;
 const kernelFile = path.join(workspace, 'kernels/demo/demo_kernel/demo_kernel.asm');
@@ -40,7 +40,7 @@ const hoverText = async (uri, at) =>
   (await exec('vscode.executeHoverProvider', uri, at)).map((h) => h.contents.map((c) => c.value || c).join('\n')).join('\n');
 /** Lines ending a `;;` word, but the last. */
 const wordEnds = () => doc.getText().split('\n').map((l, n) => (l.trimEnd().endsWith(';;') ? n : -1)).filter((n) => n >= 0).slice(0, -1);
-const loopText = '{% set r = "lr0" %}\n{% for i in range(2) %}\nSET {{ r }} cr0;;\n{% endfor %}\nBKPT;;\n';
+const loopText = '{% set r = "lr0" %}\n{% for i in range(2) %}\nSET {{ r }} cr0;;\n{% endfor %}\nHALT;;\n';
 
 /** Run `fn` with the `ipuAsm` workspace settings in `settings`, then restore them. */
 async function withSettings(settings, fn) {
@@ -55,8 +55,8 @@ async function withSettings(settings, fn) {
 
 test('mnemonics that fit the word are offered at the start of an instruction, not on a typed space', async () => {
   const names = labels(await completeIn('    \n', 4));
-  for (const m of ['ACC.ADD.FIRST', 'MULT.RC.VE', 'BKPT', 'SET', 'B']) assert(names.includes(m), m);
-  const inWord = labels(await completeIn('BKPT ; \n', 7));
+  for (const m of ['ACC.ADD.FIRST', 'MULT.RC.VE', 'HALT', 'SET', 'B']) assert(names.includes(m), m);
+  const inWord = labels(await completeIn('HALT ; \n', 7));
   assert(!inWord.includes('BEQ') && !inWord.includes('B') && inWord.includes('SET'), 'cond is full');
   // A typed space or newline there opens nothing: Enter would accept a suggestion instead of ending
   // the line. Plain words (kind Text) aside, no mnemonic (Keyword).
@@ -85,12 +85,14 @@ test('a mnemonic brings its operands as tab stops; a {{ name }} shows its value;
   const set = items.find((i) => name(i) === 'SET');
   assert.match(set.insertText.value, /^SET \$\{1:\w+\} \$\{2:\w+\}$/);
   const template = (item) => item.insertText instanceof vscode.SnippetString;
-  assert(!template(items.find((i) => name(i) === 'BKPT')));
+  assert(!template(items.find((i) => name(i) === 'HALT')));
   // Operands already there: the name alone.
   assert(!template((await completeIn('S lr0 cr0;;\n', 1)).find((i) => name(i) === 'SET')));
-  const d = await vscode.window.showTextDocument(await withText('{% set r = "lr0" %}\nSET {{ r }} cr0;;\nend:\n    BKPT;;\n')).then((e) => e.document);
+  const d = await vscode.window.showTextDocument(await withText('{% set r = "lr0" %}\nSET {{ r }} cr0;;\nend:\n    HALT;;\n')).then((e) => e.document);
   const hints = await exec('vscode.executeInlayHintProvider', d.uri, new vscode.Range(0, 0, 4, 0));
   assert.deepStrictEqual(hints.map((h) => [h.label, h.position.line]), [['lr0', 1]]);
+  await withSettings({ jinjaValueHints: false }, async () =>
+    assert.deepStrictEqual(await exec('vscode.executeInlayHintProvider', d.uri, new vscode.Range(0, 0, 4, 0)), []));
   const fadedNow = () => vscode.languages.getDiagnostics(d.uri).filter((x) => x.tags && x.tags.includes(vscode.DiagnosticTag.Unnecessary));
   const faded = await until(() => fadedNow().length && fadedNow(), 'the unused label');
   assert.deepStrictEqual(faded.map((x) => [x.message, x.severity]), [['end is never branched to', vscode.DiagnosticSeverity.Hint]]);
@@ -122,6 +124,19 @@ test('definition of a label and a Jinja name, references, rename and its refusal
   await assert.rejects(rename(doc.uri, pos('row_loop:', 1), '+3'));
 });
 
+test("a mnemonic only the checkout's ISA has gets hover text once its language data is generated", async () => {
+  const d = await vscode.workspace.openTextDocument(vscode.Uri.file(kernelFile));
+  const only = process.env.IPU_TEST_CHECKOUT_ONLY;
+  const scratch = await withText(`${only};;\n`);
+  // The kernel is in the checkout, and asks for its data; the scratch buffer is the window's.
+  await hoverText(d.uri, new vscode.Position(0, 0));
+  const text = await until(async () => {
+    const found = await hoverText(scratch.uri, new vscode.Position(0, 1));
+    return found.includes(isa.instructions.HALT[0].doc.title) && found;
+  }, `hover on ${only}`);
+  assert(text, only);
+});
+
 test('hover on an instruction, a Jinja name (its value and register) and a macro parameter', async () => {
   const instruction = await hoverText(doc.uri, pos('ACC.ADD.FIRST', 1));
   assert(instruction.includes(isa.instructions['ACC.ADD.FIRST'][0].doc.title), instruction);
@@ -142,8 +157,8 @@ test('outline lists labels and Jinja names; the header comment folds', async () 
 
 // --- formatting, word separation, typing ------------------------------------------------------------
 
-const messy = 'top: SET lr0 cr0 ;; BKPT;;\n  ACC.ADD.FIRST;\nBKPT;;\n';
-const tidy = 'top:\n    SET lr0 cr0 ;;\n    BKPT;;\n    ACC.ADD.FIRST;\n    BKPT;;\n';
+const messy = 'top: SET lr0 cr0 ;; HALT;;\n  ACC.ADD.FIRST;\nHALT;;\n';
+const tidy = 'top:\n    SET lr0 cr0 ;;\n    HALT;;\n    ACC.ADD.FIRST;\n    HALT;;\n';
 /** `text` after Format Document, or Format Selection on `range`. */
 async function formatted(text, range) {
   const d = await withText(text);
@@ -156,14 +171,14 @@ async function formatted(text, range) {
 }
 
 test('Format Selection formats the selected lines only', async () =>
-  assert.strictEqual(await formatted('  a:\nBKPT;;\nBKPT;; BKPT;;\n', new vscode.Range(1, 0, 1, 6)), '  a:\n    BKPT;;\nBKPT;; BKPT;;\n'));
+  assert.strictEqual(await formatted('  a:\nHALT;;\nHALT;; HALT;;\n', new vscode.Range(1, 0, 1, 6)), '  a:\n    HALT;;\nHALT;; HALT;;\n'));
 
 const none = () => [];
 const spaceGaps = () => { const t = doc.getText().split('\n'); return wordEnds().map((n) => n + 1).filter((n) => t[n].trim()); };
 // [wordSeparation (undefined: the default, "space"), Format Document's result, on-screen gaps (CodeLens), drawn lines]
 for (const [mode, result, gaps, drawn] of [
   [undefined, tidy, spaceGaps, none],
-  ['emptyLine', 'top:\n    SET lr0 cr0 ;;\n\n    BKPT;;\n\n    ACC.ADD.FIRST;\n    BKPT;;\n', none, none],
+  ['emptyLine', 'top:\n    SET lr0 cr0 ;;\n\n    HALT;;\n\n    ACC.ADD.FIRST;\n    HALT;;\n', none, none],
   ['line', tidy, none, wordEnds],
   ['none', tidy, none, none],
 ]) {
@@ -188,27 +203,36 @@ async function typeIn(start, text, done, at) {
   return { editor, lines };
 }
 
+/** Whether Enter's formatting as you type has nothing left to do at the cursor: it is the one
+ *  source of a late edit (an empty line between words), so no edit from it means none will come. */
+async function noLateEdit(editor) {
+  const { tabSize, insertSpaces } = editor.options;
+  const edits = (await exec('vscode.executeFormatOnTypeProvider', editor.document.uri, editor.selection.active, '\n',
+    { tabSize, insertSpaces })) || [];
+  return edits.every((e) => editor.document.getText(e.range) === e.newText);
+}
+
 test('Enter after ;; or a label indents the next line; after ;; it leaves an empty line with "emptyLine"', async () => {
-  const { lines } = await typeIn('    SET lr0 cr0;;', '\n', (l) => l.length === 2);
-  await sleep(500); // and no late empty line
+  const { editor: first, lines } = await typeIn('    SET lr0 cr0;;', '\n', (l) => l.length === 2);
+  assert(await noLateEdit(first), 'and no late empty line');
   assert.deepStrictEqual(lines(), ['    SET lr0 cr0;;', '    ']);
   await withSettings({ wordSeparation: 'emptyLine' }, async () => {
     const { editor, lines } = await typeIn('    SET lr0 cr0;;', '\n', (l) => l.length === 3);
     assert.deepStrictEqual(lines(), ['    SET lr0 cr0;;', '', '    ']);
     assert.strictEqual(editor.selection.active.line, 2);
     // After a label it indents; within a word it adds no empty line, even with "emptyLine".
-    const label = (await typeIn('row_loop:', '\n', (l) => l.length === 2)).lines;
+    const { editor: labelled, lines: label } = await typeIn('row_loop:', '\n', (l) => l.length === 2);
     assert.strictEqual(label()[1], '    ');
     await exec('type', { text: 'SET lr0 cr0;\n' });
     await until(() => label().length === 3, 'the next line');
-    await sleep(500); // and no late empty line
+    assert(await noLateEdit(labelled), 'and no late empty line');
     assert.deepStrictEqual(label(), ['row_loop:', '    SET lr0 cr0;', '    ']);
   });
 });
 
 test('typing ;; before more code moves that code to its own word; a label\'s colon outdents it', async () => {
-  const { lines } = await typeIn('SET lr0 cr0 BKPT', ';;', (l) => l.length > 1, new vscode.Position(0, 11));
-  assert.deepStrictEqual(lines(), ['    SET lr0 cr0;;', '    BKPT']);
+  const { lines } = await typeIn('SET lr0 cr0 HALT', ';;', (l) => l.length > 1, new vscode.Position(0, 11));
+  assert.deepStrictEqual(lines(), ['    SET lr0 cr0;;', '    HALT']);
   await typeIn('    top', ':', (l) => l[0] === 'top:');
 });
 
@@ -234,8 +258,8 @@ test('the title bar buttons appear on kernel files only, and act on the file cli
   }
   // They act on the file clicked on (VS Code passes its Uri): only a kernel opens a terminal.
   await closeKernelTerminals();
-  await exec('ipuAsm.benchmarkKernel', vscode.Uri.file(scratchFile));
-  await sleep(1000);
+  // A run resolves once its command is sent (or refused), so the terminals are settled then.
+  assert(!(await exec('ipuAsm.benchmarkKernel', vscode.Uri.file(scratchFile))), 'nothing sent');
   assert.strictEqual(kernelTerminals().length, 0, 'a file that is no kernel runs nothing');
   await exec('ipuAsm.benchmarkKernel', doc.uri);
   await until(() => kernelTerminals().length === 1, 'the kernel terminal');
@@ -246,14 +270,13 @@ async function idleTerminal() {
   const [first] = await until(() => kernelTerminals().length && kernelTerminals(), 'the kernel terminal');
   const pid = await first.processId;
   if ((await runs.atPrompt(pid)) === null) return null;
-  await sleep(2000); // past the moment a just-sent command may not have started
-  await until(async () => (await runs.atPrompt(pid)) === true, 'the command to end', 120000);
+  // Idle as a run decides it: not while a just-sent command may not have started yet.
+  await until(() => api().terminalIdle(first), 'the command to end', 120000);
   return first;
 }
-/** The kernel terminals a moment after running `commands` on the kernel together. */
+/** The kernel terminals once `commands`, run on the kernel together, have sent their runs. */
 async function after(...commands) {
   await Promise.all(commands.map((c) => exec(c, 'demo_kernel')));
-  await sleep(1000);
   return kernelTerminals();
 }
 
@@ -316,7 +339,7 @@ test('a kernel terminal still running something is never typed into; two runs st
 
 test('the open sidebar follows the editor to the kernel', async () => {
   await exec('workbench.view.extension.ipu');
-  await vscode.window.showTextDocument(await withText('BKPT;;\n'));
+  await vscode.window.showTextDocument(await withText('HALT;;\n'));
   await vscode.window.showTextDocument(doc);
   await until(() => api().view.selection.length && api().view.selection[0].kernel === 'demo_kernel', 'the kernel row selected');
 });
@@ -369,6 +392,10 @@ async function run() {
   doc = await vscode.workspace.openTextDocument(kernelFile);
   await vscode.window.showTextDocument(doc);
   assert.strictEqual(doc.languageId, 'ipu-asm');
+  // Opening the kernel starts activation, which loads the language data asynchronously before
+  // it registers the editing providers. Without this wait the first completion request raced
+  // it and got VS Code's word-based suggestions instead (words of the open kernel only).
+  await extension().activate();
   await runAll('integration');
 }
 

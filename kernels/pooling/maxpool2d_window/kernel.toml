@@ -1,0 +1,119 @@
+# maxpool2d_window: centred stride-1 KxK max-pool of [C, H, W], FP32, with K a
+# run-time loop bound (E07-14). Was a whole-image kernel. The
+# unrolled maxpool2d_nms7/nms9 entries take K = 7 and 9 at a lower cost.
+[kernel]
+op = "maxpool2d"
+formats = ["fp32"]
+cost = 3                                                 # above maxpool2d_nms7/nms9 (0, 1)
+
+[params]
+channels    = { type = "int", min = 1 }
+height      = { type = "int", min = 1 }
+width       = { type = "int", min = 1 }
+kernel_size = { type = "int", min = 1, max = 127 }    # odd (centred)
+stride      = { type = "int", choices = [1] }
+padding     = { type = "int", min = 0, max = 63 }     # kernel_size // 2
+
+[derived]
+# 1 when kernel_size = 2 * padding + 1 (odd, centred), else no value: the
+# shape grammar has no comparison, so a division by zero (or a fraction)
+# refuses every other pair.
+centred   = "1 / (1 - (2 * padding + 1 - kernel_size) * (2 * padding + 1 - kernel_size))"
+tiles     = "ceil(width / (129 - kernel_size))"          # TILES_PER_ROW
+plane     = "(height + kernel_size - 1) * tiles"         # IN_PLANE_STRIDE (rows)
+seed_slot = "384"                                        # R_CYCLIC slot 3
+dx_bound  = "kernel_size - 1"                            # pre-increment bound
+
+# Placed from row 0: x, seed, y (the old image: input, seed row, output).
+[inputs.x]
+shape = ["channels", "height", "width"]
+pack = "halo_tiled"                                      # ../pack.py
+
+[outputs.y]
+shape = ["channels", "height", "width"]
+pack = "tiled"                                           # ../pack.py
+
+[scratch.seed]                                           # resident -FLT_MAX row
+shape = [1, 128]
+fill = -3.4028234663852886e38
+after = "x"
+
+[abi]
+x           = "CR2"
+y           = "CR3"
+seed        = "CR4"
+tiles       = "CR5"
+plane       = "CR6"
+height      = "CR7"
+channels    = "CR8"
+kernel_size = "CR9"
+seed_slot   = "CR10"
+dx_bound    = "CR11"
+
+[golden]
+op = "maxpool2d"
+tolerance = { fp32 = "EXACT" }
+
+# The old cases' data (../gen.py: standard normal minus 2, seed 7).
+[cases.default]
+channels = 1
+height = 4
+width = 16
+kernel_size = 3
+stride = 1
+padding = 1
+generator = "../gen.py:seeded_normal_minus_2"
+
+[cases.tile_boundary]
+channels = 2
+height = 3
+width = 133
+kernel_size = 3
+stride = 1
+padding = 1
+generator = "../gen.py:seeded_normal_minus_2"
+
+[cases.single_pixel]
+channels = 1
+height = 1
+width = 1
+kernel_size = 3
+stride = 1
+padding = 1
+generator = "../gen.py:seeded_normal_minus_2"
+
+[cases.identity_window]
+channels = 2
+height = 2
+width = 129
+kernel_size = 1
+stride = 1
+padding = 0
+generator = "../gen.py:seeded_normal_minus_2"
+
+[cases.large_window]
+channels = 1
+height = 1
+width = 3
+kernel_size = 127
+stride = 1
+padding = 63
+generator = "../gen.py:seeded_normal_minus_2"
+
+[cases.nms7]
+channels = 1
+height = 3
+width = 125
+kernel_size = 7
+stride = 1
+padding = 3
+generator = "../gen.py:seeded_normal_minus_2"
+
+[cases.nms9]
+channels = 1
+height = 3
+width = 123
+kernel_size = 9
+stride = 1
+padding = 4
+generator = "../gen.py:seeded_normal_minus_2"

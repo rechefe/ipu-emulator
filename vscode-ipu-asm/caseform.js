@@ -2,8 +2,9 @@
 
 // The case form: a kernel's cases in a webview, one field per option (typed as the runner
 // parses it), to run or debug with, save, or add to. Saved cases go to ipuAsm.cases in the
-// folder's settings, as { kernel: { case: { base, options } } }: the registry's cases.py is
-// never written, and a saved case with a registry case's name is that case edited.
+// folder's settings, as { kernel: { case: { base, options } } }: the kernel's kernel.toml (its
+// [cases.*] tables) is never written, and a saved case with a registry case's name is that case
+// edited.
 
 const crypto = require('crypto');
 const vscode = require('vscode');
@@ -25,7 +26,7 @@ function state(index, kernelName) {
   const cases = runs.kernelCases(kernel, savedCases(index)[kernelName]);
   const view = (c) => ({
     base: c.base, saved: Boolean(c.saved), builtIn: c.builtIn,
-    options: Object.entries(c.entry.options).map(([name, o]) => ({
+    options: Object.entries(c.entry.options || {}).map(([name, o]) => ({
       name, flag: o.flag, type: runs.optionType(o), default: o.default, value: Object.hasOwn(c.values, name) ? c.values[name] : o.default,
     })),
   });
@@ -107,12 +108,8 @@ async function save(index, kernelName, edit, selected) {
 const register = (context) => context.subscriptions.push(
   vscode.window.registerWebviewViewProvider(VIEW, provider, { webviewOptions: { retainContextWhenHidden: true } }));
 
-function html(webview) {
-  const nonce = crypto.randomBytes(16).toString('base64');
-  return `<!DOCTYPE html><html><head><meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
-<style>
-  body { font: var(--vscode-font-size) var(--vscode-font-family); color: var(--vscode-foreground); padding: 4px 12px; }
+/** The form's look, in the editor's theme colours. */
+const STYLE = `  body { font: var(--vscode-font-size) var(--vscode-font-family); color: var(--vscode-foreground); padding: 4px 12px; }
   label { display: flex; flex-direction: column; gap: 3px; margin: 8px 0; }
   input, select { font: inherit; color: var(--vscode-input-foreground); background: var(--vscode-input-background);
     border: 1px solid var(--vscode-input-border, var(--vscode-panel-border)); padding: 3px 5px; min-width: 0; }
@@ -126,18 +123,10 @@ function html(webview) {
     outline: 1px solid var(--vscode-button-border, var(--vscode-panel-border)); }
   [hidden] { display: none !important; }
   #error { color: var(--vscode-errorForeground); min-height: 1.4em; }
-</style></head><body>
-<form id="form" hidden>
-  <label>Case <select id="case"></select></label>
-  <label id="nameRow">Name <input id="name" autocomplete="off"></label>
-  <label id="baseRow">Start from <select id="base"></select></label>
-  <fieldset><legend>Options</legend><div id="options"></div></fieldset>
-  <p id="error" role="alert"></p>
-  <div class="buttons"><button data-command="run">Run</button><button data-command="debug">Debug</button>
-  <button data-command="save" class="secondary">Save</button><button data-command="delete" class="secondary" id="delete" hidden></button></div>
-</form>
-<script nonce="${nonce}">
-const vscode = acquireVsCodeApi();
+`;
+
+/** The form's page script: it shows the cases it is sent and posts back what is submitted. */
+const SCRIPT = `const vscode = acquireVsCodeApi();
 const $ = (id) => document.getElementById(id);
 let data, selected;
 const option = (text, value) => Object.assign(document.createElement('option'), { textContent: text, value });
@@ -195,7 +184,25 @@ window.addEventListener('message', ({ data: m }) => {
 });
 // Only now can it be sent anything: a message posted before the page loaded is lost.
 vscode.postMessage({ ready: true });
-</script></body></html>`;
+`;
+
+function html(webview) {
+  const nonce = crypto.randomBytes(16).toString('base64');
+  return `<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
+<style>
+${STYLE}</style></head><body>
+<form id="form" hidden>
+  <label>Case <select id="case"></select></label>
+  <label id="nameRow">Name <input id="name" autocomplete="off"></label>
+  <label id="baseRow">Start from <select id="base"></select></label>
+  <fieldset><legend>Options</legend><div id="options"></div></fieldset>
+  <p id="error" role="alert"></p>
+  <div class="buttons"><button data-command="run">Run</button><button data-command="debug">Debug</button>
+  <button data-command="save" class="secondary">Save</button><button data-command="delete" class="secondary" id="delete" hidden></button></div>
+</form>
+<script nonce="${nonce}">
+${SCRIPT}</script></body></html>`;
 }
 
 module.exports = { open, refresh: () => update(false), register, savedCases };
