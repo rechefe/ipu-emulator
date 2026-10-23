@@ -16,7 +16,7 @@ from ipu_isa.codec.slot import (
     field_code,
 )
 from ipu_isa.codec.word import DecodedWord, opcode_field
-from ipu_isa.faults import reserved_encodings
+from ipu_isa.faults import reserved_encodings, reserved_operand_codes
 from ipu_isa.operand_types import OPERAND_TYPES
 from ipu_isa.slots import SLOTS, Slot
 from ipu_isa.view import authoring_copies, isa, load_isa
@@ -36,7 +36,11 @@ _RESERVED = {
 def _ends(slot, operand) -> list[int]:
     """The lowest and highest meaningful encoding of an operand."""
     bits = isa().layout.operand_bits[operand.type.name]
-    reserved = _RESERVED.get((slot, operand.type.name), set())
+    # F-1's table covers the HARDWARE slots; an EMULATOR slot's operand type
+    # reserves the same codes (ACTIVATE.EXACT's ActivationFn: 13..15).
+    reserved = _RESERVED.get(
+        (slot, operand.type.name), set(reserved_operand_codes(operand.type, bits))
+    )
     meaningful = [code for code in range(1 << bits) if code not in reserved]
     return [meaningful[0], meaningful[-1]]
 

@@ -104,14 +104,15 @@ def test_cache_returns_the_same_result_for_the_same_source() -> None:
     assert session.assemble(source) is not session.assemble(source + "NOP;;\n")
 
 
-def test_simulation_only_slot_warning_is_recorded_and_raised_on_every_call() -> None:
-    source = "ST.ACC lr0 cr0;;\nHALT;;\n"
+def test_an_emulator_slot_that_is_not_debug_only_records_no_warning() -> None:
+    """ACTIVATE.EXACT is emulator-only, but the FP32 mode's store, not a debug
+    build (ADR 0007): no slot is debug-only, so nothing warns, on a cache hit too."""
+    source = "ACTIVATE.EXACT relu cr15.l cr2 lr0;;\nHALT;;\n"
     for _ in range(2):  # the second call is a cache hit
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             result = session.assemble(source)
-        assert result.warnings == tuple(str(w.message) for w in caught)
-        assert any("simulation-only acc_store slot" in w for w in result.warnings)
+        assert result.warnings == tuple(str(w.message) for w in caught) == ()
 
 
 def test_parse_rendered_and_encode_are_the_stages_assemble_runs() -> None:

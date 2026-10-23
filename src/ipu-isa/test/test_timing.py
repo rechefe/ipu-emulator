@@ -212,8 +212,9 @@ def test_mult_reads_its_data_inputs_at_cycle_start(mnemonic):
     at cycle start (E04-27 flipped R_MASK)."""
     reads = {a.register: a.view for a in isa().instruction(Slot.MULT, mnemonic).reads()}
     assert reads["r_mask"] is CS
-    for register in ("r", "r_cyclic"):
+    for register in ("r", "r_cyclic", "r_meta", "r_cyclic_meta"):
         assert reads.get(register, CS) is CS
+    assert reads["r_meta"] is CS or reads["r_cyclic_meta"] is CS
 
 
 # -- each validator rule fails on a planted violation -----------------------------
@@ -222,8 +223,8 @@ def test_mult_reads_its_data_inputs_at_cycle_start(mnemonic):
 def test_forwarded_read_from_a_later_slot_is_rejected():
     spec = _spec()
     read = _implicit_read(spec, "mult", "MULT.RC.VV", "r_mask")
-    read["register"], read["view"] = "post_aaq_reg", "forwarded"
-    _rejects(spec, r"mult\.MULT\.RC\.VV: post_aaq_reg: a forwarded read needs every writer")
+    read["register"], read["view"] = "aaq_lut", "forwarded"
+    _rejects(spec, r"mult\.MULT\.RC\.VV: aaq_lut: a forwarded read needs every writer")
 
 
 def test_forwarded_read_of_a_same_slot_producer_is_rejected():

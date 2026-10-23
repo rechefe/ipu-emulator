@@ -88,7 +88,15 @@ def test_reserved_operand_codes_of_todays_isa():
 
 
 def test_full_width_operands_reserve_nothing():
-    for name in ("LrIdx", "LcrIdx", "LcrHalfIdx", "HalfCrIdx", "AddbiImmediate", "BreakImmediate", "Label"):
+    for name in (
+        "LrIdx",
+        "LcrIdx",
+        "LcrHalfIdx",
+        "HalfCrIdx",
+        "AddbiImmediate",
+        "BreakImmediate",
+        "Label",
+    ):
         bits = isa().layout.operand_bits[name]
         assert reserved_operand_codes(OPERAND_TYPES[name], bits) == (), name
 

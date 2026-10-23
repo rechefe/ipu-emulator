@@ -105,11 +105,10 @@ def test_slot_errors_keep_the_assembler_class_names():
     assert {slot.value: name for slot, name in encode.LEGACY_SLOT_NAME.items()} == {
         "break": "BreakInst",
         "load": "LoadInst",
-        "store": "StoreInst",
-        "acc_store": "AccStoreInst",
         "mult": "MultInst",
         "acc": "AccInst",
         "aaq": "AaqInst",
+        "aaq_exact": "AaqExactInst",
         "lr": "LrInst",
         "cond": "CondInst",
     }
@@ -122,9 +121,45 @@ def test_operand_errors_are_checked_before_the_next_instruction_is_placed():
         _word("ACC.ADD R0; ACC.MAX;;")
 
 
-def test_a_simulation_only_slot_warns():
-    with pytest.warns(UserWarning, match="simulation-only acc_store slot"):
-        AssemblySession("ST.ACC LR0 CR0;;").assemble()
+def test_half_cr_operands():
+    """DS and QF operands name a half (``CR13.L``); a bare CR is rejected (ADR 0007)."""
+    word = _word("MULT.VE LR0 CR3 0 LR2 CR15.L CR13.H;;")
+    assert "cr15.l cr13.h" in encode.disassemble_word(word)
+    with pytest.raises(OperandError, match="not in enum options"):
+        _word("MULT.VE LR0 CR3 0 LR2 CR15 CR13.H;;")
+    with pytest.raises(OperandError, match="not in enum options"):
+        _word("AGG.SUM LR0 CR3;;")
+    # LR and COND sources take a full CR or a half.
+    assert _word("ADD LR0 LR1 CR5.H;;") != _word("ADD LR0 LR1 CR5;;")
+    assert _word("BEQ LR0 CR2.L +0;;") != _word("BEQ LR0 CR2 +0;;")
+
+
+def test_exclusions_are_slot_errors():
+    """A word with LD.LUT and a load, or both activations, does not assemble (ADR 0007)."""
+    with pytest.raises(SlotError, match="share the XMEM read port") as info:
+        _word("LD.MULT R0 LR0 CR0; LD.LUT 0 CR2 LR0;;")
+    assert info.value.token == "LD.LUT"
+    with pytest.raises(SlotError, match="read port"):
+        _word("LD.LUT 0 CR2 LR0; LD.MASK LR0 CR0;;")
+    with pytest.raises(SlotError, match="both store"):
+        _word("ACTIVATE.EXACT relu CR15.L CR2 LR0; ACTIVATE.QUANTIZE relu CR15.L CR14.L CR2 LR0;;")
+    _word("LD.LUT 0 CR2 LR0; NOP;;")  # NOP is not a load
+
+
+def test_lut_addr_range():
+    _word("LD.LUT 4 CR2 LR0;;")
+    with pytest.raises(OperandError, match="out of range"):
+        _word("LD.LUT 5 CR2 LR0;;")
+
+
+def test_activation_names_per_instruction():
+    """ACTIVATE.QUANTIZE takes the 7 ARCH names; ACTIVATE.EXACT the 13 emulator ones."""
+    _word("ACTIVATE.QUANTIZE generic CR15.L CR14.L CR2 LR0;;")
+    _word("ACTIVATE.EXACT sigmoid CR15.L CR2 LR0;;")
+    with pytest.raises(OperandError, match="not in enum options"):
+        _word("ACTIVATE.QUANTIZE sigmoid CR15.L CR14.L CR2 LR0;;")
+    with pytest.raises(OperandError, match="not in enum options"):
+        _word("ACTIVATE.EXACT generic CR15.L CR2 LR0;;")
 
 
 def test_disassembling_fields_is_disassembling_the_word():

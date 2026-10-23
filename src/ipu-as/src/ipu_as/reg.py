@@ -69,13 +69,24 @@ CrRegField = _CrRegFieldBase
 LcrRegField = _LcrRegFieldBase
 
 
-class DstructureCrRegField(_CrRegFieldBase):
-    """CR0–CR15 selector for an instruction's dstructure (valid-element mask) operand.
+class HalfCrRegField(ipu_token.EnumToken):
+    """One 16-bit half of a CR: ``CR0.L`` … ``CR15.H`` (code = 2 × index + H).
 
-    This operand is mandatory — every AGG.*/AAQ/ACTIVATE instruction must name
-    its dstructure CR explicitly (e.g. ``AAQ cr15;;``); CR15 is the conventional
-    choice but any CR0–CR15 works.
+    The DS and QF operands (ADR 0007). A bare ``CR13`` is not a member, so
+    it is rejected: these operands always name a half.
     """
+
+    @classmethod
+    def enum_array(cls) -> list[str]:
+        return list(operand_type("HalfCrIdx").domain.members)
+
+
+class LcrHalfRegField(ipu_token.EnumToken):
+    """An LR, a CR or a CR half: the LR and COND source operands (ADR 0007)."""
+
+    @classmethod
+    def enum_array(cls) -> list[str]:
+        return list(operand_type("LcrHalfIdx").domain.members)
 
 
 IPU_LRD_REG_NUM = IPU_LR_REG_NUM // 2
@@ -117,7 +128,8 @@ __all__ = [
     "LrRegField",
     "CrRegField",
     "LcrRegField",
-    "DstructureCrRegField",
+    "HalfCrRegField",
+    "LcrHalfRegField",
     "LrdRegField",
     # Field lists
     "MULT_STAGE_REG_R_FIELDS",

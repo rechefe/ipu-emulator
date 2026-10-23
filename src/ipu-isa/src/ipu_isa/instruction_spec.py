@@ -1276,7 +1276,9 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Branch Register",
                 summary="Branch to address in register.",
-                operands=["reg: Register containing target address (LR0–LR15, CR0–CR15, or a sign-extended half CR0.L–CR15.H)"],
+                operands=[
+                    "reg: Register containing target address (LR0–LR15, CR0–CR15, or a sign-extended half CR0.L–CR15.H)"
+                ],
                 operation="PC = reg",
             ),
             "execute_fn": "execute_br",

@@ -288,8 +288,8 @@ def test_crlf_line_ends_are_in_no_token():
 
 
 def test_an_enum_operand_and_a_text_that_does_not_parse():
-    roles = [role for *_, role in _tokens("ACTIVATE.QUANTIZE relu CR15;;\n")]
-    assert roles == ["mnemonic", "enum", "register"]
+    roles = [role for *_, role in _tokens("ACTIVATE.QUANTIZE relu CR15.L CR14.L CR2 LR0;;\n")]
+    assert roles == ["mnemonic", "enum", "register", "register", "register", "register"]
     # Mid-edit: the stream still says what each token is.
     assert _tokens("SET lr0 cr0 ;; ;;\nHALT") == [
         (0, 0, "SET", "mnemonic"),
