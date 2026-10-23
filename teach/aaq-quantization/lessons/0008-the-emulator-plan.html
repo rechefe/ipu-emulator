@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>The Emulator Plan</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<main class="page">
+
+<nav class="crumbs" aria-label="Course">
+  <a href="../index.html">Course home</a>
+  <a href="0007-back-to-mult.html">← Lesson 7</a>
+  <a href="../reference/row-anatomy.html">Cheat sheet: row anatomy</a>
+</nav>
+
+<header style="display:grid;gap:0.5rem">
+  <p class="eyebrow">Lesson 8 · about 15 minutes</p>
+  <h1>The emulator plan: old and new AaQ side by side</h1>
+  <p class="lede">The emulator keeps today's <code>ACTIVATE.QUANTIZE</code> for the existing kernels and adds the hardware AaQ beside it. Eight reviewable PRs get there. Six design questions are still open; this lesson ends with a board where you answer them.</p>
+</header>
+
+<section style="display:grid;gap:0.75rem">
+  <h2>Settled so far</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Question</th><th>Decision</th></tr></thead>
+    <tbody>
+      <tr><td>Q1 Backward compatibility</td><td>Kernel goldens never change. Kernel sources may change mechanically, for example a rename. Old binaries are not supported.</td></tr>
+      <tr><td>Q2 Coexistence</td><td>The old instruction moves to a new EMULATOR-tagged slot. The hardware AAQ slot holds <code>NOP</code>, the spec's <code>ACTIVATE.QUANTIZE</code> and the LUT load.</td></tr>
+      <tr><td>Q3 XMEM metadata</td><td>A side store in <code>XMem</code>: one 16-bit <span class="role meta">metadata word</span> per 128-byte row.</td></tr>
+      <tr><td>Q4 LUT</td><td>LUT-load bits stored exactly; exact-math evaluation until the spec defines LUT indexing. Exact match is the goal.</td></tr>
+      <tr><td>Q5 Format source</td><td>A <span class="role table">table format</span> per input and output array, declared in <code>kernel.toml</code>.</td></tr>
+      <tr><td>Q6 Readers</td><td>MULT reads each row's metadata and expands the elements to FP32. This needs a proposed MULT spec first.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section class="wide" style="display:grid;gap:0.75rem">
+  <h2>Old and new, side by side</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th></th><th>Legacy AaQ (kept)</th><th>Hardware AaQ (added)</th></tr></thead>
+    <tbody>
+      <tr><td>Slot</td><td>New EMULATOR slot, like <code>acc_store</code></td><td>The HARDWARE AAQ slot</td></tr>
+      <tr><td>Activations</td><td>13 functions, exact Python math</td><td>7 function types; 4 through the LUT</td></tr>
+      <tr><td>Quantization</td><td>Clamp to INT8; none in FP32/INT32 unless <code>quantize_output</code></td><td>§5.1: row scale, scale-relative <code>fe</code>/<code>fm</code>, dynamic choice</td></tr>
+      <tr><td>Output</td><td>512 bytes in <code>POST_AAQ_REG</code></td><td>128 bytes + 16-bit metadata word</td></tr>
+      <tr><td>Element format from</td><td>The run's <code>ElementFormat</code> (<a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/adr/0003-element-formats-replace-wide-mode.md">ADR 0003</a>)</td><td>The destination array's table format</td></tr>
+      <tr><td><code>--target hardware</code></td><td>Rejected</td><td>Assembles</td></tr>
+    </tbody>
+  </table></div>
+  <p style="max-width:var(--measure)">The tag belongs to the whole slot: an instruction's tag is its slot's, and the schema rejects a mismatch (<a href="https://github.com/rechefe/ipu-emulator/blob/master/src/ipu-isa/src/ipu_isa/instruction_spec.py">instruction_spec.py, <code>_instruction_tag</code></a>). EMULATOR slots come after every HARDWARE slot in <code>LAYOUT_ORDER</code>, so the hardware word is the top of the emulator word (<a href="https://github.com/rechefe/ipu-emulator/blob/master/src/ipu-isa/src/ipu_isa/slots.py">slots.py</a>). The assembler refuses an EMULATOR instruction for <code>--target hardware</code> (<a href="https://github.com/rechefe/ipu-emulator/blob/master/src/ipu-as/src/ipu_as/encode.py">encode.py</a>). <code>ST.ACC</code> in the <code>acc_store</code> slot already works this way.</p>
+</section>
+
+<section style="display:grid;gap:0.75rem">
+  <h2>What "goldens never change" costs</h2>
+  <ul>
+    <li><strong>Kernel sources.</strong> 64 of the 67 kernels call <code>ACTIVATE.QUANTIZE</code>, and the same 64 call <code>ST.AAQ</code>. A rename (Q7) edits all 64 <code>.asm</code> files by find-and-replace.</li>
+    <li><strong>Baselines move, with reasons.</strong> Assembled-program digests, field-name snapshots, disassembly text, the ISA snapshot and the SV package golden all change when the AAQ slot changes. <code>tools/update_baselines.sh</code> regenerates them; the PR names why each one moved (<a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/reference/code-conventions.md#baselines">code conventions, Baselines</a>).</li>
+    <li><strong>The wire format changes.</strong> The AAQ opcode grows from 1 bit (<code>NOP</code>, <code>ACTIVATE_QUANTIZE</code>) to 2 bits. Today <code>AAQ_SLOT_T_WIDTH = 9</code> and <code>IPU_COMPOUND_INST_WIDTH = 155</code>. A 3-bit <code>function_type</code> instead of today's 4-bit keyword may keep the slot at 9 bits, but the opcode enum still changes for the downstream RTL repo. Call it out in the PR as breaking; <code>tools/sv_localparam_diff.sh</code> shows the exact width changes.</li>
+    <li><strong>The "one edit" test stays honest.</strong> <code>KNOWN_MANUAL_EDITS</code> in <a href="https://github.com/rechefe/ipu-emulator/blob/master/src/ipu-emu/test/test_one_edit_end_to_end.py"><code>test_one_edit_end_to_end.py</code></a> is empty. A new slot must not add a manual edit outside the spec and the handler.</li>
+  </ul>
+</section>
+
+<aside class="callout gap">
+  <span class="label">A fact that changes Q8</span>
+  <p>In INT8, <code>ST.AAQ</code> writes all 512 bytes of <code>POST_AAQ_REG</code> at a 128-byte row, so it also writes the next three rows (<a href="https://github.com/rechefe/ipu-emulator/blob/master/src/ipu-emu/src/ipu_emu/slots/store.py">store.py</a>). Some goldens depend on this:</p>
+  <ul>
+    <li><code>kernels/conformance/vector_tour</code> declares its <code>relu</code> output as 4 × 128 bytes: "128 results, then 384 zeros".</li>
+    <li><code>kernels/projections/proj_p4</code> (INT8 case) advances one row per store; each store's spill is overwritten by the next, and the last spills three rows past the output.</li>
+    <li>The unit test <code>test_str_post_aaq_reg_writes_post_aaq_reg_512_to_xmem</code> pins the 512-byte write in the default INT8 state.</li>
+  </ul>
+  <p>So a 128-byte <code>ST.AAQ</code> in INT8 for <em>legacy</em> data can change a golden. The safe reading of Q8: <code>ST.AAQ</code> stores 128 bytes plus metadata only for data written by the hardware instruction, and keeps the 512-byte store for legacy data.</p>
+</aside>
+
+<section class="wide" style="display:grid;gap:0.75rem">
+  <h2>Eight PRs, in order</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th class="num">PR</th><th>Changes</th><th>Baselines that move</th><th>Backward-compat check</th></tr></thead>
+    <tbody>
+      <tr><td class="num">1</td><td>Docs only: a proposed <code>stage-mult.md</code> (expansion to FP32), AaQ spec fixes (scale over 128 elements, zero as clamp branch, tie rule), new OQ rows.</td><td>None</td><td>No code change</td></tr>
+      <tr><td class="num">2</td><td>XMEM metadata side store: 16 bits per 128-byte row, sparse like the data pages; observer and trace events carry it.</td><td>Trace schema, if events gain a field</td><td>All kernels pass; metadata reads 0 everywhere</td></tr>
+      <tr><td class="num">3</td><td>Table format per array in <code>kernel.toml</code> (<code>[inputs]</code>/<code>[outputs]</code>, bound by <code>[abi]</code>); the harness passes an address-range map to the emulator.</td><td>Manifest JSON, if it lists the field</td><td>No kernel declares a format yet: nothing runs differently</td></tr>
+      <tr><td class="num">4</td><td>Move the legacy instruction to a new EMULATOR slot and rename it (Q7). Find-and-replace in 64 kernels.</td><td>Digests, field names, disassembly, ISA snapshot, SV package (slot list)</td><td>Every golden unchanged; <code>--target hardware</code> rejects the legacy instruction</td></tr>
+      <tr><td class="num">5</td><td>Hardware <code>ACTIVATE.QUANTIZE</code>: §5.1 quantizer, dynamic choice (§5.1.1), <code>POST_AAQ_REG</code> metadata, <code>ST.AAQ</code> writes row + metadata (Q8, Q9).</td><td>SV package golden and <code>EXPECTED_LOCALPARAMS</code> (opcode width): breaking</td><td>Old kernels untouched; new tests against hand-worked rows</td></tr>
+      <tr><td class="num">6</td><td>LUT load (Q7 name, Q12 conflict rule): store 4,352 + 75 bits exactly; exact-math evaluation behind one interface.</td><td>SV package (new opcode), digests</td><td>Old kernels untouched</td></tr>
+      <tr><td class="num">7</td><td>LD and MULT: registers carry metadata (Q10); MULT expands AaQ rows to FP32 by the PR 1 spec (Q11).</td><td>Trace schema, if registers report metadata</td><td>Arrays without a table format decode as today</td></tr>
+      <tr><td class="num">8</td><td>Conformance: a chain where one kernel's AaQ output feeds the next kernel's MULT; vectors shared with the RTL testbench.</td><td>New conformance data only</td><td>Full suite in both <code>--config=proto</code> and default</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section class="wide" style="display:grid;gap:0.75rem">
+  <h2>Decide the open questions</h2>
+  <p style="max-width:var(--measure)">Pick an answer for each. The summary at the bottom updates; copy it into the chat and the design session continues from there.</p>
+  <div class="panel" data-decisions="open-qs"></div>
+</section>
+<script type="application/json" id="open-qs">[
+  {"id": "Q7", "title": "Names",
+   "question": "Mnemonics are unique across slots. Which instruction keeps the name ACTIVATE.QUANTIZE, and what is the LUT load called?",
+   "options": [
+     {"label": "Hardware keeps it; legacy becomes ACTIVATE.QUANTIZE.EXACT; LUT load is AAQ.LUT.LD", "detail": "Matches the spec the RTL team reads. Costs a find-and-replace in 64 kernels."},
+     {"label": "Legacy keeps it; hardware gets a new name; LUT load is AAQ.LUT.LD", "detail": "No kernel edits. The emulator's name for the hardware instruction differs from the spec."}
+   ], "recommended": 0},
+  {"id": "Q8", "title": "POST_AAQ_REG and ST.AAQ",
+   "question": "How wide is POST_AAQ_REG, and how many bytes does ST.AAQ store?",
+   "options": [
+     {"label": "512 B + 16-bit metadata; ST.AAQ stores 128 B + metadata for hardware data, 512 B for legacy data", "detail": "Keeps vector_tour and proj_p4 goldens, which depend on today's 512-byte store in INT8."},
+     {"label": "512 B + 16-bit metadata; ST.AAQ stores one row of the current element format plus metadata", "detail": "Fixes the three-row spill in INT8, but changes the vector_tour golden and a unit test."},
+     {"label": "Two registers: legacy 512 B, hardware 1033-bit payload; ST.AAQ stores whichever was written last", "detail": "Mirrors the spec payload exactly; more state and a rule for which register ST.AAQ drains."}
+   ], "recommended": 0},
+  {"id": "Q9", "title": "AaQ's output format",
+   "question": "AaQ needs the destination table's format when it quantizes; the table is known only from the ST.AAQ address. Where does the format come from?",
+   "options": [
+     {"label": "One output format per run, from kernel.toml; fault if ST.AAQ targets a table with another format", "detail": "Simple. A kernel with two outputs in different formats needs a later extension."},
+     {"label": "A CR that holds the output table format, set by the kernel", "detail": "Flexible per store, but adds an ISA convention the spec does not have."},
+     {"label": "The table of the ST.AAQ in the same word", "detail": "Matches the table model, but requires ACTIVATE.QUANTIZE and ST.AAQ in one word."}
+   ], "recommended": 0},
+  {"id": "Q10", "title": "Register metadata",
+   "question": "R_CYCLIC holds four rows with four metadata words. A MULT.RC window can span two of them. Which scale does each element use?",
+   "options": [
+     {"label": "Each element uses the scale of the row it came from", "detail": "Exact, no new restriction. Log hardware cost as an open question for the RTL team."},
+     {"label": "Fault when the window spans rows with different metadata", "detail": "Cheap in hardware; restricts existing access patterns."},
+     {"label": "The whole window uses the scale of its first row", "detail": "Cheapest; silently wrong for the second row's elements."}
+   ], "recommended": 0},
+  {"id": "Q11", "title": "Expansion rule",
+   "question": "MULT expands AaQ bytes to FP32. Write the lesson 1 decode (direct and clamp branches, fe from dynamic_exponent in dynamic tables) as a proposed stage-mult spec, and implement from it?",
+   "options": [
+     {"label": "Yes: proposed spec page first, then code", "detail": "One written rule for the emulator and the RTL; an OQ row tracks sign-off."},
+     {"label": "Implement in the emulator only; no spec yet", "detail": "Faster, but the RTL team has nothing to check against."}
+   ], "recommended": 0},
+  {"id": "Q12", "title": "LUT-load conflict",
+   "question": "You said the LUT load must not run at the same time as other loads. Which conflict is it?",
+   "options": [
+     {"label": "A half-loaded LUT: ACTIVATE.QUANTIZE must not use the LUT between the first and last of the five loads", "detail": "Needs a fault or a hazard rule in the emulator."},
+     {"label": "Same word as an LD.* in the LOAD slot: they share a resource", "detail": "Needs a same-word rule; tell me which resource they share."},
+     {"label": "Only the name clash with the LOAD slot", "detail": "Solved by the AAQ.LUT.LD name in Q7."}
+   ], "recommended": 0}
+]</script>
+
+<section class="wide" style="display:grid;gap:0.75rem">
+  <h2>Practice</h2>
+  <p style="max-width:var(--measure)">Questions 5 to 9 come from lessons 1 to 7.</p>
+  <div class="panel" data-quiz="quiz8"></div>
+</section>
+<script type="application/json" id="quiz8">[
+  {"prompt": "After the change, which slot holds the legacy ACTIVATE.QUANTIZE?",
+   "options": ["The hardware AAQ slot", "The STORE slot itself", "A new EMULATOR slot", "The BREAK debugger slot"], "answer": 2,
+   "why": "Q2: a new EMULATOR-tagged slot, so --target hardware rejects it, as it rejects ST.ACC."},
+  {"prompt": "What may a backward-compatible PR change in a kernel?",
+   "options": ["Its golden output values", "Its assembly, mechanically renamed", "Its declared input shapes", "Its tolerance in kernel.toml"], "answer": 1,
+   "why": "Q1 (c): sources may change mechanically; goldens never."},
+  {"prompt": "Which baseline tells the RTL team the wire format changed?",
+   "options": ["The kernel golden files", "The disassembly text snapshots", "The debugger TUI screens", "The SV package golden"], "answer": 3,
+   "why": "The downstream RTL repo vendors ipu_instr_pkg.sv; its *_WIDTH localparams are wire format."},
+  {"prompt": "In INT8 today, how many bytes does one ST.AAQ write?",
+   "options": ["128", "256", "512", "1033"], "answer": 2,
+   "why": "The whole POST_AAQ_REG, so it also writes the next three 128-byte rows."},
+  {"prompt": "Where does the emulator get each array's table format?",
+   "options": ["From the kernel.toml entry", "From the metadata word", "From the cache agent", "From the LUT load"], "answer": 0,
+   "why": "Q5: the emulator has no cache unit; the array's kernel.toml entry stands in for its table."},
+  {"prompt": "An element with E = 0 rounds up past 2^fm. What happens?",
+   "options": ["It wraps to zero", "It saturates at maximum", "Its exponent field decrements", "It becomes a NaN"], "answer": 1,
+   "why": "§5.1 edge 1 at E = 0: no binade above the scale, so Exp = 0, M = 2^fm − 1."},
+  {"prompt": "Dynamic table: sum(B) − 4 · sum(A) < 0. Which split?",
+   "options": ["E2M5, dynamic_exponent = 1", "E4M3, dynamic_exponent = 0", "E2M5, dynamic_exponent = 0", "E1M6, dynamic_exponent = 0"], "answer": 3,
+   "why": "§5.1.1: a negative result chooses fe1 (E1M6), recorded as dynamic_exponent = 0."},
+  {"prompt": "How many LUT loads fill the whole LUT and its metadata?",
+   "options": ["Four loads, lut_addr 0–3", "Five loads, lut_addr 0–4", "Eight loads, lut_addr 0–7", "One load, lut_addr 4"], "answer": 1,
+   "why": "§5.2.1: segments 0–3 hold table bits; segment 4 holds the last 256 table bits and the 75-bit metadata."},
+  {"prompt": "What does MULT need to expand an AaQ row?",
+   "options": ["Row address and LUT", "Scale and LUT contents", "Scale and table fe", "Only the data bytes"], "answer": 2,
+   "why": "The metadata word gives the scale; the table format (or dynamic_exponent) gives fe."}
+]</script>
+
+<section class="panel">
+  <h3>Explain it back</h3>
+  <p>In three sentences, tell a reviewer how PR 4 proves it kept backward compatibility.</p>
+  <label for="explain8" class="eyebrow">Your answer</label>
+  <textarea id="explain8"></textarea>
+  <button type="button" data-reveal="model8">Show a model answer</button>
+  <p id="model8" hidden>PR 4 moves the legacy instruction to a new EMULATOR slot and renames it in 64 kernels by find-and-replace, and every kernel golden still passes unchanged. The baselines that move (digests, field names, disassembly, ISA snapshot, SV package slot list) are regenerated with <code>tools/update_baselines.sh</code>, and the PR says why each moved. <code>--target hardware</code> now rejects the legacy instruction, which shows the hardware word no longer contains it.</p>
+</section>
+
+<aside class="callout gap">
+  <span class="label">Where the spec stops</span>
+  <ul>
+    <li>No MULT spec: PR 1 writes the expansion rule as a proposal.</li>
+    <li>LUT indexing and the <code>asymetric</code> and <code>range_mode</code> encodings are TBD (OQ-25), so PR 6 cannot be bit-exact yet.</li>
+    <li>Where AaQ's <code>format</code> input comes from is not specified (Q9).</li>
+    <li>The tie rule, ±inf and NaN inputs, and <code>fe = 0</code> (lessons 3 and 4) need answers before PR 5 can match RTL bit for bit.</li>
+  </ul>
+</aside>
+
+<aside class="callout source">
+  <span class="label">Read next</span>
+  <p><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/how-to/add-an-instruction.md">How-to: add an instruction</a>, the checklist PRs 4–6 follow, and <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/reference/code-conventions.md#baselines">code conventions, Baselines</a>.</p>
+</aside>
+
+<aside class="callout ask">
+  <span class="label">Ask</span>
+  <p>Paste your decision summary into the chat. Ask about any PR in the plan, or about anything from lessons 1–7.</p>
+</aside>
+
+<nav class="crumbs" aria-label="Next">
+  <a href="../index.html">Course home</a>
+  <a href="../reference/tables.html">Cheat sheet: tables</a>
+</nav>
+
+</main>
+<script src="../assets/quiz.js"></script>
+<script src="../assets/decisions.js"></script>
+</body>
+</html>
