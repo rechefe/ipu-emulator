@@ -66,15 +66,19 @@ The register banks:
 | `r_wide_debug` | 2 | 512 |
 | `r_cyclic` | 1 | 512 |
 | `r_cyclic_wide_debug` | 1 | 2048 |
+| `r_meta` | 2 (`R0`, `R1` metadata) | 2 |
+| `r_cyclic_meta` | 4 (one per `R_CYCLIC` slot) | 2 |
 | `r_mask` | 1 | 128 |
 | `r_acc` | 1 | 512 |
 | `post_aaq_reg` | 1 | 512 |
+| `aaq_lut` | 1 (LUT table and metadata) | 550 |
 | `lr` | 16 (`LR0`-`LR15`) | 4 |
 | `cr` | 16 (`CR0`-`CR15`) | 4 |
 | `mult_res` | 1 | 512 |
 | `mem_bypass` | 1 | 128 |
 
-The `_wide_debug` banks hold the wide formats' operands (emulator only).
+The `_wide_debug` banks hold the wide formats' operands (emulator only). `r_meta`,
+`r_cyclic_meta` and `aaq_lut` hold row metadata and the AaQ LUT (ADR 0007).
 
 The Python emulator's runner is
 `src/ipu-emu/test/conformance.py`, through the reference-model API

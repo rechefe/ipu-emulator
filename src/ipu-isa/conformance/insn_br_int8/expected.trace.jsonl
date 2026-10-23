@@ -1,4 +1,4 @@
-{"schema_version":"1.0.0","isa_digest":"7e0d11b257cdf1873b81998a87e480eed040716e2e6ebadf4c54a74d12dcb968","format":"int8","program_digest":"590ad0fd1a84d2b264df12159c2203869957ee5d203bcf2732c6e844deb283fe","emulator_version":"0.1.0"}
+{"schema_version":"1.1.0","isa_digest":"91d8de70968a080122ae7a1e11cd2194db987f08ebdfdf7c1a482145eb815035","format":"int8","program_digest":"590ad0fd1a84d2b264df12159c2203869957ee5d203bcf2732c6e844deb283fe","emulator_version":"0.1.0"}
 {"cycle":0,"pc_before":0,"pc_after":3,"slots":[{"slot":"cond","mnemonic":"BR","fields":{"reg":7}}],"reg_writes":[],"xmem_writes":[],"outcome":"retired","fault":null,"arith_events":[]}
 {"cycle":1,"pc_before":3,"pc_after":4,"slots":[{"slot":"lr","mnemonic":"INC","fields":{"dest":5,"imm":1}}],"reg_writes":[{"register":"lr","index":5,"value":1}],"xmem_writes":[],"outcome":"retired","fault":null,"arith_events":[]}
 {"cycle":2,"pc_before":4,"pc_after":1024,"slots":[{"slot":"cond","mnemonic":"HALT","fields":{}}],"reg_writes":[],"xmem_writes":[],"outcome":"halt","fault":null,"arith_events":[]}

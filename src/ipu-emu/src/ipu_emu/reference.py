@@ -320,7 +320,13 @@ class ReferenceModel:
 
     def read_xmem_metadata(self, address: int) -> int:
         """The 16-bit metadata word of the 128-byte XMEM unit at *address*
-        (1.5.0, ADR 0007); 0 when never written.
+        (1.5.0, ADR 0007).
+
+        Args:
+            address: The unit's first byte, a multiple of 128.
+
+        Returns:
+            The word; 0 when it was never written.
 
         Raises:
             ConfigurationError: *address* is outside XMEM or not unit-aligned.
@@ -329,7 +335,11 @@ class ReferenceModel:
 
     def write_xmem_metadata(self, address: int, word: int) -> None:
         """Write the metadata word of the 128-byte XMEM unit at *address*,
-        only while halted (1.5.0, ADR 0007).
+        only while halted (1.5.0, ADR 0007). The unit's bytes are unchanged.
+
+        Args:
+            address: The unit's first byte, a multiple of 128.
+            word: The unsigned 16-bit word.
 
         Raises:
             ConfigurationError: The model is running or faulted; *address* is

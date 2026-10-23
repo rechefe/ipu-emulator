@@ -21,7 +21,7 @@ from collections.abc import Callable, Iterator
 
 from ipu_emu.errors import ConfigurationError, XMemBoundsError
 from ipu_isa.formats import FORMATS, ElementFormat
-from ipu_isa.geometry import XMEM_BYTES
+from ipu_isa.geometry import LANES, XMEM_BYTES
 
 #: ``fn(kind, address, size, data)`` with *kind* one of ``"read"``,
 #: ``"write"`` or ``"clear"``. The event covers exactly the bytes
@@ -35,8 +35,9 @@ MemoryObserver = Callable[[str, int, int, "bytes | bytearray | None"], None]
 XMEM_SIZE_BYTES = XMEM_BYTES  # 512 MiB; full-resolution FP32 descriptors fit
 XMEM_WIDTH_BYTES = FORMATS[ElementFormat.INT8].row_bytes  # one "word": the narrow row
 
-#: The XMEM bytes one metadata word describes: one NX8 row (ADR 0007).
-METADATA_UNIT_BYTES = 128
+#: The XMEM bytes one metadata word describes: one NX8 row of LANES one-byte
+#: elements (ADR 0007).
+METADATA_UNIT_BYTES = LANES
 #: The size of one metadata word.
 METADATA_WORD_BYTES = 2
 _METADATA_WORD_MAX = (1 << (8 * METADATA_WORD_BYTES)) - 1
@@ -246,7 +247,11 @@ class XMem:
                 *word* is not an unsigned 16-bit int.
         """
         unit = self._metadata_unit(address)
-        if isinstance(word, bool) or not isinstance(word, int) or not 0 <= word <= _METADATA_WORD_MAX:
+        if (
+            isinstance(word, bool)
+            or not isinstance(word, int)
+            or not 0 <= word <= _METADATA_WORD_MAX
+        ):
             raise ConfigurationError(f"XMEM metadata takes an unsigned 16-bit int, got {word!r}")
         if word:
             self._metadata[unit] = word

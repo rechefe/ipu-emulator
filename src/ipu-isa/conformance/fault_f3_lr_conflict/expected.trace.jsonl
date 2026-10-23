@@ -1,2 +1,2 @@
-{"schema_version":"1.0.0","isa_digest":"7e0d11b257cdf1873b81998a87e480eed040716e2e6ebadf4c54a74d12dcb968","format":"int8","program_digest":"177bdc460876f3d3a6934b911ffa0befa540a2c9c33e83ca5c0987db2d89f46f","emulator_version":"0.1.0"}
+{"schema_version":"1.1.0","isa_digest":"91d8de70968a080122ae7a1e11cd2194db987f08ebdfdf7c1a482145eb815035","format":"int8","program_digest":"177bdc460876f3d3a6934b911ffa0befa540a2c9c33e83ca5c0987db2d89f46f","emulator_version":"0.1.0"}
 {"cycle":0,"pc_before":0,"pc_after":0,"slots":[],"reg_writes":[],"xmem_writes":[],"outcome":"fault","fault":{"id":"F-3","pc":0},"arith_events":[]}

@@ -383,7 +383,6 @@ class TestRegFileSnapshot:
         assert snap.get_r(0) == data
         assert rf.get_r(0) == bytearray(128)
 
-
     def test_snapshot_and_copy_into_carry_the_metadata_registers(self):
         # ADR 0007: R0/R1 and the four R_CYCLIC slots each hold a 16-bit
         # metadata word; the AaQ LUT holds 4352 table + 46 metadata bits.

@@ -158,7 +158,7 @@ def test_schema_rules_are_rendered():
     rules = page.schema_rules(page.load_schemas()["commit_record"])
     assert rules == [
         'When `outcome` is `"fault"`: `fault` is an object, `reg_writes` is empty, '
-        "`xmem_writes` is empty. Otherwise `fault` is `null`."
+        "`xmem_writes` is empty, `xmem_meta_writes` is empty. Otherwise `fault` is `null`."
     ]
 
 

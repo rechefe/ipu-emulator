@@ -42,7 +42,11 @@ a separate promise.
   `attach_alias_profile()`, `alias_profile()` and the `RunResult.quit`
   field (default `False`); 1.4.0 added `observe_xmem_reads()`, which reports
   each XMEM read the program makes (a commit record carries writes only; the
-  Cycle Inspector's recorder shows the reads). Nothing earlier changed.
+  Cycle Inspector's recorder shows the reads); 1.5.0 added
+  `read_xmem_metadata()`, `write_xmem_metadata()` and the
+  `CommitRecord.xmem_meta_writes` field (default empty), the XMEM metadata
+  side store of ADR 0007, with the commit record schema's optional
+  `xmem_meta_writes` (schema 1.1.0). Nothing earlier changed.
 
 `debug_run()` is the one escape hatch for tools such as the debugger: its
 callback receives the emulator's internal state, and that argument's type,
