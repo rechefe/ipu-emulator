@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Mechanical checks for an ARCH stage spec (docs/content/specs/ARCH-*.md).
 
-Usage: python3 -I check_spec.py <spec.md>
+Usage: bazel run //tools:check_arch_spec -- "$PWD/<spec.md>"
 
 Errors (exit 1): broken in-page anchor links, missing images, duplicated
 numbered headings (usually a bad splice), missing Table of Contents.
 Review items (exit 0): sentences worth a second look for the style rules
 (negations, history, meta), tiny headings, TBD markers to report.
 """
+
 import re
 import sys
 import unicodedata
@@ -28,18 +29,22 @@ def strip_inline(text: str) -> str:
 
 REVIEW_PATTERNS = [
     (r"\bnot\b|\bn't\b", "negation: is the 'not B' part needed?"),
-    (r"\bno longer\b|\bused to\b|\bpreviously\b|\bwas renamed\b|\bformerly\b", "history: say what is, not what was"),
-    (r"\bthis section (describes|covers|explains|defines)\b|\bas described above\b|\bas mentioned\b|\bsee below\b", "meta: cut it or replace with a section number"),
+    (
+        r"\bno longer\b|\bused to\b|\bpreviously\b|\bwas renamed\b|\bformerly\b",
+        "history: say what is, not what was",
+    ),
+    (
+        r"\bthis section (describes|covers|explains|defines)\b|\bas described above\b|\bas mentioned\b|\bsee below\b",
+        "meta: cut it or replace with a section number",
+    ),
     (r"\bin other words\b|\bthat is to say\b|\bnote that\b", "restatement: say it once"),
 ]
 
 
-def main(path_str: str) -> int:
-    path = Path(path_str)
-    lines = path.read_text().split("\n")
-
-    headings = []          # (line_no, level, text, slug)
-    body = []              # (line_no, text) outside code fences
+def parse(lines: list[str]) -> tuple[list, list]:
+    """Headings as (line_no, level, text, slug); body lines outside code fences."""
+    headings = []
+    body = []
     in_fence = False
     for n, line in enumerate(lines, 1):
         if line.lstrip().startswith("```"):
@@ -53,10 +58,11 @@ def main(path_str: str) -> int:
             headings.append((n, len(m.group(1)), text, slugify(text)))
         else:
             body.append((n, line))
+    return headings, body
 
-    errors, review = [], []
 
-    # Anchors, with mkdocs' _1, _2 suffixes for repeated slugs.
+def heading_anchors(headings: list) -> set[str]:
+    """Anchors, with mkdocs' _1, _2 suffixes for repeated slugs."""
     anchors, seen = set(), {}
     for _, _, _, slug in headings:
         if slug in seen:
@@ -65,7 +71,11 @@ def main(path_str: str) -> int:
         else:
             seen[slug] = 0
             anchors.add(slug)
+    return anchors
 
+
+def link_errors(body: list, anchors: set[str], path: Path) -> list[str]:
+    errors = []
     for n, line in body:
         for target in re.findall(r"\]\(#([^)\s]+)\)", line):
             if target not in anchors:
@@ -73,25 +83,40 @@ def main(path_str: str) -> int:
         for img in re.findall(r"!\[[^\]]*\]\(([^)\s#]+)\)", line):
             if not img.startswith("http") and not (path.parent / img).exists():
                 errors.append(f"{n}: image {img} does not exist")
+    return errors
 
+
+def heading_errors(headings: list) -> list[str]:
+    errors = []
     numbered = {}
-    for n, level, text, _ in headings:
+    for n, _level, text, _ in headings:
         m = re.match(r"^(\d+(?:\.\d+)*)\.?\s", text)
         if m:
             numbered.setdefault(m.group(1), []).append(n)
     for num, where in numbered.items():
         if len(where) > 1:
-            errors.append(f"heading number {num} appears {len(where)} times (lines {where}): duplicated section?")
-
+            errors.append(
+                f"heading number {num} appears {len(where)} times (lines {where}): duplicated section?"
+            )
     if not any(t.lower() == "table of contents" for _, _, t, _ in headings):
         errors.append("no 'Table of Contents' heading")
+    return errors
 
+
+def heading_review(headings: list) -> list[str]:
+    review = []
     for n, level, text, _ in headings:
         if level == 6:
             review.append(f"{n}: '###### {text}' renders very small; use ##### or restructure")
         if text.lower() == "summary":
-            review.append(f"{n}: 'Summary' heading; put the description directly under the instruction title")
+            review.append(
+                f"{n}: 'Summary' heading; put the description directly under the instruction title"
+            )
+    return review
 
+
+def prose_review(body: list) -> list[str]:
+    review = []
     for n, line in body:
         if line.lstrip().startswith("![") or "| Not used. |" in line:
             continue  # images are not prose; "Not used." is the N/A-row convention
@@ -101,6 +126,14 @@ def main(path_str: str) -> int:
                 break
         if "TBD" in line:
             review.append(f"{n}: TBD to report to the user\n      {line.strip()[:110]}")
+    return review
+
+
+def main(path_str: str) -> int:
+    path = Path(path_str)
+    headings, body = parse(path.read_text().split("\n"))
+    errors = link_errors(body, heading_anchors(headings), path) + heading_errors(headings)
+    review = heading_review(headings) + prose_review(body)
 
     print(f"{path}: {len(headings)} headings, {len(errors)} errors, {len(review)} review items")
     for e in errors:

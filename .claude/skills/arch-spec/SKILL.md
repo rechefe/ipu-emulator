@@ -39,7 +39,7 @@ with placeholders.
 3. **Run the checker** and fix every error, then go through each review item:
 
    ```bash
-   python3 -I .claude/skills/arch-spec/scripts/check_spec.py docs/content/specs/ARCH-stage-<stage>.md
+   bazel run //tools:check_arch_spec -- "$PWD/docs/content/specs/ARCH-stage-<stage>.md"
    ```
 
    It catches broken ToC and in-page links, missing images, sections
@@ -227,7 +227,7 @@ duplicate half the file.
   assert that it does.
 - When cutting from one heading to the next, make sure the end marker comes
   after the start.
-- Run `check_spec.py` after every structural edit. It reports a repeated section
+- Run `//tools:check_arch_spec` after every structural edit. It reports a repeated section
   number.
 - When you renumber a section, update the Table of Contents and every
   "section X.Y" reference in the same edit.
