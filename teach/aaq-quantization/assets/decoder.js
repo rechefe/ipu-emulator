@@ -1,5 +1,5 @@
-// AaQ byte decoder: signed, W = 8. The decode inverts stage-aaq-str.md §5.1;
-// the spec itself has no decode section.
+// NX8 byte decoder: signed, W = 8, as specified in ARCH-stage-mult.md §3.2.1
+// (it inverts the AaQ quantizer, ARCH-stage-aaq-str.md §4.3.2).
 //   Exp < 2^fe - 1 : value = ±(1 + M/2^fm) · 2^(s - 127 - Exp)
 //   Exp = 2^fe - 1 : value = ±(M/2^fm)     · 2^(s - 127 - 2^fe + 2)
 // Markup: <div class="decoder" data-decoder data-byte="1D" data-fe="4" data-scale="128"></div>

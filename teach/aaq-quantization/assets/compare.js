@@ -1,6 +1,6 @@
-// Side-by-side reading of one byte: the old emulator Ex (being retired) (biased exponent,
-// src/ipu-isa/src/ipu_isa/formats.py _fp8_decode) and AaQ's scale-relative
-// ExM(7-x) (decoder.js, inverted from stage-aaq-str.md §5.1). Needs decoder.js first.
+// Side-by-side reading of one byte: the old emulator Ex, being retired (biased
+// exponent, src/ipu-isa/src/ipu_isa/formats.py _fp8_decode), and NX8 ex
+// (decoder.js, ARCH-stage-mult.md §3.2.1). Needs decoder.js first.
 // Markup: <div class="decoder" data-compare data-byte="1D" data-x="4" data-scale="128"></div>
 (function () {
   function emuDecode(code, x) {
