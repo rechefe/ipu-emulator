@@ -8,6 +8,7 @@ from ipu_isa.errors import IsaValueError
 from ipu_isa.lut import (
     SEGMENT_BYTES,
     TABLE_BITS,
+    OutOfRange,
     decode_entry,
     decode_metadata,
     encode_entry,
@@ -28,7 +29,12 @@ def _load(rows):
 
 
 def test_five_rows_fill_the_table_and_metadata():
-    rows = lut_image(lambda x: 1 / (1 + math.exp(-x)), range_mode=2, range_exp=3, pos_c=1.0)
+    rows = lut_image(
+        lambda x: 1 / (1 + math.exp(-x)),
+        range_mode=2,
+        range_exp=3,
+        out_of_range=OutOfRange(pos_c=1.0),
+    )
     assert len(rows) == 5
     assert all(len(r) == SEGMENT_BYTES for r in rows)
     table, meta = _load(rows)
@@ -38,7 +44,7 @@ def test_five_rows_fill_the_table_and_metadata():
     assert fields.range_mode == 2
     assert decode_entry(fields.pos_c) == 1.0
     points = entry_points(2, 3)
-    for code, x in zip(table_entries(table), points):
+    for code, x in zip(table_entries(table), points, strict=True):
         assert decode_entry(code) == pytest.approx(1 / (1 + math.exp(-x)), rel=2**-8)
 
 

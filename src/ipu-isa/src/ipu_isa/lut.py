@@ -48,6 +48,16 @@ METADATA_BITS: Final = 46
 
 
 @dataclass(frozen=True)
+class OutOfRange:
+    """What the LUT returns outside its range: ``x`` (mode 0) or the constant (mode 1)."""
+
+    neg_c: float = 0.0
+    pos_c: float = 0.0
+    neg_mode: int = 0
+    pos_mode: int = 0
+
+
+@dataclass(frozen=True)
 class LutMetadata:
     """The decoded metadata block."""
 
@@ -61,14 +71,13 @@ class LutMetadata:
 
 def encode_entry(value: float) -> int:
     """Provisional 17-bit entry: the top 17 bits of the FP32 pattern, rounded (OQ-38)."""
-    (bits,) = struct.unpack(">I", struct.pack(">f", value))
+    bits = int(struct.unpack(">I", struct.pack(">f", value))[0])
     return min((bits + (1 << 14)) >> 15, (1 << ENTRY_BITS) - 1)
 
 
 def decode_entry(code: int) -> float:
     """The value of a provisional 17-bit entry."""
-    (value,) = struct.unpack(">f", struct.pack(">I", (code & ((1 << ENTRY_BITS) - 1)) << 15))
-    return value
+    return float(struct.unpack(">f", struct.pack(">I", (code & ((1 << ENTRY_BITS) - 1)) << 15))[0])
 
 
 def entry_points(range_mode: int, range_exp: int) -> list[float]:
@@ -95,11 +104,7 @@ def lut_image(
     fn: Callable[[float], float],
     range_mode: int,
     range_exp: int,
-    *,
-    neg_c: float = 0.0,
-    pos_c: float = 0.0,
-    neg_mode: int = 0,
-    pos_mode: int = 0,
+    out_of_range: OutOfRange | None = None,
 ) -> list[bytes]:
     """The five 128-byte rows that load *fn* into the LUT with ``LD.LUT 0``-``4``.
 
@@ -107,17 +112,18 @@ def lut_image(
     row's first 128 bytes) and declares *fn* as the loaded function, which the
     emulator evaluates exactly until the entry format is published (OQ-38).
     """
+    out_of_range = out_of_range or OutOfRange()
     table = 0
     for i, x in enumerate(entry_points(range_mode, range_exp)):
         table |= encode_entry(fn(x)) << (ENTRY_BITS * i)
     meta = 0
     for name, value in (
         ("max_exp_num", range_exp + _SCALE_BIAS),
-        ("neg_c", encode_entry(neg_c)),
-        ("pos_c", encode_entry(pos_c)),
+        ("neg_c", encode_entry(out_of_range.neg_c)),
+        ("pos_c", encode_entry(out_of_range.pos_c)),
         ("range_mode", range_mode),
-        ("neg_mode", neg_mode),
-        ("pos_mode", pos_mode),
+        ("neg_mode", out_of_range.neg_mode),
+        ("pos_mode", out_of_range.pos_mode),
     ):
         meta = _set_field(meta, METADATA_LAYOUT[name], value)
     segments = [(table >> (SEGMENT_BITS * k)) & ((1 << SEGMENT_BITS) - 1) for k in range(4)]

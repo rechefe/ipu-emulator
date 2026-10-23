@@ -100,7 +100,7 @@ def test_dynamic_row_records_its_split():
     values = [1.0, 0.24, 0.12, 0.06, 0.03]  # mostly far below the scale: E2M5 wins
     row = encode_row(values, fmt)
     assert row.dynamic_exponent == choose_dynamic_exponent(values)
-    for code, value in zip(row.elements, values):
+    for code, value in zip(row.elements[: len(values)], values, strict=True):
         decoded = decode_element(code, fmt, row.scale, row.dynamic_exponent)
         assert abs(decoded - value) <= abs(value) * 2**-4
 

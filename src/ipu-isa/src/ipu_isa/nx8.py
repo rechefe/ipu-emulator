@@ -157,7 +157,9 @@ def _active_list(active: Sequence[bool] | None, n: int) -> list[bool]:
 def row_scale(values: Sequence[float], active: Sequence[bool] | None = None) -> int:
     """The row's scale: the largest raw exponent among active finite elements (§4.3.2.1)."""
     flags = _active_list(active, len(values))
-    exps = [p.exp for p, on in zip(map(_fp32_fields, values), flags, strict=True) if on and not p.inf]
+    exps = [
+        p.exp for p, on in zip(map(_fp32_fields, values), flags, strict=True) if on and not p.inf
+    ]
     return max(exps, default=0)
 
 
