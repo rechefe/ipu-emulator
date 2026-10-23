@@ -18,6 +18,7 @@ seed  = { type = "int", default = 0 }                     # the generator's
 step       = "128 * ceil(rows / 128)"
 row_stride = "1"                                     # one XMEM row per row
 group_cap  = "128"                                   # rows per group, and maxvec's R1 index base
+qf         = "case_qf"                               # the case's QF half (0: FP32 ignores it)
 
 # The regions sit where the old harness put them: from row 128, the
 # input, the numerators and the output back to back, each rounded up to a
@@ -58,7 +59,8 @@ row_stride = "CR7"
 group_cap  = "CR9"
 x          = "CR10"
 rows       = "CR13"
-# CR15: the default dstructure (128 valid elements).
+qf         = "CR14"
+# CR15.L: the default DS (128 valid elements).
 
 [golden]
 op = "softmax"

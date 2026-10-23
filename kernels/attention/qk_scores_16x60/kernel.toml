@@ -23,7 +23,8 @@ out_ptr = "0"            # LR7
 q_ptr = "0"              # LR8
 q_index = "0"            # LR9
 q_stride = "1"           # LR12
-dstruct = "dstructure(n_tok)" # CR15: valid_elements = n_tok
+dstruct = "ds(n_tok)" # CR15: valid_elements = n_tok
+qf = "case_qf"           # the case's QF half (0: FP32 ignores it)
 
 # The old placement: the inputs back to back from row 0 in the order below, then the output; first fit in
 # declaration order reproduces it (E07-12/13).
@@ -38,7 +39,7 @@ shape = ["n_tok", "d"]
 [outputs.y]                             # S query-major: row (i, g) holds keys [g*128, g*128+128) -- RowMajor over n_tok keys
 pack = "padded"                    # the row-major rows under the name attn_v's P takes, so a Chain hands the scores over in place
 shape = ["n_tok", "n_tok"]
-# ST.AAQ, one row per store, in row order
+# ACTIVATE.EXACT, one row per store, in row order
 
 [abi]
 b = "CR0"        # read through the hardwired 0: b is pinned at row 0
@@ -57,6 +58,7 @@ q_index = "LR9"
 n_tok = "LR10"
 q_stride = "LR12"
 dstruct = "CR15"
+qf = "CR14"
 # Zero-valued LR presets are bound on purpose: in a Chain (E06-15) LRs carry over from the previous step.
 
 [golden]

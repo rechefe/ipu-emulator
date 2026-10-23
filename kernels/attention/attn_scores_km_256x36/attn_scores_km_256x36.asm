@@ -27,7 +27,7 @@
       MULT.RC.VE rc_idx=0, src=chan_index (=c → R0[c]) → MULT_RES[i] = Q[i,c]·K[s,c]
       c==0: ACC.ADD.FIRST  else: ACC.ADD   → R_ACC[i] += Q[i,c]·K[s,c]
       After 36 channels: R_ACC[i] = S[i,s] for the 128 queries of this group.
-      ACTIVATE.QUANTIZE identity + ST.AAQ
+      ACTIVATE.EXACT identity (activate and store)
         → one whole key-major score row (128 FP32 lanes).  No AGG.
 
     Counts/head: 256 keys × 2 groups × 36 channels = 18432 MULT+ACC instruction words
@@ -67,7 +67,7 @@
 {% set Q_START_G1  = cr.q_start_g1  %}  {# -1 row startup skew (first live = row 1) #}
 {% set CHAN_START  = cr.chan_start  %}  {# -1 -> first live c = 0 #}
 {% set K_BASE_KM   = cr.a  %}  {# key-major K base (a) #}
-{% set DSTRUCT     = "CR15" %}  {# reserved dstructure register #}
+{% set DSTRUCT     = "CR15.L" %}  {# the DS half #}
 
     # chan_last = chan_bound + 1 (= D-1 = 35). MULT reads R_CYCLIC from the
     # cycle-start value (issue #157), so each Q channel column is loaded a
@@ -92,7 +92,7 @@ s_loop:
     ADD {{ chan_index }} {{ chan_index }} {{ ONE }};;
 
     # Peeled first channel (c=0): ACC.ADD.FIRST seeds R_ACC.
-    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ cr.qf }}.L;
     ACC.ADD.FIRST;
     LD.MULT.CYCLIC {{ q_ptr }} {{ Q_BASE }} {{ rc_slot0 }};
     ADD {{ q_ptr }} {{ q_ptr }} {{ chan_stride }};
@@ -103,15 +103,14 @@ c_loop_g0_pre:
     ADD {{ chan_index }} {{ chan_index }} {{ ONE }};;   # name the channel just loaded
 
 c_loop_g0:
-    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ cr.qf }}.L;
     ACC.ADD;
     LD.MULT.CYCLIC {{ q_ptr }} {{ Q_BASE }} {{ rc_slot0 }};
     ADD {{ q_ptr }} {{ q_ptr }} {{ chan_stride }};
     BLT.S {{ chan_index }} {{ chan_last }} c_loop_g0_pre;;
 
 after_c_g0:
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    ST.AAQ {{ out_ptr }} {{ S_BASE }};;  # store S[0:128, s] (key-major row, g=0)
+    ACTIVATE.EXACT identity {{ DSTRUCT }} {{ S_BASE }} {{ out_ptr }} ;;  # store S[0:128, s] (key-major row, g=0)
     ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;  # output ptr += 1 row
 
     # -- query group 1 (queries 128..255) -----------------------------------
@@ -122,7 +121,7 @@ after_c_g0:
     ADD {{ q_ptr }} {{ q_ptr }} {{ chan_stride }};
     ADD {{ chan_index }} {{ chan_index }} {{ ONE }};;
 
-    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ cr.qf }}.L;
     ACC.ADD.FIRST;
     LD.MULT.CYCLIC {{ q_ptr }} {{ Q_BASE }} {{ rc_slot0 }};
     ADD {{ q_ptr }} {{ q_ptr }} {{ chan_stride }};
@@ -133,15 +132,14 @@ c_loop_g1_pre:
     ADD {{ chan_index }} {{ chan_index }} {{ ONE }};;   # name the channel just loaded
 
 c_loop_g1:
-    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ cr.qf }}.L;
     ACC.ADD;
     LD.MULT.CYCLIC {{ q_ptr }} {{ Q_BASE }} {{ rc_slot0 }};
     ADD {{ q_ptr }} {{ q_ptr }} {{ chan_stride }};
     BLT.S {{ chan_index }} {{ chan_last }} c_loop_g1_pre;;
 
 after_c_g1:
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    ST.AAQ {{ out_ptr }} {{ S_BASE }};;  # store S[128:256, s] (key-major row, g=1)
+    ACTIVATE.EXACT identity {{ DSTRUCT }} {{ S_BASE }} {{ out_ptr }} ;;  # store S[128:256, s] (key-major row, g=1)
     ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;  # output ptr += 1 row
 
     ADD {{ key_index }} {{ key_index }} {{ ONE }};

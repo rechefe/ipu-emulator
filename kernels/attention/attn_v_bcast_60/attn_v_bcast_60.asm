@@ -31,7 +31,7 @@
 
     ONE CHANNEL PER ROW: every P key row, every V channel row and every stored O
     row is a WHOLE row with 16 live FP32 lanes. CR15.valid_elements = 16
-    tells ACTIVATE.QUANTIZE how many lanes to emit; the rest stay zero.
+    tells ACTIVATE.EXACT how many lanes to emit; the rest stay zero.
 
     Layouts (row addresses; XMEM operands are ROW numbers, issue #179).  V and O
     match the query-major sibling attn_v_16x60 EXACTLY, so the two chains'
@@ -92,7 +92,7 @@
 {% set KEY_BOUND     = cr.key_bound  %}  {# 14 = key-loop bound (width 16) #}
 {% set CHAN_BOUND    = cr.chan_bound  %}  {# 59 = t-loop bound (60 channels/head) #}
 {% set HEAD_BOUND    = cr.head_bound %}  {# 3 = head-loop bound (4 heads) #}
-{% set DSTRUCT       = cr.dstruct %}  {# reserved dstructure register #}
+{% set DSTRUCT       = cr.dstruct ~ ".L" %}  {# the DS half #}
 
     # key_last = KEY_BOUND + 1 (= 15). MULT reads R_CYCLIC from the
     # cycle-start value (issue #157), so each P key row is loaded an instruction word
@@ -130,7 +130,7 @@ t_loop:
     ADD {{ key_index }} {{ key_index }} {{ ONE }};;
 
     # Peeled first key (s=0): ACC.ADD.FIRST seeds R_ACC.
-    MULT.RC.VE {{ rc_slot0 }} {{ key_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ key_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ cr.qf }}.L;
     ACC.ADD.FIRST;
     LD.MULT.CYCLIC {{ p_ptr }} {{ P_BASE }} {{ rc_slot0 }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ key_stride }};
@@ -139,7 +139,7 @@ t_loop:
 s_loop_pre:
     ADD     {{ key_index }} {{ key_index }} {{ ONE }};;       # name the key just loaded
 s_loop:
-    MULT.RC.VE {{ rc_slot0 }} {{ key_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ key_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ cr.qf }}.L;
     ACC.ADD;
     LD.MULT.CYCLIC {{ p_ptr }} {{ P_BASE }} {{ rc_slot0 }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ key_stride }};
@@ -147,8 +147,7 @@ s_loop:
 s_done:
 
     # -- store channel-major row O[0:16, chan] --------------------------------
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    ST.AAQ {{ out_ptr }} {{ OUT_BASE }};;  # one whole FP32 row -> OBASE + chan*OUT_STRIDE
+    ACTIVATE.EXACT identity {{ DSTRUCT }} {{ OUT_BASE }} {{ out_ptr }} ;;  # one whole FP32 row -> OBASE + chan*OUT_STRIDE
     ADD     {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;    # advance output-row offset
 
     ADD     {{ v_ptr }} {{ v_ptr }} {{ key_stride }};;        # next channel: R0 source += KEY_STRIDE

@@ -14,11 +14,11 @@
     Per partition p, MULT.RC.VV with rc_idx = p*ps (an ELEMENT offset, as
     LD.MULT.CYCLIC's index; issue #182/PR #196) reads R_CYCLIC[p*ps + i] * R0[i]
     = c * x[p][i] into MULT_RES elements 0..n-1; the masked AGG and
-    ACTIVATE.QUANTIZE name cr.dstruct (valid_elements = n) to act on those n
-    elements only. The full-row drains (maxvec, rvec, the output chunk) name
-    cr.maxvec_base instead, whose value 128 decodes to valid_elements = 128, so
-    they cover the whole row vector. (Every MULT/AGG/ACTIVATE.QUANTIZE names
-    its dstructure CR explicitly.)
+    ACTIVATE.EXACT name cr.dstruct.L (a DS with valid_elements = n) to act on
+    those n elements only. The full-row drains (maxvec, rvec, the output chunk)
+    name cr.maxvec_base.H instead, a DS with valid_elements = 128, so they
+    cover the whole row vector. (Every MULT/AGG/ACTIVATE.EXACT names its DS
+    half explicitly; every MULT reads the case's QF from cr.dstruct.H.)
 
     Addressing: cyclic and mult loads take (offset_lr, base_cr, index_lr); the
     base CRs are fixed and the chunk's row offset walks in an LR. The partition
@@ -74,8 +74,8 @@
       cr.num    num, the numerators         cr.log2e C_VEC: log2(e) in every lane
       cr.max    maxvec row                  cr.rvec  rvec row; the R_MASK image at + 1
       cr.row_stride   = 1 (one row per chunk)
-      cr.maxvec_base  = 128: maxvec's index base in R1 (R1's element 128 + row),
-                        and the full-row dstructure (valid_elements = 128)
+      cr.maxvec_base  LOW: 128, maxvec's index base in R1 (R1's element 128 +
+                        row); HIGH: the full-row DS (valid_elements = 128)
       cr.device_rows  = total chunks (the group loop bound)
       cr.ring         = 512: R_CYCLIC's ring in ELEMENTS, for the Pass-4 repack's
                         reverse-slide SUB src_a (not an XMEM stride: rc_idx wraps
@@ -83,7 +83,7 @@
       cr.ps           = the partition's element stride
       cr.group_chunks = chunks per full group (128 / P)
       cr.parts        = P
-      cr.dstruct      = the dstructure with valid_elements = n
+      cr.dstruct      LOW: the DS with valid_elements = n; HIGH: the case's QF
       CR0 = 0 and CR1 = 1 (-> the 1.0 scalar, and the +1 step) are read-only.
 ========================================================================== -#}
 
@@ -130,8 +130,8 @@ p1_chunk:
     SET {{lr_slide}} CR0 ;;
 
 p1_part:
-    MULT.RC.VV    {{lr_slide}} R0 0 {{lr_cyc}} {{ cr.dstruct }} ;          {#- c*x[p] at elements 0..N-1 -#}
-    AGG.MAX.FIRST {{lr_row}} {{ cr.dstruct }} ;;                          {#- masked -> maxvec[row] -#}
+    MULT.RC.VV    {{lr_slide}} R0 0 {{lr_cyc}} {{ cr.dstruct }}.L {{ cr.dstruct }}.H ;          {#- c*x[p] at elements 0..N-1 -#}
+    AGG.MAX.FIRST {{lr_row}} {{ cr.dstruct }}.L ;;                          {#- masked -> maxvec[row] -#}
     ADD {{lr_slide}} {{lr_slide}} {{ cr.ps }} ;
     ADD {{lr_row}} {{lr_row}} CR1 ;
     ADD {{lr_p}} {{lr_p}} CR1 ;;
@@ -144,8 +144,7 @@ p1_part:
 {#- logical row count (cbound*P). Capture it -- the LR slot has no multiply,   -#}
 {#- and Pass 3 (which counts rows, not chunks) needs exactly this bound.       -#}
     ADD {{lr_bound}} {{lr_row}} CR0 ;;
-    ACTIVATE.QUANTIZE identity {{ cr.maxvec_base }};                        {#- reads R_ACC forwarded -#}
-    ST.AAQ {{lr_cyc}} {{ cr.max }} ;;                     {#- MAXVEC <- maxvec -#}
+    ACTIVATE.EXACT identity {{ cr.maxvec_base }}.H {{ cr.max }} {{lr_cyc}} ;;  {#- reads R_ACC forwarded; MAXVEC <- maxvec -#}
 
 {#- ===================================================================== -#}
 {#- PASS 2 -- num[row] = 2^(c*x[p] - maxvec[row]).  Unpacked, 1 chunk/row. -#}
@@ -157,7 +156,7 @@ p1_part:
     SET {{lr_chunk}} CR0 ;
     ADD {{lr_coff}} {{lr_gbase}} CR0 ;;         {#- input walks from this group's base -#}
     SET {{lr_num}} CR0 ;
-    SET {{lr_maxid}} {{ cr.maxvec_base }} ;;                      {#- R1 element index = 128 (cr.maxvec_base) + row -#}
+    SET {{lr_maxid}} {{ cr.maxvec_base }}.L ;;                      {#- R1 element index = 128 (cr.maxvec_base) + row -#}
 
 p2_chunk:
     LD.MULT.CYCLIC {{lr_coff}} {{ cr.x }} {{lr_cyc}} ;;
@@ -165,12 +164,11 @@ p2_chunk:
     SET {{lr_slide}} CR0 ;;
 
 p2_part:
-    MULT.RC.VV {{lr_slide}} R0 0 {{lr_cyc}} {{ cr.dstruct }} ;            {#- c*x[p] -#}
+    MULT.RC.VV {{lr_slide}} R0 0 {{lr_cyc}} {{ cr.dstruct }}.L {{ cr.dstruct }}.H ;            {#- c*x[p] -#}
     ACC.ADD.FIRST ;;
-    MULT.EE {{lr_maxid}} CR1 0 {{lr_cyc}} {{ cr.dstruct }} ;              {#- maxvec[row]*1.0 -#}
+    MULT.EE {{lr_maxid}} CR1 0 {{lr_cyc}} {{ cr.dstruct }}.L {{ cr.dstruct }}.H ;              {#- maxvec[row]*1.0 -#}
     ACC.SUB ;                                                {#- R_ACC = c*x[p] - maxvec[row] -#}
-    ACTIVATE.QUANTIZE exp2 {{ cr.dstruct }};                                     {#- reads R_ACC forwarded; masked -> num[row] elements 0..N-1 -#}
-    ST.AAQ {{lr_num}} {{ cr.num }} ;;                    {#- NUM[row] (unpacked) -#}
+    ACTIVATE.EXACT exp2 {{ cr.dstruct }}.L {{ cr.num }} {{lr_num}} ;;  {#- reads R_ACC forwarded; masked -> num[row] elements 0..N-1; NUM[row] (unpacked) -#}
     ADD {{lr_slide}} {{lr_slide}} {{ cr.ps }} ;
     ADD {{lr_num}} {{lr_num}} {{ cr.row_stride }} ;
     ADD {{lr_maxid}} {{lr_maxid}} CR1 ;;
@@ -190,14 +188,13 @@ p2_part:
 
 p3_row:
     LD.MULT.CYCLIC {{lr_num}} {{ cr.num }} {{lr_cyc}} ;;      {#- R_CYCLIC = num[row] (read at cycle start: visible NEXT cycle) -#}
-    MULT.RC.VE    {{lr_cyc}} CR1 0 {{lr_cyc}} {{ cr.dstruct }} ;           {#- *1.0 -#}
-    AGG.SUM.FIRST {{lr_row}} {{ cr.dstruct }} ;;                          {#- masked -> sumvec[row] -#}
+    MULT.RC.VE    {{lr_cyc}} CR1 0 {{lr_cyc}} {{ cr.dstruct }}.L {{ cr.dstruct }}.H ;           {#- *1.0 -#}
+    AGG.SUM.FIRST {{lr_row}} {{ cr.dstruct }}.L ;;                          {#- masked -> sumvec[row] -#}
     ADD {{lr_num}} {{lr_num}} {{ cr.row_stride }} ;
     ADD {{lr_row}} {{lr_row}} CR1 ;;
     BLT.S {{lr_row}} {{lr_bound}} p3_row ;;      {#- this group's row count (from Pass 1) -#}
 
-    ACTIVATE.QUANTIZE reciprocal {{ cr.maxvec_base }};                       {#- reads R_ACC forwarded -#}
-    ST.AAQ {{lr_cyc}} {{ cr.rvec }} ;;                     {#- RVEC <- 1/sum -#}
+    ACTIVATE.EXACT reciprocal {{ cr.maxvec_base }}.H {{ cr.rvec }} {{lr_cyc}} ;;  {#- reads R_ACC forwarded; RVEC <- 1/sum -#}
 
 {#- ===================================================================== -#}
 {#- PASS 4 -- out[row] = num[row]*rvec[row], RE-PACKED to chunk elements.     -#}
@@ -225,12 +222,12 @@ p3_row:
 {#- ===================================================================== -#}
 {%- macro p4_partition_block(p, is_last) %}
     {%- if p == 0 %}
-    MULT.RC.VE {{lr_cyc}} {{lr_row}} {{p}} {{lr_cyc}} {{ cr.dstruct }} ;        {#- rc_idx=0 directly; mask_offset={{p}} -#}
+    MULT.RC.VE {{lr_cyc}} {{lr_row}} {{p}} {{lr_cyc}} {{ cr.dstruct }}.L {{ cr.dstruct }}.H ;        {#- rc_idx=0 directly; mask_offset={{p}} -#}
     ACC.ADD.FIRST ;;
     {%- else %}
     LD.MULT.CYCLIC {{lr_num}} {{ cr.num }} {{lr_cyc}} ;
     SUB {{lr_rslide}} {{lr_c512}} {{lr_slide}} ;;                    {#- rslide = RING - {{p}}*ps -#}
-    MULT.RC.VE {{lr_rslide}} {{lr_row}} {{p}} {{lr_cyc}} {{ cr.dstruct }} ;    {#- mask_offset={{p}} -#}
+    MULT.RC.VE {{lr_rslide}} {{lr_row}} {{p}} {{lr_cyc}} {{ cr.dstruct }}.L {{ cr.dstruct }}.H ;    {#- mask_offset={{p}} -#}
     ACC.ADD ;;
     {%- endif %}
     ADD {{lr_num}} {{lr_num}} {{ cr.row_stride }} ;
@@ -284,8 +281,7 @@ p4_run_p8:
     B p4_drain ;;
 
 p4_drain:
-    ACTIVATE.QUANTIZE identity {{ cr.maxvec_base }};                         {#- reads R_ACC forwarded -#}
-    ST.AAQ {{lr_coff}} {{ cr.y }} ;;                    {#- packed output chunk -#}
+    ACTIVATE.EXACT identity {{ cr.maxvec_base }}.H {{ cr.y }} {{lr_coff}} ;;  {#- reads R_ACC forwarded; packed output chunk -#}
     ADD {{lr_coff}} {{lr_coff}} {{ cr.row_stride }} ;
     ADD {{lr_chunk}} {{lr_chunk}} CR1 ;;
     BLT.S {{lr_chunk}} {{lr_cbound}} p4_chunk ;;

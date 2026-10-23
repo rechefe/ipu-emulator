@@ -31,7 +31,7 @@
       V channel-major: channel chan = h*36 + t is two rows, keys s = 0..127 in
         row VBASE + 2*chan (loaded into R0) and s = 128..255 in the next (R1).
     Output, channel-major: O[g*128 + local, chan] in lane `local` of row
-      OBASE + 2*chan + g, one ST.AAQ per row.
+      OBASE + 2*chan + g, one ACTIVATE.EXACT store per row.
 
     Timing (same as matmul_144x144's inner loop):
       LR slot runs first; XMEM + MULT then read LR values forwarded (post-ADD); BLT.S reads
@@ -91,7 +91,7 @@
 {% set CHAN_BOUND    = cr.chan_bound  %}  {# 35 = t-loop bound (36 channels/head) #}
 {% set HEAD_BOUND    = cr.head_bound %}  {# 3 = head-loop bound (4 heads) #}
 {% set GROUP_BOUND   = cr.group_bound %}  {# 1 = g-loop bound (2 query groups) #}
-{% set DSTRUCT       = "CR15" %}  {# reserved dstructure register #}
+{% set DSTRUCT       = "CR15.L" %}  {# the DS half #}
 
     # key_last = KEY_BOUND + 1 (= 255). MULT reads R_CYCLIC from the
     # cycle-start value (issue #157), so each P key row is loaded an instruction word
@@ -135,7 +135,7 @@ g_loop:
     ADD {{ key_index }} {{ key_index }} {{ ONE }};;
 
     # Peeled first key (s=0): ACC.ADD.FIRST seeds R_ACC.
-    MULT.RC.VE {{ rc_slot0 }} {{ key_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ key_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ cr.qf }}.L;
     ACC.ADD.FIRST;
     LD.MULT.CYCLIC {{ p_ptr }} {{ ZERO }} {{ rc_slot0 }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ key_stride }};
@@ -144,7 +144,7 @@ g_loop:
 s_loop_pre:
     ADD     {{ key_index }} {{ key_index }} {{ ONE }};;       # name the key just loaded
 s_loop:
-    MULT.RC.VE {{ rc_slot0 }} {{ key_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ key_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ cr.qf }}.L;
     ACC.ADD;
     LD.MULT.CYCLIC {{ p_ptr }} {{ ZERO }} {{ rc_slot0 }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ key_stride }};
@@ -152,8 +152,7 @@ s_loop:
 s_done:
 
     # -- store channel-major row O[g*128:+128, chan] ---------------------------
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    ST.AAQ {{ out_ptr }} {{ OUT_BASE }};;  # a row -> OBASE + 2*chan + g
+    ACTIVATE.EXACT identity {{ DSTRUCT }} {{ OUT_BASE }} {{ out_ptr }} ;;  # a row -> OBASE + 2*chan + g
     ADD     {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;    # advance the output row by 1
 
     ADD     {{ p_group_off }} {{ p_group_off }} {{ group_step }};; # next group: P offset += 1 row

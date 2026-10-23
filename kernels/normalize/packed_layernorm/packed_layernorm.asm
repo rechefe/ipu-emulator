@@ -26,10 +26,10 @@
                      channel_tile, ../pack.py)
       y              the packed rows
       mask           one R_MASK row: slot p enables channel p's window
-      dstruct_tok    dstructure, tokens valid elements
-      dstruct_row    dstructure, 128 valid elements
+      dstruct        two DS halves: LOW tokens valid elements, HIGH 128
+      qf             the case's QF half (every MULT reads it; FP32 ignores it)
       allones        one R_MASK row with every bit set (CR15: [abi] binds it,
-                     so the default dstructure is not written there)
+                     so the default DS is not written there)
     The program sets every LR it reads.
 
     Unlike the elementwise packed kernels (residual add), LayerNorm reduces
@@ -129,8 +129,8 @@
     content at that point. SCRATCH16 similarly consolidates every
     16-value-wide intermediate (-mean, raw sum-of-squares, 1/sigma) into one
     physical row -- see the register-name block's note for the full
-    lifetime audit. Only ONE 128-wide dstructure register (DSTRUCT128) is
-    needed alongside DSTRUCT16: mask_shift is held at 0 throughout (only
+    lifetime audit. Only ONE 128-wide DS (DSTRUCT128) is
+    needed alongside DSTRUCT_TOK: mask_shift is held at 0 throughout (only
     mask_offset, an immediate 0-7 selecting an R_MASK slot, varies -- a
     different mechanism), and ipu_emu/slots/mult.py's _mult_mask_and_shift only reads
     CR[cr_idx].partition when shift != 0, so `partition` never matters here.
@@ -159,11 +159,10 @@
     step4a writes it as raw sumsq, step4b reads+exhausts it THEN writes it
     again as INVSTD;
     step5 reads+exhausts it. This consolidation is what
-    frees the CR budget for a SECOND dstructure register (DSTRUCT16/
-    DSTRUCT128) -- ACTIVATE.QUANTIZE/MULT.RC.* read a genuine CR
-    (DstructureCrIdx), which no instruction can rewrite at runtime, so two
-    different valid_elements settings alive in the same kernel need two
-    distinct CRs, not one reused with a different runtime value. #}
+    frees the CR budget for the QF register -- ACTIVATE.EXACT/MULT.RC.* read
+    their DS from a CR half (HalfCrIdx), which no instruction can rewrite at
+    runtime, so the two valid_elements settings alive in the same kernel
+    (DSTRUCT_TOK/DSTRUCT128) sit in the two halves of one CR. #}
 {% set ZERO            = "CR0"  %}  {# const 0 #}
 {% set ONE             = "CR1"  %}  {# hardwired read-only 1 #}
 {% set DATA_BASE       = cr.x  %}  {# base row of X, 30 packed rows #}
@@ -177,8 +176,8 @@
 {% set BETA_TILE_BASE  = cr.beta %}  {# 30 packed rows, beta pre-replicated #}
 {% set OUTPUT_BASE     = cr.y %}  {# 30 packed rows, output #}
 {% set MASK_BASE       = cr.mask %}  {# R_MASK source row: 8 one-hot 16-lane slots #}
-{% set DSTRUCT_TOK       = cr.dstruct_tok %}  {# dstructure: valid_elements=16 #}
-{% set DSTRUCT128      = cr.dstruct_row %}  {# dstructure: valid_elements=128 (shared by every masked and unmasked 128-lane step -- see header note) #}
+{% set DSTRUCT_TOK       = cr.dstruct ~ ".L" %}  {# DS: valid_elements=tokens #}
+{% set DSTRUCT128      = cr.dstruct ~ ".H" %}  {# DS: valid_elements=128 (shared by every masked and unmasked 128-lane step -- see header note) #}
 {% set ALLONES_MASK_BASE = cr.allones %}  {# R_MASK source row: all 1024 bits set -- see note below #}
 
 {#- R_MASK is a single 1024-bit register (8 x 128-bit slots); LD.MASK
@@ -242,12 +241,12 @@
     {%- set is_first = (p_in == 0) %}
     {%- set is_last_p = (p_in == PACK - 1) %}
     {%- if is_last_p %}
-    MULT.RC.VV {{ rc_idx_reg }} R0 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
+    MULT.RC.VV {{ rc_idx_reg }} R0 0 {{ mask_shift0 }} {{ DSTRUCT128 }} {{ cr.qf }}.L;
     ACC.ADD{{ ".FIRST" if is_first else "" }};
     LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
     {%- else %}
-    MULT.RC.VV {{ rc_idx_reg }} R0 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
+    MULT.RC.VV {{ rc_idx_reg }} R0 0 {{ mask_shift0 }} {{ DSTRUCT128 }} {{ cr.qf }}.L;
     ACC.ADD{{ ".FIRST" if is_first else "" }};;
     {%- endif %}
 {%- endfor %}
@@ -281,20 +280,19 @@ step1_loop:
         error small enough to look like float noise at this step, though
         it corrupted a real neighboring row via an out-of-bounds STORE
         later in step 3). #}
-    MULT.RC.VV {{ rc_idx_reg }} R0 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
+    MULT.RC.VV {{ rc_idx_reg }} R0 0 {{ mask_shift0 }} {{ DSTRUCT128 }} {{ cr.qf }}.L;
     ACC.ADD;
     LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};
     ADD {{ row_idx }} {{ row_idx }} {{ ONE }};
     BLT.S {{ row_idx }} {{ row_limit }} step1_loop;;
     {%- else %}
-    MULT.RC.VV {{ rc_idx_reg }} R0 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
+    MULT.RC.VV {{ rc_idx_reg }} R0 0 {{ mask_shift0 }} {{ DSTRUCT128 }} {{ cr.qf }}.L;
     ACC.ADD;;
     {%- endif %}
 {%- endfor %}
 
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT_TOK }};
-    ST.AAQ {{ mask_off_lr }} {{ NEG_MEAN_BASE }};;
+    ACTIVATE.EXACT identity {{ DSTRUCT_TOK }} {{ NEG_MEAN_BASE }} {{ mask_off_lr }} ;;
 
 # -----------------------------------------------------------------------
 # Step 2: broadcast NEG_MEAN (16 values) into a 128-lane tile, one 16-lane
@@ -308,12 +306,11 @@ step1_loop:
 {%- for p in range(PACK) %}
     SET {{ rc_idx_reg }} {{ ZERO }};;
     {{- inc(rc_idx_reg, (512 - PS * p) % 512) }}
-    MULT.RC.VE {{ rc_idx_reg }} {{ ONE }} {{ p }} {{ mask_shift0 }} {{ DSTRUCT128 }};
+    MULT.RC.VE {{ rc_idx_reg }} {{ ONE }} {{ p }} {{ mask_shift0 }} {{ DSTRUCT128 }} {{ cr.qf }}.L;
     ACC.ADD{{ ".FIRST" if p == 0 else "" }};;
 {%- endfor %}
 
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT128 }};
-    ST.AAQ {{ mask_off_lr }} {{ NEG_MEAN_TILE }};;
+    ACTIVATE.EXACT identity {{ DSTRUCT128 }} {{ NEG_MEAN_TILE }} {{ mask_off_lr }} ;;
 
 # -----------------------------------------------------------------------
 # Step 3: centered[c] = x[c] + NEG_MEAN_TILE, partition-local elementwise.
@@ -327,13 +324,13 @@ step1_loop:
     SET {{ read_ptr }} {{ DATA_BASE }};;
     SUB {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
     SET {{ write_ptr }} {{ ZERO }};;
-    SUB {{ write_ptr }} {{ write_ptr }} {{ row_stride }};;   # write_ptr = -1: ST.AAQ's offset is a FORWARDED read and a same-word ADD (lr slot) dispatches before store, so the store sees the POST-increment value -- the -1 startup offset compensates, same convention layernorm.asm (layernorm_16x240) uses throughout
+    SUB {{ write_ptr }} {{ write_ptr }} {{ row_stride }};;   # write_ptr = -1: ACTIVATE.EXACT's store offset is a FORWARDED read and a same-word ADD (lr slot) dispatches before it, so the store sees the POST-increment value -- the -1 startup offset compensates, same convention layernorm.asm (layernorm_16x240) uses throughout
     LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;  # prime row 0 into slot 0
 
-    MULT.RC.VE {{ slot0_lr }} {{ ONE }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
+    MULT.RC.VE {{ slot0_lr }} {{ ONE }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }} {{ cr.qf }}.L;
     ACC.ADD.FIRST;;
-    MULT.RC.VE {{ slot128_lr }} {{ ONE }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
+    MULT.RC.VE {{ slot128_lr }} {{ ONE }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }} {{ cr.qf }}.L;
     ACC.ADD;;
     {#- read_ptr's advance MUST co-issue in the SAME word as the load that
         reads it here (like the priming load two lines up), not the
@@ -351,8 +348,7 @@ step1_loop:
         The "lr" slot allows 3 independent sub-slots per cycle
         (instruction_spec.py's SLOT_COUNT), so this fits alongside
         write_ptr's advance in the same store-word. #}
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT128 }};
-    ST.AAQ {{ write_ptr }} {{ CENTERED_BASE }};
+    ACTIVATE.EXACT identity {{ DSTRUCT128 }} {{ CENTERED_BASE }} {{ write_ptr }} ;
     ADD {{ write_ptr }} {{ write_ptr }} {{ row_stride }};
     LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
@@ -363,9 +359,9 @@ step1_loop:
     SUB {{ row_limit }} {{ row_limit }} {{ ONE }};;   # row_limit = ROW_COUNT-1: row_idx enters the loop already at 1 with no BLT.S check performed by the peel itself (unlike layernorm.asm (layernorm_16x240), whose peel's own trailing word performs the FIRST ch_index/BLT.S check before the loop is ever entered)
 
 step3_loop:
-    MULT.RC.VE {{ slot0_lr }} {{ ONE }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
+    MULT.RC.VE {{ slot0_lr }} {{ ONE }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }} {{ cr.qf }}.L;
     ACC.ADD.FIRST;;
-    MULT.RC.VE {{ slot128_lr }} {{ ONE }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
+    MULT.RC.VE {{ slot128_lr }} {{ ONE }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }} {{ cr.qf }}.L;
     ACC.ADD;;
     {#- write_ptr, read_ptr, AND row_idx's advances, plus the BLT.S, must ALL
         land in this ONE word -- exactly layernorm.asm (layernorm_16x240)'s step1
@@ -380,8 +376,7 @@ step3_loop:
         INVSTD_TILE). The "lr" slot has exactly 3 sub-slots per cycle
         (instruction_spec.py SLOT_COUNT) -- write_ptr+read_ptr+row_idx
         uses all three, with no room to spare. #}
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT128 }};
-    ST.AAQ {{ write_ptr }} {{ CENTERED_BASE }};
+    ACTIVATE.EXACT identity {{ DSTRUCT128 }} {{ CENTERED_BASE }} {{ write_ptr }} ;
     ADD {{ write_ptr }} {{ write_ptr }} {{ row_stride }};
     LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};
@@ -406,12 +401,12 @@ step3_loop:
     {%- set is_first = (p_in == 0) %}
     {%- set is_last_p = (p_in == PACK - 1) %}
     {%- if is_last_p %}
-    MULT.RC.VS {{ rc_idx_reg }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
+    MULT.RC.VS {{ rc_idx_reg }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }} {{ cr.qf }}.L;
     ACC.ADD{{ ".FIRST" if is_first else "" }};
     LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
     {%- else %}
-    MULT.RC.VS {{ rc_idx_reg }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
+    MULT.RC.VS {{ rc_idx_reg }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }} {{ cr.qf }}.L;
     ACC.ADD{{ ".FIRST" if is_first else "" }};;
     {%- endif %}
 {%- endfor %}
@@ -429,20 +424,19 @@ step4a_loop:
     {#- read_ptr's advance AND row_idx's ADD+BLT.S fused into this ONE
         word -- see step1's identical note on why splitting them causes
         an off-by-one extra loop pass. #}
-    MULT.RC.VS {{ rc_idx_reg }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
+    MULT.RC.VS {{ rc_idx_reg }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }} {{ cr.qf }}.L;
     ACC.ADD;
     LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};
     ADD {{ row_idx }} {{ row_idx }} {{ ONE }};
     BLT.S {{ row_idx }} {{ row_limit }} step4a_loop;;
     {%- else %}
-    MULT.RC.VS {{ rc_idx_reg }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
+    MULT.RC.VS {{ rc_idx_reg }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }} {{ cr.qf }}.L;
     ACC.ADD;;
     {%- endif %}
 {%- endfor %}
 
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT_TOK }};
-    ST.AAQ {{ mask_off_lr }} {{ TEMP_BASE }};;
+    ACTIVATE.EXACT identity {{ DSTRUCT_TOK }} {{ TEMP_BASE }} {{ mask_off_lr }} ;;
 
 # -----------------------------------------------------------------------
 # Step 4b: 1/sigma = rsqrt((1/240) * sum_of_squares)
@@ -450,11 +444,10 @@ step4a_loop:
 
     LD.MULT R0 {{ mask_off_lr }} {{ TEMP_BASE }};;
     LD.MULT.CYCLIC {{ mask_off_lr }} {{ INV_N_BASE }} {{ slot0_lr }};;
-    MULT.RC.VV {{ slot0_lr }} R0 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
+    MULT.RC.VV {{ slot0_lr }} R0 0 {{ mask_shift0 }} {{ DSTRUCT128 }} {{ cr.qf }}.L;
     ACC.ADD.FIRST;;
 
-    ACTIVATE.QUANTIZE rsqrt {{ DSTRUCT_TOK }};;
-    ST.AAQ {{ mask_off_lr }} {{ INVSTD_BASE }};;
+    ACTIVATE.EXACT rsqrt {{ DSTRUCT_TOK }} {{ INVSTD_BASE }} {{ mask_off_lr }};;
 
 # -----------------------------------------------------------------------
 # Step 5: broadcast INVSTD (16 values) into a 128-lane tile, same
@@ -466,12 +459,11 @@ step4a_loop:
 {%- for p in range(PACK) %}
     SET {{ rc_idx_reg }} {{ ZERO }};;
     {{- inc(rc_idx_reg, (512 - PS * p) % 512) }}
-    MULT.RC.VE {{ rc_idx_reg }} {{ ONE }} {{ p }} {{ mask_shift0 }} {{ DSTRUCT128 }};
+    MULT.RC.VE {{ rc_idx_reg }} {{ ONE }} {{ p }} {{ mask_shift0 }} {{ DSTRUCT128 }} {{ cr.qf }}.L;
     ACC.ADD{{ ".FIRST" if p == 0 else "" }};;
 {%- endfor %}
 
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT128 }};
-    ST.AAQ {{ mask_off_lr }} {{ INVSTD_TILE }};;
+    ACTIVATE.EXACT identity {{ DSTRUCT128 }} {{ INVSTD_TILE }} {{ mask_off_lr }} ;;
 
 # -----------------------------------------------------------------------
 # Step 6: output[c] = centered[c] * INVSTD_TILE * GAMMA_TILE[c] + BETA_TILE[c]
@@ -548,35 +540,32 @@ step4a_loop:
     SET {{ read_ptr }} {{ CENTERED_BASE }};;
     SUB {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
     SET {{ write_ptr }} {{ ZERO }};;
-    SUB {{ write_ptr }} {{ write_ptr }} {{ row_stride }};;   # write_ptr = -1: see step 3's note on ST.AAQ's forwarded read/same-word-ADD timing
+    SUB {{ write_ptr }} {{ write_ptr }} {{ row_stride }};;   # write_ptr = -1: see step 3's note on ACTIVATE.EXACT's forwarded read/same-word-ADD timing
     SET {{ row_idx }} {{ ZERO }};;
     LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;  # prime centered[0] into slot 0
 
     # ---- row 0 (peeled): row_idx == 0, pointers land at the tile bases ----
-    MULT.RC.VV {{ slot0_lr }} R1 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
+    MULT.RC.VV {{ slot0_lr }} R1 0 {{ mask_shift0 }} {{ DSTRUCT128 }} {{ cr.qf }}.L;
     ACC.ADD.FIRST;;
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT128 }};
-    ST.AAQ {{ mask_off_lr }} {{ TEMP_BASE }};
+    ACTIVATE.EXACT identity {{ DSTRUCT128 }} {{ TEMP_BASE }} {{ mask_off_lr }} ;
     SET {{ gb_ptr }} {{ GAMMA_TILE_BASE }};;
     ADD {{ gb_ptr }} {{ gb_ptr }} {{ row_idx }};;
     LD.MULT.CYCLIC {{ gb_ptr }} {{ ZERO }} {{ slot0_lr }};;
     LD.MULT R0 {{ mask_off_lr }} {{ TEMP_BASE }};;
-    MULT.RC.VV {{ slot0_lr }} R0 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
+    MULT.RC.VV {{ slot0_lr }} R0 0 {{ mask_shift0 }} {{ DSTRUCT128 }} {{ cr.qf }}.L;
     ACC.ADD.FIRST;;
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT128 }};
-    ST.AAQ {{ mask_off_lr }} {{ TEMP_BASE }};
+    ACTIVATE.EXACT identity {{ DSTRUCT128 }} {{ TEMP_BASE }} {{ mask_off_lr }} ;
     SET {{ gb_ptr }} {{ BETA_TILE_BASE }};;
     ADD {{ gb_ptr }} {{ gb_ptr }} {{ row_idx }};;
     LD.MULT.CYCLIC {{ gb_ptr }} {{ ZERO }} {{ slot0_lr }};;
-    MULT.RC.VE {{ slot0_lr }} {{ ONE }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
+    MULT.RC.VE {{ slot0_lr }} {{ ONE }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }} {{ cr.qf }}.L;
     ACC.ADD;;
     {#- read_ptr's advance co-issues with the load that reads it (same fix
         as step 3). row_idx advances to 1 here (its own dedicated word,
         not fused with anything else -- the peel is a one-off, not a loop
         iteration, so there is no BLT.S to fuse it with). #}
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT128 }};
-    ST.AAQ {{ write_ptr }} {{ OUTPUT_BASE }};
+    ACTIVATE.EXACT identity {{ DSTRUCT128 }} {{ OUTPUT_BASE }} {{ write_ptr }} ;
     ADD {{ write_ptr }} {{ write_ptr }} {{ row_stride }};
     LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
@@ -586,30 +575,27 @@ step4a_loop:
     SUB {{ row_limit }} {{ row_limit }} {{ ONE }};;   # row_limit = ROW_COUNT-1: row_idx enters the loop already at 1 with no BLT.S check performed by the peel itself (unlike layernorm.asm (layernorm_16x240), whose peel's own trailing word performs the FIRST ch_index/BLT.S check before the loop is ever entered)
 
 step6_loop:
-    MULT.RC.VV {{ slot0_lr }} R1 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
+    MULT.RC.VV {{ slot0_lr }} R1 0 {{ mask_shift0 }} {{ DSTRUCT128 }} {{ cr.qf }}.L;
     ACC.ADD.FIRST;;
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT128 }};
-    ST.AAQ {{ mask_off_lr }} {{ TEMP_BASE }};
+    ACTIVATE.EXACT identity {{ DSTRUCT128 }} {{ TEMP_BASE }} {{ mask_off_lr }} ;
     SET {{ gb_ptr }} {{ GAMMA_TILE_BASE }};;
     ADD {{ gb_ptr }} {{ gb_ptr }} {{ row_idx }};;
     LD.MULT.CYCLIC {{ gb_ptr }} {{ ZERO }} {{ slot0_lr }};;
     LD.MULT R0 {{ mask_off_lr }} {{ TEMP_BASE }};;
-    MULT.RC.VV {{ slot0_lr }} R0 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
+    MULT.RC.VV {{ slot0_lr }} R0 0 {{ mask_shift0 }} {{ DSTRUCT128 }} {{ cr.qf }}.L;
     ACC.ADD.FIRST;;
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT128 }};
-    ST.AAQ {{ mask_off_lr }} {{ TEMP_BASE }};
+    ACTIVATE.EXACT identity {{ DSTRUCT128 }} {{ TEMP_BASE }} {{ mask_off_lr }} ;
     SET {{ gb_ptr }} {{ BETA_TILE_BASE }};;
     ADD {{ gb_ptr }} {{ gb_ptr }} {{ row_idx }};;
     LD.MULT.CYCLIC {{ gb_ptr }} {{ ZERO }} {{ slot0_lr }};;
-    MULT.RC.VE {{ slot0_lr }} {{ ONE }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
+    MULT.RC.VE {{ slot0_lr }} {{ ONE }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }} {{ cr.qf }}.L;
     ACC.ADD;;
     {#- write_ptr, read_ptr, AND row_idx's advances plus BLT.S all fused
         into this one word -- exactly 3 "lr" ops, the per-cycle maximum
         -- see step1/step3/step4a's identical note on why row_idx's own
         ADD must share the closing load's word with the BLT.S that reads
         its pre-increment cycle-start value. #}
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT128 }};
-    ST.AAQ {{ write_ptr }} {{ OUTPUT_BASE }};
+    ACTIVATE.EXACT identity {{ DSTRUCT128 }} {{ OUTPUT_BASE }} {{ write_ptr }} ;
     ADD {{ write_ptr }} {{ write_ptr }} {{ row_stride }};
     LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};

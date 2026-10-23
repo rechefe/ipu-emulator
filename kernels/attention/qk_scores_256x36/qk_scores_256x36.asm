@@ -29,11 +29,11 @@
                       → MULT_RES[s] = Q[i,c] * K[s,c]
                     ACC.ADD.FIRST (c=0) / ACC.ADD      → R_ACC[s] += Q[i,c] * K[s,c]
       after 36 channels R_ACC[s] = S[i, s] for the 128 keys of group g.
-      ACTIVATE.QUANTIZE identity + ST.AAQ
+      ACTIVATE.EXACT identity (activate and store)
                     → S[i, g], one whole row (128 FP32 lanes, query-major),
                       row S_BASE + 2i + g
 
-    No AGG. The store goes through ACTIVATE.QUANTIZE like every kernel's;
+    No AGG. The store goes through ACTIVATE.EXACT like every kernel's;
     `identity` is the right activation here -- softmax applies its own
     nonlinearity downstream.
 
@@ -94,7 +94,7 @@
 {% set K_START_G1  = cr.k_start_g1  %}  {# -1 row startup skew (first live = row 1) #}
 {% set CHAN_START  = cr.chan_start  %}  {# -1 -> first live c = 0 #}
 {% set QROW_BASE   = cr.a  %}  {# staged query-major Q base #}
-{% set DSTRUCT     = "CR15" %}  {# reserved dstructure register #}
+{% set DSTRUCT     = "CR15.L" %}  {# the DS half #}
 
     # chan_last = chan_bound + 1 (= D-1 = 35). See the cycle-start value note in the
     # header: chan_index's ADD now sits one word ahead of the BLT.S, so the branch
@@ -115,7 +115,7 @@ q_loop:
     ADD {{ chan_index }} {{ chan_index }} {{ ONE }};;
 
     # Peeled first channel (c=0): ACC.ADD.FIRST seeds R_ACC.
-    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ cr.qf }}.L;
     ACC.ADD.FIRST;
     LD.MULT.CYCLIC {{ k_ptr }} {{ K_BASE }} {{ rc_slot0 }};
     ADD {{ k_ptr }} {{ k_ptr }} {{ k_stride }};
@@ -126,15 +126,14 @@ c_loop_g0_pre:
     ADD {{ chan_index }} {{ chan_index }} {{ ONE }};;                                            # name the channel just loaded
 
 c_loop_g0:
-    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ cr.qf }}.L;
     ACC.ADD;
     LD.MULT.CYCLIC {{ k_ptr }} {{ K_BASE }} {{ rc_slot0 }};
     ADD {{ k_ptr }} {{ k_ptr }} {{ k_stride }};
     BLT.S {{ chan_index }} {{ chan_last }} c_loop_g0_pre;;
 
 after_c_g0:
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    ST.AAQ {{ out_ptr }} {{ S_BASE_G0 }};;  # store a row → S[i, keys 0..127]
+    ACTIVATE.EXACT identity {{ DSTRUCT }} {{ S_BASE_G0 }} {{ out_ptr }} ;;  # store a row → S[i, keys 0..127]
 
     # -- key group 1 ---------------------------------------------------------
     SET {{ k_ptr }} {{ K_START_G1 }};;                                                          # g=1 K-data startup: -1 row
@@ -144,7 +143,7 @@ after_c_g0:
     ADD {{ k_ptr }} {{ k_ptr }} {{ k_stride }};
     ADD {{ chan_index }} {{ chan_index }} {{ ONE }};;
 
-    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ cr.qf }}.L;
     ACC.ADD.FIRST;
     LD.MULT.CYCLIC {{ k_ptr }} {{ K_BASE }} {{ rc_slot0 }};
     ADD {{ k_ptr }} {{ k_ptr }} {{ k_stride }};
@@ -155,15 +154,14 @@ c_loop_g1_pre:
     ADD {{ chan_index }} {{ chan_index }} {{ ONE }};;                                            # name the channel just loaded
 
 c_loop_g1:
-    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ cr.qf }}.L;
     ACC.ADD;
     LD.MULT.CYCLIC {{ k_ptr }} {{ K_BASE }} {{ rc_slot0 }};
     ADD {{ k_ptr }} {{ k_ptr }} {{ k_stride }};
     BLT.S {{ chan_index }} {{ chan_last }} c_loop_g1_pre;;
 
 after_c_g1:
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    ST.AAQ {{ out_ptr }} {{ S_BASE_G1 }};;  # store a row → S[i, keys 128..255]
+    ACTIVATE.EXACT identity {{ DSTRUCT }} {{ S_BASE_G1 }} {{ out_ptr }} ;;  # store a row → S[i, keys 128..255]
     ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;                                          # advance output ptr (+2 rows)
 
     ADD {{ q_ptr }} {{ q_ptr }} {{ qrow_stride }};

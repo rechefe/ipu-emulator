@@ -31,7 +31,7 @@
     Loop nest:  for h in 0..3 { for t in 0..35 { for g in 0..1 {
                     chunk 0 (keys 0..127):   for local 0..127: load P; MULT; AGG.SUM.FIRST
                     chunk 1 (keys 128..255): for local 0..127: load P; MULT; AGG.SUM
-                    ACTIVATE.QUANTIZE identity + ST.AAQ
+                    ACTIVATE.EXACT identity (activate and store)
                       -> O[g*128 .. g*128+127, t]  (one row: a 128-lane FP32 column segment)
                 }}}
 
@@ -107,7 +107,7 @@
 {% set HEAD_COUNT       = cr.n_head %}  {# 4 = heads #}
 {% set OUT_GROUP_STRIDE = cr.out_group_stride %}  {# 1 = O group stride (rows) #}
 {% set OUT_CHAN_STRIDE  = cr.out_chan_stride %}  {# 2 = O channel stride (rows) #}
-{% set DSTRUCT          = "CR15" %}  {# reserved dstructure register #}
+{% set DSTRUCT          = "CR15.L" %}  {# the DS half #}
 
     SET {{ rc_slot0 }} {{ ZERO }};;                                # rc write index = 0 (const)
     SET {{ chan_off }} {{ ZERO }};;                                # value-channel offset = 0
@@ -130,7 +130,7 @@ t_loop:
     LD.MULT R0 {{ p_ptr }} {{ P_BASE }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};;  # prime query 0's P chunk
 g0c0_loop:
-    MULT.RC.VV {{ rc_slot0 }} R0 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VV {{ rc_slot0 }} R0 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ cr.qf }}.L;
     AGG.SUM.FIRST {{ agg_slot }} {{ DSTRUCT }};
     LD.MULT R0 {{ p_ptr }} {{ P_BASE }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};
@@ -146,7 +146,7 @@ g0c0_loop:
     LD.MULT R0 {{ p_ptr }} {{ P_BASE }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};;  # prime query 0's P chunk
 g0c1_loop:
-    MULT.RC.VV {{ rc_slot0 }} R0 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VV {{ rc_slot0 }} R0 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ cr.qf }}.L;
     AGG.SUM {{ agg_slot }} {{ DSTRUCT }};
     LD.MULT R0 {{ p_ptr }} {{ P_BASE }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};
@@ -154,8 +154,7 @@ g0c1_loop:
     BLT.S {{ agg_slot }} {{ INNER_BOUND }} g0c1_loop;;
 
     ADD {{ out_chunk }} {{ out_chan_off }} {{ ZERO }};;            # O g=0 offset = O chan offset
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    ST.AAQ {{ out_chunk }} {{ OUT_BASE }};;  # O[0..127, t] = R_ACC   (base OBASE)
+    ACTIVATE.EXACT identity {{ DSTRUCT }} {{ OUT_BASE }} {{ out_chunk }} ;;  # O[0..127, t] = R_ACC   (base OBASE)
 
     # ===================== group g = 1 (queries 128..255) ===================
     # ---- chunk 0: keys 0..127 ----
@@ -167,7 +166,7 @@ g0c1_loop:
     LD.MULT R0 {{ p_ptr }} {{ P_BASE }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};;  # prime query 0's P chunk
 g1c0_loop:
-    MULT.RC.VV {{ rc_slot0 }} R0 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VV {{ rc_slot0 }} R0 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ cr.qf }}.L;
     AGG.SUM.FIRST {{ agg_slot }} {{ DSTRUCT }};
     LD.MULT R0 {{ p_ptr }} {{ P_BASE }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};
@@ -184,7 +183,7 @@ g1c0_loop:
     LD.MULT R0 {{ p_ptr }} {{ P_BASE }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};;  # prime query 0's P chunk
 g1c1_loop:
-    MULT.RC.VV {{ rc_slot0 }} R0 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VV {{ rc_slot0 }} R0 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ cr.qf }}.L;
     AGG.SUM {{ agg_slot }} {{ DSTRUCT }};
     LD.MULT R0 {{ p_ptr }} {{ P_BASE }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};
@@ -192,8 +191,7 @@ g1c1_loop:
     BLT.S {{ agg_slot }} {{ INNER_BOUND }} g1c1_loop;;
 
     ADD {{ out_chunk }} {{ out_chan_off }} {{ OUT_GROUP_STRIDE }};; # O g=1 offset = O chan offset + 1 row
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    ST.AAQ {{ out_chunk }} {{ OUT_BASE }};;  # O[128..255, t] = R_ACC
+    ACTIVATE.EXACT identity {{ DSTRUCT }} {{ OUT_BASE }} {{ out_chunk }} ;;  # O[128..255, t] = R_ACC
 
     # ----- next t: advance value-channel offset (+2 rows) and O offset (+2 rows), t++ -----
     ADD {{ chan_off }} {{ chan_off }} {{ P_QUERY_STRIDE }};;       # chan += 2 rows

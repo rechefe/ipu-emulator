@@ -48,7 +48,7 @@
       cr.rows              = rows (the row loop bound)
       cr.cpr               = cpr (the chunk-column loop bound)
       CR0 = 0 and CR1 = 1 (-> the 1.0 scalar, and the +1 step) are read-only;
-      CR15 holds the default dstructure (128 valid elements: every element live).
+      CR15.L holds the default DS (128 valid elements: every element live).
 
     LR uses 3 sub-slots; ";;" ends a instruction word, ";" separates sub-instructions.
     R_CYCLIC loads use index 0 (a whole row).
@@ -76,20 +76,19 @@ p1_chunk:
     SET {{lr_row}}  CR1 ;;                                  {#- inner index starts at r=1 (r=0 peeled) -#}
 
     LD.MULT R0 {{lr_ioff}} {{ cr.x }} ;;                     {#- R0 = x[0,c] (visible next cycle) -#}
-    MULT.RC.VV   {{lr_cyc}} R0 0 {{lr_cyc}} CR15 ;          {#- MULT_RES = c*x[0,c] -#}
+    MULT.RC.VV   {{lr_cyc}} R0 0 {{lr_cyc}} CR15.L {{ cr.qf }}.L ;          {#- MULT_RES = c*x[0,c] -#}
     ADD {{lr_ioff}} {{lr_ioff}} {{ cr.row_stride_chunks }} ;;                      {#- advance to r=1 -#}
     ACC.MAX.FIRST ;;                                        {#- R_ACC = c*x[0,c] -#}
 
 p1_row:
     LD.MULT R0 {{lr_ioff}} {{ cr.x }} ;;                     {#- R0 = x[r,c] (visible next cycle) -#}
-    MULT.RC.VV   {{lr_cyc}} R0 0 {{lr_cyc}} CR15 ;          {#- MULT_RES = c*x[r,c] -#}
+    MULT.RC.VV   {{lr_cyc}} R0 0 {{lr_cyc}} CR15.L {{ cr.qf }}.L ;          {#- MULT_RES = c*x[r,c] -#}
     ADD {{lr_ioff}} {{lr_ioff}} {{ cr.row_stride_chunks }} ;
     ADD {{lr_row}}  {{lr_row}}  CR1 ;;
     ACC.MAX ;;                                              {#- R_ACC = max(R_ACC, c*x[r,c]) -#}
     BLT.S {{lr_row}} {{ cr.rows }} p1_row ;;
 
-    ACTIVATE.QUANTIZE identity CR15 ;                       {#- reads R_ACC forwarded -#}
-    ST.AAQ {{lr_svoff}} {{ cr.max }} ;;                    {#- CMAX[c] <- per-column max -#}
+    ACTIVATE.EXACT identity CR15.L {{ cr.max }} {{lr_svoff}} ;;  {#- reads R_ACC forwarded; CMAX[c] <- per-column max -#}
 
     ADD {{lr_chunk}} {{lr_chunk}} CR1 ;
     ADD {{lr_coff}}  {{lr_coff}}  {{ cr.row_stride }} ;
@@ -115,14 +114,13 @@ p2_chunk:
 p2_row:
     LD.MULT R0 {{lr_ioff}} {{ cr.x }} ;;                     {#- R0 = x[r,c] (visible next cycle) -#}
     LD.MULT.CYCLIC {{lr_cyc}} {{ cr.log2e }} {{lr_cyc}} ;;        {#- R_CYCLIC = C_VEC (visible next cycle) -#}
-    MULT.RC.VV   {{lr_cyc}} R0 0 {{lr_cyc}} CR15 ;          {#- MULT_RES = c*x[r,c] -#}
+    MULT.RC.VV   {{lr_cyc}} R0 0 {{lr_cyc}} CR15.L {{ cr.qf }}.L ;          {#- MULT_RES = c*x[r,c] -#}
     ACC.ADD.FIRST ;;                                        {#- R_ACC = c*x[r,c] -#}
 
     LD.MULT.CYCLIC {{lr_svoff}} {{ cr.max }} {{lr_cyc}} ;;      {#- R_CYCLIC = cmax[c] (visible next cycle) -#}
-    MULT.RC.VE   {{lr_cyc}} CR1 0 {{lr_cyc}} CR15 ;         {#- MULT_RES = cmax[c]*1.0 -#}
+    MULT.RC.VE   {{lr_cyc}} CR1 0 {{lr_cyc}} CR15.L {{ cr.qf }}.L ;         {#- MULT_RES = cmax[c]*1.0 -#}
     ACC.SUB ;                                               {#- R_ACC = c*x[r,c] - cmax[c] -#}
-    ACTIVATE.QUANTIZE exp2 CR15 ;                            {#- reads R_ACC forwarded -#}
-    ST.AAQ {{lr_woff}} {{ cr.num }} ;;                     {#- NUM[r,c] = 2^(...) -#}
+    ACTIVATE.EXACT exp2 CR15.L {{ cr.num }} {{lr_woff}} ;;  {#- reads R_ACC forwarded; NUM[r,c] = 2^(...) -#}
 
     ADD {{lr_ioff}} {{lr_ioff}} {{ cr.row_stride_chunks }} ;
     ADD {{lr_woff}} {{lr_woff}} {{ cr.row_stride_chunks }} ;
@@ -146,20 +144,19 @@ p3_chunk:
     SET {{lr_row}}  CR1 ;;                                  {#- r=0 peeled; loop from r=1 -#}
 
     LD.MULT.CYCLIC {{lr_ioff}} {{ cr.num }} {{lr_cyc}} ;;       {#- R_CYCLIC = num[0,c] (visible next cycle) -#}
-    MULT.RC.VE   {{lr_cyc}} CR1 0 {{lr_cyc}} CR15 ;         {#- MULT_RES = num[0,c]*1.0 -#}
+    MULT.RC.VE   {{lr_cyc}} CR1 0 {{lr_cyc}} CR15.L {{ cr.qf }}.L ;         {#- MULT_RES = num[0,c]*1.0 -#}
     ADD {{lr_ioff}} {{lr_ioff}} {{ cr.row_stride_chunks }} ;;                      {#- advance to r=1 -#}
     ACC.ADD.FIRST ;;                                        {#- R_ACC = num[0,c] -#}
 
 p3_row:
     LD.MULT.CYCLIC {{lr_ioff}} {{ cr.num }} {{lr_cyc}} ;;       {#- R_CYCLIC = num[r,c] (visible next cycle) -#}
-    MULT.RC.VE   {{lr_cyc}} CR1 0 {{lr_cyc}} CR15 ;         {#- MULT_RES = num[r,c]*1.0 -#}
+    MULT.RC.VE   {{lr_cyc}} CR1 0 {{lr_cyc}} CR15.L {{ cr.qf }}.L ;         {#- MULT_RES = num[r,c]*1.0 -#}
     ADD {{lr_ioff}} {{lr_ioff}} {{ cr.row_stride_chunks }} ;
     ADD {{lr_row}}  {{lr_row}}  CR1 ;;
     ACC.ADD ;;                                              {#- R_ACC += num[r,c] -#}
     BLT.S {{lr_row}} {{ cr.rows }} p3_row ;;
 
-    ACTIVATE.QUANTIZE reciprocal CR15 ;                     {#- reads R_ACC forwarded -#}
-    ST.AAQ {{lr_svoff}} {{ cr.rvec }} ;;                    {#- RVEC[c] <- 1/sum -#}
+    ACTIVATE.EXACT reciprocal CR15.L {{ cr.rvec }} {{lr_svoff}} ;;  {#- reads R_ACC forwarded; RVEC[c] <- 1/sum -#}
 
     ADD {{lr_chunk}} {{lr_chunk}} CR1 ;
     ADD {{lr_coff}}  {{lr_coff}}  {{ cr.row_stride }} ;
@@ -181,10 +178,9 @@ p4_chunk:
 
 p4_row:
     LD.MULT.CYCLIC {{lr_ioff}} {{ cr.num }} {{lr_cyc}} ;;       {#- R_CYCLIC = num[r,c] (visible next cycle) -#}
-    MULT.RC.VV   {{lr_cyc}} R1 0 {{lr_cyc}} CR15 ;          {#- MULT_RES = num[r,c] * rvec[c] -#}
+    MULT.RC.VV   {{lr_cyc}} R1 0 {{lr_cyc}} CR15.L {{ cr.qf }}.L ;          {#- MULT_RES = num[r,c] * rvec[c] -#}
     ACC.ADD.FIRST ;
-    ACTIVATE.QUANTIZE identity CR15 ;                       {#- reads R_ACC forwarded -#}
-    ST.AAQ {{lr_ioff}} {{ cr.y }} ;;                     {#- OUT[r,c] = softmax -#}
+    ACTIVATE.EXACT identity CR15.L {{ cr.y }} {{lr_ioff}} ;;  {#- reads R_ACC forwarded; OUT[r,c] = softmax -#}
 
     ADD {{lr_ioff}} {{lr_ioff}} {{ cr.row_stride_chunks }} ;
     ADD {{lr_row}}  {{lr_row}}  CR1 ;;

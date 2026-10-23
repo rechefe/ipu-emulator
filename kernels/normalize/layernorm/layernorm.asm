@@ -19,7 +19,8 @@
       centered channels rows of scratch, reused per token group
       y        the same layout as x, after the scratch rows
       channels, row_stride (1) and lanes (128; also beta's lane offset in R1)
-      are CRs too; CR15 = dstructure.
+      are CRs too; cr.ds_qf holds the DS (LOW, 128 valid elements) and the
+      case's QF (HIGH).
     Padding lanes (tokens < 128) hold x = 0: mean 0, variance 0, rsqrt 0, so
     they become beta[ch] and are not part of the output tensor.
 
@@ -27,7 +28,7 @@
       1  -mu   = SUM_ch x[ch] * (-1/channels)          MULT.RC.VV + ACC
       2  c[ch] = x[ch] * 1 + (-mu)                      -> centered
       3  s     = SUM_ch c[ch]^2                         MULT.RC.VS (squares R_CYCLIC)
-      4  r     = rsqrt(s * 1/channels)                  ACTIVATE.QUANTIZE rsqrt
+      4  r     = rsqrt(s * 1/channels)                  ACTIVATE.EXACT rsqrt
       5  n[ch] = c[ch] * r                              centered, in place
       6  y[ch] = n[ch] * gamma[ch] + 1 * beta[ch]       MULT.RC.VE, the scalar
          index walking gamma (lane ch) and beta (lane 128 + ch, from R1).
@@ -98,7 +99,8 @@
 {%- set N_CH = cr.channels %}
 {%- set ROW_STRIDE = cr.row_stride %}
 {%- set LANES = cr.lanes %}
-{%- set DSTRUCT = "CR15" %}
+{%- set DSTRUCT = cr.ds_qf ~ ".L" %}
+{%- set QF = cr.ds_qf ~ ".H" %}
 
 {%- macro build_count(dest, n) -%}
 {#- dest = n, built from CR1 (no CR holds it). -#}
@@ -138,13 +140,12 @@
 
 {%- macro pass6_body(label, bound) %}
 {{ label }}:
-    MULT.RC.VE {{ rc_slot0 }} {{ gamma_idx }} 0 {{ mask_shift }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ gamma_idx }} 0 {{ mask_shift }} {{ DSTRUCT }} {{ QF }};
     ACC.ADD.FIRST;
     LD.MULT.CYCLIC {{ rc_slot0 }} {{ ONES_BASE }} {{ rc_slot0 }};;
-    MULT.RC.VE {{ rc_slot0 }} {{ beta_idx }} 0 {{ mask_shift }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ beta_idx }} 0 {{ mask_shift }} {{ DSTRUCT }} {{ QF }};
     ACC.ADD;;
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    ST.AAQ {{ write_ptr }} {{ OUTPUT_BASE }};
+    ACTIVATE.EXACT identity {{ DSTRUCT }} {{ OUTPUT_BASE }} {{ write_ptr }} ;
     ADD {{ write_ptr }} {{ write_ptr }} {{ data_step }};
     ADD {{ gamma_idx }} {{ gamma_idx }} {{ ONE }};
     ADD {{ beta_idx }} {{ beta_idx }} {{ ONE }};;
@@ -177,7 +178,7 @@ tg_loop:
 {{ counter() }}
     LD.MULT.CYCLIC {{ read_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ data_step }};;
-    MULT.RC.VV {{ rc_slot0 }} R0 0 {{ mask_shift }} {{ DSTRUCT }};
+    MULT.RC.VV {{ rc_slot0 }} R0 0 {{ mask_shift }} {{ DSTRUCT }} {{ QF }};
     ACC.ADD.FIRST;;
     LD.MULT.CYCLIC {{ read_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ data_step }};
@@ -185,15 +186,14 @@ tg_loop:
     BLT.S {{ ch_index }} {{ ch_limit }} step1_loop;;
     B       step1_done;;
 step1_loop:
-    MULT.RC.VV {{ rc_slot0 }} R0 0 {{ mask_shift }} {{ DSTRUCT }};
+    MULT.RC.VV {{ rc_slot0 }} R0 0 {{ mask_shift }} {{ DSTRUCT }} {{ QF }};
     ACC.ADD;;
     LD.MULT.CYCLIC {{ read_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ data_step }};
     ADD {{ ch_index }} {{ ch_index }} {{ ONE }};
     BLT.S {{ ch_index }} {{ ch_limit }} step1_loop;;
 step1_done:
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    ST.AAQ {{ rc_slot0 }} {{ NEG_MEAN_BASE }};;
+    ACTIVATE.EXACT identity {{ DSTRUCT }} {{ NEG_MEAN_BASE }} {{ rc_slot0 }} ;;
 
 {#- ---- pass 2: centered = x - mu ---- #}
     LD.MULT        R0 {{ rc_slot0 }} {{ ONES_BASE }};;
@@ -204,13 +204,12 @@ step1_done:
     LD.MULT.CYCLIC {{ read_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ data_step }};;
 step2_loop:
-    MULT.RC.VV {{ rc_slot0 }} R0 0 {{ mask_shift }} {{ DSTRUCT }};
+    MULT.RC.VV {{ rc_slot0 }} R0 0 {{ mask_shift }} {{ DSTRUCT }} {{ QF }};
     ACC.ADD.FIRST;
     LD.MULT.CYCLIC {{ rc_slot0 }} {{ ONES_BASE }} {{ rc_slot0 }};;
-    MULT.RC.VV {{ rc_slot0 }} R1 0 {{ mask_shift }} {{ DSTRUCT }};
+    MULT.RC.VV {{ rc_slot0 }} R1 0 {{ mask_shift }} {{ DSTRUCT }} {{ QF }};
     ACC.ADD;;
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    ST.AAQ {{ write_ptr }} {{ CENTERED_BASE }};
+    ACTIVATE.EXACT identity {{ DSTRUCT }} {{ CENTERED_BASE }} {{ write_ptr }} ;
     ADD {{ write_ptr }} {{ write_ptr }} {{ row_stride }};
     LD.MULT.CYCLIC {{ read_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ data_step }};;
@@ -222,7 +221,7 @@ step2_loop:
 {{ counter() }}
     LD.MULT.CYCLIC {{ read_ptr }} {{ CENTERED_BASE }} {{ rc_slot0 }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
-    MULT.RC.VS {{ rc_slot0 }} 0 {{ mask_shift }} {{ DSTRUCT }};
+    MULT.RC.VS {{ rc_slot0 }} 0 {{ mask_shift }} {{ DSTRUCT }} {{ QF }};
     ACC.ADD.FIRST;;
     LD.MULT.CYCLIC {{ read_ptr }} {{ CENTERED_BASE }} {{ rc_slot0 }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};
@@ -230,23 +229,21 @@ step2_loop:
     BLT.S {{ ch_index }} {{ ch_limit }} step3_loop;;
     B       step3_done;;
 step3_loop:
-    MULT.RC.VS {{ rc_slot0 }} 0 {{ mask_shift }} {{ DSTRUCT }};
+    MULT.RC.VS {{ rc_slot0 }} 0 {{ mask_shift }} {{ DSTRUCT }} {{ QF }};
     ACC.ADD;;
     LD.MULT.CYCLIC {{ read_ptr }} {{ CENTERED_BASE }} {{ rc_slot0 }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};
     ADD {{ ch_index }} {{ ch_index }} {{ ONE }};
     BLT.S {{ ch_index }} {{ ch_limit }} step3_loop;;
 step3_done:
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    ST.AAQ {{ rc_slot0 }} {{ TEMP_BASE }};;
+    ACTIVATE.EXACT identity {{ DSTRUCT }} {{ TEMP_BASE }} {{ rc_slot0 }} ;;
 
 {#- ---- pass 4: 1/sigma ---- #}
     LD.MULT        R0 {{ rc_slot0 }} {{ TEMP_BASE }};;
     LD.MULT.CYCLIC {{ rc_slot0 }} {{ INV_N_BASE }} {{ rc_slot0 }};;
-    MULT.RC.VV {{ rc_slot0 }} R0 0 {{ mask_shift }} {{ DSTRUCT }};
+    MULT.RC.VV {{ rc_slot0 }} R0 0 {{ mask_shift }} {{ DSTRUCT }} {{ QF }};
     ACC.ADD.FIRST;;
-    ACTIVATE.QUANTIZE rsqrt {{ DSTRUCT }};;
-    ST.AAQ    {{ rc_slot0 }} {{ INVSTD_BASE }};;
+    ACTIVATE.EXACT rsqrt {{ DSTRUCT }} {{ INVSTD_BASE }} {{ rc_slot0 }};;
 
 {#- ---- pass 5: normalized = centered * 1/sigma, in place ---- #}
     LD.MULT        R0 {{ rc_slot0 }} {{ INVSTD_BASE }};;
@@ -256,10 +253,9 @@ step3_done:
     LD.MULT.CYCLIC {{ read_ptr }} {{ CENTERED_BASE }} {{ rc_slot0 }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
 step5_loop:
-    MULT.RC.VV {{ rc_slot0 }} R0 0 {{ mask_shift }} {{ DSTRUCT }};
+    MULT.RC.VV {{ rc_slot0 }} R0 0 {{ mask_shift }} {{ DSTRUCT }} {{ QF }};
     ACC.ADD.FIRST;;
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    ST.AAQ {{ write_ptr }} {{ CENTERED_BASE }};
+    ACTIVATE.EXACT identity {{ DSTRUCT }} {{ CENTERED_BASE }} {{ write_ptr }} ;
     LD.MULT.CYCLIC {{ read_ptr }} {{ CENTERED_BASE }} {{ rc_slot0 }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
     ADD     {{ write_ptr }} {{ write_ptr }} {{ row_stride }};

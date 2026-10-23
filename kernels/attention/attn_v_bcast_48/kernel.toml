@@ -20,6 +20,7 @@ key_bound = "n_tok - 2"  # CR8: 62
 chan_stride = "1"        # CR12
 rc_slot0 = "0"           # LR0
 pv_stride = "1"          # LR1
+qf = "case_qf"           # the case's QF half (0: FP32 ignores it)
 
 # The old placement: the inputs back to back from row 0 in the order below, then the output; first fit in
 # declaration order reproduces it (E07-12/13).
@@ -33,7 +34,7 @@ shape = ["n_head", "d", "n_tok"]
 
 [outputs.y]                             # O channel-major: row (h*d + t) holds n_tok queries
 shape = ["n_head", "d", "n_tok"]
-# ST.AAQ, one row per store, in row order
+# ACTIVATE.EXACT, one row per store, in row order
 
 [abi]
 b = "CR2"        # P_BASE
@@ -48,7 +49,8 @@ n_head = "CR11"
 chan_stride = "CR12"
 rc_slot0 = "LR0"
 pv_stride = "LR1"
-# CR15 unbound -> default dstructure (valid_elements = 128), as the recorded cases ran
+qf = "CR14"
+# CR15 unbound -> default DS (CR15.L: valid_elements = 128), as the recorded cases ran
 # Zero-valued LR presets are bound on purpose: in a Chain (E06-15) LRs carry over from the previous step.
 
 [golden]

@@ -65,7 +65,7 @@
       cr.gw          = W: the fold's rc_idx step, in elements
       cr.rpv         = rpv: the fold's step count
       CR0 = 0 and CR1 = 1 (-> the 1.0 scalar, and the +1 step) are read-only;
-      CR15 holds the default dstructure (128 valid elements: every element live
+      CR15.L holds the default DS (128 valid elements: every element live
       throughout).
 
     ";;" ends a instruction word, ";" separates sub-instructions; LR has 3 sub-slots.
@@ -90,13 +90,13 @@
     LD.MULT.CYCLIC {{lr_cyc}} {{ cr.log2e }} {{lr_cyc}} ;;       {#- R_CYCLIC = C_VEC -#}
 
     LD.MULT R0 {{lr_ioff}} {{ cr.x }} ;;                     {#- R0 = x[0] (visible next cycle) -#}
-    MULT.RC.VV   {{lr_cyc}} R0 0 {{lr_cyc}} CR15 ;
+    MULT.RC.VV   {{lr_cyc}} R0 0 {{lr_cyc}} CR15.L {{ cr.qf }}.L ;
     ADD {{lr_ioff}} {{lr_ioff}} {{ cr.row_stride }} ;;
     ACC.MAX.FIRST ;;
 
 p1_vec:
     LD.MULT R0 {{lr_ioff}} {{ cr.x }} ;;
-    MULT.RC.VV   {{lr_cyc}} R0 0 {{lr_cyc}} CR15 ;
+    MULT.RC.VV   {{lr_cyc}} R0 0 {{lr_cyc}} CR15.L {{ cr.qf }}.L ;
     ADD {{lr_ioff}} {{lr_ioff}} {{ cr.row_stride }} ;
     ADD {{lr_vec}}  {{lr_vec}}  CR1 ;;
     ACC.MAX ;;
@@ -104,26 +104,24 @@ p1_vec:
 
 {#- ---- cross-group fold (max): duplicate the partial into slots 0+1, then rpv -#}
 {#- linear steps rc_idx = 0, W, 2W, ..., (rpv-1)*W -- all real, no masking. -#}
-    ACTIVATE.QUANTIZE identity CR15 ;                       {#- reads R_ACC forwarded -#}
-    ST.AAQ {{lr_cyc}} {{ cr.fold }} ;;                     {#- scratch <- down-vector partial -#}
+    ACTIVATE.EXACT identity CR15.L {{ cr.fold }} {{lr_cyc}} ;;  {#- reads R_ACC forwarded; scratch <- down-vector partial -#}
     LD.MULT.CYCLIC {{lr_cyc}} {{ cr.fold }} {{lr_cyc}} ;;       {#- R_CYCLIC slot0 = partial -#}
     SET {{lr_lanes}} {{ cr.dup_index }} ;;
     LD.MULT.CYCLIC {{lr_cyc}} {{ cr.fold }} {{lr_lanes}} ;;     {#- R_CYCLIC slot1 = SAME partial (index=LANES) -#}
 
     SET {{lr_shift}} CR0 ;;                                 {#- shift = 0 (p=0) -#}
-    MULT.RC.VE   {{lr_shift}} CR1 0 {{lr_cyc}} CR15 ;
+    MULT.RC.VE   {{lr_shift}} CR1 0 {{lr_cyc}} CR15.L {{ cr.qf }}.L ;
     ACC.MAX.FIRST ;;
 
     SET {{lr_p}}     CR1 ;;                                 {#- p = 1 -#}
 p1_fold:
     ADD {{lr_shift}} {{lr_shift}} {{ cr.gw }} ;;                   {#- shift += W -#}
-    MULT.RC.VE   {{lr_shift}} CR1 0 {{lr_cyc}} CR15 ;
+    MULT.RC.VE   {{lr_shift}} CR1 0 {{lr_cyc}} CR15.L {{ cr.qf }}.L ;
     ACC.MAX ;;
     ADD {{lr_p}}     {{lr_p}}     CR1 ;;
     BLT.S {{lr_p}} {{ cr.rpv }} p1_fold ;;                            {#- loop while p < rpv -#}
 
-    ACTIVATE.QUANTIZE identity CR15 ;                       {#- reads R_ACC forwarded -#}
-    ST.AAQ {{lr_cyc}} {{ cr.max }} ;;                      {#- CMAX <- folded per-column max -#}
+    ACTIVATE.EXACT identity CR15.L {{ cr.max }} {{lr_cyc}} ;;  {#- reads R_ACC forwarded; CMAX <- folded per-column max -#}
 
 {#- ===================================================================== -#}
 {#- PASS 2 -- num[v,col] = 2^(c*x[v,col] - cmax[col]).  Writes NUM region.  -#}
@@ -135,14 +133,13 @@ p1_fold:
 p2_vec:
     LD.MULT R0 {{lr_ioff}} {{ cr.x }} ;;
     LD.MULT.CYCLIC {{lr_cyc}} {{ cr.log2e }} {{lr_cyc}} ;;        {#- R_CYCLIC = C_VEC (reload each vec) -#}
-    MULT.RC.VV   {{lr_cyc}} R0 0 {{lr_cyc}} CR15 ;          {#- MULT_RES = c*x[v] -#}
+    MULT.RC.VV   {{lr_cyc}} R0 0 {{lr_cyc}} CR15.L {{ cr.qf }}.L ;          {#- MULT_RES = c*x[v] -#}
     ACC.ADD.FIRST ;;
 
     LD.MULT.CYCLIC {{lr_cyc}} {{ cr.max }} {{lr_cyc}} ;;        {#- R_CYCLIC = cmax -#}
-    MULT.RC.VE   {{lr_cyc}} CR1 0 {{lr_cyc}} CR15 ;         {#- MULT_RES = cmax*1.0 -#}
+    MULT.RC.VE   {{lr_cyc}} CR1 0 {{lr_cyc}} CR15.L {{ cr.qf }}.L ;         {#- MULT_RES = cmax*1.0 -#}
     ACC.SUB ;                                               {#- R_ACC = c*x[v] - cmax -#}
-    ACTIVATE.QUANTIZE exp2 CR15 ;                            {#- reads R_ACC forwarded -#}
-    ST.AAQ {{lr_woff}} {{ cr.num }} ;;
+    ACTIVATE.EXACT exp2 CR15.L {{ cr.num }} {{lr_woff}} ;;  {#- reads R_ACC forwarded -#}
 
     ADD {{lr_ioff}} {{lr_ioff}} {{ cr.row_stride }} ;
     ADD {{lr_woff}} {{lr_woff}} {{ cr.row_stride }} ;
@@ -157,49 +154,46 @@ p2_vec:
     SET {{lr_vec}}  CR1 ;;                                  {#- v=0 peeled -#}
 
     LD.MULT.CYCLIC {{lr_ioff}} {{ cr.num }} {{lr_cyc}} ;;       {#- R_CYCLIC = num[0] -#}
-    MULT.RC.VE   {{lr_cyc}} CR1 0 {{lr_cyc}} CR15 ;
+    MULT.RC.VE   {{lr_cyc}} CR1 0 {{lr_cyc}} CR15.L {{ cr.qf }}.L ;
     ADD {{lr_ioff}} {{lr_ioff}} {{ cr.row_stride }} ;;
     ACC.ADD.FIRST ;;
 
 p3_vec:
     LD.MULT.CYCLIC {{lr_ioff}} {{ cr.num }} {{lr_cyc}} ;;
-    MULT.RC.VE   {{lr_cyc}} CR1 0 {{lr_cyc}} CR15 ;
+    MULT.RC.VE   {{lr_cyc}} CR1 0 {{lr_cyc}} CR15.L {{ cr.qf }}.L ;
     ADD {{lr_ioff}} {{lr_ioff}} {{ cr.row_stride }} ;
     ADD {{lr_vec}}  {{lr_vec}}  CR1 ;;
     ACC.ADD ;;
     BLT.S {{lr_vec}} {{ cr.device_rows }} p3_vec ;;
 
 {#- ---- cross-group fold (sum): same duplicate-slot linear walk as Pass 1. ---- -#}
-    ACTIVATE.QUANTIZE identity CR15 ;                       {#- reads R_ACC forwarded -#}
-    ST.AAQ {{lr_cyc}} {{ cr.fold }} ;;                     {#- scratch <- down-vector partial -#}
+    ACTIVATE.EXACT identity CR15.L {{ cr.fold }} {{lr_cyc}} ;;  {#- reads R_ACC forwarded; scratch <- down-vector partial -#}
     LD.MULT.CYCLIC {{lr_cyc}} {{ cr.fold }} {{lr_cyc}} ;;       {#- R_CYCLIC slot0 = partial -#}
     SET {{lr_lanes}} {{ cr.dup_index }} ;;
     LD.MULT.CYCLIC {{lr_cyc}} {{ cr.fold }} {{lr_lanes}} ;;     {#- R_CYCLIC slot1 = SAME partial (index=LANES) -#}
 
     SET {{lr_shift}} CR0 ;;                                 {#- shift = 0 (p=0) -#}
-    MULT.RC.VE   {{lr_shift}} CR1 0 {{lr_cyc}} CR15 ;
+    MULT.RC.VE   {{lr_shift}} CR1 0 {{lr_cyc}} CR15.L {{ cr.qf }}.L ;
     ACC.ADD.FIRST ;;
 
     SET {{lr_p}}     CR1 ;;                                 {#- p = 1 -#}
 p3_fold:
     ADD {{lr_shift}} {{lr_shift}} {{ cr.gw }} ;;                   {#- shift += W -#}
-    MULT.RC.VE   {{lr_shift}} CR1 0 {{lr_cyc}} CR15 ;
+    MULT.RC.VE   {{lr_shift}} CR1 0 {{lr_cyc}} CR15.L {{ cr.qf }}.L ;
     ACC.ADD ;;
     ADD {{lr_p}}     {{lr_p}}     CR1 ;;
     BLT.S {{lr_p}} {{ cr.rpv }} p3_fold ;;                            {#- loop while p < rpv -#}
 
-    ACTIVATE.QUANTIZE reciprocal CR15 ;                     {#- reads R_ACC forwarded -#}
-    ST.AAQ {{lr_cyc}} {{ cr.rvec }} ;;                      {#- RVEC <- 1/sum (folded) -#}
+    ACTIVATE.EXACT reciprocal CR15.L {{ cr.rvec }} {{lr_cyc}} ;;  {#- reads R_ACC forwarded; RVEC <- 1/sum (folded) -#}
 
 {#- ---- fold the keep-mask into rvec once: rvec <- rvec * keep ---------- -#}
     SET {{lr_maskrow}} {{ cr.log2e }} ;;
     ADD {{lr_maskrow}} {{lr_maskrow}} CR1 ;;                {#- keep-mask row = CVEC row + 1 -#}
     LD.MULT.CYCLIC {{lr_maskrow}} CR0 {{lr_cyc}} ;;    {#- R_CYCLIC = keep-mask -#}
     LD.MULT R1 {{lr_cyc}} {{ cr.rvec }} ;;                       {#- R1 = rvec -#}
-    MULT.RC.VV   {{lr_cyc}} R1 0 {{lr_cyc}} CR15 ;          {#- MULT_RES = keep * rvec -#}
+    MULT.RC.VV   {{lr_cyc}} R1 0 {{lr_cyc}} CR15.L {{ cr.qf }}.L ;          {#- MULT_RES = keep * rvec -#}
     ACC.ADD.FIRST ;
-    ACTIVATE.QUANTIZE identity CR15 ;                        {#- reads R_ACC forwarded -#}
-    ST.AAQ {{lr_cyc}} {{ cr.rvec }} ;;                      {#- RVEC <- rvec * keep -#}
+    ACTIVATE.EXACT identity CR15.L {{ cr.rvec }} {{lr_cyc}} ;;  {#- reads R_ACC forwarded; RVEC <- rvec * keep -#}
 
 {#- ===================================================================== -#}
 {#- PASS 4 -- out[v,col] = num[v,col] * (rvec*keep)[col].                   -#}
@@ -210,10 +204,9 @@ p3_fold:
 
 p4_vec:
     LD.MULT.CYCLIC {{lr_ioff}} {{ cr.num }} {{lr_cyc}} ;;       {#- R_CYCLIC = num[v] -#}
-    MULT.RC.VV   {{lr_cyc}} R1 0 {{lr_cyc}} CR15 ;          {#- MULT_RES = num[v] * (rvec*keep) -#}
+    MULT.RC.VV   {{lr_cyc}} R1 0 {{lr_cyc}} CR15.L {{ cr.qf }}.L ;          {#- MULT_RES = num[v] * (rvec*keep) -#}
     ACC.ADD.FIRST ;
-    ACTIVATE.QUANTIZE identity CR15 ;                        {#- reads R_ACC forwarded -#}
-    ST.AAQ {{lr_ioff}} {{ cr.y }} ;;
+    ACTIVATE.EXACT identity CR15.L {{ cr.y }} {{lr_ioff}} ;;  {#- reads R_ACC forwarded -#}
 
     ADD {{lr_ioff}} {{lr_ioff}} {{ cr.row_stride }} ;
     ADD {{lr_vec}}  {{lr_vec}}  CR1 ;;

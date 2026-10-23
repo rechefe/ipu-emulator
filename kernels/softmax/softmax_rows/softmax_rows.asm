@@ -7,10 +7,8 @@
 
     so that 2^(c*d) == e^d and the IPU's native exp2 activation applies
     directly. All scaling is on the FP32 vector path (MULT.RC.VV / MULT.RC.VE):
-    a CR scalar is an integer even in the FP32 format
-    (docs/content/explanation/element-formats.md), so c is the resident
-    128-element vector log2e, while the integer scalar 1 (-> 1.0) rides in the
-    read-only CR1.
+    c is the resident 128-element vector log2e, while the MULT constant 1.0
+    rides in the read-only CR1 (ADR 0007).
 
     Passes (per group, below):
       Pass 1 (reduction): maxvec[r] = max_j (c * x[r, j])         -> max row
@@ -49,7 +47,7 @@
                     element 128 + r is maxvec[r])
       cr.rows       = total rows
       CR0 = 0 and CR1 = 1 (-> the 1.0 scalar, and the +1 step) are read-only;
-      CR15 holds the default dstructure (128 valid elements).
+      CR15.L holds the default DS (128 valid elements).
 
     LR uses 3 sub-slots; ";;" ends a instruction word, ";" separates sub-instructions.
     R_CYCLIC loads use index 0 (a whole row).
@@ -86,14 +84,13 @@ group_size_set:
 
 pass1_loop:
     LD.MULT  R0 {{lr_off}} {{ cr.x }} ;;                 {#- R0 = x[r] (read at cycle start: visible NEXT cycle, issue #157) -#}
-    MULT.RC.VV    {{lr_cyc}} R0 0 {{lr_cyc}} CR15 ;          {#- MULT_RES = c*x[r] -#}
-    AGG.MAX.FIRST {{lr_row}} CR15 ;;                       {#- R_ACC[r] = max element -#}
+    MULT.RC.VV    {{lr_cyc}} R0 0 {{lr_cyc}} CR15.L {{ cr.qf }}.L ;          {#- MULT_RES = c*x[r] -#}
+    AGG.MAX.FIRST {{lr_row}} CR15.L ;;                       {#- R_ACC[r] = max element -#}
     ADD {{lr_off}} {{lr_off}} {{ cr.row_stride }} ;
     ADD {{lr_row}} {{lr_row}} CR1 ;;
     BLT.S {{lr_row}} {{lr_bound}} pass1_loop ;;
 
-    ACTIVATE.QUANTIZE identity CR15;                     {#- reads R_ACC forwarded -#}
-    ST.AAQ {{lr_cyc}} {{ cr.max }} ;;                  {#- cr.max <- maxvec -#}
+    ACTIVATE.EXACT identity CR15.L {{ cr.max }} {{lr_cyc}} ;;  {#- reads R_ACC forwarded; cr.max <- maxvec -#}
 
 {#- ===================================================================== -#}
 {#- PASS 2 -- num[r] = 2^(c*x[r] - maxvec[r]).  Writes NUM region.         -#}
@@ -110,13 +107,12 @@ pass1_loop:
 
 pass2_loop:
     LD.MULT R0 {{lr_off}} {{ cr.x }} ;;                   {#- R0 = x[r] (read at cycle start: visible NEXT cycle, issue #157) -#}
-    MULT.RC.VV   {{lr_cyc}} R0 0 {{lr_cyc}} CR15 ;           {#- MULT_RES = c*x[r] -#}
+    MULT.RC.VV   {{lr_cyc}} R0 0 {{lr_cyc}} CR15.L {{ cr.qf }}.L ;           {#- MULT_RES = c*x[r] -#}
     ACC.ADD.FIRST ;;                                         {#- R_ACC = c*x[r] -#}
 
-    MULT.EE {{lr_max_idx}} CR1 0 {{lr_cyc}} CR15 ;           {#- MULT_RES = maxvec[r]*1.0 -#}
+    MULT.EE {{lr_max_idx}} CR1 0 {{lr_cyc}} CR15.L {{ cr.qf }}.L ;           {#- MULT_RES = maxvec[r]*1.0 -#}
     ACC.SUB ;                                                {#- R_ACC = c*x[r] - maxvec[r] -#}
-    ACTIVATE.QUANTIZE exp2 CR15;                             {#- reads R_ACC forwarded -#}
-    ST.AAQ {{lr_wr}} {{ cr.num }} ;;                    {#- NUM[r] = 2^(...) -#}
+    ACTIVATE.EXACT exp2 CR15.L {{ cr.num }} {{lr_wr}} ;;  {#- reads R_ACC forwarded; NUM[r] = 2^(...) -#}
 
     ADD {{lr_off}} {{lr_off}} {{ cr.row_stride }} ;
     ADD {{lr_wr}} {{lr_wr}} {{ cr.row_stride }} ;
@@ -133,14 +129,13 @@ pass2_loop:
 
 pass3_loop:
     LD.MULT.CYCLIC {{lr_off}} {{ cr.num }} {{lr_cyc}} ;;    {#- R_CYCLIC = num[r] (read at cycle start: visible NEXT cycle) -#}
-    MULT.RC.VE    {{lr_cyc}} CR1 0 {{lr_cyc}} CR15 ;         {#- MULT_RES = num[r]*1.0 -#}
-    AGG.SUM.FIRST {{lr_row}} CR15 ;;                        {#- R_ACC[r] = SUM num[r] -#}
+    MULT.RC.VE    {{lr_cyc}} CR1 0 {{lr_cyc}} CR15.L {{ cr.qf }}.L ;         {#- MULT_RES = num[r]*1.0 -#}
+    AGG.SUM.FIRST {{lr_row}} CR15.L ;;                        {#- R_ACC[r] = SUM num[r] -#}
     ADD {{lr_off}} {{lr_off}} {{ cr.row_stride }} ;
     ADD {{lr_row}} {{lr_row}} CR1 ;;
     BLT.S {{lr_row}} {{lr_bound}} pass3_loop ;;
 
-    ACTIVATE.QUANTIZE reciprocal CR15;                   {#- reads R_ACC forwarded -#}
-    ST.AAQ {{lr_cyc}} {{ cr.rvec }} ;;                   {#- cr.rvec <- 1/sum -#}
+    ACTIVATE.EXACT reciprocal CR15.L {{ cr.rvec }} {{lr_cyc}} ;;  {#- reads R_ACC forwarded; cr.rvec <- 1/sum -#}
 
 {#- ===================================================================== -#}
 {#- PASS 4 -- out[r] = num[r] * rvec[r].  Writes OUTPUT region.            -#}
@@ -152,10 +147,9 @@ pass3_loop:
 
 pass4_loop:
     LD.MULT.CYCLIC {{lr_off}} {{ cr.num }} {{lr_cyc}} ;;    {#- R_CYCLIC = num[r] (read at cycle start: visible NEXT cycle) -#}
-    MULT.RC.VE   {{lr_cyc}} {{lr_row}} 0 {{lr_cyc}} CR15 ;   {#- MULT_RES = num[r]*rvec[r] -#}
+    MULT.RC.VE   {{lr_cyc}} {{lr_row}} 0 {{lr_cyc}} CR15.L {{ cr.qf }}.L ;   {#- MULT_RES = num[r]*rvec[r] -#}
     ACC.ADD.FIRST ;
-    ACTIVATE.QUANTIZE identity CR15;                     {#- reads R_ACC forwarded -#}
-    ST.AAQ {{lr_off}} {{ cr.y }} ;;                   {#- OUT[r] = softmax row -#}
+    ACTIVATE.EXACT identity CR15.L {{ cr.y }} {{lr_off}} ;;  {#- reads R_ACC forwarded; OUT[r] = softmax row -#}
 
     ADD {{lr_off}} {{lr_off}} {{ cr.row_stride }} ;
     ADD {{lr_row}} {{lr_row}} CR1 ;;
