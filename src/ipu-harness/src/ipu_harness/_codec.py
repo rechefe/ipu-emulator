@@ -8,8 +8,9 @@ every per-mode branch is here, none in the callers (ADR 0007).
   (``scale``, ``dynamic_exponent``). The scale is chosen per row from the
   row's largest value (``ipu_isa.nx8.encode_row``, the AaQ quantizer), so how
   a value is held depends on the other values of its row: the harness rounds
-  rows, never single values. Zero-padded lanes hold the value 0 and do not
-  change the scale.
+  rows, never single values. Zero-padded lanes do not change the scale and
+  read back 0, except in a row that is all zeros: its scale is 0 and each
+  zero reads back as 2^-127, as the spec's quantizer gives (OQ-46).
 """
 
 from __future__ import annotations

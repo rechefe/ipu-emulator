@@ -304,24 +304,23 @@ def _agg_dest(ipu: Ipu, codec: LaneCodec, dest: int) -> np.ndarray:
     return codec.load_acc(snap[dest * _ACC_LANE_BYTES :], 1)
 
 
-def _store_dest(ipu: Ipu, codec: LaneCodec, dest: int, value: np.ndarray | float | int) -> None:
+def _store_dest(ipu: Ipu, codec: LaneCodec, dest: int, value: np.ndarray | float) -> None:
     """Write one accumulator lane to R_ACC[dest]."""
     out = ipu.state.regfile.mutable("r_acc", dest * _ACC_LANE_BYTES, _ACC_LANE_BYTES)
     _store_events(ipu, codec, out, np.asarray(value).reshape(1))
 
 
-def _fold_sum(lanes: list) -> float | int:
-    # Summed in lane order, one lane at a time, in Python numbers: floating-
+def _fold_sum(lanes: list) -> float:
+    # Summed in lane order, one lane at a time, in Python floats: floating-
     # point addition is not associative, so a pairwise (numpy) sum would give
     # a different answer.
-    # (An int 0 start adds exactly as 0.0 to a float lane.)
-    total: float | int = 0
+    total = 0.0
     for value in lanes:
         total += value
     return total
 
 
-def _fold_max(lanes: list, seed: float | int) -> float | int:
+def _fold_max(lanes: list, seed: float) -> float:
     # Python's max fold: a lane replaces the best only when strictly greater,
     # so a NaN seed stays and the first of equal values (+0.0, -0.0) wins.
     best = seed

@@ -127,7 +127,10 @@ class _Fp32:
 def _fp32_fields(value: float) -> _Fp32:
     if math.isnan(value):
         raise IsaValueError("NX8 has no NaN encoding (OQ-37)")
-    (bits,) = struct.unpack(">I", struct.pack(">f", value))
+    try:
+        (bits,) = struct.unpack(">I", struct.pack(">f", value))
+    except OverflowError:  # beyond FP32's range: rounds to an infinity
+        return _Fp32(int(value < 0), 0xFF, 0, True, False)
     sign = bits >> 31
     exp = (bits >> _FP32_MANTISSA_BITS) & 0xFF
     if exp == 0xFF or math.isinf(value):

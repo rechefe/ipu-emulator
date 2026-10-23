@@ -13,7 +13,6 @@ view (``CycleView.ds`` / ``CycleView.qf``), which call :func:`ds_of` and
 
 from __future__ import annotations
 
-import struct
 from functools import lru_cache
 
 import numpy as np
@@ -30,11 +29,9 @@ from ipu_isa.cr_halves import (
     half_cr_code,
 )
 from ipu_isa.errors import IsaValueError
-from ipu_isa.geometry import LANES
 from ipu_isa.nx8 import Nx8Format, decode_element
 
 __all__ = [
-    "ZERO_FP32_ROW",
     "constant_value",
     "ds_active_count",
     "ds_active_mask",
@@ -108,7 +105,9 @@ def constant_value(cr_index: int, word: int) -> float:
     """CR *cr_index*, holding *word*, as an NX8-mode MULT constant.
 
     ``CR0`` reads 0.0 and ``CR1`` 1.0 (ADR 0007); any other CR is decoded with
-    the constant layout: one 8-bit NX8 element with its own scale and type.
+    the constant layout: one 8-bit NX8 element with its own scale and type,
+    expanded to FP32 like a vector element (``ARCH-stage-mult.md`` §3.2.1), so
+    a value beyond FP32's range reads as an infinity or 0.
 
     Raises:
         CrContentError: The constant's type is invalid (``fe`` 0, or ``fe + sign``
@@ -122,7 +121,8 @@ def constant_value(cr_index: int, word: int) -> float:
         constant = decode_constant(word)
     except IsaValueError as error:
         raise CrContentError(f"CR{cr_index} holds no valid MULT constant: {error}") from None
-    return decode_element(constant.value, constant.fmt, constant.scale)
+    with np.errstate(all="ignore"):
+        return float(np.float32(decode_element(constant.value, constant.fmt, constant.scale)))
 
 
 def fp32_constant_value(cr_index: int, word: int) -> float:
@@ -139,7 +139,3 @@ def float32_bytes(values: list[float]) -> bytes:
     """*values* as little-endian float32 bytes (an overflow becomes an infinity)."""
     with np.errstate(all="ignore"):
         return np.asarray(values, dtype=np.float64).astype("<f4").tobytes()
-
-
-#: A row of LANES FP32 zeros: the inactive lanes' value in a stored FP32 row.
-ZERO_FP32_ROW = struct.pack(f"<{LANES}f", *([0.0] * LANES))

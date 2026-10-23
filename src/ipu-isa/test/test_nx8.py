@@ -72,6 +72,13 @@ def test_infinity_saturates_and_leaves_the_scale():
     assert row.saturated
 
 
+def test_beyond_fp32_range_rounds_to_infinity():
+    row = encode_row([1e39, -1e39, 1.0], E4M3)
+    assert row.scale == 127
+    assert list(row.elements[:2]) == [0x07, 0x87]
+    assert row.saturated
+
+
 def test_nan_raises():
     with pytest.raises(IsaValueError, match="NaN"):
         encode_row([math.nan], E4M3)

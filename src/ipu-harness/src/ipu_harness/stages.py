@@ -223,7 +223,6 @@ def _program(manifest: KernelManifest, program: str) -> Path:
 
 def _assemble_stage(
     plan: CasePlan,
-    placement: Placement | None,
     cache: AssemblyCache,
     program: str,
     *,
@@ -264,7 +263,7 @@ class _Stages:
         if self.stopped:
             raise _StageStop  # an earlier stage ended the run; the hook caught its stop
         bindings, assembled = _assemble_stage(
-            self.plan, self.placement, self.cache, program, params=params, abi=abi
+            self.plan, self.cache, program, params=params, abi=abi
         )
 
         model = self.model
@@ -395,9 +394,7 @@ class _Assembling:
         ds: int | None = None,
         max_cycles: int | None = None,
     ) -> int:
-        _, assembled = _assemble_stage(
-            self.plan, self.regions, self.cache, program, params=params, abi=abi
-        )
+        _, assembled = _assemble_stage(self.plan, self.cache, program, params=params, abi=abi)
         self.programs.append((program, assembled))
         return 0
 
@@ -411,8 +408,9 @@ def stage_programs(
 
     Args:
         plan: The checked case of a kernel with a ``stages`` hook.
-        placement: Its regions, for the ``ST.AAQ`` spill check; ``None``
-            skips that check (the programs need no placement to assemble).
+        placement: Its regions, for a hook that reads them; ``None`` when
+            the caller has none (the programs need no placement to assemble,
+            and a hook that reads it then raises ``ConfigurationError``).
         cache: Reuses programs already assembled.
 
     Returns:

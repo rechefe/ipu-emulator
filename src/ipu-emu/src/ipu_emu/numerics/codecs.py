@@ -40,8 +40,6 @@ from ipu_isa.nx8 import Nx8Format, decode_element, split_metadata
 Buffer = bytes | bytearray | memoryview
 Lanes = npt.NDArray[np.float64]
 
-_INT32_MASK: Final = (1 << 32) - 1
-
 
 def _pack_lanes_one_by_one(lane_fmt: str, out: Buffer, values: list[float]) -> None:
     """The scalar store, replayed for a row that does not fit.

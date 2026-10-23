@@ -17,6 +17,7 @@ import numpy as np
 import pytest
 from emu_support import ElementFormat, make_state
 
+from ipu_emu.cr_contents import constant_value
 from ipu_emu.emulator import run_until_complete
 from ipu_emu.errors import CrContentError
 from ipu_isa.cr_halves import constant, decode_constant, qf
@@ -81,7 +82,8 @@ class Model:
         if self.wide:
             return float(np.uint32(word).view("<f4"))
         c = decode_constant(word)
-        return decode_element(c.value, c.fmt, c.scale)
+        with np.errstate(all="ignore"):
+            return float(np.float32(decode_element(c.value, c.fmt, c.scale)))
 
     @staticmethod
     def mult_res(products: np.ndarray) -> np.ndarray:
@@ -190,6 +192,19 @@ def test_nx8_constant_layout_by_hand():
     assert ops["cr"] == 1.5
     window = ops["ra"][(RA_IDX + np.arange(LANES)) % (2 * LANES)]
     np.testing.assert_array_equal(got, model.mult_res(window * 1.5))
+
+
+@pytest.mark.parametrize(
+    ("word", "value"),
+    [
+        (constant(0b0_0_111111, 255, 1), float("inf")),  # 1.98 * 2^128: beyond FP32
+        (constant(0b0_111111_1, 0, 6), 0.0),  # about 2^-190: below FP32's smallest subnormal
+    ],
+    ids=["overflow", "underflow"],
+)
+def test_an_nx8_constant_expands_to_fp32_like_an_element(word, value):
+    """The constant is expanded to FP32 before the multiply (§3.2.1), as a vector element is."""
+    assert constant_value(3, word) == value
 
 
 @pytest.mark.parametrize("mode", MODES, ids=_IDS)
