@@ -163,7 +163,7 @@ def test_agg_folds_in_lane_order(fmt, mnemonic, valid):
 
 @pytest.mark.parametrize("fmt", FORMATS, ids=lambda f: f.value)
 def test_acc_stride_past_the_last_lane_raises_before_writing(fmt):
-    # An open question (stage-accumulator 6.8), not a fault: an EmulatorError
+    # An open question (MAS-stage-accumulator 6.8), not a fault: an EmulatorError
     # before any lane is written (E04-19).
     state, acc, res = _setup(fmt, "ACC.STRIDE 16 off off LR0", f"stride-{fmt}")
     state.regfile.set_lr(0, 1)  # start lane 32: lanes 96..127 of the result do not fit

@@ -1,6 +1,6 @@
 # `ACTIVATE.QUANTIZE` in the emulator {#activations-emulator}
 
-The [AaQ stage spec](../../specs/stage-aaq-str.md) describes how the hardware
+The [AaQ stage spec](../../specs/MAS-stage-aaq-str.md) describes how the hardware
 applies an activation: a function id (for example from `act_cr_idx` and a `CR`
 read) and α-like parameters that are not VLIW immediates. They come from
 implementation-defined configuration (constants, fuses, side-band registers).
@@ -58,7 +58,7 @@ defaults in `ipu_emu/activations.py` (`DEFAULT_ELU_ALPHA`, `DEFAULT_WINDOW_A`,
 `window` is the half-open indicator: `window(x) = 1` for `a <= x < b`, else 0.
 The defaults are placeholders until calibration: `a = 0.0`, `b = 0.1`. On the
 hardware, `window` belongs to the LUT-backed `activation` group of the
-[AaQ spec](../../specs/stage-aaq-str.md), so `a` and `b` are part of the loaded
+[AaQ spec](../../specs/MAS-stage-aaq-str.md), so `a` and `b` are part of the loaded
 LUT; the emulator keeps them on the state instead.
 
 They are set on the state, like the element format, not through a CR:

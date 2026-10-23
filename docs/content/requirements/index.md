@@ -75,8 +75,8 @@ The kernel library is the throughput benchmark. Area and power are not constrain
 |---|---|
 | [Instruction reference](../reference/isa/instructions.md) | Instruction semantics and encodings |
 | [Control stage specification](../specs/stage-control.md) | CTRL behaviour |
-| [Accumulator stage specification](../specs/stage-accumulator.md) | ACC behaviour |
-| [AaQ and store stage specification](../specs/stage-aaq-str.md) | AAQ and STORE behaviour |
+| [Accumulator stage specification](../specs/MAS-stage-accumulator.md) | ACC behaviour |
+| [AaQ and store stage specification](../specs/MAS-stage-aaq-str.md) | AAQ and STORE behaviour |
 | [Cache unit specification](../specs/cache-unit.md) | CRM, XMEM and DMA behaviour |
 
 [Open questions](open-questions.md) lists the conflicts between these documents.

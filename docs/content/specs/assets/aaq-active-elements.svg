@@ -1,0 +1,153 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 290" width="760" height="290" font-family="Helvetica, Arial, sans-serif" font-size="13">
+  <!-- Active elements example: num_partition = 4, valid_partition = 3, valid_elements = 10 -->
+  <rect width="760" height="290" fill="#ffffff"/>
+  <text x="150" y="22" fill="#222" font-weight="bold">num_partition = 4: 4 groups of 32 elements</text>
+  <text x="10" y="87" fill="#222">Group 0</text>
+  <text x="10" y="103" fill="#666" font-size="11">elements 0-31</text>
+  <rect x="150" y="70" width="14" height="28" fill="#2e9e8c" stroke="#1a7060"/>
+  <rect x="164" y="70" width="14" height="28" fill="#2e9e8c" stroke="#1a7060"/>
+  <rect x="178" y="70" width="14" height="28" fill="#2e9e8c" stroke="#1a7060"/>
+  <rect x="192" y="70" width="14" height="28" fill="#2e9e8c" stroke="#1a7060"/>
+  <rect x="206" y="70" width="14" height="28" fill="#2e9e8c" stroke="#1a7060"/>
+  <rect x="220" y="70" width="14" height="28" fill="#2e9e8c" stroke="#1a7060"/>
+  <rect x="234" y="70" width="14" height="28" fill="#2e9e8c" stroke="#1a7060"/>
+  <rect x="248" y="70" width="14" height="28" fill="#2e9e8c" stroke="#1a7060"/>
+  <rect x="262" y="70" width="14" height="28" fill="#2e9e8c" stroke="#1a7060"/>
+  <rect x="276" y="70" width="14" height="28" fill="#2e9e8c" stroke="#1a7060"/>
+  <rect x="290" y="70" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="304" y="70" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="318" y="70" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="332" y="70" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="346" y="70" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="360" y="70" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="374" y="70" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="388" y="70" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="402" y="70" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="416" y="70" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="430" y="70" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="444" y="70" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="458" y="70" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="472" y="70" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="486" y="70" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="500" y="70" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="514" y="70" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="528" y="70" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="542" y="70" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="556" y="70" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="570" y="70" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="584" y="70" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <text x="10" y="131" fill="#222">Group 1</text>
+  <text x="10" y="147" fill="#666" font-size="11">elements 32-63</text>
+  <rect x="150" y="114" width="14" height="28" fill="#2e9e8c" stroke="#1a7060"/>
+  <rect x="164" y="114" width="14" height="28" fill="#2e9e8c" stroke="#1a7060"/>
+  <rect x="178" y="114" width="14" height="28" fill="#2e9e8c" stroke="#1a7060"/>
+  <rect x="192" y="114" width="14" height="28" fill="#2e9e8c" stroke="#1a7060"/>
+  <rect x="206" y="114" width="14" height="28" fill="#2e9e8c" stroke="#1a7060"/>
+  <rect x="220" y="114" width="14" height="28" fill="#2e9e8c" stroke="#1a7060"/>
+  <rect x="234" y="114" width="14" height="28" fill="#2e9e8c" stroke="#1a7060"/>
+  <rect x="248" y="114" width="14" height="28" fill="#2e9e8c" stroke="#1a7060"/>
+  <rect x="262" y="114" width="14" height="28" fill="#2e9e8c" stroke="#1a7060"/>
+  <rect x="276" y="114" width="14" height="28" fill="#2e9e8c" stroke="#1a7060"/>
+  <rect x="290" y="114" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="304" y="114" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="318" y="114" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="332" y="114" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="346" y="114" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="360" y="114" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="374" y="114" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="388" y="114" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="402" y="114" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="416" y="114" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="430" y="114" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="444" y="114" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="458" y="114" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="472" y="114" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="486" y="114" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="500" y="114" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="514" y="114" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="528" y="114" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="542" y="114" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="556" y="114" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="570" y="114" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="584" y="114" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <text x="10" y="175" fill="#222">Group 2</text>
+  <text x="10" y="191" fill="#666" font-size="11">elements 64-95</text>
+  <rect x="150" y="158" width="14" height="28" fill="#2e9e8c" stroke="#1a7060"/>
+  <rect x="164" y="158" width="14" height="28" fill="#2e9e8c" stroke="#1a7060"/>
+  <rect x="178" y="158" width="14" height="28" fill="#2e9e8c" stroke="#1a7060"/>
+  <rect x="192" y="158" width="14" height="28" fill="#2e9e8c" stroke="#1a7060"/>
+  <rect x="206" y="158" width="14" height="28" fill="#2e9e8c" stroke="#1a7060"/>
+  <rect x="220" y="158" width="14" height="28" fill="#2e9e8c" stroke="#1a7060"/>
+  <rect x="234" y="158" width="14" height="28" fill="#2e9e8c" stroke="#1a7060"/>
+  <rect x="248" y="158" width="14" height="28" fill="#2e9e8c" stroke="#1a7060"/>
+  <rect x="262" y="158" width="14" height="28" fill="#2e9e8c" stroke="#1a7060"/>
+  <rect x="276" y="158" width="14" height="28" fill="#2e9e8c" stroke="#1a7060"/>
+  <rect x="290" y="158" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="304" y="158" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="318" y="158" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="332" y="158" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="346" y="158" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="360" y="158" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="374" y="158" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="388" y="158" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="402" y="158" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="416" y="158" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="430" y="158" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="444" y="158" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="458" y="158" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="472" y="158" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="486" y="158" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="500" y="158" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="514" y="158" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="528" y="158" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="542" y="158" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="556" y="158" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="570" y="158" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <rect x="584" y="158" width="14" height="28" fill="#eef0f0" stroke="#b8bcbc"/>
+  <text x="10" y="219" fill="#222">Group 3</text>
+  <text x="10" y="235" fill="#666" font-size="11">elements 96-127</text>
+  <rect x="150" y="202" width="14" height="28" fill="#d4d6d6" stroke="#a0a4a4"/>
+  <rect x="164" y="202" width="14" height="28" fill="#d4d6d6" stroke="#a0a4a4"/>
+  <rect x="178" y="202" width="14" height="28" fill="#d4d6d6" stroke="#a0a4a4"/>
+  <rect x="192" y="202" width="14" height="28" fill="#d4d6d6" stroke="#a0a4a4"/>
+  <rect x="206" y="202" width="14" height="28" fill="#d4d6d6" stroke="#a0a4a4"/>
+  <rect x="220" y="202" width="14" height="28" fill="#d4d6d6" stroke="#a0a4a4"/>
+  <rect x="234" y="202" width="14" height="28" fill="#d4d6d6" stroke="#a0a4a4"/>
+  <rect x="248" y="202" width="14" height="28" fill="#d4d6d6" stroke="#a0a4a4"/>
+  <rect x="262" y="202" width="14" height="28" fill="#d4d6d6" stroke="#a0a4a4"/>
+  <rect x="276" y="202" width="14" height="28" fill="#d4d6d6" stroke="#a0a4a4"/>
+  <rect x="290" y="202" width="14" height="28" fill="#d4d6d6" stroke="#a0a4a4"/>
+  <rect x="304" y="202" width="14" height="28" fill="#d4d6d6" stroke="#a0a4a4"/>
+  <rect x="318" y="202" width="14" height="28" fill="#d4d6d6" stroke="#a0a4a4"/>
+  <rect x="332" y="202" width="14" height="28" fill="#d4d6d6" stroke="#a0a4a4"/>
+  <rect x="346" y="202" width="14" height="28" fill="#d4d6d6" stroke="#a0a4a4"/>
+  <rect x="360" y="202" width="14" height="28" fill="#d4d6d6" stroke="#a0a4a4"/>
+  <rect x="374" y="202" width="14" height="28" fill="#d4d6d6" stroke="#a0a4a4"/>
+  <rect x="388" y="202" width="14" height="28" fill="#d4d6d6" stroke="#a0a4a4"/>
+  <rect x="402" y="202" width="14" height="28" fill="#d4d6d6" stroke="#a0a4a4"/>
+  <rect x="416" y="202" width="14" height="28" fill="#d4d6d6" stroke="#a0a4a4"/>
+  <rect x="430" y="202" width="14" height="28" fill="#d4d6d6" stroke="#a0a4a4"/>
+  <rect x="444" y="202" width="14" height="28" fill="#d4d6d6" stroke="#a0a4a4"/>
+  <rect x="458" y="202" width="14" height="28" fill="#d4d6d6" stroke="#a0a4a4"/>
+  <rect x="472" y="202" width="14" height="28" fill="#d4d6d6" stroke="#a0a4a4"/>
+  <rect x="486" y="202" width="14" height="28" fill="#d4d6d6" stroke="#a0a4a4"/>
+  <rect x="500" y="202" width="14" height="28" fill="#d4d6d6" stroke="#a0a4a4"/>
+  <rect x="514" y="202" width="14" height="28" fill="#d4d6d6" stroke="#a0a4a4"/>
+  <rect x="528" y="202" width="14" height="28" fill="#d4d6d6" stroke="#a0a4a4"/>
+  <rect x="542" y="202" width="14" height="28" fill="#d4d6d6" stroke="#a0a4a4"/>
+  <rect x="556" y="202" width="14" height="28" fill="#d4d6d6" stroke="#a0a4a4"/>
+  <rect x="570" y="202" width="14" height="28" fill="#d4d6d6" stroke="#a0a4a4"/>
+  <rect x="584" y="202" width="14" height="28" fill="#d4d6d6" stroke="#a0a4a4"/>
+  <text x="608" y="221" fill="#c0392b">masked</text>
+  <path d="M150 62 v-6 H290 v6" fill="none" stroke="#222"/>
+  <text x="220.0" y="50" text-anchor="middle" fill="#222" font-size="12">valid_elements = 10</text>
+  <path d="M606 70 h6 V186 h-6" fill="none" stroke="#222"/>
+  <text x="620" y="124.0" fill="#222" font-size="12">valid_partition = 3</text>
+  <text x="620" y="140.0" fill="#222" font-size="12">(active groups)</text>
+  <rect x="150" y="258" width="14" height="14" fill="#2e9e8c" stroke="#1a7060"/>
+  <text x="172" y="270" fill="#222" font-size="12">active (30 elements)</text>
+  <rect x="340" y="258" width="14" height="14" fill="#eef0f0" stroke="#b8bcbc"/>
+  <text x="362" y="270" fill="#222" font-size="12">not active (past valid_elements)</text>
+  <rect x="570" y="258" width="14" height="14" fill="#d4d6d6" stroke="#a0a4a4"/>
+  <text x="592" y="270" fill="#222" font-size="12">masked group</text>
+</svg>

@@ -175,7 +175,7 @@ def execute_acc_stride(
     Operand semantics from ipu_isa.acc_stride_enums (single source of truth).
     offset: LR value; (offset % 4) * 32 is the start index in r_acc (0, 32, 64, or 96).
     A result that runs past R_ACC's last lane raises ``EmulatorError`` before
-    any lane is written: the ISA leaves it undefined (stage-accumulator 6.8),
+    any lane is written: the ISA leaves it undefined (MAS-stage-accumulator 6.8),
     an open question rather than a fault.
     """
     indices, pad = _stride_gather(elements_in_row, horizontal_stride, vertical_stride)
@@ -185,7 +185,7 @@ def execute_acc_stride(
     values = np.where(pad, np.zeros_like(res[:1]), res[indices])
     fit = LANES - base
     if len(values) > fit:
-        # The ISA leaves start + N > R_ACC undefined (stage-accumulator 6.8):
+        # The ISA leaves start + N > R_ACC undefined (MAS-stage-accumulator 6.8):
         # an open question, not a fault yet, so an EmulatorError before any
         # lane is written.
         raise EmulatorError(

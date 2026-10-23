@@ -195,6 +195,15 @@ py_binary(
     srcs = ["coverage_summary.py"],
 )
 
+# Mechanical checks for an ARCH stage spec, run by the arch-spec skill
+# (.claude/skills/arch-spec/SKILL.md):
+#
+#   bazel run //tools:check_arch_spec -- "$PWD/docs/content/specs/ARCH-stage-<stage>.md"
+py_binary(
+    name = "check_arch_spec",
+    srcs = ["check_arch_spec.py"],
+)
+
 py_pytest_test(
     name = "test_coverage_summary",
     size = "small",

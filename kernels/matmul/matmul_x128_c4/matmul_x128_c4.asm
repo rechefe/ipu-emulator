@@ -121,7 +121,7 @@ k_chunk3:
     ADD LR5 LR5 CR1;
     BLT.S LR5 LR11 k_chunk3;;
 
-    # Hardware store path (see docs/content/specs/stage-aaq-str.md section 7.0):
+    # Hardware store path (see docs/content/specs/MAS-stage-aaq-str.md section 7.0):
     # AaQ and STR are consecutive pipeline stages WITHIN one VLIW word
     # (CTRL -> MULT -> ACC -> AaQ -> STR), so STR consumes this cycle's AaQ
     # result and the store is free. `identity` + valid_elements=128 (the CR

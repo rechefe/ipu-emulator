@@ -144,7 +144,7 @@ k_chunk2_tg0:
     ADD {{ k_index }} {{ k_index }} {{ ONE }};
     BLT.S {{ k_index }} {{ k_bound_tail }} k_chunk2_tg0;;
 
-    # Hardware store path (see docs/content/specs/stage-aaq-str.md section 7.0):
+    # Hardware store path (see docs/content/specs/MAS-stage-aaq-str.md section 7.0):
     # AaQ and STR are consecutive pipeline stages WITHIN one VLIW word
     # (CTRL -> MULT -> ACC -> AaQ -> STR), so STR consumes this cycle's AaQ
     # result and the store is free. `identity` + valid_elements=128 (the CR
@@ -206,7 +206,7 @@ k_chunk2_tg1:
     ADD {{ k_index }} {{ k_index }} {{ ONE }};
     BLT.S {{ k_index }} {{ k_bound_tail }} k_chunk2_tg1;;
 
-    # Hardware store path (see docs/content/specs/stage-aaq-str.md section 7.0):
+    # Hardware store path (see docs/content/specs/MAS-stage-aaq-str.md section 7.0):
     # AaQ and STR are consecutive pipeline stages WITHIN one VLIW word
     # (CTRL -> MULT -> ACC -> AaQ -> STR), so STR consumes this cycle's AaQ
     # result and the store is free. `identity` + valid_elements=128 (the CR
