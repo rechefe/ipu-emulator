@@ -27,7 +27,7 @@
       max and the max must already be finished. Hence the round trip:
 
         1. four taps -> R_ACC = stride-1 2x2 max at every column
-        2. ACTIVATE identity + STR_POST_AAQ  -> a scratch row
+        2. ACTIVATE.EXACT identity -> a scratch row
         3. reload the scratch, MULT.RC.VE x 1.0, ACC.STRIDE 64 on off
 
       `ACC.STRIDE 64 on off` reads MULT_RES as two rows of 64, takes every
@@ -84,10 +84,10 @@
       CR7  = OUT_TILES_PER_ROW        CR8  = OUT_HEIGHT = H // 2
       CR9  = CHANNELS                 CR10 = 128
       CR11 = IN_PLANE_STRIDE = H * IN_ROW_STRIDE
-      CR15 = dstructure (valid_elements = 128)
+      CR15.L = the default DS (ds(128)); CR14 = the QF
 
     LR uses 3 sub-slots; ";;" ends a VLIW word, ";" separates sub-instructions.
-    Slot order within a word is LR -> LOAD -> MULT -> ACC -> AAQ -> STORE ->
+    Slot order within a word is LR -> LOAD -> MULT -> ACC -> AAQ -> AAQ_EXACT ->
     COND. That is why a load can share a word with the LR add that positions it
     (LDR offsets read LIVE), and why the store's row counter is incremented in
     the word AFTER the store.
@@ -147,19 +147,18 @@ tile_loop:
     LD.MULT.CYCLIC {{lr_baddr}} {{cr_input_base_address}} {{lr_s2}} ;;# R_CYCLIC[256...511] = Memory[row(input_base_address + lr_baddr)]
     
     #todo: load mask. currently assuming that mask is all 1s
-    MULT.RC.VE {{lr_zero}} {{cr_one}} 0 {{lr_zero}} {{cr_dstructure}};# MULT_RES[0...127] = R_CYCLIC[0...127] * 1
+    MULT.RC.VE {{lr_zero}} {{cr_one}} 0 {{lr_zero}} {{cr_dstructure}}.L {{ cr.qf }}.L;# MULT_RES[0...127] = R_CYCLIC[0...127] * 1
     ACC.MAX.FIRST;;# R_ACC[0...127] = MULT_RES[0...127]
 
-    MULT.RC.VE {{lr_one}} {{cr_one}} 0 {{lr_zero}} {{cr_dstructure}}; # MULT_RES[0...127] = R_CYCLIC[1...128] * 1
+    MULT.RC.VE {{lr_one}} {{cr_one}} 0 {{lr_zero}} {{cr_dstructure}}.L {{ cr.qf }}.L; # MULT_RES[0...127] = R_CYCLIC[1...128] * 1
     ACC.MAX ;;# R_ACC[i] = max(R_ACC[i], MULT_RES[i])
 
-    MULT.RC.VE {{lr_s2}} {{cr_one}} 0 {{lr_zero}} {{cr_dstructure}};# MULT_RES[0...127] = R_CYCLIC[256...383] * 1
+    MULT.RC.VE {{lr_s2}} {{cr_one}} 0 {{lr_zero}} {{cr_dstructure}}.L {{ cr.qf }}.L;# MULT_RES[0...127] = R_CYCLIC[256...383] * 1
     ACC.MAX ;; # R_ACC[i] = max(R_ACC[i], MULT_RES[i])
 
-    MULT.RC.VE {{lr_s2p1}} {{cr_one}} 0 {{lr_zero}} {{cr_dstructure}};# MULT_RES[0...127] = R_CYCLIC[257...384] * 1
+    MULT.RC.VE {{lr_s2p1}} {{cr_one}} 0 {{lr_zero}} {{cr_dstructure}}.L {{ cr.qf }}.L;# MULT_RES[0...127] = R_CYCLIC[257...384] * 1
     ACC.MAX ;# R_ACC[i] = max(R_ACC[i], MULT_RES[i])
-    ACTIVATE.QUANTIZE identity {{cr_dstructure}};
-    ST.AAQ {{lr_zero}} CR4;;
+    ACTIVATE.EXACT identity {{cr_dstructure}}.L CR4 {{lr_zero}};;
 
 {#- ---- HALF B: input tile 2*ot+1 ------------------------------------------- -#}
     ADD {{lr_addr}} {{lr_itile}} {{cr_one}};
@@ -169,33 +168,31 @@ tile_loop:
     INC {{lr_baddr}} 1 ;
     LD.MULT.CYCLIC {{lr_baddr}} {{cr_input_base_address}} {{lr_s2}} ;;    {#- slot2 <- row 2y+1, tile it+1 -#}
 
-    MULT.RC.VE {{lr_zero}} {{cr_one}} 0 {{lr_zero}} {{cr_dstructure}};
+    MULT.RC.VE {{lr_zero}} {{cr_one}} 0 {{lr_zero}} {{cr_dstructure}}.L {{ cr.qf }}.L;
     ACC.MAX.FIRST ;;
 
-    MULT.RC.VE {{lr_one}} {{cr_one}} 0 {{lr_zero}} {{cr_dstructure}};
+    MULT.RC.VE {{lr_one}} {{cr_one}} 0 {{lr_zero}} {{cr_dstructure}}.L {{ cr.qf }}.L;
     ACC.MAX ;;
 
-    MULT.RC.VE {{lr_s2}} {{cr_one}} 0 {{lr_zero}} {{cr_dstructure}};
+    MULT.RC.VE {{lr_s2}} {{cr_one}} 0 {{lr_zero}} {{cr_dstructure}}.L {{ cr.qf }}.L;
     ACC.MAX ;;
 
-    MULT.RC.VE {{lr_s2p1}} {{cr_one}} 0 {{lr_zero}} {{cr_dstructure}};
+    MULT.RC.VE {{lr_s2p1}} {{cr_one}} 0 {{lr_zero}} {{cr_dstructure}}.L {{ cr.qf }}.L;
     ACC.MAX ;
-    ACTIVATE.QUANTIZE identity {{cr_dstructure}};
-    ST.AAQ {{lr_one}} CR4 ;;                   {#- stage half B -#}
+    ACTIVATE.EXACT identity {{cr_dstructure}}.L CR4 {{lr_one}};; {#- stage half B -#}
 
 {#- ---- decimate both halves into one output row --------------------------- -#}
     LD.MULT.CYCLIC {{lr_zero}} CR4 {{lr_zero}} ;;   {#- slot0 <- scratch A -#}
 
     LD.MULT.CYCLIC {{lr_one}} CR4 {{lr_s1}} ;;     {#- slot1 <- scratch B -#}
 
-    MULT.RC.VE {{lr_zero}} {{cr_one}} 0 {{lr_zero}} {{cr_dstructure}};
+    MULT.RC.VE {{lr_zero}} {{cr_one}} 0 {{lr_zero}} {{cr_dstructure}}.L {{ cr.qf }}.L;
     ACC.STRIDE 64 on off {{lr_zero}} ;;                  {#- even columns of A -> R_ACC[0:64] -#}
 
-    MULT.RC.VE {{lr_s1}} {{cr_one}} 0 {{lr_zero}} {{cr_dstructure}};
+    MULT.RC.VE {{lr_s1}} {{cr_one}} 0 {{lr_zero}} {{cr_dstructure}}.L {{ cr.qf }}.L;
     ACC.STRIDE 64 on off {{lr_half}} ;;                  {#- even columns of B -> R_ACC[64:128] -#}
 
-    ACTIVATE.QUANTIZE identity {{cr_dstructure}};
-    ST.AAQ {{lr_out}} CR3 ;;                   {#- OUT[c, oy, ot] -#}
+    ACTIVATE.EXACT identity {{cr_dstructure}}.L CR3 {{lr_out}};; {#- OUT[c, oy, ot] -#}
 
     ADD {{lr_out}} {{lr_out}} {{cr_one}};
     ADD {{lr_ot}} {{lr_ot}} {{cr_one}};

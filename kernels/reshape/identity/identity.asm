@@ -23,10 +23,9 @@
 
 row_loop:
     LD.MULT R0 {{lr_row}} CR2 ;;
-    MULT.VE {{lr_zero}} CR1 0 {{lr_zero}} CR15 ;
+    MULT.VE {{lr_zero}} CR1 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ;
     ACC.ADD.FIRST ;;
-    ACTIVATE.QUANTIZE identity CR15 ;
-    ST.AAQ {{lr_row}} CR3 ;;
+    ACTIVATE.EXACT identity CR15.L CR3 {{lr_row}} ;;
     ADD {{lr_row}} {{lr_row}} CR1 ;;
     BLT.S {{lr_row}} CR4 row_loop ;;
     HALT ;;

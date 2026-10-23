@@ -1,13 +1,15 @@
 """vector_tour's data: the cases' inputs, and the R_MASK slots.
 
-``seeded_steps`` draws from ``default_rng(16)``, so the outputs match the
-recorded ones bit for bit.
+``seeded_steps`` draws from ``default_rng(16)``, the old cases' seed.
 """
 
 import numpy as np
 
 #: The old cases' seed.
 SEED = 16
+
+#: The data's grid: every NX8 variant holds multiples of 0.25 in [-2, 2] exactly.
+STEP = 0.25
 
 #: R_MASK slots, 16 bytes each, bit i = lane i: all lanes, even lanes, lower half.
 MASK_SLOTS = (b"\xff" * 16, b"\x55" * 16, b"\xff" * 8 + b"\x00" * 8)
@@ -16,11 +18,10 @@ MASK_IMAGE_BYTES = 128
 
 
 def seeded_steps(plan, rng):
-    """a, w, c: integers in [-8, 8] in INT8, those times 0.25 in a float format."""
+    """a, w, c: integers in [-8, 8] times 0.25."""
     state = np.random.default_rng(SEED)
-    step = 1.0 if plan.format.value == "int8" else 0.25
     return {
-        name: state.integers(-8, 9, size=plan.shapes[name]).astype(np.float64) * step
+        name: state.integers(-8, 9, size=plan.shapes[name]).astype(np.float64) * STEP
         for name in ("a", "w", "c")
     }
 

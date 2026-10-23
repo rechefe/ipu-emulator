@@ -32,7 +32,7 @@
       ISA, so the reset folds into an ACC.ADD.FIRST. Rather than peel the
       first channel's MAC out of both loops to carry it, the bias supplies it:
 
-        MULT.EE lr_bias CR1 0 LR0 CR15 ; ACC.ADD.FIRST ;;
+        MULT.EE lr_bias CR1 0 LR0 CR15.L {{ cr.qf }}.L ; ACC.ADD.FIRST ;;
 
       broadcasts R1[0] (= bias[o]) x CR1 (= 1.0) and overwrites R_ACC with it.
       Every MAC in every group is then a uniform ACC.ADD -- no peel, no
@@ -69,12 +69,12 @@
       index selecting R1[0] = bias; channel_groups is also the weight-row
       advance per output channel. The group weight stride is one row, which is
       CR1 -- it needs no CR of its own. plane_stride = height * tiles is a
-      [derived] value because the LR slot has no multiply. CR15 is the default
-      dstructure (valid_elements = 128), named by MULT/ACTIVATE.
+      [derived] value because the LR slot has no multiply. CR15 holds the default
+      DS (ds(128)) in CR15.L, named by MULT/ACTIVATE; CR14 holds the QF.
 
     - LR uses 3 sub-slots; ";;" ends a VLIW word, ";" separates
       sub-instructions. Slot order within a word is LR -> LOAD -> MULT -> ACC
-      -> AAQ -> STORE -> COND, which is why the store's offset register is
+      -> AAQ -> AAQ_EXACT -> COND, which is why the store's offset register is
       never incremented in the store's own word. R_CYCLIC loads use index 0 in
       wide mode (full 512 B load).
 -#}
@@ -115,7 +115,7 @@ coltile_loop:
     ADD {{lr_addr}} {{lr_rowb}} {{lr_ct}} ;              {#- channel 0's row for this tile -#}
     SET {{lr_done}} CR0 ;
     ADD {{lr_wrow}} {{lr_wbase}} CR0 ;;                  {#- wrow = wbase (ADD: SET takes a CR only) -#}
-    MULT.EE {{lr_bias}} CR1 0 {{lr_zero}} CR15 ;
+    MULT.EE {{lr_bias}} CR1 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ;
     ACC.ADD.FIRST ;;                                     {#- R_ACC = bias[o] -- reset and seed in one word -#}
 
 group_loop:
@@ -136,7 +136,7 @@ cin_loop:
     ADD {{lr_widx}} {{lr_widx}} CR1 ;
     ADD {{lr_c}} {{lr_c}} CR1 ;
     LD.MULT.CYCLIC {{lr_addr}} {{ cr.x }} {{lr_zero}} ;
-    MULT.RC.VE {{lr_zero}} {{lr_widx}} 0 {{lr_zero}} CR15 ;
+    MULT.RC.VE {{lr_zero}} {{lr_widx}} 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ;
     ACC.ADD ;;
     BLT.S {{lr_c}} {{lr_bound}} cin_loop ;;                {#- BLT.S reads the snapshot -- lr_c is already advanced -#}
 
@@ -146,8 +146,7 @@ cin_loop:
 
 {#- ---- drain the tile. The store's offset is advanced in the NEXT word: LR -#}
 {#- runs before STORE, so incrementing it here would store one row too far.  -#}
-    ACTIVATE.QUANTIZE identity CR15 ;                    {#- FP32 pass-through (reads r_acc LIVE) -#}
-    ST.AAQ {{lr_out}} {{ cr.y }} ;;                   {#- OUT[o, y, tile] -#}
+    ACTIVATE.EXACT identity CR15.L {{ cr.y }} {{lr_out}} ;;                    {#- FP32 pass-through (reads r_acc LIVE) -#} {#- OUT[o, y, tile] -#}
     ADD {{lr_out}} {{lr_out}} CR1 ;
     ADD {{lr_ct}} {{lr_ct}} CR1 ;;
     BLT.S {{lr_ct}} {{ cr.tiles }} coltile_loop ;;

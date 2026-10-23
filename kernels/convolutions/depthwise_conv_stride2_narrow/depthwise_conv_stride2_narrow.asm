@@ -68,31 +68,30 @@ ch_loop:
     # --- k=0: load stage1 row-group (lr3 + lr4), ACC.STRIDE offset 0 (writes r_acc[0:32]).
     ADD                 LR5 LR3 LR4;;
     LD.MULT        R0 LR5 {{ cr.y }};;
-    MULT.VE             LR0 CR1 0 LR0 CR15;;
+    MULT.VE             LR0 CR1 0 LR0 CR15.L CR15.H;;
     ACC.STRIDE          {{ elements_in_row }} on on LR9;;
 
     # --- k=1: row-group + channels, offset 1 (writes r_acc[32:64]).
     ADD                 LR5 LR5 {{ cr.in_channels }};;
     LD.MULT        R0 LR5 {{ cr.y }};;
-    MULT.VE             LR0 CR1 0 LR0 CR15;;
+    MULT.VE             LR0 CR1 0 LR0 CR15.L CR15.H;;
     ACC.STRIDE          {{ elements_in_row }} on on LR10;;
 
     # --- k=2: +channels again, offset 2 (writes r_acc[64:96]).
     ADD                 LR5 LR5 {{ cr.in_channels }};;
     LD.MULT        R0 LR5 {{ cr.y }};;
-    MULT.VE             LR0 CR1 0 LR0 CR15;;
+    MULT.VE             LR0 CR1 0 LR0 CR15.L CR15.H;;
     ACC.STRIDE          {{ elements_in_row }} on on LR11;;
 
-    # --- k=3: +channels again, offset 3 (writes r_acc[96:128]).  Quantize the
-    #     full 128-element r_acc (identity, no clamp change) then store.
+    # --- k=3: +channels again, offset 3 (writes r_acc[96:128]).  Then store
+    #     the full 128-element r_acc (identity) once LR5 holds the output row.
     ADD                 LR5 LR5 {{ cr.in_channels }};;
     LD.MULT        R0 LR5 {{ cr.y }};;
-    MULT.VE             LR0 CR1 0 LR0 CR15;;
-    ACC.STRIDE          {{ elements_in_row }} on on LR12;
-    ACTIVATE.QUANTIZE   identity CR15;;
+    MULT.VE             LR0 CR1 0 LR0 CR15.L CR15.H;;
+    ACC.STRIDE          {{ elements_in_row }} on on LR12;;
 
     ADD                 LR5 LR2 LR4;;
-    ST.AAQ    LR5 {{ cr.out }};;
+    ACTIVATE.EXACT      identity CR15.L {{ cr.out }} LR5;;
 
     INC                 LR4 1;
     BLT.S                 LR4 {{ cr.in_channels }} ch_loop;;

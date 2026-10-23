@@ -28,6 +28,7 @@ dst_lo     = "100925952"               # [0, 2, 4, 6]
 dst_hi     = "235670024"               # [8, 10, 12, 14]
 src_stride = "2"                      # LR7: rows per channel of a phase
 dst_stride = "1"                       # LR9
+qf         = "case_qf"                 # the case's QF half (0: FP32 ignores it)
 
 # Placed in this order from row 0: x, y, ones (the old map).
 [inputs.x]                    # the phases (0,0), (0,1), (1,0), (1,1); lanes past the tokens NaN
@@ -60,6 +61,7 @@ slot0      = "LR0"
 src_row    = "LR6"
 dst_row    = "LR8"
 channel    = "LR10"
+qf         = "CR14"
 
 [golden]
 op = "fold"

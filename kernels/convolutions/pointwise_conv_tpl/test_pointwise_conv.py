@@ -5,7 +5,7 @@ case at the entry's fixed values."""
 
 import numpy as np
 
-from ipu_harness.cases import at_values, inputs_for
+from ipu_harness.cases import at_values, inputs_for, rng
 from ipu_harness.params import plan_case
 from ipu_isa.formats import ElementFormat
 
@@ -25,11 +25,14 @@ def test_relu_writes_exact_zeros_for_a_negative_bias(cases, run_case):
 
 
 def test_relu_without_a_bias_ignores_the_bias_tensor(kernel, cases, run_case):
-    # pointwise_conv_unified_bn_activation at has_bias = false: the case's b is
-    # nonzero, yet the run matches the reference without a bias.
+    # pointwise_conv_unified_bn_activation at has_bias = false: the seeded
+    # stream's b is nonzero, but the pack does not store it (the inputs are
+    # what XMEM holds, ADR 0007), and the run matches the reference without a
+    # bias.
     case = next(c for c in cases if c.name == "relu_no_bias")
     plan = plan_case(kernel, case.values, ElementFormat.FP32, case=case.decl)
-    assert np.any(inputs_for(case, plan).tensors["b"] != 0)
+    assert np.any(rng(plan.manifest.name, case.name, "b").uniform(-1, 1, plan.shapes["b"]) != 0)
+    assert np.all(inputs_for(case, plan).tensors["b"] == 0)
     _run(cases, run_case, "relu_no_bias", has_bias=False, apply_relu=True)
 
 

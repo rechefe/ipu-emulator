@@ -39,6 +39,7 @@ fixed_idx_step      = "128"                                  # lane space: half 
 pass_stride         = "128"                                  # rows: 128 input channels a pass
 input_row_base      = "0"                                    # LR0's reset value (see [abi])
 cyclic_s0           = "0"                                    # LR7's reset value (see [abi])
+ds_qf               = "halves(ds(128), case_qf)"             # CR15: LOW the default DS, HIGH the case's QF (FP32 ignores it)
 
 # Placed in the old harness's order: input, weights, mask, [bias,] output.
 [inputs.x]
@@ -93,6 +94,7 @@ w                   = "CR14"
 # bound to it, and a run after another kernel starts from the same state.
 input_row_base      = "LR0"
 cyclic_s0           = "LR7"
+ds_qf               = "CR15"
 
 [golden]
 reference = "reference.py:reference"   # the shared conv2d, the bias only when has_bias

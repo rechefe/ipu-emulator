@@ -5,7 +5,8 @@
     elements each (a [num_channels, 128] tensor), the CHW residual of the
     convolution stages (MobileViT-S:
     64x64x64, 32x32x96, 16x16x128, 8x8x160). FP32 only: each channel is one
-    whole XMEM row and ST.ACC stores the whole 128-element accumulator.
+    whole XMEM row and ACTIVATE.EXACT identity stores the whole
+    128-element accumulator.
 
     Algorithm: MULT.RC.VE with the scalar CR1 (1.0) copies a row into
     MULT_RES, and the accumulator sums both operands:
@@ -18,7 +19,7 @@
     visible to the MULT that uses it. Each load is issued one cycle before
     its MULT.
 
-    XMEM operands (LD.MULT.CYCLIC's offset and base, ST.ACC) are row
+    XMEM operands (LD.MULT.CYCLIC's offset and base, ACTIVATE.EXACT's) are row
     numbers. LD.MULT.CYCLIC's index (LR0, always 0: FP32 fills the whole
     R_CYCLIC from one slot) is in R_CYCLIC element space.
 
@@ -58,7 +59,7 @@ loop:
 # A is already in r_cyclic (loaded last cycle). Copy A -> r_acc, and load
 # B for this same channel into r_cyclic (lands next cycle).
     LD.MULT.CYCLIC LR2 CR3 LR0;
-    MULT.RC.VE          LR0 CR1 0 LR0 CR15;
+    MULT.RC.VE          LR0 CR1 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.ADD.FIRST;;
 
 # B is now in r_cyclic. Accumulate B -> r_acc = A + B. Pre-load A of the
@@ -66,13 +67,14 @@ loop:
     ADD     LR2 LR2 CR5;;
 
     LD.MULT.CYCLIC LR2 CR2 LR0;
-    MULT.RC.VE          LR0 CR1 0 LR0 CR15;
+    MULT.RC.VE          LR0 CR1 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.ADD;;
 
-# Store FP32 accumulator (512 bytes, one row). The output-pointer bump must
-# NOT share this word: LR runs before XMEM, so it would store to the wrong
-# address. Advance lr3 in the branch word instead (after the store).
-    ST.ACC         LR3 CR4;;
+# Store the FP32 accumulator (512 bytes, one row) with ACTIVATE.EXACT
+# identity. The output-pointer bump must NOT share this word: LR runs before
+# AAQ_EXACT, so it would store to the wrong address. Advance lr3 in the
+# branch word instead (after the store).
+    ACTIVATE.EXACT identity CR15.L CR4 LR3;;
 
     ADD     LR3 LR3 CR5;
     BLT.S     LR2 LR11 loop;;

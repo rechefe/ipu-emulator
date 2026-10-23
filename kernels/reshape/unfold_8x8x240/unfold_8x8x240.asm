@@ -42,8 +42,8 @@
       Stream s, channel c: row c of stream s.
       Each row carries 16 valid FP32 tokens in lanes 0..15; lanes 16..127
       are STALE and must be ignored. A stream fills only 16 of the 32
-      elements of one ACC.STRIDE slot, ACTIVATE.QUANTIZE identity stages all
-      128 lanes of R_ACC, and ST.AAQ writes the whole row. Rows are never
+      elements of one ACC.STRIDE slot, and ACTIVATE.EXACT identity writes
+      all 128 lanes of R_ACC as the whole row. Rows are never
       shared between channels. This is the deliberate per-stream layout; a
       packed [k][p*n] variant is not implemented.
 
@@ -85,7 +85,7 @@
     feeds all 4 MULTs. The load for channel ch+1 rides in the last store word
     of channel ch, which is why src_off's ADD must precede it.
 
-    ST.AAQ reads its offset as the forwarded value, after the word's LR
+    ACTIVATE.EXACT reads its offset as the forwarded value, after the word's LR
     writes -- never co-issue an ADD on the offset LR with the store, or the
     row lands one row late. dst_off advances in its own instruction word at
     the end of the channel loop, clear of every store.
@@ -133,33 +133,29 @@ ch_loop:
     # r_acc slot 0, then stages and stores in one word.
 
     # -- Stream 0  (h=on=even cols, v=on=even spatial rows) ------------------
-    MULT.RC.VV {{ slot0 }} R0 0 {{ slot0 }} {{ DSTRUCT }};
+    MULT.RC.VV {{ slot0 }} R0 0 {{ slot0 }} {{ DSTRUCT }}.L {{ cr.qf }}.L;
     ACC.STRIDE 16 on on {{ slot0 }};;
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    ST.AAQ {{ dst_off }} {{ DST_S0 }};;
+    ACTIVATE.EXACT identity {{ DSTRUCT }}.L {{ DST_S0 }} {{ dst_off }};;
 
     # -- Stream 1  (h=on_inv=odd cols, v=on=even spatial rows) ---------------
-    MULT.RC.VV {{ slot0 }} R0 0 {{ slot0 }} {{ DSTRUCT }};
+    MULT.RC.VV {{ slot0 }} R0 0 {{ slot0 }} {{ DSTRUCT }}.L {{ cr.qf }}.L;
     ACC.STRIDE 16 on_inv on {{ slot0 }};;
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    ST.AAQ {{ dst_off }} {{ DST_S1 }};;
+    ACTIVATE.EXACT identity {{ DSTRUCT }}.L {{ DST_S1 }} {{ dst_off }};;
 
     # -- Stream 2  (h=on=even cols, v=on_inv=odd spatial rows) ---------------
-    MULT.RC.VV {{ slot0 }} R0 0 {{ slot0 }} {{ DSTRUCT }};
+    MULT.RC.VV {{ slot0 }} R0 0 {{ slot0 }} {{ DSTRUCT }}.L {{ cr.qf }}.L;
     ACC.STRIDE 16 on on_inv {{ slot0 }};;
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    ST.AAQ {{ dst_off }} {{ DST_S2 }};;
+    ACTIVATE.EXACT identity {{ DSTRUCT }}.L {{ DST_S2 }} {{ dst_off }};;
 
     # -- Stream 3  (h=on_inv=odd cols, v=on_inv=odd spatial rows) ------------
-    MULT.RC.VV {{ slot0 }} R0 0 {{ slot0 }} {{ DSTRUCT }};
+    MULT.RC.VV {{ slot0 }} R0 0 {{ slot0 }} {{ DSTRUCT }}.L {{ cr.qf }}.L;
     ACC.STRIDE 16 on_inv on_inv {{ slot0 }};;
     # src_off must advance BEFORE the load that uses the next channel's offset:
     # LR sub-slots run ahead of LOAD within a word, so this ADD gets its own word.
     ADD                 {{ src_off }} {{ src_off }} {{ src_stride }};;
     # Prefetch channel ch+1 into r0 for the next iteration's first MULT.
     # dst_off is read by the store as the forwarded value, so it is NOT touched in this word.
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    ST.AAQ {{ dst_off }} {{ DST_S3 }};
+    ACTIVATE.EXACT identity {{ DSTRUCT }}.L {{ DST_S3 }} {{ dst_off }};
     LD.MULT R0 {{ src_off }} {{ SRC_BASE }};;
 
     # -- Advance pointers; loop ----------------------------------------------

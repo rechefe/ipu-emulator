@@ -140,7 +140,7 @@ oc_pair_loop:
     # acc.first; THEN load the real weights over R0.
     LD.MULT        R0 LR12 {{ cr.b }};;  # bias block -> R0 (bias at element 0)
 
-    MULT.EE             LR7 CR1 0 LR7 CR15 ;  # bias = R0[0] * CR1(=1), broadcast
+    MULT.EE             LR7 CR1 0 LR7 CR15.L CR15.H ;  # bias = R0[0] * CR1(=1), broadcast
     ACC.ADD.FIRST;;  # R_ACC = bias (conv taps add on top)
 {%- endif %}
 
@@ -167,7 +167,7 @@ oc_pair_loop:
     ADD                 LR15 LR4 {{ cr.pipeline_limit_tail }};;
     ADD                 LR14 LR14 CR1;;
     ADD                 LR14 LR14 CR1;
-    MULT.RC.VE          LR7 LR4 0 LR7 CR15 ;
+    MULT.RC.VE          LR7 LR4 0 LR7 CR15.L CR15.H ;
 {%- if seeded %}
     ACC.ADD;;
 {%- else %}
@@ -182,7 +182,7 @@ W1_FULL_A:
     ADD                 LR15 LR4 {{ cr.pipeline_limit_full }};;
     ADD                 LR14 LR14 CR1;;
     ADD                 LR14 LR14 CR1;
-    MULT.RC.VE          LR7 LR4 0 LR7 CR15 ;
+    MULT.RC.VE          LR7 LR4 0 LR7 CR15.L CR15.H ;
 {%- if seeded %}
     ACC.ADD;;
 {%- else %}
@@ -198,25 +198,25 @@ PIPELINE_BODY_A:
     INC                 LR4 1;
     ADD                 LR14 LR14 CR1;
     LD.MULT.CYCLIC LR14 CR0 LR7;
-    MULT.RC.VE          LR6 LR4 0 LR7 CR15 ;
+    MULT.RC.VE          LR6 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
     INC                 LR4 1;
     ADD                 LR14 LR14 CR1;
     LD.MULT.CYCLIC LR14 CR0 LR6;
-    MULT.RC.VE          LR8 LR4 0 LR7 CR15 ;
+    MULT.RC.VE          LR8 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
     INC                 LR4 1;
     ADD                 LR14 LR14 CR1;
     LD.MULT.CYCLIC LR14 CR0 LR8;
-    MULT.RC.VE          LR9 LR4 0 LR7 CR15 ;
+    MULT.RC.VE          LR9 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
     INC                 LR4 1;
     ADD                 LR14 LR14 CR1;
     LD.MULT.CYCLIC LR14 CR0 LR9;
-    MULT.RC.VE          LR7 LR4 0 LR7 CR15 ;
+    MULT.RC.VE          LR7 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;
     BLT.S                 LR4 LR15 PIPELINE_BODY_A;;
 
@@ -229,27 +229,27 @@ POST_BODY_A:
 
 # ---------------------------------------------------------------------------
 # LAST_EPILOGUE_A: this pass is the OC's last. Reload cyclic from LR0
-# (so next OC starts with ich0..3). aaq+store, then advance to next OC.
+# (so next OC starts with ich0..3). ACTIVATE.EXACT (stores), then advance to next OC.
 # ---------------------------------------------------------------------------
 
 LAST_EPILOGUE_A:
 
     INC                 LR4 1;
     LD.MULT.CYCLIC LR0 CR0 LR7;
-    MULT.RC.VE          LR6 LR4 0 LR7 CR15 ;
+    MULT.RC.VE          LR6 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
     INC                 LR4 1;
     ADD                 LR14 LR0 CR1;  # LR14 = LR0 + 1 row
     LD.MULT.CYCLIC LR14 CR0 LR6;
-    MULT.RC.VE          LR8 LR4 0 LR7 CR15 ;
+    MULT.RC.VE          LR8 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
     # LR14 = LR0 + 2 rows; needs its own word (ADD src_a reads snapshot).
     ADD                 LR14 LR14 CR1;;
     INC                 LR4 1;
     LD.MULT.CYCLIC LR14 CR0 LR8;
-    MULT.RC.VE          LR9 LR4 0 LR7 CR15 ;
+    MULT.RC.VE          LR9 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
     # LR14 = LR0 + 3 rows; own word, same reason (this word's 3 LR sub-slots
@@ -257,24 +257,23 @@ LAST_EPILOGUE_A:
     ADD                 LR14 LR14 CR1;;
 {%- if seeded %}
 
-    # ACTIVATE (relu) applies ReLU to the just-finalized R_ACC (conv + bias)
-    # and copies it -> post_aaq_reg.  Reads R_ACC LIVE so
+    # ACTIVATE.EXACT (relu) applies ReLU to the just-finalized R_ACC (conv +
+    # bias) and stores the row at y + LR1 (this word's ADD, forwarded).
+    # Reads R_ACC LIVE so
     # it does not NEED a cycle after the final acc, but this word's 3 LR
     # sub-slots are already full with the next-OC preload — rides here
     # (see the unseeded program's note below for why fusing
     # further would need LR-slot reshuffling not attempted here).
 {%- else %}
 
-    # ACTIVATE.QUANTIZE (identity) activates the just-finalized
-    # R_ACC -> 128 FP32 elements in post_aaq_reg.  It reads R_ACC LIVE,
+    # ACTIVATE.EXACT (identity) stores the just-finalized R_ACC (128 FP32
+    # elements) at y + LR1 (this word's ADD, forwarded).  It reads R_ACC LIVE,
     # so it does not NEED a cycle after the final acc, but
     # this word's 3 LR sub-slots are already full with the next-OC preload,
     # so ACTIVATE rides here rather than fusing
     # into the final acc's word above (which has only 1 free LR slot — not
     # enough room to also relocate this preload).  Fusing further would need
-    # LR-slot reshuffling; not attempted here. ST.AAQ (next word)
-    # also reads live, but this word's LR slots are already full, so the
-    # store stays separate too.
+    # LR-slot reshuffling; not attempted here.
 {%- endif %}
     INC                 LR4 1;
 {%- if seeded %}
@@ -283,16 +282,9 @@ LAST_EPILOGUE_A:
     ADD                 LR1 LR1 LR5;
 {%- endif %}
     LD.MULT.CYCLIC LR14 CR0 LR9;
-    ACTIVATE.QUANTIZE {{ activation }} CR15;;
-{%- if seeded %}
-
-    # Store the 128 activated FP32 elements to XMEM.
-{%- else %}
-
-{%- endif %}
+    ACTIVATE.EXACT {{ activation }} CR15.L {{ cr.y }} LR1;;
     INC                 LR3 1;
-    ADD                 LR12 LR12 CR1;
-    ST.AAQ    LR1 {{ cr.y }};;
+    ADD                 LR12 LR12 CR1;;
 
     # Fall through to Half B section
 
@@ -312,7 +304,7 @@ HALF_B_GO:
     # R1's element 0 = combined Ra index 128, so MULT.EE reads index LR5 (=128).
     LD.MULT        R1 LR12 {{ cr.b }};;  # bias block -> R1 (bias at element 0)
 
-    MULT.EE             LR5 CR1 0 LR7 CR15 ;  # bias = R1[0] * CR1(=1), broadcast
+    MULT.EE             LR5 CR1 0 LR7 CR15.L CR15.H ;  # bias = R1[0] * CR1(=1), broadcast
     ACC.ADD.FIRST;;  # R_ACC = bias
 {%- endif %}
 
@@ -328,7 +320,7 @@ HALF_B_GO:
     ADD                 LR15 LR4 {{ cr.pipeline_limit_tail }};;
     ADD                 LR14 LR14 CR1;;
     ADD                 LR14 LR14 CR1;
-    MULT.RC.VE          LR7 LR4 0 LR7 CR15 ;
+    MULT.RC.VE          LR7 LR4 0 LR7 CR15.L CR15.H ;
 {%- if seeded %}
     ACC.ADD;;
 {%- else %}
@@ -343,7 +335,7 @@ W1_FULL_B:
     ADD                 LR15 LR4 {{ cr.pipeline_limit_full }};;
     ADD                 LR14 LR14 CR1;;
     ADD                 LR14 LR14 CR1;
-    MULT.RC.VE          LR7 LR4 0 LR7 CR15 ;
+    MULT.RC.VE          LR7 LR4 0 LR7 CR15.L CR15.H ;
 {%- if seeded %}
     ACC.ADD;;
 {%- else %}
@@ -355,25 +347,25 @@ PIPELINE_BODY_B:
     INC                 LR4 1;
     ADD                 LR14 LR14 CR1;
     LD.MULT.CYCLIC LR14 CR0 LR7;
-    MULT.RC.VE          LR6 LR4 0 LR7 CR15 ;
+    MULT.RC.VE          LR6 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
     INC                 LR4 1;
     ADD                 LR14 LR14 CR1;
     LD.MULT.CYCLIC LR14 CR0 LR6;
-    MULT.RC.VE          LR8 LR4 0 LR7 CR15 ;
+    MULT.RC.VE          LR8 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
     INC                 LR4 1;
     ADD                 LR14 LR14 CR1;
     LD.MULT.CYCLIC LR14 CR0 LR8;
-    MULT.RC.VE          LR9 LR4 0 LR7 CR15 ;
+    MULT.RC.VE          LR9 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
     INC                 LR4 1;
     ADD                 LR14 LR14 CR1;
     LD.MULT.CYCLIC LR14 CR0 LR9;
-    MULT.RC.VE          LR7 LR4 0 LR7 CR15 ;
+    MULT.RC.VE          LR7 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;
     BLT.S                 LR4 LR15 PIPELINE_BODY_B;;
 
@@ -384,20 +376,20 @@ LAST_EPILOGUE_B:
 
     INC                 LR4 1;
     LD.MULT.CYCLIC LR0 CR0 LR7;
-    MULT.RC.VE          LR6 LR4 0 LR7 CR15 ;
+    MULT.RC.VE          LR6 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
     INC                 LR4 1;
     ADD                 LR14 LR0 CR1;  # LR14 = LR0 + 1 row
     LD.MULT.CYCLIC LR14 CR0 LR6;
-    MULT.RC.VE          LR8 LR4 0 LR7 CR15 ;
+    MULT.RC.VE          LR8 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
     # LR14 = LR0 + 2 rows; own word (ADD src_a reads snapshot).
     ADD                 LR14 LR14 CR1;;
     INC                 LR4 1;
     LD.MULT.CYCLIC LR14 CR0 LR8;
-    MULT.RC.VE          LR9 LR4 0 LR7 CR15 ;
+    MULT.RC.VE          LR9 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
     # LR14 = LR0 + 3 rows; own word, same reason (the word below is already
@@ -405,13 +397,13 @@ LAST_EPILOGUE_B:
     ADD                 LR14 LR14 CR1;;
 {%- if seeded %}
 
-    # ACTIVATE (relu): ReLU the finalized R_ACC (conv + bias) -> post_aaq_reg.
+    # ACTIVATE.EXACT (relu): ReLU the finalized R_ACC (conv + bias) -> y + LR1.
     # Reads R_ACC LIVE; rides in the preload word
     # (same LR-slot constraint as Half A's identical note).
 {%- else %}
 
-    # ACTIVATE.QUANTIZE (identity): activate the finalized R_ACC ->
-    # 128 FP32 elements in post_aaq_reg.  Reads R_ACC LIVE so
+    # ACTIVATE.EXACT (identity): store the finalized R_ACC (128 FP32
+    # elements) at y + LR1.  Reads R_ACC LIVE so
     # it does not NEED a cycle after the final acc, but this word's 3 LR
     # sub-slots are already full with the next-OC preload (no room to also
     # relocate that preload into the final acc's word, which has only 1 free
@@ -424,12 +416,10 @@ LAST_EPILOGUE_B:
     ADD                 LR1 LR1 LR5;
 {%- endif %}
     LD.MULT.CYCLIC LR14 CR0 LR9;
-    ACTIVATE.QUANTIZE {{ activation }} CR15;;
+    ACTIVATE.EXACT {{ activation }} CR15.L {{ cr.y }} LR1;;
 
-    # Store the 128 activated FP32 elements to XMEM.
     INC                 LR3 1;
-    ADD                 LR12 LR12 CR1;
-    ST.AAQ    LR1 {{ cr.y }};;
+    ADD                 LR12 LR12 CR1;;
 
 # ---------------------------------------------------------------------------
 # End of OC-pair: check if more OCs in this row-group
@@ -497,20 +487,20 @@ MID_EPILOGUE_A:
     # E1-E4 with reloads from LR13 (next pass's ich0..ich3)
     INC                 LR4 1;
     LD.MULT.CYCLIC LR13 CR0 LR7;
-    MULT.RC.VE          LR6 LR4 0 LR7 CR15 ;
+    MULT.RC.VE          LR6 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
     INC                 LR4 1;
     ADD                 LR14 LR13 CR1;  # LR14 = LR13 + 1 row
     LD.MULT.CYCLIC LR14 CR0 LR6;
-    MULT.RC.VE          LR8 LR4 0 LR7 CR15 ;
+    MULT.RC.VE          LR8 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
     # LR14 = LR13 + 2 rows; own word (ADD src_a reads snapshot).
     ADD                 LR14 LR14 CR1;;
     INC                 LR4 1;
     LD.MULT.CYCLIC LR14 CR0 LR8;
-    MULT.RC.VE          LR9 LR4 0 LR7 CR15 ;
+    MULT.RC.VE          LR9 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
     # LR14 = LR13 + 3 rows; own word, same reason.
@@ -535,7 +525,7 @@ MID_EPILOGUE_A:
     ADD                 LR15 LR4 {{ cr.pipeline_limit_tail }};;
     ADD                 LR14 LR14 CR1;;
     ADD                 LR14 LR14 CR1;
-    MULT.RC.VE          LR7 LR4 0 LR7 CR15 ;
+    MULT.RC.VE          LR7 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
     BLT.S                 LR4 LR15 PIPELINE_BODY_A;;
@@ -546,7 +536,7 @@ MP_A_FULL:
     ADD                 LR15 LR4 {{ cr.pipeline_limit_full }};;
     ADD                 LR14 LR14 CR1;;
     ADD                 LR14 LR14 CR1;
-    MULT.RC.VE          LR7 LR4 0 LR7 CR15 ;
+    MULT.RC.VE          LR7 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
     B                   PIPELINE_BODY_A;;
@@ -557,20 +547,20 @@ MID_EPILOGUE_B:
 
     INC                 LR4 1;
     LD.MULT.CYCLIC LR13 CR0 LR7;
-    MULT.RC.VE          LR6 LR4 0 LR7 CR15 ;
+    MULT.RC.VE          LR6 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
     INC                 LR4 1;
     ADD                 LR14 LR13 CR1;  # LR14 = LR13 + 1 row
     LD.MULT.CYCLIC LR14 CR0 LR6;
-    MULT.RC.VE          LR8 LR4 0 LR7 CR15 ;
+    MULT.RC.VE          LR8 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
     # LR14 = LR13 + 2 rows; own word (ADD src_a reads snapshot).
     ADD                 LR14 LR14 CR1;;
     INC                 LR4 1;
     LD.MULT.CYCLIC LR14 CR0 LR8;
-    MULT.RC.VE          LR9 LR4 0 LR7 CR15 ;
+    MULT.RC.VE          LR9 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
     # LR14 = LR13 + 3 rows; own word, same reason.
@@ -591,7 +581,7 @@ MID_EPILOGUE_B:
     ADD                 LR15 LR4 {{ cr.pipeline_limit_tail }};;
     ADD                 LR14 LR14 CR1;;
     ADD                 LR14 LR14 CR1;
-    MULT.RC.VE          LR7 LR4 0 LR7 CR15 ;
+    MULT.RC.VE          LR7 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
     BLT.S                 LR4 LR15 PIPELINE_BODY_B;;
@@ -602,7 +592,7 @@ MP_B_FULL:
     ADD                 LR15 LR4 {{ cr.pipeline_limit_full }};;
     ADD                 LR14 LR14 CR1;;
     ADD                 LR14 LR14 CR1;
-    MULT.RC.VE          LR7 LR4 0 LR7 CR15 ;
+    MULT.RC.VE          LR7 LR4 0 LR7 CR15.L CR15.H ;
     ACC.ADD;;
 
     B                   PIPELINE_BODY_B;;

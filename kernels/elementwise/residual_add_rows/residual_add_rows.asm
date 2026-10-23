@@ -39,21 +39,19 @@
         Cycle 1: MULT.RC.VE x 1.0 on A[r] (loaded in the previous row's cycle 3);
                  ACC.ADD.FIRST; LD.MULT.CYCLIC -> r_cyclic = B[r]
         Cycle 2: MULT.RC.VE x 1.0 on B[r]; ACC.ADD
-        Cycle 3: ACTIVATE.QUANTIZE identity + ST.AAQ store A[r]+B[r] in one word;
+        Cycle 3: ACTIVATE.EXACT identity stores A[r]+B[r];
                  advance the row counter; LD.MULT.CYCLIC -> r_cyclic = A[r+1]
         Cycle 4: advance the output pointer; BLT.S -> loop
       Total: 4 cycles x rows, plus the setup words and one priming load.
     - LR forwarding: ADD fires before XMEM, so the A/B pointers start at -1
       (CR5) and read as 0 after their first ADD. Each pointer ADD co-issues with
-      the load it feeds, so the cycle-3 prefetch addresses row r+1. ST.AAQ reads
+      the load it feeds, so the cycle-3 prefetch addresses row r+1. ACTIVATE.EXACT reads
       out_ptr's forwarded value: do not ADD out_ptr in its word. BLT.S reads
       the value at the start of the cycle, so row_index advances the word before
       BLT.S.
-    - ACTIVATE.QUANTIZE and ST.AAQ co-issue: the in-word slot order is
-      CTRL -> MULT -> ACC -> AaQ -> STR (docs/content/specs/MAS-stage-aaq-str.md
-      section 7.0), so STR stores this cycle's AaQ result. identity with
-      DSTRUCT's default valid_elements = 128 is a lane-for-lane FP32 copy of all
-      128 lanes.
+    - ACTIVATE.EXACT activates and stores in one instruction (ADR 0007).
+      identity with DSTRUCT's default DS (ds(128)) is a lane-for-lane FP32
+      copy of all 128 lanes.
 
     Registers are named in the block below. The CRs [abi] binds come from
     kernel.toml (cr.<name>), so the program and its ABI cannot drift.
@@ -104,22 +102,17 @@ row_loop:
     #   Co-issued load fetches B[r] for cycle 2.
     LD.MULT.CYCLIC {{ b_ptr }} {{ B_BASE }} {{ rc_slot0 }};
     ADD {{ b_ptr }} {{ b_ptr }} {{ row_stride }};
-    MULT.RC.VE {{ rc_slot0 }} {{ DTYPE_ONE }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ DTYPE_ONE }} 0 {{ rc_slot0 }} {{ DSTRUCT }}.L {{ cr.qf }}.L;
     ACC.ADD.FIRST;;
     # Cycle 2: r_acc += B[r] × 1.0
-    MULT.RC.VE          {{ rc_slot0 }} {{ DTYPE_ONE }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE          {{ rc_slot0 }} {{ DTYPE_ONE }} 0 {{ rc_slot0 }} {{ DSTRUCT }}.L {{ cr.qf }}.L;
     ACC.ADD;;
-    # Cycle 3: stage r_acc into post_aaq_reg for the hardware store path.
-    #   ACTIVATE.QUANTIZE and ST.AAQ co-issue in ONE VLIW word: AaQ
-    #   and STR are consecutive pipeline stages within a word, and the in-word
-    #   slot order is CTRL -> MULT -> ACC -> AaQ -> STR (docs/content/specs/
-    #   MAS-stage-aaq-str.md §7.0), so STR consumes this cycle's AaQ result. This
-    #   is why the store is free and the loop stays 4 cycles per row.
-    #   `identity` + DSTRUCT's default valid_elements=128 makes this a
+    # Cycle 3: ACTIVATE.EXACT identity stores r_acc: it activates and
+    #   stores in one instruction, so the loop stays 4 cycles per row.
+    #   `identity` + DSTRUCT's default DS (ds(128)) makes this a
     #   lane-for-lane FP32 copy of all 128 lanes.
     #   Co-issued load prefetches A[r+1] for the next row's cycle 1.
-    ACTIVATE.QUANTIZE   identity {{ DSTRUCT }};
-    ST.AAQ {{ out_ptr }} {{ OUT_BASE }};
+    ACTIVATE.EXACT   identity {{ DSTRUCT }}.L {{ OUT_BASE }} {{ out_ptr }};
     ADD {{ row_index }} {{ row_index }} {{ ONE }};
     LD.MULT.CYCLIC {{ a_ptr }} {{ A_BASE }} {{ rc_slot0 }};
     ADD {{ a_ptr }} {{ a_ptr }} {{ row_stride }};;

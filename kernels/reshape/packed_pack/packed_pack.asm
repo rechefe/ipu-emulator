@@ -109,7 +109,7 @@
     SET {{ read_ptr }} {{ UNPACKED_BASE }};;
     SUB {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
     SET {{ write_ptr }} {{ ZERO }};;
-    SUB {{ write_ptr }} {{ write_ptr }} {{ row_stride }};;   # write_ptr = -1: ST.AAQ's offset is a FORWARDED read and dispatches after this word's own ADD -- see packed_layernorm.asm's step 3 note
+    SUB {{ write_ptr }} {{ write_ptr }} {{ row_stride }};;   # write_ptr = -1: ACTIVATE.EXACT's offset is a FORWARDED read and dispatches after this word's own ADD -- see packed_layernorm.asm's step 3 note
     LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;  # prime unpacked row 0 into slot 0
 
@@ -118,13 +118,12 @@
     SET {{ rc_idx_reg }} {{ ZERO }};;
     {{- inc(rc_idx_reg, (512 - PS * p_out) % 512) }}
     {%- set is_first = (p_out == 0) %}
-    MULT.RC.VE {{ rc_idx_reg }} {{ ONE }} {{ p_out }} {{ mask_shift0 }} {{ DSTRUCT128 }};
+    MULT.RC.VE {{ rc_idx_reg }} {{ ONE }} {{ p_out }} {{ mask_shift0 }} {{ DSTRUCT128 }}.L {{ cr.qf }}.L;
     ACC.ADD{{ ".FIRST" if is_first else "" }};
     LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
 {%- endfor %}
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT128 }};
-    ST.AAQ {{ write_ptr }} {{ PACKED_BASE }};
+    ACTIVATE.EXACT identity {{ DSTRUCT128 }}.L {{ PACKED_BASE }} {{ write_ptr }};
     ADD {{ write_ptr }} {{ write_ptr }} {{ row_stride }};;
 
     SET {{ row_idx }} {{ ZERO }};;
@@ -150,7 +149,7 @@ pack_loop:
         row1 off by ~3, row9 off by ~13 -- a growing error, the
         signature of unbounded cross-iteration accumulation rather than
         a one-off indexing mistake). #}
-    MULT.RC.VE {{ rc_idx_reg }} {{ ONE }} {{ p_out }} {{ mask_shift0 }} {{ DSTRUCT128 }};
+    MULT.RC.VE {{ rc_idx_reg }} {{ ONE }} {{ p_out }} {{ mask_shift0 }} {{ DSTRUCT128 }}.L {{ cr.qf }}.L;
     ACC.ADD{{ ".FIRST" if p_out == 0 else "" }};
     LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
@@ -167,14 +166,13 @@ pack_loop:
         241-loads-for-240-channels count, verified empirically): the
         load's result is never consumed by another MULT, since the loop
         exits right after. #}
-    MULT.RC.VE {{ rc_idx_reg }} {{ ONE }} {{ p_out }} {{ mask_shift0 }} {{ DSTRUCT128 }};
+    MULT.RC.VE {{ rc_idx_reg }} {{ ONE }} {{ p_out }} {{ mask_shift0 }} {{ DSTRUCT128 }}.L {{ cr.qf }}.L;
     ACC.ADD;
     LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
     {%- endif %}
 {%- endfor %}
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT128 }};
-    ST.AAQ {{ write_ptr }} {{ PACKED_BASE }};
+    ACTIVATE.EXACT identity {{ DSTRUCT128 }}.L {{ PACKED_BASE }} {{ write_ptr }};
     ADD {{ write_ptr }} {{ write_ptr }} {{ row_stride }};
     ADD {{ row_idx }} {{ row_idx }} {{ ONE }};
     BLT.S {{ row_idx }} {{ row_limit }} pack_loop;;

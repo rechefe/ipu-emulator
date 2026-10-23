@@ -11,6 +11,7 @@ num_channels = { type = "int", min = 1, max = 1024 }
 
 [derived]
 step = "1"                          # the row step: one row per channel
+qf   = "case_qf"                    # the case's QF half (0: FP32 ignores it)
 
 [inputs.a]
 shape = ["num_channels", 128]       # automatic placement: row 0
@@ -21,8 +22,7 @@ row = 1024                          # the old INPUT_B_BASE (0x80000 bytes)
 
 [outputs.y]
 shape = ["num_channels", 128]
-row = 2048                          # the old OUTPUT_BASE (0x100000 bytes)
-store = "accumulator"               # ST.ACC: FP32, one row per vector
+row = 2048                          # the old OUTPUT_BASE (0x100000 bytes); ACTIVATE.EXACT identity, one row per vector
 
 [abi]
 a            = "CR2"
@@ -30,6 +30,7 @@ b            = "CR3"
 y            = "CR4"
 step         = "CR5"
 num_channels = "CR6"
+qf           = "CR14"
 
 [golden]
 op = "residual_add"

@@ -25,6 +25,7 @@ channel_groups = "ceil(in_channels / 14)"       # weight rows per output channel
 lanes          = "128"                          # R1[0]'s element index; R_CYCLIC slot 1
 group_last     = "13"                           # the channel-group cap - 1
 rc_step        = "126"                          # the R_CYCLIC read index step between rows
+ds_qf          = "halves(ds(128), case_qf)"     # CR15: LOW the default DS, HIGH the case's QF (FP32 ignores it)
 
 # Placed in this order from row 0: x (with its guard plane), w, b, y.
 [inputs.x]
@@ -57,6 +58,7 @@ channel_groups = "CR11"
 lanes          = "CR12"
 group_last     = "CR13"
 rc_step        = "CR14"
+ds_qf          = "CR15"
 
 [golden]
 op = "conv2d"

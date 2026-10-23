@@ -28,6 +28,7 @@ eight     = "8"                                             # fine phases per ax
 two       = "2"                                             # 128-lane tiles per cell
 lanes     = "128"                                           # R_CYCLIC slot step
 two_w     = "2 * width"
+qf        = "case_qf"                     # the case's QF half (0: FP32 ignores it)
 
 # Placed from row 0: x, Ky, Kx, the scratch plane, y (the old image).
 [inputs.x]
@@ -64,6 +65,7 @@ eight   = "CR10"
 two     = "CR11"
 lanes   = "CR12"
 two_w   = "CR13"
+qf      = "CR14"
 
 [golden]
 op = "sample_descriptors"

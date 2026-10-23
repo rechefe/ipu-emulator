@@ -22,6 +22,7 @@ zero       = "0"
 ptr_start  = "-1"                   # A/B row pointers start one row early
 row_stride = "1"
 out_stride = "1"
+qf         = "case_qf"                     # the case's QF half (0: FP32 ignores it)
 
 # Logical view: one row of the tensor is `per_row` channels side by side, so the
 # default row-major pack gives the old layouts: [240, 16] -> 240 rows of 16
@@ -46,6 +47,7 @@ row_stride = "CR7"
 out_stride = "CR8"
 b          = "CR9"
 one        = "CR10"
+qf         = "CR14"
 
 [golden]
 op = "residual_add"

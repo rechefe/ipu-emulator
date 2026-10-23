@@ -31,7 +31,7 @@
       older kernel negated it and added (AGG max value_cr(-1) then ACC.ADD_AAQ);
       ACC.SUB does it directly.
 
-      R_ACC is not modified by ACTIVATE.QUANTIZE, so the confidence is stored
+      R_ACC is not modified by ACTIVATE.EXACT, so the confidence is stored
       and then subtracted from in place -- the maximum is computed once.
 
     ABI (kernel.toml [abi]; CR0/CR1 are READ-ONLY hardware constants):
@@ -44,7 +44,7 @@
       CR15 = dstructure (valid_elements = 128)
 
     LR uses 3 sub-slots; ";;" ends a VLIW word, ";" separates sub-instructions.
-    Slot order within a word is LR -> LOAD -> MULT -> ACC -> AAQ -> STORE ->
+    Slot order within a word is LR -> LOAD -> MULT -> ACC -> AAQ -> AAQ_EXACT ->
     COND, so ACC.SUB and the ACTIVATE that reads its result share one word,
     while R_CYCLIC needs a word of separation after its load (its CONTENTS are
     read from the start-of-word snapshot).
@@ -67,22 +67,20 @@ tile_loop:
     LD.MULT.CYCLIC {{lr_addr}} CR2 {{lr_zero}} ;;   {#- slot0 <- x[0, t] -#}
     ADD {{lr_addr}} {{lr_addr}} CR6 ;
     ADD {{lr_c}} {{lr_c}} CR1 ;;
-    MULT.RC.VE {{lr_zero}} CR1 0 {{lr_zero}} CR15 ; ACC.MAX.FIRST ;;
+    MULT.RC.VE {{lr_zero}} CR1 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ; ACC.MAX.FIRST ;;
     BGE.S {{lr_c}} CR7 peak_done ;;                        {#- one plane only: nothing to fold in -#}
 
 chan_loop:
     LD.MULT.CYCLIC {{lr_addr}} CR2 {{lr_zero}} ;;   {#- slot0 <- x[c, t] -#}
     ADD {{lr_addr}} {{lr_addr}} CR6 ;
     ADD {{lr_c}} {{lr_c}} CR1 ;;
-    MULT.RC.VE {{lr_zero}} CR1 0 {{lr_zero}} CR15 ; ACC.MAX ;
+    MULT.RC.VE {{lr_zero}} CR1 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ; ACC.MAX ;
     BLT.S {{lr_c}} CR7 chan_loop ;;                        {#- post-increment: bound CHANNELS -#}
 
 peak_done:
-    ACTIVATE.QUANTIZE identity CR15 ;
-    ST.AAQ {{lr_t}} CR3 ;;                     {#- CONF[t] = max over planes -#}
-    MULT.RC.VE {{lr_tau}} CR1 0 {{lr_zero}} CR15 ; ACC.SUB ;
-    ACTIVATE.QUANTIZE relu CR15 ;
-    ST.AAQ {{lr_t}} CR4 ;;                     {#- KEEP[t] = relu(conf - tau) -#}
+    ACTIVATE.EXACT identity CR15.L CR3 {{lr_t}} ;; {#- CONF[t] = max over planes -#}
+    MULT.RC.VE {{lr_tau}} CR1 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ; ACC.SUB ;
+    ACTIVATE.EXACT relu CR15.L CR4 {{lr_t}} ;; {#- KEEP[t] = relu(conf - tau) -#}
     ADD {{lr_t}} {{lr_t}} CR1 ;;
     BLT.S {{lr_t}} CR6 tile_loop ;;
 

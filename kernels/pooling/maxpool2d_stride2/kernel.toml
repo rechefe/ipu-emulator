@@ -24,6 +24,7 @@ row_step2  = "2 * in_tiles"                              # spatial row 2y to 2(y
 out_height = "height // 2"
 lanes      = "128"                                       # R_CYCLIC slot-1 index
 plane      = "height * in_tiles"                         # IN_PLANE_STRIDE (rows)
+qf         = "case_qf"                                   # the case's QF half (0: FP32 ignores it)
 
 # Placed from row 0: x, y, stage (the old image: input, output, scratch).
 [inputs.x]
@@ -48,6 +49,7 @@ out_height = "CR8"
 channels   = "CR9"
 lanes      = "CR10"
 plane      = "CR11"
+qf         = "CR14"
 
 [golden]
 op = "maxpool2d"

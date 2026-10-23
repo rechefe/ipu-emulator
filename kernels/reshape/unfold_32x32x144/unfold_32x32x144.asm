@@ -161,11 +161,10 @@ ch_loop:
     ADD                 {{ src_off }} {{ src_off }} {{ src_stride }};;     # src offset: next channel (+1 row)
 {%- endif %}
     LD.MULT R0 {{ src_off }} {{ nstripe }};
-    MULT.RC.VV {{ acc_slot0 }} R0 0 {{ acc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VV {{ acc_slot0 }} R0 0 {{ acc_slot0 }} {{ DSTRUCT }}.L {{ cr.qf }}.L;
     ACC.STRIDE 32 {{ g[1] }} {{ g[2] }} {{ slots[s] }};;
 {%- endfor %}
-    ACTIVATE.QUANTIZE   identity {{ DSTRUCT }};
-    ST.AAQ    {{ g[3] == "tg0" and dst_off_tg0 or dst_off_tg1 }} {{ g[4] }};;  # {{ g[0] }} {{ g[3] }}
+    ACTIVATE.EXACT   identity {{ DSTRUCT }}.L {{ g[4] }} {{ g[3] == "tg0" and dst_off_tg0 or dst_off_tg1 }};; # {{ g[0] }} {{ g[3] }}
 {% endfor %}
     ADD                 {{ dst_off_tg0 }} {{ dst_off_tg0 }} {{ dst_stride }};
     ADD {{ dst_off_tg1 }} {{ dst_off_tg1 }} {{ dst_stride }};;  # dst offsets: +2 rows per channel

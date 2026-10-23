@@ -6,7 +6,7 @@ template's case at the entry's fixed values."""
 
 import numpy as np
 
-from ipu_harness.cases import at_values, inputs_for
+from ipu_harness.cases import at_values, inputs_for, rng
 from ipu_harness.params import plan_case
 from ipu_isa.formats import ElementFormat
 
@@ -33,11 +33,14 @@ def test_relu_writes_exact_zeros_for_a_negative_bias(cases, run_case):
 
 def test_a_seeded_program_without_a_bias_ignores_the_bias_column(kernel, cases, run_case):
     # depthwise_conv_universal_relu (E07-20; the bias + ReLU twin requires the
-    # bias): the case's bias column is nonzero, yet the run matches the
-    # reference without a bias.
+    # bias): the seeded stream's bias column is nonzero, but the pack does not
+    # store it (the inputs are what XMEM holds, ADR 0007), and the run matches
+    # the reference without a bias.
     case = next(c for c in cases if c.name == "relu_no_bias")
     plan = plan_case(kernel, case.values, ElementFormat.FP32, case=case.decl)
-    assert np.any(inputs_for(case, plan).tensors["filters"][:, 0] != 0)
+    seeded = rng(plan.manifest.name, case.name, "filters").uniform(-1, 1, plan.shapes["filters"])
+    assert np.any(seeded[:, 0] != 0)
+    assert np.all(inputs_for(case, plan).tensors["filters"][:, 0] == 0)
     _run(cases, run_case, "relu_no_bias", has_bias=False, apply_relu=True, fpb=25)
 
 

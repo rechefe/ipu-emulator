@@ -25,6 +25,7 @@ stripe1  = "base(x) + c"              # stripe s of x at base(x) + s * c
 slot1    = "1"
 src_stride = "1"
 dst_stride = "1"
+qf       = "case_qf"                     # the case's QF half (0: FP32 ignores it)
 
 [inputs.x]                    # 2 stripe(s) of 8 spatial rows, one row per channel
 shape = ["c", "h", "w"]
@@ -56,6 +57,7 @@ slot0      = "LR0"
 src_row    = "LR4"
 dst_row    = "LR8"
 channel    = "LR10"
+qf       = "CR14"
 
 [golden]
 op = "unfold"

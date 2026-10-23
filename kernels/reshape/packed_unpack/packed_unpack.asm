@@ -77,7 +77,7 @@
     SET {{ read_ptr }} {{ PACKED_BASE }};;
     SUB {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
     SET {{ write_ptr }} {{ ZERO }};;
-    SUB {{ write_ptr }} {{ write_ptr }} {{ row_stride }};;   # write_ptr = -1: ST.AAQ's offset is a FORWARDED read and dispatches after this word's own ADD -- see packed_layernorm.asm's step 3 note
+    SUB {{ write_ptr }} {{ write_ptr }} {{ row_stride }};;   # write_ptr = -1: ACTIVATE.EXACT's offset is a FORWARDED read and dispatches after this word's own ADD -- see packed_layernorm.asm's step 3 note
     LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;  # prime row 0 into slot 0
 
@@ -85,15 +85,13 @@
 {%- for p_in in range(PACK) %}
     SET {{ rc_idx_reg }} {{ ZERO }};;
     {{- inc(rc_idx_reg, PS * p_in) }}
-    MULT.RC.VE {{ rc_idx_reg }} {{ ONE }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
+    MULT.RC.VE {{ rc_idx_reg }} {{ ONE }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }}.L {{ cr.qf }}.L;
     ACC.ADD.FIRST;;
     {%- if p_in < PACK - 1 %}
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT_TOK }};
-    ST.AAQ {{ write_ptr }} {{ UNPACKED_BASE }};
+    ACTIVATE.EXACT identity {{ DSTRUCT_TOK }}.L {{ UNPACKED_BASE }} {{ write_ptr }};
     ADD {{ write_ptr }} {{ write_ptr }} {{ row_stride }};;
     {%- else %}
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT_TOK }};
-    ST.AAQ {{ write_ptr }} {{ UNPACKED_BASE }};
+    ACTIVATE.EXACT identity {{ DSTRUCT_TOK }}.L {{ UNPACKED_BASE }} {{ write_ptr }};
     ADD {{ write_ptr }} {{ write_ptr }} {{ row_stride }};
     LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
@@ -110,13 +108,12 @@ unpack_loop:
     SET {{ rc_idx_reg }} {{ ZERO }};;
     {{- inc(rc_idx_reg, PS * p_in) }}
     {%- if p_in < PACK - 1 %}
-    MULT.RC.VE {{ rc_idx_reg }} {{ ONE }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
+    MULT.RC.VE {{ rc_idx_reg }} {{ ONE }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }}.L {{ cr.qf }}.L;
     ACC.ADD.FIRST;;
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT_TOK }};
-    ST.AAQ {{ write_ptr }} {{ UNPACKED_BASE }};
+    ACTIVATE.EXACT identity {{ DSTRUCT_TOK }}.L {{ UNPACKED_BASE }} {{ write_ptr }};
     ADD {{ write_ptr }} {{ write_ptr }} {{ row_stride }};;
     {%- else %}
-    MULT.RC.VE {{ rc_idx_reg }} {{ ONE }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
+    MULT.RC.VE {{ rc_idx_reg }} {{ ONE }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }}.L {{ cr.qf }}.L;
     ACC.ADD.FIRST;;
     {#- final p_in of this row: fuse write_ptr's advance, the trailing
         prefetch load+advance, AND row_idx's own advance+BLT.S all into one
@@ -124,8 +121,7 @@ unpack_loop:
         per-cycle maximum -- mirroring packed_layernorm.asm's
         loop structure precisely (see that file for why row_idx's ADD and
         BLT.S must share the closing load's word). #}
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT_TOK }};
-    ST.AAQ {{ write_ptr }} {{ UNPACKED_BASE }};
+    ACTIVATE.EXACT identity {{ DSTRUCT_TOK }}.L {{ UNPACKED_BASE }} {{ write_ptr }};
     ADD {{ write_ptr }} {{ write_ptr }} {{ row_stride }};
     LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};

@@ -64,7 +64,7 @@
 
     CR registers (all bound in kernel.toml's [abi], plain host-computed
     constants -- no runtime LR multiplication tricks needed):
-      CR0  = 0 (read-only const), CR1 = 1 (read-only const), CR15 = dstructure
+      CR0  = 0 (read-only const), CR1 = 1 (read-only const), CR15 = the default DS (LOW) and the QF (HIGH)
       {{ cr.x }}  = INPUT_BASE_ROW
       {{ cr.w }}  = KERNEL_BASE_ROW
       {{ cr.y }}  = OUTPUT_BASE_ROW
@@ -149,7 +149,7 @@
     SET                 LR12 CR0;;                          # kernel channel-in-block ctr = 0
 
     SET                 LR10 CR0;
-    MULT.EE             LR10 CR0 0 LR0 CR15;             # 0 * R0[0], broadcast
+    MULT.EE             LR10 CR0 0 LR0 CR15.L CR15.H;             # 0 * R0[0], broadcast
     ACC.ADD.FIRST;;                                       # r_acc = 0 (seed; conv taps add on top)
 
     SET                 LR11 CR0;                          # ic = 0
@@ -250,7 +250,7 @@
 {%-       else %}
 {%-         set mask_slot = 3 %}
 {%-       endif %}
-    MULT.RC.VE          {{ rc_reg }} LR10 {{ mask_slot }} LR0 CR15;
+    MULT.RC.VE          {{ rc_reg }} LR10 {{ mask_slot }} LR0 CR15.L CR15.H;
     INC                 LR10 1;
     ACC.ADD;;
 {%-     endfor %}
@@ -261,8 +261,7 @@
     INC                 LR12 1;;
     BLT.S                 LR11 {{ cr.in_channels }} {{ lbl }}_ch_loop;;
 
-    ACTIVATE.QUANTIZE   identity CR15;
-    ST.AAQ    LR14 {{ cr.y }};;
+    ACTIVATE.EXACT   identity CR15.L {{ cr.y }} LR14;;
     INC                 LR14 1;;
 {%- endmacro -%}
 
@@ -334,7 +333,7 @@ main_filter_loop:
                                                               # twice in one VLIW word.
 
     # row_base/out_row_base are RELATIVE offsets from cr2/cr4 (added explicitly
-    # as `base` by every ld.mult.cyclic/st.aaq below) -- NOT
+    # as `base` by every ld.mult.cyclic/activate.exact below) -- NOT
     # absolute row numbers -- so they start at 0, mirroring lr8 (kernel filter
     # base)'s relative-to-cr3 convention. Seeding them from cr2/cr4 directly
     # would double-count the base at every load/store site.

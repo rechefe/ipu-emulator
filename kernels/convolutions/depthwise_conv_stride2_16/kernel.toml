@@ -46,10 +46,11 @@ chunk_limit   = "(num_chunks - 1) * in_channels + in_channels"
 slot_stride   = "128"
 half_slot     = "256"
 walk_step     = "256 - 2 * cols - 2"
-dstructure    = "dstructure(128, 128 // cols - cols // 128)"
+dstructure    = "halves(ds(cols, 128 // cols, 128 // cols), case_qf)"
 stage1_rows   = "num_chunks * in_channels"       # stage 1's full-resolution output (2 chunks a channel)
 
 # -- stage 2 --
+stage2_ds         = "halves(ds(128), case_qf)"   # CR15 in stage 2: every element, and the case's QF
 num_channel_pairs = "in_channels / 2"       # CR6
 
 # Placed in the old harness's order: stage 1's input (with its headroom),
@@ -79,13 +80,13 @@ after = "border_mask"
 
 # Stage 1 runs with this table (stages.py passes no abi): depthwise_conv_tpl's
 # [abi] at fpb 28, but for CR8. A stage's own table has no offsets, so stage 1
-# needs this one for y's offset -1, and [abi] must bind every tensor: the final
+# needs this one for CR15 (the partitioned DS), and [abi] must bind every tensor: the final
 # output out is parked on CR8, the template's kernel_rows, which its program
 # writes but never reads (so stage 1's CR8 is base(out), not
 # ceil(C / 28) * 2). Stage 2 binds its own four CRs (stages.py); the others
 # and the LRs carry over from stage 1, as in the old harness.
 [abi]
-y           = { register = "CR2", offset = -1 }   # one row low: the store is one channel late
+y           = "CR2"
 border_mask = "CR3"
 cols        = "CR4"
 filters     = "CR5"

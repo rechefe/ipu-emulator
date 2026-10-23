@@ -55,7 +55,7 @@ chunk_limit   = "(num_chunks - 1) * in_channels + in_channels"  # biased by the 
 slot_stride   = "128"                                      # R_CYCLIC elements
 half_slot     = "256"                                      # R_CYCLIC elements
 walk_step     = "256 - 2 * cols - 2"                       # R_CYCLIC elements; -2 at cols 128 (two's complement)
-dstructure    = "dstructure(128, 128 // cols - cols // 128)"  # partition: 128 / cols groups, P0 at 128
+dstructure    = "halves(ds(cols, 128 // cols, 128 // cols), case_qf)"  # LOW: 128 / cols partitions of cols elements; HIGH: the case's QF
 
 # Placed in the old harness's order: input (with its headroom), filters, mask, output.
 [inputs.x]
@@ -81,7 +81,7 @@ bytes = "../masks.py:border_mask"
 # Every CR the old setup() wrote (CR2-CR15; it wrote no LR, and the
 # program reads none before it writes it).
 [abi]
-y           = { register = "CR2", offset = -1 }   # one row low: the store is one channel late
+y           = "CR2"
 border_mask = "CR3"
 cols        = "CR4"
 filters     = "CR5"

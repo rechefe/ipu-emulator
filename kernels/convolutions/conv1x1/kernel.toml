@@ -23,6 +23,7 @@ tiles          = "ceil(width / 128)"            # 128-column tiles per spatial r
 plane_stride   = "height * ceil(width / 128)"   # rows per channel plane, input and output
 channel_groups = "ceil(in_channels / 128)"      # weight rows per output channel
 lanes          = "128"                          # the group cap; R1[0]'s element index
+qf             = "case_qf"                      # the case's QF half (0: FP32 ignores it)
 
 # Placed in this order from row 0: x (with its guard plane), w, b, y.
 [inputs.x]
@@ -52,6 +53,7 @@ in_channels    = "CR9"
 out_channels   = "CR10"
 channel_groups = "CR11"
 lanes          = "CR12"
+qf             = "CR14"
 
 [golden]
 op = "conv2d"

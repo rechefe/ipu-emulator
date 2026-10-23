@@ -67,34 +67,32 @@ pair_loop:
     # --- channel A (=2p), row-group 0: offset 0 (writes r_acc[0:32]).
     ADD                 LR4 LR3 CR0;;
     LD.MULT        R0 LR4 {{ cr.y }};;
-    MULT.VE             LR0 CR1 0 LR0 CR15;;
+    MULT.VE             LR0 CR1 0 LR0 CR15.L CR15.H;;
     ACC.STRIDE          16 on on LR9;;
 
     # --- channel A, row-group 1: +channels rows, offset 1 (writes r_acc[32:64]).
     ADD                 LR4 LR4 {{ cr.in_channels }};;
     LD.MULT        R0 LR4 {{ cr.y }};;
-    MULT.VE             LR0 CR1 0 LR0 CR15;;
+    MULT.VE             LR0 CR1 0 LR0 CR15.L CR15.H;;
     ACC.STRIDE          16 on on LR10;;
 
     # --- channel B (=2p+1), row-group 0: lr3+1 (NOT lr4+channels -- see
     #     header note), offset 2 (writes r_acc[64:96]).
     ADD                 LR4 LR3 CR1;;
     LD.MULT        R0 LR4 {{ cr.y }};;
-    MULT.VE             LR0 CR1 0 LR0 CR15;;
+    MULT.VE             LR0 CR1 0 LR0 CR15.L CR15.H;;
     ACC.STRIDE          16 on on LR11;;
 
     # --- channel B, row-group 1: +channels rows, offset 3 (writes
-    #     r_acc[96:128]). Quantize the full 128-element r_acc (identity, no
-    #     clamp change) then store.
+    #     r_acc[96:128]). Store the full 128-element r_acc (identity) in the
+    #     same word.
     ADD                 LR4 LR4 {{ cr.in_channels }};;
     LD.MULT        R0 LR4 {{ cr.y }};;
-    MULT.VE             LR0 CR1 0 LR0 CR15;;
+    MULT.VE             LR0 CR1 0 LR0 CR15.L CR15.H;;
     ACC.STRIDE          16 on on LR12;
-    ACTIVATE.QUANTIZE   identity CR15;;
+    ACTIVATE.EXACT      identity CR15.L {{ cr.out }} LR2;;
 
-    ST.AAQ    LR2 {{ cr.out }};;
-
-    INC                 LR2 1;;
+    INC                LR2 1;;
     # Two separate ADDs (ADD's src_a reads the cycle-start snapshot, so a
     # same-word double ADD into lr3 would not see the first result).
     ADD                 LR3 LR3 CR1;;

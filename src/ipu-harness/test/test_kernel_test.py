@@ -42,15 +42,14 @@ def _test(directory: Path, tier: str = "default", *args: str) -> int:
 
 
 def test_every_case_in_every_format(scale, capsys):
+    # scale is FP32 only (ADR 0007): one run a case.
     assert _test(scale) == 0
     out = capsys.readouterr().out
     for case in ("default", "one_row", "mine"):
-        for fmt in ("fp32", "int8", "e4"):
-            assert f"test_case[{case}-{fmt}] PASSED" in out
+        assert f"test_case[{case}-fp32] PASSED" in out
     for rows in (1, 7, 33, 128):
-        for fmt in ("fp32", "e4"):
-            assert f"test_case[sweep[rows={rows}]-{fmt}] PASSED" in out
-    assert out.count(" PASSED") == 17
+        assert f"test_case[sweep[rows={rows}]-fp32] PASSED" in out
+    assert out.count(" PASSED") == 7
 
 
 def test_a_wrong_program_names_the_case_format_index_and_tier(scale, capsys):
@@ -58,8 +57,8 @@ def test_a_wrong_program_names_the_case_format_index_and_tier(scale, capsys):
     asm.write_text(asm.read_text().replace("MULT.VE LR0 {{ cr.s }}", "MULT.VE LR0 CR1"))  # y = x
     assert _test(scale) != 0
     out = capsys.readouterr().out
-    assert "test_case[default-int8] FAILED" in out
-    assert "scale/default/int8: FAIL" in out and "y: FAIL at EXACT" in out
+    assert "test_case[default-fp32] FAILED" in out
+    assert "scale/default/fp32: FAIL" in out and "y: FAIL at EXACT" in out
     assert "worst at [" in out
 
 
@@ -96,22 +95,22 @@ def test_shards_split_the_runs(scale, capsys, monkeypatch, tmp_path):
         monkeypatch.setenv("TEST_SHARD_INDEX", str(shard))
         assert _test(scale) == 0
         passed += capsys.readouterr().out.count(" PASSED")
-    assert passed == 17
+    assert passed == 7
 
 
 def test_a_test_filter_selects_runs(scale, capsys, monkeypatch):
     monkeypatch.setenv("TESTBRIDGE_TEST_ONLY", "one_row")
     assert _test(scale) == 0
     out = capsys.readouterr().out
-    assert out.count(" PASSED") == 3 and "test_case[default-" not in out
+    assert out.count(" PASSED") == 1 and "test_case[default-" not in out
 
 
 def test_bazel_run_runs_the_cli(scale, capsys, monkeypatch, tmp_path):
     monkeypatch.setenv("BUILD_WORKING_DIRECTORY", str(tmp_path))
     toml = str(scale / "kernel.toml")
-    assert kernel_test.main([toml, SHIM, "default", "--case", "one_row", "--format", "e4"]) == 0
+    assert kernel_test.main([toml, SHIM, "default", "--case", "one_row", "--format", "fp32"]) == 0
     [line] = capsys.readouterr().out.splitlines()
-    assert line.startswith("scale/one_row/e4: PASS  cycles=") and "MAC util=" in line
+    assert line.startswith("scale/one_row/fp32: PASS  cycles=") and "MAC util=" in line
 
 
 # --- a registry.toml entry (E06-17), on the fixture family test/scales ---------------

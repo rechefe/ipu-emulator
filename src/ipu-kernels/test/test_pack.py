@@ -1,4 +1,4 @@
-"""Packing: per-format bytes, the shared transforms and their lookup (E06-05)."""
+"""Packing: per-variant bytes, the shared transforms and their lookup (E06-05)."""
 
 from __future__ import annotations
 
@@ -9,11 +9,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from ipu_harness._codec import held
 from ipu_harness.manifest import KernelManifest, load_manifest
-from ipu_harness.packing import pack, stored_rows, transform_for, unpack
+from ipu_harness.packing import held, pack, stored_rows, transform_for, unpack
 from ipu_harness.params import PlanError, plan_case
 from ipu_harness.placement import default_rows, place
+from ipu_harness.variants import variant
 from ipu_isa.formats import ElementFormat as F
 
 KERNELS = Path(__file__).resolve().parents[1] / "src" / "ipu_kernels"
@@ -22,7 +22,7 @@ HARNESS = Path(__file__).resolve().parents[2] / "ipu-harness" / "src" / "ipu_har
 TOML = """\
 [kernel]
 op = "pack_test"
-formats = ["fp32", "int8", "e4", "e5"]
+formats = ["fp32", "e4", "e5"]
 
 [params]
 c = {{ type = "int", default = 3 }}
@@ -34,7 +34,7 @@ shape = ["c", "h", "w"]
 {pack}
 [outputs.y]
 shape = ["c", "h", "w"]
-{store}
+
 [abi]
 x = "CR2"
 y = "CR3"
@@ -42,60 +42,81 @@ y = "CR3"
 [cases.default]
 """
 
+#: The variants the round trips run in: FP32 mode and two NX8 element types.
+VARIANTS = ["fp32", "e4", "e5"]
 
-def manifest(tmp_path: Path, *, pack: str = "", store: str = "", name: str = "k") -> KernelManifest:
+
+def manifest(tmp_path: Path, *, pack: str = "", name: str = "k") -> KernelManifest:
     directory = tmp_path / "family" / name
     directory.mkdir(parents=True)
     (directory / f"{name}.asm").write_text("HALT ;;\n")
-    (directory / "kernel.toml").write_text(TOML.format(pack=pack, store=store))
+    (directory / "kernel.toml").write_text(TOML.format(pack=pack))
     return load_manifest(directory)
 
 
-def values(fmt: F, shape: tuple[int, ...]) -> np.ndarray:
-    stream = np.random.default_rng(5)
-    if fmt is F.INT8:
-        return stream.integers(-100, 100, size=shape).astype(np.float64)
-    return stream.uniform(-1, 1, size=shape)
+def values(fmt: object, shape: tuple[int, ...]) -> np.ndarray:
+    return np.random.default_rng(5).uniform(-1, 1, size=shape)
 
 
-@pytest.mark.parametrize("fmt", [F.FP32, F.INT8, F.E4, F.E5])
+@pytest.mark.parametrize("name_", VARIANTS)
 @pytest.mark.parametrize(
     "name", [None, "channel_major", "output_major_weights", "chunk_interleaved"]
 )
-def test_unpack_of_pack_is_the_tensor_rounded_to_the_format(tmp_path, fmt, name):
+def test_unpack_of_pack_is_the_tensor_as_the_variant_holds_it(tmp_path, name_, name):
     m = manifest(tmp_path, pack=f'pack = "{name}"\n' if name else "")
-    plan = plan_case(m, {}, fmt)
-    x = values(fmt, (3, 5, 32))
-    raw = pack(m.tensors["x"], x, plan)
-    assert np.array_equal(unpack(m.tensors["x"], raw, plan), held(x, fmt).astype(np.float64))
+    plan = plan_case(m, {}, variant(name_))
+    x = values(None, (3, 5, 32))
+    packed = pack(m.tensors["x"], x, plan)
+    back = unpack(m.tensors["x"], packed.data, plan, packed.metadata)
+    assert np.array_equal(back, held(m.tensors["x"], x, plan))
+    if name_ == "fp32":
+        assert packed.metadata is None
+        assert np.array_equal(back, x.astype(np.float32).astype(np.float64))
+    else:
+        # NX8: each row quantized with its own scale; what a row holds packs
+        # to the same bytes again, and is within a step of the input.
+        assert packed.metadata is not None
+        again = pack(m.tensors["x"], back, plan)
+        assert (again.data, again.metadata) == (packed.data, packed.metadata)
+        np.testing.assert_allclose(back, x, rtol=0.25, atol=2.0**-6)
 
 
 @pytest.mark.parametrize(
-    "fmt, value, first",
+    "name_, value, first, metadata",
     [
-        (F.FP32, 1.0, bytes.fromhex("0000803f")),  # IEEE 754, little-endian
-        (F.INT8, -1.0, b"\xff"),  # two's complement
-        (F.INT8, 2.5, b"\x02"),  # to nearest, ties to even
-        (F.INT8, -2.5, b"\xfe"),
-        (F.INT8, 300.0, b"\x7f"),  # saturates
-        (F.E4, 1.0, b"\x38"),  # 0 0111 000: exponent 7 = bias
-        (F.E4, 1e6, b"\x77"),  # saturates to 240 = 0 1110 111
-        (F.E5, 1.0, b"\x3c"),  # 0 01111 00: exponent 15 = bias
+        ("fp32", 1.0, bytes.fromhex("0000803f"), None),  # IEEE 754, little-endian
+        ("fp32", -2.5, bytes.fromhex("000020c0"), None),
     ],
 )
-def test_element_bytes_by_hand(tmp_path, fmt, value, first):
+def test_element_bytes_by_hand(tmp_path, name_, value, first, metadata):
     m = manifest(tmp_path)
-    plan = plan_case(m, {"c": 1, "h": 1, "w": 1}, fmt)
-    raw = pack(m.tensors["x"], np.full((1, 1, 1), value), plan)
+    plan = plan_case(m, {"c": 1, "h": 1, "w": 1}, variant(name_))
+    packed = pack(m.tensors["x"], np.full((1, 1, 1), value), plan)
+    raw = packed.data
     assert raw[: len(first)] == first and raw[len(first) :] == bytes(len(raw) - len(first))
+    assert packed.metadata == metadata
+
+
+def test_an_nx8_row_holds_one_byte_an_element_and_its_scale(tmp_path):
+    # e4, a row of 1.0 then -1.0: the row's scale is 2^0 (127, bias 127) and
+    # each element is 0 exponent steps below it, so only the sign differs.
+    m = manifest(tmp_path)
+    plan = plan_case(m, {"c": 1, "h": 1, "w": 128}, variant("e4"))
+    x = np.ones((1, 1, 128))
+    x[..., 64:] = -1.0
+    packed = pack(m.tensors["x"], x, plan)
+    assert len(packed.data) == 128 and packed.metadata == (127,)
+    assert len(set(packed.data[:64])) == 1 and len(set(packed.data[64:])) == 1
+    assert packed.data[0] ^ packed.data[64] == 0x80  # the sign bit
+    assert np.array_equal(unpack(m.tensors["x"], packed.data, plan, packed.metadata), x)
 
 
 def test_a_row_major_width_over_128_takes_several_zero_padded_rows(tmp_path):
     m = manifest(tmp_path)
-    plan = plan_case(m, {"c": 1, "h": 1, "w": 200}, F.INT8)
+    plan = plan_case(m, {"c": 1, "h": 1, "w": 200}, F.FP32)
     x = np.arange(200, dtype=np.float64).reshape(1, 1, 200) % 100
-    raw = pack(m.tensors["x"], x, plan)
-    assert len(raw) == 256 and raw[200:] == bytes(56)
+    raw = pack(m.tensors["x"], x, plan).data
+    assert len(raw) == 2 * 512 and raw[200 * 4 :] == bytes(56 * 4)
     assert np.array_equal(unpack(m.tensors["x"], raw, plan), x)
 
 
@@ -120,25 +141,26 @@ def test_a_shape_a_transform_cannot_lay_out_is_located_at_pack(tmp_path, name, p
 
 
 def test_stored_rows_are_placements_row_counts(tmp_path):
-    m = manifest(tmp_path, store='store = "accumulator"\n')
-    for fmt in (F.FP32, F.INT8, F.E4):
-        plan = plan_case(m, {"c": 1, "h": 2, "w": 128}, fmt)
+    m = manifest(tmp_path)
+    for name_ in VARIANTS:
+        plan = plan_case(m, {"c": 1, "h": 2, "w": 128}, variant(name_))
         for name in ("x", "y"):
             assert stored_rows(m.tensors[name], plan) == default_rows(plan, m.tensors[name])
-    int8 = plan_case(m, {"c": 1, "h": 2, "w": 128}, F.INT8)
-    assert stored_rows(m.tensors["y"], int8) == 8  # 2 vectors of 128 INT32: 4 narrow rows each
+            assert stored_rows(m.tensors[name], plan) == 2  # one row a vector in both modes
 
 
-def test_packed_sizes_follow_the_format(tmp_path):
+def test_packed_sizes_follow_the_mode(tmp_path):
     m = manifest(tmp_path)
     x = np.zeros((3, 5, 32))
-    # Row-major: 3 x 5 rows of 128 lanes; 1 byte an element in INT8, 4 in FP32.
-    assert len(pack(m.tensors["x"], x, plan_case(m, {}, F.INT8))) == 15 * 128
-    assert len(pack(m.tensors["x"], x, plan_case(m, {}, F.FP32))) == 15 * 512
-    two = plan_case(m, {"c": 1, "h": 2, "w": 128}, F.INT8)
-    assert len(pack(m.tensors["x"], np.zeros((1, 2, 128)), two)) == 256
+    # Row-major: 3 x 5 rows of 128 lanes; 1 byte an element in NX8 (plus a
+    # metadata word a row), 4 in FP32.
+    nx8 = pack(m.tensors["x"], x, plan_case(m, {}, variant("e4")))
+    assert len(nx8.data) == 15 * 128 and len(nx8.metadata) == 15
+    assert len(pack(m.tensors["x"], x, plan_case(m, {}, F.FP32)).data) == 15 * 512
+    two = plan_case(m, {"c": 1, "h": 2, "w": 128}, variant("e4"))
+    assert len(pack(m.tensors["x"], np.zeros((1, 2, 128)), two).data) == 256
     two32 = plan_case(m, {"c": 1, "h": 2, "w": 128}, F.FP32)
-    assert len(pack(m.tensors["x"], np.zeros((1, 2, 128)), two32)) == 1024
+    assert len(pack(m.tensors["x"], np.zeros((1, 2, 128)), two32).data) == 1024
 
 
 def test_chunk_interleaved_matches_the_convolutions_packing(tmp_path):
@@ -148,22 +170,11 @@ def test_chunk_interleaved_matches_the_convolutions_packing(tmp_path):
     m = manifest(tmp_path, pack='pack = "chunk_interleaved"\n')
     plan = plan_case(m, {"c": 3, "h": 7, "w": 32}, F.FP32)
     x = values(F.FP32, (3, 7, 32)).astype(np.float32)
-    packed = pack(m.tensors["x"], x, plan)
+    packed = pack(m.tensors["x"], x, plan).data
     assert len(packed) == 2 * 3 * 128 * 4
     assert hashlib.sha256(packed).hexdigest() == (
         "9a0e4559806eba149ebe3119ba81dbe2e1e5da97cbcc83b6941f9a45e5e288fc"
     )
-
-
-def test_an_accumulator_output_is_read_in_the_accumulator_format(tmp_path):
-    m = manifest(tmp_path, store='store = "accumulator"\n')
-    plan = plan_case(m, {"c": 1, "h": 2, "w": 128}, F.INT8)
-    y = np.arange(256, dtype=np.int32).reshape(1, 2, 128) * 1000  # past INT8: INT32 holds it
-    raw = y.astype("<i4").tobytes()  # 2 vectors x 128 x 4 B = 8 narrow rows
-    assert np.array_equal(unpack(m.tensors["y"], raw, plan), y)
-    with pytest.raises(PlanError, match="y's region holds 1024 bytes in int32, given 256") as error:
-        unpack(m.tensors["y"], raw[:256], plan)
-    assert error.value.key == "outputs.y.size"
 
 
 @pytest.mark.parametrize("shape", [(3, 5, 31), (3, 5, 33), (3, 6, 32), (15, 32)])
@@ -186,7 +197,7 @@ def test_a_kernel_pack_py_overrides_a_shared_transform_of_its_name(tmp_path):
     )
     plan = plan_case(m, {}, F.FP32)
     assert type(transform_for(m.tensors["x"], plan)).__name__ == "Flat"
-    assert pack(m.tensors["x"], np.ones((3, 5, 32)), plan) == bytes(15 * 512)
+    assert pack(m.tensors["x"], np.ones((3, 5, 32)), plan).data == bytes(15 * 512)
 
 
 FAMILY_PACK = """\
@@ -303,9 +314,9 @@ def test_projection_packing_is_byte_identical_to_the_loaders(tmp_path, name):
     )
     m = load_manifest(directory)
     plan = plan_case(m, {}, F.FP32)
-    digest = hashlib.sha256(pack(m.tensors["data"], data, plan)).hexdigest()
+    digest = hashlib.sha256(pack(m.tensors["data"], data, plan).data).hexdigest()
     assert digest.startswith(data_digest)
-    digest = hashlib.sha256(pack(m.tensors["weights"], weights, plan)).hexdigest()
+    digest = hashlib.sha256(pack(m.tensors["weights"], weights, plan).data).hexdigest()
     assert digest.startswith(weights_digest)
     # Placed with packing's row counts and the logical shapes, the bases are today's.
     placement = place(plan, {name: stored_rows(t, plan) for name, t in m.tensors.items()})
