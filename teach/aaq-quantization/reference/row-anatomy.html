@@ -72,6 +72,15 @@
     </tbody>
   </table></div>
   <p>A larger exponent field means a <em>smaller</em> value: <code>Exp</code> counts binades below the scale. This differs from the emulator's E1–E7 formats, whose exponent field is biased the IEEE way.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th></th><th>Emulator Ex</th><th>AaQ ExM(7−x)</th></tr></thead>
+    <tbody>
+      <tr><td>Exponent field</td><td>Above a fixed bias, 2<sup>x−1</sup> − 1</td><td>Below the row's scale</td></tr>
+      <tr><td>Field 0</td><td>Subnormal</td><td>Top binade</td></tr>
+      <tr><td>Field all ones</td><td>NaN</td><td>Clamp branch</td></tr>
+      <tr><td>Zero</td><td><code>0x00</code></td><td><code>0x78</code> (E4M3)</td></tr>
+    </tbody>
+  </table></div>
   <p>Proposed: inverted from <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/stage-aaq-str.md#51-quantization-algorithm">AaQ §5.1</a>. No spec defines the decode.</p>
   <p>Worked example: <code>s = 128</code>, <code>fe = 4</code>, byte <code>0x1D</code> = <code>0 0011 101</code> → (1 + 5/8) · 2<sup>−2</sup> = 0.40625. The same byte with <code>fe = 2</code> → 3.8125.</p>
 </section>

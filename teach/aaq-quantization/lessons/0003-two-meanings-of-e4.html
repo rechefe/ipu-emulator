@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>Two Meanings of E4</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<main class="page">
+
+<nav class="crumbs" aria-label="Course">
+  <a href="../index.html">Course home</a>
+  <a href="0002-tables-and-the-cache-unit.html">← Lesson 2</a>
+  <a href="../reference/row-anatomy.html">Cheat sheet: row anatomy</a>
+</nav>
+
+<header style="display:grid;gap:0.5rem">
+  <p class="eyebrow">Lesson 3 · about 12 minutes</p>
+  <h1>Two meanings of "E4"</h1>
+  <p class="lede">The emulator's E4 and AaQ's E4M3 split a byte the same way: 1 sign bit, 4 exponent bits, 3 mantissa bits. They read the exponent field in opposite directions, so the same byte means different numbers.</p>
+</header>
+
+<section style="display:grid;gap:0.75rem">
+  <h2>The emulator's E4: a fixed range</h2>
+  <p>The emulator's E1–E7 formats are ordinary small floats. The exponent field is <em>biased</em>: the format subtracts a fixed bias, <code>2<sup>x−1</sup> − 1</code> (7 for E4). A larger field means a larger value.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/src/ipu-isa/src/ipu_isa/formats.py">[formats.py]</a></span></p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Exponent field</th><th>Value (E4)</th></tr></thead>
+    <tbody>
+      <tr><td>0</td><td class="mono">±(M/8) · 2<sup>1−7</sup>, subnormal</td></tr>
+      <tr><td>1 … 14</td><td class="mono">±(1 + M/8) · 2<sup>Exp−7</sup></td></tr>
+      <tr><td>15 (all ones)</td><td class="mono">NaN</td></tr>
+    </tbody>
+  </table></div>
+  <p>Every E4 byte means the same number in every row: the range is fixed, from 2<sup>−9</sup> to 240. One format applies to the whole run (<a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/adr/0003-element-formats-replace-wide-mode.md">ADR 0003</a>).</p>
+</section>
+
+<section style="display:grid;gap:0.75rem">
+  <h2>AaQ's E4M3: a range that follows the row</h2>
+  <p>AaQ stores <code>Exp = s − e</code>, the number of binades an element sits <em>below</em> its row's scale.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/stage-aaq-str.md#51-quantization-algorithm">[AaQ §5.1]</a></span> A larger field means a smaller value.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Exponent field</th><th>Value (E4M3, row scale s)</th></tr></thead>
+    <tbody>
+      <tr><td>0</td><td class="mono">±(1 + M/8) · 2<sup>s−127</sup>, the row's top binade</td></tr>
+      <tr><td>1 … 14</td><td class="mono">±(1 + M/8) · 2<sup>s−127−Exp</sup></td></tr>
+      <tr><td>15 (all ones)</td><td class="mono">±(M/8) · 2<sup>s−127−14</sup>, the clamp branch</td></tr>
+    </tbody>
+  </table></div>
+  <p>Raise the row's scale by 1 and every value in the row doubles. The 15 binades the field covers move to wherever the row's values are.</p>
+</section>
+
+<section class="wide" style="display:grid;gap:0.75rem">
+  <h2>Same byte, two numbers</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Byte</th><th>Bits</th><th class="num">Emulator E4</th><th class="num">AaQ E4M3, s = 128</th></tr></thead>
+    <tbody>
+      <tr><td class="num">0x00</td><td class="mono">0 0000 000</td><td class="num">0</td><td class="num">2</td></tr>
+      <tr><td class="num">0x07</td><td class="mono">0 0000 111</td><td class="num">0.0137</td><td class="num">3.75, the row's largest</td></tr>
+      <tr><td class="num">0x1D</td><td class="mono">0 0011 101</td><td class="num">0.1016</td><td class="num">0.40625</td></tr>
+      <tr><td class="num">0x44</td><td class="mono">0 1000 100</td><td class="num">3</td><td class="num">0.0117</td></tr>
+      <tr><td class="num">0x77</td><td class="mono">0 1110 111</td><td class="num">240, the format's largest</td><td class="num">0.000229</td></tr>
+      <tr><td class="num">0x78</td><td class="mono">0 1111 000</td><td class="num">NaN</td><td class="num">0</td></tr>
+      <tr><td class="num">0x7F</td><td class="mono">0 1111 111</td><td class="num">NaN</td><td class="num">0.000107</td></tr>
+    </tbody>
+  </table></div>
+  <p style="max-width:var(--measure)">Emulator values are from <code>decode_element(code, ElementFormat.E4)</code>. AaQ values use the decode from lesson 1, which inverts §5.1.</p>
+</section>
+
+<div class="panel wide">
+  <h3>Compare any byte</h3>
+  <div class="decoder" data-compare data-byte="78" data-x="4" data-scale="128"></div>
+</div>
+
+<section class="wide" style="display:grid;gap:0.75rem">
+  <h2>The differences, one by one</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th></th><th>Emulator Ex</th><th>AaQ ExM(7−x)</th></tr></thead>
+    <tbody>
+      <tr><td>Exponent field means</td><td>Binade above a fixed bias</td><td>Binades below the row's scale</td></tr>
+      <tr><td>Range</td><td>Fixed per format</td><td>Moves with the row's scale</td></tr>
+      <tr><td>Field 0</td><td>Subnormals near zero</td><td>The row's top binade</td></tr>
+      <tr><td>Field all ones</td><td>NaN</td><td>Clamp branch: <code>0.M</code> below the last binade</td></tr>
+      <tr><td>Zero</td><td><code>0x00</code></td><td><code>0x78</code>: clamp branch, M = 0</td></tr>
+      <tr><td>NaN, infinity</td><td>NaN; infinities saturate</td><td>None defined (OQ-22)</td></tr>
+      <tr><td>Rounding</td><td>Nearest, ties to even</td><td>"Round to nearest"; tie rule not stated</td></tr>
+      <tr><td>Configured by</td><td>One format per run</td><td>The table format, per table</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section class="wide" style="display:grid;gap:0.75rem">
+  <h2>Encode by hand</h2>
+  <p style="max-width:var(--measure)">Write the byte. Method: write the value as <code>1.f × 2<sup>p</sup></code>. Emulator E4: exponent field = <code>p + 7</code>. AaQ: exponent field = <code>(s − 127) − p</code>. Mantissa = <code>f × 8</code>, rounded.</p>
+  <div class="panel" data-drill="drill3"></div>
+</section>
+<script type="application/json" id="drill3">[
+  {"prompt": "AaQ E4M3, row scale s = 128. Encode 3.0.", "answer": "0x04",
+   "solution": "3.0 = 1.5 × 2^1. Field = (128 − 127) − 1 = 0. Mantissa 0.5 × 8 = 4. Bits 0 0000 100."},
+  {"prompt": "AaQ E4M3, row scale s = 128. Encode 0.75.", "answer": "0x14",
+   "solution": "0.75 = 1.5 × 2^−1. Field = 1 − (−1) = 2. Mantissa 4. Bits 0 0010 100."},
+  {"prompt": "Emulator E4. Encode 3.0.", "answer": "0x44",
+   "solution": "3.0 = 1.5 × 2^1. Field = 1 + 7 = 8. Mantissa 4. Bits 0 1000 100."},
+  {"prompt": "Emulator E4. Encode 0.75.", "answer": "0x34",
+   "solution": "0.75 = 1.5 × 2^−1. Field = −1 + 7 = 6. Mantissa 4. Bits 0 0110 100."},
+  {"prompt": "AaQ E4M3, row scale s = 126. Encode 0.75.", "answer": "0x04",
+   "solution": "Field = (126 − 127) − (−1) = 0. Same byte as 3.0 at s = 128: the scale moved the range down two binades."},
+  {"prompt": "AaQ E4M3, any scale. Encode 0.", "answer": "0x78",
+   "solution": "Zero has no leading 1, so it falls into the clamp branch with M = 0: field 15, bits 0 1111 000."}
+]</script>
+
+<section class="wide" style="display:grid;gap:0.75rem">
+  <h2>Practice</h2>
+  <p style="max-width:var(--measure)">The last two questions come from lessons 2 and 1.</p>
+  <div class="panel" data-quiz="quiz3"></div>
+</section>
+<script type="application/json" id="quiz3">[
+  {"prompt": "In the emulator's E4, what does exponent field 0 mean?",
+   "options": ["The row's largest binade", "The clamp branch values", "Subnormal values near zero", "Not a number (NaN)"], "answer": 2,
+   "why": "Biased formats keep field 0 for subnormals: (M/8) · 2^(1 − bias)."},
+  {"prompt": "In AaQ's E4M3, what does exponent field 0 mean?",
+   "options": ["The row's largest binade", "The clamp branch values", "Subnormal values near zero", "Not a number (NaN)"], "answer": 0,
+   "why": "Exp = s − e = 0: the element shares the row's scale exponent."},
+  {"prompt": "In AaQ's E4M3, which byte encodes 0?",
+   "options": ["0x00", "0x78", "0x7F", "0x80"], "answer": 1,
+   "why": "Clamp branch (field all ones) with M = 0. 0x00 is the top binade: 2^(s − 127)."},
+  {"prompt": "Byte 0x77, AaQ row scale 128. Which value is larger?",
+   "options": ["The AaQ E4M3 value", "Both are exactly equal", "The emulator E4 value", "Depends on the table"], "answer": 2,
+   "why": "Emulator: 240, its largest finite value. AaQ: field 14, 14 binades below the scale, about 0.00023."},
+  {"prompt": "A row's scale rises by 1. What happens to its AaQ values?",
+   "options": ["Every value halves", "Values are unchanged", "Values flip sign", "Every value doubles"], "answer": 3,
+   "why": "Every value carries the factor 2^(s − 127)."},
+  {"prompt": "Why can't MULT use one decoder for both kinds of E4?",
+   "options": ["AaQ rows hold more bytes", "The bits mean different things", "The emulator lacks a MULT", "Their mantissas differ in width"], "answer": 1,
+   "why": "Same field widths, opposite exponent direction, a scale on one side only, different zero and NaN."},
+  {"prompt": "Where is a table's format stored?",
+   "options": ["In the cache agent", "In the metadata word", "In the cache unit", "In the IMEM bank"], "answer": 2,
+   "why": "The cache unit holds the table sets; the cache agent reads a copy through tbl_view."},
+  {"prompt": "Which metadata field holds the row's shared exponent?",
+   "options": ["scale[7:0]", "dynamic_exponent[8]", "format[6:4]", "table_id[3:0]"], "answer": 0,
+   "why": "Bits 7:0 of the 16-bit metadata word, e8m0."}
+]</script>
+
+<section class="panel">
+  <h3>Explain it back</h3>
+  <p>In two sentences, tell an emulator developer why "E4" cannot be one enum value for both legacy kernels and AaQ tables.</p>
+  <label for="explain3" class="eyebrow">Your answer</label>
+  <textarea id="explain3"></textarea>
+  <button type="button" data-reveal="model3">Show a model answer</button>
+  <p id="model3" hidden>The emulator's E4 is a fixed-range float with a biased exponent, while AaQ's E4M3 counts binades down from a per-row scale, so the same byte gives different values (0x78 is NaN in one and 0 in the other). Decoding AaQ data also needs the row's scale from the metadata word, which the emulator's E4 never reads.</p>
+</section>
+
+<section style="display:grid;gap:0.75rem">
+  <h2>What this means for the emulator</h2>
+  <ul>
+    <li><strong>Two decoders.</strong> MULT reads a row with the emulator's Ex when the row has no AaQ table format, and with the scale-relative decode when it has one.</li>
+    <li><strong>Distinct names.</strong> Code and docs need a name that tells the two apart, for example "AaQ E4M3" or "scaled E4M3" against "E4". Today's <code>ElementFormat.E4</code> keeps its meaning, so legacy kernels and their goldens stay as they are.</li>
+    <li><strong>Unsettled details become decisions.</strong> The tie rule, ±inf and NaN inputs, and <code>fe = 0</code> all need an answer before the emulator can match RTL bit for bit.</li>
+  </ul>
+</section>
+
+<aside class="callout gap">
+  <span class="label">Where the spec stops</span>
+  <ul>
+    <li>Zero as <code>0x78</code> follows from §5.1 (FP32 inputs are "always treated as normalized") but the spec never states it.</li>
+    <li>§5.1 rounds "to nearest" without a tie rule. Only the dynamic selection terms (§5.1.1) round half up.</li>
+    <li>No behaviour for ±inf or NaN inputs (OQ-22), and none for negative inputs to an unsigned format.</li>
+  </ul>
+</aside>
+
+<aside class="callout source">
+  <span class="label">Read next</span>
+  <p><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/stage-aaq-str.md#51-quantization-algorithm">AaQ spec §5.1</a>, the quantization pseudocode, and the 8-bit codec in <a href="https://github.com/rechefe/ipu-emulator/blob/master/src/ipu-isa/src/ipu_isa/formats.py">src/ipu-isa/src/ipu_isa/formats.py</a> (search for "the 8-bit element codec"). Lesson 4 walks through §5.1 line by line.</p>
+</aside>
+
+<aside class="callout ask">
+  <span class="label">Ask</span>
+  <p>Ask in the chat about anything unclear. Tell me your quiz score and how many of the six bytes you encoded without the solution.</p>
+</aside>
+
+<nav class="crumbs" aria-label="Next">
+  <a href="../reference/row-anatomy.html">Cheat sheet: row anatomy</a>
+  <a href="../index.html">Course home</a>
+</nav>
+
+</main>
+<script src="../assets/quiz.js"></script>
+<script src="../assets/decoder.js"></script>
+<script src="../assets/compare.js"></script>
+<script src="../assets/drill.js"></script>
+</body>
+</html>

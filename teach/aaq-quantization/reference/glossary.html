@@ -42,6 +42,9 @@
     <thead><tr><th>Term</th><th>Definition</th><th>Avoid</th></tr></thead>
     <tbody>
       <tr><td><span class="role table">Table format</span></td><td>The 9-bit <code>format</code> of a table, <code>{dynamic, sign, fe, W}</code>. Shared by every row of the table and never written to XMEM.</td><td>row format</td></tr>
+      <tr><td><strong>Table set</strong></td><td>The tables of one kernel, at most 16, held by the cache unit. There are two, one per context.</td><td></td></tr>
+      <tr><td><strong>Context</strong></td><td>One IMEM bank, one CR bank and one table set, selected together by <code>active_ctx</code>.</td><td></td></tr>
+      <tr><td><strong>Cache agent</strong></td><td>The IPU stage that decides hit or miss for each word's memory accesses, from its read-only copy of the table sets (<code>tbl_view</code>) and the bank tags.</td><td>CRM, cache unit</td></tr>
       <tr><td><code>fe</code></td><td>The number of exponent bits in an element: from the table format, or from <code>dynamic_exponent</code> in a dynamic table.</td><td></td></tr>
     </tbody>
   </table></div>

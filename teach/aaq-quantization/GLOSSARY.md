@@ -30,3 +30,13 @@ _Avoid_: row format, element type (for AaQ tables)
 
 **`fe`**:
 The number of exponent bits in an element, from the table format (or from `dynamic_exponent` in a dynamic table).
+
+**Table set**:
+The tables of one kernel, at most 16, held by the cache unit. There are two, one per context.
+
+**Context**:
+One IMEM bank, one CR bank and one table set, selected together by `active_ctx`.
+
+**Cache agent**:
+The IPU stage that decides hit or miss for each word's memory accesses, from its read-only copy of the table sets (`tbl_view`) and the bank tags.
+_Avoid_: CRM (the cache-unit spec's older name for the tag check), cache unit (a different block)
