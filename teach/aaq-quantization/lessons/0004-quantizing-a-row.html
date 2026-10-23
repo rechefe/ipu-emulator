@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>Quantizing a Row</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<main class="page">
+
+<nav class="crumbs" aria-label="Course">
+  <a href="../index.html">Course home</a>
+  <a href="0003-two-meanings-of-e4.html">← Lesson 3</a>
+  <a href="../reference/row-anatomy.html">Cheat sheet: row anatomy</a>
+</nav>
+
+<header style="display:grid;gap:0.5rem">
+  <p class="eyebrow">Lesson 4 · about 15 minutes</p>
+  <h1>Quantizing a row, step by step</h1>
+  <p class="lede">AaQ turns 128 FP32 values into 128 bytes and one scale in five steps: pick the scale, measure each element's distance from it, choose a branch, round, and pack. Two rounding edge cases decide what happens when a mantissa rounds up and carries.</p>
+</header>
+
+<section style="display:grid;gap:0.75rem">
+  <h2>The five steps</h2>
+  <p>All steps work on the FP32 bits of each activated element: sign <code>S</code>, raw (biased) exponent <code>e</code>, and the 23-bit mantissa with its implicit leading 1.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/stage-aaq-str.md#51-quantization-algorithm">[AaQ §5.1]</a></span></p>
+  <ol>
+    <li><strong>Pick the scale.</strong> <code>s = max(e)</code> over the row's elements. The scale is the raw exponent of the largest element, stored as <code>e8m0</code>.</li>
+    <li><strong>Measure the distance.</strong> <code>E = s − e</code> for each element. <code>E ≥ 0</code> always; <code>E = 0</code> for the element(s) that set the scale.</li>
+    <li><strong>Choose the branch.</strong> If <code>E &lt; 2<sup>fe</sup> − 1</code>, the <em>direct</em> branch stores <code>Exp = E</code>. Otherwise the <em>clamp</em> branch stores <code>Exp = 2<sup>fe</sup> − 1</code>, the all-ones field.</li>
+    <li><strong>Round the mantissa</strong> to <code>fm</code> bits, round to nearest. The clamp branch first shifts <code>1.M</code> right by <code>E − (2<sup>fe</sup> − 1) + 1</code>, so small elements keep their magnitude instead of flushing to zero.</li>
+    <li><strong>Pack</strong> <code>{S, Exp, M}</code> at the top of the byte, with zeros below when <code>W &lt; 8</code>.</li>
+  </ol>
+</section>
+
+<section class="wide" style="display:grid;gap:0.75rem">
+  <h2>A worked row</h2>
+  <p style="max-width:var(--measure)">Row <code>[3.2, 0.4, −1.99, 0]</code>, signed E4M3 (<code>fe = 4</code>, <code>fm = 3</code>, direct branch for <code>E</code> 0–14). 3.2 = 1.6 × 2<sup>1</sup> has raw exponent 128, the largest, so <code>s = 128</code>.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th class="num">Value</th><th class="num">e</th><th class="num">E</th><th>Branch</th><th>Rounding</th><th class="num">Byte</th><th class="num">Decodes to</th></tr></thead>
+    <tbody>
+      <tr><td class="num">3.2</td><td class="num">128</td><td class="num">0</td><td>direct</td><td>1.6 → 1 + 5/8</td><td class="num">0x05</td><td class="num">3.25</td></tr>
+      <tr><td class="num">0.4</td><td class="num">125</td><td class="num">3</td><td>direct</td><td>1.6 → 1 + 5/8</td><td class="num">0x1D</td><td class="num">0.40625</td></tr>
+      <tr><td class="num">−1.99</td><td class="num">127</td><td class="num">1</td><td>direct</td><td>1.99 → 16/8, carries: edge 1</td><td class="num">0x80</td><td class="num">−2</td></tr>
+      <tr><td class="num">0</td><td class="num">0</td><td class="num">128</td><td>clamp</td><td>shifted far right → M = 0</td><td class="num">0x78</td><td class="num">0</td></tr>
+    </tbody>
+  </table></div>
+  <p style="max-width:var(--measure)"><code>0x80</code> is −2: sign 1, exponent field 0 (the top binade), mantissa 0. It is not a negative zero.</p>
+</section>
+
+<section style="display:grid;gap:0.75rem">
+  <h2>The two edge cases</h2>
+  <p>Both happen when rounding carries out of the <code>fm</code> mantissa bits, as when 1.11…1 rounds up to 10.00…0.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Case</th><th>When</th><th>Result</th><th>Example (s = 128)</th></tr></thead>
+    <tbody>
+      <tr><td>Edge 1, <code>E &gt; 0</code></td><td>Direct branch carries</td><td>One binade up: <code>Exp = E − 1</code>, <code>M = 0</code></td><td class="mono">1.99 → 0x00 = 2</td></tr>
+      <tr><td>Edge 1, <code>E = 0</code></td><td>The top binade carries</td><td>No binade above the scale: saturate, <code>M = 2<sup>fm</sup> − 1</code></td><td class="mono">3.99 alone → 0x07 = 3.75</td></tr>
+      <tr><td>Edge 2</td><td>Clamp branch carries to 1.0</td><td>Smallest direct exponent: <code>Exp = 2<sup>fe</sup> − 2</code>, <code>M = 0</code></td><td class="mono">fe = 2: 0.4975 → 0x40 = 0.5</td></tr>
+    </tbody>
+  </table></div>
+  <p>Edge 1 at <code>E = 0</code> costs the most. A row whose largest value is 3.99 stores it as 3.75, an error of 0.24, because the scale comes from the raw exponent <em>before</em> rounding. A scale one higher would store 4.0 exactly; the spec does not choose that.</p>
+</section>
+
+<div class="panel wide">
+  <h3>Quantize a row</h3>
+  <div class="decoder" data-quantizer data-values="3.2, 0.4, -1.99, 0, 3.99, 0.001" data-fe="4"></div>
+  <p class="bitlegend">Try <code>3.99</code> alone, then <code>3.99, 4</code>. Try <code>fe = 2</code> with <code>3.2, 0.4975</code>. Ties round half up here; §5.1 does not state the tie rule.</p>
+</div>
+
+<section class="wide" style="display:grid;gap:0.75rem">
+  <h2>Quantize by hand</h2>
+  <p style="max-width:var(--measure)">Signed E4M3 throughout. Answer bytes in hex, other answers as decimal numbers.</p>
+  <div class="panel" data-drill="drill4"></div>
+</section>
+<script type="application/json" id="drill4">[
+  {"prompt": "Row [3.2, 0.4]. What is the scale s?", "answer": "128",
+   "solution": "3.2 = 1.6 × 2^1: raw exponent 1 + 127 = 128. 0.4 has 125. The max is 128."},
+  {"prompt": "Same row. What is E for 0.4?", "answer": "3",
+   "solution": "0.4 = 1.6 × 2^−2: raw exponent 125. E = 128 − 125 = 3."},
+  {"prompt": "Same row. Which byte stores 0.4?", "answer": "0x1D",
+   "solution": "Direct branch: Exp = 3. 0.6 × 8 = 4.8 → 5. Bits 0 0011 101."},
+  {"prompt": "Row [3.2, −1.99]. Which byte stores −1.99?", "answer": "0x80",
+   "solution": "E = 1. 1.99 rounds to 16/8 = 2.0: edge 1 with E > 0, so Exp = 0, M = 0, sign 1. Value −2."},
+  {"prompt": "Row [3.2, 0.001]. Which byte stores 0.001?", "answer": "0x58",
+   "solution": "0.001 = 1.024 × 2^−10: raw exponent 117, E = 11. 0.024 × 8 = 0.19 → 0. Bits 0 1011 000. Value 2^−10 ≈ 0.000977."},
+  {"prompt": "Row [3.99]. Which byte stores 3.99?", "answer": "0x07",
+   "solution": "E = 0. 1.995 rounds to 2.0: edge 1 at E = 0, so saturate: Exp = 0, M = 7. Value 3.75."}
+]</script>
+
+<section class="wide" style="display:grid;gap:0.75rem">
+  <h2>Practice</h2>
+  <p style="max-width:var(--measure)">The last two questions come from lessons 3 and 2.</p>
+  <div class="panel" data-quiz="quiz4"></div>
+</section>
+<script type="application/json" id="quiz4">[
+  {"prompt": "How does AaQ pick a row's scale?",
+   "options": ["Average exponent of the row", "Largest raw exponent in row", "Set by the table format", "Exponent of the first element"], "answer": 1,
+   "why": "s = max(e) over the row's elements, before any rounding."},
+  {"prompt": "fe = 4. Which values of E take the direct branch?",
+   "options": ["E from 1 to 15", "E from 0 to 15", "E from 0 to 14", "E from 0 to 7"], "answer": 2,
+   "why": "Direct when E < 2^fe − 1 = 15. Field 15 is the clamp branch."},
+  {"prompt": "Edge 1 happens at E = 0. What does AaQ do?",
+   "options": ["Saturates at the largest value", "Raises the row scale instead", "Wraps the element to zero", "Flags an arithmetic overflow event"], "answer": 0,
+   "why": "No binade sits above the scale, so M = 2^fm − 1 with Exp = 0."},
+  {"prompt": "What does the clamp branch keep that flushing to zero would lose?",
+   "options": ["Sign of large elements", "The row's scale exponent", "The table's exponent width", "Magnitude of small elements"], "answer": 3,
+   "why": "The extra right shift stores 0.M below the last binade instead of 0."},
+  {"prompt": "s = 128, fe = 4. Which byte stores −1.99?",
+   "options": ["0x88", "0xF8", "0x80", "0x08"], "answer": 2,
+   "why": "Edge 1 with E = 1: Exp = 0, M = 0, sign 1, which is −2."},
+  {"prompt": "Why can the largest element lose the most accuracy?",
+   "options": ["Its exponent field always overflows", "Edge 1 saturates instead of carrying", "Large values skip the rounding", "The scale ignores the largest"], "answer": 1,
+   "why": "3.99 alone stores 3.75: the carry has no binade to move into."},
+  {"prompt": "AaQ E4M3: what does exponent field 15 mean?",
+   "options": ["Not a number (NaN)", "Subnormal values near zero", "The row's largest binade", "The clamp branch values"], "answer": 3,
+   "why": "Lesson 3: all ones is the clamp branch, (M/8) · 2^(s − 141). M = 0 is zero."},
+  {"prompt": "Which block stalls the IPU on a missing XMEM bank?",
+   "options": ["The IPU's cache agent", "The cache unit's DMA", "The AaQ quantizer stage", "The RISC-V host driver"], "answer": 0,
+   "why": "Lesson 2: IPU-MEM-5, the cache agent stalls CTRL and requests the bank."}
+]</script>
+
+<section class="panel">
+  <h3>Explain it back</h3>
+  <p>In three sentences, explain to an RTL engineer what edge 1 and edge 2 are and why they resolve differently.</p>
+  <label for="explain4" class="eyebrow">Your answer</label>
+  <textarea id="explain4"></textarea>
+  <button type="button" data-reveal="model4">Show a model answer</button>
+  <p id="model4" hidden>Both are the same event: rounding carries out of the fm mantissa bits. In the direct branch the value moved up one binade, so Exp drops by one and M clears, except at E = 0, where no binade sits above the scale and the element saturates at the largest code. In the clamp branch the shifted fraction rounded up to 1.0, which is exactly the smallest direct value, so it is re-encoded as Exp = 2^fe − 2, M = 0.</p>
+</section>
+
+<section style="display:grid;gap:0.75rem">
+  <h2>What this means for the emulator</h2>
+  <ul>
+    <li><strong>Bit-exact integer arithmetic.</strong> The quantizer works on the FP32 bit fields (<code>struct</code> packing in Python), not on doubles. The emulator's AaQ path today uses Python <code>round()</code> on doubles (<code>src/ipu-emu/src/ipu_emu/slots/aaq.py</code>), which rounds ties to even.</li>
+    <li><strong>One unit test per rule.</strong> Each branch, both edges, zero, and the worked example above become tests with exact expected bytes.</li>
+    <li><strong>Decisions before conformance.</strong> The tie rule, ±inf and NaN (OQ-22), and FP32 subnormals must match the RTL; agree them with the AaQ spec owner first.</li>
+  </ul>
+</section>
+
+<aside class="callout gap">
+  <span class="label">Where the spec stops</span>
+  <ul>
+    <li>§5.1 writes <code>s = max(e[i] for i in 0..254)</code> for a 128-element row; read it as the 128 elements (OQ-25 notes it).</li>
+    <li>The spec does not say whether elements beyond <code>valid_elements</code>, or masked by <code>partition_mask</code>, count toward <code>s</code>. §3.1 says masked elements "do not participate".</li>
+    <li>"Round to nearest" has no tie rule.</li>
+    <li>FP32 subnormals are "always treated as normalized": a subnormal input gets an implicit 1 it does not have.</li>
+    <li>Edge 1 at <code>E = 0</code> saturates rather than raising the scale; worth confirming this is intended.</li>
+  </ul>
+</aside>
+
+<aside class="callout source">
+  <span class="label">Read next</span>
+  <p><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/stage-aaq-str.md#51-quantization-algorithm">AaQ spec §5.1</a>, read with the quantizer above open beside it. Lesson 5 covers §5.1.1, dynamic tables.</p>
+</aside>
+
+<aside class="callout ask">
+  <span class="label">Ask</span>
+  <p>Ask in the chat about anything unclear. Tell me your quiz score and drill result.</p>
+</aside>
+
+<nav class="crumbs" aria-label="Next">
+  <a href="0005-dynamic-tables.html">Lesson 5: dynamic tables →</a>
+  <a href="../index.html">Course home</a>
+</nav>
+
+</main>
+<script src="../assets/quiz.js"></script>
+<script src="../assets/decoder.js"></script>
+<script src="../assets/quantizer.js"></script>
+<script src="../assets/drill.js"></script>
+</body>
+</html>
