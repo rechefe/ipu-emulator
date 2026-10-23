@@ -13,10 +13,10 @@
       
       
       
-        <link rel="prev" href="../stage-aaq-str/">
+        <link rel="prev" href="../MAS-stage-accumulator/">
       
       
-        <link rel="next" href="../stage-control/">
+        <link rel="next" href="../ARCH-stage-mult/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>Accumulator Stage Specification - IPU Emulator</title>
+        <title>Accumulator Stage ARCH - IPU Emulator</title>
       
     
     
@@ -120,7 +120,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Accumulator Stage Specification
+              Accumulator Stage ARCH
             
           </span>
         </div>
@@ -1984,6 +1984,12 @@
       
         
       
+        
+      
+        
+      
+        
+      
     
     
     
@@ -2067,14 +2073,70 @@
   
   
     <li class="md-nav__item">
-      <a href="../stage-aaq-str/" class="md-nav__link">
+      <a href="../MAS-stage-aaq-str/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    AaQ Stage Specification
+    AaQ Stage MAS
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ARCH-stage-aaq-str/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AaQ Stage ARCH
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../MAS-stage-accumulator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Accumulator Stage MAS
   
 
     
@@ -2111,7 +2173,7 @@
   <span class="md-ellipsis">
     
   
-    Accumulator Stage Specification
+    Accumulator Stage ARCH
   
 
     
@@ -2129,7 +2191,7 @@
   <span class="md-ellipsis">
     
   
-    Accumulator Stage Specification
+    Accumulator Stage ARCH
   
 
     
@@ -2155,10 +2217,21 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#1-purpose" class="md-nav__link">
+  <a href="#1-overview" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1. Purpose
+        1. Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#table-of-contents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Table of Contents
       
     </span>
   </a>
@@ -2189,10 +2262,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#30-black-box-diagram" class="md-nav__link">
+  <a href="#31-dstructure-layout" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3.0 Black Box Diagram
+        3.1 dstructure Layout
       
     </span>
   </a>
@@ -2200,10 +2273,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#31-inputs" class="md-nav__link">
+  <a href="#32-element-format" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3.1 Inputs
+        3.2 Element Format
       
     </span>
   </a>
@@ -2211,10 +2284,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#32-outputs" class="md-nav__link">
+  <a href="#33-running-and-first-variants" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3.2 Outputs
+        3.3 Running and .FIRST Variants
       
     </span>
   </a>
@@ -2227,44 +2300,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#4-disclaimers" class="md-nav__link">
+  <a href="#4-accumulator-isa" class="md-nav__link">
     <span class="md-ellipsis">
       
-        4. Disclaimers
+        4. Accumulator ISA
       
     </span>
   </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#5-data-and-register-model" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        5. Data and Register Model
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#6-isa-instruction-reference" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        6. ISA: Instruction Reference
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="6. ISA: Instruction Reference">
+    <nav class="md-nav" aria-label="4. Accumulator ISA">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#61-accadd-opcode-0-accumulate-add" class="md-nav__link">
+  <a href="#41-nop-no-operation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        6.1 ACC.ADD (opcode 0): Accumulate Add
+        4.1 NOP: No Operation
       
     </span>
   </a>
@@ -2272,10 +2323,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#62-accaddfirst-opcode-1-accumulate-add-first" class="md-nav__link">
+  <a href="#42-accset-accadd-accsub-accmax-element-wise-accumulate" class="md-nav__link">
     <span class="md-ellipsis">
       
-        6.2 ACC.ADD.FIRST (opcode 1): Accumulate Add (First)
+        4.2 ACC.SET, ACC.ADD, ACC.SUB, ACC.MAX: Element-wise Accumulate
       
     </span>
   </a>
@@ -2283,10 +2334,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#63-accmax-opcode-2-accumulate-max" class="md-nav__link">
+  <a href="#43-accstride-accumulator-stride" class="md-nav__link">
     <span class="md-ellipsis">
       
-        6.3 ACC.MAX (opcode 2): Accumulate Max
+        4.3 ACC.STRIDE: Accumulator Stride
       
     </span>
   </a>
@@ -2294,10 +2345,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#64-accmaxfirst-opcode-3-accumulate-max-first" class="md-nav__link">
+  <a href="#44-aggsum-aggmax-aggregate" class="md-nav__link">
     <span class="md-ellipsis">
       
-        6.4 ACC.MAX.FIRST (opcode 3): Accumulate Max (First)
+        4.4 AGG.SUM, AGG.MAX: Aggregate
       
     </span>
   </a>
@@ -2305,10 +2356,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#65-accsub-opcode-4-accumulate-subtract" class="md-nav__link">
+  <a href="#45-accreshape-reshape" class="md-nav__link">
     <span class="md-ellipsis">
       
-        6.5 ACC.SUB (opcode 4): Accumulate Subtract
+        4.5 ACC.RESHAPE: Reshape
       
     </span>
   </a>
@@ -2316,98 +2367,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#66-accsubfirst-opcode-5-accumulate-subtract-first" class="md-nav__link">
+  <a href="#46-bypass-bypass" class="md-nav__link">
     <span class="md-ellipsis">
       
-        6.6 ACC.SUB.FIRST (opcode 5): Accumulate Subtract (First)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#67-nop-opcode-6-no-operation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        6.7 NOP (opcode 6): No Operation
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#68-accstride-opcode-7-accumulator-stride" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        6.8 ACC.STRIDE (opcode 7): Accumulator Stride
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#69-aggsumfirst-opcode-8-aggregate-sum-first" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        6.9 AGG.SUM.FIRST (opcode 8): Aggregate Sum (First)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#610-aggsum-opcode-9-aggregate-sum" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        6.10 AGG.SUM (opcode 9): Aggregate Sum
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#611-aggmaxfirst-opcode-10-aggregate-max-first" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        6.11 AGG.MAX.FIRST (opcode 10): Aggregate Max (First)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#612-aggmax-opcode-11-aggregate-max" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        6.12 AGG.MAX (opcode 11): Aggregate Max
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#613-accreshape-opcode-12-reshape" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        6.13 ACC.RESHAPE (opcode 12): Reshape
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#614-summary-table" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        6.14 Summary Table
+        4.6 BYPASS: Bypass
       
     </span>
   </a>
@@ -2423,6 +2386,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ARCH-stage-mult/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Multiply Stage ARCH
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -2917,7 +2908,7 @@
 
 
   
-    <a href="https://github.com/rechefe/ipu-emulator/edit/master/docs/content/specs/stage-accumulator.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/rechefe/ipu-emulator/edit/master/docs/content/specs/ARCH-stage-acc.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -2926,7 +2917,7 @@
     
       
     
-    <a href="https://github.com/rechefe/ipu-emulator/raw/master/docs/content/specs/stage-accumulator.md" title="View source of this page" class="md-content__button md-icon">
+    <a href="https://github.com/rechefe/ipu-emulator/raw/master/docs/content/specs/ARCH-stage-acc.md" title="View source of this page" class="md-content__button md-icon">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17 18c.56 0 1 .44 1 1s-.44 1-1 1-1-.44-1-1 .44-1 1-1m0-3c-2.73 0-5.06 1.66-6 4 .94 2.34 3.27 4 6 4s5.06-1.66 6-4c-.94-2.34-3.27-4-6-4m0 6.5a2.5 2.5 0 0 1-2.5-2.5 2.5 2.5 0 0 1 2.5-2.5 2.5 2.5 0 0 1 2.5 2.5 2.5 2.5 0 0 1-2.5 2.5M9.27 20H6V4h7v5h5v4.07c.7.08 1.36.25 2 .49V8l-6-6H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h4.5a8.2 8.2 0 0 1-1.23-2"/></svg>
     </a>
@@ -2934,131 +2925,116 @@
 
 
 <h1 id="accumulator-stage">Accumulator Stage<a class="headerlink" href="#accumulator-stage" title="Permanent link">&para;</a></h1>
-<h2 id="1-purpose">1. Purpose<a class="headerlink" href="#1-purpose" title="Permanent link">&para;</a></h2>
-<p>The Accumulator (ACC) stage owns <code>R_ACC</code>, the 128-element accumulator
-register, and combines each cycle's multiply result (<code>MULT_RES</code>, produced by
-the MULT stage) into it. It is the third stage in the execute chain
-(CTRL → MULT → <strong>ACC</strong> → AAQ → STORE) and produces:</p>
+<h2 id="1-overview">1. Overview<a class="headerlink" href="#1-overview" title="Permanent link">&para;</a></h2>
+<p>The ACC (Accumulator) stage owns <code>R_ACC</code>, a 128-element register of 32-bit
+elements, and combines each cycle's multiply result into it. It performs the
+following tasks:</p>
 <ul>
-<li>The updated 128-element <code>R_ACC</code>, forwarded to the AaQ stage.</li>
-<li><code>aaq_vliw_bus</code> and <code>str_vliw_bus</code>, forwarded unchanged to the AAQ stage
-  (see the Control Stage spec, §7.2).</li>
+<li><strong>Accumulate:</strong> Sets <code>R_ACC</code> to the multiply result, or adds, subtracts or
+  takes the maximum of the multiply result and <code>R_ACC</code>, element by element.</li>
+<li><strong>Stride:</strong> Reshapes the multiply result with a predetermined pattern (every
+  second column and/or row) into a range of <code>R_ACC</code>.</li>
+<li><strong>Aggregate:</strong> Reduces the valid elements of the multiply result to one
+  value (sum or maximum) and writes it into one <code>R_ACC</code> element.</li>
+<li><strong>Reshape:</strong> Copies up to 8 elements of the multiply result to <code>R_ACC</code>. The
+  source and destination of each element are arbitrary.</li>
+<li><strong>Bypass:</strong> Sends the multiply result to the output. <code>R_ACC</code> keeps its value.</li>
 </ul>
-<p>Depending on the mnemonic, ACC either runs a per-element elementwise
-reduction against <code>MULT_RES</code> (<code>ACC.ADD</code>/<code>MAX</code>/<code>SUB</code>), decimates and
-reorders <code>MULT_RES</code> into a sub-range of <code>R_ACC</code> (<code>ACC.STRIDE</code>), reduces
-all active <code>MULT_RES</code> elements to a single <code>R_ACC</code> word (<code>AGG.SUM</code>/<code>AGG.MAX</code>),
-or scatters <code>MULT_RES</code> elements into <code>R_ACC</code> via <code>LRDn</code> index pairs (<code>ACC.RESHAPE</code>).</p>
+<blockquote>
+<p><strong>Note:</strong> <code>R_ACC</code> is the stage's output to the AaQ stage every cycle, except
+in a <code>BYPASS</code> cycle.</p>
+</blockquote>
+<h2 id="table-of-contents">Table of Contents<a class="headerlink" href="#table-of-contents" title="Permanent link">&para;</a></h2>
+<ol>
+<li><a href="#1-overview">Overview</a></li>
+<li><a href="#2-block-diagram">Block Diagram</a></li>
+<li><a href="#3-interfaces">Interfaces</a><ul>
+<li>3.1 <a href="#31-dstructure-layout"><code>dstructure</code> Layout</a></li>
+<li>3.2 <a href="#32-element-format">Element Format</a></li>
+<li>3.3 <a href="#33-running-and-first-variants">Running and <code>.FIRST</code> Variants</a></li>
+</ul>
+</li>
+<li><a href="#4-accumulator-isa">Accumulator ISA</a><ul>
+<li>4.1 <a href="#41-nop-no-operation"><code>NOP</code>: No Operation</a></li>
+<li>4.2 <a href="#42-accset-accadd-accsub-accmax-element-wise-accumulate"><code>ACC.SET</code>, <code>ACC.ADD</code>, <code>ACC.SUB</code>, <code>ACC.MAX</code>: Element-wise Accumulate</a></li>
+<li>4.3 <a href="#43-accstride-accumulator-stride"><code>ACC.STRIDE</code>: Accumulator Stride</a></li>
+<li>4.4 <a href="#44-aggsum-aggmax-aggregate"><code>AGG.SUM</code>, <code>AGG.MAX</code>: Aggregate</a></li>
+<li>4.5 <a href="#45-accreshape-reshape"><code>ACC.RESHAPE</code>: Reshape</a></li>
+<li>4.6 <a href="#46-bypass-bypass"><code>BYPASS</code>: Bypass</a></li>
+</ul>
+</li>
+</ol>
 <h2 id="2-block-diagram">2. Block Diagram<a class="headerlink" href="#2-block-diagram" title="Permanent link">&para;</a></h2>
-<pre class="mermaid"><code>flowchart LR
-    mult_stage:::blue
-    acc_stage:::blue
-    aaq_stage:::blue
-    MULTRES(["mult_res 128x32bit"]):::yellow
-    OP(["acc_vliw_bus (op + resolved operands)"]):::yellow
-    RACC[("R_ACC 128x32bit")]:::purple
-    OUT(["r_acc 128x32bit"]):::red
-
-    mult_stage --&gt;|128x32| MULTRES
-    MULTRES --&gt; RACC
-    OP --&gt; RACC
-    RACC --&gt;|read-modify-write| RACC
-    RACC --&gt; OUT
-    OUT --&gt; aaq_stage
-    mult_stage --&gt;|aaq_vliw_bus, str_vliw_bus| acc_stage
-    acc_stage --&gt;|aaq_vliw_bus, str_vliw_bus| aaq_stage
-
-    subgraph LEGEND["Legend"]
-        L_blue["Stages"]:::blue
-        L_purple[("ACC Internal State")]:::purple
-        L_yellow(["Input Data"]):::yellow
-        L_red(["Output Data"]):::red
+<pre class="mermaid"><code>block-beta
+    columns 7
+    block:INS:1
+        columns 1
+        IN_DATA["input data&lt;br&gt;128 x 32-bit"]
+        INSTR["Instruction"]
+    end
+    space
+    block:STAGE:3
+        columns 3
+        TITLE["ACC Stage"] space:2
+        ALU["Accumulate /&lt;br&gt;Aggregate"] space RACC["R_ACC&lt;br&gt;128 x 32-bit"]
+        space:3
+        PERM["Stride /&lt;br&gt;Reshape"] space:2
+        space:3
+        space BYP["BYPASS"] space
+    end
+    space
+    block:OUTS:1
+        columns 1
+        OUT_DATA["output data&lt;br&gt;128 x 32-bit"]
     end
 
-    classDef blue fill:#4a80c4,stroke:#2a5090,color:#fff
-    classDef purple fill:#7b5ea7,stroke:#5a3d8a,color:#fff
-    classDef yellow fill:#e6b800,stroke:#b38a00,color:#000
-    classDef red fill:#c0392b,stroke:#922b21,color:#fff</code></pre>
+    IN_DATA --&gt; ALU
+    IN_DATA --&gt; PERM
+    INSTR --&gt; ALU
+    ALU &lt;--&gt; RACC
+    PERM --&gt; RACC
+    RACC --&gt; OUT_DATA
+    IN_DATA --- BYP
+    BYP --&gt; OUT_DATA
+
+    classDef io fill:none,stroke:none
+    classDef blk fill:#2e9e8c,stroke:#1a7060,color:#fff
+    classDef title fill:none,stroke:none,font-weight:bold
+    class IN_DATA,INSTR,OUT_DATA,INS,OUTS,BYP io
+    class ALU,RACC,PERM blk
+    class TITLE title
+    style STAGE fill:none,stroke:#888,stroke-width:2px</code></pre>
 <h2 id="3-interfaces">3. Interfaces<a class="headerlink" href="#3-interfaces" title="Permanent link">&para;</a></h2>
-<p><code>R_ACC</code> is <strong>internal</strong> to the ACC stage (owned register, read-modify-write
-each cycle), analogous to how CR/LR are internal to CTRL. It is not
-directly writable from outside ACC; the only way to set it is via an
-ACC-slot instruction.</p>
-<h3 id="30-black-box-diagram">3.0 Black Box Diagram<a class="headerlink" href="#30-black-box-diagram" title="Permanent link">&para;</a></h3>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>                         ┌──────────────────────────────────────┐
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>              clk  ─────&gt;│                                      │
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>              rst  ─────&gt;│                                      │
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>               op  ─────&gt;│                                      │
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>         mult_res  ─────&gt;│                                      │
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>  acc_vliw_bus operands ─&gt;│             ACC Stage                ├────&gt; r_acc            [127:0][31:0]
-</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>                         │      (owns R_ACC, 128x32bit)          │
-</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>     aaq_vliw_bus  ─────&gt;│                                      ├────&gt; aaq_vliw_bus      [AAQ_BUS_W-1:0]
-</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>      str_vliw_bus  ─────&gt;│                                      ├────&gt; str_vliw_bus      [STR_BUS_W-1:0]
-</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>                         └──────────────────────────────────────┘
-</span></code></pre></div>
-<p><code>aaq_vliw_bus</code> and <code>str_vliw_bus</code> arrive from the MULT stage and are
-forwarded unchanged to the AaQ stage (see the Control Stage spec, §7.2);
-ACC does not read or modify their contents.</p>
-<h3 id="31-inputs">3.1 Inputs<a class="headerlink" href="#31-inputs" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
 <tr>
 <th>Name</th>
-<th>Type and Direction</th>
+<th>Direction</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>clk</code></td>
-<td><code>input logic</code></td>
-<td>Clock signal.</td>
+<td>input data</td>
+<td>Input</td>
+<td>The multiply result from the MULT stage: 128 elements of 32 bits.</td>
 </tr>
 <tr>
-<td><code>rst</code></td>
-<td><code>input logic</code></td>
-<td>Synchronous reset. Clears <code>R_ACC</code> to 0.</td>
+<td>Instruction</td>
+<td>Input</td>
+<td>The operation that the stage does on the input data.</td>
 </tr>
 <tr>
-<td><code>op</code></td>
-<td><code>input logic [3:0]</code></td>
-<td>Selects the ACC operation: <code>ACC_INST_OPCODE_ACC_ADD</code> = 0, <code>ACC_INST_OPCODE_ACC_ADD_FIRST</code> = 1, <code>ACC_INST_OPCODE_ACC_MAX</code> = 2, <code>ACC_INST_OPCODE_ACC_MAX_FIRST</code> = 3, <code>ACC_INST_OPCODE_ACC_SUB</code> = 4, <code>ACC_INST_OPCODE_ACC_SUB_FIRST</code> = 5, <code>ACC_INST_OPCODE_NOP</code> = 6, <code>ACC_INST_OPCODE_ACC_STRIDE</code> = 7, <code>ACC_INST_OPCODE_AGG_SUM_FIRST</code> = 8, <code>ACC_INST_OPCODE_AGG_SUM</code> = 9, <code>ACC_INST_OPCODE_AGG_MAX_FIRST</code> = 10, <code>ACC_INST_OPCODE_AGG_MAX</code> = 11, <code>ACC_INST_OPCODE_ACC_RESHAPE</code> = 12 (see §6 for the full opcode table; opcode = position in <code>instruction_spec.py</code>'s <code>"acc"</code> slot).</td>
-</tr>
-<tr>
-<td><code>mult_res</code></td>
-<td><code>input logic [127:0][31:0]</code></td>
-<td>This cycle's multiply result from the MULT stage: 128 elements, each INT32 or FP32 depending on the active element dtype (INT8-mode multiplies produce INT32 products; FP8-mode multiplies produce FP32 products — see the MULT stage).</td>
-</tr>
-<tr>
-<td><code>resolved_operands</code></td>
-<td><code>input logic [131:0]</code></td>
-<td>Opcode-dependent union payload packed onto <code>acc_vliw_bus</code> alongside <code>op</code>. CTRL resolves every CR/LR operand this instruction needs (see §5) and packs it in here before dispatch; ACC never reads the CR/LR register files itself. Width is sized to the opcode with the largest operand set (<code>ACC_INST_OPCODE_ACC_RESHAPE</code>, 132 bits); other opcodes use only their low bits, and the rest are don't-care. Layout per opcode is in §3.1.1.</td>
-</tr>
-<tr>
-<td><code>aaq_vliw_bus</code></td>
-<td><code>input logic [AAQ_BUS_W-1:0]</code></td>
-<td>AAQ-slot bus, forwarded from MULT. Passed through unchanged (see Control Stage spec §7.2).</td>
-</tr>
-<tr>
-<td><code>str_vliw_bus</code></td>
-<td><code>input logic [STR_BUS_W-1:0]</code></td>
-<td>STORE-slot bus, forwarded from MULT. Passed through unchanged.</td>
+<td>output data</td>
+<td>Output</td>
+<td><code>R_ACC</code>, or <code>input data</code>: 128 elements of 32 bits, to the AaQ stage.</td>
 </tr>
 </tbody>
 </table>
-<h4 id="311-resolved_operands-layout-parsed-relative-to-op">3.1.1 <code>resolved_operands</code> Layout (parsed relative to <code>op</code>)<a class="headerlink" href="#311-resolved_operands-layout-parsed-relative-to-op" title="Permanent link">&para;</a></h4>
-<p><code>resolved_operands</code> is a <strong>union</strong>, not a struct: since ACC executes exactly
-one opcode per cycle, each opcode's operands are packed starting at bit 0
-and reuse the same physical bits as every other opcode's operands would.
-ACC parses the buffer using the field layout for the value of <code>op</code>
-(see §6 for the opcode table); bits above a given opcode's own fields are
-don't-care for that opcode.</p>
-<h5 id="no-operands">No operands<a class="headerlink" href="#no-operands" title="Permanent link">&para;</a></h5>
-<p><code>ACC_INST_OPCODE_ACC_ADD</code>, <code>ACC_INST_OPCODE_ACC_ADD_FIRST</code>,
-<code>ACC_INST_OPCODE_ACC_MAX</code>, <code>ACC_INST_OPCODE_ACC_MAX_FIRST</code>,
-<code>ACC_INST_OPCODE_ACC_SUB</code>, <code>ACC_INST_OPCODE_ACC_SUB_FIRST</code>,
-<code>ACC_INST_OPCODE_NOP</code> — entire buffer is don't-care.</p>
-<h5 id="acc_inst_opcode_acc_stride"><code>ACC_INST_OPCODE_ACC_STRIDE</code><a class="headerlink" href="#acc_inst_opcode_acc_stride" title="Permanent link">&para;</a></h5>
+<h3 id="31-dstructure-layout">3.1 <code>dstructure</code> Layout<a class="headerlink" href="#31-dstructure-layout" title="Permanent link">&para;</a></h3>
+<p>The <code>cr_idx</code> operand of <code>ACC.STRIDE</code>, <code>AGG.SUM</code> and <code>AGG.MAX</code> names a 32-bit
+<code>CR</code> that holds the data structure format of the 128-element vector. It has
+four 8-bit fields:</p>
 <table>
 <thead>
 <tr>
@@ -3069,414 +3045,575 @@ don't-care for that opcode.</p>
 </thead>
 <tbody>
 <tr>
-<td><code>[1:0]</code></td>
-<td><code>elements_in_row</code></td>
-<td>Encoded row-width selector (0/1/2 → 16/32/64 elements per row); an immediate slot field, not CR/LR-resolved.</td>
+<td><code>[31:24]</code></td>
+<td><code>N/A</code></td>
+<td>Not used.</td>
 </tr>
 <tr>
-<td><code>[3:2]</code></td>
-<td><code>horizontal_stride</code></td>
-<td>Encoded column-decimation mode (0/1/2 → off/on/on_inv); an immediate slot field, not CR/LR-resolved.</td>
+<td><code>[23:16]</code></td>
+<td><code>valid_partition</code></td>
+<td>Number of valid groups. The rightmost <code>num_partition - valid_partition</code> groups are masked.</td>
 </tr>
 <tr>
-<td><code>[5:4]</code></td>
-<td><code>vertical_stride</code></td>
-<td>Encoded row-decimation mode (0/1/2 → off/on/on_inv); an immediate slot field, not CR/LR-resolved.</td>
+<td><code>[15:8]</code></td>
+<td><code>num_partition</code></td>
+<td>Number of groups: <code>1</code>, <code>2</code>, <code>4</code> or <code>8</code>. <code>1</code> means one line of 128 elements, <code>2</code> means two lines of 64 elements.</td>
 </tr>
 <tr>
-<td><code>[7:6]</code></td>
-<td><code>offset</code></td>
-<td>CTRL-resolved <strong>live</strong> value of the <code>offset</code> <code>LrIdx</code> operand, truncated to its low 2 bits — <code>offset % 4</code> is exactly those 2 bits since 4 is a power of 2, so no arithmetic is needed to derive them from the 32-bit <code>LR</code> register. 4 possible values; ACC multiplies by 32 (a shift) to get the <code>R_ACC</code> start index: <code>0</code>, <code>32</code>, <code>64</code>, or <code>96</code>.</td>
-</tr>
-</tbody>
-</table>
-<p>Total: 8 bits used (<code>[7:0]</code>); <code>[131:8]</code> is don't-care.</p>
-<h5 id="acc_inst_opcode_agg_sum_first-acc_inst_opcode_agg_sum-acc_inst_opcode_agg_max_first-acc_inst_opcode_agg_max"><code>ACC_INST_OPCODE_AGG_SUM_FIRST</code>, <code>ACC_INST_OPCODE_AGG_SUM</code>, <code>ACC_INST_OPCODE_AGG_MAX_FIRST</code>, <code>ACC_INST_OPCODE_AGG_MAX</code><a class="headerlink" href="#acc_inst_opcode_agg_sum_first-acc_inst_opcode_agg_sum-acc_inst_opcode_agg_max_first-acc_inst_opcode_agg_max" title="Permanent link">&para;</a></h5>
-<table>
-<thead>
-<tr>
-<th>Bits</th>
-<th>Field</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>[6:0]</code></td>
-<td><code>dest_slot</code></td>
-<td>CTRL-resolved <strong>post-LR-write</strong> value of the <code>dest_slot</code> <code>LrIdx</code> operand, truncated to its low 7 bits — <code>dest_slot % 128</code> is exactly those 7 bits since 128 is a power of 2. Range 0–127, directly addressing an <code>R_ACC</code> word.</td>
-</tr>
-<tr>
-<td><code>[14:7]</code></td>
+<td><code>[7:0]</code></td>
 <td><code>valid_elements</code></td>
-<td>The <code>valid_elements</code> field CTRL decodes out of the <code>cr_idx</code> <code>DstructureCrIdx</code> operand's <code>CR</code> register (8 bits, range 0–128); ACC clamps it to <code>min(valid_elements, 128)</code> itself.</td>
+<td>Number of valid elements in a group.</td>
 </tr>
 </tbody>
 </table>
-<p>Total: 15 bits used (<code>[14:0]</code>); <code>[131:15]</code> is don't-care.</p>
-<h5 id="acc_inst_opcode_acc_reshape"><code>ACC_INST_OPCODE_ACC_RESHAPE</code><a class="headerlink" href="#acc_inst_opcode_acc_reshape" title="Permanent link">&para;</a></h5>
+<h3 id="32-element-format">3.2 Element Format<a class="headerlink" href="#32-element-format" title="Permanent link">&para;</a></h3>
+<p>Each <code>R_ACC</code> element is an FP32 value (IEEE-754 single precision), the same as
+each element of <code>input data</code>. It can be <code>inf</code> or <code>-inf</code>.</p>
+<h3 id="33-running-and-first-variants">3.3 Running and <code>.FIRST</code> Variants<a class="headerlink" href="#33-running-and-first-variants" title="Permanent link">&para;</a></h3>
+<p><code>AGG.SUM</code> and <code>AGG.MAX</code> each have a <code>.FIRST</code> variant:</p>
 <table>
 <thead>
 <tr>
-<th>Bits</th>
-<th>Field</th>
-<th>Description</th>
+<th>Variant</th>
+<th>Uses the current <code>R_ACC</code> value</th>
+<th>Purpose</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>[63:0]</code></td>
-<td><code>source</code></td>
-<td>CTRL-resolved <strong>post-LR-write</strong> value of the <code>source</code> <code>LrdIdx</code> operand — the concatenated <code>LR(n+1):LR(n)</code> pair, read as 8 byte elements (<code>source[0..7]</code>), each a <code>MULT_RES</code> word index.</td>
+<td>Running (<code>AGG.SUM</code>)</td>
+<td>Yes</td>
+<td>Accumulate across cycles.</td>
 </tr>
 <tr>
-<td><code>[127:64]</code></td>
-<td><code>dest</code></td>
-<td>CTRL-resolved <strong>post-LR-write</strong> value of the <code>dest</code> <code>LrdIdx</code> operand — the concatenated <code>LR(n+1):LR(n)</code> pair, read as 8 byte elements (<code>dest[0..7]</code>), each an <code>R_ACC</code> word index.</td>
-</tr>
-<tr>
-<td><code>[131:128]</code></td>
-<td><code>reshape_mask</code></td>
-<td>CTRL-resolved value of the <code>reshape_mask</code> <code>LrOrReshapeMaskImmediate</code> operand: the immediate value if the encoded field is <code>&lt; RESHAPE_MASK_LR_OFFSET</code> (8), otherwise the value of <code>LR[encoded − RESHAPE_MASK_LR_OFFSET]</code>. Field width is derived from the shared union field at assembler-build time (currently 4 bits); ACC raises an error if this resolved value exceeds <code>RESHAPE_ELEMENT_COUNT</code> (8) rather than clamping it.</td>
+<td><code>.FIRST</code> (<code>AGG.SUM.FIRST</code>)</td>
+<td>No: the result depends on <code>input data</code> only</td>
+<td>Start a new operation.</td>
 </tr>
 </tbody>
 </table>
-<p>Total: 132 bits used (<code>[131:0]</code>) — the widest opcode, so it sets the
-buffer's overall width.</p>
-<h3 id="32-outputs">3.2 Outputs<a class="headerlink" href="#32-outputs" title="Permanent link">&para;</a></h3>
+<h2 id="4-accumulator-isa">4. Accumulator ISA<a class="headerlink" href="#4-accumulator-isa" title="Permanent link">&para;</a></h2>
+<p>The ACC slot is resolved by CTRL and forwarded down the pipeline. The stage
+does not read the CR/LR register files itself (see the Control Stage spec,
+section 5).</p>
+<p>The opcode enum (<code>acc_inst_opcode_t</code>, package <code>ipu_instr_pkg</code>) is generated
+from <a href="../../../src/ipu-isa/src/ipu_isa/instruction_spec.py"><code>instruction_spec.py</code></a>
+by <a href="../../../src/ipu-gen/src/ipu_gen/sv_package.py"><code>sv_package.py</code></a>.</p>
+<blockquote>
+<p><strong>Note:</strong> Each <code>CR0</code>-<code>CR15</code> and <code>LR0</code>-<code>LR15</code> register named in the
+instruction operands is <strong>32 bits</strong> wide. An <code>LRD</code> operand (a pair of LRs)
+comes with its value, as a <code>CR</code> operand does.</p>
+</blockquote>
+<p><strong>Instructions in this section:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Instruction</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="#41-nop-no-operation"><code>NOP</code></a></td>
+<td>Do nothing.</td>
+</tr>
+<tr>
+<td><a href="#42-accset-accadd-accsub-accmax-element-wise-accumulate"><code>ACC.SET</code>, <code>ACC.ADD</code>, <code>ACC.SUB</code>, <code>ACC.MAX</code></a></td>
+<td>Set <code>R_ACC</code> to <code>input data</code>, or combine them, element by element.</td>
+</tr>
+<tr>
+<td><a href="#43-accstride-accumulator-stride"><code>ACC.STRIDE</code></a></td>
+<td>Reshape <code>input data</code> into a range of <code>R_ACC</code> with a predetermined pattern.</td>
+</tr>
+<tr>
+<td><a href="#44-aggsum-aggmax-aggregate"><code>AGG.SUM</code>, <code>AGG.MAX</code></a></td>
+<td>Reduce <code>input data</code> to one <code>R_ACC</code> element.</td>
+</tr>
+<tr>
+<td><a href="#45-accreshape-reshape"><code>ACC.RESHAPE</code></a></td>
+<td>Copy chosen <code>input data</code> elements to chosen <code>R_ACC</code> elements.</td>
+</tr>
+<tr>
+<td><a href="#46-bypass-bypass"><code>BYPASS</code></a></td>
+<td>Send <code>input data</code> to <code>output data</code>.</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="41-nop-no-operation">4.1 <code>NOP</code>: No Operation<a class="headerlink" href="#41-nop-no-operation" title="Permanent link">&para;</a></h3>
+<p>No operation for the ACC slot. <code>R_ACC</code> keeps its value.</p>
+<h4 id="syntax">Syntax<a class="headerlink" href="#syntax" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>NOP
+</span></code></pre></div>
+<h4 id="operands">Operands<a class="headerlink" href="#operands" title="Permanent link">&para;</a></h4>
+<p>None.</p>
+<h4 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>NOP;;
+</span></code></pre></div>
+<hr />
+<h3 id="42-accset-accadd-accsub-accmax-element-wise-accumulate">4.2 <code>ACC.SET</code>, <code>ACC.ADD</code>, <code>ACC.SUB</code>, <code>ACC.MAX</code>: Element-wise Accumulate<a class="headerlink" href="#42-accset-accadd-accsub-accmax-element-wise-accumulate" title="Permanent link">&para;</a></h3>
+<p>Sets each element of <code>R_ACC</code> to the same element of <code>input data</code>, or combines
+them. All 128 elements are written.</p>
+<h4 id="syntax_1">Syntax<a class="headerlink" href="#syntax_1" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>ACC.SET
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>ACC.ADD
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>ACC.SUB
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>ACC.MAX
+</span></code></pre></div>
+<h4 id="operands_1">Operands<a class="headerlink" href="#operands_1" title="Permanent link">&para;</a></h4>
+<p>None.</p>
+<h4 id="operation">Operation<a class="headerlink" href="#operation" title="Permanent link">&para;</a></h4>
+<p>For each element <code>i</code> in <code>0..127</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Mnemonic</th>
+<th><code>R_ACC[i]</code> becomes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ACC.SET</code></td>
+<td><code>input_data[i]</code></td>
+</tr>
+<tr>
+<td><code>ACC.ADD</code></td>
+<td><code>R_ACC[i] + input_data[i]</code></td>
+</tr>
+<tr>
+<td><code>ACC.SUB</code></td>
+<td><code>R_ACC[i] - input_data[i]</code></td>
+</tr>
+<tr>
+<td><code>ACC.MAX</code></td>
+<td><code>input_data[i]</code> if <code>input_data[i] &gt; R_ACC[i]</code>, else <code>R_ACC[i]</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Special cases.</strong> <code>param1</code> is <code>R_ACC[i]</code> and <code>param2</code> is <code>input_data[i]</code>. <code>x</code>
+is any value that is not NaN. <code>f</code> is a finite value. <code>±inf</code> is <code>inf</code> or <code>-inf</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Mnemonic</th>
+<th>Case</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ACC.ADD</code>, <code>ACC.SUB</code>, <code>ACC.MAX</code></td>
+<td><code>param1</code> or <code>param2</code> is NaN</td>
+<td>NaN</td>
+</tr>
+<tr>
+<td><code>ACC.ADD</code></td>
+<td>One parameter is <code>inf</code>, the other is <code>-inf</code></td>
+<td>NaN</td>
+</tr>
+<tr>
+<td><code>ACC.SUB</code></td>
+<td><code>param1</code> and <code>param2</code> are the same infinity</td>
+<td>NaN</td>
+</tr>
+<tr>
+<td><code>ACC.ADD</code></td>
+<td>One parameter is <code>±inf</code>, the other is <code>f</code> or the same infinity</td>
+<td>That infinity</td>
+</tr>
+<tr>
+<td><code>ACC.SUB</code></td>
+<td><code>param1</code> is <code>±inf</code>, <code>param2</code> is <code>f</code> or the opposite infinity</td>
+<td><code>param1</code></td>
+</tr>
+<tr>
+<td><code>ACC.SUB</code></td>
+<td><code>param1</code> is <code>f</code>, <code>param2</code> is <code>±inf</code></td>
+<td><code>-param2</code></td>
+</tr>
+<tr>
+<td><code>ACC.MAX</code></td>
+<td>One parameter is <code>inf</code>, the other is <code>x</code></td>
+<td><code>inf</code></td>
+</tr>
+<tr>
+<td><code>ACC.MAX</code></td>
+<td>One parameter is <code>-inf</code>, the other is <code>x</code></td>
+<td><code>x</code></td>
+</tr>
+</tbody>
+</table>
+<h4 id="example_1">Example<a class="headerlink" href="#example_1" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>ACC.SET;;            // first partial product of a dot product
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>ACC.ADD;;            // add the next ones
+</span></code></pre></div>
+<hr />
+<h3 id="43-accstride-accumulator-stride">4.3 <code>ACC.STRIDE</code>: Accumulator Stride<a class="headerlink" href="#43-accstride-accumulator-stride" title="Permanent link">&para;</a></h3>
+<p>A reshape with a predetermined pattern. It views <code>input data</code> as rows, keeps
+every second column and/or every second row, and writes the kept elements, row
+by row, into a range of <code>R_ACC</code>. The other <code>R_ACC</code> elements keep their values.</p>
+<h4 id="syntax_2">Syntax<a class="headerlink" href="#syntax_2" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>ACC.STRIDE cr_idx, horizontal_stride, vertical_stride, offset
+</span></code></pre></div>
+<h4 id="operands_2">Operands<a class="headerlink" href="#operands_2" title="Permanent link">&para;</a></h4>
 <table>
 <thead>
 <tr>
 <th>Name</th>
-<th>Type and Direction</th>
-<th>Description</th>
+<th>Type</th>
+<th>Details</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>r_acc</code></td>
-<td><code>output logic [127:0][31:0]</code></td>
-<td>The updated 128-element accumulator, driven to the AaQ stage every cycle (see the AaQ spec, §3.1).</td>
+<td><code>dstructure</code></td>
+<td><a href="../../reference/isa/operand-types/#cridx"><code>CrIdx</code></a></td>
+<td><code>CR0</code>-<code>CR15</code>. Supplies <code>num_partition</code> (section 3.1): the number of rows of <code>input data</code>.</td>
 </tr>
 <tr>
-<td><code>aaq_vliw_bus</code></td>
-<td><code>output logic [AAQ_BUS_W-1:0]</code></td>
-<td>Forwarded unchanged to the AaQ stage.</td>
+<td><code>horizontal_stride</code></td>
+<td><a href="../../reference/isa/operand-types/#horizontalstride"><code>Imm</code></a></td>
+<td><code>off</code>, <code>on</code> or <code>on_inv</code>. Column pattern.</td>
 </tr>
 <tr>
-<td><code>str_vliw_bus</code></td>
-<td><code>output logic [STR_BUS_W-1:0]</code></td>
-<td>Forwarded unchanged to the AaQ stage (AaQ forwards it again to STORE).</td>
+<td><code>vertical_stride</code></td>
+<td><a href="../../reference/isa/operand-types/#verticalstride"><code>Imm</code></a></td>
+<td><code>off</code>, <code>on</code> or <code>on_inv</code>. Row pattern.</td>
+</tr>
+<tr>
+<td><code>offset</code></td>
+<td><code>Imm</code></td>
+<td><code>0</code>, <code>16</code>, <code>32</code>, <code>48</code>, <code>64</code>, <code>80</code>, <code>96</code> or <code>112</code>. The first written <code>R_ACC</code> element.</td>
 </tr>
 </tbody>
 </table>
-<h2 id="4-disclaimers">4. Disclaimers<a class="headerlink" href="#4-disclaimers" title="Permanent link">&para;</a></h2>
-<ul>
-<li>The ACC slot executes once per VLIW cycle.</li>
-<li>Slot execution order within a VLIW word: CTRL → MULT → <strong>ACC</strong> → AaQ → STR.</li>
-<li><code>NOP</code> performs no state changes (<code>R_ACC</code> unchanged).</li>
-<li>ACC never reads the CR/LR register files directly — every CR/LR-derived
-  operand value (<code>valid_elements</code>, <code>partition</code>, resolved LR values, etc.)
-  arrives pre-resolved on <code>acc_vliw_bus</code> from CTRL.</li>
-</ul>
-<h2 id="5-data-and-register-model">5. Data and Register Model<a class="headerlink" href="#5-data-and-register-model" title="Permanent link">&para;</a></h2>
-<ul>
-<li><code>R_ACC</code> is <strong>128 elements × 32 bits</strong>, matching <code>MULT_RES</code>'s width and element
-  count. (The hardware parameter for this count is named <code>LANES</code>.)</li>
-<li>Each element's numeric interpretation (INT32 vs FP32) tracks whatever format
-  <code>MULT_RES</code> was produced in that cycle — ACC's ALU does not carry an
-  independent dtype selector of its own.</li>
-<li><strong>No dedicated clear/reset instruction.</strong> Initialization is done purely
-  through the <code>.FIRST</code> mnemonic variants:</li>
-<li><code>X</code> (no suffix) — running accumulation: combines <code>MULT_RES</code> with the
-    <strong>previous</strong> <code>R_ACC</code> value (read from the pre-cycle snapshot, so it does
-    not see this same cycle's in-flight write).</li>
-<li><code>X.FIRST</code> — clean-init: overwrites <code>R_ACC</code> with a value derived purely
-    from <code>MULT_RES</code>, ignoring whatever was previously in <code>R_ACC</code>.</li>
-<li>This pairing applies to <code>ACC.ADD</code>/<code>ACC.ADD.FIRST</code>, <code>ACC.MAX</code>/<code>ACC.MAX.FIRST</code>,
-    <code>ACC.SUB</code>/<code>ACC.SUB.FIRST</code>, and <code>AGG.SUM</code>/<code>AGG.SUM.FIRST</code>,
-    <code>AGG.MAX</code>/<code>AGG.MAX.FIRST</code>.</li>
-<li><code>AGG.SUM</code>/<code>AGG.MAX</code> (and their <code>.FIRST</code> variants) reduce <strong>all active
-  elements of <code>MULT_RES</code></strong> — not <code>R_ACC</code> — down to a single scalar, written
-  into one <code>R_ACC</code> word at an LR-selected index. The active element count
-  (<code>valid_elements</code>) and <code>partition</code> come from a <code>DstructureCrIdx</code> operand
-  (<code>cr_idx</code>: any <code>CR0</code>–<code>CR15</code>, must be given explicitly; <code>CR15</code>
-  conventionally holds dstructure config but is not an implicit default —
-  see the CLAUDE.md project directives).</li>
-<li><strong>Historical note:</strong> cross-element aggregation (<code>AGG.*</code>) was moved into the
-  ACC slot specifically to remove a RAW hazard that existed when it lived
-  in a separate AAQ-writable scalar register file consumed by MULT/ACC (see
-  the Control Stage spec, §9).</li>
-<li><code>ACC.RESHAPE</code> scatters <code>MULT_RES</code> elements into <code>R_ACC</code> at LR-pair-selected
-  indices, rather than reducing <code>MULT_RES</code> elementwise or aggregating them.
-  Like every other ACC-stage operation it reads this cycle's <code>MULT_RES</code>
-  (the <code>mult_res</code> input, §3.1): a <code>MULT.*</code> in the same instruction word is
-  the product it scatters. A participating <code>source[i]</code>/<code>dest[i]</code> outside
-  <code>[0, 127]</code>, or a resolved <code>reshape_mask</code> greater than <code>RESHAPE_ELEMENT_COUNT</code>
-  (8), raises an error rather than being silently skipped or clamped.</li>
-</ul>
-<h2 id="6-isa-instruction-reference">6. ISA: Instruction Reference<a class="headerlink" href="#6-isa-instruction-reference" title="Permanent link">&para;</a></h2>
-<p>The opcode enum (<code>acc_inst_opcode_t</code>, package <code>ipu_instr_pkg</code>) is generated
-from
-<a href="../../../src/ipu-isa/src/ipu_isa/instruction_spec.py"><code>instruction_spec.py</code></a>
-by
-<a href="../../../src/ipu-gen/src/ipu_gen/sv_package.py"><code>sv_package.py</code></a>.
-Per the project's opcode-derivation rule, opcode = position within the
-<code>"acc"</code> slot dict — the table below lists mnemonics in that exact order.</p>
-<h3 id="61-accadd-opcode-0-accumulate-add">6.1 <code>ACC.ADD</code> (opcode 0): Accumulate Add<a class="headerlink" href="#61-accadd-opcode-0-accumulate-add" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>Summary:</strong> Running add accumulation: add the multiply result into each <code>R_ACC</code> element.</li>
-<li><strong>Syntax:</strong> <code>ACC.ADD</code></li>
-<li><strong>Operands:</strong> none.</li>
-<li><strong>Operation:</strong>
-  <div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>for i in 0..127:
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>    R_ACC[i] += MULT_RES[i]
-</span></code></pre></div></li>
-<li><strong>Example:</strong> <code>ACC.ADD;;</code></li>
-</ul>
-<h3 id="62-accaddfirst-opcode-1-accumulate-add-first">6.2 <code>ACC.ADD.FIRST</code> (opcode 1): Accumulate Add (First)<a class="headerlink" href="#62-accaddfirst-opcode-1-accumulate-add-first" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>Summary:</strong> Clean-init add: overwrite each <code>R_ACC</code> element with the multiply result, ignoring the previous <code>R_ACC</code>.</li>
-<li><strong>Syntax:</strong> <code>ACC.ADD.FIRST</code></li>
-<li><strong>Operands:</strong> none.</li>
-<li><strong>Operation:</strong>
-  <div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>for i in 0..127:
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>    R_ACC[i] = MULT_RES[i]
-</span></code></pre></div></li>
-<li><strong>Example:</strong> <code>ACC.ADD.FIRST;;</code></li>
-</ul>
-<h3 id="63-accmax-opcode-2-accumulate-max">6.3 <code>ACC.MAX</code> (opcode 2): Accumulate Max<a class="headerlink" href="#63-accmax-opcode-2-accumulate-max" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>Summary:</strong> Running max accumulation: each <code>R_ACC</code> element takes the max of its current value and the multiply result.</li>
-<li><strong>Syntax:</strong> <code>ACC.MAX</code></li>
-<li><strong>Operands:</strong> none.</li>
-<li><strong>Operation:</strong>
-  <div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>for i in 0..127:
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>    R_ACC[i] = max(R_ACC[i], MULT_RES[i])
-</span></code></pre></div></li>
-<li><strong>Example:</strong> <code>ACC.MAX;;</code></li>
-</ul>
-<h3 id="64-accmaxfirst-opcode-3-accumulate-max-first">6.4 <code>ACC.MAX.FIRST</code> (opcode 3): Accumulate Max (First)<a class="headerlink" href="#64-accmaxfirst-opcode-3-accumulate-max-first" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>Summary:</strong> Clean-init max: overwrite each <code>R_ACC</code> element unconditionally with the multiply result.</li>
-<li><strong>Syntax:</strong> <code>ACC.MAX.FIRST</code></li>
-<li><strong>Operands:</strong> none.</li>
-<li><strong>Operation:</strong>
-  <div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>for i in 0..127:
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>    R_ACC[i] = MULT_RES[i]   // unconditional overwrite
-</span></code></pre></div></li>
-<li><strong>Example:</strong> <code>ACC.MAX.FIRST;;</code></li>
-</ul>
-<h3 id="65-accsub-opcode-4-accumulate-subtract">6.5 <code>ACC.SUB</code> (opcode 4): Accumulate Subtract<a class="headerlink" href="#65-accsub-opcode-4-accumulate-subtract" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>Summary:</strong> Running subtract accumulation: subtract the multiply result from each <code>R_ACC</code> element.</li>
-<li><strong>Syntax:</strong> <code>ACC.SUB</code></li>
-<li><strong>Operands:</strong> none.</li>
-<li><strong>Operation:</strong>
-  <div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>for i in 0..127:
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>    R_ACC[i] -= MULT_RES[i]
-</span></code></pre></div></li>
-<li><strong>Example:</strong> <code>ACC.SUB;;</code></li>
-</ul>
-<h3 id="66-accsubfirst-opcode-5-accumulate-subtract-first">6.6 <code>ACC.SUB.FIRST</code> (opcode 5): Accumulate Subtract (First)<a class="headerlink" href="#66-accsubfirst-opcode-5-accumulate-subtract-first" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>Summary:</strong> Clean-init subtract: set each <code>R_ACC</code> element to the negated multiply result.</li>
-<li><strong>Syntax:</strong> <code>ACC.SUB.FIRST</code></li>
-<li><strong>Operands:</strong> none.</li>
-<li><strong>Operation:</strong>
-  <div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>for i in 0..127:
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>    R_ACC[i] = -MULT_RES[i]
-</span></code></pre></div></li>
-<li><strong>Example:</strong> <code>ACC.SUB.FIRST;;</code></li>
-</ul>
-<h3 id="67-nop-opcode-6-no-operation">6.7 <code>NOP</code> (opcode 6): No Operation<a class="headerlink" href="#67-nop-opcode-6-no-operation" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>Summary:</strong> No operation for the ACC slot; <code>R_ACC</code> unchanged.</li>
-<li><strong>Syntax:</strong> <code>NOP</code></li>
-<li><strong>Operands:</strong> none.</li>
-</ul>
-<h3 id="68-accstride-opcode-7-accumulator-stride">6.8 <code>ACC.STRIDE</code> (opcode 7): Accumulator Stride<a class="headerlink" href="#68-accstride-opcode-7-accumulator-stride" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>Summary:</strong> Reorder <code>MULT_RES</code> into <code>R_ACC</code> using horizontal/vertical stride decimation. Only the written <code>R_ACC</code> indices change; the rest of <code>R_ACC</code> is left unchanged.</li>
-<li><strong>Syntax:</strong> <code>ACC.STRIDE elements_in_row, horizontal_stride, vertical_stride, offset</code></li>
-<li><strong>Operands:</strong></li>
-<li><code>elements_in_row</code>: elements per row viewed over the 128-element <code>MULT_RES</code> — encoded 0/1/2 → 16/32/64 elements (<code>elements_per_row</code>, minimum 16).</li>
-<li><code>horizontal_stride</code>: column decimation mode — encoded 0/1/2 → <code>off</code>/<code>on</code>/<code>on_inv</code> (<code>on</code> keeps even-indexed columns per row, <code>on_inv</code> keeps odd-indexed columns).</li>
-<li><code>vertical_stride</code>: row decimation mode — encoded 0/1/2 → <code>off</code>/<code>on</code>/<code>on_inv</code> (<code>on</code> keeps even-indexed rows, <code>on_inv</code> keeps odd-indexed rows).</li>
-<li><code>offset</code>: <code>LR0</code>–<code>LR15</code> (<code>LrIdx</code>, live value); <code>(offset % 4) * 32</code> gives the start index in <code>R_ACC</code> (0, 32, 64, or 96).</li>
-<li><strong>Operation:</strong>
-  <div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>rows = 128 / elements_per_row
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>view MULT_RES as [rows][elements_per_row]
-</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>if horizontal_stride enabled: keep every 2nd column per row (parity per on/on_inv)
-</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>if vertical_stride enabled:   keep every 2nd row (parity per on/on_inv)
-</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>N = 128 &gt;&gt; (horizontal_stride_enabled + vertical_stride_enabled)   // 128, 64, or 32
-</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>start = (offset % 4) * 32
-</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>R_ACC[start : start + N] = decimated MULT_RES, row-major
-</span></code></pre></div></li>
-<li><strong>Example:</strong> <code>ACC.STRIDE 16, off, off, LR0;;</code></li>
-<li><strong>Notes:</strong> when a data structure has fewer than 8 elements, hardware pads to 16 automatically (not programmable).</li>
-</ul>
-<h3 id="69-aggsumfirst-opcode-8-aggregate-sum-first">6.9 <code>AGG.SUM.FIRST</code> (opcode 8): Aggregate Sum (First)<a class="headerlink" href="#69-aggsumfirst-opcode-8-aggregate-sum-first" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>Summary:</strong> Sum active <code>MULT_RES</code> elements and write the result into <code>R_ACC</code> at the slot given by <code>LR[dest_slot]</code>. The current value at the destination slot is <strong>not</strong> included (clean initialization).</li>
-<li><strong>Syntax:</strong> <code>AGG.SUM.FIRST dest_slot, cr_idx</code></li>
-<li><strong>Operands:</strong></li>
-<li><code>dest_slot</code>: <code>LR0</code>–<code>LR15</code> (<code>LrIdx</code>, post-LR-write value) — its value gives the destination slot in <code>R_ACC</code> (0–127).</li>
-<li><code>cr_idx</code>: <code>CR0</code>–<code>CR15</code> (<code>DstructureCrIdx</code>, must be given explicitly) — supplies <code>valid_elements</code>.</li>
-<li><strong>Operation:</strong>
-  <div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>n = min(CR[cr_idx].valid_elements, 128)
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>dest = LR[dest_slot] % 128
-</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>R_ACC[dest] = sum(MULT_RES[0..n-1])
-</span></code></pre></div></li>
-<li><strong>Example:</strong> <code>AGG.SUM.FIRST LR0, CR3;;</code></li>
-</ul>
-<h3 id="610-aggsum-opcode-9-aggregate-sum">6.10 <code>AGG.SUM</code> (opcode 9): Aggregate Sum<a class="headerlink" href="#610-aggsum-opcode-9-aggregate-sum" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>Summary:</strong> Sum active <code>MULT_RES</code> elements and add the result to <code>R_ACC</code> at the slot given by <code>LR[dest_slot]</code> (running cross-cycle accumulation).</li>
-<li><strong>Syntax:</strong> <code>AGG.SUM dest_slot, cr_idx</code></li>
-<li><strong>Operands:</strong> identical to <code>AGG.SUM.FIRST</code>.</li>
-<li><strong>Operation:</strong>
-  <div class="language-text highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>n = min(CR[cr_idx].valid_elements, 128)
-</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>dest = LR[dest_slot] % 128
-</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>R_ACC[dest] = sum(MULT_RES[0..n-1]) + R_ACC[dest]
-</span></code></pre></div></li>
-<li><strong>Example:</strong> <code>AGG.SUM LR0, CR3;;</code></li>
-</ul>
-<h3 id="611-aggmaxfirst-opcode-10-aggregate-max-first">6.11 <code>AGG.MAX.FIRST</code> (opcode 10): Aggregate Max (First)<a class="headerlink" href="#611-aggmaxfirst-opcode-10-aggregate-max-first" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>Summary:</strong> Find the maximum of active <code>MULT_RES</code> elements and write it into <code>R_ACC</code> at the slot given by <code>LR[dest_slot]</code>. The current destination value is <strong>not</strong> used as a seed.</li>
-<li><strong>Syntax:</strong> <code>AGG.MAX.FIRST dest_slot, cr_idx</code></li>
-<li><strong>Operands:</strong> identical to <code>AGG.SUM.FIRST</code>.</li>
-<li><strong>Operation:</strong>
-  <div class="language-text highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>n = min(CR[cr_idx].valid_elements, 128)
-</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>dest = LR[dest_slot] % 128
-</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>R_ACC[dest] = max(MULT_RES[0..n-1])
-</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>// when n = 0: identity seed (INT32_MIN for integer elements, -inf for float elements)
-</span></code></pre></div></li>
-<li><strong>Example:</strong> <code>AGG.MAX.FIRST LR0, CR3;;</code></li>
-</ul>
-<h3 id="612-aggmax-opcode-11-aggregate-max">6.12 <code>AGG.MAX</code> (opcode 11): Aggregate Max<a class="headerlink" href="#612-aggmax-opcode-11-aggregate-max" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>Summary:</strong> Find the maximum of active <code>MULT_RES</code> elements seeded with the current destination slot value (running cross-cycle max).</li>
-<li><strong>Syntax:</strong> <code>AGG.MAX dest_slot, cr_idx</code></li>
-<li><strong>Operands:</strong> identical to <code>AGG.SUM.FIRST</code>.</li>
-<li><strong>Operation:</strong>
-  <div class="language-text highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>n = min(CR[cr_idx].valid_elements, 128)
-</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>dest = LR[dest_slot] % 128
-</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>R_ACC[dest] = max(MULT_RES[0..n-1], R_ACC[dest])
-</span></code></pre></div></li>
-<li><strong>Example:</strong> <code>AGG.MAX LR0, CR3;;</code></li>
-</ul>
-<h3 id="613-accreshape-opcode-12-reshape">6.13 <code>ACC.RESHAPE</code> (opcode 12): Reshape<a class="headerlink" href="#613-accreshape-opcode-12-reshape" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>Summary:</strong> Scatter <code>MULT_RES</code> elements into <code>R_ACC</code>: for each of the trailing <code>(8 - reshape_mask)</code> byte elements of the <code>source</code>/<code>dest</code> <code>LRDn</code> pairs (indices <code>reshape_mask..7</code>), copy <code>MULT_RES[source[i]]</code> to <code>R_ACC[dest[i]]</code>.</li>
-<li><strong>Syntax:</strong> <code>ACC.RESHAPE source, dest, reshape_mask</code></li>
-<li><strong>Operands:</strong></li>
-<li><code>source</code>: <code>LRD0</code>, <code>LRD2</code>, …, <code>LRD14</code> (<code>LrdIdx</code>, post-LR-write value) — read as <code>source[0..7]</code>, 8 byte elements, each a <code>MULT_RES</code> word index.</li>
-<li><code>dest</code>: <code>LRD0</code>, <code>LRD2</code>, …, <code>LRD14</code> (<code>LrdIdx</code>, post-LR-write value) — read as <code>dest[0..7]</code>, 8 byte elements, each an <code>R_ACC</code> word index.</li>
-<li><code>reshape_mask</code>: immediate 0–7 or an LR register (<code>LrOrReshapeMaskImmediate</code>) — selects the first participating element index; elements <code>reshape_mask..7</code> participate (<code>reshape_mask = 0</code> uses all 8, <code>reshape_mask = 7</code> uses only element 7, <code>reshape_mask = 8</code> uses none). When an LR is given, its value is used directly as the mask (not truncated).</li>
-<li><strong>Operation:</strong>
-  <div class="language-text highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>mult_res = MULT_RES   // this cycle's MULT result
-</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>mask = reshape_mask if immediate else LR[reshape_mask]
-</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>if mask &gt; 8: raise error
-</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>for i in mask..7:
-</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>    if source[i] &gt;= 128 or dest[i] &gt;= 128: raise error
-</span><span id="__span-12-6"><a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a>    R_ACC[dest[i]] = mult_res[source[i]]
-</span></code></pre></div></li>
-<li><strong>Example:</strong> <code>ACC.RESHAPE LRD0, LRD2, 0;;</code></li>
-<li><strong>Notes:</strong> <code>reshape_mask</code> skips the lowest-indexed elements <code>0..reshape_mask-1</code>; the rest participate. <strong>Example:</strong> <code>reshape_mask = 2</code> skips elements 0, 1; elements 2-7 participate. <strong>Example:</strong> <code>reshape_mask = 5</code> skips elements 0-4; elements 5-7 participate.</li>
-</ul>
-<h3 id="614-summary-table">6.14 Summary Table<a class="headerlink" href="#614-summary-table" title="Permanent link">&para;</a></h3>
+<p><strong>Pattern modes:</strong></p>
 <table>
 <thead>
 <tr>
-<th>Opcode</th>
-<th>Mnemonic</th>
-<th>Operands</th>
-<th>One-line Effect</th>
+<th>Mode</th>
+<th>Columns kept (<code>horizontal_stride</code>)</th>
+<th>Rows kept (<code>vertical_stride</code>)</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>0</td>
-<td><code>ACC.ADD</code></td>
-<td>-</td>
-<td><code>R_ACC[i] += MULT_RES[i]</code></td>
+<td><code>off</code></td>
+<td>all</td>
+<td>all</td>
 </tr>
 <tr>
-<td>1</td>
-<td><code>ACC.ADD.FIRST</code></td>
-<td>-</td>
-<td><code>R_ACC[i] = MULT_RES[i]</code></td>
+<td><code>on</code></td>
+<td>even: <code>0, 2, 4, ...</code></td>
+<td>even: <code>0, 2, 4, ...</code></td>
 </tr>
 <tr>
-<td>2</td>
-<td><code>ACC.MAX</code></td>
-<td>-</td>
-<td><code>R_ACC[i] = max(R_ACC[i], MULT_RES[i])</code></td>
-</tr>
-<tr>
-<td>3</td>
-<td><code>ACC.MAX.FIRST</code></td>
-<td>-</td>
-<td><code>R_ACC[i] = MULT_RES[i]</code> (unconditional)</td>
-</tr>
-<tr>
-<td>4</td>
-<td><code>ACC.SUB</code></td>
-<td>-</td>
-<td><code>R_ACC[i] -= MULT_RES[i]</code></td>
-</tr>
-<tr>
-<td>5</td>
-<td><code>ACC.SUB.FIRST</code></td>
-<td>-</td>
-<td><code>R_ACC[i] = -MULT_RES[i]</code></td>
-</tr>
-<tr>
-<td>6</td>
-<td><code>NOP</code></td>
-<td>-</td>
-<td>no state change</td>
-</tr>
-<tr>
-<td>7</td>
-<td><code>ACC.STRIDE</code></td>
-<td><code>elements_in_row, horizontal_stride, vertical_stride, offset</code></td>
-<td>decimate <code>MULT_RES</code> into <code>R_ACC[start:start+N]</code></td>
-</tr>
-<tr>
-<td>8</td>
-<td><code>AGG.SUM.FIRST</code></td>
-<td><code>dest_slot, cr_idx</code></td>
-<td><code>R_ACC[dest] = sum(MULT_RES[0..n-1])</code></td>
-</tr>
-<tr>
-<td>9</td>
-<td><code>AGG.SUM</code></td>
-<td><code>dest_slot, cr_idx</code></td>
-<td><code>R_ACC[dest] += sum(MULT_RES[0..n-1])</code></td>
-</tr>
-<tr>
-<td>10</td>
-<td><code>AGG.MAX.FIRST</code></td>
-<td><code>dest_slot, cr_idx</code></td>
-<td><code>R_ACC[dest] = max(MULT_RES[0..n-1])</code></td>
-</tr>
-<tr>
-<td>11</td>
-<td><code>AGG.MAX</code></td>
-<td><code>dest_slot, cr_idx</code></td>
-<td><code>R_ACC[dest] = max(MULT_RES[0..n-1], R_ACC[dest])</code></td>
-</tr>
-<tr>
-<td>12</td>
-<td><code>ACC.RESHAPE</code></td>
-<td><code>source, dest, reshape_mask</code></td>
-<td>scatter <code>MULT_RES</code> elements into <code>R_ACC</code> per <code>LRDn</code> index pairs</td>
+<td><code>on_inv</code></td>
+<td>odd: <code>1, 3, 5, ...</code></td>
+<td>odd: <code>1, 3, 5, ...</code></td>
 </tr>
 </tbody>
 </table>
+<h4 id="operation_1">Operation<a class="headerlink" href="#operation_1" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>rows = num_partition
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>elements_in_row = 128 / num_partition
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>view input_data as [rows][elements_in_row]          // row r = input_data[r*elements_in_row ...]
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>keep the columns selected by horizontal_stride
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>keep the rows selected by vertical_stride
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>kept = the kept elements, row by row                  // N elements
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>R_ACC[offset + k] = kept[k]   for k in 0..N-1
+</span></code></pre></div>
+<p>The number of written elements is:</p>
+<table>
+<thead>
+<tr>
+<th><code>horizontal_stride</code></th>
+<th><code>vertical_stride</code></th>
+<th><code>N</code> (<code>num_partition</code> = <code>2</code>, <code>4</code>, <code>8</code>)</th>
+<th><code>N</code> (<code>num_partition</code> = <code>1</code>)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>off</code></td>
+<td><code>off</code></td>
+<td>128</td>
+<td>128</td>
+</tr>
+<tr>
+<td><code>on</code> / <code>on_inv</code></td>
+<td><code>off</code></td>
+<td>64</td>
+<td>64</td>
+</tr>
+<tr>
+<td><code>off</code></td>
+<td><code>on</code> / <code>on_inv</code></td>
+<td>64</td>
+<td>128</td>
+</tr>
+<tr>
+<td><code>on</code> / <code>on_inv</code></td>
+<td><code>on</code> / <code>on_inv</code></td>
+<td>32</td>
+<td>64</td>
+</tr>
+</tbody>
+</table>
+<p><code>offset + N</code> is at most 128.</p>
+<p><strong>Example:</strong> <code>num_partition = 8</code>, <code>horizontal_stride = on</code>,
+<code>vertical_stride = on</code>, <code>offset = 0</code>. <code>input data</code> is 8 rows of 16. The
+even columns of rows 0, 2, 4 and 6 are kept: 32 elements, written to
+<code>R_ACC[0..31]</code>.</p>
+<p><img alt="ACC.STRIDE example: 8 rows of 16, even columns of even rows kept" src="../assets/acc-stride.svg" /></p>
+<blockquote>
+<p><strong>Note:</strong> When a data structure has fewer than 8 elements, the hardware pads
+it to 16.</p>
+</blockquote>
+<h4 id="example_2">Example<a class="headerlink" href="#example_2" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>ACC.STRIDE CR3, on, on, 0;;
+</span></code></pre></div>
+<hr />
+<h3 id="44-aggsum-aggmax-aggregate">4.4 <code>AGG.SUM</code>, <code>AGG.MAX</code>: Aggregate<a class="headerlink" href="#44-aggsum-aggmax-aggregate" title="Permanent link">&para;</a></h3>
+<p>Reduces the first <code>valid_elements</code> elements of <code>input data</code> to one value and
+writes it into one <code>R_ACC</code> element. The other <code>R_ACC</code> elements keep their
+values.</p>
+<h4 id="syntax_3">Syntax<a class="headerlink" href="#syntax_3" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>AGG.SUM dest_slot, cr_idx
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>AGG.SUM.FIRST dest_slot, cr_idx
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>AGG.MAX dest_slot, cr_idx
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>AGG.MAX.FIRST dest_slot, cr_idx
+</span></code></pre></div>
+<h4 id="operands_3">Operands<a class="headerlink" href="#operands_3" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Details</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dest_slot</code></td>
+<td><a href="../../reference/isa/operand-types/#lridx"><code>LrIdx</code></a></td>
+<td><code>LR0</code>-<code>LR15</code>. selects the written element.</td>
+</tr>
+<tr>
+<td><code>dstrcture</code></td>
+<td><a href="../../reference/isa/operand-types/#cridx"><code>CrIdx</code></a></td>
+<td><code>CR0</code>-<code>CR15</code>. Supplies <code>valid_elements</code> (section 3.1).</td>
+</tr>
+</tbody>
+</table>
+<h4 id="operation_2">Operation<a class="headerlink" href="#operation_2" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>n    = min(valid_elements, 128)
+</span></code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Mnemonic</th>
+<th><code>R_ACC[dest_slot]</code> becomes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>AGG.SUM</code></td>
+<td><code>R_ACC[dest_slot] + sum(input_data[0..n-1])</code></td>
+</tr>
+<tr>
+<td><code>AGG.SUM.FIRST</code></td>
+<td><code>sum(input_data[0..n-1])</code></td>
+</tr>
+<tr>
+<td><code>AGG.MAX</code></td>
+<td><code>max(R_ACC[dest_slot], input_data[0..n-1])</code></td>
+</tr>
+<tr>
+<td><code>AGG.MAX.FIRST</code></td>
+<td><code>max(input_data[0..n-1])</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Special cases.</strong> <code>AGG.SUM</code> and <code>AGG.SUM.FIRST</code> follow the <code>ACC.ADD</code> special
+cases. <code>AGG.MAX</code> and <code>AGG.MAX.FIRST</code> follow the <code>ACC.MAX</code> special cases
+(section 4.2).</p>
+<h4 id="example_3">Example<a class="headerlink" href="#example_3" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>AGG.SUM.FIRST LR0, CR3;;      // R_ACC[LR0 % 128] = sum of the first valid_elements elements
+</span></code></pre></div>
+<hr />
+<h3 id="45-accreshape-reshape">4.5 <code>ACC.RESHAPE</code>: Reshape<a class="headerlink" href="#45-accreshape-reshape" title="Permanent link">&para;</a></h3>
+<p>A reshape with an arbitrary pattern: each element goes from any source index
+to any destination index. It copies up to 8 elements of <code>input data</code> to
+<code>R_ACC</code>. Two <code>LRD</code> register pairs hold the element indices: one list of 8
+source indices and one list of 8 destination indices. The other <code>R_ACC</code>
+elements keep their values.</p>
+<h4 id="syntax_4">Syntax<a class="headerlink" href="#syntax_4" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>ACC.RESHAPE source, dest, number_idx
+</span></code></pre></div>
+<h4 id="operands_4">Operands<a class="headerlink" href="#operands_4" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Details</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>source</code></td>
+<td><code>LrdIdx</code></td>
+<td><code>LRD0</code>, <code>LRD2</code>, ..., <code>LRD14</code>. 8 byte indices <code>source[0..7]</code> into <code>input data</code>.</td>
+</tr>
+<tr>
+<td><code>dest</code></td>
+<td><code>LrdIdx</code></td>
+<td><code>LRD0</code>, <code>LRD2</code>, ..., <code>LRD14</code>. 8 byte indices <code>dest[0..7]</code> into <code>R_ACC</code>.</td>
+</tr>
+<tr>
+<td><code>number_idx</code></td>
+<td><code>LrIdx</code> / <code>Imm</code></td>
+<td>An immediate <code>0</code>-<code>7</code>, or <code>LR0</code>-<code>LR15</code> whose value is <code>0</code>-<code>8</code>. Elements <code>0..number_idx - 1</code> take part.</td>
+</tr>
+</tbody>
+</table>
+<p><strong><code>number_idx</code> values.</strong> <code>number_idx</code> is the number of copied elements.
+Elements <code>k = 0..number_idx - 1</code> are copied:</p>
+<table>
+<thead>
+<tr>
+<th><code>number_idx</code></th>
+<th>Copied <code>k</code></th>
+<th>Skipped <code>k</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>0</code></td>
+<td>none</td>
+<td><code>0</code>-<code>7</code></td>
+</tr>
+<tr>
+<td><code>1</code></td>
+<td><code>0</code></td>
+<td><code>1</code>-<code>7</code></td>
+</tr>
+<tr>
+<td><code>2</code></td>
+<td><code>0</code>-<code>1</code></td>
+<td><code>2</code>-<code>7</code></td>
+</tr>
+<tr>
+<td><code>3</code></td>
+<td><code>0</code>-<code>2</code></td>
+<td><code>3</code>-<code>7</code></td>
+</tr>
+<tr>
+<td><code>4</code></td>
+<td><code>0</code>-<code>3</code></td>
+<td><code>4</code>-<code>7</code></td>
+</tr>
+<tr>
+<td><code>5</code></td>
+<td><code>0</code>-<code>4</code></td>
+<td><code>5</code>-<code>7</code></td>
+</tr>
+<tr>
+<td><code>6</code></td>
+<td><code>0</code>-<code>5</code></td>
+<td><code>6</code>-<code>7</code></td>
+</tr>
+<tr>
+<td><code>7</code></td>
+<td><code>0</code>-<code>6</code></td>
+<td><code>7</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong><code>LRD</code> layout.</strong> <code>LRDn</code> is the 64-bit pair <code>{LR(n+1), LR(n)}</code>. It holds 8
+indices of 1 byte. Index <code>0</code> is in byte <code>0</code> of <code>LR(n)</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Byte</th>
+<th>Register byte</th>
+<th>Index</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>7</code></td>
+<td><code>LR(n+1)</code> byte <code>3</code></td>
+<td><code>[7]</code></td>
+</tr>
+<tr>
+<td><code>6</code></td>
+<td><code>LR(n+1)</code> byte <code>2</code></td>
+<td><code>[6]</code></td>
+</tr>
+<tr>
+<td><code>5</code></td>
+<td><code>LR(n+1)</code> byte <code>1</code></td>
+<td><code>[5]</code></td>
+</tr>
+<tr>
+<td><code>4</code></td>
+<td><code>LR(n+1)</code> byte <code>0</code></td>
+<td><code>[4]</code></td>
+</tr>
+<tr>
+<td><code>3</code></td>
+<td><code>LR(n)</code> byte <code>3</code></td>
+<td><code>[3]</code></td>
+</tr>
+<tr>
+<td><code>2</code></td>
+<td><code>LR(n)</code> byte <code>2</code></td>
+<td><code>[2]</code></td>
+</tr>
+<tr>
+<td><code>1</code></td>
+<td><code>LR(n)</code> byte <code>1</code></td>
+<td><code>[1]</code></td>
+</tr>
+<tr>
+<td><code>0</code></td>
+<td><code>LR(n)</code> byte <code>0</code></td>
+<td><code>[0]</code></td>
+</tr>
+</tbody>
+</table>
+<p>Every participating <code>source[k]</code> and <code>dest[k]</code> is <code>0</code>-<code>127</code>.</p>
+<h4 id="operation_3">Operation<a class="headerlink" href="#operation_3" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>for k in 0..number_idx-1:                   // ascending k
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>    R_ACC[dest[k]] = input_data[source[k]]
+</span></code></pre></div>
+<p>When two <code>dest[k]</code> are equal, the higher <code>k</code> wins.</p>
+<p><strong>Example:</strong> <code>number_idx = 6</code>, <code>source = 5, 9, 127, 100, 64, 42, 33, 20</code>,
+<code>dest = 0, 1, 18, 40, 64, 90, 101, 126</code>. Elements <code>k = 0..5</code> are copied, for
+example <code>R_ACC[0] = input_data[5]</code> and <code>R_ACC[18] = input_data[127]</code>.
+Elements <code>k = 6, 7</code> are skipped. The figure has one column per <code>k</code>.</p>
+<p><img alt="ACC.RESHAPE example: number_idx = 6, k = 0..5 copied, k = 6, 7 skipped" src="../assets/acc-reshape.svg" /></p>
+<h4 id="example_4">Example<a class="headerlink" href="#example_4" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>ACC.RESHAPE LRD0, LRD2, 6;;      // copy elements 0-5 of the index lists
+</span></code></pre></div>
+<hr />
+<h3 id="46-bypass-bypass">4.6 <code>BYPASS</code>: Bypass<a class="headerlink" href="#46-bypass-bypass" title="Permanent link">&para;</a></h3>
+<p>Sends <code>input data</code> to <code>output data</code>. <code>R_ACC</code> keeps its value.</p>
+<h4 id="syntax_5">Syntax<a class="headerlink" href="#syntax_5" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>BYPASS
+</span></code></pre></div>
+<h4 id="operands_5">Operands<a class="headerlink" href="#operands_5" title="Permanent link">&para;</a></h4>
+<p>None.</p>
+<h4 id="operation_4">Operation<a class="headerlink" href="#operation_4" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>for i in 0..127:
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>    output_data[i] = input_data[i]
+</span></code></pre></div>
+<h4 id="example_5">Example<a class="headerlink" href="#example_5" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>BYPASS;;      // send the multiply result to the AaQ stage
+</span></code></pre></div>
 
 
 
@@ -3499,7 +3636,7 @@ Per the project's opcode-derivation rule, opcode = position within the
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 18, 2026 21:48:18 UTC"><span class="timeago" datetime="2026-10-18T21:48:18+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 18, 2026 21:48:18 UTC">2026-10-18</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 23, 2026 12:16:35 UTC"><span class="timeago" datetime="2026-10-23T12:16:35+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 23, 2026 12:16:35 UTC">2026-10-23</span>
   </span>
 
     
@@ -3509,7 +3646,7 @@ Per the project's opcode-derivation rule, opcode = position within the
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="August 8, 2026 18:20:45 UTC"><span class="timeago" datetime="2026-08-08T18:20:45+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="August 8, 2026 18:20:45 UTC">2026-08-08</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 17, 2026 17:15:04 UTC"><span class="timeago" datetime="2026-10-17T17:15:04+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 17, 2026 17:15:04 UTC">2026-10-17</span>
   </span>
 
     
@@ -3524,7 +3661,7 @@ Per the project's opcode-derivation rule, opcode = position within the
                 
   
   <p class="md-typeset" style="margin-top: 2em;">
-    <a href="https://github.com/rechefe/ipu-emulator/commits/master/docs/content/specs/stage-accumulator.md">View commit history for this page on GitHub</a>
+    <a href="https://github.com/rechefe/ipu-emulator/commits/master/docs/content/specs/ARCH-stage-acc.md">View commit history for this page on GitHub</a>
   </p>
   
   
@@ -3591,6 +3728,8 @@ Per the project's opcode-derivation rule, opcode = position within the
         <script src="../../js/timeago.min.js"></script>
       
         <script src="../../js/timeago_mkdocs_material.js"></script>
+      
+        <script src="https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js"></script>
       
     
   </body>

@@ -1977,6 +1977,12 @@
       
         
       
+        
+      
+        
+      
+        
+      
     
     
     
@@ -2059,14 +2065,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../specs/stage-aaq-str/" class="md-nav__link">
+      <a href="../../specs/MAS-stage-aaq-str/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    AaQ Stage Specification
+    AaQ Stage MAS
   
 
     
@@ -2087,14 +2093,98 @@
   
   
     <li class="md-nav__item">
-      <a href="../../specs/stage-accumulator/" class="md-nav__link">
+      <a href="../../specs/ARCH-stage-aaq-str/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Accumulator Stage Specification
+    AaQ Stage ARCH
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../specs/MAS-stage-accumulator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Accumulator Stage MAS
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../specs/ARCH-stage-acc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Accumulator Stage ARCH
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../specs/ARCH-stage-mult/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Multiply Stage ARCH
   
 
     
@@ -2942,7 +3032,7 @@
 <tr>
 <td>OQ-20</td>
 <td>What is the AaQ stage's behaviour? The emulator's <code>ACTIVATE.QUANTIZE</code> is a placeholder.</td>
-<td>The emulator implements 13 exact functions in Python (<code>activations.py</code>) and clamps to INT8. Outside wide-vector mode it raises <code>EmulatorError</code> unless the format is INT8 (<code>slots/aaq.py:168</code>), and its clamp sets no quantization-saturation <a href="../faults/#arithmetic-events">arithmetic event</a>. The <a href="../../specs/stage-aaq-str/">AaQ spec</a> has 7 function types evaluated through a LUT, a <code>LOAD</code> operation, an <code>e8m0</code> block scale and a 1033-bit <code>POST_AAQ_REG</code> payload. See also OQ-6 and OQ-7. It keeps every projection kernel out of E4: each stores through <code>ACTIVATE.QUANTIZE</code> (E07-03).</td>
+<td>The emulator implements 13 exact functions in Python (<code>activations.py</code>) and clamps to INT8. Outside wide-vector mode it raises <code>EmulatorError</code> unless the format is INT8 (<code>slots/aaq.py:168</code>), and its clamp sets no quantization-saturation <a href="../faults/#arithmetic-events">arithmetic event</a>. The <a href="../../specs/MAS-stage-aaq-str/">AaQ spec</a> has 7 function types evaluated through a LUT, a <code>LOAD</code> operation, an <code>e8m0</code> block scale and a 1033-bit <code>POST_AAQ_REG</code> payload. See also OQ-6 and OQ-7. It keeps every projection kernel out of E4: each stores through <code>ACTIVATE.QUANTIZE</code> (E07-03).</td>
 <td>The AaQ spec is the hardware behaviour (as OQ-6). The emulator model is replaced when the spec is complete. Until then, every AaQ row below stays open and unfixed.</td>
 <td>Unassigned</td>
 </tr>
@@ -2970,21 +3060,21 @@
 <tr>
 <td>OQ-24</td>
 <td>What do <code>reciprocal(0)</code> and <code>rsqrt(0)</code> return?</td>
-<td>The AaQ spec pseudocode returns inf (<code>stage-aaq-str.md:188</code>, <code>:190</code>). The spec's function table returns 0 (<code>stage-aaq-str.md:205-206</code>). The emulator returns 0, and <code>rsqrt</code> returns 0 for every x ≤ 0 (<code>activations.py:128-131</code>).</td>
+<td>The AaQ spec pseudocode returns inf (<code>MAS-stage-aaq-str.md:188</code>, <code>:190</code>). The spec's function table returns 0 (<code>MAS-stage-aaq-str.md:205-206</code>). The emulator returns 0, and <code>rsqrt</code> returns 0 for every x ≤ 0 (<code>activations.py:128-131</code>).</td>
 <td>Decide with OQ-20. The answer fixes OQ-27.</td>
 <td>Unassigned</td>
 </tr>
 <tr>
 <td>OQ-25</td>
 <td>How are the AaQ LUT, the <code>LOAD</code> operation and the block scale specified, and when does the emulator model them?</td>
-<td>The spec describes a 256 × 17-bit LUT plus a 75-bit metadata block filled by <code>LOAD</code> through <code>lut_addr</code> (<code>stage-aaq-str.md:19</code>, <code>:84-87</code>, <code>:413-471</code>), and an <code>e8m0</code> block scale (<code>:104</code>, <code>:235-240</code>). The encodings of <code>asymetric</code> and <code>range_mode</code> are TBD (<code>:470</code>). Section 5.1 takes the maximum over <code>i in 0..254</code> for a 128-element batch (<code>:240</code>). The emulator models none of these.</td>
+<td>The spec describes a 256 × 17-bit LUT plus a 75-bit metadata block filled by <code>LOAD</code> through <code>lut_addr</code> (<code>MAS-stage-aaq-str.md:19</code>, <code>:84-87</code>, <code>:413-471</code>), and an <code>e8m0</code> block scale (<code>:104</code>, <code>:235-240</code>). The encodings of <code>asymetric</code> and <code>range_mode</code> are TBD (<code>:470</code>). Section 5.1 takes the maximum over <code>i in 0..254</code> for a 128-element batch (<code>:240</code>). The emulator models none of these.</td>
 <td>Complete the spec first (owner of the AaQ spec). Then model it behind one AaQ interface in the emulator.</td>
 <td>Unassigned</td>
 </tr>
 <tr>
 <td>OQ-26</td>
 <td>Does the AaQ slot have a <code>LOAD</code> opcode?</td>
-<td>The AaQ spec declares a 2-bit <code>op</code> with <code>AAQ_INST_OPCODE_LOAD = 2</code> (<code>stage-aaq-str.md:84</code>). The ISA and the generated SystemVerilog package define a 1-bit <code>aaq_inst_opcode_t</code> with <code>NOP</code> and <code>ACTIVATE_QUANTIZE</code> only. Adding <code>LOAD</code> changes <code>AAQ_SLOT_T_WIDTH</code> (9 to 10) and <code>IPU_COMPOUND_INST_WIDTH</code>, which is a breaking wire-format change.</td>
+<td>The AaQ spec declares a 2-bit <code>op</code> with <code>AAQ_INST_OPCODE_LOAD = 2</code> (<code>MAS-stage-aaq-str.md:84</code>). The ISA and the generated SystemVerilog package define a 1-bit <code>aaq_inst_opcode_t</code> with <code>NOP</code> and <code>ACTIVATE_QUANTIZE</code> only. Adding <code>LOAD</code> changes <code>AAQ_SLOT_T_WIDTH</code> (9 to 10) and <code>IPU_COMPOUND_INST_WIDTH</code>, which is a breaking wire-format change.</td>
 <td>Correct the spec table to the 1-bit opcode now. Add <code>LOAD</code> as its own ISA change when OQ-25 is answered.</td>
 <td>Unassigned</td>
 </tr>
@@ -3194,6 +3284,8 @@
         <script src="../../js/timeago.min.js"></script>
       
         <script src="../../js/timeago_mkdocs_material.js"></script>
+      
+        <script src="https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js"></script>
       
     
   </body>

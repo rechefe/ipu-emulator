@@ -13,7 +13,7 @@
       
       
       
-        <link rel="prev" href="../stage-accumulator/">
+        <link rel="prev" href="../ARCH-stage-mult/">
       
       
         <link rel="next" href="../riscv-host-integration/">
@@ -1984,6 +1984,12 @@
       
         
       
+        
+      
+        
+      
+        
+      
     
     
     
@@ -2067,14 +2073,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../stage-aaq-str/" class="md-nav__link">
+      <a href="../MAS-stage-aaq-str/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    AaQ Stage Specification
+    AaQ Stage MAS
   
 
     
@@ -2095,14 +2101,98 @@
   
   
     <li class="md-nav__item">
-      <a href="../stage-accumulator/" class="md-nav__link">
+      <a href="../ARCH-stage-aaq-str/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Accumulator Stage Specification
+    AaQ Stage ARCH
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../MAS-stage-accumulator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Accumulator Stage MAS
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ARCH-stage-acc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Accumulator Stage ARCH
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ARCH-stage-mult/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Multiply Stage ARCH
   
 
     
@@ -2277,15 +2367,15 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#6-instruction-memory-and-cache" class="md-nav__link">
+  <a href="#6-instruction-memory-and-fetch" class="md-nav__link">
     <span class="md-ellipsis">
       
-        6. Instruction Memory and Cache
+        6. Instruction Memory and Fetch
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="6. Instruction Memory and Cache">
+    <nav class="md-nav" aria-label="6. Instruction Memory and Fetch">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -2300,10 +2390,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#62-instruction-cache-inst" class="md-nav__link">
+  <a href="#62-current-instruction-inst_vliw" class="md-nav__link">
     <span class="md-ellipsis">
       
-        6.2 Instruction Cache (inst $)
+        6.2 Current Instruction (inst_vliw)
       
     </span>
   </a>
@@ -2937,9 +3027,8 @@
 <h1 id="control-stage">Control Stage<a class="headerlink" href="#control-stage" title="Permanent link">&para;</a></h1>
 <h2 id="1-purpose">1. Purpose<a class="headerlink" href="#1-purpose" title="Permanent link">&para;</a></h2>
 <p>The Control (CTRL) stage is the first stage of the IPU pipeline. It owns the
-program counter, the double-buffered instruction memory (with a small
-instruction cache in front), and the two 16×32-bit register files (CR
-and LR) — both are <strong>internal</strong> to CTRL and not exposed on the stage
+program counter, the double-buffered instruction memory, and the two
+16×32-bit register files (CR and LR) — both are <strong>internal</strong> to CTRL and not exposed on the stage
 boundary. It resolves branches, executes local-register scalar arithmetic on
 three independent LR lanes, and dispatches four per-stage buses
 (<code>mult_vliw_bus</code>, <code>acc_vliw_bus</code>, <code>aaq_vliw_bus</code>, <code>str_vliw_bus</code>) into
@@ -2954,7 +3043,7 @@ the read and writes the returned data directly into the MULT stage's
 input registers (e.g. <code>R0</code>/<code>R1</code>/<code>R_CYCLIC</code>/<code>R_MASK</code>).</p>
 <p>The CTRL stage produces:</p>
 <ul>
-<li>The selection of <strong>which instruction runs next</strong> (handled internally — CTRL fetches both <code>PC + 1</code> and the branch target <code>label</code> in parallel from the dual-port <code>inst mem</code>, then the cond-evaluator's <code>taken</code> result picks which one is latched into <code>inst $</code> for the next clock; see §6).</li>
+<li>The selection of <strong>which instruction runs next</strong> (handled internally — CTRL fetches both <code>PC + 1</code> and the branch target <code>label</code> in parallel from the dual-port <code>inst mem</code>, then the cond-evaluator's <code>taken</code> result picks which one CTRL executes in the next clock; see §6).</li>
 <li>Up to three local-register writes (<code>LR0</code>–<code>LR15</code>) per cycle into the <strong>internal</strong> LR file.</li>
 <li>Four per-stage dispatch buses driven on the CTRL output:</li>
 <li><code>mult_vliw_bus</code>, <code>acc_vliw_bus</code>, <code>aaq_vliw_bus</code>, <code>str_vliw_bus</code> — each carries the corresponding stage's slot fields together with the CR/LR operand value(s) CTRL has already resolved for that stage. All four are driven from CTRL into MULT; MULT consumes <code>mult_vliw_bus</code> and forwards the remaining three to ACC; ACC consumes <code>acc_vliw_bus</code> and forwards the remaining two to AAQ; AAQ consumes <code>aaq_vliw_bus</code> and forwards <code>str_vliw_bus</code> to STORE. Downstream stages never read the register files and CR/LR are <strong>not visible</strong> to them. CTRL evaluates its three LR-ALU lanes first, so the forwarded values are this cycle's <strong>post-LR-write</strong> values, <strong>not</strong> the prior-cycle snapshot. The snapshot governs only CTRL's own reads — see §5.</li>
@@ -2963,9 +3052,9 @@ input registers (e.g. <code>R0</code>/<code>R1</code>/<code>R_CYCLIC</code>/<cod
 <p>The IPU is configured by an external <strong>RISC-V host</strong> over an <strong>APB</strong>
 slave port on CTRL. The host writes the instruction memory (inactive
 bank) and the CR register file (inactive bank) through APB transactions,
-and triggers bank swaps via the same interface. The CR file, LR file,
-instruction memory, and instruction cache are all CTRL-internal — none
-of them is exposed as a port on the stage boundary.</p>
+and triggers bank swaps via the same interface. The CR file, LR file, and instruction
+memory are all CTRL-internal — none of them is exposed as a port on the
+stage boundary.</p>
 <h2 id="2-block-diagram">2. Block Diagram<a class="headerlink" href="#2-block-diagram" title="Permanent link">&para;</a></h2>
 <pre class="mermaid"><code>%%{init: {'flowchart': {'defaultRenderer': 'elk'}}}%%
 flowchart LR
@@ -2974,7 +3063,6 @@ flowchart LR
     subgraph CTRL_STAGE["CTRL Stage (boundary)"]
         APB_SLAVE["APB slave (CR + IMEM config, bank-swap regs)"]:::teal
         IMEM["inst mem (2 banks)"]:::teal
-        ICACHE["inst $ - holds current cycle inst"]:::teal
         CTRL["controller logic inst parser + Branch Resolver + LR ALU x3 Lanes (internal PC)"]:::teal
         CRRF["CR file 2 x 16 x 20bit (CR0=0, CR1=1)"]:::purple
         LRRF["LR file 16 x 20bit"]:::purple
@@ -2990,11 +3078,9 @@ flowchart LR
     APB_SLAVE --&gt;|inactive-bank write + swap reg| IMEM
     APB_SLAVE --&gt;|inactive-bank write + swap reg| CRRF
 
-    ICACHE --&gt;|current cycle inst| CTRL
     CTRL --&gt;|read addr A = PC+1| IMEM
     CTRL --&gt;|read addr B = label, on branch| IMEM
-    IMEM --&gt;|imem_a, imem_b 2R| ICACHE
-    CTRL --&gt;|icache_mux_sel = taken| ICACHE
+    IMEM --&gt;|imem_a, imem_b 2R - current cycle inst| CTRL
 
     CRRF -.-&gt;|snapshot| CTRL
     LRRF -.-&gt;|snapshot| CTRL
@@ -3020,12 +3106,12 @@ flowchart LR
     classDef yellow fill:#e6b800,stroke:#b38a00,color:#000
 </code></pre>
 <h2 id="3-interfaces">3. Interfaces<a class="headerlink" href="#3-interfaces" title="Permanent link">&para;</a></h2>
-<p>The CTRL stage owns the entire fetch path (<code>inst mem</code>, <code>inst $</code>, PC,
+<p>The CTRL stage owns the entire fetch path (<code>inst mem</code>, PC,
 the IMEM read-address lines, the IMEM read-data lines, and the
-2:1 mux that picks the next-cycle <code>inst $</code>) <strong>and</strong> both register files
-(CR and LR) as <strong>internal</strong> state. None of those — including the
-current-cycle <code>inst $</code> read, the CR/LR snapshot reads, and the three
-LR-write lanes — crosses the stage boundary. Externally, CTRL exposes
+2:1 mux that picks the current-cycle instruction <code>inst_vliw</code>) <strong>and</strong>
+both register files (CR and LR) as <strong>internal</strong> state. None of those —
+including the current-cycle <code>inst_vliw</code>, the CR/LR snapshot reads, and
+the three LR-write lanes — crosses the stage boundary. Externally, CTRL exposes
 only the dispatch buses to the execute chain, the XMEM read-address
 port, and an <strong>APB slave</strong> through which the RISC-V host configures
 the inactive IMEM bank and the inactive CR bank and triggers bank
@@ -3048,11 +3134,11 @@ swaps.</p>
 </span></code></pre></div>
 <p>Note: every fetch-path signal — <code>PC</code>, <code>next_pc</code>, <code>branch_taken</code>,
 <code>imem_read_addr_a</code>, <code>imem_read_addr_b</code>, <code>imem_a</code>, <code>imem_b</code>,
-<code>icache_mux_sel</code>, and <code>inst$_vliw</code> — and every register-file signal —
+<code>imem_rd_sel</code>, and <code>inst_vliw</code> — and every register-file signal —
 the CR/LR snapshot reads and the three LR-write lanes (<code>lr_write_en</code>,
 <code>lr_write_idx</code>, <code>lr_write_data</code>) — is <strong>internal</strong> to the CTRL stage
 and does not cross its boundary. The whole loop
-<code>inst mem</code> ↔ PC ↔ <code>inst $</code> ↔ controller logic ↔ CRRF ↔ LRRF stays
+<code>inst mem</code> ↔ PC ↔ controller logic ↔ CRRF ↔ LRRF stays
 inside the stage; the boundary carries only the dispatch buses, the
 XMEM read-address port, and the APB slave.</p>
 <h3 id="31-inputs">3.1 Inputs<a class="headerlink" href="#31-inputs" title="Permanent link">&para;</a></h3>
@@ -3195,11 +3281,6 @@ XMEM read-address port, and the APB slave.</p>
 <td>Read ports per bank. Two reads in parallel are required on branch cycles to fetch <code>PC + 1</code> and <code>label</code> simultaneously (see §6.1, §6.2). Bank is 2R1W.</td>
 </tr>
 <tr>
-<td><code>ICACHE_ENTRIES</code></td>
-<td><code>1</code></td>
-<td>Single-entry register that holds the <strong>current cycle's instruction</strong> — i.e. the VLIW at the current <code>PC</code>. Refilled at the end of every cycle from the IMEM read result selected by <code>icache_mux_sel</code>. See §6.2.</td>
-</tr>
-<tr>
 <td><code>CR_BANKS</code></td>
 <td><code>2</code></td>
 <td>Double-buffered CR file; RISC-V host writes the inactive bank.</td>
@@ -3291,14 +3372,14 @@ XMEM read-address port, and the APB slave.</p>
 <li><strong><code>CR0</code> is hard-wired to <code>0</code> (zero register)</strong> and <strong><code>CR1</code> is hard-wired to <code>1</code> (one register)</strong>. These two values are guaranteed by hardware and are the canonical operands for clearing or incrementing an LR via <code>ADD</code>/<code>SUB</code>.</li>
 <li><code>CR15</code> conventionally holds the dstructure register (<code>valid_elements</code> and <code>partition</code>) for <code>DstructureCrIdx</code> operands (<code>AGG.*</code>, <code>ACTIVATE.QUANTIZE</code>, the masking <code>MULT.*</code> instructions), but it is never an implicit default — every such operand must name a CR register explicitly, and <code>CR0</code>–<code>CR14</code> are equally valid choices. <code>CR15</code> is not blocked as a general-purpose <code>CrIdx</code>/<code>LcrIdx</code> operand elsewhere.</li>
 <li>IMEM stores <strong>already-decoded</strong> VLIW words: each entry has slot fields laid out explicitly (no opcode-level decode happens inside CTRL — only slot demuxing).</li>
-<li>The instruction cache (<code>inst $</code>) <strong>is</strong> the pipeline register that holds the <strong>current cycle's instruction</strong> (the VLIW at the current <code>PC</code>). It was filled at the <em>end of the previous cycle</em> with the next instruction CTRL resolved to be correct, so at every clock edge <code>inst $</code> contains exactly the instruction CTRL needs to execute.</li>
-<li><strong>No taken-branch bubble.</strong> When the current cycle's instruction is a branch, CTRL issues <strong>two speculative IMEM reads in parallel</strong> during this same cycle — one for the fall-through <code>PC + 1</code> and one for the branch target <code>label</code>. Both responses are available by the end of the cycle. The cond evaluator's <code>taken</code> result then selects which of the two becomes the next-cycle <code>inst $</code>. The correct instruction is therefore always present at the start of the next clock — no NOP cycle is ever inserted because of a branch.</li>
-<li>The controller logic feeds off <code>inst $</code> directly: it demuxes the slot fields, drives the cond evaluator, the three LR ALU lanes, and the dispatch bus, all from the value latched into <code>inst $</code> at the end of the previous cycle.</li>
+<li>The <strong>current cycle's instruction</strong> (<code>inst_vliw</code>, the VLIW at the current <code>PC</code>) comes <strong>straight from the IMEM read ports</strong> — there is no separate instruction register between <code>inst mem</code> and the controller logic. IMEM reads are synchronous: an address CTRL issues in cycle N−1 returns its word at the start of cycle N, and the read port holds it for the whole cycle.</li>
+<li><strong>No taken-branch bubble.</strong> When the current cycle's instruction is a branch, CTRL issues <strong>two speculative IMEM reads in parallel</strong> during this same cycle — one for the fall-through <code>PC + 1</code> and one for the branch target <code>label</code>. The cond evaluator's <code>taken</code> result is registered as <code>imem_rd_sel</code> and selects which of the two read words is the next cycle's <code>inst_vliw</code>. The correct instruction is therefore always present at the start of the next clock — no NOP cycle is ever inserted because of a branch.</li>
+<li>The controller logic feeds off <code>inst_vliw</code> directly: it demuxes the slot fields, drives the cond evaluator, the three LR ALU lanes, and the dispatch bus, all from the IMEM word selected by <code>imem_rd_sel</code>.</li>
 </ul>
-<h2 id="6-instruction-memory-and-cache">6. Instruction Memory and Cache<a class="headerlink" href="#6-instruction-memory-and-cache" title="Permanent link">&para;</a></h2>
+<h2 id="6-instruction-memory-and-fetch">6. Instruction Memory and Fetch<a class="headerlink" href="#6-instruction-memory-and-fetch" title="Permanent link">&para;</a></h2>
 <p>The CTRL stage owns the entire fetch path: the bulk instruction memory
-(<code>inst mem</code>), the single-entry instruction register (<code>inst $</code>) that holds
-the current cycle's VLIW, and the internal program counter (<code>PC</code>).</p>
+(<code>inst mem</code>), the read-port select that yields the current cycle's VLIW
+(<code>inst_vliw</code>), and the internal program counter (<code>PC</code>).</p>
 <h3 id="61-instruction-memory-inst-mem">6.1 Instruction Memory (<code>inst mem</code>)<a class="headerlink" href="#61-instruction-memory-inst-mem" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>Depth:</strong> <code>IMEM_DEPTH = 256</code> decoded-VLIW-word entries <strong>total</strong> across the two banks — <code>IMEM_BANK_DEPTH = 128</code> entries per bank (<code>IMEM_DEPTH / IMEM_BANKS</code>).</li>
@@ -3311,44 +3392,45 @@ the current cycle's VLIW, and the internal program counter (<code>PC</code>).</p
 <blockquote>
 <p><strong>Hardware sizing note:</strong> the cheapest practical implementation is two single-bank 2R1W SRAMs (one per IMEM bank). Each bank stores 128 VLIW words. Dual-read on branch cycles is what eliminates the taken-branch bubble — without it, taken branches would cost one stall cycle each.</p>
 </blockquote>
-<h3 id="62-instruction-cache-inst">6.2 Instruction Cache (<code>inst $</code>)<a class="headerlink" href="#62-instruction-cache-inst" title="Permanent link">&para;</a></h3>
+<h3 id="62-current-instruction-inst_vliw">6.2 Current Instruction (<code>inst_vliw</code>)<a class="headerlink" href="#62-current-instruction-inst_vliw" title="Permanent link">&para;</a></h3>
 <ul>
-<li><strong>Capacity:</strong> <code>ICACHE_ENTRIES = 1</code> — a single VLIW-word register.</li>
-<li><strong>Role:</strong> it <strong>is</strong> the instruction register the controller logic executes from. At every clock edge, <code>inst $</code> contains the VLIW word at the current <code>PC</code>. The controller logic reads <code>inst $</code> to demux slot fields, evaluate the cond slot, drive the LR ALUs, and produce the four per-stage dispatch buses (<code>mult_vliw_bus</code>, <code>acc_vliw_bus</code>, <code>aaq_vliw_bus</code>, <code>str_vliw_bus</code>) together with <code>xmem_read_addr</code> / <code>xmem_read_en</code>.</li>
-<li><strong>Refill policy:</strong> during cycle N, CTRL is already preparing the <em>next-cycle</em> contents of <code>inst $</code>:</li>
-<li>If the current cycle's instruction is <strong>not a branch</strong>, CTRL issues one IMEM read at <code>PC + 1</code> and writes the result into <code>inst $</code> at end of cycle N.</li>
-<li>If the current cycle's instruction <strong>is a branch</strong>, CTRL issues <strong>two IMEM reads in parallel</strong> — one at <code>PC + 1</code> (fall-through) and one at <code>label</code> (branch target). At end of cycle N, the resolved <code>taken</code> selects which of the two is latched into <code>inst $</code>:
-    <div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>inst $ &lt;= taken ? imem_b : imem_a       // imem_a = inst@PC+1, imem_b = inst$label
+<li><strong>Source:</strong> <code>inst_vliw</code> is the IMEM read data itself — there is no instruction register between <code>inst mem</code> and the controller logic. IMEM reads are synchronous, so a word addressed in cycle N is on its read port for the whole of cycle N+1.</li>
+<li><strong>Role:</strong> at every clock edge, <code>inst_vliw</code> is the VLIW word at the current <code>PC</code>. The controller logic reads <code>inst_vliw</code> to demux slot fields, evaluate the cond slot, drive the LR ALUs, and produce the four per-stage dispatch buses (<code>mult_vliw_bus</code>, <code>acc_vliw_bus</code>, <code>aaq_vliw_bus</code>, <code>str_vliw_bus</code>) together with <code>xmem_read_addr</code> / <code>xmem_read_en</code>.</li>
+<li><strong>Fetch policy:</strong> during cycle N, CTRL is already fetching the <em>next-cycle</em> instruction:</li>
+<li>If the current cycle's instruction is <strong>not a branch</strong>, CTRL issues one IMEM read at <code>PC + 1</code>; <code>imem_a</code> carries the next instruction in cycle N+1.</li>
+<li>If the current cycle's instruction <strong>is a branch</strong>, CTRL issues <strong>two IMEM reads in parallel</strong> — one at <code>PC + 1</code> (fall-through) and one at <code>label</code> (branch target). The resolved <code>taken</code> is registered as <code>imem_rd_sel</code> at end of cycle N and selects between the two read ports in cycle N+1:
+    <div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>imem_rd_sel &lt;= taken                          // registered at end of cycle N; 0 on non-branch cycles
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>inst_vliw    = imem_rd_sel ? imem_b : imem_a  // imem_a = inst@PC+1, imem_b = inst@label
 </span></code></pre></div></li>
-<li><strong>No bubble on a taken branch.</strong> Because both candidates have already been fetched in parallel inside cycle N, the correct VLIW is sitting in <code>inst $</code> at the start of cycle N+1 regardless of which way the branch went.</li>
-<li>The cache is transparent to the ISA — programs cannot observe how the fetch was steered.</li>
+<li><strong>No bubble on a taken branch.</strong> Because both candidates have already been fetched in parallel inside cycle N, the correct VLIW is on <code>inst_vliw</code> at the start of cycle N+1 regardless of which way the branch went.</li>
+<li>The fetch steering is transparent to the ISA — programs cannot observe it.</li>
 </ul>
 <blockquote>
 <p><strong>Hardware note:</strong> issuing two IMEM reads in the same cycle requires the active IMEM bank to be a <strong>2R1W SRAM</strong> (two independent read ports + one write port for host loads of the <em>inactive</em> bank). See §6.1 for the per-bank port spec. At the 128-entries-per-bank scale this is a small, cheap macro.</p>
 </blockquote>
 <h3 id="63-program-counter-pc">6.3 Program Counter (<code>PC</code>)<a class="headerlink" href="#63-program-counter-pc" title="Permanent link">&para;</a></h3>
 <ul>
-<li><strong>What it holds:</strong> the memory address (within the active IMEM bank) of the <strong>current cycle's instruction</strong> — i.e. the address that was used to fetch the VLIW currently sitting in <code>inst $</code>. At the start of every cycle, <code>PC</code> and <code>inst $</code> are coherent: <code>inst $ == inst_mem[active_bank][PC]</code>.</li>
+<li><strong>What it holds:</strong> the memory address (within the active IMEM bank) of the <strong>current cycle's instruction</strong> — i.e. the address that was used to fetch the VLIW currently on <code>inst_vliw</code>. At the start of every cycle, <code>PC</code> and <code>inst_vliw</code> are coherent: <code>inst_vliw == inst_mem[active_bank][PC]</code>.</li>
 <li><strong>Width:</strong> <code>PC_W = log2(IMEM_BANK_DEPTH) = 7</code> bits (default 128 entries per bank).</li>
-<li><strong>Purpose:</strong> drives the <strong>fall-through read address</strong> every cycle — <code>imem_read_addr_a = PC + 1</code>. This causes IMEM to return the next sequential instruction so it can be latched into <code>inst $</code> for the next cycle.</li>
+<li><strong>Purpose:</strong> drives the <strong>fall-through read address</strong> every cycle — <code>imem_read_addr_a = PC + 1</code>. This causes IMEM to return the next sequential instruction on <code>imem_a</code> for the next cycle.</li>
 <li><strong>Update rule (combinational, latched at end of cycle):</strong>
   <div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>target_pc = (cond.op == BR) ? reg_value : label
 </span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>next_PC   = taken ? target_pc : (PC + 1)
 </span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>PC      &lt;= next_PC                       // every cycle, except after HALT (§6.4)
 </span></code></pre></div>
-  On non-branch cycles <code>taken = 0</code> always, so <code>PC &lt;= PC + 1</code>. After a <code>HALT</code> word, <code>PC</code> holds (§6.4). On a branch cycle the cond evaluator's <code>taken</code> selects either the branch target <code>target_pc</code> (label target for <code>BEQ</code>/<code>BNE</code>/<code>BLT.S</code>/<code>BGE.S</code>, register target for <code>BR</code>) or the fall-through <code>PC + 1</code>. Either way, by the next clock edge <code>PC</code> points at exactly the instruction that has just been latched into <code>inst $</code>.</li>
+  On non-branch cycles <code>taken = 0</code> always, so <code>PC &lt;= PC + 1</code>. After a <code>HALT</code> word, <code>PC</code> holds (§6.4). On a branch cycle the cond evaluator's <code>taken</code> selects either the branch target <code>target_pc</code> (label target for <code>BEQ</code>/<code>BNE</code>/<code>BLT.S</code>/<code>BGE.S</code>, register target for <code>BR</code>) or the fall-through <code>PC + 1</code>. Either way, by the next clock edge <code>PC</code> points at exactly the instruction that <code>inst_vliw</code> now carries.</li>
 <li><strong>Reset:</strong> <code>rst</code> initialises <code>PC</code> to 0.</li>
 <li><strong>Not externally visible:</strong> <code>PC</code> is internal state of the controller-logic block; no CTRL port carries it. Externally, the <em>effect</em> of <code>PC</code> is seen on <code>imem_read_addr_a</code> (which is always <code>PC + 1</code>) and on <code>imem_read_addr_b</code> (which is the computed branch target on branch cycles, don't-care otherwise).</li>
 </ul>
 <h3 id="64-fetch-decision">6.4 Fetch Decision<a class="headerlink" href="#64-fetch-decision" title="Permanent link">&para;</a></h3>
-<p>Per cycle CTRL resolves the <em>next-cycle</em> value of <code>inst $</code>:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>// Cycle N: inst $ already holds the VLIW at the current PC and is being executed.
+<p>Per cycle CTRL resolves the <em>next-cycle</em> value of <code>inst_vliw</code>:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>// Cycle N: inst_vliw carries the VLIW at the current PC and is being executed.
 </span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>// CTRL runs in parallel:
 </span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
-</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>is_branch = inst$.cond.op is one of {BEQ, BNE, BLT.S, BGE.S, BR}
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>is_branch = inst_vliw.cond.op is one of {BEQ, BNE, BLT.S, BGE.S, BR}
 </span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>
-</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>if inst$.cond.op == HALT:
-</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>    // The last word of the kernel (IPU-EXEC-10): fetch stops. PC and inst $
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>if inst_vliw.cond.op == HALT:
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>    // The last word of the kernel (IPU-EXEC-10): fetch stops. PC and inst_vliw
 </span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>    // hold and no further word issues. This word's other slots go down the
 </span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>    // chain as usual; kernel_done rises when the word retires at the end of
 </span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>    // the chain (IPU-EXEC-11), not here.
@@ -3356,16 +3438,19 @@ the current cycle's VLIW, and the internal program counter (<code>PC</code>).</p
 </span><span id="__span-3-12"><a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a>elif is_branch:
 </span><span id="__span-3-13"><a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a>    // Issue BOTH speculative reads in parallel this cycle
 </span><span id="__span-3-14"><a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a>    imem_read_a = PC + 1                        // fall-through candidate
-</span><span id="__span-3-15"><a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a>    branch_target = (inst$.cond.op == BR) ? reg_target_from_cond_slot : label_from_cond_slot
+</span><span id="__span-3-15"><a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a>    branch_target = (inst_vliw.cond.op == BR) ? reg_target_from_cond_slot : label_from_cond_slot
 </span><span id="__span-3-16"><a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a>    imem_read_b = branch_target                 // taken candidate
 </span><span id="__span-3-17"><a id="__codelineno-3-17" name="__codelineno-3-17" href="#__codelineno-3-17"></a>    // Wait for cond evaluator
-</span><span id="__span-3-18"><a id="__codelineno-3-18" name="__codelineno-3-18" href="#__codelineno-3-18"></a>    inst $ &lt;= taken ? imem_b : imem_a       // committed at end of cycle N
+</span><span id="__span-3-18"><a id="__codelineno-3-18" name="__codelineno-3-18" href="#__codelineno-3-18"></a>    imem_rd_sel &lt;= taken                        // registered at end of cycle N
 </span><span id="__span-3-19"><a id="__codelineno-3-19" name="__codelineno-3-19" href="#__codelineno-3-19"></a>else:
 </span><span id="__span-3-20"><a id="__codelineno-3-20" name="__codelineno-3-20" href="#__codelineno-3-20"></a>    // Single sequential read; PC update is just +1
 </span><span id="__span-3-21"><a id="__codelineno-3-21" name="__codelineno-3-21" href="#__codelineno-3-21"></a>    imem_read_a = PC + 1
-</span><span id="__span-3-22"><a id="__codelineno-3-22" name="__codelineno-3-22" href="#__codelineno-3-22"></a>    inst $ &lt;= imem_a                          // committed at end of cycle N
+</span><span id="__span-3-22"><a id="__codelineno-3-22" name="__codelineno-3-22" href="#__codelineno-3-22"></a>    imem_rd_sel &lt;= 0                            // registered at end of cycle N
+</span><span id="__span-3-23"><a id="__codelineno-3-23" name="__codelineno-3-23" href="#__codelineno-3-23"></a>
+</span><span id="__span-3-24"><a id="__codelineno-3-24" name="__codelineno-3-24" href="#__codelineno-3-24"></a>// Cycle N+1
+</span><span id="__span-3-25"><a id="__codelineno-3-25" name="__codelineno-3-25" href="#__codelineno-3-25"></a>inst_vliw = imem_rd_sel ? imem_b : imem_a
 </span></code></pre></div>
-<p>Except after a <code>HALT</code> word, the instruction at the new PC is <strong>always ready in <code>inst $</code> at the start of cycle N+1</strong>, so the controller logic never sees a stall or bubble caused by a branch.</p>
+<p>Except after a <code>HALT</code> word, the instruction at the new PC is <strong>always ready on <code>inst_vliw</code> at the start of cycle N+1</strong>, so the controller logic never sees a stall or bubble caused by a branch.</p>
 <h2 id="7-dispatch-buses">7. Dispatch Buses<a class="headerlink" href="#7-dispatch-buses" title="Permanent link">&para;</a></h2>
 <p>CTRL drives five outward signals each cycle (in addition to APB):
 four per-stage VLIW buses for the execute chain, plus the XMEM
@@ -3378,9 +3463,9 @@ dedicated CTRL output port. The load slot carries no opcode — every
 XMEM access is a memory <strong>load</strong>, and the only piece of information
 CTRL hands over is the <strong>resolved read address</strong>:</p>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>// Inside CTRL — computed after the three LR ALUs (uses this cycle's post-write LR)
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>xmem_read_addr &lt;= CR[inst$_vliw.load.base_idx]
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>                + LR[inst$_vliw.load.offset_idx]   // post-LR-write value, not the snapshot
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>xmem_read_en   &lt;= (inst$_vliw.load != NOP) &amp;&amp; !bubble
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>xmem_read_addr &lt;= CR[inst_vliw.load.base_idx]
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>                + LR[inst_vliw.load.offset_idx]   // post-LR-write value, not the snapshot
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>xmem_read_en   &lt;= (inst_vliw.load != NOP) &amp;&amp; !bubble
 </span></code></pre></div>
 <p>XMEM then performs the memory read and <strong>writes the fetched
 data directly into the MULT stage's input registers</strong> (e.g. <code>R0</code>, <code>R1</code>,
@@ -3874,6 +3959,8 @@ binary. See the Programmer's Guide for their exact expansions.</p>
         <script src="../../js/timeago.min.js"></script>
       
         <script src="../../js/timeago_mkdocs_material.js"></script>
+      
+        <script src="https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js"></script>
       
     
   </body>

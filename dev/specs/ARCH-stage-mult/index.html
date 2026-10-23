@@ -13,10 +13,10 @@
       
       
       
-        <link rel="prev" href="../cache-unit/">
+        <link rel="prev" href="../ARCH-stage-acc/">
       
       
-        <link rel="next" href="../stage-accumulator/">
+        <link rel="next" href="../stage-control/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>AaQ Stage Specification - IPU Emulator</title>
+        <title>Multiply Stage ARCH - IPU Emulator</title>
       
     
     
@@ -80,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#aaq-stage" class="md-skip">
+        <a href="#multiply-stage" class="md-skip">
           Skip to content
         </a>
       
@@ -120,7 +120,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              AaQ Stage Specification
+              Multiply Stage ARCH
             
           </span>
         </div>
@@ -1984,6 +1984,12 @@
       
         
       
+        
+      
+        
+      
+        
+      
     
     
     
@@ -2064,6 +2070,118 @@
                 
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../MAS-stage-aaq-str/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AaQ Stage MAS
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ARCH-stage-aaq-str/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AaQ Stage ARCH
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../MAS-stage-accumulator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Accumulator Stage MAS
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ARCH-stage-acc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Accumulator Stage ARCH
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
     
   
   
@@ -2083,7 +2201,7 @@
   <span class="md-ellipsis">
     
   
-    AaQ Stage Specification
+    Multiply Stage ARCH
   
 
     
@@ -2101,7 +2219,7 @@
   <span class="md-ellipsis">
     
   
-    AaQ Stage Specification
+    Multiply Stage ARCH
   
 
     
@@ -2127,10 +2245,21 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#1-purpose" class="md-nav__link">
+  <a href="#1-overview" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1. Purpose
+        1. Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#table-of-contents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Table of Contents
       
     </span>
   </a>
@@ -2161,10 +2290,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#30-black-box-diagram" class="md-nav__link">
+  <a href="#31-dstructure-layout" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3.0 Black Box Diagram
+        3.1 dstructure Layout
       
     </span>
   </a>
@@ -2172,10 +2301,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#31-inputs" class="md-nav__link">
+  <a href="#32-element-format" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3.1 Inputs
+        3.2 Element Format
       
     </span>
   </a>
@@ -2183,10 +2312,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#32-output" class="md-nav__link">
+  <a href="#33-operand-addressing" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3.2 Output
+        3.3 Operand Addressing
       
     </span>
   </a>
@@ -2194,10 +2323,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#33-format-field-layout" class="md-nav__link">
+  <a href="#34-element-masking" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3.3 format Field Layout
+        3.4 Element Masking
       
     </span>
   </a>
@@ -2210,33 +2339,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#4-disclaimers" class="md-nav__link">
+  <a href="#4-multiply-isa" class="md-nav__link">
     <span class="md-ellipsis">
       
-        4. Disclaimers
+        4. Multiply ISA
       
     </span>
   </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#5-aaq-operations" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        5. AaQ Operations
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="5. AaQ Operations">
+    <nav class="md-nav" aria-label="4. Multiply ISA">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#50-activate-and-quantize-activatequantize" class="md-nav__link">
+  <a href="#41-nop-no-operation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        5.0 Activate and Quantize (ACTIVATE.QUANTIZE)
+        4.1 NOP: No Operation
       
     </span>
   </a>
@@ -2244,10 +2362,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#51-quantization-algorithm" class="md-nav__link">
+  <a href="#42-ldr_mult_reg-load-r0-or-r1" class="md-nav__link">
     <span class="md-ellipsis">
       
-        5.1 Quantization Algorithm
+        4.2 LDR_MULT_REG: Load R0 or R1
       
     </span>
   </a>
@@ -2255,38 +2373,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#52-function-estimation-lut" class="md-nav__link">
+  <a href="#43-ldr_cyclic_mult_reg-load-an-r_cyclic-slot" class="md-nav__link">
     <span class="md-ellipsis">
       
-        5.2 Function Estimation LUT
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#6-isa-aaq-instruction-reference" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        6. ISA-AaQ: Instruction Reference
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="6. ISA-AaQ: Instruction Reference">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#61-nop-no-operation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        6.1 NOP: No Operation
+        4.3 LDR_CYCLIC_MULT_REG: Load an R_CYCLIC Slot
       
     </span>
   </a>
@@ -2294,10 +2384,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#62-activatequantize-activate-and-quantize" class="md-nav__link">
+  <a href="#44-ldr_mult_mask_reg-load-r_mask" class="md-nav__link">
     <span class="md-ellipsis">
       
-        6.2 ACTIVATE.QUANTIZE: Activate and Quantize
+        4.4 LDR_MULT_MASK_REG: Load R_MASK
       
     </span>
   </a>
@@ -2305,10 +2395,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#63-load-load-function-estimation-lut-segment" class="md-nav__link">
+  <a href="#45-multrcvv-r_cyclic-vector-x-ra-vector" class="md-nav__link">
     <span class="md-ellipsis">
       
-        6.3 LOAD: Load Function Estimation LUT Segment
+        4.5 MULT.RC.VV: R_CYCLIC Vector x Ra Vector
       
     </span>
   </a>
@@ -2316,10 +2406,43 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#64-summary-table" class="md-nav__link">
+  <a href="#46-multrcve-r_cyclic-vector-x-scalar" class="md-nav__link">
     <span class="md-ellipsis">
       
-        6.4 Summary Table
+        4.6 MULT.RC.VE: R_CYCLIC Vector x Scalar
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#47-multrcvs-r_cyclic-vector-square" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.7 MULT.RC.VS: R_CYCLIC Vector Square
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#48-multve-ra-vector-x-cr-scalar" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.8 MULT.VE: Ra Vector x CR Scalar
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#49-multee-ra-element-x-cr-scalar-broadcast" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.9 MULT.EE: Ra Element x CR Scalar, Broadcast
       
     </span>
   </a>
@@ -2335,34 +2458,6 @@
   
 </nav>
       
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../stage-accumulator/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Accumulator Stage Specification
-  
-
-    
-  </span>
-  
-  
-
-      </a>
     </li>
   
 
@@ -2857,7 +2952,7 @@
 
 
   
-    <a href="https://github.com/rechefe/ipu-emulator/edit/master/docs/content/specs/stage-aaq-str.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/rechefe/ipu-emulator/edit/master/docs/content/specs/ARCH-stage-mult.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -2866,933 +2961,894 @@
     
       
     
-    <a href="https://github.com/rechefe/ipu-emulator/raw/master/docs/content/specs/stage-aaq-str.md" title="View source of this page" class="md-content__button md-icon">
+    <a href="https://github.com/rechefe/ipu-emulator/raw/master/docs/content/specs/ARCH-stage-mult.md" title="View source of this page" class="md-content__button md-icon">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17 18c.56 0 1 .44 1 1s-.44 1-1 1-1-.44-1-1 .44-1 1-1m0-3c-2.73 0-5.06 1.66-6 4 .94 2.34 3.27 4 6 4s5.06-1.66 6-4c-.94-2.34-3.27-4-6-4m0 6.5a2.5 2.5 0 0 1-2.5-2.5 2.5 2.5 0 0 1 2.5-2.5 2.5 2.5 0 0 1 2.5 2.5 2.5 2.5 0 0 1-2.5 2.5M9.27 20H6V4h7v5h5v4.07c.7.08 1.36.25 2 .49V8l-6-6H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h4.5a8.2 8.2 0 0 1-1.23-2"/></svg>
     </a>
   
 
 
-<h1 id="aaq-stage">AaQ Stage<a class="headerlink" href="#aaq-stage" title="Permanent link">&para;</a></h1>
-<h2 id="1-purpose">1. Purpose<a class="headerlink" href="#1-purpose" title="Permanent link">&para;</a></h2>
-<p>The AaQ (Activation and Quantization) stage applies element-wise activation
-and special functions to the 128-element accumulator and quantizes the
-128-element vector into an 8-bit vector. On <code>ACTIVATE.QUANTIZE</code> it produces
-the <code>POST_AAQ_REG</code> payload, which is later written to external memory (XMEM)
-by <code>ST.AAQ</code>. It produces:</p>
+<h1 id="multiply-stage">Multiply Stage<a class="headerlink" href="#multiply-stage" title="Permanent link">&para;</a></h1>
+<h2 id="1-overview">1. Overview<a class="headerlink" href="#1-overview" title="Permanent link">&para;</a></h2>
+<p>The MULT (Multiply) stage performs the following tasks:</p>
 <ul>
-<li>A 128-element vector of 8-bit quantized values.</li>
-<li>A scale factor.</li>
-<li>A <code>dynamic_exponent</code> bit (the exponent split chosen in dynamic mode).</li>
+<li><strong>Dequantize:</strong> Converts each NX8 input element to FP32, with the format
+  from <code>quantizion_format</code> and the vector scale.</li>
+<li><strong>Multiply:</strong> Multiplies 128 pairs of FP32 elements. The operands come from
+  <code>R0</code>/<code>R1</code>, <code>R_CYCLIC</code> or a scalar. Each product is an FP32 value.</li>
+<li><strong>Mask:</strong> Replaces the products of masked elements with a pad value. The mask
+  comes from <code>R_MASK</code>.</li>
+<li><strong>Load:</strong> Owns the load instructions (<code>LDR_MULT_REG</code>, <code>LDR_CYCLIC_MULT_REG</code>,
+  <code>LDR_MULT_MASK_REG</code>). Writes the load data from XMEM into one of the stage
+  registers: <code>R0</code>, <code>R1</code>, one slot of <code>R_CYCLIC</code> or <code>R_MASK</code>.</li>
 </ul>
-<p>The element format is <strong>not</strong> stored per XMEM row. It is global to a table
-(which may span several XMEM banks) and is supplied to the stage through the
-<code>format</code> input (section 3.3).</p>
-<p>The stage also owns the function estimation <strong>LUT</strong>, which is filled by the <code>LOAD</code>
-instruction (section 6.3).</p>
+<h2 id="table-of-contents">Table of Contents<a class="headerlink" href="#table-of-contents" title="Permanent link">&para;</a></h2>
+<ol>
+<li><a href="#1-overview">Overview</a></li>
+<li><a href="#2-block-diagram">Block Diagram</a></li>
+<li><a href="#3-interfaces">Interfaces</a><ul>
+<li>3.1 <a href="#31-dstructure-layout"><code>dstructure</code> Layout</a></li>
+<li>3.2 <a href="#32-element-format">Element Format</a><ul>
+<li>3.2.1 <a href="#321-nx8-to-fp32">NX8 to FP32</a></li>
+</ul>
+</li>
+<li>3.3 <a href="#33-operand-addressing">Operand Addressing</a></li>
+<li>3.4 <a href="#34-element-masking">Element Masking</a></li>
+</ul>
+</li>
+<li><a href="#4-multiply-isa">Multiply ISA</a><ul>
+<li>4.1 <a href="#41-nop-no-operation"><code>NOP</code>: No Operation</a></li>
+<li>4.2 <a href="#42-ldr_mult_reg-load-r0-or-r1"><code>LDR_MULT_REG</code>: Load R0 or R1</a></li>
+<li>4.3 <a href="#43-ldr_cyclic_mult_reg-load-an-r_cyclic-slot"><code>LDR_CYCLIC_MULT_REG</code>: Load an R_CYCLIC Slot</a></li>
+<li>4.4 <a href="#44-ldr_mult_mask_reg-load-r_mask"><code>LDR_MULT_MASK_REG</code>: Load R_MASK</a></li>
+<li>4.5 <a href="#45-multrcvv-r_cyclic-vector-x-ra-vector"><code>MULT.RC.VV</code>: R_CYCLIC Vector x Ra Vector</a></li>
+<li>4.6 <a href="#46-multrcve-r_cyclic-vector-x-scalar"><code>MULT.RC.VE</code>: R_CYCLIC Vector x Scalar</a></li>
+<li>4.7 <a href="#47-multrcvs-r_cyclic-vector-square"><code>MULT.RC.VS</code>: R_CYCLIC Vector Square</a></li>
+<li>4.8 <a href="#48-multve-ra-vector-x-cr-scalar"><code>MULT.VE</code>: Ra Vector x CR Scalar</a></li>
+<li>4.9 <a href="#49-multee-ra-element-x-cr-scalar-broadcast"><code>MULT.EE</code>: Ra Element x CR Scalar, Broadcast</a></li>
+</ul>
+</li>
+</ol>
 <h2 id="2-block-diagram">2. Block Diagram<a class="headerlink" href="#2-block-diagram" title="Permanent link">&para;</a></h2>
-<pre class="mermaid"><code>flowchart LR
-    acc_stage:::blue
-    ACC(["r_acc 128x32bit"]):::yellow
-    WADDR(["write_addr"]):::yellow
-    XMEM(["XMEM write&lt;br&gt;Memory[write_addr] =&lt;br&gt;128x8bit elements | 8bit scale | 1bit dynamic_exponent"]):::red
-    LUT["LUT&lt;br&gt;256x17bit&lt;br&gt;+ 75b metadata"]:::teal
-    ACT["Activation"]:::teal
-    QUANT["Quantization"]:::teal
-
-    ACC --&gt;|128x32| ACT
-    ACC -.-&gt;|LOAD: low bits| LUT
-    LUT --&gt; ACT
-    ACT --&gt;|128x32| QUANT
-    QUANT --&gt;|128x8 + scale + dynamic_exponent| XMEM
-    WADDR --&gt; XMEM
-    acc_stage --&gt; |128x32| ACC
-    acc_stage --&gt; WADDR
-
-    subgraph LEGEND["Legend"]
-        L_blue["Stages"]:::blue
-        L_teal["AaQ Main Blocks"]:::teal
-        L_yellow(["Input Data"]):::yellow
-        L_red(["Output Data"]):::red
+<pre class="mermaid"><code>block-beta
+    columns 11
+    space:6 INSTR["Instruction"] space FMT["quantizion_format"] space:2
+    block:INS:1
+        columns 1
+        LD_DATA["load data&lt;br&gt;128 x 8-bit&lt;br&gt;+ metadata"]
+    end
+    space
+    block:STAGE:7
+        columns 7
+        TITLE["MULT Stage"] space:6
+        space:2 RA["R0 / R1&lt;br&gt;2 x 128 x 8-bit"] space:4
+        LDW["Load&lt;br&gt;Registers"] space RC["R_CYCLIC&lt;br&gt;512 x 8-bit"] space SEL["Operand&lt;br&gt;Select"] space MUL["Multiply"]
+        space:7
+        space:2 RMASK["R_MASK&lt;br&gt;8 x 128-bit"] space:3 MASK["Mask"]
+    end
+    space
+    block:OUTS:1
+        columns 1
+        OUT_DATA["output data&lt;br&gt;MULT_RES&lt;br&gt;128 x 32-bit"]
     end
 
-    classDef blue fill:#4a80c4,stroke:#2a5090,color:#fff
-    classDef teal fill:#2e9e8c,stroke:#1a7060,color:#fff
-    classDef yellow fill:#e6b800,stroke:#b38a00,color:#000
-    classDef red fill:#c0392b,stroke:#922b21,color:#fff</code></pre>
+    LD_DATA --&gt; LDW
+    LDW --&gt; RA
+    LDW --&gt; RC
+    LDW --&gt; RMASK
+    RA --&gt; SEL
+    RC --&gt; SEL
+    INSTR --&gt; SEL
+    FMT --&gt; MUL
+    SEL --&gt; MUL
+    MUL --&gt; MASK
+    RMASK --&gt; MASK
+    MASK --&gt; OUT_DATA
+
+    classDef io fill:none,stroke:none
+    classDef blk fill:#2e9e8c,stroke:#1a7060,color:#fff
+    classDef title fill:none,stroke:none,font-weight:bold
+    class LD_DATA,INSTR,FMT,OUT_DATA,INS,OUTS io
+    class LDW,RA,RC,RMASK,SEL,MUL,MASK blk
+    class TITLE title
+    style STAGE fill:none,stroke:#888,stroke-width:2px</code></pre>
 <h2 id="3-interfaces">3. Interfaces<a class="headerlink" href="#3-interfaces" title="Permanent link">&para;</a></h2>
-<h3 id="30-black-box-diagram">3.0 Black Box Diagram<a class="headerlink" href="#30-black-box-diagram" title="Permanent link">&para;</a></h3>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>                         ┌──────────────────────────────────────┐
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>              clk  ─────&gt;│                                      │
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>            rst_n  ─────&gt;│                                      │
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>               op  ─────&gt;│                                      │
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>            r_acc  ─────&gt;│                                      │
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    function_type  ─────&gt;│                                      ├────&gt; XMEM write
-</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>         lut_addr  ─────&gt;│             AaQ Stage                │      Memory[write_addr] =
-</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>   valid_elements  ─────&gt;│                                      │      [128×8b elements | 8b scale
-</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>        partition  ─────&gt;│                                      │       | 1b dynamic_exponent]
-</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>   partition_mask  ─────&gt;│                                      │
-</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>           format  ─────&gt;│                                      │
-</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>       write_addr  ─────&gt;│                                      │
-</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>                         └──────────────────────────────────────┘
-</span></code></pre></div>
-<h3 id="31-inputs">3.1 Inputs<a class="headerlink" href="#31-inputs" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
 <tr>
 <th>Name</th>
-<th>Type and Direction</th>
+<th>Direction</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>clk</code></td>
-<td><code>input logic</code></td>
-<td>Clock signal.</td>
+<td>XMEM read address</td>
+<td>Output</td>
+<td>The XMEM row that a load instruction reads: <code>offset + base</code>.</td>
 </tr>
 <tr>
-<td><code>rst_n</code></td>
-<td><code>input logic</code></td>
-<td>Asynchronous, active-low</td>
+<td>load data</td>
+<td>Input</td>
+<td>One XMEM row: 128 8-bit elements (128 B) and the vector metadata (section 3.2.1).</td>
 </tr>
 <tr>
-<td><code>op</code></td>
-<td><code>input logic [1:0]</code></td>
-<td>Selects the AaQ operation: <code>AAQ_INST_OPCODE_NOP</code> = 0, <code>AAQ_INST_OPCODE_ACTIVATE_QUANTIZE</code> = 1, <code>AAQ_INST_OPCODE_LOAD</code> = 2.</td>
+<td>Instruction</td>
+<td>Input</td>
+<td>The operation that the stage does on its registers.</td>
 </tr>
 <tr>
-<td><code>r_acc</code></td>
-<td><code>input logic [127:0][31:0]</code></td>
-<td>128-element accumulator (128 × 32-bit FP32). Also the data source for <code>LOAD</code> (section 6.3).</td>
+<td><code>quantizion_format</code></td>
+<td>Input</td>
+<td>The NX8 format of the input elements (section 3.2).</td>
 </tr>
 <tr>
-<td><code>function_type</code></td>
-<td><code>input logic [2:0]</code></td>
-<td>Encoded activation/special-function selector for <code>ACTIVATE.QUANTIZE</code> (see section 5.0).</td>
-</tr>
-<tr>
-<td><code>lut_addr</code></td>
-<td><code>input logic [2:0]</code></td>
-<td>LUT segment address for <code>LOAD</code> (section 6.3); selects which of the 8 segments the instruction writes. Ignored for every other <code>op</code>.</td>
-</tr>
-<tr>
-<td><code>valid_elements</code></td>
-<td><code>input logic [7:0]</code></td>
-<td>Number of valid elements in <code>r_acc</code>, range <code>0</code>–<code>128</code>. 8 bits are required because <code>128</code> is not representable in 7.</td>
-</tr>
-<tr>
-<td><code>partition</code></td>
-<td><code>input logic [1:0]</code></td>
-<td>Element partition grouping: enum of <code>1</code>/<code>2</code>/<code>4</code>/<code>8</code> (encoded <code>00</code>/<code>01</code>/<code>10</code>/<code>11</code>). Exact semantics TBD.</td>
-</tr>
-<tr>
-<td><code>partition_mask</code></td>
-<td><code>input logic [2:0]</code></td>
-<td>Count of <code>partition</code> groups, counted from the right (highest-indexed group), that are masked out entirely. <code>0</code> = all <code>partition</code> groups valid; <code>k</code> = the rightmost <code>k</code> groups are masked — their elements do not participate in activation/quantization and their output elements are forced to 0 (section 6.2). <code>k</code> must not exceed <code>partition - 1</code> (masking every group is not a supported configuration). Example: <code>partition = 8</code> splits the 128 elements into 8 groups of 16 (<code>elements[0:15] \| elements[16:31] \| ... \| elements[112:127]</code>); <code>partition_mask = 2</code> masks the rightmost 2 groups, i.e. <code>elements[96:127]</code>.</td>
-</tr>
-<tr>
-<td><code>format</code></td>
-<td><code>input logic [8:0]</code></td>
-<td>Output element format of the destination table, global to the table (not stored per XMEM row). Bits <code>[7:0]</code> describe the element encoding; bit <code>[8]</code> (<code>dynamic</code>) selects static (<code>0</code>) or dynamic (<code>1</code>) quantization. See section 3.3.</td>
-</tr>
-<tr>
-<td><code>write_addr</code></td>
-<td><code>input logic [XMEM_ADDR_W-1:0]</code></td>
-<td>Destination XMEM address for <code>ST.AAQ</code> when writing <code>POST_AAQ_REG</code> to XMEM (see <code>XMEM_ADDR_W</code> in the Control stage spec, section 4).</td>
+<td>output data</td>
+<td>Output</td>
+<td><code>MULT_RES</code>: 128 FP32 elements, to the ACC stage.</td>
 </tr>
 </tbody>
 </table>
-<p><em><code>op</code> is sourced from the <code>opcode</code> field of the generated <code>aaq_slot_t</code> struct, typed <code>aaq_inst_opcode_t</code> (package <code>ipu_instr_pkg</code>). Generated from <a href="../../../src/ipu-isa/src/ipu_isa/instruction_spec.py"><code>instruction_spec.py</code></a> (the AAQ slot's <code>"aaq"</code> entry) by <a href="../../../src/ipu-gen/src/ipu_gen/sv_package.py"><code>sv_package.py</code></a> via the <a href="../../../src/ipu-gen/src/ipu_gen/templates/ipu_instr_pkg.sv.j2"><code>ipu_instr_pkg.sv.j2</code></a> template (<code>bazel run //src/ipu-gen:ipu-gen -- sv-package --output &lt;path&gt;</code>).</em></p>
-<h3 id="32-output">3.2 Output<a class="headerlink" href="#32-output" title="Permanent link">&para;</a></h3>
-<p>On <code>ACTIVATE.QUANTIZE</code> (and only on that opcode — see section 4), AaQ
-produces a single 1033-bit <code>POST_AAQ_REG</code> payload:</p>
-<table>
-<thead>
-<tr>
-<th>Field</th>
-<th>Width</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>elements</code></td>
-<td>128 × 8 = 1024 bits</td>
-<td>128 quantized elements, 8 bits each (section 5.1).</td>
-</tr>
-<tr>
-<td><code>scale</code></td>
-<td>8 bits</td>
-<td>Batch scale factor, <code>e8m0</code> (section 5.1).</td>
-</tr>
-<tr>
-<td><code>dynamic_exponent</code></td>
-<td>1 bit</td>
-<td>Exponent split chosen by the dynamic selection (section 5.1.1): <code>0</code> = <code>fe = 1</code> (<code>e1m6</code>), <code>1</code> = <code>fe = 2</code> (<code>e2m5</code>). Written as <code>0</code> when <code>format[8] = 0</code> (static), and ignored by readers in that mode.</td>
-</tr>
-</tbody>
-</table>
-<p>Total payload: 1024 + 8 + 1 = <strong>1033 bits</strong>.</p>
-<p><code>ST.AAQ</code> performs the XMEM write (<code>Memory[write_addr] =
-POST_AAQ_REG</code>) as a separate STORE-slot operation.</p>
-<p>The row does <strong>not</strong> contain the <code>format</code> field. The format belongs to the
-table as a whole, and whoever reads the row must get it from the same
-table-level configuration that drove the <code>format</code> input.</p>
-<p><code>aaq_out</code> is used below as the pseudocode name for this bundle; the concrete
-storage/register implementation is left to the designer.</p>
-<h3 id="33-format-field-layout">3.3 <code>format</code> Field Layout<a class="headerlink" href="#33-format-field-layout" title="Permanent link">&para;</a></h3>
-<p><code>format</code> is 9 bits. It is a property of the destination table (shared by
-every row of that table, across all of its XMEM banks) and is not written to
-XMEM:</p>
+<blockquote>
+<p><strong>Note:</strong> The stage reads <code>R0</code>, <code>R1</code>, <code>R_CYCLIC</code> and <code>R_MASK</code> as they were at
+the start of the cycle. A load into them in the same cycle is visible in the
+next cycle.</p>
+</blockquote>
+<h3 id="31-dstructure-layout">3.1 <code>dstructure</code> Layout<a class="headerlink" href="#31-dstructure-layout" title="Permanent link">&para;</a></h3>
+<p>The <code>cr_idx</code> operand (<code>dstructure_cr_idx</code> in <code>MULT.VE</code> and <code>MULT.EE</code>) names a
+32-bit <code>CR</code> that holds the data structure format of the 128-element vector. It
+has four 8-bit fields:</p>
 <table>
 <thead>
 <tr>
 <th>Bits</th>
-<th>Name</th>
+<th>Field</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>[8]</code></td>
-<td><code>dynamic</code></td>
-<td>Quantization mode: <code>0</code> = static, <code>1</code> = dynamic (section 5.1.1).</td>
+<td><code>[31:24]</code></td>
+<td><code>N/A</code></td>
+<td>Not used.</td>
 </tr>
 <tr>
-<td><code>[7]</code></td>
-<td><code>sign</code></td>
-<td><code>0</code> = unsigned, <code>1</code> = signed.</td>
+<td><code>[23:16]</code></td>
+<td><code>valid_partition</code></td>
+<td>Number of valid groups. The rightmost <code>num_partition - valid_partition</code> groups are masked.</td>
 </tr>
 <tr>
-<td><code>[6:4]</code></td>
-<td><code>exp_bits</code> (<code>fe</code>)</td>
-<td>Number of exponent bits, <code>0</code>–<code>7</code>.</td>
+<td><code>[15:8]</code></td>
+<td><code>num_partition</code></td>
+<td>Number of groups: <code>1</code>, <code>2</code>, <code>4</code> or <code>8</code>. <code>1</code> means one line of 128 elements, <code>2</code> means two lines of 64 elements.</td>
 </tr>
 <tr>
-<td><code>[3:0]</code></td>
-<td><code>width</code></td>
-<td>Total element width <code>W</code>, stored directly (no offset): value <code>1</code>–<code>8</code>. <code>0</code> is reserved/invalid.</td>
-</tr>
-</tbody>
-</table>
-<p>Bits <code>[7:0]</code> have the same meaning in both modes. In dynamic mode
-(<code>format[8] = 1</code>) the exponent width is chosen per row (section 5.1.1) and
-recorded in that row's <code>dynamic_exponent</code> bit, so <code>format[6:4]</code> is ignored.</p>
-<p>The mantissa is <strong>the remainder</strong> — what is left of the element width once the
-sign and exponent bits are taken out:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>sign_bit = format[7]                 // 0 or 1
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>fe       = format[6:4]               // exponent bits
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>W        = format[3:0]               // total element width, 1..8 bits (stored directly)
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>fm       = W - fe - sign_bit         // mantissa bits (the leftover)
-</span></code></pre></div>
-<p><code>fm</code> must be <code>&gt;= 0</code>, i.e. <code>W &gt;= fe + sign_bit</code>; encodings that violate this are
-invalid. <code>fm = 0</code> is legal (no mantissa bits). <code>W &lt;= 8</code> always, so a quantized
-element always fits in its 8-bit output slot; when <code>W &lt; 8</code> the unused
-low-order bits are zero-padded.</p>
-<p>Example: signed, 2 exponent bits, 8-bit width (<code>e2m5</code>) is
-<code>format = {1, 3'd2, 4'd8}</code> → <code>fm = 8 - 2 - 1 = 5</code>.</p>
-<h2 id="4-disclaimers">4. Disclaimers<a class="headerlink" href="#4-disclaimers" title="Permanent link">&para;</a></h2>
-<ul>
-<li>The AaQ slot executes once per VLIW cycle.</li>
-<li>AaQ is the pipeline's last stage; slot execution order within a VLIW word: CTRL → MULT → ACC → <strong>AaQ</strong>.</li>
-<li><code>ACTIVATE.QUANTIZE</code> computes the quantized bundle in <code>POST_AAQ_REG</code>; <code>ST.AAQ</code> performs the XMEM write as a separate STORE-slot operation.</li>
-<li><code>NOP</code> performs no state changes.</li>
-</ul>
-<h2 id="5-aaq-operations">5. AaQ Operations<a class="headerlink" href="#5-aaq-operations" title="Permanent link">&para;</a></h2>
-<h3 id="50-activate-and-quantize-activatequantize">5.0 Activate and Quantize (<code>ACTIVATE.QUANTIZE</code>)<a class="headerlink" href="#50-activate-and-quantize-activatequantize" title="Permanent link">&para;</a></h3>
-<p>Activation and quantization happen in a single instruction; there is no
-separate activate-only or quantize-only instruction. It applies an
-element-wise activation function to every element of <code>r_acc</code>.</p>
-<p>The function is selected via <code>function_type</code> and applied to each FP32
-element. <code>identity</code>, <code>relu</code>, and <code>relu6</code> are computed directly; <code>exp2</code>,
-<code>reciprocal</code>, <code>rsqrt</code>, and <code>generic</code> are evaluated through the LUT, so the
-selected function must already be loaded there (section 5.2).</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>for i in 0..127:
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>    x = r_acc[i]
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>    case function_type:
-</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>        // computed directly
-</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>        identity:    activated[i] = x
-</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>        relu:        activated[i] = max(0, x)
-</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>        relu6:       activated[i] = min(max(0, x), 6)
-</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>
-</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>        // evaluated through the LUT, no special-casing
-</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>        exp2:        activated[i] = LUT[function_type](x)
-</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>        generic:     activated[i] = LUT[function_type](x)
-</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>
-</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>        // evaluated through the LUT, with a guard for x's sign/zero
-</span><span id="__span-2-14"><a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>        reciprocal:  if x == 0:      activated[i] = inf
-</span><span id="__span-2-15"><a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>                     else:           activated[i] = LUT[function_type](x)
-</span><span id="__span-2-16"><a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a>        rsqrt:       if x == 0:      activated[i] = inf
-</span><span id="__span-2-17"><a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a>                     elif x &lt; 0:     activated[i] = 0
-</span><span id="__span-2-18"><a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a>                     else:           activated[i] = LUT[function_type](x)
-</span></code></pre></div>
-<p>Supported function types: activation and special functions grouped onto a
-single field:</p>
-<table>
-<thead>
-<tr>
-<th>Encoding</th>
-<th>Name</th>
-<th>Formula</th>
-<th>Notes</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>1</td>
-<td><code>identity</code></td>
-<td><code>f(x) = x</code></td>
-<td>Pass-through; no transform.</td>
-</tr>
-<tr>
-<td>2</td>
-<td><code>relu</code></td>
-<td><code>f(x) = max(0, x)</code></td>
-<td>Most common non-linearity.</td>
-</tr>
-<tr>
-<td>3</td>
-<td><code>relu6</code></td>
-<td><code>f(x) = min(max(0, x), 6)</code></td>
-<td>Clipped ReLU; used in MobileNet.</td>
-</tr>
-<tr>
-<td>4</td>
-<td><code>generic</code></td>
-<td><code>f(x) = LUT[generic](x)</code></td>
-<td>Covers all activations except <code>relu</code> and <code>relu6</code> — see the table below for the explicit function each one computes. All of them are called by the single name <code>generic</code>; which one is applied is decided by whichever function was loaded into the LUT, not by the encoding.</td>
-</tr>
-<tr>
-<td>5</td>
-<td><code>reciprocal</code></td>
-<td><code>f(x) = 1/x</code> (0 if x = 0)</td>
-<td>Multiplicative inverse; useful for normalization.</td>
-</tr>
-<tr>
-<td>6</td>
-<td><code>rsqrt</code></td>
-<td><code>f(x) = 1/√x</code> (0 if x ≤ 0)</td>
-<td>Reciprocal square root; used in layer normalization.</td>
-</tr>
-<tr>
-<td>7</td>
-<td><code>exp2</code></td>
-<td><code>f(x) = 2^x</code></td>
-<td>Used for dequantization, softmax and attention scaling.</td>
+<td><code>[7:0]</code></td>
+<td><code>valid_elements</code></td>
+<td>Number of valid elements in a group.</td>
 </tr>
 </tbody>
 </table>
-<p><code>generic</code> (encoding 4) covers seven functions, all loaded into and called through the same LUT entry:</p>
+<p>The stage also reads <code>pad_mode</code>, the value written into masked elements
+(section 3.4):</p>
 <table>
 <thead>
 <tr>
-<th>Name</th>
-<th>Formula</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>sigmoid</code></td>
-<td><code>f(x) = 1 / (1 + e^-x)</code></td>
-</tr>
-<tr>
-<td><code>tanh</code></td>
-<td><code>f(x) = (e^x - e^-x) / (e^x + e^-x)</code></td>
-</tr>
-<tr>
-<td><code>gelu</code></td>
-<td><code>f(x) = x · Φ(x) = 0.5 · x · (1 + erf(x / √2))</code></td>
-</tr>
-<tr>
-<td><code>softplus</code></td>
-<td><code>f(x) = ln(1 + e^x)</code></td>
-</tr>
-<tr>
-<td><code>elu</code></td>
-<td><code>f(x) = x</code> if <code>x ≥ 0</code>, else <code>α · (e^x - 1)</code> (<code>α = 1.0</code>)</td>
-</tr>
-<tr>
-<td><code>silu</code></td>
-<td><code>f(x) = x · sigmoid(x) = x / (1 + e^-x)</code></td>
-</tr>
-<tr>
-<td><code>window</code></td>
-<td><code>f(x) = 1</code> if <code>a ≤ x &lt; b</code>, else <code>0</code> (rectangular window over <code>[a, b)</code>)</td>
-</tr>
-</tbody>
-</table>
-<h3 id="51-quantization-algorithm">5.1 Quantization Algorithm<a class="headerlink" href="#51-quantization-algorithm" title="Permanent link">&para;</a></h3>
-<p>After activation (section 5.0), each activated FP32 element <code>a</code> (IEEE-754 single
-precision: 1-bit sign <code>S</code>, 8-bit exponent <code>e</code>, 23-bit mantissa) is quantized
-to the format selected by <code>format</code> (section 3.3): a sign bit present only if
-<code>format[7] = 1</code> (signed; omitted when unsigned), <code>fe</code> exponent bits
-(<code>format[6:4]</code>), and <code>fm</code> mantissa bits derived as the leftover
-<code>fm = W - fe - sign_bit</code>, where <code>W = format[3:0]</code> (stored directly, no
-offset) is the total element width. Since the mantissa is the remainder of the width, <code>sign + fe + fm</code>
-always totals exactly <code>W</code>; when <code>W &lt; 8</code> the leftover low-order bits of the
-8-bit quantized element are zero-padded. <code>fe</code> is at minimum 1 bit; <code>fm</code> may be
-0 bits. FP32 inputs are always treated as normalized (implicit leading 1);
-subnormal inputs are not specially handled.</p>
-<p>The scale factor <code>s</code> (8 bits, <code>e8m0</code>: exponent only, no mantissa) is the
-batch's shared scale, computed as the maximum raw exponent across the 128
-elements of the batch, before quantization:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>s = max(e[i] for i in 0..254)
-</span></code></pre></div>
-<p>For each element, define the exponent distance from the batch scale:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>E = -(e - s)   // = s - e
-</span></code></pre></div>
-<p>Since <code>s</code> is the batch maximum, <code>E &gt;= 0</code> for every element, with <code>E = 0</code> at
-the batch-max element(s) and <code>E</code> growing as an element's magnitude shrinks
-relative to the batch max. The output exponent and mantissa fields are then:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>if 0 &lt;= E &lt; 2^fe - 1:                // representable directly in fe bits
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>    Exp = E
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>    M   = RTN(1.M)                   // round the 23-bit mantissa (implicit leading 1) to fm bits
-</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>
-</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>    if M == 2^fm:                    // edge 1: 1.11...1 rounded up to 10.00...0
-</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>        if E &gt; 0:
-</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>            Exp = E - 1              // the carry moved the value one binade up
-</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>            M   = 0
-</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>        else:                        // E = 0: no binade above the batch scale
-</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>            Exp = 0
-</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a>            M   = 2^fm - 1           // saturate at the largest representable value
-</span><span id="__span-5-12"><a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a>
-</span><span id="__span-5-13"><a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a>else:                                // E exceeds what fe bits can represent
-</span><span id="__span-5-14"><a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a>    Exp = 2^fe - 1                   // exponent field saturates at its max value
-</span><span id="__span-5-15"><a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a>    M   = RTN(1.M &gt;&gt; [E - (2^fe - 1) + 1])  // extra right-shift preserves magnitude instead of flushing to zero
-</span><span id="__span-5-16"><a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a>
-</span><span id="__span-5-17"><a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a>    if M == 2^fm:                    // edge 2: 0.11...1 rounded up to 1.00...0
-</span><span id="__span-5-18"><a id="__codelineno-5-18" name="__codelineno-5-18" href="#__codelineno-5-18"></a>        Exp = 2^fe - 2               // the smallest directly-encoded exponent
-</span><span id="__span-5-19"><a id="__codelineno-5-19" name="__codelineno-5-19" href="#__codelineno-5-19"></a>        M   = 0
-</span></code></pre></div>
-<p>Both edges are the same event — <code>RTN</code> carrying out of the <code>fm</code> mantissa bits —
-resolved differently per branch. In the direct branch the carry means the value
-moved one binade up, so the exponent decrements and the mantissa clears; at
-<code>E = 0</code> there is no binade above the batch scale, so the element saturates at
-the largest representable value instead of wrapping. In the clamp branch the
-carry turns the shifted fraction into <code>1.00...0</code>, which is no longer a
-saturated value but the smallest directly-encoded one, so it is re-encoded as
-<code>Exp = 2^fe - 2</code>, <code>M = 0</code>.</p>
-<p><code>RTN</code> = round to nearest. Sign <code>S</code> (when present, <code>format[7] = 1</code>) is passed
-through unchanged. The final 8-bit quantized element is
-<code>{S?, Exp, M, 0-pad}</code>: <code>S</code>, <code>Exp</code> (<code>fe</code> bits), and <code>M</code> (<code>fm</code> bits) packed at
-the high end, zero-padded at the low end to fill 8 bits. The write payload
-also carries the batch <code>Scale</code> (<code>s</code>) and the <code>dynamic_exponent</code> bit, as
-described in section 3.2. <code>format</code> is not written; it is table-level.</p>
-<blockquote>
-<p><strong>Note:</strong> the <code>S</code>/<code>Exp</code>/<code>M</code> encoding above is the same in both modes,
-and <code>s</code> is computed the same way (batch max, as shown above) regardless
-of <code>format[8]</code>. <code>format[8] = 1</code> (dynamic) restricts
-<code>format</code> to exactly two supported formats, both signed and both 8 bits
-wide (<code>format[3:0] = 8</code>): <code>e2m5</code> and <code>e1m6</code> — that pair is exactly
-<code>fe = 2</code> and <code>fe = 1</code> at <code>W = 8</code>, signed, since <code>fm</code> is the leftover
-(section 3.3). Only <code>fe</code> is chosen; the rule in section 5.1.1 makes
-that choice per block.</p>
-</blockquote>
-<h4 id="511-dynamic-exponent-field-selection-fe-1-vs-fe-2">5.1.1 Dynamic Exponent-Field Selection (<code>fe = 1</code> vs <code>fe = 2</code>)<a class="headerlink" href="#511-dynamic-exponent-field-selection-fe-1-vs-fe-2" title="Permanent link">&para;</a></h4>
-<p>Applies only when <code>format[8] = 1</code>. The dynamic decision selects <strong>the exponent
-field width alone</strong>: <code>fe = 1</code> or <code>fe = 2</code>. The input <code>format[6:4]</code> is ignored,
-and the choice is written to the row's <code>dynamic_exponent</code> bit (section 3.2). The mantissa is not
-chosen independently — it is the leftover <code>fm = W - fe - sign_bit</code> (section
-3.3), so moving from <code>fe = 1</code> to <code>fe = 2</code> always buys one more exponent bit at
-the cost of exactly one mantissa bit, whatever <code>W</code> and <code>sign_bit</code> are. Each
-block shares one scale <code>s</code> and the quantizer picks one of the two splits per
-block:</p>
-<table>
-<thead>
-<tr>
-<th>Split</th>
-<th>Exponent bits</th>
-<th>Mantissa bits</th>
-<th>Encodable <code>E</code></th>
-<th>Step at <code>E</code></th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>fe1</code></td>
-<td>1</td>
-<td><code>fm1 = W - 1 - sign_bit</code></td>
-<td>0, 1</td>
-<td><code>2^(s - E - fm1)</code>, clamped at <code>E &gt;= 1</code></td>
-</tr>
-<tr>
-<td><code>fe2</code></td>
-<td>2</td>
-<td><code>fm1 - 1</code></td>
-<td>0, 1, 2, 3</td>
-<td><code>2^(s - E - fm1 + 1)</code>, clamped at <code>E &gt;= 3</code></td>
-</tr>
-</tbody>
-</table>
-<p><code>fe1</code> is one bit finer near the top of the block. <code>fe2</code> reaches two binades
-further down before it clamps. The rule below decides which trade is better for
-the block actually being quantized. It depends on <code>fm1</code> only through the two
-multipliers, so it holds for any <code>W</code>/<code>sign_bit</code> pairing, not just the signed
-8-bit one.</p>
-<h5 id="definitions">Definitions<a class="headerlink" href="#definitions" title="Permanent link">&para;</a></h5>
-<ul>
-<li><code>s</code>: shared block scale exponent, selected by the same block scale procedure
-  used for static quantization (section 5.1).</li>
-<li><code>e</code>: exponent of the individual element.</li>
-<li><code>E = s - e</code>. Always non-negative (section 5.1). <code>E = 0</code> means the scale
-  represents the element exactly.</li>
-<li><code>fm1 = W - 1 - sign_bit</code>: the last mantissa bits under <code>fe1</code>. <code>fe2</code> always has exactly
-  one fewer. For the signed, 8-bit case <code>fm1 = 6</code>.</li>
-<li><code>err1</code>: truncation error of the element under <code>fe1</code>.</li>
-<li><code>err2</code>: truncation error of the element under <code>fe2</code>.</li>
-</ul>
-<h5 id="element-classification">Element classification<a class="headerlink" href="#element-classification" title="Permanent link">&para;</a></h5>
-<p>Each element contributes to at most one accumulator:</p>
-<table>
-<thead>
-<tr>
-<th>Condition</th>
-<th>Accumulator</th>
-<th>Meaning</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>E = 0</code></td>
-<td>A</td>
-<td><code>fe1</code> is finer here. A measures the cost of choosing <code>fe2</code>.</td>
-</tr>
-<tr>
-<td><code>E = 1</code></td>
-<td>none</td>
-<td>Don't care.</td>
-</tr>
-<tr>
-<td><code>1 &lt; E &lt;= fm1 + 2</code></td>
-<td>B</td>
-<td><code>fe2</code> is finer here. B measures the cost of choosing <code>fe1</code>.</td>
-</tr>
-<tr>
-<td><code>E &gt; fm1 + 2</code></td>
-<td>none</td>
-<td>Out of range for both splits.</td>
-</tr>
-</tbody>
-</table>
-<p>Elements at <code>E = 1</code> are don't cares. They enter neither sum and have no effect
-on the decision.</p>
-<h5 id="per-element-terms">Per-element terms<a class="headerlink" href="#per-element-terms" title="Permanent link">&para;</a></h5>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>A = RTN( |err2^2 - err1^2| * 2^(2*fm1) )
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>B = RTN( |err2^2 - err1^2| * 2^(2*(fm1 + 1)) )
-</span></code></pre></div>
-<p><code>RTN</code> is round to nearest integer, and an exact half rounds <strong>up</strong>: <code>0.5 -&gt; 1</code>,
-<code>1.5 -&gt; 2</code>, <code>2.5 -&gt; 3</code>. </p>
-<h5 id="decision">Decision<a class="headerlink" href="#decision" title="Permanent link">&para;</a></h5>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>if sum(B) - 4 * sum(A) &lt; 0:  choose fe1        // dynamic_exponent = 0
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>else:                        choose fe2        // dynamic_exponent = 1
-</span></code></pre></div>
-<p>The constant 4 is a unit reconciliation, not a tuning parameter. The B
-multiplier <code>2^(2*(fm1 + 1))</code> is exactly four times the A multiplier
-<code>2^(2*fm1)</code>, so scaling A by 4 returns both accumulators to a common error.</p>
-<h5 id="both-estimators-are-unbiased">Both estimators are unbiased<a class="headerlink" href="#both-estimators-are-unbiased" title="Permanent link">&para;</a></h5>
-<p>Assume mantissa bits are uniformly distributed, so <code>r</code> — the finer split's
-error as a fraction of its own step — is uniform on <code>[0, 1)</code> and the dropped
-bit is 1 with probability one half.</p>
-<table>
-<thead>
-<tr>
-<th>Term</th>
-<th>Pre-RTN value</th>
-<th>Distribution</th>
-<th>Outcomes</th>
-<th>E[RTN]</th>
-<th>E[pre-RTN]</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>A</td>
-<td><code>1 + 2r</code></td>
-<td>uniform on <code>[1, 3)</code></td>
-<td>1, 2, 3 at 0.25, 0.5, 0.25</td>
-<td>2</td>
-<td>2</td>
-</tr>
-<tr>
-<td>B</td>
-<td><code>(1 + 2r) / 4</code></td>
-<td>uniform on <code>[0.25, 0.75)</code></td>
-<td>0, 1 at 0.5, 0.5</td>
-<td>0.5</td>
-<td>0.5</td>
-</tr>
-</tbody>
-</table>
-<p>In both rows the rounded mean equals the unrounded mean exactly. Including the
-zero case, <code>E[A] = 1</code> and <code>E[B] = 0.25</code>. Neither sum drifts as the block length
-grows, so rounding contributes noise but never a systematic tilt toward one
-format.</p>
-<h5 id="worked-example">Worked example<a class="headerlink" href="#worked-example" title="Permanent link">&para;</a></h5>
-<p>Block of ten values, <code>s = 0</code>, <code>fm1 = 4</code> (signed, <code>W = 6</code>). The A multiplier is
-<code>2^8 = 256</code> and the B multiplier is <code>2^10 = 1024</code>. <code>fm1 = 4</code> keeps the numbers
-short; for the signed 8-bit case <code>fm1 = 6</code>, the multipliers are <code>2^12</code> and
-<code>2^14</code>, and the B region is <code>1 &lt; E &lt;= 8</code>.</p>
-<table>
-<thead>
-<tr>
-<th>#</th>
-<th>v</th>
-<th>e</th>
-<th>E</th>
-<th>Acc</th>
-<th>err1</th>
-<th>err2</th>
-<th>|err2^2 - err1^2|</th>
-<th>Pre-RTN</th>
-<th>A</th>
-<th>B</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>1</td>
-<td>1.83</td>
-<td>0</td>
-<td>0</td>
-<td>A</td>
-<td>0.0175</td>
-<td>0.0800</td>
-<td>6.09375e-3</td>
-<td>1.560</td>
-<td>2</td>
-<td></td>
-</tr>
-<tr>
-<td>2</td>
-<td>1.21</td>
-<td>0</td>
-<td>0</td>
-<td>A</td>
-<td>0.0225</td>
-<td>0.0850</td>
-<td>6.71875e-3</td>
-<td>1.720</td>
-<td>2</td>
-<td></td>
-</tr>
-<tr>
-<td>3</td>
-<td>1.57</td>
-<td>0</td>
-<td>0</td>
-<td>A</td>
-<td>0.0075</td>
-<td>0.0700</td>
-<td>4.84375e-3</td>
-<td>1.240</td>
-<td>1</td>
-<td></td>
-</tr>
-<tr>
-<td>4</td>
-<td>0.94</td>
-<td>-1</td>
-<td>1</td>
-<td>none</td>
-<td>don't care</td>
-<td>don't care</td>
-<td></td>
-<td></td>
-<td></td>
-<td></td>
-</tr>
-<tr>
-<td>5</td>
-<td>0.67</td>
-<td>-1</td>
-<td>1</td>
-<td>none</td>
-<td>don't care</td>
-<td>don't care</td>
-<td></td>
-<td></td>
-<td></td>
-<td></td>
-</tr>
-<tr>
-<td>6</td>
-<td>0.41</td>
-<td>-2</td>
-<td>2</td>
-<td>B</td>
-<td>0.00375</td>
-<td>0.00375</td>
-<td>0</td>
-<td>0</td>
-<td></td>
-<td>0</td>
-</tr>
-<tr>
-<td>7</td>
-<td>0.2345</td>
-<td>-3</td>
-<td>3</td>
-<td>B</td>
-<td>0.01575</td>
-<td>0.000125</td>
-<td>2.48047e-4</td>
-<td>0.254</td>
-<td></td>
-<td>0</td>
-</tr>
-<tr>
-<td>8</td>
-<td>0.1780</td>
-<td>-3</td>
-<td>3</td>
-<td>B</td>
-<td>0.02175</td>
-<td>0.006125</td>
-<td>4.35547e-4</td>
-<td>0.446</td>
-<td></td>
-<td>0</td>
-</tr>
-<tr>
-<td>9</td>
-<td>0.0920</td>
-<td>-4</td>
-<td>4</td>
-<td>B</td>
-<td>0.02950</td>
-<td>0.013875</td>
-<td>6.77734e-4</td>
-<td>0.694</td>
-<td></td>
-<td>1</td>
-</tr>
-<tr>
-<td>10</td>
-<td>0.0555</td>
-<td>-5</td>
-<td>5</td>
-<td>B</td>
-<td>0.02425</td>
-<td>0.008625</td>
-<td>5.13672e-4</td>
-<td>0.526</td>
-<td></td>
-<td>1</td>
-</tr>
-</tbody>
-</table>
-<p><code>sum(A) = 5</code>, <code>sum(B) = 2</code>.</p>
-<p><code>2 - 4 * 5 = -18</code>, which is negative, so the block selects <strong><code>fe1</code></strong>.</p>
-<h3 id="52-function-estimation-lut">5.2 Function Estimation LUT<a class="headerlink" href="#52-function-estimation-lut" title="Permanent link">&para;</a></h3>
-<p>The stage holds a function estimation LUT of <strong>256 entries × 17 bits</strong>,
-plus a <strong>75-bit metadata block</strong> that configures range handling. Both are
-filled by <code>LOAD</code> (section 6.3), which writes one <strong>segment</strong> per instruction;
-the 3-bit <code>lut_addr</code> selects the segment.</p>
-<h4 id="521-segment-transfer">5.2.1 Segment Transfer<a class="headerlink" href="#521-segment-transfer" title="Permanent link">&para;</a></h4>
-<p>A segment is <strong>1024 bits</strong>, sourced from the <strong>lower 32 words</strong> of the
-accumulator, <code>r_acc[31:0]</code> (32 words × 32 bits = 1024 bits). The upper words
-<code>r_acc[127:32]</code> are ignored by <code>LOAD</code>. The 1024-bit payload is the little-endian
-concatenation of those words:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>payload[1023:0] = {r_acc[31], r_acc[30], ..., r_acc[1], r_acc[0]}
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>                                          // payload[32*j +: 32] == r_acc[j]
-</span></code></pre></div>
-<p>The table itself is a <strong>4,352-bit flat bitstream</strong> — not split per word, and
-not reset per segment: <code>LOAD</code> transfers one 1024-bit slice of that stream
-per instruction, and a table entry may straddle the boundary between two
-segments (the same way the metadata field straddles word boundaries,
-section 5.2.2). <code>lut_addr</code> selects which slice:</p>
-<table>
-<thead>
-<tr>
-<th><code>lut_addr</code></th>
-<th>Contents</th>
-<th>Interpretation</th>
+<th><code>pad_mode</code></th>
+<th>Pad value</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>0</code></td>
-<td>Table bits <code>[1023:0]</code></td>
-<td>1st 1024-bit slice of the flat table bitstream.</td>
+<td><code>0</code></td>
 </tr>
 <tr>
 <td><code>1</code></td>
-<td>Table bits <code>[2047:1024]</code></td>
-<td>2nd slice.</td>
+<td><code>+inf</code></td>
 </tr>
 <tr>
 <td><code>2</code></td>
-<td>Table bits <code>[3071:2048]</code></td>
-<td>3rd slice.</td>
-</tr>
-<tr>
-<td><code>3</code></td>
-<td>Table bits <code>[4095:3072]</code></td>
-<td>4th slice — the table's first 4,096 bits are now fully loaded.</td>
-</tr>
-<tr>
-<td><code>4</code></td>
-<td>Table bits <code>[4351:4096]</code> (the last 256 bits) + metadata</td>
-<td><strong>Mixed.</strong> <code>payload[255:0]</code> = the table's last 256 bits; <code>payload[330:256]</code> = the 75-bit metadata block (section 5.2.2); <code>payload[1023:331]</code> is unused/reserved.</td>
-</tr>
-<tr>
-<td><code>5</code>–<code>7</code></td>
-<td>Reserved / unused</td>
-<td>—</td>
-</tr>
-</tbody>
-</table>
-<p>Five <code>LOAD</code>s (<code>lut_addr</code> <code>0</code>–<code>4</code>) are required to fully program the LUT and
-its metadata. Only the last of them (<code>lut_addr = 4</code>) is partially reserved —
-the first four are fully packed with table bits (256 entries × 17 bits =
-4,352 bits total).</p>
-<h4 id="522-metadata-block">5.2.2 Metadata Block<a class="headerlink" href="#522-metadata-block" title="Permanent link">&para;</a></h4>
-<p>The metadata occupies bits <code>[330:256]</code> of the <code>lut_addr = 4</code> segment's
-1024-bit payload (i.e. local bits <code>[74:0]</code> of the metadata field itself,
-offset by the 256 bits of leftover table data ahead of it); the remaining
-bits <code>[1023:331]</code> are unused. Bits-to-word mapping follows
-<code>payload[32*j +: 32] == r_acc[j]</code> (section 5.2.1), so absolute bit <code>256 + m</code>
-(for local metadata bit <code>m</code>) lands in <code>r_acc[(256+m) / 32][(256+m) % 32]</code>.
-Because the field is flat, it straddles word boundaries — for example
-<code>max_exp_num</code> is <code>r_acc[8][7:0]</code> and <code>neg_c</code> spans <code>r_acc[8][31:8]</code> together
-with <code>r_acc[9][7:0]</code>.</p>
-<table>
-<thead>
-<tr>
-<th>Bits (local, within metadata)</th>
-<th>Name</th>
-<th>Consumed by</th>
-<th>Meaning</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>[7:0]</code></td>
-<td><code>max_exp_num</code></td>
-<td><code>Quantactivation</code></td>
-<td>Largest <strong>biased</strong> FP32 exponent still inside the LUT range. <code>exp &gt; max_exp_num</code> → lane flagged out-of-range.</td>
-</tr>
-<tr>
-<td><code>[39:8]</code></td>
-<td><code>neg_c</code></td>
-<td><code>pack_lutout_activ</code></td>
-<td>FP32 constant substituted for negative out-of-range lanes.</td>
-</tr>
-<tr>
-<td><code>[71:40]</code></td>
-<td><code>pos_c</code></td>
-<td><code>pack_lutout_activ</code></td>
-<td>FP32 constant substituted for positive out-of-range lanes.</td>
-</tr>
-<tr>
-<td><code>[72]</code></td>
-<td><code>asymetric</code></td>
-<td><code>Quantactivation</code></td>
-<td>Table domain + address form.</td>
-</tr>
-<tr>
-<td><code>[74:73]</code></td>
-<td><code>range_mode</code></td>
-<td><code>pack_lutout_activ</code></td>
-<td>Out-of-range policy.</td>
+<td><code>-inf</code></td>
 </tr>
 </tbody>
 </table>
 <blockquote>
-<p><strong>TBD:</strong> the encodings of <code>asymetric</code> (which table domain and address form
-each value selects) and of <code>range_mode</code> (which out-of-range policy each of
-the 4 values selects) are not yet specified.</p>
+<p><strong>TBD:</strong> the bit position of <code>pad_mode</code> in the <code>dstructure</code> CR.</p>
+<p><strong>TBD - ask Jacob:</strong> whether <code>pad_mode</code> <code>1</code> and <code>2</code> can be used. They write
+<code>+inf</code> and <code>-inf</code>, and FP32 elements are never <code>inf</code> or <code>-inf</code>.</p>
 </blockquote>
-<h2 id="6-isa-aaq-instruction-reference">6. ISA-AaQ: Instruction Reference<a class="headerlink" href="#6-isa-aaq-instruction-reference" title="Permanent link">&para;</a></h2>
-<p>The opcode enum
-(<code>aaq_inst_opcode_t</code>, package <code>ipu_instr_pkg</code>) is generated from
-<a href="../../../src/ipu-isa/src/ipu_isa/instruction_spec.py"><code>instruction_spec.py</code></a>
-by <a href="../../../src/ipu-gen/src/ipu_gen/sv_package.py"><code>sv_package.py</code></a>.</p>
-<p>The AaQ slot is resolved by CTRL and forwarded down the pipeline;
-the stage does not read the CR/LR register files itself (see the
-Control Stage spec, section 5). The active element count is determined by each
-instruction's mandatory <code>cr_idx</code> operand together with <code>partition_mask</code>
-(section 3.1): <code>masked = partition_mask * (128 / partition)</code> elements are
-excluded from the right, so <code>n = min(valid_elements, 128 - masked)</code>
-at cycle start. There is no implicit default register; <code>cr_idx</code> must always
-be named explicitly (any <code>CR0</code>-<code>CR15</code>; <code>CR15</code> remains the conventional choice
-but is never assumed).</p>
-<h3 id="61-nop-no-operation">6.1 <code>NOP</code>: No Operation<a class="headerlink" href="#61-nop-no-operation" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>Summary:</strong> No operation for the AaQ slot; performs no state changes and no memory write.</li>
-<li><strong>Syntax:</strong> <code>NOP</code></li>
-<li><strong>Operands:</strong> none.</li>
-</ul>
-<h3 id="62-activatequantize-activate-and-quantize">6.2 <code>ACTIVATE.QUANTIZE</code>: Activate and Quantize<a class="headerlink" href="#62-activatequantize-activate-and-quantize" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>Summary:</strong> Apply an element-wise activation function to the active elements of <code>r_acc</code>, quantize the result, and write the resulting 8-bit values, scale factor, and <code>dynamic_exponent</code> bit to <code>POST_AAQ_REG</code>. <code>ST.AAQ</code> performs the XMEM write in the STORE slot. Activation functions are pre-configured into the LUT by <code>LOAD</code> (section 6.3); naming an activation in <code>function_type</code> triggers the corresponding loaded LUT entry. <code>r_acc</code> is not modified.</li>
-<li><strong>Syntax:</strong> <code>ACTIVATE.QUANTIZE function_type, cr_idx</code></li>
-<li><strong>Operands:</strong></li>
-<li><code>function_type</code>: activation/special-function keyword (see section 5.0): <code>identity</code>, <code>relu</code>, <code>relu6</code>, <code>generic</code>, <code>reciprocal</code>, <code>rsqrt</code>, <code>exp2</code>.</li>
-<li><code>cr_idx</code>: <code>CR0</code>…<code>CR15</code>, dstructure register supplying <code>valid_elements</code> (must be given explicitly; no implicit default).</li>
-<li><strong>Operation:</strong>
-  <div class="language-text highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>masked = partition_mask * (128 / partition)          // section 3.1
-</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>n = min(valid_elements, 128 - masked)
-</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>for i in 0..n-1:
-</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>    activated[i] = LUT[function_type](r_acc[i])      // section 5.0
-</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>    aaq_out.elements[i] = quantize(activated[i])     // section 5.1
-</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>aaq_out.elements[n..127] = 0
-</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>aaq_out.scale = s                                    // section 5.1
-</span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a>aaq_out.dynamic_exponent = format[8] ? (fe == 2) : 0 // section 5.1.1
-</span><span id="__span-9-9"><a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a>POST_AAQ_REG = aaq_out                              // 1033 bits, section 3.2
-</span></code></pre></div></li>
-<li><strong>Example:</strong> <code>ACTIVATE.QUANTIZE relu, CR15;;</code></li>
-</ul>
-<h3 id="63-load-load-function-estimation-lut-segment">6.3 <code>LOAD</code>: Load Function Estimation LUT Segment<a class="headerlink" href="#63-load-load-function-estimation-lut-segment" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>Summary:</strong> Fill one 1024-bit segment of the function estimation LUT (section 5.2) from the lower 32 words of <code>r_acc</code>. The 3-bit <code>lut_addr</code> selects the target segment: <code>0</code>–<code>3</code> load table entries, <code>4</code> loads the metadata block. Performs no XMEM write and does not modify <code>r_acc</code>.</li>
-<li><strong>Syntax:</strong> <code>LOAD lut_addr</code></li>
-<li><strong>Operands:</strong></li>
-<li><code>lut_addr</code>: LUT segment index, <code>0</code>–<code>7</code> (<code>0</code>–<code>3</code> = table, <code>4</code> = metadata, <code>5</code>–<code>7</code> reserved).</li>
-<li><strong>Operation:</strong>
-  <div class="language-text highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>payload[1023:0] = {r_acc[31], ..., r_acc[0]}        // 32 words x 32 bits
-</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>
-</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>if lut_addr &lt;= 3:                                  // table segment
-</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>    for j in 0..31:                                // low 17 bits per word;
-</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>        LUT[lut_addr*32 + j] = r_acc[j][16:0]      // word bits [31:17] ignored
-</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a>else if lut_addr == 4:                             // metadata segment
-</span><span id="__span-10-7"><a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a>    {range_mode, asymetric, pos_c, neg_c, max_exp_num} = payload[74:0]
-</span><span id="__span-10-8"><a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a>    // payload[1023:75] unused; field layout in section 5.2.2
-</span></code></pre></div></li>
-<li><strong>Example:</strong> <code>LOAD 4;;</code> (load the metadata block)</li>
-</ul>
-<h3 id="64-summary-table">6.4 Summary Table<a class="headerlink" href="#64-summary-table" title="Permanent link">&para;</a></h3>
+<h3 id="32-element-format">3.2 Element Format<a class="headerlink" href="#32-element-format" title="Permanent link">&para;</a></h3>
+<p>Input elements are in the NX8 format. One format applies to all elements. Each
+product (<code>MULT_RES</code> element) is FP32.</p>
+<p>Each MULT instruction (except <code>NOP</code>) names the format in its
+<code>quantizion_format</code> operand, a 32-bit <code>CR</code>. It has four 8-bit fields:</p>
 <table>
 <thead>
 <tr>
-<th>Slot</th>
-<th>Mnemonic</th>
-<th>Operands</th>
-<th>One-line Effect</th>
+<th>Bits</th>
+<th>Field</th>
+<th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>AaQ</td>
-<td><code>NOP</code></td>
-<td>-</td>
-<td>no state change</td>
+<td><code>[31:24]</code></td>
+<td><code>N/A</code></td>
+<td>Not used.</td>
 </tr>
 <tr>
-<td>AaQ</td>
-<td><code>ACTIVATE.QUANTIZE</code></td>
-<td><code>function_type, cr_idx</code></td>
-<td><code>aaq_out.elements[0..n-1] = quantize(LUT[function_type](r_acc[i]))</code>, <code>aaq_out.scale/dynamic_exponent</code> set, <code>POST_AAQ_REG = aaq_out</code>, n = min(valid_elements, 128 - partition_mask * (128/partition))</td>
+<td><code>[23:16]</code></td>
+<td><code>sign</code></td>
+<td><code>0</code> = unsigned, <code>1</code> = signed.</td>
 </tr>
 <tr>
-<td>AaQ</td>
-<td><code>LOAD</code></td>
-<td><code>lut_addr</code></td>
-<td><code>LUT.segment[lut_addr] = r_acc[31:0]</code> low 17 bits per word; <code>lut_addr</code> <code>0</code>-<code>3</code> = 32 table entries each, <code>4</code> = metadata block</td>
+<td><code>[15:8]</code></td>
+<td><code>nx_format</code></td>
+<td>Exponent format. <code>0</code> = dynamic, <code>1</code>-<code>7</code> = <code>e1</code>-<code>e7</code> (fixed exponent width <code>fe</code>).</td>
+</tr>
+<tr>
+<td><code>[7:0]</code></td>
+<td><code>num_bits</code></td>
+<td>Total element width <code>W</code>: <code>1</code>-<code>8</code>. <code>0</code> is reserved/invalid.</td>
 </tr>
 </tbody>
 </table>
+<h4 id="321-nx8-to-fp32">3.2.1 NX8 to FP32<a class="headerlink" href="#321-nx8-to-fp32" title="Permanent link">&para;</a></h4>
+<p>Every MULT instruction converts each NX8 input element to FP32 before it
+multiplies. The conversion uses the element <code>x</code> (8 bits), the vector scale <code>s</code>
+(8-bit <code>e8m0</code>) and the exponent width <code>fe</code>.</p>
+<p><strong>Exponent width <code>fe</code>:</strong></p>
+<table>
+<thead>
+<tr>
+<th><code>nx_format</code></th>
+<th><code>fe</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>1</code>-<code>7</code></td>
+<td>The <code>nx_format</code> value.</td>
+</tr>
+<tr>
+<td><code>0</code> (dynamic)</td>
+<td><code>1</code> if <code>dynamic_exponent = 0</code>, <code>2</code> if <code>dynamic_exponent = 1</code>. Dynamic elements are signed and 8 bits wide.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Fields.</strong> An element is packed from the high end as <code>{S, Exp, M, 0-pad}</code>:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>fm   = num_bits - fe - sign                // mantissa bits
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>S    = (sign == 1) ? x[7] : 0
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>Exp  = x[7 - sign -: fe]                   // fe bits after S
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>M    = x[7 - sign - fe -: fm]              // fm bits after Exp, 0 when fm = 0
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>Emax = 2^fe - 1
+</span></code></pre></div>
+<p><strong>Value:</strong></p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>if Exp &lt; Emax:                                            // direct
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>    fp32 = (-1)^S x 2^(s - 127 - Exp) x (1 + M / 2^fm)
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>else:                                                     // clamp, Exp = Emax
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    fp32 = (-1)^S x 2^(s - 127 - (Emax - 1)) x (M / 2^fm)
+</span></code></pre></div>
+<blockquote>
+<p><strong>TBD - ask Jacob:</strong> an NX8 element that is <code>NaN</code>, <code>inf</code> or <code>-inf</code>: which FP32
+value does it convert to?</p>
+</blockquote>
+<p><strong>Vector metadata.</strong> Each vector is loaded and saved with its metadata:</p>
+<table>
+<thead>
+<tr>
+<th>Metadata</th>
+<th>Size</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Scale</code> (<code>s</code>)</td>
+<td>8 bits</td>
+<td>Scale shared by the whole vector.</td>
+</tr>
+<tr>
+<td><code>dynamic_static</code></td>
+<td>1 bit</td>
+<td>Dynamic or static quantization.</td>
+</tr>
+<tr>
+<td><code>dynamic_exponent</code></td>
+<td>1 bit</td>
+<td><code>e1</code> or <code>e2</code>: the exponent width chosen in dynamic quantization. <code>0</code> in static quantization.</td>
+</tr>
+</tbody>
+</table>
+<p><code>R0</code>, <code>R1</code> and each 128-element slot of <code>R_CYCLIC</code> keep the metadata of the
+vector loaded into them. Each element uses the metadata of the register or
+slot that holds it.</p>
+<h3 id="33-operand-addressing">3.3 Operand Addressing<a class="headerlink" href="#33-operand-addressing" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Operand source</th>
+<th>Element <code>j</code></th>
+<th>Range of <code>j</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Ra</code></td>
+<td><code>R0[j]</code> for <code>j &lt; 128</code>, <code>R1[j - 128]</code> for <code>j &gt;= 128</code></td>
+<td><code>0</code>-<code>255</code></td>
+</tr>
+<tr>
+<td><code>R_CYCLIC</code></td>
+<td><code>R_CYCLIC[j]</code></td>
+<td><code>0</code>-<code>511</code></td>
+</tr>
+</tbody>
+</table>
+<p>A vector operand is 128 consecutive elements from a start index: element <code>i</code>
+of the operand is <code>Ra[start + i]</code> or <code>R_CYCLIC[start + i]</code>.</p>
+<h3 id="34-element-masking">3.4 Element Masking<a class="headerlink" href="#34-element-masking" title="Permanent link">&para;</a></h3>
+<p>Every multiply instruction masks its result. Bit <code>i</code> of a mask belongs to
+element <code>i</code>. Elements whose mask bit is <code>1</code> keep their product; elements whose
+bit is <code>0</code> get the pad value (<code>pad_mode</code>, section 3.1).</p>
+<p>The mask is built in two steps:</p>
+<ol>
+<li><code>mask_offset</code> selects one of the 8 slots of <code>R_MASK</code>.</li>
+<li><code>mask_shift</code> shifts that slot mask by up to 3 elements. After each
+   one-element shift, the mask is ANDed with a partition vector, so mask bits
+   never cross a group boundary.</li>
+</ol>
+<p><img alt="Element masking: mask_offset selects an R_MASK slot, two shift chains make every shift, mask_shift selects one" src="../assets/mult-masking.svg" /></p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>shift = clamp(mask_shift, -3, 3)                       // mask_shift is two's complement
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>mask  = R_MASK.slot[mask_offset]                        // 128 bits
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>repeat |shift| times:
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    if shift &gt; 0: mask = (mask &lt;&lt; 1) &amp; partition_vector          // towards higher elements
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>    if shift &lt; 0: mask = (mask &gt;&gt; 1) &amp; inverse_partition_vector  // towards lower elements
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>for i in 0..127:
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>    if mask[i] == 0: MULT_RES[i] = pad_value
+</span></code></pre></div>
+<p><strong>Partitions.</strong> The 128 elements form <code>num_partition</code> partitions (groups) of
+<code>128 / num_partition</code> elements (section 3.1). Partition <code>p</code> holds elements
+<code>p * (128 / num_partition)</code> to <code>(p + 1) * (128 / num_partition) - 1</code>.</p>
+<p><strong>Partition vectors.</strong> Two 128-bit vectors mark the partition boundaries:</p>
+<table>
+<thead>
+<tr>
+<th>Vector</th>
+<th>Bits that are <code>0</code></th>
+<th>Used by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>partition_vector</code></td>
+<td>The first element of each partition</td>
+<td><code>mask_shift &gt; 0</code></td>
+</tr>
+<tr>
+<td><code>inverse_partition_vector</code></td>
+<td>The last element of each partition</td>
+<td><code>mask_shift &lt; 0</code></td>
+</tr>
+</tbody>
+</table>
+<p>All other bits are <code>1</code>. The vectors for each <code>num_partition</code>, element <code>0</code> first
+(<code>1^n</code> is <code>n</code> ones):</p>
+<table>
+<thead>
+<tr>
+<th><code>num_partition</code></th>
+<th>Elements per partition</th>
+<th><code>partition_vector</code></th>
+<th><code>inverse_partition_vector</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>1</code></td>
+<td><code>128</code></td>
+<td><code>1^128</code></td>
+<td><code>1^128</code></td>
+</tr>
+<tr>
+<td><code>2</code></td>
+<td><code>64</code></td>
+<td><code>0 1^63 0 1^63</code></td>
+<td><code>1^63 0 1^63 0</code></td>
+</tr>
+<tr>
+<td><code>4</code></td>
+<td><code>32</code></td>
+<td><code>(0 1^31)</code> x 4</td>
+<td><code>(1^31 0)</code> x 4</td>
+</tr>
+<tr>
+<td><code>8</code></td>
+<td><code>16</code></td>
+<td><code>(0 1^15)</code> x 8</td>
+<td><code>(1^15 0)</code> x 8</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>Note:</strong> After reset, every bit of <code>R_MASK</code> is <code>1</code>: every element keeps its
+product.</p>
+<p><strong>TBD - ask Aviv:</strong> the default value of <code>R_MASK</code>.</p>
+<p><strong>TBD - ask Aviv:</strong> do we add masking examples?</p>
+</blockquote>
+<h2 id="4-multiply-isa">4. Multiply ISA<a class="headerlink" href="#4-multiply-isa" title="Permanent link">&para;</a></h2>
+<p>The MULT and LOAD slots are resolved by CTRL and forwarded down the pipeline. The stage
+does not read the CR/LR register files itself (see the Control Stage spec,
+section 5).</p>
+<p>The opcode enum (<code>mult_inst_opcode_t</code>, package <code>ipu_instr_pkg</code>) is generated
+from <a href="../../../src/ipu-isa/src/ipu_isa/instruction_spec.py"><code>instruction_spec.py</code></a>
+by <a href="../../../src/ipu-gen/src/ipu_gen/sv_package.py"><code>sv_package.py</code></a>.</p>
+<blockquote>
+<p><strong>Note:</strong> Each <code>CR0</code>-<code>CR15</code> and <code>LR0</code>-<code>LR15</code> register named in the
+instruction operands is <strong>32 bits</strong> wide. An <code>LR</code> operand is read after this
+cycle's LR updates.</p>
+</blockquote>
+<p><strong>Instructions in this section:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Instruction</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="#41-nop-no-operation"><code>NOP</code></a></td>
+<td>Do nothing.</td>
+</tr>
+<tr>
+<td><a href="#42-ldr_mult_reg-load-r0-or-r1"><code>LDR_MULT_REG</code></a></td>
+<td>Load one XMEM row into <code>R0</code> or <code>R1</code>.</td>
+</tr>
+<tr>
+<td><a href="#43-ldr_cyclic_mult_reg-load-an-r_cyclic-slot"><code>LDR_CYCLIC_MULT_REG</code></a></td>
+<td>Load one XMEM row into one slot of <code>R_CYCLIC</code>.</td>
+</tr>
+<tr>
+<td><a href="#44-ldr_mult_mask_reg-load-r_mask"><code>LDR_MULT_MASK_REG</code></a></td>
+<td>Load one XMEM row into <code>R_MASK</code>.</td>
+</tr>
+<tr>
+<td><a href="#45-multrcvv-r_cyclic-vector-x-ra-vector"><code>MULT.RC.VV</code></a></td>
+<td><code>R_CYCLIC</code> vector x <code>R0</code> or <code>R1</code>.</td>
+</tr>
+<tr>
+<td><a href="#46-multrcve-r_cyclic-vector-x-scalar"><code>MULT.RC.VE</code></a></td>
+<td><code>R_CYCLIC</code> vector x a scalar from <code>Ra</code> or a <code>CR</code>.</td>
+</tr>
+<tr>
+<td><a href="#47-multrcvs-r_cyclic-vector-square"><code>MULT.RC.VS</code></a></td>
+<td><code>R_CYCLIC</code> vector x itself.</td>
+</tr>
+<tr>
+<td><a href="#48-multve-ra-vector-x-cr-scalar"><code>MULT.VE</code></a></td>
+<td><code>Ra</code> vector x a <code>CR</code> scalar.</td>
+</tr>
+<tr>
+<td><a href="#49-multee-ra-element-x-cr-scalar-broadcast"><code>MULT.EE</code></a></td>
+<td>One <code>Ra</code> element x a <code>CR</code> scalar, broadcast to all 128 elements.</td>
+</tr>
+</tbody>
+</table>
+<p>In every <code>MULT</code> Operation below, <code>x</code> converts both NX8 operands to FP32 (section
+3.2.1) and multiplies them. <code>apply_mask</code> is section 3.4.</p>
+<hr />
+<h3 id="41-nop-no-operation">4.1 <code>NOP</code>: No Operation<a class="headerlink" href="#41-nop-no-operation" title="Permanent link">&para;</a></h3>
+<p>No operation for the MULT slot.</p>
+<h4 id="syntax">Syntax<a class="headerlink" href="#syntax" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>NOP
+</span></code></pre></div>
+<h4 id="operands">Operands<a class="headerlink" href="#operands" title="Permanent link">&para;</a></h4>
+<p>None.</p>
+<h4 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>NOP;;
+</span></code></pre></div>
+<hr />
+<h3 id="42-ldr_mult_reg-load-r0-or-r1">4.2 <code>LDR_MULT_REG</code>: Load R0 or R1<a class="headerlink" href="#42-ldr_mult_reg-load-r0-or-r1" title="Permanent link">&para;</a></h3>
+<p>Loads one XMEM row into <code>R0</code> or <code>R1</code>, with its vector metadata.</p>
+<h4 id="syntax_1">Syntax<a class="headerlink" href="#syntax_1" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>LDR_MULT_REG dest, offset, base
+</span></code></pre></div>
+<h4 id="operands_1">Operands<a class="headerlink" href="#operands_1" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Details</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dest</code></td>
+<td><a href="../../reference/isa/operand-types/#multstagereg"><code>Imm</code></a></td>
+<td><code>R0</code> or <code>R1</code>. The register that is written.</td>
+</tr>
+<tr>
+<td><code>offset</code></td>
+<td><a href="../../reference/isa/operand-types/#lridx"><code>LrIdx</code></a></td>
+<td><code>LR0</code>-<code>LR15</code>. Row offset in XMEM.</td>
+</tr>
+<tr>
+<td><code>base</code></td>
+<td><a href="../../reference/isa/operand-types/#cridx"><code>CrIdx</code></a></td>
+<td><code>CR0</code>-<code>CR15</code>. Base row in XMEM.</td>
+</tr>
+</tbody>
+</table>
+<h4 id="operation">Operation<a class="headerlink" href="#operation" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>dest = XMEM[offset + base]      // 128 elements + metadata (section 3.2.1)
+</span></code></pre></div>
+<h4 id="example_1">Example<a class="headerlink" href="#example_1" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>LDR_MULT_REG R0, LR0, CR0;;
+</span></code></pre></div>
+<hr />
+<h3 id="43-ldr_cyclic_mult_reg-load-an-r_cyclic-slot">4.3 <code>LDR_CYCLIC_MULT_REG</code>: Load an R_CYCLIC Slot<a class="headerlink" href="#43-ldr_cyclic_mult_reg-load-an-r_cyclic-slot" title="Permanent link">&para;</a></h3>
+<p>Loads one XMEM row into one 128-element slot of <code>R_CYCLIC</code>, with its vector
+metadata. The other slots keep their values.</p>
+<h4 id="syntax_2">Syntax<a class="headerlink" href="#syntax_2" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>LDR_CYCLIC_MULT_REG offset, base, index
+</span></code></pre></div>
+<h4 id="operands_2">Operands<a class="headerlink" href="#operands_2" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Details</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>offset</code></td>
+<td><a href="../../reference/isa/operand-types/#lridx"><code>LrIdx</code></a></td>
+<td><code>LR0</code>-<code>LR15</code>. Row offset in XMEM.</td>
+</tr>
+<tr>
+<td><code>base</code></td>
+<td><a href="../../reference/isa/operand-types/#cridx"><code>CrIdx</code></a></td>
+<td><code>CR0</code>-<code>CR15</code>. Base row in XMEM.</td>
+</tr>
+<tr>
+<td><code>index</code></td>
+<td><a href="../../reference/isa/operand-types/#lridx"><code>LrIdx</code></a></td>
+<td><code>LR0</code>-<code>LR15</code> whose value is <code>0</code>, <code>128</code>, <code>256</code> or <code>384</code>. The first element of the written slot.</td>
+</tr>
+</tbody>
+</table>
+<h4 id="operation_1">Operation<a class="headerlink" href="#operation_1" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>R_CYCLIC[index .. index + 127] = XMEM[offset + base]   // 128 elements + metadata (section 3.2.1)
+</span></code></pre></div>
+<h4 id="example_2">Example<a class="headerlink" href="#example_2" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>LDR_CYCLIC_MULT_REG LR0, CR0, LR1;;
+</span></code></pre></div>
+<hr />
+<h3 id="44-ldr_mult_mask_reg-load-r_mask">4.4 <code>LDR_MULT_MASK_REG</code>: Load R_MASK<a class="headerlink" href="#44-ldr_mult_mask_reg-load-r_mask" title="Permanent link">&para;</a></h3>
+<p>Loads one XMEM row into <code>R_MASK</code> (8 slots of 128 bits, section 3.4).</p>
+<h4 id="syntax_3">Syntax<a class="headerlink" href="#syntax_3" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>LDR_MULT_MASK_REG offset, base
+</span></code></pre></div>
+<h4 id="operands_3">Operands<a class="headerlink" href="#operands_3" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Details</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>offset</code></td>
+<td><a href="../../reference/isa/operand-types/#lridx"><code>LrIdx</code></a></td>
+<td><code>LR0</code>-<code>LR15</code>. Row offset in XMEM.</td>
+</tr>
+<tr>
+<td><code>base</code></td>
+<td><a href="../../reference/isa/operand-types/#cridx"><code>CrIdx</code></a></td>
+<td><code>CR0</code>-<code>CR15</code>. Base row in XMEM.</td>
+</tr>
+</tbody>
+</table>
+<h4 id="operation_2">Operation<a class="headerlink" href="#operation_2" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>R_MASK = XMEM[offset + base]    // 128 B = 8 x 128 bits
+</span></code></pre></div>
+<h4 id="example_3">Example<a class="headerlink" href="#example_3" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>LDR_MULT_MASK_REG LR0, CR0;;
+</span></code></pre></div>
+<hr />
+<h3 id="45-multrcvv-r_cyclic-vector-x-ra-vector">4.5 <code>MULT.RC.VV</code>: R_CYCLIC Vector x Ra Vector<a class="headerlink" href="#45-multrcvv-r_cyclic-vector-x-ra-vector" title="Permanent link">&para;</a></h3>
+<p>Multiplies a 128-element window of <code>R_CYCLIC</code> by <code>R0</code> or <code>R1</code>, element by
+element.</p>
+<h4 id="syntax_4">Syntax<a class="headerlink" href="#syntax_4" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>MULT.RC.VV rc_idx, ra, mask_offset, mask_shift, cr_idx, quantizion_format
+</span></code></pre></div>
+<h4 id="operands_4">Operands<a class="headerlink" href="#operands_4" title="Permanent link">&para;</a></h4>
+<p>The Type column links to the <a href="../../reference/isa/operand-types/">operand type reference</a>.</p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Details</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>rc_idx</code></td>
+<td><a href="../../reference/isa/operand-types/#lridx"><code>LrIdx</code></a></td>
+<td><code>LR0</code>-<code>LR15</code>. Start element of the <code>R_CYCLIC</code> window (section 3.3).</td>
+</tr>
+<tr>
+<td><code>ra</code></td>
+<td><a href="../../reference/isa/operand-types/#multstagereg"><code>Imm</code></a></td>
+<td><code>R0</code> or <code>R1</code>.</td>
+</tr>
+<tr>
+<td><code>mask_offset</code></td>
+<td><a href="../../reference/isa/operand-types/#multmaskoffsetimmediate"><code>Imm</code></a></td>
+<td><code>0</code>-<code>7</code>. <code>R_MASK</code> slot (section 3.4).</td>
+</tr>
+<tr>
+<td><code>mask_shift</code></td>
+<td><a href="../../reference/isa/operand-types/#lridx"><code>LrIdx</code></a></td>
+<td><code>LR0</code>-<code>LR15</code>. Mask shift, <code>-3</code>-<code>+3</code> (section 3.4).</td>
+</tr>
+<tr>
+<td><code>cr_idx</code></td>
+<td><a href="../../reference/isa/operand-types/#cridx"><code>CrIdx</code></a></td>
+<td><code>CR0</code>-<code>CR15</code>. Supplies <code>num_partition</code> and <code>pad_mode</code> (section 3.1).</td>
+</tr>
+<tr>
+<td><code>quantizion_format</code></td>
+<td><a href="../../reference/isa/operand-types/#cridx"><code>CrIdx</code></a></td>
+<td><code>CR0</code>-<code>CR15</code>. Supplies the NX8 format of the input elements (section 3.2).</td>
+</tr>
+</tbody>
+</table>
+<h4 id="operation_3">Operation<a class="headerlink" href="#operation_3" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>for i in 0..127:
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>    MULT_RES[i] = R_CYCLIC[rc_idx + i] x ra[i]
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>apply_mask(mask_offset, mask_shift, cr_idx)
+</span></code></pre></div>
+<h4 id="example_4">Example<a class="headerlink" href="#example_4" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>MULT.RC.VV LR0, R0, 0, LR2, CR15, CR14;;
+</span></code></pre></div>
+<hr />
+<h3 id="46-multrcve-r_cyclic-vector-x-scalar">4.6 <code>MULT.RC.VE</code>: R_CYCLIC Vector x Scalar<a class="headerlink" href="#46-multrcve-r_cyclic-vector-x-scalar" title="Permanent link">&para;</a></h3>
+<p>Multiplies a 128-element window of <code>R_CYCLIC</code> by one scalar. The scalar is an
+element of <code>Ra</code> or the low byte of a <code>CR</code>.</p>
+<h4 id="syntax_5">Syntax<a class="headerlink" href="#syntax_5" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>MULT.RC.VE rc_idx, src, mask_offset, mask_shift, cr_idx, quantizion_format
+</span></code></pre></div>
+<h4 id="operands_5">Operands<a class="headerlink" href="#operands_5" title="Permanent link">&para;</a></h4>
+<p>The Type column links to the <a href="../../reference/isa/operand-types/">operand type reference</a>.</p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Details</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>rc_idx</code></td>
+<td><a href="../../reference/isa/operand-types/#lridx"><code>LrIdx</code></a></td>
+<td><code>LR0</code>-<code>LR15</code>. Start element of the <code>R_CYCLIC</code> window (section 3.3).</td>
+</tr>
+<tr>
+<td><code>src</code></td>
+<td><a href="../../reference/isa/operand-types/#lcridx"><code>LcrIdx</code></a></td>
+<td><code>LR0</code>-<code>LR15</code> or <code>CR0</code>-<code>CR15</code>. An <code>LR</code>'s value selects the scalar <code>Ra[src]</code>. A <code>CR</code> supplies the scalar in bits <code>[7:0]</code>.</td>
+</tr>
+<tr>
+<td><code>mask_offset</code></td>
+<td><a href="../../reference/isa/operand-types/#multmaskoffsetimmediate"><code>Imm</code></a></td>
+<td><code>0</code>-<code>7</code>. <code>R_MASK</code> slot (section 3.4).</td>
+</tr>
+<tr>
+<td><code>mask_shift</code></td>
+<td><a href="../../reference/isa/operand-types/#lridx"><code>LrIdx</code></a></td>
+<td><code>LR0</code>-<code>LR15</code>. Mask shift, <code>-3</code>-<code>+3</code> (section 3.4).</td>
+</tr>
+<tr>
+<td><code>cr_idx</code></td>
+<td><a href="../../reference/isa/operand-types/#cridx"><code>CrIdx</code></a></td>
+<td><code>CR0</code>-<code>CR15</code>. Supplies <code>num_partition</code> and <code>pad_mode</code> (section 3.1).</td>
+</tr>
+<tr>
+<td><code>quantizion_format</code></td>
+<td><a href="../../reference/isa/operand-types/#cridx"><code>CrIdx</code></a></td>
+<td><code>CR0</code>-<code>CR15</code>. Supplies the NX8 format of the input elements (section 3.2).</td>
+</tr>
+</tbody>
+</table>
+<h4 id="operation_4">Operation<a class="headerlink" href="#operation_4" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>scalar = (src is an LR) ? Ra[src] : src[7:0]
+</span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a>for i in 0..127:
+</span><span id="__span-18-3"><a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a>    MULT_RES[i] = R_CYCLIC[rc_idx + i] x scalar
+</span><span id="__span-18-4"><a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a>apply_mask(mask_offset, mask_shift, cr_idx)
+</span></code></pre></div>
+<h4 id="example_5">Example<a class="headerlink" href="#example_5" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>MULT.RC.VE LR0, LR3, 0, LR2, CR15, CR14;;      // scalar = Ra[LR3]
+</span></code></pre></div>
+<hr />
+<h3 id="47-multrcvs-r_cyclic-vector-square">4.7 <code>MULT.RC.VS</code>: R_CYCLIC Vector Square<a class="headerlink" href="#47-multrcvs-r_cyclic-vector-square" title="Permanent link">&para;</a></h3>
+<p>Multiplies a 128-element window of <code>R_CYCLIC</code> by itself, element by element.</p>
+<h4 id="syntax_6">Syntax<a class="headerlink" href="#syntax_6" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>MULT.RC.VS rc_idx, mask_offset, mask_shift, cr_idx, quantizion_format
+</span></code></pre></div>
+<h4 id="operands_6">Operands<a class="headerlink" href="#operands_6" title="Permanent link">&para;</a></h4>
+<p>The Type column links to the <a href="../../reference/isa/operand-types/">operand type reference</a>.</p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Details</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>rc_idx</code></td>
+<td><a href="../../reference/isa/operand-types/#lridx"><code>LrIdx</code></a></td>
+<td><code>LR0</code>-<code>LR15</code>. Start element of the <code>R_CYCLIC</code> window (section 3.3).</td>
+</tr>
+<tr>
+<td><code>mask_offset</code></td>
+<td><a href="../../reference/isa/operand-types/#multmaskoffsetimmediate"><code>Imm</code></a></td>
+<td><code>0</code>-<code>7</code>. <code>R_MASK</code> slot (section 3.4).</td>
+</tr>
+<tr>
+<td><code>mask_shift</code></td>
+<td><a href="../../reference/isa/operand-types/#lridx"><code>LrIdx</code></a></td>
+<td><code>LR0</code>-<code>LR15</code>. Mask shift, <code>-3</code>-<code>+3</code> (section 3.4).</td>
+</tr>
+<tr>
+<td><code>cr_idx</code></td>
+<td><a href="../../reference/isa/operand-types/#cridx"><code>CrIdx</code></a></td>
+<td><code>CR0</code>-<code>CR15</code>. Supplies <code>num_partition</code> and <code>pad_mode</code> (section 3.1).</td>
+</tr>
+<tr>
+<td><code>quantizion_format</code></td>
+<td><a href="../../reference/isa/operand-types/#cridx"><code>CrIdx</code></a></td>
+<td><code>CR0</code>-<code>CR15</code>. Supplies the NX8 format of the input elements (section 3.2).</td>
+</tr>
+</tbody>
+</table>
+<h4 id="operation_5">Operation<a class="headerlink" href="#operation_5" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>for i in 0..127:
+</span><span id="__span-21-2"><a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a>    element     = R_CYCLIC[rc_idx + i]
+</span><span id="__span-21-3"><a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a>    MULT_RES[i] = element x element
+</span><span id="__span-21-4"><a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a>apply_mask(mask_offset, mask_shift, cr_idx)
+</span></code></pre></div>
+<h4 id="example_6">Example<a class="headerlink" href="#example_6" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>MULT.RC.VS LR0, 0, LR2, CR15, CR14;;
+</span></code></pre></div>
+<hr />
+<h3 id="48-multve-ra-vector-x-cr-scalar">4.8 <code>MULT.VE</code>: Ra Vector x CR Scalar<a class="headerlink" href="#48-multve-ra-vector-x-cr-scalar" title="Permanent link">&para;</a></h3>
+<p>Multiplies a 128-element window of <code>Ra</code> by the low byte of a <code>CR</code>.</p>
+<h4 id="syntax_7">Syntax<a class="headerlink" href="#syntax_7" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>MULT.VE ra_idx, cr_idx, mask_offset, mask_shift, dstructure_cr_idx, quantizion_format
+</span></code></pre></div>
+<h4 id="operands_7">Operands<a class="headerlink" href="#operands_7" title="Permanent link">&para;</a></h4>
+<p>The Type column links to the <a href="../../reference/isa/operand-types/">operand type reference</a>.</p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Details</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ra_idx</code></td>
+<td><a href="../../reference/isa/operand-types/#lridx"><code>LrIdx</code></a></td>
+<td><code>LR0</code>-<code>LR15</code>. Start element of the <code>Ra</code> window (section 3.3).</td>
+</tr>
+<tr>
+<td><code>cr_idx</code></td>
+<td><a href="../../reference/isa/operand-types/#cridx"><code>CrIdx</code></a></td>
+<td><code>CR0</code>-<code>CR15</code>. Supplies the scalar in bits <code>[7:0]</code>.</td>
+</tr>
+<tr>
+<td><code>mask_offset</code></td>
+<td><a href="../../reference/isa/operand-types/#multmaskoffsetimmediate"><code>Imm</code></a></td>
+<td><code>0</code>-<code>7</code>. <code>R_MASK</code> slot (section 3.4).</td>
+</tr>
+<tr>
+<td><code>mask_shift</code></td>
+<td><a href="../../reference/isa/operand-types/#lridx"><code>LrIdx</code></a></td>
+<td><code>LR0</code>-<code>LR15</code>. Mask shift, <code>-3</code>-<code>+3</code> (section 3.4).</td>
+</tr>
+<tr>
+<td><code>dstructure_cr_idx</code></td>
+<td><a href="../../reference/isa/operand-types/#cridx"><code>CrIdx</code></a></td>
+<td><code>CR0</code>-<code>CR15</code>. Supplies <code>num_partition</code> and <code>pad_mode</code> (section 3.1).</td>
+</tr>
+<tr>
+<td><code>quantizion_format</code></td>
+<td><a href="../../reference/isa/operand-types/#cridx"><code>CrIdx</code></a></td>
+<td><code>CR0</code>-<code>CR15</code>. Supplies the NX8 format of the input elements (section 3.2).</td>
+</tr>
+</tbody>
+</table>
+<h4 id="operation_6">Operation<a class="headerlink" href="#operation_6" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a>for i in 0..127:
+</span><span id="__span-24-2"><a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a>    MULT_RES[i] = Ra[ra_idx + i] x cr_idx[7:0]
+</span><span id="__span-24-3"><a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a>apply_mask(mask_offset, mask_shift, dstructure_cr_idx)
+</span></code></pre></div>
+<h4 id="example_7">Example<a class="headerlink" href="#example_7" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a>MULT.VE LR0, CR3, 0, LR2, CR15, CR14;;
+</span></code></pre></div>
+<hr />
+<h3 id="49-multee-ra-element-x-cr-scalar-broadcast">4.9 <code>MULT.EE</code>: Ra Element x CR Scalar, Broadcast<a class="headerlink" href="#49-multee-ra-element-x-cr-scalar-broadcast" title="Permanent link">&para;</a></h3>
+<p>Multiplies one element of <code>Ra</code> by the low byte of a <code>CR</code> and writes the
+product to all 128 elements.</p>
+<h4 id="syntax_8">Syntax<a class="headerlink" href="#syntax_8" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a>MULT.EE ra_idx, cr_idx, mask_offset, mask_shift, dstructure_cr_idx, quantizion_format
+</span></code></pre></div>
+<h4 id="operands_8">Operands<a class="headerlink" href="#operands_8" title="Permanent link">&para;</a></h4>
+<p>The Type column links to the <a href="../../reference/isa/operand-types/">operand type reference</a>.</p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Details</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ra_idx</code></td>
+<td><a href="../../reference/isa/operand-types/#lridx"><code>LrIdx</code></a></td>
+<td><code>LR0</code>-<code>LR15</code>. The <code>Ra</code> element, <code>Ra[ra_idx]</code> (section 3.3).</td>
+</tr>
+<tr>
+<td><code>cr_idx</code></td>
+<td><a href="../../reference/isa/operand-types/#cridx"><code>CrIdx</code></a></td>
+<td><code>CR0</code>-<code>CR15</code>. Supplies the scalar in bits <code>[7:0]</code>.</td>
+</tr>
+<tr>
+<td><code>mask_offset</code></td>
+<td><a href="../../reference/isa/operand-types/#multmaskoffsetimmediate"><code>Imm</code></a></td>
+<td><code>0</code>-<code>7</code>. <code>R_MASK</code> slot (section 3.4).</td>
+</tr>
+<tr>
+<td><code>mask_shift</code></td>
+<td><a href="../../reference/isa/operand-types/#lridx"><code>LrIdx</code></a></td>
+<td><code>LR0</code>-<code>LR15</code>. Mask shift, <code>-3</code>-<code>+3</code> (section 3.4).</td>
+</tr>
+<tr>
+<td><code>dstructure_cr_idx</code></td>
+<td><a href="../../reference/isa/operand-types/#cridx"><code>CrIdx</code></a></td>
+<td><code>CR0</code>-<code>CR15</code>. Supplies <code>num_partition</code> and <code>pad_mode</code> (section 3.1).</td>
+</tr>
+<tr>
+<td><code>quantizion_format</code></td>
+<td><a href="../../reference/isa/operand-types/#cridx"><code>CrIdx</code></a></td>
+<td><code>CR0</code>-<code>CR15</code>. Supplies the NX8 format of the input elements (section 3.2).</td>
+</tr>
+</tbody>
+</table>
+<h4 id="operation_7">Operation<a class="headerlink" href="#operation_7" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a>product = Ra[ra_idx] x cr_idx[7:0]
+</span><span id="__span-27-2"><a id="__codelineno-27-2" name="__codelineno-27-2" href="#__codelineno-27-2"></a>for i in 0..127:
+</span><span id="__span-27-3"><a id="__codelineno-27-3" name="__codelineno-27-3" href="#__codelineno-27-3"></a>    MULT_RES[i] = product
+</span><span id="__span-27-4"><a id="__codelineno-27-4" name="__codelineno-27-4" href="#__codelineno-27-4"></a>apply_mask(mask_offset, mask_shift, dstructure_cr_idx)
+</span></code></pre></div>
+<h4 id="example_8">Example<a class="headerlink" href="#example_8" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a>MULT.EE LR0, CR3, 0, LR2, CR15, CR14;;
+</span></code></pre></div>
 
 
 
@@ -3815,7 +3871,7 @@ but is never assumed).</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 18, 2026 21:48:18 UTC"><span class="timeago" datetime="2026-10-18T21:48:18+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 18, 2026 21:48:18 UTC">2026-10-18</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 23, 2026 12:16:35 UTC"><span class="timeago" datetime="2026-10-23T12:16:35+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 23, 2026 12:16:35 UTC">2026-10-23</span>
   </span>
 
     
@@ -3825,7 +3881,7 @@ but is never assumed).</p>
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="July 30, 2026 15:47:07 UTC"><span class="timeago" datetime="2026-07-30T15:47:07+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="July 30, 2026 15:47:07 UTC">2026-07-30</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 17, 2026 17:15:04 UTC"><span class="timeago" datetime="2026-10-17T17:15:04+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 17, 2026 17:15:04 UTC">2026-10-17</span>
   </span>
 
     
@@ -3840,7 +3896,7 @@ but is never assumed).</p>
                 
   
   <p class="md-typeset" style="margin-top: 2em;">
-    <a href="https://github.com/rechefe/ipu-emulator/commits/master/docs/content/specs/stage-aaq-str.md">View commit history for this page on GitHub</a>
+    <a href="https://github.com/rechefe/ipu-emulator/commits/master/docs/content/specs/ARCH-stage-mult.md">View commit history for this page on GitHub</a>
   </p>
   
   
@@ -3907,6 +3963,8 @@ but is never assumed).</p>
         <script src="../../js/timeago.min.js"></script>
       
         <script src="../../js/timeago_mkdocs_material.js"></script>
+      
+        <script src="https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js"></script>
       
     
   </body>

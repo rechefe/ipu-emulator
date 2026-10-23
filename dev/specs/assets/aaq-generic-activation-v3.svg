@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 680" width="1000" height="680" font-family="sans-serif" font-size="14">
+  <defs>
+    <marker id="axis" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#222"/>
+    </marker>
+  </defs>
+  <rect width="1000" height="680" fill="#fff"/>
+
+  <!-- LUT range: -2^max_exp_num .. 2^max_exp -->
+  <rect x="310" y="70" width="380" height="540" fill="#2e9e8c" fill-opacity="0.15"/>
+  <text x="405" y="180" text-anchor="middle" font-size="20" font-weight="bold" fill="#1a7060">LUT</text>
+  <text x="405" y="202" text-anchor="middle" fill="#1a7060">128 entries</text>
+  <text x="595" y="180" text-anchor="middle" font-size="20" font-weight="bold" fill="#1a7060">LUT</text>
+  <text x="595" y="202" text-anchor="middle" fill="#1a7060">128 entries</text>
+
+  <!-- axes -->
+  <line x1="20" y1="340" x2="970" y2="340" stroke="#222" stroke-width="1.5" marker-end="url(#axis)"/>
+  <line x1="500" y1="660" x2="500" y2="25" stroke="#222" stroke-width="1.5" marker-end="url(#axis)"/>
+  <text x="978" y="345" fill="#222">x</text>
+  <text x="486" y="30" fill="#222">y</text>
+
+  <!-- LUT curve inside the range -->
+  <path d="M310 435 C 395 415, 435 385, 500 385 C 565 385, 605 265, 690 245" fill="none" stroke="#1a7060" stroke-width="2.5"/>
+
+  <!-- range limits -->
+  <line x1="310" y1="70" x2="310" y2="618" stroke="#222" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="310" y="638" text-anchor="middle" fill="#222">−2<tspan baseline-shift="super" font-size="10">max_exp_num</tspan></text>
+  <line x1="690" y1="70" x2="690" y2="618" stroke="#222" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="690" y="638" text-anchor="middle" fill="#222">2<tspan baseline-shift="super" font-size="10">max_exp_num</tspan></text>
+
+  <!-- positive side, above the range: identity or pos_c -->
+  <line x1="690" y1="150" x2="790" y2="50" stroke="#c0392b" stroke-width="2.5"/>
+  <text x="798" y="72" fill="#c0392b">f(x) = x (identity)</text>
+  <line x1="500" y1="100" x2="740" y2="100" stroke="#c0392b" stroke-width="1.2" stroke-dasharray="3 3"/>
+  <line x1="740" y1="100" x2="740" y2="340" stroke="#c0392b" stroke-width="1.2" stroke-dasharray="3 3"/>
+  <circle cx="740" cy="100" r="4" fill="#c0392b"/>
+  <text x="488" y="105" text-anchor="end" fill="#c0392b">x</text>
+  <text x="740" y="360" text-anchor="middle" fill="#c0392b">x</text>
+  <line x1="690" y1="200" x2="970" y2="200" stroke="#4a80c4" stroke-width="2.5"/>
+  <text x="755" y="223" fill="#2a5090">f(x) = pos_c (positive or negative)</text>
+  <text x="820" y="135" fill="#222">range_mode selects</text>
+  <text x="820" y="153" fill="#222">one of the two results</text>
+
+  <!-- negative side, below the range: identity or neg_c -->
+  <line x1="310" y1="530" x2="210" y2="630" stroke="#c0392b" stroke-width="2.5"/>
+  <text x="202" y="622" text-anchor="end" fill="#c0392b">f(x) = x (identity)</text>
+  <line x1="260" y1="580" x2="500" y2="580" stroke="#c0392b" stroke-width="1.2" stroke-dasharray="3 3"/>
+  <line x1="260" y1="340" x2="260" y2="580" stroke="#c0392b" stroke-width="1.2" stroke-dasharray="3 3"/>
+  <circle cx="260" cy="580" r="4" fill="#c0392b"/>
+  <text x="512" y="585" fill="#c0392b">x</text>
+  <text x="260" y="330" text-anchor="middle" fill="#c0392b">x</text>
+  <line x1="30" y1="480" x2="310" y2="480" stroke="#4a80c4" stroke-width="2.5"/>
+  <text x="22" y="470" fill="#2a5090">f(x) = neg_c (positive or negative)</text>
+  <text x="30" y="530" fill="#222">range_mode selects</text>
+  <text x="30" y="548" fill="#222">one of the two results</text>
+</svg>
