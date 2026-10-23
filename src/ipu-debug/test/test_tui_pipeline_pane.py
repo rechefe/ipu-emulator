@@ -56,11 +56,18 @@ def text(drawing, rect: Rect = RECT) -> str:
     return "\n".join(rows(drawing, rect).values())
 
 
+# The row-metadata and LUT registers (ADR 0007) are not pane tabs yet: no
+# instruction writes them until the NX8 instructions land with their views.
+_NOT_YET_SHOWN = frozenset({"r_meta", "r_cyclic_meta", "aaq_lut"})
+
+
 def test_the_registers_are_every_logical_vector_register():
     expected = {
         descriptor.name
         for descriptor in REGFILE_SCHEMA
-        if descriptor.is_vector and not descriptor.name.endswith("_wide_debug")
+        if descriptor.is_vector
+        and not descriptor.name.endswith("_wide_debug")
+        and descriptor.name not in _NOT_YET_SHOWN
     }
     assert {spec.backing for spec in PIPELINE_REGISTERS} == expected
 
