@@ -169,7 +169,7 @@ k_loop2_tg0:
     # Hardware store path: ACTIVATE.QUANTIZE stages r_acc into post_aaq_reg and
     # ST.AAQ drains it, CO-ISSUED in ONE VLIW word. AaQ and STR are
     # consecutive pipeline stages within a word and the in-word slot order is
-    # CTRL -> MULT -> ACC -> AaQ -> STR (docs/content/specs/stage-aaq-str.md
+    # CTRL -> MULT -> ACC -> AaQ -> STR (docs/content/specs/MAS-stage-aaq-str.md
     # section 7.0), so STR consumes this cycle's AaQ result -- the store is free.
     # `identity` + DSTRUCT.valid_elements=128 makes this a lane-for-lane FP32
     # copy of all 128 lanes, i.e. byte-identical to the ST.ACC it replaces.

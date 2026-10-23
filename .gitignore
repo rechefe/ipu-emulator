@@ -25,3 +25,4 @@
 
 # Local benchmark results (bazel run //tools/bench:bench)
 bench-results/
+.claude/worktrees/

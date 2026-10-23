@@ -50,7 +50,7 @@
       the value at the start of the cycle, so row_index advances the word before
       BLT.S.
     - ACTIVATE.QUANTIZE and ST.AAQ co-issue: the in-word slot order is
-      CTRL -> MULT -> ACC -> AaQ -> STR (docs/content/specs/stage-aaq-str.md
+      CTRL -> MULT -> ACC -> AaQ -> STR (docs/content/specs/MAS-stage-aaq-str.md
       section 7.0), so STR stores this cycle's AaQ result. identity with
       DSTRUCT's default valid_elements = 128 is a lane-for-lane FP32 copy of all
       128 lanes.
@@ -113,7 +113,7 @@ row_loop:
     #   ACTIVATE.QUANTIZE and ST.AAQ co-issue in ONE VLIW word: AaQ
     #   and STR are consecutive pipeline stages within a word, and the in-word
     #   slot order is CTRL -> MULT -> ACC -> AaQ -> STR (docs/content/specs/
-    #   stage-aaq-str.md §7.0), so STR consumes this cycle's AaQ result. This
+    #   MAS-stage-aaq-str.md §7.0), so STR consumes this cycle's AaQ result. This
     #   is why the store is free and the loop stays 4 cycles per row.
     #   `identity` + DSTRUCT's default valid_elements=128 makes this a
     #   lane-for-lane FP32 copy of all 128 lanes.

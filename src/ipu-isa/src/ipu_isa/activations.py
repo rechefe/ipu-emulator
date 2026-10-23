@@ -1,6 +1,6 @@
 """The ``ActivationFn`` operand: activation ids and their assembly names.
 
-Encodings match ``docs/content/specs/stage-aaq-str.md`` section 5.0. Assembly
+Encodings match ``docs/content/specs/MAS-stage-aaq-str.md`` section 5.0. Assembly
 uses ``ACTIVATE … <name>`` where ``<name>`` is one of the strings in
 ``ACTIVATION_FN_NAMES`` (same order as ids **0**–**12**). The activation math
 and its emulator-only defaults (α, window bounds) live in the emulator

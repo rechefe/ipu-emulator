@@ -32,11 +32,11 @@
     "dtype": 3,
     "program counter": 3
   },
-  "docs/content/specs/stage-aaq-str.md": {
+  "docs/content/specs/MAS-stage-aaq-str.md": {
     "VLIW word": 1,
     "bundle": 2
   },
-  "docs/content/specs/stage-accumulator.md": {
+  "docs/content/specs/MAS-stage-accumulator.md": {
     "VLIW word": 1,
     "dtype": 2,
     "live value": 1,
