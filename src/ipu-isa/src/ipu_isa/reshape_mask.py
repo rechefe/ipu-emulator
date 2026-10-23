@@ -8,7 +8,7 @@ The field supports both an immediate (0..RESHAPE_ELEMENT_COUNT-1, encoded as
 itself) and an LR register (encoded as LR_index + RESHAPE_MASK_LR_OFFSET). The
 field width is not hardcoded: the union solver packs the
 ``LrOrReshapeMaskImmediate`` operand into a shared ``acc`` field (same bin as
-``DstructureCrIdx``/``ElementsInRow``), and :func:`reshape_mask_field_bits`
+``HalfCrIdx``/``ElementsInRow``), and :func:`reshape_mask_field_bits`
 reads that field's width from :func:`ipu_isa.layout.isa_layout`. The number of
 LR registers encodable is therefore whatever room remains above
 RESHAPE_MASK_LR_OFFSET.

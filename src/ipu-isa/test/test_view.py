@@ -55,13 +55,13 @@ def test_lookups():
         view.instruction(Slot.LR, "NOT_AN_INSTRUCTION")
     with pytest.raises(KeyError):
         view.by_opcode(Slot.LR, len(view.instructions(Slot.LR)))
-    assert view.find_slot("st.acc") is Slot.ACC_STORE
+    assert view.find_slot("activate.exact") is Slot.AAQ_EXACT
     with pytest.raises(ValueError, match="several slots"):
         view.find_slot("NOP")
     with pytest.raises(KeyError):
         view.find_slot("NOT_AN_INSTRUCTION")
-    assert view.layout.word_bits() == 186
-    assert view.slots[Slot.ACC_STORE].tag is Tag.EMULATOR
+    assert view.layout.word_bits() == 209
+    assert view.slots[Slot.AAQ_EXACT].tag is Tag.EMULATOR
 
 
 def test_pseudo_lookup_is_by_name_and_arity():

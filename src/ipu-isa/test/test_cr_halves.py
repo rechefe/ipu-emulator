@@ -84,3 +84,22 @@ def test_constant_layout():
 def test_invalid_constant_raises():
     with pytest.raises(IsaValueError):
         decode_constant(0x00000001)  # exp_format 0: CR1 is special-cased by the emulator
+
+
+def test_operand_codes():
+    from ipu_isa.cr_halves import LcrHalf, half_cr_code, lcr_half_code, lcr_half_value
+
+    assert half_cr_code(27) == (13, True)
+    assert half_cr_code(26) == (13, False)
+    with pytest.raises(IsaValueError):
+        half_cr_code(32)
+    assert lcr_half_code(3) == LcrHalf("lr", 3, None)
+    assert lcr_half_code(17) == LcrHalf("cr", 1, None)
+    assert lcr_half_code(32 + 5) == LcrHalf("cr", 5, False)
+    assert lcr_half_code(48 + 5) == LcrHalf("cr", 5, True)
+    with pytest.raises(IsaValueError):
+        lcr_half_code(64)
+    # A half is sign-extended to 32 bits (returned unsigned).
+    assert lcr_half_value(LcrHalf("cr", 5, True), 0xFFFE0001) == 0xFFFFFFFE
+    assert lcr_half_value(LcrHalf("cr", 5, False), 0xFFFE0001) == 1
+    assert lcr_half_value(LcrHalf("cr", 5, None), 0xFFFE0001) == 0xFFFE0001

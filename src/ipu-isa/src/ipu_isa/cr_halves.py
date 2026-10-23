@@ -93,6 +93,53 @@ def pack_halves(low: int, high: int = 0) -> int:
     return (high << HALF_BITS) | low
 
 
+# --- operand codes ---------------------------------------------------------
+#
+# The ``HalfCrIdx`` operand (DS and QF) codes a half as ``2 * index + high``;
+# the ``LcrHalfIdx`` operand (LR and COND sources) codes LR0-15, CR0-15, then
+# the LOW halves, then the HIGH halves (``ipu_isa.operand_types``).
+
+_REGS_PER_BANK: Final = 16
+
+
+def half_cr_code(code: int) -> tuple[int, bool]:
+    """``(cr_index, high)`` of a ``HalfCrIdx`` operand code."""
+    if not 0 <= code < 2 * _REGS_PER_BANK:
+        raise IsaValueError(f"half-CR code {code} is not 0..{2 * _REGS_PER_BANK - 1}")
+    return code >> 1, bool(code & 1)
+
+
+@dataclass(frozen=True)
+class LcrHalf:
+    """A decoded ``LcrHalfIdx`` operand: an LR, a full CR or one CR half."""
+
+    bank: str  # "lr" or "cr"
+    index: int
+    high: bool | None  # None: the full register; False: LOW half; True: HIGH half
+
+
+def lcr_half_code(code: int) -> LcrHalf:
+    """The register an ``LcrHalfIdx`` operand code names."""
+    group, index = divmod(code, _REGS_PER_BANK)
+    if group == 0:
+        return LcrHalf("lr", index, None)
+    if group == 1:
+        return LcrHalf("cr", index, None)
+    if group in (2, 3):
+        return LcrHalf("cr", index, group == 3)
+    raise IsaValueError(f"LR/CR-half code {code} is not 0..{4 * _REGS_PER_BANK - 1}")
+
+
+def lcr_half_value(operand: LcrHalf, word: int) -> int:
+    """The 32-bit value an ``LcrHalfIdx`` operand reads from register value *word*.
+
+    A half is sign-extended to 32 bits and returned as an unsigned 32-bit word.
+    """
+    if operand.high is None:
+        return word & 0xFFFFFFFF
+    return sign_extend_half(half(word, operand.high)) & 0xFFFFFFFF
+
+
 # --- QF ----------------------------------------------------------------------
 
 

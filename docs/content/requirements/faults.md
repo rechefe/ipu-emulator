@@ -45,7 +45,7 @@ Reserved encodings for F-1, from the instruction reference:
 | `LOAD` | `MultStageReg` values other than `R0` and `R1`. |
 | `MULT` | Two opcodes of the 3-bit field. `MultStageReg` values other than `R0` and `R1`. |
 | `ACC` | Three opcodes of the 4-bit field. Values above 2 of `elements_in_row`, `horizontal_stride` and `vertical_stride`. |
-| `AAQ` | Activation function codes with no named function. The instruction reference treats them as `identity`: [OQ-6](open-questions.md). |
+| `AAQ` | One opcode of the 2-bit field. `lut_addr` outside 0 to 4 in `LD.LUT`. Values above 6 of `activation_fn`. |
 
 The fault list and this table are mirrored as data in `ipu_isa.faults`, which derives the reserved encodings from the ISA. A test (`//src/ipu-isa:test_faults_docs`) checks that both tables state the same as that data.
 

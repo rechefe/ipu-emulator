@@ -262,6 +262,11 @@ def reserved_encodings(isa: Isa) -> Mapping[Slot, ReservedEncodings]:
 # Which faults an instruction can raise (for the instruction reference, E09-14)
 # ---------------------------------------------------------------------------
 
+#: The HARDWARE slots whose instructions address an XMEM table (F-6, F-7).
+#: The emulator-only AAQ_EXACT store raises F-6 too, but an EMULATOR
+#: instruction is not on the hardware fault list.
+_TABLE_SLOTS = frozenset({Slot.LOAD, Slot.AAQ})
+
 #: The instructions F-4 and F-5 name in their own summaries.
 _F4_MNEMONIC = "LD.MULT.CYCLIC"
 _F5_MNEMONIC = "ACC.RESHAPE"
@@ -279,7 +284,8 @@ def instruction_faults(isa: Isa, instruction: Instruction) -> tuple[FaultId, ...
     * F-3: an LR-slot instruction that writes an LR: two lanes of one word may
       write the same one.
     * F-4: ``LD.MULT.CYCLIC``; F-5: ``ACC.RESHAPE``.
-    * F-6 and F-7: every LOAD and STORE instruction (they address a table).
+    * F-6 and F-7: every LOAD and AAQ instruction (they address a table:
+      ``LD.LUT`` reads a row, ``ACTIVATE.QUANTIZE`` stores one; ADR 0007).
     * F-8 and F-9 belong to a word or a kernel, never to one instruction.
 
     ``NOP`` and EMULATOR or ASSEMBLER instructions raise none: faults are
@@ -308,6 +314,6 @@ def instruction_faults(isa: Isa, instruction: Instruction) -> tuple[FaultId, ...
         faults.add(FaultId.F4)
     if instruction.mnemonic == _F5_MNEMONIC:
         faults.add(FaultId.F5)
-    if slot in (Slot.LOAD, Slot.STORE):
+    if slot in _TABLE_SLOTS:
         faults.update((FaultId.F6, FaultId.F7))
     return tuple(sorted(faults))

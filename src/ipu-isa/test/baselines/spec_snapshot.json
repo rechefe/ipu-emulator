@@ -76,60 +76,6 @@
    "execute_fn": "execute_load_nop"
   },
   {
-   "slot": "store",
-   "mnemonic": "ST.AAQ",
-   "opcode": 0,
-   "operands": [
-    {
-     "name": "offset",
-     "type": "LrIdx",
-     "read": "forwarded"
-    },
-    {
-     "name": "base",
-     "type": "CrIdx",
-     "read": "cycle_start"
-    }
-   ],
-   "tag": "hardware",
-   "execute_fn": "execute_st_aaq"
-  },
-  {
-   "slot": "store",
-   "mnemonic": "NOP",
-   "opcode": 1,
-   "operands": [],
-   "tag": "hardware",
-   "execute_fn": "execute_store_nop"
-  },
-  {
-   "slot": "acc_store",
-   "mnemonic": "ST.ACC",
-   "opcode": 0,
-   "operands": [
-    {
-     "name": "offset",
-     "type": "LrIdx",
-     "read": "forwarded"
-    },
-    {
-     "name": "base",
-     "type": "CrIdx",
-     "read": "cycle_start"
-    }
-   ],
-   "tag": "emulator",
-   "execute_fn": "execute_st_acc"
-  },
-  {
-   "slot": "acc_store",
-   "mnemonic": "NOP",
-   "opcode": 1,
-   "operands": [],
-   "tag": "emulator",
-   "execute_fn": "execute_acc_store_nop"
-  },
-  {
    "slot": "lr",
    "mnemonic": "SET",
    "opcode": 0,
@@ -141,7 +87,7 @@
     },
     {
      "name": "src",
-     "type": "CrIdx",
+     "type": "LcrHalfIdx",
      "read": "cycle_start"
     }
    ],
@@ -165,7 +111,7 @@
     },
     {
      "name": "src_b",
-     "type": "LcrIdx",
+     "type": "LcrHalfIdx",
      "read": "cycle_start"
     }
    ],
@@ -189,7 +135,7 @@
     },
     {
      "name": "src_b",
-     "type": "LcrIdx",
+     "type": "LcrHalfIdx",
      "read": "cycle_start"
     }
    ],
@@ -208,7 +154,7 @@
     },
     {
      "name": "step",
-     "type": "LcrIdx",
+     "type": "LcrHalfIdx",
      "read": "cycle_start"
     },
     {
@@ -270,7 +216,7 @@
     },
     {
      "name": "src_b",
-     "type": "LcrIdx",
+     "type": "LcrHalfIdx",
      "read": "cycle_start"
     }
    ],
@@ -330,8 +276,13 @@
      "read": "forwarded"
     },
     {
-     "name": "cr_idx",
-     "type": "DstructureCrIdx",
+     "name": "ds",
+     "type": "HalfCrIdx",
+     "read": null
+    },
+    {
+     "name": "qf",
+     "type": "HalfCrIdx",
      "read": null
     }
    ],
@@ -364,8 +315,13 @@
      "read": "forwarded"
     },
     {
-     "name": "cr_idx",
-     "type": "DstructureCrIdx",
+     "name": "ds",
+     "type": "HalfCrIdx",
+     "read": null
+    },
+    {
+     "name": "qf",
+     "type": "HalfCrIdx",
      "read": null
     }
    ],
@@ -393,8 +349,13 @@
      "read": "forwarded"
     },
     {
-     "name": "cr_idx",
-     "type": "DstructureCrIdx",
+     "name": "ds",
+     "type": "HalfCrIdx",
+     "read": null
+    },
+    {
+     "name": "qf",
+     "type": "HalfCrIdx",
      "read": null
     }
    ],
@@ -435,8 +396,13 @@
      "read": "forwarded"
     },
     {
-     "name": "dstructure_cr_idx",
-     "type": "DstructureCrIdx",
+     "name": "ds",
+     "type": "HalfCrIdx",
+     "read": null
+    },
+    {
+     "name": "qf",
+     "type": "HalfCrIdx",
      "read": null
     }
    ],
@@ -469,8 +435,13 @@
      "read": "forwarded"
     },
     {
-     "name": "dstructure_cr_idx",
-     "type": "DstructureCrIdx",
+     "name": "ds",
+     "type": "HalfCrIdx",
+     "read": null
+    },
+    {
+     "name": "qf",
+     "type": "HalfCrIdx",
      "read": null
     }
    ],
@@ -573,8 +544,8 @@
      "read": "forwarded"
     },
     {
-     "name": "cr_idx",
-     "type": "DstructureCrIdx",
+     "name": "ds",
+     "type": "HalfCrIdx",
      "read": null
     }
    ],
@@ -592,8 +563,8 @@
      "read": "forwarded"
     },
     {
-     "name": "cr_idx",
-     "type": "DstructureCrIdx",
+     "name": "ds",
+     "type": "HalfCrIdx",
      "read": null
     }
    ],
@@ -611,8 +582,8 @@
      "read": "forwarded"
     },
     {
-     "name": "cr_idx",
-     "type": "DstructureCrIdx",
+     "name": "ds",
+     "type": "HalfCrIdx",
      "read": null
     }
    ],
@@ -630,8 +601,8 @@
      "read": "forwarded"
     },
     {
-     "name": "cr_idx",
-     "type": "DstructureCrIdx",
+     "name": "ds",
+     "type": "HalfCrIdx",
      "read": null
     }
    ],
@@ -672,7 +643,73 @@
   },
   {
    "slot": "aaq",
+   "mnemonic": "LD.LUT",
+   "opcode": 1,
+   "operands": [
+    {
+     "name": "lut_addr",
+     "type": "LutAddrImmediate",
+     "read": null
+    },
+    {
+     "name": "table_id",
+     "type": "CrIdx",
+     "read": "cycle_start"
+    },
+    {
+     "name": "table_offset",
+     "type": "LrIdx",
+     "read": "forwarded"
+    }
+   ],
+   "tag": "hardware",
+   "execute_fn": "execute_ld_lut"
+  },
+  {
+   "slot": "aaq",
    "mnemonic": "ACTIVATE.QUANTIZE",
+   "opcode": 2,
+   "operands": [
+    {
+     "name": "activation_fn",
+     "type": "AaqActivationFn",
+     "read": null
+    },
+    {
+     "name": "ds",
+     "type": "HalfCrIdx",
+     "read": null
+    },
+    {
+     "name": "qf",
+     "type": "HalfCrIdx",
+     "read": null
+    },
+    {
+     "name": "table_id",
+     "type": "CrIdx",
+     "read": "cycle_start"
+    },
+    {
+     "name": "table_offset",
+     "type": "LrIdx",
+     "read": "forwarded"
+    }
+   ],
+   "tag": "hardware",
+   "execute_fn": "execute_activate_quantize"
+  },
+  {
+   "slot": "aaq_exact",
+   "mnemonic": "NOP",
+   "opcode": 0,
+   "operands": [],
+   "tag": "emulator",
+   "execute_fn": "execute_aaq_exact_nop"
+  },
+  {
+   "slot": "aaq_exact",
+   "mnemonic": "ACTIVATE.EXACT",
    "opcode": 1,
    "operands": [
     {
@@ -681,13 +718,23 @@
      "read": null
     },
     {
-     "name": "cr_idx",
-     "type": "DstructureCrIdx",
+     "name": "ds",
+     "type": "HalfCrIdx",
      "read": null
+    },
+    {
+     "name": "table_id",
+     "type": "CrIdx",
+     "read": "cycle_start"
+    },
+    {
+     "name": "table_offset",
+     "type": "LrIdx",
+     "read": "forwarded"
     }
    ],
-   "tag": "hardware",
-   "execute_fn": "execute_activate_quantize"
+   "tag": "emulator",
+   "execute_fn": "execute_activate_exact"
   },
   {
    "slot": "cond",
@@ -696,12 +743,12 @@
    "operands": [
     {
      "name": "reg1",
-     "type": "LcrIdx",
+     "type": "LcrHalfIdx",
      "read": "cycle_start"
     },
     {
      "name": "reg2",
-     "type": "LcrIdx",
+     "type": "LcrHalfIdx",
      "read": "cycle_start"
     },
     {
@@ -720,12 +767,12 @@
    "operands": [
     {
      "name": "reg1",
-     "type": "LcrIdx",
+     "type": "LcrHalfIdx",
      "read": "cycle_start"
     },
     {
      "name": "reg2",
-     "type": "LcrIdx",
+     "type": "LcrHalfIdx",
      "read": "cycle_start"
     },
     {
@@ -744,12 +791,12 @@
    "operands": [
     {
      "name": "reg1",
-     "type": "LcrIdx",
+     "type": "LcrHalfIdx",
      "read": "cycle_start"
     },
     {
      "name": "reg2",
-     "type": "LcrIdx",
+     "type": "LcrHalfIdx",
      "read": "cycle_start"
     },
     {
@@ -768,12 +815,12 @@
    "operands": [
     {
      "name": "reg1",
-     "type": "LcrIdx",
+     "type": "LcrHalfIdx",
      "read": "cycle_start"
     },
     {
      "name": "reg2",
-     "type": "LcrIdx",
+     "type": "LcrHalfIdx",
      "read": "cycle_start"
     },
     {
@@ -792,7 +839,7 @@
    "operands": [
     {
      "name": "reg",
-     "type": "LcrIdx",
+     "type": "LcrHalfIdx",
      "read": "cycle_start"
     }
    ],
@@ -857,12 +904,12 @@
    "operands": [
     {
      "name": "reg1",
-     "type": "LcrIdx",
+     "type": "LcrHalfIdx",
      "read": null
     },
     {
      "name": "reg2",
-     "type": "LcrIdx",
+     "type": "LcrHalfIdx",
      "read": null
     },
     {
@@ -887,12 +934,12 @@
    "operands": [
     {
      "name": "reg1",
-     "type": "LcrIdx",
+     "type": "LcrHalfIdx",
      "read": null
     },
     {
      "name": "reg2",
-     "type": "LcrIdx",
+     "type": "LcrHalfIdx",
      "read": null
     },
     {
@@ -917,7 +964,7 @@
    "operands": [
     {
      "name": "reg",
-     "type": "LcrIdx",
+     "type": "LcrHalfIdx",
      "read": null
     },
     {
@@ -942,7 +989,7 @@
    "operands": [
     {
      "name": "reg",
-     "type": "LcrIdx",
+     "type": "LcrHalfIdx",
      "read": null
     },
     {

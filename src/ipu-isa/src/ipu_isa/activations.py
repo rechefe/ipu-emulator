@@ -1,10 +1,16 @@
-"""The ``ActivationFn`` operand: activation ids and their assembly names.
+"""The activation operands: ids and their assembly names.
 
-Encodings match ``docs/content/specs/MAS-stage-aaq-str.md`` section 5.0. Assembly
-uses ``ACTIVATE … <name>`` where ``<name>`` is one of the strings in
-``ACTIVATION_FN_NAMES`` (same order as ids **0**–**12**). The activation math
-and its emulator-only defaults (α, window bounds) live in the emulator
-package.
+Two operand types (ADR 0007):
+
+* ``AaqActivationFn`` -- the 3-bit selector of the hardware
+  ``ACTIVATE.QUANTIZE``, in the ``ARCH-stage-aaq-str.md`` encoding:
+  ``AAQ_ACTIVATION_FN_NAMES`` (ids 0-6; 7 is reserved).
+* ``ActivationFn`` -- the 4-bit selector of the emulator-only
+  ``ACTIVATE.EXACT``: ``ACTIVATION_FN_NAMES`` (ids 0-12, the
+  ``MAS-stage-aaq-str.md`` section 5.0 list).
+
+The activation math and its emulator-only defaults (alpha, window bounds) live
+in the emulator package.
 """
 
 from __future__ import annotations
@@ -40,4 +46,23 @@ ACTIVATION_FN_NAMES: tuple[str, ...] = (
     "rsqrt",
     "silu",
     "window",
+)
+
+# ACTIVATE.QUANTIZE (ARCH encoding, ADR 0007): id = index.
+AAQ_IDENTITY = 0
+AAQ_RELU = 1
+AAQ_RELU6 = 2
+AAQ_RECIPROCAL = 3
+AAQ_RSQRT = 4
+AAQ_EXP2 = 5
+AAQ_GENERIC = 6
+
+AAQ_ACTIVATION_FN_NAMES: tuple[str, ...] = (
+    "identity",
+    "relu",
+    "relu6",
+    "reciprocal",
+    "rsqrt",
+    "exp2",
+    "generic",
 )

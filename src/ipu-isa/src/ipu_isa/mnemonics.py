@@ -4,7 +4,7 @@
   No underscore.
 * Control-stage instructions (LR, COND, BREAK) use plain RISC-style names with
   variants as dot suffixes (``BLT.S``, ``INC.MODP2``).
-* Every instruction of a datapath slot (LOAD, STORE, ACC_STORE, MULT, ACC, AAQ)
+* Every instruction of a datapath slot (LOAD, MULT, ACC, AAQ, AAQ_EXACT)
   but ``NOP`` is ``UNIT.OP[.VARIANT]``, so it contains a dot.
 * Branch signedness is in the name. The unsigned branches are reserved: no
   spec may define them, and the assembler rejects them as "reserved, not
@@ -22,7 +22,7 @@ from ipu_isa.slots import Slot
 MNEMONIC_PATTERN = re.compile(r"[A-Z][A-Z0-9]*(\.[A-Z0-9]+)*")
 
 #: Slots whose instructions are named ``UNIT.OP[.VARIANT]``.
-DATAPATH_SLOTS = frozenset({Slot.LOAD, Slot.STORE, Slot.ACC_STORE, Slot.MULT, Slot.ACC, Slot.AAQ})
+DATAPATH_SLOTS = frozenset({Slot.LOAD, Slot.MULT, Slot.ACC, Slot.AAQ, Slot.AAQ_EXACT})
 
 #: Names kept for instructions not implemented yet (Q33): no spec defines them.
 RESERVED_MNEMONICS = frozenset({"BLT.U", "BGE.U", "BGT.U", "BLE.U"})

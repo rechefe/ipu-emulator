@@ -21,15 +21,15 @@ from ipu_isa.view import isa
 
 
 def test_word_widths():
-    assert word_bits() == 186
-    assert word_bits(Tag.HARDWARE) == 155
-    assert word_bits(Tag.EMULATOR) == 186 - 155
+    assert word_bits() == 209
+    assert word_bits(Tag.HARDWARE) == 169
+    assert word_bits(Tag.EMULATOR) == 209 - 169
     assert word_bits(Tag.ASSEMBLER) == 0
 
 
 def test_slot_tags():
-    assert slots_with_tag(Tag.EMULATOR) == (Slot.ACC_STORE, Slot.BREAK)
-    assert [slot for slot, info in SLOTS.items() if info.debug_only] == [Slot.ACC_STORE]
+    assert slots_with_tag(Tag.EMULATOR) == (Slot.AAQ_EXACT, Slot.BREAK)
+    assert [slot for slot, info in SLOTS.items() if info.debug_only] == []
 
 
 def test_hardware_slots_are_a_prefix_of_the_layout_order():
@@ -52,9 +52,9 @@ def _with(slot, field, value):
 
 def test_an_emulator_slot_before_a_hardware_slot_is_rejected():
     order = list(LAYOUT_ORDER)
-    order.remove(Slot.ACC_STORE)
-    order.insert(order.index(Slot.STORE), Slot.ACC_STORE)
-    with pytest.raises(SpecError, match="HARDWARE slot 'store' follows an EMULATOR slot"):
+    order.remove(Slot.AAQ_EXACT)
+    order.insert(order.index(Slot.AAQ), Slot.AAQ_EXACT)
+    with pytest.raises(SpecError, match="HARDWARE slot 'aaq' follows an EMULATOR slot"):
         load_slots(slot_spec_copy(), tuple(order))
 
 
@@ -76,7 +76,7 @@ def test_a_debug_only_slot_must_be_emulator():
 @pytest.mark.parametrize(
     "slot, mnemonic, tag",
     [
-        ("acc_store", "ST.ACC", Tag.HARDWARE),  # an EMULATOR slot holds EMULATOR instructions
+        ("aaq_exact", "ACTIVATE.EXACT", Tag.HARDWARE),  # an EMULATOR slot holds EMULATOR ones
         ("lr", "ADD", Tag.EMULATOR),  # no EMULATOR instruction in a HARDWARE slot (yet)
         ("lr", "ADD", Tag.ASSEMBLER),
         ("lr", "ADD", "hardware"),
@@ -91,7 +91,7 @@ def test_an_instruction_has_its_slot_tag(slot, mnemonic, tag):
 
 def test_an_instruction_may_state_its_slot_tag():
     spec = copy.deepcopy(INSTRUCTION_SPEC)
-    spec["acc_store"]["ST.ACC"]["tag"] = Tag.EMULATOR
+    spec["aaq_exact"]["ACTIVATE.EXACT"]["tag"] = Tag.EMULATOR
     validate_instruction_spec(spec, SLOT_METADATA)
 
 
@@ -117,8 +117,8 @@ def test_a_pseudo_must_expand_to_a_real_instruction():
 
 def test_a_tag_value_string_works_and_an_unknown_one_raises():
     # isa().layout.word_bits("emulator") once returned 0 (an `is` compare).
-    assert word_bits("emulator") == 186 - 155
-    assert word_bits("hardware") == 155
-    assert slots_with_tag("emulator") == (Slot.ACC_STORE, Slot.BREAK)
+    assert word_bits("emulator") == 209 - 169
+    assert word_bits("hardware") == 169
+    assert slots_with_tag("emulator") == (Slot.AAQ_EXACT, Slot.BREAK)
     with pytest.raises(ValueError):
         word_bits("emulater")
