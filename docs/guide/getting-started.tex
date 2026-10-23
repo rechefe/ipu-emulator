@@ -176,8 +176,9 @@ multiply, a softmax, a layer norm --- for a range of shapes, and consists of:
 
 \begin{itemize}
 \item an IPU assembly program (\texttt{.asm});
-\item Python code that places the inputs in the IPU's memory, sets the control
-  registers, and reads the result back after the run;
+\item a description, \texttt{kernel.toml}, from which the harness places the
+  inputs in the IPU's memory, sets the control registers, and reads the
+  result back after the run;
 \item cases: named inputs, each with a NumPy reference the result must match.
 \end{itemize}
 
@@ -243,7 +244,7 @@ Conv $3\times3$ & \texttt{conv\_universal} \\
 \section{The IPU architecture}
 
 Hardware specifications: \doc{specs/stage-control}{control stage},
-\doc{specs/MAS-stage-accumulator}{accumulator stage}, \doc{specs/MAS-stage-aaq-str}{AAQ and store stages},
+\doc{specs/ARCH-stage-mult}{multiply stage}, \doc{specs/ARCH-stage-acc}{accumulator stage}, \doc{specs/ARCH-stage-aaq-str}{AaQ stage},
 \doc{specs/cache-unit}{cache unit}, \doc{specs/riscv-host-integration}{RISC-V host integration}.
 
 \subsection{System}
@@ -291,54 +292,94 @@ Hardware specifications: \doc{specs/stage-control}{control stage},
   {\textbf{CTRL}\\[2pt]\scriptsize PC, branches\\\scriptsize instruction memory\\\scriptsize CR and LR files\\\scriptsize 3 LR ALUs};
 \node[stage, right=9mm of ctrl] (mult) {\textbf{MULT}\\\scriptsize R0, R1\\\scriptsize R\_CYCLIC\\\scriptsize R\_MASK};
 \node[stage, right=19mm of mult] (acc) {\textbf{ACC}\\\scriptsize R\_ACC};
-\node[stage, right=15mm of acc] (aaq) {\textbf{AAQ}\\\scriptsize activate\\\scriptsize quantize};
-\node[stage, right=8mm of aaq] (st) {\textbf{STORE}};
-\node[mem, above=10mm of acc, minimum width=110mm, xshift=10mm] (xmem) {\textbf{XMEM} --- external memory, rows of 128 elements};
+\node[stage, right=15mm of acc] (aaq) {\textbf{AAQ}\\\scriptsize activate\\\scriptsize quantize\\\scriptsize store; LUT};
+\node[mem, above=10mm of acc, minimum width=100mm, xshift=4mm] (xmem) {\textbf{XMEM} --- external memory, rows of 128 elements};
 \node[mem, below=6mm of ctrl, minimum width=24mm] (host) {RISC-V host};
 \draw[arr] (host) -- node[lab, right]{APB: program, CRs} (ctrl);
 \draw[arr] (ctrl) -- (mult);
 \draw[arr] (mult) -- node[lab, above=1pt]{MULT\_RES} (acc);
 \draw[arr] (acc) -- node[lab, above=1pt]{R\_ACC} (aaq);
-\draw[arr] (aaq) -- (st);
 \draw[arr, dashed] (ctrl.north) |- node[lab, pos=0.3, left]{read address} (xmem.west);
 \draw[arr] (xmem.south -| mult.north) -- node[lab, left]{load} (mult.north);
-\draw[arr] (st.north) -- node[lab, right]{write} (xmem.south -| st.north);
+\draw[arr] (aaq.north) -- node[lab, right]{write row} (xmem.south -| aaq.north);
 \end{tikzpicture}
-\caption{The pipeline. CTRL issues one instruction word per cycle.}
+\caption{The pipeline. CTRL issues one instruction word per cycle; the AAQ
+stage writes its result to XMEM itself.}
 \end{figure}
 
-\subsection{Memory}
+\subsection{Memory and run modes}
 
 \textbf{XMEM} is the external memory. Assembly addresses it in \emph{rows} of
-128 elements.
+128 elements, and every load and store moves exactly one row. A run is in one
+of two \textbf{modes}, chosen when it starts; the program and its row numbers
+are the same in both (\doc{explanation/element-formats}{Element formats}):
+
+\begin{center}
+\begin{tabularx}{\linewidth}{lX}
+\toprule
+Mode & A row holds \\
+\midrule
+\textbf{NX8} (hardware) & 128 NX8 elements (128 bytes) and a 16-bit metadata
+word: the row's \texttt{scale} and \texttt{dynamic\_exponent}. An element's
+value depends on the row's scale and on a \emph{QF} (quantization format) that
+the instruction names. \\
+\textbf{FP32} (emulator only) & 128 IEEE float32 elements (512 bytes), with no
+metadata, no scaling and no quantization. It runs a kernel written for NX8 at
+full precision, for debugging and for comparing with a reference. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+FP32 and NX8 are the only element formats; a kernel names an NX8 variant by
+its type, such as \texttt{e4}, \texttt{e5} or \texttt{dynamic}. In both modes
+\texttt{MULT\_RES} and \texttt{R\_ACC} hold FP32: in NX8 the multiplier expands
+each element to FP32 first, and the AAQ stage quantizes the result back when
+it stores it.
 
 \needspace{7cm}
 \subsection{Registers}
 
-Every data element is 32 bits. \texttt{CR0} = 0 and \texttt{CR1} = 1 are fixed.
-
 \begin{center}
-\begin{tabularx}{\linewidth}{l>{\raggedright\arraybackslash}p{0.28\linewidth}X}
+\begin{tabularx}{\linewidth}{l>{\raggedright\arraybackslash}p{0.3\linewidth}X}
 \toprule
 Register & Holds & Role \\
 \midrule
-\texttt{R0}, \texttt{R1} & 128 elements each & multiply-stage operands \\
-\texttt{R\_CYCLIC} & 512 elements & ring of four 128-element slots \\
+\texttt{R0}, \texttt{R1} & one row each, and its metadata & multiply-stage operands \\
+\texttt{R\_CYCLIC} & 512 elements & ring of four 128-element slots, each with its row's metadata \\
 \texttt{R\_MASK} & 8 masks of 128 bits & one enable bit per lane \\
-\texttt{MULT\_RES} & 128 $\times$ 32-bit & result of the multiply stage \\
-\texttt{R\_ACC} & 128 $\times$ 32-bit & accumulator \\
-\texttt{POST\_AAQ\_REG} & 128 $\times$ 32-bit & activated result \\
+\texttt{MULT\_RES} & 128 $\times$ FP32 & result of the multiply stage \\
+\texttt{R\_ACC} & 128 $\times$ FP32 & accumulator \\
+AaQ LUT & 5 segments of 1024 bits & the table the hardware evaluates \texttt{generic} with; \texttt{LD.LUT} loads it \\
 \texttt{LR0}--\texttt{LR15} & 16 $\times$ 32-bit & loop registers, changed by the program \\
 \texttt{CR0}--\texttt{CR15} & 16 $\times$ 32-bit & configuration registers, set before the run \\
 \bottomrule
 \end{tabularx}
 \end{center}
 
+\texttt{CR0} and \texttt{CR1} are fixed: they read 0 and 1, and as a multiply
+constant 0.0 and 1.0 in both modes. Every CR also splits into two 16-bit
+halves, written \texttt{CRn.L} (low) and \texttt{CRn.H} (high). Two kinds of
+operand always name a half:
+
+\begin{itemize}
+\item a \textbf{DS} (data structure) half gives the vector's shape: how many
+  of the 128 elements are valid, and how they are partitioned. By convention
+  \texttt{CR15.L} holds it; at reset it names all 128 elements.
+\item a \textbf{QF} (quantization format) half names the NX8 type the elements
+  are read or written in. FP32 ignores it. Kernels bind it to a CR of their
+  own (\texttt{CR14.L} in the examples below).
+\end{itemize}
+
+A bare \texttt{CR15} where a DS or QF half is expected is an assembler error.
+The \doc{reference/isa/configuration-registers}{Configuration registers} page
+gives the bit layout of each half.
+
 \subsection{Instruction words and slots}
 
 The IPU is a VLIW machine: every cycle it issues one instruction \emph{word},
 which holds up to one instruction per slot. In assembly, \texttt{;} separates
-instructions of the same word and \texttt{;;} ends the word.
+instructions of the same word and \texttt{;;} ends the word. On the hardware a
+word is 169 bits; the emulator-only slots are not part of it.
 
 \begin{center}
 \small
@@ -346,22 +387,61 @@ instructions of the same word and \texttt{;;} ends the word.
 \toprule
 Slot & Does & Instructions \\
 \midrule
-\texttt{load} & a memory row into \texttt{R0}, \texttt{R1}, \texttt{R\_CYCLIC} or \texttt{R\_MASK} & \texttt{LDR\_MULT\_REG}, \texttt{LDR\_CYCLIC\_MULT\_REG}, \texttt{LDR\_MULT\_MASK\_REG} \\
+\texttt{load} & a memory row into \texttt{R0}, \texttt{R1}, \texttt{R\_CYCLIC} or \texttt{R\_MASK} & \texttt{LD.MULT}, \texttt{LD.MULT.CYCLIC}, \texttt{LD.MASK} \\
 \texttt{mult} & 128-lane multiply into \texttt{MULT\_RES} & \texttt{MULT.VE}, \texttt{MULT.EE}, \texttt{MULT.RC.VV}, \texttt{MULT.RC.VE}, \texttt{MULT.RC.VS} \\
 \texttt{acc} & \texttt{MULT\_RES} into \texttt{R\_ACC}: add, subtract, max; across lanes (\texttt{AGG}); decimate, scatter & \texttt{ACC.ADD}, \texttt{ACC.SUB}, \texttt{ACC.MAX} (each also \texttt{.FIRST}); \texttt{AGG.SUM}, \texttt{AGG.MAX} (also \texttt{.FIRST}); \texttt{ACC.STRIDE}, \texttt{ACC.RESHAPE} \\
-\texttt{aaq} & activate and quantize \texttt{R\_ACC} into \texttt{POST\_AAQ\_REG} & \texttt{ACTIVATE.QUANTIZE} \\
-\texttt{store} & writes \texttt{POST\_AAQ\_REG} to memory & \texttt{STR\_POST\_AAQ\_REG}; simulation only: \texttt{STR\_ACC\_REG} \\
-\texttt{lr} (three) & LR arithmetic: addresses, counters & \texttt{SET}, \texttt{ADD}, \texttt{SUB}, \texttt{INC}, \texttt{DEC}, \texttt{INCR\_MOD\_POW2}, \texttt{ADDB}, \texttt{ADDBI} \\
+\texttt{aaq} & activates \texttt{R\_ACC}, quantizes it and stores the row; loads the LUT & \texttt{ACTIVATE.QUANTIZE}, \texttt{LD.LUT} \\
+\texttt{aaq\_exact} & emulator only, FP32 mode only: exact activation, stores an FP32 row & \texttt{ACTIVATE.EXACT} \\
+\texttt{lr} (three) & LR arithmetic: addresses, counters & \texttt{SET}, \texttt{ADD}, \texttt{SUB}, \texttt{INC}, \texttt{DEC}, \texttt{INC.MODP2}, \texttt{ADDB}, \texttt{ADDBI} \\
 \texttt{cond} & branches & \texttt{BEQ}, \texttt{BNE}, \texttt{BLT.S}, \texttt{BGE.S}, \texttt{BR}, \texttt{HALT} \\
-\texttt{break} & debugger stops & \texttt{BREAK}, \texttt{BREAK.IFEQ} \\
+\texttt{break} & emulator only: debugger stops & \texttt{BREAK}, \texttt{BREAK.IFEQ} \\
 \bottomrule
 \end{tabularx}
 \end{center}
 
 A \texttt{.FIRST} variant starts a new sum (or max) instead of adding to the
 previous one. Empty slots are filled with \texttt{NOP}.
-The \doc{instructions}{Instruction Reference} documents every instruction, and
-\doc{assembly-syntax}{Assembly Syntax} the full syntax.
+The \doc{reference/isa/instructions}{Instruction Reference} documents every
+instruction, and \doc{reference/isa/assembly-syntax}{Assembly Syntax} the
+full syntax.
+
+\needspace{6cm}
+\subsection{Multiplies and stores}
+
+Every \texttt{MULT} instruction ends with a DS half and a QF half. This one
+multiplies \texttt{R0}, from element \texttt{LR0}, by the constant in
+\texttt{CR3}, with mask slot 0 and the mask shift in \texttt{LR2}; the elements of
+\texttt{R0} are decoded with the QF half \texttt{CR14.L}:
+
+\begin{pycode}
+    MULT.VE LR0 CR3 0 LR2 CR15.L CR14.L ;;
+\end{pycode}
+
+The AAQ stage stores its own result; no register holds it in between
+(\doc{reference/isa/activate-quantize}{ACTIVATE.QUANTIZE, ACTIVATE.EXACT and LD.LUT}):
+
+\begin{pycode}
+    ACTIVATE.QUANTIZE relu CR15.L CR14.L CR2 LR1 ;; # relu, quantize, store row CR2+LR1
+    ACTIVATE.EXACT silu CR15.L CR3 LR1 ;;           # FP32 mode only: exact silu, store
+    LD.LUT 0 CR4 LR0 ;;                             # LUT segment 0 <- row CR4+LR0
+\end{pycode}
+
+\begin{itemize}
+\item \texttt{ACTIVATE.QUANTIZE activation\_fn ds qf table\_id table\_offset}
+  applies \texttt{identity}, \texttt{relu}, \texttt{relu6},
+  \texttt{reciprocal}, \texttt{rsqrt}, \texttt{exp2} or \texttt{generic} to
+  the valid elements of \texttt{R\_ACC}, and stores the row at
+  \texttt{CR[table\_id] + LR[table\_offset]}. In NX8 it quantizes the row to
+  the QF half and stores 128 bytes and the row's metadata; in FP32 it stores
+  the 128 FP32 values (512 bytes). Invalid elements are written as 0.
+\item \texttt{ACTIVATE.EXACT activation\_fn ds table\_id table\_offset} is
+  emulator-only and runs in the FP32 mode only: it applies the exact Python
+  activation (13 functions, \texttt{sigmoid}, \texttt{gelu} and \texttt{silu}
+  among them) and stores 512 bytes. The emulator and the harness refuse it in
+  NX8, and \texttt{ipu-as assemble --target hardware} rejects it.
+\item \texttt{LD.LUT lut\_addr table\_id table\_offset} loads one 1024-bit LUT
+  segment (0--4) from a row.
+\end{itemize}
 
 \needspace{7cm}
 \subsection{Example loop}
@@ -370,25 +450,33 @@ The loop of the \texttt{identity} kernel, which copies rows:
 
 \begin{pycode}
 row_loop:
-    LD.MULT r0 lr1 cr2 ;;               # load:  row CR2+LR1 -> R0
-    MULT.VE lr0 cr1 0 lr0 cr15 ;        # mult:  R0 x 1.0
-    ACC.ADD.FIRST ;;                    # acc:   R_ACC = MULT_RES
-    ACTIVATE.QUANTIZE identity cr15 ;   # aaq:   pass through
-    ST.AAQ lr1 cr3 ;;                   # store: to row CR3+LR1
-    ADD lr1 lr1 cr1 ;;                  # lr:    next row
-    BLT.S lr1 cr4 row_loop ;;           # cond:  loop while LR1 < CR4
+    LD.MULT R0 LR1 CR2 ;;                       # load:      row CR2+LR1 -> R0
+    MULT.VE LR0 CR1 0 LR0 CR15.L CR14.L ;       # mult:      R0 x 1.0
+    ACC.ADD.FIRST ;;                            # acc:       R_ACC = MULT_RES
+    ACTIVATE.EXACT identity CR15.L CR3 LR1 ;;   # aaq_exact: store R_ACC at row CR3+LR1
+    ADD LR1 LR1 CR1 ;;                          # lr:        next row
+    BLT.S LR1 CR4 row_loop ;;                   # cond:      loop while LR1 < CR4
 \end{pycode}
 
 Each \texttt{;;} ends an instruction word, so this loop takes five cycles per
-row. Faster kernels pack more work into each word --- for example loading the
+row. \texttt{identity} runs in the FP32 mode only, so it stores with
+\texttt{ACTIVATE.EXACT}. A kernel that runs on the hardware stores with
+\texttt{ACTIVATE.QUANTIZE} instead, as \texttt{fully\_connected} does:
+
+\begin{pycode}
+    ACTIVATE.QUANTIZE identity CR15.L CR14.L CR3 LR1 ;;
+\end{pycode}
+
+Faster kernels pack more work into each word --- for example loading the
 next row in the same word that multiplies the current one.
 
 \subsection{Read timing within a word}
 
-The emulator runs the slots of a word in this order: the three \texttt{lr}
-slots, \texttt{load}, \texttt{mult}, \texttt{acc}, \texttt{aaq},
-\texttt{store}, \texttt{cond}. Some reads see a result written earlier in
-the same word; others see the value from the start of the cycle.
+The emulator runs the slots of a word in this order: \texttt{break}, the three
+\texttt{lr} slots, \texttt{load}, \texttt{mult}, \texttt{acc}, \texttt{aaq},
+\texttt{aaq\_exact}, \texttt{cond}. Some reads see a result written earlier in
+the same word; others see the value from the start of the cycle
+(\doc{explanation/timing-model}{Timing model}).
 
 \begin{center}
 \small
@@ -396,23 +484,24 @@ the same word; others see the value from the start of the cycle.
 \toprule
 Read & Value it sees \\
 \midrule
-\texttt{R0}, \texttt{R1}, \texttt{R\_CYCLIC} by \texttt{mult} & start of the
-cycle: a row loaded in this word reaches the multiplier one word later \\
-\texttt{MULT\_RES} by \texttt{acc} & this word's multiply (except
-\texttt{ACC.RESHAPE}, which reads the start-of-cycle value) \\
-\texttt{R\_ACC} by \texttt{aaq} & this word's accumulate \\
-\texttt{POST\_AAQ\_REG} by \texttt{store} & this word's activation \\
-LR address offsets of \texttt{load}, \texttt{mult}, \texttt{store} & this
-word's \texttt{lr} updates \\
+\texttt{R0}, \texttt{R1}, \texttt{R\_CYCLIC}, \texttt{R\_MASK} and their row
+metadata, by \texttt{mult} & start of the cycle: a row loaded in this word
+reaches the multiplier one word later \\
+\texttt{MULT\_RES} by \texttt{acc} (\texttt{AGG} and \texttt{ACC.RESHAPE}
+too) & this word's multiply \\
+\texttt{R\_ACC} by \texttt{aaq} and \texttt{aaq\_exact} & this word's accumulate \\
+LR operands of \texttt{load}, \texttt{mult}, \texttt{acc}, \texttt{aaq},
+\texttt{aaq\_exact} & this word's \texttt{lr} updates \\
 LR and CR sources of \texttt{lr} and \texttt{cond} & start of the cycle \\
 \bottomrule
 \end{tabularx}
 \end{center}
 
 This is why the \texttt{identity} loop puts \texttt{MULT.VE} and
-\texttt{ACC.ADD.FIRST} in one word, and \texttt{ACTIVATE.QUANTIZE} and
-\texttt{STR\_POST\_AAQ\_REG} in another, but loads \texttt{R0} one word
-before multiplying it.
+\texttt{ACC.ADD.FIRST} in one word but loads \texttt{R0} one word before
+multiplying it. The store could join the multiply's word too, since it sees
+that word's accumulate; but the \texttt{ADD} that steps \texttt{LR1} may not
+share the store's word, or the store would see the stepped row.
 
 %======================================================================
 \section{Installing}
@@ -615,13 +704,19 @@ With no arguments, \texttt{query} lists every operation and every kernel. The
 $ bazel run //kernels:query
 \end{termcmdtop}
 \begin{termout}
+# Kernel coverage
+
 Operations: attn_scores_km, attn_v, attn_v_bcast, channel_peak, concat, conv2d, depth_to_space, fold, fully_connected, identity, l2_normalize, layernorm, matmul, maxpool2d, pack, packed_layernorm, packed_linear, projection, qk_scores, residual_add, sample_descriptors, scale, score_threshold, softmax, unfold, unpack, vector_tour
 Kernels:    107
+
 ## attn_scores_km
+
 - **attn_scores_km_16x60** -- `//kernels/attention/attn_scores_km_16x60`
 - **attn_scores_km_256x36** -- `//kernels/attention/attn_scores_km_256x36`
 - **attn_scores_km_64x48** -- `//kernels/attention/attn_scores_km_64x48`
+
 ## attn_v
+
 - **attn_v_16x60** -- `//kernels/attention/attn_v_16x60`
 - **attn_v_256x36** -- `//kernels/attention/attn_v_256x36`
 - **attn_v_64x48** -- `//kernels/attention/attn_v_64x48`
@@ -710,8 +805,7 @@ Run the kernel's default case:
 $ bazel run //kernels/convolutions:depthwise_conv_universal
 \end{termcmdtop}
 \begin{termout}
-depthwise_conv_universal/default/fp32: PASS  cycles=108  MAC util=61.2%
-  y: max|err|=4.76837e-07 (FP32_ORDER)
+depthwise_conv_universal/default/fp32: PASS  cycles=107  MAC util=61.8%  y: max|err|=4.76837e-07 (FP32_ORDER)
 \end{termout}
 
 A run plans the case (its parameter values and element format), makes its
@@ -801,8 +895,7 @@ options:
 $ bazel run //kernels/convolutions:depthwise_conv_universal -- --case c50_64
 \end{termcmdtop}
 \begin{termout}
-depthwise_conv_universal/c50_64/fp32: PASS  cycles=15270  MAC util=92.3%
-  y: max|err|=4.76837e-07 (FP32_ORDER)
+depthwise_conv_universal/c50_64/fp32: PASS  cycles=15269  MAC util=92.4%  y: max|err|=4.76837e-07 (FP32_ORDER)
 \end{termout}
 
 A larger problem keeps the pipeline busier, so the MAC utilisation rises.
@@ -820,8 +913,7 @@ $ bazel run //kernels/convolutions:depthwise_conv_universal -- \
 $ python3 -c "import numpy; print(numpy.load('out/y.npy').shape)"
 \end{termcmdtop}
 \begin{termout}
-depthwise_conv_universal/c16_32/fp32: PASS  cycles=1278  MAC util=86.4%
-  y: max|err|=4.76837e-07 (FP32_ORDER)
+depthwise_conv_universal/c16_32/fp32: PASS  cycles=1277  MAC util=86.5%  y: max|err|=4.76837e-07 (FP32_ORDER)
 (16, 32, 32)
 \end{termout}
 
@@ -833,8 +925,7 @@ A wrong request is refused before anything runs:
 $ bazel run //kernels/convolutions:depthwise_conv_universal -- --case big
 \end{termcmdtop}
 \begin{termout}
-error: depthwise_conv_universal has no case 'big';
-  its cases: default, negative_outputs, c28_16, c32_16, c16_32, c50_64, c4_8x128, c30_16x128, c4_8x8, c4_5x5, c3_5x128
+error: depthwise_conv_universal has no case 'big'; its cases: default, negative_outputs, c28_16, c32_16, c16_32, c50_64, c4_8x128, c30_16x128, c4_8x8, c4_5x5, c3_5x128
 \end{termout}
 
 \texttt{--max-cycles} stops a run that takes too long (useful for a program
@@ -844,8 +935,7 @@ that never halts):
 $ bazel run //kernels/convolutions:depthwise_conv_universal -- --max-cycles 50
 \end{termcmdtop}
 \begin{termout}
-depthwise_conv_universal/default/fp32: FAIL cycles=50 MAC util=64.2%
-  fault F-9 at PC 24: INC LR3 1;
+depthwise_conv_universal/default/fp32: FAIL  cycles=50  MAC util=64.2%  fault F-9 at PC 24: INC LR3 1;
 \end{termout}
 
 %======================================================================
@@ -936,7 +1026,8 @@ The screen has four panes, numbered in their titles:
 
 \begin{enumerate}[label=\textbf{\arabic*}]
 \item \textbf{Pipeline Registers} --- R0, R1, R\_C (\texttt{R\_CYCLIC}),
-  R\_MASK, R\_ACC (the accumulator) and more, one tab each.
+  R\_MASK, R\_ACC (the accumulator), AAQ\_ROW (the XMEM row the last AAQ
+  store wrote) and more, one tab each.
 \item \textbf{Instructions} --- the program. \texttt{\textcolor{teal}{$\blacktriangleright$}}
   marks the next instruction; lines starting \texttt{||} run in the same cycle
   as the line above (one VLIW word).
@@ -978,7 +1069,7 @@ Tab & Shows \\
 \midrule
 \texttt{current compact} & each word's instructions, empty slots hidden \\
 \texttt{current full} & every slot of each word, including \texttt{NOP}s \\
-\texttt{current stages} & the word about to run, split by pipeline stage (CTRL, MULT, ACC, AAQ, STORE, XMEM input); stages with nothing to do show \texttt{IDLE} \\
+\texttt{current stages} & the word about to run, split by pipeline stage (CTRL, LOAD, MULT, ACC, AAQ, AAQ\_EXACT); stages with nothing to do show \texttt{IDLE} \\
 \bottomrule
 \end{tabularx}
 \end{center}
@@ -1055,7 +1146,7 @@ Pane & \texttt{F2} / \texttt{F3} value \\
 Instructions & \texttt{current}, or a fixed PC \\
 CR / LR & \texttt{all}, \texttt{lr} or \texttt{cr} \\
 XMEM & \texttt{row|byte BASE OFFSET COUNT FORMAT}, e.g.\ \texttt{row cr4 lr0 16 f32} \\
-Pipeline Registers & a register: \texttt{R0}, \texttt{R\_ACC}, \texttt{MULT\_RES}, \texttt{MEM\_BYPASS}, \ldots \\
+Pipeline Registers & a register: \texttt{R0}, \texttt{R\_ACC}, \texttt{AAQ\_ROW}, \texttt{MULT\_RES}, \texttt{MEM\_BYPASS}, \ldots \\
 \bottomrule
 \end{tabularx}
 \end{center}
@@ -1083,7 +1174,7 @@ The IPU instruction set has gaps: there is, for example, no instruction that
 adds two vectors. Kernels fill a gap with a sequence of other instructions ---
 to add two vectors, multiply each by 1.0 and accumulate. Such a sequence is an
 \textbf{alias}. The \doc{explanation/isa-idioms}{ISA Idioms} lists them as
-A1--A16; counting them shows which new instructions would help most.
+A1--A15; counting them shows which new instructions would help most.
 
 \subsection{Alias counts}
 
@@ -1091,27 +1182,36 @@ A1--A16; counting them shows which new instructions would help most.
 $ bazel run //kernels/elementwise/residual_add -- --profile-aliases
 \end{termcmdtop}
 \begin{termout}
-residual_add/default/fp32: PASS  cycles=325  MAC util=0.0%
-  y: max|err|=0 (EXACT)
+residual_add/default/fp32: PASS  cycles=325  MAC util=0.0%  y: max|err|=0 (EXACT)
 --- Full ISA measurements (overlapping; no savings estimates) ---
+A6_GATHER_SCATTER: no observed match
+A4_AGG_RC: no observed match
+A3_SUB_VV: no observed match
 A2_ADD_VV/default: 64 occurrences (verified), 64 participating cycles
+A5_BCAST: no observed match
 A1_MOV_RC/default: 64 occurrences (verified), 64 participating cycles
-A16_STR_ACC_REG/default: 64 occurrences (verified), 64 participating cycles
+A7_REDUCE_SEG: no observed match
+A8_MOV_ACC: no observed match
+A9_EXP: no observed match
+A10_FRACTIONAL_SCALAR: no observed match
+A11_ACC_MUL: no observed match
 A12_ADDRESSING/load_to_mult: 128 occurrences (verified), 256 participating cycles
 A12_ADDRESSING/address_update: 64 occurrences (verified), 128 participating cycles
 A13_NARROW_MULT/lanes_128: 128 occurrences (verified), 128 participating cycles
+A14_MULTIPLE_ACC: no observed match
+A15_SELECT: no observed match
 \end{termout}
 
 Every multiply is a multiply by 1.0, so no real arithmetic happens in the
 multiplier (\texttt{MAC util=0.0\%}). Per channel (64 channels): one
-\texttt{A1\_MOV\_RC} (move A into the accumulator), one \texttt{A2\_ADD\_VV}
-(add B) and one \texttt{A16\_STR\_ACC\_REG} (store with a simulation-only
-instruction).
+\texttt{A1\_MOV\_RC} (move A into the accumulator) and one
+\texttt{A2\_ADD\_VV} (add B). The store, \texttt{ACTIVATE.EXACT identity},
+is a real instruction, not an alias.
 
 \subsection{Aliases in the debugger}
 
 In figure~\ref{fig:rastep}, PC 4 and PC 6 are the aliases:
-\texttt{MULT.RC.VE ... cr1} multiplies by \texttt{CR1} = 1.0;
+\texttt{MULT.RC.VE LR0 CR1 ...} multiplies by \texttt{CR1} = 1.0;
 \texttt{ACC.ADD.FIRST} starts the sum (A1), \texttt{ACC.ADD} adds the second
 vector (A2).
 
@@ -1146,17 +1246,17 @@ $ bazel run //kernels/convolutions:depthwise_conv_universal -- --benchmark
 \begin{termout}
 | point | format | result | cycles | cyc/in_channels | mult% | acc% | lanes% | ident% | effMAC% |
 |---|---|---|---|---|---|---|---|---|---|
-| h=16 w=16 c=8 o=8 g=8 | fp32 | pass | 180 | 22.50 | 80.0% | 80.0% | 73.5% | 0.0% | 73.5% |
-| h=16 w=16 c=25 o=25 g=25 | fp32 | pass | 486 | 19.44 | 92.6% | 92.6% | 85.0% | 0.0% | 85.0% |
-| h=16 w=16 c=26 o=26 g=26 | fp32 | pass | 504 | 19.38 | 92.9% | 92.9% | 85.3% | 0.0% | 85.3% |
+| height=16,width=16,in_channels=8,out_channels=8,groups=8,has_bias=False,apply_relu=False,fpb=28 | fp32 | pass | 179 | 22.38 | 80.4% | 80.4% | 73.9% | 0.0% | 73.9% |
+| height=16,width=16,in_channels=25,out_channels=25,groups=25,has_bias=False,apply_relu=False,fpb=28 | fp32 | pass | 485 | 19.40 | 92.8% | 92.8% | 85.2% | 0.0% | 85.2% |
+| height=16,width=16,in_channels=26,out_channels=26,groups=26,has_bias=False,apply_relu=False,fpb=28 | fp32 | pass | 503 | 19.35 | 93.0% | 93.0% | 85.4% | 0.0% | 85.4% |
 ...
 
 ISA aliases
 
 | point | A7_REDUCE_SEG | A12_ADDRESSING | A13_NARROW_MULT | A14_MULTIPLE_ACC |
 |---|---|---|---|---|
-| h=16 w=16 c=8 o=8 g=8 (fp32) | 0 +93? | 50 | 144 | 32 |
-| h=16 w=16 c=25 o=25 g=25 (fp32) | 0 +297? | 154 | 450 | 83 |
+| height=16,width=16,in_channels=8,out_channels=8,groups=8,has_bias=False,apply_relu=False,fpb=28 (fp32) | 0 +93? | 50 | 144 | 32 |
+| height=16,width=16,in_channels=25,out_channels=25,groups=25,has_bias=False,apply_relu=False,fpb=28 (fp32) | 0 +297? | 154 | 450 | 83 |
 ...
 \end{termout}
 
@@ -1182,26 +1282,47 @@ The program is rendered with the default case's values first: a
 
 \texttt{ipu-as} assembles or checks any \texttt{.asm} file. \texttt{bazel run}
 runs it inside Bazel's own directory, so give \textbf{absolute} paths
-(\texttt{\$PWD/...}); and pass \texttt{--format bin}, or it asks:
+(\texttt{\$PWD/...}). The output format comes from the suffix: a
+\texttt{.bin} output is a binary, anything else a memory image
+(\texttt{--format} overrides it). Here \texttt{prog.asm} is the
+\texttt{double\_rows} program of section~\ref{sec:newkernel}, with its
+registers written out:
 
-\begin{termcmd}
-$ bazel run //src/ipu-as:ipu-as -- assemble --format bin \
+\begin{termcmdtop}
+$ bazel run //src/ipu-as:ipu-as -- assemble \
     --input $PWD/prog.asm --output $PWD/prog.bin
 $ ls -l prog.bin
 $ bazel run //src/ipu-as:ipu-as -- check --input $PWD/prog.asm
+\end{termcmdtop}
+\begin{termout}
+Assembling file: /home/user/ipu-emulator/prog.asm
+Output will be saved to: /home/user/ipu-emulator/prog.bin
+-rw-r--r-- 1 user user 224 Oct 23 21:37 prog.bin
+/home/user/ipu-emulator/prog.asm: ok
+\end{termout}
+
+\texttt{check} reports every error with its line and column. A comma between
+operands is one (operands are separated by spaces), and so is a bare CR where
+a DS or QF half is expected. Line 2 of \texttt{bad.asm} is
+\texttt{BEQ LR0, CR0, loop ;;}:
+
+\begin{termcmdtop}
 $ bazel run //src/ipu-as:ipu-as -- check --input $PWD/bad.asm
-\end{termcmd}
+\end{termcmdtop}
+\begin{termout}
+/home/user/ipu-emulator/bad.asm:2:12: error: unexpected ','; expected one of: token, ';', ';;'
+\end{termout}
 
-\texttt{bad.asm} contains \texttt{BEQ lr0, cr0, +1}:
-
-\terminal{assembler.png}{\label{fig:assembler}Operands are separated by spaces, so the comma is an error.}
+\texttt{assemble --target hardware} assembles only the hardware slots, so a
+program that uses an emulator-only instruction such as
+\texttt{ACTIVATE.EXACT} is an error there.
 
 \begin{center}
 \begin{tabularx}{\linewidth}{lX}
 \toprule
 Command & Does \\
 \midrule
-\texttt{assemble} & \texttt{.asm} $\rightarrow$ binary (\texttt{--format bin}) or memory image (\texttt{mem}) \\
+\texttt{assemble} & \texttt{.asm} $\rightarrow$ binary (\texttt{.bin}) or memory image; \texttt{--target hardware} for the hardware word \\
 \texttt{check} & reports every error with line and column; exit code 1 on errors; \texttt{--json} for tools \\
 \texttt{disassemble} & binary $\rightarrow$ assembly text \\
 \bottomrule
@@ -1212,8 +1333,10 @@ Command & Does \\
 \section{Adding a new kernel}\label{sec:newkernel}
 
 A complete example kernel, \texttt{double\_rows}: $y = 2x$ for a matrix of
-128-element FP32 rows, built from the smallest existing kernel,
-\texttt{kernels/reshape/identity/}, which copies rows.
+128-element rows, built from the smallest existing kernel,
+\texttt{kernels/reshape/identity/}, which copies rows. It stores with
+\texttt{ACTIVATE.QUANTIZE}, the hardware instruction, so it runs in both
+modes: FP32 and the NX8 type \texttt{e4}.
 \doc{how-to/write-a-kernel}{Write a kernel} explains every step and every
 \texttt{kernel.toml} key.
 
@@ -1232,18 +1355,17 @@ the kernel's name and its Bazel target, \texttt{//kernels/elementwise/double\_ro
 \subsection{Program: \texttt{double\_rows.asm}}
 
 \begin{pycode}
-{#- double_rows.asm -- y = 2x, one XMEM row (128 FP32 elements) at a time. -#}
+{#- double_rows.asm -- y = 2x, one XMEM row (128 elements) at a time. -#}
     SET LR0 CR0 ;
     SET LR1 CR0 ;;
 
 row_loop:
     LD.MULT R0 LR1 {{ cr.x }} ;;
-    MULT.VE LR0 CR1 0 LR0 CR15 ;
+    MULT.VE LR0 CR1 0 LR0 CR15.L {{ cr.qf }}.L ;
     ACC.ADD.FIRST ;;
-    MULT.VE LR0 CR1 0 LR0 CR15 ;
+    MULT.VE LR0 CR1 0 LR0 CR15.L {{ cr.qf }}.L ;
     ACC.ADD ;;
-    ACTIVATE.QUANTIZE identity CR15 ;
-    ST.AAQ LR1 {{ cr.y }} ;;
+    ACTIVATE.QUANTIZE identity CR15.L {{ cr.qf }}.L {{ cr.y }} LR1 ;;
     ADD LR1 LR1 CR1 ;;
     BLT.S LR1 {{ cr.rows }} row_loop ;;
     HALT ;;
@@ -1252,18 +1374,22 @@ row_loop:
 \begin{itemize}
 \item \texttt{\{\{ cr.x \}\}} --- the configuration register \texttt{kernel.toml}'s
   \texttt{[abi]} binds to \texttt{x} (here \texttt{CR2}); the harness writes
-  the region's first row into it.
+  the region's first row into it. \texttt{\{\{ cr.qf \}\}.L} is the low half
+  of the register that holds the case's QF (here \texttt{CR14.L}).
 \item \texttt{SET LR0 CR0 ; SET LR1 CR0 ;;} --- one word, two \texttt{LR}
   slots: both start at 0.
 \item \texttt{LD.MULT R0 LR1 \{\{ cr.x \}\} ;;} --- load input row
-  \texttt{LR1} into \texttt{R0}.
-\item \texttt{MULT.VE ... CR1 ... ; ACC.ADD.FIRST ;;} --- multiply \texttt{R0}
-  by \texttt{CR1} (= 1.0) and start the accumulator with it.
+  \texttt{LR1} (and, in NX8, its metadata) into \texttt{R0}.
+\item \texttt{MULT.VE LR0 CR1 0 LR0 CR15.L \{\{ cr.qf \}\}.L ; ACC.ADD.FIRST ;;}
+  --- multiply \texttt{R0} by \texttt{CR1} (= 1.0), with mask slot 0, no mask
+  shift, the DS half \texttt{CR15.L} (all 128 elements) and the QF half the
+  elements are decoded with; start the accumulator with the product.
 \item \texttt{MULT.VE ... ; ACC.ADD ;;} --- the same again, added on top:
   \texttt{R\_ACC} = $x + x = 2x$.
-\item \texttt{ACTIVATE.QUANTIZE identity CR15 ; ST.AAQ LR1 \{\{ cr.y \}\} ;;}
+\item \texttt{ACTIVATE.QUANTIZE identity CR15.L \{\{ cr.qf \}\}.L \{\{ cr.y \}\} LR1 ;;}
   --- pass \texttt{R\_ACC} through unchanged and store it at output row
-  \texttt{LR1}.
+  \texttt{LR1}: quantized to the case's QF, with the row's metadata, in NX8;
+  as 128 FP32 values in FP32.
 \item \texttt{ADD ... ;; BLT.S LR1 \{\{ cr.rows \}\} row\_loop ;;} --- next
   row, loop while \texttt{LR1} is below the row count; \texttt{HALT ;;} halts.
 \end{itemize}
@@ -1273,7 +1399,7 @@ row_loop:
 \begin{pycode}
 [kernel]
 op = "double"
-formats = ["fp32"]
+formats = ["fp32", "e4"]
 
 [params]
 rows = { type = "int", min = 1, max = 256 }
@@ -1284,14 +1410,18 @@ shape = ["rows", 128]
 [outputs.y]
 shape = ["rows", 128]
 
+[derived]
+qf = "case_qf"
+
 [abi]
 x    = "CR2"
 y    = "CR3"
 rows = "CR4"
+qf   = "CR14"
 
 [golden]
 reference = "reference.py:reference"
-tolerance = { fp32 = "EXACT" }
+tolerance = { fp32 = "EXACT", nx8 = "EXACT" }
 
 [cases.default]
 rows = 4
@@ -1300,12 +1430,18 @@ rows = 4
 rows = [1, 64]
 \end{pycode}
 
-\texttt{[params]} declares the parameters and their domains; a query outside
-them is refused. \texttt{[inputs]} and \texttt{[outputs]} declare the tensors,
-their shapes in terms of the parameters; the harness places them in XMEM.
-\texttt{[abi]} names the configuration register of each region and parameter.
-\texttt{[golden]} names the reference and the tolerance each format is held
-to. Each \texttt{[cases.<name>]} is a set of values; the inputs come from the
+\texttt{[kernel] formats} lists the variants the kernel runs in: \texttt{fp32}
+for the FP32 mode, and NX8 types (\texttt{e1} to \texttt{e7},
+\texttt{dynamic}) for the hardware mode. \texttt{[params]} declares the
+parameters and their domains; a query outside them is refused.
+\texttt{[inputs]} and \texttt{[outputs]} declare the tensors, their shapes in
+terms of the parameters; the harness places them in XMEM, in NX8 each row with
+its metadata. \texttt{[derived]} computes values from the case:
+\texttt{case\_qf} is the QF half of the case's variant (0 in FP32).
+\texttt{[abi]} names the configuration register of each region, parameter and
+derived value. \texttt{[golden]} names the reference and the tolerance each
+variant is held to (\texttt{nx8} covers every NX8 type). Each
+\texttt{[cases.<name>]} is a set of values; the inputs come from the
 harness's seeded generator unless the case names its own.
 
 \subsection{Reference: \texttt{reference.py}}
@@ -1319,27 +1455,30 @@ def reference(x: torch.Tensor, *, rows: int) -> dict[str, torch.Tensor]:
     return {"y": 2 * x}
 \end{pycode}
 
-The harness passes the inputs (decoded from the element format) and the
-parameters, and holds each output to the reference's.
+The harness passes the inputs (decoded from the variant of the run) and the
+parameters, and holds each output to the reference's. In NX8 it first
+quantizes each reference row as \texttt{ACTIVATE.QUANTIZE} does; doubling only
+moves a row's scale, so both variants match exactly.
 
 \needspace{0.42\textheight}
 \subsection{Run it}
 
 \begin{termcmd}
 $ bazel run //kernels:query -- double rows=4
-$ bazel run //kernels/elementwise/double_rows
+$ bazel run //kernels/elementwise/double_rows -- --format all
 \end{termcmd}
 \begin{termout}
 SUPPORTED: double_rows accepts it, at cost 0
   app:  double_rows
   use:  //kernels/elementwise/double_rows (rows=4)
-  note: runs in fp32
-double_rows/default/fp32: PASS  cycles=26  MAC util=0.0%
-  y: max|err|=0 (EXACT)
+  note: runs in fp32, e4
+double_rows/default/fp32: PASS  cycles=26  MAC util=0.0%  y: max|err|=0 (EXACT)
+double_rows/default/e4: PASS  cycles=26  MAC util=0.0%  y: max|err|=0 (EXACT)
 \end{termout}
 
-\texttt{MAC util=0.0\%}: doubling by adding a row to itself spends the
-multiplier on data movement.
+Without \texttt{--format} a run uses the case's first variant, here
+\texttt{fp32}. \texttt{MAC util=0.0\%}: doubling by adding a row to itself
+spends the multiplier on data movement.
 
 \needspace{0.3\textheight}
 \subsection{Test it}
@@ -1348,11 +1487,14 @@ multiplier on data movement.
 $ bazel test //kernels/elementwise/double_rows
 \end{termcmd}
 \begin{termout}
-//kernels/elementwise/double_rows:double_rows                           PASSED in 4.7s
+//kernels/elementwise/double_rows:double_rows                           PASSED in 4.9s
     PASSED  ...test_case[default-fp32] (3.2s)
+    PASSED  ...test_case[default-e4] (0.0s)
     PASSED  ...test_case[sweep[rows=1]-fp32] (0.0s)
+    PASSED  ...test_case[sweep[rows=1]-e4] (0.0s)
     PASSED  ...test_case[sweep[rows=64]-fp32] (0.0s)
-Test cases: finished with 3 passing, 0 skipped and 0 failing out of 3 test cases
+    PASSED  ...test_case[sweep[rows=64]-e4] (0.0s)
+Test cases: finished with 6 passing, 0 skipped and 0 failing out of 6 test cases
 Executed 1 out of 1 test: 1 test passes.
 \end{termout}
 
@@ -1426,8 +1568,7 @@ $ bazel run --define=ipu_proto=1 //kernels/convolutions:depthwise_conv_universal
 $ bazel test --define=ipu_proto=1 //...
 \end{termcmdtop}
 \begin{termout}
-depthwise_conv_universal/c50_64/fp32: PASS  cycles=15270  MAC util=92.3%
-  y: max|err|=4.76837e-07 (FP32_ORDER)
+depthwise_conv_universal/c50_64/fp32: PASS  cycles=15269  MAC util=92.4%  y: max|err|=4.76837e-07 (FP32_ORDER)
 \end{termout}
 
 The skipped work still takes time on the real chip; use normal mode for any
@@ -1469,7 +1610,7 @@ Below, \texttt{<kernel>} stands for a kernel's target,
 \texttt{bazel build //kernels/<family>/<name>:\textbackslash}\par
 \texttt{\ \ assemble\_<name>}\par
 \texttt{bazel run //src/ipu-as:ipu-as \textbackslash}\par
-\texttt{\ \ -- assemble --format bin \textbackslash}\par
+\texttt{\ \ -- assemble \textbackslash}\par
 \texttt{\ \ --input \$PWD/a.asm \textbackslash}\par
 \texttt{\ \ --output \$PWD/a.bin}\par
 \texttt{bazel run //src/ipu-as:ipu-as \textbackslash}\par
@@ -1521,8 +1662,10 @@ Below, \texttt{<kernel>} stands for a kernel's target,
 \begin{tabular}{@{}ll@{}}
 \texttt{CR0} = 0, \texttt{CR1} = 1 & fixed \\
 \texttt{CR2}, \ldots & set from \texttt{[abi]} \\
+\texttt{CRn.L}, \texttt{CRn.H} & 16-bit halves: DS, QF \\
+\texttt{CR15.L} & DS: all 128 elements \\
 \texttt{LR0}--\texttt{LR15} & the program's counters \\
-\texttt{R\_ACC} & accumulator \\
+\texttt{R\_ACC} & accumulator (FP32) \\
 \end{tabular}
 \end{multicols}
 }
