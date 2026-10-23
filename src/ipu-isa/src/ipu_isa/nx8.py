@@ -11,7 +11,7 @@ expansion (``ARCH-stage-mult.md`` §3.2.1), which inverts it. Both work on the
 FP32 bit fields with integer arithmetic, so they are exact. The emulator and
 the kernel harness share them.
 
-Choices the specs leave open (ADR 0007, OQ-36 to OQ-43): ±inf saturates to the
+Choices the specs leave open (ADR 0007, OQ-36 to OQ-49): ±inf saturates to the
 largest magnitude and is left out of the scale; a NaN input raises; a negative
 input to an unsigned format encodes as 0. Every saturation is reported, for the
 ``QUANT_SATURATION`` arithmetic event. FP32 inputs are "always treated as
@@ -211,8 +211,8 @@ def dynamic_scores(
     truncation errors with the steps of the §4.3.2.3 table, as the example uses,
     measured in units of the row's scale (``2^(scale - 127)``), so a row's
     choice does not change when every element is scaled by a power of two:
-    the reading under which the spec's "both estimators are unbiased" holds,
-    and the only one its scale-0 example cannot tell apart (OQ-49).
+    the reading under which the spec's "both estimators are unbiased" holds;
+    the spec's scale-0 example gives the same result under both (OQ-49).
     """
     fm1 = num_bits - 2
     flags = _active_list(active, len(values))

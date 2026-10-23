@@ -59,7 +59,8 @@ A row's 16-bit **metadata word** holds `scale[7:0]` (an `e8m0` exponent, bias
 
 **Dynamic** types are signed and 8 bits wide; each row chooses fe = 1 or 2
 (`dynamic_exponent` 0 or 1 in its metadata) by the architecture spec's rule
-(`ARCH-stage-aaq-str.md` §4.3.2.3).
+(`ARCH-stage-aaq-str.md` §4.3.2.3), with errors measured in units of the row's
+scale ([OQ-49](../requirements/open-questions.md#emulator-and-isa)).
 
 The values each fixed type holds at unit scale (scale 127), computed from the
 codec (`ipu_isa.nx8.decode_element`):

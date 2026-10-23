@@ -52,7 +52,9 @@ unchanged.
 2. **Quantize** (NX8 mode) the active elements to one row in the QF half's
    format (§4.3.2): the row's `scale` comes from the largest magnitude, each
    element is rounded to nearest with ties half up, and a dynamic format picks
-   the exponent width of the row by the §4.3.2.3 rule
+   the exponent width of the row by the §4.3.2.3 rule, with errors measured in
+   units of the row's scale
+   ([OQ-49](../../requirements/open-questions.md#emulator-and-isa))
    (`ipu_isa.nx8.encode_row`).
 3. **Store** the 128 bytes and the row's metadata word (`scale[7:0]`,
    `dynamic_exponent[8]`) at the row. In the FP32 mode the activated row is
