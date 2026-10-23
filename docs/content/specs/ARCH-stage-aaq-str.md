@@ -139,8 +139,8 @@ does not read the CR/LR register files itself (see the Control Stage spec,
 section 5).
 
 The opcode enum (`aaq_inst_opcode_t`, package `ipu_instr_pkg`) is generated
-from [`instruction_spec.py`](../../../src/tools/ipu-common/src/ipu_common/instruction_spec.py)
-by [`gen_codegen.py`](../../../src/tools/ipu-as-py/src/ipu_as/gen_codegen.py).
+from [`instruction_spec.py`](../../../src/ipu-isa/src/ipu_isa/instruction_spec.py)
+by [`sv_package.py`](../../../src/ipu-gen/src/ipu_gen/sv_package.py).
 
 > **Note:** Each `CR0`-`CR15` and `LR0`-`LR15` register named in the
 > instruction operands is **32 bits** wide.
