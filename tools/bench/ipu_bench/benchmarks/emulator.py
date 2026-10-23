@@ -4,12 +4,13 @@
   the ``ru_maxrss`` growth of the first construction (targets: < 5 ms, < 5 MB).
 * Cycles per second of a fixed matmul kernel run to ``HALT``, best of 5 (one
   run with ``--quick``; target: >= 50k cycles/s): ``MATMUL`` in FP32, the
-  format it is written for, ``INT8`` (the ``default`` case of
-  ``fully_connected`` in INT8; no matmul kernel is written for INT8) and
-  ``E4`` (the same case in FP8 E4M3). Each is a kernel-tree case, run through
+  mode it is written for, ``E4`` (the ``default`` case of ``fully_connected``
+  in NX8 e4, the hardware mode; no matmul kernel is written for NX8) and
+  ``DYNAMIC`` (the same case in dynamic NX8, whose stores also choose each
+  row's exponent width; ADR 0007). Each is a kernel-tree case, run through
   the harness runner and checked. All run on the faithful path and, in a build
   with ``--define=ipu_proto=1``, also in prototyping mode; ``--tiny`` runs
-  INT8 only.
+  E4 only.
 
 ``bazel run //src/ipu-emu:bench_emulator`` runs only this module.
 """
@@ -26,9 +27,9 @@ from ipu_bench.result import Budget, Result
 # still kernels.LARGE) takes about 22 s, which breaks the 30 s bound on --quick.
 #: (kernel, case, format, the result's name): the format None is the case's first.
 MATMUL = ("matmul_384x192_x128", "default", None, "matmul_384x192_x128.default")
-INT8 = ("fully_connected", "default", "int8", "fully_connected.int8")
-# The E4 format (E04-17).
+# NX8 variants (ADR 0007): e4, and dynamic.
 E4 = ("fully_connected", "default", "e4", "fully_connected.e4")
+DYNAMIC = ("fully_connected", "default", "dynamic", "fully_connected.dynamic")
 CONSTRUCT_NUMBER = 20
 
 
@@ -85,9 +86,9 @@ def run(budget: Budget) -> list[Result]:
         # ru_maxrss is a high-water mark: a construction below the existing peak reads 0.
         Result("emulator/ipu_state_rss_delta_mb", "MB", c["rss_mb"], extra=first),
     ]
-    # The smoke test runs the INT8 case (2674 cycles) once per mode, nothing larger.
+    # The smoke test runs the E4 case once per mode, nothing larger.
     repeats = 5 if budget is Budget.FULL else 1
-    kernels = (INT8,) if budget is Budget.TINY else (MATMUL, INT8, E4)
+    kernels = (E4,) if budget is Budget.TINY else (MATMUL, E4, DYNAMIC)
     modes = ("faithful", "prototyping") if _prototyping_built() else ("faithful",)
     for mode in modes:
         for kernel, case_name, fmt, label in kernels:

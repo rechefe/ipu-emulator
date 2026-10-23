@@ -138,7 +138,8 @@ EDGE_CASE_TOKENS = {
         (30, 20, "lr5", "register"),
         (30, 24, "0", "number"),
         (30, 26, "lr15", "register"),
-        (30, 31, "cr15", "register"),
+        (30, 31, "cr15.l", "register"),
+        (30, 38, "cr14.H", "register"),
     ],
     36: [(36, 4, "ADDBI", "mnemonic"), (36, 10, "lrd2", "register"), (36, 15, "0x1f", "number")],
     39: [

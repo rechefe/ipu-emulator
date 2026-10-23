@@ -19,10 +19,11 @@ from dataclasses import dataclass
 
 from ipu_debug.control import DebugControl, validate_pc
 from ipu_debug.errors import DebugError
+from ipu_debug.stores import AaqRow, last_aaq_row, track_aaq_stores
 from ipu_emu.errors import EmulatorError
 from ipu_emu.ipu import addressable_rows, xmem_row_size_bytes
 from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
-from ipu_emu.xmem import XMEM_SIZE_BYTES
+from ipu_emu.xmem import METADATA_UNIT_BYTES, XMEM_SIZE_BYTES
 from ipu_isa.codec.disasm import disassemble_fields
 from ipu_isa.registers import create_regfile_schema
 from ipu_isa.types import RegDescriptor, RegDtype
@@ -31,6 +32,7 @@ __all__ = [
     "REGFILE_SCHEMA",
     "XMEM_FORMAT_ITEM_SIZE_BYTES",
     "XMEM_FORMATS",
+    "AaqRow",
     "Cell",
     "DebugError",
     "DebugSession",
@@ -129,6 +131,8 @@ class XmemWindow:
     row_size: int
     metadata: dict[str, int | str]
     data: bytes
+    #: NX8 mode: ``(row, metadata word)`` of every row the window touches.
+    row_metadata: tuple[tuple[int, int], ...] = ()
 
     @property
     def cells(self) -> tuple[Cell, ...]:
@@ -351,6 +355,7 @@ class DebugSession:
         self.control = control if control is not None else DebugControl()
         self.kernel_name = kernel_name
         self.generation = 0
+        track_aaq_stores(state)
 
     # -- parsing ------------------------------------------------------------
 
@@ -495,14 +500,32 @@ class DebugSession:
         xmem_range_error(
             byte_address, byte_count, xmem_address_limit(self.state, str(metadata["address_mode"]))
         )
+        row_size = xmem_row_size_bytes(self.state)
         return XmemWindow(
             request=request,
             byte_address=byte_address,
             byte_count=byte_count,
-            row_size=xmem_row_size_bytes(self.state),
+            row_size=row_size,
             metadata=metadata,
             data=self.state.xmem.snapshot_bytes(byte_address, byte_count),
+            row_metadata=self._row_metadata(byte_address, byte_count, row_size),
         )
+
+    def _row_metadata(
+        self, byte_address: int, byte_count: int, row_size: int
+    ) -> tuple[tuple[int, int], ...]:
+        """``(row, metadata word)`` per row of the range, in NX8 mode (ADR 0007)."""
+        if row_size != METADATA_UNIT_BYTES or byte_address >= XMEM_SIZE_BYTES:
+            return ()
+        first, last = byte_address // row_size, (byte_address + max(1, byte_count) - 1) // row_size
+        return tuple(
+            (row, self.state.xmem.snapshot_metadata(row * row_size))
+            for row in range(first, last + 1)
+        )
+
+    def last_aaq_row(self) -> AaqRow:
+        """The row the last AaQ store wrote, as XMEM holds it now, with its metadata."""
+        return last_aaq_row(self.state)
 
     def disassemble(self, start: int, count: int) -> list[DisasmLine]:
         """Disassemble up to *count* words from *start*, clipped to instruction memory.

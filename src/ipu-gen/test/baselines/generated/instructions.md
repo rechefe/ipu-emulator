@@ -4,7 +4,7 @@ Per-opcode documentation is generated from `InstructionDoc` entries in `instruct
 
 ## Slots
 
-A VLIW instruction word encodes one sub-instruction per slot. Slots are grouped into pipeline stages that execute sequentially within a cycle: **CTRL** (COND + LR run concurrently; LOAD address is resolved here and the data feeds MULT) → **MULT** → **ACC** → **AAQ** → **STORE**. `AAQ_EXACT`, `BREAK` are emulator-only: not in the hardware word. Any omitted slot is filled with `NOP` by the assembler automatically.
+A VLIW instruction word encodes one sub-instruction per slot. Slots are grouped into pipeline stages that execute sequentially within a cycle: **CTRL** (COND + LR run concurrently; LOAD address is resolved here and the data feeds MULT) → **MULT** → **ACC** → **AAQ**, which activates, quantizes and stores its own row (ADR 0007). `AAQ_EXACT`, `BREAK` are emulator-only: not in the hardware word. Any omitted slot is filled with `NOP` by the assembler automatically.
 
 | Slot | Count | Tag | Description |
 |------|------:|-----|-------------|
@@ -25,7 +25,7 @@ A VLIW instruction word encodes one sub-instruction per slot. Slots are grouped 
 
 **Faults:** none ([fault list](../../requirements/faults.md#fault-list)).
 
-No operation. Every slot accepts `NOP`. The assembler fills any omitted slot with `NOP` automatically. When written explicitly in a compound instruction, `NOP` is assigned to the next unfilled slot in compound-layout order (COND → LR → LOAD → MULT → ACC → AAQ → STORE → ACC_STORE → BREAK).
+No operation. Every slot accepts `NOP`. The assembler fills any omitted slot with `NOP` automatically. When written explicitly in a compound instruction, `NOP` is assigned to the next unfilled slot in compound-layout order (COND → LR → LOAD → MULT → ACC → AAQ → AAQ_EXACT → BREAK).
 
 ## Element formats
 

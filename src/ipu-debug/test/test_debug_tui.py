@@ -32,7 +32,6 @@ from ipu_debug.tui.panes.xmem import XmemTab
 from ipu_debug.tui.screen import COLOR_MASK, FakeScreen, Key, MouseEvent
 from ipu_debug.tui.view import CursesDebugView, run_debug_tui
 from ipu_debug.tui.workspace import DebugViewSession, new_debug_view_session
-from ipu_emu.activations import AaqOptions
 from ipu_emu.emulator import DebugAction
 from ipu_emu.ipu import xmem_row_size_bytes
 from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
@@ -1042,9 +1041,9 @@ class TestRenderCost:
         tokenized: list[int] = []
         real = debug_format.tokenize_xmem
 
-        def tokenize(data, address, fmt, row_size):
+        def tokenize(data, address, fmt, row_size, row_metadata=None):
             tokenized.append(address)
-            return real(data, address, fmt, row_size)
+            return real(data, address, fmt, row_size, row_metadata)
 
         monkeypatch.setattr(debug_format, "tokenize_xmem", tokenize)
         view, _, session = make_view()
@@ -2293,7 +2292,8 @@ class TestPipelineStageView:
         assert tuple(slots) == SLOT_LABELS
         assert slots["LR0"].startswith("SET ")
         assert slots["MULT"].startswith("NOP")
-        assert any(label.endswith("*") for label in slots)
+        # No slot is debug-only since ACC_STORE went (ADR 0007): no label is starred.
+        assert not any(label.endswith("*") for label in slots)
         assert all(op == "NOP" for _, op in stage_operations(None))
 
     def test_trace_tracks_actual_branch_pc_and_does_not_record_stops(self):
@@ -2394,14 +2394,15 @@ class TestPipelineStageView:
 
         state = self.program(
             "SET lr2 cr1; ADD lr3 lr2 cr1; "
-            "MULT.RC.VV lr0 r1 0 lr0 cr15; AGG.MAX.FIRST lr0 cr15;; NOP;;"
+            "MULT.RC.VV lr0 r1 0 lr0 cr15.l cr14.l; AGG.MAX.FIRST lr0 cr15.l;; NOP;;"
         )
         occupied = dict(pipeline_occupancy(state.inst_mem[0]))
         assert [slot for slot, _ in occupied["CTRL"]] == ["LR0", "LR1"]
         assert occupied["MULT"][0][1].startswith("MULT.RC.VV ")
         assert occupied["ACC"][0][1].startswith("AGG.MAX.FIRST ")
         assert occupied["AAQ"] == []
-        assert occupied["STORE"] == []
+        assert occupied["AAQ_EXACT"] == []
+        assert "STORE" not in occupied  # the AaQ stage stores its own row (ADR 0007)
         assert all(not commands for _, commands in pipeline_occupancy(state.inst_mem[1]))
 
     def test_stage_occupancy_follows_branch_destination(self):
@@ -2593,20 +2594,9 @@ class TestHelpScrollbar:
 
 
 class TestDefaultWorkspace:
-    @pytest.mark.parametrize(
-        "wide,arithmetic,quantize",
-        [
-            (False, "fp32", False),
-            (True, "fp32", False),
-            (True, "int32", False),
-            (True, "fp32", True),
-        ],
-    )
-    def test_fresh_tabs_cover_all_registers_and_use_storage_formats(
-        self, wide, arithmetic, quantize
-    ):
-        fmt = ElementFormat(arithmetic) if wide else ElementFormat.INT8
-        state = new_state(fmt=fmt, aaq=AaqOptions(quantize_output=quantize))
+    @pytest.mark.parametrize("mode", [ElementFormat.NX8, ElementFormat.FP32])
+    def test_fresh_tabs_cover_all_registers_and_use_storage_formats(self, mode):
+        state = new_state(fmt=mode)
         session = DebugViewSession()
         view, _, _ = make_view(state, session=session)
         assert [tab.register_key for tab in session.pipeline.tabs] == [
@@ -2614,14 +2604,9 @@ class TestDefaultWorkspace:
         ]
         formats = {tab.register_key: tab.fmt for tab in session.pipeline.tabs}
         assert formats["r_mask"] == "bits"
-        assert (
-            formats["r0"] == ("f32" if arithmetic == "fp32" else "int32")
-            if wide
-            else formats["r0"] == "int8"
-        )
-        assert formats["post_aaq_reg"] == (
-            ("f32" if arithmetic == "fp32" else "int32") if wide and not quantize else "int8"
-        )
+        # An NX8 element's bytes (its value needs the row's metadata); FP32 lanes.
+        storage = "int8" if mode is ElementFormat.NX8 else "f32"
+        assert formats["r0"] == formats["aaq_row"] == storage
         assert formats["mem_bypass"] == "hex"
         assert [tab.fmt for tab in session.disassembly.tabs] == ["compact", "full", "stages"]
         assert [tab.group for tab in session.registers.tabs] == ["all", "lr", "cr"]

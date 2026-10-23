@@ -2,74 +2,75 @@
 # in BUILD.bazel, in the same order (the page's); `id` is the entry's name.
 # //docs/inspector:test_kernels and :kernels_json check that the two agree.
 #
-# group: "hardware" (the 8-bit hardware element formats) or "emulator" (the
-# emulator-only FP32 and INT32). label: the format as the kernel button shows it.
-
-[[kernel]]
-id = "tour_int8"
-group = "hardware"
-title = "Vector tour"
-label = "INT8"
-description = """The vector_tour conformance program: loads a mask, two R_CYCLIC slots and \
-R0/R1, then runs MULT.VE, MULT.RC.VV/VS/VE and MULT.EE into ACC.ADD/SUB/MAX, masked \
-multiplies, and a 4-row matrix-vector loop with AGG.SUM.FIRST. INT8 lanes multiply into INT32 MULT_RES and R_ACC; the run ends with ACTIVATE.QUANTIZE RELU and a store of POST_AAQ_REG."""
+# group: "hardware" (NX8 rows, the hardware mode) or "emulator" (the emulator-only
+# FP32 mode; ADR 0007). label: the format as the kernel button shows it.
 
 [[kernel]]
 id = "tour_e4"
 group = "hardware"
 title = "Vector tour"
-label = "FP8 E4M3"
+label = "NX8 E4"
 description = """The vector_tour conformance program: loads a mask, two R_CYCLIC slots and \
 R0/R1, then runs MULT.VE, MULT.RC.VV/VS/VE and MULT.EE into ACC.ADD/SUB/MAX, masked \
-multiplies, and a 4-row matrix-vector loop with AGG.SUM.FIRST. FP8 E4M3 lanes multiply into FP32 MULT_RES and R_ACC. ACTIVATE.QUANTIZE needs INT8, so results leave through stores of R_ACC."""
+multiplies, and a 4-row matrix-vector loop with AGG.SUM.FIRST. NX8 e4 rows: each element is \
+decoded with the QF half in CR14.L and the scale in its row's metadata, multiplied into FP32 \
+MULT_RES and R_ACC, and every result row leaves through ACTIVATE.QUANTIZE (identity, then relu), \
+which quantizes it back to one NX8 row with its own scale."""
 
 [[kernel]]
 id = "tour_e5"
 group = "hardware"
 title = "Vector tour"
-label = "FP8 E5M2"
+label = "NX8 E5"
 description = """The vector_tour conformance program: loads a mask, two R_CYCLIC slots and \
 R0/R1, then runs MULT.VE, MULT.RC.VV/VS/VE and MULT.EE into ACC.ADD/SUB/MAX, masked \
-multiplies, and a 4-row matrix-vector loop with AGG.SUM.FIRST. FP8 E5M2: wider range and 2 mantissa bits, so products round more coarsely than in E4M3."""
+multiplies, and a 4-row matrix-vector loop with AGG.SUM.FIRST. NX8 e5: wider range and fewer \
+mantissa bits than e4, so each ACTIVATE.QUANTIZE store rounds more coarsely."""
 
 [[kernel]]
 id = "tour_e3"
 group = "hardware"
 title = "Vector tour"
-label = "FP8 E3M4"
+label = "NX8 E3"
 description = """The vector_tour conformance program: loads a mask, two R_CYCLIC slots and \
 R0/R1, then runs MULT.VE, MULT.RC.VV/VS/VE and MULT.EE into ACC.ADD/SUB/MAX, masked \
-multiplies, and a 4-row matrix-vector loop with AGG.SUM.FIRST. FP8 E3M4: 4 mantissa bits, narrow range."""
+multiplies, and a 4-row matrix-vector loop with AGG.SUM.FIRST. NX8 e3: more mantissa bits, \
+narrow range; the row scale in the metadata carries the magnitude."""
 
 [[kernel]]
-id = "fc_int8"
+id = "tour_dynamic"
 group = "hardware"
-title = "Fully connected"
-label = "INT8"
-description = """Dense layer, 10 samples × 128 inputs → 64 outputs on native 128 × INT8 \
-vectors, accumulated in INT32 R_ACC. One word per input element: LR address updates, \
-MULT.RC.VE, ACC.ADD, the next weight-row load and the loop branch."""
+title = "Vector tour"
+label = "NX8 dynamic"
+description = """The vector_tour conformance program: loads a mask, two R_CYCLIC slots and \
+R0/R1, then runs MULT.VE, MULT.RC.VV/VS/VE and MULT.EE into ACC.ADD/SUB/MAX, masked \
+multiplies, and a 4-row matrix-vector loop with AGG.SUM.FIRST. Dynamic NX8: each \
+ACTIVATE.QUANTIZE store picks the exponent width of its row from the data and records it in \
+the row's metadata (dynamic_exponent), which the next MULT reads back."""
 
 [[kernel]]
 id = "fc_e4"
 group = "hardware"
 title = "Fully connected"
-label = "FP8 E4M3"
-description = "The same dense layer on native FP8 E4M3 vectors with FP32 accumulation."
+label = "NX8 E4"
+description = """Dense layer, 10 samples × 128 inputs → 64 outputs on NX8 e4 rows, \
+accumulated in FP32 R_ACC. One word per input element: LR address updates, MULT.RC.VE, \
+ACC.ADD, the next weight-row load and the loop branch; each sample's outputs leave through one \
+ACTIVATE.QUANTIZE store."""
 
 [[kernel]]
 id = "fc_e5"
 group = "hardware"
 title = "Fully connected"
-label = "FP8 E5M2"
-description = "The same dense layer on native FP8 E5M2 vectors with FP32 accumulation."
+label = "NX8 E5"
+description = "The same dense layer on NX8 e5 rows."
 
 [[kernel]]
-id = "fully_connected"
-group = "emulator"
+id = "fc_dynamic"
+group = "hardware"
 title = "Fully connected"
-label = "INT32"
-description = "The default fully_connected case, in the emulator-only INT32 element format."
+label = "NX8 dynamic"
+description = "The same dense layer on dynamic NX8 rows: each row's exponent width is in its metadata."
 
 [[kernel]]
 id = "identity"
@@ -77,7 +78,7 @@ group = "emulator"
 title = "Identity copy"
 label = "FP32"
 description = """Copies a 3 × 128 FP32 matrix one XMEM row at a time: MULT.VE by the \
-hardware constant 1.0 (CR1), ACC.ADD.FIRST, ACTIVATE.QUANTIZE, then a store of POST_AAQ_REG."""
+hardware constant 1.0 (CR1), ACC.ADD.FIRST, then ACTIVATE.EXACT identity, which stores the row."""
 
 [[kernel]]
 id = "channel_peak"
@@ -85,7 +86,7 @@ group = "emulator"
 title = "Channel peak"
 label = "FP32"
 description = """Detector confidence over 4 channels × 16 cells: ACC.MAX across channel \
-planes, ACC.SUB of the threshold, ReLU gate via ACTIVATE.QUANTIZE."""
+planes, ACC.SUB of the threshold, ReLU gate and store via ACTIVATE.EXACT."""
 
 [[kernel]]
 id = "softmax_rows"
@@ -93,7 +94,7 @@ group = "emulator"
 title = "Row softmax"
 label = "FP32"
 description = """Numerically stable softmax over 2 rows: AGG.MAX for the row maximum, the \
-native exp2 activation, AGG.SUM for the denominator, MULT.EE to normalise."""
+exact exp2 activation (ACTIVATE.EXACT), AGG.SUM for the denominator, MULT.EE to normalise."""
 
 [[kernel]]
 id = "depth_to_space"
@@ -118,4 +119,4 @@ group = "emulator"
 title = "Residual add"
 label = "FP32"
 description = """FP32 element-wise add of two 64-channel tensors: MULT.RC.VE by 1.0 copies \
-each chunk, ACC.ADD.FIRST and ACC.ADD sum them, and a store writes R_ACC back."""
+each chunk, ACC.ADD.FIRST and ACC.ADD sum them, and ACTIVATE.EXACT identity writes R_ACC back."""

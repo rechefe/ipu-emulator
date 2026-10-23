@@ -195,7 +195,7 @@
     "exception": null,
     "exit_code": 1,
     "stderr": "",
-    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError assembling code: NOP: all slots are already filled\nAt: Line 4, Column 60\n"
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError assembling code: NOP: all slots are already filled\nAt: Line 4, Column 55\n"
   },
   "vscode-ipu-asm/test/corpus/negative/overfull_word.asm": {
     "exception": null,

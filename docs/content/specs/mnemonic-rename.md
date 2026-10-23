@@ -1,10 +1,11 @@
 # Mnemonic rename (E03-19): SystemVerilog names
 
 The mnemonic standard (Q33, Q45) renamed nine instructions. Opcodes did not
-change, so every program assembles to the same bits, and every `*_WIDTH`
-localparam, typedef name and operand field name in `ipu_instr_pkg.sv` is
-unchanged. Only these enum members and union members of the package are
-renamed. A downstream RTL repository that vendors the package replaces each
+change, so every program assembled to the same bits, and every `*_WIDTH`
+localparam, typedef name and operand field name in `ipu_instr_pkg.sv` was
+unchanged. Only these enum members and union members of the package were
+renamed. (A later, breaking change, ADR 0007, removed two of the nine and
+changed widths: see [RTL migration](rtl-migration.md).) A downstream RTL repository that vendors the package replaces each
 old name with the new one.
 
 `tools/rename_mnemonics.py` applies the same rename to assembly sources, Python,
@@ -32,7 +33,14 @@ no SV name. `BLT.U`, `BGE.U`, `BGT.U` and `BLE.U` are reserved for unsigned
 branches (`ipu_isa.RESERVED_MNEMONICS`): no spec may define them, and the
 assembler rejects them as "reserved, not implemented".
 
-The `ACC_STORE` slot is emulator-only; since E03-22 the SV package leaves it out, so its two names above no longer appear there.
+`ST.AAQ` and `ST.ACC` no longer exist:
+[ADR 0007](https://github.com/rechefe/ipu-emulator/blob/master/docs/adr/0007-operational-aaq-and-nx8.md)
+removed the STORE and ACC_STORE slots (the AaQ stage stores its own row with
+`ACTIVATE.QUANTIZE`; a raw accumulator store is `ACTIVATE.QUANTIZE identity`,
+or `ACTIVATE.EXACT identity` in the FP32 mode). Their rows stay as a record
+of the rename; none of their names is in the SV package, and
+`tools/rename_mnemonics.py` still maps the old names, so a source it renames
+then needs the ADR 0007 migration as well.
 
 `//src/ipu-gen:test_sv_rename_table` checks this table against the SV
 golden.

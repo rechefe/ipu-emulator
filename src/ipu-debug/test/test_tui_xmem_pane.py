@@ -92,8 +92,8 @@ def test_a_window_crossing_a_row_boundary_marks_the_new_row():
     drawing = pane.render(session, tabs, RECT, focused=True)
     shown = text(drawing)
 
-    assert "XMEM row 0 starts at byte address 0x00000000" in shown
-    assert "XMEM row 1 starts at byte address 0x00000080" in shown
+    assert "XMEM row 0 [scale 2^-127] starts at byte address 0x00000000" in shown
+    assert "XMEM row 1 [scale 2^-127] starts at byte address 0x00000080" in shown
     assert "---" not in shown
     # The first row's eight values and the second row's eight, on two lines.
     value_lines = {hit[1][0] for hit in drawing.hits}

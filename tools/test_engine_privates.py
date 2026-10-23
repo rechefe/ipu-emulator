@@ -32,7 +32,7 @@ ENGINE_MODULES = frozenset(
         "cycle.py",
         *(
             f"slots/{slot}.py"
-            for slot in ("aaq", "acc", "brk", "cond", "load", "lr", "mult", "store")
+            for slot in ("aaq", "aaq_exact", "acc", "brk", "cond", "load", "lr", "mult")
         ),
     )
 )

@@ -22,8 +22,7 @@ html, body { margin: 0; padding: 0; }
   --s-mult: #8b33d6;
   --s-acc: #c8236f;
   --s-aaq: #a16207;
-  --s-store: #15803d;
-  --s-acc_store: #4d7c0f;
+  --s-aaq_exact: #4d7c0f;
   --s-break: #b91c1c;
   /* System fonts only: the docs site makes no third-party request (E08-17). */
   --f-ui: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -36,7 +35,7 @@ html, body { margin: 0; padding: 0; }
     --line: #2a323e; --accent: #8a9cff; --accent-ink: #0d1118; --cur: #3a3215; --cur-line: #e3b62f;
     --pos: #ff8a4c; --neg: #4fa3ff; --cell: #232b36;
     --s-cond: #fb8a4c; --s-lr: #2dc4b4; --s-load: #6f98ff; --s-mult: #c08bff; --s-acc: #f472b6;
-    --s-aaq: #f0b43c; --s-store: #4ade80; --s-acc_store: #a3d93b; --s-break: #f87171;
+    --s-aaq: #f0b43c; --s-aaq_exact: #a3d93b; --s-break: #f87171;
     color-scheme: dark;
   }
 }
@@ -45,7 +44,7 @@ html, body { margin: 0; padding: 0; }
   --line: #2a323e; --accent: #8a9cff; --accent-ink: #0d1118; --cur: #3a3215; --cur-line: #e3b62f;
   --pos: #ff8a4c; --neg: #4fa3ff; --cell: #232b36;
   --s-cond: #fb8a4c; --s-lr: #2dc4b4; --s-load: #6f98ff; --s-mult: #c08bff; --s-acc: #f472b6;
-  --s-aaq: #f0b43c; --s-store: #4ade80; --s-acc_store: #a3d93b; --s-break: #f87171;
+  --s-aaq: #f0b43c; --s-aaq_exact: #a3d93b; --s-break: #f87171;
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -175,7 +174,7 @@ button { cursor: pointer; }
 .effects h3 { margin: 0 0 4px; }
 .eff-list { font-family: var(--f-mono); font-size: 12px; display: flex; flex-direction: column; gap: 2px; }
 .eff-list .none { color: var(--muted); font-family: var(--f-ui); }
-.memR { color: var(--s-load); } .memW { color: var(--s-store); }
+.memR { color: var(--s-load); } .memW { color: var(--s-aaq); }
 
 /* registers */
 .scal { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }

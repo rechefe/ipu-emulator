@@ -25,10 +25,10 @@ lr0:
     SET lr2 cr2 ;;
 
 // Mnemonics are case-insensitive, and dotted names must not be split: a rule
-// that matched ACC.ADD first would leave `.FIRST` dangling.
+// that matched ACC.ADD first would leave `.FIRST` dangling (and `cr15` the `.l`).
     acc.add.first ;;
     ACC.ADD ;;
-    MULT.RC.VE lr15 lr5 0 lr15 cr15 ;
+    MULT.RC.VE lr15 lr5 0 lr15 cr15.l cr14.H ;
     acc.sub ;;
 
 // Numbers in every base the assembler's int(value, 0) accepts, plus the signed

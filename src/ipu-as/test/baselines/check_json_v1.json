@@ -129,7 +129,7 @@
   },
   "vscode-ipu-asm/test/corpus/negative/multi_form_collision.asm": {
     "exit_code": 1,
-    "stdout": "[{\"line\": 3, \"column\": 59, \"end_line\": 3, \"end_column\": 60, \"message\": \"NOP: all slots are already filled\", \"severity\": \"error\", \"stage\": \"assemble\", \"approximate\": false}]\n"
+    "stdout": "[{\"line\": 3, \"column\": 54, \"end_line\": 3, \"end_column\": 55, \"message\": \"NOP: all slots are already filled\", \"severity\": \"error\", \"stage\": \"assemble\", \"approximate\": false}]\n"
   },
   "vscode-ipu-asm/test/corpus/negative/overfull_word.asm": {
     "exit_code": 1,

@@ -64,9 +64,14 @@ RECORDS = [
 ]
 
 
-def _context(labels=None, cycles=None):
+#: The case's variant as the recorder writes it: NX8 e4 (signed, fe 4, 8 bits).
+E4 = {"name": "e4", "qf": {"sign": 1, "exp_format": 4, "num_bits": 8, "dynamic": False}}
+
+
+def _context(labels=None, cycles=None, variant=None):
     return {
-        "context_version": 1,
+        "context_version": 2,
+        "variant": E4 if variant is None else variant,
         "kernel": "tiny",
         "case": "default",
         "options": {},
@@ -159,17 +164,46 @@ def test_the_document_validates_against_its_schema():
     jsonschema.validate(document, inspector_trace.schema())
     assert document["schemaVersion"] == inspector_trace.SCHEMA_VERSION
     assert document["meta"]["format"] == "nx8"
+    assert document["meta"]["variant"] == "e4"
     assert document["meta"]["emulator_only"] is False
-    assert document["meta"]["lut"] is None
+    assert document["meta"]["nx8"] == E4["qf"]
+
+
+def test_an_nx8_trace_carries_each_code_value_at_unit_scale():
+    """ARCH-stage-mult §3.2.1 by hand, at scale 127: an e4 code's exponent field
+    is its distance below the scale; the all-ones field is the subnormal range."""
+    (table,) = convert(HEADER, RECORDS, _context())["meta"]["lut"]
+    assert len(table) == 256
+    assert table[0x00] == 1.0  # exponent 0, mantissa 0: the scale itself
+    assert table[0x08] == 0.5  # exponent 1
+    assert table[0x0C] == 0.75  # exponent 1, mantissa 4/8
+    assert table[0x80] == -1.0  # the sign bit
+    assert table[0x78] == 0.0  # exponent 15 (all ones), mantissa 0
+    assert table[0x7F] == 7 / 8 * 2.0**-14  # all ones, mantissa 7: subnormal
+
+
+def test_a_dynamic_trace_carries_one_table_per_dynamic_exponent():
+    qf = {"sign": 1, "exp_format": 0, "num_bits": 8, "dynamic": True}
+    context = _context(variant={"name": "dynamic", "qf": qf})
+    narrow, wide = convert(HEADER, RECORDS, context)["meta"]["lut"]
+    assert (narrow[0x00], narrow[0x01], narrow[0x40]) == (1.0, 1 + 1 / 64, 0.0)  # fe 1, fm 6
+    assert (wide[0x20], wide[0x60]) == (0.5, 0.0)  # fe 2, fm 5: exponent 1, then all ones
 
 
 def test_an_fp32_trace_is_emulator_only_and_carries_no_value_table():
-    """NX8 and FP32 carry no per-code table: an NX8 element's type is named per
-    instruction by a QF half (ADR 0007)."""
-    meta = convert(dict(HEADER, format="fp32"), RECORDS, _context())["meta"]
+    context = _context(variant={"name": "fp32", "qf": None})
+    meta = convert(dict(HEADER, format="fp32"), RECORDS, context)["meta"]
     assert meta["emulator_only"] is True
-    assert (meta["exp_bits"], meta["man_bits"]) == (8, 23)
+    assert meta["nx8"] is None
     assert meta["lut"] is None
+
+
+def test_metadata_writes_are_listed_per_cycle():
+    record = dict(_record(0, 0, 1), xmem_meta_writes=[{"address": 384, "value": 0x17F}])
+    facts = [{"lanes": 0, "xmem_reads": []}]
+    (cycle,) = convert(HEADER, [record], _context(cycles=facts))["cycles"]
+    assert cycle["M"] == [[384, 0x17F]]
+    jsonschema.validate(cycle, inspector_trace.schema()["properties"]["cycles"]["items"])
 
 
 @pytest.mark.parametrize(
@@ -177,7 +211,8 @@ def test_an_fp32_trace_is_emulator_only_and_carries_no_value_table():
     [
         (dict(HEADER, schema_version="2.0.0"), _context(), "schema"),
         (dict(HEADER, isa_digest="0" * 64), _context(), "another ISA"),
-        (HEADER, dict(_context(), context_version=2), "context version"),
+        (HEADER, dict(_context(), context_version=1), "context version"),
+        (HEADER, _context(variant={"name": "fp32", "qf": None}), "does not fit"),
         (HEADER, _context(cycles=[]), "context cycles"),
         (dict(HEADER, program_digest="0" * 64), _context(), "not the program"),
     ],

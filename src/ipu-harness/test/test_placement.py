@@ -162,7 +162,7 @@ def test_avoided_rows_are_left_by_first_fit_but_may_be_pinned(tmp_path):
 
 def test_an_aaq_store_writes_only_its_row_so_the_next_region_is_untouched(tmp_path):
     """ADR 0007: ACTIVATE.QUANTIZE stores exactly one row (ST.AAQ's 512-byte
-    spill past an output, OQ-35, left with it), so x may follow y directly."""
+    spill past an output left with it), so x may follow y directly."""
     toml = SCALE.format(x_pin="", y_extra="row = 0\n").replace(
         "[abi]\n", '[derived]\nqf = "case_qf"\n\n[abi]\nqf   = "CR6"\n'
     )

@@ -74,18 +74,18 @@ flowchart LR
 | `R_CYCLIC` | 512 elements | MULT | None |
 | `R_MASK` | 8 masks of 128 bits | MULT | None |
 | `R_ACC` | 128 elements of 32 bits | ACC | None |
-| AAQ output row | 128 elements of 8 bits, plus metadata. Format: [OQ-7](open-questions.md). | AAQ | None |
+| AAQ output row | 128 NX8 elements of 8 bits, plus a 16-bit metadata word (`scale[7:0]`, `dynamic_exponent[8]`). The element type is the store's QF operand ([ADR 0007](https://github.com/rechefe/ipu-emulator/blob/master/docs/adr/0007-operational-aaq-and-nx8.md); [OQ-45](open-questions.md)). | AAQ | None |
 
 ## Execution model
 
 | ID | Requirement |
 |---|---|
-| IPU-ARCH-1 | Each VLIW word shall execute atomically. The state after a word equals the state produced by executing its slots in this order: `COND` and `LR`, `LOAD`, `MULT`, `ACC`, `AAQ`, `STORE`. |
+| IPU-ARCH-1 | Each VLIW word shall execute atomically. The state after a word equals the state produced by executing its slots in this order: `COND` and `LR`, `LOAD`, `MULT`, `ACC`, `AAQ`. |
 | IPU-ARCH-2 | The `COND` and `LR` slots shall read CR and LR values from before the word. |
-| IPU-ARCH-3 | The `LOAD`, `MULT`, `ACC`, `AAQ` and `STORE` slots shall read LR values from after the LR writes of the same word. See [OQ-10](open-questions.md). |
-| IPU-ARCH-4 | The IPU shall implement every ISA slot except `ACC_STORE` and `BREAK`. |
+| IPU-ARCH-3 | The `LOAD`, `MULT`, `ACC` and `AAQ` slots shall read LR values from after the LR writes of the same word. See [OQ-10](open-questions.md). |
+| IPU-ARCH-4 | The IPU shall implement every ISA slot except `AAQ_EXACT` and `BREAK`. |
 | IPU-ARCH-5 | The `COND` slot shall provide `HALT`, at the opcode the instruction reference assigns it. `HALT` ends the kernel after every slot of its word has retired. |
-| IPU-ARCH-6 | Instruction semantics shall follow the instruction reference. See [OQ-5](open-questions.md) and [OQ-6](open-questions.md). |
+| IPU-ARCH-6 | Instruction semantics shall follow the instruction reference. The AaQ stage follows the AaQ architecture specification: `ACTIVATE.QUANTIZE` activates with the 3-bit function list, quantizes to one NX8 row and stores it with its metadata ([ADR 0007](https://github.com/rechefe/ipu-emulator/blob/master/docs/adr/0007-operational-aaq-and-nx8.md)). See [OQ-5](open-questions.md). |
 
 ## Pipeline
 

@@ -76,7 +76,7 @@ from ipu_isa.formats import ElementFormat
 
 async def test_lockstep(dut):
     model = ReferenceModel()
-    model.reset(ElementFormat.INT8)
+    model.reset(ElementFormat.NX8)
     model.load_program(Path("prog.bin").read_bytes())  # a program file, or its words as ints
     model.write_register("lr", 5, index=0)              # LR0 = 5
     model.write_xmem(0, bytes(range(128)))              # XMEM row 0
@@ -113,8 +113,9 @@ writes, it counts the trace's records, as the schema says.
 - Registers are named by bank, as `ipu_isa.registers` names them (`lr`:
   `LR0`-`LR15`, `cr`: `CR0`-`CR15`, `r`: `R0`-`R1`, ...), and `index` picks
   the register within the bank. `r_wide_debug` and `r_cyclic_wide_debug` are
-  emulator-only banks: they hold the operands of the wide formats (FP32,
-  INT32), which the hardware does not have.
+  emulator-only banks: they hold the operands of the FP32 mode, which the
+  hardware does not have; `r_meta` and `r_cyclic_meta` hold the row metadata
+  of `R0`, `R1` and each `R_CYCLIC` slot in the NX8 mode.
 
 ## API
 

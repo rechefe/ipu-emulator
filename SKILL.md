@@ -26,8 +26,9 @@ The rules agents must never break are in [CLAUDE.md](CLAUDE.md), under "Key Cons
 | Bit layout of the instruction word | generated [Instruction format](https://rechefe.github.io/ipu-emulator/dev/reference/isa/instruction-format/) |
 | Pseudo-instructions | generated [Programmer's guide](https://rechefe.github.io/ipu-emulator/dev/reference/isa/programmer-guide/) |
 | Registers | generated [Registers](https://rechefe.github.io/ipu-emulator/dev/reference/isa/registers/) |
-| CR constants, dstructure | generated [Configuration registers](https://rechefe.github.io/ipu-emulator/dev/reference/isa/configuration-registers/) |
-| Element formats | [element-formats.md](docs/content/explanation/element-formats.md) |
+| CR constants, CR halves (DS, QF), MULT constants | generated [Configuration registers](https://rechefe.github.io/ipu-emulator/dev/reference/isa/configuration-registers/) |
+| Element formats (NX8, FP32), run modes, row metadata | [element-formats.md](docs/content/explanation/element-formats.md); the decision: [ADR 0007](docs/adr/0007-operational-aaq-and-nx8.md) |
+| AaQ stage: `ACTIVATE.QUANTIZE`, `ACTIVATE.EXACT`, `LD.LUT` | [reference/isa/activate-quantize.md](docs/content/reference/isa/activate-quantize.md) |
 | Command-line tools | [reference/cli.md](docs/content/reference/cli.md) |
 | Reference-model API | [reference/reference-model-api.md](docs/content/reference/reference-model-api.md); the decision: [ADR 0004](docs/adr/0004-stable-reference-model-api.md) |
 | Driving the reference model from a cocotb testbench | [how-to/reference-model-cocotb.md](docs/content/how-to/reference-model-cocotb.md) |

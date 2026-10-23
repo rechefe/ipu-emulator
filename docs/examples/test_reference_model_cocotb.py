@@ -27,13 +27,16 @@ from ipu_as.lark_tree import assemble_to_bin_file
 # --8<-- [start:imports]
 import hashlib
 import json
+import struct
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
 from ipu_emu.reference import ReferenceModel, RunState
 from ipu_emu.trace import EMULATOR_VERSION, TraceWriter
+from ipu_isa.cr_halves import pack_halves, qf
 from ipu_isa.formats import ElementFormat
+from ipu_isa.nx8 import Nx8Format
 from ipu_isa.trace_schema import SCHEMA_VERSION, isa_digest
 
 # --8<-- [end:imports]
@@ -42,20 +45,21 @@ from ipu_isa.trace_schema import SCHEMA_VERSION, isa_digest
 ROOT = Path(__file__).parents[2]
 PAGE = ROOT / "docs" / "content" / "how-to" / "reference-model-cocotb.md"
 
-#: The program the testbench runs: ST.AAQ writes POST_AAQ_REG (512 bytes, four
-#: XMEM rows) to rows 0, 4 and 8, then the program halts.
+#: The program the testbench runs: ACTIVATE.QUANTIZE stores R_ACC as one NX8
+#: row (128 bytes and its metadata word) to rows 0, 4 and 8, then halts.
 PROGRAM = """\
 SET LR1 CR2 ;;
 loop:
-ST.AAQ LR0 CR3 ;;
+ACTIVATE.QUANTIZE identity CR15.L CR14.L CR3 LR0 ;;
 INC LR0 4 ;;
 BNE LR0 LR1 loop ;;
 HALT ;;
 """
 
 # --8<-- [start:prepare]
-FMT = ElementFormat.INT8
+FMT = ElementFormat.NX8  # the hardware mode
 ROW = 128  # XMEM bytes per row
+E4 = Nx8Format(sign=1, exp_format=4, num_bits=8)
 
 
 def prepare(target: ReferenceModel, program: bytes) -> None:
@@ -64,7 +68,8 @@ def prepare(target: ReferenceModel, program: bytes) -> None:
     target.load_program(program)  # a program file's bytes
     target.write_register("cr", 12, index=2)  # CR2: stop after row 8
     target.write_register("cr", 0, index=3)  # CR3: base row 0
-    target.write_register("post_aaq_reg", bytes(range(256)) * 2)
+    target.write_register("cr", pack_halves(qf(E4)), index=14)  # CR14.L: the QF
+    target.write_register("r_acc", struct.pack("<128f", *[1.0] * 128))
     target.write_xmem(0, b"\xff" * (16 * ROW))  # rows 0-15
 
 
@@ -124,6 +129,7 @@ FIELDS = (
     "outcome",
     "fault",
     "arith_events",
+    "xmem_meta_writes",
 )
 
 
@@ -148,10 +154,10 @@ async def lockstep(
         expected = model.step().to_json()
         actual = await retire()
         for field in fields:
-            if actual.get(field) != expected[field]:
+            if actual.get(field) != expected.get(field):  # a record may omit an empty list
                 raise AssertionError(
                     f"word {expected['cycle']} (PC {expected['pc_before']}) {field}: "
-                    f"model {expected[field]!r}, RTL {actual.get(field)!r}"
+                    f"model {expected.get(field)!r}, RTL {actual.get(field)!r}"
                 )
         if expected["outcome"] != "retired":  # "halt" or "fault": the run is over
             return expected["cycle"] + 1
@@ -278,7 +284,9 @@ def test_the_program_writes_xmem_and_branches(program):
         records.append(model.step().to_json())
     assert records[-1]["outcome"] == "halt"
     assert sum(bool(r["xmem_writes"]) for r in records) == 3
-    assert model.read_xmem(8 * ROW, 4) == bytes(range(4))
+    assert sum(bool(r.get("xmem_meta_writes")) for r in records) == 3
+    # By hand: 1.0 sets the row's scale to 2^0 and is exponent 0 below it, code 0x00.
+    assert model.read_xmem(8 * ROW, 4) == bytes(4)
 
 
 def test_lockstep_matches_a_model_dut(program):

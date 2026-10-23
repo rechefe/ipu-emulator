@@ -34,7 +34,10 @@ NARROW = Rect(1, 40, 14, 30)
 COLORS = Palette()
 MARKER = UNICODE_GLYPHS.current_row
 TWO_SLOTS = "SET lr2 cr1; ADD lr3 lr2 cr1;; SET lr4 cr1;;"
-FOUR_SLOTS = "SET lr2 cr1; ADD lr3 lr2 cr1; MULT.RC.VV lr0 r1 0 lr0 cr15; AGG.MAX.FIRST lr0 cr15;;"
+FOUR_SLOTS = (
+    "SET lr2 cr1; ADD lr3 lr2 cr1; "
+    "MULT.RC.VV lr0 r1 0 lr0 cr15.l cr14.l; AGG.MAX.FIRST lr0 cr15.l;;"
+)
 
 
 def make(

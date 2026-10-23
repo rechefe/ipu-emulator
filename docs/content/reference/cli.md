@@ -68,8 +68,8 @@ each `[benchmark]` point:
 |---|---|
 | Total cycles | Instruction words retired. |
 | Mult active, Acc active | Cycles whose MULT or ACC slot was not a no-op, and their fraction of the total cycles. |
-| XMEM reads | `LD.MULT`, `LD.MULT.CYCLIC` and `LD.MASK` executed. |
-| XMEM writes | `ST.ACC` and `ST.AAQ` executed. |
+| XMEM reads | `LD.MULT`, `LD.MULT.CYCLIC`, `LD.MASK` and `LD.LUT` executed. |
+| XMEM writes | `ACTIVATE.QUANTIZE` and `ACTIVATE.EXACT` executed (each stores one row). |
 | XMEM accesses | Reads plus writes. |
 | Mult idle | Cycles whose MULT slot was a no-op. |
 | Identity mult | Active multiply cycles that multiplied by a constant 1 to move data, and their fraction of the active cycles. |

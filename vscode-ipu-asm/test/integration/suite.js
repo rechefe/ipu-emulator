@@ -65,7 +65,7 @@ test('mnemonics that fit the word are offered at the start of an instruction, no
 });
 
 test('a typed space at an operand opens the values of its type, in the assembler\'s order', async () => {
-  const names = labels(await completeIn('ACTIVATE.QUANTIZE \n', 18, ' '));
+  const names = labels(await completeIn('ACTIVATE.EXACT \n', 15, ' '));
   assert(names.includes('window') && names.includes('relu') && !names.includes('lr0'));
   const regs = (await completeIn('ADD \n', 4)).filter((i) => /^lr\d+$/.test(name(i))).sort((a, b) => (a.sortText < b.sortText ? -1 : 1));
   assert.deepStrictEqual(labels(regs.slice(0, 3)), ['lr0', 'lr1', 'lr2']);

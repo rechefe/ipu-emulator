@@ -19,13 +19,13 @@ def _trace(kernel="k", case="default"):
         "kernel": kernel,
         "case": case,
         "source_path": "k.asm",
-        "meta": {"format": "int8"},
+        "meta": {"format": "e4"},
         "total_cycles": 3,
     }
 
 
 def _entry(id_="a"):
-    return {"id": id_, "group": "hardware", "title": "T", "label": "INT8", "description": "D"}
+    return {"id": id_, "group": "hardware", "title": "T", "label": "NX8 E4", "description": "D"}
 
 
 def test_curated_toml_lists_the_build_files_traces_in_order():
@@ -47,7 +47,7 @@ def test_the_list_adds_each_trace_facts():
         kernel="identity",
         case="default",
         source_path="k.asm",
-        format="int8",
+        format="e4",
         total_cycles=3,
     )
 

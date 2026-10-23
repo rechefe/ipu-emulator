@@ -16,7 +16,7 @@ def run_timed(kernel: str, case_name: str, fmt: str | None = None, repeats: int 
     Args:
         kernel: A kernel or registry entry of the kernel tree, by name.
         case_name: One of its cases.
-        fmt: The element format (``ElementFormat`` value); ``None``: the
+        fmt: The variant's name (``"e4"``, ``"fp32"``; ADR 0007); ``None``: the
             case's first.
         repeats: How many runs; the program is assembled once.
 
@@ -30,11 +30,11 @@ def run_timed(kernel: str, case_name: str, fmt: str | None = None, repeats: int 
     from ipu_harness.cases import expand
     from ipu_harness.registry import default_registry
     from ipu_harness.runner import RunOptions, run_kernel
-    from ipu_isa.formats import ElementFormat
+    from ipu_harness.variants import variant
 
     manifest = default_registry().kernel(kernel)
     case = next(c for c in expand(manifest) if c.name == case_name)
-    element = case.formats[0] if fmt is None else ElementFormat(fmt)
+    element = case.formats[0] if fmt is None else variant(fmt)
     cache = AssemblyCache()
     best = None
     cycles = 0
@@ -55,13 +55,13 @@ def run_timed(kernel: str, case_name: str, fmt: str | None = None, repeats: int 
 
 
 def has_case(kernel: str, case_name: str, fmt: str | None = None) -> bool:
-    """Whether the kernel tree has this kernel, case and format."""
+    """Whether the kernel tree has this kernel, case and variant."""
     from ipu_harness.cases import expand
     from ipu_harness.registry import default_registry
 
     manifest = default_registry().kernel(kernel)
     return any(
-        c.name == case_name and (fmt is None or fmt in {f.value for f in c.formats})
+        c.name == case_name and (fmt is None or fmt in {str(f) for f in c.formats})
         for c in expand(manifest)
     )
 

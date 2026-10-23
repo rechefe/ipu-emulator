@@ -9,7 +9,7 @@ from __future__ import annotations
 import struct
 
 import pytest
-from emu_support import ElementFormat, new_state
+from emu_support import ElementFormat, make_state, new_state
 
 from ipu_debug.format import VISIBLE_ALPHABET
 from ipu_debug.session import DebugSession
@@ -17,17 +17,19 @@ from ipu_debug.tui.draw import UNICODE_GLYPHS, Palette, Theme
 from ipu_debug.tui.keymap import Command
 from ipu_debug.tui.pane import Rect
 from ipu_debug.tui.panes.pipeline import (
+    AAQ_ROW,
     PIPELINE_REGISTER_FORMATS,
     PIPELINE_REGISTERS,
     PipelinePane,
     PipelineTab,
     commit_baselines,
     default_tabs,
+    read_register,
     value_grid,
 )
 from ipu_debug.tui.tabs import TabSet
-from ipu_emu.activations import AaqOptions
 from ipu_emu.descriptors import REGFILE_SCHEMA
+from ipu_emu.emulator import run_until_complete
 from ipu_emu.ipu_state import IpuState
 
 RECT = Rect(1, 0, 12, 60)
@@ -56,8 +58,8 @@ def text(drawing, rect: Rect = RECT) -> str:
     return "\n".join(rows(drawing, rect).values())
 
 
-# The row-metadata and LUT registers (ADR 0007) are not pane tabs yet: no
-# instruction writes them until the NX8 instructions land with their views.
+# The row-metadata and LUT registers (ADR 0007) are no tabs of their own: the
+# AAQ_ROW title shows the stored row's metadata.
 _NOT_YET_SHOWN = frozenset({"r_meta", "r_cyclic_meta", "aaq_lut"})
 
 
@@ -69,19 +71,22 @@ def test_the_registers_are_every_logical_vector_register():
         and not descriptor.name.endswith("_wide_debug")
         and descriptor.name not in _NOT_YET_SHOWN
     }
-    assert {spec.backing for spec in PIPELINE_REGISTERS} == expected
+    registers = {spec.backing for spec in PIPELINE_REGISTERS if spec.key != AAQ_ROW}
+    assert registers == expected
 
 
 @pytest.mark.parametrize("spec", PIPELINE_REGISTERS, ids=lambda spec: spec.key)
 def test_every_register_renders_its_bytes_and_a_readout(spec):
     pane, session, tabs = make(PipelineTab(spec.key, "hex"))
+    # AAQ_ROW's title names the row too: the readout needs a wider pane.
+    rect = RECT if spec.key != AAQ_ROW else Rect(1, 0, 12, 80)
 
-    drawing = pane.render(session, tabs, RECT)
+    drawing = pane.render(session, tabs, rect)
 
-    total = len(session.register(spec.backing).value)
-    assert rows(drawing)[RECT.y].endswith(f"/{total}")
-    assert "1 Pipeline Registers" in rows(drawing)[RECT.y]
-    assert "\n   0000: " in text(drawing)
+    total = len(read_register(session, spec))
+    assert rows(drawing, rect)[rect.y].endswith(f"/{total}")
+    assert "1 Pipeline Registers" in rows(drawing, rect)[rect.y]
+    assert "\n   0000: " in text(drawing, rect)
     assert drawing.scroll is not None and drawing.hits[0][1] == 0
 
 
@@ -290,7 +295,7 @@ def test_mask_slots_have_separators_and_keep_values_inside_one_slot(fmt, width):
 
 @pytest.mark.parametrize("wide", [False, True])
 def test_the_value_editor_writes_the_right_storage_and_keeps_its_neighbours(wide):
-    state = new_state(fmt=ElementFormat.FP32 if wide else ElementFormat.INT8)
+    state = new_state(fmt=ElementFormat.FP32 if wide else ElementFormat.NX8)
     pane, session, tabs = make(PipelineTab("r1", "int32", cursor=1), state)
     storage = "r_wide_debug" if wide else "r"
     buffer = state.regfile.mutable(storage)
@@ -332,24 +337,36 @@ def test_the_tab_editor_takes_a_register_label_or_key():
 
 
 @pytest.mark.parametrize(
-    ("wide", "arithmetic", "quantize", "r0", "post_aaq"),
+    ("mode", "r0", "aaq_row", "r_acc"),
     [
-        (False, "fp32", False, "int8", "int8"),
-        (True, "fp32", False, "f32", "f32"),
-        (True, "int32", False, "int32", "int32"),
-        (True, "fp32", True, "f32", "int8"),
+        (ElementFormat.NX8, "int8", "int8", "f32"),
+        (ElementFormat.FP32, "f32", "f32", "f32"),
     ],
 )
-def test_fresh_tabs_cover_every_register_in_its_storage_format(
-    wide, arithmetic, quantize, r0, post_aaq
-):
-    fmt = ElementFormat(arithmetic) if wide else ElementFormat.INT8
-    state = new_state(fmt=fmt, aaq=AaqOptions(quantize_output=quantize))
+def test_fresh_tabs_cover_every_register_in_its_storage_format(mode, r0, aaq_row, r_acc):
+    state = new_state(fmt=mode)
 
     formats = {tab.register_key: tab.fmt for tab in default_tabs(state, True)}
 
     assert list(formats) == [spec.key for spec in PIPELINE_REGISTERS]
-    assert (formats["r0"], formats["post_aaq_reg"]) == (r0, post_aaq)
+    assert (formats["r0"], formats[AAQ_ROW], formats["r_acc"]) == (r0, aaq_row, r_acc)
     assert formats["r_mask"] == "bits"
     assert formats["mem_bypass"] == "hex"
     assert [tab.register_key for tab in default_tabs(state, False)] == ["r0"]
+
+
+def test_aaq_row_shows_the_last_stored_row_and_its_metadata():
+    # ACTIVATE.QUANTIZE identity stores R_ACC as one NX8 e4 row (CR14.L) at row CR2 = 3.
+    state = make_state("ACTIVATE.QUANTIZE identity cr15.l cr14.l cr2 lr0;; HALT;;", cr={2: 3})
+    pane, session, tabs = make(PipelineTab(AAQ_ROW, "hex"), state)
+    wide = Rect(1, 0, 12, 100)
+    assert "no store yet" in rows(pane.render(session, tabs, wide), wide)[wide.y]
+    state.regfile.mutable("r_acc")[:] = struct.pack("<128f", 2.0, *[1.0] * 127)
+
+    run_until_complete(state)
+
+    # By hand (ARCH-stage-aaq-str §4.3.2): the largest magnitude 2.0 sets scale
+    # 2^1; 2.0 is exponent 0 below it (code 0x00) and 1.0 exponent 1 (0x08).
+    assert session.last_aaq_row().data == b"\x00" + b"\x08" * 127
+    header = rows(pane.render(session, tabs, wide), wide)[wide.y]
+    assert "row 3, scale 2^1" in header

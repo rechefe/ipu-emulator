@@ -10,7 +10,8 @@ These pages are for looking things up: instructions, operands, commands and term
 | [Instruction format](isa/instruction-format.md) | The bit layout of the instruction word, and the SystemVerilog package download. |
 | [Programmer's guide](isa/programmer-guide.md) | The pseudo-instructions the assembler expands, such as `BGT.S` and `BZ`. |
 | [Registers](isa/registers.md) | Every register, its size and its assembly names. |
-| [Configuration registers](isa/configuration-registers.md) | The CR constants, the 32-bit scalar rule and the dstructure fields. |
+| [Configuration registers](isa/configuration-registers.md) | The CR constants, the CR halves (DS and QF layouts) and the MULT constant. |
+| [`ACTIVATE.QUANTIZE`, `ACTIVATE.EXACT` and `LD.LUT`](isa/activate-quantize.md) | The AaQ stage: activation, NX8 quantization, the store and the LUT. |
 | [`kernel.toml`](kernel-toml.md) | Every key of a kernel's `kernel.toml` and a family's `registry.toml`, generated from the loader. |
 | [Command-line tools](cli.md) | Every command-line tool (`ipu-as`, the kernel runner and the debugger), with its subcommands and options. |
 | [Reference model API](reference-model-api.md) | The stable emulator API and the trace schema. |

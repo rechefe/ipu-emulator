@@ -39,7 +39,8 @@ one program), and for the `_x128` kernels one template per distinct program:
 (`144x288`), `matmul_x128_c2` (`192x192`, `240x240`, `720x240`, `384x192`,
 `480x240`), `matmul_x128_c2_qkv` (`576x192`), `matmul_x128_c3` (`192x384`) and
 `matmul_x128_c4` (`240x480`). A template's `activation` parameter renders the
-store's `ACTIVATE.QUANTIZE`, so an FFN1 kernel shares its template's program.
+store's `ACTIVATE.EXACT` (SiLU is not in the hardware list, so the matmuls run
+in FP32), and an FFN1 kernel shares its template's program.
 
 Query: `bazel run //kernels:query -- matmul m=M k=K n=N [activation=silu]`. A
 plain query at an FFN1 shape is refused: the activation is part of the query.
@@ -79,14 +80,17 @@ QKV, OutProj and FFN2 kernels, and an FFN1 kernel is found only with
 
 One kernel, `kernels/linear/fully_connected`, run and tested as
 `//kernels/linear/fully_connected`. It computes `y[s, :] = w @ x[s, :]` for a
-fixed shape: 10 samples of 128 inputs, 64 outputs, with no activation. It is
-the one kernel that runs in several element formats with one program: INT8,
-INT32 (the emulator-only format: INT8 data in 32-bit elements), E4 and E5.
-`y` is stored from the accumulator: INT32 for INT8 and INT32 data, FP32 for E4
-and E5. The case data are seeded, generated per format inside each input's
-`range`, which keeps every sum inside the accumulator. The goldens come from
-the shared `linear` op (`y = linear(w, x.T).T`), rounded to the accumulator
-format: exact in INT8 and INT32, `FP32_ORDER` in E4 and E5.
+fixed shape: 10 samples of 128 inputs, 64 outputs, with no activation. It
+runs in NX8, the hardware mode, in three NX8 types with one program: e4, e5
+and dynamic ([ADR 0007](https://github.com/rechefe/ipu-emulator/blob/master/docs/adr/0007-operational-aaq-and-nx8.md)).
+It accumulates in FP32, and `ACTIVATE.QUANTIZE identity` stores each
+sample's outputs as one NX8 row with its metadata, quantized to the case's
+QF. The case data are seeded, generated per variant inside each input's
+`range`; `extremes` puts every element at a range end and `every_code`
+uses every code of a row's grid. The goldens come from the shared `linear`
+op (`y = linear(w, x.T).T`), quantized row by row as the store quantizes,
+and are compared at `NX8_STEP`: the kernel's order of the 128-term sum can
+move an output across a rounding edge of its row's grid.
 
 Query: `bazel run //kernels:query -- fully_connected`. The shape parameters
 `samples`, `in_features` and `out_features` each take one value (10, 128,
@@ -121,5 +125,4 @@ lanes valid. L3 (144) has `N_TG = 2` token groups of 128; L4/L5 have
 `[10, 128]`, one XMEM row per sample. `w` is `[64, 128]`, output-major; its
 `transposed` pack (`kernels/linear/pack.py`) stores one row per input
 feature, holding that input's weight for each of the 64 outputs. `y` is
-`[10, 64]`, one accumulator vector per sample: 4 rows apart in INT8, E4 and
-E5, 1 row apart in INT32.
+`[10, 64]`, one stored NX8 row per sample (64 lanes valid).

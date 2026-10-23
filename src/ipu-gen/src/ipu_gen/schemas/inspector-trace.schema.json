@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/rechefe/ipu-emulator/schemas/inspector-trace/1",
+  "$id": "https://github.com/rechefe/ipu-emulator/schemas/inspector-trace/2",
   "title": "Cycle Inspector trace",
   "description": "One recorded kernel case as the Cycle Inspector page reads it (E08-16): a presentation of an E04-29 trace, written by ipu_gen.inspector_trace. Hex strings are lowercase; vector data is little-endian.",
   "type": "object",
@@ -10,7 +10,7 @@
     "program", "layout", "init", "cycles", "total_cycles", "truncated"
   ],
   "properties": {
-    "schemaVersion": {"const": 1},
+    "schemaVersion": {"const": 2},
     "kernel": {"type": "string"},
     "case": {"type": "string"},
     "options": {"type": "object"},
@@ -19,24 +19,39 @@
     "meta": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["format", "is_float", "element_bits", "exp_bits", "man_bits", "accumulator", "emulator_only", "lut"],
+      "required": ["format", "variant", "element_bits", "accumulator", "emulator_only", "nx8", "lut"],
       "properties": {
-        "format": {"type": "string"},
-        "is_float": {"type": "boolean"},
+        "format": {"enum": ["nx8", "fp32"], "description": "The run mode (ADR 0007)."},
+        "variant": {"type": "string", "description": "The case's variant, as kernel.toml's formats name it."},
         "element_bits": {"type": "integer"},
-        "exp_bits": {"type": "integer"},
-        "man_bits": {"type": "integer"},
         "accumulator": {"type": "string"},
-        "emulator_only": {"type": "boolean", "description": "An emulator-only element format (FP32, INT32)."},
+        "emulator_only": {"type": "boolean", "description": "An emulator-only mode (FP32)."},
+        "nx8": {
+          "description": "The NX8 element type, a QF half's fields; null in FP32.",
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["sign", "exp_format", "num_bits", "dynamic"],
+              "properties": {
+                "sign": {"enum": [0, 1]},
+                "exp_format": {"type": "integer", "minimum": 0, "maximum": 7},
+                "num_bits": {"type": "integer", "minimum": 1, "maximum": 8},
+                "dynamic": {"type": "boolean"}
+              }
+            }
+          ]
+        },
         "lut": {
-          "description": "An 8-bit float format's value per code; null for any other format.",
+          "description": "NX8: per dynamic_exponent (one table, two for a dynamic type), each code's value at unit scale (scale 127). An element is its code's entry times 2^(scale - 127), from its row's metadata word. Null in FP32.",
           "oneOf": [
             {"type": "null"},
             {
               "type": "array",
-              "minItems": 256,
-              "maxItems": 256,
-              "items": {"oneOf": [{"type": "number"}, {"enum": ["nan", "inf", "-inf"]}]}
+              "minItems": 1,
+              "maxItems": 2,
+              "items": {"type": "array", "minItems": 256, "maxItems": 256, "items": {"type": "number"}}
             }
           ]
         }
@@ -130,6 +145,17 @@
               ],
               "minItems": 3,
               "maxItems": 3
+            }
+          },
+          "M": {
+            "type": "array",
+            "minItems": 1,
+            "description": "XMEM metadata words written: [address of the 128-byte unit, value] (scale[7:0], dynamic_exponent[8]).",
+            "items": {
+              "type": "array",
+              "prefixItems": [{"type": "integer", "minimum": 0}, {"type": "integer", "minimum": 0, "maximum": 65535}],
+              "minItems": 2,
+              "maxItems": 2
             }
           },
           "L": {"type": "integer", "minimum": 1, "description": "Multiplier lanes used."},

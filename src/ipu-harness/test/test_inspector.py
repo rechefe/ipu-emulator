@@ -46,6 +46,8 @@ def test_the_context_describes_the_program_and_each_word(scale, tmp_path):
     _, records = read_trace(tmp_path / "t.jsonl")
     assert context["context_version"] == CONTEXT_VERSION
     assert (context["kernel"], context["case"], context["options"]) == ("scale", "one_row", {})
+    qf = {"sign": 1, "exp_format": 4, "num_bits": 8, "dynamic": False}  # NX8 e4
+    assert context["variant"] == {"name": "e4", "qf": qf}
     assert context["source_path"] == "kernels/elementwise/scale/scale.asm"
     assert context["source"] == scale.asm.read_text()
     assert context["labels"] == {"row_loop": 1}
