@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>Where the Format Lives</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<main class="page">
+
+<nav class="crumbs" aria-label="Course">
+  <a href="../index.html">Course home</a>
+  <a href="../reference/row-anatomy.html">Cheat sheet: row anatomy</a>
+</nav>
+
+<header style="display:grid;gap:0.5rem">
+  <p class="eyebrow">Lesson 1 · about 10 minutes</p>
+  <h1>Where a row's format lives</h1>
+  <p class="lede">An XMEM row written by AaQ is 128 bytes of elements plus a 16-bit metadata word. To turn those bytes back into numbers, a reader needs a third thing that is in neither: the table's <code>format</code>.</p>
+</header>
+
+<section style="display:grid;gap:0.75rem">
+  <h2>The job of the scale</h2>
+  <p>AaQ takes 128 FP32 values from <code>R_ACC</code> and writes 128 bytes. One byte cannot cover FP32's range, so the 128 elements share one exponent, the row's <strong>scale</strong> <code>s</code>. Each element then stores only how far it sits below that scale, plus a few mantissa bits.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/stage-aaq-str.md#51-quantization-algorithm">[AaQ §5.1]</a></span></p>
+  <p>AaQ computes <code>s</code> as the largest raw FP32 exponent in the row and stores it as <code>e8m0</code>: an 8-bit exponent, a power of two with no mantissa.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/stage-aaq-str.md#51-quantization-algorithm">[AaQ §5.1]</a></span></p>
+  <p>The industry calls this <em>block scaling</em>. The OCP Microscaling (MX) standard shares one <code>E8M0</code> scale across 32 elements;<span class="cite"><a href="https://docs.nvidia.com/cutlass/latest/media/docs/operators/tutorials/006_block_scaled_gemm.html">[CUTLASS]</a> <a href="https://awsdocs-neuron.readthedocs-hosted.com/en/latest/compiler/error-codes/EVRF039.html">[AWS Neuron]</a></span> AaQ shares one across a whole 128-element row.</p>
+</section>
+
+<section class="wide" style="display:grid;gap:1rem">
+  <h2>Three places hold what a reader needs</h2>
+  <figure>
+    <div class="row-fig">
+      <div style="display:grid;gap:0.4rem;min-width:0">
+        <span class="fig-label data">Row data: 128 elements × 8 bits = 1024 bits</span>
+        <div class="cells" id="cells" aria-hidden="true"></div>
+      </div>
+      <div style="display:grid;gap:0.4rem">
+        <span class="fig-label meta">Metadata: 16 bits</span>
+        <div style="display:grid;gap:2px">
+          <div class="metacells" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+          <div class="metacells" aria-hidden="true"><span class="dyn"></span><span class="rsv"></span><span class="rsv"></span><span class="rsv"></span><span class="rsv"></span><span class="rsv"></span><span class="rsv"></span><span class="rsv"></span></div>
+        </div>
+        <span class="bitlegend">scale [7:0] · dynamic_exponent [8] · reserved [15:9]</span>
+      </div>
+    </div>
+    <div class="tablecard">
+      <span class="fig-label">Table configuration (in the cache unit, not in XMEM)</span>
+      <span class="mono">format[8:0] = { dynamic, sign, fe[2:0], W[3:0] }</span>
+      <span class="bitlegend">Set once per table by the RISC-V host. Shared by every row of the table, across all its banks.</span>
+    </div>
+    <figcaption>One AaQ-written row. Sources: <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/cache-unit.md#6-memory-and-tag-model">cache unit §6</a> (metadata), <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/cache-unit.md#5-tables">cache unit §5</a> and <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/stage-aaq-str.md#33-format-field-layout">AaQ §3.3</a> (format).</figcaption>
+  </figure>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Information</th><th>Lives in</th><th>Written by</th><th>Changes</th></tr></thead>
+      <tbody>
+        <tr><td>128 elements: sign, exponent field, mantissa</td><td><span class="role data">data bytes</span></td><td>AaQ, then <code>ST.AAQ</code></td><td>per element</td></tr>
+        <tr><td><code>scale</code>, the shared exponent</td><td><span class="role meta">metadata word</span></td><td>AaQ, then <code>ST.AAQ</code></td><td>per row</td></tr>
+        <tr><td><code>dynamic_exponent</code>: E1M6 or E2M5</td><td><span class="role meta">metadata word</span></td><td>AaQ, then <code>ST.AAQ</code></td><td>per row, dynamic tables only</td></tr>
+        <tr><td><code>format</code>: signed, <code>fe</code>, <code>W</code>, static or dynamic</td><td><span class="role table">table configuration</span></td><td>RISC-V host</td><td>per table</td></tr>
+        <tr><td>Activation LUT contents</td><td><span class="role aaq">AaQ stage</span></td><td>AaQ LUT load from <code>R_ACC</code></td><td>when reloaded</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section style="display:grid;gap:0.75rem">
+  <h2>Why the metadata alone is not enough</h2>
+  <p>Take a row whose largest value is 3.2. In FP32, 3.2 = 1.6 × 2<sup>1</sup>, a biased exponent of 128, so <code>s = 128</code>. One element is 0.4 = 1.6 × 2<sup>−2</sup>, biased exponent 125, which sits <code>E = 128 − 125 = 3</code> binades below the scale.</p>
+  <p>In an E4M3 table (<code>fe = 4</code>), AaQ stores exponent field 3 and rounds 0.6 to 3 mantissa bits (5/8). The byte is <code>0 0011 101</code> = <code>0x1D</code>, which decodes to 1.625 × 2<sup>128−127−3</sup> = 0.40625.</p>
+  <p>Now read the same byte with the same scale but <code>fe = 2</code>. The bits split differently and give 3.8125. Change <code>fe</code> below and watch the violet field move.</p>
+</section>
+
+<div class="panel wide">
+  <h3>Decode a byte</h3>
+  <div class="decoder" data-decoder data-byte="1D" data-fe="4" data-scale="128"></div>
+</div>
+
+<section style="display:grid;gap:0.75rem">
+  <p>The scale says <em>where</em> the row's values are. The table's <code>fe</code> says <em>how to split each byte</em>. A reader needs both, and they come from different places.</p>
+  <p><strong>Exception, dynamic tables.</strong> When <code>format[8] = 1</code>, the table fixes only "signed, 8 bits". AaQ picks E1M6 or E2M5 for each row and records the choice in that row's <code>dynamic_exponent</code> bit. So in a dynamic table, <code>fe</code> comes from the metadata word instead.<span class="cite"><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/stage-aaq-str.md#511-dynamic-exponent-field-selection-fe--1-vs-fe--2">[AaQ §5.1.1]</a></span></p>
+</section>
+
+<section class="wide" style="display:grid;gap:0.75rem">
+  <h2>Practice</h2>
+  <p style="max-width:var(--measure)">Answer from memory first. Scroll up only after you commit to an answer.</p>
+  <div class="panel" data-quiz="quiz1"></div>
+</section>
+<script type="application/json" id="quiz1">[
+  {"prompt": "A static E4M3 table. Where is the number 4 (the exponent width) recorded?",
+   "options": ["In the data bytes", "In the metadata word", "In the table configuration", "Inside the AaQ stage"], "answer": 2,
+   "why": "fe is a table property (format[6:4]). Every row of a static table uses the same split."},
+  {"prompt": "Where is a row's shared exponent s recorded?",
+   "options": ["In the data bytes", "In the metadata word", "In the table configuration", "Inside the AaQ stage"], "answer": 1,
+   "why": "scale[7:0] of the 16-bit metadata word beside the row."},
+  {"prompt": "A dynamic table. Where is it recorded that this row used E2M5?",
+   "options": ["In the data bytes", "In the metadata word", "In the table configuration", "Inside the AaQ stage"], "answer": 1,
+   "why": "dynamic_exponent, bit 8 of the metadata word: 0 = E1M6, 1 = E2M5."},
+  {"prompt": "Where is it recorded whether a table is static or dynamic?",
+   "options": ["In the data bytes", "In the metadata word", "In the table configuration", "Inside the AaQ stage"], "answer": 2,
+   "why": "format[8], the dynamic bit, part of the table's 9-bit format."},
+  {"prompt": "Where is element 17's sign bit recorded?",
+   "options": ["In the data bytes", "In the metadata word", "In the table configuration", "Inside the AaQ stage"], "answer": 0,
+   "why": "Each element's byte holds its own sign, exponent field and mantissa."},
+  {"prompt": "Where is the shape of the sigmoid that ACTIVATE.QUANTIZE applies recorded?",
+   "options": ["In the data bytes", "In the metadata word", "In the table configuration", "Inside the AaQ stage"], "answer": 3,
+   "why": "The 256 × 17-bit LUT inside the AaQ stage, filled by the LUT load. It is never written to XMEM."},
+  {"prompt": "Who computes a row's scale?",
+   "options": ["The RISC-V host, per table", "The AaQ quantizer, per row", "The cache unit, per bank", "The MULT stage, per load"], "answer": 1,
+   "why": "AaQ takes the largest raw FP32 exponent among the row's elements."},
+  {"prompt": "You hold byte 0x1D and its row's scale, 128. What else must you know to get its value?",
+   "options": ["The row's XMEM address", "The previous row's scale", "The table's exponent width", "The LUT's activation function"], "answer": 2,
+   "why": "fe decides where the exponent field ends and the mantissa starts: 0.40625 with fe = 4, 3.8125 with fe = 2."}
+]</script>
+
+<section class="panel">
+  <h3>Explain it back</h3>
+  <p>In two sentences, tell an RTL engineer why a row's metadata word alone cannot decode the row. Type it, then compare.</p>
+  <label for="explain1" class="eyebrow">Your answer</label>
+  <textarea id="explain1"></textarea>
+  <button type="button" data-reveal="model1">Show a model answer</button>
+  <p id="model1" hidden>The metadata gives the row's scale, which says where its values sit, but not how each byte splits into exponent and mantissa bits. That split, <code>fe</code>, belongs to the table's <code>format</code>; only a dynamic table moves it into the row, through <code>dynamic_exponent</code>.</p>
+</section>
+
+<section style="display:grid;gap:0.75rem">
+  <h2>What this means for the emulator</h2>
+  <p>Today the emulator's XMEM is a flat byte array, and one element format applies to the whole run (<a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/adr/0003-element-formats-replace-wide-mode.md">ADR 0003</a>). Matching the specs needs at least these pieces. All of them are still open in the design session:</p>
+  <ul>
+    <li><strong>XMEM:</strong> a 16-bit <span class="role meta">metadata word</span> beside every 128-byte row.</li>
+    <li><strong>Configuration:</strong> a <span class="role table">table format</span> for each input and output region, since the emulator has no cache tables.</li>
+    <li><strong>AaQ:</strong> the spec's <code>ACTIVATE.QUANTIZE</code> (scale, encoding, dynamic choice) and the LUT load. Today's version moves to an emulator-only slot so old kernels keep working.</li>
+    <li><strong><code>POST_AAQ_REG</code> and <code>ST.AAQ</code>:</strong> 128 bytes plus the metadata word, written together.</li>
+    <li><strong>LD and MULT:</strong> carry each row's metadata into the registers and expand the elements to FP32 before multiplying.</li>
+  </ul>
+</section>
+
+<aside class="callout gap">
+  <span class="label">Where the spec stops</span>
+  <p>No document defines how MULT expands a scaled row to FP32. The decoder on this page inverts the quantizer of AaQ §5.1; treat it as a proposal. The spec also contradicts itself on <code>fe = 0</code> (an INT8-like table): §3.3 allows it, §5.1 says <code>fe</code> is at least 1.</p>
+</aside>
+
+<aside class="callout source">
+  <span class="label">Read next</span>
+  <p><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/stage-aaq-str.md#32-output">AaQ spec §3.2–3.3</a> (one page), then <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/content/specs/cache-unit.md#5-tables">cache unit spec §5–6</a>. For the industry background, the <a href="https://www.opencompute.org/blog/amd-arm-intel-meta-microsoft-nvidia-and-qualcomm-standardize-next-generation-narrow-precision-data-formats-for-ai">OCP MX announcement</a>.</p>
+</aside>
+
+<aside class="callout ask">
+  <span class="label">Ask</span>
+  <p>Anything unclear, or a quiz answer that surprised you? Ask in the chat. Tell me your score, too; it decides what lesson 2 covers.</p>
+</aside>
+
+<nav class="crumbs" aria-label="Next">
+  <a href="../reference/row-anatomy.html">Cheat sheet: row anatomy →</a>
+  <a href="../index.html">Course home</a>
+</nav>
+
+</main>
+<script>
+  (function () { var c = document.getElementById("cells"), h = ""; for (var i = 0; i < 128; i++) h += "<span></span>"; c.innerHTML = h; })();
+</script>
+<script src="../assets/quiz.js"></script>
+<script src="../assets/decoder.js"></script>
+</body>
+</html>
