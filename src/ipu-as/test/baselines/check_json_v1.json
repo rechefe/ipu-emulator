@@ -7,9 +7,9 @@
     "exit_code": 1,
     "stdout": "[{\"line\": 0, \"column\": 0, \"end_line\": 0, \"end_column\": 0, \"message\": \"Template error: SecurityError: access to attribute '__init__' of 'TemplateReference' object is unsafe.\", \"severity\": \"error\", \"stage\": \"template\", \"approximate\": false}]\n"
   },
-  "test_diagnostics.py: '    ADD lr14 lr14 cr3 ;\\n    ADD lr5  lr5  cr4        {#- note -#}\\n\\n    MULT.RC.VE lr15 lr5 0 lr15 cr15;\\n'": {
+  "test_diagnostics.py: '    ADD lr14 lr14 cr3 ;\\n    ADD lr5  lr5  cr4        {#- note -#}\\n\\n    MULT.RC.VE lr15 lr5 0 lr15 cr15.l cr14.l;\\n'": {
     "exit_code": 1,
-    "stdout": "[{\"line\": 1, \"column\": 0, \"end_line\": 1, \"end_column\": 0, \"message\": \"Instruction ADD expects 3 operands, got 8\", \"severity\": \"error\", \"stage\": \"assemble\", \"approximate\": false}]\n"
+    "stdout": "[{\"line\": 1, \"column\": 0, \"end_line\": 1, \"end_column\": 0, \"message\": \"Instruction ADD expects 3 operands, got 9\", \"severity\": \"error\", \"stage\": \"assemble\", \"approximate\": false}]\n"
   },
   "test_diagnostics.py: '    SET lr0 cr0 ;;    {#- a trailing note -#}\\n    SET lr1 cr1 ;;\\n    BEQ lr0, cr0, +1;;\\n'": {
     "exit_code": 1,
@@ -25,7 +25,7 @@
   },
   "test_diagnostics.py: 'ADD lr0 lr0 1.5;;\\n'": {
     "exit_code": 1,
-    "stdout": "[{\"line\": 0, \"column\": 12, \"end_line\": 0, \"end_column\": 13, \"message\": \"Invalid token value - 1.5 in token LcrRegField Additional Information: Value 1.5 not in enum options Available options: ['lr0', 'lr1', 'lr2', 'lr3', 'lr4', 'lr5', 'lr6', 'lr7', 'lr8', 'lr9', 'lr10', 'lr11', 'lr12', 'lr13', 'lr14', 'lr15', 'cr0', 'cr1', 'cr2', 'cr3', 'cr4', 'cr5', 'cr6', 'cr7', 'cr8', 'cr9', 'cr10', 'cr11', 'cr12', 'cr13', 'cr14', 'cr15']\", \"severity\": \"error\", \"stage\": \"assemble\", \"approximate\": false}]\n"
+    "stdout": "[{\"line\": 0, \"column\": 12, \"end_line\": 0, \"end_column\": 13, \"message\": \"Invalid token value - 1.5 in token LcrHalfRegField Additional Information: Value 1.5 not in enum options Available options: ['lr0', 'lr1', 'lr2', 'lr3', 'lr4', 'lr5', 'lr6', 'lr7', 'lr8', 'lr9', 'lr10', 'lr11', 'lr12', 'lr13', 'lr14', 'lr15', 'cr0', 'cr1', 'cr2', 'cr3', 'cr4', 'cr5', 'cr6', 'cr7', 'cr8', 'cr9', 'cr10', 'cr11', 'cr12', 'cr13', 'cr14', 'cr15', 'cr0.l', 'cr1.l', 'cr2.l', 'cr3.l', 'cr4.l', 'cr5.l', 'cr6.l', 'cr7.l', 'cr8.l', 'cr9.l', 'cr10.l', 'cr11.l', 'cr12.l', 'cr13.l', 'cr14.l', 'cr15.l', 'cr0.h', 'cr1.h', 'cr2.h', 'cr3.h', 'cr4.h', 'cr5.h', 'cr6.h', 'cr7.h', 'cr8.h', 'cr9.h', 'cr10.h', 'cr11.h', 'cr12.h', 'cr13.h', 'cr14.h', 'cr15.h']\", \"severity\": \"error\", \"stage\": \"assemble\", \"approximate\": false}]\n"
   },
   "test_diagnostics.py: 'BEQ lr0, cr0, +1;;\\n'": {
     "exit_code": 1,
@@ -77,7 +77,7 @@
   },
   "test_diagnostics.py: '{% for i in range(4) %}\\n    ADD lr0 lr0 1.5;;\\n{% endfor %}\\n'": {
     "exit_code": 1,
-    "stdout": "[{\"line\": 1, \"column\": 16, \"end_line\": 1, \"end_column\": 17, \"message\": \"Invalid token value - 1.5 in token LcrRegField Additional Information: Value 1.5 not in enum options Available options: ['lr0', 'lr1', 'lr2', 'lr3', 'lr4', 'lr5', 'lr6', 'lr7', 'lr8', 'lr9', 'lr10', 'lr11', 'lr12', 'lr13', 'lr14', 'lr15', 'cr0', 'cr1', 'cr2', 'cr3', 'cr4', 'cr5', 'cr6', 'cr7', 'cr8', 'cr9', 'cr10', 'cr11', 'cr12', 'cr13', 'cr14', 'cr15']\", \"severity\": \"error\", \"stage\": \"assemble\", \"approximate\": false}]\n"
+    "stdout": "[{\"line\": 1, \"column\": 16, \"end_line\": 1, \"end_column\": 17, \"message\": \"Invalid token value - 1.5 in token LcrHalfRegField Additional Information: Value 1.5 not in enum options Available options: ['lr0', 'lr1', 'lr2', 'lr3', 'lr4', 'lr5', 'lr6', 'lr7', 'lr8', 'lr9', 'lr10', 'lr11', 'lr12', 'lr13', 'lr14', 'lr15', 'cr0', 'cr1', 'cr2', 'cr3', 'cr4', 'cr5', 'cr6', 'cr7', 'cr8', 'cr9', 'cr10', 'cr11', 'cr12', 'cr13', 'cr14', 'cr15', 'cr0.l', 'cr1.l', 'cr2.l', 'cr3.l', 'cr4.l', 'cr5.l', 'cr6.l', 'cr7.l', 'cr8.l', 'cr9.l', 'cr10.l', 'cr11.l', 'cr12.l', 'cr13.l', 'cr14.l', 'cr15.l', 'cr0.h', 'cr1.h', 'cr2.h', 'cr3.h', 'cr4.h', 'cr5.h', 'cr6.h', 'cr7.h', 'cr8.h', 'cr9.h', 'cr10.h', 'cr11.h', 'cr12.h', 'cr13.h', 'cr14.h', 'cr15.h']\", \"severity\": \"error\", \"stage\": \"assemble\", \"approximate\": false}]\n"
   },
   "test_diagnostics.py: '{% for i in undefined_var %}\\nHALT;;\\n{% endfor %}\\n'": {
     "exit_code": 1,
@@ -93,7 +93,7 @@
   },
   "test_diagnostics.py: '{%- set pad = \"                         \" -%}\\n    ADD lr0 lr0 1.5;;\\n'": {
     "exit_code": 1,
-    "stdout": "[{\"line\": 1, \"column\": 16, \"end_line\": 1, \"end_column\": 17, \"message\": \"Invalid token value - 1.5 in token LcrRegField Additional Information: Value 1.5 not in enum options Available options: ['lr0', 'lr1', 'lr2', 'lr3', 'lr4', 'lr5', 'lr6', 'lr7', 'lr8', 'lr9', 'lr10', 'lr11', 'lr12', 'lr13', 'lr14', 'lr15', 'cr0', 'cr1', 'cr2', 'cr3', 'cr4', 'cr5', 'cr6', 'cr7', 'cr8', 'cr9', 'cr10', 'cr11', 'cr12', 'cr13', 'cr14', 'cr15']\", \"severity\": \"error\", \"stage\": \"assemble\", \"approximate\": false}]\n"
+    "stdout": "[{\"line\": 1, \"column\": 16, \"end_line\": 1, \"end_column\": 17, \"message\": \"Invalid token value - 1.5 in token LcrHalfRegField Additional Information: Value 1.5 not in enum options Available options: ['lr0', 'lr1', 'lr2', 'lr3', 'lr4', 'lr5', 'lr6', 'lr7', 'lr8', 'lr9', 'lr10', 'lr11', 'lr12', 'lr13', 'lr14', 'lr15', 'cr0', 'cr1', 'cr2', 'cr3', 'cr4', 'cr5', 'cr6', 'cr7', 'cr8', 'cr9', 'cr10', 'cr11', 'cr12', 'cr13', 'cr14', 'cr15', 'cr0.l', 'cr1.l', 'cr2.l', 'cr3.l', 'cr4.l', 'cr5.l', 'cr6.l', 'cr7.l', 'cr8.l', 'cr9.l', 'cr10.l', 'cr11.l', 'cr12.l', 'cr13.l', 'cr14.l', 'cr15.l', 'cr0.h', 'cr1.h', 'cr2.h', 'cr3.h', 'cr4.h', 'cr5.h', 'cr6.h', 'cr7.h', 'cr8.h', 'cr9.h', 'cr10.h', 'cr11.h', 'cr12.h', 'cr13.h', 'cr14.h', 'cr15.h']\", \"severity\": \"error\", \"stage\": \"assemble\", \"approximate\": false}]\n"
   },
   "test_diagnostics.py: '{{ (1).missing() }}\\nHALT;;\\n'": {
     "exit_code": 1,
@@ -129,7 +129,7 @@
   },
   "vscode-ipu-asm/test/corpus/negative/multi_form_collision.asm": {
     "exit_code": 1,
-    "stdout": "[{\"line\": 3, \"column\": 59, \"end_line\": 3, \"end_column\": 60, \"message\": \"NOP: all slots are already filled\", \"severity\": \"error\", \"stage\": \"assemble\", \"approximate\": false}]\n"
+    "stdout": "[{\"line\": 3, \"column\": 54, \"end_line\": 3, \"end_column\": 55, \"message\": \"NOP: all slots are already filled\", \"severity\": \"error\", \"stage\": \"assemble\", \"approximate\": false}]\n"
   },
   "vscode-ipu-asm/test/corpus/negative/overfull_word.asm": {
     "exit_code": 1,

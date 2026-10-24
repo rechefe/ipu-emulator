@@ -9,7 +9,7 @@
     transpose) is applied to each of the 4 pixel-streams' data blocks b[p]
     (channel-major [2, k, n_tok]) in one invocation, instead of 4 host
     round-trips through the single-stream matmul_144x*_x128 kernels it is
-    built from. The store applies ACTIVATE.QUANTIZE identity
+    built from. The store applies ACTIVATE.EXACT identity
     (activation = none); proj_p4_2tg_silu is the same body with silu.
 
     Design notes
@@ -79,8 +79,8 @@
 
     - The registers are named below ({% set %}), a pure source-level rename:
       the binary is the same as with the raw register names. The CR names are
-      the [abi] bindings ({{ cr.<name> }}); CR15 holds the harness's default
-      dstructure (128 valid elements).
+      the [abi] bindings ({{ cr.<name> }}); cr.ds_qf (CR15) holds the DS
+      (ds(128), every lane) in .L and the case's QF in .H.
 -#}
 
 # ---------------------------------------------------------------------------
@@ -118,7 +118,8 @@
 {% set DATA_STREAM_STR  = cr.data_stream_str %}  {# K*N_TG: D row stride between streams #}
 {% set OUT_STREAM_STR   = cr.out_stream_str %}  {# N_TG*N_OUT: C row stride between streams #}
 {% set STREAM_COUNT     = cr.stream_count %}  {# 4: number of pixel-streams #}
-{% set DSTRUCT          = "CR15" %}  {# reserved dstructure register #}
+{% set DSTRUCT          = cr.ds_qf ~ ".L" %}  {# the DS half: ds(128) #}
+{% set QF               = cr.ds_qf ~ ".H" %}  {# the QF half (case_qf; FP32 ignores it) #}
 
     SET {{ stream_idx }} {{ ZERO }};;                               # p = 0
     SET {{ stream_data_base }} {{ DATA_BASE }};;                     # stream 0 D base
@@ -155,7 +156,7 @@ j_loop:
     ADD {{ k_idx }} {{ k_idx }} {{ ONE }};;
 
     # Peeled first k-iter (k=0): ACC.FIRST seeds r_acc (replaces RESET_ACC).
-    MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ QF }};
     ACC.ADD.FIRST;
     LD.MULT.CYCLIC {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ tg_stride }};
@@ -164,7 +165,7 @@ j_loop:
     B tg0_after_chunk0;;
 
 tg0_k_chunk0:
-    MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ QF }};
     ACC.ADD;
     LD.MULT.CYCLIC {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ tg_stride }};
@@ -192,7 +193,7 @@ tg0_use_full_bound:
     SET {{ bound }} {{ FULL_BOUND }};;
 
 tg0_chunk_body:
-    MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ QF }};
     ACC.ADD;
     LD.MULT.CYCLIC {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ tg_stride }};
@@ -203,8 +204,7 @@ tg0_chunk_body:
     BLT.S {{ chunk_idx }} {{ CHUNK_COUNT }} tg0_chunk_loop;;
 
 tg0_store:
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    ST.AAQ {{ out_ptr }} {{ ZERO }};;  # C[p,tg=0,j,:] = R_ACC
+    ACTIVATE.EXACT identity {{ DSTRUCT }} {{ ZERO }} {{ out_ptr }};;  # C[p,tg=0,j,:] = R_ACC
 
     # ---- tg=1: chunk 0 (prime + peel first k-iter, ACC.ADD.FIRST) ----------
     # weight_row_off is UNCHANGED here -- tg=1 re-reads the SAME j's weights
@@ -222,7 +222,7 @@ tg0_store:
     ADD {{ data_ptr }} {{ data_ptr }} {{ tg_stride }};
     ADD {{ k_idx }} {{ k_idx }} {{ ONE }};;
 
-    MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ QF }};
     ACC.ADD.FIRST;
     LD.MULT.CYCLIC {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ tg_stride }};
@@ -231,7 +231,7 @@ tg0_store:
     B tg1_after_chunk0;;
 
 tg1_k_chunk0:
-    MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ QF }};
     ACC.ADD;
     LD.MULT.CYCLIC {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ tg_stride }};
@@ -255,7 +255,7 @@ tg1_use_full_bound:
     SET {{ bound }} {{ FULL_BOUND }};;
 
 tg1_chunk_body:
-    MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ QF }};
     ACC.ADD;
     LD.MULT.CYCLIC {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ tg_stride }};
@@ -266,8 +266,7 @@ tg1_chunk_body:
     BLT.S {{ chunk_idx }} {{ CHUNK_COUNT }} tg1_chunk_loop;;
 
 tg1_store:
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    ST.AAQ {{ out_ptr_tg1 }} {{ ZERO }};;  # C[p,tg=1,j,:] = R_ACC
+    ACTIVATE.EXACT identity {{ DSTRUCT }} {{ ZERO }} {{ out_ptr_tg1 }};;  # C[p,tg=1,j,:] = R_ACC
 
     ADD {{ out_ptr }} {{ out_ptr }} {{ ONE }};;                      # advance tg=0 output ptr, packed (1 row/j)
     ADD {{ out_ptr_tg1 }} {{ out_ptr_tg1 }} {{ ONE }};;              # advance tg=1 output ptr, packed (1 row/j)

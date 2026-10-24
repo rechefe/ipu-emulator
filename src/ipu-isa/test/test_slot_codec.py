@@ -16,7 +16,7 @@ from ipu_isa.codec.slot import (
     field_code,
 )
 from ipu_isa.codec.word import DecodedWord, opcode_field
-from ipu_isa.faults import reserved_encodings
+from ipu_isa.faults import reserved_encodings, reserved_operand_codes
 from ipu_isa.operand_types import OPERAND_TYPES
 from ipu_isa.slots import SLOTS, Slot
 from ipu_isa.view import authoring_copies, isa, load_isa
@@ -36,7 +36,11 @@ _RESERVED = {
 def _ends(slot, operand) -> list[int]:
     """The lowest and highest meaningful encoding of an operand."""
     bits = isa().layout.operand_bits[operand.type.name]
-    reserved = _RESERVED.get((slot, operand.type.name), set())
+    # F-1's table covers the HARDWARE slots; an EMULATOR slot's operand type
+    # reserves the same codes (ACTIVATE.EXACT's ActivationFn: 13..15).
+    reserved = _RESERVED.get(
+        (slot, operand.type.name), set(reserved_operand_codes(operand.type, bits))
+    )
     meaningful = [code for code in range(1 << bits) if code not in reserved]
     return [meaningful[0], meaningful[-1]]
 
@@ -115,13 +119,12 @@ def test_decode_rejects_values_outside_the_slot():
 NOP_VALUES = {
     Slot.BREAK: 0x200000,  # 22 bits, 2-bit opcode 2
     Slot.LOAD: 0x3000,  # 14 bits, 2-bit opcode 3
-    Slot.STORE: 0x100,  # 9 bits, 1-bit opcode 1
-    Slot.ACC_STORE: 0x100,  # 9 bits, 1-bit opcode 1
-    Slot.MULT: 0x300000,  # 23 bits, 3-bit opcode 3
-    Slot.ACC: 0xC000,  # 17 bits, 4-bit opcode 6
-    Slot.AAQ: 0x0,  # 9 bits, 1-bit opcode 0
+    Slot.MULT: 0xC000000,  # 29 bits, 3-bit opcode 3
+    Slot.ACC: 0x18000,  # 18 bits, 4-bit opcode 6
+    Slot.AAQ: 0x0,  # 23 bits, 2-bit opcode 0
+    Slot.AAQ_EXACT: 0x0,  # 18 bits, 1-bit opcode 0
     Slot.LR: 0x80000,  # 20 bits, 4-bit opcode 8
-    Slot.COND: 0x600000,  # 23 bits, 3-bit opcode 6
+    Slot.COND: 0x1800000,  # 25 bits, 3-bit opcode 6
 }
 
 
@@ -167,15 +170,16 @@ def _values(word: int) -> dict:
 def test_word_pack_rejects_unknown_instances_and_wide_values():
     with pytest.raises(EncodeError, match="no such slot instance"):
         WORD_CODEC.pack({(Slot.MULT, 1): 0})
-    with pytest.raises(EncodeError, match="does not fit 23 bits"):
-        WORD_CODEC.pack({(Slot.MULT, 0): 1 << 23})
+    with pytest.raises(EncodeError, match="does not fit 29 bits"):
+        WORD_CODEC.pack({(Slot.MULT, 0): 1 << 29})
     with pytest.raises(EncodeError, match="value -1 does not fit"):
         WORD_CODEC.pack({(Slot.MULT, 0): -1})
 
 
 def test_opcode_slot():
     assert OPCODE_SLOT["ADD"] is Slot.LR
-    assert OPCODE_SLOT["ST.ACC"] is Slot.ACC_STORE
+    assert OPCODE_SLOT["ACTIVATE.EXACT"] is Slot.AAQ_EXACT
+    assert OPCODE_SLOT["LD.LUT"] is Slot.AAQ
     assert "NOP" not in OPCODE_SLOT
     assert codecs() is codecs()
 

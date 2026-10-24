@@ -64,10 +64,9 @@ def test_reserved_opcodes_of_todays_isa():
         Slot.LOAD: 2,
         Slot.MULT: 3,
         Slot.ACC: 4,
-        Slot.AAQ: 1,
-        Slot.STORE: 1,
+        Slot.AAQ: 2,
     }
-    assert reserved[Slot.STORE].empty
+    assert reserved[Slot.AAQ].opcodes == (3,)
 
 
 def _operand_codes(slot):
@@ -82,14 +81,22 @@ def test_reserved_operand_codes_of_todays_isa():
         "HorizontalStride": (3,),
         "VerticalStride": (3,),
     }
-    assert _operand_codes(Slot.AAQ) == {"ActivationFn": (13, 14, 15)}
+    assert _operand_codes(Slot.AAQ) == {"LutAddrImmediate": (5, 6, 7), "AaqActivationFn": (7,)}
     # INC.MODP2 stores k - 1: k in 1..9 uses codes 0..8.
     assert _operand_codes(Slot.LR) == {"LrModPow2KImmediate": tuple(range(9, 16))}
     assert _operand_codes(Slot.COND) == {}
 
 
 def test_full_width_operands_reserve_nothing():
-    for name in ("LrIdx", "LcrIdx", "AddbiImmediate", "BreakImmediate", "Label"):
+    for name in (
+        "LrIdx",
+        "LcrIdx",
+        "LcrHalfIdx",
+        "HalfCrIdx",
+        "AddbiImmediate",
+        "BreakImmediate",
+        "Label",
+    ):
         bits = isa().layout.operand_bits[name]
         assert reserved_operand_codes(OPERAND_TYPES[name], bits) == (), name
 
@@ -97,7 +104,7 @@ def test_full_width_operands_reserve_nothing():
 def test_emulator_slots_have_no_entry():
     reserved = reserved_encodings(isa())
     assert Slot.BREAK not in reserved
-    assert Slot.ACC_STORE not in reserved
+    assert Slot.AAQ_EXACT not in reserved
 
 
 def test_a_new_instruction_takes_a_reserved_opcode():
@@ -113,11 +120,11 @@ EXPECTED_INSTRUCTION_FAULTS = {
     "LD.MULT": ("F-1", "F-6", "F-7"),  # MultStageReg: code 2..3 reserved
     "LD.MULT.CYCLIC": ("F-4", "F-6", "F-7"),
     "LD.MASK": ("F-6", "F-7"),
-    "ST.AAQ": ("F-6", "F-7"),
+    "LD.LUT": ("F-1", "F-6", "F-7"),  # lut_addr: codes 5..7 reserved
     "MULT.RC.VV": ("F-1",),  # ra is a MultStageReg
     "ACC.STRIDE": ("F-1",),  # HorizontalStride/VerticalStride reserved3, ElementsInRow code 3
     "ACC.RESHAPE": ("F-5",),
-    "ACTIVATE.QUANTIZE": ("F-1",),  # ActivationFn: codes 13..15 reserved
+    "ACTIVATE.QUANTIZE": ("F-1", "F-6", "F-7"),  # AaqActivationFn: code 7 reserved
     "SET": ("F-3",),
     "ADD": ("F-3",),
     "SUB": ("F-3",),
@@ -145,6 +152,6 @@ def test_instruction_faults():
     # Today's instructions only: one added later is not pinned here.
     assert {m: actual[m] for m in EXPECTED_INSTRUCTION_FAULTS} == EXPECTED_INSTRUCTION_FAULTS
     # HALT, NOP, the MULT/ACC instructions without reserved codes, and the
-    # emulator-only ST.ACC, BREAK and BREAK.IFEQ raise none.
-    for mnemonic in ("HALT", "NOP", "ACC.ADD", "MULT.VE", "ST.ACC", "BREAK", "BREAK.IFEQ"):
+    # emulator-only ACTIVATE.EXACT, BREAK and BREAK.IFEQ raise none.
+    for mnemonic in ("HALT", "NOP", "ACC.ADD", "MULT.VE", "ACTIVATE.EXACT", "BREAK", "BREAK.IFEQ"):
         assert actual[mnemonic] == ()

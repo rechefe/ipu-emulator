@@ -7,6 +7,7 @@ inline assembly into encoded instruction words, load them into an
 
 from __future__ import annotations
 
+import math
 import os
 import struct
 import subprocess
@@ -14,32 +15,64 @@ import sys
 
 import pytest
 from emu_support import (
+    E4,
     BreakpointRunControl,
     ElementFormat,
     decode_program,
     make_state,
     new_state,
     run,
+    write_nx8_row,
 )
 
 from ipu_as.compound_inst import CompoundInst
 from ipu_as.lark_tree import assemble, parse
-from ipu_emu.activations import ActivationParams, apply_activation
+from ipu_emu.activations import AaqOptions, ActivationParams, apply_activation
 from ipu_emu.emulator import (
     DebugAction,
     load_program,
     run_until_complete,
     run_with_debug,
 )
-from ipu_emu.errors import ConfigurationError, DebugOnlyInstructionWarning, EmulatorFault
+from ipu_emu.errors import ConfigurationError, CrContentError, EmulatorFault
 from ipu_emu.ipu import EIGHT_BIT_ROWS, EmulatorError, Ipu
 from ipu_emu.ipu_state import HaltRecord, IpuState
 from ipu_emu.outcome import CycleOutcome
 from ipu_emu.xmem import XMEM_SIZE_BYTES
 from ipu_isa.codec.word import DecodedWord
-from ipu_isa.constants import PadMode, encode_dstructure
+from ipu_isa.cr_halves import MaskType, constant, ds, qf
 from ipu_isa.faults import FaultId
-from ipu_isa.formats import encode_element
+from ipu_isa.nx8 import Nx8Format, decode_row, encode_row, split_metadata
+
+
+def int_constant(value: float) -> int:
+    """A MULT constant CR holding *value* (one signed fe-4 NX8 element, ADR 0007)."""
+    row = encode_row([float(value)], E4)
+    return constant(row.elements[0], row.scale, E4.exp_format, E4.sign)
+
+
+def fill_nx8_cyclic(state: IpuState, values) -> None:
+    """Fill R_CYCLIC (512 elements) with *values*, quantized row by row, and each slot's metadata."""
+    values = list(values) + [0] * (512 - len(values))
+    for k in range(4):
+        row = encode_row(values[k * 128 : (k + 1) * 128], E4)
+        state.regfile.set_r_cyclic_at(k * 128, row.elements)
+        state.regfile.set_register_bytes("r_cyclic_meta", k, row.metadata.to_bytes(2, "little"))
+
+
+def fill_nx8_ra(state: IpuState, values) -> None:
+    """Fill R0 ++ R1 (256 elements) with *values*, quantized row by row, and their metadata."""
+    values = list(values) + [0] * (256 - len(values))
+    for k in range(2):
+        row = encode_row(values[k * 128 : (k + 1) * 128], E4)
+        state.regfile.set_register_bytes("r", k, row.elements)
+        state.regfile.set_register_bytes("r_meta", k, row.metadata.to_bytes(2, "little"))
+
+
+def acc_lanes(state: IpuState) -> tuple[float, ...]:
+    """R_ACC as 128 FP32 values."""
+    return struct.unpack("<128f", state.regfile.get_r_acc_bytes())
+
 
 # ============================================================================
 # Basic Register Operations
@@ -464,13 +497,15 @@ HALT;;
         d = DecodedWord.from_word(encoded[0])
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 0  # set
         assert d["lr_inst_0_token_2_lr_reg_field"] == 4  # reg = lr4
-        assert d["lr_inst_0_token_1_addbi_immediate"] == 8  # src = cr8
+        assert (
+            d["lr_inst_0_token_1_addbi_immediate"] == 16 + 8
+        )  # src = cr8 (LcrHalfIdx: CRs follow the 16 LRs)
         assert d["lr_inst_0_token_3_lr_reg_field"] == 0  # unused field (default lr0)
         assert d["lr_inst_1_token_2_lr_reg_field"] == 5  # reg = lr5
-        assert d["lr_inst_1_token_1_addbi_immediate"] == 9  # src = cr9
+        assert d["lr_inst_1_token_1_addbi_immediate"] == 16 + 9  # src = cr9
         assert d["lr_inst_1_token_3_lr_reg_field"] == 0  # unused field (default lr0)
         assert d["lr_inst_2_token_2_lr_reg_field"] == 6  # reg = lr6
-        assert d["lr_inst_2_token_1_addbi_immediate"] == 10  # src = cr10
+        assert d["lr_inst_2_token_1_addbi_immediate"] == 16 + 10  # src = cr10
         assert d["lr_inst_2_token_3_lr_reg_field"] == 0  # unused field (default lr0)
 
     def test_decode_add_lcr_operand_field(self):
@@ -490,7 +525,8 @@ HALT;;
 
 class TestMemoryOperations:
     def test_load_from_memory(self):
-        """cr8=32 is a row number: row 32 * 128 B/row (narrow) = byte 0x1000."""
+        """cr8=32 is a row number: row 32 * 128 B/row (NX8) = byte 0x1000; the
+        row's metadata word lands in r_meta beside it (ADR 0007)."""
         test_data = bytes(range(128))
         state = make_state(
             """\
@@ -501,17 +537,24 @@ HALT;;
             cr={8: 32},
         )
         state.xmem.write_address(0x1000, test_data)
+        state.xmem.write_metadata(0x1000, 0x185)
         run_until_complete(state)
 
         assert state.regfile.get_lr(13) == 32
-        r1_data = state.regfile.get_r(1)
-        assert r1_data == bytearray(test_data)
+        assert state.regfile.get_r(1) == bytearray(test_data)
+        assert bytes(state.regfile.view("r_meta")) == b"\x00\x00\x85\x01"
 
-    def test_store_to_memory(self):
-        """INT8: r1=all-2, cyclic=all-3, MULT.RC.VV → acc should be 6 per word."""
-        r1_data = bytes([2] * 128)
-        cyclic_data = bytes([3] * 512)
+    def test_fp32_load_writes_zero_metadata(self):
+        """An FP32 row is 512 B with no metadata: LD.MULT writes 0 to r_meta."""
+        state = make_state("LD.MULT r1 lr0 cr2;;\nHALT;;", cr={2: 3}, fmt=ElementFormat.FP32)
+        state.regfile.set_register_bytes("r_meta", 1, b"\xff\xff")
+        state.xmem.write_address(3 * 512, struct.pack("<128f", *([2.5] * 128)))
+        run_until_complete(state)
+        assert state.regfile.get_r_wide_debug(1) == bytearray(struct.pack("<128f", *([2.5] * 128)))
+        assert bytes(state.regfile.view("r_meta")) == bytes(4)
 
+    def test_multiply_accumulate(self):
+        """NX8: r1 = all-2, cyclic = all-3, MULT.RC.VV -> each R_ACC lane is 6.0."""
         state = make_state(
             """\
 SET lr13 cr8;;
@@ -519,23 +562,18 @@ LD.MULT r1 lr13 cr0;;
 SET lr14 cr9;;
 SET lr15 cr10;;
 LD.MULT.CYCLIC lr14 cr0 lr15;;
-MULT.RC.VV lr0 r1 0 lr0 cr15;
+MULT.RC.VV lr0 r1 0 lr0 cr15.l cr14.l;
 ACC.ADD;;
-SET lr0 cr11;;
-ST.ACC lr0 cr0;;
 HALT;;
 """,
-            cr={8: 32, 9: 64, 10: 0, 11: 96},
+            cr={8: 32, 9: 64, 10: 0},
         )
-        state.xmem.write_address(0x1000, r1_data)
-        state.xmem.write_address(0x2000, cyclic_data)
-        with pytest.warns(DebugOnlyInstructionWarning):
-            run_until_complete(state)
+        write_nx8_row(state, 32, [2] * 128)
+        write_nx8_row(state, 64, [3] * 128)
+        run_until_complete(state)
 
-        acc_bytes = state.xmem.read_address(0x3000, 512)
-        words = struct.unpack_from("<128i", acc_bytes)
-        for i, w in enumerate(words):
-            assert w == 6, f"acc word {i} should be 6, got {w}"
+        words = struct.unpack_from("<128f", state.regfile.get_r_acc_bytes())
+        assert words == (6.0,) * 128
 
     def test_cyclic_register_load(self):
         cyclic_data = bytes([(i * 2) & 0xFF for i in range(128)])
@@ -546,14 +584,15 @@ SET lr1 cr9;;
 LD.MULT.CYCLIC lr0 cr0 lr1;;
 HALT;;
 """,
-            cr={8: 160, 9: 0},
+            cr={8: 160, 9: 256},
         )
         state.xmem.write_address(0x5000, cyclic_data)
+        state.xmem.write_metadata(0x5000, 0x7F)
         run_until_complete(state)
 
         assert state.regfile.get_lr(0) == 160
-        loaded = state.regfile.get_r_cyclic_at(0, 128)
-        assert loaded == bytearray(cyclic_data)
+        assert state.regfile.get_r_cyclic_at(256, 128) == bytearray(cyclic_data)
+        assert bytes(state.regfile.view("r_cyclic_meta")) == bytes(4) + b"\x7f\x00" + bytes(2)
 
     def test_cyclic_register_load_invalid_index_raises(self):
         """index must be one of the four R_CYCLIC slot boundaries — no implicit wrap."""
@@ -585,85 +624,43 @@ HALT;;
         run_until_complete(state)
 
         assert state.regfile.get_lr(0) == 192
-        loaded = state.regfile.get_r_mask()
-        assert loaded == bytearray(mask_data)
+        assert state.regfile.get_r_mask() == bytearray(mask_data)
 
     def test_concurrent_load_and_store_same_cycle(self):
-        """Load and store in one VLIW bundle: load resolves before store."""
-        addr = 0x1000
-        row = addr // 128  # row number for the shared cr8 base operand
+        """Load and AaQ store in one VLIW bundle: the load reads the row before
+        the store (AAQ runs after LOAD) overwrites it and its metadata."""
+        row = 32
         old_data = bytes([i & 0xFF for i in range(128)])
         state = make_state(
             """\
 SET lr0 cr8;;
-LD.MULT r0 lr0 cr0;;
-ST.ACC lr0 cr0;;
+LD.MULT r0 lr0 cr0 ; ACTIVATE.QUANTIZE identity cr15.l cr14.l cr8 lr1;;
 HALT;;
 """,
             cr={8: row},
         )
-        state.xmem.write_address(addr, old_data)
-        state.regfile.set_r_acc_bytes(bytes([0xAB] * 512))
-        with pytest.warns(DebugOnlyInstructionWarning):
-            run_until_complete(state)
+        state.xmem.write_address(row * 128, old_data)
+        state.regfile.set_r_acc_bytes(struct.pack("<128f", *([4.0] * 128)))
+        run_until_complete(state)
 
-        # Load saw pre-store memory; store overwrote memory afterward.
-        assert state.regfile.get_r(0) == bytearray(old_data)
-        stored = state.xmem.read_address(addr, 512)
-        assert stored == state.regfile.get_r_acc_bytes()
+        assert state.regfile.get_r(0) == bytearray(old_data)  # pre-store memory
+        assert state.xmem.read_address(row * 128, 128) != old_data  # the store landed
+        assert state.xmem.read_metadata(row * 128) != 0
 
-    def test_mask_affects_multiplication(self):
-        """First 64 bits of mask set → first 64 mult_res words active, rest zeroed."""
-        r0_data = bytes([2] * 128)
-        cyclic_data = bytes([3] * 512)
-        # Mask: first 8 bytes = 0xFF (64 bits set), rest 0
-        mask_data = bytearray(128)
-        for i in range(8):
-            mask_data[i] = 0xFF
-
+    @staticmethod
+    def _masked(  # noqa: PLR0913 -- a MULT.RC.VV case: mask, DS, mode and operands
+        mask_data: bytes,
+        mask_offset: int,
+        shift_cr: int,
+        *,
+        ds_half: int | None = None,
+        fmt: ElementFormat = ElementFormat.NX8,
+        r0=2,
+        rc=3,
+    ) -> tuple[float, ...]:
+        """MULT.RC.VV of r0 x rc under a mask; the MULT_RES lanes as FP32."""
         state = make_state(
-            """\
-SET lr0 cr8;;
-LD.MULT r0 lr0 cr0;;
-SET lr1 cr9;;
-SET lr2 cr10;;
-LD.MULT.CYCLIC lr1 cr0 lr2;;
-SET lr3 cr11;;
-LD.MASK lr3 cr0;;
-SET lr5 cr10;;
-SET lr6 cr10;;
-MULT.RC.VV lr6 r0 0 lr5 cr15;
-ACC.ADD;;
-SET lr9 cr12;;
-ST.ACC lr9 cr0;;
-HALT;;
-""",
-            cr={8: 32, 9: 64, 10: 0, 11: 96, 12: 128},
-        )
-        state.xmem.write_address(0x1000, r0_data)
-        state.xmem.write_address(0x2000, cyclic_data)
-        state.xmem.write_address(0x3000, mask_data)
-        with pytest.warns(DebugOnlyInstructionWarning):
-            run_until_complete(state)
-
-        acc_bytes = state.xmem.read_address(0x4000, 512)
-        words = struct.unpack_from("<128i", acc_bytes)
-        for i in range(64):
-            assert words[i] == 6, f"word {i} should be 6"
-        for i in range(64, 128):
-            assert words[i] == 0, f"word {i} should be masked to 0"
-
-    def test_mask_with_shift(self):
-        """Mask slot 1, shift_idx=+1 → 32 bits in slot 1 shift left by 1 (bits 1–32 masked out)."""
-        r0_data = bytes([5] * 128)
-        cyclic_data = bytes([4] * 512)
-        # Mask slot 1 is at bytes 16..31; set first 4 bytes = 32 bits (lanes 0–31 of slot 1)
-        mask_data = bytearray(128)
-        for i in range(16, 20):
-            mask_data[i] = 0xFF
-
-        state = make_state(
-            """\
+            f"""\
 SET lr0 cr8;;
 LD.MULT r0 lr0 cr0;;
 SET lr1 cr9;;
@@ -673,257 +670,61 @@ SET lr3 cr11;;
 LD.MASK lr3 cr0;;
 SET lr5 cr12;;
 SET lr6 cr10;;
-MULT.RC.VV lr6 r0 1 lr5 cr15;
+MULT.RC.VV lr6 r0 {mask_offset} lr5 cr15.l cr14.l;
 ACC.ADD;;
-SET lr9 cr13;;
-ST.ACC lr9 cr0;;
 HALT;;
 """,
-            cr={8: 32, 9: 64, 10: 0, 11: 96, 12: 1, 13: 128},
+            cr={8: 32, 9: 64, 10: 0, 11: 96, 12: shift_cr},
+            fmt=fmt,
+            ds=ds_half,
         )
-        state.xmem.write_address(0x1000, r0_data)
-        state.xmem.write_address(0x2000, cyclic_data)
-        state.xmem.write_address(0x3000, mask_data)
-        with pytest.warns(DebugOnlyInstructionWarning):
-            run_until_complete(state)
+        if fmt is ElementFormat.FP32:
+            state.xmem.write_address(32 * 512, struct.pack("<128f", *([float(r0)] * 128)))
+            state.xmem.write_address(64 * 512, struct.pack("<128f", *([float(rc)] * 128)))
+            state.xmem.write_address(96 * 512, mask_data)
+        else:
+            write_nx8_row(state, 32, [r0] * 128)
+            write_nx8_row(state, 64, [rc] * 128)
+            state.xmem.write_address(96 * 128, mask_data)
+        run_until_complete(state)
+        return struct.unpack_from("<128f", state.regfile.get_r_acc_bytes())
 
-        acc_bytes = state.xmem.read_address(0x4000, 512)
-        words = struct.unpack_from("<128i", acc_bytes)
-        assert words[0] == 0, "word 0 should be 0 (deactivated)"
-        for i in range(1, 33):
-            assert words[i] == 20, f"word {i} should be 20 (active)"
-        for i in range(33, 128):
-            assert words[i] == 0, f"word {i} should be 0 (deactivated)"
+    @pytest.mark.parametrize("fmt", [ElementFormat.NX8, ElementFormat.FP32], ids=str)
+    def test_mask_affects_multiplication(self, fmt):
+        """First 64 bits of mask set -> first 64 MULT_RES lanes active, the rest padded 0."""
+        words = self._masked(bytes([0xFF] * 8) + bytes(120), 0, 0, fmt=fmt)
+        assert words == (6.0,) * 64 + (0.0,) * 64
 
-    def test_mask_pad_pos_inf(self):
-        """dstructure pad_mode=POS_INF fills masked-out mult_res elements with +inf (FP8 format)."""
-        r0_data = bytes([0x00] * 128)
-        cyclic_data = bytes([0x00] * 512)
-        # Mask: first 8 bytes = 0xFF (64 bits set), rest 0
-        mask_data = bytearray(128)
-        for i in range(8):
-            mask_data[i] = 0xFF
-        dstructure = encode_dstructure(valid_elements=128, partition=0, pad_mode=PadMode.POS_INF)
+    def test_mask_with_shift(self):
+        """Mask slot 1, shift_idx=+1 -> 32 bits in slot 1 shift left by 1 (bits 1–32 active)."""
+        mask_data = bytes(16) + bytes([0xFF] * 4) + bytes(108)
+        words = self._masked(mask_data, 1, 1, r0=5, rc=4)
+        assert words[0] == 0
+        assert words[1:33] == (20.0,) * 32
+        assert words[33:] == (0.0,) * 95
 
-        state = make_state(
-            """\
-SET lr0 cr8;;
-LD.MULT r0 lr0 cr0;;
-SET lr1 cr9;;
-SET lr2 cr10;;
-LD.MULT.CYCLIC lr1 cr0 lr2;;
-SET lr3 cr11;;
-LD.MASK lr3 cr0;;
-SET lr5 cr10;;
-SET lr6 cr10;;
-MULT.RC.VV lr6 r0 0 lr5 cr15;
-ACC.ADD;;
-SET lr9 cr12;;
-ST.ACC lr9 cr0;;
-HALT;;
-""",
-            cr={8: 32, 9: 64, 10: 0, 11: 96, 12: 128, 15: dstructure},
-            fmt=ElementFormat.E4,
+    @pytest.mark.parametrize("fmt", [ElementFormat.NX8, ElementFormat.FP32], ids=str)
+    @pytest.mark.parametrize(
+        ("mask_type", "pad"), [(MaskType.POS_INF, float("inf")), (MaskType.NEG_INF, float("-inf"))]
+    )
+    def test_mask_pad_infinities(self, fmt, mask_type, pad):
+        """DS mask_type +inf / -inf fills masked-out MULT_RES elements (both modes)."""
+        words = self._masked(
+            bytes([0xFF] * 8) + bytes(120),
+            0,
+            0,
+            ds_half=ds(128, mask_type=mask_type),
+            fmt=fmt,
+            r0=0,
+            rc=0,
         )
-        state.xmem.write_address(0x1000, r0_data)
-        state.xmem.write_address(0x2000, cyclic_data)
-        state.xmem.write_address(0x3000, mask_data)
-        with pytest.warns(DebugOnlyInstructionWarning):
-            run_until_complete(state)
+        assert words == (0.0,) * 64 + (pad,) * 64
 
-        acc_bytes = state.xmem.read_address(0x4000, 512)
-        words = struct.unpack_from("<128f", acc_bytes)
-        for i in range(64):
-            assert words[i] == 0.0, f"word {i} should be 0.0 (active)"
-        for i in range(64, 128):
-            assert words[i] == float("inf"), f"word {i} should be +inf (deactivated)"
-
-    def test_mask_pad_neg_inf(self):
-        """dstructure pad_mode=NEG_INF fills masked-out mult_res elements with -inf (FP8 format)."""
-        r0_data = bytes([0x00] * 128)
-        cyclic_data = bytes([0x00] * 512)
-        mask_data = bytearray(128)
-        for i in range(8):
-            mask_data[i] = 0xFF
-        dstructure = encode_dstructure(valid_elements=128, partition=0, pad_mode=PadMode.NEG_INF)
-
-        state = make_state(
-            """\
-SET lr0 cr8;;
-LD.MULT r0 lr0 cr0;;
-SET lr1 cr9;;
-SET lr2 cr10;;
-LD.MULT.CYCLIC lr1 cr0 lr2;;
-SET lr3 cr11;;
-LD.MASK lr3 cr0;;
-SET lr5 cr10;;
-SET lr6 cr10;;
-MULT.RC.VV lr6 r0 0 lr5 cr15;
-ACC.ADD;;
-SET lr9 cr12;;
-ST.ACC lr9 cr0;;
-HALT;;
-""",
-            cr={8: 32, 9: 64, 10: 0, 11: 96, 12: 128, 15: dstructure},
-            fmt=ElementFormat.E5,
-        )
-        state.xmem.write_address(0x1000, r0_data)
-        state.xmem.write_address(0x2000, cyclic_data)
-        state.xmem.write_address(0x3000, mask_data)
-        with pytest.warns(DebugOnlyInstructionWarning):
-            run_until_complete(state)
-
-        acc_bytes = state.xmem.read_address(0x4000, 512)
-        words = struct.unpack_from("<128f", acc_bytes)
-        for i in range(64):
-            assert words[i] == 0.0, f"word {i} should be 0.0 (active)"
-        for i in range(64, 128):
-            assert words[i] == float("-inf"), f"word {i} should be -inf (deactivated)"
-
-    def test_mask_pad_inf_rejected_under_int8(self):
-        """POS_INF/NEG_INF pad_mode has no INT8 representation and must raise."""
-        mask_data = bytearray(128)
-        for i in range(8):
-            mask_data[i] = 0xFF
-        dstructure = encode_dstructure(valid_elements=128, partition=0, pad_mode=PadMode.POS_INF)
-
-        state = make_state(
-            """\
-SET lr0 cr8;;
-LD.MULT r0 lr0 cr0;;
-SET lr1 cr9;;
-SET lr2 cr10;;
-LD.MULT.CYCLIC lr1 cr0 lr2;;
-SET lr3 cr11;;
-LD.MASK lr3 cr0;;
-SET lr5 cr10;;
-SET lr6 cr10;;
-MULT.RC.VV lr6 r0 0 lr5 cr15;
-HALT;;
-""",
-            cr={8: 32, 9: 64, 10: 0, 11: 96, 15: dstructure},
-        )
-        state.xmem.write_address(0x1000, bytes(128))
-        state.xmem.write_address(0x2000, bytes(512))
-        state.xmem.write_address(0x3000, mask_data)
-        with pytest.raises(EmulatorError, match="floating-point lanes"):
-            run_until_complete(state)
-
-    def test_mask_affects_multiplication_fp32(self):
-        """Same program as test_mask_affects_multiplication, run in FP32: masking must be honored identically to INT8 — first 64
-        elements active, last 64 masked to the pad value (ZERO)."""
-        r0_data = struct.pack("<128f", *([2.0] * 128))
-        cyclic_data = struct.pack("<128f", *([3.0] * 128))
-        mask_data = bytearray(128)
-        for i in range(8):
-            mask_data[i] = 0xFF
-
-        state = make_state(
-            """\
-SET lr0 cr8;;
-LD.MULT r0 lr0 cr0;;
-SET lr1 cr9;;
-SET lr2 cr10;;
-LD.MULT.CYCLIC lr1 cr0 lr2;;
-SET lr3 cr11;;
-LD.MASK lr3 cr0;;
-SET lr5 cr10;;
-SET lr6 cr10;;
-MULT.RC.VV lr6 r0 0 lr5 cr15;
-ACC.ADD;;
-SET lr9 cr12;;
-ST.ACC lr9 cr0;;
-HALT;;
-""",
-            cr={8: 8, 9: 16, 10: 0, 11: 24, 12: 32},
-            fmt=ElementFormat.FP32,
-        )
-        state.xmem.write_address(0x1000, r0_data)
-        state.xmem.write_address(0x2000, cyclic_data)
-        state.xmem.write_address(0x3000, mask_data)
-        with pytest.warns(DebugOnlyInstructionWarning):
-            run_until_complete(state)
-
-        acc_bytes = state.xmem.read_address(0x4000, 512)
-        words = struct.unpack_from("<128f", acc_bytes)
-        for i in range(64):
-            assert words[i] == 6.0, f"word {i} should be 6.0 (active), got {words[i]}"
-        for i in range(64, 128):
-            assert words[i] == 0.0, f"word {i} should be masked to 0.0, got {words[i]}"
-
-    def test_mask_pad_pos_inf_fp32(self):
-        """pad_mode=POS_INF fills masked-out elements with +inf in FP32, whose
-        element arithmetic is float."""
-        r0_data = bytes([0x00] * 128)
-        cyclic_data = bytes([0x00] * 512)
-        mask_data = bytearray(128)
-        for i in range(8):
-            mask_data[i] = 0xFF
-        dstructure = encode_dstructure(valid_elements=128, partition=0, pad_mode=PadMode.POS_INF)
-
-        state = make_state(
-            """\
-SET lr0 cr8;;
-LD.MULT r0 lr0 cr0;;
-SET lr1 cr9;;
-SET lr2 cr10;;
-LD.MULT.CYCLIC lr1 cr0 lr2;;
-SET lr3 cr11;;
-LD.MASK lr3 cr0;;
-SET lr5 cr10;;
-SET lr6 cr10;;
-MULT.RC.VV lr6 r0 0 lr5 cr15;
-ACC.ADD;;
-SET lr9 cr12;;
-ST.ACC lr9 cr0;;
-HALT;;
-""",
-            cr={8: 8, 9: 16, 10: 0, 11: 24, 12: 32, 15: dstructure},
-            fmt=ElementFormat.FP32,
-        )
-        state.xmem.write_address(0x1000, r0_data)
-        state.xmem.write_address(0x2000, cyclic_data)
-        state.xmem.write_address(0x3000, mask_data)
-        with pytest.warns(DebugOnlyInstructionWarning):
-            run_until_complete(state)
-
-        acc_bytes = state.xmem.read_address(0x4000, 512)
-        words = struct.unpack_from("<128f", acc_bytes)
-        for i in range(64):
-            assert words[i] == 0.0, f"word {i} should be 0.0 (active)"
-        for i in range(64, 128):
-            assert words[i] == float("inf"), f"word {i} should be +inf (deactivated)"
-
-    def test_mask_pad_inf_rejected_in_int32(self):
-        """POS_INF pad_mode must still raise in INT32, where
-        infinity has no representation — the gate keys off the element format."""
-        mask_data = bytearray(128)
-        for i in range(8):
-            mask_data[i] = 0xFF
-        dstructure = encode_dstructure(valid_elements=128, partition=0, pad_mode=PadMode.POS_INF)
-
-        state = make_state(
-            """\
-SET lr0 cr8;;
-LD.MULT r0 lr0 cr0;;
-SET lr1 cr9;;
-SET lr2 cr10;;
-LD.MULT.CYCLIC lr1 cr0 lr2;;
-SET lr3 cr11;;
-LD.MASK lr3 cr0;;
-SET lr5 cr10;;
-SET lr6 cr10;;
-MULT.RC.VV lr6 r0 0 lr5 cr15;
-HALT;;
-""",
-            cr={8: 4096, 9: 8192, 10: 0, 11: 12288, 15: dstructure},
-            fmt=ElementFormat.INT32,
-        )
-        state.xmem.write_address(0x1000, bytes(128))
-        state.xmem.write_address(0x2000, bytes(512))
-        state.xmem.write_address(0x3000, mask_data)
-        with pytest.raises(EmulatorError, match="floating-point lanes"):
-            run_until_complete(state)
+    def test_mask_type_nan_is_a_configuration_error(self):
+        """NX8 has no NaN: a DS whose mask_type is NaN is refused in the check phase."""
+        bad = ds(128) | (int(MaskType.NAN) << 10)
+        with pytest.raises(CrContentError, match="DS half"):
+            self._masked(bytes([0xFF] * 16) + bytes(112), 0, 0, ds_half=bad)
 
 
 # ============================================================================
@@ -1316,16 +1117,10 @@ ACC.SUB.FIRST;;
 HALT;;
 """
         )
-        for i in range(128):
-            state.regfile.set_r_acc_word(i, 9999)
-        mult_buf = state.regfile.mutable("mult_res")
-        for i in range(128):
-            struct.pack_into("<i", mult_buf, i * 4, 5)
+        state.regfile.set_r_acc_bytes(struct.pack("<128f", *([9999.0] * 128)))
+        state.regfile.mutable("mult_res")[:] = struct.pack("<128f", *([5.0] * 128))
         run_until_complete(state)
-        for i in range(128):
-            raw = state.regfile.get_r_acc_word(i)
-            got = struct.unpack("<i", struct.pack("<I", raw))[0]
-            assert got == -5, f"word {i}: expected -5, got {got}"
+        assert acc_lanes(state) == (-5.0,) * 128
 
     def test_acc_stride_no_stride(self):
         """ACC.STRIDE with both strides off copies all 128 mult_res words to r_acc from start 0."""
@@ -1403,11 +1198,11 @@ HALT;;
         """AGG.SUM.FIRST: sum all 128 MULT_RES elements and write to R_ACC[dest] (clean init)."""
         state = make_state(
             """\
-AGG.SUM.FIRST LR0 cr15;;
+AGG.SUM.FIRST LR0 cr15.l;;
 HALT;;
 """
         )
-        state.set_cr_dstructure(128)
+        state.set_cr_half(15, False, ds(128))
         state.regfile.set_lr(0, 127)  # dest = R_ACC[127]
         for i in range(128):
             state.regfile.set_mult_res_word(i, struct.unpack("<I", struct.pack("<i", 1))[0])
@@ -1424,11 +1219,11 @@ HALT;;
         """
         state = make_state(
             """\
-AGG.SUM.FIRST LR0 cr15;;
+AGG.SUM.FIRST LR0 cr15.l;;
 HALT;;
 """
         )
-        state.set_cr_dstructure(4)  # only lanes 0..3 active
+        state.set_cr_half(15, False, ds(4))  # only lanes 0..3 active
         state.regfile.set_lr(0, 127)  # dest = R_ACC[127], outside active range
         for i in range(128):
             state.regfile.set_mult_res_word(i, struct.unpack("<I", struct.pack("<i", 1))[0])
@@ -1443,11 +1238,11 @@ HALT;;
         """AGG.SUM.FIRST: only active MULT_RES prefix contributes; tail is excluded."""
         state = make_state(
             """\
-AGG.SUM.FIRST LR0 cr15;;
+AGG.SUM.FIRST LR0 cr15.l;;
 HALT;;
 """
         )
-        state.set_cr_dstructure(4)
+        state.set_cr_half(15, False, ds(4))
         state.regfile.set_lr(0, 127)
         for i in range(128):
             v = 10 if i < 4 else 1000
@@ -1461,12 +1256,12 @@ HALT;;
         """AGG.SUM.FIRST naming CR3 uses CR3.valid_elements=128, ignoring CR15=4."""
         state = make_state(
             """\
-AGG.SUM.FIRST LR0 cr3;;
+AGG.SUM.FIRST LR0 cr3.l;;
 HALT;;
 """
         )
-        state.set_cr_dstructure(valid_elements=4)
-        state.regfile.set_cr(3, encode_dstructure(valid_elements=128, partition=0))
+        state.set_cr_half(15, False, ds(4))
+        state.regfile.set_cr(3, ds(128))
         state.regfile.set_lr(0, 127)
         for i in range(128):
             state.regfile.set_mult_res_word(i, struct.unpack("<I", struct.pack("<i", 1))[0])
@@ -1483,11 +1278,11 @@ HALT;;
         """
         state = make_state(
             """\
-AGG.SUM LR0 cr15;;
+AGG.SUM LR0 cr15.l;;
 HALT;;
 """
         )
-        state.set_cr_dstructure(64)  # only lanes 0..63 active
+        state.set_cr_half(15, False, ds(64))  # only lanes 0..63 active
         state.regfile.set_lr(0, 127)  # dest = R_ACC[127], outside active range
         for i in range(128):
             state.regfile.set_mult_res_word(i, struct.unpack("<I", struct.pack("<i", 1))[0])
@@ -1502,11 +1297,11 @@ HALT;;
         """AGG.MAX.FIRST: max of all 128 MULT_RES elements, no seed from dest."""
         state = make_state(
             """\
-AGG.MAX.FIRST LR0 cr15;;
+AGG.MAX.FIRST LR0 cr15.l;;
 HALT;;
 """
         )
-        state.set_cr_dstructure(128)
+        state.set_cr_half(15, False, ds(128))
         state.regfile.set_lr(0, 127)
         for i in range(128):
             state.regfile.set_mult_res_word(
@@ -1527,11 +1322,11 @@ HALT;;
         """
         state = make_state(
             """\
-AGG.MAX.FIRST LR0 cr15;;
+AGG.MAX.FIRST LR0 cr15.l;;
 HALT;;
 """
         )
-        state.set_cr_dstructure(64)  # only lanes 0..63 active
+        state.set_cr_half(15, False, ds(64))  # only lanes 0..63 active
         state.regfile.set_lr(0, 127)  # dest = R_ACC[127], outside active range
         for i in range(128):
             state.regfile.set_mult_res_word(i, struct.unpack("<I", struct.pack("<i", 5))[0])
@@ -1544,30 +1339,28 @@ HALT;;
         )
 
     def test_agg_max_first_zero_active_writes_identity_seed(self):
-        """AGG.MAX.FIRST with valid_elements=0: dest gets the identity seed (INT32_MIN)."""
+        """AGG.MAX.FIRST with valid_elements=0: dest gets the identity seed (-inf)."""
         state = make_state(
             """\
-AGG.MAX.FIRST LR0 cr15;;
+AGG.MAX.FIRST LR0 cr15.l;;
 HALT;;
 """
         )
-        state.set_cr_dstructure(0)  # no active lanes
+        state.set_cr_half(15, False, ds(0))  # no active lanes
         state.regfile.set_lr(0, 7)
         state.regfile.set_r_acc_word(7, struct.unpack("<I", struct.pack("<i", 1234))[0])
         run_until_complete(state)
-        raw = state.regfile.get_r_acc_word(7)
-        result = struct.unpack("<i", struct.pack("<I", raw))[0]
-        assert result == -2147483648, f"expected INT32_MIN identity seed, got {result}"
+        assert acc_lanes(state)[7] == float("-inf")
 
     def test_agg_max_first_masks_tail(self):
         """AGG.MAX.FIRST: MULT_RES tail elements beyond valid_elements are excluded."""
         state = make_state(
             """\
-AGG.MAX.FIRST LR0 cr15;;
+AGG.MAX.FIRST LR0 cr15.l;;
 HALT;;
 """
         )
-        state.set_cr_dstructure(50)
+        state.set_cr_half(15, False, ds(50))
         state.regfile.set_lr(0, 127)
         for i in range(128):
             v = 3 if i < 50 else 9999
@@ -1581,11 +1374,11 @@ HALT;;
         """AGG.MAX: existing R_ACC[dest] seed beats all active MULT_RES elements — dest unchanged."""
         state = make_state(
             """\
-AGG.MAX LR0 cr15;;
+AGG.MAX LR0 cr15.l;;
 HALT;;
 """
         )
-        state.set_cr_dstructure(128)
+        state.set_cr_half(15, False, ds(128))
         state.regfile.set_lr(0, 127)
         for i in range(128):
             state.regfile.set_mult_res_word(i, struct.unpack("<I", struct.pack("<i", 10))[0])
@@ -1601,11 +1394,11 @@ HALT;;
         """AGG.MAX: an active MULT_RES element beats the existing R_ACC[dest] seed — dest updated."""
         state = make_state(
             """\
-AGG.MAX LR0 cr15;;
+AGG.MAX LR0 cr15.l;;
 HALT;;
 """
         )
-        state.set_cr_dstructure(100)
+        state.set_cr_half(15, False, ds(100))
         state.regfile.set_lr(0, 127)
         for i in range(128):
             v = 5 if i < 100 else 1
@@ -1627,34 +1420,22 @@ HALT;;
         """
         state = make_state(
             """\
-AGG.SUM.FIRST LR0 cr15; ACTIVATE.QUANTIZE relu cr15;;
+AGG.SUM.FIRST LR0 cr15.l; ACTIVATE.QUANTIZE relu cr15.l cr14.l cr2 lr0;;
 HALT;;
-"""
+""",
+            cr={2: 40},
         )
-        state.regfile.set_lr(0, 0)  # AGG dest = r_acc[0]
-        import struct as _struct
-
-        for i in range(128):
-            # MULT_RES lanes = 3 (source for AGG.SUM.FIRST)
-            state.regfile.set_mult_res_word(i, _struct.unpack("<I", _struct.pack("<i", 3))[0])
-            # r_acc lanes = 3 (overwritten at lane 0 by AGG.SUM.FIRST before ACTIVATE.QUANTIZE reads it)
-            state.regfile.set_r_acc_word(i, _struct.unpack("<I", _struct.pack("<i", 3))[0])
-
+        state.regfile.mutable("mult_res")[:] = struct.pack("<128f", *([3.0] * 128))
+        state.regfile.set_r_acc_bytes(struct.pack("<128f", *([3.0] * 128)))
         run_until_complete(state)
 
-        # AGG.SUM.FIRST must have summed MULT_RES (128 lanes × 3 = 384) into r_acc[0]
-        raw_agg = state.regfile.get_r_acc_word(0)
-        agg_result = _struct.unpack("<i", _struct.pack("<I", raw_agg))[0]
-        assert agg_result == 384, f"AGG saw wrong mult_res: expected 384, got {agg_result}"
-
-        # ACTIVATE.QUANTIZE relu must see the post-AGG r_acc (lane 0 = 384), not
-        # the cycle-start snapshot value (3).
-        # relu(384) = 384, clamped to INT8 byte range = 127.
-        post = state.regfile.mutable("post_aaq_reg")
-        lane0_byte = post[0]
-        assert lane0_byte == 127, (
-            f"ACTIVATE.QUANTIZE saw wrong r_acc lane 0: expected byte 127, got {lane0_byte}"
-        )
+        assert acc_lanes(state)[0] == 384.0  # AGG summed this word's MULT_RES (128 x 3)
+        # ACTIVATE.QUANTIZE saw the post-AGG lane 0 (384), not the cycle-start 3:
+        # 384 sets the row's scale (2^8) and decodes back exactly.
+        scale, dynamic = split_metadata(state.xmem.read_metadata(40 * 128))
+        assert scale == 127 + 8
+        stored = decode_row(bytes(state.xmem.read_address(40 * 128, 128)), E4, scale, dynamic)
+        assert stored[0] == 384.0
 
 
 def _lrd_bytes(*vals: int) -> tuple[int, int]:
@@ -1961,23 +1742,20 @@ SET lr0 cr8;;
 SET lr1 cr9;;
 SET lr2 cr10;;
 SET lr3 cr11;;
-MULT.RC.VS lr4 0 lr4 cr15; ACC.RESHAPE lrd0 lrd2 6;;
+MULT.RC.VS lr4 0 lr4 cr15.l cr14.l; ACC.RESHAPE lrd0 lrd2 6;;
 HALT;;
 """,
             cr={8: src_lo, 9: src_hi, 10: dst_lo, 11: dst_hi},
         )
         # R_CYCLIC[i] = i + 1, so this word's MULT_RES[i] = (i + 1) ** 2.
-        state.regfile.mutable("r_cyclic")[:8] = bytes(range(1, 9))
+        fill_nx8_cyclic(state, list(range(1, 9)))
         # The MULT_RES the cycle starts with; RESHAPE must not see it.
-        for i in range(8):
-            state.regfile.set_mult_res_word(i, 700 + i)
-        for i in range(128):
-            state.regfile.set_r_acc_word(i, 9999)
+        state.regfile.mutable("mult_res")[:32] = struct.pack("<8f", *[700.0 + i for i in range(8)])
+        state.regfile.set_r_acc_bytes(struct.pack("<128f", *([9999.0] * 128)))
         run_until_complete(state)
         # Slots 6 and 7: src[6]=6 -> dest[6]=16; src[7]=7 -> dest[7]=17.
-        assert state.regfile.get_r_acc_word(16) == 49
-        assert state.regfile.get_r_acc_word(17) == 64
-        assert state.regfile.get_r_acc_word(15) == 9999
+        lanes = acc_lanes(state)
+        assert (lanes[16], lanes[17], lanes[15]) == (49.0, 64.0, 9999.0)
 
 
 def _step(state: IpuState) -> CycleOutcome:
@@ -2256,22 +2034,24 @@ class TestDecodeRoundtrip:
         # LR opcode should be 'set' = index 0
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 0  # set
         assert d["lr_inst_0_token_2_lr_reg_field"] == 13  # reg = lr13
-        assert d["lr_inst_0_token_1_addbi_immediate"] == 8  # src = cr8
+        assert (
+            d["lr_inst_0_token_1_addbi_immediate"] == 16 + 8
+        )  # src = cr8 (LcrHalfIdx: CRs follow the 16 LRs)
 
 
 # ============================================================================
-# FP8 multiply
+# NX8 multiply
 # ============================================================================
 
 
-class TestFp8:
-    def test_fp8_e4m3_mult_ee(self):
-        """FP8 E4 (e4m3): 1.0 × 2.0 → 2.0 for every element."""
-        fp_one_byte = encode_element(1.0, ElementFormat.E4)
-        fp_two_byte = encode_element(2.0, ElementFormat.E4)
-
-        r0_data = bytes([fp_one_byte] * 128)
-        cyclic_data = bytes([fp_two_byte] * 512)
+class TestNx8Multiply:
+    @pytest.mark.parametrize(
+        "fmt",
+        [E4, Nx8Format(sign=1, exp_format=5, num_bits=8), Nx8Format(1, 0, 8, dynamic=True)],
+        ids=["e4", "e5", "dynamic"],
+    )
+    def test_nx8_mult_rc_vv(self, fmt):
+        """NX8 rows quantized in format *fmt*: 1.0 x 2.0 -> 2.0 for every element."""
 
         state = make_state(
             """\
@@ -2282,22 +2062,18 @@ SET lr2 cr10;;
 LD.MULT.CYCLIC lr1 cr0 lr2;;
 SET lr5 cr10;;
 SET lr6 cr10;;
-MULT.RC.VV lr6 r0 0 lr5 cr15;
+MULT.RC.VV lr6 r0 0 lr5 cr15.l cr14.l;
 ACC.ADD;;
 HALT;;
 """,
             cr={8: 32, 9: 64, 10: 0},
-            fmt=ElementFormat.E4,
+            halves={"cr14.l": qf(fmt)},
         )
-        state.xmem.write_address(0x1000, r0_data)
-        state.xmem.write_address(0x2000, cyclic_data)
+        write_nx8_row(state, 32, [1.0] * 128, fmt)
+        write_nx8_row(state, 64, [2.0] * 128, fmt)
         run_until_complete(state)
 
-        # Read back acc as floats
-        acc_raw = state.regfile.mutable("r_acc")
-        for i in range(128):
-            val = struct.unpack_from("<f", acc_raw, i * 4)[0]
-            assert abs(val - 2.0) < 0.01, f"acc word {i}: expected 2.0, got {val}"
+        assert acc_lanes(state) == (2.0,) * 128
 
 
 # ============================================================================
@@ -2312,10 +2088,8 @@ class TestMultRcVe:
     # MULT.RC.VE with a CR-encoded scalar source
     # ------------------------------------------------------------------
 
-    def test_mult_rc_ve_cr_int8(self):
-        """MULT.RC.VE INT8: scalar from CR × RC elements."""
-        # CR scalar byte = 3, RC elements = all 2 → each result = 3*2 = 6
-        cyclic_data = bytes([2] * 512)
+    def test_mult_rc_ve_cr_constant(self):
+        """MULT.RC.VE: a CR constant (3.0) x RC elements (2.0) -> 6.0."""
 
         state = make_state(
             """\
@@ -2324,25 +2098,20 @@ SET lr1 cr9;;
 LD.MULT.CYCLIC lr0 cr0 lr1;;
 SET lr2 cr9;;
 SET lr4 cr9;;
-MULT.RC.VE lr2 cr3 0 lr4 cr15;
+MULT.RC.VE lr2 cr3 0 lr4 cr15.l cr14.l;
 ACC.ADD;;
 HALT;;
 """,
             cr={8: 32, 9: 0},
         )
-        state.regfile.set_cr(3, 3)  # scalar = low byte = 3
-        state.xmem.write_address(0x1000, cyclic_data)
+        state.regfile.set_cr(3, int_constant(3))  # scalar 3.0, a MULT constant
+        write_nx8_row(state, 32, [2] * 128)
         run_until_complete(state)
 
-        acc_raw = state.regfile.mutable("r_acc")
-        for i in range(128):
-            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
-            assert val == 6, f"acc word {i}: expected 6, got {val}"
+        assert acc_lanes(state) == (6.0,) * 128
 
-    def test_mult_rc_ve_cr_negative_int8(self):
-        """MULT.RC.VE INT8: signed negative scalar × positive RC elements."""
-        # CR scalar byte = 0xFE = -2 (signed int8), RC elements = 5 → result = -10
-        cyclic_data = bytes([5] * 512)
+    def test_mult_rc_ve_cr_negative_constant(self):
+        """MULT.RC.VE: a negative constant (-2.0) x positive RC elements (5.0) -> -10.0."""
 
         state = make_state(
             """\
@@ -2351,20 +2120,17 @@ SET lr1 cr9;;
 LD.MULT.CYCLIC lr0 cr0 lr1;;
 SET lr2 cr9;;
 SET lr4 cr9;;
-MULT.RC.VE lr2 cr2 0 lr4 cr15;
+MULT.RC.VE lr2 cr2 0 lr4 cr15.l cr14.l;
 ACC.ADD;;
 HALT;;
 """,
             cr={8: 32, 9: 0},
         )
-        state.regfile.set_cr(2, 0xFE)  # low byte 0xFE = int8(-2)
-        state.xmem.write_address(0x1000, cyclic_data)
+        state.regfile.set_cr(2, int_constant(-2))
+        write_nx8_row(state, 32, [5] * 128)
         run_until_complete(state)
 
-        acc_raw = state.regfile.mutable("r_acc")
-        for i in range(128):
-            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
-            assert val == -10, f"acc word {i}: expected -10, got {val}"
+        assert acc_lanes(state) == (-10.0,) * 128
 
     def test_mult_rc_ve_cr_wraps_at_rc_boundary(self):
         """MULT.RC.VE: RC indices wrap modulo 512 (cyclic, no padding)."""
@@ -2376,75 +2142,37 @@ HALT;;
             """\
 SET lr2 cr8;;
 SET lr4 cr9;;
-MULT.RC.VE lr2 cr3 0 lr4 cr15;
+MULT.RC.VE lr2 cr3 0 lr4 cr15.l cr14.l;
 ACC.ADD;;
 HALT;;
 """,
             cr={8: 450, 9: 0},
         )
-        state.regfile.set_cr(3, scalar)
-        # Fill the full 512-byte cyclic register directly
-        state.regfile.set_r_cyclic_at(0, bytes([rc_fill] * 512))
+        state.regfile.set_cr(3, int_constant(scalar))
+        fill_nx8_cyclic(state, [rc_fill] * 512)
         run_until_complete(state)
 
-        acc_raw = state.regfile.mutable("r_acc")
-        for i in range(128):
-            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
-            assert val == scalar * rc_fill, f"word {i}: expected {scalar * rc_fill}, got {val}"
+        assert acc_lanes(state) == (float(scalar * rc_fill),) * 128
 
-    def test_mult_rc_ve_cr_fp8e4m3(self):
-        """MULT.RC.VE fp8_e4: scalar 1.0 × RC elements 1.0 → result 1.0 each."""
-        one_fp8 = encode_element(1.0, ElementFormat.E4)
-        cyclic_data = bytes([one_fp8] * 512)
-
-        state = make_state(
-            """\
-SET lr0 cr8;;
-SET lr1 cr9;;
-LD.MULT.CYCLIC lr0 cr0 lr1;;
-SET lr2 cr9;;
-SET lr4 cr9;;
-MULT.RC.VE lr2 cr5 0 lr4 cr15;
-ACC.ADD;;
-HALT;;
-""",
-            cr={8: 32, 9: 0},
-            fmt=ElementFormat.E4,
-        )
-        state.regfile.set_cr(5, one_fp8)  # scalar = 1.0 in fp8_e4
-        state.xmem.write_address(0x1000, cyclic_data)
-        run_until_complete(state)
-
-        acc_raw = state.regfile.mutable("r_acc")
-        for i in range(128):
-            val = struct.unpack_from("<f", acc_raw, i * 4)[0]
-            assert abs(val - 1.0) < 0.01, f"acc word {i}: expected 1.0, got {val}"
-
-    def test_mult_rc_ve_cr_wraps_fp8e5m2(self):
-        """MULT.RC.VE fp8_e5: RC indices wrap modulo 512 (cyclic, no padding)."""
-        two_fp8 = encode_element(2.0, ElementFormat.E5)
-        scalar_fp8 = encode_element(3.0, ElementFormat.E5)
-
+    def test_mult_rc_ve_cr_wraps_with_per_slot_metadata(self):
+        """MULT.RC.VE: the window wraps modulo 512 across slots whose metadata differ."""
         state = make_state(
             """\
 SET lr2 cr8;;
 SET lr4 cr9;;
-MULT.RC.VE lr2 cr6 0 lr4 cr15;
+MULT.RC.VE lr2 cr6 0 lr4 cr15.l cr14.l;
 ACC.ADD;;
 HALT;;
 """,
             cr={8: 500, 9: 0},
-            fmt=ElementFormat.E5,
         )
-        state.regfile.set_cr(6, scalar_fp8)  # scalar = 3.0
-        # Fill the full 512-byte cyclic register directly with 2.0 in fp8_e5
-        state.regfile.set_r_cyclic_at(0, bytes([two_fp8] * 512))
+        state.regfile.set_cr(6, int_constant(3.0))
+        # Slot 3 holds 2.0 (one scale), slot 0 holds 0.25 (another scale).
+        fill_nx8_cyclic(state, [0.25] * 128 + [1.0] * 256 + [2.0] * 128)
         run_until_complete(state)
 
-        acc_raw = state.regfile.mutable("r_acc")
-        for i in range(128):  # wraps modulo 512: every word reads 2.0 → 3.0 * 2.0 = 6.0
-            val = struct.unpack_from("<f", acc_raw, i * 4)[0]
-            assert abs(val - 6.0) < 0.1, f"word {i}: expected 6.0, got {val}"
+        want = (6.0,) * 12 + (0.75,) * 116  # elements 500..511, then 0..115
+        assert acc_lanes(state) == want
 
     # ------------------------------------------------------------------
     # MULT.RC.VV / MULT.RC.VE behave correctly alongside each other
@@ -2452,8 +2180,8 @@ HALT;;
 
     def test_mult_rc_vv_still_works(self):
         """MULT.RC.VV still works correctly after adding MULT.RC.VE."""
-        r0_data = bytes([4] * 128)
-        cyclic_data = bytes([5] * 512)
+        r0_data = [4] * 128
+        cyclic_data = [5] * 128
 
         state = make_state(
             """\
@@ -2462,25 +2190,25 @@ LD.MULT r0 lr0 cr0;;
 SET lr1 cr9;;
 SET lr2 cr10;;
 LD.MULT.CYCLIC lr1 cr0 lr2;;
-MULT.RC.VV lr2 r0 0 lr2 cr15;
+MULT.RC.VV lr2 r0 0 lr2 cr15.l cr14.l;
 ACC.ADD;;
 HALT;;
 """,
             cr={8: 32, 9: 64, 10: 0},
         )
-        state.xmem.write_address(0x1000, r0_data)
-        state.xmem.write_address(0x2000, cyclic_data)
+        write_nx8_row(state, 0x1000 // 128, r0_data)
+        write_nx8_row(state, 0x2000 // 128, cyclic_data)
         run_until_complete(state)
 
         acc_raw = state.regfile.mutable("r_acc")
         for i in range(128):
-            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
+            val = struct.unpack_from("<f", acc_raw, i * 4)[0]
             assert val == 20, f"acc word {i}: expected 20, got {val}"
 
     def test_mult_rc_ve_lr_scalar(self):
         """MULT.RC.VE: src as LR uses the LR's value to index into R0 (combined Ra buffer)."""
-        cyclic_data = bytes([6] * 512)
-        r0_data = bytearray(128)
+        cyclic_data = [6] * 128
+        r0_data = [0] * 128
         r0_data[0] = 3  # LR value 0 → Ra[0] = 3
 
         state = make_state(
@@ -2490,27 +2218,27 @@ LD.MULT r0 lr0 cr0;;
 SET lr1 cr9;;
 SET lr2 cr10;;
 LD.MULT.CYCLIC lr1 cr0 lr2;;
-MULT.RC.VE lr2 lr2 0 lr2 cr15;
+MULT.RC.VE lr2 lr2 0 lr2 cr15.l cr14.l;
 ACC.ADD;;
 HALT;;
 """,
             cr={8: 32, 9: 64, 10: 0},
         )
-        state.xmem.write_address(0x1000, bytes(r0_data))
-        state.xmem.write_address(0x2000, cyclic_data)
+        write_nx8_row(state, 0x1000 // 128, r0_data)
+        write_nx8_row(state, 0x2000 // 128, cyclic_data)
         run_until_complete(state)
 
         acc_raw = state.regfile.mutable("r_acc")
         for i in range(128):
-            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
+            val = struct.unpack_from("<f", acc_raw, i * 4)[0]
             assert val == 18, f"acc word {i}: expected 18, got {val}"
 
     def test_mult_rc_ve_r1_scalar(self):
         """MULT.RC.VE: src LR value in [128, 255] addresses R1[value - 128] instead of R0."""
-        r0_data = bytearray(128)  # all zeros — must not be picked
-        r1_data = bytearray(128)
+        r0_data = [0] * 128  # all zeros — must not be picked
+        r1_data = [0] * 128
         r1_data[0] = 7  # LR value=128 → r1[0] = 7
-        cyclic_data = bytes([4] * 512)
+        cyclic_data = [4] * 128
 
         state = make_state(
             """\
@@ -2522,20 +2250,20 @@ SET lr1 cr10;;
 SET lr2 cr11;;
 LD.MULT.CYCLIC lr1 cr0 lr2;;
 SET lr3 cr12;;
-MULT.RC.VE lr2 lr3 0 lr2 cr15;
+MULT.RC.VE lr2 lr3 0 lr2 cr15.l cr14.l;
 ACC.ADD;;
 HALT;;
 """,
             cr={8: 32, 9: 34, 10: 64, 11: 0, 12: 128},
         )
-        state.xmem.write_address(0x1000, bytes(r0_data))
-        state.xmem.write_address(0x1100, bytes(r1_data))
-        state.xmem.write_address(0x2000, cyclic_data)
+        write_nx8_row(state, 0x1000 // 128, r0_data)
+        write_nx8_row(state, 0x1100 // 128, r1_data)
+        write_nx8_row(state, 0x2000 // 128, cyclic_data)
         run_until_complete(state)
 
         acc_raw = state.regfile.mutable("r_acc")
         for i in range(128):
-            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
+            val = struct.unpack_from("<f", acc_raw, i * 4)[0]
             assert val == 28, f"acc word {i}: expected 28 (r1[0]=7 × cyclic[i]=4), got {val}"
 
 
@@ -2544,7 +2272,7 @@ class TestMultRcVs:
 
     def test_mult_rc_vs_squares_rc(self):
         """Each RC element multiplied by itself (4 × 4 = 16)."""
-        cyclic_data = bytes([4] * 512)
+        cyclic_data = [4] * 128
 
         state = make_state(
             """\
@@ -2552,45 +2280,45 @@ SET lr0 cr8;;
 SET lr1 cr9;;
 LD.MULT.CYCLIC lr0 cr0 lr1;;
 SET lr5 cr9;;
-MULT.RC.VS lr1 0 lr5 cr15;
+MULT.RC.VS lr1 0 lr5 cr15.l cr14.l;
 ACC.ADD;;
 HALT;;
 """,
             cr={8: 32, 9: 0},
         )
-        state.xmem.write_address(0x1000, cyclic_data)
+        write_nx8_row(state, 0x1000 // 128, cyclic_data)
         run_until_complete(state)
 
         acc_raw = state.regfile.mutable("r_acc")
         for i in range(128):
-            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
+            val = struct.unpack_from("<f", acc_raw, i * 4)[0]
             assert val == 16, f"acc word {i}: expected 16 (4×4), got {val}"
 
     def test_mult_rc_vs_wraps_at_boundary(self):
         """rc_idx near the 512-byte boundary wraps cyclically (3 × 3 = 9)."""
-        cyclic_data = bytes([3] * 512)
+        cyclic_data = [3] * 128
 
         state = make_state(
             """\
 SET lr2 cr10;;
 SET lr5 cr11;;
-MULT.RC.VS lr2 0 lr5 cr15;
+MULT.RC.VS lr2 0 lr5 cr15.l cr14.l;
 ACC.ADD;;
 HALT;;
 """,
             cr={10: 450, 11: 0},
         )
-        state.regfile.set_r_cyclic_at(0, cyclic_data)
+        fill_nx8_cyclic(state, cyclic_data * 4)
         run_until_complete(state)
 
         acc_raw = state.regfile.mutable("r_acc")
         for i in range(128):
-            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
+            val = struct.unpack_from("<f", acc_raw, i * 4)[0]
             assert val == 9, f"acc word {i}: expected 9 (3×3), got {val}"
 
     def test_mult_rc_vs_mask_zeroes_lanes(self):
         """mask_offset/mask_shift still gate elements (first 64 active, rest zeroed)."""
-        cyclic_data = bytes([3] * 512)  # squared → 9
+        cyclic_data = [3] * 128  # squared → 9
         mask_data = bytearray(128)
         for i in range(8):  # 64 bits set → first 64 lanes active
             mask_data[i] = 0xFF
@@ -2603,22 +2331,22 @@ LD.MULT.CYCLIC lr0 cr0 lr1;;
 SET lr3 cr10;;
 LD.MASK lr3 cr0;;
 SET lr5 cr9;;
-MULT.RC.VS lr1 0 lr5 cr15;
+MULT.RC.VS lr1 0 lr5 cr15.l cr14.l;
 ACC.ADD;;
 HALT;;
 """,
             cr={8: 32, 9: 0, 10: 64},
         )
-        state.xmem.write_address(0x1000, cyclic_data)
+        write_nx8_row(state, 0x1000 // 128, cyclic_data)
         state.xmem.write_address(0x2000, bytes(mask_data))
         run_until_complete(state)
 
         acc_raw = state.regfile.mutable("r_acc")
         for i in range(64):
-            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
+            val = struct.unpack_from("<f", acc_raw, i * 4)[0]
             assert val == 9, f"word {i}: expected 9 (3×3), got {val}"
         for i in range(64, 128):
-            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
+            val = struct.unpack_from("<f", acc_raw, i * 4)[0]
             assert val == 0, f"word {i} should be masked to 0, got {val}"
 
 
@@ -2653,7 +2381,7 @@ LD.MULT.CYCLIC lr0 cr0 lr1;;
 SET lr3 cr9;;
 LD.MASK lr3 cr0;;
 SET lr5 cr2;;
-MULT.RC.VS lr1 0 lr5 cr15;
+MULT.RC.VS lr1 0 lr5 cr15.l cr14.l;
 ACC.ADD;;
 HALT;;
 """
@@ -2675,14 +2403,14 @@ HALT;;
                 self._SHIFT_CR: shift_idx & 0xFFFFFFFF,
             },
         )
-        state.set_cr_dstructure(valid_elements=128, partition=partition)
-        state.xmem.write_address(self._RC_ADDR, bytes([2] * 512))
+        state.set_cr_half(15, False, ds(128 // partition if partition else 128, partition or 1))
+        write_nx8_row(state, self._RC_ADDR // 128, [2] * 128)
         state.xmem.write_address(self._MASK_ADDR, mask_bytes)
         run_until_complete(state)
         return state.regfile.view("r_acc")
 
     def _suppressed(self, acc_raw: bytes | memoryview, lane: int) -> bool:
-        return struct.unpack_from("<i", acc_raw, lane * 4)[0] == 0
+        return struct.unpack_from("<f", acc_raw, lane * 4)[0] == 0
 
     # ------------------------------------------------------------------
     # shift indices with partition=0 (no partitioning — unconstrained shift)
@@ -2810,272 +2538,239 @@ HALT;;
 
 
 # ============================================================================
-# ACTIVATE.QUANTIZE (combined activation + INT8 quantize: r_acc → POST_AAQ_REG bytes)
+# ACTIVATE.QUANTIZE, ACTIVATE.EXACT and LD.LUT (ADR 0007)
 # ============================================================================
+
+#: The row ACTIVATE.* stores at in these tests (CR2 holds it; LR0 is 0).
+_OUT_ROW = 40
+
+
+def _activate(asm_fn: str, acc, *, ds_half: int | None = None, fmt=ElementFormat.NX8, **kw):
+    """Run one AaQ store of R_ACC = *acc* (padded with 0); return the state."""
+    acc = list(acc) + [0.0] * (128 - len(acc))
+    state = make_state(f"{asm_fn};;\nHALT;;\n", cr={2: _OUT_ROW}, fmt=fmt, ds=ds_half, **kw)
+    state.regfile.set_r_acc_bytes(struct.pack("<128f", *acc))
+    run_until_complete(state)
+    return state
+
+
+def _stored_nx8(state: IpuState, fmt: Nx8Format = E4) -> list[float]:
+    """The NX8 row stored at _OUT_ROW, decoded with its metadata."""
+    scale, dynamic = split_metadata(state.xmem.read_metadata(_OUT_ROW * 128))
+    return decode_row(bytes(state.xmem.read_address(_OUT_ROW * 128, 128)), fmt, scale, dynamic)
+
+
+def _stored_fp32(state: IpuState) -> tuple[float, ...]:
+    return struct.unpack("<128f", state.xmem.read_address(_OUT_ROW * 512, 512))
+
+
+_QUANTIZE = "ACTIVATE.QUANTIZE {} cr15.l cr14.l cr2 lr0"
+_EXACT = "ACTIVATE.EXACT {} cr15.l cr2 lr0"
 
 
 class TestActivateQuantize:
-    """ACTIVATE.QUANTIZE applies activation to r_acc and quantizes to INT8 bytes in POST_AAQ_REG."""
+    """ACTIVATE.QUANTIZE: ARCH activation, NX8 quantization, one row + metadata stored."""
 
-    def test_relu_zeroes_negative_lane(self):
-        """relu(-9) = 0 → byte 0; r_acc is unchanged."""
-        state = make_state(
-            """\
-ACTIVATE.QUANTIZE relu cr15;;
-HALT;;
-"""
+    def test_identity_stores_the_quantized_row_and_its_metadata(self):
+        values = [(i % 16 - 8) / 4 for i in range(128)]
+        state = _activate(_QUANTIZE.format("identity"), values)
+        expected = encode_row(values, E4)
+        assert state.xmem.read_address(_OUT_ROW * 128, 128) == expected.elements
+        assert state.xmem.read_metadata(_OUT_ROW * 128) == expected.metadata
+        assert _stored_nx8(state) == values  # each value is exact in E4 at this scale
+
+    def test_r_acc_is_not_modified(self):
+        state = _activate(_QUANTIZE.format("relu"), [-42.0])
+        assert struct.unpack_from("<f", state.regfile.get_r_acc_bytes())[0] == -42.0
+
+    @pytest.mark.parametrize(
+        ("fn", "x", "y"),
+        [
+            ("relu", -9.0, 0.0),
+            ("relu", 5.0, 5.0),
+            ("relu6", 7.5, 6.0),
+            ("relu6", 2.0, 2.0),
+            ("reciprocal", 4.0, 0.25),
+            ("reciprocal", float("inf"), 0.0),
+            ("rsqrt", 4.0, 0.5),
+            ("rsqrt", float("inf"), 0.0),
+            ("exp2", -3.0, 0.125),
+            ("exp2", float("-inf"), 0.0),
+            ("exp2", 0.0, 1.0),
+        ],
+    )
+    def test_arch_functions(self, fn, x, y):
+        """The seven ARCH functions and their special cases (ARCH-stage-aaq-str §4.3.1)."""
+        state = _activate(_QUANTIZE.format(fn), [x], ds_half=ds(1))
+        # A lone zero is "treated as normalized" (§4.3.2): it quantizes to 2^(0-127).
+        assert _stored_nx8(state)[0] == pytest.approx(y, abs=1e-37)
+
+    def test_reciprocal_of_a_subnormal_adds_epsilon(self):
+        """reciprocal of 0 (a "non-negative subnormal") is 1/(0 + 2^-127) = 2^127;
+        of -0, 1/(-0 - 2^-127) = -2^127. FP32 mode stores them exactly."""
+        state = _activate(
+            _QUANTIZE.format("reciprocal"), [0.0, -0.0], ds_half=ds(2), fmt=ElementFormat.FP32
         )
-        state.set_cr_dstructure(128)
-        state.regfile.set_r_acc_word(0, struct.unpack("<I", struct.pack("<i", -9))[0])
-        run_until_complete(state)
-        assert struct.unpack("<i", struct.pack("<I", state.regfile.get_r_acc_word(0)))[0] == -9
-        assert state.regfile.get_post_aaq_reg()[0] == 0
+        assert _stored_fp32(state)[:2] == (2.0**127, -(2.0**127))
 
-    def test_relu_passes_positive_lane(self):
-        """relu(5) = 5 → byte 5."""
-        state = make_state(
-            """\
-ACTIVATE.QUANTIZE relu cr15;;
-HALT;;
-"""
+    def test_rsqrt_of_a_negative_input_is_nan_and_cannot_be_quantized(self):
+        with pytest.raises(EmulatorError, match="NaN"):
+            _activate(_QUANTIZE.format("rsqrt"), [-1.0], ds_half=ds(1))
+        state = _activate(_QUANTIZE.format("rsqrt"), [-1.0], ds_half=ds(1), fmt=ElementFormat.FP32)
+        assert math.isnan(_stored_fp32(state)[0])  # FP32 mode does not quantize
+
+    def test_exp2_of_a_positive_input_is_an_emulator_error(self):
+        with pytest.raises(EmulatorError, match="exp2 of a positive input"):
+            _activate(_QUANTIZE.format("exp2"), [0.5], ds_half=ds(1))
+
+    def test_generic_computes_the_declared_function(self):
+        state = _activate(
+            _QUANTIZE.format("generic"),
+            [3.0],
+            ds_half=ds(1),
+            aaq=AaqOptions(generic=lambda x: x * x),
         )
-        state.set_cr_dstructure(128)
-        state.regfile.set_r_acc_word(0, struct.unpack("<I", struct.pack("<i", 5))[0])
-        run_until_complete(state)
-        assert state.regfile.get_post_aaq_reg()[0] == 5
+        assert _stored_nx8(state)[0] == 9.0
 
-    def test_identity_clamp_positive(self):
-        """identity(200) saturates to 127 byte; identity(-200) saturates to 0x80 byte."""
-        state = make_state(
-            """\
-ACTIVATE.QUANTIZE identity cr15;;
-HALT;;
-"""
+    def test_generic_without_a_declared_function_is_an_error(self):
+        with pytest.raises(EmulatorError, match="generic"):
+            _activate(_QUANTIZE.format("generic"), [3.0], ds_half=ds(1))
+
+    def test_inactive_lanes_are_zero_and_out_of_the_scale(self):
+        """Only the DS's active lanes are quantized; the others are written 0 (OQ-36)."""
+        values = [1.0, 2.0] + [1000.0] * 126
+        state = _activate(_QUANTIZE.format("identity"), values, ds_half=ds(2))
+        assert _stored_nx8(state) == [1.0, 2.0] + [0.0] * 126
+        assert split_metadata(state.xmem.read_metadata(_OUT_ROW * 128))[0] == 128  # 2 = 2^1
+
+    def test_partitions_select_the_active_lanes(self):
+        """ds(3, 4 groups, 2 valid): lanes 0-2 and 32-34 are active."""
+        state = _activate(_QUANTIZE.format("identity"), [1.0] * 128, ds_half=ds(3, 4, 2))
+        stored = _stored_nx8(state)
+        assert [i for i, v in enumerate(stored) if v] == [0, 1, 2, 32, 33, 34]
+
+    def test_saturation_sets_quant_saturation(self):
+        from ipu_isa.faults import ArithmeticEvent
+
+        state = _activate(_QUANTIZE.format("identity"), [float("inf"), 1.0], ds_half=ds(2))
+        assert ArithmeticEvent.QUANT_SATURATION in state.arith_flags
+        assert _stored_nx8(state)[1] == 1.0  # +inf is left out of the scale
+
+    def test_dynamic_format(self):
+        dynamic = Nx8Format(sign=1, exp_format=0, num_bits=8, dynamic=True)
+        values = [float(i % 16) / 4 for i in range(128)]
+        state = _activate(_QUANTIZE.format("identity"), values, halves={"cr14.l": qf(dynamic)})
+        expected = encode_row(values, dynamic)
+        assert state.xmem.read_address(_OUT_ROW * 128, 128) == expected.elements
+        assert state.xmem.read_metadata(_OUT_ROW * 128) == expected.metadata
+
+    def test_fp32_mode_stores_512_bytes_and_ignores_qf(self):
+        """FP32 mode: the activated row is stored as FP32, inactive lanes 0; QF is
+        not read, so an invalid QF half does not matter."""
+        state = _activate(
+            _QUANTIZE.format("relu"),
+            [-1.0, 2.5, 7.0],
+            ds_half=ds(2),
+            fmt=ElementFormat.FP32,
+            halves={"cr14.l": 0},
         )
-        state.set_cr_dstructure(128)
-        state.regfile.set_r_acc_word(0, struct.unpack("<I", struct.pack("<i", 200))[0])
-        state.regfile.set_r_acc_word(1, struct.unpack("<I", struct.pack("<i", -200))[0])
-        run_until_complete(state)
-        result = state.regfile.get_post_aaq_reg()
-        assert result[0] == 127, f"expected 127, got {result[0]}"
-        assert result[1] == 0x80, f"expected 0x80 (-128), got {result[1]}"
+        assert _stored_fp32(state) == (0.0, 2.5) + (0.0,) * 126
+        assert state.xmem.read_metadata(_OUT_ROW * 512) == 0
 
-    def test_in_range_values_pass_through(self):
-        """Values in [-128, 127] are stored unchanged as bytes."""
+    def test_an_invalid_qf_is_refused_in_the_check_phase(self):
+        """num_bits 0 is no format: the word does not retire (the LR write is undone)."""
         state = make_state(
-            """\
-ACTIVATE.QUANTIZE identity cr15;;
-HALT;;
-"""
+            "SET lr5 cr3 ; " + _QUANTIZE.format("identity") + ";;\nHALT;;\n",
+            cr={2: _OUT_ROW, 3: 9},
+            halves={"cr14.l": 0x0140},
         )
-        state.set_cr_dstructure(128)
-        buf = bytearray(512)
-        struct.pack_into("<128i", buf, 0, *[i - 64 for i in range(128)])
-        state.regfile.set_r_acc_bytes(buf)
-        run_until_complete(state)
-        result = state.regfile.get_post_aaq_reg()
-        for i in range(128):
-            expected = (i - 64) & 0xFF
-            assert result[i] == expected, f"byte {i}: expected {expected}, got {result[i]}"
-        assert result[128:] == bytearray(384)
-
-    def test_requires_int8_mode(self):
-        """Raises EmulatorError when not in INT8 mode."""
-        from ipu_emu.ipu import EmulatorError
-
-        state = make_state("ACTIVATE.QUANTIZE relu cr15;;\nHALT;;", fmt=ElementFormat.E4)
-        with pytest.raises(EmulatorError, match="INT8 mode"):
+        with pytest.raises(CrContentError, match="QF half"):
             run_until_complete(state)
+        assert state.regfile.get_lr(5) == 0
+        assert state.xmem.read_metadata(_OUT_ROW * 128) == 0
 
-    def test_inactive_lanes_zeroed(self):
-        """Inactive elements (beyond valid_elements) are zeroed in POST_AAQ_REG."""
-        state = make_state(
-            """\
-ACTIVATE.QUANTIZE relu cr15;;
-HALT;;
-"""
-        )
-        state.set_cr_dstructure(valid_elements=2)
-        state.regfile.set_r_acc_word(0, struct.unpack("<I", struct.pack("<i", -5))[0])
-        state.regfile.set_r_acc_word(1, struct.unpack("<I", struct.pack("<i", -3))[0])
-        for i in range(2, 128):
-            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 99))[0])
-        run_until_complete(state)
-        result = state.regfile.get_post_aaq_reg()
-        assert result[0] == 0, "relu(-5) = 0"
-        assert result[1] == 0, "relu(-3) = 0"
-        assert result[2:] == bytearray(510), "inactive lanes must be zeroed"
+    def test_a_row_outside_xmem_faults_f6(self):
+        state = make_state(_QUANTIZE.format("identity") + ";;\nHALT;;\n", cr={2: EIGHT_BIT_ROWS})
+        with pytest.raises(EmulatorFault) as caught:
+            run_until_complete(state)
+        assert caught.value.fault is FaultId.F6
 
-    def test_uses_named_cr_register(self):
-        """CR3 with valid_elements=128 overrides CR15 with valid_elements=4."""
-        state = make_state(
-            """\
-ACTIVATE.QUANTIZE relu cr3;;
-HALT;;
-"""
-        )
-        state.set_cr_dstructure(valid_elements=4)
-        state.regfile.set_cr(3, encode_dstructure(valid_elements=128, partition=0))
-        # use values 1..127 (fit in INT8 after relu; value 0 maps to lane 127)
-        vals = [(i % 127) + 1 for i in range(128)]
-        for i, v in enumerate(vals):
-            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", v))[0])
-        run_until_complete(state)
-        result = state.regfile.get_post_aaq_reg()
-        for i, v in enumerate(vals):
-            assert result[i] == v, f"lane {i}: expected {v}, got {result[i]}"
 
-    def test_cr15_uses_valid_elements(self):
-        """CR15.valid_elements=4 → only 4 active elements; rest zeroed."""
-        state = make_state(
-            """\
-ACTIVATE.QUANTIZE relu cr15;;
-HALT;;
-"""
+class TestActivateExact:
+    """ACTIVATE.EXACT (emulator-only, FP32 mode only): exact activation, one FP32 row stored."""
+
+    def _exact(self, fn: str, acc, n: int, **kw) -> tuple[float, ...]:
+        return _stored_fp32(
+            _activate(_EXACT.format(fn), acc, ds_half=ds(n), fmt=ElementFormat.FP32, **kw)
         )
-        state.set_cr_dstructure(valid_elements=4)
-        for i in range(128):
-            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", i + 1))[0])
-        run_until_complete(state)
-        result = state.regfile.get_post_aaq_reg()
-        for i in range(4):
-            assert result[i] == i + 1, f"lane {i}: expected {i + 1}"
-        assert result[4:] == bytearray(508), "inactive lanes must be zeroed"
+
+    def test_inactive_lanes_are_written_zero(self):
+        assert self._exact("relu", [-5.0, 3.0] + [99.0] * 126, 2) == (0.0, 3.0) + (0.0,) * 126
+
+    def test_rsqrt_of_non_positive_is_zero(self):
+        """ACTIVATE.EXACT keeps today's rsqrt(x <= 0) = 0 (not the ARCH NaN)."""
+        assert self._exact("rsqrt", [-4.0, 0.0, 4.0], 3)[:3] == (0.0, 0.0, 0.5)
 
     def test_elu_respects_ipu_state_alpha(self):
-        """elu with IpuState alpha: elu(-1, alpha=0.5) quantized."""
-        x = -1
-        alpha = 0.5
-        state = make_state(
-            """\
-ACTIVATE.QUANTIZE elu cr15;;
-HALT;;
-""",
-            activation=ActivationParams(elu_alpha=alpha),
-        )
-        state.set_cr_dstructure(1)
-        state.regfile.set_r_acc_word(0, struct.unpack("<I", struct.pack("<i", x))[0])
-        run_until_complete(state)
-        expected = max(-128, min(127, int(round(apply_activation(7, float(x), elu_alpha=alpha)))))
-        assert state.regfile.get_post_aaq_reg()[0] == expected & 0xFF
+        stored = self._exact("elu", [-1.0], 1, activation=ActivationParams(elu_alpha=0.5))
+        assert stored[0] == pytest.approx(apply_activation(7, -1.0, elu_alpha=0.5))
 
-    def test_window_default_bounds(self):
-        """window with default bounds [0.0, 0.1): only x = 0 is inside."""
-        state = make_state(
-            """\
-ACTIVATE.QUANTIZE window cr15;;
-HALT;;
-"""
-        )
-        state.set_cr_dstructure(4)
-        for i, x in enumerate((0, 1, -1, 7)):
-            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", x))[0])
-        run_until_complete(state)
-        result = state.regfile.get_post_aaq_reg()
-        assert result[0] == 1, "window(0) = 1 (lower bound is inclusive)"
-        assert result[1] == 0, "window(1) = 0 (above b = 0.1)"
-        assert result[2] == 0, "window(-1) = 0 (below a = 0.0)"
-        assert result[3] == 0, "window(7) = 0"
-
-    def test_window_respects_ipu_state_bounds(self):
-        """window with IpuState bounds is the half-open indicator on [a, b)."""
-        state = make_state(
-            """\
-ACTIVATE.QUANTIZE window cr15;;
-HALT;;
-""",
+    def test_window_bounds(self):
+        stored = self._exact(
+            "window",
+            [-4.0, -3.0, 0.0, 4.0, 5.0],
+            5,
             activation=ActivationParams(window_a=-3.0, window_b=5.0),
         )
-        state.set_cr_dstructure(5)
-        for i, x in enumerate((-4, -3, 0, 4, 5)):
-            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", x))[0])
-        run_until_complete(state)
-        result = state.regfile.get_post_aaq_reg()
-        assert result[0] == 0, "window(-4) = 0 (below a)"
-        assert result[1] == 1, "window(-3) = 1 (a is inclusive)"
-        assert result[2] == 1, "window(0) = 1"
-        assert result[3] == 1, "window(4) = 1"
-        assert result[4] == 0, "window(5) = 0 (b is exclusive)"
+        assert stored[:5] == (0.0, 1.0, 1.0, 1.0, 0.0)
 
-    def test_window_fractional_bounds(self):
-        """Fractional bounds select the integer elements that fall inside [a, b)."""
-        state = make_state(
-            """\
-ACTIVATE.QUANTIZE window cr15;;
-HALT;;
-""",
-            activation=ActivationParams(window_a=1.5, window_b=3.5),
-        )
-        state.set_cr_dstructure(4)
-        for i, x in enumerate((1, 2, 3, 4)):
-            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", x))[0])
-        run_until_complete(state)
-        result = state.regfile.get_post_aaq_reg()
-        assert result[0] == 0, "window(1) = 0 (below a = 1.5)"
-        assert result[1] == 1, "window(2) = 1"
-        assert result[2] == 1, "window(3) = 1"
-        assert result[3] == 0, "window(4) = 0 (above b = 3.5)"
+    def test_sigmoid_is_exact(self):
+        assert self._exact("sigmoid", [0.0], 1)[0] == 0.5
 
-    def test_r_acc_not_modified(self):
-        """ACTIVATE.QUANTIZE does not modify r_acc."""
-        state = make_state(
-            """\
-ACTIVATE.QUANTIZE relu cr15;;
-HALT;;
-"""
-        )
-        state.set_cr_dstructure(128)
-        raw = struct.unpack("<I", struct.pack("<i", -42))[0]
-        state.regfile.set_r_acc_word(0, raw)
-        run_until_complete(state)
-        assert state.regfile.get_r_acc_word(0) == raw
-
-
-class TestPostAaqReg:
-    """Tests for ST.AAQ and ST.ACC (store instructions)."""
-
-    def test_str_post_aaq_reg_writes_post_aaq_reg_512_to_xmem(self):
-        """ST.AAQ stores POST_AAQ_REG (512 B) to XMEM."""
-        state = IpuState()
-        state.regfile.set_cr(8, 0x4000 // 128)  # row number for base
-        data = bytearray(range(256)) * 2
-        state.regfile.set_post_aaq_reg(data)
-
-        encoded = assemble(
-            """\
-SET lr0 cr8;;
-st.aaq lr0 cr0;;
-HALT;;
-"""
-        )
-        from ipu_emu.emulator import load_program, run_until_complete
-
-        decoded = decode_program(encoded)
-        load_program(state, decoded)
-        run_until_complete(state)
-
-        stored = state.xmem.read_address(0x4000, 512)
-        assert stored == state.regfile.get_post_aaq_reg()
-
-    def test_STR_ACC_REG_emits_warning(self):
-        """ST.ACC emits a DebugOnlyInstructionWarning (a UserWarning)."""
-        state = IpuState()
-
-        encoded = assemble("ST.ACC lr0 cr0;;\nHALT;;")
-        from ipu_emu.emulator import load_program, run_until_complete
-
-        decoded = decode_program(encoded)
-        load_program(state, decoded)
-
-        with pytest.warns(DebugOnlyInstructionWarning, match="DEBUG ONLY") as record:
+    def test_the_handler_refuses_nx8_mode(self):
+        """load_program refuses the program in NX8 mode; a word written into IMEM
+        directly still meets the handler's guard."""
+        state = new_state()
+        state.inst_mem[0] = decode_program(assemble(_EXACT.format("relu") + ";;"))[0]
+        state.program_length = 1
+        with pytest.raises(EmulatorError, match="FP32 mode only"):
             run_until_complete(state)
-        assert all(issubclass(w.category, UserWarning) for w in record)
+
+
+class TestLdLut:
+    """LD.LUT: one row's first 128 bytes into a 1024-bit LUT segment (ADR 0007)."""
+
+    def test_five_loads_fill_the_lut_image(self):
+        from ipu_isa.lut import lut_image
+
+        rows = lut_image(lambda x: 2.0 * x, 0, 2)
+        asm = "".join(f"LD.LUT {k} cr3 lr{k};;\n" for k in range(5)) + "HALT;;\n"
+        state = make_state(asm, cr={3: 10})
+        for k, row in enumerate(rows):
+            state.regfile.set_lr(k, k)
+            state.xmem.write_address((10 + k) * 128, row)
+        run_until_complete(state)
+        image = int.from_bytes(state.regfile.view("aaq_lut"), "little")
+        expected = 0
+        for k, row in enumerate(rows[:4]):
+            expected |= int.from_bytes(row, "little") << (1024 * k)
+        last = int.from_bytes(rows[4], "little")
+        expected |= (last & ((1 << 256) - 1)) << 4096  # table bits 4351:4096
+        expected |= ((last >> 256) & ((1 << 46) - 1)) << 4352  # the LUT metadata
+        assert image == expected
+
+    def test_fp32_mode_reads_the_first_128_bytes_of_a_512_byte_row(self):
+        state = make_state("LD.LUT 1 cr3 lr0;;\nHALT;;\n", cr={3: 2}, fmt=ElementFormat.FP32)
+        state.xmem.write_address(2 * 512, bytes([0xAB]) * 512)
+        run_until_complete(state)
+        image = int.from_bytes(state.regfile.view("aaq_lut"), "little")
+        assert image == int.from_bytes(bytes([0xAB]) * 128, "little") << 1024
 
 
 # ============================================================================
 # XMEM row addressing: .asm XMEM operands (offset + base) are row numbers,
-# translated to byte addresses via the active format's row size. XMEM is
-# allocated at XMEM_SIZE_BYTES unconditionally; an 8-bit format may only address
+# translated to byte addresses via the active mode's row size. XMEM is
+# allocated at XMEM_SIZE_BYTES unconditionally; NX8 mode may only address
 # its first EIGHT_BIT_ROWS (16384) rows -- 2 MB -- whatever the allocation size.
 # ============================================================================
 
@@ -3123,9 +2818,7 @@ HALT;;
 """,
             cr={8: EIGHT_BIT_ROWS},
         )
-        with pytest.raises(
-            EmulatorFault, match="out of range in an 8-bit element format"
-        ) as caught:
+        with pytest.raises(EmulatorFault, match="out of range in NX8 mode") as caught:
             run_until_complete(state)
         assert state.halt == HaltRecord("fault", caught.value.pc, caught.value.fault)
         assert caught.value.fault is FaultId.F6
@@ -3157,9 +2850,7 @@ HALT;;
 """,
             cr={8: 0xFFFFFFFF},
         )
-        with pytest.raises(
-            EmulatorFault, match="out of range in an 8-bit element format"
-        ) as caught:
+        with pytest.raises(EmulatorFault, match="out of range in NX8 mode") as caught:
             run_until_complete(state)
         assert state.halt == HaltRecord("fault", caught.value.pc, caught.value.fault)
         assert caught.value.fault is FaultId.F6
@@ -3186,7 +2877,7 @@ SET lr1 cr7;;
 SET lr2 cr8;;
 LD.MULT r0 lr0 cr0;;
 LD.MULT.CYCLIC lr1 cr0 lr2;;
-MULT.RC.VV lr2 r0 0 lr2 cr15;;
+MULT.RC.VV lr2 r0 0 lr2 cr15.l cr14.l;;
 acc.add.first;;
 HALT;;
 """
@@ -3234,26 +2925,9 @@ HALT;;
         run_until_complete(state)
         assert state.regfile.get_r_mask() == bytearray(mask_data)
 
-    def test_str_acc_reg_writes_512_bytes_at_translated_row_narrow(self):
-        """ST.ACC writes all 512 B of R_ACC unconditionally, spanning 4 narrow rows."""
-        row = 40
-        state = make_state(
-            """\
-SET lr9 cr12;;
-ST.ACC lr9 cr0;;
-HALT;;
-""",
-            cr={12: row},
-        )
-        state.regfile.set_r_acc_bytes(bytes(range(1, 129)) * 4)
-        with pytest.warns(DebugOnlyInstructionWarning):
-            run_until_complete(state)
-        stored = state.xmem.read_address(row * 128, 512)
-        assert stored == state.regfile.get_r_acc_bytes()
-
 
 class TestNarrowStoreOverflow:
-    """A narrow FP8 accumulate whose float32 store overflows stores +inf and
+    """An NX8-mode accumulate whose float32 store overflows stores +inf and
     sets the sticky ACC_OVERFLOW flag (E04-23, Q53): an arithmetic event,
     never an exception."""
 
@@ -3261,7 +2935,7 @@ class TestNarrowStoreOverflow:
         from ipu_emu.ipu import LANES, Ipu
         from ipu_isa.faults import ArithmeticEvent
 
-        state = make_state("ACC.ADD ;;", fmt=ElementFormat.E4)
+        state = make_state("ACC.ADD ;;", fmt=ElementFormat.NX8)
         k = 7
         acc = [1.0] * LANES
         mult = [2.0] * LANES
@@ -3278,7 +2952,7 @@ class TestNarrowStoreOverflow:
 
 
 class TestFirstStoreBitExactness:
-    @pytest.mark.parametrize("fmt", [ElementFormat.E4, ElementFormat.FP32])
+    @pytest.mark.parametrize("fmt", [ElementFormat.NX8, ElementFormat.FP32])
     @pytest.mark.parametrize("mnemonic", ["ACC.ADD.FIRST", "ACC.MAX.FIRST"])
     def test_signaling_nan_is_quietened_like_parent_lane_store(
         self,

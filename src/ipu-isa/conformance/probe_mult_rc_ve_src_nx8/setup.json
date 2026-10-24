@@ -1,0 +1,45 @@
+{
+ "description": "timing probe mult_rc_ve_src in NX8",
+ "format": "nx8",
+ "emulator_only": false,
+ "max_cycles": 1000,
+ "fault_enables": {},
+ "registers": [
+  {
+   "name": "r",
+   "index": 0,
+   "hex": "0c78787878067878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878"
+  },
+  {
+   "name": "r_meta",
+   "index": 0,
+   "hex": "8100"
+  },
+  {
+   "name": "r_cyclic_meta",
+   "index": 0,
+   "hex": "7f00"
+  },
+  {
+   "name": "r_mask",
+   "index": 0,
+   "hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  {
+   "name": "cr",
+   "index": 2,
+   "value": 5
+  },
+  {
+   "name": "cr",
+   "index": 14,
+   "value": 328
+  },
+  {
+   "name": "cr",
+   "index": 15,
+   "value": 4224
+  }
+ ],
+ "xmem": []
+}

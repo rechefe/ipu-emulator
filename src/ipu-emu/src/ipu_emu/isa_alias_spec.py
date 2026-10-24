@@ -186,17 +186,6 @@ ISA_ALIAS_SPEC: dict[str, dict] = {
         "summary": "Move a vector into R_ACC; nothing reaches the accumulator without a multiply.",
         "matches": _identity_mult_matches(exclude=("MULT.EE",)),
     },
-    "A16_STR_ACC_REG": {
-        "missing_op": "STR_ACC (hardware)",
-        "summary": "Simulation-only accumulator store; has no silicon encoding.",
-        "matches": [
-            {
-                "slot": "acc_store",
-                "instruction": "ST.ACC",
-                "where": [{"hardware_only": True}],
-            },
-        ],
-    },
 }
 
 
@@ -271,7 +260,7 @@ def validate_isa_alias_spec() -> None:
                 if "masked_window" in constraint and (
                     constraint["masked_window"] is not True
                     or slot != "mult"
-                    or not {"mask_offset", "mask_shift", "cr_idx"} <= operands
+                    or not {"mask_offset", "mask_shift", "ds"} <= operands
                 ):
                     raise ConfigurationError(
                         f"alias {alias_id!r}: unsupported masked_window constraint"

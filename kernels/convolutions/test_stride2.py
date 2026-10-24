@@ -80,6 +80,11 @@ def test_stage_1_reads_the_templates_values(registry, name):
     assert kernel.abi["out"] == template.abi["kernel_rows"]
     for n in (n for n in names if n in kernel.abi):
         assert kernel.abi[n] == template.abi[n], n
+        if n in kernel.derived and n not in plan.derived:
+            # Known only when the registers are written (it reads case_qf):
+            # the same expression.
+            assert kernel.derived[n] == template.derived[n], n
+            continue
         mine = plan.derived[n] if n in plan.derived else plan.params[n]
         theirs = plain.derived[n] if n in plain.derived else plain.params[n]
         assert mine == theirs, n

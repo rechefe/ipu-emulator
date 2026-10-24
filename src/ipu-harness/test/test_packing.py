@@ -11,6 +11,7 @@ import pytest
 from ipu_harness.manifest import KernelManifest, ManifestError, load_manifest
 from ipu_harness.packing import pack, stored_rows, unpack
 from ipu_harness.params import PlanError, plan_case
+from ipu_harness.variants import variant
 from ipu_isa.formats import ElementFormat as F
 
 TOML = """\
@@ -76,10 +77,37 @@ def test_an_output_names_a_pack_transform_and_unpack_uses_it(tmp_path):
     y = m.tensors["y"]
     assert stored_rows(y, plan) == 3
     values = np.arange(256, dtype=np.float64).reshape(2, 128)
-    raw = pack(y, values, plan)
-    stored = np.frombuffer(raw, dtype="<f4").reshape(3, 128)
+    packed = pack(y, values, plan)
+    assert packed.metadata is None  # FP32 rows carry no metadata
+    stored = np.frombuffer(packed.data, dtype="<f4").reshape(3, 128)
     np.testing.assert_array_equal(stored[0], values[1])  # stored by the output's transform
-    np.testing.assert_array_equal(unpack(y, raw, plan), values)
+    np.testing.assert_array_equal(unpack(y, packed.data, plan), values)
+
+
+def test_an_nx8_tensor_packs_each_row_with_its_own_scale(tmp_path):
+    """ADR 0007: a row's scale follows its largest value, so the same value is
+    held differently in two rows, and unpack reads each row with its metadata."""
+    from ipu_harness.packing import held
+
+    directory = tmp_path / "copy"
+    directory.mkdir()
+    (directory / "copy.asm").write_text("HALT ;;\n")
+    (directory / "pack.py").write_text(PACK_PY)
+    toml = TOML.replace("{x_pack}", "reversed_rows").replace("{y_pack}", "reversed_rows")
+    (directory / "kernel.toml").write_text(toml.replace('formats = ["fp32"]', 'formats = ["e4"]'))
+    m = load_manifest(directory)
+    plan = plan_case(m, {"rows": 2}, variant("e4"))
+    x = np.zeros((2, 128))
+    x[0, :2] = [0.001, 1.0]  # scale 2^0: 0.001 holds as 2^-10 (exponent 10 below)
+    x[1, :2] = [0.001, 4096.0]  # scale 2^12: the smallest step is 2^-5, so 0.001 holds as 0
+    packed = pack(m.tensors["x"], x, plan)
+    # Three rows (reversed_rows adds one spare zero row), each with a metadata word.
+    assert len(packed.data) == 3 * 128 and packed.metadata is not None
+    assert len(packed.metadata) == 3 and packed.metadata[0] != packed.metadata[1]
+    back = unpack(m.tensors["x"], packed.data, plan, packed.metadata)
+    assert back[0, :2].tolist() == [2.0**-10, 1.0]
+    assert back[1, :2].tolist() == [0.0, 4096.0]
+    np.testing.assert_array_equal(held(m.tensors["x"], x, plan), back)
 
 
 def test_a_transform_that_lays_out_more_rows_than_it_declares_fails_at_pack(tmp_path):
@@ -228,7 +256,7 @@ def test_a_transform_not_in_the_kernels_pack_py_is_its_family_folders(tmp_path):
 SCRATCH_TOML = """\
 [kernel]
 op = "masked"
-formats = ["fp32", "int8", "e4"]
+formats = ["fp32", "e3", "e4"]
 
 [params]
 rows = { type = "int", min = 1 }
@@ -284,7 +312,7 @@ def test_a_filled_region_is_its_fill_in_every_element(tmp_path):
 
     m = load_manifest(scratch_kernel(tmp_path, "fill = 1.5"))
     plan = plan_case(m, {"rows": 2}, F.FP32)
-    assert region_fill(m.tensors["mask"], plan, 2) == np.full(256, 1.5, "<f4").tobytes()
+    assert region_fill(m.tensors["mask"], plan, 2).data == np.full(256, 1.5, "<f4").tobytes()
 
 
 def test_a_fill_may_be_an_exact_expression_of_the_case(tmp_path):
@@ -296,11 +324,11 @@ def test_a_fill_may_be_an_exact_expression_of_the_case(tmp_path):
     assert m.tensors["mask"].fill == "-1 / n"
     fp32 = plan_case(m, {"rows": 2}, F.FP32)
     assert fp32.fills == {"mask": -1 / 3}
-    assert region_fill(m.tensors["mask"], fp32, 1) == np.full(128, -1 / 3, "<f4").tobytes()
-    int8 = plan_case(m, {"rows": 2}, F.INT8)  # -1/3 rounds to 0 in INT8
-    assert region_fill(m.tensors["mask"], int8, 1) == bytes(128)
-    e4 = plan_case(m, {"rows": 2}, F.E4)  # -1/3 rounds to -0.34375 (0xAB) in E4
-    assert region_fill(m.tensors["mask"], e4, 1) == bytes([0xAB]) * 128
+    assert region_fill(m.tensors["mask"], fp32, 1).data == np.full(128, -1 / 3, "<f4").tobytes()
+    # NX8 E4: the row's scale is 2^-2 (125, from 1/3's exponent); -1/3 = -1.333 x 2^-2
+    # rounds to -1.375 x 2^-2 = -0.34375: sign 1, exponent 0, mantissa 3 (0x83).
+    e4 = region_fill(m.tensors["mask"], plan_case(m, {"rows": 2}, variant("e4")), 1)
+    assert (e4.data, e4.metadata) == (bytes([0x83]) * 128, (125,))
 
 
 def test_a_fill_may_read_a_float_parameter(tmp_path):
@@ -348,9 +376,11 @@ def test_a_constant_input_range_is_allowed(tmp_path, value):
     )
     m = load_manifest(directory)
     case = expand(m)[0]
-    for fmt in (F.FP32, F.INT8, F.E4):
+    for fmt in (variant("fp32"), variant("e3"), variant("e4")):
         x = inputs_for(case, plan_case(m, case.values, fmt, case=case.decl)).tensors["x"]
-        assert (x == value).all()
+        # NX8 treats an FP32 zero as normalized (ARCH-stage-aaq-str.md 4.3.2): a
+        # row of zeros holds 2^-127, the smallest value, not 0.
+        np.testing.assert_allclose(x, value, rtol=0, atol=2.0**-126)
 
 
 def test_a_bytes_region_is_its_functions_bytes(tmp_path):
@@ -361,7 +391,7 @@ def test_a_bytes_region_is_its_functions_bytes(tmp_path):
     m = load_manifest(scratch_kernel(tmp_path, ""))
     mask = dataclasses.replace(m.tensors["mask"], content="mask.py:mask")
     plan = plan_case(m, {"rows": 2}, F.FP32)
-    assert region_fill(mask, plan, 1) == bytes([0xFF, 0x00] * 64) * 4
+    assert region_fill(mask, plan, 1).data == bytes([0xFF, 0x00] * 64) * 4
     with pytest.raises(PlanError, match="returned 1 bytes; the region holds 512"):
         region_fill(dataclasses.replace(mask, content="mask.py:short"), plan, 1)
 
@@ -378,7 +408,7 @@ def test_a_bytes_function_may_be_the_familys(tmp_path):
     (tmp_path / "shared_mask.py").write_text(MASK_PY)  # the family's folder
     m = load_manifest(directory)
     plan = plan_case(m, {"rows": 2}, F.FP32)
-    assert region_fill(m.tensors["mask"], plan, 1) == bytes([0xFF, 0x00] * 64) * 4
+    assert region_fill(m.tensors["mask"], plan, 1).data == bytes([0xFF, 0x00] * 64) * 4
 
 
 @pytest.mark.parametrize("ref", ["../../up.py:mask", "../sub/mask.py:mask", "/abs.py:mask"])

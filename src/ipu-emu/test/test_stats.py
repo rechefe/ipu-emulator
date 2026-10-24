@@ -15,7 +15,7 @@ from ipu_emu.emulator import (
     run_until_complete,
     run_with_debug,
 )
-from ipu_emu.errors import DebugOnlyInstructionWarning, EmulatorError, EmulatorFault
+from ipu_emu.errors import EmulatorError, EmulatorFault
 from ipu_emu.ipu_state import HaltRecord, IpuState
 from ipu_emu.stats import RunStats
 from ipu_isa.faults import FaultId
@@ -86,7 +86,7 @@ class TestStatsCountedDuringExecution:
         # MULT.EE syntax: ra_idx(LR), cr_idx(CR), mask_offset(imm), mask_shift(LR), dstructure_cr_idx(CR)
         asm = """\
 SET lr0 cr0;;
-LD.MULT r0 lr0 cr0;MULT.EE lr0 cr0 0 lr0 cr15;;
+LD.MULT r0 lr0 cr0;MULT.EE lr0 cr0 0 lr0 cr15.l cr14.l;;
 HALT;;
 """
         state = make_state(asm)
@@ -117,18 +117,21 @@ HALT;;
         assert state.stats.xmem_writes == 0
 
     def test_xmem_write_counted(self):
-        # ST.ACC writes to xmem
+        # ACTIVATE.QUANTIZE stores one row to xmem
         asm = """\
-ST.ACC lr0 cr2;;
+ACTIVATE.QUANTIZE identity cr15.l cr14.l cr2 lr0;;
 HALT;;
 """
         state = make_state(asm)
-        state.regfile.set_lr(0, 0)
         state.regfile.set_cr(2, 0x1000 // 128)  # row number
-        with pytest.warns(DebugOnlyInstructionWarning):
-            run_until_complete(state)
+        run_until_complete(state)
         assert state.stats.xmem_writes == 1
         assert state.stats.xmem_reads == 0
+
+    def test_ld_lut_counts_a_read(self):
+        state = make_state("LD.LUT 0 cr2 lr0;;\nHALT;;\n")
+        run_until_complete(state)
+        assert (state.stats.xmem_reads, state.stats.xmem_writes) == (1, 0)
 
     def test_multiple_cycles_accumulate(self):
         # 3 independent ACC cycles, then HALT
@@ -163,9 +166,9 @@ HALT;;
 
 _MULT_ACC_PROGRAM = """\
 SET lr0 cr0;;
-LD.MULT r0 lr0 cr0;MULT.EE lr0 cr0 0 lr0 cr15;;
+LD.MULT r0 lr0 cr0;MULT.EE lr0 cr0 0 lr0 cr15.l cr14.l;;
 ACC.ADD;;
-LD.MULT r0 lr0 cr0;MULT.EE lr0 cr0 0 lr0 cr15;;
+LD.MULT r0 lr0 cr0;MULT.EE lr0 cr0 0 lr0 cr15.l cr14.l;;
 HALT;;
 """
 

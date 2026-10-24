@@ -1,12 +1,15 @@
 """The pipeline-register pane: one vector pipeline register per tab, as values.
 
-A tab names a logical register (R0, R1, R_C, R_MASK, R_ACC, POST_AAQ,
-MULT_RES, MEM_BYPASS) and a format; in the FP32 and INT32 element formats R0, R1
-and R_C read their four-byte storage. The values wrap to the pane's width; R_MASK
-keeps each of its 16-byte slots on lines of its own, with a separator line
-between slots. Values changed since the last stop are marked. The pane reads
-through ``DebugSession.register`` and writes only through
-``DebugSession.write_register_bytes``.
+A tab names a logical register (R0, R1, R_C, R_MASK, R_ACC, AAQ_ROW,
+MULT_RES, MEM_BYPASS) and a format; in the FP32 mode R0, R1 and R_C read their
+four-byte storage. AAQ_ROW is no register: it is the XMEM row the last AaQ
+store wrote (``DebugSession.last_aaq_row``; ADR 0007 removed ``POST_AAQ_REG``),
+with the row's metadata word in the pane title in NX8 mode. The values wrap to
+the pane's width; R_MASK keeps each of its 16-byte slots on lines of its own,
+with a separator line between slots. Values changed since the last stop are
+marked. The pane reads through ``DebugSession.register`` (and
+``last_aaq_row``) and writes only through ``DebugSession.write_register_bytes``
+(and ``write_xmem`` for AAQ_ROW).
 """
 
 from __future__ import annotations
@@ -31,6 +34,7 @@ from ipu_debug.format import (
     decode_16bit_cell,
 )
 from ipu_debug.session import DebugSession
+from ipu_debug.stores import metadata_text
 from ipu_debug.tui.draw import BITS_PER_REGISTER, SCROLLBAR_COLUMNS, Canvas, Theme, format_bits
 from ipu_debug.tui.editor import EditedValue, TabTarget, tab_editor, value_editor
 from ipu_debug.tui.keymap import Command, PaneId
@@ -45,7 +49,7 @@ PIPELINE_NON_CONTENT_ROWS = 3
 TITLE = "1 Pipeline Registers"
 PIPELINE_REGISTER_FORMATS = ("hex", "int8", "u8", "cell16", "u32", "int32", "f32", "bits")
 EDITOR_HINTS = (
-    "Register: R0, R1, R_C, R_MASK, R_ACC, POST_AAQ,",
+    "Register: R0, R1, R_C, R_MASK, R_ACC, AAQ_ROW,",
     "          MULT_RES, or MEM_BYPASS",
 )
 # Each line starts with the byte offset of its first value.
@@ -54,6 +58,8 @@ OFFSET_PREFIX_WIDTH = len("  0000: ")
 MASK_SLOT_BYTES = 16
 SLOT_SEPARATOR = "------------"
 INT32_DISPLAY_WIDTH = 11
+#: The key of the last AaQ-stored row's tab.
+AAQ_ROW = "aaq_row"
 
 
 @dataclass(frozen=True)
@@ -73,7 +79,8 @@ PIPELINE_REGISTERS = (
     PipelineRegisterSpec("r_cyclic", "R_C", "r_cyclic", 0, "r_cyclic_wide_debug"),
     PipelineRegisterSpec("r_mask", "R_MASK", "r_mask"),
     PipelineRegisterSpec("r_acc", "R_ACC", "r_acc"),
-    PipelineRegisterSpec("post_aaq_reg", "POST_AAQ", "post_aaq_reg"),
+    # Not a register: the row the last AaQ store wrote (read_register).
+    PipelineRegisterSpec(AAQ_ROW, "AAQ_ROW", "xmem"),
     PipelineRegisterSpec("mult_res", "MULT_RES", "mult_res"),
     PipelineRegisterSpec("mem_bypass", "MEM_BYPASS", "mem_bypass"),
 )
@@ -103,7 +110,7 @@ class PipelineTab:
 
 
 def _is_wide(state: IpuState) -> bool:
-    """*state* runs in a four-byte element format (FP32 or INT32)."""
+    """*state* runs in the four-byte FP32 mode."""
     return state.codec.element_bytes != 1
 
 
@@ -116,6 +123,8 @@ def backing(state: IpuState, spec: PipelineRegisterSpec) -> str:
 
 def read_register(session: DebugSession, spec: PipelineRegisterSpec) -> bytes:
     """The bytes of *spec* now."""
+    if spec.key == AAQ_ROW:
+        return session.last_aaq_row().data
     value = session.register(backing(session.state, spec), spec.index).value
     assert isinstance(value, bytes)  # Vector registers read as bytes.
     return value
@@ -124,9 +133,9 @@ def read_register(session: DebugSession, spec: PipelineRegisterSpec) -> bytes:
 def auto_format(state: IpuState, spec: PipelineRegisterSpec) -> str:
     """The format of a tab without one: the mode's arithmetic for the wide values."""
     if _is_wide(state) and spec.key in _WIDE_VALUE_REGISTERS:
-        return "f32" if state.fmt is ElementFormat.FP32 else "int32"
+        return "f32"
     if spec.key in _WORD_REGISTERS:
-        return "int32"
+        return "f32"
     return "hex"
 
 
@@ -134,13 +143,21 @@ def default_format(state: IpuState, spec: PipelineRegisterSpec) -> str:
     """The explicit format a fresh tab of *spec* starts in (auto tabs keep auto)."""
     if spec.key == "r_mask":
         return "bits"
-    if spec.key == "post_aaq_reg":
-        if _is_wide(state) and not state.aaq.quantize_output:
-            return "f32" if state.fmt is ElementFormat.FP32 else "int32"
-        return "int8"
-    if state.fmt is ElementFormat.INT8 and spec.key in ("r0", "r1", "r_cyclic"):
-        return "int8"
+    if spec.key == AAQ_ROW:
+        return "f32" if _is_wide(state) else "int8"
+    if state.fmt is ElementFormat.NX8 and spec.key in ("r0", "r1", "r_cyclic"):
+        return "int8"  # an NX8 element's bytes; its value needs the row's metadata
     return auto_format(state, spec)
+
+
+def aaq_row_title(session: DebugSession) -> str:
+    """The AAQ_ROW tab's title segment: which row, and its metadata in NX8 mode."""
+    row = session.last_aaq_row()
+    if row.row is None:
+        return "no store yet"
+    if row.metadata is None:
+        return f"row {row.row}"
+    return f"row {row.row}, {metadata_text(row.metadata)}"
 
 
 def default_tabs(state: IpuState, fresh: bool) -> list[PipelineTab]:
@@ -321,7 +338,10 @@ class PipelinePane:
         visible_first = shown[0] if shown else 0
         visible_last = min(grid.item_count, shown[-1] + grid.per_line) if shown else 0
         readout = f" items {visible_first + 1}-{visible_last}/{grid.item_count} "
-        canvas.top_pane_header(rect, [TITLE, grid.fmt], readout, focused=focused)
+        segments = [TITLE, grid.fmt]
+        if grid.spec.key == AAQ_ROW:
+            segments.append(aaq_row_title(session))
+        canvas.top_pane_header(rect, segments, readout, focused=focused)
         lines = _Lines(canvas, session, tab, grid, baseline, self.theme.colors.cursor_for(focused))
         for output_row, line_index in enumerate(range(first_line, last_line)):
             drawing.hits.extend(self._draw_line(lines, rect, rect.y + 2 + output_row, line_index))
@@ -455,9 +475,15 @@ class PipelinePane:
         tab.cursor = max(0, min(tab.cursor, len(register) // size - 1))
         start = tab.cursor * size
         offset = spec.index * len(register) + start
+        stored = session.last_aaq_row().address if spec.key == AAQ_ROW else None
 
         def write(data: bytes) -> None:
-            session.write_register_bytes(name, offset, data)
+            if spec.key != AAQ_ROW:
+                session.write_register_bytes(name, offset, data)
+            elif stored is None:
+                raise ValueError("no AaQ store yet, so there is no row to edit")
+            else:
+                session.write_xmem(stored + start, data)
 
         value = EditedValue(
             f"{spec.label}[{tab.cursor}]", fmt, register[start : start + size], size

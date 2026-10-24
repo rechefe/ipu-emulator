@@ -30,7 +30,7 @@
       CR8  = OUT_HEIGHT = H // 2      CR9  = CHANNELS
       CR10 = 128                      CR11 = IN_PLANE_STRIDE = H * IN_ROW_STRIDE
       CR12 = complete output XMEM rows before the tail = OUT_TILES_PER_ROW - 1
-      CR15 = dstructure (valid_elements = 128)
+      CR15.L = the default DS (ds(128)); CR14 = the QF
 ========================================================================== -#}
 
 {%- set lr_zero  = "LR0"  -%}
@@ -74,12 +74,11 @@ full_tile_loop:
     ADD {{lr_baddr}} {{lr_itile}} CR5 ;
     LD.MULT.CYCLIC {{lr_addr}} CR2 {{lr_zero}} ;;
     LD.MULT.CYCLIC {{lr_baddr}} CR2 {{lr_s2}} ;;
-    MULT.RC.VE {{lr_zero}} CR1 0 {{lr_zero}} CR15 ; ACC.MAX.FIRST ;;
-    MULT.RC.VE {{lr_one}} CR1 0 {{lr_zero}} CR15 ; ACC.MAX ;;
-    MULT.RC.VE {{lr_s2}} CR1 0 {{lr_zero}} CR15 ; ACC.MAX ;;
-    MULT.RC.VE {{lr_s2p1}} CR1 0 {{lr_zero}} CR15 ; ACC.MAX ;
-    ACTIVATE.QUANTIZE identity CR15 ;
-    ST.AAQ {{lr_zero}} CR4 ;;
+    MULT.RC.VE {{lr_zero}} CR1 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ; ACC.MAX.FIRST ;;
+    MULT.RC.VE {{lr_one}} CR1 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ; ACC.MAX ;;
+    MULT.RC.VE {{lr_s2}} CR1 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ; ACC.MAX ;;
+    MULT.RC.VE {{lr_s2p1}} CR1 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ; ACC.MAX ;
+    ACTIVATE.EXACT identity CR15.L CR4 {{lr_zero}} ;;
 
 {#- Second 64 output positions: input XMEM row 2*ot+1. -#}
     ADD {{lr_addr}} {{lr_itile}} CR1 ;
@@ -87,21 +86,19 @@ full_tile_loop:
     LD.MULT.CYCLIC {{lr_addr}} CR2 {{lr_zero}} ;;
     INC {{lr_baddr}} 1 ;
     LD.MULT.CYCLIC {{lr_baddr}} CR2 {{lr_s2}} ;;
-    MULT.RC.VE {{lr_zero}} CR1 0 {{lr_zero}} CR15 ; ACC.MAX.FIRST ;;
-    MULT.RC.VE {{lr_one}} CR1 0 {{lr_zero}} CR15 ; ACC.MAX ;;
-    MULT.RC.VE {{lr_s2}} CR1 0 {{lr_zero}} CR15 ; ACC.MAX ;;
-    MULT.RC.VE {{lr_s2p1}} CR1 0 {{lr_zero}} CR15 ; ACC.MAX ;
-    ACTIVATE.QUANTIZE identity CR15 ;
-    ST.AAQ {{lr_one}} CR4 ;;
+    MULT.RC.VE {{lr_zero}} CR1 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ; ACC.MAX.FIRST ;;
+    MULT.RC.VE {{lr_one}} CR1 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ; ACC.MAX ;;
+    MULT.RC.VE {{lr_s2}} CR1 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ; ACC.MAX ;;
+    MULT.RC.VE {{lr_s2p1}} CR1 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ; ACC.MAX ;
+    ACTIVATE.EXACT identity CR15.L CR4 {{lr_one}} ;;
 
     LD.MULT.CYCLIC {{lr_zero}} CR4 {{lr_zero}} ;;
     LD.MULT.CYCLIC {{lr_one}} CR4 {{lr_s1}} ;;
-    MULT.RC.VE {{lr_zero}} CR1 0 {{lr_zero}} CR15 ;
+    MULT.RC.VE {{lr_zero}} CR1 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ;
     ACC.STRIDE 64 on off {{lr_zero}} ;;
-    MULT.RC.VE {{lr_s1}} CR1 0 {{lr_zero}} CR15 ;
+    MULT.RC.VE {{lr_s1}} CR1 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ;
     ACC.STRIDE 64 on off {{lr_half}} ;;
-    ACTIVATE.QUANTIZE identity CR15 ;
-    ST.AAQ {{lr_out}} CR3 ;;
+    ACTIVATE.EXACT identity CR15.L CR3 {{lr_out}} ;;
     ADD {{lr_out}} {{lr_out}} CR1 ;
     ADD {{lr_ot}} {{lr_ot}} CR1 ;
     INC {{lr_itile}} 2 ;;
@@ -113,18 +110,16 @@ tail_tile:
     ADD {{lr_baddr}} {{lr_itile}} CR5 ;
     LD.MULT.CYCLIC {{lr_addr}} CR2 {{lr_zero}} ;;
     LD.MULT.CYCLIC {{lr_baddr}} CR2 {{lr_s2}} ;;
-    MULT.RC.VE {{lr_zero}} CR1 0 {{lr_zero}} CR15 ; ACC.MAX.FIRST ;;
-    MULT.RC.VE {{lr_one}} CR1 0 {{lr_zero}} CR15 ; ACC.MAX ;;
-    MULT.RC.VE {{lr_s2}} CR1 0 {{lr_zero}} CR15 ; ACC.MAX ;;
-    MULT.RC.VE {{lr_s2p1}} CR1 0 {{lr_zero}} CR15 ; ACC.MAX ;
-    ACTIVATE.QUANTIZE identity CR15 ;
-    ST.AAQ {{lr_zero}} CR4 ;;
+    MULT.RC.VE {{lr_zero}} CR1 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ; ACC.MAX.FIRST ;;
+    MULT.RC.VE {{lr_one}} CR1 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ; ACC.MAX ;;
+    MULT.RC.VE {{lr_s2}} CR1 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ; ACC.MAX ;;
+    MULT.RC.VE {{lr_s2p1}} CR1 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ; ACC.MAX ;
+    ACTIVATE.EXACT identity CR15.L CR4 {{lr_zero}} ;;
 
     LD.MULT.CYCLIC {{lr_zero}} CR4 {{lr_zero}} ;;
-    MULT.RC.VE {{lr_zero}} CR1 0 {{lr_zero}} CR15 ;
+    MULT.RC.VE {{lr_zero}} CR1 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ;
     ACC.STRIDE 64 on off {{lr_zero}} ;;
-    ACTIVATE.QUANTIZE identity CR15 ;
-    ST.AAQ {{lr_out}} CR3 ;;
+    ACTIVATE.EXACT identity CR15.L CR3 {{lr_out}} ;;
     ADD {{lr_out}} {{lr_out}} CR1 ;;
 
     ADD {{lr_rowb}} {{lr_rowb}} CR6 ;

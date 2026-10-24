@@ -16,17 +16,18 @@ a tensor               its base row (``Placement``); in a ``unit = "bytes"``
                        the program reads the hardwired 0.
 an ``int`` parameter   the integer
 a ``bool`` parameter   1 or 0
-a ``float`` parameter  its element encoding in ``plan.format``, in the low
-                       element-width bits (Q49; E06-03 checked it is exact)
+a ``float`` parameter  the CR word a MULT reads as it in the case's mode
+                       (FP32: its float32 bits; NX8: the MULT constant
+                       layout, ADR 0007; E06-03 checked it is exact)
 a ``[derived]`` value  the integer (``-1``, ``"k - 128 * (ceil(k / 128) - 1) - 2"``);
                        a placed one (``"base(w) + 1"``) over the regions'
                        bases, in rows (bytes in a ``unit = "bytes"`` kernel),
-                       and ``row_bytes`` in the case's format
+                       ``row_bytes`` and ``case_qf`` in the case's variant
 =====================  =====================================================
 
 Values are raw register bits: a negative integer is its two's complement in
 the register's width. Unless ``[abi]`` binds ``CR15``, it holds the default
-dstructure (``valid_elements = 128``), as the old whole-image harness set it.
+DS in ``CR15.L`` (``ds(128)``: every element, one partition; ADR 0007).
 """
 
 from __future__ import annotations
@@ -36,33 +37,32 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
-import numpy as np
-
 from ipu_as.session import AssemblySession
 from ipu_emu.errors import ConfigurationError
 
-# The emulator's dstructure convention (CR15, CLAUDE.md); ipu_isa has no constant for it.
-from ipu_emu.ipu_config import DEFAULT_DSTRUCTURE_CR
+# The emulator's default DS convention (CR15.L, CLAUDE.md).
+from ipu_emu.ipu_config import DEFAULT_DS_CR
 from ipu_emu.reference import ReferenceModel
-from ipu_harness._codec import encode
-from ipu_harness.expressions import ROW_BYTES_NAME, ExpressionError, base_tensor, evaluate, names_in
+from ipu_harness._codec import scalar_word
+from ipu_harness.expressions import (
+    CASE_QF_NAME,
+    ROW_BYTES_NAME,
+    ExpressionError,
+    base_tensor,
+    evaluate,
+    names_in,
+)
 from ipu_harness.manifest import ZERO_REGISTER, KernelManifest
 from ipu_harness.params import CasePlan, PlanError
 from ipu_harness.placement import Placement
-from ipu_isa.constants import (
-    CR_READ_ONLY_INITIAL_VALUES,
-    LR_CR_SCALAR_VALUE_MASK,
-    DStructureConfig,
-    encode_dstructure,
-)
-from ipu_isa.formats import FORMATS
-from ipu_isa.geometry import LANES
+from ipu_isa.constants import CR_READ_ONLY_INITIAL_VALUES, LR_CR_SCALAR_VALUE_MASK
+from ipu_isa.cr_halves import DEFAULT_DS
 from ipu_isa.operand_types import OperandKind
 from ipu_isa.view import Isa, isa
 
 __all__ = ["RegisterWrite", "apply", "check_cr_reads", "register_writes", "template_names"]
 
-_CR = re.compile(r"CR([0-9]+)")
+_CR = re.compile(r"CR([0-9]+)(?:\.[LH])?")
 
 #: Raw register bits hold a value in [-2^31, 2^32): a signed or an unsigned word.
 _LOWEST, _PAST_HIGHEST = -(1 << 31), LR_CR_SCALAR_VALUE_MASK + 1
@@ -100,18 +100,22 @@ class RegisterWrite:
 
 
 def _element_bits(value: float, plan: CasePlan) -> int:
-    """``value`` encoded in ``plan.format``, as the low bits of a register."""
-    return int.from_bytes(encode(np.array([value]), plan.format), "little")
+    """The CR word a MULT reads as ``value`` in ``plan.format``'s mode."""
+    word = scalar_word(value, plan.format)
+    if word is None:  # plan_case checked it encodes
+        raise PlanError(plan.manifest, "params", f"{value!r} has no {plan.format.value} encoding")
+    return word
 
 
 def _placed_value(name: str, plan: CasePlan, placement: Placement) -> int:
     """A placed ``[derived]`` value: its expression over the integer parameters,
     the other derived values (placed ones computed as it reads them), the
     bases it reads (bytes in a ``unit = "bytes"`` kernel, as a tensor's
-    binding) and ``row_bytes``, the bytes of one row in the case's format."""
+    binding), ``row_bytes`` (the bytes of one row in the case's variant) and
+    ``case_qf`` (its QF half)."""
     manifest = plan.manifest
     expression = manifest.derived[name]
-    scale = FORMATS[plan.format].row_bytes if manifest.byte_units else 1
+    scale = plan.format.row_bytes if manifest.byte_units else 1
     ints = {k: v for k, v in plan.params.items() if isinstance(v, int) and not isinstance(v, bool)}
     names: dict[str, int] = {**ints, **plan.derived}
     for read in names_in(expression):
@@ -125,7 +129,9 @@ def _placed_value(name: str, plan: CasePlan, placement: Placement) -> int:
                 )
             names[read] = placement.regions[tensor].base_row * scale
         elif read == ROW_BYTES_NAME:
-            names[read] = FORMATS[plan.format].row_bytes
+            names[read] = plan.format.row_bytes
+        elif read == CASE_QF_NAME:
+            names[read] = plan.format.qf_half
         elif read in manifest.placed:
             names[read] = _placed_value(read, plan, placement)
     try:
@@ -148,7 +154,7 @@ def _value(
         offset = offsets.get(name, 0)
         shown = f" {offset:+d}" if offset else ""
         if manifest.byte_units:
-            bytes_base = base * FORMATS[plan.format].row_bytes
+            bytes_base = base * plan.format.row_bytes
             return bytes_base + offset, f"{name} (region base, bytes{shown})"
         return base + offset, f"{name} (region base{shown})"
     if name in manifest.placed:
@@ -168,10 +174,10 @@ def register_writes(
     placement: Placement,
     *,
     abi: Mapping[str, str] | None = None,
-    dstructure: DStructureConfig | None = None,
+    ds: int | None = None,
 ) -> tuple[RegisterWrite, ...]:
-    """Every register's starting value, in ``[abi]`` order, then the
-    dstructure in ``CR15`` unless ``[abi]`` binds it. A ``CR0`` binding writes
+    """Every register's starting value, in ``[abi]`` order, then the default
+    DS in ``CR15.L`` unless ``[abi]`` binds ``CR15``. A ``CR0`` binding writes
     nothing.
 
     Args:
@@ -180,24 +186,23 @@ def register_writes(
         abi: Names to registers in place of the kernel's ``[abi]`` (a stage's,
             E06-14), already checked by ``manifest.check_abi``. The kernel's
             ``[abi]`` offsets do not apply to it: each region is its base.
-        dstructure: ``CR15``'s dstructure; ``None``: the default (128 valid
-            elements).
+        ds: ``CR15.L``'s DS half; ``None``: the default (``ds(128)``).
 
     Returns:
         The writes, values as raw register bits.
 
     Raises:
         PlanError: A value does not fit a 32-bit register.
-        ConfigurationError: ``dstructure`` is given and ``abi`` binds ``CR15``.
+        ConfigurationError: ``ds`` is given and ``abi`` binds ``CR15``.
     """
     bindings = plan.manifest.abi if abi is None else abi
     # An [abi] offset belongs to the kernel's own binding: a stage's table
     # binds each region at its base.
     offsets = plan.manifest.abi_offsets if abi is None else {}
-    cr15 = f"CR{DEFAULT_DSTRUCTURE_CR}"
-    if dstructure is not None and cr15 in bindings.values():
+    cr15 = f"CR{DEFAULT_DS_CR}"
+    if ds is not None and cr15 in bindings.values():
         raise ConfigurationError(
-            f"{plan.manifest.name}: the abi binds {cr15} and a dstructure is given for it"
+            f"{plan.manifest.name}: the abi binds {cr15} and a DS is given for it"
         )
     writes: list[RegisterWrite] = []
     for name, register in bindings.items():
@@ -222,12 +227,10 @@ def register_writes(
             )
         writes.append(RegisterWrite(register, bits, source))
     if cr15 not in bindings.values():
-        if dstructure is None:
-            bits = encode_dstructure(valid_elements=LANES)
-            source = "dstructure (default, 128 valid elements)"
+        if ds is None:
+            bits, source = DEFAULT_DS, "DS in CR15.L (default, ds(128))"
         else:
-            bits = dstructure.to_register_value()
-            source = f"dstructure ({dstructure.valid_elements} valid elements)"
+            bits, source = ds, f"DS in CR15.L ({ds:#06x})"
         writes.append(RegisterWrite(cr15, bits, source))
     return tuple(writes)
 
@@ -297,8 +300,9 @@ def check_cr_reads(
 ) -> None:
     """Fail a rendered program that reads a CR neither hardwired nor bound.
 
-    ``CR0`` and ``CR1`` are hardwired; ``CR15`` holds the default dstructure
-    unless bound; every other CR a program reads must be in ``[abi]``.
+    ``CR0`` and ``CR1`` are hardwired; ``CR15`` holds the default DS unless
+    bound; every other CR a program reads, whole or a half (``CR13.L``), must
+    be in ``[abi]``.
 
     Args:
         manifest: The kernel.
@@ -315,7 +319,7 @@ def check_cr_reads(
     bindings = manifest.abi if abi is None else abi
     program = manifest.asm.name if name is None else name
     bound = {int(r[2:]) for r in bindings.values() if _bank(r) == "cr"}
-    bound |= {*CR_READ_ONLY_INITIAL_VALUES, DEFAULT_DSTRUCTURE_CR}
+    bound |= {*CR_READ_ONLY_INITIAL_VALUES, DEFAULT_DS_CR}
     view = isa()
     types, cr_types = _operand_types(view), _cr_types(view)
     lines = rendered.splitlines()

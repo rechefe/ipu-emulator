@@ -73,7 +73,7 @@ def test_a_plan_reads_a_mult_stage_register():
 @pytest.mark.parametrize(("key", "plan"), PLANS, ids=[f"{s}.{n}" for (s, n), _ in PLANS])
 def test_both_resolvers_return_equal_operands(key, plan, wide):
     rng = random.Random(f"{key}-{wide}")
-    state = IpuState(fmt=ElementFormat.FP32 if wide else ElementFormat.INT8)
+    state = IpuState(fmt=ElementFormat.FP32 if wide else ElementFormat.NX8)
     _randomise(state.regfile, rng)
     snapshot = state.regfile.snapshot()
     _randomise(snapshot, rng)  # cycle-start and live values differ

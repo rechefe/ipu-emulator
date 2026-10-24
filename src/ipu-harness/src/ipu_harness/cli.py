@@ -57,8 +57,8 @@ from ipu_harness.family import ENTRY_SEPARATOR, load_kernel, split_ref
 from ipu_harness.inspector import InspectorRecorder
 from ipu_harness.manifest import KernelManifest
 from ipu_harness.runner import RunOptions, RunResult, run_kernel
+from ipu_harness.variants import Variant, variant
 from ipu_isa.errors import IpuError
-from ipu_isa.formats import ElementFormat
 
 #: The value of ``--format`` that runs every format the case runs in.
 ALL = "all"
@@ -191,21 +191,20 @@ def _case(manifest: KernelManifest, name: str) -> Case:
     return cases[name]
 
 
-def _formats(case: Case, requested: str | None) -> tuple[ElementFormat, ...]:
+def _formats(case: Case, requested: str | None) -> tuple[Variant, ...]:
     if requested is None:
         return case.formats[:1]
     if requested == ALL:
         return case.formats
     try:
-        fmt = ElementFormat(requested.lower())
-    except ValueError:
-        known = ", ".join(f.value for f in ElementFormat)
-        raise ConfigurationError(f"--format {requested!r} is no element format ({known})") from None
+        fmt = variant(requested.lower())
+    except ValueError as error:
+        raise ConfigurationError(f"--format {requested!r}: {error}") from None
     return (fmt,)
 
 
 def _options(
-    args: argparse.Namespace, fmt: ElementFormat, many: bool, debug: DebugLaunch | None
+    args: argparse.Namespace, fmt: Variant, many: bool, debug: DebugLaunch | None
 ) -> RunOptions:
     """The run options of one format: with several, one output folder and trace each."""
     output = None
@@ -228,7 +227,7 @@ def _options(
     )
 
 
-def _per_format(path: Path, fmt: ElementFormat, many: bool) -> Path:
+def _per_format(path: Path, fmt: Variant, many: bool) -> Path:
     """``path``, or ``path.<format><suffix>`` when several formats run."""
     return path.with_name(f"{path.stem}.{fmt.value}{path.suffix}") if many else path
 

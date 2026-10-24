@@ -2,12 +2,15 @@
 
 :func:`expected_for` gives each output's expected values: the case's
 ``expected`` file when it has one (Q82; or the values its ``"file.py:fn"``
-returns for the plan), else the reference's output (computed
-from the inputs as the format holds them), rounded once to the format the
-output is stored in (its element format, or its accumulator format) with
-saturation. Quantization error therefore never counts against the kernel.
+returns for the plan), else the reference's output (computed from the inputs
+as the variant holds them), held once by the variant the output is stored in
+(FP32: rounded to float32; NX8: packed and quantized row by row, ADR 0007).
+Quantization error therefore never counts against the kernel.
 :func:`compare` holds the kernel's output to it at a named tier and, either
-way, says where the outputs differ most and by how much.
+way, says where the outputs differ most and by how much. In NX8 the
+``NX8_STEP`` tier measures the distance in steps of the golden row's grid
+(:func:`nx8_steps`): a row's scale follows its largest value, which the
+kernel's accumulation order can move by one step.
 """
 
 from __future__ import annotations
@@ -17,16 +20,17 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from ipu_harness._codec import Array, codes, held
+from ipu_harness._codec import Array, row_grid
 from ipu_harness._plugins import kernel_file, load_file
 from ipu_harness.cases import Case
 from ipu_harness.manifest import TensorDecl
-from ipu_harness.packing import stored_format
+from ipu_harness.packing import held, logical, pack, transform_for
 from ipu_harness.params import CasePlan, PlanError
 from ipu_harness.tolerance import DEFAULT_TIER, Tier
-from ipu_isa.formats import FORMATS, ElementFormat
+from ipu_harness.variants import Variant
+from ipu_isa.geometry import LANES
 
-__all__ = ["Comparison", "compare", "expected_for", "tier_for"]
+__all__ = ["Comparison", "compare", "expected_for", "nx8_steps", "tier_for"]
 
 
 @dataclass(frozen=True)
@@ -40,8 +44,8 @@ class Comparison:
         max_abs: The largest absolute difference.
         max_rel: The largest difference relative to the expected value, over
             the elements whose expected value is not zero.
-        max_ulps: The largest distance in codes (8-bit float formats), else
-            None; -1 when either value of an element is not a finite code.
+        max_ulps: The largest distance in NX8 steps (a tier that counts
+            them), rounded up, else None; -1 when a value is not finite.
         worst_index: Where the element that is furthest out of tolerance is
             (the largest difference when all pass).
         got: The kernel's value there.
@@ -70,16 +74,36 @@ class Comparison:
 
 
 def tier_for(plan: CasePlan, tensor: TensorDecl) -> Tier:
-    """The tier ``[golden] tolerance`` names for the format ``tensor`` is
-    stored in (``plan.format``, or its accumulator format), else EXACT."""
-    return plan.manifest.golden.tolerance.get(stored_format(tensor, plan.format), DEFAULT_TIER)
+    """The tier ``[golden] tolerance`` names for the case's variant (its own
+    key, or its mode's), else EXACT."""
+    return plan.manifest.golden.tolerance.get(plan.format, DEFAULT_TIER)
 
 
 def _rounded(values: Array, tensor: TensorDecl, plan: CasePlan) -> Array:
-    """``values`` as the format ``tensor`` is stored in holds them, as float64."""
-    return held(np.asarray(values, dtype=np.float64), stored_format(tensor, plan.format)).astype(
-        np.float64
-    )
+    """``values`` as ``tensor``'s region holds them in the case's variant."""
+    return held(tensor, np.asarray(values, dtype=np.float64), plan)
+
+
+def nx8_steps(tensor: TensorDecl, want: Array, plan: CasePlan) -> Array:
+    """One NX8 step at each element of ``want`` (an output's golden, as held):
+    the larger gap to a neighbour on the grid of the golden row it sits in.
+
+    Raises:
+        ValueError: ``plan`` runs in FP32 (no grid).
+    """
+    values = np.asarray(want, dtype=np.float64)
+    packed = pack(tensor, values, plan)
+    if packed.metadata is None:
+        raise ValueError(f"{tensor.name}: an FP32 output has no NX8 steps")
+    rows = np.asarray(transform_for(tensor, plan).to_rows(values, plan)).reshape(-1, LANES)
+    steps = np.empty(rows.shape, dtype=np.float64)
+    for index, metadata in enumerate(packed.metadata):
+        grid = row_grid(plan.format, metadata)
+        at = np.clip(np.searchsorted(grid, rows[index]), 0, len(grid) - 1)
+        above = grid[np.minimum(at + 1, len(grid) - 1)] - grid[at]
+        below = grid[at] - grid[np.maximum(at - 1, 0)]
+        steps[index] = np.maximum(above, below)
+    return logical(tensor, steps, plan)
 
 
 def _from_function(source: str, plan: CasePlan, key: str) -> Array:
@@ -172,66 +196,61 @@ def expected_for(
     return out
 
 
-def _ulps(got: Array, want: Array, fmt: ElementFormat) -> Array:
-    """The distance in codes between two arrays of ``fmt`` values; infinite
-    where either value is not a finite code of ``fmt``."""
-    order = codes(fmt)
-
-    def index(values: Array) -> Array:
-        at = np.searchsorted(order, values)
-        exact = order[np.minimum(at, len(order) - 1)] == values
-        found: Array = np.where(exact, at, -1)
-        return found
-
-    g, w = index(got), index(want)
-    distance: Array = np.where((g < 0) | (w < 0), np.inf, np.abs(g - w).astype(np.float64))
-    return distance
-
-
-def compare(output: str, got: Array, want: Array, tier: Tier, fmt: ElementFormat) -> Comparison:
+def compare(
+    output: str,
+    got: Array,
+    want: Array,
+    tier: Tier,
+    fmt: Variant,
+    steps: Array | None = None,
+) -> Comparison:
     """Hold ``got`` to ``want`` at ``tier``.
 
     An element passes when ``|got - want| <= atol + rtol * |want|``, or, for a
-    tier with ``ulps`` in an 8-bit float format, when both are codes of the
-    format at most ``ulps`` codes apart. A NaN or infinity never passes.
+    tier with ``ulps`` in NX8, when it is at most ``ulps`` NX8 steps
+    (``steps``, from :func:`nx8_steps`) away. A NaN or infinity never passes.
 
     Args:
         output: The output's name.
         got: The kernel's values (unpacked).
         want: The expected values (:func:`expected_for`).
         tier: The tolerance.
-        fmt: The format the values are stored in.
+        fmt: The case's variant.
+        steps: One NX8 step at each element (NX8 and a tier that counts them).
 
     Returns:
         The comparison, passed or not, with its worst element.
 
     Raises:
-        ValueError: ``got`` and ``want`` differ in shape.
+        ValueError: ``got`` and ``want`` differ in shape, or a tier counts
+            steps in NX8 and ``steps`` is missing.
     """
     got64 = np.atleast_1d(np.asarray(got, dtype=np.float64))
     want64 = np.atleast_1d(np.asarray(want, dtype=np.float64))
     if got64.shape != want64.shape:
         raise ValueError(f"{output}: got shape {got64.shape}, want {want64.shape}")
-    fp8 = FORMATS[fmt].is_float and FORMATS[fmt].element_bits == 8
-    counts_codes = tier.ulps is not None and fp8
+    counts_steps = tier.counts_steps and fmt.nx8
+    if counts_steps and steps is None:
+        raise ValueError(f"{output}: {tier.name} counts NX8 steps; none given")
     if got64.size == 0:
-        return Comparison(output, tier, True, 0.0, 0.0, 0 if counts_codes else None, (), 0.0, 0.0)
-    with np.errstate(invalid="ignore"):
+        return Comparison(output, tier, True, 0.0, 0.0, 0 if counts_steps else None, (), 0.0, 0.0)
+    with np.errstate(invalid="ignore", divide="ignore"):
         diff = np.abs(got64 - want64)
         diff[~np.isfinite(diff)] = np.inf  # a NaN is as far off as an infinity
         rel = np.divide(diff, np.abs(want64), out=np.zeros_like(diff), where=want64 != 0)
-        ulps: Array | None = None
-        if counts_codes:
-            ulps = _ulps(got64, want64, fmt)
-            excess = ulps - tier.ulps
+        distance: Array | None = None
+        if counts_steps:
+            step = np.atleast_1d(np.asarray(steps, dtype=np.float64)).reshape(diff.shape)
+            distance = np.where(diff == 0, 0.0, diff / step)
+            excess = distance - (tier.ulps or 0)
         else:
             excess = diff - (tier.atol + tier.rtol * np.abs(want64))
     passed = bool(np.all(excess <= 0))
     worst = np.unravel_index(int(np.argmax(excess if not passed else diff)), diff.shape)
     index = tuple(int(i) for i in worst)
     max_ulps = None
-    if ulps is not None:
-        max_ulps = -1 if np.isinf(ulps).any() else int(ulps.max())
+    if distance is not None:
+        max_ulps = -1 if not np.isfinite(distance).all() else int(np.ceil(distance.max()))
     return Comparison(
         output=output,
         tier=tier,

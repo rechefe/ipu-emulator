@@ -45,8 +45,8 @@ bazel run //src/ipu-as:ipu-as -- assemble --input "$PWD/prog.asm" --output "$PWD
 ## Step 2: give the model and the RTL the same starting state
 
 [`reset(fmt)`](../reference/reference-model-api.md#ReferenceModel-reset) sets the element format
-([`ElementFormat`](../reference/reference-model-api.md#ElementFormat)) and the reset values (`CR15` holds the
-default dstructure). [`load_program`](../reference/reference-model-api.md#ReferenceModel-load_program) takes
+([`ElementFormat`](../reference/reference-model-api.md#ElementFormat): `NX8`, the hardware mode, or the
+emulator-only `FP32`) and the reset values (`CR15.L` holds the default DS). [`load_program`](../reference/reference-model-api.md#ReferenceModel-load_program) takes
 the program file's bytes. Then write the registers
 ([`write_register`](../reference/reference-model-api.md#ReferenceModel-write_register)) and XMEM
 ([`write_xmem`](../reference/reference-model-api.md#ReferenceModel-write_xmem)) the test needs. Writes are allowed only while the model
@@ -59,7 +59,7 @@ is halted, which it is after a reset or a program load.
 
 Write the same values into the RTL, over AXI or by backdoor. `CR0` and `CR1`
 are constants and cannot be written. A register is named by its bank, as
-`ipu_isa.registers` names them (`lr`, `cr`, `r`, `r_acc`, `post_aaq_reg`, ...),
+`ipu_isa.registers` names them (`lr`, `cr`, `r`, `r_meta`, `r_cyclic_meta`, `r_acc`, `aaq_lut`, ...),
 and an `index` within the bank. `lr` and `cr` take and return unsigned 32-bit
 ints; the other banks take and return bytes.
 
@@ -173,16 +173,17 @@ Compare only what the model defines. It does not model:
   Clearing its enable bit changes nothing.
 - **F-7.** There is no table configuration, so no table is read-only or
   write-only ([Faults](../requirements/faults.md#in-the-emulator)).
-- **The AaQ stage.** `ACTIVATE.QUANTIZE` is a placeholder: the AaQ spec's
-  LUT, `LOAD` operation and block scale are not modelled, so an RTL that
-  implements the spec differs from the model in AaQ results (OQ-20 and OQ-25
-  in [Open questions](../requirements/open-questions.md#emulator-and-isa)).
+- **The AaQ LUT.** `ACTIVATE.QUANTIZE` quantizes and stores as the AaQ
+  architecture spec says, but evaluates every activation with exact math:
+  `LD.LUT` stores the LUT bits exactly, and the 17-bit entry format is not
+  published yet, so a `generic` activation (and any activation an RTL
+  evaluates through its LUT) can differ from the model in the last bits
+  (OQ-38 in [Open questions](../requirements/open-questions.md#emulator-and-isa)).
 - **The disabled behaviour of F-2 to F-6.** `set_fault_enable` refuses to
   clear their enable bits (OQ-2 in
   [Open questions](../requirements/open-questions.md#faults)).
 
 The model also has behaviour the hardware does not. Skip it in an RTL test:
-the wide formats (`FP32`, `INT32`), the `r_wide_debug` and
-`r_cyclic_wide_debug` banks, and the emulator-only `acc_store` slot
-(`ST.ACC`). In a commit record, a slot op or register write of these carries
+the `FP32` mode, the `r_wide_debug` and `r_cyclic_wide_debug` banks, and
+the emulator-only `aaq_exact` slot (`ACTIVATE.EXACT`). In a commit record, a slot op or register write of these carries
 `"tag": "emulator"`.

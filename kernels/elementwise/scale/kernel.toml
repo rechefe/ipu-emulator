@@ -1,27 +1,30 @@
 [kernel]
 op = "scale"
-formats = ["fp32", "int8", "e4"]
+formats = ["fp32"]                        # FP32 only (ADR 0007); test/scales/scale_rows runs NX8
 
 [params]
 rows = { type = "int", min = 1, max = 256 }
-s    = { type = "float" }                 # element scalar: encoded in the active format
+s    = { type = "float" }                 # MULT constant: its float32 bits in FP32
 
 [inputs.x]
 shape = ["rows", 128]                     # automatic placement; add row = N to pin
 
 [outputs.y]
-shape = ["rows", 128]
-store = "accumulator"                     # ST.ACC: FP32 (INT32 in INT8)
+shape = ["rows", 128]                     # ACTIVATE.EXACT identity: one FP32 row per iteration
+
+[derived]
+qf = "case_qf"                            # the case's QF half (0 in FP32, which ignores it)
 
 [abi]                                     # name -> CR; templates see {{ cr.x }} == "CR2"
 x    = "CR2"
 y    = "CR3"
 rows = "CR4"
 s    = "CR5"
+qf   = "CR6"
 
 [golden]
 reference = "reference.py:reference"
-tolerance = { fp32 = "EXACT", int32 = "EXACT" }   # y, an accumulator output, is compared as FP32 (INT32 in INT8)
+tolerance = { fp32 = "EXACT" }
 
 [cases.default]
 rows = 4
@@ -33,11 +36,10 @@ s = -3.0
 
 [cases.sweep]                             # one case per value: sweep[rows=1], sweep[rows=7], ...
 rows = [1, 7, 33, 128]
-s = 1.5                                   # exact in E4 and FP32, not in INT8
-formats = ["fp32", "e4"]                  # per-case format limit
+s = 1.5
 
 [cases.mine]                              # user data instead of the generator / reference
 rows = 2
 s = 2.0
-inputs = { x = "data/x.npy" }             # small integers in [-8, 8]: exact in fp32, int8 and e4
-expected = { y = "data/y.npy" }           # so y = 2x is exact in every format too
+inputs = { x = "data/x.npy" }             # small integers in [-8, 8]
+expected = { y = "data/y.npy" }           # so y = 2x is exact

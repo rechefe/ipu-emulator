@@ -32,7 +32,7 @@ from ipu_isa.acc_stride_enums import (
     HORIZONTAL_STRIDE_NAMES,
     VERTICAL_STRIDE_NAMES,
 )
-from ipu_isa.activations import ACTIVATION_FN_NAMES
+from ipu_isa.activations import AAQ_ACTIVATION_FN_NAMES, ACTIVATION_FN_NAMES
 from ipu_isa.errors import IsaLookupError
 from ipu_isa.geometry import INST_MEM_WORDS
 from ipu_isa.incr_mod_pow2_k import (
@@ -40,6 +40,7 @@ from ipu_isa.incr_mod_pow2_k import (
     LR_MOD_POW2_K_MAX,
     LR_MOD_POW2_K_MIN,
 )
+from ipu_isa.lut import SEGMENTS as LUT_SEGMENTS
 from ipu_isa.mult_mask_offset import MULT_MASK_OFFSET_FIELD_BITS, MULT_MASK_SLOT_COUNT
 from ipu_isa.registers import REGISTER_DEFINITIONS
 
@@ -112,6 +113,19 @@ class FieldCodes:
 
 _LR_COUNT = REGISTER_DEFINITIONS["lr"]["count"]
 _CR_COUNT = REGISTER_DEFINITIONS["cr"]["count"]
+
+
+#: The ``HalfCrIdx`` domain: code ``2 * index + high``.
+HALF_CR_NAMES: tuple[str, ...] = tuple(
+    f"cr{index}.{half}" for index in range(_CR_COUNT) for half in ("l", "h")
+)
+#: The ``LcrHalfIdx`` domain: LRs, CRs, then every LOW half, then every HIGH half.
+LCR_HALF_NAMES: tuple[str, ...] = (
+    tuple(f"lr{index}" for index in range(_LR_COUNT))
+    + tuple(f"cr{index}" for index in range(_CR_COUNT))
+    + tuple(f"cr{index}.l" for index in range(_CR_COUNT))
+    + tuple(f"cr{index}.h" for index in range(_CR_COUNT))
+)
 
 
 def code_bits(count: int) -> int:
@@ -189,16 +203,14 @@ _SPEC: dict[str, dict[str, Any]] = {
         "sv_typedef": "cr_reg_field_t",
         "summary": "Configuration register CR0–CR15.",
         "doc": "Constant-register index: **`CR0`** … **`CR15`**. CRs are **read-only** in assembly; the "
-        "harness initializes them (e.g. base pointers, strides). **`CR15`** conventionally holds "
-        "dstructure configuration but is a valid `CrIdx` operand like any other CR. **`SET`** in "
-        "the LR slot copies the full **32-bit** CR value into an LR.\n\n"
+        "harness initializes them (e.g. base pointers, strides, QF and DS halves). **`SET`** in "
+        "the LR slot copies the full **32-bit** CR value (or a sign-extended half) into an LR.\n\n"
         "**CR as an element scalar.** When a CR is a multiply's scalar element operand "
-        "(**`MULT.VE`**, **`MULT.EE`**, a CR **`src`** of **`MULT.RC.VE`**), the scalar is the CR's "
-        "low element-width bits decoded in the active element format: the low byte in INT8 and "
-        "E1–E7, all 32 bits in INT32 and FP32 (so FP32 1.0 is the CR value `0x3F800000`). One rule "
-        "for every format. **`CR0`** reads as 0 and **`CR1`** as 1 in the active format (1.0 in a "
-        "float format), so a multiply by **`CR1`** is an identity in every format; as an LR or "
-        "integer operand **`CR1`** is the integer 1.",
+        "(**`MULT.VE`**, **`MULT.EE`**, a CR **`src`** of **`MULT.RC.VE`**), NX8 mode decodes it "
+        "with the MULT constant layout (`value[7:0]`, `scale[15:8]`, `fe[19:16]`, `sign[23:20]`; "
+        "`ipu_isa.cr_halves`) and FP32 mode reads it as IEEE float32 bits. **`CR0`** reads as 0.0 "
+        "and **`CR1`** as 1.0 in both modes, so a multiply by **`CR1`** is an identity; as an LR "
+        "or integer operand **`CR1`** is the integer 1.",
     },
     "LcrIdx": {
         "kind": OperandKind.REGISTER,
@@ -210,8 +222,7 @@ _SPEC: dict[str, dict[str, Any]] = {
         "sv_typedef": "lcr_reg_field_t",
         "summary": "A loop register or a configuration register in one field.",
         "doc": "LR **or** CR index in one field: lower indices map to **`LR0`–`LR15`**, higher indices to "
-        "**`CR0`–`CR15`** in the usual combined ordering used by the assembler. Used as **`src_b`** "
-        "on **`ADD`**/**`SUB`**, as **`step`** on **`INC.MODP2`**, and as **`src`** on "
+        "**`CR0`–`CR15`** in the usual combined ordering used by the assembler. Used as **`src`** on "
         "**`MULT.RC.VE`** (an LR's stored value selects an element from `R0`/`R1`; a CR is the scalar "
         "directly, decoded as in [CrIdx](#cridx)).",
     },
@@ -230,22 +241,35 @@ _SPEC: dict[str, dict[str, Any]] = {
         "(low elements). Purely an assembler/emulator view; there is no separate physical storage. "
         "Used as **`dest`** on **`ADDB`** / **`ADDBI`**.",
     },
-    "DstructureCrIdx": {
+    "HalfCrIdx": {
         "kind": OperandKind.REGISTER,
-        "bits": code_bits(_CR_COUNT),
-        "domain": Domain(members=_members("cr")),
+        "bits": code_bits(len(HALF_CR_NAMES)),
+        "domain": Domain(members=HALF_CR_NAMES),
         "readable": False,
-        "token_class": "DstructureCrRegField",
-        "field_suffix": "dstructure_cr_reg_field",
-        "sv_typedef": "dstructure_cr_reg_field_t",
-        "summary": "Configuration register holding the dstructure (valid elements, partition, pad mode).",
-        "doc": "Constant-register index: **`CR0`** … **`CR15`**, selecting which CR supplies the "
-        "**valid element mask** / dstructure configuration (`valid_elements`, `partition`) for "
-        "`AGG.SUM`, `AGG.SUM.FIRST`, `AGG.MAX`, `AGG.MAX.FIRST`, `ACTIVATE.QUANTIZE`, and the "
-        "masking multiply instructions (`MULT.RC.VV`, `MULT.RC.VE`, `MULT.RC.VS`, `MULT.VE`, "
-        "`MULT.EE`). Unlike **`CrIdx`**, **`CR15`** is allowed here — it's the conventional "
-        "dstructure register — but the operand is always mandatory; there is no implicit "
-        "fallback to `CR15` when it is omitted.",
+        "token_class": "HalfCrRegField",
+        "field_suffix": "half_cr_reg_field",
+        "sv_typedef": "half_cr_reg_field_t",
+        "summary": "One 16-bit half of a configuration register: CR0.L … CR15.H.",
+        "doc": "Half-CR selector: **`CR0.L`**, **`CR0.H`**, … **`CR15.H`** (code = 2 × index + H). "
+        "`.L` is bits 15:0 of the CR, `.H` bits 31:16. Used for the **`ds`** (data structure) and "
+        "**`qf`** (quantization format) operands of the MULT, AGG and AaQ instructions; their 16-bit "
+        "layouts are in `ipu_isa.cr_halves` (ADR 0007). A bare **`CR13`** is not accepted here: "
+        "the operand always names a half. **`CR15.L`** holds the default DS at reset.",
+    },
+    "LcrHalfIdx": {
+        "kind": OperandKind.REGISTER,
+        "bits": code_bits(len(LCR_HALF_NAMES)),
+        "domain": Domain(members=LCR_HALF_NAMES),
+        "readable": True,
+        "token_class": "LcrHalfRegField",
+        "field_suffix": "lcr_half_reg_field",
+        "sv_typedef": "lcr_half_reg_field_t",
+        "summary": "A loop register, a configuration register or a CR half in one field.",
+        "doc": "LR, CR or CR-half index in one 6-bit field: codes 0–15 are **`LR0`–`LR15`**, 16–31 "
+        "**`CR0`–`CR15`**, 32–47 **`CR0.L`–`CR15.L`** and 48–63 **`CR0.H`–`CR15.H`**. A half is "
+        "read as its 16 bits sign-extended to 32. The scalar source of the LR instructions "
+        "(**`SET`** `src`, **`ADD`**/**`SUB`**/**`ADDB`** `src_b`, **`INC.MODP2`** `step`) and the "
+        "compared registers of the COND branches.",
     },
     "ElementsInRow": {
         "kind": OperandKind.ENUM,
@@ -292,13 +316,40 @@ _SPEC: dict[str, dict[str, Any]] = {
         "token_class": "ActivationFnField",
         "field_suffix": "activation_fn_field",
         "sv_typedef": "activation_fn_field_t",
-        "summary": "ACTIVATE.QUANTIZE activation function keyword.",
-        "doc": "AAQ-slot keyword on **`ACTIVATE.QUANTIZE`**: one of **identity**, **relu**, **relu6**, "
+        "summary": "ACTIVATE.EXACT activation function keyword (emulator-only, 13 functions).",
+        "doc": "Keyword on the emulator-only **`ACTIVATE.EXACT`**: one of **identity**, **relu**, **relu6**, "
         "**sigmoid**, **tanh**, **gelu**, **softplus**, **elu**, **exp2**, **reciprocal**, **rsqrt**, **silu**, **window** "
         "(see ``ACTIVATION_FN_NAMES`` in ``ipu_isa.activations``). Emulator-only calibration (including α and the "
         "**window** bounds a, b) "
-        "is described in **`ACTIVATE.QUANTIZE` in the emulator** "
-        "(`docs/content/reference/isa/activate-quantize.md`).",
+        "is described in the **`ACTIVATE.EXACT`** section of "
+        "`docs/content/reference/isa/activate-quantize.md`.",
+    },
+    "AaqActivationFn": {
+        "kind": OperandKind.ENUM,
+        "bits": code_bits(len(AAQ_ACTIVATION_FN_NAMES)),
+        "domain": Domain(members=AAQ_ACTIVATION_FN_NAMES),
+        "readable": False,
+        "token_class": "AaqActivationFnField",
+        "field_suffix": "aaq_activation_fn_field",
+        "sv_typedef": "aaq_activation_fn_field_t",
+        "summary": "ACTIVATE.QUANTIZE activation function (3-bit, ARCH encoding).",
+        "doc": "AAQ-slot keyword on **`ACTIVATE.QUANTIZE`**: **identity** (0), **relu** (1), "
+        "**relu6** (2), **reciprocal** (3), **rsqrt** (4), **exp2** (5), **generic** (6), as "
+        "`ARCH-stage-aaq-str.md` encodes them (code 7 is reserved). **generic** evaluates the LUT "
+        "loaded with `LD.LUT`; the emulator computes the function a test declares as loaded "
+        "(ADR 0007).",
+    },
+    "LutAddrImmediate": {
+        "kind": OperandKind.IMMEDIATE,
+        "bits": 3,
+        "domain": Domain(value_range=(0, LUT_SEGMENTS - 1)),
+        "readable": False,
+        "token_class": "LutAddrImmediate",
+        "field_suffix": "lut_addr_immediate",
+        "sv_typedef": None,
+        "summary": "LD.LUT segment index 0-4.",
+        "doc": "Three-bit immediate on **`LD.LUT`**: which of the five 1024-bit LUT segments the "
+        "load fills (**`0`**–**`4`**; codes 5–7 are reserved).",
     },
     "LrIncDecImmediate": {
         "kind": OperandKind.IMMEDIATE,

@@ -17,18 +17,17 @@ from ipu_isa.slots import Slot
 from ipu_isa.view import isa
 
 # The all-NOP word, slot by slot in layout order (MSB first): COND, LR0-LR2,
-# LOAD, MULT, ACC, AAQ, STORE, ACC_STORE, BREAK.
+# LOAD, MULT, ACC, AAQ, AAQ_EXACT, BREAK.
 NOP_SLOTS = [
     "NOP 0 lr0 lr0",
     "NOP 0 lr0 lr0",
     "NOP 0 lr0 lr0",
     "NOP 0 lr0 lr0",
     "NOP cr0 lr0 lr0",
-    "NOP lr0 cr0 lr0 lr0 0",
-    "NOP cr0 lrd0 lr0 off",
-    "NOP identity cr0",
-    "NOP cr0 lr0",
-    "NOP cr0 lr0",
+    "NOP lr0 cr0.l cr0.l lr0 lr0 0",
+    "NOP cr0.l lrd0 lr0 off",
+    "NOP identity cr0 cr0.l cr0.l lr0",
+    "NOP identity cr0 cr0.l lr0",
     "NOP 0 lr0",
 ]
 
@@ -96,8 +95,7 @@ def test_slot_operations_labels_every_instance():
         "MULT",
         "ACC",
         "AAQ",
-        "STORE",
-        "ACC_STORE",
+        "AAQ_EXACT",
         "BREAK",
     ]
     assert all(text == "NOP" for _, text in slot_operations(WORD_CODEC.pack({})))
@@ -105,9 +103,19 @@ def test_slot_operations_labels_every_instance():
 
 def test_a_value_past_the_last_member_is_marked_illegal():
     lr = SLOT_CODECS[Slot.LR]
-    # SET's src (CrIdx, 16 members) sits in the 8-bit field 0.
+    # SET's src (LcrHalfIdx, 64 members) sits in the 8-bit field 0.
     value = (isa().instruction(Slot.LR, "SET").opcode << 16) | (200 << 8) | (1 << 4)
-    assert slot_text(lr.decode(value)) == "SET <illegal_CrIdx_200> lr1 lr0"
+    assert slot_text(lr.decode(value)) == "SET <illegal_LcrHalfIdx_200> lr1 lr0"
+
+
+def test_half_cr_operands_disassemble_with_their_half():
+    mult = _slot(Slot.MULT, "MULT.VE", [0, 3, 0, 0, 30, 27])
+    assert slot_text(mult).endswith("cr15.l cr13.h lr0 lr0 0") or "cr15.l" in slot_text(mult)
+    word = WORD_CODEC.pack({(Slot.MULT, 0): mult.value})
+    assert dict(slot_operations(word))["MULT"] == "MULT.VE lr0 cr3 0 lr0 cr15.l cr13.h"
+    cond = _slot(Slot.COND, "BEQ", [16 + 32 + 5, 48 + 2, 7])
+    word = WORD_CODEC.pack({(Slot.COND, 0): cond.value})
+    assert dict(slot_operations(word))["COND"] == "BEQ cr5.h cr2.h 7"
 
 
 def test_an_illegal_mult_stage_names_its_type():

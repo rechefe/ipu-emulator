@@ -24,4 +24,4 @@ def test_immediates_imported_first_see_the_packed_widths():
         check=True,
         env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)},
     )
-    assert result.stdout.split() == ["8", "4"]
+    assert result.stdout.split() == ["8", "5"]

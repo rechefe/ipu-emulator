@@ -1,0 +1,30 @@
+{
+ "description": "timing probe lr_dec_own_dest in NX8",
+ "format": "nx8",
+ "emulator_only": false,
+ "max_cycles": 1000,
+ "fault_enables": {},
+ "registers": [
+  {
+   "name": "r_mask",
+   "index": 0,
+   "hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  {
+   "name": "cr",
+   "index": 2,
+   "value": 10
+  },
+  {
+   "name": "cr",
+   "index": 14,
+   "value": 328
+  },
+  {
+   "name": "cr",
+   "index": 15,
+   "value": 4224
+  }
+ ],
+ "xmem": []
+}

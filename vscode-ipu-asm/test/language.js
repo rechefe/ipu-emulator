@@ -57,7 +57,7 @@ test('the cursor context: mnemonic, operand index, comment or Jinja', () => {
 
 test('only mnemonics that fit the word\'s free slots are offered; operand types and their values', () => {
   // kernels/pooling/maxpool2d_nms: if / else alternatives are alternatives, not a mnemonic and its operand.
-  const alternatives = 'MULT.VE lr0 cr1 0 lr0 cr15 ; {% if a %}ACC.MAX.FIRST{% else %}ACC.MAX|{% endif %} ;;';
+  const alternatives = 'MULT.VE lr0 cr1 0 lr0 cr15.l cr14.l ; {% if a %}ACC.MAX.FIRST{% else %}ACC.MAX|{% endif %} ;;';
   for (const [marked, absent, present] of [
     ['SET lr0 cr0; SET lr1 cr0; SET lr2 cr0; |', ['SET'], ['HALT']], // three fill the LR slots
     ['| ; BLT.S lr0 cr4 top;;', ['BEQ', 'B'], ['SET']], // pseudo B also expands to cond
@@ -72,8 +72,13 @@ test('only mnemonics that fit the word\'s free slots are offered; operand types 
   // ipu_as.encode.assign_slots: in source order, NOP takes the first free slot in order -- cond.
   eq([fb.fits(['NOP', 'HALT']), fb.fits(['HALT', 'NOP'])], [false, true]);
   // Operand types come from isa.json; accepts follows the domain, case and number bases.
+  // The hardware instruction takes the 3-bit ARCH list; the 13-name list is ACTIVATE.EXACT's (ADR 0007).
   const t = lang.operandType('ACTIVATE.QUANTIZE', 0);
-  assert(t.operand.type === 'ActivationFn' && t.domain.values.includes('window'));
+  assert(t.operand.type === 'AaqActivationFn' && t.domain.values.includes('exp2') && !t.domain.values.includes('window'));
+  const exact = lang.operandType('ACTIVATE.EXACT', 0);
+  assert(exact.operand.type === 'ActivationFn' && exact.domain.values.includes('window'));
+  const ds = lang.operandType('ACTIVATE.QUANTIZE', 1);
+  assert(ds.operand.type === 'HalfCrIdx' && lang.accepts(ds.domain, 'CR13.H') && !lang.accepts(ds.domain, 'cr13'));
   assert.strictEqual(lang.operandType('HALT', 0), null);
   const lr = isa.operandTypes.LrIdx;
   assert(lang.accepts(lr, 'LR3') && !lang.accepts(lr, 'cr3'));
@@ -257,7 +262,7 @@ test('Format Document and Format Selection', () => {
     [words, BL, 'top:\n    SET lr0 cr0;\n    SET lr1 cr0;;\n\n    HALT;;'], // an empty line between words, not in one
     [words, undefined, undefined], // off by default
     ['HALT;;\n\n\nHALT;;', BL, `${B}\n\n\n${B}`], // existing blank lines stay
-    ['{%- set r = "lr0" -%}\n# note\n    MULT.VE {{r}}   cr1 0 {{r}} cr15 ;     {#- aligned -#}\n    ACC.ADD.FIRST ;; // done', NO, undefined], // spacing kept
+    ['{%- set r = "lr0" -%}\n# note\n    MULT.VE {{r}}   cr1 0 {{r}} cr15.L cr14.L ;     {#- aligned -#}\n    ACC.ADD.FIRST ;; // done', NO, undefined], // spacing kept
     ['    HALT;; # HALT;; more', undefined, undefined], // code after ;; in a comment or tag is not split off
     ['    HALT;; {# x;; y #}', undefined, undefined],
     ['{%- macro m(a,\n      b) -%}\n{{ block(0) }}\n{% endmacro %}', undefined, undefined], // multi-line tags and calls

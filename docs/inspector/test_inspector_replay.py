@@ -59,10 +59,11 @@ def _recorded(folder, case_name, tmp_path):
 
 
 #: Kernel-tree cases, recorded by the runner's recorder (``--trace --context``):
-#: INT8 and FP8 vector registers, a loop over FP32 rows, and LR/CR in a small loop.
+#: NX8 vector registers with row metadata (a fixed and a dynamic variant), a
+#: loop over FP32 rows, and LR/CR in a small loop.
 #: Each with a word the context's labels name, as (pc, label).
 TREE_CASES = [
-    ("kernels/conformance/vector_tour", "int8", (15, "matvec")),
+    ("kernels/conformance/vector_tour", "dynamic", (15, "matvec")),
     ("kernels/conformance/vector_tour", "e4", (15, "matvec")),
     ("kernels/softmax/softmax_rows", "constant_row", None),
     ("kernels/reshape/identity", "default", (1, "row_loop")),

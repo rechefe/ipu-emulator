@@ -38,7 +38,7 @@
                       -> MULT_RES[s] = Q[i,c] * K[s,c]
                     ACC.ADD.FIRST (c=0) / ACC.ADD  -> R_ACC[s] += Q[i,c] * K[s,c]
       after 60 channels R_ACC[s] = S[i, s] for the 16 keys.
-      ACTIVATE.QUANTIZE identity + ST.AAQ
+      ACTIVATE.EXACT identity (activate and store)
                     -> S[i] (one whole row, first 16 lanes live, query-major)
 
     No AGG. The store goes through the standard quantize boundary, same as every
@@ -99,7 +99,7 @@
 {% set K_START     = cr.k_start  %}  {# -1 row startup skew (first live = row 0) #}
 {% set CHAN_START  = cr.chan_start  %}  {# -1 -> first live c = 0 #}
 {% set QROW_BASE   = cr.a  %}  {# staged query-major Q base #}
-{% set DSTRUCT     = cr.dstruct %}  {# dstructure register: valid_elements = 16 #}
+{% set DSTRUCT     = cr.dstruct ~ ".L" %}  {# DS half: valid_elements = 16 #}
 
     # chan_last = chan_bound + 1 (= D-1 = 59). See the cycle-start value note in the
     # header: chan_index's ADD now sits one word ahead of the BLT.S, so the branch
@@ -120,7 +120,7 @@ q_loop:
     ADD {{ chan_index }} {{ chan_index }} {{ ONE }};;
 
     # Peeled first channel (c=0): ACC.ADD.FIRST seeds R_ACC.
-    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ cr.qf }}.L;
     ACC.ADD.FIRST;
     LD.MULT.CYCLIC {{ k_ptr }} {{ K_BASE }} {{ rc_slot0 }};
     ADD {{ k_ptr }} {{ k_ptr }} {{ k_stride }};
@@ -131,15 +131,14 @@ c_loop_pre:
     ADD {{ chan_index }} {{ chan_index }} {{ ONE }};;                                            # name the channel just loaded
 
 c_loop:
-    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ cr.qf }}.L;
     ACC.ADD;
     LD.MULT.CYCLIC {{ k_ptr }} {{ K_BASE }} {{ rc_slot0 }};
     ADD {{ k_ptr }} {{ k_ptr }} {{ k_stride }};
     BLT.S {{ chan_index }} {{ chan_last }} c_loop_pre;;
 
 after_c:
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    ST.AAQ {{ out_ptr }} {{ S_BASE }};;  # store one row -> S[i, keys 0..15]
+    ACTIVATE.EXACT identity {{ DSTRUCT }} {{ S_BASE }} {{ out_ptr }} ;;  # store one row -> S[i, keys 0..15]
     ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;                                          # advance output ptr (+1 row)
 
     ADD {{ q_ptr }} {{ q_ptr }} {{ qrow_stride }};

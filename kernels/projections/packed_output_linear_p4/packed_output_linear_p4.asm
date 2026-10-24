@@ -2,7 +2,7 @@
     packed_output_linear_p4.asm -- one packed output row of a projection,
     y = activation(a @ b), in the MobileViT packed layout at tokens = 64, FP32.
     The template of packed_output_linear{,_silu}_192 (../registry.toml,
-    E07-23): the activation selects the final ACTIVATE.QUANTIZE (none or
+    E07-23): the activation selects the final ACTIVATE.EXACT (none or
     silu); E02 digests at k = 192 and 768. chunk_widths is computed here from
     k: 128 a weight-chunk, the last one k % 128.
 
@@ -12,8 +12,9 @@
                     (pack weight_chunks, ../pack.py)
       y             the one packed output row: y[o, t] at lane 64 * o + t
       mask          one R_MASK row: slot p enables output p's window
-      dstruct_mult  dstructure, 128 valid elements, partition P2
-      dstruct_row   dstructure, 128 valid elements (the store)
+      dstruct_mult  the MULT's DS in .L: ds(64, 2, 2), partition P2
+      ds_qf         the store's DS in .L (ds(128), every lane) and the case's
+                    QF in .H (no CR is free for a QF of its own)
       seed0, seed1  CR8, CR9: R_CYCLIC index seeds, (512 - 64 (p + 1)) % 512
     The program sets every LR it reads.
 
@@ -85,8 +86,9 @@
 {% set WEIGHTS_BASE  = cr.a  %}
 {% set OUTPUT_BASE   = cr.y  %}
 {% set MASK_BASE     = cr.mask  %}
-{% set DSTRUCT_MULT  = cr.dstruct_mult  %}
-{% set DSTRUCT_STORE = cr.dstruct_row  %}
+{% set DSTRUCT_MULT  = cr.dstruct_mult ~ ".L"  %}
+{% set DSTRUCT_STORE = cr.ds_qf ~ ".L"  %}
+{% set QF            = cr.ds_qf ~ ".H"  %}
 {% set SEED_CR = [cr.seed0, cr.seed1] %}
 {#- SEED_CR[p_out] holds (512 - 64*p_out - 64) % 512, the pre-increment-biased
     rc_idx seed for output partition p_out (a kernel.toml [derived] constant, bound in [abi]). #}
@@ -125,7 +127,7 @@
     {%- for p_in in range(2) %}
     INC {{ rc_idx_reg }} 64;
     INC {{ k_idx }} 1;
-    MULT.RC.VE {{ rc_idx_reg }} {{ k_idx }} {{ p_out }} {{ mask_off_lr }} {{ DSTRUCT_MULT }};
+    MULT.RC.VE {{ rc_idx_reg }} {{ k_idx }} {{ p_out }} {{ mask_off_lr }} {{ DSTRUCT_MULT }} {{ QF }};
     ACC.ADD{{ ".FIRST" if (first and p_out == 0 and p_in == 0) else "" }};;
     {%- endfor %}
     {%- if p_out < 1 %}
@@ -218,8 +220,7 @@ wc_loop_continue:
 wc_loop_exit:
     {%- endif %}
 
-    ACTIVATE.QUANTIZE {{ "identity" if activation == "none" else activation }} {{ DSTRUCT_STORE }};
-    ST.AAQ {{ out_ptr }} {{ ZERO }};;
+    ACTIVATE.EXACT {{ "identity" if activation == "none" else activation }} {{ DSTRUCT_STORE }} {{ ZERO }} {{ out_ptr }};;
 
 end:
     HALT;;

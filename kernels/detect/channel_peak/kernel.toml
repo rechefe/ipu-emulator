@@ -15,6 +15,7 @@ threshold = { type = "float", default = 0.0 }          # tau, a resident row
 tiles  = "ceil(columns / 128)"                         # rows per channel plane
 slot1  = "128"                                         # R_CYCLIC slot 1, where tau lives
 keep   = "base(y) + tiles"                             # y[1]'s first row
+qf     = "case_qf"                                     # the case's QF half (0: FP32 ignores it)
 
 # Placed from row 0: x, tau, y (the old image: logits, tau row, output).
 [inputs.x]
@@ -36,6 +37,7 @@ tau      = "CR5"
 tiles    = "CR6"
 channels = "CR7"
 slot1    = "CR10"
+qf       = "CR14"
 
 [golden]
 op = "channel_peak"

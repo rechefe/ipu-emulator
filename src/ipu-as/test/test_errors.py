@@ -36,11 +36,11 @@ CASES = [
     ),
     (
         "enum-not-an-option",
-        "ACTIVATE.QUANTIZE nosuch CR15;;",
+        "ACTIVATE.QUANTIZE nosuch CR15.L CR14.L CR2 LR0;;",
         OperandError,
         (1, 19),
         "nosuch",
-        "Invalid token value - nosuch in token ActivationFnField\nIn Line 1, Column 19",
+        "Invalid token value - nosuch in token AaqActivationFnField\nIn Line 1, Column 19",
     ),
     (
         "label-not-defined",
@@ -70,9 +70,9 @@ CASES = [
         "nop-all-slots-filled",
         ";".join(["NOP"] * 20) + ";;",
         SlotError,
-        (1, 45),
+        (1, 41),
         "NOP",
-        "NOP: all slots are already filled\nAt: Line 1, Column 45",
+        "NOP: all slots are already filled\nAt: Line 1, Column 41",
     ),
     (
         "too-many-per-slot",

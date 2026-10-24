@@ -30,7 +30,7 @@ class RegKind(Enum):
 
     MULT:  Multiply-stage registers (r0, r1, r_cyclic, r_mask)
     ACC:   Accumulator-stage registers (r_acc, mult_res)
-    AAQ:   Activation & quantization stage (post_aaq_reg)
+    AAQ:   Activation & quantization stage (aaq_lut)
     LR:    Loop registers (lr0-lr15)
     CR:    Configuration registers (cr0-cr15)
     MISC:  Miscellaneous registers

@@ -2,24 +2,23 @@
     fully_connected.asm -- a fully connected layer: y[s, :] = w @ x[s, :]
 
     10 samples of 128 inputs, 64 outputs; the shapes are fixed by the loops
-    (kernel.toml's samples, in_features, out_features). The same program runs
-    in INT8, INT32 (the emulator-only wide-integer format: INT8 data in 32-bit
-    elements) and E4/E5; only the CR values differ, because a
-    row is 128 bytes in an 8-bit format and 512 bytes in INT32.
+    (kernel.toml's samples, in_features, out_features). It runs in NX8
+    (ADR 0007), in each variant the case names (E4, E5, dynamic): the MULT
+    expands x and w with the QF half cr.qf.L and each row's metadata, R_ACC
+    accumulates in FP32, and the store quantizes each sample's outputs back to
+    that QF.
 
     Data layout (rows; the regions sit at the old harness's byte addresses,
-    0x0, 0x20000 and 0x40000, in every format):
+    0x0, 0x20000 and 0x40000):
       cr.x   x, one row per sample (128 inputs)
       cr.w   w transposed: row i holds input i's weight for each of the 64
              outputs, lanes 64..127 zero (kernel.toml's pack = "transposed")
-      cr.y   y, one accumulator vector per sample. ST.ACC writes the whole
-             512-byte accumulator whatever the format, so samples are
-             cr.y_stride rows apart: 4 rows in an 8-bit format, 1 in INT32
-             (one INT32 output vector alone takes 2 narrow rows; a 2-row
-             stride would make the stores overlap). Only the first 64
-             accumulator lanes are outputs. The 64 outputs are padded to 128
-             lanes and no narrower width is declared, so every multiply
-             counts all 128 lanes.
+      cr.y   y, one row per sample (cr.y_stride = 1): ACTIVATE.QUANTIZE
+             identity stores 128 elements and the row's metadata. Only the
+             first 64 lanes are outputs; the zero lanes 64..127 do not move
+             the row's scale. The 64 outputs are padded to 128 lanes and no
+             narrower width is declared, so every multiply counts all 128
+             lanes.
 
     Loops: for each sample (LR0 = 0 .. samples - 1, LR1 = samples), load the
     sample into R0, then for each input element e (LR5) multiply weight row
@@ -44,10 +43,8 @@
     Registers (kernel.toml's [abi]): cr.row_step = cr.element_step = 1,
     cr.first_sample = cr.lr2_start = cr.cyclic_index = 0, cr.samples = 10,
     cr.last_element = 127 (the element loop's BNE exit). CR1 = 1 is
-    read-only; CR15 holds the default dstructure (128 valid elements).
-
-    ST.ACC (the A16_STR_ACC_REG alias, once per sample) is emulator-only: a
-    run warns DebugOnlyInstructionWarning.
+    read-only; CR15.L holds the default DS (ds(128): every lane); cr.qf.L
+    is the case's QF (kernel.toml's case_qf).
 ========================================================================== -#}
     SET                 LR0 {{ cr.first_sample }} ;;
     SET                 LR1 {{ cr.samples }} ;;
@@ -66,7 +63,7 @@ input_loop:
     ADD                 LR14 LR14 {{ cr.row_step }} ;
     ADD                 LR5  LR5  {{ cr.element_step }} ;;          {#- LR14 -> element 1's offset; LR5 -> 0 -#}
 
-    MULT.RC.VE          LR15 LR5 0 LR15 CR15;
+    MULT.RC.VE          LR15 LR5 0 LR15 CR15.L {{ cr.qf }}.L;
     ACC.ADD.FIRST;
     LD.MULT.CYCLIC LR14 {{ cr.w }} LR15;
     BNE                 LR5 LR6 element_loop_pre;;
@@ -77,13 +74,13 @@ element_loop_pre:
     ADD                 LR5 LR5 {{ cr.element_step }};;             {#- LR14 -> next load offset; LR5 -> element just loaded -#}
 
 element_loop:
-    MULT.RC.VE          LR15 LR5 0 LR15 CR15;
+    MULT.RC.VE          LR15 LR5 0 LR15 CR15.L {{ cr.qf }}.L;
     ACC.ADD;
     LD.MULT.CYCLIC LR14 {{ cr.w }} LR15;
     BNE                 LR5 LR6 element_loop_pre;;
 
 after_element_loop:
-    ST.ACC         LR7 {{ cr.y }};;
+    ACTIVATE.QUANTIZE identity CR15.L {{ cr.qf }}.L {{ cr.y }} LR7;;
     ADD                 LR7 LR7 {{ cr.y_stride }};
     ADD                 LR0 LR0 {{ cr.row_step }};;
 

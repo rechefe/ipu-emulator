@@ -10,7 +10,7 @@ from ipu_isa.acc_stride_enums import (
     decodable_horizontal_stride_names,
     decodable_vertical_stride_names,
 )
-from ipu_isa.activations import ACTIVATION_FN_NAMES
+from ipu_isa.activations import AAQ_ACTIVATION_FN_NAMES, ACTIVATION_FN_NAMES
 from ipu_isa.incr_mod_pow2_k import (
     LR_MOD_POW2_K_FIELD_BITS,
     LR_MOD_POW2_K_MAX,
@@ -210,11 +210,50 @@ class LrOrReshapeMaskImmediate(ipu_token.IpuToken):
 
 
 class ActivationFnField(ipu_token.EnumToken):
-    """Activation keyword for ``ACTIVATE`` (names from ``ACTIVATION_FN_NAMES``)."""
+    """Activation keyword for ``ACTIVATE.EXACT`` (names from ``ACTIVATION_FN_NAMES``)."""
 
     @classmethod
     def enum_array(cls) -> list[str]:
         return list(ACTIVATION_FN_NAMES)
+
+
+class AaqActivationFnField(ipu_token.EnumToken):
+    """Activation keyword for ``ACTIVATE.QUANTIZE`` (ARCH names, ``AAQ_ACTIVATION_FN_NAMES``)."""
+
+    @classmethod
+    def enum_array(cls) -> list[str]:
+        return list(AAQ_ACTIVATION_FN_NAMES)
+
+
+class LutAddrImmediate(ipu_token.IpuToken):
+    """``LD.LUT`` segment index 0-4, in a 3-bit field (5-7 are reserved)."""
+
+    @classmethod
+    def bits(cls) -> int:
+        return operand_type("LutAddrImmediate").bits
+
+    @classmethod
+    def default(cls) -> "ipu_token.IpuToken":
+        return cls(ipu_token.AnnotatedToken(lark.Token("NUMBER", "0"), 0))
+
+    @classmethod
+    def value_range(cls) -> tuple[int, int]:
+        low, high = operand_type("LutAddrImmediate").domain.value_range or (0, 0)
+        return low, high
+
+    def __init__(self, token: ipu_token.AnnotatedToken):
+        super().__init__(token)
+        try:
+            self.int = int(token.token.value, 0)
+        except ValueError:
+            self._raise_error(f"Value {self.token.value} is not a valid integer")
+        low, high = self.value_range()
+        if not (low <= self.int <= high):
+            operand = _operand_of("LutAddrImmediate")
+            self._raise_error(f"Value {self.int} out of range [{low}, {high}] for {operand}")
+
+    def encode(self) -> int:
+        return self.int
 
 
 class LrIncDecImmediate(ipu_token.IpuToken):

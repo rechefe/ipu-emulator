@@ -61,8 +61,7 @@ def test_slot_execution_order():
         Slot.MULT,
         Slot.ACC,
         Slot.AAQ,
-        Slot.STORE,
-        Slot.ACC_STORE,
+        Slot.AAQ_EXACT,
         Slot.COND,
     )
     assert set(SLOT_EXECUTION_ORDER) == set(SLOTS)
@@ -85,12 +84,12 @@ def test_rule_1_control_reads_lrs_at_cycle_start(slot):
     assert contract_view(slot, "lr", WRITERS) is CS
 
 
-@pytest.mark.parametrize("slot", [Slot.LOAD, Slot.MULT, Slot.ACC, Slot.STORE, Slot.ACC_STORE])
+@pytest.mark.parametrize("slot", [Slot.LOAD, Slot.MULT, Slot.ACC, Slot.AAQ, Slot.AAQ_EXACT])
 def test_rule_1_other_stages_read_lrs_forwarded(slot):
     assert contract_view(slot, "lr", WRITERS) is FW
 
 
-@pytest.mark.parametrize("register", ["r", "r_cyclic", "r_mask"])
+@pytest.mark.parametrize("register", ["r", "r_cyclic", "r_mask", "r_meta", "r_cyclic_meta"])
 def test_rule_2_mult_reads_its_inputs_at_cycle_start(register):
     """LOAD writes them earlier in the word; MULT still reads cycle start."""
     assert contract_view(Slot.MULT, register, WRITERS) is CS
@@ -109,11 +108,11 @@ def test_other_reads_follow_the_producers():
     """Forwarded when every writer runs earlier; cycle start for a same-slot
     writer or a register nothing writes."""
     assert contract_view(Slot.ACC, "r_acc", WRITERS) is CS  # ACC itself writes it
-    assert contract_view(Slot.ACC_STORE, "r_acc", WRITERS) is FW
-    assert contract_view(Slot.STORE, "post_aaq_reg", WRITERS) is FW
+    assert contract_view(Slot.AAQ_EXACT, "r_acc", WRITERS) is FW
+    assert contract_view(Slot.AAQ, "aaq_lut", WRITERS) is CS  # AAQ itself writes it
     assert contract_view(Slot.LOAD, "cr", WRITERS) is CS
     writers = {"r_acc": [Slot.ACC, Slot.COND]}  # a later writer: cycle start
-    assert contract_view(Slot.ACC_STORE, "r_acc", writers) is CS
+    assert contract_view(Slot.AAQ_EXACT, "r_acc", writers) is CS
 
 
 @pytest.mark.parametrize(
@@ -127,13 +126,15 @@ def test_other_reads_follow_the_producers():
         (Slot.MULT, "r", 2),
         (Slot.MULT, "r_cyclic", 2),
         (Slot.MULT, "r_mask", 2),
+        (Slot.MULT, "r_meta", 2),
+        (Slot.MULT, "r_cyclic_meta", 2),
         (Slot.ACC, "mult_res", 3),
         (Slot.AAQ, "r_acc", 3),
         (Slot.LR, "lr", 4),
         (Slot.LR, "cr", 4),
         (Slot.COND, "cr", None),
         (Slot.ACC, "r_acc", None),
-        (Slot.STORE, "post_aaq_reg", None),
+        (Slot.AAQ_EXACT, "r_acc", None),
     ],
 )
 def test_contract_rule_names_the_rule_that_gives_the_view(slot, register, rule):
@@ -159,7 +160,9 @@ def test_register_writers():
         "r_mask": {Slot.LOAD},
         "mult_res": {Slot.MULT},
         "r_acc": {Slot.ACC},
-        "post_aaq_reg": {Slot.AAQ},
+        "r_meta": {Slot.LOAD},
+        "r_cyclic_meta": {Slot.LOAD},
+        "aaq_lut": {Slot.AAQ},
     }
 
 
@@ -180,16 +183,18 @@ def test_operand_accesses_are_reads_and_writes():
         RegisterAccess("lr", "src_b", CS),
         RegisterAccess("cr", "src_b", CS),
     )
+    assert add.operand("src_b").type.name == "LcrHalfIdx"
     inc = isa().instruction(Slot.LR, "INC")
     assert inc.reads() == (RegisterAccess("lr", "dest", CS),)
 
 
 def test_every_non_nop_instruction_but_a_branch_writes_something():
-    """COND and BREAK change the PC or halt; every other instruction writes a
-    register or XMEM (STORE, ACC_STORE)."""
-    for slot in (Slot.LR, Slot.LOAD, Slot.MULT, Slot.ACC, Slot.AAQ):
+    """COND and BREAK change the PC or halt; the AaQ stores write XMEM (not a
+    register); every other instruction writes a register."""
+    xmem_stores = {"ACTIVATE.QUANTIZE", "ACTIVATE.EXACT"}
+    for slot in (Slot.LR, Slot.LOAD, Slot.MULT, Slot.ACC, Slot.AAQ, Slot.AAQ_EXACT):
         for instruction in isa().instructions(slot):
-            if instruction.mnemonic != "NOP":
+            if instruction.mnemonic not in {"NOP", *xmem_stores}:
                 assert instruction.writes(), f"{slot}.{instruction.mnemonic}"
 
 
@@ -203,12 +208,13 @@ def test_known_deviations_are_the_issue_table():
     "mnemonic", ["MULT.RC.VV", "MULT.RC.VE", "MULT.RC.VS", "MULT.VE", "MULT.EE"]
 )
 def test_mult_reads_its_data_inputs_at_cycle_start(mnemonic):
-    """Q20, Q32 rule 2: every MULT data input (R0/R1, R_CYCLIC, R_MASK) is read
+    """Q20, Q32 rule 2: every MULT data input (R0/R1, R_CYCLIC, R_MASK and the metadata) is read
     at cycle start (E04-27 flipped R_MASK)."""
     reads = {a.register: a.view for a in isa().instruction(Slot.MULT, mnemonic).reads()}
     assert reads["r_mask"] is CS
-    for register in ("r", "r_cyclic"):
+    for register in ("r", "r_cyclic", "r_meta", "r_cyclic_meta"):
         assert reads.get(register, CS) is CS
+    assert CS in (reads.get("r_meta"), reads.get("r_cyclic_meta"))  # a data row's metadata
 
 
 # -- each validator rule fails on a planted violation -----------------------------
@@ -217,8 +223,8 @@ def test_mult_reads_its_data_inputs_at_cycle_start(mnemonic):
 def test_forwarded_read_from_a_later_slot_is_rejected():
     spec = _spec()
     read = _implicit_read(spec, "mult", "MULT.RC.VV", "r_mask")
-    read["register"], read["view"] = "post_aaq_reg", "forwarded"
-    _rejects(spec, r"mult\.MULT\.RC\.VV: post_aaq_reg: a forwarded read needs every writer")
+    read["register"], read["view"] = "aaq_lut", "forwarded"
+    _rejects(spec, r"mult\.MULT\.RC\.VV: aaq_lut: a forwarded read needs every writer")
 
 
 def test_forwarded_read_of_a_same_slot_producer_is_rejected():

@@ -57,7 +57,7 @@
       CR5  = TILES_PER_ROW -- tile-loop bound AND the row step between dy taps
       CR6  = IN_PLANE_STRIDE = (H + K - 1) * TILES_PER_ROW
       CR7  = HEIGHT                   CR8  = CHANNELS
-      CR15 = dstructure (valid_elements = 128)
+      CR15.L = the default DS (ds(128)); CR14 = the QF
 
     LR uses 3 sub-slots; ";;" ends a VLIW word, ";" separates sub-instructions.
 ========================================================================== -#}
@@ -101,15 +101,14 @@ tile_loop:
     ADD {{lr_addr}} {{lr_addr}} CR5 ;
     LD.MULT.CYCLIC {{lr_addr}} CR2 {{slots[(dy + 2) % 3]}} ;
 {%- endif %}
-    MULT.RC.VE {{lr_rc}} CR1 0 {{lr_zero}} CR15 ; {% if dy == 0 %}ACC.MAX.FIRST{% else %}ACC.MAX{% endif %} ;;
+    MULT.RC.VE {{lr_rc}} CR1 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ; {% if dy == 0 %}ACC.MAX.FIRST{% else %}ACC.MAX{% endif %} ;;
 {%- for dx in range(1, K) %}
     ADD {{lr_rc}} {{lr_rc}} CR1 ;
-    MULT.RC.VE {{lr_rc}} CR1 0 {{lr_zero}} CR15 ; ACC.MAX ;;
+    MULT.RC.VE {{lr_rc}} CR1 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ; ACC.MAX ;;
 {%- endfor %}
 {%- endfor %}
 
-    ACTIVATE.QUANTIZE identity CR15 ;
-    ST.AAQ {{lr_out}} CR3 ;;                   {#- OUT[c, y, tile] -#}
+    ACTIVATE.EXACT identity CR15.L CR3 {{lr_out}} ;; {#- OUT[c, y, tile] -#}
     ADD {{lr_out}} {{lr_out}} CR1 ;
     ADD {{lr_t}} {{lr_t}} CR1 ;;
     BLT.S {{lr_t}} CR5 tile_loop ;;

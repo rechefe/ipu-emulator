@@ -1,3 +1,0 @@
-{"schema_version":"1.0.0","isa_digest":"7e0d11b257cdf1873b81998a87e480eed040716e2e6ebadf4c54a74d12dcb968","format":"int8","program_digest":"633a415d6a197efd42e730ccaae81a4a2fee9cfd7feac3a29911ea24e5717953","emulator_version":"0.1.0"}
-{"cycle":0,"pc_before":0,"pc_after":1,"slots":[{"slot":"acc","mnemonic":"AGG.SUM","fields":{"dest_slot":4,"cr_idx":15}}],"reg_writes":[{"register":"r_acc","offset":20,"data":"f952c0ff"}],"xmem_writes":[],"outcome":"retired","fault":null,"arith_events":[]}
-{"cycle":1,"pc_before":1,"pc_after":1024,"slots":[{"slot":"cond","mnemonic":"HALT","fields":{}}],"reg_writes":[],"xmem_writes":[],"outcome":"halt","fault":null,"arith_events":[]}

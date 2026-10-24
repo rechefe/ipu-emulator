@@ -15,8 +15,8 @@ A kernel is a folder with three files the kernel harness reads, plus its Bazel f
 | `BUILD.bazel` | One line, `ipu_kernel()`, which declares the targets. |
 
 The harness does the rest. From `kernel.toml` it checks the parameters,
-places each region in XMEM, writes the inputs in the element format of the
-run, programs the CRs, runs the program and compares the outputs with the
+places each region in XMEM, writes the inputs in the variant of the run (in
+NX8, each row with its metadata word), programs the CRs, runs the program and compares the outputs with the
 reference. A kernel has no Python harness and no hand-written CR setup.
 Every input is a tensor declared in `kernel.toml`: a kernel never supplies
 its XMEM contents ready-made. To see the raw rows a run lays out, open the run
@@ -64,26 +64,23 @@ stores the product, once per row:
 {#- scale.asm -- y = x * s, one XMEM row (128 elements) per iteration.
 
     Design notes
-    - MULT.VE multiplies the row in R0 by the element scalar in {{ cr.s }}.
-      The scalar is decoded in the active element format (Q49), so the same
-      program runs in FP32, INT8 and E4.
-    - The product goes through ACC (first add), and ST.ACC stores the
-      accumulator vector: y is an accumulator output, FP32 in FP32 and E4,
-      INT32 in INT8. One accumulator vector is one row in FP32 and four rows
-      in an 8-bit format, hence acc_rows.
+    - MULT.VE multiplies the row in R0 by the MULT constant in {{ cr.s }}
+      (float32 bits in FP32; ADR 0007), reading R0 with the QF half in
+      {{ cr.qf }}.L (FP32 ignores it).
+    - The product goes through ACC (first add), and ACTIVATE.EXACT identity
+      stores the accumulator vector: one FP32 row per iteration.
     - Region bases and the row count are in rows, not bytes.
 -#}
-{%- set acc_rows = 1 if format in ("fp32", "int32") else 4 %}
     SET LR0 CR0 ;
     SET LR1 CR0 ;
     SET LR2 CR0 ;;
 row_loop:
     LD.MULT R0 LR1 {{ cr.x }} ;;
-    MULT.VE LR0 {{ cr.s }} 0 LR0 CR15 ;
+    MULT.VE LR0 {{ cr.s }} 0 LR0 CR15.L {{ cr.qf }}.L ;
     ACC.ADD.FIRST ;;
-    ST.ACC LR2 {{ cr.y }} ;;
+    ACTIVATE.EXACT identity CR15.L {{ cr.y }} LR2 ;;
     ADD LR1 LR1 CR1 ;
-    INC LR2 {{ acc_rows }} ;;
+    INC LR2 1 ;;
     BLT.S LR1 {{ cr.rows }} row_loop ;;
     HALT ;;
 ```
@@ -94,15 +91,16 @@ issue together in that word. Line by line:
 | Word | What it does |
 |---|---|
 | `SET LR0 CR0 ; SET LR1 CR0 ; SET LR2 CR0` | Zero three loop registers: `LR0` (an offset that stays 0), `LR1` (the row of `x`) and `LR2` (the row of `y`). `CR0` always reads 0. |
-| `LD.MULT R0 LR1 {{ cr.x }}` | Load XMEM row `x + LR1` into `R0`. A row is 128 elements in every format. |
-| `MULT.VE LR0 {{ cr.s }} 0 LR0 CR15 ; ACC.ADD.FIRST` | Multiply `R0`, from element `LR0` (0), by the scalar in `{{ cr.s }}`, with mask slot 0 and no mask shift (every lane, as `R_MASK` resets), and the dstructure in `CR15`. `ACC.ADD.FIRST` in the same word writes that product to the accumulator. |
-| `ST.ACC LR2 {{ cr.y }}` | Store the accumulator to row `y + LR2`. |
-| `ADD LR1 LR1 CR1 ; INC LR2 {{ acc_rows }}` | Step to the next row of `x` (`CR1` always reads 1) and the next accumulator vector of `y`. |
+| `LD.MULT R0 LR1 {{ cr.x }}` | Load XMEM row `x + LR1` into `R0`. A row is 128 elements in both modes. |
+| `MULT.VE LR0 {{ cr.s }} 0 LR0 CR15.L {{ cr.qf }}.L ; ACC.ADD.FIRST` | Multiply `R0`, from element `LR0` (0), by the MULT constant in `{{ cr.s }}`, with mask slot 0 and no mask shift (every lane, as `R_MASK` resets), the DS half `CR15.L` and the QF half `{{ cr.qf }}.L` (which FP32 ignores). `ACC.ADD.FIRST` in the same word writes that product to the accumulator. |
+| `ACTIVATE.EXACT identity CR15.L {{ cr.y }} LR2` | Store the accumulator, unchanged, as one FP32 row at `y + LR2`. |
+| `ADD LR1 LR1 CR1 ; INC LR2 1` | Step to the next row of `x` (`CR1` always reads 1) and of `y`. |
 | `BLT.S LR1 {{ cr.rows }} row_loop` | Loop while `LR1` is less than `rows`. |
 | `HALT` | End the run. |
 
 `LD.MULT` has its own word because the multiply does not see a load from the
-same word; `ACC.ADD.FIRST` does see the same word's product. The
+same word; `ACC.ADD.FIRST` does see the same word's product, and
+`ACTIVATE.EXACT` the same word's accumulator. The
 [timing model](../explanation/timing-model.md) gives every such rule.
 
 Three things make it a kernel program rather than a fixed one:
@@ -114,14 +112,16 @@ Three things make it a kernel program rather than a fixed one:
   never names a CR for a value; it asks for the value by name, and renders as
   `CR2` here. A name the `[abi]` table does not bind is an error at the line
   that uses it.
-- **Template values**: every parameter (`{{ rows }}`), the element format of
-  the run (`format`, such as `"e4"`) and each tensor's shape (`shapes.x`).
-  `scale` uses `format` to step over one accumulator vector: 128 32-bit
-  elements, which is one row in FP32 (512 bytes a row) and four rows in an
-  8-bit format (128 bytes a row).
+- **Template values**: every parameter (`{{ rows }}`), the variant of the run
+  (`format`, such as `"e4"` or `"fp32"`) and each tensor's shape
+  (`shapes.x`). Every load and store moves one row in both modes, so `scale`
+  needs none of them.
 
-`CR0` reads 0, `CR1` reads 1 and `CR15` holds the dstructure (by default all
-128 elements are valid). Mnemonics and register names are upper case, and
+`CR0` reads 0, `CR1` reads 1 and `CR15.L` holds the DS half (by default all
+128 elements are valid). `scale` stores with `ACTIVATE.EXACT`, the
+emulator-only exact store, so it runs in the FP32 mode only; an NX8 kernel
+stores with `ACTIVATE.QUANTIZE`, which quantizes each row to the case's QF
+([`ACTIVATE.QUANTIZE`, `ACTIVATE.EXACT` and `LD.LUT`](../reference/isa/activate-quantize.md)). Mnemonics and register names are upper case, and
 operands are separated by spaces.
 
 ## 3. Declare it in `kernel.toml`
@@ -136,24 +136,27 @@ always the one the tests run:
 Section by section:
 
 - **`[kernel]`**: `op` is the operation the kernel computes, the name routing
-  answers a query with. `formats` lists the element formats it runs in; each
-  case runs in every one of them unless it narrows the list.
+  answers a query with. `formats` lists the variants it runs in: `fp32` for
+  the emulator-only FP32 mode, an NX8 type (`e1` to `e7`, `dynamic`,
+  `s<sign>e<fe>w<bits>`) for the hardware mode. Each case runs in every one
+  of them unless it narrows the list.
 - **`[params]`**: each parameter's type and domain. A case or a query outside
   the domain is refused before anything runs, with the reason. A `float`
-  parameter bound to a CR is an element scalar: the harness encodes it in the
-  format of the run, and a value that format cannot hold exactly (1.5 in
-  INT8) is an error that names the nearest values. That is why `sweep` lists
-  its own `formats`.
+  parameter bound to a CR is a MULT constant: its float32 bits in FP32, and
+  in NX8 one element with its own scale and type; a value NX8 cannot hold
+  exactly is an error that names the nearest values.
 - **`[inputs.x]` and `[outputs.y]`**: each region's shape, in elements, with
   expressions over parameters (`"rows"`, `"ceil(k / 128)"`). The framework
-  places them in XMEM; `row = N` pins one. `store = "accumulator"` says the
-  program stores `y` from the accumulator (`ST.ACC`), so `y` is read back as
-  FP32 (INT32 in INT8).
+  places them in XMEM; `row = N` pins one. Every store writes one row of the
+  mode, so an output is read back in the variant of the run.
+- **`[derived]`**: values computed from the case; `case_qf` is the QF half of
+  the case's variant (0 in FP32), and `ds(...)`, `qf(...)` and
+  `constant(...)` build the other CR halves and constants.
 - **`[abi]`**: which register holds each value: a region's base row, an
   integer, or an element scalar. Every region must be bound, since the program
   can reach it only through a register: by itself, or through a bound
   `[derived]` value that reads its `base()`.
-- **`[golden]`**: the reference function and the tolerance tier per format
+- **`[golden]`**: the reference function and the tolerance tier per variant
   (step 7).
 - **`[cases.*]`**: named sets of parameter values. `[cases.default]` is
   required. A list makes a sweep: `sweep` runs as `sweep[rows=1]`,
@@ -164,16 +167,15 @@ Every key is listed in the [`kernel.toml` reference](../reference/kernel-toml.md
 
 ## 4. Write the reference
 
-`reference.py` takes the inputs as tensors, already decoded from the format
+`reference.py` takes the inputs as tensors, already decoded from the variant
 of the run, and every parameter as a keyword. It returns each output by name:
 
 ```python
 --8<-- "kernels/elementwise/scale/reference.py"
 ```
 
-The harness rounds the result to the format each output is stored in before
-it compares: the format of the run, or for an accumulator output like `y` its
-accumulator format (FP32, or INT32 in INT8). An operation other kernels share
+The harness rounds the result to the variant of the run before it compares:
+in NX8 it quantizes each golden row as `ACTIVATE.QUANTIZE` does. An operation other kernels share
 has one reference in `ipu_kernels.reference.ops` instead; the kernel names it
 with `[golden] op = "<name>"` and needs no `reference.py`. The second worked
 example, `kernels/reshape/identity/` (`y = x`), does that: its `kernel.toml`
@@ -184,8 +186,8 @@ has `op = "identity"`, and its cases keep their data in a `gen.py` generator.
 A case can name its own files instead: `inputs` replaces the generated input,
 and `expected` replaces the reference for that output. `scale`'s `mine` case
 reads both from `data/`, saved with `numpy.save` in the tensor's shape
-(`[rows, 128]`). Each file is rounded to the format of the run, so pick values
-the format holds exactly, as `mine` does (small integers), or the comparison
+(`[rows, 128]`). Each file is rounded to the variant of the run, so pick values
+it holds exactly, as `mine` does (small integers), or the comparison
 sees the rounding. To try other data without editing `kernel.toml`, pass
 `--input x=my_x.npy` to a run (step 6).
 
@@ -195,9 +197,9 @@ sees the rounding. To try other data without editing `kernel.toml`, pass
 bazel test //kernels/elementwise/scale
 ```
 
-The target runs every case in every format it runs in, as one test each:
-`test_case[default-fp32]`, `test_case[one_row-e4]`, `test_case[sweep[rows=7]-fp32]`.
-A failing test reports the case, the format, the output, the worst element and
+The target runs every case in every variant it runs in, as one test each:
+`test_case[default-fp32]`, `test_case[one_row-fp32]`, `test_case[sweep[rows=7]-fp32]`.
+A failing test reports the case, the variant, the output, the worst element and
 the tier it failed at, in the same line a run prints. For example, `mine` run
 with one element of `x` changed (`--input`, step 6):
 
@@ -215,11 +217,11 @@ A case with `tier = "nightly"` runs in
 ## 6. Run one case
 
 `bazel run` on the same target runs one case through the kernel runner and
-prints one report per format: the result, the cycle count and each output's
+prints one report per variant: the result, the cycle count and each output's
 comparison.
 
 ```bash
-bazel run //kernels/elementwise/scale -- --case one_row --format e4
+bazel run //kernels/elementwise/scale -- --case one_row --format fp32
 bazel run //kernels/elementwise/scale -- --list-cases
 bazel run //kernels/elementwise/scale -- --case default --format all
 ```
@@ -237,7 +239,7 @@ Options to look inside a run:
 For example:
 
 ```bash
-bazel run //kernels/elementwise/scale -- --case one_row --format e4 --debug
+bazel run //kernels/elementwise/scale -- --case one_row --format fp32 --debug
 ```
 
 Relative paths are read from where you run the command. Every option is in
@@ -251,11 +253,10 @@ registers, the accumulator and XMEM, with the source line of each word.
 
 ## 7. Choose a tolerance tier
 
-`[golden] tolerance` names the tier each format is compared at; a format not
-listed is compared at `EXACT`. The key is the format an output is compared
-in: the format of the run for an element output, its accumulator format for an
-accumulator output. So `scale` names `fp32` and `int32`, and a key no output is
-compared in (`e4` here) is an error that says so. The tiers:
+`[golden] tolerance` names the tier each variant is compared at; a variant not
+listed is compared at `EXACT`. The key is a variant name (`fp32`, `e4`) or the
+mode `nx8` for every NX8 variant. A key the kernel does not run in is an error
+that says so. The tiers:
 
 | Tier | For |
 |---|---|
@@ -263,62 +264,38 @@ compared in (`e4` here) is an error that says so. The tiers:
 | `FP32_ORDER` | FP32 sums whose order differs from the reference's. |
 | `FP32_LONG` | Long reductions (K of 256 or more), reciprocal and square-root chains. |
 | `TRANSCENDENT` | Exponentials, logarithms and other functions the hardware approximates. |
-| `INT8_LSB` | One least significant bit after rounding to nearest. |
-| `FP8_ULP` | One code step in an 8-bit float format. |
+| `NX8_STEP` | One step of the NX8 golden row's grid: the scale and the element type set the step. |
 
 Start from the strictest tier that passes, and say why. A tier's numbers can
-be overridden for one format, with the reason. For a kernel whose output is
-stored in E4 (an element output):
-`e4 = { tier = "FP8_ULP", ulps = 2, why = "two roundings: the product and the store" }`.
+be overridden for one variant, with the reason. For a kernel whose e4 rows
+round twice:
+`e4 = { tier = "NX8_STEP", ulps = 2, why = "two roundings: the product and the store" }`.
 
-## Add a format to a migrated kernel
+## Add an NX8 variant to an FP32 kernel
 
-A kernel migrated from the old Python harness (E07) ran in FP32 first, on its
-old data, so its outputs matched the old harness's. Adding a format afterwards is its own change.
-The worked example is the projections (`kernels/projections/`), whose
-`proj_p4` template runs in FP32 and INT8:
+A kernel written for the FP32 mode runs on the hardware only once it runs in
+NX8. Adding the variants is its own change. The worked examples are
+`kernels/conformance/vector_tour` (e3, e4, e5, dynamic) and
+`kernels/linear/fully_connected` (e4, e5, dynamic):
 
-1. **Check that the program does not depend on the format.** Region bases
-   and strides in CRs count rows, not bytes; the program holds no byte
-   offsets; each output's `store` matches its store instruction (`element`
-   for `ST.AAQ`, `accumulator` for `ST.ACC`, which takes 4 rows a vector in an
-   8-bit format). If one fails, fix the program in its own change first, and
-   show that the FP32 outputs are unchanged.
-2. **Keep the old data in FP32 only.** The case generator that reproduces
-   the old data returns nothing in another format, so the harness's default
-   generator makes those inputs. The projections' `gen.py`:
-
-   ```python
-   def seeded_uniform(plan, rng):
-       if plan.format is not ElementFormat.FP32:
-           return {}
-       ...
-   ```
-
-3. **Give the inputs a range for the format.** The default range of an
-   integer format is all of it, and a long dot product of full-range INT8
-   values saturates almost every output, so the test would pass whatever the
-   program did. Choose a range that keeps fewer than 1% of the outputs at the
-   rails, and test that it does:
-
-   ```toml
-   [inputs.b]
-   shape = ["n_streams", "n_tg", "k", "n_tok"]
-   pack = "channel_major"
-   range = { int8 = [-2, 2] }   # at most 0.36% of y saturates (K = 480)
-   ```
-
-4. **Add the format and its tier.** Add it to `[kernel] formats` and name its
-   tier in `[golden] tolerance`, then run the kernel and every registry entry
-   over it: `bazel run //kernels/projections:proj_qkv_192_p4 -- --format int8`
+1. **Store with the hardware instruction.** `ACTIVATE.EXACT` is FP32 only, and
+   the harness refuses it for an NX8 case. Replace each store with
+   `ACTIVATE.QUANTIZE` and an activation it has (`identity`, `relu`, `relu6`,
+   `reciprocal`, `rsqrt`, `exp2`, `generic`). A kernel that needs another
+   function stays FP32: the projections store with SiLU, so they list `fp32`
+   only, and `kernels/projections/test_formats.py` pins that an NX8 variant is
+   refused.
+2. **Bind the QF.** Every MULT and `ACTIVATE.QUANTIZE` names a QF half:
+   `[derived] qf = "case_qf"`, a CR for it in `[abi]`, and `{{ cr.qf }}.L` in
+   the program.
+3. **Give the inputs a range for the type.** `range = { nx8 = [-4, 4] }`
+   keeps the data inside what a row's grid holds well; the harness writes
+   each input row with its metadata.
+4. **Add the variants and their tier.** Add them to `[kernel] formats` and
+   name the tier in `[golden] tolerance` (`nx8 = "NX8_STEP"`), then run every
+   case: `bazel run //kernels/linear/fully_connected -- --case default --format all`
    prints each output's largest error. Record what you measured beside the
    tier.
-5. **Leave out what the emulator cannot run yet, and say why.** The
-   projections do not run in E4, because `ACTIVATE.QUANTIZE` refuses an 8-bit
-   float format (OQ-20), and the two-group templates do not run in INT8,
-   because `ST.AAQ` stores four rows in an 8-bit format and their store order
-   overwrites rows already stored (OQ-35). A test that fails when the
-   emulator changes (`kernels/projections/test_formats.py`) records each one.
 
 ## When the kernel needs more
 

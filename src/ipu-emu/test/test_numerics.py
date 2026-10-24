@@ -1,10 +1,10 @@
-"""The lane codecs (``ipu_emu.numerics``) are bit-identical to the scalar arithmetic (E04-13, L5).
+"""The lane codecs (``ipu_emu.numerics``) against independent references (E04-13, L5, ADR 0007).
 
-The reference is the scalar path the handlers run today: each element decoded
-by ``ipu_isa.formats.decode_element`` (or as a signed byte), multiplied or
-accumulated as Python ints and floats (``ipu_mult``, ``ipu_add``, ``ipu_sub``,
-``max``) and stored with ``struct``. Results are compared as stored bytes, so
-the sign of zero and NaN bits count.
+NX8 decode is checked against hand-worked values (``ARCH-stage-mult.md``
+§3.2.1) and against ``ipu_isa.nx8.decode_element`` for every code; the FP32
+accumulator arithmetic against the scalar path the handlers ran before the
+codecs (Python floats stored with ``struct``). Results are compared as stored
+bytes, so the sign of zero and NaN bits count.
 """
 
 from __future__ import annotations
@@ -19,98 +19,71 @@ import numpy as np
 import pytest
 
 import ipu_emu.numerics
-from ipu_emu.ipu_math import ipu_add, ipu_mult, ipu_sub
 from ipu_emu.numerics import codec_for
+from ipu_isa.errors import IsaValueError
 from ipu_isa.faults import ArithmeticEvent
-from ipu_isa.formats import FORMATS, ElementFormat, decode_element
+from ipu_isa.formats import FORMATS, ElementFormat
 from ipu_isa.geometry import LANES
-
-EIGHT_BIT = [f for f, info in FORMATS.items() if info.element_bits == 8]
-FLOAT8 = [f for f in EIGHT_BIT if FORMATS[f].is_float]
-INT_ACC = [f for f, info in FORMATS.items() if not info.is_float]
-FLOAT_ACC = [f for f, info in FORMATS.items() if info.is_float]
-
-# Any float-accumulator format selects ipu_add's float branch.
-_INT_FORMAT = ElementFormat.INT8
-_FLOAT_FORMAT = ElementFormat.E4
+from ipu_isa.nx8 import Nx8Format, decode_element, metadata_word
 
 _ROWS = 7813  # 7813 * 128 = 1_000_064 accumulator pairs
 _PAIRS = _ROWS * LANES
 _SENTINEL = 0xA5
 
-
-def _scalar_values(fmt: ElementFormat) -> list[int | float]:
-    """Every code's value as the scalar path sees it: a Python int (INT8) or float."""
-    if FORMATS[fmt].is_float:
-        return [decode_element(c, fmt) for c in range(256)]
-    return [int(decode_element(c, fmt)) for c in range(256)]
-
-
-def _lane_fmt(fmt: ElementFormat) -> str:
-    return "<f" if FORMATS[fmt].is_float else "<i"
-
-
-def _byte_grid() -> tuple[bytes, bytes]:
-    """Every (a, b) byte pair, as two 65536-byte rows."""
-    codes = np.arange(256, dtype=np.uint8)
-    return np.repeat(codes, 256).tobytes(), np.tile(codes, 256).tobytes()
+E4 = Nx8Format(sign=1, exp_format=4, num_bits=8)
+DYNAMIC = Nx8Format(sign=1, exp_format=0, num_bits=8, dynamic=True)
 
 
 # ---------------------------------------------------------------------------
-# Exhaustive (L5)
+# NX8 decode (ADR 0007)
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("fmt", EIGHT_BIT, ids=str)
-def test_decode_every_code(fmt):
-    codec = codec_for(fmt)
-    decoded = codec.decode(bytes(range(256)), 256)
-    expected = _scalar_values(fmt)
-    if FORMATS[fmt].is_float:
-        assert decoded.astype(np.float32).tobytes() == struct.pack("<256f", *expected)
-    else:
-        assert decoded.tolist() == expected
+@pytest.mark.parametrize(
+    ("code", "scale", "value"),
+    [
+        (0x00, 127, 1.0),  # sign 0, exp 0 (distance 0 below 2^0), man 0
+        (0x08, 127, 0.5),  # exp 1: one binade below the scale
+        (0x0C, 127, 0.75),  # exp 1, man 4/8
+        (0x80, 127, -1.0),  # the sign bit
+        (0x78, 127, 0.0),  # exp 15 (clamp), man 0: zero
+        (0x00, 130, 8.0),  # the scale moves the binade: 2^(130-127)
+        (0x79, 127, 2.0**-17),  # clamp exp, man 1: 1/8 * 2^(0 - 14)
+    ],
+)
+def test_nx8_decode_hand_worked_codes(code, scale, value):
+    codec = codec_for(ElementFormat.NX8)
+    assert codec.decode(bytes([code]), 1, E4, metadata_word(scale)).tolist() == [value]
 
 
-@pytest.mark.parametrize("fmt", EIGHT_BIT, ids=str)
-def test_decode_scalar_reads_the_low_byte(fmt):
-    codec = codec_for(fmt)
-    decoded = codec.decode(bytes(range(256)), 256)
-    for code in range(256):
-        word = 0x5A5A_5A00 | code
-        assert np.array_equal(
-            np.asarray(codec.decode_scalar(word)), decoded[code], equal_nan=True
-        ), code
+@pytest.mark.parametrize("fmt", [E4, DYNAMIC, Nx8Format(sign=0, exp_format=3, num_bits=6)])
+@pytest.mark.parametrize("metadata", [metadata_word(127), metadata_word(140, 1), 0])
+def test_nx8_decode_every_code_is_the_isa_expansion_rounded_to_fp32(fmt, metadata):
+    codec = codec_for(ElementFormat.NX8)
+    decoded = codec.decode(bytes(range(256)), 256, fmt, metadata)
+    scale, dyn = metadata & 0xFF, (metadata >> 8) & 1
+    expected = [decode_element(c, fmt, scale, dyn) for c in range(256)]
+    assert decoded.astype(np.float32).tobytes() == np.asarray(expected, dtype=np.float32).tobytes()
 
 
-@pytest.mark.parametrize("fmt", EIGHT_BIT, ids=str)
-def test_mult_every_byte_pair(fmt):
-    codec = codec_for(fmt)
-    a_raw, b_raw = _byte_grid()
-    count = len(a_raw)
-    got = bytearray(4 * count)
-    codec.store_acc(got, codec.mult(codec.decode(a_raw, count), codec.decode(b_raw, count)))
-
-    values = _scalar_values(fmt)
-    products = [values[a] * values[b] for a, b in zip(a_raw, b_raw, strict=True)]
-    lane = _lane_fmt(fmt)[1]
-    assert bytes(got) == struct.pack(f"<{count}{lane}", *products)
-
-    dtype = fmt
-    via_ipu_mult = [ipu_mult(a, b, dtype) for a, b in zip(a_raw, b_raw, strict=True)]
-    assert struct.pack(f"<{count}{lane}", *via_ipu_mult) == bytes(got)
+def test_nx8_decode_needs_a_qf():
+    with pytest.raises(IsaValueError, match="QF"):
+        codec_for(ElementFormat.NX8).decode(bytes(LANES))
 
 
-@pytest.mark.parametrize("fmt", EIGHT_BIT, ids=str)
-def test_mult_by_a_scalar_broadcasts(fmt):
-    codec = codec_for(fmt)
-    row = bytes(range(128))
-    dtype = fmt
-    for scalar in (0x00, 0x01, 0x38, 0x7F, 0x80, 0xC5, 0xFF):
+def test_fp32_decode_ignores_qf_and_metadata():
+    codec = codec_for(ElementFormat.FP32)
+    raw = struct.pack("<2f", 1.5, -2.0)
+    assert codec.decode(raw, 2).tolist() == codec.decode(raw, 2, E4, 0x185).tolist() == [1.5, -2.0]
+
+
+def test_mult_by_a_scalar_broadcasts():
+    codec = codec_for(ElementFormat.NX8)
+    row = codec.decode(bytes(range(128)), LANES, E4, metadata_word(127))
+    for scalar in (0.0, 1.0, -0.5, 3.25):
         got = bytearray(4 * LANES)
-        codec.store_acc(got, codec.mult(codec.decode(row), codec.decode_scalar(scalar)))
-        expected = [ipu_mult(c, scalar, dtype) for c in row]
-        assert bytes(got) == struct.pack(f"<{LANES}{_lane_fmt(fmt)[1]}", *expected), scalar
+        codec.store_acc(got, codec.mult(row, scalar))
+        assert bytes(got) == struct.pack(f"<{LANES}f", *[float(v) * scalar for v in row]), scalar
 
 
 # ---------------------------------------------------------------------------
@@ -151,15 +124,6 @@ def _random_float32_bits(rng: random.Random) -> np.ndarray:
     return out
 
 
-def _random_int32_bits(rng: random.Random) -> np.ndarray:
-    edges = [0, 1, -1, 2**31 - 1, -(2**31), 2**31 - 2, -(2**31) + 1]
-    values = [
-        rng.choice(edges) if rng.random() < 0.05 else rng.randrange(-(2**31), 2**31)
-        for _ in range(_PAIRS)
-    ]
-    return np.array(values, dtype=np.int64).astype(np.int32).view(np.uint32)
-
-
 def _store_rows_scalar(lane_fmt: str, values: list) -> tuple[bytes, dict[int, str]]:
     """Today's row store: ``struct.pack`` per row, lane by lane when the row fails."""
     out = bytearray([_SENTINEL]) * (4 * len(values))
@@ -193,26 +157,18 @@ def _store_rows_codec(codec, lanes: np.ndarray) -> tuple[bytes, dict[int, str]]:
     return bytes(out), failures
 
 
-def _wrap32(value: int) -> int:
-    return ((value + 2**31) % 2**32) - 2**31
-
-
 def _scalar_ops(lane_fmt: str, a_raw: bytes, b_raw: bytes, *, wide_mult: bool) -> dict:
     """Each op's stored bytes and failing rows, computed the scalar way."""
     a = list(struct.unpack(f"<{_PAIRS}{lane_fmt[1]}", a_raw))
     b = list(struct.unpack(f"<{_PAIRS}{lane_fmt[1]}", b_raw))
-    dtype = _INT_FORMAT if lane_fmt == "<i" else _FLOAT_FORMAT
     results = {
-        "add": [ipu_add(x, y, dtype) for x, y in zip(a, b, strict=True)],
-        "sub": [ipu_sub(x, y, dtype) for x, y in zip(a, b, strict=True)],
+        "add": [x + y for x, y in zip(a, b, strict=True)],
+        "sub": [x - y for x, y in zip(a, b, strict=True)],
         "max": [max(x, y) for x, y in zip(a, b, strict=True)],
-        "neg": [ipu_sub(0 if lane_fmt == "<i" else 0.0, y, dtype) for y in b],
+        "neg": [0.0 - y for y in b],
     }
     if wide_mult:
-        if lane_fmt == "<i":
-            results["mult"] = [_wrap32(x * y) for x, y in zip(a, b, strict=True)]
-        else:
-            results["mult"] = [x * y for x, y in zip(a, b, strict=True)]
+        results["mult"] = [x * y for x, y in zip(a, b, strict=True)]
     return {op: _store_rows_scalar(lane_fmt, values) for op, values in results.items()}
 
 
@@ -230,14 +186,6 @@ def float_pairs():
     return a_raw, b_raw, _scalar_ops("<f", a_raw, b_raw, wide_mult=True)
 
 
-@pytest.fixture(scope="module")
-def int_pairs():
-    rng = random.Random(0xE0414)
-    a_raw = _random_int32_bits(rng).tobytes()
-    b_raw = _random_int32_bits(rng).tobytes()
-    return a_raw, b_raw, _scalar_ops("<i", a_raw, b_raw, wide_mult=True)
-
-
 def _check_accumulator_ops(fmt: ElementFormat, pairs) -> None:
     a_raw, b_raw, expected = pairs
     codec = codec_for(fmt)
@@ -245,7 +193,7 @@ def _check_accumulator_ops(fmt: ElementFormat, pairs) -> None:
     b = codec.load_acc(b_raw, _PAIRS)
     ops = ["add", "sub", "max", "neg"]
     if FORMATS[fmt].element_bits == 32:
-        # FP32 and INT32 elements are accumulator-width: their products are random pairs too.
+        # FP32 elements are accumulator-width: their products are random pairs too.
         ops.append("mult")
         a, b = codec.decode(a_raw, _PAIRS), codec.decode(b_raw, _PAIRS)
     for op in ops:
@@ -255,7 +203,7 @@ def _check_accumulator_ops(fmt: ElementFormat, pairs) -> None:
         assert got_bytes == want_bytes, op
 
 
-@pytest.mark.parametrize("fmt", FLOAT_ACC, ids=str)
+@pytest.mark.parametrize("fmt", list(ElementFormat), ids=str)
 def test_float_accumulator_ops_match_scalar(fmt, float_pairs):
     _check_accumulator_ops(fmt, float_pairs)
 
@@ -267,11 +215,6 @@ def test_random_float_pairs_overflow_some_rows(float_pairs):
     assert len(expected["add"][1]) < _ROWS // 2
 
 
-@pytest.mark.parametrize("fmt", INT_ACC, ids=str)
-def test_int_accumulator_ops_match_scalar(fmt, int_pairs):
-    _check_accumulator_ops(fmt, int_pairs)
-
-
 def _acc_rows(codec, op: str, a: np.ndarray, b: np.ndarray):
     """The ACC path of *op* (E04-23): acc_add/acc_sub, then store_acc_events, row by row."""
     lanes = codec.acc_sub(np.zeros_like(b), b) if op == "neg" else getattr(codec, "acc_" + op)(a, b)
@@ -281,7 +224,7 @@ def _acc_rows(codec, op: str, a: np.ndarray, b: np.ndarray):
         yield row, bytes(out), events
 
 
-@pytest.mark.parametrize("fmt", FLOAT_ACC, ids=str)
+@pytest.mark.parametrize("fmt", list(ElementFormat), ids=str)
 def test_the_acc_store_with_events_matches_scalar_where_it_fits(fmt, float_pairs):
     # Where struct's lane-by-lane store succeeds, the ACC path stores the same
     # bits (NaN payloads and quieting included) and reports no overflow; where
@@ -299,36 +242,6 @@ def test_the_acc_store_with_events_matches_scalar_where_it_fits(fmt, float_pairs
             assert ArithmeticEvent.ACC_OVERFLOW not in events, (op, row)
             nan = bool(np.isnan(np.frombuffer(got, dtype="<f4")).any())
             assert (ArithmeticEvent.NAN_RESULT in events) == nan, (op, row)
-
-
-@pytest.mark.parametrize("fmt", INT_ACC, ids=str)
-def test_the_int_acc_store_wraps_and_reports_exactly_the_wraps(fmt, int_pairs):
-    a_raw, b_raw, expected = int_pairs
-    codec = codec_for(fmt)
-    a, b = codec.load_acc(a_raw, _PAIRS), codec.load_acc(b_raw, _PAIRS)
-    exact = {"add": a + b, "sub": a - b, "neg": -b}
-    for op in ("add", "sub", "neg"):
-        want_bytes, _ = expected[op]
-        for row, got, events in _acc_rows(codec, op, a, b):
-            assert got == want_bytes[row * 4 * LANES : (row + 1) * 4 * LANES], (op, row)
-            lanes = exact[op][row * LANES : (row + 1) * LANES]
-            wrapped = bool(((lanes < -(2**31)) | (lanes >= 2**31)).any())
-            assert (ArithmeticEvent.ACC_OVERFLOW in events) == wrapped, (op, row)
-
-
-@pytest.mark.parametrize("fmt", INT_ACC, ids=str)
-def test_int_accumulate_wraps_at_2_pow_31(fmt):
-    codec = codec_for(fmt)
-    top, bottom = 2**31 - 1, -(2**31)
-    a = np.array([top, bottom, top, bottom, -1], dtype=np.int64)
-    b = np.array([1, -1, top, bottom, bottom], dtype=np.int64)
-    for op, scalar in (("add", ipu_add), ("sub", ipu_sub)):
-        got = bytearray(4 * a.size)
-        codec.store_acc(got, getattr(codec, op)(a, b))
-        expected = [scalar(int(x), int(y), _INT_FORMAT) for x, y in zip(a, b, strict=True)]
-        assert bytes(got) == struct.pack(f"<{a.size}i", *expected), op
-    assert codec.add(np.array([top]), np.array([1])).tolist() == [bottom]
-    assert codec.sub(np.array([bottom]), np.array([1])).tolist() == [top]
 
 
 def test_float_store_overflow_leaves_struct_state():
@@ -357,10 +270,7 @@ def test_codec_for_every_format(fmt):
     assert codec.fmt is fmt
     assert codec.element_bytes == info.element_bytes
     assert codec.acc_dtype.itemsize == info.accumulator_bytes
-    assert codec.acc_dtype.kind == ("f" if info.is_float else "i")
-    one = codec.one()
-    assert len(one) == info.element_bytes
-    assert codec.decode(one, 1).tolist() == [1]
+    assert codec.acc_dtype.kind == "f"
 
 
 def test_numerics_imports_only_numpy_stdlib_and_ipu_isa():

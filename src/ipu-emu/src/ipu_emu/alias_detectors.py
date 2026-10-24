@@ -4,31 +4,37 @@ from __future__ import annotations
 
 from ipu_emu.alias_profile import AliasDefinition, DetectorRegistry, Match
 from ipu_emu.isa_alias_spec import ISA_ALIAS_SPEC
-from ipu_isa.activations import ACTIVATION_EXP2, ACTIVATION_IDENTITY
+from ipu_isa.activations import AAQ_EXP2, ACTIVATION_EXP2, ACTIVATION_IDENTITY
 from ipu_isa.geometry import LANES, R_CYCLIC_ELEMENTS
 
 #: A MULT mask with every lane on.
 _ALL_LANES = (1 << LANES) - 1
 
 
+#: The AaQ store instructions, and the encoding of ``exp2`` in each.
+_AAQ_STORES = ("ACTIVATE.QUANTIZE", "ACTIVATE.EXACT")
+_EXP2 = {"ACTIVATE.QUANTIZE": AAQ_EXP2, "ACTIVATE.EXACT": ACTIVATION_EXP2}
+
+
 def transfer(load):
+    """``(store, load)`` when *load* reads the row an identity AaQ store wrote."""
     if load.instruction not in ("LD.MULT", "LD.MULT.CYCLIC"):
         return ()
     store = load.facts.get("origin")
-    post = store.facts.get("post") if store else None
-    stores = store.facts.get("accesses", ()) if store else ()
+    if store is None or store.instruction not in _AAQ_STORES:
+        return ()
+    stores = store.facts.get("accesses", ())
     if (
-        post
-        and post.facts["operands"].get("activation_fn") == ACTIVATION_IDENTITY
+        store.facts["operands"].get("activation_fn") == ACTIVATION_IDENTITY
         and stores
         and load.facts["address"] == stores[0][1]
     ):
-        return (post, store, load)
+        return (store, load)
     return ()
 
 
 class Identity:
-    slots = ("cycle", "acc_store")
+    slots = ("cycle",)
 
     def __init__(self, alias):
         self.alias = alias
@@ -92,7 +98,7 @@ class AccMultiply:
 
 
 class Exponential:
-    slots = ("acc", "aaq")
+    slots = ("acc", "aaq", "aaq_exact")
 
     def __init__(self):
         self.chain = ()
@@ -119,7 +125,8 @@ class Exponential:
             else:
                 self.chain, self.constant = (), None
             return
-        if event.slot != "aaq" or event.facts["operands"].get("activation_fn") != ACTIVATION_EXP2:
+        exp2 = _EXP2.get(event.instruction)
+        if exp2 is None or event.facts["operands"].get("activation_fn") != exp2:
             return
         acc = event.facts.get("acc")
         if not acc or not self.chain or self.chain[-1].id != acc.id:
@@ -255,7 +262,9 @@ class Segmented:
             raw_start = mult.facts["operands"].get("rc_idx", 0) % R_CYCLIC_ELEMENTS
             needed = {(raw_start + i) % R_CYCLIC_ELEMENTS // LANES for i in range(LANES)}
             proven = {
-                s.facts["bank_index"] for s, path in moves if len(path) > 1 and path[1].id == origin
+                s.facts["bank_index"]
+                for s, path in moves
+                if len(path) > 1 and path[-2].id == origin
             }
             if (
                 proven != needed

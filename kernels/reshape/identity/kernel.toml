@@ -14,10 +14,14 @@ shape = ["rows", 128]
 [outputs.y]
 shape = ["rows", 128]
 
+[derived]
+qf = "case_qf"                     # the case's QF half (0: FP32 ignores it)
+
 [abi]
 x    = "CR2"
 y    = "CR3"
 rows = "CR4"
+qf   = "CR14"
 
 [golden]
 op = "identity"

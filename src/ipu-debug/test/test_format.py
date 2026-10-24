@@ -22,7 +22,13 @@ def show(state: IpuState, text: str) -> str:
     """The XMEM window *text* names, one display line per text line."""
     session = DebugSession(state)
     window = session.read_xmem(session.parse_xmem(text))
-    lines = tokenize_xmem(window.data, window.byte_address, window.request.fmt, window.row_size)
+    lines = tokenize_xmem(
+        window.data,
+        window.byte_address,
+        window.request.fmt,
+        window.row_size,
+        dict(window.row_metadata),
+    )
     return "\n".join(
         line.prefix + "".join(token.leading + token.text for token in line.tokens) for line in lines
     )
@@ -82,6 +88,17 @@ class TestXmemLayout:
         assert "1.00000012" in shown
         assert "1.00000024" in shown
 
+    def test_an_nx8_row_marker_names_the_rows_metadata(self):
+        state = IpuState()  # NX8: one 16-bit metadata word per 128-byte row (ADR 0007)
+        state.xmem.write_metadata(128, 127 + 5 | 1 << 8)  # scale 2^5, dynamic exponent 1
+        shown = show(state, "row 0 0 256 hex")
+        assert "XMEM row 0 [scale 2^-127] starts at byte address 0x00000000" in shown
+        assert "XMEM row 1 [scale 2^5, dynamic exponent 1] starts at byte address" in shown
+
+    def test_an_fp32_row_marker_has_no_metadata(self):
+        state = new_state(fmt=ElementFormat.FP32)
+        assert "XMEM row 0 starts at byte address" in show(state, "row 0 0 4 u8")
+
     def test_each_xmem_row_boundary_is_marked(self):
         state = new_state(fmt=ElementFormat.FP32)
         state.xmem.write_address(508, bytes(range(8)))
@@ -101,7 +118,7 @@ class TestXmemAddressing:
         state.regfile.set_lr(0, 1)
         state.xmem.write_address(3 * 128, struct.pack("<2f", 1.5, -2.25))
         shown = show(state, "row cr4 lr0 2 f32")
-        assert "XMEM row 3 starts at byte address 0x00000180" in shown
+        assert "XMEM row 3 [scale 2^-127] starts at byte address 0x00000180" in shown
         assert f"{1.5:>15.9g} {-2.25:>15.9g}" in shown
 
     def test_a_row_is_512_bytes_in_fp32(self):

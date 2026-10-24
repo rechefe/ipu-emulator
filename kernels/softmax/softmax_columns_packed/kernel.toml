@@ -24,6 +24,7 @@ device_rows = "ceil(rows * gw / 128)"                # XMEM rows, the last fille
 step        = "128 * ceil(device_rows / 128)"
 row_stride  = "1"                                    # one XMEM row per vector
 dup_index   = "128"                                  # the fold's duplicate-load element index
+qf          = "case_qf"                              # the case's QF half (0: FP32 ignores it)
 
 # The regions sit where the old harness put them: from row 128, the
 # input, the numerators and the output back to back, each rounded up to a
@@ -76,7 +77,8 @@ device_rows = "CR11"
 fold        = "CR12"
 gw          = "CR13"
 rpv         = "CR14"
-# CR15: the default dstructure (128 valid elements).
+qf          = "CR8"
+# CR15.L: the default DS (128 valid elements).
 
 [golden]
 op = "softmax"

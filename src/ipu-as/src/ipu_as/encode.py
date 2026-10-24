@@ -22,6 +22,7 @@ from ipu_as.inst import OPERAND_TYPE_MAP
 from ipu_isa.codec import disasm
 from ipu_isa.codec.slot import OPCODE_SLOT, SLOT_CODECS, WORD_CODEC
 from ipu_isa.codec.slot import EncodeError as CodecError
+from ipu_isa.exclusions import word_conflicts
 from ipu_isa.mnemonics import RESERVED_MNEMONICS
 from ipu_isa.schema import SpecError
 from ipu_isa.slots import LAYOUT_ORDER, SLOTS, Slot
@@ -171,10 +172,33 @@ def assign_slots(parsed: dict) -> tuple[Placed, ...]:
         The placements, in source order.
 
     Raises:
-        SlotError: an unknown mnemonic, or more instructions than the slot has
-            instances.
+        SlotError: an unknown mnemonic, more instructions than the slot has
+            instances, or two instructions that may not share a word
+            (``ipu_isa.exclusions``).
     """
-    return tuple(_placements(parsed))
+    placements = tuple(_placements(parsed))
+    _check_exclusions(placements)
+    return placements
+
+
+def _check_exclusions(placements: tuple[Placed, ...]) -> None:
+    """Raise if the word holds both sides of a row of ``ipu_isa.exclusions``.
+
+    The error is at the first instruction, in source order, that completes the
+    pair.
+    """
+    word: list[tuple[Slot, str]] = []
+    for placed in placements:
+        opcode = placed.instruction["opcode"]
+        word.append((placed.slot, opcode.token.value))
+        conflicts = word_conflicts(word)
+        if conflicts:
+            raise SlotError(
+                f"{opcode.token.value} cannot share an instruction word here: "
+                f"{conflicts[0].reason}\nAt: {opcode.get_location_string()}",
+                location=opcode.location(),
+                token=opcode.token.value,
+            )
 
 
 def _operand_values(placed: Placed) -> tuple[int, ...]:
@@ -241,8 +265,8 @@ def encode_word(parsed: dict, target: Tag | str = Tag.EMULATOR) -> int:
         The word; a slot instance no instruction takes is NOP.
 
     Raises:
-        SlotError: see ``assign_slots``; or, for ``Tag.HARDWARE``, an
-            emulator-only instruction.
+        SlotError: see ``assign_slots`` (exclusions included); or, for
+            ``Tag.HARDWARE``, an emulator-only instruction.
         OperandError: a wrong operand count or an invalid operand value.
         LabelError: an undefined label.
 
@@ -251,7 +275,9 @@ def encode_word(parsed: dict, target: Tag | str = Tag.EMULATOR) -> int:
     """
     target = target_tag(target)
     values = {}
+    placements: list[Placed] = []
     for placed in _placements(parsed):
+        placements.append(placed)
         _check_target(placed, target)
         operands = _operand_values(placed)
         opcode = placed.instruction["opcode"]
@@ -273,6 +299,7 @@ def encode_word(parsed: dict, target: Tag | str = Tag.EMULATOR) -> int:
                 "(not implemented in real IPU hardware)",
                 stacklevel=2,
             )
+    _check_exclusions(tuple(placements))
     return WORD_CODEC.pack(values)
 
 

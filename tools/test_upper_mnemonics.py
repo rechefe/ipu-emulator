@@ -30,14 +30,14 @@ def test_mnemonics_and_registers_become_upper_case():
 
 def test_enum_values_labels_numbers_and_comments_are_kept():
     text = (
-        "cr9: activate.quantize identity cr15 ; st.aaq lr1 cr3 ;;  # set lr0\n"
-        "    mult.ve lr0 cr1 0x1f lr0 cr15 ;;  // add lr0\n"
+        "cr9: activate.quantize identity cr15.l cr14.h cr3 lr1 ;;  # set lr0\n"
+        "    mult.ve lr0 cr1 0x1f lr0 cr15.l cr14.l ;;  // add lr0\n"
         "    bz cr9 cr9 ;;\n"
     )
     new, _ = upper_text(text)
     assert new == (
-        "cr9: ACTIVATE.QUANTIZE identity CR15 ; ST.AAQ LR1 CR3 ;;  # set lr0\n"
-        "    MULT.VE LR0 CR1 0x1f LR0 CR15 ;;  // add lr0\n"
+        "cr9: ACTIVATE.QUANTIZE identity CR15.L CR14.H CR3 LR1 ;;  # set lr0\n"
+        "    MULT.VE LR0 CR1 0x1f LR0 CR15.L CR14.L ;;  // add lr0\n"
         # cr9 is a label of this file, so it keeps its spelling as an operand too.
         "    BZ cr9 cr9 ;;\n"
     )

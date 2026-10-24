@@ -79,5 +79,5 @@ def test_lr_inc_dec_imm_width_derived():
 
 def test_all_slots_present():
     """All expected slots are computed."""
-    expected = {"load", "store", "acc_store", "lr", "mult", "acc", "aaq", "cond", "break"}
+    expected = {"load", "lr", "mult", "acc", "aaq", "aaq_exact", "cond", "break"}
     assert set(SLOT_UNIONS.keys()) == expected

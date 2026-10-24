@@ -14,7 +14,6 @@ flowchart LR
         MULT["MULT"]:::blk
         ACC["ACC"]:::blk
         AAQ["AAQ"]:::blk
-        STORE["STORE"]:::blk
     end
 
     subgraph CU["Cache unit"]
@@ -34,12 +33,12 @@ flowchart LR
     AGENT --> MULT
     MULT --> ACC
     ACC --> AAQ
-    AAQ --> STORE
     AGENT <-->|bank events, bank requests, table view| CRM
     CTRL -->|context| CRM
     AGENT -->|load address| XMEM
     XMEM -->|load row| MULT
-    STORE -->|store row| XMEM
+    XMEM -->|LUT segment| AAQ
+    AAQ -->|store row| XMEM
     DMA <--> XMEM
     DMA <--> DRAM
     HOST -->|table configuration| CRM
@@ -57,8 +56,7 @@ flowchart LR
 | Cache agent | Yes | Decides hit or miss for the load and the store of each word. Stalls CTRL on a miss. Issues the XMEM read. |
 | MULT | Yes | Holds `R0`, `R1`, `R_CYCLIC` and `R_MASK`. Produces the 128-element multiply result. |
 | ACC | Yes | Holds `R_ACC`. Combines the multiply result into it. |
-| AAQ | Yes | Applies the activation function to `R_ACC` and quantizes the result. |
-| STORE | Yes | Writes the AAQ output row to XMEM. |
+| AAQ | Yes | Applies the activation function to `R_ACC`, quantizes the result and writes the row to XMEM. Loads LUT segments from XMEM. |
 | Cache unit | No | CRM, XMEM and DMA. Holds the tables, fills XMEM banks from DRAM and drains them to DRAM. |
 | Host | No | Loads kernels, configures tables, and controls and debugs the IPU. |
 
@@ -74,35 +72,35 @@ flowchart LR
 | `R_CYCLIC` | 512 elements | MULT | None |
 | `R_MASK` | 8 masks of 128 bits | MULT | None |
 | `R_ACC` | 128 elements of 32 bits | ACC | None |
-| AAQ output row | 128 elements of 8 bits, plus metadata. Format: [OQ-7](open-questions.md). | AAQ | None |
+| AAQ output row | 128 NX8 elements of 8 bits, plus a 16-bit metadata word (`scale[7:0]`, `dynamic_exponent[8]`). The element type is the `qf` operand of `ACTIVATE.QUANTIZE` ([ADR 0007](https://github.com/rechefe/ipu-emulator/blob/master/docs/adr/0007-operational-aaq-and-nx8.md); [OQ-45](open-questions.md)). | AAQ | None |
 
 ## Execution model
 
 | ID | Requirement |
 |---|---|
-| IPU-ARCH-1 | Each VLIW word shall execute atomically. The state after a word equals the state produced by executing its slots in this order: `COND` and `LR`, `LOAD`, `MULT`, `ACC`, `AAQ`, `STORE`. |
+| IPU-ARCH-1 | Each VLIW word shall execute atomically. The state after a word equals the state produced by executing its slots in this order: `COND` and `LR`, `LOAD`, `MULT`, `ACC`, `AAQ`. |
 | IPU-ARCH-2 | The `COND` and `LR` slots shall read CR and LR values from before the word. |
-| IPU-ARCH-3 | The `LOAD`, `MULT`, `ACC`, `AAQ` and `STORE` slots shall read LR values from after the LR writes of the same word. See [OQ-10](open-questions.md). |
-| IPU-ARCH-4 | The IPU shall implement every ISA slot except `ACC_STORE` and `BREAK`. |
+| IPU-ARCH-3 | The `LOAD`, `MULT`, `ACC` and `AAQ` slots shall read LR values from after the LR writes of the same word. See [OQ-10](open-questions.md). |
+| IPU-ARCH-4 | The IPU shall implement every ISA slot except `AAQ_EXACT` and `BREAK`. |
 | IPU-ARCH-5 | The `COND` slot shall provide `HALT`, at the opcode the instruction reference assigns it. `HALT` ends the kernel after every slot of its word has retired. |
-| IPU-ARCH-6 | Instruction semantics shall follow the instruction reference. See [OQ-5](open-questions.md) and [OQ-6](open-questions.md). |
+| IPU-ARCH-6 | Instruction semantics shall follow the instruction reference. The AaQ stage follows the AaQ architecture specification: `ACTIVATE.QUANTIZE` activates with the 3-bit function list, quantizes to one NX8 row and stores it with its metadata ([ADR 0007](https://github.com/rechefe/ipu-emulator/blob/master/docs/adr/0007-operational-aaq-and-nx8.md)). See [OQ-5](open-questions.md). |
 
 ## Pipeline
 
-The six stages are architectural. One word moves through them in order.
+The five stages are architectural. One word moves through them in order.
 
 ```mermaid
 flowchart LR
     CTRL["CTRL<br/>fetch, branch, LR"] --> AGENT["Cache agent<br/>hit or miss"]
-    AGENT --> MULT["MULT"] --> ACC["ACC"] --> AAQ["AAQ"] --> STORE["STORE"]
+    AGENT --> MULT["MULT"] --> ACC["ACC"] --> AAQ["AAQ<br/>activate, quantize, store"]
     AGENT -.->|stall| CTRL
 ```
 
 | ID | Requirement |
 |---|---|
-| IPU-ARCH-10 | The IPU shall process each word through six stages in this order: CTRL, cache agent, MULT, ACC, AAQ, STORE. |
+| IPU-ARCH-10 | The IPU shall process each word through five stages in this order: CTRL, cache agent, MULT, ACC, AAQ. |
 | IPU-ARCH-11 | The IPU shall accept one word per clock cycle while the cache agent does not stall. |
-| IPU-ARCH-12 | MULT, ACC, AAQ and STORE may each take more than one clock cycle. The latency of each stage shall be fixed. |
+| IPU-ARCH-12 | MULT, ACC and AAQ may each take more than one clock cycle. The latency of each stage shall be fixed. |
 | IPU-ARCH-13 | Pipelining shall not change any architectural result. Only timing differs from the atomic model of IPU-ARCH-1. |
 | IPU-ARCH-14 | The cache agent shall be the only source of backpressure. It stalls CTRL only. |
 | IPU-ARCH-15 | A word that the cache agent has accepted shall retire a fixed number of cycles later. |

@@ -51,7 +51,7 @@
       CR15 = dstructure (valid_elements = 128)
 
     LR uses 3 sub-slots; ";;" ends a VLIW word, ";" separates sub-instructions.
-    Slot order within a word is LR -> LOAD -> MULT -> ACC -> AAQ -> STORE ->
+    Slot order within a word is LR -> LOAD -> MULT -> ACC -> AAQ -> AAQ_EXACT ->
     COND, so a subtract and the ACTIVATE that reads its result share one word,
     while R_CYCLIC needs a word of separation after its load.
 ========================================================================== -#}
@@ -75,19 +75,17 @@
 pass1_loop:
     LD.MULT.CYCLIC {{lr_addr}} CR2 {{lr_zero}} ;;   {#- slot0 <- s[row] -#}
     ADD {{lr_r}} {{lr_r}} CR1 ;;                         {#- slot0 visible NEXT word -#}
-    MULT.RC.VE {{lr_zero}} CR1 0 {{lr_zero}} CR15 ; ACC.ADD.FIRST ;;   {#- R_ACC = s -#}
-    MULT.RC.VE {{lr_tau}} CR1 0 {{lr_zero}} CR15 ; ACC.SUB ;
-    ACTIVATE.QUANTIZE relu CR15 ;
-    ST.AAQ {{lr_addr}} CR3 ;;                  {#- SELECTED = relu(s - tau) -#}
-    MULT.RC.VV {{lr_zero}} R0 0 {{lr_zero}} CR15 ; ACC.ADD.FIRST ;;    {#- R_ACC = T*s -#}
-    MULT.RC.VE {{lr_ttau}} CR1 0 {{lr_zero}} CR15 ; ACC.SUB ;
-    ACTIVATE.QUANTIZE sigmoid CR15 ;
-    ST.AAQ {{lr_addr}} CR4 ;;                  {#- STAGED = sigmoid(T*(s - tau)) -#}
+    MULT.RC.VE {{lr_zero}} CR1 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ; ACC.ADD.FIRST ;;   {#- R_ACC = s -#}
+    MULT.RC.VE {{lr_tau}} CR1 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ; ACC.SUB ;
+    ACTIVATE.EXACT relu CR15.L CR3 {{lr_addr}} ;; {#- SELECTED = relu(s - tau) -#}
+    MULT.RC.VV {{lr_zero}} R0 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ; ACC.ADD.FIRST ;;    {#- R_ACC = T*s -#}
+    MULT.RC.VE {{lr_ttau}} CR1 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ; ACC.SUB ;
+    ACTIVATE.EXACT sigmoid CR15.L CR4 {{lr_addr}} ;; {#- STAGED = sigmoid(T*(s - tau)) -#}
     ADD {{lr_addr}} {{lr_addr}} CR1 ;
     BLT.S {{lr_r}} CR9 pass1_loop ;;                       {#- post-increment: bound ROWS -#}
 
 {#- ---- PASS 2: 128 running partial sums down the staged plane ------------ -#}
-    MULT.RC.VE {{lr_zero}} CR0 0 {{lr_zero}} CR15 ; ACC.ADD.FIRST ;
+    MULT.RC.VE {{lr_zero}} CR0 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ; ACC.ADD.FIRST ;
     SET {{lr_addr}} CR0 ;
     SET {{lr_r}} CR0 ;;                                  {#- R_ACC = 0 -#}
 
@@ -95,17 +93,15 @@ pass2_loop:
     ADD {{lr_r}} {{lr_r}} CR1 ;
     LD.MULT.CYCLIC {{lr_addr}} CR4 {{lr_zero}} ;;   {#- slot0 <- staged[row] -#}
     ADD {{lr_addr}} {{lr_addr}} CR1 ;
-    MULT.RC.VE {{lr_zero}} CR1 0 {{lr_zero}} CR15 ; ACC.ADD ;
+    MULT.RC.VE {{lr_zero}} CR1 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ; ACC.ADD ;
     BLT.S {{lr_r}} CR9 pass2_loop ;;
 
 {#- ---- DRAIN: collapse the 128 partials to one scalar -------------------- -#}
-    ACTIVATE.QUANTIZE identity CR15 ;
-    ST.AAQ {{lr_zero}} CR5 ;;                  {#- stage the partial vector -#}
+    ACTIVATE.EXACT identity CR15.L CR5 {{lr_zero}} ;; {#- stage the partial vector -#}
     LD.MULT.CYCLIC {{lr_zero}} CR5 {{lr_zero}} ;;
     NOP ;;                                               {#- slot0 visible NEXT word -#}
-    MULT.RC.VE {{lr_zero}} CR1 0 {{lr_zero}} CR15 ; AGG.SUM.FIRST {{lr_zero}} CR15 ;;
-    ACTIVATE.QUANTIZE identity CR15 ;
-    ST.AAQ {{lr_zero}} CR5 ;;                  {#- COUNT[0] = the soft survivor count -#}
+    MULT.RC.VE {{lr_zero}} CR1 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ; AGG.SUM.FIRST {{lr_zero}} CR15.L ;;
+    ACTIVATE.EXACT identity CR15.L CR5 {{lr_zero}} ;; {#- COUNT[0] = the soft survivor count -#}
 
 end:
     HALT ;;

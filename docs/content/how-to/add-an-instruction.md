@@ -16,12 +16,12 @@ below are that test's own entry and handler.
 Decide three things:
 
 - **The slot** the instruction issues in: `lr`, `load`, `mult`, `acc`, `aaq`,
-  `store`, `acc_store`, `cond` or `break`. The [Instructions](../reference/isa/instructions.md)
+  `aaq_exact`, `cond` or `break`. The [Instructions](../reference/isa/instructions.md)
   reference lists what each slot holds today.
 - **The tag**, which the instruction takes from its slot:
-    - **HARDWARE** (every slot but `acc_store` and `break`) is in the IPU, so it
+    - **HARDWARE** (every slot but `aaq_exact` and `break`) is in the IPU, so it
       is in the hardware word and the SystemVerilog package.
-    - **EMULATOR** (`acc_store`, `break`) exists only in the emulator. The
+    - **EMULATOR** (`aaq_exact`, `break`) exists only in the emulator. The
       assembler rejects it under `--target hardware`.
     - **ASSEMBLER** is a pseudo-instruction: the assembler expands it into a
       real instruction, and it has no opcode. See
@@ -62,8 +62,8 @@ with the entry's path, such as `lr.TESTNEG.operands[src].read`.
 ## Step 2: the handler
 
 Add `execute_<name>` to the module of the instruction's slot, under
-`src/ipu-emu/src/ipu_emu/slots/` (`lr.py` for `lr`; `store.py` holds
-`store` and `acc_store`; `brk.py` is `break`).
+`src/ipu-emu/src/ipu_emu/slots/` (`lr.py` for `lr`; `aaq_exact.py` is
+`aaq_exact`; `brk.py` is `break`).
 This is `TESTNEG`'s, in `lr.py`:
 
 ```python

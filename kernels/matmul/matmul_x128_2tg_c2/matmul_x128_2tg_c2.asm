@@ -1,6 +1,6 @@
 {#- matmul_x128_2tg_c2.asm: the template of the registry.toml entries
     matmul_144x144_x128, matmul_432x144_x128 and matmul_288x144_x128 (SiLU:
-    the activation parameter renders ACTIVATE.QUANTIZE). The notes below are
+    the activation parameter renders ACTIVATE.EXACT). The notes below are
     matmul_144x144_x128's; the shape reaches the program through
     kernel.toml's [abi] (rows and indices, not bytes; the byte figures below
     are the old harness's).
@@ -87,7 +87,8 @@
 {% set K_START_R0    = "CR7" %}   {# -1  → first live k = 0                     #}
 {% set K_START_R1    = "CR8" %}   {# 127 → first live k = 128 (R1[0])           #}
 {% set W_BASE_LO     = "CR9" %}   {# WEIGHTS_BASE (W[j,0..127])                 #}
-{% set DSTRUCT       = "CR15" %}  {# reserved dstructure register               #}
+{% set DSTRUCT       = "CR15.L" %}  {# the default DS half (ds(128)) #}
+{% set QF            = cr.qf ~ ".L" %}  {# the QF half (case_qf; FP32 ignores it) #}
 
     # MULT.RC.VE reads its r_cyclic DATA from the start-of-cycle snapshot while
     # keeping the LR index live (issue #157), so a MULT cannot consume the chunk
@@ -135,7 +136,7 @@ j_loop:
     ADD {{ k_index }} {{ k_index }} {{ ONE }};;
 
     # Peeled first k-iter (k=0): ACC.ADD.FIRST seeds r_acc.
-    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ QF }};
     ACC.ADD.FIRST;
     LD.MULT.CYCLIC {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
@@ -144,7 +145,7 @@ j_loop:
     B after_k_tg0;;
 
 k_loop1_tg0:
-    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ QF }};
     ACC.ADD;
     LD.MULT.CYCLIC {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
@@ -159,22 +160,17 @@ after_k_tg0:
     # advanced the pipeline one step, so k_loop2 inherits the correct phase.
 
 k_loop2_tg0:
-    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ QF }};
     ACC.ADD;
     LD.MULT.CYCLIC {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
     ADD {{ k_index }} {{ k_index }} {{ ONE }};
     BLT.S {{ k_index }} {{ k_bound_r1 }} k_loop2_tg0;;
 
-    # Hardware store path: ACTIVATE.QUANTIZE stages r_acc into post_aaq_reg and
-    # ST.AAQ drains it, CO-ISSUED in ONE VLIW word. AaQ and STR are
-    # consecutive pipeline stages within a word and the in-word slot order is
-    # CTRL -> MULT -> ACC -> AaQ -> STR (docs/content/specs/MAS-stage-aaq-str.md
-    # section 7.0), so STR consumes this cycle's AaQ result -- the store is free.
-    # `identity` + DSTRUCT.valid_elements=128 makes this a lane-for-lane FP32
-    # copy of all 128 lanes, i.e. byte-identical to the ST.ACC it replaces.
-    ACTIVATE.QUANTIZE {{ act }} {{ DSTRUCT }};
-    ST.AAQ {{ out_ptr }} {{ OUT_BASE_TG0 }};;  # store 512B → OUTPUT[j, tg=0]
+    # Store (ADR 0007): ACTIVATE.EXACT activates R_ACC's active lanes and
+    # stores the row as 128 FP32 values in the same word; the DS half
+    # (ds(128), every lane) makes `identity` a lane-for-lane copy of r_acc.
+    ACTIVATE.EXACT {{ act }} {{ DSTRUCT }} {{ OUT_BASE_TG0 }} {{ out_ptr }};;  # store 512B → OUTPUT[j, tg=0]
 
     # -- token group 1 -------------------------------------------------------
     SET {{ data_ptr }} {{ DATA_START_TG1 }};;           # tg=1 startup offset: -128
@@ -187,7 +183,7 @@ k_loop2_tg0:
     ADD {{ k_index }} {{ k_index }} {{ ONE }};;
 
     # Peeled first k-iter (k=0): ACC.ADD.FIRST seeds r_acc.
-    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ QF }};
     ACC.ADD.FIRST;
     LD.MULT.CYCLIC {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
@@ -196,7 +192,7 @@ k_loop2_tg0:
     B after_k_tg1;;
 
 k_loop1_tg1:
-    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ QF }};
     ACC.ADD;
     LD.MULT.CYCLIC {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
@@ -210,15 +206,14 @@ after_k_tg1:
     # advanced the pipeline one step, so k_loop2 inherits the correct phase.
 
 k_loop2_tg1:
-    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ QF }};
     ACC.ADD;
     LD.MULT.CYCLIC {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
     ADD {{ k_index }} {{ k_index }} {{ ONE }};
     BLT.S {{ k_index }} {{ k_bound_r1 }} k_loop2_tg1;;
 
-    ACTIVATE.QUANTIZE {{ act }} {{ DSTRUCT }};
-    ST.AAQ {{ out_ptr }} {{ OUT_BASE_TG1 }};;  # store 512B → OUTPUT[j, tg=1]
+    ACTIVATE.EXACT {{ act }} {{ DSTRUCT }} {{ OUT_BASE_TG1 }} {{ out_ptr }};;  # store 512B → OUTPUT[j, tg=1]
     ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;  # advance output ptr
 
     ADD {{ w_ptr }} {{ w_ptr }} {{ w_stride }};

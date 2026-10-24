@@ -62,13 +62,12 @@ ch_loop:
     ADD                 LR5 LR5 {{ cr.in_channels }};;
     LD.MULT        R1 LR5 {{ cr.y }};;
 
-    MULT.VE             LR0 CR1 0 LR0 CR15;;
+    MULT.VE             LR0 CR1 0 LR0 CR15.L CR15.H;;
     ACC.STRIDE          64 on off LR0;;
-    MULT.VE             LR7 CR1 0 LR0 CR15;
+    MULT.VE             LR7 CR1 0 LR0 CR15.L CR15.H;
     ACC.STRIDE          64 on off LR6;
-    ACTIVATE.QUANTIZE   identity CR15;
-    ADD                 LR5 LR2 LR4;
-    ST.AAQ    LR5 {{ cr.out }};;
+    ACTIVATE.EXACT   identity CR15.L {{ cr.out }} LR5;
+    ADD                 LR5 LR2 LR4;;
 
     INC                 LR4 1;
     BLT.S                 LR4 {{ cr.in_channels }} ch_loop;;

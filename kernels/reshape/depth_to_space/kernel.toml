@@ -23,6 +23,7 @@ dst_hi     = "4 * r + 5 * r * 256 + 6 * r * 65536 + 7 * r * 16777216"   # [4r, 5
 src_lo     = "50462976"                       # [0, 1, 2, 3]
 src_hi     = "117835012"                      # [4, 5, 6, 7]
 dst_lo     = "r * 256 + 2 * r * 65536 + 3 * r * 16777216"                # [0, r, 2r, 3r]
+ds_qf      = "halves(ds(128), case_qf)"                                  # CR15: LOW the default DS, HIGH the case's QF (FP32 ignores it)
 
 [inputs.x]
 shape = ["r * r", "h", "w"]                   # [C = r^2, H, W]; row-major: one row per 128-column tile
@@ -47,6 +48,7 @@ k_bound    = "CR11"
 src_lo     = "CR12"
 src_hi     = "CR13"
 dst_lo     = "CR14"
+ds_qf      = "CR15"
 
 [golden]
 op = "depth_to_space"

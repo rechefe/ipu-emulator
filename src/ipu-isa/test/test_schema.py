@@ -131,7 +131,7 @@ def test_read_on_a_non_register_operand():
     _rejects(
         spec,
         r"aaq\.ACTIVATE\.QUANTIZE\.operands\[activation_fn\]\.read: "
-        r"a ActivationFn operand is not a register",
+        r"a AaqActivationFn operand is not a register",
     )
 
 
@@ -175,8 +175,8 @@ def test_mnemonic_must_be_upper_case():
 
 def test_datapath_mnemonic_needs_a_dot():
     spec = _spec()
-    spec["store"]["STAAQ"] = spec["store"].pop("ST.AAQ")
-    _rejects(spec, r"store\.STAAQ: datapath mnemonic 'STAAQ' must be UNIT\.OP")
+    spec["aaq"]["LDLUT"] = spec["aaq"].pop("LD.LUT")
+    _rejects(spec, r"aaq\.LDLUT: datapath mnemonic 'LDLUT' must be UNIT\.OP")
 
 
 def test_control_mnemonic_needs_no_dot():

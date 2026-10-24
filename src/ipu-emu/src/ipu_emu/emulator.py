@@ -24,6 +24,7 @@ from ipu_emu.cycle import CycleOutcome
 from ipu_emu.errors import ConfigurationError, EmulatorFault
 from ipu_emu.ipu import Ipu
 from ipu_emu.ipu_state import DEFAULT_CYCLE_LIMIT, INST_MEM_SIZE, IpuState
+from ipu_emu.program_mode import check_program_mode
 from ipu_emu.run_clock import RunClock
 from ipu_emu.run_control import RunControl
 
@@ -54,11 +55,16 @@ def load_program(state: IpuState, instructions: list[dict[str, int]]) -> None:
     """Load decoded instruction dicts into the state's instruction memory.
 
     Sets ``state.program_length``: fetching past the last word is fault F-2.
+
+    Raises:
+        ConfigurationError: The program is too large, or uses an FP32-only
+            instruction (``ACTIVATE.EXACT``) in an NX8-mode state.
     """
     if len(instructions) > INST_MEM_SIZE:
         raise ConfigurationError(
             f"Program too large: {len(instructions)} instructions (max {INST_MEM_SIZE})"
         )
+    check_program_mode(state.fmt, instructions)
     for i, inst in enumerate(instructions):
         state.inst_mem[i] = inst
     state.program_length = len(instructions)

@@ -1,19 +1,20 @@
-"""One lane codec per element format, and :func:`codec_for`, which picks one.
+"""The lane codec of each run mode, and :func:`codec_for`, which picks one.
 
-:func:`codec_for` is the only format switch the slot handlers use for lane
+:func:`codec_for` is the only mode switch the slot handlers use for lane
 arithmetic. The register layout (:mod:`ipu_emu.geometry`, the operand resolver,
-the cycle's read views) and the AAQ slot (Q35) branch on the element width
+the cycle's read views) and the AaQ stores branch on the element width
 themselves.
 
 A codec has three domains:
 
 - **Element**: the bytes a register or XMEM row holds, ``element_bytes`` each.
-- **Compute**: what :meth:`LaneCodec.decode` returns. int64 for the integer
-  formats, float64 for the float formats. Widening keeps every intermediate
-  exactly what the scalar Python arithmetic computed (Python ints and floats).
-- **Accumulator**: MULT_RES and R_ACC, stored as int32 or float32
-  (``acc_dtype``) and computed on in int64 or float64. :meth:`store_acc` does
-  the one rounding the scalar path did when it packed a result with
+  An FP32 element is IEEE binary32; an NX8 element is one byte whose value
+  depends on the instruction's QF and the row's metadata (ADR 0007), so
+  :meth:`LaneCodec.decode` takes both.
+- **Compute**: what :meth:`LaneCodec.decode` returns: float64.
+- **Accumulator**: MULT_RES and R_ACC, stored as float32 (``acc_dtype``) and
+  computed on in float64 in both modes. :meth:`store_acc` does the one
+  rounding the scalar path did when it packed a result with
   ``struct.pack_into``.
 
 NumPy's global error policy belongs to the embedding application, so every
@@ -23,46 +24,21 @@ and signalling-NaN conversion behave like ``struct`` whatever that policy is.
 
 from __future__ import annotations
 
+import functools
 import struct
-from functools import cached_property
 from typing import Final, Protocol
 
 import numpy as np
 import numpy.typing as npt
 
-from ipu_isa.constants import CR_ONE_REG_INDEX
+from ipu_isa.errors import IsaValueError
 from ipu_isa.faults import ArithmeticEvent
-from ipu_isa.formats import FORMATS, ElementFormat, FormatInfo, element_values, encode_element
+from ipu_isa.formats import FORMATS, ElementFormat, FormatInfo
 from ipu_isa.geometry import LANES
+from ipu_isa.nx8 import Nx8Format, decode_element, split_metadata
 
 Buffer = bytes | bytearray | memoryview
-Lanes = npt.NDArray[np.int64] | npt.NDArray[np.float64]
-
-_INT32_SIGN: Final = 1 << 31
-_INT32_MASK: Final = (1 << 32) - 1
-
-# A CR scalar is the register word's low element-width bits, decoded in the
-# active format (Q49, E04-28): the low byte in INT8 and E1..E7, the whole
-# 32-bit word in INT32 and FP32.
-_SCALAR_BYTE_MASK: Final = 0xFF
-
-
-def wrap_int32(values: Lanes) -> npt.NDArray[np.int64]:
-    """``values`` wrapped to int32 two's complement, kept as int64 (``ipu_add``'s INT8 rule).
-
-    Args:
-        values: int64 lanes (or an int64 scalar).
-
-    Returns:
-        The wrapped values, in ``[-2**31, 2**31)``.
-    """
-    return ((values + _INT32_SIGN) & _INT32_MASK) - _INT32_SIGN
-
-
-def _low_signed(word: int, bits: int) -> int:
-    """The low *bits* bits of *word* as a two's-complement integer."""
-    low = word & ((1 << bits) - 1)
-    return low - (1 << bits) if low >> (bits - 1) else low
+Lanes = npt.NDArray[np.float64]
 
 
 def _pack_lanes_one_by_one(lane_fmt: str, out: Buffer, values: list[float]) -> None:
@@ -78,34 +54,23 @@ def _pack_lanes_one_by_one(lane_fmt: str, out: Buffer, values: list[float]) -> N
 
 
 class LaneCodec(Protocol):
-    """The numerics of one element format, a row of lanes at a time."""
+    """The numerics of one run mode, a row of lanes at a time."""
 
     fmt: ElementFormat
-    element_bytes: int  # 1 for INT8/E1..E7, 4 for FP32/INT32
-    acc_dtype: np.dtype  # int32 or float32 (accumulator storage)
+    element_bytes: int  # 1 for NX8, 4 for FP32
+    acc_dtype: np.dtype  # float32 (accumulator storage)
 
-    def decode(self, raw: Buffer, count: int = LANES) -> Lanes:
-        """The first ``count`` elements of ``raw`` in the compute domain."""
-        ...
+    def decode(
+        self, raw: Buffer, count: int = LANES, qf: Nx8Format | None = None, metadata: int = 0
+    ) -> Lanes:
+        """The first ``count`` elements of ``raw`` in the compute domain.
 
-    def decode_scalar(self, word: int) -> np.generic:
-        """A register word as an element scalar, in the compute domain.
-
-        The word's low element-width bits, decoded in this format (Q49): the
-        low byte in INT8 and E1..E7, all 32 bits in INT32 and FP32.
+        NX8 decodes each byte in format ``qf`` with the row's ``metadata`` word
+        (``ARCH-stage-mult.md`` §3.2.1); FP32 ignores both.
         """
         ...
 
-    def decode_cr_scalar(self, cr_index: int, word: int) -> np.generic:
-        """CR *cr_index*, holding *word*, as an element scalar.
-
-        :meth:`decode_scalar` of the word, except CR1: the hardware constant 1
-        reads as 1 in the active format (1.0 in a float format), so
-        ``MULT.VE … CR1`` is an identity multiply in every format.
-        """
-        ...
-
-    def mult(self, a: Lanes, b: Lanes | np.generic) -> Lanes:
+    def mult(self, a: Lanes, b: Lanes | np.generic | float) -> Lanes:
         """Element products, in the accumulator domain."""
         ...
 
@@ -130,8 +95,7 @@ class LaneCodec(Protocol):
         ...
 
     def acc_add(self, a: Lanes, b: Lanes) -> Lanes:
-        """:meth:`add` as ACC and AGG compute it, for :meth:`store_acc_events`:
-        an integer sum is not yet wrapped, so the store can see it overflow."""
+        """:meth:`add` as ACC and AGG compute it, for :meth:`store_acc_events`."""
         ...
 
     def acc_sub(self, a: Lanes, b: Lanes) -> Lanes:
@@ -140,16 +104,12 @@ class LaneCodec(Protocol):
 
     def store_acc_events(self, out: Buffer, lanes: Lanes) -> frozenset[ArithmeticEvent]:
         """:meth:`store_acc` for ACC and AGG (E04-23): store the IEEE result
-        (a float overflow is an infinity, a NaN stays; an integer wraps) and
-        return the arithmetic events it saw, without raising (Q53)."""
+        (a float overflow is an infinity, a NaN stays) and return the
+        arithmetic events it saw, without raising (Q53)."""
         ...
 
     def acc_min(self) -> np.generic:
-        """The least accumulator value, the identity of :meth:`max` (INT32_MIN or -inf)."""
-        ...
-
-    def one(self) -> bytes:
-        """One element of value 1."""
+        """The least accumulator value, the identity of :meth:`max` (-inf)."""
         ...
 
 
@@ -163,93 +123,10 @@ class _Codec:
     def __init__(self, info: FormatInfo) -> None:
         self.fmt: ElementFormat = info.format
         self.element_bytes: int = info.element_bytes
-        self.acc_dtype: np.dtype = np.dtype("<i4" if not info.is_float else "<f4")
+        self.acc_dtype: np.dtype = np.dtype("<f4")
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self.fmt})"
-
-    def decode_scalar(self, word: int) -> np.generic:
-        """See :meth:`LaneCodec.decode_scalar` (every codec overrides it)."""
-        raise NotImplementedError
-
-    def one(self) -> bytes:
-        """See :meth:`LaneCodec.one` (every codec overrides it)."""
-        raise NotImplementedError
-
-    @cached_property
-    def _one_scalar(self) -> np.generic:
-        return self.decode_scalar(int.from_bytes(self.one(), "little"))
-
-    def decode_cr_scalar(self, cr_index: int, word: int) -> np.generic:
-        """See :meth:`LaneCodec.decode_cr_scalar`."""
-        if cr_index == CR_ONE_REG_INDEX:
-            return self._one_scalar
-        return self.decode_scalar(word)
-
-
-class IntCodec(_Codec):
-    """INT8 and INT32: products and sums in int64, wrapped to int32 like ``ipu_add``."""
-
-    def __init__(self, info: FormatInfo) -> None:
-        super().__init__(info)
-        self._element_dtype = np.dtype(f"<i{info.element_bytes}")
-
-    def decode(self, raw: Buffer, count: int = LANES) -> npt.NDArray[np.int64]:
-        """See :meth:`LaneCodec.decode`."""
-        return np.frombuffer(raw, dtype=self._element_dtype, count=count).astype(np.int64)
-
-    def decode_scalar(self, word: int) -> np.int64:
-        """See :meth:`LaneCodec.decode_scalar`: the word's low element-width bits, signed."""
-        return np.int64(_low_signed(word, 8 * self.element_bytes))
-
-    def mult(self, a: Lanes, b: Lanes | np.generic) -> npt.NDArray[np.int64]:
-        """See :meth:`LaneCodec.mult`. An int32 product cannot overflow int64."""
-        return wrap_int32(a * b)
-
-    def add(self, a: Lanes, b: Lanes) -> npt.NDArray[np.int64]:
-        """See :meth:`LaneCodec.add`."""
-        return wrap_int32(a + b)
-
-    def sub(self, a: Lanes, b: Lanes) -> npt.NDArray[np.int64]:
-        """See :meth:`LaneCodec.sub`."""
-        return wrap_int32(a - b)
-
-    def max(self, a: Lanes, b: Lanes) -> Lanes:
-        """See :meth:`LaneCodec.max`."""
-        return np.where(b > a, b, a)
-
-    def load_acc(self, raw: Buffer, count: int = LANES) -> npt.NDArray[np.int64]:
-        """See :meth:`LaneCodec.load_acc`."""
-        return np.frombuffer(raw, dtype="<i4", count=count).astype(np.int64)
-
-    def store_acc(self, out: Buffer, lanes: Lanes) -> None:
-        """See :meth:`LaneCodec.store_acc`: wraps to int32, so it never fails."""
-        raw = (np.asarray(lanes, dtype=np.int64) & _INT32_MASK).astype("<u4").tobytes()
-        out[: len(raw)] = raw
-
-    def acc_add(self, a: Lanes, b: Lanes) -> npt.NDArray[np.int64]:
-        """See :meth:`LaneCodec.acc_add`: exact in int64."""
-        return np.asarray(a, dtype=np.int64) + b
-
-    def acc_sub(self, a: Lanes, b: Lanes) -> npt.NDArray[np.int64]:
-        """See :meth:`LaneCodec.acc_sub`: exact in int64."""
-        return np.asarray(a, dtype=np.int64) - b
-
-    def store_acc_events(self, out: Buffer, lanes: Lanes) -> frozenset[ArithmeticEvent]:
-        """See :meth:`LaneCodec.store_acc_events`: ACC_OVERFLOW when a lane wraps."""
-        values = np.asarray(lanes, dtype=np.int64)
-        out[: values.size * 4] = (values & _INT32_MASK).astype("<u4").tobytes()
-        if values.size and (values.min() < -_INT32_SIGN or values.max() >= _INT32_SIGN):
-            return _OVERFLOW
-        return _NO_EVENTS
-
-    def acc_min(self) -> np.int64:
-        """See :meth:`LaneCodec.acc_min`."""
-        return np.int64(-_INT32_SIGN)
-
-    def one(self) -> bytes:
-        """See :meth:`LaneCodec.one`."""
-        return (1).to_bytes(self.element_bytes, "little", signed=True)
 
 
 def _first_nan_wins(a: Lanes | np.generic, result: Lanes) -> Lanes:
@@ -341,50 +218,50 @@ class _FloatCodec(_Codec):
         return np.float64(-np.inf)
 
 
-class Fp8Codec(_FloatCodec):
-    """E1..E7: decoded through a 256-entry table built from ``ipu_isa``'s element codec."""
+@functools.lru_cache(maxsize=1024)
+def nx8_table(fmt: Nx8Format, metadata: int) -> npt.NDArray[np.float64]:
+    """Every code's value in *fmt* for one row's *metadata* word (read-only).
 
-    def __init__(self, info: FormatInfo) -> None:
-        super().__init__(info)
-        self._table = np.array(element_values(info.format), dtype=np.float64)
-        self._table.flags.writeable = False
-        self._one = bytes([encode_element(1.0, info.format)])
+    Entry ``c`` is ``nx8.decode_element(c, fmt, scale, dynamic_exponent)``
+    rounded to float32, as MULT expands an element to FP32.
+    """
+    scale, dynamic_exponent = split_metadata(metadata)
+    values = [decode_element(code, fmt, scale, dynamic_exponent) for code in range(256)]
+    with np.errstate(all="ignore"):
+        table = np.array(values, dtype=np.float64).astype(np.float32).astype(np.float64)
+    table.flags.writeable = False
+    return table
 
-    def decode(self, raw: Buffer, count: int = LANES) -> npt.NDArray[np.float64]:
-        """See :meth:`LaneCodec.decode`."""
-        return self._table[np.frombuffer(raw, dtype=np.uint8, count=count)]
 
-    def decode_scalar(self, word: int) -> np.float64:
-        """See :meth:`LaneCodec.decode_scalar`: the word's low byte as an element."""
-        return self._table[word & _SCALAR_BYTE_MASK]
+class Nx8Codec(_FloatCodec):
+    """NX8 (the hardware): one byte per element, decoded with a QF and row metadata."""
 
-    def one(self) -> bytes:
-        """See :meth:`LaneCodec.one`."""
-        return self._one
+    def decode(
+        self, raw: Buffer, count: int = LANES, qf: Nx8Format | None = None, metadata: int = 0
+    ) -> npt.NDArray[np.float64]:
+        """See :meth:`LaneCodec.decode`.
+
+        Raises:
+            IsaValueError: ``qf`` is missing (an NX8 element has no value without one).
+        """
+        if qf is None:
+            raise IsaValueError("an NX8 element is decoded with a QF format")
+        return nx8_table(qf, metadata)[np.frombuffer(raw, dtype=np.uint8, count=count)]
 
 
 class Fp32Codec(_FloatCodec):
-    """FP32 (wide-vector debug mode): IEEE binary32 elements, widened to float64."""
+    """FP32 (the emulator-only debug mode): IEEE binary32 elements, widened to float64."""
 
-    def decode(self, raw: Buffer, count: int = LANES) -> npt.NDArray[np.float64]:
-        """See :meth:`LaneCodec.decode`."""
+    def decode(
+        self, raw: Buffer, count: int = LANES, qf: Nx8Format | None = None, metadata: int = 0
+    ) -> npt.NDArray[np.float64]:
+        """See :meth:`LaneCodec.decode`: ``qf`` and ``metadata`` are ignored."""
         return self.load_acc(raw, count)
-
-    def decode_scalar(self, word: int) -> np.float64:
-        """See :meth:`LaneCodec.decode_scalar`: the word's 32 bits as a float32."""
-        with np.errstate(all="ignore"):
-            return np.float64(np.uint32(word & _INT32_MASK).view("<f4"))
-
-    def one(self) -> bytes:
-        """See :meth:`LaneCodec.one`."""
-        return struct.pack("<f", 1.0)
 
 
 def _make(info: FormatInfo) -> LaneCodec:
-    if not info.is_float:
-        return IntCodec(info)
-    if info.element_bits == 8:
-        return Fp8Codec(info)
+    if info.format is ElementFormat.NX8:
+        return Nx8Codec(info)
     return Fp32Codec(info)
 
 

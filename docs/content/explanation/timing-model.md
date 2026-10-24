@@ -11,9 +11,10 @@ rules ([ADR 0002](https://github.com/rechefe/ipu-emulator/blob/master/docs/adr/0
 
 1. The Control stage (`LR`, `COND`) reads LRs at cycle start. Every other
    stage reads LRs after the LR writes of the same word.
-2. `MULT` reads `R0`, `R1`, `R_CYCLIC` and `R_MASK` at cycle start.
+2. `MULT` reads `R0`, `R1`, `R_CYCLIC` (and their row metadata) and
+   `R_MASK` at cycle start.
 3. `MULT_RES` is forwarded to `ACC` (including `AGG` and `ACC.RESHAPE`).
-   `R_ACC` is forwarded to `AAQ`.
+   `R_ACC` is forwarded to `AAQ` (and to the emulator-only `AAQ_EXACT`).
 4. The three LR sub-slots read cycle-start values.
 
 A read that no rule names follows the [slot order](#slot-order).
@@ -39,8 +40,10 @@ each instruction, under **Register reads**.
 Each example below assembles and runs as a test
 (`docs/examples/test_timing_model.py`). The test sets up the state from the
 `# given:` comments, runs the program to `HALT`, and checks every
-`# expect:` comment. `XMEM[n]` is XMEM row `n` (128 elements); a `given` sets
-every element of the row. `CR0` is 0 and `CR1` is 1 in every run.
+`# expect:` comment. The examples run in the emulator-only FP32 mode, where an
+element is its value and a row has no metadata; the timing is the same in
+the NX8 mode. `XMEM[n]` is XMEM row `n` (128 elements); a `given` sets every
+element of the row. `CR0` is the MULT constant 0 and `CR1` is 1 in every run.
 
 ### Rule 1: Control reads LRs at cycle start, other stages after the LR writes { #rule-1 }
 
@@ -63,16 +66,16 @@ taken:
 # expect: R0[0] == 2
 ```
 
-The same rule gives `MULT`, `ACC`, `STORE` and `ACC_STORE` their LR operands
-after the LR writes: an `AGG` `dest_slot` or an `ST.AAQ` offset sees an LR that
-the same word increments.
+The same rule gives `MULT`, `ACC`, `AAQ` and `AAQ_EXACT` their LR operands
+after the LR writes: an `AGG` `dest_slot` or an `ACTIVATE.QUANTIZE`
+`table_offset` sees an LR that the same word increments.
 
 ### Rule 2: MULT reads its data registers at cycle start { #rule-2 }
 
 The second word loads 5s into `R0` and multiplies `R0` by `CR1` (1). `MULT`
 reads `R0` at cycle start, so it multiplies the 2s that the first word loaded.
-The 5s are in `R0` after the word, for the next word's `MULT`. `R_CYCLIC` and
-`R_MASK` behave the same way: `LD.MULT.CYCLIC` or `LD.MASK` in the same word as
+The 5s are in `R0` after the word, for the next word's `MULT`. `R_CYCLIC`,
+`R_MASK` and the row metadata `LD.MULT` copies behave the same way: `LD.MULT.CYCLIC` or `LD.MASK` in the same word as
 a `MULT` reaches only the next word's `MULT`.
 
 ```asm
@@ -81,7 +84,7 @@ a `MULT` reaches only the next word's `MULT`.
 # given: XMEM[16] = 2
 # given: XMEM[17] = 5
     LD.MULT R0 LR0 CR2 ;;
-    LD.MULT R0 LR0 CR3 ; MULT.VE LR0 CR1 0 LR0 CR15 ;;
+    LD.MULT R0 LR0 CR3 ; MULT.VE LR0 CR1 0 LR0 CR15.L CR14.L ;;
     HALT ;;
 # expect: MULT_RES[0] == 2
 # expect: R0[0] == 5
@@ -89,21 +92,20 @@ a `MULT` reaches only the next word's `MULT`.
 
 ### Rule 3: MULT_RES reaches ACC, and R_ACC reaches AAQ, in the same cycle { #rule-3 }
 
-The second word multiplies, accumulates, quantizes and stores in one word.
+The second word multiplies, accumulates, activates and stores in one word.
 `ACC.ADD.FIRST` reads this word's `MULT_RES` (3), and `ACTIVATE.QUANTIZE`
-reads this word's `R_ACC`. `ST.AAQ` reads this word's `POST_AAQ_REG` by the
-[slot order](#slot-order), and writes 3 to XMEM row `CR3`.
+reads this word's `R_ACC` and writes 3 to XMEM row `CR3` (in the NX8 mode it
+quantizes the row first and writes its metadata too).
 
 ```asm
 # given: CR2 = 16
 # given: CR3 = 18
 # given: XMEM[16] = 3
     LD.MULT R0 LR0 CR2 ;;
-    MULT.VE LR0 CR1 0 LR0 CR15 ; ACC.ADD.FIRST ; ACTIVATE.QUANTIZE identity CR15 ; ST.AAQ LR0 CR3 ;;
+    MULT.VE LR0 CR1 0 LR0 CR15.L CR14.L ; ACC.ADD.FIRST ; ACTIVATE.QUANTIZE identity CR15.L CR14.L CR3 LR0 ;;
     HALT ;;
 # expect: MULT_RES[0] == 3
 # expect: R_ACC[0] == 3
-# expect: POST_AAQ_REG[0] == 3
 # expect: XMEM[18][0] == 3
 ```
 
@@ -127,13 +129,13 @@ on that word (F-3).
 ### Slot order { #slot-order }
 
 The slots of a word execute in this order: `BREAK`, `LR`, `LOAD`, `MULT`,
-`ACC`, `AAQ`, `STORE`, `ACC_STORE`, `COND`. A read that no rule names is
-forwarded when every slot that writes the register runs earlier in the word,
-and is at cycle start otherwise:
+`ACC`, `AAQ`, `AAQ_EXACT`, `COND`. A read that no rule names is forwarded
+when every slot that writes the register runs earlier in the word, and is at
+cycle start otherwise:
 
-- `ST.AAQ` reads `POST_AAQ_REG` forwarded: only `AAQ` writes it (the rule 3
-  example).
-- `ST.ACC` reads `R_ACC` forwarded: only `ACC` writes it.
+- `ACTIVATE.EXACT` reads `R_ACC` forwarded: only `ACC` writes it.
+- `ACTIVATE.QUANTIZE` reads the AaQ LUT at cycle start: `LD.LUT`, in its own
+  slot, writes it.
 - `ACC.ADD`, `ACC.SUB`, `ACC.MAX` and the non-`FIRST` `AGG` forms read `R_ACC`
   at cycle start: their own slot writes it.
 - CR reads are at cycle start: no slot writes a CR during a run.

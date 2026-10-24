@@ -19,15 +19,16 @@ from ipu_isa.tags import Tag
 from ipu_isa.view import isa
 
 PROGRAM = """\
-SET LR0 CR1; LD.MULT R0 LR0 CR0; MULT.RC.VV LR0 R0 0 LR2 CR15; ACC.ADD;;
-ADD LR0 LR1 LR2; SUB LR3 LR1 CR5; ST.AAQ LR0 CR0; ACC.MAX;;
-ACTIVATE.QUANTIZE relu CR15; BNE LR0 CR0 +0;;
+SET LR0 CR1; LD.MULT R0 LR0 CR0; MULT.RC.VV LR0 R0 0 LR2 CR15.L CR14.L; ACC.ADD;;
+ADD LR0 LR1 LR2; SUB LR3 LR1 CR5.H; ACTIVATE.QUANTIZE relu CR15.L CR14.L CR0 LR0; ACC.MAX;;
+LD.LUT 4 CR2 LR1; BNE LR0 CR0 +0;;
+AGG.MAX LR15 CR15.H;;
 HALT;;
 """
 
 #: NOP in every hardware slot: each slot's NOP opcode at its opcode field
 #: (word_fields.json), worked out by hand once; every other bit is 0.
-HARDWARE_NOP = 0x600000800008000080000C00180000300000100
+HARDWARE_NOP = 0x1800000800008000080000C0018000000C000000000
 
 SV_GOLDEN = Path("src/ipu-gen/test/baselines/ipu_instr_pkg.sv")
 
@@ -114,8 +115,9 @@ def test_the_cli_assembles_and_disassembles_hardware_words(tmp_path):
     # The hardware text is the emulator text without the emulator-only slots.
     hardware = sum(SLOTS[s].count for s in LAYOUT_ORDER if SLOTS[s].tag is Tag.HARDWARE)
     every = sum(SLOTS[s].count for s in LAYOUT_ORDER)
-    assert len(text["hardware"]) == 4 * hardware and len(text["emulator"]) == 4 * every
-    for word in range(4):
+    words = PROGRAM.count(";;")
+    assert len(text["hardware"]) == words * hardware and len(text["emulator"]) == words * every
+    for word in range(words):
         hw = text["hardware"][word * hardware : (word + 1) * hardware]
         assert hw == text["emulator"][word * every : word * every + hardware]
 
@@ -141,7 +143,7 @@ def test_hardware_words_disassemble_to_source_that_assembles_back(tmp_path):
     argv = ["disassemble", "--input", str(binary), "--output", str(text), "--syntax", "assembly"]
     assert runner.invoke(cli, [*argv, *hardware]).exit_code == 0
     written = text.read_text()
-    assert "w0005: " in written and "BNE lr0 cr2 w0005" in written  # the label is generated
+    assert "w0006: " in written and "BNE lr0 cr2 w0006" in written  # the label is generated
     assert not re.search(r"\bNOP [^;]", written)  # NOP takes no operands
     argv = ["assemble", "--input", str(text), "--output", str(again), *hardware]
     assert runner.invoke(cli, argv).exit_code == 0
@@ -170,4 +172,4 @@ def test_the_hardware_width_is_the_sv_package_width():
         if SLOTS[slot].tag is Tag.HARDWARE
     )
     hardware = isa().layout.word_bits(Tag.HARDWARE)
-    assert params["IPU_COMPOUND_INST_WIDTH"] == hardware_slots == hardware == 155
+    assert params["IPU_COMPOUND_INST_WIDTH"] == hardware_slots == hardware == 169

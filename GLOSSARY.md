@@ -9,7 +9,7 @@ One VLIW word fetched and executed per cycle. It holds one instruction per slot.
 _Avoid_: VLIW word, compound instruction, bundle, line
 
 **Slot**:
-A fixed position in the instruction word that holds one instruction for one stage (COND, LR0–LR2, LOAD, MULT, ACC, AAQ, STORE, and the emulator-only ACC_STORE and BREAK).
+A fixed position in the instruction word that holds one instruction for one stage (COND, LR0–LR2, LOAD, MULT, ACC, AAQ, and the emulator-only AAQ_EXACT and BREAK).
 _Avoid_: lane (for slots), slot type, slot name
 
 **Instruction**:
@@ -43,7 +43,7 @@ _Avoid_: program counter, PC (in code)
 ## Machine
 
 **Stage**:
-A pipeline unit that executes one slot kind: Control (LR and COND), LOAD, MULT, ACC, AAQ, STORE.
+A pipeline unit that executes one slot kind: Control (LR and COND), LOAD, MULT, ACC, AAQ. The AaQ stage activates, quantizes and stores its own row (ADR 0007); there is no STORE stage.
 
 **Control stage**:
 The stage that executes LR and COND instructions: loop-register arithmetic and branches.
@@ -55,41 +55,65 @@ One of the 128 parallel element positions of a vector.
 The value one lane holds. Its width depends on the element format.
 
 **Element format**:
-The numeric encoding of elements for a run: INT8 and E1–E7 (8-bit floats with that many exponent bits) on hardware, and the emulator-only FP32 and INT32. It fixes element width, row width and accumulator type.
+The numeric encoding of elements for a run, one per mode (ADR 0007): NX8 on hardware, and the emulator-only FP32. It fixes element width, row width and whether rows carry metadata. INT8, INT32 and the former biased E1–E7 formats are gone.
 _Avoid_: dtype, wide mode, wide-vector debug mode, narrow mode
 
+**Mode**:
+Which element format a run is in: NX8 (the hardware) or FP32 (emulator-only, for debugging a kernel that will run in NX8). Chosen when the state is built; every load and store moves one row of the mode.
+
+**NX8**:
+The hardware's element format: a row of 128 elements of at most 8 bits plus a metadata word. Each element's exponent is a distance below the row's scale; its type (sign, exponent width fe, width W, dynamic) comes from a QF half.
+
+**NX8 type**:
+One QF value, such as e4 (signed, fe 4, 8 bits) or dynamic (fe 1 or 2 per row). A kernel names its NX8 types in `kernel.toml` `formats` (`e1`–`e7`, `dynamic`, `s<sign>e<fe>w<bits>`), beside `fp32`.
+
+**Metadata word**:
+The 16-bit word each NX8 row carries: `scale[7:0]` (an `e8m0` exponent, bias 127) and `dynamic_exponent[8]`. XMEM keeps one per 128-byte unit; `LD.MULT` copies it into R0, R1 or an R_CYCLIC slot, and `ACTIVATE.QUANTIZE` writes it.
+
+**QF (quantization format)**:
+A 16-bit CR half naming an NX8 type: `num_bits[3:0]`, `exp_format[7:4]`, `sign[11:8]`, `dynamic[15:12]`. MULT decodes its vectors with one, `ACTIVATE.QUANTIZE` quantizes to one. The FP32 mode ignores it.
+
+**DS (data structure)**:
+A 16-bit CR half shaping a vector operation: `valid_elements[7:0]`, `num_partitions[9:8]` (1, 2, 4 or 8), `mask_type[11:10]`, `valid_partitions[15:12]`. By convention CR15.L. It replaces the old 32-bit dstructure.
+
+**CR half**:
+The low or high 16 bits of a CR, written `CR13.L` or `CR13.H`. DS and QF operands always name one; an LR or COND source may read one, sign-extended.
+
+**MULT constant**:
+A CR read as a scalar by `MULT.VE`, `MULT.EE` or `MULT.RC.VE`: in NX8 one element with its own scale and type, in FP32 a float32. CR0 and CR1 read as 0.0 and 1.0 in both modes.
+
 **Accumulator type**:
-INT32 for the INT8 format, FP32 for every float format. MULT results and R_ACC use it.
+FP32 in both modes: MULT expands each NX8 element to FP32, and MULT results and R_ACC hold FP32.
 
 **Element codec**:
-The encoding of one 8-bit element and back: decode a code to its value, encode a value with round-to-nearest-even and saturation. It lives in `ipu_isa.formats`.
+The encoding of one NX8 element and back: decode a code with its row's scale, quantize a row with round-to-nearest (ties up) and saturation. It lives in `ipu_isa.nx8`.
 
 **Lane codec**:
-The emulator's numerics for one element format (`ipu_emu.numerics`): decodes a row of lanes, multiplies and accumulates, and stores the accumulator with the format's rounding. Handlers are written against it.
+The emulator's numerics for one mode (`ipu_emu.numerics`): decodes a row of lanes (in NX8 with the QF and the row's metadata), multiplies and accumulates. Handlers are written against it.
 
 **XMEM**:
 The IPU's external memory, addressed in rows.
 _Avoid_: DRAM, main memory
 
 **Row**:
-The XMEM unit one vector occupies: 128 elements, so 128 bytes in an 8-bit format and 512 bytes in FP32/INT32.
+The XMEM unit one vector occupies: 128 elements, so 128 bytes and a metadata word in NX8 and 512 bytes in FP32.
 _Avoid_: word, chunk, line (for XMEM units)
 
 **LR (loop register)**:
 One of LR0–LR15, the 32-bit scalar registers that Control-stage instructions compute with: loop counters, row indices, addresses.
 
 **CR (configuration register)**:
-One of CR0–CR15, scalar registers the host sets before a run and kernels only read. CR0 is 0 and CR1 is 1.
+One of CR0–CR15, 32-bit scalar registers the host sets before a run and kernels only read, each also two CR halves. CR0 is 0 and CR1 is 1.
 
 **dstructure**:
-The `valid_elements` and `partition` fields held in a CR (by convention CR15) that shape vector operations.
+The architecture specs' name for what the ISA calls the DS: see **DS**.
 
 **Cycle start**:
-Register values as they were when the current instruction word began. The Control stage reads LRs at cycle start; MULT reads R0, R1, R_CYCLIC and R_MASK at cycle start.
+Register values as they were when the current instruction word began. The Control stage reads LRs at cycle start; MULT reads R0, R1, R_CYCLIC, their metadata and R_MASK at cycle start.
 _Avoid_: snapshot (in prose), pre-instruction value
 
 **Forwarded value**:
-A value written earlier in the same cycle and seen by a later stage in that cycle: post-LR-write LRs outside the Control stage, MULT_RES in ACC, R_ACC in AAQ.
+A value written earlier in the same cycle and seen by a later stage in that cycle: post-LR-write LRs outside the Control stage, MULT_RES in ACC, R_ACC in AAQ and AAQ_EXACT.
 _Avoid_: live value
 
 **Timing contract**:
@@ -108,7 +132,7 @@ _Avoid_: exception, trap, illegal program error
 Accumulator overflow, a NaN result or quantization saturation. It never halts; it sets a sticky flag.
 
 **Configuration error**:
-A mistake detected before the first cycle, such as an unsupported element format or invalid kernel parameters. It is not a fault.
+A mistake detected before the first cycle, such as an unsupported element format, invalid kernel parameters or `ACTIVATE.EXACT` in an NX8 program (refused at load), or in a word's check phase, such as an invalid QF or DS half (ADR 0007). It is not a fault.
 
 ## Kernels
 

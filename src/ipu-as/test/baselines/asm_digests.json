@@ -1,20 +1,20 @@
 {
   "vscode-ipu-asm/test/corpus/edge_cases.asm": {
-    "bin_sha256": "7dcfb0ca2d0b4bdf7528ec7362568d934fa637005230f4e2405f2d0a1c3383c7",
-    "mem_sha256": "f65f0be515e43afdebf51f5d08b333800437a56115c9c2c9751a95f5ceeb2413",
-    "word_fingerprints": "a3dea59468177f6668177f66b0cd14b974352ff26246a3a1e95b54de0f64b0834fe6188130e99875b7c9dc546bdaeeb9445f951a4a0ba3b9b88d9e9e68177f6668177f6668177f66",
+    "bin_sha256": "cd01d1ca1eaf3b14130ce35930e78326a7bb51c07e3d73b61146707cd0ef076f",
+    "mem_sha256": "01416aae967d9621c07c73a7450a8f30476bbea108d2a2cf4058f536981eac04",
+    "word_fingerprints": "0f0a0e6e64fe322464fe32247b2b141d9708c0cbedc2213e5af8405c448e5b9b847b365abbb49f13da1a58f1ce1fa9148368c4156ef9175b45039c5764fe322464fe322464fe3224",
     "words": 18
   },
   "vscode-ipu-asm/test/integration/fixture/kernels/demo/demo_kernel/demo_kernel.asm": {
-    "bin_sha256": "65e08a2907637a1897d5b3d41c44df37897a0525d0e9f17b2e9d3f38c7cae448",
-    "mem_sha256": "152dff72fbc399a6f614a87361c77a579d00b991604b1ee8fd2e3d85f0cae996",
-    "word_fingerprints": "238b80104731909e1f9949817f0a20ff45e1e7ddace5094e68177f66",
+    "bin_sha256": "a648d5160bcb194c7cc079fe9c086803cc5e1ac9648983eaee775676a6e895a9",
+    "mem_sha256": "ffe224775447789866ff94d723a971c74a79339a7a268e8d25f7fa1b68feed22",
+    "word_fingerprints": "b3ebbd656f71193b2a2c8a4915dc4a2ce06bbb9ea93df8f764fe3224",
     "words": 7
   },
   "vscode-ipu-asm/test/integration/fixture/kernels/demo/scratch.asm": {
-    "bin_sha256": "68177f66c6a635cb66f9652a169435c8a2b8eba1011372e2534c4401a191edd6",
-    "mem_sha256": "bb3b2a169420e20e44f67d7f864a7f06804d4294d7e3241608775c8591fd3898",
-    "word_fingerprints": "68177f66",
+    "bin_sha256": "64fe3224d55def2e561bc0840316642845729d685ec853c8b9519734658b476f",
+    "mem_sha256": "966944995da427b1287e450a787bddb3eb7aa4766e372d15ae09922affe9ccf9",
+    "word_fingerprints": "64fe3224",
     "words": 1
   }
 }

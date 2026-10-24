@@ -5,8 +5,8 @@ Each case is a program, the element format it runs in and a starting state.
 files; ``update_conformance.py`` writes those and the trace a run of them
 gives. The cases are:
 
-* every HARDWARE instruction (Q17), in INT8 and E4, and in FP32 too when its
-  slot is a datapath slot (format-dependent): ``insn_<mnemonic>_<format>``;
+* every HARDWARE instruction (Q17), in NX8, and in FP32 too when its slot is
+  a datapath slot (mode-dependent): ``insn_<mnemonic>_<format>``;
 * every timing probe (E04-12) in each mode it declares: ``probe_<name>_<format>``;
 * each modelled fault and a disabled F-1 and F-9: ``fault_*``;
 * the arithmetic events (E04-23): ``arith_*``.
@@ -31,9 +31,11 @@ from ipu_emu.geometry import EIGHT_BIT_ROWS
 from ipu_emu.ipu_state import IpuState
 from ipu_isa.codec.word import DecodedWord, pack_program
 from ipu_isa.constants import CR_READ_ONLY_INITIAL_VALUES
+from ipu_isa.cr_halves import constant, qf
 from ipu_isa.faults import reserved_encodings
-from ipu_isa.formats import FORMATS, AccumulatorType, ElementFormat
+from ipu_isa.formats import FORMATS, ElementFormat
 from ipu_isa.geometry import LANES
+from ipu_isa.nx8 import Nx8Format
 from ipu_isa.registers import REGISTER_DEFINITIONS
 from ipu_isa.slots import Slot
 from ipu_isa.tags import Tag
@@ -43,6 +45,9 @@ from ipu_isa.view import isa
 MAX_CYCLES = 1_000
 #: XMEM rows the load cases fill (their rows are CR3 + LR1 and CR3 + LR2).
 ROWS = 8
+#: The NX8 metadata word of XMEM row k in the cases whose load copies it:
+#: dynamic exponent 1 and scale 0x80 + k (rows 5 and 6 read 0x0185 and 0x0186).
+ROW_METADATA = 0x0180
 
 
 @dataclass(frozen=True)
@@ -81,8 +86,21 @@ class Case:
 
 # -- starting states ----------------------------------------------------------
 
-#: CR values of the instruction cases (CR0, CR1 and CR15 keep their reset values).
-CRS = {2: 1, 3: 4, 4: 2, 5: 7, 6: 128, 7: 0xFFFFFFFE, 8: 100, 9: 3}
+#: CR values of the instruction cases (CR0, CR1 and CR15 keep their reset
+#: values; CR15.L is the default DS). CR11 is a MULT constant (3.0 in NX8:
+#: E4 code 0x34 at scale 134) and CR14.L the QF half of E4.
+CRS = {
+    2: 1,
+    3: 4,
+    4: 2,
+    5: 7,
+    6: 128,
+    7: 0xFFFFFFFE,
+    8: 100,
+    9: 3,
+    11: constant(0x34, 134, 4),
+    14: qf(Nx8Format(sign=1, exp_format=4, num_bits=8)),
+}
 #: LR values: small row offsets, a cyclic slot boundary (LR6) and a branch target (LR7).
 LRS = {1: 1, 2: 2, 3: 3, 4: 5, 6: 128, 7: 3}
 
@@ -91,46 +109,44 @@ def _floats(rng: random.Random, count: int) -> bytes:
     return struct.pack(f"<{count}f", *(rng.uniform(-8.0, 8.0) for _ in range(count)))
 
 
-def _ints(rng: random.Random, count: int, bound: int) -> bytes:
-    return struct.pack(f"<{count}i", *(rng.randint(-bound, bound) for _ in range(count)))
-
-
 def _elements(rng: random.Random, fmt: ElementFormat, count: int) -> bytes:
-    """*count* input elements: any byte in the narrow formats, small values
-    (float32 for FP32, int32 for INT32) in the wide ones."""
+    """*count* input elements: any byte in NX8, small float32 values in FP32."""
     if fmt is ElementFormat.FP32:
         return _floats(rng, count)
-    if fmt is ElementFormat.INT32:
-        return _ints(rng, count, 1000)
     return rng.randbytes(count)
 
 
-def _lanes(rng: random.Random, fmt: ElementFormat, count: int = LANES) -> bytes:
-    """*count* MULT_RES / R_ACC lanes of the format's accumulator."""
-    if FORMATS[fmt].accumulator is AccumulatorType.INT32:
-        return _ints(rng, count, 1 << 20)
-    return _floats(rng, count)
+def _metadata(rng: random.Random, count: int) -> bytes:
+    """*count* NX8 metadata words: a scale near 127 (2^-7 .. 2^7), no dynamic exponent."""
+    return b"".join(rng.randint(120, 134).to_bytes(2, "little") for _ in range(count))
 
 
-#: Where each register an instruction reads lives in the wide formats.
+#: Where each register an instruction reads lives in FP32 mode.
 _WIDE_NAMES = {"r": "r_wide_debug", "r_cyclic": "r_cyclic_wide_debug"}
 
 
 def _fill(rng: random.Random, fmt: ElementFormat, register: str) -> bytes:
     """Random contents for *register* in *fmt*: lanes, elements or bytes."""
     if register in ("mult_res", "r_acc"):
-        return _lanes(rng, fmt)
+        return _floats(rng, LANES)
     definition = REGISTER_DEFINITIONS[register]
+    if register in ("r_meta", "r_cyclic_meta"):
+        return _metadata(rng, definition["size_bytes"] * definition["count"] // 2)
     if register in ("r", "r_cyclic"):
         return _elements(rng, fmt, definition["size_bytes"] * definition["count"])
     return rng.randbytes(definition["size_bytes"])
 
 
-def random_state(seed: str, reads: frozenset[str], xmem: bool) -> Callable[[IpuState], None]:
+def random_state(
+    seed: str, reads: frozenset[str], xmem: bool, metadata: bool = False
+) -> Callable[[IpuState], None]:
     """An instruction case's starting state: CRS and LRS, the vector
     registers in *reads* and, when *xmem*, the first ROWS XMEM rows, filled
     from a generator seeded by *seed*. The registers the instruction does not
-    read keep their reset values, which keeps the suite small."""
+    read keep their reset values, which keeps the suite small. When
+    *metadata* (a load that copies row metadata) and in NX8, those rows'
+    metadata words are ROW_METADATA + row, nonzero so a trace shows the copy;
+    otherwise XMEM row metadata stays 0."""
 
     def prepare(state: IpuState) -> None:
         rng = random.Random(seed)
@@ -145,6 +161,9 @@ def random_state(seed: str, reads: frozenset[str], xmem: bool) -> Callable[[IpuS
             state.regfile.mutable(name)[:] = _fill(rng, fmt, register)
         if xmem:
             state.xmem.write_address(0, _elements(rng, fmt, ROWS * LANES))
+        if metadata and fmt is ElementFormat.NX8:
+            for row in range(ROWS):
+                state.xmem.write_metadata(row * LANES, ROW_METADATA + row)
 
     return prepare
 
@@ -159,7 +178,7 @@ def scalars(state: IpuState) -> None:
 
 # -- instruction cases --------------------------------------------------------
 
-_NARROW = (ElementFormat.INT8, ElementFormat.E4)
+_NARROW = (ElementFormat.NX8,)
 _DATAPATH = (*_NARROW, ElementFormat.FP32)
 
 #: Each HARDWARE instruction's program (HALT ends every one) and formats.
@@ -167,7 +186,6 @@ INSTRUCTIONS: dict[str, tuple[str, tuple[ElementFormat, ...]]] = {
     "LD.MULT": ("LD.MULT R0 LR1 CR3 ;;\nLD.MULT R1 LR2 CR3 ;;", _DATAPATH),
     "LD.MULT.CYCLIC": ("LD.MULT.CYCLIC LR1 CR3 LR0 ;;\nLD.MULT.CYCLIC LR2 CR3 LR6 ;;", _DATAPATH),
     "LD.MASK": ("LD.MASK LR1 CR3 ;;", _DATAPATH),
-    "ST.AAQ": ("ST.AAQ LR1 CR3 ;;", _DATAPATH),
     "SET": ("SET LR0 CR2 ;;\nSET LR5 CR7 ;;", _NARROW),
     "ADD": ("ADD LR0 LR1 LR2 ;;\nADD LR5 LR4 CR7 ;;", _NARROW),
     "SUB": ("SUB LR0 LR1 LR4 ;;\nSUB LR5 LR4 CR5 ;;", _NARROW),
@@ -176,11 +194,26 @@ INSTRUCTIONS: dict[str, tuple[str, tuple[ElementFormat, ...]]] = {
     "DEC": ("DEC LR0 3 ;;\nDEC LR4 1 ;;", _NARROW),
     "ADDB": ("ADDB LRD0 LR3 ;;\nADDB LRD2 CR5 ;;", _NARROW),
     "ADDBI": ("ADDBI LRD0 200 ;;\nADDBI LRD2 7 ;;", _NARROW),
-    "MULT.RC.VV": ("MULT.RC.VV LR0 R0 0 LR2 CR15 ;;\nMULT.RC.VV LR4 R1 1 LR0 CR15 ;;", _DATAPATH),
-    "MULT.RC.VE": ("MULT.RC.VE LR0 LR3 0 LR2 CR15 ;;\nMULT.RC.VE LR1 CR5 1 LR0 CR15 ;;", _DATAPATH),
-    "MULT.RC.VS": ("MULT.RC.VS LR0 0 LR2 CR15 ;;\nMULT.RC.VS LR4 1 LR0 CR15 ;;", _DATAPATH),
-    "MULT.VE": ("MULT.VE LR0 CR3 0 LR2 CR15 ;;\nMULT.VE LR1 CR9 1 LR0 CR15 ;;", _DATAPATH),
-    "MULT.EE": ("MULT.EE LR0 CR3 0 LR2 CR15 ;;\nMULT.EE LR1 CR9 1 LR0 CR15 ;;", _DATAPATH),
+    "MULT.RC.VV": (
+        "MULT.RC.VV LR0 R0 0 LR2 CR15.L CR14.L ;;\nMULT.RC.VV LR4 R1 1 LR0 CR15.L CR14.L ;;",
+        _DATAPATH,
+    ),
+    "MULT.RC.VE": (
+        "MULT.RC.VE LR0 LR3 0 LR2 CR15.L CR14.L ;;\nMULT.RC.VE LR1 CR11 1 LR0 CR15.L CR14.L ;;",
+        _DATAPATH,
+    ),
+    "MULT.RC.VS": (
+        "MULT.RC.VS LR0 0 LR2 CR15.L CR14.L ;;\nMULT.RC.VS LR4 1 LR0 CR15.L CR14.L ;;",
+        _DATAPATH,
+    ),
+    "MULT.VE": (
+        "MULT.VE LR0 CR11 0 LR2 CR15.L CR14.L ;;\nMULT.VE LR1 CR1 1 LR0 CR15.L CR14.L ;;",
+        _DATAPATH,
+    ),
+    "MULT.EE": (
+        "MULT.EE LR0 CR11 0 LR2 CR15.L CR14.L ;;\nMULT.EE LR1 CR1 1 LR0 CR15.L CR14.L ;;",
+        _DATAPATH,
+    ),
     "ACC.ADD": ("ACC.ADD ;;", _DATAPATH),
     "ACC.ADD.FIRST": ("ACC.ADD.FIRST ;;", _DATAPATH),
     "ACC.MAX": ("ACC.MAX ;;", _DATAPATH),
@@ -188,16 +221,15 @@ INSTRUCTIONS: dict[str, tuple[str, tuple[ElementFormat, ...]]] = {
     "ACC.SUB": ("ACC.SUB ;;", _DATAPATH),
     "ACC.SUB.FIRST": ("ACC.SUB.FIRST ;;", _DATAPATH),
     "ACC.STRIDE": ("ACC.STRIDE 16 off off LR0 ;;", _DATAPATH),
-    "AGG.SUM.FIRST": ("AGG.SUM.FIRST LR4 CR15 ;;", _DATAPATH),
-    "AGG.SUM": ("AGG.SUM LR4 CR15 ;;", _DATAPATH),
-    "AGG.MAX.FIRST": ("AGG.MAX.FIRST LR4 CR15 ;;", _DATAPATH),
-    "AGG.MAX": ("AGG.MAX LR4 CR15 ;;", _DATAPATH),
+    "AGG.SUM.FIRST": ("AGG.SUM.FIRST LR4 CR15.L ;;", _DATAPATH),
+    "AGG.SUM": ("AGG.SUM LR4 CR15.L ;;", _DATAPATH),
+    "AGG.MAX.FIRST": ("AGG.MAX.FIRST LR4 CR15.L ;;", _DATAPATH),
+    "AGG.MAX": ("AGG.MAX LR4 CR15.L ;;", _DATAPATH),
     "ACC.RESHAPE": ("ACC.RESHAPE LRD0 LRD2 0 ;;", _DATAPATH),
-    # QUANTIZE is INT8 only (OQ-20); FP32 applies the activation alone.
-    "ACTIVATE.QUANTIZE": (
-        "ACTIVATE.QUANTIZE relu CR15 ;;",
-        (ElementFormat.INT8, ElementFormat.FP32),
-    ),
+    # NX8 quantizes to CR14.L's format and stores 128 bytes and the metadata;
+    # FP32 stores the activated row as 512 bytes (ADR 0007).
+    "ACTIVATE.QUANTIZE": ("ACTIVATE.QUANTIZE relu CR15.L CR14.L CR3 LR1 ;;", _DATAPATH),
+    "LD.LUT": ("LD.LUT 0 CR3 LR1 ;;\nLD.LUT 4 CR3 LR2 ;;", _DATAPATH),
     "BEQ": (
         "BEQ LR0 LR1 skip ;;\nINC LR5 1 ;;\nskip:\nBEQ LR0 CR0 end ;;\nINC LR5 2 ;;\nend:",
         _NARROW,
@@ -230,13 +262,22 @@ def instruction_cases() -> list[Case]:
     view = isa()
     every = [i for slot in view.spec_slot_order for i in view.instructions(slot)]
     reads = {i.mnemonic: frozenset(a.register for a in i.reads()) for i in every}
-    slots = {i.mnemonic: i.slot for i in every}
+    # The instructions that read XMEM: the LOAD slot's and LD.LUT.
+    loads = {i.mnemonic for i in every if i.slot is Slot.LOAD or i.mnemonic == "LD.LUT"}
+    # The loads that copy a row's metadata word (into r_meta or r_cyclic_meta).
+    copies_metadata = {
+        i.mnemonic
+        for i in every
+        if i.mnemonic in loads and {w.register for w in i.writes()} & {"r_meta", "r_cyclic_meta"}
+    }
     cases = []
     for mnemonic, (body, formats) in INSTRUCTIONS.items():
         for fmt in formats:
             name = f"insn_{_slug(mnemonic)}_{fmt.value}"
             asm = f"{body}\nHALT ;;\n" if body else "HALT ;;\n"
-            state = random_state(name, reads[mnemonic], slots[mnemonic] is Slot.LOAD)
+            state = random_state(
+                name, reads[mnemonic], mnemonic in loads, mnemonic in copies_metadata
+            )
             cases.append(Case(name, f"{mnemonic} in {fmt.value.upper()}", asm, fmt, state))
     return cases
 
@@ -244,7 +285,7 @@ def instruction_cases() -> list[Case]:
 # -- timing probes ------------------------------------------------------------
 
 _MODE_FORMAT = {
-    timing_probes.Mode.NARROW: ElementFormat.INT8,
+    timing_probes.Mode.NX8: ElementFormat.NX8,
     timing_probes.Mode.WIDE_FP32: ElementFormat.FP32,
 }
 #: Probes the suite leaves out, and why.
@@ -263,6 +304,8 @@ def _probe_state(
         prepared.regfile.copy_into(state.regfile)
         for base, page in prepared.xmem.touched_pages():
             state.xmem.write_address(base, bytes(page))
+        for address, word in prepared.xmem.touched_metadata():
+            state.xmem.write_metadata(address, word)
 
     return prepare
 
@@ -326,13 +369,13 @@ def _with_cr(index: int, value: int) -> Callable[[IpuState], None]:
 
 def fault_cases() -> list[Case]:
     """Each modelled fault, and F-1 and F-9 disabled."""
-    int8 = ElementFormat.INT8
+    nx8 = ElementFormat.NX8
     return [
         Case(
             "fault_f1_reserved_opcode",
             "F-1: an undefined LR opcode",
             "INC LR0 1 ;;\nHALT ;;\n",
-            int8,
+            nx8,
             scalars,
             edit=_reserved_lr_opcode,
         ),
@@ -340,7 +383,7 @@ def fault_cases() -> list[Case]:
             "fault_f1_disabled",
             "F-1 disabled: the slot runs as NOP and the run goes on",
             "INC LR0 1 ;;\nINC LR4 1 ;;\nHALT ;;\n",
-            int8,
+            nx8,
             scalars,
             edit=_reserved_lr_opcode,
             fault_enables={"F-1": False},
@@ -349,43 +392,43 @@ def fault_cases() -> list[Case]:
             "fault_f2_past_the_program",
             "F-2: the program ends without HALT",
             "INC LR0 1 ;;\n",
-            int8,
+            nx8,
             scalars,
         ),
         Case(
             "fault_f3_lr_conflict",
             "F-3: two writes of LR0 in one word",
             "SET LR0 CR2 ; SET LR0 CR5 ;;\nHALT ;;\n",
-            int8,
+            nx8,
             scalars,
         ),
         Case(
             "fault_f4_cyclic_index",
             "F-4: an R_CYCLIC index off a slot boundary",
             "LD.MULT.CYCLIC LR0 CR3 LR1 ;;\nHALT ;;\n",
-            int8,
+            nx8,
             scalars,
         ),
         Case(
             "fault_f5_reshape_index",
             "F-5: an ACC.RESHAPE destination index past the last lane",
             "ACC.RESHAPE LRD0 LRD6 0 ;;\nHALT ;;\n",
-            int8,
+            nx8,
             scalars,
         ),
         Case(
             "fault_f6_xmem_row",
-            f"F-6: XMEM row {EIGHT_BIT_ROWS}, past the narrow formats' rows",
+            f"F-6: XMEM row {EIGHT_BIT_ROWS}, past the NX8 mode's rows",
             "LD.MULT R0 LR0 CR10 ;;\nHALT ;;\n",
-            int8,
+            nx8,
             _with_cr(10, EIGHT_BIT_ROWS),
         ),
-        Case("fault_f9_cycle_limit", "F-9: the cycle limit", _LOOP, int8, scalars, max_cycles=20),
+        Case("fault_f9_cycle_limit", "F-9: the cycle limit", _LOOP, nx8, scalars, max_cycles=20),
         Case(
             "fault_f9_disabled",
             "F-9 disabled: the run passes the limit to HALT",
             _LOOP,
-            int8,
+            nx8,
             scalars,
             fault_enables={"F-9": False},
             max_cycles=20,
@@ -395,21 +438,21 @@ def fault_cases() -> list[Case]:
 
 def arith_cases() -> list[Case]:
     """The arithmetic events the emulator records (E04-23)."""
-    int8, fp32 = ElementFormat.INT8, ElementFormat.FP32
+    nx8, fp32 = ElementFormat.NX8, ElementFormat.FP32
     return [
         Case(
-            "arith_acc_overflow_int8",
-            "ACC_OVERFLOW: int32 lanes that wrap",
-            "ACC.ADD ;;\nHALT ;;\n",
-            int8,
-            _lanes_of("i", 2**31 - 1, 1),
-        ),
-        Case(
-            "arith_acc_overflow_e4",
+            "arith_acc_overflow_nx8",
             "ACC_OVERFLOW: float32 lanes that round to infinity",
             "ACC.ADD ;;\nHALT ;;\n",
-            ElementFormat.E4,
+            nx8,
             _lanes_of("f", 3.0e38, 3.0e38),
+        ),
+        Case(
+            "arith_quant_saturation_nx8",
+            "QUANT_SATURATION: an infinite R_ACC lane quantized to E4",
+            "ACTIVATE.QUANTIZE identity CR15.L CR14.L CR3 LR1 ;;\nHALT ;;\n",
+            nx8,
+            _lanes_of("f", float("inf"), 0.0),
         ),
         Case(
             "arith_acc_overflow_fp32",
@@ -482,7 +525,7 @@ def _xmem(state: IpuState) -> list[dict[str, Any]]:
 
 
 def _emulator_only(case: Case, data: bytes) -> bool:
-    """True when the hardware cannot run the case: a wide format, or an
+    """True when the hardware cannot run the case: FP32 mode, or an
     EMULATOR slot's op other than NOP."""
     if FORMATS[case.fmt].tag is Tag.EMULATOR:
         return True
@@ -490,12 +533,22 @@ def _emulator_only(case: Case, data: bytes) -> bool:
     return any(slot in emulator and op != "NOP" for slot, op in conformance.slot_ops(data))
 
 
+def _xmem_metadata(state: IpuState) -> list[dict[str, Any]]:
+    """The XMEM row metadata words that are not zero, by row: the word's
+    value in four hex digits, most significant first."""
+    return [
+        {"row": address // LANES, "word": f"{word:04x}"}
+        for address, word in state.xmem.touched_metadata()
+    ]
+
+
 def setup_of(case: Case, data: bytes) -> dict[str, Any]:
-    """The ``setup.json`` of *case*: its starting state, every register and
-    XMEM byte not listed being zero."""
+    """The ``setup.json`` of *case*: its starting state, every register,
+    XMEM byte and XMEM row metadata word not listed being zero
+    (``xmem_metadata`` only when one is not)."""
     state, fresh = IpuState(fmt=case.fmt), IpuState(fmt=case.fmt)
     case.prepare(state)
-    return {
+    setup = {
         "description": case.description,
         "format": case.fmt.value,
         "emulator_only": _emulator_only(case, data),
@@ -504,6 +557,10 @@ def setup_of(case: Case, data: bytes) -> dict[str, Any]:
         "registers": _registers(state, fresh),
         "xmem": _xmem(state),
     }
+    metadata = _xmem_metadata(state)
+    if metadata:
+        setup["xmem_metadata"] = metadata
+    return setup
 
 
 def source_of(case: Case) -> str:

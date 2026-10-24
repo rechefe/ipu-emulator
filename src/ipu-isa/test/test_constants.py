@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import copy
 import dataclasses
-import itertools
 
 import pytest
 
@@ -12,12 +11,6 @@ from ipu_isa.constants import (
     CR_ONE_REG_INDEX,
     CR_READ_ONLY_INITIAL_VALUES,
     CR_ZERO_REG_INDEX,
-    DEFAULT_DSTRUCTURE,
-    DStructureConfig,
-    PadMode,
-    Partition,
-    decode_dstructure,
-    encode_dstructure,
 )
 from ipu_isa.geometry import INST_MEM_WORDS, LANES, R_CYCLIC_ELEMENTS, TAGS, XMEM_BYTES
 from ipu_isa.instruction_spec import (
@@ -51,19 +44,6 @@ def test_constant_registers():
     assert dict(CR_READ_ONLY_INITIAL_VALUES) == {CR_ZERO_REG_INDEX: 0, CR_ONE_REG_INDEX: 1}
     with pytest.raises(TypeError):
         CR_READ_ONLY_INITIAL_VALUES[2] = 2
-
-
-@pytest.mark.parametrize("partition, pad_mode", list(itertools.product(Partition, PadMode)))
-@pytest.mark.parametrize("valid_elements", [0, 1, 64, LANES])
-def test_dstructure_round_trip(valid_elements, partition, pad_mode):
-    word = encode_dstructure(valid_elements=valid_elements, partition=partition, pad_mode=pad_mode)
-    config = DStructureConfig(valid_elements, partition, pad_mode)
-    assert decode_dstructure(word) == config
-    assert config.to_register_value() == word
-
-
-def test_default_dstructure():
-    assert DEFAULT_DSTRUCTURE == DStructureConfig(LANES, Partition.P0, PadMode.ZERO)
 
 
 def _pseudo_with_b_literal(literal: str) -> dict:

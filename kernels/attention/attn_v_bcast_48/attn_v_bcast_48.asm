@@ -49,7 +49,7 @@
     Loop nest:  for b in 0..15 { for t in 0..47 {
                     load V[b,:,t] -> R0 (all 64 keys, the scalar source)
                     prime key 0's P row; for s in 0..63: MULT.RC.VE + ACC
-                    ACTIVATE.QUANTIZE + ST.AAQ
+                    ACTIVATE.EXACT (activate and store)
                 }}
 
     Counts: 16 blocks x 48 channels x 64 keys = 49152 MULT+ACC instruction words + 768
@@ -120,7 +120,7 @@
 {% set CHAN_COUNT  = cr.d %}  {# 48 = head channels t per block #}
 {% set BLOCK_COUNT = cr.n_head %}  {# 16 = P * N_HEAD blocks #}
 {% set CHAN_STRIDE = cr.chan_stride %}  {# 1 = V/O channel stride (rows) #}
-{% set DSTRUCT     = "CR15" %}  {# reserved dstructure register #}
+{% set DSTRUCT     = "CR15.L" %}  {# the DS half #}
 
     # key_last = KEY_BOUND + 1 (= N-1 = 63). See the cycle-start value note in the
     # header: key_index's ADD now sits one word ahead of the BLT.S, so the branch
@@ -150,7 +150,7 @@ t_loop:
     ADD {{ key_index }} {{ key_index }} {{ ONE }};;
 
     # Peeled first key (s=0): ACC.ADD.FIRST seeds R_ACC.
-    MULT.RC.VE {{ rc_slot0 }} {{ key_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ key_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ cr.qf }}.L;
     ACC.ADD.FIRST;
     LD.MULT.CYCLIC {{ p_ptr }} {{ P_BASE }} {{ rc_slot0 }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ key_stride }};
@@ -161,15 +161,14 @@ s_loop_pre:
     ADD {{ key_index }} {{ key_index }} {{ ONE }};;        # name the key just loaded
 
 s_loop:
-    MULT.RC.VE {{ rc_slot0 }} {{ key_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ key_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ cr.qf }}.L;
     ACC.ADD;
     LD.MULT.CYCLIC {{ p_ptr }} {{ P_BASE }} {{ rc_slot0 }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ key_stride }};
     BLT.S {{ key_index }} {{ key_last }} s_loop_pre;;
 
 s_done:
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    ST.AAQ {{ chan_off }} {{ OUT_BASE }};;  # O[b, 0..63, t] = R_ACC
+    ACTIVATE.EXACT identity {{ DSTRUCT }} {{ OUT_BASE }} {{ chan_off }} ;;  # O[b, 0..63, t] = R_ACC
 
     ADD {{ chan_off }} {{ chan_off }} {{ CHAN_STRIDE }};;  # next channel row (V and O share the offset)
     ADD {{ chan_index }} {{ chan_index }} {{ ONE }};;

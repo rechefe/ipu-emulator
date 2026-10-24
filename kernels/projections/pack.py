@@ -2,9 +2,10 @@
 and the packed linear's weight transform (E07-23).
 
 ``projection_output`` lays ``y``, ``(streams, n_tg, n_out, n_tok)``, out as
-the kernels' ``ST.AAQ`` rows: grouped channel-major, row ``(p, tg, j)`` at
-``p * n_tg * n_out + tg * n_out + j``, the first ``n_tok`` lanes valid. On
-unpack the lanes past ``n_tok`` (what the store leaves there) are dropped.
+the rows the kernels' ``ACTIVATE.EXACT`` stores: grouped channel-major, row
+``(p, tg, j)`` at ``p * n_tg * n_out + tg * n_out + j``, the first ``n_tok``
+lanes valid. On unpack the lanes past ``n_tok`` (inactive, stored as 0) are
+dropped.
 That is the row-major default over the logical shape; it is named here so
 ``kernel.toml`` says what the store writes.
 """

@@ -34,7 +34,7 @@
                       -> MULT_RES[s] = Q[i,c] * K[s,c]
                     ACC.ADD.FIRST (c=0) / ACC.ADD      -> R_ACC[s] += Q[i,c] * K[s,c]
       after 48 channels R_ACC[s] = S[b, i, s] for the 64 keys of the block.
-      ACTIVATE.QUANTIZE identity + ST.AAQ
+      ACTIVATE.EXACT identity (activate and store)
                     -> one whole row per query (the leading 64 FP32 lanes are the
                        scores; the harness unpacks the first n_tok lanes -- rows are
                        never shared between queries).
@@ -66,7 +66,7 @@
 
     Loop nest:  for b in 0..15 { for i in 0..63 {
                     prime c=0; for c in 0..47: MULT.RC.VE + ACC
-                    ACTIVATE.QUANTIZE + ST.AAQ
+                    ACTIVATE.EXACT (activate and store)
                 }}
 
     Addressing is split offset(LR) + base(CR) and all .asm operands are ROW
@@ -114,7 +114,7 @@
 {% set QROW_BASE   = cr.a  %}  {# staged query-major Q base #}
 {% set BLK_LIMIT   = cr.n_block %}  {# 16 = P * N_HEAD blocks #}
 {% set K_BLOCK     = cr.k_block %}  {# 48 = K rows per (stream, head) block #}
-{% set DSTRUCT     = cr.dstruct %}  {# reserved dstructure register #}
+{% set DSTRUCT     = cr.dstruct ~ ".L" %}  {# the DS half #}
 
     # chan_last = chan_bound + 1 (= D-1 = 47). See the cycle-start value note in the
     # header: chan_index's ADD now sits one word ahead of the BLT.S, so the branch
@@ -138,7 +138,7 @@ q_loop:
     ADD {{ chan_index }} {{ chan_index }} {{ ONE }};;
 
     # Peeled first channel (c=0): ACC.ADD.FIRST seeds R_ACC.
-    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ cr.qf }}.L;
     ACC.ADD.FIRST;
     LD.MULT.CYCLIC {{ k_ptr }} {{ K_BASE }} {{ rc_slot0 }};
     ADD {{ k_ptr }} {{ k_ptr }} {{ k_stride }};
@@ -149,15 +149,14 @@ c_loop_pre:
     ADD {{ chan_index }} {{ chan_index }} {{ ONE }};;     # name the channel just loaded
 
 c_loop:
-    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ cr.qf }}.L;
     ACC.ADD;
     LD.MULT.CYCLIC {{ k_ptr }} {{ K_BASE }} {{ rc_slot0 }};
     ADD {{ k_ptr }} {{ k_ptr }} {{ k_stride }};
     BLT.S {{ chan_index }} {{ chan_last }} c_loop_pre;;
 
 after_c:
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    ST.AAQ {{ out_ptr }} {{ S_BASE }};;  # store row -> S[b, i, keys 0..63]
+    ACTIVATE.EXACT identity {{ DSTRUCT }} {{ S_BASE }} {{ out_ptr }} ;;  # store row -> S[b, i, keys 0..63]
     ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;    # advance output row
 
     ADD {{ q_ptr }} {{ q_ptr }} {{ qrow_stride }};

@@ -12,19 +12,17 @@
     depthwise_conv_stride2_* kernels (E07-19), so it reads only has_bias,
     apply_relu and the [abi] names those kernels declare too.
 
-    Pipeline per channel (a walking pointer over a rotating cyclic ring, with
-    a deferred store)
+    Pipeline per channel (a walking pointer over a rotating cyclic ring)
     - Unseeded, 9 cycles: the 9 taps (MULT.RC.VE from the ring), tap 1
       starting R_ACC (ACC.ADD.FIRST).
     - Seeded, 10 cycles: cycle 0 seeds R_ACC with the channel's bias
       (MULT.EE of its bias element times CR1, ACC.ADD.FIRST), and the 9 taps
       accumulate on it.
-    - In both, tap 9's final ACC.ADD and ACTIVATE.QUANTIZE (relu when
-      apply_relu, else identity) co-issue in one word (AAQ reads R_ACC
-      live, and ACC dispatches before AAQ), and the next channel's tap 2
-      stores the result: y is bound one row low (CR2 = y - 1) and LR7
-      starts at -1, so the first store, channel 0's, writes the row below y
-      with no result yet, which nothing reads.
+    - In both, tap 9's final ACC.ADD and ACTIVATE.EXACT (relu when
+      apply_relu, else identity) co-issue in one word (AAQ_EXACT reads R_ACC
+      forwarded, after ACC), and the activate stores the channel's row at
+      y + LR7: LR7 starts at -1 and tap 2 advances it, so channel K's row
+      is y + K.
     The variants differ in the 3 sections (chunk 0, chunks 1..N-2, chunk N-1)
     in the same places: the seed word; ACC.ADD vs ACC.ADD.FIRST at tap 1;
     the cycle that prefetches the channel's kr = -1 chunk (seeded: its own
@@ -49,8 +47,8 @@
 
     Data layout (packs "chunked_guard", "chunked")
     - width pads to cols in {16, 32, 64, 128}: one packed spatial row per
-      mask-partition group, so CR15.partition = 128 / cols groups (P0 at
-      cols = 128). height pads to rows >= ceil(256 / cols): at least 2
+      DS partition, so CR15.L is ds(cols, 128 / cols, 128 / cols) (one
+      partition at cols = 128); CR15.H is the case's QF. height pads to rows >= ceil(256 / cols): at least 2
       chunks, for the first and the last chunk section.
     - 128 / cols spatial rows share one 128-element chunk (one XMEM row);
       chunks are grouped by channel: row (chunk * channels + ch).
@@ -81,7 +79,7 @@
       taps), slot 3 zeroes packed row 0 (chunk 0's kr = -1 taps 1-3), slot 6
       zeroes the last packed row (chunk N-1's kr = +1 taps 7-9).
     - Left/right edge columns are zeroed by mask_shift, with
-      CR15.partition = cols groups: kc = -1 shifts by +1 (LR9, zeroes each
+      the DS's 128 / cols partitions: kc = -1 shifts by +1 (LR9, zeroes each
       row's first column), kc = 0 by 0 (LR0), kc = +1 by -1 (LR13, zeroes
       each row's last column).
 
@@ -119,7 +117,7 @@
     ADD                 LR8 LR0 {{ cr.in_channels }};
     SET                 LR7 CR0;;
 
-    # LR7 = -1 row so ch 0's tap-2 advance lands at row 0 (scratch store target).
+    # LR7 = -1 row so ch 0's tap-2 advance lands at row 0, its output row.
     SUB                 LR7 LR7 CR1;;  # LR7 = -1
 
     DEC                 LR1 2;  # LR1 = cols - 2 (permanent)
@@ -181,25 +179,23 @@ g0_ch_pre:
 
 g0_tap_body:
 {%- if seeded %}
-    # 10 cyc/ch.  cyc0 = bias seed; taps 1..9 = weights, ACTIVATE.QUANTIZE
+    # 10 cyc/ch.  cyc0 = bias seed; taps 1..9 = weights, ACTIVATE.EXACT
     # fused into tap 9's own cycle (see below).  G0: kr=-1 row masked.
     #
-    # Store pipeline (2-deep, no extra cycle):
-    #   ch K   tap 9: acc (final) + ACTIVATE {{ activation }} -> post_aaq_reg = act(R_ACC)
-    #   ch K+1 tap 2: deferred store of ch K's post_aaq_reg
-    # ch 0's tap-2 store writes undefined data to the -128 scratch slot
-    # (harmless — never read back).
+    # Store (no extra cycle):
+    #   ch K   tap 2: LR7 advance to K
+    #   ch K   tap 9: acc (final) + ACTIVATE.EXACT {{ activation }} -> y[K] = act(R_ACC)
 
     # --- cyc 0: BIAS seed + activate the PREVIOUS channel.
     # LR6 += 1 -> s*10 (this ch's bias element index; the +1 here plus +1 on each of
     # taps 1..9 = +10 total per channel = one 10-element channel slot).  Bias's
     # MULT.EE reads Ra[LR6]*CR1=1, broadcasting the bias element to all lanes.
-    # LR3 is NOT walked here; tap 1 keeps the unseeded program's walk_step.  AAQ activates the previous channel.
+    # LR3 is NOT walked here; tap 1 keeps the unseeded program's walk_step.
     # Also pre-load this ch's kr=-1 (own valid base LR2) into slot LR5 here, one
     # cycle before tap 1 reads it (snapshot; cyc-0's LOAD slot is free).
     INC                 LR6 1;
     LD.MULT.CYCLIC LR2 {{ cr.x }} LR5;
-    MULT.EE             LR6 CR1 0 LR0 CR15 ;
+    MULT.EE             LR6 CR1 0 LR0 CR15.L CR15.H ;
     ACC.ADD.FIRST;;
 {%- endif %}
 {%- if seeded %}
@@ -208,14 +204,12 @@ g0_tap_body:
     #     zeros the left edge column.  kr=-1 (own valid base LR2) pre-loaded in
     #     cyc 0; row-0 lanes masked.  Walk +CR14, as unseeded.
 {%- else %}
-    # 9 cyc/ch.  Taps 1..9 = weights; ACTIVATE.QUANTIZE fused into tap 9's own
+    # 9 cyc/ch.  Taps 1..9 = weights; ACTIVATE.EXACT fused into tap 9's own
     # cycle (see tap 9 below).  G0: kr=-1 row masked.
     #
-    # Store pipeline (2-deep, no extra cycle):
-    #   ch K   tap 9: acc (final) + ACTIVATE identity -> post_aaq_reg = R_ACC
-    #   ch K+1 tap 2: deferred store of ch K's post_aaq_reg
-    # ch 0's tap-2 store writes undefined data to the -128 scratch slot
-    # (harmless — never read back).
+    # Store (no extra cycle):
+    #   ch K   tap 2: LR7 advance to K
+    #   ch K   tap 9: acc (final) + ACTIVATE.EXACT identity -> y[K] = R_ACC
 
     # --- tap 1: kr=-1 kc=-1.  Top row out of bounds: slot 3; kc=-1 shift (LR9)
     #     zeros the left edge column.  kr=-1 pre-loaded by g0_ch_pre (ch 0) or
@@ -229,26 +223,25 @@ g0_tap_body:
 {%- if not seeded %}
     ADD                 LR10 LR10 CR1;
 {%- endif %}
-    MULT.RC.VE          LR3 LR6 3 LR9 CR15 ;
+    MULT.RC.VE          LR3 LR6 3 LR9 CR15.L CR15.H ;
 {%- if seeded %}
     ACC.ADD;;
 {%- else %}
     ACC.ADD.FIRST;;
 {%- endif %}
 
-    # --- tap 2: kr=-1 kc=0.  slot 3 = top row only, no shift.  Deferred store + LR7 advance.
+    # --- tap 2: kr=-1 kc=0.  slot 3 = top row only, no shift.  LR7 advance: this channel's output row.
     INC                 LR3 1;
     INC                 LR6 1;
     ADD                 LR7 LR7 CR1;
-    ST.AAQ    LR7 {{ cr.y }};
-    MULT.RC.VE          LR3 LR6 3 LR0 CR15 ;
+    MULT.RC.VE          LR3 LR6 3 LR0 CR15.L CR15.H ;
     ACC.ADD;;
 
     # --- tap 3: kr=-1 kc=+1.  slot 3 + kc=+1 shift (LR13).  Advance LR2 → NEXT-ch kr=0 ext.
     INC                 LR3 1;
     INC                 LR6 1;
     ADD                 LR2 LR2 CR1;
-    MULT.RC.VE          LR3 LR6 3 LR13 CR15 ;
+    MULT.RC.VE          LR3 LR6 3 LR13 CR15.L CR15.H ;
     ACC.ADD;;
 
     # --- tap 4: kr=0 kc=-1.  slot 0 + kc=-1 shift.  LR5 += 384 (mod 512) → R+256;
@@ -257,14 +250,14 @@ g0_tap_body:
     INC                 LR6 1;
     INC.MODP2       LR5 {{ cr.ring_adv }} 9;
     LD.MULT.CYCLIC LR2 {{ cr.x }} LR5;
-    MULT.RC.VE          LR3 LR6 0 LR9 CR15 ;
+    MULT.RC.VE          LR3 LR6 0 LR9 CR15.L CR15.H ;
     ACC.ADD;;
 
     # --- tap 5: kr=0 kc=0.  slot 0, no shift.  LR5 += 128 (mod 512) → R+384.
     INC                 LR3 1;
     INC                 LR6 1;
     INC.MODP2       LR5 {{ cr.slot_stride }} 9;
-    MULT.RC.VE          LR3 LR6 0 LR0 CR15 ;
+    MULT.RC.VE          LR3 LR6 0 LR0 CR15.L CR15.H ;
     ACC.ADD;;
 {%- if seeded %}
 
@@ -281,7 +274,7 @@ g0_tap_body:
 {%- else %}
     INC.MODP2       LR4 {{ cr.half_slot }} 9;
 {%- endif %}
-    MULT.RC.VE          LR3 LR6 0 LR13 CR15 ;
+    MULT.RC.VE          LR3 LR6 0 LR13 CR15.L CR15.H ;
     ACC.ADD;;
 
     # --- tap 7: kr=+1 kc=-1.  slot 0 + kc=-1 shift.  Load NEXT-ch kr=+1 → slot LR5 (= R+384).
@@ -289,7 +282,7 @@ g0_tap_body:
     INC                 LR6 1;
     ADD                 LR14 LR2 {{ cr.in_channels }};
     LD.MULT.CYCLIC LR14 {{ cr.x }} LR5;
-    MULT.RC.VE          LR3 LR6 0 LR9 CR15 ;
+    MULT.RC.VE          LR3 LR6 0 LR9 CR15.L CR15.H ;
     ACC.ADD;;
 {%- if seeded %}
 
@@ -307,21 +300,21 @@ g0_tap_body:
 {%- else %}
     SUB                 LR14 LR2 {{ cr.in_channels }};
 {%- endif %}
-    MULT.RC.VE          LR3 LR6 0 LR0 CR15 ;
+    MULT.RC.VE          LR3 LR6 0 LR0 CR15.L CR15.H ;
     ACC.ADD;;
 {%- if seeded %}
 
     # --- tap 9: kr=+1 kc=+1.  slot 0 + kc=+1 shift.  Final acc, fused with
-    #     ACTIVATE.QUANTIZE in the SAME cycle (reads R_ACC LIVE; ACC
-    #     dispatches before AAQ) — no standalone cycle needed.  LR5 += 256
+    #     ACTIVATE.EXACT in the SAME cycle (reads R_ACC LIVE; ACC
+    #     dispatches before AAQ_EXACT) — no standalone cycle needed.  LR5 += 256
     #     (mod 512) → R+128 = next ch's R'-128 (its tap-1 kr=-1 slot; already
     #     pre-loaded every channel by the NEXT channel's cyc0).  LR6 now =
     #     s*10 + 9; +1 at next cyc0 -> (s+1)*10.  Loop branch lives here too.
 {%- else %}
 
     # --- tap 9: kr=+1 kc=+1.  slot 0 + kc=+1 shift.  Final acc, fused with
-    #     ACTIVATE.QUANTIZE in the SAME cycle (reads R_ACC LIVE; ACC
-    #     dispatches before AAQ) — no standalone cycle needed.  LR5 += 256
+    #     ACTIVATE.EXACT in the SAME cycle (reads R_ACC LIVE; ACC
+    #     dispatches before AAQ_EXACT) — no standalone cycle needed.  LR5 += 256
     #     (mod 512) → R+128 = next ch's R'-128 (its tap-1 kr=-1 slot); load
     #     NEXT-ch kr=-1 (LR14, from tap 8) there in the same word (XMEM reads
     #     LR5 LIVE).  LR6 now = s*9 + 8; +1 at next ch's tap 1 -> (s+1)*9.
@@ -333,15 +326,13 @@ g0_tap_body:
 {%- if not seeded %}
     LD.MULT.CYCLIC LR14 {{ cr.x }} LR5;
 {%- endif %}
-    MULT.RC.VE          LR3 LR6 0 LR13 CR15 ;
+    MULT.RC.VE          LR3 LR6 0 LR13 CR15.L CR15.H ;
     ACC.ADD;
-    ACTIVATE.QUANTIZE {{ activation }} CR15;
+    ACTIVATE.EXACT {{ activation }} CR15.L {{ cr.y }} LR7;
     BLT.S                 LR10 LR11 g0_tap_body;;
 
-    # All channels in this kernel-group done.  The last channel's ACTIVATE has
-    # run but its store is still pending; it fires on the NEXT body's tap-2
-    # store (next group, same or next chunk), or at the program epilogue for
-    # the very last channel.
+    # All channels in this kernel-group done; the last channel's ACTIVATE.EXACT
+    # has stored its row.
     # SUPER_BLOCK_ROWS=2: advance LR12 (kernel super-block XMEM row) by 2
     # rows via CR1 (row-space); CR13 is R_CYCLIC ELEMENT-space (256) and
     # would double-count under row addressing if reused here. ADD's src_a
@@ -437,7 +428,7 @@ ch_pre:
 mn_tap_body:
 {%- if seeded %}
     # 10 cyc/ch.  All loads use CR10; no border masks (slot 0 + shift).
-    # ACTIVATE.QUANTIZE fused into tap 9's own cycle (see below).
+    # ACTIVATE.EXACT fused into tap 9's own cycle (see below).
 
     # --- cyc 0: BIAS seed + activate the PREVIOUS channel (LR3 not walked here).
     #     Also pre-load THIS-ch kr=-1 (ext = LR2-CR6) into its slot LR5 here, one
@@ -447,7 +438,7 @@ mn_tap_body:
     INC                 LR6 1;
     SUB                 LR14 LR2 {{ cr.in_channels }};
     LD.MULT.CYCLIC LR14 {{ cr.x }} LR5;
-    MULT.EE             LR6 CR1 0 LR0 CR15 ;
+    MULT.EE             LR6 CR1 0 LR0 CR15.L CR15.H ;
     ACC.ADD.FIRST;;
 {%- endif %}
 {%- if seeded %}
@@ -458,7 +449,7 @@ mn_tap_body:
     # 10 cyc/ch.  All loads use CR10; no border masks (slot 0 + shift).
 
     # --- tap 1: kr=-1 kc=-1.  slot 0 + kc=-1 shift (LR9).  kr=-1 pre-loaded in
-    #     the previous channel's tap 9 (see below — ACTIVATE.QUANTIZE now
+    #     the previous channel's tap 9 (see below — ACTIVATE.EXACT now
     #     reads R_ACC LIVE, so it fuses into tap 9's own cycle).  Walk +CR14.
     #     acc.add.first resets R_ACC.  Loop counter += CR12 moved here (tap 1
     #     has a free LR slot) to make room at tap 6/8 for the NEXT-ch kr=-1
@@ -469,26 +460,25 @@ mn_tap_body:
 {%- if not seeded %}
     ADD                 LR10 LR10 CR1;
 {%- endif %}
-    MULT.RC.VE          LR3 LR6 0 LR9 CR15 ;
+    MULT.RC.VE          LR3 LR6 0 LR9 CR15.L CR15.H ;
 {%- if seeded %}
     ACC.ADD;;
 {%- else %}
     ACC.ADD.FIRST;;
 {%- endif %}
 
-    # --- tap 2: kc=0, no shift.  Deferred store + LR7 advance.
+    # --- tap 2: kc=0, no shift.  LR7 advance: this channel's output row.
     INC                 LR3 1;
     INC                 LR6 1;
     ADD                 LR7 LR7 CR1;
-    ST.AAQ    LR7 {{ cr.y }};
-    MULT.RC.VE          LR3 LR6 0 LR0 CR15 ;
+    MULT.RC.VE          LR3 LR6 0 LR0 CR15.L CR15.H ;
     ACC.ADD;;
 
     # --- tap 3: kc=+1 shift (LR13).  Advance LR2 → NEXT-ch kr=0 ext.
     INC                 LR3 1;
     INC                 LR6 1;
     ADD                 LR2 LR2 CR1;
-    MULT.RC.VE          LR3 LR6 0 LR13 CR15 ;
+    MULT.RC.VE          LR3 LR6 0 LR13 CR15.L CR15.H ;
     ACC.ADD;;
 
     # --- tap 4: kr=0 kc=-1 shift.  NEXT-ch kr=0 ext = LR2 LIVE.
@@ -496,14 +486,14 @@ mn_tap_body:
     INC                 LR6 1;
     INC.MODP2       LR5 {{ cr.ring_adv }} 9;
     LD.MULT.CYCLIC LR2 {{ cr.x }} LR5;
-    MULT.RC.VE          LR3 LR6 0 LR9 CR15 ;
+    MULT.RC.VE          LR3 LR6 0 LR9 CR15.L CR15.H ;
     ACC.ADD;;
 
     # --- tap 5: kc=0, no shift.
     INC                 LR3 1;
     INC                 LR6 1;
     INC.MODP2       LR5 {{ cr.slot_stride }} 9;
-    MULT.RC.VE          LR3 LR6 0 LR0 CR15 ;
+    MULT.RC.VE          LR3 LR6 0 LR0 CR15.L CR15.H ;
     ACC.ADD;;
 {%- if seeded %}
 
@@ -520,7 +510,7 @@ mn_tap_body:
 {%- else %}
     INC.MODP2       LR4 {{ cr.half_slot }} 9;
 {%- endif %}
-    MULT.RC.VE          LR3 LR6 0 LR13 CR15 ;
+    MULT.RC.VE          LR3 LR6 0 LR13 CR15.L CR15.H ;
     ACC.ADD;;
 
     # --- tap 7: kr=+1 kc=-1 shift.  NEXT-ch kr=+1 ext = LR2+CR6.
@@ -528,7 +518,7 @@ mn_tap_body:
     INC                 LR6 1;
     ADD                 LR14 LR2 {{ cr.in_channels }};
     LD.MULT.CYCLIC LR14 {{ cr.x }} LR5;
-    MULT.RC.VE          LR3 LR6 0 LR9 CR15 ;
+    MULT.RC.VE          LR3 LR6 0 LR9 CR15.L CR15.H ;
     ACC.ADD;;
 {%- if seeded %}
 
@@ -547,17 +537,17 @@ mn_tap_body:
 {%- else %}
     SUB                 LR14 LR2 {{ cr.in_channels }};
 {%- endif %}
-    MULT.RC.VE          LR3 LR6 0 LR0 CR15 ;
+    MULT.RC.VE          LR3 LR6 0 LR0 CR15.L CR15.H ;
     ACC.ADD;;
 {%- if seeded %}
 
-    # --- tap 9: kc=+1 shift.  Final acc, fused with ACTIVATE.QUANTIZE in the
-    #     SAME cycle (reads R_ACC LIVE; ACC dispatches before AAQ) — no
+    # --- tap 9: kc=+1 shift.  Final acc, fused with ACTIVATE.EXACT in the
+    #     SAME cycle (reads R_ACC LIVE; ACC dispatches before AAQ_EXACT) — no
     #     standalone cycle needed.  Prep LR5 for next iter tap 1.  Loop branch
     #     lives here too.
 {%- else %}
 
-    # --- tap 9: kc=+1 shift.  Final acc, fused with ACTIVATE.QUANTIZE in the
+    # --- tap 9: kc=+1 shift.  Final acc, fused with ACTIVATE.EXACT in the
     #     SAME cycle (ACTIVATE now reads R_ACC LIVE, and ACC dispatches
     #     before AAQ in the per-cycle order, so it sees this word's acc.add
     #     result) — no standalone cycle needed.  LR5 += 256 (mod 512) ->
@@ -571,9 +561,9 @@ mn_tap_body:
 {%- if not seeded %}
     LD.MULT.CYCLIC LR14 {{ cr.x }} LR5;
 {%- endif %}
-    MULT.RC.VE          LR3 LR6 0 LR13 CR15 ;
+    MULT.RC.VE          LR3 LR6 0 LR13 CR15.L CR15.H ;
     ACC.ADD;
-    ACTIVATE.QUANTIZE {{ activation }} CR15;
+    ACTIVATE.EXACT {{ activation }} CR15.L {{ cr.y }} LR7;
     BLT.S                 LR10 LR11 mn_tap_body;;
 
     # SUPER_BLOCK_ROWS=2: advance LR12 (kernel super-block XMEM row) by 2
@@ -666,7 +656,7 @@ gN_ch_pre:
 gN_tap_body:
 {%- if seeded %}
     # 10 cyc/ch.  NEXT-ch kr=-1/kr=0 from CR10; kr=+1 taps (7/8/9) masked
-    # (bottom).  ACTIVATE.QUANTIZE fused into tap 9's own cycle (see below).
+    # (bottom).  ACTIVATE.EXACT fused into tap 9's own cycle (see below).
 
     # --- cyc 0: BIAS seed + activate the PREVIOUS channel (LR3 not walked here).
     #     Also pre-load THIS-ch kr=-1 (ext = LR2-CR6) into its slot LR5 here, one
@@ -674,7 +664,7 @@ gN_tap_body:
     INC                 LR6 1;
     SUB                 LR14 LR2 {{ cr.in_channels }};
     LD.MULT.CYCLIC LR14 {{ cr.x }} LR5;
-    MULT.EE             LR6 CR1 0 LR0 CR15 ;
+    MULT.EE             LR6 CR1 0 LR0 CR15.L CR15.H ;
     ACC.ADD.FIRST;;
 {%- endif %}
 {%- if seeded %}
@@ -683,7 +673,7 @@ gN_tap_body:
     #     cyc 0.  Walk +CR14.
 {%- else %}
     # 9 cyc/ch.  NEXT-ch kr=-1/kr=0 from CR10; kr=+1 taps (7/8/9) masked
-    # (bottom).  ACTIVATE.QUANTIZE fused into tap 9's own cycle (see below).
+    # (bottom).  ACTIVATE.EXACT fused into tap 9's own cycle (see below).
 
     # --- tap 1: kr=-1 kc=-1.  slot 0 + kc=-1 shift (LR9).  kr=-1 pre-loaded in
     #     ch_pre/prev-iter tap 9.  Walk +CR14.  acc.add.first resets R_ACC.
@@ -695,26 +685,25 @@ gN_tap_body:
 {%- if not seeded %}
     ADD                 LR10 LR10 CR1;
 {%- endif %}
-    MULT.RC.VE          LR3 LR6 0 LR9 CR15 ;
+    MULT.RC.VE          LR3 LR6 0 LR9 CR15.L CR15.H ;
 {%- if seeded %}
     ACC.ADD;;
 {%- else %}
     ACC.ADD.FIRST;;
 {%- endif %}
 
-    # --- tap 2: kc=0, no shift.  Deferred store + LR7 advance.
+    # --- tap 2: kc=0, no shift.  LR7 advance: this channel's output row.
     INC                 LR3 1;
     INC                 LR6 1;
     ADD                 LR7 LR7 CR1;
-    ST.AAQ    LR7 {{ cr.y }};
-    MULT.RC.VE          LR3 LR6 0 LR0 CR15 ;
+    MULT.RC.VE          LR3 LR6 0 LR0 CR15.L CR15.H ;
     ACC.ADD;;
 
     # --- tap 3: kc=+1 shift (LR13).  Advance LR2 → NEXT-ch kr=0 ext.
     INC                 LR3 1;
     INC                 LR6 1;
     ADD                 LR2 LR2 CR1;
-    MULT.RC.VE          LR3 LR6 0 LR13 CR15 ;
+    MULT.RC.VE          LR3 LR6 0 LR13 CR15.L CR15.H ;
     ACC.ADD;;
 
     # --- tap 4: kr=0 kc=-1 shift.  NEXT-ch kr=0 from CR10.
@@ -722,14 +711,14 @@ gN_tap_body:
     INC                 LR6 1;
     INC.MODP2       LR5 {{ cr.ring_adv }} 9;
     LD.MULT.CYCLIC LR2 {{ cr.x }} LR5;
-    MULT.RC.VE          LR3 LR6 0 LR9 CR15 ;
+    MULT.RC.VE          LR3 LR6 0 LR9 CR15.L CR15.H ;
     ACC.ADD;;
 
     # --- tap 5: kc=0, no shift.
     INC                 LR3 1;
     INC                 LR6 1;
     INC.MODP2       LR5 {{ cr.slot_stride }} 9;
-    MULT.RC.VE          LR3 LR6 0 LR0 CR15 ;
+    MULT.RC.VE          LR3 LR6 0 LR0 CR15.L CR15.H ;
     ACC.ADD;;
 {%- if seeded %}
 
@@ -751,7 +740,7 @@ gN_tap_body:
     ADD                 LR10 LR10 CR1;
 {%- endif %}
     LD.MULT.CYCLIC LR2 {{ cr.x }} LR5;
-    MULT.RC.VE          LR3 LR6 0 LR13 CR15 ;
+    MULT.RC.VE          LR3 LR6 0 LR13 CR15.L CR15.H ;
     ACC.ADD;;
 {%- if seeded %}
 
@@ -771,26 +760,26 @@ gN_tap_body:
 {%- if not seeded %}
     SUB                 LR14 LR2 {{ cr.in_channels }};
 {%- endif %}
-    MULT.RC.VE          LR3 LR6 6 LR9 CR15 ;
+    MULT.RC.VE          LR3 LR6 6 LR9 CR15.L CR15.H ;
     ACC.ADD;;
 
     # --- tap 8: kr=+1 kc=0.  slot 6 = bottom row only, no shift.  Rotate lr_read.
     INC                 LR3 1;
     INC                 LR6 1;
     INC.MODP2       LR4 {{ cr.half_slot }} 9;
-    MULT.RC.VE          LR3 LR6 6 LR0 CR15 ;
+    MULT.RC.VE          LR3 LR6 6 LR0 CR15.L CR15.H ;
     ACC.ADD;;
 {%- if seeded %}
 
     # --- tap 9: kr=+1 kc=+1.  slot 6 + kc=+1 shift (LR13).  Final acc, fused
-    #     with ACTIVATE.QUANTIZE in the SAME cycle (reads R_ACC LIVE; ACC
-    #     dispatches before AAQ) — no standalone cycle needed.  Prep LR5 for
+    #     with ACTIVATE.EXACT in the SAME cycle (reads R_ACC LIVE; ACC
+    #     dispatches before AAQ_EXACT) — no standalone cycle needed.  Prep LR5 for
     #     next iter tap 1.  Loop branch lives here too.
 {%- else %}
 
     # --- tap 9: kr=+1 kc=+1.  slot 6 + kc=+1 shift (LR13).  Final acc, fused
-    #     with ACTIVATE.QUANTIZE in the SAME cycle (reads R_ACC LIVE; ACC
-    #     dispatches before AAQ) — no standalone cycle needed.  LR5 += 256
+    #     with ACTIVATE.EXACT in the SAME cycle (reads R_ACC LIVE; ACC
+    #     dispatches before AAQ_EXACT) — no standalone cycle needed.  LR5 += 256
     #     (mod 512) -> NEXT-ch kr=-1 slot; load NEXT-ch kr=-1 (LR14, from tap
     #     7) there in the same word (XMEM reads LR5 LIVE).  Loop branch lives
     #     here too.
@@ -801,9 +790,9 @@ gN_tap_body:
 {%- if not seeded %}
     LD.MULT.CYCLIC LR14 {{ cr.x }} LR5;
 {%- endif %}
-    MULT.RC.VE          LR3 LR6 6 LR13 CR15 ;
+    MULT.RC.VE          LR3 LR6 6 LR13 CR15.L CR15.H ;
     ACC.ADD;
-    ACTIVATE.QUANTIZE {{ activation }} CR15;
+    ACTIVATE.EXACT {{ activation }} CR15.L {{ cr.y }} LR7;
     BLT.S                 LR10 LR11 gN_tap_body;;
 
     # SUPER_BLOCK_ROWS=2: advance LR12 (kernel super-block XMEM row) by 2
@@ -817,11 +806,7 @@ gN_tap_body:
     BLT.S                 LR10 {{ cr.in_channels }} gN_reload;;
 
 end:
-    # Epilogue: the very last channel's ACTIVATE.QUANTIZE has run and already
-    # wrote the activated elements to post_aaq_reg; its store is still pending.
-    # Advance LR7 and store.
-    ADD                 LR7 LR7 CR1;
-    ST.AAQ    LR7 {{ cr.y }};;
+    # Epilogue: the very last channel's ACTIVATE.EXACT has stored its row.
 
     HALT;;
 

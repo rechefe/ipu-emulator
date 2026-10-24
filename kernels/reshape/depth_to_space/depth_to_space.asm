@@ -125,7 +125,7 @@ plane_loop:
     ADD {{lr_addr}} {{lr_addr}} CR4 ;
     ADD {{lr_b}} {{lr_b}} CR1 ;
     SET {{lr_k}} CR0 ;;                                  {#- next plane; k = 0 -#}
-    MULT.RC.VE {{lr_s}} CR1 0 {{lr_zero}} CR15 ;;        {#- MULT_RES[i] = plane[S + i] -#}
+    MULT.RC.VE {{lr_s}} CR1 0 {{lr_zero}} CR15.L CR15.H ;;        {#- MULT_RES[i] = plane[S + i] -#}
 
 reshape_loop:
     ACC.RESHAPE LRD12 LRD14 0 ;;                         {#- 8 elements -> their output lanes -#}
@@ -137,8 +137,7 @@ reshape_loop:
     ADDBI LRD14 -127 ;;                                  {#- undo the 128 drift, +1 for the next plane -#}
     BLT.S {{lr_b}} CR8 plane_loop ;;
 
-    ACTIVATE.QUANTIZE identity CR15 ;
-    ST.AAQ {{lr_out}} CR3 ;;                   {#- OUT[r*h + a, wt*r + sub] -#}
+    ACTIVATE.EXACT identity CR15.L CR3 {{lr_out}} ;; {#- OUT[r*h + a, wt*r + sub] -#}
     ADD {{lr_out}} {{lr_out}} CR1 ;
     ADD {{lr_s}} {{lr_s}} CR9 ;
     ADD {{lr_sub}} {{lr_sub}} CR1 ;;

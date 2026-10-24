@@ -13,14 +13,13 @@ package(default_visibility = ["//visibility:public"])
 # kernel: one entry here, one there. Every target is tagged `docs`: they build
 # with the docs, not in the default CI tier.
 CURATED = [
-    {"name": "tour_int8", "kernel": "//kernels/conformance/vector_tour", "case": "int8"},
     {"name": "tour_e4", "kernel": "//kernels/conformance/vector_tour", "case": "e4"},
     {"name": "tour_e5", "kernel": "//kernels/conformance/vector_tour", "case": "e5"},
     {"name": "tour_e3", "kernel": "//kernels/conformance/vector_tour", "case": "e3"},
-    {"name": "fc_int8", "kernel": "//kernels/linear/fully_connected", "format": "int8"},
+    {"name": "tour_dynamic", "kernel": "//kernels/conformance/vector_tour", "case": "dynamic"},
     {"name": "fc_e4", "kernel": "//kernels/linear/fully_connected", "format": "e4"},
     {"name": "fc_e5", "kernel": "//kernels/linear/fully_connected", "format": "e5"},
-    {"name": "fully_connected", "kernel": "//kernels/linear/fully_connected", "format": "int32"},
+    {"name": "fc_dynamic", "kernel": "//kernels/linear/fully_connected", "format": "dynamic"},
     {"name": "identity", "kernel": "//kernels/reshape/identity"},
     {"name": "channel_peak", "kernel": "//kernels/detect/channel_peak"},
     {"name": "softmax_rows", "kernel": "//kernels/softmax/softmax_rows", "case": "constant_row"},

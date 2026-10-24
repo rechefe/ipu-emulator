@@ -1,5 +1,13 @@
 # RISC-V Host Integration (Design Spec)
 
+!!! warning "Not yet updated for ADR 0007"
+    [ADR 0007](https://github.com/rechefe/ipu-emulator/blob/master/docs/adr/0007-operational-aaq-and-nx8.md)
+    replaced the 32-bit `dstructure` with a 16-bit DS CR half and reduced the
+    element formats to FP32 and NX8, and removed the post-AAQ register. This page
+    still gives the host `DSTRUCTURE` register the old layout and resets a post-AAQ
+    staging register; the action to update it is A-5 in
+    [Open questions](../requirements/open-questions.md#actions-on-other-documents).
+
 !!! note "Status"
     **Proposal / design spec.** This page describes a planned *big feature*: an
     emulated RISC-V host core that drives the IPU emulator through a
@@ -148,7 +156,7 @@ source delivered by [Issue 1](#9-implementation-plan).
 | `0x014` | `MAX_CYCLES`  | RW     | Watchdog limit; `0` = use engine default. Guards against runaway programs. |
 | `0x018` | `PROG_LEN`    | RW     | Program length in VLIW words (entries in `inst_mem`). Writable only while halted; used by the engine halt condition (`PC >= PROG_LEN`). |
 | `0x020` | `DTYPE`       | RW     | Arithmetic data type selector (enum mirroring `ElementFormat`). |
-| `0x024` | `DSTRUCTURE`  | RW     | `valid_elements[7:0]`, `partition[12:8]`, `pad_mode[14:13]` — mirrors `CR15`. |
+| `0x024` | `DSTRUCTURE`  | RW     | `valid_elements[7:0]`, `partition[12:8]`, `pad_mode[14:13]` — mirrors `CR15`. Outdated: the DS is a 16-bit CR half (`valid_elements[7:0]`, `num_partitions[9:8]`, `mask_type[11:10]`, `valid_partitions[15:12]`), held in `CR15.L` by convention ([ADR 0007](https://github.com/rechefe/ipu-emulator/blob/master/docs/adr/0007-operational-aaq-and-nx8.md)). |
 | `0x028` | `ELU_ALPHA`   | RW     | Activation α (IEEE-754 float bits; emulator-only knob). |
 | `0x040` | `CR[0..15]`   | RW\*   | Application config window. `CR0`/`CR1` are hard-wired (`0`/`1`) and reject writes (`ERROR`); `CR15` aliases `DSTRUCTURE`. `CR2`–`CR14` are writable. |
 

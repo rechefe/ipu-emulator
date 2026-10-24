@@ -83,19 +83,6 @@ py_pytest_test(
     ],
 )
 
-# FP8 codec checked against an independent Fraction reference and ml_dtypes.
-py_pytest_test(
-    name = "test_ipu_math",
-    srcs = ["test/test_ipu_math.py"],
-    imports = ["src"],
-    deps = [
-        ":emu_test_support",
-        ":ipu_emu_lib",
-        requirement("ml-dtypes"),
-        requirement("pytest"),
-    ],
-)
-
 # The lane codecs (E04-13) bit-identical to the scalar arithmetic: exhaustive
 # over every 8-bit byte pair, 10^6 random accumulator pairs per format.
 py_pytest_test(
@@ -118,6 +105,7 @@ py_pytest_test(
     data = ["pytest.ini"],
     imports = ["src"],
     deps = [
+        ":emu_test_support",
         ":ipu_emu_lib",
         "//src/ipu-isa:ipu_isa_lib",
         requirement("pytest"),
@@ -202,7 +190,7 @@ py_pytest_test(
     ],
 )
 
-# Every MULT handler under INT8, E4 and FP32 against a numpy model of the
+# Every MULT handler under NX8 (static and dynamic) and FP32 against a numpy model of the
 # format's codec (E04-15).
 py_pytest_test(
     name = "test_mult_codec",
@@ -217,7 +205,7 @@ py_pytest_test(
     ],
 )
 
-# ACC, AGG and the load/store helpers under INT8, E4, FP32 and INT32 against
+# ACC, AGG and the load/store helpers under NX8 and FP32 against
 # the scalar arithmetic they replaced; no format branch in the slot modules (E04-16).
 py_pytest_test(
     name = "test_acc_codec",
@@ -489,7 +477,7 @@ py_pytest_test(
 )
 
 # The Q71 emulator benchmarks (E04-02): IpuState() construction, matmul cycles/s
-# (FP32, INT8 and E4; prototyping too with --config=proto). A `bazel run`
+# (FP32, NX8 e4 and dynamic; prototyping too with --config=proto). A `bazel run`
 # target, not a test: //tools/bench:test_bench_smoke keeps it from rotting.
 # tools/bench/README.md.
 # E04-02 names this label; the code lives in //tools/bench as its `emulator`

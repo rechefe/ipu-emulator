@@ -27,11 +27,11 @@ from ipu_harness.family import load_kernel
 from ipu_harness.manifest import KernelManifest
 from ipu_harness.params import CasePlan, plan_case
 from ipu_harness.stages import stage_programs
+from ipu_harness.variants import Variant
 from ipu_isa.errors import IpuError
-from ipu_isa.formats import ElementFormat
 
 
-def _default_plans(manifest: KernelManifest) -> dict[ElementFormat, CasePlan]:
+def _default_plans(manifest: KernelManifest) -> dict[Variant, CasePlan]:
     # The default case's first point, should it sweep.
     case = next(c for c in expand(manifest) if c.decl is manifest.cases["default"])
     return {fmt: plan_case(manifest, case.values, fmt, case=case.decl) for fmt in case.formats}
@@ -41,7 +41,7 @@ def _stages(plan: CasePlan) -> tuple[tuple[str, AssemblyResult], ...]:
     return stage_programs(plan)  # no placement: no pack transform to load
 
 
-def default_programs(manifest: KernelManifest) -> dict[ElementFormat, AssemblyResult]:
+def default_programs(manifest: KernelManifest) -> dict[Variant, AssemblyResult]:
     """The default case's program in each format the case runs in: for a
     multi-stage kernel, the stage that runs the kernel's own ``.asm`` (the
     last stage when none does).
@@ -70,7 +70,7 @@ def default_programs(manifest: KernelManifest) -> dict[ElementFormat, AssemblyRe
 
 def default_stage_programs(
     manifest: KernelManifest,
-) -> dict[ElementFormat, tuple[tuple[str, AssemblyResult], ...]]:
+) -> dict[Variant, tuple[tuple[str, AssemblyResult], ...]]:
     """Every program the default case runs, in each format: one, the kernel's
     own, or each stage's (as its stages hook names it) in order.
 

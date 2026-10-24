@@ -19,4 +19,4 @@ doc = "Eight rows, FP32 only, the default case only"
 name = "scale_r3_half"
 template = "scale_rows"
 params = { rows = 3, s = 0.5 }
-formats = ["fp32", "e4"]          # 0.5 is no INT8 value
+formats = ["fp32", "e4"]

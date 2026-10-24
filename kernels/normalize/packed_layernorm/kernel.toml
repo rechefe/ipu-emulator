@@ -13,8 +13,8 @@ tokens   = { type = "int", choices = [16, 64] }      # 8 and 2 channels a row: t
 pack        = "128 / tokens"
 packed_rows = "channels * tokens / 128"
 row_stride  = "1"
-dstruct_tok = "dstructure(tokens)"        # stores of one channel's window
-dstruct_row = "dstructure(128)"
+dstruct     = "halves(ds(tokens), ds(128))"  # LOW: the DS of one channel's window (stores); HIGH: the full-row DS
+qf          = "case_qf"                   # the case's QF half (0: FP32 ignores it)
 
 # The packed layout is row-major over the flattened (channels, tokens) tensor:
 # channel c's tokens at row c / pack, lanes (c % pack) * tokens on. A packed
@@ -70,8 +70,8 @@ gamma         = "CR9"
 beta          = "CR10"
 y             = "CR11"
 mask          = "CR12"
-dstruct_tok   = "CR13"
-dstruct_row   = "CR14"
+dstruct       = "CR13"
+qf            = "CR14"
 allones       = "CR15"
 
 [golden]

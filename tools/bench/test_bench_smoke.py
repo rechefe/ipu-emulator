@@ -36,7 +36,7 @@ def test_every_module_runs_and_writes_valid_files(tmp_path):
     for name in (
         "assemble/words_per_s",
         "kernel/identity/cycles_per_s",
-        "emulator/faithful/fully_connected.int8/cycles_per_s",
+        "emulator/faithful/fully_connected.e4/cycles_per_s",
     ):
         assert name in {e["name"] for e in bigger}, name
     assert len(names) == len(smaller) + len(bigger)
@@ -48,8 +48,8 @@ def test_every_module_runs_and_writes_valid_files(tmp_path):
 
 
 def test_emulator_kernels_exist():
-    # The tiny budget skips the matmul and E4 runs; a renamed kernel or case still fails here.
-    for kernel, case_name, fmt, _ in (emulator.MATMUL, emulator.INT8, emulator.E4):
+    # The tiny budget skips the matmul and dynamic runs; a renamed kernel or case still fails here.
+    for kernel, case_name, fmt, _ in (emulator.MATMUL, emulator.E4, emulator.DYNAMIC):
         assert kernel_runs.has_case(kernel, case_name, fmt), (kernel, case_name, fmt)
 
 

@@ -6,7 +6,7 @@ The IPU assembler is a Python-based tool that turns assembly source into binary 
 
 - **Jinja2 preprocessing** — templates and macros for generated assembly
 - **Label resolution** — forward and backward references
-- **VLIW compounds** — multiple pipeline slots per cycle (`COND`, `LR`×3, `LOAD`, `MULT`, `ACC`, `AAQ`, `STORE`; emulator-only: `ACC_STORE`, `BREAK`)
+- **VLIW compounds** — multiple pipeline slots per cycle (`COND`, `LR`×3, `LOAD`, `MULT`, `ACC`, `AAQ`; emulator-only: `AAQ_EXACT`, `BREAK`)
 - **Syntax validation** — Lark-based parser with detailed errors
 
 ## Basic Syntax
@@ -17,7 +17,7 @@ Assembly is line-oriented. One **compound instruction** may contain several **sl
 # Comments start with # or //
 label:                          # Labels end with a colon
     LD.MULT R0 LR0 CR0;           # LOAD: load into mult stage R0
-    MULT.RC.VV LR1 R0 0 LR3 CR15; # MULT: element-wise multiply
+    MULT.RC.VV LR1 R0 0 LR3 CR15.L CR14.L; # MULT: element-wise multiply (DS, QF halves)
     ACC.ADD;                      # ACC: accumulate
     INC LR0 1;                    # LR: bump address (increment via INC)
     BNE LR0 LR1 next;             # COND: branch
@@ -36,21 +36,21 @@ A full IPU instruction is one **compound** word: several slots execute in parall
 
 <!-- asm-fragment: one placeholder per slot, not real instructions -->
 ```asm
-load_inst; mult_inst; acc_inst; aaq_inst; store_inst; acc_store_inst; lr_inst_a; lr_inst_b; lr_inst_c; cond_inst; break_inst;;
+load_inst; mult_inst; acc_inst; aaq_inst; aaq_exact_inst; lr_inst_a; lr_inst_b; lr_inst_c; cond_inst; break_inst;;
 ```
 
 **Rules:**
 
 - Each slot appears a fixed number of times (see `SLOT_COUNT` in `instruction_spec.py`); unused slots are filled with that slot’s **NOP** by the assembler.
-- Slot order in the binary word (MSB → LSB) is defined by the toolchain: `cond`, three `lr` sub-slots, `load`, `mult`, `acc`, `aaq`, `store`, `acc_store`, `break` (see the layout diagram on the [Instruction reference](instructions.md#compound-instruction-layout)).
+- Slot order in the binary word (MSB → LSB) is defined by the toolchain: `cond`, three `lr` sub-slots, `load`, `mult`, `acc`, `aaq`, `aaq_exact`, `break` (see the layout diagram on the [Instruction reference](instructions.md#compound-instruction-layout)).
 - The slots of one word execute in a fixed order, and each register read sees either the value at cycle start or the value forwarded from an earlier slot of the same word: see [Execution order and timing](#execution-order-and-timing).
-- The emulator-only slots (`ACC_STORE`, `BREAK`) are not implemented in real IPU hardware: see the [instruction format](instruction-format.md).
+- The emulator-only slots (`AAQ_EXACT`, `BREAK`) are not implemented in real IPU hardware: see the [instruction format](instruction-format.md).
 
 **Example (parallel slots):**
 
 ```asm
 loop:
-LD.MULT R0 LR0 CR0; MULT.RC.VV LR1 R0 0 LR3 CR15; ACC.ADD; INC LR0 1; BNE LR0 LR1 loop;;
+LD.MULT R0 LR0 CR0; MULT.RC.VV LR1 R0 0 LR3 CR15.L CR14.L; ACC.ADD; INC LR0 1; BNE LR0 LR1 loop;;
 ```
 
 ## Register names
@@ -59,10 +59,10 @@ The mult-stage and scalar register **tokens** below are derived from `REGISTER_D
 
 | Kind | Assembler tokens | Notes |
 |------|------------------|--------|
-| Mult stage | `R0`, `R1` | 128-byte vectors; 2-bit mult-stage field (`2` reserved). See [MultStageReg](operand-types.md#multstagereg). |
+| Mult stage | `R0`, `R1` | One XMEM row each (128 NX8 elements and the row's metadata word, or 128 FP32 elements in the FP32 mode); 2-bit mult-stage field (`2` reserved). See [MultStageReg](operand-types.md#multstagereg). |
 | Cyclic / mask | *(architectural)* | Cyclic (**RC**) and mask (**RM**) register files are documented per instruction in the reference; operands pass **byte offsets** via `LR` values. |
 | Loop / scalar | `LR0`–`LR15` | General-purpose; **read/write**. See [LrIdx](operand-types.md#lridx). |
-| Constant | `CR0`–`CR15` | **Read-only** in assembly; the host writes `CR2`–`CR15` before a kernel runs. **`CR0`** and **`CR1`** are the read-only constants 0 and 1 (see [Configuration registers](configuration-registers.md)). **`CR15`** conventionally holds dstructure configuration (see [DstructureCrIdx](operand-types.md#dstructurecridx)) but is a valid `CrIdx`/`LcrIdx` operand like any other CR. See [CrIdx](operand-types.md#cridx). |
+| Constant | `CR0`–`CR15` | **Read-only** in assembly; the host writes `CR2`–`CR15` before a kernel runs. **`CR0`** and **`CR1`** are the read-only constants 0 and 1 (see [Configuration registers](configuration-registers.md)). Each CR is also two 16-bit halves, `CR13.L` and `CR13.H`: the DS (data structure) and QF (quantization format) operands always name a half (see [HalfCrIdx](operand-types.md#halfcridx)), and an LR or COND source operand may read a full CR or a sign-extended half (see [LcrHalfIdx](operand-types.md#lcrhalfidx)). **`CR15.L`** conventionally holds the default DS, but any half is a valid operand. See [CrIdx](operand-types.md#cridx) and [Configuration registers](configuration-registers.md). |
 
 The **`mem_bypass`** vector may still exist in the **emulator regfile** for debugging, but it is **not** a valid mult-stage assembly operand.
 
@@ -102,13 +102,13 @@ A label made of decimal digits only, such as `1:`, is a **local label** (the GNU
 
 This section is **generated** from `ipu_isa.timing` and the register accesses each instruction declares in `instruction_spec.py`.
 
-The slots of one instruction word execute in this order: **BREAK** → **LR** → **LOAD** → **MULT** → **ACC** → **AAQ** → **STORE** → **ACC_STORE** → **COND**. **BREAK** is evaluated before any slot writes (it may halt the word); the **LR** sub-slots all read before any of them writes.
+The slots of one instruction word execute in this order: **BREAK** → **LR** → **LOAD** → **MULT** → **ACC** → **AAQ** → **AAQ_EXACT** → **COND**. **BREAK** is evaluated before any slot writes (it may halt the word); the **LR** sub-slots all read before any of them writes.
 
 A register read sees one of two values: the value at **cycle start** (when the word began), or the **forwarded** value (after the writes of earlier slots of the same word). The timing contract is four rules:
 
 1. The Control stage (**LR**, **COND**) reads LRs at cycle start; every other stage reads LRs after the LR writes of the same word.
-2. **MULT** reads `R0`, `R1`, `R_CYCLIC` and `R_MASK` at cycle start.
-3. `MULT_RES` is forwarded to **ACC** (including AGG and RESHAPE); `R_ACC` is forwarded to **AAQ**.
+2. **MULT** reads `R0`, `R1`, `R_CYCLIC`, their row metadata and `R_MASK` at cycle start.
+3. `MULT_RES` is forwarded to **ACC** (including AGG and RESHAPE); `R_ACC` is forwarded to **AAQ** and **AAQ_EXACT**.
 4. LR sub-slots read cycle-start values.
 
 Any other read is forwarded when every slot that writes the register runs earlier in the word, and at cycle start otherwise. CRs are never written during a run, so CR reads are at cycle start.
@@ -117,13 +117,13 @@ The [timing model](../../explanation/timing-model.md) explains the rules, with a
 
 ### Register reads and writes
 
-`R` is the `R0`/`R1` pair. An operand of type `LcrIdx` reads an LR or a CR.
+`R` is the `R0`/`R1` pair. An operand of type `LcrIdx` reads an LR or a CR; one of type `LcrHalfIdx` an LR, a CR or a CR half; one of type `HalfCrIdx` a CR half.
 
 | Instruction | Slot | Reads at cycle start | Reads forwarded | Writes |
 |-------------|------|----------------------|-----------------|--------|
 | `BREAK` | `BREAK` | — | — | — |
 | `BREAK.IFEQ` | `BREAK` | `LR` via `reg` | — | — |
-| `SET` | `LR` | `CR` via `src` | — | `LR` via `reg` |
+| `SET` | `LR` | `LR` via `src`, `CR` via `src` | — | `LR` via `reg` |
 | `ADD` | `LR` | `LR` via `src_a`, `LR` via `src_b`, `CR` via `src_b` | — | `LR` via `dest` |
 | `SUB` | `LR` | `LR` via `src_a`, `LR` via `src_b`, `CR` via `src_b` | — | `LR` via `dest` |
 | `INC.MODP2` | `LR` | `LR` via `step`, `CR` via `step`, `LR` via `dest` | — | `LR` via `dest` |
@@ -131,14 +131,14 @@ The [timing model](../../explanation/timing-model.md) explains the rules, with a
 | `DEC` | `LR` | `LR` via `dest` | — | `LR` via `dest` |
 | `ADDB` | `LR` | `LR` via `src_b`, `CR` via `src_b`, `LR` via `dest` | — | `LR` via `dest` |
 | `ADDBI` | `LR` | `LR` via `dest` | — | `LR` via `dest` |
-| `LD.MULT` | `LOAD` | `CR` via `base` | `LR` via `offset` | `R` via `dest` |
-| `LD.MULT.CYCLIC` | `LOAD` | `CR` via `base` | `LR` via `offset`, `LR` via `index` | `R_CYCLIC` |
+| `LD.MULT` | `LOAD` | `CR` via `base` | `LR` via `offset` | `R` via `dest`, `R_META` via `dest` |
+| `LD.MULT.CYCLIC` | `LOAD` | `CR` via `base` | `LR` via `offset`, `LR` via `index` | `R_CYCLIC`, `R_CYCLIC_META` |
 | `LD.MASK` | `LOAD` | `CR` via `base` | `LR` via `offset` | `R_MASK` |
-| `MULT.RC.VV` | `MULT` | `R` via `ra`, `R_CYCLIC`, `R_MASK`, `CR` via `cr_idx` | `LR` via `rc_idx`, `LR` via `mask_shift` | `MULT_RES` |
-| `MULT.RC.VE` | `MULT` | `CR` via `src`, `R`, `R_CYCLIC`, `R_MASK`, `CR` via `cr_idx` | `LR` via `rc_idx`, `LR` via `mask_shift`, `LR` via `src` | `MULT_RES` |
-| `MULT.RC.VS` | `MULT` | `R_CYCLIC`, `R_MASK`, `CR` via `cr_idx` | `LR` via `rc_idx`, `LR` via `mask_shift` | `MULT_RES` |
-| `MULT.VE` | `MULT` | `CR` via `cr_idx`, `R`, `R_MASK`, `CR` via `dstructure_cr_idx` | `LR` via `ra_idx`, `LR` via `mask_shift` | `MULT_RES` |
-| `MULT.EE` | `MULT` | `CR` via `cr_idx`, `R`, `R_MASK`, `CR` via `dstructure_cr_idx` | `LR` via `ra_idx`, `LR` via `mask_shift` | `MULT_RES` |
+| `MULT.RC.VV` | `MULT` | `R` via `ra`, `R_CYCLIC`, `R_CYCLIC_META`, `R_META`, `R_MASK`, `CR` via `ds`, `CR` via `qf` | `LR` via `rc_idx`, `LR` via `mask_shift` | `MULT_RES` |
+| `MULT.RC.VE` | `MULT` | `CR` via `src`, `R`, `R_META`, `R_CYCLIC`, `R_CYCLIC_META`, `R_MASK`, `CR` via `ds`, `CR` via `qf` | `LR` via `rc_idx`, `LR` via `mask_shift`, `LR` via `src` | `MULT_RES` |
+| `MULT.RC.VS` | `MULT` | `R_CYCLIC`, `R_CYCLIC_META`, `R_MASK`, `CR` via `ds`, `CR` via `qf` | `LR` via `rc_idx`, `LR` via `mask_shift` | `MULT_RES` |
+| `MULT.VE` | `MULT` | `CR` via `cr_idx`, `R`, `R_META`, `R_MASK`, `CR` via `ds`, `CR` via `qf` | `LR` via `ra_idx`, `LR` via `mask_shift` | `MULT_RES` |
+| `MULT.EE` | `MULT` | `CR` via `cr_idx`, `R`, `R_META`, `R_MASK`, `CR` via `ds`, `CR` via `qf` | `LR` via `ra_idx`, `LR` via `mask_shift` | `MULT_RES` |
 | `ACC.ADD` | `ACC` | `R_ACC` | `MULT_RES` | `R_ACC` |
 | `ACC.ADD.FIRST` | `ACC` | — | `MULT_RES` | `R_ACC` |
 | `ACC.MAX` | `ACC` | `R_ACC` | `MULT_RES` | `R_ACC` |
@@ -146,14 +146,14 @@ The [timing model](../../explanation/timing-model.md) explains the rules, with a
 | `ACC.SUB` | `ACC` | `R_ACC` | `MULT_RES` | `R_ACC` |
 | `ACC.SUB.FIRST` | `ACC` | — | `MULT_RES` | `R_ACC` |
 | `ACC.STRIDE` | `ACC` | — | `LR` via `offset`, `MULT_RES` | `R_ACC` |
-| `AGG.SUM.FIRST` | `ACC` | `CR` via `cr_idx` | `LR` via `dest_slot`, `MULT_RES` | `R_ACC` |
-| `AGG.SUM` | `ACC` | `CR` via `cr_idx`, `R_ACC` | `LR` via `dest_slot`, `MULT_RES` | `R_ACC` |
-| `AGG.MAX.FIRST` | `ACC` | `CR` via `cr_idx` | `LR` via `dest_slot`, `MULT_RES` | `R_ACC` |
-| `AGG.MAX` | `ACC` | `CR` via `cr_idx`, `R_ACC` | `LR` via `dest_slot`, `MULT_RES` | `R_ACC` |
+| `AGG.SUM.FIRST` | `ACC` | `CR` via `ds` | `LR` via `dest_slot`, `MULT_RES` | `R_ACC` |
+| `AGG.SUM` | `ACC` | `CR` via `ds`, `R_ACC` | `LR` via `dest_slot`, `MULT_RES` | `R_ACC` |
+| `AGG.MAX.FIRST` | `ACC` | `CR` via `ds` | `LR` via `dest_slot`, `MULT_RES` | `R_ACC` |
+| `AGG.MAX` | `ACC` | `CR` via `ds`, `R_ACC` | `LR` via `dest_slot`, `MULT_RES` | `R_ACC` |
 | `ACC.RESHAPE` | `ACC` | — | `LR` via `source`, `LR` via `dest`, `LR` via `reshape_mask`, `MULT_RES` | `R_ACC` |
-| `ACTIVATE.QUANTIZE` | `AAQ` | `CR` via `cr_idx` | `R_ACC` | `POST_AAQ_REG` |
-| `ST.AAQ` | `STORE` | `CR` via `base` | `LR` via `offset`, `POST_AAQ_REG` | — |
-| `ST.ACC` | `ACC_STORE` | `CR` via `base` | `LR` via `offset`, `R_ACC` | — |
+| `LD.LUT` | `AAQ` | `CR` via `table_id` | `LR` via `table_offset` | `AAQ_LUT` |
+| `ACTIVATE.QUANTIZE` | `AAQ` | `CR` via `table_id`, `CR` via `ds`, `CR` via `qf`, `AAQ_LUT` | `LR` via `table_offset`, `R_ACC` | — |
+| `ACTIVATE.EXACT` | `AAQ_EXACT` | `CR` via `table_id`, `CR` via `ds` | `LR` via `table_offset`, `R_ACC` | — |
 | `BEQ` | `COND` | `LR` via `reg1`, `CR` via `reg1`, `LR` via `reg2`, `CR` via `reg2` | — | — |
 | `BNE` | `COND` | `LR` via `reg1`, `CR` via `reg1`, `LR` via `reg2`, `CR` via `reg2` | — | — |
 | `BLT.S` | `COND` | `LR` via `reg1`, `CR` via `reg1`, `LR` via `reg2`, `CR` via `reg2` | — | — |
@@ -169,8 +169,9 @@ None: every read in the emulator follows the contract.
 
 Multiply instructions (`MULT.RC.VV`, `MULT.RC.VE`, `MULT.RC.VS`, `MULT.VE`, `MULT.EE`) support **element masking**: after the multiply, elements in `MULT_RES` whose
 corresponding mask bit is **1** are **active** and pass through to accumulation; elements whose bit is
-**0** are **zeroed** (deactivated). A mask of all-ones leaves every element active (the reset default);
-a mask of all-zeros deactivates every element.
+**0** are deactivated and hold the pad value of the DS half's `mask_type` (`0` for `mask_type` 0,
++inf for 1, −inf for 2; 3, NaN, is an emulator error because NX8 has no NaN). A mask of all-ones
+leaves every element active (the reset default); a mask of all-zeros deactivates every element.
 
 ### R_MASK register
 
@@ -217,35 +218,34 @@ outside [−3, +3] **clamp** to ±3.
 
 ### Partition vectors
 
-Each masking multiply instruction takes a mandatory CR-index operand (`cr_idx` on `MULT.RC.VV` /
-`MULT.RC.VE` / `MULT.RC.VS`; `dstructure_cr_idx` on `MULT.VE` / `MULT.EE`, since those two already
-use `cr_idx` for the scalar multiplier) naming the CR register that supplies the dstructure
-configuration — there is no implicit default. Both vectors are derived from that named register's
-`partition` field (see [DstructureCrIdx](operand-types.md#dstructurecridx)). The valid values of P
-are **{0, 2, 4, 8, 16}**.
-With `partition = 0` both vectors are all-ones (no boundaries). With `partition = P` the 128 elements
-are split into `P` equal groups of `128 / P` elements:
+Each masking multiply instruction takes a mandatory DS operand, `ds`, naming the CR half that
+holds the 16-bit DS (data structure) — there is no implicit default. Both vectors are derived from
+that half's `num_partitions` field (see [Configuration registers](configuration-registers.md#ds-half)
+and [HalfCrIdx](operand-types.md#halfcridx)). The valid values of P are **{1, 2, 4, 8}**.
+With `num_partitions = 1` both vectors are all-ones (no boundaries). With `num_partitions = P` the
+128 elements are split into `P` equal groups of `128 / P` elements:
 
 | Vector | 0-bit positions | Used by |
 |---|---|---|
 | `partition_vector` | **first** element of each group | positive shifts (+1, +2, +3) |
 | `inverse_partition_vector` | **last** element of each group | negative shifts (−1, −2, −3) |
 
-For `partition = 2` (groups of 64):
+For `num_partitions = 2` (groups of 64):
 
 - `partition_vector` = `0 1`⁶³` 0 1`⁶³ — 0 at element 0 and element 64
 - `inverse_partition_vector` = `1`⁶³` 0 1`⁶³` 0` — 0 at element 63 and element 127
 
-For `partition = 4` (groups of 32):
+For `num_partitions = 4` (groups of 32):
 
 - `partition_vector` = `0 1`³¹` 0 1`³¹` 0 1`³¹` 0 1`³¹ — 0 at elements 0, 32, 64, 96
 - `inverse_partition_vector` = `1`³¹` 0 1`³¹` 0 1`³¹` 0 1`³¹` 0` — 0 at elements 31, 63, 95, 127
 
 The AND at each step prevents mask bits from crossing the group boundary in either shift direction.
 
-`CR15` remains the conventional dstructure register and is set by the host harness, but it must
-still be named explicitly via the instruction's CR-index operand — there is no implicit fallback to
-`CR15` (see [DstructureCrIdx](operand-types.md#dstructurecridx)).
+`CR15.L` is the conventional DS half and is set by the host harness, but it must still be named
+explicitly as the instruction's `ds` operand — there is no implicit fallback to `CR15.L`. The
+second half operand, `qf`, names the QF (quantization format) half the NX8 elements are decoded
+with; the FP32 mode ignores it.
 
 ### Example
 
@@ -258,11 +258,11 @@ LD.MULT R0 LR0 CR0;;
 LD.MULT.CYCLIC LR2 CR0 LR5;;
 
 # Multiply R0 element-wise vs R_CYCLIC using slot 3, shift index in LR4, accumulate
-MULT.RC.VV LR2 R0 3 LR4 CR15; ACC.ADD;;
+MULT.RC.VV LR2 R0 3 LR4 CR15.L CR14.L; ACC.ADD;;
 ```
 
-`3` is the `mask_offset` (slot 3 of `R_MASK`); `LR4` holds the `mask_shift` index; `CR15` is the
-dstructure register supplying `partition` (any `CR0`–`CR15` may be named explicitly).
+`3` is the `mask_offset` (slot 3 of `R_MASK`); `LR4` holds the `mask_shift` index; `CR15.L` is the
+DS half supplying `num_partitions` and `CR14.L` the QF half (any half `CR0.L`–`CR15.H` may be named).
 
 ### Worked examples
 
@@ -273,9 +273,9 @@ boundary bit to **0**, deactivating one element at a time.
 The tables show **active elements** — those whose derived mask bit is **1** and therefore contribute
 to accumulation.
 
-#### Example 1 — no partitioning (`partition = 0`)
+#### Example 1 — no partitioning (`num_partitions = 1`)
 
-With `partition = 0` the partition vector is all-ones, so shifts slide freely across all 128 elements.
+With `num_partitions = 1` the partition vector is all-ones, so shifts slide freely across all 128 elements.
 
 | `mask_shift` | Active elements (mask bit = 1) |
 |:---:|---|
@@ -290,9 +290,9 @@ With `partition = 0` the partition vector is all-ones, so shifts slide freely ac
 Positive shifts deactivate elements from the low end (element 0 first); negative shifts deactivate elements
 from the high end (element 127 first). Each step removes exactly one active element.
 
-#### Example 2 — two partitions of 64 elements each (`partition = 2`)
+#### Example 2 — two partitions of 64 elements each (`num_partitions = 2`)
 
-With `partition = 2` the 128 elements are split into **group 0** (elements 0–63) and **group 1**
+With `num_partitions = 2` the 128 elements are split into **group 0** (elements 0–63) and **group 1**
 (elements 64–127). Each group evolves independently and symmetrically:
 
 - `partition_vector` has **0** at element 0 and element 64 (used for positive shifts).

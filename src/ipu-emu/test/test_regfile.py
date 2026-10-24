@@ -19,20 +19,16 @@ from emu_support import (
 
 from ipu_emu.descriptors import REGFILE_SCHEMA
 from ipu_emu.errors import (
+    ConfigurationError,
     EmulatorError,
     RegisterIndexError,
     RegisterKindError,
     RegisterSizeError,
 )
-from ipu_emu.ipu_config import DEFAULT_DSTRUCTURE_CR
+from ipu_emu.ipu_config import DEFAULT_DS_CR
 from ipu_emu.ipu_state import IpuState
 from ipu_emu.regfile import RegFile
-from ipu_isa.constants import (
-    DSTRUCTURE_VALID_ELEMENTS_MASK,
-    PadMode,
-    decode_dstructure,
-    encode_dstructure,
-)
+from ipu_isa.cr_halves import DEFAULT_DS, ds
 
 # ---------------------------------------------------------------------------
 # RegFile — scalar (LR / CR) access
@@ -383,6 +379,32 @@ class TestRegFileSnapshot:
         assert snap.get_r(0) == data
         assert rf.get_r(0) == bytearray(128)
 
+    def test_snapshot_and_copy_into_carry_the_metadata_registers(self):
+        # ADR 0007: R0/R1 and the four R_CYCLIC slots each hold a 16-bit
+        # metadata word; the AaQ LUT holds 4352 table + 46 metadata bits.
+        rf = RegFile()
+        rf.set_r_meta(1, b"\x7f\x01")
+        rf.set_r_cyclic_meta(3, b"\x05\x01")
+        rf.set_aaq_lut(bytes(range(256)) * 2 + bytes(38))
+        snap = rf.snapshot()
+        rf.set_r_meta(1, bytes(2))
+        assert snap.get_r_meta(1) == b"\x7f\x01" and rf.get_r_meta(1) == bytes(2)
+        assert snap.get_r_cyclic_meta(3) == b"\x05\x01"
+        assert snap.get_aaq_lut()[:256] == bytes(range(256))
+        fresh = RegFile().snapshot()
+        snap.copy_into(fresh)
+        assert fresh.get_r_meta(1) == b"\x7f\x01" and fresh.get_aaq_lut() == snap.get_aaq_lut()
+
+    def test_metadata_registers_reset_to_zero_with_their_sizes(self):
+        rf = RegFile()
+        assert [rf.get_r_meta(i) for i in range(2)] == [bytes(2)] * 2
+        assert [rf.get_r_cyclic_meta(i) for i in range(4)] == [bytes(2)] * 4
+        assert rf.get_aaq_lut() == bytes((4352 + 46 + 7) // 8)
+        with pytest.raises(RegisterIndexError):
+            rf.get_r_cyclic_meta(4)
+        with pytest.raises(RegisterSizeError):
+            rf.set_r_meta(0, b"\x00")
+
 
 # ---------------------------------------------------------------------------
 # RegFile — Serialisation
@@ -423,77 +445,27 @@ class TestIpuState:
     def test_format_attribute(self):
         from ipu_isa.formats import ElementFormat
 
-        assert IpuState().fmt is ElementFormat.INT8  # default
-        assert IpuState(fmt=ElementFormat.E4).fmt is ElementFormat.E4
+        assert IpuState().fmt is ElementFormat.NX8  # default: the hardware mode
+        assert IpuState(fmt=ElementFormat.FP32).fmt is ElementFormat.FP32
 
-    def test_cr15_default_dstructure(self):
+    def test_cr15_low_holds_the_default_ds(self):
+        """``CR15.L`` = ds(128, 1, 1) at construction and reset (ADR 0007)."""
         state = IpuState()
-        valid_elements, partition = state.get_dstructure_for(DEFAULT_DSTRUCTURE_CR)
-        assert valid_elements == 128
-        assert partition == 0
+        assert DEFAULT_DS == 0x1080  # 128 elements, one group, one valid group
+        assert state.regfile.get_cr(DEFAULT_DS_CR) == DEFAULT_DS
+        state.regfile.set_cr(DEFAULT_DS_CR, 0)
+        state.reset()
+        assert state.regfile.get_cr(DEFAULT_DS_CR) == DEFAULT_DS
 
-    def test_set_cr_dstructure(self):
+    def test_set_cr_half_keeps_the_other_half(self):
         state = IpuState()
-        state.set_cr_dstructure(64, 2)
-        config = state.get_dstructure_for(DEFAULT_DSTRUCTURE_CR)
-        assert config.valid_elements == 64
-        assert config.partition == 2
-
-    def test_set_cr_dstructure_accepts_cr_idx(self):
-        state = IpuState()
-        cr15_before = state.regfile.get_cr(DEFAULT_DSTRUCTURE_CR)
-
-        state.set_cr_dstructure(7, 4, cr_idx=3)
-
-        config = state.get_dstructure_for(3)
-        assert config.valid_elements == 7
-        assert config.partition == 4
-        assert state.regfile.get_cr(DEFAULT_DSTRUCTURE_CR) == cr15_before
-
-    def test_cr_dstructure_masks_valid_elements(self):
-        state = IpuState()
-        state.set_cr_dstructure(valid_elements=DSTRUCTURE_VALID_ELEMENTS_MASK + 1)
-        assert state.get_dstructure_for(DEFAULT_DSTRUCTURE_CR).valid_elements == 0
-
-    def test_cr_dstructure_invalid_partition_raises(self):
-        with pytest.raises(ValueError, match="not a valid Partition"):
-            encode_dstructure(valid_elements=64, partition=3)
-
-    def test_dstructure_codec_round_trip(self):
-        raw = encode_dstructure(valid_elements=17, partition=4)
-        decoded = decode_dstructure(raw)
-        assert decoded.valid_elements == 17
-        assert decoded.partition == 4
-
-    def test_dstructure_pad_mode_defaults_to_zero(self):
-        assert IpuState().get_dstructure_for(DEFAULT_DSTRUCTURE_CR).pad_mode == PadMode.ZERO
-
-    def test_dstructure_pad_mode_codec_round_trip(self):
-        raw = encode_dstructure(valid_elements=17, partition=4, pad_mode=PadMode.NEG_INF)
-        decoded = decode_dstructure(raw)
-        assert decoded.valid_elements == 17
-        assert decoded.partition == 4
-        assert decoded.pad_mode == PadMode.NEG_INF
-
-    def test_dstructure_invalid_pad_mode_raises(self):
-        with pytest.raises(ValueError, match="not a valid PadMode"):
-            encode_dstructure(valid_elements=64, partition=0, pad_mode=3)
-
-    def test_set_cr_dstructure_accepts_pad_mode(self):
-        state = IpuState()
-        state.set_cr_dstructure(valid_elements=64, partition=2, pad_mode=PadMode.POS_INF)
-        config = state.get_dstructure_for(DEFAULT_DSTRUCTURE_CR)
-        assert config.valid_elements == 64
-        assert config.partition == 2
-        assert config.pad_mode == PadMode.POS_INF
-
-    def test_cr_dstructure_uses_config_register(self):
-        state = IpuState()
-        state.set_cr_dstructure(7, 4)
-        assert state.regfile.get_cr(DEFAULT_DSTRUCTURE_CR) == encode_dstructure(
-            valid_elements=7,
-            partition=4,
-        )
+        state.regfile.set_cr(3, 0x1234_5678)
+        state.set_cr_half(3, True, ds(64, 2))
+        assert state.regfile.get_cr(3) == (ds(64, 2) << 16) | 0x5678
+        state.set_cr_half(3, False, 0xBEEF)
+        assert state.regfile.get_cr(3) == (ds(64, 2) << 16) | 0xBEEF
+        with pytest.raises(ConfigurationError, match="16 bits"):
+            state.set_cr_half(3, False, 1 << 16)
 
     def test_load_store_r_reg_xmem(self):
         """Load data into XMEM, then load into R register, verify.
@@ -527,11 +499,11 @@ class TestIpuState:
     def test_store_r_reg_from_xmem_debug_mode_round_trip(self):
         """store_r_reg_to_xmem in debug mode reads back from r_wide_debug,
         mirroring the load helper above."""
-        state = new_state(fmt=ElementFormat.INT32)
-        state.regfile.set_r_wide_debug(1, struct.pack("<128i", *([7] * 128)))
+        state = new_state(fmt=ElementFormat.FP32)
+        state.regfile.set_r_wide_debug(1, struct.pack("<128f", *([7.0] * 128)))
         store_r_reg_to_xmem(state, 2, 1)  # row 2, debug row size = 512 B -> byte 1024
         stored = state.xmem.read_address(2 * 512, 512)
-        assert struct.unpack("<128i", stored) == tuple([7] * 128)
+        assert struct.unpack("<128f", stored) == tuple([7.0] * 128)
 
     def test_load_r_cyclic_from_xmem_defaults_to_slot_0(self):
         state = IpuState()
@@ -585,12 +557,13 @@ class TestIpuState:
         load_r_mask_from_xmem(state, 2)
         assert state.regfile.get_r_mask() == mask_data
 
-    def test_post_aaq_reg_debug_alias_aaq_result(self):
-        """Legacy debug name ``aaq_result`` resolves to ``post_aaq_reg``."""
+    def test_metadata_registers(self):
+        """``r_meta`` (R0, R1) and ``r_cyclic_meta`` (4 slots) hold one 16-bit word each."""
         state = IpuState()
-        data = bytearray((i * 3) & 0xFF for i in range(512))
-        state.regfile.set_post_aaq_reg(data)
-        assert state.regfile.get_register_bytes("aaq_result") == bytearray(data)
+        state.regfile.set_register_bytes("r_meta", 1, b"\x85\x01")
+        state.regfile.set_register_bytes("r_cyclic_meta", 3, b"\x7f\x00")
+        assert bytes(state.regfile.view("r_meta")) == b"\x00\x00\x85\x01"
+        assert bytes(state.regfile.view("r_cyclic_meta"))[6:] == b"\x7f\x00"
 
     def test_regfile_snapshot(self):
         state = IpuState()

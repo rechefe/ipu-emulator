@@ -4,8 +4,8 @@
 The old router took ``shape=(10, 128)``, ``weight_shape=(64, 128)``, a
 ``dtype`` and ``wide_mode``. The shapes are now the named parameters
 ``samples``, ``in_features`` and ``out_features``, each with its one value,
-and the data format is the run's element format (INT32 is the old
-``wide_mode``), not a parameter.
+and the data format is the case's variant (NX8: E4, E5 or dynamic; ADR
+0007), not a parameter.
 """
 
 from __future__ import annotations
@@ -22,8 +22,8 @@ def registry():
     return loaded
 
 
-def test_fully_connected_takes_its_one_shape_in_every_format(registry):
-    for fmt in (None, "int8", "int32", "e4", "e5"):
+def test_fully_connected_takes_its_one_shape_in_every_variant(registry):
+    for fmt in (None, "e4", "e5", "dynamic"):
         verdict = registry.resolve("fully_connected", format=fmt)
         assert verdict.kernel_name == "fully_connected", verdict.reason
         assert verdict.label == "//kernels/linear/fully_connected"
@@ -38,5 +38,6 @@ def test_another_shape_is_refused(registry, params):
     assert next(iter(params)) in verdict.reason
 
 
-def test_another_format_is_refused(registry):
+def test_another_variant_is_refused(registry):
     assert not registry.resolve("fully_connected", format="fp32")
+    assert not registry.resolve("fully_connected", format="e3")

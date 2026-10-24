@@ -13,7 +13,7 @@
 
         conv3x3_relu at Cin=1        conv3x3_relu_cin1
         2  tile head + bias          3  row loads (bias rides in the third)
-        2  prime two rows            9  taps (tap 9 carries ACTIVATE + STR)
+        2  prime two rows            9  taps (tap 9 carries ACTIVATE.EXACT)
         5  group sizing (partial)    1  advance + branch
         9  taps
         2  group advance + branch   13 words per output tile
@@ -32,8 +32,8 @@
         (ADD gend / BLT.S / SET / DEC) that a partial final group forces;
       * the guard input plane -- the general kernel's pipelined loop prefetches
         one channel past the end, this one has no next channel to prefetch;
-      * the separate drain word -- tap 9 co-issues ACTIVATE.QUANTIZE and the
-        store, because ACC runs before AAQ runs before STORE within a word.
+      * the separate drain word -- tap 9 co-issues ACTIVATE.EXACT, which
+        stores, because ACC runs before AAQ_EXACT within a word.
 
     HALO TILING and the vertical border are conv3x3_relu's, unchanged: tiles of
     126 output columns, element e of tile t is input column t*126 + e - 1, and
@@ -64,12 +64,12 @@
     and the row step; rc_step = 126 is the rc slot-to-slot step; lanes = 128
     is the R_CYCLIC slot-1 index and the Ra index selecting R1[0];
     tiles_last = tiles - 1 because the tile branch reads its counter
-    pre-increment. CR15 is the default dstructure (valid_elements = 128).
+    pre-increment. CR15.L is the default DS (ds(128)); CR14 holds the QF.
     Routing prefers this kernel (cost 0) over conv3x3_relu (cost 1) when
     in_channels = 1.
 
     LR uses 3 sub-slots; ";;" ends a VLIW word, ";" separates sub-instructions.
-    Slot order within a word is LR -> LOAD -> MULT -> ACC -> AAQ -> STORE ->
+    Slot order within a word is LR -> LOAD -> MULT -> ACC -> AAQ -> AAQ_EXACT ->
     COND.
 -#}
 
@@ -109,30 +109,29 @@ tile_loop:
     ADD {{lr_addr}} {{lr_addr}} {{ cr.tiles }} ;
     SUB {{lr_widx}} {{lr_zero}} CR1 ;
     LD.MULT.CYCLIC {{lr_addr}} {{ cr.x }} {{lr_s2}} ;
-    MULT.EE {{lr_s1}} CR1 0 {{lr_zero}} CR15 ; ACC.ADD.FIRST ;;
+    MULT.EE {{lr_s1}} CR1 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ; ACC.ADD.FIRST ;;
                                         {#- slot2 <- y+2 | R_ACC = bias[o] | widx = -1 -#}
 
 {#- ---- nine taps; tap 9 drains the tile in the same word ----------------- -#}
     ADD {{lr_rc}} {{lr_zero}} CR0 ; ADD {{lr_widx}} {{lr_widx}} CR1 ;
-    MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} CR15 ; ACC.ADD ;;   {#- kr-1 kc-1 -#}
+    MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ; ACC.ADD ;;   {#- kr-1 kc-1 -#}
     ADD {{lr_rc}} {{lr_rc}} CR1 ; ADD {{lr_widx}} {{lr_widx}} CR1 ;
-    MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} CR15 ; ACC.ADD ;;   {#- kr-1 kc 0 -#}
+    MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ; ACC.ADD ;;   {#- kr-1 kc 0 -#}
     ADD {{lr_rc}} {{lr_rc}} CR1 ; ADD {{lr_widx}} {{lr_widx}} CR1 ;
-    MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} CR15 ; ACC.ADD ;;   {#- kr-1 kc+1 -#}
+    MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ; ACC.ADD ;;   {#- kr-1 kc+1 -#}
     ADD {{lr_rc}} {{lr_rc}} {{ cr.rc_step }} ; ADD {{lr_widx}} {{lr_widx}} CR1 ;
-    MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} CR15 ; ACC.ADD ;;   {#- kr 0 kc-1 -#}
+    MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ; ACC.ADD ;;   {#- kr 0 kc-1 -#}
     ADD {{lr_rc}} {{lr_rc}} CR1 ; ADD {{lr_widx}} {{lr_widx}} CR1 ;
-    MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} CR15 ; ACC.ADD ;;   {#- kr 0 kc 0 -#}
+    MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ; ACC.ADD ;;   {#- kr 0 kc 0 -#}
     ADD {{lr_rc}} {{lr_rc}} CR1 ; ADD {{lr_widx}} {{lr_widx}} CR1 ;
-    MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} CR15 ; ACC.ADD ;;   {#- kr 0 kc+1 -#}
+    MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ; ACC.ADD ;;   {#- kr 0 kc+1 -#}
     ADD {{lr_rc}} {{lr_rc}} {{ cr.rc_step }} ; ADD {{lr_widx}} {{lr_widx}} CR1 ;
-    MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} CR15 ; ACC.ADD ;;   {#- kr+1 kc-1 -#}
+    MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ; ACC.ADD ;;   {#- kr+1 kc-1 -#}
     ADD {{lr_rc}} {{lr_rc}} CR1 ; ADD {{lr_widx}} {{lr_widx}} CR1 ;
-    MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} CR15 ; ACC.ADD ;;   {#- kr+1 kc 0 -#}
+    MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ; ACC.ADD ;;   {#- kr+1 kc 0 -#}
     ADD {{lr_rc}} {{lr_rc}} CR1 ; ADD {{lr_widx}} {{lr_widx}} CR1 ;
-    MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} CR15 ; ACC.ADD ;
-    ACTIVATE.QUANTIZE relu CR15 ;
-    ST.AAQ {{lr_out}} {{ cr.y }} ;;                   {#- kr+1 kc+1 | OUT[o, y, t] -#}
+    MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ; ACC.ADD ;
+    ACTIVATE.EXACT relu CR15.L {{ cr.y }} {{lr_out}} ;; {#- kr+1 kc+1 | OUT[o, y, t] -#}
 
     ADD {{lr_out}} {{lr_out}} CR1 ;
     ADD {{lr_t}} {{lr_t}} CR1 ;

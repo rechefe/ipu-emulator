@@ -18,12 +18,6 @@ MARKER = "Reserved encodings for F-1, from the instruction reference:"
 
 NUMBER_WORDS = ("zero", "one", "two", "three", "four", "five", "six", "seven", "eight")
 
-#: Said of an ActivationFn code no function is named for (OQ-6).
-_ACTIVATION_NOTE = (
-    "Activation function codes with no named function. The instruction reference "
-    "treats them as `identity`: [OQ-6](open-questions.md)"
-)
-
 
 def count_word(count: int) -> str:
     """``count`` in words, as the page writes it (``seven``); digits past eight."""
@@ -48,9 +42,7 @@ def _operand_sentences(view: Isa, slot, operands: tuple[ReservedOperand, ...]) -
     for reserved in operands:
         operand_type = view.operand_types[reserved.operand_type]
         members = operand_type.domain.members
-        if operand_type.name == "ActivationFn":
-            sentences.append(_ACTIVATION_NOTE)
-        elif operand_type.kind is OperandKind.REGISTER:
+        if operand_type.kind is OperandKind.REGISTER:
             valid = [
                 f"`{m.upper()}`" for code, m in enumerate(members) if code not in reserved.codes
             ]

@@ -32,7 +32,22 @@ a separate promise.
 - **Major** (breaking): a public name removed or renamed, a parameter removed
   or made required, a field removed, renamed or retyped, or a meaning changed
   (a method that now refuses what it accepted, a field that now counts
-  something else).
+  something else). Version 2.0.0 is the run modes of
+  [ADR 0007](https://github.com/rechefe/ipu-emulator/blob/master/docs/adr/0007-operational-aaq-and-nx8.md):
+  `ElementFormat` keeps `FP32` and `NX8` (value `"nx8"`) and loses `INT8`,
+  `E1`–`E7` and `INT32`, so the constructor and `reset()` take one of the two
+  modes, and the constructor defaults to `NX8` instead of `INT8`;
+  `load_program()` refuses a program that uses the FP32-only
+  `ACTIVATE.EXACT` when the model runs in NX8 mode, and `reset()` refuses to
+  switch a model holding such a program to NX8; the `post_aaq_reg`
+  register bank is removed, and `read_register()` and `write_register()`
+  take the `r_meta`, `r_cyclic_meta` and `aaq_lut` banks as bytes; and a
+  commit record's slots no longer include `store` or `acc_store`, and can
+  include `aaq_exact`. It also adds the XMEM metadata side store:
+  `read_xmem_metadata()`, `write_xmem_metadata()` and the
+  `CommitRecord.xmem_meta_writes` field (default empty), with the commit
+  record schema's optional `xmem_meta_writes` (schema 1.1.0). The other
+  method signatures and commit record fields are 1.4.0's.
 - **Minor**: an addition that leaves every existing call working, such as a
   new method, a new optional parameter or a new dataclass field with a
   default. Version 1.1.0 added `Stats` and
@@ -72,7 +87,7 @@ from ipu_isa.formats import ElementFormat
 
 async def test_lockstep(dut):
     model = ReferenceModel()
-    model.reset(ElementFormat.INT8)
+    model.reset(ElementFormat.NX8)
     model.load_program(Path("prog.bin").read_bytes())  # a program file, or its words as ints
     model.write_register("lr", 5, index=0)              # LR0 = 5
     model.write_xmem(0, bytes(range(128)))              # XMEM row 0
@@ -109,8 +124,9 @@ writes, it counts the trace's records, as the schema says.
 - Registers are named by bank, as `ipu_isa.registers` names them (`lr`:
   `LR0`-`LR15`, `cr`: `CR0`-`CR15`, `r`: `R0`-`R1`, ...), and `index` picks
   the register within the bank. `r_wide_debug` and `r_cyclic_wide_debug` are
-  emulator-only banks: they hold the operands of the wide formats (FP32,
-  INT32), which the hardware does not have.
+  emulator-only banks: they hold the operands of the FP32 mode, which the
+  hardware does not have; `r_meta` and `r_cyclic_meta` hold the row metadata
+  of `R0`, `R1` and each `R_CYCLIC` slot in the NX8 mode.
 
 ## API
 
@@ -148,7 +164,8 @@ To run the suite against another implementation, for each case:
 1. Skip it if `setup.json` has `"emulator_only": true`.
 2. Reset in the case's `format` and load `program.bin`.
 3. Zero every register and XMEM byte (`CR0` and `CR1` aside), then write the
-   registers and XMEM regions of `setup.json` and set its fault enables.
+   registers, XMEM regions and XMEM row metadata words of `setup.json` and
+   set its fault enables.
 4. Run until `HALT`, a fault or `max_cycles`, recording a commit record per
    word.
 5. Compare the header's `schema_version`, `isa_digest`, `format` and

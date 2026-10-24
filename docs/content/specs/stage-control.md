@@ -1,5 +1,12 @@
 # Control Stage
 
+!!! warning "Not yet updated for ADR 0007"
+    [ADR 0007](https://github.com/rechefe/ipu-emulator/blob/master/docs/adr/0007-operational-aaq-and-nx8.md)
+    removed the STORE slot: the AaQ stage stores its own row (`ACTIVATE.QUANTIZE`)
+    and loads its LUT from XMEM (`LD.LUT`). This page still describes a STORE
+    stage and its `str_vliw_bus`, and 32-bit DS operands; the action to update
+    it is A-4 in [Open questions](../requirements/open-questions.md#actions-on-other-documents).
+
 ## 1. Purpose
 
 The Control (CTRL) stage is the first stage of the IPU pipeline. It owns the
@@ -190,7 +197,7 @@ XMEM read-address port, and the APB slave.
 - `LR0`–`LR15` are **32-bit** local registers. They are written **only** by the LR-slot ops (`SET`, `ADD`, `SUB`, `INC.MODP2`, `INC`, `DEC`, `ADDB`, `ADDBI`). The RISC-V host cannot write LR.
 - `CR0`–`CR15` are **32-bit** configuration registers, read-only to the program. The RISC-V host populates the inactive bank and triggers a swap externally; there is no ISA instruction for the swap.
 - **`CR0` is hard-wired to `0` (zero register)** and **`CR1` is hard-wired to `1` (one register)**. These two values are guaranteed by hardware and are the canonical operands for clearing or incrementing an LR via `ADD`/`SUB`.
-- `CR15` conventionally holds the dstructure register (`valid_elements` and `partition`) for `DstructureCrIdx` operands (`AGG.*`, `ACTIVATE.QUANTIZE`, the masking `MULT.*` instructions), but it is never an implicit default — every such operand must name a CR register explicitly, and `CR0`–`CR14` are equally valid choices. `CR15` is not blocked as a general-purpose `CrIdx`/`LcrIdx` operand elsewhere.
+- `CR15.L` conventionally holds the DS (data structure: `valid_elements`, `num_partitions`, `mask_type`, `valid_partitions`) for the DS operands (`AGG.*`, `ACTIVATE.QUANTIZE`, the masking `MULT.*` instructions), which name a 16-bit CR half (`HalfCrIdx`, `CR0.L`–`CR15.H`), but it is never an implicit default — every such operand must name a half explicitly, and any other half is equally valid. `CR15` is not blocked as a general-purpose `CrIdx`/`LcrHalfIdx` operand elsewhere.
 - IMEM stores **already-decoded** VLIW words: each entry has slot fields laid out explicitly (no opcode-level decode happens inside CTRL — only slot demuxing).
 - The **current cycle's instruction** (`inst_vliw`, the VLIW at the current `PC`) comes **straight from the IMEM read ports** — there is no separate instruction register between `inst mem` and the controller logic. IMEM reads are synchronous: an address CTRL issues in cycle N−1 returns its word at the start of cycle N, and the read port holds it for the whole cycle.
 - **No taken-branch bubble.** When the current cycle's instruction is a branch, CTRL issues **two speculative IMEM reads in parallel** during this same cycle — one for the fall-through `PC + 1` and one for the branch target `label`. The cond evaluator's `taken` result is registered as `imem_rd_sel` and selects which of the two read words is the next cycle's `inst_vliw`. The correct instruction is therefore always present at the start of the next clock — no NOP cycle is ever inserted because of a branch.

@@ -18,7 +18,7 @@ from ipu_harness.family import load_kernel
 from ipu_harness.kernel_test import KERNEL_ENV, TIER_ENV
 from ipu_harness.manifest import KernelManifest
 from ipu_harness.runner import RunOptions, RunResult, run_kernel
-from ipu_isa.formats import ElementFormat
+from ipu_harness.variants import Variant
 
 RunCase = Callable[..., RunResult]
 
@@ -49,7 +49,7 @@ def run_case(kernel: KernelManifest) -> RunCase:
     """``run_case(case, fmt, options=None)``: :func:`run_kernel` with the shared cache."""
     cache = AssemblyCache()
 
-    def run(case: Case, fmt: ElementFormat, options: RunOptions | None = None) -> RunResult:
+    def run(case: Case, fmt: Variant, options: RunOptions | None = None) -> RunResult:
         return run_kernel(kernel, case, fmt, options, cache=cache)
 
     return run

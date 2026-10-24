@@ -30,6 +30,7 @@ y_ptr      = "0"                                       # output pointer (LR7)
 w_off      = "0"                                       # weight row offset (LR8)
 j0         = "0"                                       # j counter (LR9)
 w_stride   = "chunks"                                  # weight rows per output channel (LR12)
+qf         = "case_qf"                                 # the case's QF half (0 in FP32, which ignores it)
 
 # Placed from row 0: b, a, y (the old XMEM map).
 [inputs.b]                                        # the data D = A^T, channel-major
@@ -64,6 +65,7 @@ j0         = "LR9"
 n          = "LR10"
 tail_bound = "LR11"
 w_stride   = "LR12"
+qf         = "CR14"  # the MULT QF half: CR14.L
 
 [golden]
 op = "linear"                                    # activation(a @ b), ipu_kernels.reference.ops

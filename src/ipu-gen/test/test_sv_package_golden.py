@@ -21,21 +21,22 @@ GOLDEN = Path.cwd() / update_sv_golden.GOLDEN_PATH
 
 #: Every localparam of the package, by name. Edit only on purpose.
 EXPECTED_LOCALPARAMS = {
+    # ADR 0007 (breaking): the store slot is gone; MULT and AGG gained DS and
+    # QF half-CR operands, the AaQ slot holds LD.LUT and ACTIVATE.QUANTIZE, and
+    # LR and COND sources became 6-bit LcrHalfIdx.
     "LOAD_SLOT_U_WIDTH": 12,
     "LOAD_SLOT_T_WIDTH": 14,
-    "STORE_SLOT_U_WIDTH": 8,
-    "STORE_SLOT_T_WIDTH": 9,
     "LR_SLOT_U_WIDTH": 16,
     "LR_SLOT_T_WIDTH": 20,
-    "MULT_SLOT_U_WIDTH": 20,
-    "MULT_SLOT_T_WIDTH": 23,
-    "ACC_SLOT_U_WIDTH": 13,
-    "ACC_SLOT_T_WIDTH": 17,
-    "AAQ_SLOT_U_WIDTH": 8,
-    "AAQ_SLOT_T_WIDTH": 9,
-    "COND_SLOT_U_WIDTH": 20,
-    "COND_SLOT_T_WIDTH": 23,
-    "IPU_COMPOUND_INST_WIDTH": 155,  # E03-22: the hardware word (was 186)
+    "MULT_SLOT_U_WIDTH": 26,
+    "MULT_SLOT_T_WIDTH": 29,
+    "ACC_SLOT_U_WIDTH": 14,
+    "ACC_SLOT_T_WIDTH": 18,
+    "AAQ_SLOT_U_WIDTH": 21,
+    "AAQ_SLOT_T_WIDTH": 23,
+    "COND_SLOT_U_WIDTH": 22,
+    "COND_SLOT_T_WIDTH": 25,
+    "IPU_COMPOUND_INST_WIDTH": 169,  # ADR 0007: the hardware word (was 155)
 }
 
 _LOCALPARAM = re.compile(r"^\s*localparam\s+int\s+unsigned\s+(\w+)\s*=\s*(\d+)\s*;", re.M)
@@ -88,8 +89,8 @@ def test_change_message_names_each_localparam():
     del actual["AAQ_SLOT_U_WIDTH"]
     actual["NEW_WIDTH"] = 1
     assert localparam_changes(EXPECTED_LOCALPARAMS, actual) == [
-        "AAQ_SLOT_U_WIDTH: removed (was 8)",
-        "IPU_COMPOUND_INST_WIDTH: 155 -> 187",
+        "AAQ_SLOT_U_WIDTH: removed (was 21)",
+        "IPU_COMPOUND_INST_WIDTH: 169 -> 187",
         "LR_SLOT_T_WIDTH: 20 -> 21",
         "NEW_WIDTH: added (1)",
     ]

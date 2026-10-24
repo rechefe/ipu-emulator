@@ -20,26 +20,25 @@ Checks, in order:
    to a whole number; dimensions are positive. In :func:`plan_case` (not
    :func:`check_params`, which routing calls), also every expression ``row``
    pin, and every scalar ``fill`` expression, exactly (``CasePlan.fills``).
-4. Element scalars: a ``float`` parameter bound in ``[abi]`` is a scalar in the
-   active format, so it must encode in ``fmt`` exactly. If it does not, the
+4. Element scalars: a ``float`` parameter bound in ``[abi]`` is a MULT
+   constant in the case's mode, so it must encode in ``fmt`` exactly. If it does not, the
    error names the nearest representable values; nothing is rounded silently.
 """
 
 from __future__ import annotations
 
-import functools
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 
-import numpy as np
-
 from ipu_emu.errors import ConfigurationError
+from ipu_harness._codec import scalar_neighbours, scalar_word
 from ipu_harness.conditions import narrowed
 from ipu_harness.expressions import ROW_BYTES_NAME, ExpressionError, evaluate, evaluate_exact
 from ipu_harness.manifest import TOML_NAME, CaseDecl, KernelManifest, ParamDecl
-from ipu_isa.formats import FORMATS, ElementFormat, element_values
+from ipu_harness.variants import Variant, as_variant
+from ipu_isa.formats import ElementFormat
 
 Value = int | float | bool | str
 
@@ -49,7 +48,6 @@ _PY_TYPES: Mapping[str, tuple[type, ...]] = {
     "bool": (bool,),
     "str": (str,),
 }
-_FP32_MAX = float(np.finfo(np.float32).max)
 
 
 class PlanError(ConfigurationError):
@@ -85,7 +83,7 @@ class CasePlan:
     """
 
     manifest: KernelManifest
-    format: ElementFormat
+    format: Variant
     params: Mapping[str, Value]
     shapes: Mapping[str, tuple[int, ...]]
     derived: Mapping[str, int]
@@ -96,63 +94,29 @@ class CasePlan:
 # --- element scalars ----------------------------------------------------------------------
 
 
-@functools.cache
-def _fp8_values(fmt: ElementFormat) -> tuple[float, ...]:
-    # Every code's value (ipu_isa's element codec answers "does this encode exactly").
-    return tuple(sorted({v for v in element_values(fmt) if math.isfinite(v)}))
-
-
-def _neighbours(value: float, values: tuple[float, ...]) -> tuple[float, ...]:
-    """The nearest of ``values`` below and above ``value``."""
-    below = [v for v in values if v < value][-1:]
-    above = [v for v in values if v > value][:1]
-    return (*below, *above)
-
-
-def _fp32_neighbours(value: float) -> tuple[float, ...]:
-    """The float32 values on either side of ``value`` (one of them is its rounding)."""
-    if abs(value) > _FP32_MAX:
-        return (math.copysign(_FP32_MAX, value),)
-    rounded = np.float32(value)
-    if float(rounded) < value:
-        return (float(rounded), float(np.nextafter(rounded, np.float32(np.inf))))
-    return (float(np.nextafter(rounded, np.float32(-np.inf))), float(rounded))
-
-
-def representable(value: float, fmt: ElementFormat) -> tuple[bool, tuple[float, ...]]:
-    """Whether ``value`` encodes exactly in ``fmt``.
+def representable(value: float, fmt: Variant) -> tuple[bool, tuple[float, ...]]:
+    """Whether a MULT reads ``value`` exactly from a CR in ``fmt``'s mode
+    (:func:`ipu_harness._codec.scalar_word`: FP32 bits, or the NX8 constant).
 
     Args:
         value: A finite number.
-        fmt: The element format.
+        fmt: The variant.
 
     Returns:
-        ``(True, ())``, or ``(False, nearest)``: the representable values on
-        either side of ``value`` (one, at the edge of the format's range).
+        ``(True, ())``, or ``(False, nearest)``: the encodable values on
+        either side of ``value`` (one, at the edge of the range).
     """
     if not math.isfinite(value):
         return False, ()
-    info = FORMATS[fmt]
-    if not info.is_float:
-        lo, hi = -(1 << (info.element_bits - 1)), (1 << (info.element_bits - 1)) - 1
-        if value < lo or value > hi:
-            return False, (float(lo if value < lo else hi),)
-        if value.is_integer():
-            return True, ()
-        return False, (float(math.floor(value)), float(math.ceil(value)))
-    if fmt is ElementFormat.FP32:
-        exact = abs(value) <= _FP32_MAX and float(np.float32(value)) == value
-        return (True, ()) if exact else (False, _fp32_neighbours(value))
-    values = _fp8_values(fmt)
-    if value in values:
+    if scalar_word(value, fmt) is not None:
         return True, ()
-    return False, _neighbours(value, values)
+    return False, scalar_neighbours(value, fmt)
 
 
 # --- the checks ---------------------------------------------------------------------------
 
 
-def _check_format(manifest: KernelManifest, fmt: ElementFormat, case: CaseDecl | None) -> None:
+def _check_format(manifest: KernelManifest, fmt: Variant, case: CaseDecl | None) -> None:
     if fmt not in manifest.formats:
         allowed = ", ".join(f.value for f in manifest.formats)
         raise PlanError(
@@ -293,9 +257,7 @@ def _pins(manifest: KernelManifest, names: Mapping[str, int]) -> dict[str, int]:
     return pins
 
 
-def _check_scalars(
-    manifest: KernelManifest, params: Mapping[str, Value], fmt: ElementFormat
-) -> None:
+def _check_scalars(manifest: KernelManifest, params: Mapping[str, Value], fmt: Variant) -> None:
     for name in manifest.abi:
         decl = manifest.params.get(name)
         value = params.get(name)
@@ -323,7 +285,7 @@ class ParamCheck:
     """
 
     params: Mapping[str, Value]
-    formats: tuple[ElementFormat, ...]
+    formats: tuple[Variant, ...]
     derived: Mapping[str, int] = field(default_factory=lambda: MappingProxyType({}))
 
 
@@ -357,7 +319,7 @@ def check_params(manifest: KernelManifest, params: Mapping[str, object]) -> Para
 def plan_case(
     manifest: KernelManifest,
     params: Mapping[str, object],
-    fmt: ElementFormat,
+    fmt: Variant | ElementFormat | str,
     *,
     case: CaseDecl | None = None,
 ) -> CasePlan:
@@ -366,7 +328,8 @@ def plan_case(
     Args:
         manifest: The kernel.
         params: Parameter values; missing ones take their defaults.
-        fmt: The element format to run in.
+        fmt: The variant to run in (a ``Variant``, its name, or
+            ``ElementFormat.FP32``: :func:`ipu_harness.variants.as_variant`).
         case: The case the values come from, if any (its ``formats`` limit
             applies; a sweep's expanded cases pass their base case).
 
@@ -376,13 +339,17 @@ def plan_case(
     Raises:
         PlanError: The first check that fails, naming the key and the value.
     """
+    try:
+        fmt = as_variant(fmt)
+    except ValueError as error:
+        raise PlanError(manifest, "formats", str(error)) from None
     _check_format(manifest, fmt, case)
     checked = _check_params(manifest, params)
     manifest = narrowed(manifest, checked)  # the case's tensors and bindings (``when``)
     derived = _derived(manifest, checked)
     names = {k: v for k, v in checked.items() if isinstance(v, int) and not isinstance(v, bool)}
     shapes = _shapes(manifest, {**names, **derived})
-    pins = _pins(manifest, {**names, **derived, ROW_BYTES_NAME: FORMATS[fmt].row_bytes})
+    pins = _pins(manifest, {**names, **derived, ROW_BYTES_NAME: fmt.row_bytes})
     fills = _fills(manifest, checked, derived)
     _check_scalars(manifest, checked, fmt)
     return CasePlan(

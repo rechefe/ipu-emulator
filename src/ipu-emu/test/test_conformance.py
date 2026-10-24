@@ -29,8 +29,6 @@ CASES = conformance.cases(SUITE)
 SUITE_SECONDS = 30
 
 
-# The probes include ST.ACC, the emulator-only store: its warning is expected.
-@pytest.mark.filterwarnings("ignore::ipu_emu.errors.DebugOnlyInstructionWarning")
 def test_every_case_gives_its_expected_trace(tmp_path):
     started = time.monotonic()
     failures = []
@@ -48,7 +46,7 @@ def test_every_case_gives_its_expected_trace(tmp_path):
 
 
 def test_a_corrupted_trace_names_the_cycle_and_field():
-    case = SUITE / "insn_add_int8"
+    case = SUITE / "insn_add_nx8"
     header, records = read_trace(case / "expected.trace.jsonl")
     write = records[1].reg_writes[0]
     corrupted = list(records)
@@ -64,14 +62,14 @@ def test_a_corrupted_trace_names_the_cycle_and_field():
 
 @pytest.mark.parametrize("field", ["isa_digest", "program_digest"])
 def test_a_header_from_another_isa_or_program_differs(field):
-    header, records = read_trace(SUITE / "insn_add_int8" / "expected.trace.jsonl")
+    header, records = read_trace(SUITE / "insn_add_nx8" / "expected.trace.jsonl")
     other = {**header, field: "0" * 64}
     message = conformance.first_difference((header, records), (other, records))
     assert message == f"header.{field}: expected {header[field]!r}, got {'0' * 64!r}"
 
 
 def test_the_emulator_version_is_not_compared():
-    header, records = read_trace(SUITE / "insn_add_int8" / "expected.trace.jsonl")
+    header, records = read_trace(SUITE / "insn_add_nx8" / "expected.trace.jsonl")
     producer = {**header, "emulator_version": "9.9.9"}
     assert conformance.first_difference((header, records), (producer, records)) is None
 

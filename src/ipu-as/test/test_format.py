@@ -58,7 +58,7 @@ BL = {"blank_line": True}
         (WORDS, {}, None),
         ("HALT;;\n\n\nHALT;;", BL, f"{B}\n\n\n{B}"),
         (
-            '{%- set r = "lr0" -%}\n# note\n    MULT.VE {{r}}   cr1 0 {{r}} cr15 ;     '
+            '{%- set r = "lr0" -%}\n# note\n    MULT.VE {{r}}   cr1 0 {{r}} cr15.l cr14.l ;     '
             "{#- aligned -#}\n    ACC.ADD.FIRST ;; // done",
             {},
             None,

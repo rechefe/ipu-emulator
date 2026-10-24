@@ -10,10 +10,10 @@ keeps what the page needs. Two files come out:
 * the trace (``--trace``): JSON Lines, the header, then one commit record per
   retired word (``ipu_isa/schemas``). This is the contract.
 * the context (``--context``): what a viewer needs that the trace does not
-  carry: the kernel's source text and labels, the loaded program's words,
-  every register's value when the program started, and per record the
-  multiplier lanes it used and the XMEM ranges it read
-  (``ReferenceModel.observe_xmem_reads``).
+  carry: the variant the case ran in, the kernel's source text and labels,
+  the loaded program's words, every register's value when the program
+  started, and per record the multiplier lanes it used and the XMEM ranges
+  it read (``ReferenceModel.observe_xmem_reads``).
 
 ``ipu-gen inspector-trace`` turns the two into the page's JSON
 (``docs/inspector/defs.bzl``'s ``kernel_trace``).
@@ -29,12 +29,13 @@ from ipu_emu.reference import ReferenceModel, TraceWriter
 from ipu_harness.cases import Case
 from ipu_harness.manifest import KernelManifest
 from ipu_harness.runner import RunContext
+from ipu_harness.variants import Variant
 from ipu_isa.registers import REGISTER_DEFINITIONS
 
 __all__ = ["CONTEXT_VERSION", "InspectorRecorder"]
 
 #: The context file's layout version; ``ipu_gen.inspector_trace`` checks it.
-CONTEXT_VERSION = 1
+CONTEXT_VERSION = 2
 
 #: The outcomes after which the model takes no more steps.
 _LAST = ("halt", "fault")
@@ -62,6 +63,7 @@ class InspectorRecorder:
             raise RuntimeError("an InspectorRecorder records one run")
         model = context.model
         self._start = {
+            "variant": _variant(context.format),
             "program": [f"{word:x}" for word in context.program.words],
             "init": _registers(model),
         }
@@ -106,6 +108,23 @@ class InspectorRecorder:
             **self._start,
             "cycles": self._cycles,
         }
+
+
+def _variant(fmt: Variant) -> dict[str, Any]:
+    """The variant the case ran in: its name and, in NX8, its element type (the
+    QF half's fields), which the trace header does not carry (it names the mode)."""
+    qf = fmt.qf
+    return {
+        "name": fmt.name,
+        "qf": None
+        if qf is None
+        else {
+            "sign": qf.sign,
+            "exp_format": qf.exp_format,
+            "num_bits": qf.num_bits,
+            "dynamic": qf.dynamic,
+        },
+    }
 
 
 def _registers(model: ReferenceModel) -> dict[str, str]:

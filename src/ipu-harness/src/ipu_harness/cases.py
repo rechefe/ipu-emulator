@@ -11,11 +11,12 @@ input tensor of a planned case, from the first source that has it:
    logical tensors by name, for inputs that need structure; the file is the
    kernel folder's, else its family folder's, so a family's templates can
    share one);
-4. the default generator: uniform values in ``[-1, 1]`` for a float format and
-   over the whole range of an integer one, or the input's ``range``.
+4. the default generator: uniform values in ``[-1, 1]``, or the input's
+   ``range``.
 
-Every tensor is rounded to the format (to nearest, saturating), so the
-reference sees exactly what XMEM holds. A file's or a generator's values that
+Every tensor is rounded to what the variant holds (FP32: to nearest float32,
+saturating; NX8: packed and quantized row by row with each row's scale, then
+read back, ADR 0007), so the reference sees exactly what XMEM holds. A file's or a generator's values that
 rounding changed are counted (:attr:`CaseInputs.rounded`) for the report, as
 E06-10 rules; a value that is not finite is an error. Every stream comes from
 :func:`rng`, seeded by name, so a tensor's values are the same in every
@@ -26,7 +27,6 @@ from __future__ import annotations
 
 import importlib.util
 import itertools
-import math
 import zlib
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
@@ -36,11 +36,12 @@ from types import MappingProxyType
 import numpy as np
 
 from ipu_emu.errors import ConfigurationError
-from ipu_harness._codec import Array, held, limits
+from ipu_harness._codec import Array
 from ipu_harness._plugins import kernel_file
 from ipu_harness.manifest import CaseDecl, KernelManifest, Tier
+from ipu_harness.packing import held
 from ipu_harness.params import CasePlan, PlanError
-from ipu_isa.formats import FORMATS, ElementFormat
+from ipu_harness.variants import Variant
 
 __all__ = ["Case", "CaseInputs", "at_values", "checked_input", "expand", "inputs_for", "rng"]
 
@@ -65,7 +66,7 @@ class Case:
 
     name: str
     values: Mapping[str, object]
-    formats: tuple[ElementFormat, ...]
+    formats: tuple[Variant, ...]
     inputs: Mapping[str, Path]
     expected: Mapping[str, Path | str]
     generator: str | None
@@ -169,8 +170,8 @@ class CaseInputs:
     """A case's input tensors.
 
     Attributes:
-        tensors: Each input, by name, in declaration order, as the format holds
-            it (int8 or int32 for an integer format, else float32).
+        tensors: Each input, by name, in declaration order, as the variant holds
+            it (float64).
         rounded: For an input from a file or a generator, how many of its values
             rounding to the format changed (E06-10's report), when any did.
     """
@@ -193,9 +194,10 @@ def _checked(plan: CasePlan, name: str, value: object) -> Array:
     return value
 
 
-def _rounded(values: Array, fmt: ElementFormat) -> tuple[Array, int]:
-    """``values`` in the format, and how many of them that changed."""
-    in_format = held(values, fmt)
+def _rounded(plan: CasePlan, name: str, values: Array) -> tuple[Array, int]:
+    """Input ``name``'s ``values`` as the variant holds them, and how many of
+    them that changed."""
+    in_format = held(plan.manifest.tensors[name], values, plan)
     changed = int(np.count_nonzero(in_format.astype(np.float64) != values.astype(np.float64)))
     return in_format, changed
 
@@ -209,7 +211,7 @@ def checked_input(plan: CasePlan, name: str, value: object) -> Array:
             or holds a value that is not finite.
     """
     try:
-        return _rounded(_checked(plan, name, value), plan.format)[0]
+        return _rounded(plan, name, _checked(plan, name, value))[0]
     except _Bad as error:
         raise ConfigurationError(f"{plan.manifest.name}: input {error}") from None
 
@@ -220,7 +222,7 @@ def _loaded(plan: CasePlan, name: str, path: Path) -> tuple[Array, int]:
         value = np.load(path, allow_pickle=False)
     except (OSError, ValueError) as error:
         raise _Bad(f"cannot read {path} as {name}: {error}") from None
-    return _rounded(_checked(plan, name, value), plan.format)
+    return _rounded(plan, name, _checked(plan, name, value))
 
 
 def _from_generator(plan: CasePlan, case: Case) -> dict[str, tuple[Array, int]]:
@@ -264,7 +266,7 @@ def _from_generator(plan: CasePlan, case: Case) -> dict[str, tuple[Array, int]]:
                 plan.manifest, key, f"{case.generator} made {name!r}, which is no input"
             )
         try:
-            out[name] = _rounded(_checked(plan, name, value), plan.format)
+            out[name] = _rounded(plan, name, _checked(plan, name, value))
         except _Bad as error:
             raise PlanError(plan.manifest, key, f"{case.generator}: {error}") from None
     return out
@@ -272,18 +274,12 @@ def _from_generator(plan: CasePlan, case: Case) -> dict[str, tuple[Array, int]]:
 
 def _generated(plan: CasePlan, case: Case, name: str) -> Array:
     """The default generator's values for input ``name``: uniform in the input's
-    ``range`` for the format (closed: rounding can reach either end), else in
-    ``[-1, 1]`` for a float format and the whole range of an integer one."""
+    ``range`` for the variant (closed: rounding can reach either end), else in
+    ``[-1, 1]``."""
     stream = rng(plan.manifest.name, case.name, name)
     shape = plan.shapes[name]
-    bounds = plan.manifest.tensors[name].value_range.get(plan.format)
-    if FORMATS[plan.format].is_float:
-        lo, hi = bounds or (-1.0, 1.0)
-        return held(stream.uniform(lo, hi, size=shape), plan.format)
-    lo, hi = bounds or limits(plan.format)
-    # The manifest checked that the range holds an integer of the format.
-    values = stream.integers(math.ceil(lo), math.floor(hi), size=shape, endpoint=True)
-    return held(values, plan.format)
+    lo, hi = plan.manifest.tensors[name].value_range.get(plan.format) or (-1.0, 1.0)
+    return held(plan.manifest.tensors[name], stream.uniform(lo, hi, size=shape), plan)
 
 
 def inputs_for(

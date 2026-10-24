@@ -9,6 +9,7 @@ columns  = { type = "int", min = 1 }      # independent columns, 128 a tile
 
 [derived]
 tiles = "ceil(columns / 128)"
+qf    = "case_qf"                     # the case's QF half (0: FP32 ignores it)
 
 [inputs.x]
 shape = ["channels", "columns"]           # row-major: row ch * tiles + t, zero past columns
@@ -26,6 +27,7 @@ y        = "CR3"
 rvec     = "CR4"
 tiles    = "CR5"
 channels = "CR6"
+qf       = "CR14"
 
 [golden]
 reference = "reference.py:reference"

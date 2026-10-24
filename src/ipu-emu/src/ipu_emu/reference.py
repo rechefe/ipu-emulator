@@ -1,4 +1,4 @@
-"""The stable reference-model API, v1 (E04-30, D5, Q10, Q11).
+"""The stable reference-model API, v2 (E04-30, D5, Q10, Q11, ADR 0007).
 
 A small, fixed interface for RTL verification: a testbench resets the model,
 loads a program, sets registers and XMEM while the model is halted, steps it
@@ -13,8 +13,9 @@ Register names are ``ipu_isa``'s (``ipu_isa.registers.REGISTER_DEFINITIONS``),
 and ``index`` picks the register within its bank (``lr``: LR0-LR15, ``cr``:
 CR0-CR15, ``r``: R0-R1). ``lr`` and ``cr`` read and write as unsigned 32-bit
 ints, the others as bytes. ``r_wide_debug`` and ``r_cyclic_wide_debug`` are
-emulator-only: they hold the operands of the wide formats (FP32, INT32), which
-the hardware does not have. No method returns an emulator object.
+emulator-only: they hold the operands of the FP32 mode, which the hardware
+does not have. ``r_meta``, ``r_cyclic_meta`` and ``aaq_lut`` hold
+row metadata and the AaQ LUT (ADR 0007), as bytes. No method returns an emulator object.
 
 A host access the IPU refuses with an AXI error (faults.md, "Illegal host
 accesses", IPU-FLT-7) raises :class:`~ipu_emu.errors.ConfigurationError`:
@@ -68,7 +69,7 @@ __all__ = [
 ]
 
 #: The version of this API (Q11).
-API_VERSION = "1.4.0"
+API_VERSION = "2.0.0"
 
 
 class RunState(str, enum.Enum):
@@ -155,10 +156,12 @@ class ReferenceModel:
     """One IPU, as the RTL verification sees it.
 
     Args:
-        fmt: The element format to start in (:meth:`reset` changes it).
+        fmt: The run mode's element format to start in, ``NX8`` (the
+            default) or ``FP32`` (:meth:`reset` changes it; 2.0.0 removed the
+            other formats, ADR 0007).
     """
 
-    def __init__(self, fmt: ElementFormat = ElementFormat.INT8) -> None:
+    def __init__(self, fmt: ElementFormat = ElementFormat.NX8) -> None:
         self._state = _IpuState(fmt=fmt)
         self._ipu = _Ipu(self._state)
         self._collector = _CommitCollector(self._state)
@@ -169,8 +172,8 @@ class ReferenceModel:
     def reset(self, fmt: ElementFormat) -> None:
         """Reset the model. The loaded program stays.
 
-        Registers and XMEM go to their reset values (CR15 holds the default
-        dstructure), the PC to 0, every fault is enabled with no sticky flag,
+        Registers and XMEM go to their reset values (``CR15.L`` holds the
+        default DS), the PC to 0, every fault is enabled with no sticky flag,
         and the arithmetic flags and the statistics clear. Record numbering
         restarts at 0.
 
@@ -178,7 +181,9 @@ class ReferenceModel:
             fmt: The element format to run in.
 
         Raises:
-            ConfigurationError: *fmt* is no element format.
+            ConfigurationError: *fmt* is no element format, or it is NX8 and
+                the loaded program uses ``ACTIVATE.EXACT`` (FP32 only). The
+                model is left as it was.
         """
         self._state.reset(fmt)
         self._ipu.cycle.reset()
@@ -196,8 +201,9 @@ class ReferenceModel:
         Raises:
             ConfigurationError: The model is running or faulted (after a
                 fault, :meth:`reset` first); the bytes are not whole words; a
-                word is wider than the instruction word; or the program is
-                larger than IMEM.
+                word is wider than the instruction word; the program is
+                larger than IMEM; or the model runs in NX8 mode and the
+                program uses the FP32-only ``ACTIVATE.EXACT`` (2.0.0).
         """
         self._writable()
         decoded: list[dict[str, int]]
@@ -316,6 +322,36 @@ class ReferenceModel:
         """
         self._writable()
         self._state.xmem.write_address(address, bytes(data))
+
+    def read_xmem_metadata(self, address: int) -> int:
+        """The 16-bit metadata word of the 128-byte XMEM unit at *address*
+        (2.0.0, ADR 0007).
+
+        Args:
+            address: The unit's first byte, a multiple of 128.
+
+        Returns:
+            The word; 0 when it was never written.
+
+        Raises:
+            ConfigurationError: *address* is outside XMEM or not unit-aligned.
+        """
+        return self._state.xmem.snapshot_metadata(address)
+
+    def write_xmem_metadata(self, address: int, word: int) -> None:
+        """Write the metadata word of the 128-byte XMEM unit at *address*,
+        only while halted (2.0.0, ADR 0007). The unit's bytes are unchanged.
+
+        Args:
+            address: The unit's first byte, a multiple of 128.
+            word: The unsigned 16-bit word.
+
+        Raises:
+            ConfigurationError: The model is running or faulted; *address* is
+                outside XMEM or not unit-aligned; *word* is not 16-bit unsigned.
+        """
+        self._writable()
+        self._state.xmem.write_metadata(address, word)
 
     # -- running -------------------------------------------------------------
 

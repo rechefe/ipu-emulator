@@ -17,10 +17,10 @@
 
     1/||x|| IS AN ACTIVATION, NOT A REDUCTION POST-FUNCTION:
       The older byte-addressed kernel wrote `AGG sum inv_sqrt`. That post-fn no
-      longer exists; rsqrt is one of ACTIVATE.QUANTIZE's twelve activations, so
+      longer exists; rsqrt is one of ACTIVATE.EXACT's activations, so
       the reciprocal square root is taken on the way out of R_ACC:
 
-          ACTIVATE.QUANTIZE rsqrt CR15 ; ST.AAQ -> the scale row
+          ACTIVATE.EXACT rsqrt CR15.L CR4 LR0   -> the scale row
 
       The emulator's rsqrt is guarded (x <= 0 yields 0), so an all-zero column
       normalizes to zeros rather than producing inf or NaN.
@@ -48,12 +48,13 @@
              per column of this tile
       CR5  = tiles -- rows per matrix row, AND the tile-loop bound (same number)
       CR6  = channels (the reduction length)
-      CR15 = dstructure (valid_elements = 128)
+      CR14 = the case's QF (every MULT reads CR14.L; FP32 ignores it)
+      CR15 = the default DS (CR15.L: valid_elements = 128)
     The program sets every LR it reads, so it needs no LR preset.
 
     LR uses 3 slots; ";;" ends an instruction word, ";" separates its instructions.
-    Slot order within a word is LR -> LOAD -> MULT -> ACC -> AAQ -> STORE ->
-    COND. That is why the walking address is advanced in the word AFTER the load
+    Slot order within a word is LR -> LOAD -> MULT -> ACC -> AAQ (ACTIVATE.EXACT,
+    which stores) -> COND. That is why the walking address is advanced in the word AFTER the load
     or store that uses it, and why each loop counter is incremented one word
     BEFORE its BLT.S (BLT.S reads its register at cycle start, so
     an increment in the same word would run one iteration too many).
@@ -69,7 +70,7 @@
 
 tile_loop:
 {#- ---- PASS 1: R_ACC = SUM over the reduction axis of x^2 ----------------- -#}
-    MULT.RC.VE {{lr_zero}} CR0 0 {{lr_zero}} CR15 ; ACC.ADD.FIRST ;
+    MULT.RC.VE {{lr_zero}} CR0 0 {{lr_zero}} CR15.L CR14.L ; ACC.ADD.FIRST ;
     ADD {{lr_addr}} {{lr_tile}} CR0 ;
     SET {{lr_row}} CR0 ;;                                {#- R_ACC = 0; addr = tile -#}
 
@@ -77,11 +78,10 @@ pass1_loop:
     ADD {{lr_row}} {{lr_row}} CR1 ;
     LD.MULT.CYCLIC {{lr_addr}} CR2 {{lr_zero}} ;;   {#- slot0 <- x[row, tile] -#}
     ADD {{lr_addr}} {{lr_addr}} CR5 ;
-    MULT.RC.VS {{lr_zero}} 0 {{lr_zero}} CR15 ; ACC.ADD ;
+    MULT.RC.VS {{lr_zero}} 0 {{lr_zero}} CR15.L CR14.L ; ACC.ADD ;
     BLT.S {{lr_row}} CR6 pass1_loop ;;                     {#- += x^2, lane-wise -#}
 
-    ACTIVATE.QUANTIZE rsqrt CR15 ;
-    ST.AAQ {{lr_zero}} CR4 ;;                  {#- rvec = 1/||x[:, col]|| -#}
+    ACTIVATE.EXACT rsqrt CR15.L CR4 {{lr_zero}} ;;  {#- rvec = 1/||x[:, col]|| -#}
     LD.MULT R0 {{lr_zero}} CR4 ;
     ADD {{lr_addr}} {{lr_tile}} CR0 ;
     SET {{lr_row}} CR0 ;;                                {#- R0 = rvec (visible NEXT word) -#}
@@ -90,9 +90,8 @@ pass1_loop:
 pass2_loop:
     ADD {{lr_row}} {{lr_row}} CR1 ;
     LD.MULT.CYCLIC {{lr_addr}} CR2 {{lr_zero}} ;;   {#- slot0 <- x[row, tile] -#}
-    MULT.RC.VV {{lr_zero}} R0 0 {{lr_zero}} CR15 ; ACC.ADD.FIRST ;
-    ACTIVATE.QUANTIZE identity CR15 ;
-    ST.AAQ {{lr_addr}} CR3 ;;                  {#- OUT[row, tile] -#}
+    MULT.RC.VV {{lr_zero}} R0 0 {{lr_zero}} CR15.L CR14.L ; ACC.ADD.FIRST ;
+    ACTIVATE.EXACT identity CR15.L CR3 {{lr_addr}} ;;  {#- OUT[row, tile] -#}
     ADD {{lr_addr}} {{lr_addr}} CR5 ;
     BLT.S {{lr_row}} CR6 pass2_loop ;;
 

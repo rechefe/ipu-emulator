@@ -47,7 +47,7 @@
     Loop nest:  for b in 0..15 { for t in 0..47 {
                     load V channel -> R_CYCLIC
                     for i in 0..63: load P row; MULT.RC.VV; AGG.SUM.FIRST i
-                    ACTIVATE.QUANTIZE identity + ST.AAQ
+                    ACTIVATE.EXACT identity (activate and store)
                 }}
 
     Addressing is split offset(LR) + base(CR):
@@ -108,7 +108,7 @@
 {% set CHAN_COUNT       = cr.d %}  {# 48 = head channels t per block #}
 {% set BLOCK_COUNT      = cr.n_head %}  {# 16 = P * N_HEAD blocks #}
 {% set OUT_CHAN_STRIDE  = cr.out_chan_stride %}  {# 1 = O channel stride (rows) #}
-{% set DSTRUCT          = cr.dstruct %}  {# reserved dstructure register #}
+{% set DSTRUCT          = cr.dstruct ~ ".L" %}  {# the DS half #}
 
     SET {{ rc_slot0 }} {{ ZERO }};;                                # rc write index = 0 (const)
     SET {{ chan_off }} {{ ZERO }};;                                # V/O channel offset = 0
@@ -128,15 +128,14 @@ t_loop:
     ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};;  # prime query 0's P row
 
 i_loop:
-    MULT.RC.VV {{ rc_slot0 }} R0 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VV {{ rc_slot0 }} R0 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ cr.qf }}.L;
     AGG.SUM.FIRST {{ agg_slot }} {{ DSTRUCT }};
     LD.MULT R0 {{ p_ptr }} {{ P_BASE }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};
     INC {{ agg_slot }} 1;
     BLT.S {{ agg_slot }} {{ INNER_BOUND }} i_loop;;
 
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    ST.AAQ {{ chan_off }} {{ OUT_BASE }};;  # O[b, 0..63, t] = R_ACC
+    ACTIVATE.EXACT identity {{ DSTRUCT }} {{ OUT_BASE }} {{ chan_off }} ;;  # O[b, 0..63, t] = R_ACC
 
     # ----- next t: advance the shared V/O channel row offset, t++ -----
     ADD {{ chan_off }} {{ chan_off }} {{ OUT_CHAN_STRIDE }};;      # channel row += 1

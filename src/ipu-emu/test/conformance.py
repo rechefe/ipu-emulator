@@ -5,8 +5,8 @@ A case is a folder under ``src/ipu-isa/conformance/``:
 
 * ``program.asm``: the source, for reading;
 * ``program.bin``: the assembled words, what a model loads;
-* ``setup.json``: the format, register and XMEM contents, fault enables and
-  cycle limit (``setup.schema.json`` beside the cases);
+* ``setup.json``: the format, register and XMEM contents (bytes and row
+  metadata), fault enables and cycle limit (``setup.schema.json`` beside the cases);
 * ``expected.trace.jsonl``: the E04-29 trace of the run.
 
 This module is one consumer of those files: it runs them through
@@ -30,6 +30,7 @@ from ipu_isa.codec.word import opcode_field, unpack_program
 from ipu_isa.errors import IsaLookupError
 from ipu_isa.faults import FaultId
 from ipu_isa.formats import ElementFormat
+from ipu_isa.geometry import LANES
 from ipu_isa.slots import SLOTS, Slot
 from ipu_isa.view import isa
 
@@ -83,6 +84,8 @@ def load(model: ReferenceModel, case: Path) -> dict[str, Any]:
         model.write_register(write["name"], value, write["index"])
     for region in setup["xmem"]:
         model.write_xmem(region["address"], bytes.fromhex(region["hex"]))
+    for entry in setup.get("xmem_metadata", []):
+        model.write_xmem_metadata(entry["row"] * LANES, int(entry["word"], 16))
     for label, enabled in setup["fault_enables"].items():
         model.set_fault_enable(_FAULTS[label], enabled)
     return setup

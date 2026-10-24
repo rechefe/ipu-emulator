@@ -12,6 +12,7 @@ from ipu_emu.errors import ConfigurationError
 from ipu_harness.assembly import AssemblyCache, assemble, template_values
 from ipu_harness.manifest import KernelManifest, load_manifest
 from ipu_harness.params import plan_case
+from ipu_harness.variants import variant
 from ipu_isa.formats import ElementFormat as F
 
 HARNESS = Path(__file__).resolve().parents[1] / "src" / "ipu_harness"
@@ -20,7 +21,7 @@ KERNELS = Path(__file__).resolve().parents[2] / "ipu-kernels" / "src" / "ipu_ker
 TOML = """\
 [kernel]
 op = "scale"
-formats = ["fp32", "int8", "e4"]
+formats = ["fp32", "e3", "e4"]
 
 [params]
 rows = { type = "int", min = 1, default = 4 }
@@ -60,7 +61,7 @@ def kernel(tmp_path: Path, asm: str, name: str = "scale") -> KernelManifest:
 
 def test_cr_names_render_and_the_program_is_the_same_in_every_format(tmp_path):
     m = kernel(tmp_path, SCALE_ASM)
-    results = [assemble(plan_case(m, {}, fmt)) for fmt in (F.FP32, F.INT8, F.E4)]
+    results = [assemble(plan_case(m, {}, fmt)) for fmt in (F.FP32, variant("e3"), variant("e4"))]
     assert "SET lr0 CR2 ;;" in results[0].rendered and "SET lr2 CR4 ;;" in results[0].rendered
     assert results[0].words == results[1].words == results[2].words
     assert len(results[0].words) == 4
@@ -74,8 +75,8 @@ def test_the_template_reads_params_format_and_shapes(tmp_path):
     )
     m = kernel(tmp_path, asm)
     assert len(assemble(plan_case(m, {"rows": 2}, F.FP32)).words) == 3
-    assert len(assemble(plan_case(m, {"rows": 2}, F.E4)).words) == 4
-    values = template_values(plan_case(m, {"rows": 2}, F.E4))
+    assert len(assemble(plan_case(m, {"rows": 2}, variant("e4"))).words) == 4
+    values = template_values(plan_case(m, {"rows": 2}, variant("e4")))
     assert dict(values) == {
         "rows": 2,
         "s": 2.0,
@@ -128,14 +129,14 @@ def test_the_cache_encodes_each_distinct_rendered_program_once(tmp_path):
     cache = AssemblyCache()
     m = kernel(tmp_path, SCALE_ASM)
     first = assemble(plan_case(m, {"rows": 4}, F.FP32), cache)
-    assert assemble(plan_case(m, {"rows": 4}, F.INT8), cache) is first
+    assert assemble(plan_case(m, {"rows": 4}, variant("e3")), cache) is first
     # The program does not use rows: another rows renders alike, so no new assembly.
     assert assemble(plan_case(m, {"rows": 9}, F.FP32), cache) is first
     assert cache.assembled == 1
     uses_rows = kernel(tmp_path, "{% for i in range(rows) %}    HALT ;;\n{% endfor %}", "loop")
     assemble(plan_case(uses_rows, {"rows": 2}, F.FP32), cache)
     assemble(plan_case(uses_rows, {"rows": 3}, F.FP32), cache)
-    assemble(plan_case(uses_rows, {"rows": 2}, F.E4), cache)
+    assemble(plan_case(uses_rows, {"rows": 2}, variant("e4")), cache)
     assert cache.assembled == 3
 
 
@@ -171,9 +172,18 @@ def test_the_macro_library_is_searched_when_given_and_must_exist(tmp_path):
         assemble(plan_case(m, {}, F.FP32), asm_lib=tmp_path / "missing")
 
 
-def test_a_cache_hit_raises_the_programs_warnings_again(tmp_path):
-    # ST.ACC is in the simulation-only acc_store slot: encoding warns.
-    m = kernel(tmp_path, "    ST.ACC lr0 cr0 ;;\n    HALT ;;\n")
+def test_a_cache_hit_raises_the_programs_warnings_again(tmp_path, monkeypatch):
+    # No slot is simulation-only since ADR 0007 (ST.ACC left with acc_store):
+    # mark the emulator-only aaq_exact slot so, and encoding warns.
+    import dataclasses
+
+    from ipu_as import encode
+    from ipu_isa.slots import SLOTS, Slot
+
+    slots = dict(SLOTS)
+    slots[Slot.AAQ_EXACT] = dataclasses.replace(SLOTS[Slot.AAQ_EXACT], debug_only=True)
+    monkeypatch.setattr(encode, "SLOTS", slots)
+    m = kernel(tmp_path, "    ACTIVATE.EXACT relu cr15.l cr0 lr0 ;;\n    HALT ;;\n")
     cache = AssemblyCache()
     for _ in range(2):
         with pytest.warns(UserWarning, match="simulation-only"):

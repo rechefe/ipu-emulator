@@ -43,8 +43,8 @@ def test_each_renamed_member_has_its_new_name_and_value(row):
     assert not {old_enum, old_union} & _identifiers(GOLDEN)
 
 
-def test_the_table_lists_eight_members():
-    assert len(_ROW.findall(PAGE)) == 8
+def test_the_table_lists_seven_members():
+    assert len(_ROW.findall(PAGE)) == 7
 
 
 def test_the_removed_names_are_gone():
@@ -54,5 +54,6 @@ def test_the_removed_names_are_gone():
 
 
 def test_the_word_width_is_the_packages():
-    assert "localparam int unsigned IPU_COMPOUND_INST_WIDTH = 155;" in GOLDEN
-    assert "`IPU_COMPOUND_INST_WIDTH` goes from 186 to 155" in PAGE
+    assert "localparam int unsigned IPU_COMPOUND_INST_WIDTH = 169;" in GOLDEN
+    assert "`IPU_COMPOUND_INST_WIDTH` goes from 186 to 169" in PAGE
+    assert "| `IPU_COMPOUND_INST_WIDTH` | 155 | 169 |" in PAGE

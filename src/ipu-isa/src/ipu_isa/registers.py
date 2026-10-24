@@ -59,8 +59,8 @@ REGISTER_DEFINITIONS: dict[str, RegisterDefinition] = {
         "assembler_values": ["r0", "r1"],
         "encoding_class": "MultStageRegField",
     },
-    # The FP32/INT32 element formats' counterpart to "r": same r0/r1 pair, but each
-    # element widened to LANES(128) x 4 B = 512 B (float32/int32 lanes instead
+    # The FP32 run mode's counterpart to "r": same r0/r1 pair, but each
+    # element widened to LANES(128) x 4 B = 512 B (float32 lanes instead
     # of the 8-bit formats' 1 B/lane). Mirrors r_cyclic's approach of a mode-independent
     # allocation sized for the wider mode, so the RegFile-native snapshot()
     # covers it automatically instead of a hand-rolled shadow dict on IpuState.
@@ -78,15 +78,15 @@ REGISTER_DEFINITIONS: dict[str, RegisterDefinition] = {
         "kind": RegKind.MULT,
         "vector": True,
         "cyclic": True,
-        # 512 elements at 1 B/element (8-bit formats only -- see r_cyclic_wide_debug
-        # for the FP32/INT32 formats' separate 4 B/element storage).
+        # 512 elements at 1 B/element (NX8 mode -- see r_cyclic_wide_debug
+        # for the FP32 mode's separate 4 B/element storage).
         "size_bytes": 512,
         "count": 1,
         "dtype": RegDtype.UINT8,
         "debug_aliases": ("rcyclic",),
     },
-    # The FP32/INT32 element formats' counterpart to "r_cyclic": same 512-element ring,
-    # but each element widened to 4 B (float32/int32 lanes instead of narrow's
+    # The FP32 run mode's counterpart to "r_cyclic": same 512-element ring,
+    # but each element widened to 4 B (float32 lanes instead of narrow's
     # 1 B/lane) -- mirrors the r/r_wide_debug split (#180). Emulator/debug
     # storage only -- not encodable as an assembly operand.
     "r_cyclic_wide_debug": {
@@ -97,6 +97,25 @@ REGISTER_DEFINITIONS: dict[str, RegisterDefinition] = {
         "count": 1,
         "dtype": RegDtype.UINT8,
         "debug_aliases": ("rcyclic_wide_debug",),
+    },
+    # Row metadata (ADR 0007): one 16-bit word (scale[7:0],
+    # dynamic_exponent[8]) per multiply operand row, copied from XMEM's
+    # metadata side store with the row. "r_meta" index 0/1 belongs to R0/R1;
+    # "r_cyclic_meta" index k to the k-th 128-element slot of R_CYCLIC.
+    # Not encodable as an assembly operand.
+    "r_meta": {
+        "kind": RegKind.MULT,
+        "vector": True,
+        "size_bytes": 2,
+        "count": 2,
+        "dtype": RegDtype.UINT8,
+    },
+    "r_cyclic_meta": {
+        "kind": RegKind.MULT,
+        "vector": True,
+        "size_bytes": 2,
+        "count": 4,
+        "dtype": RegDtype.UINT8,
     },
     "r_mask": {
         "kind": RegKind.MULT,
@@ -118,19 +137,16 @@ REGISTER_DEFINITIONS: dict[str, RegisterDefinition] = {
         "dtype": RegDtype.UINT8,
         "debug_aliases": ("acc",),
     },
-    # Post-AAQ staging: **temporarily 512 bytes** (128×32-bit lanes, same footprint as
-    # `R_ACC`) until end-to-end quantization lands; then this register may hold a
-    # narrower quantized export buffer instead. **`ACTIVATE`** writes activated wide
-    # lanes (sourced from `r_acc`) here. **`AAQ`** (INT8) reads those wide lanes and
-    # replaces the register with 128 clamped INT8 bytes plus a cleared tail.
-    # **`ST.AAQ`** stores the full **512 bytes** to XMEM (the emulator's store-slot handler).
-    "post_aaq_reg": {
+    # The AaQ stage's LUT state (ADR 0007, ARCH-stage-aaq-str): five LD.LUT
+    # segments concatenated, little-endian bit order -- table bits [4351:0]
+    # then the 46-bit LUT metadata [4397:4352], in 550 whole bytes (the top
+    # two bits are always 0). Not encodable as an assembly operand.
+    "aaq_lut": {
         "kind": RegKind.AAQ,
         "vector": True,
-        "size_bytes": 512,
+        "size_bytes": 550,
         "count": 1,
         "dtype": RegDtype.UINT8,
-        "debug_aliases": ("aaq_result",),
     },
     # -----------------------------------------------------------------------
     # LR / CR scalar registers

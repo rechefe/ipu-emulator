@@ -3,8 +3,8 @@ stored row are scores.
 
 There is no AGG in a score kernel, so lanes are independent: garbage in the
 padding lanes of an input could only reach the padding lanes of the output.
-What the dstructure (valid_elements = n_tok) controls is the stored extent:
-ACTIVATE.QUANTIZE zeros the lanes past n_tok before ST.AAQ writes the whole
+What the DS (valid_elements = n_tok) controls is the stored extent:
+ACTIVATE.EXACT writes the lanes past n_tok as zero when it stores the whole
 row. Each kernel's ``padding_not_stored`` case puts 1e3 in its channel-major
 input's padding lanes (``pack = "padded"``, ``pad = 1000.0``), as a chained
 producer would leave another stream's data there; the raw stored rows must be

@@ -1,0 +1,41 @@
+{
+ "description": "timing probe mult_r0_r1 in NX8",
+ "format": "nx8",
+ "emulator_only": false,
+ "max_cycles": 1000,
+ "fault_enables": {},
+ "registers": [
+  {
+   "name": "r_meta",
+   "index": 0,
+   "hex": "7f00"
+  },
+  {
+   "name": "r_mask",
+   "index": 0,
+   "hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  {
+   "name": "cr",
+   "index": 2,
+   "value": 16
+  },
+  {
+   "name": "cr",
+   "index": 14,
+   "value": 328
+  },
+  {
+   "name": "cr",
+   "index": 15,
+   "value": 4224
+  }
+ ],
+ "xmem": [],
+ "xmem_metadata": [
+  {
+   "row": 16,
+   "word": "0080"
+  }
+ ]
+}

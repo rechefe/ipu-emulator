@@ -1,12 +1,12 @@
-"""ACC, AGG and load handlers against a scalar reference of each format (E04-16).
+"""ACC, AGG and load handlers against a scalar reference of each mode (E04-16, ADR 0007).
 
-Each handler runs once per element format (INT8, E4, FP32 and INT32) on
-random operands, and R_ACC must equal what the scalar Python arithmetic the
-handlers replaced computes: ``struct``-unpacked accumulator lanes, Python
-``+``/``-``/``max``, int32 wrap or one float32 rounding on the store. A
-source scan keeps format branches out of the slot modules (only the AAQ
-activation code, out of scope, may still name the wide-vector mode) and out
-of the ``IpuState`` load/store helpers.
+Each handler runs in both run modes (NX8 and FP32; the accumulator is FP32 in
+both) on random operands, and R_ACC must equal what the scalar Python
+arithmetic the handlers replaced computes: ``struct``-unpacked accumulator
+lanes, Python ``+``/``-``/``max`` and one float32 rounding on the store. AGG
+folds the first ``valid_elements`` elements of its DS half. A source scan keeps
+format branches out of the slot modules (they ask ``geometry.fp32_mode``) and
+out of the test load/store helpers.
 """
 
 from __future__ import annotations
@@ -33,20 +33,18 @@ import ipu_emu
 from ipu_emu.emulator import run_until_complete
 from ipu_emu.errors import EmulatorError
 from ipu_emu.ipu_state import IpuState
-from ipu_isa.formats import ElementFormat as IsaFormat
-from ipu_isa.formats import encode_element
+from ipu_isa.cr_halves import ds
 from ipu_isa.geometry import LANES
 
-FORMATS = (ElementFormat.INT8, ElementFormat.E4, ElementFormat.FP32, ElementFormat.INT32)
-_INT_FORMATS = (ElementFormat.INT8, ElementFormat.INT32)
-_INT32_MIN = -(1 << 31)
+FORMATS = (ElementFormat.NX8, ElementFormat.FP32)
 
 PACKAGE_DIR = Path(inspect.getsourcefile(ipu_emu)).parent
 #: What a handler would read to branch on the element format (E04-17: the
 #: state's one format value and what it declares).
 _FORMAT_BRANCH_NAMES = ("fmt", "format_info", "ElementFormat", "AccumulatorType")
+# ``IpuState.write_constant_ones`` is left out: an NX8 ONES row needs a QF
+# and metadata, an FP32 one does not (ADR 0007).
 _STATE_HELPERS = (
-    "write_constant_ones",
     "load_r_reg_from_xmem",
     "store_r_reg_to_xmem",
     "load_r_cyclic_from_xmem",
@@ -55,32 +53,16 @@ _STATE_HELPERS = (
 )
 
 
-def _is_int(fmt: ElementFormat) -> bool:
-    return fmt in _INT_FORMATS
-
-
-def _lane(fmt: ElementFormat) -> str:
-    return "<i" if _is_int(fmt) else "<f"
-
-
-def _wrap(value: int) -> int:
-    return ((value + (1 << 31)) & 0xFFFFFFFF) - (1 << 31)
-
-
 def _pack(fmt: ElementFormat, values) -> bytes:
-    """The scalar store: int32 wrap, or ``struct``'s float32 rounding."""
-    if _is_int(fmt):
-        return struct.pack(f"<{len(values)}i", *[_wrap(v) for v in values])
+    """The scalar store: ``struct``'s float32 rounding."""
     return struct.pack(f"<{len(values)}f", *values)
 
 
 def _unpack(fmt: ElementFormat, raw: bytes) -> list:
-    return list(struct.unpack(f"<{len(raw) // 4}{_lane(fmt)[1]}", raw))
+    return list(struct.unpack(f"<{len(raw) // 4}f", raw))
 
 
 def _random_lanes(fmt: ElementFormat, rng: np.random.Generator) -> bytes:
-    if _is_int(fmt):
-        return rng.integers(_INT32_MIN, 1 << 31, LANES, dtype=np.int64).astype("<i4").tobytes()
     values = rng.uniform(-8.0, 8.0, LANES).astype("<f4")
     values[:4] = (0.0, -0.0, 0.0, -0.0)  # signed zeros, where 0 - x and max differ from -x
     return values.tobytes()
@@ -105,7 +87,7 @@ _ACC_REFERENCE = {
     "ACC.MAX": lambda a, m: max(a, m),
     "ACC.ADD.FIRST": lambda a, m: m,
     "ACC.MAX.FIRST": lambda a, m: m,
-    "ACC.SUB.FIRST": lambda a, m: (0 if isinstance(m, int) else 0.0) - m,
+    "ACC.SUB.FIRST": lambda a, m: 0.0 - m,
 }
 
 
@@ -119,15 +101,16 @@ def test_acc_lanewise(fmt, mnemonic):
 
 
 def _agg_case(fmt: ElementFormat, mnemonic: str, valid: int, dest: int):
-    state, acc, res = _setup(fmt, f"{mnemonic} LR0 CR15", f"{mnemonic}-{fmt}-{valid}-{dest}")
-    state.set_cr_dstructure(valid)
+    state, acc, res = _setup(fmt, f"{mnemonic} LR0 CR15.H", f"{mnemonic}-{fmt}-{valid}-{dest}")
+    # A DS of 2 groups, both valid: AGG still takes the first valid_elements.
+    state.set_cr_half(15, True, ds(min(valid, 64), 2) if valid <= 64 else ds(valid))
     state.regfile.set_lr(0, dest)
     run_until_complete(state)
     return state, acc, res[:valid]
 
 
 def _fold_sum(fmt: ElementFormat, lanes: list):
-    total = 0 if _is_int(fmt) else 0.0
+    total = 0.0
     for v in lanes:
         total += v
     return total
@@ -150,10 +133,9 @@ def test_agg_folds_in_lane_order(fmt, mnemonic, valid):
     if mnemonic == "AGG.SUM.FIRST":
         value = _fold_sum(fmt, active)
     elif mnemonic == "AGG.SUM":
-        value = _fold_sum(fmt, active)
-        value = (_wrap(value) if _is_int(fmt) else float(value)) + acc[dest]
+        value = float(_fold_sum(fmt, active)) + acc[dest]
     elif mnemonic == "AGG.MAX.FIRST":
-        value = _fold_max(active, _INT32_MIN if _is_int(fmt) else float("-inf"))
+        value = _fold_max(active, float("-inf"))
     else:
         value = _fold_max(active, acc[dest])
     raw = _pack(fmt, acc)
@@ -172,25 +154,21 @@ def test_acc_stride_past_the_last_lane_raises_before_writing(fmt):
     assert _acc_lanes(state) == _pack(fmt, acc)
 
 
-def _one(fmt: ElementFormat) -> bytes:
-    if fmt is ElementFormat.E4:
-        return bytes([encode_element(1.0, IsaFormat.E4)])
-    if fmt is ElementFormat.INT8:
-        return b"\x01"
-    return struct.pack(_lane(fmt), 1)
-
-
 @pytest.mark.parametrize("fmt", FORMATS, ids=lambda f: f.value)
 def test_state_helpers_move_one_row_of_the_format(fmt):
     state = make_state("HALT;;\n", fmt=fmt)
-    wide = fmt in (ElementFormat.FP32, ElementFormat.INT32)
+    wide = fmt is ElementFormat.FP32
     element_bytes = 4 if wide else 1
     row = LANES * element_bytes
     ra, ring = ("r_wide_debug", "r_cyclic_wide_debug") if wide else ("r", "r_cyclic")
-    ones = _one(fmt) * LANES
 
-    state.write_constant_ones(row)  # XMEM row 1
-    assert state.xmem.read_address(row, row + 1) == ones + b"\x00"
+    state.write_constant_ones(row, emu_support.E4)  # XMEM row 1 (the QF is NX8's)
+    ones = state.xmem.read_address(row, row)
+    assert state.xmem.read_address(row, row + 1)[-1] == 0
+    if wide:
+        assert ones == struct.pack("<f", 1.0) * LANES
+    else:
+        assert state.xmem.read_metadata(row) != 0  # the row's scale
 
     load_r_reg_from_xmem(state, 1, 1)
     assert state.regfile.get_register_bytes(ra, 1) == ones
@@ -214,9 +192,7 @@ def _source_names(source: str) -> set[str]:
     return names
 
 
-@pytest.mark.parametrize(
-    "module", sorted(p.name for p in (PACKAGE_DIR / "slots").glob("*.py") if p.name != "aaq.py")
-)
+@pytest.mark.parametrize("module", sorted(p.name for p in (PACKAGE_DIR / "slots").glob("*.py")))
 def test_slot_modules_have_no_format_branch(module):
     names = _source_names((PACKAGE_DIR / "slots" / module).read_text(encoding="utf-8"))
     assert names.isdisjoint(_FORMAT_BRANCH_NAMES)

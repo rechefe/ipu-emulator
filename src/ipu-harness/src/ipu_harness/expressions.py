@@ -2,17 +2,27 @@
 
 A shape dimension or a ``[derived]`` value is an int literal, a name, or an
 expression built from int literals, names, ``+ - * / // %``, unary minus, and
-the calls ``ceil(x)``, ``min(a, b, ...)``, ``max(a, b, ...)`` and
-``dstructure(valid, partition=0, pad_mode=0)`` (the last two positional or by
-name; valid 0..128; a dstructure CR word, as
-``ipu_isa.constants.encode_dstructure`` packs it, so a kernel binds one to any
-CR without the bit layout in its file). Nothing else is evaluated. A
+the calls ``ceil(x)``, ``min(a, b, ...)``, ``max(a, b, ...)`` and the CR
+helpers of ADR 0007, which pack ``ipu_isa.cr_halves``'s layouts so a kernel
+binds a value to any CR without the bit layout in its file (arguments
+positional, or by name after the first):
+
+* ``ds(valid, partitions=1, valid_partitions=partitions, mask_type=0)``: a
+  DS half (``valid`` elements per partition);
+* ``qf(sign, fe, bits=8, dynamic=0)``: a QF half;
+* ``constant(value, scale, fe, sign=1)``: a MULT constant CR word (an NX8
+  element code, its scale and type);
+* ``halves(low, high=0)``: a CR word from two 16-bit halves (``CRn.L``,
+  ``CRn.H``).
+
+Nothing else is evaluated. A
 ``[derived]`` value may also read ``base(<tensor>)``, a region's base once it
 is placed (:func:`base_name`, :func:`placed_reads`): such a value is known
 only when the registers are written, so only ``[abi]`` reads it. So is a
 ``[derived]`` value that reads :data:`ROW_BYTES_NAME` (``row_bytes``, the bytes of
-one XMEM row in the case's format), which a ``row`` pin may also read: a
-legacy layout at fixed byte addresses in every format (``fully_connected``).
+one XMEM row in the case's variant), which a ``row`` pin may also read: a
+legacy layout at fixed byte addresses in every variant (``fully_connected``),
+or :data:`CASE_QF_NAME` (``case_qf``, the case variant's QF half).
 Arithmetic is exact (fractions): ``/`` must end up inside ``ceil`` or divide
 evenly, and the result must be a whole number.
 
@@ -27,8 +37,9 @@ import math
 from collections.abc import Callable, Mapping
 from fractions import Fraction
 
-from ipu_isa.constants import encode_dstructure
-from ipu_isa.geometry import LANES
+from ipu_isa import cr_halves
+from ipu_isa.errors import IsaValueError
+from ipu_isa.nx8 import Nx8Format
 
 _BINARY: Mapping[type, Callable[[Fraction, Fraction], Fraction]] = {
     ast.Add: lambda a, b: a + b,
@@ -40,40 +51,71 @@ _BINARY: Mapping[type, Callable[[Fraction, Fraction], Fraction]] = {
 }
 
 
-#: ``dstructure()``'s arguments, in order; the last two may be given by name.
-_DSTRUCTURE_ARGS = ("valid", "partition", "pad_mode")
-
-
-def _dstructure(*args: Fraction) -> Fraction:
-    """A dstructure CR word from (valid elements, partition, pad mode)."""
+def _whole(name: str, args: tuple[Fraction, ...]) -> list[int]:
     if any(a.denominator != 1 for a in args):
-        raise ExpressionError(f"dstructure() takes whole numbers, not {[str(a) for a in args]}")
-    valid, partition, pad = (int(a) for a in (*args, Fraction(0), Fraction(0))[:3])
-    if not 0 <= valid <= LANES:
-        raise ExpressionError(f"dstructure({valid}, ...): valid elements must be 0..{LANES}")
-    try:
-        return Fraction(encode_dstructure(valid_elements=valid, partition=partition, pad_mode=pad))
-    except ValueError as error:
-        raise ExpressionError(f"dstructure({valid}, {partition}, {pad}): {error}") from None
+        raise ExpressionError(f"{name}() takes whole numbers, not {[str(a) for a in args]}")
+    return [int(a) for a in args]
 
+
+def _ds(*args: Fraction) -> Fraction:
+    valid, partitions, valid_partitions, mask_type = _whole("ds", args)
+    return Fraction(
+        cr_halves.ds(
+            valid,
+            partitions,
+            partitions if valid_partitions < 0 else valid_partitions,
+            mask_type,
+        )
+    )
+
+
+def _qf(*args: Fraction) -> Fraction:
+    sign, fe, bits, dynamic = _whole("qf", args)
+    if dynamic not in (0, 1):
+        raise ValueError("dynamic is 0 or 1")
+    return Fraction(cr_halves.qf(Nx8Format(sign, fe, bits, bool(dynamic))))
+
+
+def _constant(*args: Fraction) -> Fraction:
+    value, scale, fe, sign = _whole("constant", args)
+    return Fraction(cr_halves.constant(value, scale, fe, sign))
+
+
+def _halves(*args: Fraction) -> Fraction:
+    low, high = _whole("halves", args)
+    return Fraction(cr_halves.pack_halves(low, high))
+
+
+#: The CR helpers: each one's argument names and the defaults of all but the
+#: first (``-1``: ``valid_partitions`` defaults to ``partitions``), and its function.
+_HELPERS: Mapping[str, tuple[tuple[str, ...], tuple[int, ...], Callable[..., Fraction]]] = {
+    "ds": (("valid", "partitions", "valid_partitions", "mask_type"), (1, -1, 0), _ds),
+    "qf": (("sign", "fe", "bits", "dynamic"), (8, 0), _qf),
+    "constant": (("value", "scale", "fe", "sign"), (1,), _constant),
+    "halves": (("low", "high"), (0,), _halves),
+}
 
 #: Each call: (fewest arguments, most arguments or None, the function).
 _CALLS: Mapping[str, tuple[int, int | None, Callable[..., Fraction]]] = {
     "ceil": (1, 1, lambda x: Fraction(math.ceil(x))),
     "min": (2, None, min),
     "max": (2, None, max),
-    "dstructure": (1, 3, _dstructure),  # its arguments are checked by _dstructure_call
 }
 #: The call that reads a placed region's base (``base(x)``).
 BASE = "base"
 
-FUNCTIONS = frozenset({*_CALLS, BASE})
+FUNCTIONS = frozenset({*_CALLS, *_HELPERS, BASE})
 
-#: The name of the bytes of one XMEM row in the case's format (128 x the
-#: element's bytes: 128 in an 8-bit format, 512 in FP32 and INT32). Known only
-#: with the format, so a ``row`` pin and a placed ``[derived]`` value may read
-#: it, and nothing that routing evaluates without a format.
+#: The name of the bytes of one XMEM row in the case's variant (128 in NX8,
+#: 512 in FP32). Known only with the variant, so a ``row`` pin and a placed
+#: ``[derived]`` value may read it, and nothing that routing evaluates
+#: without a variant.
 ROW_BYTES_NAME = "row_bytes"
+#: The name of the case variant's QF half-CR value (0 in FP32, which ignores
+#: the QF): a placed ``[derived]`` value may read it, as ``row_bytes``.
+CASE_QF_NAME = "case_qf"
+#: The names known only with the case's variant.
+VARIANT_NAMES = (ROW_BYTES_NAME, CASE_QF_NAME)
 
 
 def base_name(tensor: str) -> str:
@@ -90,9 +132,9 @@ def base_tensor(read: str) -> str | None:
 
 
 def placed_reads(derived: Mapping[str, str]) -> dict[str, frozenset[str]]:
-    """Each ``[derived]`` value that reads a region's base or :data:`ROW_BYTES_NAME`,
-    directly or through an earlier such value, with the tensors whose bases it
-    reads (none for one that reads only ``row_bytes``).
+    """Each ``[derived]`` value that reads a region's base or a variant name
+    (:data:`VARIANT_NAMES`), directly or through an earlier such value, with the
+    tensors whose bases it reads (none for one that reads only variant names).
 
     Raises:
         ExpressionError: An expression is outside the grammar.
@@ -103,7 +145,7 @@ def placed_reads(derived: Mapping[str, str]) -> dict[str, frozenset[str]]:
         placed = False
         for read in names_in(expression):
             tensor = base_tensor(read)
-            if tensor is not None or read in reads or read == ROW_BYTES_NAME:
+            if tensor is not None or read in reads or read in VARIANT_NAMES:
                 placed = True
                 if tensor is not None:
                     tensors.add(tensor)
@@ -139,33 +181,50 @@ def _base(node: ast.Call, names: Mapping[str, Fraction] | None) -> Fraction:
     return names[key]
 
 
-def _dstructure_call(node: ast.Call, names: Mapping[str, Fraction] | None) -> Fraction:
-    """``dstructure(valid, partition=0, pad_mode=0)``: positional, or the last
-    two by name."""
+def _helper_call(node: ast.Call, names: Mapping[str, Fraction] | None) -> Fraction:
+    """A CR helper (:data:`_HELPERS`): its first argument positional, the
+    others positional or by name."""
+    assert isinstance(node.func, ast.Name)
+    helper = node.func.id
+    params, defaults, function = _HELPERS[helper]
+    usage = f"{helper}({', '.join(params)})"
     given = list(node.args)
     named = {k.arg: k.value for k in node.keywords}
-    unknown = [k for k in named if k not in _DSTRUCTURE_ARGS[1:]]
-    if unknown or None in named or not 1 <= len(given) <= 3:
-        raise ExpressionError(
-            "dstructure() takes valid, then partition and pad_mode (positional or by name)"
-        )
-    slots: list[ast.expr | None] = [*given, *[None] * (3 - len(given))]
-    for i, key in enumerate(_DSTRUCTURE_ARGS):
+    unknown = [k for k in named if k not in params[1:]]
+    if unknown or None in named or not 1 <= len(given) <= len(params):
+        raise ExpressionError(f"{helper}() takes {usage} (after the first, positional or by name)")
+    slots: list[ast.expr | None] = [*given, *[None] * (len(params) - len(given))]
+    for i, key in enumerate(params):
         if key in named:
             if slots[i] is not None:
-                raise ExpressionError(f"dstructure() got {key} twice")
+                raise ExpressionError(f"{helper}() got {key} twice")
             slots[i] = named[key]
-    values = [Fraction(0) if a is None else _walk(a, names) for a in slots]
-    return _dstructure(*values) if names is not None else Fraction(0)
+    first_required = len(params) - len(defaults)
+    if any(slot is None for slot in slots[:first_required]):
+        raise ExpressionError(f"{helper}() takes {usage}")
+    values = [
+        Fraction(defaults[i - first_required]) if a is None else _walk(a, names)
+        for i, a in enumerate(slots)
+    ]
+    if names is None:
+        return Fraction(0)
+    try:
+        return function(*values)
+    except (ValueError, IsaValueError) as error:
+        raise ExpressionError(f"{helper}({', '.join(str(v) for v in values)}): {error}") from None
 
 
 def _call(node: ast.Call, names: Mapping[str, Fraction] | None) -> Fraction:
     if isinstance(node.func, ast.Name) and node.func.id == BASE:
         return _base(node, names)
+    if isinstance(node.func, ast.Name) and node.func.id in _HELPERS:
+        return _helper_call(node, names)
     if isinstance(node.func, ast.Name) and node.func.id == "dstructure":
-        return _dstructure_call(node, names)
+        raise ExpressionError("dstructure() was replaced by ds() (ADR 0007): ds(valid, partitions)")
     if not isinstance(node.func, ast.Name) or node.func.id not in _CALLS:
-        raise ExpressionError("only ceil(), min(), max(), dstructure() and base() may be called")
+        raise ExpressionError(
+            "only ceil(), min(), max(), ds(), qf(), constant(), halves() and base() may be called"
+        )
     least, most, function = _CALLS[node.func.id]
     count = len(node.args)
     if node.keywords or count < least or (most is not None and count > most):

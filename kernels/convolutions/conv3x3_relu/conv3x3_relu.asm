@@ -103,13 +103,13 @@
     channel_groups is also the weight-row advance per output channel;
     lanes = 128 is the Ra index selecting R1[0] = bias and the R_CYCLIC
     slot-1 index; group_last = 13 is the group cap - 1; rc_step = 126 is the
-    rc walking step. CR15 is the default dstructure (valid_elements = 128).
+    rc walking step. CR15.L is the default DS (ds(128)), CR15.H the QF.
     The query vocabulary is the tiled one (in_channels, height, width,
     out_channels, kernel_size = 3, stride = 1, padding = 1, activation =
     relu), apart from the universal conv2d kernels'.
 
     LR uses 3 sub-slots; ";;" ends a VLIW word, ";" separates sub-instructions.
-    Slot order within a word is LR -> LOAD -> MULT -> ACC -> AAQ -> STORE ->
+    Slot order within a word is LR -> LOAD -> MULT -> ACC -> AAQ -> AAQ_EXACT ->
     COND. That is why the first row load takes lr_addr as it stands while the
     second pre-advances it, why a load can share a word with the LR add that
     positions it, and why the store's offset register is incremented in the
@@ -161,7 +161,7 @@ tile_loop:
     ADD {{lr_addr}} {{lr_rowb}} {{lr_t}} ;               {#- channel 0, padded row y -#}
     SET {{lr_done}} CR0 ;
     ADD {{lr_wrow}} {{lr_wbase}} CR0 ;;                  {#- wrow = wbase (SET takes a CR only) -#}
-    MULT.EE {{lr_s1}} CR1 0 {{lr_zero}} CR15 ;
+    MULT.EE {{lr_s1}} CR1 0 {{lr_zero}} CR15.L CR15.H ;
     ACC.ADD.FIRST ;;                                     {#- R_ACC = bias[o] -- reset and seed -#}
 {#- ---- prime the pipeline: slots 0 and 1 hold channel 0's rows y and y+1, -#}
 {#- which in steady state the previous channel's taps 4 and 7 would load.   -#}
@@ -191,33 +191,33 @@ chan_loop:
     ADD {{lr_rc}} {{lr_rc}} {{lr_wrap}} ; ADD {{lr_widx}} {{lr_widx}} CR1 ;
     ADD {{lr_addr}} {{lr_addr}} {{ cr.tiles }} ;
     LD.MULT.CYCLIC {{lr_addr}} {{ cr.x }} {{lr_s2}} ;
-    MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} CR15 ; ACC.ADD ;;
+    MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} CR15.L CR15.H ; ACC.ADD ;;
                                           {#- kr-1 kc-1 | slot2 <- THIS ch row y+2 -#}
     ADD {{lr_rc}} {{lr_rc}} CR1 ; ADD {{lr_widx}} {{lr_widx}} CR1 ;
-    MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} CR15 ; ACC.ADD ;;   {#- kr-1 kc 0 -#}
+    MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} CR15.L CR15.H ; ACC.ADD ;;   {#- kr-1 kc 0 -#}
     ADD {{lr_rc}} {{lr_rc}} CR1 ; ADD {{lr_widx}} {{lr_widx}} CR1 ;
-    MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} CR15 ; ACC.ADD ;;   {#- kr-1 kc+1 -#}
+    MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} CR15.L CR15.H ; ACC.ADD ;;   {#- kr-1 kc+1 -#}
 
     ADD {{lr_rc}} {{lr_rc}} {{ cr.rc_step }} ; ADD {{lr_widx}} {{lr_widx}} CR1 ;
     ADD {{lr_addr}} {{lr_addr}} {{ cr.plane_advance }} ;
     LD.MULT.CYCLIC {{lr_addr}} {{ cr.x }} {{lr_zero}} ;
-    MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} CR15 ; ACC.ADD ;;
+    MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} CR15.L CR15.H ; ACC.ADD ;;
                                           {#- kr 0 kc-1 | slot0 <- NEXT ch row y -#}
     ADD {{lr_rc}} {{lr_rc}} CR1 ; ADD {{lr_widx}} {{lr_widx}} CR1 ;
-    MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} CR15 ; ACC.ADD ;;   {#- kr 0 kc 0 -#}
+    MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} CR15.L CR15.H ; ACC.ADD ;;   {#- kr 0 kc 0 -#}
     ADD {{lr_rc}} {{lr_rc}} CR1 ; ADD {{lr_widx}} {{lr_widx}} CR1 ;
-    MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} CR15 ; ACC.ADD ;;   {#- kr 0 kc+1 -#}
+    MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} CR15.L CR15.H ; ACC.ADD ;;   {#- kr 0 kc+1 -#}
 
     ADD {{lr_rc}} {{lr_rc}} {{ cr.rc_step }} ; ADD {{lr_widx}} {{lr_widx}} CR1 ;
     ADD {{lr_addr}} {{lr_addr}} {{ cr.tiles }} ;
     LD.MULT.CYCLIC {{lr_addr}} {{ cr.x }} {{lr_s1}} ;
-    MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} CR15 ; ACC.ADD ;;
+    MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} CR15.L CR15.H ; ACC.ADD ;;
                                           {#- kr+1 kc-1 | slot1 <- NEXT ch row y+1 -#}
     ADD {{lr_rc}} {{lr_rc}} CR1 ; ADD {{lr_widx}} {{lr_widx}} CR1 ;
-    MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} CR15 ; ACC.ADD ;;   {#- kr+1 kc 0 -#}
+    MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} CR15.L CR15.H ; ACC.ADD ;;   {#- kr+1 kc 0 -#}
     ADD {{lr_rc}} {{lr_rc}} CR1 ; ADD {{lr_widx}} {{lr_widx}} CR1 ;
     ADD {{lr_done}} {{lr_done}} CR1 ;
-    MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} CR15 ; ACC.ADD ;
+    MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} CR15.L CR15.H ; ACC.ADD ;
     BLT.S {{lr_done}} {{lr_gend}} chan_loop ;;
                                           {#- kr+1 kc+1 | BLT.S reads lr_done pre-increment -#}
 
@@ -226,8 +226,7 @@ chan_loop:
 
 {#- ---- drain the tile. The store's offset is advanced in the NEXT word: LR -#}
 {#- runs before STORE, so incrementing it here would store one row too far.  -#}
-    ACTIVATE.QUANTIZE relu CR15 ;
-    ST.AAQ {{lr_out}} {{ cr.y }} ;;                   {#- OUT[o, y, tile] -#}
+    ACTIVATE.EXACT relu CR15.L {{ cr.y }} {{lr_out}} ;; {#- OUT[o, y, tile] -#}
     ADD {{lr_out}} {{lr_out}} CR1 ;
     ADD {{lr_t}} {{lr_t}} CR1 ;;
     BLT.S {{lr_t}} {{ cr.tiles }} tile_loop ;;

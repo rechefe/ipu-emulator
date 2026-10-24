@@ -23,6 +23,7 @@ tiles      = "ceil(width / 126)"                # 126-column halo tiles per spat
 rc_step    = "126"                              # the R_CYCLIC read index step between rows
 lanes      = "128"                              # R_CYCLIC slot 1; R1[0]'s element index
 tiles_last = "ceil(width / 126) - 1"            # the tile branch reads its counter pre-increment
+qf         = "case_qf"                          # the case's QF half (0: FP32 ignores it)
 
 # Placed in this order from row 0: x (no guard plane: there is no next channel), w, b, y.
 [inputs.x]
@@ -52,6 +53,7 @@ out_channels = "CR8"
 rc_step      = "CR9"
 lanes        = "CR10"
 tiles_last   = "CR11"
+qf           = "CR14"
 
 [golden]
 op = "conv2d"

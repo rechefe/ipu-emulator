@@ -12,9 +12,10 @@ Schema
 
 ``[kernel]`` (required)
     ``op`` (str, required): the operation, also the shared reference's name.
-    ``formats`` (list, required): element formats the kernel runs in, by their
-    ``ipu_isa.formats.ElementFormat`` names (``fp32``, ``int8``, ``e1``..``e7``,
-    ``int32``). ``asm`` (path): the program, default ``<folder>.asm``.
+    ``formats`` (list, required): the variants the kernel runs in
+    (:mod:`ipu_harness.variants`, ADR 0007): ``fp32`` (FP32 mode), and NX8
+    element types ``e1``..``e7`` (signed, 8 bits), ``dynamic`` and
+    ``s<sign>e<fe>w<bits>``. ``asm`` (path): the program, default ``<folder>.asm``.
     ``stages`` (``"file.py:fn"``): a multi-program pipeline (E06-14).
     ``cost``: what routing (E06-16) minimises among the kernels that accept a
     query: a number (negative to prefer a kernel), or an expression in the shape grammar over
@@ -36,7 +37,7 @@ Schema
     ``"ceil(k / 128)"``). ``row``: pin the region's first XMEM row (Q81), an int
     or an expression like a shape's, which may also read ``row_bytes``, the
     bytes of one row in the case's format (``"131072 / row_bytes"`` pins the
-    region at byte 0x20000 in every format: a legacy layout). ``after`` (``"<tensor>"``): place the region
+    region at byte 0x20000 in every variant: a legacy layout). ``after`` (``"<tensor>"``): place the region
     right after that tensor's in placement order (by default inputs, then
     outputs, then scratch, each in file order), so scratch can come before an
     output; not with ``row``. ``when`` (``"<bool param>"`` or ``"not <bool
@@ -46,7 +47,7 @@ Schema
     is not placed, generated, passed to the reference or bound.
     ``pack`` (inputs and outputs): a named pack transform (E06-05); an output's
     lays out the stored rows that :func:`ipu_harness.packing.unpack` reads back. ``store`` (outputs):
-    ``element`` (default) or ``accumulator``. ``fill`` (scratch): the value the
+    ``element``, the only value (``accumulator`` left with ST.ACC, ADR 0007). ``fill`` (scratch): the value the
     region is filled with, default 0: a number, or an expression over
     int and float parameters and derived values in the shape grammar,
     evaluated exactly when the case is planned (``"-1 / channels"``, whole or
@@ -57,8 +58,8 @@ Schema
     format-blind (a lane mask, which no element value can carry). The runner
     writes either through :func:`ipu_harness.packing.region_fill`. Scratch
     regions are placed and filled, never compared. ``range`` (inputs): ``[lo, hi]`` for the generated values in
-    every format, or ``{ int8 = [lo, hi], e4 = [lo, hi] }`` per format (E06-08);
-    ``lo`` may equal ``hi`` (a constant input).
+    every variant, or ``{ e4 = [lo, hi], nx8 = [lo, hi] }`` per variant or per
+    mode (E06-08); ``lo`` may equal ``hi`` (a constant input).
 
 ``[abi]``
     ``<name> = "CR2"`` .. ``"CR15"``, or ``"LR0"`` .. ``"LR15"`` (a preset, E06-06).
@@ -92,13 +93,15 @@ Schema
     pin or the cost cannot read it. ``w1 = "base(weights) + 1"`` gives one
     region several offset registers, which a ``{ register, offset }``
     binding cannot. A value that reads ``row_bytes`` (the bytes of one XMEM
-    row in the case's format) is placed too: ``"512 / row_bytes"`` is the
-    rows one accumulator vector spans (4 in an 8-bit format, 1 in FP32 and
-    INT32).
+    row in the case's variant: 128 in NX8, 512 in FP32) or ``case_qf`` (the
+    case variant's QF half-CR, 0 in FP32) is placed too. The helpers
+    ``ds()``, ``qf()``, ``constant()`` and ``halves()``
+    (:mod:`ipu_harness.expressions`) build DS, QF, MULT-constant and two-half
+    CR values.
 
 ``[cases.<name>]``
     Parameter values: a scalar, or a non-empty list (a sweep axis). Reserved
-    keys: ``formats`` (a non-empty subset of the kernel's), ``inputs`` and
+    keys: ``formats`` (a non-empty subset of the kernel's variants), ``inputs`` and
     ``expected`` (tensor name to a user file, Q82; an ``expected`` may instead
     be ``"file.py:fn"``, or ``"../file.py:fn"`` in the family's folder, whose
     ``fn(plan)`` returns the output's values in the case's format: a golden
@@ -125,11 +128,10 @@ Schema
     ``ipu_kernels.reference``), not both; ``tolerance`` (format to a tier name
     of :data:`ipu_harness.tolerance.TIERS`, or a table overriding a tier's
     numbers: ``tier`` and ``why`` (required), ``rtol``, ``atol``, ``ulps``;
-    a key is a format some output is compared in: a format the kernel runs in
-    for an element output, its accumulator format (FP32, INT32) for an
-    accumulator output, so a key no output reads is an error; an override may set only what
-    ``compare`` reads for that format: ``ulps`` only for an 8-bit float, and
-    then not ``rtol``/``atol``; a format not listed is compared at ``EXACT``).
+    a key is a variant the kernel runs in, or a mode (``nx8``) for its
+    variants without their own key; an override may set only what
+    ``compare`` reads for that variant: ``ulps`` (NX8 steps) only in NX8, and
+    then not ``rtol``/``atol``; a variant not listed is compared at ``EXACT``).
 
 Every declared name (parameter, tensor, derived value) is an identifier that
 does not start with ``_`` and is not ``cr``, ``lr`` or a reserved case key.
@@ -189,7 +191,7 @@ from ipu_harness._manifest_tensors import (
     read_tensors,
 )
 from ipu_harness._toml_source import Locator, ManifestError, Reader, decode_error_line
-from ipu_isa.formats import ElementFormat
+from ipu_harness.variants import Variant, variant
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -258,7 +260,7 @@ SCHEMA_KEYS: Mapping[str, tuple[str, ...]] = MappingProxyType(
 @dataclass(frozen=True)
 class _KernelTable:
     op: str
-    formats: tuple[ElementFormat, ...]
+    formats: tuple[Variant, ...]
     asm: Path
     stages: str | None
     cost: int | float | str
@@ -290,7 +292,7 @@ def _kernel(r: Reader, directory: Path, raw: object) -> _KernelTable:
 @dataclass(frozen=True)
 class _Overrides:
     name: str | None
-    formats: tuple[ElementFormat, ...]
+    formats: tuple[Variant, ...]
     fixed: Mapping[str, object]
     cases: tuple[str, ...] | None = None
 
@@ -298,7 +300,7 @@ class _Overrides:
 def _overrides(
     toml: Path,
     params: dict[str, ParamDecl],
-    formats: tuple[ElementFormat, ...],
+    formats: tuple[Variant, ...],
     overrides: Mapping[str, Any],
     source: str,
 ) -> _Overrides:
@@ -318,7 +320,7 @@ def _overrides(
         valid = {f.value for f in formats}
         if not isinstance(listed, list) or not listed or any(f not in valid for f in listed):
             raise fail(f"formats {listed!r} must be a non-empty subset of {sorted(valid)}")
-        formats = tuple(ElementFormat(f) for f in listed)
+        formats = tuple(variant(f) for f in listed)
     fixed = _fixed(toml, params, overrides.get("params", {}), fail)
     cases = overrides.get("cases")
     if cases is not None and not _case_names(cases):

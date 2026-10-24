@@ -22,6 +22,7 @@ from ipu_harness.packing import stored_rows
 from ipu_harness.params import plan_case
 from ipu_harness.placement import place
 from ipu_harness.registry import default_registry
+from ipu_isa.cr_halves import ds
 from ipu_isa.formats import ElementFormat
 
 KERNELS = (
@@ -108,7 +109,7 @@ def test_a_multiple_of_128_is_a_long_row_with_no_tail_chunk(registry, n):
     verdict = along_rows(registry, 8, n)
     assert verdict.kernel_name == "softmax_rows_long"
     plan = runs(verdict)
-    assert plan.derived["tail"] == 0  # valid_elements 0: the tail block is a no-op
+    assert plan.derived["tail"] == ds(0)  # valid_elements 0: the tail block is a no-op
     assert plan.derived["cpr"] == n // 128  # no phantom tail chunk
 
 

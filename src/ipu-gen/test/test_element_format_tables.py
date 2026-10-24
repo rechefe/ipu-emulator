@@ -42,29 +42,30 @@ def test_one_row_per_format():
     every = [fmt.name for fmt in FORMATS]
     assert _named(sections["formats"]) == every
     assert _named(sections["cr-scalars"]) == every
-    eight_bit_floats = [f.name for f, i in FORMATS.items() if i.is_float and i.element_bits == 8]
-    assert _named(sections["encodings"]) == eight_bit_floats
+    # One row per signed 8-bit NX8 type: QF exp_format 1-7.
+    assert _named(sections["encodings"]) == [f"E{fe}" for fe in range(1, 8)]
 
 
 def test_the_rows_follow_the_formats_given():
-    kept = {fmt: FORMATS[fmt] for fmt in (ElementFormat.INT8, ElementFormat.E5)}
+    kept = {ElementFormat.FP32: FORMATS[ElementFormat.FP32]}
     sections = _sections(kept)
-    assert _named(sections["formats"]) == ["INT8", "E5"]
-    assert _named(sections["encodings"]) == ["E5"]
-    assert _named(sections["cr-scalars"]) == ["INT8", "E5"]
+    assert _named(sections["formats"]) == ["FP32"]
+    assert _named(sections["encodings"]) == []  # no NX8: no NX8 types
+    assert _named(sections["cr-scalars"]) == ["FP32"]
 
 
 @pytest.mark.parametrize(
-    ("fmt", "row"),
+    ("row"),
     [
-        # Hand-computed from the Ex layout: bias 2^(x-1) - 1, all-ones exponent is NaN.
-        ("E4", "| `E4` | 7 | 240 | 0.015625 | 0.001953125 | 16 |"),
-        ("E5", "| `E5` | 15 | 57344 | 2<sup>-14</sup> | 2<sup>-16</sup> | 8 |"),
-        ("E1", "| `E1` | 0 | 1.96875 | none | 0.03125 | 128 |"),
-        ("E7", "| `E7` | 63 | 2<sup>63</sup> | 2<sup>-62</sup> | none | 2 |"),
+        # Hand-computed at scale 127 from ARCH-stage-mult.md §3.2.1: an exponent
+        # below the clamp e (all ones) is (1 + m / 2^fm) * 2^-e; the clamp
+        # exponent is m / 2^fm * 2^-(clamp - 1), a subnormal.
+        "| `E4` | 4 | 3 | 1.875 | 2<sup>-14</sup> | 2<sup>-17</sup> |",
+        "| `E1` | 1 | 6 | 1.984375 | 1 | 0.015625 |",
+        "| `E7` | 7 | 0 | 1 | 2<sup>-126</sup> | 2<sup>-126</sup> |",
     ],
 )
-def test_encoding_rows(fmt, row):
+def test_encoding_rows(row):
     assert row in _sections()["encodings"]
 
 

@@ -10,7 +10,7 @@ The host reaches the IPU through the host port, one AXI4 slave. The IPU block sp
 | IMEM window 1 | IMEM bank 1 | While context 1 is not locked | In every state, except a running state with context 1 active |
 | Register file | The register groups below | Per register | Per register |
 
-The width of the hardware VLIW word and its packing into 32-bit beats are open: [OQ-14](open-questions.md).
+The hardware VLIW word is 169 bits (`IPU_COMPOUND_INST_WIDTH`), 192 bits padded to 32-bit beats; how it packs into the beats is open: [OQ-14](open-questions.md).
 
 ## Requirements
 

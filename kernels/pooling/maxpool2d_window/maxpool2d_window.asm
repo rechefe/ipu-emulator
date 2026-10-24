@@ -65,10 +65,10 @@
       CR8  = CHANNELS                 CR9  = K   (dy bound)
       CR10 = 384 (R_CYCLIC slot-3 index, where the -FLT_MAX seed lives)
       CR11 = K - 1 (dx bound)
-      CR15 = dstructure (valid_elements = 128)
+      CR15.L = the default DS (ds(128)); CR14 = the QF
 
     LR uses 3 sub-slots; ";;" ends a VLIW word, ";" separates sub-instructions.
-    Slot order within a word is LR -> LOAD -> MULT -> ACC -> AAQ -> STORE ->
+    Slot order within a word is LR -> LOAD -> MULT -> ACC -> AAQ -> AAQ_EXACT ->
     COND. That is why a load can share a word with the LR add that positions it
     (LDR offsets read LIVE), why R_CYCLIC needs one word of separation before
     the multiply that consumes it (its CONTENTS are read from the snapshot),
@@ -105,7 +105,7 @@ row_loop:
 tile_loop:
     ADD {{lr_addr}} {{lr_rowb}} {{lr_t}} ;
     SET {{lr_dy}} CR0 ;;                                 {#- padded row y, tile t -#}
-    MULT.RC.VE {{lr_seed}} CR1 0 {{lr_zero}} CR15 ; ACC.MAX.FIRST ;;
+    MULT.RC.VE {{lr_seed}} CR1 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ; ACC.MAX.FIRST ;;
                                                          {#- R_ACC = -FLT_MAX -#}
 
 dy_loop:
@@ -119,13 +119,12 @@ dy_loop:
 dx_loop:
     ADD {{lr_rc}} {{lr_rc}} CR1 ;
     ADD {{lr_dx}} {{lr_dx}} CR1 ;
-    MULT.RC.VE {{lr_rc}} CR1 0 {{lr_zero}} CR15 ; ACC.MAX ;
+    MULT.RC.VE {{lr_rc}} CR1 0 {{lr_zero}} CR15.L {{ cr.qf }}.L ; ACC.MAX ;
     BLT.S {{lr_dx}} CR11 dx_loop ;;                        {#- pre-increment: bound is K-1 -#}
 
     BLT.S {{lr_dy}} CR9 dy_loop ;;                         {#- post-increment: bound is K -#}
 
-    ACTIVATE.QUANTIZE identity CR15 ;
-    ST.AAQ {{lr_out}} CR3 ;;                   {#- OUT[c, y, tile] -#}
+    ACTIVATE.EXACT identity CR15.L CR3 {{lr_out}} ;; {#- OUT[c, y, tile] -#}
     ADD {{lr_out}} {{lr_out}} CR1 ;
     ADD {{lr_t}} {{lr_t}} CR1 ;;
     BLT.S {{lr_t}} CR5 tile_loop ;;

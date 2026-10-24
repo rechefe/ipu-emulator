@@ -2,7 +2,7 @@
 # without user data, so an entry may fix rows to any value.
 [kernel]
 op = "scale_rows"
-formats = ["fp32", "int8", "e4"]
+formats = ["fp32", "e4"]
 
 [params]
 rows = { type = "int", min = 1, max = 256 }
@@ -13,17 +13,20 @@ shape = ["rows", 128]
 
 [outputs.y]
 shape = ["rows", 128]
-store = "accumulator"
+
+[derived]
+qf = "case_qf"                                     # the case's QF half (0 in FP32)
 
 [abi]
 x    = "CR2"
 y    = "CR3"
 rows = "CR4"
 s    = "CR5"
+qf   = "CR6"
 
 [golden]
 reference = "reference.py:reference"
-tolerance = { fp32 = "EXACT", int32 = "EXACT" }   # y, an accumulator output, is compared as FP32 (INT32 in INT8)
+tolerance = { fp32 = "EXACT", e4 = "EXACT" }      # y is quantized like its golden
 
 [cases.default]
 rows = 4

@@ -13,6 +13,7 @@ from emu_support import ElementFormat, make_state
 from ipu_emu.commit import CommitCollector
 from ipu_emu.emulator import run_until_complete
 from ipu_emu.ipu_state import HaltRecord
+from ipu_isa.cr_halves import ds
 from ipu_isa.faults import ArithmeticEvent
 from ipu_isa.geometry import LANES
 
@@ -39,14 +40,14 @@ def test_fp32_overflow_is_inf_in_its_lane_only():
     assert state.arith_flags == {OVERFLOW} and state.halt == HaltRecord("halt", 1, None)
 
 
-def test_int8_accumulate_wraps_at_two_to_the_31_and_sets_the_flag():
-    state = make_state("ACC.ADD ;;\nHALT ;;", fmt=ElementFormat.INT8)
-    for lane in range(LANES):
-        state.regfile.set_r_acc_word(lane, 2**31 - 1 if lane == 3 else 5)
-    state.regfile.mutable("mult_res")[:] = struct.pack(f"<{LANES}i", *([1] * LANES))
+def test_an_nx8_mode_accumulate_overflows_to_inf_and_sets_the_flag():
+    """MULT_RES and R_ACC are FP32 in NX8 mode too (ADR 0007): an overflow is +inf."""
+    state = make_state("ACC.ADD ;;\nHALT ;;", fmt=ElementFormat.NX8)
+    _floats(state, "r_acc", [3e38 if lane == 3 else 5.0 for lane in range(LANES)])
+    _floats(state, "mult_res", [3e38 if lane == 3 else 1.0 for lane in range(LANES)])
     run_until_complete(state)
-    lanes = np.frombuffer(state.regfile.view("r_acc"), dtype="<i4")
-    assert lanes[3] == -(2**31) and (np.delete(lanes, 3) == 6).all()
+    lanes = np.frombuffer(state.regfile.view("r_acc"), dtype="<f4")
+    assert lanes[3] == np.inf and (np.delete(lanes, 3) == 6.0).all()
     assert state.arith_flags == {OVERFLOW}
 
 
@@ -87,7 +88,7 @@ def test_flags_are_sticky_across_cycles_and_runs():
 
 
 def test_agg_sum_overflow_sets_the_flag():
-    state = make_state("AGG.SUM.FIRST LR0 CR15 ;;\nHALT ;;", fmt=ElementFormat.FP32)
+    state = make_state("AGG.SUM.FIRST LR0 CR15.L ;;\nHALT ;;", fmt=ElementFormat.FP32)
     _floats(state, "mult_res", [3e38] * LANES)
     run_until_complete(state)
     assert _acc_floats(state)[0] == math.inf and state.arith_flags == {OVERFLOW}
@@ -106,44 +107,25 @@ def test_the_commit_record_lists_the_word_s_events():
     assert [r.arith_events for r in collector.records] == [("acc_overflow",), (), ()]
 
 
-@pytest.mark.parametrize("fmt", [ElementFormat.FP32, ElementFormat.E4, ElementFormat.INT8])
+@pytest.mark.parametrize("fmt", [ElementFormat.FP32, ElementFormat.NX8])
 def test_a_clean_accumulate_reports_nothing(fmt):
     state = make_state("ACC.ADD ;;\nHALT ;;", fmt=fmt)
     run_until_complete(state)
     assert state.arith_flags == set()
 
 
-def _int_lanes(state, name, values):
-    state.regfile.mutable(name)[:] = struct.pack(f"<{LANES}i", *values)
-
-
-def _acc_ints(state):
-    return list(struct.unpack(f"<{LANES}i", state.regfile.view("r_acc")))
-
-
-def test_negating_int32_min_wraps_to_itself_and_sets_the_flag():
-    state = make_state("ACC.SUB.FIRST ;;\nHALT ;;", fmt=ElementFormat.INT8)
-    _int_lanes(state, "mult_res", [-(2**31)] + [3] * (LANES - 1))
-    run_until_complete(state)
-    assert _acc_ints(state)[:2] == [-(2**31), -3] and state.arith_flags == {OVERFLOW}
-
-
-def test_acc_sub_wraps_and_sets_the_flag():
-    state = make_state("ACC.SUB ;;\nHALT ;;", fmt=ElementFormat.INT8)
-    _int_lanes(state, "r_acc", [-(2**31)] + [0] * (LANES - 1))
-    _int_lanes(state, "mult_res", [1] * LANES)
-    run_until_complete(state)
-    assert _acc_ints(state)[:2] == [2**31 - 1, -1] and state.arith_flags == {OVERFLOW}
-
-
-def test_an_int_agg_sum_with_its_seed_wraps_and_sets_the_flag():
-    # AGG.SUM adds the lanes to R_ACC[dest]: 2**31 - 1 + 128 wraps. The fold is
-    # judged on its exact sum (the adder is assumed wide enough for 128 lanes).
-    state = make_state("AGG.SUM LR0 CR15 ;;\nHALT ;;", fmt=ElementFormat.INT8)
-    _int_lanes(state, "r_acc", [2**31 - 1] + [0] * (LANES - 1))
-    _int_lanes(state, "mult_res", [1] * LANES)
-    run_until_complete(state)
-    assert _acc_ints(state)[0] == -(2**31) + 127 and state.arith_flags == {OVERFLOW}
+def test_a_saturating_quantize_sets_quant_saturation_and_its_record_says_so():
+    """ACTIVATE.QUANTIZE of +inf saturates (ADR 0007): the QUANT_SATURATION event."""
+    state = make_state(
+        "ACTIVATE.QUANTIZE identity CR15.L CR14.L CR2 LR0 ;;\nHALT ;;",
+        cr={2: 30},
+        ds=ds(2),
+    )
+    _floats(state, "r_acc", [float("inf"), 1.0] + [0.0] * (LANES - 2))
+    with CommitCollector(state) as collector:
+        run_until_complete(state)
+    assert state.arith_flags == {ArithmeticEvent.QUANT_SATURATION}
+    assert collector.records[0].arith_events == ("quant_saturation",)
 
 
 def test_inf_minus_inf_is_a_nan_result_with_no_nan_input():

@@ -24,7 +24,7 @@
 
     ONE CHANNEL PER ROW: a Q channel column, a key-major K row and an output key
     column are each a WHOLE row (128 FP32 lanes) carrying 16 live FP32 lanes. Rows are never
-    shared; CR15.valid_elements = 16 tells ACTIVATE.QUANTIZE how many lanes to
+    shared; CR15.L's valid_elements = 16 tells ACTIVATE.EXACT how many lanes to
     emit, and the harness unpacks those lanes of y.
 
     Memory layout (row addresses; XMEM operands are ROW numbers, issue #179):
@@ -39,7 +39,7 @@
       MULT.RC.VE rc_idx=0, src=chan_index (=c → R0[c]) → MULT_RES[i] = Q[i,c]·K[s,c]
       c==0: ACC.ADD.FIRST  else: ACC.ADD  → R_ACC[i] += Q[i,c]·K[s,c]
       After 60 channels: R_ACC[i] = S[i,s] for the 16 queries.
-      ACTIVATE.QUANTIZE identity + ST.AAQ → one key-major score row.
+      ACTIVATE.EXACT identity (activate and store) → one key-major score row.
       No AGG.
 
     Counts/head: 16 keys × 60 channels = 960 MULT+ACC instruction words + 16 stores.
@@ -77,7 +77,7 @@
 {% set Q_START     = cr.q_start  %}  {# -Q_CHAN_ROWS startup skew (first live = 0) #}
 {% set CHAN_START  = cr.chan_start  %}  {# -1 -> first live c = 0 #}
 {% set K_BASE_KM   = cr.a  %}  {# key-major K base (a) #}
-{% set DSTRUCT     = cr.dstruct %}  {# reserved dstructure register #}
+{% set DSTRUCT     = cr.dstruct ~ ".L" %}  {# the DS half #}
 
     # chan_last = chan_bound + 1 (= D-1 = 59). MULT reads R_CYCLIC from the
     # cycle-start value (issue #157), so each Q channel column is loaded a
@@ -103,7 +103,7 @@ s_loop:
     ADD {{ chan_index }} {{ chan_index }} {{ ONE }};;
 
     # Peeled first channel (c=0): ACC.ADD.FIRST seeds R_ACC.
-    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ cr.qf }}.L;
     ACC.ADD.FIRST;
     LD.MULT.CYCLIC {{ q_ptr }} {{ Q_BASE }} {{ rc_slot0 }};
     ADD {{ q_ptr }} {{ q_ptr }} {{ chan_stride }};
@@ -114,15 +114,14 @@ c_loop_pre:
     ADD {{ chan_index }} {{ chan_index }} {{ ONE }};;   # name the channel just loaded
 
 c_loop:
-    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ cr.qf }}.L;
     ACC.ADD;
     LD.MULT.CYCLIC {{ q_ptr }} {{ Q_BASE }} {{ rc_slot0 }};
     ADD {{ q_ptr }} {{ q_ptr }} {{ chan_stride }};
     BLT.S {{ chan_index }} {{ chan_last }} c_loop_pre;;
 
 after_c:
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    ST.AAQ {{ out_ptr }} {{ S_BASE }};;  # store S[0:16, s] (key-major row)
+    ACTIVATE.EXACT identity {{ DSTRUCT }} {{ S_BASE }} {{ out_ptr }} ;;  # store S[0:16, s] (key-major row)
     ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;  # output row ptr += OUT_ROWS
 
     ADD {{ key_index }} {{ key_index }} {{ ONE }};

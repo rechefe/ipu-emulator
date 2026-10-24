@@ -40,7 +40,7 @@ def test_layout_is_immutable():
 def test_derived_operand_widths():
     bits = isa_layout().operand_bits
     assert bits["LrIncDecImmediate"] == 8
-    assert bits["LrOrReshapeMaskImmediate"] == 4
+    assert bits["LrOrReshapeMaskImmediate"] == 5  # shares the ACC field of the 5-bit HalfCrIdx
     assert set(bits) == set(OPERAND_TYPES)
 
 

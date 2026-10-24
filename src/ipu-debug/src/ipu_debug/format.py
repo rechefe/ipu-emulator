@@ -8,9 +8,11 @@ out the same way without reaching into another pane's module.
 from __future__ import annotations
 
 import struct
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 from ipu_debug.session import XMEM_FORMAT_ITEM_SIZE_BYTES
+from ipu_debug.stores import metadata_text
 from ipu_emu.xmem import XMEM_WIDTH_BYTES
 
 __all__ = [
@@ -132,9 +134,17 @@ def _tokenize_line(
 
 
 def tokenize_xmem(
-    data: bytes | bytearray, byte_address: int, fmt: str, row_size: int
+    data: bytes | bytearray,
+    byte_address: int,
+    fmt: str,
+    row_size: int,
+    row_metadata: Mapping[int, int] | None = None,
 ) -> list[XmemDisplayLine]:
-    """Tokenize validated XMEM data for curses rendering."""
+    """Tokenize validated XMEM data for curses rendering.
+
+    Each row's marker line names the row's metadata word when *row_metadata*
+    (row -> word, NX8 mode) holds it.
+    """
     values_per_line = XMEM_VALUES_PER_LINE[fmt]
     item_size = XMEM_FORMAT_ITEM_SIZE_BYTES[fmt]
     lines: list[XmemDisplayLine] = []
@@ -146,7 +156,10 @@ def tokenize_xmem(
         row = address // row_size
         row_address = row * row_size
         if start == 0 or address == row_address:
-            marker = f"--- XMEM row {row} starts at byte address 0x{row_address:08x}"
+            marker = f"--- XMEM row {row}"
+            if row_metadata is not None and row in row_metadata:
+                marker += f" [{metadata_text(row_metadata[row])}]"
+            marker += f" starts at byte address 0x{row_address:08x}"
             if address != row_address:
                 marker += f"; display starts at 0x{address:08x}"
             lines.append(XmemDisplayLine(marker + " ---"))

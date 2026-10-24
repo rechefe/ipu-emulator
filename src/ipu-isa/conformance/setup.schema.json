@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/rechefe/ipu-emulator/schemas/conformance-setup/1.0.0",
+  "$id": "https://github.com/rechefe/ipu-emulator/schemas/conformance-setup/2.0.0",
   "title": "IPU conformance case setup",
-  "description": "A conformance case's starting state and run limits (E04-31). From reset in `format`: load program.bin, write `registers`, then `xmem`, set `fault_enables`, and run until HALT, a fault or `max_cycles` words.",
+  "description": "A conformance case's starting state and run limits (E04-31). From reset in `format`: load program.bin, write `registers`, then `xmem`, then `xmem_metadata`, set `fault_enables`, and run until HALT, a fault or `max_cycles` words.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -21,23 +21,15 @@
     },
     "format": {
       "type": "string",
-      "description": "The element format.",
+      "description": "The run mode, by its element format (ADR 0007).",
       "enum": [
-        "int8",
-        "e1",
-        "e2",
-        "e3",
-        "e4",
-        "e5",
-        "e6",
-        "e7",
         "fp32",
-        "int32"
+        "nx8"
       ]
     },
     "emulator_only": {
       "type": "boolean",
-      "description": "True when the hardware cannot run the case: a wide format (fp32, int32) or an EMULATOR slot's instruction."
+      "description": "True when the hardware cannot run the case: FP32 mode or an EMULATOR slot's instruction."
     },
     "max_cycles": {
       "type": "integer",
@@ -72,9 +64,11 @@
               "r_wide_debug",
               "r_cyclic",
               "r_cyclic_wide_debug",
+              "r_meta",
+              "r_cyclic_meta",
               "r_mask",
               "r_acc",
-              "post_aaq_reg",
+              "aaq_lut",
               "lr",
               "cr",
               "mult_res",
@@ -130,6 +124,30 @@
           "hex": {
             "type": "string",
             "pattern": "^([0-9a-f]{2})+$"
+          }
+        }
+      }
+    },
+    "xmem_metadata": {
+      "type": "array",
+      "description": "Optional: XMEM row metadata words to write (NX8: scale[7:0], dynamic_exponent[8]); every other row's word starts at zero. Listed only when one is not zero.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "row",
+          "word"
+        ],
+        "properties": {
+          "row": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The 128-byte XMEM unit (an NX8 row): its metadata address is row * 128."
+          },
+          "word": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{4}$",
+            "description": "The unsigned 16-bit word, four hex digits, most significant first: 0185 is scale 0x85, dynamic exponent 1."
           }
         }
       }

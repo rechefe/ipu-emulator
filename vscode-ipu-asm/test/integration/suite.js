@@ -65,7 +65,7 @@ test('mnemonics that fit the word are offered at the start of an instruction, no
 });
 
 test('a typed space at an operand opens the values of its type, in the assembler\'s order', async () => {
-  const names = labels(await completeIn('ACTIVATE.QUANTIZE \n', 18, ' '));
+  const names = labels(await completeIn('ACTIVATE.EXACT \n', 15, ' '));
   assert(names.includes('window') && names.includes('relu') && !names.includes('lr0'));
   const regs = (await completeIn('ADD \n', 4)).filter((i) => /^lr\d+$/.test(name(i))).sort((a, b) => (a.sortText < b.sortText ? -1 : 1));
   assert.deepStrictEqual(labels(regs.slice(0, 3)), ['lr0', 'lr1', 'lr2']);
@@ -110,11 +110,11 @@ test('signature help highlights the operand being typed', async () => {
 // --- navigation, hover, outline, folding ------------------------------------------------
 
 test('definition of a label and a Jinja name, references, rename and its refusals', async () => {
-  for (const [from, delta, to] of [['row_loop ;;', 2, 'row_loop:'], ['{{lr_row}} cr3', 3, 'set lr_row']]) {
+  for (const [from, delta, to] of [['row_loop ;;', 2, 'row_loop:'], ['{{lr_row}} cr2', 3, 'set lr_row']]) {
     const locs = await exec('vscode.executeDefinitionProvider', doc.uri, pos(from, delta));
     assert.deepStrictEqual(locs.map((l) => l.range.start.line), [pos(to).line], from);
   }
-  const refs = await exec('vscode.executeReferenceProvider', doc.uri, pos('{{lr_row}} cr3', 3));
+  const refs = await exec('vscode.executeReferenceProvider', doc.uri, pos('{{lr_row}} cr2', 3));
   assert.strictEqual(refs.length, 1 + doc.getText().match(/\{\{lr_row\}\}/g).length);
   // Rename a label changes its definition and references; refused for a Jinja constant, a name in use, a non-label.
   const changes = (await rename(doc.uri, pos('row_loop:', 1), 'next_row')).get(doc.uri);
@@ -140,7 +140,7 @@ test("a mnemonic only the checkout's ISA has gets hover text once its language d
 test('hover on an instruction, a Jinja name (its value and register) and a macro parameter', async () => {
   const instruction = await hoverText(doc.uri, pos('ACC.ADD.FIRST', 1));
   assert(instruction.includes(isa.instructions['ACC.ADD.FIRST'][0].doc.title), instruction);
-  const jinja = await hoverText(doc.uri, pos('{{lr_row}} cr3', 3));
+  const jinja = await hoverText(doc.uri, pos('{{lr_row}} cr2', 3));
   assert(jinja.includes('"lr1"') && jinja.includes(isa.registerDocs.lr1.about), jinja);
   // A macro parameter is named as one, and not taken for the top-level name it shares.
   const d = await withText('{% set r = "lr0" %}\n{% macro m(r) %}\nSET {{ r }} cr0;;\n{% endmacro %}\n');

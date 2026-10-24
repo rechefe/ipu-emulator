@@ -23,10 +23,10 @@ parts        = "128 / ps"                            # P: rows per XMEM row
 device_rows  = "ceil(rows * ps / 128)"               # XMEM rows, the last filled up with padding slots
 step         = "128 * ceil(device_rows / 128)"
 row_stride   = "1"                                   # one XMEM row per chunk
-maxvec_base  = "dstructure(128)"                     # maxvec's R1 index base, and the full-row dstructure
+maxvec_base  = "halves(128, ds(128))"                # LOW: maxvec's R1 index base (an LR reads CR8.L); HIGH: the full-row DS
 ring         = "512"                                 # r_cyclic's ring, in elements
 group_chunks = "ps"                                  # chunks in a full group: 128 / P = ps (one register per name)
-dstruct      = "dstructure(n)"                       # every AGG and ACTIVATE sees the first n elements
+dstruct      = "halves(ds(n), case_qf)"              # LOW: the DS every AGG and ACTIVATE.EXACT sees (the first n elements); HIGH: the case's QF (FP32 ignores it)
 
 # The regions sit where the old harness put them: from row 128, the
 # input, the numerators and the output back to back, each rounded up to a

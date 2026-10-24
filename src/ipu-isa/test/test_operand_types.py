@@ -34,6 +34,7 @@ def test_readable_types_are_the_register_operands_with_a_read_flag():
         "LrIdx",
         "CrIdx",
         "LcrIdx",
+        "LcrHalfIdx",
         "MultStageReg",
         "LrdIdx",
     }
@@ -54,6 +55,27 @@ def test_widths_are_what_the_union_layout_packs():
     bits = get_operand_type_bits()
     assert bits == {name: record.bits or 0 for name, record in OPERAND_TYPES.items()}
     assert bits["Label"] == 10 and bits["LcrIdx"] == 5 and bits["MultStageReg"] == 2
+    assert bits["HalfCrIdx"] == 5 and bits["LcrHalfIdx"] == 6 and bits["AaqActivationFn"] == 3
+
+
+def test_half_cr_domains_follow_the_code_rules():
+    """HalfCrIdx: code = 2 * index + H; LcrHalfIdx: LR, CR, then .L, then .H (ADR 0007)."""
+    half = OPERAND_TYPES["HalfCrIdx"].domain.members
+    assert len(half) == 32
+    assert half[2 * 13 + 0] == "cr13.l" and half[2 * 13 + 1] == "cr13.h"
+    lcr = OPERAND_TYPES["LcrHalfIdx"].domain.members
+    assert len(lcr) == 64
+    assert (lcr[0], lcr[15], lcr[16], lcr[31]) == ("lr0", "lr15", "cr0", "cr15")
+    assert (lcr[32], lcr[47], lcr[48], lcr[63]) == ("cr0.l", "cr15.l", "cr0.h", "cr15.h")
+    assert OPERAND_TYPES["AaqActivationFn"].domain.members == (
+        "identity",
+        "relu",
+        "relu6",
+        "reciprocal",
+        "rsqrt",
+        "exp2",
+        "generic",
+    )
 
 
 def test_enum_and_register_widths_fit_their_domains():

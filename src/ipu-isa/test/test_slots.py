@@ -37,11 +37,10 @@ def test_derived_views_equal_the_old_literals():
     assert SLOT_COUNT == {
         "break": 1,
         "load": 1,
-        "store": 1,
-        "acc_store": 1,
         "mult": 1,
         "acc": 1,
         "aaq": 1,
+        "aaq_exact": 1,
         "lr": 3,
         "cond": 1,
     }
@@ -52,15 +51,14 @@ def test_derived_views_equal_the_old_literals():
         "mult",
         "acc",
         "aaq",
-        "store",
-        "acc_store",
+        "aaq_exact",
         "break",
     ]
-    assert SLOT_METADATA["acc_store"] == {"description": SLOTS[Slot.ACC_STORE].description}
+    assert SLOT_METADATA["aaq_exact"] == {"description": SLOTS[Slot.AAQ_EXACT].description}
 
 
 def test_slot_is_its_string():
-    assert Slot.LR == "lr" and str(Slot.LR) == "lr" and f"{Slot.ACC_STORE}" == "acc_store"
+    assert Slot.LR == "lr" and str(Slot.LR) == "lr" and f"{Slot.AAQ_EXACT}" == "aaq_exact"
     assert set(INSTRUCTION_SPEC) == {slot.value for slot in Slot}
 
 

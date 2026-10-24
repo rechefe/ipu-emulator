@@ -6,8 +6,8 @@
     Hand-optimised for this one shape (no parameterisation): batch-norm scale
     is assumed folded into the weights, so only the per-filter bias remains
     separate, accumulated once before the conv taps; ReLU is applied at the
-    end. FP32 element format: weights and activations are genuine floats, no
-    INT8 quantization anywhere in this kernel.
+    end. FP32 mode: weights and activations are genuine floats, no
+    quantization anywhere in this kernel.
 
     Design notes
 
@@ -39,11 +39,11 @@
       256-wide strip to 128 stride-2 outputs.
 
     - Datapath per (output row, filter):
-        slot 0: r_acc = bias; += taps over slot0 lanes; QUANTIZE identity -> temp0.
-        slot 1: r_acc = bias; += taps over slot1 lanes; QUANTIZE identity -> temp1.
+        slot 0: r_acc = bias; += taps over slot0 lanes; ACTIVATE.EXACT identity -> temp0.
+        slot 1: r_acc = bias; += taps over slot1 lanes; ACTIVATE.EXACT identity -> temp1.
         reload temp0, identity-MULT, ACC.STRIDE 64 on off offset 0 -> r_acc[0..63].
         reload temp1, identity-MULT, ACC.STRIDE 64 on off offset 2 -> r_acc[64..127].
-        ACTIVATE.QUANTIZE relu -> ST.AAQ at LR6 (+y).
+        ACTIVATE.EXACT relu -> y at LR6.
 
     - Two loops:
         EDGE   (output row 0):      kr in {0,+1}    -> 4 loads/ch (row -1 out of bounds).
@@ -65,8 +65,8 @@
       out_rows = 128 (the output-row loop bound, not an XMEM value),
       filter_rows = 16 (filter-block limit), slot1 = 128 (the R_CYCLIC slot-1
       ELEMENT index; kept apart from block_stride because the two units
-      diverge under row addressing). CR15 is the default dstructure
-      (valid_elements = 128); CR2 is not used.
+      diverge under row addressing). CR15.L is the default DS
+      (ds(128)), CR15.H the QF; CR2 is not used.
     - LR: LR0=0 LR1=1 LR2=+1 LR3=-1 LR4=kern idx LR5=center row-group base
       LR6=out ptr LR7=filter block base LR8=row counter LR9,LR10,LR14=scratch
       LR11=128 LR12=scratch.
@@ -120,25 +120,25 @@
 {%-   if slot == 0 %}
     SUB                 LR14 LR0 CR1;                # rc_idx = -1 (slot0 kc=-1)
     INC                 LR4 1;
-    MULT.RC.VE          LR14 LR4 0 LR2 CR15;         # left edge: shift +1 zeros lane0 (col0)
+    MULT.RC.VE          LR14 LR4 0 LR2 CR15.L CR15.H;         # left edge: shift +1 zeros lane0 (col0)
     ACC.ADD;;
     INC                 LR4 1;
-    MULT.RC.VE          LR0 LR4 0 LR0 CR15;          # kc=0, no shift
+    MULT.RC.VE          LR0 LR4 0 LR0 CR15.L CR15.H;          # kc=0, no shift
     ACC.ADD;;
     INC                 LR4 1;
-    MULT.RC.VE          LR1 LR4 0 LR0 CR15;          # slot0 kc=+1 (rc_idx=1): seam KEEP, no shift
+    MULT.RC.VE          LR1 LR4 0 LR0 CR15.L CR15.H;          # slot0 kc=+1 (rc_idx=1): seam KEEP, no shift
     ACC.ADD;;
 {%-   else %}
     SUB                 LR14 LR11 CR1;               # rc_idx = 127 (slot1 kc=-1 -> seam nbr col127)
     INC                 LR4 1;
-    MULT.RC.VE          LR14 LR4 0 LR0 CR15;         # seam KEEP, no shift
+    MULT.RC.VE          LR14 LR4 0 LR0 CR15.L CR15.H;         # seam KEEP, no shift
     ACC.ADD;;
     INC                 LR4 1;
-    MULT.RC.VE          LR11 LR4 0 LR0 CR15;         # rc_idx = 128 (slot1 kc=0)
+    MULT.RC.VE          LR11 LR4 0 LR0 CR15.L CR15.H;         # rc_idx = 128 (slot1 kc=0)
     ACC.ADD;;
     ADD                 LR14 LR11 CR1;               # rc_idx = 129 (slot1 kc=+1)
     INC                 LR4 1;
-    MULT.RC.VE          LR14 LR4 0 LR3 CR15;         # right edge: shift -1 zeros lane127 (col255)
+    MULT.RC.VE          LR14 LR4 0 LR3 CR15.L CR15.H;         # right edge: shift -1 zeros lane127 (col255)
     ACC.ADD;;
 {%-   endif %}
 {%- endmacro -%}
@@ -156,7 +156,7 @@
     # sub-slots): SET dispatches in the LR phase, and since both SETs write the
     # same value there is no ordering hazard between them.
     SET                 LR4 CR0;
-    MULT.EE             LR4 CR1 0 LR0 CR15;
+    MULT.EE             LR4 CR1 0 LR0 CR15.L CR15.H;
     ACC.ADD.FIRST;;
 {%-   for ch in [0, 1, 2] %}
     # -- channel {{ch}} --
@@ -168,33 +168,28 @@
 {{ kc_taps(slot) }}
 {%-     endfor %}
 {%-   endfor %}
-    # ACTIVATE.QUANTIZE reads r_acc LIVE and ST.AAQ reads
-    # post_aaq_reg LIVE (store dispatches after aaq in the per-cycle order),
-    # so they co-issue in one word — no separate store cycle needed.
+    # ACTIVATE.EXACT reads r_acc LIVE and stores the row itself — no
+    # separate store cycle needed.
 {%-   if slot == 0 %}
-    ACTIVATE.QUANTIZE   identity CR15;
-    ST.AAQ    LR0 {{ cr.temp }};;
+    ACTIVATE.EXACT   identity CR15.L {{ cr.temp }} LR0;;
 {%-   else %}
-    ACTIVATE.QUANTIZE   identity CR15;
+    ACTIVATE.EXACT   identity CR15.L {{ cr.temp }} LR1;;
     # XMEM offset for temp1 = +1 ROW (temp0/temp1 are adjacent 128-byte rows);
     # LR11 holds 128 in its r_cyclic-ELEMENT role, so use LR1 (=1) here instead.
-    ST.AAQ    LR1 {{ cr.temp }};;
 {%-   endif %}
 {%- endfor %}
 
     # ---- decimate + relu + store ----
     ADD                 LR12 LR1 CR1;;               # LR12 = 2 (offset%4=2 -> r_acc start 64)
     LD.MULT.CYCLIC LR0 {{ cr.temp }} LR0;;
-    MULT.RC.VE          LR0 CR1 0 LR0 CR15;;
+    MULT.RC.VE          LR0 CR1 0 LR0 CR15.L CR15.H;;
     ACC.STRIDE          64 on off LR0;;
     LD.MULT.CYCLIC LR1 {{ cr.temp }} LR0;;   # XMEM offset +1 row (temp1); LR11 stays r_cyclic-ELEMENT-only
-    MULT.RC.VE          LR0 CR1 0 LR0 CR15;;
-    # acc.stride (finalizes r_acc), ACTIVATE.QUANTIZE (reads r_acc LIVE), and
-    # ST.AAQ (reads post_aaq_reg LIVE; store dispatches after aaq)
-    # co-issue in one word — no separate ACTIVATE/store cycles needed.
+    MULT.RC.VE          LR0 CR1 0 LR0 CR15.L CR15.H;;
+    # acc.stride (finalizes r_acc) and ACTIVATE.EXACT (reads r_acc LIVE and
+    # stores) co-issue in one word — no separate ACTIVATE/store cycles needed.
     ACC.STRIDE          64 on off LR12;
-    ACTIVATE.QUANTIZE   relu CR15;
-    ST.AAQ    LR6 {{ cr.y }};;
+    ACTIVATE.EXACT   relu CR15.L {{ cr.y }} LR6;;
 {%- endmacro -%}
 
 # ===========================================================================

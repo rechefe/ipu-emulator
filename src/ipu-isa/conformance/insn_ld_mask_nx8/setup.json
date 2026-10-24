@@ -1,0 +1,105 @@
+{
+ "description": "LD.MASK in NX8",
+ "format": "nx8",
+ "emulator_only": false,
+ "max_cycles": 1000,
+ "fault_enables": {},
+ "registers": [
+  {
+   "name": "r_mask",
+   "index": 0,
+   "hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  {
+   "name": "lr",
+   "index": 1,
+   "value": 1
+  },
+  {
+   "name": "lr",
+   "index": 2,
+   "value": 2
+  },
+  {
+   "name": "lr",
+   "index": 3,
+   "value": 3
+  },
+  {
+   "name": "lr",
+   "index": 4,
+   "value": 5
+  },
+  {
+   "name": "lr",
+   "index": 6,
+   "value": 128
+  },
+  {
+   "name": "lr",
+   "index": 7,
+   "value": 3
+  },
+  {
+   "name": "cr",
+   "index": 2,
+   "value": 1
+  },
+  {
+   "name": "cr",
+   "index": 3,
+   "value": 4
+  },
+  {
+   "name": "cr",
+   "index": 4,
+   "value": 2
+  },
+  {
+   "name": "cr",
+   "index": 5,
+   "value": 7
+  },
+  {
+   "name": "cr",
+   "index": 6,
+   "value": 128
+  },
+  {
+   "name": "cr",
+   "index": 7,
+   "value": 4294967294
+  },
+  {
+   "name": "cr",
+   "index": 8,
+   "value": 100
+  },
+  {
+   "name": "cr",
+   "index": 9,
+   "value": 3
+  },
+  {
+   "name": "cr",
+   "index": 11,
+   "value": 1345076
+  },
+  {
+   "name": "cr",
+   "index": 14,
+   "value": 328
+  },
+  {
+   "name": "cr",
+   "index": 15,
+   "value": 4224
+  }
+ ],
+ "xmem": [
+  {
+   "address": 0,
+   "hex": "3f6549c217f61cf8f63ab2ef1d62b8c813a131a0117f9d64a26ec0b993a9aca81c37a694386347d7941562f7d280060afc4f9fd03c5285a3afc80dabd1b7018a5d6df9b838305fc6effa823755c8837bcee0efa2eb3b8c779b6b9425cd0ff8a83dfa2359d750a0d366cb78074640e075a3e46524ac4048fe2f1cc039cd7909301b7b11d4084971d095dfca63f261ff5b3c1e96a7f68fbff992bd3d47c89da13dad3b3577fdf251d7a6bd2aada1fbcf6524e44b54c9f4d92a5da47709b2c348e86924d0292cfa7daf50368fdbed5e814de06fa5d845a2f1d4889f36ac8e1607553c40422820f103e56354567849e6cc5d308735d22e52b1909d639e55023569bcb53baa521d4392e2665636dfd08d2718bcbc157b6b283742d8c64a9fa07cf64fb1d6f8e25db1e8bc35673d27f571d772e179abb2238ef40219f23bf23c869eae276ddb6128a60702545110891037c36dfa74c286428206ecaa4a9f49b82e264b31d8985b85701738e93e97dd2095df90c65ef851cee26e3caff0cf17c192df22c22c65ceafd64779e309c8047259254006b4524958c1a212efe22cfe7bcae8a55474c7158f4498aa36d20143c74fb661c3780b1204246cf96f6c54f7cb4ce34444e505231dc61236cbdee0f79e15900f92730daf09451b94d0c2798469018ce73accc7cf47251ed7a960352e70ccf8f418fb7ba4278a99ac9e9006a0273e4d385358adec09066c292cd79c4ac4b3f20ccb94eea2e500af6af0d284b4539920b72eb6f09ea884292998b1c6b799d12c50143fb6964ef8b84dc18aa31aef810b74631efcf0bb014213a7c3b440c4fd8e2094298d8e511240c2701d5472502c5fb0f7fe9a0728ca22629e44822eda2277939d92aac2fade3118bf6e02ae0d820bc2934cbb0e8f0700638eb25e4cbd74377bc7c055d137917452cdd17917fabc9be0b3d6afbe0efacebae99522bc7621e15dcb73c0285e16779adbc44c1504e74c53bd2748ee7c88b38575e4745893f60948774c8d1dc2a28de828fe6055defef36f13ed848ed5beacb737ef8a019916e3e521ed4ebd242ad8fbd53585c1e1e9c56e94fd99578d34a0f11d68f4b44582fe2482c10e1efea9e13a97ba8a06696e0a7311ea63c3e038004ff23d10f0c2639cbc6afb03d5333e689c97180d70efba9a0c825118d8ddb692b04ad2214a52bc6e62ff169f4fa9a4b822bf340a35dfe76dc127b5dad6398c3d5d9717558bdb3fad889cef66e7ae93b99f91ba46f0f21fcd5cdf129ae0d09a7d784887b2d217a1d2c5cbb40131154a7347cae35ad1f03da82fdd1dcaa3f2833676a5e7fc0560c72861249613747bf670bfbf6f2892c3e4e5711bd43d0e1768441c6d9727918cc763fe3ce2e74c6ce6b58c9e043a163acfb2be833b36b734a090cf5f8dce4598a97ce50bcf09469f7226f457a4983a358ed50f"
+  }
+ ]
+}

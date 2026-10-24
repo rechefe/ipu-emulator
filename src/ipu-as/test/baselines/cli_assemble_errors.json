@@ -1,21 +1,21 @@
 {
   "test_diagnostics.py: \"{% for c in ''.__class__.__mro__ %}\\nHALT;;\\n{% endfor %}\\n\"": {
-    "exception": "SecurityError",
-    "exit_code": 1,
-    "stderr": "",
-    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
-  },
-  "test_diagnostics.py: \"{{ self.__init__.__globals__.__builtins__.__import__('os').popen('touch MARKER').read() }}HALT;;\\n\"": {
-    "exception": "SecurityError",
-    "exit_code": 1,
-    "stderr": "",
-    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
-  },
-  "test_diagnostics.py: '    ADD lr14 lr14 cr3 ;\\n    ADD lr5  lr5  cr4        {#- note -#}\\n\\n    MULT.RC.VE lr15 lr5 0 lr15 cr15;\\n'": {
     "exception": null,
     "exit_code": 1,
     "stderr": "",
-    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError assembling code: Instruction ADD expects 3 operands, got 8, in Line 2, Column 5.\n"
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError rendering template: access to attribute '__class__' of 'str' object is unsafe.\n"
+  },
+  "test_diagnostics.py: \"{{ self.__init__.__globals__.__builtins__.__import__('os').popen('touch MARKER').read() }}HALT;;\\n\"": {
+    "exception": null,
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError rendering template: access to attribute '__init__' of 'TemplateReference' object is unsafe.\n"
+  },
+  "test_diagnostics.py: '    ADD lr14 lr14 cr3 ;\\n    ADD lr5  lr5  cr4        {#- note -#}\\n\\n    MULT.RC.VE lr15 lr5 0 lr15 cr15.l cr14.l;\\n'": {
+    "exception": null,
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError assembling code: Instruction ADD expects 3 operands, got 9, in Line 2, Column 5.\n"
   },
   "test_diagnostics.py: '    SET lr0 cr0 ;;    {#- a trailing note -#}\\n    SET lr1 cr1 ;;\\n    BEQ lr0, cr0, +1;;\\n'": {
     "exception": null,
@@ -39,7 +39,7 @@
     "exception": null,
     "exit_code": 1,
     "stderr": "",
-    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError assembling code: Invalid token value - 1.5 in token LcrRegField\nIn Line 1, Column 13\nAdditional Information: Value 1.5 not in enum options\nAvailable options: ['lr0', 'lr1', 'lr2', 'lr3', 'lr4', 'lr5', 'lr6', 'lr7', 'lr8', 'lr9', 'lr10', 'lr11', 'lr12', 'lr13', 'lr14', 'lr15', 'cr0', 'cr1', 'cr2', 'cr3', 'cr4', 'cr5', 'cr6', 'cr7', 'cr8', 'cr9', 'cr10', 'cr11', 'cr12', 'cr13', 'cr14', 'cr15']\n"
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError assembling code: Invalid token value - 1.5 in token LcrHalfRegField\nIn Line 1, Column 13\nAdditional Information: Value 1.5 not in enum options\nAvailable options: ['lr0', 'lr1', 'lr2', 'lr3', 'lr4', 'lr5', 'lr6', 'lr7', 'lr8', 'lr9', 'lr10', 'lr11', 'lr12', 'lr13', 'lr14', 'lr15', 'cr0', 'cr1', 'cr2', 'cr3', 'cr4', 'cr5', 'cr6', 'cr7', 'cr8', 'cr9', 'cr10', 'cr11', 'cr12', 'cr13', 'cr14', 'cr15', 'cr0.l', 'cr1.l', 'cr2.l', 'cr3.l', 'cr4.l', 'cr5.l', 'cr6.l', 'cr7.l', 'cr8.l', 'cr9.l', 'cr10.l', 'cr11.l', 'cr12.l', 'cr13.l', 'cr14.l', 'cr15.l', 'cr0.h', 'cr1.h', 'cr2.h', 'cr3.h', 'cr4.h', 'cr5.h', 'cr6.h', 'cr7.h', 'cr8.h', 'cr9.h', 'cr10.h', 'cr11.h', 'cr12.h', 'cr13.h', 'cr14.h', 'cr15.h']\n"
   },
   "test_diagnostics.py: 'BEQ lr0, cr0, +1;;\\n'": {
     "exception": null,
@@ -60,10 +60,10 @@
     "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
   },
   "test_diagnostics.py: 'HALT;;\\nHALT;;\\n{{ 1 + \"a\" }}\\nHALT;;\\n'": {
-    "exception": "TypeError",
+    "exception": null,
     "exit_code": 1,
     "stderr": "",
-    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError rendering template: unsupported operand type(s) for +: 'int' and 'str'\n"
   },
   "test_diagnostics.py: 'HALT;;\\nmac.ee r0;;\\n'": {
     "exception": null,
@@ -72,16 +72,16 @@
     "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError assembling code: Opcode 'mac.ee' not found in any Inst subclass.\n"
   },
   "test_diagnostics.py: 'HALT;;\\n{% for x in %}\\n'": {
-    "exception": "TemplateSyntaxError",
+    "exception": null,
     "exit_code": 1,
     "stderr": "",
-    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError rendering template: Expected an expression, got 'end of statement block'\n"
   },
   "test_diagnostics.py: 'HALT;;\\n{{ 1 / 0 }}\\n'": {
-    "exception": "ZeroDivisionError",
+    "exception": null,
     "exit_code": 1,
     "stderr": "",
-    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError rendering template: division by zero\n"
   },
   "test_diagnostics.py: 'a:\\n  HALT;;\\na:\\n  HALT;;\\n'": {
     "exception": null,
@@ -117,13 +117,13 @@
     "exception": null,
     "exit_code": 1,
     "stderr": "",
-    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError assembling code: Invalid token value - 1.5 in token LcrRegField\nIn Line 2, Column 17\nAdditional Information: Value 1.5 not in enum options\nAvailable options: ['lr0', 'lr1', 'lr2', 'lr3', 'lr4', 'lr5', 'lr6', 'lr7', 'lr8', 'lr9', 'lr10', 'lr11', 'lr12', 'lr13', 'lr14', 'lr15', 'cr0', 'cr1', 'cr2', 'cr3', 'cr4', 'cr5', 'cr6', 'cr7', 'cr8', 'cr9', 'cr10', 'cr11', 'cr12', 'cr13', 'cr14', 'cr15']\n"
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError assembling code: Invalid token value - 1.5 in token LcrHalfRegField\nIn Line 2, Column 17\nAdditional Information: Value 1.5 not in enum options\nAvailable options: ['lr0', 'lr1', 'lr2', 'lr3', 'lr4', 'lr5', 'lr6', 'lr7', 'lr8', 'lr9', 'lr10', 'lr11', 'lr12', 'lr13', 'lr14', 'lr15', 'cr0', 'cr1', 'cr2', 'cr3', 'cr4', 'cr5', 'cr6', 'cr7', 'cr8', 'cr9', 'cr10', 'cr11', 'cr12', 'cr13', 'cr14', 'cr15', 'cr0.l', 'cr1.l', 'cr2.l', 'cr3.l', 'cr4.l', 'cr5.l', 'cr6.l', 'cr7.l', 'cr8.l', 'cr9.l', 'cr10.l', 'cr11.l', 'cr12.l', 'cr13.l', 'cr14.l', 'cr15.l', 'cr0.h', 'cr1.h', 'cr2.h', 'cr3.h', 'cr4.h', 'cr5.h', 'cr6.h', 'cr7.h', 'cr8.h', 'cr9.h', 'cr10.h', 'cr11.h', 'cr12.h', 'cr13.h', 'cr14.h', 'cr15.h']\n"
   },
   "test_diagnostics.py: '{% for i in undefined_var %}\\nHALT;;\\n{% endfor %}\\n'": {
-    "exception": "UndefinedError",
+    "exception": null,
     "exit_code": 1,
     "stderr": "",
-    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError rendering template: 'undefined_var' is undefined\n"
   },
   "test_diagnostics.py: '{%- set a = \"lr0\" -%}\\n    SET {{a}} cr0;;\\n    HALT;;\\n'": {
     "exception": null,
@@ -141,37 +141,37 @@
     "exception": null,
     "exit_code": 1,
     "stderr": "",
-    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError assembling code: Invalid token value - 1.5 in token LcrRegField\nIn Line 1, Column 13\nAdditional Information: Value 1.5 not in enum options\nAvailable options: ['lr0', 'lr1', 'lr2', 'lr3', 'lr4', 'lr5', 'lr6', 'lr7', 'lr8', 'lr9', 'lr10', 'lr11', 'lr12', 'lr13', 'lr14', 'lr15', 'cr0', 'cr1', 'cr2', 'cr3', 'cr4', 'cr5', 'cr6', 'cr7', 'cr8', 'cr9', 'cr10', 'cr11', 'cr12', 'cr13', 'cr14', 'cr15']\n"
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError assembling code: Invalid token value - 1.5 in token LcrHalfRegField\nIn Line 1, Column 13\nAdditional Information: Value 1.5 not in enum options\nAvailable options: ['lr0', 'lr1', 'lr2', 'lr3', 'lr4', 'lr5', 'lr6', 'lr7', 'lr8', 'lr9', 'lr10', 'lr11', 'lr12', 'lr13', 'lr14', 'lr15', 'cr0', 'cr1', 'cr2', 'cr3', 'cr4', 'cr5', 'cr6', 'cr7', 'cr8', 'cr9', 'cr10', 'cr11', 'cr12', 'cr13', 'cr14', 'cr15', 'cr0.l', 'cr1.l', 'cr2.l', 'cr3.l', 'cr4.l', 'cr5.l', 'cr6.l', 'cr7.l', 'cr8.l', 'cr9.l', 'cr10.l', 'cr11.l', 'cr12.l', 'cr13.l', 'cr14.l', 'cr15.l', 'cr0.h', 'cr1.h', 'cr2.h', 'cr3.h', 'cr4.h', 'cr5.h', 'cr6.h', 'cr7.h', 'cr8.h', 'cr9.h', 'cr10.h', 'cr11.h', 'cr12.h', 'cr13.h', 'cr14.h', 'cr15.h']\n"
   },
   "test_diagnostics.py: '{{ (1).missing() }}\\nHALT;;\\n'": {
-    "exception": "UndefinedError",
+    "exception": null,
     "exit_code": 1,
     "stderr": "",
-    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError rendering template: 'int object' has no attribute 'missing'\n"
   },
   "test_diagnostics.py: '{{ (1).nope() }}\\nHALT;;\\n'": {
-    "exception": "UndefinedError",
+    "exception": null,
     "exit_code": 1,
     "stderr": "",
-    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError rendering template: 'int object' has no attribute 'nope'\n"
   },
   "test_diagnostics.py: '{{ ({}).__class__.__base__.__subclasses__() }}HALT;;\\n'": {
-    "exception": "SecurityError",
+    "exception": null,
     "exit_code": 1,
     "stderr": "",
-    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError rendering template: access to attribute '__class__' of 'dict' object is unsafe.\n"
   },
   "test_diagnostics.py: '{{ 1 + \"a\" }}\\nHALT;;\\n'": {
-    "exception": "TypeError",
+    "exception": null,
     "exit_code": 1,
     "stderr": "",
-    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError rendering template: unsupported operand type(s) for +: 'int' and 'str'\n"
   },
   "test_diagnostics.py: '{{ 1 / 0 }}\\nHALT;;\\n'": {
-    "exception": "ZeroDivisionError",
+    "exception": null,
     "exit_code": 1,
     "stderr": "",
-    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError rendering template: division by zero\n"
   },
   "vscode-ipu-asm/test/corpus/edge_cases.asm": {
     "exception": null,
@@ -195,7 +195,7 @@
     "exception": null,
     "exit_code": 1,
     "stderr": "",
-    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError assembling code: NOP: all slots are already filled\nAt: Line 4, Column 60\n"
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError assembling code: NOP: all slots are already filled\nAt: Line 4, Column 55\n"
   },
   "vscode-ipu-asm/test/corpus/negative/overfull_word.asm": {
     "exception": null,

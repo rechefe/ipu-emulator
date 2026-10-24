@@ -17,20 +17,11 @@
     "DRAM": 1
   },
   "docs/content/requirements/memory-access.md": {
-    "DRAM": 5,
-    "slot name": 1
+    "DRAM": 5
   },
   "docs/content/requirements/open-questions.md": {
     "DRAM": 1,
     "VLIW word": 1
-  },
-  "docs/content/specs/cache-unit.md": {
-    "DRAM": 18
-  },
-  "docs/content/specs/riscv-host-integration.md": {
-    "VLIW word": 2,
-    "dtype": 3,
-    "program counter": 3
   },
   "docs/content/specs/MAS-stage-aaq-str.md": {
     "VLIW word": 1,
@@ -41,6 +32,14 @@
     "dtype": 2,
     "live value": 1,
     "snapshot": 1
+  },
+  "docs/content/specs/cache-unit.md": {
+    "DRAM": 18
+  },
+  "docs/content/specs/riscv-host-integration.md": {
+    "VLIW word": 2,
+    "dtype": 3,
+    "program counter": 3
   },
   "docs/content/specs/stage-control.md": {
     "VLIW word": 16,

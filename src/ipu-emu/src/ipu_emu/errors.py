@@ -1,7 +1,9 @@
 """Exceptions raised by the IPU emulator, all under ``ipu_isa.errors.IpuError``.
 
 Two kinds: an :class:`EmulatorFault` is the hardware faulting while a program
-runs; a :class:`ConfigurationError` is a bad setup, raised before any cycle.
+runs; a :class:`ConfigurationError` is a bad setup, raised before any cycle,
+or a CR content no layout allows (:class:`CrContentError`), raised in the
+check phase of the word that reads it, before any of its writes (ADR 0007).
 """
 
 from ipu_isa.errors import IpuError
@@ -46,8 +48,23 @@ class UndeclaredRead(EmulatorError):
 
 class ConfigurationError(EmulatorError, ValueError):
     """A bad setup: the element format, the program size, prototyping without
-    its build flag, or invalid API arguments. Raised at setup time, never
-    mid-run. Also a ``ValueError``, as these checks raised before."""
+    its build flag, or invalid API arguments. Raised at setup time, except
+    :class:`CrContentError`, raised in a word's check phase. Also a
+    ``ValueError``, as these checks raised before."""
+
+
+class CrContentError(ConfigurationError):
+    """A CR holds an invalid QF half, DS half or MULT constant (ADR 0007).
+
+    The architects' layouts (``ipu_isa.cr_halves``) leave some contents
+    meaningless: a QF with ``num_bits`` 0, a DS with ``valid_partitions`` 0 or
+    ``mask_type`` NaN, a constant with ``fe`` 0. The hardware's behaviour for
+    them is undefined, so the emulator refuses them. A configuration error
+    (ADR 0005's kind, amended by ADR 0007), raised in the word's check phase,
+    so the faulting word leaves the state as a fault would: nothing of it
+    retires. The same contents are also refused before a run starts by
+    tools that check a setup.
+    """
 
 
 class XMemBoundsError(ConfigurationError):
@@ -74,9 +91,10 @@ class RegisterKindError(EmulatorError, TypeError):
 
 
 class DebugOnlyInstructionWarning(UserWarning, IpuError):
-    """An emulator-only instruction (no hardware equivalent) was executed.
+    """A debug-only instruction (no hardware equivalent) was executed.
 
-    Emitted by ``ST.ACC`` (the ``acc_store`` slot). Tests that run such a
-    program assert it with ``pytest.warns``; every other test turns it into an
-    error, so a kernel cannot start relying on it by accident.
+    Emitted by an instruction of a debug-only slot (``SlotInfo.debug_only``).
+    No slot is debug-only since ADR 0007 removed ``ST.ACC``; the class stays
+    for the next one. Tests turn it into an error, so a kernel cannot start
+    relying on such an instruction by accident.
     """

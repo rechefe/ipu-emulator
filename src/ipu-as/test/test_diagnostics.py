@@ -202,7 +202,7 @@ def test_missing_bundle_terminator_before_whitespace_control_is_reported():
         "    ADD lr14 lr14 cr3 ;\n"
         "    ADD lr5  lr5  cr4        {#- note -#}\n"
         "\n"
-        "    MULT.RC.VE lr15 lr5 0 lr15 cr15;\n"
+        "    MULT.RC.VE lr15 lr5 0 lr15 cr15.l cr14.l;\n"
     )
     found = check(source)
     assert found, "a missing ;; must be reported"
@@ -230,7 +230,7 @@ def test_whitespace_control_fusion_still_yields_an_exact_line():
         "    ADD lr14 lr14 cr3 ;\n"
         "    ADD lr5  lr5  cr4        {#- note -#}\n"
         "\n"
-        "    MULT.RC.VE lr15 lr5 0 lr15 cr15;\n"
+        "    MULT.RC.VE lr15 lr5 0 lr15 cr15.l cr14.l;\n"
     )
     (found,) = check(source)
     assert found.line == 1  # the line missing its ';;'

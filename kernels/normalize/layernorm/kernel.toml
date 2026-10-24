@@ -16,6 +16,7 @@ dim      = { type = "int", choices = [0], default = 0 }      # ops.layernorm red
 [derived]
 row_stride = "1"
 lanes      = "128"
+ds_qf      = "halves(ds(128), case_qf)"  # LOW: the DS; HIGH: the case's QF (FP32 ignores it)
 
 [inputs.x]
 shape = ["channels", "tokens"]            # row-major: row ch * groups + g, the old (ch, tg) order
@@ -70,6 +71,7 @@ gamma      = "CR11"
 channels   = "CR12"
 row_stride = "CR13"
 lanes      = "CR14"
+ds_qf      = "CR15"
 
 [golden]
 op = "layernorm"                          # ipu_kernels.reference.ops.layernorm: no eps (Q57)

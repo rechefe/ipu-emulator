@@ -102,7 +102,7 @@
       once per stream per stripe for auditability, and a cycle-tuned version
       could keep it across all 8 stripes.
 
-    PER-STRIPE DESTINATION ROW: ST.AAQ's base operand must be a CR, not an LR
+    PER-STRIPE DESTINATION ROW: ACTIVATE.EXACT's base operand must be a CR, not an LR
     (a first draft tried an LR base and the assembler rejected it: that
     operand accepts only CR0..CR15). So the destination row is CR13 (y,
     fixed) + LR8, and LR8 is the running offset stripe*144 + ch across the
@@ -146,7 +146,7 @@
     ONE pass per stripe, so BR's prefetch always targets the NEXT channel's
     TL.
 
-    ST.AAQ reads its offset operand as the forwarded value, after the word's
+    ACTIVATE.EXACT reads its offset operand as the forwarded value, after the word's
     LR writes -- never co-issue an ADD on the offset LR (LR8) with the store,
     or the row lands one row late. Here LR8 advances only in its own
     instruction word at the very end of the channel loop, well clear of the
@@ -206,7 +206,7 @@
     ADD                 LR6 LR6 LR7;;       # src offset: next channel (+2 rows: tg0,tg1)
 {%- endif %}
     LD.MULT R0 LR6 {{ next_cr }};
-    MULT.RC.VV LR0 R0 0 LR0 CR15;;          # multiply {{ name }} row (prefetch next stream)
+    MULT.RC.VV LR0 R0 0 LR0 CR15.L {{ cr.qf }}.L;;          # multiply {{ name }} row (prefetch next stream)
     ACC.RESHAPE LRD2 LRD4 0;;               # call0: src[{{ src_base }}..{{ src_base+7 }}] -> dest[{{ dest_base }},{{ dest_base+2 }},..,{{ dest_base+14 }}]
     ADDBI               LRD2 8;
     ADDBI               LRD4 16;;
@@ -218,8 +218,7 @@
     ADDBI               LRD4 16;;
     ACC.RESHAPE LRD2 LRD4 0;;               # call3
 {% endfor %}
-    ACTIVATE.QUANTIZE identity CR15;
-    ST.AAQ         LR8 CR13;;     # stripe {{ stripe }} <- DST_BASE_ROW + (stripe*144 + ch)
+    ACTIVATE.EXACT identity CR15.L CR13 LR8;; # stripe {{ stripe }} <- DST_BASE_ROW + (stripe*144 + ch)
 
     # -- Advance pointers; loop within this stripe --------------------------
     ADD                 LR8 LR8 LR9;;       # dst offset: next row (running across the whole kernel)

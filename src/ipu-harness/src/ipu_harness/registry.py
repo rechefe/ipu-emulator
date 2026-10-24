@@ -31,7 +31,7 @@ from ipu_harness.expressions import evaluate
 from ipu_harness.family import REGISTRY_NAME, Entry, invalid_name, load_entry, read_registry
 from ipu_harness.manifest import TOML_NAME, KernelManifest, load_manifest
 from ipu_harness.params import ParamCheck, PlanError, Value, check_params
-from ipu_isa.formats import ElementFormat
+from ipu_harness.variants import Variant, variant
 
 __all__ = [
     "LayerAdapter",
@@ -70,7 +70,7 @@ class Verdict:
     reason: str
     kernel: KernelManifest | None = None
     params: Mapping[str, Value] = field(default_factory=lambda: MappingProxyType({}))
-    formats: tuple[ElementFormat, ...] = ()
+    formats: tuple[Variant, ...] = ()
     alternatives: tuple[str, ...] = ()
 
     def __bool__(self) -> bool:
@@ -378,7 +378,7 @@ class Registry:
         return tuple(sorted(found, key=lambda m: m.name))
 
     def resolve(
-        self, op: str, /, *, format: ElementFormat | str | None = None, **params: object
+        self, op: str, /, *, format: Variant | str | None = None, **params: object
     ) -> Verdict:
         """The cheapest kernel of ``op`` that accepts ``params``.
 
@@ -398,7 +398,9 @@ class Registry:
                 open by leaving one out is a refusal that names it).
             ExpressionError: A kernel's cost expression does not evaluate.
         """
-        fmt = None if format is None else ElementFormat(format)
+        fmt = (
+            None if format is None else (format if isinstance(format, Variant) else variant(format))
+        )
         candidates = self.kernels(op)
         if not candidates:
             known = ", ".join(self.operations()) or "none"

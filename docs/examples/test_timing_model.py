@@ -14,7 +14,7 @@ import struct
 from pathlib import Path
 
 import pytest
-from emu_support import run
+from emu_support import ElementFormat, run
 
 from docs.doc_blocks import Block, fenced_blocks
 from ipu_emu.ipu_state import IpuState
@@ -23,13 +23,15 @@ from ipu_emu.ipu_state import IpuState
 ROOT = Path(__file__).parents[2]
 PAGE = ROOT / "docs" / "content" / "explanation" / "timing-model.md"
 
-#: XMEM row and register widths, in elements (INT8, the default format).
+#: XMEM row and register widths, in elements. The examples run in the FP32
+#: mode (ADR 0007): an element is its FP32 value, four bytes, with no metadata.
 ROW = 128
+_F32 = 4
 
 _GIVEN_CR = re.compile(r"^CR(?P<n>\d+) = (?P<v>-?\d+)$")
 _GIVEN_ROW = re.compile(r"^XMEM\[(?P<row>\d+)\] = (?P<v>-?\d+)$")
 _EXPECT = re.compile(
-    r"^(?P<reg>LR\d+|R[01]|MULT_RES|R_ACC|POST_AAQ_REG|XMEM\[\d+\])"
+    r"^(?P<reg>LR\d+|R[01]|MULT_RES|R_ACC|XMEM\[\d+\])"
     r"(?:\[(?P<index>\d+)\])? == (?P<v>-?\d+)$"
 )
 
@@ -43,22 +45,18 @@ def _comments(block: Block, kind: str) -> list[str]:
     ]
 
 
-def _int8(value: int) -> int:
-    return value - 256 if value > 127 else value
-
-
-def _observed(state: IpuState, register: str, index: int | None) -> int:
+def _observed(state: IpuState, register: str, index: int | None) -> float:
     regfile = state.regfile
     if register.startswith("LR"):
         return regfile.get_lr(int(register[2:]))
     if register in ("R0", "R1"):
-        return _int8(regfile.view("r")[ROW * int(register[1]) + index])
+        offset = (ROW * int(register[1]) + index) * _F32
+        return struct.unpack_from("<f", regfile.view("r_wide_debug"), offset)[0]
     if register in ("MULT_RES", "R_ACC"):
-        return struct.unpack_from("<i", regfile.view(register.lower()), 4 * index)[0]
-    if register == "POST_AAQ_REG":
-        return _int8(regfile.view("post_aaq_reg")[index])
+        return struct.unpack_from("<f", regfile.view(register.lower()), _F32 * index)[0]
     row = int(register[len("XMEM[") : -1])
-    return _int8(state.xmem.read_address(row * ROW + index, 1)[0])
+    data = state.xmem.read_address((row * ROW + index) * _F32, _F32)
+    return struct.unpack("<f", bytes(data))[0]
 
 
 def _run_example(block: Block) -> IpuState:
@@ -74,9 +72,9 @@ def _run_example(block: Block) -> IpuState:
 
     def setup(state: IpuState) -> None:
         for row, value in rows.items():
-            state.xmem.write_address(row * ROW, bytes([value & 0xFF] * ROW))
+            state.xmem.write_address(row * ROW * _F32, struct.pack(f"<{ROW}f", *[value] * ROW))
 
-    return run(block.body, cr=cr, setup=setup)
+    return run(block.body, cr=cr, setup=setup, fmt=ElementFormat.FP32)
 
 
 def _examples() -> list[Block]:

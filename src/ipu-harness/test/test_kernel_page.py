@@ -29,7 +29,8 @@ def test_design_notes_are_the_leading_comment(program, notes):
 def test_the_abi_table_names_each_binding_its_kind(tmp_path):
     m = write_scale(tmp_path, with_reference=False)
     toml = (m.directory / "kernel.toml").read_text()
-    toml = toml.replace("[abi]\n", '[derived]\nhalf = "rows // 2"\n\n[abi]\nhalf = "LR3"\n')
+    toml = toml.replace("[derived]\n", '[derived]\nhalf = "rows // 2"\n')
+    toml = toml.replace("[abi]\n", '[abi]\nhalf = "LR3"\n')
     toml = toml.replace('y    = "CR3"', 'y    = { register = "CR3", offset = -1 }')
     (m.directory / "kernel.toml").write_text(toml)
     m = load_manifest(m.directory)
@@ -40,13 +41,9 @@ def test_the_abi_table_names_each_binding_its_kind(tmp_path):
         "y": ("CR3", "region", -1, None),
         "rows": ("CR4", "int", 0, None),
         "s": ("CR5", "element scalar", 0, None),
+        "qf": ("CR6", "derived", 0, None),
     }
     data = page_data(m)
     assert data["design_notes"].startswith("scale.asm -- y = x * s")
     assert data["params"]["s"] == {"type": "float", "unit": "count"}
-    # y is an accumulator output: in E4 it is compared as FP32, at fp32's tier.
-    assert data["tolerance"] == {
-        "fp32": {"y": "EXACT"},
-        "int8": {"y": "EXACT"},
-        "e4": {"y": "EXACT"},
-    }
+    assert data["tolerance"] == {"fp32": {"y": "EXACT"}, "e4": {"y": "EXACT"}}

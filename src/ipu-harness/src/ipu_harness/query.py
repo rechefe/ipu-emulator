@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ipu_harness.registry import Registry, default_registry
-from ipu_isa.formats import ElementFormat
+from ipu_harness.variants import variant
 
 
 class _Usage(ValueError):
@@ -185,9 +185,11 @@ def main(argv: Sequence[str] | None = None, registry: Registry | None = None) ->
         if not (name and sep and text.strip()):
             parser.error(f"expected NAME=VALUE, got {item!r}")
         params[name] = text
-    if "format" in params and params["format"].strip() not in {f.value for f in ElementFormat}:
-        valid = ", ".join(f.value for f in ElementFormat)
-        parser.error(f"format={params['format']}: no such element format; valid: {valid}")
+    if "format" in params:
+        try:
+            variant(params["format"].strip())
+        except ValueError as error:
+            parser.error(f"format={params['format']}: {error}")
     # Only the command line's own mistakes are usage errors; a kernel's broken
     # cost or a tie between kernels propagates as the bug it is.
     try:

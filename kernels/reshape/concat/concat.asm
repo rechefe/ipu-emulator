@@ -47,16 +47,15 @@
     There is no direct copy/move instruction in the vector path (same
     constraint residual_add documents): every value must pass through the
     multiplier against a constant 1.0 before landing in r_acc, then through
-    ACTIVATE.QUANTIZE (identity) to stage it for the store. Unlike
+    ACTIVATE.EXACT (identity), which stores it. Unlike
     residual_add, concat performs NO cross-input arithmetic: each row is
     ACC.ADD.FIRST'd alone (r_acc := row x 1.0, no second addend), so this is
     structurally two independent copy loops back to back, not one add loop.
 
-    ACTIVATE.QUANTIZE cannot stage directly from a freshly-loaded register --
-    checked against ipu.py's execute_activate_quantize: it reads only the live
-    r_acc register file (never r0/r1/r_cyclic directly), so a load-only path
+    ACTIVATE.EXACT cannot store directly from a freshly-loaded register:
+    it reads only R_ACC (never r0/r1/r_cyclic directly), so a load-only path
     with no MULT/ACC step is not available. The load -> MULT x1.0 ->
-    ACC.ADD.FIRST -> ACTIVATE.QUANTIZE -> STR chain is the minimum, exactly
+    ACC.ADD.FIRST -> ACTIVATE.EXACT chain is the minimum, exactly
     matching residual_add's per-operand pipeline stage (just without the
     second MULT/ACC.ADD for a second addend).
 
@@ -69,7 +68,7 @@
     it; verified empirically against this exact kernel before trusting the
     pipelining below.
 
-    ST.AAQ reads its offset operand LIVE -- never co-issue an ADD on
+    ACTIVATE.EXACT reads its offset operand LIVE -- never co-issue an ADD on
     the store's offset LR in the same instruction word as the store, or the row
     lands one slot late (same hazard documented in fold_16x16x192.asm and
     the elementwise family's residual_add_rows.asm).
@@ -119,8 +118,8 @@
 # Pass 1: copy A's C_A rows -> output rows [OUT_A_BASE, OUT_A_BASE + C_A)
 #
 # out_ptr is a 0-based ROW COUNTER for this pass, not an absolute row number:
-# ST.AAQ's address is offset + base (ipu.py execute_str_post_aaq_reg),
-# so the pass's absolute output base lives entirely in the STR's `base`
+# ACTIVATE.EXACT's address is table_id + table_offset (base + offset),
+# so the pass's absolute output base lives entirely in its CR `table_id`
 # operand (OUT_A_BASE here, OUT_B_BASE in pass 2) and out_ptr only ever
 # counts 0, 1, 2, ... within the pass -- no separate ADD needed to fold a
 # nonzero base into it at startup.
@@ -138,18 +137,15 @@
 a_loop:
     # Cycle 1: r_acc = A[ch] x 1.0 (A[ch] was loaded a cycle earlier).
     #   Co-issued load prefetches A[ch+1] for the next iteration's cycle 1.
-    MULT.RC.VE          {{ rc_slot0 }} {{ DTYPE_ONE }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE          {{ rc_slot0 }} {{ DTYPE_ONE }} 0 {{ rc_slot0 }} {{ DSTRUCT }}.L {{ cr.qf }}.L;
     ACC.ADD.FIRST;
     LD.MULT.CYCLIC {{ src_ptr }} {{ A_BASE }} {{ rc_slot0 }};
     ADD {{ src_ptr }} {{ src_ptr }} {{ row_stride }};;
-    # Cycle 2: stage r_acc into post_aaq_reg and store it (ACTIVATE.QUANTIZE
-    #   identity + ST.AAQ co-issue in one VLIW word; in-word slot
-    #   order CTRL -> MULT -> ACC -> AaQ -> STR means STR consumes this
-    #   cycle's AaQ result -- same free-store pattern residual_add_rows
-    #   uses). Advance the row counter in the same cycle (it does not feed
-    #   this cycle's STR offset, which is out_ptr, not row_index).
-    ACTIVATE.QUANTIZE   identity {{ DSTRUCT }};
-    ST.AAQ {{ out_ptr }} {{ OUT_A_BASE }};
+    # Cycle 2: store r_acc with ACTIVATE.EXACT identity (the same pattern
+    #   residual_add_rows uses). Advance the row counter in the same cycle
+    #   (it does not feed this cycle's store offset, which is out_ptr, not
+    #   row_index).
+    ACTIVATE.EXACT   identity {{ DSTRUCT }}.L {{ OUT_A_BASE }} {{ out_ptr }};
     ADD {{ row_index }} {{ row_index }} {{ ONE }};;
     # Cycle 3: advance output ptr; BLT.S reads the snapshot row_index, which is
     #   already incremented (set the cycle before, per the live/snapshot
@@ -169,12 +165,11 @@ a_loop:
     ADD {{ src_ptr }} {{ src_ptr }} {{ row_stride }};;
 
 b_loop:
-    MULT.RC.VE          {{ rc_slot0 }} {{ DTYPE_ONE }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VE          {{ rc_slot0 }} {{ DTYPE_ONE }} 0 {{ rc_slot0 }} {{ DSTRUCT }}.L {{ cr.qf }}.L;
     ACC.ADD.FIRST;
     LD.MULT.CYCLIC {{ src_ptr }} {{ B_BASE }} {{ rc_slot0 }};
     ADD {{ src_ptr }} {{ src_ptr }} {{ row_stride }};;
-    ACTIVATE.QUANTIZE   identity {{ DSTRUCT }};
-    ST.AAQ {{ out_ptr }} {{ OUT_B_BASE }};
+    ACTIVATE.EXACT   identity {{ DSTRUCT }}.L {{ OUT_B_BASE }} {{ out_ptr }};
     ADD {{ row_index }} {{ row_index }} {{ ONE }};;
     ADD                 {{ out_ptr }} {{ out_ptr }} {{ row_stride }};
     BLT.S {{ row_index }} {{ row_limit }} b_loop;;

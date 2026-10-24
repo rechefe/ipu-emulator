@@ -15,6 +15,7 @@ temperature = { type = "float", min = 1.401298464324817e-45, default = 1.0 }  # 
 rows      = "ceil(count / 128)"
 slot1     = "128"                                      # R_CYCLIC slot 1, where tau lives
 count_row = "base(y) + rows"                           # partial sums, then the total in lane 0
+qf        = "case_qf"                                  # the case's QF half (0: FP32 ignores it)
 
 # Placed from row 0: x, staged, tau, ttau, tvec, y (the old image).
 [inputs.x]                                             # padding lanes tau - 800 / T
@@ -54,6 +55,7 @@ ttau      = "CR7"
 tvec      = "CR8"
 rows      = "CR9"
 slot1     = "CR10"
+qf        = "CR14"
 
 [golden]
 op = "score_threshold"

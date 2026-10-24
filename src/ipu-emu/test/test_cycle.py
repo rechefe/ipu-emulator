@@ -20,6 +20,7 @@ from ipu_emu.geometry import effective_mult_mask, partition_vector
 from ipu_emu.ipu import Ipu
 from ipu_emu.ipu_state import HaltRecord, IpuState
 from ipu_emu.regfile import RegFile
+from ipu_isa.cr_halves import decode_ds, ds
 from ipu_isa.faults import FaultId
 
 # Every slot kind, a BREAK in the middle and a branch back: loads, multiplies,
@@ -29,10 +30,10 @@ PROGRAM = """
     LD.MULT R0 LR0 CR2 ;;
     LD.MULT.CYCLIC LR0 CR3 LR0 ;;
 loop:
-    MULT.RC.VV LR0 R0 0 LR0 CR15 ; ACC.ADD.FIRST ;;
-    MULT.RC.VE LR0 CR1 0 LR0 CR15 ; ACC.ADD ; BREAK ;;
-    MULT.EE LR0 CR1 0 LR0 CR15 ; AGG.SUM.FIRST LR1 CR15 ;;
-    ACTIVATE.QUANTIZE relu CR15 ; ST.AAQ LR1 CR4 ; INC LR2 1 ;;
+    MULT.RC.VV LR0 R0 0 LR0 CR15.L CR14.L ; ACC.ADD.FIRST ;;
+    MULT.RC.VE LR0 CR1 0 LR0 CR15.L CR14.L ; ACC.ADD ; BREAK ;;
+    MULT.EE LR0 CR1 0 LR0 CR15.L CR14.L ; AGG.SUM.FIRST LR1 CR15.L ;;
+    ACTIVATE.QUANTIZE relu CR15.L CR14.L CR4 LR1 ; INC LR2 1 ;;
     BLT.S LR2 CR7 loop ;;
     HALT ;;
 """
@@ -45,9 +46,11 @@ def _seed(state: IpuState) -> None:
     state.xmem.write_address(0x10000, bytes(rng.randint(0, 256, 128 * 4, dtype=np.uint8)))
     state.regfile.set_cr(2, 0x10000 // 128)  # R0 source row
     state.regfile.set_cr(3, 0x10000 // 128 + 1)  # cyclic source row
-    state.regfile.set_cr(4, STORE_ROW_ADDRESS // 128)  # post-AAQ store row
+    state.regfile.set_cr(4, STORE_ROW_ADDRESS // 128)  # the AaQ store row
     state.regfile.set_cr(7, 3)  # loop bound
-    state.set_cr_dstructure(valid_elements=128, partition=4)
+    state.set_cr_half(15, False, ds(32, 4))  # four groups of 32, all active
+    for unit in (0x10000, 0x10080):
+        state.xmem.write_metadata(unit, 127)  # the source rows' scale
 
 
 def _program_state(asm: str = PROGRAM, **kw) -> IpuState:
@@ -115,8 +118,9 @@ def test_evaluate_break_has_no_side_effects(fires):
     # The word loads, multiplies, accumulates, stores and writes LRs.
     breaking = "BREAK" if fires else "BREAK.IFEQ LR1 5"
     asm = (
-        "LD.MULT R0 LR0 CR2 ; MULT.RC.VV LR0 R0 0 LR0 CR15 ; ACC.ADD.FIRST ; "
-        f"ST.AAQ LR0 CR4 ; SET LR0 CR3 ; INC LR3 2 ; {breaking} ;;\nHALT ;;"
+        "LD.MULT R0 LR0 CR2 ; MULT.RC.VV LR0 R0 0 LR0 CR15.L CR14.L ; ACC.ADD.FIRST ; "
+        f"ACTIVATE.QUANTIZE relu CR15.L CR14.L CR4 LR0 ; SET LR0 CR3 ; INC LR3 2 ; {breaking} ;;\n"
+        "HALT ;;"
     )
     state, twin = _program_state(asm), _program_state(asm)
     before = _observable(twin)
@@ -365,7 +369,7 @@ def test_state_observers_run_before_the_cycles_and_detach():
 
 def test_issue_facts_carry_lr_writes_and_the_mult_mask():
     state = make_state(
-        "SET LR0 CR8 ; ADDBI LRD2 1 ;;\nMULT.EE LR4 CR1 2 LR5 CR15 ;;\nHALT ;;",
+        "SET LR0 CR8 ; ADDBI LRD2 1 ;;\nMULT.EE LR4 CR1 2 LR5 CR15.L CR14.L ;;\nHALT ;;",
         cr={8: 3},
         setup=lambda s: s.regfile.set_r_mask(bytes(range(128))),
     )
@@ -384,9 +388,9 @@ def test_issue_facts_carry_lr_writes_and_the_mult_mask():
     assert ("ADDBI", (2, 3)) in seen
     mask = seen["MULT.EE", ()]
     slot = int.from_bytes(bytes(range(32, 48)), "little")
-    partition = state.get_dstructure_for(15).partition
-    assert mask == (slot << 1) & ((1 << 128) - 1) & partition_vector(partition)
-    assert mask == effective_mult_mask(state.regfile, state.get_dstructure_for(15), 2, 1)
+    shape = decode_ds(state.regfile.get_cr(15) & 0xFFFF)
+    assert mask == (slot << 1) & ((1 << 128) - 1) & partition_vector(shape.num_partitions)
+    assert mask == effective_mult_mask(state.regfile, shape, 2, 1)
 
 
 def test_an_lr_conflict_raises_before_any_lr_write():
@@ -488,7 +492,7 @@ def test_lr_subslot_exception_atomicity():
     source = next(
         name for name in word if name.startswith("lr_inst_1_") and name.endswith("_addbi_immediate")
     )
-    assert word[source] == 3
+    assert word[source] == 16 + 3  # SET's src is LcrHalfIdx: CR3 follows the 16 LRs
     word[source] = 999
     runs = _lockstep_modes(program, cr={2: 5, 3: 6, 5: 7})
 
@@ -516,7 +520,7 @@ def test_lr_subslot_read_error_leaves_no_lr_written(monkeypatch):
     def failing(original):
         def resolve(self, plan, encoded, snapshot):
             # Sub-slot 2 is the only SET whose source is CR3.
-            if plan.inst_name == "SET" and encoded.get("src") == 3:
+            if plan.inst_name == "SET" and encoded.get("src") == 16 + 3:
                 raise EmulatorError("injected read failure")
             return original(self, plan, encoded, snapshot)
 

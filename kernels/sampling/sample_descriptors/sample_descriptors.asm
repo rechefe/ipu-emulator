@@ -50,13 +50,13 @@ channel_loop:
     ADD LR11 LR11 {{ 'CR6' if tap in (2,5) else 'CR9' }} ;
     ADD LR12 LR12 CR1 ;
     LD.MULT R0 LR12 CR4 ;
-    MULT.RC.VE LR0 LR9 0 LR0 CR15 ;
+    MULT.RC.VE LR0 LR9 0 LR0 CR15.L {{ cr.qf }}.L ;
     {{ 'ACC.ADD.FIRST' if tap == 0 else 'ACC.ADD' }} ;;
     LD.MULT.CYCLIC LR11 CR2 LR0 ;;
 {% endfor %}
     ADD LR5 LR5 CR1 ;
-    MULT.RC.VE LR0 LR9 0 LR0 CR15 ; ACC.ADD ;
-    ACTIVATE.QUANTIZE identity CR15 ; ST.AAQ LR10 CR3 ;;
+    MULT.RC.VE LR0 LR9 0 LR0 CR15.L {{ cr.qf }}.L ; ACC.ADD ;
+    ACTIVATE.EXACT identity CR15.L CR3 LR10 ;;
     ADD LR10 LR10 CR1 ; BLT.S LR5 CR9 channel_loop ;;
     ADD LR4 LR4 CR1 ; ADD LR9 LR9 CR1 ;;
     BLT.S LR4 CR10 pixel_loop ;;

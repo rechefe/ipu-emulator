@@ -79,7 +79,7 @@ j_loop:
     ADD LR5 LR5 CR1;;
 
     # Peeled first k-iter (k=0): ACC.FIRST seeds r_acc (replaces RESET_ACC).
-    MULT.RC.VE LR0 LR5 0 LR0 CR15;
+    MULT.RC.VE LR0 LR5 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.ADD.FIRST;
     LD.MULT.CYCLIC LR4 CR0 LR0;
     ADD LR4 LR4 LR2;
@@ -88,7 +88,7 @@ j_loop:
     B after_chunk0;;
 
 k_chunk0:
-    MULT.RC.VE LR0 LR5 0 LR0 CR15;
+    MULT.RC.VE LR0 LR5 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.ADD;
     LD.MULT.CYCLIC LR4 CR0 LR0;
     ADD LR4 LR4 LR2;
@@ -102,7 +102,7 @@ after_chunk0:
     LD.MULT R0 LR8 CR2;;  # chunk1 startup; R0 = W[j, chunk1]
 
 k_chunk1:
-    MULT.RC.VE LR0 LR5 0 LR0 CR15;
+    MULT.RC.VE LR0 LR5 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.ADD;
     LD.MULT.CYCLIC LR4 CR0 LR0;
     ADD LR4 LR4 LR2;
@@ -114,15 +114,14 @@ k_chunk1:
     LD.MULT R0 LR8 CR3;;  # chunk2 startup; R0 = W[j, chunk2]
 
 k_chunk2:
-    MULT.RC.VE LR0 LR5 0 LR0 CR15;
+    MULT.RC.VE LR0 LR5 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.ADD;
     LD.MULT.CYCLIC LR4 CR0 LR0;
     ADD LR4 LR4 LR2;
     ADD LR5 LR5 CR1;
     BLT.S LR5 LR6 k_chunk2;;
 
-    ACTIVATE.QUANTIZE identity CR15;
-    ST.AAQ LR7 CR5;;  # store 512B -> OUTPUT[j] (first 256B valid)
+    ACTIVATE.EXACT identity CR15.L CR5 LR7;;  # store 512B -> OUTPUT[j] (first 256B valid)
     ADD LR7 LR7 LR3;;                        # advance output ptr (packed)
 
     ADD LR8 LR8 LR12;

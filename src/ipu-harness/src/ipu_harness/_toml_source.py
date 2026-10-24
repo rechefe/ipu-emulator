@@ -15,7 +15,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
 from ipu_emu.errors import ConfigurationError
-from ipu_isa.formats import ElementFormat
+from ipu_harness.variants import Variant, variant
 
 _KEY_PART = r"(?:[A-Za-z0-9_\-]+|\"[^\"]*\"|'[^']*')"
 _DOTTED_KEY = re.compile(rf"\s*({_KEY_PART}(?:\s*\.\s*{_KEY_PART})*)\s*=")
@@ -124,12 +124,12 @@ class Reader:
             raise self.fail(path, f"{where(path)} must not be empty")
         return str(text)
 
-    def format(self, value: object, path: tuple[str, ...]) -> ElementFormat:
+    def format(self, value: object, path: tuple[str, ...]) -> Variant:
+        """A variant name (``fp32``, ``e4``, ``dynamic``, ``s0e3w6``; ADR 0007)."""
         try:
-            return ElementFormat(value)
-        except ValueError:
-            valid = ", ".join(f.value for f in ElementFormat)
-            raise self.fail(path, f"unknown element format {value!r}; valid: {valid}") from None
+            return variant(str(self.typed(value, str, path)))
+        except ValueError as error:
+            raise self.fail(path, str(error)) from None
 
     def inside(self, directory: Path, value: str, path: tuple[str, ...]) -> Path:
         """``directory/value`` for a relative file path with no ``..`` (checked lexically;

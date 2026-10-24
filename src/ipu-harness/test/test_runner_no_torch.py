@@ -18,8 +18,8 @@ from ipu_harness import params
 from ipu_harness.cases import expand
 from ipu_harness.debug import DebugLaunch
 from ipu_harness.runner import RunOptions, run_kernel
+from ipu_harness.variants import variant
 from ipu_isa.faults import FaultId
-from ipu_isa.formats import ElementFormat
 
 
 def test_expected_files_need_no_torch(tmp_path):
@@ -81,7 +81,7 @@ def test_an_executor_that_faults_reports_the_models_count_and_fault(tmp_path):
     result = run_kernel(
         manifest,
         case,
-        ElementFormat.INT8,
+        variant("e4"),
         RunOptions(executor=lambda context: context.model.run(3)),  # F-9 at the 4th word
     )
     assert result.cycles == 3 and not result.passed

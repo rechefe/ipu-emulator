@@ -80,7 +80,7 @@
       version could keep it across the two passes.
 
     Questions from the design draft, resolved against the emulator:
-      1. ACTIVATE.QUANTIZE identity after ACC.RESHAPE (not ACC.STRIDE) is
+      1. ACTIVATE.EXACT identity after ACC.RESHAPE (not ACC.STRIDE) is
          fine: it reads the forwarded R_ACC with no ACC.STRIDE-specific
          assumption, over the active-element count CR15's dstructure gives
          (128, the default).
@@ -123,7 +123,7 @@
     keeps every later load one instruction word ahead of the MULT that
     consumes it, exactly like unfold_16x16x192.
 
-    ST.AAQ reads its offset operand as the forwarded value, after the word's
+    ACTIVATE.EXACT reads its offset operand as the forwarded value, after the word's
     LR writes -- never co-issue an ADD on the offset LR (LR8) with the store,
     or the row lands one row late. Here LR8 advances only in its own
     instruction word at the very end of the channel loop, well clear of both
@@ -148,7 +148,7 @@ ch_loop:
     SET                 LR4 CR4;
     SET                 LR5 CR5;;           # dest table   <- TL base
     LD.MULT R0 LR6 CR10;
-    MULT.RC.VV LR0 R0 0 LR0 CR15;;          # multiply TL row (prefetch TR next)
+    MULT.RC.VV LR0 R0 0 LR0 CR15.L CR15.H;;          # multiply TL row (prefetch TR next)
     ACC.RESHAPE LRD2 LRD4 0;;               # call0: src[0..7]   -> dest[0,2,..,14]
     ADDBI               LRD2 8;
     ADDBI               LRD4 32;;
@@ -171,7 +171,7 @@ ch_loop:
     SET                 LR5 CR5;;           # dest table <- TL base
     ADDBI               LRD4 1;;            # dest table <- TR base
     LD.MULT R0 LR6 CR11;
-    MULT.RC.VV LR0 R0 0 LR0 CR15;;          # multiply TR row (prefetch BL next)
+    MULT.RC.VV LR0 R0 0 LR0 CR15.L CR15.H;;          # multiply TR row (prefetch BL next)
     ACC.RESHAPE LRD2 LRD4 0;;
     ADDBI               LRD2 8;
     ADDBI               LRD4 32;;
@@ -190,7 +190,7 @@ ch_loop:
     SET                 LR5 CR5;;           # dest table <- TL base
     ADDBI               LRD4 16;;           # dest table <- BL base
     LD.MULT R0 LR6 CR12;
-    MULT.RC.VV LR0 R0 0 LR0 CR15;;          # multiply BL row (prefetch BR next)
+    MULT.RC.VV LR0 R0 0 LR0 CR15.L CR15.H;;          # multiply BL row (prefetch BR next)
     ACC.RESHAPE LRD2 LRD4 0;;
     ADDBI               LRD2 8;
     ADDBI               LRD4 32;;
@@ -213,7 +213,7 @@ ch_loop:
     # this channel; only the source-table window (rebuilt explicitly per
     # stream below) differs between the two passes.
     LD.MULT R0 LR6 CR9;
-    MULT.RC.VV LR0 R0 0 LR0 CR15;;          # multiply BR row (prefetch TL next)
+    MULT.RC.VV LR0 R0 0 LR0 CR15.L CR15.H;;          # multiply BR row (prefetch TL next)
     ACC.RESHAPE LRD2 LRD4 0;;
     ADDBI               LRD2 8;
     ADDBI               LRD4 32;;
@@ -225,8 +225,7 @@ ch_loop:
     ADDBI               LRD4 32;;
     ACC.RESHAPE LRD2 LRD4 0;;
 
-    ACTIVATE.QUANTIZE identity CR15;
-    ST.AAQ         LR8 CR14;;     # stripe 0 <- DST_BASE + ch (current channel)
+    ACTIVATE.EXACT identity CR15.L CR14 LR8;; # stripe 0 <- DST_BASE + ch (current channel)
 
     # ===== Destination STRIPE 1 pass (source window = lanes [32..63]) ======
 
@@ -237,7 +236,7 @@ ch_loop:
     SET                 LR5 CR5;;           # dest table <- TL base
     ADDBI               LRD2 32;;           # source table <- [32..39] (stripe-1 window)
     LD.MULT R0 LR6 CR10;
-    MULT.RC.VV LR0 R0 0 LR0 CR15;;          # multiply TL row (prefetch TR next)
+    MULT.RC.VV LR0 R0 0 LR0 CR15.L CR15.H;;          # multiply TL row (prefetch TR next)
     ACC.RESHAPE LRD2 LRD4 0;;
     ADDBI               LRD2 8;
     ADDBI               LRD4 32;;
@@ -257,7 +256,7 @@ ch_loop:
     ADDBI               LRD2 32;;           # source table <- [32..39]; dest table <- TL base
     ADDBI               LRD4 1;;            # dest table <- TR base
     LD.MULT R0 LR6 CR11;
-    MULT.RC.VV LR0 R0 0 LR0 CR15;;          # multiply TR row (prefetch BL next)
+    MULT.RC.VV LR0 R0 0 LR0 CR15.L CR15.H;;          # multiply TR row (prefetch BL next)
     ACC.RESHAPE LRD2 LRD4 0;;
     ADDBI               LRD2 8;
     ADDBI               LRD4 32;;
@@ -277,7 +276,7 @@ ch_loop:
     ADDBI               LRD2 32;;           # source table <- [32..39]; dest table <- TL base
     ADDBI               LRD4 16;;           # dest table <- BL base
     LD.MULT R0 LR6 CR12;
-    MULT.RC.VV LR0 R0 0 LR0 CR15;;          # multiply BL row (prefetch BR next)
+    MULT.RC.VV LR0 R0 0 LR0 CR15.L CR15.H;;          # multiply BL row (prefetch BR next)
     ACC.RESHAPE LRD2 LRD4 0;;
     ADDBI               LRD2 8;
     ADDBI               LRD4 32;;
@@ -304,7 +303,7 @@ ch_loop:
     # once, in the loop tail after both stripe stores (mirrors unfold's lr8).
     ADD                 LR6 LR6 LR7;;       # src offset: next channel
     LD.MULT R0 LR6 CR9;
-    MULT.RC.VV LR0 R0 0 LR0 CR15;;          # multiply BR row (prefetch ch+1's TL)
+    MULT.RC.VV LR0 R0 0 LR0 CR15.L CR15.H;;          # multiply BR row (prefetch ch+1's TL)
     ACC.RESHAPE LRD2 LRD4 0;;
     ADDBI               LRD2 8;
     ADDBI               LRD4 32;;
@@ -316,8 +315,7 @@ ch_loop:
     ADDBI               LRD4 32;;
     ACC.RESHAPE LRD2 LRD4 0;;
 
-    ACTIVATE.QUANTIZE identity CR15;
-    ST.AAQ         LR8 CR13;;     # stripe 1 <- DST_BASE + 192 + ch
+    ACTIVATE.EXACT identity CR15.L CR13 LR8;; # stripe 1 <- DST_BASE + 192 + ch
 
     # -- Advance pointers; loop -------------------------------------------------
     ADD                 LR8 LR8 LR9;;       # dst offset: next channel (+1 row)

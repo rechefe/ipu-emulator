@@ -15,6 +15,7 @@ import weakref
 from typing import TYPE_CHECKING, Any
 
 from ipu_emu.alias_profile import Event
+from ipu_emu.cr_contents import ds_active_mask, ds_of, half_of
 from ipu_emu.cycle import decode_word
 from ipu_emu.errors import EmulatorFault
 from ipu_emu.geometry import (
@@ -74,6 +75,8 @@ class _CycleBinding:
 #: 4-byte formats' storage).
 _NARROW_BANKS = {"r": "ra", "r_cyclic": "ring"}
 _BANKS = {**_NARROW_BANKS, **{WIDE_REGISTERS[n]: b for n, b in _NARROW_BANKS.items()}}
+#: The AaQ stores: an event of one wrote the XMEM row a later load reads.
+AAQ_STORES = ("ACTIVATE.QUANTIZE", "ACTIVATE.EXACT")
 #: Bytes of one element in a 4-byte format's storage.
 _WIDE_ELEMENT_BYTES = element_width_bytes(ElementFormat.FP32)
 
@@ -92,7 +95,6 @@ class ExecutionObserver:
             mode=fmt.value if wide else "native",
             # The run's element format, in every mode.
             dtype=fmt.name,
-            quantize_output=state.aaq.quantize_output,
         )
         self.next_id = 0
         self.pc = 0
@@ -110,10 +112,8 @@ class ExecutionObserver:
         self.last_reads = {}
         self.acc = None
         self.mult = None
-        self.post = None
         self.chain = 0
         self.acc_scale = 0
-        self.post_scale = 0
         self.cycle_events = []
         # The cycle being observed (weakly), whose snapshot the operand windows
         # read; set by the cycle's binding (observing) at each cycle start.
@@ -147,9 +147,6 @@ class ExecutionObserver:
             if name == "r_acc":
                 self.acc = None
                 self.acc_scale = 0
-            elif name == "post_aaq_reg":
-                self.post = None
-                self.post_scale = 0
             elif name == "mult_res":
                 self.mult = None
 
@@ -191,6 +188,8 @@ class ExecutionObserver:
         return None
 
     def memory(self, kind, address, size, data):
+        if kind not in ("read", "write", "clear"):
+            return  # the metadata side store: no aliasing to prove
         if kind == "clear":
             # Every block now holds a fresh zero written at this epoch. Drop the
             # tables and remember the epoch as the version of every untouched
@@ -251,13 +250,13 @@ class ExecutionObserver:
         if issued.lr_writes:
             facts["lr_writes"] = issued.lr_writes
         if slot == "mult":
-            ds = self.state.get_dstructure_for(kwargs[plan.mask_cr_operand])
-            width = ds.valid_elements or LANES
+            ds_value = self.ds_half(kwargs[plan.mask_cr_operand])
+            ds = ds_of(ds_value)
             facts.update(
-                active_lanes=(issued.mask & ((1 << width) - 1)).bit_count(),
+                active_lanes=(issued.mask & ds_active_mask(ds_value)).bit_count(),
                 mask=issued.mask,
                 declared_width=ds.valid_elements,
-                partition=int(ds.partition),
+                partition=ds.num_partitions,
                 identity=issued.mult_identity.any,
                 wide_fp32=self.state.fmt is ElementFormat.FP32,
             )
@@ -293,39 +292,21 @@ class ExecutionObserver:
             facts["mult"] = self.mult
             facts["previous_acc_id"] = self.acc.id if self.acc else None
             facts["scale_lanes"] = self.accumulator_scale(plan.inst_name, kwargs)
-        if slot == "aaq":
+        if plan.inst_name in AAQ_STORES:
             facts["acc"] = self.acc
-            facts["lossy"] = not (
-                is_wide_format(self.state.fmt) and not self.state.aaq.quantize_output
-            )
-            active = min(LANES, self.state.get_dstructure_for(kwargs["cr_idx"]).valid_elements)
-            active_mask = (1 << active) - 1
+            # NX8 quantizes; FP32 (and ACTIVATE.EXACT, FP32 only) stores exactly.
+            facts["lossy"] = not is_wide_format(self.state.fmt)
+            active_mask = ds_active_mask(self.ds_half(kwargs["ds"]))
             facts["input_scale_verified"] = (
-                bool(active) and self.acc_scale & active_mask == active_mask
+                bool(active_mask) and self.acc_scale & active_mask == active_mask
             )
+            # Inactive lanes are written 0, which positive scaling keeps.
+            full = (1 << LANES) - 1
             facts["scale_lanes"] = (
-                (self.post_scale & ~active_mask) | (self.acc_scale & active_mask)
+                (full & ~active_mask) | (self.acc_scale & active_mask)
                 if kwargs["activation_fn"] == ACTIVATION_IDENTITY and not facts["lossy"]
                 else 0
             )
-        if slot == "store":
-            if self.post:
-                # Transfers need the old accumulator version, not its recursive
-                # expression tree. EXP uses the current AAQ event directly.
-                post_facts = self.post.facts.copy()
-                old = post_facts.get("acc")
-                post_facts["acc"] = (
-                    Event(old.id, old.cycle, old.pc, old.slot, old.instruction) if old else None
-                )
-                facts["post"] = Event(
-                    self.post.id,
-                    self.post.cycle,
-                    self.post.pc,
-                    self.post.slot,
-                    self.post.instruction,
-                    post_facts,
-                )
-                facts["scale_lanes"] = self.post_scale
         if slot == "cond":
             diamond = self.diamond(plan, kwargs)
             if diamond:
@@ -388,12 +369,16 @@ class ExecutionObserver:
         if name in ("ACC.ADD", "ACC.SUB", "ACC.MAX"):
             return self.acc_scale & mult
         if name.startswith(("AGG.SUM", "AGG.MAX")):
-            active = min(LANES, self.state.get_dstructure_for(kw["cr_idx"]).valid_elements)
+            active = ds_of(self.ds_half(kw["ds"])).valid_elements
             mask = (1 << active) - 1
             dest = 1 << (kw["dest_slot"] % LANES)
             proven = mult & mask == mask and (name.endswith(".FIRST") or self.acc_scale & dest)
             return (self.acc_scale & ~dest) | (dest if proven else 0)
         return 0
+
+    def ds_half(self, code):
+        """The DS half-CR operand *code*'s 16 bits, from the live CRs (never written in a run)."""
+        return half_of(code, self.state.regfile.get_cr(code >> 1))
 
     def window(self, bank, start, length):
         """Associate snapshot operands with loads, including cyclic slot crossings."""
@@ -414,7 +399,10 @@ class ExecutionObserver:
 
     def constants(self, sources):
         # A property of a complete loaded row. Partial/cross-row operands cannot
-        # prove that a complete MULT operand is a broadcast constant.
+        # prove that a complete MULT operand is a broadcast constant. FP32 only:
+        # an NX8 row's values depend on the QF and metadata it is read with.
+        if self.state.fmt is not ElementFormat.FP32:
+            return ()
         result = []
         for source in sources:
             if "constant_properties" in source.facts:
@@ -428,7 +416,7 @@ class ExecutionObserver:
                 continue
             element = element_width_bytes(element_fmt)
             codec = self.state.codec
-            one = codec.one()
+            one = struct.pack("<f", 1.0)
             zero = bytes(element)
             if data != data[:element] * LANES and data.replace(one, b"").replace(zero, b""):
                 source.facts["constant_properties"] = None
@@ -445,9 +433,7 @@ class ExecutionObserver:
                 "binary": binary,
                 "declared": source.facts.get("declared", False),
                 "fractional": uniform and values[0] != int(values[0]),
-                "log2e": uniform and data[:4] == struct.pack("<f", math.log2(math.e))
-                if self.state.fmt is ElementFormat.FP32
-                else False,
+                "log2e": uniform and data[:4] == struct.pack("<f", math.log2(math.e)),
             }
             # Cache scalar properties only (no self-reference).
             source.facts["constant_properties"] = {
@@ -490,7 +476,7 @@ class ExecutionObserver:
                 previous_read=previous,
                 declared=not any(versions),
             )
-            if origin and origin.instruction == "ST.AAQ":
+            if origin and origin.instruction in AAQ_STORES:
                 store_address = origin.facts["accesses"][0][1]
                 if (address - store_address) % 4 == 0:
                     facts["scale_lanes"] = (
@@ -524,9 +510,6 @@ class ExecutionObserver:
                 self.chain += 1
             self.acc = event
             self.acc_scale = facts.get("scale_lanes", 0)
-        elif slot == "aaq":
-            self.post = event
-            self.post_scale = facts.get("scale_lanes", 0)
         for kind, address, data, _ in self.accesses:
             if kind == "write":
                 stored = (address, len(data), event)

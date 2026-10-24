@@ -1,18 +1,18 @@
 # vector_tour: the Cycle Inspector's curated conformance program (E08-16,
-# E07-26). One fixed 4 x 128 tour of the MULT and ACC slots, in the four 8-bit
-# hardware formats; each case runs in one of them.
+# E07-26). One fixed 4 x 128 tour of the MULT, ACC and AaQ slots in NX8 (the
+# hardware mode, ADR 0007); each case runs in one NX8 variant.
 [kernel]
 op = "vector_tour"
-formats = ["int8", "e4", "e5", "e3"]
+formats = ["e3", "e4", "e5", "dynamic"]
 
 [params]
-two       = { type = "float", default = 2.0 }   # element scalar: encoded in the active format
-int8_tail = { type = "bool", default = false }  # run ACTIVATE.QUANTIZE RELU and store relu (INT8 only)
+two = { type = "float", default = 2.0 }         # MULT constant: the NX8 constant layout
 
 [derived]
-slot1     = "128"                               # the second R_CYCLIC slot, in elements
-acc_rows  = "4"                                 # rows one R_ACC store spans (8-bit formats)
-last_row  = "3"                                 # rows of a - 1: BLT.S reads LR1 from cycle start
+slot1    = "128"                                # the second R_CYCLIC slot, in elements
+lane     = "4"                                  # the R0 element used as a scalar (LR4)
+last_row = "3"                                  # rows of a - 1: BLT.S reads LR1 from cycle start
+qf       = "case_qf"                            # the case's QF half
 
 # XMEM: a, w, c, mask from row 0 (rows 0-6), acc from row 8, relu after acc.
 [inputs.a]
@@ -25,15 +25,13 @@ shape = [128]
 [inputs.c]
 shape = [128]
 
-[outputs.acc]                                   # three R_ACC stores: INT32 in INT8, else FP32
+[outputs.acc]                                   # three ACTIVATE.QUANTIZE identity stores
 shape = [3, 128]
-store = "accumulator"
 row = 8
 
-[outputs.relu]                                  # ST.AAQ: 128 results, then 384 zeros
-shape = [4, 128]
-row = 20
-when = "int8_tail"
+[outputs.relu]                                  # ACTIVATE.QUANTIZE relu of the third vector
+shape = [128]
+row = 11
 
 [scratch.mask]                                  # three 16-byte R_MASK slots
 shape = [128]
@@ -41,32 +39,30 @@ bytes = "gen.py:mask_slots"
 after = "c"
 
 [abi]
-a         = "CR2"
-w         = "CR3"
-c         = "CR4"
-mask      = "CR5"
-slot1     = "CR6"
-acc       = "CR7"
-relu      = { register = "CR7", offset = -12 }  # stored at acc + 3 * acc_rows
-acc_rows  = "CR8"
-two       = "CR9"
-last_row  = "CR11"
-int8_tail = "CR12"
+a        = "CR2"
+w        = "CR3"
+c        = "CR4"
+mask     = "CR5"
+slot1    = "CR6"
+acc      = "CR7"
+relu     = { register = "CR7", offset = -3 }    # stored at acc + 3 (one row per store)
+lane     = "CR8"
+two      = "CR9"
+last_row = "CR11"
+qf       = "CR14"
 
 [golden]
 reference = "reference.py:reference"
-tolerance = { int32 = "EXACT", fp32 = "EXACT" } # acc, an accumulator output; relu is INT8, EXACT too
+tolerance = { nx8 = "EXACT" }                   # exact accumulators, quantized like the golden
 
 # The old cases' data: default_rng(16), a then w then c.
 [cases.default]
 generator = "gen.py:seeded_steps"
-int8_tail = true
-formats = ["int8"]
+formats = ["e4"]
 
-[cases.int8]
+[cases.e3]
 generator = "gen.py:seeded_steps"
-int8_tail = true
-formats = ["int8"]
+formats = ["e3"]
 
 [cases.e4]
 generator = "gen.py:seeded_steps"
@@ -76,6 +72,6 @@ formats = ["e4"]
 generator = "gen.py:seeded_steps"
 formats = ["e5"]
 
-[cases.e3]
+[cases.dynamic]
 generator = "gen.py:seeded_steps"
-formats = ["e3"]
+formats = ["dynamic"]

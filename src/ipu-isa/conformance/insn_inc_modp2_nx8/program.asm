@@ -1,0 +1,4 @@
+# insn_inc_modp2_nx8: INC.MODP2 in NX8
+INC.MODP2 LR2 LR3 2 ;;
+INC.MODP2 LR4 CR5 3 ;;
+HALT ;;

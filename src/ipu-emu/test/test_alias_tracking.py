@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import pytest
 from emu_support import (
+    E4,
     BreakpointRunControl,
     ElementFormat,
     assemble_program,
@@ -18,10 +19,11 @@ from emu_support import (
 )
 
 from ipu_emu.emulator import DebugAction, load_program, run_until_complete, run_with_debug
-from ipu_emu.errors import DebugOnlyInstructionWarning
+from ipu_emu.errors import CrContentError
 from ipu_emu.ipu import LANES, Ipu
 from ipu_emu.ipu_state import IpuState
 from ipu_emu.prototyping import build_enabled
+from ipu_isa.cr_halves import ds
 
 # A declared row narrower than LANES, for the padding cases.
 NARROW_ELEMENTS = 16
@@ -35,61 +37,53 @@ class TestAliasAttribution:
     """Each identity multiply attributes to exactly one alias — first match wins."""
 
     def test_mov_rc_is_the_catch_all(self):
-        state = run("MULT.RC.VE LR0 CR1 0 LR0 CR15 ; ACC.ADD.FIRST ;;\nHALT;;")
+        state = run("MULT.RC.VE LR0 CR1 0 LR0 CR15.L CR14.L ; ACC.ADD.FIRST ;;\nHALT;;")
         assert state.stats.alias_hits == {"A1_MOV_RC": 1}
 
     def test_running_acc_add_is_a_vector_add(self):
-        state = run("MULT.RC.VE LR0 CR1 0 LR0 CR15 ; ACC.ADD ;;\nHALT;;")
+        state = run("MULT.RC.VE LR0 CR1 0 LR0 CR15.L CR14.L ; ACC.ADD ;;\nHALT;;")
         assert state.stats.alias_hits == {"A2_ADD_VV": 1}
 
     def test_acc_sub_is_a_vector_subtract(self):
-        state = run("MULT.RC.VE LR0 CR1 0 LR0 CR15 ; ACC.SUB ;;\nHALT;;")
+        state = run("MULT.RC.VE LR0 CR1 0 LR0 CR15.L CR14.L ; ACC.SUB ;;\nHALT;;")
         assert state.stats.alias_hits == {"A3_SUB_VV": 1}
 
     def test_agg_sum_is_a_register_reduce(self):
         state = run(
-            "MULT.RC.VE LR0 CR1 0 LR0 CR15 ; AGG.SUM.FIRST LR3 CR15 ;;\nHALT;;",
+            "MULT.RC.VE LR0 CR1 0 LR0 CR15.L CR14.L ; AGG.SUM.FIRST LR3 CR15.L ;;\nHALT;;",
         )
         assert state.stats.alias_hits == {"A4_AGG_RC": 1}
 
     def test_mult_ee_is_a_broadcast(self):
-        state = run("MULT.EE LR1 CR1 0 LR0 CR15 ; ACC.ADD.FIRST ;;\nHALT;;")
+        state = run("MULT.EE LR1 CR1 0 LR0 CR15.L CR14.L ; ACC.ADD.FIRST ;;\nHALT;;")
         assert state.stats.alias_hits == {"A5_BCAST": 1}
 
     def test_nonzero_mask_offset_is_a_scatter(self):
-        state = run("MULT.RC.VE LR0 CR1 3 LR0 CR15 ; ACC.ADD ;;\nHALT;;")
+        state = run("MULT.RC.VE LR0 CR1 3 LR0 CR15.L CR14.L ; ACC.ADD ;;\nHALT;;")
         assert state.stats.alias_hits == {"A6_GATHER_SCATTER": 1}
-
-    def test_simulation_only_store_is_flagged(self):
-        with pytest.warns(DebugOnlyInstructionWarning):
-            state = run("ST.ACC LR2 CR2 ;;\nHALT;;")
-        assert state.stats.alias_hits == {"A16_STR_ACC_REG": 1}
 
     def test_hits_partition_identity_cycles(self):
         state = run(
-            "MULT.RC.VE LR0 CR1 0 LR0 CR15 ; ACC.ADD.FIRST ;;\n"
-            "MULT.RC.VE LR0 CR1 0 LR0 CR15 ; ACC.ADD ;;\n"
-            "MULT.RC.VE LR0 CR1 0 LR0 CR15 ; ACC.SUB ;;\n"
+            "MULT.RC.VE LR0 CR1 0 LR0 CR15.L CR14.L ; ACC.ADD.FIRST ;;\n"
+            "MULT.RC.VE LR0 CR1 0 LR0 CR15.L CR14.L ; ACC.ADD ;;\n"
+            "MULT.RC.VE LR0 CR1 0 LR0 CR15.L CR14.L ; ACC.SUB ;;\n"
             "HALT;;",
         )
         stats = state.stats
-        mult_hits = sum(
-            count for alias, count in stats.alias_hits.items() if alias != "A16_STR_ACC_REG"
-        )
-        assert mult_hits == stats.mult_identity_cycles == 3
+        assert sum(stats.alias_hits.values()) == stats.mult_identity_cycles == 3
 
 
 class TestGenuineWorkIsNotFlagged:
     def test_weight_indexed_multiply_is_not_an_alias(self):
         # src is an LR selecting an Ra element — a real weight, not a constant.
-        state = run("MULT.RC.VE LR0 LR2 0 LR0 CR15 ; ACC.ADD ;;\nHALT;;")
+        state = run("MULT.RC.VE LR0 LR2 0 LR0 CR15.L CR14.L ; ACC.ADD ;;\nHALT;;")
         stats = state.stats
         assert stats.alias_hits == {}
         assert stats.mult_identity_cycles == 0
         assert stats.mult_active_cycles == 1
 
     def test_vector_by_vector_multiply_has_no_scalar_to_flag(self):
-        state = run("MULT.RC.VV LR0 R0 0 LR0 CR15 ; ACC.ADD ;;\nHALT;;")
+        state = run("MULT.RC.VV LR0 R0 0 LR0 CR15.L CR14.L ; ACC.ADD ;;\nHALT;;")
         assert state.stats.alias_hits == {}
         assert state.stats.mult_identity_cycles == 0
 
@@ -97,8 +91,8 @@ class TestGenuineWorkIsNotFlagged:
         # MULT.RC.VV has no scalar operand to probe, so it must not be judged
         # by the identity multiply that ran the cycle before it.
         state = run(
-            "MULT.RC.VE LR0 CR1 0 LR0 CR15 ; ACC.ADD.FIRST ;;\n"
-            "MULT.RC.VV LR0 R0 0 LR0 CR15 ; ACC.ADD ;;\n"
+            "MULT.RC.VE LR0 CR1 0 LR0 CR15.L CR14.L ; ACC.ADD.FIRST ;;\n"
+            "MULT.RC.VV LR0 R0 0 LR0 CR15.L CR14.L ; ACC.ADD ;;\n"
             "HALT;;"
         )
         stats = state.stats
@@ -118,9 +112,9 @@ class TestRealWeightsAreNotIdentity:
     """
 
     def test_weight_of_value_one_is_still_real_work(self):
-        # R0[5] = 1 (a perfectly ordinary INT8 weight); LR2 = 5 selects it.
+        # R0[5] holds an ordinary NX8 weight code; LR2 = 5 selects it.
         state = make_state(
-            "SET LR2 CR5 ;;\nMULT.RC.VE LR0 LR2 0 LR0 CR15 ; ACC.ADD ;;\nHALT;;",
+            "SET LR2 CR5 ;;\nMULT.RC.VE LR0 LR2 0 LR0 CR15.L CR14.L ; ACC.ADD ;;\nHALT;;",
             cr={5: 5},
         )
         # Write the raw combined Ra buffer (R0 ++ R1) so LR2 finds the weight.
@@ -132,36 +126,35 @@ class TestRealWeightsAreNotIdentity:
         assert stats.effective_mac_utilization > 0.0
 
     def test_constant_register_of_value_one_is_a_pass_through(self):
-        state = run("MULT.RC.VE LR0 CR1 0 LR0 CR15 ; ACC.ADD ;;\nHALT;;")
+        state = run("MULT.RC.VE LR0 CR1 0 LR0 CR15.L CR14.L ; ACC.ADD ;;\nHALT;;")
         assert state.stats.mult_identity_cycles == 1
 
 
 class TestLaneAccounting:
     def test_full_width_multiply_counts_every_lane(self):
-        state = run("MULT.RC.VE LR0 LR2 0 LR0 CR15 ; ACC.ADD ;;\nHALT;;")
+        state = run("MULT.RC.VE LR0 LR2 0 LR0 CR15.L CR14.L ; ACC.ADD ;;\nHALT;;")
         assert state.stats.mult_lane_ops == LANES
 
     def test_declared_narrow_row_counts_only_declared_lanes(self):
         state = run(
-            "MULT.RC.VE LR0 LR2 0 LR0 CR15 ; ACC.ADD ;;\nHALT;;",
-            dstructure={"valid_elements": NARROW_ELEMENTS},
+            "MULT.RC.VE LR0 LR2 0 LR0 CR15.L CR14.L ; ACC.ADD ;;\nHALT;;",
+            ds=ds(NARROW_ELEMENTS),
         )
         stats = state.stats
         assert stats.mult_lane_ops == NARROW_ELEMENTS
         # The cycle is still fully occupied — that is the distortion being exposed.
         assert stats.mult_active_cycles == 1
 
-    def test_undeclared_dstructure_register_does_not_zero_the_lane_count(self):
-        # Naming a CR that carries no dstructure config decodes valid_elements
-        # as 0. The multiply still retires every masked-in lane, so 0 would be a silent
-        # under-report of exactly the metric this feature exists to fix.
-        state = run("MULT.RC.VE LR0 LR2 0 LR0 CR3 ; ACC.ADD ;;\nHALT;;")
-        stats = state.stats
-        assert stats.mult_lane_ops == LANES
-        assert stats.effective_mac_utilization > 0.0
+    def test_a_ds_half_with_no_valid_ds_refuses_the_word(self):
+        # CR3.L is 0: no valid DS (valid_partitions 0). The word is refused in
+        # its check phase (ADR 0007) instead of counting zero lanes.
+        state = make_state("MULT.RC.VE LR0 LR2 0 LR0 CR3.L CR14.L ; ACC.ADD ;;\nHALT;;")
+        with pytest.raises(CrContentError, match="DS half"):
+            run_until_complete(state)
+        assert state.stats.mult_lane_ops == 0
 
     def test_identity_work_is_excluded_from_effective_mac(self):
-        state = run("MULT.RC.VE LR0 CR1 0 LR0 CR15 ; ACC.ADD.FIRST ;;\nHALT;;")
+        state = run("MULT.RC.VE LR0 CR1 0 LR0 CR15.L CR14.L ; ACC.ADD.FIRST ;;\nHALT;;")
         stats = state.stats
         assert stats.mult_lane_ops == stats.mult_identity_lane_ops == LANES
         assert stats.effective_mac_utilization == 0.0
@@ -192,7 +185,7 @@ class TestIdleAccounting:
 
     def test_idle_count_is_current_at_debugger_stops(self):
         state = make_state(
-            "MULT.RC.VE LR0 CR1 0 LR0 CR15 ; ACC.ADD.FIRST ;;\nADD LR1 LR1 CR1 ;;\nHALT;;"
+            "MULT.RC.VE LR0 CR1 0 LR0 CR15.L CR14.L ; ACC.ADD.FIRST ;;\nADD LR1 LR1 CR1 ;;\nHALT;;"
         )
         control = BreakpointRunControl()
         control.add_breakpoint(1)
@@ -222,10 +215,10 @@ class TestIdleAccounting:
 
 class TestSummaryRendering:
     def test_alias_block_only_appears_when_there_are_hits(self):
-        clean = run("MULT.RC.VV LR0 R0 0 LR0 CR15 ; ACC.ADD ;;\nHALT;;")
+        clean = run("MULT.RC.VV LR0 R0 0 LR0 CR15.L CR14.L ; ACC.ADD ;;\nHALT;;")
         assert "ISA alias hits" not in clean.stats.format_summary()
 
-        faked = run("MULT.RC.VE LR0 CR1 0 LR0 CR15 ; ACC.ADD.FIRST ;;\nHALT;;")
+        faked = run("MULT.RC.VE LR0 CR1 0 LR0 CR15.L CR14.L ; ACC.ADD.FIRST ;;\nHALT;;")
         summary = faked.stats.format_summary()
         assert "ISA alias hits" in summary
         assert "A1_MOV_RC" in summary
@@ -233,16 +226,17 @@ class TestSummaryRendering:
 
 class TestDeclaredVectorIdentities:
     @staticmethod
-    def prepare(*, wide=False, fmt=ElementFormat.INT8, declared=True, ring=False, tail=""):
+    def prepare(*, wide=False, fmt=ElementFormat.NX8, declared=True, ring=False, tail=""):
         fmt = ElementFormat.FP32 if wide else fmt
         state = new_state(fmt=fmt)
-        state.write_constant_ones(0)
+        state.write_constant_ones(0, qf=E4)
         size = 512 if wide else 128
         ones = state.xmem.read_address(0, size)
         if not declared:
             # Even writing the identical values revokes their constant intent.
             state.xmem.write_address(0, ones)
         state.xmem.write_address(size, ones)  # ordinary data equal to one
+        state.xmem.write_metadata(size, state.xmem.read_metadata(0))
         state.regfile.set_cr(2, 1)
         first = "CR2" if ring else "CR0"
         second = "CR0" if ring else "CR2"
@@ -258,22 +252,24 @@ class TestDeclaredVectorIdentities:
             wide=wide,
             ring=ring,
             declared=declared,
-            tail="MULT.RC.VV LR0 R0 0 LR0 CR15 ; ACC.ADD ;;\nHALT;;",
+            tail="MULT.RC.VV LR0 R0 0 LR0 CR15.L CR14.L ; ACC.ADD ;;\nHALT;;",
         )
         run_until_complete(state)
         assert state.stats.alias_hits == ({"A2_ADD_VV": 1} if declared else {})
         assert state.stats.mult_identity_lane_ops == (128 if declared else 0)
 
     def test_declared_ring_ones_with_lr_selected_beta(self):
-        state = self.prepare(ring=True, tail="MULT.RC.VE LR0 LR0 0 LR0 CR15 ; ACC.ADD ;;\nHALT;;")
+        state = self.prepare(
+            ring=True, tail="MULT.RC.VE LR0 LR0 0 LR0 CR15.L CR14.L ; ACC.ADD ;;\nHALT;;"
+        )
         run_until_complete(state)
         assert state.stats.alias_hits == {"A2_ADD_VV": 1}
 
     def test_same_cycle_overwrite_uses_snapshot_then_revokes(self):
         state = self.prepare(
             tail=(
-                "LD.MULT R0 LR0 CR2 ; MULT.RC.VV LR0 R0 0 LR0 CR15 ; ACC.ADD ;;\n"
-                "MULT.RC.VV LR0 R0 0 LR0 CR15 ; ACC.ADD ;;\nHALT;;"
+                "LD.MULT R0 LR0 CR2 ; MULT.RC.VV LR0 R0 0 LR0 CR15.L CR14.L ; ACC.ADD ;;\n"
+                "MULT.RC.VV LR0 R0 0 LR0 CR15.L CR14.L ; ACC.ADD ;;\nHALT;;"
             )
         )
         run_until_complete(state)
@@ -282,7 +278,7 @@ class TestDeclaredVectorIdentities:
 
     @pytest.mark.parametrize("mutation", ["setter", "raw", "memory"])
     def test_mutation_revokes_provenance_even_if_values_are_ones(self, mutation):
-        state = self.prepare(tail="MULT.RC.VV LR0 R0 0 LR0 CR15 ; ACC.ADD ;;\nHALT;;")
+        state = self.prepare(tail="MULT.RC.VV LR0 R0 0 LR0 CR15.L CR14.L ; ACC.ADD ;;\nHALT;;")
         engine = Ipu(state)
         if mutation == "memory":
             state.xmem[0:128] = bytes([1]) * 128
@@ -296,11 +292,11 @@ class TestDeclaredVectorIdentities:
         run_until_complete(state)
         assert state.stats.alias_hits == {}
 
-    @pytest.mark.parametrize("fmt", [ElementFormat.INT8, ElementFormat.E4, ElementFormat.E5])
-    def test_declared_ones_are_format_correct(self, fmt):
+    @pytest.mark.parametrize("wide", [False, True])
+    def test_declared_ones_are_format_correct(self, wide):
         state = self.prepare(
-            fmt=fmt,
-            tail="MULT.RC.VV LR0 R0 0 LR0 CR15 ; ACC.ADD.FIRST ;;\nHALT;;",
+            wide=wide,
+            tail="MULT.RC.VV LR0 R0 0 LR0 CR15.L CR14.L ; ACC.ADD.FIRST ;;\nHALT;;",
         )
         run_until_complete(state)
         assert state.stats.alias_hits == {"A1_MOV_RC": 1}
@@ -308,30 +304,33 @@ class TestDeclaredVectorIdentities:
     @pytest.mark.parametrize("valid,expected", [(128, "A6_GATHER_SCATTER"), (16, "A1_MOV_RC")])
     def test_mask_zero_window_is_distinct_from_declared_padding(self, valid, expected):
         state = make_state(
-            "MULT.RC.VE LR0 CR1 0 LR0 CR15 ; ACC.ADD.FIRST ;;\nHALT;;",
-            dstructure={"valid_elements": valid},
+            "MULT.RC.VE LR0 CR1 0 LR0 CR15.L CR14.L ; ACC.ADD.FIRST ;;\nHALT;;",
+            ds=ds(valid),
         )
         state.regfile.set_r_mask(((1 << 16) - 1).to_bytes(16, "little") + bytes(112))
         run_until_complete(state)
         assert state.stats.alias_hits == {expected: 1}
 
     def test_shifted_mask_zero_uses_the_effective_window(self):
-        state = run("MULT.RC.VE LR0 CR1 0 LR1 CR15 ; ACC.ADD.FIRST ;;\nHALT;;")
+        state = run("MULT.RC.VE LR0 CR1 0 LR1 CR15.L CR14.L ; ACC.ADD.FIRST ;;\nHALT;;")
         # The default LR1 is zero; ordinary full-width move remains A1.
         assert state.stats.alias_hits == {"A1_MOV_RC": 1}
-        shifted = run("SET LR1 CR1;; MULT.RC.VE LR0 CR1 0 LR1 CR15 ; ACC.ADD.FIRST ;; HALT;;")
+        shifted = run(
+            "SET LR1 CR1;; MULT.RC.VE LR0 CR1 0 LR1 CR15.L CR14.L ; ACC.ADD.FIRST ;; HALT;;"
+        )
         assert shifted.stats.alias_hits == {"A6_GATHER_SCATTER": 1}
 
     def test_stride_routes_a_declared_vector(self):
         state = self.prepare(
-            ring=True, tail="MULT.RC.VV LR0 R0 0 LR0 CR15 ; ACC.STRIDE 16 on off LR0 ;;\nHALT;;"
+            ring=True,
+            tail="MULT.RC.VV LR0 R0 0 LR0 CR15.L CR14.L ; ACC.STRIDE 16 on off LR0 ;;\nHALT;;",
         )
         run_until_complete(state)
         assert state.stats.alias_hits == {"A6_GATHER_SCATTER": 1}
 
     def test_cyclic_window_requires_provenance_across_all_source_lanes(self):
-        state = IpuState()
-        state.write_constant_ones(0)
+        state = new_state()
+        state.write_constant_ones(0, qf=E4)
         state.xmem.write_address(128, bytes([1]) * 128)
         state.regfile.set_cr(2, 128)
         state.regfile.set_cr(3, 64)
@@ -339,15 +338,15 @@ class TestDeclaredVectorIdentities:
         code = """SET LR2 CR2;; SET LR3 CR3;;
 LD.MULT.CYCLIC LR0 CR0 LR0;;
 LD.MULT.CYCLIC LR0 CR0 LR2;;
-MULT.RC.VE LR3 LR0 0 LR0 CR15 ; ACC.ADD;;
+MULT.RC.VE LR3 LR0 0 LR0 CR15.L CR14.L ; ACC.ADD;;
 LD.MULT.CYCLIC LR0 CR4 LR2;;
-MULT.RC.VE LR3 LR0 0 LR0 CR15 ; ACC.ADD;; HALT;;"""
+MULT.RC.VE LR3 LR0 0 LR0 CR15.L CR14.L ; ACC.ADD;; HALT;;"""
         load_program(state, assemble_program(code))
         run_until_complete(state)
         assert state.stats.alias_hits == {"A2_ADD_VV": 1}
 
     def test_retained_mutable_handle_cannot_reacquire_constant_provenance(self):
-        state = self.prepare(tail="MULT.RC.VV LR0 R0 0 LR0 CR15 ; ACC.ADD ;;\nHALT;;")
+        state = self.prepare(tail="MULT.RC.VV LR0 R0 0 LR0 CR15.L CR14.L ; ACC.ADD ;;\nHALT;;")
         with pytest.deprecated_call():
             escaped = state.regfile.raw("r")
         engine = Ipu(state)
@@ -357,13 +356,13 @@ MULT.RC.VE LR3 LR0 0 LR0 CR15 ; ACC.ADD;; HALT;;"""
         assert state.stats.alias_hits == {}
 
     def test_same_cycle_constant_load_does_not_mark_the_old_snapshot(self):
-        state = IpuState()
-        state.write_constant_ones(0)
+        state = new_state()
+        state.write_constant_ones(0, qf=E4)
         state.xmem.write_address(128, bytes([1]) * 128)
         state.regfile.set_cr(2, 1)
         code = """LD.MULT R0 LR0 CR2;;
-LD.MULT.CYCLIC LR0 CR0 LR0 ; MULT.RC.VV LR0 R0 0 LR0 CR15 ; ACC.ADD;;
-MULT.RC.VV LR0 R0 0 LR0 CR15 ; ACC.ADD;; HALT;;"""
+LD.MULT.CYCLIC LR0 CR0 LR0 ; MULT.RC.VV LR0 R0 0 LR0 CR15.L CR14.L ; ACC.ADD;;
+MULT.RC.VV LR0 R0 0 LR0 CR15.L CR14.L ; ACC.ADD;; HALT;;"""
         load_program(state, assemble_program(code))
         run_until_complete(state)
         assert state.stats.alias_hits == {"A2_ADD_VV": 1}
@@ -403,25 +402,20 @@ class TestReadsKeepProvenance:
         assert not state.regfile.has_constant_ones("r_acc", 0, acc_size)
 
     def test_activate_quantize_keeps_r_acc_provenance_into_the_next_cycle(self):
-        # ACTIVATE.QUANTIZE reads the forwarded (live) R_ACC and writes POST_AAQ_REG.
-        state = make_state("ACTIVATE.QUANTIZE relu CR15;;\nHALT;;")
+        # ACTIVATE.QUANTIZE reads the forwarded (live) R_ACC and stores one row.
+        state = make_state("ACTIVATE.QUANTIZE relu CR15.L CR14.L CR0 LR0;;\nHALT;;")
         size = self._mark(state, "r_acc")
         engine = Ipu(state)
         engine.cycle.step()
         self._assert_kept(state, engine, "r_acc", size)
 
-    def test_st_aaq_keeps_post_aaq_provenance(self):
-        state = make_state("ST.AAQ LR0 CR0;;\nHALT;;")
-        size = self._mark(state, "post_aaq_reg")
-        engine = Ipu(state)
-        engine.cycle.step()
-        self._assert_kept(state, engine, "post_aaq_reg", size)
-
     @pytest.mark.skipif(not build_enabled(), reason="requires --define=ipu_proto=1")
     def test_prototyping_mask_shortcut_does_not_pin_r_mask(self):
         # R_MASK is all ones at reset, so the unshifted multiply takes the
         # prototyping shortcut, which reads R_MASK and nothing else of it.
-        state = make_state("MULT.RC.VV LR0 R0 0 LR0 CR15 ; ACC.ADD ;;\nHALT;;", prototyping=True)
+        state = make_state(
+            "MULT.RC.VV LR0 R0 0 LR0 CR15.L CR14.L ; ACC.ADD ;;\nHALT;;", prototyping=True
+        )
         size = self._mark(state, "r_mask")
         engine = Ipu(state)
         engine.cycle.step()

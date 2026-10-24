@@ -17,7 +17,8 @@ pv_stride = "1"          # CR5
 p_block_rows = "n_tok"   # CR8: 64
 inner_bound = "n_tok - 2" # CR9: 62 since E04-25 (was 63)
 out_chan_stride = "1"    # CR12
-dstruct = "dstructure(n_tok)" # CR15: valid_elements = n_tok
+dstruct = "ds(n_tok)" # CR15: valid_elements = n_tok
+qf = "case_qf"           # the case's QF half (0: FP32 ignores it)
 
 # The old placement: the inputs back to back from row 0 in the order below, then the output; first fit in
 # declaration order reproduces it (E07-12/13).
@@ -31,7 +32,7 @@ shape = ["n_head", "d", "n_tok"]
 
 [outputs.y]                             # O channel-major: row (h*d + t) holds n_tok queries
 shape = ["n_head", "d", "n_tok"]
-# ST.AAQ, one row per store, in row order
+# ACTIVATE.EXACT, one row per store, in row order
 
 [abi]
 b = "CR2"        # P_BASE
@@ -44,6 +45,7 @@ d = "CR10"
 n_head = "CR11"
 out_chan_stride = "CR12"
 dstruct = "CR15"
+qf = "CR14"
 
 [golden]
 op = "matmul_nt"                        # y = a @ b^T: V @ P^T, P query-major

@@ -34,6 +34,7 @@ slot3    = "3"
 src_stride = "1"
 dst_stride = "2"
 tg1_offset = "1"
+qf       = "case_qf"                     # the case's QF half (0: FP32 ignores it)
 
 [inputs.x]                    # 8 stripe(s) of 4 spatial rows, one row per channel
 shape = ["c", "h", "w"]
@@ -74,6 +75,7 @@ slot0      = "LR0"
 src_row    = "LR4"
 dst_row    = "LR8"
 channel    = "LR10"
+qf       = "CR14"
 
 [golden]
 op = "unfold"

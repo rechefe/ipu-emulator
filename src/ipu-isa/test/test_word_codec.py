@@ -26,13 +26,13 @@ from ipu_isa.view import isa
 #: E02-02's snapshot of the assembler's word fields, LSB first.
 WORD_FIELDS = Path("src/ipu-as/test/baselines/word_fields.json")
 
-_WORDS = [0, (1 << 186) - 1, *(random.Random(3).getrandbits(186) for _ in range(64))]
+_WORDS = [0, (1 << 209) - 1, *(random.Random(3).getrandbits(209) for _ in range(64))]
 
 
 def test_layout_matches_the_assembler_snapshot():
     snapshot = json.loads(WORD_FIELDS.read_text())
     assert [[f.name, f.bits] for f in WORD_LAYOUT] == snapshot["fields_lsb_first"]
-    assert sum(f.bits for f in WORD_LAYOUT) == snapshot["total_bits"] == 186
+    assert sum(f.bits for f in WORD_LAYOUT) == snapshot["total_bits"] == 209
 
 
 def test_fields_tile_the_word():
@@ -72,14 +72,14 @@ def test_slot_value():
 
 
 def test_word_bytes():
-    assert word_bytes() == 24
-    assert word_bytes(Tag.HARDWARE) == 20
+    assert word_bytes() == 28
+    assert word_bytes(Tag.HARDWARE) == 24
 
 
 def test_hardware_word_drops_the_emulator_slots():
     emulator = [f for f in WORD_LAYOUT if isa().slots[f.slot].tag is Tag.EMULATOR]
-    assert {f.slot for f in emulator} == {Slot.ACC_STORE, Slot.BREAK}
-    low_bits = 186 - 155  # emulator word minus hardware word (E03-07)
+    assert {f.slot for f in emulator} == {Slot.AAQ_EXACT, Slot.BREAK}
+    low_bits = 209 - 169  # emulator word minus hardware word (E03-07)
     assert sum(f.bits for f in emulator) == low_bits
     assert all(f.shift < low_bits for f in emulator)
     for word in _WORDS:
@@ -88,11 +88,11 @@ def test_hardware_word_drops_the_emulator_slots():
 
 
 def test_unpack_words():
-    assert unpack_words(bytes(range(24)) + b"\xff") == [int.from_bytes(bytes(range(24)), "little")]
+    assert unpack_words(bytes(range(28)) + b"\xff") == [int.from_bytes(bytes(range(28)), "little")]
 
 
 def test_program_round_trip():
     data = pack_program(_WORDS)
-    assert len(data) == len(_WORDS) * 24
+    assert len(data) == len(_WORDS) * 28
     assert [w.to_word() for w in unpack_program(data)] == _WORDS
     assert unpack_program(data + b"\x00" * 5) == unpack_program(data)  # partial word ignored

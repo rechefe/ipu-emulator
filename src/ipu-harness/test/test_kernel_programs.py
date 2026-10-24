@@ -62,9 +62,11 @@ def test_a_multi_stage_kernel_contributes_every_stage():
             assert own and default_programs(manifest)[fmt].words == own[-1].words
 
 
-def test_some_kernel_programs_are_hardware_programs():
-    hardware = sum(assembles_for_hardware(p.values[0].rendered) for p in PROGRAMS)
-    assert hardware > 10
+def test_the_nx8_tour_is_a_hardware_program():
+    # FP32 kernels store through the emulator-only ACTIVATE.EXACT (ADR 0007), so
+    # only NX8 programs without BREAK assemble for hardware; vector_tour is one.
+    tours = [p for p in PROGRAMS if p.id.startswith("vector_tour-")]
+    assert tours and all(assembles_for_hardware(p.values[0].rendered) for p in tours)
 
 
 @pytest.mark.parametrize("program", PROGRAMS)

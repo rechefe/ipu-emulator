@@ -87,8 +87,8 @@ def window_key(window: XmemWindow) -> WindowKey:
     return (window.byte_address, window.byte_count, window.request.fmt, window.row_size)
 
 
-#: The numeric tab of the four-byte formats; every 8-bit format shows int8.
-_NUMERIC_FORMAT = {ElementFormat.FP32: "f32", ElementFormat.INT32: "u32"}
+#: The numeric tab of the FP32 mode; an NX8 row's bytes show as int8.
+_NUMERIC_FORMAT = {ElementFormat.FP32: "f32"}
 
 
 def default_tabs(state: IpuState) -> list[XmemTab]:
@@ -283,7 +283,11 @@ class XmemPane:
         lines = self._lines.get(key)
         if lines is None:
             lines = debug_format.tokenize_xmem(
-                window.data, window.byte_address, window.request.fmt, window.row_size
+                window.data,
+                window.byte_address,
+                window.request.fmt,
+                window.row_size,
+                dict(window.row_metadata),
             )
             self._lines[key] = lines
         return lines

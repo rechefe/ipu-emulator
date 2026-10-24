@@ -19,15 +19,15 @@ const { commandsFor } = require('../analysis');
 const checker = require('../checker');
 
 const REPO = path.resolve(__dirname, '..', '..');
-/** The committed recordings: the extension's own corpus and a kernel with a `for` (the
- * `macro` kernel, a MobileViT packed program, moved to //kernels, E07-23; the
- * `macro-param` snippet covers macros). */
+/** The committed recordings: the extension's own corpus. The `loop` snippet covers a `for` and
+ * the `macro-param` snippet macros. No kernel of //kernels is recorded: since ADR 0007 every
+ * kernel with a `for` reads `{{ cr.* }}` bindings, which `check` on its text alone cannot
+ * render. */
 const FILES = [
   'vscode-ipu-asm/test/corpus/edge_cases.asm',
   ...fs.readdirSync(path.join(__dirname, 'corpus', 'negative')).filter((f) => f.endsWith('.asm')).sort()
     .map((f) => `vscode-ipu-asm/test/corpus/negative/${f}`),
   'vscode-ipu-asm/test/integration/fixture/kernels/demo/demo_kernel/demo_kernel.asm',
-  'kernels/sampling/sample_descriptors/sample_descriptors.asm',
 ];
 const SNIPPETS = path.join(__dirname, 'fixtures', 'analysis-snippets.json');
 const digest = (text) => crypto.createHash('sha256').update(text).digest('hex');

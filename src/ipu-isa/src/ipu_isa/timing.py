@@ -11,7 +11,8 @@ The contract (decision Q32, ADR 0002) is four rules:
 
 1. the Control stage (LR, COND) reads LRs at cycle start; every other stage
    reads LRs after the LR writes of the same word;
-2. MULT reads R0, R1, R_CYCLIC and R_MASK at cycle start;
+2. MULT reads R0, R1, R_CYCLIC and R_MASK, and their row metadata, at cycle
+   start (ADR 0007);
 3. MULT_RES is forwarded to ACC, AGG and RESHAPE; R_ACC is forwarded to AAQ;
 4. LR sub-slots read cycle-start values.
 
@@ -77,8 +78,7 @@ SLOT_EXECUTION_ORDER: tuple[Slot, ...] = (
     Slot.MULT,
     Slot.ACC,
     Slot.AAQ,
-    Slot.STORE,
-    Slot.ACC_STORE,
+    Slot.AAQ_EXACT,
     Slot.COND,
 )
 
@@ -94,6 +94,7 @@ OPERAND_REGISTERS: Mapping[str, tuple[str, ...]] = {
     "LrdIdx": ("lr",),
     "CrIdx": ("cr",),
     "LcrIdx": ("lr", "cr"),
+    "LcrHalfIdx": ("lr", "cr"),
 }
 
 
@@ -185,8 +186,9 @@ def register_writers(
 # The contract
 # ---------------------------------------------------------------------------
 
-#: Rule 2: what MULT reads at cycle start ("r" is R0 and R1).
-_MULT_CYCLE_START = frozenset({"r", "r_cyclic", "r_mask"})
+#: Rule 2: what MULT reads at cycle start ("r" is R0 and R1), with the row
+#: metadata loaded beside them (ADR 0007 amends ADR 0002).
+_MULT_CYCLE_START = frozenset({"r", "r_cyclic", "r_mask", "r_meta", "r_cyclic_meta"})
 #: Rule 3: what is forwarded, to which slot.
 _FORWARDED_TO = {("mult_res", Slot.ACC), ("r_acc", Slot.AAQ)}
 

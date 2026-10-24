@@ -15,12 +15,14 @@ from ipu_emu.errors import ConfigurationError
 from ipu_harness.cases import at_values, expand, inputs_for, rng
 from ipu_harness.manifest import KernelManifest, load_manifest
 from ipu_harness.params import PlanError, plan_case
-from ipu_isa.formats import ElementFormat as F
+from ipu_harness.variants import Variant, variant
+
+FP32, E3, E4 = variant("fp32"), variant("e3"), variant("e4")
 
 SCALE = """\
 [kernel]
 op = "scale"
-formats = ["fp32", "int8", "e4"]
+formats = ["fp32", "e3", "e4"]
 
 [params]
 rows = {{ type = "int", min = 1, default = 4 }}
@@ -58,7 +60,8 @@ inputs = {{ x = "data/x.npy" }}
 expected = {{ y = "data/y.npy" }}
 {extra_cases}"""
 
-#: E4 values next to 0.3: 0.28125 and 0.3125 (3 mantissa bits); 0.3 rounds to 0.3125.
+#: A row of 0.3 in NX8 E4: the scale is 2^-2, so 0.3 = 1.2 x 2^-2 lies between
+#: 1.125 x 2^-2 = 0.28125 and 1.25 x 2^-2 = 0.3125 (3 mantissa bits): 0.3125.
 E4_NEAR_0_3 = 0.3125
 
 
@@ -73,7 +76,7 @@ def scale(tmp_path: Path, *, x_extra: str = "", extra_cases: str = "") -> Kernel
     return load_manifest(directory)
 
 
-def planned(manifest: KernelManifest, name: str, fmt: F = F.FP32):
+def planned(manifest: KernelManifest, name: str, fmt: Variant = FP32):
     case = next(c for c in expand(manifest) if c.name == name)
     return case, plan_case(manifest, case.values, fmt, case=case.decl)
 
@@ -102,7 +105,7 @@ def test_scale_expands_to_seven_cases(tmp_path):
     ]
     sweep = cases[3]
     assert dict(sweep.values) == {"rows": 7, "s": 1.5}
-    assert sweep.formats == (F.FP32, F.E4) and cases[0].formats == (F.FP32, F.INT8, F.E4)
+    assert sweep.formats == (FP32, E4) and cases[0].formats == (FP32, E3, E4)
     assert sweep.decl.name == "sweep"
 
 
@@ -167,28 +170,27 @@ def test_generated_inputs_are_in_the_format_and_reproducible(tmp_path):
     m = scale(tmp_path)
     case, fp32 = planned(m, "default")
     x = inputs_for(case, fp32).tensors["x"]
-    assert x.dtype == np.float32 and x.shape == (4, 128) and -1 <= x.min() and x.max() <= 1
+    assert x.shape == (4, 128) and -1 <= x.min() and x.max() <= 1
+    assert np.array_equal(x, x.astype(np.float32))  # float32 values
     assert np.array_equal(x, inputs_for(case, fp32).tensors["x"])
-    _, int8 = planned(m, "default", F.INT8)
-    xi = inputs_for(case, int8).tensors["x"]
-    assert xi.dtype == np.int8 and xi.min() < -100 and xi.max() > 100  # the whole INT8 range
-    _, e4 = planned(m, "default", F.E4)
+    _, e4 = planned(m, "default", E4)
     xe = inputs_for(case, e4).tensors["x"]
-    # E4 holds 3 mantissa bits: each value in [0.5, 1) is a multiple of 1/16.
+    # Each row's largest value is just under 1 (scale 2^-1), and E4 holds 3
+    # mantissa bits: each value in [0.5, 1) is a multiple of 1/16.
     upper = xe[(xe >= 0.5) & (xe < 1)]
     assert upper.size and np.array_equal(upper * 16, np.round(upper * 16))
     assert inputs_for(case, e4).rounded == {}
 
 
 def test_range_keeps_generated_values_inside_it_per_format(tmp_path):
-    m = scale(tmp_path, x_extra="range = { int8 = [-3, 3], fp32 = [0, 0.25] }\n")
-    case, int8 = planned(m, "default", F.INT8)
-    xi = inputs_for(case, int8).tensors["x"]
-    assert set(np.unique(xi).tolist()) == {-3, -2, -1, 0, 1, 2, 3}
+    m = scale(tmp_path, x_extra="range = { e3 = [2, 3], fp32 = [0, 0.25] }\n")
+    case, e3 = planned(m, "default", E3)
+    xi = inputs_for(case, e3).tensors["x"]
+    assert 2 <= xi.min() and xi.max() <= 3
     _, fp32 = planned(m, "default")
     x = inputs_for(case, fp32).tensors["x"]
     assert 0 <= x.min() and x.max() <= 0.25
-    _, e4 = planned(m, "default", F.E4)  # not listed: the default range
+    _, e4 = planned(m, "default", E4)  # not listed: the default range
     assert inputs_for(case, e4).tensors["x"].min() < 0
 
 
@@ -230,9 +232,9 @@ def test_a_generator_file_not_in_the_kernel_folder_is_its_family_folders(tmp_pat
 def test_a_generators_values_are_rounded_to_the_format_and_counted(tmp_path):
     m = scale(tmp_path, extra_cases=MADE)
     generator(m, "return {'x': np.full(plan.shapes['x'], 0.3)}")
-    case, e4 = planned(m, "made", F.E4)
+    case, e4 = planned(m, "made", E4)
     made = inputs_for(case, e4)
-    assert np.array_equal(made.tensors["x"], np.full((2, 128), E4_NEAR_0_3, dtype=np.float32))
+    assert np.array_equal(made.tensors["x"], np.full((2, 128), E4_NEAR_0_3))
     assert made.rounded == {"x": 256}
 
 
@@ -251,12 +253,18 @@ def test_a_user_file_is_rounded_to_the_format_and_counted(tmp_path):
     # report says how many values changed; it is not rejected.
     m = scale(tmp_path)
     x = np.zeros((2, 128))
-    x[0, :3] = (1.5, 200.0, -300.0)  # INT8: 1.5 -> 2 (to even), 200 -> 127, -300 -> -128
+    # NX8 E4, row 0's scale is 2^8 (from -300): 1.5 = 1.5 x 2^0 is exact (exponent
+    # 8 below the scale), 200 = 1.5625 x 2^7 is a tie, rounded half up to
+    # 1.625 x 2^7, and -300 = -1.171875 x 2^8 rounds to -1.125 x 2^8.
+    x[0, :3] = (1.5, 200.0, -300.0)
     np.save(m.directory / "data" / "x.npy", x)
-    case, int8 = planned(m, "mine", F.INT8)
-    got = inputs_for(case, int8)
-    assert got.tensors["x"][0, :4].tolist() == [2, 127, -128, 0]
-    assert got.rounded == {"x": 3}
+    case, e4 = planned(m, "mine", E4)
+    got = inputs_for(case, e4)
+    assert got.tensors["x"][0, :4].tolist() == [1.5, 208.0, -288.0, 0.0]
+    # Row 1 holds only zeros: NX8 treats a zero as normalized (ARCH-stage-aaq-str.md
+    # 4.3.2), so a row of zeros holds 2^-127, its smallest value: 128 more changed.
+    assert got.tensors["x"][1, 0] == 2.0**-127
+    assert got.rounded == {"x": 2 + 128}
     _, fp32 = planned(m, "mine")
     assert inputs_for(case, fp32).rounded == {}  # exact in FP32
 

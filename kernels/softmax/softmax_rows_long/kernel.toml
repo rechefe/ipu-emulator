@@ -20,9 +20,10 @@ full_chunks       = "n // 128"
 device_rows       = "rows * cpr"
 step              = "128 * ceil(device_rows / 128)"
 row_stride        = "1"                              # one XMEM row per chunk
-tail              = "dstructure(n % 128)"            # the tail block's valid elements: 0 makes it a no-op
+tail              = "ds(n % 128)"                    # the tail block's DS: 0 valid elements makes it a no-op
 group_cap         = "128"                            # maxvec's R1 index base
 row_stride_chunks = "cpr"                            # XMEM rows per matrix row (a second name: one register each)
+ds_qf             = "halves(ds(128), case_qf)"       # LOW: the full-chunk DS (the default CR15); HIGH: the case's QF
 
 # The regions sit where the old harness put them: from row 128, the
 # input, the numerators and the output back to back, each rounded up to a
@@ -67,7 +68,7 @@ rows              = "CR11"
 full_chunks       = "CR12"
 cpr               = "CR13"
 row_stride_chunks = "CR14"
-# CR15: the default dstructure (128 valid elements).
+ds_qf             = "CR15"
 
 [golden]
 op = "softmax"

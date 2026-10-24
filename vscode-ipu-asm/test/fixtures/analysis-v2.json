@@ -4,7 +4,7 @@
 {
 "name": "vscode-ipu-asm/test/corpus/edge_cases.asm",
 "file": "vscode-ipu-asm/test/corpus/edge_cases.asm",
-"sha256": "caa690e9c110e1d6d3d052bbf3e38d6e1ee5a37bdb68979c3adc07007c7d9e48",
+"sha256": "991b125ee5d475c4b9552fe2019c0e0a8d132202ecf1b8dd4f92cf7b72a907a7",
 "answer": {
 "schemaVersion": 2,
 "diagnostics": [],
@@ -222,7 +222,7 @@
 {
 "line": 27,
 "column": 0,
-"length": 60,
+"length": 82,
 "type": "COMMENT_LINE",
 "role": "comment"
 },
@@ -278,7 +278,14 @@
 {
 "line": 30,
 "column": 31,
-"length": 4,
+"length": 6,
+"type": "TOKEN",
+"role": "register"
+},
+{
+"line": 30,
+"column": 38,
+"length": 6,
 "type": "TOKEN",
 "role": "register"
 },
@@ -929,8 +936,8 @@
 },
 "defines": [],
 "uses": [],
-"start": 1992,
-"end": 2003
+"start": 2023,
+"end": 2034
 },
 {
 "kind": "block",
@@ -942,8 +949,8 @@
 },
 "defines": [],
 "uses": [],
-"start": 2007,
-"end": 2020
+"start": 2038,
+"end": 2051
 },
 {
 "kind": "block",
@@ -955,8 +962,8 @@
 },
 "defines": [],
 "uses": [],
-"start": 2021,
-"end": 2032
+"start": 2052,
+"end": 2063
 },
 {
 "kind": "variable",
@@ -968,8 +975,8 @@
 },
 "defines": [],
 "uses": [],
-"start": 2041,
-"end": 2050
+"start": 2072,
+"end": 2081
 },
 {
 "kind": "comment",
@@ -981,8 +988,8 @@
 },
 "defines": [],
 "uses": [],
-"start": 2051,
-"end": 2095
+"start": 2082,
+"end": 2126
 }
 ]
 }
@@ -1235,15 +1242,15 @@
 {
 "name": "vscode-ipu-asm/test/corpus/negative/multi_form_collision.asm",
 "file": "vscode-ipu-asm/test/corpus/negative/multi_form_collision.asm",
-"sha256": "933fffbbf0f7f484cce3c9087f1054a609aa1c0a9b267881e746f45bb97d3a0d",
+"sha256": "a961723c4aeac5f03b14e9efcd6fb4c52b5ed7a2bb17c094927eb56df7386cb5",
 "answer": {
 "schemaVersion": 2,
 "diagnostics": [
 {
 "line": 3,
-"column": 59,
+"column": 54,
 "end_line": 3,
-"end_column": 60,
+"end_column": 55,
 "message": "NOP: all slots are already filled",
 "severity": "error",
 "stage": "assemble",
@@ -1348,13 +1355,6 @@
 "length": 3,
 "type": "TOKEN",
 "role": "mnemonic"
-},
-{
-"line": 3,
-"column": 59,
-"length": 3,
-"type": "TOKEN",
-"role": "mnemonic"
 }
 ],
 "words": [
@@ -1363,10 +1363,9 @@
 "line": 3,
 "column": 4,
 "end_line": 3,
-"end_column": 62
+"end_column": 57
 },
 "mnemonics": [
-"NOP",
 "NOP",
 "NOP",
 "NOP",
@@ -1921,7 +1920,7 @@
 {
 "name": "vscode-ipu-asm/test/integration/fixture/kernels/demo/demo_kernel/demo_kernel.asm",
 "file": "vscode-ipu-asm/test/integration/fixture/kernels/demo/demo_kernel/demo_kernel.asm",
-"sha256": "e4db41742fb5b53cc2c1555f7233f3971d0048e80ccac56184a19a1a8abeb8a9",
+"sha256": "6b1cfc28c74db0eb7284fbb54cddb519281d420a5d4daaff27628af1b0d73c0d",
 "answer": {
 "schemaVersion": 2,
 "diagnostics": [],
@@ -1943,7 +1942,7 @@
 {
 "line": 2,
 "column": 0,
-"length": 53,
+"length": 79,
 "type": "comment",
 "role": "jinja"
 },
@@ -2083,7 +2082,14 @@
 {
 "line": 12,
 "column": 42,
-"length": 4,
+"length": 6,
+"type": "TOKEN",
+"role": "register"
+},
+{
+"line": 12,
+"column": 49,
+"length": 6,
 "type": "TOKEN",
 "role": "register"
 },
@@ -2111,89 +2117,89 @@
 {
 "line": 14,
 "column": 31,
-"length": 4,
+"length": 6,
 "type": "TOKEN",
 "role": "register"
 },
 {
-"line": 15,
-"column": 4,
+"line": 14,
+"column": 38,
 "length": 6,
 "type": "TOKEN",
-"role": "mnemonic"
+"role": "register"
 },
 {
-"line": 15,
-"column": 11,
+"line": 14,
+"column": 45,
+"length": 3,
+"type": "TOKEN",
+"role": "register"
+},
+{
+"line": 14,
+"column": 49,
 "length": 10,
 "type": "variable",
 "role": "jinja"
 },
 {
 "line": 15,
-"column": 22,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 16,
 "column": 4,
 "length": 3,
 "type": "TOKEN",
 "role": "mnemonic"
 },
 {
-"line": 16,
+"line": 15,
 "column": 8,
 "length": 10,
 "type": "variable",
 "role": "jinja"
 },
 {
-"line": 16,
+"line": 15,
 "column": 19,
 "length": 10,
 "type": "variable",
 "role": "jinja"
 },
 {
-"line": 16,
+"line": 15,
 "column": 30,
 "length": 3,
 "type": "TOKEN",
 "role": "register"
 },
 {
-"line": 17,
+"line": 16,
 "column": 4,
 "length": 5,
 "type": "TOKEN",
 "role": "mnemonic"
 },
 {
-"line": 17,
+"line": 16,
 "column": 10,
 "length": 10,
 "type": "variable",
 "role": "jinja"
 },
 {
-"line": 17,
+"line": 16,
 "column": 21,
 "length": 3,
 "type": "TOKEN",
 "role": "register"
 },
 {
-"line": 17,
+"line": 16,
 "column": 25,
 "length": 8,
 "type": "TOKEN",
 "role": "label-ref"
 },
 {
-"line": 18,
+"line": 17,
 "column": 4,
 "length": 4,
 "type": "TOKEN",
@@ -2256,25 +2262,23 @@
 "range": {
 "line": 14,
 "column": 4,
-"end_line": 15,
-"end_column": 25
+"end_line": 14,
+"end_column": 48
 },
 "mnemonics": [
-"ACTIVATE.QUANTIZE",
-"ST.AAQ"
+"ACTIVATE.QUANTIZE"
 ],
 "slots": {
-"aaq": 1,
-"store": 1
+"aaq": 1
 },
 "fits": true,
 "error": null
 },
 {
 "range": {
-"line": 16,
+"line": 15,
 "column": 4,
-"end_line": 16,
+"end_line": 15,
 "end_column": 33
 },
 "mnemonics": [
@@ -2288,9 +2292,9 @@
 },
 {
 "range": {
-"line": 17,
+"line": 16,
 "column": 4,
-"end_line": 17,
+"end_line": 16,
 "end_column": 33
 },
 "mnemonics": [
@@ -2304,9 +2308,9 @@
 },
 {
 "range": {
-"line": 18,
+"line": 17,
 "column": 4,
-"end_line": 18,
+"end_line": 17,
 "end_column": 8
 },
 "mnemonics": [
@@ -2331,7 +2335,7 @@
 "defines": [],
 "uses": [],
 "start": 0,
-"end": 125
+"end": 151
 },
 {
 "kind": "block",
@@ -2345,8 +2349,8 @@
 "lr_row"
 ],
 "uses": [],
-"start": 126,
-"end": 152
+"start": 152,
+"end": 178
 },
 {
 "kind": "block",
@@ -2360,8 +2364,8 @@
 "lr_zero"
 ],
 "uses": [],
-"start": 153,
-"end": 180
+"start": 179,
+"end": 206
 },
 {
 "kind": "variable",
@@ -2375,8 +2379,8 @@
 "uses": [
 "lr_zero"
 ],
-"start": 190,
-"end": 201
+"start": 216,
+"end": 227
 },
 {
 "kind": "variable",
@@ -2390,8 +2394,8 @@
 "uses": [
 "lr_row"
 ],
-"start": 216,
-"end": 226
+"start": 242,
+"end": 252
 },
 {
 "kind": "variable",
@@ -2405,8 +2409,8 @@
 "uses": [
 "lr_row"
 ],
-"start": 260,
-"end": 270
+"start": 286,
+"end": 296
 },
 {
 "kind": "variable",
@@ -2420,8 +2424,8 @@
 "uses": [
 "lr_zero"
 ],
-"start": 290,
-"end": 301
+"start": 316,
+"end": 327
 },
 {
 "kind": "variable",
@@ -2435,1890 +2439,68 @@
 "uses": [
 "lr_zero"
 ],
-"start": 308,
-"end": 319
+"start": 334,
+"end": 345
 },
 {
 "kind": "variable",
 "range": {
-"line": 15,
-"column": 11,
-"end_line": 15,
-"end_column": 21
+"line": 14,
+"column": 49,
+"end_line": 14,
+"end_column": 59
 },
 "defines": [],
 "uses": [
 "lr_row"
 ],
-"start": 397,
-"end": 407
+"start": 432,
+"end": 442
 },
 {
 "kind": "variable",
 "range": {
-"line": 16,
+"line": 15,
 "column": 8,
-"end_line": 16,
+"end_line": 15,
 "end_column": 18
 },
 "defines": [],
 "uses": [
 "lr_row"
 ],
-"start": 423,
-"end": 433
+"start": 454,
+"end": 464
 },
 {
 "kind": "variable",
 "range": {
-"line": 16,
+"line": 15,
 "column": 19,
-"end_line": 16,
+"end_line": 15,
 "end_column": 29
 },
 "defines": [],
 "uses": [
 "lr_row"
 ],
-"start": 434,
-"end": 444
+"start": 465,
+"end": 475
 },
 {
 "kind": "variable",
 "range": {
-"line": 17,
+"line": 16,
 "column": 10,
-"end_line": 17,
+"end_line": 16,
 "end_column": 20
 },
 "defines": [],
 "uses": [
 "lr_row"
 ],
-"start": 462,
-"end": 472
-}
-]
-}
-},
-{
-"name": "kernels/sampling/sample_descriptors/sample_descriptors.asm",
-"file": "kernels/sampling/sample_descriptors/sample_descriptors.asm",
-"sha256": "a7762aa5dcaea71cea4d8a89d6ed2189edebbf3a38d1ef8d94b2b06822ad67b5",
-"answer": {
-"schemaVersion": 2,
-"diagnostics": [],
-"tokens": [
-{
-"line": 0,
-"column": 0,
-"length": 75,
-"type": "comment",
-"role": "jinja"
-},
-{
-"line": 2,
-"column": 0,
-"length": 67,
-"type": "comment",
-"role": "jinja"
-},
-{
-"line": 3,
-"column": 0,
-"length": 73,
-"type": "comment",
-"role": "jinja"
-},
-{
-"line": 4,
-"column": 0,
-"length": 75,
-"type": "comment",
-"role": "jinja"
-},
-{
-"line": 5,
-"column": 0,
-"length": 60,
-"type": "comment",
-"role": "jinja"
-},
-{
-"line": 7,
-"column": 0,
-"length": 60,
-"type": "comment",
-"role": "jinja"
-},
-{
-"line": 8,
-"column": 0,
-"length": 61,
-"type": "comment",
-"role": "jinja"
-},
-{
-"line": 9,
-"column": 0,
-"length": 29,
-"type": "comment",
-"role": "jinja"
-},
-{
-"line": 10,
-"column": 0,
-"length": 74,
-"type": "comment",
-"role": "jinja"
-},
-{
-"line": 11,
-"column": 0,
-"length": 74,
-"type": "comment",
-"role": "jinja"
-},
-{
-"line": 12,
-"column": 0,
-"length": 61,
-"type": "comment",
-"role": "jinja"
-},
-{
-"line": 13,
-"column": 0,
-"length": 62,
-"type": "comment",
-"role": "jinja"
-},
-{
-"line": 15,
-"column": 0,
-"length": 62,
-"type": "comment",
-"role": "jinja"
-},
-{
-"line": 16,
-"column": 0,
-"length": 58,
-"type": "comment",
-"role": "jinja"
-},
-{
-"line": 17,
-"column": 0,
-"length": 41,
-"type": "comment",
-"role": "jinja"
-},
-{
-"line": 18,
-"column": 0,
-"length": 39,
-"type": "comment",
-"role": "jinja"
-},
-{
-"line": 19,
-"column": 0,
-"length": 41,
-"type": "comment",
-"role": "jinja"
-},
-{
-"line": 20,
-"column": 0,
-"length": 74,
-"type": "comment",
-"role": "jinja"
-},
-{
-"line": 21,
-"column": 0,
-"length": 70,
-"type": "comment",
-"role": "jinja"
-},
-{
-"line": 22,
-"column": 0,
-"length": 71,
-"type": "comment",
-"role": "jinja"
-},
-{
-"line": 24,
-"column": 0,
-"length": 59,
-"type": "comment",
-"role": "jinja"
-},
-{
-"line": 25,
-"column": 0,
-"length": 68,
-"type": "comment",
-"role": "jinja"
-},
-{
-"line": 26,
-"column": 0,
-"length": 74,
-"type": "comment",
-"role": "jinja"
-},
-{
-"line": 27,
-"column": 0,
-"length": 77,
-"type": "comment",
-"role": "jinja"
-},
-{
-"line": 29,
-"column": 0,
-"length": 77,
-"type": "comment",
-"role": "jinja"
-},
-{
-"line": 30,
-"column": 0,
-"length": 70,
-"type": "comment",
-"role": "jinja"
-},
-{
-"line": 31,
-"column": 0,
-"length": 78,
-"type": "comment",
-"role": "jinja"
-},
-{
-"line": 32,
-"column": 0,
-"length": 71,
-"type": "comment",
-"role": "jinja"
-},
-{
-"line": 33,
-"column": 0,
-"length": 3,
-"type": "comment",
-"role": "jinja"
-},
-{
-"line": 34,
-"column": 4,
-"length": 3,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 34,
-"column": 8,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 34,
-"column": 12,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 34,
-"column": 18,
-"length": 3,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 34,
-"column": 22,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 34,
-"column": 26,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 34,
-"column": 32,
-"length": 3,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 34,
-"column": 36,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 34,
-"column": 40,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 35,
-"column": 4,
-"length": 3,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 35,
-"column": 8,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 35,
-"column": 12,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 35,
-"column": 18,
-"length": 3,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 35,
-"column": 22,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 35,
-"column": 26,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 36,
-"column": 0,
-"length": 8,
-"type": "TOKEN",
-"role": "label-def"
-},
-{
-"line": 37,
-"column": 4,
-"length": 3,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 37,
-"column": 8,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 37,
-"column": 12,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 38,
-"column": 0,
-"length": 9,
-"type": "TOKEN",
-"role": "label-def"
-},
-{
-"line": 39,
-"column": 4,
-"length": 3,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 39,
-"column": 8,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 39,
-"column": 12,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 39,
-"column": 18,
-"length": 3,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 39,
-"column": 22,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 39,
-"column": 26,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 39,
-"column": 32,
-"length": 3,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 39,
-"column": 36,
-"length": 4,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 39,
-"column": 41,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 39,
-"column": 45,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 40,
-"column": 0,
-"length": 14,
-"type": "TOKEN",
-"role": "label-def"
-},
-{
-"line": 41,
-"column": 4,
-"length": 3,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 41,
-"column": 8,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 41,
-"column": 12,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 42,
-"column": 0,
-"length": 10,
-"type": "TOKEN",
-"role": "label-def"
-},
-{
-"line": 43,
-"column": 4,
-"length": 3,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 43,
-"column": 8,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 43,
-"column": 12,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 44,
-"column": 0,
-"length": 12,
-"type": "TOKEN",
-"role": "label-def"
-},
-{
-"line": 45,
-"column": 4,
-"length": 3,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 45,
-"column": 8,
-"length": 4,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 45,
-"column": 13,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 45,
-"column": 17,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 45,
-"column": 23,
-"length": 3,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 45,
-"column": 27,
-"length": 4,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 45,
-"column": 32,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 45,
-"column": 36,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 46,
-"column": 4,
-"length": 7,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 46,
-"column": 12,
-"length": 2,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 46,
-"column": 15,
-"length": 4,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 46,
-"column": 20,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 47,
-"column": 4,
-"length": 14,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 47,
-"column": 19,
-"length": 4,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 47,
-"column": 24,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 47,
-"column": 28,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 48,
-"column": 0,
-"length": 25,
-"type": "block",
-"role": "jinja"
-},
-{
-"line": 49,
-"column": 4,
-"length": 3,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 49,
-"column": 8,
-"length": 4,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 49,
-"column": 13,
-"length": 4,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 49,
-"column": 18,
-"length": 38,
-"type": "variable",
-"role": "jinja"
-},
-{
-"line": 50,
-"column": 4,
-"length": 3,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 50,
-"column": 8,
-"length": 4,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 50,
-"column": 13,
-"length": 4,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 50,
-"column": 18,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 51,
-"column": 4,
-"length": 7,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 51,
-"column": 12,
-"length": 2,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 51,
-"column": 15,
-"length": 4,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 51,
-"column": 20,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 52,
-"column": 4,
-"length": 10,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 52,
-"column": 15,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 52,
-"column": 19,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 52,
-"column": 23,
-"length": 1,
-"type": "TOKEN",
-"role": "number"
-},
-{
-"line": 52,
-"column": 25,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 52,
-"column": 29,
-"length": 4,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 53,
-"column": 4,
-"length": 48,
-"type": "variable",
-"role": "jinja"
-},
-{
-"line": 54,
-"column": 4,
-"length": 14,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 54,
-"column": 19,
-"length": 4,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 54,
-"column": 24,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 54,
-"column": 28,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 55,
-"column": 0,
-"length": 12,
-"type": "block",
-"role": "jinja"
-},
-{
-"line": 56,
-"column": 4,
-"length": 3,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 56,
-"column": 8,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 56,
-"column": 12,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 56,
-"column": 16,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 57,
-"column": 4,
-"length": 10,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 57,
-"column": 15,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 57,
-"column": 19,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 57,
-"column": 23,
-"length": 1,
-"type": "TOKEN",
-"role": "number"
-},
-{
-"line": 57,
-"column": 25,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 57,
-"column": 29,
-"length": 4,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 57,
-"column": 36,
-"length": 7,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 58,
-"column": 4,
-"length": 17,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 58,
-"column": 22,
-"length": 8,
-"type": "TOKEN",
-"role": "enum"
-},
-{
-"line": 58,
-"column": 31,
-"length": 4,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 58,
-"column": 38,
-"length": 6,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 58,
-"column": 45,
-"length": 4,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 58,
-"column": 50,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 59,
-"column": 4,
-"length": 3,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 59,
-"column": 8,
-"length": 4,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 59,
-"column": 13,
-"length": 4,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 59,
-"column": 18,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 59,
-"column": 24,
-"length": 5,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 59,
-"column": 30,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 59,
-"column": 34,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 59,
-"column": 38,
-"length": 12,
-"type": "TOKEN",
-"role": "label-ref"
-},
-{
-"line": 60,
-"column": 4,
-"length": 3,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 60,
-"column": 8,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 60,
-"column": 12,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 60,
-"column": 16,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 60,
-"column": 22,
-"length": 3,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 60,
-"column": 26,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 60,
-"column": 30,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 60,
-"column": 34,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 61,
-"column": 4,
-"length": 5,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 61,
-"column": 10,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 61,
-"column": 14,
-"length": 4,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 61,
-"column": 19,
-"length": 10,
-"type": "TOKEN",
-"role": "label-ref"
-},
-{
-"line": 62,
-"column": 4,
-"length": 3,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 62,
-"column": 8,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 62,
-"column": 12,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 62,
-"column": 16,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 62,
-"column": 22,
-"length": 3,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 62,
-"column": 26,
-"length": 4,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 62,
-"column": 31,
-"length": 4,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 62,
-"column": 36,
-"length": 4,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 63,
-"column": 4,
-"length": 5,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 63,
-"column": 10,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 63,
-"column": 14,
-"length": 4,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 63,
-"column": 19,
-"length": 14,
-"type": "TOKEN",
-"role": "label-ref"
-},
-{
-"line": 64,
-"column": 4,
-"length": 3,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 64,
-"column": 8,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 64,
-"column": 12,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 64,
-"column": 16,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 64,
-"column": 22,
-"length": 3,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 64,
-"column": 26,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 64,
-"column": 30,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 64,
-"column": 34,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 64,
-"column": 40,
-"length": 3,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 64,
-"column": 44,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 64,
-"column": 48,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 64,
-"column": 52,
-"length": 4,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 65,
-"column": 4,
-"length": 3,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 65,
-"column": 8,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 65,
-"column": 12,
-"length": 2,
-"type": "TOKEN",
-"role": "number"
-},
-{
-"line": 65,
-"column": 17,
-"length": 5,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 65,
-"column": 23,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 65,
-"column": 27,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 65,
-"column": 31,
-"length": 9,
-"type": "TOKEN",
-"role": "label-ref"
-},
-{
-"line": 66,
-"column": 4,
-"length": 3,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 66,
-"column": 8,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 66,
-"column": 12,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 66,
-"column": 16,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 66,
-"column": 22,
-"length": 3,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 66,
-"column": 26,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 66,
-"column": 30,
-"length": 1,
-"type": "TOKEN",
-"role": "number"
-},
-{
-"line": 66,
-"column": 34,
-"length": 3,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 66,
-"column": 38,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 66,
-"column": 42,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 66,
-"column": 46,
-"length": 4,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 67,
-"column": 4,
-"length": 5,
-"type": "TOKEN",
-"role": "mnemonic"
-},
-{
-"line": 67,
-"column": 10,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 67,
-"column": 14,
-"length": 3,
-"type": "TOKEN",
-"role": "register"
-},
-{
-"line": 67,
-"column": 18,
-"length": 8,
-"type": "TOKEN",
-"role": "label-ref"
-},
-{
-"line": 68,
-"column": 4,
-"length": 4,
-"type": "TOKEN",
-"role": "mnemonic"
-}
-],
-"words": [
-{
-"range": {
-"line": 34,
-"column": 4,
-"end_line": 34,
-"end_column": 43
-},
-"mnemonics": [
-"SET",
-"SET",
-"SET"
-],
-"slots": {
-"lr": 3
-},
-"fits": true,
-"error": null
-},
-{
-"range": {
-"line": 35,
-"column": 4,
-"end_line": 35,
-"end_column": 29
-},
-"mnemonics": [
-"SET",
-"SET"
-],
-"slots": {
-"lr": 2
-},
-"fits": true,
-"error": null
-},
-{
-"range": {
-"line": 36,
-"column": 0,
-"end_line": 37,
-"end_column": 15
-},
-"mnemonics": [
-"SET"
-],
-"slots": {
-"lr": 1
-},
-"fits": true,
-"error": null
-},
-{
-"range": {
-"line": 38,
-"column": 0,
-"end_line": 39,
-"end_column": 48
-},
-"mnemonics": [
-"SET",
-"SET",
-"ADD"
-],
-"slots": {
-"lr": 3
-},
-"fits": true,
-"error": null
-},
-{
-"range": {
-"line": 40,
-"column": 0,
-"end_line": 41,
-"end_column": 15
-},
-"mnemonics": [
-"SET"
-],
-"slots": {
-"lr": 1
-},
-"fits": true,
-"error": null
-},
-{
-"range": {
-"line": 42,
-"column": 0,
-"end_line": 43,
-"end_column": 15
-},
-"mnemonics": [
-"SET"
-],
-"slots": {
-"lr": 1
-},
-"fits": true,
-"error": null
-},
-{
-"range": {
-"line": 44,
-"column": 0,
-"end_line": 45,
-"end_column": 39
-},
-"mnemonics": [
-"ADD",
-"ADD"
-],
-"slots": {
-"lr": 2
-},
-"fits": true,
-"error": null
-},
-{
-"range": {
-"line": 46,
-"column": 4,
-"end_line": 46,
-"end_column": 23
-},
-"mnemonics": [
-"LD.MULT"
-],
-"slots": {
-"load": 1
-},
-"fits": true,
-"error": null
-},
-{
-"range": {
-"line": 47,
-"column": 4,
-"end_line": 47,
-"end_column": 31
-},
-"mnemonics": [
-"LD.MULT.CYCLIC"
-],
-"slots": {
-"load": 1
-},
-"fits": true,
-"error": null
-},
-{
-"range": {
-"line": 49,
-"column": 4,
-"end_line": 52,
-"end_column": 33
-},
-"mnemonics": [
-"ADD",
-"ADD",
-"LD.MULT",
-"MULT.RC.VE",
-"ACC.ADD.FIRST"
-],
-"slots": {
-"lr": 2,
-"load": 1,
-"mult": 1,
-"acc": 1
-},
-"fits": true,
-"error": null
-},
-{
-"range": {
-"line": 54,
-"column": 4,
-"end_line": 54,
-"end_column": 31
-},
-"mnemonics": [
-"LD.MULT.CYCLIC"
-],
-"slots": {
-"load": 1
-},
-"fits": true,
-"error": null
-},
-{
-"range": {
-"line": 56,
-"column": 4,
-"end_line": 58,
-"end_column": 53
-},
-"mnemonics": [
-"ADD",
-"MULT.RC.VE",
-"ACC.ADD",
-"ACTIVATE.QUANTIZE",
-"ST.AAQ"
-],
-"slots": {
-"lr": 1,
-"mult": 1,
-"acc": 1,
-"aaq": 1,
-"store": 1
-},
-"fits": true,
-"error": null
-},
-{
-"range": {
-"line": 59,
-"column": 4,
-"end_line": 59,
-"end_column": 50
-},
-"mnemonics": [
-"ADD",
-"BLT.S"
-],
-"slots": {
-"lr": 1,
-"cond": 1
-},
-"fits": true,
-"error": null
-},
-{
-"range": {
-"line": 60,
-"column": 4,
-"end_line": 60,
-"end_column": 37
-},
-"mnemonics": [
-"ADD",
-"ADD"
-],
-"slots": {
-"lr": 2
-},
-"fits": true,
-"error": null
-},
-{
-"range": {
-"line": 61,
-"column": 4,
-"end_line": 61,
-"end_column": 29
-},
-"mnemonics": [
-"BLT.S"
-],
-"slots": {
-"cond": 1
-},
-"fits": true,
-"error": null
-},
-{
-"range": {
-"line": 62,
-"column": 4,
-"end_line": 62,
-"end_column": 40
-},
-"mnemonics": [
-"ADD",
-"ADD"
-],
-"slots": {
-"lr": 2
-},
-"fits": true,
-"error": null
-},
-{
-"range": {
-"line": 63,
-"column": 4,
-"end_line": 63,
-"end_column": 33
-},
-"mnemonics": [
-"BLT.S"
-],
-"slots": {
-"cond": 1
-},
-"fits": true,
-"error": null
-},
-{
-"range": {
-"line": 64,
-"column": 4,
-"end_line": 64,
-"end_column": 56
-},
-"mnemonics": [
-"ADD",
-"ADD",
-"ADD"
-],
-"slots": {
-"lr": 3
-},
-"fits": true,
-"error": null
-},
-{
-"range": {
-"line": 65,
-"column": 4,
-"end_line": 65,
-"end_column": 40
-},
-"mnemonics": [
-"INC",
-"BLT.S"
-],
-"slots": {
-"lr": 1,
-"cond": 1
-},
-"fits": true,
-"error": null
-},
-{
-"range": {
-"line": 66,
-"column": 4,
-"end_line": 66,
-"end_column": 50
-},
-"mnemonics": [
-"ADD",
-"INC",
-"ADD"
-],
-"slots": {
-"lr": 3
-},
-"fits": true,
-"error": null
-},
-{
-"range": {
-"line": 67,
-"column": 4,
-"end_line": 67,
-"end_column": 26
-},
-"mnemonics": [
-"BLT.S"
-],
-"slots": {
-"cond": 1
-},
-"fits": true,
-"error": null
-},
-{
-"range": {
-"line": 68,
-"column": 4,
-"end_line": 68,
-"end_column": 8
-},
-"mnemonics": [
-"HALT"
-],
-"slots": {
-"cond": 1
-},
-"fits": true,
-"error": null
-}
-],
-"jinja": [
-{
-"kind": "comment",
-"range": {
-"line": 0,
-"column": 0,
-"end_line": 33,
-"end_column": 3
-},
-"defines": [],
-"uses": [],
-"start": 0,
-"end": 1837
-},
-{
-"kind": "block",
-"range": {
-"line": 48,
-"column": 0,
-"end_line": 48,
-"end_column": 25
-},
-"defines": [
-"tap"
-],
-"uses": [
-"range"
-],
-"start": 2195,
-"end": 2220
-},
-{
-"kind": "variable",
-"range": {
-"line": 49,
-"column": 18,
-"end_line": 49,
-"end_column": 56
-},
-"defines": [],
-"uses": [
-"tap"
-],
-"start": 2239,
-"end": 2277
-},
-{
-"kind": "variable",
-"range": {
-"line": 53,
-"column": 4,
-"end_line": 53,
-"end_column": 52
-},
-"defines": [],
-"uses": [
-"tap"
-],
-"start": 2370,
-"end": 2418
-},
-{
-"kind": "block",
-"range": {
-"line": 55,
-"column": 0,
-"end_line": 55,
-"end_column": 12
-},
-"defines": [],
-"uses": [],
-"start": 2457,
-"end": 2469
+"start": 493,
+"end": 503
 }
 ]
 }

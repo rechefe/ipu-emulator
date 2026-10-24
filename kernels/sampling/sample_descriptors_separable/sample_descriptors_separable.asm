@@ -47,13 +47,13 @@ vertical_tile_loop:
     ADD LR6 LR2 LR4 ; ADD LR7 LR3 CR0 ;
     LD.MULT.CYCLIC LR6 CR2 LR0 ;;
     ADD LR6 LR6 CR7 ; LD.MULT.CYCLIC LR6 CR2 LR0 ;
-    MULT.RC.VE LR0 LR7 0 LR0 CR15 ; ACC.ADD.FIRST ;;
+    MULT.RC.VE LR0 LR7 0 LR0 CR15.L {{ cr.qf }}.L ; ACC.ADD.FIRST ;;
     ADD LR6 LR6 CR7 ; ADD LR7 LR7 CR10 ;
     LD.MULT.CYCLIC LR6 CR2 LR0 ;
-    MULT.RC.VE LR0 LR7 0 LR0 CR15 ; ACC.ADD ;;
+    MULT.RC.VE LR0 LR7 0 LR0 CR15.L {{ cr.qf }}.L ; ACC.ADD ;;
     ADD LR7 LR7 CR10 ; ADD LR4 LR4 CR1 ;
-    MULT.RC.VE LR0 LR7 0 LR0 CR15 ; ACC.ADD ;
-    ACTIVATE.QUANTIZE identity CR15 ; ST.AAQ LR5 CR6 ;;
+    MULT.RC.VE LR0 LR7 0 LR0 CR15.L {{ cr.qf }}.L ; ACC.ADD ;
+    ACTIVATE.EXACT identity CR15.L CR6 LR5 ;;
     ADD LR5 LR5 CR1 ; BLT.S LR4 CR13 vertical_tile_loop ;;
     ADD LR3 LR3 CR1 ; INC LR5 4 ;;
     BLT.S LR3 CR10 vertical_phase_loop ;;
@@ -70,12 +70,12 @@ horizontal_tile_loop:
     ADD LR6 LR6 CR11 ; LD.MULT.CYCLIC LR6 CR6 LR14 ;;
 horizontal_phase_loop:
     ADD LR7 LR10 CR0 ;
-    MULT.RC.VE LR0 LR7 0 LR0 CR15 ; ACC.ADD.FIRST ;;
+    MULT.RC.VE LR0 LR7 0 LR0 CR15.L {{ cr.qf }}.L ; ACC.ADD.FIRST ;;
     ADD LR7 LR7 CR10 ;
-    MULT.RC.VE LR13 LR7 0 LR0 CR15 ; ACC.ADD ;;
+    MULT.RC.VE LR13 LR7 0 LR0 CR15.L {{ cr.qf }}.L ; ACC.ADD ;;
     ADD LR7 LR7 CR10 ; ADD LR10 LR10 CR1 ;
-    MULT.RC.VE LR14 LR7 0 LR0 CR15 ; ACC.ADD ;
-    ACTIVATE.QUANTIZE identity CR15 ; ST.AAQ LR9 CR3 ;;
+    MULT.RC.VE LR14 LR7 0 LR0 CR15.L {{ cr.qf }}.L ; ACC.ADD ;
+    ACTIVATE.EXACT identity CR15.L CR3 LR9 ;;
     ADD LR9 LR9 CR11 ; BLT.S LR10 CR10 horizontal_phase_loop ;;
     ADD LR11 LR11 CR1 ;;
     BLT.S LR11 CR11 horizontal_tile_loop ;;

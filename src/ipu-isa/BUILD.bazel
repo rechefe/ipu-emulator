@@ -291,3 +291,43 @@ ruff_test(
     name = "ruff",
     srcs = glob(["**/*.py"]),
 )
+
+py_pytest_test(
+    name = "test_nx8",
+    srcs = ["test/test_nx8.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_cr_halves",
+    srcs = ["test/test_cr_halves.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_lut",
+    srcs = ["test/test_lut.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_exclusions",
+    srcs = ["test/test_exclusions.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)

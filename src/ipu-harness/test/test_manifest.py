@@ -9,13 +9,14 @@ from pathlib import Path
 import pytest
 
 from ipu_harness.manifest import ManifestError, load_manifest
-from ipu_isa.formats import ElementFormat
+from ipu_harness.variants import VARIANT_NAMES, variant
 
-# The epic's worked example (06-kernel-framework/00-epic.md), line for line.
+# The epic's worked example (06-kernel-framework/00-epic.md), in the variants
+# of ADR 0007 (FP32 mode and two NX8 element types).
 SCALE = """\
 [kernel]
 op = "scale"
-formats = ["fp32", "int8", "e4"]
+formats = ["fp32", "e3", "e4"]
 
 [params]
 rows = { type = "int", min = 1, max = 256 }
@@ -35,7 +36,7 @@ s    = "CR5"
 
 [golden]
 reference = "reference.py:reference"
-tolerance = { fp32 = "EXACT", int8 = "EXACT", e4 = "FP8_ULP" }
+tolerance = { fp32 = "EXACT", e3 = "EXACT", e4 = "NX8_STEP" }
 
 [cases.default]
 rows = 4
@@ -69,19 +70,19 @@ def kernel(tmp_path: Path, toml: str, name: str = "scale") -> Path:
 def test_the_scale_example_loads_into_the_expected_view(tmp_path):
     m = load_manifest(kernel(tmp_path, SCALE))
     assert (m.name, m.op, m.asm.name) == ("scale", "scale", "scale.asm")
-    assert m.formats == (ElementFormat.FP32, ElementFormat.INT8, ElementFormat.E4)
+    assert m.formats == (variant("fp32"), variant("e3"), variant("e4"))
     assert (m.params["rows"].type, m.params["rows"].min, m.params["rows"].max) == ("int", 1, 256)
     assert m.params["s"].type == "float"
     assert m.tensors["x"].role == "input" and m.tensors["x"].shape == ("rows", 128)
     assert m.tensors["y"].role == "output" and m.tensors["y"].store == "element"
     assert dict(m.abi) == {"x": "CR2", "y": "CR3", "rows": "CR4", "s": "CR5"}
     assert m.golden.reference == "reference.py:reference"
-    assert m.golden.tolerance[ElementFormat.E4].name == "FP8_ULP"
-    assert m.golden.tolerance[ElementFormat.E4].ulps == 1
+    assert m.golden.tolerance[variant("e4")].name == "NX8_STEP"
+    assert m.golden.tolerance[variant("e4")].ulps == 1
     assert list(m.cases) == ["default", "one_row", "sweep", "mine"]
     assert dict(m.cases["default"].values) == {"rows": 4, "s": 2.0}
     assert m.cases["sweep"].values["rows"] == (1, 7, 33, 128)
-    assert m.cases["sweep"].formats == (ElementFormat.FP32, ElementFormat.E4)
+    assert m.cases["sweep"].formats == (variant("fp32"), variant("e4"))
     assert m.cases["mine"].inputs["x"] == m.directory / "data/x.npy"
     assert m.cases["default"].tier == "default" and m.stages is None
 
@@ -108,7 +109,7 @@ def test_a_registry_entry_fixes_parameters_and_narrows_formats(tmp_path):
     assert (m.name, m.asm.name, m.formats) == (
         "scale_8",
         "scale.asm",
-        (ElementFormat.FP32, ElementFormat.E4),
+        (variant("fp32"), variant("e4")),
     )
     assert dict(m.fixed) == {"rows": 8}
     # rows has no template default: the fixed value stands in.
@@ -159,16 +160,16 @@ RULES = [
     # query_required (routing) is a bool.
     (P, P.replace(" }", ", query_required = 1 }"), "must be bool, not 1", "rows = {"),
     # Tolerance tiers (E06-10): a known name, or an override with its why.
-    ('e4 = "FP8_ULP" }', 'e4 = "LOOSE" }', "'LOOSE' is no tier", 'e4 = "LOOSE"'),
+    ('e4 = "NX8_STEP" }', 'e4 = "LOOSE" }', "'LOOSE' is no tier", 'e4 = "LOOSE"'),
     (
-        'e4 = "FP8_ULP" }',
-        'e4 = { tier = "FP8_ULP", ulps = 2 } }',
+        'e4 = "NX8_STEP" }',
+        'e4 = { tier = "NX8_STEP", ulps = 2 } }',
         "overrides a tier: it needs 'tier' and a 'why'",
         "tolerance = {",
     ),
     (
-        'e4 = "FP8_ULP" }',
-        'e4 = { tier = "FP8_ULP", ulps = -1, why = "x" } }',
+        'e4 = "NX8_STEP" }',
+        'e4 = { tier = "NX8_STEP", ulps = -1, why = "x" } }',
         "-1 must not be negative",
         "tolerance = {",
     ),
@@ -179,8 +180,8 @@ RULES = [
         "tolerance = {",
     ),
     (
-        'e4 = "FP8_ULP" }',
-        'e4 = { tier = "FP8_ULP", rtol = 0.1, why = "x" } }',
+        'e4 = "NX8_STEP" }',
+        'e4 = { tier = "NX8_STEP", rtol = 0.1, why = "x" } }',
         "is never read for e4 at this tier",
         "tolerance = {",
     ),
@@ -211,15 +212,15 @@ RULES = [
     ),
     (
         '[inputs.x]\nshape = ["rows", 128]',
-        '[inputs.x]\nshape = ["rows", 128]\nrange = { int8 = [0.2, 0.8] }',
-        "[0.2, 0.8] holds no int8 value",
-        "range = { int8",
+        '[inputs.x]\nshape = ["rows", 128]\nrange = { nx8 = [0.2, 0.8], fp16 = [0, 1] }',
+        "unknown variant 'fp16'",
+        "range = { nx8",
     ),
     (
         '[inputs.x]\nshape = ["rows", 128]',
-        '[inputs.x]\nshape = ["rows", 128]\nrange = [-500, 500]',
-        "[inputs.x] range [-500, 500] is outside int8's [-128, 127]",
-        "range = [-500, 500]",
+        '[inputs.x]\nshape = ["rows", 128]\nrange = [-1e39, 0]',
+        "[inputs.x] range [-1e+39, 0] is outside fp32's",
+        "range = [-1e39, 0]",
     ),
     ('s    = "CR5"', 's    = "CR1"', "[abi] binds CR1, a hardwired constant", 's    = "CR1"'),
     ('s    = "CR5"', 's    = "CR0"', "[abi] binds CR0, a hardwired constant", 's    = "CR0"'),
@@ -285,9 +286,9 @@ RULES = [
         "[goldn]",
     ),
     (
-        'formats = ["fp32", "int8", "e4"]',
+        'formats = ["fp32", "e3", "e4"]',
         'formats = ["fp32", "fp16"]',
-        "unknown element format 'fp16'",
+        "unknown variant 'fp16'",
         '"fp16"',
     ),
     (
@@ -358,8 +359,8 @@ RULES = [
         "weekly",
     ),
     (
-        'formats = ["fp32", "int8", "e4"]',
-        'formats = ["fp32", "int8", "e4"]\nstages = "/abs.py:run"',
+        'formats = ["fp32", "e3", "e4"]',
+        'formats = ["fp32", "e3", "e4"]\nstages = "/abs.py:run"',
         "must be a file path inside",
         "/abs.py",
     ),
@@ -430,8 +431,14 @@ RULES = [
     (
         "[outputs.y]\nshape",
         '[outputs.y]\nstore = "fp16"\nshape',
-        "'fp16' must be element or accumulator",
+        "'fp16' must be element",
         'store = "fp16"',
+    ),
+    (
+        "[outputs.y]\nshape",
+        '[outputs.y]\nstore = "accumulator"\nshape',
+        "'accumulator' was removed with ST.ACC",
+        'store = "accumulator"',
     ),
     ("[outputs.y]", "[outputs.x]", "'x' is declared twice", "[outputs.x]"),
     (
@@ -449,7 +456,7 @@ RULES = [
     (
         "tolerance = { fp32",
         'tolerance = { e5 = "X", fp32',
-        "tolerance for e5, a format the kernel does not run in or accumulate in",
+        "tolerance for e5, a variant the kernel does not run in",
         "e5 =",
     ),
     ("rows = [1, 7, 33, 128]", "rows = []", "sweeps over no values", "rows = []"),
@@ -512,50 +519,40 @@ def test_golden_is_optional(tmp_path):
     assert load_manifest(kernel(tmp_path, no_golden)).golden.reference is None
 
 
-def test_formats_come_from_the_isa_enum(tmp_path):
-    # Every ElementFormat is accepted by name, so the manifest loader keeps no list of its own.
+def test_formats_are_the_variants(tmp_path):
+    # Every named variant is accepted (ipu_harness.variants), and the general form.
     toml = SCALE.replace(
-        'formats = ["fp32", "int8", "e4"]', f"formats = {[f.value for f in ElementFormat]}"
+        'formats = ["fp32", "e3", "e4"]', f"formats = {[*VARIANT_NAMES, 's0e3w6']}"
     )
     toml = toml.replace('formats = ["fp32", "e4"]', 'formats = ["fp32"]')
-    assert load_manifest(kernel(tmp_path, toml)).formats == tuple(ElementFormat)
+    toml = toml.replace('e3 = "EXACT", e4 = "NX8_STEP" ', "")
+    m = load_manifest(kernel(tmp_path, toml))
+    assert m.formats == tuple(variant(n) for n in (*VARIANT_NAMES, "s0e3w6"))
+    assert variant("s0e3w6").qf is not None and variant("s0e3w6").qf.num_bits == 6
 
 
 def test_a_tier_override_keeps_its_why(tmp_path):
     toml = SCALE.replace(
         'fp32 = "EXACT"', 'fp32 = { tier = "FP32_ORDER", rtol = 3e-5, why = "measured on case X" }'
     )
-    tier = load_manifest(kernel(tmp_path, toml)).golden.tolerance[ElementFormat.FP32]
+    tier = load_manifest(kernel(tmp_path, toml)).golden.tolerance[variant("fp32")]
     assert tier == ("FP32_ORDER", 3e-5, 1e-6, None, "measured on case X")
 
 
-ACCUMULATED = SCALE.replace(
-    '[outputs.y]\nshape = ["rows", 128]',
-    '[outputs.y]\nshape = ["rows", 128]\nstore = "accumulator"',
-)
-
-
-def test_an_accumulator_format_may_name_a_tier(tmp_path):
-    # INT8 accumulates in INT32: an accumulator output in an int8 case is compared there.
-    toml = ACCUMULATED.replace(
-        'fp32 = "EXACT", int8 = "EXACT", e4 = "FP8_ULP"', 'fp32 = "EXACT", int32 = "INT8_LSB"'
+def test_a_mode_key_names_the_tier_of_its_variants_without_their_own(tmp_path):
+    toml = SCALE.replace(
+        'fp32 = "EXACT", e3 = "EXACT", e4 = "NX8_STEP"',
+        'fp32 = "EXACT", nx8 = "NX8_STEP", e3 = "EXACT"',
     )
     tiers = load_manifest(kernel(tmp_path, toml)).golden.tolerance
-    assert tiers[ElementFormat.INT32].name == "INT8_LSB"
+    assert (tiers[variant("e3")].name, tiers[variant("e4")].name) == ("EXACT", "NX8_STEP")
 
 
-@pytest.mark.parametrize(
-    ("toml", "unread"),
-    [
-        # Every output is an accumulator output: an E4 run compares it as FP32.
-        (ACCUMULATED, "int8"),
-        (ACCUMULATED.replace('int8 = "EXACT", ', ""), "e4"),
-        # An element output is never compared in an accumulator format.
-        (SCALE.replace('fp32 = "EXACT"', 'fp32 = "EXACT", int32 = "EXACT"'), "int32"),
-    ],
-)
-def test_a_tier_no_output_is_compared_at_is_an_error(tmp_path, toml, unread):
-    with pytest.raises(ManifestError, match=rf"tolerance for {unread} is never read"):
+def test_a_tier_for_a_variant_the_kernel_does_not_run_in_is_an_error(tmp_path):
+    toml = SCALE.replace('fp32 = "EXACT"', 'fp32 = "EXACT", e5 = "EXACT"')
+    with pytest.raises(
+        ManifestError, match=r"tolerance for e5, a variant the kernel does not run in"
+    ):
         load_manifest(kernel(tmp_path, toml))
 
 
@@ -565,14 +562,16 @@ def test_an_input_range_is_per_format(tmp_path):
     )
     x = load_manifest(kernel(tmp_path, both)).tensors["x"]
     # A bare [lo, hi] holds in every format the kernel runs in.
-    kernel_formats = (ElementFormat.FP32, ElementFormat.INT8, ElementFormat.E4)
+    kernel_formats = (variant("fp32"), variant("e3"), variant("e4"))
     assert dict(x.value_range) == dict.fromkeys(kernel_formats, (-2.0, 2.0))
     table = SCALE.replace(
         'shape = ["rows", 128]\n\n[outputs',
-        'shape = ["rows", 128]\nrange = { int8 = [-3, 3] }\n\n[outputs',
+        'shape = ["rows", 128]\nrange = { e3 = [-3, 3], nx8 = [-1, 1] }\n\n[outputs',
     )
+    # A mode key (nx8) covers the mode's variants without their own entry.
     assert dict(load_manifest(kernel(tmp_path, table, "t")).tensors["x"].value_range) == {
-        ElementFormat.INT8: (-3.0, 3.0)
+        variant("e3"): (-3.0, 3.0),
+        variant("e4"): (-1.0, 1.0),
     }
 
 

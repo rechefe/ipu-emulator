@@ -10,7 +10,7 @@ instruction word runs. It takes the same options as an ordinary run:
 
 ```bash
 bazel run --config=debug //kernels/reshape/identity -- --case single_row
-bazel run --config=debug //kernels/elementwise/scale -- --case one_row --format e4
+bazel run --config=debug //kernels/elementwise/scale -- --case one_row --format fp32
 ```
 
 A kernel target also takes `--debug` in place of `--config=debug`. The
@@ -27,9 +27,9 @@ that focuses it:
 
 | Pane | Shows |
 |---|---|
-| 1 Pipeline Registers | `R0`, `R1`, `R_C`, `R_MASK`, `R_ACC`, `POST_AAQ`, `MULT_RES`, `MEM_BYPASS` |
+| 1 Pipeline Registers | `R0`, `R1`, `R_C`, `R_MASK`, `R_ACC`, `AAQ_ROW` (the row the last AaQ store wrote, and in NX8 its metadata), `MULT_RES`, `MEM_BYPASS` |
 | 2 Instructions | The disassembly around the current PC, one instruction per row, with `||` marking the rest of a word's slots |
-| 3 XMEM | A range of XMEM rows or bytes |
+| 3 XMEM | A range of XMEM rows or bytes; in NX8 each row's marker line shows its metadata (scale, dynamic exponent) |
 | 4 CR/LR | `LR0`–`LR15` and `CR0`–`CR15` |
 
 Each pane has tabs. `F2` adds a tab and `F3` edits the active one; both open an
@@ -55,17 +55,17 @@ A value that changed since the last stop is bold and underlined.
 A wrong output prints `FAIL` and the worst element:
 
 ```text
-scale/one_row/e4: FAIL  cycles=7  MAC util=14.3%  y: FAIL at EXACT (max|err|=3.00195 max rel=1.00065); worst at [0, 10]: got -0.001953125, want 3.0
+scale/one_row/fp32: FAIL  cycles=7  MAC util=14.3%  y: FAIL at EXACT (max|err|=3 max rel=1); worst at [0, 10]: got 0.0, want 3.0
 ```
 
-`want` is the [reference](../reference/glossary.md) rounded to the element
-format. `worst at [0, 10]` is the output element (row 0, lane 10) with the
+`want` is the [reference](../reference/glossary.md) rounded to the case's
+variant (in NX8, quantized row by row). `worst at [0, 10]` is the output element (row 0, lane 10) with the
 largest error.
 
-1. Run the failing case, in the failing format, in the debugger:
+1. Run the failing case, in the failing variant, in the debugger:
 
     ```bash
-    bazel run --config=debug //kernels/elementwise/scale -- --case one_row --format e4
+    bazel run --config=debug //kernels/elementwise/scale -- --case one_row --format fp32
     ```
 
 2. Stop where the output is computed. Choose one:
@@ -99,17 +99,17 @@ largest error.
 5. Check the vectors in Pipeline Registers (`1`) and the data in XMEM (`3`).
     Press `F2` in XMEM and request the region, for example `row CR3 0 128 f32`
     for an output region whose base row is in `CR3`. Press `f` to cycle the
-    tab's format until it matches the element format:
+    tab's format until it matches the run's mode:
 
-    | Element format | XMEM and `R0`, `R1` | `MULT_RES`, `R_ACC` |
+    | Mode | XMEM and `R0`, `R1` | `MULT_RES`, `R_ACC` |
     |---|---|---|
     | FP32 | `f32` | `f32` |
-    | INT32 | `u32` (`int32` in Pipeline Registers) | `int32` |
-    | INT8 | `int8` | `int32` |
-    | E1–E7 | `hex` (the 8-bit codes) | `f32` |
+    | NX8 | `hex` or `int8` (the 8-bit codes) | `f32` |
 
-    The debugger shows 8-bit float codes as bytes. [Element
-    formats](../explanation/element-formats.md#how-the-8-bit-formats-encode-values)
+    The debugger shows NX8 codes as bytes. Each code's value also needs its
+    row's metadata word, which the XMEM pane shows on each row's marker line
+    and the `AAQ_ROW` tab in its title. [Element
+    formats](../explanation/element-formats.md#how-nx8-encodes-values)
     explains how to decode them, and the accumulator registers are already
     FP32.
 
@@ -131,7 +131,7 @@ as an ordinary run does.
 A fault stops the run at the faulting word and prints its code and PC:
 
 ```text
-scale/one_row/e4: FAIL  cycles=6  MAC util=16.7%  fault F-2 at PC 6
+scale/one_row/fp32: FAIL  cycles=6  MAC util=16.7%  fault F-2 at PC 6
 ```
 
 The debugger also closes on a fault and prints this line.

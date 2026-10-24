@@ -32,6 +32,7 @@ k_first   = "base(k)"                                       # one table for ever
 k_band    = "base(k_cells) + cell_row_start * width * 9"   # the band's first cell's table
 no_step   = "0"                                             # table step per cell, shared
 cell_step = "9"                                             # table step per cell, stock
+qf        = "case_qf"                                       # the case's QF half (0: FP32 ignores it)
 
 # Placed from row 0: x, the table, y (the old image).
 [inputs.x]
@@ -68,6 +69,7 @@ phase_gap  = "CR11"
 cell_gap   = "CR12"
 no_step    = { register = "CR13", when = "not stock" }
 cell_step  = { register = "CR13", when = "stock" }
+qf         = "CR14"
 
 [golden]
 op = "sample_descriptors"

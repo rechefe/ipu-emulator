@@ -142,8 +142,8 @@ def word_bytes(tag: Tag | None = None) -> int:
     """Bytes per word in a program file, padded to 32 bits.
 
     Args:
-        tag: ``None`` for the whole emulator word (24 bytes), ``Tag.HARDWARE``
-            for the hardware word (20 bytes); ``Tag.EMULATOR`` gives the width
+        tag: ``None`` for the whole emulator word (28 bytes), ``Tag.HARDWARE``
+            for the hardware word (24 bytes); ``Tag.EMULATOR`` gives the width
             of the EMULATOR slots alone.
 
     Returns:

@@ -17,8 +17,8 @@ Signal names and widths are provisional. The IPU block specification fixes them.
 | Kernel context | Cache unit | Which context runs, which contexts are locked, which table sets are committed |
 | Bank events | Cache unit | State changes of XMEM banks that the cache unit makes |
 | Bank requests | Cache unit | State changes of XMEM banks that the cache agent makes or requests |
-| Load port | XMEM | Row read for the `LOAD` slot |
-| Store port | XMEM | Row write for the `STORE` slot |
+| Load port | XMEM | Row read for the `LOAD` slot and for `LD.LUT` in the `AAQ` slot |
+| Store port | XMEM | Row write for `ACTIVATE.QUANTIZE` in the `AAQ` slot and `ACTIVATE.EXACT` in the `AAQ_EXACT` slot |
 
 ## Ports
 

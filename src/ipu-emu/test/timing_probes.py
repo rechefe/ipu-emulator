@@ -28,27 +28,31 @@ from ipu_emu.ipu import Ipu
 from ipu_emu.ipu_state import IpuState
 from ipu_emu.outcome import CycleOutcome
 from ipu_isa.codec.word import DecodedWord
+from ipu_isa.cr_halves import qf
 from ipu_isa.formats import ElementFormat
+from ipu_isa.nx8 import Nx8Format, decode_element, encode_row, split_metadata
 
 #: XMEM row the probes load from and store to.
 ROW = 16
 LANES = 128
 MAX_CYCLES = 1_000
 
+#: The NX8 format the probes' vectors are in (QF half in CR14.L): signed, fe 4,
+#: 8 bits. The small integers the probes use are exact in it.
+E4 = Nx8Format(sign=1, exp_format=4, num_bits=8)
+
 
 class Mode(Enum):
-    """The element formats a probe runs in."""
+    """The run modes a probe runs in."""
 
-    NARROW = "narrow"  # INT8 elements, int32 MULT_RES / R_ACC lanes
+    NX8 = "nx8"  # NX8 elements (QF in CR14.L), FP32 MULT_RES / R_ACC lanes
     WIDE_FP32 = "wide_fp32"  # FP32 elements and lanes (emulator-only)
 
 
 def new_state(mode: Mode, *, prototyping: bool = False) -> IpuState:
-    if mode is Mode.WIDE_FP32:
-        state = IpuState(fmt=ElementFormat.FP32, prototyping=prototyping)
-    else:
-        state = IpuState(prototyping=prototyping)
-    state.set_cr_dstructure(valid_elements=LANES)
+    fmt = ElementFormat.FP32 if mode is Mode.WIDE_FP32 else ElementFormat.NX8
+    state = IpuState(fmt=fmt, prototyping=prototyping)
+    state.set_cr_half(14, False, qf(E4))  # CR15.L holds the default DS (128 elements)
     return state
 
 
@@ -59,62 +63,87 @@ def _wide(state: IpuState) -> bool:
     return state.fmt is ElementFormat.FP32
 
 
-def _element_bytes(state: IpuState, values) -> bytes:
-    """Encode input elements: INT8 bytes narrow, FP32 lanes wide."""
+def _rows(state: IpuState, values, rows: int) -> tuple[bytes, list[int]]:
+    """*values* (padded with 0 to *rows* rows) as element bytes, and each
+    row's metadata word (NX8: quantized row by row; FP32: float32, no metadata)."""
+    values = list(values) + [0] * (rows * LANES - len(values))
     if _wide(state):
-        return struct.pack(f"<{len(values)}f", *values)
-    return bytes(v & 0xFF for v in values)
-
-
-def _lane_format(state: IpuState) -> str:
-    """MULT_RES / R_ACC lanes: int32 narrow, float32 wide FP32."""
-    return "<f" if _wide(state) else "<i"
+        return struct.pack(f"<{len(values)}f", *values), [0] * rows
+    data, metadata = b"", []
+    for k in range(rows):
+        row = encode_row(values[k * LANES : (k + 1) * LANES], E4)
+        data += row.elements
+        metadata.append(row.metadata)
+    return data, metadata
 
 
 def write_row(state: IpuState, row: int, values) -> None:
-    """Write one XMEM row of input elements."""
-    row_bytes = LANES * (4 if _wide(state) else 1)
-    state.xmem.write_address(row * row_bytes, _element_bytes(state, values))
+    """Write one XMEM row of input elements (and, in NX8, its metadata)."""
+    data, (metadata,) = _rows(state, values, 1)
+    state.xmem.write_address(row * len(data), data)
+    if not _wide(state):
+        state.xmem.write_metadata(row * len(data), metadata)
+
+
+def write_raw_row(state: IpuState, row: int, data: bytes) -> None:
+    """Write raw bytes at the start of an XMEM row (a mask row)."""
+    state.xmem.write_address(row * LANES * (4 if _wide(state) else 1), data)
+
+
+def _fill(state: IpuState, name: str, meta: str, rows: int, values) -> None:
+    data, metadata = _rows(state, values, rows)
+    if _wide(state):
+        name = f"{name}_wide_debug"
+    state.regfile.mutable(name)[: len(data)] = data
+    for index, word in enumerate(metadata):
+        state.regfile.set_register_bytes(meta, index, word.to_bytes(2, "little"))
 
 
 def fill_ra(state: IpuState, values) -> None:
-    """R0 ++ R1 (256 elements)."""
-    name = "r_wide_debug" if _wide(state) else "r"
-    state.regfile.mutable(name)[: len(values) * (4 if _wide(state) else 1)] = _element_bytes(
-        state, values
-    )
+    """R0 ++ R1 (256 elements), with their metadata."""
+    _fill(state, "r", "r_meta", 2, values)
 
 
 def fill_r_cyclic(state: IpuState, values) -> None:
-    """The first ``len(values)`` elements of R_CYCLIC."""
-    name = "r_cyclic_wide_debug" if _wide(state) else "r_cyclic"
-    state.regfile.mutable(name)[: len(values) * (4 if _wide(state) else 1)] = _element_bytes(
-        state, values
-    )
+    """R_CYCLIC (512 elements), with each slot's metadata."""
+    _fill(state, "r_cyclic", "r_cyclic_meta", 4, values)
 
 
 def fill_lanes(state: IpuState, register: str, values) -> None:
-    """MULT_RES or R_ACC lanes."""
-    state.regfile.mutable(register)[: 4 * len(values)] = struct.pack(
-        f"<{len(values)}{_lane_format(state)[1]}", *values
-    )
+    """MULT_RES or R_ACC lanes (FP32 in both modes)."""
+    state.regfile.mutable(register)[: 4 * len(values)] = struct.pack(f"<{len(values)}f", *values)
 
 
 def lane(state: IpuState, register: str, index: int):
     """One MULT_RES or R_ACC lane."""
-    return struct.unpack_from(_lane_format(state), state.regfile.view(register), 4 * index)[0]
+    return struct.unpack_from("<f", state.regfile.view(register), 4 * index)[0]
+
+
+def _element(state: IpuState, register: str, meta: str, index: int):
+    if _wide(state):
+        return struct.unpack_from("<f", state.regfile.view(f"{register}_wide_debug"), 4 * index)[0]
+    raw = state.regfile.view(meta)
+    word = int.from_bytes(raw[2 * (index // LANES) : 2 * (index // LANES) + 2], "little")
+    scale, dynamic = split_metadata(word)
+    return decode_element(state.regfile.view(register)[index], E4, scale, dynamic)
 
 
 def ra_element(state: IpuState, index: int):
-    if _wide(state):
-        return struct.unpack_from("<f", state.regfile.view("r_wide_debug"), 4 * index)[0]
-    return state.regfile.view("r")[index]
+    return _element(state, "r", "r_meta", index)
 
 
 def r_cyclic_element(state: IpuState, index: int):
+    return _element(state, "r_cyclic", "r_cyclic_meta", index)
+
+
+def stored_element(state: IpuState, row: int, index: int):
+    """Element *index* of the row an AaQ store wrote at *row*, decoded."""
     if _wide(state):
-        return struct.unpack_from("<f", state.regfile.view("r_cyclic_wide_debug"), 4 * index)[0]
-    return state.regfile.view("r_cyclic")[index]
+        return struct.unpack_from(
+            "<f", state.xmem.snapshot_bytes(row * 4 * LANES, 4 * LANES), 4 * index
+        )[0]
+    scale, dynamic = split_metadata(state.xmem.snapshot_metadata(row * LANES))
+    return decode_element(state.xmem.snapshot_bytes(row * LANES, LANES)[index], E4, scale, dynamic)
 
 
 # -- probes ---------------------------------------------------------------------
@@ -135,7 +164,7 @@ class Probe:
     cr: dict[int, int] = field(default_factory=dict)
     setup: Callable[[IpuState], None] = _no_setup
     edit: Callable[[list], None] | None = None
-    modes: tuple[Mode, ...] = (Mode.NARROW,)
+    modes: tuple[Mode, ...] = (Mode.NX8,)
 
 
 @dataclass
@@ -153,7 +182,7 @@ def decoded_program(probe: Probe) -> list:
     return program
 
 
-def prepare(probe: Probe, mode: Mode = Mode.NARROW, *, prototyping: bool = False) -> IpuState:
+def prepare(probe: Probe, mode: Mode = Mode.NX8, *, prototyping: bool = False) -> IpuState:
     state = new_state(mode, prototyping=prototyping)
     for index, value in probe.cr.items():
         state.regfile.set_cr(index, value)
@@ -162,7 +191,7 @@ def prepare(probe: Probe, mode: Mode = Mode.NARROW, *, prototyping: bool = False
     return state
 
 
-def run(probe: Probe, mode: Mode = Mode.NARROW, *, prototyping: bool = False) -> Run:
+def run(probe: Probe, mode: Mode = Mode.NX8, *, prototyping: bool = False) -> Run:
     """Run to the end, resuming past every break, as ``run_until_complete`` does.
 
     It is not ``run_until_complete`` because the break tests need the PC of
@@ -206,11 +235,8 @@ def _row(row: int, values) -> Callable[[IpuState], None]:
     return lambda state: write_row(state, row, values)
 
 
-def _post_aaq(values) -> Callable[[IpuState], None]:
-    def setup(state: IpuState) -> None:
-        state.regfile.mutable("post_aaq_reg")[: len(values)] = bytes(v & 0xFF for v in values)
-
-    return setup
+def _raw_row(row: int, data: bytes) -> Callable[[IpuState], None]:
+    return lambda state: write_raw_row(state, row, data)
 
 
 def _break_lr_subslot_1_source(program: list) -> None:
@@ -219,9 +245,9 @@ def _break_lr_subslot_1_source(program: list) -> None:
     field_name = next(
         name for name in word if name.startswith("lr_inst_1_") and name.endswith("_addbi_immediate")
     )
-    # SET's src shares the ADDBI immediate's union column; make sure the field
-    # found is that operand (CR3) before breaking it.
-    assert word[field_name] == 3, f"{field_name} is not sub-slot 1's SET source"
+    # SET's src (LcrHalfIdx: CR3 is code 16 + 3) shares the ADDBI immediate's
+    # union column; make sure the field found is that operand before breaking it.
+    assert word[field_name] == 19, f"{field_name} is not sub-slot 1's SET source"
     word[field_name] = 999
 
 
@@ -334,41 +360,49 @@ PROBES: dict[str, Probe] = {
     "load_mask_offset": Probe(
         "SET LR0 CR2 ; LD.MASK LR0 CR3 ;;\nHALT ;;",
         cr={2: 1, 3: ROW},
-        setup=_setup(_row(ROW, [0x11] * LANES), _row(ROW + 1, [0x22] * LANES)),
+        setup=_setup(_raw_row(ROW, b"\x11" * LANES), _raw_row(ROW + 1, b"\x22" * LANES)),
     ),
-    # Stores: LR0 (offset) is 0 at cycle start and 8 once written.
-    "store_post_aaq_offset": Probe(
-        "SET LR0 CR2 ; ST.AAQ LR0 CR3 ;;\nHALT ;;",
-        cr={2: 8, 3: ROW},
-        setup=_post_aaq([7] * LANES),
-    ),
-    "store_acc_offset": Probe(
-        "SET LR0 CR2 ; ST.ACC LR0 CR3 ;;\nHALT ;;",
+    # AaQ stores: LR0 (table_offset) is 0 at cycle start and 8 once written;
+    # R_ACC is 7s.
+    "aaq_store_offset": Probe(
+        "SET LR0 CR2 ; ACTIVATE.QUANTIZE identity CR15.L CR14.L CR3 LR0 ;;\nHALT ;;",
         cr={2: 8, 3: ROW},
         setup=_lanes("r_acc", [7] * LANES),
     ),
+    "exact_store_offset": Probe(
+        "SET LR0 CR2 ; ACTIVATE.EXACT identity CR15.L CR3 LR0 ;;\nHALT ;;",
+        cr={2: 8, 3: ROW},
+        setup=_lanes("r_acc", [7] * LANES),
+        modes=(Mode.WIDE_FP32,),
+    ),
+    # LD.LUT's table_offset: LR0 is 0, then 1; row ROW is 1s, row ROW + 1 is 2s.
+    "ld_lut_offset": Probe(
+        "SET LR0 CR2 ; LD.LUT 0 CR3 LR0 ;;\nHALT ;;",
+        cr={2: 1, 3: ROW},
+        setup=_setup(_raw_row(ROW, b"\x01" * LANES), _raw_row(ROW + 1, b"\x02" * LANES)),
+    ),
     # MULT LR operands. rc_idx: LR0 is 0, then 128; R_CYCLIC is 1s then 2s.
     "mult_rc_idx": Probe(
-        "SET LR0 CR2 ; MULT.RC.VS LR0 0 LR1 CR15 ;;\nHALT ;;",
+        "SET LR0 CR2 ; MULT.RC.VS LR0 0 LR1 CR15.L CR14.L ;;\nHALT ;;",
         cr={2: 128},
         setup=_r_cyclic(_ONES + _TWOS),
     ),
     # ra_idx: LR0 is 0, then 128; R0 is 1s, R1 is 2s; CR1 = 1 is the scalar.
     "mult_ra_idx": Probe(
-        "SET LR0 CR2 ; MULT.VE LR0 CR1 0 LR1 CR15 ;;\nHALT ;;",
+        "SET LR0 CR2 ; MULT.VE LR0 CR1 0 LR1 CR15.L CR14.L ;;\nHALT ;;",
         cr={2: 128},
         setup=_ra(_ONES + _TWOS),
     ),
     # mask_shift: LR1 is 0, then 1; a shift of 1 masks lane 0 (padded with 0).
     "mult_mask_shift": Probe(
-        "SET LR1 CR2 ; MULT.RC.VS LR0 0 LR1 CR15 ;;\nHALT ;;",
+        "SET LR1 CR2 ; MULT.RC.VS LR0 0 LR1 CR15.L CR14.L ;;\nHALT ;;",
         cr={2: 1},
         setup=_r_cyclic(_THREES),
     ),
     # MULT.RC.VE src as an LR: LR2 is 0, then 5; it selects Ra element 0 (3)
     # or element 5 (7) as the scalar; R_CYCLIC is 1s.
     "mult_rc_ve_src": Probe(
-        "SET LR2 CR2 ; MULT.RC.VE LR0 LR2 0 LR1 CR15 ;;\nHALT ;;",
+        "SET LR2 CR2 ; MULT.RC.VE LR0 LR2 0 LR1 CR15.L CR14.L ;;\nHALT ;;",
         cr={2: 5},
         setup=_setup(_ra([3, 0, 0, 0, 0, 7]), _r_cyclic(_ONES)),
     ),
@@ -388,7 +422,7 @@ PROBES: dict[str, Probe] = {
     # AGG dest_slot: LR0 is 0, then 5; MULT_RES is all 1s.
     **{
         f"agg_dest_slot_{name}": Probe(
-            f"SET LR0 CR2 ; {op} LR0 CR15 ;;\nHALT ;;",
+            f"SET LR0 CR2 ; {op} LR0 CR15.L ;;\nHALT ;;",
             cr={2: 5},
             setup=_lanes("mult_res", _ONES),
         )
@@ -419,91 +453,90 @@ PROBES: dict[str, Probe] = {
     # R0 is 1s at cycle start; the same word loads 2s into it. MULT.VE reads Ra
     # inside its handler; MULT.RC.VV reads it through the ``ra`` operand.
     "mult_ra_operand": Probe(
-        "LD.MULT R0 LR0 CR2 ; MULT.RC.VV LR0 R0 0 LR0 CR15 ;;\nHALT ;;",
+        "LD.MULT R0 LR0 CR2 ; MULT.RC.VV LR0 R0 0 LR0 CR15.L CR14.L ;;\nHALT ;;",
         cr={2: ROW},
         setup=_setup(_ra(_ONES), _row(ROW, _TWOS), _r_cyclic(_ONES)),
-        modes=(Mode.NARROW, Mode.WIDE_FP32),
+        modes=(Mode.NX8, Mode.WIDE_FP32),
     ),
     "mult_r0_r1": Probe(
-        "LD.MULT R0 LR0 CR2 ; MULT.VE LR0 CR1 0 LR0 CR15 ;;\nHALT ;;",
+        "LD.MULT R0 LR0 CR2 ; MULT.VE LR0 CR1 0 LR0 CR15.L CR14.L ;;\nHALT ;;",
         cr={2: ROW},
         setup=_setup(_ra(_ONES), _row(ROW, _TWOS)),
-        modes=(Mode.NARROW, Mode.WIDE_FP32),
+        modes=(Mode.NX8, Mode.WIDE_FP32),
     ),
     # R_CYCLIC is 1s at cycle start; the same word loads 3s into it.
     "mult_r_cyclic": Probe(
-        "LD.MULT.CYCLIC LR0 CR2 LR0 ; MULT.RC.VS LR0 0 LR0 CR15 ;;\nHALT ;;",
+        "LD.MULT.CYCLIC LR0 CR2 LR0 ; MULT.RC.VS LR0 0 LR0 CR15.L CR14.L ;;\nHALT ;;",
         cr={2: ROW},
         setup=_setup(_r_cyclic(_ONES), _row(ROW, _THREES)),
-        modes=(Mode.NARROW, Mode.WIDE_FP32),
+        modes=(Mode.NX8, Mode.WIDE_FP32),
     ),
     # R_MASK is all ones at reset; the same word loads an all-zero mask.
     "mult_r_mask": Probe(
-        "LD.MASK LR0 CR2 ; MULT.RC.VS LR0 0 LR0 CR15 ;;\nHALT ;;",
+        "LD.MASK LR0 CR2 ; MULT.RC.VS LR0 0 LR0 CR15.L CR14.L ;;\nHALT ;;",
         cr={2: ROW},
         setup=_r_cyclic(_THREES),
-        modes=(Mode.NARROW, Mode.WIDE_FP32),
+        modes=(Mode.NX8, Mode.WIDE_FP32),
     ),
     # The same load one word before the multiply, which then sees it.
     "mult_r_mask_next_word": Probe(
-        "LD.MASK LR0 CR2 ;;\nMULT.RC.VS LR0 0 LR0 CR15 ;;\nHALT ;;",
+        "LD.MASK LR0 CR2 ;;\nMULT.RC.VS LR0 0 LR0 CR15.L CR14.L ;;\nHALT ;;",
         cr={2: ROW},
         setup=_r_cyclic(_THREES),
-        modes=(Mode.NARROW, Mode.WIDE_FP32),
+        modes=(Mode.NX8, Mode.WIDE_FP32),
     ),
     # MULT_RES is 1s at cycle start; the same word's multiply makes it 9s
     # (R_CYCLIC 3s squared).
     **{
         f"acc_mult_res_{name}": Probe(
-            f"MULT.RC.VS LR0 0 LR0 CR15 ; {op} ;;\nHALT ;;",
+            f"MULT.RC.VS LR0 0 LR0 CR15.L CR14.L ; {op} ;;\nHALT ;;",
             setup=_setup(_r_cyclic(_THREES), _lanes("mult_res", _ONES)),
-            modes=(Mode.NARROW, Mode.WIDE_FP32),
+            modes=(Mode.NX8, Mode.WIDE_FP32),
         )
         for name, op in _ACC_OPS.items()
     },
     **{
         f"agg_mult_res_{name}": Probe(
-            f"MULT.RC.VS LR0 0 LR0 CR15 ; {op} LR0 CR15 ;;\nHALT ;;",
+            f"MULT.RC.VS LR0 0 LR0 CR15.L CR14.L ; {op} LR0 CR15.L ;;\nHALT ;;",
             setup=_setup(_r_cyclic(_THREES), _lanes("mult_res", _ONES)),
         )
         for name, op in _AGG_OPS.items()
     },
     "reshape_mult_res": Probe(
-        "MULT.RC.VS LR0 0 LR0 CR15 ; ACC.RESHAPE LRD0 LRD2 7 ;;\nHALT ;;",
+        "MULT.RC.VS LR0 0 LR0 CR15.L CR14.L ; ACC.RESHAPE LRD0 LRD2 7 ;;\nHALT ;;",
         setup=_setup(_r_cyclic(_THREES), _lanes("mult_res", _ONES)),
     ),
     # R_ACC is 5s at cycle start; the multiply makes MULT_RES 9s.
     "acc_old_r_acc": Probe(
-        "MULT.RC.VS LR0 0 LR0 CR15 ; ACC.ADD ;;\nHALT ;;",
+        "MULT.RC.VS LR0 0 LR0 CR15.L CR14.L ; ACC.ADD ;;\nHALT ;;",
         setup=_setup(_r_cyclic(_THREES), _lanes("r_acc", [5] * LANES)),
     ),
     # R_ACC is 2s at cycle start; MULT_RES is 7s, so ACC makes R_ACC 7s or 9s.
     "activate_r_acc_add_first": Probe(
-        "ACC.ADD.FIRST ; ACTIVATE.QUANTIZE identity CR15 ;;\nHALT ;;",
+        "ACC.ADD.FIRST ; ACTIVATE.QUANTIZE identity CR15.L CR14.L CR2 LR0 ;;\nHALT ;;",
+        cr={2: ROW},
         setup=_setup(_lanes("mult_res", [7] * LANES), _lanes("r_acc", [2] * LANES)),
     ),
     "activate_r_acc_add": Probe(
-        "ACC.ADD ; ACTIVATE.QUANTIZE identity CR15 ;;\nHALT ;;",
+        "ACC.ADD ; ACTIVATE.QUANTIZE identity CR15.L CR14.L CR2 LR0 ;;\nHALT ;;",
+        cr={2: ROW},
         setup=_setup(_lanes("mult_res", [7] * LANES), _lanes("r_acc", [2] * LANES)),
     ),
-    # POST_AAQ_REG is 1s at cycle start; ACTIVATE makes it 7s (R_ACC 7s).
-    "store_post_aaq": Probe(
-        "ACTIVATE.QUANTIZE identity CR15 ; ST.AAQ LR0 CR2 ;;\nHALT ;;",
-        cr={2: ROW},
-        setup=_setup(_lanes("r_acc", [7] * LANES), _post_aaq([1] * LANES)),
-    ),
-    # R_ACC is 1s at cycle start; ACC.ADD.FIRST makes it 7s (MULT_RES 7s).
-    "acc_store_r_acc": Probe(
-        "ACC.ADD.FIRST ; ST.ACC LR0 CR2 ;;\nHALT ;;",
+    # R_ACC is 1s at cycle start; ACC.ADD.FIRST makes it 7s (MULT_RES 7s);
+    # ACTIVATE.EXACT stores the forwarded 7s (FP32 only).
+    "exact_r_acc": Probe(
+        "ACC.ADD.FIRST ; ACTIVATE.EXACT identity CR15.L CR2 LR0 ;;\nHALT ;;",
         cr={2: ROW},
         setup=_setup(_lanes("mult_res", [7] * LANES), _lanes("r_acc", [1] * LANES)),
+        modes=(Mode.WIDE_FP32,),
     ),
-    # One word: an LR write, a store of POST_AAQ_REG (7s) and HALT; word 1
+    # One word: an LR write, an AaQ store of R_ACC (7s) and HALT; word 1
     # would overwrite LR0 if it ran.
     "halt": Probe(
-        "SET LR0 CR2 ; ST.AAQ LR1 CR3 ; HALT ;;\nSET LR0 CR4 ;;\nHALT ;;",
+        "SET LR0 CR2 ; ACTIVATE.QUANTIZE identity CR15.L CR14.L CR3 LR1 ; HALT ;;\n"
+        "SET LR0 CR4 ;;\nHALT ;;",
         cr={2: 5, 3: ROW, 4: 9},
-        setup=_post_aaq([7] * LANES),
+        setup=_lanes("r_acc", [7] * LANES),
     ),
     "signed_blt": Probe(_SIGNED_BRANCH.format(branch="BLT.S"), cr=_SIGNED_BRANCH_CR),
     "signed_bge": Probe(_SIGNED_BRANCH.format(branch="BGE.S"), cr=_SIGNED_BRANCH_CR),

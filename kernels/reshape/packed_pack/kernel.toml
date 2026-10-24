@@ -13,7 +13,8 @@ tokens   = { type = "int", choices = [16, 64] }      # 8 and 2 channels a row: t
 [derived]
 packed_rows = "channels * tokens / 128"
 row_stride  = "1"
-dstruct_row = "dstructure(128)"
+dstruct_row = "ds(128)"
+qf          = "case_qf"                     # the case's QF half (0: FP32 ignores it)
 
 [inputs.x]                                 # one channel per row, tokens lanes valid
 shape = ["channels", "tokens"]
@@ -32,6 +33,7 @@ row_stride  = "CR4"
 y           = "CR5"
 mask        = "CR6"
 dstruct_row = "CR7"
+qf          = "CR14"
 
 [golden]
 reference = "reference.py:reference"       # a layout change only

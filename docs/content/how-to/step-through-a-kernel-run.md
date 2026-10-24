@@ -10,10 +10,13 @@ shows:
 - the instruction word: each slot's instruction and the word's bit fields, MSB
   first;
 - the register file after the cycle (LR, CR and the vector registers), with the
-  cells the cycle changed outlined;
+  cells the cycle changed outlined; in the NX8 hardware mode each element is
+  shown at its value, decoded with its row's metadata word (scale and dynamic
+  exponent), which the panel lists;
 - the hardware pipeline: which blocks the word used, or each word's stage
   timing;
-- the XMEM traffic and the multiplier lanes in use.
+- the XMEM traffic, with the metadata word each AaQ store writes, and the
+  multiplier lanes in use.
 
 The **Assembly source** tab shows the kernel's `.asm` file as written, before
 Jinja rendering. The **ISA reference** tab lists every instruction of each
@@ -31,8 +34,8 @@ page's format, so the page always matches the current ISA and kernels:
 1. The kernel runner (`//src/ipu-harness:run_kernel` with `--trace` and
    `--context`) runs a kernel-tree case exactly as its test runs it. It writes
    the case's trace (one commit record per retired word; the schemas are in
-   `ipu_isa/schemas/`) and a context file: the kernel's source and labels, the
-   starting registers, and per word the multiplier lanes used and the XMEM
+   `ipu_isa/schemas/`) and a context file: the variant the case ran in, the
+   kernel's source and labels, the starting registers, and per word the multiplier lanes used and the XMEM
    ranges read.
 2. `ipu-gen inspector-trace` converts the two files into the page's JSON
    (`ipu_gen/schemas/inspector-trace.schema.json`). It keeps the first 5000
@@ -68,8 +71,8 @@ bazel run //src/ipu-gen:ipu-gen -- inspector-trace "$PWD/trace.jsonl" "$PWD/cont
     "//kernels/linear/fully_connected", "format": "e4"}`.
 
 2. Add a `[[kernel]]` entry with the same `id`, at the same place, to
-   `docs/inspector/curated.toml`, with its `group` (`hardware` for the 8-bit hardware element formats, `emulator`
-   for the emulator-only FP32 and INT32),
+   `docs/inspector/curated.toml`, with its `group` (`hardware` for an NX8
+   variant, `emulator` for the emulator-only FP32 mode; ADR 0007),
    `title`, `label` and `description`.
 
 `bazel test //docs/inspector:test_kernels` fails when the two lists disagree.

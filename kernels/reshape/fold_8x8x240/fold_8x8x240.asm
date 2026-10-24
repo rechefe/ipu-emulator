@@ -113,7 +113,7 @@
     prefetches stream 3, and stream 3 prefetches stream 0 of the NEXT
     channel (advancing LR6 first, in its own instruction word).
 
-    ST.AAQ reads its offset operand as the forwarded value, after the word's
+    ACTIVATE.EXACT reads its offset operand as the forwarded value, after the word's
     LR writes -- never co-issue an ADD on the offset LR (LR8) with the store,
     or the row lands one row late. Here LR8 advances in its own instruction
     word at the very end of the channel loop, well clear of the store.
@@ -156,14 +156,13 @@ ch_loop:
     ADD                 LR6 LR6 LR7;;       # src offset: next channel (+1 row)
 {%- endif %}
     LD.MULT R0 LR6 {{ next_cr }};
-    MULT.RC.VV LR0 R0 0 LR0 CR15;;          # multiply {{ name }} row (prefetch next stream)
+    MULT.RC.VV LR0 R0 0 LR0 CR15.L {{ cr.qf }}.L;;          # multiply {{ name }} row (prefetch next stream)
     ACC.RESHAPE LRD2 LRD4 0;;               # call0: src[0..7] -> dest[{{ dest_base }},{{ dest_base+2 }},{{ dest_base+4 }},{{ dest_base+6 }},{{ dest_base+16 }},{{ dest_base+18 }},{{ dest_base+20 }},{{ dest_base+22 }}]
     ADDBI               LRD2 8;
     ADDBI               LRD4 32;;
     ACC.RESHAPE LRD2 LRD4 0;;               # call1: src[8..15] -> dest[+32 of call0]
 {% endfor %}
-    ACTIVATE.QUANTIZE identity CR15;
-    ST.AAQ         LR8 CR13;;     # ch <- DST_BASE_ROW + ch (current channel)
+    ACTIVATE.EXACT identity CR15.L CR13 LR8;; # ch <- DST_BASE_ROW + ch (current channel)
 
     # -- Advance pointers; loop -------------------------------------------------
     ADD                 LR8 LR8 LR9;;       # dst offset: next channel

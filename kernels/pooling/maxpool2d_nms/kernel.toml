@@ -24,6 +24,7 @@ centred     = "1 / (1 - (2 * padding + 1 - kernel_size) * (2 * padding + 1 - ker
 slot_stride = "128"                                      # R_CYCLIC slot stride
 tiles       = "ceil(width / (129 - kernel_size))"        # TILES_PER_ROW
 plane       = "(height + kernel_size - 1) * tiles"       # IN_PLANE_STRIDE (rows)
+qf          = "case_qf"                                  # the case's QF half (0: FP32 ignores it)
 
 # Placed from row 0: x, y (the old image: input, output).
 [inputs.x]
@@ -42,6 +43,7 @@ tiles       = "CR5"
 plane       = "CR6"
 height      = "CR7"
 channels    = "CR8"
+qf          = "CR14"
 
 [golden]
 op = "maxpool2d"

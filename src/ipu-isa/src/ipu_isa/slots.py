@@ -43,11 +43,10 @@ class Slot(str, Enum):
 
     BREAK = "break"
     LOAD = "load"
-    STORE = "store"
-    ACC_STORE = "acc_store"
     MULT = "mult"
     ACC = "acc"
     AAQ = "aaq"
+    AAQ_EXACT = "aaq_exact"
     LR = "lr"
     COND = "cond"
 
@@ -66,8 +65,9 @@ class SlotInfo:
     # A program that uses the slot is a debugging build: the assembler warns,
     # the emulator's kernel tests expect DebugOnlyInstructionWarning, and the
     # instruction reference and the editor mark the slot simulation-only.
-    # ACC_STORE only. BREAK is EMULATOR too, but a breakpoint is the
-    # debugger's own tool and is not flagged (E03-23 and E05-15 revisit this).
+    # No slot is debug-only today (ADR 0007 removed ACC_STORE): BREAK and
+    # AAQ_EXACT are EMULATOR, but a breakpoint is the debugger's own tool and
+    # ACTIVATE.EXACT is the FP32 run mode's store (E03-23 and E05-15 revisit this).
     debug_only: bool
     title: str  # "Loop register"
     description: str  # one paragraph, for the editor and the docs
@@ -155,50 +155,6 @@ _SPEC: dict[Slot, dict[str, Any]] = {
         "legend_colour": "#FF6B6B",
         "legend_label": "LoadInst (Memory Load)",
     },
-    Slot.STORE: {
-        "count": 1,
-        "pad_to_bits": None,
-        "tag": Tag.HARDWARE,
-        "debug_only": False,
-        "title": "Store",
-        "description": (
-            "Last-stage memory stores that drain POST_AAQ_REG to external memory after "
-            "activation and quantization."
-        ),
-        "doc_heading": "STORE Instructions",
-        "doc_intro": (
-            "Last-stage memory stores that drain **POST_AAQ_REG** to external "
-            "memory after activation and quantization."
-        ),
-        "field_prefix": "store_inst",
-        "opcode_enum": "store_inst_opcode",
-        "sv_struct_base": "store_slot",
-        "asm_opcode_class": "StoreInstOpcode",
-        "legend_colour": "#E74C3C",
-        "legend_label": "StoreInst (Memory Store)",
-    },
-    Slot.ACC_STORE: {
-        "count": 1,
-        "pad_to_bits": None,
-        "tag": Tag.EMULATOR,
-        "debug_only": True,
-        "title": "Accumulator store",
-        "description": (
-            "Simulation-only stores of R_ACC to external memory (ST.ACC). Not "
-            "implemented in real IPU hardware."
-        ),
-        "doc_heading": "ACC_STORE Instructions",
-        "doc_intro": (
-            "Simulation-only slot for storing **R_ACC** to external memory "
-            "(`ST.ACC`). Not implemented in real IPU hardware."
-        ),
-        "field_prefix": "acc_store_inst",
-        "opcode_enum": "acc_store_inst_opcode",
-        "sv_struct_base": "acc_store_slot",
-        "asm_opcode_class": "AccStoreInstOpcode",
-        "legend_colour": "#C0392B",
-        "legend_label": "AccStoreInst (ST.ACC, simulation-only)",
-    },
     Slot.MULT: {
         "count": 1,
         "pad_to_bits": None,
@@ -244,13 +200,14 @@ _SPEC: dict[Slot, dict[str, Any]] = {
         "debug_only": False,
         "title": "Activation and quantization",
         "description": (
-            "Activation and quantization: apply activation to R_ACC and write quantized "
-            "INT8 bytes to POST_AAQ_REG."
+            "Activation and quantization: activate R_ACC, quantize to one NX8 row and store it "
+            "with its metadata; load the LUT segments the generic activation reads."
         ),
         "doc_heading": "AAQ Instructions",
         "doc_intro": (
-            "Activation and quantization: apply activation to R_ACC elements and write "
-            "quantized INT8 bytes to POST_AAQ_REG."
+            "Activation and quantization: `ACTIVATE.QUANTIZE` activates the forwarded R_ACC, "
+            "quantizes it to one NX8 row and stores the row and its metadata to XMEM; "
+            "`LD.LUT` loads one LUT segment from XMEM (ADR 0007)."
         ),
         "field_prefix": "aaq_inst",
         "opcode_enum": "aaq_inst_opcode",
@@ -258,6 +215,28 @@ _SPEC: dict[Slot, dict[str, Any]] = {
         "asm_opcode_class": "AaqInstOpcode",
         "legend_colour": "#9B59B6",
         "legend_label": "AaqInst (Activation and Quantization)",
+    },
+    Slot.AAQ_EXACT: {
+        "count": 1,
+        "pad_to_bits": None,
+        "tag": Tag.EMULATOR,
+        "debug_only": False,
+        "title": "Exact activation",
+        "description": (
+            "Emulator-only exact activation: activate R_ACC with the exact Python function and "
+            "store one FP32 row (FP32 mode only). Not in the hardware word."
+        ),
+        "doc_heading": "AAQ_EXACT Instructions",
+        "doc_intro": (
+            "Emulator-only slot: `ACTIVATE.EXACT` applies the exact activation to the forwarded "
+            "R_ACC and stores one FP32 row (512 B). Valid in FP32 mode only (ADR 0007)."
+        ),
+        "field_prefix": "aaq_exact_inst",
+        "opcode_enum": "aaq_exact_inst_opcode",
+        "sv_struct_base": "aaq_exact_slot",
+        "asm_opcode_class": "AaqExactInstOpcode",
+        "legend_colour": "#C0392B",
+        "legend_label": "AaqExactInst (ACTIVATE.EXACT, emulator-only)",
     },
     Slot.LR: {
         "count": 3,
@@ -310,8 +289,7 @@ LAYOUT_ORDER: tuple[Slot, ...] = (
     Slot.MULT,
     Slot.ACC,
     Slot.AAQ,
-    Slot.STORE,
-    Slot.ACC_STORE,
+    Slot.AAQ_EXACT,
     Slot.BREAK,
 )
 

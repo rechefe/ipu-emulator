@@ -19,7 +19,7 @@ from ipu_isa.slots import Slot
 
 # Each faulting word also writes LRs (one of them read by the faulting op,
 # forwarded), loads a row and multiplies: none of it may show.
-MULT = "MULT.RC.VS LR0 0 LR1 CR15"
+MULT = "MULT.RC.VS LR0 0 LR1 CR15.L CR14.L"
 WORDS = {
     FaultId.F3: (f"SET LR0 CR1 ; SET LR0 CR2 ; LD.MULT R0 LR7 CR2 ; {MULT} ;;", {}),
     FaultId.F4: (
@@ -92,13 +92,14 @@ def test_f1_word_has_no_effect(prototyping):
     # A reserved activation code beside an LR write, a load and a multiply.
     word = dict(
         assemble_program(
-            f"SET LR1 CR2 ; LD.MULT R0 LR7 CR2 ; {MULT} ; ACTIVATE.QUANTIZE relu CR15 ;;"
+            f"SET LR1 CR2 ; LD.MULT R0 LR7 CR2 ; {MULT} ; "
+            "ACTIVATE.QUANTIZE relu CR15.L CR14.L CR2 LR7 ;;"
         )[0]
     )
     for field, plans in plans_for(Slot.AAQ):
         plan = plans[word[field]]
         if plan.inst_name == "ACTIVATE.QUANTIZE":
-            word[dict(plan.fields)["activation_fn"]] = 15
+            word[dict(plan.fields)["activation_fn"]] = 7  # AaqActivationFn: 7 is reserved
     program = [assemble_program("INC LR7 0 ;;")[0], word, assemble_program("HALT ;;")[0]]
     _faults_at_word_one(program, {2: 5}, FaultId.F1, prototyping)
 
@@ -118,9 +119,10 @@ def test_f1_word_has_no_effect(prototyping):
             {8: 16384, 9: 9},
             FaultId.F5,
         ),
-        # F-4 in LOAD and F-6 in STORE: F-4.
+        # F-4 in LOAD and F-6 in the AaQ store: F-4.
         (
-            "SET LR1 CR9 ; SET LR7 CR8 ; LD.MULT.CYCLIC LR0 CR2 LR1 ; ST.AAQ LR7 CR2 ;;",
+            "SET LR1 CR9 ; SET LR7 CR8 ; LD.MULT.CYCLIC LR0 CR2 LR1 ; "
+            "ACTIVATE.QUANTIZE identity CR15.L CR14.L CR2 LR7 ;;",
             {8: 16384, 9: 64},
             FaultId.F4,
         ),
@@ -150,23 +152,41 @@ def test_the_instructions_that_can_fault_on_register_values():
         for plan in plans
         if plan.check is not None
     }
+    # The F-faulting ones, and (ADR 0007) every reader of a DS, QF or MULT
+    # constant, which refuses invalid contents in the check phase.
     assert checked == {
         ("load", "LD.MULT"),
         ("load", "LD.MULT.CYCLIC"),
         ("load", "LD.MASK"),
-        ("store", "ST.AAQ"),
-        ("acc_store", "ST.ACC"),
+        ("aaq", "LD.LUT"),
+        ("aaq", "ACTIVATE.QUANTIZE"),
+        ("aaq_exact", "ACTIVATE.EXACT"),
         ("acc", "ACC.RESHAPE"),
+        *(("acc", agg) for agg in ("AGG.SUM", "AGG.SUM.FIRST", "AGG.MAX", "AGG.MAX.FIRST")),
+        *(
+            ("mult", mult)
+            for mult in ("MULT.RC.VV", "MULT.RC.VE", "MULT.RC.VS", "MULT.VE", "MULT.EE")
+        ),
     }
 
 
-@pytest.mark.filterwarnings("ignore::ipu_emu.errors.DebugOnlyInstructionWarning")
 @pytest.mark.parametrize("prototyping", MODES)
-@pytest.mark.parametrize("op", ["LD.MASK LR7 CR2", "ST.AAQ LR7 CR2", "ST.ACC LR7 CR2"])
+@pytest.mark.parametrize(
+    "op",
+    ["LD.MASK LR7 CR2", "LD.LUT 0 CR2 LR7", "ACTIVATE.QUANTIZE identity CR15.L CR14.L CR2 LR7"],
+)
 def test_each_load_and_store_faults_f6_with_no_effect(op, prototyping):
     asm = f"SET LR7 CR9 ; INC LR6 1 ; {op} ;;"
     program = assemble_program(f"INC LR7 0 ;;\n{asm}\nHALT ;;")
     _faults_at_word_one(program, {9: 16384}, FaultId.F6, prototyping)
+
+
+@pytest.mark.parametrize("prototyping", MODES)
+def test_activate_exact_faults_f6_with_no_effect(prototyping):
+    """The emulator-only AaQ store faults F-6 on a row past FP32 mode's XMEM."""
+    asm = "SET LR7 CR9 ; INC LR6 1 ; ACTIVATE.EXACT identity CR15.L CR2 LR7 ;;"
+    program = assemble_program(f"INC LR7 0 ;;\n{asm}\nHALT ;;")
+    _faults_at_word_one(program, {9: 1 << 20}, FaultId.F6, prototyping, ElementFormat.FP32)
 
 
 @pytest.mark.parametrize("prototyping", MODES)

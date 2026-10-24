@@ -45,7 +45,7 @@ Reserved encodings for F-1, from the instruction reference:
 | `LOAD` | `MultStageReg` values other than `R0` and `R1`. |
 | `MULT` | Two opcodes of the 3-bit field. `MultStageReg` values other than `R0` and `R1`. |
 | `ACC` | Three opcodes of the 4-bit field. Values above 2 of `elements_in_row`, `horizontal_stride` and `vertical_stride`. |
-| `AAQ` | Activation function codes with no named function. The instruction reference treats them as `identity`: [OQ-6](open-questions.md). |
+| `AAQ` | One opcode of the 2-bit field. `lut_addr` outside 0 to 4 in `LD.LUT`. Values above 6 of `activation_fn`. |
 
 The fault list and this table are mirrored as data in `ipu_isa.faults`, which derives the reserved encodings from the ISA. A test (`//src/ipu-isa:test_faults_docs`) checks that both tables state the same as that data.
 
@@ -73,7 +73,7 @@ Status: **Proposed**. Owner: Yuval Harary.
 
 Accumulator overflow, NaN results and quantization saturation occur in ACC and AAQ, after the cache agent accepts the word. They are not faults and never halt. Step 0 does not detect them. The fault control registers reserve one sticky flag for each event.
 
-In the emulator, ACC and AGG store the IEEE result (a float overflow is an infinity, a NaN stays, an integer wraps to 32 bits) and set the event's flag in `IpuState.arith_flags`: `ACC_OVERFLOW` when a finite result rounds to an infinity or an integer result leaves int32 (an AGG sum is judged on its exact total), `NAN_RESULT` when a stored lane is NaN, computed or copied (so R_ACC holding a NaN flags again at each ACC word). `ACC.RESHAPE` moves raw words and reports nothing. Flags are sticky: no run clears them, a reset does. A commit record lists each word's events. MULT and AAQ report no events: a float32 overflow there still raises `OverflowError` (MULT can overflow only in FP32; whether that is an accumulator event is open), and quantization saturation waits for AaQ ([OQ-20](open-questions.md#emulator-and-isa)).
+In the emulator, ACC and AGG store the IEEE float32 result (an overflow is an infinity, a NaN stays) and set the event's flag in `IpuState.arith_flags`: `ACC_OVERFLOW` when a finite result rounds to an infinity (an AGG sum is judged on its exact total), `NAN_RESULT` when a stored lane is NaN, computed or copied (so R_ACC holding a NaN flags again at each ACC word). `ACC.RESHAPE` moves raw words and reports nothing. Flags are sticky: no run clears them, a reset does. A commit record lists each word's events. `ACTIVATE.QUANTIZE` sets `QUANT_SATURATION` when an element saturates: ±inf, a rounding carry above the row's scale, or a negative input to an unsigned NX8 type ([ADR 0007](https://github.com/rechefe/ipu-emulator/blob/master/docs/adr/0007-operational-aaq-and-nx8.md)). MULT stores the IEEE float32 product (an overflow is an infinity, in either mode: NX8 elements reach FP32's range through their row scale) and reports no event; whether a MULT overflow is an arithmetic event is open (OQ-18).
 
 ## Illegal host accesses
 

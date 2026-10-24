@@ -26,8 +26,8 @@
         There is no second chunk, hence no AGG.SUM and no cross-chunk partial.
 
     ONE CHANNEL PER ROW: every P query row and every V channel row is a WHOLE
-    row with 16 live FP32 lanes. CR15.valid_elements = 16 tells AGG how many
-    lanes to reduce and ACTIVATE.QUANTIZE how many lanes to emit.
+    row with 16 live FP32 lanes. CR15.L's valid_elements = 16 tells AGG how many
+    lanes to reduce and ACTIVATE.EXACT how many lanes to emit.
 
     Layouts (row addresses; XMEM operands are ROW numbers, issue #179):
       P query-major  : P[i, s] at PBASE + h*P_HEAD_STRIDE + i*PV_STRIDE
@@ -44,7 +44,7 @@
 
     Loop nest:  for h in 0..3 { for t in 0..59 {
                     for local 0..15: load P; MULT.RC.VV; AGG.SUM.FIRST
-                    ACTIVATE.QUANTIZE identity + ST.AAQ
+                    ACTIVATE.EXACT identity (activate and store)
                       -> O[0..15, t]  (one whole row, 16 live FP32 lanes)
                 }}
 
@@ -108,7 +108,7 @@
 {% set CHAN_COUNT       = cr.d %}  {# 60 = head channels t #}
 {% set HEAD_COUNT       = cr.n_head %}  {# 4 = heads #}
 {% set OUT_CHAN_STRIDE  = cr.out_chan_stride %}  {# O channel stride (rows) #}
-{% set DSTRUCT          = cr.dstruct %}  {# dstructure register: valid_elements = 16 #}
+{% set DSTRUCT          = cr.dstruct ~ ".L" %}  {# DS half: valid_elements = 16 #}
 
     SET {{ rc_slot0 }} {{ ZERO }};;                                # rc write index = 0 (const)
     SET {{ chan_off }} {{ ZERO }};;                                # value-channel row offset = 0
@@ -130,15 +130,14 @@ t_loop:
     LD.MULT R0 {{ p_ptr }} {{ P_BASE }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};;  # prime query 0's P row
 inner_loop:
-    MULT.RC.VV {{ rc_slot0 }} R0 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    MULT.RC.VV {{ rc_slot0 }} R0 0 {{ rc_slot0 }} {{ DSTRUCT }} {{ cr.qf }}.L;
     AGG.SUM.FIRST {{ agg_slot }} {{ DSTRUCT }};
     LD.MULT R0 {{ p_ptr }} {{ P_BASE }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};
     INC {{ agg_slot }} 1;
     BLT.S {{ agg_slot }} {{ INNER_BOUND }} inner_loop;;
 
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    ST.AAQ {{ out_chan_off }} {{ OUT_BASE }};;  # O[0..15, t] = R_ACC
+    ACTIVATE.EXACT identity {{ DSTRUCT }} {{ OUT_BASE }} {{ out_chan_off }} ;;  # O[0..15, t] = R_ACC
 
     # ----- next t: advance V channel row offset and O row offset, t++ -----
     ADD {{ chan_off }} {{ chan_off }} {{ P_QUERY_STRIDE }};;       # V chan row offset += PV_STRIDE

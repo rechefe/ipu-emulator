@@ -13,19 +13,18 @@ fast paths cannot be selected; only a flagged build executes the two-mode cases.
 
 from __future__ import annotations
 
-import contextlib
-
 import numpy as np
 import pytest
 import timing_probes
 from emu_support import ElementFormat, assemble_program, make_state, new_state, run_both
 
 from ipu_emu.emulator import load_program, run_until_complete
-from ipu_emu.errors import DebugOnlyInstructionWarning, EmulatorFault
+from ipu_emu.errors import EmulatorFault
 from ipu_emu.ipu import Ipu
 from ipu_emu.ipu_state import HaltRecord, IpuState
 from ipu_emu.outcome import CycleOutcome
 from ipu_emu.prototyping import build_enabled, default_enabled, env_requests_prototyping
+from ipu_isa.cr_halves import ds
 from ipu_isa.faults import FaultId
 
 _REQUIRES_PROTO_BUILD = pytest.mark.skipif(
@@ -35,28 +34,28 @@ _REQUIRES_PROTO_BUILD = pytest.mark.skipif(
 
 # Programs chosen for what they make the two paths do differently: NOP-heavy
 # slots, branches (the cond slot's NOP advances the PC), an explicitly loaded
-# mask, all three LR sub-slots at once, and both wide arithmetic modes.
+# mask, all three LR sub-slots at once, and both run modes (NX8, FP32).
 PROGRAMS = {
     "mult_acc_agg": """
         SET LR0 CR0 ; SET LR1 CR1 ;;
         LD.MULT R0 LR0 CR2 ;;
         LD.MULT.CYCLIC LR0 CR3 LR0 ;;
-        MULT.RC.VV LR0 R0 0 LR0 CR15 ; ACC.ADD.FIRST ;;
-        MULT.RC.VE LR0 CR1 0 LR0 CR15 ; ACC.ADD ;;
-        MULT.RC.VS LR0 0 LR0 CR15 ; ACC.MAX ;;
-        MULT.VE LR0 CR1 0 LR0 CR15 ; ACC.SUB ;;
-        MULT.EE LR0 CR1 0 LR0 CR15 ; AGG.SUM.FIRST LR1 CR15 ;;
-        MULT.RC.VV LR0 R0 0 LR0 CR15 ; AGG.MAX LR1 CR15 ;;
-        ACTIVATE.QUANTIZE relu CR15 ; ST.AAQ LR1 CR4 ;;
+        MULT.RC.VV LR0 R0 0 LR0 CR15.L CR14.L ; ACC.ADD.FIRST ;;
+        MULT.RC.VE LR0 CR1 0 LR0 CR15.L CR14.L ; ACC.ADD ;;
+        MULT.RC.VS LR0 0 LR0 CR15.L CR14.L ; ACC.MAX ;;
+        MULT.VE LR0 CR1 0 LR0 CR15.L CR14.L ; ACC.SUB ;;
+        MULT.EE LR0 CR1 0 LR0 CR15.L CR14.L ; AGG.SUM.FIRST LR1 CR15.L ;;
+        MULT.RC.VV LR0 R0 0 LR0 CR15.L CR14.L ; AGG.MAX LR1 CR15.L ;;
+        ACTIVATE.QUANTIZE relu CR15.L CR14.L CR4 LR1 ;;
         HALT ;;
     """,
     "masked": """
         SET LR0 CR0 ; SET LR2 CR1 ;;
         LD.MASK LR0 CR6 ;;
         LD.MULT.CYCLIC LR0 CR3 LR0 ;;
-        MULT.RC.VS LR0 0 LR2 CR15 ; ACC.ADD.FIRST ;;
-        MULT.RC.VS LR0 1 LR0 CR15 ; ACC.ADD ;;
-        ACTIVATE.QUANTIZE identity CR15 ; ST.AAQ LR0 CR4 ;;
+        MULT.RC.VS LR0 0 LR2 CR15.L CR14.L ; ACC.ADD.FIRST ;;
+        MULT.RC.VS LR0 1 LR0 CR15.L CR14.L ; ACC.ADD ;;
+        ACTIVATE.QUANTIZE identity CR15.L CR14.L CR4 LR0 ;;
         HALT ;;
     """,
     "loop_and_lr_ops": """
@@ -77,25 +76,26 @@ PROGRAMS = {
 
 def _seed(fmt: ElementFormat, seed: int):
     """Return a setup callback that fills XMEM and the CRs the programs read."""
-    wide = fmt in (ElementFormat.FP32, ElementFormat.INT32)
+    wide = fmt == ElementFormat.FP32
 
     def setup(state: IpuState) -> None:
         rng = np.random.RandomState(seed)
         row = 512 if wide else 128
-        if fmt == ElementFormat.FP32:
+        if wide:
             payload = rng.randn(128 * 6).astype(np.float32).tobytes()
-        elif wide:
-            payload = rng.randint(-2000, 2000, 128 * 6).astype(np.int32).tobytes()
         else:
             payload = bytes(rng.randint(0, 256, 128 * 6, dtype=np.uint8))
         state.xmem.write_address(0x10000, payload)
+        if not wide:
+            for index in range(6):  # each row's scale, so the products are not tiny
+                state.xmem.write_metadata(0x10000 + index * row, 120 + index)
 
         state.regfile.set_cr(2, 0x10000 // row)  # R0 source row
         state.regfile.set_cr(3, 0x10000 // row + 1)  # cyclic source row
-        state.regfile.set_cr(4, 0x30000 // row)  # post-AAQ store row
+        state.regfile.set_cr(4, 0x30000 // row)  # ACTIVATE.QUANTIZE store row
         state.regfile.set_cr(6, 0x10000 // row + 2)  # mask row
         state.regfile.set_cr(7, 5)  # loop bound
-        state.set_cr_dstructure(valid_elements=128, partition=4)
+        state.set_cr_half(15, False, ds(valid_elements=32, num_partitions=4))
 
     return setup
 
@@ -137,7 +137,7 @@ def _cycle_comparer():
     return compare
 
 
-def _run_equivalence(asm: str, *, fmt: ElementFormat = ElementFormat.INT8, seed: int = 5):
+def _run_equivalence(asm: str, *, fmt: ElementFormat = ElementFormat.NX8, seed: int = 5):
     """Run *asm* faithful and prototyping in lockstep; compare after every cycle."""
     faithful, fast = run_both(asm, fmt=fmt, setup=_seed(fmt, seed), on_cycle=_cycle_comparer())
     _assert_states_identical(faithful, fast)
@@ -146,14 +146,14 @@ def _run_equivalence(asm: str, *, fmt: ElementFormat = ElementFormat.INT8, seed:
 
 @_REQUIRES_PROTO_BUILD
 @pytest.mark.parametrize("name", sorted(PROGRAMS))
-def test_narrow_int8_programs_are_identical(name):
+def test_nx8_programs_are_identical(name):
     _run_equivalence(PROGRAMS[name])
 
 
 @_REQUIRES_PROTO_BUILD
 @pytest.mark.parametrize("name", sorted(PROGRAMS))
-@pytest.mark.parametrize("fmt", [ElementFormat.FP32, ElementFormat.INT32])
-def test_wide_vector_programs_are_identical(name, fmt):
+@pytest.mark.parametrize("fmt", [ElementFormat.FP32])
+def test_fp32_programs_are_identical(name, fmt):
     _run_equivalence(PROGRAMS[name], fmt=fmt)
 
 
@@ -168,7 +168,7 @@ _PROBE_RUNS = [
 
 
 _PROBE_FORMATS = {
-    timing_probes.Mode.NARROW: ElementFormat.INT8,
+    timing_probes.Mode.NX8: ElementFormat.NX8,
     timing_probes.Mode.WIDE_FP32: ElementFormat.FP32,
 }
 
@@ -193,20 +193,12 @@ def _probe_setup(probe):
 @pytest.mark.parametrize(("name", "mode"), _PROBE_RUNS)
 def test_timing_probes_are_identical(name, mode):
     probe = timing_probes.PROBES[name]
-    # ST.ACC is emulator-only and says so on every run.
-    expected = (
-        pytest.warns(DebugOnlyInstructionWarning)
-        if "ST.ACC" in probe.asm
-        else contextlib.nullcontext()
+    faithful, fast = run_both(
+        program=timing_probes.decoded_program(probe),
+        fmt=_PROBE_FORMATS[mode],
+        setup=_probe_setup(probe),
+        on_cycle=_cycle_comparer(),
     )
-    with expected:
-        faithful, fast = run_both(
-            program=timing_probes.decoded_program(probe),
-            fmt=_PROBE_FORMATS[mode],
-            dstructure={"valid_elements": timing_probes.LANES},
-            setup=_probe_setup(probe),
-            on_cycle=_cycle_comparer(),
-        )
     _assert_states_identical(faithful, fast)
 
 
@@ -260,13 +252,13 @@ def _wide_fp32_activation_state(
     activation: str, payload: bytes, prototyping: bool
 ) -> tuple[IpuState, Ipu]:
     state = make_state(
-        f"ACTIVATE.QUANTIZE {activation} CR15 ;;\n",
+        f"ACTIVATE.EXACT {activation} CR15.L CR4 LR0 ;;\n",
         fmt=ElementFormat.FP32,
-        dstructure={"valid_elements": 128},
+        cr={4: 9},
         prototyping=prototyping,
     )
     state.regfile.mutable("r_acc")[:] = payload
-    state.regfile.mutable("post_aaq_reg")[:] = b"\xa5" * 512
+    state.xmem.write_address(9 * 512, b"\xa5" * 512)  # the store row: overwritten or kept
     return state, Ipu(state)
 
 
@@ -405,9 +397,9 @@ def test_both_modes_raise_the_same_fault_at_the_same_pc(asm, fault, pc):
 def test_a_disabled_f1_runs_the_same_nop_in_both_modes():
     # A reserved activation code in the AAQ slot: with F-1 disabled the slot
     # is a NOP in both modes, and the LR slot retires.
-    word = dict(assemble_program("INC LR0 1 ; ACTIVATE.QUANTIZE relu CR15 ;;")[0])
-    aaq = next(name for name in word if name.startswith("aaq_") and "activation_fn" in name)
-    word[aaq] = 15
+    word = dict(assemble_program("INC LR0 1 ; ACTIVATE.QUANTIZE relu CR15.L CR14.L CR4 LR0 ;;")[0])
+    aaq = next(name for name in word if name.startswith("aaq_inst") and "activation_fn" in name)
+    word[aaq] = 7
     states = []
     for prototyping in (False, True):
         state = new_state(prototyping=prototyping)
@@ -502,7 +494,7 @@ def _profiled_run(asm: str, prototyping: bool, seed: int = 5):
     state = new_state(
         prototyping=prototyping,
         alias_profile=AliasProfile(),
-        setup=_seed(ElementFormat.INT8, seed),
+        setup=_seed(ElementFormat.NX8, seed),
     )
     load_program(state, assemble_program(asm))
     return state, Ipu(state)

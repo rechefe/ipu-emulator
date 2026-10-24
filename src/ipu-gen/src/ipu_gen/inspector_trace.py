@@ -11,9 +11,12 @@ The document (``schemas/inspector-trace.schema.json``):
 * ``schemaVersion``: :data:`SCHEMA_VERSION`. The page refuses a version it
   does not know.
 * ``kernel``, ``case``, ``options``, ``source_path``, ``source``: what ran.
-* ``meta``: the element format and its facts (``ipu_isa.formats``); for an
-  8-bit float format, ``lut``, each of the 256 codes' values
-  (``"nan"``, ``"inf"`` and ``"-inf"`` as strings), else ``null``.
+* ``meta``: the run mode (``nx8`` or ``fp32``, ADR 0007), the case's variant
+  and, in NX8, its element type (``nx8``: the QF half's fields) and ``lut``:
+  per ``dynamic_exponent`` (one table, two for a dynamic type), each of the
+  256 codes' values at unit scale (scale 127). An element's value is its
+  code's entry times ``2 ** (scale - 127)``, with ``scale`` and
+  ``dynamic_exponent`` from its row's metadata word. ``null`` in FP32.
 * ``trace``: the trace header's provenance (schema version, ISA and program
   digests).
 * ``program``: per word, its label (or ``null``), the word in hex and its
@@ -25,19 +28,20 @@ The document (``schemas/inspector-trace.schema.json``):
 * ``cycles``: per retired word, ``pc``; ``d``, its register writes (``lr``
   and ``cr`` as ``{index: value}``, any other register as
   ``[[byte offset, hex], ...]``); ``m``, its XMEM accesses as
-  ``[["R" | "W", address, bytes], ...]``; ``L``, the multiplier lanes it
-  used, when any; ``o``, its outcome when it is not ``retired``.
+  ``[["R" | "W", address, bytes], ...]``; ``M``, the XMEM metadata words it
+  wrote, when any, as ``[[address, value], ...]``; ``L``, the multiplier lanes
+  it used, when any; ``o``, its outcome when it is not ``retired``.
 * ``total_cycles``: the trace's records; ``truncated``: whether ``cycles``
   holds only the first ``max_cycles`` of them.
 
-``L`` and the XMEM reads come from the context file: the commit record has
-neither (it records writes), so the recorder takes them from the run.
+``L``, the XMEM reads and the variant come from the context file: the commit
+record has none of them (it records writes, and its header names the mode
+only), so the recorder takes them from the run.
 """
 
 from __future__ import annotations
 
 import json
-import math
 from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -45,7 +49,8 @@ from typing import Any
 from ipu_isa.codec.disasm import operand_text
 from ipu_isa.codec.slot import codecs
 from ipu_isa.codec.word import WORD_LAYOUT
-from ipu_isa.formats import FORMATS, ElementFormat, decode_element
+from ipu_isa.formats import FORMATS, ElementFormat
+from ipu_isa.nx8 import SCALE_BIAS, Nx8Format, decode_element
 from ipu_isa.operand_types import OperandKind
 from ipu_isa.tags import Tag
 from ipu_isa.trace_schema import isa_digest, program_digest
@@ -61,13 +66,13 @@ __all__ = [
 ]
 
 #: The viewer document's version. Bump it on any change the page must know of.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 #: The commit record schema major version this adapter reads.
 TRACE_MAJOR = 1
 
 #: The recorder's context layout (``ipu_harness.inspector``) this adapter reads.
-CONTEXT_VERSION = 1
+CONTEXT_VERSION = 2
 
 #: Cycles kept per trace unless the caller says otherwise: enough for every
 #: curated kernel's interesting part, small enough for the page to load.
@@ -117,33 +122,43 @@ def _check(header: Mapping[str, Any], records: Sequence[Mapping], context: Mappi
         raise TraceError(f"{len(records)} records but {len(context['cycles'])} context cycles")
 
 
-def _lut_value(value: float) -> float | str:
-    """A decoded element as JSON: a number, or ``"nan"``, ``"inf"``, ``"-inf"``."""
-    if math.isnan(value):
-        return "nan"
-    if math.isinf(value):
-        return "inf" if value > 0 else "-inf"
-    return value
+def _nx8_type(variant: Mapping[str, Any]) -> Nx8Format | None:
+    """The variant's NX8 element type, or ``None`` (an FP32 run)."""
+    qf = variant.get("qf")
+    if qf is None:
+        return None
+    return Nx8Format(qf["sign"], qf["exp_format"], qf["num_bits"], bool(qf["dynamic"]))
 
 
-def _meta(fmt: ElementFormat) -> dict[str, Any]:
+def _lut(element: Nx8Format) -> list[list[float]]:
+    """Each code's value at unit scale, per ``dynamic_exponent`` the type uses."""
+    exponents = (0, 1) if element.dynamic else (0,)
+    return [
+        [decode_element(code, element, SCALE_BIAS, dyn) for code in range(256)] for dyn in exponents
+    ]
+
+
+def _meta(fmt: ElementFormat, variant: Mapping[str, Any]) -> dict[str, Any]:
     info = FORMATS[fmt]
-    # An 8-bit float element's value per code, so the page needs no FP8 decoder.
-    lut = (
-        [_lut_value(decode_element(code, fmt)) for code in range(256)]
-        if info.is_float and info.element_bits == 8
-        else None
-    )
+    element = _nx8_type(variant)
+    if (element is None) != (fmt is ElementFormat.FP32):
+        raise TraceError(f"variant {variant.get('name')!r} does not fit a {fmt.value} run")
     return {
         "format": fmt.value,
-        "is_float": info.is_float,
+        "variant": variant["name"],
         "element_bits": info.element_bits,
-        "exp_bits": info.exp_bits,
-        "man_bits": info.man_bits,
         "accumulator": info.accumulator.value,
-        # FP32 and INT32 exist in the emulator only.
+        # FP32 exists in the emulator only.
         "emulator_only": info.tag is Tag.EMULATOR,
-        "lut": lut,
+        "nx8": None
+        if element is None
+        else {
+            "sign": element.sign,
+            "exp_format": element.exp_format,
+            "num_bits": element.num_bits,
+            "dynamic": element.dynamic,
+        },
+        "lut": None if element is None else _lut(element),
     }
 
 
@@ -205,6 +220,9 @@ def _cycle(record: Mapping[str, Any], facts: Mapping[str, Any]) -> dict[str, Any
     memory = [["R", address, size] for address, size in facts["xmem_reads"]]
     memory += [["W", w["address"], len(w["data"]) // 2] for w in record["xmem_writes"]]
     cycle: dict[str, Any] = {"pc": record["pc_before"], "d": deltas, "m": memory}
+    metadata = [[w["address"], w["value"]] for w in record.get("xmem_meta_writes", [])]
+    if metadata:
+        cycle["M"] = metadata
     if facts["lanes"]:
         cycle["L"] = facts["lanes"]
     if record["outcome"] != "retired":
@@ -246,7 +264,7 @@ def convert(
         "options": context["options"],
         "source_path": context["source_path"],
         "source": context["source"],
-        "meta": _meta(ElementFormat(header["format"])),
+        "meta": _meta(ElementFormat(header["format"]), context["variant"]),
         "trace": {
             "schema_version": header["schema_version"],
             "isa_digest": header["isa_digest"],

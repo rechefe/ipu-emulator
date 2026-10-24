@@ -23,10 +23,10 @@
     Output y (one channel per row, stream after stream, HALF-ROW PADDED):
       Stream s, channel c: row c of stream s.
       Each row carries 64 valid FP32 tokens in lanes 0..63; lanes 64..127
-      are STALE R_ACC lanes and must be ignored by consumers. A stream
+      are R_ACC's other lanes and must be ignored by consumers. A stream
       contributes 2 x 32 = 64 tokens, which half-fills R_ACC;
-      ACTIVATE.QUANTIZE identity stages all 128 lanes of R_ACC (CR15 carries
-      the default valid_elements=128) and ST.AAQ writes the whole row. This
+      ACTIVATE.EXACT identity writes all 128 lanes of R_ACC as the whole
+      row (CR15.L holds the default DS, ds(128)). This
       is the deliberate per-stream layout; a packed [k][p*n] variant that
       would use the full row is not implemented.
       Lanes 0..31 hold the channel's stripe-0 tokens and lanes 32..63 its
@@ -68,7 +68,7 @@
     1) is the channel loop's increment. CR0 and CR1 are read-only: a host
     write to either raises.
 
-    ST.AAQ reads its offset as the forwarded value, after the word's LR
+    ACTIVATE.EXACT reads its offset as the forwarded value, after the word's LR
     writes -- never co-issue an ADD on the offset LR with the store, or the
     row lands one row late. Here the destination offset LR8 advances in its
     own instruction word at the end of the channel loop, well clear of every
@@ -105,46 +105,42 @@ ch_loop:
 
     # -- Stream TL  (h=on=even cols, v=on=even rows) -------------------------
     LD.MULT R0 LR4 CR13;
-    MULT.RC.VV LR0 R0 0 LR0 CR15;
+    MULT.RC.VV LR0 R0 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.STRIDE 16 on on LR0;;
     LD.MULT R0 LR4 CR0;
-    MULT.RC.VV LR0 R0 0 LR0 CR15;
+    MULT.RC.VV LR0 R0 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.STRIDE 16 on on LR1;;
-    ACTIVATE.QUANTIZE identity CR15;
-    ST.AAQ         LR8 CR9;;  # TL → DST_TL + ch (lanes 0..63 valid)
+    ACTIVATE.EXACT identity CR15.L CR9 LR8;; # TL → DST_TL + ch (lanes 0..63 valid)
 
     # -- Stream TR  (h=on_inv=odd cols, v=on=even rows) ----------------------
     LD.MULT R0 LR4 CR13;
-    MULT.RC.VV LR0 R0 0 LR0 CR15;
+    MULT.RC.VV LR0 R0 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.STRIDE 16 on_inv on LR0;;
     LD.MULT R0 LR4 CR0;
-    MULT.RC.VV LR0 R0 0 LR0 CR15;
+    MULT.RC.VV LR0 R0 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.STRIDE 16 on_inv on LR1;;
-    ACTIVATE.QUANTIZE identity CR15;
-    ST.AAQ         LR8 CR10;;  # TR
+    ACTIVATE.EXACT identity CR15.L CR10 LR8;; # TR
 
     # -- Stream BL  (h=on=even cols, v=on_inv=odd rows) ----------------------
     LD.MULT R0 LR4 CR13;
-    MULT.RC.VV LR0 R0 0 LR0 CR15;
+    MULT.RC.VV LR0 R0 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.STRIDE 16 on on_inv LR0;;
     LD.MULT R0 LR4 CR0;
-    MULT.RC.VV LR0 R0 0 LR0 CR15;
+    MULT.RC.VV LR0 R0 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.STRIDE 16 on on_inv LR1;;
-    ACTIVATE.QUANTIZE identity CR15;
-    ST.AAQ         LR8 CR11;;  # BL
+    ACTIVATE.EXACT identity CR15.L CR11 LR8;; # BL
 
     # -- Stream BR  (h=on_inv=odd cols, v=on_inv=odd rows) -------------------
     LD.MULT R0 LR4 CR13;
-    MULT.RC.VV LR0 R0 0 LR0 CR15;
+    MULT.RC.VV LR0 R0 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.STRIDE 16 on_inv on_inv LR0;;
     # lr4 must advance BEFORE the load that uses the next channel's offset: LR
     # sub-slots run ahead of LOAD within a word, so this ADD gets its own word.
     ADD                 LR4 LR4 LR5;;       # src offset: next channel (+1 row)
     LD.MULT R0 LR4 CR0;
-    MULT.RC.VV LR0 R0 0 LR0 CR15;
+    MULT.RC.VV LR0 R0 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.STRIDE 16 on_inv on_inv LR1;;
-    ACTIVATE.QUANTIZE identity CR15;
-    ST.AAQ         LR8 CR12;;  # BR
+    ACTIVATE.EXACT identity CR15.L CR12 LR8;; # BR
 
     # -- Advance pointers; loop ----------------------------------------------
     ADD                 LR8 LR8 LR6;;       # dst offset: next channel (+1 row)

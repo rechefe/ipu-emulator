@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import struct
 from importlib import resources
 
 import pytest
@@ -12,7 +13,15 @@ import timing_probes
 from emu_support import assemble_program, make_state, new_state
 from jsonschema import Draft202012Validator
 
-from ipu_emu.commit import CommitCollector, CommitRecord, FaultInfo, RegWrite, SlotOp, XmemWrite
+from ipu_emu.commit import (
+    CommitCollector,
+    CommitRecord,
+    FaultInfo,
+    RegWrite,
+    SlotOp,
+    XmemMetaWrite,
+    XmemWrite,
+)
 from ipu_emu.cycle import CycleOutcome
 from ipu_emu.emulator import load_program, run_until_complete
 from ipu_emu.errors import EmulatorFault
@@ -22,7 +31,7 @@ from ipu_isa.codec.word import DecodedWord, word_bytes
 from ipu_isa.registers import REGISTER_DEFINITIONS
 from ipu_isa.trace_schema import SCHEMA_VERSION, load_schema
 
-# The probes include ST.ACC, the emulator-only store: its warning is expected.
+# No probe is debug-only since ADR 0007; the marker stays harmless.
 _DEBUG_ONLY = pytest.mark.filterwarnings("ignore::ipu_emu.errors.DebugOnlyInstructionWarning")
 
 RECORD = Draft202012Validator(load_schema("commit_record"))
@@ -32,11 +41,11 @@ HEADER = Draft202012Validator(load_schema("trace"))
 # bump the version in its $id (Q11: minor for an added optional field, major
 # otherwise) and then update this table.
 SNAPSHOT = {
-    "commit_record": "1.0.0",
+    "commit_record": "1.1.0",
     "trace": "1.0.0",
 }
 SNAPSHOT_SHA256 = {
-    "commit_record": "54f5afe5ba2e299a7b392196d727e0ded2e5828baaee47d8cb20068241d3f7f3",
+    "commit_record": "797255cc505dcc70c0f27e5794761ef95bb56097a8ebaead8714e465f5b0cadd",
     "trace": "90e26dc04251f4d85de0d750b2cf2a0f9cba7ca1ff97a9c3f10d0e712ff342ee",
 }
 
@@ -50,7 +59,7 @@ def _collect(state):
     return collector.records
 
 
-# Every probe in every mode it declares (the FP32/INT32 modes write the
+# Every probe in every mode it declares (the FP32 mode writes the
 # emulator-only registers).
 PROBE_RUNS = [
     (name, mode) for name, probe in sorted(timing_probes.PROBES.items()) for mode in probe.modes
@@ -144,7 +153,15 @@ def _check_registers(record, before, after):
 
 
 def _check_xmem(record, before, state):
-    """The same for XMEM, page by page."""
+    """The same for XMEM, page by page, and for its metadata, unit by unit."""
+    before, before_meta = before
+    after_meta = dict(state.xmem.touched_metadata())
+    written = {w.address: w.value for w in record.xmem_meta_writes}
+    for unit in set(before_meta) | set(after_meta):
+        if before_meta.get(unit, 0) != after_meta.get(unit, 0):
+            assert unit in written, unit
+    for unit, value in written.items():
+        assert state.xmem.snapshot_metadata(unit) == value
     after = _xmem(state)
     for base in set(before) | set(after):
         old, new = before.get(base), after.get(base)
@@ -170,7 +187,7 @@ def test_the_writes_are_the_state_difference(name, mode):
         for _ in range(200):
             if state.halt is not None:
                 break
-            regs, mem = _registers(state), _xmem(state)
+            regs, mem = _registers(state), (_xmem(state), dict(state.xmem.touched_metadata()))
             seen, pc = len(collector.records), state.program_counter
             try:
                 if ipu.cycle.step() is CycleOutcome.BREAK:
@@ -291,14 +308,23 @@ def test_a_schema_change_bumps_its_version(name):
         pytest.fail(f"{name} is now {version}: update SNAPSHOT and SNAPSHOT_SHA256 here")
 
 
-@_DEBUG_ONLY
 def test_an_emulator_only_op_is_tagged():
-    probes = [p for p in timing_probes.PROBES.values() if "ST.ACC" in p.asm]
+    probes = [p for p in timing_probes.PROBES.values() if "ACTIVATE.EXACT" in p.asm]
     assert probes
     state = timing_probes.prepare(probes[0], probes[0].modes[0])
-    ops = [op for r in _collect(state) for op in r.slots if op.slot == "acc_store"]
+    ops = [op for r in _collect(state) for op in r.slots if op.slot == "aaq_exact"]
     assert ops and all(op.emulator_only for op in ops)
     assert all(op.to_json()["tag"] == "emulator" for op in ops)
+
+
+def test_an_aaq_store_records_its_metadata_write():
+    """ACTIVATE.QUANTIZE writes a row and its metadata word: both are in the record."""
+    state = make_state("ACTIVATE.QUANTIZE identity CR15.L CR14.L CR2 LR0 ;;\nHALT ;;", cr={2: 30})
+    state.regfile.set_r_acc_bytes(struct.pack("<128f", *([2.0] * 128)))
+    (record, _halt) = _collect(state)
+    assert [w.address for w in record.xmem_writes] == [30 * 128]
+    assert [(w.address, w.value) for w in record.xmem_meta_writes] == [(30 * 128, 128)]
+    RECORD.validate(record.to_json())
 
 
 def test_a_fault_is_recorded_when_it_happens():
@@ -365,3 +391,40 @@ def test_a_wide_debug_register_write_is_tagged():
         for record in _collect(state):
             tagged += [w.to_json() for w in record.reg_writes if w.register.endswith("_wide_debug")]
     assert tagged and all(w["tag"] == "emulator" for w in tagged)
+
+
+def test_a_metadata_write_is_recorded_per_unit_with_its_end_value():
+    state = make_state("INC LR0 1 ;;\nHALT ;;")
+    with CommitCollector(state) as collector:
+        state.xmem.write_metadata(512, 9)  # a host write: no word, no record
+        collector.begin(0)
+        state.xmem.write_metadata(256, 0x1AB)
+        state.xmem.write_metadata(0, 5)
+        state.xmem.write_metadata(256, 0x17F)  # the end-of-cycle value wins
+        collector.end()
+    (record,) = collector.records
+    assert record.xmem_meta_writes == (XmemMetaWrite(0, 5), XmemMetaWrite(256, 0x17F))
+    doc = record.to_json()
+    assert doc["xmem_meta_writes"] == [{"address": 0, "value": 5}, {"address": 256, "value": 383}]
+    RECORD.validate(doc)
+    assert CommitRecord.from_json(json.loads(json.dumps(doc))) == record
+
+
+def test_a_record_without_metadata_writes_leaves_the_field_out():
+    record = CommitRecord(cycle=0, pc_before=0, pc_after=1)
+    assert "xmem_meta_writes" not in record.to_json()
+    assert CommitRecord.from_json(record.to_json()).xmem_meta_writes == ()
+
+
+def test_the_schema_bounds_a_metadata_write():
+    ok = CommitRecord(cycle=0, pc_before=0, pc_after=1).to_json()
+    assert RECORD.is_valid(dict(ok, xmem_meta_writes=[{"address": 128, "value": 0xFFFF}]))
+    for bad in (
+        [{"address": 129, "value": 1}],  # not a 128-byte unit
+        [{"address": 128, "value": 0x10000}],  # wider than 16 bits
+        [{"address": 128}],
+    ):
+        assert not RECORD.is_valid(dict(ok, xmem_meta_writes=bad)), bad
+    fault = dict(ok, outcome="fault", fault={"id": "F-6", "pc": 0})
+    assert RECORD.is_valid(fault)
+    assert not RECORD.is_valid(dict(fault, xmem_meta_writes=[{"address": 0, "value": 1}]))

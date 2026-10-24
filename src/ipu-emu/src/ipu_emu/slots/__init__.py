@@ -14,13 +14,13 @@ from __future__ import annotations
 
 from types import MappingProxyType, ModuleType
 
-from ipu_emu.slots import aaq, acc, brk, cond, load, lr, mult, store
+from ipu_emu.slots import aaq, aaq_exact, acc, brk, cond, load, lr, mult
 from ipu_isa.slots import Slot
 
 __all__ = ["HANDLER_MODULES"]
 
-#: The module holding each slot's handlers. ACC_STORE shares ``store`` (its
-#: ST.ACC is a store); BREAK's is ``brk`` (``break`` is a keyword).
+#: The module holding each slot's handlers. BREAK's is ``brk`` (``break`` is
+#: a keyword).
 HANDLER_MODULES: MappingProxyType[Slot, ModuleType] = MappingProxyType(
     {
         Slot.LR: lr,
@@ -28,8 +28,7 @@ HANDLER_MODULES: MappingProxyType[Slot, ModuleType] = MappingProxyType(
         Slot.MULT: mult,
         Slot.ACC: acc,
         Slot.AAQ: aaq,
-        Slot.STORE: store,
-        Slot.ACC_STORE: store,
+        Slot.AAQ_EXACT: aaq_exact,
         Slot.COND: cond,
         Slot.BREAK: brk,
     }

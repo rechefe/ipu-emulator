@@ -34,7 +34,7 @@ def test_it_takes_the_next_free_opcode_and_moves_nothing(view):
 def test_no_width_changes(view):
     for slot in Slot:
         assert view.layout.slot_width(slot) == isa().layout.slot_width(slot), slot
-    assert view.layout.word_bits() == isa().layout.word_bits() == 186
+    assert view.layout.word_bits() == isa().layout.word_bits() == 209
 
 
 def test_the_slot_codec_round_trips_and_disassembles(view):

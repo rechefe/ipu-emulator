@@ -31,7 +31,7 @@ from ipu_harness.assembly import AssemblyCache
 from ipu_harness.cases import Case, at_values, expand
 from ipu_harness.manifest import BenchmarkDecl, KernelManifest
 from ipu_harness.runner import RunOptions, RunResult, run_kernel
-from ipu_isa.formats import ElementFormat
+from ipu_harness.variants import Variant
 
 __all__ = ["LEGEND", "BenchRow", "point_cases", "run_benchmark", "to_json", "to_markdown"]
 
@@ -128,7 +128,7 @@ def _observed_aliases(profile: Any) -> dict[str, tuple[int, int]]:
 
 
 def run_benchmark(
-    manifest: KernelManifest, fmt: ElementFormat, *, cache: AssemblyCache | None = None
+    manifest: KernelManifest, fmt: Variant, *, cache: AssemblyCache | None = None
 ) -> tuple[BenchRow, ...]:
     """Every point of the kernel's ``[benchmark]``, run in ``fmt``.
 

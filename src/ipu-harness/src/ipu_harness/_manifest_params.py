@@ -10,7 +10,7 @@ from typing import Any
 from ipu_harness._manifest_decls import CASE_KEYS, PARAM_KEYS, ParamDecl
 from ipu_harness._toml_source import Reader, where
 from ipu_harness.conditions import Condition
-from ipu_harness.expressions import ROW_BYTES_NAME, ExpressionError, base_tensor, names_in
+from ipu_harness.expressions import VARIANT_NAMES, ExpressionError, base_tensor, names_in
 
 _PY_TYPES: Mapping[str, tuple[type, ...]] = {
     "int": (int,),
@@ -20,7 +20,7 @@ _PY_TYPES: Mapping[str, tuple[type, ...]] = {
 }
 
 #: Names a template or a case reserves (E06-07: cr, lr, format, shapes).
-_RESERVED_NAMES = frozenset({"cr", "lr", "format", "shapes", ROW_BYTES_NAME, *CASE_KEYS})
+_RESERVED_NAMES = frozenset({"cr", "lr", "format", "shapes", *VARIANT_NAMES, *CASE_KEYS})
 
 
 def check_name(r: Reader, path: tuple[str, ...]) -> None:
@@ -134,7 +134,7 @@ def read_derived(r: Reader, raw: object, params: Mapping[str, ParamDecl]) -> dic
         derived[name] = r.text(expression, path)
         bases = [n for n in expression_names(r, derived[name], path) if base_tensor(n) is not None]
         earlier = [d for d in derived if d != name]  # not itself: it would never resolve
-        check_expression(r, derived[name], (*params, *earlier, *bases, ROW_BYTES_NAME), path)
+        check_expression(r, derived[name], (*params, *earlier, *bases, *VARIANT_NAMES), path)
     return derived
 
 
