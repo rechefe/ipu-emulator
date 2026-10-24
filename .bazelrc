@@ -40,7 +40,7 @@ build:proto --define=ipu_proto=1
 # Docs build: giscus settings for docs/hooks/giscus_env.py. Scoped to
 # --config=docs so they stay out of every other action's cache key.
 # No build action reaches the network or reads GITHUB_TOKEN: the release log is
-# committed (docs/content/release-log.md) and refreshed by a workflow.
+# committed (docs/content/release-log.md); docs.yml refreshes it before the build.
 build:docs --action_env=GISCUS_REPO_ID
 build:docs --action_env=GISCUS_CATEGORY_ID
 build:docs --action_env=GISCUS_REPO

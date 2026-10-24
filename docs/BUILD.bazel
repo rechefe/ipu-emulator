@@ -316,8 +316,8 @@ genrule(
 )
 
 # Refreshes the committed docs/content/release-log.md from the GitHub API. Not
-# part of any build: the docs build stays offline, and the release-log workflow
-# (.github/workflows/release-log.yml) runs this on master after every merge.
+# part of any build: the docs build stays offline, and the docs workflow
+# (.github/workflows/docs.yml) runs this with --all before a build it publishes.
 #
 #   bazel run //docs:update_release_log -- --output "$PWD/docs/content/release-log.md"
 py_binary(

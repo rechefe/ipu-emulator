@@ -1,10 +1,13 @@
 # Release Log
 
 This page lists every pull request that has been merged into `master`, newest
-first.  A workflow refreshes it on `master` after every merge.
+first.  The docs workflow refreshes it each time it publishes the site.
 
 | # | Title | Merged at (UTC) |
 |---|-------|----------------|
+| [#263](https://github.com/rechefe/ipu-emulator/pull/263) | Operational AaQ: NX8 quantization, row metadata and the spec's AaQ instructions | 2026-10-24 07:31 |
+| [#262](https://github.com/rechefe/ipu-emulator/pull/262) | AaQ, MULT and ACC stage specs (MAS + ARCH) | 2026-10-23 13:02 |
+| [#251](https://github.com/rechefe/ipu-emulator/pull/251) | IPU vscode extension - leftovers settings | 2026-10-19 13:23 |
 | [#255](https://github.com/rechefe/ipu-emulator/pull/255) | Architecture deepening: ISA package, emulator core, assembler, kernel framework, tooling and docs (E00–E09) | 2026-10-19 04:35 |
 | [#252](https://github.com/rechefe/ipu-emulator/pull/252) | Add IPU hardware requirements documentation | 2026-10-04 17:39 |
 | [#249](https://github.com/rechefe/ipu-emulator/pull/249) | Vscode extension update | 2026-09-28 10:55 |
@@ -128,4 +131,4 @@ first.  A workflow refreshes it on `master` after every merge.
 | [#2](https://github.com/rechefe/ipu-emulator/pull/2) | [preprocessor] Add preprocessing capabilities to assembly syntax | 2025-12-22 16:29 |
 | [#1](https://github.com/rechefe/ipu-emulator/pull/1) | Dockerfile | 2025-12-22 16:01 |
 
-*Last updated: 2026-10-19 08:24 UTC*
+*Last updated: 2026-10-24 11:57 UTC*

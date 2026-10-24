@@ -154,11 +154,11 @@ bazel run --config=docs //docs:serve_docs        # build and serve it locally
 ```
 
 `--config=docs` forwards the optional `GISCUS_*` overrides into the build. The
-[release log](../release-log.md) is committed, and a workflow refreshes it on
-`master` after every merge. To refresh it by hand:
+[release log](../release-log.md) is committed, and the docs workflow refreshes
+it from GitHub each time it publishes the site. To refresh it by hand:
 
 ```bash
-bazel run //docs:update_release_log -- --recent --output "$PWD/docs/content/release-log.md"
+bazel run //docs:update_release_log -- --all --output "$PWD/docs/content/release-log.md"
 ```
 
 ## Troubleshooting

@@ -5,9 +5,11 @@ name: Documentation
 # Publishing (E09-21) writes the Bazel-built site into the gh-pages branch in
 # mike's layout with //docs:publish_version: a master push updates dev/, a tag
 # vX.Y publishes vX.Y/ and moves the alias latest to it. Pages serves the branch
-# (Settings -> Pages -> Deploy from a branch: gh-pages). The build is offline:
-# the release log is committed (docs/content/release-log.md) and refreshed by
-# release-log.yml, which dispatches this workflow after committing a new entry.
+# (Settings -> Pages -> Deploy from a branch: gh-pages). The Bazel build is
+# offline: the release log is committed (docs/content/release-log.md), and a
+# build that publishes first merges every merged pull request into the checked-
+# out copy (a workflow step, before Bazel). master is protected, so the refresh
+# is never committed back; the committed copy is only the starting point.
 #
 # Keep the paths in step with the inputs of //docs:build_docs: a move or a new
 # input outside these paths must update them.
@@ -53,6 +55,16 @@ jobs:
       - name: Install toolchain
         run: ./tools/bootstrap.sh
 
+      # Only for a build that publishes: pull requests keep the committed log so
+      # their build stays reproducible. A network error leaves the log unchanged.
+      - name: Refresh the release log
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master')
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          bazel run //docs:update_release_log -- --all \
+            --output "$GITHUB_WORKSPACE/docs/content/release-log.md"
+
       - name: Build documentation with Bazel
         env:
           # Optional overrides of the IDs committed in docs/mkdocs.yml extra.giscus.
@@ -65,7 +77,7 @@ jobs:
           GISCUS_LANG: ${{ vars.GISCUS_LANG }}
         run: |
           # --config=docs forwards the GISCUS_* variables into the build (.bazelrc).
-          # No GITHUB_TOKEN: nothing in the build calls the GitHub API.
+          # No GITHUB_TOKEN: nothing in the Bazel build calls the GitHub API.
           bazel build --config=docs //docs:build_docs
 
       - name: Run the docs tests
@@ -90,8 +102,8 @@ jobs:
           path: bazel-bin/docs/site.tar
           if-no-files-found: error
 
-  # Writes the site into gh-pages: dev from master (a push, or a manual run such
-  # as release-log.yml's dispatch), vX.Y from a tag. Only this job pushes to that
+  # Writes the site into gh-pages: dev from master (a push or a manual run),
+  # vX.Y from a tag. Only this job pushes to that
   # branch. Runs of different refs may overlap (the workflow's per-ref group): a
   # shared group would let a queued master run cancel a pending tag publish. The
   # tool never forces its push and redoes a push that lost a race.
