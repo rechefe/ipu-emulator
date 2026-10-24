@@ -143,16 +143,17 @@ jobs:
           bazel run //docs:publish_version -- --repo "$GITHUB_WORKSPACE" \
             --site "$RUNNER_TEMP/site/site.tar" "$@" --push
 
-  # Fails the master run when the giscus widget is missing, without blocking the
-  # publish job, so a missing ID makes the run red but the site still updates.
+  # Warns on the master run when the giscus widget is missing. A warning, not a
+  # failure, until docs/mkdocs.yml has the "Announcements" category_id (a human
+  # step, E00-13): a red master run every merge only hid real failures. Once
+  # the ID is committed, make this `::error::` plus `exit 1` again.
   check-giscus:
     runs-on: ubuntu-latest
     needs: build
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     steps:
-      - name: Require giscus widget on master
+      - name: Check the giscus widget on master
         run: |
           if [ "${{ needs.build.outputs.giscus_rendered }}" != "true" ]; then
-            echo "::error::index.html has no giscus widget; set repo_id/category_id in docs/mkdocs.yml (or GISCUS_* overrides) and build with --config=docs. See planning/architecture-deepening/00-verified-fixes/13-giscus-category-id.md."
-            exit 1
+            echo "::warning::index.html has no giscus widget; set repo_id/category_id in docs/mkdocs.yml (or GISCUS_* overrides) and build with --config=docs. See planning/architecture-deepening/00-verified-fixes/13-giscus-category-id.md."
           fi

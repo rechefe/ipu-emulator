@@ -235,7 +235,7 @@ extra:
   # category_id: the "Announcements" category id (DIC_...) still has to be filled in
   # by a human (planning/architecture-deepening/00-verified-fixes/13-giscus-category-id.md).
   # Until then the widget renders only when the GISCUS_CATEGORY_ID secret is set, and
-  # without it the docs workflow's master-only giscus check fails.
+  # without it the docs workflow's master-only giscus check warns.
   # GISCUS_* environment variables override these values; Bazel forwards them only
   # with `bazel build --config=docs //docs:build_docs` (see .bazelrc).
   giscus:
