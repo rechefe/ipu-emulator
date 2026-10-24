@@ -3,12 +3,15 @@
 # Stamp generated artifacts (e.g. ipu_instr_pkg.sv) with the source commit
 build --workspace_status_command=tools/workspace_status.sh
 
-# Coverage (the nightly workflow runs `bazel coverage --config=full //...`).
+# Coverage (the nightly workflow's `full` job runs `bazel coverage` on the default tier).
 # One combined lcov report at bazel-out/_coverage/_coverage_report.dat.
 # Instrument the libraries, not the test files themselves.
 coverage --combined_report=lcov
 coverage --instrument_test_targets=false
 coverage --instrumentation_filter=^//src[/:],^//docs[/:],^//tools[/:]
+# Instrumented tests run 2-3x slower: triple the timeouts of the first three
+# sizes (short, moderate, long; eternal stays 3600 s).
+coverage --test_timeout=180,900,2700,3600
 
 # Test output
 test --test_output=errors

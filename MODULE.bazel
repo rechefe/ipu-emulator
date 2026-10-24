@@ -5,6 +5,15 @@ module(
 
 # Rules for Python
 bazel_dep(name = "rules_python", version = "0.40.0")
+
+# `bazel coverage` (the nightly) failed tests that delete a file they loaded:
+# the bootstrap's `coverage lcov` step lacks --ignore-errors (the patch says why).
+single_version_override(
+    module_name = "rules_python",
+    patch_strip = 1,
+    patches = ["//tools/patches:rules_python_lcov_ignore_errors.patch"],
+    version = "0.40.0",
+)
 bazel_dep(name = "caseyduquettesc_rules_python_pytest", version = "1.1.1", repo_name = "rules_python_pytest")
 
 python = use_extension("@rules_python//python/extensions:python.bzl", "python")
