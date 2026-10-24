@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792755737795,
+  "lastUpdate": 1792841164350,
   "repoUrl": "https://github.com/rechefe/ipu-emulator",
   "entries": {
     "Times and memory (smaller is better)": [
@@ -400,6 +400,106 @@ window.BENCHMARK_DATA = {
             "value": 301,
             "unit": "s",
             "extra": "ci run 39259698583; whole job 321 s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eyal Rechef",
+            "username": "rechefe",
+            "email": "103856782+rechefe@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "4dba5355a3d5f3e975909726048e69bf1a251ac4",
+          "message": "Merge pull request #263 from rechefe/claude/cool-pascal-xbj444\n\nOperational AaQ: NX8 quantization, row metadata and the spec's AaQ instructions",
+          "timestamp": "2026-10-24T07:31:45Z",
+          "url": "https://github.com/rechefe/ipu-emulator/commit/4dba5355a3d5f3e975909726048e69bf1a251ac4"
+        },
+        "date": 1792841163271,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "assemble/all_kernels",
+            "value": 0.635886,
+            "unit": "s",
+            "extra": "files=129 words=8256"
+          },
+          {
+            "name": "assemble/render_s",
+            "value": 0.005307,
+            "unit": "s",
+            "extra": "files=132 words=8282"
+          },
+          {
+            "name": "assemble/parse_s",
+            "value": 0.691851,
+            "unit": "s",
+            "extra": "files=132 words=8282"
+          },
+          {
+            "name": "assemble/encode_s",
+            "value": 0.176867,
+            "unit": "s",
+            "extra": "files=132 words=8282"
+          },
+          {
+            "name": "emulator/ipu_state_construct_ms",
+            "value": 0.032321,
+            "unit": "ms",
+            "extra": "IpuState(), mean of 20"
+          },
+          {
+            "name": "emulator/ipu_state_tracemalloc_peak_mb",
+            "value": 0.058478,
+            "unit": "MB",
+            "extra": "the first IpuState() in a fresh interpreter"
+          },
+          {
+            "name": "emulator/ipu_state_rss_delta_mb",
+            "value": 0,
+            "unit": "MB",
+            "extra": "the first IpuState() in a fresh interpreter"
+          },
+          {
+            "name": "import/ipu_as",
+            "value": 0.114282,
+            "unit": "s",
+            "extra": "import ipu_as.lark_tree; best of 5; interpreter startup 0.017 s"
+          },
+          {
+            "name": "import/ipu_emu",
+            "value": 0.136245,
+            "unit": "s",
+            "extra": "import ipu_emu; best of 5; interpreter startup 0.017 s"
+          },
+          {
+            "name": "import/ipu_harness",
+            "value": 0.229368,
+            "unit": "s",
+            "extra": "import ipu_harness.runner; best of 5; interpreter startup 0.017 s"
+          },
+          {
+            "name": "kernel/identity/peak_rss_mb",
+            "value": 234.484375,
+            "unit": "MB",
+            "extra": "default case; cycles=17 run=0.002 s"
+          },
+          {
+            "name": "kernel/matmul_720x240_x128/peak_rss_mb",
+            "value": 241.679688,
+            "unit": "MB",
+            "extra": "default case; cycles=179281 run=20.085 s"
+          },
+          {
+            "name": "ci/default_tier_wall_s",
+            "value": 1907,
+            "unit": "s",
+            "extra": "ci run 40074498836; whole job 1931 s"
           }
         ]
       }
