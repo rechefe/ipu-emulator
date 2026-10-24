@@ -1136,7 +1136,7 @@
   <span class="md-ellipsis">
     
   
-    ACTIVATE.QUANTIZE in the emulator
+    ACTIVATE.QUANTIZE, ACTIVATE.EXACT and LD.LUT
   
 
     
@@ -2900,7 +2900,7 @@ A cocotb testbench resets the model, loads a program, sets registers and
 XMEM, steps it one word at a time and compares each commit record with what
 the RTL retired. <a href="../../how-to/reference-model-cocotb/">How-to: use the reference model from
 cocotb</a> walks through a testbench.</p>
-<p>API version <strong><code>1.4.0</code></strong> (<code>ipu_emu.reference.API_VERSION</code>); commit record schema <code>1.0.0</code>, trace header schema <code>1.0.0</code>.</p>
+<p>API version <strong><code>2.0.0</code></strong> (<code>ipu_emu.reference.API_VERSION</code>); commit record schema <code>1.1.0</code>, trace header schema <code>1.0.0</code>.</p>
 <p>The <a href="#api">API</a>, <a href="#commit-record-schema">schema</a> and <a href="#faults">fault</a> sections
 of this page are generated from the code and the schema files, so they always
 match the version above.</p>
@@ -2922,7 +2922,22 @@ a separate promise.</p>
 <li><strong>Major</strong> (breaking): a public name removed or renamed, a parameter removed
   or made required, a field removed, renamed or retyped, or a meaning changed
   (a method that now refuses what it accepted, a field that now counts
-  something else).</li>
+  something else). Version 2.0.0 is the run modes of
+  <a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/adr/0007-operational-aaq-and-nx8.md">ADR 0007</a>:
+  <code>ElementFormat</code> keeps <code>FP32</code> and <code>NX8</code> (value <code>"nx8"</code>) and loses <code>INT8</code>,
+  <code>E1</code>–<code>E7</code> and <code>INT32</code>, so the constructor and <code>reset()</code> take one of the two
+  modes, and the constructor defaults to <code>NX8</code> instead of <code>INT8</code>;
+  <code>load_program()</code> refuses a program that uses the FP32-only
+  <code>ACTIVATE.EXACT</code> when the model runs in NX8 mode, and <code>reset()</code> refuses to
+  switch a model holding such a program to NX8; the <code>post_aaq_reg</code>
+  register bank is removed, and <code>read_register()</code> and <code>write_register()</code>
+  take the <code>r_meta</code>, <code>r_cyclic_meta</code> and <code>aaq_lut</code> banks as bytes; and a
+  commit record's slots no longer include <code>store</code> or <code>acc_store</code>, and can
+  include <code>aaq_exact</code>. It also adds the XMEM metadata side store:
+  <code>read_xmem_metadata()</code>, <code>write_xmem_metadata()</code> and the
+  <code>CommitRecord.xmem_meta_writes</code> field (default empty), with the commit
+  record schema's optional <code>xmem_meta_writes</code> (schema 1.1.0). The other
+  method signatures and commit record fields are 1.4.0's.</li>
 <li><strong>Minor</strong>: an addition that leaves every existing call working, such as a
   new method, a new optional parameter or a new dataclass field with a
   default. Version 1.1.0 added <code>Stats</code> and
@@ -2957,7 +2972,7 @@ types the module.</p>
 </span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>
 </span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_lockstep</span><span class="p">(</span><span class="n">dut</span><span class="p">):</span>
 </span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">model</span> <span class="o">=</span> <span class="n">ReferenceModel</span><span class="p">()</span>
-</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="n">model</span><span class="o">.</span><span class="n">reset</span><span class="p">(</span><span class="n">ElementFormat</span><span class="o">.</span><span class="n">INT8</span><span class="p">)</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="n">model</span><span class="o">.</span><span class="n">reset</span><span class="p">(</span><span class="n">ElementFormat</span><span class="o">.</span><span class="n">NX8</span><span class="p">)</span>
 </span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="n">model</span><span class="o">.</span><span class="n">load_program</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="s2">"prog.bin"</span><span class="p">)</span><span class="o">.</span><span class="n">read_bytes</span><span class="p">())</span>  <span class="c1"># a program file, or its words as ints</span>
 </span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="n">model</span><span class="o">.</span><span class="n">write_register</span><span class="p">(</span><span class="s2">"lr"</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>              <span class="c1"># LR0 = 5</span>
 </span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    <span class="n">model</span><span class="o">.</span><span class="n">write_xmem</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">bytes</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="mi">128</span><span class="p">)))</span>              <span class="c1"># XMEM row 0</span>
@@ -2992,36 +3007,37 @@ writes, it counts the trace's records, as the schema says.</p>
 <li>Registers are named by bank, as <code>ipu_isa.registers</code> names them (<code>lr</code>:
   <code>LR0</code>-<code>LR15</code>, <code>cr</code>: <code>CR0</code>-<code>CR15</code>, <code>r</code>: <code>R0</code>-<code>R1</code>, ...), and <code>index</code> picks
   the register within the bank. <code>r_wide_debug</code> and <code>r_cyclic_wide_debug</code> are
-  emulator-only banks: they hold the operands of the wide formats (FP32,
-  INT32), which the hardware does not have.</li>
+  emulator-only banks: they hold the operands of the FP32 mode, which the
+  hardware does not have; <code>r_meta</code> and <code>r_cyclic_meta</code> hold the row metadata
+  of <code>R0</code>, <code>R1</code> and each <code>R_CYCLIC</code> slot in the NX8 mode.</li>
 </ul>
 <h2 id="api">API<a class="headerlink" href="#api" title="Permanent link">&para;</a></h2>
 <h3 id="the-model">The model<a class="headerlink" href="#the-model" title="Permanent link">&para;</a></h3>
 <p><code>ipu_emu.reference</code>: the names in its <code>__all__</code> (<code>TraceWriter</code> and <code>read_trace</code>, which it re-exports, are listed with their own module).</p>
 <h4 id="API_VERSION"><code>API_VERSION</code><a class="headerlink" href="#API_VERSION" title="Permanent link">&para;</a></h4>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">API_VERSION</span> <span class="o">=</span> <span class="s1">'1.4.0'</span>  <span class="c1"># ipu_emu.reference.API_VERSION</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">API_VERSION</span> <span class="o">=</span> <span class="s1">'2.0.0'</span>  <span class="c1"># ipu_emu.reference.API_VERSION</span>
 </span></code></pre></div>
 <p>The version of this API (Q11).</p>
 <h4 id="ReferenceModel"><code>ReferenceModel</code><a class="headerlink" href="#ReferenceModel" title="Permanent link">&para;</a></h4>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">ReferenceModel</span><span class="p">(</span><span class="n">fmt</span><span class="p">:</span> <span class="n">ElementFormat</span> <span class="o">=</span> <span class="n">ElementFormat</span><span class="o">.</span><span class="n">INT8</span><span class="p">)</span>  <span class="c1"># ipu_emu.reference.ReferenceModel</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">ReferenceModel</span><span class="p">(</span><span class="n">fmt</span><span class="p">:</span> <span class="n">ElementFormat</span> <span class="o">=</span> <span class="n">ElementFormat</span><span class="o">.</span><span class="n">NX8</span><span class="p">)</span>  <span class="c1"># ipu_emu.reference.ReferenceModel</span>
 </span></code></pre></div>
 <p>One IPU, as the RTL verification sees it.</p>
 <p><strong>Arguments</strong></p>
 <ul>
-<li><code>fmt</code>: The element format to start in (<a href="#ReferenceModel-reset"><code>reset</code></a> changes it).</li>
+<li><code>fmt</code>: The run mode's element format to start in, <code>NX8</code> (the default) or <code>FP32</code> (<a href="#ReferenceModel-reset"><code>reset</code></a> changes it; 2.0.0 removed the other formats, ADR 0007).</li>
 </ul>
 <h5 id="ReferenceModel-reset"><code>ReferenceModel.reset()</code><a class="headerlink" href="#ReferenceModel-reset" title="Permanent link">&para;</a></h5>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">ReferenceModel</span><span class="o">.</span><span class="n">reset</span><span class="p">(</span><span class="n">fmt</span><span class="p">:</span> <span class="n">ElementFormat</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
 </span></code></pre></div>
 <p>Reset the model. The loaded program stays.</p>
-<p>Registers and XMEM go to their reset values (CR15 holds the default dstructure), the PC to 0, every fault is enabled with no sticky flag, and the arithmetic flags and the statistics clear. Record numbering restarts at 0.</p>
+<p>Registers and XMEM go to their reset values (<code>CR15.L</code> holds the default DS), the PC to 0, every fault is enabled with no sticky flag, and the arithmetic flags and the statistics clear. Record numbering restarts at 0.</p>
 <p><strong>Arguments</strong></p>
 <ul>
 <li><code>fmt</code>: The element format to run in.</li>
 </ul>
 <p><strong>Raises</strong></p>
 <ul>
-<li><a href="#ConfigurationError"><code>ConfigurationError</code></a>: <em>fmt</em> is no element format.</li>
+<li><a href="#ConfigurationError"><code>ConfigurationError</code></a>: <em>fmt</em> is no element format, or it is NX8 and the loaded program uses <code>ACTIVATE.EXACT</code> (FP32 only). The model is left as it was.</li>
 </ul>
 <h5 id="ReferenceModel-load_program"><code>ReferenceModel.load_program()</code><a class="headerlink" href="#ReferenceModel-load_program" title="Permanent link">&para;</a></h5>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">ReferenceModel</span><span class="o">.</span><span class="n">load_program</span><span class="p">(</span><span class="n">words</span><span class="p">:</span> <span class="nb">bytes</span> <span class="o">|</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">int</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span>
@@ -3033,7 +3049,7 @@ writes, it counts the trace's records, as the schema says.</p>
 </ul>
 <p><strong>Raises</strong></p>
 <ul>
-<li><a href="#ConfigurationError"><code>ConfigurationError</code></a>: The model is running or faulted (after a fault, <a href="#ReferenceModel-reset"><code>reset</code></a> first); the bytes are not whole words; a word is wider than the instruction word; or the program is larger than IMEM.</li>
+<li><a href="#ConfigurationError"><code>ConfigurationError</code></a>: The model is running or faulted (after a fault, <a href="#ReferenceModel-reset"><code>reset</code></a> first); the bytes are not whole words; a word is wider than the instruction word; the program is larger than IMEM; or the model runs in NX8 mode and the program uses the FP32-only <code>ACTIVATE.EXACT</code> (2.0.0).</li>
 </ul>
 <h5 id="ReferenceModel-set_fault_enable"><code>ReferenceModel.set_fault_enable()</code><a class="headerlink" href="#ReferenceModel-set_fault_enable" title="Permanent link">&para;</a></h5>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">ReferenceModel</span><span class="o">.</span><span class="n">set_fault_enable</span><span class="p">(</span><span class="n">fault</span><span class="p">:</span> <span class="n">FaultId</span><span class="p">,</span> <span class="n">enabled</span><span class="p">:</span> <span class="nb">bool</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
@@ -3109,8 +3125,37 @@ writes, it counts the trace's records, as the schema says.</p>
 <ul>
 <li><a href="#ConfigurationError"><code>ConfigurationError</code></a>: The model is running or faulted, or the range is outside XMEM.</li>
 </ul>
+<h5 id="ReferenceModel-read_xmem_metadata"><code>ReferenceModel.read_xmem_metadata()</code><a class="headerlink" href="#ReferenceModel-read_xmem_metadata" title="Permanent link">&para;</a></h5>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="n">ReferenceModel</span><span class="o">.</span><span class="n">read_xmem_metadata</span><span class="p">(</span><span class="n">address</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span>
+</span></code></pre></div>
+<p>The 16-bit metadata word of the 128-byte XMEM unit at <em>address</em> (2.0.0, ADR 0007).</p>
+<p><strong>Arguments</strong></p>
+<ul>
+<li><code>address</code>: The unit's first byte, a multiple of 128.</li>
+</ul>
+<p><strong>Returns</strong></p>
+<ul>
+<li>The word; 0 when it was never written.</li>
+</ul>
+<p><strong>Raises</strong></p>
+<ul>
+<li><a href="#ConfigurationError"><code>ConfigurationError</code></a>: <em>address</em> is outside XMEM or not unit-aligned.</li>
+</ul>
+<h5 id="ReferenceModel-write_xmem_metadata"><code>ReferenceModel.write_xmem_metadata()</code><a class="headerlink" href="#ReferenceModel-write_xmem_metadata" title="Permanent link">&para;</a></h5>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="n">ReferenceModel</span><span class="o">.</span><span class="n">write_xmem_metadata</span><span class="p">(</span><span class="n">address</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">word</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</span></code></pre></div>
+<p>Write the metadata word of the 128-byte XMEM unit at <em>address</em>, only while halted (2.0.0, ADR 0007). The unit's bytes are unchanged.</p>
+<p><strong>Arguments</strong></p>
+<ul>
+<li><code>address</code>: The unit's first byte, a multiple of 128.</li>
+<li><code>word</code>: The unsigned 16-bit word.</li>
+</ul>
+<p><strong>Raises</strong></p>
+<ul>
+<li><a href="#ConfigurationError"><code>ConfigurationError</code></a>: The model is running or faulted; <em>address</em> is outside XMEM or not unit-aligned; <em>word</em> is not 16-bit unsigned.</li>
+</ul>
 <h5 id="ReferenceModel-observe_xmem_reads"><code>ReferenceModel.observe_xmem_reads()</code><a class="headerlink" href="#ReferenceModel-observe_xmem_reads" title="Permanent link">&para;</a></h5>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="n">ReferenceModel</span><span class="o">.</span><span class="n">observe_xmem_reads</span><span class="p">(</span><span class="n">callback</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">],</span> <span class="kc">None</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Callable</span><span class="p">[[],</span> <span class="kc">None</span><span class="p">]</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="n">ReferenceModel</span><span class="o">.</span><span class="n">observe_xmem_reads</span><span class="p">(</span><span class="n">callback</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">],</span> <span class="kc">None</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Callable</span><span class="p">[[],</span> <span class="kc">None</span><span class="p">]</span>
 </span></code></pre></div>
 <p>Report every XMEM read the program makes (1.4.0): <code>callback(address, size)</code> in bytes, as each word reads. A commit record carries the word's writes only; a viewer that shows its reads (the Cycle Inspector) takes them from here. Host accesses (<a href="#ReferenceModel-read_xmem"><code>read_xmem</code></a>, <a href="#ReferenceModel-write_xmem"><code>write_xmem</code></a>) are not reported.</p>
 <p><strong>Returns</strong></p>
@@ -3118,7 +3163,7 @@ writes, it counts the trace's records, as the schema says.</p>
 <li>A function that stops the reports.</li>
 </ul>
 <h5 id="ReferenceModel-step"><code>ReferenceModel.step()</code><a class="headerlink" href="#ReferenceModel-step" title="Permanent link">&para;</a></h5>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="n">ReferenceModel</span><span class="o">.</span><span class="n">step</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">CommitRecord</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="n">ReferenceModel</span><span class="o">.</span><span class="n">step</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">CommitRecord</span>
 </span></code></pre></div>
 <p>Run one word. A BREAK slot never stops it (Q39): the word retires. A step has no cycle limit (F-9 is <a href="#ReferenceModel-run"><code>run</code></a>'s); its word counts toward the statistics' cycles.</p>
 <p><strong>Returns</strong></p>
@@ -3130,7 +3175,7 @@ writes, it counts the trace's records, as the schema says.</p>
 <li><a href="#ConfigurationError"><code>ConfigurationError</code></a>: The model is faulted (IPU-FLT-7: reset first), or stopped after a HALT word or past IMEM (reset or load a program first).</li>
 </ul>
 <h5 id="ReferenceModel-run"><code>ReferenceModel.run()</code><a class="headerlink" href="#ReferenceModel-run" title="Permanent link">&para;</a></h5>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="n">ReferenceModel</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">max_cycles</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">trace</span><span class="p">:</span> <span class="n">TraceWriter</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">RunResult</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="n">ReferenceModel</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">max_cycles</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">trace</span><span class="p">:</span> <span class="n">TraceWriter</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">RunResult</span>
 </span></code></pre></div>
 <p>Step until a HALT word, a fault, or the cycle limit (fault F-9).</p>
 <p><strong>Arguments</strong></p>
@@ -3147,7 +3192,7 @@ writes, it counts the trace's records, as the schema says.</p>
 <li><a href="#ConfigurationError"><code>ConfigurationError</code></a>: As <a href="#ReferenceModel-step"><code>step</code></a>.</li>
 </ul>
 <h5 id="ReferenceModel-debug_run"><code>ReferenceModel.debug_run()</code><a class="headerlink" href="#ReferenceModel-debug_run" title="Permanent link">&para;</a></h5>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="n">ReferenceModel</span><span class="o">.</span><span class="n">debug_run</span><span class="p">(</span><span class="n">callback</span><span class="p">:</span> <span class="n">DebugCallback</span><span class="p">,</span> <span class="n">break_on_entry</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">max_cycles</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">control</span><span class="p">:</span> <span class="n">RunControl</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">RunResult</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="n">ReferenceModel</span><span class="o">.</span><span class="n">debug_run</span><span class="p">(</span><span class="n">callback</span><span class="p">:</span> <span class="n">DebugCallback</span><span class="p">,</span> <span class="n">break_on_entry</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">max_cycles</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">control</span><span class="p">:</span> <span class="n">RunControl</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">RunResult</span>
 </span></code></pre></div>
 <p>Run as <a href="#ReferenceModel-run"><code>run</code></a> does, stopping for a debugger (1.3.0).</p>
 <p>The one escape hatch for tools such as <code>ipu_debug</code>: at each stop (a breakpoint or run target in <em>control</em>, a <code>BREAK</code> slot that fires, a step, or the entry when <em>break_on_entry</em>) it calls <code>callback(state, cycles)</code> with the emulator's internal state and the words retired so far, and the callback's <code>DebugAction</code> says whether to continue, step or quit (<code>ipu_emu.emulator.run_with_debug</code>'s contract). Unlike the rest of this API, the callback's argument type and <em>control</em>'s are internal and may change in any release; the method itself, and what it returns, follow <code>API_VERSION</code>.</p>
@@ -3167,7 +3212,7 @@ writes, it counts the trace's records, as the schema says.</p>
 <li><a href="#ConfigurationError"><code>ConfigurationError</code></a>: As <a href="#ReferenceModel-step"><code>step</code></a>.</li>
 </ul>
 <h5 id="ReferenceModel-attach_alias_profile"><code>ReferenceModel.attach_alias_profile()</code><a class="headerlink" href="#ReferenceModel-attach_alias_profile" title="Permanent link">&para;</a></h5>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="n">ReferenceModel</span><span class="o">.</span><span class="n">attach_alias_profile</span><span class="p">(</span><span class="n">profile</span><span class="p">:</span> <span class="n">AliasProfile</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="n">ReferenceModel</span><span class="o">.</span><span class="n">attach_alias_profile</span><span class="p">(</span><span class="n">profile</span><span class="p">:</span> <span class="n">AliasProfile</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
 </span></code></pre></div>
 <p>Record the ISA alias profile of every later step or run into <em>profile</em> (1.3.0); only while halted. A profile belongs to one model.</p>
 <p><strong>Arguments</strong></p>
@@ -3179,7 +3224,7 @@ writes, it counts the trace's records, as the schema says.</p>
 <li><a href="#ConfigurationError"><code>ConfigurationError</code></a>: The model is running or faulted; <em>profile</em> is no <code>AliasProfile</code> or already records another model.</li>
 </ul>
 <h5 id="ReferenceModel-alias_profile"><code>ReferenceModel.alias_profile()</code><a class="headerlink" href="#ReferenceModel-alias_profile" title="Permanent link">&para;</a></h5>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="n">ReferenceModel</span><span class="o">.</span><span class="n">alias_profile</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">AliasProfile</span> <span class="o">|</span> <span class="kc">None</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="n">ReferenceModel</span><span class="o">.</span><span class="n">alias_profile</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">AliasProfile</span> <span class="o">|</span> <span class="kc">None</span>
 </span></code></pre></div>
 <p>The attached alias profile, or <code>None</code> (1.3.0).</p>
 <p><strong>Returns</strong></p>
@@ -3187,7 +3232,7 @@ writes, it counts the trace's records, as the schema says.</p>
 <li>The profile <a href="#ReferenceModel-attach_alias_profile"><code>attach_alias_profile</code></a> attached.</li>
 </ul>
 <h5 id="ReferenceModel-stats"><code>ReferenceModel.stats()</code><a class="headerlink" href="#ReferenceModel-stats" title="Permanent link">&para;</a></h5>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="n">ReferenceModel</span><span class="o">.</span><span class="n">stats</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Stats</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="n">ReferenceModel</span><span class="o">.</span><span class="n">stats</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Stats</span>
 </span></code></pre></div>
 <p>A snapshot of the run statistics (1.1.0).</p>
 <p><strong>Returns</strong></p>
@@ -3195,7 +3240,7 @@ writes, it counts the trace's records, as the schema says.</p>
 <li>The counters since the last <a href="#ReferenceModel-reset"><code>reset</code></a> or <a href="#ReferenceModel-load_program"><code>load_program</code></a>.</li>
 </ul>
 <h5 id="ReferenceModel-fault_enabled"><code>ReferenceModel.fault_enabled()</code><a class="headerlink" href="#ReferenceModel-fault_enabled" title="Permanent link">&para;</a></h5>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="n">ReferenceModel</span><span class="o">.</span><span class="n">fault_enabled</span><span class="p">(</span><span class="n">fault</span><span class="p">:</span> <span class="n">FaultId</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="n">ReferenceModel</span><span class="o">.</span><span class="n">fault_enabled</span><span class="p">(</span><span class="n">fault</span><span class="p">:</span> <span class="n">FaultId</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
 </span></code></pre></div>
 <p>Whether a fault's enable bit is set (IPU-FLT-5; 1.2.0).</p>
 <p><strong>Arguments</strong></p>
@@ -3211,7 +3256,7 @@ writes, it counts the trace's records, as the schema says.</p>
 <li><a href="#ConfigurationError"><code>ConfigurationError</code></a>: <em>fault</em> is no <code>FaultId</code>.</li>
 </ul>
 <h5 id="ReferenceModel-fault_flags"><code>ReferenceModel.fault_flags()</code><a class="headerlink" href="#ReferenceModel-fault_flags" title="Permanent link">&para;</a></h5>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="n">ReferenceModel</span><span class="o">.</span><span class="n">fault_flags</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">frozenset</span><span class="p">[</span><span class="n">FaultId</span><span class="p">]</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="n">ReferenceModel</span><span class="o">.</span><span class="n">fault_flags</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">frozenset</span><span class="p">[</span><span class="n">FaultId</span><span class="p">]</span>
 </span></code></pre></div>
 <p>The sticky fault flags (1.2.0): every fault that happened since the last <a href="#ReferenceModel-reset"><code>reset</code></a>, whether it halted or, with its enable bit clear, did not. A run does not clear them.</p>
 <p><strong>Returns</strong></p>
@@ -3219,7 +3264,7 @@ writes, it counts the trace's records, as the schema says.</p>
 <li>The faults whose flag is set.</li>
 </ul>
 <h5 id="ReferenceModel-arith_flags"><code>ReferenceModel.arith_flags()</code><a class="headerlink" href="#ReferenceModel-arith_flags" title="Permanent link">&para;</a></h5>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="n">ReferenceModel</span><span class="o">.</span><span class="n">arith_flags</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">frozenset</span><span class="p">[</span><span class="n">ArithmeticEvent</span><span class="p">]</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="n">ReferenceModel</span><span class="o">.</span><span class="n">arith_flags</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">frozenset</span><span class="p">[</span><span class="n">ArithmeticEvent</span><span class="p">]</span>
 </span></code></pre></div>
 <p>The sticky arithmetic-event flags (E04-23; 1.2.0), since the last <a href="#ReferenceModel-reset"><code>reset</code></a>.</p>
 <p><strong>Returns</strong></p>
@@ -3227,7 +3272,7 @@ writes, it counts the trace's records, as the schema says.</p>
 <li>The events whose flag is set.</li>
 </ul>
 <h5 id="ReferenceModel-trace_header"><code>ReferenceModel.trace_header()</code><a class="headerlink" href="#ReferenceModel-trace_header" title="Permanent link">&para;</a></h5>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="n">ReferenceModel</span><span class="o">.</span><span class="n">trace_header</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="n">ReferenceModel</span><span class="o">.</span><span class="n">trace_header</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
 </span></code></pre></div>
 <p>The header of a trace of the loaded program (1.2.0), for <a href="#TraceWriter"><code>TraceWriter</code></a>.</p>
 <p><strong>Returns</strong></p>
@@ -3235,11 +3280,11 @@ writes, it counts the trace's records, as the schema says.</p>
 <li>The <code>trace.v1.json</code> header: schema version, ISA digest, element format, program digest and emulator version.</li>
 </ul>
 <h5 id="ReferenceModel-status"><code>ReferenceModel.status</code><a class="headerlink" href="#ReferenceModel-status" title="Permanent link">&para;</a></h5>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="n">ReferenceModel</span><span class="o">.</span><span class="n">status</span><span class="p">:</span> <span class="n">Status</span>  <span class="c1"># property</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="n">ReferenceModel</span><span class="o">.</span><span class="n">status</span><span class="p">:</span> <span class="n">Status</span>  <span class="c1"># property</span>
 </span></code></pre></div>
 <p>The run state, PC and (when faulted) the fault.</p>
 <h4 id="RunResult"><code>RunResult</code><a class="headerlink" href="#RunResult" title="Permanent link">&para;</a></h4>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">RunResult</span>  <span class="c1"># ipu_emu.reference.RunResult</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">RunResult</span>  <span class="c1"># ipu_emu.reference.RunResult</span>
 </span></code></pre></div>
 <p>How <a href="#ReferenceModel-run"><code>ReferenceModel.run</code></a> ended.</p>
 <p>A frozen dataclass.</p>
@@ -3274,7 +3319,7 @@ writes, it counts the trace's records, as the schema says.</p>
 </tbody>
 </table>
 <h4 id="RunState"><code>RunState</code><a class="headerlink" href="#RunState" title="Permanent link">&para;</a></h4>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">RunState</span><span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="n">Enum</span><span class="p">)</span>  <span class="c1"># ipu_emu.reference.RunState</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">RunState</span><span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="n">Enum</span><span class="p">)</span>  <span class="c1"># ipu_emu.reference.RunState</span>
 </span></code></pre></div>
 <p>Whether the model runs, stopped normally, or stopped on a fault.</p>
 <table>
@@ -3300,7 +3345,7 @@ writes, it counts the trace's records, as the schema says.</p>
 </tbody>
 </table>
 <h4 id="Stats"><code>Stats</code><a class="headerlink" href="#Stats" title="Permanent link">&para;</a></h4>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">Stats</span>  <span class="c1"># ipu_emu.reference.Stats</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">Stats</span>  <span class="c1"># ipu_emu.reference.Stats</span>
 </span></code></pre></div>
 <p>The run statistics since the program started (1.1.0).</p>
 <p>They count every word retired since the last <a href="#ReferenceModel-reset"><code>ReferenceModel.reset</code></a> or <a href="#ReferenceModel-load_program"><code>ReferenceModel.load_program</code></a>, stepped or run (a faulting word retires nothing, so it adds nothing). They depend on operand values (a multiply by a constant 1.0 is an identity multiply), so a commit record does not carry them.</p>
@@ -3372,7 +3417,7 @@ writes, it counts the trace's records, as the schema says.</p>
 </tbody>
 </table>
 <h4 id="Status"><code>Status</code><a class="headerlink" href="#Status" title="Permanent link">&para;</a></h4>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">Status</span>  <span class="c1"># ipu_emu.reference.Status</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">Status</span>  <span class="c1"># ipu_emu.reference.Status</span>
 </span></code></pre></div>
 <p>The model's run state.</p>
 <p>A frozen dataclass.</p>
@@ -3409,7 +3454,7 @@ writes, it counts the trace's records, as the schema says.</p>
 <h3 id="commit-records">Commit records<a class="headerlink" href="#commit-records" title="Permanent link">&para;</a></h3>
 <p><code>ipu_emu.commit</code>: what <code>step()</code> returns. <code>to_json()</code> gives the <a href="#commit-record-schema">schema document</a>.</p>
 <h4 id="CommitRecord"><code>CommitRecord</code><a class="headerlink" href="#CommitRecord" title="Permanent link">&para;</a></h4>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">CommitRecord</span>  <span class="c1"># ipu_emu.commit.CommitRecord</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">CommitRecord</span>  <span class="c1"># ipu_emu.commit.CommitRecord</span>
 </span></code></pre></div>
 <p>One retired word, as the commit record schema describes it.</p>
 <p>A frozen dataclass.</p>
@@ -3477,18 +3522,24 @@ writes, it counts the trace's records, as the schema says.</p>
 <td><code>()</code></td>
 <td>The arithmetic events the word raised (<code>ipu_isa.faults.ArithmeticEvent</code> values), sorted.</td>
 </tr>
+<tr>
+<td><code>xmem_meta_writes</code></td>
+<td><code>tuple[XmemMetaWrite, ...]</code></td>
+<td><code>()</code></td>
+<td>The XMEM metadata words the word wrote, by unit address (1.1.0; omitted from the JSON when empty).</td>
+</tr>
 </tbody>
 </table>
 <h5 id="CommitRecord-to_json"><code>CommitRecord.to_json()</code><a class="headerlink" href="#CommitRecord-to_json" title="Permanent link">&para;</a></h5>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="n">CommitRecord</span><span class="o">.</span><span class="n">to_json</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="n">CommitRecord</span><span class="o">.</span><span class="n">to_json</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
 </span></code></pre></div>
 <p>The record as a schema document (JSON-ready: numbers, strings, lists).</p>
 <h5 id="CommitRecord-from_json"><code>CommitRecord.from_json()</code><a class="headerlink" href="#CommitRecord-from_json" title="Permanent link">&para;</a></h5>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="n">CommitRecord</span><span class="o">.</span><span class="n">from_json</span><span class="p">(</span><span class="n">doc</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">CommitRecord</span>  <span class="c1"># classmethod</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="n">CommitRecord</span><span class="o">.</span><span class="n">from_json</span><span class="p">(</span><span class="n">doc</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">CommitRecord</span>  <span class="c1"># classmethod</span>
 </span></code></pre></div>
 <p>A record from a schema document.</p>
 <h4 id="FaultInfo"><code>FaultInfo</code><a class="headerlink" href="#FaultInfo" title="Permanent link">&para;</a></h4>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">FaultInfo</span>  <span class="c1"># ipu_emu.commit.FaultInfo</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">FaultInfo</span>  <span class="c1"># ipu_emu.commit.FaultInfo</span>
 </span></code></pre></div>
 <p>The fault a word raised: its label (<code>"F-3"</code>) and PC.</p>
 <p>A frozen dataclass.</p>
@@ -3517,11 +3568,11 @@ writes, it counts the trace's records, as the schema says.</p>
 </tbody>
 </table>
 <h4 id="Outcome"><code>Outcome</code><a class="headerlink" href="#Outcome" title="Permanent link">&para;</a></h4>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="n">Outcome</span> <span class="o">=</span> <span class="n">Literal</span><span class="p">[</span><span class="s1">'retired'</span><span class="p">,</span> <span class="s1">'break'</span><span class="p">,</span> <span class="s1">'halt'</span><span class="p">,</span> <span class="s1">'fault'</span><span class="p">]</span>  <span class="c1"># ipu_emu.commit.Outcome</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="n">Outcome</span> <span class="o">=</span> <span class="n">Literal</span><span class="p">[</span><span class="s1">'retired'</span><span class="p">,</span> <span class="s1">'break'</span><span class="p">,</span> <span class="s1">'halt'</span><span class="p">,</span> <span class="s1">'fault'</span><span class="p">]</span>  <span class="c1"># ipu_emu.commit.Outcome</span>
 </span></code></pre></div>
 <p>How a word ended: <code>retired</code>; <code>break</code> (its BREAK slot fired: a run that honours breakpoints stopped before it, and the word retired when the run went on); <code>halt</code> (a HALT word retired); <code>fault</code> (the word faulted).</p>
 <h4 id="RegWrite"><code>RegWrite</code><a class="headerlink" href="#RegWrite" title="Permanent link">&para;</a></h4>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">RegWrite</span>  <span class="c1"># ipu_emu.commit.RegWrite</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-33-1"><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">RegWrite</span>  <span class="c1"># ipu_emu.commit.RegWrite</span>
 </span></code></pre></div>
 <p>A register write: <code>value</code> of a scalar register's <code>index</code>, or <code>data</code> (bytes) at byte <code>offset</code> of a vector register.</p>
 <p>A write to an emulator-only register (<code>r_wide_debug</code>, <code>r_cyclic_wide_debug</code>) carries <code>"tag": "emulator"</code> in its JSON form.</p>
@@ -3569,15 +3620,15 @@ writes, it counts the trace's records, as the schema says.</p>
 </tbody>
 </table>
 <h5 id="RegWrite-to_json"><code>RegWrite.to_json()</code><a class="headerlink" href="#RegWrite-to_json" title="Permanent link">&para;</a></h5>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="n">RegWrite</span><span class="o">.</span><span class="n">to_json</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-34-1"><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a><span class="n">RegWrite</span><span class="o">.</span><span class="n">to_json</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
 </span></code></pre></div>
 <p>The write as a schema <code>reg_write</code> document.</p>
 <h5 id="RegWrite-from_json"><code>RegWrite.from_json()</code><a class="headerlink" href="#RegWrite-from_json" title="Permanent link">&para;</a></h5>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-33-1"><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a><span class="n">RegWrite</span><span class="o">.</span><span class="n">from_json</span><span class="p">(</span><span class="n">doc</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">RegWrite</span>  <span class="c1"># classmethod</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-35-1"><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a><span class="n">RegWrite</span><span class="o">.</span><span class="n">from_json</span><span class="p">(</span><span class="n">doc</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">RegWrite</span>  <span class="c1"># classmethod</span>
 </span></code></pre></div>
 <p>A write from a schema <code>reg_write</code> document.</p>
 <h4 id="SlotOp"><code>SlotOp</code><a class="headerlink" href="#SlotOp" title="Permanent link">&para;</a></h4>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-34-1"><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">SlotOp</span>  <span class="c1"># ipu_emu.commit.SlotOp</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-36-1"><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">SlotOp</span>  <span class="c1"># ipu_emu.commit.SlotOp</span>
 </span></code></pre></div>
 <p>One non-NOP op of the word: its slot, mnemonic and encoded fields.</p>
 <p>A frozen dataclass.</p>
@@ -3618,15 +3669,52 @@ writes, it counts the trace's records, as the schema says.</p>
 </tbody>
 </table>
 <h5 id="SlotOp-to_json"><code>SlotOp.to_json()</code><a class="headerlink" href="#SlotOp-to_json" title="Permanent link">&para;</a></h5>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-35-1"><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a><span class="n">SlotOp</span><span class="o">.</span><span class="n">to_json</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-37-1"><a id="__codelineno-37-1" name="__codelineno-37-1" href="#__codelineno-37-1"></a><span class="n">SlotOp</span><span class="o">.</span><span class="n">to_json</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
 </span></code></pre></div>
 <p>The op as a schema <code>slot_op</code> document.</p>
 <h5 id="SlotOp-from_json"><code>SlotOp.from_json()</code><a class="headerlink" href="#SlotOp-from_json" title="Permanent link">&para;</a></h5>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-36-1"><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a><span class="n">SlotOp</span><span class="o">.</span><span class="n">from_json</span><span class="p">(</span><span class="n">doc</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">SlotOp</span>  <span class="c1"># classmethod</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-38-1"><a id="__codelineno-38-1" name="__codelineno-38-1" href="#__codelineno-38-1"></a><span class="n">SlotOp</span><span class="o">.</span><span class="n">from_json</span><span class="p">(</span><span class="n">doc</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">SlotOp</span>  <span class="c1"># classmethod</span>
 </span></code></pre></div>
 <p>An op from a schema <code>slot_op</code> document.</p>
+<h4 id="XmemMetaWrite"><code>XmemMetaWrite</code><a class="headerlink" href="#XmemMetaWrite" title="Permanent link">&para;</a></h4>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-39-1"><a id="__codelineno-39-1" name="__codelineno-39-1" href="#__codelineno-39-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">XmemMetaWrite</span>  <span class="c1"># ipu_emu.commit.XmemMetaWrite</span>
+</span></code></pre></div>
+<p>Metadata word <code>value</code> written for the 128-byte XMEM unit at <code>address</code> (commit record schema 1.1.0).</p>
+<p>A frozen dataclass.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>address</code></td>
+<td><code>int</code></td>
+<td></td>
+<td>The unit's first XMEM byte.</td>
+</tr>
+<tr>
+<td><code>value</code></td>
+<td><code>int</code></td>
+<td></td>
+<td>The unsigned 16-bit metadata word, at its end-of-cycle value.</td>
+</tr>
+</tbody>
+</table>
+<h5 id="XmemMetaWrite-to_json"><code>XmemMetaWrite.to_json()</code><a class="headerlink" href="#XmemMetaWrite-to_json" title="Permanent link">&para;</a></h5>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-40-1"><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a><span class="n">XmemMetaWrite</span><span class="o">.</span><span class="n">to_json</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
+</span></code></pre></div>
+<p>The write as a schema <code>xmem_meta_write</code> document.</p>
+<h5 id="XmemMetaWrite-from_json"><code>XmemMetaWrite.from_json()</code><a class="headerlink" href="#XmemMetaWrite-from_json" title="Permanent link">&para;</a></h5>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-41-1"><a id="__codelineno-41-1" name="__codelineno-41-1" href="#__codelineno-41-1"></a><span class="n">XmemMetaWrite</span><span class="o">.</span><span class="n">from_json</span><span class="p">(</span><span class="n">doc</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">XmemMetaWrite</span>  <span class="c1"># classmethod</span>
+</span></code></pre></div>
+<p>A write from a schema <code>xmem_meta_write</code> document.</p>
 <h4 id="XmemWrite"><code>XmemWrite</code><a class="headerlink" href="#XmemWrite" title="Permanent link">&para;</a></h4>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-37-1"><a id="__codelineno-37-1" name="__codelineno-37-1" href="#__codelineno-37-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">XmemWrite</span>  <span class="c1"># ipu_emu.commit.XmemWrite</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-42-1"><a id="__codelineno-42-1" name="__codelineno-42-1" href="#__codelineno-42-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">XmemWrite</span>  <span class="c1"># ipu_emu.commit.XmemWrite</span>
 </span></code></pre></div>
 <p><code>data</code> written at XMEM byte <code>address</code>.</p>
 <p>A frozen dataclass.</p>
@@ -3655,21 +3743,21 @@ writes, it counts the trace's records, as the schema says.</p>
 </tbody>
 </table>
 <h5 id="XmemWrite-to_json"><code>XmemWrite.to_json()</code><a class="headerlink" href="#XmemWrite-to_json" title="Permanent link">&para;</a></h5>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-38-1"><a id="__codelineno-38-1" name="__codelineno-38-1" href="#__codelineno-38-1"></a><span class="n">XmemWrite</span><span class="o">.</span><span class="n">to_json</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-43-1"><a id="__codelineno-43-1" name="__codelineno-43-1" href="#__codelineno-43-1"></a><span class="n">XmemWrite</span><span class="o">.</span><span class="n">to_json</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
 </span></code></pre></div>
 <p>The write as a schema <code>xmem_write</code> document.</p>
 <h5 id="XmemWrite-from_json"><code>XmemWrite.from_json()</code><a class="headerlink" href="#XmemWrite-from_json" title="Permanent link">&para;</a></h5>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-39-1"><a id="__codelineno-39-1" name="__codelineno-39-1" href="#__codelineno-39-1"></a><span class="n">XmemWrite</span><span class="o">.</span><span class="n">from_json</span><span class="p">(</span><span class="n">doc</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">XmemWrite</span>  <span class="c1"># classmethod</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-44-1"><a id="__codelineno-44-1" name="__codelineno-44-1" href="#__codelineno-44-1"></a><span class="n">XmemWrite</span><span class="o">.</span><span class="n">from_json</span><span class="p">(</span><span class="n">doc</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">XmemWrite</span>  <span class="c1"># classmethod</span>
 </span></code></pre></div>
 <p>A write from a schema <code>xmem_write</code> document.</p>
 <h3 id="traces">Traces<a class="headerlink" href="#traces" title="Permanent link">&para;</a></h3>
 <p><code>ipu_emu.trace</code>: the writer <code>run()</code> takes, and its reader.</p>
 <h4 id="EMULATOR_VERSION"><code>EMULATOR_VERSION</code><a class="headerlink" href="#EMULATOR_VERSION" title="Permanent link">&para;</a></h4>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-40-1"><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a><span class="n">EMULATOR_VERSION</span> <span class="o">=</span> <span class="s1">'0.1.0'</span>  <span class="c1"># ipu_emu.trace.EMULATOR_VERSION</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-45-1"><a id="__codelineno-45-1" name="__codelineno-45-1" href="#__codelineno-45-1"></a><span class="n">EMULATOR_VERSION</span> <span class="o">=</span> <span class="s1">'0.1.0'</span>  <span class="c1"># ipu_emu.trace.EMULATOR_VERSION</span>
 </span></code></pre></div>
 <p><code>ipu-emu</code>'s <code>[project] version</code>.</p>
 <h4 id="TraceWriter"><code>TraceWriter</code><a class="headerlink" href="#TraceWriter" title="Permanent link">&para;</a></h4>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-41-1"><a id="__codelineno-41-1" name="__codelineno-41-1" href="#__codelineno-41-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">TraceWriter</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span> <span class="n">header</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span>  <span class="c1"># ipu_emu.trace.TraceWriter</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-46-1"><a id="__codelineno-46-1" name="__codelineno-46-1" href="#__codelineno-46-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">TraceWriter</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span> <span class="n">header</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span>  <span class="c1"># ipu_emu.trace.TraceWriter</span>
 </span></code></pre></div>
 <p>Writes a trace to <em>path</em>: <em>header</em> first, then each record written.</p>
 <p>A context manager: leaving the <code>with</code> block closes the file.</p>
@@ -3679,49 +3767,49 @@ writes, it counts the trace's records, as the schema says.</p>
 <li><code>header</code>: The header line's fields (<code>trace.v1.json</code>).</li>
 </ul>
 <h5 id="TraceWriter-write"><code>TraceWriter.write()</code><a class="headerlink" href="#TraceWriter-write" title="Permanent link">&para;</a></h5>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-42-1"><a id="__codelineno-42-1" name="__codelineno-42-1" href="#__codelineno-42-1"></a><span class="n">TraceWriter</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">record</span><span class="p">:</span> <span class="n">CommitRecord</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-47-1"><a id="__codelineno-47-1" name="__codelineno-47-1" href="#__codelineno-47-1"></a><span class="n">TraceWriter</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">record</span><span class="p">:</span> <span class="n">CommitRecord</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
 </span></code></pre></div>
 <p>Write <em>record</em> as the next line.</p>
 <h5 id="TraceWriter-write_all"><code>TraceWriter.write_all()</code><a class="headerlink" href="#TraceWriter-write_all" title="Permanent link">&para;</a></h5>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-43-1"><a id="__codelineno-43-1" name="__codelineno-43-1" href="#__codelineno-43-1"></a><span class="n">TraceWriter</span><span class="o">.</span><span class="n">write_all</span><span class="p">(</span><span class="n">records</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">CommitRecord</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-48-1"><a id="__codelineno-48-1" name="__codelineno-48-1" href="#__codelineno-48-1"></a><span class="n">TraceWriter</span><span class="o">.</span><span class="n">write_all</span><span class="p">(</span><span class="n">records</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">CommitRecord</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span>
 </span></code></pre></div>
 <p>Write each of <em>records</em>, in order.</p>
 <h5 id="TraceWriter-close"><code>TraceWriter.close()</code><a class="headerlink" href="#TraceWriter-close" title="Permanent link">&para;</a></h5>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-44-1"><a id="__codelineno-44-1" name="__codelineno-44-1" href="#__codelineno-44-1"></a><span class="n">TraceWriter</span><span class="o">.</span><span class="n">close</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-49-1"><a id="__codelineno-49-1" name="__codelineno-49-1" href="#__codelineno-49-1"></a><span class="n">TraceWriter</span><span class="o">.</span><span class="n">close</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span>
 </span></code></pre></div>
 <p>Close the file.</p>
 <h4 id="read_trace"><code>read_trace()</code><a class="headerlink" href="#read_trace" title="Permanent link">&para;</a></h4>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-45-1"><a id="__codelineno-45-1" name="__codelineno-45-1" href="#__codelineno-45-1"></a><span class="n">read_trace</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="nb">list</span><span class="p">[</span><span class="n">CommitRecord</span><span class="p">]]</span>  <span class="c1"># ipu_emu.trace.read_trace</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-50-1"><a id="__codelineno-50-1" name="__codelineno-50-1" href="#__codelineno-50-1"></a><span class="n">read_trace</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="nb">list</span><span class="p">[</span><span class="n">CommitRecord</span><span class="p">]]</span>  <span class="c1"># ipu_emu.trace.read_trace</span>
 </span></code></pre></div>
 <p>A trace's header and its records.</p>
 <h3 id="schema-helpers">Schema helpers<a class="headerlink" href="#schema-helpers" title="Permanent link">&para;</a></h3>
 <p><code>ipu_isa.trace_schema</code>: the schema versions and the digests a trace header holds.</p>
 <h4 id="SCHEMA_VERSION"><code>SCHEMA_VERSION</code><a class="headerlink" href="#SCHEMA_VERSION" title="Permanent link">&para;</a></h4>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-46-1"><a id="__codelineno-46-1" name="__codelineno-46-1" href="#__codelineno-46-1"></a><span class="n">SCHEMA_VERSION</span> <span class="o">=</span> <span class="s1">'1.0.0'</span>  <span class="c1"># ipu_isa.trace_schema.SCHEMA_VERSION</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-51-1"><a id="__codelineno-51-1" name="__codelineno-51-1" href="#__codelineno-51-1"></a><span class="n">SCHEMA_VERSION</span> <span class="o">=</span> <span class="s1">'1.1.0'</span>  <span class="c1"># ipu_isa.trace_schema.SCHEMA_VERSION</span>
 </span></code></pre></div>
 <p>The commit record schema's version, written in every trace header.</p>
 <h4 id="isa_digest"><code>isa_digest()</code><a class="headerlink" href="#isa_digest" title="Permanent link">&para;</a></h4>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-47-1"><a id="__codelineno-47-1" name="__codelineno-47-1" href="#__codelineno-47-1"></a><span class="n">isa_digest</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span>  <span class="c1"># ipu_isa.trace_schema.isa_digest</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-52-1"><a id="__codelineno-52-1" name="__codelineno-52-1" href="#__codelineno-52-1"></a><span class="n">isa_digest</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span>  <span class="c1"># ipu_isa.trace_schema.isa_digest</span>
 </span></code></pre></div>
 <p>SHA-256 of the ISA definition: every instruction (slot, opcode, mnemonic, tag, operands with their types and widths) and every register. A trace records it, so a reader knows which ISA the words decode with.</p>
 <h4 id="load_schema"><code>load_schema()</code><a class="headerlink" href="#load_schema" title="Permanent link">&para;</a></h4>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-48-1"><a id="__codelineno-48-1" name="__codelineno-48-1" href="#__codelineno-48-1"></a><span class="n">load_schema</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="n">SchemaName</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>  <span class="c1"># ipu_isa.trace_schema.load_schema</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-53-1"><a id="__codelineno-53-1" name="__codelineno-53-1" href="#__codelineno-53-1"></a><span class="n">load_schema</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="n">SchemaName</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>  <span class="c1"># ipu_isa.trace_schema.load_schema</span>
 </span></code></pre></div>
 <p>The schema <em>name</em> (<code>commit_record</code> or <code>trace</code>), parsed.</p>
 <h4 id="program_digest"><code>program_digest()</code><a class="headerlink" href="#program_digest" title="Permanent link">&para;</a></h4>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-49-1"><a id="__codelineno-49-1" name="__codelineno-49-1" href="#__codelineno-49-1"></a><span class="n">program_digest</span><span class="p">(</span><span class="n">words</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">int</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">str</span>  <span class="c1"># ipu_isa.trace_schema.program_digest</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-54-1"><a id="__codelineno-54-1" name="__codelineno-54-1" href="#__codelineno-54-1"></a><span class="n">program_digest</span><span class="p">(</span><span class="n">words</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">int</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">str</span>  <span class="c1"># ipu_isa.trace_schema.program_digest</span>
 </span></code></pre></div>
 <p>SHA-256 of a program's emulator words, each little-endian in <code>word_bytes()</code> bytes: what any reader of the program file can recompute (<code>trace.v1.json</code>'s <code>program_digest</code>).</p>
 <h4 id="schema_version"><code>schema_version()</code><a class="headerlink" href="#schema_version" title="Permanent link">&para;</a></h4>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-50-1"><a id="__codelineno-50-1" name="__codelineno-50-1" href="#__codelineno-50-1"></a><span class="n">schema_version</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="n">SchemaName</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>  <span class="c1"># ipu_isa.trace_schema.schema_version</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-55-1"><a id="__codelineno-55-1" name="__codelineno-55-1" href="#__codelineno-55-1"></a><span class="n">schema_version</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="n">SchemaName</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>  <span class="c1"># ipu_isa.trace_schema.schema_version</span>
 </span></code></pre></div>
 <p>The semantic version at the end of the schema's <code>$id</code>.</p>
 <h3 id="argument-and-error-types">Argument and error types<a class="headerlink" href="#argument-and-error-types" title="Permanent link">&para;</a></h3>
 <p>The types the methods take from <code>ipu_isa</code>, and the error they raise.</p>
 <h4 id="ElementFormat"><code>ElementFormat</code><a class="headerlink" href="#ElementFormat" title="Permanent link">&para;</a></h4>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-51-1"><a id="__codelineno-51-1" name="__codelineno-51-1" href="#__codelineno-51-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">ElementFormat</span><span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="n">Enum</span><span class="p">)</span>  <span class="c1"># ipu_isa.formats.ElementFormat</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-56-1"><a id="__codelineno-56-1" name="__codelineno-56-1" href="#__codelineno-56-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">ElementFormat</span><span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="n">Enum</span><span class="p">)</span>  <span class="c1"># ipu_isa.formats.ElementFormat</span>
 </span></code></pre></div>
-<p>An element format. <code>ElementFormat.E4 == "e4"</code>.</p>
+<p>A run mode's element format. <code>ElementFormat.NX8 == "nx8"</code>.</p>
 <p>A <code>str</code> mixin rather than <code>StrEnum</code> (Python 3.11), as for <code>Tag</code>.</p>
 <table>
 <thead>
@@ -3732,49 +3820,17 @@ writes, it counts the trace's records, as the schema says.</p>
 </thead>
 <tbody>
 <tr>
-<td><code>INT8</code></td>
-<td><code>'int8'</code></td>
-</tr>
-<tr>
-<td><code>E1</code></td>
-<td><code>'e1'</code></td>
-</tr>
-<tr>
-<td><code>E2</code></td>
-<td><code>'e2'</code></td>
-</tr>
-<tr>
-<td><code>E3</code></td>
-<td><code>'e3'</code></td>
-</tr>
-<tr>
-<td><code>E4</code></td>
-<td><code>'e4'</code></td>
-</tr>
-<tr>
-<td><code>E5</code></td>
-<td><code>'e5'</code></td>
-</tr>
-<tr>
-<td><code>E6</code></td>
-<td><code>'e6'</code></td>
-</tr>
-<tr>
-<td><code>E7</code></td>
-<td><code>'e7'</code></td>
-</tr>
-<tr>
 <td><code>FP32</code></td>
 <td><code>'fp32'</code></td>
 </tr>
 <tr>
-<td><code>INT32</code></td>
-<td><code>'int32'</code></td>
+<td><code>NX8</code></td>
+<td><code>'nx8'</code></td>
 </tr>
 </tbody>
 </table>
 <h4 id="FaultId"><code>FaultId</code><a class="headerlink" href="#FaultId" title="Permanent link">&para;</a></h4>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-52-1"><a id="__codelineno-52-1" name="__codelineno-52-1" href="#__codelineno-52-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">FaultId</span><span class="p">(</span><span class="n">IntEnum</span><span class="p">)</span>  <span class="c1"># ipu_isa.faults.FaultId</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-57-1"><a id="__codelineno-57-1" name="__codelineno-57-1" href="#__codelineno-57-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">FaultId</span><span class="p">(</span><span class="n">IntEnum</span><span class="p">)</span>  <span class="c1"># ipu_isa.faults.FaultId</span>
 </span></code></pre></div>
 <p>A hardware fault. The value is the fault number and its priority: the lowest number wins when one word raises several (IPU-FLT-8).</p>
 <table>
@@ -3824,19 +3880,19 @@ writes, it counts the trace's records, as the schema says.</p>
 </tbody>
 </table>
 <h5 id="FaultId-label"><code>FaultId.label</code><a class="headerlink" href="#FaultId-label" title="Permanent link">&para;</a></h5>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-53-1"><a id="__codelineno-53-1" name="__codelineno-53-1" href="#__codelineno-53-1"></a><span class="n">FaultId</span><span class="o">.</span><span class="n">label</span><span class="p">:</span> <span class="nb">str</span>  <span class="c1"># property</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-58-1"><a id="__codelineno-58-1" name="__codelineno-58-1" href="#__codelineno-58-1"></a><span class="n">FaultId</span><span class="o">.</span><span class="n">label</span><span class="p">:</span> <span class="nb">str</span>  <span class="c1"># property</span>
 </span></code></pre></div>
 <p><code>"F-3"</code>: the ID as the requirements write it.</p>
 <h4 id="ConfigurationError"><code>ConfigurationError</code><a class="headerlink" href="#ConfigurationError" title="Permanent link">&para;</a></h4>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-54-1"><a id="__codelineno-54-1" name="__codelineno-54-1" href="#__codelineno-54-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">ConfigurationError</span><span class="p">(</span><span class="n">EmulatorError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">)</span>  <span class="c1"># ipu_emu.errors.ConfigurationError</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-59-1"><a id="__codelineno-59-1" name="__codelineno-59-1" href="#__codelineno-59-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">ConfigurationError</span><span class="p">(</span><span class="n">EmulatorError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">)</span>  <span class="c1"># ipu_emu.errors.ConfigurationError</span>
 </span></code></pre></div>
-<p>A bad setup: the element format, the program size, prototyping without its build flag, or invalid API arguments. Raised at setup time, never mid-run. Also a <code>ValueError</code>, as these checks raised before.</p>
+<p>A bad setup: the element format, the program size, prototyping without its build flag, or invalid API arguments. Raised at setup time, except <code>CrContentError</code>, raised in a word's check phase. Also a <code>ValueError</code>, as these checks raised before.</p>
 <h2 id="commit-record-schema">Commit record and trace schema<a class="headerlink" href="#commit-record-schema" title="Permanent link">&para;</a></h2>
 <p>A commit record's JSON form (<code>CommitRecord.to_json()</code>) is a document of the
 commit record schema. A trace is a JSON Lines file: a header line of the trace
 header schema, then one commit record per word. Download the schema files to
 validate either with any JSON Schema (draft 2020-12) validator.</p>
-<p><strong>IPU commit record</strong>, version <code>1.0.0</code> (<a href="../../assets/schemas/commit_record.v1.json"><code>commit_record.v1.json</code></a>): One retired VLIW word (E04-29). Integers up to 32 bits are JSON numbers; wider data are lowercase hex strings, little-endian. Register names are ipu_isa's. NOP slots are omitted. A write is a range the word wrote, with its value at the end of the cycle. A faulting word has no effect (precise faults), so a fault record has no writes.</p>
+<p><strong>IPU commit record</strong>, version <code>1.1.0</code> (<a href="../../assets/schemas/commit_record.v1.json"><code>commit_record.v1.json</code></a>): One retired VLIW word (E04-29). Integers up to 32 bits are JSON numbers; wider data are lowercase hex strings, little-endian. Register names are ipu_isa's. NOP slots are omitted. A write is a range the word wrote, with its value at the end of the cycle. A faulting word has no effect (precise faults), so a fault record has no writes.</p>
 <table>
 <thead>
 <tr>
@@ -3985,10 +4041,28 @@ validate either with any JSON Schema (draft 2020-12) validator.</p>
 <td>yes</td>
 <td>Arithmetic events of the word (E04-23); empty until they are modelled.</td>
 </tr>
+<tr>
+<td><code>xmem_meta_writes</code></td>
+<td>array of object</td>
+<td>no</td>
+<td>Optional (1.1.0): the XMEM metadata words the word wrote, one per 128-byte unit, at their end-of-cycle values. A record with none may leave the field out.</td>
+</tr>
+<tr>
+<td><code>xmem_meta_writes[].address</code></td>
+<td>integer (0 to 4294967295)</td>
+<td>yes</td>
+<td>The first byte of the 128-byte XMEM unit the word describes.</td>
+</tr>
+<tr>
+<td><code>xmem_meta_writes[].value</code></td>
+<td>integer (0 to 65535)</td>
+<td>yes</td>
+<td>The unit's 16-bit metadata word (ADR 0007: scale[7:0], dynamic_exponent[8]).</td>
+</tr>
 </tbody>
 </table>
 <ul>
-<li>When <code>outcome</code> is <code>"fault"</code>: <code>fault</code> is an object, <code>reg_writes</code> is empty, <code>xmem_writes</code> is empty. Otherwise <code>fault</code> is <code>null</code>.</li>
+<li>When <code>outcome</code> is <code>"fault"</code>: <code>fault</code> is an object, <code>reg_writes</code> is empty, <code>xmem_writes</code> is empty, <code>xmem_meta_writes</code> is empty. Otherwise <code>fault</code> is <code>null</code>.</li>
 </ul>
 <p><strong>IPU trace header</strong>, version <code>1.0.0</code> (<a href="../../assets/schemas/trace.v1.json"><code>trace.v1.json</code></a>): A trace is JSON Lines: this header on the first line, then one commit record (commit_record schema) per line (E04-29).</p>
 <table>
@@ -4127,7 +4201,8 @@ for each case a program (<code>program.asm</code>, <code>program.bin</code>), it
 <li>Skip it if <code>setup.json</code> has <code>"emulator_only": true</code>.</li>
 <li>Reset in the case's <code>format</code> and load <code>program.bin</code>.</li>
 <li>Zero every register and XMEM byte (<code>CR0</code> and <code>CR1</code> aside), then write the
-   registers and XMEM regions of <code>setup.json</code> and set its fault enables.</li>
+   registers, XMEM regions and XMEM row metadata words of <code>setup.json</code> and
+   set its fault enables.</li>
 <li>Run until <code>HALT</code>, a fault or <code>max_cycles</code>, recording a commit record per
    word.</li>
 <li>Compare the header's <code>schema_version</code>, <code>isa_digest</code>, <code>format</code> and
@@ -4159,7 +4234,7 @@ this API.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 18, 2026 21:48:18 UTC"><span class="timeago" datetime="2026-10-18T21:48:18+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 18, 2026 21:48:18 UTC">2026-10-18</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 23, 2026 21:51:36 UTC"><span class="timeago" datetime="2026-10-23T21:51:36+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 23, 2026 21:51:36 UTC">2026-10-23</span>
   </span>
 
     

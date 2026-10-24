@@ -1136,7 +1136,7 @@
   <span class="md-ellipsis">
     
   
-    ACTIVATE.QUANTIZE in the emulator
+    ACTIVATE.QUANTIZE, ACTIVATE.EXACT and LD.LUT
   
 
     
@@ -3006,7 +3006,7 @@
 <ul>
 <li><strong>Jinja2 preprocessing</strong> — templates and macros for generated assembly</li>
 <li><strong>Label resolution</strong> — forward and backward references</li>
-<li><strong>VLIW compounds</strong> — multiple pipeline slots per cycle (<code>COND</code>, <code>LR</code>×3, <code>LOAD</code>, <code>MULT</code>, <code>ACC</code>, <code>AAQ</code>, <code>STORE</code>; emulator-only: <code>ACC_STORE</code>, <code>BREAK</code>)</li>
+<li><strong>VLIW compounds</strong> — multiple pipeline slots per cycle (<code>COND</code>, <code>LR</code>×3, <code>LOAD</code>, <code>MULT</code>, <code>ACC</code>, <code>AAQ</code>; emulator-only: <code>AAQ_EXACT</code>, <code>BREAK</code>)</li>
 <li><strong>Syntax validation</strong> — Lark-based parser with detailed errors</li>
 </ul>
 <h2 id="basic-syntax">Basic Syntax<a class="headerlink" href="#basic-syntax" title="Permanent link">&para;</a></h2>
@@ -3014,7 +3014,7 @@
 <div class="language-asm highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Comments start with # or //</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nl">label:</span><span class="w">                          </span><span class="c1"># Labels end with a colon</span>
 </span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span><span class="nf">LD.MULT</span><span class="w"> </span><span class="no">R0</span><span class="w"> </span><span class="no">LR0</span><span class="w"> </span><span class="no">CR0</span><span class="c1">;           # LOAD: load into mult stage R0</span>
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">    </span><span class="nf">MULT.RC.VV</span><span class="w"> </span><span class="no">LR1</span><span class="w"> </span><span class="no">R0</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="no">LR3</span><span class="w"> </span><span class="no">CR15</span><span class="c1">; # MULT: element-wise multiply</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">    </span><span class="nf">MULT.RC.VV</span><span class="w"> </span><span class="no">LR1</span><span class="w"> </span><span class="no">R0</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="no">LR3</span><span class="w"> </span><span class="no">CR15.L</span><span class="w"> </span><span class="no">CR14.L</span><span class="c1">; # MULT: element-wise multiply (DS, QF halves)</span>
 </span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">    </span><span class="nf">ACC.ADD</span><span class="c1">;                      # ACC: accumulate</span>
 </span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">    </span><span class="nf">INC</span><span class="w"> </span><span class="no">LR0</span><span class="w"> </span><span class="mi">1</span><span class="c1">;                    # LR: bump address (increment via INC)</span>
 </span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">    </span><span class="nf">BNE</span><span class="w"> </span><span class="no">LR0</span><span class="w"> </span><span class="no">LR1</span><span class="w"> </span><span class="no">next</span><span class="c1">;             # COND: branch</span>
@@ -3027,18 +3027,18 @@
 <p>A full IPU instruction is one <strong>compound</strong> word: several slots execute in parallel in a single cycle.</p>
 <p><strong>Pattern:</strong></p>
 <!-- asm-fragment: one placeholder per slot, not real instructions -->
-<div class="language-asm highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nf">load_inst</span><span class="c1">; mult_inst; acc_inst; aaq_inst; store_inst; acc_store_inst; lr_inst_a; lr_inst_b; lr_inst_c; cond_inst; break_inst;;</span>
+<div class="language-asm highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nf">load_inst</span><span class="c1">; mult_inst; acc_inst; aaq_inst; aaq_exact_inst; lr_inst_a; lr_inst_b; lr_inst_c; cond_inst; break_inst;;</span>
 </span></code></pre></div>
 <p><strong>Rules:</strong></p>
 <ul>
 <li>Each slot appears a fixed number of times (see <code>SLOT_COUNT</code> in <code>instruction_spec.py</code>); unused slots are filled with that slot’s <strong>NOP</strong> by the assembler.</li>
-<li>Slot order in the binary word (MSB → LSB) is defined by the toolchain: <code>cond</code>, three <code>lr</code> sub-slots, <code>load</code>, <code>mult</code>, <code>acc</code>, <code>aaq</code>, <code>store</code>, <code>acc_store</code>, <code>break</code> (see the layout diagram on the <a href="../instructions/#compound-instruction-layout">Instruction reference</a>).</li>
+<li>Slot order in the binary word (MSB → LSB) is defined by the toolchain: <code>cond</code>, three <code>lr</code> sub-slots, <code>load</code>, <code>mult</code>, <code>acc</code>, <code>aaq</code>, <code>aaq_exact</code>, <code>break</code> (see the layout diagram on the <a href="../instructions/#compound-instruction-layout">Instruction reference</a>).</li>
 <li>The slots of one word execute in a fixed order, and each register read sees either the value at cycle start or the value forwarded from an earlier slot of the same word: see <a href="#execution-order-and-timing">Execution order and timing</a>.</li>
-<li>The emulator-only slots (<code>ACC_STORE</code>, <code>BREAK</code>) are not implemented in real IPU hardware: see the <a href="../instruction-format/">instruction format</a>.</li>
+<li>The emulator-only slots (<code>AAQ_EXACT</code>, <code>BREAK</code>) are not implemented in real IPU hardware: see the <a href="../instruction-format/">instruction format</a>.</li>
 </ul>
 <p><strong>Example (parallel slots):</strong></p>
 <div class="language-asm highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nl">loop:</span>
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="nf">LD.MULT</span><span class="w"> </span><span class="no">R0</span><span class="w"> </span><span class="no">LR0</span><span class="w"> </span><span class="no">CR0</span><span class="c1">; MULT.RC.VV LR1 R0 0 LR3 CR15; ACC.ADD; INC LR0 1; BNE LR0 LR1 loop;;</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="nf">LD.MULT</span><span class="w"> </span><span class="no">R0</span><span class="w"> </span><span class="no">LR0</span><span class="w"> </span><span class="no">CR0</span><span class="c1">; MULT.RC.VV LR1 R0 0 LR3 CR15.L CR14.L; ACC.ADD; INC LR0 1; BNE LR0 LR1 loop;;</span>
 </span></code></pre></div>
 <h2 id="register-names">Register names<a class="headerlink" href="#register-names" title="Permanent link">&para;</a></h2>
 <p>The mult-stage and scalar register <strong>tokens</strong> below are derived from <code>REGISTER_DEFINITIONS</code> in <code>ipu_isa.registers</code> (same source as the assembler).</p>
@@ -3054,7 +3054,7 @@
 <tr>
 <td>Mult stage</td>
 <td><code>R0</code>, <code>R1</code></td>
-<td>128-byte vectors; 2-bit mult-stage field (<code>2</code> reserved). See <a href="../operand-types/#multstagereg">MultStageReg</a>.</td>
+<td>One XMEM row each (128 NX8 elements and the row's metadata word, or 128 FP32 elements in the FP32 mode); 2-bit mult-stage field (<code>2</code> reserved). See <a href="../operand-types/#multstagereg">MultStageReg</a>.</td>
 </tr>
 <tr>
 <td>Cyclic / mask</td>
@@ -3069,7 +3069,7 @@
 <tr>
 <td>Constant</td>
 <td><code>CR0</code>–<code>CR15</code></td>
-<td><strong>Read-only</strong> in assembly; the host writes <code>CR2</code>–<code>CR15</code> before a kernel runs. <strong><code>CR0</code></strong> and <strong><code>CR1</code></strong> are the read-only constants 0 and 1 (see <a href="../configuration-registers/">Configuration registers</a>). <strong><code>CR15</code></strong> conventionally holds dstructure configuration (see <a href="../operand-types/#dstructurecridx">DstructureCrIdx</a>) but is a valid <code>CrIdx</code>/<code>LcrIdx</code> operand like any other CR. See <a href="../operand-types/#cridx">CrIdx</a>.</td>
+<td><strong>Read-only</strong> in assembly; the host writes <code>CR2</code>–<code>CR15</code> before a kernel runs. <strong><code>CR0</code></strong> and <strong><code>CR1</code></strong> are the read-only constants 0 and 1 (see <a href="../configuration-registers/">Configuration registers</a>). Each CR is also two 16-bit halves, <code>CR13.L</code> and <code>CR13.H</code>: the DS (data structure) and QF (quantization format) operands always name a half (see <a href="../operand-types/#halfcridx">HalfCrIdx</a>), and an LR or COND source operand may read a full CR or a sign-extended half (see <a href="../operand-types/#lcrhalfidx">LcrHalfIdx</a>). <strong><code>CR15.L</code></strong> conventionally holds the default DS, but any half is a valid operand. See <a href="../operand-types/#cridx">CrIdx</a> and <a href="../configuration-registers/">Configuration registers</a>.</td>
 </tr>
 </tbody>
 </table>
@@ -3098,18 +3098,18 @@
 </span></code></pre></div>
 <h2 id="execution-order-and-timing">Execution order and timing<a class="headerlink" href="#execution-order-and-timing" title="Permanent link">&para;</a></h2>
 <p>This section is <strong>generated</strong> from <code>ipu_isa.timing</code> and the register accesses each instruction declares in <code>instruction_spec.py</code>.</p>
-<p>The slots of one instruction word execute in this order: <strong>BREAK</strong> → <strong>LR</strong> → <strong>LOAD</strong> → <strong>MULT</strong> → <strong>ACC</strong> → <strong>AAQ</strong> → <strong>STORE</strong> → <strong>ACC_STORE</strong> → <strong>COND</strong>. <strong>BREAK</strong> is evaluated before any slot writes (it may halt the word); the <strong>LR</strong> sub-slots all read before any of them writes.</p>
+<p>The slots of one instruction word execute in this order: <strong>BREAK</strong> → <strong>LR</strong> → <strong>LOAD</strong> → <strong>MULT</strong> → <strong>ACC</strong> → <strong>AAQ</strong> → <strong>AAQ_EXACT</strong> → <strong>COND</strong>. <strong>BREAK</strong> is evaluated before any slot writes (it may halt the word); the <strong>LR</strong> sub-slots all read before any of them writes.</p>
 <p>A register read sees one of two values: the value at <strong>cycle start</strong> (when the word began), or the <strong>forwarded</strong> value (after the writes of earlier slots of the same word). The timing contract is four rules:</p>
 <ol>
 <li>The Control stage (<strong>LR</strong>, <strong>COND</strong>) reads LRs at cycle start; every other stage reads LRs after the LR writes of the same word.</li>
-<li><strong>MULT</strong> reads <code>R0</code>, <code>R1</code>, <code>R_CYCLIC</code> and <code>R_MASK</code> at cycle start.</li>
-<li><code>MULT_RES</code> is forwarded to <strong>ACC</strong> (including AGG and RESHAPE); <code>R_ACC</code> is forwarded to <strong>AAQ</strong>.</li>
+<li><strong>MULT</strong> reads <code>R0</code>, <code>R1</code>, <code>R_CYCLIC</code>, their row metadata and <code>R_MASK</code> at cycle start.</li>
+<li><code>MULT_RES</code> is forwarded to <strong>ACC</strong> (including AGG and RESHAPE); <code>R_ACC</code> is forwarded to <strong>AAQ</strong> and <strong>AAQ_EXACT</strong>.</li>
 <li>LR sub-slots read cycle-start values.</li>
 </ol>
 <p>Any other read is forwarded when every slot that writes the register runs earlier in the word, and at cycle start otherwise. CRs are never written during a run, so CR reads are at cycle start.</p>
 <p>The <a href="../../../explanation/timing-model/">timing model</a> explains the rules, with an example of each.</p>
 <h3 id="register-reads-and-writes">Register reads and writes<a class="headerlink" href="#register-reads-and-writes" title="Permanent link">&para;</a></h3>
-<p><code>R</code> is the <code>R0</code>/<code>R1</code> pair. An operand of type <code>LcrIdx</code> reads an LR or a CR.</p>
+<p><code>R</code> is the <code>R0</code>/<code>R1</code> pair. An operand of type <code>LcrIdx</code> reads an LR or a CR; one of type <code>LcrHalfIdx</code> an LR, a CR or a CR half; one of type <code>HalfCrIdx</code> a CR half.</p>
 <table>
 <thead>
 <tr>
@@ -3138,7 +3138,7 @@
 <tr>
 <td><code>SET</code></td>
 <td><code>LR</code></td>
-<td><code>CR</code> via <code>src</code></td>
+<td><code>LR</code> via <code>src</code>, <code>CR</code> via <code>src</code></td>
 <td>—</td>
 <td><code>LR</code> via <code>reg</code></td>
 </tr>
@@ -3196,14 +3196,14 @@
 <td><code>LOAD</code></td>
 <td><code>CR</code> via <code>base</code></td>
 <td><code>LR</code> via <code>offset</code></td>
-<td><code>R</code> via <code>dest</code></td>
+<td><code>R</code> via <code>dest</code>, <code>R_META</code> via <code>dest</code></td>
 </tr>
 <tr>
 <td><code>LD.MULT.CYCLIC</code></td>
 <td><code>LOAD</code></td>
 <td><code>CR</code> via <code>base</code></td>
 <td><code>LR</code> via <code>offset</code>, <code>LR</code> via <code>index</code></td>
-<td><code>R_CYCLIC</code></td>
+<td><code>R_CYCLIC</code>, <code>R_CYCLIC_META</code></td>
 </tr>
 <tr>
 <td><code>LD.MASK</code></td>
@@ -3215,35 +3215,35 @@
 <tr>
 <td><code>MULT.RC.VV</code></td>
 <td><code>MULT</code></td>
-<td><code>R</code> via <code>ra</code>, <code>R_CYCLIC</code>, <code>R_MASK</code>, <code>CR</code> via <code>cr_idx</code></td>
+<td><code>R</code> via <code>ra</code>, <code>R_CYCLIC</code>, <code>R_CYCLIC_META</code>, <code>R_META</code>, <code>R_MASK</code>, <code>CR</code> via <code>ds</code>, <code>CR</code> via <code>qf</code></td>
 <td><code>LR</code> via <code>rc_idx</code>, <code>LR</code> via <code>mask_shift</code></td>
 <td><code>MULT_RES</code></td>
 </tr>
 <tr>
 <td><code>MULT.RC.VE</code></td>
 <td><code>MULT</code></td>
-<td><code>CR</code> via <code>src</code>, <code>R</code>, <code>R_CYCLIC</code>, <code>R_MASK</code>, <code>CR</code> via <code>cr_idx</code></td>
+<td><code>CR</code> via <code>src</code>, <code>R</code>, <code>R_META</code>, <code>R_CYCLIC</code>, <code>R_CYCLIC_META</code>, <code>R_MASK</code>, <code>CR</code> via <code>ds</code>, <code>CR</code> via <code>qf</code></td>
 <td><code>LR</code> via <code>rc_idx</code>, <code>LR</code> via <code>mask_shift</code>, <code>LR</code> via <code>src</code></td>
 <td><code>MULT_RES</code></td>
 </tr>
 <tr>
 <td><code>MULT.RC.VS</code></td>
 <td><code>MULT</code></td>
-<td><code>R_CYCLIC</code>, <code>R_MASK</code>, <code>CR</code> via <code>cr_idx</code></td>
+<td><code>R_CYCLIC</code>, <code>R_CYCLIC_META</code>, <code>R_MASK</code>, <code>CR</code> via <code>ds</code>, <code>CR</code> via <code>qf</code></td>
 <td><code>LR</code> via <code>rc_idx</code>, <code>LR</code> via <code>mask_shift</code></td>
 <td><code>MULT_RES</code></td>
 </tr>
 <tr>
 <td><code>MULT.VE</code></td>
 <td><code>MULT</code></td>
-<td><code>CR</code> via <code>cr_idx</code>, <code>R</code>, <code>R_MASK</code>, <code>CR</code> via <code>dstructure_cr_idx</code></td>
+<td><code>CR</code> via <code>cr_idx</code>, <code>R</code>, <code>R_META</code>, <code>R_MASK</code>, <code>CR</code> via <code>ds</code>, <code>CR</code> via <code>qf</code></td>
 <td><code>LR</code> via <code>ra_idx</code>, <code>LR</code> via <code>mask_shift</code></td>
 <td><code>MULT_RES</code></td>
 </tr>
 <tr>
 <td><code>MULT.EE</code></td>
 <td><code>MULT</code></td>
-<td><code>CR</code> via <code>cr_idx</code>, <code>R</code>, <code>R_MASK</code>, <code>CR</code> via <code>dstructure_cr_idx</code></td>
+<td><code>CR</code> via <code>cr_idx</code>, <code>R</code>, <code>R_META</code>, <code>R_MASK</code>, <code>CR</code> via <code>ds</code>, <code>CR</code> via <code>qf</code></td>
 <td><code>LR</code> via <code>ra_idx</code>, <code>LR</code> via <code>mask_shift</code></td>
 <td><code>MULT_RES</code></td>
 </tr>
@@ -3299,28 +3299,28 @@
 <tr>
 <td><code>AGG.SUM.FIRST</code></td>
 <td><code>ACC</code></td>
-<td><code>CR</code> via <code>cr_idx</code></td>
+<td><code>CR</code> via <code>ds</code></td>
 <td><code>LR</code> via <code>dest_slot</code>, <code>MULT_RES</code></td>
 <td><code>R_ACC</code></td>
 </tr>
 <tr>
 <td><code>AGG.SUM</code></td>
 <td><code>ACC</code></td>
-<td><code>CR</code> via <code>cr_idx</code>, <code>R_ACC</code></td>
+<td><code>CR</code> via <code>ds</code>, <code>R_ACC</code></td>
 <td><code>LR</code> via <code>dest_slot</code>, <code>MULT_RES</code></td>
 <td><code>R_ACC</code></td>
 </tr>
 <tr>
 <td><code>AGG.MAX.FIRST</code></td>
 <td><code>ACC</code></td>
-<td><code>CR</code> via <code>cr_idx</code></td>
+<td><code>CR</code> via <code>ds</code></td>
 <td><code>LR</code> via <code>dest_slot</code>, <code>MULT_RES</code></td>
 <td><code>R_ACC</code></td>
 </tr>
 <tr>
 <td><code>AGG.MAX</code></td>
 <td><code>ACC</code></td>
-<td><code>CR</code> via <code>cr_idx</code>, <code>R_ACC</code></td>
+<td><code>CR</code> via <code>ds</code>, <code>R_ACC</code></td>
 <td><code>LR</code> via <code>dest_slot</code>, <code>MULT_RES</code></td>
 <td><code>R_ACC</code></td>
 </tr>
@@ -3332,24 +3332,24 @@
 <td><code>R_ACC</code></td>
 </tr>
 <tr>
-<td><code>ACTIVATE.QUANTIZE</code></td>
+<td><code>LD.LUT</code></td>
 <td><code>AAQ</code></td>
-<td><code>CR</code> via <code>cr_idx</code></td>
-<td><code>R_ACC</code></td>
-<td><code>POST_AAQ_REG</code></td>
+<td><code>CR</code> via <code>table_id</code></td>
+<td><code>LR</code> via <code>table_offset</code></td>
+<td><code>AAQ_LUT</code></td>
 </tr>
 <tr>
-<td><code>ST.AAQ</code></td>
-<td><code>STORE</code></td>
-<td><code>CR</code> via <code>base</code></td>
-<td><code>LR</code> via <code>offset</code>, <code>POST_AAQ_REG</code></td>
+<td><code>ACTIVATE.QUANTIZE</code></td>
+<td><code>AAQ</code></td>
+<td><code>CR</code> via <code>table_id</code>, <code>CR</code> via <code>ds</code>, <code>CR</code> via <code>qf</code>, <code>AAQ_LUT</code></td>
+<td><code>LR</code> via <code>table_offset</code>, <code>R_ACC</code></td>
 <td>—</td>
 </tr>
 <tr>
-<td><code>ST.ACC</code></td>
-<td><code>ACC_STORE</code></td>
-<td><code>CR</code> via <code>base</code></td>
-<td><code>LR</code> via <code>offset</code>, <code>R_ACC</code></td>
+<td><code>ACTIVATE.EXACT</code></td>
+<td><code>AAQ_EXACT</code></td>
+<td><code>CR</code> via <code>table_id</code>, <code>CR</code> via <code>ds</code></td>
+<td><code>LR</code> via <code>table_offset</code>, <code>R_ACC</code></td>
 <td>—</td>
 </tr>
 <tr>
@@ -3401,8 +3401,9 @@
 <h2 id="masking">Masking<a class="headerlink" href="#masking" title="Permanent link">&para;</a></h2>
 <p>Multiply instructions (<code>MULT.RC.VV</code>, <code>MULT.RC.VE</code>, <code>MULT.RC.VS</code>, <code>MULT.VE</code>, <code>MULT.EE</code>) support <strong>element masking</strong>: after the multiply, elements in <code>MULT_RES</code> whose
 corresponding mask bit is <strong>1</strong> are <strong>active</strong> and pass through to accumulation; elements whose bit is
-<strong>0</strong> are <strong>zeroed</strong> (deactivated). A mask of all-ones leaves every element active (the reset default);
-a mask of all-zeros deactivates every element.</p>
+<strong>0</strong> are deactivated and hold the pad value of the DS half's <code>mask_type</code> (<code>0</code> for <code>mask_type</code> 0,
++inf for 1, −inf for 2; 3, NaN, is an emulator error because NX8 has no NaN). A mask of all-ones
+leaves every element active (the reset default); a mask of all-zeros deactivates every element.</p>
 <h3 id="r_mask-register">R_MASK register<a class="headerlink" href="#r_mask-register" title="Permanent link">&para;</a></h3>
 <p><code>R_MASK</code> is a 128-byte register packed as <strong>8 independent 128-bit slots</strong> (slots 0–7). Load it
 from XMEM with:</p>
@@ -3465,14 +3466,12 @@ the value through the pipeline to the mult stage — the mult stage itself does 
 registers directly. LR registers are 32-bit; negative values use 32-bit two's complement. Values
 outside [−3, +3] <strong>clamp</strong> to ±3.</p>
 <h3 id="partition-vectors">Partition vectors<a class="headerlink" href="#partition-vectors" title="Permanent link">&para;</a></h3>
-<p>Each masking multiply instruction takes a mandatory CR-index operand (<code>cr_idx</code> on <code>MULT.RC.VV</code> /
-<code>MULT.RC.VE</code> / <code>MULT.RC.VS</code>; <code>dstructure_cr_idx</code> on <code>MULT.VE</code> / <code>MULT.EE</code>, since those two already
-use <code>cr_idx</code> for the scalar multiplier) naming the CR register that supplies the dstructure
-configuration — there is no implicit default. Both vectors are derived from that named register's
-<code>partition</code> field (see <a href="../operand-types/#dstructurecridx">DstructureCrIdx</a>). The valid values of P
-are <strong>{0, 2, 4, 8, 16}</strong>.
-With <code>partition = 0</code> both vectors are all-ones (no boundaries). With <code>partition = P</code> the 128 elements
-are split into <code>P</code> equal groups of <code>128 / P</code> elements:</p>
+<p>Each masking multiply instruction takes a mandatory DS operand, <code>ds</code>, naming the CR half that
+holds the 16-bit DS (data structure) — there is no implicit default. Both vectors are derived from
+that half's <code>num_partitions</code> field (see <a href="../configuration-registers/#ds-half">Configuration registers</a>
+and <a href="../operand-types/#halfcridx">HalfCrIdx</a>). The valid values of P are <strong>{1, 2, 4, 8}</strong>.
+With <code>num_partitions = 1</code> both vectors are all-ones (no boundaries). With <code>num_partitions = P</code> the
+128 elements are split into <code>P</code> equal groups of <code>128 / P</code> elements:</p>
 <table>
 <thead>
 <tr>
@@ -3494,20 +3493,21 @@ are split into <code>P</code> equal groups of <code>128 / P</code> elements:</p>
 </tr>
 </tbody>
 </table>
-<p>For <code>partition = 2</code> (groups of 64):</p>
+<p>For <code>num_partitions = 2</code> (groups of 64):</p>
 <ul>
 <li><code>partition_vector</code> = <code>0 1</code>⁶³<code>0 1</code>⁶³ — 0 at element 0 and element 64</li>
 <li><code>inverse_partition_vector</code> = <code>1</code>⁶³<code>0 1</code>⁶³<code>0</code> — 0 at element 63 and element 127</li>
 </ul>
-<p>For <code>partition = 4</code> (groups of 32):</p>
+<p>For <code>num_partitions = 4</code> (groups of 32):</p>
 <ul>
 <li><code>partition_vector</code> = <code>0 1</code>³¹<code>0 1</code>³¹<code>0 1</code>³¹<code>0 1</code>³¹ — 0 at elements 0, 32, 64, 96</li>
 <li><code>inverse_partition_vector</code> = <code>1</code>³¹<code>0 1</code>³¹<code>0 1</code>³¹<code>0 1</code>³¹<code>0</code> — 0 at elements 31, 63, 95, 127</li>
 </ul>
 <p>The AND at each step prevents mask bits from crossing the group boundary in either shift direction.</p>
-<p><code>CR15</code> remains the conventional dstructure register and is set by the host harness, but it must
-still be named explicitly via the instruction's CR-index operand — there is no implicit fallback to
-<code>CR15</code> (see <a href="../operand-types/#dstructurecridx">DstructureCrIdx</a>).</p>
+<p><code>CR15.L</code> is the conventional DS half and is set by the host harness, but it must still be named
+explicitly as the instruction's <code>ds</code> operand — there is no implicit fallback to <code>CR15.L</code>. The
+second half operand, <code>qf</code>, names the QF (quantization format) half the NX8 elements are decoded
+with; the FP32 mode ignores it.</p>
 <h3 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h3>
 <div class="language-asm highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># LR1 = XMEM byte offset of mask data; CR2 = XMEM base address</span>
 </span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="nf">LD.MASK</span><span class="w"> </span><span class="no">LR1</span><span class="w"> </span><span class="no">CR2</span><span class="c1">;;</span>
@@ -3517,18 +3517,18 @@ still be named explicitly via the instruction's CR-index operand — there is no
 </span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="nf">LD.MULT.CYCLIC</span><span class="w"> </span><span class="no">LR2</span><span class="w"> </span><span class="no">CR0</span><span class="w"> </span><span class="no">LR5</span><span class="c1">;;</span>
 </span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>
 </span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="c1"># Multiply R0 element-wise vs R_CYCLIC using slot 3, shift index in LR4, accumulate</span>
-</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="nf">MULT.RC.VV</span><span class="w"> </span><span class="no">LR2</span><span class="w"> </span><span class="no">R0</span><span class="w"> </span><span class="mi">3</span><span class="w"> </span><span class="no">LR4</span><span class="w"> </span><span class="no">CR15</span><span class="c1">; ACC.ADD;;</span>
+</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="nf">MULT.RC.VV</span><span class="w"> </span><span class="no">LR2</span><span class="w"> </span><span class="no">R0</span><span class="w"> </span><span class="mi">3</span><span class="w"> </span><span class="no">LR4</span><span class="w"> </span><span class="no">CR15.L</span><span class="w"> </span><span class="no">CR14.L</span><span class="c1">; ACC.ADD;;</span>
 </span></code></pre></div>
-<p><code>3</code> is the <code>mask_offset</code> (slot 3 of <code>R_MASK</code>); <code>LR4</code> holds the <code>mask_shift</code> index; <code>CR15</code> is the
-dstructure register supplying <code>partition</code> (any <code>CR0</code>–<code>CR15</code> may be named explicitly).</p>
+<p><code>3</code> is the <code>mask_offset</code> (slot 3 of <code>R_MASK</code>); <code>LR4</code> holds the <code>mask_shift</code> index; <code>CR15.L</code> is the
+DS half supplying <code>num_partitions</code> and <code>CR14.L</code> the QF half (any half <code>CR0.L</code>–<code>CR15.H</code> may be named).</p>
 <h3 id="worked-examples">Worked examples<a class="headerlink" href="#worked-examples" title="Permanent link">&para;</a></h3>
 <p>Both examples load <strong>all-ones</strong> (<code>0xFF…FF</code>, 128 bits) into the selected <code>R_MASK</code> slot. At
 <code>mask_shift = 0</code> every mask bit is 1, so every element is active. Each shift step clears one
 boundary bit to <strong>0</strong>, deactivating one element at a time.</p>
 <p>The tables show <strong>active elements</strong> — those whose derived mask bit is <strong>1</strong> and therefore contribute
 to accumulation.</p>
-<h4 id="example-1-no-partitioning-partition-0">Example 1 — no partitioning (<code>partition = 0</code>)<a class="headerlink" href="#example-1-no-partitioning-partition-0" title="Permanent link">&para;</a></h4>
-<p>With <code>partition = 0</code> the partition vector is all-ones, so shifts slide freely across all 128 elements.</p>
+<h4 id="example-1-no-partitioning-num_partitions-1">Example 1 — no partitioning (<code>num_partitions = 1</code>)<a class="headerlink" href="#example-1-no-partitioning-num_partitions-1" title="Permanent link">&para;</a></h4>
+<p>With <code>num_partitions = 1</code> the partition vector is all-ones, so shifts slide freely across all 128 elements.</p>
 <table>
 <thead>
 <tr>
@@ -3569,8 +3569,8 @@ to accumulation.</p>
 </table>
 <p>Positive shifts deactivate elements from the low end (element 0 first); negative shifts deactivate elements
 from the high end (element 127 first). Each step removes exactly one active element.</p>
-<h4 id="example-2-two-partitions-of-64-elements-each-partition-2">Example 2 — two partitions of 64 elements each (<code>partition = 2</code>)<a class="headerlink" href="#example-2-two-partitions-of-64-elements-each-partition-2" title="Permanent link">&para;</a></h4>
-<p>With <code>partition = 2</code> the 128 elements are split into <strong>group 0</strong> (elements 0–63) and <strong>group 1</strong>
+<h4 id="example-2-two-partitions-of-64-elements-each-num_partitions-2">Example 2 — two partitions of 64 elements each (<code>num_partitions = 2</code>)<a class="headerlink" href="#example-2-two-partitions-of-64-elements-each-num_partitions-2" title="Permanent link">&para;</a></h4>
+<p>With <code>num_partitions = 2</code> the 128 elements are split into <strong>group 0</strong> (elements 0–63) and <strong>group 1</strong>
 (elements 64–127). Each group evolves independently and symmetrically:</p>
 <ul>
 <li><code>partition_vector</code> has <strong>0</strong> at element 0 and element 64 (used for positive shifts).</li>

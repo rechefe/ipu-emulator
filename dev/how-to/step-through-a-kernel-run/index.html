@@ -1202,7 +1202,7 @@
   <span class="md-ellipsis">
     
   
-    ACTIVATE.QUANTIZE in the emulator
+    ACTIVATE.QUANTIZE, ACTIVATE.EXACT and LD.LUT
   
 
     
@@ -2783,10 +2783,13 @@ shows:</p>
 <li>the instruction word: each slot's instruction and the word's bit fields, MSB
   first;</li>
 <li>the register file after the cycle (LR, CR and the vector registers), with the
-  cells the cycle changed outlined;</li>
+  cells the cycle changed outlined; in the NX8 hardware mode each element is
+  shown at its value, decoded with its row's metadata word (scale and dynamic
+  exponent), which the panel lists;</li>
 <li>the hardware pipeline: which blocks the word used, or each word's stage
   timing;</li>
-<li>the XMEM traffic and the multiplier lanes in use.</li>
+<li>the XMEM traffic, with the metadata word each AaQ store writes, and the
+  multiplier lanes in use.</li>
 </ul>
 <p>The <strong>Assembly source</strong> tab shows the kernel's <code>.asm</code> file as written, before
 Jinja rendering. The <strong>ISA reference</strong> tab lists every instruction of each
@@ -2801,8 +2804,8 @@ page's format, so the page always matches the current ISA and kernels:</p>
 <li>The kernel runner (<code>//src/ipu-harness:run_kernel</code> with <code>--trace</code> and
    <code>--context</code>) runs a kernel-tree case exactly as its test runs it. It writes
    the case's trace (one commit record per retired word; the schemas are in
-   <code>ipu_isa/schemas/</code>) and a context file: the kernel's source and labels, the
-   starting registers, and per word the multiplier lanes used and the XMEM
+   <code>ipu_isa/schemas/</code>) and a context file: the variant the case ran in, the
+   kernel's source and labels, the starting registers, and per word the multiplier lanes used and the XMEM
    ranges read.</li>
 <li><code>ipu-gen inspector-trace</code> converts the two files into the page's JSON
    (<code>ipu_gen/schemas/inspector-trace.schema.json</code>). It keeps the first 5000
@@ -2834,8 +2837,8 @@ names another, as <code>fc_e4</code> does: <code>{"name": "fc_e4", "kernel":
 </li>
 <li>
 <p>Add a <code>[[kernel]]</code> entry with the same <code>id</code>, at the same place, to
-   <code>docs/inspector/curated.toml</code>, with its <code>group</code> (<code>hardware</code> for the 8-bit hardware element formats, <code>emulator</code>
-   for the emulator-only FP32 and INT32),
+   <code>docs/inspector/curated.toml</code>, with its <code>group</code> (<code>hardware</code> for an NX8
+   variant, <code>emulator</code> for the emulator-only FP32 mode; ADR 0007),
    <code>title</code>, <code>label</code> and <code>description</code>.</p>
 </li>
 </ol>
@@ -2865,7 +2868,7 @@ in it.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 18, 2026 21:48:18 UTC"><span class="timeago" datetime="2026-10-18T21:48:18+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 18, 2026 21:48:18 UTC">2026-10-18</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 23, 2026 20:55:31 UTC"><span class="timeago" datetime="2026-10-23T20:55:31+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 23, 2026 20:55:31 UTC">2026-10-23</span>
   </span>
 
     

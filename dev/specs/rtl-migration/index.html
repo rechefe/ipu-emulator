@@ -1132,7 +1132,7 @@
   <span class="md-ellipsis">
     
   
-    ACTIVATE.QUANTIZE in the emulator
+    ACTIVATE.QUANTIZE, ACTIVATE.EXACT and LD.LUT
   
 
     
@@ -2369,10 +2369,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#1-eight-instructions-enum-and-union-members-are-renamed-e03-19" class="md-nav__link">
+  <a href="#1-seven-instructions-enum-and-union-members-are-renamed-e03-19" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1. Eight instructions' enum and union members are renamed (E03-19)
+        1. Seven instructions' enum and union members are renamed (E03-19)
       
     </span>
   </a>
@@ -2395,6 +2395,17 @@
     <span class="md-ellipsis">
       
         3. The header names the content, not the commit (E03-21)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-the-aaq-stage-stores-its-own-row-a-breaking-wire-change-adr-0007" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. The AaQ stage stores its own row: a breaking wire change (ADR 0007)
       
     </span>
   </a>
@@ -2848,15 +2859,16 @@ package this documentation describes, and how to update. Each item was checked a
 generated files (<code>bazel build //docs:generate_instruction_format_artifacts</code>
 in each tree) and <code>tools/sv_localparam_diff.sh origin/master</code>.</p>
 <h2 id="what-changes">What changes<a class="headerlink" href="#what-changes" title="Permanent link">&para;</a></h2>
-<p>No opcode value changes, and the hardware slots keep their order, widths and
-operand fields. Three things change: some names, the emulator-only slots
-leaving the package, and the header line. The comment above
-<code>ipu_compound_inst_t</code> changes with the second.</p>
-<h3 id="1-eight-instructions-enum-and-union-members-are-renamed-e03-19">1. Eight instructions' enum and union members are renamed (E03-19)<a class="headerlink" href="#1-eight-instructions-enum-and-union-members-are-renamed-e03-19" title="Permanent link">&para;</a></h3>
+<p>Four things change: some names, the emulator-only slots leaving the package,
+the header line, and the operational AaQ stage of ADR 0007, which removes the
+STORE slot and changes widths and opcode values (section 4: a breaking
+change). The comment above <code>ipu_compound_inst_t</code> changes with the second.</p>
+<h3 id="1-seven-instructions-enum-and-union-members-are-renamed-e03-19">1. Seven instructions' enum and union members are renamed (E03-19)<a class="headerlink" href="#1-seven-instructions-enum-and-union-members-are-renamed-e03-19" title="Permanent link">&para;</a></h3>
 <p>The mnemonic standard renamed nine instructions. Their opcode values are the
 same; only the SV names change. The full table, with the old and new
 mnemonics, is in <a href="../mnemonic-rename/">Mnemonic rename</a>. The members still in
-the package:</p>
+the package (<code>STR_POST_AAQ_REG</code> → <code>ST.AAQ</code> was renamed too, and section 4
+removes it):</p>
 <table>
 <thead>
 <tr>
@@ -2890,13 +2902,6 @@ the package:</p>
 <td><code>2'd2</code></td>
 </tr>
 <tr>
-<td><code>STORE_INST_OPCODE_STR_POST_AAQ_REG</code></td>
-<td><code>STORE_INST_OPCODE_ST_AAQ</code></td>
-<td><code>str_post_aaq_reg</code></td>
-<td><code>st_aaq</code></td>
-<td><code>1'd0</code></td>
-</tr>
-<tr>
 <td><code>LR_INST_OPCODE_INCR_MOD_POW2</code></td>
 <td><code>LR_INST_OPCODE_INC_MODP2</code></td>
 <td><code>incr_mod_pow2</code></td>
@@ -2926,12 +2931,13 @@ the package:</p>
 </tr>
 </tbody>
 </table>
-<p>The ninth, <code>STR_ACC_REG</code> → <code>ST.ACC</code>, is in the emulator-only ACC_STORE slot,
-which the package no longer has (next section).</p>
+<p><code>STR_ACC_REG</code> → <code>ST.ACC</code> was in the emulator-only ACC_STORE slot, which the
+package no longer has (next section) and ADR 0007 removed.</p>
 <p>No other enum member, union member, typedef or operand field name changes.</p>
 <h3 id="2-the-package-holds-the-hardware-word-only-e03-22">2. The package holds the hardware word only (E03-22)<a class="headerlink" href="#2-the-package-holds-the-hardware-word-only-e03-22" title="Permanent link">&para;</a></h3>
-<p>The ACC_STORE and BREAK slots exist only in the emulator, so the package no
-longer has them. Removed:</p>
+<p>The ACC_STORE and BREAK slots existed only in the emulator, so the package no
+longer has them (the emulator-only AAQ_EXACT slot of ADR 0007 was never in
+it). Removed:</p>
 <ul>
 <li>the typedefs <code>acc_store_inst_opcode_t</code>, <code>acc_store_slot_u</code>,
   <code>acc_store_slot_t</code>, <code>break_inst_opcode_t</code>, <code>break_slot_u</code> and
@@ -2941,12 +2947,10 @@ longer has them. Removed:</p>
 <li>the members <code>acc_store_slot</code> and <code>break_slot</code> of <code>ipu_compound_inst_t</code>,
   which were its two lowest slots.</li>
 </ul>
-<p>So <code>IPU_COMPOUND_INST_WIDTH</code> goes from 186 to 155. Every other <code>*_WIDTH</code> is
-unchanged. <code>ipu_compound_inst_t</code> keeps the same nine slots in the same order,
-from <code>cond_slot</code> at the top down to <code>store_slot</code>, which now ends at bit 0.</p>
-<p>In bits: the new 155-bit word is the old word without its 31 lowest bits,
-the 9 bits of ACC_STORE and the 22 of BREAK. Old word <code>&gt;&gt; 31</code> is the new word,
-and bits <code>[185:31]</code> of the old word are bits <code>[154:0]</code> of the new one.</p>
+<p>So <code>IPU_COMPOUND_INST_WIDTH</code> goes from 186 to 169: 31 bits leave with these
+two slots, and section 4 removes 9 more and adds 23. The hardware word is the
+emulator word without its 40 lowest bits, the 18 of AAQ_EXACT and the 22 of
+BREAK: emulator word <code>&gt;&gt; 40</code> is the hardware word.</p>
 <h3 id="3-the-header-names-the-content-not-the-commit-e03-21">3. The header names the content, not the commit (E03-21)<a class="headerlink" href="#3-the-header-names-the-content-not-the-commit-e03-21" title="Permanent link">&para;</a></h3>
 <p>The second line was <code>// Source: rechefe/ipu-emulator @ &lt;commit&gt;</code>. It is now
 <code>// Content: sha256:&lt;hash of the rest of the file&gt;</code>, so the package is the same
@@ -2956,15 +2960,89 @@ file whatever commit it is generated at. Check a vendored copy with:</p>
 <p>It prints <code>unmodified</code> and exits 0 when the file is exactly what its header
 names, and exits 1 when it was edited, line endings included. A package
 generated on master has no hash, so it fails this check.</p>
+<h3 id="4-the-aaq-stage-stores-its-own-row-a-breaking-wire-change-adr-0007">4. The AaQ stage stores its own row: a breaking wire change (ADR 0007)<a class="headerlink" href="#4-the-aaq-stage-stores-its-own-row-a-breaking-wire-change-adr-0007" title="Permanent link">&para;</a></h3>
+<p><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/adr/0007-operational-aaq-and-nx8.md">ADR 0007</a>
+makes the AaQ stage operational: <code>ACTIVATE.QUANTIZE</code> activates, quantizes to
+one NX8 row and stores it with its metadata word, so the STORE slot and its
+<code>ST.AAQ</code> are gone. The DS and QF operands name 16-bit CR halves. This changes
+widths and opcode values, so the hardware word is not compatible with the one
+before.</p>
+<p>Removed:</p>
+<ul>
+<li>the typedefs <code>store_inst_opcode_t</code>, <code>store_slot_u</code> and <code>store_slot_t</code>, the
+  localparams <code>STORE_SLOT_U_WIDTH</code> (8) and <code>STORE_SLOT_T_WIDTH</code> (9), and the
+  member <code>store_slot</code> of <code>ipu_compound_inst_t</code>, which was its lowest slot;</li>
+<li><code>dstructure_cr_reg_field_t</code>, the 4-bit DS operand type, and
+  <code>activation_fn_field_t</code>, the 4-bit activation of the old placeholder.</li>
+</ul>
+<p>Added:</p>
+<ul>
+<li><code>half_cr_reg_field_t</code> (5 bits, <code>CR0_L</code> = 0 to <code>CR15_H</code> = 31, code =
+  2 × index + H): the type of every DS and QF operand;</li>
+<li><code>lcr_half_reg_field_t</code> (6 bits: <code>LR0</code>–<code>LR15</code>, <code>CR0</code>–<code>CR15</code>, <code>CR0_L</code>–<code>CR15_L</code>,
+  <code>CR0_H</code>–<code>CR15_H</code>): the type of the LR and COND source operands that read a
+  CR, which may now read a sign-extended half;</li>
+<li><code>aaq_activation_fn_field_t</code> (3 bits, the architecture spec's encoding:
+  <code>IDENTITY</code> 0 to <code>GENERIC</code> 6).</li>
+</ul>
+<p>Changed:</p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Was</th>
+<th>Is</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>aaq_inst_opcode_t</code></td>
+<td>1 bit: <code>NOP</code> 0, <code>ACTIVATE_QUANTIZE</code> 1</td>
+<td>2 bits: <code>NOP</code> 0, <code>LD_LUT</code> 1, <code>ACTIVATE_QUANTIZE</code> 2</td>
+</tr>
+<tr>
+<td><code>AAQ_SLOT_U_WIDTH</code> / <code>AAQ_SLOT_T_WIDTH</code></td>
+<td>8 / 9</td>
+<td>21 / 23</td>
+</tr>
+<tr>
+<td><code>MULT_SLOT_U_WIDTH</code> / <code>MULT_SLOT_T_WIDTH</code></td>
+<td>20 / 23</td>
+<td>26 / 29</td>
+</tr>
+<tr>
+<td><code>ACC_SLOT_U_WIDTH</code> / <code>ACC_SLOT_T_WIDTH</code></td>
+<td>13 / 17</td>
+<td>14 / 18</td>
+</tr>
+<tr>
+<td><code>COND_SLOT_U_WIDTH</code> / <code>COND_SLOT_T_WIDTH</code></td>
+<td>20 / 23</td>
+<td>22 / 25</td>
+</tr>
+<tr>
+<td><code>IPU_COMPOUND_INST_WIDTH</code></td>
+<td>155</td>
+<td>169</td>
+</tr>
+</tbody>
+</table>
+<p>The five MULT compute members gain a <code>qf_&lt;n&gt;</code> field; their DS field, <code>cr_idx_&lt;n&gt;</code>
+or <code>dstructure_cr_idx_&lt;n&gt;</code>, is now <code>ds_&lt;n&gt;</code>, and the <code>AGG</code> members' <code>cr_idx_0</code>
+is <code>ds_0</code> (operand renames rename SV fields). <code>activate_quantize</code> now holds
+<code>activation_fn_0</code>, <code>table_id_1</code>, <code>ds_2</code>, <code>qf_3</code> and <code>table_offset_4</code>; <code>ld_lut</code> is
+new. <code>LOAD_SLOT_*</code> and <code>LR_SLOT_*</code> keep their widths.</p>
+<p><code>ipu_compound_inst_t</code> now holds eight slots, from <code>cond_slot</code> at the top down
+to <code>aaq_slot</code>, which ends at bit 0.</p>
 <h2 id="programs-for-the-rtl">Programs for the RTL<a class="headerlink" href="#programs-for-the-rtl" title="Permanent link">&para;</a></h2>
-<p>The assembler writes the emulator's word by default: 186 bits, which is 24
-bytes per word in a <code>.bin</code> file (little-endian) and <code>0x</code> plus 48 hex digits per
-line in a <code>.mem</code> file. That is the same output as master's assembler, bit for
-bit. Its 31 lowest bits are the ACC_STORE and BREAK slots, which hold their NOP
-encodings when a word does not use them, not zeros. For the hardware word, pass
-<code>--target hardware</code>. The words are then 155 bits, written as 20 bytes per word
-in <code>.bin</code> and <code>0x</code> plus 40 hex digits per line in <code>.mem</code>, and an emulator-only
-instruction is an error.</p>
+<p>The assembler writes the emulator's word by default: 209 bits, which is 28
+bytes per word in a <code>.bin</code> file (little-endian) and <code>0x</code> plus 54 hex digits per
+line in a <code>.mem</code> file. Its 40 lowest bits are the AAQ_EXACT and BREAK slots,
+which hold their NOP encodings when a word does not use them, not zeros. For
+the hardware word, pass <code>--target hardware</code>. The words are then 169 bits,
+written as 24 bytes per word in <code>.bin</code> and <code>0x</code> plus 44 hex digits per line in
+<code>.mem</code>, and an emulator-only instruction is an error. Neither is master's
+word: section 4 changed the hardware slots.</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>bazel<span class="w"> </span>run<span class="w"> </span>//src/ipu-as:ipu-as<span class="w"> </span>--<span class="w"> </span>assemble<span class="w"> </span>--target<span class="w"> </span>hardware<span class="w"> </span>--input<span class="w"> </span><span class="s2">"</span><span class="nv">$PWD</span><span class="s2">/prog.asm"</span><span class="w"> </span>--output<span class="w"> </span><span class="s2">"</span><span class="nv">$PWD</span><span class="s2">/prog.mem"</span>
 </span></code></pre></div>
 <p><code>--format</code> is now optional: by default an <code>--output</code> ending in <code>.bin</code> gives
@@ -3033,23 +3111,28 @@ new since master:</p>
    <code>bazel-bin/docs/ipu_instr_pkg.sv</code> into the RTL repository.</li>
 <li>Check the copy, by absolute path since it is in another repository:
    <code>bazel run //docs:verify_sv_package -- /abs/path/to/ipu_instr_pkg.sv</code>.</li>
-<li>Replace the eight old enum members and the eight old union members in
+<li>Replace the seven old enum members and the seven old union members in
    section 1.</li>
-<li>Remove every use of the ACC_STORE and BREAK typedefs, localparams and
-   <code>ipu_compound_inst_t</code> members (section 2).</li>
+<li>Remove every use of the ACC_STORE, BREAK and STORE typedefs, localparams
+   and <code>ipu_compound_inst_t</code> members (sections 2 and 4), and of
+   <code>dstructure_cr_reg_field_t</code> and <code>activation_fn_field_t</code>.</li>
 <li>Size the instruction word, memories and buses by <code>IPU_COMPOUND_INST_WIDTH</code>
-   (155). A constant 186 is now wrong.</li>
-<li>Find every literal bit range of the instruction word. Every slot is 31 bits
-   lower than it was: <code>cond_slot</code> was <code>[185:163]</code> and is <code>[154:132]</code>. Read the
-   slots through the members of <code>ipu_compound_inst_t</code> instead.</li>
+   (169). A constant 186 or 155 is now wrong.</li>
+<li>Decode the AAQ slot with its new 2-bit opcode, the MULT, ACC and COND slots
+   with their new fields, and the DS and QF operands as CR halves (section 4).</li>
+<li>Find every literal bit range of the instruction word: every slot moved.
+   <code>cond_slot</code> was <code>[185:163]</code> and is <code>[168:144]</code>. Read the slots through the
+   members of <code>ipu_compound_inst_t</code> instead.</li>
 <li>Rename the old mnemonics in the RTL repository's test sources, or they no
    longer assemble (<code>BKPT</code> is now <code>HALT</code>, for example):
    <code>bazel run //tools:rename_mnemonics -- --check /abs/path/to/rtl-repo</code> lists
    what would change, and the same command without <code>--check</code> rewrites it. It
    reads only files git tracks, so commit new test sources first.</li>
-<li>Assemble the test programs with <code>--target hardware</code>. To compare with a word
-   assembled for the emulator, or by master's assembler, take its bits
-   <code>[185:31]</code>: the emulator word shifted right by 31 is the hardware word.</li>
+<li>Migrate the test programs to the ADR 0007 syntax (<code>ST.AAQ</code> is gone; the DS
+   and QF operands are halves such as <code>CR15.L</code>) and assemble them with
+   <code>--target hardware</code>. To compare with a word assembled for the emulator,
+   take its bits <code>[208:40]</code>: the emulator word shifted right by 40 is the
+   hardware word.</li>
 </ol>
 
 
@@ -3073,7 +3156,7 @@ new since master:</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 18, 2026 21:59:58 UTC"><span class="timeago" datetime="2026-10-18T21:59:58+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 18, 2026 21:59:58 UTC">2026-10-18</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 23, 2026 22:02:27 UTC"><span class="timeago" datetime="2026-10-23T22:02:27+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 23, 2026 22:02:27 UTC">2026-10-23</span>
   </span>
 
     

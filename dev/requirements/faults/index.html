@@ -1132,7 +1132,7 @@
   <span class="md-ellipsis">
     
   
-    ACTIVATE.QUANTIZE in the emulator
+    ACTIVATE.QUANTIZE, ACTIVATE.EXACT and LD.LUT
   
 
     
@@ -2974,7 +2974,7 @@
 </tr>
 <tr>
 <td><code>AAQ</code></td>
-<td>Activation function codes with no named function. The instruction reference treats them as <code>identity</code>: <a href="../open-questions/">OQ-6</a>.</td>
+<td>One opcode of the 2-bit field. <code>lut_addr</code> outside 0 to 4 in <code>LD.LUT</code>. Values above 6 of <code>activation_fn</code>.</td>
 </tr>
 </tbody>
 </table>
@@ -3031,7 +3031,7 @@
 <h2 id="arithmetic-events">Arithmetic events<a class="headerlink" href="#arithmetic-events" title="Permanent link">&para;</a></h2>
 <p>Status: <strong>Proposed</strong>. Owner: Yuval Harary.</p>
 <p>Accumulator overflow, NaN results and quantization saturation occur in ACC and AAQ, after the cache agent accepts the word. They are not faults and never halt. Step 0 does not detect them. The fault control registers reserve one sticky flag for each event.</p>
-<p>In the emulator, ACC and AGG store the IEEE result (a float overflow is an infinity, a NaN stays, an integer wraps to 32 bits) and set the event's flag in <code>IpuState.arith_flags</code>: <code>ACC_OVERFLOW</code> when a finite result rounds to an infinity or an integer result leaves int32 (an AGG sum is judged on its exact total), <code>NAN_RESULT</code> when a stored lane is NaN, computed or copied (so R_ACC holding a NaN flags again at each ACC word). <code>ACC.RESHAPE</code> moves raw words and reports nothing. Flags are sticky: no run clears them, a reset does. A commit record lists each word's events. MULT and AAQ report no events: a float32 overflow there still raises <code>OverflowError</code> (MULT can overflow only in FP32; whether that is an accumulator event is open), and quantization saturation waits for AaQ (<a href="../open-questions/#emulator-and-isa">OQ-20</a>).</p>
+<p>In the emulator, ACC and AGG store the IEEE float32 result (an overflow is an infinity, a NaN stays) and set the event's flag in <code>IpuState.arith_flags</code>: <code>ACC_OVERFLOW</code> when a finite result rounds to an infinity (an AGG sum is judged on its exact total), <code>NAN_RESULT</code> when a stored lane is NaN, computed or copied (so R_ACC holding a NaN flags again at each ACC word). <code>ACC.RESHAPE</code> moves raw words and reports nothing. Flags are sticky: no run clears them, a reset does. A commit record lists each word's events. <code>ACTIVATE.QUANTIZE</code> sets <code>QUANT_SATURATION</code> when an element saturates: ±inf, a rounding carry above the row's scale, or a negative input to an unsigned NX8 type (<a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/adr/0007-operational-aaq-and-nx8.md">ADR 0007</a>). MULT stores the IEEE float32 product (an overflow is an infinity, in either mode: NX8 elements reach FP32's range through their row scale) and reports no event; whether a MULT overflow is an arithmetic event is open (OQ-18).</p>
 <h2 id="illegal-host-accesses">Illegal host accesses<a class="headerlink" href="#illegal-host-accesses" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -3129,7 +3129,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 18, 2026 21:48:18 UTC"><span class="timeago" datetime="2026-10-18T21:48:18+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 18, 2026 21:48:18 UTC">2026-10-18</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 23, 2026 21:34:55 UTC"><span class="timeago" datetime="2026-10-23T21:34:55+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 23, 2026 21:34:55 UTC">2026-10-23</span>
   </span>
 
     

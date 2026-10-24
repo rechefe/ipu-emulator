@@ -1130,7 +1130,7 @@
   <span class="md-ellipsis">
     
   
-    ACTIVATE.QUANTIZE in the emulator
+    ACTIVATE.QUANTIZE, ACTIVATE.EXACT and LD.LUT
   
 
     
@@ -2867,9 +2867,10 @@ rules (<a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/adr/000
 <ol>
 <li>The Control stage (<code>LR</code>, <code>COND</code>) reads LRs at cycle start. Every other
    stage reads LRs after the LR writes of the same word.</li>
-<li><code>MULT</code> reads <code>R0</code>, <code>R1</code>, <code>R_CYCLIC</code> and <code>R_MASK</code> at cycle start.</li>
+<li><code>MULT</code> reads <code>R0</code>, <code>R1</code>, <code>R_CYCLIC</code> (and their row metadata) and
+   <code>R_MASK</code> at cycle start.</li>
 <li><code>MULT_RES</code> is forwarded to <code>ACC</code> (including <code>AGG</code> and <code>ACC.RESHAPE</code>).
-   <code>R_ACC</code> is forwarded to <code>AAQ</code>.</li>
+   <code>R_ACC</code> is forwarded to <code>AAQ</code> (and to the emulator-only <code>AAQ_EXACT</code>).</li>
 <li>The three LR sub-slots read cycle-start values.</li>
 </ol>
 <p>A read that no rule names follows the <a href="#slot-order">slot order</a>.</p>
@@ -2901,15 +2902,15 @@ operand names. <code>R</code> is the <code>R0</code>/<code>R1</code> pair.</p>
 </tr>
 <tr>
 <td><code>LR</code></td>
-<td><code>CR</code></td>
-<td><code>src</code>, <code>src_b</code>, <code>step</code></td>
+<td><code>LR</code></td>
+<td><code>src</code>, <code>src_a</code>, <code>src_b</code>, <code>step</code>, <code>dest</code></td>
 <td>cycle start</td>
 <td><a href="#rule-4">Rule 4</a></td>
 </tr>
 <tr>
 <td><code>LR</code></td>
-<td><code>LR</code></td>
-<td><code>src_a</code>, <code>src_b</code>, <code>step</code>, <code>dest</code></td>
+<td><code>CR</code></td>
+<td><code>src</code>, <code>src_b</code>, <code>step</code></td>
 <td>cycle start</td>
 <td><a href="#rule-4">Rule 4</a></td>
 </tr>
@@ -2950,6 +2951,20 @@ operand names. <code>R</code> is the <code>R0</code>/<code>R1</code> pair.</p>
 </tr>
 <tr>
 <td><code>MULT</code></td>
+<td><code>R_CYCLIC_META</code></td>
+<td>implicit</td>
+<td>cycle start</td>
+<td><a href="#rule-2">Rule 2</a></td>
+</tr>
+<tr>
+<td><code>MULT</code></td>
+<td><code>R_META</code></td>
+<td>implicit</td>
+<td>cycle start</td>
+<td><a href="#rule-2">Rule 2</a></td>
+</tr>
+<tr>
+<td><code>MULT</code></td>
 <td><code>R_MASK</code></td>
 <td>implicit</td>
 <td>cycle start</td>
@@ -2958,7 +2973,7 @@ operand names. <code>R</code> is the <code>R0</code>/<code>R1</code> pair.</p>
 <tr>
 <td><code>MULT</code></td>
 <td><code>CR</code></td>
-<td><code>cr_idx</code>, <code>src</code>, <code>dstructure_cr_idx</code></td>
+<td><code>ds</code>, <code>qf</code>, <code>src</code>, <code>cr_idx</code></td>
 <td>cycle start</td>
 <td><a href="#slot-order">slot order</a></td>
 </tr>
@@ -2986,16 +3001,23 @@ operand names. <code>R</code> is the <code>R0</code>/<code>R1</code> pair.</p>
 <tr>
 <td><code>ACC</code></td>
 <td><code>CR</code></td>
-<td><code>cr_idx</code></td>
+<td><code>ds</code></td>
 <td>cycle start</td>
 <td><a href="#slot-order">slot order</a></td>
 </tr>
 <tr>
 <td><code>AAQ</code></td>
 <td><code>CR</code></td>
-<td><code>cr_idx</code></td>
+<td><code>table_id</code>, <code>ds</code>, <code>qf</code></td>
 <td>cycle start</td>
 <td><a href="#slot-order">slot order</a></td>
+</tr>
+<tr>
+<td><code>AAQ</code></td>
+<td><code>LR</code></td>
+<td><code>table_offset</code></td>
+<td>after LR writes</td>
+<td><a href="#rule-1">Rule 1</a></td>
 </tr>
 <tr>
 <td><code>AAQ</code></td>
@@ -3005,42 +3027,28 @@ operand names. <code>R</code> is the <code>R0</code>/<code>R1</code> pair.</p>
 <td><a href="#rule-3">Rule 3</a></td>
 </tr>
 <tr>
-<td><code>STORE</code></td>
-<td><code>LR</code></td>
-<td><code>offset</code></td>
-<td>after LR writes</td>
-<td><a href="#rule-1">Rule 1</a></td>
-</tr>
-<tr>
-<td><code>STORE</code></td>
-<td><code>CR</code></td>
-<td><code>base</code></td>
-<td>cycle start</td>
-<td><a href="#slot-order">slot order</a></td>
-</tr>
-<tr>
-<td><code>STORE</code></td>
-<td><code>POST_AAQ_REG</code></td>
+<td><code>AAQ</code></td>
+<td><code>AAQ_LUT</code></td>
 <td>implicit</td>
-<td>same-cycle forward</td>
-<td><a href="#slot-order">slot order</a></td>
-</tr>
-<tr>
-<td><code>ACC_STORE</code></td>
-<td><code>LR</code></td>
-<td><code>offset</code></td>
-<td>after LR writes</td>
-<td><a href="#rule-1">Rule 1</a></td>
-</tr>
-<tr>
-<td><code>ACC_STORE</code></td>
-<td><code>CR</code></td>
-<td><code>base</code></td>
 <td>cycle start</td>
 <td><a href="#slot-order">slot order</a></td>
 </tr>
 <tr>
-<td><code>ACC_STORE</code></td>
+<td><code>AAQ_EXACT</code></td>
+<td><code>CR</code></td>
+<td><code>table_id</code>, <code>ds</code></td>
+<td>cycle start</td>
+<td><a href="#slot-order">slot order</a></td>
+</tr>
+<tr>
+<td><code>AAQ_EXACT</code></td>
+<td><code>LR</code></td>
+<td><code>table_offset</code></td>
+<td>after LR writes</td>
+<td><a href="#rule-1">Rule 1</a></td>
+</tr>
+<tr>
+<td><code>AAQ_EXACT</code></td>
 <td><code>R_ACC</code></td>
 <td>implicit</td>
 <td>same-cycle forward</td>
@@ -3068,8 +3076,10 @@ each instruction, under <strong>Register reads</strong>.</p>
 <p>Each example below assembles and runs as a test
 (<code>docs/examples/test_timing_model.py</code>). The test sets up the state from the
 <code># given:</code> comments, runs the program to <code>HALT</code>, and checks every
-<code># expect:</code> comment. <code>XMEM[n]</code> is XMEM row <code>n</code> (128 elements); a <code>given</code> sets
-every element of the row. <code>CR0</code> is 0 and <code>CR1</code> is 1 in every run.</p>
+<code># expect:</code> comment. The examples run in the emulator-only FP32 mode, where an
+element is its value and a row has no metadata; the timing is the same in
+the NX8 mode. <code>XMEM[n]</code> is XMEM row <code>n</code> (128 elements); a <code>given</code> sets every
+element of the row. <code>CR0</code> is the MULT constant 0 and <code>CR1</code> is 1 in every run.</p>
 <h3 id="rule-1">Rule 1: Control reads LRs at cycle start, other stages after the LR writes<a class="headerlink" href="#rule-1" title="Permanent link">&para;</a></h3>
 <p>In the first word, <code>INC</code> writes <code>LR0 = 1</code>. <code>BEQ</code> is in the Control stage, so it
 compares the cycle-start <code>LR0</code> (0) with <code>CR0</code> (0) and branches to <code>taken</code>.
@@ -3087,40 +3097,39 @@ row <code>CR2 + 1</code>, which holds 2s.</p>
 </span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="c1"># expect: LR7 == 1</span>
 </span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="c1"># expect: R0[0] == 2</span>
 </span></code></pre></div>
-<p>The same rule gives <code>MULT</code>, <code>ACC</code>, <code>STORE</code> and <code>ACC_STORE</code> their LR operands
-after the LR writes: an <code>AGG</code> <code>dest_slot</code> or an <code>ST.AAQ</code> offset sees an LR that
-the same word increments.</p>
+<p>The same rule gives <code>MULT</code>, <code>ACC</code>, <code>AAQ</code> and <code>AAQ_EXACT</code> their LR operands
+after the LR writes: an <code>AGG</code> <code>dest_slot</code> or an <code>ACTIVATE.QUANTIZE</code>
+<code>table_offset</code> sees an LR that the same word increments.</p>
 <h3 id="rule-2">Rule 2: MULT reads its data registers at cycle start<a class="headerlink" href="#rule-2" title="Permanent link">&para;</a></h3>
 <p>The second word loads 5s into <code>R0</code> and multiplies <code>R0</code> by <code>CR1</code> (1). <code>MULT</code>
 reads <code>R0</code> at cycle start, so it multiplies the 2s that the first word loaded.
-The 5s are in <code>R0</code> after the word, for the next word's <code>MULT</code>. <code>R_CYCLIC</code> and
-<code>R_MASK</code> behave the same way: <code>LD.MULT.CYCLIC</code> or <code>LD.MASK</code> in the same word as
+The 5s are in <code>R0</code> after the word, for the next word's <code>MULT</code>. <code>R_CYCLIC</code>,
+<code>R_MASK</code> and the row metadata <code>LD.MULT</code> copies behave the same way: <code>LD.MULT.CYCLIC</code> or <code>LD.MASK</code> in the same word as
 a <code>MULT</code> reaches only the next word's <code>MULT</code>.</p>
 <div class="language-asm highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># given: CR2 = 16</span>
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="c1"># given: CR3 = 17</span>
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="c1"># given: XMEM[16] = 2</span>
 </span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1"># given: XMEM[17] = 5</span>
 </span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="nf">LD.MULT</span><span class="w"> </span><span class="no">R0</span><span class="w"> </span><span class="no">LR0</span><span class="w"> </span><span class="no">CR2</span><span class="w"> </span><span class="c1">;;</span>
-</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span><span class="nf">LD.MULT</span><span class="w"> </span><span class="no">R0</span><span class="w"> </span><span class="no">LR0</span><span class="w"> </span><span class="no">CR3</span><span class="w"> </span><span class="c1">; MULT.VE LR0 CR1 0 LR0 CR15 ;;</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span><span class="nf">LD.MULT</span><span class="w"> </span><span class="no">R0</span><span class="w"> </span><span class="no">LR0</span><span class="w"> </span><span class="no">CR3</span><span class="w"> </span><span class="c1">; MULT.VE LR0 CR1 0 LR0 CR15.L CR14.L ;;</span>
 </span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">    </span><span class="nf">HALT</span><span class="w"> </span><span class="c1">;;</span>
 </span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="c1"># expect: MULT_RES[0] == 2</span>
 </span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="c1"># expect: R0[0] == 5</span>
 </span></code></pre></div>
 <h3 id="rule-3">Rule 3: MULT_RES reaches ACC, and R_ACC reaches AAQ, in the same cycle<a class="headerlink" href="#rule-3" title="Permanent link">&para;</a></h3>
-<p>The second word multiplies, accumulates, quantizes and stores in one word.
+<p>The second word multiplies, accumulates, activates and stores in one word.
 <code>ACC.ADD.FIRST</code> reads this word's <code>MULT_RES</code> (3), and <code>ACTIVATE.QUANTIZE</code>
-reads this word's <code>R_ACC</code>. <code>ST.AAQ</code> reads this word's <code>POST_AAQ_REG</code> by the
-<a href="#slot-order">slot order</a>, and writes 3 to XMEM row <code>CR3</code>.</p>
+reads this word's <code>R_ACC</code> and writes 3 to XMEM row <code>CR3</code> (in the NX8 mode it
+quantizes the row first and writes its metadata too).</p>
 <div class="language-asm highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># given: CR2 = 16</span>
 </span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="c1"># given: CR3 = 18</span>
 </span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="c1"># given: XMEM[16] = 3</span>
 </span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span><span class="nf">LD.MULT</span><span class="w"> </span><span class="no">R0</span><span class="w"> </span><span class="no">LR0</span><span class="w"> </span><span class="no">CR2</span><span class="w"> </span><span class="c1">;;</span>
-</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span><span class="nf">MULT.VE</span><span class="w"> </span><span class="no">LR0</span><span class="w"> </span><span class="no">CR1</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="no">LR0</span><span class="w"> </span><span class="no">CR15</span><span class="w"> </span><span class="c1">; ACC.ADD.FIRST ; ACTIVATE.QUANTIZE identity CR15 ; ST.AAQ LR0 CR3 ;;</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span><span class="nf">MULT.VE</span><span class="w"> </span><span class="no">LR0</span><span class="w"> </span><span class="no">CR1</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="no">LR0</span><span class="w"> </span><span class="no">CR15.L</span><span class="w"> </span><span class="no">CR14.L</span><span class="w"> </span><span class="c1">; ACC.ADD.FIRST ; ACTIVATE.QUANTIZE identity CR15.L CR14.L CR3 LR0 ;;</span>
 </span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">    </span><span class="nf">HALT</span><span class="w"> </span><span class="c1">;;</span>
 </span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="c1"># expect: MULT_RES[0] == 3</span>
 </span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="c1"># expect: R_ACC[0] == 3</span>
-</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="c1"># expect: POST_AAQ_REG[0] == 3</span>
-</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="c1"># expect: XMEM[18][0] == 3</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="c1"># expect: XMEM[18][0] == 3</span>
 </span></code></pre></div>
 <h3 id="rule-4">Rule 4: LR sub-slots read cycle-start values<a class="headerlink" href="#rule-4" title="Permanent link">&para;</a></h3>
 <p>The three LR sub-slots all read before any of them writes. In the second word,
@@ -3136,13 +3145,13 @@ word.</p>
 on that word (F-3).</p>
 <h3 id="slot-order">Slot order<a class="headerlink" href="#slot-order" title="Permanent link">&para;</a></h3>
 <p>The slots of a word execute in this order: <code>BREAK</code>, <code>LR</code>, <code>LOAD</code>, <code>MULT</code>,
-<code>ACC</code>, <code>AAQ</code>, <code>STORE</code>, <code>ACC_STORE</code>, <code>COND</code>. A read that no rule names is
-forwarded when every slot that writes the register runs earlier in the word,
-and is at cycle start otherwise:</p>
+<code>ACC</code>, <code>AAQ</code>, <code>AAQ_EXACT</code>, <code>COND</code>. A read that no rule names is forwarded
+when every slot that writes the register runs earlier in the word, and is at
+cycle start otherwise:</p>
 <ul>
-<li><code>ST.AAQ</code> reads <code>POST_AAQ_REG</code> forwarded: only <code>AAQ</code> writes it (the rule 3
-  example).</li>
-<li><code>ST.ACC</code> reads <code>R_ACC</code> forwarded: only <code>ACC</code> writes it.</li>
+<li><code>ACTIVATE.EXACT</code> reads <code>R_ACC</code> forwarded: only <code>ACC</code> writes it.</li>
+<li><code>ACTIVATE.QUANTIZE</code> reads the AaQ LUT at cycle start: <code>LD.LUT</code>, in its own
+  slot, writes it.</li>
 <li><code>ACC.ADD</code>, <code>ACC.SUB</code>, <code>ACC.MAX</code> and the non-<code>FIRST</code> <code>AGG</code> forms read <code>R_ACC</code>
   at cycle start: their own slot writes it.</li>
 <li>CR reads are at cycle start: no slot writes a CR during a run.</li>
@@ -3210,7 +3219,7 @@ reads LRs after the LR writes (rule 1).</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 18, 2026 05:28:25 UTC"><span class="timeago" datetime="2026-10-18T05:28:25+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 18, 2026 05:28:25 UTC">2026-10-18</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 23, 2026 20:55:31 UTC"><span class="timeago" datetime="2026-10-23T20:55:31+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 23, 2026 20:55:31 UTC">2026-10-23</span>
   </span>
 
     

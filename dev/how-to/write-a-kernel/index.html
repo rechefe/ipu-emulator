@@ -847,10 +847,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#add-a-format-to-a-migrated-kernel" class="md-nav__link">
+  <a href="#add-an-nx8-variant-to-an-fp32-kernel" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Add a format to a migrated kernel
+        Add an NX8 variant to an FP32 kernel
       
     </span>
   </a>
@@ -1307,7 +1307,7 @@
   <span class="md-ellipsis">
     
   
-    ACTIVATE.QUANTIZE in the emulator
+    ACTIVATE.QUANTIZE, ACTIVATE.EXACT and LD.LUT
   
 
     
@@ -2910,8 +2910,8 @@ you can open. Every command runs from the repository root.</p>
 </tbody>
 </table>
 <p>The harness does the rest. From <code>kernel.toml</code> it checks the parameters,
-places each region in XMEM, writes the inputs in the element format of the
-run, programs the CRs, runs the program and compares the outputs with the
+places each region in XMEM, writes the inputs in the variant of the run (in
+NX8, each row with its metadata word), programs the CRs, runs the program and compares the outputs with the
 reference. A kernel has no Python harness and no hand-written CR setup.
 Every input is a tensor declared in <code>kernel.toml</code>: a kernel never supplies
 its XMEM contents ready-made. To see the raw rows a run lays out, open the run
@@ -2947,28 +2947,25 @@ stores the product, once per row:</p>
 <div class="language-asm highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="err">{</span><span class="c1">#- scale.asm -- y = x * s, one XMEM row (128 elements) per iteration.</span>
 </span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
 </span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span><span class="nf">Design</span><span class="w"> </span><span class="no">notes</span>
-</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span><span class="err">-</span><span class="w"> </span><span class="nf">MULT.VE</span><span class="w"> </span><span class="no">multiplies</span><span class="w"> </span><span class="no">the</span><span class="w"> </span><span class="no">row</span><span class="w"> </span><span class="no">in</span><span class="w"> </span><span class="no">R0</span><span class="w"> </span><span class="no">by</span><span class="w"> </span><span class="no">the</span><span class="w"> </span><span class="no">element</span><span class="w"> </span><span class="no">scalar</span><span class="w"> </span><span class="no">in</span><span class="w"> </span><span class="p">{{</span><span class="w"> </span><span class="no">cr.s</span><span class="w"> </span><span class="p">}}.</span>
-</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">      </span><span class="nf">The</span><span class="w"> </span><span class="no">scalar</span><span class="w"> </span><span class="no">is</span><span class="w"> </span><span class="no">decoded</span><span class="w"> </span><span class="no">in</span><span class="w"> </span><span class="no">the</span><span class="w"> </span><span class="no">active</span><span class="w"> </span><span class="no">element</span><span class="w"> </span><span class="no">format</span><span class="w"> </span><span class="p">(</span><span class="no">Q49</span><span class="p">),</span><span class="w"> </span><span class="no">so</span><span class="w"> </span><span class="no">the</span><span class="w"> </span><span class="no">same</span>
-</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">      </span><span class="nf">program</span><span class="w"> </span><span class="no">runs</span><span class="w"> </span><span class="no">in</span><span class="w"> </span><span class="no">FP32</span><span class="p">,</span><span class="w"> </span><span class="no">INT8</span><span class="w"> </span><span class="no">and</span><span class="w"> </span><span class="no">E4.</span>
-</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">    </span><span class="err">-</span><span class="w"> </span><span class="nf">The</span><span class="w"> </span><span class="no">product</span><span class="w"> </span><span class="no">goes</span><span class="w"> </span><span class="no">through</span><span class="w"> </span><span class="no">ACC</span><span class="w"> </span><span class="p">(</span><span class="no">first</span><span class="w"> </span><span class="no">add</span><span class="p">),</span><span class="w"> </span><span class="no">and</span><span class="w"> </span><span class="no">ST.ACC</span><span class="w"> </span><span class="no">stores</span><span class="w"> </span><span class="no">the</span>
-</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">      </span><span class="nf">accumulator</span><span class="w"> </span><span class="no">vector</span><span class="p">:</span><span class="w"> </span><span class="no">y</span><span class="w"> </span><span class="no">is</span><span class="w"> </span><span class="no">an</span><span class="w"> </span><span class="no">accumulator</span><span class="w"> </span><span class="no">output</span><span class="p">,</span><span class="w"> </span><span class="no">FP32</span><span class="w"> </span><span class="no">in</span><span class="w"> </span><span class="no">FP32</span><span class="w"> </span><span class="no">and</span><span class="w"> </span><span class="no">E4</span><span class="p">,</span>
-</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">      </span><span class="nf">INT32</span><span class="w"> </span><span class="no">in</span><span class="w"> </span><span class="no">INT8.</span><span class="w"> </span><span class="no">One</span><span class="w"> </span><span class="no">accumulator</span><span class="w"> </span><span class="no">vector</span><span class="w"> </span><span class="no">is</span><span class="w"> </span><span class="no">one</span><span class="w"> </span><span class="no">row</span><span class="w"> </span><span class="no">in</span><span class="w"> </span><span class="no">FP32</span><span class="w"> </span><span class="no">and</span><span class="w"> </span><span class="no">four</span><span class="w"> </span><span class="no">rows</span>
-</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">      </span><span class="nf">in</span><span class="w"> </span><span class="no">an</span><span class="w"> </span><span class="mi">8</span><span class="p">-</span><span class="no">bit</span><span class="w"> </span><span class="no">format</span><span class="p">,</span><span class="w"> </span><span class="no">hence</span><span class="w"> </span><span class="no">acc_rows.</span>
-</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">    </span><span class="err">-</span><span class="w"> </span><span class="nf">Region</span><span class="w"> </span><span class="no">bases</span><span class="w"> </span><span class="no">and</span><span class="w"> </span><span class="no">the</span><span class="w"> </span><span class="no">row</span><span class="w"> </span><span class="no">count</span><span class="w"> </span><span class="no">are</span><span class="w"> </span><span class="no">in</span><span class="w"> </span><span class="no">rows</span><span class="p">,</span><span class="w"> </span><span class="no">not</span><span class="w"> </span><span class="no">bytes.</span>
-</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="err">-</span><span class="c1">#}</span>
-</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="err">{%-</span><span class="w"> </span><span class="nf">set</span><span class="w"> </span><span class="no">acc_rows</span><span class="w"> </span><span class="err">=</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="no">if</span><span class="w"> </span><span class="no">format</span><span class="w"> </span><span class="no">in</span><span class="w"> </span><span class="p">(</span><span class="err">"</span><span class="no">fp32</span><span class="err">"</span><span class="p">,</span><span class="w"> </span><span class="err">"</span><span class="no">int32</span><span class="err">"</span><span class="p">)</span><span class="w"> </span><span class="no">else</span><span class="w"> </span><span class="mi">4</span><span class="w"> </span><span class="err">%</span><span class="p">}</span>
-</span><span id="__span-2-14"><a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="w">    </span><span class="nf">SET</span><span class="w"> </span><span class="no">LR0</span><span class="w"> </span><span class="no">CR0</span><span class="w"> </span><span class="c1">;</span>
-</span><span id="__span-2-15"><a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="w">    </span><span class="nf">SET</span><span class="w"> </span><span class="no">LR1</span><span class="w"> </span><span class="no">CR0</span><span class="w"> </span><span class="c1">;</span>
-</span><span id="__span-2-16"><a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="w">    </span><span class="nf">SET</span><span class="w"> </span><span class="no">LR2</span><span class="w"> </span><span class="no">CR0</span><span class="w"> </span><span class="c1">;;</span>
-</span><span id="__span-2-17"><a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a><span class="nl">row_loop:</span>
-</span><span id="__span-2-18"><a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a><span class="w">    </span><span class="nf">LD.MULT</span><span class="w"> </span><span class="no">R0</span><span class="w"> </span><span class="no">LR1</span><span class="w"> </span><span class="p">{{</span><span class="w"> </span><span class="no">cr.x</span><span class="w"> </span><span class="p">}}</span><span class="w"> </span><span class="c1">;;</span>
-</span><span id="__span-2-19"><a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a><span class="w">    </span><span class="nf">MULT.VE</span><span class="w"> </span><span class="no">LR0</span><span class="w"> </span><span class="p">{{</span><span class="w"> </span><span class="no">cr.s</span><span class="w"> </span><span class="p">}}</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="no">LR0</span><span class="w"> </span><span class="no">CR15</span><span class="w"> </span><span class="c1">;</span>
-</span><span id="__span-2-20"><a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a><span class="w">    </span><span class="nf">ACC.ADD.FIRST</span><span class="w"> </span><span class="c1">;;</span>
-</span><span id="__span-2-21"><a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a><span class="w">    </span><span class="nf">ST.ACC</span><span class="w"> </span><span class="no">LR2</span><span class="w"> </span><span class="p">{{</span><span class="w"> </span><span class="no">cr.y</span><span class="w"> </span><span class="p">}}</span><span class="w"> </span><span class="c1">;;</span>
-</span><span id="__span-2-22"><a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a><span class="w">    </span><span class="nf">ADD</span><span class="w"> </span><span class="no">LR1</span><span class="w"> </span><span class="no">LR1</span><span class="w"> </span><span class="no">CR1</span><span class="w"> </span><span class="c1">;</span>
-</span><span id="__span-2-23"><a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a><span class="w">    </span><span class="nf">INC</span><span class="w"> </span><span class="no">LR2</span><span class="w"> </span><span class="p">{{</span><span class="w"> </span><span class="no">acc_rows</span><span class="w"> </span><span class="p">}}</span><span class="w"> </span><span class="c1">;;</span>
-</span><span id="__span-2-24"><a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a><span class="w">    </span><span class="nf">BLT.S</span><span class="w"> </span><span class="no">LR1</span><span class="w"> </span><span class="p">{{</span><span class="w"> </span><span class="no">cr.rows</span><span class="w"> </span><span class="p">}}</span><span class="w"> </span><span class="no">row_loop</span><span class="w"> </span><span class="c1">;;</span>
-</span><span id="__span-2-25"><a id="__codelineno-2-25" name="__codelineno-2-25" href="#__codelineno-2-25"></a><span class="w">    </span><span class="nf">HALT</span><span class="w"> </span><span class="c1">;;</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span><span class="err">-</span><span class="w"> </span><span class="nf">MULT.VE</span><span class="w"> </span><span class="no">multiplies</span><span class="w"> </span><span class="no">the</span><span class="w"> </span><span class="no">row</span><span class="w"> </span><span class="no">in</span><span class="w"> </span><span class="no">R0</span><span class="w"> </span><span class="no">by</span><span class="w"> </span><span class="no">the</span><span class="w"> </span><span class="no">MULT</span><span class="w"> </span><span class="no">constant</span><span class="w"> </span><span class="no">in</span><span class="w"> </span><span class="p">{{</span><span class="w"> </span><span class="no">cr.s</span><span class="w"> </span><span class="p">}}</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">      </span><span class="err">(</span><span class="nf">float32</span><span class="w"> </span><span class="no">bits</span><span class="w"> </span><span class="no">in</span><span class="w"> </span><span class="no">FP32</span><span class="c1">; ADR 0007), reading R0 with the QF half in</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">      </span><span class="err">{{</span><span class="w"> </span><span class="nf">cr.qf</span><span class="w"> </span><span class="p">}}.</span><span class="no">L</span><span class="w"> </span><span class="p">(</span><span class="no">FP32</span><span class="w"> </span><span class="no">ignores</span><span class="w"> </span><span class="no">it</span><span class="p">).</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">    </span><span class="err">-</span><span class="w"> </span><span class="nf">The</span><span class="w"> </span><span class="no">product</span><span class="w"> </span><span class="no">goes</span><span class="w"> </span><span class="no">through</span><span class="w"> </span><span class="no">ACC</span><span class="w"> </span><span class="p">(</span><span class="no">first</span><span class="w"> </span><span class="no">add</span><span class="p">),</span><span class="w"> </span><span class="no">and</span><span class="w"> </span><span class="no">ACTIVATE.EXACT</span><span class="w"> </span><span class="no">identity</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">      </span><span class="nf">stores</span><span class="w"> </span><span class="no">the</span><span class="w"> </span><span class="no">accumulator</span><span class="w"> </span><span class="no">vector</span><span class="p">:</span><span class="w"> </span><span class="no">one</span><span class="w"> </span><span class="no">FP32</span><span class="w"> </span><span class="no">row</span><span class="w"> </span><span class="no">per</span><span class="w"> </span><span class="no">iteration.</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">    </span><span class="err">-</span><span class="w"> </span><span class="nf">Region</span><span class="w"> </span><span class="no">bases</span><span class="w"> </span><span class="no">and</span><span class="w"> </span><span class="no">the</span><span class="w"> </span><span class="no">row</span><span class="w"> </span><span class="no">count</span><span class="w"> </span><span class="no">are</span><span class="w"> </span><span class="no">in</span><span class="w"> </span><span class="no">rows</span><span class="p">,</span><span class="w"> </span><span class="no">not</span><span class="w"> </span><span class="no">bytes.</span>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="err">-</span><span class="c1">#}</span>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">    </span><span class="nf">SET</span><span class="w"> </span><span class="no">LR0</span><span class="w"> </span><span class="no">CR0</span><span class="w"> </span><span class="c1">;</span>
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="w">    </span><span class="nf">SET</span><span class="w"> </span><span class="no">LR1</span><span class="w"> </span><span class="no">CR0</span><span class="w"> </span><span class="c1">;</span>
+</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="w">    </span><span class="nf">SET</span><span class="w"> </span><span class="no">LR2</span><span class="w"> </span><span class="no">CR0</span><span class="w"> </span><span class="c1">;;</span>
+</span><span id="__span-2-14"><a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="nl">row_loop:</span>
+</span><span id="__span-2-15"><a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="w">    </span><span class="nf">LD.MULT</span><span class="w"> </span><span class="no">R0</span><span class="w"> </span><span class="no">LR1</span><span class="w"> </span><span class="p">{{</span><span class="w"> </span><span class="no">cr.x</span><span class="w"> </span><span class="p">}}</span><span class="w"> </span><span class="c1">;;</span>
+</span><span id="__span-2-16"><a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="w">    </span><span class="nf">MULT.VE</span><span class="w"> </span><span class="no">LR0</span><span class="w"> </span><span class="p">{{</span><span class="w"> </span><span class="no">cr.s</span><span class="w"> </span><span class="p">}}</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="no">LR0</span><span class="w"> </span><span class="no">CR15.L</span><span class="w"> </span><span class="p">{{</span><span class="w"> </span><span class="no">cr.qf</span><span class="w"> </span><span class="p">}}.</span><span class="no">L</span><span class="w"> </span><span class="c1">;</span>
+</span><span id="__span-2-17"><a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a><span class="w">    </span><span class="nf">ACC.ADD.FIRST</span><span class="w"> </span><span class="c1">;;</span>
+</span><span id="__span-2-18"><a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a><span class="w">    </span><span class="nf">ACTIVATE.EXACT</span><span class="w"> </span><span class="no">identity</span><span class="w"> </span><span class="no">CR15.L</span><span class="w"> </span><span class="p">{{</span><span class="w"> </span><span class="no">cr.y</span><span class="w"> </span><span class="p">}}</span><span class="w"> </span><span class="no">LR2</span><span class="w"> </span><span class="c1">;;</span>
+</span><span id="__span-2-19"><a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a><span class="w">    </span><span class="nf">ADD</span><span class="w"> </span><span class="no">LR1</span><span class="w"> </span><span class="no">LR1</span><span class="w"> </span><span class="no">CR1</span><span class="w"> </span><span class="c1">;</span>
+</span><span id="__span-2-20"><a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a><span class="w">    </span><span class="nf">INC</span><span class="w"> </span><span class="no">LR2</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="c1">;;</span>
+</span><span id="__span-2-21"><a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a><span class="w">    </span><span class="nf">BLT.S</span><span class="w"> </span><span class="no">LR1</span><span class="w"> </span><span class="p">{{</span><span class="w"> </span><span class="no">cr.rows</span><span class="w"> </span><span class="p">}}</span><span class="w"> </span><span class="no">row_loop</span><span class="w"> </span><span class="c1">;;</span>
+</span><span id="__span-2-22"><a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a><span class="w">    </span><span class="nf">HALT</span><span class="w"> </span><span class="c1">;;</span>
 </span></code></pre></div>
 <p>An instruction word is one line ending in <code>;;</code>; instructions joined by <code>;</code>
 issue together in that word. Line by line:</p>
@@ -2986,19 +2983,19 @@ issue together in that word. Line by line:</p>
 </tr>
 <tr>
 <td><code>LD.MULT R0 LR1 {{ cr.x }}</code></td>
-<td>Load XMEM row <code>x + LR1</code> into <code>R0</code>. A row is 128 elements in every format.</td>
+<td>Load XMEM row <code>x + LR1</code> into <code>R0</code>. A row is 128 elements in both modes.</td>
 </tr>
 <tr>
-<td><code>MULT.VE LR0 {{ cr.s }} 0 LR0 CR15 ; ACC.ADD.FIRST</code></td>
-<td>Multiply <code>R0</code>, from element <code>LR0</code> (0), by the scalar in <code>{{ cr.s }}</code>, with mask slot 0 and no mask shift (every lane, as <code>R_MASK</code> resets), and the dstructure in <code>CR15</code>. <code>ACC.ADD.FIRST</code> in the same word writes that product to the accumulator.</td>
+<td><code>MULT.VE LR0 {{ cr.s }} 0 LR0 CR15.L {{ cr.qf }}.L ; ACC.ADD.FIRST</code></td>
+<td>Multiply <code>R0</code>, from element <code>LR0</code> (0), by the MULT constant in <code>{{ cr.s }}</code>, with mask slot 0 and no mask shift (every lane, as <code>R_MASK</code> resets), the DS half <code>CR15.L</code> and the QF half <code>{{ cr.qf }}.L</code> (which FP32 ignores). <code>ACC.ADD.FIRST</code> in the same word writes that product to the accumulator.</td>
 </tr>
 <tr>
-<td><code>ST.ACC LR2 {{ cr.y }}</code></td>
-<td>Store the accumulator to row <code>y + LR2</code>.</td>
+<td><code>ACTIVATE.EXACT identity CR15.L {{ cr.y }} LR2</code></td>
+<td>Store the accumulator, unchanged, as one FP32 row at <code>y + LR2</code>.</td>
 </tr>
 <tr>
-<td><code>ADD LR1 LR1 CR1 ; INC LR2 {{ acc_rows }}</code></td>
-<td>Step to the next row of <code>x</code> (<code>CR1</code> always reads 1) and the next accumulator vector of <code>y</code>.</td>
+<td><code>ADD LR1 LR1 CR1 ; INC LR2 1</code></td>
+<td>Step to the next row of <code>x</code> (<code>CR1</code> always reads 1) and of <code>y</code>.</td>
 </tr>
 <tr>
 <td><code>BLT.S LR1 {{ cr.rows }} row_loop</code></td>
@@ -3011,7 +3008,8 @@ issue together in that word. Line by line:</p>
 </tbody>
 </table>
 <p><code>LD.MULT</code> has its own word because the multiply does not see a load from the
-same word; <code>ACC.ADD.FIRST</code> does see the same word's product. The
+same word; <code>ACC.ADD.FIRST</code> does see the same word's product, and
+<code>ACTIVATE.EXACT</code> the same word's accumulator. The
 <a href="../../explanation/timing-model/">timing model</a> gives every such rule.</p>
 <p>Three things make it a kernel program rather than a fixed one:</p>
 <ul>
@@ -3022,83 +3020,90 @@ same word; <code>ACC.ADD.FIRST</code> does see the same word's product. The
   never names a CR for a value; it asks for the value by name, and renders as
   <code>CR2</code> here. A name the <code>[abi]</code> table does not bind is an error at the line
   that uses it.</li>
-<li><strong>Template values</strong>: every parameter (<code>{{ rows }}</code>), the element format of
-  the run (<code>format</code>, such as <code>"e4"</code>) and each tensor's shape (<code>shapes.x</code>).
-  <code>scale</code> uses <code>format</code> to step over one accumulator vector: 128 32-bit
-  elements, which is one row in FP32 (512 bytes a row) and four rows in an
-  8-bit format (128 bytes a row).</li>
+<li><strong>Template values</strong>: every parameter (<code>{{ rows }}</code>), the variant of the run
+  (<code>format</code>, such as <code>"e4"</code> or <code>"fp32"</code>) and each tensor's shape
+  (<code>shapes.x</code>). Every load and store moves one row in both modes, so <code>scale</code>
+  needs none of them.</li>
 </ul>
-<p><code>CR0</code> reads 0, <code>CR1</code> reads 1 and <code>CR15</code> holds the dstructure (by default all
-128 elements are valid). Mnemonics and register names are upper case, and
+<p><code>CR0</code> reads 0, <code>CR1</code> reads 1 and <code>CR15.L</code> holds the DS half (by default all
+128 elements are valid). <code>scale</code> stores with <code>ACTIVATE.EXACT</code>, the
+emulator-only exact store, so it runs in the FP32 mode only; an NX8 kernel
+stores with <code>ACTIVATE.QUANTIZE</code>, which quantizes each row to the case's QF
+(<a href="../../reference/isa/activate-quantize/"><code>ACTIVATE.QUANTIZE</code>, <code>ACTIVATE.EXACT</code> and <code>LD.LUT</code></a>). Mnemonics and register names are upper case, and
 operands are separated by spaces.</p>
 <h2 id="3-declare-it-in-kerneltoml">3. Declare it in <code>kernel.toml</code><a class="headerlink" href="#3-declare-it-in-kerneltoml" title="Permanent link">&para;</a></h2>
 <p>The listing is the kernel's own file, included in the docs build, so it is
 always the one the tests run:</p>
 <div class="language-toml highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">[kernel]</span>
 </span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">op</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"scale"</span>
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">formats</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"fp32"</span><span class="p">,</span><span class="w"> </span><span class="s2">"int8"</span><span class="p">,</span><span class="w"> </span><span class="s2">"e4"</span><span class="p">]</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">formats</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"fp32"</span><span class="p">]</span><span class="w">                        </span><span class="c1"># FP32 only (ADR 0007); test/scales/scale_rows runs NX8</span>
 </span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>
 </span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="k">[params]</span>
 </span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="n">rows</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">type</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">"int"</span><span class="p">,</span><span class="w"> </span><span class="n">min</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="n">max</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="mi">256</span><span class="w"> </span><span class="p">}</span>
-</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="n">s</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">type</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">"float"</span><span class="w"> </span><span class="p">}</span><span class="w">                 </span><span class="c1"># element scalar: encoded in the active format</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="n">s</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">type</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">"float"</span><span class="w"> </span><span class="p">}</span><span class="w">                 </span><span class="c1"># MULT constant: its float32 bits in FP32</span>
 </span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>
 </span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="k">[inputs.x]</span>
 </span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="n">shape</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"rows"</span><span class="p">,</span><span class="w"> </span><span class="mi">128</span><span class="p">]</span><span class="w">                     </span><span class="c1"># automatic placement; add row = N to pin</span>
 </span><span id="__span-3-11"><a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>
 </span><span id="__span-3-12"><a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="k">[outputs.y]</span>
-</span><span id="__span-3-13"><a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a><span class="n">shape</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"rows"</span><span class="p">,</span><span class="w"> </span><span class="mi">128</span><span class="p">]</span>
-</span><span id="__span-3-14"><a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a><span class="n">store</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"accumulator"</span><span class="w">                     </span><span class="c1"># ST.ACC: FP32 (INT32 in INT8)</span>
-</span><span id="__span-3-15"><a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a>
-</span><span id="__span-3-16"><a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a><span class="k">[abi]</span><span class="w">                                     </span><span class="c1"># name -&gt; CR; templates see {{ cr.x }} == "CR2"</span>
-</span><span id="__span-3-17"><a id="__codelineno-3-17" name="__codelineno-3-17" href="#__codelineno-3-17"></a><span class="n">x</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="s2">"CR2"</span>
-</span><span id="__span-3-18"><a id="__codelineno-3-18" name="__codelineno-3-18" href="#__codelineno-3-18"></a><span class="n">y</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="s2">"CR3"</span>
-</span><span id="__span-3-19"><a id="__codelineno-3-19" name="__codelineno-3-19" href="#__codelineno-3-19"></a><span class="n">rows</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"CR4"</span>
-</span><span id="__span-3-20"><a id="__codelineno-3-20" name="__codelineno-3-20" href="#__codelineno-3-20"></a><span class="n">s</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="s2">"CR5"</span>
-</span><span id="__span-3-21"><a id="__codelineno-3-21" name="__codelineno-3-21" href="#__codelineno-3-21"></a>
-</span><span id="__span-3-22"><a id="__codelineno-3-22" name="__codelineno-3-22" href="#__codelineno-3-22"></a><span class="k">[golden]</span>
-</span><span id="__span-3-23"><a id="__codelineno-3-23" name="__codelineno-3-23" href="#__codelineno-3-23"></a><span class="n">reference</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"reference.py:reference"</span>
-</span><span id="__span-3-24"><a id="__codelineno-3-24" name="__codelineno-3-24" href="#__codelineno-3-24"></a><span class="n">tolerance</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">fp32</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">"EXACT"</span><span class="p">,</span><span class="w"> </span><span class="n">int32</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">"EXACT"</span><span class="w"> </span><span class="p">}</span><span class="w">   </span><span class="c1"># y, an accumulator output, is compared as FP32 (INT32 in INT8)</span>
-</span><span id="__span-3-25"><a id="__codelineno-3-25" name="__codelineno-3-25" href="#__codelineno-3-25"></a>
-</span><span id="__span-3-26"><a id="__codelineno-3-26" name="__codelineno-3-26" href="#__codelineno-3-26"></a><span class="k">[cases.default]</span>
-</span><span id="__span-3-27"><a id="__codelineno-3-27" name="__codelineno-3-27" href="#__codelineno-3-27"></a><span class="n">rows</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">4</span>
-</span><span id="__span-3-28"><a id="__codelineno-3-28" name="__codelineno-3-28" href="#__codelineno-3-28"></a><span class="n">s</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">2.0</span>
-</span><span id="__span-3-29"><a id="__codelineno-3-29" name="__codelineno-3-29" href="#__codelineno-3-29"></a>
-</span><span id="__span-3-30"><a id="__codelineno-3-30" name="__codelineno-3-30" href="#__codelineno-3-30"></a><span class="k">[cases.one_row]</span>
-</span><span id="__span-3-31"><a id="__codelineno-3-31" name="__codelineno-3-31" href="#__codelineno-3-31"></a><span class="n">rows</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span>
-</span><span id="__span-3-32"><a id="__codelineno-3-32" name="__codelineno-3-32" href="#__codelineno-3-32"></a><span class="n">s</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">-3.0</span>
-</span><span id="__span-3-33"><a id="__codelineno-3-33" name="__codelineno-3-33" href="#__codelineno-3-33"></a>
-</span><span id="__span-3-34"><a id="__codelineno-3-34" name="__codelineno-3-34" href="#__codelineno-3-34"></a><span class="k">[cases.sweep]</span><span class="w">                             </span><span class="c1"># one case per value: sweep[rows=1], sweep[rows=7], ...</span>
-</span><span id="__span-3-35"><a id="__codelineno-3-35" name="__codelineno-3-35" href="#__codelineno-3-35"></a><span class="n">rows</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">7</span><span class="p">,</span><span class="w"> </span><span class="mi">33</span><span class="p">,</span><span class="w"> </span><span class="mi">128</span><span class="p">]</span>
-</span><span id="__span-3-36"><a id="__codelineno-3-36" name="__codelineno-3-36" href="#__codelineno-3-36"></a><span class="n">s</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">1.5</span><span class="w">                                   </span><span class="c1"># exact in E4 and FP32, not in INT8</span>
-</span><span id="__span-3-37"><a id="__codelineno-3-37" name="__codelineno-3-37" href="#__codelineno-3-37"></a><span class="n">formats</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"fp32"</span><span class="p">,</span><span class="w"> </span><span class="s2">"e4"</span><span class="p">]</span><span class="w">                  </span><span class="c1"># per-case format limit</span>
-</span><span id="__span-3-38"><a id="__codelineno-3-38" name="__codelineno-3-38" href="#__codelineno-3-38"></a>
-</span><span id="__span-3-39"><a id="__codelineno-3-39" name="__codelineno-3-39" href="#__codelineno-3-39"></a><span class="k">[cases.mine]</span><span class="w">                              </span><span class="c1"># user data instead of the generator / reference</span>
-</span><span id="__span-3-40"><a id="__codelineno-3-40" name="__codelineno-3-40" href="#__codelineno-3-40"></a><span class="n">rows</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">2</span>
-</span><span id="__span-3-41"><a id="__codelineno-3-41" name="__codelineno-3-41" href="#__codelineno-3-41"></a><span class="n">s</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">2.0</span>
-</span><span id="__span-3-42"><a id="__codelineno-3-42" name="__codelineno-3-42" href="#__codelineno-3-42"></a><span class="n">inputs</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">"data/x.npy"</span><span class="w"> </span><span class="p">}</span><span class="w">             </span><span class="c1"># small integers in [-8, 8]: exact in fp32, int8 and e4</span>
-</span><span id="__span-3-43"><a id="__codelineno-3-43" name="__codelineno-3-43" href="#__codelineno-3-43"></a><span class="n">expected</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">y</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">"data/y.npy"</span><span class="w"> </span><span class="p">}</span><span class="w">           </span><span class="c1"># so y = 2x is exact in every format too</span>
+</span><span id="__span-3-13"><a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a><span class="n">shape</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"rows"</span><span class="p">,</span><span class="w"> </span><span class="mi">128</span><span class="p">]</span><span class="w">                     </span><span class="c1"># ACTIVATE.EXACT identity: one FP32 row per iteration</span>
+</span><span id="__span-3-14"><a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a>
+</span><span id="__span-3-15"><a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a><span class="k">[derived]</span>
+</span><span id="__span-3-16"><a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a><span class="n">qf</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"case_qf"</span><span class="w">                            </span><span class="c1"># the case's QF half (0 in FP32, which ignores it)</span>
+</span><span id="__span-3-17"><a id="__codelineno-3-17" name="__codelineno-3-17" href="#__codelineno-3-17"></a>
+</span><span id="__span-3-18"><a id="__codelineno-3-18" name="__codelineno-3-18" href="#__codelineno-3-18"></a><span class="k">[abi]</span><span class="w">                                     </span><span class="c1"># name -&gt; CR; templates see {{ cr.x }} == "CR2"</span>
+</span><span id="__span-3-19"><a id="__codelineno-3-19" name="__codelineno-3-19" href="#__codelineno-3-19"></a><span class="n">x</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="s2">"CR2"</span>
+</span><span id="__span-3-20"><a id="__codelineno-3-20" name="__codelineno-3-20" href="#__codelineno-3-20"></a><span class="n">y</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="s2">"CR3"</span>
+</span><span id="__span-3-21"><a id="__codelineno-3-21" name="__codelineno-3-21" href="#__codelineno-3-21"></a><span class="n">rows</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"CR4"</span>
+</span><span id="__span-3-22"><a id="__codelineno-3-22" name="__codelineno-3-22" href="#__codelineno-3-22"></a><span class="n">s</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="s2">"CR5"</span>
+</span><span id="__span-3-23"><a id="__codelineno-3-23" name="__codelineno-3-23" href="#__codelineno-3-23"></a><span class="n">qf</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="s2">"CR6"</span>
+</span><span id="__span-3-24"><a id="__codelineno-3-24" name="__codelineno-3-24" href="#__codelineno-3-24"></a>
+</span><span id="__span-3-25"><a id="__codelineno-3-25" name="__codelineno-3-25" href="#__codelineno-3-25"></a><span class="k">[golden]</span>
+</span><span id="__span-3-26"><a id="__codelineno-3-26" name="__codelineno-3-26" href="#__codelineno-3-26"></a><span class="n">reference</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"reference.py:reference"</span>
+</span><span id="__span-3-27"><a id="__codelineno-3-27" name="__codelineno-3-27" href="#__codelineno-3-27"></a><span class="n">tolerance</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">fp32</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">"EXACT"</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-3-28"><a id="__codelineno-3-28" name="__codelineno-3-28" href="#__codelineno-3-28"></a>
+</span><span id="__span-3-29"><a id="__codelineno-3-29" name="__codelineno-3-29" href="#__codelineno-3-29"></a><span class="k">[cases.default]</span>
+</span><span id="__span-3-30"><a id="__codelineno-3-30" name="__codelineno-3-30" href="#__codelineno-3-30"></a><span class="n">rows</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">4</span>
+</span><span id="__span-3-31"><a id="__codelineno-3-31" name="__codelineno-3-31" href="#__codelineno-3-31"></a><span class="n">s</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">2.0</span>
+</span><span id="__span-3-32"><a id="__codelineno-3-32" name="__codelineno-3-32" href="#__codelineno-3-32"></a>
+</span><span id="__span-3-33"><a id="__codelineno-3-33" name="__codelineno-3-33" href="#__codelineno-3-33"></a><span class="k">[cases.one_row]</span>
+</span><span id="__span-3-34"><a id="__codelineno-3-34" name="__codelineno-3-34" href="#__codelineno-3-34"></a><span class="n">rows</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span>
+</span><span id="__span-3-35"><a id="__codelineno-3-35" name="__codelineno-3-35" href="#__codelineno-3-35"></a><span class="n">s</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">-3.0</span>
+</span><span id="__span-3-36"><a id="__codelineno-3-36" name="__codelineno-3-36" href="#__codelineno-3-36"></a>
+</span><span id="__span-3-37"><a id="__codelineno-3-37" name="__codelineno-3-37" href="#__codelineno-3-37"></a><span class="k">[cases.sweep]</span><span class="w">                             </span><span class="c1"># one case per value: sweep[rows=1], sweep[rows=7], ...</span>
+</span><span id="__span-3-38"><a id="__codelineno-3-38" name="__codelineno-3-38" href="#__codelineno-3-38"></a><span class="n">rows</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">7</span><span class="p">,</span><span class="w"> </span><span class="mi">33</span><span class="p">,</span><span class="w"> </span><span class="mi">128</span><span class="p">]</span>
+</span><span id="__span-3-39"><a id="__codelineno-3-39" name="__codelineno-3-39" href="#__codelineno-3-39"></a><span class="n">s</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">1.5</span>
+</span><span id="__span-3-40"><a id="__codelineno-3-40" name="__codelineno-3-40" href="#__codelineno-3-40"></a>
+</span><span id="__span-3-41"><a id="__codelineno-3-41" name="__codelineno-3-41" href="#__codelineno-3-41"></a><span class="k">[cases.mine]</span><span class="w">                              </span><span class="c1"># user data instead of the generator / reference</span>
+</span><span id="__span-3-42"><a id="__codelineno-3-42" name="__codelineno-3-42" href="#__codelineno-3-42"></a><span class="n">rows</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">2</span>
+</span><span id="__span-3-43"><a id="__codelineno-3-43" name="__codelineno-3-43" href="#__codelineno-3-43"></a><span class="n">s</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">2.0</span>
+</span><span id="__span-3-44"><a id="__codelineno-3-44" name="__codelineno-3-44" href="#__codelineno-3-44"></a><span class="n">inputs</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">"data/x.npy"</span><span class="w"> </span><span class="p">}</span><span class="w">             </span><span class="c1"># small integers in [-8, 8]</span>
+</span><span id="__span-3-45"><a id="__codelineno-3-45" name="__codelineno-3-45" href="#__codelineno-3-45"></a><span class="n">expected</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">y</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">"data/y.npy"</span><span class="w"> </span><span class="p">}</span><span class="w">           </span><span class="c1"># so y = 2x is exact</span>
 </span></code></pre></div>
 <p>Section by section:</p>
 <ul>
 <li><strong><code>[kernel]</code></strong>: <code>op</code> is the operation the kernel computes, the name routing
-  answers a query with. <code>formats</code> lists the element formats it runs in; each
-  case runs in every one of them unless it narrows the list.</li>
+  answers a query with. <code>formats</code> lists the variants it runs in: <code>fp32</code> for
+  the emulator-only FP32 mode, an NX8 type (<code>e1</code> to <code>e7</code>, <code>dynamic</code>,
+  <code>s&lt;sign&gt;e&lt;fe&gt;w&lt;bits&gt;</code>) for the hardware mode. Each case runs in every one
+  of them unless it narrows the list.</li>
 <li><strong><code>[params]</code></strong>: each parameter's type and domain. A case or a query outside
   the domain is refused before anything runs, with the reason. A <code>float</code>
-  parameter bound to a CR is an element scalar: the harness encodes it in the
-  format of the run, and a value that format cannot hold exactly (1.5 in
-  INT8) is an error that names the nearest values. That is why <code>sweep</code> lists
-  its own <code>formats</code>.</li>
+  parameter bound to a CR is a MULT constant: its float32 bits in FP32, and
+  in NX8 one element with its own scale and type; a value NX8 cannot hold
+  exactly is an error that names the nearest values.</li>
 <li><strong><code>[inputs.x]</code> and <code>[outputs.y]</code></strong>: each region's shape, in elements, with
   expressions over parameters (<code>"rows"</code>, <code>"ceil(k / 128)"</code>). The framework
-  places them in XMEM; <code>row = N</code> pins one. <code>store = "accumulator"</code> says the
-  program stores <code>y</code> from the accumulator (<code>ST.ACC</code>), so <code>y</code> is read back as
-  FP32 (INT32 in INT8).</li>
+  places them in XMEM; <code>row = N</code> pins one. Every store writes one row of the
+  mode, so an output is read back in the variant of the run.</li>
+<li><strong><code>[derived]</code></strong>: values computed from the case; <code>case_qf</code> is the QF half of
+  the case's variant (0 in FP32), and <code>ds(...)</code>, <code>qf(...)</code> and
+  <code>constant(...)</code> build the other CR halves and constants.</li>
 <li><strong><code>[abi]</code></strong>: which register holds each value: a region's base row, an
   integer, or an element scalar. Every region must be bound, since the program
   can reach it only through a register: by itself, or through a bound
   <code>[derived]</code> value that reads its <code>base()</code>.</li>
-<li><strong><code>[golden]</code></strong>: the reference function and the tolerance tier per format
+<li><strong><code>[golden]</code></strong>: the reference function and the tolerance tier per variant
   (step 7).</li>
 <li><strong><code>[cases.*]</code></strong>: named sets of parameter values. <code>[cases.default]</code> is
   required. A list makes a sweep: <code>sweep</code> runs as <code>sweep[rows=1]</code>,
@@ -3107,19 +3112,18 @@ always the one the tests run:</p>
 </ul>
 <p>Every key is listed in the <a href="../../reference/kernel-toml/"><code>kernel.toml</code> reference</a>.</p>
 <h2 id="4-write-the-reference">4. Write the reference<a class="headerlink" href="#4-write-the-reference" title="Permanent link">&para;</a></h2>
-<p><code>reference.py</code> takes the inputs as tensors, already decoded from the format
+<p><code>reference.py</code> takes the inputs as tensors, already decoded from the variant
 of the run, and every parameter as a keyword. It returns each output by name:</p>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 </span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
 </span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
 </span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="k">def</span><span class="w"> </span><span class="nf">reference</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">rows</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">s</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]:</span>
-</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">    </span><span class="sd">"""y = x * s. The framework passes inputs decoded from the active format</span>
-</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="sd">    and rounds the result to that format before comparing."""</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">    </span><span class="sd">"""y = x * s. The framework passes inputs decoded from the case's variant</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="sd">    and rounds the result to it before comparing."""</span>
 </span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>    <span class="k">return</span> <span class="p">{</span><span class="s2">"y"</span><span class="p">:</span> <span class="n">x</span> <span class="o">*</span> <span class="n">s</span><span class="p">}</span>
 </span></code></pre></div>
-<p>The harness rounds the result to the format each output is stored in before
-it compares: the format of the run, or for an accumulator output like <code>y</code> its
-accumulator format (FP32, or INT32 in INT8). An operation other kernels share
+<p>The harness rounds the result to the variant of the run before it compares:
+in NX8 it quantizes each golden row as <code>ACTIVATE.QUANTIZE</code> does. An operation other kernels share
 has one reference in <code>ipu_kernels.reference.ops</code> instead; the kernel names it
 with <code>[golden] op = "&lt;name&gt;"</code> and needs no <code>reference.py</code>. The second worked
 example, <code>kernels/reshape/identity/</code> (<code>y = x</code>), does that: its <code>kernel.toml</code>
@@ -3128,16 +3132,16 @@ has <code>op = "identity"</code>, and its cases keep their data in a <code>gen.p
 <p>A case can name its own files instead: <code>inputs</code> replaces the generated input,
 and <code>expected</code> replaces the reference for that output. <code>scale</code>'s <code>mine</code> case
 reads both from <code>data/</code>, saved with <code>numpy.save</code> in the tensor's shape
-(<code>[rows, 128]</code>). Each file is rounded to the format of the run, so pick values
-the format holds exactly, as <code>mine</code> does (small integers), or the comparison
+(<code>[rows, 128]</code>). Each file is rounded to the variant of the run, so pick values
+it holds exactly, as <code>mine</code> does (small integers), or the comparison
 sees the rounding. To try other data without editing <code>kernel.toml</code>, pass
 <code>--input x=my_x.npy</code> to a run (step 6).</p>
 <h2 id="5-run-its-tests">5. Run its tests<a class="headerlink" href="#5-run-its-tests" title="Permanent link">&para;</a></h2>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>bazel<span class="w"> </span><span class="nb">test</span><span class="w"> </span>//kernels/elementwise/scale
 </span></code></pre></div>
-<p>The target runs every case in every format it runs in, as one test each:
-<code>test_case[default-fp32]</code>, <code>test_case[one_row-e4]</code>, <code>test_case[sweep[rows=7]-fp32]</code>.
-A failing test reports the case, the format, the output, the worst element and
+<p>The target runs every case in every variant it runs in, as one test each:
+<code>test_case[default-fp32]</code>, <code>test_case[one_row-fp32]</code>, <code>test_case[sweep[rows=7]-fp32]</code>.
+A failing test reports the case, the variant, the output, the worst element and
 the tier it failed at, in the same line a run prints. For example, <code>mine</code> run
 with one element of <code>x</code> changed (<code>--input</code>, step 6):</p>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>scale/mine/fp32: FAIL  cycles=12  MAC util=16.7%  y: FAIL at EXACT (max|err|=2 max rel=0.166667); worst at [1, 5]: got 14.0, want 12.0
@@ -3149,9 +3153,9 @@ names the fault, the PC and the source line of the word.</p>
 (<code>--config=full</code>) runs.</p>
 <h2 id="6-run-one-case">6. Run one case<a class="headerlink" href="#6-run-one-case" title="Permanent link">&para;</a></h2>
 <p><code>bazel run</code> on the same target runs one case through the kernel runner and
-prints one report per format: the result, the cycle count and each output's
+prints one report per variant: the result, the cycle count and each output's
 comparison.</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>bazel<span class="w"> </span>run<span class="w"> </span>//kernels/elementwise/scale<span class="w"> </span>--<span class="w"> </span>--case<span class="w"> </span>one_row<span class="w"> </span>--format<span class="w"> </span>e4
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>bazel<span class="w"> </span>run<span class="w"> </span>//kernels/elementwise/scale<span class="w"> </span>--<span class="w"> </span>--case<span class="w"> </span>one_row<span class="w"> </span>--format<span class="w"> </span>fp32
 </span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>bazel<span class="w"> </span>run<span class="w"> </span>//kernels/elementwise/scale<span class="w"> </span>--<span class="w"> </span>--list-cases
 </span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>bazel<span class="w"> </span>run<span class="w"> </span>//kernels/elementwise/scale<span class="w"> </span>--<span class="w"> </span>--case<span class="w"> </span>default<span class="w"> </span>--format<span class="w"> </span>all
 </span></code></pre></div>
@@ -3187,7 +3191,7 @@ comparison.</p>
 </tbody>
 </table>
 <p>For example:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>bazel<span class="w"> </span>run<span class="w"> </span>//kernels/elementwise/scale<span class="w"> </span>--<span class="w"> </span>--case<span class="w"> </span>one_row<span class="w"> </span>--format<span class="w"> </span>e4<span class="w"> </span>--debug
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>bazel<span class="w"> </span>run<span class="w"> </span>//kernels/elementwise/scale<span class="w"> </span>--<span class="w"> </span>--case<span class="w"> </span>one_row<span class="w"> </span>--format<span class="w"> </span>fp32<span class="w"> </span>--debug
 </span></code></pre></div>
 <p>Relative paths are read from where you run the command. Every option is in
 the <a href="../../reference/cli/#kernel-runner-kernel-targets-and-run_kernel">command-line reference</a>.</p>
@@ -3197,11 +3201,10 @@ registers, the accumulator and XMEM, with the source line of each word.
 <a href="../debug-a-kernel/">Debug a kernel</a> walks through it, and the
 <a href="../step-through-a-kernel-run/">Cycle Inspector</a> shows a recorded run in the browser.</p>
 <h2 id="7-choose-a-tolerance-tier">7. Choose a tolerance tier<a class="headerlink" href="#7-choose-a-tolerance-tier" title="Permanent link">&para;</a></h2>
-<p><code>[golden] tolerance</code> names the tier each format is compared at; a format not
-listed is compared at <code>EXACT</code>. The key is the format an output is compared
-in: the format of the run for an element output, its accumulator format for an
-accumulator output. So <code>scale</code> names <code>fp32</code> and <code>int32</code>, and a key no output is
-compared in (<code>e4</code> here) is an error that says so. The tiers:</p>
+<p><code>[golden] tolerance</code> names the tier each variant is compared at; a variant not
+listed is compared at <code>EXACT</code>. The key is a variant name (<code>fp32</code>, <code>e4</code>) or the
+mode <code>nx8</code> for every NX8 variant. A key the kernel does not run in is an error
+that says so. The tiers:</p>
 <table>
 <thead>
 <tr>
@@ -3227,64 +3230,39 @@ compared in (<code>e4</code> here) is an error that says so. The tiers:</p>
 <td>Exponentials, logarithms and other functions the hardware approximates.</td>
 </tr>
 <tr>
-<td><code>INT8_LSB</code></td>
-<td>One least significant bit after rounding to nearest.</td>
-</tr>
-<tr>
-<td><code>FP8_ULP</code></td>
-<td>One code step in an 8-bit float format.</td>
+<td><code>NX8_STEP</code></td>
+<td>One step of the NX8 golden row's grid: the scale and the element type set the step.</td>
 </tr>
 </tbody>
 </table>
 <p>Start from the strictest tier that passes, and say why. A tier's numbers can
-be overridden for one format, with the reason. For a kernel whose output is
-stored in E4 (an element output):
-<code>e4 = { tier = "FP8_ULP", ulps = 2, why = "two roundings: the product and the store" }</code>.</p>
-<h2 id="add-a-format-to-a-migrated-kernel">Add a format to a migrated kernel<a class="headerlink" href="#add-a-format-to-a-migrated-kernel" title="Permanent link">&para;</a></h2>
-<p>A kernel migrated from the old Python harness (E07) ran in FP32 first, on its
-old data, so its outputs matched the old harness's. Adding a format afterwards is its own change.
-The worked example is the projections (<code>kernels/projections/</code>), whose
-<code>proj_p4</code> template runs in FP32 and INT8:</p>
+be overridden for one variant, with the reason. For a kernel whose e4 rows
+round twice:
+<code>e4 = { tier = "NX8_STEP", ulps = 2, why = "two roundings: the product and the store" }</code>.</p>
+<h2 id="add-an-nx8-variant-to-an-fp32-kernel">Add an NX8 variant to an FP32 kernel<a class="headerlink" href="#add-an-nx8-variant-to-an-fp32-kernel" title="Permanent link">&para;</a></h2>
+<p>A kernel written for the FP32 mode runs on the hardware only once it runs in
+NX8. Adding the variants is its own change. The worked examples are
+<code>kernels/conformance/vector_tour</code> (e3, e4, e5, dynamic) and
+<code>kernels/linear/fully_connected</code> (e4, e5, dynamic):</p>
 <ol>
-<li><strong>Check that the program does not depend on the format.</strong> Region bases
-   and strides in CRs count rows, not bytes; the program holds no byte
-   offsets; each output's <code>store</code> matches its store instruction (<code>element</code>
-   for <code>ST.AAQ</code>, <code>accumulator</code> for <code>ST.ACC</code>, which takes 4 rows a vector in an
-   8-bit format). If one fails, fix the program in its own change first, and
-   show that the FP32 outputs are unchanged.</li>
-<li><strong>Keep the old data in FP32 only.</strong> The case generator that reproduces
-   the old data returns nothing in another format, so the harness's default
-   generator makes those inputs. The projections' <code>gen.py</code>:</li>
-</ol>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">seeded_uniform</span><span class="p">(</span><span class="n">plan</span><span class="p">,</span> <span class="n">rng</span><span class="p">):</span>
-</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>    <span class="k">if</span> <span class="n">plan</span><span class="o">.</span><span class="n">format</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">ElementFormat</span><span class="o">.</span><span class="n">FP32</span><span class="p">:</span>
-</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>        <span class="k">return</span> <span class="p">{}</span>
-</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>    <span class="o">...</span>
-</span></code></pre></div>
-<ol>
-<li><strong>Give the inputs a range for the format.</strong> The default range of an
-   integer format is all of it, and a long dot product of full-range INT8
-   values saturates almost every output, so the test would pass whatever the
-   program did. Choose a range that keeps fewer than 1% of the outputs at the
-   rails, and test that it does:</li>
-</ol>
-<div class="language-toml highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">[inputs.b]</span>
-</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="n">shape</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"n_streams"</span><span class="p">,</span><span class="w"> </span><span class="s2">"n_tg"</span><span class="p">,</span><span class="w"> </span><span class="s2">"k"</span><span class="p">,</span><span class="w"> </span><span class="s2">"n_tok"</span><span class="p">]</span>
-</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="n">pack</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"channel_major"</span>
-</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="n">range</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">int8</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="p">[</span><span class="mi">-2</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">]</span><span class="w"> </span><span class="p">}</span><span class="w">   </span><span class="c1"># at most 0.36% of y saturates (K = 480)</span>
-</span></code></pre></div>
-<ol>
-<li><strong>Add the format and its tier.</strong> Add it to <code>[kernel] formats</code> and name its
-   tier in <code>[golden] tolerance</code>, then run the kernel and every registry entry
-   over it: <code>bazel run //kernels/projections:proj_qkv_192_p4 -- --format int8</code>
+<li><strong>Store with the hardware instruction.</strong> <code>ACTIVATE.EXACT</code> is FP32 only, and
+   the harness refuses it for an NX8 case. Replace each store with
+   <code>ACTIVATE.QUANTIZE</code> and an activation it has (<code>identity</code>, <code>relu</code>, <code>relu6</code>,
+   <code>reciprocal</code>, <code>rsqrt</code>, <code>exp2</code>, <code>generic</code>). A kernel that needs another
+   function stays FP32: the projections store with SiLU, so they list <code>fp32</code>
+   only, and <code>kernels/projections/test_formats.py</code> pins that an NX8 variant is
+   refused.</li>
+<li><strong>Bind the QF.</strong> Every MULT and <code>ACTIVATE.QUANTIZE</code> names a QF half:
+   <code>[derived] qf = "case_qf"</code>, a CR for it in <code>[abi]</code>, and <code>{{ cr.qf }}.L</code> in
+   the program.</li>
+<li><strong>Give the inputs a range for the type.</strong> <code>range = { nx8 = [-4, 4] }</code>
+   keeps the data inside what a row's grid holds well; the harness writes
+   each input row with its metadata.</li>
+<li><strong>Add the variants and their tier.</strong> Add them to <code>[kernel] formats</code> and
+   name the tier in <code>[golden] tolerance</code> (<code>nx8 = "NX8_STEP"</code>), then run every
+   case: <code>bazel run //kernels/linear/fully_connected -- --case default --format all</code>
    prints each output's largest error. Record what you measured beside the
    tier.</li>
-<li><strong>Leave out what the emulator cannot run yet, and say why.</strong> The
-   projections do not run in E4, because <code>ACTIVATE.QUANTIZE</code> refuses an 8-bit
-   float format (OQ-20), and the two-group templates do not run in INT8,
-   because <code>ST.AAQ</code> stores four rows in an 8-bit format and their store order
-   overwrites rows already stored (OQ-35). A test that fails when the
-   emulator changes (<code>kernels/projections/test_formats.py</code>) records each one.</li>
 </ol>
 <h2 id="when-the-kernel-needs-more">When the kernel needs more<a class="headerlink" href="#when-the-kernel-needs-more" title="Permanent link">&para;</a></h2>
 <table>
@@ -3339,7 +3317,7 @@ The worked example is the projections (<code>kernels/projections/</code>), whose
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 18, 2026 20:24:42 UTC"><span class="timeago" datetime="2026-10-18T20:24:42+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 18, 2026 20:24:42 UTC">2026-10-18</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 23, 2026 20:55:31 UTC"><span class="timeago" datetime="2026-10-23T20:55:31+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 23, 2026 20:55:31 UTC">2026-10-23</span>
   </span>
 
     

@@ -1257,7 +1257,7 @@
   <span class="md-ellipsis">
     
   
-    ACTIVATE.QUANTIZE in the emulator
+    ACTIVATE.QUANTIZE, ACTIVATE.EXACT and LD.LUT
   
 
     
@@ -2841,12 +2841,12 @@ below are that test's own entry and handler.</p>
 <p>Decide three things:</p>
 <ul>
 <li><strong>The slot</strong> the instruction issues in: <code>lr</code>, <code>load</code>, <code>mult</code>, <code>acc</code>, <code>aaq</code>,
-  <code>store</code>, <code>acc_store</code>, <code>cond</code> or <code>break</code>. The <a href="../../reference/isa/instructions/">Instructions</a>
+  <code>aaq_exact</code>, <code>cond</code> or <code>break</code>. The <a href="../../reference/isa/instructions/">Instructions</a>
   reference lists what each slot holds today.</li>
 <li><strong>The tag</strong>, which the instruction takes from its slot:<ul>
-<li><strong>HARDWARE</strong> (every slot but <code>acc_store</code> and <code>break</code>) is in the IPU, so it
+<li><strong>HARDWARE</strong> (every slot but <code>aaq_exact</code> and <code>break</code>) is in the IPU, so it
   is in the hardware word and the SystemVerilog package.</li>
-<li><strong>EMULATOR</strong> (<code>acc_store</code>, <code>break</code>) exists only in the emulator. The
+<li><strong>EMULATOR</strong> (<code>aaq_exact</code>, <code>break</code>) exists only in the emulator. The
   assembler rejects it under <code>--target hardware</code>.</li>
 <li><strong>ASSEMBLER</strong> is a pseudo-instruction: the assembler expands it into a
   real instruction, and it has no opcode. See
@@ -2900,8 +2900,8 @@ every other opcode where it is; never assign one. The entry is checked when
 with the entry's path, such as <code>lr.TESTNEG.operands[src].read</code>.</p>
 <h2 id="step-2-the-handler">Step 2: the handler<a class="headerlink" href="#step-2-the-handler" title="Permanent link">&para;</a></h2>
 <p>Add <code>execute_&lt;name&gt;</code> to the module of the instruction's slot, under
-<code>src/ipu-emu/src/ipu_emu/slots/</code> (<code>lr.py</code> for <code>lr</code>; <code>store.py</code> holds
-<code>store</code> and <code>acc_store</code>; <code>brk.py</code> is <code>break</code>).
+<code>src/ipu-emu/src/ipu_emu/slots/</code> (<code>lr.py</code> for <code>lr</code>; <code>aaq_exact.py</code> is
+<code>aaq_exact</code>; <code>brk.py</code> is <code>break</code>).
 This is <code>TESTNEG</code>'s, in <code>lr.py</code>:</p>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">execute_testneg</span><span class="p">(</span><span class="n">ipu</span><span class="p">:</span> <span class="n">Ipu</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">dest</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">src</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">    </span><span class="sd">"""Execute TESTNEG: uint32 ``dest = -src``."""</span>
@@ -3044,7 +3044,7 @@ assembles to the same words as its expansion (in
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 18, 2026 21:48:18 UTC"><span class="timeago" datetime="2026-10-18T21:48:18+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 18, 2026 21:48:18 UTC">2026-10-18</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 23, 2026 20:55:31 UTC"><span class="timeago" datetime="2026-10-23T20:55:31+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 23, 2026 20:55:31 UTC">2026-10-23</span>
   </span>
 
     

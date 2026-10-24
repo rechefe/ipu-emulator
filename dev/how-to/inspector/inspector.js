@@ -5,7 +5,7 @@
    data/kernels.json (the curated list), data/<id>.json (one trace, the
    document ipu_gen.inspector_trace writes) and data/isa.json (the instruction
    reference the editor extension also reads). */
-const VIEWER_SCHEMA = 1;  // the trace document version this viewer reads
+const VIEWER_SCHEMA = 2;  // the trace document version this viewer reads
 const KERNELS_SCHEMA = 1;  // the kernel list version this viewer reads
 let KERNELS = [];
 // Slot order and instance counts come from isa.json (slotOrder, slotCount).
@@ -105,9 +105,9 @@ async function loadKernel(id) {
         : `this trace is older than the viewer (trace version ${t.schemaVersion}, viewer ${VIEWER_SCHEMA}); rebuild the docs`);
     }
     T = t; T.id = id;
-    T.wideMode = !t.meta.emulator_only ? "native" : t.meta.accumulator === "int32" ? "i32" : "f32";
-    T.isInt = !t.meta.is_float;
-    T.lut = t.meta.lut ? t.meta.lut.map((v) => v === "nan" ? NaN : v === "inf" ? Infinity : v === "-inf" ? -Infinity : v) : null;
+    // NX8 (the hardware mode): 128-byte rows, each with a metadata word; FP32: the emulator-only mode.
+    T.wideMode = t.meta.emulator_only ? "f32" : "native";
+    T.lut = t.meta.lut;  // NX8: per dynamic_exponent, each code's value at unit scale
     states = buildStates(t);
     hitCounts = new Array(t.program.length).fill(0);
     for (const c of t.cycles) hitCounts[c.pc]++;
@@ -134,15 +134,14 @@ async function loadKernel(id) {
 
 function renderKernelInfo() {
   const k = KERNELS.find((x) => x.id === T.id);
-  const dt = T.meta.format.toUpperCase();
-  const wide = T.meta.accumulator.toUpperCase();
+  const dt = `NX8 ${T.meta.variant}`;
   $("kinfo").innerHTML = `<strong>${esc(k.title)} · ${esc(k.label)}</strong>
     <span class="pill">${esc(T.source_path)} · case ${esc(T.case)}</span>
     <span class="pill">${T.program.length} instructions</span>
     <span class="pill">${T.total_cycles.toLocaleString()} cycles</span>
     <span class="pill" title="Multiplier lanes used over the whole run, out of 128 per cycle">MAC utilization ${Math.round(100 * T.cycles.reduce((a, c) => a + (c.L || 0), 0) / (128 * T.cycles.length))}%</span>
     ${T.wideMode === "native" ? `<span class="pill">format ${esc(dt)}</span>` : ""}
-    <span class="pill">${T.wideMode === "native" ? "8-bit hardware format" : "emulator-only format, " + esc(wide) + " lanes"}</span>
+    <span class="pill">${T.wideMode === "native" ? "hardware mode: 128-byte rows, each with a metadata word" : "emulator-only FP32 mode, 32-bit lanes"}</span>
     <span class="desc">${esc(k.description)}</span>`;
   const tr = $("trunc");
   tr.hidden = !T.truncated;
@@ -303,33 +302,40 @@ function renderScalars() {
 
 function vecDefs() {
   const wide = T.wideMode !== "native";
-  const lane = T.wideMode;
-  const el = T.isInt ? "i8" : "fp8", acc = T.isInt ? "i32" : "f32";
-  const dn = T.isInt ? "INT8" : `FP8 E${T.meta.exp_bits}M${T.meta.man_bits}`;
+  const q = T.meta.nx8;
+  const dn = q && `NX8 ${T.meta.variant} (${q.dynamic ? "dynamic, fe 1 or 2 per row" : `fe ${q.exp_format}`}, ${q.num_bits} bits${q.sign ? ", signed" : ""})`;
+  // An NX8 register's metadata: `meta` names the register holding one 16-bit word per 128 elements.
   return wide ? [
-    { key: "R0", reg: "r_wide_debug", off: 0, len: 512, mode: lane, cols: 16, note: "128 × 32-bit lanes (emulator-only format)" },
-    { key: "R1", reg: "r_wide_debug", off: 512, len: 512, mode: lane, cols: 16, note: "128 × 32-bit lanes (emulator-only format)" },
-    { key: "R_CYCLIC", reg: "r_cyclic_wide_debug", off: 0, len: 2048, mode: lane, cols: 32, note: "512 × 32-bit lanes in four 128-element slots (emulator-only format)" },
-    { key: "MULT_RES", reg: "mult_res", off: 0, len: 512, mode: lane, cols: 16, note: "multiply stage result" },
-    { key: "R_ACC", reg: "r_acc", off: 0, len: 512, mode: lane, cols: 16, note: "accumulator" },
-    { key: "POST_AAQ_REG", reg: "post_aaq_reg", off: 0, len: 512, mode: lane, cols: 16, note: "activation output staging" },
+    { key: "R0", reg: "r_wide_debug", off: 0, len: 512, mode: "f32", cols: 16, note: "128 × FP32 lanes (emulator-only mode)" },
+    { key: "R1", reg: "r_wide_debug", off: 512, len: 512, mode: "f32", cols: 16, note: "128 × FP32 lanes (emulator-only mode)" },
+    { key: "R_CYCLIC", reg: "r_cyclic_wide_debug", off: 0, len: 2048, mode: "f32", cols: 32, note: "512 × FP32 lanes in four 128-element slots (emulator-only mode)" },
+    { key: "MULT_RES", reg: "mult_res", off: 0, len: 512, mode: "f32", cols: 16, note: "multiply stage result" },
+    { key: "R_ACC", reg: "r_acc", off: 0, len: 512, mode: "f32", cols: 16, note: "accumulator" },
     { key: "R_MASK", reg: "r_mask", off: 0, len: 128, mode: "bits", cols: 64, note: "8 slots × 128 mask bits" },
   ] : [
-    { key: "R0", reg: "r", off: 0, len: 128, mode: el, cols: 16, note: `128 × ${dn}` },
-    { key: "R1", reg: "r", off: 128, len: 128, mode: el, cols: 16, note: `128 × ${dn}` },
-    { key: "R_CYCLIC", reg: "r_cyclic", off: 0, len: 512, mode: el, cols: 32, note: `512 × ${dn}, four 128-element slots, cyclic access` },
-    { key: "MULT_RES", reg: "mult_res", off: 0, len: 512, mode: acc, cols: 16, note: `128 × ${acc === "i32" ? "INT32" : "FP32"} products` },
-    { key: "R_ACC", reg: "r_acc", off: 0, len: 512, mode: acc, cols: 16, note: `128 × ${acc === "i32" ? "INT32" : "FP32"} accumulator` },
-    { key: "POST_AAQ_REG", reg: "post_aaq_reg", off: 0, len: 512, mode: "i8", cols: 32, note: "activation output staging; INT8 mode fills the leading 128 bytes" },
+    { key: "R0", reg: "r", off: 0, len: 128, mode: "nx8", meta: { reg: "r_meta", off: 0 }, cols: 16, note: `128 × ${dn}, scaled by R0's metadata` },
+    { key: "R1", reg: "r", off: 128, len: 128, mode: "nx8", meta: { reg: "r_meta", off: 2 }, cols: 16, note: `128 × ${dn}, scaled by R1's metadata` },
+    { key: "R_CYCLIC", reg: "r_cyclic", off: 0, len: 512, mode: "nx8", meta: { reg: "r_cyclic_meta", off: 0 }, cols: 32, note: `512 × ${dn}, four 128-element slots, each with its row's metadata` },
+    { key: "MULT_RES", reg: "mult_res", off: 0, len: 512, mode: "f32", cols: 16, note: "128 × FP32 products" },
+    { key: "R_ACC", reg: "r_acc", off: 0, len: 512, mode: "f32", cols: 16, note: "128 × FP32 accumulator; ACTIVATE.QUANTIZE stores it as one NX8 row" },
     { key: "R_MASK", reg: "r_mask", off: 0, len: 128, mode: "bits", cols: 64, note: "8 slots × 128 mask bits" },
   ];
 }
+/** The metadata words of a vector panel in state `s`: one per 128 elements, or null. */
+function metaWords(v, s) {
+  if (!v.meta || !s[v.meta.reg]) return null;
+  const b = s[v.meta.reg], n = Math.ceil(v.len / 128), out = new Array(n);
+  for (let k = 0; k < n; k++) out[k] = b[v.meta.off + 2 * k] | (b[v.meta.off + 2 * k + 1] << 8);
+  return out;
+}
+/** A metadata word as the page shows it: scale[7:0] (e8m0, bias 127), dynamic_exponent[8]. */
+function metaText(w) { return `scale 2^${(w & 0xff) - 127}${T.meta.nx8 && T.meta.nx8.dynamic ? `, dynamic_exponent ${(w >> 8) & 1}` : ""}`; }
 let VDEFS = [];
 function buildVecPanels() {
   VDEFS = vecDefs();
   $("vecs").innerHTML = VDEFS.map((v) => `<div class="vec" data-key="${v.key}">
     <div class="vec-h"><b>${v.key}</b><span class="meta" id="vm-${v.key}"></span>
-      <span class="vmode" role="group" aria-label="${v.key} element view">${["i8", ...(T.lut ? ["fp8"] : []), "i32", "f32", "bits"].map((m) => `<button data-v="${v.key}" data-m="${m}" aria-pressed="false">${m}</button>`).join("")}</span></div>
+      <span class="vmode" role="group" aria-label="${v.key} element view">${[...(T.lut && v.meta ? ["nx8"] : []), "i8", "i32", "f32", "bits"].map((m) => `<button data-v="${v.key}" data-m="${m}" aria-pressed="false">${m}</button>`).join("")}</span></div>
     <canvas id="cv-${v.key}" data-key="${v.key}"></canvas>
     <div class="range"><span id="lo-${v.key}"></span><span class="legend-scale"></span><span id="hi-${v.key}"></span></div>
     <div class="meta hint">${esc(v.note)}</div></div>`).join("");
@@ -339,10 +345,16 @@ $("vecs").addEventListener("click", (e) => {
   viewModes[b.dataset.v] = b.dataset.m; renderVectors();
 });
 
-function elems(bytes, mode) {
+function elems(bytes, mode, meta) {
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (mode === "i8") return Array.from(bytes, (b) => (b << 24) >> 24);
-  if (mode === "fp8") return Array.from(bytes, (b) => T.lut[b]);
+  if (mode === "nx8") {  // the code's value at unit scale, times 2^(scale - 127) of its row
+    return Array.from(bytes, (b, i) => {
+      const w = meta ? meta[i >> 7] : 127;
+      const table = T.lut[Math.min((w >> 8) & 1, T.lut.length - 1)];
+      return table[b] * Math.pow(2, (w & 0xff) - 127);
+    });
+  }
   if (mode === "i32") { const n = bytes.length >> 2, a = new Array(n); for (let i = 0; i < n; i++) a[i] = dv.getInt32(i * 4, true); return a; }
   if (mode === "f32") { const n = bytes.length >> 2, a = new Array(n); for (let i = 0; i < n; i++) a[i] = dv.getFloat32(i * 4, true); return a; }
   const a = new Array(bytes.length * 8); for (let i = 0; i < bytes.length; i++) for (let b = 0; b < 8; b++) a[i * 8 + b] = (bytes[i] >> b) & 1; return a;
@@ -360,7 +372,7 @@ function hexRGB(h) {
 }
 function mix(a, b, t) { return `rgb(${Math.round(a[0] + (b[0] - a[0]) * t)},${Math.round(a[1] + (b[1] - a[1]) * t)},${Math.round(a[2] + (b[2] - a[2]) * t)})`; }
 function fmt(v, mode) {
-  if (mode === "f32" || mode === "fp8") { if (!isFinite(v)) return String(v); const a = Math.abs(v); return a !== 0 && (a < 1e-3 || a >= 1e5) ? v.toExponential(2) : +v.toFixed(4) + ""; }
+  if (mode === "f32" || mode === "nx8") { if (!isFinite(v)) return String(v); const a = Math.abs(v); return a !== 0 && (a < 1e-3 || a >= 1e5) ? v.toExponential(2) : +v.toFixed(4) + ""; }
   return String(v);
 }
 const vcache = {};
@@ -372,8 +384,9 @@ function renderVectors() {
     for (const b of document.querySelectorAll(`[data-v="${v.key}"]`)) b.setAttribute("aria-pressed", b.dataset.m === mode);
     const bytes = s[v.reg].subarray(v.off, v.off + v.len);
     const pbytes = p ? p[v.reg].subarray(v.off, v.off + v.len) : null;
-    const vals = elems(bytes, mode);
-    const pvals = pbytes ? elems(pbytes, mode) : null;
+    const meta = metaWords(v, s), pmeta = p ? metaWords(v, p) : null;
+    const vals = elems(bytes, mode, meta);
+    const pvals = pbytes ? elems(pbytes, mode, pmeta) : null;
     const n = vals.length;
     const cols = mode === "bits" ? 64 : n >= 512 ? 32 : 16;
     const rows = Math.ceil(n / cols);
@@ -415,7 +428,9 @@ function renderVectors() {
       }
     }
     vcache[v.key] = { vals, pvals, cols, cell, mode, W, H };
-    $("vm-" + v.key).innerHTML = changed ? `<span class="chgd">${changed === n ? "all" : changed} ${mode === "bits" ? "bits" : "elements"} changed</span>` : `${n} ${mode === "bits" ? "bits" : "elements"}`;
+    const metaChg = meta && pmeta && meta.some((w, k) => w !== pmeta[k]);
+    const metaHTML = meta ? ` · <span class="${metaChg ? "chgd" : ""}" title="The metadata word of each 128-element row">${meta.map(metaText).join(" | ")}</span>` : "";
+    $("vm-" + v.key).innerHTML = (changed ? `<span class="chgd">${changed === n ? "all" : changed} ${mode === "bits" ? "bits" : "elements"} changed</span>` : `${n} ${mode === "bits" ? "bits" : "elements"}`) + metaHTML;
     $("lo-" + v.key).textContent = mode === "bits" ? "0" : isFinite(lo) ? fmt(maxAbs ? -maxAbs : 0, mode) : "";
     $("hi-" + v.key).textContent = mode === "bits" ? "1" : isFinite(hi) ? fmt(maxAbs, mode) : "";
   }
@@ -442,7 +457,7 @@ document.addEventListener("mousemove", (e) => {
 });
 
 /* ---------- effects ---------- */
-const REG_LABEL = { r: "R0/R1", r_wide_debug: "R0/R1 (32-bit)", r_cyclic: "R_CYCLIC", r_cyclic_wide_debug: "R_CYCLIC (32-bit)", r_mask: "R_MASK", r_acc: "R_ACC", mult_res: "MULT_RES", post_aaq_reg: "POST_AAQ_REG" };
+const REG_LABEL = { r: "R0/R1", r_wide_debug: "R0/R1 (32-bit)", r_cyclic: "R_CYCLIC", r_cyclic_wide_debug: "R_CYCLIC (32-bit)", r_meta: "R0/R1 metadata", r_cyclic_meta: "R_CYCLIC metadata", r_mask: "R_MASK", r_acc: "R_ACC", mult_res: "MULT_RES", aaq_lut: "AaQ LUT" };
 function renderEffects() {
   if (!pos) { $("eff-regs").innerHTML = '<span class="none">No cycle executed yet.</span>'; $("eff-mem").innerHTML = '<span class="none">—</span>'; return; }
   const c = T.cycles[pos - 1], s = states[pos], p = states[pos - 1];
@@ -460,9 +475,9 @@ function renderEffects() {
   const branch = next && next.pc !== c.pc + 1 ? `<span style="color:var(--s-cond)">branch taken → ${hex4(next.pc)}</span>` : "";
   if (c.L) out.unshift(`<span style="color:var(--s-mult)">MULT: ${c.L} / 128 lanes multiplied</span>`);
   $("eff-regs").innerHTML = (out.length ? out.map((x) => `<span>${x}</span>`).join("") : '<span class="none">No register changed.</span>') + branch;
-  $("eff-mem").innerHTML = c.m.length
-    ? c.m.map(([k, a, n]) => `<span class="${k === "R" ? "memR" : "memW"}">${k === "R" ? "read " : "write"} ${n} B @ 0x${a.toString(16).padStart(6, "0")} <span style="color:var(--muted)">(row ${Math.floor(a / 128)})</span></span>`).join("")
-    : '<span class="none">No XMEM access this cycle.</span>';
+  const mem = c.m.map(([k, a, n]) => `<span class="${k === "R" ? "memR" : "memW"}">${k === "R" ? "read " : "write"} ${n} B @ 0x${a.toString(16).padStart(6, "0")} <span style="color:var(--muted)">(row ${Math.floor(a / 128)})</span></span>`)
+    .concat((c.M || []).map(([a, w]) => `<span class="memW">metadata of row ${Math.floor(a / 128)}: ${esc(metaText(w))}</span>`));
+  $("eff-mem").innerHTML = mem.length ? mem.join("") : '<span class="none">No XMEM access this cycle.</span>';
 }
 
 /* ---------- hardware pipeline ---------- */
@@ -484,11 +499,12 @@ function changedChips(c) {
       const half = reg === "r" ? 128 : 512;
       for (const [off, h] of c.d[reg]) { if (off < half) out.add("R0"); if (off + h.length / 2 > half) out.add("R1"); }
     }
+    else if (reg === "r_meta") { for (const [off, h] of c.d[reg]) { if (off < 2) out.add("R0"); if (off + h.length / 2 > 2) out.add("R1"); } }
     else if (reg.startsWith("r_cyclic")) out.add("R_CYCLIC");
     else if (reg === "r_mask") out.add("R_MASK");
     else if (reg === "mult_res") out.add("MULT_RES");
     else if (reg === "r_acc") out.add("R_ACC");
-    else if (reg === "post_aaq_reg") out.add("POST_AAQ");
+    else if (reg === "aaq_lut") out.add("LUT");
   }
   return out;
 }
@@ -497,8 +513,8 @@ const DP_BLOCKS = [
   { k: "agent", x: 222, w: 122, t: "Cache agent", s: "hit / miss · XMEM read", col: "load", lanes: ["load0"], chips: [] },
   { k: "mult", x: 366, w: 168, t: "MULT", s: "128-lane multiply", col: "mult", lanes: ["mult0"], chips: ["R0", "R1", "R_CYCLIC", "R_MASK", "MULT_RES"] },
   { k: "acc", x: 556, w: 128, t: "ACC", s: "accumulate", col: "acc", lanes: ["acc0"], chips: ["R_ACC"] },
-  { k: "aaq", x: 706, w: 128, t: "AAQ", s: "activate · quantize", col: "aaq", lanes: ["aaq0"], chips: ["POST_AAQ"] },
-  { k: "store", x: 856, w: 134, t: "STORE", s: "row → XMEM", col: "store", lanes: ["store0", "acc_store0"], chips: [] },
+  // The AaQ stage stores its own row (ADR 0007); ACTIVATE.EXACT is its emulator-only twin.
+  { k: "aaq", x: 706, w: 284, t: "AAQ", s: "activate · quantize · store row → XMEM", col: "aaq", lanes: ["aaq0", "aaq_exact0"], chips: ["LUT"] },
 ];
 const BY = 34, BH = 178, XY = 262, XH = 46;
 function clip(s, n) { return s.length > n ? s.slice(0, n - 1) + "…" : s; }
@@ -542,7 +558,7 @@ function renderDatapath() {
     if (!ops.length) g.push(`<text class="idle" x="${b.x + 10}" y="${y}">${c ? "idle" : "—"}</text>`);
     const lineH = b.k === "ctrl" && ops.length > 2 ? 0 : 14;
     for (const { l, ins } of ops) {
-      const sim = l === "acc_store0" ? "*" : "";
+      const sim = l === "aaq_exact0" ? "*" : "";
       if (lineH) {
         g.push(`<text class="op" style="fill:${sv(ins.slot)}" x="${b.x + 10}" y="${y}">${esc(clip(ins.op + sim, maxc))}</text>`);
         g.push(`<text class="args" x="${b.x + 10}" y="${y + 13}">${esc(clip(ins.args.join(" "), maxc + 1))}</text>`);
@@ -565,16 +581,20 @@ function renderDatapath() {
     parts.push(g.join(""));
   }
   // XMEM bar + paths
-  const x0 = DP_BLOCKS[1].x, x1 = DP_BLOCKS[5].x + DP_BLOCKS[5].w;
-  parts.push(`<rect class="xm" x="${x0}" y="${XY}" width="${x1 - x0}" height="${XH}" rx="6"/><text class="bt" x="${x0 + 12}" y="${XY + 20}">XMEM</text><text class="bs" x="${x0 + 12}" y="${XY + 36}">external memory · rows of 128 elements</text>`);
-  const ag = DP_BLOCKS[1], mu = DP_BLOCKS[2], ac = DP_BLOCKS[3], st = DP_BLOCKS[5];
-  const ld = !!lm.load0, sto = !!lm.store0, ast = !!lm.acc_store0;
+  const last = DP_BLOCKS[DP_BLOCKS.length - 1];
+  const x0 = DP_BLOCKS[1].x, x1 = last.x + last.w;
+  parts.push(`<rect class="xm" x="${x0}" y="${XY}" width="${x1 - x0}" height="${XH}" rx="6"/><text class="bt" x="${x0 + 12}" y="${XY + 20}">XMEM</text><text class="bs" x="${x0 + 12}" y="${XY + 36}">external memory · rows of 128 elements, each with a metadata word</text>`);
+  const ag = DP_BLOCKS[1], mu = DP_BLOCKS[2], aq = last;
+  const ld = !!lm.load0;
+  const lut = !!lm.aaq0 && lm.aaq0.op === "LD.LUT";  // the AaQ slot's own XMEM read
+  const quant = !!lm.aaq0 && !lut, exact = !!lm.aaq_exact0;
   const rdTxt = reads.length ? `${fmtBytes(reads.reduce((a, m) => a + m[2], 0))} @ row ${Math.floor(reads[0][1] / 128)}` : "";
   parts.push(edge(ld, "load", arrow(ag.x + ag.w / 2, BY + BH, ag.x + ag.w / 2, XY), ld ? "address" : "", ag.x + ag.w / 2 + 5, BY + BH + 30, "start"));
-  parts.push(edge(ld, "load", arrow(mu.x + 40, XY, mu.x + 40, BY + BH), ld ? "row " + rdTxt.replace(/ @ row.*/, "") : "load row", mu.x + 46, BY + BH + 30, "start"));
-  parts.push(edge(ast, "acc_store", arrow(ac.x + ac.w / 2, BY + BH, ac.x + ac.w / 2, XY), "STR_ACC_REG*", ac.x + ac.w / 2 + 5, BY + BH + 30, "start", " sim"));
+  parts.push(edge(ld, "load", arrow(mu.x + 40, XY, mu.x + 40, BY + BH), ld ? "row + metadata " + rdTxt.replace(/ @ row.*/, "") : "load row", mu.x + 46, BY + BH + 30, "start"));
+  parts.push(edge(lut, "aaq", arrow(aq.x + 40, XY, aq.x + 40, BY + BH), lut ? "LUT segment " + rdTxt.replace(/ @ row.*/, "") : "LD.LUT", aq.x + 46, BY + BH + 30, "start"));
   const wTxt = writes.length ? fmtBytes(writes.reduce((a, m) => a + m[2], 0)) : "store row";
-  parts.push(edge(sto, "store", arrow(st.x + st.w / 2, BY + BH, st.x + st.w / 2, XY), sto || ast ? wTxt : "store row", st.x + st.w / 2 + 5, BY + BH + 30, "start"));
+  parts.push(edge(quant, "aaq", arrow(aq.x + aq.w / 2 + 30, BY + BH, aq.x + aq.w / 2 + 30, XY), quant ? `${wTxt} + metadata` : "store row", aq.x + aq.w / 2 + 35, BY + BH + 30, "start"));
+  parts.push(edge(exact, "aaq_exact", arrow(aq.x + aq.w - 30, BY + BH, aq.x + aq.w - 30, XY), exact ? `${wTxt}*` : "", aq.x + aq.w - 25, BY + BH + 30, "start", " sim"));
   parts.push(`<text class="bs" x="${x1}" y="${XY + XH + 14}" text-anchor="end">* simulation-only slot, not in hardware (IPU-ARCH-4)</text>`);
   $("dp").innerHTML = parts.join("");
 }
@@ -584,8 +604,7 @@ const STAGES = [
   { k: "Cache agent", short: "AGT", col: "load", slots: ["load"] },
   { k: "MULT", col: "mult", slots: ["mult"] },
   { k: "ACC", col: "acc", slots: ["acc"] },
-  { k: "AAQ", col: "aaq", slots: ["aaq"] },
-  { k: "STORE", short: "STR", col: "store", slots: ["store", "acc_store"] },
+  { k: "AAQ", col: "aaq", slots: ["aaq", "aaq_exact"] },
 ];
 const stageOps = (pc, st) => T.program[pc].slots.filter((s) => st.slots.includes(s.slot));
 function renderTiming() {

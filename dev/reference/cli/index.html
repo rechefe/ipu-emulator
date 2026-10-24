@@ -1136,7 +1136,7 @@
   <span class="md-ellipsis">
     
   
-    ACTIVATE.QUANTIZE in the emulator
+    ACTIVATE.QUANTIZE, ACTIVATE.EXACT and LD.LUT
   
 
     
@@ -4100,13 +4100,13 @@ To run other values, add a case (<a href="../../how-to/write-a-kernel/">Write a 
 <td><code>fully_connected</code></td>
 <td><code>default</code></td>
 <td>none</td>
-<td>int8, int32, e4, e5</td>
+<td>e4, e5, dynamic</td>
 </tr>
 <tr>
 <td><code>fully_connected</code></td>
 <td><code>extremes</code></td>
 <td>none</td>
-<td>int8, int32, e4, e5</td>
+<td>e4, e5, dynamic</td>
 </tr>
 <tr>
 <td><code>fully_connected</code></td>
@@ -4634,7 +4634,7 @@ To run other values, add a case (<a href="../../how-to/write-a-kernel/">Write a 
 <td><code>proj_ffn1_192_p4</code></td>
 <td><code>default</code></td>
 <td><code>k=192</code>, <code>n_out=384</code>, <code>n_tok=64</code>, <code>n_tg=1</code>, <code>activation=silu</code></td>
-<td>fp32, int8</td>
+<td>fp32</td>
 </tr>
 <tr>
 <td><code>proj_ffn1_192_p4</code></td>
@@ -4646,7 +4646,7 @@ To run other values, add a case (<a href="../../how-to/write-a-kernel/">Write a 
 <td><code>proj_ffn1_240_p4</code></td>
 <td><code>default</code></td>
 <td><code>k=240</code>, <code>n_out=480</code>, <code>n_tok=16</code>, <code>n_tg=1</code>, <code>activation=silu</code></td>
-<td>fp32, int8</td>
+<td>fp32</td>
 </tr>
 <tr>
 <td><code>proj_ffn1_240_p4</code></td>
@@ -4664,7 +4664,7 @@ To run other values, add a case (<a href="../../how-to/write-a-kernel/">Write a 
 <td><code>proj_ffn2_192_p4</code></td>
 <td><code>default</code></td>
 <td><code>k=384</code>, <code>n_out=192</code>, <code>n_tok=64</code>, <code>n_tg=1</code>, <code>activation=none</code></td>
-<td>fp32, int8</td>
+<td>fp32</td>
 </tr>
 <tr>
 <td><code>proj_ffn2_192_p4</code></td>
@@ -4676,7 +4676,7 @@ To run other values, add a case (<a href="../../how-to/write-a-kernel/">Write a 
 <td><code>proj_ffn2_240_p4</code></td>
 <td><code>default</code></td>
 <td><code>k=480</code>, <code>n_out=240</code>, <code>n_tok=16</code>, <code>n_tg=1</code>, <code>activation=none</code></td>
-<td>fp32, int8</td>
+<td>fp32</td>
 </tr>
 <tr>
 <td><code>proj_ffn2_240_p4</code></td>
@@ -4694,7 +4694,7 @@ To run other values, add a case (<a href="../../how-to/write-a-kernel/">Write a 
 <td><code>proj_outproj_192_p4</code></td>
 <td><code>default</code></td>
 <td><code>k=192</code>, <code>n_out=192</code>, <code>n_tok=64</code>, <code>n_tg=1</code>, <code>activation=none</code></td>
-<td>fp32, int8</td>
+<td>fp32</td>
 </tr>
 <tr>
 <td><code>proj_outproj_192_p4</code></td>
@@ -4706,7 +4706,7 @@ To run other values, add a case (<a href="../../how-to/write-a-kernel/">Write a 
 <td><code>proj_outproj_240_p4</code></td>
 <td><code>default</code></td>
 <td><code>k=240</code>, <code>n_out=240</code>, <code>n_tok=16</code>, <code>n_tg=1</code>, <code>activation=none</code></td>
-<td>fp32, int8</td>
+<td>fp32</td>
 </tr>
 <tr>
 <td><code>proj_outproj_240_p4</code></td>
@@ -4724,7 +4724,7 @@ To run other values, add a case (<a href="../../how-to/write-a-kernel/">Write a 
 <td><code>proj_qkv_192_p4</code></td>
 <td><code>default</code></td>
 <td><code>k=192</code>, <code>n_out=576</code>, <code>n_tok=64</code>, <code>n_tg=1</code>, <code>activation=none</code></td>
-<td>fp32, int8</td>
+<td>fp32</td>
 </tr>
 <tr>
 <td><code>proj_qkv_192_p4</code></td>
@@ -4736,7 +4736,7 @@ To run other values, add a case (<a href="../../how-to/write-a-kernel/">Write a 
 <td><code>proj_qkv_240_p4</code></td>
 <td><code>default</code></td>
 <td><code>k=240</code>, <code>n_out=720</code>, <code>n_tok=16</code>, <code>n_tg=1</code>, <code>activation=none</code></td>
-<td>fp32, int8</td>
+<td>fp32</td>
 </tr>
 <tr>
 <td><code>proj_qkv_240_p4</code></td>
@@ -4874,25 +4874,25 @@ To run other values, add a case (<a href="../../how-to/write-a-kernel/">Write a 
 <td><code>scale</code></td>
 <td><code>default</code></td>
 <td><code>rows=4</code>, <code>s=2.0</code></td>
-<td>fp32, int8, e4</td>
+<td>fp32</td>
 </tr>
 <tr>
 <td><code>scale</code></td>
 <td><code>one_row</code></td>
 <td><code>rows=1</code>, <code>s=-3.0</code></td>
-<td>fp32, int8, e4</td>
+<td>fp32</td>
 </tr>
 <tr>
 <td><code>scale</code></td>
 <td><code>sweep</code></td>
 <td><code>rows=(1, 7, 33, 128)</code>, <code>s=1.5</code></td>
-<td>fp32, e4</td>
+<td>fp32</td>
 </tr>
 <tr>
 <td><code>scale</code></td>
 <td><code>mine</code></td>
 <td><code>rows=2</code>, <code>s=2.0</code></td>
-<td>fp32, int8, e4</td>
+<td>fp32</td>
 </tr>
 <tr>
 <td><code>score_threshold</code></td>
@@ -5569,14 +5569,14 @@ To run other values, add a case (<a href="../../how-to/write-a-kernel/">Write a 
 <tr>
 <td><code>vector_tour</code></td>
 <td><code>default</code></td>
-<td><code>int8_tail=True</code></td>
-<td>int8</td>
+<td>none</td>
+<td>e4</td>
 </tr>
 <tr>
 <td><code>vector_tour</code></td>
-<td><code>int8</code></td>
-<td><code>int8_tail=True</code></td>
-<td>int8</td>
+<td><code>e3</code></td>
+<td>none</td>
+<td>e3</td>
 </tr>
 <tr>
 <td><code>vector_tour</code></td>
@@ -5592,9 +5592,9 @@ To run other values, add a case (<a href="../../how-to/write-a-kernel/">Write a 
 </tr>
 <tr>
 <td><code>vector_tour</code></td>
-<td><code>e3</code></td>
+<td><code>dynamic</code></td>
 <td>none</td>
-<td>e3</td>
+<td>dynamic</td>
 </tr>
 </tbody>
 </table>
@@ -5621,11 +5621,11 @@ each <code>[benchmark]</code> point:</p>
 </tr>
 <tr>
 <td>XMEM reads</td>
-<td><code>LD.MULT</code>, <code>LD.MULT.CYCLIC</code> and <code>LD.MASK</code> executed.</td>
+<td><code>LD.MULT</code>, <code>LD.MULT.CYCLIC</code>, <code>LD.MASK</code> and <code>LD.LUT</code> executed.</td>
 </tr>
 <tr>
 <td>XMEM writes</td>
-<td><code>ST.ACC</code> and <code>ST.AAQ</code> executed.</td>
+<td><code>ACTIVATE.QUANTIZE</code> and <code>ACTIVATE.EXACT</code> executed (each stores one row).</td>
 </tr>
 <tr>
 <td>XMEM accesses</td>
@@ -5950,7 +5950,7 @@ limits the answer to one element format. It exits 0 when the query is covered
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 18, 2026 21:48:18 UTC"><span class="timeago" datetime="2026-10-18T21:48:18+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 18, 2026 21:48:18 UTC">2026-10-18</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 23, 2026 20:55:31 UTC"><span class="timeago" datetime="2026-10-23T20:55:31+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 23, 2026 20:55:31 UTC">2026-10-23</span>
   </span>
 
     

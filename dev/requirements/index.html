@@ -1132,7 +1132,7 @@
   <span class="md-ellipsis">
     
   
-    ACTIVATE.QUANTIZE in the emulator
+    ACTIVATE.QUANTIZE, ACTIVATE.EXACT and LD.LUT
   
 
     
@@ -2712,7 +2712,7 @@
 
 
 <h1 id="ipu-hardware-requirements">IPU hardware requirements<a class="headerlink" href="#ipu-hardware-requirements" title="Permanent link">&para;</a></h1>
-<p>The Inference Processing Unit (IPU) is a VLIW vector processor that runs neural-network kernels. Each VLIW word operates on 128-element vectors through a load, multiply, accumulate, activate-and-quantize, and store chain.</p>
+<p>The Inference Processing Unit (IPU) is a VLIW vector processor that runs neural-network kernels. Each VLIW word operates on 128-element vectors through a load, multiply, accumulate, and activate-quantize-and-store chain.</p>
 <p>The requirements define what the IPU does and what it expects from the blocks around it. The IPU block specification and the sub-block specifications derive from the requirements.</p>
 <h2 id="specification-levels">Specification levels<a class="headerlink" href="#specification-levels" title="Permanent link">&para;</a></h2>
 <table>
@@ -2736,7 +2736,7 @@
 </tr>
 <tr>
 <td>3. Sub-block specifications</td>
-<td>CTRL, cache agent, MULT, ACC, AAQ, STORE, host register block</td>
+<td>CTRL, cache agent, MULT, ACC, AAQ, host register block</td>
 <td>Not started</td>
 </tr>
 </tbody>
@@ -2787,7 +2787,7 @@
 </thead>
 <tbody>
 <tr>
-<td>CTRL, cache agent, MULT, ACC, AAQ and STORE stages</td>
+<td>CTRL, cache agent, MULT, ACC and AAQ stages</td>
 <td>Yes</td>
 </tr>
 <tr>
@@ -2803,7 +2803,7 @@
 <td>Interface and expected software flow only</td>
 </tr>
 <tr>
-<td><code>ACC_STORE</code> and <code>BREAK</code> ISA slots</td>
+<td><code>AAQ_EXACT</code> and <code>BREAK</code> ISA slots</td>
 <td>No. These slots exist in the emulator only.</td>
 </tr>
 </tbody>
@@ -2833,7 +2833,7 @@
 </tr>
 <tr>
 <td>Slot</td>
-<td>A field of the VLIW word executed by one stage: <code>COND</code>, <code>LR</code> (three lanes), <code>LOAD</code>, <code>MULT</code>, <code>ACC</code>, <code>AAQ</code>, <code>STORE</code>.</td>
+<td>A field of the VLIW word executed by one stage: <code>COND</code>, <code>LR</code> (three lanes), <code>LOAD</code>, <code>MULT</code>, <code>ACC</code>, <code>AAQ</code>.</td>
 </tr>
 <tr>
 <td>Kernel</td>
@@ -2928,7 +2928,7 @@
 </tr>
 <tr>
 <td><a href="../specs/MAS-stage-aaq-str/">AaQ and store stage specification</a></td>
-<td>AAQ and STORE behaviour</td>
+<td>AAQ behaviour, including the store</td>
 </tr>
 <tr>
 <td><a href="../specs/cache-unit/">Cache unit specification</a></td>
@@ -2959,7 +2959,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 17, 2026 00:31:02 UTC"><span class="timeago" datetime="2026-10-17T00:31:02+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 17, 2026 00:31:02 UTC">2026-10-17</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 23, 2026 21:17:30 UTC"><span class="timeago" datetime="2026-10-23T21:17:30+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 23, 2026 21:17:30 UTC">2026-10-23</span>
   </span>
 
     

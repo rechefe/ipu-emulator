@@ -1132,7 +1132,7 @@
   <span class="md-ellipsis">
     
   
-    ACTIVATE.QUANTIZE in the emulator
+    ACTIVATE.QUANTIZE, ACTIVATE.EXACT and LD.LUT
   
 
     
@@ -2723,10 +2723,11 @@
 
 <h1 id="mnemonic-rename-e03-19-systemverilog-names">Mnemonic rename (E03-19): SystemVerilog names<a class="headerlink" href="#mnemonic-rename-e03-19-systemverilog-names" title="Permanent link">&para;</a></h1>
 <p>The mnemonic standard (Q33, Q45) renamed nine instructions. Opcodes did not
-change, so every program assembles to the same bits, and every <code>*_WIDTH</code>
-localparam, typedef name and operand field name in <code>ipu_instr_pkg.sv</code> is
-unchanged. Only these enum members and union members of the package are
-renamed. A downstream RTL repository that vendors the package replaces each
+change, so every program assembled to the same bits, and every <code>*_WIDTH</code>
+localparam, typedef name and operand field name in <code>ipu_instr_pkg.sv</code> was
+unchanged. Only these enum members and union members of the package were
+renamed. (A later, breaking change, ADR 0007, removed two of the nine and
+changed widths: see <a href="../rtl-migration/">RTL migration</a>.) A downstream RTL repository that vendors the package replaces each
 old name with the new one.</p>
 <p><code>tools/rename_mnemonics.py</code> applies the same rename to assembly sources, Python,
 JavaScript and docs on another branch or checkout:</p>
@@ -2833,7 +2834,14 @@ JavaScript and docs on another branch or checkout:</p>
 no SV name. <code>BLT.U</code>, <code>BGE.U</code>, <code>BGT.U</code> and <code>BLE.U</code> are reserved for unsigned
 branches (<code>ipu_isa.RESERVED_MNEMONICS</code>): no spec may define them, and the
 assembler rejects them as "reserved, not implemented".</p>
-<p>The <code>ACC_STORE</code> slot is emulator-only; since E03-22 the SV package leaves it out, so its two names above no longer appear there.</p>
+<p><code>ST.AAQ</code> and <code>ST.ACC</code> no longer exist:
+<a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/adr/0007-operational-aaq-and-nx8.md">ADR 0007</a>
+removed the STORE and ACC_STORE slots (the AaQ stage stores its own row with
+<code>ACTIVATE.QUANTIZE</code>; a raw accumulator store is <code>ACTIVATE.QUANTIZE identity</code>,
+or <code>ACTIVATE.EXACT identity</code> in the FP32 mode). Their rows stay as a record
+of the rename; none of their names is in the SV package, and
+<code>tools/rename_mnemonics.py</code> still maps the old names, so a source it renames
+then needs the ADR 0007 migration as well.</p>
 <p><code>//src/ipu-gen:test_sv_rename_table</code> checks this table against the SV
 golden.</p>
 
@@ -2858,7 +2866,7 @@ golden.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 18, 2026 21:59:58 UTC"><span class="timeago" datetime="2026-10-18T21:59:58+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 18, 2026 21:59:58 UTC">2026-10-18</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 23, 2026 20:55:31 UTC"><span class="timeago" datetime="2026-10-23T20:55:31+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 23, 2026 20:55:31 UTC">2026-10-23</span>
   </span>
 
     

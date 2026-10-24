@@ -1136,7 +1136,7 @@
   <span class="md-ellipsis">
     
   
-    ACTIVATE.QUANTIZE in the emulator
+    ACTIVATE.QUANTIZE, ACTIVATE.EXACT and LD.LUT
   
 
     
@@ -2941,7 +2941,8 @@ one program), and for the <code>_x128</code> kernels one template per distinct p
 (<code>144x288</code>), <code>matmul_x128_c2</code> (<code>192x192</code>, <code>240x240</code>, <code>720x240</code>, <code>384x192</code>,
 <code>480x240</code>), <code>matmul_x128_c2_qkv</code> (<code>576x192</code>), <code>matmul_x128_c3</code> (<code>192x384</code>) and
 <code>matmul_x128_c4</code> (<code>240x480</code>). A template's <code>activation</code> parameter renders the
-store's <code>ACTIVATE.QUANTIZE</code>, so an FFN1 kernel shares its template's program.</p>
+store's <code>ACTIVATE.EXACT</code> (SiLU is not in the hardware list, so the matmuls run
+in FP32), and an FFN1 kernel shares its template's program.</p>
 <p>Query: <code>bazel run //kernels:query -- matmul m=M k=K n=N [activation=silu]</code>. A
 plain query at an FFN1 shape is refused: the activation is part of the query.</p>
 <h2 id="projection"><code>projection</code><a class="headerlink" href="#projection" title="Permanent link">&para;</a></h2>
@@ -3044,14 +3045,17 @@ QKV, OutProj and FFN2 kernels, and an FFN1 kernel is found only with
 <h2 id="fully_connected"><code>fully_connected</code><a class="headerlink" href="#fully_connected" title="Permanent link">&para;</a></h2>
 <p>One kernel, <code>kernels/linear/fully_connected</code>, run and tested as
 <code>//kernels/linear/fully_connected</code>. It computes <code>y[s, :] = w @ x[s, :]</code> for a
-fixed shape: 10 samples of 128 inputs, 64 outputs, with no activation. It is
-the one kernel that runs in several element formats with one program: INT8,
-INT32 (the emulator-only format: INT8 data in 32-bit elements), E4 and E5.
-<code>y</code> is stored from the accumulator: INT32 for INT8 and INT32 data, FP32 for E4
-and E5. The case data are seeded, generated per format inside each input's
-<code>range</code>, which keeps every sum inside the accumulator. The goldens come from
-the shared <code>linear</code> op (<code>y = linear(w, x.T).T</code>), rounded to the accumulator
-format: exact in INT8 and INT32, <code>FP32_ORDER</code> in E4 and E5.</p>
+fixed shape: 10 samples of 128 inputs, 64 outputs, with no activation. It
+runs in NX8, the hardware mode, in three NX8 types with one program: e4, e5
+and dynamic (<a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/adr/0007-operational-aaq-and-nx8.md">ADR 0007</a>).
+It accumulates in FP32, and <code>ACTIVATE.QUANTIZE identity</code> stores each
+sample's outputs as one NX8 row with its metadata, quantized to the case's
+QF. The case data are seeded, generated per variant inside each input's
+<code>range</code>; <code>extremes</code> puts every element at a range end and <code>every_code</code>
+uses every code of a row's grid. The goldens come from the shared <code>linear</code>
+op (<code>y = linear(w, x.T).T</code>), quantized row by row as the store quantizes,
+and are compared at <code>NX8_STEP</code>: the kernel's order of the 128-term sum can
+move an output across a rounding edge of its row's grid.</p>
 <p>Query: <code>bazel run //kernels:query -- fully_connected</code>. The shape parameters
 <code>samples</code>, <code>in_features</code> and <code>out_features</code> each take one value (10, 128,
 64).</p>
@@ -3082,8 +3086,7 @@ lanes valid. L3 (144) has <code>N_TG = 2</code> token groups of 128; L4/L5 have
 <code>[10, 128]</code>, one XMEM row per sample. <code>w</code> is <code>[64, 128]</code>, output-major; its
 <code>transposed</code> pack (<code>kernels/linear/pack.py</code>) stores one row per input
 feature, holding that input's weight for each of the 64 outputs. <code>y</code> is
-<code>[10, 64]</code>, one accumulator vector per sample: 4 rows apart in INT8, E4 and
-E5, 1 row apart in INT32.</p>
+<code>[10, 64]</code>, one stored NX8 row per sample (64 lanes valid).</p>
 
 
 
@@ -3106,7 +3109,7 @@ E5, 1 row apart in INT32.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 17, 2026 20:02:48 UTC"><span class="timeago" datetime="2026-10-17T20:02:48+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 17, 2026 20:02:48 UTC">2026-10-17</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 23, 2026 20:55:31 UTC"><span class="timeago" datetime="2026-10-23T20:55:31+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 23, 2026 20:55:31 UTC">2026-10-23</span>
   </span>
 
     

@@ -1130,7 +1130,7 @@
   <span class="md-ellipsis">
     
   
-    ACTIVATE.QUANTIZE in the emulator
+    ACTIVATE.QUANTIZE, ACTIVATE.EXACT and LD.LUT
   
 
     
@@ -3228,7 +3228,7 @@ query the kernel computes wrongly. These tests guard it:</p>
 <td><code>fully_connected</code></td>
 <td><code>fully_connected</code></td>
 <td><code>//kernels/linear/fully_connected</code></td>
-<td>int8, int32, e4, e5</td>
+<td>e4, e5, dynamic</td>
 <td></td>
 </tr>
 <tr>
@@ -3487,14 +3487,14 @@ query the kernel computes wrongly. These tests guard it:</p>
 <td><code>projection</code></td>
 <td><code>proj_ffn1_192_p4</code></td>
 <td><code>//kernels/projections:proj_ffn1_192_p4</code></td>
-<td>fp32, int8</td>
+<td>fp32</td>
 <td>Layer 4 FFN1 (fused SiLU)</td>
 </tr>
 <tr>
 <td><code>projection</code></td>
 <td><code>proj_ffn1_240_p4</code></td>
 <td><code>//kernels/projections:proj_ffn1_240_p4</code></td>
-<td>fp32, int8</td>
+<td>fp32</td>
 <td>Layer 5 FFN1 (fused SiLU)</td>
 </tr>
 <tr>
@@ -3508,14 +3508,14 @@ query the kernel computes wrongly. These tests guard it:</p>
 <td><code>projection</code></td>
 <td><code>proj_ffn2_192_p4</code></td>
 <td><code>//kernels/projections:proj_ffn2_192_p4</code></td>
-<td>fp32, int8</td>
+<td>fp32</td>
 <td>Layer 4 FFN2</td>
 </tr>
 <tr>
 <td><code>projection</code></td>
 <td><code>proj_ffn2_240_p4</code></td>
 <td><code>//kernels/projections:proj_ffn2_240_p4</code></td>
-<td>fp32, int8</td>
+<td>fp32</td>
 <td>Layer 5 FFN2</td>
 </tr>
 <tr>
@@ -3529,14 +3529,14 @@ query the kernel computes wrongly. These tests guard it:</p>
 <td><code>projection</code></td>
 <td><code>proj_outproj_192_p4</code></td>
 <td><code>//kernels/projections:proj_outproj_192_p4</code></td>
-<td>fp32, int8</td>
+<td>fp32</td>
 <td>Layer 4 OutProj</td>
 </tr>
 <tr>
 <td><code>projection</code></td>
 <td><code>proj_outproj_240_p4</code></td>
 <td><code>//kernels/projections:proj_outproj_240_p4</code></td>
-<td>fp32, int8</td>
+<td>fp32</td>
 <td>Layer 5 OutProj</td>
 </tr>
 <tr>
@@ -3550,14 +3550,14 @@ query the kernel computes wrongly. These tests guard it:</p>
 <td><code>projection</code></td>
 <td><code>proj_qkv_192_p4</code></td>
 <td><code>//kernels/projections:proj_qkv_192_p4</code></td>
-<td>fp32, int8</td>
+<td>fp32</td>
 <td>Layer 4 QKV</td>
 </tr>
 <tr>
 <td><code>projection</code></td>
 <td><code>proj_qkv_240_p4</code></td>
 <td><code>//kernels/projections:proj_qkv_240_p4</code></td>
-<td>fp32, int8</td>
+<td>fp32</td>
 <td>Layer 5 QKV</td>
 </tr>
 <tr>
@@ -3641,7 +3641,7 @@ query the kernel computes wrongly. These tests guard it:</p>
 <td><code>scale</code></td>
 <td><code>scale</code></td>
 <td><code>//kernels/elementwise/scale</code></td>
-<td>fp32, int8, e4</td>
+<td>fp32</td>
 <td></td>
 </tr>
 <tr>
@@ -3725,7 +3725,7 @@ query the kernel computes wrongly. These tests guard it:</p>
 <td><code>vector_tour</code></td>
 <td><code>vector_tour</code></td>
 <td><code>//kernels/conformance/vector_tour</code></td>
-<td>int8, e4, e5, e3</td>
+<td>e3, e4, e5, dynamic</td>
 <td></td>
 </tr>
 </tbody>

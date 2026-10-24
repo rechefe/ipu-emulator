@@ -1130,7 +1130,7 @@
   <span class="md-ellipsis">
     
   
-    ACTIVATE.QUANTIZE in the emulator
+    ACTIVATE.QUANTIZE, ACTIVATE.EXACT and LD.LUT
   
 
     
@@ -1884,10 +1884,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#how-the-8-bit-formats-encode-values" class="md-nav__link">
+  <a href="#how-nx8-encodes-values" class="md-nav__link">
     <span class="md-ellipsis">
       
-        How the 8-bit formats encode values
+        How NX8 encodes values
       
     </span>
   </a>
@@ -1906,10 +1906,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#selecting-a-format" class="md-nav__link">
+  <a href="#selecting-a-mode" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Selecting a format
+        Selecting a mode
       
     </span>
   </a>
@@ -1917,10 +1917,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#xmem-layout-per-format" class="md-nav__link">
+  <a href="#xmem-layout-per-mode" class="md-nav__link">
     <span class="md-ellipsis">
       
-        XMEM layout per format
+        XMEM layout per mode
       
     </span>
   </a>
@@ -1928,10 +1928,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#how-fp32-and-int32-compute" class="md-nav__link">
+  <a href="#how-fp32-computes" class="md-nav__link">
     <span class="md-ellipsis">
       
-        How FP32 and INT32 compute
+        How FP32 computes
       
     </span>
   </a>
@@ -2829,235 +2829,182 @@
 
 <h1 id="element-formats">Element formats<a class="headerlink" href="#element-formats" title="Permanent link">&para;</a></h1>
 <p>An element format says how the IPU reads the elements of a vector: how many bits
-each element has and what number those bits stand for. A kernel runs in one
-format, chosen when it starts. The program is the same in every format; the
-format decides what its loads, multiplies and accumulations compute.</p>
+each element has and what number those bits stand for. A run is in one of two
+<strong>modes</strong>, chosen when it starts, and each mode has one element format:
+<strong>NX8</strong>, the hardware's, and <strong>FP32</strong>, the emulator's. The program is the same
+in both modes; the mode decides what its loads, multiplies and stores compute
+(<a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/adr/0007-operational-aaq-and-nx8.md">ADR 0007</a>).</p>
 <h2 id="the-formats">The formats<a class="headerlink" href="#the-formats" title="Permanent link">&para;</a></h2>
-<p>The format sets the element width. Everything else follows from it:</p>
-<ul>
-<li><strong>Row bytes.</strong> An XMEM row holds one element per lane, 128 elements. Its
-  width is 128 × the element bytes.</li>
-<li><strong>Accumulator type.</strong> <code>MULT_RES</code> and <code>R_ACC</code> hold <code>INT32</code> for the integer
-  formats and <code>FP32</code> for the float formats.</li>
-<li><strong>Register element widths.</strong> <code>R0</code>, <code>R1</code> and <code>R_CYCLIC</code> hold elements of the
-  format; <code>R_MASK</code> is the same in every format.</li>
-</ul>
 <table>
 <thead>
 <tr>
 <th>Format</th>
 <th>Tag</th>
 <th style="text-align: right;">Element bits</th>
-<th style="text-align: right;">Exponent bits</th>
-<th style="text-align: right;">Mantissa bits</th>
+<th style="text-align: right;">Metadata bits</th>
 <th style="text-align: right;">Row bytes</th>
 <th>Accumulator</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>INT8</code></td>
-<td><code>HARDWARE</code></td>
-<td style="text-align: right;">8</td>
-<td style="text-align: right;">0</td>
-<td style="text-align: right;">0</td>
-<td style="text-align: right;">128</td>
-<td><code>INT32</code></td>
-</tr>
-<tr>
-<td><code>E1</code></td>
-<td><code>HARDWARE</code></td>
-<td style="text-align: right;">8</td>
-<td style="text-align: right;">1</td>
-<td style="text-align: right;">6</td>
-<td style="text-align: right;">128</td>
-<td><code>FP32</code></td>
-</tr>
-<tr>
-<td><code>E2</code></td>
-<td><code>HARDWARE</code></td>
-<td style="text-align: right;">8</td>
-<td style="text-align: right;">2</td>
-<td style="text-align: right;">5</td>
-<td style="text-align: right;">128</td>
-<td><code>FP32</code></td>
-</tr>
-<tr>
-<td><code>E3</code></td>
-<td><code>HARDWARE</code></td>
-<td style="text-align: right;">8</td>
-<td style="text-align: right;">3</td>
-<td style="text-align: right;">4</td>
-<td style="text-align: right;">128</td>
-<td><code>FP32</code></td>
-</tr>
-<tr>
-<td><code>E4</code></td>
-<td><code>HARDWARE</code></td>
-<td style="text-align: right;">8</td>
-<td style="text-align: right;">4</td>
-<td style="text-align: right;">3</td>
-<td style="text-align: right;">128</td>
-<td><code>FP32</code></td>
-</tr>
-<tr>
-<td><code>E5</code></td>
-<td><code>HARDWARE</code></td>
-<td style="text-align: right;">8</td>
-<td style="text-align: right;">5</td>
-<td style="text-align: right;">2</td>
-<td style="text-align: right;">128</td>
-<td><code>FP32</code></td>
-</tr>
-<tr>
-<td><code>E6</code></td>
-<td><code>HARDWARE</code></td>
-<td style="text-align: right;">8</td>
-<td style="text-align: right;">6</td>
-<td style="text-align: right;">1</td>
-<td style="text-align: right;">128</td>
-<td><code>FP32</code></td>
-</tr>
-<tr>
-<td><code>E7</code></td>
-<td><code>HARDWARE</code></td>
-<td style="text-align: right;">8</td>
-<td style="text-align: right;">7</td>
-<td style="text-align: right;">0</td>
-<td style="text-align: right;">128</td>
-<td><code>FP32</code></td>
-</tr>
-<tr>
 <td><code>FP32</code></td>
 <td><code>EMULATOR</code></td>
 <td style="text-align: right;">32</td>
-<td style="text-align: right;">8</td>
-<td style="text-align: right;">23</td>
+<td style="text-align: right;">0</td>
 <td style="text-align: right;">512</td>
 <td><code>FP32</code></td>
 </tr>
 <tr>
-<td><code>INT32</code></td>
-<td><code>EMULATOR</code></td>
-<td style="text-align: right;">32</td>
-<td style="text-align: right;">0</td>
-<td style="text-align: right;">0</td>
-<td style="text-align: right;">512</td>
-<td><code>INT32</code></td>
+<td><code>NX8</code></td>
+<td><code>HARDWARE</code></td>
+<td style="text-align: right;">8</td>
+<td style="text-align: right;">16</td>
+<td style="text-align: right;">128</td>
+<td><code>FP32</code></td>
 </tr>
 </tbody>
 </table>
 <p>The table is generated from <code>ipu_isa.formats</code>.</p>
-<p><strong>Hardware formats.</strong> <code>INT8</code> and <code>E1</code> to <code>E7</code> are <code>HARDWARE</code> formats: the IPU
-has them, and the host selects one at run time.</p>
-<p><strong>Emulator formats.</strong> <code>FP32</code> and <code>INT32</code> are <code>EMULATOR</code> formats: they exist only
-in the emulator. They run a kernel at full precision, with no 8-bit rounding
-on the multiply path, so its result can be compared with a full-precision
-reference such as PyTorch. The assembly and its XMEM row numbers are the same as
-in the 8-bit formats; each element takes four bytes instead of one.</p>
-<h2 id="how-the-8-bit-formats-encode-values">How the 8-bit formats encode values<a class="headerlink" href="#how-the-8-bit-formats-encode-values" title="Permanent link">&para;</a></h2>
-<p><strong><code>INT8</code></strong> is a two's-complement byte, -128 to 127.</p>
-<p><strong><code>E1</code> to <code>E7</code></strong> are 8-bit floats. <code>Ex</code> has 1 sign bit, x exponent bits and
-7 - x mantissa bits, and its exponent bias is 2<sup>x-1</sup> - 1.</p>
 <ul>
-<li>An exponent of all ones is NaN, whatever the mantissa. There are no
-  infinities.</li>
-<li>An exponent of zero is a subnormal value: 0.mantissa × 2<sup>1-bias</sup>.</li>
-<li><code>E1</code> has no normal values: its only non-zero exponent is the NaN exponent.</li>
-<li><code>E7</code> has no mantissa bits: every value is a power of two.</li>
+<li><strong>Row bytes.</strong> An XMEM row holds one element per lane, 128 elements, and
+  every load and store moves exactly one row: 128 bytes and a 16-bit metadata
+  word in NX8, 512 bytes in FP32. <code>LD.MASK</code> and <code>LD.LUT</code> read the first 128
+  bytes of a row in both modes.</li>
+<li><strong>Accumulator type.</strong> <code>MULT_RES</code> and <code>R_ACC</code> hold <code>FP32</code> in both modes: in
+  NX8 the multiplier expands each element to FP32 first.</li>
+<li><strong>Register element widths.</strong> <code>R0</code>, <code>R1</code> and <code>R_CYCLIC</code> hold one row's
+  elements per register (or <code>R_CYCLIC</code> slot), and in NX8 the row's metadata
+  word beside them; <code>R_MASK</code> is the same in both modes.</li>
 </ul>
+<p><strong>NX8 (hardware).</strong> The IPU's only element format: 8-bit elements whose
+meaning depends on a per-row scale and on a <strong>QF</strong> (quantization format), a
+16-bit half of a CR that each instruction names. It is a family of types, not
+one format: the QF chooses the type of every vector an instruction reads or
+writes.</p>
+<p><strong>FP32 (emulator only).</strong> IEEE float32 elements, with no metadata, no scaling
+and no quantization; every QF operand is ignored. It runs a kernel written for
+NX8 at full precision, so its result can be compared with a reference such as
+PyTorch. The assembly and its XMEM row numbers are the same as in NX8; each
+element takes four bytes instead of one.</p>
+<p>FP32 and NX8 are the only element formats. "E4" means the NX8 type e4.</p>
+<h2 id="how-nx8-encodes-values">How NX8 encodes values<a class="headerlink" href="#how-nx8-encodes-values" title="Permanent link">&para;</a></h2>
+<p>An NX8 type comes from a QF half (<a href="../../reference/isa/configuration-registers/#qf-half">Configuration
+registers</a>): <code>num_bits</code>
+W (1–8), <code>exp_format</code> fe (1–7), <code>sign</code> (0 or 1) and <code>dynamic</code>. An element has
+<code>sign</code> sign bits, fe exponent bits and fm = W − fe − sign mantissa bits, in
+the top W bits of its byte.</p>
+<p>A row's 16-bit <strong>metadata word</strong> holds <code>scale[7:0]</code> (an <code>e8m0</code> exponent, bias
+127) and <code>dynamic_exponent[8]</code>. The element's exponent field is a distance
+<em>below</em> the scale, so one byte means different values in different rows:</p>
+<ul>
+<li>An exponent field <code>e</code> below all ones is normal:
+  (1 + m / 2<sup>fm</sup>) × 2<sup>scale − 127 − e</sup>.</li>
+<li>The all-ones exponent field is the subnormal range:
+  (m / 2<sup>fm</sup>) × 2<sup>scale − 127 − (2<sup>fe</sup> − 2)</sup>; with
+  mantissa 0 it is zero.</li>
+<li>There is no NaN and no infinity
+  (<a href="../../requirements/open-questions/#emulator-and-isa">OQ-37</a>).</li>
+</ul>
+<p><strong>Dynamic</strong> types are signed and 8 bits wide; each row chooses fe = 1 or 2
+(<code>dynamic_exponent</code> 0 or 1 in its metadata) by the architecture spec's rule
+(<code>ARCH-stage-aaq-str.md</code> §4.3.2.3), with errors measured in units of the row's
+scale (<a href="../../requirements/open-questions/#emulator-and-isa">OQ-49</a>).</p>
+<p>The values each fixed type holds at unit scale (scale 127), computed from the
+codec (<code>ipu_isa.nx8.decode_element</code>):</p>
 <table>
 <thead>
 <tr>
-<th>Format</th>
-<th style="text-align: right;">Bias</th>
-<th style="text-align: right;">Largest finite</th>
+<th>Type</th>
+<th style="text-align: right;">Exponent bits</th>
+<th style="text-align: right;">Mantissa bits</th>
+<th style="text-align: right;">Largest</th>
 <th style="text-align: right;">Smallest normal</th>
-<th style="text-align: right;">Smallest subnormal</th>
-<th style="text-align: right;">NaN codes</th>
+<th style="text-align: right;">Smallest nonzero</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>E1</code></td>
-<td style="text-align: right;">0</td>
-<td style="text-align: right;">1.96875</td>
-<td style="text-align: right;">none</td>
-<td style="text-align: right;">0.03125</td>
-<td style="text-align: right;">128</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">6</td>
+<td style="text-align: right;">1.984375</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">0.015625</td>
 </tr>
 <tr>
 <td><code>E2</code></td>
-<td style="text-align: right;">1</td>
-<td style="text-align: right;">3.9375</td>
-<td style="text-align: right;">1</td>
-<td style="text-align: right;">0.03125</td>
-<td style="text-align: right;">64</td>
+<td style="text-align: right;">2</td>
+<td style="text-align: right;">5</td>
+<td style="text-align: right;">1.96875</td>
+<td style="text-align: right;">0.25</td>
+<td style="text-align: right;">0.0078125</td>
 </tr>
 <tr>
 <td><code>E3</code></td>
 <td style="text-align: right;">3</td>
-<td style="text-align: right;">15.5</td>
-<td style="text-align: right;">0.25</td>
+<td style="text-align: right;">4</td>
+<td style="text-align: right;">1.9375</td>
 <td style="text-align: right;">0.015625</td>
-<td style="text-align: right;">32</td>
+<td style="text-align: right;">0.0009765625</td>
 </tr>
 <tr>
 <td><code>E4</code></td>
-<td style="text-align: right;">7</td>
-<td style="text-align: right;">240</td>
-<td style="text-align: right;">0.015625</td>
-<td style="text-align: right;">0.001953125</td>
-<td style="text-align: right;">16</td>
+<td style="text-align: right;">4</td>
+<td style="text-align: right;">3</td>
+<td style="text-align: right;">1.875</td>
+<td style="text-align: right;">2<sup>-14</sup></td>
+<td style="text-align: right;">2<sup>-17</sup></td>
 </tr>
 <tr>
 <td><code>E5</code></td>
-<td style="text-align: right;">15</td>
-<td style="text-align: right;">57344</td>
-<td style="text-align: right;">2<sup>-14</sup></td>
-<td style="text-align: right;">2<sup>-16</sup></td>
-<td style="text-align: right;">8</td>
+<td style="text-align: right;">5</td>
+<td style="text-align: right;">2</td>
+<td style="text-align: right;">1.75</td>
+<td style="text-align: right;">2<sup>-30</sup></td>
+<td style="text-align: right;">2<sup>-32</sup></td>
 </tr>
 <tr>
 <td><code>E6</code></td>
-<td style="text-align: right;">31</td>
-<td style="text-align: right;">1.5 × 2<sup>31</sup></td>
-<td style="text-align: right;">2<sup>-30</sup></td>
-<td style="text-align: right;">2<sup>-31</sup></td>
-<td style="text-align: right;">4</td>
+<td style="text-align: right;">6</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">1.5</td>
+<td style="text-align: right;">2<sup>-62</sup></td>
+<td style="text-align: right;">2<sup>-63</sup></td>
 </tr>
 <tr>
 <td><code>E7</code></td>
-<td style="text-align: right;">63</td>
-<td style="text-align: right;">2<sup>63</sup></td>
-<td style="text-align: right;">2<sup>-62</sup></td>
-<td style="text-align: right;">none</td>
-<td style="text-align: right;">2</td>
+<td style="text-align: right;">7</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">2<sup>-126</sup></td>
+<td style="text-align: right;">2<sup>-126</sup></td>
 </tr>
 </tbody>
 </table>
-<p>The table is computed from the element codec, <code>ipu_isa.formats.decode_element</code>.</p>
-<p>Encoding a value into an 8-bit format:</p>
+<p><strong>Quantizing</strong> a row (<code>ACTIVATE.QUANTIZE</code>, <code>ipu_isa.nx8.encode_row</code>):</p>
 <ul>
-<li><strong>Rounding.</strong> It rounds to the nearest value, and a tie goes to the even code.</li>
-<li><strong>Overflow.</strong> A value beyond the largest finite value, and an infinity,
-  saturate to the largest finite value of that sign. <code>INT8</code> saturates to -128 or 127.</li>
-<li><strong>NaN.</strong> NaN encodes as the canonical NaN: exponent all ones, mantissa 1
-  (<code>0x7F</code> in <code>E7</code>, which has no mantissa bits).
-  <code>INT8</code> has no NaN, so encoding NaN to <code>INT8</code> is an error.</li>
-<li><strong>Negative zero.</strong> In <code>E1</code> to <code>E7</code>, <code>-0.0</code> keeps its sign bit (<code>0x80</code>).</li>
+<li><strong>Scale.</strong> The row's scale is the largest FP32 exponent among its active
+  finite elements. FP32 inputs are always treated as normalized, so an
+  all-zero row gets scale 0 and reads back as 2<sup>-127</sup>
+  (<a href="../../requirements/open-questions/#emulator-and-isa">open questions</a>).</li>
+<li><strong>Rounding.</strong> Each element rounds to the nearest value; a tie rounds up.</li>
+<li><strong>Saturation.</strong> ±inf saturates to the largest magnitude and is left out of
+  the scale; a negative input to an unsigned type encodes as 0. Each sets the
+  <code>QUANT_SATURATION</code> <a href="../../requirements/faults/#arithmetic-events">arithmetic event</a>.</li>
+<li><strong>NaN.</strong> A NaN to quantize is an emulator error: NX8 cannot hold it.</li>
+<li><strong>Inactive elements</strong> (outside the DS half's active elements) are written as
+  0 (<a href="../../requirements/open-questions/#emulator-and-isa">OQ-36</a>).</li>
 </ul>
-<div class="admonition warning">
-<p class="admonition-title">Open question</p>
-<p>The special values are not settled. The emulator reads every all-ones
-exponent as NaN, where IEEE-style decoders read mantissa 0 as an infinity,
-and its largest <code>E4</code> value is 240, not the 448 of OCP E4M3. See OQ-19 in
-<a href="../../requirements/open-questions/#emulator-and-isa">Open questions</a>.</p>
-</div>
+<p><strong>Expanding</strong> an element for a multiply is the inverse: the MULT decodes each
+element with the QF half it names and the metadata of the row the element was
+loaded from (<code>ARCH-stage-mult.md</code> §3.2.1). <code>LD.MULT</code> and <code>LD.MULT.CYCLIC</code>
+copy that metadata into <code>R0</code>, <code>R1</code> or the <code>R_CYCLIC</code> slot.</p>
+<p>XMEM keeps the metadata in a side store, one word per 128-byte unit. Metadata
+that was never written reads 0, like unwritten data.</p>
 <h2 id="cr-scalars">CR scalars<a class="headerlink" href="#cr-scalars" title="Permanent link">&para;</a></h2>
 <p>A CR holds 32 bits. <code>MULT.VE</code>, <code>MULT.EE</code> and <code>MULT.RC.VE</code> (with a CR as <code>src</code>)
-use a CR as a scalar element: they multiply a vector by it. The scalar is the
-CR's low element-width bits, decoded as an element of the active format:</p>
+use a CR as a scalar element, a <strong>MULT constant</strong>: they multiply a vector by it.</p>
 <table>
 <thead>
 <tr>
@@ -3068,129 +3015,92 @@ CR's low element-width bits, decoded as an element of the active format:</p>
 </thead>
 <tbody>
 <tr>
-<td><code>INT8</code></td>
-<td><code>[7:0]</code></td>
-<td>a signed 8-bit integer</td>
-</tr>
-<tr>
-<td><code>E1</code></td>
-<td><code>[7:0]</code></td>
-<td>an <code>E1</code> element</td>
-</tr>
-<tr>
-<td><code>E2</code></td>
-<td><code>[7:0]</code></td>
-<td>an <code>E2</code> element</td>
-</tr>
-<tr>
-<td><code>E3</code></td>
-<td><code>[7:0]</code></td>
-<td>an <code>E3</code> element</td>
-</tr>
-<tr>
-<td><code>E4</code></td>
-<td><code>[7:0]</code></td>
-<td>an <code>E4</code> element</td>
-</tr>
-<tr>
-<td><code>E5</code></td>
-<td><code>[7:0]</code></td>
-<td>an <code>E5</code> element</td>
-</tr>
-<tr>
-<td><code>E6</code></td>
-<td><code>[7:0]</code></td>
-<td>an <code>E6</code> element</td>
-</tr>
-<tr>
-<td><code>E7</code></td>
-<td><code>[7:0]</code></td>
-<td>an <code>E7</code> element</td>
-</tr>
-<tr>
 <td><code>FP32</code></td>
 <td><code>[31:0]</code></td>
-<td>an <code>FP32</code> element</td>
+<td>an IEEE binary32 value; <code>CR0</code> is 0.0 and <code>CR1</code> 1.0</td>
 </tr>
 <tr>
-<td><code>INT32</code></td>
-<td><code>[31:0]</code></td>
-<td>a signed 32-bit integer</td>
+<td><code>NX8</code></td>
+<td><code>[23:0]</code> (bits 31:24 ignored)</td>
+<td>one NX8 element with its own scale and type (the constant layout); <code>CR0</code> is 0.0 and <code>CR1</code> 1.0</td>
 </tr>
 </tbody>
 </table>
-<p>So the same CR value stands for a different number in each format. A host that
-programs a scalar writes it in the kernel's format: the float32 bit pattern of
-the value in <code>FP32</code>, its 8-bit code in <code>E4</code>.</p>
-<p><code>CR1</code> is the exception. It is the hardware constant 1, and as a scalar it reads
-as 1 in every format (1.0 in a float format), so a multiply by <code>CR1</code> is an
-identity multiply whatever the format. This rule holds from E04-28 on; before
-it, every format read the CR's low byte.</p>
+<p>In NX8 the constant is one element with its own scale and type, independent of
+the vector's QF: <code>value[7:0]</code>, <code>scale[15:8]</code>, <code>fe[19:16]</code> and <code>sign[23:20]</code>,
+always 8 bits wide and never dynamic (<code>ipu_isa.cr_halves.constant</code>). In FP32
+it is the float32 bit pattern. <code>CR0</code> and <code>CR1</code> are the exceptions: as MULT
+constants they read as 0.0 and 1.0 in both modes, so a multiply by <code>CR1</code> is an
+identity multiply whatever the mode.</p>
 <p>This program multiplies a vector of ones by <code>CR3</code>, so every element of
-<code>MULT_RES</code> is the scalar as the format decodes it:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Ra (R0 ++ R1) holds 1 in every element, so each MULT_RES element is the decoded scalar.</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="n">PROGRAM</span> <span class="o">=</span> <span class="s2">"""</span>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="s2">MULT.VE LR0 CR3 0 LR2 CR15;;</span>
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="s2">HALT;;</span>
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="s2">"""</span>
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="n">CR3</span> <span class="o">=</span> <span class="mh">0x3F80_0038</span>  <span class="c1"># the float32 1.0 (0x3F800000) plus 0x38</span>
+<code>MULT_RES</code> is the scalar as the mode decodes it:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Ra (R0 ++ R1) holds 1.0 in every element, so each MULT_RES element is the decoded scalar.</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="c1"># CR15.L is the DS (every element active), CR14.L the QF of the vectors (NX8 e4).</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">PROGRAM</span> <span class="o">=</span> <span class="s2">"""</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="s2">MULT.VE LR0 CR3 0 LR2 CR15.L CR14.L;;</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="s2">HALT;;</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="s2">"""</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="n">CR3</span> <span class="o">=</span> <span class="p">{</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="c1"># The MULT constant layout: the e4 element 0x08 (0.5) under scale 2^3.</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="n">ElementFormat</span><span class="o">.</span><span class="n">NX8</span><span class="p">:</span> <span class="n">constant</span><span class="p">(</span><span class="n">value</span><span class="o">=</span><span class="mh">0x08</span><span class="p">,</span> <span class="n">scale</span><span class="o">=</span><span class="n">SCALE_BIAS</span> <span class="o">+</span> <span class="mi">3</span><span class="p">,</span> <span class="n">exp_format</span><span class="o">=</span><span class="mi">4</span><span class="p">),</span>
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="c1"># The float32 bit pattern of 1.0 (0x3F800000) plus 0x38.</span>
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="n">ElementFormat</span><span class="o">.</span><span class="n">FP32</span><span class="p">:</span> <span class="mh">0x3F80_0038</span><span class="p">,</span>
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="p">}</span>
 </span></code></pre></div>
-<p>The test that runs it checks element 0 of <code>MULT_RES</code> in each format:</p>
+<p>The test that runs it checks element 0 of <code>MULT_RES</code> in each mode:</p>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">EXPECTED</span> <span class="o">=</span> <span class="p">{</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>    <span class="n">ElementFormat</span><span class="o">.</span><span class="n">INT8</span><span class="p">:</span> <span class="mi">56</span><span class="p">,</span>  <span class="c1"># the low byte, 0x38, as a signed byte</span>
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>    <span class="n">ElementFormat</span><span class="o">.</span><span class="n">E4</span><span class="p">:</span> <span class="mf">1.0</span><span class="p">,</span>  <span class="c1"># 0x38 as an E4 element: exponent 7, bias 7, mantissa 0</span>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    <span class="n">ElementFormat</span><span class="o">.</span><span class="n">FP32</span><span class="p">:</span> <span class="mi">1</span> <span class="o">+</span> <span class="mi">56</span> <span class="o">*</span> <span class="mi">2</span><span class="o">**-</span><span class="mi">23</span><span class="p">,</span>  <span class="c1"># all 32 bits as a float32: 1.0 plus 56 ulps</span>
-</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    <span class="n">ElementFormat</span><span class="o">.</span><span class="n">INT32</span><span class="p">:</span> <span class="mi">1_065_353_272</span><span class="p">,</span>  <span class="c1"># all 32 bits as a signed integer</span>
-</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="p">}</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>    <span class="n">ElementFormat</span><span class="o">.</span><span class="n">NX8</span><span class="p">:</span> <span class="mf">4.0</span><span class="p">,</span>  <span class="c1"># exponent 1 below the scale: 2^-1, times 2^3</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>    <span class="n">ElementFormat</span><span class="o">.</span><span class="n">FP32</span><span class="p">:</span> <span class="mi">1</span> <span class="o">+</span> <span class="mi">56</span> <span class="o">*</span> <span class="mi">2</span><span class="o">**-</span><span class="mi">23</span><span class="p">,</span>  <span class="c1"># all 32 bits as a float32: 1.0 plus 56 ulps</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="p">}</span>
 </span></code></pre></div>
-<h2 id="selecting-a-format">Selecting a format<a class="headerlink" href="#selecting-a-format" title="Permanent link">&para;</a></h2>
-<p>The format is emulator configuration, not a CR value. Choose it when you
-construct the state, or reset the state into another format:</p>
+<h2 id="selecting-a-mode">Selecting a mode<a class="headerlink" href="#selecting-a-mode" title="Permanent link">&para;</a></h2>
+<p>The mode is emulator configuration, not a CR value. Choose it when you
+construct the state, or reset the state into the other mode:</p>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ipu_emu.ipu_state</span><span class="w"> </span><span class="kn">import</span> <span class="n">IpuState</span>
 </span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ipu_isa.formats</span><span class="w"> </span><span class="kn">import</span> <span class="n">ElementFormat</span>
 </span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>
-</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="n">state</span> <span class="o">=</span> <span class="n">IpuState</span><span class="p">(</span><span class="n">fmt</span><span class="o">=</span><span class="n">ElementFormat</span><span class="o">.</span><span class="n">INT8</span><span class="p">)</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="n">state</span> <span class="o">=</span> <span class="n">IpuState</span><span class="p">(</span><span class="n">fmt</span><span class="o">=</span><span class="n">ElementFormat</span><span class="o">.</span><span class="n">NX8</span><span class="p">)</span>  <span class="c1"># the default</span>
 </span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>
-</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="c1"># Or return an existing state to reset, in another format.</span>
-</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="n">state</span><span class="o">.</span><span class="n">reset</span><span class="p">(</span><span class="n">ElementFormat</span><span class="o">.</span><span class="n">E4</span><span class="p">)</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="c1"># Or return an existing state to reset, in the other mode.</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="n">state</span><span class="o">.</span><span class="n">reset</span><span class="p">(</span><span class="n">ElementFormat</span><span class="o">.</span><span class="n">FP32</span><span class="p">)</span>
 </span></code></pre></div>
 <p><code>state.fmt</code> cannot be assigned. An unknown format raises <code>ConfigurationError</code>
 when the state is built, never while a program runs.</p>
-<p>A kernel lists its formats in its <code>kernel.toml</code>'s <code>[kernel] formats</code>. A case
-can list a subset in its own <code>formats</code>; otherwise it runs in each of the
-kernel's formats.</p>
-<h2 id="xmem-layout-per-format">XMEM layout per format<a class="headerlink" href="#xmem-layout-per-format" title="Permanent link">&para;</a></h2>
-<p>An XMEM operand in assembly (<code>offset + base</code>) is a row number in every format.
-A row is 128 elements, so its width depends on the format: row r starts at byte
-r × 128 in the 8-bit formats and r × 512 in <code>FP32</code> and <code>INT32</code>. A program reaches
-the same row in every format. The 8-bit formats address only the first 16384
-rows of XMEM.</p>
+<p>A kernel lists its variants in its <code>kernel.toml</code>'s <code>[kernel] formats</code>: <code>fp32</code>
+for the FP32 mode, and for NX8 a named type (<code>e1</code> to <code>e7</code>, <code>dynamic</code>) or
+<code>s&lt;sign&gt;e&lt;fe&gt;w&lt;bits&gt;</code>. A case can list a subset in its own <code>formats</code>;
+otherwise it runs in each of the kernel's variants. The harness binds the
+case's QF where the kernel asks for it (<code>case_qf</code>).</p>
+<h2 id="xmem-layout-per-mode">XMEM layout per mode<a class="headerlink" href="#xmem-layout-per-mode" title="Permanent link">&para;</a></h2>
+<p>An XMEM operand in assembly (<code>offset + base</code>) is a row number in both modes.
+A row is 128 elements, so its width depends on the mode: row r starts at byte
+r × 128 in NX8 and r × 512 in FP32. A program reaches the same row in both
+modes. NX8 addresses only the first 16384 rows of XMEM.</p>
 <ul>
-<li><strong><code>LD.MULT</code></strong> reads one row (128 elements) into <code>R0</code> or <code>R1</code>.</li>
+<li><strong><code>LD.MULT</code></strong> reads one row (128 elements, and its metadata) into <code>R0</code> or
+  <code>R1</code>.</li>
 <li><strong><code>LD.MULT.CYCLIC</code></strong> reads one row into one of the four slots of <code>R_CYCLIC</code>.
   Its <code>index</code> must be a slot boundary: <code>0</code>, <code>128</code>, <code>256</code> or <code>384</code>.</li>
+<li><strong><code>ACTIVATE.QUANTIZE</code></strong> stores one row: 128 NX8 bytes and the row's metadata,
+  or 128 FP32 values. <code>ACTIVATE.EXACT</code> (FP32 only) stores one FP32 row.</li>
 <li><strong>Register indices count elements.</strong> <code>rc_idx</code>, <code>ra_idx</code> and the cyclic
-  <code>index</code> are element indices in every format, so a program indexes its
-  registers the same way whatever the format.</li>
-<li><strong>Element data</strong> in XMEM is little-endian <code>float32</code> or <code>int32</code> in <code>FP32</code> and
-  <code>INT32</code>, and one byte per element in the 8-bit formats.</li>
+  <code>index</code> are element indices in both modes.</li>
+<li><strong>Element data</strong> in XMEM is little-endian <code>float32</code> in FP32 and one byte per
+  element in NX8.</li>
 </ul>
-<p>The kernel harness packs each tensor for the case's format
-(<code>ipu_harness.packing</code>). An accumulator output (<code>ST.ACC</code>) is stored in the
-format's accumulator type, four bytes per element: in an 8-bit format one of
-its vectors spans four rows.</p>
-<h2 id="how-fp32-and-int32-compute">How FP32 and INT32 compute<a class="headerlink" href="#how-fp32-and-int32-compute" title="Permanent link">&para;</a></h2>
+<p>The kernel harness packs each tensor for the case's variant
+(<code>ipu_harness.packing</code>): in NX8 it quantizes each row and writes its metadata,
+and reads both back for an output.</p>
+<h2 id="how-fp32-computes">How FP32 computes<a class="headerlink" href="#how-fp32-computes" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Multiply and accumulate.</strong> <code>FP32</code> uses IEEE float arithmetic. <code>INT32</code>
-  multiplies and adds with 32-bit two's-complement wrap, and <code>AGG.*</code> reduce
-  as 32-bit signed integers.</li>
-<li><strong>Masks.</strong> The mask-and-shift on <code>MULT_RES</code> is the same in every format:
-  each of the 128 mask bits gates one element.</li>
-<li><strong><code>ACTIVATE.QUANTIZE</code></strong> writes the activated elements to <code>POST_AAQ_REG</code>
-  without quantizing them, unless the state was built with
-  <code>AaqOptions(quantize_output=True)</code> (from <code>ipu_emu.activations</code>). <code>R_ACC</code> keeps the full results; <code>ST.ACC</code>
-  stores them. The AaQ stage is a placeholder: see OQ-20, OQ-22 and OQ-34 in
-  <a href="../../requirements/open-questions/#emulator-and-isa">Open questions</a>.</li>
+<li><strong>Multiply and accumulate.</strong> IEEE float arithmetic, in both modes once the
+  NX8 elements are expanded.</li>
+<li><strong>Masks.</strong> The mask-and-shift on <code>MULT_RES</code> is the same in both modes: each
+  of the 128 mask bits gates one element.</li>
+<li><strong>Stores.</strong> <code>ACTIVATE.QUANTIZE</code> stores the activated FP32 row without
+  quantizing it; <code>ACTIVATE.EXACT</code> applies the exact activation instead of the
+  hardware list (<a href="../../reference/isa/activate-quantize/"><code>ACTIVATE.QUANTIZE</code>, <code>ACTIVATE.EXACT</code> and
+  <code>LD.LUT</code></a>).</li>
 </ul>
 <h2 id="arithmetic-events">Arithmetic events<a class="headerlink" href="#arithmetic-events" title="Permanent link">&para;</a></h2>
 <p>An accumulator overflow or a NaN result is an arithmetic event, not a fault:
@@ -3219,7 +3129,7 @@ emulator does on an <code>FP32</code> overflow is OQ-18 in
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 18, 2026 17:51:52 UTC"><span class="timeago" datetime="2026-10-18T17:51:52+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 18, 2026 17:51:52 UTC">2026-10-18</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 23, 2026 22:14:22 UTC"><span class="timeago" datetime="2026-10-23T22:14:22+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 23, 2026 22:14:22 UTC">2026-10-23</span>
   </span>
 
     

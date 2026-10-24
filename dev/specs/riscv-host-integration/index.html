@@ -1132,7 +1132,7 @@
   <span class="md-ellipsis">
     
   
-    ACTIVATE.QUANTIZE in the emulator
+    ACTIVATE.QUANTIZE, ACTIVATE.EXACT and LD.LUT
   
 
     
@@ -2942,6 +2942,15 @@
 
 
 <h1 id="risc-v-host-integration-design-spec">RISC-V Host Integration (Design Spec)<a class="headerlink" href="#risc-v-host-integration-design-spec" title="Permanent link">&para;</a></h1>
+<div class="admonition warning">
+<p class="admonition-title">Not yet updated for ADR 0007</p>
+<p><a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/adr/0007-operational-aaq-and-nx8.md">ADR 0007</a>
+replaced the 32-bit <code>dstructure</code> with a 16-bit DS CR half and reduced the
+element formats to FP32 and NX8, and removed the post-AAQ register. This page
+still gives the host <code>DSTRUCTURE</code> register the old layout and resets a post-AAQ
+staging register; the action to update it is A-5 in
+<a href="../../requirements/open-questions/#actions-on-other-documents">Open questions</a>.</p>
+</div>
 <div class="admonition note">
 <p class="admonition-title">Status</p>
 <p><strong>Proposal / design spec.</strong> This page describes a planned <em>big feature</em>: an
@@ -3135,7 +3144,7 @@ source delivered by <a href="#9-implementation-plan">Issue 1</a>.</p>
 <td><code>0x024</code></td>
 <td><code>DSTRUCTURE</code></td>
 <td>RW</td>
-<td><code>valid_elements[7:0]</code>, <code>partition[12:8]</code>, <code>pad_mode[14:13]</code> — mirrors <code>CR15</code>.</td>
+<td><code>valid_elements[7:0]</code>, <code>partition[12:8]</code>, <code>pad_mode[14:13]</code> — mirrors <code>CR15</code>. Outdated: the DS is a 16-bit CR half (<code>valid_elements[7:0]</code>, <code>num_partitions[9:8]</code>, <code>mask_type[11:10]</code>, <code>valid_partitions[15:12]</code>), held in <code>CR15.L</code> by convention (<a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/adr/0007-operational-aaq-and-nx8.md">ADR 0007</a>).</td>
 </tr>
 <tr>
 <td><code>0x028</code></td>
@@ -3453,7 +3462,7 @@ proceed in parallel once the register map (1) is fixed.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 18, 2026 19:29:57 UTC"><span class="timeago" datetime="2026-10-18T19:29:57+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 18, 2026 19:29:57 UTC">2026-10-18</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 23, 2026 21:17:30 UTC"><span class="timeago" datetime="2026-10-23T21:17:30+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 23, 2026 21:17:30 UTC">2026-10-23</span>
   </span>
 
     

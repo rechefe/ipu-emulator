@@ -1172,22 +1172,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#dstructure-word" class="md-nav__link">
+  <a href="#ds-half" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Dstructure word
+        DS half
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Dstructure word">
+    <nav class="md-nav" aria-label="DS half">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#pad_mode" class="md-nav__link">
+  <a href="#mask_type" class="md-nav__link">
     <span class="md-ellipsis">
       
-        pad_mode
+        mask_type
       
     </span>
   </a>
@@ -1196,6 +1196,28 @@
         
       </ul>
     </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qf-half" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        QF half
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mult-constant" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MULT constant
+      
+    </span>
+  </a>
   
 </li>
       
@@ -1233,7 +1255,7 @@
   <span class="md-ellipsis">
     
   
-    ACTIVATE.QUANTIZE in the emulator
+    ACTIVATE.QUANTIZE, ACTIVATE.EXACT and LD.LUT
   
 
     
@@ -2807,8 +2829,8 @@
 
 
 <h1 id="configuration-registers">Configuration registers<a class="headerlink" href="#configuration-registers" title="Permanent link">&para;</a></h1>
-<p>This page is <strong>generated</strong> from <code>ipu_isa.constants</code>. The host writes the CRs before a
-kernel runs; a kernel only reads them.</p>
+<p>This page is <strong>generated</strong> from <code>ipu_isa.constants</code> and <code>ipu_isa.cr_halves</code>. The host
+writes the CRs before a kernel runs; a kernel only reads them.</p>
 <h2 id="the-crs">The CRs<a class="headerlink" href="#the-crs" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -2822,66 +2844,67 @@ kernel runs; a kernel only reads them.</p>
 <tr>
 <td><code>CR0</code></td>
 <td><code>0</code></td>
-<td>Read-only constant.</td>
+<td>Read-only constant. As a MULT constant it reads 0.0.</td>
 </tr>
 <tr>
 <td><code>CR1</code></td>
 <td><code>1</code></td>
-<td>Read-only constant. As a scalar element it reads as 1 in every format (see <a href="../../../explanation/element-formats/#cr-scalars">CR scalars</a>).</td>
+<td>Read-only constant. As a MULT constant it reads 1.0 in both modes (see <a href="../../../explanation/element-formats/#cr-scalars">CR scalars</a>).</td>
 </tr>
 <tr>
 <td><code>CR2</code>–<code>CR15</code></td>
 <td>set by the host</td>
-<td>Base addresses, strides, loop bounds, scalar constants and dstructure words. By convention <code>CR15</code> holds the dstructure word, but any CR is a valid operand.</td>
+<td>Base addresses, strides, loop bounds, MULT constants, DS and QF halves. By convention <code>CR15.L</code> holds the default DS, but any CR half is a valid operand.</td>
 </tr>
 </tbody>
 </table>
 <p>Each LR and CR holds a 32-bit scalar. A negative constant is stored as its
-32-bit two's complement (<code>value &amp; LR_CR_SCALAR_VALUE_MASK</code>). The element format a
-kernel computes in is not a CR: see <a href="../../../explanation/element-formats/">Element formats</a>.</p>
-<h2 id="dstructure-word">Dstructure word<a class="headerlink" href="#dstructure-word" title="Permanent link">&para;</a></h2>
-<p>A dstructure word in a CR describes the active elements of a vector. The instructions that
-name a dstructure CR operand (<code>DstructureCrIdx</code>) read it: <code>ACTIVATE.QUANTIZE</code>, <code>AGG.MAX</code>, <code>AGG.MAX.FIRST</code>, <code>AGG.SUM</code>, <code>AGG.SUM.FIRST</code>, <code>MULT.EE</code>, <code>MULT.RC.VE</code>, <code>MULT.RC.VS</code>, <code>MULT.RC.VV</code>, <code>MULT.VE</code>.</p>
+32-bit two's complement (<code>value &amp; LR_CR_SCALAR_VALUE_MASK</code>). A CR also holds two
+16-bit halves, <code>CRn.L</code> (bits 15:0) and <code>CRn.H</code> (bits 31:16); an LR or COND operand that names a
+half reads it sign-extended. The run mode (NX8 or FP32) is not a CR: see
+<a href="../../../explanation/element-formats/">Element formats</a>.</p>
+<h2 id="ds-half">DS half<a class="headerlink" href="#ds-half" title="Permanent link">&para;</a></h2>
+<p>A DS half describes the active elements of a 128-element vector. The instructions with a <code>ds</code>
+operand read it: <code>ACTIVATE.EXACT</code>, <code>ACTIVATE.QUANTIZE</code>, <code>AGG.MAX</code>, <code>AGG.MAX.FIRST</code>, <code>AGG.SUM</code>, <code>AGG.SUM.FIRST</code>, <code>MULT.EE</code>, <code>MULT.RC.VE</code>, <code>MULT.RC.VS</code>, <code>MULT.RC.VV</code>, <code>MULT.VE</code>.</p>
 <table>
 <thead>
 <tr>
 <th>Field</th>
 <th>Bits</th>
 <th>Values</th>
-<th>Default</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>valid_elements</code></td>
 <td><code>[7:0]</code></td>
-<td><code>0</code>–<code>128</code>: how many elements are active</td>
-<td><code>128</code></td>
+<td>active elements per partition (<code>0</code>–<code>128</code>)</td>
 </tr>
 <tr>
-<td><code>partition</code></td>
-<td><code>[12:8]</code></td>
-<td><code>0</code>, <code>2</code>, <code>4</code>, <code>8</code>, <code>16</code>: groups of elements the MULT mask shifts within (<code>0</code> is one group)</td>
-<td><code>0</code></td>
+<td><code>num_partitions</code></td>
+<td><code>[9:8]</code></td>
+<td><code>0</code>: 1, <code>1</code>: 2, <code>2</code>: 4, <code>3</code>: 8 partitions (groups of elements)</td>
 </tr>
 <tr>
-<td><code>pad_mode</code></td>
-<td><code>[14:13]</code></td>
-<td>see below</td>
-<td><code>ZERO</code></td>
+<td><code>mask_type</code></td>
+<td><code>[11:10]</code></td>
+<td>the fill of a masked-out element (below)</td>
+</tr>
+<tr>
+<td><code>valid_partitions</code></td>
+<td><code>[15:12]</code></td>
+<td>how many partitions are active (<code>1</code>–<code>num_partitions</code>)</td>
 </tr>
 </tbody>
 </table>
-<p>The defaults are the emulator's initial <code>CR15</code>. Any other CR starts at 0, which
-decodes to <code>valid_elements = 0</code>.</p>
-<p><code>AGG.*</code> and <code>ACTIVATE.QUANTIZE</code> read <code>valid_elements</code>; the MULT masking instructions read
-<code>partition</code> and <code>pad_mode</code>.</p>
-<h3 id="pad_mode"><code>pad_mode</code><a class="headerlink" href="#pad_mode" title="Permanent link">&para;</a></h3>
-<p>The value a MULT masking instruction writes into the elements its mask deactivates.</p>
+<p>The emulator's initial <code>CR15.L</code> is <code>0x1080</code>: every element active, one partition.
+Any other CR starts at 0, which is no valid DS (<code>valid_partitions</code> 0): an instruction that
+reads it is refused.</p>
+<h3 id="mask_type"><code>mask_type</code><a class="headerlink" href="#mask_type" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
 <tr>
-<th>Mode</th>
+<th>Type</th>
 <th>Code</th>
 <th>Fill value</th>
 </tr>
@@ -2902,23 +2925,95 @@ decodes to <code>valid_elements = 0</code>.</p>
 <td><code>2</code></td>
 <td><code>-inf</code></td>
 </tr>
+<tr>
+<td><code>NAN</code></td>
+<td><code>3</code></td>
+<td>refused (<code>CrContentError</code>)</td>
+</tr>
 </tbody>
 </table>
-<p><code>POS_INF</code> and <code>NEG_INF</code> exist only in float element formats; they are the identity
-values of <code>min</code>- and <code>max</code>-style reductions (<code>ACC.MAX</code>). In INT8 or INT32 the emulator
-raises <code>EmulatorError</code> for them.</p>
-<div class="language-asm highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">AGG.SUM</span><span class="w"> </span><span class="no">LR0</span><span class="w"> </span><span class="no">CR15</span><span class="c1">;;</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nf">ACTIVATE.QUANTIZE</span><span class="w"> </span><span class="no">relu</span><span class="w"> </span><span class="no">CR3</span><span class="c1">;;</span>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="nf">MULT.RC.VV</span><span class="w"> </span><span class="no">LR2</span><span class="w"> </span><span class="no">R0</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="no">LR4</span><span class="w"> </span><span class="no">CR15</span><span class="c1">;;</span>
+<h2 id="qf-half">QF half<a class="headerlink" href="#qf-half" title="Permanent link">&para;</a></h2>
+<p>A QF half names the NX8 type a row is read or quantized in. The instructions with a <code>qf</code>
+operand read it in NX8 mode: <code>ACTIVATE.QUANTIZE</code>, <code>MULT.EE</code>, <code>MULT.RC.VE</code>, <code>MULT.RC.VS</code>, <code>MULT.RC.VV</code>, <code>MULT.VE</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Bits</th>
+<th>Values</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>num_bits</code></td>
+<td><code>[3:0]</code></td>
+<td>element width (<code>1</code>–<code>8</code>)</td>
+</tr>
+<tr>
+<td><code>exp_format</code></td>
+<td><code>[7:4]</code></td>
+<td>exponent bits <code>fe</code> (<code>1</code>–<code>7</code>)</td>
+</tr>
+<tr>
+<td><code>sign</code></td>
+<td><code>[11:8]</code></td>
+<td><code>1</code>: signed</td>
+</tr>
+<tr>
+<td><code>dynamic</code></td>
+<td><code>[15:12]</code></td>
+<td><code>1</code>: dynamic exponent (signed 8-bit only)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="mult-constant">MULT constant<a class="headerlink" href="#mult-constant" title="Permanent link">&para;</a></h2>
+<p>A MULT constant operand reads a whole CR as one NX8 element with its own scale and type
+(FP32 mode: its IEEE binary32 bits).</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Bits</th>
+<th>Values</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>value</code></td>
+<td><code>[7:0]</code></td>
+<td>the NX8 element code</td>
+</tr>
+<tr>
+<td><code>scale</code></td>
+<td><code>[15:8]</code></td>
+<td>its scale (2<sup>scale − 127</sup>)</td>
+</tr>
+<tr>
+<td><code>exp_format</code></td>
+<td><code>[19:16]</code></td>
+<td>its exponent bits <code>fe</code></td>
+</tr>
+<tr>
+<td><code>sign</code></td>
+<td><code>[23:20]</code></td>
+<td><code>1</code>: signed</td>
+</tr>
+</tbody>
+</table>
+<div class="language-asm highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">AGG.SUM</span><span class="w"> </span><span class="no">LR0</span><span class="w"> </span><span class="no">CR15.L</span><span class="c1">;;</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nf">ACTIVATE.QUANTIZE</span><span class="w"> </span><span class="no">relu</span><span class="w"> </span><span class="no">CR15.L</span><span class="w"> </span><span class="no">CR14.L</span><span class="w"> </span><span class="no">CR3</span><span class="w"> </span><span class="no">LR0</span><span class="c1">;;</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="nf">MULT.RC.VV</span><span class="w"> </span><span class="no">LR2</span><span class="w"> </span><span class="no">R0</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="no">LR4</span><span class="w"> </span><span class="no">CR15.L</span><span class="w"> </span><span class="no">CR14.L</span><span class="c1">;;</span>
 </span></code></pre></div>
 <h2 id="from-the-emulator">From the emulator<a class="headerlink" href="#from-the-emulator" title="Permanent link">&para;</a></h2>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ipu_isa.constants</span><span class="w"> </span><span class="kn">import</span> <span class="n">LR_CR_SCALAR_VALUE_MASK</span><span class="p">,</span> <span class="n">PadMode</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">state</span><span class="o">.</span><span class="n">regfile</span><span class="o">.</span><span class="n">set_cr</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mh">0x40000</span><span class="p">)</span>                       <span class="c1"># a base address</span>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">state</span><span class="o">.</span><span class="n">regfile</span><span class="o">.</span><span class="n">set_cr</span><span class="p">(</span><span class="mi">9</span><span class="p">,</span> <span class="p">(</span><span class="o">-</span><span class="mi">128</span><span class="p">)</span> <span class="o">&amp;</span> <span class="n">LR_CR_SCALAR_VALUE_MASK</span><span class="p">)</span>  <span class="c1"># a negative constant</span>
-</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">state</span><span class="o">.</span><span class="n">set_cr_dstructure</span><span class="p">(</span><span class="n">valid_elements</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span> <span class="n">partition</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">pad_mode</span><span class="o">=</span><span class="n">PadMode</span><span class="o">.</span><span class="n">NEG_INF</span><span class="p">,</span> <span class="n">cr_idx</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ipu_isa.constants</span><span class="w"> </span><span class="kn">import</span> <span class="n">LR_CR_SCALAR_VALUE_MASK</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ipu_isa.cr_halves</span><span class="w"> </span><span class="kn">import</span> <span class="n">ds</span><span class="p">,</span> <span class="n">qf</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ipu_isa.nx8</span><span class="w"> </span><span class="kn">import</span> <span class="n">Nx8Format</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">state</span><span class="o">.</span><span class="n">regfile</span><span class="o">.</span><span class="n">set_cr</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mh">0x40000</span><span class="p">)</span>                           <span class="c1"># a base address</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="n">state</span><span class="o">.</span><span class="n">regfile</span><span class="o">.</span><span class="n">set_cr</span><span class="p">(</span><span class="mi">9</span><span class="p">,</span> <span class="p">(</span><span class="o">-</span><span class="mi">128</span><span class="p">)</span> <span class="o">&amp;</span> <span class="n">LR_CR_SCALAR_VALUE_MASK</span><span class="p">)</span>  <span class="c1"># a negative constant</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="n">state</span><span class="o">.</span><span class="n">set_cr_half</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="kc">False</span><span class="p">,</span> <span class="n">ds</span><span class="p">(</span><span class="n">valid_elements</span><span class="o">=</span><span class="mi">64</span><span class="p">))</span>         <span class="c1"># CR3.L: a DS</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="n">state</span><span class="o">.</span><span class="n">set_cr_half</span><span class="p">(</span><span class="mi">14</span><span class="p">,</span> <span class="kc">False</span><span class="p">,</span> <span class="n">qf</span><span class="p">(</span><span class="n">Nx8Format</span><span class="p">(</span><span class="n">sign</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">exp_format</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">num_bits</span><span class="o">=</span><span class="mi">8</span><span class="p">)))</span>  <span class="c1"># CR14.L: E4</span>
 </span></code></pre></div>
-<p><code>set_cr_dstructure</code> writes <code>CR15</code> when <code>cr_idx</code> is omitted.</p>
 
 
 

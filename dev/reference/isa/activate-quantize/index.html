@@ -27,7 +27,7 @@
     
     
       
-        <title>ACTIVATE.QUANTIZE in the emulator - IPU Emulator</title>
+        <title>ACTIVATE.QUANTIZE, ACTIVATE.EXACT and LD.LUT - IPU Emulator</title>
       
     
     
@@ -120,7 +120,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              ACTIVATE.QUANTIZE in the emulator
+              ACTIVATE.QUANTIZE, ACTIVATE.EXACT and LD.LUT
             
           </span>
         </div>
@@ -1145,7 +1145,7 @@
   <span class="md-ellipsis">
     
   
-    ACTIVATE.QUANTIZE in the emulator
+    ACTIVATE.QUANTIZE, ACTIVATE.EXACT and LD.LUT
   
 
     
@@ -1163,7 +1163,7 @@
   <span class="md-ellipsis">
     
   
-    ACTIVATE.QUANTIZE in the emulator
+    ACTIVATE.QUANTIZE, ACTIVATE.EXACT and LD.LUT
   
 
     
@@ -1189,10 +1189,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#r_acc-post_aaq_reg-and-staaq" class="md-nav__link">
+  <a href="#activatequantize" class="md-nav__link">
     <span class="md-ellipsis">
       
-        R_ACC, POST_AAQ_REG and ST.AAQ
+        ACTIVATE.QUANTIZE
       
     </span>
   </a>
@@ -1200,6 +1200,29 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#ldlut" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LD.LUT
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#activateexact-emulator-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ACTIVATE.EXACT (emulator only)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ACTIVATE.EXACT (emulator only)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
   <a href="#and-the-window-bounds-elu-window" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1207,6 +1230,11 @@
       
     </span>
   </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -2778,69 +2806,165 @@
   
 
 
-<h1 id="activations-emulator"><code>ACTIVATE.QUANTIZE</code> in the emulator<a class="headerlink" href="#activations-emulator" title="Permanent link">&para;</a></h1>
-<p>The <a href="../../../specs/MAS-stage-aaq-str/">AaQ stage spec</a> describes how the hardware
-applies an activation: a function id (for example from <code>act_cr_idx</code> and a <code>CR</code>
-read) and α-like parameters that are not VLIW immediates. They come from
-implementation-defined configuration (constants, fuses, side-band registers).</p>
-<p>The Python emulator adds an AAQ-slot instruction, <code>ACTIVATE.QUANTIZE</code>, that
-applies one of thirteen activation shapes to the elements of <code>R_ACC</code> and writes
-the results to <code>POST_AAQ_REG</code>, without modelling the <code>act_cr_idx</code> path. It is a
-placeholder until the AaQ stage is specified
-(<a href="../../../requirements/open-questions/#emulator-and-isa">OQ-20</a>).</p>
-<div class="language-asm highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">ACTIVATE.QUANTIZE</span><span class="w"> </span><span class="no">relu</span><span class="w"> </span><span class="no">CR15</span><span class="c1">;;</span>
+<h1 id="activations-emulator"><code>ACTIVATE.QUANTIZE</code>, <code>ACTIVATE.EXACT</code> and <code>LD.LUT</code><a class="headerlink" href="#activations-emulator" title="Permanent link">&para;</a></h1>
+<p>The AaQ stage activates the accumulator, quantizes the result and stores it:
+one instruction does all three, and no register stages the result
+(<a href="https://github.com/rechefe/ipu-emulator/blob/master/docs/adr/0007-operational-aaq-and-nx8.md">ADR 0007</a>).
+The emulator follows the <a href="../../../specs/ARCH-stage-aaq-str/">AaQ architecture spec</a>;
+where the <a href="../../../specs/MAS-stage-aaq-str/">microarchitecture spec</a> disagrees, the
+difference is an open question
+(<a href="../../../requirements/open-questions/#emulator-and-isa">OQ-42</a>).</p>
+<table>
+<thead>
+<tr>
+<th>Instruction</th>
+<th>Slot</th>
+<th>Tag</th>
+<th>Modes</th>
+<th>Stores</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ACTIVATE.QUANTIZE</code></td>
+<td><code>AAQ</code></td>
+<td>HARDWARE</td>
+<td>NX8 and FP32</td>
+<td>one row: 128 NX8 bytes and the row's metadata word, or 128 FP32 values</td>
+</tr>
+<tr>
+<td><code>LD.LUT</code></td>
+<td><code>AAQ</code></td>
+<td>HARDWARE</td>
+<td>both</td>
+<td>nothing: loads one LUT segment from XMEM</td>
+</tr>
+<tr>
+<td><code>ACTIVATE.EXACT</code></td>
+<td><code>AAQ_EXACT</code></td>
+<td>EMULATOR</td>
+<td>FP32 only</td>
+<td>one row of 128 FP32 values</td>
+</tr>
+</tbody>
+</table>
+<div class="language-asm highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="w">    </span><span class="nf">LD.LUT</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="no">CR4</span><span class="w"> </span><span class="no">LR0</span><span class="w"> </span><span class="c1">;;                             # LUT segment 0 &lt;- row CR4 + LR0</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">    </span><span class="nf">ACTIVATE.QUANTIZE</span><span class="w"> </span><span class="no">relu</span><span class="w"> </span><span class="no">CR15.L</span><span class="w"> </span><span class="no">CR14.L</span><span class="w"> </span><span class="no">CR2</span><span class="w"> </span><span class="no">LR1</span><span class="w"> </span><span class="c1">;; # relu, quantize, store row CR2 + LR1</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span><span class="nf">ACTIVATE.EXACT</span><span class="w"> </span><span class="no">silu</span><span class="w"> </span><span class="no">CR15.L</span><span class="w"> </span><span class="no">CR3</span><span class="w"> </span><span class="no">LR1</span><span class="w"> </span><span class="c1">;;           # FP32 mode only: exact silu, store</span>
 </span></code></pre></div>
+<p>The instruction reference has each instruction's operands, operation and
+register reads: <a href="../instructions/#activatequantize-activate-quantize-and-store"><code>ACTIVATE.QUANTIZE</code></a>,
+<a href="../instructions/#ldlut-load-lut-segment"><code>LD.LUT</code></a> and
+<a href="../instructions/#activateexact-activate-exactly-and-store-fp32"><code>ACTIVATE.EXACT</code></a>.</p>
+<h2 id="activatequantize"><code>ACTIVATE.QUANTIZE</code><a class="headerlink" href="#activatequantize" title="Permanent link">&para;</a></h2>
+<p><strong>Syntax:</strong> <code>ACTIVATE.QUANTIZE activation_fn ds qf table_id table_offset</code>.</p>
 <ul>
-<li><strong>Syntax:</strong> <code>ACTIVATE.QUANTIZE activation_fn cr_idx</code>. <code>activation_fn</code> is a
-  keyword: <code>identity</code>, <code>relu</code>, <code>relu6</code>, <code>sigmoid</code>, <code>tanh</code>, <code>gelu</code>,
-  <code>softplus</code>, <code>elu</code>, <code>exp2</code>, <code>reciprocal</code>, <code>rsqrt</code>, <code>silu</code> or <code>window</code>. The
-  number of active elements is <code>cr_idx</code>'s <code>valid_elements</code>, the same
-  dstructure field the <code>AGG.*</code> instructions read
-  (<a href="../configuration-registers/">Configuration registers</a>). <code>cr_idx</code> is
-  required: any of <code>CR0</code>–<code>CR15</code>, with no default.</li>
-<li><strong>Where it is defined:</strong> the keyword order is the ISA's <code>ActivationFn</code>
-  operand, <code>ACTIVATION_FN_NAMES</code> in <code>src/ipu-isa/src/ipu_isa/activations.py</code>.
-  The math is the emulator's <code>apply_activation</code> in
-  <code>src/ipu-emu/src/ipu_emu/activations.py</code>.</li>
+<li><code>activation_fn</code> is the 3-bit function of the architecture spec: <code>identity</code>,
+  <code>relu</code>, <code>relu6</code>, <code>reciprocal</code>, <code>rsqrt</code>, <code>exp2</code> or <code>generic</code> (encodings 0–6;
+  7 is reserved). The keyword order is <code>AAQ_ACTIVATION_FN_NAMES</code> in
+  <code>src/ipu-isa/src/ipu_isa/activations.py</code>, the operand type <code>AaqActivationFn</code>.</li>
+<li><code>ds</code> is the DS half (<code>CR15.L</code> by convention) naming the active elements;
+  <code>qf</code> the QF half naming the NX8 output format
+  (<a href="../configuration-registers/">Configuration registers</a>). Both always name a
+  half: a bare <code>CR15</code> is an assembler error.</li>
+<li><code>table_id</code> (a CR) and <code>table_offset</code> (an LR) give the row,
+  <code>CR[table_id] + LR[table_offset]</code>
+  (<a href="../../../requirements/open-questions/#conflicts-between-existing-documents">OQ-8</a>).</li>
 </ul>
-<h2 id="r_acc-post_aaq_reg-and-staaq"><code>R_ACC</code>, <code>POST_AAQ_REG</code> and <code>ST.AAQ</code><a class="headerlink" href="#r_acc-post_aaq_reg-and-staaq" title="Permanent link">&para;</a></h2>
-<ul>
-<li>Accumulation stays in <code>R_ACC</code>: 512 bytes, 128 32-bit elements. <code>AGG.SUM</code>,
-  <code>AGG.SUM.FIRST</code>, <code>AGG.MAX</code> and <code>AGG.MAX.FIRST</code> reduce <code>R_ACC</code> in place and
-  write one <code>R_ACC</code> element, chosen by an LR.</li>
-<li><code>ACTIVATE.QUANTIZE</code> reads <code>R_ACC</code>, applies the activation to each active
-  element and writes the result to <code>POST_AAQ_REG</code>. <code>R_ACC</code> is unchanged.</li>
-<li><code>POST_AAQ_REG</code> is, for now, a 512-byte staging register with the same
-  element layout as <code>R_ACC</code>.</li>
-<li>Activation and quantization are one instruction; there is no
-  activate-only or quantize-only opcode. In INT8 the activated elements are
-  clamped to <code>[-128, 127]</code> and written as 128 bytes at the start of
-  <code>POST_AAQ_REG</code>; the rest is zeroed. In FP32 and INT32 the activated 32-bit
-  elements are written whole, and quantized to that 128-byte prefix only when
-  <code>AaqOptions.quantize_output</code> is set
-  (<code>IpuState(aaq=AaqOptions(quantize_output=True))</code>). The 8-bit float formats
-  refuse it.</li>
-<li><code>ST.AAQ</code> stores all 512 bytes of <code>POST_AAQ_REG</code> to XMEM, in whatever layout
-  it holds when the store issues.</li>
-</ul>
-<h2 id="and-the-window-bounds-elu-window">α and the window bounds (<code>elu</code>, <code>window</code>)<a class="headerlink" href="#and-the-window-bounds-elu-window" title="Permanent link">&para;</a></h2>
+<p><strong>Operation.</strong> The instruction reads the forwarded <code>R_ACC</code> (this word's ACC
+result, <a href="../../../explanation/timing-model/#rule-3">timing model</a>) and leaves it
+unchanged.</p>
+<ol>
+<li><strong>Activate</strong> each active element with the architecture spec's special
+   cases (§4.3.1): <code>reciprocal</code> and <code>rsqrt</code> of a subnormal or zero input add
+   the smallest epsilon, 2^-127, with the input's sign; of ±inf they are 0;
+   <code>rsqrt</code> of a negative input is NaN; <code>exp2(-inf)</code> is 0.</li>
+<li><strong>Quantize</strong> (NX8 mode) the active elements to one row in the QF half's
+   format (§4.3.2): the row's <code>scale</code> comes from the largest magnitude, each
+   element is rounded to nearest with ties half up, and a dynamic format picks
+   the exponent width of the row by the §4.3.2.3 rule, with errors measured in
+   units of the row's scale
+   (<a href="../../../requirements/open-questions/#emulator-and-isa">OQ-49</a>)
+   (<code>ipu_isa.nx8.encode_row</code>).</li>
+<li><strong>Store</strong> the 128 bytes and the row's metadata word (<code>scale[7:0]</code>,
+   <code>dynamic_exponent[8]</code>) at the row. In the FP32 mode the activated row is
+   stored as 128 FP32 values (512 bytes) instead, with no metadata, and <code>qf</code>
+   is ignored.</li>
+</ol>
+<p>Inactive elements are written as 0 in both modes: the architecture spec writes
+NaN, which NX8 cannot hold
+(<a href="../../../requirements/open-questions/#emulator-and-isa">OQ-36</a>).</p>
+<p><strong>What is an error.</strong> ±inf saturates to the largest magnitude and is left out
+of the scale; a saturation sets the <code>QUANT_SATURATION</code>
+<a href="../../../requirements/faults/#arithmetic-events">arithmetic event</a>. An invalid DS or
+QF half is a configuration error, raised in the word's check phase: the word
+leaves the state as a fault does. A row outside XMEM is fault F-6, found in
+the same phase. A NaN to quantize in NX8 (for example <code>rsqrt</code> of a negative
+input), <code>exp2</code> of a positive input, and <code>generic</code> with no declared function
+depend on <code>R_ACC</code>, which the same word's ACC forwards. They are emulator
+errors raised when <code>ACTIVATE.QUANTIZE</code> executes, after the word's LR, LOAD,
+MULT and ACC writes have landed.</p>
+<p><strong>The LUT and <code>generic</code>.</strong> The hardware evaluates <code>generic</code> through the LUT
+that five <code>LD.LUT</code> loads fill. The 17-bit entry format and the interpolation
+are not published yet
+(<a href="../../../requirements/open-questions/#emulator-and-isa">OQ-38</a>), so every
+function, <code>generic</code> included, is evaluated with exact math. <code>generic</code>
+computes the function the test declares as loaded:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ipu_emu.activations</span><span class="w"> </span><span class="kn">import</span> <span class="n">AaqOptions</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ipu_emu.ipu_state</span><span class="w"> </span><span class="kn">import</span> <span class="n">IpuState</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">state</span> <span class="o">=</span> <span class="n">IpuState</span><span class="p">(</span><span class="n">aaq</span><span class="o">=</span><span class="n">AaqOptions</span><span class="p">(</span><span class="n">generic</span><span class="o">=</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span> <span class="o">/</span> <span class="p">(</span><span class="mi">1</span> <span class="o">+</span> <span class="nb">abs</span><span class="p">(</span><span class="n">x</span><span class="p">))))</span>
+</span></code></pre></div>
+<h2 id="ldlut"><code>LD.LUT</code><a class="headerlink" href="#ldlut" title="Permanent link">&para;</a></h2>
+<p><strong>Syntax:</strong> <code>LD.LUT lut_addr table_id table_offset</code>.</p>
+<p><code>LD.LUT</code> copies the first 128 bytes (1024 bits) of row
+<code>CR[table_id] + LR[table_offset]</code> into LUT segment <code>lut_addr</code> (0–4; 5–7 are
+reserved). Segments 0–3 hold table bits; segment 4 holds the last 256 table
+bits and the 46-bit LUT metadata (<code>max_exp_num</code>, <code>neg_c</code>, <code>pos_c</code>,
+<code>range_mode</code>, <code>neg_mode</code>, <code>pos_mode</code>). It reads no row metadata and scales
+nothing, in both modes.</p>
+<p>Both specs load the segment from <code>R_ACC</code>; the hardware reads XMEM, and so does
+the emulator (<a href="../../../requirements/open-questions/#emulator-and-isa">OQ-39</a>).
+<code>LD.LUT</code> and an <code>LD.*</code> of the LOAD slot share the XMEM read port, so a word
+that holds both is an assembler error.</p>
+<p><code>ipu_isa.lut.lut_image(fn, range_mode, range_exp)</code> builds the five rows that
+load a function. The entry bits it writes are provisional until the entry
+format is published (<code>ipu_isa/lut.py</code>):</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ipu_isa.lut</span><span class="w"> </span><span class="kn">import</span> <span class="n">lut_image</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">rows</span> <span class="o">=</span> <span class="n">lut_image</span><span class="p">(</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span> <span class="o">/</span> <span class="p">(</span><span class="mi">1</span> <span class="o">+</span> <span class="nb">abs</span><span class="p">(</span><span class="n">x</span><span class="p">)),</span> <span class="n">range_mode</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">range_exp</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">rows</span><span class="p">)</span> <span class="o">==</span> <span class="mi">5</span> <span class="ow">and</span> <span class="nb">all</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">row</span><span class="p">)</span> <span class="o">==</span> <span class="mi">128</span> <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">rows</span><span class="p">)</span>
+</span></code></pre></div>
+<h2 id="activateexact-emulator-only"><code>ACTIVATE.EXACT</code> (emulator only)<a class="headerlink" href="#activateexact-emulator-only" title="Permanent link">&para;</a></h2>
+<p><strong>Syntax:</strong> <code>ACTIVATE.EXACT activation_fn ds table_id table_offset</code>.</p>
+<p><code>ACTIVATE.EXACT</code> applies the exact Python activation (<code>apply_activation</code> in
+<code>src/ipu-emu/src/ipu_emu/activations.py</code>) to the active elements of the
+forwarded <code>R_ACC</code> and stores the row as 128 FP32 values at
+<code>CR[table_id] + LR[table_offset]</code>, inactive lanes 0. It has the 13 functions
+of the <code>ActivationFn</code> operand (<code>ACTIVATION_FN_NAMES</code>): <code>identity</code>, <code>relu</code>,
+<code>relu6</code>, <code>sigmoid</code>, <code>tanh</code>, <code>gelu</code>, <code>softplus</code>, <code>elu</code>, <code>exp2</code>, <code>reciprocal</code>,
+<code>rsqrt</code>, <code>silu</code> and <code>window</code>. Unlike <code>ACTIVATE.QUANTIZE</code>, <code>rsqrt</code> of an input
+at or below 0 is 0, and <code>exp2</code> takes any input.</p>
+<p>It is in its own emulator-only slot, <code>AAQ_EXACT</code>, which runs after ACC.
+It is for FP32 kernels that need a function the hardware list lacks: the
+emulator rejects it in an IPU in the NX8 mode, the harness rejects it for an
+NX8 case, and <code>assemble --target hardware</code> rejects it. A word may not hold
+both <code>ACTIVATE.EXACT</code> and <code>ACTIVATE.QUANTIZE</code>.</p>
+<h3 id="and-the-window-bounds-elu-window">α and the window bounds (<code>elu</code>, <code>window</code>)<a class="headerlink" href="#and-the-window-bounds-elu-window" title="Permanent link">&para;</a></h3>
 <p>The ISA has no operand for <code>elu</code>'s α or for the bounds of <code>window</code>. The
 emulator reads them from the state's <code>activation</code> field, an
 <code>ActivationParams</code> (<code>elu_alpha</code>, <code>window_a</code>, <code>window_b</code>). Unset, they take the
 defaults in <code>ipu_emu/activations.py</code> (<code>DEFAULT_ELU_ALPHA</code>, <code>DEFAULT_WINDOW_A</code>,
 <code>DEFAULT_WINDOW_B</code>).</p>
 <p><code>window</code> is the half-open indicator: <code>window(x) = 1</code> for <code>a &lt;= x &lt; b</code>, else 0.
-The defaults are placeholders until calibration: <code>a = 0.0</code>, <code>b = 0.1</code>. On the
-hardware, <code>window</code> belongs to the LUT-backed <code>activation</code> group of the
-<a href="../../../specs/MAS-stage-aaq-str/">AaQ spec</a>, so <code>a</code> and <code>b</code> are part of the loaded
-LUT; the emulator keeps them on the state instead.</p>
-<p>They are set on the state, like the element format, not through a CR:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ipu_emu.activations</span><span class="w"> </span><span class="kn">import</span> <span class="n">ActivationParams</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ipu_emu.ipu_state</span><span class="w"> </span><span class="kn">import</span> <span class="n">IpuState</span>
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">state</span> <span class="o">=</span> <span class="n">IpuState</span><span class="p">(</span><span class="n">activation</span><span class="o">=</span><span class="n">ActivationParams</span><span class="p">(</span><span class="n">elu_alpha</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">window_a</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">window_b</span><span class="o">=</span><span class="mf">0.1</span><span class="p">))</span>
-</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="c1"># or, after construction:</span>
-</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="n">state</span><span class="o">.</span><span class="n">set_activation_alphas</span><span class="p">(</span><span class="n">elu_alpha</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">window_a</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">window_b</span><span class="o">=</span><span class="mf">0.1</span><span class="p">)</span>
+The defaults are placeholders until calibration: <code>a = 0.0</code>, <code>b = 0.1</code>.</p>
+<p>They are set on the state, like the run mode, not through a CR:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ipu_emu.activations</span><span class="w"> </span><span class="kn">import</span> <span class="n">ActivationParams</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ipu_emu.ipu_state</span><span class="w"> </span><span class="kn">import</span> <span class="n">IpuState</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="n">state</span> <span class="o">=</span> <span class="n">IpuState</span><span class="p">(</span><span class="n">activation</span><span class="o">=</span><span class="n">ActivationParams</span><span class="p">(</span><span class="n">elu_alpha</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">window_a</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">window_b</span><span class="o">=</span><span class="mf">0.1</span><span class="p">))</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="c1"># or, after construction:</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="n">state</span><span class="o">.</span><span class="n">set_activation_alphas</span><span class="p">(</span><span class="n">elu_alpha</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">window_a</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">window_b</span><span class="o">=</span><span class="mf">0.1</span><span class="p">)</span>
 </span></code></pre></div>
 <p>A state keeps its values from run to run; change them with
 <code>set_activation_alphas</code>, or build a new <code>IpuState</code>.</p>
@@ -2866,7 +2990,7 @@ LUT; the emulator keeps them on the state instead.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 18, 2026 21:48:18 UTC"><span class="timeago" datetime="2026-10-18T21:48:18+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 18, 2026 21:48:18 UTC">2026-10-18</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 23, 2026 22:14:22 UTC"><span class="timeago" datetime="2026-10-23T22:14:22+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 23, 2026 22:14:22 UTC">2026-10-23</span>
   </span>
 
     

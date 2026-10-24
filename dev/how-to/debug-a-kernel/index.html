@@ -1235,7 +1235,7 @@
   <span class="md-ellipsis">
     
   
-    ACTIVATE.QUANTIZE in the emulator
+    ACTIVATE.QUANTIZE, ACTIVATE.EXACT and LD.LUT
   
 
     
@@ -2813,7 +2813,7 @@ command runs from the repository root.</p>
 kernel, loads its inputs and CRs, and stops at cycle 0, before the first
 instruction word runs. It takes the same options as an ordinary run:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>bazel<span class="w"> </span>run<span class="w"> </span>--config<span class="o">=</span>debug<span class="w"> </span>//kernels/reshape/identity<span class="w"> </span>--<span class="w"> </span>--case<span class="w"> </span>single_row
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>bazel<span class="w"> </span>run<span class="w"> </span>--config<span class="o">=</span>debug<span class="w"> </span>//kernels/elementwise/scale<span class="w"> </span>--<span class="w"> </span>--case<span class="w"> </span>one_row<span class="w"> </span>--format<span class="w"> </span>e4
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>bazel<span class="w"> </span>run<span class="w"> </span>--config<span class="o">=</span>debug<span class="w"> </span>//kernels/elementwise/scale<span class="w"> </span>--<span class="w"> </span>--case<span class="w"> </span>one_row<span class="w"> </span>--format<span class="w"> </span>fp32
 </span></code></pre></div>
 <p>A kernel target also takes <code>--debug</code> in place of <code>--config=debug</code>. The
 debugger needs an interactive terminal.</p>
@@ -2833,7 +2833,7 @@ that focuses it:</p>
 <tbody>
 <tr>
 <td>1 Pipeline Registers</td>
-<td><code>R0</code>, <code>R1</code>, <code>R_C</code>, <code>R_MASK</code>, <code>R_ACC</code>, <code>POST_AAQ</code>, <code>MULT_RES</code>, <code>MEM_BYPASS</code></td>
+<td><code>R0</code>, <code>R1</code>, <code>R_C</code>, <code>R_MASK</code>, <code>R_ACC</code>, <code>AAQ_ROW</code> (the row the last AaQ store wrote, and in NX8 its metadata), <code>MULT_RES</code>, <code>MEM_BYPASS</code></td>
 </tr>
 <tr>
 <td>2 Instructions</td>
@@ -2841,7 +2841,7 @@ that focuses it:</p>
 </tr>
 <tr>
 <td>3 XMEM</td>
-<td>A range of XMEM rows or bytes</td>
+<td>A range of XMEM rows or bytes; in NX8 each row's marker line shows its metadata (scale, dynamic exponent)</td>
 </tr>
 <tr>
 <td>4 CR/LR</td>
@@ -2890,15 +2890,15 @@ values for <code>cell16</code>, 32-bit values for <code>u32</code> and <code>f32
 <p>A value that changed since the last stop is bold and underlined.</p>
 <h2 id="the-output-is-wrong">The output is wrong<a class="headerlink" href="#the-output-is-wrong" title="Permanent link">&para;</a></h2>
 <p>A wrong output prints <code>FAIL</code> and the worst element:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>scale/one_row/e4: FAIL  cycles=7  MAC util=14.3%  y: FAIL at EXACT (max|err|=3.00195 max rel=1.00065); worst at [0, 10]: got -0.001953125, want 3.0
+<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>scale/one_row/fp32: FAIL  cycles=7  MAC util=14.3%  y: FAIL at EXACT (max|err|=3 max rel=1); worst at [0, 10]: got 0.0, want 3.0
 </span></code></pre></div>
-<p><code>want</code> is the <a href="../../reference/glossary/">reference</a> rounded to the element
-format. <code>worst at [0, 10]</code> is the output element (row 0, lane 10) with the
+<p><code>want</code> is the <a href="../../reference/glossary/">reference</a> rounded to the case's
+variant (in NX8, quantized row by row). <code>worst at [0, 10]</code> is the output element (row 0, lane 10) with the
 largest error.</p>
 <ol>
 <li>
-<p>Run the failing case, in the failing format, in the debugger:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>bazel<span class="w"> </span>run<span class="w"> </span>--config<span class="o">=</span>debug<span class="w"> </span>//kernels/elementwise/scale<span class="w"> </span>--<span class="w"> </span>--case<span class="w"> </span>one_row<span class="w"> </span>--format<span class="w"> </span>e4
+<p>Run the failing case, in the failing variant, in the debugger:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>bazel<span class="w"> </span>run<span class="w"> </span>--config<span class="o">=</span>debug<span class="w"> </span>//kernels/elementwise/scale<span class="w"> </span>--<span class="w"> </span>--case<span class="w"> </span>one_row<span class="w"> </span>--format<span class="w"> </span>fp32
 </span></code></pre></div>
 </li>
 <li>
@@ -2936,11 +2936,11 @@ largest error.</p>
 <p>Check the vectors in Pipeline Registers (<code>1</code>) and the data in XMEM (<code>3</code>).
     Press <code>F2</code> in XMEM and request the region, for example <code>row CR3 0 128 f32</code>
     for an output region whose base row is in <code>CR3</code>. Press <code>f</code> to cycle the
-    tab's format until it matches the element format:</p>
+    tab's format until it matches the run's mode:</p>
 <table>
 <thead>
 <tr>
-<th>Element format</th>
+<th>Mode</th>
 <th>XMEM and <code>R0</code>, <code>R1</code></th>
 <th><code>MULT_RES</code>, <code>R_ACC</code></th>
 </tr>
@@ -2952,23 +2952,15 @@ largest error.</p>
 <td><code>f32</code></td>
 </tr>
 <tr>
-<td>INT32</td>
-<td><code>u32</code> (<code>int32</code> in Pipeline Registers)</td>
-<td><code>int32</code></td>
-</tr>
-<tr>
-<td>INT8</td>
-<td><code>int8</code></td>
-<td><code>int32</code></td>
-</tr>
-<tr>
-<td>E1–E7</td>
-<td><code>hex</code> (the 8-bit codes)</td>
+<td>NX8</td>
+<td><code>hex</code> or <code>int8</code> (the 8-bit codes)</td>
 <td><code>f32</code></td>
 </tr>
 </tbody>
 </table>
-<p>The debugger shows 8-bit float codes as bytes. <a href="../../explanation/element-formats/#how-the-8-bit-formats-encode-values">Element
+<p>The debugger shows NX8 codes as bytes. Each code's value also needs its
+row's metadata word, which the XMEM pane shows on each row's marker line
+and the <code>AAQ_ROW</code> tab in its title. <a href="../../explanation/element-formats/#how-nx8-encodes-values">Element
 formats</a>
 explains how to decode them, and the accumulator registers are already
 FP32.</p>
@@ -2990,7 +2982,7 @@ output. A run that reaches <code>HALT</code> closes the debugger and checks its 
 as an ordinary run does.</p>
 <h2 id="a-fault-halted-the-run">A fault halted the run<a class="headerlink" href="#a-fault-halted-the-run" title="Permanent link">&para;</a></h2>
 <p>A fault stops the run at the faulting word and prints its code and PC:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>scale/one_row/e4: FAIL  cycles=6  MAC util=16.7%  fault F-2 at PC 6
+<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>scale/one_row/fp32: FAIL  cycles=6  MAC util=16.7%  fault F-2 at PC 6
 </span></code></pre></div>
 <p>The debugger also closes on a fault and prints this line.</p>
 <ol>
@@ -3108,7 +3100,7 @@ of kernels, and explains how to record a trace of your own case.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 18, 2026 19:50:13 UTC"><span class="timeago" datetime="2026-10-18T19:50:13+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 18, 2026 19:50:13 UTC">2026-10-18</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 23, 2026 20:55:31 UTC"><span class="timeago" datetime="2026-10-23T20:55:31+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 23, 2026 20:55:31 UTC">2026-10-23</span>
   </span>
 
     

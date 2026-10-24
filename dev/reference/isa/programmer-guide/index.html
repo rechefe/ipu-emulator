@@ -1136,7 +1136,7 @@
   <span class="md-ellipsis">
     
   
-    ACTIVATE.QUANTIZE in the emulator
+    ACTIVATE.QUANTIZE, ACTIVATE.EXACT and LD.LUT
   
 
     
@@ -2829,13 +2829,13 @@
 <tbody>
 <tr>
 <td><code>reg1</code></td>
-<td><a href="../operand-types/#lcridx"><code>LcrIdx</code></a></td>
-<td>reg1: First register to compare (LR0–LR15 or CR0–CR15)</td>
+<td><a href="../operand-types/#lcrhalfidx"><code>LcrHalfIdx</code></a></td>
+<td>reg1: First register to compare (LR0–LR15, CR0–CR15, or a sign-extended half CR0.L–CR15.H)</td>
 </tr>
 <tr>
 <td><code>reg2</code></td>
-<td><a href="../operand-types/#lcridx"><code>LcrIdx</code></a></td>
-<td>reg2: Second register to compare (LR0–LR15 or CR0–CR15)</td>
+<td><a href="../operand-types/#lcrhalfidx"><code>LcrHalfIdx</code></a></td>
+<td>reg2: Second register to compare (LR0–LR15, CR0–CR15, or a sign-extended half CR0.L–CR15.H)</td>
 </tr>
 <tr>
 <td><code>label</code></td>
@@ -2874,13 +2874,13 @@ Branch if first register is greater than second.</p>
 <tbody>
 <tr>
 <td><code>reg1</code></td>
-<td><a href="../operand-types/#lcridx"><code>LcrIdx</code></a></td>
-<td>reg1: First register to compare (LR0–LR15 or CR0–CR15)</td>
+<td><a href="../operand-types/#lcrhalfidx"><code>LcrHalfIdx</code></a></td>
+<td>reg1: First register to compare (LR0–LR15, CR0–CR15, or a sign-extended half CR0.L–CR15.H)</td>
 </tr>
 <tr>
 <td><code>reg2</code></td>
-<td><a href="../operand-types/#lcridx"><code>LcrIdx</code></a></td>
-<td>reg2: Second register to compare (LR0–LR15 or CR0–CR15)</td>
+<td><a href="../operand-types/#lcrhalfidx"><code>LcrHalfIdx</code></a></td>
+<td>reg2: Second register to compare (LR0–LR15, CR0–CR15, or a sign-extended half CR0.L–CR15.H)</td>
 </tr>
 <tr>
 <td><code>label</code></td>
@@ -2919,8 +2919,8 @@ Branch if first register is less than or equal to second.</p>
 <tbody>
 <tr>
 <td><code>reg</code></td>
-<td><a href="../operand-types/#lcridx"><code>LcrIdx</code></a></td>
-<td>reg: Register to test (LR0–LR15 or CR0–CR15)</td>
+<td><a href="../operand-types/#lcrhalfidx"><code>LcrHalfIdx</code></a></td>
+<td>reg: Register to test (LR0–LR15, CR0–CR15, or a sign-extended half CR0.L–CR15.H)</td>
 </tr>
 <tr>
 <td><code>label</code></td>
@@ -2959,8 +2959,8 @@ Branch if register is zero (CR0 is the constant 0).</p>
 <tbody>
 <tr>
 <td><code>reg</code></td>
-<td><a href="../operand-types/#lcridx"><code>LcrIdx</code></a></td>
-<td>reg: Register to test (LR0–LR15 or CR0–CR15)</td>
+<td><a href="../operand-types/#lcrhalfidx"><code>LcrHalfIdx</code></a></td>
+<td>reg: Register to test (LR0–LR15, CR0–CR15, or a sign-extended half CR0.L–CR15.H)</td>
 </tr>
 <tr>
 <td><code>label</code></td>
