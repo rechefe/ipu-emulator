@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792841164350,
+  "lastUpdate": 1792841167093,
   "repoUrl": "https://github.com/rechefe/ipu-emulator",
   "entries": {
     "Times and memory (smaller is better)": [
@@ -734,6 +734,64 @@ window.BENCHMARK_DATA = {
             "value": 6084.111897,
             "unit": "cycles/s",
             "extra": "default case; cycles=179281 run=29.467 s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eyal Rechef",
+            "username": "rechefe",
+            "email": "103856782+rechefe@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "4dba5355a3d5f3e975909726048e69bf1a251ac4",
+          "message": "Merge pull request #263 from rechefe/claude/cool-pascal-xbj444\n\nOperational AaQ: NX8 quantization, row metadata and the spec's AaQ instructions",
+          "timestamp": "2026-10-24T07:31:45Z",
+          "url": "https://github.com/rechefe/ipu-emulator/commit/4dba5355a3d5f3e975909726048e69bf1a251ac4"
+        },
+        "date": 1792841166507,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "assemble/words_per_s",
+            "value": 12983.466772,
+            "unit": "words/s",
+            "extra": "files=129 words=8256"
+          },
+          {
+            "name": "emulator/faithful/matmul_384x192_x128.default/cycles_per_s",
+            "value": 8951.17081,
+            "unit": "cycles/s",
+            "extra": "cycles=77185 best of 5: 8.623 s"
+          },
+          {
+            "name": "emulator/faithful/fully_connected.int8/cycles_per_s",
+            "value": 16245.97559,
+            "unit": "cycles/s",
+            "extra": "cycles=2674 best of 5: 0.165 s"
+          },
+          {
+            "name": "emulator/faithful/fully_connected.e4/cycles_per_s",
+            "value": 14971.719631,
+            "unit": "cycles/s",
+            "extra": "cycles=2674 best of 5: 0.179 s"
+          },
+          {
+            "name": "kernel/identity/cycles_per_s",
+            "value": 10513.595316,
+            "unit": "cycles/s",
+            "extra": "default case; cycles=17 run=0.002 s"
+          },
+          {
+            "name": "kernel/matmul_720x240_x128/cycles_per_s",
+            "value": 8926.194689,
+            "unit": "cycles/s",
+            "extra": "default case; cycles=179281 run=20.085 s"
           }
         ]
       }
