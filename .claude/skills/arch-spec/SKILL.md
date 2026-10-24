@@ -20,11 +20,11 @@ with placeholders.
 1. **Gather the facts.** Sources, in the order you should read them:
    - The user's notes, messages and pictures (register layouts, diagrams).
      These describe the **target architecture** and win over everything else.
-   - The slot's entries in `src/tools/ipu-common/src/ipu_common/instruction_spec.py`:
+   - The slot's entries in `src/ipu-isa/src/ipu_isa/instruction_spec.py`:
      mnemonics, opcode order, operand `name` and `type`, the `InstructionDoc`.
-   - The handler `execute_<name>` in `src/tools/ipu-emu-py/src/ipu_emu/ipu.py`
+   - The handler `execute_<name>` in `src/ipu-emu/src/ipu_emu/slots/<slot>.py`
      for the exact behavior.
-   - `docs/content/operand-types.md` for operand-type anchors to link.
+   - the generated operand-type page (`docs/content/reference/isa/operand-types.md`, linked from a spec as `../reference/isa/operand-types.md`) for operand-type anchors.
    - Existing specs in `docs/content/specs/` (MAS-*, stage-*) for context.
 
    The code often lags the architecture. For example, the emulator's
@@ -63,7 +63,7 @@ with placeholders.
 | `# <Stage> Stage` | Title | |
 | `## 1. Overview` | Bullet list of the stage's tasks (bold task name, one or two sentences). Optional `> **Note:**`. | The reader learns what the stage is for in five lines. |
 | `## Table of Contents` | Hand-written numbered list with anchor links, down to the deepest numbered heading. | The mkdocs sidebar shows only three levels (`toc_depth: 3`), but readers jump to 4.3.2.1. |
-| `## 2. Block Diagram` | Mermaid `block-beta` diagram in the AaQ style (teal `blk` class, invisible `io` class). | |
+| `## 2. Block Diagram` | Mermaid `block-beta` diagram in the AaQ style (teal `blk` class, invisible `io` class), with every input in the left column. When an input feeds a unit in the middle of the stage, use `flowchart LR` with a `subgraph` for the stage instead (as in the MULT spec). | A `block-beta` input in its own top row renders far above the stage with its arrow detached. |
 | `## 3. Interfaces` | Name / Direction / Description table. Then `### 3.N` for each CR layout and each **shared concept**. | Everything the instructions refer to is defined before the ISA. |
 | `## 4. <STAGE>-<Name> ISA` | Intro (slot resolution, opcode enum source), register-width note, "Instructions in this section" table with links, then one `### 4.N` per instruction, separated by `---`. | |
 
@@ -102,7 +102,7 @@ already is one.)
 ```
 
 - **Syntax:** a `text` code block. Operands are separated by **commas**, which
-  matches `instruction_spec.py` (`ACTIVATE.QUANTIZE activation_fn, dstructure, ...`).
+  matches `instruction_spec.py` (`ACTIVATE.QUANTIZE activation_fn, ds, qf, ...`).
 - **Operands:** "The Type column links to the [operand type reference](../operand-types.md)."
   followed by a Name | Type | Details table. Link the type to its anchor
   (`[`CrIdx`](../operand-types.md#cridx)`). Details start with the legal range
@@ -112,8 +112,9 @@ already is one.)
   **Operand types** (the Type column):
   - A register operand uses its register type: `LrIdx`, `CrIdx`, `LcrIdx`,
     `MultStageReg`, `LrdIdx`.
-  - A CR that supplies the data structure (`dstructure`, `cr_idx`) is a plain
-    `CrIdx`. The spec has no `DstructureCrIdx`.
+  - The data structure (`ds`) and the quantization format (`qf`) are 16-bit
+    halves of a `CR`, type `HalfCrIdx`, written `CRn.L` (bits `[15:0]`) or
+    `CRn.H` (bits `[31:16]`). Their layouts are 16-bit tables (`[15:0]`).
   - An immediate whose values are an enum (`activation_fn`, `elements_in_row`,
     `horizontal_stride`, `vertical_stride`, `lut_addr`) is `Imm`, not its enum
     name. Link `Imm` to the enum's entry in `operand-types.md`
@@ -158,7 +159,7 @@ of branches plus a table of edge cases is easier to read than pseudocode.
 
 **No "it is A, not B"** unless the reader would otherwise believe B. If deleting
 a qualifier leaves the same information, delete it. "Activation applies to every
-element" needs no "it does not depend on `dstructure`".
+element" needs no "it does not depend on `ds`".
 
 **Architectural level.** Describe the bit layout of fields the architecture
 exposes. Leave out:

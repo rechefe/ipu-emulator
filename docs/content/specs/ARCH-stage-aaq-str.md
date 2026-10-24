@@ -19,7 +19,7 @@ The AaQ (Activation and Quantization) stage perfome the following tasks:
 1. [Overview](#1-overview)
 2. [Block Diagram](#2-block-diagram)
 3. [Interfaces](#3-interfaces)
-    - 3.1 [`quantizion_format` Layout](#31-quantizion_format-layout)
+    - 3.1 [Quantization Format (`qf`) Layout](#31-quantization-format-qf-layout)
     - 3.2 [Active Elements](#32-active-elements)
 4. [AaQ-Str ISA](#4-aaq-str-isa)
     - 4.1 [`NOP`: No Operation](#41-nop-no-operation)
@@ -85,48 +85,48 @@ block-beta
 | output data | Output | The 128-element NX vector. |
 | XMEM write address | Output | The XMEM address to which the stage writes the output data. |
 
-### 3.1 `quantizion_format` Layout
+### 3.1 Quantization Format (`qf`) Layout
 
-The `quantizion_format` operand names a 32-bit `CR` that holds the quantization
-format. It has four 8-bit fields:
+The `qf` operand names a 16-bit half of a `CR`: `CRn.L` (bits `[15:0]`) or
+`CRn.H` (bits `[31:16]`). The half holds the quantization format (QF):
 
 | Bits | Field | Description |
 |------|-------|-------------|
-| `[31:24]` | `dynamic_static` | `0` = static, `1` = dynamic. In dynamic mode, the exponent format is `e1` or `e2` (section 4.3.2.3). |
-| `[23:16]` | `sign` | `0` = unsigned, `1` = signed. |
-| `[15:8]` | `num_bits` | Total element width `W`: `1`-`8`. `0` is reserved/invalid. |
-| `[7:0]` | `exponent_format` | Exponent width `fe` in static mode: `1`-`7` = `e1`-`e7`. |
+| `[15:12]` | `dynamic` | `0` = static, `1` = dynamic. A dynamic format is signed and 8 bits wide; its exponent format is `e1` or `e2` (section 4.3.2.3). |
+| `[11:8]` | `sign` | `0` = unsigned, `1` = signed. |
+| `[7:4]` | `exp_format` | Exponent width `fe` of a static format: `1`-`7` = `e1`-`e7`. `fe + sign` is at most `num_bits`. |
+| `[3:0]` | `num_bits` | Total element width `W`: `1`-`8`. |
 
 ### 3.2 Active Elements
 
-#### CR layout (`dstructure`)
+#### Data Structure (`ds`) Layout
 
-The `dstructure` operand names a 32-bit `CR` that holds the data structure
-format (DS) of the 128-element vector. It has four 8-bit fields:
+The `ds` operand names a 16-bit half of a `CR` (`CRn.L` or `CRn.H`). The half
+holds the data structure (DS) of the 128-element vector:
 
 | Bits | Field | Description |
 |------|-------|-------------|
-| `[31:24]` | `N/A` | Not used. |
-| `[23:16]` | `valid_partition` | Number of valid groups. The rightmost `num_partition - valid_partition` groups are masked. |
-| `[15:8]` | `num_partition` | Number of groups: `1`, `2`, `4` or `8`. `1` means one line of 128 elements, `2` means two lines of 64 elements. |
-| `[7:0]` | `valid_elements` | Number of valid elements in a group. |
+| `[15:12]` | `valid_partitions` | Number of valid groups: `1`-`num_partitions`. The rightmost `num_partitions - valid_partitions` groups are masked. |
+| `[11:10]` | `mask_type` | Used by the MULT stage (MULT Stage ARCH, section 3.1). |
+| `[9:8]` | `num_partitions` | Number of groups, coded `0`-`3` = `1`, `2`, `4`, `8`. One group is one line of 128 elements, two groups are two lines of 64 elements. |
+| `[7:0]` | `valid_elements` | Number of valid elements in a group: `0`-`128 / num_partitions`. |
 
 #### Active elements rule
 
-The `dstructure` fields select which of the 128 elements are active.
+The `ds` fields select which of the 128 elements are active.
 
-The 128 elements are split into `num_partition` equal groups.
-Each group has `group_size = 128 / num_partition` elements. Then:
+The 128 elements are split into `num_partitions` equal groups.
+Each group has `group_size = 128 / num_partitions` elements. Then:
 
-1. Only the first `valid_partition` groups are active. The remaining groups are masked.
+1. Only the first `valid_partitions` groups are active. The remaining groups are masked.
 2. In each active group, only the first `valid_elements` elements are active.
 
 ```text
-group_size = 128 / num_partition
-active[i] = (i / group_size < valid_partition) and (i % group_size < valid_elements)
+group_size = 128 / num_partitions
+active[i] = (i / group_size < valid_partitions) and (i % group_size < valid_elements)
 ```
 
-**Example:** `num_partition = 4`, `valid_partition = 3`, `valid_elements = 10`.
+**Example:** `num_partitions = 4`, `valid_partitions = 3`, `valid_elements = 10`.
 Each group has 32 elements, so active elements are `0-9`, `32-41` and `64-73`
 (30 elements). Group 3 (`96-127`) is masked.
 
@@ -309,7 +309,7 @@ The instruction works in three steps:
 #### Syntax
 
 ```text
-ACTIVATE.QUANTIZE activation_fn, dstructure, quantizion_format, table_id, table_offset
+ACTIVATE.QUANTIZE activation_fn, ds, qf, table_id, table_offset
 ```
 
 #### Operands
@@ -317,8 +317,8 @@ ACTIVATE.QUANTIZE activation_fn, dstructure, quantizion_format, table_id, table_
 | Name | Type | Used by | Details |
 |------|------|---------|---------|
 | `activation_fn` | [`Imm`](../reference/isa/operand-types.md#activationfn) | Activate | Enum that names the activation (see [`activation_fn` Values](#activation_fn-values)). |
-| `dstructure` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | Quantize | `CR0`-`CR15`. Supplies the structure of the 128-element vector: `valid_partition`, `num_partition`, `valid_elements` (section 3.2). |
-| `quantizion_format` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | Quantize | `CR0`-`CR15`. Supplies the quantization format (section 3.1). |
+| `ds` | [`HalfCrIdx`](../reference/isa/operand-types.md#halfcridx) | Quantize | `CR0.L`-`CR15.H`. Supplies the data structure of the 128-element vector: `valid_partitions`, `num_partitions`, `valid_elements` (section 3.2). |
+| `qf` | [`HalfCrIdx`](../reference/isa/operand-types.md#halfcridx) | Quantize | `CR0.L`-`CR15.H`. Supplies the quantization format (section 3.1). |
 | `table_id` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | Store | `CR0`-`CR15`. Supplies the ID of the destination table. |
 | `table_offset` | [`LrIdx`](../reference/isa/operand-types.md#lridx) | Store | `LR0`-`LR15`. Supplies the offset in the destination table. |
 
@@ -335,14 +335,14 @@ for i in 0..127:                                            // active[i]: sectio
         aaq_out.elements[i] = NaN
 
 aaq_out.scale            = scale                        // section 4.3.2.1
-aaq_out.dynamic_exponent = dynamic_static ? (fe == 2) : 0     // section 4.3.2.3
+aaq_out.dynamic_exponent = dynamic ? (fe == 2) : 0            // section 4.3.2.3
 XMEM[table_id, table_offset] = aaq_out                  // 4.3.3: store
 ```
 
 #### Example
 
 ```text
-ACTIVATE.QUANTIZE relu, CR15, CR14, CR13, LR0;;
+ACTIVATE.QUANTIZE relu, CR15.L, CR14.L, CR13, LR0;;
 ```
 
 ---
@@ -450,8 +450,8 @@ $$
 #### 4.3.2 Quantize
 
 Converts each activated fp32 element (IEEE-754 single precision: sign `S`,
-8-bit exponent `e`, 23-bit mantissa) into the NX8 format set by
-`quantizion_format` (section 3.1).
+8-bit exponent `e`, 23-bit mantissa) into the NX8 format set by the
+quantization format `qf` (section 3.1).
 
 **Outputs:**
 
@@ -516,7 +516,7 @@ result is corrected:
 
 #### 4.3.2.3 Dynamic Exponent Selection (`fe = 1` or `fe = 2`)
 
-Applies when `dynamic_static = 1` (dynamic). Dynamic mode supports two formats,
+Applies when `dynamic = 1`. Dynamic mode supports two formats,
 both signed and 8 bits wide (`sign = 1`, `num_bits = 8`):
 
 | Format | `fe` | `fm` | `dynamic_exponent` |
