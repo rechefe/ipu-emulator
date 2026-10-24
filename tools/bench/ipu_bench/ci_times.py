@@ -2,7 +2,7 @@
 
     bazel run //tools/bench:ci_times -- --out DIR --run-id "$GITHUB_RUN_ID"
 
-- ``ci/full_suite_wall_s``: the "Run every non-manual test with coverage" step
+- ``ci/full_suite_wall_s``: the "Run the default tier with coverage" step
   of this nightly run's ``full`` job.
 - ``ci/default_tier_wall_s``: the "Run the default test tier" step of the
   ``test`` job of the latest successful ``ci.yml`` run on master.
@@ -24,7 +24,7 @@ from typing import Any
 
 from ipu_bench.result import Result, append_results
 
-FULL = ("full", "Run every non-manual test with coverage", "ci/full_suite_wall_s")
+FULL = ("full", "Run the default tier with coverage", "ci/full_suite_wall_s")
 DEFAULT_TIER = ("test", "Run the default test tier", "ci/default_tier_wall_s")
 
 

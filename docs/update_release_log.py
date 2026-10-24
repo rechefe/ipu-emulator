@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """Fetch merged pull requests from GitHub and update docs/content/release-log.md.
 
-The log is committed, so the docs build never reaches the network. The
-release-log workflow (.github/workflows/release-log.yml) refreshes it on master
-after every merge with ``--recent``.
+The log is committed, so the Bazel docs build never reaches the network. When
+the docs workflow (.github/workflows/docs.yml) publishes the site, a step before
+the build runs this script with ``--all`` to merge every merged PR into the
+checked-out log, so the published page is current without a commit to master.
 
 Usage (one-time historical backfill or full refresh):
     bazel run //docs:update_release_log -- --output "$PWD/docs/content/release-log.md"
+
+Usage (merge every merged PR, all pages, into the existing log):
+    bazel run //docs:update_release_log -- --all --output "$PWD/docs/content/release-log.md"
 
 Usage (merge the PRs on the newest page of results into the existing log):
     bazel run //docs:update_release_log -- --recent --output "$PWD/docs/content/release-log.md"
@@ -18,7 +22,7 @@ The script reads GITHUB_TOKEN from the environment when available so that the
 GitHub API rate limit is much higher (5 000 req/h vs 60 req/h unauthenticated).
 
 A network failure never fails the script: a full refresh writes a minimal log,
-and ``--latest`` or ``--recent`` leaves an existing log unchanged.
+and ``--all``, ``--latest`` or ``--recent`` leaves an existing log unchanged.
 """
 
 import argparse
@@ -41,7 +45,7 @@ HEADER = """\
 # Release Log
 
 This page lists every pull request that has been merged into `master`, newest
-first.  A workflow refreshes it on `master` after every merge.
+first.  The docs workflow refreshes it each time it publishes the site.
 
 | # | Title | Merged at (UTC) |
 |---|-------|----------------|
@@ -170,18 +174,24 @@ def merge_rows(existing_text: str, prs: list[dict]) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--all",
+        action="store_true",
+        help="Fetch every page and merge every merged PR into the existing log "
+        "(the docs workflow's mode; a network error leaves the log unchanged).",
+    )
+    mode.add_argument(
         "--latest",
         action="store_true",
         help="Fetch only the most recently merged PR and add it to the existing "
         "log (fast, for CI use).",
     )
-    parser.add_argument(
+    mode.add_argument(
         "--recent",
         action="store_true",
         help="Fetch the 100 most recently updated PRs and merge every merged one "
-        "into the existing log (the release-log workflow's mode; catches merges "
-        "a previous run missed).",
+        "into the existing log.",
     )
     parser.add_argument(
         "--output",
@@ -198,7 +208,7 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
 
-    incremental = args.latest or args.recent
+    incremental = args.all or args.latest or args.recent
     existing = args.output.exists() if incremental else False
 
     try:

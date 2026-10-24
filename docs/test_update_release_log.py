@@ -213,3 +213,38 @@ def test_recent_network_error_leaves_existing_file_unchanged(monkeypatch, tmp_pa
     out.write_text(before, encoding="utf-8")
     assert rl.main(["--recent", "--output", str(out)]) == 0
     assert out.read_text(encoding="utf-8") == before
+
+
+def test_all_merges_every_page_into_existing_file(monkeypatch, tmp_path):
+    page1 = [_pr(n, f"PR {n}", f"2024-01-01T00:{n % 60:02d}:00Z") for n in range(100, 200)]
+    page2 = [_pr(300, "Newest", "2024-02-01T00:00:00Z")]
+    calls = []
+
+    def fake_get(url, token):
+        calls.append(url)
+        return page1 if "page=1&" in url else page2
+
+    monkeypatch.setattr(rl, "_get", fake_get)
+    out = tmp_path / "release-log.md"
+    # A row no longer returned by the API (e.g. an old PR) is kept.
+    out.write_text(rl.build_content([_pr(1, "one", "2023-01-01T00:00:00Z")]), encoding="utf-8")
+    assert rl.main(["--all", "--output", str(out)]) == 0
+    rows = rl.parse_rows(out.read_text(encoding="utf-8"))
+    assert len(rows) == 102
+    assert {1, 300} <= set(rows)
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize("exc", _NETWORK_ERRORS, ids=lambda e: type(e).__name__)
+def test_all_network_error_leaves_existing_file_unchanged(monkeypatch, tmp_path, exc):
+    monkeypatch.setattr(rl, "_get", _raise(exc))
+    out = tmp_path / "release-log.md"
+    before = rl.build_content([_pr(1, "one", "2024-03-01T00:00:00Z")])
+    out.write_text(before, encoding="utf-8")
+    assert rl.main(["--all", "--output", str(out)]) == 0
+    assert out.read_text(encoding="utf-8") == before
+
+
+def test_modes_are_mutually_exclusive(tmp_path):
+    with pytest.raises(SystemExit):
+        rl.main(["--all", "--recent", "--output", str(tmp_path / "log.md")])

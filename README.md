@@ -57,12 +57,12 @@ Tests are split into two tiers by Bazel test size. The named configs in
 | Default | Every test except size `enormous`: what a change must pass before review. CI runs it on every pull request and every push to master. | `bazel test //...` (CI: `bazel test --config=ci //...`, which also skips `docs` targets and uses the CI caches) |
 | Heavy | Size `enormous` tests, such as each kernel's `:<name>_nightly` cases, the MobileViT full layers and the `test_alias_profile_kernels` sweep. Runs nightly. | `bazel test --config=full //...` |
 
-The nightly workflow (`.github/workflows/nightly.yml`) runs
-`bazel coverage --config=full //...` on master: every non-manual test once,
-with coverage (per-package line coverage in the job summary, the lcov report
-and an HTML report as a 30-day artifact), the MobileViT full-layer chains
-below among them. It also runs the heavy tier again in prototyping mode
-(`--config=proto`). A failed nightly run opens a "Nightly failure" issue
+The nightly workflow (`.github/workflows/nightly.yml`) runs every non-manual
+test once on master: the default tier under `bazel coverage` (per-package line
+coverage in the job summary, the lcov report and an HTML report as a 30-day
+artifact), and the heavy tier without coverage, the MobileViT full-layer
+chains below among them. It also runs the heavy tier again in prototyping
+mode (`--config=proto`). A failed nightly run opens a "Nightly failure" issue
 (label `nightly`), which the next green run closes. Start it by hand from
 the Actions tab (workflow_dispatch).
 

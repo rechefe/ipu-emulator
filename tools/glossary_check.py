@@ -27,10 +27,10 @@ BASELINE_COMMAND = "bazel run //tools:glossary_baseline"
 # Root files checked besides docs/content/**/*.md (the same set as the doc tests).
 ROOT_FILES = ("README.md", "SKILL.md", "CLAUDE.md")
 
-# Committed pages a workflow rewrites, not a person. .github/workflows/release-log.yml
-# rebuilds the release log from merged pull request titles and pushes it to
-# master without touching the baseline; the titles are historical records that
-# nobody can reword.
+# Committed pages a workflow rewrites, not a person. .github/workflows/docs.yml
+# rebuilds the release log from merged pull request titles before it publishes
+# the site, without touching the baseline; the titles are historical records
+# that nobody can reword.
 MACHINE_WRITTEN_PAGES = frozenset({"docs/content/release-log.md"})
 
 # Avoided terms that are ordinary English words. A regex cannot tell the
