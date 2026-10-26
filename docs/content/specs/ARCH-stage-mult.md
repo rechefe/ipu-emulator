@@ -62,12 +62,12 @@ flowchart LR
     LDW --> RMASK
     RA --> SEL
     RC --> SEL
-    INSTR --> SEL
+    INSTR ----> SEL
     SEL --> MUL
-    QF --> MUL
+    QF -----> MUL
     MUL --> MASK
     RMASK --> MASK
-    DS --> MASK
+    DS ------> MASK
     MASK --> OUT_DATA
 
     classDef io fill:none,stroke:none
@@ -79,12 +79,15 @@ flowchart LR
 
 | Name | Direction | Description |
 |------|-----------|-------------|
-| XMEM read address | Output | The XMEM row that a load instruction reads: `offset + base`. |
 | load data | Input | One XMEM row: 128 8-bit elements (128 B) and the vector metadata (section 3.2.1). |
 | Instruction | Input | The operation that the stage does on its registers. |
 | quantization format (`qf`) | Input | The NX8 format of the input elements (section 3.2). |
 | data structure (`ds`) | Input | The groups of the 128-element vector and the pad value of masked elements (section 3.1). |
 | output data | Output | `MULT_RES`: 128 FP32 elements, to the ACC stage. |
+
+> **Note:** The MULT stage owns its load instructions, but the CTRL stage
+> prefetches their XMEM read address (`offset + base`). The MULT stage gets
+> only the load data.
 
 > **Note:** The stage reads `R0`, `R1`, `R_CYCLIC` and `R_MASK` as they were at
 > the start of the cycle. A load into them in the same cycle is visible in the
@@ -111,9 +114,6 @@ The `ds` operand names a 16-bit half of a `CR`: `CRn.L` (bits `[15:0]`) or
 | `1` | `+inf` |
 | `2` | `-inf` |
 | `3` | NaN |
-
-> **TBD - ask Jacob:** whether `mask_type` `1`, `2` and `3` (`+inf`, `-inf`,
-> NaN) can be used.
 
 ### 3.2 Element Format
 
@@ -162,15 +162,11 @@ else:                                                     // clamp, Exp = Emax
     fp32 = (-1)^S x 2^(s - 127 - (Emax - 1)) x (M / 2^fm)
 ```
 
-> **TBD - ask Jacob:** an NX8 element that is `NaN`, `inf` or `-inf`: which FP32
-> value does it convert to?
-
 **Vector metadata.** Each vector is loaded and saved with its metadata:
 
 | Metadata | Size | Description |
 |----------|------|-------------|
 | `Scale` (`s`) | 8 bits | Scale shared by the whole vector. |
-| `dynamic_static` | 1 bit | Dynamic or static quantization. |
 | `dynamic_exponent` | 1 bit | `e1` or `e2`: the exponent width chosen in dynamic quantization. `0` in static quantization. |
 
 `R0`, `R1` and each 128-element slot of `R_CYCLIC` keep the metadata of the
