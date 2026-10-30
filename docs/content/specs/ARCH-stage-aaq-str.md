@@ -258,40 +258,41 @@ payload.
 | `[7:0]` | `max_exp_num` | The **biased** FP32 exponent of the LUT range: `max_exp_num = range_exp + 127`. `exp >= max_exp_num` flags the element as out-of-range. |
 | `[24:8]` | `neg_c` | 17-bit constant substituted for negative out-of-range elements. |
 | `[41:25]` | `pos_c` | 17-bit constant substituted for positive out-of-range elements. |
-| `[43:42]` | `range_mode` | LUT version. See the `range_mode` table. |
+| `[43:42]` | `range_mode` | LUT domain. See the `range_mode` table. |
 | `[44]` | `neg_mode` | Result for negative out-of-range elements: `0` = `x` (identity), `1` = `neg_c`. |
 | `[45]` | `pos_mode` | Result for positive out-of-range elements: `0` = `x` (identity), `1` = `pos_c`. |
 
 **`range_mode`.**
 
-| Value | Version | LUT entries | LUT range |
+| Value | Domain | LUT entries | LUT range |
 |-------|---------|-------------|-----------|
-| `0` | Version 1 | 256 entries for positive `x`. | `0 <= x < 2^range_exp` |
-| `1` | Version 2 | 256 entries for negative `x`. | `-2^range_exp < x <= 0` |
-| `2` | Version 3 | 128 entries for negative `x` and 128 entries for positive `x`. | `-2^range_exp < x < 2^range_exp` |
+| `0` | Positive | 256 entries for positive `x`. | `0 <= x < 2^range_exp` |
+| `1` | Negative | 256 entries for negative `x`. | `-2^range_exp < x <= 0` |
+| `2` | Symmetric | 128 entries for negative `x` and 128 entries for positive `x`. | `-2^range_exp < x < 2^range_exp` |
 
 #### 4.2.3 LUT Addressing
 
 The LUT entries are at linear intervals in the LUT range, with
 `step = 2^range_exp / 256`:
 
-| Version | Interval | Entry points |
+| Domain | Interval | Entry points |
 |---------|----------|--------------|
-| Version 1 | `step` | `0, step, 2*step, ..., 2^range_exp - step` |
-| Version 2 | `step` | `0, -step, -2*step, ..., -(2^range_exp - step)` |
-| Version 3 | `2*step` | `-(2^range_exp - 2*step), ..., -2*step, -0` and `+0, 2*step, ..., 2^range_exp - 2*step` |
+| Positive | `step` | `0, step, 2*step, ..., 2^range_exp - step` |
+| Negative | `step` | `0, -step, -2*step, ..., -(2^range_exp - step)` |
+| Symmetric | `2*step` | `-(2^range_exp - 2*step), ..., -2*step, -0` and `+0, 2*step, ..., 2^range_exp - 2*step` |
 
-Version 3 has 128 entries for each side, so the interval is `2*step`.
+The Symmetric domain has 128 entries for each side, so the interval is `2*step`.
 
-Version 3 has two entries at zero: `-0` is the last negative entry and `+0` is
-the first positive entry.
+The Symmetric domain has two entries at zero: `-0` is the last negative entry
+and `+0` is the first positive entry.
 
-In Version 1 and Version 2, `-0` and `+0` both take LUT entry 0.
+In the Positive and Negative domains, `-0` and `+0` both take LUT entry 0.
 
-> **TBD - ask Aviv and Jacob:** do `-0` in Version 1 and `+0` in Version 2 take
-> LUT entry 0, or does the sign bit send them to `neg_mode` and `pos_mode`?
+> **TBD - ask Aviv and Jacob:** do `-0` in the Positive domain and `+0` in the
+> Negative domain take LUT entry 0, or does the sign bit send them to `neg_mode`
+> and `pos_mode`?
 
-**Example, Version 1.** `max_exp_num = 129`, so `range_exp = 2` and the LUT
+**Example, Positive domain.** `max_exp_num = 129`, so `range_exp = 2` and the LUT
 range is `0` to `2^range_exp = 4`.
 `step = 4/256`. The entry points are:
 
@@ -299,7 +300,7 @@ range is `0` to `2^range_exp = 4`.
 0, 4/256, 8/256, ..., 4 - 4/256
 ```
 
-**Example, Version 3.** `max_exp_num = 128`, so `range_exp = 1` and the LUT
+**Example, Symmetric domain.** `max_exp_num = 128`, so `range_exp = 1` and the LUT
 range is `-2` to `2^range_exp = 2`.
 `step = 2/256`. The interval is `2*step = 4/256`. The entry points are:
 
@@ -312,7 +313,7 @@ range is `-2` to `2^range_exp = 2`.
 4.3.2.2). All 128 elements read the LUT at once.
 
 > **TBD - ask Jacob or Aviv:** what is the bit position of each entry in
-> `TABLE_BITS`, and in which order does Version 3 hold its two sides?
+> `TABLE_BITS`, and in which order does the Symmetric domain hold its two sides?
 
 > **TBD - ask Jacob or Aviv:** when `RTN(|x| / interval)` passes the last entry
 > (`x` just below `2^range_exp`), does `x` take the last entry, or follow
@@ -368,7 +369,7 @@ XMEM[table_id + table_offset] = aaq_out                 // 4.3.3: store
 #### Example
 
 ```text
-ACTIVATE.QUANTIZE relu CR15.L CR14.L CR13 LR0;;
+ACTIVATE.QUANTIZE relu CR15.L CR15.H CR13 LR0;;
 ```
 
 ---
@@ -408,29 +409,30 @@ functions, load the matching function before `ACTIVATE.QUANTIZE`.
 
 | Function | Input `x` | Result |
 |----------|-----------|--------|
-| `reciprocal` | non-negative subnormal | `f(x) = 1/(x + epsilon)` |
+| `reciprocal` | `0` | `inf` |
+| `reciprocal` | `-0` | `-inf` |
+| `reciprocal` | positive subnormal | `f(x) = 1/(x + epsilon)` |
 | `reciprocal` | negative subnormal | `f(x) = 1/(x - epsilon)` |
 | `reciprocal` | `inf` or `-inf` | `0` |
-| `rsqrt` | non-negative subnormal | `f(x) = 1/sqrt(x + epsilon)` |
+| `rsqrt` | `0` | `inf` |
+| `rsqrt` | `-0` | `-inf` |
+| `rsqrt` | positive subnormal | `f(x) = 1/sqrt(x + epsilon)` |
 | `rsqrt` | `inf` | `0` |
 | `rsqrt` | negative | `NaN` |
 | `exp2` | `-inf` | `0` |
 | `exp2` | positive | Undefined: the input must be non-positive. |
 | Every function | `NaN` | `NaN` |
 
-> **TBD - ask Jacob or Aviv:** do `reciprocal` and `rsqrt` of `0` and `-0` follow
-> the subnormal rows, or IEEE-754 (`inf` or `-inf`)?
+#### The `generic` Function: LUT Domains
 
-#### The `generic` Function: LUT Versions
-
-The LUT for `generic` has three versions. `range_mode` selects the version.
-The drawings that follow are a reference for each version.
+The LUT for `generic` has three domains. `range_mode` selects the domain.
+The drawings that follow are a reference for each domain.
 
 > **Note:** `pos_c` is the constant for the positive side of the x axis.
 > `neg_c` is the constant for the negative side of the x axis. The value of each
 > constant can be positive or negative.
 
-##### Version 1 (`range_mode = 0`)
+##### Positive Domain (`range_mode = 0`)
 
 All 256 LUT entries are for positive `x`. Out of the LUT range, `pos_mode`
 and `neg_mode` select the result: `x` (identity) or a constant.
@@ -444,9 +446,9 @@ x \ \text{or} \ \mathrm{neg\_c} & x < 0
 \end{cases}
 $$
 
-![Reference drawing of the generic activation function, version 1](assets/aaq-generic-activation.svg)
+![Reference drawing of the generic activation function, Positive domain](assets/aaq-generic-activation.svg)
 
-##### Version 2 (`range_mode = 1`)
+##### Negative Domain (`range_mode = 1`)
 
 All 256 LUT entries are for negative `x`. Out of the LUT range, `pos_mode`
 and `neg_mode` select the result: `x` (identity) or a constant.
@@ -460,9 +462,9 @@ x \ \text{or} \ \mathrm{pos\_c} & x > 0
 \end{cases}
 $$
 
-![Reference drawing of the generic activation function, version 2](assets/aaq-generic-activation-v2.svg)
+![Reference drawing of the generic activation function, Negative domain](assets/aaq-generic-activation-v2.svg)
 
-##### Version 3 (`range_mode = 2`)
+##### Symmetric Domain (`range_mode = 2`)
 
 The LUT entries are divided into 128 entries for negative `x` and 128 entries
 for positive `x`. Out of the LUT range, `pos_mode` and `neg_mode` select the
@@ -477,7 +479,7 @@ x \ \text{or} \ \mathrm{neg\_c} & x \le -2^{\mathrm{max\_exp\_num}}
 \end{cases}
 $$
 
-![Reference drawing of the generic activation function, version 3](assets/aaq-generic-activation-v3.svg)
+![Reference drawing of the generic activation function, Symmetric domain](assets/aaq-generic-activation-v3.svg)
 
 ---
 
@@ -711,6 +713,7 @@ Writes the quantized result, on `output data`, to XMEM row
 | Element that is not active | `NaN` in a signed format, `0` in an unsigned format. | `0` in both. |
 | Active `NaN` | `NaN` in a signed format, `0` in an unsigned format. | Emulator error. |
 | Finite element that rounds to `-0` | `S = 0`. | Keeps the input sign, so `S = 1`. |
+| `reciprocal` and `rsqrt` of `0` and `-0` | `inf`, or `-inf` for `-0`. | Follows the subnormal rows: `reciprocal` gives `2^127` or `-2^127`, and `rsqrt` gives `2^63.5`. |
 | LUT evaluation | The LUT implements the activation functions. | Stores the LUT bits and evaluates with exact math. |
 | Dynamic format | Any `sign` and any `num_bits >= 2 + sign`. | Only `sign = 1` and `num_bits = 8`. Other values are a configuration error. |
 | LUT load source | `input_data[31:0]`. | The first 128 bytes of the XMEM row at `table_id + table_offset`. |
