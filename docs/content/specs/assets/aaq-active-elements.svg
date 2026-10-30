@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 290" width="760" height="290" font-family="Helvetica, Arial, sans-serif" font-size="13">
-  <!-- Active elements example: num_partition = 4, valid_partition = 3, valid_elements = 10 -->
+  <!-- Active elements example: num_partitions = 4, valid_partitions = 3, valid_elements = 10 -->
   <rect width="760" height="290" fill="#ffffff"/>
-  <text x="150" y="22" fill="#222" font-weight="bold">num_partition = 4: 4 groups of 32 elements</text>
+  <text x="150" y="22" fill="#222" font-weight="bold">num_partitions = 4: 4 groups of 32 elements</text>
   <text x="10" y="87" fill="#222">Group 0</text>
   <text x="10" y="103" fill="#666" font-size="11">elements 0-31</text>
   <rect x="150" y="70" width="14" height="28" fill="#2e9e8c" stroke="#1a7060"/>
@@ -142,7 +142,7 @@
   <path d="M150 62 v-6 H290 v6" fill="none" stroke="#222"/>
   <text x="220.0" y="50" text-anchor="middle" fill="#222" font-size="12">valid_elements = 10</text>
   <path d="M606 70 h6 V186 h-6" fill="none" stroke="#222"/>
-  <text x="620" y="124.0" fill="#222" font-size="12">valid_partition = 3</text>
+  <text x="620" y="124.0" fill="#222" font-size="12">valid_partitions = 3</text>
   <text x="620" y="140.0" fill="#222" font-size="12">(active groups)</text>
   <rect x="150" y="258" width="14" height="14" fill="#2e9e8c" stroke="#1a7060"/>
   <text x="172" y="270" fill="#222" font-size="12">active (30 elements)</text>

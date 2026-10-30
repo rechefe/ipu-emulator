@@ -19,11 +19,11 @@ The AaQ (Activation and Quantization) stage perfome the following tasks:
 1. [Overview](#1-overview)
 2. [Block Diagram](#2-block-diagram)
 3. [Interfaces](#3-interfaces)
-    - 3.1 [`quantizion_format` Layout](#31-quantizion_format-layout)
+    - 3.1 [Quantization Format (`qf`) Layout](#31-quantization-format-qf-layout)
     - 3.2 [Active Elements](#32-active-elements)
 4. [AaQ-Str ISA](#4-aaq-str-isa)
     - 4.1 [`NOP`: No Operation](#41-nop-no-operation)
-    - 4.2 [`LOAD_LUT`: Load Function Estimation LUT Segment](#42-load_lut-load-function-estimation-lut-segment)
+    - 4.2 [`LD.LUT`: Load Function Estimation LUT Segment](#42-ldlut-load-function-estimation-lut-segment)
         - 4.2.1 [Function Estimation LUT](#421-function-estimation-lut)
         - 4.2.2 [Metadata Block](#422-metadata-block)
         - 4.2.3 [LUT Addressing](#423-lut-addressing)
@@ -34,6 +34,7 @@ The AaQ (Activation and Quantization) stage perfome the following tasks:
             - 4.3.2.2 [Exponent and Mantissa Encoding](#4322-exponent-and-mantissa-encoding)
             - 4.3.2.3 [Dynamic Exponent Selection](#4323-dynamic-exponent-selection-fe-1-or-fe-2)
         - 4.3.3 [Store](#433-store)
+5. [Disagreements with the Emulator](#5-disagreements-with-the-emulator)
 
 ## 2. Block Diagram
 
@@ -85,48 +86,48 @@ block-beta
 | output data | Output | The 128-element NX vector. |
 | XMEM write address | Output | The XMEM address to which the stage writes the output data. |
 
-### 3.1 `quantizion_format` Layout
+### 3.1 Quantization Format (`qf`) Layout
 
-The `quantizion_format` operand names a 32-bit `CR` that holds the quantization
-format. It has four 8-bit fields:
+The `qf` operand names a 16-bit half of a `CR`: `CRn.L` (bits `[15:0]`) or
+`CRn.H` (bits `[31:16]`). The half holds the quantization format (QF):
 
 | Bits | Field | Description |
 |------|-------|-------------|
-| `[31:24]` | `dynamic_static` | `0` = static, `1` = dynamic. In dynamic mode, the exponent format is `e1` or `e2` (section 4.3.2.3). |
-| `[23:16]` | `sign` | `0` = unsigned, `1` = signed. |
-| `[15:8]` | `num_bits` | Total element width `W`: `1`-`8`. `0` is reserved/invalid. |
-| `[7:0]` | `exponent_format` | Exponent width `fe` in static mode: `1`-`7` = `e1`-`e7`. |
+| `[15:12]` | `dynamic` | `0` = static, `1` = dynamic. The exponent format of a dynamic format is `e1` or `e2` (section 4.3.2.3). |
+| `[11:8]` | `sign` | `0` = unsigned, `1` = signed. |
+| `[7:4]` | `exp_format` | Exponent width `fe` of a static format: `1`-`7` = `e1`-`e7`. `fe + sign` is at most `num_bits`. |
+| `[3:0]` | `num_bits` | Total element width `W`: `1`-`8`. |
 
 ### 3.2 Active Elements
 
-#### CR layout (`dstructure`)
+#### Data Structure (`ds`) Layout
 
-The `dstructure` operand names a 32-bit `CR` that holds the data structure
-format (DS) of the 128-element vector. It has four 8-bit fields:
+The `ds` operand names a 16-bit half of a `CR` (`CRn.L` or `CRn.H`). The half
+holds the data structure (DS) of the 128-element vector:
 
 | Bits | Field | Description |
 |------|-------|-------------|
-| `[31:24]` | `N/A` | Not used. |
-| `[23:16]` | `valid_partition` | Number of valid groups. The rightmost `num_partition - valid_partition` groups are masked. |
-| `[15:8]` | `num_partition` | Number of groups: `1`, `2`, `4` or `8`. `1` means one line of 128 elements, `2` means two lines of 64 elements. |
-| `[7:0]` | `valid_elements` | Number of valid elements in a group. |
+| `[15:12]` | `valid_partitions` | Number of valid groups: `1`-`num_partitions`. The rightmost `num_partitions - valid_partitions` groups are masked. |
+| `[11:10]` | `mask_type` | Used by the MULT stage (MULT Stage ARCH, section 3.1). |
+| `[9:8]` | `num_partitions` | Number of groups, coded `0`-`3` = `1`, `2`, `4`, `8`. One group is one line of 128 elements, two groups are two lines of 64 elements. |
+| `[7:0]` | `valid_elements` | Number of valid elements in a group: `0`-`128 / num_partitions`. |
 
 #### Active elements rule
 
-The `dstructure` fields select which of the 128 elements are active.
+The `ds` fields select which of the 128 elements are active.
 
-The 128 elements are split into `num_partition` equal groups.
-Each group has `group_size = 128 / num_partition` elements. Then:
+The 128 elements are split into `num_partitions` equal groups.
+Each group has `group_size = 128 / num_partitions` elements. Then:
 
-1. Only the first `valid_partition` groups are active. The remaining groups are masked.
+1. Only the first `valid_partitions` groups are active. The remaining groups are masked.
 2. In each active group, only the first `valid_elements` elements are active.
 
 ```text
-group_size = 128 / num_partition
-active[i] = (i / group_size < valid_partition) and (i % group_size < valid_elements)
+group_size = 128 / num_partitions
+active[i] = (i / group_size < valid_partitions) and (i % group_size < valid_elements)
 ```
 
-**Example:** `num_partition = 4`, `valid_partition = 3`, `valid_elements = 10`.
+**Example:** `num_partitions = 4`, `valid_partitions = 3`, `valid_elements = 10`.
 Each group has 32 elements, so active elements are `0-9`, `32-41` and `64-73`
 (30 elements). Group 3 (`96-127`) is masked.
 
@@ -150,7 +151,7 @@ by [`sv_package.py`](../../../src/ipu-gen/src/ipu_gen/sv_package.py).
 | Instruction | Purpose |
 |-------------|---------|
 | [`NOP`](#41-nop-no-operation) | Do nothing. |
-| [`LOAD_LUT`](#42-load_lut-load-function-estimation-lut-segment) | Fill the function estimation LUT. |
+| [`LD.LUT`](#42-ldlut-load-function-estimation-lut-segment) | Fill the function estimation LUT. |
 | [`ACTIVATE.QUANTIZE`](#43-activatequantize-activate-and-quantize) | Activate, quantize and store. |
 
 ---
@@ -177,9 +178,9 @@ NOP;;
 
 ---
 
-### 4.2 `LOAD_LUT`: Load Function Estimation LUT Segment
+### 4.2 `LD.LUT`: Load Function Estimation LUT Segment
 
-`LOAD_LUT` fills one **segment** (1024 bits) of the function estimation LUT
+`LD.LUT` fills one **segment** (1024 bits) of the function estimation LUT
 (section 4.2.1). The data comes from the lower 32 words of `input data`.
 
 `lut_addr` selects which segment is written:
@@ -192,7 +193,7 @@ NOP;;
 #### Syntax
 
 ```text
-LOAD_LUT lut_addr table_id table_offset
+LD.LUT lut_addr table_id table_offset
 ```
 
 #### Operands
@@ -200,8 +201,8 @@ LOAD_LUT lut_addr table_id table_offset
 | Name | Type | Details |
 |------|------|---------|
 | `lut_addr` | `Imm` | `0`-`4`. LUT segment index: `0`-`3` = table slices, `4` = last table bits + metadata. |
-| `table_id` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | `CR0`-`CR15`. Supplies the table ID. |
-| `table_offset` | [`LrIdx`](../reference/isa/operand-types.md#lridx) | `LR0`-`LR15`. Supplies the offset in the table. |
+| `table_id` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | `CR0`-`CR15`. Base row in XMEM. The CTRL stage resolves it. |
+| `table_offset` | [`LrIdx`](../reference/isa/operand-types.md#lridx) | `LR0`-`LR15`. Row offset in XMEM. The CTRL stage resolves it. |
 
 #### Operation
 
@@ -220,8 +221,11 @@ else if lut_addr == 4:                                     // last table bits + 
 #### Example
 
 ```text
-LOAD_LUT 4 CR13 LR0;;      // load the metadata block
+LD.LUT 4 CR13 LR0;;      // load the metadata block
 ```
+
+> **Note:** The AaQ-Str stage gets only the data, on `input data`. It drives no
+> XMEM write address for `LD.LUT`.
 
 ---
 
@@ -234,8 +238,8 @@ The stage holds one function estimation LUT. It has two parts:
 | Table | 256 entries x 17 bits = **4,352 bits** | The function values. |
 | Metadata block | **46 bits** | Configures range handling. |
 
-Both parts are filled by `LOAD_LUT`, one segment per instruction. The 3-bit
-`lut_addr` selects the segment. Five `LOAD_LUT` instructions (`lut_addr`
+Both parts are filled by `LD.LUT`, one segment per instruction. The 3-bit
+`lut_addr` selects the segment. Five `LD.LUT` instructions (`lut_addr`
 `0`-`4`) program the whole LUT.
 
 #### 4.2.2 Metadata Block
@@ -247,7 +251,7 @@ payload.
 
 | Local bits | Name | Meaning |
 |------------|------|---------|
-| `[7:0]` | `max_exp_num` | Largest **biased** FP32 exponent still inside the LUT range. `exp > max_exp_num` flags the element as out-of-range. |
+| `[7:0]` | `max_exp_num` | The **biased** FP32 exponent of the LUT range: `max_exp_num = range_exp + 127`. `exp >= max_exp_num` flags the element as out-of-range. |
 | `[24:8]` | `neg_c` | 17-bit constant substituted for negative out-of-range elements. |
 | `[41:25]` | `pos_c` | 17-bit constant substituted for positive out-of-range elements. |
 | `[43:42]` | `range_mode` | LUT version. See the `range_mode` table. |
@@ -258,34 +262,41 @@ payload.
 
 | Value | Version | LUT entries | LUT range |
 |-------|---------|-------------|-----------|
-| `0` | Version 1 | 256 entries for positive `x`. | `0 <= x < 2^max_exp_num` |
-| `1` | Version 2 | 256 entries for negative `x`. | `-2^max_exp_num < x <= 0` |
-| `2` | Version 3 | 128 entries for negative `x` and 128 entries for positive `x`. | `-2^max_exp_num < x < 2^max_exp_num` |
+| `0` | Version 1 | 256 entries for positive `x`. | `0 <= x < 2^range_exp` |
+| `1` | Version 2 | 256 entries for negative `x`. | `-2^range_exp < x <= 0` |
+| `2` | Version 3 | 128 entries for negative `x` and 128 entries for positive `x`. | `-2^range_exp < x < 2^range_exp` |
 
 #### 4.2.3 LUT Addressing
 
 The LUT entries are at linear intervals in the LUT range, with
-`step = 2^max_exp_num / 256`:
+`step = 2^range_exp / 256`:
 
 | Version | Interval | Entry points |
 |---------|----------|--------------|
-| Version 1 | `step` | `0, step, 2*step, ..., 2^max_exp_num - step` |
-| Version 2 | `step` | `0, -step, -2*step, ..., -(2^max_exp_num - step)` |
-| Version 3 | `2*step` | `-(2^max_exp_num - 2*step), ..., -2*step, -0` and `+0, 2*step, ..., 2^max_exp_num - 2*step` |
+| Version 1 | `step` | `0, step, 2*step, ..., 2^range_exp - step` |
+| Version 2 | `step` | `0, -step, -2*step, ..., -(2^range_exp - step)` |
+| Version 3 | `2*step` | `-(2^range_exp - 2*step), ..., -2*step, -0` and `+0, 2*step, ..., 2^range_exp - 2*step` |
 
 Version 3 has 128 entries for each side, so the interval is `2*step`.
 
 Version 3 has two entries at zero: `-0` is the last negative entry and `+0` is
 the first positive entry.
 
-**Example, Version 1.** The LUT range is `0` to `4` (`2^max_exp_num = 4`).
+In Version 1 and Version 2, `-0` and `+0` both take LUT entry 0.
+
+> **TBD - ask Aviv and Jacob:** do `-0` in Version 1 and `+0` in Version 2 take
+> LUT entry 0, or does the sign bit send them to `neg_mode` and `pos_mode`?
+
+**Example, Version 1.** `max_exp_num = 129`, so `range_exp = 2` and the LUT
+range is `0` to `2^range_exp = 4`.
 `step = 4/256`. The entry points are:
 
 ```text
 0, 4/256, 8/256, ..., 4 - 4/256
 ```
 
-**Example, Version 3.** The LUT range is `-2` to `2` (`2^max_exp_num = 2`).
+**Example, Version 3.** `max_exp_num = 128`, so `range_exp = 1` and the LUT
+range is `-2` to `2^range_exp = 2`.
 `step = 2/256`. The interval is `2*step = 4/256`. The entry points are:
 
 ```text
@@ -309,7 +320,7 @@ The instruction works in three steps:
 #### Syntax
 
 ```text
-ACTIVATE.QUANTIZE activation_fn, dstructure, quantizion_format, table_id, table_offset
+ACTIVATE.QUANTIZE activation_fn ds qf table_id table_offset
 ```
 
 #### Operands
@@ -317,8 +328,8 @@ ACTIVATE.QUANTIZE activation_fn, dstructure, quantizion_format, table_id, table_
 | Name | Type | Used by | Details |
 |------|------|---------|---------|
 | `activation_fn` | [`Imm`](../reference/isa/operand-types.md#activationfn) | Activate | Enum that names the activation (see [`activation_fn` Values](#activation_fn-values)). |
-| `dstructure` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | Quantize | `CR0`-`CR15`. Supplies the structure of the 128-element vector: `valid_partition`, `num_partition`, `valid_elements` (section 3.2). |
-| `quantizion_format` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | Quantize | `CR0`-`CR15`. Supplies the quantization format (section 3.1). |
+| `ds` | [`HalfCrIdx`](../reference/isa/operand-types.md#halfcridx) | Quantize | `CR0.L`-`CR15.H`. Supplies the data structure of the 128-element vector: `valid_partitions`, `num_partitions`, `valid_elements` (section 3.2). |
+| `qf` | [`HalfCrIdx`](../reference/isa/operand-types.md#halfcridx) | Quantize | `CR0.L`-`CR15.H`. Supplies the quantization format (section 3.1). |
 | `table_id` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | Store | `CR0`-`CR15`. Supplies the ID of the destination table. |
 | `table_offset` | [`LrIdx`](../reference/isa/operand-types.md#lridx) | Store | `LR0`-`LR15`. Supplies the offset in the destination table. |
 
@@ -332,17 +343,17 @@ for i in 0..127:                                            // active[i]: sectio
     if active[i]:
         aaq_out.elements[i] = quantize(activated[i])        // 4.3.2
     else:
-        aaq_out.elements[i] = NaN
+        aaq_out.elements[i] = sign ? NaN : 0                // 4.3.2
 
 aaq_out.scale            = scale                        // section 4.3.2.1
-aaq_out.dynamic_exponent = dynamic_static ? (fe == 2) : 0     // section 4.3.2.3
+aaq_out.dynamic_exponent = dynamic ? (fe == 2) : 0            // section 4.3.2.3
 XMEM[table_id, table_offset] = aaq_out                  // 4.3.3: store
 ```
 
 #### Example
 
 ```text
-ACTIVATE.QUANTIZE relu, CR15, CR14, CR13, LR0;;
+ACTIVATE.QUANTIZE relu CR15.L CR14.L CR13 LR0;;
 ```
 
 ---
@@ -357,7 +368,7 @@ Applies the function named by `activation_fn` to every element of
 | Directly | `identity`, `relu`, `relu6` |
 | Through the LUT | `reciprocal`, `rsqrt`, `exp2`, `generic` |
 
-There is a LUT, loaded by `LOAD_LUT` (section 4.2). For the LUT-based
+There is a LUT, loaded by `LD.LUT` (section 4.2). For the LUT-based
 functions, load the matching function before `ACTIVATE.QUANTIZE`.
 
 #### `activation_fn` Values
@@ -450,14 +461,14 @@ $$
 #### 4.3.2 Quantize
 
 Converts each activated fp32 element (IEEE-754 single precision: sign `S`,
-8-bit exponent `e`, 23-bit mantissa) into the NX8 format set by
-`quantizion_format` (section 3.1).
+8-bit exponent `e`, 23-bit mantissa) into the NX8 format set by the
+quantization format `qf` (section 3.1).
 
 **Outputs:**
 
 | Output | Description |
 |--------|-------------|
-| Elements | One 8-bit element per input element. Elements that are not active output `NaN`. |
+| Elements | One 8-bit element per input element. |
 | `scale` | One 8-bit scale shared by the whole block. |
 | `dynamic_exponent` | `e1` or `e2`: the exponent width chosen in dynamic quantization. |
 
@@ -466,10 +477,42 @@ Converts each activated fp32 element (IEEE-754 single precision: sign `S`,
 
 | Field | Width | Present when | Value |
 |-------|-------|--------------|-------|
-| `S` | 1 bit | `sign = 1` (signed) | The input sign, passed through. |
+| `S` | 1 bit | `sign = 1` (signed) | The input sign, passed through. A finite element that rounds to `-0` gets `S = 0`. |
 | `Exp` | `fe` bits (`fe >= 1`) | always | Section 4.3.2.2. |
 | `M` | `fm = W - fe - sign` bits (`fm >= 0`) | always | Section 4.3.2.2. |
 | `0-pad` | the rest of the 8 bits | `W < 8` | `0` |
+
+**Special values.** These codes hold in every format, with `fe` and `fm` of the
+block. `NaN` is `-0`, so it exists only in a signed format:
+
+| Value | `S` | `Exp` | `M` |
+|-------|-----|-------|-----|
+| `0` | `0` | `2^fe - 1` | `0` |
+| `NaN` (`-0`) | `1` | `2^fe - 1` | `0` |
+| `inf` | `0` | `0` | `2^fm - 1` |
+| `-inf` | `1` | `0` | `2^fm - 1` |
+
+For example, the `NaN` code of signed `e4m3` is `0xF8`.
+
+These elements take a special value directly, without section 4.3.2.2:
+
+| Element | Signed format | Unsigned format |
+|---------|---------------|-----------------|
+| Not active | `NaN` | `0` |
+| `NaN` | `NaN` | `0` |
+| `inf` | `inf` | `inf` |
+| `-inf` | `-inf` | `0` |
+
+> **TBD - ask Aviv:** an unsigned format has no `NaN` code. Is `0` the right
+> value for an element that is not active, `NaN` or `-inf`?
+
+> **TBD - ask Jacob:** is the largest magnitude the right NX8 code for `inf` and
+> `-inf`? For comparison, two 8-bit floating-point formats:
+>
+> | Format | `inf` | Largest finite value | Notes |
+> |--------|-------|----------------------|-------|
+> | `e5m2` | Yes: `inf`, `-inf` and `NaN` | `±57,344` | A value cast beyond the maximum becomes `inf` or `-inf`. Used for gradients and intermediate ranges that need a wider dynamic range. |
+> | `e4m3` | No | `±448` | The codes that IEEE formats give to `inf` hold more finite numbers, for higher precision up to the maximum. |
 
 #### 4.3.2.1 Block Scale and Exponent Distance
 
@@ -484,14 +527,17 @@ scale = max(e[i] for i in 0..127 if active[i] and not is_inf_nx8[i] and not is_n
 > **Note:** An element that quantizes to `inf` or `-inf` in the NX8 format is
 > left out of the scale.
 
+> **Note:** `scale = 0` when no element qualifies.
+
 **Exponent distance.** Each element is encoded by its distance from the scale:
 
 ```text
 E = scale - e
 ```
 
-`E >= 0` for every element. `E = 0` at the element(s) with the block maximum,
-and `E` grows as the element gets smaller relative to that maximum.
+`E >= 0` for every active finite element. `E = 0` at the element(s) with the
+block maximum, and `E` grows as the element gets smaller relative to that
+maximum.
 
 #### 4.3.2.2 Exponent and Mantissa Encoding
 
@@ -516,18 +562,19 @@ result is corrected:
 
 #### 4.3.2.3 Dynamic Exponent Selection (`fe = 1` or `fe = 2`)
 
-Applies when `dynamic_static = 1` (dynamic). Dynamic mode supports two formats,
-both signed and 8 bits wide (`sign = 1`, `num_bits = 8`):
+Applies when `dynamic = 1`, for any `sign` and any `num_bits >= 2 + sign`. A
+smaller `W` takes fewer mantissa bits, and `sign = 0` gives one more:
 
-| Format | `fe` | `fm` | `dynamic_exponent` |
-|--------|------|------|--------------------|
-| `e1m6` | 1 | 6 | `0` |
-| `e2m5` | 2 | 5 | `1` |
+| `sign` | `num_bits` | `dynamic_exponent = 0` | `dynamic_exponent = 1` |
+|--------|------------|------------------------|------------------------|
+| `1` | `8` | `e1m6` | `e2m5` |
+| `0` | `8` | `e1m7` | `e2m6` |
+| `1` | `6` | `e1m4` | `e2m3` |
 
-| Split | Exponent bits | Mantissa bits | Encodable `E` | Step at `E` |
+| Split | Exponent bits | Mantissa bits | Encodable `E` | Step at `E`, relative to the block scale |
 |---|---|---|---|---|
-| `fe1` | 1 | `fm1` | 0, 1 | `2^(scale - E - fm1)`, clamped at `E >= 1` |
-| `fe2` | 2 | `fm1 - 1` | 0, 1, 2, 3 | `2^(scale - E - fm1 + 1)`, clamped at `E >= 3` |
+| `fe1` | 1 | `fm1` | 0, 1 | `2^(-E - fm1)`, clamped at `E >= 1` |
+| `fe2` | 2 | `fm1 - 1` | 0, 1, 2, 3 | `2^(-E - fm1 + 1)`, clamped at `E >= 3` |
 
 - `fe1` is one bit finer near the top of the block.
 - `fe2` reaches two binades further down before it clamps.
@@ -540,6 +587,7 @@ The rule uses `fm1` only in the two multipliers, so it holds for any `W` and
 - `fm1 = W - 1 - sign_bit`: the mantissa bits under `fe1`.
 - `err1`: the element's truncation error under `fe1`.
 - `err2`: the element's truncation error under `fe2`.
+- `err1` and `err2` are per block: both are in units of `2^(scale - 127)`.
 
 ##### Element classification
 
@@ -549,6 +597,7 @@ The rule uses `fm1` only in the two multipliers, so it holds for any `W` and
 | `E = 1` | none | Don't care. |
 | `1 < E <= fm1 + 2` | B | `fe2` is finer here. B measures the cost of choosing `fe1`. |
 | `E > fm1 + 2` | none | Out of range for both splits. |
+| Not active, `NaN`, `inf` or `-inf` | none | Left out of both sums. |
 
 ##### Per-element terms
 
@@ -583,23 +632,23 @@ the sums, with no drift toward either format as the block grows.
 
 ##### Worked example
 
-A block of ten values, with `scale = 0` and `fm1 = 4` (signed, `W = 6`):
+A block of ten values, with `scale = 127` and `fm1 = 4` (signed, `W = 6`):
 
 - A multiplier: `2^8 = 256`.
 - B multiplier: `2^10 = 1024`.
 
 | # | v | e | E | Sum | err1 | err2 | \|err2^2 - err1^2\| | Pre-RTN | A | B |
 |---|---|---|---|---|---|---|---|---|---|---|
-| 1 | 1.83 | 0 | 0 | A | 0.0175 | 0.0800 | 6.09375e-3 | 1.560 | 2 | |
-| 2 | 1.21 | 0 | 0 | A | 0.0225 | 0.0850 | 6.71875e-3 | 1.720 | 2 | |
-| 3 | 1.57 | 0 | 0 | A | 0.0075 | 0.0700 | 4.84375e-3 | 1.240 | 1 | |
-| 4 | 0.94 | -1 | 1 | none | don't care | don't care | | | | |
-| 5 | 0.67 | -1 | 1 | none | don't care | don't care | | | | |
-| 6 | 0.41 | -2 | 2 | B | 0.00375 | 0.00375 | 0 | 0 | | 0 |
-| 7 | 0.2345 | -3 | 3 | B | 0.01575 | 0.000125 | 2.48047e-4 | 0.254 | | 0 |
-| 8 | 0.1780 | -3 | 3 | B | 0.02175 | 0.006125 | 4.35547e-4 | 0.446 | | 0 |
-| 9 | 0.0920 | -4 | 4 | B | 0.02950 | 0.013875 | 6.77734e-4 | 0.694 | | 1 |
-| 10 | 0.0555 | -5 | 5 | B | 0.02425 | 0.008625 | 5.13672e-4 | 0.526 | | 1 |
+| 1 | 1.83 | 127 | 0 | A | 0.0175 | 0.0800 | 6.09375e-3 | 1.560 | 2 | |
+| 2 | 1.21 | 127 | 0 | A | 0.0225 | 0.0850 | 6.71875e-3 | 1.720 | 2 | |
+| 3 | 1.57 | 127 | 0 | A | 0.0075 | 0.0700 | 4.84375e-3 | 1.240 | 1 | |
+| 4 | 0.94 | 126 | 1 | none | don't care | don't care | | | | |
+| 5 | 0.67 | 126 | 1 | none | don't care | don't care | | | | |
+| 6 | 0.41 | 125 | 2 | B | 0.00375 | 0.00375 | 0 | 0 | | 0 |
+| 7 | 0.2345 | 124 | 3 | B | 0.01575 | 0.000125 | 2.48047e-4 | 0.254 | | 0 |
+| 8 | 0.1780 | 124 | 3 | B | 0.02175 | 0.006125 | 4.35547e-4 | 0.446 | | 0 |
+| 9 | 0.0920 | 123 | 4 | B | 0.02950 | 0.013875 | 6.77734e-4 | 0.694 | | 1 |
+| 10 | 0.0555 | 122 | 5 | B | 0.02425 | 0.008625 | 5.13672e-4 | 0.526 | | 1 |
 
 **Result:** `sum(A) = 5`, `sum(B) = 2`, and `2 - 4 * 5 = -18`. The result is
 negative, so the block selects **`fe1`**.
@@ -618,3 +667,14 @@ and `table_offset`.
 | `dynamic_exponent` | 1 bit | `e1` or `e2`: the exponent width chosen in dynamic quantization. |
 
 > **Note:** The AaQ-Str stage gets the XMEM write address explicitly.
+
+## 5. Disagreements with the Emulator
+
+| Topic | Spec | Emulator |
+|-------|------|----------|
+| Element that is not active | `NaN` in a signed format, `0` in an unsigned format. | `0` in both. |
+| Active `NaN` | `NaN` in a signed format, `0` in an unsigned format. | Emulator error. |
+| Finite element that rounds to `-0` | `S = 0`. | Keeps the input sign, so `S = 1`. |
+| LUT evaluation | The LUT implements the activation functions. | Stores the LUT bits and evaluates with exact math. |
+| Dynamic format | Any `sign` and any `num_bits >= 2 + sign`. | Only `sign = 1` and `num_bits = 8`. Other values are a configuration error. |
+| LUT load source | `input_data[31:0]`. | The first 128 bytes of the XMEM row at `table_id + table_offset`. |
