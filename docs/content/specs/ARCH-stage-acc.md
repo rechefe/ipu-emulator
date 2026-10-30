@@ -33,49 +33,37 @@ following tasks:
     - 4.4 [`AGG.SUM`, `AGG.MAX`: Aggregate](#44-aggsum-aggmax-aggregate)
     - 4.5 [`ACC.RESHAPE`: Reshape](#45-accreshape-reshape)
     - 4.6 [`BYPASS`: Bypass](#46-bypass-bypass)
+5. [Disagreements with the Emulator](#5-disagreements-with-the-emulator)
 
 ## 2. Block Diagram
 
 ```mermaid
-block-beta
-    columns 7
-    block:INS:1
-        columns 1
-        IN_DATA["input data<br>128 x 32-bit"]
-        INSTR["Instruction"]
-    end
-    space
-    block:STAGE:3
-        columns 3
-        TITLE["ACC Stage"] space:2
-        ALU["Accumulate /<br>Aggregate"] space RACC["R_ACC<br>128 x 32-bit"]
-        space:3
-        PERM["Stride /<br>Reshape"] space:2
-        space:3
-        space BYP["BYPASS"] space
-    end
-    space
-    block:OUTS:1
-        columns 1
-        OUT_DATA["output data<br>128 x 32-bit"]
+flowchart LR
+    IN_DATA["input data<br>128 x 32-bit"]:::io
+    INSTR["Instruction"]:::io
+    OUT_DATA["output data<br>128 x 32-bit"]:::io
+
+    subgraph STAGE["ACC Stage"]
+        subgraph OPS[" "]
+            ALU["Accumulate /<br>Aggregate"]:::blk
+            PERM["Stride /<br>Reshape"]:::blk
+        end
+        RACC["R_ACC<br>128 x 32-bit"]:::blk
+        BYP["BYPASS"]:::io
     end
 
-    IN_DATA --> ALU
-    IN_DATA --> PERM
-    INSTR --> ALU
+    INSTR --> OPS
+    IN_DATA --> OPS
+    IN_DATA --> BYP
     ALU <--> RACC
     PERM --> RACC
     RACC --> OUT_DATA
-    IN_DATA --- BYP
-    BYP --> OUT_DATA
+    BYP ---> OUT_DATA
 
     classDef io fill:none,stroke:none
     classDef blk fill:#2e9e8c,stroke:#1a7060,color:#fff
-    classDef title fill:none,stroke:none,font-weight:bold
-    class IN_DATA,INSTR,OUT_DATA,INS,OUTS,BYP io
-    class ALU,RACC,PERM blk
-    class TITLE title
     style STAGE fill:none,stroke:#888,stroke-width:2px
+    style OPS fill:none,stroke:#888,stroke-dasharray:5 5
 ```
 
 ## 3. Interfaces
@@ -109,9 +97,6 @@ section 5).
 The opcode enum (`acc_inst_opcode_t`, package `ipu_instr_pkg`) is generated
 from [`instruction_spec.py`](../../../src/ipu-isa/src/ipu_isa/instruction_spec.py)
 by [`sv_package.py`](../../../src/ipu-gen/src/ipu_gen/sv_package.py).
-
-> **Note:** An `LRD` operand (a pair of LRs) comes with its value, as a `CR`
-> operand does.
 
 **Instructions in this section:**
 
@@ -420,3 +405,15 @@ for i in 0..127:
 ```text
 BYPASS;;      // send the multiply result to the AaQ stage
 ```
+
+## 5. Disagreements with the Emulator
+
+| Topic | Spec | Emulator |
+|-------|------|----------|
+| `ACC.SET` | Sets `R_ACC` to `input data`. | No `ACC.SET`. `ACC.ADD.FIRST` and `ACC.MAX.FIRST` do this operation. |
+| `ACC.SUB.FIRST` | No `ACC.SUB.FIRST`. | `R_ACC[i]` becomes `0 - input_data[i]`. |
+| `BYPASS` | Sends `input data` to `output data`. | No `BYPASS`. `output data` is always `R_ACC`. |
+| `NaN` element in `input data` | `ACC.MAX` and `AGG.MAX` give `NaN`. | `ACC.MAX` and `AGG.MAX` ignore the `NaN` element. |
+| `ACC.STRIDE` row size | `ds` supplies `num_partitions`: `1`, `2`, `4` or `8` rows. | The `elements_in_row` immediate: `16`, `32` or `64` elements. No row of 128 elements. |
+| `ACC.STRIDE` `offset` | An immediate: `0`, `16`, `32`, `48`, `64`, `80`, `96` or `112`. | `LR0`-`LR15`. The first written element is `(LR value % 4) x 32`: `0`, `32`, `64` or `96`. |
+| `ACC.RESHAPE` copied elements | `number_idx`: elements `k = 0..number_idx - 1`. | `reshape_mask`: elements `k = reshape_mask..7`. For example, `6` copies `k = 6, 7` and `0` copies all 8 elements. |

@@ -16,6 +16,8 @@ neural-network kernels. It performs the following tasks:
 2. [Block Diagram](#2-block-diagram)
 3. [Interfaces](#3-interfaces)
 4. [Architectural State](#4-architectural-state)
+    - 4.1 [`CR` and `LR`](#41-cr-and-lr)
+    - 4.2 [`LRD`](#42-lrd)
 5. [Instruction Word](#5-instruction-word)
 6. [Pipeline and Timing](#6-pipeline-and-timing)
     - 6.1 [Stages](#61-stages)
@@ -87,6 +89,7 @@ block-beta
 | IMEM | 2 banks of `IMEM_BANK_DEPTH` words | Control | Write while the context is unlocked. |
 | `CR0`-`CR15` | 2 banks of 16 registers of 32 bits | Control | Read. Write while the context is unlocked. |
 | `LR0`-`LR15` | 16 registers of 32 bits | Control | Read |
+| `LRD0`, `LRD2`, ..., `LRD14` | 8 pairs of `LR`s, 64 bits each. No added storage (section 4.2). | Control | Through `LR0`-`LR15` |
 | `R0`, `R1` | 128 elements of 8 bits, each with a metadata word | Mult and Load | None |
 | `R_CYCLIC` | 512 elements of 8 bits, with a metadata word per 128-element slot | Mult and Load | None |
 | `R_MASK` | 8 slots of 128 bits | Mult and Load | None |
@@ -94,6 +97,34 @@ block-beta
 | LUT | 256 entries of 17 bits and a 46-bit metadata block | Activation and Quantization | None |
 
 > **Note:** `CR0` reads as `0` and `CR1` reads as `1` in both banks.
+
+### 4.1 `CR` and `LR`
+
+A `CR` and an `LR` each hold 32 bits. Both are little-endian: byte `0` is the
+least significant byte.
+
+| Byte | Bits | `CR` half |
+|------|------|-----------|
+| `3` | `[31:24]` | `CRn.H` |
+| `2` | `[23:16]` | `CRn.H` |
+| `1` | `[15:8]` | `CRn.L` |
+| `0` | `[7:0]` | `CRn.L` |
+
+The program writes an `LR` only through the `LR` slot.
+
+### 4.2 `LRD`
+
+`LRDn` is a 64-bit pair of `LR`s, `{LR(n+1), LR(n)}`, and `n` is even. The name
+comes from the lower register. An `LRD` has no storage: a read or a write of
+`LRDn` is a read or a write of `LR(n)` and `LR(n+1)`.
+
+An `LRD` is little-endian. It holds 8 elements of 1 byte, and element `k` is
+byte `k` of the pair:
+
+| Bytes | Bits | Register |
+|-------|------|----------|
+| `7`-`4` | `[63:32]` | `LR(n+1)`, bytes `3`-`0` |
+| `3`-`0` | `[31:0]` | `LR(n)`, bytes `3`-`0` |
 
 ## 5. Instruction Word
 
@@ -401,5 +432,7 @@ The emulator's `BREAK` and `AAQ_EXACT` slots and its FP32 mode are emulator-only
 | Dynamic format | Section 8.1. | Only `sign = 1` and `num_bits = 8`. |
 | `NaN` in NX8 | Section 7.1. | No `NaN` code. |
 
-The stage-level differences are in
-[AaQ Stage ARCH](ARCH-stage-aaq-str.md), section 5.
+The stage-level differences are in section 5 of
+[Multiply Stage ARCH](ARCH-stage-mult.md),
+[Accumulator Stage ARCH](ARCH-stage-acc.md) and
+[AaQ Stage ARCH](ARCH-stage-aaq-str.md).

@@ -32,6 +32,7 @@ The MULT (Multiply) stage performs the following tasks:
     - 4.7 [`MULT.RC.VS`: R_CYCLIC Vector Square](#47-multrcvs-r_cyclic-vector-square)
     - 4.8 [`MULT.VE`: Ra Vector x CR Scalar](#48-multve-ra-vector-x-cr-scalar)
     - 4.9 [`MULT.EE`: Ra Element x CR Scalar, Broadcast](#49-multee-ra-element-x-cr-scalar-broadcast)
+5. [Disagreements with the Emulator](#5-disagreements-with-the-emulator)
 
 ## 2. Block Diagram
 
@@ -110,8 +111,14 @@ A `CR` that supplies a scalar (`src` in `MULT.RC.VE`, `cr_idx` in `MULT.VE` and
 | `Ra` | `R0[j]` for `j < 128`, `R1[j - 128]` for `j >= 128` | `0`-`255` |
 | `R_CYCLIC` | `R_CYCLIC[j]` | `0`-`511` |
 
-A vector operand is 128 consecutive elements from a start index: element `i`
-of the operand is `Ra[start + i]` or `R_CYCLIC[start + i]`.
+An `Ra` vector operand is `R0` or `R1`.
+
+An `R_CYCLIC` vector operand is 128 consecutive elements from a start index:
+element `i` of the operand is `R_CYCLIC[start + i]`.
+
+The start index of an `R_CYCLIC` operand is a multiple of 16, or a value at
+most 3 from a multiple of 16: `0`-`3`, `13`-`19`, `29`-`35`, ..., `493`-`499`,
+`509`-`511`.
 
 ### 3.3 Element Masking
 
@@ -436,7 +443,7 @@ MULT.RC.VS LR0, 0, LR2, CR15.L, CR14.L;;
 
 ### 4.8 `MULT.VE`: Ra Vector x CR Scalar
 
-Multiplies a 128-element window of `Ra` by a `CR` constant.
+Multiplies `R0` or `R1` by a `CR` constant.
 
 #### Syntax
 
@@ -450,7 +457,7 @@ The Type column links to the [operand type reference](../reference/isa/operand-t
 
 | Name | Type | Details |
 |------|------|---------|
-| `ra_idx` | [`LrIdx`](../reference/isa/operand-types.md#lridx) | `LR0`-`LR15`. Start element of the `Ra` window (section 3.2). |
+| `ra_idx` | [`LrIdx`](../reference/isa/operand-types.md#lridx) | `LR0`-`LR15` whose value is `0` (`R0`) or `128` (`R1`) (section 3.2). |
 | `cr_idx` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | `CR0`-`CR15`. Supplies the scalar, a constant ([IPU ARCH 8.4](ARCH-ipu-top.md#84-nx-constant)). |
 | `mask_offset` | [`Imm`](../reference/isa/operand-types.md#multmaskoffsetimmediate) | `0`-`7`. `R_MASK` slot (section 3.3). |
 | `mask_shift` | [`LrIdx`](../reference/isa/operand-types.md#lridx) | `LR0`-`LR15`. Mask shift, `-3`-`+3` (section 3.3). |
@@ -511,3 +518,12 @@ apply_mask(mask_offset, mask_shift, ds)
 ```text
 MULT.EE LR0, CR3, 0, LR2, CR15.L, CR14.L;;
 ```
+
+## 5. Disagreements with the Emulator
+
+| Topic | Spec | Emulator |
+|-------|------|----------|
+| Load mnemonics | `LDR_MULT_REG`, `LDR_CYCLIC_MULT_REG` and `LDR_MULT_MASK_REG`. | `LD.MULT`, `LD.MULT.CYCLIC` and `LD.MASK`. |
+| `R_CYCLIC` start index | Section 3.2. | Any value, modulo 512. |
+| `MULT.VE` `ra_idx` | `0` (`R0`) or `128` (`R1`). | Any value, modulo 256. The vector is 128 consecutive elements of `Ra` and can cross from `R0` to `R1`. |
+| `mask_type = 3` | The pad value is `NaN`. | Configuration error. |
