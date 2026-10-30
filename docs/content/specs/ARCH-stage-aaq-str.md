@@ -57,7 +57,7 @@ block-beta
     space
     block:OUTS:1
         columns 1
-        NX_OUT["output data<br>128 x NX"]
+        NX_OUT["output data<br>128 x NX<br>+ metadata"]
         XMEM_ADDR["XMEM write<br>address"]
     end
 
@@ -83,7 +83,7 @@ block-beta
 |------|-----------|-------------|
 | input data | Input | The 128-element fp32 vector from the ACC stage. |
 | Instruction | Input | The operation that the stage does on the input data. |
-| output data | Output | The 128-element NX vector. |
+| output data | Output | One XMEM row: the 128-element NX vector and its metadata (section 4.3.3). |
 | XMEM write address | Output | The XMEM address to which the stage writes the output data. |
 
 ### 3.1 Quantization Format (`qf`) Layout
@@ -238,6 +238,10 @@ The stage holds one function estimation LUT. It has two parts:
 | Table | 256 entries x 17 bits = **4,352 bits** | The function values. |
 | Metadata block | **46 bits** | Configures range handling. |
 
+**Entry format.** A table entry, `neg_c` and `pos_c` each have 1 sign bit, 8
+exponent bits and 8 mantissa bits: `{S, e, M}`. The fp32 result is
+`{S, e, M, 15'b0}`.
+
 Both parts are filled by `LD.LUT`, one segment per instruction. The 3-bit
 `lut_addr` selects the segment. Five `LD.LUT` instructions (`lut_addr`
 `0`-`4`) program the whole LUT.
@@ -303,6 +307,17 @@ range is `-2` to `2^range_exp = 2`.
 -2 + 4/256, ..., -4/256, -0, +0, 4/256, ..., 2 - 4/256
 ```
 
+**Entry selection.** `LUT(x)` returns the entry nearest to `x`, on the side of
+`x`, at distance `RTN(|x| / interval) * interval` from zero (`RTN`: section
+4.3.2.2). All 128 elements read the LUT at once.
+
+> **TBD - ask Jacob or Aviv:** what is the bit position of each entry in
+> `TABLE_BITS`, and in which order does Version 3 hold its two sides?
+
+> **TBD - ask Jacob or Aviv:** when `RTN(|x| / interval)` passes the last entry
+> (`x` just below `2^range_exp`), does `x` take the last entry, or follow
+> `pos_mode` and `neg_mode`?
+
 ---
 
 ### 4.3 `ACTIVATE.QUANTIZE`: Activate and Quantize
@@ -330,8 +345,8 @@ ACTIVATE.QUANTIZE activation_fn ds qf table_id table_offset
 | `activation_fn` | [`Imm`](../reference/isa/operand-types.md#activationfn) | Activate | Enum that names the activation (see [`activation_fn` Values](#activation_fn-values)). |
 | `ds` | [`HalfCrIdx`](../reference/isa/operand-types.md#halfcridx) | Quantize | `CR0.L`-`CR15.H`. Supplies the data structure of the 128-element vector: `valid_partitions`, `num_partitions`, `valid_elements` (section 3.2). |
 | `qf` | [`HalfCrIdx`](../reference/isa/operand-types.md#halfcridx) | Quantize | `CR0.L`-`CR15.H`. Supplies the quantization format (section 3.1). |
-| `table_id` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | Store | `CR0`-`CR15`. Supplies the ID of the destination table. |
-| `table_offset` | [`LrIdx`](../reference/isa/operand-types.md#lridx) | Store | `LR0`-`LR15`. Supplies the offset in the destination table. |
+| `table_id` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | Store | `CR0`-`CR15`. Base row in XMEM. The CTRL stage resolves it. |
+| `table_offset` | [`LrIdx`](../reference/isa/operand-types.md#lridx) | Store | `LR0`-`LR15`. Row offset in XMEM. The CTRL stage resolves it. |
 
 #### Operation
 
@@ -347,7 +362,7 @@ for i in 0..127:                                            // active[i]: sectio
 
 aaq_out.scale            = scale                        // section 4.3.2.1
 aaq_out.dynamic_exponent = dynamic ? (fe == 2) : 0            // section 4.3.2.3
-XMEM[table_id, table_offset] = aaq_out                  // 4.3.3: store
+XMEM[table_id + table_offset] = aaq_out                 // 4.3.3: store
 ```
 
 #### Example
@@ -383,6 +398,10 @@ functions, load the matching function before `ACTIVATE.QUANTIZE`.
 | 5 | `exp2` | `f(x) = 2^x` | LUT + dedicated logic |
 | 6 | `generic` | `f(x) = Generic(x)` | LUT + dedicated logic |
 
+> **TBD - ask Jacob or Aviv:** do the metadata block (section 4.2.2) and the LUT
+> addressing (section 4.2.3) apply to `reciprocal`, `rsqrt` and `exp2`, or only
+> to `generic`? What is the dedicated logic of each function?
+
 #### Special Cases
 
 `epsilon = 2^-127`.
@@ -391,12 +410,16 @@ functions, load the matching function before `ACTIVATE.QUANTIZE`.
 |----------|-----------|--------|
 | `reciprocal` | non-negative subnormal | `f(x) = 1/(x + epsilon)` |
 | `reciprocal` | negative subnormal | `f(x) = 1/(x - epsilon)` |
-| `reciprocal` | `inf` | `0` |
+| `reciprocal` | `inf` or `-inf` | `0` |
 | `rsqrt` | non-negative subnormal | `f(x) = 1/sqrt(x + epsilon)` |
 | `rsqrt` | `inf` | `0` |
 | `rsqrt` | negative | `NaN` |
 | `exp2` | `-inf` | `0` |
-| `exp2` | positive | not supported (input must be non-positive) |
+| `exp2` | positive | Undefined: the input must be non-positive. |
+| Every function | `NaN` | `NaN` |
+
+> **TBD - ask Jacob or Aviv:** do `reciprocal` and `rsqrt` of `0` and `-0` follow
+> the subnormal rows, or IEEE-754 (`inf` or `-inf`)?
 
 #### The `generic` Function: LUT Versions
 
@@ -506,6 +529,9 @@ These elements take a special value directly, without section 4.3.2.2:
 > **TBD - ask Aviv:** an unsigned format has no `NaN` code. Is `0` the right
 > value for an element that is not active, `NaN` or `-inf`?
 
+> **TBD - ask Jacob or Aviv:** how does an unsigned format encode a negative
+> finite element: `0`, or its magnitude `|x|`?
+
 > **TBD - ask Jacob:** is the largest magnitude the right NX8 code for `inf` and
 > `-inf`? For comparison, two 8-bit floating-point formats:
 >
@@ -520,14 +546,17 @@ These elements take a special value directly, without section 4.3.2.2:
 exponent among the active elements:
 
 ```text
-scale = max(e[i] for i in 0..127 if active[i] and not is_inf_nx8[i] and not is_nan[i])
-    // is_inf_nx8: inf or -inf; is_nan: NaN
+scale = max(e[i] for i in 0..127 if active[i] and not is_inf[i] and not is_nan[i])
+    // is_inf: inf or -inf; is_nan: NaN
 ```
 
-> **Note:** An element that quantizes to `inf` or `-inf` in the NX8 format is
-> left out of the scale.
+> **Note:** An activated fp32 element that is `inf`, `-inf` or `NaN` is left out
+> of the scale.
 
 > **Note:** `scale = 0` when no element qualifies.
+
+> **Note:** A negative element in an unsigned format counts toward `scale` and
+> the sums of section 4.3.2.3.
 
 **Exponent distance.** Each element is encoded by its distance from the scale:
 
@@ -550,6 +579,13 @@ magnitude): `0.5 -> 1`, `1.5 -> 2`, `2.5 -> 3`.
 | Clamp | `E >= 2^fe - 1` | `2^fe - 1` (saturated) | `RTN(1.M >> [E - (2^fe - 1) + 1])` |
 
 In the clamp branch the extra right-shift keeps the element's magnitude.
+
+> **TBD - ask Jacob or Aviv:** what does an element equal to zero (`e = 0`)
+> write? Both branches assume a hidden leading 1, so an all-zero block reads
+> back as `2^-127`. Is it the `0` code, or does the hidden 1 stay?
+
+> **TBD - ask Jacob or Aviv:** what does a subnormal element write: the same as
+> zero, `1.M` with the hidden 1, or `0.M`?
 
 **Rounding carry.** When `RTN` carries out of the `fm` bits (`M == 2^fm`), the
 result is corrected:
@@ -657,14 +693,14 @@ negative, so the block selects **`fe1`**.
 
 #### 4.3.3 Store
 
-Writes the quantized result to XMEM, at the destination selected by `table_id`
-and `table_offset`.
+Writes the quantized result, on `output data`, to XMEM row
+`table_id + table_offset`.
 
 | Written | Size | Description |
 |---------|------|-------------|
-| Quantized elements | 128 x 8 bits | The quantized vector. |
-| `scale` | 8 bits | Scale shared by the whole vector. |
-| `dynamic_exponent` | 1 bit | `e1` or `e2`: the exponent width chosen in dynamic quantization. |
+| Quantized elements | 128 x 8 bits | The quantized vector. Element `i` is byte `i` of the row. |
+| `scale` | 8 bits | Scale shared by the whole vector. Bits `[7:0]` of the metadata. |
+| `dynamic_exponent` | 1 bit | `e1` or `e2`: the exponent width chosen in dynamic quantization. Bit `[8]` of the metadata. |
 
 > **Note:** The AaQ-Str stage gets the XMEM write address explicitly.
 
