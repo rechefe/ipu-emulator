@@ -146,6 +146,7 @@ nav:
       - Kernel coverage: explanation/kernel-coverage.md     # tables generated (docs/kernel_coverage_page.py)
   - Specs and requirements:
       - Specs:
+          - IPU Top ARCH: specs/ARCH-ipu-top.md
           - Cache Unit Specification: specs/cache-unit.md
           - AaQ Stage MAS: specs/MAS-stage-aaq-str.md
           - AaQ Stage ARCH: specs/ARCH-stage-aaq-str.md

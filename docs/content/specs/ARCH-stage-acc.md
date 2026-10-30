@@ -24,9 +24,8 @@ following tasks:
 1. [Overview](#1-overview)
 2. [Block Diagram](#2-block-diagram)
 3. [Interfaces](#3-interfaces)
-    - 3.1 [`dstructure` Layout](#31-dstructure-layout)
-    - 3.2 [Element Format](#32-element-format)
-    - 3.3 [Running and `.FIRST` Variants](#33-running-and-first-variants)
+    - 3.1 [Element Format](#31-element-format)
+    - 3.2 [Running and `.FIRST` Variants](#32-running-and-first-variants)
 4. [Accumulator ISA](#4-accumulator-isa)
     - 4.1 [`NOP`: No Operation](#41-nop-no-operation)
     - 4.2 [`ACC.SET`, `ACC.ADD`, `ACC.SUB`, `ACC.MAX`: Element-wise Accumulate](#42-accset-accadd-accsub-accmax-element-wise-accumulate)
@@ -87,25 +86,12 @@ block-beta
 | Instruction | Input | The operation that the stage does on the input data. |
 | output data | Output | `R_ACC`, or `input data`: 128 elements of 32 bits, to the AaQ stage. |
 
-### 3.1 `dstructure` Layout
-
-The `cr_idx` operand of `ACC.STRIDE`, `AGG.SUM` and `AGG.MAX` names a 32-bit
-`CR` that holds the data structure format of the 128-element vector. It has
-four 8-bit fields:
-
-| Bits | Field | Description |
-|------|-------|-------------|
-| `[31:24]` | `N/A` | Not used. |
-| `[23:16]` | `valid_partition` | Number of valid groups. The rightmost `num_partition - valid_partition` groups are masked. |
-| `[15:8]` | `num_partition` | Number of groups: `1`, `2`, `4` or `8`. `1` means one line of 128 elements, `2` means two lines of 64 elements. |
-| `[7:0]` | `valid_elements` | Number of valid elements in a group. |
-
-### 3.2 Element Format
+### 3.1 Element Format
 
 Each `R_ACC` element is an FP32 value (IEEE-754 single precision), the same as
 each element of `input data`. It can be `inf` or `-inf`.
 
-### 3.3 Running and `.FIRST` Variants
+### 3.2 Running and `.FIRST` Variants
 
 `AGG.SUM` and `AGG.MAX` each have a `.FIRST` variant:
 
@@ -124,9 +110,8 @@ The opcode enum (`acc_inst_opcode_t`, package `ipu_instr_pkg`) is generated
 from [`instruction_spec.py`](../../../src/ipu-isa/src/ipu_isa/instruction_spec.py)
 by [`sv_package.py`](../../../src/ipu-gen/src/ipu_gen/sv_package.py).
 
-> **Note:** Each `CR0`-`CR15` and `LR0`-`LR15` register named in the
-> instruction operands is **32 bits** wide. An `LRD` operand (a pair of LRs)
-> comes with its value, as a `CR` operand does.
+> **Note:** An `LRD` operand (a pair of LRs) comes with its value, as a `CR`
+> operand does.
 
 **Instructions in this section:**
 
@@ -224,14 +209,14 @@ by row, into a range of `R_ACC`. The other `R_ACC` elements keep their values.
 #### Syntax
 
 ```text
-ACC.STRIDE cr_idx, horizontal_stride, vertical_stride, offset
+ACC.STRIDE ds, horizontal_stride, vertical_stride, offset
 ```
 
 #### Operands
 
 | Name | Type | Details |
 |------|------|---------|
-| `dstructure` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | `CR0`-`CR15`. Supplies `num_partition` (section 3.1): the number of rows of `input data`. |
+| `ds` | [`HalfCrIdx`](../reference/isa/operand-types.md#halfcridx) | `CR0.L`-`CR15.H`. Supplies `num_partitions` ([IPU ARCH 8.2](ARCH-ipu-top.md#82-data-structure-ds)): the number of rows of `input data`. |
 | `horizontal_stride` | [`Imm`](../reference/isa/operand-types.md#horizontalstride) | `off`, `on` or `on_inv`. Column pattern. |
 | `vertical_stride` | [`Imm`](../reference/isa/operand-types.md#verticalstride) | `off`, `on` or `on_inv`. Row pattern. |
 | `offset` | `Imm` | `0`, `16`, `32`, `48`, `64`, `80`, `96` or `112`. The first written `R_ACC` element. |
@@ -247,8 +232,8 @@ ACC.STRIDE cr_idx, horizontal_stride, vertical_stride, offset
 #### Operation
 
 ```text
-rows = num_partition
-elements_in_row = 128 / num_partition
+rows = num_partitions
+elements_in_row = 128 / num_partitions
 view input_data as [rows][elements_in_row]          // row r = input_data[r*elements_in_row ...]
 keep the columns selected by horizontal_stride
 keep the rows selected by vertical_stride
@@ -259,7 +244,7 @@ R_ACC[offset + k] = kept[k]   for k in 0..N-1
 
 The number of written elements is:
 
-| `horizontal_stride` | `vertical_stride` | `N` (`num_partition` = `2`, `4`, `8`) | `N` (`num_partition` = `1`) |
+| `horizontal_stride` | `vertical_stride` | `N` (`num_partitions` = `2`, `4`, `8`) | `N` (`num_partitions` = `1`) |
 |---------------------|-------------------|-----|-----|
 | `off` | `off` | 128 | 128 |
 | `on` / `on_inv` | `off` | 64 | 64 |
@@ -268,7 +253,7 @@ The number of written elements is:
 
 `offset + N` is at most 128.
 
-**Example:** `num_partition = 8`, `horizontal_stride = on`,
+**Example:** `num_partitions = 8`, `horizontal_stride = on`,
 `vertical_stride = on`, `offset = 0`. `input data` is 8 rows of 16. The
 even columns of rows 0, 2, 4 and 6 are kept: 32 elements, written to
 `R_ACC[0..31]`.
@@ -281,7 +266,7 @@ even columns of rows 0, 2, 4 and 6 are kept: 32 elements, written to
 #### Example
 
 ```text
-ACC.STRIDE CR3, on, on, 0;;
+ACC.STRIDE CR3.L, on, on, 0;;
 ```
 
 ---
@@ -295,10 +280,10 @@ values.
 #### Syntax
 
 ```text
-AGG.SUM dest_slot, cr_idx
-AGG.SUM.FIRST dest_slot, cr_idx
-AGG.MAX dest_slot, cr_idx
-AGG.MAX.FIRST dest_slot, cr_idx
+AGG.SUM dest_slot, ds
+AGG.SUM.FIRST dest_slot, ds
+AGG.MAX dest_slot, ds
+AGG.MAX.FIRST dest_slot, ds
 ```
 
 #### Operands
@@ -306,7 +291,7 @@ AGG.MAX.FIRST dest_slot, cr_idx
 | Name | Type | Details |
 |------|------|---------|
 | `dest_slot` | [`LrIdx`](../reference/isa/operand-types.md#lridx) | `LR0`-`LR15`. selects the written element. |
-| `dstrcture` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | `CR0`-`CR15`. Supplies `valid_elements` (section 3.1). |
+| `ds` | [`HalfCrIdx`](../reference/isa/operand-types.md#halfcridx) | `CR0.L`-`CR15.H`. Supplies `valid_elements` ([IPU ARCH 8.2](ARCH-ipu-top.md#82-data-structure-ds)). |
 
 #### Operation
 
@@ -328,7 +313,7 @@ cases. `AGG.MAX` and `AGG.MAX.FIRST` follow the `ACC.MAX` special cases
 #### Example
 
 ```text
-AGG.SUM.FIRST LR0, CR3;;      // R_ACC[LR0 % 128] = sum of the first valid_elements elements
+AGG.SUM.FIRST LR0, CR3.L;;      // R_ACC[LR0 % 128] = sum of the first valid_elements elements
 ```
 
 ---

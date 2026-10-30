@@ -19,8 +19,6 @@ The AaQ (Activation and Quantization) stage perfome the following tasks:
 1. [Overview](#1-overview)
 2. [Block Diagram](#2-block-diagram)
 3. [Interfaces](#3-interfaces)
-    - 3.1 [Quantization Format (`qf`) Layout](#31-quantization-format-qf-layout)
-    - 3.2 [Active Elements](#32-active-elements)
 4. [AaQ-Str ISA](#4-aaq-str-isa)
     - 4.1 [`NOP`: No Operation](#41-nop-no-operation)
     - 4.2 [`LD.LUT`: Load Function Estimation LUT Segment](#42-ldlut-load-function-estimation-lut-segment)
@@ -83,55 +81,10 @@ block-beta
 |------|-----------|-------------|
 | input data | Input | The 128-element fp32 vector from the ACC stage. |
 | Instruction | Input | The operation that the stage does on the input data. |
-| output data | Output | One XMEM row: the 128-element NX vector and its metadata (section 4.3.3). |
+| output data | Output | One XMEM row: the 128-element NX vector and its metadata ([IPU ARCH 7.2](ARCH-ipu-top.md#72-row-layout)). |
 | XMEM write address | Output | The XMEM address to which the stage writes the output data. |
 
-### 3.1 Quantization Format (`qf`) Layout
-
-The `qf` operand names a 16-bit half of a `CR`: `CRn.L` (bits `[15:0]`) or
-`CRn.H` (bits `[31:16]`). The half holds the quantization format (QF):
-
-| Bits | Field | Description |
-|------|-------|-------------|
-| `[15:12]` | `dynamic` | `0` = static, `1` = dynamic. The exponent format of a dynamic format is `e1` or `e2` (section 4.3.2.3). |
-| `[11:8]` | `sign` | `0` = unsigned, `1` = signed. |
-| `[7:4]` | `exp_format` | Exponent width `fe` of a static format: `1`-`7` = `e1`-`e7`. `fe + sign` is at most `num_bits`. |
-| `[3:0]` | `num_bits` | Total element width `W`: `1`-`8`. |
-
-### 3.2 Active Elements
-
-#### Data Structure (`ds`) Layout
-
-The `ds` operand names a 16-bit half of a `CR` (`CRn.L` or `CRn.H`). The half
-holds the data structure (DS) of the 128-element vector:
-
-| Bits | Field | Description |
-|------|-------|-------------|
-| `[15:12]` | `valid_partitions` | Number of valid groups: `1`-`num_partitions`. The rightmost `num_partitions - valid_partitions` groups are masked. |
-| `[11:10]` | `mask_type` | Used by the MULT stage (MULT Stage ARCH, section 3.1). |
-| `[9:8]` | `num_partitions` | Number of groups, coded `0`-`3` = `1`, `2`, `4`, `8`. One group is one line of 128 elements, two groups are two lines of 64 elements. |
-| `[7:0]` | `valid_elements` | Number of valid elements in a group: `0`-`128 / num_partitions`. |
-
-#### Active elements rule
-
-The `ds` fields select which of the 128 elements are active.
-
-The 128 elements are split into `num_partitions` equal groups.
-Each group has `group_size = 128 / num_partitions` elements. Then:
-
-1. Only the first `valid_partitions` groups are active. The remaining groups are masked.
-2. In each active group, only the first `valid_elements` elements are active.
-
-```text
-group_size = 128 / num_partitions
-active[i] = (i / group_size < valid_partitions) and (i % group_size < valid_elements)
-```
-
-**Example:** `num_partitions = 4`, `valid_partitions = 3`, `valid_elements = 10`.
-Each group has 32 elements, so active elements are `0-9`, `32-41` and `64-73`
-(30 elements). Group 3 (`96-127`) is masked.
-
-![Active elements example: 4 groups, 3 valid groups, 10 valid elements](assets/aaq-active-elements.svg)
+[IPU ARCH 8](ARCH-ipu-top.md#8-cr-formats) defines `qf`, `ds` and the active elements.
 
 ## 4. AaQ-Str ISA
 
@@ -142,9 +95,6 @@ section 5).
 The opcode enum (`aaq_inst_opcode_t`, package `ipu_instr_pkg`) is generated
 from [`instruction_spec.py`](../../../src/ipu-isa/src/ipu_isa/instruction_spec.py)
 by [`sv_package.py`](../../../src/ipu-gen/src/ipu_gen/sv_package.py).
-
-> **Note:** Each `CR0`-`CR15` and `LR0`-`LR15` register named in the
-> instruction operands is **32 bits** wide.
 
 **Instructions in this section:**
 
@@ -344,8 +294,8 @@ ACTIVATE.QUANTIZE activation_fn ds qf table_id table_offset
 | Name | Type | Used by | Details |
 |------|------|---------|---------|
 | `activation_fn` | [`Imm`](../reference/isa/operand-types.md#activationfn) | Activate | Enum that names the activation (see [`activation_fn` Values](#activation_fn-values)). |
-| `ds` | [`HalfCrIdx`](../reference/isa/operand-types.md#halfcridx) | Quantize | `CR0.L`-`CR15.H`. Supplies the data structure of the 128-element vector: `valid_partitions`, `num_partitions`, `valid_elements` (section 3.2). |
-| `qf` | [`HalfCrIdx`](../reference/isa/operand-types.md#halfcridx) | Quantize | `CR0.L`-`CR15.H`. Supplies the quantization format (section 3.1). |
+| `ds` | [`HalfCrIdx`](../reference/isa/operand-types.md#halfcridx) | Quantize | `CR0.L`-`CR15.H`. Supplies the data structure of the 128-element vector: `valid_partitions`, `num_partitions`, `valid_elements` ([IPU ARCH 8.2](ARCH-ipu-top.md#82-data-structure-ds)). |
+| `qf` | [`HalfCrIdx`](../reference/isa/operand-types.md#halfcridx) | Quantize | `CR0.L`-`CR15.H`. Supplies the quantization format ([IPU ARCH 8.1](ARCH-ipu-top.md#81-quantization-format-qf)). |
 | `table_id` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | Store | `CR0`-`CR15`. Base row in XMEM. The CTRL stage resolves it. |
 | `table_offset` | [`LrIdx`](../reference/isa/operand-types.md#lridx) | Store | `LR0`-`LR15`. Row offset in XMEM. The CTRL stage resolves it. |
 
@@ -355,7 +305,7 @@ ACTIVATE.QUANTIZE activation_fn ds qf table_id table_offset
 for i in 0..127:
     activated[i] = activate(activation_fn, input_data[i])   // 4.3.1: all elements
 
-for i in 0..127:                                            // active[i]: section 3.2
+for i in 0..127:                                            // active[i]: IPU ARCH 8.3
     if active[i]:
         aaq_out.elements[i] = quantize(activated[i])        // 4.3.2
     else:
@@ -487,7 +437,7 @@ $$
 
 Converts each activated fp32 element (IEEE-754 single precision: sign `S`,
 8-bit exponent `e`, 23-bit mantissa) into the NX8 format set by the
-quantization format `qf` (section 3.1).
+quantization format `qf` ([IPU ARCH 8.1](ARCH-ipu-top.md#81-quantization-format-qf)).
 
 **Outputs:**
 
@@ -497,27 +447,8 @@ quantization format `qf` (section 3.1).
 | `scale` | One 8-bit scale shared by the whole block. |
 | `dynamic_exponent` | `e1` or `e2`: the exponent width chosen in dynamic quantization. |
 
-**Element format.** Each element is packed from the MSB as
-`{S?, Exp, M, 0-pad}`:
-
-| Field | Width | Present when | Value |
-|-------|-------|--------------|-------|
-| `S` | 1 bit | `sign = 1` (signed) | The input sign, passed through. A finite element that rounds to `-0` gets `S = 0`. |
-| `Exp` | `fe` bits (`fe >= 1`) | always | Section 4.3.2.2. |
-| `M` | `fm = W - fe - sign` bits (`fm >= 0`) | always | Section 4.3.2.2. |
-| `0-pad` | the rest of the 8 bits | `W < 8` | `0` |
-
-**Special values.** These codes hold in every format, with `fe` and `fm` of the
-block. `NaN` is `-0`, so it exists only in a signed format:
-
-| Value | `S` | `Exp` | `M` |
-|-------|-----|-------|-----|
-| `0` | `0` | `2^fe - 1` | `0` |
-| `NaN` (`-0`) | `1` | `2^fe - 1` | `0` |
-| `inf` | `0` | `0` | `2^fm - 1` |
-| `-inf` | `1` | `0` | `2^fm - 1` |
-
-For example, the `NaN` code of signed `e4m3` is `0xF8`.
+**Element format.** Each element is NX8 ([IPU ARCH 7.1](ARCH-ipu-top.md#71-nx8-element-format)). `S` is the input sign, passed
+through. A finite element that rounds to `-0` gets `S = 0`.
 
 These elements take a special value directly, without section 4.3.2.2:
 
@@ -533,14 +464,6 @@ These elements take a special value directly, without section 4.3.2.2:
 
 > **TBD - ask Jacob or Aviv:** how does an unsigned format encode a negative
 > finite element: `0`, or its magnitude `|x|`?
-
-> **TBD - ask Jacob:** is the largest magnitude the right NX8 code for `inf` and
-> `-inf`? For comparison, two 8-bit floating-point formats:
->
-> | Format | `inf` | Largest finite value | Notes |
-> |--------|-------|----------------------|-------|
-> | `e5m2` | Yes: `inf`, `-inf` and `NaN` | `±57,344` | A value cast beyond the maximum becomes `inf` or `-inf`. Used for gradients and intermediate ranges that need a wider dynamic range. |
-> | `e4m3` | No | `±448` | The codes that IEEE formats give to `inf` hold more finite numbers, for higher precision up to the maximum. |
 
 #### 4.3.2.1 Block Scale and Exponent Distance
 
@@ -600,8 +523,8 @@ result is corrected:
 
 #### 4.3.2.3 Dynamic Exponent Selection (`fe = 1` or `fe = 2`)
 
-Applies when `dynamic = 1`, for any `sign` and any `num_bits >= 2 + sign`. A
-smaller `W` takes fewer mantissa bits, and `sign = 0` gives one more:
+Applies when `dynamic = 1` ([IPU ARCH 8.1](ARCH-ipu-top.md#81-quantization-format-qf)). A smaller `W` takes fewer mantissa bits,
+and `sign = 0` gives one more:
 
 | `sign` | `num_bits` | `dynamic_exponent = 0` | `dynamic_exponent = 1` |
 |--------|------------|------------------------|------------------------|
@@ -698,11 +621,7 @@ negative, so the block selects **`fe1`**.
 Writes the quantized result, on `output data`, to XMEM row
 `table_id + table_offset`.
 
-| Written | Size | Description |
-|---------|------|-------------|
-| Quantized elements | 128 x 8 bits | The quantized vector. Element `i` is byte `i` of the row. |
-| `scale` | 8 bits | Scale shared by the whole vector. Bits `[7:0]` of the metadata. |
-| `dynamic_exponent` | 1 bit | `e1` or `e2`: the exponent width chosen in dynamic quantization. Bit `[8]` of the metadata. |
+[IPU ARCH 7.2](ARCH-ipu-top.md#72-row-layout) defines the row layout.
 
 > **Note:** The AaQ-Str stage gets the XMEM write address explicitly.
 
