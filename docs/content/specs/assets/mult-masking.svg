@@ -2,7 +2,7 @@
   <!-- Element masking: mask_offset selects an R_MASK slot; shift chains build every shift; mask_shift selects one -->
   <defs><marker id="ah" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#444"/></marker></defs>
   <rect width="1090" height="545" fill="#ffffff"/>
-  <rect x="30" y="150" width="80" height="240" rx="4" fill="#eef0f0" stroke="#444" stroke-width="1.5"/>
+  <rect x="30" y="150" width="80" height="240" rx="4" fill="#e6b800" stroke="#b38a00" stroke-width="1.5"/>
   <text x="70" y="275" text-anchor="middle" font-size="13" fill="#222" font-weight="bold">R_MASK</text>
   <polyline points="110,165 130,165" stroke="#444" stroke-width="1.5" fill="none"/>
   <polyline points="190,165 210,165" stroke="#444" stroke-width="1.5" fill="none"/>
@@ -66,11 +66,11 @@
   <rect x="330" y="55" width="570" height="40" rx="4" fill="#eef0f0" stroke="#444" stroke-width="1.5"/>
   <text x="615" y="80" text-anchor="middle" font-size="13" fill="#222" font-weight="bold">partition_vector (mask_shift &gt; 0)</text>
   <text x="330" y="22" text-anchor="start" font-size="13" fill="#222">partition_vector: 0 at the first element of each group.</text>
-  <text x="330" y="42" text-anchor="start" font-size="13" fill="#222">num_partition = 2 (groups of 64), element 0 first: <tspan fill="#1a7060" font-weight="bold">0 1^63 0 1^63</tspan></text>
+  <text x="330" y="42" text-anchor="start" font-size="13" fill="#222">num_partitions = 2 (groups of 64), element 0 first: <tspan fill="#1a7060" font-weight="bold">0 1^63 0 1^63</tspan></text>
   <rect x="330" y="445" width="570" height="40" rx="4" fill="#eef0f0" stroke="#444" stroke-width="1.5"/>
   <text x="615" y="470" text-anchor="middle" font-size="13" fill="#222" font-weight="bold">inverse_partition_vector (mask_shift &lt; 0)</text>
   <text x="330" y="510" text-anchor="start" font-size="13" fill="#222">inverse_partition_vector: 0 at the last element of each group.</text>
-  <text x="330" y="530" text-anchor="start" font-size="13" fill="#222">num_partition = 2 (groups of 64), element 0 first: <tspan fill="#1a7060" font-weight="bold">1^63 0 1^63 0</tspan></text>
+  <text x="330" y="530" text-anchor="start" font-size="13" fill="#222">num_partitions = 2 (groups of 64), element 0 first: <tspan fill="#1a7060" font-weight="bold">1^63 0 1^63 0</tspan></text>
   <polyline points="515,150 515,230 950,230" stroke="#444" stroke-width="1.5" fill="none" marker-end="url(#ah)"/>
   <polyline points="715,150 715,210 950,210" stroke="#444" stroke-width="1.5" fill="none" marker-end="url(#ah)"/>
   <polyline points="900,150 915,150 915,190 950,190" stroke="#444" stroke-width="1.5" fill="none" marker-end="url(#ah)"/>

@@ -496,7 +496,7 @@ by [`sv_package.py`](../../../src/ipu-gen/src/ipu_gen/sv_package.py).
 
 The AaQ slot is resolved by CTRL and forwarded down the pipeline;
 the stage does not read the CR/LR register files itself (see the
-Control Stage spec, section 5). The active elements are determined by
+[Control Stage spec](ARCH-stage-ctrl.md), section 3.2). The active elements are determined by
 `ACTIVATE.QUANTIZE`'s mandatory `cr_idx` operand (supplying `valid_elements`) together
 with `partition` and `partition_mask` (section 3.1), at cycle start. The 128
 elements are split into `partition` groups of `G = 128/partition` elements;

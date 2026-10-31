@@ -24,9 +24,8 @@ following tasks:
 1. [Overview](#1-overview)
 2. [Block Diagram](#2-block-diagram)
 3. [Interfaces](#3-interfaces)
-    - 3.1 [`dstructure` Layout](#31-dstructure-layout)
-    - 3.2 [Element Format](#32-element-format)
-    - 3.3 [Running and `.FIRST` Variants](#33-running-and-first-variants)
+    - 3.1 [Element Format](#31-element-format)
+    - 3.2 [Running and `.FIRST` Variants](#32-running-and-first-variants)
 4. [Accumulator ISA](#4-accumulator-isa)
     - 4.1 [`NOP`: No Operation](#41-nop-no-operation)
     - 4.2 [`ACC.SET`, `ACC.ADD`, `ACC.SUB`, `ACC.MAX`: Element-wise Accumulate](#42-accset-accadd-accsub-accmax-element-wise-accumulate)
@@ -34,49 +33,38 @@ following tasks:
     - 4.4 [`AGG.SUM`, `AGG.MAX`: Aggregate](#44-aggsum-aggmax-aggregate)
     - 4.5 [`ACC.RESHAPE`: Reshape](#45-accreshape-reshape)
     - 4.6 [`BYPASS`: Bypass](#46-bypass-bypass)
+5. [Disagreements with the Emulator](#5-disagreements-with-the-emulator)
 
 ## 2. Block Diagram
 
 ```mermaid
-block-beta
-    columns 7
-    block:INS:1
-        columns 1
-        IN_DATA["input data<br>128 x 32-bit"]
-        INSTR["Instruction"]
-    end
-    space
-    block:STAGE:3
-        columns 3
-        TITLE["ACC Stage"] space:2
-        ALU["Accumulate /<br>Aggregate"] space RACC["R_ACC<br>128 x 32-bit"]
-        space:3
-        PERM["Stride /<br>Reshape"] space:2
-        space:3
-        space BYP["BYPASS"] space
-    end
-    space
-    block:OUTS:1
-        columns 1
-        OUT_DATA["output data<br>128 x 32-bit"]
+flowchart LR
+    IN_DATA["input data<br>128 x 32-bit"]:::io
+    INSTR["Instruction"]:::io
+    OUT_DATA["output data<br>128 x 32-bit"]:::io
+
+    subgraph STAGE["ACC Stage"]
+        subgraph OPS[" "]
+            ALU["Accumulate /<br>Aggregate"]:::blk
+            PERM["Stride /<br>Reshape"]:::blk
+        end
+        RACC["R_ACC<br>128 x 32-bit"]:::reg
+        BYP["BYPASS"]:::io
     end
 
-    IN_DATA --> ALU
-    IN_DATA --> PERM
-    INSTR --> ALU
+    INSTR --> OPS
+    IN_DATA --> OPS
+    IN_DATA --> BYP
     ALU <--> RACC
     PERM --> RACC
     RACC --> OUT_DATA
-    IN_DATA --- BYP
-    BYP --> OUT_DATA
+    BYP ---> OUT_DATA
 
     classDef io fill:none,stroke:none
     classDef blk fill:#2e9e8c,stroke:#1a7060,color:#fff
-    classDef title fill:none,stroke:none,font-weight:bold
-    class IN_DATA,INSTR,OUT_DATA,INS,OUTS,BYP io
-    class ALU,RACC,PERM blk
-    class TITLE title
+    classDef reg fill:#e6b800,stroke:#b38a00,color:#000
     style STAGE fill:none,stroke:#888,stroke-width:2px
+    style OPS fill:none,stroke:#888,stroke-dasharray:5 5
 ```
 
 ## 3. Interfaces
@@ -87,25 +75,12 @@ block-beta
 | Instruction | Input | The operation that the stage does on the input data. |
 | output data | Output | `R_ACC`, or `input data`: 128 elements of 32 bits, to the AaQ stage. |
 
-### 3.1 `dstructure` Layout
-
-The `cr_idx` operand of `ACC.STRIDE`, `AGG.SUM` and `AGG.MAX` names a 32-bit
-`CR` that holds the data structure format of the 128-element vector. It has
-four 8-bit fields:
-
-| Bits | Field | Description |
-|------|-------|-------------|
-| `[31:24]` | `N/A` | Not used. |
-| `[23:16]` | `valid_partition` | Number of valid groups. The rightmost `num_partition - valid_partition` groups are masked. |
-| `[15:8]` | `num_partition` | Number of groups: `1`, `2`, `4` or `8`. `1` means one line of 128 elements, `2` means two lines of 64 elements. |
-| `[7:0]` | `valid_elements` | Number of valid elements in a group. |
-
-### 3.2 Element Format
+### 3.1 Element Format
 
 Each `R_ACC` element is an FP32 value (IEEE-754 single precision), the same as
 each element of `input data`. It can be `inf` or `-inf`.
 
-### 3.3 Running and `.FIRST` Variants
+### 3.2 Running and `.FIRST` Variants
 
 `AGG.SUM` and `AGG.MAX` each have a `.FIRST` variant:
 
@@ -117,16 +92,12 @@ each element of `input data`. It can be `inf` or `-inf`.
 ## 4. Accumulator ISA
 
 The ACC slot is resolved by CTRL and forwarded down the pipeline. The stage
-does not read the CR/LR register files itself (see the Control Stage spec,
-section 5).
+does not read the CR/LR register files itself (see the [Control Stage spec](ARCH-stage-ctrl.md),
+section 3.2).
 
 The opcode enum (`acc_inst_opcode_t`, package `ipu_instr_pkg`) is generated
 from [`instruction_spec.py`](../../../src/ipu-isa/src/ipu_isa/instruction_spec.py)
 by [`sv_package.py`](../../../src/ipu-gen/src/ipu_gen/sv_package.py).
-
-> **Note:** Each `CR0`-`CR15` and `LR0`-`LR15` register named in the
-> instruction operands is **32 bits** wide. An `LRD` operand (a pair of LRs)
-> comes with its value, as a `CR` operand does.
 
 **Instructions in this section:**
 
@@ -224,14 +195,14 @@ by row, into a range of `R_ACC`. The other `R_ACC` elements keep their values.
 #### Syntax
 
 ```text
-ACC.STRIDE cr_idx, horizontal_stride, vertical_stride, offset
+ACC.STRIDE ds, horizontal_stride, vertical_stride, offset
 ```
 
 #### Operands
 
 | Name | Type | Details |
 |------|------|---------|
-| `dstructure` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | `CR0`-`CR15`. Supplies `num_partition` (section 3.1): the number of rows of `input data`. |
+| `ds` | [`HalfCrIdx`](../reference/isa/operand-types.md#halfcridx) | `CR0.L`-`CR15.H`. Supplies `num_partitions` ([IPU ARCH 8.2](ARCH-ipu-top.md#82-data-structure-ds)): the number of rows of `input data`. |
 | `horizontal_stride` | [`Imm`](../reference/isa/operand-types.md#horizontalstride) | `off`, `on` or `on_inv`. Column pattern. |
 | `vertical_stride` | [`Imm`](../reference/isa/operand-types.md#verticalstride) | `off`, `on` or `on_inv`. Row pattern. |
 | `offset` | `Imm` | `0`, `16`, `32`, `48`, `64`, `80`, `96` or `112`. The first written `R_ACC` element. |
@@ -247,8 +218,8 @@ ACC.STRIDE cr_idx, horizontal_stride, vertical_stride, offset
 #### Operation
 
 ```text
-rows = num_partition
-elements_in_row = 128 / num_partition
+rows = num_partitions
+elements_in_row = 128 / num_partitions
 view input_data as [rows][elements_in_row]          // row r = input_data[r*elements_in_row ...]
 keep the columns selected by horizontal_stride
 keep the rows selected by vertical_stride
@@ -259,7 +230,7 @@ R_ACC[offset + k] = kept[k]   for k in 0..N-1
 
 The number of written elements is:
 
-| `horizontal_stride` | `vertical_stride` | `N` (`num_partition` = `2`, `4`, `8`) | `N` (`num_partition` = `1`) |
+| `horizontal_stride` | `vertical_stride` | `N` (`num_partitions` = `2`, `4`, `8`) | `N` (`num_partitions` = `1`) |
 |---------------------|-------------------|-----|-----|
 | `off` | `off` | 128 | 128 |
 | `on` / `on_inv` | `off` | 64 | 64 |
@@ -268,7 +239,7 @@ The number of written elements is:
 
 `offset + N` is at most 128.
 
-**Example:** `num_partition = 8`, `horizontal_stride = on`,
+**Example:** `num_partitions = 8`, `horizontal_stride = on`,
 `vertical_stride = on`, `offset = 0`. `input data` is 8 rows of 16. The
 even columns of rows 0, 2, 4 and 6 are kept: 32 elements, written to
 `R_ACC[0..31]`.
@@ -281,7 +252,7 @@ even columns of rows 0, 2, 4 and 6 are kept: 32 elements, written to
 #### Example
 
 ```text
-ACC.STRIDE CR3, on, on, 0;;
+ACC.STRIDE CR3.L, on, on, 0;;
 ```
 
 ---
@@ -295,10 +266,10 @@ values.
 #### Syntax
 
 ```text
-AGG.SUM dest_slot, cr_idx
-AGG.SUM.FIRST dest_slot, cr_idx
-AGG.MAX dest_slot, cr_idx
-AGG.MAX.FIRST dest_slot, cr_idx
+AGG.SUM dest_slot, ds
+AGG.SUM.FIRST dest_slot, ds
+AGG.MAX dest_slot, ds
+AGG.MAX.FIRST dest_slot, ds
 ```
 
 #### Operands
@@ -306,7 +277,7 @@ AGG.MAX.FIRST dest_slot, cr_idx
 | Name | Type | Details |
 |------|------|---------|
 | `dest_slot` | [`LrIdx`](../reference/isa/operand-types.md#lridx) | `LR0`-`LR15`. selects the written element. |
-| `dstrcture` | [`CrIdx`](../reference/isa/operand-types.md#cridx) | `CR0`-`CR15`. Supplies `valid_elements` (section 3.1). |
+| `ds` | [`HalfCrIdx`](../reference/isa/operand-types.md#halfcridx) | `CR0.L`-`CR15.H`. Supplies `valid_elements` ([IPU ARCH 8.2](ARCH-ipu-top.md#82-data-structure-ds)). |
 
 #### Operation
 
@@ -328,7 +299,7 @@ cases. `AGG.MAX` and `AGG.MAX.FIRST` follow the `ACC.MAX` special cases
 #### Example
 
 ```text
-AGG.SUM.FIRST LR0, CR3;;      // R_ACC[LR0 % 128] = sum of the first valid_elements elements
+AGG.SUM.FIRST LR0, CR3.L;;      // R_ACC[LR0 % 128] = sum of the first valid_elements elements
 ```
 
 ---
@@ -435,3 +406,15 @@ for i in 0..127:
 ```text
 BYPASS;;      // send the multiply result to the AaQ stage
 ```
+
+## 5. Disagreements with the Emulator
+
+| Topic | Spec | Emulator |
+|-------|------|----------|
+| `ACC.SET` | Sets `R_ACC` to `input data`. | No `ACC.SET`. `ACC.ADD.FIRST` and `ACC.MAX.FIRST` do this operation. |
+| `ACC.SUB.FIRST` | No `ACC.SUB.FIRST`. | `R_ACC[i]` becomes `0 - input_data[i]`. |
+| `BYPASS` | Sends `input data` to `output data`. | No `BYPASS`. `output data` is always `R_ACC`. |
+| `NaN` element in `input data` | `ACC.MAX` and `AGG.MAX` give `NaN`. | `ACC.MAX` and `AGG.MAX` ignore the `NaN` element. |
+| `ACC.STRIDE` row size | `ds` supplies `num_partitions`: `1`, `2`, `4` or `8` rows. | The `elements_in_row` immediate: `16`, `32` or `64` elements. No row of 128 elements. |
+| `ACC.STRIDE` `offset` | An immediate: `0`, `16`, `32`, `48`, `64`, `80`, `96` or `112`. | `LR0`-`LR15`. The first written element is `(LR value % 4) x 32`: `0`, `32`, `64` or `96`. |
+| `ACC.RESHAPE` copied elements | `number_idx`: elements `k = 0..number_idx - 1`. | `reshape_mask`: elements `k = reshape_mask..7`. For example, `6` copies `k = 6, 7` and `0` copies all 8 elements. |

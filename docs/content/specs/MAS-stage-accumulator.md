@@ -8,8 +8,7 @@ the MULT stage) into it. It is the third stage in the execute chain
 (CTRL → MULT → **ACC** → AAQ → STORE) and produces:
 
 - The updated 128-element `R_ACC`, forwarded to the AaQ stage.
-- `aaq_vliw_bus` and `str_vliw_bus`, forwarded unchanged to the AAQ stage
-  (see the Control Stage spec, §7.2).
+- `aaq_vliw_bus` and `str_vliw_bus`, forwarded unchanged to the AAQ stage.
 
 Depending on the mnemonic, ACC either runs a per-element elementwise
 reduction against `MULT_RES` (`ACC.ADD`/`MAX`/`SUB`), decimates and
@@ -74,7 +73,7 @@ ACC-slot instruction.
 ```
 
 `aaq_vliw_bus` and `str_vliw_bus` arrive from the MULT stage and are
-forwarded unchanged to the AaQ stage (see the Control Stage spec, §7.2);
+forwarded unchanged to the AaQ stage;
 ACC does not read or modify their contents.
 
 ### 3.1 Inputs
@@ -86,7 +85,7 @@ ACC does not read or modify their contents.
 | `op` | `input logic [3:0]` | Selects the ACC operation: `ACC_INST_OPCODE_ACC_ADD` = 0, `ACC_INST_OPCODE_ACC_ADD_FIRST` = 1, `ACC_INST_OPCODE_ACC_MAX` = 2, `ACC_INST_OPCODE_ACC_MAX_FIRST` = 3, `ACC_INST_OPCODE_ACC_SUB` = 4, `ACC_INST_OPCODE_ACC_SUB_FIRST` = 5, `ACC_INST_OPCODE_NOP` = 6, `ACC_INST_OPCODE_ACC_STRIDE` = 7, `ACC_INST_OPCODE_AGG_SUM_FIRST` = 8, `ACC_INST_OPCODE_AGG_SUM` = 9, `ACC_INST_OPCODE_AGG_MAX_FIRST` = 10, `ACC_INST_OPCODE_AGG_MAX` = 11, `ACC_INST_OPCODE_ACC_RESHAPE` = 12 (see §6 for the full opcode table; opcode = position in `instruction_spec.py`'s `"acc"` slot). |
 | `mult_res` | `input logic [127:0][31:0]` | This cycle's multiply result from the MULT stage: 128 elements, each INT32 or FP32 depending on the active element dtype (INT8-mode multiplies produce INT32 products; FP8-mode multiplies produce FP32 products — see the MULT stage). |
 | `resolved_operands` | `input logic [131:0]` | Opcode-dependent union payload packed onto `acc_vliw_bus` alongside `op`. CTRL resolves every CR/LR operand this instruction needs (see §5) and packs it in here before dispatch; ACC never reads the CR/LR register files itself. Width is sized to the opcode with the largest operand set (`ACC_INST_OPCODE_ACC_RESHAPE`, 132 bits); other opcodes use only their low bits, and the rest are don't-care. Layout per opcode is in §3.1.1. |
-| `aaq_vliw_bus` | `input logic [AAQ_BUS_W-1:0]` | AAQ-slot bus, forwarded from MULT. Passed through unchanged (see Control Stage spec §7.2). |
+| `aaq_vliw_bus` | `input logic [AAQ_BUS_W-1:0]` | AAQ-slot bus, forwarded from MULT. Passed through unchanged. |
 | `str_vliw_bus` | `input logic [STR_BUS_W-1:0]` | STORE-slot bus, forwarded from MULT. Passed through unchanged. |
 
 #### 3.1.1 `resolved_operands` Layout (parsed relative to `op`)
@@ -179,8 +178,7 @@ buffer's overall width.
   see the CLAUDE.md project directives).
 - **Historical note:** cross-element aggregation (`AGG.*`) was moved into the
   ACC slot specifically to remove a RAW hazard that existed when it lived
-  in a separate AAQ-writable scalar register file consumed by MULT/ACC (see
-  the Control Stage spec, §9).
+  in a separate AAQ-writable scalar register file consumed by MULT/ACC.
 - `ACC.RESHAPE` scatters `MULT_RES` elements into `R_ACC` at LR-pair-selected
   indices, rather than reducing `MULT_RES` elementwise or aggregating them.
   Like every other ACC-stage operation it reads this cycle's `MULT_RES`

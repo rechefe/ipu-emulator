@@ -181,8 +181,8 @@ The hardware runs each word through six pipelined stages
 IPU-ARCH-13 requires that pipelining not change any architectural result. The
 timing contract is that architectural result: it states which values a word
 sees, whatever the stage latencies. The
-[Control Stage Specification](../specs/stage-control.md) describes the LR
-forwarding from CTRL to the later stages.
+[Control Stage ARCH](../specs/ARCH-stage-ctrl.md#32-operand-resolution) describes
+how CTRL resolves the operands of the later stages.
 
 The contract settles two rows of the requirements' open questions
 ([OQ-9 and OQ-10](../requirements/open-questions.md#conflicts-between-existing-documents)):
