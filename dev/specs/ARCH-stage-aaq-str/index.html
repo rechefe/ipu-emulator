@@ -352,7 +352,7 @@
     
     
       <li class="md-tabs__item md-tabs__item--active">
-        <a href="../cache-unit/" class="md-tabs__link">
+        <a href="../ARCH-ipu-top/" class="md-tabs__link">
           
   
   
@@ -1990,6 +1990,8 @@
       
         
       
+        
+      
     
     
     
@@ -2037,6 +2039,34 @@
 
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ARCH-ipu-top/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IPU Top ARCH
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
             
               
                 
@@ -2202,34 +2232,6 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="3. Interfaces">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#31-quantizion_format-layout" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        3.1 quantizion_format Layout
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#32-active-elements" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        3.2 Active Elements
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
 </li>
       
         <li class="md-nav__item">
@@ -2256,10 +2258,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#42-load_lut-load-function-estimation-lut-segment" class="md-nav__link">
+  <a href="#42-ldlut-load-function-estimation-lut-segment" class="md-nav__link">
     <span class="md-ellipsis">
       
-        4.2 LOAD_LUT: Load Function Estimation LUT Segment
+        4.2 LD.LUT: Load Function Estimation LUT Segment
       
     </span>
   </a>
@@ -2279,6 +2281,17 @@
         
       </ul>
     </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-disagreements-with-the-emulator" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Disagreements with the Emulator
+      
+    </span>
+  </a>
   
 </li>
       
@@ -2382,14 +2395,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../stage-control/" class="md-nav__link">
+      <a href="../ARCH-stage-ctrl/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Control Stage Specification
+    Control Stage ARCH
   
 
     
@@ -2899,14 +2912,10 @@ functions and special functions.</p>
 <ol>
 <li><a href="#1-overview">Overview</a></li>
 <li><a href="#2-block-diagram">Block Diagram</a></li>
-<li><a href="#3-interfaces">Interfaces</a><ul>
-<li>3.1 <a href="#31-quantizion_format-layout"><code>quantizion_format</code> Layout</a></li>
-<li>3.2 <a href="#32-active-elements">Active Elements</a></li>
-</ul>
-</li>
+<li><a href="#3-interfaces">Interfaces</a></li>
 <li><a href="#4-aaq-str-isa">AaQ-Str ISA</a><ul>
 <li>4.1 <a href="#41-nop-no-operation"><code>NOP</code>: No Operation</a></li>
-<li>4.2 <a href="#42-load_lut-load-function-estimation-lut-segment"><code>LOAD_LUT</code>: Load Function Estimation LUT Segment</a><ul>
+<li>4.2 <a href="#42-ldlut-load-function-estimation-lut-segment"><code>LD.LUT</code>: Load Function Estimation LUT Segment</a><ul>
 <li>4.2.1 <a href="#421-function-estimation-lut">Function Estimation LUT</a></li>
 <li>4.2.2 <a href="#422-metadata-block">Metadata Block</a></li>
 <li>4.2.3 <a href="#423-lut-addressing">LUT Addressing</a></li>
@@ -2925,6 +2934,7 @@ functions and special functions.</p>
 </li>
 </ul>
 </li>
+<li><a href="#5-disagreements-with-the-emulator">Disagreements with the Emulator</a></li>
 </ol>
 <h2 id="2-block-diagram">2. Block Diagram<a class="headerlink" href="#2-block-diagram" title="Permanent link">&para;</a></h2>
 <pre class="mermaid"><code>block-beta
@@ -2945,7 +2955,7 @@ functions and special functions.</p>
     space
     block:OUTS:1
         columns 1
-        NX_OUT["output data&lt;br&gt;128 x NX"]
+        NX_OUT["output data&lt;br&gt;128 x NX&lt;br&gt;+ metadata"]
         XMEM_ADDR["XMEM write&lt;br&gt;address"]
     end
 
@@ -2958,9 +2968,11 @@ functions and special functions.</p>
 
     classDef io fill:none,stroke:none
     classDef blk fill:#2e9e8c,stroke:#1a7060,color:#fff
+    classDef reg fill:#e6b800,stroke:#b38a00,color:#000
     classDef title fill:none,stroke:none,font-weight:bold
     class ACC_OUT,INSTR,NX_OUT,XMEM_ADDR,INS,OUTS io
-    class ACT,QUANT,LUT blk
+    class ACT,QUANT blk
+    class LUT reg
     class TITLE title
     style STAGE fill:none,stroke:#888,stroke-width:2px</code></pre>
 <h2 id="3-interfaces">3. Interfaces<a class="headerlink" href="#3-interfaces" title="Permanent link">&para;</a></h2>
@@ -2986,7 +2998,7 @@ functions and special functions.</p>
 <tr>
 <td>output data</td>
 <td>Output</td>
-<td>The 128-element NX vector.</td>
+<td>One XMEM row: the 128-element NX vector and its metadata (<a href="../ARCH-ipu-top/#72-row-layout">IPU ARCH 7.2</a>).</td>
 </tr>
 <tr>
 <td>XMEM write address</td>
@@ -2995,101 +3007,14 @@ functions and special functions.</p>
 </tr>
 </tbody>
 </table>
-<h3 id="31-quantizion_format-layout">3.1 <code>quantizion_format</code> Layout<a class="headerlink" href="#31-quantizion_format-layout" title="Permanent link">&para;</a></h3>
-<p>The <code>quantizion_format</code> operand names a 32-bit <code>CR</code> that holds the quantization
-format. It has four 8-bit fields:</p>
-<table>
-<thead>
-<tr>
-<th>Bits</th>
-<th>Field</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>[31:24]</code></td>
-<td><code>dynamic_static</code></td>
-<td><code>0</code> = static, <code>1</code> = dynamic. In dynamic mode, the exponent format is <code>e1</code> or <code>e2</code> (section 4.3.2.3).</td>
-</tr>
-<tr>
-<td><code>[23:16]</code></td>
-<td><code>sign</code></td>
-<td><code>0</code> = unsigned, <code>1</code> = signed.</td>
-</tr>
-<tr>
-<td><code>[15:8]</code></td>
-<td><code>num_bits</code></td>
-<td>Total element width <code>W</code>: <code>1</code>-<code>8</code>. <code>0</code> is reserved/invalid.</td>
-</tr>
-<tr>
-<td><code>[7:0]</code></td>
-<td><code>exponent_format</code></td>
-<td>Exponent width <code>fe</code> in static mode: <code>1</code>-<code>7</code> = <code>e1</code>-<code>e7</code>.</td>
-</tr>
-</tbody>
-</table>
-<h3 id="32-active-elements">3.2 Active Elements<a class="headerlink" href="#32-active-elements" title="Permanent link">&para;</a></h3>
-<h4 id="cr-layout-dstructure">CR layout (<code>dstructure</code>)<a class="headerlink" href="#cr-layout-dstructure" title="Permanent link">&para;</a></h4>
-<p>The <code>dstructure</code> operand names a 32-bit <code>CR</code> that holds the data structure
-format (DS) of the 128-element vector. It has four 8-bit fields:</p>
-<table>
-<thead>
-<tr>
-<th>Bits</th>
-<th>Field</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>[31:24]</code></td>
-<td><code>N/A</code></td>
-<td>Not used.</td>
-</tr>
-<tr>
-<td><code>[23:16]</code></td>
-<td><code>valid_partition</code></td>
-<td>Number of valid groups. The rightmost <code>num_partition - valid_partition</code> groups are masked.</td>
-</tr>
-<tr>
-<td><code>[15:8]</code></td>
-<td><code>num_partition</code></td>
-<td>Number of groups: <code>1</code>, <code>2</code>, <code>4</code> or <code>8</code>. <code>1</code> means one line of 128 elements, <code>2</code> means two lines of 64 elements.</td>
-</tr>
-<tr>
-<td><code>[7:0]</code></td>
-<td><code>valid_elements</code></td>
-<td>Number of valid elements in a group.</td>
-</tr>
-</tbody>
-</table>
-<h4 id="active-elements-rule">Active elements rule<a class="headerlink" href="#active-elements-rule" title="Permanent link">&para;</a></h4>
-<p>The <code>dstructure</code> fields select which of the 128 elements are active.</p>
-<p>The 128 elements are split into <code>num_partition</code> equal groups.
-Each group has <code>group_size = 128 / num_partition</code> elements. Then:</p>
-<ol>
-<li>Only the first <code>valid_partition</code> groups are active. The remaining groups are masked.</li>
-<li>In each active group, only the first <code>valid_elements</code> elements are active.</li>
-</ol>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>group_size = 128 / num_partition
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>active[i] = (i / group_size &lt; valid_partition) and (i % group_size &lt; valid_elements)
-</span></code></pre></div>
-<p><strong>Example:</strong> <code>num_partition = 4</code>, <code>valid_partition = 3</code>, <code>valid_elements = 10</code>.
-Each group has 32 elements, so active elements are <code>0-9</code>, <code>32-41</code> and <code>64-73</code>
-(30 elements). Group 3 (<code>96-127</code>) is masked.</p>
-<p><img alt="Active elements example: 4 groups, 3 valid groups, 10 valid elements" src="../assets/aaq-active-elements.svg" /></p>
+<p><a href="../ARCH-ipu-top/#8-cr-formats">IPU ARCH 8</a> defines <code>qf</code>, <code>ds</code> and the active elements.</p>
 <h2 id="4-aaq-str-isa">4. AaQ-Str ISA<a class="headerlink" href="#4-aaq-str-isa" title="Permanent link">&para;</a></h2>
 <p>The AaQ slot is resolved by CTRL and forwarded down the pipeline. The stage
-does not read the CR/LR register files itself (see the Control Stage spec,
-section 5).</p>
+does not read the CR/LR register files itself (see the <a href="../ARCH-stage-ctrl/">Control Stage spec</a>,
+section 3.2).</p>
 <p>The opcode enum (<code>aaq_inst_opcode_t</code>, package <code>ipu_instr_pkg</code>) is generated
 from <a href="../../../src/ipu-isa/src/ipu_isa/instruction_spec.py"><code>instruction_spec.py</code></a>
 by <a href="../../../src/ipu-gen/src/ipu_gen/sv_package.py"><code>sv_package.py</code></a>.</p>
-<blockquote>
-<p><strong>Note:</strong> Each <code>CR0</code>-<code>CR15</code> and <code>LR0</code>-<code>LR15</code> register named in the
-instruction operands is <strong>32 bits</strong> wide.</p>
-</blockquote>
 <p><strong>Instructions in this section:</strong></p>
 <table>
 <thead>
@@ -3104,7 +3029,7 @@ instruction operands is <strong>32 bits</strong> wide.</p>
 <td>Do nothing.</td>
 </tr>
 <tr>
-<td><a href="#42-load_lut-load-function-estimation-lut-segment"><code>LOAD_LUT</code></a></td>
+<td><a href="#42-ldlut-load-function-estimation-lut-segment"><code>LD.LUT</code></a></td>
 <td>Fill the function estimation LUT.</td>
 </tr>
 <tr>
@@ -3117,16 +3042,16 @@ instruction operands is <strong>32 bits</strong> wide.</p>
 <h3 id="41-nop-no-operation">4.1 <code>NOP</code>: No Operation<a class="headerlink" href="#41-nop-no-operation" title="Permanent link">&para;</a></h3>
 <p>No operation for the AaQ slot.</p>
 <h4 id="syntax">Syntax<a class="headerlink" href="#syntax" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>NOP
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>NOP
 </span></code></pre></div>
 <h4 id="operands">Operands<a class="headerlink" href="#operands" title="Permanent link">&para;</a></h4>
 <p>None.</p>
 <h4 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>NOP;;
+<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>NOP;;
 </span></code></pre></div>
 <hr />
-<h3 id="42-load_lut-load-function-estimation-lut-segment">4.2 <code>LOAD_LUT</code>: Load Function Estimation LUT Segment<a class="headerlink" href="#42-load_lut-load-function-estimation-lut-segment" title="Permanent link">&para;</a></h3>
-<p><code>LOAD_LUT</code> fills one <strong>segment</strong> (1024 bits) of the function estimation LUT
+<h3 id="42-ldlut-load-function-estimation-lut-segment">4.2 <code>LD.LUT</code>: Load Function Estimation LUT Segment<a class="headerlink" href="#42-ldlut-load-function-estimation-lut-segment" title="Permanent link">&para;</a></h3>
+<p><code>LD.LUT</code> fills one <strong>segment</strong> (1024 bits) of the function estimation LUT
 (section 4.2.1). The data comes from the lower 32 words of <code>input data</code>.</p>
 <p><code>lut_addr</code> selects which segment is written:</p>
 <table>
@@ -3148,7 +3073,7 @@ instruction operands is <strong>32 bits</strong> wide.</p>
 </tbody>
 </table>
 <h4 id="syntax_1">Syntax<a class="headerlink" href="#syntax_1" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>LOAD_LUT lut_addr table_id table_offset
+<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>LD.LUT lut_addr table_id table_offset
 </span></code></pre></div>
 <h4 id="operands_1">Operands<a class="headerlink" href="#operands_1" title="Permanent link">&para;</a></h4>
 <table>
@@ -3168,29 +3093,33 @@ instruction operands is <strong>32 bits</strong> wide.</p>
 <tr>
 <td><code>table_id</code></td>
 <td><a href="../../reference/isa/operand-types/#cridx"><code>CrIdx</code></a></td>
-<td><code>CR0</code>-<code>CR15</code>. Supplies the table ID.</td>
+<td><code>CR0</code>-<code>CR15</code>. Base row in XMEM. The CTRL stage resolves it.</td>
 </tr>
 <tr>
 <td><code>table_offset</code></td>
 <td><a href="../../reference/isa/operand-types/#lridx"><code>LrIdx</code></a></td>
-<td><code>LR0</code>-<code>LR15</code>. Supplies the offset in the table.</td>
+<td><code>LR0</code>-<code>LR15</code>. Row offset in XMEM. The CTRL stage resolves it.</td>
 </tr>
 </tbody>
 </table>
 <h4 id="operation">Operation<a class="headerlink" href="#operation" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>payload[1023:0] = {input_data[31], ..., input_data[0]}     // 32 words x 32 bits
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>if lut_addr &lt;= 3:                                          // full table slice
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>    TABLE_BITS[1024*lut_addr +: 1024] = payload
-</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>
-</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>else if lut_addr == 4:                                     // last table bits + metadata
-</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>    TABLE_BITS[4351:4096] = payload[255:0]
-</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>    {pos_mode, neg_mode, range_mode, pos_c, neg_c, max_exp_num} = payload[301:256]
-</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>    // field layout in section 4.2.2
+<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>payload[1023:0] = {input_data[31], ..., input_data[0]}     // 32 words x 32 bits
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>if lut_addr &lt;= 3:                                          // full table slice
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>    TABLE_BITS[1024*lut_addr +: 1024] = payload
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>else if lut_addr == 4:                                     // last table bits + metadata
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>    TABLE_BITS[4351:4096] = payload[255:0]
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>    {pos_mode, neg_mode, range_mode, pos_c, neg_c, max_exp_num} = payload[301:256]
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>    // field layout in section 4.2.2
 </span></code></pre></div>
 <h4 id="example_1">Example<a class="headerlink" href="#example_1" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>LOAD_LUT 4 CR13 LR0;;      // load the metadata block
+<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>LD.LUT 4 CR13 LR0;;      // load the metadata block
 </span></code></pre></div>
+<blockquote>
+<p><strong>Note:</strong> The AaQ-Str stage gets only the data, on <code>input data</code>. It drives no
+XMEM write address for <code>LD.LUT</code>.</p>
+</blockquote>
 <hr />
 <h4 id="421-function-estimation-lut">4.2.1 Function Estimation LUT<a class="headerlink" href="#421-function-estimation-lut" title="Permanent link">&para;</a></h4>
 <p>The stage holds one function estimation LUT. It has two parts:</p>
@@ -3215,8 +3144,11 @@ instruction operands is <strong>32 bits</strong> wide.</p>
 </tr>
 </tbody>
 </table>
-<p>Both parts are filled by <code>LOAD_LUT</code>, one segment per instruction. The 3-bit
-<code>lut_addr</code> selects the segment. Five <code>LOAD_LUT</code> instructions (<code>lut_addr</code>
+<p><strong>Entry format.</strong> A table entry, <code>neg_c</code> and <code>pos_c</code> each have 1 sign bit, 8
+exponent bits and 8 mantissa bits: <code>{S, e, M}</code>. The fp32 result is
+<code>{S, e, M, 15'b0}</code>.</p>
+<p>Both parts are filled by <code>LD.LUT</code>, one segment per instruction. The 3-bit
+<code>lut_addr</code> selects the segment. Five <code>LD.LUT</code> instructions (<code>lut_addr</code>
 <code>0</code>-<code>4</code>) program the whole LUT.</p>
 <h4 id="422-metadata-block">4.2.2 Metadata Block<a class="headerlink" href="#422-metadata-block" title="Permanent link">&para;</a></h4>
 <p><strong>Where it lives.</strong> The metadata is in bits <code>[301:256]</code> of the <code>lut_addr = 4</code>
@@ -3234,7 +3166,7 @@ payload.</p>
 <tr>
 <td><code>[7:0]</code></td>
 <td><code>max_exp_num</code></td>
-<td>Largest <strong>biased</strong> FP32 exponent still inside the LUT range. <code>exp &gt; max_exp_num</code> flags the element as out-of-range.</td>
+<td>The <strong>biased</strong> FP32 exponent of the LUT range: <code>max_exp_num = range_exp + 127</code>. <code>exp &gt;= max_exp_num</code> flags the element as out-of-range.</td>
 </tr>
 <tr>
 <td><code>[24:8]</code></td>
@@ -3249,7 +3181,7 @@ payload.</p>
 <tr>
 <td><code>[43:42]</code></td>
 <td><code>range_mode</code></td>
-<td>LUT version. See the <code>range_mode</code> table.</td>
+<td>LUT domain. See the <code>range_mode</code> table.</td>
 </tr>
 <tr>
 <td><code>[44]</code></td>
@@ -3268,7 +3200,7 @@ payload.</p>
 <thead>
 <tr>
 <th>Value</th>
-<th>Version</th>
+<th>Domain</th>
 <th>LUT entries</th>
 <th>LUT range</th>
 </tr>
@@ -3276,64 +3208,82 @@ payload.</p>
 <tbody>
 <tr>
 <td><code>0</code></td>
-<td>Version 1</td>
+<td>Positive</td>
 <td>256 entries for positive <code>x</code>.</td>
-<td><code>0 &lt;= x &lt; 2^max_exp_num</code></td>
+<td><code>0 &lt;= x &lt; 2^range_exp</code></td>
 </tr>
 <tr>
 <td><code>1</code></td>
-<td>Version 2</td>
+<td>Negative</td>
 <td>256 entries for negative <code>x</code>.</td>
-<td><code>-2^max_exp_num &lt; x &lt;= 0</code></td>
+<td><code>-2^range_exp &lt; x &lt;= 0</code></td>
 </tr>
 <tr>
 <td><code>2</code></td>
-<td>Version 3</td>
+<td>Symmetric</td>
 <td>128 entries for negative <code>x</code> and 128 entries for positive <code>x</code>.</td>
-<td><code>-2^max_exp_num &lt; x &lt; 2^max_exp_num</code></td>
+<td><code>-2^range_exp &lt; x &lt; 2^range_exp</code></td>
 </tr>
 </tbody>
 </table>
 <h4 id="423-lut-addressing">4.2.3 LUT Addressing<a class="headerlink" href="#423-lut-addressing" title="Permanent link">&para;</a></h4>
 <p>The LUT entries are at linear intervals in the LUT range, with
-<code>step = 2^max_exp_num / 256</code>:</p>
+<code>step = 2^range_exp / 256</code>:</p>
 <table>
 <thead>
 <tr>
-<th>Version</th>
+<th>Domain</th>
 <th>Interval</th>
 <th>Entry points</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Version 1</td>
+<td>Positive</td>
 <td><code>step</code></td>
-<td><code>0, step, 2*step, ..., 2^max_exp_num - step</code></td>
+<td><code>0, step, 2*step, ..., 2^range_exp - step</code></td>
 </tr>
 <tr>
-<td>Version 2</td>
+<td>Negative</td>
 <td><code>step</code></td>
-<td><code>0, -step, -2*step, ..., -(2^max_exp_num - step)</code></td>
+<td><code>0, -step, -2*step, ..., -(2^range_exp - step)</code></td>
 </tr>
 <tr>
-<td>Version 3</td>
+<td>Symmetric</td>
 <td><code>2*step</code></td>
-<td><code>-(2^max_exp_num - 2*step), ..., -2*step, -0</code> and <code>+0, 2*step, ..., 2^max_exp_num - 2*step</code></td>
+<td><code>-(2^range_exp - 2*step), ..., -2*step, -0</code> and <code>+0, 2*step, ..., 2^range_exp - 2*step</code></td>
 </tr>
 </tbody>
 </table>
-<p>Version 3 has 128 entries for each side, so the interval is <code>2*step</code>.</p>
-<p>Version 3 has two entries at zero: <code>-0</code> is the last negative entry and <code>+0</code> is
-the first positive entry.</p>
-<p><strong>Example, Version 1.</strong> The LUT range is <code>0</code> to <code>4</code> (<code>2^max_exp_num = 4</code>).
+<p>The Symmetric domain has 128 entries for each side, so the interval is <code>2*step</code>.</p>
+<p>The Symmetric domain has two entries at zero: <code>-0</code> is the last negative entry
+and <code>+0</code> is the first positive entry.</p>
+<p>In the Positive and Negative domains, <code>-0</code> and <code>+0</code> both take LUT entry 0.</p>
+<blockquote>
+<p><strong>TBD - ask Aviv and Jacob:</strong> do <code>-0</code> in the Positive domain and <code>+0</code> in the
+Negative domain take LUT entry 0, or does the sign bit send them to <code>neg_mode</code>
+and <code>pos_mode</code>?</p>
+</blockquote>
+<p><strong>Example, Positive domain.</strong> <code>max_exp_num = 129</code>, so <code>range_exp = 2</code> and the LUT
+range is <code>0</code> to <code>2^range_exp = 4</code>.
 <code>step = 4/256</code>. The entry points are:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>0, 4/256, 8/256, ..., 4 - 4/256
+<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>0, 4/256, 8/256, ..., 4 - 4/256
 </span></code></pre></div>
-<p><strong>Example, Version 3.</strong> The LUT range is <code>-2</code> to <code>2</code> (<code>2^max_exp_num = 2</code>).
+<p><strong>Example, Symmetric domain.</strong> <code>max_exp_num = 128</code>, so <code>range_exp = 1</code> and the LUT
+range is <code>-2</code> to <code>2^range_exp = 2</code>.
 <code>step = 2/256</code>. The interval is <code>2*step = 4/256</code>. The entry points are:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>-2 + 4/256, ..., -4/256, -0, +0, 4/256, ..., 2 - 4/256
+<div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>-2 + 4/256, ..., -4/256, -0, +0, 4/256, ..., 2 - 4/256
 </span></code></pre></div>
+<p><strong>Entry selection.</strong> <code>LUT(x)</code> returns the entry nearest to <code>x</code>, on the side of
+<code>x</code>, at distance <code>RTN(|x| / interval) * interval</code> from zero (<code>RTN</code>: section
+4.3.2.2). All 128 elements read the LUT at once.</p>
+<blockquote>
+<p><strong>TBD - ask Jacob or Aviv:</strong> what is the bit position of each entry in
+<code>TABLE_BITS</code>, and in which order does the Symmetric domain hold its two sides?</p>
+<p><strong>TBD - ask Jacob or Aviv:</strong> when <code>RTN(|x| / interval)</code> passes the last entry
+(<code>x</code> just below <code>2^range_exp</code>), does <code>x</code> take the last entry, or follow
+<code>pos_mode</code> and <code>neg_mode</code>?</p>
+</blockquote>
 <hr />
 <h3 id="43-activatequantize-activate-and-quantize">4.3 <code>ACTIVATE.QUANTIZE</code>: Activate and Quantize<a class="headerlink" href="#43-activatequantize-activate-and-quantize" title="Permanent link">&para;</a></h3>
 <p>Activation, quantization and store happen in a single instruction.</p>
@@ -3365,7 +3315,7 @@ the first positive entry.</p>
 </tbody>
 </table>
 <h4 id="syntax_2">Syntax<a class="headerlink" href="#syntax_2" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>ACTIVATE.QUANTIZE activation_fn, dstructure, quantizion_format, table_id, table_offset
+<div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>ACTIVATE.QUANTIZE activation_fn ds qf table_id table_offset
 </span></code></pre></div>
 <h4 id="operands_2">Operands<a class="headerlink" href="#operands_2" title="Permanent link">&para;</a></h4>
 <table>
@@ -3385,47 +3335,47 @@ the first positive entry.</p>
 <td>Enum that names the activation (see <a href="#activation_fn-values"><code>activation_fn</code> Values</a>).</td>
 </tr>
 <tr>
-<td><code>dstructure</code></td>
-<td><a href="../../reference/isa/operand-types/#cridx"><code>CrIdx</code></a></td>
+<td><code>ds</code></td>
+<td><a href="../../reference/isa/operand-types/#halfcridx"><code>HalfCrIdx</code></a></td>
 <td>Quantize</td>
-<td><code>CR0</code>-<code>CR15</code>. Supplies the structure of the 128-element vector: <code>valid_partition</code>, <code>num_partition</code>, <code>valid_elements</code> (section 3.2).</td>
+<td><code>CR0.L</code>-<code>CR15.H</code>. Supplies the data structure of the 128-element vector: <code>valid_partitions</code>, <code>num_partitions</code>, <code>valid_elements</code> (<a href="../ARCH-ipu-top/#82-data-structure-ds">IPU ARCH 8.2</a>).</td>
 </tr>
 <tr>
-<td><code>quantizion_format</code></td>
-<td><a href="../../reference/isa/operand-types/#cridx"><code>CrIdx</code></a></td>
+<td><code>qf</code></td>
+<td><a href="../../reference/isa/operand-types/#halfcridx"><code>HalfCrIdx</code></a></td>
 <td>Quantize</td>
-<td><code>CR0</code>-<code>CR15</code>. Supplies the quantization format (section 3.1).</td>
+<td><code>CR0.L</code>-<code>CR15.H</code>. Supplies the quantization format (<a href="../ARCH-ipu-top/#81-quantization-format-qf">IPU ARCH 8.1</a>).</td>
 </tr>
 <tr>
 <td><code>table_id</code></td>
 <td><a href="../../reference/isa/operand-types/#cridx"><code>CrIdx</code></a></td>
 <td>Store</td>
-<td><code>CR0</code>-<code>CR15</code>. Supplies the ID of the destination table.</td>
+<td><code>CR0</code>-<code>CR15</code>. Base row in XMEM. The CTRL stage resolves it.</td>
 </tr>
 <tr>
 <td><code>table_offset</code></td>
 <td><a href="../../reference/isa/operand-types/#lridx"><code>LrIdx</code></a></td>
 <td>Store</td>
-<td><code>LR0</code>-<code>LR15</code>. Supplies the offset in the destination table.</td>
+<td><code>LR0</code>-<code>LR15</code>. Row offset in XMEM. The CTRL stage resolves it.</td>
 </tr>
 </tbody>
 </table>
 <h4 id="operation_1">Operation<a class="headerlink" href="#operation_1" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>for i in 0..127:
-</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>    activated[i] = activate(activation_fn, input_data[i])   // 4.3.1: all elements
-</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>
-</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>for i in 0..127:                                            // active[i]: section 3.2
-</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>    if active[i]:
-</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>        aaq_out.elements[i] = quantize(activated[i])        // 4.3.2
-</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>    else:
-</span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a>        aaq_out.elements[i] = NaN
-</span><span id="__span-9-9"><a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a>
-</span><span id="__span-9-10"><a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a>aaq_out.scale            = scale                        // section 4.3.2.1
-</span><span id="__span-9-11"><a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a>aaq_out.dynamic_exponent = dynamic_static ? (fe == 2) : 0     // section 4.3.2.3
-</span><span id="__span-9-12"><a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a>XMEM[table_id, table_offset] = aaq_out                  // 4.3.3: store
+<div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>for i in 0..127:
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>    activated[i] = activate(activation_fn, input_data[i])   // 4.3.1: all elements
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>for i in 0..127:                                            // active[i]: IPU ARCH 8.3
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>    if active[i]:
+</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>        aaq_out.elements[i] = quantize(activated[i])        // 4.3.2
+</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>    else:
+</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>        aaq_out.elements[i] = sign ? NaN : 0                // 4.3.2
+</span><span id="__span-8-9"><a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>
+</span><span id="__span-8-10"><a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a>aaq_out.scale            = scale                        // section 4.3.2.1
+</span><span id="__span-8-11"><a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a>aaq_out.dynamic_exponent = dynamic ? (fe == 2) : 0            // section 4.3.2.3
+</span><span id="__span-8-12"><a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a>XMEM[table_id + table_offset] = aaq_out                 // 4.3.3: store
 </span></code></pre></div>
 <h4 id="example_2">Example<a class="headerlink" href="#example_2" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>ACTIVATE.QUANTIZE relu, CR15, CR14, CR13, LR0;;
+<div class="language-text highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>ACTIVATE.QUANTIZE relu CR15.L CR15.H CR13 LR0;;
 </span></code></pre></div>
 <hr />
 <h4 id="431-activate">4.3.1 Activate<a class="headerlink" href="#431-activate" title="Permanent link">&para;</a></h4>
@@ -3449,7 +3399,7 @@ the first positive entry.</p>
 </tr>
 </tbody>
 </table>
-<p>There is a LUT, loaded by <code>LOAD_LUT</code> (section 4.2). For the LUT-based
+<p>There is a LUT, loaded by <code>LD.LUT</code> (section 4.2). For the LUT-based
 functions, load the matching function before <code>ACTIVATE.QUANTIZE</code>.</p>
 <h4 id="activation_fn-values"><code>activation_fn</code> Values<a class="headerlink" href="#activation_fn-values" title="Permanent link">&para;</a></h4>
 <table>
@@ -3506,6 +3456,11 @@ functions, load the matching function before <code>ACTIVATE.QUANTIZE</code>.</p>
 </tr>
 </tbody>
 </table>
+<blockquote>
+<p><strong>TBD - ask Jacob or Aviv:</strong> do the metadata block (section 4.2.2) and the LUT
+addressing (section 4.2.3) apply to <code>reciprocal</code>, <code>rsqrt</code> and <code>exp2</code>, or only
+to <code>generic</code>? What is the dedicated logic of each function?</p>
+</blockquote>
 <h4 id="special-cases">Special Cases<a class="headerlink" href="#special-cases" title="Permanent link">&para;</a></h4>
 <p><code>epsilon = 2^-127</code>.</p>
 <table>
@@ -3519,7 +3474,17 @@ functions, load the matching function before <code>ACTIVATE.QUANTIZE</code>.</p>
 <tbody>
 <tr>
 <td><code>reciprocal</code></td>
-<td>non-negative subnormal</td>
+<td><code>0</code></td>
+<td><code>inf</code></td>
+</tr>
+<tr>
+<td><code>reciprocal</code></td>
+<td><code>-0</code></td>
+<td><code>-inf</code></td>
+</tr>
+<tr>
+<td><code>reciprocal</code></td>
+<td>positive subnormal</td>
 <td><code>f(x) = 1/(x + epsilon)</code></td>
 </tr>
 <tr>
@@ -3529,12 +3494,22 @@ functions, load the matching function before <code>ACTIVATE.QUANTIZE</code>.</p>
 </tr>
 <tr>
 <td><code>reciprocal</code></td>
-<td><code>inf</code></td>
+<td><code>inf</code> or <code>-inf</code></td>
 <td><code>0</code></td>
 </tr>
 <tr>
 <td><code>rsqrt</code></td>
-<td>non-negative subnormal</td>
+<td><code>0</code></td>
+<td><code>inf</code></td>
+</tr>
+<tr>
+<td><code>rsqrt</code></td>
+<td><code>-0</code></td>
+<td><code>-inf</code></td>
+</tr>
+<tr>
+<td><code>rsqrt</code></td>
+<td>positive subnormal</td>
 <td><code>f(x) = 1/sqrt(x + epsilon)</code></td>
 </tr>
 <tr>
@@ -3555,19 +3530,24 @@ functions, load the matching function before <code>ACTIVATE.QUANTIZE</code>.</p>
 <tr>
 <td><code>exp2</code></td>
 <td>positive</td>
-<td>not supported (input must be non-positive)</td>
+<td>Undefined: the input must be non-positive.</td>
+</tr>
+<tr>
+<td>Every function</td>
+<td><code>NaN</code></td>
+<td><code>NaN</code></td>
 </tr>
 </tbody>
 </table>
-<h4 id="the-generic-function-lut-versions">The <code>generic</code> Function: LUT Versions<a class="headerlink" href="#the-generic-function-lut-versions" title="Permanent link">&para;</a></h4>
-<p>The LUT for <code>generic</code> has three versions. <code>range_mode</code> selects the version.
-The drawings that follow are a reference for each version.</p>
+<h4 id="the-generic-function-lut-domains">The <code>generic</code> Function: LUT Domains<a class="headerlink" href="#the-generic-function-lut-domains" title="Permanent link">&para;</a></h4>
+<p>The LUT for <code>generic</code> has three domains. <code>range_mode</code> selects the domain.
+The drawings that follow are a reference for each domain.</p>
 <blockquote>
 <p><strong>Note:</strong> <code>pos_c</code> is the constant for the positive side of the x axis.
 <code>neg_c</code> is the constant for the negative side of the x axis. The value of each
 constant can be positive or negative.</p>
 </blockquote>
-<h5 id="version-1-range_mode-0">Version 1 (<code>range_mode = 0</code>)<a class="headerlink" href="#version-1-range_mode-0" title="Permanent link">&para;</a></h5>
+<h5 id="positive-domain-range_mode-0">Positive Domain (<code>range_mode = 0</code>)<a class="headerlink" href="#positive-domain-range_mode-0" title="Permanent link">&para;</a></h5>
 <p>All 256 LUT entries are for positive <code>x</code>. Out of the LUT range, <code>pos_mode</code>
 and <code>neg_mode</code> select the result: <code>x</code> (identity) or a constant.</p>
 <div class="arithmatex">\[
@@ -3578,8 +3558,8 @@ x \ \text{or} \ \mathrm{pos\_c} &amp; x \ge 2^{\mathrm{max\_exp\_num}} \\
 x \ \text{or} \ \mathrm{neg\_c} &amp; x &lt; 0
 \end{cases}
 \]</div>
-<p><img alt="Reference drawing of the generic activation function, version 1" src="../assets/aaq-generic-activation.svg" /></p>
-<h5 id="version-2-range_mode-1">Version 2 (<code>range_mode = 1</code>)<a class="headerlink" href="#version-2-range_mode-1" title="Permanent link">&para;</a></h5>
+<p><img alt="Reference drawing of the generic activation function, Positive domain" src="../assets/aaq-generic-activation.svg" /></p>
+<h5 id="negative-domain-range_mode-1">Negative Domain (<code>range_mode = 1</code>)<a class="headerlink" href="#negative-domain-range_mode-1" title="Permanent link">&para;</a></h5>
 <p>All 256 LUT entries are for negative <code>x</code>. Out of the LUT range, <code>pos_mode</code>
 and <code>neg_mode</code> select the result: <code>x</code> (identity) or a constant.</p>
 <div class="arithmatex">\[
@@ -3590,8 +3570,8 @@ x \ \text{or} \ \mathrm{neg\_c} &amp; x \le -2^{\mathrm{max\_exp\_num}} \\
 x \ \text{or} \ \mathrm{pos\_c} &amp; x &gt; 0
 \end{cases}
 \]</div>
-<p><img alt="Reference drawing of the generic activation function, version 2" src="../assets/aaq-generic-activation-v2.svg" /></p>
-<h5 id="version-3-range_mode-2">Version 3 (<code>range_mode = 2</code>)<a class="headerlink" href="#version-3-range_mode-2" title="Permanent link">&para;</a></h5>
+<p><img alt="Reference drawing of the generic activation function, Negative domain" src="../assets/aaq-generic-activation-v2.svg" /></p>
+<h5 id="symmetric-domain-range_mode-2">Symmetric Domain (<code>range_mode = 2</code>)<a class="headerlink" href="#symmetric-domain-range_mode-2" title="Permanent link">&para;</a></h5>
 <p>The LUT entries are divided into 128 entries for negative <code>x</code> and 128 entries
 for positive <code>x</code>. Out of the LUT range, <code>pos_mode</code> and <code>neg_mode</code> select the
 result: <code>x</code> (identity) or a constant.</p>
@@ -3603,12 +3583,12 @@ x \ \text{or} \ \mathrm{pos\_c} &amp; x \ge 2^{\mathrm{max\_exp\_num}} \\
 x \ \text{or} \ \mathrm{neg\_c} &amp; x \le -2^{\mathrm{max\_exp\_num}}
 \end{cases}
 \]</div>
-<p><img alt="Reference drawing of the generic activation function, version 3" src="../assets/aaq-generic-activation-v3.svg" /></p>
+<p><img alt="Reference drawing of the generic activation function, Symmetric domain" src="../assets/aaq-generic-activation-v3.svg" /></p>
 <hr />
 <h4 id="432-quantize">4.3.2 Quantize<a class="headerlink" href="#432-quantize" title="Permanent link">&para;</a></h4>
 <p>Converts each activated fp32 element (IEEE-754 single precision: sign <code>S</code>,
-8-bit exponent <code>e</code>, 23-bit mantissa) into the NX8 format set by
-<code>quantizion_format</code> (section 3.1).</p>
+8-bit exponent <code>e</code>, 23-bit mantissa) into the NX8 format set by the
+quantization format <code>qf</code> (<a href="../ARCH-ipu-top/#81-quantization-format-qf">IPU ARCH 8.1</a>).</p>
 <p><strong>Outputs:</strong></p>
 <table>
 <thead>
@@ -3620,7 +3600,7 @@ x \ \text{or} \ \mathrm{neg\_c} &amp; x \le -2^{\mathrm{max\_exp\_num}}
 <tbody>
 <tr>
 <td>Elements</td>
-<td>One 8-bit element per input element. Elements that are not active output <code>NaN</code>.</td>
+<td>One 8-bit element per input element.</td>
 </tr>
 <tr>
 <td><code>scale</code></td>
@@ -3632,59 +3612,65 @@ x \ \text{or} \ \mathrm{neg\_c} &amp; x \le -2^{\mathrm{max\_exp\_num}}
 </tr>
 </tbody>
 </table>
-<p><strong>Element format.</strong> Each element is packed from the MSB as
-<code>{S?, Exp, M, 0-pad}</code>:</p>
+<p><strong>Element format.</strong> Each element is NX8 (<a href="../ARCH-ipu-top/#71-nx8-element-format">IPU ARCH 7.1</a>). <code>S</code> is the input sign, passed
+through. A finite element that rounds to <code>-0</code> gets <code>S = 0</code>.</p>
+<p>These elements take a special value directly, without section 4.3.2.2:</p>
 <table>
 <thead>
 <tr>
-<th>Field</th>
-<th>Width</th>
-<th>Present when</th>
-<th>Value</th>
+<th>Element</th>
+<th>Signed format</th>
+<th>Unsigned format</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>S</code></td>
-<td>1 bit</td>
-<td><code>sign = 1</code> (signed)</td>
-<td>The input sign, passed through.</td>
+<td>Not active</td>
+<td><code>NaN</code></td>
+<td><code>0</code></td>
 </tr>
 <tr>
-<td><code>Exp</code></td>
-<td><code>fe</code> bits (<code>fe &gt;= 1</code>)</td>
-<td>always</td>
-<td>Section 4.3.2.2.</td>
+<td><code>NaN</code></td>
+<td><code>NaN</code></td>
+<td><code>0</code></td>
 </tr>
 <tr>
-<td><code>M</code></td>
-<td><code>fm = W - fe - sign</code> bits (<code>fm &gt;= 0</code>)</td>
-<td>always</td>
-<td>Section 4.3.2.2.</td>
+<td><code>inf</code></td>
+<td><code>inf</code></td>
+<td><code>inf</code></td>
 </tr>
 <tr>
-<td><code>0-pad</code></td>
-<td>the rest of the 8 bits</td>
-<td><code>W &lt; 8</code></td>
+<td><code>-inf</code></td>
+<td><code>-inf</code></td>
 <td><code>0</code></td>
 </tr>
 </tbody>
 </table>
+<blockquote>
+<p><strong>TBD - ask Aviv:</strong> an unsigned format has no <code>NaN</code> code. Is <code>0</code> the right
+value for an element that is not active, <code>NaN</code> or <code>-inf</code>?</p>
+<p><strong>TBD - ask Jacob or Aviv:</strong> how does an unsigned format encode a negative
+finite element: <code>0</code>, or its magnitude <code>|x|</code>?</p>
+</blockquote>
 <h4 id="4321-block-scale-and-exponent-distance">4.3.2.1 Block Scale and Exponent Distance<a class="headerlink" href="#4321-block-scale-and-exponent-distance" title="Permanent link">&para;</a></h4>
 <p><strong>Scale.</strong> <code>scale</code> is an 8-bit <code>e8m0</code> value (exponent only). It is the largest raw
 exponent among the active elements:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>scale = max(e[i] for i in 0..127 if active[i] and not is_inf_nx8[i] and not is_nan[i])
-</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>    // is_inf_nx8: inf or -inf; is_nan: NaN
+<div class="language-text highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>scale = max(e[i] for i in 0..127 if active[i] and not is_inf[i] and not is_nan[i])
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>    // is_inf: inf or -inf; is_nan: NaN
 </span></code></pre></div>
 <blockquote>
-<p><strong>Note:</strong> An element that quantizes to <code>inf</code> or <code>-inf</code> in the NX8 format is
-left out of the scale.</p>
+<p><strong>Note:</strong> An activated fp32 element that is <code>inf</code>, <code>-inf</code> or <code>NaN</code> is left out
+of the scale.</p>
+<p><strong>Note:</strong> <code>scale = 0</code> when no element qualifies.</p>
+<p><strong>Note:</strong> A negative element in an unsigned format counts toward <code>scale</code> and
+the sums of section 4.3.2.3.</p>
 </blockquote>
 <p><strong>Exponent distance.</strong> Each element is encoded by its distance from the scale:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>E = scale - e
+<div class="language-text highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>E = scale - e
 </span></code></pre></div>
-<p><code>E &gt;= 0</code> for every element. <code>E = 0</code> at the element(s) with the block maximum,
-and <code>E</code> grows as the element gets smaller relative to that maximum.</p>
+<p><code>E &gt;= 0</code> for every active finite element. <code>E = 0</code> at the element(s) with the
+block maximum, and <code>E</code> grows as the element gets smaller relative to that
+maximum.</p>
 <h4 id="4322-exponent-and-mantissa-encoding">4.3.2.2 Exponent and Mantissa Encoding<a class="headerlink" href="#4322-exponent-and-mantissa-encoding" title="Permanent link">&para;</a></h4>
 <p><code>RTN</code> is round to nearest. An exact half rounds <strong>up</strong> (away from zero in
 magnitude): <code>0.5 -&gt; 1</code>, <code>1.5 -&gt; 2</code>, <code>2.5 -&gt; 3</code>.</p>
@@ -3713,6 +3699,13 @@ magnitude): <code>0.5 -&gt; 1</code>, <code>1.5 -&gt; 2</code>, <code>2.5 -&gt; 
 </tbody>
 </table>
 <p>In the clamp branch the extra right-shift keeps the element's magnitude.</p>
+<blockquote>
+<p><strong>TBD - ask Jacob or Aviv:</strong> what does an element equal to zero (<code>e = 0</code>)
+write? Both branches assume a hidden leading 1, so an all-zero block reads
+back as <code>2^-127</code>. Is it the <code>0</code> code, or does the hidden 1 stay?</p>
+<p><strong>TBD - ask Jacob or Aviv:</strong> what does a subnormal element write: the same as
+zero, <code>1.M</code> with the hidden 1, or <code>0.M</code>?</p>
+</blockquote>
 <p><strong>Rounding carry.</strong> When <code>RTN</code> carries out of the <code>fm</code> bits (<code>M == 2^fm</code>), the
 result is corrected:</p>
 <table>
@@ -3742,29 +3735,35 @@ result is corrected:</p>
 </tbody>
 </table>
 <h4 id="4323-dynamic-exponent-selection-fe-1-or-fe-2">4.3.2.3 Dynamic Exponent Selection (<code>fe = 1</code> or <code>fe = 2</code>)<a class="headerlink" href="#4323-dynamic-exponent-selection-fe-1-or-fe-2" title="Permanent link">&para;</a></h4>
-<p>Applies when <code>dynamic_static = 1</code> (dynamic). Dynamic mode supports two formats,
-both signed and 8 bits wide (<code>sign = 1</code>, <code>num_bits = 8</code>):</p>
+<p>Applies when <code>dynamic = 1</code> (<a href="../ARCH-ipu-top/#81-quantization-format-qf">IPU ARCH 8.1</a>). A smaller <code>W</code> takes fewer mantissa bits,
+and <code>sign = 0</code> gives one more:</p>
 <table>
 <thead>
 <tr>
-<th>Format</th>
-<th><code>fe</code></th>
-<th><code>fm</code></th>
-<th><code>dynamic_exponent</code></th>
+<th><code>sign</code></th>
+<th><code>num_bits</code></th>
+<th><code>dynamic_exponent = 0</code></th>
+<th><code>dynamic_exponent = 1</code></th>
 </tr>
 </thead>
 <tbody>
 <tr>
+<td><code>1</code></td>
+<td><code>8</code></td>
 <td><code>e1m6</code></td>
-<td>1</td>
-<td>6</td>
-<td><code>0</code></td>
+<td><code>e2m5</code></td>
 </tr>
 <tr>
-<td><code>e2m5</code></td>
-<td>2</td>
-<td>5</td>
+<td><code>0</code></td>
+<td><code>8</code></td>
+<td><code>e1m7</code></td>
+<td><code>e2m6</code></td>
+</tr>
+<tr>
 <td><code>1</code></td>
+<td><code>6</code></td>
+<td><code>e1m4</code></td>
+<td><code>e2m3</code></td>
 </tr>
 </tbody>
 </table>
@@ -3775,7 +3774,7 @@ both signed and 8 bits wide (<code>sign = 1</code>, <code>num_bits = 8</code>):<
 <th>Exponent bits</th>
 <th>Mantissa bits</th>
 <th>Encodable <code>E</code></th>
-<th>Step at <code>E</code></th>
+<th>Step at <code>E</code>, relative to the block scale</th>
 </tr>
 </thead>
 <tbody>
@@ -3784,14 +3783,14 @@ both signed and 8 bits wide (<code>sign = 1</code>, <code>num_bits = 8</code>):<
 <td>1</td>
 <td><code>fm1</code></td>
 <td>0, 1</td>
-<td><code>2^(scale - E - fm1)</code>, clamped at <code>E &gt;= 1</code></td>
+<td><code>2^(-E - fm1)</code>, clamped at <code>E &gt;= 1</code></td>
 </tr>
 <tr>
 <td><code>fe2</code></td>
 <td>2</td>
 <td><code>fm1 - 1</code></td>
 <td>0, 1, 2, 3</td>
-<td><code>2^(scale - E - fm1 + 1)</code>, clamped at <code>E &gt;= 3</code></td>
+<td><code>2^(-E - fm1 + 1)</code>, clamped at <code>E &gt;= 3</code></td>
 </tr>
 </tbody>
 </table>
@@ -3806,6 +3805,7 @@ both signed and 8 bits wide (<code>sign = 1</code>, <code>num_bits = 8</code>):<
 <li><code>fm1 = W - 1 - sign_bit</code>: the mantissa bits under <code>fe1</code>.</li>
 <li><code>err1</code>: the element's truncation error under <code>fe1</code>.</li>
 <li><code>err2</code>: the element's truncation error under <code>fe2</code>.</li>
+<li><code>err1</code> and <code>err2</code> are per block: both are in units of <code>2^(scale - 127)</code>.</li>
 </ul>
 <h5 id="element-classification">Element classification<a class="headerlink" href="#element-classification" title="Permanent link">&para;</a></h5>
 <table>
@@ -3837,15 +3837,20 @@ both signed and 8 bits wide (<code>sign = 1</code>, <code>num_bits = 8</code>):<
 <td>none</td>
 <td>Out of range for both splits.</td>
 </tr>
+<tr>
+<td>Not active, <code>NaN</code>, <code>inf</code> or <code>-inf</code></td>
+<td>none</td>
+<td>Left out of both sums.</td>
+</tr>
 </tbody>
 </table>
 <h5 id="per-element-terms">Per-element terms<a class="headerlink" href="#per-element-terms" title="Permanent link">&para;</a></h5>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>A = RTN( |err2^2 - err1^2| * 2^(2*fm1) )
-</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>B = RTN( |err2^2 - err1^2| * 2^(2*(fm1 + 1)) )
+<div class="language-text highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>A = RTN( |err2^2 - err1^2| * 2^(2*fm1) )
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>B = RTN( |err2^2 - err1^2| * 2^(2*(fm1 + 1)) )
 </span></code></pre></div>
 <h5 id="decision">Decision<a class="headerlink" href="#decision" title="Permanent link">&para;</a></h5>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>if sum(B) - 4 * sum(A) &lt; 0:  choose fe1        // dynamic_exponent = 0
-</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>else:                        choose fe2        // dynamic_exponent = 1
+<div class="language-text highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>if sum(B) - 4 * sum(A) &lt; 0:  choose fe1        // dynamic_exponent = 0
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>else:                        choose fe2        // dynamic_exponent = 1
 </span></code></pre></div>
 <p>The B multiplier <code>2^(2*(fm1 + 1))</code> is four times the A multiplier <code>2^(2*fm1)</code>.
 Multiplying <code>sum(A)</code> by 4 puts both sums in the same units.</p>
@@ -3886,7 +3891,7 @@ is 1 with probability one half.</p>
 <p>Including the zero case, <code>E[A] = 1</code> and <code>E[B] = 0.25</code>. Rounding adds noise to
 the sums, with no drift toward either format as the block grows.</p>
 <h5 id="worked-example">Worked example<a class="headerlink" href="#worked-example" title="Permanent link">&para;</a></h5>
-<p>A block of ten values, with <code>scale = 0</code> and <code>fm1 = 4</code> (signed, <code>W = 6</code>):</p>
+<p>A block of ten values, with <code>scale = 127</code> and <code>fm1 = 4</code> (signed, <code>W = 6</code>):</p>
 <ul>
 <li>A multiplier: <code>2^8 = 256</code>.</li>
 <li>B multiplier: <code>2^10 = 1024</code>.</li>
@@ -3911,7 +3916,7 @@ the sums, with no drift toward either format as the block grows.</p>
 <tr>
 <td>1</td>
 <td>1.83</td>
-<td>0</td>
+<td>127</td>
 <td>0</td>
 <td>A</td>
 <td>0.0175</td>
@@ -3924,7 +3929,7 @@ the sums, with no drift toward either format as the block grows.</p>
 <tr>
 <td>2</td>
 <td>1.21</td>
-<td>0</td>
+<td>127</td>
 <td>0</td>
 <td>A</td>
 <td>0.0225</td>
@@ -3937,7 +3942,7 @@ the sums, with no drift toward either format as the block grows.</p>
 <tr>
 <td>3</td>
 <td>1.57</td>
-<td>0</td>
+<td>127</td>
 <td>0</td>
 <td>A</td>
 <td>0.0075</td>
@@ -3950,7 +3955,7 @@ the sums, with no drift toward either format as the block grows.</p>
 <tr>
 <td>4</td>
 <td>0.94</td>
-<td>-1</td>
+<td>126</td>
 <td>1</td>
 <td>none</td>
 <td>don't care</td>
@@ -3963,7 +3968,7 @@ the sums, with no drift toward either format as the block grows.</p>
 <tr>
 <td>5</td>
 <td>0.67</td>
-<td>-1</td>
+<td>126</td>
 <td>1</td>
 <td>none</td>
 <td>don't care</td>
@@ -3976,7 +3981,7 @@ the sums, with no drift toward either format as the block grows.</p>
 <tr>
 <td>6</td>
 <td>0.41</td>
-<td>-2</td>
+<td>125</td>
 <td>2</td>
 <td>B</td>
 <td>0.00375</td>
@@ -3989,7 +3994,7 @@ the sums, with no drift toward either format as the block grows.</p>
 <tr>
 <td>7</td>
 <td>0.2345</td>
-<td>-3</td>
+<td>124</td>
 <td>3</td>
 <td>B</td>
 <td>0.01575</td>
@@ -4002,7 +4007,7 @@ the sums, with no drift toward either format as the block grows.</p>
 <tr>
 <td>8</td>
 <td>0.1780</td>
-<td>-3</td>
+<td>124</td>
 <td>3</td>
 <td>B</td>
 <td>0.02175</td>
@@ -4015,7 +4020,7 @@ the sums, with no drift toward either format as the block grows.</p>
 <tr>
 <td>9</td>
 <td>0.0920</td>
-<td>-4</td>
+<td>123</td>
 <td>4</td>
 <td>B</td>
 <td>0.02950</td>
@@ -4028,7 +4033,7 @@ the sums, with no drift toward either format as the block grows.</p>
 <tr>
 <td>10</td>
 <td>0.0555</td>
-<td>-5</td>
+<td>122</td>
 <td>5</td>
 <td>B</td>
 <td>0.02425</td>
@@ -4044,37 +4049,59 @@ the sums, with no drift toward either format as the block grows.</p>
 negative, so the block selects <strong><code>fe1</code></strong>.</p>
 <hr />
 <h4 id="433-store">4.3.3 Store<a class="headerlink" href="#433-store" title="Permanent link">&para;</a></h4>
-<p>Writes the quantized result to XMEM, at the destination selected by <code>table_id</code>
-and <code>table_offset</code>.</p>
+<p>Writes the quantized result, on <code>output data</code>, to XMEM row
+<code>table_id + table_offset</code>.</p>
+<p><a href="../ARCH-ipu-top/#72-row-layout">IPU ARCH 7.2</a> defines the row layout.</p>
+<blockquote>
+<p><strong>Note:</strong> The AaQ-Str stage gets the XMEM write address explicitly.</p>
+</blockquote>
+<h2 id="5-disagreements-with-the-emulator">5. Disagreements with the Emulator<a class="headerlink" href="#5-disagreements-with-the-emulator" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
-<th>Written</th>
-<th>Size</th>
-<th>Description</th>
+<th>Topic</th>
+<th>Spec</th>
+<th>Emulator</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Quantized elements</td>
-<td>128 x 8 bits</td>
-<td>The quantized vector.</td>
+<td>Element that is not active</td>
+<td><code>NaN</code> in a signed format, <code>0</code> in an unsigned format.</td>
+<td><code>0</code> in both.</td>
 </tr>
 <tr>
-<td><code>scale</code></td>
-<td>8 bits</td>
-<td>Scale shared by the whole vector.</td>
+<td>Active <code>NaN</code></td>
+<td><code>NaN</code> in a signed format, <code>0</code> in an unsigned format.</td>
+<td>Emulator error.</td>
 </tr>
 <tr>
-<td><code>dynamic_exponent</code></td>
-<td>1 bit</td>
-<td><code>e1</code> or <code>e2</code>: the exponent width chosen in dynamic quantization.</td>
+<td>Finite element that rounds to <code>-0</code></td>
+<td><code>S = 0</code>.</td>
+<td>Keeps the input sign, so <code>S = 1</code>.</td>
+</tr>
+<tr>
+<td><code>reciprocal</code> and <code>rsqrt</code> of <code>0</code> and <code>-0</code></td>
+<td><code>inf</code>, or <code>-inf</code> for <code>-0</code>.</td>
+<td>Follows the subnormal rows: <code>reciprocal</code> gives <code>2^127</code> or <code>-2^127</code>, and <code>rsqrt</code> gives <code>2^63.5</code>.</td>
+</tr>
+<tr>
+<td>LUT evaluation</td>
+<td>The LUT implements the activation functions.</td>
+<td>Stores the LUT bits and evaluates with exact math.</td>
+</tr>
+<tr>
+<td>Dynamic format</td>
+<td>Any <code>sign</code> and any <code>num_bits &gt;= 2 + sign</code>.</td>
+<td>Only <code>sign = 1</code> and <code>num_bits = 8</code>. Other values are a configuration error.</td>
+</tr>
+<tr>
+<td>LUT load source</td>
+<td><code>input_data[31:0]</code>.</td>
+<td>The first 128 bytes of the XMEM row at <code>table_id + table_offset</code>.</td>
 </tr>
 </tbody>
 </table>
-<blockquote>
-<p><strong>Note:</strong> The AaQ-Str stage gets the XMEM write address explicitly.</p>
-</blockquote>
 
 
 
@@ -4097,7 +4124,7 @@ and <code>table_offset</code>.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 23, 2026 12:16:35 UTC"><span class="timeago" datetime="2026-10-23T12:16:35+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 23, 2026 12:16:35 UTC">2026-10-23</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 31, 2026 16:35:15 UTC"><span class="timeago" datetime="2026-10-31T16:35:15+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 31, 2026 16:35:15 UTC">2026-10-31</span>
   </span>
 
     
@@ -4107,7 +4134,7 @@ and <code>table_offset</code>.</p>
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="July 30, 2026 15:47:07 UTC"><span class="timeago" datetime="2026-07-30T15:47:07+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="July 30, 2026 15:47:07 UTC">2026-07-30</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 31, 2026 16:35:15 UTC"><span class="timeago" datetime="2026-10-31T16:35:15+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 31, 2026 16:35:15 UTC">2026-10-31</span>
   </span>
 
     

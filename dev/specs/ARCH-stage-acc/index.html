@@ -352,7 +352,7 @@
     
     
       <li class="md-tabs__item md-tabs__item--active">
-        <a href="../cache-unit/" class="md-tabs__link">
+        <a href="../ARCH-ipu-top/" class="md-tabs__link">
           
   
   
@@ -1990,6 +1990,8 @@
       
         
       
+        
+      
     
     
     
@@ -2037,6 +2039,34 @@
 
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ARCH-ipu-top/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IPU Top ARCH
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
             
               
                 
@@ -2262,10 +2292,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#31-dstructure-layout" class="md-nav__link">
+  <a href="#31-element-format" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3.1 dstructure Layout
+        3.1 Element Format
       
     </span>
   </a>
@@ -2273,21 +2303,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#32-element-format" class="md-nav__link">
+  <a href="#32-running-and-first-variants" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3.2 Element Format
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#33-running-and-first-variants" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        3.3 Running and .FIRST Variants
+        3.2 Running and .FIRST Variants
       
     </span>
   </a>
@@ -2382,6 +2401,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#5-disagreements-with-the-emulator" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Disagreements with the Emulator
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2426,14 +2456,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../stage-control/" class="md-nav__link">
+      <a href="../ARCH-stage-ctrl/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Control Stage Specification
+    Control Stage ARCH
   
 
     
@@ -2949,9 +2979,8 @@ in a <code>BYPASS</code> cycle.</p>
 <li><a href="#1-overview">Overview</a></li>
 <li><a href="#2-block-diagram">Block Diagram</a></li>
 <li><a href="#3-interfaces">Interfaces</a><ul>
-<li>3.1 <a href="#31-dstructure-layout"><code>dstructure</code> Layout</a></li>
-<li>3.2 <a href="#32-element-format">Element Format</a></li>
-<li>3.3 <a href="#33-running-and-first-variants">Running and <code>.FIRST</code> Variants</a></li>
+<li>3.1 <a href="#31-element-format">Element Format</a></li>
+<li>3.2 <a href="#32-running-and-first-variants">Running and <code>.FIRST</code> Variants</a></li>
 </ul>
 </li>
 <li><a href="#4-accumulator-isa">Accumulator ISA</a><ul>
@@ -2963,47 +2992,36 @@ in a <code>BYPASS</code> cycle.</p>
 <li>4.6 <a href="#46-bypass-bypass"><code>BYPASS</code>: Bypass</a></li>
 </ul>
 </li>
+<li><a href="#5-disagreements-with-the-emulator">Disagreements with the Emulator</a></li>
 </ol>
 <h2 id="2-block-diagram">2. Block Diagram<a class="headerlink" href="#2-block-diagram" title="Permanent link">&para;</a></h2>
-<pre class="mermaid"><code>block-beta
-    columns 7
-    block:INS:1
-        columns 1
-        IN_DATA["input data&lt;br&gt;128 x 32-bit"]
-        INSTR["Instruction"]
-    end
-    space
-    block:STAGE:3
-        columns 3
-        TITLE["ACC Stage"] space:2
-        ALU["Accumulate /&lt;br&gt;Aggregate"] space RACC["R_ACC&lt;br&gt;128 x 32-bit"]
-        space:3
-        PERM["Stride /&lt;br&gt;Reshape"] space:2
-        space:3
-        space BYP["BYPASS"] space
-    end
-    space
-    block:OUTS:1
-        columns 1
-        OUT_DATA["output data&lt;br&gt;128 x 32-bit"]
+<pre class="mermaid"><code>flowchart LR
+    IN_DATA["input data&lt;br&gt;128 x 32-bit"]:::io
+    INSTR["Instruction"]:::io
+    OUT_DATA["output data&lt;br&gt;128 x 32-bit"]:::io
+
+    subgraph STAGE["ACC Stage"]
+        subgraph OPS[" "]
+            ALU["Accumulate /&lt;br&gt;Aggregate"]:::blk
+            PERM["Stride /&lt;br&gt;Reshape"]:::blk
+        end
+        RACC["R_ACC&lt;br&gt;128 x 32-bit"]:::reg
+        BYP["BYPASS"]:::io
     end
 
-    IN_DATA --&gt; ALU
-    IN_DATA --&gt; PERM
-    INSTR --&gt; ALU
+    INSTR --&gt; OPS
+    IN_DATA --&gt; OPS
+    IN_DATA --&gt; BYP
     ALU &lt;--&gt; RACC
     PERM --&gt; RACC
     RACC --&gt; OUT_DATA
-    IN_DATA --- BYP
-    BYP --&gt; OUT_DATA
+    BYP ---&gt; OUT_DATA
 
     classDef io fill:none,stroke:none
     classDef blk fill:#2e9e8c,stroke:#1a7060,color:#fff
-    classDef title fill:none,stroke:none,font-weight:bold
-    class IN_DATA,INSTR,OUT_DATA,INS,OUTS,BYP io
-    class ALU,RACC,PERM blk
-    class TITLE title
-    style STAGE fill:none,stroke:#888,stroke-width:2px</code></pre>
+    classDef reg fill:#e6b800,stroke:#b38a00,color:#000
+    style STAGE fill:none,stroke:#888,stroke-width:2px
+    style OPS fill:none,stroke:#888,stroke-dasharray:5 5</code></pre>
 <h2 id="3-interfaces">3. Interfaces<a class="headerlink" href="#3-interfaces" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -3031,45 +3049,10 @@ in a <code>BYPASS</code> cycle.</p>
 </tr>
 </tbody>
 </table>
-<h3 id="31-dstructure-layout">3.1 <code>dstructure</code> Layout<a class="headerlink" href="#31-dstructure-layout" title="Permanent link">&para;</a></h3>
-<p>The <code>cr_idx</code> operand of <code>ACC.STRIDE</code>, <code>AGG.SUM</code> and <code>AGG.MAX</code> names a 32-bit
-<code>CR</code> that holds the data structure format of the 128-element vector. It has
-four 8-bit fields:</p>
-<table>
-<thead>
-<tr>
-<th>Bits</th>
-<th>Field</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>[31:24]</code></td>
-<td><code>N/A</code></td>
-<td>Not used.</td>
-</tr>
-<tr>
-<td><code>[23:16]</code></td>
-<td><code>valid_partition</code></td>
-<td>Number of valid groups. The rightmost <code>num_partition - valid_partition</code> groups are masked.</td>
-</tr>
-<tr>
-<td><code>[15:8]</code></td>
-<td><code>num_partition</code></td>
-<td>Number of groups: <code>1</code>, <code>2</code>, <code>4</code> or <code>8</code>. <code>1</code> means one line of 128 elements, <code>2</code> means two lines of 64 elements.</td>
-</tr>
-<tr>
-<td><code>[7:0]</code></td>
-<td><code>valid_elements</code></td>
-<td>Number of valid elements in a group.</td>
-</tr>
-</tbody>
-</table>
-<h3 id="32-element-format">3.2 Element Format<a class="headerlink" href="#32-element-format" title="Permanent link">&para;</a></h3>
+<h3 id="31-element-format">3.1 Element Format<a class="headerlink" href="#31-element-format" title="Permanent link">&para;</a></h3>
 <p>Each <code>R_ACC</code> element is an FP32 value (IEEE-754 single precision), the same as
 each element of <code>input data</code>. It can be <code>inf</code> or <code>-inf</code>.</p>
-<h3 id="33-running-and-first-variants">3.3 Running and <code>.FIRST</code> Variants<a class="headerlink" href="#33-running-and-first-variants" title="Permanent link">&para;</a></h3>
+<h3 id="32-running-and-first-variants">3.2 Running and <code>.FIRST</code> Variants<a class="headerlink" href="#32-running-and-first-variants" title="Permanent link">&para;</a></h3>
 <p><code>AGG.SUM</code> and <code>AGG.MAX</code> each have a <code>.FIRST</code> variant:</p>
 <table>
 <thead>
@@ -3094,16 +3077,11 @@ each element of <code>input data</code>. It can be <code>inf</code> or <code>-in
 </table>
 <h2 id="4-accumulator-isa">4. Accumulator ISA<a class="headerlink" href="#4-accumulator-isa" title="Permanent link">&para;</a></h2>
 <p>The ACC slot is resolved by CTRL and forwarded down the pipeline. The stage
-does not read the CR/LR register files itself (see the Control Stage spec,
-section 5).</p>
+does not read the CR/LR register files itself (see the <a href="../ARCH-stage-ctrl/">Control Stage spec</a>,
+section 3.2).</p>
 <p>The opcode enum (<code>acc_inst_opcode_t</code>, package <code>ipu_instr_pkg</code>) is generated
 from <a href="../../../src/ipu-isa/src/ipu_isa/instruction_spec.py"><code>instruction_spec.py</code></a>
 by <a href="../../../src/ipu-gen/src/ipu_gen/sv_package.py"><code>sv_package.py</code></a>.</p>
-<blockquote>
-<p><strong>Note:</strong> Each <code>CR0</code>-<code>CR15</code> and <code>LR0</code>-<code>LR15</code> register named in the
-instruction operands is <strong>32 bits</strong> wide. An <code>LRD</code> operand (a pair of LRs)
-comes with its value, as a <code>CR</code> operand does.</p>
-</blockquote>
 <p><strong>Instructions in this section:</strong></p>
 <table>
 <thead>
@@ -3253,7 +3231,7 @@ is any value that is not NaN. <code>f</code> is a finite value. <code>±inf</cod
 every second column and/or every second row, and writes the kept elements, row
 by row, into a range of <code>R_ACC</code>. The other <code>R_ACC</code> elements keep their values.</p>
 <h4 id="syntax_2">Syntax<a class="headerlink" href="#syntax_2" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>ACC.STRIDE cr_idx, horizontal_stride, vertical_stride, offset
+<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>ACC.STRIDE ds, horizontal_stride, vertical_stride, offset
 </span></code></pre></div>
 <h4 id="operands_2">Operands<a class="headerlink" href="#operands_2" title="Permanent link">&para;</a></h4>
 <table>
@@ -3266,9 +3244,9 @@ by row, into a range of <code>R_ACC</code>. The other <code>R_ACC</code> element
 </thead>
 <tbody>
 <tr>
-<td><code>dstructure</code></td>
-<td><a href="../../reference/isa/operand-types/#cridx"><code>CrIdx</code></a></td>
-<td><code>CR0</code>-<code>CR15</code>. Supplies <code>num_partition</code> (section 3.1): the number of rows of <code>input data</code>.</td>
+<td><code>ds</code></td>
+<td><a href="../../reference/isa/operand-types/#halfcridx"><code>HalfCrIdx</code></a></td>
+<td><code>CR0.L</code>-<code>CR15.H</code>. Supplies <code>num_partitions</code> (<a href="../ARCH-ipu-top/#82-data-structure-ds">IPU ARCH 8.2</a>): the number of rows of <code>input data</code>.</td>
 </tr>
 <tr>
 <td><code>horizontal_stride</code></td>
@@ -3315,8 +3293,8 @@ by row, into a range of <code>R_ACC</code>. The other <code>R_ACC</code> element
 </tbody>
 </table>
 <h4 id="operation_1">Operation<a class="headerlink" href="#operation_1" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>rows = num_partition
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>elements_in_row = 128 / num_partition
+<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>rows = num_partitions
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>elements_in_row = 128 / num_partitions
 </span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>view input_data as [rows][elements_in_row]          // row r = input_data[r*elements_in_row ...]
 </span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>keep the columns selected by horizontal_stride
 </span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>keep the rows selected by vertical_stride
@@ -3330,8 +3308,8 @@ by row, into a range of <code>R_ACC</code>. The other <code>R_ACC</code> element
 <tr>
 <th><code>horizontal_stride</code></th>
 <th><code>vertical_stride</code></th>
-<th><code>N</code> (<code>num_partition</code> = <code>2</code>, <code>4</code>, <code>8</code>)</th>
-<th><code>N</code> (<code>num_partition</code> = <code>1</code>)</th>
+<th><code>N</code> (<code>num_partitions</code> = <code>2</code>, <code>4</code>, <code>8</code>)</th>
+<th><code>N</code> (<code>num_partitions</code> = <code>1</code>)</th>
 </tr>
 </thead>
 <tbody>
@@ -3362,7 +3340,7 @@ by row, into a range of <code>R_ACC</code>. The other <code>R_ACC</code> element
 </tbody>
 </table>
 <p><code>offset + N</code> is at most 128.</p>
-<p><strong>Example:</strong> <code>num_partition = 8</code>, <code>horizontal_stride = on</code>,
+<p><strong>Example:</strong> <code>num_partitions = 8</code>, <code>horizontal_stride = on</code>,
 <code>vertical_stride = on</code>, <code>offset = 0</code>. <code>input data</code> is 8 rows of 16. The
 even columns of rows 0, 2, 4 and 6 are kept: 32 elements, written to
 <code>R_ACC[0..31]</code>.</p>
@@ -3372,7 +3350,7 @@ even columns of rows 0, 2, 4 and 6 are kept: 32 elements, written to
 it to 16.</p>
 </blockquote>
 <h4 id="example_2">Example<a class="headerlink" href="#example_2" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>ACC.STRIDE CR3, on, on, 0;;
+<div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>ACC.STRIDE CR3.L, on, on, 0;;
 </span></code></pre></div>
 <hr />
 <h3 id="44-aggsum-aggmax-aggregate">4.4 <code>AGG.SUM</code>, <code>AGG.MAX</code>: Aggregate<a class="headerlink" href="#44-aggsum-aggmax-aggregate" title="Permanent link">&para;</a></h3>
@@ -3380,10 +3358,10 @@ it to 16.</p>
 writes it into one <code>R_ACC</code> element. The other <code>R_ACC</code> elements keep their
 values.</p>
 <h4 id="syntax_3">Syntax<a class="headerlink" href="#syntax_3" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>AGG.SUM dest_slot, cr_idx
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>AGG.SUM.FIRST dest_slot, cr_idx
-</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>AGG.MAX dest_slot, cr_idx
-</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>AGG.MAX.FIRST dest_slot, cr_idx
+<div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>AGG.SUM dest_slot, ds
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>AGG.SUM.FIRST dest_slot, ds
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>AGG.MAX dest_slot, ds
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>AGG.MAX.FIRST dest_slot, ds
 </span></code></pre></div>
 <h4 id="operands_3">Operands<a class="headerlink" href="#operands_3" title="Permanent link">&para;</a></h4>
 <table>
@@ -3401,9 +3379,9 @@ values.</p>
 <td><code>LR0</code>-<code>LR15</code>. selects the written element.</td>
 </tr>
 <tr>
-<td><code>dstrcture</code></td>
-<td><a href="../../reference/isa/operand-types/#cridx"><code>CrIdx</code></a></td>
-<td><code>CR0</code>-<code>CR15</code>. Supplies <code>valid_elements</code> (section 3.1).</td>
+<td><code>ds</code></td>
+<td><a href="../../reference/isa/operand-types/#halfcridx"><code>HalfCrIdx</code></a></td>
+<td><code>CR0.L</code>-<code>CR15.H</code>. Supplies <code>valid_elements</code> (<a href="../ARCH-ipu-top/#82-data-structure-ds">IPU ARCH 8.2</a>).</td>
 </tr>
 </tbody>
 </table>
@@ -3440,7 +3418,7 @@ values.</p>
 cases. <code>AGG.MAX</code> and <code>AGG.MAX.FIRST</code> follow the <code>ACC.MAX</code> special cases
 (section 4.2).</p>
 <h4 id="example_3">Example<a class="headerlink" href="#example_3" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>AGG.SUM.FIRST LR0, CR3;;      // R_ACC[LR0 % 128] = sum of the first valid_elements elements
+<div class="language-text highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>AGG.SUM.FIRST LR0, CR3.L;;      // R_ACC[LR0 % 128] = sum of the first valid_elements elements
 </span></code></pre></div>
 <hr />
 <h3 id="45-accreshape-reshape">4.5 <code>ACC.RESHAPE</code>: Reshape<a class="headerlink" href="#45-accreshape-reshape" title="Permanent link">&para;</a></h3>
@@ -3614,6 +3592,53 @@ Elements <code>k = 6, 7</code> are skipped. The figure has one column per <code>
 <h4 id="example_5">Example<a class="headerlink" href="#example_5" title="Permanent link">&para;</a></h4>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>BYPASS;;      // send the multiply result to the AaQ stage
 </span></code></pre></div>
+<h2 id="5-disagreements-with-the-emulator">5. Disagreements with the Emulator<a class="headerlink" href="#5-disagreements-with-the-emulator" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Topic</th>
+<th>Spec</th>
+<th>Emulator</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ACC.SET</code></td>
+<td>Sets <code>R_ACC</code> to <code>input data</code>.</td>
+<td>No <code>ACC.SET</code>. <code>ACC.ADD.FIRST</code> and <code>ACC.MAX.FIRST</code> do this operation.</td>
+</tr>
+<tr>
+<td><code>ACC.SUB.FIRST</code></td>
+<td>No <code>ACC.SUB.FIRST</code>.</td>
+<td><code>R_ACC[i]</code> becomes <code>0 - input_data[i]</code>.</td>
+</tr>
+<tr>
+<td><code>BYPASS</code></td>
+<td>Sends <code>input data</code> to <code>output data</code>.</td>
+<td>No <code>BYPASS</code>. <code>output data</code> is always <code>R_ACC</code>.</td>
+</tr>
+<tr>
+<td><code>NaN</code> element in <code>input data</code></td>
+<td><code>ACC.MAX</code> and <code>AGG.MAX</code> give <code>NaN</code>.</td>
+<td><code>ACC.MAX</code> and <code>AGG.MAX</code> ignore the <code>NaN</code> element.</td>
+</tr>
+<tr>
+<td><code>ACC.STRIDE</code> row size</td>
+<td><code>ds</code> supplies <code>num_partitions</code>: <code>1</code>, <code>2</code>, <code>4</code> or <code>8</code> rows.</td>
+<td>The <code>elements_in_row</code> immediate: <code>16</code>, <code>32</code> or <code>64</code> elements. No row of 128 elements.</td>
+</tr>
+<tr>
+<td><code>ACC.STRIDE</code> <code>offset</code></td>
+<td>An immediate: <code>0</code>, <code>16</code>, <code>32</code>, <code>48</code>, <code>64</code>, <code>80</code>, <code>96</code> or <code>112</code>.</td>
+<td><code>LR0</code>-<code>LR15</code>. The first written element is <code>(LR value % 4) x 32</code>: <code>0</code>, <code>32</code>, <code>64</code> or <code>96</code>.</td>
+</tr>
+<tr>
+<td><code>ACC.RESHAPE</code> copied elements</td>
+<td><code>number_idx</code>: elements <code>k = 0..number_idx - 1</code>.</td>
+<td><code>reshape_mask</code>: elements <code>k = reshape_mask..7</code>. For example, <code>6</code> copies <code>k = 6, 7</code> and <code>0</code> copies all 8 elements.</td>
+</tr>
+</tbody>
+</table>
 
 
 
@@ -3636,7 +3661,7 @@ Elements <code>k = 6, 7</code> are skipped. The figure has one column per <code>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 23, 2026 12:16:35 UTC"><span class="timeago" datetime="2026-10-23T12:16:35+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 23, 2026 12:16:35 UTC">2026-10-23</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 31, 2026 16:35:15 UTC"><span class="timeago" datetime="2026-10-31T16:35:15+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 31, 2026 16:35:15 UTC">2026-10-31</span>
   </span>
 
     

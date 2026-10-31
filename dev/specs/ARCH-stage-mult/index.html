@@ -16,7 +16,7 @@
         <link rel="prev" href="../ARCH-stage-acc/">
       
       
-        <link rel="next" href="../stage-control/">
+        <link rel="next" href="../ARCH-stage-ctrl/">
       
       
         
@@ -352,7 +352,7 @@
     
     
       <li class="md-tabs__item md-tabs__item--active">
-        <a href="../cache-unit/" class="md-tabs__link">
+        <a href="../ARCH-ipu-top/" class="md-tabs__link">
           
   
   
@@ -1990,6 +1990,8 @@
       
         
       
+        
+      
     
     
     
@@ -2037,6 +2039,34 @@
 
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ARCH-ipu-top/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IPU Top ARCH
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
             
               
                 
@@ -2290,10 +2320,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#31-dstructure-layout" class="md-nav__link">
+  <a href="#31-element-format" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3.1 dstructure Layout
+        3.1 Element Format
       
     </span>
   </a>
@@ -2301,10 +2331,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#32-element-format" class="md-nav__link">
+  <a href="#32-operand-addressing" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3.2 Element Format
+        3.2 Operand Addressing
       
     </span>
   </a>
@@ -2312,21 +2342,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#33-operand-addressing" class="md-nav__link">
+  <a href="#33-element-masking" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3.3 Operand Addressing
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#34-element-masking" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        3.4 Element Masking
+        3.3 Element Masking
       
     </span>
   </a>
@@ -2454,6 +2473,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#5-disagreements-with-the-emulator" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Disagreements with the Emulator
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2470,14 +2500,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../stage-control/" class="md-nav__link">
+      <a href="../ARCH-stage-ctrl/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Control Stage Specification
+    Control Stage ARCH
   
 
     
@@ -2973,7 +3003,7 @@
 <p>The MULT (Multiply) stage performs the following tasks:</p>
 <ul>
 <li><strong>Dequantize:</strong> Converts each NX8 input element to FP32, with the format
-  from <code>quantizion_format</code> and the vector scale.</li>
+  from the quantization format (<code>qf</code>) and the vector scale.</li>
 <li><strong>Multiply:</strong> Multiplies 128 pairs of FP32 elements. The operands come from
   <code>R0</code>/<code>R1</code>, <code>R_CYCLIC</code> or a scalar. Each product is an FP32 value.</li>
 <li><strong>Mask:</strong> Replaces the products of masked elements with a pad value. The mask
@@ -2987,13 +3017,9 @@
 <li><a href="#1-overview">Overview</a></li>
 <li><a href="#2-block-diagram">Block Diagram</a></li>
 <li><a href="#3-interfaces">Interfaces</a><ul>
-<li>3.1 <a href="#31-dstructure-layout"><code>dstructure</code> Layout</a></li>
-<li>3.2 <a href="#32-element-format">Element Format</a><ul>
-<li>3.2.1 <a href="#321-nx8-to-fp32">NX8 to FP32</a></li>
-</ul>
-</li>
-<li>3.3 <a href="#33-operand-addressing">Operand Addressing</a></li>
-<li>3.4 <a href="#34-element-masking">Element Masking</a></li>
+<li>3.1 <a href="#31-element-format">Element Format</a></li>
+<li>3.2 <a href="#32-operand-addressing">Operand Addressing</a></li>
+<li>3.3 <a href="#33-element-masking">Element Masking</a></li>
 </ul>
 </li>
 <li><a href="#4-multiply-isa">Multiply ISA</a><ul>
@@ -3008,28 +3034,24 @@
 <li>4.9 <a href="#49-multee-ra-element-x-cr-scalar-broadcast"><code>MULT.EE</code>: Ra Element x CR Scalar, Broadcast</a></li>
 </ul>
 </li>
+<li><a href="#5-disagreements-with-the-emulator">Disagreements with the Emulator</a></li>
 </ol>
 <h2 id="2-block-diagram">2. Block Diagram<a class="headerlink" href="#2-block-diagram" title="Permanent link">&para;</a></h2>
-<pre class="mermaid"><code>block-beta
-    columns 11
-    space:6 INSTR["Instruction"] space FMT["quantizion_format"] space:2
-    block:INS:1
-        columns 1
-        LD_DATA["load data&lt;br&gt;128 x 8-bit&lt;br&gt;+ metadata"]
-    end
-    space
-    block:STAGE:7
-        columns 7
-        TITLE["MULT Stage"] space:6
-        space:2 RA["R0 / R1&lt;br&gt;2 x 128 x 8-bit"] space:4
-        LDW["Load&lt;br&gt;Registers"] space RC["R_CYCLIC&lt;br&gt;512 x 8-bit"] space SEL["Operand&lt;br&gt;Select"] space MUL["Multiply"]
-        space:7
-        space:2 RMASK["R_MASK&lt;br&gt;8 x 128-bit"] space:3 MASK["Mask"]
-    end
-    space
-    block:OUTS:1
-        columns 1
-        OUT_DATA["output data&lt;br&gt;MULT_RES&lt;br&gt;128 x 32-bit"]
+<pre class="mermaid"><code>flowchart LR
+    LD_DATA["load data&lt;br&gt;128 x 8-bit&lt;br&gt;+ metadata"]:::io
+    INSTR["Instruction"]:::io
+    QF["quantization format&lt;br&gt;(qf)"]:::io
+    DS["data structure&lt;br&gt;(ds)"]:::io
+    OUT_DATA["output data&lt;br&gt;MULT_RES&lt;br&gt;128 x 32-bit"]:::io
+
+    subgraph STAGE["MULT Stage"]
+        LDW["Load&lt;br&gt;Registers"]:::blk
+        RA["R0 / R1&lt;br&gt;2 x 128 x 8-bit"]:::reg
+        RC["R_CYCLIC&lt;br&gt;512 x 8-bit"]:::reg
+        RMASK["R_MASK&lt;br&gt;8 x 128-bit"]:::reg
+        SEL["Operand&lt;br&gt;Select"]:::blk
+        MUL["Multiply"]:::blk
+        MASK["Mask"]:::blk
     end
 
     LD_DATA --&gt; LDW
@@ -3038,19 +3060,17 @@
     LDW --&gt; RMASK
     RA --&gt; SEL
     RC --&gt; SEL
-    INSTR --&gt; SEL
-    FMT --&gt; MUL
+    INSTR ----&gt; SEL
     SEL --&gt; MUL
+    QF -----&gt; MUL
     MUL --&gt; MASK
     RMASK --&gt; MASK
+    DS ------&gt; MASK
     MASK --&gt; OUT_DATA
 
     classDef io fill:none,stroke:none
     classDef blk fill:#2e9e8c,stroke:#1a7060,color:#fff
-    classDef title fill:none,stroke:none,font-weight:bold
-    class LD_DATA,INSTR,FMT,OUT_DATA,INS,OUTS io
-    class LDW,RA,RC,RMASK,SEL,MUL,MASK blk
-    class TITLE title
+    classDef reg fill:#e6b800,stroke:#b38a00,color:#000
     style STAGE fill:none,stroke:#888,stroke-width:2px</code></pre>
 <h2 id="3-interfaces">3. Interfaces<a class="headerlink" href="#3-interfaces" title="Permanent link">&para;</a></h2>
 <table>
@@ -3063,14 +3083,9 @@
 </thead>
 <tbody>
 <tr>
-<td>XMEM read address</td>
-<td>Output</td>
-<td>The XMEM row that a load instruction reads: <code>offset + base</code>.</td>
-</tr>
-<tr>
 <td>load data</td>
 <td>Input</td>
-<td>One XMEM row: 128 8-bit elements (128 B) and the vector metadata (section 3.2.1).</td>
+<td>One XMEM row: 128 8-bit elements (128 B) and the vector metadata (<a href="../ARCH-ipu-top/#72-row-layout">IPU ARCH 7.2</a>).</td>
 </tr>
 <tr>
 <td>Instruction</td>
@@ -3078,9 +3093,14 @@
 <td>The operation that the stage does on its registers.</td>
 </tr>
 <tr>
-<td><code>quantizion_format</code></td>
+<td>quantization format (<code>qf</code>)</td>
 <td>Input</td>
-<td>The NX8 format of the input elements (section 3.2).</td>
+<td>The NX8 format of the input elements (<a href="../ARCH-ipu-top/#81-quantization-format-qf">IPU ARCH 8.1</a>).</td>
+</tr>
+<tr>
+<td>data structure (<code>ds</code>)</td>
+<td>Input</td>
+<td>The groups of the 128-element vector and the pad value of masked elements (<a href="../ARCH-ipu-top/#82-data-structure-ds">IPU ARCH 8.2</a>).</td>
 </tr>
 <tr>
 <td>output data</td>
@@ -3090,181 +3110,22 @@
 </tbody>
 </table>
 <blockquote>
-<p><strong>Note:</strong> The stage reads <code>R0</code>, <code>R1</code>, <code>R_CYCLIC</code> and <code>R_MASK</code> as they were at
-the start of the cycle. A load into them in the same cycle is visible in the
-next cycle.</p>
+<p><strong>Note:</strong> The MULT stage owns its load instructions, but the CTRL stage
+prefetches their XMEM read address (<code>offset + base</code>). The MULT stage gets
+only the load data.</p>
+<p><strong>Note:</strong> <a href="../ARCH-ipu-top/#63-register-read-timing">IPU ARCH 6.3</a> gives the value the stage reads from each register.</p>
 </blockquote>
-<h3 id="31-dstructure-layout">3.1 <code>dstructure</code> Layout<a class="headerlink" href="#31-dstructure-layout" title="Permanent link">&para;</a></h3>
-<p>The <code>cr_idx</code> operand (<code>dstructure_cr_idx</code> in <code>MULT.VE</code> and <code>MULT.EE</code>) names a
-32-bit <code>CR</code> that holds the data structure format of the 128-element vector. It
-has four 8-bit fields:</p>
-<table>
-<thead>
-<tr>
-<th>Bits</th>
-<th>Field</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>[31:24]</code></td>
-<td><code>N/A</code></td>
-<td>Not used.</td>
-</tr>
-<tr>
-<td><code>[23:16]</code></td>
-<td><code>valid_partition</code></td>
-<td>Number of valid groups. The rightmost <code>num_partition - valid_partition</code> groups are masked.</td>
-</tr>
-<tr>
-<td><code>[15:8]</code></td>
-<td><code>num_partition</code></td>
-<td>Number of groups: <code>1</code>, <code>2</code>, <code>4</code> or <code>8</code>. <code>1</code> means one line of 128 elements, <code>2</code> means two lines of 64 elements.</td>
-</tr>
-<tr>
-<td><code>[7:0]</code></td>
-<td><code>valid_elements</code></td>
-<td>Number of valid elements in a group.</td>
-</tr>
-</tbody>
-</table>
-<p>The stage also reads <code>pad_mode</code>, the value written into masked elements
-(section 3.4):</p>
-<table>
-<thead>
-<tr>
-<th><code>pad_mode</code></th>
-<th>Pad value</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>0</code></td>
-<td><code>0</code></td>
-</tr>
-<tr>
-<td><code>1</code></td>
-<td><code>+inf</code></td>
-</tr>
-<tr>
-<td><code>2</code></td>
-<td><code>-inf</code></td>
-</tr>
-</tbody>
-</table>
-<blockquote>
-<p><strong>TBD:</strong> the bit position of <code>pad_mode</code> in the <code>dstructure</code> CR.</p>
-<p><strong>TBD - ask Jacob:</strong> whether <code>pad_mode</code> <code>1</code> and <code>2</code> can be used. They write
-<code>+inf</code> and <code>-inf</code>, and FP32 elements are never <code>inf</code> or <code>-inf</code>.</p>
-</blockquote>
-<h3 id="32-element-format">3.2 Element Format<a class="headerlink" href="#32-element-format" title="Permanent link">&para;</a></h3>
-<p>Input elements are in the NX8 format. One format applies to all elements. Each
-product (<code>MULT_RES</code> element) is FP32.</p>
-<p>Each MULT instruction (except <code>NOP</code>) names the format in its
-<code>quantizion_format</code> operand, a 32-bit <code>CR</code>. It has four 8-bit fields:</p>
-<table>
-<thead>
-<tr>
-<th>Bits</th>
-<th>Field</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>[31:24]</code></td>
-<td><code>N/A</code></td>
-<td>Not used.</td>
-</tr>
-<tr>
-<td><code>[23:16]</code></td>
-<td><code>sign</code></td>
-<td><code>0</code> = unsigned, <code>1</code> = signed.</td>
-</tr>
-<tr>
-<td><code>[15:8]</code></td>
-<td><code>nx_format</code></td>
-<td>Exponent format. <code>0</code> = dynamic, <code>1</code>-<code>7</code> = <code>e1</code>-<code>e7</code> (fixed exponent width <code>fe</code>).</td>
-</tr>
-<tr>
-<td><code>[7:0]</code></td>
-<td><code>num_bits</code></td>
-<td>Total element width <code>W</code>: <code>1</code>-<code>8</code>. <code>0</code> is reserved/invalid.</td>
-</tr>
-</tbody>
-</table>
-<h4 id="321-nx8-to-fp32">3.2.1 NX8 to FP32<a class="headerlink" href="#321-nx8-to-fp32" title="Permanent link">&para;</a></h4>
+<h3 id="31-element-format">3.1 Element Format<a class="headerlink" href="#31-element-format" title="Permanent link">&para;</a></h3>
+<p>Input elements are in the NX8 format (<a href="../ARCH-ipu-top/#71-nx8-element-format">IPU ARCH 7.1</a>). One format applies to all
+elements. Each product (<code>MULT_RES</code> element) is FP32.</p>
 <p>Every MULT instruction converts each NX8 input element to FP32 before it
-multiplies. The conversion uses the element <code>x</code> (8 bits), the vector scale <code>s</code>
-(8-bit <code>e8m0</code>) and the exponent width <code>fe</code>.</p>
-<p><strong>Exponent width <code>fe</code>:</strong></p>
-<table>
-<thead>
-<tr>
-<th><code>nx_format</code></th>
-<th><code>fe</code></th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>1</code>-<code>7</code></td>
-<td>The <code>nx_format</code> value.</td>
-</tr>
-<tr>
-<td><code>0</code> (dynamic)</td>
-<td><code>1</code> if <code>dynamic_exponent = 0</code>, <code>2</code> if <code>dynamic_exponent = 1</code>. Dynamic elements are signed and 8 bits wide.</td>
-</tr>
-</tbody>
-</table>
-<p><strong>Fields.</strong> An element is packed from the high end as <code>{S, Exp, M, 0-pad}</code>:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>fm   = num_bits - fe - sign                // mantissa bits
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>S    = (sign == 1) ? x[7] : 0
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>Exp  = x[7 - sign -: fe]                   // fe bits after S
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>M    = x[7 - sign - fe -: fm]              // fm bits after Exp, 0 when fm = 0
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>Emax = 2^fe - 1
-</span></code></pre></div>
-<p><strong>Value:</strong></p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>if Exp &lt; Emax:                                            // direct
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>    fp32 = (-1)^S x 2^(s - 127 - Exp) x (1 + M / 2^fm)
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>else:                                                     // clamp, Exp = Emax
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    fp32 = (-1)^S x 2^(s - 127 - (Emax - 1)) x (M / 2^fm)
-</span></code></pre></div>
-<blockquote>
-<p><strong>TBD - ask Jacob:</strong> an NX8 element that is <code>NaN</code>, <code>inf</code> or <code>-inf</code>: which FP32
-value does it convert to?</p>
-</blockquote>
-<p><strong>Vector metadata.</strong> Each vector is loaded and saved with its metadata:</p>
-<table>
-<thead>
-<tr>
-<th>Metadata</th>
-<th>Size</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>Scale</code> (<code>s</code>)</td>
-<td>8 bits</td>
-<td>Scale shared by the whole vector.</td>
-</tr>
-<tr>
-<td><code>dynamic_static</code></td>
-<td>1 bit</td>
-<td>Dynamic or static quantization.</td>
-</tr>
-<tr>
-<td><code>dynamic_exponent</code></td>
-<td>1 bit</td>
-<td><code>e1</code> or <code>e2</code>: the exponent width chosen in dynamic quantization. <code>0</code> in static quantization.</td>
-</tr>
-</tbody>
-</table>
+multiplies.</p>
 <p><code>R0</code>, <code>R1</code> and each 128-element slot of <code>R_CYCLIC</code> keep the metadata of the
 vector loaded into them. Each element uses the metadata of the register or
 slot that holds it.</p>
-<h3 id="33-operand-addressing">3.3 Operand Addressing<a class="headerlink" href="#33-operand-addressing" title="Permanent link">&para;</a></h3>
+<p>A <code>CR</code> that supplies a scalar (<code>src</code> in <code>MULT.RC.VE</code>, <code>cr_idx</code> in <code>MULT.VE</code> and
+<code>MULT.EE</code>) holds an NX Constant (<a href="../ARCH-ipu-top/#84-nx-constant">IPU ARCH 8.4</a>).</p>
+<h3 id="32-operand-addressing">3.2 Operand Addressing<a class="headerlink" href="#32-operand-addressing" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
 <tr>
@@ -3286,12 +3147,16 @@ slot that holds it.</p>
 </tr>
 </tbody>
 </table>
-<p>A vector operand is 128 consecutive elements from a start index: element <code>i</code>
-of the operand is <code>Ra[start + i]</code> or <code>R_CYCLIC[start + i]</code>.</p>
-<h3 id="34-element-masking">3.4 Element Masking<a class="headerlink" href="#34-element-masking" title="Permanent link">&para;</a></h3>
+<p>An <code>Ra</code> vector operand is <code>R0</code> or <code>R1</code>.</p>
+<p>An <code>R_CYCLIC</code> vector operand is 128 consecutive elements from a start index:
+element <code>i</code> of the operand is <code>R_CYCLIC[start + i]</code>.</p>
+<p>The start index of an <code>R_CYCLIC</code> operand is a multiple of 16, or a value at
+most 3 from a multiple of 16: <code>0</code>-<code>3</code>, <code>13</code>-<code>19</code>, <code>29</code>-<code>35</code>, ..., <code>493</code>-<code>499</code>,
+<code>509</code>-<code>511</code>.</p>
+<h3 id="33-element-masking">3.3 Element Masking<a class="headerlink" href="#33-element-masking" title="Permanent link">&para;</a></h3>
 <p>Every multiply instruction masks its result. Bit <code>i</code> of a mask belongs to
 element <code>i</code>. Elements whose mask bit is <code>1</code> keep their product; elements whose
-bit is <code>0</code> get the pad value (<code>pad_mode</code>, section 3.1).</p>
+bit is <code>0</code> get the pad value (<code>mask_type</code>, <a href="../ARCH-ipu-top/#82-data-structure-ds">IPU ARCH 8.2</a>).</p>
 <p>The mask is built in two steps:</p>
 <ol>
 <li><code>mask_offset</code> selects one of the 8 slots of <code>R_MASK</code>.</li>
@@ -3300,18 +3165,18 @@ bit is <code>0</code> get the pad value (<code>pad_mode</code>, section 3.1).</p
    never cross a group boundary.</li>
 </ol>
 <p><img alt="Element masking: mask_offset selects an R_MASK slot, two shift chains make every shift, mask_shift selects one" src="../assets/mult-masking.svg" /></p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>shift = clamp(mask_shift, -3, 3)                       // mask_shift is two's complement
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>mask  = R_MASK.slot[mask_offset]                        // 128 bits
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>repeat |shift| times:
-</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    if shift &gt; 0: mask = (mask &lt;&lt; 1) &amp; partition_vector          // towards higher elements
-</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>    if shift &lt; 0: mask = (mask &gt;&gt; 1) &amp; inverse_partition_vector  // towards lower elements
-</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>
-</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>for i in 0..127:
-</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>    if mask[i] == 0: MULT_RES[i] = pad_value
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>shift = clamp(mask_shift, -3, 3)                       // mask_shift is two's complement
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>mask  = R_MASK.slot[mask_offset]                        // 128 bits
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>repeat |shift| times:
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    if shift &gt; 0: mask = (mask &lt;&lt; 1) &amp; partition_vector          // towards higher elements
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    if shift &lt; 0: mask = (mask &gt;&gt; 1) &amp; inverse_partition_vector  // towards lower elements
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>for i in 0..127:
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    if mask[i] == 0: MULT_RES[i] = pad_value
 </span></code></pre></div>
-<p><strong>Partitions.</strong> The 128 elements form <code>num_partition</code> partitions (groups) of
-<code>128 / num_partition</code> elements (section 3.1). Partition <code>p</code> holds elements
-<code>p * (128 / num_partition)</code> to <code>(p + 1) * (128 / num_partition) - 1</code>.</p>
+<p><strong>Partitions.</strong> The 128 elements form <code>num_partitions</code> partitions (groups) of
+<code>128 / num_partitions</code> elements (<a href="../ARCH-ipu-top/#82-data-structure-ds">IPU ARCH 8.2</a>). Partition <code>p</code> holds elements
+<code>p * (128 / num_partitions)</code> to <code>(p + 1) * (128 / num_partitions) - 1</code>.</p>
 <p><strong>Partition vectors.</strong> Two 128-bit vectors mark the partition boundaries:</p>
 <table>
 <thead>
@@ -3334,12 +3199,12 @@ bit is <code>0</code> get the pad value (<code>pad_mode</code>, section 3.1).</p
 </tr>
 </tbody>
 </table>
-<p>All other bits are <code>1</code>. The vectors for each <code>num_partition</code>, element <code>0</code> first
+<p>All other bits are <code>1</code>. The vectors for each <code>num_partitions</code>, element <code>0</code> first
 (<code>1^n</code> is <code>n</code> ones):</p>
 <table>
 <thead>
 <tr>
-<th><code>num_partition</code></th>
+<th><code>num_partitions</code></th>
 <th>Elements per partition</th>
 <th><code>partition_vector</code></th>
 <th><code>inverse_partition_vector</code></th>
@@ -3380,16 +3245,11 @@ product.</p>
 </blockquote>
 <h2 id="4-multiply-isa">4. Multiply ISA<a class="headerlink" href="#4-multiply-isa" title="Permanent link">&para;</a></h2>
 <p>The MULT and LOAD slots are resolved by CTRL and forwarded down the pipeline. The stage
-does not read the CR/LR register files itself (see the Control Stage spec,
-section 5).</p>
+does not read the CR/LR register files itself (see the <a href="../ARCH-stage-ctrl/">Control Stage spec</a>,
+section 3.2).</p>
 <p>The opcode enum (<code>mult_inst_opcode_t</code>, package <code>ipu_instr_pkg</code>) is generated
 from <a href="../../../src/ipu-isa/src/ipu_isa/instruction_spec.py"><code>instruction_spec.py</code></a>
 by <a href="../../../src/ipu-gen/src/ipu_gen/sv_package.py"><code>sv_package.py</code></a>.</p>
-<blockquote>
-<p><strong>Note:</strong> Each <code>CR0</code>-<code>CR15</code> and <code>LR0</code>-<code>LR15</code> register named in the
-instruction operands is <strong>32 bits</strong> wide. An <code>LR</code> operand is read after this
-cycle's LR updates.</p>
-</blockquote>
 <p><strong>Instructions in this section:</strong></p>
 <table>
 <thead>
@@ -3437,24 +3297,24 @@ cycle's LR updates.</p>
 </tr>
 </tbody>
 </table>
-<p>In every <code>MULT</code> Operation below, <code>x</code> converts both NX8 operands to FP32 (section
-3.2.1) and multiplies them. <code>apply_mask</code> is section 3.4.</p>
+<p>In every <code>MULT</code> Operation below, <code>x</code> converts both NX8 operands to FP32
+(<a href="../ARCH-ipu-top/#71-nx8-element-format">IPU ARCH 7.1</a>) and multiplies them. <code>apply_mask</code> is section 3.3.</p>
 <hr />
 <h3 id="41-nop-no-operation">4.1 <code>NOP</code>: No Operation<a class="headerlink" href="#41-nop-no-operation" title="Permanent link">&para;</a></h3>
 <p>No operation for the MULT slot.</p>
 <h4 id="syntax">Syntax<a class="headerlink" href="#syntax" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>NOP
+<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>NOP
 </span></code></pre></div>
 <h4 id="operands">Operands<a class="headerlink" href="#operands" title="Permanent link">&para;</a></h4>
 <p>None.</p>
 <h4 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>NOP;;
+<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>NOP;;
 </span></code></pre></div>
 <hr />
 <h3 id="42-ldr_mult_reg-load-r0-or-r1">4.2 <code>LDR_MULT_REG</code>: Load R0 or R1<a class="headerlink" href="#42-ldr_mult_reg-load-r0-or-r1" title="Permanent link">&para;</a></h3>
 <p>Loads one XMEM row into <code>R0</code> or <code>R1</code>, with its vector metadata.</p>
 <h4 id="syntax_1">Syntax<a class="headerlink" href="#syntax_1" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>LDR_MULT_REG dest, offset, base
+<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>LDR_MULT_REG dest, offset, base
 </span></code></pre></div>
 <h4 id="operands_1">Operands<a class="headerlink" href="#operands_1" title="Permanent link">&para;</a></h4>
 <table>
@@ -3484,17 +3344,17 @@ cycle's LR updates.</p>
 </tbody>
 </table>
 <h4 id="operation">Operation<a class="headerlink" href="#operation" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>dest = XMEM[offset + base]      // 128 elements + metadata (section 3.2.1)
+<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>dest = XMEM[offset + base]      // 128 elements + metadata (IPU ARCH 7.2)
 </span></code></pre></div>
 <h4 id="example_1">Example<a class="headerlink" href="#example_1" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>LDR_MULT_REG R0, LR0, CR0;;
+<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>LDR_MULT_REG R0, LR0, CR0;;
 </span></code></pre></div>
 <hr />
 <h3 id="43-ldr_cyclic_mult_reg-load-an-r_cyclic-slot">4.3 <code>LDR_CYCLIC_MULT_REG</code>: Load an R_CYCLIC Slot<a class="headerlink" href="#43-ldr_cyclic_mult_reg-load-an-r_cyclic-slot" title="Permanent link">&para;</a></h3>
 <p>Loads one XMEM row into one 128-element slot of <code>R_CYCLIC</code>, with its vector
 metadata. The other slots keep their values.</p>
 <h4 id="syntax_2">Syntax<a class="headerlink" href="#syntax_2" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>LDR_CYCLIC_MULT_REG offset, base, index
+<div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>LDR_CYCLIC_MULT_REG offset, base, index
 </span></code></pre></div>
 <h4 id="operands_2">Operands<a class="headerlink" href="#operands_2" title="Permanent link">&para;</a></h4>
 <table>
@@ -3524,16 +3384,16 @@ metadata. The other slots keep their values.</p>
 </tbody>
 </table>
 <h4 id="operation_1">Operation<a class="headerlink" href="#operation_1" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>R_CYCLIC[index .. index + 127] = XMEM[offset + base]   // 128 elements + metadata (section 3.2.1)
+<div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>R_CYCLIC[index .. index + 127] = XMEM[offset + base]   // 128 elements + metadata (IPU ARCH 7.2)
 </span></code></pre></div>
 <h4 id="example_2">Example<a class="headerlink" href="#example_2" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>LDR_CYCLIC_MULT_REG LR0, CR0, LR1;;
+<div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>LDR_CYCLIC_MULT_REG LR0, CR0, LR1;;
 </span></code></pre></div>
 <hr />
 <h3 id="44-ldr_mult_mask_reg-load-r_mask">4.4 <code>LDR_MULT_MASK_REG</code>: Load R_MASK<a class="headerlink" href="#44-ldr_mult_mask_reg-load-r_mask" title="Permanent link">&para;</a></h3>
-<p>Loads one XMEM row into <code>R_MASK</code> (8 slots of 128 bits, section 3.4).</p>
+<p>Loads one XMEM row into <code>R_MASK</code> (8 slots of 128 bits, section 3.3).</p>
 <h4 id="syntax_3">Syntax<a class="headerlink" href="#syntax_3" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>LDR_MULT_MASK_REG offset, base
+<div class="language-text highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>LDR_MULT_MASK_REG offset, base
 </span></code></pre></div>
 <h4 id="operands_3">Operands<a class="headerlink" href="#operands_3" title="Permanent link">&para;</a></h4>
 <table>
@@ -3558,17 +3418,17 @@ metadata. The other slots keep their values.</p>
 </tbody>
 </table>
 <h4 id="operation_2">Operation<a class="headerlink" href="#operation_2" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>R_MASK = XMEM[offset + base]    // 128 B = 8 x 128 bits
+<div class="language-text highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>R_MASK = XMEM[offset + base]    // 128 B = 8 x 128 bits
 </span></code></pre></div>
 <h4 id="example_3">Example<a class="headerlink" href="#example_3" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>LDR_MULT_MASK_REG LR0, CR0;;
+<div class="language-text highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>LDR_MULT_MASK_REG LR0, CR0;;
 </span></code></pre></div>
 <hr />
 <h3 id="45-multrcvv-r_cyclic-vector-x-ra-vector">4.5 <code>MULT.RC.VV</code>: R_CYCLIC Vector x Ra Vector<a class="headerlink" href="#45-multrcvv-r_cyclic-vector-x-ra-vector" title="Permanent link">&para;</a></h3>
 <p>Multiplies a 128-element window of <code>R_CYCLIC</code> by <code>R0</code> or <code>R1</code>, element by
 element.</p>
 <h4 id="syntax_4">Syntax<a class="headerlink" href="#syntax_4" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>MULT.RC.VV rc_idx, ra, mask_offset, mask_shift, cr_idx, quantizion_format
+<div class="language-text highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>MULT.RC.VV rc_idx, ra, mask_offset, mask_shift, ds, qf
 </span></code></pre></div>
 <h4 id="operands_4">Operands<a class="headerlink" href="#operands_4" title="Permanent link">&para;</a></h4>
 <p>The Type column links to the <a href="../../reference/isa/operand-types/">operand type reference</a>.</p>
@@ -3584,7 +3444,7 @@ element.</p>
 <tr>
 <td><code>rc_idx</code></td>
 <td><a href="../../reference/isa/operand-types/#lridx"><code>LrIdx</code></a></td>
-<td><code>LR0</code>-<code>LR15</code>. Start element of the <code>R_CYCLIC</code> window (section 3.3).</td>
+<td><code>LR0</code>-<code>LR15</code>. Start element of the <code>R_CYCLIC</code> window (section 3.2).</td>
 </tr>
 <tr>
 <td><code>ra</code></td>
@@ -3594,39 +3454,39 @@ element.</p>
 <tr>
 <td><code>mask_offset</code></td>
 <td><a href="../../reference/isa/operand-types/#multmaskoffsetimmediate"><code>Imm</code></a></td>
-<td><code>0</code>-<code>7</code>. <code>R_MASK</code> slot (section 3.4).</td>
+<td><code>0</code>-<code>7</code>. <code>R_MASK</code> slot (section 3.3).</td>
 </tr>
 <tr>
 <td><code>mask_shift</code></td>
 <td><a href="../../reference/isa/operand-types/#lridx"><code>LrIdx</code></a></td>
-<td><code>LR0</code>-<code>LR15</code>. Mask shift, <code>-3</code>-<code>+3</code> (section 3.4).</td>
+<td><code>LR0</code>-<code>LR15</code>. Mask shift, <code>-3</code>-<code>+3</code> (section 3.3).</td>
 </tr>
 <tr>
-<td><code>cr_idx</code></td>
-<td><a href="../../reference/isa/operand-types/#cridx"><code>CrIdx</code></a></td>
-<td><code>CR0</code>-<code>CR15</code>. Supplies <code>num_partition</code> and <code>pad_mode</code> (section 3.1).</td>
+<td><code>ds</code></td>
+<td><a href="../../reference/isa/operand-types/#halfcridx"><code>HalfCrIdx</code></a></td>
+<td><code>CR0.L</code>-<code>CR15.H</code>. Supplies <code>num_partitions</code> and <code>mask_type</code> (<a href="../ARCH-ipu-top/#82-data-structure-ds">IPU ARCH 8.2</a>).</td>
 </tr>
 <tr>
-<td><code>quantizion_format</code></td>
-<td><a href="../../reference/isa/operand-types/#cridx"><code>CrIdx</code></a></td>
-<td><code>CR0</code>-<code>CR15</code>. Supplies the NX8 format of the input elements (section 3.2).</td>
+<td><code>qf</code></td>
+<td><a href="../../reference/isa/operand-types/#halfcridx"><code>HalfCrIdx</code></a></td>
+<td><code>CR0.L</code>-<code>CR15.H</code>. Supplies the NX8 format of the input elements (<a href="../ARCH-ipu-top/#81-quantization-format-qf">IPU ARCH 8.1</a>).</td>
 </tr>
 </tbody>
 </table>
 <h4 id="operation_3">Operation<a class="headerlink" href="#operation_3" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>for i in 0..127:
-</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>    MULT_RES[i] = R_CYCLIC[rc_idx + i] x ra[i]
-</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>apply_mask(mask_offset, mask_shift, cr_idx)
+<div class="language-text highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>for i in 0..127:
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>    MULT_RES[i] = R_CYCLIC[rc_idx + i] x ra[i]
+</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>apply_mask(mask_offset, mask_shift, ds)
 </span></code></pre></div>
 <h4 id="example_4">Example<a class="headerlink" href="#example_4" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>MULT.RC.VV LR0, R0, 0, LR2, CR15, CR14;;
+<div class="language-text highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>MULT.RC.VV LR0, R0, 0, LR2, CR15.L, CR14.L;;
 </span></code></pre></div>
 <hr />
 <h3 id="46-multrcve-r_cyclic-vector-x-scalar">4.6 <code>MULT.RC.VE</code>: R_CYCLIC Vector x Scalar<a class="headerlink" href="#46-multrcve-r_cyclic-vector-x-scalar" title="Permanent link">&para;</a></h3>
 <p>Multiplies a 128-element window of <code>R_CYCLIC</code> by one scalar. The scalar is an
-element of <code>Ra</code> or the low byte of a <code>CR</code>.</p>
+element of <code>Ra</code> or a <code>CR</code> constant.</p>
 <h4 id="syntax_5">Syntax<a class="headerlink" href="#syntax_5" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>MULT.RC.VE rc_idx, src, mask_offset, mask_shift, cr_idx, quantizion_format
+<div class="language-text highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>MULT.RC.VE rc_idx, src, mask_offset, mask_shift, ds, qf
 </span></code></pre></div>
 <h4 id="operands_5">Operands<a class="headerlink" href="#operands_5" title="Permanent link">&para;</a></h4>
 <p>The Type column links to the <a href="../../reference/isa/operand-types/">operand type reference</a>.</p>
@@ -3642,49 +3502,49 @@ element of <code>Ra</code> or the low byte of a <code>CR</code>.</p>
 <tr>
 <td><code>rc_idx</code></td>
 <td><a href="../../reference/isa/operand-types/#lridx"><code>LrIdx</code></a></td>
-<td><code>LR0</code>-<code>LR15</code>. Start element of the <code>R_CYCLIC</code> window (section 3.3).</td>
+<td><code>LR0</code>-<code>LR15</code>. Start element of the <code>R_CYCLIC</code> window (section 3.2).</td>
 </tr>
 <tr>
 <td><code>src</code></td>
 <td><a href="../../reference/isa/operand-types/#lcridx"><code>LcrIdx</code></a></td>
-<td><code>LR0</code>-<code>LR15</code> or <code>CR0</code>-<code>CR15</code>. An <code>LR</code>'s value selects the scalar <code>Ra[src]</code>. A <code>CR</code> supplies the scalar in bits <code>[7:0]</code>.</td>
+<td><code>LR0</code>-<code>LR15</code> or <code>CR0</code>-<code>CR15</code>. An <code>LR</code>'s value selects the scalar <code>Ra[src]</code>. A <code>CR</code> supplies the scalar, a constant (<a href="../ARCH-ipu-top/#84-nx-constant">IPU ARCH 8.4</a>).</td>
 </tr>
 <tr>
 <td><code>mask_offset</code></td>
 <td><a href="../../reference/isa/operand-types/#multmaskoffsetimmediate"><code>Imm</code></a></td>
-<td><code>0</code>-<code>7</code>. <code>R_MASK</code> slot (section 3.4).</td>
+<td><code>0</code>-<code>7</code>. <code>R_MASK</code> slot (section 3.3).</td>
 </tr>
 <tr>
 <td><code>mask_shift</code></td>
 <td><a href="../../reference/isa/operand-types/#lridx"><code>LrIdx</code></a></td>
-<td><code>LR0</code>-<code>LR15</code>. Mask shift, <code>-3</code>-<code>+3</code> (section 3.4).</td>
+<td><code>LR0</code>-<code>LR15</code>. Mask shift, <code>-3</code>-<code>+3</code> (section 3.3).</td>
 </tr>
 <tr>
-<td><code>cr_idx</code></td>
-<td><a href="../../reference/isa/operand-types/#cridx"><code>CrIdx</code></a></td>
-<td><code>CR0</code>-<code>CR15</code>. Supplies <code>num_partition</code> and <code>pad_mode</code> (section 3.1).</td>
+<td><code>ds</code></td>
+<td><a href="../../reference/isa/operand-types/#halfcridx"><code>HalfCrIdx</code></a></td>
+<td><code>CR0.L</code>-<code>CR15.H</code>. Supplies <code>num_partitions</code> and <code>mask_type</code> (<a href="../ARCH-ipu-top/#82-data-structure-ds">IPU ARCH 8.2</a>).</td>
 </tr>
 <tr>
-<td><code>quantizion_format</code></td>
-<td><a href="../../reference/isa/operand-types/#cridx"><code>CrIdx</code></a></td>
-<td><code>CR0</code>-<code>CR15</code>. Supplies the NX8 format of the input elements (section 3.2).</td>
+<td><code>qf</code></td>
+<td><a href="../../reference/isa/operand-types/#halfcridx"><code>HalfCrIdx</code></a></td>
+<td><code>CR0.L</code>-<code>CR15.H</code>. Supplies the NX8 format of the input elements (<a href="../ARCH-ipu-top/#81-quantization-format-qf">IPU ARCH 8.1</a>).</td>
 </tr>
 </tbody>
 </table>
 <h4 id="operation_4">Operation<a class="headerlink" href="#operation_4" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>scalar = (src is an LR) ? Ra[src] : src[7:0]
-</span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a>for i in 0..127:
-</span><span id="__span-18-3"><a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a>    MULT_RES[i] = R_CYCLIC[rc_idx + i] x scalar
-</span><span id="__span-18-4"><a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a>apply_mask(mask_offset, mask_shift, cr_idx)
+<div class="language-text highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>scalar = (src is an LR) ? Ra[src] : constant(src)          // IPU ARCH 8.4
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>for i in 0..127:
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>    MULT_RES[i] = R_CYCLIC[rc_idx + i] x scalar
+</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a>apply_mask(mask_offset, mask_shift, ds)
 </span></code></pre></div>
 <h4 id="example_5">Example<a class="headerlink" href="#example_5" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>MULT.RC.VE LR0, LR3, 0, LR2, CR15, CR14;;      // scalar = Ra[LR3]
+<div class="language-text highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>MULT.RC.VE LR0, LR3, 0, LR2, CR15.L, CR14.L;;      // scalar = Ra[LR3]
 </span></code></pre></div>
 <hr />
 <h3 id="47-multrcvs-r_cyclic-vector-square">4.7 <code>MULT.RC.VS</code>: R_CYCLIC Vector Square<a class="headerlink" href="#47-multrcvs-r_cyclic-vector-square" title="Permanent link">&para;</a></h3>
 <p>Multiplies a 128-element window of <code>R_CYCLIC</code> by itself, element by element.</p>
 <h4 id="syntax_6">Syntax<a class="headerlink" href="#syntax_6" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>MULT.RC.VS rc_idx, mask_offset, mask_shift, cr_idx, quantizion_format
+<div class="language-text highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>MULT.RC.VS rc_idx, mask_offset, mask_shift, ds, qf
 </span></code></pre></div>
 <h4 id="operands_6">Operands<a class="headerlink" href="#operands_6" title="Permanent link">&para;</a></h4>
 <p>The Type column links to the <a href="../../reference/isa/operand-types/">operand type reference</a>.</p>
@@ -3700,44 +3560,44 @@ element of <code>Ra</code> or the low byte of a <code>CR</code>.</p>
 <tr>
 <td><code>rc_idx</code></td>
 <td><a href="../../reference/isa/operand-types/#lridx"><code>LrIdx</code></a></td>
-<td><code>LR0</code>-<code>LR15</code>. Start element of the <code>R_CYCLIC</code> window (section 3.3).</td>
+<td><code>LR0</code>-<code>LR15</code>. Start element of the <code>R_CYCLIC</code> window (section 3.2).</td>
 </tr>
 <tr>
 <td><code>mask_offset</code></td>
 <td><a href="../../reference/isa/operand-types/#multmaskoffsetimmediate"><code>Imm</code></a></td>
-<td><code>0</code>-<code>7</code>. <code>R_MASK</code> slot (section 3.4).</td>
+<td><code>0</code>-<code>7</code>. <code>R_MASK</code> slot (section 3.3).</td>
 </tr>
 <tr>
 <td><code>mask_shift</code></td>
 <td><a href="../../reference/isa/operand-types/#lridx"><code>LrIdx</code></a></td>
-<td><code>LR0</code>-<code>LR15</code>. Mask shift, <code>-3</code>-<code>+3</code> (section 3.4).</td>
+<td><code>LR0</code>-<code>LR15</code>. Mask shift, <code>-3</code>-<code>+3</code> (section 3.3).</td>
 </tr>
 <tr>
-<td><code>cr_idx</code></td>
-<td><a href="../../reference/isa/operand-types/#cridx"><code>CrIdx</code></a></td>
-<td><code>CR0</code>-<code>CR15</code>. Supplies <code>num_partition</code> and <code>pad_mode</code> (section 3.1).</td>
+<td><code>ds</code></td>
+<td><a href="../../reference/isa/operand-types/#halfcridx"><code>HalfCrIdx</code></a></td>
+<td><code>CR0.L</code>-<code>CR15.H</code>. Supplies <code>num_partitions</code> and <code>mask_type</code> (<a href="../ARCH-ipu-top/#82-data-structure-ds">IPU ARCH 8.2</a>).</td>
 </tr>
 <tr>
-<td><code>quantizion_format</code></td>
-<td><a href="../../reference/isa/operand-types/#cridx"><code>CrIdx</code></a></td>
-<td><code>CR0</code>-<code>CR15</code>. Supplies the NX8 format of the input elements (section 3.2).</td>
+<td><code>qf</code></td>
+<td><a href="../../reference/isa/operand-types/#halfcridx"><code>HalfCrIdx</code></a></td>
+<td><code>CR0.L</code>-<code>CR15.H</code>. Supplies the NX8 format of the input elements (<a href="../ARCH-ipu-top/#81-quantization-format-qf">IPU ARCH 8.1</a>).</td>
 </tr>
 </tbody>
 </table>
 <h4 id="operation_5">Operation<a class="headerlink" href="#operation_5" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>for i in 0..127:
-</span><span id="__span-21-2"><a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a>    element     = R_CYCLIC[rc_idx + i]
-</span><span id="__span-21-3"><a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a>    MULT_RES[i] = element x element
-</span><span id="__span-21-4"><a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a>apply_mask(mask_offset, mask_shift, cr_idx)
+<div class="language-text highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>for i in 0..127:
+</span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a>    element     = R_CYCLIC[rc_idx + i]
+</span><span id="__span-19-3"><a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a>    MULT_RES[i] = element x element
+</span><span id="__span-19-4"><a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a>apply_mask(mask_offset, mask_shift, ds)
 </span></code></pre></div>
 <h4 id="example_6">Example<a class="headerlink" href="#example_6" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>MULT.RC.VS LR0, 0, LR2, CR15, CR14;;
+<div class="language-text highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>MULT.RC.VS LR0, 0, LR2, CR15.L, CR14.L;;
 </span></code></pre></div>
 <hr />
 <h3 id="48-multve-ra-vector-x-cr-scalar">4.8 <code>MULT.VE</code>: Ra Vector x CR Scalar<a class="headerlink" href="#48-multve-ra-vector-x-cr-scalar" title="Permanent link">&para;</a></h3>
-<p>Multiplies a 128-element window of <code>Ra</code> by the low byte of a <code>CR</code>.</p>
+<p>Multiplies <code>R0</code> or <code>R1</code> by a <code>CR</code> constant.</p>
 <h4 id="syntax_7">Syntax<a class="headerlink" href="#syntax_7" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>MULT.VE ra_idx, cr_idx, mask_offset, mask_shift, dstructure_cr_idx, quantizion_format
+<div class="language-text highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>MULT.VE ra_idx, cr_idx, mask_offset, mask_shift, ds, qf
 </span></code></pre></div>
 <h4 id="operands_7">Operands<a class="headerlink" href="#operands_7" title="Permanent link">&para;</a></h4>
 <p>The Type column links to the <a href="../../reference/isa/operand-types/">operand type reference</a>.</p>
@@ -3753,49 +3613,49 @@ element of <code>Ra</code> or the low byte of a <code>CR</code>.</p>
 <tr>
 <td><code>ra_idx</code></td>
 <td><a href="../../reference/isa/operand-types/#lridx"><code>LrIdx</code></a></td>
-<td><code>LR0</code>-<code>LR15</code>. Start element of the <code>Ra</code> window (section 3.3).</td>
+<td><code>LR0</code>-<code>LR15</code> whose value is <code>0</code> (<code>R0</code>) or <code>128</code> (<code>R1</code>) (section 3.2).</td>
 </tr>
 <tr>
 <td><code>cr_idx</code></td>
 <td><a href="../../reference/isa/operand-types/#cridx"><code>CrIdx</code></a></td>
-<td><code>CR0</code>-<code>CR15</code>. Supplies the scalar in bits <code>[7:0]</code>.</td>
+<td><code>CR0</code>-<code>CR15</code>. Supplies the scalar, a constant (<a href="../ARCH-ipu-top/#84-nx-constant">IPU ARCH 8.4</a>).</td>
 </tr>
 <tr>
 <td><code>mask_offset</code></td>
 <td><a href="../../reference/isa/operand-types/#multmaskoffsetimmediate"><code>Imm</code></a></td>
-<td><code>0</code>-<code>7</code>. <code>R_MASK</code> slot (section 3.4).</td>
+<td><code>0</code>-<code>7</code>. <code>R_MASK</code> slot (section 3.3).</td>
 </tr>
 <tr>
 <td><code>mask_shift</code></td>
 <td><a href="../../reference/isa/operand-types/#lridx"><code>LrIdx</code></a></td>
-<td><code>LR0</code>-<code>LR15</code>. Mask shift, <code>-3</code>-<code>+3</code> (section 3.4).</td>
+<td><code>LR0</code>-<code>LR15</code>. Mask shift, <code>-3</code>-<code>+3</code> (section 3.3).</td>
 </tr>
 <tr>
-<td><code>dstructure_cr_idx</code></td>
-<td><a href="../../reference/isa/operand-types/#cridx"><code>CrIdx</code></a></td>
-<td><code>CR0</code>-<code>CR15</code>. Supplies <code>num_partition</code> and <code>pad_mode</code> (section 3.1).</td>
+<td><code>ds</code></td>
+<td><a href="../../reference/isa/operand-types/#halfcridx"><code>HalfCrIdx</code></a></td>
+<td><code>CR0.L</code>-<code>CR15.H</code>. Supplies <code>num_partitions</code> and <code>mask_type</code> (<a href="../ARCH-ipu-top/#82-data-structure-ds">IPU ARCH 8.2</a>).</td>
 </tr>
 <tr>
-<td><code>quantizion_format</code></td>
-<td><a href="../../reference/isa/operand-types/#cridx"><code>CrIdx</code></a></td>
-<td><code>CR0</code>-<code>CR15</code>. Supplies the NX8 format of the input elements (section 3.2).</td>
+<td><code>qf</code></td>
+<td><a href="../../reference/isa/operand-types/#halfcridx"><code>HalfCrIdx</code></a></td>
+<td><code>CR0.L</code>-<code>CR15.H</code>. Supplies the NX8 format of the input elements (<a href="../ARCH-ipu-top/#81-quantization-format-qf">IPU ARCH 8.1</a>).</td>
 </tr>
 </tbody>
 </table>
 <h4 id="operation_6">Operation<a class="headerlink" href="#operation_6" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a>for i in 0..127:
-</span><span id="__span-24-2"><a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a>    MULT_RES[i] = Ra[ra_idx + i] x cr_idx[7:0]
-</span><span id="__span-24-3"><a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a>apply_mask(mask_offset, mask_shift, dstructure_cr_idx)
+<div class="language-text highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>for i in 0..127:
+</span><span id="__span-22-2"><a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a>    MULT_RES[i] = Ra[ra_idx + i] x constant(cr_idx)          // IPU ARCH 8.4
+</span><span id="__span-22-3"><a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a>apply_mask(mask_offset, mask_shift, ds)
 </span></code></pre></div>
 <h4 id="example_7">Example<a class="headerlink" href="#example_7" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a>MULT.VE LR0, CR3, 0, LR2, CR15, CR14;;
+<div class="language-text highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>MULT.VE LR0, CR3, 0, LR2, CR15.L, CR14.L;;
 </span></code></pre></div>
 <hr />
 <h3 id="49-multee-ra-element-x-cr-scalar-broadcast">4.9 <code>MULT.EE</code>: Ra Element x CR Scalar, Broadcast<a class="headerlink" href="#49-multee-ra-element-x-cr-scalar-broadcast" title="Permanent link">&para;</a></h3>
-<p>Multiplies one element of <code>Ra</code> by the low byte of a <code>CR</code> and writes the
+<p>Multiplies one element of <code>Ra</code> by a <code>CR</code> constant and writes the
 product to all 128 elements.</p>
 <h4 id="syntax_8">Syntax<a class="headerlink" href="#syntax_8" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a>MULT.EE ra_idx, cr_idx, mask_offset, mask_shift, dstructure_cr_idx, quantizion_format
+<div class="language-text highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a>MULT.EE ra_idx, cr_idx, mask_offset, mask_shift, ds, qf
 </span></code></pre></div>
 <h4 id="operands_8">Operands<a class="headerlink" href="#operands_8" title="Permanent link">&para;</a></h4>
 <p>The Type column links to the <a href="../../reference/isa/operand-types/">operand type reference</a>.</p>
@@ -3811,44 +3671,76 @@ product to all 128 elements.</p>
 <tr>
 <td><code>ra_idx</code></td>
 <td><a href="../../reference/isa/operand-types/#lridx"><code>LrIdx</code></a></td>
-<td><code>LR0</code>-<code>LR15</code>. The <code>Ra</code> element, <code>Ra[ra_idx]</code> (section 3.3).</td>
+<td><code>LR0</code>-<code>LR15</code>. The <code>Ra</code> element, <code>Ra[ra_idx]</code> (section 3.2).</td>
 </tr>
 <tr>
 <td><code>cr_idx</code></td>
 <td><a href="../../reference/isa/operand-types/#cridx"><code>CrIdx</code></a></td>
-<td><code>CR0</code>-<code>CR15</code>. Supplies the scalar in bits <code>[7:0]</code>.</td>
+<td><code>CR0</code>-<code>CR15</code>. Supplies the scalar, a constant (<a href="../ARCH-ipu-top/#84-nx-constant">IPU ARCH 8.4</a>).</td>
 </tr>
 <tr>
 <td><code>mask_offset</code></td>
 <td><a href="../../reference/isa/operand-types/#multmaskoffsetimmediate"><code>Imm</code></a></td>
-<td><code>0</code>-<code>7</code>. <code>R_MASK</code> slot (section 3.4).</td>
+<td><code>0</code>-<code>7</code>. <code>R_MASK</code> slot (section 3.3).</td>
 </tr>
 <tr>
 <td><code>mask_shift</code></td>
 <td><a href="../../reference/isa/operand-types/#lridx"><code>LrIdx</code></a></td>
-<td><code>LR0</code>-<code>LR15</code>. Mask shift, <code>-3</code>-<code>+3</code> (section 3.4).</td>
+<td><code>LR0</code>-<code>LR15</code>. Mask shift, <code>-3</code>-<code>+3</code> (section 3.3).</td>
 </tr>
 <tr>
-<td><code>dstructure_cr_idx</code></td>
-<td><a href="../../reference/isa/operand-types/#cridx"><code>CrIdx</code></a></td>
-<td><code>CR0</code>-<code>CR15</code>. Supplies <code>num_partition</code> and <code>pad_mode</code> (section 3.1).</td>
+<td><code>ds</code></td>
+<td><a href="../../reference/isa/operand-types/#halfcridx"><code>HalfCrIdx</code></a></td>
+<td><code>CR0.L</code>-<code>CR15.H</code>. Supplies <code>num_partitions</code> and <code>mask_type</code> (<a href="../ARCH-ipu-top/#82-data-structure-ds">IPU ARCH 8.2</a>).</td>
 </tr>
 <tr>
-<td><code>quantizion_format</code></td>
-<td><a href="../../reference/isa/operand-types/#cridx"><code>CrIdx</code></a></td>
-<td><code>CR0</code>-<code>CR15</code>. Supplies the NX8 format of the input elements (section 3.2).</td>
+<td><code>qf</code></td>
+<td><a href="../../reference/isa/operand-types/#halfcridx"><code>HalfCrIdx</code></a></td>
+<td><code>CR0.L</code>-<code>CR15.H</code>. Supplies the NX8 format of the input elements (<a href="../ARCH-ipu-top/#81-quantization-format-qf">IPU ARCH 8.1</a>).</td>
 </tr>
 </tbody>
 </table>
 <h4 id="operation_7">Operation<a class="headerlink" href="#operation_7" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a>product = Ra[ra_idx] x cr_idx[7:0]
-</span><span id="__span-27-2"><a id="__codelineno-27-2" name="__codelineno-27-2" href="#__codelineno-27-2"></a>for i in 0..127:
-</span><span id="__span-27-3"><a id="__codelineno-27-3" name="__codelineno-27-3" href="#__codelineno-27-3"></a>    MULT_RES[i] = product
-</span><span id="__span-27-4"><a id="__codelineno-27-4" name="__codelineno-27-4" href="#__codelineno-27-4"></a>apply_mask(mask_offset, mask_shift, dstructure_cr_idx)
+<div class="language-text highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a>product = Ra[ra_idx] x constant(cr_idx)                    // IPU ARCH 8.4
+</span><span id="__span-25-2"><a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a>for i in 0..127:
+</span><span id="__span-25-3"><a id="__codelineno-25-3" name="__codelineno-25-3" href="#__codelineno-25-3"></a>    MULT_RES[i] = product
+</span><span id="__span-25-4"><a id="__codelineno-25-4" name="__codelineno-25-4" href="#__codelineno-25-4"></a>apply_mask(mask_offset, mask_shift, ds)
 </span></code></pre></div>
 <h4 id="example_8">Example<a class="headerlink" href="#example_8" title="Permanent link">&para;</a></h4>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a>MULT.EE LR0, CR3, 0, LR2, CR15, CR14;;
+<div class="language-text highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a>MULT.EE LR0, CR3, 0, LR2, CR15.L, CR14.L;;
 </span></code></pre></div>
+<h2 id="5-disagreements-with-the-emulator">5. Disagreements with the Emulator<a class="headerlink" href="#5-disagreements-with-the-emulator" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Topic</th>
+<th>Spec</th>
+<th>Emulator</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Load mnemonics</td>
+<td><code>LDR_MULT_REG</code>, <code>LDR_CYCLIC_MULT_REG</code> and <code>LDR_MULT_MASK_REG</code>.</td>
+<td><code>LD.MULT</code>, <code>LD.MULT.CYCLIC</code> and <code>LD.MASK</code>.</td>
+</tr>
+<tr>
+<td><code>R_CYCLIC</code> start index</td>
+<td>Section 3.2.</td>
+<td>Any value, modulo 512.</td>
+</tr>
+<tr>
+<td><code>MULT.VE</code> <code>ra_idx</code></td>
+<td><code>0</code> (<code>R0</code>) or <code>128</code> (<code>R1</code>).</td>
+<td>Any value, modulo 256. The vector is 128 consecutive elements of <code>Ra</code> and can cross from <code>R0</code> to <code>R1</code>.</td>
+</tr>
+<tr>
+<td><code>mask_type = 3</code></td>
+<td>The pad value is <code>NaN</code>.</td>
+<td>Configuration error.</td>
+</tr>
+</tbody>
+</table>
 
 
 
@@ -3871,7 +3763,7 @@ product to all 128 elements.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 23, 2026 12:16:35 UTC"><span class="timeago" datetime="2026-10-23T12:16:35+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 23, 2026 12:16:35 UTC">2026-10-23</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 31, 2026 16:35:15 UTC"><span class="timeago" datetime="2026-10-31T16:35:15+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 31, 2026 16:35:15 UTC">2026-10-31</span>
   </span>
 
     
