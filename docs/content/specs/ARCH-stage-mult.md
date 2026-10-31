@@ -46,9 +46,9 @@ flowchart LR
 
     subgraph STAGE["MULT Stage"]
         LDW["Load<br>Registers"]:::blk
-        RA["R0 / R1<br>2 x 128 x 8-bit"]:::blk
-        RC["R_CYCLIC<br>512 x 8-bit"]:::blk
-        RMASK["R_MASK<br>8 x 128-bit"]:::blk
+        RA["R0 / R1<br>2 x 128 x 8-bit"]:::reg
+        RC["R_CYCLIC<br>512 x 8-bit"]:::reg
+        RMASK["R_MASK<br>8 x 128-bit"]:::reg
         SEL["Operand<br>Select"]:::blk
         MUL["Multiply"]:::blk
         MASK["Mask"]:::blk
@@ -70,6 +70,7 @@ flowchart LR
 
     classDef io fill:none,stroke:none
     classDef blk fill:#2e9e8c,stroke:#1a7060,color:#fff
+    classDef reg fill:#e6b800,stroke:#b38a00,color:#000
     style STAGE fill:none,stroke:#888,stroke-width:2px
 ```
 

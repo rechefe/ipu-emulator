@@ -48,7 +48,7 @@ flowchart LR
             ALU["Accumulate /<br>Aggregate"]:::blk
             PERM["Stride /<br>Reshape"]:::blk
         end
-        RACC["R_ACC<br>128 x 32-bit"]:::blk
+        RACC["R_ACC<br>128 x 32-bit"]:::reg
         BYP["BYPASS"]:::io
     end
 
@@ -62,6 +62,7 @@ flowchart LR
 
     classDef io fill:none,stroke:none
     classDef blk fill:#2e9e8c,stroke:#1a7060,color:#fff
+    classDef reg fill:#e6b800,stroke:#b38a00,color:#000
     style STAGE fill:none,stroke:#888,stroke-width:2px
     style OPS fill:none,stroke:#888,stroke-dasharray:5 5
 ```

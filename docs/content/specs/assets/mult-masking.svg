@@ -2,7 +2,7 @@
   <!-- Element masking: mask_offset selects an R_MASK slot; shift chains build every shift; mask_shift selects one -->
   <defs><marker id="ah" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#444"/></marker></defs>
   <rect width="1090" height="545" fill="#ffffff"/>
-  <rect x="30" y="150" width="80" height="240" rx="4" fill="#eef0f0" stroke="#444" stroke-width="1.5"/>
+  <rect x="30" y="150" width="80" height="240" rx="4" fill="#e6b800" stroke="#b38a00" stroke-width="1.5"/>
   <text x="70" y="275" text-anchor="middle" font-size="13" fill="#222" font-weight="bold">R_MASK</text>
   <polyline points="110,165 130,165" stroke="#444" stroke-width="1.5" fill="none"/>
   <polyline points="190,165 210,165" stroke="#444" stroke-width="1.5" fill="none"/>

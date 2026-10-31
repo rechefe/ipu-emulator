@@ -68,9 +68,11 @@ block-beta
 
     classDef io fill:none,stroke:none
     classDef blk fill:#2e9e8c,stroke:#1a7060,color:#fff
+    classDef reg fill:#e6b800,stroke:#b38a00,color:#000
     classDef title fill:none,stroke:none,font-weight:bold
     class ACC_OUT,INSTR,NX_OUT,XMEM_ADDR,INS,OUTS io
-    class ACT,QUANT,LUT blk
+    class ACT,QUANT blk
+    class LUT reg
     class TITLE title
     style STAGE fill:none,stroke:#888,stroke-width:2px
 ```

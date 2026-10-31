@@ -20,7 +20,7 @@ following tasks:
     - 3.1 [Fetch](#31-fetch)
     - 3.2 [Operand Resolution](#32-operand-resolution)
     - 3.3 [XMEM Address](#33-xmem-address)
-    - 3.4 [Stalls and Faults](#34-stalls-and-faults)
+    - 3.4 [Stalls](#34-stalls)
 4. [Control ISA](#4-control-isa)
     - 4.1 [`NOP`: No Operation](#41-nop-no-operation)
     - 4.2 [`SET`: Set Loop Register](#42-set-set-loop-register)
@@ -31,47 +31,77 @@ following tasks:
     - 4.7 [`BEQ`, `BNE`, `BLT.S`, `BGE.S`: Conditional Branch](#47-beq-bne-blts-bges-conditional-branch)
     - 4.8 [`BR`: Branch Register](#48-br-branch-register)
     - 4.9 [`HALT`: End the Kernel](#49-halt-end-the-kernel)
+5. [Disagreements with the Emulator](#5-disagreements-with-the-emulator)
 
 ## 2. Block Diagram
 
 ```mermaid
-flowchart LR
-    HOST["host<br>kernels, CR values"]:::io
-    XMEM_STATUS["XMEM status"]:::io
-    OUT_INSTR["Instruction<br>+ operand values"]:::io
-    OUT_READ["XMEM read<br>address"]:::io
-    OUT_WRITE["XMEM write<br>address"]:::io
-
-    subgraph STAGE["Control Stage"]
-        IMEM["IMEM<br>2 banks"]:::blk
-        PC_REG["PC"]:::blk
-        CR_FILE["CR<br>2 x 16 x 32-bit"]:::blk
-        LR_FILE["LR<br>16 x 32-bit"]:::blk
-        BRANCH["Branch"]:::blk
-        LR_UPDATE["LR<br>Update"]:::blk
-        RESOLVE["Operand<br>Resolve"]:::blk
+block-beta
+    columns 11
+    block:INS:1
+        columns 1
+        space
+        space
+        space
+        space
+        HOST["host<br>kernels, CR values"]
+        space
+        space
+        XMEM_STATUS["XMEM status"]
+        space
+    end
+    space
+    block:STAGE:7
+        columns 7
+        TITLE["Control Stage"] space:6
+        PC_REG["PC"] space:3 BRANCH["Branch"] space:2
+        space:7
+        IMEM["IMEM<br>2 banks"] space BUS["word, CR"] space LR_UPDATE["LR Update"] space LR_FILE["LR<br>16 x 32-bit"]
+        space:7
+        CR_FILE["CR<br>2 x 16 x 32-bit"] space:6
+        space:7
+        space:4 RESOLVE["Operand Resolve"]:3
+        space:7
+    end
+    space
+    block:OUTS:1
+        columns 1
+        space
+        space
+        space
+        space
+        space
+        space
+        OUT_INSTR["Instruction<br>+ operand values"]
+        OUT_READ["XMEM read<br>address"]
+        OUT_WRITE["XMEM write<br>address"]
     end
 
+    PC_REG --> IMEM
+    BRANCH --> PC_REG
+    IMEM --> BUS
+    CR_FILE --> BUS
+    BUS --> BRANCH
+    BUS --> LR_UPDATE
+    BUS --> RESOLVE
+    LR_UPDATE <--> LR_FILE
+    LR_FILE --> BRANCH
+    LR_FILE --> RESOLVE
     HOST --> IMEM
     HOST --> CR_FILE
-    PC_REG --> IMEM
-    IMEM --> BRANCH
-    IMEM --> LR_UPDATE
-    IMEM --> RESOLVE
-    CR_FILE --> BRANCH
-    CR_FILE --> LR_UPDATE
-    CR_FILE --> RESOLVE
-    LR_FILE --> BRANCH
-    LR_UPDATE <--> LR_FILE
-    LR_FILE --> RESOLVE
-    BRANCH --> PC_REG
-    XMEM_STATUS ----> RESOLVE
+    XMEM_STATUS --> RESOLVE
     RESOLVE --> OUT_INSTR
     RESOLVE --> OUT_READ
     RESOLVE --> OUT_WRITE
 
     classDef io fill:none,stroke:none
     classDef blk fill:#2e9e8c,stroke:#1a7060,color:#fff
+    classDef reg fill:#e6b800,stroke:#b38a00,color:#000
+    classDef title fill:none,stroke:none,font-weight:bold
+    class HOST,XMEM_STATUS,OUT_INSTR,OUT_READ,OUT_WRITE,INS,OUTS,BUS io
+    class BRANCH,LR_UPDATE,RESOLVE blk
+    class PC_REG,IMEM,CR_FILE,LR_FILE reg
+    class TITLE title
     style STAGE fill:none,stroke:#888,stroke-width:2px
 ```
 
@@ -109,13 +139,10 @@ The stage computes the row address of each XMEM access
 | `LD.LUT` | Read | `table_id` | `table_offset` |
 | `ACTIVATE.QUANTIZE` | Write | `table_id` | `table_offset` |
 
-### 3.4 Stalls and Faults
+### 3.4 Stalls
 
-**Stall.** The stage stalls a word until its XMEM rows are ready. A stalled word
+The stage stalls a word until its XMEM rows are ready. A stalled word
 changes no state: its `LR` writes and its PC update take effect when it moves on.
-
-**Faults.** The stage detects every fault before the word takes effect
-([Faults](../requirements/faults.md)).
 
 ## 4. Control ISA
 
@@ -126,8 +153,7 @@ The opcode enums (`cond_inst_opcode_t` and `lr_inst_opcode_t`, package
 [`instruction_spec.py`](../../../src/ipu-isa/src/ipu_isa/instruction_spec.py)
 by [`sv_package.py`](../../../src/ipu-gen/src/ipu_gen/sv_package.py).
 
-> **Note:** Two `LR` slots of one word cannot write the same `LR`: this is fault
-> F-3.
+> **Note:** Two `LR` slots of one word cannot write the same `LR`.
 
 **Instructions in this section:**
 
@@ -436,3 +462,13 @@ None.
 ```text
 HALT;;
 ```
+
+## 5. Disagreements with the Emulator
+
+| Topic | Spec | Emulator |
+|-------|------|----------|
+| `BR` target above the last IMEM word | `PC` has `log2(IMEM_BANK_DEPTH)` bits ([IPU ARCH 4](ARCH-ipu-top.md#4-architectural-state)). | Uses the full 32-bit value and stops the run. |
+| `PC` after `HALT` | `PC` has `log2(IMEM_BANK_DEPTH)` bits, so `1024` does not fit. | `1024`, one past the last IMEM word. |
+
+[IPU ARCH 14](ARCH-ipu-top.md#14-disagreements-with-the-emulator) lists the
+differences in contexts, stalls and row addresses.

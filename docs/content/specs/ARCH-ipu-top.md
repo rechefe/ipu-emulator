@@ -34,7 +34,7 @@ neural-network kernels. It performs the following tasks:
     - 8.5 [Signed Integer](#85-signed-integer)
 9. [Memory Model](#9-memory-model)
 10. [Execution Flow](#10-execution-flow)
-11. [Faults and Arithmetic Events](#11-faults-and-arithmetic-events)
+11. [Arithmetic Events](#11-arithmetic-events)
 12. [Host Control and Debug](#12-host-control-and-debug)
 13. [Parameters](#13-parameters)
 14. [Disagreements with the Emulator](#14-disagreements-with-the-emulator)
@@ -386,16 +386,12 @@ state transitions.
 > (the IPU goes to `IDLE`, or the armed kernel starts), or does the IPU enter
 > `HALTED` ([OQ-31](../requirements/open-questions.md))?
 
-## 11. Faults and Arithmetic Events
-
-A fault is an illegal state. The faulting word and all younger words have no
-architectural effect, and all older words retire. An enabled fault enters
-`HALTED`, and a disabled fault sets a sticky flag.
+## 11. Arithmetic Events
 
 Accumulator overflow, `NaN` results and quantization saturation are arithmetic
 events. They never halt.
 
-[Faults](../requirements/faults.md) lists the faults and events.
+[Arithmetic events](../requirements/faults.md#arithmetic-events) defines them.
 
 ## 12. Host Control and Debug
 
@@ -429,10 +425,12 @@ The emulator's `BREAK` and `AAQ_EXACT` slots and its FP32 mode are emulator-only
 |-------|------|----------|
 | Contexts and run states | Section 10. | One program until `HALT`, with no contexts, run states or host registers. |
 | XMEM miss | Control stalls. | No stall model. |
+| Row address | `table_id` and `offset` (section 9). | A flat row number, `0`-`16383` in NX8. A base `CR` with `table_id` bits set is out of range. |
 | Dynamic format | Section 8.1. | Only `sign = 1` and `num_bits = 8`. |
 | `NaN` in NX8 | Section 7.1. | No `NaN` code. |
 
 The stage-level differences are in section 5 of
+[Control Stage ARCH](ARCH-stage-ctrl.md),
 [Multiply Stage ARCH](ARCH-stage-mult.md),
 [Accumulator Stage ARCH](ARCH-stage-acc.md) and
 [AaQ Stage ARCH](ARCH-stage-aaq-str.md).
