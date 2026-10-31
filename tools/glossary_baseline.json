@@ -40,10 +40,5 @@
     "VLIW word": 2,
     "dtype": 3,
     "program counter": 3
-  },
-  "docs/content/specs/stage-control.md": {
-    "VLIW word": 16,
-    "program counter": 3,
-    "snapshot": 9
   }
 }

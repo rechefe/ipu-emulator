@@ -153,7 +153,7 @@ nav:
           - Accumulator Stage MAS: specs/MAS-stage-accumulator.md
           - Accumulator Stage ARCH: specs/ARCH-stage-acc.md
           - Multiply Stage ARCH: specs/ARCH-stage-mult.md
-          - Control Stage Specification: specs/stage-control.md
+          - Control Stage ARCH: specs/ARCH-stage-ctrl.md
           - RISC-V Host Integration: specs/riscv-host-integration.md
           - Mnemonic rename (SV names): specs/mnemonic-rename.md
           - RTL migration (SV package): specs/rtl-migration.md

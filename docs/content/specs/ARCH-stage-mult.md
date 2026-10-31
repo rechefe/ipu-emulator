@@ -177,8 +177,8 @@ All other bits are `1`. The vectors for each `num_partitions`, element `0` first
 ## 4. Multiply ISA
 
 The MULT and LOAD slots are resolved by CTRL and forwarded down the pipeline. The stage
-does not read the CR/LR register files itself (see the Control Stage spec,
-section 5).
+does not read the CR/LR register files itself (see the [Control Stage spec](ARCH-stage-ctrl.md),
+section 3.2).
 
 The opcode enum (`mult_inst_opcode_t`, package `ipu_instr_pkg`) is generated
 from [`instruction_spec.py`](../../../src/ipu-isa/src/ipu_isa/instruction_spec.py)

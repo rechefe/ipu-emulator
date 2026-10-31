@@ -66,7 +66,7 @@ block-beta
 |-------|------|------------|
 | RISC-V | The host. Loads kernels, and controls and debugs the IPU. | Section 12 |
 | XMEM | The IPU's external memory. | [Cache Unit Specification](cache-unit.md) |
-| Control | Holds the PC, the IMEM banks, the CR banks and the LR file. Fetches words, resolves branches and operand values, and executes the LR slots. | Sections 5 and 6 |
+| Control | Holds the PC, the IMEM banks, the CR banks and the LR file. Fetches words, resolves branches and operand values, and executes the LR slots. | [Control Stage ARCH](ARCH-stage-ctrl.md) |
 | Mult and Load | Loads XMEM rows and multiplies vectors. | [MULT Stage ARCH](ARCH-stage-mult.md) |
 | Accumulator | Combines the multiply result into `R_ACC`. | [ACC Stage ARCH](ARCH-stage-acc.md) |
 | Activation and Quantization | Activates and quantizes a vector, and writes it to XMEM. | [AaQ Stage ARCH](ARCH-stage-aaq-str.md) |
@@ -128,7 +128,7 @@ byte `k` of the pair:
 
 ## 5. Instruction Word
 
-A hardware word is 169 bits, with six slot types:
+A hardware word is 169 bits, with these slots:
 
 | Slot | Count | Stage | Instructions |
 |------|-------|-------|--------------|

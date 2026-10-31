@@ -22,7 +22,7 @@
 Today the Python emulator is driven *directly* from Python: a test or app
 harness builds an `IpuState`, loads a program, sets `CR` registers, and calls
 `run_until_complete()`. The real hardware works differently — the
-[Control Stage spec](stage-control.md) and the
+[Control Stage ARCH](ARCH-stage-ctrl.md) and the
 [Cache Unit spec](cache-unit.md) both describe an **external RISC-V host** that
 configures and sequences the IPU over an **APB** slave port: it writes the
 instruction memory and the `CR` file (inactive banks), triggers bank swaps,
@@ -173,8 +173,8 @@ separate, fully mapped region in the host address space (see below).
 - **`IMEM_MAP_SIZE`** = `IMEM_DEPTH × INSTRUCTION_ALIGNED_BYTES`, where
   `INSTRUCTION_ALIGNED_BYTES` is the per-instruction size of the assembler
   `--format bin` stream (`ipu_isa.codec.word.word_bytes()`). The emulator uses `INST_MEM_SIZE` (1024) for
-  `IMEM_DEPTH`; hardware uses `IMEM_DEPTH = 256` per
-  [stage-control.md](stage-control.md) — the SystemRDL parameter drives the
+  `IMEM_DEPTH`; hardware uses `IMEM_BANK_DEPTH` from
+  [IPU ARCH](ARCH-ipu-top.md#13-parameters) — the SystemRDL parameter drives the
   generated map size.
 - **Contents.** The mapped region is a verbatim image of the assembled binary:
   each VLIW occupies `INSTRUCTION_ALIGNED_BYTES` bytes, 32-bit-word-aligned. On

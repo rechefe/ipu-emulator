@@ -91,8 +91,8 @@ each element of `input data`. It can be `inf` or `-inf`.
 ## 4. Accumulator ISA
 
 The ACC slot is resolved by CTRL and forwarded down the pipeline. The stage
-does not read the CR/LR register files itself (see the Control Stage spec,
-section 5).
+does not read the CR/LR register files itself (see the [Control Stage spec](ARCH-stage-ctrl.md),
+section 3.2).
 
 The opcode enum (`acc_inst_opcode_t`, package `ipu_instr_pkg`) is generated
 from [`instruction_spec.py`](../../../src/ipu-isa/src/ipu_isa/instruction_spec.py)
