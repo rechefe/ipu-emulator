@@ -3,7 +3,7 @@
 
 ``unfold_*`` stores each of its four phases (streams) as one row per channel,
 the first ``n_tok`` lanes valid; what the other lanes hold is the kernel's
-business (stale R_ACC at L4, zero at L5). ``matmul_*_x128`` reads its data
+business (zero at L4 and L5: unfold zeroes R_ACC once). ``matmul_*_x128`` reads its data
 ``b`` as one row per channel, in the same order, and contracts each lane on
 its own: lanes past ``n_tok`` reach only output lanes past ``n_tok``. Both
 programs read their input through CR0, so the host copies one stream's

@@ -10,8 +10,8 @@
 
     Input x (unfold_16x16x192's output; one row per channel per stream):
       Stream s, channel c: row c of stream s.
-      Only lanes 0..63 of a row are valid; lanes 64..127 are unfold's stale
-      R_ACC padding and MUST be ignored -- no ACC.RESHAPE call reads past
+      Only lanes 0..63 of a row are valid; lanes 64..127 are unfold's zero
+      padding (R_ACC zeroed once at its start) and MUST be ignored -- no ACC.RESHAPE call reads past
       lane 63 of a loaded stream row.
       Row layout: lanes 0..31 = that channel's STRIPE 0 tokens, lanes 32..63
       = its STRIPE 1 tokens (see CRITICAL LAYOUT DETAIL for why this is the

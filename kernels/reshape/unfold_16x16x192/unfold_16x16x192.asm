@@ -23,7 +23,8 @@
     Output y (one channel per row, stream after stream, HALF-ROW PADDED):
       Stream s, channel c: row c of stream s.
       Each row carries 64 valid FP32 tokens in lanes 0..63; lanes 64..127
-      are R_ACC's other lanes and must be ignored by consumers. A stream
+      are zero (R_ACC's other lanes, zeroed once before the channel loop;
+      ACC.STRIDE never writes them). A stream
       contributes 2 x 32 = 64 tokens, which half-fills R_ACC;
       ACTIVATE.EXACT identity writes all 128 lanes of R_ACC as the whole
       row (CR15.L holds the default DS, ds(128)). This
@@ -97,6 +98,14 @@
 # ---------------------------------------------------------------------------
 
     LD.MULT        R0 LR4 CR0;;        # prime: stripe 0 of ch 0 (TL slot 0)
+
+    # Zero R_ACC once: ACC.STRIDE never writes lanes 64..127, so without this
+    # they would carry whatever R_ACC held at kernel start into every output
+    # row's tail (a consumer that reads whole rows would compute on it).
+    # R0 holds the primed row from the previous word (finite); x CR0 = 0, and
+    # ACC.ADD.FIRST overwrites R_ACC with the zeros.
+    MULT.EE LR0 CR0 0 LR0 CR15.L {{ cr.qf }}.L;
+    ACC.ADD.FIRST;;
 
 ch_loop:
 

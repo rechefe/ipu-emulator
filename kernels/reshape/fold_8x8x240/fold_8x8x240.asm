@@ -14,7 +14,7 @@
       Stream s, channel c: row c of stream s.
       Only lanes 0..15 of a row are valid: the 16 tokens of the 4x4 decimated
       grid, row-major (src_lane = dr*4 + dc). Lanes 16..127 are unfold's
-      stale R_ACC padding; no ACC.RESHAPE call reads past lane 15, so they
+      padding (zero past lane 31); no ACC.RESHAPE call reads past lane 15, so they
       never reach the output.
 
     Output y:
