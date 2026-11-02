@@ -67,9 +67,9 @@ ch_loop:
     MULT.VE             LR7 CR1 0 LR0 CR15.L CR15.H;
     ACC.STRIDE          64 on off LR6;
     ACTIVATE.EXACT   identity CR15.L {{ cr.out }} LR5;
-    ADD                 LR5 LR2 LR4;;
+    ADD                 LR5 LR2 LR4;
+    INC                 LR4 1;;                         # a word ahead of its BLT.S (the ADD above reads the old LR4)
 
-    INC                 LR4 1;
     BLT.S                 LR4 {{ cr.in_channels }} ch_loop;;
 
     ADD                 LR2 LR2 {{ cr.in_channels }};

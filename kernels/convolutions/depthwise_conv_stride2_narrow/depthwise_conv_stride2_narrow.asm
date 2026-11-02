@@ -91,18 +91,18 @@ ch_loop:
     ACC.STRIDE          {{ elements_in_row }} on on LR12;;
 
     ADD                 LR5 LR2 LR4;;
-    ACTIVATE.EXACT      identity CR15.L {{ cr.out }} LR5;;
+    ACTIVATE.EXACT      identity CR15.L {{ cr.out }} LR5;
+    INC                 LR4 1;;                         # a word ahead of its BLT.S (BLT.S reads the cycle start)
 
-    INC                 LR4 1;
     BLT.S                 LR4 {{ cr.in_channels }} ch_loop;;
 
-    ADD                 LR2 LR2 {{ cr.in_channels }};;
+    ADD                 LR2 LR2 {{ cr.in_channels }};
+    INC                 LR1 1;;                         # a word ahead of its BLT.S
     ADD                 LR3 LR3 {{ cr.in_channels }};;
     ADD                 LR3 LR3 {{ cr.in_channels }};;
     ADD                 LR3 LR3 {{ cr.in_channels }};;
     ADD                 LR3 LR3 {{ cr.in_channels }};;
 
-    INC                 LR1 1;
     BLT.S                 LR1 {{ cr.num_out_groups }} outgroup_loop;;
 
 end:

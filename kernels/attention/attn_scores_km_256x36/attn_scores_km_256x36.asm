@@ -140,9 +140,9 @@ c_loop_g1:
 
 after_c_g1:
     ACTIVATE.EXACT identity {{ DSTRUCT }} {{ S_BASE }} {{ out_ptr }} ;;  # store S[128:256, s] (key-major row, g=1)
-    ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;  # output ptr += 1 row
+    ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};  # output ptr += 1 row
+    ADD {{ key_index }} {{ key_index }} {{ ONE }};;    # a word ahead of its BLT.S (BLT.S reads the cycle start)
 
-    ADD {{ key_index }} {{ key_index }} {{ ONE }};
     BLT.S {{ key_index }} {{ key_limit }} s_loop;;  # next key
 
 end:
