@@ -1,7 +1,8 @@
 # softmax_rows_long: row softmax of a (rows, n) FP32 matrix with n > 128. Each
 # row spans cpr = ceil(n / 128) XMEM rows: full_chunks whole chunks and a tail
-# chunk of n % 128 elements (none when 128 divides n). Rows run in groups of
-# up to 128 (the .asm header has the passes).
+# chunk of 1..128 elements (the last chunk is the tail when 128 divides n, so
+# there is never an empty tail chunk to load). Rows run in groups of up to 128
+# (the .asm header has the passes).
 [kernel]
 op = "softmax"
 formats = ["fp32"]                                   # exp2/reciprocal on the FP32 vector path only
@@ -16,11 +17,11 @@ seed  = { type = "int", default = 0 }                # the generator's
 
 [derived]
 cpr               = "ceil(n / 128)"                  # chunks per row
-full_chunks       = "n // 128"
+full_chunks       = "(n - 1) // 128"                 # whole chunks before the tail; the last chunk of a row is always the tail"
 device_rows       = "rows * cpr"
 step              = "128 * ceil(device_rows / 128)"
 row_stride        = "1"                              # one XMEM row per chunk
-tail              = "ds(n % 128)"                    # the tail block's DS: 0 valid elements makes it a no-op
+tail              = "ds(n - 128 * full_chunks)"      # the tail block's DS: 1..128 valid elements (128 when 128 divides n)
 group_cap         = "128"                            # maxvec's R1 index base
 row_stride_chunks = "cpr"                            # XMEM rows per matrix row (a second name: one register each)
 ds_qf             = "halves(ds(128), case_qf)"       # LOW: the full-chunk DS (the default CR15); HIGH: the case's QF
@@ -83,7 +84,7 @@ seed = 0
 generator = "../gen.py:seeded_normal"
 
 # The output reads back in the input's (rows, n) layout (the old family layout
-# test: seed = rows + n), with a tail chunk and without one.
+# test: seed = rows + n), with a partial tail chunk and with a full one.
 [cases.layout_tail]
 rows = 5
 n = 300
@@ -156,31 +157,30 @@ scale = [4.0]
 seed = [7]
 generator = "../gen.py:seeded_normal"
 
-# n % 128 == 0: exactly full_chunks whole chunks, NO tail chunk. The tail
-# block still executes with valid_elements=0 (CR8), which makes its running
-# AGG.MAX/AGG.SUM exact no-ops -- so the same kernel covers this shape.
-[cases.sweep_09]  # 2 full chunks, no tail
+# n % 128 == 0: the last whole chunk is the tail, reduced with valid_elements=128
+# (CR8), so no empty tail chunk is loaded past the row.
+[cases.sweep_09]  # 1 full chunk + a 128-element tail
 rows = [6]
 n = [256]
 scale = [5.0]
 seed = [8]
 generator = "../gen.py:seeded_normal"
 
-[cases.sweep_10]  # 3 full chunks, no tail
+[cases.sweep_10]  # 2 full chunks + a 128-element tail
 rows = [6]
 n = [384]
 scale = [5.0]
 seed = [9]
 generator = "../gen.py:seeded_normal"
 
-[cases.sweep_11]  # 4 full chunks, no tail
+[cases.sweep_11]  # 3 full chunks + a 128-element tail
 rows = [4]
 n = [512]
 scale = [3.0]
 seed = [10]
 generator = "../gen.py:seeded_normal"
 
-[cases.sweep_12]  # 8 full chunks, no tail
+[cases.sweep_12]  # 7 full chunks + a 128-element tail
 rows = [2]
 n = [1024]
 scale = [4.0]
