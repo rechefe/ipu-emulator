@@ -20,6 +20,10 @@ Schema
     ``cost``: what routing (E06-16) minimises among the kernels that accept a
     query: a number (negative to prefer a kernel), or an expression in the shape grammar over
     integer parameter and derived names; default 0.
+    ``tables`` (``"file.py:fn"``): the ``[tables]`` declarations from Python,
+    for a kernel whose formulas the shape grammar cannot say: ``fn(plan)``
+    returns ``{tensor: {key: value}}`` with ``[tables]``'s keys, evaluated;
+    not with ``[tables]``.
 
 ``[params.<name>]`` (or ``<name> = { ... }`` under ``[params]``)
     ``type`` (required): ``int``, ``float``, ``bool`` or ``str``. ``min`` and
@@ -99,6 +103,24 @@ Schema
     (:mod:`ipu_harness.expressions`) build DS, QF, MULT-constant and two-half
     CR values.
 
+``[tables.<tensor>]`` (optional)
+    The XMEM tables the program uses, for the compiler that assigns Cache
+    Unit banks (:mod:`ipu_harness.tables`). A table is one region reached
+    through its ``[abi]`` base CR; its rows are the region's. Keys, each an
+    int or an expression over parameter and (not placed) derived values:
+    ``repetitions`` (default 1): traversals of its rows, a backward jump
+    larger than ``jump_back`` starting the next; ``jump_back`` (default 0):
+    the furthest the program reaches back below its highest row within a
+    repetition, in rows; ``overhead_rows`` (default 0): rows past the region
+    the program also reaches (a loop's last prefetch), which placement
+    reserves. ``whole_run`` (bool): needed from start to end, so
+    ``repetitions`` and ``jump_back`` are not taken. ``also_via``: ``[abi]``
+    names of placed values that read ``base(<tensor>)``, or ``"CR0"``, that
+    the program also reaches the table through (today's exceptions to one
+    table, one CR; reported as pending). Once a kernel declares one table,
+    every region the program reaches must be declared: each case's test
+    checks the declarations against the run.
+
 ``[cases.<name>]``
     Parameter values: a scalar, or a non-empty list (a sweep axis). Reserved
     keys: ``formats`` (a non-empty subset of the kernel's variants), ``inputs`` and
@@ -168,6 +190,7 @@ from ipu_harness._manifest_decls import (
     KERNEL_KEYS,
     PARAM_KEYS,
     SECTION_OF,
+    TABLE_KEYS,
     TENSOR_KEYS,
     TIER_KEYS,
     BenchmarkDecl,
@@ -178,12 +201,14 @@ from ipu_harness._manifest_decls import (
     ParamType,
     Role,
     Store,
+    TableDecl,
     TensorDecl,
     Tier,
     Unit,
 )
 from ipu_harness._manifest_golden import read_golden
 from ipu_harness._manifest_params import check_expression, checked_value, read_derived, read_param
+from ipu_harness._manifest_tables import read_tables
 from ipu_harness._manifest_tensors import (
     check_no_placed_reads,
     declared_tensors,
@@ -212,6 +237,8 @@ __all__ = [
     "SCHEMA_KEYS",
     "SECTION_OF",
     "Store",
+    "TABLE_KEYS",
+    "TableDecl",
     "TensorDecl",
     "Tier",
     "Unit",
@@ -237,6 +264,7 @@ _SECTIONS = (
     "cases",
     "golden",
     "benchmark",
+    "tables",
 )
 
 #: Every table of the schema and the keys it takes, in the module docstring's
@@ -253,6 +281,7 @@ SCHEMA_KEYS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "[cases.<name>] (reserved keys)": CASE_KEYS,
         "[golden]": GOLDEN_KEYS,
         "[golden] tolerance override": TIER_KEYS,
+        "[tables.<tensor>]": TABLE_KEYS,
     }
 )
 
@@ -264,6 +293,7 @@ class _KernelTable:
     asm: Path
     stages: str | None
     cost: int | float | str
+    tables: str | None
 
 
 def _kernel(r: Reader, directory: Path, raw: object) -> _KernelTable:
@@ -286,7 +316,10 @@ def _kernel(r: Reader, directory: Path, raw: object) -> _KernelTable:
         r.function(directory, table["stages"], ("kernel", "stages")) if "stages" in table else None
     )
     cost = r.typed(table.get("cost", 0), (int, float, str), ("kernel", "cost"))
-    return _KernelTable(op, formats, asm, stages, cost)
+    tables = (
+        r.function(directory, table["tables"], ("kernel", "tables")) if "tables" in table else None
+    )
+    return _KernelTable(op, formats, asm, stages, cost, tables)
 
 
 @dataclass(frozen=True)
@@ -433,6 +466,9 @@ def load_manifest(
         r, data.get("abi", {}), params, {*scalars, *tensors}, tensors, placed
     )
     check_placed_conditions(r, placed, tensors, abi_when, abi)
+    if kernel.tables is not None and "tables" in data:
+        raise r.fail(("tables",), "tables come from [kernel] tables or [tables], not both")
+    tables = read_tables(r, data.get("tables", {}), tensors, scalars, abi, placed)
     manifest = KernelManifest(
         name=entry.name or directory.name,
         directory=directory,
@@ -450,6 +486,8 @@ def load_manifest(
         stages=kernel.stages,
         fixed=entry.fixed,
         cost=kernel.cost,
+        tables=MappingProxyType(tables),
+        tables_hook=kernel.tables,
     )
     raw_cases = r.table(data.get("cases", {}), ("cases",))
     if "default" not in raw_cases:

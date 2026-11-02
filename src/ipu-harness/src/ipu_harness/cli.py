@@ -3,7 +3,7 @@
     python -m ipu_harness.cli KERNEL [--case NAME] [--format FMT|all]
         [--input NAME=PATH.npy ...] [--output DIR] [--trace PATH [--context PATH]]
         [--max-cycles N] [--list-cases] [--debug] [--profile-aliases]
-        [--alias-report PATH]
+        [--alias-report PATH] [--tables]
     python -m ipu_harness.cli KERNEL --benchmark [--format FMT|all]
         [--markdown PATH] [--json PATH]
 
@@ -15,6 +15,10 @@ entry (E06-17).
 quitting it (or Ctrl-C) ends the command with exit code 0 and no result.
 ``--profile-aliases`` prints the alias profile's summary; ``--alias-report``
 writes the profile as JSON instead (one file per format with ``--format all``).
+``--tables`` prints each XMEM table of the run (:mod:`ipu_harness.tables`):
+what the program did with it and every finding against the kernel's
+``[tables]``; for a kernel that declares none, a ``[tables]`` section that
+matches the run, to start one from. An error finding fails the run.
 ``--context`` records the run for the Cycle Inspector
 (:mod:`ipu_harness.inspector`): the trace, and beside it the context a
 viewer needs. This module is the only one in ``ipu_harness`` that reads the
@@ -57,6 +61,7 @@ from ipu_harness.family import ENTRY_SEPARATOR, load_kernel, split_ref
 from ipu_harness.inspector import InspectorRecorder
 from ipu_harness.manifest import KernelManifest
 from ipu_harness.runner import RunOptions, RunResult, run_kernel
+from ipu_harness.tables import declares_tables
 from ipu_harness.variants import Variant, variant
 from ipu_isa.errors import IpuError
 
@@ -141,6 +146,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="write the alias profile as JSON instead (implies profiling; "
         "with --format all, PATH.<format>.json each)",
     )
+    parser.add_argument(
+        "--tables",
+        action="store_true",
+        help="print each XMEM table the run used and the findings against [tables]",
+    )
     return parser
 
 
@@ -224,6 +234,7 @@ def _options(
         debug=debug,
         executor=recorder,
         alias_profile=args.profile_aliases or args.alias_report is not None,
+        tables=args.tables,
     )
 
 
@@ -241,6 +252,17 @@ def _report_profile(args: argparse.Namespace, result: RunResult, many: bool) -> 
         return
     report = _per_format(_caller(args.alias_report), result.format, many)
     report.write_text(profile.to_json(indent=2) + "\n")
+
+
+def _report_tables(manifest: KernelManifest, result: RunResult) -> bool:
+    """Print the run's tables (``--tables``); whether they hold no error."""
+    report = result.tables
+    if report is None:
+        return True
+    print(report.describe())
+    if not declares_tables(manifest):
+        print(report.suggestion())
+    return not report.errors
 
 
 def _run(args: argparse.Namespace) -> int:
@@ -271,7 +293,7 @@ def _run(args: argparse.Namespace) -> int:
         if result.quit:  # the user quit the debugger: no result, and no more runs
             return 0
         _report_profile(args, result, len(formats) > 1)
-        passed = passed and result.passed
+        passed = passed and result.passed and _report_tables(manifest, result)
     return 0 if passed else 1
 
 
@@ -286,6 +308,7 @@ _RUN_ONLY: Mapping[str, Callable[[argparse.Namespace], bool]] = {
     "--debug": lambda a: a.debug,
     "--profile-aliases": lambda a: a.profile_aliases,
     "--alias-report": lambda a: a.alias_report is not None,
+    "--tables": lambda a: a.tables,
 }
 
 

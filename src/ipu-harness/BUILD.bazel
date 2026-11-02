@@ -232,6 +232,17 @@ py_pytest_test(
     ],
 )
 
+# XMEM table declarations ([tables]) held to the scale kernel's runs.
+py_pytest_test(
+    name = "test_tables",
+    srcs = ["test/test_tables.py"],
+    deps = [
+        ":ipu_harness_lib",
+        ":scale_kernel",
+        requirement("pytest"),
+    ],
+)
+
 # Benchmarks from [benchmark] (E06-11), with torch for the scale kernel's reference.
 py_pytest_test(
     name = "test_benchmark",

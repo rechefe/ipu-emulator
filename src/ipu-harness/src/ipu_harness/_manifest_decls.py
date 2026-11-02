@@ -32,7 +32,7 @@ SECTION_OF: Mapping[Role, str] = {role: section for section, role in ROLES.items
 #: The keys each table takes (``manifest.SCHEMA_KEYS`` lists them for the
 #: reference page).
 BENCHMARK_KEYS = ("points", "per", "max_cycles")
-KERNEL_KEYS = ("op", "formats", "asm", "stages", "cost")
+KERNEL_KEYS = ("op", "formats", "asm", "stages", "cost", "tables")
 PARAM_KEYS = ("type", "min", "max", "multiple_of", "choices", "default", "unit", "query_required")
 TENSOR_KEYS: Mapping[Role, tuple[str, ...]] = {
     "input": ("shape", "row", "after", "when", "pack", "range"),
@@ -43,6 +43,43 @@ CASE_KEYS = ("formats", "inputs", "expected", "generator", "tier")
 GOLDEN_KEYS = ("reference", "op", "tolerance")
 TIER_KEYS = ("tier", "rtol", "atol", "ulps", "why")
 BINDING_KEYS = ("register", "offset", "when")
+
+
+#: The keys of one ``[tables.<tensor>]`` entry.
+TABLE_KEYS = ("repetitions", "jump_back", "overhead_rows", "whole_run", "also_via")
+
+#: An ``also_via`` entry naming the hardwired zero: the program reaches the
+#: table through ``CR0`` with absolute rows in the offset LR.
+ZERO_VIEW = "CR0"
+
+
+@dataclass(frozen=True)
+class TableDecl:
+    """One table's declaration, as written (expressions not yet evaluated).
+
+    Attributes:
+        name: The tensor whose region the table is.
+        repetitions: Traversals of its rows: a backward jump larger than
+            ``jump_back`` starts the next one.
+        jump_back: The furthest the program reaches back below the highest
+            row it has reached within one repetition, in rows.
+        overhead_rows: Rows past the region the program also reaches (a
+            loop's last prefetch): reserved with it and checked as its rows.
+        whole_run: The table is needed from start to end (a reused staging
+            buffer, a constant row): ``repetitions`` and ``jump_back`` are
+            not checked.
+        also_via: Other ``[abi]`` names (a placed ``[derived]`` value such as
+            ``base(a) + 1``) or ``CR0`` that the program also reaches the
+            table through. A table has one base CR; this names today's
+            exceptions, reported as pending until the program is fixed.
+    """
+
+    name: str
+    repetitions: int | str = 1
+    jump_back: int | str = 0
+    overhead_rows: int | str = 0
+    whole_run: bool = False
+    also_via: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -197,6 +234,11 @@ class KernelManifest:
         fixed: Parameters a registry entry fixed (E06-17), with their values.
         doc: A registry entry's one-line description, if any.
         registry: The ``registry.toml`` that declares this kernel, for an entry.
+        benchmark: The ``[benchmark]`` points, if any.
+        tables: The ``[tables]`` declarations, by tensor name (empty when the
+            kernel declares none, or declares them in ``tables_hook``).
+        tables_hook: ``"tables.py:fn"`` (``[kernel] tables``), whose
+            ``fn(plan)`` returns the declarations as ``[tables]`` spells them.
     """
 
     name: str
@@ -218,6 +260,8 @@ class KernelManifest:
     doc: str | None = None
     registry: Path | None = None
     benchmark: BenchmarkDecl | None = None
+    tables: Mapping[str, TableDecl] = field(default_factory=lambda: MappingProxyType({}))
+    tables_hook: str | None = None
 
     @property
     def label(self) -> str:

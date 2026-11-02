@@ -39,17 +39,26 @@ class Region:
         role: ``input``, ``output`` or ``scratch``.
         base_row: Its first row.
         rows: The rows it occupies.
+        overhead_rows: Rows reserved past its last one, which no other region
+            takes: a table's overhead rows (``[tables]``, a loop's last
+            prefetch). Nothing is written to them.
     """
 
     name: str
     role: Role
     base_row: int
     rows: int
+    overhead_rows: int = 0
 
     @property
     def end_row(self) -> int:
         """One past its last row."""
         return self.base_row + self.rows
+
+    @property
+    def reserved_end(self) -> int:
+        """One past its last reserved row: its overhead rows included."""
+        return self.end_row + self.overhead_rows
 
 
 @dataclass(frozen=True)
@@ -129,12 +138,12 @@ def _key(tensor: TensorDecl) -> str:
 
 
 def _check_fits(plan: CasePlan, tensor: TensorDecl, region: Region, capacity: int) -> None:
-    if region.end_row <= capacity:
+    if region.reserved_end <= capacity:
         return
     where = (
         f"pinned at row {region.base_row} needs {region.rows} rows"
         if tensor.name in plan.pins
-        else f"needs rows {region.base_row}..{region.end_row - 1}"
+        else f"needs rows {region.base_row}..{region.reserved_end - 1}"
     )
     raise PlanError(
         plan.manifest,
@@ -144,34 +153,41 @@ def _check_fits(plan: CasePlan, tensor: TensorDecl, region: Region, capacity: in
 
 
 def _pinned(
-    plan: CasePlan, rows: Mapping[str, int], capacity: int, extra: Mapping[str, int]
+    plan: CasePlan,
+    rows: Mapping[str, int],
+    capacity: int,
+    extra: Mapping[str, int],
+    overhead: Mapping[str, int],
 ) -> list[Region]:
     pins: list[Region] = []
     for tensor in plan.manifest.tensors.values():
         row = extra.get(tensor.name, plan.pins.get(tensor.name))
         if row is None:
             continue
-        region = Region(tensor.name, tensor.role, row, rows[tensor.name])
+        region = Region(
+            tensor.name, tensor.role, row, rows[tensor.name], overhead.get(tensor.name, 0)
+        )
         _check_fits(plan, tensor, region, capacity)
         for other in pins:
-            if region.base_row < other.end_row and other.base_row < region.end_row:
+            if region.base_row < other.reserved_end and other.base_row < region.reserved_end:
                 raise PlanError(
                     plan.manifest,
                     _key(tensor),
-                    f"{region.name} (rows {region.base_row}..{region.end_row - 1}) overlaps "
-                    f"{other.name} (rows {other.base_row}..{other.end_row - 1})",
+                    f"{region.name} (rows {region.base_row}..{region.reserved_end - 1}) overlaps "
+                    f"{other.name} (rows {other.base_row}..{other.reserved_end - 1})",
                 )
         pins.append(region)
     return pins
 
 
 def _first_fit(taken: list[Region], rows: int) -> int:
-    """The lowest row where ``rows`` free rows start, around the regions ``taken``."""
+    """The lowest row where ``rows`` free rows start, around the regions ``taken``
+    and their reserved rows."""
     base = 0
     for region in sorted(taken, key=lambda r: r.base_row):
         if base + rows <= region.base_row:
             return base
-        base = max(base, region.end_row)
+        base = max(base, region.reserved_end)
     return base
 
 
@@ -197,6 +213,7 @@ def place(
     pins: Mapping[str, int] | None = None,
     reserved: Mapping[str, tuple[int, int]] | None = None,
     avoid: Iterable[tuple[int, int]] = (),
+    overhead: Mapping[str, int] | None = None,
 ) -> Placement:
     """Place every tensor of ``plan``. Takes the plan as checked; checks no parameter.
 
@@ -211,6 +228,10 @@ def place(
             places around them; a pin on them is an error.
         avoid: Rows first fit leaves free besides, as ``(base row, rows)``;
             a pin on them is fine.
+        overhead: Rows to reserve past a region, by tensor name (a table's
+            ``overhead_rows``, :func:`ipu_harness.tables.overhead_rows`):
+            first fit places no region on them, and a pin's may not overlap
+            another pin. A tensor left out reserves none.
 
     Returns:
         The placement, deterministic for the plan.
@@ -227,7 +248,8 @@ def place(
     unknown = set(extra) - set(plan.manifest.tensors)
     if unknown:
         raise ValueError(f"pins for {sorted(unknown)}, which are no tensors")
-    taken = _pinned(plan, rows, capacity, extra)
+    reserve = dict(overhead or {})
+    taken = _pinned(plan, rows, capacity, extra, reserve)
     blocked = [Region(name, "scratch", base, n) for name, (base, n) in (reserved or {}).items()]
     fenced = blocked + [Region("(avoided)", "scratch", base, n) for base, n in avoid]
     for region in taken:
@@ -241,14 +263,15 @@ def place(
                 )
     for tensor in placement_order(plan.manifest.tensors.values()):
         if tensor.name not in plan.pins and tensor.name not in extra:
-            need = rows[tensor.name]
-            region = Region(tensor.name, tensor.role, _first_fit(taken + fenced, need), need)
+            need, spare = rows[tensor.name], reserve.get(tensor.name, 0)
+            base = _first_fit(taken + fenced, need + spare)
+            region = Region(tensor.name, tensor.role, base, need, spare)
             _check_fits(plan, tensor, region, capacity)
             taken.append(region)
     by_name = {r.name: r for r in taken}
     return Placement(
         regions=MappingProxyType({name: by_name[name] for name in plan.manifest.tensors}),
-        rows_used=max((r.end_row for r in taken), default=0),
+        rows_used=max((r.reserved_end for r in taken), default=0),
         capacity=capacity,
         reserved=tuple(blocked),
     )

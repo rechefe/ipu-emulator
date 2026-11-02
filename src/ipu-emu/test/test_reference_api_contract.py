@@ -34,6 +34,7 @@ from ipu_emu.errors import ConfigurationError
 from ipu_emu.ipu_state import INST_MEM_SIZE
 from ipu_emu.reference import API_VERSION, ReferenceModel, RunResult, RunState, Stats, Status
 from ipu_emu.trace import TraceWriter, read_trace
+from ipu_emu.xmem_access import XmemAccess
 from ipu_isa.codec.word import DecodedWord, pack_program, word_bytes
 from ipu_isa.faults import ArithmeticEvent, FaultId
 from ipu_isa.registers import REGISTER_DEFINITIONS
@@ -505,7 +506,29 @@ SNAPSHOTS = {
     },
 }
 
-_RECORD_TYPES = (CommitRecord, SlotOp, RegWrite, XmemWrite, XmemMetaWrite, FaultInfo)
+# 2.1.0: observe_xmem_accesses() and its record, XmemAccess (the base CR and
+# offset LR of each XMEM row access: what a table tracer needs). An addition.
+SNAPSHOTS["2.1.0"] = {
+    **SNAPSHOTS["2.0.0"],
+    "__all__": sorted([*SNAPSHOTS["2.0.0"]["__all__"], "XmemAccess"]),
+    "ReferenceModel": {
+        **SNAPSHOTS["2.0.0"]["ReferenceModel"],
+        "observe_xmem_accesses": "(self, callback: 'Callable[[XmemAccess], None]')"
+        " -> 'Callable[[], None]'",
+    },
+    "XmemAccess": {
+        "cycle": "int",
+        "pc": "int",
+        "mnemonic": "str",
+        "kind": "Literal['read', 'write']",
+        "cr": "int",
+        "base": "int",
+        "lr": "int",
+        "offset": "int",
+    },
+}
+
+_RECORD_TYPES = (CommitRecord, SlotOp, RegWrite, XmemWrite, XmemMetaWrite, FaultInfo, XmemAccess)
 
 
 def _fields(cls: type) -> dict[str, str]:
@@ -790,6 +813,34 @@ def test_observe_xmem_reads_reports_the_programs_reads_until_stopped():
     stop()
     model.step()
     assert reads == [(256, 128)]
+
+
+def test_observe_xmem_accesses_names_the_base_cr_and_offset_lr_of_each_row():
+    program = (
+        "SET LR3 CR1 ;;\n"
+        "LD.MULT R0 LR3 CR2 ;;\n"
+        "LD.MULT.CYCLIC LR0 CR4 LR0 ;;\n"
+        "ACTIVATE.EXACT identity CR15.L CR5 LR3 ;;\n"
+        "HALT ;;"
+    )
+    model = ReferenceModel(ElementFormat.FP32)  # ACTIVATE.EXACT is FP32-only
+    model.load_program(_words(program))
+    model.write_register("cr", 7, index=2)
+    model.write_register("cr", 9, index=4)
+    model.write_register("cr", 20, index=5)
+    seen: list[XmemAccess] = []
+    stop = model.observe_xmem_accesses(seen.append)
+    model.read_xmem(0, 4)  # a host read: not the program's
+    model.run()
+    # (pc, mnemonic, kind, CR, its value, LR, its value), written out by hand.
+    assert [(a.pc, a.mnemonic, a.kind, a.cr, a.base, a.lr, a.offset) for a in seen] == [
+        (1, "LD.MULT", "read", 2, 7, 3, 1),
+        (2, "LD.MULT.CYCLIC", "read", 4, 9, 0, 0),
+        (3, "ACTIVATE.EXACT", "write", 5, 20, 3, 1),
+    ]
+    assert [a.row for a in seen] == [8, 9, 21]
+    assert [a.cycle for a in seen] == [1, 2, 3]
+    stop()
 
 
 _PLAIN = (int, float, str, bytes, bool, type(None), enum.Enum, tuple, typing.Mapping)
