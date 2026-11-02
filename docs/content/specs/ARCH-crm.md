@@ -61,7 +61,12 @@ flowchart TB
 
 | Name | Direction | Description |
 |------|-----------|-------------|
-| TBD | TBD | TBD. |
+| RISC Configuration | Input | The RISC-V writes the tables (section 3.1) and starts the CRM. |
+| Cache interface | Bidirectional | Bank data and bank state (section 3.3). Prefetch writes banks, write-back reads them. |
+| IPU handshake | Bidirectional | In: the IPU address and table ID of each access. Out: stall and release. |
+| External Memory Interface | Bidirectional | Reads weights and activations for prefetch. Writes activations for write-back. |
+
+> **TBD:** Give the width of each interface.
 
 ### 3.1 Table Layout
 
