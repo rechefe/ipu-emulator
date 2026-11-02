@@ -31,40 +31,29 @@ The CRM (Cache replacment menagment) performs the following tasks:
 
 ## 2. Block Diagram
 
-> **TBD:** Replace the placeholder units and signals with the CRM units and
-> interfaces.
-
 ```mermaid
-block-beta
-    columns 7
-    block:INS:1
-        columns 1
-        IN_A["TBD input"]
-        IN_B["TBD input"]
+%%{init: {"flowchart": {"curve": "stepBefore", "nodeSpacing": 120, "rankSpacing": 30, "padding": 4}}}%%
+flowchart TB
+    RISC["RISC Configuration"]
+    CACHE["Cache interface"]
+    IPU["IPU handshake"]
+    subgraph CRM ["<span style='display:inline-block;width:640px;text-align:left;font-weight:bold'>CRM</span>"]
+        DMA["<span style='display:inline-block;width:160px;padding:26px 0'>DMA state machine</span>"]
+        EMC["<span style='display:inline-block;width:160px;padding:16px 0'>External Memory<br>Controller</span>"]
     end
-    space
-    block:CRM:3
-        columns 3
-        TITLE["CRM"] space:2
-        A["TBD unit"] space B["TBD unit"]
-    end
-    space
-    block:OUTS:1
-        columns 1
-        OUT_A["TBD output"]
-    end
+    EMI["External Memory Interface"]
 
-    IN_A --> A
-    IN_B --> A
-    A --> B
-    B --> OUT_A
+    RISC --> DMA
+    CACHE <--> DMA
+    IPU <--> DMA
+    DMA <--> EMC
+    EMC <--> EMI
+    linkStyle 1,3,4 interpolate linear
 
     classDef io fill:none,stroke:none
     classDef blk fill:#2e9e8c,stroke:#1a7060,color:#fff
-    classDef title fill:none,stroke:none,font-weight:bold
-    class IN_A,IN_B,OUT_A,INS,OUTS io
-    class A,B blk
-    class TITLE title
+    class RISC,CACHE,IPU,EMI io
+    class DMA,EMC blk
     style CRM fill:none,stroke:#888,stroke-width:2px
 ```
 
