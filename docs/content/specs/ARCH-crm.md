@@ -105,28 +105,13 @@ The CRM (Cache Replacement Management) performs the following tasks:
 | `dram_base_address` | 32 | Resolution of 1KB. |
 | `table_size` | 32 | Resolution of element. |
 | `xmem_bank_list[16]` | | Ordered array of banks. |
+| `table_replacement_list[16]` |  | Ordered array of tables. For each bank in `xmem_bank_list`, it gives the table that gets the bank on release. Each entry includes a bit that tells if the table is for the same kernel or for the next kernel. |
 | `xmem_num_of_banks` | 4 | Number of banks. |
 | `external_memory_en` |  | Enables read and write to external memory: prefetch for a read and write-back. |
 | `snooping_en` |  | Enables bank release from IPU indications. |
 | `num_loops` |  | Number of times to read the table.|
 | `jump_back` |  | The number of addresses that the IPU can go back after it reads an address. Example: `read_addr = 100` and `jump_back = 10`. The IPU cannot access addresses `0`-`90`. |
 
-
-### 3.2 Table Types
-
-> **TBD:** Give the behavior of each table type.
-
-| Value | Type | Behavior |
-|-------|------|----------|
-| TBD | TBD | TBD. |
-
-### 3.3 Bank State
-
-> **TBD:** Give the per-bank state that the CRM reads and writes.
-
-| Bits | Field | Description |
-|------|-------|-------------|
-| TBD | TBD | TBD. |
 
 ## 4. CRM Operations
 
@@ -139,50 +124,14 @@ The CRM (Cache Replacement Management) performs the following tasks:
 | [IPU Read](#41-ipu-read) | TBD. |
 | [IPU Write](#42-ipu-write) | TBD. |
 
----
 
-### 4.1 IPU Read
+### 4.1 Bank State(TAG)
 
-> **TBD:** Give what the operation does, in one to three sentences.
+> **TBD:** Give the per-bank state that the CRM reads and writes.
 
-#### Inputs
-
-| Name | Width | Details |
-|------|-------|---------|
+| Bits | Field | Description |
+|------|-------|-------------|
 | TBD | TBD | TBD. |
-
-#### Operation
-
-```text
-TBD
-```
-
-#### Example
-
-```text
-TBD
-```
 
 ---
 
-### 4.2 IPU Write
-
-> **TBD:** Give what the operation does, in one to three sentences.
-
-#### Inputs
-
-| Name | Width | Details |
-|------|-------|---------|
-| TBD | TBD | TBD. |
-
-#### Operation
-
-```text
-TBD
-```
-
-#### Example
-
-```text
-TBD
-```
