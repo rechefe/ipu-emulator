@@ -67,6 +67,16 @@ cpr               = "CR13"
 qf                = "CR14"
 # CR15.L: the default DS (128 valid elements).
 
+# The XMEM tables (ipu_harness.tables): how the program walks each region.
+[tables]
+x = { repetitions = "2 * cpr", overhead_rows = "1 - min(1, rows - 1)" }
+y = { repetitions = "cpr" }
+# With one row the second pass has nowhere to step back to.
+num = { repetitions = "3 * cpr - 1 + min(1, rows - 1)", overhead_rows = "1 - min(1, rows - 1)" }
+log2e = {}
+max = { repetitions = 2 }
+rvec = { repetitions = 2 }
+
 [golden]
 op = "softmax"
 tolerance = { fp32 = "TRANSCENDENT" }

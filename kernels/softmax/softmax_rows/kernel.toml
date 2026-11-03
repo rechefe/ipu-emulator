@@ -62,6 +62,15 @@ rows       = "CR13"
 qf         = "CR14"
 # CR15.L: the default DS (128 valid elements).
 
+# The XMEM tables (ipu_harness.tables): how the program walks each region.
+[tables]
+x = { repetitions = "ceil((rows - 1) / 128) + 1" }
+y = {}
+num = { repetitions = "2 * ceil((rows - 1) / 128) + 1" }
+log2e = {}
+max = {}
+rvec = {}
+
 [golden]
 op = "softmax"
 tolerance = { fp32 = "TRANSCENDENT" }

@@ -78,6 +78,17 @@ group_chunks = "CR13"
 parts        = "CR14"
 dstruct      = "CR15"
 
+# The XMEM tables (ipu_harness.tables): how the program walks each region.
+[tables]
+# A group of tokens is read twice (a backward jump per group of two or more
+# device rows); the exact count at the last group is not derived yet.
+x = { repetitions = "ceil(rows / 128) + 1 - min(1, max(0, 129 - ps * (rows - 128 * (ceil(rows / 128) - 1))))" }
+y = {}
+num = { repetitions = "2 * ceil(rows / 128) + 1", pending = "indexes num by token, past its device rows" }
+log2e = {}
+max = {}
+rvec = { repetitions = "ceil(rows / 128)", also_via = ["CR0"] }
+
 [golden]
 op = "softmax"
 tolerance = { fp32 = "TRANSCENDENT" }
