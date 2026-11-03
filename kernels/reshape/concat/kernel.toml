@@ -42,6 +42,12 @@ c_a        = "CR9"
 c_b        = "CR10"
 qf         = "CR14"
 
+# The XMEM tables (ipu_harness.tables): how the program walks each region.
+[tables]
+a = { overhead_rows = 1 }
+b = { overhead_rows = 1 }
+y = { also_via = ["y_b"] }
+
 [golden]
 op = "concat"
 tolerance = { fp32 = "EXACT" }

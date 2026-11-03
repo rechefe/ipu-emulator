@@ -23,6 +23,11 @@ y    = "CR3"
 rows = "CR4"
 qf   = "CR14"
 
+# The XMEM tables (ipu_harness.tables): how the program walks each region.
+[tables]
+x = {}
+y = {}
+
 [golden]
 op = "identity"
 tolerance = { fp32 = "EXACT" }
