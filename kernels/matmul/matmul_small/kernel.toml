@@ -48,6 +48,12 @@ b         = "CR11"
 rc_slot0  = "LR15"                               # 0, as at reset: a chain step inherits LRs
 qf        = "CR14"                               # the MULT QF half: CR14.L
 
+# The XMEM tables (ipu_harness.tables): how the program walks each region.
+[tables]
+a = {}
+b = { repetitions = "m", overhead_rows = 1 }
+y = {}
+
 [golden]
 op = "matmul"                                    # a @ b, ipu_kernels.reference.ops
 tolerance = { fp32 = "FP32_LONG" }
