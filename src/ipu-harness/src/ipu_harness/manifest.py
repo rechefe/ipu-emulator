@@ -24,6 +24,11 @@ Schema
     for a kernel whose formulas the shape grammar cannot say: ``fn(plan)``
     returns ``{tensor: {key: value}}`` with ``[tables]``'s keys, evaluated;
     not with ``[tables]``.
+    ``keeps_mask`` (bool, default false): the program reads the R_MASK the
+    kernel before it left. By default every kernel starts with R_MASK all ones
+    (every lane on) and every other register undefined (the harness fills
+    them with seeded garbage); a kernel that relies on a carried-over mask
+    must declare it, and the host must launch it so (OQ-50).
 
 ``[params.<name>]`` (or ``<name> = { ... }`` under ``[params]``)
     ``type`` (required): ``int``, ``float``, ``bool`` or ``str``. ``min`` and
@@ -66,7 +71,8 @@ Schema
     mode (E06-08); ``lo`` may equal ``hi`` (a constant input).
 
 ``[abi]``
-    ``<name> = "CR2"`` .. ``"CR15"``, or ``"LR0"`` .. ``"LR15"`` (a preset, E06-06).
+    ``<name> = "CR2"`` .. ``"CR15"``. An LR cannot be bound: LRs start as
+    garbage and the program sets the ones it reads.
     ``CR0`` and ``CR1`` are hardwired constants and cannot be bound, except that
     a tensor pinned at a literal ``row = 0`` may bind ``CR0``: the program reads its base
     through the hardwired 0 and nothing is written. A binding may be a table
@@ -304,6 +310,7 @@ class _KernelTable:
     stages: str | None
     cost: int | float | str
     tables: str | None
+    keeps_mask: bool
 
 
 def _kernel(r: Reader, directory: Path, raw: object) -> _KernelTable:
@@ -329,7 +336,8 @@ def _kernel(r: Reader, directory: Path, raw: object) -> _KernelTable:
     tables = (
         r.function(directory, table["tables"], ("kernel", "tables")) if "tables" in table else None
     )
-    return _KernelTable(op, formats, asm, stages, cost, tables)
+    keeps_mask = r.typed(table.get("keeps_mask", False), bool, ("kernel", "keeps_mask"))
+    return _KernelTable(op, formats, asm, stages, cost, tables, keeps_mask)
 
 
 @dataclass(frozen=True)
@@ -501,6 +509,7 @@ def load_manifest(
         tables=MappingProxyType(tables),
         stage_tables=MappingProxyType({k: MappingProxyType(v) for k, v in stage_tables.items()}),
         tables_hook=kernel.tables,
+        keeps_mask=kernel.keeps_mask,
     )
     raw_cases = r.table(data.get("cases", {}), ("cases",))
     if "default" not in raw_cases:

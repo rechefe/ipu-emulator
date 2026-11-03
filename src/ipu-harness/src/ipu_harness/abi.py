@@ -4,7 +4,9 @@
 each bound register starts with; :func:`template_names` gives the program the
 same names (``{{ cr.x }}`` renders ``CR2``), so the two cannot drift. After
 assembly, :func:`check_cr_reads` fails a program that reads a CR nothing
-binds. A kernel writes no register itself.
+binds. A kernel writes no register itself, and an LR is never bound: LRs
+start as garbage and the program sets the ones it reads
+(:mod:`ipu_harness.kernel_start`).
 
 What a key binds decides the value:
 
@@ -78,7 +80,7 @@ class RegisterWrite:
     """One register's starting value.
 
     Attributes:
-        register: ``"CR2"`` .. ``"CR15"`` or ``"LR0"`` .. ``"LR15"``.
+        register: ``"CR2"`` .. ``"CR15"``.
         value: Its raw bits.
         source: What the value is, for a report: ``"x (region base)"``,
             ``"rows (int param)"``, ``"s (element scalar, e4)"``.

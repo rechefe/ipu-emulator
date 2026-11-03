@@ -115,7 +115,7 @@ def test_a_scale_chained_into_a_scale(first, second):
     one = chain.run(first, SCALE_2, {"x": X})
     assert one.result.halted and not one.result.comparisons  # not checked
     assert one.resident["y"] == Resident(64, 2, None, E4)
-    assert chain.model.read_register("lr", 1) == 2  # registers carry over, as on hardware
+    assert chain.model.read_register("lr", 1) == 2  # the program's own result (rows)
     two = chain.run(second, SCALE_TIMES_4, {"x": one.resident["y"]}, check=True)
     assert two.result.placement is not None and two.result.placement.region("x").base_row == 64
     assert two.result.passed, two.result.describe()
@@ -363,39 +363,32 @@ def test_only_a_live_resident_of_the_chain_can_be_held_or_released(first):
     chain.release(resident)
 
 
-# --- reset: register banks back to their reset values -------------------------------
+# --- kernel start: R_MASK is all ones unless the kernel keeps it -----------------------
 
-ALL_LANES = b"\xff" * 128
+ALL_LANES = bytes([255]) * 128
 
 
-def test_r_mask_carries_over_unless_the_step_resets_it(free):
+def test_every_step_starts_with_r_mask_all_ones(free):
     chain = Chain(E4)
     chain.run(free, SCALE_2, {"x": X})
     chain.model.write_register("r_mask", bytes(128))  # as a step that masks lanes leaves it
     chain.run(free, SCALE_2, {"x": X})
-    assert chain.model.read_register("r_mask") == bytes(128)
-    chain.run(free, SCALE_2, {"x": X}, reset=("r_mask",))
     assert chain.model.read_register("r_mask") == ALL_LANES
 
 
-def test_every_register_of_a_bank_is_reset_but_the_hardwired_crs(free):
+def test_a_kernel_that_keeps_its_mask_finds_the_one_the_step_before_left(tmp_path):
+    keeper = load_manifest(_kernel(tmp_path, "keeper"))
+    toml = keeper.directory / "kernel.toml"
+    toml.write_text(
+        toml.read_text().replace('formats = ["e4"]', 'formats = ["e4"]\nkeeps_mask = true')
+    )
+    keeper = load_manifest(keeper.directory)
+    assert keeper.keeps_mask
     chain = Chain(E4)
-    for index in range(2, 16):
-        chain.model.write_register("cr", 7, index)
-    chain.model.write_register("lr", 7, 9)
-    chain.run(free, SCALE_2, {"x": X}, reset=("cr", "lr"), at={"x": 20})
-    assert chain.model.read_register("cr", 1) == 1  # hardwired, untouched
-    assert chain.model.read_register("cr", 9) == 0  # bound by no [abi]: reset
-    assert chain.model.read_register("cr", 2) == 20  # bound: the step writes x's base after
-    assert chain.model.read_register("lr", 9) == 0  # the program uses LR0 and LR1 only
-
-
-@pytest.mark.parametrize(
-    ("reset", "match"), [(("nope",), "no register bank"), ("r_mask", "bank names")]
-)
-def test_reset_names_register_banks(free, reset, match):
-    with pytest.raises(ConfigurationError, match=match):
-        Chain(E4).run(free, SCALE_2, {"x": X}, reset=reset)
+    chain.run(keeper, SCALE_2, {"x": X})
+    chain.model.write_register("r_mask", bytes(128))
+    chain.run(keeper, SCALE_2, {"x": X})
+    assert chain.model.read_register("r_mask") == bytes(128)
 
 
 # --- slices and reserve: parts of one tensor ------------------------------------------

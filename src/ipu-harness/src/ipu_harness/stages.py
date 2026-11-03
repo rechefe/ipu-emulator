@@ -37,6 +37,7 @@ from ipu_harness._plugins import load_file
 from ipu_harness.abi import apply, check_cr_reads, register_writes
 from ipu_harness.assembly import AssemblyCache, assemble_program
 from ipu_harness.debug import DebugHook, debug_run
+from ipu_harness.kernel_start import start_kernel, start_rng
 from ipu_harness.manifest import KernelManifest, check_abi
 from ipu_harness.params import CasePlan
 from ipu_harness.placement import Placement
@@ -68,6 +69,10 @@ class StageOptions:
             beside this path (one trace per program), or ``None``.
         tables: Record each stage's XMEM accesses and hold them to the
             kernel's ``[tables.stage<N>]`` (:mod:`ipu_harness.tables`).
+        case: The case's name, which seeds each stage's kernel start.
+        fresh: The first stage is the first kernel on its model (no mask to
+            keep).
+        step: The chain step, which seeds each stage's kernel start.
     """
 
     max_cycles: int | None = None
@@ -75,6 +80,9 @@ class StageOptions:
     break_on_entry: bool = False
     trace: Path | None = None
     tables: bool = False
+    case: str = ""
+    fresh: bool = True
+    step: int = 0
 
 
 @dataclass(frozen=True)
@@ -283,6 +291,17 @@ class _Stages:
 
         model = self.model
         model.load_program(assembled.words)
+        start_kernel(
+            model,
+            start_rng(
+                self.manifest.name,
+                self.options.case,
+                step=self.options.step,
+                stage=len(self.runs),
+            ),
+            keep_mask=self.manifest.keeps_mask,
+            fresh=self.options.fresh and not self.runs,
+        )
         # No table of its own: the kernel's [abi], offsets included (register_writes
         # applies a tensor's [abi] offset only to the kernel's own bindings).
         own = None if abi is None else bindings

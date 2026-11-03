@@ -3,7 +3,7 @@
 The program is rendered through the assembler's one render path (E05's
 session and sandbox) with the case as template values: every parameter, the
 reserved ``format`` (``"e4"``) and ``shapes`` (each tensor's shape), and the
-``[abi]`` register names as ``{{ cr.x }}`` / ``{{ lr.i }}``. The declared
+``[abi]`` register names as ``{{ cr.x }}``. The declared
 parameters are the kernel's: ``kernel.toml`` is the declaration, so the
 program repeats none in an ``ipu:params`` header, and any other name is a
 located error (the sandbox's strict undefined).

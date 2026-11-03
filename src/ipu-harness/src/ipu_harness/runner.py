@@ -40,6 +40,7 @@ from ipu_harness.assembly import AssemblyCache, assemble
 from ipu_harness.cases import Case, inputs_for
 from ipu_harness.compare import Comparison, compare, expected_for, nx8_steps, tier_for
 from ipu_harness.debug import DebugLaunch, attach_alias_profile, debug_run, new_alias_profile
+from ipu_harness.kernel_start import start_kernel, start_rng
 from ipu_harness.manifest import KernelManifest, TensorDecl
 from ipu_harness.packing import Packed, pack, region_fill, stored_rows, unpack
 from ipu_harness.params import CasePlan, plan_case
@@ -162,6 +163,8 @@ class SharedModel:
             holds.
         avoid: Rows first fit leaves free besides, as ``(base row, rows)``
             (``placement.place``).
+        step: Which run on the model this is (a chain's step number, 0 for the
+            first), so each kernel start has its own garbage.
     """
 
     model: ReferenceModel
@@ -171,6 +174,7 @@ class SharedModel:
     placed: Mapping[str, int] = field(default_factory=lambda: MappingProxyType({}))
     reserved: Mapping[str, tuple[int, int]] = field(default_factory=lambda: MappingProxyType({}))
     avoid: tuple[tuple[int, int], ...] = ()
+    step: int = 0
 
 
 @dataclass(frozen=True)
@@ -399,13 +403,14 @@ def _execute(
     return model.run(options.max_cycles), profile
 
 
-def _execute_stages(
+def _execute_stages(  # noqa: PLR0913 -- the run's pieces: model, case, options, shared
     model: ReferenceModel,
     plan: CasePlan,
     placement: Placement,
     case: Case,
     options: RunOptions,
     cache: AssemblyCache | None,
+    shared: SharedModel | None,
 ) -> tuple[ModelRun | None, AliasProfile | None, StagesRun]:
     """Run a multi-stage kernel's hook (E06-14) as ``options`` say: one
     profile over every stage, each stage in the debugger, a trace per stage."""
@@ -426,6 +431,9 @@ def _execute_stages(
             break_on_entry=debug.break_on_entry if debug is not None else False,
             trace=options.trace,
             tables=options.tables,
+            case=case.name,
+            fresh=shared is None or shared.step == 0,
+            step=0 if shared is None else shared.step,
         ),
     )
     return staged.result, profile, staged
@@ -565,6 +573,12 @@ def stage(
     model = ReferenceModel(fmt.mode) if shared is None else shared.model
     model.load_program(program.words)
     values = _write_tensors(model, plan, placement, values, shared)
+    start_kernel(
+        model,
+        start_rng(manifest.name, case.name, step=0 if shared is None else shared.step),
+        keep_mask=manifest.keeps_mask,
+        fresh=shared is None or shared.step == 0,
+    )
     writes = tuple(register_writes(plan, placement))
     apply(model, writes)
     return Staged(plan, MappingProxyType(dict(values)), placement, program, writes, model)
@@ -640,7 +654,7 @@ def _run_staged_kernel(
     plan, values, placement = _prepare(manifest, case, fmt, options.inputs, shared)
     model = ReferenceModel(fmt.mode) if shared is None else shared.model
     values = _write_tensors(model, plan, placement, values, shared)
-    run, profile, staged = _execute_stages(model, plan, placement, case, options, cache)
+    run, profile, staged = _execute_stages(model, plan, placement, case, options, cache, shared)
     return _Ran(
         plan,
         MappingProxyType(dict(values)),
