@@ -29,6 +29,12 @@ tiles    = "CR5"
 channels = "CR6"
 qf       = "CR14"
 
+# The XMEM tables (ipu_harness.tables): how the program walks each region.
+[tables]
+x = { pending = "repetitions not derived as a formula of the parameters" }
+y = { repetitions = "ceil((columns - 1) / 128)" }
+rvec = {}
+
 [golden]
 reference = "reference.py:reference"
 tolerance = { fp32 = "FP32_LONG" }        # a sum of squares and rsqrt; FP32_ORDER also passes these cases

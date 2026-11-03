@@ -74,6 +74,19 @@ dstruct       = "CR13"
 qf            = "CR14"
 allones       = "CR15"
 
+# The XMEM tables (ipu_harness.tables): how the program walks each region.
+[tables]
+x = { repetitions = 2, also_via = ["CR0"] }
+gamma = { also_via = ["CR0"] }
+beta = { also_via = ["CR0"] }
+y = {}
+neg_mean_tile = {}
+invstd_tile = {}
+scratch_tok = {}
+centered = { repetitions = 3, also_via = ["CR0"] }
+mask = { also_via = ["CR0"] }
+allones = {}
+
 [golden]
 reference = "reference.py:reference"      # ops.layernorm (no eps, Q57) on the packed rows
 tolerance = { fp32 = "FP32_ORDER" }
