@@ -169,12 +169,12 @@ def _pinned(
         )
         _check_fits(plan, tensor, region, capacity)
         for other in pins:
-            if region.base_row < other.reserved_end and other.base_row < region.reserved_end:
+            if region.base_row < other.end_row and other.base_row < region.end_row:
                 raise PlanError(
                     plan.manifest,
                     _key(tensor),
-                    f"{region.name} (rows {region.base_row}..{region.reserved_end - 1}) overlaps "
-                    f"{other.name} (rows {other.base_row}..{other.reserved_end - 1})",
+                    f"{region.name} (rows {region.base_row}..{region.end_row - 1}) overlaps "
+                    f"{other.name} (rows {other.base_row}..{other.end_row - 1})",
                 )
         pins.append(region)
     return pins
@@ -231,7 +231,8 @@ def place(
         overhead: Rows to reserve past a region, by tensor name (a table's
             ``overhead_rows``, :func:`ipu_harness.tables.overhead_rows`):
             first fit places no region on them, and a pin's may not overlap
-            another pin. A tensor left out reserves none.
+            another pin's rows (a pin may sit on another's overhead rows: the
+            prefetch then reads its first row). A tensor left out reserves none.
 
     Returns:
         The placement, deterministic for the plan.

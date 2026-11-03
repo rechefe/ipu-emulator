@@ -681,9 +681,11 @@ def _layout_findings(
         for other in spans[index + 1 :]:
             if other.base_row >= end:
                 break
-            out.append(
-                Finding("error", table.label, f"its rows and overhead overlap {other.label}'s")
-            )
+            if other.base_row < table.base_row + table.rows:
+                out.append(Finding("error", table.label, f"its rows overlap {other.label}'s"))
+            else:  # a pin put the next table on its overhead: the prefetch reads its first row
+                message = f"its overhead rows are the first rows of {other.label}"
+                out.append(Finding("warning", table.label, message))
     return out
 
 

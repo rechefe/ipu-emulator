@@ -11,6 +11,7 @@ from scale_kernel import ASM, write_scale
 
 from ipu_harness.cases import expand
 from ipu_harness.manifest import KernelManifest, ManifestError, load_manifest
+from ipu_harness.params import PlanError
 from ipu_harness.runner import RunOptions, RunResult, run_kernel
 from ipu_harness.variants import variant
 
@@ -341,3 +342,24 @@ def test_a_pending_table_with_nothing_wrong_in_a_case_warns(tmp_path):
     assert _messages(result, "warning") == [
         "warning: x: pending (old reason), but nothing is wrong in this case"
     ]
+
+
+def test_a_pin_on_the_overhead_rows_is_allowed_and_warned(tmp_path):
+    manifest = _kernel(tmp_path, "[tables]\nx = { overhead_rows = 1 }\ny = {}\n", asm=PREFETCH_ASM)
+    toml = manifest.directory / "kernel.toml"
+    text = toml.read_text().replace("[inputs.x]\n", "[inputs.x]\nrow = 0\n")
+    toml.write_text(text.replace("[outputs.y]\n", "[outputs.y]\nrow = 4\n"))
+    result = _run(load_manifest(manifest.directory))
+    assert result.passed
+    assert _messages(result) == []
+    assert _messages(result, "warning") == ["warning: x: its overhead rows are the first rows of y"]
+    assert result.placement is not None and result.placement.region("y").base_row == 4
+
+
+def test_a_pin_on_the_rows_of_a_table_is_an_error(tmp_path):
+    manifest = _kernel(tmp_path, "[tables]\nx = {}\ny = {}\n")
+    toml = manifest.directory / "kernel.toml"
+    text = toml.read_text().replace("[inputs.x]\n", "[inputs.x]\nrow = 0\n")
+    toml.write_text(text.replace("[outputs.y]\n", "[outputs.y]\nrow = 3\n"))
+    with pytest.raises(PlanError, match="overlaps"):
+        _run(load_manifest(manifest.directory))
