@@ -29,8 +29,8 @@ handoff buffer is a table of both stages with each one's numbers; placement
 reserves the larger overhead.
 
 Pending (reported, not failed): a table the manifest marks ``pending = "why"``
-(its errors are reported as pending, with the reason; a pending table with
-nothing wrong is an error), a table also reached through another CR
+(its errors are reported as pending, with the reason; a case where nothing
+is wrong with it warns), a table also reached through another CR
 (``also_via``), a base CR holding the base plus an ``[abi]`` offset, a table
 read through the hardwired ``CR0``. Each breaks "one table, one CR holding
 its table ID", which a later change of the programs fixes. Warnings: declared
@@ -40,7 +40,7 @@ overhead the run does not reach, a declared table it never touches.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Literal
 
 from ipu_emu.errors import ConfigurationError
@@ -433,21 +433,23 @@ def check(
     bindings = manifest.abi if abi is None else abi
     offsets = manifest.abi_offsets if abi is None else {}
     tables = _tables(plan, placement, decls, bindings, offsets, stage or "")
+    if not decls:
+        tables = _with_zero_tables(tables, placement, accesses, stage or "")
     unbound = [
         Finding("error", f"{stage}.{n}" if stage else n, "reached through no CR in this stage")
         for n in decls
         if n in placement.regions and _own_cr(manifest, bindings, n)[0] is None
     ]
     start = {**CR_READ_ONLY_INITIAL_VALUES, **launch}
-    by_cr = {t.cr: t for t in tables}
+    by_cr: dict[int, list[Table]] = {}
     for table in tables:
-        for number in table.views:
-            by_cr.setdefault(number, table)
+        for number in (table.cr, *table.views):
+            by_cr.setdefault(number, []).append(table)
     groups: dict[str, list[TableAccess]] = {t.label: [] for t in tables}
     stray: dict[int, list[XmemAccess]] = {}
     changed: dict[str, set[int]] = {}
     for access in accesses:
-        table = by_cr.get(access.cr)
+        table = _reached(by_cr.get(access.cr, ()), access.row)
         if table is None:
             stray.setdefault(access.cr, []).append(access)
             continue
@@ -498,11 +500,45 @@ def _pending_tables(tables: Sequence[Table], findings: Sequence[Finding]) -> lis
         else:
             out.append(finding)
     out.extend(
-        Finding("error", label, "pending, but nothing is wrong any more: delete the key")
+        Finding("warning", label, f"pending ({reasons[label]}), but nothing is wrong in this case")
         for label in reasons
         if label not in broken
     )
     return out
+
+
+def _with_zero_tables(
+    tables: Sequence[Table], placement: Placement, accesses: Sequence[XmemAccess], stage: str
+) -> tuple[Table, ...]:
+    """Measuring a kernel with no declaration: the tables the hardwired ``CR0`` also
+    reaches (absolute rows) get it as a view, and the regions only it reaches become
+    tables of their own."""
+    rows = {a.row for a in accesses if a.cr == 0}
+    known = {t.name: t for t in tables}
+    out = []
+    for name, region in placement.regions.items():
+        hit = any(region.base_row <= r < region.end_row for r in rows)
+        table = known.get(name)
+        if table is None and hit:
+            table = Table(name, 0, region.base_row, region.rows, stage=stage)
+        elif table is not None and hit and table.cr != 0:
+            table = replace(table, views={**table.views, 0: "CR0"})
+        if table is not None:
+            out.append(table)
+    return tuple(out)
+
+
+def _reached(candidates: Sequence[Table], row: int) -> Table | None:
+    """The table an access through a CR lands in: the only one the CR reaches, or
+    (the hardwired CR0 reaches every table pinned at an absolute row) the one whose
+    rows, overhead included, hold the row; else the nearest below it."""
+    if len(candidates) <= 1:
+        return candidates[0] if candidates else None
+    holding = [t for t in candidates if t.base_row <= row < t.base_row + t.rows + t.overhead_rows]
+    below = [t for t in candidates if t.base_row <= row]
+    if holding:
+        return holding[0]
+    return max(below, key=lambda t: t.base_row) if below else candidates[0]
 
 
 def _signed(value: int) -> int:

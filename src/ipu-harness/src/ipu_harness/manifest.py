@@ -120,7 +120,7 @@ Schema
     table, one CR; reported as pending). ``pending`` (a reason): the program
     breaks a rule the other keys cannot say (it reaches past its region); the
     table's errors are reported as pending until a change of the program
-    fixes them, and a pending table with nothing wrong is an error. Once a
+    fixes them (a case where nothing is wrong with it warns). Once a
     kernel declares one table,
     every region the program reaches must be declared: each case's test
     checks the declarations against the run.

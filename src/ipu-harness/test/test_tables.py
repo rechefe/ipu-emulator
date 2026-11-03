@@ -334,6 +334,10 @@ def test_a_pending_table_turns_its_errors_into_pending_findings(tmp_path):
     assert message.startswith("pending: x: prefetches a row past it: 1 accesses outside rows=4")
 
 
-def test_a_pending_table_with_nothing_wrong_is_an_error(tmp_path):
-    result = _run(_kernel(tmp_path, '[tables]\nx = { pending = "old reason" }\ny = {}\n'))
-    assert _messages(result) == ["error: x: pending, but nothing is wrong any more: delete the key"]
+def test_a_pending_table_with_nothing_wrong_in_a_case_warns(tmp_path):
+    tables = '[tables]\nx = { pending = "old reason" }\ny = {}\n'
+    result = _run(_kernel(tmp_path, tables))
+    assert _messages(result) == []
+    assert _messages(result, "warning") == [
+        "warning: x: pending (old reason), but nothing is wrong in this case"
+    ]

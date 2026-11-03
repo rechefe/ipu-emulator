@@ -75,7 +75,7 @@ class TableDecl:
         pending: A short reason, when the program breaks a rule the other
             keys cannot name (it reaches past its region, say): the table's
             errors are reported as pending with it until a change of the
-            program fixes them. A pending table with nothing wrong is an error.
+            program fixes them; a case where nothing is wrong with it warns.
     """
 
     name: str
