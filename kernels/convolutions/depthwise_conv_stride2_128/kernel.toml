@@ -108,8 +108,8 @@ border_mask = {}
 y = {}
 
 [tables.stage2]
-out = { overhead_rows = 1 }
-y = { repetitions = "ceil(chunk_limit / 4) + 1" }
+out = {}
+y = { repetitions = "num_row_pairs * (in_channels - 1) + 1" }
 
 [golden]
 reference = "reference.py:reference"

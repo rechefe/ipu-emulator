@@ -109,8 +109,8 @@ border_mask = {}
 y = {}
 
 [tables.stage2]
-out = { overhead_rows = 1 }
-y = { repetitions = "groups + 2", overhead_rows = 2 }
+out = {}
+y = { repetitions = "groups" }
 
 [golden]
 reference = "reference.py:reference"

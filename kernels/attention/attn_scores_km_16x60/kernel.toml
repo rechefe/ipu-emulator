@@ -65,9 +65,9 @@ qf = "CR14"
 
 # The XMEM tables (ipu_harness.tables): how the program walks each region.
 [tables]
-b = { repetitions = 17, overhead_rows = 1 }
-a = { overhead_rows = 1 }
-y = { overhead_rows = 1 }
+b = { repetitions = 16, overhead_rows = 1 }
+a = {}
+y = {}
 
 [golden]
 op = "matmul"                          # y = a @ b in the logical shapes above (batched over the leading dim)

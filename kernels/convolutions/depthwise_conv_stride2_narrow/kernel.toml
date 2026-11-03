@@ -113,10 +113,8 @@ border_mask = {}
 y = {}
 
 [tables.stage2]
-# Stage 2 reaches rows far past out and y (as many as the channels): reserved
-# here, pending until the program stays inside its regions.
-out = { overhead_rows = "groups + 1", pending = "stores past its rows, as many as the channels" }
-y = { repetitions = "ceil(chunk_limit / 2) + 1", overhead_rows = "chunk_limit + 1", pending = "reads past its rows, as many as the chunks" }
+out = {}
+y = { repetitions = "groups" }
 
 [golden]
 reference = "reference.py:reference"
