@@ -32,15 +32,6 @@ kernel_row_stride = "1"                                  # rows; the per-block w
 row_limit         = "(height - 1) * out_channels * cpr"  # the last row's output row, relative to y (the row loop's bound)
 out_row_stride    = "out_channels * cpr"
 in_row_stride     = "in_channels * cpr"
-# The LRs the init reads before writing them, on their reset 0 (the old
-# setup() wrote none, so it relied on the reset): LR0 (LD.MASK in the word
-# that SETs it), and LR2-LR5, built by INC from 0. Bound to 0, so a run after
-# another kernel on the same model starts from the same state.
-lr0_start = "0"
-lr2_start = "0"
-lr3_start = "0"
-lr4_start = "0"
-lr5_start = "0"
 ds_qf             = "halves(ds(128), case_qf)"   # CR15: LOW the default DS, HIGH the case's QF (FP32 ignores it)
 
 # Placed in the old harness's order: input, weights, mask, output.
@@ -61,8 +52,8 @@ shape = [1, 128]
 after = "w"
 bytes = "../masks.py:wide_mask"
 
-# Every CR the old setup() wrote (CR2-CR14; CR15 the default dstructure), and
-# the LRs the program reads at their reset value.
+# Every CR the old setup() wrote (CR2-CR14; CR15 the default dstructure). The
+# program sets its own LRs.
 [abi]
 x                 = "CR2"
 w                 = "CR3"
@@ -77,11 +68,6 @@ in_row_stride     = "CR11"
 cpr               = "CR12"
 total_kernel_rows = "CR13"
 blocks_per_filter = "CR14"
-lr0_start         = "LR0"
-lr2_start         = "LR2"
-lr3_start         = "LR3"
-lr4_start         = "LR4"
-lr5_start         = "LR5"
 ds_qf             = "CR15"
 
 # The XMEM tables (ipu_harness.tables): how the program walks each region.

@@ -47,7 +47,8 @@
     is the case's QF (kernel.toml's case_qf).
 ========================================================================== -#}
     SET                 LR0 {{ cr.first_sample }} ;;
-    SET                 LR1 {{ cr.samples }} ;;
+    SET                 LR1 {{ cr.samples }} ;
+    SET                 LR7 CR0 ;;                                  {#- the output row offset starts at the output's first row -#}
     SET                 LR2 {{ cr.lr2_start }} ;;
 
 input_loop:

@@ -320,9 +320,13 @@ main_filter_loop:
 # ===========================================================================
 
     SET                 LR0 CR0;
+    SET                 LR2 CR0;                            # LR2-LR5 start at 0 for the INCs below
+    SET                 LR3 CR0;
     LD.MASK   LR0 {{ cr.mask }};;
 
-    ADD                 LR1 LR0 CR1;;                      # 1
+    ADD                 LR1 LR0 CR1;                       # 1
+    SET                 LR4 CR0;
+    SET                 LR5 CR0;;
 
     INC                 LR2 127;;                           # 127 (rc_idx kc=-1)
     INC                 LR3 128;;                           # 128 (rc_idx kc=0 / slot B index)

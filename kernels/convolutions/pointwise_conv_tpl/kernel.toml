@@ -37,8 +37,6 @@ pipeline_limit_tail = "tail_size - 5"                        # may be negative (
 last_pass           = "num_passes - 1"
 fixed_idx_step      = "128"                                  # lane space: half B's weight index
 pass_stride         = "128"                                  # rows: 128 input channels a pass
-input_row_base      = "0"                                    # LR0's reset value (see [abi])
-cyclic_s0           = "0"                                    # LR7's reset value (see [abi])
 ds_qf               = "halves(ds(128), case_qf)"             # CR15: LOW the default DS, HIGH the case's QF (FP32 ignores it)
 
 # Placed in the old harness's order: input, weights, mask, [bias,] output.
@@ -71,7 +69,7 @@ after = "w"
 bytes = "../masks.py:keep_all_mask"
 
 # Every CR the old setup() wrote (CR2-CR14; CR0 is x's base, CR15 the
-# default dstructure), and the two LRs the program reads before it writes them.
+# default dstructure). The program sets its own LRs.
 [abi]
 x                   = "CR0"
 mask                = "CR2"
@@ -88,12 +86,6 @@ last_pass           = "CR11"
 fixed_idx_step      = "CR12"
 pass_stride         = "CR13"
 w                   = "CR14"
-# LR0 (the input row-group base, only ever advanced) and LR7 (read by the first
-# word's LD.MASK and ADD LR5, which see it before that word's SET): the old
-# harness wrote neither and the program relied on their reset 0, so they are
-# bound to it, and a run after another kernel starts from the same state.
-input_row_base      = "LR0"
-cyclic_s0           = "LR7"
 ds_qf               = "CR15"
 
 # The XMEM tables (ipu_harness.tables): how the program walks each region.
