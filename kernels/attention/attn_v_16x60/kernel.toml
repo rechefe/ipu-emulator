@@ -47,6 +47,12 @@ out_chan_stride = "CR13"
 dstruct = "CR15"
 qf = "CR14"
 
+# The XMEM tables (ipu_harness.tables): how the program walks each region.
+[tables]
+b = { repetitions = 237, overhead_rows = 1 }
+a = {}
+y = {}
+
 [golden]
 op = "matmul_nt"                        # y = a @ b^T: V @ P^T, P query-major
 tolerance = { fp32 = "FP32_ORDER" }    # the old check: rtol=1e-4, atol=1e-3 vs agg_fold.

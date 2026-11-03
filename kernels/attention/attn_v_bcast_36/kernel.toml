@@ -59,6 +59,12 @@ qf = "CR14"
 # CR15 unbound -> default DS (CR15.L: valid_elements = 128), as the recorded cases ran
 # Zero-valued LR presets are bound on purpose: in a Chain (E06-15) LRs carry over from the previous step.
 
+# The XMEM tables (ipu_harness.tables): how the program walks each region.
+[tables]
+b = { repetitions = "2 * n_head * d", overhead_rows = 2, also_via = ["CR0"] }
+a = {}
+y = {}
+
 [golden]
 op = "matmul"                          # y = a @ b in the logical shapes above (batched over the leading dim)
 tolerance = { fp32 = "FP32_LONG" }     # K = 256 float32 ACC.ADD steps; bit-exact to acc_fold in the family test_datapath.py

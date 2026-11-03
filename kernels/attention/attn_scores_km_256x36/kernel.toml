@@ -63,6 +63,12 @@ qf = "CR14"
 # CR15 unbound -> default DS (CR15.L: valid_elements = 128), as the recorded cases ran
 # Zero-valued LR presets are bound on purpose: in a Chain (E06-15) LRs carry over from the previous step.
 
+# The XMEM tables (ipu_harness.tables): how the program walks each region.
+[tables]
+b = { repetitions = 514, overhead_rows = 2 }
+a = { overhead_rows = 1 }
+y = { overhead_rows = 2 }
+
 [golden]
 op = "matmul"                          # y = a @ b in the logical shapes above (batched over the leading dim)
 tolerance = { fp32 = "FP32_ORDER" }    # a short contraction (d terms); the old check: rtol=1e-6, atol=1e-6 (datapath mirror acc_fold).

@@ -68,6 +68,12 @@ dstruct = "CR15"
 qf = "CR14"
 # Zero-valued LR presets are bound on purpose: in a Chain (E06-15) LRs carry over from the previous step.
 
+# The XMEM tables (ipu_harness.tables): how the program walks each region.
+[tables]
+b = { repetitions = 1009, overhead_rows = 1 }
+a = {}
+y = {}
+
 [golden]
 op = "matmul"                          # y = a @ b in the logical shapes above (batched over the leading dim)
 tolerance = { fp32 = "FP32_ORDER" }    # a short contraction (d terms); the old check: rtol=1e-4, atol=1e-3 vs einsum("bci,bcs->bis").
