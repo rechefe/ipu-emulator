@@ -53,19 +53,16 @@
       horizontal: on=1 (even cols), on_inv=2 (odd cols)
       vertical:   on=1 (even rows), on_inv=2 (odd rows)
 
-    ABI: kernel.toml's [abi] binds the CRs and LRs below.
+    ABI: kernel.toml's [abi] binds the CRs below.
       CR0          x's stripe 0, read through the hardwired 0: x must sit at
                    row 0
       CR13         x's stripe 1 (CR1 is read-only, so not CR1)
       CR8          the ones row (R_CYCLIC's 1.0 multiplier)
       CR9..CR12    streams TL, TR, BL, BR of y
-      LR1          ACC.STRIDE R_ACC slot 1 (lanes 32..63)
-      LR5, LR6     source and destination row stride per channel (1)
-      LR11         the channel loop's bound (192)
+      CR7          the channel loop's bound (192)
     LR0 (R_CYCLIC slot 0, mask offset and shift 0, ACC.STRIDE slot 0), LR4
     (source row offset within each stripe), LR8 (destination row offset)
-    and LR10 (channel counter) start at 0, as kernel.toml's [abi]
-    binds them (slot0, src_row, dst_row, channel). CR1 (hardwired
+    and LR10 (channel counter) are set by the program's first words (the row strides are the hardwired CR1) (hardwired
     1) is the channel loop's increment. CR0 and CR1 are read-only: a host
     write to either raises.
 
@@ -91,12 +88,17 @@
     ch+1, which is why LR4's ADD must precede it.
 ========================================================================== -#}
 
+    SET                 LR0 CR0;                # R_CYCLIC slot 0 / mask shift / ACC.STRIDE slot 0
+    SET                 LR1 CR1;                # ACC.STRIDE slot 1
+    SET                 LR4 CR0;                # source row offset
     LD.MULT.CYCLIC LR0 CR8 LR0;;       # r_cyclic[0..127] = 1.0
 
 # ---------------------------------------------------------------------------
 # Main channel loop  (ch = 0..191)
 # ---------------------------------------------------------------------------
 
+    SET                 LR8 CR0;                # destination row offset
+    SET                 LR10 CR0;               # channel counter
     LD.MULT        R0 LR4 CR0;;        # prime: stripe 0 of ch 0 (TL slot 0)
 
     # Zero R_ACC once: ACC.STRIDE never writes lanes 64..127, so without this
@@ -145,16 +147,16 @@ ch_loop:
     ACC.STRIDE 16 on_inv on_inv LR0;;
     # lr4 must advance BEFORE the load that uses the next channel's offset: LR
     # sub-slots run ahead of LOAD within a word, so this ADD gets its own word.
-    ADD                 LR4 LR4 LR5;;       # src offset: next channel (+1 row)
+    ADD                 LR4 LR4 CR1;;       # src offset: next channel (+1 row)
     LD.MULT R0 LR4 CR0;
     MULT.RC.VV LR0 R0 0 LR0 CR15.L {{ cr.qf }}.L;
     ACC.STRIDE 16 on_inv on_inv LR1;;
     ACTIVATE.EXACT identity CR15.L CR12 LR8;; # BR
 
     # -- Advance pointers; loop ----------------------------------------------
-    ADD                 LR8 LR8 LR6;;       # dst offset: next channel (+1 row)
+    ADD                 LR8 LR8 CR1;;       # dst offset: next channel (+1 row)
     ADD                 LR10 LR10 CR1;;
-    BLT.S                 LR10 LR11 ch_loop;; # loop while ch < 192
+    BLT.S                 LR10 {{ cr.c }} ch_loop;; # loop while ch < 192
 
 end:
     HALT;;

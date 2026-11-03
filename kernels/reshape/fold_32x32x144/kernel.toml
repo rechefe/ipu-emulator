@@ -10,12 +10,6 @@ w = { type = "int", choices = [32], default = 32 }
 c = { type = "int", choices = [144], default = 144 }
 
 [derived]
-# Every LR the program reads starts at a value [abi] gives, so a run that
-# follows another kernel on one model (a chain) starts as a fresh one does.
-slot0      = "0"                       # LR start value: the R_CYCLIC slot 0
-src_row    = "0"                       # LR start value: the source row offset within a phase
-dst_row    = "0"                       # LR start value: the destination row offset
-channel    = "0"                       # LR start value: the channel counter
 tg         = "2"                      # rows per channel of a phase (256 tokens)
 x1         = "base(x) + c * tg"        # the phases' bases: x is phase-major
 x2         = "base(x) + 2 * c * tg"
@@ -26,8 +20,7 @@ src_lo     = "50462976"                # [0, 1, 2, 3]
 src_hi     = "117835012"               # [4, 5, 6, 7]
 dst_lo     = "100925952"               # [0, 2, 4, 6]
 dst_hi     = "235670024"               # [8, 10, 12, 14]
-src_stride = "2"                      # LR7: rows per channel of a phase
-dst_stride = "1"                       # LR9
+src_stride = "2"                      # CR7: rows per channel of a phase
 qf         = "case_qf"                 # the case's QF half (0: FP32 ignores it)
 
 # Placed in this order from row 0: x, y, ones (the old map).
@@ -54,13 +47,8 @@ x1         = "CR10"
 x2         = "CR11"
 x3         = "CR12"
 y          = "CR13"
-src_stride = "LR7"
-dst_stride = "LR9"
-c          = "LR11"                    # the channel loop's bound
-slot0      = "LR0"
-src_row    = "LR6"
-dst_row    = "LR8"
-channel    = "LR10"
+src_stride = "CR7"
+c          = "CR6"                     # the channel loop's bound
 qf         = "CR14"
 
 # The XMEM tables (ipu_harness.tables): how the program walks each region.

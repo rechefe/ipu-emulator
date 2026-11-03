@@ -111,18 +111,16 @@
     That is simpler than 8 per-stripe destination-base CRs, which would not
     fit in the few free CRs left.
 
-    ABI: kernel.toml's [abi] binds the CRs and LRs below.
+    ABI: kernel.toml's [abi] binds the CRs below.
       CR2, CR3     source table [0,1,2,3] / [4,5,6,7]
       CR4, CR5     TL's destination table [0,2,4,6] / [8,10,12,14]
       CR8          the ones row (R_CYCLIC's 1.0 multiplier)
       CR9..CR12    streams TL, TR, BL, BR of x
       CR13         y (stripe 0's base; every stripe's row is CR13 + LR8)
-      LR7          source row stride per channel (2: tg0, tg1)
-      LR9          destination row stride per channel (1)
-      LR11         the channel loop's bound (144)
+      CR7          source row stride per channel (2: tg0, tg1)
+      CR6          the channel loop's bound (144)
     LR0 (R_CYCLIC slot 0), LR6 (source row offset = ch*2 + tg), LR8
-    (destination row offset) and LR10 (channel counter) start at 0, as kernel.toml's [abi]
-    binds them (slot0, src_row, dst_row, channel); LR6 and LR10 are SET again at every later stripe.
+    (destination row offset) and LR10 (channel counter) are set by the program's first words (the row strides are the hardwired CR1); LR6 and LR10 are SET again at every later stripe.
     CR0 (0) and CR1 (1) are hardwired: CR1 is the channel loop's increment,
     and both are deliberately reused as LR6's restart value (tg 0 or 1) and
     CR0 as LR10's.
@@ -160,6 +158,9 @@
      ("BR", 33, "CR12", "CR9"),
    ] %}
 
+    SET                 LR0 CR0;                # R_CYCLIC slot 0, source and destination row offsets
+    SET                 LR6 CR0;
+    SET                 LR8 CR0;
     LD.MULT.CYCLIC LR0 CR8 LR0;;       # r_cyclic[0..127] = 1.0
 
 {% for stripe in range(8) %}
@@ -176,6 +177,8 @@
     # (see the "PER-STRIPE DESTINATION ROW" header note).
     SET                 LR10 CR0;;
     SET                 LR6 {{ tg_reset_cr }};;
+{%- else %}
+    SET                 LR10 CR0;               # the first stripe's channel counter
 {%- endif %}
     # (Re-)prime: stream TL row of this stripe's ch 0. Required at every
     # stripe boundary because lr6 just reset -- the cycle-start contract
@@ -203,7 +206,7 @@
     # lr6 (src offset) must advance BEFORE the load that uses next channel's
     # offset: LR sub-slots run ahead of LOAD within a word (same hazard
     # fold_16x16x192 documents for its lr6), so this ADD gets its own word.
-    ADD                 LR6 LR6 LR7;;       # src offset: next channel (+2 rows: tg0,tg1)
+    ADD                 LR6 LR6 CR7;;       # src offset: next channel (+2 rows: tg0,tg1)
 {%- endif %}
     LD.MULT R0 LR6 {{ next_cr }};
     MULT.RC.VV LR0 R0 0 LR0 CR15.L {{ cr.qf }}.L;;          # multiply {{ name }} row (prefetch next stream)
@@ -221,9 +224,9 @@
     ACTIVATE.EXACT identity CR15.L CR13 LR8;; # stripe {{ stripe }} <- DST_BASE_ROW + (stripe*144 + ch)
 
     # -- Advance pointers; loop within this stripe --------------------------
-    ADD                 LR8 LR8 LR9;;       # dst offset: next row (running across the whole kernel)
+    ADD                 LR8 LR8 CR1;;       # dst offset: next row (running across the whole kernel)
     ADD                 LR10 LR10 CR1;;
-    BLT.S                 LR10 LR11 1b;;                  # loop while ch < 144
+    BLT.S                 LR10 {{ cr.c }} 1b;;                  # loop while ch < 144
 {% endfor %}
 
 end:

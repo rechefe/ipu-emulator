@@ -66,15 +66,13 @@
       horizontal: on=1 (even cols), on_inv=2 (odd cols)
       vertical:   on=1 (even rows), on_inv=2 (odd rows)
 
-    ABI: kernel.toml's [abi] binds the CRs and LRs below.
+    ABI: kernel.toml's [abi] binds the CRs below.
       CR0          x, read through the hardwired 0: x must sit at row 0
       CR8          the ones row (R_CYCLIC's 1.0 multiplier)
       CR9..CR12    streams 0..3 of y
-      LR5, LR6     source and destination row stride per channel (1)
-      LR11         the channel loop's bound (240)
+      CR7          the channel loop's bound (240)
     LR0 (R_CYCLIC / ACC.STRIDE slot 0), LR4 (source row offset), LR8
-    (destination row offset) and LR10 (channel counter) start at 0, as kernel.toml's [abi]
-    binds them (slot0, src_row, dst_row, channel). CR1 (hardwired 1) is the channel loop's increment. CR0 and CR1
+    (destination row offset) and LR10 (channel counter) are set by the program's first words (the row strides are the hardwired CR1) (hardwired 1) is the channel loop's increment. CR0 and CR1
     are read-only: a host write to either raises.
 
     MULT CYCLE-START CONTRACT (issue #157): MULT.RC.VV reads its R0 data as it
@@ -106,11 +104,11 @@
 # ---------------------------------------------------------------------------
 {% set slot0      = "LR0"  %}  {# const 0: r_cyclic slot 0 / mask / acc.stride slot 0 #}
 {% set src_off    = "LR4"  %}  {# src row offset within the stripe, += 1 per ch #}
-{% set src_stride = "LR5"  %}  {# 1 = src stride per channel (rows) #}
-{% set dst_stride = "LR6"  %}  {# 1 = dst stride per channel (rows) #}
+{% set src_stride = "CR1"  %}  {# 1 = src stride per channel (rows): the hardwired 1 #}
+{% set dst_stride = "CR1"  %}  {# 1 = dst stride per channel (rows): the hardwired 1 #}
 {% set dst_off    = "LR8"  %}  {# dst row offset = ch #}
 {% set ch_index   = "LR10" %}  {# channel counter 0..239 #}
-{% set ch_limit   = "LR11" %}  {# 240 = C #}
+{% set ch_limit   = cr.c  %}  {# 240 = C #}
 
 {% set SRC_BASE   = "CR0"  %}  {# stripe base (row 0) #}
 {% set ONE        = "CR1"  %}  {# hardwired read-only 1 #}
@@ -121,12 +119,16 @@
 {% set DST_S3     = "CR12" %}  {# stream 3 output base #}
 {% set DSTRUCT    = "CR15" %}  {# reserved dstructure register #}
 
+    SET {{ slot0 }} CR0;                                        # R_CYCLIC slot 0 / mask shift / ACC.STRIDE slot 0
+    SET {{ src_off }} CR0;                                      # source row offset
     LD.MULT.CYCLIC {{ slot0 }} {{ ONES_BASE }} {{ slot0 }};;   # r_cyclic[0..127] = 1.0
 
 # ---------------------------------------------------------------------------
 # Main channel loop  (ch = 0..239)
 # ---------------------------------------------------------------------------
 
+    SET {{ dst_off }} CR0;                                      # destination row offset
+    SET {{ ch_index }} CR0;                                     # channel counter
     LD.MULT        R0 {{ src_off }} {{ SRC_BASE }};;   # prime: channel 0
 
     # Zero R_ACC once: ACC.STRIDE never writes lanes 32..127, so without this
