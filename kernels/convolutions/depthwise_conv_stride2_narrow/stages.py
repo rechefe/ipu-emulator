@@ -6,8 +6,9 @@ CR15 holds the partitioned DS and the case's QF); it writes the scratch y.
 Stage 2 is this folder's program: it reads y through CR3 (a stage's table binds
 a region at its base) and writes out, with CR15 its stage2_ds (ds(128) and the
 case's QF), as the old harness's second setup wrote the default dstructure;
-the other CRs and the LRs carry over from stage 1. load_program resets the PC
-between them.
+the other CRs carry over from stage 1. Every stage is a kernel start: the LRs and
+the vector registers are garbage (stage 2 sets its own LRs) and R_MASK is all
+ones; load_program resets the PC.
 """
 
 STAGE1 = "../depthwise_conv_tpl/depthwise_conv_tpl.asm"

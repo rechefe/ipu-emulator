@@ -84,7 +84,7 @@ after = "border_mask"
 # output out is parked on CR8, the template's kernel_rows, which its program
 # writes but never reads (so stage 1's CR8 is base(out), not
 # ceil(C / 28) * 2). Stage 2 binds its own four CRs (stages.py); the others
-# and the LRs carry over from stage 1, as in the old harness.
+# carry over from stage 1 (each stage starts with garbage LRs: stage 2 sets its own).
 [abi]
 y           = "CR2"
 border_mask = "CR3"
