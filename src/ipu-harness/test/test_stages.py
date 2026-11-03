@@ -252,7 +252,7 @@ def test_a_stage_gets_its_params_and_ds(tmp_path):
         ("ctx.run_stage('copy.asm', abi={'x': 'CR2', 't': 'CR2', 'rows': 'CR4'})", "both bind CR2"),
         ("ctx.run_stage('copy.asm', abi={'x': 'CR2', 't': 'CR3', 'rows': 'CR0'})", "hardwired"),
         ("ctx.run_stage('copy.asm', abi={'x': 'CR2', 't': 'CR3', 'rows': 'CR99'})", "no CR or LR"),
-        ("ctx.run_stage('copy_scale.asm', abi={'s': 'LR5'})", "binds a CR, not LR5"),
+        ("ctx.run_stage('copy_scale.asm', abi={'s': 'LR5'})", "binds LR5: LRs start as garbage"),
         ("ctx.run_stage('copy.asm', abi={'zz': 'CR2'})", "'zz' names no parameter"),
         ("ctx.run_stage('copy.asm', params={'rows': 1})", "already the case's"),
         (
