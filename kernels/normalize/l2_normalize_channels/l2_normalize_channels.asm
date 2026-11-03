@@ -26,10 +26,14 @@
       normalizes to zeros rather than producing inf or NaN.
 
     SEEDING THE SUM:
-      The channel loop is a run-time bound, so its first iteration cannot be
-      peeled to carry an ACC.ADD.FIRST. One word before the loop multiplies
-      R_CYCLIC by CR0 (= 0.0) into ACC.ADD.FIRST instead, which clears R_ACC
-      without touching XMEM and without needing a resident zero row.
+      The channel loop is a run-time bound, so the assembler cannot peel its
+      first iteration, but the program does it by hand: row 0 is loaded and
+      squared with ACC.ADD.FIRST, which starts R_ACC from x[0, tile]^2 instead of
+      adding to the last tile's sum, and a BGE.S skips the loop when there is
+      only one channel. No word multiplies a register the kernel never loaded:
+      R_CYCLIC holds whatever the previous kernel left (NaN and infinity
+      included, and inf * 0.0 is NaN), so clearing R_ACC with R_CYCLIC * CR0
+      would poison every sum. The peeled row costs no extra word.
 
     LAYOUT -- INPUT AND OUTPUT SHARE ONE OFFSET:
       Both regions are channels x tiles rows with row (c, t) at c*tiles + t, so a single
@@ -43,7 +47,7 @@
       Pass 2   out[c, t] = x[c, t] * rvec    -- MULT.RC.VV against R0, 3 words/row
 
     ABI (kernel.toml's [abi]; CR0/CR1 are read-only hardware constants):
-      CR0  = 0 (-> the 0.0 scalar that clears R_ACC)   CR1 = 1
+      CR0  = 0   CR1 = 1
       CR2  = x, CR3 = y, CR4 = rvec (rows) -- rvec is one scratch row: 1/||x||
              per column of this tile
       CR5  = tiles -- rows per matrix row, AND the tile-loop bound (same number)
@@ -70,9 +74,12 @@
 
 tile_loop:
 {#- ---- PASS 1: R_ACC = SUM over the reduction axis of x^2 ----------------- -#}
-    MULT.RC.VE {{lr_zero}} CR0 0 {{lr_zero}} CR15.L CR14.L ; ACC.ADD.FIRST ;
+    SET {{lr_row}} CR1 ;
     ADD {{lr_addr}} {{lr_tile}} CR0 ;
-    SET {{lr_row}} CR0 ;;                                {#- R_ACC = 0; addr = tile -#}
+    LD.MULT.CYCLIC {{lr_addr}} CR2 {{lr_zero}} ;;   {#- slot0 <- x[0, tile]; row = 1 -#}
+    ADD {{lr_addr}} {{lr_addr}} CR5 ;
+    MULT.RC.VS {{lr_zero}} 0 {{lr_zero}} CR15.L CR14.L ; ACC.ADD.FIRST ;
+    BGE.S {{lr_row}} CR6 pass1_done ;;              {#- R_ACC = x[0]^2; one channel: done -#}
 
 pass1_loop:
     ADD {{lr_row}} {{lr_row}} CR1 ;
@@ -81,6 +88,7 @@ pass1_loop:
     MULT.RC.VS {{lr_zero}} 0 {{lr_zero}} CR15.L CR14.L ; ACC.ADD ;
     BLT.S {{lr_row}} CR6 pass1_loop ;;                     {#- += x^2, lane-wise -#}
 
+pass1_done:
     ACTIVATE.EXACT rsqrt CR15.L CR4 {{lr_zero}} ;;  {#- rvec = 1/||x[:, col]|| -#}
     LD.MULT R0 {{lr_zero}} CR4 ;
     ADD {{lr_addr}} {{lr_tile}} CR0 ;
