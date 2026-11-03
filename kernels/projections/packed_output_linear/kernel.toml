@@ -56,6 +56,13 @@ seed5        = "CR13"
 seed6        = "CR14"
 seed7        = "CR15"
 
+# The XMEM tables (ipu_harness.tables): how the program walks each region.
+[tables]
+a = { pending = "repetitions not derived as a formula of the parameters", also_via = ["CR0"] }
+b = { also_via = ["CR0"] }
+y = { also_via = ["CR0"] }
+mask = {}
+
 [golden]
 reference = "reference.py:reference"        # ops.linear on the packed rows
 tolerance = { fp32 = { tier = "FP32_LONG", atol = 5e-5, why = "measured max|err| 2.9e-5 at k = 960 (ffn2), near-zero outputs of a long FP32 sum" } }

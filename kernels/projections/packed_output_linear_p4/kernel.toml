@@ -44,6 +44,13 @@ ds_qf        = "CR7"
 seed0        = "CR8"
 seed1        = "CR9"
 
+# The XMEM tables (ipu_harness.tables): how the program walks each region.
+[tables]
+a = { jump_back = 1, also_via = ["CR0"] }
+b = { also_via = ["CR0"] }
+y = { also_via = ["CR0"] }
+mask = {}
+
 [golden]
 reference = "reference.py:reference"        # ops.linear on the packed rows
 tolerance = { fp32 = { tier = "FP32_LONG", atol = 5e-5, why = "measured max|err| 2.5e-5 at k = 768 (ffn2), near-zero outputs of a long FP32 sum" } }
