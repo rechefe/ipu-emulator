@@ -92,7 +92,7 @@ issue together in that word. Line by line:
 |---|---|
 | `SET LR0 CR0 ; SET LR1 CR0 ; SET LR2 CR0` | Zero three loop registers: `LR0` (an offset that stays 0), `LR1` (the row of `x`) and `LR2` (the row of `y`). `CR0` always reads 0. |
 | `LD.MULT R0 LR1 {{ cr.x }}` | Load XMEM row `x + LR1` into `R0`. A row is 128 elements in both modes. |
-| `MULT.VE LR0 {{ cr.s }} 0 LR0 CR15.L {{ cr.qf }}.L ; ACC.ADD.FIRST` | Multiply `R0`, from element `LR0` (0), by the MULT constant in `{{ cr.s }}`, with mask slot 0 and no mask shift (every lane, as `R_MASK` resets), the DS half `CR15.L` and the QF half `{{ cr.qf }}.L` (which FP32 ignores). `ACC.ADD.FIRST` in the same word writes that product to the accumulator. |
+| `MULT.VE LR0 {{ cr.s }} 0 LR0 CR15.L {{ cr.qf }}.L ; ACC.ADD.FIRST` | Multiply `R0`, from element `LR0` (0), by the MULT constant in `{{ cr.s }}`, with mask slot 0 and no mask shift (every lane: `R_MASK` is all ones at every kernel start), the DS half `CR15.L` and the QF half `{{ cr.qf }}.L` (which FP32 ignores). `ACC.ADD.FIRST` in the same word writes that product to the accumulator. |
 | `ACTIVATE.EXACT identity CR15.L {{ cr.y }} LR2` | Store the accumulator, unchanged, as one FP32 row at `y + LR2`. |
 | `ADD LR1 LR1 CR1 ; INC LR2 1` | Step to the next row of `x` (`CR1` always reads 1) and of `y`. |
 | `BLT.S LR1 {{ cr.rows }} row_loop` | Loop while `LR1` is less than `rows`. |
@@ -123,6 +123,23 @@ emulator-only exact store, so it runs in the FP32 mode only; an NX8 kernel
 stores with `ACTIVATE.QUANTIZE`, which quantizes each row to the case's QF
 ([`ACTIVATE.QUANTIZE`, `ACTIVATE.EXACT` and `LD.LUT`](../reference/isa/activate-quantize.md)). Mnemonics and register names are upper case, and
 operands are separated by spaces.
+
+### Registers at kernel start
+
+A kernel starts with `R_MASK` all ones and with every other register it does
+not set holding garbage: the LRs, `R`, `R_CYCLIC`, the accumulator and the rest
+are whatever the kernel before left. The harness checks this by filling them
+with seeded random bytes (NaNs and infinities included) before each run, each
+stage and each chain step, so a program that reads a register it never wrote
+fails its own tests. In practice:
+
+- Set every LR the program reads (`SET LR0 CR0`), and bind constants to a CR
+  (`[abi]` binds CRs only; an LR in `[abi]` is an error).
+- Do not multiply or compare a register you have not loaded: garbage times
+  `0.0` is NaN when the garbage is infinity.
+- A kernel that needs the `R_MASK` the kernel before it left says so with
+  `keeps_mask = true` in `[kernel]`. The host must then launch it so
+  ([OQ-50](../requirements/open-questions.md)).
 
 ## 3. Declare it in `kernel.toml`
 

@@ -29,6 +29,7 @@ Questions OQ-18 onwards concern the emulator and the ISA definition, not only th
 | OQ-11 | How does a kernel hand a table to the next kernel inside XMEM, with no DRAM round trip? The banks carry the context bit of the first kernel. The second kernel hits only on its own context bit. | The cache unit retags the handed-over banks at `kernel_done`. The table set of the next kernel names the table it inherits. | Cache unit owner |
 | OQ-12 | What does the cache unit do with the XMEM banks of a kernel on `kernel_abort`? | The cache unit frees every bank of the aborted context and drains none. | Cache unit owner |
 | OQ-13 | How does the host run the kernel in the active context again from `IDLE`? `ARM` always starts the inactive context. | `ARM` takes a context argument in `IDLE`. | Unassigned |
+| OQ-50 | How does the host launch a kernel that keeps `R_MASK`? Every kernel start sets `R_MASK` to all ones ([IPU-EXEC-5](execution-flow.md)); a kernel that reads the mask the earlier kernel left (`keeps_mask` in `kernel.toml`) needs it left alone. | A `keep_mask` bit in the `ARM` command. | Unassigned |
 
 ## Interfaces
 
