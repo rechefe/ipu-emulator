@@ -15,7 +15,7 @@ from ipu_harness.tables import declares_tables
 
 def test_case(case_format, run_case, kernel):
     case, fmt = case_format
-    checked = declares_tables(kernel) and kernel.stages is None
+    checked = declares_tables(kernel)
     result = run_case(case, fmt, RunOptions(tables=checked))
     assert result.passed, result.describe()
     if result.tables is not None:

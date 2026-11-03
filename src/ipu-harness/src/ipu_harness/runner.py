@@ -89,7 +89,8 @@ class RunOptions:
             and the cycles from the model. Not with ``debug`` or ``trace``.
         tables: Record the run's XMEM accesses and hold them to the kernel's
             ``[tables]`` (``--tables``, :mod:`ipu_harness.tables`): the
-            result's ``tables``. One-program kernels only, for now.
+            result's ``tables``. A multi-stage kernel's stages each against
+            their own ``[tables.stage<N>]``.
     """
 
     max_cycles: int | None = None
@@ -424,6 +425,7 @@ def _execute_stages(
             debug=debug.hook(manifest.name) if debug is not None else None,
             break_on_entry=debug.break_on_entry if debug is not None else False,
             trace=options.trace,
+            tables=options.tables,
         ),
     )
     return staged.result, profile, staged
@@ -635,8 +637,6 @@ def _run_staged_kernel(
     """Write a multi-stage kernel's tensors and run its stages hook (E06-14)."""
     if options.executor is not None:
         raise ConfigurationError(f"{manifest.name}: an executor runs one program, not stages")
-    if options.tables:
-        raise ConfigurationError(f"{manifest.name}: tables of a multi-stage kernel: not yet")
     plan, values, placement = _prepare(manifest, case, fmt, options.inputs, shared)
     model = ReferenceModel(fmt.mode) if shared is None else shared.model
     values = _write_tensors(model, plan, placement, values, shared)
@@ -653,6 +653,7 @@ def _run_staged_kernel(
         staged.stages[-1].rendered,
         tuple((s.program, s.cycles) for s in staged.stages),
         staged.stats,
+        staged.tables,
     )
 
 

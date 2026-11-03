@@ -22,6 +22,12 @@ where the run and the declaration disagree. Errors:
 * an ``also_via`` the program never uses (stale), two tables whose rows
   (overhead included) overlap, more than :data:`MAX_TABLES` tables.
 
+A multi-stage kernel declares each stage's tables in ``[tables.stage<N>]``
+(the stages the hook runs, in order), and each stage is held to its own: the
+CRs it names in its ``run_stage`` call, its own repetitions and reach. A
+handoff buffer is a table of both stages with each one's numbers; placement
+reserves the larger overhead.
+
 Pending (reported, not failed): a table also reached through another CR
 (``also_via``), a base CR holding the base plus an ``[abi]`` offset, a table
 read through the hardwired ``CR0``. Each breaks "one table, one CR holding
@@ -37,6 +43,7 @@ from typing import Literal
 
 from ipu_emu.errors import ConfigurationError
 from ipu_emu.reference import ReferenceModel, XmemAccess
+from ipu_harness._manifest_tables import STAGE_PREFIX
 from ipu_harness._plugins import load_file
 from ipu_harness.expressions import ExpressionError, evaluate
 from ipu_harness.manifest import TABLE_KEYS, KernelManifest, TableDecl
@@ -52,6 +59,7 @@ __all__ = [
     "TableRecorder",
     "TableReport",
     "check",
+    "combine",
     "declares_tables",
     "declared",
     "overhead_rows",
@@ -79,6 +87,7 @@ class Table:
         views: Other CRs the program reaches it through, by number, to the
             ``also_via`` name.
         cr_offset: The ``[abi]`` offset its base CR holds past its first row.
+        stage: The stage it is a table of (``stage1``), empty for a one-program kernel.
     """
 
     name: str
@@ -91,6 +100,12 @@ class Table:
     whole_run: bool = False
     views: Mapping[int, str] = field(default_factory=dict)
     cr_offset: int = 0
+    stage: str = ""
+
+    @property
+    def label(self) -> str:
+        """Its name, with its stage in front for a multi-stage kernel."""
+        return f"{self.stage}.{self.name}" if self.stage else self.name
 
     @property
     def declared(self) -> bool:
@@ -144,8 +159,8 @@ class TableReport:
         """One line per table, then one per finding: the CLI's ``--tables`` report."""
         lines = []
         for table in self.tables:
-            seen = self.profiles.get(table.name)
-            head = f"{table.name}: CR{table.cr} rows {table.base_row}+{table.rows}"
+            seen = self.profiles.get(table.label)
+            head = f"{table.label}: CR{table.cr} rows {table.base_row}+{table.rows}"
             if table.overhead_rows:
                 head += f" (+{table.overhead_rows} overhead)"
             if seen is None:
@@ -160,11 +175,15 @@ class TableReport:
 
     def suggestion(self) -> str:
         """A ``[tables]`` section matching this run, to start a declaration from."""
-        lines = ["[tables]"]
+        lines = ["[tables]"] if not any(t.stage for t in self.tables) else []
+        stage = ""
         for table in self.tables:
-            seen = self.profiles.get(table.name)
+            seen = self.profiles.get(table.label)
             if seen is None:
                 continue
+            if table.stage != stage:
+                stage = table.stage
+                lines.append(f"[tables.{stage}]")
             keys = []
             if seen.repetitions != 1:
                 keys.append(f"repetitions = {seen.repetitions}")
@@ -182,18 +201,27 @@ class TableReport:
 
 def declares_tables(manifest: KernelManifest) -> bool:
     """Whether the kernel declares its tables (``[tables]`` or ``[kernel] tables``)."""
-    return bool(manifest.tables) or manifest.tables_hook is not None
+    return bool(manifest.tables or manifest.stage_tables) or manifest.tables_hook is not None
 
 
-def _hook_tables(plan: CasePlan, hook: str) -> Mapping[str, TableDecl]:
-    """The declarations ``[kernel] tables = "file.py:fn"`` returns for the case."""
+def stage_names(manifest: KernelManifest) -> tuple[str, ...]:
+    """The stages that declare tables (``stage1``, ...), empty for a one-program kernel."""
+    return tuple(sorted(manifest.stage_tables, key=lambda s: int(s[len(STAGE_PREFIX) :])))
+
+
+def _hook_tables(plan: CasePlan, hook: str, stage: str | None) -> Mapping[str, TableDecl]:
+    """The declarations ``[kernel] tables = "file.py:fn"`` returns for the case
+    (for a multi-stage kernel, by stage first)."""
     manifest = plan.manifest
     file, _, name = hook.partition(":")
     fn = getattr(load_file(manifest.directory / file), name, None)
     if not callable(fn):
         raise ConfigurationError(f"{manifest.name}: {hook} is no function")
     out: dict[str, TableDecl] = {}
-    for tensor, keys in fn(plan).items():
+    returned = fn(plan)
+    if stage is not None:
+        returned = returned.get(stage, {})
+    for tensor, keys in returned.items():
         unknown = sorted(set(keys) - set(TABLE_KEYS))
         if tensor not in manifest.tensors or unknown:
             raise ConfigurationError(
@@ -220,13 +248,15 @@ def _value(plan: CasePlan, decl: TableDecl, key: str) -> int:
     return value
 
 
-def declared(plan: CasePlan) -> Mapping[str, TableDecl]:
+def declared(plan: CasePlan, stage: str | None = None) -> Mapping[str, TableDecl]:
     """The case's table declarations, every expression evaluated to an int.
 
     Tensors absent from the case (``when``) have none.
 
     Args:
         plan: The checked case.
+        stage: A multi-stage kernel's stage (``stage1``); ``None`` for a
+            one-program kernel.
 
     Returns:
         Each declaration, by tensor name, with int values.
@@ -237,7 +267,12 @@ def declared(plan: CasePlan) -> Mapping[str, TableDecl]:
     """
     manifest = plan.manifest
     hook = manifest.tables_hook
-    decls = manifest.tables if hook is None else _hook_tables(plan, hook)
+    if hook is not None:
+        decls = _hook_tables(plan, hook, stage)
+    elif stage is None:
+        decls = manifest.tables
+    else:
+        decls = manifest.stage_tables.get(stage, {})
     return {
         name: TableDecl(
             name,
@@ -255,6 +290,8 @@ def declared(plan: CasePlan) -> Mapping[str, TableDecl]:
 def overhead_rows(plan: CasePlan) -> Mapping[str, int]:
     """The rows placement reserves past each region: its table's overhead rows.
 
+    A tensor that two stages reach reserves the larger of their overheads.
+
     Args:
         plan: The checked case.
 
@@ -263,7 +300,12 @@ def overhead_rows(plan: CasePlan) -> Mapping[str, int]:
     """
     if not declares_tables(plan.manifest):
         return {}
-    return {n: int(d.overhead_rows) for n, d in declared(plan).items() if d.overhead_rows}
+    stages = stage_names(plan.manifest) if plan.manifest.stages is not None else (None,)
+    out: dict[str, int] = {}
+    for stage in stages:
+        for name, decl in declared(plan, stage).items():
+            out[name] = max(out.get(name, 0), int(decl.overhead_rows))
+    return {name: rows for name, rows in out.items() if rows}
 
 
 class TableRecorder:
@@ -282,44 +324,53 @@ def _cr_number(register: str) -> int | None:
     return int(register[2:]) if register.startswith("CR") and "." not in register else None
 
 
-def _views(manifest: KernelManifest, name: str, decl: TableDecl | None) -> dict[int, str]:
+def _views(
+    manifest: KernelManifest, abi: Mapping[str, str], name: str, decl: TableDecl | None
+) -> dict[int, str]:
     """The other CRs a table is reached through, by number: its ``also_via``;
     measured (no declaration), every CR bound to a value of its base alone."""
     if decl is not None:
         names: list[str] = list(decl.also_via)
     else:
-        names = [d for d, bases in manifest.placed.items() if bases == {name} and d in manifest.abi]
+        names = [d for d, bases in manifest.placed.items() if bases == {name} and d in abi]
     views = {}
     for view in names:
-        number = 0 if view == "CR0" else _cr_number(manifest.abi[view])
+        number = 0 if view == "CR0" else _cr_number(abi[view])
         if number is not None:
             views[number] = view
     return views
 
 
-def _tables(plan: CasePlan, placement: Placement) -> tuple[Table, ...]:
+def _tables(
+    plan: CasePlan,
+    placement: Placement,
+    decls: Mapping[str, TableDecl],
+    abi: Mapping[str, str],
+    offsets: Mapping[str, int],
+    stage: str,
+) -> tuple[Table, ...]:
     """Every region bound to a CR, as a table: declared, or to be measured."""
     manifest = plan.manifest
-    decls = declared(plan) if declares_tables(manifest) else {}
     out = []
     for name, region in placement.regions.items():
-        cr = _cr_number(manifest.abi.get(name, ""))
+        cr = _cr_number(abi.get(name, ""))
         if cr is None or (decls and name not in decls):
             continue
         decl = decls.get(name)
-        views = _views(manifest, name, decl)
+        views = _views(manifest, abi, name, decl)
         out.append(
             Table(
                 name=name,
                 cr=cr,
                 base_row=region.base_row,
                 rows=region.rows,
-                overhead_rows=region.overhead_rows,
+                overhead_rows=region.overhead_rows if decl is None else int(decl.overhead_rows),
                 repetitions=None if decl is None else int(decl.repetitions),
                 jump_back=None if decl is None else int(decl.jump_back),
                 whole_run=decl is not None and decl.whole_run,
                 views=views,
-                cr_offset=manifest.abi_offsets.get(name, 0),
+                cr_offset=offsets.get(name, 0),
+                stage=stage,
             )
         )
     return tuple(out)
@@ -330,6 +381,9 @@ def check(
     placement: Placement,
     launch: Mapping[int, int],
     accesses: Sequence[XmemAccess],
+    *,
+    stage: str | None = None,
+    abi: Mapping[str, str] | None = None,
 ) -> TableReport:
     """Hold one run's accesses to the case's table declarations.
 
@@ -342,17 +396,30 @@ def check(
         launch: Each CR's value when the program started, by number (the
             ``[abi]`` writes; the hardwired CR0 and CR1 need not be given).
         accesses: The run's accesses, in program order.
+        stage: A multi-stage kernel's stage the accesses are of
+            (``stage1``); ``None`` for a one-program kernel.
+        abi: The registers the stage named in its ``run_stage`` call (no
+            offsets); ``None``: the kernel's ``[abi]``.
 
     Returns:
         The report.
     """
-    tables = _tables(plan, placement)
+    manifest = plan.manifest
+    decls = declared(plan, stage) if declares_tables(manifest) else {}
+    bindings = manifest.abi if abi is None else abi
+    offsets = manifest.abi_offsets if abi is None else {}
+    tables = _tables(plan, placement, decls, bindings, offsets, stage or "")
+    unbound = [
+        Finding("error", f"{stage}.{n}" if stage else n, "reached through no CR in this stage")
+        for n in decls
+        if n in placement.regions and not bindings.get(n, "").startswith("CR")
+    ]
     start = {**CR_READ_ONLY_INITIAL_VALUES, **launch}
     by_cr = {t.cr: t for t in tables}
     for table in tables:
         for number in table.views:
             by_cr.setdefault(number, table)
-    groups: dict[str, list[TableAccess]] = {t.name: [] for t in tables}
+    groups: dict[str, list[TableAccess]] = {t.label: [] for t in tables}
     stray: dict[int, list[XmemAccess]] = {}
     changed: dict[str, set[int]] = {}
     for access in accesses:
@@ -361,8 +428,8 @@ def check(
             stray.setdefault(access.cr, []).append(access)
             continue
         if access.base != _signed(start.get(access.cr, 0)):
-            changed.setdefault(table.name, set()).add(access.cr)
-        groups[table.name].append(
+            changed.setdefault(table.label, set()).add(access.cr)
+        groups[table.label].append(
             TableAccess(
                 access.cycle,
                 access.pc,
@@ -374,18 +441,19 @@ def check(
             )
         )
     profiles = {
-        t.name: profile(t.name, t.rows, t.overhead_rows, groups[t.name], _rule(t))
+        t.label: profile(t.label, t.rows, t.overhead_rows, groups[t.label], _rule(t))
         for t in tables
-        if groups[t.name]
+        if groups[t.label]
     }
-    if not declares_tables(plan.manifest):
+    if not declares_tables(manifest):
         measured = [
-            Finding("warning", f.table, f.message) for f in _stray_findings(stray, placement)
+            Finding("warning", f.table, f.message) for f in _stray_findings(stray, placement, stage)
         ]
         return TableReport(tables, profiles, tuple(measured))
     findings = [
-        *_stray_findings(stray, placement),
-        *(f for t in tables for f in _table_findings(t, profiles.get(t.name), groups[t.name])),
+        *unbound,
+        *_stray_findings(stray, placement, stage),
+        *(f for t in tables for f in _table_findings(t, profiles.get(t.label), groups[t.label])),
         *(Finding("error", n, f"CR{sorted(c)} changed while in use") for n, c in changed.items()),
         *_layout_findings(tables, profiles),
     ]
@@ -402,8 +470,11 @@ def _rule(table: Table) -> int | None:
     return -1 if table.whole_run else table.jump_back
 
 
-def _stray_findings(stray: Mapping[int, list[XmemAccess]], placement: Placement) -> list[Finding]:
+def _stray_findings(
+    stray: Mapping[int, list[XmemAccess]], placement: Placement, stage: str | None
+) -> list[Finding]:
     out = []
+    where = f"{stage}: " if stage else ""
     for cr, seen in sorted(stray.items()):
         rows = sorted({a.row for a in seen})
         hit = sorted(
@@ -418,7 +489,7 @@ def _stray_findings(stray: Mapping[int, list[XmemAccess]], placement: Placement)
             Finding(
                 "error",
                 f"CR{cr}",
-                f"{len(seen)} accesses through CR{cr}, which no declared table is reached through "
+                f"{where}{len(seen)} accesses through CR{cr}, which no declared table is reached through "
                 f"(rows {rows[0]}..{rows[-1]}, in {hit or 'no region'})",
             )
         )
@@ -430,13 +501,13 @@ def _table_findings(
 ) -> list[Finding]:
     """One declared table's findings."""
     if seen is None:
-        return [Finding("warning", table.name, "declared, never accessed")]
+        return [Finding("warning", table.label, "declared, never accessed")]
     return [*_pending(table, accesses), *_rows(table, seen), *_walk(table, seen)]
 
 
 def _pending(table: Table, accesses: Sequence[TableAccess]) -> list[Finding]:
     """The rules today's program breaks, and ``also_via`` entries it never uses."""
-    name = table.name
+    name = table.label
     out = []
     if table.cr == 0:
         out.append(Finding("pending", name, "read through the hardwired CR0 (pinned at row 0)"))
@@ -454,10 +525,10 @@ def _pending(table: Table, accesses: Sequence[TableAccess]) -> list[Finding]:
 def _rows(table: Table, seen: TableProfile) -> list[Finding]:
     """Accesses outside the rows and overhead, or overhead the run never reaches."""
     if seen.outside:
-        return [Finding("error", table.name, _gap(table, seen))]
+        return [Finding("error", table.label, _gap(table, seen))]
     if seen.overhead_used < table.overhead_rows:
         message = f"overhead_rows={table.overhead_rows}; the run reaches {seen.overhead_used}"
-        return [Finding("warning", table.name, message)]
+        return [Finding("warning", table.label, message)]
     return []
 
 
@@ -473,7 +544,7 @@ def _walk(table: Table, seen: TableProfile) -> list[Finding]:
         out.append(
             Finding(
                 "error",
-                table.name,
+                table.label,
                 f"{seen.repetitions} repetitions, declared {table.repetitions} "
                 f"(a repetition starts at {seen.restart_rule}){hint}",
             )
@@ -483,7 +554,7 @@ def _walk(table: Table, seen: TableProfile) -> list[Finding]:
         out.append(
             Finding(
                 "error",
-                table.name,
+                table.label,
                 f"reaches back {worst.reach} rows, declared jump_back={table.jump_back}: "
                 f"{worst.reach_from.describe()}, then {worst.reach_to.describe()}",
             )
@@ -512,7 +583,7 @@ def _layout_findings(
 ) -> list[Finding]:
     """More tables than IDs, and tables whose reserved rows overlap."""
     out = []
-    used = [t for t in tables if t.name in profiles]
+    used = [t for t in tables if t.label in profiles]
     if len(used) > MAX_TABLES:
         out.append(Finding("error", "*", f"{len(used)} tables; a program has {MAX_TABLES} IDs"))
     spans = sorted(used, key=lambda t: t.base_row)
@@ -522,6 +593,34 @@ def _layout_findings(
             if other.base_row >= end:
                 break
             out.append(
-                Finding("error", table.name, f"its rows and overhead overlap {other.name}'s")
+                Finding("error", table.label, f"its rows and overhead overlap {other.label}'s")
             )
     return out
+
+
+def combine(plan: CasePlan, stages: Sequence[tuple[str, TableReport]]) -> TableReport:
+    """A multi-stage kernel's reports, one per stage that ran, as one.
+
+    A stage that declares tables but did not run, or one that ran without
+    declaring any when others do, is an error.
+
+    Args:
+        plan: The checked case.
+        stages: Each stage that ran: its name and its report, in order.
+
+    Returns:
+        The tables, profiles (keyed ``stage1.y``) and findings of every stage.
+    """
+    findings = [f for _, report in stages for f in report.findings]
+    ran = {name for name, _ in stages}
+    if declares_tables(plan.manifest):
+        findings += [
+            Finding("error", name, "declared in [tables], but the stages hook ran no such stage")
+            for name in stage_names(plan.manifest)
+            if name not in ran
+        ]
+    return TableReport(
+        tuple(t for _, report in stages for t in report.tables),
+        {k: v for _, report in stages for k, v in report.profiles.items()},
+        tuple(findings),
+    )

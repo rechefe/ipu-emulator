@@ -45,7 +45,7 @@ TIER_KEYS = ("tier", "rtol", "atol", "ulps", "why")
 BINDING_KEYS = ("register", "offset", "when")
 
 
-#: The keys of one ``[tables.<tensor>]`` entry.
+#: The keys of one table entry (``[tables]``'s ``<tensor> = {...}``).
 TABLE_KEYS = ("repetitions", "jump_back", "overhead_rows", "whole_run", "also_via")
 
 #: An ``also_via`` entry naming the hardwired zero: the program reaches the
@@ -236,7 +236,11 @@ class KernelManifest:
         registry: The ``registry.toml`` that declares this kernel, for an entry.
         benchmark: The ``[benchmark]`` points, if any.
         tables: The ``[tables]`` declarations, by tensor name (empty when the
-            kernel declares none, or declares them in ``tables_hook``).
+            kernel declares none, declares them in ``tables_hook``, or has
+            stages).
+        stage_tables: A multi-stage kernel's ``[tables.<stage>]`` declarations:
+            by stage name (``stage1``, ``stage2``, in the order the stages
+            hook runs them), then by tensor name.
         tables_hook: ``"tables.py:fn"`` (``[kernel] tables``), whose
             ``fn(plan)`` returns the declarations as ``[tables]`` spells them.
     """
@@ -261,6 +265,9 @@ class KernelManifest:
     registry: Path | None = None
     benchmark: BenchmarkDecl | None = None
     tables: Mapping[str, TableDecl] = field(default_factory=lambda: MappingProxyType({}))
+    stage_tables: Mapping[str, Mapping[str, TableDecl]] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
     tables_hook: str | None = None
 
     @property

@@ -103,7 +103,7 @@ Schema
     (:mod:`ipu_harness.expressions`) build DS, QF, MULT-constant and two-half
     CR values.
 
-``[tables.<tensor>]`` (optional)
+``[tables]`` (optional)
     The XMEM tables the program uses, for the compiler that assigns Cache
     Unit banks (:mod:`ipu_harness.tables`). A table is one region reached
     through its ``[abi]`` base CR; its rows are the region's. Keys, each an
@@ -120,6 +120,12 @@ Schema
     table, one CR; reported as pending). Once a kernel declares one table,
     every region the program reaches must be declared: each case's test
     checks the declarations against the run.
+    A multi-stage kernel (``[kernel] stages``) writes one ``[tables.stage<N>]``
+    section per stage, ``stage1`` being the first the hook runs, each listing
+    that stage's own tables; a buffer one stage writes and the next reads is
+    in both, with each stage's numbers (placement reserves the larger
+    ``overhead_rows``). A stage reaches a tensor through the CR its
+    ``run_stage`` call names, which the run checks. No ``also_via`` there.
 
 ``[cases.<name>]``
     Parameter values: a scalar, or a non-empty list (a sweep axis). Reserved
@@ -281,7 +287,7 @@ SCHEMA_KEYS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "[cases.<name>] (reserved keys)": CASE_KEYS,
         "[golden]": GOLDEN_KEYS,
         "[golden] tolerance override": TIER_KEYS,
-        "[tables.<tensor>]": TABLE_KEYS,
+        "[tables] <tensor> = {...}": TABLE_KEYS,
     }
 )
 
@@ -468,7 +474,9 @@ def load_manifest(
     check_placed_conditions(r, placed, tensors, abi_when, abi)
     if kernel.tables is not None and "tables" in data:
         raise r.fail(("tables",), "tables come from [kernel] tables or [tables], not both")
-    tables = read_tables(r, data.get("tables", {}), tensors, scalars, abi, placed)
+    tables, stage_tables = read_tables(
+        r, data.get("tables", {}), tensors, scalars, None if kernel.stages else abi, placed
+    )
     manifest = KernelManifest(
         name=entry.name or directory.name,
         directory=directory,
@@ -487,6 +495,7 @@ def load_manifest(
         fixed=entry.fixed,
         cost=kernel.cost,
         tables=MappingProxyType(tables),
+        stage_tables=MappingProxyType({k: MappingProxyType(v) for k, v in stage_tables.items()}),
         tables_hook=kernel.tables,
     )
     raw_cases = r.table(data.get("cases", {}), ("cases",))
