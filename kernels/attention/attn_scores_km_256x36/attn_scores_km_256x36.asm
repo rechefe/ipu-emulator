@@ -39,28 +39,29 @@
     NOTE: Jinja runs before comment stripping, so '#' comments must not
     contain Jinja delimiters -- the preprocessor would try to execute them.
 
-    The register-name block below names every register. The ones the harness
-    sets are kernel.toml's [abi] bindings (cr.<name>, lr.<name>); CR0 and CR1
-    are the hardwired 0 and 1, and the other LRs are the program's own.
+    The register-name block below names every register. The CRs the harness
+    sets are kernel.toml's [abi] bindings (cr.<name>); CR0 and CR1 are the
+    hardwired 0 and 1, and every LR is the program's own: it sets each one
+    before it reads it (a constant that is never written is read from a CR).
 
     ---------------------------------------------------------------------------
     Register names (Jinja2 preprocessor; pure source-level substitution)
     ---------------------------------------------------------------------------
 -#}
-{% set rc_slot0    = lr.rc_slot0  %}  {# const 0: R_CYCLIC write/read index #}
-{% set chan_stride = lr.q_chan_stride  %}  {# 2 = rows between consecutive Q channels #}
-{% set out_stride  = lr.out_stride  %}  {# 1 = rows per stored (key, group) row #}
+{% set rc_slot0    = "LR0"  %}  {# const 0: R_CYCLIC write/read index; set in the key loop #}
+{% set chan_stride = cr.q_chan_stride  %}  {# 2 = rows between consecutive Q channels #}
+{% set out_stride  = "CR1"  %}  {# 1 = rows per stored (key, group) row: the hardwired 1 #}
 {% set q_ptr       = "LR4"  %}  {# row offset into Q, walks head channels c #}
 {% set chan_index  = "LR5"  %}  {# head-channel index c -> selects K[s,c] in R0 #}
-{% set chan_bound  = lr.chan_bound  %}  {# 34 = c-loop bound (first=0, width=36) #}
-{% set chan_last   = "LR11" %}  {# 35 = chan_bound + 1; BLT.S bound now that chan_index's ADD sits a word ahead of the branch #}
-{% set out_ptr     = lr.out_ptr  %}  {# row offset into S, += 1 per store #}
-{% set key_ptr     = lr.key_ptr  %}  {# row offset into key-major K, += key_stride #}
-{% set key_index   = lr.key_index  %}  {# key counter s #}
-{% set key_limit   = lr.n_tok %}  {# 256 = N keys #}
-{% set key_stride  = lr.key_stride %}  {# 1 = rows per key in K #}
+{% set chan_last   = cr.chan_last  %}  {# 35 = D-1; BLT.S bound now that chan_index's ADD sits a word ahead of the branch #}
+{% set out_ptr     = "LR7"  %}  {# row offset into S, += 1 per store #}
+{% set key_ptr     = "LR8"  %}  {# row offset into key-major K, += key_stride #}
+{% set key_index   = "LR9"  %}  {# key counter s #}
+{% set key_limit   = cr.n_tok %}  {# 256 = N keys #}
+{% set key_stride  = "CR1" %}  {# 1 = rows per key in K: the hardwired 1 #}
 
 {% set Q_BASE      = "CR0"  %}  {# channel-major Q base #}
+{% set ZERO        = "CR0"  %}  {# hardwired read-only 0 #}
 {% set ONE         = "CR1"  %}  {# hardwired read-only 1 #}
 {% set S_BASE      = cr.y  %}  {# key-major score output base #}
 {% set Q_START_G0  = cr.q_start_g0  %}  {# -2 rows startup skew (first live = row 0) #}
@@ -69,21 +70,26 @@
 {% set K_BASE_KM   = cr.a  %}  {# key-major K base (a) #}
 {% set DSTRUCT     = "CR15.L" %}  {# the DS half #}
 
-    # chan_last = chan_bound + 1 (= D-1 = 35). MULT reads R_CYCLIC from the
+    # chan_last = D-1 = 35. MULT reads R_CYCLIC from the
     # cycle-start value (issue #157), so each Q channel column is loaded a
     # instruction word before the MULT consuming it and chan_index's ADD moves into a
     # c_loop_*_pre block (MULT reads it forwarded and must name the channel just
     # loaded). BLT.S reads the CYCLE-START, so with that ADD a word earlier it sees an
     # already-incremented index and needs the higher bound, or the last channel
-    # is dropped. Computed in-kernel so the harness's LR6 stays untouched.
-    ADD {{ chan_last }} {{ chan_bound }} {{ ONE }};;
+    # is dropped.
+    #
+    # The program sets every LR it reads: the three below here, LR0 in the key loop.
+    SET {{ out_ptr }} {{ ZERO }};
+    SET {{ key_ptr }} {{ CHAN_START }};                 # -1: the loop's ADD makes it 0
+    SET {{ key_index }} {{ ZERO }};;
 
 s_loop:
     ADD {{ key_ptr }} {{ key_ptr }} {{ key_stride }};;  # key row offset += 1 (first live = 0)
     LD.MULT R0 {{ key_ptr }} {{ K_BASE_KM }};;     # R0[0..127] = K[s, 0:35] + zeros
 
     # -- query group 0 (queries 0..127) -------------------------------------
-    SET {{ q_ptr }} {{ Q_START_G0 }};;                  # channel-column startup: -2 rows
+    SET {{ q_ptr }} {{ Q_START_G0 }};                   # channel-column startup: -2 rows
+    SET {{ rc_slot0 }} {{ ZERO }};;                     # R_CYCLIC slot 0 (set again every key: harmless)
     SET {{ chan_index }} {{ CHAN_START }};;             # fixed_idx c startup: -1
 
     # Prime c=0's Q column (the MULT below consumes it from the cycle-start value).

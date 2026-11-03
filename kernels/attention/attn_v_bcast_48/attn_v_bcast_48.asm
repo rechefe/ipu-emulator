@@ -79,7 +79,7 @@
       same word, BLT.S read the pre-ADD cycle-start value; with the ADD one word earlier it
       reads the already-incremented value and would drop the last key. The loop
       bound is therefore raised by one, in-kernel, into key_last
-      (= KEY_BOUND + 1 = N-1 = 63), leaving the harness's CR untouched.
+      (= KEY_BOUND + 1 = N-1 = 63), kept in the program's own LR8.
       R0 (the V channel) is loaded two instruction words ahead of the loop and never
       reloaded inside it, so it is already safe under the cycle-start rule.
 
@@ -89,16 +89,17 @@
     NOTE: Jinja runs before comment stripping, so '#' comments must not
     contain Jinja delimiters -- the preprocessor would try to execute them.
 
-    The register-name block below names every register. The ones the harness
-    sets are kernel.toml's [abi] bindings (cr.<name>, lr.<name>); CR0 and CR1
-    are the hardwired 0 and 1, and the other LRs are the program's own.
+    The register-name block below names every register. The CRs the harness
+    sets are kernel.toml's [abi] bindings (cr.<name>); CR0 and CR1 are the
+    hardwired 0 and 1, and every LR is the program's own: it sets each one
+    before it reads it (a constant that is never written is read from a CR).
 
     ---------------------------------------------------------------------------
     Register names (Jinja2 preprocessor; pure source-level substitution)
     ---------------------------------------------------------------------------
 -#}
-{% set rc_slot0    = lr.rc_slot0  %}  {# const 0: R_CYCLIC index / mask_shift #}
-{% set key_stride  = lr.pv_stride  %}  {# 1 = P key stride, in rows #}
+{% set rc_slot0    = "LR0"  %}  {# const 0: R_CYCLIC index / mask_shift; set below #}
+{% set key_stride  = "CR1"  %}  {# 1 = P key stride, in rows: the hardwired 1 #}
 {% set p_ptr       = "LR4"  %}  {# row offset into key-major P, += key_stride #}
 {% set key_index   = "LR5"  %}  {# contraction key index s -> selects V[s,t] in R0 #}
 {% set blk_index   = "LR6"  %}  {# block counter b (stream, head) #}
@@ -128,7 +129,8 @@
     SET {{ key_last }} {{ KEY_BOUND }};;
     ADD {{ key_last }} {{ key_last }} {{ ONE }};;
 
-    SET {{ chan_off }} {{ ZERO }};;                        # V/O channel offset = 0
+    SET {{ chan_off }} {{ ZERO }};                         # V/O channel offset = 0
+    SET {{ rc_slot0 }} {{ ZERO }};;                        # R_CYCLIC slot 0
     SET {{ p_block_off }} {{ ZERO }};;                     # P block offset = 0
     SET {{ blk_index }} {{ ZERO }};;                       # block counter = 0
 

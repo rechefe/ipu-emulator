@@ -15,18 +15,8 @@ pad = { type = "float", default = 0.0 }   # the padding lanes of b (pack "padded
 [derived]
 k_start = "-1"           # CR5
 chan_start = "-1"        # CR7
-chan_bound_unread = "d - 2" # CR8: written, never read
+chan_last = "d - 1"     # CR8: the contraction bound (BLT.S sees the already-stepped index)
 k_block = "d"            # CR11: K rows per block
-rc_slot0 = "0"           # LR0
-k_stride = "1"           # LR2
-out_stride = "1"         # LR3
-chan_bound = "d - 2"     # LR6: the contraction bound (the program raises it by one into LR11)
-out_ptr = "0"            # LR7
-q_ptr = "0"              # LR8
-q_index = "0"            # LR9
-q_stride = "1"           # LR12
-k_block_off = "0"        # LR13
-block_index = "0"        # LR14
 dstruct = "ds(n_tok)" # CR15: valid_elements = n_tok
 qf = "case_qf"           # the case's QF half (0: FP32 ignores it)
 
@@ -50,23 +40,12 @@ a = "CR9"        # QROW_BASE
 y = "CR3"        # S_BASE
 k_start = "CR5"
 chan_start = "CR7"
-chan_bound_unread = "CR8"
+chan_last = "CR8"
 n_block = "CR10"
 k_block = "CR11"
-rc_slot0 = "LR0"
-k_stride = "LR2"
-out_stride = "LR3"
-chan_bound = "LR6"
-out_ptr = "LR7"
-q_ptr = "LR8"
-q_index = "LR9"
-n_tok = "LR10"
-q_stride = "LR12"
-k_block_off = "LR13"
-block_index = "LR14"
+n_tok = "CR12"
 dstruct = "CR15"
 qf = "CR14"
-# Zero-valued LR presets are bound on purpose: in a Chain (E06-15) LRs carry over from the previous step.
 
 # The XMEM tables (ipu_harness.tables): how the program walks each region.
 [tables]

@@ -18,8 +18,6 @@ key_start = "-1"         # CR6
 p_block = "n_tok"        # CR7: 64
 key_bound = "n_tok - 2"  # CR8: 62
 chan_stride = "1"        # CR12
-rc_slot0 = "0"           # LR0
-pv_stride = "1"          # LR1
 qf = "case_qf"           # the case's QF half (0: FP32 ignores it)
 
 # The old placement: the inputs back to back from row 0 in the order below, then the output; first fit in
@@ -47,11 +45,8 @@ key_bound = "CR8"
 d = "CR10"
 n_head = "CR11"
 chan_stride = "CR12"
-rc_slot0 = "LR0"
-pv_stride = "LR1"
 qf = "CR14"
 # CR15 unbound -> default DS (CR15.L: valid_elements = 128), as the recorded cases ran
-# Zero-valued LR presets are bound on purpose: in a Chain (E06-15) LRs carry over from the previous step.
 
 # The XMEM tables (ipu_harness.tables): how the program walks each region.
 [tables]
