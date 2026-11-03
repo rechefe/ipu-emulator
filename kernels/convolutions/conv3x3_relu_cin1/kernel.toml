@@ -55,6 +55,13 @@ lanes        = "CR10"
 tiles_last   = "CR11"
 qf           = "CR14"
 
+# The XMEM tables (ipu_harness.tables): how the program walks each region.
+[tables]
+x = { jump_back = "max(0, height - 2)", pending = "repetitions not derived as a formula of the parameters" }
+w = {}
+b = {}
+y = {}
+
 [golden]
 op = "conv2d"
 tolerance = { fp32 = "FP32_ORDER" }               # measured: max |err| 2.4e-7 over the cases

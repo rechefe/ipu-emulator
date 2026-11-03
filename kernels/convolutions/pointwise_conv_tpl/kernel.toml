@@ -96,6 +96,14 @@ input_row_base      = "LR0"
 cyclic_s0           = "LR7"
 ds_qf               = "CR15"
 
+# The XMEM tables (ipu_harness.tables): how the program walks each region.
+[tables]
+x = { pending = "repetitions not derived as a formula of the parameters" }
+w = { repetitions = "row_groups" }
+b = { repetitions = "row_groups" }
+y = {}
+mask = {}
+
 [golden]
 reference = "reference.py:reference"   # the shared conv2d, the bias only when has_bias
 # y is an element output: compared in FP32. Measured on the harness's seeded

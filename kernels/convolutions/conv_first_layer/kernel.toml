@@ -68,6 +68,14 @@ temp           = "CR13"
 slot1          = "CR14"
 ds_qf          = "CR15"
 
+# The XMEM tables (ipu_harness.tables): how the program walks each region.
+[tables]
+x = { repetitions = 12288 }
+filters = { repetitions = 128 }
+y = {}
+mask = {}
+temp = { jump_back = 1 }
+
 [golden]
 reference = "reference.py:reference"                   # filters split, then the shared conv2d
 tolerance = { fp32 = "FP32_ORDER" }               # measured: max |err| 2.4e-6 over the cases

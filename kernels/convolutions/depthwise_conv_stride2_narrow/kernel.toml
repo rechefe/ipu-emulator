@@ -105,6 +105,19 @@ half_slot   = "CR13"
 walk_step   = "CR14"
 dstructure  = "CR15"
 
+# The XMEM tables (ipu_harness.tables): how the program walks each region.
+[tables.stage1]
+x = { jump_back = "1 - min(1, groups - 2)", overhead_rows = 1, pending = "repetitions not derived as a formula of the parameters" }
+filters = { jump_back = 1 }
+border_mask = {}
+y = {}
+
+[tables.stage2]
+# Stage 2 reaches rows far past out and y (as many as the channels): reserved
+# here, pending until the program stays inside its regions.
+out = { overhead_rows = "groups + 1", pending = "stores past its rows, as many as the channels" }
+y = { repetitions = "ceil(chunk_limit / 2) + 1", overhead_rows = "chunk_limit + 1", pending = "reads past its rows, as many as the chunks" }
+
 [golden]
 reference = "reference.py:reference"
 # Measured on the harness's seeded data: max |err| 4.8e-7 over the three

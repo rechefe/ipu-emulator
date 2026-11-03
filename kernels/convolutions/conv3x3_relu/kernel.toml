@@ -60,6 +60,13 @@ group_last     = "CR13"
 rc_step        = "CR14"
 ds_qf          = "CR15"
 
+# The XMEM tables (ipu_harness.tables): how the program walks each region.
+[tables]
+x = { repetitions = "out_channels * plane_advance" }
+w = {}
+b = {}
+y = {}
+
 [golden]
 op = "conv2d"
 tolerance = { fp32 = "FP32_ORDER" }               # measured: max |err| 4.8e-7 over the cases
